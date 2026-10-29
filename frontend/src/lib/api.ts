@@ -376,6 +376,14 @@ import type {
   WishlistResponse,
 } from '@/types/contract';
 
+/**
+ * PERF portada (§DYN.3): literal horneado por `next.config.mjs` (`useMocksBuild`). En un build sin
+ * mocks vale `false` en tiempo de compilación, el minificador pliega `(MOCKS_BUILD && config.useMocks)`
+ * y poda las ramas mock de este fichero; los módulos `./mock/*` ya llegan vacíos (alias del build).
+ * `config.useMocks` sigue siendo el interruptor en runtime (las pruebas lo alternan).
+ */
+const MOCKS_BUILD = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
+
 // MOCK: pendiente de contrato/backend real — simula latencia mínima de red.
 const delay = <T>(value: T, ms = 120): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
@@ -473,7 +481,7 @@ export interface CatalogFilters {
 export async function getCatalog(
   filters: CatalogFilters = {},
 ): Promise<GroupedListingListResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const query: Record<string, string | number | undefined> = {
       q: filters.q,
       setId: filters.setId,
@@ -557,7 +565,7 @@ export async function getCatalog(
 
 /** Facetas dinámicas de Compra (contrato GET /catalog/facets, v1.1). */
 export async function getCatalogFacets(): Promise<CatalogFacetsDTO> {
-  if (!config.useMocks) return apiRequest<CatalogFacetsDTO>('/catalog/facets');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<CatalogFacetsDTO>('/catalog/facets');
   return delay(fx.mockFacets);
 }
 
@@ -571,7 +579,7 @@ export async function getCatalogFacets(): Promise<CatalogFacetsDTO> {
  * el backend real nunca manda (DT-Gd).
  */
 export async function getSets(): Promise<CardSetDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ data: CardSetDTO[] }>('/catalog/sets');
     return res.data;
   }
@@ -581,7 +589,7 @@ export async function getSets(): Promise<CardSetDTO[]> {
 }
 
 export async function getListing(inventoryItemId: string): Promise<ListingDTO> {
-  if (!config.useMocks) return apiRequest<ListingDTO>(`/catalog/listings/${inventoryItemId}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ListingDTO>(`/catalog/listings/${inventoryItemId}`);
   const found = fx.mockListings.find((l) => l.inventoryItemId === inventoryItemId);
   if (!found) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Listing not found' });
   return delay(found);
@@ -594,7 +602,7 @@ export async function getListing(inventoryItemId: string): Promise<ListingDTO> {
  * el `certNumber` de cada slab en graded.
  */
 export async function getCardDetail(cardId: string): Promise<GroupedListingDetailResponse> {
-  if (!config.useMocks) return apiRequest<GroupedListingDetailResponse>(`/catalog/cards/${cardId}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<GroupedListingDetailResponse>(`/catalog/cards/${cardId}`);
   try {
     // ⭐ v1.87⟨wishlist⟩ (§WSH.4): el servidor añade en la raíz `wishlistEnabled` (dial vigente).
     return await delay({ ...fx.mockGroupedDetail(cardId), wishlistEnabled: wishlistMock.mockWishlistEnabled() });
@@ -609,13 +617,13 @@ export async function getCardDetail(cardId: string): Promise<GroupedListingDetai
 
 /** §13 `GET /decks-meta` — top-10 del meta publicado, ordenado por rank, con cita de fuente. */
 export async function getDecksMeta(): Promise<DecksMetaListResponse> {
-  if (!config.useMocks) return apiRequest<DecksMetaListResponse>('/decks-meta');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DecksMetaListResponse>('/decks-meta');
   return delay(mockDecksMeta.mockDecksMetaList);
 }
 
 /** §13 `GET /decks-meta/:slug` — deck + disponibilidad por línea. `slug` desconocido ⇒ 404 DECK_NOT_FOUND. */
 export async function getDeckMeta(slug: string): Promise<DeckMetaDetailResponse> {
-  if (!config.useMocks) return apiRequest<DeckMetaDetailResponse>(`/decks-meta/${slug}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DeckMetaDetailResponse>(`/decks-meta/${slug}`);
   // MOCK §AC.8: `basicEnergy` por línea y `energyBundle` (con `pullToken`) en la raíz.
   return delay(mockAcc.mockDecorateDeck(mockDecksMeta.mockDeckMetaDetail(slug)));
 }
@@ -625,7 +633,7 @@ export async function getDeckMeta(slug: string): Promise<DeckMetaDetailResponse>
  * detalle. Texto vacío / sin líneas válidas ⇒ `422 DECK_LIST_UNPARSEABLE`. Rate-limited (`429`).
  */
 export async function pasteDeckList(text: string): Promise<DeckMetaPasteResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<DeckMetaPasteResponse>('/decks-meta/paste', { method: 'POST', body: { text } });
   }
   // MOCK: reproduce el candado del contrato — texto vacío ⇒ 422 (mismo shape que el backend real).
@@ -646,7 +654,7 @@ export async function pasteDeckList(text: string): Promise<DeckMetaPasteResponse
  * tercero (Limitless) ⇒ tarda ~30-45s y puede fallar por red; el llamador muestra carga y reintento.
  */
 export async function getDecksMetaPreview(): Promise<DecksMetaPreviewResponse> {
-  if (!config.useMocks) return apiRequest<DecksMetaPreviewResponse>('/admin/decks-meta/preview');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DecksMetaPreviewResponse>('/admin/decks-meta/preview');
   // MOCK: el reporte de ejemplo es instantáneo (el backend real dispara el egress lento).
   return delay(mockDecksMeta.mockDecksMetaPreview, 400);
 }
@@ -658,7 +666,7 @@ export async function getDecksMetaPreview(): Promise<DecksMetaPreviewResponse> {
  * Egress real a un tercero ⇒ tarda ~30-45s. Mismo shape que el preview (`DecksMetaPreviewResponse`).
  */
 export async function runDecksMetaPublishNow(): Promise<DecksMetaPreviewResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<DecksMetaPreviewResponse>('/admin/jobs/decks-meta-refresh', { method: 'POST', body: {} });
   }
   return delay(mockDecksMeta.mockDecksMetaPublishNow, 500);
@@ -670,7 +678,7 @@ export async function runDecksMetaPublishNow(): Promise<DecksMetaPreviewResponse
  * autopublish:false }`. El PUT es super_admin (encenderlo dispara egress real + publicación).
  */
 export async function getDecksMetaDial(): Promise<DecksMetaDialDTO> {
-  if (!config.useMocks) return apiRequest<DecksMetaDialDTO>('/admin/decks-meta/dial');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DecksMetaDialDTO>('/admin/decks-meta/dial');
   return delay(mockDecksMeta.getMockDial());
 }
 
@@ -683,7 +691,7 @@ export async function getDecksMetaDial(): Promise<DecksMetaDialDTO> {
 export async function setDecksMetaDial(
   patch: DecksMetaDialUpdateRequest,
 ): Promise<DecksMetaDialDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<DecksMetaDialDTO>('/admin/decks-meta/dial', { method: 'PUT', body: patch });
   }
   return delay(mockDecksMeta.setMockDial(patch));
@@ -691,7 +699,7 @@ export async function setDecksMetaDial(
 
 // ---------- Bóveda / portafolio ----------
 export async function getHoldings(): Promise<HoldingsResponse> {
-  if (!config.useMocks) return apiRequest<HoldingsResponse>('/vault/holdings');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<HoldingsResponse>('/vault/holdings');
   // MOCK §3 v1.80.1/v1.80.7: `replacement` (caso «Por reponer») y `withdrawable`+`withdrawableReason` se
   // derivan del servidor falso con UN cuerpo (invariante `withdrawable === (withdrawableReason === null)`).
   const data = fx.mockHoldings.map((h) => ({ ...h, ...m4ship.mockHoldingWithdrawabilityOf(h) }));
@@ -706,7 +714,7 @@ export async function getHoldings(): Promise<HoldingsResponse> {
 export async function getVaultMasterSets(
   filters: MasterSetIndexFilters = {},
 ): Promise<MasterSetIndexResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<MasterSetIndexResponse>('/vault/master-sets', {
       query: { q: filters.q, page: filters.page, pageSize: filters.pageSize, sort: filters.sort },
     });
@@ -727,7 +735,7 @@ export async function getVaultMasterSets(
  * ÚNICA vista con `buyable` por variante faltante (pieza listed más barata o null).
  */
 export async function getVaultMasterSetBinder(setId: string): Promise<MasterSetBinderResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<MasterSetBinderResponse>(`/vault/master-sets/${setId}`);
   }
   try {
@@ -748,7 +756,7 @@ export async function getVaultMasterSetBinder(setId: string): Promise<MasterSetB
 export async function getPortfolioHistory(
   range: PortfolioRange = '1m',
 ): Promise<PortfolioHistoryResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<PortfolioHistoryResponse>('/vault/portfolio/history', { query: { range } });
   }
   return delay(fx.generatePortfolioHistory(range));
@@ -763,7 +771,7 @@ export async function getPortfolioHistory(
 export async function getFeaturedSetValueHistory(
   range: SetValueRange = '1m',
 ): Promise<SetValueHistoryResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SetValueHistoryResponse>('/catalog/featured-set/value-history', {
       query: { range },
     });
@@ -790,7 +798,7 @@ export interface SealedFilters {
  * La condición SEPARA grupos (una tarjeta mint, otra minor_box_damage).
  */
 export async function getSealedGroups(filters: SealedFilters = {}): Promise<SealedGroupListResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedGroupListResponse>('/catalog/sealed', {
       query: {
         setId: filters.setId,
@@ -824,7 +832,7 @@ export async function getSealedGroups(filters: SealedFilters = {}): Promise<Seal
 export async function getSealedGroupDetail(
   inventoryItemId: string,
 ): Promise<SealedGroupDetailResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedGroupDetailResponse>(`/catalog/sealed/${inventoryItemId}`);
   }
   try {
@@ -841,7 +849,7 @@ export async function getSealedGroupDetail(
  * publicadas (cartas de `mockGroupedDetail` vía listados + grupos de sellado).
  */
 export async function getSitemap(): Promise<SitemapResponse> {
-  if (!config.useMocks) return apiRequest<SitemapResponse>('/catalog/sitemap');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<SitemapResponse>('/catalog/sitemap');
   return delay(fx.mockSitemap());
 }
 
@@ -856,7 +864,7 @@ export async function getSealedValueHistory(
   inventoryItemId: string,
   range: SetValueRange = '1m',
 ): Promise<SealedValueHistoryResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedValueHistoryResponse>(
       `/catalog/sealed/${inventoryItemId}/value-history`,
       { query: { range } },
@@ -879,7 +887,7 @@ export interface RestockSubscriptionInput {
 export async function subscribeSealedRestock(
   input: RestockSubscriptionInput,
 ): Promise<{ subscribed: true }> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<{ subscribed: true }>('/catalog/sealed/restock-subscriptions', {
       method: 'POST',
       body: input,
@@ -892,19 +900,19 @@ export async function subscribeSealedRestock(
 
 /** Pestaña "Sellado" de MI bóveda (contrato GET /vault/sealed, `customer`). */
 export async function getVaultSealed(): Promise<VaultSealedResponse> {
-  if (!config.useMocks) return apiRequest<VaultSealedResponse>('/vault/sealed');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<VaultSealedResponse>('/vault/sealed');
   return delay(fx.mockVaultSealed);
 }
 
 /** Pestaña "Sellado" de la bóveda de UN cliente (contrato GET /admin/vaults/:userId/sealed). */
 export async function getAdminVaultSealed(userId: string): Promise<VaultSealedResponse> {
-  if (!config.useMocks) return apiRequest<VaultSealedResponse>(`/admin/vaults/${userId}/sealed`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<VaultSealedResponse>(`/admin/vaults/${userId}/sealed`);
   return delay(fx.mockAdminVaultSealed(userId));
 }
 
 /** Spreads de VENTA del sellado (contrato GET /admin/pricing/sealed-spreads, `super_admin`). */
 export async function getSealedSpreads(): Promise<SealedSpreadsDTO> {
-  if (!config.useMocks) return apiRequest<SealedSpreadsDTO>('/admin/pricing/sealed-spreads');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<SealedSpreadsDTO>('/admin/pricing/sealed-spreads');
   return delay({
     spreadPctBySubtype: { ...fx.mockSealedSpreads.spreadPctBySubtype },
     fallbackPct: fx.mockSealedSpreads.fallbackPct,
@@ -924,7 +932,7 @@ export async function getSealedSpreads(): Promise<SealedSpreadsDTO> {
 export async function updateSealedSpreads(
   input: SealedSpreadsUpdateRequest,
 ): Promise<SealedSpreadsDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedSpreadsDTO>('/admin/pricing/sealed-spreads', {
       method: 'PUT',
       body: input,
@@ -944,7 +952,7 @@ export async function updateSealedSpreads(
  * grados. `enabled` llega como **espejo read-only** del dial M10.
  */
 export async function getGradedEstimateConfig(): Promise<GradedEstimateConfigDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<GradedEstimateConfigDTO>('/admin/pricing/graded-estimates');
   }
   return delay({
@@ -965,7 +973,7 @@ export async function getGradedEstimateConfig(): Promise<GradedEstimateConfigDTO
 export async function updateGradedEstimateConfig(
   input: GradedEstimateConfigInput,
 ): Promise<GradedEstimateConfigDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<GradedEstimateConfigDTO>('/admin/pricing/graded-estimates', {
       method: 'PUT',
       body: input,
@@ -989,7 +997,7 @@ export async function updateGradedEstimateConfig(
 export async function getGradedEstimatePreview(
   cardId: string,
 ): Promise<GradedEstimatePreviewResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<GradedEstimatePreviewResponse>('/admin/pricing/graded-estimates/preview', {
       query: { cardId },
     });
@@ -1019,7 +1027,7 @@ export interface GradedEstimateReviewFilters {
 export async function getGradedEstimateReview(
   filters: GradedEstimateReviewFilters = {},
 ): Promise<GradedEstimateReviewResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<GradedEstimateReviewResponse>('/admin/pricing/graded-estimates/review', {
       query: {
         reason: filters.reason?.length ? filters.reason.join(',') : undefined,
@@ -1054,7 +1062,7 @@ export async function deleteGradedEstimate(
   gradeValue: string,
 ): Promise<GradedEstimateDeleteResponse> {
   const path = `/admin/pricing/graded-estimates/${encodeURIComponent(cardId)}/${encodeURIComponent(gradeValue)}`;
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<GradedEstimateDeleteResponse>(path, { method: 'DELETE' });
   }
   try {
@@ -1197,7 +1205,7 @@ export const MOCK_QUOTE_CARD_KEYS = [
 export const MOCK_QUOTE_ITEM_KEYS = ['inventoryItemId', 'card', 'unitPriceCents'] as const;
 
 export async function getCheckoutQuote(inventoryItemIds: string[], discountCode?: string): Promise<CheckoutQuoteResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     // 💰 §DSC.6 / I-1: sin código el cuerpo es EXACTAMENTE el de hoy (la llave no viaja).
     return apiRequest<CheckoutQuoteResponse>('/checkout/quote', {
       method: 'POST',
@@ -1322,7 +1330,7 @@ export async function createCheckoutSession(
   billingProfileId?: string,
   discountCode?: string,
 ): Promise<CheckoutSessionResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<CheckoutSessionResponse>('/checkout/session', {
       method: 'POST',
       // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja. §DSC.6: `discountCode` tampoco.
@@ -1432,7 +1440,7 @@ function mockCheckoutSessionOutcome(
 }
 
 export async function getOrders(): Promise<Paginated<OrderSummaryDTO>> {
-  if (!config.useMocks) return apiRequest<Paginated<OrderSummaryDTO>>('/orders');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<Paginated<OrderSummaryDTO>>('/orders');
   // MOCK §M4-SHIP.16: la lista trae `publicStatus`/`fulfillmentMode` por fila (el mismo cuerpo que el invitado),
   // y el pedido DIRECTO con guía (`ord-9005`) aparece con los demás.
   const directShip: OrderSummaryDTO = {
@@ -1518,7 +1526,7 @@ function mockDiscountedOrderDetail(): OrderDetailDTO {
 }
 
 export async function getOrder(orderId: string): Promise<OrderDetailDTO> {
-  if (!config.useMocks) return apiRequest<OrderDetailDTO>(`/orders/${orderId}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<OrderDetailDTO>(`/orders/${orderId}`);
   // v1.51-c: `ord-9003` sirve el acta con `cardSnapshot` INCOMPLETO (§5.2.9). El simulador
   // tiene que poder producir lo que el backend puede producir de verdad; servir siempre el
   // blob completo es lo que dejó pasar la línea muda hasta que QA la sirvió a mano.
@@ -1594,7 +1602,7 @@ export interface AddressInput {
 
 /** Libreta de direcciones del usuario (contrato GET /users/me/addresses → { data }). */
 export async function listAddresses(): Promise<AddressDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ data: AddressDTO[] }>('/users/me/addresses');
     return res.data;
   }
@@ -1637,7 +1645,7 @@ function mockAddressComplete(a: Pick<AddressDTO, 'neighborhood' | 'postalCode' |
  * (y las demás dejan de serlo). v1.81: CP de 5, teléfono de 10, colonia de la lista del CP.
  */
 export async function createAddress(input: AddressInput): Promise<AddressDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AddressDTO>('/users/me/addresses', { method: 'POST', body: input });
   }
   // MOCK: replica la validación MX-only del backend y el manejo de `isDefault`.
@@ -1668,7 +1676,7 @@ export async function createAddress(input: AddressInput): Promise<AddressDTO> {
 
 /** Edita una dirección (contrato PATCH /users/me/addresses/:id). Usado p. ej. para marcar default. */
 export async function updateAddress(id: string, input: Partial<AddressInput>): Promise<AddressDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AddressDTO>(`/users/me/addresses/${id}`, { method: 'PATCH', body: input });
   }
   const idx = fx.mockAddresses.findIndex((a) => a.id === id);
@@ -1704,7 +1712,7 @@ export async function updateAddress(id: string, input: Partial<AddressInput>): P
 
 /** Borra una dirección (contrato DELETE /users/me/addresses/:id). */
 export async function deleteAddress(id: string): Promise<void> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     await apiRequest<void>(`/users/me/addresses/${id}`, { method: 'DELETE' });
     return;
   }
@@ -1720,7 +1728,7 @@ export async function getShipmentQuote(
   addressId: string,
   discountCode?: string,
 ): Promise<ShipmentQuoteResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ShipmentQuoteResponse>('/shipments/quote', {
       method: 'POST',
       // 💰 §DSC.6/§DSC.8: `discountCode` solo si hay (I-1).
@@ -1766,7 +1774,7 @@ function mockFreeWithdrawalBreakdown(): BreakdownDTO {
 }
 
 export async function getShipments(): Promise<ShipmentDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ data: ShipmentDTO[] }>('/shipments');
     return res.data;
   }
@@ -1780,7 +1788,7 @@ export async function getShipments(): Promise<ShipmentDTO[]> {
  * es del usuario.
  */
 export async function getShipment(id: string): Promise<ShipmentDTO> {
-  if (!config.useMocks) return apiRequest<ShipmentDTO>(`/shipments/${id}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ShipmentDTO>(`/shipments/${id}`);
   const found = fx.mockShipments.find((s) => s.id === id);
   if (!found) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipment not found' });
   return delay(found);
@@ -1800,7 +1808,7 @@ export async function createShipment(
   addressId: string,
   discountCode?: string,
 ): Promise<ShipmentCreateResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ShipmentCreateResponse>('/shipments', {
       method: 'POST',
       body: { inventoryItemIds, addressId, ...discountCodeField(discountCode) },
@@ -1893,7 +1901,7 @@ function mockLiveAdminShipments(): AdminShipmentDTO[] {
 export async function getAdminShipments(
   filters: AdminShipmentsFilters = {},
 ): Promise<Paginated<AdminShipmentDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<AdminShipmentDTO>>('/admin/shipments', {
       query: {
         status: filters.status,
@@ -1933,7 +1941,7 @@ export async function previewWithdrawalDeliveredRefund(
   shipmentItemId: string,
   amountCents: number | null,
 ): Promise<WithdrawalDeliveredPreviewDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<WithdrawalDeliveredPreviewDTO>('/admin/manual-refunds/withdrawal-delivered/preview', {
       query: { shipmentItemId, amountCents: amountCents ?? undefined },
     });
@@ -1954,7 +1962,7 @@ export async function previewWithdrawalDeliveredRefund(
 export async function createWithdrawalDeliveredRefund(
   body: CreateWithdrawalDeliveredRefundRequest,
 ): Promise<CreateWithdrawalDeliveredRefundResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<CreateWithdrawalDeliveredRefundResponse>('/admin/manual-refunds/withdrawal-delivered', {
       method: 'POST',
       body,
@@ -1985,7 +1993,7 @@ export async function createWithdrawalDeliveredRefund(
 export async function getAdminPreparationQueue(
   filters: { destination?: PreparationDestination; date?: string } = {},
 ): Promise<PreparationOrderDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ data: PreparationOrderDTO[] }>('/admin/shipments/picking-list', {
       query: { date: filters.date, destination: filters.destination },
     });
@@ -2017,7 +2025,7 @@ export async function setVaultPrepItem(
   placementItemId: string,
   status: PreparationItemStatus,
 ): Promise<SetVaultPrepItemResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SetVaultPrepItemResponse>(
       `/admin/vault-placements/${placementId}/prep-items/${placementItemId}`,
       { method: 'PATCH', body: { status } satisfies SetVaultPrepItemRequest },
@@ -2032,7 +2040,7 @@ export async function setVaultPrepItem(
 
 /** `POST /admin/vault-placements/:placementId/prepared` — dar por preparado (§M4-VAULT.10). */
 export async function prepareVaultPlacement(placementId: string): Promise<PrepareVaultPlacementResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<PrepareVaultPlacementResponse>(`/admin/vault-placements/${placementId}/prepared`, {
       method: 'POST',
       body: {},
@@ -2047,7 +2055,7 @@ export async function prepareVaultPlacement(placementId: string): Promise<Prepar
 
 /** `DELETE /admin/vault-placements/:placementId/prepared` — deshacer «preparado» (v1.79.2). */
 export async function unprepareVaultPlacement(placementId: string): Promise<UnprepareVaultPlacementResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<UnprepareVaultPlacementResponse>(`/admin/vault-placements/${placementId}/prepared`, {
       method: 'DELETE',
     });
@@ -2068,7 +2076,7 @@ export async function confirmVaultPlacement(
   placementId: string,
   body: ConfirmVaultPlacementRequest,
 ): Promise<ConfirmVaultPlacementResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ConfirmVaultPlacementResponse>(`/admin/vault-placements/${placementId}/confirm`, {
       method: 'POST',
       body,
@@ -2083,7 +2091,7 @@ export async function confirmVaultPlacement(
 
 /** `GET /admin/vaults/:userId/physical-inventory` — «Qué debe haber» (§M4-VAULT.11, lectura pura). */
 export async function getAdminVaultPhysicalInventory(userId: string): Promise<CustomerPhysicalInventoryDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<CustomerPhysicalInventoryDTO>(`/admin/vaults/${userId}/physical-inventory`);
   }
   try {
@@ -2103,7 +2111,7 @@ export async function setShipPrepItem(
   missingReason?: MissingReason,
 ): Promise<SetShipPrepItemResponse> {
   const body: SetShipPrepItemRequest = status === 'missing' ? { status, missingReason } : { status };
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SetShipPrepItemResponse>(`/admin/shipments/${shipmentId}/prep-items/${shipmentItemId}`, {
       method: 'PATCH',
       body,
@@ -2121,7 +2129,7 @@ export async function setShipPrepItem(
  * `expectedRefundCents` = la cifra que el operador VIO (`preparation.refundPreviewCents`), ⛔ nunca sumada aquí.
  */
 export async function prepareShipment(shipmentId: string, expectedRefundCents: number): Promise<PrepareShipmentResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<PrepareShipmentResponse>(`/admin/shipments/${shipmentId}/prepared`, {
       method: 'POST',
       body: { expectedRefundCents } satisfies PrepareShipmentRequest,
@@ -2136,7 +2144,7 @@ export async function prepareShipment(shipmentId: string, expectedRefundCents: n
 
 /** `DELETE /admin/shipments/:shipmentId/prepared` — deshacer «preparado» (§M4-SHIP.5; v1.80.5: `reclaimed`). */
 export async function unprepareShipment(shipmentId: string): Promise<UnprepareShipmentResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<UnprepareShipmentResponse>(`/admin/shipments/${shipmentId}/prepared`, { method: 'DELETE' });
   }
   try {
@@ -2148,7 +2156,7 @@ export async function unprepareShipment(shipmentId: string): Promise<UnprepareSh
 
 /** `POST /admin/refunds/:refundId/retry` — reintentar un reembolso atorado (§M4-SHIP.5, operador+). */
 export async function retryRefund(refundId: string): Promise<PaymentRefundDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<PaymentRefundDTO>(`/admin/refunds/${refundId}/retry`, { method: 'POST', body: {} });
   }
   try {
@@ -2160,7 +2168,7 @@ export async function retryRefund(refundId: string): Promise<PaymentRefundDTO> {
 
 /** `GET /admin/shipments/picking-list/summary` — el contador DERIVADO del badge (§M4-SHIP.11, `no-store`). */
 export async function getPickingListSummary(): Promise<PickingListSummaryDTO> {
-  if (!config.useMocks) return apiRequest<PickingListSummaryDTO>('/admin/shipments/picking-list/summary');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<PickingListSummaryDTO>('/admin/shipments/picking-list/summary');
   // MOCK S-GAS-3 (§19.30.8): `spendAlertsUnseenImmediate` con el mismo predicado que la tarjeta del tablero.
   return delay({ ...m4ship.mockPickingListSummary(fx.mockVaultPreparationQueue().length), spendAlertsUnseenImmediate: spendMock.mockSpendAlertsUnseenImmediate() });
 }
@@ -2168,7 +2176,7 @@ export async function getPickingListSummary(): Promise<PickingListSummaryDTO> {
 // ---------- §M4-SHIP.15 · apartado «Por reponer» ----------
 
 export async function getReplacementCases(filters: ReplacementCasesFilters = {}): Promise<Paginated<ReplacementCaseDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<ReplacementCaseDTO>>('/admin/replacement-cases', {
       query: {
         state: filters.state,
@@ -2183,7 +2191,7 @@ export async function getReplacementCases(filters: ReplacementCasesFilters = {})
 }
 
 export async function getReplacementCase(caseId: string): Promise<ReplacementCaseDetailDTO> {
-  if (!config.useMocks) return apiRequest<ReplacementCaseDetailDTO>(`/admin/replacement-cases/${caseId}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ReplacementCaseDetailDTO>(`/admin/replacement-cases/${caseId}`);
   try {
     return await delay(m4ship.mockReplacementCase(caseId));
   } catch (e) {
@@ -2193,7 +2201,7 @@ export async function getReplacementCase(caseId: string): Promise<ReplacementCas
 
 /** `POST /admin/replacement-cases/:id/replace` — reponer o «apareció» (§M4-SHIP.15.4, operador+). */
 export async function replaceCase(caseId: string, body: ReplaceCaseRequest): Promise<ReplaceCaseResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ReplaceCaseResponse>(`/admin/replacement-cases/${caseId}/replace`, { method: 'POST', body });
   }
   try {
@@ -2205,7 +2213,7 @@ export async function replaceCase(caseId: string, body: ReplaceCaseRequest): Pro
 
 /** `GET /admin/replacement-cases/:id/refund-preview?amountCents=` (§M4-SHIP.15.5, SOLO super_admin). */
 export async function getCaseRefundPreview(caseId: string, amountCents: number | null): Promise<CaseRefundPreviewDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<CaseRefundPreviewDTO>(`/admin/replacement-cases/${caseId}/refund-preview`, {
       query: { amountCents: amountCents ?? undefined },
     });
@@ -2219,7 +2227,7 @@ export async function getCaseRefundPreview(caseId: string, amountCents: number |
 
 /** `POST /admin/replacement-cases/:id/refund` — 💰 reembolsar por el monto capturado (SOLO super_admin). */
 export async function refundCase(caseId: string, body: CaseRefundRequest): Promise<CaseRefundResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<CaseRefundResponse>(`/admin/replacement-cases/${caseId}/refund`, { method: 'POST', body });
   }
   try {
@@ -2231,7 +2239,7 @@ export async function refundCase(caseId: string, body: CaseRefundRequest): Promi
 
 /** `POST /admin/replacement-cases/:id/void` — anular (§M4-SHIP.15.10, SOLO super_admin). */
 export async function voidCase(caseId: string, body: VoidCaseRequest): Promise<VoidCaseResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<VoidCaseResponse>(`/admin/replacement-cases/${caseId}/void`, { method: 'POST', body });
   }
   try {
@@ -2244,7 +2252,7 @@ export async function voidCase(caseId: string, body: VoidCaseRequest): Promise<V
 // ---------- §M4-SHIP.15.13 / .17 · cubeta «Reembolsos manuales (SPEI)» — SOLO super_admin ----------
 
 export async function getManualRefunds(filters: ManualRefundsFilters = {}): Promise<ManualRefundsResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ManualRefundsResponse>('/admin/manual-refunds', {
       query: { status: filters.status, q: filters.q?.trim() || undefined, page: filters.page },
     });
@@ -2257,7 +2265,7 @@ export async function getManualRefunds(filters: ManualRefundsFilters = {}): Prom
 }
 
 export async function getManualRefund(id: string): Promise<ManualRefundDTO> {
-  if (!config.useMocks) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}`);
   try {
     return await delay(m4ship.mockManualRefund(id));
   } catch (e) {
@@ -2267,7 +2275,7 @@ export async function getManualRefund(id: string): Promise<ManualRefundDTO> {
 
 /** La CLABE en claro para copiarla a la banca (auditado; solo `pending`). ⛔ Nunca se persiste en estado global. */
 export async function revealManualRefundClabe(id: string): Promise<RevealManualRefundClabeResponse> {
-  if (!config.useMocks) return apiRequest<RevealManualRefundClabeResponse>(`/admin/manual-refunds/${id}/reveal-clabe`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<RevealManualRefundClabeResponse>(`/admin/manual-refunds/${id}/reveal-clabe`);
   try {
     return await delay(m4ship.mockRevealManualRefundClabe(id));
   } catch (e) {
@@ -2277,7 +2285,7 @@ export async function revealManualRefundClabe(id: string): Promise<RevealManualR
 
 /** Marcar pagada (D-11: quién y cuándo; clave de rastreo y nota opcionales). Lleva el `revealToken`. */
 export async function markManualRefundPaid(id: string, body: MarkManualRefundPaidRequest): Promise<ManualRefundDTO> {
-  if (!config.useMocks) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}/paid`, { method: 'POST', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}/paid`, { method: 'POST', body });
   try {
     return await delay(m4ship.mockMarkManualRefundPaid(id, body));
   } catch (e) {
@@ -2286,7 +2294,7 @@ export async function markManualRefundPaid(id: string, body: MarkManualRefundPai
 }
 
 export async function cancelManualRefund(id: string, body: ManualRefundNoteRequest): Promise<ManualRefundDTO> {
-  if (!config.useMocks) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}/cancel`, { method: 'POST', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}/cancel`, { method: 'POST', body });
   try {
     return await delay(m4ship.mockCancelManualRefund(id, body.note));
   } catch (e) {
@@ -2296,7 +2304,7 @@ export async function cancelManualRefund(id: string, body: ManualRefundNoteReque
 
 /** `POST /admin/manual-refunds/:id/reissue` (SEC-SHIP-M4): otra igual desde una cancelada. */
 export async function reissueManualRefund(id: string, body: ManualRefundNoteRequest): Promise<ManualRefundDTO> {
-  if (!config.useMocks) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}/reissue`, { method: 'POST', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ManualRefundDTO>(`/admin/manual-refunds/${id}/reissue`, { method: 'POST', body });
   try {
     return await delay(m4ship.mockReissueManualRefund(id, body.note));
   } catch (e) {
@@ -2306,7 +2314,7 @@ export async function reissueManualRefund(id: string, body: ManualRefundNoteRequ
 
 /** `POST /admin/refunds/:refundId/to-manual` — pasar a SPEI una fila de tarjeta que Stripe rechazó. */
 export async function refundToManual(refundId: string): Promise<ManualRefundDTO> {
-  if (!config.useMocks) return apiRequest<ManualRefundDTO>(`/admin/refunds/${refundId}/to-manual`, { method: 'POST', body: {} });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ManualRefundDTO>(`/admin/refunds/${refundId}/to-manual`, { method: 'POST', body: {} });
   try {
     return await delay(m4ship.mockRefundToManual(refundId));
   } catch (e) {
@@ -2317,7 +2325,7 @@ export async function refundToManual(refundId: string): Promise<ManualRefundDTO>
 // ---------- §M4-SHIP.17.5 · la vista del súper-admin sobre los reembolsos ----------
 
 export async function getAdminRefunds(filters: AdminRefundsFilters = {}): Promise<AdminRefundsResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminRefundsResponse>('/admin/refunds', {
       query: {
         requestedByRole: filters.requestedByRole,
@@ -2339,7 +2347,7 @@ export async function getAdminRefunds(filters: AdminRefundsFilters = {}): Promis
 }
 
 export async function getOperatorRefundSummary(): Promise<OperatorRefundSummaryResponse> {
-  if (!config.useMocks) return apiRequest<OperatorRefundSummaryResponse>('/admin/refunds/operator-summary');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<OperatorRefundSummaryResponse>('/admin/refunds/operator-summary');
   try {
     return await delay(m4ship.mockOperatorRefundSummary());
   } catch (e) {
@@ -2374,26 +2382,26 @@ async function mockSdx<T>(fn: () => T): Promise<T> {
  * retiro entregado del mock del panel como caso propio.
  */
 export async function getAdminShipment(shipmentId: string): Promise<AdminShipmentDTO> {
-  if (!config.useMocks) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${shipmentId}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${shipmentId}`);
   if (shipmentId === m4ship.MOCK_DELIVERED_WITHDRAWAL.id) return delay(structuredClone(m4ship.MOCK_DELIVERED_WITHDRAWAL));
   return mockSdx(() => sdx.mockDecorateAdminShipment(mockLiveAdminRow(shipmentId)));
 }
 
 /** `PUT /admin/shipments/:id/address` (§19.20.1, operador+): corrige la dirección DEL ENVÍO con CAS por versión. */
 export async function correctShipmentAddress(shipmentId: string, body: CorrectShipmentAddressReq): Promise<CorrectShipmentAddressRes> {
-  if (!config.useMocks) return apiRequest<CorrectShipmentAddressRes>(`/admin/shipments/${shipmentId}/address`, { method: 'PUT', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<CorrectShipmentAddressRes>(`/admin/shipments/${shipmentId}/address`, { method: 'PUT', body });
   return mockSdx(() => sdx.mockCorrectAddress(mockLiveAdminRow(shipmentId), body));
 }
 
 /** `GET /geo/postal-codes/:cp` (§19.5, público): colonias, municipio y estado del CP. */
 export async function getPostalCode(cp: string): Promise<PostalCodeDTO> {
-  if (!config.useMocks) return apiRequest<PostalCodeDTO>(`/geo/postal-codes/${encodeURIComponent(cp)}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<PostalCodeDTO>(`/geo/postal-codes/${encodeURIComponent(cp)}`);
   return mockSdx(() => sdx.mockPostalCode(cp));
 }
 
 /** `POST /admin/shipments/:id/quote` (§19.19.4, operador+). ⛔ Sin `declaredValueCents`: el seguro lo decide el servidor. */
 export async function quoteShipment(shipmentId: string, body: ShipmentQuoteRequest = {}): Promise<ShipmentQuoteDTO> {
-  if (!config.useMocks) return apiRequest<ShipmentQuoteDTO>(`/admin/shipments/${shipmentId}/quote`, { method: 'POST', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ShipmentQuoteDTO>(`/admin/shipments/${shipmentId}/quote`, { method: 'POST', body });
   return mockSdx(() => sdx.mockQuote(mockLiveAdminRow(shipmentId), body));
 }
 
@@ -2403,7 +2411,7 @@ export async function quoteShipment(shipmentId: string, body: ShipmentQuoteReque
  * guía duplicada): el `5xx`/red sube tal cual y la ventana RELEE el envío.
  */
 export async function purchaseShipmentLabel(shipmentId: string, body: ShipmentLabelRequest): Promise<ShipmentLabelResponse> {
-  if (!config.useMocks) return apiRequest<ShipmentLabelResponse>(`/admin/shipments/${shipmentId}/label`, { method: 'POST', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ShipmentLabelResponse>(`/admin/shipments/${shipmentId}/label`, { method: 'POST', body });
   return mockSdx(() => {
     const res = sdx.mockPurchaseLabel(mockLiveAdminRow(shipmentId), body);
     if (res.outcome === 'labeled') m4ship.mockSetShipStatus(shipmentId, 'guia');
@@ -2416,13 +2424,13 @@ export async function purchaseShipmentLabel(shipmentId: string, body: ShipmentLa
  * (`requestBlob`), así que la pantalla abre/descarga un `blob:` — ⛔ nunca la URL de Skydropx.
  */
 export async function fetchShipmentLabelPdf(shipmentId: string): Promise<BlobResponse> {
-  if (!config.useMocks) return requestBlob(`/admin/shipments/${shipmentId}/label.pdf`);
+  if (!(MOCKS_BUILD && config.useMocks)) return requestBlob(`/admin/shipments/${shipmentId}/label.pdf`);
   return mockSdx(() => ({ blob: new Blob(['%PDF-1.4 MOCK'], { type: 'application/pdf' }), filename: `guia-${shipmentId}.pdf` }));
 }
 
 /** `POST /admin/shipments/:id/label/cancel` (§19.8, operador+): cancelar y re-emitir (o reintentar la cancelación). */
 export async function cancelShipmentLabel(shipmentId: string, reason: string): Promise<CancelShipmentLabelRes> {
-  if (!config.useMocks) return apiRequest<CancelShipmentLabelRes>(`/admin/shipments/${shipmentId}/label/cancel`, { method: 'POST', body: { reason } });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<CancelShipmentLabelRes>(`/admin/shipments/${shipmentId}/label/cancel`, { method: 'POST', body: { reason } });
   return mockSdx(() => {
     const res = sdx.mockCancelLabel(mockLiveAdminRow(shipmentId));
     m4ship.mockSetShipStatus(shipmentId, 'picking');
@@ -2436,7 +2444,7 @@ export async function cancelShipmentLabel(shipmentId: string, reason: string): P
  */
 export async function releaseShipmentLabel(shipmentId: string, note: string, confirmConflict = false): Promise<ReleaseShipmentLabelRes> {
   const body: ReleaseShipmentLabelReq = confirmConflict ? { note, confirmConflict: true } : { note };
-  if (!config.useMocks) return apiRequest<ReleaseShipmentLabelRes>(`/admin/shipments/${shipmentId}/label/release`, { method: 'POST', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ReleaseShipmentLabelRes>(`/admin/shipments/${shipmentId}/label/release`, { method: 'POST', body });
   return mockSdx(() => sdx.mockReleaseLabel(mockLiveAdminRow(shipmentId), body));
 }
 
@@ -2446,7 +2454,7 @@ export async function releaseShipmentLabel(shipmentId: string, note: string, con
 
 /** `GET /admin/spend-alerts` — filtros en query, orden `firstOccurredAt desc`, 25 por página. */
 export async function listSpendAlerts(filters: SpendAlertListFilters = {}): Promise<SpendAlertListRes> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SpendAlertListRes>('/admin/spend-alerts', {
       query: {
         kind: filters.kind,
@@ -2466,25 +2474,25 @@ export async function listSpendAlerts(filters: SpendAlertListFilters = {}): Prom
 
 /** `GET /admin/spend-alerts/summary?from&to` — el mismo cuerpo que el correo del resumen (GAS-4: se pinta tal cual). */
 export async function getSpendAlertSummary(from: string, to: string): Promise<SpendAlertSummaryDTO> {
-  if (!config.useMocks) return apiRequest<SpendAlertSummaryDTO>('/admin/spend-alerts/summary', { query: { from, to } });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<SpendAlertSummaryDTO>('/admin/spend-alerts/summary', { query: { from, to } });
   return mockSdx(() => spendMock.mockSpendAlertSummary(from, to));
 }
 
 /** `GET /admin/spend-alerts/:id` (`404` si no existe). ⛔ Abrirlo NO lo marca visto (GAS-3). */
 export async function getSpendAlert(id: string): Promise<SpendAlertDTO> {
-  if (!config.useMocks) return apiRequest<SpendAlertDTO>(`/admin/spend-alerts/${encodeURIComponent(id)}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<SpendAlertDTO>(`/admin/spend-alerts/${encodeURIComponent(id)}`);
   return mockSdx(() => spendMock.mockGetSpendAlert(id));
 }
 
 /** `POST /admin/spend-alerts/seen {ids}` — idempotente; ⛔ sin borrar ni «no visto». `skipped` desde v1.80.12.10. */
 export async function markSpendAlertsSeen(ids: string[]): Promise<MarkSpendAlertsSeenRes> {
-  if (!config.useMocks) return apiRequest<MarkSpendAlertsSeenRes>('/admin/spend-alerts/seen', { method: 'POST', body: { ids } });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<MarkSpendAlertsSeenRes>('/admin/spend-alerts/seen', { method: 'POST', body: { ids } });
   return mockSdx(() => spendMock.mockMarkSpendAlertsSeen(ids));
 }
 
 /** `POST /admin/shipments/:id/refresh-tracking` (§19.10, operador+, 6/min). */
 export async function refreshShipmentTracking(shipmentId: string): Promise<AdminShipmentDTO> {
-  if (!config.useMocks) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${shipmentId}/refresh-tracking`, { method: 'POST' });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminShipmentDTO>(`/admin/shipments/${shipmentId}/refresh-tracking`, { method: 'POST' });
   return mockSdx(() => {
     if ((fx.mockSettings.shippingProvider ?? 'off') !== 'skydropx') {
       throw new fx.ApiFixtureError(404, 'FEATURE_DISABLED', 'shipping provider off');
@@ -2495,13 +2503,13 @@ export async function refreshShipmentTracking(shipmentId: string): Promise<Admin
 
 /** `GET /admin/shipments/departure?date=` (§19.9, operador+). */
 export async function getDepartureBoard(date?: string): Promise<DepartureBoardDTO> {
-  if (!config.useMocks) return apiRequest<DepartureBoardDTO>('/admin/shipments/departure', { query: { date } });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DepartureBoardDTO>('/admin/shipments/departure', { query: { date } });
   return mockSdx(() => sdx.mockDepartureBoard((id) => m4ship.mockShipStatusOf(id)));
 }
 
 /** `POST /admin/shipments/departed` (§19.9, operador+): «Ya los dejé en la sucursal». */
 export async function markShipmentsDeparted(shipmentIds: string[]): Promise<DepartedResultDTO> {
-  if (!config.useMocks) return apiRequest<DepartedResultDTO>('/admin/shipments/departed', { method: 'POST', body: { shipmentIds } });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DepartedResultDTO>('/admin/shipments/departed', { method: 'POST', body: { shipmentIds } });
   return mockSdx(() =>
     sdx.mockDeparted(shipmentIds, (id) => {
       m4ship.mockSetShipStatus(id, 'enviado');
@@ -2513,7 +2521,7 @@ export async function markShipmentsDeparted(shipmentIds: string[]): Promise<Depa
 
 /** `GET /admin/shipping/packages` (§19.20.3: operador+). */
 export async function listShippingPackages(): Promise<ShippingPackageDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ packages: ShippingPackageDTO[] }>('/admin/shipping/packages');
     return res.packages;
   }
@@ -2522,7 +2530,7 @@ export async function listShippingPackages(): Promise<ShippingPackageDTO[]> {
 
 /** `PUT /admin/shipping/packages` (§19.13, súper-admin): reemplazo entero. */
 export async function putShippingPackages(packages: ShippingPackageDTO[]): Promise<ShippingPackageDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ packages: ShippingPackageDTO[] }>('/admin/shipping/packages', { method: 'PUT', body: { packages } });
     return res.packages;
   }
@@ -2531,7 +2539,7 @@ export async function putShippingPackages(packages: ShippingPackageDTO[]): Promi
 
 /** `GET /admin/shipping/catalogs` (§19.19.6, súper-admin). */
 export async function getShippingCatalogs(): Promise<ShippingCatalogsDTO> {
-  if (!config.useMocks) return apiRequest<ShippingCatalogsDTO>('/admin/shipping/catalogs');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ShippingCatalogsDTO>('/admin/shipping/catalogs');
   return mockSdx(() => sdx.mockShippingCatalogs());
 }
 
@@ -2540,7 +2548,7 @@ export async function getShippingCatalogs(): Promise<ShippingCatalogsDTO> {
  * página; `hasMore` ⇒ la pantalla pide afinar. `description` 3..60 tras trim (si no, `400 {field:'description'}`).
  */
 export async function searchConsignmentNotes(description: string): Promise<ConsignmentNotesSearchDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ConsignmentNotesSearchDTO>('/admin/shipping/catalogs/consignment-notes', { query: { description } });
   }
   return mockSdx(() => sdx.mockSearchConsignmentNotes(description));
@@ -2548,7 +2556,7 @@ export async function searchConsignmentNotes(description: string): Promise<Consi
 
 /** `GET /admin/shipping/balance` (§19.13, súper-admin; leído en vivo). */
 export async function getShippingBalance(): Promise<ShippingBalanceDTO> {
-  if (!config.useMocks) return apiRequest<ShippingBalanceDTO>('/admin/shipping/balance');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ShippingBalanceDTO>('/admin/shipping/balance');
   return mockSdx(() => sdx.mockShippingBalance());
 }
 
@@ -2562,7 +2570,7 @@ export async function saveShipmentTracking(
   shipmentId: string,
   input: ShipmentTrackingRequest,
 ): Promise<ShipmentDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ShipmentDTO>(`/admin/shipments/${shipmentId}/tracking`, {
       method: 'POST',
       body: input,
@@ -2635,7 +2643,7 @@ export async function updateAdminShipmentStatus(
   id: string,
   to: ShipmentStatus,
 ): Promise<AdminShipmentDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminShipmentDTO>(`/admin/shipments/${id}/status`, {
       method: 'PATCH',
       body: { to },
@@ -2682,7 +2690,7 @@ export async function updateAdminShipmentStatus(
  * la única teja sin logo del producto (DT-Gd).
  */
 export async function listBuylistSets(): Promise<BuylistSetDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ data: BuylistSetDTO[] }>('/buylist/sets');
     return res.data;
   }
@@ -2708,7 +2716,7 @@ export interface BuylistCardsFilters {
 export async function searchBuylistCards(
   filters: BuylistCardsFilters = {},
 ): Promise<Paginated<CardDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<CardDTO>>('/buylist/cards', {
       query: {
         setId: filters.setId,
@@ -2860,7 +2868,7 @@ function mockResolveQuoteItem(
 }
 
 export async function getBuylistQuote(input: BuylistQuoteInput): Promise<BuylistQuoteResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<BuylistQuoteResponse>('/buylist/quote', { method: 'POST', body: input });
   }
   const res = mockResolveQuoteItem(input);
@@ -2884,7 +2892,7 @@ export const BUYLIST_QUOTE_BATCH_MAX = 50;
  * SEPARADO como línea propia (su acabado/referencia/precio), no el set_base.
  */
 export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistBatchQuoteResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<BuylistBatchQuoteResponse>('/buylist/quote/batch', {
       method: 'POST',
       body: { items },
@@ -2929,13 +2937,13 @@ export async function batchQuote(items: BuylistQuoteItemDTO[]): Promise<BuylistB
  * botón habilitado; la puerta real es el `422 BUYLIST_MINIMUM_NOT_MET` del servidor.
  */
 export async function getBuylistQuotePolicy(): Promise<BuylistQuotePolicyDTO> {
-  if (!config.useMocks) return apiRequest<BuylistQuotePolicyDTO>('/buylist/quote-policy');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<BuylistQuotePolicyDTO>('/buylist/quote-policy');
   // MOCK: el dial sembrado hace de servidor falso (fixtures), no de default del cliente.
   return delay({ ...fx.mockBuylistQuotePolicy });
 }
 
 export async function getSellRequests(): Promise<SellRequestDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ data: SellRequestDTO[] }>('/buylist/requests');
     return res.data;
   }
@@ -2958,7 +2966,7 @@ export async function getSellRequests(): Promise<SellRequestDTO[]> {
  * `404 NOT_FOUND` / `404 LABEL_NOT_AVAILABLE`, `409 SHIPPING_PROVIDER_NOT_CONFIGURED`, `502 SHIPPING_PROVIDER_ERROR`.
  */
 export async function fetchSellRequestLabelPdf(id: string): Promise<BlobResponse> {
-  if (!config.useMocks) return requestBlob(`/buylist/requests/${id}/label.pdf`);
+  if (!(MOCKS_BUILD && config.useMocks)) return requestBlob(`/buylist/requests/${id}/label.pdf`);
   const req = fx.mockSellRequests.find((r) => r.sellRequestId === id);
   if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
   if (req.labelPdfAvailable !== true) throw new ApiClientError(404, { code: 'LABEL_NOT_AVAILABLE', message: 'No label' });
@@ -2966,7 +2974,7 @@ export async function fetchSellRequestLabelPdf(id: string): Promise<BlobResponse
 }
 
 export async function getSellRequest(id: string): Promise<SellRequestDetailDTO> {
-  if (!config.useMocks) return apiRequest<SellRequestDetailDTO>(`/buylist/requests/${id}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<SellRequestDetailDTO>(`/buylist/requests/${id}`);
   // MOCK: el servidor falso proyecta lo que el backend real deriva (`isTerminal`) y adjunta la
   // oferta SOLO cuando la fila la tiene emitida — igual que `offerPublicDTO`. El `locale` que
   // alimenta `offer.terms` sale del usuario en sesión, que es el `User.locale` que lee el
@@ -3000,7 +3008,7 @@ export async function respondToSellOffer(
   id: string,
   decision: 'accept' | 'reject',
 ): Promise<SellOfferResponseDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SellOfferResponseDTO>(`/buylist/requests/${id}/offer-response`, {
       method: 'POST',
       body: { decision },
@@ -3089,7 +3097,7 @@ export interface CreateSellRequestInput {
  * BUYLIST_LIMIT_EXCEEDED. Las `ineUploadKeys` provienen del presign `kyc_ine`.
  */
 export async function createSellRequest(input: CreateSellRequestInput): Promise<SellRequestDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     // v1.15: `clabe` es opcional. Cuando se omite (atajo "usar mi CLABE en archivo"), el body no la
     // lleva y el backend hace el fallback server-side a la CLABE del propio usuario (§6). Sin flags
     // de cliente: el contrato ya soporta el shape directo.
@@ -3193,7 +3201,7 @@ export async function respondSellRequest(
   id: string,
   decision: 'accept' | 'decline',
 ): Promise<{ id: string; status: SellRequestStatus }> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<{ id: string; status: SellRequestStatus }>(
       `/buylist/requests/${id}/respond`,
       { method: 'POST', body: { decision } },
@@ -3225,7 +3233,7 @@ export async function respondSellRequest(
  * ⛔ `createDispute` ya no existe (PNL-1: `POST /disputes` ⇒ `410 DISPUTES_DISCONTINUED`).
  */
 export async function getSupportContact(): Promise<SupportContactResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SupportContactResponse>('/support/contact');
   }
   return delay({ contact: fx.DISPUTE_EVIDENCE_CONTACT });
@@ -3234,7 +3242,7 @@ export async function getSupportContact(): Promise<SupportContactResponse> {
 // ---------- Disputas del cliente (contrato §7 — en transición, PNL-1: solo lectura) ----------
 /** Lista de disputas propias del cliente (contrato §7 · GET /disputes → { data }). */
 export async function getDisputes(): Promise<ClientDisputeDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ data: ClientDisputeDTO[] }>('/disputes');
     return res.data;
   }
@@ -3243,7 +3251,7 @@ export async function getDisputes(): Promise<ClientDisputeDTO[]> {
 
 /** Detalle de una disputa propia (contrato §7 · GET /disputes/:id). */
 export async function getDispute(id: string): Promise<ClientDisputeDTO> {
-  if (!config.useMocks) return apiRequest<ClientDisputeDTO>(`/disputes/${id}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<ClientDisputeDTO>(`/disputes/${id}`);
   const found = fx.mockClientDisputes.find((d) => d.id === id);
   if (!found) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Dispute not found' });
   return delay(found);
@@ -3269,7 +3277,7 @@ export interface UpdateMeInput {
  * app no siga creyendo que la cuenta no tiene teléfono.
  */
 export async function updateMe(input: UpdateMeInput): Promise<UserDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const user = await apiRequest<UserDTO>('/users/me', { method: 'PATCH', body: input });
     // v1.67: la respuesta tiene LA MISMA forma que `GET /users/me` (contrato): se sincroniza
     // entera para que `nameSource` (que el servidor pone en `'user'` al guardar `name`) y los
@@ -3322,7 +3330,7 @@ function withMeDefaults(u: UserDTO): UserDTO {
  * es la forma de refrescar la bandera en el cliente sin re-login.
  */
 export async function getMe(): Promise<UserDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const user = await apiRequest<UserDTO>('/users/me');
     setStoredUser(user);
     return user;
@@ -3338,7 +3346,7 @@ export async function getMe(): Promise<UserDTO> {
  * temporal pendiente el aviso ni se pinta (DESIGN_SYSTEM §42.6).
  */
 export async function dismissLockNotice(): Promise<void> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     await apiRequest<void>('/users/me/lock-notice/dismiss', { method: 'POST' });
     return;
   }
@@ -3359,7 +3367,7 @@ export async function dismissLockNotice(): Promise<void> {
  * evita afirmar un perfil que no existe si algún despliegue viejo aún contesta 200.
  */
 export async function getBillingProfile(): Promise<BillingProfileDTO | null> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     try {
       const body = await apiRequest<BillingProfileDTO | null>('/users/me/billing-profile');
       return isBillingProfile(body) ? body : null;
@@ -3378,7 +3386,7 @@ function isBillingProfile(body: unknown): body is BillingProfileDTO {
 
 /** `PUT /users/me/billing-profile` — el RFC va en claro y el backend lo cifra en reposo. */
 export async function putBillingProfile(input: BillingProfileInput): Promise<BillingProfileDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<BillingProfileDTO>('/users/me/billing-profile', { method: 'PUT', body: input });
   }
   // MOCK: enmascara como el backend (los 3 primeros caracteres + asteriscos).
@@ -3407,7 +3415,7 @@ export interface GetKycParams {
 }
 
 export async function getKyc(params: GetKycParams = {}): Promise<KycInfoDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<KycInfoDTO>('/users/me/kyc', {
       query: { quotedTotalCents: params.quotedTotalCents },
     });
@@ -3423,7 +3431,7 @@ export interface UpdateKycInput {
 
 /** Registra CLABE / keys del INE en el KYC del usuario (contrato PUT /users/me/kyc). */
 export async function updateKyc(input: UpdateKycInput): Promise<KycInfoDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<KycInfoDTO>('/users/me/kyc', { method: 'PUT', body: input });
   }
   // MOCK como SERVIDOR FALSO (contrato §1, v1.69): `kycStatus` pasa a `pending` **si y solo si**
@@ -3452,7 +3460,7 @@ export async function updateKyc(input: UpdateKycInput): Promise<KycInfoDTO> {
  * vía por la que un prefetch del navegador despacha un aviso que el cliente nunca vio.*
  */
 export async function getMePendings(): Promise<MePendingsResponse> {
-  if (!config.useMocks) return apiRequest<MePendingsResponse>('/me/pendings');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<MePendingsResponse>('/me/pendings');
   return delay(fx.mockMePendings());
 }
 
@@ -3473,7 +3481,7 @@ export async function presignUpload(input: {
   contentType: string;
   contentLength?: number;
 }): Promise<UploadPresignResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<UploadPresignResponse>('/uploads/presign', { method: 'POST', body: input });
   }
   // MOCK: uploadUrl `mock://` para que uploadToPresignedUrl haga corto-circuito sin red.
@@ -3497,7 +3505,7 @@ export async function uploadToPresignedUrl(
   presign: UploadPresignResponse,
   file: File,
 ): Promise<void> {
-  if (config.useMocks && presign.uploadUrl.startsWith('mock://')) {
+  if ((MOCKS_BUILD && config.useMocks) && presign.uploadUrl.startsWith('mock://')) {
     await delay(undefined, 200);
     return;
   }
@@ -3539,7 +3547,7 @@ export async function logout(): Promise<void> {
   // imponga `/login?next=<ruta recién cerrada>` por encima del destino del llamador.
   markIntentionalLogout();
   try {
-    if (!config.useMocks) await apiRequest<void>('/auth/logout', { method: 'POST' });
+    if (!(MOCKS_BUILD && config.useMocks)) await apiRequest<void>('/auth/logout', { method: 'POST' });
   } finally {
     // WS-B: una sola fuente de limpieza de sesión (access token + refresh token + user). Delega en
     // clearClientSession (api-client) para no duplicar los tres removeItem: así no queda huérfana la
@@ -3593,7 +3601,7 @@ export const MOCK_STAFF_USERNAMES: Record<string, Role> = {
 };
 
 export async function login(input: { email: string; password: string }): Promise<AuthResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     // v1.80 (C7): cada login manda el último `deviceToken` de este navegador, si hay. Uno ajeno,
     // caducado o mal firmado el backend lo ignora sin error; sin él se usa el contador de la cuenta.
     const deviceToken = getDeviceToken();
@@ -3646,7 +3654,7 @@ export async function register(input: {
   phone?: string;
   locale?: Locale;
 }): Promise<AuthResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return persistSession(await apiRequest<AuthResponse>('/auth/register', { method: 'POST', body: input }));
   }
   return delay(persistSession(mockAuthResponse({ email: input.email, name: input.name })), 400);
@@ -3658,7 +3666,7 @@ export async function register(input: {
  * la sesión resultante es idéntica a la de email/contraseña.
  */
 export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return persistSession(
       await apiRequest<AuthResponse>('/auth/google', { method: 'POST', body: { idToken } }),
     );
@@ -3686,7 +3694,7 @@ export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
  * `GET /users/me`. Error → 422 EMAIL_VERIFY_TOKEN_INVALID (inválido/expirado/ya usado).
  */
 export async function verifyEmail(token: string): Promise<VerifyEmailResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<VerifyEmailResponse>('/auth/verify-email', {
       method: 'POST',
       body: { token },
@@ -3714,7 +3722,7 @@ export async function verifyEmail(token: string): Promise<VerifyEmailResponse> {
  * rate-limit (3/hora por usuario).
  */
 export async function resendVerificationEmail(): Promise<ResendVerificationResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ResendVerificationResponse>('/auth/verify-email/resend', {
       method: 'POST',
       body: {},
@@ -3729,7 +3737,7 @@ export async function resendVerificationEmail(): Promise<ResendVerificationRespo
  * el mismo mensaje genérico sin revelar existencia. 429 si excede el rate-limit.
  */
 export async function forgotPassword(email: string): Promise<ForgotPasswordResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ForgotPasswordResponse>('/auth/forgot-password', {
       method: 'POST',
       body: { email },
@@ -3748,7 +3756,7 @@ export async function resetPassword(input: {
   token: string;
   password: string;
 }): Promise<ResetPasswordSelfResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<ResetPasswordSelfResponse>('/auth/reset-password', {
       method: 'POST',
       body: input,
@@ -3784,7 +3792,7 @@ export async function resetPassword(input: {
  * `429 RATE_LIMITED` (5/min/IP).
  */
 export async function changePassword(input: ChangePasswordRequest): Promise<ChangePasswordResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<ChangePasswordResponse>('/auth/change-password', {
       method: 'POST',
       body: input,
@@ -3846,7 +3854,7 @@ function mockShippingWorkQueue(): NonNullable<DashboardDTO['workQueue']['shippin
 }
 
 export async function getDashboard(): Promise<DashboardDTO> {
-  if (!config.useMocks) return apiRequest<DashboardDTO>('/admin/dashboard');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DashboardDTO>('/admin/dashboard');
   // MOCK §M4-SHIP.11/.17.5: `toPrepare` (con bóveda y «Por reponer»), `manualRefunds` y
   // `operatorRefunds` salen del MISMO cuerpo que el `summary`; los dos últimos son `null` para el operador.
   const summary = m4ship.mockPickingListSummary(fx.mockVaultPreparationQueue().length);
@@ -3901,7 +3909,7 @@ export interface AdminInventoryFilters {
 export async function getAdminInventory(
   filters: AdminInventoryFilters = {},
 ): Promise<Paginated<InventoryItemDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<InventoryItemDTO>>('/admin/inventory/items', {
       query: {
         q: filters.q,
@@ -3945,7 +3953,7 @@ function mockFindInventoryItem(id: string): InventoryItemDTO {
  * GET /admin/inventory/items/:id, `vault_operator+`).
  */
 export async function getAdminInventoryItem(id: string): Promise<AdminInventoryItemDetailDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminInventoryItemDetailDTO>(`/admin/inventory/items/${id}`);
   }
   const item = mockFindInventoryItem(id);
@@ -3977,7 +3985,7 @@ export async function updateInventoryItem(
   id: string,
   input: UpdateInventoryItemInput,
 ): Promise<InventoryItemDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<InventoryItemDTO>(`/admin/inventory/items/${id}`, {
       method: 'PATCH',
       body: input,
@@ -4012,7 +4020,7 @@ export async function moveInventoryItem(
   id: string,
   input: { toLocationId: string; note?: string },
 ): Promise<InventoryItemDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<InventoryItemDTO>(`/admin/inventory/items/${id}/move`, {
       method: 'POST',
       body: input,
@@ -4043,7 +4051,7 @@ export async function markInventoryItem(
   id: string,
   input: { mark: 'lost' | 'damaged'; note: string },
 ): Promise<InventoryItemDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<InventoryItemDTO>(`/admin/inventory/items/${id}/mark`, {
       method: 'POST',
       body: input,
@@ -4097,7 +4105,7 @@ export interface CreateInventoryItemResponse {
 export async function createInventoryItem(
   input: CreateInventoryItemInput,
 ): Promise<CreateInventoryItemResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<CreateInventoryItemResponse>('/admin/inventory/items', {
       method: 'POST',
       body: input,
@@ -4138,7 +4146,7 @@ export interface MasterSetIndexFilters {
 export async function getMasterSets(
   filters: MasterSetIndexFilters = {},
 ): Promise<MasterSetIndexResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<MasterSetIndexResponse>('/admin/inventory/master-sets', {
       query: {
         q: filters.q,
@@ -4157,7 +4165,7 @@ export async function getMasterSets(
  * (numéricos por valor entero primero; promos/subsets al final): el front NO re-ordena.
  */
 export async function getMasterSetBinder(setId: string): Promise<MasterSetBinderResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<MasterSetBinderResponse>(`/admin/inventory/master-sets/${setId}`);
   }
   try {
@@ -4176,7 +4184,7 @@ export async function getMasterSetBinder(setId: string): Promise<MasterSetBinder
 export async function batchCreateItems(
   payload: BatchCreateInventoryRequest,
 ): Promise<BatchCreateInventoryResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<BatchCreateInventoryResponse>('/admin/inventory/items/batch', {
       method: 'POST',
       body: payload,
@@ -4202,7 +4210,7 @@ export async function batchCreateItems(
 export async function bulkPublishItems(
   payload: BulkPublishRequest,
 ): Promise<BulkPublishResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<BulkPublishResponse>('/admin/inventory/items/bulk-publish', {
       method: 'POST',
       body: payload,
@@ -4228,7 +4236,7 @@ export async function putVariantControls(
   finish: Finish,
   req: VariantControlsRequest,
 ): Promise<VariantControlsResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<VariantControlsResponse>(
       `/admin/pricing/variant-controls/${cardId}/${finish}`,
       { method: 'PUT', body: req },
@@ -4280,7 +4288,7 @@ export async function putVariantControls(
  * cola (context=inventory) y NO publica. Idempotente por `batchKey` (replay = resultado guardado).
  */
 export async function publishAllInventory(payload: PublishAllRequest): Promise<PublishAllResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<PublishAllResponse>('/admin/inventory/publish-all', {
       method: 'POST',
       body: payload,
@@ -4296,7 +4304,7 @@ export async function publishAllInventory(payload: PublishAllRequest): Promise<P
 export async function getSealedInventorySets(
   params: { q?: string; page?: number; pageSize?: number } = {},
 ): Promise<SealedSetsResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedSetsResponse>('/admin/inventory/sealed-sets', {
       query: { q: params.q, page: params.page, pageSize: params.pageSize },
     });
@@ -4310,7 +4318,7 @@ export async function getSealedInventorySets(
  * `sealedMarketRef` y costo agregado.
  */
 export async function getSealedInventorySet(setId: string): Promise<SealedSetDetailResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedSetDetailResponse>(`/admin/inventory/sealed-sets/${setId}`);
   }
   try {
@@ -4333,7 +4341,7 @@ export async function getSealedCatalog(params: {
   groupId?: number;
   q?: string;
 }): Promise<SealedCatalogResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedCatalogResponse>('/admin/inventory/sealed-catalog', {
       query: { setId: params.setId, groupId: params.groupId, q: params.q },
     });
@@ -4358,7 +4366,7 @@ export async function listSealedProducts(params: {
   origin?: SealedGroupKind;
   principalOnly?: boolean;
 }): Promise<SealedProductListResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedProductListResponse>('/admin/inventory/sealed-products', {
       query: {
         setId: params.setId,
@@ -4384,7 +4392,7 @@ export async function listSealedProducts(params: {
 export async function syncSealedProducts(
   req: SealedSyncRequest,
 ): Promise<SealedSyncResultDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedSyncResultDTO>('/admin/inventory/sealed-products/sync', {
       method: 'POST',
       body: req,
@@ -4405,7 +4413,7 @@ export async function syncSealedProducts(
 export async function getSealedSyncCandidates(params: {
   setId: string;
 }): Promise<SealedSyncCandidatesResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedSyncCandidatesResponse>(
       '/admin/inventory/sealed-products/sync/candidates',
       { query: { setId: params.setId } },
@@ -4426,7 +4434,7 @@ export async function linkSealedSetGroup(
   setId: string,
   req: SealedSetGroupLinkRequest,
 ): Promise<SealedSetGroupDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedSetGroupDTO>(
       `/admin/inventory/sealed-sets/${encodeURIComponent(setId)}/groups`,
       { method: 'POST', body: req },
@@ -4451,7 +4459,7 @@ export async function updateSealedItemMapping(
   itemId: string,
   req: SealedItemMappingRequest,
 ): Promise<SealedItemMappingResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedItemMappingResponse>(
       `/admin/pricing/sealed/items/${encodeURIComponent(itemId)}/mapping`,
       { method: 'PUT', body: req },
@@ -4513,7 +4521,7 @@ export async function updateSealedItemMapping(
 export async function triggerSealedPriceIngest(
   groupId?: number,
 ): Promise<SealedPriceIngestResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedPriceIngestResponse>('/admin/jobs/sealed-price-ingest', {
       method: 'POST',
       body: groupId != null ? { groupId } : {},
@@ -4533,7 +4541,7 @@ export async function triggerSealedPriceIngest(
 export async function getSealedPriceStatus(
   params: { q?: string; state?: SealedPriceState; page?: number; pageSize?: number } = {},
 ): Promise<SealedPriceStatusResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedPriceStatusResponse>('/admin/inventory/sealed-price-status', {
       query: {
         q: params.q,
@@ -4555,7 +4563,7 @@ export async function getSealedPriceStatus(
 export async function getSealedPriceSheet(
   params: { setId?: string; q?: string; scope?: SealedPriceSheetScope; page?: number; pageSize?: number } = {},
 ): Promise<SealedPriceSheetResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedPriceSheetResponse>('/admin/inventory/sealed-price-sheet', {
       query: {
         setId: params.setId,
@@ -4581,7 +4589,7 @@ export async function setSealedProductSalePrice(
   sealedProductId: string,
   body: SetSealedSalePriceRequest,
 ): Promise<SetSealedSalePriceResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SetSealedSalePriceResponse>(
       `/admin/inventory/sealed-products/${encodeURIComponent(sealedProductId)}/sale-price`,
       { method: 'PUT', body },
@@ -4615,7 +4623,7 @@ export async function setSealedSetMainGroup(
   setId: string,
   req: SetMainGroupRequest,
 ): Promise<SealedSetGroupDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SealedSetGroupDTO>(
       `/admin/inventory/sealed-sets/${encodeURIComponent(setId)}/set-main-group`,
       { method: 'PUT', body: req },
@@ -4637,7 +4645,7 @@ export async function setSealedSetMainGroup(
  * `PriceReference` ya escritas (quedan stale/inocuas); solo cambia de dónde saldrá el próximo precio.
  */
 export async function deleteSealedSetGroup(setId: string, groupId: number): Promise<void> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     await apiRequest<void>(
       `/admin/inventory/sealed-sets/${encodeURIComponent(setId)}/groups/${groupId}`,
       { method: 'DELETE' },
@@ -4656,7 +4664,7 @@ export async function deleteSealedSetGroup(setId: string, groupId: number): Prom
 export async function getGradedInventory(
   params: { q?: string; page?: number; pageSize?: number } = {},
 ): Promise<GradedInventoryResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<GradedInventoryResponse>('/admin/inventory/graded', {
       query: { q: params.q, page: params.page, pageSize: params.pageSize },
     });
@@ -4670,7 +4678,7 @@ export async function getGradedInventory(
  * venta (la vitrina se oculta).
  */
 export async function getPublicBounties(): Promise<PublicBountiesResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<PublicBountiesResponse>('/buylist/bounties');
   }
   return delay(fx.mockPublicBounties());
@@ -4717,7 +4725,7 @@ export async function getAdminBounties(
     pageSize: filters.pageSize,
     sort: filters.sort,
   };
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminBountyListResponse>('/admin/pricing/bounties', { query });
   }
   return delay(fx.mockAdminBounties(filters));
@@ -4744,7 +4752,7 @@ export async function deleteBounty(
   cardId: string,
   finish: Finish,
 ): Promise<VariantControlsResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<VariantControlsResponse>(
       `/admin/pricing/variant-controls/${cardId}/${finish}/bounty`,
       { method: 'DELETE' },
@@ -4780,7 +4788,7 @@ export interface AdminVaultFilters {
  * Valuación con la MISMA base del portafolio (§3); sort default `value_desc`.
  */
 export async function getAdminVaults(filters: AdminVaultFilters = {}): Promise<AdminVaultListResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminVaultListResponse>('/admin/vaults', {
       query: { q: filters.q, page: filters.page, pageSize: filters.pageSize, sort: filters.sort },
     });
@@ -4797,7 +4805,7 @@ export async function getAdminVaultMasterSets(
   userId: string,
   filters: MasterSetIndexFilters = {},
 ): Promise<MasterSetIndexResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<MasterSetIndexResponse>(`/admin/vaults/${userId}/master-sets`, {
       query: { q: filters.q, page: filters.page, pageSize: filters.pageSize, sort: filters.sort },
     });
@@ -4824,7 +4832,7 @@ export async function getAdminVaultMasterSetBinder(
   userId: string,
   setId: string,
 ): Promise<MasterSetBinderResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<MasterSetBinderResponse>(`/admin/vaults/${userId}/master-sets/${setId}`);
   }
   try {
@@ -4853,7 +4861,7 @@ export async function getAdminVaultMasterSetBinder(
 export async function createInventoryAdjustment(
   payload: InventoryAdjustmentRequest,
 ): Promise<InventoryAdjustmentResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<InventoryAdjustmentResponse>('/admin/inventory/adjustments', {
       method: 'POST',
       body: payload,
@@ -4878,7 +4886,7 @@ export async function createInventoryAdjustment(
 export async function bulkRemoveInventory(
   payload: BulkRemoveInventoryRequest,
 ): Promise<BulkRemoveInventoryResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<BulkRemoveInventoryResponse>('/admin/inventory/items/bulk-remove', {
       method: 'POST',
       body: payload,
@@ -4907,7 +4915,7 @@ export interface InventoryExportFilters {
 export async function exportAdminInventoryXlsx(
   filters: InventoryExportFilters = {},
 ): Promise<BlobResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return requestBlob('/admin/inventory/export.xlsx', {
       query: {
         setId: filters.setId,
@@ -4939,7 +4947,7 @@ export async function exportAdminInventoryXlsx(
 }
 
 export async function getLocations(): Promise<VaultLocationDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ data: VaultLocationDTO[] }>('/admin/locations');
     return res.data;
   }
@@ -4960,7 +4968,7 @@ export interface CreateLocationInput {
  * quedaba vacío en una BD limpia.
  */
 export async function createLocation(input: CreateLocationInput): Promise<VaultLocationDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<VaultLocationDTO>('/admin/locations', { method: 'POST', body: input });
   }
   const created: VaultLocationDTO = {
@@ -5032,7 +5040,7 @@ export interface AdminBuylistFilters {
 export async function getAdminBuylist(
   filters: AdminBuylistFilters = {},
 ): Promise<Paginated<AdminBuylistDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<AdminBuylistDTO>>('/admin/buylist', {
       query: {
         status: filters.status,
@@ -5118,7 +5126,7 @@ function mockFindBuylistItem(itemId: string): { req: fx.MockAdminBuylistRow; ite
  * aparece cuando no toca o que no aparece cuando sí.
  */
 export async function getBuylistDecisionTable(id: string): Promise<BuylistDecisionTableDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<BuylistDecisionTableDTO>(`/admin/buylist/${id}/decision-table`);
   }
   try {
@@ -5153,7 +5161,7 @@ export async function emitBuylistOffer(
   id: string,
   lines: BuylistOfferLineInput[],
 ): Promise<BuylistOfferResultDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<BuylistOfferResultDTO>(`/admin/buylist/${id}/offer`, {
       method: 'POST',
       body: { lines },
@@ -5185,7 +5193,7 @@ export async function captureBuylistGuide(
   id: string,
   input: { carrier: string; trackingNumber: string },
 ): Promise<BuylistGuideResultDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<BuylistGuideResultDTO>(`/admin/buylist/${id}/guide`, {
       method: 'POST',
       body: input,
@@ -5213,7 +5221,7 @@ export async function confirmBuylistShipment(
   id: string,
   input: { guideActualCostCents?: number } = {},
 ): Promise<BuylistShipmentConfirmResultDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<BuylistShipmentConfirmResultDTO>(`/admin/buylist/${id}/confirm-shipment`, {
       method: 'POST',
       body: input,
@@ -5233,7 +5241,7 @@ export async function confirmBuylistShipment(
  * nada. Al autorizar **sale el correo** y el plazo del vendedor **se congela en ese instante**.
  */
 export async function authorizeBuylistOffer(id: string): Promise<BuylistOfferResultDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<BuylistOfferResultDTO>(`/admin/buylist/${id}/offer/authorize`, {
       method: 'POST',
       body: {},
@@ -5261,7 +5269,7 @@ export async function markBuylistGuideCancellationDone(
   id: string,
   input: { note?: string; guideActualCostCents?: number } = {},
 ): Promise<{ sellRequestId: string; guideCancellationDoneAt: string }> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest(`/admin/buylist/${id}/guide/cancellation-done`, {
       method: 'POST',
       body: input,
@@ -5278,7 +5286,7 @@ export async function markBuylistGuideCancellationDone(
 export async function getPendingOfferAuthorizations(): Promise<
   Paginated<PendingOfferAuthorizationRowDTO>
 > {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<PendingOfferAuthorizationRowDTO>>(
       '/admin/buylist/offers/pending-authorization',
     );
@@ -5290,7 +5298,7 @@ export async function getPendingOfferAuthorizations(): Promise<
 export async function getPendingShipmentConfirmations(): Promise<
   Paginated<PendingShipmentConfirmationRowDTO>
 > {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<PendingShipmentConfirmationRowDTO>>(
       '/admin/buylist/pending-shipment-confirmation',
     );
@@ -5302,7 +5310,7 @@ export async function getPendingShipmentConfirmations(): Promise<
 export async function getPendingGuideCancellations(): Promise<
   Paginated<PendingGuideCancellationRowDTO>
 > {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<PendingGuideCancellationRowDTO>>(
       '/admin/buylist/guides/pending-cancellation',
     );
@@ -5312,7 +5320,7 @@ export async function getPendingGuideCancellations(): Promise<
 
 /** Cola «vendedores con solicitudes vivas» (`GET /admin/buylist/live-sellers`, D12). */
 export async function getLiveSellers(): Promise<Paginated<LiveSellerRowDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<LiveSellerRowDTO>>('/admin/buylist/live-sellers');
   }
   return delay(fx.mockLiveSellers());
@@ -5327,7 +5335,7 @@ export async function getLiveSellers(): Promise<Paginated<LiveSellerRowDTO>> {
 export async function getPendingPublish(
   params: { productType?: ProductType } = {},
 ): Promise<Paginated<PendingPublishRowDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<PendingPublishRowDTO>>('/admin/inventory/pending-publish', {
       // §diseño §iii · el endpoint ya acepta `?productType=` (contrato §M1): M11 filtra a `sealed`.
       // Omitido ⇒ la cola entera (comportamiento de M1, sin cambios).
@@ -5380,7 +5388,7 @@ function mockAssertTransition(req: fx.MockAdminBuylistRow, verb: keyof typeof MO
 
 /** Marca recepción física de la solicitud → `recibida` (contrato POST /admin/buylist/:id/receive). */
 export async function receiveBuylistRequest(id: string): Promise<AdminBuylistDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/receive`, { method: 'POST', body: {} });
   }
   const req = mockFindBuylistRequest(id);
@@ -5399,7 +5407,7 @@ export async function receiveBuylistRequest(id: string): Promise<AdminBuylistDTO
 
 /** Inicia/registra la verificación → `verificacion` (contrato POST /admin/buylist/:id/verify). */
 export async function verifyBuylistRequest(id: string): Promise<AdminBuylistDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/verify`, { method: 'POST', body: {} });
   }
   const req = mockFindBuylistRequest(id);
@@ -5449,7 +5457,7 @@ export async function rejectBuylistRequest(
   id: string,
   input: { reason?: string } = {},
 ): Promise<AdminBuylistDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/reject`, {
       method: 'POST',
       body: input.reason && input.reason.trim() !== '' ? { reason: input.reason.trim() } : {},
@@ -5494,7 +5502,7 @@ function internalReasonBody(reason: string | undefined): { reason?: string } {
  * ⇒ **`409 DECLINE_NOT_ALLOWED`** (`details: { status, offerState }`) — ⛔ sin `200` idempotente.
  */
 export async function declineBuylistRequest(id: string, input: { reason?: string } = {}): Promise<AdminBuylistDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/decline`, {
       method: 'POST',
       body: internalReasonBody(input.reason),
@@ -5518,7 +5526,7 @@ export async function declineBuylistRequest(id: string, input: { reason?: string
  * `inboundLabelOptions` (por actor; la lista no lo trae) y de la ficha de una `aceptada` en M5.
  */
 export async function getAdminBuylistRequest(id: string): Promise<AdminBuylistDTO> {
-  if (!config.useMocks) return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}`);
   const req = mockFindBuylistRequest(id);
   // MOCK: sin Skydropx en el servidor falso ⇒ `provider:'off'` (la ficha ofrece solo la captura a mano).
   return delay({
@@ -5535,7 +5543,7 @@ export async function getAdminBuylistRequest(id: string): Promise<AdminBuylistDT
  * {labelSource:'manual'}`, `422 PICKUP_ADDRESS_MISSING`.
  */
 export async function openBuylistInboundShipment(id: string): Promise<OpenInboundShipmentRes> {
-  if (!config.useMocks) return apiRequest<OpenInboundShipmentRes>(`/admin/buylist/${id}/inbound-shipment`, { method: 'POST', body: {} });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<OpenInboundShipmentRes>(`/admin/buylist/${id}/inbound-shipment`, { method: 'POST', body: {} });
   // MOCK: el servidor falso no tiene Skydropx (ver `getAdminBuylistRequest`).
   mockFindBuylistRequest(id);
   throw new ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'Skydropx is off (mock)' });
@@ -5548,7 +5556,7 @@ export async function openBuylistInboundShipment(id: string): Promise<OpenInboun
  * función NO reintenta: ante `5xx`/red la pantalla RELEE la solicitud (§BSD-UX.6b).
  */
 export async function declineAcceptedBuylistRequest(id: string, input: { reason: string }): Promise<AdminBuylistDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/decline-accepted`, { method: 'POST', body: { reason: input.reason.trim() } });
   }
   const req = mockFindBuylistRequest(id);
@@ -5574,7 +5582,7 @@ export async function declineAcceptedBuylistRequest(id: string, input: { reason:
  * salido; D38 repone el reloj de emisión). Sin oferta viva o ya `aceptada` ⇒ **`409 OFFER_NOT_CANCELLABLE`**.
  */
 export async function cancelBuylistOffer(id: string, input: { reason?: string } = {}): Promise<AdminBuylistDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/offer/cancel`, {
       method: 'POST',
       body: internalReasonBody(input.reason),
@@ -5618,7 +5626,7 @@ export async function decideBuylistItem(
   itemId: string,
   input: BuylistItemDecisionInput,
 ): Promise<SellItemDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SellItemDTO>(`/admin/buylist/items/${itemId}/decision`, {
       method: 'PATCH',
       body: input,
@@ -5673,7 +5681,7 @@ export async function rejectBuylistItems(
   requestId: string,
   body: RejectBuylistItemsRequest,
 ): Promise<RejectBuylistItemsResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<RejectBuylistItemsResponse>(`/admin/buylist/${requestId}/reject-items`, { method: 'POST', body });
   }
   // MOCK: espeja las guardas de §PNL.4 (en ese orden) sobre la solicitud en memoria.
@@ -5726,7 +5734,7 @@ export async function rejectBuylistItems(
 export async function getAdminRejectedBuylistItems(
   params: PageParams & { userId?: string } = {},
 ): Promise<Paginated<RejectedSellItemDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<RejectedSellItemDTO>>('/admin/buylist/rejected-items', {
       query: { page: params.page, pageSize: params.pageSize, userId: params.userId },
     });
@@ -5767,7 +5775,7 @@ export async function getAdminRejectedBuylistItems(
 export async function convertBuylistItemToInventory(
   itemId: string,
 ): Promise<ConvertToInventoryResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ConvertToInventoryResponse>(
       `/admin/buylist/items/${itemId}/convert-to-inventory`,
       { method: 'POST', body: {} },
@@ -5795,7 +5803,7 @@ export async function convertBuylistItemToInventory(
  * global ni cachearse (usar mutation, no query): se muestra solo al pedirla.
  */
 export async function revealBuylistClabe(id: string): Promise<RevealClabeResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<RevealClabeResponse>(`/admin/buylist/${id}/reveal-clabe`);
   }
   mockFindBuylistRequest(id);
@@ -5807,7 +5815,7 @@ export async function revealBuylistClabe(id: string): Promise<RevealClabeRespons
  * `super_admin`, money-out, Idempotency-Key). Precondición backend: aprobada + verificada.
  */
 export async function paySpeiBuylist(id: string, speiReference: string): Promise<AdminBuylistDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/pay-spei`, {
       method: 'POST',
       body: { speiReference },
@@ -5878,7 +5886,7 @@ export interface AdminOrdersFilters {
 export async function getAdminOrders(
   filters: AdminOrdersFilters = {},
 ): Promise<Paginated<AdminOrderDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<AdminOrderDTO>>('/admin/orders', {
       query: {
         status: filters.status,
@@ -5945,7 +5953,7 @@ export async function getAdminOrders(
  * la plataforma; NO re-agrega el item al inventario. Err 403 MONEY_OUT_FORBIDDEN.
  */
 export async function refundOrder(orderId: string, body: RefundOrderRequest): Promise<RefundOrderResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<RefundOrderResponse>(`/admin/orders/${orderId}/refund`, {
       method: 'POST',
       body,
@@ -5969,7 +5977,7 @@ export async function refundOrder(orderId: string, body: RefundOrderRequest): Pr
 
 /** Detalle M3 (`GET /admin/orders/:id`), v1.80: identidad, reembolsos, envíos y `vaultPieces` (§M4-SHIP.10/.18.6). */
 export async function getAdminOrder(orderId: string): Promise<AdminOrderDetailDTO> {
-  if (!config.useMocks) return apiRequest<AdminOrderDetailDTO>(`/admin/orders/${orderId}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminOrderDetailDTO>(`/admin/orders/${orderId}`);
   // MOCK §DSC.6 (914): el pedido cobrado con código, en Ventas (fila «Código» y «Descuento (CÓDIGO)»).
   if (orderId === mockDsc.MOCK_DISCOUNTED_ORDER_ID) {
     const d = mockDiscountedOrderDetail();
@@ -6061,7 +6069,7 @@ export async function refundDeliveredItem(
   orderItemId: string,
   body: RefundDeliveredItemRequest,
 ): Promise<RefundDeliveredItemResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<RefundDeliveredItemResponse>(
       `/admin/orders/${orderId}/items/${orderItemId}/refund-delivered`,
       { method: 'POST', body, headers: { 'Idempotency-Key': `item-delivered:${orderItemId}` } },
@@ -6118,7 +6126,7 @@ export async function recordShippedRefundReason(
   orderId: string,
   body: RecordShippedRefundReasonRequest,
 ): Promise<RecordShippedRefundReasonResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<RecordShippedRefundReasonResponse>(`/admin/orders/${orderId}/shipped-refund-reason`, {
       method: 'POST',
       body,
@@ -6133,7 +6141,7 @@ export async function recordShippedRefundReason(
 
 /** `POST /admin/orders/:id/chargeback-inventory` (§M3, operador+; v1.80.4: también `vault` `refunded`). */
 export async function chargebackInventory(orderId: string, body: ChargebackInventoryRequest): Promise<ChargebackInventoryResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ChargebackInventoryResponse>(`/admin/orders/${orderId}/chargeback-inventory`, { method: 'POST', body });
   }
   try {
@@ -6145,7 +6153,7 @@ export async function chargebackInventory(orderId: string, body: ChargebackInven
 
 /** `POST /admin/orders/:id/reclaim-vault` (§M4-SHIP.18.10, SOLO super_admin; custodia, ⛔ no dinero). */
 export async function reclaimVault(orderId: string, body: ReclaimVaultRequest): Promise<ReclaimVaultResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ReclaimVaultResponse>(`/admin/orders/${orderId}/reclaim-vault`, { method: 'POST', body });
   }
   try {
@@ -6156,7 +6164,7 @@ export async function reclaimVault(orderId: string, body: ReclaimVaultRequest): 
 }
 
 export async function getAdminDisputes(): Promise<DisputeDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<Paginated<DisputeDTO>>('/admin/disputes');
     return res.data;
   }
@@ -6164,7 +6172,7 @@ export async function getAdminDisputes(): Promise<DisputeDTO[]> {
 }
 
 export async function getAdminDispute(id: string): Promise<DisputeDTO> {
-  if (!config.useMocks) return apiRequest<DisputeDTO>(`/admin/disputes/${id}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DisputeDTO>(`/admin/disputes/${id}`);
   const found = fx.mockDisputes.find((d) => d.id === id) ?? fx.mockDisputes[0];
   return delay(found);
 }
@@ -6175,7 +6183,7 @@ export async function getAdminDispute(id: string): Promise<DisputeDTO> {
  * y NO se re-agrega al inventario); `reject` la rechaza. `note` es obligatoria (bitácora).
  */
 export async function resolveDispute(id: string, input: ResolveDisputeInput): Promise<DisputeDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<DisputeDTO>(`/admin/disputes/${id}/resolve`, { method: 'POST', body: input });
   }
   const dispute = fx.mockDisputes.find((d) => d.id === id);
@@ -6197,7 +6205,7 @@ export async function resolveDispute(id: string, input: ResolveDisputeInput): Pr
  * rarezas `unmapped` sin entrada en el catálogo canónico, para que el operador sepa cuáles añadir).
  */
 export async function unifyRarities(): Promise<UnifyRaritiesResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<UnifyRaritiesResponse>('/admin/catalog/unify-rarities', { method: 'POST' });
   }
   // MOCK: simula una primera pasada que corrige duplicados y deja una rareza cruda sin mapear, para
@@ -6220,7 +6228,7 @@ export async function getPendingPrices(
   context?: PendingPriceContext,
   reason?: PendingPriceReason,
 ): Promise<PendingPriceQueueResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     // v2.1 (P-48): la respuesta trae `data` + `counts` en el MISMO cuerpo. Encabezado y lista se
     // pintan del mismo snapshot, así que no pueden contradecirse.
     return apiRequest<PendingPriceQueueResponse>('/admin/pricing/pending', {
@@ -6266,7 +6274,7 @@ export type PricingOverrideInput = PricingOverrideBase &
 
 /** Override manual de precio; resuelve el PendingPriceEntry DE ESE ACABADO (contrato POST /admin/pricing/override). */
 export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: true }> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     await apiRequest<unknown>('/admin/pricing/override', { method: 'POST', body: input });
     return { ok: true };
   }
@@ -6340,7 +6348,7 @@ export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: 
 export async function getPriceReviewQueue(
   params: { status?: PriceReviewStatus; axis?: PriceAxis; page?: number; pageSize?: number } = {},
 ): Promise<PriceReviewQueueResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<PriceReviewQueueResponse>('/admin/pricing/review-queue', {
       query: { status: params.status, axis: params.axis, page: params.page, pageSize: params.pageSize },
     });
@@ -6359,7 +6367,7 @@ export async function resolvePriceReviewCase(
   id: string,
   input: PriceReviewResolveInput,
 ): Promise<PriceReviewCaseDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<PriceReviewCaseDTO>(`/admin/pricing/review-queue/${id}/resolve`, {
       method: 'POST',
       body: input,
@@ -6376,7 +6384,7 @@ export async function resolvePriceReviewCase(
 
 /** Historial de precios por fecha/fuente (contrato GET /admin/pricing/card/:cardId). */
 export async function getPriceHistory(cardId: string): Promise<PriceHistoryEntryDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ data: PriceHistoryEntryDTO[] }>(`/admin/pricing/card/${cardId}`);
     return res.data;
   }
@@ -6385,7 +6393,7 @@ export async function getPriceHistory(cardId: string): Promise<PriceHistoryEntry
 
 /** Tipo de cambio USD→MXN con colchón (contrato GET /admin/fx). */
 export async function getFx(): Promise<FxDTO> {
-  if (!config.useMocks) return apiRequest<FxDTO>('/admin/fx');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<FxDTO>('/admin/fx');
   return delay(fx.mockFx);
 }
 
@@ -6395,7 +6403,7 @@ export async function getFx(): Promise<FxDTO> {
  * manual de tasa (conserva la tasa vigente de Banxico). Al menos uno de los dos debe venir.
  */
 export async function updateFx(input: { rate?: number; bufferPct?: number }): Promise<FxDTO> {
-  if (!config.useMocks) return apiRequest<FxDTO>('/admin/fx', { method: 'PUT', body: input });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<FxDTO>('/admin/fx', { method: 'PUT', body: input });
   // MOCK (§M2-F.5 regla 1 · I-FX2): el número se GUARDA en `manual.rate`, pero ⛔ **guardar una
   // tasa NO enciende el manual**: el modo lo decide `fx_rate_mode`, no el valor. En `auto`, la
   // tasa que rige sigue siendo la de Banxico y `manual.applied` sigue en `false`.
@@ -6426,7 +6434,7 @@ export async function setFxMode(input: {
   mode: FxRateMode;
   acknowledgeNoAutomaticRate?: true;
 }): Promise<FxDTO> {
-  if (!config.useMocks) return apiRequest<FxDTO>('/admin/fx/mode', { method: 'PUT', body: input });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<FxDTO>('/admin/fx/mode', { method: 'PUT', body: input });
   try {
     return await delay(fx.applyMockFxMode(input));
   } catch (e) {
@@ -6447,7 +6455,7 @@ export async function setFxMode(input: {
  * ni la tasa manual — en `manual` sólo refresca la cifra de comparación.
  */
 export async function refreshFx(): Promise<FxRefreshDTO> {
-  if (!config.useMocks) return apiRequest<FxRefreshDTO>('/admin/fx/refresh', { method: 'POST' });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<FxRefreshDTO>('/admin/fx/refresh', { method: 'POST' });
   const refresh = fx.mockFxRefreshBlock();
   if (refresh.outcome === 'updated' && refresh.fetchedRate != null) {
     fx.setMockFxWorld({
@@ -6471,7 +6479,7 @@ export async function refreshFx(): Promise<FxRefreshDTO> {
 export async function triggerPriceIngest(
   input: { setId?: string } = {},
 ): Promise<PriceIngestResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const body = input.setId ? { setId: input.setId } : {};
     return apiRequest<PriceIngestResponse>('/admin/jobs/price-ingest', { method: 'POST', body });
   }
@@ -6498,7 +6506,7 @@ export async function triggerPriceIngest(
  * contrato GET /admin/pricing/curve, `super_admin`, read-only.
  */
 export async function getPricingCurve(): Promise<PricingCurveDTO> {
-  if (!config.useMocks) return apiRequest<PricingCurveDTO>('/admin/pricing/curve');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<PricingCurveDTO>('/admin/pricing/curve');
   return delay(fx.getMockPricingCurve());
 }
 
@@ -6511,7 +6519,7 @@ export async function getPricingCurve(): Promise<PricingCurveDTO> {
  * de venta se resuelve en LECTURA, así que NO hay «publicar de nuevo».
  */
 export async function updatePricingCurve(input: PricingCurveDTO): Promise<PricingCurveDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<PricingCurveDTO>('/admin/pricing/curve', { method: 'PUT', body: input });
   }
   return delay(fx.setMockPricingCurve(input));
@@ -6546,13 +6554,13 @@ export async function previewPricingCurve(
  * cada una. Es la vista que RESPALDA el guardarraíl (§4.36.5), no una tabla de reglas.
  */
 export async function getRarityHealth(): Promise<RarityHealthResponse> {
-  if (!config.useMocks) return apiRequest<RarityHealthResponse>('/admin/pricing/rarities');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<RarityHealthResponse>('/admin/pricing/rarities');
   return delay(fx.getMockRarityHealth());
 }
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */
 export async function getRemoteSets(): Promise<RemoteSetDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ data: RemoteSetDTO[] }>('/admin/catalog/remote-sets');
     return res.data;
   }
@@ -6571,7 +6579,7 @@ export async function syncCatalog(input: {
   fromReleaseDate?: string;
   force?: boolean;
 } = {}): Promise<CatalogSyncResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<CatalogSyncResponse>('/admin/catalog/sync', { method: 'POST', body: input });
   }
   // MOCK (§M2-CS.0): el reparto se CUENTA, no se afirma. `setsQueued` es eco de `setsWritten`.
@@ -6605,7 +6613,7 @@ export async function syncCatalog(input: {
 export async function syncAllCatalog(
   input: { force?: boolean } = {},
 ): Promise<CatalogSyncAllResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     // Solo se incluye `force` en el body cuando es true (retrocompatible: omitirlo
     // preserva el contrato/semántica previos, contrato §M2 v1.6-finish).
     const body = input.force ? { force: true } : {};
@@ -6644,7 +6652,7 @@ export async function refreshVariants(input: {
   setId: string;
   force?: boolean;
 }): Promise<RefreshVariantsResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     // `force` solo se manda cuando es true (retrocompatible: body mínimo por defecto).
     const body = input.force ? { setId: input.setId, force: true } : { setId: input.setId };
     return apiRequest<RefreshVariantsResponse>('/admin/catalog/refresh-variants', {
@@ -6682,7 +6690,7 @@ export async function refreshVariants(input: {
 export async function refreshVariantsAll(
   input: { force?: boolean } = {},
 ): Promise<RefreshVariantsAllResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     // `force` solo se manda cuando es true (retrocompatible: body mínimo por defecto).
     const body = input.force ? { force: true } : {};
     return apiRequest<RefreshVariantsAllResponse>('/admin/catalog/refresh-variants-all', {
@@ -6701,7 +6709,7 @@ export async function refreshVariantsAll(
  * pendientes, lista de `failures`). No llama a TCGCSV/pokemontcg.io, así que pollearlo no cuesta.
  */
 export async function getRefreshVariantsStatus(): Promise<RefreshVariantsStatusResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<RefreshVariantsStatusResponse>('/admin/catalog/refresh-variants-status');
   }
   // MOCK (modelo async): cada lectura avanza el barrido; al completarlo apaga running y adjunta el
@@ -6716,7 +6724,7 @@ export async function getRefreshVariantsStatus(): Promise<RefreshVariantsStatusR
  * "no disponible" y simplemente no pinta la barra.
  */
 export async function getSyncStatus(): Promise<CatalogSyncStatusResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<CatalogSyncStatusResponse>('/admin/catalog/sync-status');
   }
   // Mock: nunca hay un barrido corriendo (el estado vive en memoria del backend real).
@@ -6740,7 +6748,7 @@ export async function getSyncStatus(): Promise<CatalogSyncStatusResponse> {
  * (`dailyRemaining` / `dailyLimited` / `pending`) para avisar cuando se pausó por límite diario.
  */
 export async function getPriceSyncStatus(): Promise<PriceSyncStatusResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<PriceSyncStatusResponse>('/admin/pricing/sync-status');
   }
   // Mock: nunca hay un barrido corriendo (el estado vive en memoria del backend real).
@@ -6780,7 +6788,7 @@ export interface AdminUsersFilters {
  * `email | null`, `username | null`, `lockedUntil | null`, y la raíz `lockState`.
  */
 export async function getAdminUsers(filters: AdminUsersFilters = {}): Promise<AdminUsersListResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminUsersListResponse>('/admin/users', {
       query: {
         q: filters.q,
@@ -6809,7 +6817,7 @@ export async function getAdminUsers(filters: AdminUsersFilters = {}): Promise<Ad
 
 /** Ficha 360° del usuario (contrato GET /admin/users/:id). CLABE/RFC enmascarados. */
 export async function getAdminUser(id: string): Promise<AdminUserDetailDTO> {
-  if (!config.useMocks) return apiRequest<AdminUserDetailDTO>(`/admin/users/${id}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminUserDetailDTO>(`/admin/users/${id}`);
   return delay(fx.mockAdminUserDetail(id));
 }
 
@@ -6826,7 +6834,7 @@ export interface UpdateUserKycInput {
 
 /** Actualiza el KYC del usuario (contrato PATCH /admin/users/:id/kyc, super_admin). */
 export async function updateUserKyc(id: string, input: UpdateUserKycInput): Promise<AdminUserDetailDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminUserDetailDTO>(`/admin/users/${id}/kyc`, { method: 'PATCH', body: input });
   }
   // MOCK como SERVIDOR FALSO: sella `reviewedAt`/`verifiedAt` y hace la limpieza cruzada de
@@ -6844,7 +6852,7 @@ export async function updateUserKyc(id: string, input: UpdateUserKycInput): Prom
  * ⛔ Un solo endpoint para las dos caras: pedirlas por separado sería **dos filas para un acto**.
  */
 export async function getAdminUserIneLinks(id: string): Promise<AdminIneLinksDTO> {
-  if (!config.useMocks) return apiRequest<AdminIneLinksDTO>(`/admin/users/${id}/kyc/ine-links`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminIneLinksDTO>(`/admin/users/${id}/kyc/ine-links`);
   return delay(fx.mockIneLinks(id), 300);
 }
 
@@ -6853,7 +6861,7 @@ export async function updateUserStatus(
   id: string,
   status: 'active' | 'blocked',
 ): Promise<AdminUserDetailDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminUserDetailDTO>(`/admin/users/${id}/status`, { method: 'PATCH', body: { status } });
   }
   return delay({ ...fx.mockAdminUserDetail(id), status });
@@ -6865,7 +6873,7 @@ export async function updateUserStatus(
  * front la muestra al admin para compartirla y NO la re-consulta.
  */
 export async function resetUserPassword(id: string): Promise<ResetPasswordResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ResetPasswordResponse>(`/admin/users/${id}/reset-password`, { method: 'POST', body: {} });
   }
   // MOCK: contraseña temporal aleatoria de alta entropía (simulada).
@@ -6879,7 +6887,7 @@ export async function resetUserPassword(id: string): Promise<ResetPasswordRespon
  * historial). El front muestra el `mode` resultante. 409 CANNOT_DELETE_SELF si es uno mismo.
  */
 export async function deleteUser(id: string): Promise<DeleteUserResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<DeleteUserResponse>(`/admin/users/${id}`, { method: 'DELETE' });
   }
   // MOCK: un usuario con historial económico (órdenes/buylist) cae en soft; el resto hard.
@@ -6923,7 +6931,7 @@ const MOCK_USERNAME_RULES: { rule: 'required' | 'length' | 'charset' | 'start'; 
  * lowercasea server-side. Errores: 409 EMAIL_TAKEN, 422 VALIDATION_ERROR, 403 FORBIDDEN.
  */
 export async function createAdminUser(input: CreateAdminUserInput): Promise<AdminCreatedUserDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminCreatedUserDTO>('/admin/users', { method: 'POST', body: input });
   }
   // MOCK: pendiente de backend real — replica el shape 201 del contrato. Autogenera la
@@ -6991,7 +6999,7 @@ export async function getAdminUserOrders(
   userId: string,
   params: UserHistoryParams = {},
 ): Promise<Paginated<AdminOrderDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<AdminOrderDTO>>('/admin/orders', {
       query: { userId, page: params.page, pageSize: params.pageSize },
     });
@@ -7004,7 +7012,7 @@ export async function getAdminUserBuylist(
   userId: string,
   params: UserHistoryParams = {},
 ): Promise<Paginated<AdminBuylistDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<AdminBuylistDTO>>('/admin/buylist', {
       query: { userId, page: params.page, pageSize: params.pageSize },
     });
@@ -7022,7 +7030,7 @@ export async function getAdminUserShipments(
   userId: string,
   params: UserHistoryParams = {},
 ): Promise<Paginated<ShipmentDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<ShipmentDTO>>('/admin/shipments', {
       query: { userId, page: params.page, pageSize: params.pageSize },
     });
@@ -7035,7 +7043,7 @@ export async function getAdminUserDisputes(
   userId: string,
   params: UserHistoryParams = {},
 ): Promise<Paginated<DisputeDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<DisputeDTO>>('/admin/disputes', {
       query: { userId, page: params.page, pageSize: params.pageSize },
     });
@@ -7053,7 +7061,7 @@ export async function getAdminUserAudit(
   params: { scope?: UserAuditScope } & UserHistoryParams = {},
 ): Promise<Paginated<UserAuditEntryDTO>> {
   const scope: UserAuditScope = params.scope ?? 'target';
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<Paginated<UserAuditEntryDTO>>(`/admin/users/${userId}/audit`, {
       query: { scope, page: params.page, pageSize: params.pageSize },
     });
@@ -7064,7 +7072,7 @@ export async function getAdminUserAudit(
 // ---------- Admin M10 · Config (diales) y bitácora (contrato §M10) ----------
 /** Todos los diales (contrato GET /admin/settings). */
 export async function getSettings(): Promise<SettingsDTO> {
-  if (!config.useMocks) return apiRequest<SettingsDTO>('/admin/settings');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<SettingsDTO>('/admin/settings');
   return delay(fx.mockSettings);
 }
 
@@ -7073,7 +7081,7 @@ export async function getSettings(): Promise<SettingsDTO> {
  * keys a cambiar); NO existe PATCH /admin/settings/:key.
  */
 export async function updateSettings(patch: EditableSettingsPatch): Promise<SettingsDTO> {
-  if (!config.useMocks) return apiRequest<SettingsDTO>('/admin/settings', { method: 'PUT', body: patch });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<SettingsDTO>('/admin/settings', { method: 'PUT', body: patch });
   // MOCK 🔒 v1.80.12.10 (§19.30.2 (1)): un no dueño que MUEVE una clave del dueño ⇒ `403 OWNER_ONLY_SETTING {keys}` y
   // nada se escribe; si las manda IGUALES a lo vigente, se quitan del cuerpo antes de escribir.
   const body: EditableSettingsPatch = { ...patch };
@@ -7104,7 +7112,7 @@ export async function getIvaTransferPreview(params: {
   ivaTransferPct: number;
   samplePriceCents: number;
 }): Promise<IvaTransferPreviewDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<IvaTransferPreviewDTO>('/admin/settings/iva-transfer/preview', {
       query: { ivaTransferPct: params.ivaTransferPct, samplePriceCents: params.samplePriceCents },
     });
@@ -7128,7 +7136,7 @@ export async function getIvaTransferPreview(params: {
 export async function updateIvaTransfer(
   body: IvaTransferUpdateRequest,
 ): Promise<IvaTransferUpdateResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<IvaTransferUpdateResponse>('/admin/settings/iva-transfer', {
       method: 'PUT',
       body,
@@ -7153,7 +7161,7 @@ export interface AuditLogFilters {
 
 /** Bitácora global paginada (contrato GET /admin/audit-log). */
 export async function getAuditLog(filters: AuditLogFilters = {}): Promise<Paginated<AuditLogDTO>> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     // El contrato devuelve { data }; se normaliza a Paginated para la UI.
     const res = await apiRequest<{ data: AuditLogDTO[]; page?: number; pageSize?: number; total?: number }>(
       '/admin/audit-log',
@@ -7191,7 +7199,7 @@ export interface FinanceRange {
 
 /** P&L por rango (contrato GET /admin/finance/pnl). */
 export async function getPnl(range: FinanceRange = {}): Promise<PnlDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<PnlDTO>('/admin/finance/pnl', { query: { from: range.from, to: range.to } });
   }
   return delay(fx.mockPnl);
@@ -7199,19 +7207,19 @@ export async function getPnl(range: FinanceRange = {}): Promise<PnlDTO> {
 
 /** Valor de inventario a referencia y a costo (contrato GET /admin/finance/inventory-value). */
 export async function getInventoryValue(): Promise<InventoryValueDTO> {
-  if (!config.useMocks) return apiRequest<InventoryValueDTO>('/admin/finance/inventory-value');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<InventoryValueDTO>('/admin/finance/inventory-value');
   return delay(fx.mockInventoryValue);
 }
 
 /** Valor en custodia de clientes (contrato GET /admin/finance/custody-value). */
 export async function getCustodyValue(): Promise<CustodyValueDTO> {
-  if (!config.useMocks) return apiRequest<CustodyValueDTO>('/admin/finance/custody-value');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<CustodyValueDTO>('/admin/finance/custody-value');
   return delay(fx.mockCustodyValue);
 }
 
 /** IVA cobrado por rango, para conciliación/CFDI (contrato GET /admin/finance/iva). */
 export async function getIvaReport(range: FinanceRange = {}): Promise<IvaReportDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<IvaReportDTO>('/admin/finance/iva', { query: { from: range.from, to: range.to } });
   }
   return delay(fx.mockIvaReport);
@@ -7234,7 +7242,7 @@ export async function exportFinanceCsv(input: {
 }): Promise<string> {
   const path =
     input.source === 'reports' ? '/admin/reports/export.csv' : '/admin/finance/export.csv';
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const url = new URL(config.apiBaseUrl + path);
     if (input.report) url.searchParams.set('report', input.report);
     if (input.from) url.searchParams.set('from', input.from);
@@ -7254,7 +7262,7 @@ export async function exportFinanceCsv(input: {
 // ---------- Admin M9 · Reportes (contrato §M9) ----------
 /** Métricas de lanzamiento vs metas N/X/Y/Z (contrato GET /admin/reports/launch-metrics). */
 export async function getLaunchMetrics(range: FinanceRange = {}): Promise<LaunchMetricsDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<LaunchMetricsDTO>('/admin/reports/launch-metrics', {
       query: { from: range.from, to: range.to },
     });
@@ -7280,7 +7288,7 @@ function salesQuery(p: SalesReportParams): Record<string, string | undefined> {
 
 /** `GET /admin/reports/sales` — pestaña «Ventas» de Reportes. */
 export async function getSalesReport(params: SalesReportParams = {}): Promise<SalesReportDTO> {
-  if (!config.useMocks) return apiRequest<SalesReportDTO>('/admin/reports/sales', { query: salesQuery(params) });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<SalesReportDTO>('/admin/reports/sales', { query: salesQuery(params) });
   // Modo demo: servidor falso `mock/sales.ts`.
   return mockSdx(() => salesMock.mockSalesReport(params));
 }
@@ -7290,7 +7298,7 @@ export async function getSalesReport(params: SalesReportParams = {}): Promise<Sa
  * (lo más vendido no se exporta). El nombre lo da `Content-Disposition` (`ventas_<from>_<to>_<groupBy>.csv`).
  */
 export async function exportSalesCsv(params: SalesReportParams = {}): Promise<BlobResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return requestBlob('/admin/reports/sales/export.csv', { query: salesQuery({ ...params, topSort: undefined }) });
   }
   return mockSdx(() => {
@@ -7301,7 +7309,7 @@ export async function exportSalesCsv(params: SalesReportParams = {}): Promise<Bl
 
 /** `GET /admin/reports/sales/today` — tarjeta «Ventas de hoy» del tablero (solo se pide con súper-admin). */
 export async function getSalesToday(): Promise<SalesTodayDTO> {
-  if (!config.useMocks) return apiRequest<SalesTodayDTO>('/admin/reports/sales/today');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<SalesTodayDTO>('/admin/reports/sales/today');
   return mockSdx(() => salesMock.mockSalesToday());
 }
 
@@ -7347,7 +7355,7 @@ function mockGuestDirectShip(listings: ListingDTO[], accessoryCount: number, sub
  * (lo cobrado lo decide `session`). Sin Bearer: es público y no rechaza una sesión, pero no la necesita.
  */
 export async function getPublicShippingRule(): Promise<PublicShippingRuleDTO> {
-  if (!config.useMocks) return apiRequest<PublicShippingRuleDTO>('/checkout/shipping-rule');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<PublicShippingRuleDTO>('/checkout/shipping-rule');
   const d = mockDirectShipDials();
   return delay({
     // Diales con IVA incluido (dueño 2026-10-24): la `E` exhibida ES el valor del dial.
@@ -7397,7 +7405,7 @@ export async function getGuestCheckoutQuote(
   /** 💰 §DSC.6 (aditivo): el código del renglón «¿Tienes un código?». Sin él, el cuerpo es el de hoy (I-1). */
   discountCode?: string,
 ): Promise<GuestCheckoutQuoteResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<GuestCheckoutQuoteResponse>('/checkout/guest/quote', {
       method: 'POST',
       body: {
@@ -7586,7 +7594,7 @@ export function mockDiscountedDirectShip(
 export async function createGuestCheckoutSession(
   input: GuestCheckoutSessionRequest,
 ): Promise<GuestCheckoutSessionResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<GuestCheckoutSessionResponse>('/checkout/guest/session', {
       method: 'POST',
       // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
@@ -7685,7 +7693,7 @@ export async function createGuestCheckoutSession(
  * ramifica el mensaje por código.
  */
 export async function trackGuestOrder(token: string): Promise<GuestOrderTrackingDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<GuestOrderTrackingDTO>('/orders/guest/track', { method: 'POST', body: { token } });
   }
   // MOCK determinista (para demo y E2E sin backend):
@@ -7776,7 +7784,7 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
 export async function resendGuestTrackingLink(
   input: GuestResendLinkRequest,
 ): Promise<GuestResendLinkResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<GuestResendLinkResponse>('/orders/guest/resend-link', {
       method: 'POST',
       body: input,
@@ -7791,7 +7799,7 @@ export async function resendGuestTrackingLink(
  * oráculo). Err: 401, 403 EMAIL_NOT_VERIFIED.
  */
 export async function getClaimableOrders(): Promise<ClaimableOrderDTO[]> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const res = await apiRequest<{ data: ClaimableOrderDTO[] }>('/orders/claimable');
     return res.data;
   }
@@ -7829,7 +7837,7 @@ function mockClaimablePool(): ClaimableOrderDTO[] {
  * El reclamo NO cambia destino, precio, políticas ni estado del pedido (criterio 54).
  */
 export async function claimGuestOrders(orderIds: string[]): Promise<ClaimOrdersResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ClaimOrdersResponse>('/orders/claim', { method: 'POST', body: { orderIds } });
   }
   // MOCK: parcial-tolerante como el contrato — los ids que no están en el pool vienen en `failed`
@@ -7872,20 +7880,20 @@ export async function getAccessories(params: {
   pageSize?: number;
 }): Promise<AccessoryListResponse> {
   const query = { category: params.category, q: params.q, page: params.page ?? 1, pageSize: params.pageSize ?? 24 };
-  if (!config.useMocks) return apiRequest<AccessoryListResponse>('/accessories', { query });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AccessoryListResponse>('/accessories', { query });
   return mockAccCall(() => mockAcc.mockListAccessories(query));
 }
 
 /** `GET /accessories/:id` (§AC.3). Inexistente o inactivo ⇒ `404 ACCESSORY_NOT_FOUND`. */
 export async function getAccessory(id: string): Promise<AccessoryDetailDTO> {
-  if (!config.useMocks) return apiRequest<AccessoryDetailDTO>(`/accessories/${encodeURIComponent(id)}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AccessoryDetailDTO>(`/accessories/${encodeURIComponent(id)}`);
   return mockAccCall(() => mockAcc.mockGetAccessory(id));
 }
 
 /** `GET /accessories/suggestions?exclude=<id>,<id>` (§AC.3). ⛔ Nunca energías (las filtra el servidor). */
 export async function getAccessorySuggestions(exclude: string[]): Promise<AccessorySuggestionsResponse> {
   const ids = exclude.slice(0, 50);
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AccessorySuggestionsResponse>('/accessories/suggestions', {
       query: { exclude: ids.length ? ids.join(',') : undefined },
     });
@@ -7895,7 +7903,7 @@ export async function getAccessorySuggestions(exclude: string[]): Promise<Access
 
 /** `GET /admin/accessories` (§AC.11, operador+). */
 export async function listAdminAccessories(params: AdminAccessoryListParams = {}): Promise<AdminAccessoryListResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminAccessoryListResponse>('/admin/accessories', {
       query: {
         category: params.category,
@@ -7911,7 +7919,7 @@ export async function listAdminAccessories(params: AdminAccessoryListParams = {}
 
 /** `GET /admin/accessories/:id` (§AC.11). `unitCostCents` AUSENTE para el operador. */
 export async function getAdminAccessory(id: string): Promise<AdminAccessoryDTO> {
-  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}`);
   return mockAccCall(() => {
     const a = mockAcc.mockAdminGet(id);
     if (getStoredUser()?.role === 'vault_operator' || mockRoleIsOperator()) delete a.unitCostCents;
@@ -7926,13 +7934,13 @@ function mockRoleIsOperator(): boolean {
 
 /** `POST /admin/accessories` (§AC.11). Nace inactivo. Operador con campo ★ ⇒ `403 FORBIDDEN_FIELD`. `201 AdminAccessoryDTO`. */
 export async function createAdminAccessory(body: AdminAccessoryCreateRequest): Promise<AdminAccessoryDTO> {
-  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>('/admin/accessories', { method: 'POST', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminAccessoryDTO>('/admin/accessories', { method: 'POST', body });
   return mockAccCall(() => mockAcc.mockAdminCreate(body, !mockRoleIsOperator()));
 }
 
 /** `PATCH /admin/accessories/:id` (§AC.11). v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO` (sin cambios ⇒ la fila tal cual). */
 export async function updateAdminAccessory(id: string, body: AdminAccessoryWriteFields): Promise<AdminAccessoryDTO> {
-  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}`, { method: 'PATCH', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}`, { method: 'PATCH', body });
   return mockAccCall(() => mockAcc.mockAdminPatch(id, body, !mockRoleIsOperator()));
 }
 
@@ -7941,25 +7949,25 @@ export async function updateAdminAccessory(id: string, body: AdminAccessoryWrite
  * v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO` (ya activo ⇒ idempotente).
  */
 export async function activateAdminAccessory(id: string): Promise<AdminAccessoryDTO> {
-  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/activate`, { method: 'POST' });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/activate`, { method: 'POST' });
   return mockAccCall(() => mockAcc.mockAdminActivate(id, true));
 }
 
 /** `POST /admin/accessories/:id/deactivate` (★). Siempre. v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO`. */
 export async function deactivateAdminAccessory(id: string): Promise<AdminAccessoryDTO> {
-  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/deactivate`, { method: 'POST' });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/deactivate`, { method: 'POST' });
   return mockAccCall(() => mockAcc.mockAdminActivate(id, false));
 }
 
 /** `DELETE /admin/accessories/:id` (★). Con ventas ⇒ `409 ACCESSORY_HAS_SALES`; si no ⇒ `204`. */
 export async function deleteAdminAccessory(id: string): Promise<void> {
-  if (!config.useMocks) return apiRequest<void>(`/admin/accessories/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<void>(`/admin/accessories/${encodeURIComponent(id)}`, { method: 'DELETE' });
   return mockAccCall(() => mockAcc.mockAdminDelete(id));
 }
 
 /** `POST /admin/accessories/:id/photo` (operador+): `multipart/form-data`, campo `file`. `200 AdminAccessoryDTO`. */
 export async function uploadAccessoryPhoto(id: string, file: File): Promise<AdminAccessoryDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     const form = new FormData();
     form.append('file', file);
     return apiRequestMultipart<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/photo`, form);
@@ -7969,13 +7977,13 @@ export async function uploadAccessoryPhoto(id: string, file: File): Promise<Admi
 
 /** `POST /admin/accessories/:id/stock` (operador+). v1.86.3 (§AC.19.2): `200 AdminAccessoryDTO`. */
 export async function postAccessoryStock(id: string, body: AccessoryStockRequest): Promise<AdminAccessoryDTO> {
-  if (!config.useMocks) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/stock`, { method: 'POST', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<AdminAccessoryDTO>(`/admin/accessories/${encodeURIComponent(id)}/stock`, { method: 'POST', body });
   return mockAccCall(() => mockAcc.mockAdminStock(id, body, getStoredUser()?.name ?? null));
 }
 
 /** `GET /admin/accessories/:id/stock-movements?page=` (operador+). */
 export async function listAccessoryStockMovements(id: string, page = 1): Promise<AccessoryStockMovementsResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AccessoryStockMovementsResponse>(`/admin/accessories/${encodeURIComponent(id)}/stock-movements`, { query: { page } });
   }
   return mockAccCall(() => mockAcc.mockAdminMovements(id, page));
@@ -7990,7 +7998,7 @@ export async function setShipPrepAccessoryLine(
   lineId: string,
   body: SetShipPrepAccessoryLineRequest,
 ): Promise<SetShipPrepAccessoryLineResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<SetShipPrepAccessoryLineResponse>(`/admin/shipments/${shipmentId}/prep-accessory-lines/${lineId}`, {
       method: 'PATCH',
       body,
@@ -8012,7 +8020,7 @@ export async function refundAccessoryLineDelivered(
   lineId: string,
   body: RefundAccessoryLineDeliveredRequest,
 ): Promise<RefundAccessoryLineDeliveredResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<RefundAccessoryLineDeliveredResponse>(`/admin/orders/${orderId}/accessory-lines/${lineId}/refund-delivered`, {
       method: 'POST',
       body,
@@ -8029,25 +8037,25 @@ export async function refundAccessoryLineDelivered(
 
 /** `GET /wishlist` — `401`; `404 FEATURE_DISABLED` con el dial apagado (la UI lo trata como «no existe»). */
 export async function getWishlist(): Promise<WishlistResponse> {
-  if (!config.useMocks) return apiRequest<WishlistResponse>('/wishlist');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<WishlistResponse>('/wishlist');
   return delay(null).then(() => wishlistMock.mockGetWishlist());
 }
 
 /** ⭐ v1.87.1 `GET /wishlist/preview?cardId=` — pesos de cada % antes de guardar (0 escrituras). */
 export async function getWishlistPreview(cardId: string): Promise<WishlistPreviewResponse> {
-  if (!config.useMocks) return apiRequest<WishlistPreviewResponse>('/wishlist/preview', { query: { cardId } });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<WishlistPreviewResponse>('/wishlist/preview', { query: { cardId } });
   return delay(null).then(() => wishlistMock.mockGetWishlistPreview(cardId));
 }
 
 /** `POST /wishlist` — `409 WISHLIST_DUPLICATE {wishlistItemId,maxPct}`, `422 WISHLIST_LIMIT_REACHED {limit,count}`, `422 FINISH_NOT_AVAILABLE`. */
 export async function addWishlistItem(body: WishlistCreateRequest): Promise<WishlistItemDTO> {
-  if (!config.useMocks) return apiRequest<WishlistItemDTO>('/wishlist', { method: 'POST', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<WishlistItemDTO>('/wishlist', { method: 'POST', body });
   return delay(null).then(() => wishlistMock.mockAddWishlistItem(body));
 }
 
 /** `PATCH /wishlist/:id { maxPct }` — `404` si no es de la cuenta. */
 export async function updateWishlistItem(id: string, maxPct: WishlistMaxPct): Promise<WishlistItemDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<WishlistItemDTO>(`/wishlist/${encodeURIComponent(id)}`, { method: 'PATCH', body: { maxPct } });
   }
   return delay(null).then(() => wishlistMock.mockUpdateWishlistItem(id, maxPct));
@@ -8055,7 +8063,7 @@ export async function updateWishlistItem(id: string, maxPct: WishlistMaxPct): Pr
 
 /** `DELETE /wishlist/:id` — `204`; `404` si no es de la cuenta. */
 export async function removeWishlistItem(id: string): Promise<void> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     await apiRequest<void>(`/wishlist/${encodeURIComponent(id)}`, { method: 'DELETE' });
     return;
   }
@@ -8064,7 +8072,7 @@ export async function removeWishlistItem(id: string): Promise<void> {
 
 /** `PUT /wishlist/alerts { paused }`. */
 export async function setWishlistAlertsPaused(paused: boolean): Promise<{ alertsPaused: boolean }> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<{ alertsPaused: boolean }>('/wishlist/alerts', { method: 'PUT', body: { paused } });
   }
   return delay(null).then(() => wishlistMock.mockSetWishlistAlerts(paused));
@@ -8075,7 +8083,7 @@ export async function setWishlistAlertsPaused(paused: boolean): Promise<{ alerts
  * no dice por qué. ⛔ Nunca se llama al cargar la página: solo con el clic de confirmación (WSH-UX-7).
  */
 export async function postWishlistMailAction(body: WishlistMailActionRequest): Promise<WishlistMailActionResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<WishlistMailActionResponse>('/wishlist/mail-actions', { method: 'POST', body });
   }
   return delay(null).then(() => wishlistMock.mockWishlistMailAction(body));
@@ -8083,7 +8091,7 @@ export async function postWishlistMailAction(body: WishlistMailActionRequest): P
 
 /** `GET /admin/reports/wishlist-demand` (`super_admin`). Solo `sort`/`dir` viajan (v1.87.1: filtros en el navegador). */
 export async function getWishlistDemand(params: WishlistDemandParams = {}): Promise<WishlistDemandResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<WishlistDemandResponse>('/admin/reports/wishlist-demand', {
       query: { sort: params.sort, dir: params.sort ? params.dir : undefined },
     });
@@ -8097,7 +8105,7 @@ export async function getWishlistDemand(params: WishlistDemandParams = {}): Prom
 
 /** `GET /admin/reports/wishlist-demand/export.csv` — mismas filas y orden que el JSON (criterio 822), siempre completo. */
 export async function exportWishlistDemandCsv(params: WishlistDemandParams = {}): Promise<BlobResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return requestBlob('/admin/reports/wishlist-demand/export.csv', {
       query: { sort: params.sort, dir: params.sort ? params.dir : undefined },
     });
@@ -8139,7 +8147,7 @@ export interface DiscountCodeListParams {
 
 /** `GET /admin/discount-codes` — sin `batchId` excluye los códigos de lote (la lista los pinta plegados por lote). */
 export async function listDiscountCodes(params: DiscountCodeListParams = {}): Promise<DiscountCodeListResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<DiscountCodeListResponse>('/admin/discount-codes', {
       query: { status: params.status, state: params.state, batchId: params.batchId, q: params.q, page: params.page, pageSize: params.pageSize },
     });
@@ -8153,19 +8161,19 @@ export async function listDiscountCodes(params: DiscountCodeListParams = {}): Pr
 }
 
 export async function getDiscountCode(id: string): Promise<DiscountCodeDTO> {
-  if (!config.useMocks) return apiRequest<DiscountCodeDTO>(`/admin/discount-codes/${encodeURIComponent(id)}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DiscountCodeDTO>(`/admin/discount-codes/${encodeURIComponent(id)}`);
   return mockDscCall(() => mockDsc.mockGetCode(id));
 }
 
 /** `POST /admin/discount-codes` — `409 DISCOUNT_CODE_TAKEN` · `422 VALIDATION_ERROR`. */
 export async function createDiscountCode(body: DiscountCodeCreateRequest): Promise<DiscountCodeDTO> {
-  if (!config.useMocks) return apiRequest<DiscountCodeDTO>('/admin/discount-codes', { method: 'POST', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DiscountCodeDTO>('/admin/discount-codes', { method: 'POST', body });
   return mockDscCall(() => mockDsc.mockCreateCode(body));
 }
 
 /** `PATCH /admin/discount-codes/:id` — `409 DISCOUNT_CODE_LOCKED { lockedFields }` · `409 …LIMIT_BELOW_USES { inUse }`. */
 export async function patchDiscountCode(id: string, body: DiscountCodePatchRequest): Promise<DiscountCodeDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<DiscountCodeDTO>(`/admin/discount-codes/${encodeURIComponent(id)}`, { method: 'PATCH', body });
   }
   return mockDscCall(() => mockDsc.mockPatchCode(id, body));
@@ -8173,7 +8181,7 @@ export async function patchDiscountCode(id: string, body: DiscountCodePatchReque
 
 /** `POST /admin/discount-codes/:id/pause|resume` — idempotente. */
 export async function setDiscountCodePaused(id: string, paused: boolean): Promise<DiscountCodeDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<DiscountCodeDTO>(`/admin/discount-codes/${encodeURIComponent(id)}/${paused ? 'pause' : 'resume'}`, { method: 'POST' });
   }
   return mockDscCall(() => mockDsc.mockSetCodeStatus(id, paused ? 'paused' : 'active'));
@@ -8181,7 +8189,7 @@ export async function setDiscountCodePaused(id: string, paused: boolean): Promis
 
 /** `GET /admin/discount-code-batches`. */
 export async function listDiscountCodeBatches(page = 1): Promise<DiscountCodeBatchListResponse> {
-  if (!config.useMocks) return apiRequest<DiscountCodeBatchListResponse>('/admin/discount-code-batches', { query: { page } });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DiscountCodeBatchListResponse>('/admin/discount-code-batches', { query: { page } });
   return mockDscCall(() => {
     const all = mockDsc.mockListBatches();
     return { data: all.slice((page - 1) * 50, page * 50), page, pageSize: 50, total: all.length };
@@ -8189,13 +8197,13 @@ export async function listDiscountCodeBatches(page = 1): Promise<DiscountCodeBat
 }
 
 export async function getDiscountCodeBatch(id: string): Promise<DiscountCodeBatchDTO> {
-  if (!config.useMocks) return apiRequest<DiscountCodeBatchDTO>(`/admin/discount-code-batches/${encodeURIComponent(id)}`);
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DiscountCodeBatchDTO>(`/admin/discount-code-batches/${encodeURIComponent(id)}`);
   return mockDscCall(() => mockDsc.mockGetBatch(id));
 }
 
 /** `POST /admin/discount-code-batches` — `201 { batch, codesCsvPath }`. */
 export async function createDiscountCodeBatch(body: DiscountCodeBatchCreateRequest): Promise<DiscountCodeBatchCreateResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<DiscountCodeBatchCreateResponse>('/admin/discount-code-batches', { method: 'POST', body });
   }
   return mockDscCall(() => mockDsc.mockCreateBatch(body));
@@ -8203,7 +8211,7 @@ export async function createDiscountCodeBatch(body: DiscountCodeBatchCreateReque
 
 /** `POST /admin/discount-code-batches/:id/pause|resume` — los N en una sola transacción (911). */
 export async function setDiscountCodeBatchPaused(id: string, paused: boolean): Promise<DiscountCodeBatchDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<DiscountCodeBatchDTO>(`/admin/discount-code-batches/${encodeURIComponent(id)}/${paused ? 'pause' : 'resume'}`, {
       method: 'POST',
     });
@@ -8213,7 +8221,7 @@ export async function setDiscountCodeBatchPaused(id: string, paused: boolean): P
 
 /** `GET /admin/discount-code-batches/:id/codes.csv` (auditado: reparte códigos). */
 export async function downloadDiscountCodeBatchCsv(id: string): Promise<BlobResponse> {
-  if (!config.useMocks) return requestBlob(`/admin/discount-code-batches/${encodeURIComponent(id)}/codes.csv`);
+  if (!(MOCKS_BUILD && config.useMocks)) return requestBlob(`/admin/discount-code-batches/${encodeURIComponent(id)}/codes.csv`);
   return mockDscCall(() => {
     const csv = mockDsc.mockBatchCsv(id);
     mockDsc.mockAuditExport('DiscountCodeBatch', id, 'discount.batch.codes_exported', csv.trim().split('\n').length - 1);
@@ -8227,7 +8235,7 @@ export async function getDiscountReport(
   range: { from?: string; to?: string } = {},
 ): Promise<DiscountReportDTO> {
   const base = target.kind === 'code' ? '/admin/discount-codes' : '/admin/discount-code-batches';
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<DiscountReportDTO>(`${base}/${encodeURIComponent(target.id)}/report`, { query: { from: range.from, to: range.to } });
   }
   return mockDscCall(() => (target.kind === 'code' ? mockDsc.mockCodeReport(target.id) : mockDsc.mockBatchReport(target.id)));
@@ -8238,14 +8246,14 @@ export async function getDiscountReport(
  * `allocateDiscount` sobre el carrito de ejemplo. Cero escrituras. ⛔ El front no hace ninguna cuenta con esto.
  */
 export async function previewDiscountCode(body: DiscountPreviewRequest): Promise<DiscountPreviewResponse> {
-  if (!config.useMocks) return apiRequest<DiscountPreviewResponse>('/admin/discount-codes/preview', { method: 'POST', body });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DiscountPreviewResponse>('/admin/discount-codes/preview', { method: 'POST', body });
   return mockDscCall(() => mockDsc.mockPreview(body));
 }
 
 /** `GET /admin/discount-codes/:id/audit` · `GET /admin/discount-code-batches/:id/audit` (v1.110.1) — antes → después. */
 export async function getDiscountAudit(target: { kind: 'code' | 'batch'; id: string }, page = 1): Promise<DiscountAuditResponse> {
   const base = target.kind === 'code' ? '/admin/discount-codes' : '/admin/discount-code-batches';
-  if (!config.useMocks) return apiRequest<DiscountAuditResponse>(`${base}/${encodeURIComponent(target.id)}/audit`, { query: { page } });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DiscountAuditResponse>(`${base}/${encodeURIComponent(target.id)}/audit`, { query: { page } });
   return mockDscCall(() => {
     const all = mockDsc.mockAudit(target.kind === 'code' ? 'DiscountCode' : 'DiscountCodeBatch', target.id);
     return { data: all.slice((page - 1) * 50, page * 50), page, pageSize: 50, total: all.length };
@@ -8258,7 +8266,7 @@ export async function downloadDiscountReportCsv(
   range: { from?: string; to?: string } = {},
 ): Promise<BlobResponse> {
   const base = target.kind === 'code' ? '/admin/discount-codes' : '/admin/discount-code-batches';
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return requestBlob(`${base}/${encodeURIComponent(target.id)}/report.csv`, { query: { from: range.from, to: range.to } });
   }
   return mockDscCall(() => {

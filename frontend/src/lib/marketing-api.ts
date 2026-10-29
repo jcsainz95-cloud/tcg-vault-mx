@@ -21,6 +21,9 @@ import type {
   MetaTestEventResult,
 } from '@/types/contract';
 
+/** PERF (§DYN.3): mismo literal de build que en `api.ts`; poda las ramas mock en producción. */
+const MOCKS_BUILD = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
+
 /** Periodo cerrado tal como lo acepta el servidor: `weekStart=` (lunes) o `month=` (§MKT.G.3). */
 export type MarketingPeriodQuery = { weekStart: string; month?: undefined } | { month: string; weekStart?: undefined };
 
@@ -40,13 +43,13 @@ function periodQuery(p: MarketingPeriodQuery): Record<string, string> {
 
 /** `GET /admin/marketing/periods` (§MKT.G.3). */
 export function getMarketingPeriods(): Promise<MarketingPeriodsResponse> {
-  if (!config.useMocks) return apiRequest<MarketingPeriodsResponse>('/admin/marketing/periods');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<MarketingPeriodsResponse>('/admin/marketing/periods');
   return mocked(() => mock.mockMarketingPeriods());
 }
 
 /** `GET /admin/marketing/panel?pantalla=&weekStart|month=` (§MKT.G.2). */
 export function getMarketingPanel(screen: MarketingScreen, period: MarketingPeriodQuery): Promise<MarketingScreenPayload> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<MarketingScreenPayload>('/admin/marketing/panel', { query: { pantalla: screen, ...periodQuery(period) } });
   }
   return mocked(() => mock.mockMarketingPanel(screen, period));
@@ -54,7 +57,7 @@ export function getMarketingPanel(screen: MarketingScreen, period: MarketingPeri
 
 /** `GET /admin/marketing/weekly-excel?weekStart|month=` (§MKT.E, botón principal). */
 export function downloadMarketingWeeklyExcel(period: MarketingPeriodQuery): Promise<BlobResponse> {
-  if (!config.useMocks) return requestBlob('/admin/marketing/weekly-excel', { query: periodQuery(period) });
+  if (!(MOCKS_BUILD && config.useMocks)) return requestBlob('/admin/marketing/weekly-excel', { query: periodQuery(period) });
   return mocked(() => toBlob(mock.mockMarketingDownload('semana', period)));
 }
 
@@ -64,7 +67,7 @@ export function exportMarketingScreen(
   format: 'xlsx' | 'csv',
   period: MarketingPeriodQuery,
 ): Promise<BlobResponse> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return requestBlob('/admin/marketing/export', { query: { pantalla: screen, format, ...periodQuery(period) } });
   }
   return mocked(() => {
@@ -80,37 +83,37 @@ function toBlob({ text, filename }: { text: string; filename: string }): BlobRes
 // ---------------------------------------------------------------- anotaciones (§MKT.E h1)
 
 export function listMarketingAnnotations(range: { from?: string; to?: string } = {}): Promise<MarketingAnnotationDTO[]> {
-  if (!config.useMocks) return apiRequest<MarketingAnnotationDTO[]>('/admin/marketing/annotations', { query: range });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<MarketingAnnotationDTO[]>('/admin/marketing/annotations', { query: range });
   return mocked(() => mock.mockListAnnotations(range.from, range.to));
 }
 export function createMarketingAnnotation(input: MarketingAnnotationInput): Promise<MarketingAnnotationDTO> {
-  if (!config.useMocks) return apiRequest<MarketingAnnotationDTO>('/admin/marketing/annotations', { method: 'POST', body: input });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<MarketingAnnotationDTO>('/admin/marketing/annotations', { method: 'POST', body: input });
   return mocked(() => mock.mockCreateAnnotation(input));
 }
 /** `PATCH` — al pasar a un tipo que no es promoción, `destino: ''` lo borra (DTO del servidor `Length(0,200)`). */
 export function updateMarketingAnnotation(id: string, input: MarketingAnnotationInput): Promise<MarketingAnnotationDTO> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<MarketingAnnotationDTO>(`/admin/marketing/annotations/${encodeURIComponent(id)}`, { method: 'PATCH', body: input });
   }
   return mocked(() => mock.mockUpdateAnnotation(id, input));
 }
 export function deleteMarketingAnnotation(id: string): Promise<void> {
-  if (!config.useMocks) return apiRequest<void>(`/admin/marketing/annotations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<void>(`/admin/marketing/annotations/${encodeURIComponent(id)}`, { method: 'DELETE' });
   return mocked(() => mock.mockDeleteAnnotation(id));
 }
 
 // ---------------------------------------------------------------- acceso del analista (§MKT.G.6, solo super_admin)
 
 export function listMarketingTokens(): Promise<{ items: MarketingApiTokenView[] }> {
-  if (!config.useMocks) return apiRequest<{ items: MarketingApiTokenView[] }>('/admin/marketing/tokens');
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<{ items: MarketingApiTokenView[] }>('/admin/marketing/tokens');
   return mocked(() => mock.mockListTokens());
 }
 export function issueMarketingToken(label: string): Promise<MarketingApiTokenIssued> {
-  if (!config.useMocks) return apiRequest<MarketingApiTokenIssued>('/admin/marketing/tokens', { method: 'POST', body: { label } });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<MarketingApiTokenIssued>('/admin/marketing/tokens', { method: 'POST', body: { label } });
   return mocked(() => mock.mockIssueToken(label));
 }
 export function revokeMarketingToken(id: string): Promise<MarketingApiTokenView> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<MarketingApiTokenView>(`/admin/marketing/tokens/${encodeURIComponent(id)}/revoke`, { method: 'POST' });
   }
   return mocked(() => mock.mockRevokeToken(id));
@@ -124,7 +127,7 @@ export function revokeMarketingToken(id: string): Promise<MarketingApiTokenView>
  * ⛔ El código y el resultado se devuelven al llamador y NADA de aquí los guarda (ni URL: el código va en el cuerpo).
  */
 export function sendMetaTestEvent(testEventCode: string): Promise<MetaTestEventResult> {
-  if (!config.useMocks) {
+  if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<MetaTestEventResult>('/admin/measurement/meta-test-event', { method: 'POST', body: { testEventCode } });
   }
   return mocked(() => mock.mockMetaTestEvent(testEventCode));
