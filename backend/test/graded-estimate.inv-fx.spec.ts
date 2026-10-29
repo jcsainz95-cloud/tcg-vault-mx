@@ -7,6 +7,7 @@ import { PokemonPriceTrackerBulkProvider } from '../src/modules/pricing/provider
 import { PptSetMapper } from '../src/modules/pricing/ppt-set-mapper.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { SettingKey } from '../src/modules/settings/settings.constants';
+import { withGradedTurns } from './helpers/graded-turns-double';
 
 /**
  * v1.50.2 — **INV-FX** (ARCHITECTURE §4.38a, invariante NUMERADO **de dinero**) + el alcance y las
@@ -200,6 +201,7 @@ function wireIngest(opts: {
     inventoryItem: { findMany: jest.fn(async () => opts.published ?? [{ cardId: 'c1' }]) },
     card: { findMany: jest.fn(async () => opts.cards ?? [CARD]), findUnique: jest.fn(async () => ({ id: 'c1' })) },
   } as unknown as PrismaService;
+  withGradedTurns(prisma); // v1.113⟨portada⟩ (§DYN.4): turno PSA en memoria
   const settings = new SettingsService(prisma);
   const pricing = new PricingService(prisma, settings, {} as unknown as FxService, {} as never, {} as never, {} as never);
   jest.spyOn(pricing, 'getPublishedSlabGradesBatch').mockResolvedValue(opts.slabs ?? new Map());
@@ -294,14 +296,14 @@ describe('§4.38h — el job del ingest: diales, alcance e INV-D', () => {
     expect(where).toMatchObject({ ownerType: 'platform', status: 'listed', productType: 'raw' });
   });
 
-  it('el tope DURO por corrida se aplica (un error de alcance no puede quemar la cuota del día)', async () => {
+  it('v1.113 (§DYN.4.1, DYN-B14) — SIN corte por número de cartas: las 500 publicadas entran al alcance', async () => {
     const published = Array.from({ length: 500 }, (_, i) => ({ cardId: `c${i}` }));
     const { ingest } = wireIngest({
-      config: { ...ON, [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 10 },
+      config: { ...ON, graded_estimate_ingest_max_cards_per_run: 10 }, // fila retirada: inerte
       published,
     });
     const res = await ingest.ingestGradedEstimates(FX);
-    expect(res.cardsInScope).toBe(10);
+    expect(res.cardsInScope).toBe(500);
   });
 
   it('INV-D (§4.38l): con SLAB PUBLICADO de ese grado se SALTA la carta y queda `AuditLog`', async () => {

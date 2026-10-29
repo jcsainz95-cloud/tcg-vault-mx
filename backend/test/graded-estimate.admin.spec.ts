@@ -228,7 +228,7 @@ describe('GET /admin/pricing/graded-estimates', () => {
       maxRawMultiple: 100,
       minSampleCount: 5,
       sourceStat: 'median',
-      ingestMaxCardsPerRun: 250,
+      // ⛔ v1.113⟨portada⟩ (§DYN.3, DYN-B20): `ingestMaxCardsPerRun` RETIRADO — ya no viaja en el `GET`.
     });
   });
 
@@ -450,70 +450,34 @@ describe('PUT /admin/pricing/graded-estimates — invariantes I1–I7 (fail-clos
 });
 
 /**
- * **v1.51-a — I8 ESTRECHADO: `ingestMaxCardsPerRun` pasa de `[1, 5000]` a `[1, 1000]`**
- * (ARCHITECTURE §4.38r.3.4, API_CONTRACT v1.51-a). Es la PUERTA: lo que un `PUT` puede autorizar.
- *
- * ### Por qué el número viejo no era un tope
- * `5 000 × 2 créditos × 2 corridas = 20 000 créditos/día` es **la cuota diaria completa** del plan del
- * dueño, alcanzable con **un solo `PUT` válido**, sin redeploy y sin aprobación adicional. Una cota cuyo
- * máximo admisible **coincide con el presupuesto total** no acota nada.
- *
- * ### ⛔ Lo que estos tests NO afirman
- * **No** afirman que el gasto quede acotado. `ingestMaxCardsPerRun` acota las cartas **EN ALCANCE**, no
- * las que el proveedor DEVUELVE (`fetchAllInSet=true` pide el SET entero): con un factor de
- * amplificación `A = 16` —gobernado por el nº de sets, que **ningún dial configura**— 1 000 siguen
- * siendo 16 000 créditos. Lo que se fija aquí es el **peor caso NOMINAL** que un `PUT` autoriza. Leer
- * esto como «ya está acotado el gasto» sería falsa cobertura; el gasto lo acota la MEDICIÓN que
- * §4.38(r.3.1) hace precondición del primer `off → on`.
- *
- * Los rangos NO se importan de `graded-estimate.ts` a propósito: se escriben los números del CONTRATO.
- * Importar la constante haría que el test se moviera solo con ella y dejara de ser un candado.
+ * **v1.113⟨portada⟩ (API_CONTRACT §DYN.3, DYN-B20) — `ingestMaxCardsPerRun` RETIRADO.** El corte por corrida dejó de existir
+ * (lo sustituye el tope de créditos por día CDMX de M10). Sale del `GET`, y enviado en el `PUT` se RECHAZA: el contrato dice
+ * «como cualquier campo desconocido de ese cuerpo», pero el pipe global es `whitelist` SIN `forbidNonWhitelisted`
+ * (`main.ts:38`) — un campo desconocido se DESCARTA en silencio, no se rechaza. Para cumplir «rechazado» el controlador lo
+ * rechaza explícitamente con `422 VALIDATION_ERROR { field: 'ingestMaxCardsPerRun' }` (enrutado al arquitecto en BACKEND_NOTES).
  */
-describe('PUT /admin/pricing/graded-estimates — I8 v1.51-a: `ingestMaxCardsPerRun` ∈ [1, 1000]', () => {
-  it('`1000` (el máximo NUEVO) ⇒ 200, persiste y se ve en el `GET`', async () => {
+describe('DYN-B20 — `ingestMaxCardsPerRun` ausente del `GET` y rechazado en el `PUT`', () => {
+  it('el `GET` no lo trae (ni aunque la fila vieja siga en la tabla)', async () => {
     const { ctrl, configStore } = wire();
-    const after = await ctrl.put({ ingestMaxCardsPerRun: 1000 }, 'admin');
-    expect(after.ingestMaxCardsPerRun).toBe(1000);
-    expect(configStore.get(SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN)).toBe(1000);
-    expect(await ctrl.get()).toEqual(after);
+    configStore.set('graded_estimate_ingest_max_cards_per_run', 250);
+    expect(Object.keys(await ctrl.get())).not.toContain('ingestMaxCardsPerRun');
   });
 
-  it('el seed `250` y el mínimo `1` siguen siendo válidos (es un ESTRECHAMIENTO: nada de lo vigente se rompe)', async () => {
-    for (const v of [1, 250, 999]) {
-      const { ctrl } = wire();
-      expect((await ctrl.put({ ingestMaxCardsPerRun: v }, 'admin')).ingestMaxCardsPerRun).toBe(v);
-    }
-  });
-
-  it('`1001` y `5000` —que ANTES pasaban— ⇒ 422 VALIDATION_ERROR, con el rango nuevo en el mensaje', async () => {
-    for (const v of [1001, 2000, 5000]) {
+  it('enviarlo ⇒ 422 VALIDATION_ERROR con `details.field`, y NADA del body se escribe (todo o nada)', async () => {
+    for (const v of [250, 1000, 5000, null]) {
       const { ctrl, upsert } = wire();
-      await expect(ctrl.put({ ingestMaxCardsPerRun: v }, 'admin')).rejects.toMatchObject({
+      await expect(ctrl.put({ minUpsidePct: 60, ingestMaxCardsPerRun: v } as never, 'admin')).rejects.toMatchObject({
         code: 'VALIDATION_ERROR',
-        // El mensaje interpola la constante: si alguien la sube, este texto cambia y el test cae.
-        message: 'ingestMaxCardsPerRun must be an integer in [1, 1000] (cards per run)',
         details: { field: 'ingestMaxCardsPerRun' },
       });
-      expect(upsert).not.toHaveBeenCalled(); // todo-o-nada: un body inválido no escribe NADA
+      expect(upsert).not.toHaveBeenCalled();
     }
   });
 
-  it('los bordes de siempre siguen cerrados: `0`, negativos, no-enteros y strings ⇒ 422', async () => {
+  it('el `PUT` válido devuelve la config SIN el campo retirado', async () => {
     const { ctrl } = wire();
-    for (const v of [0, -1, 1.5, '250', null, NaN]) {
-      await expect(ctrl.put({ ingestMaxCardsPerRun: v } as never, 'admin')).rejects.toMatchObject({
-        code: 'VALIDATION_ERROR',
-      });
-    }
-  });
-
-  it('el rechazo de `5000` no arrastra al resto del body (ni el dial válido del mismo `PUT` se escribe)', async () => {
-    const { ctrl, upsert, configStore } = wire();
-    await expect(
-      ctrl.put({ minUpsidePct: 60, ingestMaxCardsPerRun: 5000 }, 'admin'),
-    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'ingestMaxCardsPerRun' } });
-    expect(upsert).not.toHaveBeenCalled();
-    expect(configStore.has(SettingKey.GRADING_MIN_UPSIDE_PCT)).toBe(false);
+    const after = await ctrl.put({ minUpsidePct: 60 }, 'admin');
+    expect(Object.keys(after)).not.toContain('ingestMaxCardsPerRun');
   });
 });
 
@@ -596,7 +560,6 @@ describe('GET /admin/pricing/graded-estimates/preview — «¿por qué no está 
       'grades',
       'gradingCostTiers',
       'highlightGrades',
-      'ingestMaxCardsPerRun',
       'manualFreshnessDays',
       'maxRawMultiple',
       'minSampleCount',

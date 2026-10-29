@@ -11,6 +11,7 @@ import {
   SettingKey,
   SettingKeyType,
   validateBuylistCrossDials,
+  validateFeaturedCombination,
   validateIvaTransferPct,
 } from './settings.constants';
 // ⭐⭐ v1.74 (D56, §M10-IVA.9 / §4.55) — la ARITMÉTICA de la puerta del dial, PURA y sin infra. Vive
@@ -616,6 +617,8 @@ export class SettingsService implements OnModuleInit {
 
     // v1.51 (M-46, §4.39l / criterio 127) — VALIDACIÓN CRUZADA BLOQUEANTE ENTRE TRES DIALES.
     await this.assertBuylistCrossDials(validated);
+    // v1.113⟨portada⟩ (§DYN.3) — las dos reglas de Destacadas, sobre el valor RESULTANTE del `PUT` parcial.
+    await this.assertFeaturedCombination(validated);
 
     // ⚠️ **v1.63.2 · S-FX-1 — el pin y su precondición se movieron DENTRO de la transacción.**
     // Estaban fuera «a propósito» (para no escribir nada si la precondición falla), y esa razón
@@ -816,6 +819,34 @@ export class SettingsService implements OnModuleInit {
    * paga tres queries por una regla que no puede haber roto. (El estado vigente ya cumplía el
    * invariante: es la postcondición de todo `PUT` anterior.)
    */
+  /**
+   * v1.113⟨portada⟩ (API_CONTRACT §DYN.3) — `featuredRandomSlots + featuredNewArrivalSlots ∈ [1, 20]` y `featuredPoolSize ≥
+   * featuredRandomSlots`, evaluadas sobre `{...vigente, ...body}` (mismo patrón que `assertBuylistCrossDials`: validar solo
+   * el body dejaría romper la regla mandando UNA clave). Sin ninguna de las tres en el body ⇒ no lee nada.
+   * ⇒ `422 VALIDATION_ERROR` con `details.rule` ∈ {`featured_slots_total`, `featured_pool_lt_random`}.
+   */
+  private async assertFeaturedCombination(validated: { settingKey: SettingKeyType; value: unknown }[]): Promise<void> {
+    const KEYS = [
+      SettingKey.FEATURED_POOL_SIZE,
+      SettingKey.FEATURED_RANDOM_SLOTS,
+      SettingKey.FEATURED_NEW_ARRIVAL_SLOTS,
+    ] as const;
+    const incoming = new Map<SettingKeyType, unknown>();
+    for (const { settingKey, value } of validated) {
+      if ((KEYS as readonly SettingKeyType[]).includes(settingKey)) incoming.set(settingKey, value);
+    }
+    if (incoming.size === 0) return;
+    const rows = await this.getRawMany(KEYS);
+    const resolve = (key: SettingKeyType): number =>
+      Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
+    const problem = validateFeaturedCombination({
+      poolSize: resolve(SettingKey.FEATURED_POOL_SIZE),
+      randomSlots: resolve(SettingKey.FEATURED_RANDOM_SLOTS),
+      newArrivalSlots: resolve(SettingKey.FEATURED_NEW_ARRIVAL_SLOTS),
+    });
+    if (problem) throw BusinessException.validation('VALIDATION_ERROR', problem.message, { rule: problem.rule });
+  }
+
   private async assertBuylistCrossDials(
     validated: { settingKey: SettingKeyType; value: unknown }[],
   ): Promise<void> {

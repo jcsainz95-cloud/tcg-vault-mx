@@ -12,7 +12,6 @@ import {
   DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
   DEFAULT_GRADED_ESTIMATE_GRADES,
   DEFAULT_GRADED_ESTIMATE_HIGHLIGHT_GRADES,
-  DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
   DEFAULT_GRADED_ESTIMATE_MANUAL_FRESHNESS_DAYS,
   DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
   DEFAULT_GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
@@ -23,7 +22,6 @@ import {
   GRADED_ESTIMATE_FRESHNESS_DAYS_MIN,
   GRADED_ESTIMATE_GRADE_VALUES,
   GRADING_MIN_UPSIDE_PCT_MAX,
-  validateGradedEstimateIngestMaxCards,
   validateGradedEstimateManualFreshnessDays,
   validateGradedEstimateMaxRawMultiple,
   validateGradedEstimateMinSampleCount,
@@ -208,7 +206,8 @@ export const SettingKey = {
   GRADED_ESTIMATE_MAX_RAW_MULTIPLE: 'graded_estimate_max_raw_multiple',
   GRADED_ESTIMATE_MIN_SAMPLE_COUNT: 'graded_estimate_min_sample_count',
   GRADED_ESTIMATE_SOURCE_STAT: 'graded_estimate_source_stat',
-  GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN: 'graded_estimate_ingest_max_cards_per_run',
+  // ⛔ v1.113⟨portada⟩ (M-93, §DYN.3): `graded_estimate_ingest_max_cards_per_run` RETIRADA — el corte por corrida deja de
+  // existir; lo sustituye el tope de créditos por día CDMX (`graded_estimate_daily_credit_cap`, abajo). Ver RETIRED_SETTING_KEYS.
   // ⛔ v1.51 (M-46, §4.38r): `graded_estimate_ingest_enabled` RETIRADA — absorbida por el dial único.
   //
   // ===== v1.51 (M-46, §4.38r) — EL DIAL DEL GANCHO, uno solo. DATA/seed, SIN DDL =====
@@ -418,6 +417,17 @@ export const SettingKey = {
   WISHLIST_TARGET_MARGIN_PCT: 'wishlist_target_margin_pct', // P-WSH-7 (a)
   WISHLIST_MARGIN_BASIS: 'wishlist_margin_basis', // P-WSH-7: cost | sale
   SEALED_RESTOCK_MAX_PENDING_PER_EMAIL: 'sealed_restock_max_pending_per_email', // anti-abuso §WSH.7 (b)
+
+  // ===== v1.113⟨portada⟩ (M-93, API_CONTRACT §DYN.3) — los SEIS diales sin dinero de la portada dinámica =====
+  // `super_admin`, auditados (M10). Los cinco `featured_*` rigen la SIGUIENTE selección (nunca la ya escrita, criterio 926);
+  // reglas de combinación en `validateFeaturedCombination` (abajo). Seeds = INSERT de M-93 (candado `test/dyn.settings.spec.ts`).
+  FEATURED_POOL_SIZE: 'featured_pool_size',
+  FEATURED_RANDOM_SLOTS: 'featured_random_slots',
+  FEATURED_NEW_ARRIVAL_SLOTS: 'featured_new_arrival_slots',
+  FEATURED_NEW_ARRIVAL_WINDOW_DAYS: 'featured_new_arrival_window_days',
+  FEATURED_ROTATION_HOUR: 'featured_rotation_hour', // hora CDMX del cambio diario
+  // Tope de créditos PSA por día CDMX (§DYN.4.3); 0 = no se pide nada. Sustituye al corte por corrida retirado.
+  GRADED_ESTIMATE_DAILY_CREDIT_CAP: 'graded_estimate_daily_credit_cap',
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -562,8 +572,6 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE]: DEFAULT_GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
   [SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT]: DEFAULT_GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
   [SettingKey.GRADED_ESTIMATE_SOURCE_STAT]: DEFAULT_GRADED_ESTIMATE_SOURCE_STAT,
-  [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]:
-    DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
   // v1.51 (M-46, §4.38r) — EL dial del gancho, seed `off` FAIL-CLOSED. Clave NUEVA: no existe en
   // ningún entorno, así que el deploy del colapso deja el gancho OSCURO por construcción y **no puede
   // empezar a gastar solo**. Encenderlo es un `PUT` humano, auditado, desde M10.
@@ -657,6 +665,13 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.WISHLIST_TARGET_MARGIN_PCT]: 15,
   [SettingKey.WISHLIST_MARGIN_BASIS]: 'cost',
   [SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL]: 5,
+  // v1.113⟨portada⟩ (§DYN.3)
+  [SettingKey.FEATURED_POOL_SIZE]: 60,
+  [SettingKey.FEATURED_RANDOM_SLOTS]: 8,
+  [SettingKey.FEATURED_NEW_ARRIVAL_SLOTS]: 2,
+  [SettingKey.FEATURED_NEW_ARRIVAL_WINDOW_DAYS]: 7,
+  [SettingKey.FEATURED_ROTATION_HOUR]: 6,
+  [SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP]: 3000,
 };
 
 /**
@@ -680,6 +695,8 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
 export const RETIRED_SETTING_KEYS = [
   'graded_estimates_enabled',
   'graded_estimate_ingest_enabled',
+  // v1.113⟨portada⟩ (M-93, §DYN.3): su nombre AFIRMA un tope de gasto que ya no existe (el tope vivo es por día CDMX).
+  'graded_estimate_ingest_max_cards_per_run',
 ] as const;
 
 const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
@@ -1221,7 +1238,6 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE]: validateGradedEstimateMaxRawMultiple,
   [SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT]: validateGradedEstimateMinSampleCount,
   [SettingKey.GRADED_ESTIMATE_SOURCE_STAT]: validateGradedEstimateSourceStat,
-  [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: validateGradedEstimateIngestMaxCards,
   // v1.51 (M-46) — EL dial del gancho (M10, seed `off`): on|off, editable por PUT /admin/settings.
   // SOLO el string `'on'` enciende en la LECTURA (`gradingHookEnabledFrom`); aquí se rechaza todo lo
   // que no sea `on|off` para que un `true` o un `'ON'` no queden guardados pareciendo encendidos.
@@ -1316,6 +1332,13 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.WISHLIST_TARGET_MARGIN_PCT]: validateIntRange(0, 100),
   [SettingKey.WISHLIST_MARGIN_BASIS]: (v) => (v === 'cost' || v === 'sale' ? null : 'must be one of cost|sale'),
   [SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL]: validateIntRange(1, 50),
+  // v1.113⟨portada⟩ (§DYN.3): rangos enteros de la tabla del contrato. Combinaciones: `validateFeaturedCombination`.
+  [SettingKey.FEATURED_POOL_SIZE]: validateIntRange(1, 500),
+  [SettingKey.FEATURED_RANDOM_SLOTS]: validateIntRange(0, 20),
+  [SettingKey.FEATURED_NEW_ARRIVAL_SLOTS]: validateIntRange(0, 4),
+  [SettingKey.FEATURED_NEW_ARRIVAL_WINDOW_DAYS]: validateIntRange(1, 30),
+  [SettingKey.FEATURED_ROTATION_HOUR]: validateIntRange(0, 23),
+  [SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP]: validateIntRange(0, 20000),
 };
 
 /** Mapea las keys de DB a los nombres camelCase del DTO de M10 (API_CONTRACT §M10). */
@@ -1430,7 +1453,40 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   wishlistTargetMarginPct: SettingKey.WISHLIST_TARGET_MARGIN_PCT,
   wishlistMarginBasis: SettingKey.WISHLIST_MARGIN_BASIS,
   sealedRestockMaxPendingPerEmail: SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL,
+  // v1.113⟨portada⟩ (§DYN.3): los seis sin dinero (⛔ no son diales del dueño de §Z: `super_admin` como el resto).
+  featuredPoolSize: SettingKey.FEATURED_POOL_SIZE,
+  featuredRandomSlots: SettingKey.FEATURED_RANDOM_SLOTS,
+  featuredNewArrivalSlots: SettingKey.FEATURED_NEW_ARRIVAL_SLOTS,
+  featuredNewArrivalWindowDays: SettingKey.FEATURED_NEW_ARRIVAL_WINDOW_DAYS,
+  featuredRotationHour: SettingKey.FEATURED_ROTATION_HOUR,
+  gradedEstimateDailyCreditCap: SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP,
 };
+
+/**
+ * v1.113⟨portada⟩ (API_CONTRACT §DYN.3) — las DOS reglas de combinación de Destacadas, sobre el valor RESULTANTE del `PUT`
+ * parcial: `featuredRandomSlots + featuredNewArrivalSlots ∈ [1, 20]` y `featuredPoolSize ≥ featuredRandomSlots`.
+ * `null` = cumple; si no, el `details.rule` del `422`.
+ */
+export function validateFeaturedCombination(v: {
+  poolSize: number;
+  randomSlots: number;
+  newArrivalSlots: number;
+}): { rule: 'featured_slots_total' | 'featured_pool_lt_random'; message: string } | null {
+  const total = v.randomSlots + v.newArrivalSlots;
+  if (total < 1 || total > 20) {
+    return {
+      rule: 'featured_slots_total',
+      message: `featuredRandomSlots (${v.randomSlots}) + featuredNewArrivalSlots (${v.newArrivalSlots}) = ${total} must be in [1, 20]`,
+    };
+  }
+  if (v.poolSize < v.randomSlots) {
+    return {
+      rule: 'featured_pool_lt_random',
+      message: `featuredPoolSize (${v.poolSize}) must be >= featuredRandomSlots (${v.randomSlots})`,
+    };
+  }
+  return null;
+}
 
 /**
  * 🔒💰 D2g (API_CONTRACT §M4-SHIP.19.30.2 (1), C-21 (a), SDX-Z-2) — **los diales del DUEÑO.** Las 11 claves de §19.29.8

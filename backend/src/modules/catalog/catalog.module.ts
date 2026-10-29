@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { OptionalSessionGuard } from './optional-session.guard';
 import { systemWishlistClock, WISHLIST_CLOCK } from '../wishlist/wishlist.constants';
 import { CatalogService } from './catalog.service';
+import { FeaturedService } from './featured.service';
 import { SetValueService } from './set-value.service';
 import { SealedCatalogService } from './sealed-catalog.service';
 import { SealedRestockNotifyService } from './sealed-restock-notify.service';
@@ -34,6 +35,8 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
   imports: [PricingModule, FinishReconcilerModule, JwtModule.register({})], // SettingsModule/AuditModule/PrismaModule/ConfigModule son @Global
   providers: [
     CatalogService,
+    // v1.113⟨portada⟩ (§DYN.2): Destacadas del día (lectura, tic, disparo manual y salud).
+    FeaturedService,
     CatalogSyncService,
     PokemonTcgIoClient,
     // v1.29 (§4.27d): TCGCSV card-product resolver + su cliente HTTP (stateless).
@@ -53,6 +56,7 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
   controllers: [CatalogController, AdminCatalogController, GradedEstimatesController],
   exports: [
     CatalogService,
+    FeaturedService,
     SetValueService,
     SealedCatalogService,
     SealedRestockNotifyService,

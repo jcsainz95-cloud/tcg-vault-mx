@@ -93,6 +93,8 @@ const TITLES: Record<string, [string, string]> = {
   'AG-22': ['Cambios de otro súper-admin', 'Changes by another super admin'],
   // 💰 rev BSD-1 (§BSD.8.3, DESIGN_SYSTEM §BSD-UX.3).
   'AG-23': ['Solicitud de venta sin guía', 'Sell request without a label'],
+  // v1.113⟨portada⟩ (§DYN.4.5). Texto provisional desde el ejemplo de PROJECT §DYN.2; el definitivo es de ux-ui.
+  'AG-24': ['El tope de créditos PSA no alcanza la semana', 'The PSA credit cap does not cover the week'],
 };
 
 /**
@@ -360,6 +362,22 @@ export function spendAlertSentence(v: SpendAlertMailView, l: MailLocale): string
       return en
         ? `Sell request ${folio} is still accepted and has no label: it closes on its own on ${closes} if it still has no label by then. Value of its cards in the offer: ${m(f.offerGrossCents)}.`
         : `La solicitud de venta ${folio} sigue aceptada y sin guía: se cierra sola el ${closes} si para entonces no tiene guía. Valor de sus cartas en la oferta: ${m(f.offerGrossCents)}.`;
+    }
+    case 'AG-24': {
+      // v1.113⟨portada⟩ (§DYN.4.5; ejemplo de PROJECT §DYN.2). Solo cifras de `facts` (lista blanca); ⛔ sin correo.
+      const n = (x: FactValue | undefined) => (num(x) ?? 0).toLocaleString('en-US');
+      const cards = n(f.publishedCards);
+      const cap = n(f.dailyCreditCap);
+      const days = num(f.cycleDays);
+      const need = n(f.capToCoverWeek);
+      if (days == null) {
+        return en
+          ? `The daily PSA credit cap is 0: none of your ${cards} cards is being checked. To cover the week, raise the cap to ${need}.`
+          : `El tope diario de créditos PSA está en 0: ninguna de tus ${cards} cartas se está revisando. Para cubrir la semana, sube el tope a ${need}.`;
+      }
+      return en
+        ? `With ${cap} credits a day there is not enough to check your ${cards} cards every week: it will take ${days} days. To cover the week, raise the cap to ${need}.`
+        : `Con ${cap} créditos al día no alcanza para revisar tus ${cards} cartas cada semana: tardarán ${days} días. Para cubrir la semana, sube el tope a ${need}.`;
     }
     default:
       return en ? `There is a new spending alert (${code}).` : `Hay un aviso de gasto nuevo (${code}).`;

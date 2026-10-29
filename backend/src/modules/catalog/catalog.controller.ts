@@ -10,6 +10,7 @@ import { CatalogService } from './catalog.service';
 import { SetValueService } from './set-value.service';
 import { SealedCatalogService } from './sealed-catalog.service';
 import { StrictBodyPipe } from '../wishlist/dto/wishlist.dto';
+import { FeaturedService } from './featured.service';
 
 /**
  * v1.23-sealed-sales (§2-S): «avísame cuando vuelva». ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, API_CONTRACT §WSH.7 (f)): el cliente
@@ -32,7 +33,22 @@ export class CatalogController {
     // rev v1.87⟨wishlist⟩ (§WSH.4): el dial de la lista de deseos para la ficha. `@Optional()` por los tests que construyen el
     // controlador a mano; sin él ⇒ `false` (fail-closed).
     @Optional() private readonly settings?: SettingsService,
+    // v1.113⟨portada⟩ (§DYN.2): `@Optional` solo por los dobles posicionales; en la app siempre se inyecta.
+    @Optional() private readonly featuredSvc?: FeaturedService,
   ) {}
+
+  /**
+   * v1.113⟨portada⟩ (API_CONTRACT §DYN.2.1–2.2) — Destacadas del día: la selección vigente (mayor `effectiveFrom ≤ ahora`),
+   * filtrada por disponibilidad en vivo. ⛔ SIN parámetros (I-2: ni sesión, ni idioma, ni query la cambian; cualquier query
+   * se ignora) y sin respaldo «las más caras» (I-1). Pública y cacheable 30 s (§DYN.6.1).
+   */
+  @Public()
+  @Header('Cache-Control', 'public, max-age=30, stale-while-revalidate=30')
+  @Get('featured')
+  featured() {
+    if (!this.featuredSvc) return { businessDate: null, data: [] };
+    return this.featuredSvc.read();
+  }
 
   @Public()
   @Get('cards')

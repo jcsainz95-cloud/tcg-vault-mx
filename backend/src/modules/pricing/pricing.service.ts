@@ -62,7 +62,7 @@ import {
   isStaleByOrigin,
   GradedEstimateSourceStat,
   sanitizeGradingCostTiers,
-  validateGradedEstimateIngestMaxCards,
+  DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
   validateGradedEstimateManualFreshnessDays,
   validateGradedEstimateMaxRawMultiple,
   validateGradedEstimateMinSampleCount,
@@ -134,7 +134,7 @@ const GRADED_ESTIMATE_SETTING_KEYS = [
   SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
   SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
   SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
-  SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
+  // ⛔ v1.113⟨portada⟩ (M-93, §DYN.3): `graded_estimate_ingest_max_cards_per_run` RETIRADA — ya no se lee (fila inerte).
 ] as const satisfies readonly SettingKeyType[];
 
 /**
@@ -1652,10 +1652,6 @@ export class PricingService {
       SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
       validateGradedEstimateSourceStat,
     );
-    const ingestMaxRes = resolve<number>(
-      SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
-      validateGradedEstimateIngestMaxCards,
-    );
 
     // COSTO: se lee del Map SIN consultar `SETTING_DEFAULTS` en NINGÚN estado. Ausente ⇒ `undefined`,
     // corrupta ⇒ el valor tal cual; el saneador devuelve `[]` en ambos casos (money-safe, §4.38d).
@@ -1679,7 +1675,7 @@ export class PricingService {
     // v1.50.2 — dónde cae cada clave NUEVA (§4.38d › «Alcance del apagado», y el contrato lo repite):
     //  · `manualFreshnessDays` gobierna la FICHA además de la rejilla (es frescura) ⇒ apaga las dos.
     //  · `maxRawMultiple` NO participa en la ficha (§4.38k.3) ⇒ apaga solo la promoción.
-    //  · `minSampleCount`/`sourceStat`/`ingestMaxCardsPerRun` son del INGEST: NO apagan ninguna
+    //  · `minSampleCount`/`sourceStat` son del INGEST (v1.113: `ingestMaxCardsPerRun` retirada, §DYN.3): NO apagan ninguna
     //    superficie de LECTURA (corromperlos no puede vaciar una vitrina cuyo dato ya está escrito).
     //    Lo que hacen es que el INGEST se niegue a escribir — fail-closed en su propia ruta.
     // ⚠️ v1.50.3 (I8-bis, §4.38m) — `manualFreshnessDays == null` significa «el override manual NO
@@ -1699,13 +1695,12 @@ export class PricingService {
     }
 
     // v1.51-b (R1) — las claves del INGEST que están PRESENTES-e-INVÁLIDAS, por NOMBRE y en orden fijo.
-    // Son las mismas tres de siempre (`minSampleCount`, `sourceStat`, `ingestMaxCardsPerRun`); lo único
+    // Desde v1.113 son DOS (`minSampleCount`, `sourceStat`; el corte por corrida se retiró, §DYN.3); lo único
     // nuevo es que el fail-closed deja de ser anónimo: el veredicto del ingest las imprime para que el
     // operador sepa qué corregir en vez de mirar el dial —que está bien— y creer que ése es el problema.
     const ingestInvalidKeys: string[] = [];
     if (minSampleRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT);
     if (sourceStatRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_SOURCE_STAT);
-    if (ingestMaxRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN);
 
     const estimatesEnabled =
       enabled && !gradesRes.invalid && !freshRes.invalid && !manualFreshRes.invalid;
@@ -1725,7 +1720,9 @@ export class PricingService {
       maxRawMultiple: maxMultipleRes.value,
       minSampleCount: minSampleRes.value,
       sourceStat: sourceStatRes.value,
-      ingestMaxCardsPerRun: ingestMaxRes.value,
+      // ⛔ v1.113⟨portada⟩ (§DYN.3): dial RETIRADO. El campo sigue en el TIPO porque `common/graded-estimate.ts` no se
+      // edita (I-5 / DYN-B15); su valor es la constante de código, NADIE lo lee, y el `GET` de M2 lo quita del DTO.
+      ingestMaxCardsPerRun: DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
       // v1.51-b (R1): la MISMA composición de siempre —las 3 claves del ingest— pero conservando CUÁL
       // falló. `ingestConfigInvalid` se deriva de la lista para que no puedan divergir: si mañana
       // alguien recompone una y olvida la otra, la derivación lo impide por construcción.
