@@ -5,9 +5,9 @@
  *    portafolio con sesión, `HomeView` con `next/dynamic`) y la rama mock de login de `lib/api.ts` (la constante
  *    `MOCKS_BUILD` vive en `lib/api.ts` y `lib/marketing-api.ts`; `next.config.mjs` solo hornea el literal
  *    `NEXT_PUBLIC_USE_MOCKS` del que sale; si aparece, la guarda no se plegó);
- *  - en TODO `.next/static` (TL-DYN3-2): el centinela de `src/lib/mock/sentinel.ts`, que cada módulo de `lib/mock`
- *    importa con efecto lateral. Si aparece, algún fixture de MOCK llegó a un build sin mocks (el alias de
- *    `next.config.mjs` no lo vació).
+ *  - en TODO `.next/static` (TL-DYN3-2, TL-DYN3R-2): el centinela cuyo valor vive en `src/lib/mock/sentinel.ts` y
+ *    que cada módulo de `lib/mock` lleva como literal en su propio efecto de nivel superior. Si aparece, algún
+ *    módulo de MOCK llegó a un build sin mocks (el alias de `next.config.mjs` no lo vació).
  * Falla también si falta CUALQUIERA de las entradas de la portada en el manifiesto (no pasa en verde por no mirar).
  * Medido 2026-10-29 (FRONTEND_NOTES §DYN.3).
  *

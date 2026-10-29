@@ -8,7 +8,6 @@
  * portafolio. La vitrina de "Compra" (GET /catalog/cards) SOLO lista inventario
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
-import './sentinel';
 import { brandEmail } from '../brand';
 import { setMatchesQuery } from '../setCode';
 import type {
@@ -7732,3 +7731,7 @@ export function mockSetSealedSalePrice(
   mockSheetRows[idx] = next;
   return { data: next, autoPublish: { published, missingLocation: 0, notPublished: 0 } };
 }
+
+// TL-DYN3R-2 · centinela PROPIO de este módulo: un literal, no un import (si el módulo escapara al alias de
+// next.config.mjs, un `import './sentinel'` resolvería vacío y el literal no viajaría). Ver sentinel.ts.
+(globalThis as { __thMockBundle?: string }).__thMockBundle = 'th-mock-bundle-sentinel-5c1e';

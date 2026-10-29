@@ -9,7 +9,6 @@
  * Estado vivo en memoria del navegador: se reinicia con cada carga completa y con `resetMockM4Ship()`.
  * Los ids de piezas y clientes son los de `fixtures.ts` (Ash, Misty, Ana, Bruno, Gary).
  */
-import './sentinel';
 import { SHIPPED_REFUND_REASONS } from '@/types/contract';
 import type {
   WithdrawalDeliveredPreviewDTO,
@@ -1983,3 +1982,7 @@ export function mockCreateWithdrawalDeliveredRefund(body: CreateWithdrawalDelive
   manualRefunds.push(m);
   return projectManualRefund(m);
 }
+
+// TL-DYN3R-2 · centinela PROPIO de este módulo: un literal, no un import (si el módulo escapara al alias de
+// next.config.mjs, un `import './sentinel'` resolvería vacío y el literal no viajaría). Ver sentinel.ts.
+(globalThis as { __thMockBundle?: string }).__thMockBundle = 'th-mock-bundle-sentinel-5c1e';

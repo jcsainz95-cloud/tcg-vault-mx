@@ -16,7 +16,6 @@
  *  - `SKYDROPX_ALLOW_SPEND` se da por **puesta** (aquí no hay dinero): la puerta queda en el dial y el rol.
  *  - La compra devuelve `labeled` al instante con un número inventado (`MOCK-…`). ⛔ Nada sale a la red.
  */
-import './sentinel';
 import type {
   AddressSnapshotDTO,
   AdminShipmentDTO,
@@ -556,3 +555,7 @@ export function mockDeparted(ids: string[], ship: (id: string) => void): Departe
     }),
   };
 }
+
+// TL-DYN3R-2 · centinela PROPIO de este módulo: un literal, no un import (si el módulo escapara al alias de
+// next.config.mjs, un `import './sentinel'` resolvería vacío y el literal no viajaría). Ver sentinel.ts.
+(globalThis as { __thMockBundle?: string }).__thMockBundle = 'th-mock-bundle-sentinel-5c1e';

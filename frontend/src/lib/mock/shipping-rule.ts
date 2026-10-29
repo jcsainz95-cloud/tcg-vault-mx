@@ -24,7 +24,6 @@
  * con el total: el total lleva la comisión y la comisión depende de `E` (circular, §4-G.12 punto 2).
  */
 
-import './sentinel';
 import type { GuestShippingRuleDTO, ShippingRuleKind } from '@/types/contract';
 
 /** Diales de §4-G.12 punto 3, los tres con IVA incluido. */
@@ -98,3 +97,7 @@ export function directShipFeeOf(
     },
   };
 }
+
+// TL-DYN3R-2 · centinela PROPIO de este módulo: un literal, no un import (si el módulo escapara al alias de
+// next.config.mjs, un `import './sentinel'` resolvería vacío y el literal no viajaría). Ver sentinel.ts.
+(globalThis as { __thMockBundle?: string }).__thMockBundle = 'th-mock-bundle-sentinel-5c1e';
