@@ -15033,8 +15033,11 @@ resumen del job y en el artefacto `home-perf`. rc 0 todo como se espera · 1 roj
   del HTML no mueve el FCP: `server-response-time` 2 073 ms y FCP simulado 1 410 ms frente a 110 ms y 1 425 ms sin
   retraso (N=5 por perfil; el FCP **observado** sí subió a 2 375 ms). Consecuencia que hay que saber: **este check no ve un
   TTFB lento** (servidor o caché fríos); eso lo ve solo la medición en producción de 936 (QA, N=5 por perfil).
-- **NO MEDIDO:** la corrida en GitHub Actions (el primer push de esta rama la da; ahí no hay ni carga ajena ni proxy) y
-  cualquier cifra de producción.
+- **En GitHub Actions** (run 40879539432, sha `1bf5d2f5`, 13:13 UTC, carga 2.1, N=5 por perfil): móvil FCP 1.37 / 1.38 s,
+  LCP 4.36 / 5.11 s ⇒ **ROJO**; escritorio 0.34 / 0.34 s, 1.16 / 1.23 s ⇒ verde; canario ΔFCP +1 280 ms escritorio y
+  +8 099 ms móvil ⇒ muerde; d2-delay CLS 0.002 / 0.001, d2-503 CLS 0.064 / 0.037 ⇒ verde en CLS, rojo solo por el FCP
+  móvil. Mismo cuadro que en local; en CI el FCP móvil no es bimodal (la bimodalidad local la atribuyo a la carga: NO MEDIDO).
+- **NO MEDIDO:** cualquier cifra de producción (la mide QA, N=5 por perfil, como pide 936).
 
 **104.2 `POKEMONPRICETRACKER_DAILY_QUOTA`.** En `.env.example`, en los dos compose (`${…:-}`) y en la tabla de §4. Sin ella el
 panel de presupuesto (`GET /admin/pricing/graded-estimates/budget`) da `providerDailyQuota: null`. **La pone el dueño en
@@ -15079,3 +15082,8 @@ hace igual y avisa. Candados con canario (en `ci.yml`, job `e2e-harness-gaps`): 
 o sea lo medido: `docs/DECISIONES.md` (crece una línea por decisión) quedaba en 77 y la siguiente decisión ponía CI en
 rojo. Ahora `--update` solo baja filas existentes; un documento sin fila sigue con el tope de su clase. Canario
 `check-doc-size-canary.sh` 24/24; contra el script anterior, 2/24 rojos (los dos casos nuevos).
+
+**Candados de este pase y sus canarios** (copia `git archive` de `262f8d91`, N=1 cada uno, deterministas salvo el proxy
+de `check-home-perf`, que mide N=10): stack 4/4 · 6/6 · 7/7, diales 6/6, censo 3/3, consultas de producción 5/5,
+arnés de Lighthouse 11/11, más los anclajes que se movieron (expected-sha 4/4, upload-origin 3/3). En Actions (run
+40876689037) los jobs `e2e-harness-gaps` y `dyn-prod-measure` salieron verdes.
