@@ -5,7 +5,8 @@ import { useTranslations } from 'next-intl';
 import { getCatalogFacets, getHoldings } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Link } from '@/i18n/navigation';
-import { PortfolioGlance } from '@/components/domain/PortfolioTrendChart';
+import dynamic from 'next/dynamic';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { EditorialLink } from './_shared/EditorialLink';
 import { useHomeQuoter, HomeQuoterPanel } from './_home/HomeQuoter';
 import {
@@ -26,6 +27,27 @@ import {
 import { GradingFootnoteBoundary } from './_shared/grading/GradingFootnote';
 import { pageHasGradingFigures } from './_shared/grading/estimates';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+
+/**
+ * PERF portada (§DYN.3): `PortfolioGlance` arrastra `recharts` (~97 KB gzip). Solo se pinta con
+ * sesión iniciada, así que el visitante anónimo no lo descarga: chunk aparte, solo en cliente (la
+ * sesión vive en el navegador; en SSR esta banda nunca se pinta).
+ */
+const PortfolioGlance = dynamic(
+  () => import('@/components/domain/PortfolioTrendChart').then((m) => m.PortfolioGlance),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-end justify-between gap-6" aria-hidden>
+        <div>
+          <Skeleton className="h-9 w-40" />
+          <Skeleton className="mt-3 h-3 w-28" />
+        </div>
+        <Skeleton className="hidden h-[90px] w-[200px] sm:block" />
+      </div>
+    ),
+  },
+);
 
 /** Ancho desde el que se ven los chips «Sets en cacería» del hero (`sm:flex`). */
 export const HOME_CHIPS_MEDIA = '(min-width: 640px)';
