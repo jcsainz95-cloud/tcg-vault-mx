@@ -68,6 +68,12 @@ describe('CORS — cors.ts (S-M2 + Content-Disposition expuesta)', () => {
     expect(h['content-disposition']).toContain('tcghunt_semana_2026-W42.xlsx');
   });
 
+  it('v1.113⟨portada⟩ (§DYN.6.5): el preflight se guarda 10 min (`Access-Control-Max-Age: 600`)', async () => {
+    expect(buildCorsOptions([ALLOWED]).maxAge).toBe(600);
+    const { h } = await request(port, 'OPTIONS', { origin: ALLOWED, 'access-control-request-method': 'GET' });
+    expect(h['access-control-max-age']).toBe('600');
+  });
+
   it('con Origin NO permitido: no refleja el origen (S-M2 intacto)', async () => {
     // El paquete `cors` emite Expose-Headers y Allow-Credentials aunque el origen no esté
     // permitido (medido aquí); es inocuo: sin `Access-Control-Allow-Origin` el navegador no
