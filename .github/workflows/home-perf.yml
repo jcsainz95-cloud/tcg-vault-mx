@@ -56,7 +56,7 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
-      DATABASE_URL: postgresql://tcg:hp_${{ github.run_id }}_${{ github.run_attempt }}@localhost:5432/tcg_home_perf?schema=public&connection_limit=10&pool_timeout=10
+      DATABASE_URL: postgresql://tcg:hp_${{ github.run_id }}_${{ github.run_attempt }}@localhost:5432/tcg_home_perf?schema=public&connection_limit=5&pool_timeout=10
       REDIS_URL: redis://localhost:6379
       PORT: "3099"
       # La tienda la sirve el proxy de prueba en :3190; CORS tiene que admitir ese origen.
@@ -81,13 +81,15 @@ jobs:
       # La vitrina solo existe con el dial del gancho `on`; aquí es seguro porque la llave del
       # proveedor de paga está VACÍA arriba (cero peticiones, §4.38(r.6.1)).
       HP_GRADING_HOOK_ON: "1"
-      HOME_PERF_OUT: ${{ runner.temp }}/home-perf
     steps:
       - uses: actions/checkout@v5
       - name: Secretos efímeros (sin literales públicos, S-88-1)
         env:
           STRIPE_WEBHOOK_UNREACHABLE: "1"
         run: |
+          # HOME_PERF_OUT aquí y no en el `env:` del job: el contexto `runner` no existe ahí
+          # (medido: con la expresión runner.temp en el env del job, GitHub rechazó el fichero entero, run 40876687296).
+          echo "HOME_PERF_OUT=$RUNNER_TEMP/home-perf" >> "$GITHUB_ENV"
           ./scripts/webhook-secret-preflight.sh assert
           WH="$(./scripts/webhook-secret-preflight.sh resolve)"
           [ -n "$WH" ] || { echo "::error::el preflight del webhook no devolvió valor"; exit 1; }
