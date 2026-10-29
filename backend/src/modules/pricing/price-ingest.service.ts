@@ -38,6 +38,7 @@ import {
   orderDueSets,
   psaCycleShortReason,
   ymdOfDbDate,
+  overdueRefYmd,
 } from './graded-turns';
 import { SpendAlertsService } from '../spend-alerts/spend-alerts.service';
 import { GradedSetScanOutcome } from '@prisma/client';
@@ -2275,7 +2276,8 @@ export class PriceIngestService {
   /**
    * §DYN.4.5 — AG-24 `psa_cycle_short`, al final de cada corrida con el dial encendido. `W = Σ est(s)` sobre los sets en
    * alcance MAPEADOS; abre (o actualiza EN SITIO) una sola fila `ag24:open` si el ciclo pasa de 7 días o algún set lleva > 8
-   * días sin consulta `ok` (los nunca consultados cuentan desde su `firstListedAt` más antigua); si no, la cierra sola.
+   * días sin consulta `ok` (los nunca consultados cuentan desde `max(firstListedAt más antigua, inicio de los turnos)`,
+   * errata v1.113.2 — `overdueRefYmd`); si no, la cierra sola.
    * ⛔ Nunca tumba la corrida: un fallo aquí se loguea.
    */
   private async evaluatePsaCycleAlert(
@@ -2288,6 +2290,11 @@ export class PriceIngestService {
     let setsOverCap = 0;
     let maxOverdueDays = 0;
     let publishedCards = 0;
+    // errata v1.113.2: `inicio` = el primer día CDMX con turnos (cualquier fila de la bitácora); sin filas ⇒ sin `overdue`.
+    const first = await this.prisma.gradedEstimateSetScan
+      .findFirst({ orderBy: { businessDate: 'asc' }, select: { businessDate: true } })
+      .catch(() => null);
+    const turnsStartYmd = first ? ymdOfDbDate(first.businessDate) : null;
     for (const s of setStates) {
       publishedCards += s.entry.allowed.size;
       if (s.entry.set.pptSetId == null) continue;
@@ -2295,7 +2302,7 @@ export class PriceIngestService {
       const est = estimateSetCredits(last?.measured ?? null, turnState.catalogCards.get(s.setId) ?? 0);
       weeklyCreditsNeeded += est;
       if (est > dailyCreditCap) setsOverCap += 1;
-      const since = last?.date ?? (s.minFirstListedAt ? businessDateCdmx(s.minFirstListedAt) : null);
+      const since = overdueRefYmd(last?.date ?? null, s.minFirstListedAt ? businessDateCdmx(s.minFirstListedAt) : null, turnsStartYmd);
       if (since) maxOverdueDays = Math.max(maxOverdueDays, daysBetweenYmd(since, todayCdmx));
     }
     const { cycleDays, capToCoverWeek } = cycleProjection(weeklyCreditsNeeded, dailyCreditCap);

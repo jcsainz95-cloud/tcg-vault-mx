@@ -31,6 +31,7 @@
  * `graded:PSA:*`. Usa `fourthraw` (`e2e-fourth-raw`) — la carta raw publicada y **LIBRE** del fixture,
  * la misma que usó el pentester — para no heredar el estado de ningún otro caso.
  */
+import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_CARDS, E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { P } from './helpers/iva-display';
@@ -181,6 +182,9 @@ describe('E2E — GE-1 / INV-D inverso: un estimado JAMÁS precia un slab public
     });
     expect(res.status).toBe(200);
     expect(res.body.data.refKind).toBe('market');
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3): el override es un precio a mano ⇒ `manual_price` recalcula el precio del día de las
+    // piezas de la carta FUERA de la petición; se espera a que termine antes de leer la ficha.
+    await h.app.get(ListingPriceService).idle();
 
     const l = slabListing(await ficha()) as Record<string, unknown> | undefined;
     // La pieza VUELVE al storefront: con una fila de MERCADO en su clave ya es vendible.

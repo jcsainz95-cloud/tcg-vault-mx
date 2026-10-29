@@ -287,9 +287,13 @@ describe('SP-19 — censo: `displayPriceCentsOf(` a pelo solo para el preview de
     expect(usos).toEqual(['modules/settings/iva-transfer.ts']);
   });
   it('los TRES sitios de venta derivan `P` por `saleDisplayCentsOf` (checkout, catálogo, rejilla de sellado)', () => {
+    // 💰 v1.113⟨portada⟩ (§DYN.5.1): los tres sitios de venta ya no derivan: leen el `P` resuelto por EL cuerpo único
+    // (`pricing/sale-decision.service.ts`), que es quien deriva por `saleDisplayCentsOf`.
+    const body = stripComments(readFileSync(join(SRC, 'modules', 'pricing', 'sale-decision.service.ts'), 'utf8'));
+    expect(/\bsaleDisplayCentsOf\(/.test(body)).toBe(true);
     for (const f of ['orders/orders.service.ts', 'catalog/catalog.service.ts', 'catalog/sealed-catalog.service.ts']) {
       const code = stripComments(readFileSync(join(SRC, 'modules', f), 'utf8'));
-      expect({ f, usa: /\bsaleDisplayCentsOf\(/.test(code) }).toEqual({ f, usa: true });
+      expect({ f, usa: /\bsaleDisplayCentsOf\(/.test(code) }).toEqual({ f, usa: false });
     }
   });
 });

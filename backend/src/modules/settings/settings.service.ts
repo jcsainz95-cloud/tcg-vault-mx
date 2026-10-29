@@ -58,6 +58,33 @@ export class SettingsService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * 💰 v1.113⟨portada⟩ (API_CONTRACT §DYN.5.3/.4) — quién quiere saber que se ESCRIBIERON claves (tras el commit). Lo usa el
+   * precio del día: una clave de `PRICE_AFFECTING_SETTING_KEYS` dispara `dial_change`. Un oyente que falla ⛔ no tumba la
+   * escritura (ya se confirmó): se loguea.
+   */
+  private readonly writeListeners: ((keys: readonly SettingKeyType[]) => void)[] = [];
+
+  onKeysWritten(listener: (keys: readonly SettingKeyType[]) => void): void {
+    this.writeListeners.push(listener);
+  }
+
+  /**
+   * Avisa a los oyentes de que estas claves se escribieron (llamar DESPUÉS del commit). TODA puerta que escriba
+   * `ConfigSetting` pasa por aquí: `update`, `setIvaTransferPct` y las puertas propias de pricing (curva, spreads del
+   * sellado, modo FX). Candado: `test/dyn.listing-price-settings-doors.spec.ts`.
+   */
+  notifyKeysWritten(keys: readonly SettingKeyType[]): void {
+    if (keys.length === 0) return;
+    for (const l of this.writeListeners) {
+      try {
+        l(keys);
+      } catch (e) {
+        this.logger.error(`settings: un oyente de escritura falló (${keys.join(',')}): ${(e as Error).message}`);
+      }
+    }
+  }
+
+  /**
    * §11.0 (v1.50.3-a; **endurecido en v1.50.3-b**) — **INVENTARIO DE CONFIGURACIÓN al arrancar.** Una
    * línea con las claves cuyo valor vigente **difiere de su default de código**.
    *
@@ -454,7 +481,11 @@ export class SettingsService implements OnModuleInit {
       // exista uno sin el otro, en cualquier orden de fallo (misma doctrina que `update()`).
       if (auditWithin) await auditWithin(tx, { before: currentPct, after: proposedPct });
 
-      return { ivaTransferPct: proposedPct, preview };
+      return { ivaTransferPct: proposedPct, preview, changed: true as const };
+    }).then((r) => {
+      // 💰 §DYN.5.3: el dial de traslación mueve `P` ⇒ `dial_change` (solo si de verdad cambió y ya se confirmó).
+      if ('changed' in r) this.notifyKeysWritten([SettingKey.IVA_TRANSFER_PCT]);
+      return { ivaTransferPct: r.ivaTransferPct, preview: r.preview };
     });
   }
 
@@ -646,7 +677,8 @@ export class SettingsService implements OnModuleInit {
     );
 
     // TODO O NADA DE VERDAD: los upserts y la bitácora, en una sola transacción.
-    return this.prisma.$transaction(async (tx) => {
+    let fxModePinned = false;
+    const applied = await this.prisma.$transaction(async (tx) => {
       // ⭐⭐ La puerta única del FX. Se toma **solo** cuando este `PUT` toca el valor del tipo de
       // cambio: los otros veinte diales no comparten invariante con nadie y no tienen por qué
       // serializarse entre sí.
@@ -661,6 +693,7 @@ export class SettingsService implements OnModuleInit {
       // nuevo sin su modo materializado (que es, exactamente, el estado en el que la resolución
       // legacy volvería a inferir `manual` del valor).
       if (fxPin?.materialized) {
+        fxModePinned = true;
         await tx.configSetting.upsert({
           where: { key: SettingKey.FX_RATE_MODE },
           create: {
@@ -685,6 +718,12 @@ export class SettingsService implements OnModuleInit {
       if (auditWithin) await auditWithin(tx, applied, { fxPin: fxPin ?? undefined });
       return applied;
     });
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3): ya confirmado ⇒ los oyentes (precio del día: `dial_change` si alguna mueve `P`).
+    this.notifyKeysWritten([
+      ...validated.map((v) => v.settingKey),
+      ...(fxModePinned ? [SettingKey.FX_RATE_MODE] : []),
+    ]);
+    return applied;
   }
 
   /**

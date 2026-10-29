@@ -14,6 +14,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { ListingPriceService } from '../pricing/listing-price.service';
 import { SettingKey } from '../settings/settings.constants';
 import { dayMx } from '../spend-alerts/spend-alerts.service';
 import { mxDayStart } from '../spend-alerts/mx-day';
@@ -72,6 +73,9 @@ export class FeaturedService {
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
     private readonly settings: SettingsService,
+    // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.3): el tic también lanza la corrida `daily` del precio del día (H − 60 min) y la
+    // selección espera a ella (o a H − 15 min). ⛔ Sin `@Optional()` (obligatorio en la app); `?` solo por los unitarios.
+    private readonly listingPrices?: ListingPriceService,
   ) {}
 
   /** Los cinco diales `featured_*` (lectura en vivo: rigen la SIGUIENTE selección, criterio 926). */
@@ -121,11 +125,21 @@ export class FeaturedService {
   /** §DYN.2.3 — el tic. Nunca lanza: un fallo se loguea y el siguiente tic reintenta (se sigue sirviendo la anterior, 927). */
   async tick(): Promise<{ status: FeaturedTickStatus; businessDate: string }> {
     const now = new Date();
+    // 💰 §DYN.5.3 — primero el precio del día: desde `effectiveFrom(D) − 60 min`, si no hay `daily` ok de `D`, se calcula.
+    // Un fallo NO tumba la rotación: la corrida queda `failed`, el siguiente tic reintenta y la selección espera a H − 15.
+    if (this.listingPrices) {
+      try {
+        await this.listingPrices.dailyTick(now);
+      } catch (e) {
+        this.logger.error(`listing-price daily: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     const d = await this.dials();
     const day = dayMx(new Date(now.getTime() + LOOKAHEAD_MS - d.rotationHour * HOUR_MS));
     const effectiveFrom = FeaturedService.effectiveFromOf(day, d.rotationHour);
-    // Fase 1 (sin M-94): solo la condición de tiempo. Con M-94 se suma «o existe ListingPriceRun(daily, D, ok)».
-    if (now.getTime() < effectiveFrom.getTime() - WRITE_FROM_BEFORE_H_MS) {
+    // §DYN.2.3: espera al precio del día (`daily` ok de D), sin bloquear el cambio (a más tardar H − 15 min).
+    const priceReady = this.listingPrices ? await this.listingPrices.hasDailyOk(day).catch(() => false) : false;
+    if (!priceReady && now.getTime() < effectiveFrom.getTime() - WRITE_FROM_BEFORE_H_MS) {
       const exists = await this.prisma.featuredSelection.findUnique({ where: { businessDate: dbDate(day) } });
       return { status: exists ? 'exists' : 'waiting', businessDate: day };
     }

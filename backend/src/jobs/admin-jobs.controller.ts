@@ -25,6 +25,7 @@ import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service
 import { isYmd } from '../modules/spend-alerts/mx-day';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
 import { FeaturedService } from '../modules/catalog/featured.service';
+import { ListingPriceService } from '../modules/pricing/listing-price.service';
 
 /**
  * Body opcional del disparo de `spend-digest` (💰 C1, API_CONTRACT §M4-SHIP.19.33.9): `day?: 'YYYY-MM-DD'` re-manda el resumen de
@@ -106,6 +107,8 @@ export class AdminJobsController {
     // rev v1.87⟨wishlist⟩ (§WSH.5): el aviso «ya la tenemos». `@Optional()` como los de arriba; sin él ⇒ `404`.
     @Optional() private readonly wishlistNotify?: WishlistNotifyService,
     @Optional() private readonly featuredRotation?: FeaturedService,
+    // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.3): «Actualizar precios» (manual) recalcula el precio del día al terminar.
+    @Optional() private readonly listingPrices?: ListingPriceService,
   ) {}
 
   /**
@@ -384,7 +387,12 @@ export class AdminJobsController {
   async runPriceIngest(@Body() dto: PriceIngestDto, @CurrentUser() user: { id: string; role: Role }) {
     // N-11: `setId` → ingesta AWAITED de UN set (verificación de esquema). Sin `setId` → barrido del
     // catálogo COMPLETO en SEGUNDO PLANO (fire-and-forget); el front pollea `GET /admin/pricing/sync-status`.
-    const result = dto.setId ? await this.priceIngest.run(dto.setId) : await this.priceIngest.runBackground();
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3 `manual_ingest`): al TERMINAR el barrido manual se recalcula el precio del día (todo).
+    // ⛔ Solo este disparo manual: las corridas automáticas (cron) NO mueven lo exhibido (DYN-B18).
+    const afterSweep = () => void this.listingPrices?.enqueue('manual_ingest');
+    const result = dto.setId
+      ? await this.priceIngest.run(dto.setId).then((r) => (afterSweep(), r))
+      : await this.priceIngest.runBackground(afterSweep);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,

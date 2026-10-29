@@ -699,6 +699,36 @@ export const RETIRED_SETTING_KEYS = [
   'graded_estimate_ingest_max_cards_per_run',
 ] as const;
 
+/**
+ * 💰 v1.113⟨portada⟩ (API_CONTRACT §DYN.5.4) — **las claves cuyo cambio mueve el precio de venta** (la salida del cuerpo único
+ * `SaleDecisionService.decide`). Escribir cualquiera de ellas, por la puerta que sea (`PUT /admin/settings`,
+ * `PUT /admin/settings/iva-transfer`, `PUT /admin/pricing/curve`, `PUT /admin/pricing/sealed-spreads`, `PUT /admin/fx`,
+ * `PUT /admin/fx/mode`), dispara el cálculo `dial_change` del precio del día al instante.
+ *
+ * Candado de completitud DYN-B17 (`test/integration/dyn-listing-price-dials.e2e-spec.ts`): toda clave de `SettingKey`
+ * cuyo cambio altere la salida del cuerpo sobre el fixture DEBE estar aquí. ⛔ Quitar una ⇒ rojo.
+ */
+export const PRICE_AFFECTING_SETTING_KEYS: readonly SettingKeyType[] = [
+  // Los dos diales que derivan `P` desde `L` (§M10-IVA.3).
+  SettingKey.IVA_PCT,
+  SettingKey.IVA_TRANSFER_PCT,
+  // La curva y el guardarraíl de venta (§4.36).
+  SettingKey.PRICING_CURVE,
+  SettingKey.PREMIUM_FLOOR_SALE_PUBLISH,
+  // El sellado: spreads por presentación y la fuente de su mercado (§4.23a).
+  SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE,
+  SettingKey.SEALED_SPREAD_FALLBACK_PCT,
+  SettingKey.SEALED_PRICE_SOURCE,
+  // El tipo de cambio con que se convierte el mercado en USD AL VALUAR (§M2-F, conversión viva).
+  SettingKey.FX_BUFFER_PCT,
+  SettingKey.FX_MANUAL_OVERRIDE_RATE,
+  SettingKey.FX_RATE_MODE,
+  // El árbitro de mediana del mercado (§PRE.B).
+  SettingKey.PRICE_ARBITER_FRESHNESS_DAYS,
+  SettingKey.PRICE_ARBITER_SOURCES,
+  SettingKey.PRICE_CONSENSUS_TOLERANCE_PCT,
+];
+
 const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
 
 /**

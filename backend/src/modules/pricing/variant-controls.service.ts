@@ -1,3 +1,4 @@
+import { ListingPriceService } from './listing-price.service';
 import { Injectable } from '@nestjs/common';
 import { Card, Finish, ProductType, VariantPriceOverride } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -101,6 +102,9 @@ export class VariantControlsService {
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
     private readonly audit: AuditService,
+    // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.3 `manual_price`): el override de VENTA de la variante mueve el precio del día de sus
+    // piezas. ⛔ Sin `@Optional()` (obligatorio en la app); `?` solo por los unitarios que construyen a mano.
+    private readonly listingPrices?: ListingPriceService,
   ) {}
 
   /**
@@ -190,6 +194,12 @@ export class VariantControlsService {
       before: { cardId: card.id, productType, gradeKey, finish, controls: snapshot(existing) },
       after: { cardId: card.id, productType, gradeKey, finish, controls: snapshot(row) },
     });
+
+    // 💰 §DYN.5.3 `manual_price`: ya escrito ⇒ el precio del día de las piezas de esa variante (carta+tipo+acabado; el grado
+    // lo filtra el cuerpo). Solo si cambió el override de VENTA (el bounty y el de compra no tocan el precio de venta).
+    if ((existing?.sellOverrideCents ?? null) !== (row?.sellOverrideCents ?? null)) {
+      void this.listingPrices?.enqueueWhere('manual_price', { cardId: card.id, productType, finish });
+    }
 
     // ---- Estado RESUELTO tras el write (mismo DTO que lee el binder, §DTOs) ----
     const pricing = await this.resolvePricing(card, productType, gradeKey, finish, row);

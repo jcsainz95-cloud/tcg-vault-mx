@@ -181,11 +181,11 @@ describe('H-1 — mismo precio en catálogo, Compra (orders) y grid para overrid
   it('los tres sitios coinciden en EXPECTED (mercado×spread, no gratis)', async () => {
     // --- catálogo: toListingDTO con contexto pre-cargado (mercado priceado) ---
     const pricingCat = realPricing();
+    // v1.113⟨portada⟩ (§DYN.5.1): la ruta single del catálogo precia por el cuerpo único (mismos loaders que Compra).
+    jest.spyOn(pricingCat, 'loadSealedSpreads').mockResolvedValue(CTX_ON);
+    jest.spyOn(pricingCat, 'getSealedMarketRef').mockResolvedValue(PRICED as any);
     const catalog = new CatalogService({} as any, pricingCat, ivaDialsStub() as never);
-    const dto = await catalog.toListingDTO(sealedPiece() as any, {
-      reference: PRICED,
-      sealedSpreads: CTX_ON,
-    });
+    const dto = await catalog.toListingDTO(sealedPiece() as any);
     // ⭐ D56: el DTO publica `P`; `EXPECTED` es el `L` que resuelve el sellado (§M10-IVA.3).
     expect(dto.displayPriceCents).toBe(EXPECTED + Math.round((EXPECTED * 16) / 100));
     expect(dto.sellable).toBe(true);
@@ -219,7 +219,8 @@ describe('H-1 — mismo precio en catálogo, Compra (orders) y grid para overrid
       ivaDialsStub() as any,
       {} as any,
     );
-    const priced = await (sealedCatalog as any).loadPricedSealed({});
+    // v1.113⟨portada⟩ (§DYN.5.1): la rejilla precia por el cuerpo único (deriva `P`), así que recibe los diales izados.
+    const priced = await (sealedCatalog as any).loadPricedSealed({}, DIALS_100_16);
     expect(priced).toHaveLength(1);
     expect(priced[0].salePriceCents).toBe(EXPECTED);
     expect(priced[0].source).toBe('subtype_spread');

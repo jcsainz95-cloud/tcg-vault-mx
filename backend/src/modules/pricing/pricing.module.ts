@@ -33,6 +33,8 @@ import { PptApiClient } from './providers/ppt-api.client';
 import { PptSetMapper } from './ppt-set-mapper.service';
 import { PriceIngestService } from './price-ingest.service';
 import { GradedBudgetService } from './graded-budget.service';
+import { SaleDecisionService } from './sale-decision.service';
+import { ListingPriceService } from './listing-price.service';
 import { PriceIngestJobService } from '../../jobs/price-ingest.service';
 // v1.19-sealed-tcgcsv (§4.19): referencia de mercado del SELLADO vía TCGCSV.
 import { TcgcsvSealedBulkProvider } from './providers/tcgcsv-sealed.provider';
@@ -85,6 +87,9 @@ import { SpendAlertsModule } from '../spend-alerts/spend-alerts.module';
     PriceIngestJobService,
     // v1.113⟨portada⟩ (§DYN.4.6): panel de presupuesto PSA.
     GradedBudgetService,
+    // 💰 v1.113⟨portada⟩ (§DYN.5): el cuerpo único del precio de venta y el precio del día.
+    SaleDecisionService,
+    ListingPriceService,
     // v1.19-sealed-tcgcsv (§4.19): adapter + ingest + curación del mapeo + su job (mismo
     // patrón price-ingest: viven aquí para que JobsModule/Scheduler los inyecten sin ciclos).
     TcgcsvSealedBulkProvider,
@@ -109,6 +114,8 @@ import { SpendAlertsModule } from '../spend-alerts/spend-alerts.module';
     PriceIngestService,
     PriceIngestJobService,
     GradedBudgetService,
+    SaleDecisionService,
+    ListingPriceService,
     SealedPriceIngestService,
     SealedPriceIngestJobService,
     // v1.36-sealed-alta (M-37, P-35): el proxy read-only de TCGCSV lo REUSA el alta dedicada de

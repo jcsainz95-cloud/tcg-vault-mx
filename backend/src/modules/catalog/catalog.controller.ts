@@ -24,6 +24,9 @@ export class RestockSubscriptionDto {
   @IsUUID() inventoryItemId!: string;
 }
 
+/** §DYN.6.1 — cabecera de las cuatro lecturas públicas de la portada/rejilla (`featured`, `cards`, `facets`, `sealed`). */
+export const CATALOG_LIST_CACHE_CONTROL = 'public, max-age=30, stale-while-revalidate=30';
+
 @Controller('catalog')
 export class CatalogController {
   constructor(
@@ -43,7 +46,7 @@ export class CatalogController {
    * se ignora) y sin respaldo «las más caras» (I-1). Pública y cacheable 30 s (§DYN.6.1).
    */
   @Public()
-  @Header('Cache-Control', 'public, max-age=30, stale-while-revalidate=30')
+  @Header('Cache-Control', CATALOG_LIST_CACHE_CONTROL)
   @Get('featured')
   featured() {
     if (!this.featuredSvc) return { businessDate: null, data: [] };
@@ -51,6 +54,9 @@ export class CatalogController {
   }
 
   @Public()
+  // v1.113⟨portada⟩ (API_CONTRACT §DYN.6.1): pública e idéntica para todo visitante (`@Public`, sin guardia ni lectura de sesión)
+  // ⇒ cacheable 30 s + 30 s de `stale-while-revalidate`. La disponibilidad exacta se comprueba al pagar (`409`).
+  @Header('Cache-Control', CATALOG_LIST_CACHE_CONTROL)
   @Get('cards')
   listCards(
     @Query('q') q?: string,
@@ -89,6 +95,9 @@ export class CatalogController {
 
   // v1.1 — facetas dinámicas de "Compra" (rarezas/sets/tipos/subtipos/rango de precio).
   @Public()
+  // v1.113⟨portada⟩ (API_CONTRACT §DYN.6.1): pública e idéntica para todo visitante (`@Public`, sin guardia ni lectura de sesión)
+  // ⇒ cacheable 30 s + 30 s de `stale-while-revalidate`. La disponibilidad exacta se comprueba al pagar (`409`).
+  @Header('Cache-Control', CATALOG_LIST_CACHE_CONTROL)
   @Get('facets')
   facets() {
     return this.catalog.facets();
@@ -115,6 +124,9 @@ export class CatalogController {
 
   // Grid agregado por producto+condición («N disponibles»). Filtros: set, subtipo, condición, q.
   @Public()
+  // v1.113⟨portada⟩ (API_CONTRACT §DYN.6.1): pública e idéntica para todo visitante (`@Public`, sin guardia ni lectura de sesión)
+  // ⇒ cacheable 30 s + 30 s de `stale-while-revalidate`. La disponibilidad exacta se comprueba al pagar (`409`).
+  @Header('Cache-Control', CATALOG_LIST_CACHE_CONTROL)
   @Get('sealed')
   listSealed(
     @Query('setId') setId?: string,

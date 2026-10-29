@@ -45,6 +45,11 @@ export function withGradedTurns<T extends object>(
       const seen = new Set<string>();
       return rows.filter((r) => (seen.has(r.setId) ? false : (seen.add(r.setId), true)));
     }),
+    // errata v1.113.2 (§DYN.4.5): `inicio` = la fila con MENOR `businessDate` (cualquier resultado).
+    findFirst: jest.fn(async () => {
+      const sorted = [...world.setScans].sort((a, b) => a.businessDate.getTime() - b.businessDate.getTime());
+      return sorted[0] ? { businessDate: sorted[0].businessDate } : null;
+    }),
     aggregate: jest.fn(async ({ where }: { where: { businessDate: Date } }) => ({
       _sum: {
         creditsCharged: world.setScans

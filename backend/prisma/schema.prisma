@@ -1181,6 +1181,8 @@ model InventoryItem {
   caseAsReplacement   ReplacementCase[]     @relation("CaseReplacement")
   // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): «esta cuenta ya supo de esta pieza» (una vez por pieza y cuenta).
   wishlistNotices     WishlistNotice[]
+  // v1.113⟨portada⟩ (M-94, API_CONTRACT §DYN.5): el precio del día de la pieza (lo exhibido = lo cobrado).
+  listingPrice        ListingPrice?
 
   @@index([cardId])
   @@index([status])
@@ -3677,4 +3679,68 @@ model GradedEstimateSetScan {
 
   @@index([businessDate])
   @@index([setId, startedAt])
+}
+
+// ===== v1.113⟨portada⟩ (M-94, API_CONTRACT §DYN.5, 💰) — precio del día =====
+// Clase E. `pending` ⇔ el cuerpo de venta dio PRICE_PENDING (no se exhibe ni se cobra).
+enum ListingPriceStatus {
+  priced
+  pending
+}
+
+// Clase E. Por qué corrió un cálculo del precio del día (§DYN.5.3).
+enum ListingPriceRunTrigger {
+  daily
+  manual_ingest
+  publish_all
+  publish
+  dial_change
+  manual_price
+  bootstrap
+  missing_row
+}
+
+// Clase E.
+enum ListingPriceRunStatus {
+  running
+  ok
+  failed
+}
+
+// UNA fila por pieza de plataforma vendible (`status ∈ {listed, in_stock}`). La escribe SOLO `ListingPriceService` (el
+// cálculo la SOBRESCRIBE; ⛔ sin precio anterior: la historia de un cobro vive en su `OrderItem`). Catálogo, ficha,
+// Destacadas, vitrina y checkout la leen (§DYN.5.6/.7).
+model ListingPrice {
+  inventoryItemId   String                 @id
+  inventoryItem     InventoryItem          @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  variantKey        String // `${cardId}|${productType}|${gradeKey}|${finish}`
+  runId             String
+  run               ListingPriceRun        @relation(fields: [runId], references: [id])
+  status            ListingPriceStatus
+  unitPriceCents    Int? // P vigente (IVA dentro): lo que se exhibe y se cobra. NOT NULL ⇔ priced; CHECK ≥ 1 (M-94)
+  listPriceCents    Int? // L vigente
+  fixedDisplayCents Int?
+  priceBasis        PriceBasis?
+  marketMxnCents    Int?
+  ivaRatePct        Int // instrumentación: los diales con que se derivó P (⛔ no gobiernan el cobro, §DYN.5.7)
+  ivaTransferPct    Int
+  computedAt        DateTime
+
+  @@index([variantKey])
+}
+
+model ListingPriceRun {
+  id             String                 @id @default(uuid())
+  businessDate   DateTime               @db.Date
+  trigger        ListingPriceRunTrigger
+  status         ListingPriceRunStatus
+  scopeItemCount Int
+  pricedCount    Int                    @default(0)
+  pendingCount   Int                    @default(0)
+  startedAt      DateTime               @default(now())
+  finishedAt     DateTime?
+  error          String?
+  prices         ListingPrice[]
+
+  @@index([trigger, businessDate, status])
 }

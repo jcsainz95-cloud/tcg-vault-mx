@@ -45,7 +45,7 @@ function newWorld(n = 100, seedPrice = 0): World {
   return { sels: new Map(), cands, stock: new Map(cands.map((c) => [featuredKeyOf(c), 1])), config: new Map(), failCompute: false };
 }
 
-function wire(w: World) {
+function wire(w: World, listingPrices?: unknown) {
   const ymd = (d: Date) => d.toISOString().slice(0, 10);
   const fs = {
     findFirst: jest.fn(async ({ where }: { where?: { effectiveFrom?: { lte: Date } } } = {}) => {
@@ -123,7 +123,7 @@ function wire(w: World) {
       return w.config.get(k) ?? defaults[k];
     }),
   };
-  const svc = new FeaturedService(prisma as never, catalog as never, settingsDouble as never);
+  const svc = new FeaturedService(prisma as never, catalog as never, settingsDouble as never, listingPrices as never);
   return { svc, catalog, lockCalls };
 }
 
@@ -166,6 +166,26 @@ describe('§DYN.2.3 — el tic', () => {
     expect(w.sels.get('2026-12-02')!.effectiveFrom.toISOString()).toBe(six(2));
     expect(w.sels.get('2026-12-02')!.dials).toEqual({ poolSize: 60, randomSlots: 8, newArrivalSlots: 2, windowDays: 7, rotationHour: 6 });
     expect(JSON.stringify(lockCalls)).toContain(String(FEATURED_ROTATION_LOCK_KEY));
+  });
+});
+
+describe('§DYN.2.3 + §DYN.5.3 (M-94) — el tic lanza el precio del día y la selección lo espera', () => {
+  it('el tic llama a la diaria; con `daily` ok de D escribe ya a H − 20; sin ella espera a H − 15; si la diaria lanza, sigue', async () => {
+    const w = newWorld();
+    const lp = { dailyTick: jest.fn(async () => ({ status: 'ran' })), hasDailyOk: jest.fn(async (d: string) => d === '2026-12-02') };
+    const { svc } = wire(w, lp);
+    at(new Date(new Date(six(2)).getTime() - 20 * 60_000).toISOString());
+    expect((await svc.tick()).status).toBe('written');
+    expect(lp.dailyTick).toHaveBeenCalledTimes(1);
+    expect(lp.hasDailyOk).toHaveBeenCalledWith('2026-12-02');
+
+    const w2 = newWorld();
+    const lp2 = { dailyTick: jest.fn(async () => { throw new Error('diaria rota'); }), hasDailyOk: jest.fn(async () => false) };
+    const s2 = wire(w2, lp2).svc;
+    at(new Date(new Date(six(2)).getTime() - 20 * 60_000).toISOString());
+    expect((await s2.tick()).status).toBe('waiting');
+    at(tickBefore(2));
+    expect((await s2.tick()).status).toBe('written'); // sin bloquear el cambio: a H − 15 escribe aunque no haya diaria
   });
 });
 

@@ -218,7 +218,13 @@ describe('M-50 — el DDL sin default, verificado sobre la FORMA de la migració
         .filter((d) => d.isDirectory() && d.name !== M50)
         .map((d) => d.name);
       const culpables = otras.filter((n) => {
-        const s = readFileSync(join(DIR, n, 'migration.sql'), 'utf8');
+        let s = readFileSync(join(DIR, n, 'migration.sql'), 'utf8');
+        // 💰 v1.113⟨portada⟩ (M-94, API_CONTRACT §DYN.1): `ListingPrice` lleva SU PROPIA columna de instrumentación
+        // `ivaTransferPct` (con qué dial se derivó el precio del día). No es la de `Order`: se quita SOLO ese bloque
+        // (y los comentarios) y lo que quede de M-94 tampoco puede mencionarla.
+        if (n === '20261111120000_m94_listing_price') {
+          s = s.replace(/^--.*$/gm, '').replace(/CREATE TABLE IF NOT EXISTS "ListingPrice" \([\s\S]*?\n\);/, '');
+        }
         return /priceConvention|ivaTransferPct|PriceConvention/i.test(s);
       });
       expect(culpables).toEqual([]);

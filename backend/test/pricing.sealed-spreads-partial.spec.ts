@@ -47,6 +47,8 @@ function build(stored: Record<string, number> = { ...SEED }, fallback = 25) {
   const settings = {
     getRaw: jest.fn(async (key: string) => store.get(key) ?? null),
     getNumber: jest.fn(async (key: string) => store.get(key) as number),
+    // v1.113⟨portada⟩ (§DYN.5.3): la puerta avisa la escritura (precio del día, `dial_change`).
+    notifyKeysWritten: jest.fn(),
   } as unknown as SettingsService;
   const prisma = {
     configSetting: {

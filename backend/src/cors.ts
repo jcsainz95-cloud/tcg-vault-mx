@@ -28,6 +28,11 @@ export function resolveCorsOrigins(): string[] {
  */
 export const CORS_EXPOSED_HEADERS = ['Content-Disposition'];
 
+/** §DYN.6.5 — segundos que el navegador puede reutilizar un preflight. */
+export const CORS_PREFLIGHT_MAX_AGE_S = 600;
+
 export function buildCorsOptions(origins: string[] = resolveCorsOrigins()): CorsOptions {
-  return { origin: origins, credentials: true, exposedHeaders: CORS_EXPOSED_HEADERS };
+  // v1.113⟨portada⟩ (API_CONTRACT §DYN.6.5): el navegador guarda el preflight 10 min (`Access-Control-Max-Age: 600`) en vez de
+  // repetir el `OPTIONS` antes de cada petición con credenciales. Sin efecto en ninguna respuesta del contrato.
+  return { origin: origins, credentials: true, exposedHeaders: CORS_EXPOSED_HEADERS, maxAge: CORS_PREFLIGHT_MAX_AGE_S };
 }

@@ -13,6 +13,8 @@ import {
 } from '../pricing/pricing.service';
 // ⭐ D56 (§4.44.b): los DOS diales que derivan `P`. `SettingsModule` es `@Global`.
 import { SettingsService } from '../settings/settings.service';
+import { SaleDecisionService } from '../pricing/sale-decision.service';
+import { liveSalesFor, ListingPriceService, PieceSale } from '../pricing/listing-price.service';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas por rareza/acabado. `sealedPriceBasisOf` deriva
 // el `priceBasis` del SELLADO (cuya matemática NO cambia) para que el front tenga UNA sola regla de
 // visibilidad del «Valor de mercado» en las dos fichas.
@@ -21,13 +23,9 @@ import {
   PriceBasis,
   SEALED_SALE_PRICE_INCLUDE,
   ivaIsIncluded,
-  manualSaleOf,
   marketDisplayCentsOf,
-  saleDisplayCentsOf,
-  sealedPriceBasisOf,
 } from '../../common/money';
 import type { IvaDials, SealedProductSaleRef } from '../../common/money';
-import { PremiumFloorPolicy, PricingCurve } from '../../common/pricing-curve';
 import { BusinessException } from '../../common/business.exception';
 import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish),
@@ -154,33 +152,19 @@ interface SellableRow {
 }
 
 /**
- * Contexto pre-cargado de `toListingDTO`/`toListingRow` (BE-25: sin N+1).
+ * 💰 v1.113⟨portada⟩ (§DYN.5.6) — lo que `toListingRow` necesita para PROYECTAR una pieza: su precio YA resuelto (fila del día o
+ * cuerpo único en vivo), su referencia de mercado informativa y los diales de la petición (solo el rótulo de la tasa).
  */
-interface ListingCtx {
-  // BE-25 (§4.17c): contexto pre-cargado por `fetchSellable` (referencia del lote + reglas de
-  // venta izadas una vez) para evitar el N+1 de referencias/settings. Opcional: sin él el método
-  // resuelve todo por sí mismo (uso single).
-  reference?: PriceInfo;
-  // v2.0 (P-48, §4.36.2): la CURVA izada una vez por request (BE-25) — sustituye a `salesRules`.
-  curve?: PricingCurve;
-  // v1.80.8.5 (`M2-PF`, MONEY): la política del guardarraíl de VENTA, izada una vez junto a la curva.
-  premiumFloorPolicy?: PremiumFloorPolicy;
-  // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado (izado una vez). Su presencia
-  // señala que `reference` viene del lote (para sellado = mercado TCGCSV, o undefined si no mapeado).
-  sealedSpreads?: { spreadPctBySubtype: Record<string, number>; fallbackPct: number; sourceOn: boolean };
+export interface ListingCtx {
+  sale: PieceSale;
+  /** Referencia de mercado del lote (sellado: la de TCGCSV; resto: la de su variante). `undefined` ⇒ `pending`. */
+  reference: PriceInfo | undefined;
+  /** El dial `sealed_price_source` (el mercado del sellado solo se muestra con la fuente encendida, §4.23a). */
+  sealedSourceOn: boolean;
   // v1.22-2 / N-15 (§4.22a-6): acabados priceados de ESTA carta (del lote) para displayFinishes.
   pricedFinishes?: Iterable<Finish>;
-  // v1.28 (P-18, §4.26b): fila M-30 de la variante (del lote de `fetchSellable`; `null` = sin
-  // fila). Su presencia va atada a `curve` (batch); en uso single se resuelve aquí mismo.
-  variantOverride?: VariantPriceOverride | null;
-  /**
-   * ⭐⭐ **LOS DOS DIALES QUE DERIVAN `P`** (`ARCHITECTURE §4.44.b`), izados **una vez por
-   * petición** por `fetchSellable`. Sin ellos (uso single) se leen aquí mismo.
-   *
-   * ⛔ **Jamás por pieza dentro de un bucle**: dos piezas de la misma rejilla derivadas con
-   * posiciones distintas del dial darían dos precios que el cliente no puede comparar.
-   */
-  ivaDials?: IvaDials;
+  /** ⭐ Los diales de la petición, izados UNA vez (⛔ jamás por pieza). */
+  ivaDials: IvaDials;
 }
 
 /**
@@ -658,7 +642,16 @@ export class CatalogService {
      * «suponer» no es un dial.*
      */
     @Optional() private readonly settings?: SettingsService,
-  ) {}
+    // 💰 v1.113⟨portada⟩ (API_CONTRACT §DYN.5.6): el precio del día. ⛔ Sin `@Optional()`: en la app es OBLIGATORIO
+    // (`PricingModule` lo exporta). El `?` de TS es solo para los unitarios que construyen el servicio a mano: sin él,
+    // todo se precia en vivo por el cuerpo único (§DYN.5.1).
+    private readonly listingPrices?: ListingPriceService,
+  ) {
+    this.decider = new SaleDecisionService(this.pricing);
+  }
+
+  /** 💰 §DYN.5.1 — el cuerpo único del precio de venta (piezas sin fila) y las referencias de mercado del lote. */
+  private readonly decider: SaleDecisionService;
 
   /**
    * Resuelve los dos diales: del contexto del lote (BE-25) o, en uso single, de `SettingsService`.
@@ -737,9 +730,11 @@ export class CatalogService {
   /**
    * Trae items publicados que efectivamente son comprables (precio resoluble).
    *
-   * Pago mínimo de BE-25 (v1.16-master-set, §4.17c): iza la curva de precios **una vez** por
-   * request y resuelve las referencias en **un** lote (`getReferencesBatch`) en vez de 2 lecturas de
-   * settings + 1 `getReference` **por ítem** (N+1). Cada DTO se construye con el contexto pre-cargado.
+   * 💰 v1.113⟨portada⟩ (API_CONTRACT §DYN.5.6) — **el precio es el DEL DÍA** (`ListingPrice`): fila `priced` ⇒ su `P` tal cual;
+   * `pending` ⇒ no se exhibe; sin fila ⇒ cálculo en vivo por el cuerpo único (§DYN.5.1) + `missing_row` encolado. Con fila
+   * ya NO se iza curva, política ni override (solo las piezas sin fila los leen). Lo que sí se sigue leyendo en UN lote son
+   * las referencias de mercado: el «Valor de mercado» informativo del DTO (`referenceValue`, con su `capturedDate`, que la
+   * fila no guarda) — ⛔ nunca para el precio. Las formas de respuesta no cambian.
    */
   private async fetchSellable(where: Prisma.InventoryItemWhereInput): Promise<SellableRow[]> {
     const items = await this.prisma.inventoryItem.findMany({
@@ -749,59 +744,25 @@ export class CatalogService {
     });
     if (items.length === 0) return [];
 
-    const curve = await this.pricing.loadPricingCurve();
-    // v1.80.8.5 (`M2-PF`): la política de VENTA, izada UNA vez por request (como la curva).
-    const premiumFloorPolicy = await this.pricing.loadSalePremiumFloorPolicy();
-    // v1.23-sealed-sales (§4.23d): contexto de spreads del sellado izado UNA vez (pago mínimo BE-25).
-    const sealedSpreads = await this.pricing.loadSealedSpreads();
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
-    // Batch de referencias: para el SELLADO la clave es la de MERCADO (`sealed:tcg:<productId>`,
-    // finish normal), NO el gradeKey legacy 'sealed'; un sellado no mapeado no aporta clave (sin market).
-    const refs = await this.pricing.getReferencesBatch(
-      items.flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
-        if (i.productType === 'sealed') {
-          const gk = this.pricing.sealedMarketGradeKeyForItem(i);
-          return gk ? [{ cardId: i.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' }] : [];
-        }
-        // v1.53 (§4.40.4b, MONEY) — LECTURA: una graduada sin identidad de slab no aporta clave al
-        // lote (mismo idioma que el sellado no mapeado, justo arriba) ⇒ sin referencia ⇒ `pending`
-        // ⇒ NO se publica. Antes se resolvía como `graded:PSA:10`, el grado más caro.
-        const gk = this.pricing.tryGradeKeyFor(i);
-        return gk ? [{ cardId: i.cardId, productType: i.productType, gradeKey: gk, finish: i.finish }] : [];
-      }),
-    );
-
-    // v1.28 (P-18, §4.26b): controles por variante (M-30) EN LOTE — solo para piezas raw/graded que
-    // DERIVAN su precio (sin `listPriceCents` manual, que sigue ganando; el sellado conserva su
-    // cadena H-1 intacta). UNA query por request, misma clave que el lote de referencias.
-    const variantOverrides = await this.pricing.getVariantOverridesBatch(
-      items
-        // H-1 (E5-bis): `<= 0` es AUSENTE, así que esas piezas TAMBIÉN necesitan precio derivado.
-        // v1.83 (§M11-SP.1): «tiene precio a mano» ⇔ `manualSaleOf(i) != null` (raw/graded: solo la pieza).
-        .filter((i) => i.productType !== 'sealed' && manualSaleOf(i) == null)
-        // v1.53 (§4.40.4b): sin identidad de slab no hay clave de variante que buscar.
-        .flatMap((i) => {
-          const gk = this.pricing.tryGradeKeyFor(i);
-          return gk ? [{ cardId: i.cardId, productType: i.productType, gradeKey: gk, finish: i.finish }] : [];
-        }),
-    );
-
-    // ⭐ BE-25 + §4.44.b: los dos diales, **una lectura por petición**. ⛔ Jamás dentro del bucle:
-    // dos piezas de la misma rejilla derivadas con posiciones distintas del dial darían dos precios
-    // que el cliente no puede comparar.
+    // El «Valor de mercado» (informativo) en UN lote; el sellado además necesita el dial de su fuente para mostrarlo.
+    const refs = await this.decider.loadReferences(items);
+    const sealedSourceOn = items.some((i) => i.productType === 'sealed')
+      ? (await this.pricing.loadSealedSpreads()).sourceOn
+      : false;
+    // ⭐ BE-25 + §4.44.b: los dos diales, **una lectura por petición** (solo el cálculo en vivo y el rótulo de la tasa).
     const ivaDials = await this.ivaDialsOf();
+    const sales = this.listingPrices
+      ? await this.listingPrices.salesFor(items, ivaDials)
+      : await liveSalesFor(this.decider, items, ivaDials, await this.decider.loadBatch(items));
     const out: SellableRow[] = [];
     for (const item of items) {
-      const reference = this.refFromBatch(refs, item);
-      const { dto, listPriceCents } = await this.toListingRow(item, {
-        reference,
-        curve,
-        premiumFloorPolicy,
-        sealedSpreads,
+      const { dto, listPriceCents } = this.toListingRow(item, {
+        sale: sales.get(item.id) ?? { kind: 'pending' },
+        reference: this.decider.referenceIn(refs, item),
+        sealedSourceOn,
         pricedFinishes: pricedByCard.get(item.cardId),
-        variantOverride:
-          item.productType === 'sealed' ? null : this.variantOverrideOf(variantOverrides, item),
         ivaDials,
       });
       // ⚠️ El filtro mira **`L`** (`listPriceCents`), no `P`: la regla de publicación es de MARGEN.
@@ -866,156 +827,65 @@ export class CatalogService {
   }
 
   /**
-   * Construye un ListingDTO (API_CONTRACT §DTOs base). Distingue referenceValue
-   * (valor de mercado) de salePriceCents (precio de venta). El sellado lleva sealedSubtype
-   * y NO lleva rawCondition/grade/rareza.
+   * 💰 v1.113⟨portada⟩ (§DYN.5.6) — el `ListingDTO` de una pieza cuyo precio YA se resolvió (fila del día o cálculo en vivo).
+   * Lo usa la ficha de sellado para sus `listings` (las mismas piezas que su grupo, con el mismo precio).
    */
-  // v2.1.9 (T-2): retorno DECLARADO. Era inferido, así que perder un campo requerido no era un
-  // error de compilación — la misma clase que B-1 cerró en el DTO de GRUPO, abierta en el de PIEZA.
-  async toListingDTO(item: ItemWithCard, ctx?: ListingCtx): Promise<ListingDTO> {
-    return (await this.toListingRow(item, ctx)).dto;
+  listingDTOOf(item: ItemWithCard, ctx: ListingCtx): ListingDTO {
+    return this.toListingRow(item, ctx).dto;
+  }
+
+  /**
+   * El `ListingDTO` de UNA pieza (uso single): su precio del día (o el cuerpo único en vivo si no tiene fila) y su referencia
+   * leída aquí. v2.1.9 (T-2): retorno DECLARADO.
+   */
+  async toListingDTO(item: ItemWithCard): Promise<ListingDTO> {
+    const ivaDials = await this.ivaDialsOf();
+    const sales = this.listingPrices
+      ? await this.listingPrices.salesFor([item], ivaDials)
+      : await liveSalesFor(this.decider, [item], ivaDials);
+    const sealedSourceOn = item.productType === 'sealed' ? (await this.pricing.loadSealedSpreads()).sourceOn : false;
+    return this.toListingRow(item, {
+      sale: sales.get(item.id) ?? { kind: 'pending' },
+      reference: await this.decider.referenceOf(item),
+      sealedSourceOn,
+      ivaDials,
+    }).dto;
   }
 
   /**
    * ⭐⭐ **El DTO público MÁS el `L` del que salió su `P`.**
    *
-   * **Por qué dos cifras y no una.** `ListingDTO` publica **`P`** (con IVA dentro) porque es lo que
-   * el cliente ve y suma. Pero hay consumidores INTERNOS que razonan sobre el **precio de lista**:
-   * el gate de curaduría de graduadas (`rawSalePriceCents × maxRawMultiple` contra estimados de
-   * MERCADO, que son **sin IVA**) y el orden del representante del grupo. Darles `P` haría que el
-   * gancho comparara un precio **con impuesto dentro** contra una referencia **sin él** — un sesgo
-   * silencioso de `t·r` en una decisión comercial. *Mezclar las dos escalas es exactamente cómo un
-   * margen acaba comparándose contra un precio con impuesto.*
+   * **Por qué dos cifras y no una.** `ListingDTO` publica **`P`** (con IVA dentro) porque es lo que el cliente ve y suma. Pero
+   * hay consumidores INTERNOS que razonan sobre el **precio de lista**: el gate de curaduría de graduadas y el orden del
+   * representante del grupo. Darles `P` haría que el gancho comparara un precio **con impuesto dentro** contra una referencia
+   * **sin él**. ⛔ **`L` NO se publica** (no está en `ListingDTO`): vive en el sobre, no en el DTO.
    *
-   * ⛔ **`L` NO se publica** (no está en `ListingDTO`): vive en el sobre, no en el DTO.
+   * 💰 v1.113⟨portada⟩ (§DYN.5.6): ⛔ **aquí ya no se calcula ni se deriva ningún precio.** `P`, `L` y la base llegan resueltos
+   * (`ctx.sale`: la fila del día o el cuerpo único en vivo). Este método solo PROYECTA.
    */
-  private async toListingRow(
-    item: ItemWithCard,
-    ctx?: ListingCtx,
-  ): Promise<{ dto: ListingDTO; listPriceCents?: number }> {
-    let referenceValue: PriceInfo;
-    let salePriceCents: number | undefined;
-    // v2.0 (P-48, §4.36.7a): QUÉ determinó el precio. Server-side SIEMPRE (SEC-A1); la UI OBEDECE este
-    // dato para la regla de visibilidad del «Valor de mercado» — jamás lo infiere comparando cifras.
-    let priceBasis: PriceBasis = 'pending';
-    // 💰 v1.83.1 (§M11-SP.12.3): `P` fijo del dueño (sellado con precio de producto) o `null`.
-    let fixedDisplayCents: number | null = null;
-    // ⭐ Los diales, izados (o leídos UNA vez en uso single) ANTES de resolver: el sellado los necesita para
-    // el `L` equivalente del precio del dueño, y la derivación de `P` de abajo usa los MISMOS.
-    const dials = await this.ivaDialsOf(ctx);
-
-    if (item.productType === 'sealed') {
-      // v1.23-sealed-sales (§4.23a/§4.23b): precio del sellado por precedencia money-safe
-      // override > mercado×spread(subtype) > mercado×spread(global) > PRICE_PENDING. referenceValue
-      // del sellado = valor de mercado TCGCSV (sealedMarketRef), informativo. SEC-A1: todo server-side.
-      const sealedCtx = ctx?.sealedSpreads ?? (await this.pricing.loadSealedSpreads());
-      const marketRef = ctx?.sealedSpreads
-        ? ctx.reference // lote: puede venir undefined (sellado no mapeado → sin mercado)
-        : await this.pricing.getSealedMarketRef(item);
-      // H-1 (v1.24): resolver ÚNICO (gate del mercado por dial + pura). El mercado solo cuenta con el
-      // dial encendido (§4.23a); con off el sellado solo se vende con override. `referenceValue` =
-      // valor de mercado TCGCSV cuando el gate lo deja pasar, si no `pending`.
-      const marketPriced = this.pricing.gateSealedMarketCents(marketRef, sealedCtx.sourceOn) != null;
-      const sale = this.pricing.resolveSealedSalePrice(item, marketRef, sealedCtx, dials);
-      if (sale.salePriceCents != null) salePriceCents = sale.salePriceCents;
-      fixedDisplayCents = sale.fixedDisplayCents;
-      // v2.0 (§4.36.7a): el sellado NO cambia de matemática (criterio 85) — solo DERIVA su basis del
-      // `priceSource` que ya tenía: override⇒override; subtype/global_spread⇒market; sin precio⇒pending.
-      priceBasis = sealedPriceBasisOf(sale);
-      referenceValue = marketPriced ? marketRef! : { status: 'pending' };
-    } else {
-      // v1.53 (§4.40.4b, MONEY) — LECTURA pública: `null` ⇒ la pieza `graded` no tiene identidad de
-      // slab ⇒ NO HAY REFERENCIA ⇒ `pending` (y abajo, `sellable:false`). Jamás el default a
-      // `graded:PSA:10`, que publicaba el grado más caro sobre una carta cuyo grado nunca se preguntó.
-      const gradeKey = this.pricing.tryGradeKeyFor(item);
-      // v1.6-finish: valúa contra la PriceReference del ACABADO de ESTA copia física.
-      referenceValue =
-        ctx?.reference ??
-        (gradeKey == null
-          ? { status: 'pending' }
-          : await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish));
-
-      // v1.83 (§M11-SP.1): el predicado único (raw/graded: solo la pieza; ⛔ nunca el producto).
-      const manual = manualSaleOf(item);
-      if (manual?.origin === 'piece') {
-        // Override manual POR PIEZA → gana siempre (precio directo sin regla; intención más
-        // específica — v1.28 §4.26b: gana también sobre el sellOverride de la variante).
-        // v2.0 (§4.36.6): peldaño 1 de la precedencia de VENTA ⇒ `priceBasis = "override"` (y por
-        // §N.7 la ficha NO muestra «Valor de mercado»: el mercado no produjo este precio).
-        salePriceCents = manual.listCents;
-        priceBasis = 'override';
-      } else {
-        // v2.0 (P-48, §4.36.1): precio de venta por la CURVA sobre el VALOR DE MERCADO — ya no
-        // depende de la rareza ni del acabado (criterio 84). SEC-A1: el mercado sale de la
-        // `PriceReference` del acabado de ESTA copia, jamás del DTO. SIN dato de mercado ⇒ `pending`
-        // (el PISO NO gana): sin referencia no se publica — decisión LOCKED que corrige el supuesto
-        // de §N.2, porque un guardarraíl por rareza no atraparía una Common de $400 sin dato.
-        // v1.28 (P-18, §4.26b): sellOverride de la VARIANTE (M-30) pisa la curva — resuelto en
-        // LECTURA, por eso surte efecto inmediato en toda pieza publicada sin manual.
-        const referenceMxnCents =
-          referenceValue.status === 'priced' ? (referenceValue.referenceMxnCents ?? null) : null;
-        // BE-25: si viene el contexto pre-cargado usa la función pura (sin leer settings por ítem);
-        // si no, delega al SEAM ÚNICO del eje de venta (que iza la curva por sí mismo) y resuelve el
-        // override single.
-        const variantOverride = ctx?.curve
-          ? (ctx.variantOverride ?? null)
-          : gradeKey == null
-            ? null
-            : await this.pricing.getVariantOverride(
-                item.cardId,
-                item.productType,
-                gradeKey,
-                item.finish,
-              );
-        // v2.0 (P-48, §4.36.5b) — SEAM ÚNICO del eje de venta: el monto y el GUARDARRAÍL vienen de la
-        // MISMA llamada. Una carta de rareza PREMIUM que aterriza en el PISO NO se publica —que una
-        // chase resuelva al piso solo puede significar que su dato de mercado está mal (ausente,
-        // aplanado o absurdo), y venderla ahí es la pérdida IRREVERSIBLE que §N.0 manda evitar—; el
-        // seam ya devuelve `priceCents=null` + `basis='pending'` en ese caso, así que aquí no hay
-        // ningún veredicto que «acordarse» de consultar. NO dispara con override ni bounty.
-        // Esta ruta es LECTURA PÚBLICA: NO escala a la cola — quien escala es la publicación (§4.36.5b).
-        const decision = {
-          referenceMxnCents,
-          // La rareza SOLO alimenta el veredicto (criterio 84); jamás el monto.
-          rarityCanonical: item.card.rarityCanonical ?? item.card.rarity,
-          controls: variantOverride,
-        };
-        // v1.80.8.5 (`M2-PF`): la política viaja con la curva; si un contexto de lote no la trajera, se
-        // LEE (jamás se asume): el veredicto es el mismo que el del checkout.
-        const sale = ctx?.curve
-          ? this.pricing.decideSalePrice({
-              ...decision,
-              curve: ctx.curve,
-              premiumFloorPolicy: ctx.premiumFloorPolicy ?? (await this.pricing.loadSalePremiumFloorPolicy()),
-            })
-          : await this.pricing.computeSalePriceForItem(decision);
-        if (sale.priceCents != null) {
-          salePriceCents = sale.priceCents;
-          priceBasis = sale.basis;
-        } else {
-          priceBasis = 'pending';
-        }
-      }
-    }
-
-    // v1.1: comprable solo si está PUBLICADO (listed) y con precio de venta fijado (>0).
-    // ⚠️ La regla de publicación se evalúa sobre **`L`** y no sobre `P`: `P` es `L` con un factor
-    // ≥ 1 encima, así que «`> 0`» no cambia de veredicto — pero el criterio es de **margen**, y el
-    // margen es `L`. *Evaluar una regla comercial sobre un precio con impuesto dentro es cómo se
-    // mueven umbrales sin que nadie decida moverlos.*
-    const sellable = salePriceCents != null && salePriceCents > 0 && item.status === 'listed';
-
-    // ⭐⭐ **LA DERIVACIÓN DE `P`, EN EL ÚNICO SITIO POR EL QUE PASA TODA PIEZA DEL STOREFRONT.**
-    // `P = round(L × (1 + t·r))` (`ARCHITECTURE §4.44.b`, `API_CONTRACT §M10-IVA.3`). El servidor
-    // manda la cifra **ya hecha**; ⛔ el frontend no multiplica nada (§4.44.i). Si el front la
-    // compusiera, cada superficie sería un sitio donde el precio puede salir distinto.
-    // 💰 v1.83.1 (E-3): EL camino a `P` — precio del dueño tal cual; si no, la derivación desde `L` (SP-19).
-    const displayPriceCents =
-      salePriceCents == null ? undefined : saleDisplayCentsOf({ listPriceCents: salePriceCents, fixedDisplayCents }, dials);
+  private toListingRow(item: ItemWithCard, ctx: ListingCtx): { dto: ListingDTO; listPriceCents?: number } {
+    const sale = ctx.sale.kind === 'priced' ? ctx.sale.decision : null;
+    // v2.0 (P-48, §4.36.7a): QUÉ determinó el precio. Server-side SIEMPRE (SEC-A1); la UI OBEDECE este dato para la regla de
+    // visibilidad del «Valor de mercado» — jamás lo infiere comparando cifras.
+    const priceBasis: PriceBasis = sale?.priceBasis ?? 'pending';
+    // El «Valor de mercado» informativo: sellado ⇒ el de TCGCSV solo si el dial de su fuente lo deja pasar (§4.23a); resto ⇒
+    // el de la variante de ESTA copia (v1.6-finish). Sin referencia ⇒ `pending` (v1.53: jamás el grado más caro).
+    const referenceValue: PriceInfo =
+      item.productType === 'sealed'
+        ? this.pricing.gateSealedMarketCents(ctx.reference, ctx.sealedSourceOn) != null
+          ? ctx.reference!
+          : { status: 'pending' }
+        : (ctx.reference ?? { status: 'pending' });
+    const listPriceCents = sale?.listPriceCents;
+    // v1.1: comprable solo si está PUBLICADO (listed) y con precio de venta fijado (>0). La regla se evalúa sobre **`L`**
+    // (margen), no sobre `P`.
+    const sellable = listPriceCents != null && listPriceCents > 0 && item.status === 'listed';
+    // ⭐ `P` tal como lo resolvió el precio del día (o el cuerpo único en vivo): el MISMO entero que cobra el checkout (I-3).
+    const displayPriceCents = sale?.unitPriceCents;
 
     const dto: ListingDTO = {
       inventoryItemId: item.id,
-      card: toCardDTO(item.card, ctx?.pricedFinishes),
+      card: toCardDTO(item.card, ctx.pricedFinishes),
       productType: item.productType,
       rawCondition: item.rawCondition ?? undefined,
       sealedSubtype: item.sealedSubtype ?? undefined,
@@ -1027,32 +897,19 @@ export class CatalogService {
       gradeValue: item.gradeValue ?? undefined,
       // v1.2 (M-12): nº de certificado PSA/CGC (verificable en la graduadora); null en raw/sealed.
       certNumber: item.certNumber ?? undefined,
-      // v2.1.6 (S48-M2): superficie ANÓNIMA ⇒ se proyecta SIN `source`. `PriceSource` incluye
-      // `manual`, así que dejarlo pasar publicaría un mapa scrapeable de qué cartas llevan precio
-      // fijado a mano — o sea dónde falló el feed y dónde el precio puede estar desalineado. La
-      // frescura (`capturedDate`) sí es información legítima de compra y sigue viajando.
-      //
-      // v2.1.9 (D2): y AHORA el número de mercado viaja **si y solo si `priceBasis === 'market'`**.
-      // La regla de §N.7 deja de vivir solo en el navegador: este DTO es el de la FICHA, `units[]` y
-      // `GET /catalog/listings/:id` — el endpoint del PoC del pentester, que SIN TOKEN devolvía
-      // `priceBasis:"override"` + el número que la UI tiene PROHIBIDO pintar.
+      // v2.1.6 (S48-M2): superficie ANÓNIMA ⇒ sin `source`. v2.1.9 (D2): el número de mercado viaja **si y solo si
+      // `priceBasis === 'market'`** (§N.7, también en `GET /catalog/listings/:id`).
       referenceValue: toPublicPriceInfo(referenceValue, priceBasis),
-      // ⭐ `P`, no `L`. ⛔ `salePriceCents` **desapareció** de la superficie pública (§M10-IVA.3):
-      // no se reinterpreta un nombre, se cambia — así un front que no migró **no compila**.
+      // ⭐ `P`, no `L`. ⛔ `salePriceCents` **desapareció** de la superficie pública (§M10-IVA.3).
       displayPriceCents,
       ivaIncluded: ivaIsIncluded(PRICE_CONVENTION_OF_NEW_ROWS),
-      // La **TASA**, para el rótulo. ⛔ `ivaTransferPct` NO viaja aquí (criterio **209**): que el
-      // cliente pueda leer qué fracción absorbemos es una **fuga comercial**.
-      ivaRatePct: dials.ivaRatePct,
-      // v2.0 (P-48, §4.36.7a/b): la señal NORMATIVA de la regla de visibilidad. `referenceValue` sigue
-      // viajando (el mismo DTO alimenta superficies admin y de valuación); el front OBEDECE esto.
+      // La **TASA**, para el rótulo. ⛔ `ivaTransferPct` NO viaja aquí (criterio **209**).
+      ivaRatePct: ctx.ivaDials.ivaRatePct,
+      // v2.0 (P-48, §4.36.7a/b): la señal NORMATIVA de la regla de visibilidad.
       priceBasis,
       sellable,
-      // v1.2 (M-13): sin fotos propias — la imagen es la de catálogo remota (CardDTO.imageSmallUrl/Large).
     };
-    // `L` viaja en el SOBRE, ⛔ nunca dentro del DTO: lo consumen el gate de curaduría y el orden
-    // del representante, que razonan en escala de MERCADO (sin IVA).
-    return { dto, listPriceCents: salePriceCents };
+    return { dto, listPriceCents };
   }
 
   /**
