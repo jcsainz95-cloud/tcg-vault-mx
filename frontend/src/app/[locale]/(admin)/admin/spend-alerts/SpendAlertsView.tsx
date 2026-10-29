@@ -13,7 +13,7 @@ import { QueryState } from '@/components/ui/QueryState';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Link } from '@/i18n/navigation';
-import { formatDateTimeMx, formatMoneyCents, formatTimeMx } from '@/lib/format';
+import { formatCount, formatDateTimeMx, formatMoneyCents, formatTimeMx } from '@/lib/format';
 import { PICKING_SUMMARY_KEY } from '@/hooks/usePickingSummary';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
@@ -67,6 +67,7 @@ export function useAlertTexts() {
     () => ({
       money: (c: number) => formatMoneyCents(c, locale),
       dateTime: (iso: string) => formatDateTimeMx(iso, locale),
+      count: (n: number) => formatCount(n, locale),
       ownerSetting: (k: string) => (tOwner.has(`field.${k}`) ? tOwner(`field.${k}`) : tOwner('field.other')),
     }),
     [locale, tOwner],

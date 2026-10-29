@@ -19,10 +19,18 @@ export const KINDS = Object.keys(SPEND_ALERT_CODE_BY_KIND) as SpendAlertKind[];
  * encendidos») pero ⛔ nunca se apagan ni entran en `spendAlertsDisabled`.
  */
 export const ALWAYS_ON_CODES: readonly SpendAlertCode[] = ['AG-21', 'AG-22'];
-/** El filtro «Tipo» (§43.20.5): los trece que se apagan más AG-21 y AG-22, en orden de código. AG-14…AG-20 fuera. */
+/**
+ * v1.113⟨portada⟩ (§DYN.4.5): AG-24 «la vuelta PSA tarda más de 7 días» — solo panel (sin correo) y ⛔ no se apaga
+ * (no está en `SPEND_ALERT_CODES` del backend). Se ve en la lista y en el filtro; no es un aviso de la cuenta del dueño.
+ */
+export const PANEL_ONLY_CODES: readonly SpendAlertCode[] = ['AG-24'];
+/**
+ * El filtro «Tipo» (§43.20.5): los que se apagan, AG-21 y AG-22 (OWN-3) y AG-24 (§DYN.4.5), en orden de código.
+ * AG-14…AG-20 fuera (sin disparador).
+ */
 export const FILTER_KINDS = KINDS.filter((k) => {
   const c = SPEND_ALERT_CODE_BY_KIND[k];
-  return SPEND_ALERT_SWITCHABLE_CODES.includes(c) || ALWAYS_ON_CODES.includes(c);
+  return SPEND_ALERT_SWITCHABLE_CODES.includes(c) || ALWAYS_ON_CODES.includes(c) || PANEL_ONLY_CODES.includes(c);
 });
 export const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 

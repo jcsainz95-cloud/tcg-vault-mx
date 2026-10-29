@@ -922,6 +922,28 @@ export interface GroupedListingSummaryDTO {
   gradingHighlight?: GradedEstimateDTO[];
 }
 
+/**
+ * v1.113⟨portada⟩ (§DYN.1/§DYN.2.1): tipo de lugar de una destacada. `new_arrival` ⇒ etiqueta «Recién llegada»
+ * (posiciones 1-2). Clase E.
+ */
+export type FeaturedSlotKind = 'new_arrival' | 'pool';
+
+/** §DYN.2.1: el DTO de la rejilla, sin cambios, + `featuredSlot`. */
+export type FeaturedListingDTO = GroupedListingSummaryDTO & { featuredSlot: FeaturedSlotKind };
+
+/**
+ * `GET /catalog/featured` (§DYN.2.1, público). `businessDate` = día CDMX de la selección servida (`null` ⇔ no hay
+ * ninguna); `data` en el orden de la selección, sin huecos, ≤ 20. `data: []` es un estado correcto (I-1: ⛔ nunca se
+ * rellena con «las más caras»).
+ */
+export interface FeaturedResponse {
+  businessDate: string | null;
+  data: FeaturedListingDTO[];
+}
+
+/** v1.113⟨portada⟩ (§DYN.2.5/§DYN.5.8). */
+export type DataHealthStatus = 'ok' | 'stale' | 'never';
+
 export interface GroupedListingListResponse {
   data: GroupedListingSummaryDTO[];
   page: number;
@@ -3361,7 +3383,23 @@ export interface DashboardDTO {
   inventoryValueCents?: number;
   custodyValueCents?: number;
   buylistPeriod: { count: number; amountCents: number };
-  dataHealth: { pendingPriceCount: number; lastPriceSyncAt?: string; lastFxAt?: string };
+  dataHealth: {
+    pendingPriceCount: number;
+    lastPriceSyncAt?: string;
+    lastFxAt?: string;
+    /**
+     * v1.113⟨portada⟩ (§DYN.2.5): salud del cambio diario de Destacadas. Aditivo y sin dinero (lo ve también
+     * `vault_operator`). Opcional: un servidor anterior no lo manda ⇒ la fila no existe. `stale` ⇔ el día servido no es
+     * el esperado pasada su hora + 15 min, o la lectura falló.
+     */
+    featuredRotation?: {
+      status: DataHealthStatus;
+      servingBusinessDate: string | null;
+      expectedBusinessDate: string;
+    };
+    /** 💰 v1.113⟨portada⟩ (§DYN.5.8): salud del cálculo diario del precio del día (`ListingPrice`). */
+    listingPrices?: { status: DataHealthStatus; lastDailyBusinessDate: string | null };
+  };
   launchProgress: {
     users: number;
     salesSettled: number;
@@ -6396,7 +6434,19 @@ export interface SettingsDTO {
   wishlistTargetMarginPct?: number;
   wishlistMarginBasis?: WishlistMarginBasis;
   sealedRestockMaxPendingPerEmail?: number;
+  // ---- v1.113⟨portada⟩ (§DYN.3, M-93): los seis diales de Destacadas y del tope PSA (M10, `super_admin`). Opcionales:
+  // un servidor anterior no los trae y M10 no pinta la sección como si existieran. Reglas de combinación sobre el valor
+  // RESULTANTE ⇒ `422 VALIDATION_ERROR` con `details.rule` ∈ `FeaturedDialRule`. ----
+  featuredPoolSize?: number;
+  featuredRandomSlots?: number;
+  featuredNewArrivalSlots?: number;
+  featuredNewArrivalWindowDays?: number;
+  featuredRotationHour?: number;
+  gradedEstimateDailyCreditCap?: number;
 }
+
+/** §DYN.3: `details.rule` del `422` de combinación de los diales de Destacadas. */
+export type FeaturedDialRule = 'featured_slots_total' | 'featured_pool_lt_random';
 
 /**
  * 🔒 v1.80.12.10 (§19.30.2 (1)): las claves (nombres del DTO) que solo el dueño cambia — las 11 de §19.29.8 (incluido
@@ -6448,7 +6498,13 @@ export type SpendAlertKind =
   | 'owner_account_changed'
   | 'staff_control_by_non_owner'
   /** 💰 rev BSD-1 (§BSD.7.2): AG-23 «Solicitud de venta sin guía» — solo al dueño, `facts` sin PII. */
-  | 'buylist_guide_due';
+  | 'buylist_guide_due'
+  /**
+   * v1.113⟨portada⟩ (§DYN.4.5): AG-24 «con el tope de créditos PSA la vuelta tarda más de 7 días». Solo panel (sin
+   * correo, `mailStatus not_applicable`, fuera del resumen); una sola fila abierta que se actualiza en sitio.
+   * `facts` (lista blanca): `{ reason, publishedCards, cycleDays, dailyCreditCap, capToCoverWeek, setsOverCap }`.
+   */
+  | 'psa_cycle_short';
 /** Mapa fijo kind ⇔ code (§19.29.2 + §19.30.1 (6) / §19.30.2 (3)). */
 export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = {
   label_after_address_fix: 'AG-1',
@@ -6474,11 +6530,12 @@ export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = 
   owner_account_changed: 'AG-21',
   staff_control_by_non_owner: 'AG-22',
   buylist_guide_due: 'AG-23',
+  psa_cycle_short: 'AG-24',
 };
 export type SpendAlertCode =
   | 'AG-1' | 'AG-2' | 'AG-3' | 'AG-4' | 'AG-5' | 'AG-6' | 'AG-7' | 'AG-8' | 'AG-9' | 'AG-10' | 'AG-11'
   | 'AG-12' | 'AG-13' | 'AG-14' | 'AG-15' | 'AG-16' | 'AG-17' | 'AG-18' | 'AG-19' | 'AG-20' | 'AG-21' | 'AG-22'
-  | 'AG-23';
+  | 'AG-23' | 'AG-24';
 /** Los trece con disparador en D2 (§19.29.8 validador de `spend_alerts_disabled`): los únicos que se apagan. */
 export const SPEND_ALERT_SWITCHABLE_CODES: readonly SpendAlertCode[] = [
   'AG-1', 'AG-2', 'AG-3', 'AG-4', 'AG-5', 'AG-6', 'AG-7', 'AG-8', 'AG-9', 'AG-10', 'AG-11', 'AG-12', 'AG-13',
@@ -6630,8 +6687,33 @@ export interface GradedEstimateConfigDTO {
   minSampleCount: number;
   /** v1.50.2 — qué número del proveedor ES el precio. */
   sourceStat: 'median' | 'average' | 'smart';
-  /** v1.50.2 — tope de cuota por corrida del ingest. */
-  ingestMaxCardsPerRun: number;
+  /*
+   * ⛔ v1.113⟨portada⟩ (§DYN.3, I-5): `ingestMaxCardsPerRun` SE RETIRÓ de toda salida (el proyector del backend lo
+   * quita) y enviarlo en el `PUT` ⇒ `422 VALIDATION_ERROR` `details.field`. Lo sustituye el dial de M10
+   * `gradedEstimateDailyCreditCap` (tope de créditos PSA por día CDMX) y el presupuesto de
+   * `GET /admin/pricing/graded-estimates/budget` (`GradedEstimateBudgetDTO`).
+   */
+}
+
+/** v1.113⟨portada⟩ (§DYN.4.6) — `GET /admin/pricing/graded-estimates/budget` (`super_admin`, criterio 301). */
+export interface GradedEstimateBudgetDTO {
+  hookEnabled: boolean;
+  dailyCreditCap: number;
+  creditsToday: number;
+  creditsLast7Days: number;
+  /** `false` ⇔ alguna fila de hoy cargó la ESTIMACIÓN (el proveedor no reportó lo gastado). */
+  creditsTodayAllMeasured: boolean;
+  /** env `POKEMONPRICETRACKER_DAILY_QUOTA`; `null` = sin fijar. */
+  providerDailyQuota: number | null;
+  /** Última lectura del proveedor; `null` = no la expuso. */
+  providerDailyRemaining: number | null;
+  publishedCards: number;
+  cardsScannedLast7Days: number;
+  cardsUnmapped: number;
+  weeklyCreditsNeeded: number;
+  /** Días que tarda la vuelta con el tope vigente; `null` ⇔ tope 0. */
+  cycleDays: number | null;
+  capToCoverWeek: number;
 }
 
 /** Body del `PUT`: parcial por campo; `gradingCostTiers` se REEMPLAZA COMPLETO cuando viene. */
@@ -6645,7 +6727,7 @@ export interface GradedEstimateConfigInput {
   maxRawMultiple?: number;
   minSampleCount?: number;
   sourceStat?: 'median' | 'average' | 'smart';
-  ingestMaxCardsPerRun?: number;
+  // ⛔ §DYN.3: sin `ingestMaxCardsPerRun` (enviarlo ⇒ 422). El tipo no lo admite para que ningún `PUT` lo mande.
 }
 
 // ---- M2: diagnóstico de CURADURÍA del gancho (GET /admin/pricing/graded-estimates/preview) ----

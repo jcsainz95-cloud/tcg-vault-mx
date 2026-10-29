@@ -120,6 +120,8 @@ import type {
   SealedSpreadsUpdateRequest,
   GradedEstimateConfigDTO,
   GradedEstimateConfigInput,
+  GradedEstimateBudgetDTO,
+  FeaturedResponse,
   GradedEstimateDeleteResponse,
   GradedEstimatePreviewResponse,
   GradedEstimateReviewReason,
@@ -480,6 +482,7 @@ export interface CatalogFilters {
  */
 export async function getCatalog(
   filters: CatalogFilters = {},
+  server?: ServerReadOptions,
 ): Promise<GroupedListingListResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) {
     const query: Record<string, string | number | undefined> = {
@@ -500,7 +503,7 @@ export async function getCatalog(
       // v1.50: solo se manda cuando es `true`; omitido ⇒ comportamiento idéntico a hoy.
       gradingHighlight: filters.gradingHighlight ? 'true' : undefined,
     };
-    return apiRequest<GroupedListingListResponse>('/catalog/cards', { query });
+    return apiRequest<GroupedListingListResponse>('/catalog/cards', { query, next: server?.next });
   }
   // v1.50 (paridad con el contrato): `sort=grading_showcase` SIN `gradingHighlight=true` es un
   // 400 GRADING_SORT_REQUIRES_FILTER — si se aceptara, los grupos no destacados irían a la cola con
@@ -561,6 +564,24 @@ export async function getCatalog(
   }
   const pageSize = filters.pageSize ?? 20;
   return delay({ data: data.slice(0, pageSize), page: 1, pageSize, total: data.length });
+}
+
+/**
+ * v1.113⟨portada⟩ (§DYN.6.2): opciones de una lectura PÚBLICA hecha en el servidor (la portada), para la caché de datos
+ * de Next. Mismo endpoint y misma forma que en el cliente: solo cambia cuánto se cachea.
+ */
+export interface ServerReadOptions {
+  next?: { revalidate?: number; tags?: string[] };
+}
+
+/**
+ * Destacadas del día (contrato `GET /catalog/featured`, §DYN.2, `@Public`). Sin parámetros: la selección es la misma
+ * para todos durante el día (I-2). `data: []` es un estado correcto: el carrusel se pinta como «sin piezas» y ⛔ nunca
+ * cae a «las más caras» (I-1).
+ */
+export async function getFeatured(server?: ServerReadOptions): Promise<FeaturedResponse> {
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<FeaturedResponse>('/catalog/featured', { next: server?.next });
+  return delay(fx.mockFeatured());
 }
 
 /** Facetas dinámicas de Compra (contrato GET /catalog/facets, v1.1). */
@@ -979,11 +1000,30 @@ export async function updateGradedEstimateConfig(
       body: input,
     });
   }
+  // MOCK §DYN.3: el campo retirado ⇒ `422 VALIDATION_ERROR` `details.field`, antes de escribir nada (paridad con el backend).
+  if ('ingestMaxCardsPerRun' in (input as Record<string, unknown>)) {
+    throw new ApiClientError(422, {
+      code: 'VALIDATION_ERROR',
+      message: 'ingestMaxCardsPerRun was retired',
+      details: { field: 'ingestMaxCardsPerRun' },
+    });
+  }
   fx.setMockGradedEstimateConfig(input);
   return delay({
     ...fx.mockGradedEstimateConfig,
     gradingCostTiers: fx.mockGradedEstimateConfig.gradingCostTiers.map((t) => ({ ...t })),
   });
+}
+
+/**
+ * v1.113⟨portada⟩ (§DYN.4.6) — presupuesto de créditos PSA (`GET /admin/pricing/graded-estimates/budget`,
+ * `super_admin`, solo lectura). Las cifras son del servidor; la pantalla no calcula ninguna.
+ */
+export async function getGradedEstimateBudget(): Promise<GradedEstimateBudgetDTO> {
+  if (!(MOCKS_BUILD && config.useMocks)) {
+    return apiRequest<GradedEstimateBudgetDTO>('/admin/pricing/graded-estimates/budget');
+  }
+  return delay(fx.mockGradedEstimateBudget());
 }
 
 /**

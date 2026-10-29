@@ -8,7 +8,6 @@ import {
   getSettings,
   updateSettings,
   getAuditLog,
-  getGradedEstimateConfig,
   type AuditLogFilters,
 } from '@/lib/api';
 import type { SettingsDTO, AuditLogDTO, PriceProvider } from '@/types/contract';
@@ -17,9 +16,8 @@ import { Link } from '@/i18n/navigation';
 import {
   GRADING_COST_MEASUREMENT,
   GRADING_INGEST_CREDITS_PER_CARD,
-  GRADING_INGEST_RUNS_PER_DAY,
   gradingCostBasis,
-  gradingIngestDailyCreditCeiling,
+  gradingDailyCreditCap,
 } from '@/lib/grading-hook-cost';
 import { formatDate } from '@/lib/format';
 import { Input } from '@/components/ui/Input';
@@ -37,6 +35,7 @@ import { PriceReviewSection } from './sections/PriceReviewSection';
 import { BuylistCycleSection } from './sections/BuylistCycleSection';
 import { WishlistDialsSection } from './sections/WishlistDialsSection';
 import { DirectShipSection } from './sections/DirectShipSection';
+import { FeaturedPsaDialsSection } from './sections/FeaturedPsaDialsSection';
 
 type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
 
@@ -223,27 +222,17 @@ export function M10View() {
   const hookTurningOn = hookEffectiveOn && !hookSavedOn;
 
   /*
-   * El tope de cartas por corrida vive en M2 (`GET /admin/pricing/graded-estimates`) y aquí solo se
-   * LEE, reusando la misma query key que M2 ya usa — es una lectura más, no un cambio de contrato
-   * (DESIGN_SYSTEM §22.12 nº13.c). Sirve para cifrar el gasto máximo diario del aviso de encendido.
-   *
-   * **Cede la cifra, nunca el aviso** (§22.13d): si la config no está disponible —cargando, error,
-   * permiso— el banner se pinta igual en su variante `onNoFigures`. Por eso esta query NO envuelve
-   * al aviso en un `QueryState` ni bloquea nada: su fallo degrada el texto, no lo esconde.
+   * v1.113⟨portada⟩ (§DYN.3): el techo de gasto del aviso de encendido es el tope de créditos PSA por día
+   * (`gradedEstimateDailyCreditCap`), que viaja en ESTE `GET /admin/settings` y se edita en «Destacadas y PSA». El tope de
+   * cartas por corrida de M2 (`ingestMaxCardsPerRun`) se retiró: ya no se lee la config de M2 para cifrar el aviso.
+   * **Cede la cifra, nunca el aviso** (§22.13d): un servidor anterior sin el dial ⇒ variante `onNoFigures`.
    */
-  const gradedCfg = useQuery({
-    queryKey: ['graded-estimates-config'],
-    queryFn: getGradedEstimateConfig,
-    // El aviso puede vivir sin este número; reintentar en bucle solo añadiría ruido de red a M10.
-    retry: false,
-  });
-  const hookMaxCards = gradedCfg.data?.ingestMaxCardsPerRun;
-  const hookCredits = gradingIngestDailyCreditCeiling(hookMaxCards);
+  const hookCredits = gradingDailyCreditCap(settings.data?.gradedEstimateDailyCreditCap);
 
   /*
    * ── Qué variante del aviso de encendido se pinta (§22.13d.1) ───────────────────────────────
    *
-   *   sin tope de M2      → `onNoFigures`  (gana sobre las dos siguientes: cede la cifra, no el aviso)
+   *   sin tope diario     → `onNoFigures`  (gana sobre las dos siguientes: cede la cifra, no el aviso)
    *   costBasis 'measured'→ `onMeasured`   (hay medición del entorno: cifra Y fecha)
    *   costBasis 'estimated'→ `on`          ← hoy, SIEMPRE
    *
@@ -381,9 +370,7 @@ export function M10View() {
                             ...RICH_BOLD,
                             ...RICH_FIGURE,
                             credits: hookCredits!,
-                            maxCards: hookMaxCards!,
                             perCard: GRADING_INGEST_CREDITS_PER_CARD,
-                            runs: GRADING_INGEST_RUNS_PER_DAY,
                           })}
                         {hookVariant === 'onMeasured' &&
                           t.rich('dials.gradingHook.onMeasured', {
@@ -392,8 +379,7 @@ export function M10View() {
                             // La cifra medida NO es el producto de las constantes: es lo que la
                             // corrida gastó de verdad. Si viniera del cálculo, «medido» sería falso.
                             credits: hookMeasurement!.creditsPerDay,
-                            maxCards: hookMaxCards!,
-                            runs: GRADING_INGEST_RUNS_PER_DAY,
+                            cap: hookCredits!,
                             // §22.13j: la fecha la formatea el frontend (§9.3), no el ICU.
                             measuredOn: formatDate(hookMeasurement!.measuredOn, locale),
                           })}
@@ -475,6 +461,10 @@ export function M10View() {
       {/* 💰 §43.19.10a — «Control del gasto»: justo después de «Envíos», sección propia (gobierna dinero); diales del
           dueño (§19.30.2 (1)). `id="control-gasto"` es el destino del enlace «Cambiar el tope» de un aviso. */}
       <SpendControlSection />
+
+      {/* v1.113⟨portada⟩ (§DYN.3, DYN-F5) — «Destacadas y PSA»: los seis diales nuevos (Destacadas del día + tope de créditos
+          PSA al día) y el presupuesto de créditos. `id="destacadas-psa"`. */}
+      <FeaturedPsaDialsSection />
 
       {/* Sección 1b: proveedor de la INGESTA MASIVA (bulk). Separado a propósito de los
           per-carta de arriba para que el humano no los confunda (P-47). */}

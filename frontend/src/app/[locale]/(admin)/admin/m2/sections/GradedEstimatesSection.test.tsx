@@ -1,15 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
-import { expectCreditsFigureQualified } from '@/test/grading';
 import * as api from '@/lib/api';
 import type { GradedEstimateConfigDTO } from '@/types/contract';
 import { ApiClientError } from '@/lib/api-client';
 import { GradedEstimatesSection } from './GradedEstimatesSection';
-import { M10View } from '@/app/[locale]/(admin)/admin/m10/M10View';
 
-// `@/i18n/navigation` (next-intl) no resuelve bajo vitest. Lo necesita `M10View`, que se monta
-// junto a esta sección en el check de §22.14(f)(f) — el enlace del aviso de apagado del gancho.
+// `@/i18n/navigation` (next-intl) no resuelve bajo vitest (la sección enlaza a M10).
 vi.mock('@/i18n/navigation', () => ({
   Link: ({ href, children, ...rest }: { href: unknown; children: React.ReactNode }) => (
     <a href={typeof href === 'string' ? href : '#'} {...rest}>
@@ -36,7 +33,7 @@ const seed = (): GradedEstimateConfigDTO => ({
   maxRawMultiple: 100,
   minSampleCount: 5,
   sourceStat: 'median',
-  ingestMaxCardsPerRun: 250,
+  // §DYN.3 (I-5): el servidor ya NO devuelve `ingestMaxCardsPerRun`.
   gradingCostTiers: [
     { minValueMxnCents: 0, maxValueMxnCents: 200_000, costMxnCents: 70_000 },
     { minValueMxnCents: 200_000, maxValueMxnCents: 500_000, costMxnCents: 110_000 },
@@ -199,145 +196,38 @@ describe('GradedEstimatesSection · escalones de costo de gradeo (§M2 / §O.2.1
 });
 
 /**
- * §22.14 — **el tope de cartas por corrida gana campo**. Hasta hoy `ingestMaxCardsPerRun` no se
- * pintaba ni viajaba en el `PUT`: la única cota entre un `PUT` y la factura del proveedor
- * (ARCHITECTURE §4.38r.3) solo se movía por `curl`, mientras el aviso de M10 le decía al dueño que
- * «ese tope se edita en M2». Ese es el mismo defecto que costó el rediseño a dial único, una
- * pantalla más allá: una palanca declarada gobernable y nunca dibujada.
- *
- * **Nunca 5 000**: ese valor salió del contrato en v1.51-a y §22.14(e) prohíbe escribirlo también
- * aquí — un test es un sitio tan bueno como cualquiera para reintroducir un número muerto.
+ * DYN-F5 / D-DYN-4 (API_CONTRACT §DYN.3, §DYN.8) — **el tope de cartas por corrida se retiró.** El backend ya no lo
+ * devuelve (I-5) y responde `422 VALIDATION_ERROR {field:'ingestMaxCardsPerRun'}` si llega en el `PUT`. Hasta este pase
+ * la sección BLOQUEABA el guardado con un `GET` sin el campo (`ingestCap === null`) y lo mandaba en cada `PUT`: con el
+ * backend de §DYN, M2 no guardaba nada. Su sustituto es el dial de M10 `gradedEstimateDailyCreditCap`.
+ * Mutación que lo pone rojo: volver a exigir el campo para guardar (o a mandarlo).
  */
-describe('GradedEstimatesSection · tope de cartas por corrida (§22.14)', () => {
-  const capInput = () => screen.getByLabelText('Tope de cartas por corrida') as HTMLInputElement;
-
-  it('(a) el campo EXISTE, trae el tope del servidor y vive en su BLOQUE PROPIO', async () => {
-    renderWithProviders(<GradedEstimatesSection />, 'es');
-    await screen.findByText(/Escalones de costo de gradeo/);
-
-    expect(capInput().value).toBe('250');
-    expect(screen.getByText(/Cuántas cartas tuyas mira el barrido/)).toBeInTheDocument();
-    // No es una tercera celda de la retícula de margen/frescura: esos dos son gates de PUBLICACIÓN
-    // y éste GASTA (§22.14b). La frescura sí vive en la retícula; el tope, no.
-    expect(screen.getByLabelText(/Frescura del dato/).closest('.grid')).not.toBeNull();
-    expect(capInput().closest('.grid')).toBeNull();
-    // En reposo (borrador = guardado) NO se pinta cifra de créditos: el techo permanente es de M10.
-    expect(screen.queryByText(/créditos al día/)).not.toBeInTheDocument();
-  });
-
-  it('(b) subir el tope avisa en `warning`, con la cifra DEL BORRADOR y su supuesto pegado', async () => {
-    renderWithProviders(<GradedEstimatesSection />, 'es');
-    await screen.findByText(/Escalones de costo de gradeo/);
-
-    fireEvent.change(capInput(), { target: { value: '500' } });
-    const banner = screen.getByText(/Estás subiendo el techo de gasto/).closest('[role="status"]')!;
-    // `status`, nunca `alert`: se teclea en un borrador y una región asertiva por pulsación es
-    // hostil con lector de pantalla (§22.14c).
-    expect(banner).toBeTruthy();
-    // El color no es el único canal (§2.4), pero además ES el de subida: regla de acento.
-    expect(banner.className).toContain('border-accent');
-    // 500 × 2 créditos × 2 corridas = 2000/día, con la aritmética del MISMO módulo que M10.
-    expect(banner.textContent).toMatch(/2000 créditos al día/);
-    // La cifra del BORRADOR, no la guardada (§22.14f b).
-    expect(banner.textContent).not.toMatch(/1000 créditos al día/);
-    // Y el invariante de §22.13(d.1), aquí sin excepción: ninguna oración publica el techo sin su
-    // régimen de cobro. Mismo candado que M10, mismo módulo.
-    expectCreditsFigureQualified(banner.textContent!);
-    // Guardar NO se bloquea: el aviso informa, no es un error (§22.14e).
-    expect(screen.getByRole('button', { name: 'Guardar' })).toBeEnabled();
-    // Y dice que guardar no cobra: sin esa frase el aviso desanima tocar la única palanca.
-    expect(banner.textContent).toMatch(/Guardar no cobra nada/);
-  });
-
-  it('(c/d) bajarlo avisa en `info` con OTRO título, y volver al valor guardado retira el aviso', async () => {
-    renderWithProviders(<GradedEstimatesSection />, 'es');
-    await screen.findByText(/Escalones de costo de gradeo/);
-
-    fireEvent.change(capInput(), { target: { value: '100' } });
-    const banner = screen.getByText(/Estás bajando el techo de gasto/).closest('[role="status"]')!;
-    expect(banner.className).not.toContain('border-accent');
-    expect(banner.textContent).toMatch(/400 créditos al día/);
-    expect(screen.queryByText(/Estás subiendo el techo de gasto/)).not.toBeInTheDocument();
-
-    fireEvent.change(capInput(), { target: { value: '250' } });
-    expect(screen.queryByText(/techo de gasto/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/créditos al día/)).not.toBeInTheDocument();
-  });
-
-  it('(e) fuera de [1, 1000] o vacío: `rangeError`, guardado BLOQUEADO y NINGUNA cifra de créditos', async () => {
-    renderWithProviders(<GradedEstimatesSection />, 'es');
-    await screen.findByText(/Escalones de costo de gradeo/);
-
-    for (const value of ['0', '', '1001', '10.5']) {
-      fireEvent.change(capInput(), { target: { value } });
-      expect(screen.getByText('Un número entero entre 1 y 1 000.')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Guardar' })).toBeDisabled();
-      // No se calcula un techo con un número que no se puede guardar (§22.14d).
-      expect(screen.queryByText(/créditos al día/)).not.toBeInTheDocument();
-    }
-
-    fireEvent.change(capInput(), { target: { value: '1000' } });
-    expect(screen.queryByText('Un número entero entre 1 y 1 000.')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Guardar' })).toBeEnabled();
-  });
-
-  it('el tope viaja en el PUT (money-safe: un campo vacío NO se guarda como 0 ni como el default)', async () => {
+describe('GradedEstimatesSection · DYN-F5: M2 guarda sin `ingestMaxCardsPerRun`', () => {
+  it('M2 guarda con un GET sin el campo, y el PUT NO lo lleva', async () => {
     const spy = vi.spyOn(api, 'updateGradedEstimateConfig').mockResolvedValue(seed());
     renderWithProviders(<GradedEstimatesSection />, 'es');
     await screen.findByText(/Escalones de costo de gradeo/);
 
-    // Vacío: el guardado no sale (y si alguien quitara el bloqueo, tampoco mandaría 0).
-    fireEvent.change(capInput(), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
-    expect(spy).not.toHaveBeenCalled();
+    fireEvent.change(rowsOf()[0], { target: { value: '800' } });
+    const save = screen.getByRole('button', { name: 'Guardar' });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
 
-    fireEvent.change(capInput(), { target: { value: '400' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
-    await waitFor(() => expect(spy).toHaveBeenCalled());
-    expect(spy.mock.calls[0][0].ingestMaxCardsPerRun).toBe(400);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(Object.keys(spy.mock.calls[0][0])).not.toContain('ingestMaxCardsPerRun');
   });
 
-  /**
-   * §22.14(f)(f) — **el check que cierra el círculo**: el aviso de M10 promete que el tope «se edita
-   * en M2», así que guardar en M2 tiene que mover la cifra que M10 enseña, **sin recargar**. Las dos
-   * pantallas comparten la `queryKey` `['graded-estimates-config']` y la invalidación ya existía;
-   * lo que faltaba era el campo. Se montan JUNTAS a propósito: es el único modo de probar que la
-   * palanca y el aviso son la misma feature y no dos textos que se parecen.
-   */
-  it('(f) guardar el tope en M2 mueve la cifra del aviso de M10 sin recargar', async () => {
-    // El doble del servidor GUARDA lo que recibe: si el `PUT` no llevara el tope, el `GET` de la
-    // invalidación devolvería el viejo y la cifra de M10 no se movería. Un mock que devuelve 500
-    // pase lo que pase probaría solo la invalidación, no el círculo entero.
-    let servedCap = 250;
-    vi.spyOn(api, 'getGradedEstimateConfig').mockImplementation(async () => ({
-      ...seed(),
-      ingestMaxCardsPerRun: servedCap,
-    }));
-    vi.spyOn(api, 'updateGradedEstimateConfig').mockImplementation(async (input) => {
-      if (input.ingestMaxCardsPerRun != null) servedCap = input.ingestMaxCardsPerRun;
-      return { ...seed(), ingestMaxCardsPerRun: servedCap };
-    });
-    renderWithProviders(
-      <>
-        <GradedEstimatesSection />
-        <M10View />
-      </>,
-      'es',
-    );
+  it('el campo retirado ya NO se pinta (ni su aviso de créditos)', async () => {
+    renderWithProviders(<GradedEstimatesSection />, 'es');
     await screen.findByText(/Escalones de costo de gradeo/);
+    expect(screen.queryByLabelText('Tope de cartas por corrida')).not.toBeInTheDocument();
+    expect(screen.queryByText(/cartas por corrida/i)).not.toBeInTheDocument();
+  });
 
-    // El aviso de M10 (dial guardado en `on`) cifra el techo con el tope VIVO: 250 × 2 × 2.
-    const aviso = await screen.findByText(/Y gasta\./);
-    const banner = aviso.closest('[role="status"]') as HTMLElement;
-    await waitFor(() => expect(banner.textContent).toMatch(/1000 créditos al día/));
-
-    fireEvent.change(capInput(), { target: { value: '500' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
-
-    // Sin recargar: la invalidación de la sección refresca la MISMA query que lee M10.
-    await waitFor(() => expect(banner.textContent).toMatch(/2000 créditos al día/));
-    expect(banner.textContent).not.toMatch(/1000 créditos al día/);
-    // Y sigue calificada al otro lado: mover la cifra no puede desnudarla.
-    expectCreditsFigureQualified(banner.textContent!);
+  it('el mock reproduce el 422 del backend si el campo llegara en el PUT (paridad, §DYN.3)', async () => {
+    vi.restoreAllMocks();
+    await expect(
+      api.updateGradedEstimateConfig({ freshnessDays: 30, ingestMaxCardsPerRun: 250 } as never),
+    ).rejects.toMatchObject({ status: 422, code: 'VALIDATION_ERROR', details: { field: 'ingestMaxCardsPerRun' } });
   });
 });

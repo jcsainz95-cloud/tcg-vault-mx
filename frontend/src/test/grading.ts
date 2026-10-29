@@ -73,8 +73,12 @@ export function splitSentences(text: string): string[] {
   return text.split(/(?<=\.)(?:\s+|(?=[^\s\d]))/).filter((s) => s.trim() !== '');
 }
 
-/** Lo que convierte la cifra en publicable: el régimen que la condiciona, o que esté MEDIDA. */
-const CREDITS_QUALIFIER = /cobra por petición|ya está medido|medida el/;
+/**
+ * Lo que convierte la cifra en publicable: el régimen que la condiciona, que esté MEDIDA o —desde §DYN (v1.113,
+ * API_CONTRACT §DYN.4.3)— que sea el TOPE diario que el servidor aplica sobre lo cargado, dicho como tope en la misma
+ * oración («lo acota un tope diario»). La cifra desnuda sigue sin pasar.
+ */
+const CREDITS_QUALIFIER = /cobra por petición|ya está medido|medida el|lo acota un tope diario/;
 
 /**
  * Afirma el invariante sobre un texto ya renderizado (aviso de M10 o de M2): hay **al menos una**

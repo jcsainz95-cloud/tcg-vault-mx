@@ -19,6 +19,8 @@ type T = {
 export interface AlertTextCtx {
   money: (cents: number) => string;
   dateTime: (iso: string) => string;
+  /** v1.113 (AG-24): un conteo (cartas, créditos) con el separador del idioma; sin él, el número tal cual. */
+  count?: (n: number) => string;
   /**
    * El rótulo de un ajuste del dueño por su clave del DTO (`admin.m10.ownerOnly.field.*`, una fuente para el nombre de
    * cada ajuste, §43.20.3); clave sin rótulo ⇒ `field.other`. ⛔ Nunca la clave cruda.
@@ -167,6 +169,25 @@ export function alertText(t: T, a: SpendAlertDTO, ctx: AlertTextCtx): string {
       const closesAt = str(f.closesAt);
       return t('kind.AG-23.text', { folio: str(f.sellRequestId) ?? none, closesAt: closesAt ? ctx.dateTime(closesAt) : none, gross: m(f.offerGrossCents) });
     }
+    case 'AG-24': {
+      // v1.113⟨portada⟩ (§DYN.4.5): SOLO `facts = {reason, publishedCards, cycleDays, dailyCreditCap, capToCoverWeek,
+      // setsOverCap}` (GAS-4: cifras del servidor tal cual, ⛔ ni un cálculo aquí). `reason` decide la frase; otra ⇒ genérica.
+      const reason = str(f.reason);
+      const count = (v: SpendAlertFactValue | undefined) => {
+        const n = num(v);
+        return n === null ? none : ctx.count ? ctx.count(n) : String(n);
+      };
+      const base = {
+        cards: count(f.publishedCards),
+        cap: count(f.dailyCreditCap),
+        days: num(f.cycleDays) ?? none,
+        capToCover: count(f.capToCoverWeek),
+        setsOverCap: count(f.setsOverCap),
+      };
+      if (reason === 'projected') return t('kind.AG-24.projected', base);
+      if (reason === 'overdue') return t('kind.AG-24.overdue', base);
+      return t('kind.generic.text');
+    }
     default:
       return t('kind.generic.text');
   }
@@ -197,7 +218,19 @@ export const FACT_MONEY = [
   // 💰 rev BSD-1 (AG-23): el valor de las cartas en la oferta.
   'offerGrossCents',
 ] as const;
-export const FACT_INT = ['revisionCount', 'cancelledCount', 'unknownRefunds', 'daysSincePurchase', 'pct'] as const;
+export const FACT_INT = [
+  'revisionCount',
+  'cancelledCount',
+  'unknownRefunds',
+  'daysSincePurchase',
+  'pct',
+  // v1.113⟨portada⟩ (AG-24, §DYN.4.5): las cinco cifras de su `facts` (`reason` va abajo).
+  'publishedCards',
+  'cycleDays',
+  'dailyCreditCap',
+  'capToCoverWeek',
+  'setsOverCap',
+] as const;
 export const FACT_WHITELIST = [
   'changedKeys',
   'carrierName',
@@ -213,4 +246,6 @@ export const FACT_WHITELIST = [
   // 💰 rev BSD-1 (AG-23, UX-GAS-6): las tres claves de su `facts` y ninguna otra.
   'sellRequestId',
   'closesAt',
+  // v1.113⟨portada⟩ (AG-24): por qué se abrió (`projected` | `overdue`).
+  'reason',
 ] as const;
