@@ -9,7 +9,6 @@
  * el `pullToken` es legible (`mock-pull:<slug>:<ids>`; el real va firmado con `domainHmac`), y las existencias
  * viven en memoria de la pestaña.
  */
-import './sentinel';
 import type {
   AccessoryCardDTO,
   AccessoryCategory,
@@ -485,3 +484,7 @@ export function mockAdminMovements(id: string, page = 1): AccessoryStockMovement
   const all = movements[id] ?? [];
   return { items: all.slice((page - 1) * 20, page * 20), page, pageSize: 20, total: all.length };
 }
+
+// TL-DYN3R-2 · centinela PROPIO de este módulo: un literal, no un import (si el módulo escapara al alias de
+// next.config.mjs, un `import './sentinel'` resolvería vacío y el literal no viajaría). Ver sentinel.ts.
+(globalThis as { __thMockBundle?: string }).__thMockBundle = 'th-mock-bundle-sentinel-5c1e';

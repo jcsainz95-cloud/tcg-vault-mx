@@ -22,7 +22,6 @@
  * hay webhook), el tiempo constante del camino `invalid` (pentester).
  */
 
-import './sentinel';
 import type {
   DiscountAuditAction,
   DiscountAuditEntry,
@@ -1038,3 +1037,7 @@ export function mockPreview(body: DiscountPreviewRequest): DiscountPreviewRespon
   // v1.110.3 (DCO-B21): `nominalCents` y `capped` tal cual los da `discountOf`; aquí no se recalcula nada.
   return { discountCents: r.discountCents, nominalCents: r.nominalCents, capped: r.capped };
 }
+
+// TL-DYN3R-2 · centinela PROPIO de este módulo: un literal, no un import (si el módulo escapara al alias de
+// next.config.mjs, un `import './sentinel'` resolvería vacío y el literal no viajaría). Ver sentinel.ts.
+(globalThis as { __thMockBundle?: string }).__thMockBundle = 'th-mock-bundle-sentinel-5c1e';

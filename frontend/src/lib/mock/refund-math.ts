@@ -11,7 +11,6 @@
  * `501 MOCK_GOLDEN_VECTOR_MISSING` en vez de inventarse una cifra: el mock lleva estado, no fórmula fiscal.
  * (Decisión y alternativas en `docs/FRONTEND_NOTES.md` §M4-SHIP · «el mock no calcula IVA».)
  */
-import './sentinel';
 import { ApiFixtureError } from './fixtures';
 
 /**
@@ -178,3 +177,7 @@ export function manualRefundComponentsOf(c: RefundComponents): {
     compensationCents: c.compensationCents,
   };
 }
+
+// TL-DYN3R-2 · centinela PROPIO de este módulo: un literal, no un import (si el módulo escapara al alias de
+// next.config.mjs, un `import './sentinel'` resolvería vacío y el literal no viajaría). Ver sentinel.ts.
+(globalThis as { __thMockBundle?: string }).__thMockBundle = 'th-mock-bundle-sentinel-5c1e';

@@ -23,13 +23,18 @@
   producción. Candados:
   - `src/test/mock-boundary.test.ts` (R1): quién importa `lib/mock` (lista explícita: `m4/capture/sdx-test-fixtures.ts`,
     solo la importan pruebas) y la auditoría AST de los dos clientes (`src/test/mock-boundary.ts`; 2026-10-29: `api.ts`
-    484 referencias, `marketing-api.ts` 13, 0 sin guarda). Las funciones exportadas con fixtures (`computeBreakdown`,
-    `mockWithdrawalDiscount`, `mockDiscountedDirectShip`) solo valen si ningún fichero de código fuera de los clientes
-    las nombra.
+    484 referencias, `marketing-api.ts` 13, 0 sin guarda). Cuenta como `lib/mock` todo especificador que resuelva ahí;
+    `import()`/`require()` de `lib/mock` (o con argumento no literal) en un cliente es problema, no se audita; una
+    `function` anidada no hereda el `return` temprano que la precede (se eleva); «fuera» de un cliente incluye al otro
+    (TL-DYN3R-1). Exportadas con fixtures sin guarda propia: solo las de la lista `TEST_ONLY_EXPORTS`
+    (`computeBreakdown`, `mockWithdrawalDiscount`, `mockDiscountedDirectShip`), y solo si nada fuera las nombra.
   - `scripts/check-home-bundle.mjs` (postbuild de `npm run build`, TL-DYN3-2): falla si falta cualquiera de las tres
     entradas de la portada, si la portada trae `recharts` o la rama mock de login, o si **cualquier** chunk de
-    `.next/static` trae el centinela de `src/lib/mock/sentinel.ts` (cada módulo de `lib/mock` lo importa; su efecto
-    lateral impide que webpack lo pode).
+    `.next/static` trae el centinela. Su valor vive en `src/lib/mock/sentinel.ts`, pero cada módulo de `lib/mock` lleva
+    el **literal** en su propio efecto de nivel superior (TL-DYN3R-2): un `import './sentinel'` lo vaciaba el mismo
+    alias, y con `"sideEffects": false` se podaba (medido 2026-10-29 sobre `32092bc4`: las dos fugas daban
+    `HOME_BUNDLE_OK` con fixtures en `static/`; con el literal, `HOME_BUNDLE_FAIL`). Lo que no ve: un fixture copiado
+    fuera de `lib/mock` (eso es R1). Candados del literal y de «sin `sideEffects`»: `src/lib/home-bundle.test.ts`.
 - **JS:** `PortfolioGlance` (recharts) con `next/dynamic`. `lib/api.ts` NO se partió: tras podar los mocks su chunk pesa
   10 KB gzip y la partición no compensaba.
 - **Red:** `Content-Type` solo con cuerpo (`api-client.ts`, «hay cuerpo» = `body !== undefined`), así los GET anónimos
@@ -17586,25 +17591,10 @@ stripeFees − shippingCost − refunds − refundedFees − compensations` (`:1
   `shippingCostCents` es NETO de IVA (`:1781`). Si `insuranceCostCents` llega con IVA, el «Incluye seguro del envío» estaría
   en una base distinta del renglón que lo contiene (y en teoría podría excederlo). No lo medí; solo lo leí.
 
-## §96 · NT2-a — un único patrón P66-3 para los barridos de copy (2026-10-05, rama `claude/skydropx-d`, base `7d930c4e`)
-
-### 96.1 Qué cambió
-- `frontend/src/lib/i18n-p66-3.testkit.ts` (solo pruebas; no lo importa la app): `P66_3_CODE_RE =
-  /\b(M-?1?[0-9]|AG-[0-9]+|AV-[0-9]+)\b/` (sin bandera `g`), `get()`, `flatten()`, `P66_3_KNOWN_HITS` y
-  `p66_3Offenders(locale, entries)`.
-- Lo usan los cuatro barridos: `lib/i18n-pnl.test.ts`, `lib/i18n-shipping-alerts.test.ts`, `lib/i18n-skydropx.test.ts`
-  y `admin/AdminPageTitles.test.tsx` (P66-1 y P66-3). Antes tres usaban `M1?[0-9]` (no caza «M-1») y dos solo
-  miraban «M»; `get()` y `flat()` estaban copiados.
-- `AdminPageTitles` barría **líneas** de `messages/*.json`; ahora barre **valores** aplanados. Con el patrón
-  ampliado, las líneas de clave `admin.m10.spend.kind.AG-1…AG-22` habrían sido falsos aciertos (son claves, no texto).
-
-### 96.2 Acierto real que afloró (no cambié el texto)
-- `admin.m10.shipping.lowBalanceHint` — ES «Debajo de esta cifra le llega un correo al dueño (aviso AG-7), una vez por
-  cada vez que baja.» / EN «Below this amount the owner gets an email (alert AG-7), once each time it drops.» Es el
-  literal de `DESIGN_SYSTEM.md:25349`/`:25795` y lo afirma `SpendControlSection.test.tsx:141`, pero choca con P66-3.
-  Queda en `P66_3_KNOWN_HITS` con su motivo; `p66_3Offenders` marca `stale:` si deja de acertar, así que la excepción
-  no puede sobrevivir al arreglo. Decisión de copy: orquestador → ux-ui.
-- Ningún «M-n» con guion en `messages/*.json` (grep medido 2026-10-05 sobre `7d930c4e`).
+## §96 · NT2-a — un único patrón P66-3 para los barridos de copy (2026-10-05) — compactado 2026-10-29
+Vigente: `frontend/src/lib/i18n-p66-3.testkit.ts` (`P66_3_CODE_RE`, `p66_3Offenders`) lo usan los cuatro barridos de copy;
+barre valores aplanados de `messages/*.json`, no líneas. Excepción viva: `P66_3_KNOWN_HITS` (`admin.m10.shipping.lowBalanceHint`,
+«aviso AG-7», pendiente de ux-ui); `p66_3Offenders` la marca `stale:` si deja de acertar. Detalle: historial del repo.
 
 ## §98 · **Arreglos del panel — `DESIGN_SYSTEM §60` (v5.0) contra el contrato v1.82 §PNL** (2026-10-05, rama `claude/arreglos-panel`; commits `e6760b49` · `7ce3bff4` · `91cb27a1` · `6f10d315` · `5dc6357e` · `53ee8c35` · `2e93eb0f`)
 

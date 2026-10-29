@@ -44,7 +44,9 @@
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
 | R1 | CERRADA · la frontera de los mocks no tenía candado: con mocks apagados `lib/mock/*` llega vacío y un uso fuera de la guarda valía `undefined` en producción sin que nada lo viera | frontend | 2026-10-29 | `src/test/mock-boundary.test.ts` verde (importadores de `lib/mock` + auditoría AST de `api.ts`/`marketing-api.ts`); `fx.mockSettings` en una rama real ⇒ rojo |
-| TL-DYN3-2 | CERRADA · `check-home-bundle.mjs` solo fallaba si faltaban las tres entradas y buscaba `'@example.'` solo en la portada | frontend | 2026-10-29 | `src/lib/home-bundle.test.ts` verde; sin `config.resolve.alias` en `next.config.mjs` ⇒ `npm run build` sale con `HOME_BUNDLE_FAIL` (centinela de `lib/mock/sentinel.ts`) |
+| TL-DYN3-2 | CERRADA · `check-home-bundle.mjs` solo fallaba si faltaban las tres entradas y buscaba `'@example.'` solo en la portada | frontend | 2026-10-29 | `src/lib/home-bundle.test.ts` verde; sin `config.resolve.alias` en `next.config.mjs` ⇒ `npm run build` sale con `HOME_BUNDLE_FAIL` (centinela cuyo valor vive en `lib/mock/sentinel.ts`) |
+| TL-DYN3R-1 | CERRADA (`93310f41`) · huecos de la parte (b) de R1: especificadores distintos de `./mock/…` (H1), `import()`/`require()` sin auditar (H2), función anidada elevada tras el `return` temprano contada como guardada (H3), «fuera» sin el otro cliente (H4), `TEST_SUPPORT` solo por `from '…'` | frontend | 2026-10-29 | `mock-boundary.test.ts` verde con los canarios «M-a», «M-b», «M-c», «H4» y «TL-DYN3R-1 (menor)»; M-a/M-b/M-c inyectados en `api.ts` ⇒ rojo 3/3 cada uno (0/3 sobre `32092bc4`) |
+| TL-DYN3R-2 | CERRADA (`4eb4f15c`) · el centinela vivía en `lib/mock/sentinel.ts` y lo vaciaba el mismo alias (un módulo que escapara viajaba sin él) y dependía de que no hubiera `sideEffects` | frontend | 2026-10-29 | `home-bundle.test.ts` «literal propio» + «sin `sideEffects`» verdes; builds sin mocks: `sales.ts` fuera del alias ⇒ `HOME_BUNDLE_FAIL`; `"sideEffects": false` + sin alias ⇒ `HOME_BUNDLE_FAIL` (los dos daban `HOME_BUNDLE_OK` con fixtures en `static/` sobre `32092bc4`) |
 | TL-DYN3-5 | CERRADA · `api-client` decidía «hay cuerpo» por veracidad; el alias no cubría `.tsx` ni subcarpetas; el JSDoc `@type NextConfig` anotaba otro bloque | frontend | 2026-10-29 | `api-client.test.ts` «TL-DYN3-5»; `home-bundle.test.ts` «TL-DYN3-5 · el alias cubre .tsx y subcarpetas»; `grep -A1 "@type {import('next').NextConfig}" frontend/next.config.mjs` ⇒ `const nextConfig` |
 | TL-DYN3-1 | CERRADA · textos `admin.*` en componentes compartidos que monta la tienda (`CellDrawer`, `VariantPriceConsole`, `MasterSetBinder`) | frontend | 2026-10-29 | `master-set/MasterSet.storefront-messages.test.tsx`: `user_vault_self` y `quoter` con `storefrontMessages(es)` ⇒ 0 `MISSING_MESSAGE` (control `platform` ⇒ sí faltan) |
 | TL-DYN3-3 | CERRADA · `AdminMessagesProvider` solo reenvía `locale`/`timeZone` | frontend | 2026-10-29 | `AdminMessagesProvider.test.tsx` «TL-DYN3-3» (`formats`, `onError`, `getMessageFallback`, `now` de la raíz resuelven bajo el provider: los hereda use-intl) |
@@ -2283,18 +2285,7 @@ aparece, con la bandera SÍ).
 > las pantallas priorizadas funcionan contra los shapes del contrato. Lo de abajo es lo que queda para la
 > fase de integración con el backend real y post-MVP. Detalle operativo en `docs/FRONTEND_NOTES.md`.
 
-### FE-1 · Mocks activos por default + `computeBreakdown` duplica la fórmula de dinero — **CERRADA 2026-10-29** (índice §DYN.3 arriba)
-- **Dónde:** `frontend/src/lib/config.ts` (`useMocks` default `true`), `frontend/src/lib/api.ts`
-  (`computeBreakdown`, réplica local de ARCHITECTURE §5.1) y `frontend/src/lib/mock/fixtures.ts`.
-- **Estado actual:** con `NEXT_PUBLIC_USE_MOCKS` distinto de `"false"` el cliente sirve fixtures locales.
-  El desglose de dinero de esos fixtures se calcula con `computeBreakdown` (subtotal + IVA 16% + fee
-  gross-up), que **duplica** la fórmula del backend solo para tener números coherentes en los mocks.
-- **Impacto:** riesgo de **divergencia** si el backend cambia IVA/markup/tarifa Stripe o la fórmula de
-  gross-up: los mocks mostrarían cifras que ya no coinciden. En producción no aplica (la UI solo pinta el
-  `BreakdownDTO` que llega del backend), pero mantener la fórmula duplicada puede confundir.
-- **Disparador:** al integrar con backend real (`NEXT_PUBLIC_USE_MOCKS=false`). Acción: **eliminar**
-  `computeBreakdown` del camino real y consumir el `BreakdownDTO` del backend (incluido `ivaRatePct`) como
-  **única fuente**; dejar la fórmula solo en fixtures o retirarla del bundle de producción.
+### FE-1 · Fixtures de mock y `computeBreakdown` en el bundle de producción — **CERRADA 2026-10-29** (`5b40e1aa`, candados `8e681b79`/`4eb4f15c`; comprobación en el índice §DYN.3 arriba)
 
 ### FE-2 · Integraciones reales pendientes (auth, Stripe, presign de fotos, mutaciones admin)
 - **Dónde:** `frontend/src/components/domain/AuthForm.tsx` (token local simulado en `localStorage`),
@@ -2362,28 +2353,9 @@ aparece, con la bandera SÍ).
 
 > De este pase v1.1: **D6 quedó RESUELTA** (el botón de Google ya no se atasca en "connecting" al
 > descartar el prompt de GIS: se maneja `PromptMomentNotification` + timeout de respaldo, con test).
-> **D7** se registra aquí como deuda aceptada no bloqueante (sin cambiar el comportamiento del mock).
+> **D7** se registró aquí como deuda aceptada; cerrada el 2026-10-29 (ficha de abajo).
 
-### D7 · La lógica de negocio del mock re-implementa reglas del backend y puede derivar — **CERRADA 2026-10-29** (índice §DYN.3 arriba)
-- **Dónde:** `frontend/src/lib/api.ts` → `computeBreakdown` (desglose de dinero de checkout/envíos) y
-  `getBuylistQuote` (cotizador de buylist), ambos solo en la rama `config.useMocks`.
-- **Estado actual:** duplicación de **reglas de negocio** del backend, con dos derivas concretas:
-  - `computeBreakdown` calcula el gross-up del fee Stripe **omitiendo `(1 + stripeFeeIvaPct)`**: hace
-    `total = ceil((base + fixed) / (1 − stripePct))` sin cubrir el IVA que Stripe MX cobra sobre su
-    comisión (dial `stripe_fee_iva_pct`, default 0.16; ver ARCHITECTURE §5.1 y contrato §4). El
-    `processingFeeCents` del mock queda **por debajo** del que devolverá el backend.
-  - `getBuylistQuote` **reimplementa** `categoryForRarity`/`quoteAcquisition` con una **regex propia**
-    (`/holo|rare|ex|illustration|full|art|radiant|ultra/`) en lugar de la tabla `pricing/rarity-map`
-    (dial M2/M10) y de la regla EX+ = `round(referencia × 0.40)` que vive en el backend/contrato §6.
-- **Impacto:** bajo pero real: es duplicación que **envejece** — si el backend cambia la fórmula de
-  gross-up, el IVA/markup o el mapeo rareza→categoría, los fixtures mostrarían cifras/categorías que ya
-  no coinciden. **Aceptable** porque está **aislado tras `config.useMocks`** (solo demo sin backend); en
-  producción (`useMocks=false`) la UI pinta el `BreakdownDTO`/quote que llega del backend, única fuente.
-  (Es la misma familia que FE-1, aquí acotada a las dos derivas puntuales señaladas por techlead.)
-- **Disparador:** si el mock **crece** o empieza a usarse como referencia numérica. Acción: mover los
-  fixtures a consumir los **mismos helpers puros del contrato** (gross-up con `(1+stripeFeeIvaPct)` y
-  `categoryForRarity`/`quoteAcquisition` compartidos), o retirar la lógica del bundle real. **No** se
-  cambia el comportamiento del mock ahora (evita romper fixtures/E2E que asumen los números actuales).
+### D7 · La lógica de negocio del mock viajaba en el bundle real — **CERRADA 2026-10-29** (`5b40e1aa`, candados `8e681b79`/`4eb4f15c`; comprobación en el índice §DYN.3 arriba)
 
 ### Deuda del pase rediseño 5a (hallazgos qa/techlead — no bloqueante, aceptada)
 
@@ -2721,19 +2693,7 @@ aparece, con la bandera SÍ).
 > Los ítems de abajo son la deuda **no bloqueante** que el **techlead** señaló y quedó diferida. Dueño
 > **frontend**. Continúan la numeración `FE-*` (tras FE-14).
 
-### FE-15 · Auto-refresh NO universal: `exportFinanceCsv` usa fetch directo (fuera del interceptor) — **CERRADA 2026-10-29** (índice §DYN.3 arriba)
-- **Dónde:** `frontend/src/lib/api.ts` → `exportFinanceCsv` (~:1936-1960).
-- **Estado actual:** el interceptor `401 → refresh → reintento` vive en `apiRequest`/`requestWithRefresh`
-  (`api-client.ts`). `exportFinanceCsv` hace `fetch` directo con `Authorization: Bearer` manual (necesita leer
-  **texto** CSV, no JSON) y por eso **NO** pasa por el interceptor: si el access token (15m) venció, el export
-  CSV falla con **401 sin auto-refrescar**. (Nota: `uploadToPresignedUrl` **NO** es deuda — usa URL firmada
-  sin bearer y **debe** evitar el interceptor a propósito.)
-- **Impacto:** bajo. Admin-only (finanzas/`super_admin`) y **benigno**: en cuanto **cualquier** llamada que sí
-  pase por `apiRequest` refresque el token (navegar/recargar la vista), un reintento del export funciona; un
-  reintento **aislado** del export seguiría fallando porque no refresca por sí mismo. Sin fuga ni pérdida de datos.
-- **Disparador:** al unificar el cliente HTTP o si el 401 en export molesta en operación. Acción: extraer un
-  helper de `fetch` con refresh (o una variante de `apiRequest` que devuelva **texto**) y enrutar
-  `exportFinanceCsv` por él, reusando `refreshTokensShared`.
+### FE-15 · `exportFinanceCsv` sin refresh de sesión — **CERRADA 2026-10-29** (`d591b29f`; comprobación en el índice §DYN.3 arriba)
 
 ### FE-16 · Huecos de tests del auto-refresh (single-flight concurrente, red, cuerpo 200 malformado)
 - **Dónde:** `frontend/src/lib/api-client.ts` (`refreshTokens`, `refreshTokensShared`, `requestWithRefresh`) y

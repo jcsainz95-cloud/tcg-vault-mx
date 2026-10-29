@@ -79,14 +79,36 @@ describe('lib/mock · centinela en cada módulo', () => {
   };
   walk(dir);
 
-  it('todo módulo de lib/mock (no prueba) importa el centinela, para que el candado lo vea si llega al build', () => {
+  /** TL-DYN3R-2: el LITERAL en un efecto de nivel superior del propio módulo (no un import de `./sentinel`, que el
+   * mismo alias vaciaría; no una constante importada, que valdría `undefined`). */
+  const OWN_SENTINEL = `(globalThis as { __thMockBundle?: string }).__thMockBundle = '${SENTINEL}';`;
+  const ownSentinelProblems = (file: string, source: string): string[] => {
+    const p: string[] = [];
+    if (!source.split('\n').includes(OWN_SENTINEL)) p.push(`${file}: sin el centinela propio en una línea de nivel superior`);
+    if (/^import ['"][^'"]*sentinel['"];?$/m.test(source)) p.push(`${file}: importa ./sentinel (resuelve vacío con el alias)`);
+    return p;
+  };
+
+  it('todo módulo de lib/mock (no prueba) lleva el centinela como literal propio, para que el candado lo vea si llega al build', () => {
     expect(modules.length).toBeGreaterThan(10);
-    const without = modules.filter((p) => !/^import '(\.\/|(\.\.\/)+)sentinel';$/m.test(readFileSync(p, 'utf8'))).map((p) => relative(dir, p));
-    expect(without).toEqual([]);
+    expect(modules.flatMap((p) => ownSentinelProblems(relative(dir, p), readFileSync(p, 'utf8')))).toEqual([]);
   });
 
-  it('el centinela tiene efecto lateral (si no, webpack lo poda y el candado no ve nada)', () => {
-    expect(readFileSync(join(dir, 'sentinel.ts'), 'utf8')).toMatch(/^\(globalThis as [^)]+\)\.__thMockBundle = MOCK_BUNDLE_SENTINEL;$/m);
+  it('canario: un módulo sin el literal, con el literal sangrado (no de nivel superior) o que vuelve a `import ./sentinel` ⇒ rojo', () => {
+    expect(ownSentinelProblems('a.ts', 'export const a = 1;\n')).toHaveLength(1);
+    expect(ownSentinelProblems('b.ts', `export function f() {\n  ${OWN_SENTINEL}\n}\n`)).toHaveLength(1);
+    expect(ownSentinelProblems('c.ts', `import './sentinel';\nexport const c = 1;\n${OWN_SENTINEL}\n`)).toHaveLength(1);
+    expect(ownSentinelProblems('d.ts', `export const d = 1;\n${OWN_SENTINEL.replace(SENTINEL, 'otro')}\n`)).toHaveLength(1);
+    expect(ownSentinelProblems('ok.ts', `export const d = 1;\n${OWN_SENTINEL}\n`)).toEqual([]);
+  });
+
+  // `sideEffects: false` declara falso justo el efecto del centinela y autoriza a webpack a podar el módulo que lo
+  // lleva. Con el `import './sentinel'` de antes, eso callaba el candado (medido 2026-10-29: build sin alias + `false`
+  // ⇒ fixtures en `static/` y HOME_BUNDLE_OK). Con el literal propio hoy sigue viéndolo (mismo build ⇒ FAIL), pero
+  // el candado no debe depender de la heurística de uso del empaquetador.
+  it('package.json sin `sideEffects` (TL-DYN3R-2)', () => {
+    const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')) as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(pkg, 'sideEffects')).toBe(false);
   });
 });
 

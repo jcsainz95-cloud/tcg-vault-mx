@@ -23,7 +23,6 @@
  * ⚠️ Es un simulador de CONDUCTA, no de cifras: no calcula dinero (el `breakdown` lo sigue
  * componiendo `api.ts` con la réplica local) y no decide TTLs distintos de la constante del contrato.
  */
-import './sentinel';
 
 /** `ORDER_RESERVATION_TTL_MIN` del contrato (§4-R.1): 60 minutos, para las DOS rutas. */
 export const MOCK_RESERVATION_TTL_MIN = 60;
@@ -324,3 +323,7 @@ export function settleMockReservation(orderId: string): void {
   state.reservations = state.reservations.filter((r) => r.orderId !== orderId);
   writeState(state);
 }
+
+// TL-DYN3R-2 · centinela PROPIO de este módulo: un literal, no un import (si el módulo escapara al alias de
+// next.config.mjs, un `import './sentinel'` resolvería vacío y el literal no viajaría). Ver sentinel.ts.
+(globalThis as { __thMockBundle?: string }).__thMockBundle = 'th-mock-bundle-sentinel-5c1e';
