@@ -1,3 +1,4 @@
+import { ListingPriceService } from './listing-price.service';
 import { Body, Controller, Delete, Get, HttpCode, Inject, Logger, Optional, Param, Post, Put, Query } from '@nestjs/common';
 import { Finish, PendingPriceContext, Prisma, PriceAxis, PriceRefKind, PriceReviewStatus, ProductType, Role } from '@prisma/client';
 import {
@@ -252,6 +253,10 @@ export class PricingController {
     @Optional()
     @Inject(INVENTORY_PUBLISH_PORT)
     private readonly inventoryPublish?: InventoryPublishPort,
+    // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.3 `manual_price`): fijar a mano el precio de mercado de una variante (override o
+    // decisión manual de la cola de revisión) recalcula el precio del día de sus piezas. `@Optional()` por los dobles
+    // posicionales de las pruebas; en la app `PricingModule` lo provee.
+    @Optional() private readonly listingPrices?: ListingPriceService,
   ) {}
 
   /**
@@ -370,7 +375,14 @@ export class PricingController {
     @Body() dto: ResolveReviewDto,
     @CurrentUser('id') userId: string,
   ) {
-    return this.priceReview!.resolve(id, dto.action, dto.manualPriceMxnCents, userId);
+    const res = await this.priceReview!.resolve(id, dto.action, dto.manualPriceMxnCents, userId);
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3 `manual_price`): la decisión MANUAL del dueño es un precio a mano ⇒ precio del día de
+    // las piezas de esa carta. (`accept`/`keep` deciden el mercado, que entra en el siguiente cálculo.)
+    if (dto.action === 'manual' && this.listingPrices) {
+      const c = await this.prisma.priceReviewCase.findUnique({ where: { id }, select: { cardId: true, productType: true } });
+      if (c) void this.listingPrices.enqueueWhere('manual_price', { cardId: c.cardId, productType: c.productType });
+    }
+    return res;
   }
 
   /**
@@ -581,6 +593,9 @@ export class PricingController {
       gradeKey: dto.gradeKey,
       finish: dto.finish ?? 'normal',
     });
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3 `manual_price`): «poner un precio a mano» ⇒ el precio del día de las piezas de esa
+    // variante (carta + tipo; el cuerpo resuelve grado y acabado de cada una). Fuera de la petición.
+    void this.listingPrices?.enqueueWhere('manual_price', { cardId: dto.cardId, productType: dto.productType });
     return { data: toPriceHistoryEntry(ref) };
   }
 
@@ -744,6 +759,8 @@ export class PricingController {
       create: { key: SettingKey.PRICING_CURVE, valueJson, updatedBy: userId },
       update: { valueJson, updatedBy: userId },
     });
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3): la curva mueve `P` ⇒ `dial_change` (precio del día).
+    this.settings.notifyKeysWritten([SettingKey.PRICING_CURVE]);
     const after = await this.pricing.loadPricingCurve();
     await this.audit.log({
       actorUserId: userId,
@@ -950,6 +967,11 @@ export class PricingController {
         update: { valueJson: nextFallbackPct, updatedBy: userId },
       });
     }
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3): los spreads mueven el `P` del sellado ⇒ `dial_change` (precio del día).
+    this.settings.notifyKeysWritten([
+      ...(dto.spreadPctBySubtype !== undefined ? [SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE] : []),
+      ...(nextFallbackPct !== undefined ? [SettingKey.SEALED_SPREAD_FALLBACK_PCT] : []),
+    ]);
     const after = await this.readSealedSpreads();
     await this.audit.log({
       actorUserId: userId,

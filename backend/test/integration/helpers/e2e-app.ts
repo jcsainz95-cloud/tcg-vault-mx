@@ -356,6 +356,11 @@ export class E2EHarness {
     const stripe = app.get(StripeService) as TestStripeService;
     // H-2: piso de siembra heredado por TODA suite que levanta la app (ver `ensureSeeded`).
     await ensureSeeded(prisma);
+    // 💰 v1.113⟨portada⟩ (M-94, §DYN.5): cada suite arranca SIN precio del día. La BD es compartida entre suites y una
+    // fila calculada por la suite anterior (con un dial que luego restauró por escritura directa, que no es una puerta y
+    // no dispara cálculo) no es estado de ESTA suite. Sin fila, lo exhibido y lo cobrado salen del cuerpo único en vivo
+    // (§DYN.5.6), que es lo que las suites anteriores a M-94 dan por supuesto; las que miden la fila la escriben ellas.
+    await prisma.listingPrice.deleteMany({});
     return new E2EHarness(app, baseUrl, prisma, stripe);
   }
 

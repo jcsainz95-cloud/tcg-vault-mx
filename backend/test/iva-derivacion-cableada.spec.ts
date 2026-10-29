@@ -52,12 +52,12 @@ describe('⭐⭐ la pieza 7 — `displayPriceCents` SALIÓ del módulo del dial 
     const ficheros = ficherosQueMencionan('saleDisplayCentsOf(');
     expect(ficheros).toEqual([
       'common/money.ts',
-      'modules/catalog/catalog.service.ts',
-      'modules/catalog/sealed-catalog.service.ts',
       // Proyecciones ADMIN de `P` (`resolvedDisplayPriceCents` de M1/M11 y la hoja de precios del sellado).
       'modules/inventory/inventory.service.ts',
       'modules/inventory/sealed-price.service.ts',
-      'modules/orders/orders.service.ts',
+      // 💰 v1.113⟨portada⟩ (§DYN.5.1): EL cuerpo único del precio de venta (escritor del precio del día, checkout y piezas
+      // sin fila). Catálogo, rejilla de sellado y checkout ya NO derivan: leen el `P` resuelto (fila del día o este cuerpo).
+      'modules/pricing/sale-decision.service.ts',
       // rev v1.87⟨wishlist⟩ (§WSH.3 `normalDisplay`): el `P` del precio NORMAL en la lista de compra del dueño (proyección
       // admin, `super_admin`), por el MISMO camino de venta. ⛔ No cobra ni publica nada.
       'modules/wishlist/wishlist-market.service.ts',
@@ -75,26 +75,34 @@ describe('⭐⭐ la pieza 7 — `displayPriceCents` SALIÓ del módulo del dial 
     expect(dial).toMatch(/export \{ displayPriceCentsOf, taxBaseCentsOf \};/);
   });
 
-  it('⭐⭐ el CHECKOUT deriva: `orders.service.ts` tiene el único sitio y está aislado', () => {
-    const orders = stripComments(readFileSync(join(SRC, 'modules', 'orders', 'orders.service.ts'), 'utf8'));
-    // ⭐ UN solo sitio (`derivedSaleDecision`), y por eso *«la vitrina dice 100 y el checkout cobra
-    // sobre 116» no puede ocurrir por olvido de UNA rama* — hay cuatro precedencias de precio.
-    // 💰 v1.83.1: ese sitio deriva por `saleDisplayCentsOf` (con precio del dueño, su `P`), ⛔ nunca a pelo.
-    expect(orders.match(/saleDisplayCentsOf\(/g)).toHaveLength(1);
-    expect(orders).not.toMatch(/displayPriceCentsOf\(/);
-    expect(orders).toContain('private derivedSaleDecision(');
-    // Y `buildLines` —el cuerpo ÚNICO de las líneas de orden— pasa por él (con los diales izados del carrito).
-    expect(orders).toContain('this.derivedSaleDecision(await this.resolveSaleDecision(item, iva), iva)');
+  it('⭐⭐ el CUERPO ÚNICO deriva (v1.113⟨portada⟩, §DYN.5.1): `sale-decision.service.ts` tiene el único sitio y está aislado', () => {
+    const body = stripComments(readFileSync(join(SRC, 'modules', 'pricing', 'sale-decision.service.ts'), 'utf8'));
+    // ⭐ UN solo sitio (`derive`), y por eso *«la vitrina dice 100 y el checkout cobra sobre 116» no puede ocurrir por
+    // olvido de UNA rama* — hay cuatro precedencias de precio. Por `saleDisplayCentsOf`, ⛔ nunca a pelo.
+    expect(body.match(/saleDisplayCentsOf\(/g)).toHaveLength(1);
+    expect(body).not.toMatch(/[^e]displayPriceCentsOf\(/);
+    expect(body).toContain('private derive(');
+    // Y `decide` —lo que llaman el escritor, el checkout y los lectores sin fila— pasa por él.
+    expect(body).toContain('return this.derive(await this.resolve(item, dials, batch), dials);');
   });
 
-  it('⭐ el CATÁLOGO deriva en `toListingRow`, que es por donde pasa toda pieza del storefront', () => {
+  it('⭐⭐ el CHECKOUT y el CATÁLOGO ya NO derivan: cobran y exhiben el `P` resuelto (fila del día o cuerpo único)', () => {
+    for (const f of [
+      join(SRC, 'modules', 'orders', 'orders.service.ts'),
+      join(SRC, 'modules', 'catalog', 'catalog.service.ts'),
+      join(SRC, 'modules', 'catalog', 'sealed-catalog.service.ts'),
+    ]) {
+      const src = stripComments(readFileSync(f, 'utf8'));
+      expect({ f, deriva: /displayPriceCentsOf\(|saleDisplayCentsOf\(/i.test(src) }).toEqual({ f, deriva: false });
+    }
+    const orders = stripComments(readFileSync(join(SRC, 'modules', 'orders', 'orders.service.ts'), 'utf8'));
+    // `buildLines` —el cuerpo ÚNICO de las líneas de orden— toma las decisiones de `saleDecisionsOf` (fila o cuerpo único).
+    expect(orders).toContain('const decisions = await this.saleDecisionsOf(items, iva);');
+    expect(orders).toContain('out.push(await this.decider.decide(item, iva));');
     const catalog = stripComments(readFileSync(join(SRC, 'modules', 'catalog', 'catalog.service.ts'), 'utf8'));
-    // 💰 v1.83.1: por el camino único de venta (`saleDisplayCentsOf`), ⛔ nunca `displayPriceCentsOf` a pelo.
-    expect(catalog.match(/saleDisplayCentsOf\(/g)).toHaveLength(1);
-    expect(catalog).not.toMatch(/displayPriceCentsOf\(/);
-    expect(catalog).toContain('private async toListingRow(');
-    // ⛔ Y `toListingDTO` NO es un segundo camino: es un envoltorio del primero.
-    expect(catalog).toContain('return (await this.toListingRow(item, ctx)).dto;');
+    // ⛔ Y `toListingDTO` NO es un segundo camino: proyecta por el mismo `toListingRow`.
+    expect(catalog).toContain('private toListingRow(');
+    expect(catalog).toContain('const displayPriceCents = sale?.unitPriceCents;');
   });
 
   it('⛔⛔ NADIE inventa un dial: sin `ctx.ivaDials` y sin `SettingsService`, el catálogo LANZA', () => {

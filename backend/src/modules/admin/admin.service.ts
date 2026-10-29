@@ -51,6 +51,7 @@ import {
 import { OUTBOUND_ONLY } from '../shipments/label-subject';
 import { scrubInboundShipmentPii } from '../shipments/inbound-sync';
 import { FeaturedHealth, FeaturedService } from '../catalog/featured.service';
+import { ListingPriceService, ListingPricesHealth } from '../pricing/listing-price.service';
 import { dayMx } from '../spend-alerts/spend-alerts.service';
 
 /**
@@ -662,7 +663,19 @@ export class AdminService {
     @Optional() private readonly dashboardShipping?: DashboardShippingService,
     // v1.113⟨portada⟩ (§DYN.2.5): `dataHealth.featuredRotation`. `@Optional()` por los unitarios que construyen a mano.
     @Optional() private readonly featured?: FeaturedService,
+    // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.8): `dataHealth.listingPrices`. `@Optional()` por los unitarios que construyen a mano.
+    @Optional() private readonly listingPrices?: ListingPriceService,
   ) {}
+
+  /** §DYN.5.8 — salud del precio del día. Lectura que falla ⇒ `stale` (no se sabe que esté bien; v1.113.2, como Destacadas). */
+  private async listingPricesHealth(): Promise<ListingPricesHealth | undefined> {
+    if (!this.listingPrices) return undefined;
+    try {
+      return await this.listingPrices.health();
+    } catch {
+      return { status: 'stale', lastDailyBusinessDate: null };
+    }
+  }
 
   /** v1.113⟨portada⟩ (§DYN.2.5) — salud de la rotación de Destacadas. ⛔ Un fallo de lectura no tumba el tablero. */
   private async featuredRotationHealth(): Promise<FeaturedHealth | undefined> {
@@ -2258,6 +2271,8 @@ export class AdminService {
         lastFxAt: lastFx?.createdAt ?? null,
         // v1.113⟨portada⟩ (§DYN.2.5): aditivo, sin dinero ⇒ también para `vault_operator`.
         ...(await this.featuredRotationHealth().then((h) => (h ? { featuredRotation: h } : {}))),
+        // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.8): aditivo; solo fechas y estado (sin cifras) ⇒ también para `vault_operator`.
+        ...(await this.listingPricesHealth().then((h) => (h ? { listingPrices: h } : {}))),
       },
       launchProgress: { users, salesSettled, buylistPaid, withdrawalsNoDispute: withdrawals },
     };

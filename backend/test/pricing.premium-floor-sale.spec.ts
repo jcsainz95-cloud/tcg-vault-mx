@@ -519,12 +519,13 @@ describe('PF-11 — candado de fuente: quién pasa QUÉ política', () => {
     }
     expect(identCensus(SRC, /\bloadSalePremiumFloorPolicy\b/g)).toEqual({
       'jobs/price-sync.service.ts': 1,
-      'modules/catalog/catalog.service.ts': 2,
       'modules/inventory/inventory.service.ts': 4,
       'modules/inventory/master-set.service.ts': 2,
       'modules/pricing/admin-bounties.service.ts': 1,
       'modules/pricing/price-ingest.service.ts': 1,
       'modules/pricing/pricing.service.ts': 2,
+      // v1.113⟨portada⟩ (§DYN.5.1): el cuerpo único (lote + respaldo de un lote sin curva) sustituye a la lectura del catálogo.
+      'modules/pricing/sale-decision.service.ts': 2,
       'modules/pricing/variant-controls.service.ts': 1,
       // rev v1.87⟨wishlist⟩ (§WSH.3 `normalDisplay`): el precio NORMAL de la lista de compra sale de `decideSalePrice` —
       // un lector de VENTA (mismo veredicto que publicaría la pieza), no de compra.

@@ -503,8 +503,9 @@ describe('candado — el eje de VENTA solo se resuelve por el SEAM (§4.36.5b)',
 
   it('los CINCO consumidores del eje de venta pasan por el seam (`decideSalePrice`/`computeSalePriceForItem`)', () => {
     const consumers = [
-      join(SRC, 'modules', 'catalog', 'catalog.service.ts'),
-      join(SRC, 'modules', 'orders', 'orders.service.ts'),
+      // v1.113⟨portada⟩ (§DYN.5.1): catálogo y checkout ya no llaman al seam a mano: los dos (y el escritor del precio del
+      // día) pasan por el cuerpo ÚNICO extraído, que es el que llama al seam. Ver el `it` siguiente.
+      join(SRC, 'modules', 'pricing', 'sale-decision.service.ts'),
       join(SRC, 'modules', 'inventory', 'inventory.service.ts'),
       join(SRC, 'modules', 'inventory', 'master-set.service.ts'),
       // v2.1.1 (§4.36.5b-ter): el barrido también re-resuelve, y por el MISMO cuerpo.
@@ -512,6 +513,18 @@ describe('candado — el eje de VENTA solo se resuelve por el SEAM (§4.36.5b)',
     ];
     for (const f of consumers) {
       expect(readFileSync(f, 'utf8')).toMatch(/\.(decideSalePrice|computeSalePriceForItem)\(/);
+    }
+  });
+
+  it('v1.113⟨portada⟩ (§DYN.5.1): catálogo, rejilla de sellado y checkout NO tienen copia del cuerpo: usan `SaleDecisionService`', () => {
+    for (const f of [
+      join(SRC, 'modules', 'catalog', 'catalog.service.ts'),
+      join(SRC, 'modules', 'catalog', 'sealed-catalog.service.ts'),
+      join(SRC, 'modules', 'orders', 'orders.service.ts'),
+    ]) {
+      const src = readFileSync(f, 'utf8');
+      expect({ f, seam: /\.(decideSalePrice|computeSalePriceForItem|resolveSealedSalePrice)\(/.test(src) }).toEqual({ f, seam: false });
+      expect(src).toContain('new SaleDecisionService(this.pricing)');
     }
   });
 

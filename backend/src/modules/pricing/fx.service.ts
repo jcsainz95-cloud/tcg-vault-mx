@@ -438,6 +438,8 @@ export class FxService {
         ]);
       }
     });
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3): el modo decide la tasa con que se convierte el mercado ⇒ mueve `P` (`dial_change`).
+    this.settings.notifyKeysWritten([SettingKey.FX_RATE_MODE]);
 
     return this.getCurrent();
   }

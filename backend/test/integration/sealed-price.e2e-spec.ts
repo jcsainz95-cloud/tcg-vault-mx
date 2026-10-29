@@ -26,6 +26,7 @@
  *
  * ⚠️ Fila compartida: `iva_transfer_pct` (SP-10, SP-18) y `sealed_price_source` (SP-10): se restauran y se releen.
  */
+import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
 import { randomBytes } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -147,6 +148,9 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
       create: { key: 'iva_transfer_pct', valueJson: pct },
       update: { valueJson: pct },
     });
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3): el dial mueve lo exhibido cuando corre su `dial_change` (la puerta de M10 lo dispara
+    // sola). Escrito por BD, el cálculo se corre aquí.
+    await h.app.get(ListingPriceService).run('dial_change');
   }
   async function setSource(v: 'tcgcsv' | 'off') {
     await h.prisma.configSetting.upsert({
@@ -154,6 +158,8 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
       create: { key: 'sealed_price_source', valueJson: v },
       update: { valueJson: v },
     });
+    // 💰 v1.113⟨portada⟩ (§DYN.5.4): `sealed_price_source` mueve el precio del sellado; escrito por BD ⇒ cálculo a mano.
+    await h.app.get(ListingPriceService).run('dial_change');
   }
   async function failPi(pi: string) {
     const r = await h.sendStripeWebhook({ type: 'payment_intent.payment_failed', data: { object: { id: pi, object: 'payment_intent' } } });
@@ -554,6 +560,9 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
       }
       const after = await h.prisma.inventoryItem.findMany({ where: { sealedProductId: X.id }, select: { id: true, updatedAt: true, status: true, listPriceCents: true }, orderBy: { id: 'asc' } });
       expect(after).toEqual(before);
+      // 💰 v1.113⟨portada⟩ (§DYN.5.3 `manual_price`): el precio del producto recalcula el precio del día de sus piezas fuera
+      // de la petición (⛔ sin tocar las piezas: `after == before` arriba). Se espera a esa corrida antes de leer la rejilla.
+      await h.app.get(ListingPriceService).idle();
       const grid = await h.api('GET', `/catalog/sealed?setId=${SET_ID}&pageSize=50`);
       expect(grid.body.data.find((g: any) => g.representativeItemId === b.id)?.fromPriceCents).toBe(129_900);
     });
@@ -1001,6 +1010,9 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
         token: admin,
         json: { ivaTransferPct: 50, acknowledgement: { samplePriceCents: prev.body.samplePriceCents, previewedNetDeltaCents: prev.body.netDeltaPerUnitCents } },
       });
+      // 💰 v1.113⟨portada⟩ (§DYN.5.3): la puerta de M10 dispara `dial_change` al instante, FUERA de la petición; mientras esa
+      // corrida no llega a una pieza se exhibe y cobra su fila. Se espera a que termine antes de medir.
+      await h.app.get(ListingPriceService).idle();
       try {
         expect(mv.status).toBe(200);
         expect([await price(po.id), await quote(po.id)]).toEqual([o100, qo100]);

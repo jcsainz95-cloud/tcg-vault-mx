@@ -64,15 +64,18 @@ const ALLOWED: Record<string, { n: number; why: string }> = {
       'SK-5: el sellado sale antes por su propia rama y nunca llega a la llave de cola).',
   },
   'modules/catalog/catalog.service.ts': {
-    n: 4,
-    why:
-      'Grid/storefront de singles: el lote de referencias trata el sellado aparte (`sealedMarketGradeKeyForItem`), ' +
-      'los overrides de variante filtran `!== sealed`, `lookupKeysOf` es clave de agrupación/variante (el ' +
-      'sellado resuelve su ref por `refFromBatch`, rama propia) y `buildListing` solo la usa en la rama no-sellada.',
-  },
-  'modules/orders/orders.service.ts': {
     n: 1,
-    why: 'Checkout: el sellado retorna antes por `getSealedMarketRef` + gate; la llamada es la rama raw/graduada.',
+    why:
+      'Grid/storefront de singles: `lookupKeysOf` es clave de agrupación/variante (`buildGroups`; el sellado no se agrupa ' +
+      'aquí). v1.113⟨portada⟩ (§DYN.5.1): el precio y el lote de referencias salieron al cuerpo único (`sale-decision`).',
+  },
+  'modules/pricing/sale-decision.service.ts': {
+    n: 5,
+    why:
+      'v1.113⟨portada⟩ (§DYN.5.1) — EL cuerpo único del precio de venta (checkout + catálogo + precio del día; el checkout ya ' +
+      'no la llama): `gradeKeyOf` (llave de `ListingPrice.variantKey`), `refKeyOf` (el sellado sale antes por ' +
+      '`sealedMarketGradeKeyForItem`), el filtro de overrides del lote (`!== sealed`), `referenceOf` (el sellado sale ' +
+      'antes por `getSealedMarketRef`) y la rama raw/graduada de `resolve` (el sellado retorna antes).',
   },
   'modules/inventory/inventory.service.ts': {
     n: 3,
