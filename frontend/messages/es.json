@@ -1524,13 +1524,13 @@
       "dynHealth": {
         "featured": {
           "ok": "Destacadas: al día ({serving}).",
-          "stale": "Destacadas: atrasadas — se sirve {serving}, tocaba {expected}.",
-          "never": "Destacadas: aún no se ha calculado ninguna selección."
+          "stale": "Destacadas: sin cambiar a tiempo. La tienda muestra {serving}; ya tocaba {expected}.",
+          "never": "Destacadas: todavía no se arma ninguna selección."
         },
         "prices": {
-          "ok": "Precio del día: al día ({last}).",
-          "stale": "Precio del día: atrasado — último cálculo diario {last}.",
-          "never": "Precio del día: aún no hay cálculo diario."
+          "ok": "Precios del día: al día ({last}).",
+          "stale": "Precios del día: sin actualizar desde {last}.",
+          "never": "Precios del día: todavía no se calculan."
         }
       }
     },
@@ -3804,7 +3804,7 @@
         "saved": "Configuración del gancho guardada.",
         "confidenceDials": "Gate de confianza (hoy solo por API): el estimado manual caduca a los {manualFreshness} días · tope del PSA 10 = {maxRawMultiple}× el precio raw · muestra mínima del ingest {minSampleCount} ventas · estadístico publicado «{sourceStat}».",
         "manualFreshnessNever": "∞ (no caduca)",
-        "dailyCapMoved": "El gasto en créditos PSA lo acota el tope de créditos al día, en «Configuración › Destacadas y PSA», junto a su presupuesto."
+        "dailyCapMoved": "Lo que se gasta en créditos PSA lo limita el tope de créditos al día, en «Configuración › Destacadas y PSA», junto a su presupuesto."
       },
       "gradedEstimateCapture": {
         "title": "Capturar estimado a mano",
@@ -4824,11 +4824,11 @@
           "off": "Apagado"
         },
         "gradingHook": {
-          "note": "Un solo interruptor gobierna el gancho: encendido, la tienda publica las cifras estimadas <b>y</b> el barrido diario las trae de un proveedor de paga; apagado, no publica ninguna <b>y</b> tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo y la frescura se editan en «Catálogo y precios», junto con la lista de revisión — que es la herramienta para una cifra concreta. Lo que el barrido puede gastar al día lo acota <b>el tope de créditos al día</b> de «Destacadas y PSA», en esta pantalla.",
+          "note": "Un solo interruptor manda sobre las cifras estimadas de PSA: encendido, la tienda las publica <b>y</b> la revisión diaria las pide a un proveedor de paga; apagado, no publica ninguna <b>y</b> tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo y la frescura se editan en «Catálogo y precios», junto con la lista de revisión, que sirve para corregir una cifra concreta. Lo que la revisión puede gastar al día lo limita <b>el tope de créditos al día</b> de «Destacadas y PSA», en esta pantalla.",
           "onTitle": "Encendido: publica cifras y consume créditos",
-          "on": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. Lo que gasta lo acota un tope diario: el barrido no carga más de <b><n>{credits, number}</n> créditos al día</b>, contados como los reporta el proveedor (o estimados a <n>{perCard}</n> por carta del set si no los reporta); solo puede pasarse por el error de estimación de un set. Ese tope se edita en «Destacadas y PSA», en esta pantalla, junto a lo gastado hoy. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
-          "onMeasured": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. <b>Cuánto gasta, ya está medido.</b> La corrida medida el {measuredOn} gastó a razón de <b><n>{credits, number}</n> créditos al día</b>, con un tope de <n>{cap, number}</n>. Es una medición, no un supuesto: si cambia el tope, el inventario o el proveedor, vuelve a medirse. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
-          "onNoFigures": "<b>Publica.</b> Con este dial encendido, la tienda muestra cifras estimadas de PSA 10 / PSA 9 sobre cartas sin gradear, con su disclaimer (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> El mismo dial autoriza al barrido diario a pedir esas cifras a un proveedor <b>de paga</b> y a escribir precios estimados. Consume créditos en cada corrida, hasta el tope de créditos al día de «Destacadas y PSA» (no se pudo leer ahora). Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
+          "on": "<b>Publica.</b> Encendido, la tienda muestra cifras estimadas de PSA 10 y PSA 9 en cartas sin gradear, con su aviso (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> También autoriza a la revisión diaria a pedir esas cifras a un proveedor <b>de paga</b> y a guardar precios estimados. El gasto tiene tope: no pasa de <b><n>{credits, number}</n> créditos al día</b>, contados como los reporta el proveedor (o a <n>{perCard}</n> por carta de la colección si no los reporta); solo puede excederse por el error de estimar una colección. Ese tope se cambia en «Destacadas y PSA», en esta pantalla, junto a lo gastado hoy. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
+          "onMeasured": "<b>Publica.</b> Encendido, la tienda muestra cifras estimadas de PSA 10 y PSA 9 en cartas sin gradear, con su aviso (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> También autoriza a la revisión diaria a pedir esas cifras a un proveedor <b>de paga</b> y a guardar precios estimados. <b>Cuánto gasta, ya está medido.</b> La corrida del {measuredOn} gastó a razón de <b><n>{credits, number}</n> créditos al día</b>, con un tope de <n>{cap, number}</n>. Es una medición, no un supuesto: si cambia el tope, el inventario o el proveedor, se vuelve a medir. Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
+          "onNoFigures": "<b>Publica.</b> Encendido, la tienda muestra cifras estimadas de PSA 10 y PSA 9 en cartas sin gradear, con su aviso (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> También autoriza a la revisión diaria a pedir esas cifras a un proveedor <b>de paga</b> y a guardar precios estimados. Gasta créditos en cada corrida, hasta el tope de créditos al día de «Destacadas y PSA» (ahora no se pudo leer). Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.",
           "audit": "Solo súper-admin · queda en bitácora.",
           "offTitle": "Apagar también deja de actualizar",
           "off": "<b>Para las dos cosas a la vez.</b> Mientras esté apagado, la tienda no muestra ninguna cifra estimada y el barrido no pide ni escribe ninguna: no se gasta un crédito y los datos automáticos dejan de refrescarse. <b>Para una cifra concreta, este no es el remedio.</b> Una cifra rara se borra en la <review>lista de revisión</review>; si lo que sobra es la promoción, sube el margen mínimo en «Catálogo y precios» y la ficha sigue informando. Apágalo cuando la duda sea de fondo: cambió el proveedor o las cifras dejaron de ser de fiar. Al reencender, la siguiente corrida repone las cifras automáticas; si tienes prisa, «Actualizar precios ahora» en «Catálogo y precios»."
@@ -5359,13 +5359,13 @@
         "save": "Guardar lista de deseos ({count, plural, =0 {sin cambios} one {# cambio} other {# cambios}})",
         "saved": "Guardado.",
         "checkFields": "Revisa los campos marcados. No se guardó nada.",
-        "invalid": "Ese valor no es válido para este dial."
+        "invalid": "Ese valor no es válido para este ajuste."
       },
       "featuredPsa": {
         "title": "Destacadas y PSA",
-        "subtitle": "Cómo se eligen las Destacadas de cada día y cuántos créditos PSA puede gastar al día el barrido de «Joyas para gradear».",
+        "subtitle": "Cómo se eligen las Destacadas de cada día y cuántos créditos PSA puede gastar al día la revisión de «Joyas para gradear».",
         "notAvailable": "El servidor todavía no tiene estos ajustes.",
-        "nextSelection": "Los cambios de Destacadas cuentan desde el siguiente cambio diario: la selección de hoy no se toca.",
+        "nextSelection": "Los cambios en Destacadas cuentan desde el siguiente cambio diario; la selección de hoy no se toca.",
         "labels": {
           "featuredPoolSize": "Piezas de más valor entre las que se sortea",
           "featuredRandomSlots": "Lugares al azar",
@@ -5375,25 +5375,25 @@
           "gradedEstimateDailyCreditCap": "Tope de créditos PSA al día"
         },
         "help": {
-          "featuredPoolSize": "Entre 1 y 500. Por omisión, 60.",
-          "featuredRandomSlots": "Entre 0 y 20. Por omisión, 8.",
-          "featuredNewArrivalSlots": "Entre 0 y 4; 0 las apaga. Por omisión, 2.",
-          "featuredNewArrivalWindowDays": "Entre 1 y 30. Por omisión, 7.",
-          "featuredRotationHour": "Entre 0 y 23. Por omisión, 6 (las 06:00).",
-          "gradedEstimateDailyCreditCap": "Entre 0 y 20 000; 0 = no se pide nada. Por omisión, 3 000."
+          "featuredPoolSize": "De 1 a 500. Si no cambias nada, 60.",
+          "featuredRandomSlots": "De 0 a 20. Si no cambias nada, 8.",
+          "featuredNewArrivalSlots": "De 0 a 4; con 0 no hay recién llegadas. Si no cambias nada, 2.",
+          "featuredNewArrivalWindowDays": "De 1 a 30. Si no cambias nada, 7.",
+          "featuredRotationHour": "De 0 a 23. Si no cambias nada, 6 (las 06:00).",
+          "gradedEstimateDailyCreditCap": "De 0 a 20 000; con 0 no se pide nada. Si no cambias nada, 3 000."
         },
         "rule": {
-          "featured_slots_total": "Lugares al azar más lugares de recién llegadas tienen que sumar entre 1 y 20.",
+          "featured_slots_total": "Los lugares al azar y los de recién llegadas deben sumar entre 1 y 20.",
           "featured_pool_lt_random": "Las piezas entre las que se sortea no pueden ser menos que los lugares al azar."
         },
-        "checkFields": "Revisa los campos marcados: hay un valor fuera de su rango.",
+        "checkFields": "Revisa los campos marcados: hay un valor fuera de su rango. No se guardó nada.",
         "save": "{count, plural, =0 {Guardar} one {Guardar 1 cambio} other {Guardar # cambios}}",
         "saved": "Ajustes guardados.",
         "budget": {
           "title": "Créditos PSA",
-          "hook": "Gancho de grading",
-          "hookOn": "encendido",
-          "hookOff": "apagado",
+          "hook": "Cifras estimadas de PSA",
+          "hookOn": "publicándose",
+          "hookOff": "apagadas",
           "dailyCreditCap": "Tope al día",
           "creditsToday": "Gastados hoy",
           "includesEstimate": "incluye estimados",
@@ -5403,14 +5403,14 @@
           "notSet": "sin fijar",
           "notReported": "el proveedor no lo dice",
           "publishedCards": "Cartas sueltas publicadas",
-          "cardsScannedLast7Days": "Consultadas en 7 días",
+          "cardsScannedLast7Days": "Revisadas en 7 días",
           "cardsUnmapped": "Sin colección en el proveedor",
           "weeklyCreditsNeeded": "Créditos para revisar todas en una semana",
           "cycleDays": "La vuelta completa tarda",
           "cycleNever": "nunca (tope en 0)",
           "days": "{count, plural, one {# día} other {# días}}",
           "capToCoverWeek": "Tope que cubriría la semana",
-          "short": "Con este tope la vuelta tarda {cycleDays} días. Para revisar todas cada semana, el tope tendría que ser {capToCoverWeek}."
+          "short": "Con este tope, la vuelta completa tarda {cycleDays} días. Para revisar todas cada semana, el tope tendría que ser {capToCoverWeek}."
         }
       }
     },
@@ -6824,9 +6824,9 @@
           "text": "La solicitud de venta {folio} sigue aceptada y sin guía: se cierra sola el {closesAt} si para entonces no tiene guía. Valor de sus cartas en la oferta: {gross}."
         },
         "AG-24": {
-          "title": "La revisión PSA no alcanza la semana",
-          "projected": "Con {cap} créditos al día no alcanza para revisar tus {cards} cartas cada semana: tardarán {days} días. Para cubrir la semana, sube el tope a {capToCover}.",
-          "overdue": "Alguna colección lleva más de 8 días sin consultarse. Con {cap} créditos al día, la vuelta a tus {cards} cartas tarda {days} días; para cubrir la semana, sube el tope a {capToCover}. Colecciones que no caben en el tope de un día: {setsOverCap}."
+          "title": "Los créditos PSA no alcanzan para la semana",
+          "projected": "Con {cap} créditos al día no alcanza para revisar tus {cards} cartas cada semana: revisarlas todas tardaría {days} días. Para cubrir la semana, sube el tope a {capToCover}.",
+          "overdue": "Alguna colección lleva más de 8 días sin revisarse. Con {cap} créditos al día, la vuelta a tus {cards} cartas tarda {days} días; para cubrir la semana, sube el tope a {capToCover}. Colecciones que no caben en el tope de un día: {setsOverCap}."
         }
       },
       "prev": "Anterior",
@@ -6834,7 +6834,7 @@
       "pageInfo": "Página {page} de {totalPages} · {total, plural, one {# aviso} other {# avisos}}",
       "factReason": {
         "projected": "el tope no alcanza la semana",
-        "overdue": "una colección lleva más de 8 días sin consultarse"
+        "overdue": "una colección lleva más de 8 días sin revisarse"
       }
     },
     "mobile": {
