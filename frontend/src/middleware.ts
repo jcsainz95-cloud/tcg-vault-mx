@@ -5,6 +5,9 @@ import { CSP_MODE, NONCE_HEADER, buildCsp, cspEnvFromProcess, cspHeaderName, gen
 
 const intlMiddleware = createMiddleware(routing);
 
+/** La cabecera de petición de la que Next lee el nonce primero (ver DYN-F7 en `middleware`). */
+const CSP_REQUEST_HEADER = 'content-security-policy';
+
 /**
  * §CARDSHOW.2 / ARCHITECTURE §4.CARDSHOW.a — `/card-show` es canónica FUERA del i18n: la ruta
  * existe sin prefijo de idioma y NO se redirige a `/es` (un salto de redirección menos = link
@@ -36,6 +39,12 @@ export default function middleware(request: NextRequest) {
 
   request.headers.set(NONCE_HEADER, nonce);
   request.headers.set(header, policy);
+  // DYN-F7 / D-DYN-1 (API_CONTRACT §DYN.6.4): Next toma el nonce de la cabecera de PETICIÓN `content-security-policy`
+  // y solo si falta de `-report-only` (`next/dist/server/app-render/app-render.js:108`). Si la petición llega con una
+  // `content-security-policy` sin `script-src` (p. ej. la estática `frame-ancestors 'none'`), Next elige esa, no halla
+  // nonce y emite sus `<script>` sin él (medido: 16/16 sin nonce; la firma de producción, 28/28). Por eso se fija
+  // SIEMPRE con la política del nonce, en las dos fases. Es cabecera de petición: la fase que ve el navegador no cambia.
+  request.headers.set(CSP_REQUEST_HEADER, policy);
 
   // §CARDSHOW.2: `/card-show` se sirve con la CSP pero SIN el redirect de locale (200 directo, sin
   // `Set-Cookie: NEXT_LOCALE`, query intacta). Se copia la petición (con el nonce ya fijado) para
