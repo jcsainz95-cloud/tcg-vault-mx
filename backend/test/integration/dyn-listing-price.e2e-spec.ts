@@ -289,6 +289,22 @@ describe('E2E — §DYN.5 precio del día (M-94): se cobra lo que se ve', () => 
       expect((await guestQuote([C.id])).body.items[0].unitPriceCents).toBe(P2);
       await setSettingRaw('iva_transfer_pct', 100);
       await setMarket(50_000);
+
+      // Y en la otra dirección: el vivo por DEBAJO de la fila ⇒ se cobra la fila igual (arriba el vivo quedó por encima:
+      // entre las dos, ni `min` ni `max` de fila y vivo pasan).
+      const E = await item();
+      await lp.run('manual_price', [E.id]);
+      const PE = (await row(E.id))!.unitPriceCents!;
+      await setMarket(20_000);
+      const liveE = await live(E.id);
+      expect(typeof liveE === 'number' && liveE < PE).toBe(true);
+      expect((await quote([E.id])).body.items[0].unitPriceCents).toBe(PE);
+      const es = await h.api<{ breakdown: { subtotalCents: number } }>('POST', '/checkout/guest/session', {
+        json: { inventoryItemIds: [E.id], email: `lp.e.${run}@example.com`, shippingAddress: ADDRESS, acceptedTerms: true, locale: 'es' },
+      });
+      expect(es.status).toBe(201);
+      expect(es.body.breakdown.subtotalCents).toBe(PE);
+      await setMarket(50_000);
     });
   });
 
