@@ -39,16 +39,16 @@ describe('AG-24 · psa_cycle_short (§DYN.4.5)', () => {
 
   it('`projected`: título y la frase del ejemplo de PROJECT §DYN.2 con las cifras del servidor', () => {
     const a = ag24(PROJECTED);
-    expect(alertTitle(tEs, a)).toBe('La revisión PSA no alcanza la semana');
+    expect(alertTitle(tEs, a)).toBe('Los créditos PSA no alcanzan para la semana');
     expect(alertText(tEs, a, ctx)).toBe(
-      'Con 3,000 créditos al día no alcanza para revisar tus 11,200 cartas cada semana: tardarán 8 días. Para cubrir la semana, sube el tope a 3,200.',
+      'Con 3,000 créditos al día no alcanza para revisar tus 11,200 cartas cada semana: revisarlas todas tardaría 8 días. Para cubrir la semana, sube el tope a 3,200.',
     );
     expect(alertText(tEn, a, ctx)).toMatch(/With 3,000 credits a day .* 11,200 cards .* 8 days\. .* raise the cap to 3,200\./);
   });
 
   it('`overdue`: otra frase, que dice que una colección lleva más de 8 días', () => {
     const text = alertText(tEs, ag24({ ...PROJECTED, reason: 'overdue', cycleDays: 4, setsOverCap: 2 }), ctx);
-    expect(text).toMatch(/más de 8 días sin consultarse/);
+    expect(text).toMatch(/más de 8 días sin revisarse/);
     expect(text).toMatch(/tarda 4 días/);
     expect(text).toMatch(/no caben en el tope de un día: 2\./);
   });
