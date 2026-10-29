@@ -6,7 +6,8 @@
  *  B. DYN-B16 (I-3): fila `priced` cuyo `P` ≠ el del cálculo en vivo (se mueven `PriceReference` y el dial de IVA DESPUÉS
  *     de escribirla, sin correr el cálculo): rejilla, ficha, `/catalog/listings/:id`, Destacadas, quote y sesión (cuenta e
  *     invitado) dan el de la fila; el PaymentIntent suma ese; `OrderItem` congela la instrumentación de la fila; tras correr
- *     el cálculo, todos dan el nuevo.
+ *     el cálculo, todos dan el nuevo. v1.113.3: la ficha (carta y sellado) y `/catalog/listings/:id` muestran el «valor de
+ *     mercado» de la FILA (`referenceValue`, `capturedDate`, `referenceDisplayCents`), no el de la `PriceReference` movida.
  *  C. DYN-B19: `pending` nunca se exhibe ni se cobra; sin fila ⇒ precio en vivo correcto + `missing_row` encolado.
  *  D. DYN-B18: la corrida AUTOMÁTICA de `price-ingest` no mueve lo exhibido; «Actualizar precios» (manual) sí.
  *  E. Disparadores: `dial_change` por `PUT /admin/settings` (clave que mueve precio sí, otra no) y por
@@ -25,7 +26,7 @@ import { PriceIngestService } from '../../src/modules/pricing/price-ingest.servi
 import { SchedulerService } from '../../src/jobs/scheduler.service';
 import { SettingsService } from '../../src/modules/settings/settings.service';
 import { marketBracketOf } from '../../src/common/pricing-curve';
-import { SEALED_SALE_PRICE_INCLUDE } from '../../src/common/money';
+import { marketDisplayCentsOf, SEALED_SALE_PRICE_INCLUDE } from '../../src/common/money';
 
 const ADDRESS = {
   line1: 'Av. Reforma 100',
@@ -305,6 +306,99 @@ describe('E2E — §DYN.5 precio del día (M-94): se cobra lo que se ve', () => 
       expect(es.status).toBe(201);
       expect(es.body.breakdown.subtotalCents).toBe(PE);
       await setMarket(50_000);
+    });
+  });
+
+  describe('B-bis. DYN-B16 (v1.113.3) — el «valor de mercado» exhibido es el de la FILA, no el de la referencia movida', () => {
+    type Ref = { status: string; referenceMxnCents?: number; capturedDate?: string; source?: string };
+    const today = () => new Date(new Date().toISOString().slice(0, 10));
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    const daysAgo = (n: number) => new Date(today().getTime() - n * 86_400_000);
+    const extraCards: string[] = [];
+    afterAll(async () => {
+      const items = await h.prisma.inventoryItem.findMany({ where: { cardId: { in: extraCards } }, select: { id: true } });
+      await h.prisma.inventoryItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
+      await h.prisma.priceReference.deleteMany({ where: { cardId: { in: extraCards } } });
+      await h.prisma.pendingPriceEntry.deleteMany({ where: { cardId: { in: extraCards } } });
+      await h.prisma.card.deleteMany({ where: { id: { in: extraCards } } });
+    });
+    async function ownCard(n: number) {
+      const c = await h.prisma.card.create({
+        data: {
+          externalId: `lp-${run}-ref-${n}`,
+          setId,
+          name: `Carta Referencia ${run} ${n}`,
+          number: String(100 + n),
+          rarity: 'Common',
+          rarityCanonical: 'Common',
+          imageSmallUrl: `https://images.pokemontcg.io/lp/ref-${n}.png`,
+          availableFinishes: ['normal'],
+        },
+      });
+      extraCards.push(c.id);
+      return c.id;
+    }
+
+    it('ficha de CARTA y `/catalog/listings/:id`: referencia y fecha de la fila; tras el cálculo, las nuevas', async () => {
+      const k = await ownCard(1);
+      await h.prisma.priceReference.create({
+        data: { cardId: k, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'manual', priceMxnCents: 50_000, capturedDate: daysAgo(2), isManualOverride: true, refKind: 'market' },
+      });
+      const R = await item({ cardId: k });
+      await lp.run('manual_price', [R.id]);
+      const fila = (await row(R.id))!;
+      expect(fila).toMatchObject({ status: 'priced', priceBasis: 'market', referenceMxnCents: 50_000 });
+      expect(ymd(fila.referenceCapturedDate!)).toBe(ymd(daysAgo(2)));
+      const frozen: Ref = { status: 'priced', referenceMxnCents: 50_000, capturedDate: ymd(daysAgo(2)) };
+
+      // Se MUEVE la referencia (monto y fecha), sin correr el cálculo.
+      await h.prisma.priceReference.updateMany({ where: { cardId: k }, data: { priceMxnCents: 90_000, capturedDate: today() } });
+
+      const ficha = await h.api<{
+        listings: { referenceValue: Ref; referenceDisplayCents?: number; ivaRatePct: number; displayPriceCents: number }[];
+        units: { referenceValue: Ref }[];
+      }>('GET', `/catalog/cards/${k}`);
+      expect(ficha.status).toBe(200);
+      expect(ficha.body.listings).toHaveLength(1);
+      expect(ficha.body.listings[0].displayPriceCents).toBe(fila.unitPriceCents);
+      expect(ficha.body.listings[0].referenceValue).toEqual(frozen);
+      expect(ficha.body.listings[0].referenceDisplayCents).toBe(marketDisplayCentsOf(50_000, ficha.body.listings[0].ivaRatePct));
+      expect(ficha.body.units.map((u) => u.referenceValue)).toEqual([frozen]);
+      expect((await h.api<{ referenceValue: Ref }>('GET', `/catalog/listings/${R.id}`)).body.referenceValue).toEqual(frozen);
+
+      // Tras el cálculo, la foto nueva: precio Y referencia.
+      await lp.run('manual_price', [R.id]);
+      const moved: Ref = { status: 'priced', referenceMxnCents: 90_000, capturedDate: ymd(today()) };
+      const ficha2 = await h.api<{ listings: { referenceValue: Ref }[] }>('GET', `/catalog/cards/${k}`);
+      expect(ficha2.body.listings[0].referenceValue).toEqual(moved);
+      expect((await h.api<{ referenceValue: Ref }>('GET', `/catalog/listings/${R.id}`)).body.referenceValue).toEqual(moved);
+    });
+
+    it('ficha de SELLADO: el grupo y sus piezas muestran la referencia de la fila; tras el cálculo, la nueva', async () => {
+      const k = await ownCard(2);
+      const pid = 800_000_000 + Math.floor(Math.random() * 90_000_000);
+      await h.prisma.priceReference.create({
+        data: { cardId: k, productType: 'sealed', gradeKey: `sealed:tcg:${pid}`, finish: 'normal', source: 'manual', priceMxnCents: 80_000, capturedDate: daysAgo(3), isManualOverride: true, refKind: 'market' },
+      });
+      const S = await item({ cardId: k, productType: 'sealed', rawCondition: null, sealedSubtype: 'box', sealedCondition: 'mint', tcgplayerProductId: pid });
+      await lp.run('manual_price', [S.id]);
+      const fila = (await row(S.id))!;
+      expect(fila).toMatchObject({ status: 'priced', priceBasis: 'market', referenceMxnCents: 80_000 });
+      const frozen: Ref = { status: 'priced', referenceMxnCents: 80_000, capturedDate: ymd(daysAgo(3)) };
+
+      await h.prisma.priceReference.updateMany({ where: { cardId: k }, data: { priceMxnCents: 120_000, capturedDate: today() } });
+
+      type Detail = { group: { referenceValue: Ref; referenceDisplayCents?: number; ivaRatePct: number; fromPriceCents: number }; listings: { referenceValue: Ref }[] };
+      const d1 = await h.api<Detail>('GET', `/catalog/sealed/${S.id}`);
+      expect(d1.status).toBe(200);
+      expect(d1.body.group.fromPriceCents).toBe(fila.unitPriceCents);
+      expect(d1.body.group.referenceValue).toEqual(frozen);
+      expect(d1.body.group.referenceDisplayCents).toBe(marketDisplayCentsOf(80_000, d1.body.group.ivaRatePct));
+      expect(d1.body.listings.map((l) => l.referenceValue)).toEqual([frozen]);
+
+      await lp.run('manual_price', [S.id]);
+      const d2 = await h.api<Detail>('GET', `/catalog/sealed/${S.id}`);
+      expect(d2.body.group.referenceValue).toEqual({ status: 'priced', referenceMxnCents: 120_000, capturedDate: ymd(today()) });
     });
   });
 

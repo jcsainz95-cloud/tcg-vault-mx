@@ -6,7 +6,8 @@
  *  - el ESCRITOR (`run` / `enqueue`): calcula por el cuerpo único (`SaleDecisionService`, §DYN.5.1) y SOBRESCRIBE la fila
  *    (⛔ sin precio anterior, §DYN.5.5); bitácora en `ListingPriceRun`; lotes de 500 por transacción; single-flight;
  *  - el LECTOR (`salesFor`): fila `priced` ⇒ su `P` tal cual; `pending` ⇒ no se exhibe ni se cobra (`PRICE_PENDING`); sin
- *    fila ⇒ cálculo en vivo por el cuerpo único + `missing_row` encolado (§DYN.5.6/.7);
+ *    fila ⇒ cálculo en vivo por el cuerpo único + `missing_row` encolado (§DYN.5.6/.7). v1.113.3: el «valor de mercado»
+ *    exhibido viaja con `P` (la fila lo congela, §DYN.5.5); solo las piezas SIN fila leen referencias en vivo;
  *  - los disparadores que no tienen un sitio mejor (`onSettingsWritten` ⇒ `dial_change`, `bootstrap` al arrancar);
  *  - `health()` = `dataHealth.listingPrices` (§DYN.5.8).
  *
@@ -24,7 +25,16 @@ import { PRICE_AFFECTING_SETTING_KEYS, SettingKey, SettingKeyType } from '../set
 import { dayMx } from '../spend-alerts/spend-alerts.service';
 import { mxDayStart } from '../spend-alerts/mx-day';
 import { PricingService } from './pricing.service';
-import { isPricePending, SaleDecision, SaleDecisionBatch, SaleDecisionService, SaleItem } from './sale-decision.service';
+import type { PriceInfo } from './pricing.service';
+import {
+  ExhibitedReference,
+  isPricePending,
+  referenceInfoOf,
+  SaleDecision,
+  SaleDecisionBatch,
+  SaleDecisionService,
+  SaleItem,
+} from './sale-decision.service';
 
 /** Candado consultivo de las escrituras de `ListingPrice` (una transacción de lote a la vez entre instancias). */
 export const LISTING_PRICE_LOCK_KEY = 91_130_102;
@@ -36,8 +46,21 @@ const HOUR_MS = 3_600_000;
 /** Estados en alcance: el `isSellable` del checkout (`ownerType = platform ∧ status ∈ {listed, in_stock}`, §DYN.5.2). */
 const SCOPE_STATUSES = ['listed', 'in_stock'] as const;
 
-/** Cómo resolvió un lector el precio de una pieza. */
-export type PieceSale = { kind: 'priced'; decision: SaleDecision; from: 'row' | 'live' } | { kind: 'pending' };
+/**
+ * Cómo resolvió un lector el precio de una pieza. `reference` = el «valor de mercado» exhibible (§DYN.5.5) de la MISMA foto
+ * que `P`: el de la fila si la hay, el del lote en vivo si no. Ya trae el gate del sellado; las proyecciones públicas (sin
+ * `source`, el `iff` de D2, §MIV.2) van encima, en el lector.
+ */
+export type PieceSale = ({ kind: 'priced'; decision: SaleDecision; from: 'row' | 'live' } | { kind: 'pending' }) & {
+  reference: PriceInfo;
+};
+/** La variante de un disparador `manual_price` (§DYN.5.3): la clave de la referencia o del override que se escribió. */
+export interface PriceVariant {
+  cardId: string;
+  productType: SaleItem['productType'];
+  gradeKey: string;
+  finish: SaleItem['finish'];
+}
 
 export interface ListingPriceRunResult {
   runId: string;
@@ -46,6 +69,8 @@ export interface ListingPriceRunResult {
   scopeItemCount: number;
   pricedCount: number;
   pendingCount: number;
+  /** Piezas del alcance que `FOR KEY SHARE SKIP LOCKED` saltó (conservan su fila; las recoge el siguiente cálculo). */
+  skippedCount: number;
 }
 
 export interface ListingPricesHealth {
@@ -63,6 +88,14 @@ export function portadaEffectiveFrom(ymd: string, hour: number): Date {
 /** El día de portada que se sirve en `now` (el último cuyo H:00 CDMX ya pasó). */
 export function portadaServedDay(now: Date, hour: number): string {
   return dayMx(new Date(now.getTime() - hour * HOUR_MS));
+}
+
+/** El «valor de mercado» que la fila congeló (§DYN.5.5), con la forma de `referenceInfoOf`. */
+export function referenceOfRow(row: ListingPrice): PriceInfo {
+  return referenceInfoOf({
+    referenceMxnCents: row.referenceMxnCents,
+    capturedDate: row.referenceCapturedDate ? ymdOf(row.referenceCapturedDate) : null,
+  });
 }
 
 /**
@@ -85,8 +118,9 @@ export function decisionOfRow(row: ListingPrice, item: { finish: SaleItem['finis
 }
 
 /**
- * El cálculo EN VIVO de piezas sin fila, por el cuerpo único (§DYN.5.6 «sin fila»). `PRICE_PENDING` ⇒ `pending`; cualquier
- * otro error propaga (COND-1: un guardarraíl que un `catch` ancho pueda saltarse no es un guardarraíl).
+ * El cálculo EN VIVO de piezas sin fila, por el cuerpo único (§DYN.5.6 «sin fila»), con su referencia exhibible leída del
+ * MISMO lote (§DYN.5.5). `PRICE_PENDING` ⇒ `pending`; cualquier otro error propaga (COND-1: un guardarraíl que un `catch`
+ * ancho pueda saltarse no es un guardarraíl).
  */
 export async function liveSalesFor(
   decider: SaleDecisionService,
@@ -96,11 +130,15 @@ export async function liveSalesFor(
 ): Promise<Map<string, PieceSale>> {
   const out = new Map<string, PieceSale>();
   for (const item of items) {
+    // Con lote, del lote; sin lote (una pieza suelta), las lecturas sueltas de siempre — la MISMA fuente que su `P`.
+    const reference = referenceInfoOf(
+      batch ? decider.exhibitedReferenceOf(item, batch) : await decider.exhibitedReferenceSingle(item),
+    );
     try {
-      out.set(item.id, { kind: 'priced', decision: await decider.decide(item, dials, batch), from: 'live' });
+      out.set(item.id, { kind: 'priced', decision: await decider.decide(item, dials, batch), from: 'live', reference });
     } catch (e) {
       if (!isPricePending(e)) throw e;
-      out.set(item.id, { kind: 'pending' });
+      out.set(item.id, { kind: 'pending', reference });
     }
   }
   return out;
@@ -183,6 +221,33 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     return this.chain;
   }
 
+  /**
+   * 💰 v1.113.3 (§DYN.5.3 `manual_price`) — encola el cálculo SOLO de las piezas que leen esta variante: las de plataforma
+   * cuya clave de referencia (`SaleDecisionService.refKeyOf`: sellado ⇒ la de mercado `sealed:tcg:<id>` en `normal`; resto ⇒
+   * `gradeKey` + acabado) es exactamente la escrita. Precio a mano por variante, override de `POST /admin/pricing/override` y
+   * la cola de revisión (`manual`, `accept`). Nunca lanza: un fallo de la lectura se loguea.
+   */
+  enqueueVariant(trigger: ListingPriceRunTrigger, v: PriceVariant): Promise<unknown> {
+    this.chain = this.chain
+      .then(() =>
+        this.prisma.inventoryItem.findMany({
+          where: { ownerType: 'platform', cardId: v.cardId, productType: v.productType },
+          include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
+        }),
+      )
+      .then((rows) => {
+        const ids = (rows as SaleItem[])
+          .filter((it) => {
+            const k = this.decider.refKeyOf(it);
+            return k != null && k.gradeKey === v.gradeKey && k.finish === v.finish;
+          })
+          .map((it) => it.id);
+        void this.enqueue(trigger, ids);
+      })
+      .catch((e: Error) => this.logger.error(`listing-price ${trigger}: no se pudo leer la variante: ${e.message}`));
+    return this.chain;
+  }
+
   /** Espera a que no quede nada encolado ni corriendo (pruebas y cierre). */
   async idle(): Promise<void> {
     let last: Promise<unknown>;
@@ -224,6 +289,7 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     });
     let priced = 0;
     let pending = 0;
+    let skipped = 0;
     let scope = 0;
     try {
       // Los dos diales que derivan `P`, UNA lectura por corrida (⛔ nunca por pieza: dos piezas con posiciones distintas del
@@ -261,11 +327,14 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
               ).map((r) => r.id),
             );
             for (const item of chunk) {
-              if (!held.has(item.id)) continue;
+              if (!held.has(item.id)) {
+                skipped += 1; // conserva su fila (exhibido = cobrado sigue cierto); la recoge el siguiente cálculo
+                continue;
+              }
               const s = sales.get(item.id)!;
               if (s.kind === 'priced') priced += 1;
               else pending += 1;
-              await this.writeRow(tx, item, s, dials, run.id, startedAt);
+              await this.writeRow(tx, item, s, this.decider.exhibitedReferenceOf(item, batch), dials, run.id, startedAt);
             }
           },
           { timeout: 120_000 },
@@ -286,29 +355,35 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
         where: { id: run.id },
         data: { status: 'ok', scopeItemCount: scope, pricedCount: priced, pendingCount: pending, finishedAt: new Date() },
       });
-      this.logger.log(`listing-price ${trigger}: ${scope} piezas (${priced} priced, ${pending} pending), día ${businessDate}.`);
-      return { runId: run.id, trigger, status: 'ok', scopeItemCount: scope, pricedCount: priced, pendingCount: pending };
+      this.logger.log(
+        `listing-price ${trigger}: ${scope} piezas (${priced} priced, ${pending} pending, ${skipped} saltadas por SKIP LOCKED), día ${businessDate}.`,
+      );
+      return { runId: run.id, trigger, status: 'ok', scopeItemCount: scope, pricedCount: priced, pendingCount: pending, skippedCount: skipped };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      this.logger.error(`listing-price ${trigger} FALLÓ (las filas de lotes ya escritos quedan; el resto conserva la suya): ${msg}`);
+      this.logger.error(
+        `listing-price ${trigger} FALLÓ (las filas de lotes ya escritos quedan; el resto conserva la suya; ${skipped} saltadas por SKIP LOCKED): ${msg}`,
+      );
       await this.prisma.listingPriceRun
         .update({
           where: { id: run.id },
           data: { status: 'failed', scopeItemCount: scope, pricedCount: priced, pendingCount: pending, finishedAt: new Date(), error: msg.slice(0, 1000) },
         })
         .catch(() => undefined);
-      return { runId: run.id, trigger, status: 'failed', scopeItemCount: scope, pricedCount: priced, pendingCount: pending };
+      return { runId: run.id, trigger, status: 'failed', scopeItemCount: scope, pricedCount: priced, pendingCount: pending, skippedCount: skipped };
     }
   }
 
   /**
    * SOBRESCRIBE la fila (§DYN.5.5) — salvo que ya la haya escrito una corrida que empezó DESPUÉS que ésta (dos instancias):
-   * gana la más reciente, que leyó diales y mercado más nuevos.
+   * gana la más reciente, que leyó diales y mercado más nuevos. v1.113.3: con `P` va el «valor de mercado» exhibible LEÍDO
+   * DEL MISMO LOTE (`ref`), para que la comparación «mercado con IVA · nuestro precio» salga de la misma foto.
    */
   private async writeRow(
     tx: Prisma.TransactionClient,
     item: SaleItem,
     s: PieceSale,
+    ref: ExhibitedReference,
     dials: IvaDials,
     runId: string,
     computedAt: Date,
@@ -318,16 +393,19 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     const d = s.kind === 'priced' ? s.decision : null;
     await tx.$executeRaw`
       INSERT INTO "ListingPrice" ("inventoryItemId", "variantKey", "runId", "status", "unitPriceCents", "listPriceCents",
-        "fixedDisplayCents", "priceBasis", "marketMxnCents", "ivaRatePct", "ivaTransferPct", "computedAt")
+        "fixedDisplayCents", "priceBasis", "marketMxnCents", "ivaRatePct", "ivaTransferPct", "referenceMxnCents",
+        "referenceCapturedDate", "computedAt")
       VALUES (${item.id}, ${vk}, ${runId}, ${d ? 'priced' : 'pending'}::"ListingPriceStatus", ${d?.unitPriceCents ?? null}::int,
         ${d?.listPriceCents ?? null}::int, ${d?.fixedDisplayCents ?? null}::int, ${d?.priceBasis ?? null}::"PriceBasis",
-        ${d?.marketMxnCents ?? null}::int, ${dials.ivaRatePct}::int, ${dials.ivaTransferPct}::int, ${computedAt})
+        ${d?.marketMxnCents ?? null}::int, ${dials.ivaRatePct}::int, ${dials.ivaTransferPct}::int, ${ref.referenceMxnCents}::int,
+        ${ref.capturedDate}::date, ${computedAt})
       ON CONFLICT ("inventoryItemId") DO UPDATE SET
         "variantKey" = EXCLUDED."variantKey", "runId" = EXCLUDED."runId", "status" = EXCLUDED."status",
         "unitPriceCents" = EXCLUDED."unitPriceCents", "listPriceCents" = EXCLUDED."listPriceCents",
         "fixedDisplayCents" = EXCLUDED."fixedDisplayCents", "priceBasis" = EXCLUDED."priceBasis",
         "marketMxnCents" = EXCLUDED."marketMxnCents", "ivaRatePct" = EXCLUDED."ivaRatePct",
-        "ivaTransferPct" = EXCLUDED."ivaTransferPct", "computedAt" = EXCLUDED."computedAt"
+        "ivaTransferPct" = EXCLUDED."ivaTransferPct", "referenceMxnCents" = EXCLUDED."referenceMxnCents",
+        "referenceCapturedDate" = EXCLUDED."referenceCapturedDate", "computedAt" = EXCLUDED."computedAt"
       WHERE "ListingPrice"."computedAt" <= EXCLUDED."computedAt"`;
   }
 
@@ -343,7 +421,8 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
   /**
    * 💰 §DYN.5.6/.7 — el precio de cada pieza tal como lo exhibe y lo cobra la tienda: fila `priced` ⇒ su `P` tal cual (aunque
    * `PriceReference` o un dial ya se hayan movido); `pending` ⇒ `pending`; sin fila ⇒ cálculo en vivo por el cuerpo único y
-   * `missing_row` encolado.
+   * `missing_row` encolado. v1.113.3: el «valor de mercado» de cada pieza sale de la MISMA fuente que su `P` (la fila, o el
+   * lote en vivo de las piezas sin fila); ⛔ con fila no se lee ninguna referencia.
    */
   async salesFor(items: readonly SaleItem[], dials: IvaDials): Promise<Map<string, PieceSale>> {
     const rows = await this.rowsFor(items.map((i) => i.id));
@@ -352,8 +431,8 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     for (const item of items) {
       const row = rows.get(item.id);
       if (!row) missing.push(item);
-      else if (row.status === 'pending') out.set(item.id, { kind: 'pending' });
-      else out.set(item.id, { kind: 'priced', decision: decisionOfRow(row, item), from: 'row' });
+      else if (row.status === 'pending') out.set(item.id, { kind: 'pending', reference: referenceOfRow(row) });
+      else out.set(item.id, { kind: 'priced', decision: decisionOfRow(row, item), from: 'row', reference: referenceOfRow(row) });
     }
     if (missing.length > 0) {
       // Las entradas del cuerpo, izadas SOLO para las piezas sin fila (con fila no se lee curva, política ni override).

@@ -195,10 +195,10 @@ export class VariantControlsService {
       after: { cardId: card.id, productType, gradeKey, finish, controls: snapshot(row) },
     });
 
-    // 💰 §DYN.5.3 `manual_price`: ya escrito ⇒ el precio del día de las piezas de esa variante (carta+tipo+acabado; el grado
-    // lo filtra el cuerpo). Solo si cambió el override de VENTA (el bounty y el de compra no tocan el precio de venta).
+    // 💰 §DYN.5.3 `manual_price`: ya escrito ⇒ el precio del día de las piezas de ESA variante (carta, tipo, grado y acabado,
+    // v1.113.3). Solo si cambió el override de VENTA (el bounty y el de compra no tocan el precio de venta).
     if ((existing?.sellOverrideCents ?? null) !== (row?.sellOverrideCents ?? null)) {
-      void this.listingPrices?.enqueueWhere('manual_price', { cardId: card.id, productType, finish });
+      void this.listingPrices?.enqueueVariant('manual_price', { cardId: card.id, productType, gradeKey, finish });
     }
 
     // ---- Estado RESUELTO tras el write (mismo DTO que lee el binder, §DTOs) ----
