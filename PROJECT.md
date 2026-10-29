@@ -14899,9 +14899,12 @@ product-owner con búsqueda en `PROJECT.md` el 2026-10-29.)*
 927. **Si el cambio diario falla** *(§DYN.1)*: con el cambio diario forzado a fallar, la portada sigue con la
    selección del día anterior menos lo vendido, aparece el aviso en salud de datos, y **nunca** se muestran «las 8 más
    caras» como sustituto.
-928. **Lo que no cambia** *(§DYN.1)*: las pruebas de la rotación de 5 s y de la pausa por intervención pasan **sin
-   editarlas**; la pasada recorre las 10 tejas; la burbuja «En PSA 10 vale ≈…» y la nota al pie salen igual que hoy
-   para las mismas cartas, calculadas sobre la lista que pinta el carrusel.
+928. **Lo que no cambia** *(§DYN.1)*: las pruebas de la rotación de 5 s y de la pausa por intervención pasan con sus
+   **aserciones, tiempos y constantes intactos** (`ROTATION_REST_MS`, `LEAD_IMAGE_CAP_MS`, `USER_INPUT_WINDOW_MS`: mismo
+   valor); **solo** puede cambiar el ayudante que simula de dónde vienen los datos, para seguir a la nueva fuente de
+   Destacadas (920/922). Se comprueba en el diff de esos ficheros: ninguna línea de aserción, temporizador ni constante
+   cambia (`API_CONTRACT` D-DYN-6, DYN-F1 (b)). La pasada recorre las 10 tejas; la burbuja «En PSA 10 vale ≈…» y la
+   nota al pie salen igual que hoy para las mismas cartas, calculadas sobre la lista que pinta el carrusel.
 929. **Orden del turno PSA, por colección** *(§DYN.2)*: con 30 sueltas publicadas en **30 colecciones distintas**
    (una carta por colección; 5 colecciones nunca consultadas y 25 con fechas de última consulta distintas) y créditos
    para 10 colecciones, la corrida pide las 5 nunca consultadas y luego las 5 de consulta más vieja; no pide ninguna
