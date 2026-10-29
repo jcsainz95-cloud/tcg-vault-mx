@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-29 (rev **v1.114⟨portada⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-29 (rev **v1.114.1⟨portada⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -30,7 +30,8 @@
 > - v1.113.2⟨portada⟩ · 2026-10-29 · errata de §DYN tras la fase 1 de backend: `ingestMaxCardsPerRun` en el `PUT` de M2 ⇒ `422 VALIDATION_ERROR` explícito (el pipe global no es estricto); I-5 se cumple con proyector; «vencido > 8 días» de AG-24 sin falsa alarma al desplegar; ratificadas cuatro reglas de backend (cargo de `failed`, sonda, sin llave, salud ilegible ⇒ `stale`); D-DYN-4 (M2 no guarda sin DYN-F5) · backend (`BACKEND_NOTES` §DYN fase 1, sobre `4b2e6fe4`).
 > - v1.113.3⟨portada⟩ · 2026-10-29 · 💰 errata de §DYN tras la fase 2 de backend: el «valor de mercado» de la tienda se congela en la fila (M-94 += `referenceMxnCents`, `referenceCapturedDate`); `manual_price` también desde `POST /admin/pricing/override` y la cola de revisión (`manual` y `accept`); alcance = `isSellable` + apartadas con fila; ruta de `PRICE_AFFECTING_SETTING_KEYS`; las cinco claves sin testigo se quedan y DYN-B17 pide testigo por clave; single-flight ratificado; DYN.5.7 sin cálculo de dinero sobre `(P, Order.ivaTransferPct)` · backend (`BACKEND_NOTES` §DYN fase 2, `97f9dd3d`).
 > - v1.113.4⟨portada⟩ · 2026-10-29 · §DYN.5.4: `price_consensus_tolerance_pct` sale de `PRICE_AFFECTING_SETTING_KEYS` (no entra en el cuerpo de DYN.5.1; solo el candado del barrido) y DYN-B17 (b) no admite excepciones (fuera `SIN_TESTIGO`); D-DYN-5 (el candado de §PRE no retiene el precio de venta) · backend (DYN-B17 sobre la errata v1.113.3).
-> - v1.114⟨portada⟩ · 2026-10-29 · 💰 [§DYN.5.9](#DYN) NUEVA (cierra el diseño de D-DYN-5): con caso `open` o `kept` el cuerpo de venta usa `baselineMxnCents` (sin base ⇒ `PRICE_PENDING`); `keep` sigue reteniendo y el barrido lo trata como `open`; compra lee `kept`; trigger `review_open` en `ListingPriceRunTrigger`; DYN-B23…B26; §PRE.F `keep` · orquestador (`HECHOS.md` 2026-10-11 «§PRE APROBADO…» y 2026-10-29 «Precio: se cobra lo que se ve…»). La siguiente es **v1.115**.
+> - v1.114⟨portada⟩ · 2026-10-29 · 💰 [§DYN.5.9](#DYN) NUEVA (cierra el diseño de D-DYN-5): con caso `open` o `kept` el cuerpo de venta usa `baselineMxnCents` (sin base ⇒ `PRICE_PENDING`); `keep` sigue reteniendo y el barrido lo trata como `open`; compra lee `kept`; trigger `review_open` en `ListingPriceRunTrigger`; DYN-B23…B26; §PRE.F `keep` · orquestador (`HECHOS.md` 2026-10-11 «§PRE APROBADO…» y 2026-10-29 «Precio: se cobra lo que se ve…»).
+> - v1.114.1⟨portada⟩ · 2026-10-29 · errata de §DYN tras frontend: DYN-F1 admite cambiar solo el ayudante `mockCatalog` de `FeaturedCarouselRotation.test.tsx` (aserciones y constantes intactas, contadas) y declara la excepción `GradedShelf.tsx` del candado `price_desc`; DYN.6.2: el marco con alto reservado es solo de Destacadas, la vitrina sigue `DESIGN_SYSTEM §22.6` (sin esqueleto); D-DYN-6 (texto del criterio 928) · frontend (`FRONTEND_NOTES` §DYN, sobre `f7eeecdc`); compactadas las cabeceras v1.80.8.5–v1.80.12 (−367 líneas). La siguiente es **v1.115**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -259,384 +260,17 @@
 > - v1.80.12.4 · 2026-10-04 · catálogo de CP: `C-GEO-1` (1) como inclusión + huella, dos modos por blanco, archivo de SEPOMEX fuera del repo (G-1) · [§M4-SHIP.19.24](#M4-SHIP-19-24).
 > - v1.80.12.3 · 2026-10-04 · lo que la fase C no puede medir pasa a D2a–D2c; mutación de PS-104 por pares; guarda «ya tiene guía» con `labelSource`; `line2` 0..200 · [§M4-SHIP.19.23](#M4-SHIP-19-23).
 > - v1.80.12.2 · 2026-10-04 · 🔒 `SKX-SEC-1`: el domicilio sale de la bitácora a `ShipmentAddressRevision` (M-65), `address.missing`, dos formas de respuesta · [§M4-SHIP.19.22](#M4-SHIP-19-22).
-> **Rev v1.80.12.1 — ERRATA MENOR: LAS DISCREPANCIAS DE D1 (`BACKEND_NOTES §57.3`/`§57.4`) (2026-10-04, arquitecto, rama
-> `claude/skydropx-d`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Norma entera: **[§M4-SHIP.19.21](#M4-SHIP-19-21)**.
-> ⛔ Ningún endpoint, código de error, columna ni DTO nuevo. Resumen: **D-SDX-1** el filtro de tarifas mira `status`
-> **antes** que `success` (lo construido se ratifica); **D-SDX-2** `C-SDX-7` (2) se re-escribe: el puerto entrega las URLs
-> como **`rawLabelUrl`/`rawTrackingUrl`** y solo `providerUrlsFrom` las lee (cambio pequeño en D1c); **D-SDX-3** PS-99 (d)
-> sin cambio; **§57.3** cubeta de capacidad 1 ✅, «en vuelo» por defecto en la compra ✅ **ampliado** al `403` que no es del
-> borde, `SKYDROPX_CLIENT_SECRET` leído en la fábrica ✅ (`C-SDX-1` reescrito), cuerpos de cancelación ✅ NO MEDIDO y
-> `protect` **sin llamador** en D2.
->
-> **Rev v1.80.12 — ERRATA DE LA VENTANA «CAPTURAR GUÍA»: EL OPERADOR CORRIGE TODA LA DIRECCIÓN DEL ENVÍO; EL DTO DICE
-> LA COMPRA PENDIENTE Y LAS ALERTAS DE GUÍA; LA COMPRA EN VUELO RESPONDE `200 in_flight`; LA VÍA B DE DISPUTAS QUEDA
-> SUSTITUIDA (2026-10-04, arquitecto, rama `claude/skydropx-d`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).**
-> Origen: `HECHOS.md:50` (2026-10-04, «puede corregir TODA la dirección del cliente antes de comprar la guía: calle,
-> número, CP, colonia, referencias y destinatario; queda registrado quién la cambió»), `HECHOS.md:52` (disputas fuera
-> de la tienda), `DESIGN_SYSTEM §43.17` A-1…A-5 y N-3 (`DESIGN_SYSTEM.md:23786-23793`, v4.15), `PROJECT.md:12123-12125`
-> (criterio 242, conteo del catálogo). Norma entera: **[§M4-SHIP.19.20](#M4-SHIP-19-20)**. Porqué: `ARCHITECTURE §4.60 (m)`.
-> ⛔ **Ningún código de error nuevo** y ningún endpoint de dinero nuevo. Medido por el arquitecto (Grep, 2026-10-04,
-> árbol `claude/skydropx-d`): la fase C **no está construida** (`address-neighborhood`, `geo/postal` ⇒ 0 en
-> `backend/src`) y `M-SDX-D` tampoco (`providerCanceledAt`, `labelProcessingSince` ⇒ 0 en `backend/prisma/schema.prisma`),
-> así que **nada de esto rompe código construido**; la vía B de disputas tampoco está construida (`direct_ship` ⇒ 0 en
-> `backend/src/modules/disputes/`; `DSP-` ⇒ 0 en `backend/test/`; «Abrir disputa» solo en `vault/WithdrawalsList.tsx`).
->
-> | # | Qué | Decisión | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | **A-1** | Corregir la dirección en «Capturar guía» (`HECHOS.md:50`) | **`PUT /admin/shipments/:id/address`** (operador+, el mismo rol que captura la guía) **sustituye** a `PATCH …/address-neighborhood` (§19.5, sin construir). Escribe **solo** `ShipmentRequest.addressSnapshot` (⛔ ni la libreta `Address`, ni `Order.shippingAddressSnapshot`); `addressVersion` + CAS; bitácora `shipment.address_corrected` antes/después + actor; la cotización queda **inválida** por versión (`ShipmentQuote.addressVersion`). Schema: tres columnas en `M-SDX-C`, una en `M-SDX-D` | No (fase C sin construir) | backend 💰 (`shipments`, fase C) + frontend (paso 1) + ux-ui |
-> | **A-2** | El DTO no dice la compra pendiente ni las alertas de guía | `AdminShipmentDTO` **y** `ShipPreparationOrderDTO` ganan `labelPending` y `labelAlert` (derivados, un cuerpo `labelStateOf(row, now, actor)`); **`ShipmentRequest.providerCancelConfirmedAt`** nuevo en `M-SDX-D` (sin él `label_cancel_failed` no se distingue de una cancelación que salió bien); la re-emisión **limpia** el sello de cancelación (defecto del texto de §19.8, encontrado al derivar) | No (D2a/D2c sin construir) | backend 💰 (D2a, D2c) + frontend |
-> | **A-3** | ¿El operador lee `GET /admin/shipping/packages`? | **Sí**, operador+; `PUT` sigue `super_admin` | No | backend (D2f) + frontend |
-> | **A-4** | Promoción visible | `ShipmentRateDTO.isPromo: boolean` derivado por `isPromoPlan(planType)` (patrones medidos `50PESOS_…`, `PROMO_…`; `ACQ_2026` = normal) + `planType` crudo. ⛔ Sin fecha de fin (el sufijo no es una fecha medida) | No | backend (D2b) + frontend |
-> | **A-5** | Respuesta de la compra en vuelo | **`200 { outcome:'in_flight', shipment }`** (compra enviada, respuesta desconocida: timeout, `5xx`, red, `404`). Un `5xx` de `label` ya **no** significa «en vuelo»: la pantalla **relee** el envío y manda `labelPending` | No | backend (D2c) + frontend |
-> | **N-3** | `AV-18`/`AV-19` sin texto | **Son de esta fase** (pieza D2e, §19.19.15) ⇒ ux-ui los escribe ahora | No | ux-ui |
-> | **PO** | «catálogo 15→18» frente a `C-AV-1 = 19` | **19** filas: `AV-1…AV-16` (16, `AV-16` construido: `backend/test/users.kyc-cycle.spec.ts:307`) + `AV-17…AV-19`. `AVA-1` retirado, no cuenta. product-owner corrige el texto a «16 → 19» | No | product-owner |
-> | **DSP** | La vía B de disputas (v1.80.10) contra `HECHOS.md:52` | **Vía B SUSTITUIDA, no se construye** (ni DSP-1…12, ni OD-DSP-1…7, ni `Dispute.orderItemId` por vía B). Vivo: la vía A tal como está construida, hasta el diseño de §V (encargo propio) | No (nada construido) | — |
->
-> - **Backend 💰 (stream de envíos, modelo fuerte):** fase C con `PUT …/address` (PS-102…PS-107) en lugar de
->   `address-neighborhood`; D2a con las cuatro columnas; D2b `isPromo` (PS-111) y `addressVersion` en la cotización;
->   D2c `in_flight` (PS-109), `labelPending`/`labelAlert` (PS-108), la limpieza del sello al re-emitir; D2f `GET
->   …/packages` operador+ (PS-110). ⛔ Nada de esto toca D1a–c (el cliente, el adaptador y la etiqueta).
-> - **Frontend:** paso 1 editable (PS-101 corregida), tarjeta con `labelPending`/`labelAlert`, `in_flight`, `isPromo`.
-> - **ux-ui:** copy del paso 1 editable y de sus errores, `AV-18`, `AV-19`. **product-owner:** `PROJECT §T.2` y el paso 1
->   de §T (`PROJECT.md:8083-8084`, `:12217`) pasan de «⛔ no puede cambiar calle, CP…» a la corrección completa; el conteo
->   del criterio 242; y la pregunta abierta **P-ADR-1** (¿el teléfono también se corrige? §19.20.1).
->
-> **Rev v1.80.11 — CONSOLIDACIÓN DE `claude/skydropx-envios` SOBRE `claude/staff-sin-correo` + ERRATA DE LA FASE D DE
-> SKYDROPX CON LA API DE PRODUCCIÓN MEDIDA (2026-10-04, arquitecto, rama `claude/skydropx-d`, HEAD dado por el
-> orquestador `785ea5fc`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).** Origen: la fusión por UNIÓN que hizo el
-> orquestador (cabeceras, nota de `shipped_reason`, §M4-SHIP.18.12 frente a §19, fila de migración) y
-> `docs/specs/SKYDROPX_API_PROD_RESULTADOS.md` (medición de producción sin gastar saldo, 2026-10-04 03:58–04:03 UTC).
-> Decisiones del dueño: `HECHOS.md:48` (Carta Porte `49101600`, credenciales de **producción**, seguro por escalones,
-> compra real solo con su autorización guía por guía), `:34`–`:39` (las seis filas de 2026-09-29), `:41` (88–91
-> respondidas: quedan sus defaults), `:50` (disputas fuera de la tienda: toca el texto de `AV-17`) y la ventana
-> «Capturar guía» (⚠️ relayada por el orquestador; **no está en `HECHOS.md`**: `Grep "capturar gu"` ⇒ 0 en
-> `HECHOS.md`, 2026-10-04 — el orquestador añade la fila). Norma entera: **[§M4-SHIP.19.19](#M4-SHIP-19-19)**.
-> Porqué: `ARCHITECTURE §4.60 (l)`.
->
-> **1 · Qué se consolidó (⛔ ninguna norma de ninguno de los dos lados se pierde).**
->
-> | Sitio | Qué había tras la unión | Resolución |
-> |---|---|---|
-> | Cabecera | Tres líneas «Versión de API» (v1.80.10, v1.81.1 y v1.80.8.3) | Una (esta). Las otras dos son separadores de rama; los changelogs v1.81.1 y v1.81 siguen **verbatim** debajo de v1.80.8.4 |
-> | Números de rev | v1.81 / v1.81.1 ⟨skydropx⟩ son **más antiguos** (2026-09-29, base `8fd637fb`) que v1.80.8.4…v1.80.10 | ⛔ No se renumeran (commits, `SECURITY_NOTES` sobre `62d0c46` y pruebas PS-67…PS-90 los citan; doctrina de v1.80.8-release punto 2). La errata nueva de Skydropx es **v1.80.11**; la siguiente rev de este contrato será **v1.80.12** y ⛔ nunca v1.81.x |
-> | `M-62` | Dos migraciones con el mismo número: la de §M4-SHIP.18.12 (S.11) y la de Skydropx (§19.2, partes a/b) | **`M-62` es la de S.11**, construida: `backend/prisma/migrations/20261004120000_m62_shipped_refund_reason/` (Glob, 2026-10-04). **`M-63`** es staff (`…/20261005120000_m63_staff_username/`). Skydropx pasa a **`M-SDX-C`** (antes «`M-62a`», fase C) y **`M-SDX-D`** (antes «`M-62b`», fase D), **número sin asignar** (lo asigna el orquestador, ≥ M-64, al encargar). En los changelogs v1.81/v1.81.1 y en `SECURITY_NOTES`, «`M-62`/`M-62a`/`M-62b`» se lee como `M-SDX-*` |
-> | `ARCHITECTURE §4.58` | Dos secciones con el número: staff (v1.80.9) y Skydropx (v1.81) | Staff **conserva §4.58** (el código lo cita: `password-attempts.service.ts:32`, `login-attempt.store.ts:75`, `admin.service.ts:958`, entre otros; ⛔ cero citas de Skydropx en `backend/src`, `Grep "[Ss]kydropx"` ⇒ 0, 2026-10-04). Skydropx pasa a **§4.60**; se actualizan las cinco citas del cuerpo de §M4-SHIP.19 (las dos de los changelogs v1.81/v1.81.1 quedan verbatim). En textos anteriores a v1.80.11, «§4.58» junto a Skydropx/`M-62` = §4.60 |
-> | §0, nota de `shipped_reason` y códigos de v1.81 | Bloques contiguos de los dos lados | Ya eran disjuntos: se conservan los dos, sin cambio de texto |
-> | §M4-SHIP.18.12 (1) | «número NO MEDIDO contra `claude/skydropx-envios`» | Medido (fila `M-62` de arriba); se anota en (1) |
-> | Fin de §M4-SHIP.18.12 | El encabezado de §M4-SHIP.19 quedó pegado al último párrafo | Se separa (sin cambio de texto) |
->
-> **2 · La errata de Skydropx (fase D) — lo que la API medida cambia.** ⛔ La fase C (§19.5) no cambia salvo el
-> nombre de su migración. Detalle en §19.19.1–.19.
->
-> | # | Decisión | Fuente | ¿Rompe algo construido? | Construye |
-> |---|---|---|---|---|
-> | 1 | 🔒 **User-Agent propio en toda llamada** (Cloudflare 1010 bloquea el de por omisión); `403` del borde ⇒ `502` **sin reintento** | PROD §2 | No (nada construido) | backend |
-> | 2 | Cliente: URL base normalizada al origen, matriz de reintentos por operación (**la compra nunca se reintenta** salvo `401`/`429`), timeouts, token medido (`7200 s`, `scope:"default"`, form) | PROD §1, §3 | No | backend |
-> | 3 | Cotización: forma real de la tarifa (`provider_name`, `amount`, `extra_fees`, `vat_fee`, `service_fee`, `total` con IVA, `days`, `pickup`, `office_delivery_only`, `success`), importes en **cadena** ⇒ centavos exactos; J&T (`success:false`) y sin cobertura **fuera**; **la API reutiliza cotizaciones** ⇒ `ShipmentQuote.providerQuotationId` deja de ser `@unique` | PROD §4.1–§4.6 | No | backend + frontend (DTO) |
-> | 4 | 💰 **Seguro por escalones** (dial `shipping_insurance_tiers`, seed $2,500→$25 y $10,000→$170 medidos): siempre asegurado, `declared_value` = el escalón que cubre lo que va en la caja; ⛔ nunca omitido ni `false`; se retira el dial de tope `shipping_declared_value_cap_cents` y el `declaredValueCents` del cuerpo de `quote` | `HECHOS.md:48`; PROD §4.4 | No | backend + frontend + ux-ui |
-> | 5 | Carta Porte `49101600` y empaques `5H4`/`4G` sembrados; peso en **kilos enteros ≥ 1** | `HECHOS.md:48`; PROD §5.1–§5.2; PANEL paso 0 | No | backend |
-> | 6 | 💰🔒 **Puerta de compra con dos llaves y un candado de ejecución:** dial `shipping_label_purchase` (seed `disabled`) + env `SKYDROPX_ALLOW_SPEND` (solo el despliegue de producción) + `evaluateMutationGate` (⛔ con `NODE_ENV=test`, `CI` o `JEST_WORKER_ID`, ninguna llamada que gaste sale del proceso). **PS-99**: ninguna prueba ni ningún CI compra una guía real, con canario | `HECHOS.md:48` | No | backend + devops |
-> | 7 | 🔒 El proxy de la etiqueta manda `Authorization` **solo** al host de la API, nunca al host de `label_url` | diseño (token a un tercero) | No | backend |
-> | 8 | La compra va **dentro de la ventana «Capturar guía»** (dirección → opciones → elegir → la guía de vuelta), con «capturar a mano» en la misma ventana; ⛔ no hay botón «Cotizar envío» aparte | dueño (relayado) | No | frontend + ux-ui |
-> | 9 | `AV-17` ⛔ **ya no anuncia la ventana de 7 días para disputar** (las disputas salen de la tienda): lleva «¿Problema con tu pedido? Escríbenos». `deliveredAt = max(occurredAt, observedAt)` se conserva | `HECHOS.md:50` | No | backend (plantilla) + ux-ui |
-> | 10 | No hay sandbox: el guion PS-SBX-1…12 queda **sustituido** por mediciones de producción **sin gastar** (`M-PRD-1…6`) y por el protocolo de la **primera guía real autorizada** (`PG-1…3`) | `HECHOS.md:17`, `:48` | No | devops + dueño |
-> | 11 | Preguntas 88–91: de SUPUESTO a **DECIDIDO** con su default | `HECHOS.md:41` | No | — |
->
-> **Códigos nuevos:** ninguno. Emisores nuevos de códigos existentes: `404 FEATURE_DISABLED {feature:'label_purchase'}`,
-> `403 FORBIDDEN {reason:'label_purchase_super_admin_only'}`, `409 SHIPPING_PROVIDER_NOT_CONFIGURED` con `missing` ∋
-> `'insurance_tier' | 'allow_spend'`, `502 SHIPPING_PROVIDER_ERROR {reason:'edge_blocked'}`. **Migración:** `M-SDX-D`
-> cambia (un `@unique` pasa a `@@unique` de dos columnas, `insuredValueCents` en dos tablas, `weightKg` entero, seeds);
-> `M-SDX-C` igual. **Seguridad:** el delta 6–7 y el cambio de unicidad pasan por **revisión de diseño** antes de la pieza
-> D2c (§19.19.15).
->
-> **3 · Historia de revisiones de esta cabecera, en orden de lectura** (más nuevo arriba; cada una vigente entera
-> salvo lo que tocan las de encima): *(panel: v1.82.3 → v1.82.2 → v1.82.1 → v1.82, fusión 2026-10-05)* → v1.80.12.17 → v1.80.12.16 → v1.80.12.15 → v1.80.12.14 → v1.80.12.13 → v1.80.12.12 → v1.80.12.11 → v1.80.12.10 → v1.80.12.9 → v1.80.12.8 → v1.80.12.7 → v1.80.12.6 → v1.80.12.5 → v1.80.12.4 → v1.80.12.3 → v1.80.12.2 → v1.80.12.1 → v1.80.12 → v1.80.11 → v1.80.9.1 → v1.80.10 → v1.80.9 → v1.80.8.9 → v1.80.8.8 → v1.80.8.7 →
-> v1.80.8.6 → v1.80.8.5 → v1.80.8.4 → *(separador ⟨skydropx⟩: v1.81.1 → v1.81, base `8fd637fb`, 2026-09-29)* →
-> v1.80.8.3 → v1.80.8.2 → v1.80.8.1 → v1.80.8-release → *(cabeceras por rama de esa consolidación)*.
->
-> **Errata v1.80.9.1 — CIERRE DE LA CONDICIÓN C-1 DEL TECHLEAD SOBRE «STAFF SIN CORREO» (2026-10-04, arquitecto, rama
-> `claude/staff-sin-correo`, HEAD dado por el orquestador `da6d910e`; ⛔ sha NO MEDIDO por el arquitecto: sin Bash).**
-> Origen: `BACKEND_NOTES §55` (55.2/55.3; errata de 55.2.1 en §56.3), valoración del techlead (D-1…D-5, TD-4, TD-9), `DESIGN_SYSTEM §42.10 A-1` y
-> **decisión del dueño 2026-10-04 sobre TD-4** («dame la capacidad de moverlo desde mi cuenta», relayada por el
-> orquestador). Norma entera: [§M6-U.11](#M6-U-11). Porqué: `ARCHITECTURE §4.58.9`. ⛔ Sin schema, sin migración, sin
-> endpoint nuevo, sin código de error nuevo. Un campo aditivo en la ficha (`lockState`).
->
-> | # | Decisión | ¿Cambia conducta? | Construye |
-> |---|---|---|---|
-> | D-1 | La rama con `@` del identificador valida con `isEmail` de class-validator (la de hoy), **no** `EMAIL_REGEX` | No (texto) | — |
-> | D-2 | La anonimización pone a `null` `username` **y** `lockNoticeAt` | No (ya construido) | — |
-> | D-3 | La migración es **`M-63`**, carpeta `20261005120000_m63_staff_username` | No (texto) | — |
-> | D-4 | ⭐ Con Redis degradado o sin contestar, el listado dice `lockState:'unavailable'`; `peekLockMs` del almacén resiliente **lanza** `LoginAttemptStoreUnavailableError` y **no** marca caído | **Sí** | backend |
-> | A-1 | ⭐ La ficha `GET /admin/users/:id` gana `lockState` (los dos DTOs) | **Sí** (aditivo) | backend + frontend |
-> | TD-9 | ⭐ `lockedUntilOf` sin `PasswordAttemptsService` **lanza** (como `resetPassword`); solo `LoginAttemptStoreUnavailableError` se traduce en `'unavailable'` | **Sí** | backend |
-> | D-5 | `details.rule:'customer_without_username'` y `details.field` en todos los `422` del alta | No (ya construido) | — |
-> | TD-4 | ⭐ (a) El súper-admin **sin correo** se rescata desde Usuarios con el reset de siempre, hecho por otro súper-admin (el dueño) — confirmado en contrato y en prueba. (b) El script de rescate gana `ADMIN_USERNAME`. (c) **No** se prohíbe el súper-admin sin correo | (a) No (ya es así); (b) **Sí** | backend |
->
-> ⛔ **v1.80.12: la fila F-2 de abajo (vía B de `POST /disputes`, `DSP-1…12`, `OD-DSP-1…7`, «Mis disputas» del
-> comprador sin bóveda, el ciclo F-2 de QA) queda SUSTITUIDA por `HECHOS.md:52` y no se construye** — detalle en
-> [§E2E-ADM.1](#E2E-ADM) y §M4-SHIP.19.20.7. F-1, F-4, F-7, F-8, F-9 y F-11 siguen vivas.
->
-> **Rev v1.80.10 — ERRATA DEL RECORRIDO E2E DEL PANEL: EL COMPRADOR DEL ENVÍO DIRECTO PUEDE DISPUTAR SIN SER TITULAR;
-> EL CLIENTE DADO DE ALTA POR EL ADMIN LLEVA CELULAR; LO DEMÁS YA ESTABA EN EL CONTRATO Y LE FALTA PANTALLA (2026-10-04,
-> arquitecto, rama `claude/precios-s5`; ⛔ sha del árbol NO MEDIDO por el arquitecto: sin Bash).** Origen: recorrido E2E
-> del panel de un tester-e2e sobre el código de production `279d96de`/`aab55abe` el 2026-10-04 (relayado por el
-> orquestador; guiones y capturas en el scratchpad de la sesión, `admin-e2e/`). ⛔ Las líneas de código de abajo las
-> **leyó el arquitecto en el árbol `claude/precios-s5`** el 2026-10-04; pueden no coincidir con production.
-> ⛔ **Sin schema, sin migración, sin enum, sin endpoint nuevo, sin código de error nuevo.** Norma entera:
-> [§E2E-ADM](#E2E-ADM). Porqué: `ARCHITECTURE §4.59`.
->
-> | # | Falla | Lo medido | Decisión | ¿Rompe? | Construye |
-> |---|---|---|---|---|---|
-> | ~~**F-2**~~ ⛔ **SUSTITUIDA por v1.82 PNL-1** (`HECHOS.md:44`: disputas fuera de la tienda; no se construye la vía B; DSP-1…12 y OD-DSP-1…7 quedan **sin objeto**) | `POST /disputes` ⇒ `403` sobre una carta de envío directo | La guarda es solo `item.ownerUserId === userId` (`disputes.service.ts:143`) y el envío directo nunca da titularidad (`orders.service.ts:845-847`). ⚠️ El `403` que vio el tester salió de un **fixture que no reproduce production**: escribió `ShipmentRequest.userId = cliente` (`admin-e2e/fixture-ship.js:26`), y production escribe `userId: null` (`payments.service.ts:520`, `orders.service.ts:1661`) ⇒ en production ese envío **ni aparece** en «Retiros» (`shipments.service.ts:565-566`). **El hueco real es mayor:** el comprador con cuenta de un envío directo **no tiene ninguna vía** para disputar (ni pantalla ni API) | **Segunda vía de autorización, sin titularidad:** el comprador de una orden `direct_ship` `settled` cuya línea llegó en un envío **entregado de esa misma orden** ([§E2E-ADM.1](#E2E-ADM)). La pantalla es el **detalle del pedido** (`/orders/[orderId]`), no «Retiros». **Invitado:** sin vía por API (decisión v1.21, vigente) — y ⚠️ **hoy no existe vía para compensarle UNA carta** (`D-DSP-1`, para product-owner) | **No** (un `403` pasa a `201` solo en ese caso) | backend 💰 (`disputes`) + frontend (pedidos) |
-> | **F-4** | En M5 una línea «no comprada» ofrece Aprobar/Ajustar/Rechazar; el `422` llega en inglés | El DTO **ya** trae `offerDecision` (`null` = pre-ciclo, `buy`, `skip`; `buylist.service.ts:1985`). El `422` **ya** es `error.code = ITEM_NOT_OFFERED` con `details { itemId, offerDecision }` (`:6404-6409`). Su copy **ya** está escrito (`DESIGN_SYSTEM §27.2`) y su cableado sigue pendiente (`error-audience.ts:148-160`). Botones sin condición por línea: `M5View.tsx:1154-1173` | **Sin campo nuevo.** Regla de botones por `offerDecision` y mensaje por `error.code` ([§E2E-ADM.2](#E2E-ADM)) | **No** | frontend |
-> | **F-9** | No hay pantalla para los diales del ciclo de buylist | Los **diez** ya están en `GET/PUT /admin/settings` (`settings.constants.ts:1137-1146`) y en el contrato (§M10, tabla de los diez, con validación y regla cruzada). Faltan en los tipos (`frontend/src/types/contract.ts`: 0 coincidencias de `buylistMinimumOfferNetCents`) y en la pantalla (`M10View.tsx:89-90` solo trae los dos topes AML) | **Sin cambio de contrato:** se construye la pantalla ([§E2E-ADM.3](#E2E-ADM)) | **No** | frontend (+ textos ux-ui) |
-> | **F-8** | `422` de `PUT /admin/settings` con IVA = 200 | Por clave: `details.errors: Record<claveDelDTO, string>` para **toda** clave (`settings.service.ts:573-603`). Regla cruzada: **otra** forma, `details.rule` + tres montos (`:841-846`) | **Confirmado: S-5 ya vale para todas las claves.** Se declara la segunda forma junto a la primera y la regla de la pantalla. Sin tokens por causa ([§E2E-ADM.4](#E2E-ADM)) | **No** | frontend |
-> | **F-7** | El alta de usuario no pide celular | El contrato lo tiene **opcional** (§M6 `POST /admin/users`; §M6-U) y el código también (`admin.controller.ts:83`, `admin.service.ts:710-713`); `PROJECT` criterio **128(b)** lo exige para **cliente** | `role = customer` ⇒ `phone` **obligatorio** (`trim` no vacío) ⇒ `422 VALIDATION_ERROR {field:'phone', rule:'customer_phone_required'}`. Staff: opcional ([§E2E-ADM.5](#E2E-ADM)) | **Sí** (alta de cliente sin celular por API: `201` ⇒ `422`) | backend + frontend |
-> | **F-11** | Ventas sin filtro por estado; «Con piezas» en bóvedas | `?status=` **ya** está en el contrato (§M3, §0-Q) y en el código (`admin-orders.controller.ts:52`, `:85-86`); `M3View` no lo usa. «Con piezas» es un filtro **del lado del cliente** sobre el binder (`MasterSetBinder.tsx:287`, `:338-339`); `GET /admin/vaults` ya lista solo clientes con ≥ 1 pieza **por contrato** (entrada `GET /api/v1/admin/vaults`; en código **NO MEDIDO**) | **Sin cambio de contrato** ([§E2E-ADM.6](#E2E-ADM)) | **No** | frontend (+ ux-ui para `P-BOVEDA-CLIENTE-PIEZAS`) |
-> | **F-1** | `MX$NaN` | Detalle (cliente y admin): el total vive **solo** en `breakdown.totalCents` (`orders.service.ts:1969`, `:1990`; el admin no añade `totalCents`, `admin-orders.controller.ts:159-183`). Fila de la **lista** admin: `totalCents` de primer nivel (`:135-136`). §M3 decía «detalle con desglose» sin forma | **Se escribe la forma** del dinero del detalle de M3 ([§E2E-ADM.7](#E2E-ADM)) | **No** | frontend (ya en curso) |
->
-> - **Backend 💰 (`disputes`, stream «Órdenes y dinero», modelo fuerte):** vía B de `create` + `orderItemId` + `resolve` lee
->   `dispute.orderItemId`; pruebas **DSP-1…DSP-12** con sus mutaciones. **Backend (`admin`, stream «Cuentas y acceso»):**
->   **ADM-PH-1…4**. **Frontend:** detalle del pedido con «Abrir disputa» (**OD-DSP-1…7**), M5 (**M5-NC-1…4**), M10 (**M10-BL-1…4**),
->   M3 filtro de estado (**M3-ST-1**), M6 celular (**M6-PH-1/2**), F-1. **ux-ui:** rótulo «No comprada», textos de M10, copy
->   del `422` de M10 por campo, y dónde vive «Mis disputas» para quien compra sin bóveda. **QA:** ninguna es carrera; el ciclo
->   F-2 se recorre entero (O-4): compra directa real ⇒ entregado ⇒ disputa desde el pedido ⇒ aparece en M8.
-> - **Orquestador:** el fixture del tester (`fixture-ship.js:26`) debe escribir `userId: null` como production; con
->   `userId = cliente` fabrica un estado que production no produce.
->
-> **Rev v1.80.9 — USUARIOS DE BACK-OFFICE SIN CORREO: el staff nuevo entra con NOMBRE DE USUARIO por la MISMA pantalla
-> de login; el correo queda solo para clientes (2026-10-04, arquitecto, rama `claude/precios-s5`; ⛔ sha del árbol NO
-> MEDIDO por el arquitecto: sin Bash; HEAD dado por el orquestador: `9a0c4561`).** Origen: `HECHOS.md` fila
-> «Usuarios de back-office SIN correo; el correo es solo para clientes.» (2026-10-04), **incluido su punto (c)** «Misma
-> pantalla de login que los clientes», que **reemplaza** el SUPUESTO de pantalla propia de `PROJECT §U.3` / criterio
-> **258** (product-owner reescribe §U por su lado; este contrato sigue a HECHOS, que manda). Criterios **256–270**;
-> P-STF-1…8 con su **default** (el dueño no las ha contestado; P-STF-4 queda **sin objeto** por (c)). Norma entera:
-> [§M6-U](#M6-U). Porqué: `ARCHITECTURE §4.58`. **Se construye en un stream POSTERIOR a `precios-s5`, en rama propia.**
->
-> | # | Qué | Decisión | ¿Rompe? | Construye |
-> |---|---|---|---|---|
-> | **1** | Schema | `User.email` → **opcional**; `User.username` nuevo (`@unique`, guardado **canónico en minúsculas**, sin `citext`); `User.lockNoticeAt` nuevo. **Cinco CHECK**: exactamente uno de `email`/`username`; `customer` ⇒ `email`; formato canónico del usuario; sin correo ⇒ `emailVerified=false`; aviso de panel solo sin correo. **Migración `M-STF` — número NO asignado** (M-62 tomada; lo asigna quien construya). Toda fila existente queda válida **sin backfill** | No (DDL aditivo + `DROP NOT NULL`) | backend |
-> | **2** | `POST /auth/login` | **Mismo endpoint, misma llave `email`**, que ahora es «identificador»: con `@` ⇒ correo (validación de hoy); sin `@` ⇒ nombre de usuario. Mismo orden C7, mismo `argon2` dummy, **misma clave de cubo** para los correos (los contadores vivos sobreviven al despliegue) | No (un `400` de «no es correo» pasa a `401` cuando no hay `@`) | backend + frontend (AuthForm, mínimo) |
-> | **3** | `POST /auth/forgot-password` | Sin `@` ⇒ **el mismo camino** que un correo inexistente (`200 {ok:true}`, nada se escribe) | No | backend |
-> | **4** | `POST /admin/users` | Staff ⇒ **`username` obligatorio y `email` prohibido**; cliente ⇒ `email` obligatorio y `username` prohibido. Staff ⇒ `mustChangePassword=true` **siempre** (P-STF-6). `409 USERNAME_TAKEN` nuevo | **Sí** (alta de staff con correo pasa a `422`) | backend + frontend |
-> | **5** | Reset por admin, cambio propio | Ya existen y ya hacen lo pedido (medido); solo cambia **qué cubo** limpian (el del identificador de la cuenta) | No | backend |
-> | **6** | Aviso de candado | Sin correo ⇒ **aviso en el panel** (`GET /users/me` `lockNotice` + `POST /users/me/lock-notice/dismiss`), mismo tope 1/24 h. Con correo ⇒ correo, como hoy (P-STF-5) | No (aditivo) | backend + frontend |
-> | **7** | `GET /admin/users` (+ ficha) | `username`, `email: string \| null`, `lockedUntil`; `?q=` busca también por usuario | No (aditivo; `email` se vuelve anulable) | backend + frontend |
-> | **8** | Cuenta sin correo en la tienda | `403 ACCOUNT_WITHOUT_EMAIL` (código nuevo) en las **cinco** rutas que ya llevan `@RequireEmailVerified` | No | backend + frontend (texto) |
-> | **9** | Alta/reset por `vault_operator` | `403` **y auditado** (`user.admin_action_denied`). ⚠️ `PROJECT` dice «como hoy»: **hoy NO se audita** (medido) ⇒ es conducta nueva | No | backend |
->
-> - **Backend:** migración + `STF-1…STF-30` ([§M6-U.9](#M6-U)), cada una con su mutación. **Frontend:** AuthForm (tres
->   cambios, ninguno en el aviso de los 6 intentos de `HECHOS.md:40`), alta y fila de Usuarios, aviso en el panel, «Mi
->   cuenta» sin correo, `ACCOUNT_WITHOUT_EMAIL`, tipos de `contract.ts`. **ux-ui:** cinco piezas de texto/pantalla
->   ([§M6-U.10](#M6-U)). **QA:** STF-6 y STF-20 son carreras ⇒ **N ≥ 10 por ronda, 10 rondas, proporción**; el ciclo de
->   263 se recorre entero (O-4). **Orquestador:** antes de fusionar, comprobar que ninguna rama viva usa 256–270 ni el
->   número de migración elegido (NO MEDIDO por el arquitecto).
->
-> **Rev v1.80.8.9 — ERRATA: «PUBLICAR TODO» CIERRA LAS FILAS «SIN MOTIVO»; LA COLA SE ESCRIBE POR EJE Y CON LA CLAVE
-> ENTERA (2026-10-04, arquitecto, rama `claude/precios-s5`; ⛔ sha del árbol NO MEDIDO por el arquitecto: sin Bash).**
-> Origen: diagnóstico de backend sobre production `aab55abe` (2026-10-04, relayado por el orquestador; ⛔ las cifras de
-> producción NO las midió el arquitecto). Las líneas de código de abajo las **leyó** el arquitecto en el árbol vivo
-> `claude/precios-s5` el 2026-10-04 (difieren de las de `aab55abe` que cita el diagnóstico). ⛔ **Sin schema, sin
-> migración, sin enum, sin endpoint, sin código de error, sin cambio de forma de respuesta.** Norma entera:
-> [§M2 «v1.80.8.9»](#M2-VQ9). Porqué: `ARCHITECTURE §4.36.5 (c-quinquies)`.
->
-> | # | Hallazgo | Decisión | ¿Cambia conducta? | Construye |
-> |---|---|---|---|---|
-> | **1** | Producción: 17 filas VENTA `reason=null`. «Publicar todo» solo cierra las de su clave exacta (`inventory.service.ts:2227-2238` selección; `:1683-1685` cierre); el barrido VQ solo corre al final de un `price-sync` **completo** (`jobs/price-sync.service.ts:115`; cron `scheduler.service.ts:162`; o `POST /admin/pricing/sync` sin botón). «Actualizar precios ahora» es `price-ingest` y no barre. El paso de despliegue de v1.80.8.4 decía «el siguiente `price-sync` completo… cierra el resto» y el dueño entendió que bastaba «Publicar todo» | **`publish-all` termina con el barrido VQ entero** (`sweepUnreasonedSaleQueue()`: rama `null` + rama `premium_at_floor`), en toda ejecución no-replay, falla-seguro. ⛔ **No** se engancha a «Actualizar precios ahora» (fan-out asíncrono sin «final», `jobs/price-ingest.service.ts:26`, `:158-180`). Pruebas **VQ-10, VQ-11** | **Sí** (publish-all cierra filas que antes esperaban al cron) | backend |
-> | **2** | (a) La reconciliación de `price-ingest` abre/cierra con clave **sin** `cardProductId` (`price-ingest.service.ts:1034-1038` ⇒ `null` en `pricing.service.ts:2206`); la publicación usa la de seis (`inventory.service.ts:1797`, `sale-queue-key.ts:81-93`) | **DEFECTO.** La reconciliación usa `saleQueueKeyOf(item, pricing)`. Prueba **VQ-12** | **Sí** (cola: promo `listed` deja de abrir fila fantasma de set base y su fila sí se cierra) | backend |
-> | **3** | (b) El dedupe de `escalatePending` ignora `context` (`pricing.service.ts:2047-2049`): un eje reutiliza —y reescribe el `reason` de— la fila abierta del otro, y el aviso de VENTA puede vivir en una fila `buylist` que el bucket VENTA no muestra | **DEFECTO.** `context` entra a la clave de dedupe (siete componentes; sin DDL: no hay índice único, `schema.prisma:1207-1245`). El deep-link de M1 (`inventory.service.ts:2048`) filtra `context='inventory'`. Cierra el residual que backend dejó al arquitecto (`BACKEND_NOTES` «P-48 · S48-M1», «Residual conocido»). Pruebas **VQ-13, VQ-14** | **Sí** (una variante bloqueada en los dos ejes tiene **dos** filas; `dataHealth.pendingPriceCount` las cuenta a las dos) | backend |
-> | **4** | Paso de despliegue | **Reescrito** con qué cierra qué (§M2 «v1.80.8.9» punto 5). Tachados los pasos de v1.80.8.4 y v1.80.8.5 | **No** | nadie |
->
-> - **Backend:** (1) barrido al final de `publishAll` + VQ-10/VQ-11; (2) clave entera en `reconcilePublishedPrices` +
->   VQ-12; (3) `context` en el dedupe y en el deep-link + VQ-13/VQ-14. Cada prueba con su mutación (tabla de §M2
->   «v1.80.8.9»). **Frontend nada** (forma sin cambio). **ux-ui nada** (opcional: el texto de ayuda de «Publicar todo»
->   puede decir «también limpia la cola de precios», sin cambio de contrato). **QA:** VQ-10…VQ-14 (deterministas: N=1
->   por corrida es medida) + invariante `no_market + premium_at_floor + unknown === nº open` sobre VENTA tras un
->   `publish-all` sin filtro. **Orquestador:** las dos consultas de solo lectura de `ARCHITECTURE §4.36.5
->   (c-quinquies)` antes de prometer cifras al dueño.
->
-> **Rev v1.80.8.8 — ERRATA: SE RESUELVEN LAS DUDAS DE LA CONSTRUCCIÓN DE v1.80.8.6 / v1.80.8.7 Y LA SEGUNDA
-> INTERMITENCIA DE PS-51 (2026-10-04, arquitecto, rama `claude/precios-s5`, sobre `352b849a` — sha dado por el
-> orquestador, ⛔ NO MEDIDO por el arquitecto: sin Bash). Origen: `BACKEND_NOTES` §17.2, §17.4, §17.5 y §18 «Para
-> otros roles» (rama `claude/precios-s5`); PR #68 (rama `claude/post-release-s5`, resumen del orquestador);
-> `FRONTEND_NOTES §84` «Desviaciones».** ⛔ **Sin schema, sin migración, sin enum, sin endpoint, sin código de error
-> nuevos.** Lecturas del arquitecto en el árbol vivo `claude/precios-s5` el 2026-10-04.
->
-> | # | Duda | Decisión | ¿Cambia conducta? | Construye |
-> |---|---|---|---|---|
-> | **1** | SRF-11 paso 4-bis: candado de envío **después** de `Order` | **ACEPTADO y normado** como excepción acotada al orden de candados. Interbloqueo posible solo contra un verbo envío→`Order` sobre un envío nacido milisegundos antes; `40P01` ⇒ quien muere no escribe (`503`/reentrega). [§M4-SHIP.18.12 (10).1](#M4-SHIP-18-12) | **No** (es lo construido) | nadie |
-> | **2** | Fila `order.full_refund_closed` en la rama directo | **ACEPTADA y declarada** con su `after` exacto. (10).2 | **No** | backend: SRF-4 asevera la fila (si falta) |
-> | **3** | `?refundReview=` sin fila en §0-Q | **Fila añadida** a [§0-Q punto 4](#enum-query-filter): clase **L**, dominio `pending`. `C-EQ-1` pasa de `PENDIENTE-ARQUITECTO` a declarado | **No** (conducta ya construida) | backend: mover el eje en `C-EQ-1` |
-> | **4** | M3 sobre orden no `settled`: `400` (SRF-13) vs `422` (código) | **`422 VALIDATION_ERROR {status}`** — gana el código; el `400` de SRF-13 era errata. (10).4 | **No** | backend: SRF-13 fija `422` exacto |
-> | **5** | SRF-8: `PATCH →enviado` tras la tx1 | **`409 CONFLICT`** es el contractual (guarda `TRANSITIONS`, antes de toda tx). (10).5 | **No** | nadie (la prueba ya lo fija) |
-> | **6** | Mutaciones de SRF-6/7/8/11 que no muerden | **Texto corregido** con las que backend midió que muerden; SRF-8 gana una mutación nueva (NO MEDIDA) y SRF-11 una prueba nombrada («anomalía sembrada»). (10).6 y tabla (8) | **No** | backend: medir la mutación nueva de SRF-8 |
-> | **7** | SFP-7 cita `PendingPriceEntry.updatedAt` (no existe) | Corregido: «conteo y filas enteras». [§M1 «v1.80.8.7» punto 8](#M1-SFP) | **No** | nadie |
-> | **8** | CAS publicante del `PATCH` condiciona `status ∈ {in_stock, listed}`, no el leído | **SE ENDURECE:** el CAS publicante auditado condiciona el `status` **leído** exacto ⇒ un lote que publica en la ventana convierte el `200` en `409 CONFLICT`. Prueba nueva **SFP-10**. §M1 «v1.80.8.7» punto 1 | **Sí** (un `200` de carrera pasa a `409`) | backend: una condición + SFP-10 |
-> | **9** | PS-51: el perdedor ve `submitted` y contesta `REFUND_NOT_RETRYABLE` | **Opción (2):** con `count 0` se clasifica por el estado **releído**; los dos `409` son correctos. PS-51 acepta ambos y reporta la proporción. [§M4-SHIP.17.6](#M4-SHIP-17-6) paso 0 | **No** (es lo construido) | backend (rama de la PR #68): ampliar PS-51 |
-> | **10** | `FRONTEND_NOTES §84` desviaciones | Ninguna toca contrato; las 6 y 7 **son** el contrato. (10).7 | **No** | nadie |
->
-> - **Backend:** (2) SRF-4 asevera la fila del directo si aún no lo hace; (3) mover `refundReview` en `C-EQ-1`; (4) SRF-13 a `422` exacto; (6) medir la mutación nueva de SRF-8
->   y nombrar «SRF-11 anomalía» en la spec; (8) condición de `status` en `claimListed` auditado + SFP-10 con su mutación;
->   (9) PS-51 en la rama donde vive su arreglo. **Frontend:** nada. **ux-ui:** opcional — `DESIGN_SYSTEM §40.4` puede
->   quitar la condición `afterShipment === false` (redundante, (10).7). **QA:** SFP-10 (carrera, N ≥ 10 forzada,
->   proporción) y PS-51 con la proporción de cada `409`.
->
-> **Rev v1.80.8.7 — ERRATA: EL PRECIO FINAL DEL SELLADO QUEDA EN BITÁCORA CON ANTES/DESPUÉS; LA COLA «LISTAS PARA
-> PUBLICAR» DICE EL MOTIVO; EL PANEL DEL SELLADO TRAE EL PRECIO DERIVADO (2026-10-04, arquitecto, rama
-> `claude/precios-s5`, sobre `f0dac0a6`; responde a las solicitudes S-1…S-5 de ux-ui, `DESIGN_SYSTEM §39.6`, v4.11).**
-> ⛔ **Sin schema, sin migración, sin enum nuevo, sin endpoint nuevo, sin código de error nuevo.** Dos campos
-> **aditivos** en respuestas existentes y una **norma de auditoría** en un verbo existente. Norma entera:
-> [§M1 «v1.80.8.7»](#M1-SFP). Porqué: `ARCHITECTURE §4.36.5 (c-quater)`.
->
-> - **Origen:** `PROJECT §N.5-bis (b)` y criterio **255** (*«Capturarlo es un override manual **auditado** (quién,
->   cuándo, antes/después)»*); `HECHOS.md` fila «Precios — decisiones del 2026-10-04» (b) y fila «Precios y
->   reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1» (d) (P-PRE-1: el override por pieza de sueltas y
->   gradeadas «se conserva como está»).
-> - **⭐ LA REGLA (para backend y frontend):**
->   1. **S-3 — bitácora con antes/después (criterio 255).** Todo `PATCH /admin/inventory/items/:id` que **cambie**
->      `status` o `listPriceCents` escribe **una** fila `AuditLog` `action:'inventory.item_updated'` **en la misma
->      transacción que la escritura**, con `actorUserId`/`actorRole` de la sesión, `before: { status, listPriceCents }`
->      (lo leído) y `after: { status, listPriceCents, fields }` (lo escrito). Vale para los **dos** caminos del verbo
->      (el que publica y el que no) y para todo `productType` (⛔ sin rama por tipo). La escritura del precio se
->      condiciona también al `listPriceCents` leído ⇒ un precio cambiado entre lectura y escritura ⇒ `409 CONFLICT`
->      (código ya existente) y el «antes» de la bitácora es siempre el valor realmente sustituido. *Medido hoy: un
->      cambio de solo precio no escribe antes/después* (`inventory.service.ts:2501-2502` y `:2517-2529`;
->      `inventory.controller.ts:647-653`; leído 2026-10-04 en el árbol vivo, ⛔ sha NO MEDIDO).
->   2. **S-1 — `PendingPublishRowDTO` gana `pendingReason: PendingPriceReason | null`** (aditivo; tipado opcional en
->      el front para servidores anteriores). Es el **veredicto de hoy** de la misma derivación que ya decide
->      `missing` (`derivePublishSalePrice`), ⛔ no una relectura de la fila de la cola de M2. `null` con
->      `missing` ∋ `'price'` ⇔ gradeada sin identidad de slab (único camino, medido).
->   3. **S-2 — `GET /admin/inventory/items` gana por fila `resolvedSalePriceCents?` y `priceBasis?`**, **solo** en
->      piezas `sealed` de plataforma `in_stock | listed`; ausentes en toda otra fila (⛔ raw/graded: P-PRE-1). Mismo
->      cuerpo y mismos valores que la cola para la misma pieza.
->   4. **S-4 — el dial `premiumFloorSalePublish` rige desde la siguiente petición: no hay caché ni TTL** (medido).
->      ⛔ Cachear esa clave exige errata.
->   5. **S-5 — forma del `422` de `PUT /admin/settings`:** `details.errors: Record<claveDelDTO, string>` (medido); el
->      texto es diagnóstico, ⛔ no es token. No se acuñan tokens por causa para `premiumFloorSalePublish`.
-> - **Defaults de producto aplicados (⛔ no se le preguntó al dueño; se registran como default):** **N-11** fija el
->   precio final quien hoy puede llamar al verbo: `vault_operator` y `super_admin` (`inventory.controller.ts:88`,
->   sin `@Roles` propio en el `PATCH`, `:640-655`). **Q-1** (de v1.80.8.6): el reembolso total del cobro de un
->   **retiro** tras «enviado» **no pide motivo** — registrado en [§M4-SHIP.18.12](#M4-SHIP-18-12) (9). **Q-2**
->   medido: un contracargo sobre una orden nunca liquidada **sí** devuelve sus piezas `reserved` a la venta en la
->   misma tx ⇒ **no** es un `SSL-R1` por otro camino (detalle en §M4-SHIP.18.12 (9)). **N-14** (`DESIGN_SYSTEM
->   §40.12`, v4.12): la nota del motivo en M3 sigue **obligatoria** (es el `reason` que M3 ya exigía). **N-15:** el
->   operador ve marca, filtro y motivo en solo lectura. Ambos en §M4-SHIP.18.12 (9).
-> - **Solicitudes de ux-ui sobre v1.80.8.6 (`DESIGN_SYSTEM §40.12`, v4.12):** **A-1** — `settledAt` del detalle admin
->   **ya se emite** (`orders.service.ts:1956`, conservado por `admin-orders.controller.ts:172`); `AdminOrderDetailDTO`
->   pasa de `settledAt?: string` a **`settledAt: string | null`** (lo construido) y el banner «Reembolsado antes de
->   quedar pagado» ⇔ `status==='refunded' ∧ settledAt===null`. **A-2** — **no** se añade `recordedBy` al `409
->   SHIPPED_REFUND_REASON_ALREADY_SET` (una sola fuente: `FullRefundReviewDTO.recordedBy`). §M4-SHIP.18.12 (9).
-> - **FUERA de esta errata (dicho para que nadie lo construya por inferencia):** **N-12** «volver al precio
->   automático» (`listPriceCents: null`): hoy el DTO lo **deja pasar** y el servicio lo **escribiría** (lectura de
->   código, ⛔ NO MEDIDO por prueba) — conducta **no definida** por el contrato ⇒ desviación `D-SFP-2` en
->   `ARCHITECTURE §9`; ⛔ el frontend **no** envía `null`. Una pantalla para leer el antes/después (`AuditLogDTO` no
->   expone `before/after`, `:28985` de este documento) — la evidencia del criterio 255 es la fila de `AuditLog`. El
->   precio por línea de `bulk-publish` y el del alta (`POST /items`): otros escritores de `listPriceCents`, no
->   tocados.
-> - **Qué se tacha:** §M1 errata v1.80.2.3 punto 4 «sin auditoría nueva (la del controller sigue igual)» y el
->   comentario de código que la repite («El precio solo no gana bitácora nueva»); §M2 `M2-PF` «Reversión» (el
->   «**NO MEDIDO** si cachea»); §M1 `pending-publish` «el alcance D10 "solo visibilidad"» en lo que toca a
->   `pendingReason` (sigue siendo lectura). En `ARCHITECTURE`: §4.57 (w) Q-1 y Q-2 (respondidas).
-> - **Backend:** [SFP-1…SFP-9](#M1-SFP). **Frontend:** tipos (`PendingPublishRowDTO.pendingReason?`,
->   `InventoryItemDTO.resolvedSalePriceCents?`/`priceBasis?`, `AdminOrderDetailDTO.settledAt: string | null`), §39.3
->   (b) con `pendingReason`, §39.2 (c) con la cifra, banner de §40.4 con A-1. Backend: **nada** por A-1/A-2/N-14/N-15.
->   **ux-ui:** un texto para «gradeada sin empresa/grado» (§M1 «v1.80.8.7» punto 2). **QA:** SFP-1…SFP-9 (SFP-5 de
->   carrera: N ≥ 10, proporción). **Seguridad:** nada nuevo de superficie; el criterio 255 es evidencia de auditoría.
-> - ⚠️ **Orden de construcción:** `inventory.service.ts` lo está tocando la construcción de v1.80.8.5 en este mismo
->   árbol. Esta errata se construye **después** de que v1.80.8.5 esté commiteada (zona compartida de un solo stream).
->
-> **Rev v1.80.8.6 — 💰 ERRATA: REEMBOLSO TOTAL Y SUS CARTAS «DEPENDE DE SI YA SALIÓ» (`PROJECT §S.11`, criterios
-> 249–253; §B «Excepción 3» y §H «no llegó») — CIERRA `SSL-R1` (2026-10-04, arquitecto, rama `claude/precios-s5`).**
-> 💰 **ZONA DE DINERO ⇒ tres veredictos.** **Schema: SÍ — migración `M-62` (aditiva, sin backfill)**: enum nuevo
-> `ShippedRefundReason`, `MovementReason + refund_release`, cinco columnas en `Order`. **Un verbo nuevo**
-> (`POST /admin/orders/:id/shipped-refund-reason`), **un campo nuevo en el cuerpo de M3** (`shippedReason?`), **dos
-> códigos de error nuevos** (`409 SHIPPED_REFUND_REASON_NOT_APPLICABLE`, `409 SHIPPED_REFUND_REASON_ALREADY_SET`) y un
-> token nuevo en uno existente (`422 REFUND_CONFIRMATION_REQUIRED`, `required:['shipped_reason']`). Norma entera:
-> [§M4-SHIP.18.12](#M4-SHIP-18-12). Porqué: `ARCHITECTURE §4.57 (w)`.
->
-> - **Origen: decisiones del dueño** — `HECHOS.md` fila 2026-10-02 «Cartas apartadas de un pedido reembolsado desde
->   Stripe sin liquidar (SSL-R1): depende de si el pedido ya salió»; fila 2026-10-04 «Cartas apartadas (SSL-R1) —
->   detalles del 2026-10-04» (4a *«como sugieres está bien»*, 4b *«para cualquier reembolso»*); fila 2026-10-04
->   «Precios y reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1» (b) contracargo sin motivo, (c) bóveda
->   con cartas retiradas sin motivo. Aterrizado en `PROJECT §S.11` (product-owner, 2026-10-04).
-> - **⭐ LA REGLA (para backend y frontend):**
->   1. **El corte es el envío PROPIO del pedido, leído BAJO CANDADO de sus filas `ShipmentRequest`** en la transacción
->      que cierra el reembolso total (la primera pasada de `onFullRefund`): **enviado** ⇔ ∃ envío de la orden en
->      `enviado | entregado`. `guia` y anteriores = **no enviado**. Una orden `vault` **nunca** es «enviada» (no tiene
->      envío propio; P-S11-4). Se congela en `Order.fullRefundAfterShipment` **una vez**, con el sello.
->   2. **No enviado + orden NUNCA liquidada** (estado bajo candado ∈ `SETTLEABLE_ORDER_STATUSES`, el caso `SSL-R1`) ⇒
->      sus piezas `reserved` **por esa orden** (`reservedByOrderId = orderId`, ⛔ no las legadas `null`) vuelven a la
->      venta en la misma tx con el cuerpo único `releaseReservationData` y **un** `InventoryMovement{reason:
->      'refund_release'}` cada una. *Medido:* una orden sin liquidar **no tiene envío** (el único `create` de un envío
->      de orden fuera de `reexpedir` está en el settle, `payments.service.ts:518`) ⇒ nunca está palomeada ⇒ el
->      sub-caso «con un clic» de §S.11.3 **no es alcanzable** para ella.
->   3. **No enviado + orden liquidada** ⇒ **sin cambio** (directo: envío cancelado, piezas `picking` congeladas y
->      `chargebackNeedsManual`; bóveda: §M4-SHIP.18).
->   4. **Enviado** ⇒ ⛔ ninguna pieza se mueve (las de un directo enviado ya están `shipped|delivered`, terminales de
->      venta — `shipments.service.ts:1243-1268`); el reembolso exige motivo **cerrado** `ShippedRefundReason =
->      not_arrived | arrived_damaged`: **en M3**, en el mismo cuerpo y **antes** de crear la fila del libro (sin él ⇒
->      `422`, ⛔ ni fila ni Stripe); **por el panel de Stripe**, el pedido queda **«reembolso por revisar»** =
->      predicado derivado `fullRefundAfterShipment ∧ shippedRefundReason IS NULL` (⛔ **no** es un `OrderStatus`, ⛔
->      no es tabla), con contador en el tablero, hasta que el súper-admin lo registre con el verbo nuevo (⛔ sin dinero,
->      sin cartas, sin correo).
->   5. **El barrido de reservas** gana una rama: pieza `reserved` de una orden `refunded` nunca liquidada ⇒ se libera
->      por el mismo cuerpo, **sin** llamar a `closePaymentIntent` y **sin** `log error`. Cubre las órdenes reembolsadas
->      **antes** del despliegue y cualquier pieza que la pasada no viera.
-> - **Qué se tacha:** §M4-SHIP.18.2 bloque v1.80.8.3, viñeta «Piezas `reserved` por esa orden: ⛔ la pasada no las
->   toca (`SSL-R1`)»; §M4-VAULT.2-bis.2 norma v1.80.8.3 punto 3 «Piezas `reserved`: `SSL-R1`, sin cambio»; §M3
->   «La excepción legítima es un error de la plataforma» (se añade la Excepción 3). En `ARCHITECTURE`: §4.57 (v) fila
->   «Piezas `reserved` … Sin cambio (`SSL-R1`)».
-> - **Backend:** `M-62`, el cuerpo de §M4-SHIP.18.12, pruebas **SRF-1…SRF-13** con sus mutaciones, `C-FULLREF-1`
->   ampliado, línea de enums, `error-codes.ts`. **Frontend:** diálogo de M3 (motivo obligatorio si
->   `shipmentShipped`), marca y filtro «Reembolso por revisar» en M3, formulario de registro en el detalle (solo
->   súper-admin), tarjeta del tablero. **ux-ui:** textos de los dos motivos, del aviso «las cartas no vuelven a
->   inventario», de la tarjeta y del movimiento «Liberada por reembolso». **QA:** SRF-1…SRF-13 (las de carrera con
->   N ≥ 10 y proporción). **Seguridad:** el verbo nuevo (`@MoneyOut`, 403 auditado) y la carrera «marcar enviado» vs
->   reembolso.
-> - ⛔ **No se toca:** `CHARGE_REFUNDED_SOURCE_STATUSES`, `SETTLEABLE_ORDER_STATUSES`, la máquina de envíos (ningún
->   estado), `AV-3` (ningún correo nuevo), el contracargo (P-S11-3), el criterio 231 (P-S11-4), §S.10, el reembolso
->   por carta, `chargeback-inventory`.
->
-> **Rev v1.80.8.5 — 💰 ERRATA: EN VENTA, «PREMIUM EN EL PISO» SE PUBLICA AL PISO SOLO PARA EX Y DOUBLE RARE; EL
-> GUARDARRAÍL DE VENTA PASA A SER UN DIAL CON LISTA DE RAREZAS (`premiumFloorSalePublish`, seed `{mode:'only',
-> rarities:['Double Rare','Rare Holo EX']}`) (2026-10-04, arquitecto, rama `claude/post-release-s5`).**
-> ⛔ **Sin schema, sin migración, sin enum nuevo, sin endpoint nuevo, sin cambio de forma de respuesta.** Gana **una**
-> clave de `ConfigSetting` (DATA, sin DDL) expuesta en `GET/PUT /admin/settings`. Norma: [§M2 «v1.80.8.5»](#M2-PF) y
-> `ARCHITECTURE §4.36.5 (c-ter)`.
->
-> - **Origen: decisión del dueño** — `HECHOS.md`, fila «Precios — decisiones del 2026-10-04», punto **(a)**: *«que se
->   publiquen solas a 25»* ⇒ «las cartas retenidas por “premium en el piso” (ex/Double Rare baratas) **se publican
->   solas al piso de MX$25**: el guardarraíl deja de retenerlas por estar en el piso». Supera, **solo en el eje de
->   VENTA**, `PROJECT.md §N.5` y criterio **88**; lo aterriza `PROJECT.md §N.5-bis` y criterio **254**
->   (product-owner, 2026-10-04, commit en esta rama — ⛔ sha NO MEDIDO por el arquitecto). **P-PRE-2 RESPONDIDA:**
->   `HECHOS.md` fila «Precios y reembolsos — respuestas a P-PRE-2, P-S11-3, P-S11-4 y P-PRE-1 (2026-10-04)», punto
->   (a): *«solo ex y double rare, lo demás por defecto»* ⇒ publicar al piso **solo ex y Double Rare**; las demás
->   premium siguen retenidas `premium_at_floor` para revisión; regla parametrizable sin código.
-> - **⭐ LA REGLA:**
->   1. **VENTA:** una premium **con dato de mercado** cuyo precio resuelve con `basis='floor'` **se publica al piso**
->      (`priceCents = sale.floorCents`, hoy MX$25), `pendingReason = null`, **si el dial `premiumFloorSalePublish` la
->      publica**: `mode:'only'` ⇒ solo las rarezas canónicas de `rarities` — **seed, y valor cuando la fila no
->      existe: `{ mode:'only', rarities:['Double Rare','Rare Holo EX'] }`** (las dos canónicas de «ex y Double
->      Rare», `rarity-catalog.ts:97` y `:112`; razón en [«v1.80.8.5»](#M2-PF)); `mode:'all'` ⇒ todas las premium;
->      `mode:'none'` ⇒ ninguna (conducta anterior: retener ⇒ `premium_at_floor`). El dial lo
->      cambia el súper-admin por `PUT /admin/settings`, **auditado y sin redeploy**: es la reversión y la respuesta a
->      P-PRE-2 sin código.
->   2. **COMPRA: ⛔ sin cambio.** Premium en el **bin** sigue sin cotizarse (`precio_pendiente`, `premium_at_floor`,
->      `context='buylist'`). El dial ⛔ no la toca: es una **constante de código** del eje de compra.
->   3. **`PendingPriceReason` sigue siendo `no_market | premium_at_floor`** (lo usan COMPRA, la VENTA de rarezas
->      que el dial no publica y las filas históricas). ⛔ **Paridad schema↔contrato: sin cambio.**
->   4. **Las filas `open` `context='inventory'` `reason='premium_at_floor'` se cierran:** las de piezas vendibles, en
->      cuanto un escritor re-resuelve (`publish-all`, `bulk-publish`, reconciliación de `price-ingest`); las que
->      queden, en el **barrido VQ** (gana una rama: cierra toda fila de VENTA con ese motivo cuya rareza el dial
->      publica).
-> - **Qué se tacha:** §M2 v2.0 «`premium_at_floor` en AMBOS ejes: premium en el piso ⇒ no se publica»; §M2 `M2-VQ`
->   «las 17 `premium_at_floor` no se mueven» y las filas VQ-8 / VQ-9 en lo que tocan a `premium_at_floor` de VENTA.
->   En `ARCHITECTURE`: §4.36.5 (a) VENTA, «Por qué funciona», tabla (b) fila VENTA, (c-bis) punto 6.
-> - **Backend:** PF-1…PF-11 ([§M2 «v1.80.8.5»](#M2-PF)). **Frontend:** un control en M10 (tres modos +
->   selector de rarezas premium de `GET /admin/pricing/rarities`); nada más cambia de forma. **ux-ui:** el control y
->   sus textos (uno por modo). **QA:** PF-1…PF-11 + el invariante `no_market + premium_at_floor + unknown === nº open` sobre VENTA.
-> - ⛔ **No se toca** el resto de la curva ni el piso (`sale.floorCents`, puntos, escalera), ni `no_market`, ni la
->   exención de override/bounty, ni `closePendingForVariant` por eje (S48-M1).
+> - v1.80.12.1 · 2026-10-04 · errata menor de D1: filtro de tarifas mira `status` antes que `success`, el puerto entrega `rawLabelUrl`/`rawTrackingUrl`, `C-SDX-1` reescrito · [§M4-SHIP.19.21](#M4-SHIP-19-21) · backend (`BACKEND_NOTES §57.3/.4`).
+> - v1.80.12 · 2026-10-04 · «Capturar guía»: `PUT /admin/shipments/:id/address` sustituye a `address-neighborhood`, `labelPending`/`labelAlert`, `isPromo`, `200 in_flight`, `GET …/packages` operador+, `AV-18`/`AV-19` (catálogo = 19), vía B de disputas SUSTITUIDA (no se construye) · [§M4-SHIP.19.20](#M4-SHIP-19-20), `ARCHITECTURE §4.60 (m)`; tabla A-1…A-5 compactada en v1.114.1 (git) · dueño (`HECHOS.md:50`, `:52`).
+> - v1.80.11 · 2026-10-04 · consolidación `skydropx-envios` + `staff-sin-correo` y errata de la fase D con la API de producción medida (User-Agent propio, reintentos, forma de tarifa, seguro por escalones, Carta Porte, puerta de compra con dos llaves + PS-99, sin sandbox) · [§M4-SHIP.19.19](#M4-SHIP-19-19), `ARCHITECTURE §4.60 (l)`; tablas compactadas en v1.114.1 (git) · dueño (`HECHOS.md:48`). ⚠️ Lecturas que siguen vigentes: v1.81/v1.81.1⟨skydropx⟩ son anteriores a v1.80.8.4 y no se renumeran; en textos anteriores a v1.80.11, «`M-62`/`M-62a`/`M-62b`» de Skydropx = `M-SDX-*` y «§4.58» junto a Skydropx = `ARCHITECTURE §4.60`.
+> - v1.80.9.1 · 2026-10-04 · cierre de C-1 del techlead sobre «staff sin correo»: `lockState` (`'unavailable'` con Redis degradado) en listado y ficha, `ADMIN_USERNAME` en el script de rescate, `M-63` · [§M6-U.11](#M6-U-11), `ARCHITECTURE §4.58.9` · techlead + dueño (TD-4).
+> - v1.80.10 · 2026-10-04 · errata del recorrido E2E del panel: F-1 (forma del dinero del detalle de M3), F-4 (botones de M5 por `offerDecision`), F-7 (`phone` obligatorio para cliente ⇒ `422 customer_phone_required`), F-8 (dos formas del `422` de M10), F-9 (pantalla de los diez diales del buylist), F-11 (filtro de estado en M3); F-2 (vía B de disputas) SUSTITUIDA por v1.82 PNL-1, no se construye · [§E2E-ADM](#E2E-ADM), `ARCHITECTURE §4.59`; tabla compactada en v1.114.1 (git) · tester-e2e.
+> - v1.80.9 · 2026-10-04 · staff sin correo: entra con nombre de usuario por la misma pantalla de login (`User.username`, `email` opcional, cinco CHECK), `409 USERNAME_TAKEN`, `403 ACCOUNT_WITHOUT_EMAIL`, aviso de candado en el panel, alta/reset por operador `403` auditado · [§M6-U](#M6-U), `ARCHITECTURE §4.58`; tabla compactada en v1.114.1 (git) · dueño (`HECHOS.md` 2026-10-04 «Usuarios de back-office SIN correo…»).
+> - v1.80.8.9 · 2026-10-04 · «Publicar todo» termina con el barrido VQ entero; la reconciliación de `price-ingest` usa la clave de seis (`saleQueueKeyOf`); `context` entra al dedupe de `escalatePending` (VQ-10…VQ-14) · [§M2 «v1.80.8.9»](#M2-VQ9), `ARCHITECTURE §4.36.5 (c-quinquies)`; tabla compactada en v1.114.1 (git) · backend (diagnóstico sobre `aab55abe`).
+> - v1.80.8.8 · 2026-10-04 · dudas de la construcción de v1.80.8.6/.7: orden de candados de SRF-11 aceptado, `?refundReview=` en §0-Q (clase L), M3 sobre orden no `settled` ⇒ `422`, CAS publicante sobre el `status` leído (SFP-10), PS-51 acepta los dos `409` · [§M4-SHIP.18.12 (10)](#M4-SHIP-18-12), [§M1 «v1.80.8.7»](#M1-SFP), [§M4-SHIP.17.6](#M4-SHIP-17-6); tabla compactada en v1.114.1 (git) · backend/frontend.
+> - v1.80.8.7 · 2026-10-04 · precio final del sellado: `inventory.item_updated` con antes/después de `status`/`listPriceCents` en la misma tx (criterio 255), `PendingPublishRowDTO.pendingReason`, `resolvedSalePriceCents?`/`priceBasis?` en sellado, `AdminOrderDetailDTO.settledAt: string | null`; defaults N-11/Q-1/Q-2/N-14/N-15 en §M4-SHIP.18.12 (9); `listPriceCents: null` fuera (`D-SFP-2`) · [§M1 «v1.80.8.7»](#M1-SFP), `ARCHITECTURE §4.36.5 (c-quater)`; detalle compactado en v1.114.1 (git) · ux-ui (S-1…S-5, `DESIGN_SYSTEM §39.6`).
+> - v1.80.8.6 · 2026-10-04 · 💰 reembolso total «depende de si ya salió» (cierra `SSL-R1`): corte por el envío propio bajo candado, no enviado + nunca liquidada ⇒ libera sus `reserved` (`refund_release`), enviado ⇒ motivo cerrado `ShippedRefundReason` o «reembolso por revisar»; `M-62`, `POST /admin/orders/:id/shipped-refund-reason`, `409 SHIPPED_REFUND_REASON_*` · [§M4-SHIP.18.12](#M4-SHIP-18-12), `ARCHITECTURE §4.57 (w)`; detalle compactado en v1.114.1 (git) · dueño (`HECHOS.md` 2026-10-02 y 2026-10-04 «Cartas apartadas (SSL-R1)…»).
+> - v1.80.8.5 · 2026-10-04 · 💰 en VENTA, «premium en el piso» se publica al piso según el dial `premiumFloorSalePublish` (seed `{mode:'only', rarities:['Double Rare','Rare Holo EX']}`); COMPRA sin cambio; `PendingPriceReason` sin cambio; el barrido VQ cierra las filas que el dial publica (PF-1…PF-11) · [§M2 «v1.80.8.5»](#M2-PF), `ARCHITECTURE §4.36.5 (c-ter)`; detalle compactado en v1.114.1 (git) · dueño (`HECHOS.md` «Precios — decisiones del 2026-10-04» (a) y P-PRE-2).
 >
 > **Rev v1.80.8.4 — ERRATA: LA COLA DE VENTA LA ESCRIBE SOLO LA VÍA DE PRECIO DE VENTA; `price-sync` DEJA DE ESCALAR
 > (2026-10-02, arquitecto, rama `claude/post-release-s5`).** ⛔ **Sin schema, sin migración, sin enum nuevo, sin
@@ -46173,7 +45807,7 @@ contado, v1.110.3), bypass del límite rotando IP/correo, carrera del último us
   sin `endsAt` vale hasta pausar; 1 uso por cliente por defecto; 10 intentos en 15 min; lotes ≤ 500; solo `super_admin` edita y pausa.
 - **Preguntas al dueño:** ninguna abierta (P-DSC-3 = (a), `HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).
 
-## <a id="DYN"></a>DYN. PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4 + v1.114, 2026-10-29, **NORMATIVA**; 💰 DYN.5 es dinero)
+## <a id="DYN"></a>DYN. PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4 + v1.114 + v1.114.1, 2026-10-29, **NORMATIVA**; 💰 DYN.5 es dinero)
 
 Fuentes, en este orden: `HECHOS.md` filas **2026-10-29** «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
 portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre la de 2026-10-04 «…VIO…»), **2026-10-04** «"Joyas para gradear" debe incluir cartas baratas…», «Portada y catálogo: el precio exhibido
@@ -46490,8 +46124,15 @@ sesión, `catalog.controller.ts:37-102`). Lectura de «disponibilidad en vivo» 
 **DYN.6.2 Render de servidor:** la portada pide en servidor `GET /catalog/featured` y la vitrina
 (`/catalog/cards?sort=grading_showcase&gradingHighlight=true&pageSize=8`) con caché de datos de Next (`revalidate: 30`, etiquetas
 `featured` y `showcase`) y **tope de 400 ms**; con datos, pinta las tejas en el HTML (la `<img>` líder presente) e hidrata
-react-query con ellos (`initialData` + revalidación al montar); sin datos a tiempo, pinta el **marco** con su alto reservado y el
-cliente rellena. ⛔ Ninguna petición nueva de forma: los mismos dos endpoints en servidor y cliente.
+react-query con ellos (`initialData` + revalidación al montar). Sin datos a tiempo (v1.114.1): **Destacadas** pinta su **marco**
+con el alto reservado y el cliente rellena; la **vitrina «Joyas para gradear»** sigue `DESIGN_SYSTEM §22.6` — ⛔ sin marco ni
+esqueleto: aparece ya resuelta o no aparece (vacía o con error, la sección no se pinta). Manda §22.6 porque la vitrina puede no
+existir (sin elegibles no hay sección) y un alto reservado prometería una sección que luego se retira, que es el salto que DYN-F2
+quiere evitar; y es la última estantería de la portada (`HomeView.tsx:199-201`, tras Destacadas, Sellado y Gradeadas, leído
+en `80038621`), así que su llegada tardía empuja solo lo que va debajo. Que eso quede fuera de pantalla y no sume CLS: **NO
+MEDIDO**; lo cierra DYN-D2 (API retrasado 5 s ⇒ CLS ≤ 0.1 con la vitrina llegando tarde). Si DYN-D2 sale rojo **por la vitrina**,
+el arreglo se decide en `DESIGN_SYSTEM §22.6` (ux-ui), no con un esqueleto puesto por frontend. ⛔ Ninguna petición nueva de forma:
+los mismos dos endpoints en servidor y cliente.
 **DYN.6.3 CSP fase 1:** se conserva el nonce por petición (§14.3) y el render dinámico del HTML; **solo se cachean datos**. La fase 2
 (CSP estática por clase de ruta + HTML cacheable) está descrita en `ARCHITECTURE §4.DYN (f) 5` y **no se construye** sin la
 medición posterior a la fase 1 y el veredicto de seguridad.
@@ -46510,7 +46151,7 @@ de la portada produce **0** `POST /api/v1/telemetry/csp` (hoy 27, medido por fro
 | DYN-B6 | 925 | 5 elegibles ⇒ 5 sin repetir; 0 ⇒ `data: []` | — |
 | DYN-B7 | 926 | los 5 diales `featured*` auditados; la selección vigente no cambia; la siguiente cumple; operador `403`; combinaciones inválidas `422` | aplicar el dial en la lectura |
 | DYN-B8 | 927, I-1 | cálculo forzado a fallar ⇒ se sirve la anterior menos lo vendido, `dataHealth.featuredRotation.status = 'stale'`, y la respuesta **≠** las N más caras (fixture construido para que difieran) | fallback a `sort=price_desc` |
-| DYN-F1 | 920, 928 | `_home/**` no contiene `price_desc` ni llama `getCatalog` para Destacadas; el hook llama `getFeatured`; `git diff` de `FeaturedCarouselRotation.test.tsx` y `e2e/featured-rotation.spec.ts` vacío; la pasada recorre 10 tejas; etiqueta en `new_arrival` | volver a `getCatalog({sort:'price_desc'})` |
+| DYN-F1 | 920, 928 | (a) fuente: el código (sin comentarios) de `_home/**` no contiene `price_desc` salvo `_home/GradedShelf.tsx` (estante «Gradeadas», no es Destacadas; **única** excepción, nombrada en el candado) y `FeaturedCarousel.tsx` no nombra `getCatalog` y toma sus datos de `getFeatured()`; (b) rotación intacta (v1.114.1): contra `b4213dff`, el diff de `FeaturedCarouselRotation.test.tsx` cae **solo** dentro del ayudante `mockCatalog` (la función espiada pasa de `api.getCatalog` a `api.getFeatured` con la forma `{ businessDate, data }`, más su comentario); el fichero sigue dando sus 51 pruebas en verde, el número de `expect(` es el mismo antes y después y los candados de `ROTATION_REST_MS`/`LEAD_IMAGE_CAP_MS`/`USER_INPUT_WINDOW_MS` no cambian; `e2e/featured-rotation.spec.ts` con diff **vacío**; (c) la pasada recorre 10 tejas; etiqueta en `new_arrival`. (b) lo comprueba QA con `git diff b4213dff -- <fichero>` y los dos conteos | volver a `getCatalog({sort:'price_desc'})`; añadir `price_desc` a otro fichero de `_home/**`; cambiar una aserción o una constante del test de rotación |
 | DYN-B9 | 929 | 30 sueltas en 30 sets (5 nunca consultadas, 25 con fechas distintas), créditos para 10 sets ⇒ 5 nunca + 5 más viejas; ninguna < 7 días | `orderBy cardId asc` |
 | DYN-B10 | 930 | créditos de sobra, 14 días, 2 corridas/día, sets de 1 y de 5 cartas propias: cada carta **exactamente 2** consultas separadas ≥ 7 días naturales CDMX | reloj por carta en vez de por set |
 | DYN-B11 | 931 | retirada ⇒ no se consulta; republicada a los 3 días ⇒ espera a 7; sellado y gradeadas nunca | — |
@@ -46529,7 +46170,7 @@ de la portada produce **0** `POST /api/v1/telemetry/csp` (hoy 27, medido por fro
 | DYN-B20 | DYN.3, I-5 | `ingestMaxCardsPerRun` ausente del `GET`, de la respuesta del `PUT`, del `config` del preview y del `AuditLog`; en el `PUT` ⇒ `422` `details.field`; `{freshnessDays, foo}` ⇒ `200` (`foo` descartado) | quitar el rechazo explícito (el pipe lo descartaría ⇒ `200`) |
 | DYN-B21 | DYN.4.5 | reloj inyectado: primera corrida con 20 sets nunca consultados y `firstListedAt` de hace 60 días, tope que alcanza ⇒ sin AG-24; día 9 con un set aún sin `ok` ⇒ `overdue`; set con `ok` de hace 9 días ⇒ `overdue` | `ref = firstListedAt` sin `inicio` |
 | DYN-B22 | DYN.5.2-.3 | `override` y `resolve` (`manual`, `accept`) recalculan solo su variante y `keep` no; apartada con fila se recalcula y al liberarse exhibe el vigente; vendida ⇒ fila borrada; dos corridas solapadas ⇒ gana la que empezó después | no disparar en `accept`; borrar la fila de la apartada |
-| DYN-F2 | 936-937 | HTML de `/es` sin JS contiene `#piezas-destacadas-pista img` y la vitrina; con el API retrasado 5 s o en `503`, el HTML sale con el marco y CLS ≤ 0.1 al llegar | volver a `useQuery` sin datos iniciales |
+| DYN-F2 | 936-937 | HTML de `/es` sin JS contiene `#piezas-destacadas-pista img` y, si la vitrina tiene datos, la vitrina; con el API retrasado 5 s o en `503`, el HTML sale con el marco de Destacadas, **sin** marco de la vitrina (DYN.6.2, v1.114.1), y CLS ≤ 0.1 al llegar | volver a `useQuery` sin datos iniciales; pintar un esqueleto de la vitrina |
 | DYN-F5 | 926, 301 | M10 edita los 6 diales; panel de presupuesto con los campos de DYN.4.6; el campo retirado ya no se pinta ni viaja en el `PUT`, y M2 guarda con un `GET` sin él (D-DYN-4) (`GradedEstimatesSection`, `lib/grading-hook-cost.ts`) | volver a exigir el campo para guardar |
 | DYN-F7 | DYN.6.4 | nonce en todo `<script>` en línea y 0 reportes CSP por vista | quitar el nonce del render |
 | DYN-D1 | 938 | Lighthouse CI sobre el stack sembrado, `numberOfRuns: 5`, mediana: móvil FCP ≤ 1.0 s, LCP ≤ 2.5 s; escritorio FCP ≤ 1.0 s, LCP ≤ 1.5 s; CLS ≤ 0.1. Canario: retraso artificial de la portada (variable solo fuera de producción) ⇒ rojo | — |
@@ -46558,6 +46199,15 @@ el panel. La meta de 936 se mide además en **producción** (N=5 por perfil, med
   (`price-review.service.ts:146`) no tiene llamador (medido también por el orquestador) y su comentario (`:11-12`) dice lo
   contrario; tras `keep` la base deja de congelarse y el pico se publica. Norma: DYN.5.9 (v1.114). **La corrige backend**; la
   vigilan DYN-B23…B26.
+- **D-DYN-6 (criterio 928 «sin editarlas», v1.114.1):** `PROJECT.md:14902` pide que las pruebas de la rotación pasen «sin
+  editarlas», y 920/922 piden otra fuente para Destacadas. `FeaturedCarouselRotation.test.tsx:115-121` espía la fuente
+  (`api.getCatalog`); sin cambiar ese doble salen 39/51 rojas (medido por frontend, `FRONTEND_NOTES` §DYN; ⛔ NO MEDIDO por el
+  arquitecto). Lectura del contrato: «sin editarlas» = sin tocar aserciones, tiempos ni constantes; el doble de datos sigue a la
+  fuente. Norma: DYN-F1 (b). **Lo corrige product-owner** en el texto de 928; lo vigila DYN-F1 (b).
+- **D-DYN-7 (`price_desc` en `_home/GradedShelf.tsx:34`, v1.114.1):** ratificada como excepción. Es el estante «Gradeadas»
+  (`getCatalog({ productType: 'graded', sort: 'price_desc', pageSize: 4 })`), no Destacadas, y §DYN no lo toca; el candado
+  original («`_home/**` sin `price_desc`») era más ancho que la regla (Destacadas no se ordena por precio). La excepción vive
+  **solo** en el candado de DYN-F1 (a), nombrada; un segundo fichero con `price_desc` en `_home/**` lo pone rojo.
 - **Lecturas del arquitecto que product-owner debe reflejar en el texto de criterios:** 929/930 se cumplen **por set** (un set
   es la unidad que se pide; con una carta propia por set coinciden con el texto); «recién llegada» se decide por grupo con su pieza
   viva más antigua; «en vivo» en listas = ≤ 60 s (924, 939 c).

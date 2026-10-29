@@ -30998,8 +30998,9 @@ precios en el carrito del navegador ni precios anteriores en el servidor.
    (`/catalog/cards?sort=grading_showcase&gradingHighlight=true&pageSize=8`) con la caché de datos de Next (revalidación 30 s,
    etiquetas `featured`/`showcase`), pinta las tejas en el HTML con la `<img>` líder presente, e hidrata react-query con ese dato
    (patrón tolerante que ya existe: `lib/catalog-ssr.ts`). Mismo endpoint en servidor y cliente: **una sola forma**.
-2. La petición de servidor tiene **tope de 400 ms**: si el API tarda o falla, el HTML sale con el **marco** de la sección (alto
-   reservado) y el cliente la rellena al hidratar — eso es el 937 (Destacadas y Joyas no frenan el primer pintado).
+2. La petición de servidor tiene **tope de 400 ms**: si el API tarda o falla, ninguna de las dos frena el primer pintado (937);
+   qué pinta cada una mientras tanto (marco solo en Destacadas; la vitrina sin esqueleto, `DESIGN_SYSTEM §22.6`) lo norma
+   `API_CONTRACT §DYN.6.2` (v1.114.1).
 3. Disponibilidad: el HTML puede llevar hasta ~60 s de retraso (revalidación + `max-age` del API); tras hidratar, el cliente
    revalida y una pieza vendida sale. Lo exacto lo garantiza el checkout (`409 ITEM_UNAVAILABLE`), como hoy. Lectura del
    arquitecto de «en vivo» (§X.1, 924): **≤ 60 s en listas públicas, exacto al pagar**.
