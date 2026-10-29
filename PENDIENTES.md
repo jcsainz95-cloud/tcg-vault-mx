@@ -6,6 +6,23 @@
 > Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+## 2026-10-29 — Stream «Portada dinámica» (rama `claude/portada-dinamica`) y release de velocidad (#107)
+
+> Medido por el orquestador el 2026-10-29. Release de velocidad = `claude/portada-velocidad-release` (`5aeda006` + docs), PR #107 → `production`, cuatro veredictos APROBADOS sobre `5aeda006`. El resto de §DYN (Destacadas del día, turnos PSA, `ListingPrice`) vive en `claude/portada-dinamica` y aún NO tiene gates.
+
+| # | Qué | Dueño | Medido | Comprobación |
+|---|---|---|---|---|
+| DYN-STREAM | §DYN fase 1+2 backend fusionada (`97f9dd3d`); errata v1.113.3 en construcción (backend, `claude/portada-dyn-be3`); frontend §DYN en construcción (`claude/portada-dyn-fe`). Falta: QA + techlead + seguridad/pentest (dinero) + tester-e2e, y PR a `production` con la condición D-DYN-4 (M2 no guarda sin DYN-F5). | orquestador | 2026-10-29 | los cuatro veredictos sobre un sha fijo de la rama |
+| QA-USERME-VACIO | IMPORTANTE (ya en producción): un `200` de `GET /users/me` con cuerpo ilegible guarda `tcg.user={}` y saca al admin del panel hasta cerrar sesión (`api-client.ts` `res.json().catch(() => ({}))` + `api.ts:3332` `getMe` sin validar + `AdminShell.tsx:74`). QA: 7/55 logins en smoke, repro determinista con `page.route`. | frontend | 2026-10-29 (QA sobre `5aeda006`) | prueba: `/users/me` 200 truncado ⇒ no se guarda `{}` y el panel no redirige |
+| E2E-CAT-URL | Búsqueda y filtros del catálogo no viajan en la URL; al recargar se pierden. | frontend | 2026-10-29 (tester-e2e) | recargar `/es/catalog?q=…` conserva el filtro |
+| E2E-GUEST-GUION | Checkout invitado con correo vacío muestra «Confirmo que — es correcto». | frontend | 2026-10-29 (tester-e2e) | captura sin el guion |
+| E2E-404-CUENTA | 404 en consola de `GET /wishlist` y `/users/me/billing-profile` en Mi cuenta. | frontend | 2026-10-29 (tester-e2e) | 0 errores de consola en Mi cuenta |
+| DEVOPS-GATE-MEDICION | `stack-native.sh up --gate` hornea el frontend sin `NEXT_PUBLIC_MEASUREMENT_MODE` ⇒ el banner de cookies no existe en gates locales. | devops | 2026-10-29 (tester-e2e) | modo/variable documentado que lo hornee |
+| PEN-VEL-2 | La ruta nativa del gate compila con `npx next build` y salta el `postbuild` (`check-home-bundle.mjs`) (`stack-native.sh:988`); si Vercel lo corre: NO MEDIDO. | devops | 2026-10-29 (pentester) | `HOME_BUNDLE_OK` en el log de un despliegue de Vercel y en el gate nativo |
+| DEVOPS-VERIFY-SHORT | `stack-native.sh verify:head <sha corto>` sobre copia sin `.git` da «COMMIT DISTINTO». | devops | 2026-10-29 (QA) | `verify:head 5aeda006` verifica en copia |
+| SEC-DYN3-B1 | Nada impide un build de Vercel con `NEXT_PUBLIC_USE_MOCKS=true` (Baja, preexistente). | frontend + devops | 2026-10-29 (seguridad) | `throw` en `next.config.mjs` si mocks=on en Vercel production/preview |
+| O-22-METAUA | La doctrina «Meta con red real exige userAgent normal» falta llevarla a `jcsainz95-cloud/Dev-team`. | orquestador | 2026-10-28 (TRASPASO) | `grep -l userAgent` en `.claude/agents/` de Dev-team |
+
 ## 2026-10-18 — Card Show CDMX **PUBLICADO** (landing + rediseño dinámico). Pendientes post-lanzamiento.
 
 > Estado completo y verbatim en `docs/specs/CARDSHOW_LANDING_ESTADO.md` (sección «CIERRE 2026-10-18»). La landing
