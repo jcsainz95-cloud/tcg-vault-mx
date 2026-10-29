@@ -435,7 +435,7 @@ export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'SV107', 'TG01'] as const;
 // v1.50.3-e: entran `32` (la CUARTA raw, libre) y `33` (la carta de los estimados rancios/automáticos).
 // v1.86 (§83.seed): entran `40` y `41` (las cartas del deck de energías de E2E).
 // v1.89⟨bmk⟩: entra `100` (E2E Bin Premium, el guardarraíl de COMPRA) — al final, numérico tras `99`.
-export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '40', '41', '98', '99', '100'] as const;
+export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '34', '40', '41', '98', '99', '100'] as const;
 
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la
