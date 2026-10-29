@@ -717,538 +717,13 @@
 > sostenerse**: `PROJECT.md` manda sobre ellas. **Pregunta 31 CERRADA.**
 > **Preguntas: se abren la 30, la 31 y la 32** (las tres **no bloqueantes**, con supuesto tomado).
 >
-> *Rondas 4ª, 6ª y 7ª del bloque v2.1 (2026-09-01, D30 y D34–D40): su resumen histórico salió el 2026-10-25.
-> Sus reglas viven en §P (criterios 16–172); el texto queda en git (`ee8d5c73`) y el registro en
-> `docs/DECISIONES.md`.*
->
-> **ESTADO AL 2026-08-31** *(3ª ronda — histórico; superado por las rondas posteriores en lo que toca a
-> D27/D28 y al dial del 20%; el resto sigue vigente)*: el bloque v2.1 quedó cerrado con **D1–D29** decididas,
-> **los cuatro números de dinero fijados** (tope de oferta del operador **MX$1,500**, tarifa de envío del
-> buylist **MX$180**, tope de piezas por variante **10**, umbral de recorte material **20%**), el **rechazo
-> parcial** resuelto *(como se resolvió ahí quedó superado)* y las **22 preguntas abiertas cerradas**, más
-> **una nueva no bloqueante (la 23)** con default redactado.
->
-> Estado *(histórico, superado por la línea de arriba)*: borrador para aprobación del humano. Las decisiones
-> previas siguen cerradas, PERO el **requisito
-> v1.3 (precio de buylist por rareza)** introduce **preguntas abiertas pendientes de respuesta** (ver la
-> sección al final). Lo único no fijado del alcance previo son las **metas de lanzamiento N/X/Y/Z**, que el
-> humano define al momento de lanzar (no bloquean el desarrollo).
-> **Actualización 2026-08-14**: incorporadas 8 decisiones de alcance aprobadas (raw solo NM +
-> nomenclatura/política, sección "Compra" con inventario propio, rarezas modernas y filtro de set con año,
-> venta de sellado con precio manual *(superado por v1.6: precio derivado por spread)*, gráfica de tendencia del portafolio, login con Google, sync de
-> catálogo 2024+ con backfill).
-> **Simplificación v1.2 (2026-08-14, aprobada por el humano)**: el producto **no lleva fotos propias** en
-> ningún lado — se usa la **imagen de catálogo remota de pokemontcg.io**; se elimina la captura de "fotos
-> verificadas de anverso/reverso" como mecanismo de condición/disputa. **Gradeadas**: el slab es la
-> garantía (empresa + grado + `certNumber`, verificable en la graduadora). **Disputas de condición**: la
-> evidencia se envía **por correo a soporte** (no hay subida de foto en la app). **KYC buylist**: el INE **SÍ
-> se almacena** como **imagen cifrada en R2 con retención** (`INE_RETENTION_DAYS`, default **180**), pedido en
-> el paso de pago del buylist sobre el tope ~~y verificado contra el nombre de la CLABE~~ *(**⚠ derogado, D51 —
-> ver la nota de vigencia abajo**)*; la **CLABE sigue cifrada en BD**. **Object storage (R2): DENTRO del alcance del MVP, pero acotado SOLO al INE del buylist** (`kyc_ine`);
-> no hay fotos de producto/inventario ni de disputa. Ver decisiones 20–25.
-> **Corrección v1.2.1 (2026-08-14, aprobada por el humano)**: se **revierte SOLO la parte del INE** de la
-> v1.2 — el **INE del buylist vuelve a almacenarse** (imagen cifrada en **R2** con retención
-> `INE_RETENTION_DAYS`, default 180, como en v1.1) para soporte AML del pago SPEI a particulares, y el
-> **object storage / R2 vuelve al alcance del MVP acotado SOLO al INE** (`kyc_ine`). **Todo lo demás de la
-> v1.2 permanece intacto** (producto sin fotos, gradeadas = empresa+grado+`certNumber`, raw NM sin foto,
-> disputa por correo a soporte, CLABE cifrada en BD).
-> **⚠ Nota de vigencia (11ª ronda, D46)**: de estos dos bloques v1.2/v1.2.1 sigue vigente **TODO lo de
-> almacenamiento del INE** (imagen cifrada en R2, retención 180 días, ~~cotejo contra el nombre de la CLABE~~
-> **⚠ derogado en la 13ª, D51**, R2 acotado a `kyc_ine`). **Lo único derogado es el «pedido en el paso de pago»**: el INE se pide **desde la
-> cotización** (§E, §P.2.2, criterio 178). **Cuándo se pide ≠ para qué sirve y cómo se guarda.**
-> **⚠⚠ Nota de vigencia (13ª ronda, D51) — SUSTITUYE a la nota de la 12ª**: de esa lista, **el «cotejo contra
-> el nombre de la CLABE» QUEDA DEROGADO**. Estaba escrito desde v1.1, **nunca se ejecutó** (`BL-41`, medido) y
-> **no se puede ejecutar**: **no hay fuente del nombre del titular de la cuenta** (pregunta 40, cerrada por el
-> humano midiendo su banco). **Lo demás de la lista sigue vigente sin cambio**: **imagen cifrada en R2**,
-> **retención 180 días**, **R2 acotado a `kyc_ine`** y el INE **pedido desde la cotización** (D46).
-> *(La nota de la 12ª ronda decía que el cotejo «tiene por fin momento, responsable y consecuencia» como
-> **veredicto humano registrado**; **eso se retiró entero** — ver decisión 113.)*
-> **Requisito v1.3 (2026-08-16, EN REVISIÓN por el humano — reabre preguntas):** el pago del buylist deja de
-> calcularse por **3 categorías hardcodeadas** (común/reverse/EX+) y pasa a una **tabla de precio por rareza
-> oficial de Pokémon**, donde **cada rareza** tiene una regla **fijo (MX$)** o **porcentaje (% de la
-> referencia)**, **editable desde el back-office (M2)**. Ver §E.1 (nueva), M2, criterios 12/12b/12c/18 y la
-> sección **"Preguntas abiertas — precio de buylist por rareza (v1.3)"** al final. **Este bloque tiene
-> preguntas abiertas pendientes**; el resto del documento sigue cerrado.
-> **Requisito v1.4 (2026-08-16, decisiones del humano YA tomadas):** las cartas se distinguen ahora por
-> **acabado/versión** (normal, reverse holo, holofoil, 1st edition…) en **toda la cadena** (Compra, cotizador
-> de buylist, inventario/bóveda, valuación de portafolio y precio de buylist). Hoy el modelo NO distingue
-> acabados (1 fila `Card`, un solo `rarity`, sin `finish`) y los precios por acabado de `tcgplayer.prices`
-> **se descartan al importar**. Se decide: (1) modelar el acabado en **todo** el alcance (cotizador,
-> inventario/bóveda, portafolio y Compra); (2) el acabado **mapea a una regla existente** de la tabla por
-> rareza de M2 (reverse holo → regla "Reverse Holo"; holo → "Holo"/base; normal → regla de la rareza base) y,
-> para reglas de **porcentaje**, usa el **precio de mercado de ESE acabado**; (3) el monto se **deriva siempre
-> server-side** (SEC-A1); (4) filas históricas sin acabado → default **normal**. Además: **alta de inventario
-> por set** en M1 usando el **catálogo real** (no cartas mock) y **origen del inventario** por item
-> (`owner_contribution` vs `client_purchase`) capturado al dar de alta, que afecta finanzas/portafolio
-> (costo/P&L). Ver §I (nueva), §A, §C, §E, §E.1, M1, M2, §G, criterios 37–44 y las **preguntas abiertas v1.4**
-> al final. **Este bloque tiene preguntas abiertas pendientes**; los defaults preservan el comportamiento
-> actual y no bloquean el arranque si el humano los autoriza.
-> **Requisito v1.5 — GUEST CHECKOUT (2026-08-18, decisiones del humano YA tomadas):** se puede **comprar sin
-> crear cuenta**. Tres decisiones cerradas (no se re-litigan): (1) el invitado **solo puede elegir envío
-> directo a domicilio** — **guardar en bóveda REQUIERE cuenta**, y eso es deliberado: la bóveda es el
-> **gancho de registro**; si el invitado intenta elegir bóveda se le ofrece **crear cuenta ahí mismo**
-> (upsell in-situ, **no** un error); (2) **correo obligatorio** y **seguimiento por enlace tokenizado**
-> (token firmado y expirable, enviado por correo); (3) **reclamo post-compra**: al completar la compra se le
-> ofrece crear cuenta con ese mismo correo y el pedido **pasa a su historial**. Ver **§J** (nueva), §B, §C,
-> "Usuarios y roles", criterios **45–56** y las **preguntas abiertas v1.5** al final. **Quedan dos huecos
-> pendientes** (qué pasa si el correo del invitado **ya tiene cuenta** y el **plazo de expiración** del
-> enlace); el resto del bloque está decidido.
-> **Requisito v1.6 — SELLADO (producto cerrado): SOLO VENTA + precio derivado (2026-08-19, decisiones del
-> humano YA tomadas):** el work stream de **Sellado** cerró un spec que **SUPERSEDE** dos decisiones previas
-> de este documento. (1) **Actualizado: el precio del sellado deja de ser "manual-único" y pasa a DERIVADO
-> por spread sobre precio de mercado; TCGCSV pasa de "solo informativa" a ser la BASE del precio de venta del
-> sellado (vía el mapeo curado existente) — decisión del PO, ago-2026.** La precedencia money-safe es:
-> `override manual > spread por presentación > spread global de respaldo > sin precio
-> ⇒ no se publica (PRICE_PENDING)`. El override manual sigue disponible como **máxima precedencia**. Esto
-> **SOLO aplica al sellado**: para **cartas sueltas (raw/singles) nada cambia** (TCGCSV sigue sin usarse como
-> fuente de su precio). (2) **El sellado es SOLO VENTA** (plataforma→cliente): **no se compra sellado a
-> clientes por la plataforma**; **no hay buylist de sellado**. En la ventana de sellado hay un call-out
-> `mailto` para revender fuera de la app. (3) El sellado gana **condición propia** (default Mint, opción
-> "Detalle menor en caja"; visible al comprador, **no altera el precio**), **destino igual que cartas**
-> (recibir/`direct_ship` o bóveda/`vault`), **pestaña "Sellado"** en bóveda del cliente y en la vista admin,
-> y **entra en la valuación y tendencia del portafolio**. Dos diferenciadores quedan **cableados pero
-> apagados** (feature-flag off): **tendencia de valor del sellado** y **"avísame cuando vuelva" (restock)**.
-> Ver **§K** (nueva), §A, §C, §H, M1/M2/M5, "Fuentes de precio", criterios **2/3e/18** (actualizados) y
-> **57–64** (nuevos), y las **decisiones v1.6** al final. **Este bloque está cerrado y aprobado por el
-> humano**; solo quedan supuestos menores marcados `SUPUESTO (confirmar con PO)`.
-> **Requisito v1.7 — SETS MULTI-PARTE / MASTER SET COMBINADO (2026-08-22, BORRADOR del product-owner, EN
-> REVISIÓN por el humano — P-27):** un set de aniversario/especial que en pokemontcg.io vive como **dos
-> set-ids** (el principal + su subset con id propio, p. ej. **Celebrations** `cel25` + **Classic Collection**
-> `cel25c`) se muestra hoy como **dos sets separados**, así que Celebrations aparece con **25 cartas cuando
-> son 50**. No falta data (ambas partes están importadas); es **modelo/presentación**. Se decide (defaults del
-> PO, marcados para aprobación del humano): mostrar el set multi-parte como **UN master set combinado** (padre
-> + subset en el mismo binder, con separador/etiqueta para la parte del subset), de forma **NO destructiva**
-> (cada carta CONSERVA su set-id de origen; **precio, inventario y bóveda no cambian a nivel de dato** — solo
-> la **vista** agrupa), gobernada por un **mapa padre→subset explícito y extensible** que arranca con
-> Celebrations y cubre el patrón (Shiny Vault con id propio: Shining Fates `swsh45sv`, Hidden Fates `sma`,
-> etc.). Ver **§L** (nueva), §A, §C, §F/M1–M2, criterios **65–72** y las **preguntas abiertas v1.7** al final.
-> **Alcance acotado: SOLO presentación/agrupación del master set; FUERA de alcance re-llavear identidad o
-> mover precios/inventario.** Los defaults no bloquean el arranque si el humano los autoriza.
-> **Requisito v1.9 — PRICING POR TIERS (2026-08-22, DECISIONES DEL HUMANO YA TOMADAS — LOCKED, P-34;
-> supersede el borrador v1.8):** el editor de precios pasa de pedir **una regla por CADA rareza canónica**
-> (~30 tras el sync: Common 5326, Uncommon 4888, Rare 2562, Rare Holo 1617, … hasta Rare ACE, Amazing Rare,
-> Mega Hyper Rare) a **una regla por `tier`**, con un **mapa rareza canónica → tier**. Decisiones cerradas del
-> humano: **(1) 5 tiers** — **T0 Bulk, T1 Uncommon/Reverse, T2 Rare/Holo, T3 Premium/Chase, T4 Ultra/Grail**.
-> **(2) T2 Rare/Holo = PORCENTAJE bajo del mercado** (default **25%**, ajustable), **NO fijo** — esto **CAMBIA
-> el comportamiento vigente** (antes Rare/Rare Holo caían al bin fijo de bulk) y es un **cambio intencional**;
-> money-safe: un `pct` sin referencia de mercado → **precio pendiente, nunca $0** (igual que los demás tiers
-> `pct`). **(3) Rarezas «SIN MAPEAR» → premium** (cierra el bug money-losing): **Mega Hyper Rare** (alias de
-> **Hyper Rare**) → **T4**; **`MEGA_ATTACK_RARE`** → nueva canónica premium → **T3**; **Black White Rare** →
-> nueva canónica premium → **T3**. **(4) Los tiers aplican a AMBOS ejes de dinero: COMPRA (buylist) y VENTA**
-> (un mismo mapa rareza→tier, dos juegos de valores). **(5)** Resto de defaults como se propusieron (T0
-> **$0.50** fijo, T1 **$1.50** fijo, T3 **40%**, T4 **40%**; el eje **acabado/`finish`** sigue siendo eje
-> aparte; el **mapa rareza→tier es EDITABLE por el dueño** desde M2). Ver **§M** (finalizada), §E.1, §I, M2,
-> criterios **73–78** y las **Decisiones (v1.9, P-34)** al final. **Alcance acotado: SOLO la TAXONOMÍA de
-> precios (agrupar rarezas en tiers y cerrar el catálogo); el schema y el contrato del editor los diseña el
-> arquitecto; NO cambia la matemática fijo/% ni la precedencia money-safe de compra/venta más allá del cambio
-> intencional de T2 a `pct`.** **Bloque LOCKED — listo para el arquitecto.** Los defaults reproducen el
-> comportamiento vigente salvo el cambio intencional de T2.
-> **Requisito v2.0 — VALOR ESTIMADO SI SE GRADEA («gancho de grading») (2026-08-23, ACTUALIZADO
-> 2026-08-28; BORRADOR del product-owner sobre DECISIONES YA TOMADAS por el humano — EN REVISIÓN solo por el
-> texto del disclaimer y los huecos menores):** en la tienda se muestra, sobre una carta **raw**, **el precio
-> de la carta + cuánto vale estimado en PSA 10 y en PSA 9**. Es un **gancho comercial** (cita del humano: *«si
-> compras esta que no vale mucho sin gradear y la gradeas podría valer tanto más, y que se animen a comprar más
-> mis cartas»*) y es **estrictamente un estimado ilustrativo con disclaimer**: **NUNCA** un precio de venta,
-> una oferta ni una promesa de grado. Decisiones cerradas del humano: **(1) cuatro superficies**
-> *(actualizado 2026-08-31: eran tres)* —**ficha**, **badge** en las tejas de Compra, **vitrina «Joyas para
-> gradear»** en el home y **burbuja en el carrusel «Piezas destacadas del catálogo»** del home; **las dos
-> secciones del home se conservan**, el humano las quiere **ambas**—, con la **superficie visible
-> simplificada** *(actualización 2026-08-23: **fuera** el multiplicador, la ganancia calculada y toda
-> comparativa; cita: «solo bajemos el precio y desplegamos "en PSA 10 vale tanto"», y confirmó que **quiere los
-> dos grados**)*; **(2) gate de ROI sobre PSA 9** (no sobre PSA 10) con la fórmula
-> `estimadoPSA9 >= (precioVentaRaw + gradingCost) × (1 + minUpsidePct)`, que *(actualización 2026-08-23)* pasa
-> a ser **criterio de curaduría interno**: la **ficha** muestra los estimados **siempre que haya dato**, y
-> las **superficies de promoción** —teja de Compra, vitrina y **destacadas**— **solo** llevan cifra en cartas
-> que pasan el gate, **ordenadas la
-> vitrina por mayor ganancia neta sobre PSA 9**; **el resultado del cálculo nunca se expone al cliente**; y
-> **dos diales configurables** — **`gradingCostTiers`**, una **tabla de escalones** valor de carta → costo de
-> gradeo *(actualización 2026-08-23: sustituye al costo plano de MX$600; PSA cobra por nivel de servicio según
-> valor declarado y el costo debe incluir **envío internacional y retorno a México**, ver §O.2.1)*, y
-> `minUpsidePct` default **30%**; **(3) FUENTE AUTOMÁTICA** *(actualización 2026-08-28 — **supersede el
-> arranque manual-first**)*: el estimado se alimenta **automáticamente desde PokemonPriceTracker** (proveedor
-> **ya contratado**), que **no valúa nada**: entrega **ventas cerradas reales de eBay agrupadas por grado**
-> (`ebay.salesByGrade`, con **número de ventas de la muestra, mediana, promedio y fecha de la última venta**).
-> El **override manual del admin se conserva** como respaldo y para **curar cartas concretas**, con la
-> **máxima precedencia**; **(4) la cifra SÍ se pinta en la REJILLA de Compra, en la VITRINA del home y en el
-> carrusel de DESTACADAS** *(nuevo 2026-08-28; destacadas añadido 2026-08-31)*, pero **condicionada a un GATE
-> DE CONFIANZA**: el número debe ser **fresco**, de
-> **origen confiable** (override manual, o dato automático con **muestra suficiente de ventas**) y
-> **coherente en magnitud**. La **ficha no aplica la coherencia de magnitud con la misma dureza** —informa lo
-> que hay—: solo las **superficies de promoción** exigen confianza (**§O.7**). **En destacadas la burbuja se
-> suma sin curar el carrusel** (mismas tejas, mismo orden por precio descendente) y, como ese carrusel lista
-> **las cartas más caras** —las que más costo de gradeo cargan—, es **esperable que muestre pocas cifras o
-> ninguna**: eso **no es un defecto** (§O.3);
-> **(5) GUARDA DE DINERO** *(nuevo 2026-08-28)*: se **bloquea capturar un estimado** de un grado cuando esa
-> carta ya tiene una **pieza real de ese grado publicada** en inventario —comparten la **misma fila de
-> precio**, así que un «estimado» capturado a mano **movería el precio de venta real del slab** (**§O.8**).
-> **Money-safe (regla dura):** una cifra que no existe **no se dibuja**, y sin gate cumplido el badge/entrada
-> de vitrina **no se renderiza** — nunca **$0**, nunca un guion, y en un argumento de venta **ni siquiera
-> «pendiente»**. Todo se deriva **server-side** (SEC-A1), **reforzado** porque el cliente ya ni recibe los
-> insumos del cálculo. **Disclaimer completo = nota al pie** con **llamada (asterisco)** junto a la cifra, más
-> un **micro-aviso mínimo adyacente** («ilustrativo» + «no evaluamos esta carta») *(decisión del PO, ver §O.5
-> y pregunta abierta 12)*. **Desambiguación de alcance:** «Grading propio o integración directa con PSA/CGC»
-> (Fuera de alcance) se refiere a **gradear cartas / verificar slabs nosotros**, **NO** a **mostrar estimados
-> de valor por grado**, que **sí** entran al MVP. **PriceCharting sigue fuera.** **Disclaimer:** el humano
-> pidió que sea **súper enfático en que es información ilustrativa y que NO refleja el estado de nuestras
-> cartas** (no inspeccionamos ni pre-evaluamos la pieza que vendemos); texto ES/EN reescrito en **§O.5** y
-> **aprobado por el dueño el 2026-08-31, sin revisión legal profesional** *(decisión 59; la revisión por
-> abogado sigue **abierta** — pregunta abierta 1)*. La feature se entrega detrás de **un único interruptor**
-> (`grading_hook_enabled`, semilla **apagado**) que **publica la afirmación comercial y autoriza el gasto en
-> el mismo acto** *(decisión 60)*. Ver **§O** (nueva), §A, «Fuentes de precio», criterios **97–117**,
-> decisiones **40–60** y las **preguntas abiertas v2.0** al final.
-> **Requisito v2.0 — PRECIO PURO POR VALOR DE MERCADO (2026-08-24, DECISIONES DEL HUMANO YA TOMADAS —
-> LOCKED, P-48):** el dueño detectó cartas publicadas a **MX$1.31 / MX$3.71** creyendo tener un **piso de
-> MX$15**. La causa raíz fue doble: (a) una regla con `mode: 'fixed'` está **documentada como PISO** —y el
-> editor de M2 la etiqueta literalmente **«Piso (MX$)»**— pero se implementa como **precio absoluto** (nunca
-> se compara contra el mercado), y (b) el eje de **acabado** no consulta la regla del tier de su rareza, así
-> que una variante sin regla propia cae al **`%` de respaldo**. Tras verlo, el humano **amplió el alcance**:
-> en vez de parchar los dos ejes, **se retiran la rareza y el acabado del pricing** y el precio pasa a
-> depender **solo del valor de mercado**, con **UNA curva** por eje:
-> **`venta = redondeo↑( max( piso , mercado × markup(mercado) ) )`** y
-> **`compra = max( bin , mercado × pct(mercado) )`**, con `markup` que **baja** conforme sube el valor y
-> `pct` de compra que **sube**, ambos **interpolados** entre puntos de quiebre (nunca escalonados).
-> Desaparecen los **5 tiers**, el **mapa rareza→tier**, las **reglas por acabado** y la distinción
-> **`fixed` vs `pct`** como modos excluyentes. **La rareza no sale del sistema: sale del PRICING y entra a la
-> VALIDACIÓN** — una carta de rareza **premium** que aterrice **en el piso** **no se publica** (cola de precio
-> pendiente, se escala al dueño), que es el guardarraíl que sustituye al invariante `premium ⇒ pct`. Se suman
-> **bounty revalidado contra la regla vigente** (un bounty por debajo de la tarifa estándar deja de ser
-> bounty), la **escalera de redondeo hacia arriba** ($5 bajo $200 · $10 bajo $500 · $25 arriba) y la
-> **instrumentación** de cada venta y cada compra (mercado del día, precio final, qué lo determinó, acabado y
-> bracket). Se conserva la regla de que **el «Valor de mercado» solo se muestra cuando el mercado fijó el
-> precio**. **Entrega: UN SOLO CAMBIO con etapas verificables y UN SOLO DEPLOY** — el paso intermedio
-> («`fixed` pasa a ser piso» conservando tiers y reglas por acabado) **ya no se entrega por separado**, porque
-> la curva **elimina el modo `fixed`** y ese código se tiraría; sigue siendo cierto como **comportamiento
-> objetivo**, no como fase. **El negocio TODAVÍA NO ESTÁ EN VIVO**: no hay exposición viva que proteger, ni
-> ventas ni cotizaciones reales afectadas. Ver **§N** (nueva), §A, §E.1, §M (superseded), criterios **79–96**
-> y las **Decisiones (v2.0, P-48)** al final. **Bloque LOCKED — listo para el arquitecto.** Dos reglas
-> money-safe quedaron **cerradas por el humano** (ya no son supuestos): **sin dato de mercado ⇒ «precio
-> pendiente»** —no se publica ni se cotiza, el piso **no** gana (§N.2)— y el **guardarraíl aplica a los DOS
-> ejes** (§N.5).
-> **Decisión del dueño 2026-08-24 — SELLADO: son SIETE presentaciones, no cinco (`upc` 18 % · `collection`
-> 22 %):** el dueño **confirmó que vende UPC** (Ultra Premium Collection) y **eligió los dos spreads que
-> faltaban**: **`upc` = 18 %** (es la pieza más grande y cara del catálogo ⇒ mismo % que `box`) y
-> **`collection` = 22 %** (comparable a un ETB ⇒ mismo % que `etb`). Salió a la luz porque un hueco de
-> validación hacía que **no se pudiera capturar una pieza UPC en inventario** ni **fijarle precio** desde M2
-> —ambas presentaciones caían al **global de respaldo (25 %)**, un número que nadie eligió para la pieza más
-> cara que vendemos—; el hueco **ya está corregido**. Lo que faltaba era de **propiedad del documento**: los
-> dos números vivían solo en `docs/API_CONTRACT.md` §M2 y en la semilla del código, mientras **§K seguía
-> enumerando cinco**. Por la **regla de conflicto** (*PROJECT manda sobre el contrato*), el contrato no puede
-> ser el **origen** de un número de negocio: debe **citarlo**. Con esta revisión **§K es el origen único** de
-> la tabla de spreads y enuncia el **criterio que la ordena — «ítem más chico ⇒ % mayor»**; el resto del
-> documento **deja de enumerar presentaciones a mano** y apunta a §K (las copias en prosa son las que se
-> desincronizan, porque ningún test las mira). Tabla completa: **box 18 · etb 22 · bundle 25 · tin 30 ·
-> blister 35 · upc 18 · collection 22**, global de respaldo **25**. **No se cambia ningún número ni el
-> criterio** — esta revisión solo los **registra donde les toca**. Se cierran además dos cosas que salieron
-> del mismo hilo: **(a) regla de negocio firme** — *toda presentación nueva llega con spread elegido a
-> propósito, nunca cae al global en silencio* (era supuesto; el dueño lo confirmó, y es lo que evita repetir
-> lo del UPC vendiéndose meses al 25 % porque nadie lo eligió); y **(b) corrección de REDACCIÓN de la
-> fórmula**: donde el documento decía `mercado × spread` ahora dice **`mercado × (1 + spread)`** — el spread
-> es un **markup ARRIBA del mercado** (caja de mercado MX$2,000 al 18 % ⇒ **MX$2,360**, no MX$360). **Eso NO
-> cambió en agosto de 2026**: el código y el contrato siempre lo hicieron así; era taquigrafía heredada de
-> v1.6 en el texto, y se corrige porque este documento manda sobre el contrato. La **fórmula queda con origen
-> único en §K** y sus citas la referencian en vez de repetirla. Ver **§K**, criterios **3e/18/57/60/60b** y
-> **decisiones 35/35b/35c/35d**.
-> **Requisito v2.1 — CICLO DE ADQUISICIÓN DEL BUYLIST: OFERTAMOS ANTES DE QUE NOS MANDEN NADA (2026-08-31,
-> BORRADOR del product-owner sobre DECISIONES DEL HUMANO YA TOMADAS — D1–D12):** hoy el buylist **no decide
-> qué compra**. El cliente cotiza, la solicitud nace **`cotizada`** y el siguiente paso que existe es la
-> **recepción física**: entre esos dos puntos no hay **estado**, ni **oferta**, ni **correo**, ni **guía**.
-> Consecuencia: **el cliente paga un envío sin que le hayamos dicho que sí**, y nosotros descubrimos qué
-> compramos **cuando el paquete ya está en la mesa** —con inventario propio eso además es **comprar a
-> ciegas**: el admin no ve **ni una cifra de stock** al decidir—. En el otro extremo, **publicar existe pero
-> está desconectado**: la pieza convertida a inventario nace **sin ubicación física y sin precio**, y **nada
-> la empuja a la venta** (no hay auto-publicación ni cola de pendientes de publicar). Se cierra el ciclo en
-> **ocho fases** —**cotiza → ofertamos → acepta → manda la guía → recibimos → verificamos → pagamos →
-> publicamos**— con **cuatro estados nuevos**: **`ofertada`**, **`aceptada`**, **`en_transito`** y
-> **`expirada`** (terminal) *(**⚠ 5ª ronda, D33: se suma un quinto — `caducada`**, terminal)* **⚠ 6ª ronda:
-> NO se suma ninguno — la caducidad es `expirada` con motivo `no_offer`; **siguen siendo cuatro** estados
-> nuevos y **cuatro terminales**.*
-> **Doce decisiones cerradas del humano**: **(D1)** la oferta es **todo-o-nada** —
-> el cliente ve el **desglose línea por línea** de qué compramos y qué no, pero **acepta o rechaza el paquete
-> completo**; **no hay aceptación parcial**—; **(D2)** el **precio ofertado es vinculante desde que sale el
-> correo** y **no se reprecia al recibir**; **(D3)** **2 días** para aceptar, **sin respuesta ⇒ rechazada**;
-> **(D4)** **3 días** desde la aceptación para capturar paquetería y guía, **sin guía ⇒ expirada**, se
-> cancela y **se le notifica**; **(D5)** **la guía la captura el cliente** desde su portal, con el **admin
-> como respaldo**; **(D6)** al ofertar, el admin ve por **cada carta** **cuántas tiene en inventario y
-> cuántas vienen en camino**, más una **sugerencia de comprar / no comprar** que **NUNCA bloquea** —la
-> decisión es del operador, **línea por línea**—; **(D7)** **producto separado**: se cura el hueco de
-> identidad por el que **promos y exclusivos de deck** entran a inventario **indistinguibles del set base**
-> (sin eso, las cifras de la mesa de decisión mienten); **(D8)** los **dos plazos son diales editables**
-> desde el back-office (**M10**), no constantes en código *(**⚠ 5ª ronda: son TRES**, D33)*;
-> **(D9)** el **precio de compra es el pactado en la
-> oferta, y punto** —**fuente única** del costo de adquisición—, así que **verificar tiene solo dos
-> desenlaces**: **llega en NM y se paga lo ofertado**, o **no llega en NM y se rechaza**; **desaparece el
-> repreciado**; **(D10)** el **precio de VENTA queda FUERA de este alcance**: lo resuelve la **curva de
-> pricing que ya existe** (§N) al publicar; **(D11)** **celular obligatorio** en **tres puntos** —**registro**,
-> **alta de usuario por admin** y **antes de crear una solicitud de venta**— (el tercero cubre a quien entró
-> con **Google** y a las cuentas viejas con teléfono vacío); **(D12)** el back-office debe **ver qué usuarios
-> tienen cotizaciones vivas, con conteo, y poder llamarlos** (el **teléfono viaja en la cola de buylist**).
-> Ver **§P** (nueva), §E, §H, «Usuarios y roles», M1/M5/M6/M10, criterios **15/16/25/33** (actualizados) y
-> **113–131** (nuevos), decisiones **56–67** y las **preguntas abiertas v2.1** al final. **Alcance acotado:
-> el CICLO de adquisición (decidir, comunicar, comprometer, recibir y cerrar hasta publicar); NO cambia la
-> matemática del precio (§N), ni la política NM-only (§H), ni los topes/KYC del buylist.** **Este bloque
-> tiene supuestos marcados y preguntas abiertas**; el humano debe confirmarlos antes de pasar al arquitecto.
-> **⚠ Este bloque quedó parcialmente superado por la 2ª ronda (D13–D23), que sigue abajo**: el **envío del
-> vendedor SÍ entra al alcance** (D16 deja sin efecto a D5) y los plazos pasan a **días hábiles** (D14).
-> **Requisito v2.1 — SEGUNDA RONDA: EL ENVÍO LO PONEMOS NOSOTROS (2026-08-31, ONCE DECISIONES NUEVAS DEL
-> HUMANO — D13–D23; corrigen supuestos del primer pase):** al revisar el borrador, el humano cerró once
-> huecos y **corrigió cuatro supuestos**. El cambio de fondo es **D16**: **la guía de envío del vendedor la
-> mandamos NOSOTROS** y su costo **se descuenta del pago**. Eso **deja sin efecto a D5** (ya no es el cliente
-> quien captura la guía) y parte el dinero del buylist en **tres montos que ahora conviven**: **bruto**
-> (lo que valen las cartas), **envío** y **neto** (`bruto − envío`, lo que se deposita). Las reglas que lo
-> gobiernan: **lo VINCULANTE con el vendedor es el NETO** —el correo de oferta debe mostrar **los tres
-> montos** y decir **cuál se deposita**, porque prometer $1,480 y depositar $1,350 rompe exactamente la
-> confianza que la oferta vinculante venía a construir—; el **costo de adquisición del inventario sigue
-> siendo el BRUTO** (el envío es **gasto operativo**, no costo de la pieza: mezclarlos ensucia el P&L por
-> carta); y los **topes AML/INE se juzgan sobre el BRUTO** (el valor comprometido), aunque el **SPEI salga
-> por el neto**. Alrededor de eso: **(D13)** **el operador SÍ puede ofertar hasta un tope de monto**
-> —arriba de ese tope la oferta la **autoriza el súper-admin**—, reusando la mecánica de topes que el buylist
-> ya tiene *(corrige el supuesto de «solo súper-admin»)*; **(D14)** los plazos se cuentan en **días HÁBILES**,
-> no naturales —una oferta enviada el viernes **no vence el domingo**— *(corrige el supuesto de días
-> naturales)*; **(D15)** la sugerencia de **«no comprar»** se dispara cuando la posición alcanza el
-> **objetivo del bounty** de esa variante **o** un **tope general de piezas por variante**, ambos
-> configurables, y **nunca bloquea** (D6 intacta); **(D17)** si al verificar **se rechaza todo**,
-> **absorbemos el envío**: sin cobranza al vendedor y **sin saldo negativo**; **(D18)** **mínimo de compra
-> MX$500** sobre el **total de la solicitud** —sea una carta o mil—, validado **en el servidor** (no solo en
-> el cotizador), y el cotizador dice **cuánto falta** («te faltan $120»); ~~**(D18b)** **umbral de guía
-> MX$1,000**, **dial separado** del mínimo, con **tres bandas**: **&lt;$500 no se compra**, **$500–$1,000 se
-> compra y el vendedor paga su envío como hoy**, **&gt;$1,000 se compra y la guía la ponemos nosotros**~~
-> *(**⚠ D18b SUPERADA en la 5ª ronda por D31: se elimina el umbral, quedan DOS bandas y la guía va
-> SIEMPRE**)*;
-> **(D19)** la guía se genera **A MANO** —el operador la compra fuera del sistema y **captura el número**—:
-> **no hay integración con paquetería** y eso es **proyecto aparte**, el sistema solo **guarda y muestra**;
-> **(D20)** **el operador** es quien marca **«en tránsito»**, al confirmar el envío; **(D21)** la guía se
-> compra **AL ACEPTAR, no al ofertar** —solo se gasta etiqueta en quien ya dijo que sí—, el correo de oferta
-> **anuncia** que el envío corre por nuestra cuenta y que la guía **llega al aceptar**, y los **3 días de D4
-> corren desde que la guía LLEGA al vendedor**, no desde que aceptó; **(D22)** la etiqueta debe ser
-> **cancelable o reembolsable**, y una solicitud que **vence con guía emitida** deja la tarea **«cancelar
-> guía no usada»** en la cola del operador; **(D23)** **SÍ hay recordatorio** —**uno solo**, a **un día
-> hábil** de vencer y **una sola vez**, no en cada corrida del barrido— *(revierte la decisión del primer
-> pase de dejar los recordatorios fuera de alcance)*. Se **cierran además seis preguntas abiertas** del
-> primer pase: **no se re-oferta** sobre una solicitud terminal, **no se edita** una oferta ya enviada (se
-> cancela y se emite otra), los **correos obligatorios son tres** (oferta, recordatorio, expiración)
-> *(**⚠ corregido en la 5ª ronda: son CUATRO** — D33 suma el de «no procederemos»; **⚠ corregido otra vez
-> en la 8ª: son CINCO** — la **cancelación** sale del correo de expiración, §P.3, criterio 173)*,
-> **aceptar exige sesión** (no hay enlace anónimo), **«solicitud viva» = todo lo que NO sea terminal**
-> (terminales: **pagada, rechazada, abandonada, expirada**) y la **ubicación NO se exige al convertir**
-> —bloquear la conversión atoraría el pago— pero la pieza sin ubicación **sale señalada** en la cola de
-> pendientes de publicar. **Riesgo conocido que queda registrado (D20 × D4)**: si el vendedor deposita el
-> paquete el día 3 y el operador no lo confirma hasta el día 4, el barrido expiraría una solicitud donde el
-> vendedor **sí cumplió**; la dirección aprobada es **separar el reloj del estado** (§P.13). Ver **§P.4,
-> §P.12, §P.13** (nuevas/reescritas), §E, §H, «Usuarios y roles», M1/M5/M6/M10, criterios **16/25/113/116/
-> 119/121/122/123/125/127/129** (actualizados) y **132–146** (nuevos), decisiones **68–80** y las **preguntas
-> abiertas v2.1** al final (con el estado de cierre de cada una). **Siguen abiertas** la pregunta **11** y
-> las **nuevas 13–22**, de las cuales **cinco mueven dinero** (13, 14, 16, 20 y 22). **Una de ellas es una
-> tensión interna que este documento NO resuelve en silencio**: **D16 pide que el correo de oferta muestre el
-> envío**, pero **D21 compra la etiqueta después de mandar ese correo** — se propone descontar una **tarifa
-> configurable congelada al ofertar** y se marca como supuesto (§P.4, pregunta 20).
-> **⚠ Este bloque quedó cerrado por la 3ª ronda (D24–D29), que sigue abajo**: los cuatro números están
-> fijados, el rechazo parcial está decidido y las diez preguntas abiertas quedaron resueltas.
-> **Requisito v2.1 — TERCERA RONDA: LOS CUATRO NÚMEROS QUE FALTABAN Y EL RECHAZO PARCIAL (2026-08-31, SEIS
-> DECISIONES NUEVAS DEL HUMANO — D24–D29; con ellas se CIERRA el bloque v2.1):** el humano fijó **los cuatro
-> números** que bloqueaban el ciclo y **decidió el caso que faltaba** —qué pasa cuando al verificar se
-> rechazan **solo algunas** cartas—. **(D24)** **tope de oferta del operador = MX$1,500** de **bruto**; por
-> encima de ese monto la oferta **requiere autorización del súper-admin** *(descarta el default money-safe de
-> MX$0 que yo había propuesto)*. **(D25)** **tarifa de envío del buylist = MX$180**, **congelada al ofertar**
-> — **es la resolución de la tensión D16×D21** que este documento había señalado sin resolver, y es la salida
-> correcta **justo por la razón que se dio**: si la etiqueta real sale **más cara la absorbemos**, si sale
-> **más barata es margen nuestro**, y así **el neto sigue siendo vinculante**. Es un **dial**, y es
-> **distinto** de la tarifa de envío de retiro (MX$175). **(D26)** **override manual al ofertar: SÍ** — el
-> operador puede fijar a mano el monto de una línea **dentro de su tope**, con **motivo obligatorio** y
-> **auditado** (quién, cuánto y por qué). **(D29)** **tope general de piezas por variante = 10**: cuando la
-> **posición** de esa variante —**stock + verificando + tránsito + comprometido**— llega a **10 piezas** y la
-> carta **NO tiene bounty**, la mesa pinta **«no comprar»**; **sigue sin bloquear** (D6 intacta).
-> **⚠ D27 y D28 quedaron SUPERADAS por D30 (4ª ronda) — se conservan aquí como historial, no como
-> requisito**: ~~**(D27)** **rechazo PARCIAL: se le pregunta al vendedor si quiere continuar** con la
-> operación **antes de pagar**, **reusando el flujo de ajuste que ya existe** (ítem `ajustada` + plazo +
-> aceptar/rechazar del cliente) — **no es un mecanismo nuevo** y **no es aceptación parcial**: sigue siendo
-> **todo-o-nada sobre el paquete reducido** (D1 intacta). **(D28)** **solo se pregunta si el bruto aprobado
-> cae MÁS de 20%** respecto al bruto ofertado; por debajo de ese umbral **se procede y se paga**, y el
-> **correo de rechazo por carta que ya existe** lo mantiene informado —preguntar por una común de $2 en una
-> oferta de $1,480 es **fricción pura**—; **el umbral es un dial**. Si el vendedor **dice que no**, corre la
-> **devolución de §H** (7 días a su costo, abandono a 30) **pero el envío de ida lo absorbemos nosotros**: el
-> rechazo fue **decisión nuestra** (coherente con D17).~~
-> Y se fija el **INVARIANTE money-safe** que faltaba —**este SÍ sigue vigente y no lo toca D30**—: **el NETO
-> NUNCA puede ser negativo** — si el bruto aprobado queda por debajo de la tarifa de envío (ofertaste $1,480,
-> apruebas $100, envío $180 ⇒ −$80), el neto **se topa en cero** y **la diferencia la absorbemos**; **jamás se
-> le cobra al vendedor por habernos mandado cartas** (criterio **152**). Se cierran además **las siete
-> preguntas restantes**: **el inventario ya capturado se corrige a MANO** —ninguna migración adivina— (P11,
-> supuesto confirmado); **el tope de compromiso mensual suma BRUTOS** (misma base que AML/INE) y **el
-> acumulado de dinero pagado se mide en NETOS** (lo que salió por SPEI) — **dos medidas distintas que
-> conviven** (P14); **«día hábil» = lunes a viernes, sin festivos oficiales de México, en
-> `America/Mexico_City`** (P15); **un «ya lo mandé» sin confirmar se destaca como ALERTA a los 5 días
-> hábiles** (dial) en la cola de «por confirmar envío», y **no infla el conteo de «en camino»** porque no
-> mueve el estado (P17); **bajar un plazo en M10 no toca las fechas ya comunicadas** —el plazo se **congela
-> por solicitud** en el momento en que se fija— (P18); ~~**$500 y $1,000 son AMBOS inclusivos** *(esto
-> **corrige** mi supuesto: exactamente **$1,000 SÍ lleva guía nuestra**)*~~ *(**⚠ 5ª ronda, D31: queda UN
-> SOLO borde — MX$500 inclusivo; el de $1,000 quedó sin objeto**)* y **el mínimo NO se re-aplica tras
-> el cherry-pick** —gatea la **creación de la solicitud**, no la oferta— (P19); y el **recordatorio es UNO POR
-> PLAZO**, cada uno **una sola vez** (P21).
-> **⚠ Dos contradicciones señaladas, NO resueltas en silencio**: **(a)** ~~D27 **reusa el flujo de ajuste**
-> que D9 había dado por desaparecido, y el criterio **124** decía que en verificación *«no existe ajustar»* —
-> se **acota, no se borra**: lo que D9 mató fue **repreciar una línea** (**ningún monto unitario se mueve
-> jamás**), y lo que D27 trae es **confirmar un alcance reducido**, que es otra cosa~~ — **contradicción
-> DISUELTA por D30 (4ª ronda)**: sin re-confirmación, el ciclo de buylist **no usa `ajustada` en ningún
-> punto** y el criterio **124** vuelve a ser cierto **sin acotación**; **(b)** D29 **amplía la
-> definición de «posición»** que gobierna el tope (**stock + verificando + tránsito + comprometido**) frente
-> al *«stock + en camino»* que yo había escrito, y **convierte el «o» de D15 en una precedencia** (**con
-> bounty manda el bounty; el tope general de 10 solo aplica sin bounty**) — la definición de **«en camino»
-> que se MUESTRA** (solo `en_transito`, criterio 116) **no cambia**: son dos preguntas distintas, *«¿qué
-> viaja?»* y *«¿de cuántas copias ya soy responsable?»*. Ver **§P.2, §P.4, §P.5, §P.6, §P.10, §P.12, §P.13**
-> (actualizadas), §E, §H, M5/M10, criterios **16/124/127/133/144** (actualizados) y **147–160** (nuevos), y
-> decisiones **81–88**. ~~**Queda UNA pregunta abierta nueva (23)**, creada por D27: **qué plazo tiene el
-> vendedor para contestar «¿continúas?», qué significa su silencio y si ese plazo lleva recordatorio** — con
-> default propuesto y **no bloqueante para el arquitecto**.~~ **⚠ La pregunta 23 quedó CERRADA POR
-> ELIMINACIÓN en la 4ª ronda (D30)**: sin re-confirmación no hay plazo que fijar.
-> **⚠ Este bloque quedó corregido por la 4ª ronda (D30), que sigue abajo.**
-> **Requisito v2.1 — CUARTA RONDA: LA OFERTA ES CONDICIONAL DESDE EL PRINCIPIO, NO SE RE-PREGUNTA AL FINAL
-> (2026-09-01, UNA DECISIÓN CORRECTIVA DEL HUMANO — D30; supersede D27 y deja D28 SIN OBJETO):** el humano
-> detectó que **D27 estaba mal planteada de raíz** y la corrigió. **El error**: preguntarle al vendedor
-> *«¿quieres continuar?»* cuando se rechazan algunas cartas llega **en el peor momento posible** — **ya
-> compramos la etiqueta y ya tenemos sus cartas en la bóveda**. Ninguna respuesta es buena: si dice que no
-> hay que devolver todo y comernos el envío de ida; si no contesta, quedan **cartas ajenas atoradas sin
-> regla clara**. Y encima obligaba a **inventar un plazo nuevo** (justo la pregunta 23 que quedó abierta).
-> **(D30)** **la condición va al FRENTE, no la pregunta al final**: **la oferta es condicional por
-> naturaleza y eso se DECLARA en el correo de oferta**. El correo dice, **línea por línea**: *«compramos
-> estas N cartas a estos precios, **siempre que lleguen en Near Mint**; la que no llegue en NM **no se
-> compra** y **se te devuelve**»*. El vendedor **acepta ese trato —con su riesgo incluido— antes de que
-> compremos la etiqueta y antes de que empaque nada**. Después, al verificar, **el trato no cambió**: se
-> cumplió una condición **que ya estaba escrita y aceptada**, así que **no hay nada que re-preguntar**. Esto
-> **encaja con lo que este documento ya exigía**: la política **solo-NM** es requisito central y visible en
-> el **cotizador**, la **guía de envío** y los **términos** (§H) — D27 le montaba **una segunda confirmación
-> encima a un trato que ya era condicional**. **Qué pasa cuando algunas cartas fallan NM**: se rechazan
-> **una por una** con el **correo por carta que ya existe**, se paga **lo aprobado al precio ofertado** y las
-> rechazadas siguen la **regla de devolución vigente** de §H (**7 días a su costo**, **abandono a 30**).
-> **Sin estado nuevo, sin plazo nuevo, sin pregunta.** **Lo que NO se toca**: **el neto nunca es negativo**
-> (criterio **152**) y **si se rechaza TODO, absorbemos el envío** (D17, criterio **140**). **Efecto
-> colateral resuelto**: la validación entre diales del criterio **127** citaba
-> `umbral de guía × (1 − umbral de pregunta)`; **al desaparecer el umbral de pregunta esa fórmula perdió
-> base** y se **reformula** con la relación que sigue siendo cierta —**la tarifa de envío debe ser
-> estrictamente menor que el umbral de guía**, para que **ninguna oferta con todo aprobado pueda depositar
-> MX$0**— (marcado `SUPUESTO`, **pregunta abierta 24**, no bloqueante). Ver **§P, §P.1, §P.3, §P.5.1
-> (reescrita), §P.6, §P.10, §P.11** (actualizadas), **§E**, **§H**, **«Fuera de alcance»**, **M5/M10**,
-> criterios **16/124/127/150/151** (corregidos), criterio **161** (nuevo — el correo declara la condición por
-> línea) y decisión **89**. **Preguntas: la 6, la 16 y la 23 se re-anotan; se abre la 24.**
-> **⚠ Este bloque quedó corregido por la 5ª ronda (D31–D33), que sigue abajo.**
-> **Requisito v2.1 — QUINTA RONDA: UNA SOLA BANDA, EL OBJETIVO DEL BOUNTY OBLIGATORIO Y LA SOLICITUD QUE
-> NADIE OFERTA CADUCA (2026-09-01, TRES DECISIONES CORRECTIVAS DEL HUMANO — D31, D32, D33):**
-> **(D31) SE ELIMINA EL UMBRAL DE GUÍA — hay UNA SOLA BANDA.** El humano aclaró que **su intención siempre
-> fue mandar la guía SIEMPRE**: el umbral de **MX$1,000** era **una propuesta de este documento que él nunca
-> pidió**, y **queda eliminado**. **Desde el mínimo de MX$500, en TODA compra ponemos la guía y SIEMPRE se
-> descuenta del importe a pagar.** Con eso **las tres bandas pasan a dos** —**menos de $500: no se crea la
-> solicitud**; **$500 (inclusive) en adelante: se compra, ponemos la guía y se descuentan MX$180**— y la
-> banda intermedia (*«de $500 a $1,000 el vendedor paga su envío»*) **se retira**. **Requisito de
-> comunicación explícito del humano**: *«clarifica en todos lados que siempre se deduce del importe a
-> pagar»* — debe decirse en el **cotizador**, en el **correo de oferta** y en los **términos**, y **no como
-> letra chica**: en una oferta de **$500** los **$180** son el **36%**, el vendedor recibe **$320** y **tiene
-> que verlo ANTES de aceptar**. El **dial «umbral de guía» se retira** (superado, con su razón) y la
-> **validación cruzada del criterio 127 pierde su referente**: se **reformula** sobre la relación que sigue
-> siendo cierta — **`tarifa de envío` < `mínimo de compra`** (**MX$180 < MX$500**) —, conservando la
-> propiedad money-safe de que **una operación con TODO aprobado nunca deposita cero**. El humano **aceptó a
-> ojos abiertos** que en el piso de $500 el envío pese **36%**; **ambos siguen siendo diales** y, si duele,
-> se mueven. *(Con esto la **pregunta 24 queda CERRADA**: el margen que pedía decidir es **ninguno**.)*
-> **(D32) El OBJETIVO del bounty pasa a ser OBLIGATORIO.** Este documento había señalado que una variante con
-> **bounty vivo y sin objetivo** **nunca** pinta «no comprar», por más copias que acumule (D29 le da
-> precedencia al bounty y el tope general de 10 no aplica). **El humano lo cierra**: dar de alta un bounty
-> **exige capturar su objetivo** (*«hasta tener N en inventario»*). Con eso **el caso «bounty sin meta» deja
-> de existir** y **el tope general siempre tiene con qué compararse**. ~~**NO se construye panel de bounties**
-> —el humano lo pidió y decidió dejarlo como **proyecto aparte**—: aquí **solo se exige el objetivo donde hoy
-> se configuran**.~~
-> **⚠⚠ 14ª RONDA (D52) — ESA ÚLTIMA FRASE QUEDA REABIERTA POR EL PROPIO HUMANO, Y LO DEMÁS DE D32 SIGUE
-> INTACTO.** Lo tachado **era correcto para SU pase**: lo que se decidía entonces era **exigir el objetivo**, y
-> una pantalla nueva ahí habría sido alcance que nadie pidió. **Lo que lo reabre no es un cambio de opinión: es
-> algo que aquella decisión no podía conocer** — por §N.6 **un bounty rebasado desaparece de todas las
-> superficies**, así que **puede estar encendido y ser invisible**, y el dueño **cree que paga premium por una
-> carta y no lo paga**. **Entra SOLO la pantalla de gestión: ver la lista completa (activos, rebasados,
-> apagados, completados) y editar fila a fila.** **Siguen FUERA el tablero y los reportes de avance contra
-> objetivo.** **El objetivo obligatorio no cambia en nada** — se sigue exigiendo donde hoy se configuran los
-> bounties, y ahora **también** desde la consola, que reusa esa misma escritura. Ver **D52**, §N.6, criterios
-> **164** y **184**.
-> **⚠ D57 (18ª ronda, 2026-09-19 — BORRADOR PARA APROBACIÓN DEL HUMANO) — la consola gana ELIMINAR (Q2) y Q1
-> corrige su guarda de precio**: eliminar es **por fila** (sin compras ⇒ se borra; con compras ⇒ se
-> **despublica**, estado `despublicada`, sin tocar costo ni P/L — `INV-BOUNTY-COST`); y el precio del bounty
-> **nunca se exige por encima del mercado** (criterio 91, piso efectivo `min(tarifa_estándar, mercado)`). Ver
-> **D57**, criterios **91** y **184**, y `API_CONTRACT §M2-B.8/B.9/B.10`.
-> **(D33) La solicitud que nadie oferta CADUCA a los 7 días hábiles.** Al re-anclar el barrido de 30 días
-> —correcto: **`cotizada` ahora significa «esperando que NOSOTROS ofertemos»**, y cerrarla por **inacción
-> nuestra** sería culpar al cliente— **quedó un hueco: nada cerraba ya una `cotizada`**, y un cliente podía
-> esperar **indefinidamente** sin recibir respuesta de ningún tipo. **A los 7 días hábiles desde su creación,
-> una solicitud que nadie ofertó caduca** y **sale un correo al cliente diciendo explícitamente que NO
-> PROCEDEREMOS con la oferta** —no un *«no pudimos procesar»* vago: **debe saber a qué atenerse y que puede
-> volver a cotizar cuando quiera**—. Se cuenta en **días hábiles**, por consistencia con D14. **Dos
-> consecuencias que este documento escribe en vez de dejar mintiendo**: **(1)** es un **CUARTO correo
-> obligatorio** —distinto de la expiración: no es *«aceptaste y no mandaste»*, es *«no procederemos»*—, así
-> que **los correos del ciclo pasan de tres a CUATRO** (§P.3, §H, criterios 16/142 y la pregunta 6, que se
-> había cerrado con «tres») *(**⚠ 8ª ronda: y de CUATRO a CINCO** — el mismo razonamiento, aplicado a la
-> **cancelación**, que también decía una cosa falsa metida dentro del correo de expiración; §P.3, criterio
-> **173**)*; **(2)** es **un dial más** — se fue el **umbral de guía** (D31) y entra este
-> **plazo**, así que la tabla de §P.10 **vuelve a OCHO diales** *(**⚠ 6ª ronda, D34: pasan a NUEVE** — entra
-> el **neto mínimo para emitir**, MX$200)*.
-> **Además, tres puntos que el arquitecto dejó señalados y el humano ya resolvió**: **(a)** el **costo real
-> de la etiqueta** **se puede capturar (opcional)** al confirmar el envío, con **fallback a la tarifa
-> congelada de MX$180** si no se captura — **el P&L usa el real cuando existe y la tarifa cuando no**, y
-> **lo que se le descuenta al vendedor NO cambia nunca** (sigue siendo la tarifa congelada, D25); esto
-> **cierra la contradicción criterio 135 × D19** que este documento tenía abierta; **(b)** los **demás
-> puntos del arquitecto** —quién cancela la guía, a qué estado vuelve una oferta cancelada, que `expirada`
-> selle la fecha de cierre y la línea sin precio que aporta 0 al mínimo— **quedan como él los resolvió** y
-> este documento **no los toca**; **(c)** ~~los **estados terminales pasan de cuatro a CINCO** con la
-> caducidad~~ **⚠ SUPERADO en la 6ª ronda: siguen siendo CUATRO** — la caducidad es **`expirada` con motivo
-> `no_offer`**, resolución de la pregunta 27 (§P.1, §P.9, M5, criterios 113/129/145/169).
-> **⚠ Coherencia que este documento SEÑALA en vez de resolver en silencio**: al desaparecer la banda donde el
-> vendedor pagaba su envío, **una oferta recortada por cherry-pick por debajo de MX$180 deposita MX$0 con
-> TODO aprobado** —el mínimo **no se re-aplica a la oferta** (criterio 158c)—, cosa que antes no podía pasar
-> en esa banda. La protección que queda es **informativa y sí existe**: el vendedor **ve el neto antes de
-> aceptar** (D31) y puede decir que no. **Se abre la pregunta 25** por si el humano quiere además un **piso
-> de neto** para emitir la oferta. *(**⚠ CERRADA en la 6ª ronda: SÍ lo quiere — MX$200 de neto, D34.**)* Ver **§P.3, §P.4, §P.10, §P.12** (corregidas), **§P.1, §P.2, §P.5, §P.6,
-> §P.9, §P.11**, **§E**, **§H**, **§N.6**, **«Fuera de alcance»**, **M5/M10**, criterios
-> **16/113/122/123/127/129/133/134/135/137/142/145/149/153/158** (corregidos), criterios **162–166**
-> (nuevos) y decisiones **90–92**. **Preguntas: se CIERRA la 24; se abren la 25, la 26 y la 27.**
-> **⚠ Este bloque quedó corregido por la 6ª ronda (D34–D35 + la resolución de la 27), que sigue abajo.**
-> **Requisito v2.1 — SEXTA RONDA: PISO DE NETO PARA EMITIR, EL BOUNTY NACE CON META 2 Y LA CADUCIDAD ES UN
-> MOTIVO, NO UN ESTADO (2026-09-01, DOS DECISIONES DEL HUMANO — D34, D35 — MÁS LA RESOLUCIÓN DE LA
-> PREGUNTA 27 POR EL ARQUITECTO):**
-> **(D34) SÍ hay piso, y es MX$200 de NETO.** Este documento había señalado (pregunta 25) que, con una sola
-> banda, **un cherry-pick chico puede depositar MX$0 sin rechazar ninguna carta**: la validación
-> `tarifa < mínimo` protege la **solicitud completa**, no la **oferta recortada**. **El humano lo cierra con
-> un piso: no se puede EMITIR una oferta cuyo NETO sea menor a MX$200.** El operador **compra más líneas o
-> no oferta**. **Dónde vive el bloqueo, dicho con precisión**: en la **emisión de la oferta** —**no** en el
-> dial y **no** en la aceptación—. Los **diales no ven el recorte** que hizo el operador, y **el correo no
-> debe llegar a mandarse**: no se trata de que el vendedor rechace una oferta ridícula, sino de que **esa
-> oferta no exista**. **La aritmética que lo sostiene** *(el humano la puso sobre la mesa; se registra
-> porque es lo que hace defendible el número)*: una solicitud cuesta **~$217** de operar —etiqueta **$180**
-> más tiempo de operador—; comprando al **40% de referencia** hace falta un **bruto de ~$362** para que la
-> operación **se pague sola**, lo que deja **~$182 de neto**. **MX$200 queda justo arriba** y exige un
-> **bruto de ~$380**: **conserva el margen de cherry-pick sobre lotes grandes** sin permitir la oferta
-> absurda. **No es un bloqueo nuevo**: el arquitecto ya había bloqueado el caso **`neto ≤ 0`**; **esto lo
-> SUBE a MX$200**, es el mismo bloqueo con número. **Es un dial más**, así que la tabla de §P.10 pasa de
-> **OCHO a NUEVE**. **Lo que NO cambia**: el **piso de cero** (criterio **152**) sigue existiendo como
-> invariante **al pagar** —una oferta ya emitida cuyo bruto aprobado caiga por debajo del envío **sigue
-> depositando MX$0 y nunca deuda**—; D34 gobierna **qué se puede emitir**, no **cuánto se paga**.
-> **(D35) El objetivo del bounty por defecto es 2.** El humano fijó el número que faltaba en D32: **«hasta
-> tener 2 en inventario»**. Es **(a)** el **valor por defecto** al dar de alta un bounty y **(b)** el valor
-> con el que **se llenan los bounties viejos** que hoy no tienen meta — **NO se desactivan** ni se sacan de
-> la vitrina *(esto **corrige el supuesto** que este documento había redactado, que los trataba como «sin
-> bounty» hasta que alguien los editara)*. **Sigue siendo editable por bounty**: **2 es el default, no un
-> tope rígido**. Con eso la **pregunta 26 queda CERRADA**.
-> **(Pregunta 27 — resuelta por el ARQUITECTO, no por este documento):** decidió **reusar el estado terminal
-> `expirada`** y **persistir el motivo en columna propia** (`no_offer` = nadie ofertó / `not_shipped` =
-> aceptó y no mandó), **en vez de crear un quinto terminal**. **Su razón, que este documento adopta**: *un
-> estado que se comporta idéntico a otro en todas las reglas —cierre, purga de INE, cuota, «no se revive»—
-> **no es un estado, es un atributo**; pero **la causa sí importa** para el correo y **no es derivable**.*
-> **Consecuencia: los estados terminales siguen siendo CUATRO** (`pagada`, `rechazada`, `expirada`,
-> `abandonada`). **`caducada` como estado propio era un SUPUESTO de nombre de este documento y queda
-> SUPERADO**; el **requisito de negocio no cambia ni un ápice**: los **dos desenlaces tienen que ser
-> distinguibles** —**correos distintos** y **reportes que los separen**— y eso lo cumple el motivo.
-> **Sus respuestas a los dos bordes del plazo**: **(b)** **SÍ** caduca aunque haya una oferta **esperando
-> autorización**, y **el barrido ANULA esa oferta al hacerlo** *(supuesto confirmado, con el verbo
-> explícito)*; **(c)** ~~el reloj **NO reinicia** al cancelar una oferta emitida — **cuenta desde la creación
-> de la solicitud** *(**⚠ esto CORRIGE el supuesto** que este documento había redactado, que lo reiniciaba
-> desde la cancelación)*~~ **⚠ REVERTIDO EN LA 7ª RONDA POR EL HUMANO (D38): el reloj SÍ se reinicia — la
-> solicitud vuelve a la fila con los 7 días hábiles COMPLETOS.** El supuesto original de este documento
-> resultó ser el vigente; **(a)** y **(b)** de la pregunta 27 **siguen intactas**.
-> Ver **§P.1, §P.2, §P.3, §P.3.1, §P.5.1, §P.9, §P.10, §P.11, §P.12**, **§N.6**, **§H**, **«Fuera de
-> alcance»**, **M5/M10**, criterios **16/113/127/129/145/152/158/164/165** (corregidos), criterios
-> **167–169** (nuevos) y decisiones **94–96**.
-> **Preguntas: se CIERRAN la 25, la 26 y la 27. El bloque v2.1 queda sin preguntas abiertas propias.**
+> *Resúmenes históricos retirados de esta cabecera:* rondas 4ª, 6ª y 7ª del bloque v2.1 (D30, D34–D40) el
+> 2026-10-25 (texto en git `ee8d5c73`); y el 2026-10-29 el estado de la 3ª ronda (2026-08-31) más los resúmenes de
+> los requisitos v1.2–v2.0 (fotos/INE, rareza, acabado, invitado, sellado, multi-parte, tiers, gancho de grading,
+> precio puro, siete presentaciones de sellado) y de las rondas 1ª, 2ª, 3ª, 5ª y 6ª del ciclo de buylist (D1–D29,
+> D31–D35) (texto en git `ce80723d`). Sus reglas viven en §E, §E.1, §H, §I–§P, «Usuarios y roles», M1–M10 y los
+> criterios que citaban; las decisiones numeradas siguen en «Decisiones tomadas»; el registro, en
+> `docs/DECISIONES.md`.
 > Este documento manda sobre el contrato y sobre el código (ver `CLAUDE.md` › Regla de conflicto).
 
 ## Idea en una frase
@@ -7717,7 +7192,7 @@ disputas (F-2) **se retira** (V.5). Criterios **411–415**.
 **(c) `R69-1`:** el motivo escrito del reembolso **total** tiene tope de **500 caracteres** (el de toda nota de ese
 módulo); más largo ⇒ se rechaza sin reembolsar. Criterio **416**.
 
-### W. Finanzas para el dueño — lo que falta para leer el negocio en pesos (transversal — NUEVO 2026-10-04, sesión 5 · ⚠️ BORRADOR de product-owner, con preguntas P-FIN abiertas)
+### W. Finanzas para el dueño — lo que falta para leer el negocio en pesos (transversal — NUEVO 2026-10-04, sesión 5 · P-FIN-1…7 resueltas con su default el 2026-10-04, §W.7)
 
 > **Fuente:** petición del dueño, tal como la relayó el orquestador: que un agente *«se ponga en mis zapatos…
 > desde el punto de vista financiero… y vea qué falta»*. El informe que la responde es de **tester-e2e, sobre
@@ -7844,52 +7319,59 @@ Detalles y defaults:
 - **Quién puede ver** Finanzas, Reportes y Caja del día no cambia respecto de M7 hoy *(NO MEDIDO por PO el permiso
   exacto de hoy; el arquitecto lo confirma — default: solo súper-admin)*.
 
-#### W.7 Preguntas de §W
+#### W.7 Decisiones de §W
 
-Ver la sección final **«Preguntas — finanzas para el dueño (§W, 2026-10-04)»**: P-FIN-1 a P-FIN-7, cada una con
-default. Ninguna bloquea al arquitecto.
+P-FIN-1 a P-FIN-7 quedan con su **default**, que es lo que dicen W.2–W.5 donde cita «default de P-FIN-n»
+(`HECHOS.md` fila 2026-10-04 «Portada: se cobra el precio que el cliente VIO…»: «se le dijo "si no me dices nada,
+se queda así"»). Registro en `docs/DECISIONES.md`.
 
-### X. Portada rápida — el precio exhibido se precalcula, no se calcula en cada visita (transversal — NUEVO 2026-10-04, sesión 5 · ⚠️ BORRADOR de product-owner, con preguntas P-POR abiertas)
+### X. Portada rápida — el precio exhibido se precalcula, no se calcula en cada visita (transversal — NUEVO 2026-10-04, sesión 5 · P-POR-1…4 resueltas el 2026-10-04: la 3 y la 4 por el dueño, la 1 y la 2 con su default · norma: `API_CONTRACT §DYN.5`)
 
-> **Fuente:** `HECHOS.md`, fila **2026-10-04** «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA
-> (no por petición), más el índice.» Palabras del dueño, literales: *«¿por qué no se deja una semana con todo y la
-> volatilidad? no debería de moverse mucho, o que se calcule una vez al día no por solicitud. Más el índice»*.
-> La misma fila trae el diagnóstico medido por backend (local, 7.352 piezas): cada visita a la portada carga y
-> precia **todo** el inventario publicado (`catalog.service.ts:1369,1428`), **~1.2–1.9 s**, y crece con el
-> inventario. Y trae la **lectura del orquestador, a confirmar**, que esta sección adopta como default (P-POR-1).
-> **Criterios: 294–299.** 💰 Toca el precio que ve el cliente ⇒ tres veredictos.
+> **Fuente:** `HECHOS.md`, filas **2026-10-04** «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA
+> (no por petición), más el índice.» y «Portada: se cobra el precio que el cliente VIO (no se actualiza al
+> pagar)…». Palabras del dueño, literales: *«¿por qué no se deja una semana con todo y la volatilidad? no debería
+> de moverse mucho, o que se calcule una vez al día no por solicitud. Más el índice»* y *«se le cobra al cliente el
+> precio que vio, no vale la pena actualizar»*. Diagnóstico medido por backend (local, 7.352 piezas): cada visita
+> a la portada carga y precia **todo** el inventario publicado (`catalog.service.ts:1369,1428`), **~1.2–1.9 s**, y
+> crece con el inventario. **Criterios: 294–299.** 💰 Toca el precio que ve el cliente ⇒ tres veredictos.
 
 #### X.1 Qué cambia, en lenguaje llano
 
-- **El precio que se exhibe** (portada, catálogo y ficha de carta — *SUPUESTO: las tres, para que el cliente nunca
-  vea dos precios distintos de la misma pieza antes del carrito; P-POR-2*) **se calcula por adelantado y se
-  guarda**. Una visita **lee** ese precio; no lo recalcula.
-- **Cuándo se recalcula** *(default de P-POR-1)*:
-  - **una vez al día**, de madrugada, después de que entra el precio de mercado del día *(hora exacta: la fija el
-    arquitecto midiendo el horario de la actualización automática; NO MEDIDO por PO)*;
-  - y además, **enseguida**, después de: **«Actualizar precios»**, **«Publicar todo»**, **publicar una pieza**,
-    **cualquier cambio de un dial que mueva el precio de venta** (M10) y **cualquier precio puesto a mano** (precio
-    final del sellado, precio por pieza).
-- **La disponibilidad sigue en vivo**: una pieza vendida o apartada deja de ofrecerse como hoy, sin esperar al
-  recálculo.
-- **El cobro siempre recalcula**: el carrito y el checkout cotizan contra el servidor como hoy, y se cobra el
-  precio **actual**.
+- **El precio que se exhibe** (portada, catálogo y ficha de carta —P-POR-2: las tres, para que el cliente nunca
+  vea dos precios distintos de la misma pieza antes del carrito—) **se calcula por adelantado y se guarda**. Una
+  visita **lee** ese precio; no lo recalcula. El checkout lee **el mismo** precio guardado.
+- **Cuándo se recalcula** *(P-POR-1)*:
+  - **una vez al día**, de madrugada, antes del cambio diario de Destacadas (§DYN.1; hora exacta en
+    `API_CONTRACT §DYN.5.3`);
+  - y además, **enseguida**, después de: **«Actualizar precios»** (a mano), **«Publicar todo»**, **publicar una
+    pieza**, **cualquier cambio de un dial que mueva el precio de venta** (M10) y **cualquier precio puesto a mano**
+    (precio final del sellado, precio por pieza).
+  - Las actualizaciones **automáticas** del precio de mercado **no** mueven lo exhibido: entran en el siguiente
+    recálculo diario.
+- **La disponibilidad sigue «en vivo»**: una pieza vendida o apartada deja de ofrecerse sin esperar al recálculo.
+  En listas públicas (portada, catálogo) eso tarda **hasta 60 s**; al pagar es **exacto** (una pieza ya vendida no
+  se cobra).
 
-#### X.2 Si el precio exhibido y el cobrado difieren
+#### X.2 Se cobra el precio que el cliente vio
 
-*Medido el 2026-10-04 por lectura:* el carrito guarda **solo identificadores** de pieza, sin precio
-(`frontend/src/lib/cart.ts:41-48`), y el checkout pide la cotización al servidor cada vez
-(`frontend/src/app/[locale]/(storefront)/checkout/GuestCheckoutView.tsx:103-104`). **Hoy no hay aviso** de que un
-precio cambió (búsqueda de textos de «precio cambió» en carrito y checkout: sin resultados; los que existen son del
-carrito de **venta** de buylist). Hasta hoy no hacía falta, porque exhibido y cobrado salían del mismo cálculo.
+**Regla del dueño** (P-POR-3, `HECHOS.md` 2026-10-04 «Portada: se cobra el precio que el cliente VIO…»): *«se le
+cobra al cliente el precio que vio, no vale la pena actualizar»*. Sin aviso y sin re-cobrar. Cómo se cumple:
 
-- **Se cobra el precio actual** (el que da la cotización en el checkout), y el cliente lo ve **antes de pagar**,
-  como hoy.
-- *(Default de P-POR-3:)* si el precio de una pieza en el carrito o checkout **difiere** del que se exhibía, se
-  muestra un aviso en esa línea: **«El precio de esta carta cambió: antes MX$A, ahora MX$B»** (texto final de
-  ux-ui). Sin aviso, el cliente podría pagar más de lo que vio sin notarlo.
+- El carrito recuerda el precio que el cliente **vio** en la teja o la ficha desde la que añadió la pieza; el
+  servidor lo **compara** con lo que él mismo publicó (nunca cree un número que no publicó).
+- **Si el precio no cambió**, se cobra ese.
+- **Si el recálculo lo SUBIÓ**, el cliente paga **lo que vio** durante la **gracia** que sigue al recálculo.
+- **Si el recálculo lo BAJÓ**, paga **el más bajo**. Nunca paga más del precio vigente.
+- **Gracia: 24 h** desde el recálculo que cambió el precio. Es un **dial** de M10 (solo súper-admin, auditado;
+  rango en `API_CONTRACT §DYN.3`).
+- *Ejemplo:* el cliente vio una carta a **MX$500**; el recálculo de hoy la sube a **MX$550**. Si paga dentro de las
+  24 h siguientes, paga **MX$500**. Si el recálculo la bajó a **MX$450**, paga **MX$450**.
+- *(SUPUESTO, lectura del arquitecto en `API_CONTRACT §DYN.8`)* **Pasada la gracia** (el carrito se quedó más de
+  24 h tras el recálculo), se cobra el precio **vigente**, y la línea lo dice antes de pagar («antes MX$A, ahora
+  MX$B»; texto de ux-ui). La misma línea aparece cuando el precio **bajó**. Así el cliente nunca paga un número
+  distinto del que ve en pantalla antes de pagar. El dueño no habló de estos dos casos.
 
-#### X.3 Tiempos objetivo (default de P-POR-4)
+#### X.3 Tiempos objetivo (P-POR-4: ver también §DYN.3)
 
 - La **respuesta del servidor** para la portada y para una página del catálogo: **p95 < 500 ms** con un inventario
   publicado del tamaño medido (**7.352 piezas**) y **sigue < 500 ms** con el doble — es decir, ya **no crece** con
@@ -7897,7 +7379,7 @@ carrito de **venta** de buylist). Hasta hoy no hacía falta, porque exhibido y c
 - El recálculo tras una acción del dueño termina en **≤ 5 minutos** *(SUPUESTO)*; mientras tanto la tienda sigue
   sirviendo el precio anterior, nunca una página vacía ni un error.
 
-### Y. «Joyas para gradear» con cartas baratas (transversal — NUEVO 2026-10-04, sesión 5 · ⚠️ BORRADOR de product-owner, con preguntas P-JOY abiertas)
+### Y. «Joyas para gradear» con cartas baratas (transversal — NUEVO 2026-10-04, sesión 5 · P-JOY-1…6 resueltas con su default el 2026-10-04, `HECHOS.md` fila «Portada: se cobra el precio que el cliente VIO…»)
 
 > **Fuente:** `HECHOS.md`, fila **2026-10-04** «"Joyas para gradear" debe incluir cartas baratas; precio PSA 10/9
 > de TODAS las cartas publicadas, por turnos, cada carta 1 vez por semana.» Palabras del dueño, literales: *«si
@@ -7931,9 +7413,11 @@ carrito de **venta** de buylist). Hasta hoy no hacía falta, porque exhibido y c
 
 **Hoy** (§O.2 y §O.7): entra si **PSA 9 ≥ 1.3 × (precio + costo de gradeo)** —con escalón 1, **1.3 × (L + MX$700)**—
 **y** **PSA 10 ≤ 100 × L**. Una carta de MX$25 necesita un PSA 9 de **≥ MX$943** y a la vez un PSA 10 de **≤ MX$2,500**:
-el bulk queda fuera por construcción (medido por backend, según el encargo).
+el bulk queda fuera por construcción (medido por backend, según el encargo). El 30 % es el dial `minUpsidePct`
+(§O.2); si se baja a 15 % es la pregunta abierta **P-VIT-1** («Preguntas abiertas»).
 
-**Propuesta (default de P-JOY-1)** — una carta raw publicada y disponible entra a la vitrina si:
+**Regla aceptada (default de P-JOY-1; no se construye en el alcance de §DYN)** — una carta raw publicada y
+disponible entra a la vitrina si:
 1. **PSA 10 ≥ 20 × el precio de la carta**, **y**
 2. **PSA 10 ≥ MX$1,000**, **y**
 3. el dato pasa la **confianza de §O.7** como hoy: fresco, con muestra suficiente (`minSalesSample`), PSA 10 >
@@ -7974,7 +7458,8 @@ El orden es interno, como hoy.
 > propuesta del orquestador, ajustables). También rigen las filas 2026-10-04 «"Joyas para gradear" debe incluir cartas
 > baratas…», «Portada: se cobra el precio que el cliente VIO…» (home < 1 s, lo demás carga después), «Portada y
 > catálogo: el precio exhibido se calcula UNA VEZ AL DÍA…» y «REGLA GENERAL: … LO MÁS AUTOMÁTICOS POSIBLE».
-> **Criterios: 920–939.** Toca lo que ve el cliente en la portada; no toca cobro ni precio.
+> **Criterios: 920–939.** Toca lo que ve el cliente en la portada; no toca cobro ni precio (el precio del día y el
+> precio que el cliente vio son de §X, que el contrato construye en el mismo corte, `API_CONTRACT §DYN.5`).
 
 #### DYN.1 Destacadas: 10 piezas que cambian cada día, iguales para todos
 
@@ -7990,14 +7475,17 @@ siempre las mismas mientras el inventario no cambie.
 - **Cada día, 10 lugares**: **8 al azar del pool** + **2 recién llegadas**. Nadie elige a mano cuáles; no se repite una
   pieza en el mismo día.
 - **Recién llegada** *(SUPUESTO)*: suelta o gradeada **publicada por primera vez en los últimos 7 días** (volver a
-  publicar una pieza retirada no cuenta). Las 2 se sortean entre las **10 de mayor precio** de esa ventana, para que no
+  publicar una pieza retirada no cuenta). Se decide **por grupo de la rejilla** (lo que pinta una teja: misma carta,
+  tipo, grado y acabado): el grupo es recién llegado solo si su pieza **más antigua aún publicada** se publicó por
+  primera vez dentro de la ventana; un grupo que ya tenía una pieza vieja publicada no «llega». Las 2 se sortean entre las **10 de mayor precio** de esa ventana, para que no
   salgan cartas de MX$5 ni las mismas toda la semana. Ocupan los **lugares 1 y 2** con la etiqueta **«Recién
   llegada»** (texto final de ux-ui). Si hay menos de 2, sus lugares los toma el pool.
 - **Cambio diario a las 06:00, hora del centro de México** *(SUPUESTO; siempre después del recálculo diario del
   precio de §X.1)*. La selección y su orden se deciden **una vez** y son los mismos **todo el día para todos**: con o
   sin cuenta, en español o inglés, en celular o computadora, y por más que se recargue la página.
 - **Durante el día:**
-  - Una destacada que se **vende o se aparta** sale del carrusel **en vivo** (la disponibilidad sigue en vivo, §X.1).
+  - Una destacada que se **vende o se aparta** sale del carrusel **en vivo**: hasta **60 s** después, para todos
+    (§X.1).
     Su lugar **no se rellena** hasta el día siguiente *(SUPUESTO: rellenarlo haría que dos clientes vieran carruseles
     distintos)*. Si su grupo tiene más unidades, sigue.
   - Lo que se publica, los cambios de precio y los cambios de diales entran **en el siguiente cambio diario**. Una
@@ -8025,11 +7513,16 @@ fijo de identificador, cortado por el dial `graded_estimate_ingest_max_cards_per
 **3.000** —valor por defecto de P-JOY-5, que queda según `HECHOS.md` fila 2026-10-04 «Portada: se cobra el precio
 que el cliente VIO…» (el dueño no respondió y se le dijo «si no me dices nada, se queda así»)—). Esta sección la
 precisa:
-- **Orden del turno:** primero las **nunca consultadas** (de la publicada hace más tiempo a la más nueva); después, la
-  que lleva **más días sin consultarse**.
-- **Una vez por semana, no más:** una carta consultada hace menos de 7 días **no se vuelve a pedir** aunque sobren
-  créditos.
-- Una carta que deja de estar publicada **sale del turno**; si vuelve, conserva la fecha de su última consulta.
+- **La unidad del turno es la colección (set), no la carta:** el proveedor responde y **cobra la colección entera**,
+  así que se pide una colección que tenga al menos una suelta publicada, y al responder **todas** sus cartas
+  publicadas quedan consultadas ese día. Pedir carta por carta pagaría la misma colección varias veces por semana.
+- **Orden del turno:** primero las colecciones **nunca consultadas** (la que tiene la carta publicada hace más
+  tiempo, primero); después, la que lleva **más días sin consultarse**.
+- **Una vez por semana, no más:** una colección consultada hace menos de 7 días (días naturales, hora del centro de
+  México) **no se vuelve a pedir** aunque sobren créditos. Una carta nueva de una colección ya consultada espera a
+  que le toque a su colección (dentro de 7 días).
+- Una carta que deja de estar publicada **sale del turno**; si vuelve, conserva la fecha de su última consulta y
+  espera el turno de su colección.
 - Si la consulta **falla sin respuesta** del proveedor, la carta conserva su lugar y se reintenta en la siguiente
   corrida; si el proveedor **respondió sin dato**, cuenta como consultada y vuelve en 7 días. Si una consulta fallida
   gasta créditos: **NO MEDIDO** (lo mide backend en los registros del proveedor).
@@ -8037,14 +7530,16 @@ precisa:
   El dueño mueve **un solo dial** (créditos al día); el corte por corrida no puede dejar cartas fuera de la semana si
   los créditos alcanzan (cómo se reparten entre corridas lo decide el arquitecto).
 - **Aviso automático al dueño cuando no alcanza:** si con el tope no se cubren todas en 7 días (por cálculo o porque
-  ya pasó), aparece **un** aviso en el panel (centro de avisos, §R) con las cifras. Ejemplo: *«Con 3,000 créditos al
+  ya pasó), aparece **un** aviso al dueño en el panel —un aviso de control del gasto de **§Z** (no el centro de
+  avisos del cliente de §R)— con las cifras. Ejemplo: *«Con 3,000 créditos al
   día no alcanza para revisar tus 11,200 cartas cada semana: tardarán 8 días. Para cubrir la semana, sube el tope a
   3,200.»* No se repite en cada corrida y **se retira solo** cuando vuelve a alcanzar. Sin correo *(SUPUESTO: los
   correos al dueño se limitaron a los que él pidió, `HECHOS.md` fila «Control del gasto — límites aceptados…»)*.
 - **La regla de la vitrina NO cambia en este alcance:** sigue la de §O.2/§O.7
   (`backend/src/common/graded-estimate.ts:941-949`). La regla nueva de §Y.3 queda para otro alcance. Consecuencia que
   el dueño debe saber: con los turnos **todas** las cartas tienen precio PSA, pero una barata solo entra a la vitrina
-  si pasa la regla de hoy (p. ej. una de MX$25 necesita un PSA 9 de al menos MX$943, §Y.3).
+  si pasa la regla de hoy (p. ej. una de MX$25 necesita un PSA 9 de al menos MX$943, §Y.3; bajar ese 30 % es la
+  pregunta abierta P-VIT-1).
 
 #### DYN.3 Portada rápida: lo primero visible en menos de 1 segundo
 
@@ -14059,11 +13554,16 @@ calcula UNA VEZ AL DÍA…» — §X. 💰 Precio al cliente: tres veredictos.)*
    todo»**, publicar una pieza, cambiar un dial que mueve el precio (p. ej. el piso o el markup) y poner un precio
    final a mano a un sellado, el exhibido cambia en **≤ 5 minutos**, y durante ese lapso la tienda sirve el precio
    anterior sin errores ni páginas vacías. El precio exhibido es el **mismo** en portada, catálogo y ficha.
-297. **La disponibilidad sigue en vivo** *(§X.1)*: una pieza comprada deja de ofrecerse en portada y catálogo **igual
-   que hoy**, sin esperar al recálculo.
-298. 💰 **Se cobra el precio actual y el cliente lo sabe** *(§X.2)*: con una pieza exhibida a MX$A y su precio
-   actual cambiado a MX$B (sin recálculo del exhibido) ⇒ el checkout cobra **MX$B**, lo muestra antes de pagar y
-   *(default P-POR-3)* la línea dice que el precio cambió de MX$A a MX$B. Con A = B, no hay aviso.
+297. **La disponibilidad sigue en vivo** *(§X.1)*: una pieza comprada deja de ofrecerse en portada y catálogo a
+   más tardar **60 s** después (al recargar), sin esperar al recálculo; al pagar, una pieza ya vendida **no** se
+   cobra.
+298. 💰 **Se cobra el precio que el cliente vio** *(§X.2, P-POR-3)*: con una carta vista y añadida al carrito a
+   **MX$500**: (a) sin recálculo ⇒ cobra **MX$500**, sin aviso; (b) el recálculo la sube a **MX$550** y el cliente
+   paga dentro de las **24 h** siguientes ⇒ cobra **MX$500**, sin aviso; (c) el recálculo la baja a **MX$450** ⇒
+   cobra **MX$450**; (d) *(SUPUESTO de §X.2)* paga pasadas las 24 h de un recálculo que la subió a MX$550 ⇒ cobra
+   **MX$550** y la línea lo dice antes de pagar; (e) un «precio visto» que el servidor nunca publicó (p. ej.
+   MX$1) ⇒ cobra el vigente. El cobro nunca supera el precio vigente. Cambiar la gracia de 24 h es un dial de M10
+   (solo súper-admin), queda en la auditoría y rige desde ese momento.
 299. **Lo que NO cambia con §X — por ausencia**: el cálculo del precio (IVA, diales, piso, pisos por rareza) da el
    **mismo** número que hoy para la misma entrada; el carrito sigue podando piezas no disponibles; el cobro sigue
    resolviendo el precio en el servidor.
@@ -15380,10 +14880,11 @@ product-owner con búsqueda en `PROJECT.md` el 2026-10-29.)*
    del día siguiente la selección es otra.
 923. **Recién llegadas** *(§DYN.1)*: con piezas publicadas por primera vez hace 1, 3 y 8 días, la de hace 8 nunca sale
    como recién llegada; las elegidas ocupan los lugares 1 y 2 con la etiqueta «Recién llegada»; ninguna pieza sale dos
-   veces. Una pieza retirada y vuelta a publicar no cuenta como recién llegada. Sin recién llegadas, los 10 lugares
-   salen del pool.
+   veces. Una pieza retirada y vuelta a publicar no cuenta como recién llegada. Se decide por grupo de la rejilla:
+   una pieza nueva de un grupo que ya tenía otra publicada hace 8 días no hace recién llegado al grupo. Sin recién
+   llegadas, los 10 lugares salen del pool.
 924. **Venta durante el día** *(§DYN.1)*: al comprar una destacada de una sola unidad, desaparece del carrusel de
-   **todos** sin esperar al día siguiente, las otras 9 quedan en el mismo orden y su lugar no se rellena; al día
+   **todos** a más tardar **60 s** después (al recargar), sin esperar al día siguiente; las otras 9 quedan en el mismo orden y su lugar no se rellena; al día
    siguiente hay 10 otra vez. De un grupo con 2 unidades, vender 1 no la quita.
 925. **Inventario chico** *(§DYN.1)*: con 5 piezas elegibles, el carrusel muestra las 5 sin repetir; con 0, se ve
    como hoy cuando no hay piezas.
@@ -15396,12 +14897,14 @@ product-owner con búsqueda en `PROJECT.md` el 2026-10-29.)*
 928. **Lo que no cambia** *(§DYN.1)*: las pruebas de la rotación de 5 s y de la pausa por intervención pasan **sin
    editarlas**; la pasada recorre las 10 tejas; la burbuja «En PSA 10 vale ≈…» y la nota al pie salen igual que hoy
    para las mismas cartas, calculadas sobre la lista que pinta el carrusel.
-929. **Orden del turno PSA** *(§DYN.2)*: con 30 sueltas publicadas (5 nunca consultadas y 25 con fechas de última
-   consulta distintas) y créditos para 10 cartas, la corrida pide las 5 nunca consultadas y luego las 5 de consulta más
-   vieja; no pide ninguna consultada hace menos de 7 días.
-930. **Una vez por semana, no más** *(§DYN.2)*: con créditos de sobra y 14 días simulados, cada suelta publicada se
-   consulta **exactamente 2 veces**, separadas al menos 7 días (registros del proveedor). Junto con el criterio 300:
-   en 7 días, cartas consultadas = cartas publicadas.
+929. **Orden del turno PSA, por colección** *(§DYN.2)*: con 30 sueltas publicadas en **30 colecciones distintas**
+   (una carta por colección; 5 colecciones nunca consultadas y 25 con fechas de última consulta distintas) y créditos
+   para 10 colecciones, la corrida pide las 5 nunca consultadas y luego las 5 de consulta más vieja; no pide ninguna
+   consultada hace menos de 7 días. Se cumple **por colección**: el proveedor cobra la colección entera.
+930. **Una vez por semana, no más** *(§DYN.2)*: con créditos de sobra, 14 días simulados, dos corridas al día y
+   colecciones con 1 y con 5 cartas propias, cada **colección** se pide **exactamente 2 veces**, separadas al menos 7
+   días naturales (hora del centro de México), y por eso cada suelta publicada queda consultada exactamente 2 veces
+   (registros del proveedor). Junto con el criterio 300: en 7 días, cartas consultadas = cartas publicadas.
 931. **Altas, bajas y lo que no entra** *(§DYN.2)*: una carta retirada deja de consultarse; vuelta a publicar a los 3
    días de su última consulta, no se pide hasta cumplir 7; sellado y gradeadas no se consultan nunca.
 932. **Fallos del proveedor** *(§DYN.2)*: una consulta sin respuesta deja la carta en su lugar y se pide en la
@@ -15429,7 +14932,7 @@ product-owner con búsqueda en `PROJECT.md` el 2026-10-29.)*
 939. **De punta a punta** *(O-4)*: en el navegador, contra el stack corriendo con datos sembrados: (a) el súper-admin
    cambia los lugares al azar de 8 a 6 en Configuración; (b) al cambio diario (reloj avanzado) la portada muestra 6 +
    2 recién llegadas, iguales en dos navegadores distintos; (c) un invitado compra una destacada y desaparece de la
-   portada en el otro navegador; (d) con el tope de créditos bajado, el dueño ve el aviso de §DYN.2 en el panel.
+   portada en el otro navegador a más tardar 60 s después, al recargar; (d) con el tope de créditos bajado, el dueño ve el aviso de §DYN.2 en el panel.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -17435,7 +16938,16 @@ promesa:**
 > 2026-10-25 y se van integrando aquí al compactar. Al contestarse, cada pregunta sale de aquí y pasa a
 > `docs/DECISIONES.md` con la respuesta literal.
 
-- *(Ninguna abierta en esta sección a 2026-10-25.)*
+- **P-VIT-1 · «Joyas para gradear» y las cartas baratas: ¿qué ganancia mínima pide la vitrina?** *(abierta el
+  2026-10-29; se le preguntó al dueño, sin respuesta aún)* Con los turnos de §DYN.2 todas las cartas tendrán precio
+  PSA, pero la vitrina sigue con la regla de hoy (§O.2, §Y.3): entra una carta si su **PSA 9** vale al menos su
+  precio **más el costo de gradeo** (MX$700 en el primer escalón) **más un 30 %**. *Ejemplo:* una carta de **MX$25**
+  necesita un PSA 9 de al menos **MX$943** (1.30 × MX$725) con 30 %; con 15 %, de al menos **MX$834**
+  (1.15 × MX$725).
+  - **(A)** dejarla en **30 %**: entran pocas baratas.
+  - **(B)** bajarla a **15 %**: entran más baratas, con menos colchón para el comprador. La cambia el dueño en el
+    panel (dial `minUpsidePct`, M10), sin construir nada.
+  Sin respuesta, se queda **(A)**, que es lo que hay hoy. No bloquea al arquitecto.
 
 ## Preguntas abiertas — precio de buylist por rareza (v1.3)
 > Este requisito (§E.1) está redactado con supuestos razonables para no bloquear. El humano debe confirmar o
@@ -19315,62 +18827,6 @@ ese frente:**
   Es lo mismo que respondiste para la carta que falta al preparar (`HECHOS.md:30`, D-1: «$314.58»). Default: **sí**
   (§V.2, criterio 403). Si quieres que devuelva también parte del envío, se cambia el importe y el criterio 403.
 
-## Preguntas — finanzas para el dueño (§W, 2026-10-04, sesión 5) — ABIERTAS, cada una con su default
-
-> Si no contestas, se construye con el default. Ninguna bloquea al arquitecto.
-
-- **P-FIN-1 · ¿El día se corta en hora del centro de México?** Default: **sí**, de 00:00 a 23:59 hora de la Ciudad de
-  México, en Finanzas, Reportes, tablero y CSV. §W.2, criterio 275.
-- **P-FIN-2 · ¿Qué es «Caja del día»?** Default: **todo lo aprobado que falta pagar** (SPEI de buylist y reembolsos
-  SPEI, con su antigüedad), lo **bloqueado por falta de CLABE** aparte, y lo **pagado hoy**. Alternativa: solo lo que
-  vence hoy. §W.3 (b), criterio 276.
-- **P-FIN-3 · ¿Cómo cuenta un contracargo?** Default: abierto = **«en riesgo»** sin restar; perdido = resta el
-  **ingreso neto del pedido + la cuota**; ganado = no resta el importe. El IVA del pedido perdido se marca aparte
-  para tu contador. §W.3 (c), criterio 277.
-- **P-FIN-4 · ¿Qué datos necesita tu contador en los exportes?** Default: IVA por pedido con número, fecha, base, IVA,
-  total y cliente (nombre, correo y datos fiscales si los dio); compras a personas físicas con folio, fecha,
-  vendedor, bruto, tarifa descontada, neto y referencia SPEI — **sin** CLABE completa ni INE. Si tu contador pide
-  RFC o CURP del vendedor, dilo: hoy no se le pide (NO MEDIDO por PO si se guarda). §W.4, criterio 284.
-- **P-FIN-5 · Tramos de antigüedad.** Default: **0–30, 31–90, 91–180, más de 180 días**. §W.4, criterio 280.
-- **P-FIN-6 · Sellado sin fuente de precio: ¿con qué se valúa?** Default: último precio conocido (con su fecha);
-  si nunca tuvo, el precio final a mano; si ninguno, «sin valuar», nunca MX$0. §W.4, criterio 282.
-- **P-FIN-7 · (Deseable) ¿Desde cuánto por debajo del mercado avisamos «vendido bajo mercado»?** Default: **20 %**,
-  como dial. §W.5, criterio 290.
-
-## Preguntas — portada rápida (§X, 2026-10-04, sesión 5) — ABIERTAS, cada una con su default
-
-> Lo que dijiste («una vez al día, no por solicitud; más el índice») **no se pregunta**. Se confirma la lectura.
-
-- **P-POR-1 · ¿Confirmas la lectura?** Default: el precio exhibido se recalcula **una vez al día** y además
-  **enseguida** tras «Actualizar precios», «Publicar todo», publicar una pieza, mover un dial de precio o poner un
-  precio a mano; lo **vendido** se ve en vivo; el **cobro** siempre recalcula. Alternativa que mencionaste: fijarlo
-  una **semana**. §X.1, criterio 296.
-- **P-POR-2 · ¿El precio precalculado vale también para la ficha de la carta?** Default: **sí** —portada, catálogo
-  y ficha—, para que nunca veas dos precios de la misma pieza antes del carrito. §X.1.
-- **P-POR-3 · Si el precio cambió entre que el cliente lo vio y el pago, ¿lo avisamos?** Medido: hoy **no hay**
-  aviso (el carrito guarda solo piezas y el checkout cotiza en vivo). Default: **se cobra el precio actual** y la
-  línea dice «antes MX$A, ahora MX$B». Alternativa: sin aviso (el total ya se ve antes de pagar). §X.2, criterio 298.
-
-## Preguntas — «Joyas para gradear» con baratas (§Y, 2026-10-04, sesión 5) — ABIERTAS, cada una con su default
-
-> Lo que dijiste («que incluya baratas», «cada carta 1 vez por semana») **no se pregunta**.
-
-- **P-JOY-1 · La regla de la vitrina.** Default: entra si **PSA 10 ≥ 20 × el precio** de la carta **y PSA 10 ≥
-  MX$1,000**, con el filtro de calidad del dato de hoy. Con esas cifras, si la carta sale PSA 10, el cliente gana
-  más de 30 % tras pagar carta y gradeo (escalón de MX$700). Ajustables: el **20×** y los **MX$1,000**. §Y.3,
-  criterio 302.
-- **P-JOY-2 · ¿Aceptas que la vitrina ya no garantice ganar si sale PSA 9?** Hoy solo entra lo que gana **aun con
-  PSA 9**; eso deja fuera a las baratas. Default: **sí**, la vitrina muestra el potencial en **PSA 10**, con el aviso
-  «Ilustrativo; no evaluamos esta carta.» de siempre. §Y.3.
-- **P-JOY-3 · El filtro «PSA 10 no más de 100× el precio» frena a las baratas.** Existe para cazar un cero de más.
-  Con una carta de MX$25, el PSA 10 debe estar entre **MX$1,000 y MX$2,500**: una de MX$25 que vale MX$3,000 en PSA 10
-  queda fuera. Default: **se queda en 100×** (proteger de datos rotos). Alternativa: subirlo solo para la vitrina
-  (p. ej. 300×). §Y.3, criterio 302.
-- **P-JOY-4 · ¿En qué orden?** Default: por **PSA 10 ÷ precio**, de mayor a menor, hasta **8** cartas (salen primero
-  las baratas con más potencial). Alternativa: mezclar caras y baratas. §Y.3.
-- **P-JOY-6 · ¿La regla nueva vale también para el badge de la rejilla y la burbuja de destacadas?** Default: **no,
-  solo la vitrina**; la rejilla, destacadas y la ficha siguen como hoy. Consecuencia: una carta barata puede estar en
-  la vitrina y salir sin badge en la rejilla. §Y.4, criterio 304.
 ## Preguntas abiertas — Envíos con Skydropx (§T, 2026-10-04)
 
 > 88–91 respondidas el 2026-10-02 e integradas en T.6, T.7 y criterios 238 y 241 (registro en `docs/DECISIONES.md`).
