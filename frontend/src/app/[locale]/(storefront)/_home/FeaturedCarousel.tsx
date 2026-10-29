@@ -260,10 +260,12 @@ export function FeaturedCarousel() {
   const catalog = useFeaturedCatalog();
   const featured = featuredOf(catalog.data);
   /*
-   * §DYN.6.2 — precarga de la foto líder (candidata a LCP). Se pide aquí, en el render del componente de cliente, porque
-   * es donde el SSR de React (Fizz) la convierte en `<link rel="preload" as="image">` del `<head>`: medido sobre
-   * `3831c1c4`, la misma llamada desde la página de servidor no emitía nada. `preload` es de React 19 (el del App
-   * Router); con el React 18 de la suite unitaria no existe y no se llama. Misma URL que pinta la teja 1.
+   * §DYN.6.2 — precarga de la foto líder (candidata a LCP). Medido sobre `f7eeecdc` contra el stack local: la respuesta
+   * de `/es` lleva la cabecera HTTP `Link: <foto>; rel=preload; as="image"; fetchpriority="high"` (Next le pasa
+   * `onHeaders` al SSR de React, que manda las precargas como cabecera, no como `<link>` del HTML). React la emitiría
+   * también solo por la `<img fetchpriority="high">` no perezosa de la teja 1 (`react-dom-server`, caso `img`); esta
+   * llamada la hace explícita y se deduplica con ella. `preload` es de React 19 (el del App Router); con el React 18 de
+   * la suite unitaria no existe y no se llama. Misma URL que pinta la teja 1.
    */
   const leadSrc = leadImageOf(catalog.data);
   const preload = (ReactDOM as unknown as { preload?: (href: string, o: { as: 'image'; fetchPriority: 'high' }) => void })
