@@ -308,7 +308,21 @@ export async function requestBlob(path: string, opts: RequestOptions = {}): Prom
 }
 
 /**
- * Núcleo de sesión compartido por `apiRequest` (JSON) y `requestBlob` (binario) — F2-9. Hace la
+ * Descarga de TEXTO autenticada (los CSV de `GET /admin/finance/export.csv` y `/admin/reports/export.csv`). FE-15:
+ * mismo núcleo de sesión que `apiRequest` y `requestBlob` (refresh proactivo, 401 → refresh → un reintento, interceptor
+ * de `PASSWORD_CHANGE_REQUIRED`); antes `exportFinanceCsv` hacía su propio `fetch` y un token vencido daba 401 seco.
+ */
+export async function requestText(path: string, opts: RequestOptions = {}): Promise<string> {
+  const res = await fetchWithSession(path, opts, true, false);
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}));
+    throw toApiError(res.status, payload);
+  }
+  return res.text();
+}
+
+/**
+ * Núcleo de sesión compartido por `apiRequest` (JSON), `requestBlob` (binario) y `requestText` (CSV) — F2-9. Hace la
  * petición con el Bearer vigente y aplica el interceptor de refresh (WS-B): `allowRefresh` habilita
  * el ciclo 401 → refresh → reintento; el reintento se hace con `allowRefresh=false` para garantizar
  * UN SOLO reintento (nunca un bucle). Devuelve la `Response` cruda: quien llama decide cómo leer el
@@ -338,7 +352,8 @@ async function fetchWithSession(
   // (`OPTIONS`) antes de CADA lectura pública del catálogo (medido 200–380 ms por llamada,
   // 2026-10-29). El backend no valida el content-type de la petición (body-parser 1.x deja
   // `req.body = {}` con o sin la cabecera cuando no hay cuerpo).
-  const jsonBody = json && opts.body ? JSON.stringify(opts.body) : undefined;
+  // TL-DYN3-5: «hay cuerpo» es `!== undefined`, no veracidad: un cuerpo JSON `0`, `false` o `''` también viaja.
+  const jsonBody = json && opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
   const res = await fetch(url.toString(), {
     method: opts.method ?? 'GET',
     headers: {

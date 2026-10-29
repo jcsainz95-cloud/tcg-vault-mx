@@ -9,6 +9,7 @@
  * Estado vivo en memoria del navegador: se reinicia con cada carga completa y con `resetMockM4Ship()`.
  * Los ids de piezas y clientes son los de `fixtures.ts` (Ash, Misty, Ana, Bruno, Gary).
  */
+import './sentinel';
 import { SHIPPED_REFUND_REASONS } from '@/types/contract';
 import type {
   WithdrawalDeliveredPreviewDTO,

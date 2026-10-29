@@ -11,6 +11,7 @@
  * `501 MOCK_GOLDEN_VECTOR_MISSING` en vez de inventarse una cifra: el mock lleva estado, no fórmula fiscal.
  * (Decisión y alternativas en `docs/FRONTEND_NOTES.md` §M4-SHIP · «el mock no calcula IVA».)
  */
+import './sentinel';
 import { ApiFixtureError } from './fixtures';
 
 /**

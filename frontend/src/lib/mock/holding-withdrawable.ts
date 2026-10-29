@@ -1,3 +1,4 @@
+import './sentinel';
 import type { HoldingDTO, WithdrawableReason } from '@/types/contract';
 
 /**

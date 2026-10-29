@@ -8,6 +8,7 @@
  * portafolio. La vitrina de "Compra" (GET /catalog/cards) SOLO lista inventario
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
+import './sentinel';
 import { brandEmail } from '../brand';
 import { setMatchesQuery } from '../setCode';
 import type {

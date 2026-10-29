@@ -148,7 +148,6 @@ if (disclosureProblem) {
   throw new Error(`MEASUREMENT_NOTICE_REQUIRED mode=on (next.config): ${disclosureProblem}. Publica el aviso revisado o pon NEXT_PUBLIC_MEASUREMENT_MODE=off.`);
 }
 
-/** @type {import('next').NextConfig} */
 /**
  * PERF portada (§DYN.3) — los fixtures de MOCK fuera del bundle de producción.
  *
@@ -160,27 +159,41 @@ if (disclosureProblem) {
  *  1. `NEXT_PUBLIC_USE_MOCKS` se hornea SIEMPRE como literal `'true'|'false'` (también si falta), así
  *     `config.useMocks` vale lo mismo en servidor y cliente y no puede encenderse en runtime sobre un
  *     build que no trae los fixtures.
- *  2. Con mocks apagados, cada módulo de `src/lib/mock/` (no las pruebas) se resuelve a un módulo
- *     vacío (`resolve.alias` → `false`). Es seguro porque TODA referencia a esos módulos en
- *     `api.ts`/`marketing-api.ts` solo es alcanzable con `config.useMocks` verdadero (auditado por AST,
- *     FRONTEND_NOTES «PERF portada»); un módulo vacío no da avisos de «export not found».
- * Candado: `scripts/check-home-bundle.mjs` (postbuild) falla si un fixture vuelve al JS de la portada.
+ *  2. Con mocks apagados, cada módulo de `src/lib/mock/` (no las pruebas; `.ts`/`.tsx`, también en subcarpetas)
+ *     se resuelve a un módulo vacío (`resolve.alias` → `false`). Es seguro porque solo `api.ts` y
+ *     `marketing-api.ts` importan `lib/mock`, y toda referencia suya queda bajo `(MOCKS_BUILD && config.useMocks)`;
+ *     un módulo vacío no da avisos de «export not found».
+ * Candados: `src/test/mock-boundary.test.ts` (R1: quién importa `lib/mock` y que toda referencia esté guardada) y
+ * `scripts/check-home-bundle.mjs` (postbuild: el centinela de `lib/mock` en ningún chunk de `.next/static`).
  */
 /** @param {Record<string, string | undefined>} [env] */
 export const useMocksBuild = (env = process.env) => (env.NEXT_PUBLIC_USE_MOCKS === 'true' ? 'true' : 'false');
 
+/**
+ * Alias `false` para cada módulo de `src/lib/mock` (recursivo; `.ts` y `.tsx`; nunca una prueba): la ruta sin
+ * extensión (como se importa), la ruta con su extensión y, para un `index`, la carpeta.
+ */
 export function mockModuleAliases({ baseDir = dirname(fileURLToPath(import.meta.url)) } = {}) {
-  const dir = join(baseDir, 'src/lib/mock');
   const aliases = {};
-  for (const f of readdirSync(dir)) {
-    if (!/\.tsx?$/.test(f) || /\.test\.tsx?$/.test(f)) continue;
-    const base = join(dir, f.replace(/\.tsx?$/, ''));
-    aliases[base] = false;
-    aliases[`${base}.ts`] = false;
-  }
+  const walk = (dir) => {
+    for (const f of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, f.name);
+      if (f.isDirectory()) {
+        walk(p);
+        continue;
+      }
+      if (!/\.tsx?$/.test(f.name) || /\.(test|spec)\.tsx?$/.test(f.name) || f.name.endsWith('.d.ts')) continue;
+      const base = p.replace(/\.tsx?$/, '');
+      aliases[base] = false;
+      aliases[p] = false;
+      if (/^index\.tsx?$/.test(f.name)) aliases[dir] = false;
+    }
+  };
+  walk(join(baseDir, 'src/lib/mock'));
   return aliases;
 }
 
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
   distDir,
