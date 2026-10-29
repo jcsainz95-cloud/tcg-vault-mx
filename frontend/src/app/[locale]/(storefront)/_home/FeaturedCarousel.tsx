@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { getCatalog } from '@/lib/api';
-import type { GroupedListingSummaryDTO } from '@/types/contract';
+import { getFeatured } from '@/lib/api';
+import { FEATURED_QUERY_KEY } from '@/lib/home-queries';
+import type { FeaturedSlotKind, GroupedListingSummaryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
@@ -29,8 +30,6 @@ import {
   trackOverflows,
 } from './carouselGeometry';
 import { cn } from '@/lib/cn';
-
-const FEATURED = 8;
 
 /** `id` de la sección: destino del regreso de la nota al pie cuando la vitrina no pintó (§22.4a). */
 export const FEATURED_CAROUSEL_ID = 'piezas-destacadas';
@@ -113,15 +112,39 @@ export type PlaybackMode = 'playing' | 'paused' | 'ended';
  * apaga toda cifra y **nadie ve un error**). TanStack dedupe por `queryKey`, así que sigue siendo
  * una sola petición. Es el mismo patrón que ya usa `useGradingGems`.
  *
- * No hay filtro `?gradingHighlight=true` aquí y no hace falta: `GET /catalog/cards` emite
- * `gradingHighlight` en el summary de todo grupo raw elegible, con o sin ese filtro (el filtro solo
- * FILTRA). El carrusel recibe las 8 más caras y algunas resultan traer el marcador.
+ * v1.113⟨portada⟩ (API_CONTRACT §DYN.2, DYN-F1): la fuente es `GET /catalog/featured` — la selección del día que el
+ * servidor sortea UNA vez (8 al azar entre las de más valor + 2 recién llegadas, iguales para todos). ⛔ El carrusel ya
+ * no pide «las más caras» a la rejilla, ni como respaldo (I-1): `data: []` se pinta como «sin piezas», igual que antes.
+ * Cada teja es el `GroupedListingSummaryDTO` de siempre (con `gradingHighlight` resuelto por el servidor) más
+ * `featuredSlot`. La portada la hidrata desde el servidor con la MISMA clave (`page.tsx`, §DYN.6.2); aquí se revalida
+ * al montar.
  */
 export function useFeaturedCatalog() {
   return useQuery({
-    queryKey: ['catalog', { home: true, sort: 'price_desc' }],
-    queryFn: () => getCatalog({ sort: 'price_desc', pageSize: FEATURED }),
+    queryKey: FEATURED_QUERY_KEY,
+    queryFn: () => getFeatured(),
   });
+}
+
+/** `featuredSlot` de una teja; un grupo sin el campo (no debería llegar) se trata como `pool`: sin etiqueta. */
+function slotOf(l: GroupedListingSummaryDTO): FeaturedSlotKind {
+  return (l as GroupedListingSummaryDTO & { featuredSlot?: FeaturedSlotKind }).featuredSlot === 'new_arrival'
+    ? 'new_arrival'
+    : 'pool';
+}
+
+/**
+ * Etiqueta «Recién llegada» (§DYN.1, criterio 923): SOLO en las tejas `new_arrival` (posiciones 1-2). Texto
+ * PROVISIONAL hasta ux-ui. Va dentro del enlace de la teja, así que forma parte de su nombre accesible.
+ */
+function NewArrivalLabel({ l, className }: { l: GroupedListingSummaryDTO; className?: string }) {
+  const t = useTranslations('home.featured');
+  if (slotOf(l) !== 'new_arrival') return null;
+  return (
+    <span data-testid="featured-new-arrival" className={cn('eyebrow block text-text', className)}>
+      {t('newArrival')}
+    </span>
+  );
 }
 
 /** Los grupos que el carrusel pinta. `[]` ⇒ la pista no existe (mensaje de vacío). */
@@ -163,8 +186,8 @@ function TilePrice({ l, locale, big = false }: { l: GroupedListingSummaryDTO; lo
 }
 
 /**
- * «Piezas destacadas del catálogo» (makeover 1a §4): carrusel horizontal con las piezas
- * más caras del inventario publicado (el backend ordena por el precio exhibido server-side).
+ * «Piezas destacadas del catálogo» (makeover 1a §4): carrusel horizontal con las Destacadas del día
+ * (`GET /catalog/featured`, §DYN.2: el servidor las elige; el cliente no ordena nada).
  * Primera teja grande, resto numeradas en mono rojo (numeración decorativa, aria-hidden
  * §20.3). v1.38-grouped-listings (P-30): la fuente (GET /catalog/cards) es AGRUPADA, así que
  * cada teja es un `GroupedListingSummaryDTO` (v2.1.9/D2: la rejilla ya no recibe `priceBasis`
@@ -665,9 +688,17 @@ export function FeaturedCarousel() {
           error={catalog.error}
           onRetry={() => catalog.refetch()}
           loading={
-            <div className="gutter flex gap-4 overflow-hidden pb-10 lg:gap-7 lg:pb-14">
+            // §DYN.6.2 / criterio 937 — el MARCO: sin datos a tiempo (en el HTML o al hidratar) la sección reserva el
+            // alto de las tejas —foto y las líneas de nombre, set y precio—, así que al llegar los datos no empuja nada.
+            <div className="gutter flex gap-4 overflow-hidden pb-10 lg:gap-7 lg:pb-14" data-testid="featured-frame" aria-hidden>
               {Array.from({ length: 4 }).map((_, i) => (
-                <Skeleton key={i} className={cn('shrink-0', i === 0 ? 'aspect-[5/7] w-[236px] lg:w-[400px]' : 'aspect-[5/7] w-[160px] lg:w-[268px]')} />
+                <div key={i} className={cn('shrink-0', i === 0 ? 'w-[236px] lg:w-[400px]' : 'w-[160px] lg:w-[268px]')}>
+                  <Skeleton className="aspect-[5/7] w-full" />
+                  <Skeleton className="mt-3 h-[18px] w-3/4 lg:mt-[15px]" />
+                  <Skeleton className="mt-2 h-3 w-1/2" />
+                  <Skeleton className="mt-3 h-[17px] w-1/3" />
+                  <Skeleton className="mt-1.5 h-3 w-1/4" />
+                </div>
               ))}
             </div>
           }
@@ -721,6 +752,7 @@ export function FeaturedCarousel() {
                     />
                     <div className="mt-3 flex flex-col gap-2 lg:mt-[18px] lg:flex-row lg:items-end lg:justify-between lg:gap-5">
                       <div className="min-w-0">
+                        <NewArrivalLabel l={l} className="mb-1.5" />
                         <p lang="en" className="font-serif text-[17px] leading-[1.25] text-text lg:text-[26px] lg:leading-[1.2]">
                           {l.card.name}
                         </p>
@@ -756,6 +788,7 @@ export function FeaturedCarousel() {
                         La chica (245×342) ya cubre 268px con holgura en pantallas 1x. Si algún día estas
                         tejas crecen por encima de ~245px de ancho real, entonces sí toca revisar. */}
                     <CardImage src={l.card.imageSmallUrl} alt={l.card.name} />
+                    <NewArrivalLabel l={l} className="mt-3 lg:mt-[15px]" />
                     <div className="mt-3 flex items-baseline gap-2 lg:mt-[15px]">
                       {/* Numeración decorativa/orientadora (§20.3): el orden real lo da el DOM.
                           §22.6b-c: se apaga en TODA la pista si la pista pinta alguna cifra. Nunca
