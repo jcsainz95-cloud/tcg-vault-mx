@@ -430,6 +430,34 @@ jobs:
         run: |
           ./scripts/check-stack-upload-origin.sh
           ./scripts/check-stack-upload-origin.sh --canary
+      # §DYN (devops, 2026-10-29, DEVOPS_NOTES §104). Sin red ni stack: servidores de
+      # maqueta en 127.0.0.1 y señuelos de infra. Cada uno con su canario (N/N rojas).
+      #   DEVOPS-VERIFY-SHORT · verify:head <sha corto> sin .git compara por prefijo.
+      #   DOWN-ALL-SHARED    · down --all no para Postgres/Redis que usan otros.
+      #   PEN-VEL-2 + DEVOPS-GATE-MEDICION · el gate hornea con `npm run build` y, con
+      #                        --measurement, con el banner de cookies (IDs de ficción).
+      - name: El stack nativo (verify:head corto, down --all compartido, build del gate)
+        run: |
+          ./scripts/check-stack-verify-short.sh
+          ./scripts/check-stack-verify-short.sh --canary
+          ./scripts/check-stack-down-all.sh
+          ./scripts/check-stack-down-all.sh --canary
+          ./scripts/check-stack-frontend-build.sh
+          ./scripts/check-stack-frontend-build.sh --canary
+      #   El comparador de diales del gancho PSA tras §DYN (sin `ingestMaxCardsPerRun`,
+      #   con el tope de créditos/día y la cuota del proveedor) y el censo de .env.example.
+      - name: Diales del gancho PSA y censo de .env.example (§DYN)
+        run: |
+          ./scripts/check-graded-estimate-dials-canary.sh
+          ./scripts/check-graded-estimate-dials-canary.sh --canary
+          ./scripts/check-env-example-census.sh
+          ./scripts/check-env-example-census.sh --canary
+      #   DYN-D1/DYN-D2: el arnés de Lighthouse fijado, sus umbrales, su proxy (N=10) y su
+      #   cableado. La medición de verdad es .github/workflows/home-perf.yml.
+      - name: Arnés de Lighthouse de la portada (estático + proxy)
+        run: |
+          ./scripts/check-home-perf.sh
+          ./scripts/check-home-perf.sh --canary
 
   # ---------------------------------------------------------------------------
   # ⏳ DISPARADOR DE RETIRO de la medida interina `D-PP-2` (DEVOPS_NOTES §43.2).
@@ -877,6 +905,34 @@ jobs:
         run: ./scripts/check-stack-kill-scope.sh 5
 
   # ---------------------------------------------------------------------------
+  # §DYN (2026-10-29) — las dos mediciones de PRODUCCIÓN que corre el DUEÑO con un rol de
+  # solo lectura (`scripts/dyn-prod-measure.sh`: coste PSA §DYN.4.7 y casos vigentes
+  # §DYN.5.9). Aquí se prueban contra un Postgres desechable: cifras exactas, rol con
+  # escritura ⇒ rc 2, base sin la tabla de casos ⇒ 0. Canario: 5 mutaciones, todas rojas.
+  # DEVOPS_NOTES §104.4.
+  # ---------------------------------------------------------------------------
+  dyn-prod-measure:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: dynm_${{ github.run_id }}_${{ github.run_attempt }}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ADMIN_DATABASE_URL: postgresql://postgres:dynm_${{ github.run_id }}_${{ github.run_attempt }}@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v5
+      - name: Las consultas de solo lectura de §DYN cuentan bien y no aceptan un rol que escribe
+        run: |
+          ./scripts/check-dyn-prod-measure.sh
+          ./scripts/check-dyn-prod-measure.sh --canary
+
+  # ---------------------------------------------------------------------------
   # 💰 LISTO PARA DINERO REAL (API_CONTRACT §14, 2026-10-05) — los candados de
   # devops de LIVE-3/9/10/11/13 y del arnés local, cada uno con su canario y su
   # mutación (proporción N/N). Sin red externa, sin producción. DEVOPS_NOTES §85.
@@ -1014,7 +1070,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates, runner-pin]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, dyn-prod-measure, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates, runner-pin]
     if: always()
     runs-on: ubuntu-24.04
     steps:

@@ -69,7 +69,12 @@ if [ "$MODO" = update ]; then
     grep '^#' "$BASELINE" || echo "# scripts/doc-size.baseline — umbral de líneas por documento (wc -l). SOLO PUEDE BAJAR."
     for f in "${DOCS[@]}"; do
       a="$(lineas "$f")"; u="${UMBRAL[$f]:-}"
-      if [ -z "$u" ]; then t="$(tope_clase "$f")"; u=$(( a > t ? a : t )); fi   # nuevo: lo que permita su clase o lo medido
+      # Documento SIN fila: no se le escribe ninguna. Sigue rigiendo el tope de su clase (CLAUDE.md).
+      # Antes se le escribía min(tope, medido) = lo medido, y eso clavaba a su tamaño de hoy un
+      # documento que crece por diseño (medido 2026-10-29: `docs/DECISIONES.md` quedaba en 77 y la
+      # siguiente decisión del dueño habría puesto CI en rojo). Lo que sube por encima de su clase
+      # sigue frenado abajo («nace por encima del tope»).
+      [ -n "$u" ] || continue
       [ "$a" -lt "$u" ] && u="$a"
       printf '%s\t%s\n' "$u" "$f"
     done

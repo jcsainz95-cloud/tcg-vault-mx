@@ -20,6 +20,10 @@
   (C-D1), regla de secretos (C-D2), E2E de medición y C-F1. Encendido y apagado: **§101**.
 - **Runners fijados (2026-10-29):** todo `runs-on` es `ubuntu-24.04` (la imagen de production verde, run 40599627832); `ubuntu-latest` pasó a 26.04 y
   Playwright 1.56 no instala Chromium ahí (run 40849459030). Candado `scripts/check-runner-pin.sh` + canario, job `runner-pin` de `ci.yml`.
+- **Portada (§DYN, 2026-10-29):** `home-perf.yml` corre Lighthouse CI (N=5 por perfil, mediana) con canario y los dos
+  casos de 937 contra el stack sembrado — §104. Medido en local: escritorio cumple 936; **móvil no** (FCP ≈ 1.4-2.0 s,
+  LCP ≈ 6.5 s) ⇒ el workflow sale rojo hasta que lo arregle frontend o decida el dueño. Las dos mediciones de producción
+  de §DYN las corre el dueño con `scripts/dyn-prod-measure.sh` (§104.4); `POKEMONPRICETRACKER_DAILY_QUOTA` la pone él en Railway.
 - **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5); muy por encima del tope: **se compacta antes de añadir**. Encabezado anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
 ---
@@ -141,6 +145,7 @@ antes de usar esas funciones:
 | `SEALED_PRICE_INGEST_CRON` (opcional) | Cron **en UTC** del ingest **diario de referencia del SELLADO** `sealed-price-ingest` (v1.19, tcgcsv.com; §21). Default `30 21 * * *` (21:30 UTC = 15:30 CDMX), tras el refresh diario de TCGCSV (~20:00 UTC) y tras `fx-refresh`. **El encendido real es el dial M10 `sealed_price_source`** (`tcgcsv \| off`, seed `off` fail-closed) — la env solo mueve el horario. Requiere `REDIS_URL`. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
 | `POKEMONPRICETRACKER_API_KEY` | **Proveedor de PAGA del ingest masivo `price-ingest` (WS-A, §19)** — bulk `POST /cards/bulk-price`, auth Bearer. **Requisito operativo en prod** cuando `PRICE_PROVIDER=pokemonpricetracker` (con **cuota del plan de paga**). Rol residual: stub graded/sealed per-carta (BE-6). **Valor en Railway, NUNCA en el repo.** | PokemonPriceTracker (**plan de paga**; key **ya en Railway**) |
 | `POKEMONPRICETRACKER_MARKET_FORMAT` (**money-safe, sin default**) | Moneda + unidad del campo `market` del proveedor de paga: `usd_dollars` / `usd_cents` / `mxn_dollars` / `mxn_cents`. **Candado fail-closed:** sin ella, con `PRICE_PROVIDER=pokemonpricetracker` el ingest corre **sample-only** (fetch + log de muestra, **no persiste** ningún precio). El **PO confirmó `usd_dollars`** — fijarla **solo tras leer el log de muestra** de una corrida `{setId}` (§19.5). Con `pokemontcg_io` (legacy) no aplica. **Valor en Railway, no en el repo.** | devops, tras verificar el log de la 1ª corrida (§19.5) |
+| `POKEMONPRICETRACKER_DAILY_QUOTA` (§DYN, no secreto) | Cuota del **plan** del proveedor de paga (créditos/día) que el panel de presupuesto de M10 muestra junto al tope propio (`graded_estimate_daily_credit_cap`, que es el que gobierna el gasto). Vacía ⇒ el panel dice `null`. Detalle en `.env.example`. | **El dueño, en Railway**, con el número de su plan (§32.12.1: 20 000); lo comprueba `check-graded-estimate-dials.sh` (rc 10 si falta) |
 | `POKETRACE_API_KEY` | Respaldo per-carta gradeadas/sellado | PokeTrace (free tier) — **provider stub, ver BE-6** |
 | `S3_*` (endpoint/bucket/keys/force-path-style) | **Object storage SOLO para la INE del buylist (`kyc_ine/`)**, cifrada + presigned PUT/GET. Local=MinIO (ya puesto); prod=R2/S3. v1.2.1: sin `S3_PUBLIC_BASE_URL` (no hay prefijo público) ni fotos de inventario/disputa. Nombres reales que consume el código: `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`. | Cloudflare R2 o AWS S3 |
 | `KYC_UPLOAD_MAX_BYTES` (opcional) | Tope en bytes del upload presignado de la INE (`kyc_ine`); se fija en la firma (`ContentLength`). Sin valor → backend usa **10 MiB** (10485760). | Sin acción salvo querer otro tope |
@@ -1871,247 +1876,10 @@ consume). No hay que tocar env ni cron. Para desmapear un item puntual: `PUT ...
 
 ---
 
-## 22. Desbloqueo de los gates rojos del release PR #3 (`main` → `production`, 2026-08-17)
+## 22. Desbloqueo de los gates rojos del release PR #3 (2026-08-17) — compactada 2026-10-29 (DOC-SIZE); texto: `git show fb67d43b:docs/DEVOPS_NOTES.md`
 
-> **Contexto:** el PR de release #3 (mergeado en `production`, commit `9940adc`) quedó con tres
-> checks en rojo que bloquean el "Wait for CI" del deploy en Railway: `gitleaks`, `frontend-e2e`
-> (y su gemelo del E2E real) y `trivy-image`. Los tres eran fallos de **infraestructura de CI**,
-> no de código de aplicación: se arreglan en zona devops y no hubo que tocar `backend/` ni
-> `frontend/`. Rama del arreglo: `claude/fix-ci-gates-release`.
-
-### 22.1 `gitleaks` — faltaba `GITHUB_TOKEN`
-
-**Síntoma (log real):**
-
-```
-##[error]🛑 GITHUB_TOKEN is now required to scan pull requests. You can use the automatically created token as shown in the README.
-```
-
-**Causa raíz:** `gitleaks/gitleaks-action@v2` exige `GITHUB_TOKEN` para escanear PRs (lo usa para
-resolver los commits del PR y, si procede, comentar). El step de `security-sast.yml` solo pasaba
-`GITLEAKS_CONFIG`. El input va por **`env:`**, no por `with:` (así lo documenta el README de la
-acción).
-
-**Cambio (`.github/workflows/security-sast.yml`, job `gitleaks`):**
-- `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` en el bloque `env:` del step.
-- `permissions:` **a nivel de job** (no del workflow, para no ampliar el scope de los demás):
-  `contents: read` + `pull-requests: read`.
-- `GITLEAKS_ENABLE_COMMENTS: "false"`: publicar comentarios en el PR exigiría
-  `pull-requests: write` y no queremos ese permiso en un job de secretos. El gate **no se relaja**:
-  si hay leaks el job falla igual y el detalle queda en el log y en el artifact SARIF.
-
-**Deuda anotada (no bloqueante):** `gitleaks-action@v2` corre sobre Node 20, que GitHub retira de
-los runners el **2026-09-16**. Antes de esa fecha hay que subir a `@v3` (mismos inputs/env; requiere
-runner ≥ 2.327.1). No se subió en este arreglo para no mezclar un cambio de mayor con el desbloqueo
-del release. Está anotado como comentario en el propio workflow.
-
-### 22.2 `frontend-e2e` / `e2e-real` — Chromium inexistente en `ubuntu-latest`
-
-**Síntoma (log real):**
-
-```
-##[error]No existe /opt/pw-browsers/chromium.
-##[error]Este job usa el Chromium preinstalado del runner-harness (/opt/pw-browsers) y NO ejecuta 'playwright install'.
-```
-
-**Causa raíz:** los dos workflows E2E asumían un **runner-harness** con los navegadores de Playwright
-preinstalados en `/opt/pw-browsers`, pero los jobs corren en `ubuntu-latest` (runner **estándar** de
-GitHub), donde esa ruta **no existe** — solo existe dentro del entorno de Claude Code. El "Guard
-navegador" hacía exactamente lo que decía su mensaje: abortar. Es decir, el job **nunca** pudo pasar
-en CI con esa política.
-
-**Cambio (approach estándar de Playwright en Actions):**
-- `.github/workflows/e2e.yml` (job `frontend-e2e`): se eliminaron
-  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`, `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_CHROMIUM_PATH` y el
-  step *Guard navegador*. Se añadió `npx playwright install --with-deps chromium`
-  (`working-directory: frontend`) **después** del `npm ci` del frontend — el orden importa: el CLI
-  `playwright` vive en `frontend/node_modules`, antes del `npm ci` `npx` no lo encuentra.
-- `.github/workflows/e2e-real.yml` (job `e2e-real`): mismas env vars y mismo guard eliminados; el
-  `playwright install` va justo después del `npm ci` del frontend (que está al final del job) y
-  antes del step *Playwright smoke*.
-- Se reescribieron las cabeceras de ambos workflows y §5.1 de este documento, que documentaban la
-  política vieja ("Chromium PREINSTALADO", "NO se ejecuta playwright install", "REQUISITO DE
-  RUNNER"). Dejarlas habría sido documentación que miente sobre el pipeline.
-- **Detalle que casi se escapa (y que habría dejado el job igual de rojo):**
-  `frontend/playwright.config.ts` (rol **frontend**) fija
-  `launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? '/opt/pw-browsers/chromium'`.
-  Con solo instalar el navegador, Playwright habría seguido intentando lanzar la ruta del harness.
-  Por eso el step, tras instalar, **resuelve la ruta real con la API oficial**
-  (`require('@playwright/test').chromium.executablePath()`), comprueba que el binario existe y es
-  ejecutable (ese check sustituye al viejo *Guard navegador*, ahora sí con sentido en CI) y la
-  exporta a `$GITHUB_ENV` como `PLAYWRIGHT_CHROMIUM_PATH` para los steps siguientes.
-  **Hallazgo → rol frontend (no bloqueante):** el default hardcodeado `/opt/pw-browsers/chromium`
-  del config solo tiene sentido en el runner-harness; lo natural sería dejar que Playwright resuelva
-  el navegador por defecto y usar `executablePath` **solo** si la env está definida. Mientras el
-  config siga así, estos workflows deben exportar la variable.
-- **No** se añadió cache de navegadores (`actions/cache`): con `--with-deps` haría falta igual la
-  instalación de libs de sistema y el ahorro no compensa el riesgo de cache stale. Si el tiempo de
-  job molesta, es una optimización posterior.
-- **Observación NO tocada (decisión consciente):** `e2e-real.yml` invoca el smoke con
-  `E2E_BASE_URL` pero **sin** `E2E_REAL=1`, mientras que el `playwright.config.ts` documenta
-  `E2E_BASE_URL=... E2E_REAL=1 npm run test:e2e` como forma de correr en real (filtra a los tests
-  tagueados `@real`). No se cambió en este arreglo para no alterar qué tests corren en el gate de
-  promoción a prod dentro de un fix de desbloqueo; queda como decisión para la próxima corrida real
-  (si los specs mock-only de esos archivos fallan contra el backend real, la respuesta es añadir
-  `E2E_REAL: "1"` al step del smoke).
-
-### 22.3 `trivy-image` — **no era node-tar de la app: era el npm de la imagen base**
-
-**La premisa inicial ("bumpear node-tar") era equivocada.** Verificado:
-- `npm ls tar` **vacío** en `backend/` y en `frontend/`; ni `backend/package-lock.json` ni
-  `frontend/package-lock.json` tienen una sola entrada de `tar`.
-- Por eso el `"tar": ">=7.5.18"` de `overrides` en `backend/package.json` era **inefectivo**: no
-  existe ningún `tar` en el árbol de dependencias que sobreescribir.
-
-**Causa raíz real:** el reporte que rompía el gate era la sección **Node.js (node-pkg)** — *Total 16
-(HIGH 15, CRITICAL 1)* — y **todos** los paths eran
-`usr/local/lib/node_modules/npm/node_modules/...`: las dependencias internas del **npm empaquetado
-dentro de la imagen base `node:20-alpine`** (`tar` 6.2.1 con CVE-2026-59873 CRITICAL y
-CVE-2026-23745/23950/24842 HIGH, `brace-expansion` 2.0.1, `cross-spawn` 7.0.3, `minimatch`,
-`picomatch`, `sigstore`…). Eso **no se puede arreglar desde package.json**: no lo declaramos
-nosotros, llega con la imagen oficial de Node.
-
-**Arreglo (elimina la vulnerabilidad, no la ignora): npm fuera de la etapa `runtime`.**
-El runtime de producción no necesita npm; borrarlo hace desaparecer toda esa superficie y además
-adelgaza la imagen.
-
-- **`Dockerfile.frontend`** (etapa `runtime`): `RUN rm -rf /usr/local/lib/node_modules/npm
-  /usr/local/bin/npm /usr/local/bin/npx` (en `/usr/local/bin`, `npm` y `npx` son symlinks a esa
-  carpeta). El arranque es `node server.js` (output standalone de Next): no usa npm ni npx.
-- **`Dockerfile.backend`** (etapa `runtime`): mismo `rm -rf`, **y cambio obligado del `CMD`**. El
-  CMD anterior era `sh -c "npx prisma migrate deploy && node dist/main.js"`: sin npx **habría roto
-  el arranque en Railway**. Ahora:
-
-  ```dockerfile
-  CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node dist/main.js"]
-  ```
-
-  `build/index.js` es el entrypoint real del CLI (verificado: `prisma@5.x` declara
-  `"bin": {"prisma": "build/index.js"}`; `node_modules/.bin/prisma` es un symlink a ese archivo, y
-  `node build/index.js --version` responde correctamente). El paquete `prisma` viaja en la imagen
-  porque esta etapa conserva `node_modules` completo con devDeps a propósito (ver NOTA de la etapa
-  build y §6).
-- **Guards de build (ambos Dockerfiles):** tras el `rm -rf`, un `if` falla el build si `npm` sigue
-  presente; en el backend, además, un `test -f node_modules/prisma/build/index.js`. Si una imagen
-  base futura mueve esas rutas, o un bump de Prisma cambia su bin, el **build** falla con mensaje
-  claro en vez de publicar una imagen vulnerable o crash-loopear al arrancar en Railway.
-- **`security/.trivyignore`:** se **retiraron** los 4 CVE de node-tar (CVE-2026-26960/-29786/-31802/
-  -59874) — ya no hay npm en el runtime que los traiga. El archivo queda **sin excepciones activas**
-  (solo la justificación histórica) y se sigue pasando a los jobs para que cualquier excepción futura
-  viva en un único sitio auditable. **No se añadió ningún CVE nuevo.**
-- **Comentarios de `security-sast.yml`** (`trivy-fs`, `trivy-image` backend y frontend) actualizados:
-  ya no justifican nada por node-tar.
-
-**Efecto colateral que hubo que arreglar:** `e2e-real.yml` sembraba con
-`docker compose exec -T backend npm run seed:synthetic --if-present` — **npm ya no existe en ese
-contenedor**. Ahora el step lee el script `seed:synthetic` del `package.json` del contenedor
-(`node -e`, misma fuente de verdad, sin hardcodear la ruta del seed, que es del rol backend) y lo
-ejecuta con `node_modules/.bin` en el `PATH`. Semántica idéntica, incluido el "si no existe, se
-salta" del `--if-present`. Los scripts de host (`scripts/seed.sh`, `scripts/seed-synthetic.sh`,
-`scripts/db-migrate.sh`) **no** se ven afectados: corren en el host (que sí tiene npm/npx), no dentro
-de la imagen.
-
-### 22.4 Qué se verificó y qué NO (honestidad de la verificación)
-
-**Verificado en este entorno:**
-- YAML de `e2e.yml`, `e2e-real.yml`, `security-sast.yml` (+ `ci.yml`, `deploy.yml`) parsea con
-  `yaml.safe_load`.
-- Todos los bloques `run:` de los tres workflows tocados pasan `bash -n`.
-- Lógica de extracción del seed (`node -e` + `sh -c` con PATH) probada localmente con el
-  `backend/package.json` real: devuelve `ts-node prisma/seed-e2e.ts`, y con el script ausente emite
-  el warning y sale 0.
-- Entrypoint del CLI de Prisma: instalación limpia de `prisma@^5.20.0` →
-  `bin.prisma = "build/index.js"`, `node node_modules/prisma/build/index.js --version` OK.
-
-**NO verificado (bloqueo de entorno, no del arreglo):** **no se pudo construir ni escanear las
-imágenes**. El daemon Docker arranca, pero el pull de `node:20-alpine` muere porque la política de
-egress del sandbox bloquea el CDN de blobs de Docker Hub:
-
-```
-403 CONNECT production.cloudfront.docker.com:443
-ERROR: failed to solve: node:20-alpine: ... Forbidden
-```
-
-Por tanto **queda pendiente de la primera corrida en CI**: (a) que el build de ambas imágenes pase
-con el `rm -rf` de npm y los guards, (b) que `trivy image` ya no reporte HIGH/CRITICAL, y (c) que el
-backend arranque con el nuevo `CMD` (migrate deploy + `node dist/main.js`). Si el gate siguiera rojo
-por CVEs que **no** vengan de `usr/local/lib/node_modules/npm/...`, son CVEs reales: se tratan (bump
-de imagen base o de dependencia), **no** se añaden al `.trivyignore`.
-
-### 22.5 Rollback de este cambio
-
-Todo el arreglo es de infraestructura y reversible con `git revert` del commit en
-`claude/fix-ci-gates-release`. Riesgo a vigilar en el **primer deploy** tras el merge: el arranque
-del backend depende ahora de `node node_modules/prisma/build/index.js migrate deploy`. Si en Railway
-apareciera `Cannot find module '/app/node_modules/prisma/build/index.js'`, el rollback inmediato es
-volver al `CMD` con `npx` **y** revertir el `rm -rf` de npm en `Dockerfile.backend` (ambos a la vez:
-el `npx` no funciona sin npm). El guard `test -f` del build debería impedir que ese caso llegue a
-producción.
-
-### 22.6 Tercera capa de `trivy-image`: OpenSSL de la capa OS (`apk upgrade`)
-
-Cerrados los CVE de npm (§22.3) y los 2 HIGH de dependencias reales del backend (`glob` 10.4.5 →
-10.5.0 / CVE-2025-64756, `picomatch` 4.0.1 → 4.0.5 / CVE-2026-33671, que arregló el rol **backend**
-en `backend/package.json` con overrides acotados por rango), el gate SIGUIÓ rojo con un hallazgo de
-naturaleza distinta:
-
-```
-tcg-frontend:scan (alpine 3.23.4)
-libcrypto3  CVE-2026-45447  HIGH  3.5.6-r0 → 3.5.7-r0
-libssl3     CVE-2026-45447  HIGH  3.5.6-r0 → 3.5.7-r0
-openssl: Heap Use-After-Free in PKCS7_verify()
-```
-
-**Por qué solo el frontend:** la base del backend hace `apk add ... openssl`, que resuelve contra el
-índice ACTUAL del repo de Alpine y de paso arrastraba `libcrypto3`/`libssl3` al día. La del frontend
-no instala openssl, así que conservaba las libs congeladas en el tag `node:20-alpine`. O sea: que el
-backend pasara era un **efecto colateral**, no una garantía.
-
-**Arreglo (no un ignore):** `apk upgrade --no-cache` en la etapa `base` de AMBOS Dockerfiles, antes
-del `apk add`. Cierra el CVE en el frontend, iguala la política en los dos, y cubre futuros CVE de la
-capa OS sin depender de que el tag de Node se reconstruya. Se revisa al subir de imagen base.
-
-**Lección para la próxima vez:** los hallazgos de `trivy-image` venían en TRES capas y cada una tapaba
-a la siguiente — npm de la imagen base → devDependencies reales de la app → paquetes del sistema. Un
-"arreglé el CVE" tras la primera capa habría sido falso. Conviene volver a correr el gate después de
-cada capa hasta que salga limpio de verdad.
-
-### 22.7 Robustez de los pasos de instalación en CI (cuelgues de `apt`)
-
-**Síntoma.** En una sola noche, cuatro jobs se quedaron colgados en `apt-get`: `trivy-fs` (×2),
-`trivy-image` y el `playwright install --with-deps` de `frontend-e2e`. Hasta **25 minutos** parados en
-un paso que en un runner sano tarda entre 30 y 90 s — sin log, sin fallo, solo `in_progress` indefinido.
-Hubo que cancelar y relanzar a mano cada vez.
-
-**Por qué importa más de lo que parece.** Railway espera al **check suite COMPLETO** antes de
-desplegar. Un job colgado bloquea el deploy sin dar ninguna señal accionable, y en el dashboard es
-indistinguible de un job que todavía corre. La causa raíz no es el mirror de apt (que va a seguir
-fallando de vez en cuando): era que estos pasos **no tenían ni timeout ni reintentos**, así que un
-fallo transitorio se convertía en un cuelgue permanente.
-
-**Arreglo, en dos iteraciones — la primera estaba mal y conviene que quede escrito:**
-
-1. **Intento 1 (insuficiente):** `timeout` por comando + 3 reintentos + `timeout-minutes`. Acotaba el
-   cuelgue, pero los reintentos **no servían**: `timeout` mata `apt-get` a mitad de la descarga y el
-   proceso huérfano CONSERVA `/var/lib/dpkg/lock-frontend`, así que los intentos 2 y 3 morían al
-   instante con `Could not get lock ... It is held by process N`. Reintentaba contra un lock que el
-   propio timeout dejaba tomado.
-2. **Intento 2 (el bueno):** `liberar_apt()` antes de cada reintento — mata `apt-get`/`dpkg` por
-   **nombre exacto** (`pkill -x`, deliberadamente NO `-f`, para no arriesgarse a matar el propio shell
-   del step), espera con `fuser` a que `lock-frontend` quede libre (máx. 60 s) y repara estado parcial
-   con `dpkg --configure -a`. Además se subieron los márgenes, porque el fallo real **no era un cuelgue
-   sino lentitud**: el log muestra `apt` tardando ~2 min en bajar un solo paquete de fuentes, de 21 MB
-   totales. Playwright: 420 s por intento. `apt-get` de Trivy: 240/300 s.
-
-**El gate NO se relaja.** Si tras 3 intentos no hay Trivy o no hay Chromium, el step FALLA (`exit 1`).
-Nunca se continúa sin escanear ni sin navegador. `timeout-minutes` (20 en SAST, 25 en E2E) es un tope
-duro frente al default de 6 h de Actions.
-
-**Criterio para reintentar un job en el futuro.** Relanzar es legítimo SOLO cuando el job murió o se
-colgó **antes** de ejecutar la verificación (setup del entorno, instalación de herramientas, checkout).
-Si el escaneo o los tests llegaron a correr y fallaron, eso es un hallazgo real y se diagnostica — no
-se relanza. Los cuatro reintentos de esta noche caen todos en el primer caso, y en ninguno se cambió
-el commit entre intentos.
+Histórico. Lo que sigue vigente vive en su sitio: navegador de los E2E (§5.1, «Navegador»), imagen de backend sin
+`npm` (seed por bin, §5.1) y overrides acotados por rango (§74). Los §22.x citados en otras secciones están en ese `git show`.
 
 ---
 
@@ -15217,3 +14985,97 @@ clon limpio, QA 3/3) y se sella; si falla o no coincide ⇒ se para. Prueba real
 verdad): 1.ª regenera, 2.ª «al día», N=2; `cmp` viejo ⇒ aborta. Canario: N=3 ⇒ 29/29; `cmp` ⇒ 18/29 rojos. **TL-OPS-4:** el caso 7 del canario de 103.3 ya no es un grep:
 corre `restart:backend` (sin pidfile ⇒ rc≠0 con motivo «backend.pid» y sin reinicio; con pidfile propio ⇒ apaga ese
 pid). Sin la guarda el rc también es 1 (muere por `node_modules`), por eso exige el motivo: ablación ⇒ 3/26 rojos.
+
+## §104 · §DYN — portada vigilada sola (DYN-D1/DYN-D2), mediciones de producción y arreglos del stack nativo (2026-10-29, rama `claude/portada-dyn-ops`, base `fb67d43b`)
+
+Norma: `API_CONTRACT §DYN.7` (DYN-D1, DYN-D2) y `§DYN.9` (línea de devops); criterios `PROJECT` 936-938. Aquí, cómo se
+corre y qué se midió. Todo lo «medido» es sobre una copia `git archive` de `fb67d43b` + los scripts de este pase, con
+**mi** stack nativo (base `tcg_dyn_ops`, Redis db 9, puertos 3191/3195/9191), 4 CPU.
+
+**104.1 DYN-D1 / DYN-D2 — `scripts/home-perf/run.sh` y `.github/workflows/home-perf.yml`.** Con un backend sembrado
+(`API_UPSTREAM`), hornea el frontend con `npm run build` apuntando al API **a través de** `delay-proxy.mjs` (:3193),
+lo sirve con `next start` (:3192) detrás de **otro** `delay-proxy.mjs` (:3190, el origen que ve el navegador; el backend
+tiene que admitirlo en `APP_BASE_URL`) y corre Lighthouse CI **0.15.1** (fijado con `package-lock`, `npm ci
+--ignore-scripts`): `d1` 5 corridas por perfil, umbrales sobre la **mediana** (`lhci-config.mjs`, una sola fuente);
+`d1-canary` igual con el HTML de la portada engordado 1 500 KB (`HOME_PERF_CANARY_PAD_KB`, solo la lee `run.sh`): tiene
+que salir rojo **y** con ΔFCP ≥ 500 ms frente a `d1` (si `d1` ya es rojo, el rojo del canario solo no prueba nada);
+`d2-delay` / `d2-503` retrasan 5 s o tumban `/catalog/featured` y la vitrina (FCP ≤ 1.0 s y CLS ≤ 0.1). En `d2-*` cada
+corrida empieza con la caché de datos de Next vacía y el servidor reiniciado (la petición tardía llena la caché y la
+siguiente mediría lo cacheado). Si no hay Destacadas, las fuerza (`POST /admin/jobs/featured-rotation {force:true}` como
+súper-admin del fixture); `HP_GRADING_HOOK_ON=1` enciende el dial del gancho para que exista la vitrina (solo con
+`POKEMONPRICETRACKER_API_KEY=''`, lo vigila el candado). Las imágenes del seed (`https://img.e2e.local/…`, no resuelve) las
+sirve `seed-image-host.py` por HTTPS local y solo el Chrome de Lighthouse las resuelve hacia él: sin eso el LCP caía al
+`<h1>` y el umbral de LCP salía verde sin medir la teja. Informe: `RESUMEN.md` (mediana, peor, N, sha, fecha, carga) en el
+resumen del job y en el artefacto `home-perf`. rc 0 todo como se espera · 1 rojo · 2 **no medido** (nunca verde).
+- **Medido, N=5 por perfil, 12:32 UTC, carga 1.7, Destacadas 10 tejas, vitrina 1 elegible** (mediana / peor):
+
+  | modo | perfil | FCP | LCP | CLS | assert |
+  |---|---|---|---|---|---|
+  | d1 | móvil | 1.97 / 2.19 s | 6.71 / 7.73 s | 0.000 / 0.002 | **ROJO** (FCP, LCP) |
+  | d1 | escritorio | 0.38 / 0.43 s | 1.04 / 1.18 s | 0.001 / 0.001 | verde |
+  | d1-canary | móvil | 10.34 / 10.50 s | 14.74 / 15.05 s | 0.000 | rojo, ΔFCP +8 375 ms |
+  | d1-canary | escritorio | 1.64 / 1.67 s | 2.32 / 2.39 s | 0.001 | rojo, ΔFCP +1 256 ms |
+  | d2-delay | móvil | 1.41 / 2.09 s | 6.38 / 6.53 s | 0.002 / 0.002 | **ROJO** (FCP) |
+  | d2-delay | escritorio | 0.37 / 0.37 s | 1.11 / 1.27 s | 0.001 / 0.001 | verde |
+  | d2-503 | móvil | 1.39 / 1.54 s | 4.40 / 4.53 s | 0.066 / 0.066 | **ROJO** (FCP) |
+  | d2-503 | escritorio | 0.36 / 0.36 s | 0.84 / 0.87 s | 0.037 / 0.037 | verde |
+
+  Repetición a las 12:25 (carga 4.2, sin vitrina): móvil FCP 1.39 / 2.14 s, LCP 6.47 / 6.51 s; escritorio 0.36 / 0.38 s,
+  1.23 / 1.24 s. El FCP móvil es **bimodal** por corrida (≈1.4 s o ≈2.1-2.3 s), de ahí que la mediana salte entre tandas.
+- **Lectura.** Escritorio cumple 936 en las cuatro. **Móvil no**: FCP ≈ 1.4-2.0 s (> 1.0) y LCP ≈ 6.4-6.7 s (> 2.5), con el
+  LCP en la imagen de la teja líder (5/5). Es el estado del producto en este stack, no del arnés ⇒ según 936 vuelve **al
+  dueño con el número** (vía orquestador); el workflow `home-perf.yml` sale **rojo** mientras siga así. **DYN-D2 y la
+  vitrina:** con el API retrasado 5 s la vitrina llega a los ~5.0 s y **no suma CLS** (0.001-0.002, 0 desplazamientos en
+  las corridas leídas); el rojo de `d2-*` es el mismo FCP móvil de `d1`. Con `503`, CLS 0.066 móvil / 0.037 escritorio
+  (≤ 0.1, verde) y el elemento que se mueve es `main#main > div > div.border-t` (`lg:hidden`); por qué: **NO MEDIDO**
+  (hallazgo informativo para frontend).
+- **El canario ENGORDA, no retrasa (medido).** Con el perfil estándar (throttling **simulado**, Lantern) un retraso de 2 s
+  del HTML no mueve el FCP: `server-response-time` 2 073 ms y FCP simulado 1 410 ms frente a 110 ms y 1 425 ms sin
+  retraso (N=5 por perfil; el FCP **observado** sí subió a 2 375 ms). Consecuencia que hay que saber: **este check no ve un
+  TTFB lento** (servidor o caché fríos); eso lo ve solo la medición en producción de 936 (QA, N=5 por perfil).
+- **NO MEDIDO:** la corrida en GitHub Actions (el primer push de esta rama la da; ahí no hay ni carga ajena ni proxy) y
+  cualquier cifra de producción.
+
+**104.2 `POKEMONPRICETRACKER_DAILY_QUOTA`.** En `.env.example`, en los dos compose (`${…:-}`) y en la tabla de §4. Sin ella el
+panel de presupuesto (`GET /admin/pricing/graded-estimates/budget`) da `providerDailyQuota: null`. **La pone el dueño en
+Railway** (backend → Variables) con el número de su plan (§32.12.1: 20 000); no es secreto. Candado del censo
+`check-env-example-census.sh`: toda variable que lea `backend/src` tiene línea en `.env.example`; las 24 que faltaban el
+2026-10-29 viven en `env-example-census.baseline`, que solo puede bajar. `FEATURED_ROTATION_CRON` también entró
+(default `*/15 * * * *`; ⛔ cadena vacía = cron inválido).
+
+**104.3 Diales del gancho tras §DYN.** `check-graded-estimate-dials.sh` ya no lee `ingestMaxCardsPerRun` (retirado, §DYN.3):
+si el DTO de M2 aún lo trae ⇒ rc 2 (binario anterior a §DYN). Lee `gradedEstimateDailyCreditCap` (M10) y el panel de
+presupuesto: tope ausente o distinto entre los dos ⇒ rc 2; cuota `null` ⇒ rc 10 (falta la variable); tope > cuota ⇒ rc 20
+(decide el dueño). `post-deploy.sh` (paso 8) lo dice igual.
+
+**104.4 Mediciones de producción de §DYN (las corre EL DUEÑO).** `scripts/dyn-prod-measure.sh` hace, en una transacción de
+solo lectura, la consulta de §DYN.4.7 (coste PSA: cartas, sets, sin mapear, W y W/7 contra 3 000) y la de §DYN.5.9 (casos
+`open|kept` con y sin base; `sin_base` = variantes que dejan de venderse con v1.114). Solo acepta `DATABASE_URL_RO` y aborta
+si el rol puede escribir en cualquiera de sus 4 tablas. **Cómo lo corre el dueño** (la credencial no sale de su terminal):
+1. Railway → Postgres → *Data* → *Query*, como admin (contraseña generada, ⛔ ni al repo ni al chat):
+   `CREATE ROLE dyn_ro LOGIN PASSWORD '<generada>'; GRANT CONNECT ON DATABASE railway TO dyn_ro; GRANT USAGE ON SCHEMA public TO dyn_ro;`
+   `GRANT SELECT ON "InventoryItem","Card","CardSet","PriceReviewCase" TO dyn_ro;` (si la base no se llama `railway`, su nombre).
+2. En su terminal, con el host **público** de Railway: `export DATABASE_URL_RO='postgresql://dyn_ro:…@<host>:<puerto>/<base>'`,
+   `./scripts/dyn-prod-measure.sh --target prod`, `unset DATABASE_URL_RO`.
+3. Pega la línea de «PEGAR EN LA SOLICITUD DE FUSIÓN» en la solicitud `main → production` (§DYN.5.9 lo exige ANTES).
+4. `DROP ROLE dyn_ro;` (tras `REVOKE` de lo concedido).
+Probado contra mi base sembrada con el esquema real (rol RO efímero): 10 cartas, 1 set, 1 sin mapear, W=30 (cuadra con SQL
+directo), 0 casos; y contra un Postgres desechable con casos conocidos (candado `check-dyn-prod-measure.sh`, job
+`dyn-prod-measure` de `ci.yml`). **NO MEDIDO en producción** (lo mide el dueño).
+
+**104.5 Stack nativo.** (a) **PEN-VEL-2:** `up --gate` compila con `npm run build` (prebuild C-D1 + postbuild
+`check-home-bundle.mjs`) y exige en el log `MEASUREMENT_NOTICE_OK mode=<modo>` y `HOME_BUNDLE_OK`; medido en mi `up --seed
+--gate`: las dos marcas presentes. (b) **DEVOPS-GATE-MEDICION:** `up --gate --measurement` (o `STACK_MEASUREMENT=on`) hornea
+con medición `on` e IDs de ficción (`G-E2ETEST1`, `1234567890123`, los del E2E de medición); por defecto `off` y los IDs
+vacíos aunque el entorno exporte uno real. El sello y `verify:head` dicen `medición`. Si aceptas el banner el navegador
+pide a Google/Meta: `sudo scripts/measurement-egress-sinkhole.sh apply`. (c) **DEVOPS-VERIFY-SHORT:** `verify:head <sha>`
+valida hex ≥ 7 y compara por **prefijo** (`sha_mismo`, también en `assert-serving-head.sh`); medido en mi copia sin `.git`:
+`verify:head fb67d43` ⇒ VERIFICADO. (d) **`down --all`** se **niega** (rc 1, sin parar nada) si hay procesos de otro clon
+(backend/frontend/s3-local/jest), conexiones de cliente a Postgres o clientes de Redis; `down --all --force-shared` lo
+hace igual y avisa. Candados con canario (en `ci.yml`, job `e2e-harness-gaps`): `check-stack-verify-short.sh` 4/4,
+`check-stack-down-all.sh` 6/6, `check-stack-frontend-build.sh` 7/7.
+
+**104.6 DOC-SIZE `--update` ya no clava documentos nuevos.** Escribía `min(tope de clase, medido)` para un documento sin fila,
+o sea lo medido: `docs/DECISIONES.md` (crece una línea por decisión) quedaba en 77 y la siguiente decisión ponía CI en
+rojo. Ahora `--update` solo baja filas existentes; un documento sin fila sigue con el tope de su clase. Canario
+`check-doc-size-canary.sh` 24/24; contra el script anterior, 2/24 rojos (los dos casos nuevos).
