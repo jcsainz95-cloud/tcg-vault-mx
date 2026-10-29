@@ -56,6 +56,12 @@ for ((r=1;r<=N;r++)); do
   "$CHECK" --root "$d" --update >/dev/null 2>&1
   if grep -qP '^20\tdocs/API_CONTRACT.md$' "$d/scripts/doc-size.baseline"; then ok "--update bajó el umbral de 30 a 20 tras compactar"; else bad "--update NO bajó el umbral (baseline: $(tr '\n' ' ' < "$d/scripts/doc-size.baseline"))"; fi
   echo extra >> "$d/docs/API_CONTRACT.md"; caso 1 "tras bajar, volver a crecer (+1 sobre 20) es rojo" "$d" "21 líneas > 20"
+  # …y no CLAVA un documento sin fila a su tamaño de hoy (2026-10-29: DECISIONES.md crece por diseño).
+  d="$(arbol)"; lineas_de 77 > "$d/docs/DECISIONES.md"
+  "$CHECK" --root "$d" --update >/dev/null 2>&1
+  if ! grep -q 'docs/DECISIONES.md' "$d/scripts/doc-size.baseline"; then ok "--update no escribe fila para un documento nuevo (rige su tope de clase)"
+  else bad "--update clavó un documento nuevo a su tamaño: $(grep DECISIONES "$d/scripts/doc-size.baseline")"; fi
+  echo extra >> "$d/docs/DECISIONES.md"; caso 0 "tras --update, el documento nuevo puede crecer dentro de su clase" "$d" "VERDE"
   # …y nunca sube.
   d="$(arbol)"; lineas_de 40 > "$d/docs/API_CONTRACT.md"
   "$CHECK" --root "$d" --update >/dev/null 2>&1

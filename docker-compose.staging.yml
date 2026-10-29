@@ -223,6 +223,8 @@ services:
       # Sonda de SOLO LECTURA (§4.38h.1-quater): con llave presente, `on` ⇒ el ingest
       # pregunta y NO escribe. Segunda forma admitida de incapacitar el entorno.
       POKEMONPRICETRACKER_GRADED_PROBE: ${POKEMONPRICETRACKER_GRADED_PROBE:-}
+      # Cuota del PLAN del proveedor para el panel de presupuesto (§DYN.4.6); vacía ⇒ `null`.
+      POKEMONPRICETRACKER_DAILY_QUOTA: ${POKEMONPRICETRACKER_DAILY_QUOTA:-}
       POKETRACE_API_KEY: ${POKETRACE_API_KEY:-}
       FX_SOURCE: ${FX_SOURCE:-manual}
       FX_API_KEY: ${FX_API_KEY:-}

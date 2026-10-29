@@ -16,11 +16,16 @@
 #            (null / 3 / 50).
 #          · Clasifica cada clave e IMPRIME el cuerpo exacto del `PUT` a aplicar,
 #            conteniendo SOLO las claves que siguen en el seed viejo.
-#          · Traduce `ingestMaxCardsPerRun` a **créditos/día** (el presupuesto de
-#            §4.38r.3.1), porque un tope que nadie tradujo a créditos no es un
-#            presupuesto: es un número.
+#          · v1.113⟨portada⟩ (API_CONTRACT §DYN.3/§DYN.4.6): lee el tope de créditos
+#            PSA por día (`gradedEstimateDailyCreditCap`, M10) y el panel de
+#            presupuesto (`GET /admin/pricing/graded-estimates/budget`), y dice si
+#            falta `POKEMONPRICETRACKER_DAILY_QUOTA` (sin ella el panel da `null`).
+#            El dial por corrida `ingestMaxCardsPerRun` se RETIRÓ: ya no se lee y,
+#            si el DTO todavía lo trae, el binario es anterior a §DYN (rc=2).
 #          · Detecta que el binario desplegado es **PRE-M-48** (proyecta claves
 #            retiradas o `ingestEnabled`) y para en seco.
+#   Candado y canario: scripts/check-graded-estimate-dials-canary.sh (servidor de
+#   maqueta con las respuestas del contrato; DEVOPS_NOTES §104).
 #
 #   NO HACE · No escribe NADA. Ni `PUT`, ni `UPDATE`, ni un `curl -X` de escritura.
 #            No hay bandera para que lo haga. La decisión de pisar un dial de
@@ -235,6 +240,14 @@ if [ "$(field "$OUT" ingestEnabled)" != "__ABSENT__" ]; then
   bad "El DTO de M2 todavía trae \`ingestEnabled\`: binario PRE-M-48 (v1.51 lo retiró)."
   echo "    Mismo diagnóstico que 0.a: en ese código el gasto lo gobierna OTRO dial."
 fi
+# v1.113⟨portada⟩ (API_CONTRACT §DYN.3, I-5): `ingestMaxCardsPerRun` sale de TODA salida
+# de M2. Si viaja, el binario es anterior a §DYN: ahí el tope es por CORRIDA y en
+# cartas, no el de créditos/día de M10, y el PASO 3 hablaría del dial equivocado.
+if [ "$(field "$OUT" ingestMaxCardsPerRun)" != "__ABSENT__" ]; then
+  RC=2
+  bad "El DTO de M2 todavía trae \`ingestMaxCardsPerRun\`: binario ANTERIOR a §DYN (v1.113 lo retiró)."
+  echo "    En ese código el gasto lo acota el corte por corrida, no \`gradedEstimateDailyCreditCap\`."
+fi
 
 # --- 1.b El espejo tiene que reflejar --------------------------------------------
 # `enabled` es el ESPEJO READ-ONLY del dial (`toGradedEstimateConfigDTO`): no lo
@@ -295,44 +308,61 @@ for row in "${KEYS[@]}"; do
 done
 
 # =============================================================================
-# PASO 3 — EL PRESUPUESTO EN CRÉDITOS (§4.38r.3.1 punto 1)
-#   `ingestMaxCardsPerRun` dejó de ser un tope de comodidad: es **la única cota
-#   entre un `PUT` y la factura del proveedor**. Aquí se traduce a créditos, con
-#   los tres factores a la vista, porque un tope que nadie tradujo a créditos no
-#   es un presupuesto: es un número.
+# PASO 3 — EL PRESUPUESTO EN CRÉDITOS (v1.113⟨portada⟩, API_CONTRACT §DYN.3/§DYN.4.3/§DYN.4.6)
+#   Desde §DYN el gasto lo acota UN número: `gradedEstimateDailyCreditCap`
+#   (M10, créditos PSA por día CDMX, [0, 20000], seed 3000; 0 = no se pide nada).
+#   El código no pide un set si su estimación no cabe en lo que queda del día
+#   (DYN.4.3); el exceso posible es el error de estimación de UN set (I-4).
+#   El panel de presupuesto da además la cuota del proveedor
+#   (`POKEMONPRICETRACKER_DAILY_QUOTA`, env de Railway; `null` = sin fijar).
 # =============================================================================
-log "PASO 3 — presupuesto de créditos que autoriza el dial (§4.38r.3.1)"
+log "PASO 3 — presupuesto de créditos PSA por día (§DYN.4)"
 
-MAXCARDS="$(field "$OUT" ingestMaxCardsPerRun)"
-# Constantes del cálculo, NO configurables por env a propósito: si cambian, cambian
-# en el código que las produce y este script debe actualizarse con la fuente delante.
-#   · 2 créditos/carta  ← `includeEbay=true` (§4.38h.3, ARCHITECTURE:7947)
-#   · 2 corridas/día    ← cron `price-ingest` (§19.3)
-CREDITS_PER_CARD=2
-RUNS_PER_DAY=2
+CAP="$(field "$SET_OUT" gradedEstimateDailyCreditCap)"
+BUDGET_OUT="$(mktemp)"; trap 'rm -f "$OUT" "$SET_OUT" "$BUDGET_OUT"' EXIT
+get_json "$ADMIN_BASE_URL/admin/pricing/graded-estimates/budget" "$BUDGET_OUT" "el panel de presupuesto"
+B_CAP="$(field "$BUDGET_OUT" dailyCreditCap)"
+QUOTA="$(field "$BUDGET_OUT" providerDailyQuota)"
+CYCLE="$(field "$BUDGET_OUT" cycleDays)"
+COVER="$(field "$BUDGET_OUT" capToCoverWeek)"
+TODAY="$(field "$BUDGET_OUT" creditsToday)"
 
-if [ "$MAXCARDS" = "__ABSENT__" ]; then
+if ! printf '%s' "$CAP" | grep -Eq '^[0-9]+$'; then
   RC=2
-  bad "El DTO no trae \`ingestMaxCardsPerRun\`: no se puede calcular el presupuesto."
-  echo "    Sin ese número, encender el dial es autorizar un gasto de tope DESCONOCIDO."
-elif ! printf '%s' "$MAXCARDS" | grep -Eq '^[0-9]+$'; then
+  bad "M10 no trae \`gradedEstimateDailyCreditCap\` como entero (\`$CAP\`): tope de gasto DESCONOCIDO."
+  echo "    Ausente ⇒ binario anterior a §DYN o contrato roto. Sin ese número no se concluye nada del gasto."
+elif [ "$B_CAP" != "$CAP" ]; then
   RC=2
-  bad "\`ingestMaxCardsPerRun\` no es un entero (\`$MAXCARDS\`): presupuesto INCALCULABLE."
+  bad "INCOHERENCIA: M10 dice tope $CAP y el panel de presupuesto dice \`$B_CAP\`. Hallazgo para BACKEND."
 else
-  PER_RUN=$(( MAXCARDS * CREDITS_PER_CARD ))
-  PER_DAY=$(( PER_RUN * RUNS_PER_DAY ))
-  printf '\n  %s cartas/corrida × %s créditos/carta × %s corridas/día = \033[1m%s créditos/día\033[0m (TECHO)\n' \
-    "$MAXCARDS" "$CREDITS_PER_CARD" "$RUNS_PER_DAY" "$PER_DAY"
-  printf '  (%s créditos por corrida; %s créditos/mes de 30 días)\n' "$PER_RUN" "$(( PER_DAY * 30 ))"
-  cat <<'EOF'
-
-  Es un TECHO, no una previsión: solo se pide por cartas RAW publicadas y en
-  alcance, así que el gasto real es ≤ este número. Y es un techo que se mueve sin
-  redeploy: `PUT /admin/pricing/graded-estimates {"ingestMaxCardsPerRun": N}`
-  multiplica la factura por N/actual en la corrida siguiente. Antes de subirlo, el
-  número que manda es el MEDIDO en la primera corrida real, no una estimación.
-EOF
+  printf '\n  Tope: \033[1m%s créditos/día\033[0m (día CDMX)  ·  gastado hoy: %s  ·  %s créditos/mes de 30 días como máximo\n' \
+    "$CAP" "$TODAY" "$(( CAP * 30 ))"
+  printf '  Ciclo con este tope: %s días (meta ≤ 7)  ·  tope que cubre la semana: %s\n' "$CYCLE" "$COVER"
+  [ "$CAP" != 0 ] || warn "Tope 0: no se pide nada al proveedor aunque el dial esté \`on\`."
 fi
+
+case "$QUOTA" in
+  null|__ABSENT__)
+    [ "$RC" = 0 ] && RC=10
+    bad "\`providerDailyQuota\` = $QUOTA: falta \`POKEMONPRICETRACKER_DAILY_QUOTA\` en el backend de este entorno."
+    cat <<'EOF'
+    El panel de presupuesto (M10, criterio 301) muestra la cuota del proveedor como «sin fijar».
+    La fija el DUEÑO en Railway (backend → Variables), con el número de su plan
+    (DEVOPS_NOTES §32.12.1: 20 000 créditos/día). Es config, no secreto. Sin redeploy de código:
+    Railway reinicia el servicio al guardar la variable.
+EOF
+    ;;
+  *)
+    if ! printf '%s' "$QUOTA" | grep -Eq '^[0-9]+$'; then
+      RC=2; bad "\`providerDailyQuota\` no es un entero (\`$QUOTA\`)."
+    elif printf '%s' "$CAP" | grep -Eq '^[0-9]+$' && [ "$CAP" -gt "$QUOTA" ]; then
+      [ "$RC" = 2 ] || RC=20
+      bad "El tope ($CAP) es MAYOR que la cuota del proveedor ($QUOTA): el proveedor cortará antes (429)."
+      echo "    Decisión del DUEÑO: bajar el tope en M10 o subir el plan. No se toca desde aquí."
+    else
+      ok "Cuota del proveedor: $QUOTA créditos/día; el tope ($CAP) cabe."
+    fi ;;
+esac
 
 # =============================================================================
 # PASO 4 — qué hacer con el resultado.
