@@ -397,7 +397,11 @@ describe('WSH-T16 — se quita sola al pagar, por las DOS liquidaciones (816)', 
         status: 'pending',
         subtotalCents: 104400,
         processingFeeCents: 0,
-        ivaCents: 0,
+        // QA-IVA-ORDEN: coherente con lo que escribe el checkout (dial archivado e IVA de la base, 104 400 = 90 000 + 14 400): la
+        // BD de integración se comparte y el P&L de `iva-price-convention` suma TODAS las liquidadas.
+        ivaCents: 14400,
+        ivaRatePct: 16,
+        ivaTransferPct: 100,
         totalCents: 104400,
         priceConvention: 'IVA_INCLUSIVE',
         stripePaymentIntentId: pi,
