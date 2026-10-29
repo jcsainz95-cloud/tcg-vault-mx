@@ -297,14 +297,70 @@ describe('Puertas de `ConfigSetting`: todas avisan o escriben solo claves que no
     });
   }
 
-  it('cada escritor de `src/` llama a `notifyKeysWritten` o está en la lista cerrada', () => {
+  /**
+   * El MÉTODO que contiene cada escritura (no el fichero: un fichero con una puerta que avisa y otra que no pasaría). Método
+   * = desde la última cabecera de miembro de clase (2 espacios de sangría) antes de la escritura hasta su `\n  }\n`.
+   */
+  function metodosQueEscriben(code: string): { name: string; body: string }[] {
+    const out: { name: string; body: string }[] = [];
+    const re = new RegExp(WRITE.source, 'g');
+    for (let m = re.exec(code); m; m = re.exec(code)) {
+      const head = /\n  (?:@\w+\([^)]*\)\s*\n  )*(?:(?:private|public|protected|static|async|readonly)\s+)*(\w+)\s*\(/g;
+      let start = -1;
+      let name = '?';
+      for (let h = head.exec(code); h && h.index < m.index; h = head.exec(code)) {
+        start = h.index;
+        name = h[1];
+      }
+      const end = code.indexOf('\n  }\n', m.index);
+      out.push({ name, body: code.slice(start, end) });
+    }
+    return out;
+  }
+
+  it('cada MÉTODO de `src/` que escribe `ConfigSetting` llama a `notifyKeysWritten`, salvo los de la lista cerrada', () => {
     const escritores = ficheros(SRC)
       .filter((f) => WRITE.test(stripComments(readFileSync(f, 'utf8'))))
       .map((f) => relative(SRC, f).split('\\').join('/'))
       .sort();
     expect(escritores.length).toBeGreaterThanOrEqual(5); // control: el barrido ve escritores
-    const sinAviso = escritores.filter((f) => !stripComments(readFileSync(join(SRC, f), 'utf8')).includes('notifyKeysWritten('));
-    expect(sinAviso).toEqual(Object.keys(SIN_AVISO).sort());
+    const mudos: string[] = [];
+    const avisan = new Set<string>();
+    for (const f of escritores) {
+      for (const { name, body } of metodosQueEscriben(stripComments(readFileSync(join(SRC, f), 'utf8')))) {
+        if (!body.includes('notifyKeysWritten(')) mudos.push(`${f}#${name}`);
+        else avisan.add(`${f}#${name}`);
+      }
+    }
+    // Control: el corte por método encuentra las puertas conocidas (si no, el candado no mide lo que dice).
+    expect([...avisan].sort()).toEqual([
+      'modules/pricing/fx.service.ts#setMode',
+      'modules/pricing/pricing.controller.ts#putCurve',
+      'modules/pricing/pricing.controller.ts#putSealedSpreads',
+      'modules/settings/settings.service.ts#setIvaTransferPct',
+      'modules/settings/settings.service.ts#update',
+    ]);
+    expect([...new Set(mudos)].map((m) => m.split('#')[0]).sort()).toEqual(Object.keys(SIN_AVISO).sort());
+    expect(mudos.some((m) => m.startsWith('modules/pricing/'))).toBe(false);
+  });
+
+  it('🐤 canario del método: una puerta muda junto a otra que avisa en el MISMO fichero se ve', () => {
+    const code = [
+      'class C {',
+      '  async a() {',
+      '    await this.prisma.configSetting.upsert({});',
+      '    this.settings.notifyKeysWritten([k]);',
+      '  }',
+      '  async b() {',
+      '    await this.prisma.configSetting.upsert({});',
+      '  }',
+      '}',
+      '',
+    ].join('\n');
+    expect(metodosQueEscriben(code).map((x) => [x.name, x.body.includes('notifyKeysWritten(')])).toEqual([
+      ['a', true],
+      ['b', false],
+    ]);
   });
 
   it('…y las claves de la lista cerrada NO están en PRICE_AFFECTING_SETTING_KEYS', () => {
