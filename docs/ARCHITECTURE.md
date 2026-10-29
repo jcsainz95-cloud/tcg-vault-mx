@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.113.4⟨portada⟩ (2026-10-29).** §4.DYN (e): la tolerancia de consenso no «mueve precio» (solo la lee el candado del barrido); D-DYN-5: el candado de §4.PRE no retiene la venta · backend (DYN-B17). Contrato: API_CONTRACT §DYN.5.4, §DYN.8.
 > **Errata v1.113.3⟨portada⟩ (2026-10-29).** §4.DYN (e): el valor de mercado exhibido se congela en la fila con `P` (M-94 += 2 columnas); precio a mano y cola de revisión disparan cálculo; alcance con apartadas; single-flight ratificado · backend (fase 2, `97f9dd3d`). Contrato: API_CONTRACT §DYN.5.
 > **Errata v1.113.2⟨portada⟩ (2026-10-29).** §4.DYN (d) 6: «vencido > 8 días» cuenta desde la última consulta o, si nunca, desde que hay turnos o llegó el set (sin falsa alarma al desplegar) · backend (fase 1, `4b2e6fe4`). Contrato: API_CONTRACT §DYN.3/.4.3/.4.5, D-DYN-4.
 > **Errata v1.113.1⟨portada⟩ (2026-10-29).** §4.DYN (e): se cobra el `ListingPrice` vigente, sin gracia, sin precio anterior ni aviso (M-94 sin columnas `prev*`) · dueño (`HECHOS.md` 2026-10-29 «Precio: se cobra lo que se ve…»). Contrato: API_CONTRACT §DYN.5.
@@ -30860,7 +30861,7 @@ aparte del arquitecto tras medir el abuso (**NO MEDIDO** con tráfico real de ev
 ---
 
 <a id="4-DYN"></a>
-### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.3, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
+### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
 
 Fuentes, en este orden: `HECHOS.md` filas 2026-10-29 «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
 portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre «…VIO…»), 2026-10-04 «Joyas para gradear…», «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA…»,
@@ -30976,7 +30977,9 @@ precios en el carrito del navegador ni precios anteriores en el servidor.
 - **Disparadores manuales:** toda escritura de precio o referencia por decisión del dueño (precio por pieza, override,
   cola de revisión `manual`/`accept`) recalcula su variante al instante; lo automático (ingest, árbitro, Banxico) espera al
   `daily`. Alcance y single-flight: `API_CONTRACT §DYN.5.2-.3`.
-- Qué dial «mueve precio» lo dice **una lista** de backend con candado en los dos sentidos (`API_CONTRACT §DYN.5.4`).
+- Qué dial «mueve precio» lo dice **una lista** de backend con candado en los dos sentidos (`API_CONTRACT §DYN.5.4`). Criterio:
+  entra el dial que lee el cálculo de la fila, no el que mueve el precio a través del barrido (v1.113.4: la tolerancia de
+  consenso solo decide el candado del barrido, y lo que el barrido cambia ya llega en el siguiente `daily`).
 - Fase 1 conserva el agrupado en memoria sobre filas ya precalculadas (una consulta con `JOIN`, sin curva ni referencias). Si
   el criterio 294 (p95 < 500 ms con el doble de inventario) no se cumple medido, la fase 2 agrupa en SQL por `variantKey`, que la
   fila ya guarda. No se construye la fase 2 sin esa medición.
@@ -31858,6 +31861,8 @@ Riesgos técnicos:
 
 > **`D-DYN-1…3` (🔴 ABIERTAS, leídas 2026-10-29 sobre `cfc0332b`):** nonce de CSP que no llega a los `<script>`, `PROJECT §X.1`
 > y §X.2 contra `HECHOS` 2026-10-29 «se cobra lo que se ve», y `PROJECT §DYN.2` «§R». Dueño, prueba y detalle: **solo** en `API_CONTRACT §DYN.8`.
+> **`D-DYN-5` (🔴 ABIERTA, 💰, leída 2026-10-29 sobre `9ae27b49`):** con caso `open` el precio de venta no conserva el último sano
+> que pide §4.PRE (c). Detalle, dueño y prueba: **solo** en `API_CONTRACT §DYN.8`.
 >
 > **`D-EQ-5` (🔴 ABIERTA, dueño backend; medida 2026-10-18 por QA con Postgres real —rojo de `C-EQ-1`,
 > `enum-query-axes.e2e-spec.ts:1680`— y leída por el arquitecto sobre `e0cce11b`; bloquea la fusión del stream).** Ocho llaves
