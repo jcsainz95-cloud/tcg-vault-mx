@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, onTestFinished } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 
@@ -22,10 +22,54 @@ vi.mock('@/lib/session', async (importOriginal) => {
 
 // §E1/§E3: el `page.tsx` de la portada pasó a envoltorio de servidor (canonical) y el cuerpo vive
 // en `HomeView` ('use client'). El test de componente renderiza la vista cliente directamente.
-import { HomeView } from './HomeView';
+import { HomeView, HOME_CHIPS_MEDIA } from './HomeView';
+import * as api from '@/lib/api';
+
+/** Viewport de escritorio SOLO para la consulta de los chips (el resto de queries, como móvil). */
+function desktopChipsViewport() {
+  const original = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    ...original(query),
+    matches: query === HOME_CHIPS_MEDIA,
+  })) as typeof window.matchMedia;
+  return () => {
+    window.matchMedia = original;
+  };
+}
+
+describe('HomeView · facetas del hero solo donde se ven sus chips (PERF portada, candado)', () => {
+  /**
+   * §DYN.3: los chips «Sets en cacería» son `hidden sm:flex`. En móvil `GET /catalog/facets` (una
+   * de las lecturas caras) no se pide. Canario: quitar `enabled: chipsVisible` pone rojo el primer
+   * caso.
+   */
+  it('móvil: NO pide /catalog/facets', async () => {
+    const spy = vi.spyOn(api, 'getCatalogFacets');
+    renderWithProviders(<HomeView />, 'es');
+    await screen.findByText('Piezas destacadas');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('escritorio: sí la pide y pinta los chips', async () => {
+    const restore = desktopChipsViewport();
+    const spy = vi.spyOn(api, 'getCatalogFacets');
+    try {
+      renderWithProviders(<HomeView />, 'es');
+      expect(await screen.findByText('Sets en cacería')).toBeInTheDocument();
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+});
 
 describe('HomePage · makeover 1a (hero + cotizador + estantes)', () => {
   it('pinta el hero, el cotizador (hero lg + sección móvil) y la banda del buylist', async () => {
+    const restore = desktopChipsViewport();
+    onTestFinished(restore);
     renderWithProviders(<HomeView />, 'es');
 
     // Hero: kicker mono + H1 + CTA negro al catálogo.

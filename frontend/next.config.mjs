@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import createNextIntlPlugin from 'next-intl/plugin';
@@ -149,10 +149,48 @@ if (disclosureProblem) {
 }
 
 /** @type {import('next').NextConfig} */
+/**
+ * PERF portada (§DYN.3) — los fixtures de MOCK fuera del bundle de producción.
+ *
+ * `lib/api.ts` y `lib/marketing-api.ts` importan `lib/mock/*` de forma estática y deciden en cada
+ * función con `config.useMocks` (una propiedad de objeto, que el minificador no puede plegar): los
+ * fixtures viajaban a todo visitante (chunk de ~51 KB gzip en la portada, medido 2026-10-29).
+ *
+ * Remedio en dos piezas, las dos de build:
+ *  1. `NEXT_PUBLIC_USE_MOCKS` se hornea SIEMPRE como literal `'true'|'false'` (también si falta), así
+ *     `config.useMocks` vale lo mismo en servidor y cliente y no puede encenderse en runtime sobre un
+ *     build que no trae los fixtures.
+ *  2. Con mocks apagados, cada módulo de `src/lib/mock/` (no las pruebas) se resuelve a un módulo
+ *     vacío (`resolve.alias` → `false`). Es seguro porque TODA referencia a esos módulos en
+ *     `api.ts`/`marketing-api.ts` solo es alcanzable con `config.useMocks` verdadero (auditado por AST,
+ *     FRONTEND_NOTES «PERF portada»); un módulo vacío no da avisos de «export not found».
+ * Candado: `scripts/check-home-bundle.mjs` (postbuild) falla si un fixture vuelve al JS de la portada.
+ */
+/** @param {Record<string, string | undefined>} [env] */
+export const useMocksBuild = (env = process.env) => (env.NEXT_PUBLIC_USE_MOCKS === 'true' ? 'true' : 'false');
+
+export function mockModuleAliases({ baseDir = dirname(fileURLToPath(import.meta.url)) } = {}) {
+  const dir = join(baseDir, 'src/lib/mock');
+  const aliases = {};
+  for (const f of readdirSync(dir)) {
+    if (!/\.tsx?$/.test(f) || /\.test\.tsx?$/.test(f)) continue;
+    const base = join(dir, f.replace(/\.tsx?$/, ''));
+    aliases[base] = false;
+    aliases[`${base}.ts`] = false;
+  }
+  return aliases;
+}
+
 const nextConfig = {
   output: 'standalone',
   distDir,
-  env: measurementBuildEnv(),
+  env: { ...measurementBuildEnv(), NEXT_PUBLIC_USE_MOCKS: useMocksBuild() },
+  webpack(config) {
+    if (useMocksBuild() === 'false') {
+      config.resolve.alias = { ...config.resolve.alias, ...mockModuleAliases() };
+    }
+    return config;
+  },
   typescript: { tsconfigPath: tsconfigPathForDistDir(distDir) },
   reactStrictMode: true,
   // SEC-HDR-1 (2026-09-29): anti-clickjacking. La sesión vive en localStorage, así que sin esto el

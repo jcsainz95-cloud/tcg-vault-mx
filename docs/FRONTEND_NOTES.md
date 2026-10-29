@@ -1,6 +1,30 @@
 # FRONTEND_NOTES.md — Marketplace TCG con Bóveda
 
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
+>
+> ⚠ Este fichero rebasa el tope (~22 300 líneas contra ~1 500, CLAUDE.md «Documentos»). Pendiente de compactar en un
+> pase propio; esta sección solo añade su estado.
+
+## §DYN.3 · Velocidad de la portada sin contrato (2026-10-29, rama `claude/portada-velocidad-fe`)
+
+**Estado vigente.** Sin cambios de contrato ni de backend. Diagnóstico de origen: informe de frontend del 2026-10-29
+(scratchpad del orquestador, `frontend-velocidad-portada/INFORME.md`).
+- **Traducciones:** el layout `[locale]` manda `storefrontMessages()` (todo menos `admin`, el 74 % de `es.json`); `/admin`
+  lo añade en cliente con `AdminMessagesProvider` (`i18n/message-scopes.ts`). Candados: `layout.messages.test.tsx`,
+  `AdminMessagesProvider.test.tsx`. Componentes compartidos con textos `admin.*` (`VariantPricingCompact`, `QuickAddSection`
+  de `CellDrawer`) solo se pintan en modos de plataforma (`pricing` / `mode==='platform'`), que solo existen en `/admin`.
+- **JS:** `PortfolioGlance` (recharts) con `next/dynamic`; mocks fuera del build sin mocks (`next.config.mjs`:
+  `useMocksBuild` + `mockModuleAliases`, y `MOCKS_BUILD && config.useMocks` en `api.ts`/`marketing-api.ts`). Toda
+  referencia a `lib/mock/*` desde esos dos ficheros está bajo guarda (auditoría AST 2026-10-29: 497 referencias, 0 sin
+  guarda). **Regla:** código nuevo que use `lib/mock/*` fuera de una rama `(MOCKS_BUILD && config.useMocks)` rompe la
+  producción (el módulo llega vacío). Candado de bundle: `scripts/check-home-bundle.mjs` (postbuild de `npm run build`).
+  `lib/api.ts` NO se partió: tras podar los mocks su chunk pesa 10 KB gzip y la partición no compensaba.
+- **Red:** `Content-Type` solo con cuerpo (`api-client.ts`), así los GET anónimos son CORS simples (sin `OPTIONS`);
+  `/catalog/facets` solo con `minWidthQuery('sm')` (sus chips son `hidden sm:flex`).
+- **Medido** (build local `next build` con el API de producción; `next start`, iPhone 13, N=5, sha antes `cfc0332b`,
+  después `5b40e1aa`): JS de la portada 403 → 209 KB transferidos; HTML `/es` 138 → 47 KB (gzip); preflights 9 → 0;
+  inicio de las llamadas al API 367 → 256 ms (rápido) y 3681 → 2297 ms (Slow 4G). Las cartas NO se midieron: el API de
+  producción no admite el origen `localhost` en CORS.
 
 ## §DSC · Códigos de descuento (2026-10-26, contrato v1.112.1 §DSC, DESIGN_SYSTEM §DSC-UX.4/5)
 

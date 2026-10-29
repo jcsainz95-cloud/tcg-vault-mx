@@ -5,7 +5,8 @@ import { useTranslations } from 'next-intl';
 import { getCatalogFacets, getHoldings } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Link } from '@/i18n/navigation';
-import { PortfolioGlance } from '@/components/domain/PortfolioTrendChart';
+import dynamic from 'next/dynamic';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { EditorialLink } from './_shared/EditorialLink';
 import { useHomeQuoter, HomeQuoterPanel } from './_home/HomeQuoter';
 import {
@@ -25,6 +26,32 @@ import {
 } from './_home/GradingGemsShelf';
 import { GradingFootnoteBoundary } from './_shared/grading/GradingFootnote';
 import { pageHasGradingFigures } from './_shared/grading/estimates';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { minWidthQuery } from '@/lib/breakpoints';
+
+/**
+ * PERF portada (§DYN.3): `PortfolioGlance` arrastra `recharts` (~97 KB gzip). Solo se pinta con
+ * sesión iniciada, así que el visitante anónimo no lo descarga: chunk aparte, solo en cliente (la
+ * sesión vive en el navegador; en SSR esta banda nunca se pinta).
+ */
+const PortfolioGlance = dynamic(
+  () => import('@/components/domain/PortfolioTrendChart').then((m) => m.PortfolioGlance),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-end justify-between gap-6" aria-hidden>
+        <div>
+          <Skeleton className="h-9 w-40" />
+          <Skeleton className="mt-3 h-3 w-28" />
+        </div>
+        <Skeleton className="hidden h-[90px] w-[200px] sm:block" />
+      </div>
+    ),
+  },
+);
+
+/** Ancho desde el que se ven los chips «Sets en cacería» del hero (`sm:flex`). */
+export const HOME_CHIPS_MEDIA = minWidthQuery('sm');
 
 /**
  * Home del storefront — makeover 1a «Conservadora» (papel y tinta, rojo con avaricia).
@@ -52,11 +79,17 @@ export function HomeView() {
   // Fallback de cifra para el glance (misma fuente que la home anterior).
   const holdings = useQuery({ queryKey: ['holdings'], queryFn: getHoldings, enabled: authed });
   // Chips del hero: sets REALES con inventario publicado (facetas de Compra).
+  // PERF portada (§DYN.3): los chips son `hidden sm:flex`; en móvil no se ven, así que tampoco se
+  // piden (`/catalog/facets` es de las lecturas caras del API). `HOME_CHIPS_MEDIA` = `minWidthQuery('sm')`,
+  // el mismo umbral que la clase `sm:` (lib/breakpoints, DESIGN_SYSTEM §4.4). En escritorio la consulta sale
+  // tras montar (el hook devuelve `false` en SSR), igual que antes salía tras hidratar.
+  const chipsVisible = useMediaQuery(HOME_CHIPS_MEDIA);
   const facets = useQuery({
     queryKey: ['catalog-facets'],
     queryFn: getCatalogFacets,
     staleTime: 5 * 60_000,
     retry: false,
+    enabled: chipsVisible,
   });
   const heroSets = (facets.data?.sets ?? []).slice(0, 4);
 
