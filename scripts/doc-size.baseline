@@ -4,11 +4,11 @@
 # Línea base medida con `wc -l` sobre aed3ca0d (2026-10-19), el árbol en el que el candado entra en la
 # rama. Se rehízo UNA vez: la primera (b95fbbac) no veía lo que entró antes de la fusión del candado.
 # base-sha: aed3ca0d9f0c8cda1bcc34e00067bed43d5c8082
-19159	PROJECT.md
+19162	PROJECT.md
 46230	docs/API_CONTRACT.md
 37108	docs/ARCHITECTURE.md
-33217	docs/BACKEND_NOTES.md
-33784	docs/DESIGN_SYSTEM.md
+33218	docs/BACKEND_NOTES.md
+33859	docs/DESIGN_SYSTEM.md
 139	docs/DEVOPS_NOTES-24-railway-deploy-gate.md
 15089	docs/DEVOPS_NOTES.md
 19892	docs/FRONTEND_NOTES.md
