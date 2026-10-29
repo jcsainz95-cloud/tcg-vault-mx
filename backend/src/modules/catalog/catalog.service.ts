@@ -61,7 +61,6 @@ import {
   GradingHighlightResult,
   HighlightReason,
   selectGradedEstimates,
-  toGradedEstimateConfigDTO,
 } from '../../common/graded-estimate';
 
 // Dominios aceptados por los filtros de enum del endpoint PÚBLICO (§0-Q punto 3).
@@ -73,6 +72,9 @@ import {
 //
 // CLASE E (§0-Q punto 3 / ARCHITECTURE §4.37) — se DERIVAN del schema vía `common/enum-values.ts`:
 // si mañana el schema gana un valor, el filtro público debe aceptarlo solo (habrá filas en él).
+// v1.113⟨portada⟩ (§DYN.2–§DYN.3): proyector M2 sin el dial retirado y llaves de Destacadas.
+import { toAdminGradedEstimateConfigDTO } from './graded-estimate-config-dto';
+import { FeaturedCandidate, FeaturedKey, featuredKeyOf } from './featured-selection';
 const PRODUCT_TYPES: readonly ProductType[] = PRODUCT_TYPE_VALUES;
 const SEALED_SUBTYPES: readonly SealedSubtype[] = SEALED_SUBTYPE_VALUES;
 const FINISHES: readonly Finish[] = FINISH_VALUES;
@@ -1496,6 +1498,61 @@ export class CatalogService {
   }
 
   /**
+   * v1.113⟨portada⟩ (API_CONTRACT §DYN.2.3) — los CANDIDATOS de Destacadas: grupos vendibles de la rejilla (K, §4.9a) de
+   * piezas `raw|graded` de plataforma con precio (⛔ sin sellado: lo quita `singlesPublishedWhere`; los accesorios no son
+   * `InventoryItem`), con su `P` del
+   * día (antes de M-94, el `P` vivo: el mismo cuerpo que la rejilla) y `firstListedAt` del grupo = MIN de sus piezas VIVAS
+   * (ARCHITECTURE §4.DYN (c): un grupo con una pieza vieja no «llega»; una pieza sin fecha cuenta como vieja).
+   */
+  async featuredCandidates(): Promise<FeaturedCandidate[]> {
+    const rows = await this.fetchSellable(this.singlesPublishedWhere());
+    const firstByKey = new Map<string, Date | null>();
+    for (const r of rows) {
+      const k = this.lookupKeysOf(r.item);
+      if (!k) continue;
+      const at = r.item.firstListedAt ?? null;
+      if (!firstByKey.has(k.variantKey)) firstByKey.set(k.variantKey, at);
+      else {
+        const prev = firstByKey.get(k.variantKey) ?? null;
+        firstByKey.set(k.variantKey, prev == null || at == null ? null : at < prev ? at : prev);
+      }
+    }
+    return this.buildGroups(rows, null).map((g) => {
+      const key = {
+        cardId: g.dto.card.id,
+        productType: g.dto.productType as ProductType,
+        gradeKey: g.dto.gradeKey,
+        finish: g.dto.finish,
+      };
+      return { ...key, priceCents: g.displayPriceCents, firstListedAt: firstByKey.get(variantKey(key)) ?? null };
+    });
+  }
+
+  /**
+   * v1.113⟨portada⟩ (§DYN.2.2) — el render de las llaves de una selección: `fetchSellable` ACOTADO a sus `cardId` + contexto
+   * del gancho + `buildGroups` (el mismo `GroupedListingSummaryDTO` de la rejilla: burbuja y nota al pie iguales, 928).
+   * Coste constante respecto del inventario. Devuelve SOLO los grupos vivos, por `featuredKeyOf`.
+   */
+  async featuredGroups(keys: readonly FeaturedKey[]): Promise<Map<string, GroupedListingSummaryDTO>> {
+    const out = new Map<string, GroupedListingSummaryDTO>();
+    const cardIds = [...new Set(keys.map((k) => k.cardId))];
+    if (cardIds.length === 0) return out;
+    const wanted = new Set(keys.map(featuredKeyOf));
+    const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId: { in: cardIds } }));
+    const grading = await this.loadGradingContext(rows);
+    for (const g of this.buildGroups(rows, grading)) {
+      const key = featuredKeyOf({
+        cardId: g.dto.card.id,
+        productType: g.dto.productType as ProductType,
+        gradeKey: g.dto.gradeKey,
+        finish: g.dto.finish,
+      });
+      if (wanted.has(key)) out.set(key, g.summary);
+    }
+    return out;
+  }
+
+  /**
    * v1.1 — Facetas dinámicas de "Compra" calculadas SOBRE el inventario publicado y
    * comprable (no el catálogo completo). API_CONTRACT §catalog/facets.
    */
@@ -1785,7 +1842,7 @@ export class CatalogService {
     return {
       cardId,
       enabled: cfg.enabled,
-      config: toGradedEstimateConfigDTO(cfg),
+      config: toAdminGradedEstimateConfigDTO(cfg),
       groups,
     };
   }

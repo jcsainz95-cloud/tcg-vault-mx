@@ -29,6 +29,7 @@ import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.servi
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
 import { MeasurementDrainService } from '../modules/measurement/measurement-drain.service';
 import { MarketingAccessLogService } from '../modules/marketing/marketing-access-log.service';
+import { FeaturedService } from '../modules/catalog/featured.service';
 
 const QUEUE_NAME = 'tcg-daily';
 
@@ -138,6 +139,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     // `@Optional()` por la misma razón que los de D2d/C1.
     @Optional() private readonly measurementDrain?: MeasurementDrainService,
     @Optional() private readonly marketingAccessLog?: MarketingAccessLogService,
+    // v1.113⟨portada⟩ (§DYN.2.3): el tic de Destacadas del día.
+    @Optional() private readonly featuredRotation?: FeaturedService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -308,6 +311,16 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: los jobs de marketing NO están inyectados; measurement-drain y marketing-access-log-retention no quedan programados.');
     }
 
+    // v1.113⟨portada⟩ (API_CONTRACT §DYN.2.3): Destacadas del día. Un TIC cada 15 min (no un cron fijo): el cambio diario
+    // cuelga del dial `featured_rotation_hour` (mover la hora no re-registra nada), un fallo se reintenta solo y un
+    // arranque tras caída se pone al día solo (ARCHITECTURE §4.DYN (b)).
+    const featuredCron = this.config.get<string>('FEATURED_ROTATION_CRON') ?? '*/15 * * * *';
+    if (this.featuredRotation) {
+      await this.queue.add('featured-rotation', {}, this.repeatEvery('featured-rotation', featuredCron));
+    } else {
+      this.logger.error('Scheduler: FeaturedService NO está inyectado; featured-rotation no queda programado.');
+    }
+
     // El wiring corre en background: si mientras tanto empezó el shutdown, NO se crea el worker
     // (se quedaría vivo tras el destroy: handle abierto + jobs procesándose en un proceso que
     // se está apagando). La cola/conexión ya creadas las cierra `onModuleDestroy`, que espera
@@ -433,6 +446,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.measurementDrain?.run() ?? null;
       case 'marketing-access-log-retention':
         return this.marketingAccessLog?.purgeExpired() ?? null;
+      case 'featured-rotation':
+        return this.featuredRotation?.tick() ?? null;
       default:
         this.logger.warn(`Job desconocido en la cola: ${job.name}`);
         return null;

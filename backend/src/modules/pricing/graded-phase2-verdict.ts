@@ -110,7 +110,11 @@ export type GradedStopReason =
   /** Dial `on` pero clave(s) del ingest PRESENTE(S)-e-INVÁLIDA(S) ⇒ fail-closed antes de pedir nada. */
   | 'ingest_config_invalid'
   /** Dial `on`, config válida, pero CERO cartas con inventario RAW publicado: no hay qué preguntar. */
-  | 'no_scope';
+  | 'no_scope'
+  /** v1.113⟨portada⟩ (§DYN.3): el tope de créditos PSA del día es 0 ⇒ no se pide nada. Es una DECISIÓN del dueño. */
+  | 'daily_credit_cap_zero'
+  /** v1.113⟨portada⟩ (§DYN.4.2): todos los sets en alcance se consultaron hace < 7 días ⇒ nada vencido. Estado NORMAL. */
+  | 'nothing_due';
 
 /**
  * v1.51-c (R1-ter) — **cuántas peticiones se EMITIERON de verdad, y por qué las demás no.**
@@ -159,8 +163,8 @@ export interface GradedRequestTally {
   mapper: GradedMapperOutcome;
   /**
    * QA (v1.51-d) — **¿el recorrido cubrió todo el alcance?** El bucle del ingest se corta por tope de
-   * sonda, por cuota diaria o por escalada, y el alcance mismo puede venir recortado por
-   * `ingestMaxCardsPerRun`. Cuando esto es `false`, `setsUnmatched` y `mapper.sets` son **cotas
+   * sonda, por cuota diaria, por escalada o por el presupuesto de créditos del día (v1.113, §DYN.4.3; el corte
+   * `ingestMaxCardsPerRun` se retiró). Cuando esto es `false`, `setsUnmatched` y `mapper.sets` son **cotas
    * inferiores**, y el bloque tiene que decirlo: «1 set(s) del alcance» leído como total, habiendo 20
    * sin mapear, contesta al revés la única pregunta que el dueño quiere contestar.
    */
@@ -310,8 +314,8 @@ type Render = (verdict: GradedPhase2Verdict, headline: string, nextStep: string)
 /** Cómo se nombra la parcialidad del recorrido allí donde se dan cifras de sets. */
 const COTA_INFERIOR =
   ' ⚠️ COTA INFERIOR: el recorrido NO cubrió todo el alcance de esta corrida (se cortó por el tope de ' +
-  'sonda, por la cuota diaria, por una escalada, o el alcance ya venía recortado por ' +
-  '`graded_estimate_ingest_max_cards_per_run`), así que puede haber MÁS sets en el mismo estado que ' +
+  'sonda, por la cuota diaria, por una escalada, o porque el presupuesto de créditos del día ' +
+  '(`graded_estimate_daily_credit_cap`) no alcanzaba para el siguiente set), así que puede haber MÁS sets en el mismo estado que ' +
   'este bloque no llegó a ver. El número es un mínimo, no un total.';
 
 /** Frase estándar del catálogo caído, con su causa y su acción. Una sola definición para las dos ramas. */
@@ -506,6 +510,20 @@ function stoppedVerdict(
       'INDETERMINADO',
       'No se preguntó nada: el dial está en `on` y la config es válida, pero NINGUNA carta tiene inventario RAW publicado, así que el alcance del ingest quedó VACÍO.',
       'Publica al menos una pieza RAW (InventoryItem ownerType=platform, status=listed, productType=raw) de una carta con `pptSetId` mapeado y vuelve a correr. No busques nada en el log del proveedor: no hubo ninguna petición.',
+    );
+  }
+  if (o.reason === 'daily_credit_cap_zero') {
+    return r(
+      'INDETERMINADO',
+      'No se preguntó nada: el tope diario de créditos PSA (`graded_estimate_daily_credit_cap`) está en 0. Es una decisión, no un fallo.',
+      'Sube el tope con PUT /admin/settings {"gradedEstimateDailyCreditCap": N} (super_admin) y vuelve a disparar POST /admin/jobs/price-ingest con body {}. No busques nada en el log del proveedor: no hubo ninguna petición.',
+    );
+  }
+  if (o.reason === 'nothing_due') {
+    return r(
+      'INDETERMINADO',
+      'No se preguntó nada: todos los sets en alcance se consultaron hace menos de 7 días (turno semanal por set, §DYN.4). Es el estado normal entre vueltas.',
+      'Nada que hacer. El panel de presupuesto (GET /admin/pricing/graded-estimates/budget) dice cuándo vence la siguiente vuelta. No busques nada en el log del proveedor: no hubo ninguna petición.',
     );
   }
   // ⛑️ EL CANDADO. Si alguien añade un motivo a `GradedStopReason` sin darle rama, esta línea deja de

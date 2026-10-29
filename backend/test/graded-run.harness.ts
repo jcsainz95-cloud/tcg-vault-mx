@@ -20,6 +20,7 @@ import {
   extraerCitasVivas,
   mencionesSinMarcar,
 } from '../src/modules/pricing/graded-log-lines';
+import { withGradedTurns } from './helpers/graded-turns-double';
 
 /**
  * v1.51-d — **EL BANCO DE PRUEBAS DE UNA CORRIDA GRADED REAL, Y SU GUARDIÁN.**
@@ -255,7 +256,7 @@ export function wireJob(
   env: Record<string, string | undefined>,
   config: Record<string, unknown> = ON,
   /** Alcance del ingest: `[]` reproduce «ninguna carta con inventario RAW publicado» (R1, `no_scope`). */
-  inventario: { cardId: string }[] = [{ cardId: 'c1' }],
+  inventario: { cardId: string; firstListedAt?: Date | null }[] = [{ cardId: 'c1' }],
   /** `null` reproduce el set SIN `pptSetId` mapeado (causa #5 del mapa; R1-ter). */
   pptSetId: string | null = 'sv8',
   extra: ExtrasDeCorrida = {},
@@ -276,6 +277,8 @@ export function wireJob(
     priceReference: { findFirst: jest.fn(async () => null), create, update },
     cardSet: { update: cardSetUpdate },
   } as unknown as PrismaService;
+  // v1.113⟨portada⟩ (§DYN.4): tablas del turno PSA en memoria (nunca consultado, tope seed ⇒ se pide como antes).
+  const { world: turnos } = withGradedTurns(prisma);
   const settings = new SettingsService(prisma);
   const pricing = new PricingService(prisma, settings, {} as unknown as FxService, {} as never, {} as never, {} as never);
   jest.spyOn(pricing, 'getPublishedSlabGradesBatch').mockResolvedValue(new Map());
@@ -304,7 +307,7 @@ export function wireJob(
   const ingest = new PriceIngestService(
     prisma, settings, pricing, pptBulk, {} as never, {} as never, pptSetMapper, {} as never, undefined, audit,
   );
-  return { ingest, create, update, cardSetUpdate, pptSetMapper };
+  return { ingest, create, update, cardSetUpdate, pptSetMapper, turnos };
 }
 
 // =================================================================================================

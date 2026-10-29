@@ -2421,6 +2421,10 @@ export class InventoryService {
         ...fields,
         status: 'listed',
         ...(lineListPriceCents != null ? { listPriceCents: lineListPriceCents } : {}),
+        // v1.113⟨portada⟩ (M-93, API_CONTRACT §DYN.1, criterio 923): «publicada por primera vez». `claimListed` es su ÚNICO
+        // escritor y SOLO la fija si la pieza LEÍDA no la tenía: volver a publicar una retirada NO la mueve (no vuelve a ser
+        // «recién llegada»). Va en ESTE MISMO `UPDATE` condicionado (una sola escritura, todo o nada con el CAS).
+        ...(item.firstListedAt === null ? { firstListedAt: new Date() } : {}),
       },
     });
     if (claimed.count !== 1) {

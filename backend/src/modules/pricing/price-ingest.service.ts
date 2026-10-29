@@ -30,6 +30,20 @@ import { manualSaleOf, SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
 import { saleQueueKeyOf } from './sale-queue-key';
 // v1.50.3 (§4.38m.2): la fecha de negocio del gate de EVIDENCIA — la MISMA que usa la lectura.
 import { businessDateCdmx } from '../../common/graded-estimate';
+import {
+  GRADED_TURN_CYCLE_DAYS,
+  cycleProjection,
+  daysBetweenYmd,
+  estimateSetCredits,
+  orderDueSets,
+  psaCycleShortReason,
+  ymdOfDbDate,
+} from './graded-turns';
+import { SpendAlertsService } from '../spend-alerts/spend-alerts.service';
+import { GradedSetScanOutcome } from '@prisma/client';
+
+/** v1.113⟨portada⟩ (§DYN.4.5) — la ÚNICA fila abierta de AG-24 (mismo mecanismo de apertura/cierre que AG-7). */
+export const PSA_CYCLE_SHORT_DEDUP_KEY = 'ag24:open';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
 import { PptSetMapper, PptSetMapping } from './ppt-set-mapper.service';
 import { SetScope, classifySet, isModernSet, isPremiumRarity } from './ppt-sync-scope';
@@ -189,6 +203,26 @@ export interface GradedIngestResult {
   verdict: GradedPhase2Verdict;
   /** ⛔ Presente ⇒ el job PARÓ y hay que volver al ARQUITECTO (regla 9). */
   escalation: { reason: string; detail: string } | null;
+  /**
+   * v1.113⟨portada⟩ (§DYN.4) — el turno por set de ESTA corrida. `null` ⇒ la corrida paró antes de mirar el alcance
+   * (dial `off`, config inválida, sin alcance).
+   */
+  turns: GradedTurnsRunSummary | null;
+}
+
+/** v1.113⟨portada⟩ (§DYN.4) — resumen del turno PSA de una corrida. */
+export interface GradedTurnsRunSummary {
+  dailyCreditCap: number;
+  /** Σ creditsCharged del día CDMX ANTES de esta corrida. */
+  creditsSpentBefore: number;
+  /** Σ creditsCharged que ESTA corrida cargó al tope. */
+  creditsChargedThisRun: number;
+  setsInScope: number;
+  setsDue: number;
+  setsRequested: number;
+  setsOverCap: number;
+  /** La corrida paró porque el siguiente set no cabía en lo que quedaba del tope del día (§DYN.4.3). */
+  stoppedByBudget: boolean;
 }
 
 /** Resumen de la ingesta de un set (observabilidad; NO expuesto por contrato). */
@@ -371,6 +405,9 @@ export class PriceIngestService {
     // posicionales) y porque el barrido NO puede fallar porque TCGdex no responda. En DI real se inyectan.
     @Optional() private readonly tcgdexBulk?: TcgdexBulkProvider,
     @Optional() private readonly priceReview?: PriceReviewService,
+    // v1.113⟨portada⟩ (§DYN.4.5): AG-24 `psa_cycle_short`. `@Optional` por los mocks posicionales; en DI real siempre se
+    // inyecta (`PricingModule` importa `SpendAlertsModule`). Sin él la corrida NO falla: solo no abre el aviso, y lo loguea.
+    @Optional() private readonly spendAlerts?: SpendAlertsService,
   ) {}
 
   /**
@@ -1380,6 +1417,7 @@ export class PriceIngestService {
       probe: false,
       verdict: 'INDETERMINADO',
       escalation: null,
+      turns: null,
     };
     // v1.50.3-g (§4.38h.1-quater) — TODO lo que el veredicto de la fase 2 necesita, acumulado a escala
     // de CORRIDA. Se declara aquí arriba, junto al resultado, porque el veredicto se emite en TODAS las
@@ -1466,15 +1504,22 @@ export class PriceIngestService {
     // qué no pasó nada» viaja por `stopReason`, que es un dato aparte y explícito.
     result.enabled = true;
 
-    // ALCANCE: cartas con inventario RAW publicado. Orden DETERMINISTA (cardId asc) para que el tope
-    // por corrida sea reproducible y no dependa del orden que devuelva la BD.
-    const published = await this.prisma.inventoryItem.findMany({
+    // ALCANCE (v1.113⟨portada⟩, §DYN.4.1): TODAS las cartas con inventario RAW publicado de plataforma — ⛔ sin corte por
+    // número de cartas (el dial `graded_estimate_ingest_max_cards_per_run` se retiró; lo que acota el gasto es el tope de
+    // créditos por día CDMX, abajo). Sellado y gradeadas nunca (931). Se trae `firstListedAt` por pieza para el orden del
+    // turno (§DYN.4.2: los sets nunca consultados, de la publicada hace más tiempo a la más nueva).
+    const publishedRows = await this.prisma.inventoryItem.findMany({
       where: { ownerType: 'platform', status: 'listed', productType: 'raw' },
-      select: { cardId: true },
-      distinct: ['cardId'],
-      orderBy: { cardId: 'asc' },
+      select: { cardId: true, firstListedAt: true },
     });
-    const cardIds = published.map((r) => r.cardId).slice(0, cfg.ingestMaxCardsPerRun);
+    const firstListedByCard = new Map<string, Date | null>();
+    for (const r of publishedRows as { cardId: string; firstListedAt?: Date | null }[]) {
+      const prev = firstListedByCard.get(r.cardId);
+      const at = r.firstListedAt ?? null;
+      if (!firstListedByCard.has(r.cardId)) firstListedByCard.set(r.cardId, at);
+      else if (at && (!prev || at < prev)) firstListedByCard.set(r.cardId, at);
+    }
+    const cardIds = [...firstListedByCard.keys()].sort();
     if (cardIds.length === 0) {
       this.logger.log(
         'graded-estimate-ingest: NINGUNA carta con inventario RAW publicado → no se pide nada (cero créditos).',
@@ -1529,10 +1574,7 @@ export class PriceIngestService {
     // «SETS NO PEDIDOS: N» —que el dueño lee como el total de sets sin mapear— es en realidad una
     // COTA INFERIOR presentada como total: una corrida SONDA podía imprimir «1 set(s)» habiendo 20 sin
     // mapear, sin ninguna marca de parcialidad. Se cuenta lo VISITADO y se compara con el alcance.
-    const setsEnAlcance = bySet.size;
     let setsVisitados = 0;
-    /** ¿`published` traía más cartas de las que `ingestMaxCardsPerRun` dejó entrar al alcance? */
-    const alcanceRecortadoPorTope = published.length > cardIds.length;
     /**
      * v1.51-d — el RECUENTO DE PETICIONES tal y como lo lee el veredicto, calculado en el momento de
      * emitir (hay dos salidas `observed`: la de la escalada, dentro del bucle, y la del cierre).
@@ -1561,11 +1603,57 @@ export class PriceIngestService {
         // El recorrido solo es COMPLETO si se miraron todos los sets del alcance **y** el alcance no
         // venía ya recortado por `ingestMaxCardsPerRun`. Cualquier otra cosa convierte las listas de
         // sets en una cota inferior, y el veredicto tiene que decirlo.
-        sweepComplete: setsVisitados === setsEnAlcance && !alcanceRecortadoPorTope,
+        // v1.113: «completo» = se miraron todos los sets VENCIDOS de la corrida y no se paró por presupuesto (§DYN.4.3).
+        sweepComplete: setsVisitados === setsEnAlcance && !result.turns?.stoppedByBudget,
       };
     };
 
-    for (const { set, allowed } of bySet.values()) {
+    // ── v1.113⟨portada⟩ (§DYN.4.2–4.3) — EL TURNO POR SET Y EL PRESUPUESTO DEL DÍA ──────────────────────────────────
+    // La unidad es el SET (la petición pide el set entero). Solo se piden los VENCIDOS, en el orden del turno, y cada uno
+    // solo si su estimado cabe en lo que queda del tope del día CDMX. Lo cargado al tope se escribe en la bitácora
+    // `GradedEstimateSetScan` (append-only), que es la única fuente de «cuánto se gastó hoy».
+    const dailyCreditCap = await this.settings.getNumber(SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP);
+    const turnState = await this.loadGradedTurnState([...bySet.keys()], today);
+    const setStates = [...bySet.entries()].map(([setId, e]) => {
+      let minFirstListedAt: Date | null = null;
+      for (const cid of e.allowed) {
+        const at = firstListedByCard.get(cid) ?? null;
+        if (at && (!minFirstListedAt || at < minFirstListedAt)) minFirstListedAt = at;
+      }
+      return { setId, lastOkDate: turnState.lastOk.get(setId)?.date ?? null, minFirstListedAt, entry: e };
+    });
+    const dueOrder = orderDueSets(setStates, today);
+    const turns: GradedTurnsRunSummary = {
+      dailyCreditCap,
+      creditsSpentBefore: turnState.spentToday,
+      creditsChargedThisRun: 0,
+      setsInScope: bySet.size,
+      setsDue: dueOrder.length,
+      setsRequested: 0,
+      setsOverCap: 0,
+      stoppedByBudget: false,
+    };
+    result.turns = turns;
+    const remaining = () => dailyCreditCap - turns.creditsSpentBefore - turns.creditsChargedThisRun;
+    const setsEnAlcance = dueOrder.length;
+    if (dailyCreditCap <= 0 || dueOrder.length === 0) {
+      // Nada que pedir: o el tope del día es 0 (§DYN.3: «0 = no se pide nada»), o todos los sets en alcance se consultaron
+      // hace < 7 días (930: «una vez por semana, no más»). El aviso AG-24 se evalúa igual.
+      this.logger.log(
+        dailyCreditCap <= 0
+          ? 'graded-estimate-ingest: TURNO PSA — `graded_estimate_daily_credit_cap` = 0 ⇒ no se pide nada (cero créditos).'
+          : `graded-estimate-ingest: TURNO PSA — ningún set vencido (${bySet.size} en alcance, todos consultados hace < ` +
+              `${GRADED_TURN_CYCLE_DAYS} días) ⇒ no se pide nada.`,
+      );
+      await this.evaluatePsaCycleAlert(setStates, turnState, dailyCreditCap, today);
+      return this.emitGradedVerdict(result, ev, {
+        kind: 'stopped',
+        reason: dailyCreditCap <= 0 ? 'daily_credit_cap_zero' : 'nothing_due',
+      });
+    }
+
+    for (const { setId: turnSetId, entry } of dueOrder) {
+      const { set, allowed } = entry;
       // ── ACOTA EL GASTO DE LA SONDA (§4.38h.5) ────────────────────────────────────────────────────
       // Se evalúa ANTES de pedir el siguiente set —o sea antes de gastar— y no después. La sonda no
       // ingesta: solo contesta «¿qué shape sirve PPT?». En cuanto UN set trae bloque PSA, la pregunta
@@ -1605,6 +1693,27 @@ export class PriceIngestService {
         cause: 'request_failed',
       };
       const providerSetId = mapping.pptSetId;
+      // v1.113 (§DYN.4.3) — PRESUPUESTO, antes de gastar. Un set sin `pptSetId` no cuesta (no hay petición).
+      const lastOk = turnState.lastOk.get(turnSetId);
+      const est =
+        providerSetId == null ? 0 : estimateSetCredits(lastOk?.measured ?? null, turnState.catalogCards.get(turnSetId) ?? 0);
+      if (providerSetId != null && est > dailyCreditCap) {
+        turns.setsOverCap += 1;
+        this.logger.warn(
+          `graded-estimate-ingest: TURNO PSA — set ${set.externalId} cuesta ~${est} créditos > tope del día ` +
+            `(${dailyCreditCap}) ⇒ se SALTA (over_daily_cap); lo cuenta el aviso AG-24.`,
+        );
+        await this.recordGradedSetScan(turnSetId, today, 'over_daily_cap', est, null, 0, allowed.size, 0);
+        continue;
+      }
+      if (providerSetId != null && est > remaining()) {
+        turns.stoppedByBudget = true;
+        this.logger.log(
+          `graded-estimate-ingest: TURNO PSA — el set ${set.externalId} (~${est} créditos) no cabe en lo que queda del ` +
+            `tope del día (${remaining()} de ${dailyCreditCap}) ⇒ la corrida PARA (no se salta: un set grande no muere de hambre).`,
+        );
+        break;
+      }
       const res = await this.pptBulk.fetchGradedEstimatesForSet({
         set,
         providerSetId,
@@ -1708,6 +1817,20 @@ export class PriceIngestService {
 
       if (res.sawGradedBlock) anySetSawGradedBlock = true;
 
+      // v1.113 (§DYN.4.3–4.4) — BITÁCORA DEL TURNO para este set. `ok` ⇔ el proveedor RESPONDIÓ (con o sin dato) y no fue
+      // sonda; solo `ok` mueve relojes. Lo cargado al tope = lo medido o, si el proveedor no lo dijo, el estimado.
+      const turnOutcome = this.gradedSetOutcome(res, providerSetId);
+      const measured = res.gradedApiCallsConsumed ?? null;
+      const charged = turnOutcome === 'unmapped' || res.noRequestReason != null ? 0 : (measured ?? est);
+      if (res.noRequestReason == null) turns.setsRequested += 1;
+      turns.creditsChargedThisRun += charged;
+      const setScanId =
+        res.noRequestReason === 'missing_api_key'
+          ? null // sin llave no hubo petición ni gasto: no se escribe fila (no es un estado del set)
+          : await this.recordGradedSetScan(turnSetId, today, turnOutcome, est, measured, charged, allowed.size, res.fetchedRaw);
+      if (turnOutcome === 'ok') turnState.lastOk.set(turnSetId, { date: today, measured });
+      const writtenCards = new Set<string>();
+
       // ⚠️ AMBIGÜEDAD SILENCIOSA — se evalúa a escala de CORRIDA, no de set (v1.50.2, techlead).
       //
       // Antes, el primer set que devolvía entradas sin bloque PSA PARABA la corrida entera. La condición
@@ -1720,6 +1843,7 @@ export class PriceIngestService {
       // queda CONFIRMADO y los demás son un `skip` con traza. Por eso aquí solo se acumula.
       if (res.escalate?.reason === 'no_graded_block_in_response') {
         result.skippedNoGradedBlock += 1;
+        if (turnOutcome === 'ok' && setScanId) await this.markGradedCardsScanned(allowed, writtenCards, setScanId);
         setsWithoutGradedBlock.push({ setExternalId: set.externalId, detail: res.escalate.detail });
         this.logger.warn(
           `graded-estimate-ingest: set ${set.externalId} devolvió entradas SIN bloque PSA → se SALTA ` +
@@ -1813,7 +1937,10 @@ export class PriceIngestService {
           { amountCents: row.amountCents, currency: row.currency, source: 'pokemonpricetracker' },
           fx,
         );
-        if (wrote) result.written += 1;
+        if (wrote) {
+          result.written += 1;
+          writtenCards.add(cardId);
+        }
         // El escritor NO pisó la fila del día. Dos motivos posibles, ambos «hay algo mejor ahí y no se
         // toca»: (a) override MANUAL (§O.6) — el caso normal —, y desde v1.50.3-f (M-43, §4.38l.4.3
         // regla 2) (b) la fila ya es `refKind='market'`, o sea DINERO de una pieza real, que el ingest
@@ -1824,12 +1951,18 @@ export class PriceIngestService {
         else result.skippedManual += 1;
       }
 
+      // v1.113 (§DYN.4.4): cada carta del set EN ALCANCE queda consultada (`written` si se escribió ≥ 1 grado, `no_data` si no).
+      if (turnOutcome === 'ok' && setScanId) await this.markGradedCardsScanned(allowed, writtenCards, setScanId);
+
       if (res.dailyLimited) {
         result.dailyLimited = true;
         this.logger.warn('graded-estimate-ingest: 429 DAILY → PARADA (lo ya escrito se conserva).');
         break;
       }
     }
+
+    // v1.113 (§DYN.4.5) — AG-24 al final de cada corrida con el dial encendido.
+    await this.evaluatePsaCycleAlert(setStates, turnState, dailyCreditCap, today);
 
     // ⛔ ESCALADA SILENCIOSA — el veredicto se emite AQUÍ, con la corrida entera delante.
     //
@@ -2050,6 +2183,152 @@ export class PriceIngestService {
    * pendiente), `warn` cuando no se pudo concluir, `log` cuando funciona. Así el veredicto también se ve
    * en un dashboard que solo muestre errores.
    */
+  // ───────────────────────── v1.113⟨portada⟩ (§DYN.4) — persistencia del turno PSA por set ─────────────────────────
+
+  /**
+   * §DYN.4.2–4.3 — el estado del turno de los sets en alcance: última consulta `ok` por set (fecha CDMX + coste medido),
+   * cartas del set en catálogo (para el estimado de un set nunca medido) y lo ya cargado al tope HOY (día CDMX).
+   * Tres lecturas, constantes respecto del nº de sets.
+   */
+  private async loadGradedTurnState(
+    setIds: string[],
+    todayCdmx: string,
+  ): Promise<{
+    lastOk: Map<string, { date: string; measured: number | null }>;
+    catalogCards: Map<string, number>;
+    spentToday: number;
+  }> {
+    const [okRows, counts, spent] = await Promise.all([
+      this.prisma.gradedEstimateSetScan.findMany({
+        where: { setId: { in: setIds }, outcome: 'ok' },
+        orderBy: [{ setId: 'asc' }, { startedAt: 'desc' }],
+        distinct: ['setId'],
+        select: { setId: true, businessDate: true, creditsMeasured: true },
+      }),
+      this.prisma.card.groupBy({ by: ['setId'], where: { setId: { in: setIds } }, _count: { _all: true } }),
+      this.prisma.gradedEstimateSetScan.aggregate({
+        where: { businessDate: new Date(`${todayCdmx}T00:00:00.000Z`) },
+        _sum: { creditsCharged: true },
+      }),
+    ]);
+    return {
+      lastOk: new Map(okRows.map((r) => [r.setId, { date: ymdOfDbDate(r.businessDate), measured: r.creditsMeasured }])),
+      catalogCards: new Map(counts.map((c) => [c.setId, c._count._all])),
+      spentToday: spent._sum.creditsCharged ?? 0,
+    };
+  }
+
+  /** §DYN.4 — clasifica la respuesta del proveedor para un set. Solo `ok` mueve relojes. */
+  private gradedSetOutcome(
+    res: { requestOk: boolean; dailyLimited: boolean; probe: boolean; noRequestReason: string | null; escalate: { reason: string } | null },
+    providerSetId: string | null,
+  ): GradedSetScanOutcome {
+    if (providerSetId == null || res.noRequestReason === 'set_without_ppt_set_id') return 'unmapped';
+    if (res.dailyLimited) return 'daily_limited';
+    // Sonda (diagnóstico de shape): pregunta pero NO escribe ⇒ las cartas no quedan consultadas; cuenta como intento fallido.
+    if (res.probe) return 'failed';
+    // El proveedor RECHAZÓ el parámetro (escalada dura): no hubo dato que leer.
+    if (res.escalate && res.escalate.reason !== 'no_graded_block_in_response') return 'failed';
+    return res.requestOk ? 'ok' : 'failed';
+  }
+
+  /** §DYN.4.3 — una fila de la bitácora del turno (append-only). Devuelve su `id`. */
+  private async recordGradedSetScan(
+    setId: string,
+    todayCdmx: string,
+    outcome: GradedSetScanOutcome,
+    creditsEstimated: number,
+    creditsMeasured: number | null,
+    creditsCharged: number,
+    cardsInScope: number,
+    cardsReturned: number,
+  ): Promise<string> {
+    const row = await this.prisma.gradedEstimateSetScan.create({
+      data: {
+        setId,
+        businessDate: new Date(`${todayCdmx}T00:00:00.000Z`),
+        outcome,
+        creditsEstimated: Math.max(0, creditsEstimated),
+        creditsMeasured: creditsMeasured == null ? null : Math.max(0, creditsMeasured),
+        creditsCharged: Math.max(0, creditsCharged),
+        cardsInScope,
+        cardsReturned,
+      },
+      select: { id: true },
+    });
+    return row.id;
+  }
+
+  /** §DYN.4.4 — al responder `ok`, cada carta del set EN ALCANCE queda consultada: `written` si se escribió ≥ 1 grado. */
+  private async markGradedCardsScanned(allowed: Set<string>, written: Set<string>, setScanId: string): Promise<void> {
+    const now = new Date();
+    for (const cardId of allowed) {
+      const lastOutcome = written.has(cardId) ? 'written' : 'no_data';
+      await this.prisma.gradedEstimateCardScan.upsert({
+        where: { cardId },
+        create: { cardId, lastScannedAt: now, lastOutcome, lastSetScanId: setScanId },
+        update: { lastScannedAt: now, lastOutcome, lastSetScanId: setScanId },
+      });
+    }
+  }
+
+  /**
+   * §DYN.4.5 — AG-24 `psa_cycle_short`, al final de cada corrida con el dial encendido. `W = Σ est(s)` sobre los sets en
+   * alcance MAPEADOS; abre (o actualiza EN SITIO) una sola fila `ag24:open` si el ciclo pasa de 7 días o algún set lleva > 8
+   * días sin consulta `ok` (los nunca consultados cuentan desde su `firstListedAt` más antigua); si no, la cierra sola.
+   * ⛔ Nunca tumba la corrida: un fallo aquí se loguea.
+   */
+  private async evaluatePsaCycleAlert(
+    setStates: { setId: string; lastOkDate: string | null; minFirstListedAt: Date | null; entry: { set: CardSet; allowed: Set<string> } }[],
+    turnState: { lastOk: Map<string, { date: string; measured: number | null }>; catalogCards: Map<string, number> },
+    dailyCreditCap: number,
+    todayCdmx: string,
+  ): Promise<void> {
+    let weeklyCreditsNeeded = 0;
+    let setsOverCap = 0;
+    let maxOverdueDays = 0;
+    let publishedCards = 0;
+    for (const s of setStates) {
+      publishedCards += s.entry.allowed.size;
+      if (s.entry.set.pptSetId == null) continue;
+      const last = turnState.lastOk.get(s.setId);
+      const est = estimateSetCredits(last?.measured ?? null, turnState.catalogCards.get(s.setId) ?? 0);
+      weeklyCreditsNeeded += est;
+      if (est > dailyCreditCap) setsOverCap += 1;
+      const since = last?.date ?? (s.minFirstListedAt ? businessDateCdmx(s.minFirstListedAt) : null);
+      if (since) maxOverdueDays = Math.max(maxOverdueDays, daysBetweenYmd(since, todayCdmx));
+    }
+    const { cycleDays, capToCoverWeek } = cycleProjection(weeklyCreditsNeeded, dailyCreditCap);
+    const reason = psaCycleShortReason({ cycleDays, weeklyCreditsNeeded, maxOverdueDays });
+    if (!this.spendAlerts) {
+      this.logger.warn(`graded-estimate-ingest: AG-24 sin SpendAlertsService inyectado (reason=${reason ?? 'none'}).`);
+      return;
+    }
+    const now = new Date();
+    try {
+      if (reason) {
+        await this.spendAlerts.raise(
+          this.prisma,
+          {
+            kind: 'psa_cycle_short',
+            severity: 'digest',
+            dedupKey: PSA_CYCLE_SHORT_DEDUP_KEY,
+            facts: { reason, publishedCards, cycleDays, dailyCreditCap, capToCoverWeek, setsOverCap },
+          },
+          now,
+        );
+        this.logger.warn(
+          `graded-estimate-ingest: AG-24 (${reason}) — ${publishedCards} carta(s), ciclo ${cycleDays ?? '∞'} día(s) con ` +
+            `tope ${dailyCreditCap}; tope que alcanza ${capToCoverWeek}; sets sobre el tope: ${setsOverCap}.`,
+        );
+      } else {
+        await this.spendAlerts.resolve(this.prisma, PSA_CYCLE_SHORT_DEDUP_KEY, now);
+      }
+    } catch (e) {
+      this.logger.error(`graded-estimate-ingest: AG-24 no se pudo evaluar: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   private emitGradedVerdict(
     result: GradedIngestResult,
     ev: { probe: boolean; cardsReturned: number; creditsSpent: number | null },

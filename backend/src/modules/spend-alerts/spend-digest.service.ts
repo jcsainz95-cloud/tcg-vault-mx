@@ -25,7 +25,7 @@ import { ownerRecipients } from './spend-mail.service';
 import { ALERT_ROW_SELECT, loadAlertRefs, toMailView } from './spend-alert.view';
 import { spendDigestMail } from './spend-alert.mail';
 import { spendAlertTitle } from './spend-alert-text';
-import { SPEND_ALERT_CODE_OF } from './spend-alerts.service';
+import { DIGEST_EXCLUDED_KINDS, SPEND_ALERT_CODE_OF } from './spend-alerts.service';
 import { SpendAlertKind } from '@prisma/client';
 import { SalesAnalyticsService } from '../sales-analytics/sales-analytics.service';
 import type { SalesFigures } from '../sales-analytics/sales-figures';
@@ -75,7 +75,10 @@ export class SpendDigestService {
     // para siempre (cron ⇒ skipped; re-envío ⇒ skipped). §80 de BACKEND_NOTES; prueba AN-B-18b.
     let alertCount = 0;
     try {
-      alertCount = await this.prisma.spendAlert.count({ where: { firstOccurredAt: { gte: range.gte, lt: range.lt } } });
+      // v1.113⟨portada⟩ (§DYN.4.5, criterio 933): AG-24 no entra al resumen (solo panel, sin correo).
+      alertCount = await this.prisma.spendAlert.count({
+        where: { firstOccurredAt: { gte: range.gte, lt: range.lt }, kind: { notIn: [...DIGEST_EXCLUDED_KINDS] } },
+      });
       // 💰 §AN 624 (API_CONTRACT §15.8, P-AN-1 default): la fila del día de la tabla de «Ventas» (la MISMA `dayFigures`). Regla
       // de envío: se manda si hubo avisos O pedidos; ni uno ni otro ⇒ `empty`, sin correo (como antes).
       // La línea de ventas es un EXTRA: si su lectura falla, ⛔ no tumba el resumen de gasto. Con avisos ⇒ sale SIN la línea;

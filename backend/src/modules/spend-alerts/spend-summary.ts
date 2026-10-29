@@ -14,7 +14,7 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { spendOfAttempt } from '../shipments/label-spend';
-import { SPEND_ALERT_CODE_OF } from './spend-alerts.service';
+import { DIGEST_EXCLUDED_KINDS, SPEND_ALERT_CODE_OF } from './spend-alerts.service';
 import { SpendAlertSummaryDTO } from './spend-alert.mail';
 
 type Db = Prisma.TransactionClient | PrismaService;
@@ -29,11 +29,12 @@ export async function summarizeSpendAlerts(
   const [groups, mutedCount, attempts] = await Promise.all([
     db.spendAlert.groupBy({
       by: ['kind', 'severity'],
-      where: { muted: false, firstOccurredAt: when },
+      // v1.113⟨portada⟩ (§DYN.4.5): AG-24 es solo de panel ⇒ fuera del resumen (y del correo que lo usa).
+      where: { muted: false, firstOccurredAt: when, kind: { notIn: [...DIGEST_EXCLUDED_KINDS] } },
       _count: { _all: true },
       _sum: { amountCents: true },
     }),
-    db.spendAlert.count({ where: { muted: true, firstOccurredAt: when } }),
+    db.spendAlert.count({ where: { muted: true, firstOccurredAt: when, kind: { notIn: [...DIGEST_EXCLUDED_KINDS] } } }),
     db.shipmentLabelAttempt.findMany({
       where: { since: when },
       select: {

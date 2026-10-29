@@ -142,6 +142,9 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   // 💰 D2g (§M4-SHIP.19.31.1 bandas 1–2): `?kind=` / `?severity=` de `GET /admin/spend-alerts` — los 22 tipos (AG-1…AG-22).
   // 💰 rev BSD-1 (M-72, §BSD.7 regla 9): + `buylist_guide_due` = AG-23 (23). Decidido al añadirlo (las tres preguntas de
   // arriba): (1) sí entra al `?kind=` del panel (es un aviso más); (2) sin lista de negocio propia; (3) sin calibración.
+  // v1.113⟨portada⟩ (M-93, §DYN.4.5): + `psa_cycle_short` = AG-24 (24). Decidido al añadirlo: (1) sí entra al `?kind=` del
+  // panel (es un aviso más); (2) sin lista de negocio propia (que no vaya al resumen diario es `DIGEST_EXCLUDED_KINDS`, regla de
+  // ruta, no recorte del enum); (3) sin calibración.
   SpendAlertKind: [
     'buylist_guide_due',
     'buylist_manual_price',
@@ -162,6 +165,7 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
     'parcel_returned',
     'provider_balance_low',
     'psa_credits',
+    'psa_cycle_short',
     'shrinkage',
     'staff_control_by_non_owner',
     'stuck_refund',

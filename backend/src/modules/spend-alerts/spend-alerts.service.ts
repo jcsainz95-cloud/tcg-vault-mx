@@ -51,7 +51,23 @@ export const SPEND_ALERT_CODE_OF: Readonly<Record<SpendAlertKind, string>> = {
   // rev BSD-1 (M-72, API_CONTRACT §BSD.7 regla 9): «esta solicitud aceptada se cierra sola en N días si no tiene guía».
   // Solo el código (B-1: el enum lo exige). Disparador, textos y correo: B-3 (§BSD.7.2, §BSD.8.3).
   buylist_guide_due: 'AG-23',
+  // v1.113⟨portada⟩ (M-93, API_CONTRACT §DYN.4.5): «con el tope de créditos PSA la vuelta tarda más de 7 días». Solo panel.
+  psa_cycle_short: 'AG-24',
 };
+
+/**
+ * v1.113⟨portada⟩ (§DYN.4.5) — avisos que se ACTUALIZAN EN SITIO: al repetirse, `facts` se REEMPLAZA entero por lo vigente
+ * (AG-24 lleva cifras del momento: ciclo, tope que alcanzaría…). ⛔ Nunca una fila por corrida (lo da la `dedupKey` única).
+ */
+const FACTS_REPLACED_KINDS: ReadonlySet<SpendAlertKind> = new Set<SpendAlertKind>(['psa_cycle_short']);
+
+/**
+ * v1.113⟨portada⟩ (§DYN.4.5, criterio 933) — tipos FUERA del resumen diario (`spend-digest`) y de su `summary`: solo panel.
+ */
+export const DIGEST_EXCLUDED_KINDS: readonly SpendAlertKind[] = ['psa_cycle_short'];
+
+/** Llaves «abierto» que se cierran solas y se reescriben al cerrar para que el siguiente «abierto» sea fila nueva. */
+const SELF_CLOSING_OPEN_KEYS: Readonly<Record<string, string>> = { 'ag7:open': 'ag7', 'ag24:open': 'ag24' };
 
 /** Avisos «sobre una persona» (Z.0.5): el dueño queda fuera. */
 export const PERSON_ALERT_KINDS: ReadonlySet<SpendAlertKind> = new Set<SpendAlertKind>([
@@ -148,7 +164,7 @@ export class SpendAlertsService {
         lastOccurredAt: now,
         severity,
         ...(escalates ? { mailStatus: 'pending' as const } : {}),
-        facts: mergeFacts(row.facts ?? {}, input.facts) as Prisma.InputJsonValue,
+        facts: (FACTS_REPLACED_KINDS.has(input.kind) ? input.facts : mergeFacts(row.facts ?? {}, input.facts)) as Prisma.InputJsonValue,
         ...(input.amountCents !== undefined && input.amountCents !== null ? { amountCents: input.amountCents } : {}),
       },
     });
@@ -161,7 +177,10 @@ export class SpendAlertsService {
     if (!open || open.resolvedAt) return false;
     await db.spendAlert.update({
       where: { id: open.id },
-      data: { resolvedAt: now, ...(dedupKey === 'ag7:open' ? { dedupKey: `ag7:closed:${open.id}` } : {}) },
+      data: {
+        resolvedAt: now,
+        ...(SELF_CLOSING_OPEN_KEYS[dedupKey] ? { dedupKey: `${SELF_CLOSING_OPEN_KEYS[dedupKey]}:closed:${open.id}` } : {}),
+      },
     });
     return true;
   }
