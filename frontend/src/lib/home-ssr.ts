@@ -45,11 +45,4 @@ export async function loadHomeForSSR(budgetMs: number = HOME_SSR_BUDGET_MS): Pro
   return { featured, gems };
 }
 
-/**
- * La imagen líder de Destacadas (candidata a LCP, §DYN.6.2: «la `<img>` líder presente»): la teja 1 con su foto grande,
- * la misma que pinta `FeaturedCarousel` (`imageLargeUrl ?? imageSmallUrl`). `null` sin datos o sin foto.
- */
-export function leadImageOf(featured: FeaturedResponse | null): string | null {
-  const lead = featured?.data[0];
-  return lead ? (lead.card.imageLargeUrl ?? lead.card.imageSmallUrl ?? null) : null;
-}
+export { leadImageOf } from '@/lib/home-queries';

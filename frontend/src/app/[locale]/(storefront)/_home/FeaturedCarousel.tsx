@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import * as ReactDOM from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getFeatured } from '@/lib/api';
-import { FEATURED_QUERY_KEY } from '@/lib/home-queries';
+import { FEATURED_QUERY_KEY, leadImageOf } from '@/lib/home-queries';
 import type { FeaturedSlotKind, GroupedListingSummaryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -258,6 +259,16 @@ export function FeaturedCarousel() {
 
   const catalog = useFeaturedCatalog();
   const featured = featuredOf(catalog.data);
+  /*
+   * §DYN.6.2 — precarga de la foto líder (candidata a LCP). Se pide aquí, en el render del componente de cliente, porque
+   * es donde el SSR de React (Fizz) la convierte en `<link rel="preload" as="image">` del `<head>`: medido sobre
+   * `3831c1c4`, la misma llamada desde la página de servidor no emitía nada. `preload` es de React 19 (el del App
+   * Router); con el React 18 de la suite unitaria no existe y no se llama. Misma URL que pinta la teja 1.
+   */
+  const leadSrc = leadImageOf(catalog.data);
+  const preload = (ReactDOM as unknown as { preload?: (href: string, o: { as: 'image'; fetchPriority: 'high' }) => void })
+    .preload;
+  if (leadSrc && typeof preload === 'function') preload(leadSrc, { as: 'image', fetchPriority: 'high' });
 
   /**
    * §22.6b-c — **numeración condicional POR PISTA, todo o nada.** Si el carrusel pinta al menos una

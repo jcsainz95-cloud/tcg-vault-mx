@@ -7,6 +7,7 @@
  * dos endpoints en servidor y cliente, con la MISMA clave de consulta.
  */
 import type { CatalogFilters } from '@/lib/api';
+import type { FeaturedResponse } from '@/types/contract';
 
 /** Clave de Destacadas del día. Sin parámetros: la selección es la misma para todos (I-2). */
 export const FEATURED_QUERY_KEY = ['featured'] as const;
@@ -27,3 +28,12 @@ export const GEMS_QUERY_KEY = ['catalog', { home: true, gradingHighlight: true }
 export const HOME_SSR_REVALIDATE_S = 30;
 /** §DYN.6.2: tope de la lectura en servidor. Sin datos a tiempo, el HTML sale con el marco y el cliente rellena. */
 export const HOME_SSR_BUDGET_MS = 400;
+
+/**
+ * La foto líder de Destacadas (candidata a LCP, §DYN.6.2: «la `<img>` líder presente»): la de la teja 1, grande si la hay
+ * — la misma que pinta `FeaturedCarousel` (`imageLargeUrl ?? imageSmallUrl`). `null` sin datos o sin foto.
+ */
+export function leadImageOf(featured: FeaturedResponse | null | undefined): string | null {
+  const lead = featured?.data[0];
+  return lead ? (lead.card.imageLargeUrl ?? lead.card.imageSmallUrl ?? null) : null;
+}
