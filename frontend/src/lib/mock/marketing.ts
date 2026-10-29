@@ -15,6 +15,7 @@
  * `privacy` (§MKT.G.2 v1.103): como el servidor, `exact` para la sesión `super_admin` (la única con permiso en Fase 0).
  * Para ver en demo lo que vería otra cuenta con `marketing:read`: `localStorage['tcg.mktPrivacy'] = 'small_cells'`.
  */
+import './sentinel';
 import type {
   MarketingAggTable,
   MarketingAnnotationDTO,

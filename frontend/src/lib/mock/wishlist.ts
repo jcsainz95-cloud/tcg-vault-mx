@@ -16,6 +16,7 @@
  *     `tcg.mock.wishlistUnverified` '1' ⇒ `emailVerified: false`
  * - Enlaces del correo (`POST /wishlist/mail-actions`): el token válido del simulador es `mock-token`.
  */
+import './sentinel';
 import { ApiClientError } from '../api-client';
 import * as fx from './fixtures';
 import type {

@@ -17,6 +17,7 @@
  * Fase del servidor (para ver la pantalla con y sin P2): `localStorage['tcg.salesPhase'] = 'A' | 'B' | 'C'`
  * (default `'B'`, lo que el servidor construye hoy: sin contracargos ni método de pago, que esperan a M-AN-1). Ningún dato de cliente sale de aquí: las llaves de cliente son internas.
  */
+import './sentinel';
 import type {
   SalesBestDaysDTO,
   SalesDeltaDTO,

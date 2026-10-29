@@ -9,6 +9,7 @@
  * el `pullToken` es legible (`mock-pull:<slug>:<ids>`; el real va firmado con `domainHmac`), y las existencias
  * viven en memoria de la pestaña.
  */
+import './sentinel';
 import type {
   AccessoryCardDTO,
   AccessoryCategory,

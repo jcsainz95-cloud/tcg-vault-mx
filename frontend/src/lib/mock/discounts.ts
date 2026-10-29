@@ -22,6 +22,7 @@
  * hay webhook), el tiempo constante del camino `invalid` (pentester).
  */
 
+import './sentinel';
 import type {
   DiscountAuditAction,
   DiscountAuditEntry,

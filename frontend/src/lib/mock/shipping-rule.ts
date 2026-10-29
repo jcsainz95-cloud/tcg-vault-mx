@@ -24,6 +24,7 @@
  * con el total: el total lleva la comisión y la comisión depende de `E` (circular, §4-G.12 punto 2).
  */
 
+import './sentinel';
 import type { GuestShippingRuleDTO, ShippingRuleKind } from '@/types/contract';
 
 /** Diales de §4-G.12 punto 3, los tres con IVA incluido. */

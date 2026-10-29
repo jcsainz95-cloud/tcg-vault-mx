@@ -23,6 +23,7 @@
  * ⚠️ Es un simulador de CONDUCTA, no de cifras: no calcula dinero (el `breakdown` lo sigue
  * componiendo `api.ts` con la réplica local) y no decide TTLs distintos de la constante del contrato.
  */
+import './sentinel';
 
 /** `ORDER_RESERVATION_TTL_MIN` del contrato (§4-R.1): 60 minutos, para las DOS rutas. */
 export const MOCK_RESERVATION_TTL_MIN = 60;

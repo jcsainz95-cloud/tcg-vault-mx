@@ -11,6 +11,7 @@
  * SUP-LEG (confía-en-la-fuente): ya NO hay legalidad — la fuente sólo publica decks legales, así que
  * una línea es disponible / no la tenemos / no identificada, nunca «rotada».
  */
+import './sentinel';
 import type {
   DecksMetaListResponse,
   DeckMetaDetailResponse,

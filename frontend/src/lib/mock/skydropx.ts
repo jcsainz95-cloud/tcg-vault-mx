@@ -16,6 +16,7 @@
  *  - `SKYDROPX_ALLOW_SPEND` se da por **puesta** (aquí no hay dinero): la puerta queda en el dial y el rol.
  *  - La compra devuelve `labeled` al instante con un número inventado (`MOCK-…`). ⛔ Nada sale a la red.
  */
+import './sentinel';
 import type {
   AddressSnapshotDTO,
   AdminShipmentDTO,

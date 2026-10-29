@@ -10,6 +10,7 @@
  * ⛔ Ningún dato del cliente en `facts` (GAS-2): solo nombres del personal, números de pedido y folios.
  * El resumen (`summary`) lo «calcula» este servidor falso; la pantalla lo pinta tal cual (GAS-4).
  */
+import './sentinel';
 import type {
   MarkSpendAlertsSeenRes,
   SpendAlertDTO,
