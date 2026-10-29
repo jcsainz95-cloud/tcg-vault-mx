@@ -261,4 +261,13 @@ describe('apiRequest · Content-Type solo con cuerpo (PERF, candado)', () => {
     expect(headersOf()['Content-Type']).toBe('application/json');
     expect(initOf().body).toBe('{"listingId":"l1","qty":1}');
   });
+
+  it('TL-DYN3-5 · un cuerpo JSON «falso» (0, false, \'\') también viaja, con su Content-Type', async () => {
+    for (const [i, body] of [0, false, ''].entries()) {
+      fetchMock.mockResolvedValueOnce(makeRes(200, { ok: true }));
+      await apiRequest('/x', { method: 'PUT', body });
+      expect(headersOf(i)['Content-Type']).toBe('application/json');
+      expect(initOf(i).body).toBe(JSON.stringify(body));
+    }
+  });
 });

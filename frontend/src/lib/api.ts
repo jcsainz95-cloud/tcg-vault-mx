@@ -4,12 +4,12 @@ import { sortPreparationOrders } from './preparation-order';
 import {
   apiRequest,
   requestBlob,
+  requestText,
   type BlobResponse,
   ApiClientError,
   apiRequestMultipart,
   setToken,
   setRefreshToken,
-  getToken,
   clearClientSession,
   getDeviceToken,
   storeDeviceToken,
@@ -7230,8 +7230,8 @@ export type FinanceCsvReport = 'pnl' | 'iva' | 'inventory';
 /**
  * Descarga el CSV de finanzas/reportes (contrato GET /admin/finance/export.csv y
  * GET /admin/reports/export.csv — comparten el mismo `exportCsv`). Devuelve el TEXTO
- * del CSV; el componente lo materializa como archivo (ver lib/download). El fetch real
- * lleva Bearer y lee texto (no JSON), por eso no usa `apiRequest`.
+ * del CSV; el componente lo materializa como archivo (ver lib/download). Lee texto (no JSON):
+ * va por `requestText`, con el mismo refresh de sesión que `apiRequest` (FE-15).
  */
 export async function exportFinanceCsv(input: {
   report: FinanceCsvReport;
@@ -7243,18 +7243,8 @@ export async function exportFinanceCsv(input: {
   const path =
     input.source === 'reports' ? '/admin/reports/export.csv' : '/admin/finance/export.csv';
   if (!(MOCKS_BUILD && config.useMocks)) {
-    const url = new URL(config.apiBaseUrl + path);
-    if (input.report) url.searchParams.set('report', input.report);
-    if (input.from) url.searchParams.set('from', input.from);
-    if (input.to) url.searchParams.set('to', input.to);
-    const token = getToken();
-    const res = await fetch(url.toString(), {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!res.ok) {
-      throw new ApiClientError(res.status, { code: 'INTERNAL', message: 'CSV export failed' });
-    }
-    return res.text();
+    // FE-15: por el núcleo de sesión (401 → refresh → reintento), no con un `fetch` propio.
+    return requestText(path, { query: { report: input.report, from: input.from, to: input.to } });
   }
   return delay(fx.mockCsv(input.report));
 }
