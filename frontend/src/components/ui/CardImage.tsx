@@ -34,6 +34,8 @@ export interface CardImageProps {
    * garantiza que el movimiento nunca coexista con un estado de carga (R2, §23.1).
    */
   onLoaded?: () => void;
+  /** PROTOTIPO frontend-lcp (NO COMMITEAR): fuente para < 1024px vía <picture>. */
+  mobileSrc?: string | null;
 }
 
 /**
@@ -51,7 +53,7 @@ const HIGH_FETCH_PRIORITY = { fetchpriority: 'high' } as unknown as { fetchPrior
  * Dirección 5a: el arte se apoya en un pozo de papel más oscuro, sin borde ni
  * esquina redondeada — la carta ya trae su propio marco.
  */
-export function CardImage({ src, alt, className, priority = false, onLoaded }: CardImageProps) {
+export function CardImage({ src, alt, className, priority = false, onLoaded, mobileSrc }: CardImageProps) {
   const [loaded, setLoaded] = useState(false);
   const settle = () => {
     setLoaded(true);
@@ -67,7 +69,24 @@ export function CardImage({ src, alt, className, priority = false, onLoaded }: C
           —legítimo: `imageSmallUrl` es nullable por contrato— parezca una app colgada. Sin
           `src` queda el pozo de papel quieto, que ES el placeholder que pide el contrato. */}
       {src && !loaded && <div className="absolute inset-0 animate-pulse bg-surface-2" aria-hidden />}
-      {src && (
+      {src && mobileSrc && (
+        <picture className="contents">
+          <source media="(max-width: 1023.98px)" srcSet={mobileSrc} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={alt}
+            lang="en"
+            loading="eager"
+            {...HIGH_FETCH_PRIORITY}
+            decoding="async"
+            onLoad={settle}
+            onError={settle}
+            className="h-full w-full object-contain"
+          />
+        </picture>
+      )}
+      {src && !mobileSrc && (
         // datos de catálogo en inglés → lang="en" para lectores (DESIGN_SYSTEM §9.2)
         // eslint-disable-next-line @next/next/no-img-element
         <img

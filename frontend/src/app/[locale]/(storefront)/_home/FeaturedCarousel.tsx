@@ -32,6 +32,36 @@ import {
 } from './carouselGeometry';
 import { cn } from '@/lib/cn';
 
+/*
+ * PROTOTIPO frontend-lcp (NO COMMITEAR) — fuente de la teja líder por ancho, elegida en el build con
+ * NEXT_PUBLIC_PROTO_LEAD = small | medium | w640 | w640all. Las URL `_medium.png` / `_w640.webp` solo existen en el
+ * host de imágenes del arnés (scratch); en scrydex `medium` es `/medium` y `w640` modela `/_next/image?w=640`.
+ */
+const PROTO_LEAD = process.env.NEXT_PUBLIC_PROTO_LEAD ?? '';
+const PROTO_MOBILE_MEDIA = '(max-width: 1023.98px)';
+const PROTO_DESKTOP_MEDIA = '(min-width: 1024px)';
+function protoLeadSources(card: { imageSmallUrl?: string | null; imageLargeUrl?: string | null }): {
+  mobile: string | null;
+  desktop: string | null;
+} {
+  const large = card.imageLargeUrl ?? card.imageSmallUrl ?? null;
+  const small = card.imageSmallUrl ?? large;
+  const swap = (u: string | null, harness: string, scrydex: string) =>
+    u == null ? null : /_hires\.png$/.test(u) ? u.replace(/_hires\.png$/, harness) : u.replace(/\/large$/, scrydex);
+  switch (PROTO_LEAD) {
+    case 'small':
+      return { mobile: small, desktop: large };
+    case 'medium':
+      return { mobile: swap(large, '_medium.png', '/medium'), desktop: large };
+    case 'w640':
+      return { mobile: swap(large, '_w640.webp', '/large'), desktop: large };
+    case 'w640all':
+      return { mobile: swap(large, '_w640.webp', '/large'), desktop: swap(large, '_w640.webp', '/large') };
+    default:
+      return { mobile: null, desktop: large };
+  }
+}
+
 /** `id` de la sección: destino del regreso de la nota al pie cuando la vitrina no pintó (§22.4a). */
 export const FEATURED_CAROUSEL_ID = 'piezas-destacadas';
 
@@ -270,7 +300,8 @@ export function FeaturedCarousel() {
   const leadSrc = leadImageOf(catalog.data);
   const preload = (ReactDOM as unknown as { preload?: (href: string, o: { as: 'image'; fetchPriority: 'high' }) => void })
     .preload;
-  if (leadSrc && typeof preload === 'function') preload(leadSrc, { as: 'image', fetchPriority: 'high' });
+  // PROTOTIPO frontend-lcp (NO COMMITEAR): con NEXT_PUBLIC_PROTO_LEAD la precarga va por <link media> (abajo).
+  if (!PROTO_LEAD && leadSrc && typeof preload === 'function') preload(leadSrc, { as: 'image', fetchPriority: 'high' });
 
   /**
    * §22.6b-c — **numeración condicional POR PISTA, todo o nada.** Si el carrusel pinta al menos una
@@ -757,8 +788,15 @@ export function FeaturedCarousel() {
                         pelean el ancho de banda y retrasan justo a esta.
                         §23.3 precondición 3: su `load` es lo que habilita la rotación. La rotación NO
                         mueve este rol de teja en teja (R1): eso dispararía una descarga HD cada 5 s. */}
+                    {PROTO_LEAD && protoLeadSources(l.card).mobile && (
+                      <>
+                        <link rel="preload" as="image" href={protoLeadSources(l.card).mobile!} media={PROTO_MOBILE_MEDIA} fetchPriority="high" />
+                        <link rel="preload" as="image" href={protoLeadSources(l.card).desktop!} media={PROTO_DESKTOP_MEDIA} fetchPriority="high" />
+                      </>
+                    )}
                     <CardImage
-                      src={l.card.imageLargeUrl ?? l.card.imageSmallUrl}
+                      src={PROTO_LEAD ? protoLeadSources(l.card).desktop : l.card.imageLargeUrl ?? l.card.imageSmallUrl}
+                      mobileSrc={PROTO_LEAD ? protoLeadSources(l.card).mobile : undefined}
                       alt={l.card.name}
                       priority
                       onLoaded={() => setLeadImageReady(true)}

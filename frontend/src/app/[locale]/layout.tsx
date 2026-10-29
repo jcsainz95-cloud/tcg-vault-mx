@@ -153,7 +153,10 @@ export default async function LocaleLayout({
   const nonce = (await headers()).get(NONCE_HEADER) ?? undefined;
   // PERF portada (§DYN.3): sin el namespace `admin` (74 % de `es.json`); el back-office lo añade en
   // su layout. Ver `i18n/message-scopes.ts`.
-  const messages = storefrontMessages(await getMessages());
+  // PROTOTIPO frontend-lcp (NO COMMITEAR): cota de recortar los mensajes a lo que usa la portada.
+  const PROTO_KEEP = ['home', 'common', 'nav', 'catalog', 'card', 'stock', 'seo', 'price', 'finish', 'buylist', 'ine', 'consent', 'locale', 'status', 'shop', 'sealed', 'support', 'storeTabs', 'cardDetail', 'sellCart', 'portfolio', 'privacy', 'legal', 'safeShipping'];
+  const all = storefrontMessages(await getMessages());
+  const messages = Object.fromEntries(Object.entries(all).filter(([k]) => PROTO_KEEP.includes(k)));
 
   return (
     <html
