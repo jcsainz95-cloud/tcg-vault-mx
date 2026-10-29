@@ -1,96 +1,140 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · estado vigente
 
-> **Estado vigente (2026-10-27).** Último veredicto de release: **APROBADO** sobre **`2f5a59c0f1bf063e47e104b084e02036ac381456`**
-> (2026-10-26, «Códigos de descuento · evento de prueba de Meta · aviso con la medición»). Críticas 0 · Altas 0.
-> **Re-verificación puntual 2026-10-27 sobre `1b77796776e329df5b5a4c635dae889d006a630b`: SEC-MED-1 CERRADA** (arreglo `d897fd48`),
-> medida con la medición encendida, con gtag.js y fbevents.js **reales** en el navegador y mutaciones que las pruebas cazan.
-> **Encender la medición:** por seguridad del código ya no lo frena nada. Faltan los pasos de consola del dueño de §MKT.H.10
-> (medición mejorada de GA4 apagada entera, etc.) y la pasada de tester-e2e con red real (PENDIENTES «MEDIR-ENCENDER» (3) y (5)).
-> Lo heredado sigue en «Registro vigente»: **P-RL-1**, **CL-1** (CSP en `report-only`, sin aceptación escrita del dueño), **BL-42**.
+> **Estado vigente (2026-10-29).** Último veredicto: **APROBADO** sobre **`5aeda0060e2b87e323579088d211409f9f95d46d`** (2026-10-29,
+> «velocidad de la portada», solo frontend, rama `claude/portada-velocidad-release`). Críticas 0 · Altas 0 · 1 baja preexistente
+> (SEC-DYN3-B1) · 2 info. Antes: APROBADO `2f5a59c0` (2026-10-26) y SEC-MED-1 cerrada sobre `1b777967` (2026-10-27).
+> Siguen heredados en «Registro vigente»: **P-RL-1**, **CL-1** (CSP en `report-only`, sin aceptación escrita del dueño), **BL-42**.
 
 ---
 
-# RE-VERIFICACIÓN SEC-MED-1 · SHA **`1b77796776e329df5b5a4c635dae889d006a630b`** · 2026-10-27 · seguridad
+# VEREDICTO BLUE TEAM — Release «velocidad de la portada» · SHA **`5aeda0060e2b87e323579088d211409f9f95d46d`** · 2026-10-29 · seguridad
 
-> ## VEREDICTO: ✅ **SEC-MED-1 CERRADA** sobre `1b777967`. Nada de seguridad del código bloquea encender.
-> Ninguna llamada a GA4 ni a Meta lleva `q` (ni `Q`, `%71`, `#…` ni otra clave fuera de `MEASUREMENT_QUERY_ALLOWLIST`), tampoco tras
-> navegar en cliente. El backend (CAPI y evento de prueba) arma `event_source_url` sin ninguna entrada del usuario.
+> ## VEREDICTO: ✅ **APROBADO** sobre `5aeda006`, sin condiciones
+> **0 críticas · 0 altas · 0 medias · 1 baja preexistente que este paquete no introduce (SEC-DYN3-B1) · 2 info.**
+> Ninguno de los cuatro cambios abre superficie: el servidor no cambia, no hay dependencias nuevas y la cabecera CSP es idéntica.
+> **Pentester: no hace falta para este delta** (argumentos en §6). El orquestador decide.
 
-**Procedencia.** `git archive 1b777967` del árbol entero a una copia en el scratchpad (`d897fd48` es ancestro). Instalé `npm ci` en
-`frontend/` de la copia y enlacé `node_modules` de backend. Bundle de mocks con `NEXT_PUBLIC_MEASUREMENT_MODE=on` (IDs de prueba
-`G-E2ETEST1` / `1234567890123`), servido en `:3017`. Load entre 2 y 13 con 4 CPU; ningún rojo de los que cuento es por timeout. Logs en
-`scratchpad/sec-med1-logs/`; la copia está borrada. **Nada salió a Google ni a Meta con datos:** solo dejé pasar la descarga de
-`gtag.js`/`fbevents.js`. Los beacons (`/g/collect`, `facebook.com/tr`) los intercepté con 204 y los registré.
+## 1. Alcance y procedencia
+- **Qué entra** `[MEDIDO]`: `production` (`79c53ca2`, ancestro de `5aeda006`: `git merge-base --is-ancestor` rc 0) más el paquete §DYN.3.
+  `git diff origin/production 5aeda006` está **vacío** en `backend/`, y fuera de `docs/`, `frontend/` y `*.md` también: no cambian
+  `scripts/`, `security/`, `.github/`, `Dockerfile*` ni `vercel.json`. `frontend/package-lock.json` es idéntico, así que no hay
+  dependencias nuevas y `npm audit` no puede cambiar. `package.json` solo suma el `postbuild`.
+- **Dónde medí**: `git archive 5aeda006` del árbol entero en mi scratchpad (`…/scratchpad/sec-5aeda006`) con `npm ci` propio.
+  Para comparar, `git archive 79c53ca2` en una copia aparte. Las dos se compilaron con `npm run build` de producción
+  (`NEXT_PUBLIC_USE_MOCKS` sin definir, API `https://api.sec-probe.invalid`) y se sirvieron con `node .next/standalone/server.js`
+  en `127.0.0.1:3291` y `:3292`. No medí contra Vercel: **NO MEDIDO**. Carga entre 2 y 9 con 4 CPU; ningún resultado depende de
+  tiempos. Copias borradas al terminar; logs en `…/scratchpad/sec-5aeda006-logs/`.
+- **Vitest** `[MEDIDO]` (pruebas del paquete y `src/security`): `api-client`, `api.export-csv`, `home-bundle`, `mock-boundary`,
+  `layout.messages`, `AdminMessagesProvider`, `MasterSet.storefront-messages`, `src/security` ⇒ **9/9 ficheros, 83/83**.
 
-| # | Medición (base `1b777967`) | Resultado |
-|---|---|---|
-| 1 | Vitest `lib/measurement` + `components/consent` + `security` (entorno por defecto) | **216/216** |
-| 2 | E2E de la casa `measurement-on.spec.ts` «SEC-MED-1» (vendors stub), `--repeat-each 3` | **9/9 verdes** (3 pruebas × N=3) |
-| 3 | **Sonda mía con vendors REALES** (`zz-secmed1-realvendor.spec.ts`, solo en la copia), N=3. **S1:** aterrizar en `/es/catalog?q=…&Q=…&%71=…&utm_source=ig#…` ⇒ aceptar ⇒ `router.push` a una ficha ⇒ `router.push` a `/es/catalog?Q=…&%71=…` ⇒ salir. **S2 (390 px):** ficha limpia ⇒ agregar ⇒ otra ficha por cliente ⇒ `/es/catalog?q=…` + buscar + agregar ⇒ ficha `?%71=…&utm_source=ig` + agregar ⇒ salir | **6/6 verdes**. En cada corrida hubo 4-5 beacons de GA4 y 1-3 de Meta; en ninguno aparece el término, `q=`, `Q=` ni `%71` en `dl`/`dr`/`rl`/`ep.*`/el cuerpo. Meta solo disparó en URL limpia: 0 beacons en `?q=` o `?%71=` |
-| 4 | 37 casos de codificación contra `sanitizeMeasurementUrl`/`isPixelSafeUrl`: `%71`, `Q`, `%51`, `q%00`, `;q=`, `q` sin valor, `q[]`, clave repetida, `#` vacío, `%26q%3D` dentro de un utm, `UTM_SOURCE`, `+` | **37/37** (GA4 los quita; el píxel no actúa) |
-| 5 | Backend `test/measurement.bodies` + `measurement.meta-test-event` | **22/22**. `eventSourceUrl` = origen de `APP_BASE_URL` + ruta constante (`/checkout`, `/buylist`, `/`), sin query (`measurement-bodies.ts:186`) |
+## 2. Lo que pidió el encargo
+**(1) `Content-Type` solo con cuerpo (`frontend/src/lib/api-client.ts:356-367`) — no abre CSRF.**
+- `[código]` El backend no autentica por cookie. No hay `cookie-parser` ni lectura de `req.cookies` en `backend/src` (grep revisado
+  match por match: las 4 menciones de «cookie» son comentarios de Card Show y marketing). `JwtAuthGuard` lee **solo**
+  `req.headers['authorization']` con el prefijo `Bearer ` (`common/guards/jwt-auth.guard.ts:35-44`). El refresh viaja en el **cuerpo
+  JSON** (`auth.controller.ts:61-64`, `RefreshDto.refreshToken`), no en una cookie. Con `credentials:true` (`cors.ts:32`) no se manda
+  nada, porque no hay cookie de sesión. Las dos rutas de Next (`card-show-cdmx.ics`, `llms.txt`) son GET sin sesión. No hay
+  server actions.
+- **Qué peticiones se vuelven «simples»**: solo las **anónimas sin cuerpo**. Toda petición con sesión lleva `Authorization`, que no
+  está en la lista segura de CORS, así que sigue con preflight. Lo decisivo: el CSRF depende de lo que **el servidor** acepta, no de
+  lo que manda nuestro cliente. Un sitio atacante ya podía mandar un POST simple antes de este cambio, y el servidor sigue exigiendo
+  Bearer en todo lo que no es `@Public()`. `[código]` Ningún middleware del backend usaba `Content-Type` como defensa: grep de
+  `content-type`, `req.is(` y `csrf` en `backend/src` = 0.
+- **Mutación M2** `[MEDIDO]`: volví a `...(json ? {'Content-Type':…})` ⇒ `api-client.test.ts` **2 rojas de 14** («GET anónimo sin
+  cuerpo» y «POST sin cuerpo»). Restaurada (`diff` contra `git show 5aeda006:` vacío) ⇒ 14/14.
 
-**Datos de conducta del vendor real** (S1/S2, N=3): `user_engagement` sale con el `page_location` del `config` (saneado, de la carga),
-no con `location.href`. `fbevents.js` con `autoConfig:false` + `disablePushState` + `init` no manda nada por su cuenta: con M2, el píxel
-cargado sobre `?q=` no emitió ningún beacon en S1 (N=2). El término de búsqueda del catálogo **no** se escribe en la URL (`CatalogView`
-no hace `replace` con `q`). `?q=` solo entra por enlaces.
+**(2) Mocks fuera del bundle (`next.config.mjs:151-206`) — no hay forma de encenderlos en runtime.**
+- `[MEDIDO]` En el build de producción, `useMocks:` aparece **solo como `useMocks:!1`**: 9 veces en `.next/server` y `.next/static`
+  y 5 en `.next/standalone/.next/server`. La cadena `NEXT_PUBLIC_USE_MOCKS` no aparece en ningún chunk, así que nadie lee la
+  variable en runtime. `mock.refresh.token` (el login falso) = 0 ficheros. El centinela de `lib/mock` = 0 en chunks compilados.
+  `postbuild` ⇒ `HOME_BUNDLE_OK (169 chunks)`.
+- `[MEDIDO]` Arranqué el standalone con `NEXT_PUBLIC_USE_MOCKS=true` **en runtime**: `/es` y `/es/catalog` dieron 200, sin
+  fixtures (0 apariciones de «Surging Sparks» o «Twilight Masquerade») y sin centinela (N=1 por ruta; es apoyo, la prueba fuerte es
+  el literal horneado). Antes del cambio, `config.useMocks` ya leía `process.env` en el cliente. Ahora `env:` lo hornea también en
+  el servidor, así que el cambio **endurece**.
+- `[MEDIDO]` Las 296 guardas de `api.ts` y las 12 de `marketing-api.ts` son reescritura mecánica, sin cambio de polaridad:
+  `!config.useMocks` pasó a `!(MOCKS_BUILD && config.useMocks)`. Normalicé el diff y solo quedan el import de `requestText`/`getToken`,
+  la constante y FE-15. Con `MOCKS_BUILD=false`, toda función va al camino real.
+- Los mocks **no se saltan auth**. Son del lado del cliente: un build con mocks encendidos pinta datos falsos y un login falso,
+  pero no llama al API ni recibe datos reales, y el backend sigue autorizando cada llamada. La forma de encenderlos es hornearlos en
+  el build (`NEXT_PUBLIC_USE_MOCKS=true` en el entorno de Vercel). Ya podía pasar antes, y nada lo impide en el build: **SEC-DYN3-B1**.
+- **Mutación M1 (ablación del alias)** `[MEDIDO]`: `if (false && useMocksBuild() === 'false')` ⇒ `npm run build` **rc 1**, con
+  `HOME_BUNDLE_FAIL` y el centinela en 3 chunks, entre ellos `admin/marketing/page-*.js`. Restaurada (`diff` vacío). El build base
+  sale verde. Es determinista (build), por eso N=1. Aun sin el alias el build sale con `useMocks:!1`: el alias reduce el tamaño, la
+  seguridad no depende de él.
 
-**Mutaciones** (en la copia, restauradas y comprobadas con `diff` contra `git show 1b777967:…` = vacío):
+**(3) Traducciones `admin` solo bajo `/admin` — no se usaban para seguridad.** `[código]` `SuperAdminOnly.tsx:13-24` decide con
+`useRole().isSuperAdmin`, y el texto solo rellena el `EmptyState`. Los dos `useTranslations('admin.m3.role')` son etiquetas.
+`[MEDIDO]` En `es.json.admin` no hay `sk_`/`pk_`, correos, URLs ni JWT. Se manda **menos**: el HTML de `/es` bajó de
+**466 665 a 152 571 B** (N=10, estable). Un anónimo que abre `/es/admin` sigue recibiendo los textos de admin (443 KB), igual que
+antes en cualquier página. No hay regresión.
 
-| Mutación | Unidad | E2E stub (N=2) | Sonda con vendors reales (N=2) |
-|---|---|---|---|
-| **M1** `sanitizeMeasurementUrl` devuelve `url.href` (sin filtro) | **14 rojas**/216 | **4/6 rojas**: (a) 2/2 y (b′) 2/2; (b) 2/2 verde, como debe ser, porque su URL nunca lleva `q` | **4/4 rojas**: `dl=…/es/catalog?q=xqzleak&Q=XqzLeak&%71=xqzleak&utm_source=ig#xqzleak` |
-| **M2** `isPixelSafeUrl` ⇒ `true` siempre | **8 rojas**/216 | **4/6 rojas**: (a) 2/2 y (b′) 2/2 | **S2 2/2 rojas**: `facebook.com/tr ViewContent`/`AddToCart` con `dl=…/c-pikachu?%71=xqzleak…`; S1 2/2 verde (ver arriba) |
+**(4) FE-15 · `exportFinanceCsv` → `requestText` (`api-client.ts:315-322`, `api.ts:7245-7249`).** `[código]` Bearer de
+`getToken()`. Si da 401, hace refresh compartido y **un** reintento (`allowRefresh=false` en el reintento). Si el refresh falla,
+limpia la sesión. El token no viaja en la URL, solo `report/from/to`. El error se arma con `toApiError` desde el cuerpo, sin token.
+**Mutación M3** `[MEDIDO]`: `fetchWithSession(path, opts, false, false)` ⇒ `api.export-csv.test.ts` **2/2 rojas**; restaurada ⇒ 2/2.
+**Caché:** el CSV sale sin `Cache-Control` del backend (`admin.controller.ts:536-545`, `626-635`) y el `fetch` no pone
+`cache:'no-store'`. Pasaba igual antes (el `fetch` propio tampoco lo ponía): es **PNL-6** (aceptada). No hay regresión →
+**SEC-DYN3-I2**.
 
-**Lo que queda (no bloquea):**
-- **SEC-MED-1-R1 · Info · aceptada.** Una llamada a `fbq` hecha con la URL limpia **antes** de que baje `fbevents.js` se procesa al
-  bajar, con el `location.href` de ese momento. Para que salga `q`, el visitante tendría que pasar a un `?q=` por enlace en ese
-  instante (cientos de ms). No lo reproduje. Disparador: que el catálogo empiece a escribir `q` en la URL, o un beacon de Meta con
-  `q` en la pasada de tester-e2e. Dueño: frontend.
-- **Fuera del código, NO MEDIDO por mí:** que la «medición mejorada» de GA4 esté apagada en la consola (§MKT.H.10). Si queda
-  encendida, su «búsqueda en el sitio» lee `q` de la URL por su cuenta y este arreglo no la para. Lo cierra el paso (3) de MEDIR-ENCENDER
-  con fecha en `HECHOS.md`, más la pasada (5) de tester-e2e con red real contra el ID de verdad.
-- En `HEAD` del árbol vivo (`0e782cd6`, descendiente) `ENCENDER_BLOCKERS` y `BACKEND_ENCENDER_BLOCKERS` están vacíos (lo leí con
-  `git show`). El cierre de MKT-F2-3 no es de este pase y no lo medí. El delta `1b777967..0e782cd6` no toca `lib/measurement` ni
-  `components/consent` (`git diff --stat`).
+**(5) SAST** `[MEDIDO]`: semgrep **1.177.0**, la versión de `security-sast.yml:50`, con las 9 configs del CI
+(`security/semgrep.yml` + `p/default`, `typescript`, `javascript`, `nodejs`, `react`, `owasp-top-ten`, `secrets`, `jwt`) sobre los
+34 ficheros añadidos o modificados de `frontend/` ⇒ **0 ERROR** (el gate no se pondría rojo). Hay 4 WARNING
+`detect-non-literal-regexp`: `next.config.mjs:114,122` y `mock/accessories.ts:226` ya estaban en `production`, y
+`mock-boundary.test.ts:109` es una prueba con identificadores propios. Aviso: 5 reglas de Express dieron timeout sobre `api.ts` y
+`fixtures.ts` (código de cliente, no aplican). Grep de secretos en las líneas añadidas (`sk_`, `whsec_`, `AKIA`, JWT, PEM,
+`password=`/`secret=` literales) = 0. No corrí gitleaks en local: lo corre el CI en el PR.
 
----
+## 3. CSP: este paquete no la empeora
+`[MEDIDO]` Cabecera `content-security-policy-report-only` con el nonce normalizado: **md5 idéntico** entre `79c53ca2` y
+`5aeda006`. `csp.ts` y `middleware` no cambian. Los modos de render no cambian (`/[locale]`, `/admin` y `/catalog` son `●` SSG en
+ambos). Scripts en línea servidos en local (N=10 por ruta, sin variación), `production` frente a release:
+`/es` **19 → 16**, `/es/catalog` **20 → 19**, `/es/admin` **14 → 16**. En las dos versiones todos llevan nonce **en local**. Los +2
+de `/admin` son el payload RSC de `AdminMessagesProvider`, que se mueve ahí: mismo origen y mismo tipo que los que salen de las
+otras rutas. La única fuente nueva de JS es el chunk de `recharts` con `next/dynamic`, del mismo origen (`'self'`). **NO MEDIDO**:
+cuántas violaciones da en Vercel, donde frontend midió 28 scripts sin nonce (D-DYN-1). Eso lo cierra la medición de DYN-F7 en
+producción tras publicar. D-DYN-1 y CL-1 siguen abiertas, sin cambio.
 
-# VEREDICTO BLUE TEAM — **Release «Códigos de descuento / evento de prueba de Meta / aviso con la medición»** · SHA **`2f5a59c0f1bf063e47e104b084e02036ac381456`** · 2026-10-26 · seguridad
-
-> ## VEREDICTO: ✅ **APROBADO** sobre `2f5a59c0`, sin condiciones (con la medición APAGADA)
-> **0 críticas · 0 altas · 1 media nueva que solo aplica al encender (SEC-MED-1) · 1 baja aceptada (SEC-DSC-QA7) · 3 info.**
-> El pase del pentester sobre `c421de13` (0/0/0, 1 baja, 2 info) queda consolidado. **DSC-1 está CERRADA en `2f5a59c0`.**
-> El endpoint `POST /admin/measurement/meta-test-event` **pasa** la revisión que pide ARCHITECTURE §14.11.
-> La puerta de encendido muerde. Lo que promete el aviso **se cumple en el servidor**, pero **no del todo en el navegador** (SEC-MED-1).
-
-## Procedencia y detalle (§1–§4) — compactado el 2026-10-27
-Copia entera de `2f5a59c0`; `npx jest test/discounts test/measurement` ⇒ 17/17 suites, 268/268; DSC-1 medida con prueba propia y
-mutaciones M1–M7. §1 consolidó el pentest `c421de13`; §2 revisó códigos de descuento (SEC-DSC-QA7); §3 el endpoint de prueba de Meta
-(PASA, M3–M6 lo muerden); §4 el aviso frente al código (abrió SEC-MED-1, **cerrada el 2026-10-27**, ver arriba). Texto íntegro:
-`git show 1b777967:docs/SECURITY_NOTES.md`.
-
-## 5. Hallazgos de este pase
-
-| ID | Sev | Qué | Ubicación | Dueño | Disparador / cierre |
+## 4. Hallazgos de este pase
+| ID | Sev | Qué | Ubicación | Dueño | Disparador |
 |---|---|---|---|---|---|
-| ~~SEC-MED-1~~ | Media (al encender) — **CERRADA 2026-10-27** (`1b777967`) | URL sin sanear hacia GA4/Meta | `utm.ts`, `loader.ts`, `track.ts` | frontend | Cerrada: re-verificación arriba |
-| SEC-DSC-QA7 | Baja (aceptada) | La clave `email:` del quote permite bloquear 15 min los códigos de un correo ajeno y saber si ya usó un código | `guest-checkout.service.ts:324-329` | backend (arquitecto decide) | Sección 2 |
-| SEC-DSC-I1 | Info | El candado de DSC-1 vive solo en la integración (M1, M2 y M7 no los ve ninguna prueba pura) | `test/integration/discounts.e2e-spec.ts:583,911` | backend | Si la integración deja de correr en CI, o si `discounts.service.ts` pasa a `backend-lite` ⇒ una prueba pura como la mía |
-| SEC-DSC-I2 | Info | M-92 editada en su sitio: suma de control distinta en una BD que ya la aplicó (staging o local) | `20261109120000_m92_discount_codes/migration.sql` | devops | El primer `migrate deploy` en staging que avise de modificación ⇒ recrear esa BD; producción no la tiene |
-| SEC-MTE-1 | Info | `fetch` hacia Meta con `redirect:'follow'`: un 307/308 de Graph reenviaría el cuerpo con el token. Host fijo de Meta ⇒ teórico (clase PRE-P2) | `measurement-http.ts` | backend | El próximo toque del fichero |
+| SEC-DYN3-B1 | Baja (preexistente) | Nada impide un build de Vercel `production`/`preview` con `NEXT_PUBLIC_USE_MOCKS=true`: serviría fixtures y login mock en cliente (precios falsos; sin acceso a datos reales). `postbuild` se salta con mocks (`check-home-bundle.mjs:81-83`) | `next.config.mjs:170,200` | frontend + devops | El próximo toque de `next.config.mjs` o del entorno de Vercel: un `throw` como el de `MEASUREMENT_NOTICE_REQUIRED` (mocks + `VERCEL_ENV` production/preview) |
+| SEC-DYN3-I1 | Info | El standalone copia `src/lib/mock/*.ts` (11 ficheros, porque el trazado sigue el `readdirSync` de `next.config.mjs`). **No se sirven** `[MEDIDO]`: `/src/lib/mock/fixtures.ts` y 4 variantes con `..`/`%2e%2e` ⇒ 404 (o 307 sin extensión, que redirige a la tienda), centinela 0. Son datos falsos y el repo es público | `.next/standalone/src/lib/mock` | frontend | Que `lib/mock` llegue a tener algo no público |
+| SEC-DYN3-I2 | Info | El CSV financiero sin `no-store`, en ninguna de las dos capas. Sin cambio respecto a `production` (= PNL-6) | `api-client.ts:315`; `admin.controller.ts:536,626` | backend | Los de PNL-6 |
 
-## 6. VEREDICTO
-### ✅ **APROBADO** sobre `2f5a59c0f1bf063e47e104b084e02036ac381456`, sin condiciones, para publicar **con la medición apagada**
-- En el alcance (delta `c421de13..2f5a59c0` más el pase del pentester): **0 críticas y 0 altas**. La única Media (SEC-MED-1) solo existe al
-  encender, y encender está bloqueado por dos puertas (build y backend) que leí y, en backend, medí.
-- **DSC-1 cerrada**, según la decisión del dueño: medida con mi prueba. El candado del repo está en la integración (SEC-DSC-I1).
-- El endpoint de Meta pasa la revisión de §14.11, con 4 mutaciones que lo muerden (M3–M6).
-- **Encender la medición NO queda aprobado.** Mínimo: SEC-MED-1 cerrada (o al menos su entrada en `ENCENDER_BLOCKERS`), MKT-F2-3 cerrada
-  por el evento de prueba, y el repaso de consola de §14.11 (GA4 sin Signals y sin medición mejorada; píxel sin coincidencia avanzada ni
-  autoconfiguración). Ese repaso lo hace el dueño con su pantalla, y yo reviso la evidencia.
+## 5. Mutaciones de este pase (cada una restaurada; `diff` contra `git show 5aeda006:<fichero>` vacío)
+M1 alias apagado ⇒ build rc 1 (centinela en 3 chunks) · M2 `Content-Type` siempre ⇒ 2/14 rojas · M3 CSV sin refresh ⇒ 2/2 rojas.
 
-— SEGURIDAD (blue team / AppSec), 2026-10-26 · sha **`2f5a59c0f1bf063e47e104b084e02036ac381456`** · **APROBADO**
+## 6. ¿Hace falta pentester para esta release?
+Recomiendo que **no**, para este delta. Lo decide el orquestador y queda anotado como excepción, porque CLAUDE.md pide la fase
+completa «por release». Motivos medidos:
+(a) `backend/`, `prisma/`, CI, `security/` y el despliegue no cambian (§1).
+(b) No hay dependencias nuevas (lock idéntico).
+(c) No hay endpoints, rutas con sesión, PII ni dinero nuevos. El único cambio de flujo con token (FE-15) usa el núcleo de sesión
+ya auditado, con mutación.
+(d) La CSP es idéntica.
+(e) La superficie **baja**: menos JS, menos textos de admin a anónimos, mocks fuera del bundle.
+Lo que un red team atacaría (auth, IDOR, dinero, webhook) está byte a byte igual que en `production`, que ya pasó el pentest. El DAST
+del CI sigue corriendo en el despliegue. **El pentester sí corre** en la próxima release que toque `backend/`, `next.config.mjs`
+en cabeceras o CSP, o el manejo de tokens de `api-client.ts`.
+
+## 7. VEREDICTO
+### ✅ **APROBADO** sobre `5aeda0060e2b87e323579088d211409f9f95d46d`, sin condiciones
+0 críticas y 0 altas en el alcance. Los cuatro cambios se revisaron en código, se midieron en un build de producción y cada uno
+tiene una mutación que su candado caza (M1–M3). SEC-DYN3-B1 es anterior al paquete y queda como deuda con su disparador. Lo
+heredado (P-RL-1, CL-1, BL-42…) no cambia con esta release. Sigue en el registro y en las banderas al dueño.
+
+— SEGURIDAD (blue team / AppSec), 2026-10-29 · sha **`5aeda0060e2b87e323579088d211409f9f95d46d`** · **APROBADO**
+
+---
+
+# Veredictos recientes, compactados el 2026-10-29
+- **Re-verificación SEC-MED-1 · `1b777967` · 2026-10-27: CERRADA.** Con la medición encendida y gtag.js/fbevents.js reales, ninguna
+  llamada a GA4/Meta lleva `q` (mutaciones M1/M2 cazadas). Queda SEC-MED-1-R1 (info, registro B) y el paso de consola de GA4,
+  que yo no medí (bandera C.3).
+- **`2f5a59c0` · 2026-10-26: APROBADO** (códigos de descuento, evento de prueba de Meta, aviso con la medición apagada). DSC-1 cerrada.
+  Sus hallazgos vivos están en el registro B (SEC-DSC-QA7, SEC-DSC-I1/I2, SEC-MTE-1).
+Texto íntegro de los dos: `git show 5aeda006:docs/SECURITY_NOTES.md`.
 
 ---
 
@@ -148,6 +192,7 @@ MKT-TL2, SEC-MKT-1/2/3, CS-RT-1, C7, CL-2: cerrados. **SEC-MED-1: cerrada el 202
 | SEC-DSC-QA7 | Baja | La clave `email:` del quote de invitado: bloquear 15 min los códigos de un correo ajeno y saber si ya usó un código (veredicto `2f5a59c0` §2) | Código con tope por cliente publicado en redes; queja «no me deja usar mi código»; >3 bloqueos `email:` al día; P-RL-1 confirmado | backend (arquitecto decide) |
 | SEC-DSC-I1, SEC-DSC-I2, SEC-MTE-1 | Info | Candado de DSC-1 solo en la integración; M-92 editada en su sitio (staging o local); `fetch` a Meta sin `redirect:'error'` | La integración fuera de CI o `discounts` en `backend-lite`; un aviso de `migrate deploy` en staging; el próximo toque de `measurement-http.ts` | backend; devops; backend |
 | SEC-MED-1-R1 | Info | Una llamada a `fbq` en cola antes de que baje `fbevents.js` sale con la URL del momento en que se procesa (ventana de cientos de ms; no reproducido) | El catálogo escribe `q` en la URL, o tester-e2e ve un beacon de Meta con `q` | frontend |
+| SEC-DYN3-B1, SEC-DYN3-I1/I2 | Baja/Info | Build de Vercel con mocks horneados sin `throw`; fuentes de `lib/mock` copiadas al standalone (no se sirven); CSV sin `no-store` (= PNL-6). Veredicto `5aeda006` §4 | El próximo toque de `next.config.mjs` o del entorno de Vercel; `lib/mock` con algo no público; los de PNL-6 | frontend + devops; frontend; backend |
 | BMK-1 | Info | El cotizador anónimo deja leer el mercado en lote | C6 sale mal, o un mercado propio | backend |
 | REL7-P3 (R7-C2), SEG-R7-1 (R7-C3) | Baja | «Avísame» de sellados con correo ajeno; huecos menores del aviso de la lista de deseos | Una queja, >5 suscripciones a un correo al día, **o `sk_live_` (ya ocurrió ⇒ doble opt-in: re-enruto a backend)**; encender `wishlist_enabled` | backend; dueño |
 | SB-B2/SEC-SB-3, SB-B4/REL-D, SB-B5, P-SEED-1, P-NAME-1/D-10, P-REDIR-1, P-BILL-DoS/D-9, D-2…D-7, D-11/PII-D | Baja/Info | 500 por serialización; deps moderadas; flood de firmas inválidas; `assertSeedTarget`; nombres sin escapar; `safeNext`; rotación de `PII_ENCRYPTION_KEY`; diales sin re-validar (ver SEC-ENV-3); throttler en memoria | Ver ficha. **D-6** (el DAST no escanea producción) ya está en su disparador «antes de dinero real» | backend / devops |
@@ -178,4 +223,4 @@ Los más recientes, del más nuevo al más viejo: `60250e90` (2026-10-25, Envío
 `e77b9612` (2026-10-19, Panel de Marketing / Medición Fase 2 apagada), `e454262` (2026-10-16, P&L), `c62621e6` (2026-10-05, «listo-real»).
 Texto íntegro de los 81 anteriores: `git show 60250e90:docs/SECURITY_NOTES.md`; su tabla índice por fecha y sha: `git show 2f5a59c0:docs/SECURITY_NOTES.md`.
 
-_Changelog:_ 2026-10-25 · veredicto `60250e90` APROBADO; compactado de 17 004 líneas a estado vigente + registro + índice. · 2026-10-26 · veredicto `2f5a59c0` APROBADO (DSC-1 cerrada; SEC-MED-1 abierta al encender). · 2026-10-27 · re-verificación `1b777967`: SEC-MED-1 cerrada.
+_Changelog:_ 2026-10-25 · veredicto `60250e90` APROBADO; compactado de 17 004 líneas a estado vigente + registro + índice. · 2026-10-26 · veredicto `2f5a59c0` APROBADO (DSC-1 cerrada; SEC-MED-1 abierta al encender). · 2026-10-27 · re-verificación `1b777967`: SEC-MED-1 cerrada. · 2026-10-29 · veredicto `5aeda006` APROBADO (velocidad de la portada, solo frontend); compactados los dos anteriores.
