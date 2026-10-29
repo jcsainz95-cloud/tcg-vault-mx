@@ -225,13 +225,19 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
    * 💰 v1.113.3 (§DYN.5.3 `manual_price`) — encola el cálculo SOLO de las piezas que leen esta variante: las de plataforma
    * cuya clave de referencia (`SaleDecisionService.refKeyOf`: sellado ⇒ la de mercado `sealed:tcg:<id>` en `normal`; resto ⇒
    * `gradeKey` + acabado) es exactamente la escrita. Precio a mano por variante, override de `POST /admin/pricing/override` y
-   * la cola de revisión (`manual`, `accept`). Nunca lanza: un fallo de la lectura se loguea.
+   * la cola de revisión (`manual`, `accept`). v1.114 (§DYN.5.9): `review_open` con `onlyWithRow` — solo las piezas que YA
+   * tienen fila (una sin fila se precia en vivo, ya con la retención). Nunca lanza: un fallo de la lectura se loguea.
    */
-  enqueueVariant(trigger: ListingPriceRunTrigger, v: PriceVariant): Promise<unknown> {
+  enqueueVariant(trigger: ListingPriceRunTrigger, v: PriceVariant, opts: { onlyWithRow?: boolean } = {}): Promise<unknown> {
     this.chain = this.chain
       .then(() =>
         this.prisma.inventoryItem.findMany({
-          where: { ownerType: 'platform', cardId: v.cardId, productType: v.productType },
+          where: {
+            ownerType: 'platform',
+            cardId: v.cardId,
+            productType: v.productType,
+            ...(opts.onlyWithRow ? { listingPrice: { isNot: null } } : {}),
+          },
           include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
         }),
       )

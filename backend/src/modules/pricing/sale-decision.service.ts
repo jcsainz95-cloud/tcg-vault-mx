@@ -106,20 +106,27 @@ export class SaleDecisionService {
   constructor(private readonly pricing: PricingService) {}
 
   /**
-   * Las entradas del cuerpo para un LOTE de piezas, en UNA lectura cada una (el «pago mínimo» de BE-25 que hacía
-   * `fetchSellable`): curva, política, spreads, referencias y overrides de variante.
-   */
-  /**
    * Las referencias de mercado de un lote en UNA lectura (`getReferencesBatch`; ausente ⇒ `pending`, misma regla que
    * `getReference`). Para el sellado, su clave de mercado; para el resto, la de su variante.
+   *
+   * 💰 v1.114 (§DYN.5.9): **con la retención del candado ya aplicada** — una variante raw/graded con caso de revisión vigente
+   * (`open`/`kept`) y sin override tier 0 entra con el último sano del caso (o `pending` sin base), no con la mediana que trae el
+   * pico (`PricingService.saleRetentionFor`). Es la ENTRADA del cuerpo: `P`, la instrumentación y el «valor de mercado» que la
+   * fila congela (§DYN.5.5) salen del mismo número. ⛔ Solo el cuerpo de venta: los demás lectores de `getReferencesBatch`
+   * (bóveda, portafolio, cotizador, admin) no cambian.
    */
   async loadReferences(items: readonly SaleItem[]): Promise<Map<string, PriceInfo>> {
-    return this.pricing.getReferencesBatch(
-      items.flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
-        const k = this.refKeyOf(i);
-        return k ? [k] : [];
-      }),
-    );
+    const keys = items.flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
+      const k = this.refKeyOf(i);
+      return k ? [k] : [];
+    });
+    const refs = await this.pricing.getReferencesBatch(keys);
+    // El sellado no tiene candado (§DYN.5.9): un lote solo de sellado no consulta casos.
+    const lockable = keys.filter((k) => k.productType !== 'sealed');
+    if (lockable.length > 0) {
+      for (const [k, held] of await this.pricing.saleRetentionFor(lockable)) refs.set(k, held);
+    }
+    return refs;
   }
 
   /** La referencia de una pieza dentro de un mapa de `loadReferences` (`undefined` ⇒ sin referencia ⇒ `pending`). */
@@ -154,6 +161,10 @@ export class SaleDecisionService {
     return { referenceMxnCents: cents, capturedDate: cents != null ? (ref?.capturedDate ?? null) : null };
   }
 
+  /**
+   * Las entradas del cuerpo para un LOTE de piezas, en UNA lectura cada una (el «pago mínimo» de BE-25 que hacía
+   * `fetchSellable`): curva, política, spreads, referencias (con la retención del candado, v1.114) y overrides de variante.
+   */
   async loadBatch(items: readonly SaleItem[]): Promise<SaleDecisionBatch> {
     // Solo se lee lo que el lote necesita: curva y política si hay raw/graded que derivan; spreads si hay sellado.
     const derives = items.some((i) => i.productType !== 'sealed' && manualSaleOf(i) == null);
@@ -197,13 +208,17 @@ export class SaleDecisionService {
 
   /**
    * La referencia de mercado de una pieza: la del lote o, sin lote, leída aquí. Sellado ⇒ la de MERCADO TCGCSV (`undefined`
-   * si no está mapeado); resto ⇒ la de su variante (`pending` sin identidad de slab, v1.53).
+   * si no está mapeado); resto ⇒ la de su variante (`pending` sin identidad de slab, v1.53), con la retención del candado
+   * aplicada igual que en `loadReferences` (v1.114, §DYN.5.9).
    */
   async referenceOf(item: SaleItem, batch?: SaleDecisionBatch): Promise<PriceInfo | undefined> {
     if (batch) return this.referenceIn(batch.refs, item);
     if (item.productType === 'sealed') return this.pricing.getSealedMarketRef(item);
     const gk = this.pricing.tryGradeKeyFor(item);
-    return gk == null ? { status: 'pending' } : this.pricing.getReference(item.cardId, item.productType, gk, item.finish);
+    if (gk == null) return { status: 'pending' };
+    const key = { cardId: item.cardId, productType: item.productType, gradeKey: gk, finish: item.finish };
+    const held = (await this.pricing.saleRetentionFor([key])).get(variantKey(key));
+    return held ?? this.pricing.getReference(item.cardId, item.productType, gk, item.finish);
   }
 
   /**
@@ -281,10 +296,9 @@ export class SaleDecisionService {
         `Item ${item.folio} has no slab identity (grading company / grade value); not sellable`,
       );
     }
-    // v1.6-finish: precio de venta contra la referencia del ACABADO del item.
-    const ref = batch
-      ? await this.referenceOf(item, batch)
-      : await this.pricing.getReference(item.cardId, item.productType, gradeKey, item.finish);
+    // v1.6-finish: precio de venta contra la referencia del ACABADO del item. v1.114 (§DYN.5.9): con la retención del
+    // candado (`referenceOf`, con lote o sin él: el MISMO camino).
+    const ref = await this.referenceOf(item, batch);
     const referenceMxnCents = ref?.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
     // v1.28 (P-18, §4.26b): el sellOverride de la VARIANTE (M-30) pisa la curva y es ABSOLUTO (el precio por pieza ya
     // ganó arriba).

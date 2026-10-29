@@ -24,6 +24,8 @@ function pricing(): PricingService {
     // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
+    // v1.114 (§DYN.5.9): sin caso de revisión vigente ⇒ la entrada del cuerpo de venta no cambia.
+    saleRetentionFor: jest.fn(async () => new Map()),
     getReferencesBatch: jest.fn(async () => new Map()),
     // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
     // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.

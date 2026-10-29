@@ -3688,7 +3688,7 @@ enum ListingPriceStatus {
   pending
 }
 
-// Clase E. Por qué corrió un cálculo del precio del día (§DYN.5.3).
+// Clase E. Por qué corrió un cálculo del precio del día (§DYN.5.3). `review_open` v1.114 (§DYN.5.9).
 enum ListingPriceRunTrigger {
   daily
   manual_ingest
@@ -3698,6 +3698,7 @@ enum ListingPriceRunTrigger {
   manual_price
   bootstrap
   missing_row
+  review_open
 }
 
 // Clase E.

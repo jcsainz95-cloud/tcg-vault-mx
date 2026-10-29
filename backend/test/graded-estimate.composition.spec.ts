@@ -173,6 +173,8 @@ function wire(items: any[], refs: any[], config: Record<string, unknown> = {}) {
         return { key };
       }),
     },
+    // v1.114 (§DYN.5.9): la retención del candado lee los casos de revisión vigentes; aquí no hay ninguno.
+    priceReviewCase: { findMany: jest.fn(async () => []) },
     priceReference: { findMany: priceRefFindMany },
     // H-PERF-1: getReferencesBatch/getPricedRawFinishesBatch podan el histórico vía $queryRaw. NO se
     // envuelve con `q()` a propósito: corren en on Y off (fetchSellable, dial-independiente), así que

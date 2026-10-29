@@ -160,6 +160,8 @@ function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknow
       ),
       upsert,
     },
+    // v1.114 (§DYN.5.9): la retención del candado lee los casos de revisión vigentes; aquí no hay ninguno.
+    priceReviewCase: { findMany: jest.fn(async () => []) },
     priceReference: {
       // v1.50.3: la LISTA DE REVISIÓN pide `distinct: ['cardId']` + `take`, así que el mock los honra.
       // Sin `distinct`, una carta con PSA 10 **y** PSA 9 entraría dos veces al conjunto motor y el

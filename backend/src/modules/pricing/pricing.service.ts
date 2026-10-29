@@ -17,6 +17,7 @@ import {
   validateGradingMinUpsidePct,
 } from '../settings/settings.constants';
 import { FxService } from './fx.service';
+import { vigenteStatusWhere } from './review-vigente';
 import { PokemonTcgIoProvider } from './providers/pokemontcg-io.provider';
 import {
   PokeTraceProvider,
@@ -831,6 +832,69 @@ export class PricingService {
   }
 
   /**
+   * 💰 v1.114⟨portada⟩ (§DYN.5.9) — el caso de revisión VIGENTE (`open`/`kept`, `review-vigente.ts`) de cada variante, por
+   * `variantKey`: `cardProductId` y `sealedProductId` nulos (los que abre el candado del barrido), cualquier `axis`; si hubiera
+   * dos, el de `createdAt` mayor. Lectura directa (sin ciclo con `PriceReviewService`). Lo leen la base congelada del barrido
+   * (`arbiterDetailForKeys`) y la retención del cuerpo de venta (`SaleDecisionService.loadReferences`).
+   */
+  async vigenteReviewCases(
+    keys: readonly { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<Map<string, { baselineMxnCents: number | null; createdAt: Date }>> {
+    const out = new Map<string, { baselineMxnCents: number | null; createdAt: Date }>();
+    if (keys.length === 0) return out;
+    const rows = await this.prisma.priceReviewCase.findMany({
+      where: {
+        status: vigenteStatusWhere(),
+        cardProductId: null,
+        sealedProductId: null,
+        OR: keys.map((key) => ({ cardId: key.cardId, productType: key.productType, gradeKey: key.gradeKey, finish: key.finish })),
+      },
+      // Ascendente: el último que se escribe en el mapa es el de `createdAt` mayor.
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { cardId: true, productType: true, gradeKey: true, finish: true, baselineMxnCents: true, createdAt: true },
+    });
+    for (const c of rows) out.set(variantKey(c), { baselineMxnCents: c.baselineMxnCents, createdAt: c.createdAt });
+    return out;
+  }
+
+  /**
+   * 💰 v1.114⟨portada⟩ (API_CONTRACT §DYN.5.9, ARCHITECTURE §4.DYN (e)) — **LA RETENCIÓN DEL CANDADO EN LA VENTA.** Para cada
+   * variante raw/graded con caso VIGENTE (`open`/`kept`) cuya referencia NO es el override tier 0, la referencia que entra al
+   * cuerpo de venta (y que la fila exhibe, §DYN.5.5): `baselineMxnCents ≠ null ⇒ { priced, baselineMxnCents, capturedDate = día
+   * de createdAt del caso }`; `null ⇒ { pending }` (⇒ `PRICE_PENDING`, P-RP-4: sin con qué comparar, a revisión). Las variantes
+   * que no están en el mapa leen su referencia de siempre. ⛔ El sellado no tiene candado (fuera). ⛔ El override tier 0 sigue
+   * ganando (fuera); el precio por pieza y M-30 ganan aguas abajo, en el cuerpo.
+   *
+   * El cuerpo lee el RESULTADO del candado (el caso), no `decideLock`: meter el árbol aquí exigiría la base de ayer y la
+   * tolerancia en cada cálculo, y duplicaría el árbol (ARCHITECTURE §4.DYN (e)). Coste normal: UNA consulta (casos); la de
+   * tier solo corre para las variantes con caso, y es la MISMA lectura de `getReferencesBatch` (un tier 0 gana ⇔ hay fila
+   * manual en el conjunto filtrado, `isBetterRef`), así que «tier 0» significa aquí exactamente lo que significa al leer.
+   */
+  async saleRetentionFor(
+    keys: readonly { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<Map<string, PriceInfo>> {
+    const out = new Map<string, PriceInfo>();
+    const auto = keys.filter((k) => k.productType !== 'sealed');
+    if (auto.length === 0) return out;
+    const cases = await this.vigenteReviewCases(auto);
+    if (cases.size === 0) return out;
+    const held = auto.filter((k) => cases.has(variantKey(k)));
+    const { manualKeys } = await this.getReferencesBatchWithTier(held);
+    for (const k of held) {
+      const vk = variantKey(k);
+      if (manualKeys.has(vk)) continue;
+      const c = cases.get(vk)!;
+      out.set(
+        vk,
+        c.baselineMxnCents != null && c.baselineMxnCents > 0
+          ? { status: 'priced', referenceMxnCents: c.baselineMxnCents, capturedDate: c.createdAt.toISOString().slice(0, 10) }
+          : { status: 'pending' },
+      );
+    }
+    return out;
+  }
+
+  /**
    * v1.91⟨precios⟩ (M-75, §PRE.C / ARCHITECTURE §4.PRE (c)) — DETALLE del árbitro por variante para el
    * CANDADO del barrido/reconcile: devuelve por clave el `RobustResult` de HOY y la `baseline` (último
    * valor SANO de mercado ANTES de hoy). 💰 DINERO. El candado (`decideLock`) decide publicar-auto vs
@@ -870,31 +934,21 @@ export class PricingService {
       if (arr) arr.push(r);
       else byKey.set(k, [r]);
     }
-    // ⭐ v1.91⟨precios⟩ errata (cuestión D, §4.PRE (c)) — BASE CONGELADA mientras hay caso `open`. La base
-    // NO es la robusta de ayer recomputada: es el ÚLTIMO VALOR SANO que la tienda PUBLICÓ. Mientras un
-    // `PriceReviewCase open` retiene el salto, ese valor es el `baselineMxnCents` que el caso guardó al
-    // abrirse. Sin esto, un pico de UNA fuente que persiste DOS barridos haría que el día 2 las quotes de
-    // ayer YA incluyeran el pico ⇒ base≈pico ⇒ jumpFactor≈1 ⇒ publica y auto-supersede el caso que el día
-    // 1 retuvo — justo lo que el candado existe para frenar. Lectura directa (sin ciclo con PriceReview).
-    const openCases = await this.prisma.priceReviewCase.findMany({
-      where: {
-        status: 'open',
-        cardProductId: null,
-        sealedProductId: null,
-        OR: keys.map((key) => ({ cardId: key.cardId, productType: key.productType, gradeKey: key.gradeKey, finish: key.finish })),
-      },
-      select: { cardId: true, productType: true, gradeKey: true, finish: true, baselineMxnCents: true },
-    });
+    // ⭐ v1.91⟨precios⟩ errata (cuestión D, §4.PRE (c)) + v1.114 (§DYN.5.9) — BASE CONGELADA mientras hay caso VIGENTE
+    // (`open` o `kept`). La base NO es la robusta de ayer recomputada: es el ÚLTIMO VALOR SANO que la tienda PUBLICÓ, el
+    // `baselineMxnCents` que el caso guardó al abrirse. Sin esto, un pico de UNA fuente que persiste DOS barridos haría que el
+    // día 2 las quotes de ayer YA incluyeran el pico ⇒ base≈pico ⇒ jumpFactor≈1 ⇒ publica y auto-supersede el caso que el día 1
+    // retuvo. `kept` cuenta igual (v1.114): «conservar» sigue reteniendo hasta que el mercado se asiente.
     const frozenBaseByKey = new Map<string, number | null>();
-    for (const c of openCases) frozenBaseByKey.set(variantKey(c), c.baselineMxnCents);
+    for (const [k, c] of await this.vigenteReviewCases(keys)) frozenBaseByKey.set(k, c.baselineMxnCents);
 
     for (const [k, krows] of byKey) {
       // errata E-CI (§PRE.B): UNA cotización por FUENTE (no por fila), vía `isBetterRef`.
       const toCand = (rs: (typeof rows)[number][]): ArbiterCandidate[] =>
         arbiterCandidatesBySource(rs as unknown as RefRow[], (r) => this.liveMxnCents(r, fx));
       const result = resolveRobustMarket(toCand(krows), dials, nowIso);
-      // Si hay caso `open` ⇒ base CONGELADA (`caso.baselineMxnCents`). Si NO ⇒ la robusta de ayer (que,
-      // sin caso abierto, SÍ fue la publicada y sana).
+      // Si hay caso vigente ⇒ base CONGELADA (`caso.baselineMxnCents`). Si NO ⇒ la robusta de ayer (que,
+      // sin caso vigente, SÍ fue la publicada y sana).
       let baseline: number | null;
       if (frozenBaseByKey.has(k)) {
         baseline = frozenBaseByKey.get(k) ?? null;
@@ -1023,8 +1077,21 @@ export class PricingService {
   async getReferencesBatch(
     items: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
   ): Promise<Map<string, PriceInfo>> {
+    return (await this.getReferencesBatchWithTier(items)).refs;
+  }
+
+  /**
+   * 💰 v1.114⟨portada⟩ (§DYN.5.9) — `getReferencesBatch` MÁS el conjunto de claves cuya referencia es el override manual
+   * (tier 0, `isManualOverride ∨ source='manual'`). Misma consulta y mismo resultado (`refs` ES lo que devuelve
+   * `getReferencesBatch`); lo único nuevo es decir QUÉ tier ganó, que `PriceInfo` no lleva. Lo usa el cuerpo de venta para
+   * aplicar la retención del candado solo al mercado AUTOMÁTICO: el override tier 0 sigue ganando con caso vigente.
+   */
+  async getReferencesBatchWithTier(
+    items: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<{ refs: Map<string, PriceInfo>; manualKeys: Set<string> }> {
     const map = new Map<string, PriceInfo>();
-    if (items.length === 0) return map;
+    const manualKeys = new Set<string>();
+    if (items.length === 0) return { refs: map, manualKeys };
     // P-30 H2: MISMA fuente de clave que el consumidor (`variantKey`). Producir e indexar el Map con el
     // helper compartido garantiza que el `.get()` del consumidor caiga en la misma entrada (round-trip).
     const keyOf = (i: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }) =>
@@ -1130,6 +1197,7 @@ export class PricingService {
     const nowIso = new Date().toISOString().slice(0, 10);
     for (const [k, r] of bestByKey) {
       const isManual = r.isManualOverride || r.source === 'manual';
+      if (isManual) manualKeys.add(k);
       const robust = isManual ? null : this.robustMarketForRows(rowsByKey.get(k) ?? [r], arbiterDials, fx, nowIso);
       map.set(
         k,
@@ -1143,7 +1211,7 @@ export class PricingService {
             },
       );
     }
-    return map;
+    return { refs: map, manualKeys };
   }
 
   /**

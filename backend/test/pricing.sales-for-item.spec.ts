@@ -141,6 +141,8 @@ function pricingMock(referenceMxnCents: number | null): PricingService {
     getReference: jest.fn(async () =>
       referenceMxnCents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents },
     ),
+    // v1.114 (§DYN.5.9): sin caso de revisión vigente ⇒ la entrada del cuerpo de venta no cambia.
+    saleRetentionFor: jest.fn(async () => new Map()),
     // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
     // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
