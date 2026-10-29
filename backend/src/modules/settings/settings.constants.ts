@@ -705,8 +705,9 @@ export const RETIRED_SETTING_KEYS = [
  * `PUT /admin/settings/iva-transfer`, `PUT /admin/pricing/curve`, `PUT /admin/pricing/sealed-spreads`, `PUT /admin/fx`,
  * `PUT /admin/fx/mode`), dispara el cálculo `dial_change` del precio del día al instante.
  *
- * Candado de completitud DYN-B17 (`test/integration/dyn-listing-price-dials.e2e-spec.ts`): toda clave de `SettingKey`
- * cuyo cambio altere la salida del cuerpo sobre el fixture DEBE estar aquí. ⛔ Quitar una ⇒ rojo.
+ * Candado DYN-B17 (`test/integration/dyn-listing-price-dials.e2e-spec.ts`), en los dos sentidos y sin excepciones
+ * (v1.113.4): toda clave de `SettingKey` cuyo cambio altere la salida del cuerpo sobre el fixture DEBE estar aquí, y toda clave
+ * de aquí DEBE moverla. ⛔ Quitar una que mueve ⇒ rojo; añadir una inerte ⇒ rojo.
  */
 export const PRICE_AFFECTING_SETTING_KEYS: readonly SettingKeyType[] = [
   // Los dos diales que derivan `P` desde `L` (§M10-IVA.3).
@@ -723,10 +724,11 @@ export const PRICE_AFFECTING_SETTING_KEYS: readonly SettingKeyType[] = [
   SettingKey.FX_BUFFER_PCT,
   SettingKey.FX_MANUAL_OVERRIDE_RATE,
   SettingKey.FX_RATE_MODE,
-  // El árbitro de mediana del mercado (§PRE.B).
+  // El árbitro de mediana del mercado (§PRE.B). ⛔ `price_consensus_tolerance_pct` NO (v1.113.4): solo decide el booleano
+  // `consensus`, que lee el candado del barrido (`decideLock`), no el cuerpo; lo que el barrido cambia (el caso, §DYN.5.9)
+  // llega en el siguiente `daily` o por `review_open`.
   SettingKey.PRICE_ARBITER_FRESHNESS_DAYS,
   SettingKey.PRICE_ARBITER_SOURCES,
-  SettingKey.PRICE_CONSENSUS_TOLERANCE_PCT,
 ];
 
 const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
