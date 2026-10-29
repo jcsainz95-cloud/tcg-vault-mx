@@ -4,7 +4,10 @@
  *
  *   DYN-B16 (checkout) — fila `priced` ⇒ se cobra SU `P` y su instrumentación tal cual, aunque el vivo dé otro (⛔ ni vivo,
  *                        ni `min`/`max`); `pending` ⇒ `PRICE_PENDING`; sin fila ⇒ vivo + `missing_row`.
- *   DYN-B16 (lectores) — el `ListingDTO` exhibe el `P` de la fila; `pending` no se vende.
+ *   DYN-B16 (lectores) — el `ListingDTO` exhibe el `P` de la fila Y su «valor de mercado» (v1.113.3, §DYN.5.5), sin leer
+ *                        ninguna referencia en vivo; `pending` no se vende.
+ *   DYN-B22 (unidad) — `enqueueVariant` encola SOLO las piezas que leen la variante escrita; la corrida guarda la referencia
+ *                        del MISMO lote (con el gate del sellado) y cuenta las piezas que salta `SKIP LOCKED`.
  *   DYN-B19 — `salesFor`: sin fila ⇒ cuerpo único en vivo + `missing_row`; con fila ⇒ ni curva ni referencia.
  *   DYN.5.3/.4 — un `PUT` con clave de `PRICE_AFFECTING_SETTING_KEYS` ⇒ `dial_change`; otra clave ⇒ nada; el aviso llega
  *                DESPUÉS del commit y solo si hubo escritura (también desde `PUT /admin/settings/iva-transfer`).
@@ -24,7 +27,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AdminService } from '../src/modules/admin/admin.service';
-import { ListingPriceService, decisionOfRow, portadaServedDay } from '../src/modules/pricing/listing-price.service';
+import { ListingPriceService, decisionOfRow, portadaServedDay, referenceOfRow } from '../src/modules/pricing/listing-price.service';
 import { SaleDecisionService } from '../src/modules/pricing/sale-decision.service';
 import { PRICE_AFFECTING_SETTING_KEYS, SettingKey } from '../src/modules/settings/settings.constants';
 import { marketBracketOf, DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
@@ -65,7 +68,9 @@ function pricingDouble() {
     tryGradeKeyFor: jest.fn(() => 'raw:NM'),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10_000 })),
     getVariantOverride: jest.fn(async () => null),
-    getReferencesBatch: jest.fn(async () => new Map([['c1|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 10_000 }]])),
+    getReferencesBatch: jest.fn(
+      async () => new Map([['c1|raw|raw:NM|normal', { status: 'priced', referenceMxnCents: 10_000, source: 'tcgcsv_singles', capturedDate: '2026-10-28' }]]),
+    ),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
     getPricedRawFinishesBatch: jest.fn(async () => new Map()),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: false })),
@@ -88,6 +93,9 @@ function pricedRow(over: Partial<ListingPrice> = {}): ListingPrice {
     marketMxnCents: 16_000,
     ivaRatePct: 16,
     ivaTransferPct: 100,
+    // v1.113.3: el «valor de mercado» que la fila congeló — distinto del vivo del doble (10 000 del 2026-10-28).
+    referenceMxnCents: 16_500,
+    referenceCapturedDate: new Date('2026-10-20T00:00:00.000Z'),
     computedAt: new Date(),
     ...over,
   };
@@ -179,14 +187,37 @@ describe('DYN-B16 — lectores: el `ListingDTO` exhibe la fila (§DYN.5.6)', () 
   const catalog = (lp: unknown) =>
     new CatalogService({} as PrismaService, pricingDouble(), ivaDialsStub() as unknown as SettingsService, lp as ListingPriceService);
 
-  it('fila `priced` ⇒ `displayPriceCents` = su `P` y vendible', async () => {
-    const lp = { salesFor: jest.fn(async () => new Map([['i1', { kind: 'priced', from: 'row', decision: decisionOfRow(pricedRow(), { finish: 'normal' } as never) }]])) };
-    const dto = await catalog(lp).toListingDTO(rawItem());
+  it('fila `priced` ⇒ `displayPriceCents` = su `P`, vendible, y el «valor de mercado» de la FILA (⛔ sin leer referencias)', async () => {
+    const row = pricedRow();
+    const lp = {
+      salesFor: jest.fn(
+        async () => new Map([['i1', { kind: 'priced', from: 'row', decision: decisionOfRow(row, { finish: 'normal' } as never), reference: referenceOfRow(row) }]]),
+      ),
+    };
+    const pricing = pricingDouble();
+    const dto = await new CatalogService({} as PrismaService, pricing, ivaDialsStub() as unknown as SettingsService, lp as unknown as ListingPriceService).toListingDTO(rawItem());
     expect(dto).toMatchObject({ displayPriceCents: 21_000, sellable: true, priceBasis: 'market' });
+    // v1.113.3 (§DYN.5.5): la referencia de la fila, sin `source` (superficie anónima), con su fecha; ⛔ la del vivo (10 000).
+    expect(dto.referenceValue).toEqual({ status: 'priced', referenceMxnCents: 16_500, capturedDate: '2026-10-20' });
+    expect(pricing.getReference).not.toHaveBeenCalled();
+    expect(pricing.getReferencesBatch).not.toHaveBeenCalled();
+    expect(pricing.loadSealedSpreads).not.toHaveBeenCalled();
+  });
+
+  it('fila con `referenceMxnCents = null` ⇒ `referenceValue` `pending` aunque el vivo SÍ tenga mercado', async () => {
+    const row = pricedRow({ referenceMxnCents: null, referenceCapturedDate: null });
+    expect(referenceOfRow(row)).toEqual({ status: 'pending' });
+    const lp = {
+      salesFor: jest.fn(
+        async () => new Map([['i1', { kind: 'priced', from: 'row', decision: decisionOfRow(row, { finish: 'normal' } as never), reference: referenceOfRow(row) }]]),
+      ),
+    };
+    const dto = await catalog(lp).toListingDTO(rawItem());
+    expect(dto.referenceValue).toEqual({ status: 'pending' });
   });
 
   it('`pending` ⇒ sin precio y NO vendible', async () => {
-    const lp = { salesFor: jest.fn(async () => new Map([['i1', { kind: 'pending' }]])) };
+    const lp = { salesFor: jest.fn(async () => new Map([['i1', { kind: 'pending', reference: { status: 'pending' } }]])) };
     const dto = await catalog(lp).toListingDTO(rawItem());
     expect(dto.displayPriceCents).toBeUndefined();
     expect(dto.sellable).toBe(false);
@@ -204,20 +235,33 @@ describe('DYN-B19 — `ListingPriceService.salesFor`', () => {
   it('con fila ⇒ ni curva, ni referencia, ni override (la rejilla deja de cargarlos); sin fila ⇒ vivo + `missing_row`', async () => {
     const { svc, enqueue, pricing } = service([pricedRow()]);
     const withRow = await svc.salesFor([rawItem()], IVA_DIALS_NEUTRAL);
-    expect(withRow.get('i1')).toMatchObject({ kind: 'priced', from: 'row', decision: { unitPriceCents: 21_000 } });
+    expect(withRow.get('i1')).toMatchObject({
+      kind: 'priced',
+      from: 'row',
+      decision: { unitPriceCents: 21_000 },
+      reference: { status: 'priced', referenceMxnCents: 16_500, capturedDate: '2026-10-20' },
+    });
     expect(pricing.loadPricingCurve).not.toHaveBeenCalled();
     expect(pricing.getReferencesBatch).not.toHaveBeenCalled();
     expect(enqueue).not.toHaveBeenCalled();
 
     const s2 = service([]);
     const noRow = await s2.svc.salesFor([rawItem()], IVA_DIALS_NEUTRAL);
-    expect(noRow.get('i1')).toMatchObject({ kind: 'priced', from: 'live', decision: { unitPriceCents: 13_340 } });
+    expect(noRow.get('i1')).toMatchObject({
+      kind: 'priced',
+      from: 'live',
+      decision: { unitPriceCents: 13_340 },
+      reference: { status: 'priced', referenceMxnCents: 10_000, capturedDate: '2026-10-28' },
+    });
     expect(s2.enqueue).toHaveBeenCalledWith('missing_row', ['i1']);
   });
 
   it('`pending` nunca se convierte en precio', async () => {
     const { svc } = service([pricedRow({ status: 'pending', unitPriceCents: null, listPriceCents: null, priceBasis: null })]);
-    expect((await svc.salesFor([rawItem()], IVA_DIALS_NEUTRAL)).get('i1')).toEqual({ kind: 'pending' });
+    expect((await svc.salesFor([rawItem()], IVA_DIALS_NEUTRAL)).get('i1')).toEqual({
+      kind: 'pending',
+      reference: { status: 'priced', referenceMxnCents: 16_500, capturedDate: '2026-10-20' },
+    });
   });
 });
 
@@ -478,5 +522,53 @@ describe('DYN.5.3 — la corrida diaria (H − 60 min) y el `bootstrap`', () => 
       if (prev === undefined) delete process.env.E2E_ENABLE_SCHEDULER;
       else process.env.E2E_ENABLE_SCHEDULER = prev;
     }
+  });
+});
+
+describe('DYN-B22 (unidad) — variante de `manual_price` y referencia congelada (v1.113.3, §DYN.5.3/.5)', () => {
+  it('`enqueueVariant` encola SOLO las piezas cuya clave de referencia es la escrita (grado y acabado incluidos)', async () => {
+    const items = [
+      rawItem({ id: 'nm', rawCondition: 'NM', finish: 'normal' }),
+      rawItem({ id: 'lp', rawCondition: 'LP', finish: 'normal' }),
+      rawItem({ id: 'nm-holo', rawCondition: 'NM', finish: 'holofoil' }),
+    ];
+    const prisma = { inventoryItem: { findMany: jest.fn(async () => items) } } as unknown as PrismaService;
+    const pricing = pricingDouble();
+    (pricing.tryGradeKeyFor as unknown as jest.Mock).mockImplementation((i: { rawCondition: string }) => `raw:${i.rawCondition}`);
+    const svc = new ListingPriceService(prisma, new SaleDecisionService(pricing), {} as SettingsService);
+    const enqueue = jest.spyOn(svc, 'enqueue').mockResolvedValue(undefined);
+    await svc.enqueueVariant('manual_price', { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' });
+    await svc.idle();
+    expect(enqueue.mock.calls).toEqual([['manual_price', ['nm']]]);
+    expect((prisma.inventoryItem.findMany as jest.Mock).mock.calls[0][0].where).toMatchObject({
+      ownerType: 'platform',
+      cardId: 'c1',
+      productType: 'raw',
+    });
+  });
+
+  it('`exhibitedReferenceOf`: el sellado pasa por el gate de su fuente; el resto, la referencia `priced` de su variante', () => {
+    const pricing = pricingDouble();
+    const decider = new SaleDecisionService(pricing);
+    (pricing.sealedMarketGradeKeyForItem as unknown as jest.Mock).mockReturnValue('sealed:tcg:9');
+    const ref = { status: 'priced', referenceMxnCents: 50_000, source: 'tcgcsv', capturedDate: '2026-10-27' };
+    const batch = {
+      curve: null,
+      premiumFloorPolicy: null,
+      sealedSpreads: { spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: false },
+      refs: new Map([
+        ['c1|sealed|sealed:tcg:9|normal', ref],
+        ['c1|raw|raw:NM|normal', ref],
+      ]),
+      variantOverrides: new Map(),
+    } as never;
+    const sealed = rawItem({ productType: 'sealed', rawCondition: null, tcgplayerProductId: 9 });
+    (pricing.gateSealedMarketCents as unknown as jest.Mock).mockReturnValueOnce(null);
+    expect(decider.exhibitedReferenceOf(sealed, batch)).toEqual({ referenceMxnCents: null, capturedDate: null });
+    expect(pricing.gateSealedMarketCents).toHaveBeenLastCalledWith(ref, false);
+    (pricing.gateSealedMarketCents as unknown as jest.Mock).mockReturnValueOnce(50_000);
+    expect(decider.exhibitedReferenceOf(sealed, batch)).toEqual({ referenceMxnCents: 50_000, capturedDate: '2026-10-27' });
+    expect(decider.exhibitedReferenceOf(rawItem(), batch)).toEqual({ referenceMxnCents: 50_000, capturedDate: '2026-10-27' });
+    expect(decider.exhibitedReferenceOf(rawItem({ cardId: 'otra' }), batch)).toEqual({ referenceMxnCents: null, capturedDate: null });
   });
 });

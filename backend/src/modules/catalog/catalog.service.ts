@@ -156,11 +156,11 @@ interface SellableRow {
  * cuerpo único en vivo), su referencia de mercado informativa y los diales de la petición (solo el rótulo de la tasa).
  */
 export interface ListingCtx {
+  /**
+   * El precio de la pieza Y su «valor de mercado» exhibible, de la MISMA foto (v1.113.3, §DYN.5.5): la fila del día o, sin
+   * fila, el lote en vivo. `sale.reference` ya trae el gate del sellado (fuente y dial, §4.23a).
+   */
   sale: PieceSale;
-  /** Referencia de mercado del lote (sellado: la de TCGCSV; resto: la de su variante). `undefined` ⇒ `pending`. */
-  reference: PriceInfo | undefined;
-  /** El dial `sealed_price_source` (el mercado del sellado solo se muestra con la fuente encendida, §4.23a). */
-  sealedSourceOn: boolean;
   // v1.22-2 / N-15 (§4.22a-6): acabados priceados de ESTA carta (del lote) para displayFinishes.
   pricedFinishes?: Iterable<Finish>;
   /** ⭐ Los diales de la petición, izados UNA vez (⛔ jamás por pieza). */
@@ -732,9 +732,9 @@ export class CatalogService {
    *
    * 💰 v1.113⟨portada⟩ (API_CONTRACT §DYN.5.6) — **el precio es el DEL DÍA** (`ListingPrice`): fila `priced` ⇒ su `P` tal cual;
    * `pending` ⇒ no se exhibe; sin fila ⇒ cálculo en vivo por el cuerpo único (§DYN.5.1) + `missing_row` encolado. Con fila
-   * ya NO se iza curva, política ni override (solo las piezas sin fila los leen). Lo que sí se sigue leyendo en UN lote son
-   * las referencias de mercado: el «Valor de mercado» informativo del DTO (`referenceValue`, con su `capturedDate`, que la
-   * fila no guarda) — ⛔ nunca para el precio. Las formas de respuesta no cambian.
+   * ya NO se iza curva, política, override NI referencias (solo las piezas sin fila los leen). v1.113.3 (§DYN.5.5): el «Valor
+   * de mercado» (`referenceValue`, con su `capturedDate`) también es el de la fila — la comparación «mercado con IVA ·
+   * nuestro precio» sale de la misma foto. Las formas de respuesta no cambian.
    */
   private async fetchSellable(where: Prisma.InventoryItemWhereInput): Promise<SellableRow[]> {
     const items = await this.prisma.inventoryItem.findMany({
@@ -746,11 +746,6 @@ export class CatalogService {
 
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
-    // El «Valor de mercado» (informativo) en UN lote; el sellado además necesita el dial de su fuente para mostrarlo.
-    const refs = await this.decider.loadReferences(items);
-    const sealedSourceOn = items.some((i) => i.productType === 'sealed')
-      ? (await this.pricing.loadSealedSpreads()).sourceOn
-      : false;
     // ⭐ BE-25 + §4.44.b: los dos diales, **una lectura por petición** (solo el cálculo en vivo y el rótulo de la tasa).
     const ivaDials = await this.ivaDialsOf();
     const sales = this.listingPrices
@@ -759,9 +754,7 @@ export class CatalogService {
     const out: SellableRow[] = [];
     for (const item of items) {
       const { dto, listPriceCents } = this.toListingRow(item, {
-        sale: sales.get(item.id) ?? { kind: 'pending' },
-        reference: this.decider.referenceIn(refs, item),
-        sealedSourceOn,
+        sale: sales.get(item.id) ?? { kind: 'pending', reference: { status: 'pending' } },
         pricedFinishes: pricedByCard.get(item.cardId),
         ivaDials,
       });
@@ -835,19 +828,16 @@ export class CatalogService {
   }
 
   /**
-   * El `ListingDTO` de UNA pieza (uso single): su precio del día (o el cuerpo único en vivo si no tiene fila) y su referencia
-   * leída aquí. v2.1.9 (T-2): retorno DECLARADO.
+   * El `ListingDTO` de UNA pieza (uso single): su precio del día y su «valor de mercado» de la MISMA foto (la fila; sin fila,
+   * el cuerpo único y la referencia en vivo, v1.113.3). v2.1.9 (T-2): retorno DECLARADO.
    */
   async toListingDTO(item: ItemWithCard): Promise<ListingDTO> {
     const ivaDials = await this.ivaDialsOf();
     const sales = this.listingPrices
       ? await this.listingPrices.salesFor([item], ivaDials)
       : await liveSalesFor(this.decider, [item], ivaDials);
-    const sealedSourceOn = item.productType === 'sealed' ? (await this.pricing.loadSealedSpreads()).sourceOn : false;
     return this.toListingRow(item, {
-      sale: sales.get(item.id) ?? { kind: 'pending' },
-      reference: await this.decider.referenceOf(item),
-      sealedSourceOn,
+      sale: sales.get(item.id) ?? { kind: 'pending', reference: { status: 'pending' } },
       ivaDials,
     }).dto;
   }
@@ -868,14 +858,9 @@ export class CatalogService {
     // v2.0 (P-48, §4.36.7a): QUÉ determinó el precio. Server-side SIEMPRE (SEC-A1); la UI OBEDECE este dato para la regla de
     // visibilidad del «Valor de mercado» — jamás lo infiere comparando cifras.
     const priceBasis: PriceBasis = sale?.priceBasis ?? 'pending';
-    // El «Valor de mercado» informativo: sellado ⇒ el de TCGCSV solo si el dial de su fuente lo deja pasar (§4.23a); resto ⇒
-    // el de la variante de ESTA copia (v1.6-finish). Sin referencia ⇒ `pending` (v1.53: jamás el grado más caro).
-    const referenceValue: PriceInfo =
-      item.productType === 'sealed'
-        ? this.pricing.gateSealedMarketCents(ctx.reference, ctx.sealedSourceOn) != null
-          ? ctx.reference!
-          : { status: 'pending' }
-        : (ctx.reference ?? { status: 'pending' });
+    // El «Valor de mercado» informativo, de la MISMA foto que `P` (v1.113.3, §DYN.5.5): la fila o, sin fila, el lote en vivo,
+    // con el gate del sellado ya aplicado (§4.23a) y `pending` sin referencia (v1.53: jamás el grado más caro).
+    const referenceValue: PriceInfo = ctx.sale.reference;
     const listPriceCents = sale?.listPriceCents;
     // v1.1: comprable solo si está PUBLICADO (listed) y con precio de venta fijado (>0). La regla se evalúa sobre **`L`**
     // (margen), no sobre `P`.

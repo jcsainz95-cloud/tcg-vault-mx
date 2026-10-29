@@ -176,8 +176,11 @@ interface PricedSealed {
    * DTO: reconstruirlo desde `source` sería un segundo cuerpo de la misma regla.
    */
   priceBasis: PriceBasis;
-  /** Referencia de mercado TCGCSV cruda (para el lote/ficha); undefined si no mapeado. */
-  marketRef?: PriceInfo;
+  /**
+   * El «valor de mercado» exhibible (TCGCSV, con el gate de su fuente ya aplicado) de la MISMA foto que el precio: la fila del
+   * día o, sin fila, el lote en vivo (v1.113.3, §DYN.5.5). `pending` si no mapeado o sin mercado.
+   */
+  marketRef: PriceInfo;
 }
 
 /**
@@ -223,11 +226,10 @@ export class SealedCatalogService {
     if (items.length === 0) return [];
 
     const sealed = await this.pricing.loadSealedSpreads();
-    // Lote de referencias de MERCADO (`sealed:tcg:<productId>`) para el «Valor de mercado» informativo; un sellado no mapeado
-    // no aporta clave. ⛔ No decide el precio.
-    const refs = await this.decider.loadReferences(items);
     // 💰 v1.113⟨portada⟩ (API_CONTRACT §DYN.5.6): el precio es el DEL DÍA (`ListingPrice`); sin fila ⇒ el cuerpo único en vivo
-    // (resolvedor ÚNICO del sellado: precio del producto > mercado×spread > PRICE_PENDING) + `missing_row`.
+    // (resolvedor ÚNICO del sellado: precio del producto > mercado×spread > PRICE_PENDING) + `missing_row`. v1.113.3
+    // (§DYN.5.5): el «Valor de mercado» viaja con el precio (`sale.reference`, ya con el gate de la fuente); ⛔ con fila no se
+    // lee ninguna referencia.
     const sales = this.listingPrices
       ? await this.listingPrices.salesFor(items, dials)
       : await liveSalesFor(this.decider, items, dials, await this.decider.loadBatch(items));
@@ -252,7 +254,7 @@ export class SealedCatalogService {
               ? 'subtype_spread'
               : 'global_spread',
         priceBasis: d.priceBasis,
-        marketRef: this.decider.referenceIn(refs, item),
+        marketRef: sale.reference,
       });
     }
     return out;
@@ -280,7 +282,7 @@ export class SealedCatalogService {
     const cheapest = sorted[0];
     const item = cheapest.item;
     const referenceValue: PriceInfo =
-      cheapest.marketRef && cheapest.marketRef.status === 'priced'
+      cheapest.marketRef.status === 'priced'
         ? cheapest.marketRef
         : { status: 'pending' };
     // v2.1.9 (D2): la referencia TAL COMO SALE al cliente. ⛔ v1.90⟨miv⟩: `referenceDisplayCents` se deriva de ÉSTA,
@@ -496,7 +498,6 @@ export class SealedCatalogService {
     if (priced.length === 0) throw BusinessException.notFound(); // el grupo no tiene piezas vendibles
 
     const group = this.toGroupDTO(priced, dials);
-    const sealedCtx = await this.pricing.loadSealedSpreads();
     // v2.1.9 (T-2): anotado con el tipo del contrato (`SealedGroupDetailResponse.listings`). 💰 §DYN.5.6: cada pieza con SU
     // precio ya resuelto (el mismo del grupo), ⛔ sin volver a calcular.
     const listings: ListingDTO[] = [...priced]
@@ -515,9 +516,8 @@ export class SealedCatalogService {
               marketBracket: null,
               finish: p.item.finish,
             },
+            reference: p.marketRef,
           },
-          reference: p.marketRef,
-          sealedSourceOn: sealedCtx.sourceOn,
           ivaDials: dials,
         }),
       );

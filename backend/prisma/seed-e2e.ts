@@ -45,6 +45,7 @@ import {
   E2E_SETTINGS,
   E2E_SPEI_FIXTURE,
   E2E_STALE_ESTIMATES,
+  E2E_GEM_ESTIMATES,
   E2E_USERS,
 } from './e2e-fixtures';
 import { assertSeedTarget } from './seed-target-guard';
@@ -389,6 +390,22 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   // v1.86 (§83.seed) — las dos cartas del deck de energías de E2E: solo su raw NM (MX$50, la más barata).
   priceRef(E2E_CARDS.deckember.externalId, 'raw', 'raw:NM', E2E_CARDS.deckember.refNmCents);
   priceRef(E2E_CARDS.deckspark.externalId, 'raw', 'raw:NM', E2E_CARDS.deckspark.refNmCents);
+  // v1.113.3 (hallazgo 5) — la carta de la vitrina: su raw y sus DOS estimados del gancho, MANUALES y de HOY.
+  priceRef(E2E_CARDS.gemhunt.externalId, 'raw', 'raw:NM', E2E_CARDS.gemhunt.refNmCents);
+  for (const e of E2E_GEM_ESTIMATES) {
+    priceRefs.push({
+      cardId: cardIds[E2E_CARDS.gemhunt.externalId],
+      productType: 'graded',
+      gradeKey: e.gradeKey,
+      finish: 'normal',
+      source: 'manual',
+      refKind: PriceRefKind.graded_estimate,
+      priceMxnCents: e.priceMxnCents,
+      capturedDate: day,
+      isManualOverride: true,
+      cardProductId: null,
+    });
+  }
   for (const e of E2E_STALE_ESTIMATES) {
     priceRefs.push({
       cardId: cardIds[E2E_CARDS.staleest.externalId],
@@ -649,6 +666,22 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       status: 'listed',
       acquisitionType: 'compra',
       acquisitionCostCents: 15000,
+      locationId: platformLoc.id,
+    },
+    { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+  );
+
+  // v1.113.3 (hallazgo 5) — la raw publicada de la carta de la vitrina (sin ella el gate da `NOT_PUBLISHED`).
+  await upsertItem(
+    E2E_FOLIOS.listedGemHunt,
+    {
+      cardId: cardIds[E2E_CARDS.gemhunt.externalId],
+      productType: 'raw',
+      rawCondition: 'NM',
+      ownerType: 'platform',
+      status: 'listed',
+      acquisitionType: 'compra',
+      acquisitionCostCents: 3000,
       locationId: platformLoc.id,
     },
     { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },

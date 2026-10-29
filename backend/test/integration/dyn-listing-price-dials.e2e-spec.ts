@@ -1,16 +1,19 @@
 /**
- * dyn-listing-price-dials.e2e-spec.ts — 💰 DYN-B17 (API_CONTRACT §DYN.5.4): **candado de COMPLETITUD de
- * `PRICE_AFFECTING_SETTING_KEYS`**, contra Postgres REAL y el cuerpo único del precio de venta tal cual corre en la app.
+ * dyn-listing-price-dials.e2e-spec.ts — 💰 DYN-B17 (API_CONTRACT §DYN.5.4, errata v1.113.3): **candado de
+ * `PRICE_AFFECTING_SETTING_KEYS` en los DOS sentidos**, contra Postgres REAL y el cuerpo único del precio de venta tal cual
+ * corre en la app.
  *
- * Método: un fixture que ejercita TODAS las ramas del cuerpo (raw por mercado con dos fuentes del árbitro y USD vivo, raw
- * premium en el piso, graduada, sellado con spread por presentación y sellado con spread global). Para CADA clave de
- * `SettingKey` se escribe un valor alternativo VÁLIDO (su propio validador lo acepta), se recalcula el cuerpo sobre el
- * fixture y se compara con la línea base. Si la salida cambia, la clave mueve el precio ⇒ TIENE que estar en la lista
- * (si no, cambiarla dejaría lo exhibido y lo cobrado en una posición del dial que ya no existe hasta el siguiente cálculo
- * diario). Una clave sin valor alternativo válido no se puede medir aquí: va en `SIN_PERTURBACION`, que es una lista
- * CERRADA (una clave nueva sin candidato pone esto rojo hasta que alguien decida cómo medirla).
+ * Método: un fixture que ejercita TODAS las ramas del cuerpo (raw por mercado con DOS fuentes frescas del árbitro que
+ * DISCREPAN, en USD con FX en modo `manual`; raw premium en el piso; graduada; sellado con spread por presentación y con
+ * spread global). Para CADA clave de `SettingKey` se escribe un valor alternativo VÁLIDO (su propio validador lo acepta), se
+ * recalcula el cuerpo —`P`, `L`, base, mercado y el «valor de mercado» exhibido de la fila (§DYN.5.5)— sobre el fixture y
+ * se compara con la línea base.
+ *   (a) completitud: si la salida cambia, la clave mueve el precio ⇒ TIENE que estar en la lista.
+ *   (b) testigo: toda clave de la lista tiene que moverla aquí; una que no la mueve es una clave inerte (cuesta una corrida
+ *       por nada) o un hueco del fixture — salvo las de `SIN_TESTIGO`, lista CERRADA con el porqué medido.
+ * Una clave sin valor alternativo válido no se puede medir: va en `SIN_PERTURBACION`, también CERRADA.
  *
- * Mutación que la pone roja: quitar cualquier clave «que mueve» de `PRICE_AFFECTING_SETTING_KEYS`. Determinista (N=1).
+ * Mutaciones que la ponen roja: quitar de la lista una clave que mueve (a); añadir una clave inerte (b). Determinista (N=1).
  */
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -30,6 +33,20 @@ import { SPEND_ALERT_CODES } from '../../src/modules/settings/shipping-dials';
 
 /** Claves cuyo validador no acepta ningún candidato genérico NI específico (se miden en otra parte o no aplican). */
 const SIN_PERTURBACION: Partial<Record<SettingKeyType, string>> = {};
+
+/**
+ * (b) Claves de la lista SIN testigo posible, con el porqué MEDIDO. Lista CERRADA: una clave nueva que no mueva nada pone
+ * esto rojo.
+ *
+ * `price_consensus_tolerance_pct`: al valuar, el árbitro (`pricing.service.ts` `robustMarketForRows`) devuelve solo la
+ * mediana, su fuente y su fecha; la tolerancia decide el booleano `consensus` (`common/robust-market.ts`, `resolveRobustMarket`)
+ * que solo lee el candado del barrido (`decideLock`), automático y fuera del cuerpo de §DYN.5.1. No hay fixture que la haga
+ * mover `P` ni la referencia. El contrato (§DYN.5.4, v1.113.3) dice que «se queda» y a la vez pide testigo por clave:
+ * contradicción elevada al arquitecto (BACKEND_NOTES §DYN). Se deja en la lista (una clave de más cuesta una corrida).
+ */
+const SIN_TESTIGO: Partial<Record<SettingKeyType, string>> = {
+  [SettingKey.PRICE_CONSENSUS_TOLERANCE_PCT]: 'solo decide `consensus`, que el cuerpo de §DYN.5.1 no lee',
+};
 
 const STRINGS = [
   'on', 'off', 'tcgcsv', 'tcgcsv_singles', 'pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual', 'auto', 'legacy',
@@ -91,7 +108,16 @@ describe('E2E — DYN-B17: completitud de PRICE_AFFECTING_SETTING_KEYS (§DYN.5.
   let setId: string;
   const cardIds: string[] = [];
   const itemIds: string[] = [];
-  let sourceBefore: Prisma.JsonValue | undefined;
+  /** Diales que el fixture fija para su línea base (y restaura al terminar). */
+  const FIXTURE_DIALS: [SettingKeyType, Prisma.InputJsonValue][] = [
+    // Con la fuente del sellado APAGADA los spreads no se ejercitan.
+    [SettingKey.SEALED_PRICE_SOURCE, 'tcgcsv'],
+    // FX en modo `manual` con una tasa que no es ni la de Banxico ni el fallback: el modo y la tasa manual eligen la tasa
+    // con que se convierte el mercado en USD (`fx.service.ts` `getCurrent`), así que los dos tienen testigo.
+    [SettingKey.FX_RATE_MODE, 'manual'],
+    [SettingKey.FX_MANUAL_OVERRIDE_RATE, 21.37],
+  ];
+  const before = new Map<string, Prisma.JsonValue | undefined>();
 
   async function card(n: number, rarity: string) {
     const c = await h.prisma.card.create({
@@ -138,13 +164,16 @@ describe('E2E — DYN-B17: completitud de PRICE_AFFECTING_SETTING_KEYS (§DYN.5.
       orderBy: { folio: 'asc' },
     })) as SaleItem[];
     const out: unknown[] = [];
+    // v1.113.3 (§DYN.5.5): el «valor de mercado» que la fila guardaría con `P`, del MISMO lote (también es salida del cálculo).
+    const batch = await decider.loadBatch(items);
+    const exhibited = (it: SaleItem) => decider.exhibitedReferenceOf(it, batch).referenceMxnCents;
     for (const it of items) {
       try {
         const d = await decider.decide(it, dials);
-        out.push([it.folio, d.unitPriceCents, d.listPriceCents, d.priceBasis, d.marketMxnCents]);
+        out.push([it.folio, d.unitPriceCents, d.listPriceCents, d.priceBasis, d.marketMxnCents, exhibited(it)]);
       } catch (e) {
         if (!isPricePending(e)) throw e;
-        out.push([it.folio, 'pending']);
+        out.push([it.folio, 'pending', exhibited(it)]);
       }
     }
     return JSON.stringify(out);
@@ -156,12 +185,14 @@ describe('E2E — DYN-B17: completitud de PRICE_AFFECTING_SETTING_KEYS (§DYN.5.
     settings = h.app.get(SettingsService);
     const set = await h.prisma.cardSet.create({ data: { externalId: `lpd-${run}`, name: `Set Diales ${run}` } });
     setId = set.id;
-    // (1) raw por MERCADO, dos fuentes que votan el árbitro, en USD (conversión VIVA) y de distinta frescura.
+    // (1) raw por MERCADO: DOS fuentes admitidas que votan el árbitro y DISCREPAN, del MISMO día (el lector solo arbitra las
+    // filas de la fecha automática más reciente) y frescas con el dial de hoy (3 días ≤ 7), en USD (conversión VIVA). Así
+    // las tres claves del árbitro tienen testigo: quitar una fuente o encoger la ventana mueve la mediana.
     const k1 = await card(1, 'Common');
     await item(k1, {});
     await h.prisma.priceReference.createMany({
       data: [
-        { cardId: k1, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'tcgcsv_singles', priceUsdCents: 3_000, priceMxnCents: 55_000, capturedDate: today(), refKind: 'market' },
+        { cardId: k1, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'tcgcsv_singles', priceUsdCents: 3_000, priceMxnCents: 55_000, capturedDate: daysAgo(3), refKind: 'market' },
         { cardId: k1, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'tcgdex', priceUsdCents: 4_700, priceMxnCents: 86_000, capturedDate: daysAgo(3), refKind: 'market' },
       ],
     });
@@ -191,19 +222,18 @@ describe('E2E — DYN-B17: completitud de PRICE_AFFECTING_SETTING_KEYS (§DYN.5.
         data: { cardId: k4, productType: 'sealed', gradeKey: `sealed:tcg:${pid + i}`, finish: 'normal', source: 'tcgcsv', priceMxnCents: 100_000, capturedDate: today(), refKind: 'market' },
       });
     }
-    // Línea base: la fuente del sellado ENCENDIDA (con `off` los spreads no se ejercitan).
-    sourceBefore = (await h.prisma.configSetting.findUnique({ where: { key: 'sealed_price_source' } }))?.valueJson;
-    await h.prisma.configSetting.upsert({
-      where: { key: 'sealed_price_source' },
-      create: { key: 'sealed_price_source', valueJson: 'tcgcsv' },
-      update: { valueJson: 'tcgcsv' },
-    });
+    for (const [key, value] of FIXTURE_DIALS) {
+      before.set(key, (await h.prisma.configSetting.findUnique({ where: { key } }))?.valueJson);
+      await h.prisma.configSetting.upsert({ where: { key }, create: { key, valueJson: value }, update: { valueJson: value } });
+    }
   });
 
   afterAll(async () => {
     if (h) {
-      if (sourceBefore === undefined) await h.prisma.configSetting.deleteMany({ where: { key: 'sealed_price_source' } });
-      else await h.prisma.configSetting.update({ where: { key: 'sealed_price_source' }, data: { valueJson: sourceBefore as Prisma.InputJsonValue } });
+      for (const [key, v] of before) {
+        if (v === undefined) await h.prisma.configSetting.deleteMany({ where: { key } });
+        else await h.prisma.configSetting.update({ where: { key }, data: { valueJson: v as Prisma.InputJsonValue } });
+      }
       await h.prisma.inventoryItem.deleteMany({ where: { id: { in: itemIds } } });
       await h.prisma.priceReference.deleteMany({ where: { cardId: { in: cardIds } } });
       await h.prisma.pendingPriceEntry.deleteMany({ where: { cardId: { in: cardIds } } });
@@ -221,7 +251,7 @@ describe('E2E — DYN-B17: completitud de PRICE_AFFECTING_SETTING_KEYS (§DYN.5.
     expect(s.slice(2).every((r) => typeof r[1] === 'number')).toBe(true);
   });
 
-  it('⭐ toda clave cuyo cambio mueve la salida del cuerpo está en PRICE_AFFECTING_SETTING_KEYS', async () => {
+  it('⭐ (a) toda clave que mueve la salida está en la lista y (b) toda clave de la lista la mueve aquí', async () => {
     const base = await snapshot();
     const mueven: string[] = [];
     const sinCandidato: string[] = [];
@@ -255,9 +285,21 @@ describe('E2E — DYN-B17: completitud de PRICE_AFFECTING_SETTING_KEYS (§DYN.5.
     console.log(`[DYN-B17] claves que mueven el precio sobre el fixture: ${mueven.sort().join(', ')}`);
     const faltan = mueven.filter((k) => !(PRICE_AFFECTING_SETTING_KEYS as readonly string[]).includes(k));
     expect(faltan).toEqual([]);
+    // (b) testigo: toda clave de la lista mueve el precio o la referencia sobre el fixture, salvo la lista cerrada.
+    const sinTestigo = PRICE_AFFECTING_SETTING_KEYS.filter((k) => !mueven.includes(k));
+    expect(sinTestigo.sort()).toEqual(Object.keys(SIN_TESTIGO).sort());
     expect(sinCandidato.sort()).toEqual(Object.keys(SIN_PERTURBACION).sort());
     // Control: el método VE las claves que mueven (si no, el candado sería verde por ceguera).
     expect(mueven).toEqual(expect.arrayContaining([SettingKey.IVA_PCT, SettingKey.IVA_TRANSFER_PCT, SettingKey.PRICING_CURVE]));
+    // …y las claves que el fixture de v1.113.3 vino a cubrir (árbitro con dos fuentes que discrepan; FX en `manual`).
+    expect(mueven).toEqual(
+      expect.arrayContaining([
+        SettingKey.PRICE_ARBITER_FRESHNESS_DAYS,
+        SettingKey.PRICE_ARBITER_SOURCES,
+        SettingKey.FX_MANUAL_OVERRIDE_RATE,
+        SettingKey.FX_RATE_MODE,
+      ]),
+    );
   }, 900_000);
 
   it('la lista es de claves REALES, sin repetir, e incluye `iva_transfer_pct` (que se escribe fuera de `PUT /admin/settings`)', () => {

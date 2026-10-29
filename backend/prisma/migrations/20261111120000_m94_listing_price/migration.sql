@@ -1,11 +1,13 @@
 -- ===============================================================================================================================
--- M-94 · v1.113⟨portada⟩ + errata v1.113.1 (API_CONTRACT §DYN.1/§DYN.5, ARCHITECTURE §4.DYN (e)) — precio del día. ADITIVA. 💰
+-- M-94 · v1.113⟨portada⟩ + erratas v1.113.1 y v1.113.3 (API_CONTRACT §DYN.1/§DYN.5, ARCHITECTURE §4.DYN (e)) — precio del día. ADITIVA. 💰
 -- Propiedad: backend.
 --
 -- Qué hace:
 --   (1) 3 enums nuevos (`ListingPriceStatus`, `ListingPriceRunTrigger`, `ListingPriceRunStatus`).
 --   (2) Tablas `ListingPriceRun` (bitácora de cálculos) y `ListingPrice` (UNA fila por pieza vendible: el precio que se
---       exhibe y se cobra; sin columnas de precio anterior, errata v1.113.1) + CHECKs.
+--       exhibe y se cobra; sin columnas de precio anterior, errata v1.113.1; con el «valor de mercado» exhibido congelado,
+--       `referenceMxnCents`/`referenceCapturedDate`, errata v1.113.3, añadidas EDITANDO esta migración en sitio: aún no
+--       publicada; una BD local o de CI que ya aplicó la versión anterior se recrea) + CHECKs.
 -- ⛔ No siembra diales ni filas: la primera corrida (`bootstrap`) la lanza el arranque del artefacto nuevo; mientras tanto
 --    los lectores precian en vivo por el cuerpo único (§DYN.5.6, «sin fila») y encolan `missing_row`.
 -- IDEMPOTENTE: enums en bloque `duplicate_object`, `IF NOT EXISTS`, constraints quitar-si-existe-y-poner.
@@ -58,6 +60,8 @@ CREATE TABLE IF NOT EXISTS "ListingPrice" (
     "marketMxnCents" INTEGER,
     "ivaRatePct" INTEGER NOT NULL,
     "ivaTransferPct" INTEGER NOT NULL,
+    "referenceMxnCents" INTEGER,
+    "referenceCapturedDate" DATE,
     "computedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "ListingPrice_pkey" PRIMARY KEY ("inventoryItemId")
 );

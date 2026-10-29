@@ -235,7 +235,20 @@ describe('WSH-T17 — borrar la cuenta borra la lista (817)', () => {
     expect(rowOf((await demand()).body, c).wantedCount).toBe(1);
     // una orden liquidada fuerza el borrado SUAVE (con transacciones)
     await w.h.prisma.order.create({
-      data: { userId: a.id, status: 'settled', subtotalCents: 100, processingFeeCents: 0, ivaCents: 0, totalCents: 100, priceConvention: 'IVA_INCLUSIVE' },
+      // QA-IVA-ORDEN: una orden COHERENTE con lo que escribe el checkout (dial archivado, IVA de su base, `settledAt`): la BD de
+      // integración se comparte y el P&L de `iva-price-convention` suma TODAS las liquidadas.
+      data: {
+        userId: a.id,
+        status: 'settled',
+        settledAt: new Date(),
+        subtotalCents: 100,
+        processingFeeCents: 0,
+        ivaCents: 14,
+        ivaRatePct: 16,
+        ivaTransferPct: 100,
+        totalCents: 100,
+        priceConvention: 'IVA_INCLUSIVE',
+      },
     });
     const del = await w.h.api('DELETE', `/admin/users/${a.id}`, { token: w.adminToken });
     expect(del.status).toBe(200);

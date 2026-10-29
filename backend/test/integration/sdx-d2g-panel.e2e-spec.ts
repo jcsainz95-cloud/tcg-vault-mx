@@ -80,11 +80,17 @@ describe('PS-152 — lista, detalle y «visto»', () => {
     const r = await api('POST', '/admin/spend-alerts/seen', w.owner.token, { ids: [id] });
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ updated: 1, skipped: 0 });
+    // La bitácora se lee ANTES y DESPUÉS del segundo «visto»: las dos llamadas escriben fila y un `findFirst` sin orden
+    // devolvía cualquiera de las dos (rojo intermitente medido). Así el orden lo fija la prueba, no el plan de Postgres.
+    const logsOf = () =>
+      w.h.prisma.auditLog.findMany({ where: { action: 'spend_alert.seen', actorUserId: w.owner.id, createdAt: { gte: t0 } } });
+    expect((await logsOf()).map((l) => l.after)).toEqual([{ count: 1, skipped: 0 }]);
     expect((await api('POST', '/admin/spend-alerts/seen', w.owner.token, { ids: [id] })).body).toEqual({ updated: 0, skipped: 0 });
     const dto = (await api('GET', `/admin/spend-alerts/${id}`, w.owner.token)).body;
     expect(dto.seen).toMatchObject({ by: { userId: w.owner.id, name: w.owner.name } });
-    const log = await w.h.prisma.auditLog.findFirst({ where: { action: 'spend_alert.seen', actorUserId: w.owner.id, createdAt: { gte: t0 } } });
-    expect(log?.after).toEqual({ count: 1, skipped: 0 });
+    const after = (await logsOf()).map((l) => l.after);
+    expect(after).toHaveLength(2);
+    expect(after).toEqual(expect.arrayContaining([{ count: 1, skipped: 0 }, { count: 0, skipped: 0 }]));
   });
 
   it('C-21 (d): V (no dueño) sobre un aviso suyo ⇒ updated 0, skipped 1 (sigue sin ver); de sistema ⇒ 1; AG-21 ⇒ skipped; un `null` y uno de OTRA persona en el mismo lote ⇒ los dos', async () => {

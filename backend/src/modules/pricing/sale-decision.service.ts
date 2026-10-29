@@ -74,6 +74,28 @@ export interface SaleDecisionBatch {
   variantOverrides: Map<string, VariantPriceOverride>;
 }
 
+/**
+ * 💰 v1.113.3 (API_CONTRACT §DYN.5.5) — el «valor de mercado» que la tienda EXHIBE junto a `P`: la referencia de la pieza tal
+ * como la vio el lote que derivó `P`, con el gate del sellado (`gateSealedMarketCents`: fuente y dial) ya aplicado.
+ * `referenceMxnCents === null` ⇔ sin mercado exhibible. Es lo que guarda la fila (`referenceMxnCents`,
+ * `referenceCapturedDate`); ⛔ no es `marketMxnCents` (instrumentación §N.8, otra semántica).
+ */
+export interface ExhibitedReference {
+  referenceMxnCents: number | null;
+  /** `YYYY-MM-DD`; `null` ⇔ `referenceMxnCents === null`. */
+  capturedDate: string | null;
+}
+
+/** La proyección de §DYN.5.5: `referenceMxnCents ≠ null ? priced : pending` (las proyecciones públicas van encima). */
+export function referenceInfoOf(r: ExhibitedReference): PriceInfo {
+  if (r.referenceMxnCents == null) return { status: 'pending' };
+  return {
+    status: 'priced',
+    referenceMxnCents: r.referenceMxnCents,
+    ...(r.capturedDate != null ? { capturedDate: r.capturedDate } : {}),
+  };
+}
+
 /** ¿Es el rechazo «sin precio publicable»? (el único que un lector convierte en «no se exhibe»). */
 export function isPricePending(e: unknown): e is BusinessException {
   return e instanceof BusinessException && e.code === 'PRICE_PENDING';
@@ -106,6 +128,32 @@ export class SaleDecisionService {
     return k ? refs.get(variantKey(k)) : undefined;
   }
 
+  /**
+   * 💰 v1.113.3 (§DYN.5.5) — el «valor de mercado» EXHIBIBLE de una pieza, leído del MISMO lote con que se deriva su `P`:
+   * sellado ⇒ el de TCGCSV solo si `gateSealedMarketCents` lo deja pasar (fuente `manual` siempre; `tcgcsv` con el dial
+   * encendido; `≤ 0` nunca); resto ⇒ la referencia `priced` de su variante. Antes de v1.113.3 esto lo hacía cada lector de
+   * la tienda con una lectura en vivo (`catalog.service.ts` `toListingRow`, `sealed-catalog.service.ts` `toGroupDTO`).
+   */
+  exhibitedReferenceOf(item: SaleItem, batch: SaleDecisionBatch): ExhibitedReference {
+    return this.exhibited(item, this.referenceIn(batch.refs, item), batch.sealedSpreads?.sourceOn ?? false);
+  }
+
+  /** Lo mismo para UNA pieza sin lote (lecturas sueltas de siempre: `referenceOf` y, en sellado, el dial de su fuente). */
+  async exhibitedReferenceSingle(item: SaleItem): Promise<ExhibitedReference> {
+    const sourceOn = item.productType === 'sealed' ? (await this.pricing.loadSealedSpreads()).sourceOn : false;
+    return this.exhibited(item, await this.referenceOf(item), sourceOn);
+  }
+
+  private exhibited(item: SaleItem, ref: PriceInfo | undefined, sealedSourceOn: boolean): ExhibitedReference {
+    const cents =
+      item.productType === 'sealed'
+        ? this.pricing.gateSealedMarketCents(ref, sealedSourceOn)
+        : ref?.status === 'priced'
+          ? (ref.referenceMxnCents ?? null)
+          : null;
+    return { referenceMxnCents: cents, capturedDate: cents != null ? (ref?.capturedDate ?? null) : null };
+  }
+
   async loadBatch(items: readonly SaleItem[]): Promise<SaleDecisionBatch> {
     // Solo se lee lo que el lote necesita: curva y política si hay raw/graded que derivan; spreads si hay sellado.
     const derives = items.some((i) => i.productType !== 'sealed' && manualSaleOf(i) == null);
@@ -134,8 +182,11 @@ export class SaleDecisionService {
     return this.pricing.tryGradeKeyFor(item);
   }
 
-  /** La clave de referencia de mercado de una pieza (sellado: la de mercado; resto: la de su variante), o `null`. */
-  private refKeyOf(i: SaleItem): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish } | null {
+  /**
+   * La clave de referencia de mercado de una pieza (sellado: la de mercado; resto: la de su variante), o `null`. Es también
+   * la «variante» de una pieza para los disparadores `manual_price` (§DYN.5.3: solo las piezas que leen esa referencia).
+   */
+  refKeyOf(i: SaleItem): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish } | null {
     if (i.productType === 'sealed') {
       const gk = this.pricing.sealedMarketGradeKeyForItem(i);
       return gk ? { cardId: i.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' } : null;

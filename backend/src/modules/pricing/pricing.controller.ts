@@ -376,11 +376,14 @@ export class PricingController {
     @CurrentUser('id') userId: string,
   ) {
     const res = await this.priceReview!.resolve(id, dto.action, dto.manualPriceMxnCents, userId);
-    // 💰 v1.113⟨portada⟩ (§DYN.5.3 `manual_price`): la decisión MANUAL del dueño es un precio a mano ⇒ precio del día de
-    // las piezas de esa carta. (`accept`/`keep` deciden el mercado, que entra en el siguiente cálculo.)
-    if (dto.action === 'manual' && this.listingPrices) {
-      const c = await this.prisma.priceReviewCase.findUnique({ where: { id }, select: { cardId: true, productType: true } });
-      if (c) void this.listingPrices.enqueueWhere('manual_price', { cardId: c.cardId, productType: c.productType });
+    // 💰 v1.113.3 (§DYN.5.3 `manual_price`): `manual` Y `accept` escriben `PriceReference` por decisión del dueño ⇒ precio del
+    // día de las piezas de ESA variante (solo las que leen esa referencia). `keep` no mueve nada ⇒ no dispara.
+    if ((dto.action === 'manual' || dto.action === 'accept') && this.listingPrices) {
+      const c = await this.prisma.priceReviewCase.findUnique({
+        where: { id },
+        select: { cardId: true, productType: true, gradeKey: true, finish: true },
+      });
+      if (c) void this.listingPrices.enqueueVariant('manual_price', c);
     }
     return res;
   }
@@ -593,9 +596,14 @@ export class PricingController {
       gradeKey: dto.gradeKey,
       finish: dto.finish ?? 'normal',
     });
-    // 💰 v1.113⟨portada⟩ (§DYN.5.3 `manual_price`): «poner un precio a mano» ⇒ el precio del día de las piezas de esa
-    // variante (carta + tipo; el cuerpo resuelve grado y acabado de cada una). Fuera de la petición.
-    void this.listingPrices?.enqueueWhere('manual_price', { cardId: dto.cardId, productType: dto.productType });
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3 `manual_price`): «poner un precio a mano» ⇒ el precio del día de las piezas de ESA
+    // variante (v1.113.3: solo las que leen la referencia escrita — carta, tipo, grado y acabado). Fuera de la petición.
+    void this.listingPrices?.enqueueVariant('manual_price', {
+      cardId: dto.cardId,
+      productType: dto.productType,
+      gradeKey: dto.gradeKey,
+      finish: dto.finish ?? 'normal',
+    });
     return { data: toPriceHistoryEntry(ref) };
   }
 

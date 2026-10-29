@@ -3724,6 +3724,10 @@ model ListingPrice {
   marketMxnCents    Int?
   ivaRatePct        Int // instrumentación: los diales con que se derivó P (⛔ no gobiernan el cobro, §DYN.5.7)
   ivaTransferPct    Int
+  // v1.113.3 (§DYN.5.5): el «valor de mercado» que la tienda exhibe junto a `P`, leído en el MISMO lote que derivó `P` (con el
+  // gate del sellado ya aplicado). `null` ⇔ sin mercado exhibible. ⛔ No es `marketMxnCents` (instrumentación §N.8).
+  referenceMxnCents     Int?
+  referenceCapturedDate DateTime? @db.Date
   computedAt        DateTime
 
   @@index([variantKey])
