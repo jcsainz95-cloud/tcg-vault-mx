@@ -7352,24 +7352,21 @@ se queda así"»). Registro en `docs/DECISIONES.md`.
   En listas públicas (portada, catálogo) eso tarda **hasta 60 s**; al pagar es **exacto** (una pieza ya vendida no
   se cobra).
 
-#### X.2 Se cobra el precio que el cliente vio
+#### X.2 Se cobra el precio que se ve; solo cambia en la siguiente corrida
 
-**Regla del dueño** (P-POR-3, `HECHOS.md` 2026-10-04 «Portada: se cobra el precio que el cliente VIO…»): *«se le
-cobra al cliente el precio que vio, no vale la pena actualizar»*. Sin aviso y sin re-cobrar. Cómo se cumple:
+**Regla del dueño** (P-POR-3, `HECHOS.md` 2026-10-04 «Portada: se cobra el precio que el cliente VIO…», precisada
+por la fila 2026-10-29 «Precio: se cobra lo que se ve, sin gracia ni aviso…»): *«se paga lo que se ve no nos
+metamos a temas de si ya se cambio se mueve hasta la proxima corrida»*. Cómo se cumple:
 
-- El carrito recuerda el precio que el cliente **vio** en la teja o la ficha desde la que añadió la pieza; el
-  servidor lo **compara** con lo que él mismo publicó (nunca cree un número que no publicó).
-- **Si el precio no cambió**, se cobra ese.
-- **Si el recálculo lo SUBIÓ**, el cliente paga **lo que vio** durante la **gracia** que sigue al recálculo.
-- **Si el recálculo lo BAJÓ**, paga **el más bajo**. Nunca paga más del precio vigente.
-- **Gracia: 24 h** desde el recálculo que cambió el precio. Es un **dial** de M10 (solo súper-admin, auditado;
-  rango en `API_CONTRACT §DYN.3`).
-- *Ejemplo:* el cliente vio una carta a **MX$500**; el recálculo de hoy la sube a **MX$550**. Si paga dentro de las
-  24 h siguientes, paga **MX$500**. Si el recálculo la bajó a **MX$450**, paga **MX$450**.
-- *(SUPUESTO, lectura del arquitecto en `API_CONTRACT §DYN.8`)* **Pasada la gracia** (el carrito se quedó más de
-  24 h tras el recálculo), se cobra el precio **vigente**, y la línea lo dice antes de pagar («antes MX$A, ahora
-  MX$B»; texto de ux-ui). La misma línea aparece cuando el precio **bajó**. Así el cliente nunca paga un número
-  distinto del que ve en pantalla antes de pagar. El dueño no habló de estos dos casos.
+- **El precio exhibido y el cobrado son el mismo dato**: el precio guardado por el último recálculo (§X.1). Portada,
+  catálogo, ficha, carrito y checkout leen ese mismo número; el servidor lo pone, nunca el navegador.
+- **El precio solo cambia cuando corre un recálculo**: el diario o uno que dispare el dueño (las acciones de §X.1).
+  Entre dos corridas el precio no se mueve, así que lo que se ve es lo que se cobra.
+- **No hay gracia, ni dial de gracia, ni aviso «antes/ahora».** Si una corrida cambia el precio de una pieza que ya
+  estaba en un carrito, desde ese momento el carrito y el checkout muestran y cobran el precio nuevo, igual que la
+  portada. No se guarda ni se compara un «precio visto» por cliente.
+- *Ejemplo:* hoy una carta se ve a **MX$500** ⇒ se cobra **MX$500**. La corrida de mañana la pone en **MX$550** ⇒
+  desde entonces se ve **y** se cobra **MX$550** en todas partes, también en carritos que ya la tenían.
 
 #### X.3 Tiempos objetivo (P-POR-4: ver también §DYN.3)
 
@@ -7414,7 +7411,9 @@ cobra al cliente el precio que vio, no vale la pena actualizar»*. Sin aviso y s
 **Hoy** (§O.2 y §O.7): entra si **PSA 9 ≥ 1.3 × (precio + costo de gradeo)** —con escalón 1, **1.3 × (L + MX$700)**—
 **y** **PSA 10 ≤ 100 × L**. Una carta de MX$25 necesita un PSA 9 de **≥ MX$943** y a la vez un PSA 10 de **≤ MX$2,500**:
 el bulk queda fuera por construcción (medido por backend, según el encargo). El 30 % es el dial `minUpsidePct`
-(§O.2); si se baja a 15 % es la pregunta abierta **P-VIT-1** («Preguntas abiertas»).
+(§O.2). **Se queda en 30 %** (P-VIT-1, `HECHOS.md` 2026-10-29 «Precio: se cobra lo que se ve…»: el «Sí» del dueño
+leído como la opción A, sin cambio); es un dial que el dueño puede mover en el panel (M10) sin construir nada —con
+15 %, una carta de MX$25 necesitaría un PSA 9 de al menos MX$834 en vez de MX$943.
 
 **Regla aceptada (default de P-JOY-1; no se construye en el alcance de §DYN)** — una carta raw publicada y
 disponible entra a la vitrina si:
@@ -7538,8 +7537,8 @@ precisa:
 - **La regla de la vitrina NO cambia en este alcance:** sigue la de §O.2/§O.7
   (`backend/src/common/graded-estimate.ts:941-949`). La regla nueva de §Y.3 queda para otro alcance. Consecuencia que
   el dueño debe saber: con los turnos **todas** las cartas tienen precio PSA, pero una barata solo entra a la vitrina
-  si pasa la regla de hoy (p. ej. una de MX$25 necesita un PSA 9 de al menos MX$943, §Y.3; bajar ese 30 % es la
-  pregunta abierta P-VIT-1).
+  si pasa la regla de hoy (p. ej. una de MX$25 necesita un PSA 9 de al menos MX$943, §Y.3). El 30 % se queda
+  (P-VIT-1, cerrada el 2026-10-29 con la opción A) y el dueño puede moverlo en el panel (dial `minUpsidePct`).
 
 #### DYN.3 Portada rápida: lo primero visible en menos de 1 segundo
 
@@ -9292,9 +9291,8 @@ hay (precio con IVA como el sellado, carrito, Stripe, «Pedidos por preparar», 
 - [ ] **Mismo carrito y mismo pedido**: un cliente puede comprar cartas, sellado y accesorios **en un solo pedido y
       un solo cobro de Stripe**. También se puede comprar **solo** accesorios.
 - [ ] **El precio lo pone el servidor**, nunca lo que mande el navegador (misma protección que el resto, SEC-A1). Y
-      se cobra **el precio que el cliente vio** (`HECHOS.md` 2026-10-04 «Portada: se cobra el precio que el cliente
-      VIO»): si el dueño cambia el precio mientras alguien tiene el accesorio en el carrito, se aplica la misma regla
-      que el arquitecto definió para las cartas.
+      se cobra **el precio que se ve** (`HECHOS.md` 2026-10-29 «Precio: se cobra lo que se ve…»): si el dueño cambia
+      el precio mientras alguien tiene el accesorio en el carrito, se aplica la misma regla que a las cartas (§X.2).
 - [ ] **Comisión de plataforma y IVA**: el accesorio entra al total igual que una carta o un sellado — su precio ya
       trae el IVA (el checkout lo **informa**, no lo suma, §B/§Q) y la **comisión de plataforma se suma aparte**,
       igual que al resto de la tienda (P-ACC-2, `HECHOS.md` 2026-10-07 «Respuestas a P-ACC-1…9»: «Sí los accesorios
@@ -13557,13 +13555,14 @@ calcula UNA VEZ AL DÍA…» — §X. 💰 Precio al cliente: tres veredictos.)*
 297. **La disponibilidad sigue en vivo** *(§X.1)*: una pieza comprada deja de ofrecerse en portada y catálogo a
    más tardar **60 s** después (al recargar), sin esperar al recálculo; al pagar, una pieza ya vendida **no** se
    cobra.
-298. 💰 **Se cobra el precio que el cliente vio** *(§X.2, P-POR-3)*: con una carta vista y añadida al carrito a
-   **MX$500**: (a) sin recálculo ⇒ cobra **MX$500**, sin aviso; (b) el recálculo la sube a **MX$550** y el cliente
-   paga dentro de las **24 h** siguientes ⇒ cobra **MX$500**, sin aviso; (c) el recálculo la baja a **MX$450** ⇒
-   cobra **MX$450**; (d) *(SUPUESTO de §X.2)* paga pasadas las 24 h de un recálculo que la subió a MX$550 ⇒ cobra
-   **MX$550** y la línea lo dice antes de pagar; (e) un «precio visto» que el servidor nunca publicó (p. ej.
-   MX$1) ⇒ cobra el vigente. El cobro nunca supera el precio vigente. Cambiar la gracia de 24 h es un dial de M10
-   (solo súper-admin), queda en la auditoría y rige desde ese momento.
+298. 💰 **Se cobra el precio que se ve** *(§X.2, P-POR-3, `HECHOS.md` 2026-10-29 «Precio: se cobra lo que se
+   ve…»)*: (a) una carta se ve a **MX$500** en portada/ficha, se añade al carrito y se paga sin que haya corrido un
+   recálculo ⇒ el carrito y el checkout muestran **MX$500** y Stripe cobra **MX$500**; (b) la corrida del día
+   siguiente (o una disparada por el dueño) la pone en **MX$550** ⇒ portada, ficha, carrito (también uno que ya la
+   tenía) y checkout muestran **MX$550** y se cobra **MX$550**; lo mismo si baja a **MX$450**; (c) en todo pedido, el
+   monto cobrado de cada línea es **igual** al precio exhibido en el checkout al pulsar pagar — nunca distinto; (d)
+   un precio enviado por el navegador (p. ej. MX$1) se ignora y se cobra el guardado; (e) **por ausencia**: no existe
+   dial de gracia en M10 ni texto «antes MX$A, ahora MX$B» en carrito o checkout.
 299. **Lo que NO cambia con §X — por ausencia**: el cálculo del precio (IVA, diales, piso, pisos por rareza) da el
    **mismo** número que hoy para la misma entrada; el carrito sigue podando piezas no disponibles; el cobro sigue
    resolviendo el precio en el servidor.
@@ -16938,16 +16937,7 @@ promesa:**
 > 2026-10-25 y se van integrando aquí al compactar. Al contestarse, cada pregunta sale de aquí y pasa a
 > `docs/DECISIONES.md` con la respuesta literal.
 
-- **P-VIT-1 · «Joyas para gradear» y las cartas baratas: ¿qué ganancia mínima pide la vitrina?** *(abierta el
-  2026-10-29; se le preguntó al dueño, sin respuesta aún)* Con los turnos de §DYN.2 todas las cartas tendrán precio
-  PSA, pero la vitrina sigue con la regla de hoy (§O.2, §Y.3): entra una carta si su **PSA 9** vale al menos su
-  precio **más el costo de gradeo** (MX$700 en el primer escalón) **más un 30 %**. *Ejemplo:* una carta de **MX$25**
-  necesita un PSA 9 de al menos **MX$943** (1.30 × MX$725) con 30 %; con 15 %, de al menos **MX$834**
-  (1.15 × MX$725).
-  - **(A)** dejarla en **30 %**: entran pocas baratas.
-  - **(B)** bajarla a **15 %**: entran más baratas, con menos colchón para el comprador. La cambia el dueño en el
-    panel (dial `minUpsidePct`, M10), sin construir nada.
-  Sin respuesta, se queda **(A)**, que es lo que hay hoy. No bloquea al arquitecto.
+- *(Ninguna abierta a 2026-10-29: P-VIT-1 y las dos de §X.2 se respondieron y están en `docs/DECISIONES.md`.)*
 
 ## Preguntas abiertas — precio de buylist por rareza (v1.3)
 > Este requisito (§E.1) está redactado con supuestos razonables para no bloquear. El humano debe confirmar o
