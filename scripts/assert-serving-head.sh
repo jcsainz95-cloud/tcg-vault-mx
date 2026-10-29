@@ -244,6 +244,20 @@ worktree_dirty_now() {
   git -C "$ROOT_DIR" status --porcelain -- backend frontend 2>/dev/null | wc -l | tr -d ' '
 }
 
+# Mismo commit ⇔ los dos son hex de ≥ 7 y uno es PREFIJO del otro (DEVOPS-VERIFY-SHORT,
+# 2026-10-29). Una copia sin .git no puede expandir `verify:head 3b2fc87` al sha largo, y
+# el sello guarda el que le dieron (largo o corto): comparar con `!=` decía «COMMIT
+# DISTINTO» del MISMO commit. Con menos de 7 caracteres no se afirma nada (rojo).
+# Candado y canario: scripts/check-stack-verify-short.sh.
+sha_mismo() {
+  local a="${1,,}" b="${2,,}"
+  case "$a$b" in ''|*[!0-9a-f]*) return 1 ;; esac
+  [ "${#a}" -ge 7 ] && [ "${#b}" -ge 7 ] || return 1
+  case "$a" in "$b"*) return 0 ;; esac
+  case "$b" in "$a"*) return 0 ;; esac
+  return 1
+}
+
 # --- 4. Informe de procedencia (esto es la parte OBSERVABLE) ------------------
 say "──────────────────────────────────────────────────────────────────────────────"
 say " PROCEDENCIA DEL BINARIO VIVO — $LABEL"
@@ -327,7 +341,7 @@ if [ -n "$EXPECT_SHA" ] && [ -n "$STAMP" ] && [ -f "$STAMP" ]; then
   CHECKS=$((CHECKS + 1))
   if [ -z "$STAMP_SHA" ]; then
     PROBLEMS+=("El sello no registra \`sha\`: no se puede nombrar el commit servido.")
-  elif [ "$STAMP_SHA" != "$EXPECT_SHA" ]; then
+  elif ! sha_mismo "$STAMP_SHA" "$EXPECT_SHA"; then
     # Preferencia: los hashes que el sello guardó AL ARRANCAR (describen el árbol
     # que se compiló). Si el sello es viejo y no los trae, se derivan del repo.
     SERVED_TB="${STAMP_TREE_BACKEND:-$(tree_of "$STAMP_SHA" backend)}"

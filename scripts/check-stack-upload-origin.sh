@@ -67,6 +67,8 @@ echo "== Canario de check-stack-upload-origin =="
 comprobar "$SRC" >/dev/null 2>&1 || { echo "✗ el original ya está rojo: el canario no concluye"; exit 2; }
 mutar "sin export" '/^export NEXT_PUBLIC_UPLOAD_ORIGIN=/d'
 mutar "puerto fijo :9000" 's|^export NEXT_PUBLIC_UPLOAD_ORIGIN=.*|export NEXT_PUBLIC_UPLOAD_ORIGIN="${NEXT_PUBLIC_UPLOAD_ORIGIN:-http://127.0.0.1:9000}"|'
-mutar "next start lo pisa" 's|^\([[:space:]]*\)NEXT_PUBLIC_USE_MOCKS=false \\$|&\n\1NEXT_PUBLIC_UPLOAD_ORIGIN= \\|'
+# (2026-10-29: los lanzamientos de Next toman sus NEXT_PUBLIC_* de `frontend_public_env`;
+#  el ancla pasó de `NEXT_PUBLIC_USE_MOCKS=false \` a la línea que expande "${FE_ENV[@]}".)
+mutar "next start lo pisa" 's|^\([[:space:]]*\)NODE_ENV="\$NEXT_NODE_ENV" "\${FE_ENV\[@\]}" \\$|&\n\1NEXT_PUBLIC_UPLOAD_ORIGIN= \\|'
 echo "Canario: $muerde/$total mutaciones salen ROJAS."
 [ "$muerde" = "$total" ]

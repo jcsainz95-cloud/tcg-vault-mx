@@ -100,7 +100,8 @@ mutar() {
 echo "== Canario de check-stack-expected-sha =="
 comprobar "$SRC" >/dev/null 2>&1 || { echo "✗ el original ya está rojo: el canario no concluye"; exit 2; }
 mutar "up --gate sin require_expected_sha" 's|^    if \[ "\${GATE_MODE:-0}" = 1 \]; then require_expected_sha; fi$|    :|'
-mutar "verify:head sin require_expected_sha" 's|^    \[ -n "\$VH_SHA" \] \|\| require_expected_sha$|    :|'
+# (2026-10-29, DEVOPS-VERIFY-SHORT: la llamada pasó a la rama `else` de la validación del sha dado.)
+mutar "verify:head sin require_expected_sha" 's|^      require_expected_sha$|      :|'
 mutar "con .git no se compara la variable" 's|^        \*) die "STACK_EXPECTED_SHA=\$STACK_EXPECTED_SHA pero|        *) : "|'
 mutar "head_sha vuelve a ignorar la variable" 's|^    printf .%s\\n. "\$STACK_EXPECTED_SHA"$|    echo ""|'
 echo "Canario: $muerde/$total mutaciones salen ROJAS."

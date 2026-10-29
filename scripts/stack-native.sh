@@ -44,7 +44,9 @@
 #   ./scripts/stack-native.sh up          # infra + migraciones + backend + frontend
 #   ./scripts/stack-native.sh up --infra  # solo Postgres + Redis + migraciones
 #   ./scripts/stack-native.sh up --seed   # + `npm run seed:synthetic` (datos E2E)
-#   ./scripts/stack-native.sh up --gate   # frontend con `next build` + `next start`
+#   ./scripts/stack-native.sh up --gate   # frontend con `npm run build` + `next start`
+#   ./scripts/stack-native.sh up --gate --measurement  # ídem, con el banner de cookies
+#                                         #   (medición `on`, IDs de ficción; §104)
 #                                         #   ⇒ el ÚNICO modo válido para una corrida de GATE
 #   ./scripts/stack-native.sh test:integration   # suite de integración del backend contra
 #                                         #   BD REAL, con el env exportado (15/15 · 183/183).
@@ -59,7 +61,8 @@
 #                                         #   procedencia. Lo usa e2e-real-suite.sh (QA-REL-3).
 #   ./scripts/stack-native.sh status      # qué está arriba, en qué puerto y QUÉ COMMIT sirve
 #   ./scripts/stack-native.sh down        # apaga backend y frontend (deja PG/Redis)
-#   ./scripts/stack-native.sh down --all  # + para Postgres y Redis
+#   ./scripts/stack-native.sh down --all  # + para Postgres y Redis, SOLO si nadie más los usa
+#                                         #   (`--force-shared` para pararlos igual; §104)
 #
 # GARANTÍA DE PROCEDENCIA (SEC-OPS-1 · docs/SECURITY_NOTES.md §9 · DEVOPS_NOTES §38):
 #   `up` NO reutiliza un backend vivo sin comprobar antes que sirve el árbol de ahora;
@@ -103,6 +106,15 @@ FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 # recompilaciones y no es el artefacto que se despliega. Ver DEVOPS_NOTES §32.6.
 FRONTEND_MODE="${FRONTEND_MODE:-dev}"
 case "$FRONTEND_MODE" in dev|build) ;; *) echo "FRONTEND_MODE debe ser 'dev' o 'build' (recibí '$FRONTEND_MODE')" >&2; exit 1 ;; esac
+# DEVOPS-GATE-MEDICION (2026-10-29, DEVOPS_NOTES §104): `off` (por defecto) hornea el
+# frontend SIN medición, como hasta hoy; `on` (o `up --gate --measurement`) lo hornea con
+# `NEXT_PUBLIC_MEASUREMENT_MODE=on` e IDs DE FICCIÓN (los mismos del E2E de medición,
+# `frontend/playwright.measurement-on.config.ts`), para que el banner de cookies exista en
+# un gate local. ⛔ Nunca IDs reales: los fija este script, no el entorno heredado.
+STACK_MEASUREMENT="${STACK_MEASUREMENT:-off}"
+case "$STACK_MEASUREMENT" in on|off) ;; *) echo "STACK_MEASUREMENT debe ser 'on' u 'off' (recibí '$STACK_MEASUREMENT')" >&2; exit 1 ;; esac
+STACK_FAKE_GA4_ID="G-E2ETEST1"
+STACK_FAKE_META_PIXEL_ID="1234567890123"
 PG_CLUSTER="${PG_CLUSTER:-16/main}"
 PG_VER="${PG_CLUSTER%%/*}"
 PG_NAME="${PG_CLUSTER##*/}"
@@ -413,6 +425,18 @@ require_expected_sha() {
   fi
 }
 short_sha() { printf '%s' "${1:0:12}"; }
+# DEVOPS-VERIFY-SHORT (2026-10-29): mismo commit ⇔ hex de ≥ 7 y uno PREFIJO del otro. Sin
+# .git, `verify:head <sha corto>` no se puede expandir y el sello guarda el sha que le
+# dieron: el `!=` de antes decía «COMMIT DISTINTO» del MISMO commit. Misma función en
+# `assert-serving-head.sh`. Candado y canario: scripts/check-stack-verify-short.sh.
+sha_mismo() {
+  local a="${1,,}" b="${2,,}"
+  case "$a$b" in ''|*[!0-9a-f]*) return 1 ;; esac
+  [ "${#a}" -ge 7 ] && [ "${#b}" -ge 7 ] || return 1
+  case "$a" in "$b"*) return 0 ;; esac
+  case "$b" in "$a"*) return 0 ;; esac
+  return 1
+}
 
 # Hash de ÁRBOL de un directorio en HEAD. Es la identidad del CONTENIDO, no la del
 # commit: dos commits distintos con el mismo código dan el mismo hash. Va al sello
@@ -758,6 +782,50 @@ stop_scoped() {
 # <<< APAGADO-ACOTADO
 
 # -----------------------------------------------------------------------------
+# ¿Quién MÁS usa la infra compartida?  (DOWN-ALL-SHARED, 2026-10-29)
+#
+# Postgres (:5432), Redis (:6379) y el cluster son UNO por máquina; los stacks de cada
+# clon son muchos. `down --all` los paraba sin mirar: el 2026-10-29 tumbó el Postgres y
+# el Redis que usaban otros agentes a mitad de sus suites. Esta función imprime, una
+# línea por usuario, todo lo que NO es de este clon y depende de esa infra:
+#   · procesos de un backend/frontend/s3-local/jest cuyo cwd NO cuelga de $ROOT_DIR;
+#   · conexiones de cliente a Postgres (cualquier base: la de por defecto es compartida);
+#   · clientes de Redis (salvo el propio `redis-cli` que pregunta).
+# Se llama DESPUÉS de `stop_apps`: lo mío ya está abajo, lo que quede es de otro.
+# Sin línea impresa ⇒ nadie más. Candado y canario: scripts/check-stack-down-all.sh.
+# -----------------------------------------------------------------------------
+usuarios_ajenos_infra() {
+  local pat pid vistos=" " n
+  for pat in 'src/main\.ts' 'dist/main' '^next-server ' 'next (dev|start)' 's3-local/server\.js' 'jest'; do
+    for pid in $(pgrep -f "$pat" 2>/dev/null || true); do
+      [ "$pid" = "$$" ] && continue
+      [ "$pid" = "${PPID:-0}" ] && continue
+      case "$vistos" in *" $pid "*) continue ;; esac
+      vistos="$vistos$pid "
+      pid_es_de_este_clon "$pid" && continue
+      printf 'proceso %s (cwd %s): %s\n' "$pid" "$(readlink -f "/proc/$pid/cwd" 2>/dev/null || echo '?')" \
+        "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | cut -c1-90)"
+    done
+  done
+  if pg_isready -q 2>/dev/null; then
+    n="$(psql_as_postgres x x x 2>/dev/null <<'SQL' || true
+SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend' AND pid <> pg_backend_pid();
+SQL
+    )"
+    n="$(printf '%s' "$n" | tr -dc '0-9')"
+    if [ -z "$n" ]; then
+      printf 'postgres: no pude contar sus conexiones (¿psql?) — se asume EN USO\n'
+    elif [ "$n" != "0" ]; then
+      printf 'postgres: %s conexión(es) de cliente abiertas\n' "$n"
+    fi
+  fi
+  if redis-cli ping >/dev/null 2>&1; then
+    n="$(redis-cli client list 2>/dev/null | grep -vc 'cmd=client' || true)"
+    [ "${n:-0}" = "0" ] || printf 'redis: %s cliente(s) conectados\n' "$n"
+  fi
+}
+
+# -----------------------------------------------------------------------------
 # Apagar SOLO el backend, para poder relanzarlo contra el árbol de ahora.
 #
 # ⚠️ LO QUE ESTA FUNCIÓN **NO** HACE, Y ES EL PUNTO ENTERO:
@@ -919,8 +987,29 @@ db=$(mask_url "$DATABASE_URL")"
 # -----------------------------------------------------------------------------
 # Frontend nativo con mocks=false apuntando al backend REAL
 # -----------------------------------------------------------------------------
+# Las NEXT_PUBLIC_* con las que se hornea (build) o se sirve (dev) el frontend, una por
+# línea `CLAVE=valor`. Una sola fuente para el build, el `next start` y el `next dev`, y
+# todas FIJADAS: nada de lo que el entorno heredado traiga de medición llega al bundle
+# (un `NEXT_PUBLIC_GA4_MEASUREMENT_ID` real exportado en la sesión se horneaba antes tal
+# cual si alguien ponía el modo a mano). Candado: scripts/check-stack-frontend-build.sh.
+frontend_public_env() {
+  printf 'NEXT_PUBLIC_USE_MOCKS=false\n'
+  printf 'NEXT_PUBLIC_API_BASE_URL=http://localhost:%s/api/v1\n' "$BACKEND_PORT"
+  if [ "$STACK_MEASUREMENT" = on ]; then
+    printf 'NEXT_PUBLIC_MEASUREMENT_MODE=on\n'
+    printf 'NEXT_PUBLIC_GA4_MEASUREMENT_ID=%s\n' "$STACK_FAKE_GA4_ID"
+    printf 'NEXT_PUBLIC_META_PIXEL_ID=%s\n' "$STACK_FAKE_META_PIXEL_ID"
+  else
+    printf 'NEXT_PUBLIC_MEASUREMENT_MODE=off\n'
+    printf 'NEXT_PUBLIC_GA4_MEASUREMENT_ID=\n'
+    printf 'NEXT_PUBLIC_META_PIXEL_ID=\n'
+  fi
+}
+
 start_frontend() {
-  log "Frontend Next (mocks=FALSE, modo $FRONTEND_MODE) en :$FRONTEND_PORT → API :$BACKEND_PORT"
+  log "Frontend Next (mocks=FALSE, modo $FRONTEND_MODE, medición $STACK_MEASUREMENT) en :$FRONTEND_PORT → API :$BACKEND_PORT"
+  local FE_ENV=()
+  mapfile -t FE_ENV < <(frontend_public_env)
 
   # -------------------------------------------------------------------------
   # NO REUTILIZAR UN SERVIDOR AJENO EN MODO GATE.
@@ -980,14 +1069,24 @@ start_frontend() {
     NEXT_NODE_ENV=production
     # `next build` hornea NEXT_PUBLIC_* en el bundle: mocks=false y la URL del backend
     # quedan FIJADAS en el artefacto, no dependen del entorno del runtime.
-    log "next build (NODE_ENV=$NEXT_NODE_ENV, mocks=FALSE horneado en el bundle) — tarda unos minutos"
+    # PEN-VEL-2 (2026-10-29): `npm run build`, NO `npx next build`. El segundo se salta
+    # `prebuild` (C-D1, la puerta del aviso de medición) y `postbuild`
+    # (`check-home-bundle.mjs`: ni `recharts` ni el centinela de `lib/mock` en el JS de la
+    # portada), así que el gate local medía un artefacto que no había pasado los candados
+    # del que se publica. Los dos dejan su marca en el log y se EXIGEN abajo.
+    log "npm run build (NODE_ENV=$NEXT_NODE_ENV, mocks=FALSE, medición $STACK_MEASUREMENT; con prebuild y postbuild) — tarda unos minutos"
     ( cd "$FRONTEND_DIR" \
-      && NODE_ENV="$NEXT_NODE_ENV" \
-         NEXT_PUBLIC_USE_MOCKS=false \
-         NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
-         npx next build > "$RUN_DIR/frontend-build.log" 2>&1 ) \
-      || { tail -60 "$RUN_DIR/frontend-build.log"; die "\`next build\` falló. Log: $RUN_DIR/frontend-build.log
-     Si es un error de código y no de entorno, el hallazgo es del rol FRONTEND (devops no lo corrige)."; }
+      && env NODE_ENV="$NEXT_NODE_ENV" "${FE_ENV[@]}" \
+         npm run build > "$RUN_DIR/frontend-build.log" 2>&1 ) \
+      || { tail -60 "$RUN_DIR/frontend-build.log"; die "\`npm run build\` falló. Log: $RUN_DIR/frontend-build.log
+     Si es un error de código y no de entorno (p. ej. HOME_BUNDLE_FAIL del postbuild), el
+     hallazgo es del rol FRONTEND (devops no lo corrige)."; }
+    local marca
+    for marca in "MEASUREMENT_NOTICE_OK mode=$STACK_MEASUREMENT" 'HOME_BUNDLE_OK'; do
+      grep -qF "$marca" "$RUN_DIR/frontend-build.log" \
+        || die "El build no dejó «$marca» en $RUN_DIR/frontend-build.log: no pasó por el
+     prebuild/postbuild del build que se publica (PEN-VEL-2). Un GATE no corre sobre ese artefacto."
+    done
     # Detector de REGRESIÓN del propio arnés: si alguien vuelve a dejar filtrar un
     # NODE_ENV no estándar al build, Next lo AVISA pero puede terminar en 0 igualmente
     # (el fallo del prerender es intermitente: QA vio dos páginas distintas romperse).
@@ -1002,9 +1101,7 @@ start_frontend() {
     # `setsid env -C … &` sin subshell envolvente — misma razón MEDIDA que en
     # `start_backend` (fuga del stdout del script + pidfile apuntando al `bash`).
     setsid env -C "$FRONTEND_DIR" \
-         NODE_ENV="$NEXT_NODE_ENV" \
-         NEXT_PUBLIC_USE_MOCKS=false \
-         NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
+         NODE_ENV="$NEXT_NODE_ENV" "${FE_ENV[@]}" \
          npx next start -p "$FRONTEND_PORT" \
       > "$RUN_DIR/frontend.log" 2>&1 < /dev/null &
     echo $! > "$RUN_DIR/frontend.pid"
@@ -1012,9 +1109,7 @@ start_frontend() {
     NEXT_NODE_ENV=development
     # Idem `next start`: sin subshell envolvente (§46.2).
     setsid env -C "$FRONTEND_DIR" \
-         NODE_ENV="$NEXT_NODE_ENV" \
-         NEXT_PUBLIC_USE_MOCKS=false \
-         NEXT_PUBLIC_API_BASE_URL="http://localhost:$BACKEND_PORT/api/v1" \
+         NODE_ENV="$NEXT_NODE_ENV" "${FE_ENV[@]}" \
          npx next dev -p "$FRONTEND_PORT" \
       > "$RUN_DIR/frontend.log" 2>&1 < /dev/null &
     echo $! > "$RUN_DIR/frontend.pid"
@@ -1033,8 +1128,10 @@ start_frontend() {
   curl -sf -m 15 "http://localhost:$FRONTEND_PORT/es" >/dev/null 2>&1 \
     || { tail -40 "$RUN_DIR/frontend.log"; die "El frontend no respondió. Log: $RUN_DIR/frontend.log"; }
   write_stamp "$FRONTEND_STAMP" "$fe_started" "$(cat "$RUN_DIR/frontend.pid" 2>/dev/null || echo '')" "mode=$FRONTEND_MODE
-port=$FRONTEND_PORT"
-  ok "arriba en http://localhost:$FRONTEND_PORT (modo $FRONTEND_MODE)"
+port=$FRONTEND_PORT
+measurement=$STACK_MEASUREMENT"
+  ok "arriba en http://localhost:$FRONTEND_PORT (modo $FRONTEND_MODE, medición $STACK_MEASUREMENT)"
+  [ "$STACK_MEASUREMENT" = off ] || warn "Medición ENCENDIDA con IDs de ficción: el banner de cookies existe. Si aceptas, el navegador pide a Google/Meta con esos IDs; para que no salga nada: sudo scripts/measurement-egress-sinkhole.sh apply."
   ok "sirviendo commit $(short_sha "$(head_sha)")  ·  arrancado $(date -d "@$fe_started" '+%H:%M:%S' 2>/dev/null || echo "@$fe_started")"
   if [ "$FRONTEND_MODE" = "dev" ]; then
     warn "Modo \`next dev\`: compila BAJO DEMANDA y se DEGRADA tras varias recompilaciones."
@@ -1085,7 +1182,7 @@ verify_head() {
     f_mode="$(grep -E '^mode='      "$FRONTEND_STAMP" | cut -d= -f2- || true)"
     f_pid="$(grep -E '^pid='        "$FRONTEND_STAMP" | cut -d= -f2- || true)"
     echo "  commit servido      : ${f_sha:-?}"
-    echo "  arrancado           : $(date -d "@${f_started:-0}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "@$f_started")  (modo ${f_mode:-?})"
+    echo "  arrancado           : $(date -d "@${f_started:-0}" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "@$f_started")  (modo ${f_mode:-?}, medición $(grep -E '^measurement=' "$FRONTEND_STAMP" | cut -d= -f2- || true))"
     if [ -n "$f_pid" ] && ! kill -0 "$f_pid" 2>/dev/null; then
       echo "  ⚠ el pid del sello ($f_pid) ya NO existe: quien responde en el puerto NO es"
       echo "    el proceso sellado. Procedencia DESCONOCIDA."
@@ -1100,7 +1197,7 @@ verify_head() {
       # SOLO DOCUMENTOS no cambia el bundle horneado, y ponerlo en rojo entrena el
       # reflejo «ya, es solo docs» delante de un aserto de procedencia. Se compara
       # el hash de ÁRBOL de `frontend/`, y sólo se acepta con el árbol LIMPIO.
-      if [ "$f_sha" != "$expected" ]; then
+      if ! sha_mismo "$f_sha" "$expected"; then
         local f_tree e_tree f_dirty
         f_tree="$(grep -E '^tree_frontend=' "$FRONTEND_STAMP" | cut -d= -f2- || true)"
         [ -n "$f_tree" ] || f_tree="$(git -C "$ROOT_DIR" rev-parse --verify --quiet "$f_sha:frontend" 2>/dev/null || true)"
@@ -1394,7 +1491,9 @@ case "${1:-up}" in
         --infra) ONLY_INFRA=1 ;;
         --seed)  DO_SEED=1 ;;
         --gate)  FRONTEND_MODE=build; GATE_MODE=1 ;;
-        *) die "Opción desconocida: $a (usa --infra | --seed | --gate)" ;;
+        # DEVOPS-GATE-MEDICION: banner de cookies con IDs de ficción (§104).
+        --measurement) STACK_MEASUREMENT=on ;;
+        *) die "Opción desconocida: $a (usa --infra | --seed | --gate | --measurement)" ;;
       esac
     done
     # `FRONTEND_MODE=build ./scripts/stack-native.sh up` era, ANTES de este pase,
@@ -1708,7 +1807,19 @@ case "${1:-up}" in
       esac
     done
     log "Verificación de procedencia del stack vivo (SEC-OPS-1)"
-    [ -n "$VH_SHA" ] || require_expected_sha
+    if [ -n "$VH_SHA" ]; then
+      VH_SHA="${VH_SHA,,}"
+      case "$VH_SHA" in *[!0-9a-f]*) die "verify:head '$VH_SHA': no es un sha (hex)." ;; esac
+      [ "${#VH_SHA}" -ge 7 ] || die "verify:head '$VH_SHA': demasiado corto (mínimo 7)."
+      # Con .git se expande al sha largo (si el repo no lo tiene, se compara tal cual y
+      # sale DISTINTO con su nombre); sin .git, la comparación es por prefijo (sha_mismo).
+      if [ -e "$ROOT_DIR/.git" ]; then
+        VH_FULL="$(git -C "$ROOT_DIR" rev-parse --verify --quiet "$VH_SHA^{commit}" 2>/dev/null || true)"
+        [ -z "$VH_FULL" ] || VH_SHA="$VH_FULL"
+      fi
+    else
+      require_expected_sha
+    fi
     verify_head "$VH_SHA"
     ;;
   restart:backend)
@@ -1772,9 +1883,31 @@ case "${1:-up}" in
     done
     ;;
   down)
+    shift || true
+    DOWN_ALL=0; FORCE_SHARED=0
+    for a in "$@"; do
+      case "$a" in
+        --all)          DOWN_ALL=1 ;;
+        --force-shared) FORCE_SHARED=1 ;;
+        *) die "Opción desconocida: $a (usa: down [--all [--force-shared]])" ;;
+      esac
+    done
     log "Apagando apps"
     stop_apps
-    if [ "${2:-}" = "--all" ]; then
+    if [ "$DOWN_ALL" = 1 ]; then
+      # DOWN-ALL-SHARED (2026-10-29): la infra es de la MÁQUINA, no de este clon.
+      AJENOS="$(usuarios_ajenos_infra)"
+      if [ -n "$AJENOS" ]; then
+        printf '%s\n' "$AJENOS" | sed 's/^/    · /'
+        if [ "$FORCE_SHARED" != 1 ]; then
+          die "NO apago Postgres/Redis/s3-local: hay OTROS usándolos (lista de arriba).
+     Tus apps ya están abajo. La infra es de la máquina, no de este clon: pararla tumba
+     las suites y los gates de otras sesiones (pasó el 2026-10-29).
+     Si de verdad hay que pararla (y avisaste a sus dueños):
+       ./scripts/stack-native.sh down --all --force-shared"
+        fi
+        warn "--force-shared: apago la infra AUNQUE la usen los de arriba. Avísales."
+      fi
       log "Apagando infra"
       redis-cli shutdown nosave 2>/dev/null || true; ok "Redis detenido."
       pg_ctlcluster "$PG_VER" "$PG_NAME" stop 2>/dev/null || warn "Postgres no se detuvo (¿ya estaba parado?)."
@@ -1794,6 +1927,6 @@ case "${1:-up}" in
     fi
     ;;
   *)
-    die "Uso: $0 {up [--infra|--seed|--gate] | test:integration [args de jest] | verify:head [<sha>] | restart:backend | status | down [--all]}"
+    die "Uso: $0 {up [--infra|--seed|--gate|--measurement] | test:integration [args de jest] | verify:head [<sha>] | restart:backend | status | down [--all [--force-shared]]}"
     ;;
 esac
