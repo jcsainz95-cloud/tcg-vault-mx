@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.113.2⟨portada⟩ (2026-10-29).** §4.DYN (d) 6: «vencido > 8 días» cuenta desde la última consulta o, si nunca, desde que hay turnos o llegó el set (sin falsa alarma al desplegar) · backend (fase 1, `4b2e6fe4`). Contrato: API_CONTRACT §DYN.3/.4.3/.4.5, D-DYN-4.
 > **Errata v1.113.1⟨portada⟩ (2026-10-29).** §4.DYN (e): se cobra el `ListingPrice` vigente, sin gracia, sin precio anterior ni aviso (M-94 sin columnas `prev*`) · dueño (`HECHOS.md` 2026-10-29 «Precio: se cobra lo que se ve…»). Contrato: API_CONTRACT §DYN.5.
 > **Rev v1.113⟨portada⟩ (2026-10-29).** [§4.DYN](#4-DYN) NUEVA: Destacadas materializadas al día (M-93), turnos PSA por set con tope de créditos (retira `graded_estimate_ingest_max_cards_per_run`), precio del día y precio visto (M-94, 💰), portada servida con datos en el HTML y CSP de fase 1 · orquestador (`HECHOS.md` 2026-10-29 y 2026-10-04). Contrato: API_CONTRACT §DYN.
 > **Rev v1.112.2⟨sec-med-1⟩ (2026-10-26).** §14.4 D-MKT2-11: URL saneada en todo evento de GA4, píxel solo en documento limpio, medición mejorada apagada · seguridad (SEC-MED-1, `1256b21c`).
@@ -30858,7 +30859,7 @@ aparte del arquitecto tras medir el abuso (**NO MEDIDO** con tráfico real de ev
 ---
 
 <a id="4-DYN"></a>
-### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + errata v1.113.1, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
+### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.2, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
 
 Fuentes, en este orden: `HECHOS.md` filas 2026-10-29 «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
 portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre «…VIO…»), 2026-10-04 «Joyas para gradear…», «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA…»,
@@ -30933,8 +30934,12 @@ carta es el de **su set entero**. Ordenar por carta dispersaría los sets y paga
    usa el resto. Con esto el corte por corrida deja de existir y `graded_estimate_ingest_max_cards_per_run` **se retira** (un solo
    dial, §DYN.2): un tope en cartas no es un presupuesto en créditos (§4.38r.3.4), el de créditos sí.
 6. **Necesidad semanal** `W = Σ coste(s)` sobre los sets en alcance; ciclo real `= ⌈W / tope⌉` días; tope que alcanzaría
-   `= ⌈W / 7⌉` redondeado a 100. Si el ciclo pasa de 7, o algún set lleva > 8 días vencido, se abre **un** aviso AG-24 (§Z, tabla
+   `= ⌈W / 7⌉` redondeado a 100. Si el ciclo pasa de 7, o algún set lleva > 8 días sin consulta, se abre **un** aviso AG-24 (§Z, tabla
    `SpendAlert`, solo panel, sin correo ni resumen) que se actualiza en sitio y **se cierra solo** al volver a alcanzar.
+   Un set **nunca** consultado cuenta sus días desde que hay turnos o desde que llegó, lo más tardío (errata v1.113.2; fórmula en
+   `API_CONTRACT §DYN.4.5`): contarlos desde su `firstListedAt` haría que el día del despliegue —todo sin consultar, `firstListedAt`
+   rellenado con `createdAt`— el aviso dijera «no alcanza» aunque el tope sí alcance. Coste aceptado: un set que vuelve a la
+   tienda con su última consulta vieja, o el gancho reencendido tras semanas apagado, abre `overdue` hasta su siguiente consulta.
    ⚠️ `PROJECT §DYN.2` dice «centro de avisos, §R»: §R es el del **cliente** (`PROJECT.md:6173`); el aviso al dueño vive en §Z.
    Lo corrige product-owner en el texto; el diseño no cambia.
 7. ⛔ Lo que queda **fuera** y por qué: pedir **por carta** sería más barato en sets donde tenemos pocas cartas si el cobro es por

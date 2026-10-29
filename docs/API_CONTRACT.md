@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-29 (rev **v1.113.1⟨portada⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-29 (rev **v1.113.2⟨portada⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -26,7 +26,8 @@
 > - v1.112.1⟨arreglos-dsc⟩ · 2026-10-26 · §MKT.E restaura la línea canónica de `format` que la compactación de v1.112 partió (rojo de `enum-query-axes`); §DSC: `ZERO_DISCOUNT` + I-7 + DCO-B22 (DSC-B-6), «con código» en el tardío ⇔ `DiscountRedemption`, `PATCH` con `null` que limpia, `pageSize > 100` ⇒ 400, listas de M-92 `NOT NULL`; §4-G.12 punto 4 «te faltan» del congelado (TL-ENV-2) · backend/frontend/QA.
 > - v1.112.2⟨sec-med-1⟩ · 2026-10-26 · §MKT.H.4 `page_location`/`page_referrer` saneados en todo evento de GA4 y píxel solo en documento limpio (ARCHITECTURE §14.4 D-MKT2-11); §MKT.H.10 en pasos para el dueño (medición mejorada entera apagada); C-F3/C-F4 con `?q=`; servidor sin cambio · seguridad (SEC-MED-1, `1256b21c`).
 > - v1.113⟨portada⟩ · 2026-10-29 · [§DYN](#DYN) NUEVA: `GET /catalog/featured` (Destacadas materializadas al día, M-93), turnos PSA por set con tope de créditos y `GET /admin/pricing/graded-estimates/budget` (se retira `ingestMaxCardsPerRun`), aviso AG-24 `psa_cycle_short`, precio del día `ListingPrice` y precio visto en quote/sesión (M-94, 💰), siete diales M10, `dataHealth` += 2, cabeceras de caché y SSR de la portada; enums en §0 · orquestador (`HECHOS.md` 2026-10-29 «Portada dinámica…» y 2026-10-04 «…UNA VEZ AL DÍA…», «…precio que el cliente VIO…»).
-> - v1.113.1⟨portada⟩ · 2026-10-29 · 💰 errata de §DYN: se cobra el `ListingPrice` vigente, sin gracia ni aviso — fuera `seenUnitPriceCents`, `priceChanged`, el dial `priceSeenGraceHours` y las columnas `prev*` de M-94; fila `pending` ⇒ `PRICE_PENDING`; diales de IVA disparan `dial_change` también desde `PUT /admin/settings/iva-transfer`; DYN-B16 rehecho, DYN-F4 retirado · dueño (`HECHOS.md` 2026-10-29 «Precio: se cobra lo que se ve, sin gracia ni aviso…»). La siguiente es **v1.114**.
+> - v1.113.1⟨portada⟩ · 2026-10-29 · 💰 errata de §DYN: se cobra el `ListingPrice` vigente, sin gracia ni aviso — fuera `seenUnitPriceCents`, `priceChanged`, el dial `priceSeenGraceHours` y las columnas `prev*` de M-94; fila `pending` ⇒ `PRICE_PENDING`; diales de IVA disparan `dial_change` también desde `PUT /admin/settings/iva-transfer`; DYN-B16 rehecho, DYN-F4 retirado · dueño (`HECHOS.md` 2026-10-29 «Precio: se cobra lo que se ve, sin gracia ni aviso…»).
+> - v1.113.2⟨portada⟩ · 2026-10-29 · errata de §DYN tras la fase 1 de backend: `ingestMaxCardsPerRun` en el `PUT` de M2 ⇒ `422 VALIDATION_ERROR` explícito (el pipe global no es estricto); I-5 se cumple con proyector; «vencido > 8 días» de AG-24 sin falsa alarma al desplegar; ratificadas cuatro reglas de backend (cargo de `failed`, sonda, sin llave, salud ilegible ⇒ `stale`); D-DYN-4 (M2 no guarda sin DYN-F5) · backend (`BACKEND_NOTES` §DYN fase 1, sobre `4b2e6fe4`). La siguiente es **v1.114**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -46168,7 +46169,7 @@ contado, v1.110.3), bypass del límite rotando IP/correo, carrera del último us
   sin `endsAt` vale hasta pausar; 1 uso por cliente por defecto; 10 intentos en 15 min; lotes ≤ 500; solo `super_admin` edita y pausa.
 - **Preguntas al dueño:** ninguna abierta (P-DSC-3 = (a), `HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).
 
-## <a id="DYN"></a>DYN. PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + errata v1.113.1, 2026-10-29, **NORMATIVA**; 💰 DYN.5 es dinero)
+## <a id="DYN"></a>DYN. PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.2, 2026-10-29, **NORMATIVA**; 💰 DYN.5 es dinero)
 
 Fuentes, en este orden: `HECHOS.md` filas **2026-10-29** «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
 portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre la de 2026-10-04 «…VIO…»), **2026-10-04** «"Joyas para gradear" debe incluir cartas baratas…», «Portada y catálogo: el precio exhibido
@@ -46185,7 +46186,10 @@ Lo que esta sección no dice, no cambia. Diseño hecho sin Bash: lo que afirma d
   con fila `priced` se cobra exactamente su `unitPriceCents` vigente, que solo cambia cuando corre un cálculo (DYN.5.3). ⛔ El
   checkout no recibe precio del cliente ni guarda precio anterior.
 - **I-4 El tope diario de créditos PSA no se rebasa** por diseño (exceso posible: el error de estimación de **un** set, DYN.4.3).
-- **I-5 La vitrina no cambia de regla (935):** `backend/src/common/graded-estimate.ts` (gate de §O.2/§O.7) sin cambios.
+- **I-5 La vitrina no cambia de regla (935):** `backend/src/common/graded-estimate.ts` (gate de §O.2/§O.7) sin cambios. El campo
+  retirado `ingestMaxCardsPerRun` sigue en su tipo con la constante de código, **sin lector**; toda salida de M2 (`GET`, respuesta
+  del `PUT`, `config` del preview, `before/after` de `AuditLog`) pasa por el proyector `catalog/graded-estimate-config-dto.ts`,
+  que lo quita (v1.113.2). El campo muerto sale cuando un stream pueda tocar el gate con sus suites delante (deuda de backend).
 - **I-6 La rotación no cambia (928):** `ROTATION_REST_MS`, `LEAD_IMAGE_CAP_MS`, `USER_INPUT_WINDOW_MS` y sus pruebas, intactos.
 
 ### DYN.1 Esquema — `M-93` (portada y turnos, aditiva) y `M-94` (precio del día, aditiva, 💰)
@@ -46307,7 +46311,8 @@ nueva, diales vigentes, `forcedByUserId`), `AuditLog` `featured.selection.forced
 la prueba de navegador (939 b); ⛔ no tiene botón para el dueño y no elige piezas.
 **DYN.2.5 Salud de datos:** `GET /admin/dashboard` → `dataHealth.featuredRotation: { status: 'ok' | 'stale' | 'never',
 servingBusinessDate: string | null, expectedBusinessDate: string }` (aditivo, sin dinero ⇒ visible a `vault_operator`). `stale` ⇔
-`servingBusinessDate ≠ expectedBusinessDate` y ahora > `effectiveFrom(expected) + 15 min`. El texto del aviso: ux-ui.
+`servingBusinessDate ≠ expectedBusinessDate` y ahora > `effectiveFrom(expected) + 15 min`. Si la lectura de la salud falla ⇒
+`stale` (no se sabe que esté bien; el resto del tablero responde). Misma regla para `listingPrices` (DYN.5.8). Texto: ux-ui.
 
 ### DYN.3 Diales (`GET/PUT /api/v1/admin/settings`, M10, `super_admin`, auditados con antes → después, sin redeploy)
 | DTO (`clave`) | Seed | Rango (entero) | Efecto |
@@ -46322,9 +46327,12 @@ Reglas de combinación (sobre el valor RESULTANTE del `PUT` parcial): `featuredR
 `featuredPoolSize ≥ featuredRandomSlots`; si no ⇒ `422 VALIDATION_ERROR` con `details.rule`
 (`featured_slots_total` | `featured_pool_lt_random`). Los cinco `featured*` **no** tocan la selección ya escrita: rigen la siguiente
 que se calcule (926). El operador recibe `403` como en todo M10.
-**Se retira** `ingestMaxCardsPerRun` de `GET/PUT /api/v1/admin/pricing/graded-estimates` (§M2): sale de la respuesta y, enviado en
-el `PUT`, se rechaza como cualquier campo desconocido de ese cuerpo (código exacto: el que hoy da su pipe estricto; **NO MEDIDO**,
-backend lo cita en su nota). I8 pierde esa cláusula.
+**Se retira** `ingestMaxCardsPerRun` de `GET/PUT /api/v1/admin/pricing/graded-estimates` (§M2): sale de toda salida (I-5) y,
+enviado en el `PUT`, ⇒ **`422 VALIDATION_ERROR`, `details.field = 'ingestMaxCardsPerRun'`**, antes de leer ni escribir nada. El
+pipe global descarta los campos desconocidos sin error (`main.ts:38`, `forbidNonWhitelisted: false`, medido por backend), así
+que el rechazo es **explícito y solo para esta clave**; otra clave desconocida se sigue descartando (y `ingestEnabled` se sigue
+tolerando, §M2). Por qué no tolerarla como `ingestEnabled`: un cliente viejo creería haber fijado un tope de gasto que ya no
+existe. I8 pierde esa cláusula.
 
 ### DYN.4 Joyas: turnos PSA por set con tope de créditos (cambia `ingestGradedEstimates`, `price-ingest.service.ts:1469-1832`)
 **DYN.4.1 Alcance:** sets con ≥ 1 carta `raw` publicada de plataforma (`price-ingest.service.ts:1471-1473`, sin el `orderBy` ni el
@@ -46340,12 +46348,17 @@ set sin pptSetId tras el mapper ⇒ fila `unmapped` (0 créditos), no mueve relo
 `est = creditsMeasured de su última fila ok ?? 2 × (cartas del set en Card)`. Si `est > cap` ⇒ fila `over_daily_cap` (0
 créditos) y se salta; si `est > restante` ⇒ **la corrida para**; si no ⇒ se pide. Tras la respuesta se carga
 `creditsMeasured ?? est`. `429` diario ⇒ fila `daily_limited` con lo medido, y la corrida para. Petición sin respuesta ⇒ `failed`
-con lo medido (932 reporta si gastó).
+cargando también `creditsMeasured ?? est` (pudo gastar; 932 reporta si gastó). Un set pedido en **modo sonda** (se pregunta, no
+se escribe) ⇒ `failed` con su cargo: gastó y sus cartas no quedan consultadas. Sin llave del proveedor no hay petición ⇒ **no se
+escribe fila** (ni gasto ni reloj).
 **DYN.4.4 Al responder `ok`:** cada carta del set **en alcance** recibe `GradedEstimateCardScan` = ahora, `written` si se escribió
 ≥ 1 grado y `no_data` si no. Una carta retirada no está en alcance y conserva su fecha; al volver, espera el reloj de su set (931).
 **DYN.4.5 Aviso AG-24 (`SpendAlertKind.psa_cycle_short`), al final de cada corrida con el dial encendido:**
 `W = Σ est(s)` sobre los sets en alcance mapeados; `ciclo = ⌈W / cap⌉` (cap 0 ⇒ `null`); `topeQueAlcanza = ⌈W / 7 / 100⌉ × 100`.
-Abre si `ciclo > 7` (`reason: 'projected'`) **o** algún set lleva vencido > 8 días (`reason: 'overdue'`). Una sola fila abierta
+Abre si `ciclo > 7` (`reason: 'projected'`) **o** algún set en alcance mapeado tiene `edad > 8` (`reason: 'overdue'`), con
+`edad = hoyCDMX − fechaCDMX(ref)`, `ref` = su última `ok`; si nunca tuvo una, `max(MIN firstListedAt de sus cartas raw
+publicadas, inicio)`, `inicio = MIN(businessDate)` de toda `GradedEstimateSetScan` (sin filas ⇒ sin `overdue`). Así el día del
+despliegue `overdue` no abre: un set sin consultar tiene 8 días desde que hay turnos o desde que llegó. Una sola fila abierta
 (`dedupKey` con el mismo mecanismo de apertura y cierre que AG-7, §M4-SHIP.19.29.6); mientras siga abierta se **actualiza en
 sitio** (`facts`, `lastOccurredAt`), ⛔ nunca una fila por corrida; se cierra sola (`resolvedAt`) cuando ninguna condición se
 cumple. `severity: digest`, `mailStatus: not_applicable` y ⛔ fuera del resumen diario (933: sin correo). `facts` (lista blanca):
@@ -46453,9 +46466,10 @@ de la portada produce **0** `POST /api/v1/telemetry/csp` (hoy 27, medido por fro
 | DYN-B17 | DYN.5.4 | completitud de `PRICE_AFFECTING_SETTING_KEYS` | quitar una clave de la lista |
 | DYN-B18 | §X.1 | corrida automática de `price-ingest` ⇒ exhibido igual; manual ⇒ recalculado | disparar recálculo en la automática |
 | DYN-B19 | DYN.5.6 | sin fila ⇒ precio en vivo correcto + `missing_row` encolado; `pending` nunca se exhibe ni cobra | — |
-| DYN-B20 | DYN.3 | `ingestMaxCardsPerRun` ausente del `GET`; en el `PUT` rechazado | — |
+| DYN-B20 | DYN.3, I-5 | `ingestMaxCardsPerRun` ausente del `GET`, de la respuesta del `PUT`, del `config` del preview y del `AuditLog`; en el `PUT` ⇒ `422` `details.field`; `{freshnessDays, foo}` ⇒ `200` (`foo` descartado) | quitar el rechazo explícito (el pipe lo descartaría ⇒ `200`) |
+| DYN-B21 | DYN.4.5 | reloj inyectado: primera corrida con 20 sets nunca consultados y `firstListedAt` de hace 60 días, tope que alcanza ⇒ sin AG-24; día 9 con un set aún sin `ok` ⇒ `overdue`; set con `ok` de hace 9 días ⇒ `overdue` | `ref = firstListedAt` sin `inicio` |
 | DYN-F2 | 936-937 | HTML de `/es` sin JS contiene `#piezas-destacadas-pista img` y la vitrina; con el API retrasado 5 s o en `503`, el HTML sale con el marco y CLS ≤ 0.1 al llegar | volver a `useQuery` sin datos iniciales |
-| DYN-F5 | 926, 301 | M10 edita los 6 diales; panel de presupuesto con los campos de DYN.4.6; el campo retirado ya no se pinta (`GradedEstimatesSection`, `lib/grading-hook-cost.ts`) | — |
+| DYN-F5 | 926, 301 | M10 edita los 6 diales; panel de presupuesto con los campos de DYN.4.6; el campo retirado ya no se pinta ni viaja en el `PUT`, y M2 guarda con un `GET` sin él (D-DYN-4) (`GradedEstimatesSection`, `lib/grading-hook-cost.ts`) | volver a exigir el campo para guardar |
 | DYN-F7 | DYN.6.4 | nonce en todo `<script>` en línea y 0 reportes CSP por vista | quitar el nonce del render |
 | DYN-D1 | 938 | Lighthouse CI sobre el stack sembrado, `numberOfRuns: 5`, mediana: móvil FCP ≤ 1.0 s, LCP ≤ 2.5 s; escritorio FCP ≤ 1.0 s, LCP ≤ 1.5 s; CLS ≤ 0.1. Canario: retraso artificial de la portada (variable solo fuera de producción) ⇒ rojo | — |
 | DYN-D2 | 937 | proxy de prueba entre la tienda y el API en el stack de CI que retrasa 5 s o responde `503` a `/catalog/featured` y a la vitrina | — |
@@ -46474,6 +46488,10 @@ el panel. La meta de 936 se mide además en **producción** (N=5 por perfil, med
   lo vigila DYN-B16.
 - **D-DYN-3 (§DYN.2 «§R»):** `PROJECT.md:8040` envía el aviso al «centro de avisos, §R», que es el del cliente (`PROJECT.md:6173`);
   aquí va a §Z (AG-24). **Lo corrige product-owner**; lo vigila DYN-B13.
+- **D-DYN-4 (M2 no guarda sin DYN-F5):** `GradedEstimatesSection.tsx:128-150` bloquea guardar si el `GET` no trae
+  `ingestMaxCardsPerRun` (`ingestCap === null`) y `:191` lo manda en todo `PUT` (leído en `4b2e6fe4`). Con backend fase 1 y ese
+  frontend, M2 no guarda nada. **Lo corrige frontend (DYN-F5)**; ⛔ backend fase 1 no se publica sin DYN-F5 en la misma
+  publicación; lo vigilan DYN-F5 y el recorrido de M2 de tester-e2e.
 - **Lecturas del arquitecto que product-owner debe reflejar en el texto de criterios:** 929/930 se cumplen **por set** (un set
   es la unidad que se pide; con una carta propia por set coinciden con el texto); «recién llegada» se decide por grupo con su pieza
   viva más antigua; «en vivo» en listas = ≤ 60 s (924, 939 c).
