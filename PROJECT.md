@@ -7504,9 +7504,10 @@ siempre las mismas mientras el inventario no cambie.
 
 #### DYN.2 «Joyas para gradear» por turnos: cada carta publicada recibe su precio PSA cada semana
 
-**Hoy** (medido por el orquestador el 2026-10-29): el precio PSA se pide para las cartas sueltas publicadas en orden
-fijo de identificador, cortado por el dial `graded_estimate_ingest_max_cards_per_run` (250 de fábrica, máximo 1 000)
-(`backend/src/modules/pricing/price-ingest.service.ts:1469-1477`): siempre las mismas; el resto nunca recibe precio PSA.
+**Antes de §DYN** (medido por el orquestador el 2026-10-29): el precio PSA se pedía para las cartas sueltas publicadas
+en orden fijo de identificador, cortado por el dial `graded_estimate_ingest_max_cards_per_run` (250 de fábrica)
+(`backend/src/modules/pricing/price-ingest.service.ts:1469-1477`): siempre las mismas; el resto nunca recibía precio
+PSA. Ese dial **se retiró** con §DYN (`docs/API_CONTRACT.md` §DYN.3); su lugar lo toma el tope de créditos al día.
 
 **La regla es la de §Y.1 y §Y.2** (todas las sueltas publicadas, una vez por semana, tope de créditos al día de
 **3.000** —valor por defecto de P-JOY-5, que queda según `HECHOS.md` fila 2026-10-04 «Portada: se cobra el precio
@@ -7526,13 +7527,18 @@ precisa:
   corrida; si el proveedor **respondió sin dato**, cuenta como consultada y vuelve en 7 días. Si una consulta fallida
   gasta créditos: **NO MEDIDO** (lo mide backend en los registros del proveedor).
 - **Todo automático** (REGLA GENERAL): corre en las corridas automáticas que ya existen, sin botón ni captura manual.
-  El dueño mueve **un solo dial** (créditos al día); el corte por corrida no puede dejar cartas fuera de la semana si
-  los créditos alcanzan (cómo se reparten entre corridas lo decide el arquitecto).
+  El dueño mueve **un solo dial** (créditos al día, 3,000 de fábrica); ya no hay un corte de cartas por corrida, así
+  que si los créditos alcanzan ninguna carta se queda fuera de la semana (cómo se reparten entre corridas:
+  `docs/API_CONTRACT.md` §DYN.4.3).
 - **Aviso automático al dueño cuando no alcanza:** si con el tope no se cubren todas en 7 días (por cálculo o porque
   ya pasó), aparece **un** aviso al dueño en el panel —un aviso de control del gasto de **§Z** (no el centro de
   avisos del cliente de §R)— con las cifras. Ejemplo: *«Con 3,000 créditos al
   día no alcanza para revisar tus 11,200 cartas cada semana: tardarán 8 días. Para cubrir la semana, sube el tope a
-  3,200.»* No se repite en cada corrida y **se retira solo** cuando vuelve a alcanzar. Sin correo *(SUPUESTO: los
+  3,200.»* También aparece si alguna colección lleva más de 8 días sin consultarse. Una colección que **nunca** se ha
+  consultado cuenta sus días desde que empezaron los turnos (o desde que llegó su primera carta, si es posterior), no
+  desde que se publicó: así **el día del despliegue no sale una falsa alarma** por cartas que aún no han tenido su
+  primer turno (`docs/API_CONTRACT.md` §DYN.4.5). No se repite en cada corrida y **se retira solo** cuando vuelve a
+  alcanzar. Sin correo *(SUPUESTO: los
   correos al dueño se limitaron a los que él pidió, `HECHOS.md` fila «Control del gasto — límites aceptados…»)*.
 - **La regla de la vitrina NO cambia en este alcance:** sigue la de §O.2/§O.7
   (`backend/src/common/graded-estimate.ts:941-949`). La regla nueva de §Y.3 queda para otro alcance. Consecuencia que
@@ -14912,10 +14918,11 @@ product-owner con búsqueda en `PROJECT.md` el 2026-10-29.)*
 933. **Aviso cuando no alcanza** *(§DYN.2)*: con el tope bajado por debajo de lo necesario, aparece **un** aviso en
    el panel con el número de cartas, los días que tardará la vuelta y el tope que alcanzaría; no se duplica en las
    corridas siguientes; desaparece solo al subir el tope; no sale ningún correo. Los créditos del día no pasan del
-   tope (criterio 301).
-934. **Un solo dial, sin captura manual** *(§DYN.2)*: con 1,200 sueltas publicadas, tope de 3,000 créditos al día y el
-   corte por corrida en su valor de fábrica, en 7 días se consultan las 1,200 sin que nadie toque el panel ni pulse
-   un botón.
+   tope (criterio 301). Con el tope suficiente, el primer día de turnos no aparece ningún aviso aunque las cartas lleven
+   meses publicadas; una colección que sigue sin consultarse al día 9 sí lo dispara.
+934. **Un solo dial, sin captura manual** *(§DYN.2)*: con 1,200 sueltas publicadas y el tope de créditos al día en su
+   valor de fábrica (3,000), en 7 días se consultan las 1,200 sin que nadie toque el panel ni pulse un botón; el panel
+   ya no muestra ni acepta un corte de cartas por corrida (solo existe el dial de créditos al día).
 935. **La vitrina no cambia de regla** *(§DYN.2)*: para las mismas cartas con los mismos precios PSA, la vitrina, el
    badge de la rejilla y la burbuja dan el mismo veredicto que antes de §DYN (sus pruebas pasan sin editarlas). La
    lista fija por identificador ya no existe.
