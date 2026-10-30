@@ -62,7 +62,7 @@ FEATURED_RE='^/api/v1/catalog/featured([?].*)?$'
 SHOWCASE_RE='^/api/v1/catalog/cards[?].*sort=grading_showcase'
 HOME_RE='^/es/?([?].*)?$'
 # DYN-D3: el host del seed se sirve como uno de `remotePatterns` (ver «LAS IMÁGENES DEL SEED»).
-IMG_SEED='https://img.e2e.local/'; IMG_REMOTO='https://images.scrydex.com/e2e/'
+IMG_FIXTURE='https://img.e2e.local/'; IMG_REMOTO='https://images.scrydex.com/e2e/'
 PESO_MIN_LIDER=$((800 * 1024))
 
 say()  { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
@@ -172,7 +172,7 @@ proxies() {  # $1 modo — fija API_PROXY_PID y FRONT_PROXY_PID (procesos hijos 
     d2-503)    api_rules=(--rule "$FEATURED_RE=503" --rule "$SHOWCASE_RE=503") ;;
   esac
   node "$HERE/delay-proxy.mjs" --listen "$HP_API_PROXY_PORT" --upstream "$API_UPSTREAM" \
-       --replace "$IMG_SEED" --with "$IMG_REMOTO" \
+       --replace "$IMG_FIXTURE" --with "$IMG_REMOTO" \
        --log "$OUT/proxy-api-$1.log" "${api_rules[@]}" >/dev/null 2>&1 &
   API_PROXY_PID=$!
   node "$HERE/delay-proxy.mjs" --listen "$HP_FRONT_PORT" --upstream "http://127.0.0.1:$HP_NEXT_PORT" \

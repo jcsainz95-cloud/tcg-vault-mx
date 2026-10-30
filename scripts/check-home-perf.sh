@@ -165,7 +165,7 @@ desktop d2 fcp=1000/median lcp=- cls=0.1/median preset=desktop"
   else ko "foto líder del origen distinta de la fijada o < $PESO_MIN_LIDER B («$hl»): ¿la sustituta?"; fi
   grep -qE '^PESO_MIN_LIDER=\$\(\(800 \* 1024\)\)' "$hp/run.sh" && grep -q '"${PESO_ORIGEN:-0}" -ge "$PESO_MIN_LIDER"' "$hp/run.sh" \
     && ok "run.sh exige ≥ 800 KB en el origen antes de medir" || ko "run.sh no exige el peso de la foto líder en el origen"
-  grep -q -- '--replace "$IMG_SEED" --with "$IMG_REMOTO"' "$hp/run.sh" && grep -q "IMG_REMOTO='https://images.scrydex.com/e2e/'" "$hp/run.sh" \
+  grep -q -- '--replace "$IMG_FIXTURE" --with "$IMG_REMOTO"' "$hp/run.sh" && grep -q "IMG_REMOTO='https://images.scrydex.com/e2e/'" "$hp/run.sh" \
     && ok "run.sh: el proxy del API sirve el arte con un host de remotePatterns" || ko "run.sh no reescribe el host del seed (el optimizador lo rechazaría)"
   grep -q 'NODE_OPTIONS="--require $HERE/next-image-origin.cjs"' "$hp/run.sh" \
     && ok "run.sh: next start con el desvío del optimizador al origen local" || ko "run.sh no carga next-image-origin.cjs en next start"
@@ -259,7 +259,7 @@ mutar "meta de 936 fuera del resumen"   scripts/home-perf/run.sh          's|NO 
 mutar "artefacto sin lhr (ocultas)"     .github/workflows/home-perf.yml   '/include-hidden-files: true/d'
 mutar "foto líder sustituta (ligera)"   scripts/home-perf/seed-image-host.py 's|bloque, amp_bloque, amp_fino = 10, 84, 2|bloque, amp_bloque, amp_fino = 10, 84, 1|'
 mutar "run.sh no exige el peso"         scripts/home-perf/run.sh          's|^PESO_MIN_LIDER=$((800 \* 1024))|PESO_MIN_LIDER=$((100 * 1024))|'
-mutar "sin reescritura del host"        scripts/home-perf/run.sh          's|--replace "$IMG_SEED" --with "$IMG_REMOTO" ||'
+mutar "sin reescritura del host"        scripts/home-perf/run.sh          's|--replace "$IMG_FIXTURE" --with "$IMG_REMOTO" ||'
 mutar "next start sin el desvío"        scripts/home-perf/run.sh          's|NODE_OPTIONS="--require $HERE/next-image-origin.cjs" ||'
 mutar "run.sh sin lcp-optimized"        scripts/home-perf/run.sh          's|"$HERE/lcp-optimized.mjs" "$dir/.lighthouseci"|true|'
 mutar "lcp-optimized acepta el respaldo" scripts/home-perf/lcp-optimized.mjs 's|if (origenes.has(r.url)) motivos.push|if (false) motivos.push|'
