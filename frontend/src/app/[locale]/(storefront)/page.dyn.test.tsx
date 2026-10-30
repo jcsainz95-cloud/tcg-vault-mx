@@ -97,7 +97,8 @@ describe('DYN-F2 · la portada sale del servidor con Destacadas en el HTML', () 
     const html = await serverHtml();
     expect(html).toMatch(/id="piezas-destacadas-pista"/);
     const track = html.slice(html.indexOf('id="piezas-destacadas-pista"'));
-    expect(track).toMatch(/<img[^>]*src="https:\/\/img\.example\/f0-l\.png"/);
+    // §DYN.6.6 (opción A): la foto grande de la líder viaja por `/_next/image` (su parámetro `url`).
+    expect(track).toMatch(/<img[^>]*src="\/_next\/image\?url=https%3A%2F%2Fimg\.example%2Ff0-l\.png&amp;/);
     expect(track).toContain('Recién llegada');
     expect(html).not.toContain('data-testid="featured-frame"');
     // La lectura de servidor usa la caché de datos de Next (30 s, etiqueta `featured`) — mismos endpoints que el cliente.

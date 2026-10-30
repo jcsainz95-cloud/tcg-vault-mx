@@ -193,6 +193,25 @@ export function mockModuleAliases({ baseDir = dirname(fileURLToPath(import.meta.
   return aliases;
 }
 
+/**
+ * §DYN.6.6 / ARCHITECTURE §4.DYN (f) 7 (opción A del dueño, `HECHOS` 2026-10-30) — parámetros del optimizador
+ * (`/_next/image`), que hoy solo usa la foto de la teja LÍDER de Destacadas (`CardImage` con `optimized`).
+ * Reglas de coste 1–3 de §5.3.3: a lo sumo 2 transformaciones por imagen origen.
+ *  - `formats` solo WebP: AVIF cuesta más CPU por transformación y fue el vector de GHSA-2xp9-vwfh-vxw4.
+ *  - anchos permitidos 384 y 640 (la caja de celular, 212 px CSS × DPR 3 ≈ 636): otro `w` ⇒ 400.
+ *  - `qualities: [75]`: otro `q` ⇒ 400. La clave existe en `next` 15.5.28 (esquema `config-schema.js` y
+ *    `ImageOptimizerCache.validateParams`, leído y probado el 2026-10-30).
+ *  - `minimumCacheTTL` 30 días: la URL de una carta no cambia.
+ * Candado: `src/lib/next-image-remote-patterns.test.ts` (DYN-F8 b). Ver `docs/FRONTEND_NOTES.md` §DYN.
+ */
+export const IMAGE_OPTIMIZER = {
+  formats: ['image/webp'],
+  imageSizes: [384],
+  deviceSizes: [640],
+  qualities: [75],
+  minimumCacheTTL: 2592000,
+};
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
@@ -259,6 +278,7 @@ const nextConfig = {
       { protocol: 'https', hostname: 'images.pokemontcg.io', port: '' },
       { protocol: 'https', hostname: 'images.scrydex.com', port: '' },
     ],
+    ...IMAGE_OPTIMIZER,
   },
 };
 
