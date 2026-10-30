@@ -95,6 +95,14 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=build --chown=nextjs:nodejs /app/public ./public
+# §DYN.6.6 / ARCHITECTURE §4.DYN (f) 7 y §5.3.6 (c), v1.114.2: la foto líder pasa por el optimizador de
+# Next (`/_next/image`), que en el build `standalone` necesita `sharp` (dependencia del frontend) TRAZADO en
+# `.next/standalone/node_modules` con el binario de esta plataforma (musl). Si no está, `/_next/image` da 500 y la
+# líder cae a la original de ~880 KB: este paso hace que la imagen NO se construya en vez de publicar ese
+# respaldo. Transforma de verdad a WebP 640 q75 (lo que pide la líder), no solo `require`.
+# Candado: scripts/check-home-perf.sh («sharp en el standalone»); en CI lo ejecuta el build de
+# security-sast.yml (trivy-image). Doc: DEVOPS_NOTES §105.
+RUN node -e "const s=require('sharp');s({create:{width:733,height:1024,channels:3,background:'#808080'}}).resize(640).webp({quality:75}).toBuffer().then(b=>{if(!b.length)process.exit(1);console.log('SHARP_STANDALONE_OK sharp '+s.versions.sharp+' vips '+s.versions.vips+' webp '+b.length+' B')}).catch(e=>{console.error('ERROR: sharp no funciona en el standalone: '+e.message);process.exit(1)})"
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]
