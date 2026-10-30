@@ -62,6 +62,12 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Parámetro `url` de la `<img>` de `/_next/image` (null si la `<img>` no pasa por el optimizador). */
+function optimizerUrlOf(img: HTMLElement): string | null {
+  const u = new URL(img.getAttribute('src') ?? '', 'http://tienda.test');
+  return u.pathname === '/_next/image' ? u.searchParams.get('url') : null;
+}
+
 describe('FeaturedCarousel · P-39 imagen de alta resolución', () => {
   it('la teja destacada (hero) pinta imageLargeUrl, no la chica', async () => {
     const hero = grp({ card: card('c-hero', 'Charizard'), finish: 'reverse_holo' });
@@ -69,7 +75,8 @@ describe('FeaturedCarousel · P-39 imagen de alta resolución', () => {
     renderWithProviders(<FeaturedCarousel />, 'es');
 
     const heroImg = await screen.findByAltText('Charizard');
-    expect(heroImg).toHaveAttribute('src', 'https://img.example/c-hero-large.png');
+    // §DYN.6.6 (DYN-F1 b): la HD viaja por `/_next/image`; lo que se fija es QUÉ foto pide (su parámetro `url`).
+    expect(optimizerUrlOf(heroImg)).toBe('https://img.example/c-hero-large.png');
   });
 
   it('cae a imageSmallUrl cuando imageLargeUrl es null (nunca imagen rota)', async () => {
@@ -80,7 +87,7 @@ describe('FeaturedCarousel · P-39 imagen de alta resolución', () => {
     renderWithProviders(<FeaturedCarousel />, 'es');
 
     const heroImg = await screen.findByAltText('Charizard');
-    expect(heroImg).toHaveAttribute('src', 'https://img.example/c-hero-small.png');
+    expect(optimizerUrlOf(heroImg)).toBe('https://img.example/c-hero-small.png');
   });
 });
 

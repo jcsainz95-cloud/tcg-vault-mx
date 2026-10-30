@@ -36,6 +36,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { hasRemoteMatch } from 'next/dist/shared/lib/match-remote-pattern.js';
+import { imageConfigDefault } from 'next/dist/shared/lib/image-config.js';
+import { ImageOptimizerCache } from 'next/dist/server/image-optimizer.js';
 
 // El config REAL, tal cual lo carga Next (pasa por el plugin de next-intl). Importarlo —en vez de
 // redeclarar los patrones aquí— es lo que hace que el candado vigile el fichero de verdad: una
@@ -132,5 +134,50 @@ describe('D-IMG-5 · images.remotePatterns no admite hosts arbitrarios', () => {
     // `domains` está deprecado, pero Next lo sigue honrando y acepta el host ENTERO sin patrón.
     // Si alguien lo reintroduce, la política efectiva se ensancha sin tocar `remotePatterns`.
     expect(domains).toEqual([]);
+  });
+});
+
+/**
+ * 🔒 DYN-F8 (b) · API_CONTRACT §DYN.6.6, ARCHITECTURE §4.DYN (f) 7 (opción A del dueño, `HECHOS` 2026-10-30) — los
+ * parámetros del optimizador (reglas de coste 1–3 de §5.3.3: a lo sumo 2 transformaciones por imagen origen). Se mide
+ * con `ImageOptimizerCache.validateParams`, el MISMO portero que corre `/_next/image` (`next` 15.5.28 admite
+ * `qualities`: esquema `config-schema.js:580` y `image-optimizer.js:691`). La versión contra `next start` es
+ * `e2e/lead-image.spec.ts` (b). Mutación medida: añadir 1080 a los anchos ⇒ rojo.
+ */
+describe('DYN-F8 (b) · parámetros del optimizador', () => {
+  const img = (nextConfig as unknown as { images: Record<string, unknown> }).images;
+  const conf = { images: { ...imageConfigDefault, ...img } };
+  const ask = (w: number, q: number) =>
+    (
+      ImageOptimizerCache as unknown as {
+        validateParams: (
+          req: { headers: Record<string, string> },
+          query: Record<string, string>,
+          c: unknown,
+          isDev: boolean,
+        ) => { errorMessage?: string; mimeType?: string };
+      }
+    ).validateParams(
+      { headers: { accept: 'image/avif,image/webp,*/*' } },
+      { url: 'https://images.scrydex.com/me5/88/large', w: String(w), q: String(q) },
+      conf,
+      false,
+    );
+
+  it('formats = solo WebP; anchos = {384, 640}; qualities = [75]; minimumCacheTTL ≥ 30 días', () => {
+    expect(img.formats).toEqual(['image/webp']);
+    expect(new Set([...(img.deviceSizes as number[]), ...(img.imageSizes as number[])])).toEqual(new Set([384, 640]));
+    expect(img.qualities).toEqual([75]);
+    expect(img.minimumCacheTTL as number).toBeGreaterThanOrEqual(2_592_000);
+  });
+
+  it('el portero de /_next/image: 384 y 640 con q=75 pasan (WebP aunque se pida AVIF); w=1080 o q=90 ⇒ rechazo', () => {
+    for (const w of [384, 640]) {
+      const r = ask(w, 75);
+      expect(r.errorMessage, `w=${w}`).toBeUndefined();
+      expect(r.mimeType).toBe('image/webp');
+    }
+    expect(ask(1080, 75).errorMessage).toMatch(/width/);
+    expect(ask(640, 90).errorMessage).toMatch(/quality/);
   });
 });

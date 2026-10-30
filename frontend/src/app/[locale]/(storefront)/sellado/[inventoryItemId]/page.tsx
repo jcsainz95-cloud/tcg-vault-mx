@@ -19,6 +19,7 @@ import {
 } from '@/lib/seo';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { SealedDetailView } from './SealedDetailView';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
  * Ficha pública de producto SELLADO (§A3/§A4) — SSR: el `<head>` (title/og/JSON-LD) viaja en el HTML
@@ -114,10 +115,13 @@ export default async function SealedDetailPage({
     };
   }
 
+  // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
   return (
-    <>
-      {jsonLd && <JsonLd data={jsonLd} nonce={nonce} />}
-      <SealedDetailView inventoryItemId={inventoryItemId} />
-    </>
+    <RouteMessages scope="storefront">
+      <>
+        {jsonLd && <JsonLd data={jsonLd} nonce={nonce} />}
+        <SealedDetailView inventoryItemId={inventoryItemId} />
+      </>
+    </RouteMessages>
   );
 }

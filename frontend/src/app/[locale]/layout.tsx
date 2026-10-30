@@ -8,7 +8,7 @@ import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, getTranslations } from 'next-intl/server';
 import { routing, type AppLocale } from '@/i18n/routing';
-import { storefrontMessages } from '@/i18n/message-scopes';
+import { shellMessages } from '@/i18n/message-scopes';
 import { Providers } from '@/components/Providers';
 import { MeasurementProvider } from '@/components/consent/MeasurementProvider';
 import { NONCE_HEADER } from '@/security/csp';
@@ -151,9 +151,10 @@ export default async function LocaleLayout({
   // la petición que fija `middleware.ts`); aquí no hay `<script>` propio que lo necesite, pero si
   // algún día lo hay, lleva `nonce={nonce}`. Coste medido en FRONTEND_NOTES (TTFB N=10).
   const nonce = (await headers()).get(NONCE_HEADER) ?? undefined;
-  // PERF portada (§DYN.3): sin el namespace `admin` (74 % de `es.json`); el back-office lo añade en
-  // su layout. Ver `i18n/message-scopes.ts`.
-  const messages = storefrontMessages(await getMessages());
+  // PERF portada (§DYN.6.7 c1): la raíz manda SOLO `SHELL` (lo que pintan en cliente los layouts de toda ruta); cada
+  // segmento añade su ámbito con `RouteMessages` (la portada `home`, el resto `storefront`, el panel además `admin`).
+  // Ver `i18n/message-scopes.ts`.
+  const messages = shellMessages(await getMessages());
 
   return (
     <html

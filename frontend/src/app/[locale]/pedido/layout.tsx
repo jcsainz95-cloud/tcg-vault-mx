@@ -4,6 +4,7 @@ import { LocaleToggle } from '@/components/ui/LocaleToggle';
 import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
 import { SupportEmailLink } from '@/components/domain/SupportContact';
 import { PrivacyNoticeLink } from '@/components/legal/PrivacyNoticeLink';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
  * Chrome REDUCIDO de la vista pública de seguimiento (DESIGN_SYSTEM §15.6).
@@ -17,15 +18,18 @@ import { PrivacyNoticeLink } from '@/components/legal/PrivacyNoticeLink';
  * sesión, nav privado), `VerifyEmailBanner` y `PrivateRouteGuard`.
  */
 export default function PublicTrackingLayout({ children }: { children: React.ReactNode }) {
+  // §DYN.6.7 (c1): el ámbito `storefront` cubre el layout entero (encabezado y pie propios + la página).
   return (
-    <div className="flex min-h-dvh flex-col">
-      <SkipLink />
-      <TrackingHeader />
-      <main id="main" className="mx-auto w-full max-w-7xl flex-1">
-        {children}
-      </main>
-      <TrackingFooter />
-    </div>
+    <RouteMessages scope="storefront">
+      <div className="flex min-h-dvh flex-col">
+        <SkipLink />
+        <TrackingHeader />
+        <main id="main" className="mx-auto w-full max-w-7xl flex-1">
+          {children}
+        </main>
+        <TrackingFooter />
+      </div>
+    </RouteMessages>
   );
 }
 

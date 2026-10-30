@@ -5,9 +5,10 @@ import * as api from '@/lib/api';
 import type { CardDTO, FeaturedListingDTO } from '@/types/contract';
 
 /**
- * §DYN.6.2 — «precarga la imagen líder». `ReactDOM.preload` es de React 19 (App Router); aquí (React 18) se inyecta un
- * doble para fijar QUÉ se precarga: la foto grande de la teja 1, con prioridad alta, y nada sin datos.
- * Mutación que lo pone rojo: quitar la llamada o precargar otra teja.
+ * §DYN.6.2 + §DYN.6.6 — «precarga la imagen líder». `ReactDOM.preload` es de React 19 (App Router); aquí (React 18) se
+ * inyecta un doble para fijar QUÉ se precarga: la foto grande de la teja 1 POR `/_next/image`, con el MISMO
+ * `srcset`/`sizes` que su `<img>` y prioridad alta, una sola vez; y nada sin datos.
+ * Mutaciones que lo ponen rojo: quitar la llamada, precargar otra teja o la URL original (doble descarga).
  */
 const preload = vi.hoisted(() => vi.fn());
 vi.mock('react-dom', async (orig) => ({ ...(await orig<typeof import('react-dom')>()), preload }));
@@ -60,12 +61,19 @@ beforeEach(() => {
 });
 
 describe('§DYN.6.2 · precarga de la foto líder', () => {
-  it('precarga la foto GRANDE de la teja 1 con prioridad alta', async () => {
+  it('precarga la foto GRANDE de la teja 1 por /_next/image, con el srcset/sizes de su <img>, una vez', async () => {
     vi.spyOn(api, 'getFeatured').mockResolvedValue({ businessDate: '2026-10-29', data: [tile(0), tile(1)] });
     renderWithProviders(<FeaturedCarousel />, 'es');
     await screen.findByText('Carta 1');
-    expect(preload).toHaveBeenCalledWith('https://img.example/0-l.png', { as: 'image', fetchPriority: 'high' });
-    expect(preload.mock.calls.every(([href]) => href === 'https://img.example/0-l.png')).toBe(true);
+    const img = screen.getByAltText('Carta 0');
+    // UNA llamada, y con los atributos de la `<img>` (mismo `getImageProps()`).
+    expect(preload.mock.calls).toEqual([
+      [
+        img.getAttribute('src'),
+        { as: 'image', imageSrcSet: img.getAttribute('srcset'), imageSizes: img.getAttribute('sizes'), fetchPriority: 'high' },
+      ],
+    ]);
+    expect(new URL(preload.mock.calls[0][0], 'http://t.test').searchParams.get('url')).toBe('https://img.example/0-l.png');
   });
 
   it('sin datos no precarga nada', async () => {

@@ -20,6 +20,7 @@ import {
 } from '@/lib/seo';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { CardDetailView } from './CardDetailView';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
  * Ficha pública de CARTA (§A4/§E3) — SSR: title/og/JSON-LD en el HTML del servidor; el cuerpo lo
@@ -137,10 +138,13 @@ export default async function CardDetailPage({
     };
   }
 
+  // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
   return (
-    <>
-      {jsonLd && <JsonLd data={jsonLd} nonce={nonce} />}
-      <CardDetailView cardId={cardId} />
-    </>
+    <RouteMessages scope="storefront">
+      <>
+        {jsonLd && <JsonLd data={jsonLd} nonce={nonce} />}
+        <CardDetailView cardId={cardId} />
+      </>
+    </RouteMessages>
   );
 }

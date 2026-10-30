@@ -1,11 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import * as ReactDOM from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { getFeatured } from '@/lib/api';
-import { FEATURED_QUERY_KEY, leadImageOf } from '@/lib/home-queries';
+import { FEATURED_QUERY_KEY } from '@/lib/home-queries';
 import type { FeaturedSlotKind, GroupedListingSummaryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -260,17 +259,10 @@ export function FeaturedCarousel() {
   const catalog = useFeaturedCatalog();
   const featured = featuredOf(catalog.data);
   /*
-   * §DYN.6.2 — precarga de la foto líder (candidata a LCP). Medido sobre `f7eeecdc` contra el stack local: la respuesta
-   * de `/es` lleva la cabecera HTTP `Link: <foto>; rel=preload; as="image"; fetchpriority="high"` (Next le pasa
-   * `onHeaders` al SSR de React, que manda las precargas como cabecera, no como `<link>` del HTML). React la emitiría
-   * también solo por la `<img fetchpriority="high">` no perezosa de la teja 1 (`react-dom-server`, caso `img`); esta
-   * llamada la hace explícita y se deduplica con ella. `preload` es de React 19 (el del App Router); con el React 18 de
-   * la suite unitaria no existe y no se llama. Misma URL que pinta la teja 1.
+   * §DYN.6.2 / §DYN.6.6 — la precarga de la foto líder (candidata a LCP) la hace `CardImage` con `optimized` +
+   * `priority`, sacada del MISMO `getImageProps()` que su `<img>` (`/_next/image`, WebP 384/640). Precargar aquí la
+   * URL original haría que el navegador bajara la foto dos veces (DYN-F8).
    */
-  const leadSrc = leadImageOf(catalog.data);
-  const preload = (ReactDOM as unknown as { preload?: (href: string, o: { as: 'image'; fetchPriority: 'high' }) => void })
-    .preload;
-  if (leadSrc && typeof preload === 'function') preload(leadSrc, { as: 'image', fetchPriority: 'high' });
 
   /**
    * §22.6b-c — **numeración condicional POR PISTA, todo o nada.** Si el carrusel pinta al menos una
@@ -761,6 +753,9 @@ export function FeaturedCarousel() {
                       src={l.card.imageLargeUrl ?? l.card.imageSmallUrl}
                       alt={l.card.name}
                       priority
+                      // §DYN.6.6 (opción A del dueño): SOLO esta teja pasa por `/_next/image` (WebP 384/640), con
+                      // respaldo a la original; `onLoaded` llega una vez, tras el respaldo si lo hubo (DYN-F9).
+                      optimized
                       onLoaded={() => setLeadImageReady(true)}
                     />
                     <div className="mt-3 flex flex-col gap-2 lg:mt-[18px] lg:flex-row lg:items-end lg:justify-between lg:gap-5">

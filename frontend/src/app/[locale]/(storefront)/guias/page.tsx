@@ -13,6 +13,7 @@ import {
   webPageJsonLd,
 } from '@/lib/seo-content';
 import { ContentPage, EmptyContent } from '../_content/ContentPage';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
  * ⭐ §MKT tienda §E6 — índice `/guias` (brief v1 §2.5). Enlazado desde el pie. Cada guía es
@@ -60,38 +61,41 @@ export default async function GuiasPage({ params }: { params: Promise<{ locale: 
     ],
   };
 
+  // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
   return (
-    <>
-      <JsonLd data={jsonLd} nonce={nonce} />
-      <ContentPage
-        title={t('guides.title')}
-        dateLine={latest ? t('guides.published', { date: latest }) : ''}
-        spanishOnlyNotice={locale !== 'es' ? t('spanishOnly') : undefined}
-      >
-        {guides.length > 0 ? (
-          <ul className="flex flex-col">
-            {guides.map((g) => (
-              <li key={g.slug} className="flex flex-col gap-2 border-t border-border py-5">
-                <h2 className="text-h3 font-semibold">
-                  <Link href={`/guias/${g.slug}`} className="hover:text-accent">
-                    {g.headline}
+    <RouteMessages scope="storefront">
+      <>
+        <JsonLd data={jsonLd} nonce={nonce} />
+        <ContentPage
+          title={t('guides.title')}
+          dateLine={latest ? t('guides.published', { date: latest }) : ''}
+          spanishOnlyNotice={locale !== 'es' ? t('spanishOnly') : undefined}
+        >
+          {guides.length > 0 ? (
+            <ul className="flex flex-col">
+              {guides.map((g) => (
+                <li key={g.slug} className="flex flex-col gap-2 border-t border-border py-5">
+                  <h2 className="text-h3 font-semibold">
+                    <Link href={`/guias/${g.slug}`} className="hover:text-accent">
+                      {g.headline}
+                    </Link>
+                  </h2>
+                  <p className="text-sm leading-relaxed text-text/90">{guideDescription(g)}</p>
+                  <Link
+                    href={`/guias/${g.slug}`}
+                    lang={locale}
+                    className="font-mono text-[11px] uppercase tracking-label text-text hover:text-accent"
+                  >
+                    {t('guides.readGuide')}
                   </Link>
-                </h2>
-                <p className="text-sm leading-relaxed text-text/90">{guideDescription(g)}</p>
-                <Link
-                  href={`/guias/${g.slug}`}
-                  lang={locale}
-                  className="font-mono text-[11px] uppercase tracking-label text-text hover:text-accent"
-                >
-                  {t('guides.readGuide')}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <EmptyContent message={t('guides.empty')} />
-        )}
-      </ContentPage>
-    </>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyContent message={t('guides.empty')} />
+          )}
+        </ContentPage>
+      </>
+    </RouteMessages>
   );
 }
