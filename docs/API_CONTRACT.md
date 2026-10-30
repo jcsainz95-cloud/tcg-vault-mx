@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-30 (rev **v1.114.2⟨portada⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-30 (rev **v1.114.3⟨portada⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -32,7 +32,8 @@
 > - v1.113.4⟨portada⟩ · 2026-10-29 · §DYN.5.4: `price_consensus_tolerance_pct` sale de `PRICE_AFFECTING_SETTING_KEYS` (no entra en el cuerpo de DYN.5.1; solo el candado del barrido) y DYN-B17 (b) no admite excepciones (fuera `SIN_TESTIGO`); D-DYN-5 (el candado de §PRE no retiene el precio de venta) · backend (DYN-B17 sobre la errata v1.113.3).
 > - v1.114⟨portada⟩ · 2026-10-29 · 💰 [§DYN.5.9](#DYN) NUEVA (cierra el diseño de D-DYN-5): con caso `open` o `kept` el cuerpo de venta usa `baselineMxnCents` (sin base ⇒ `PRICE_PENDING`); `keep` sigue reteniendo y el barrido lo trata como `open`; compra lee `kept`; trigger `review_open` en `ListingPriceRunTrigger`; DYN-B23…B26; §PRE.F `keep` · orquestador (`HECHOS.md` 2026-10-11 «§PRE APROBADO…» y 2026-10-29 «Precio: se cobra lo que se ve…»).
 > - v1.114.1⟨portada⟩ · 2026-10-29 · errata de §DYN tras frontend: DYN-F1 admite cambiar solo el ayudante `mockCatalog` de `FeaturedCarouselRotation.test.tsx` (aserciones y constantes intactas, contadas) y declara la excepción `GradedShelf.tsx` del candado `price_desc`; DYN.6.2: el marco con alto reservado es solo de Destacadas, la vitrina sigue `DESIGN_SYSTEM §22.6` (sin esqueleto); D-DYN-6 (texto del criterio 928) · frontend (`FRONTEND_NOTES` §DYN, sobre `f7eeecdc`); compactadas las cabeceras v1.80.8.5–v1.80.12 (−367 líneas).
-> - v1.114.2⟨portada⟩ · 2026-10-30 · errata de §DYN, opción A del dueño para el celular: [§DYN.6.6](#DYN) foto de la teja líder por `/_next/image` (sin campo nuevo; `imageMediumUrl` descartado) y §DYN.6.7 textos por ruta; DYN-F1 (b) admite la línea `:830`; DYN-F8…F10 y DYN-D3 nuevas; DYN-D1 en celular pasa a trinquete con la meta en solo reporte y caducidad; 936 en celular **no cumplido** con el número (D-DYN-8); D-DYN-9 (arnés) · dueño (`HECHOS.md` 2026-10-30 «Portada en celular: opción A…»), informe de frontend del 2026-10-29; compactadas las cabeceras v1.80.8.2–.3. La siguiente es **v1.115**.
+> - v1.114.2⟨portada⟩ · 2026-10-30 · errata de §DYN, opción A del dueño para el celular: [§DYN.6.6](#DYN) foto de la teja líder por `/_next/image` (sin campo nuevo; `imageMediumUrl` descartado) y §DYN.6.7 textos por ruta; DYN-F1 (b) admite la línea `:830`; DYN-F8…F10 y DYN-D3 nuevas; DYN-D1 en celular pasa a trinquete con la meta en solo reporte y caducidad; 936 en celular **no cumplido** con el número (D-DYN-8); D-DYN-9 (arnés) · dueño (`HECHOS.md` 2026-10-30 «Portada en celular: opción A…»), informe de frontend del 2026-10-29; compactadas las cabeceras v1.80.8.2–.3.
+> - v1.114.3⟨portada⟩ · 2026-10-30 · 💰 errata de §DYN: [§DYN.5.9](#DYN) caso vigente **sin base** ⇒ la venta usa el **mínimo de las cotizaciones frescas admitidas** (ninguna ⇒ `PRICE_PENDING`), compra sigue `pending`; DYN-B25 rehecha; DYN-F1 (b) admite el segundo `error` de la prueba del 404 (DYN-F9) y la espera de reposo de §23.14 i (DYN-F11 nueva, sin tolerancia de píxel); sin `sharp` el optimizador da 200 con la original (`ARCHITECTURE §4.DYN (f) 7`) · dueño (`HECHOS.md` 2026-10-30 «Casos de revisión de precio SIN base: opción A…» y «Español y sellos: TODO automático…»), frontend y devops. La siguiente es **v1.115**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -73,7 +74,7 @@
 > de mercado **sano publicado** de la variante. `jumpFactor = max(candidato,base)/min(candidato,base)`. Umbral dial
 > `priceJumpFactor` (seed ×5). Consenso = ≥2 **familias** frescas dentro de `±priceConsensusTolerancePct` (seed 25 %)
 > de la mediana. Árbol: `jumpFactor < N` ⇒ publica robusto; `jumpFactor ≥ N` + consenso ⇒ publica (mercado se movió);
-> `jumpFactor ≥ N` + fuente única / no-consenso / sin base ⇒ **no publica** (conserva el último sano o `PRICE_PENDING`)
+> `jumpFactor ≥ N` + fuente única / no-consenso / sin base ⇒ **no publica** el candidato (último sano; sin base, mínimo fresco, §DYN.5.9)
 > y **abre `PriceReviewCase`**. En COMPRA, una variante con caso `open` o `PRICE_PENDING` ⇒ `referencePrice.status =
 > "pending"` (misma forma que §BMK.3 / criterio 854). 🔒 **Canario obligatorio** (criterio 889c): quitar la rama de
 > revisión pone roja una prueba sembrada ×55. Detalle y money-safety en `ARCHITECTURE §4.PRE (c)`.
@@ -130,7 +131,7 @@
 >   único que escribe tier-0 (`source='manual'`, override perenne §4.27f-2/3, el barrido no lo toca). `accept` adopta el
 >   valor; `manual` lo clava.
 > - **`keep`** ⇒ conserva el último sano (no cambia precio vivo); `status='kept'`, que sigue reteniendo venta y compra hasta que
->   el mercado se asiente ([§DYN.5.9](#DYN), v1.114).
+>   el mercado se asiente ([§DYN.5.9](#DYN), v1.114; sin base, la venta va al mínimo fresco y la compra sigue `pending`, v1.114.3).
 > - **`manual`** ⇒ **exige `manualPriceMxnCents`** (entero `> 0`; ausente ⇒ **`422 VALIDATION_ERROR`**); delega en la
 >   vía existente de override (`POST /admin/pricing/override`, tier 0 manual, §4.27f-2) y marca `status='manual'`.
 > - **`422 PRICE_REVIEW_INVALID_ACTION`** si `action` ∉ enum. Todo registra actor + fecha en `AuditLog` (criterio 877).
@@ -45761,7 +45762,7 @@ contado, v1.110.3), bypass del límite rotando IP/correo, carrera del último us
   sin `endsAt` vale hasta pausar; 1 uso por cliente por defecto; 10 intentos en 15 min; lotes ≤ 500; solo `super_admin` edita y pausa.
 - **Preguntas al dueño:** ninguna abierta (P-DSC-3 = (a), `HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).
 
-## <a id="DYN"></a>DYN. PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4 + v1.114 + v1.114.1–.2, 2026-10-29/30, **NORMATIVA**; 💰 DYN.5 es dinero)
+## <a id="DYN"></a>DYN. PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4 + v1.114 + v1.114.1–.3, 2026-10-29/30, **NORMATIVA**; 💰 DYN.5 es dinero)
 
 Fuentes, en este orden: `HECHOS.md` filas **2026-10-29** «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
 portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre la de 2026-10-04 «…VIO…»), **2026-10-04** «"Joyas para gradear" debe incluir cartas baratas…», «Portada y catálogo: el precio exhibido
@@ -46056,8 +46057,17 @@ carrito del navegador (`frontend/src/lib/cart.ts:41-48`, leído en v1.113, no re
 de una variante = su `PriceReviewCase` con `status ∈ {open, kept}`, `cardProductId` y `sealedProductId` nulos, cualquier `axis`
 (si hubiera dos, el de `createdAt` mayor). En el cuerpo (DYN.5.1), raw/graded que derivan del mercado **automático**: con caso
 vigente, la referencia que entra (y se exhibe, DYN.5.5) es `baselineMxnCents ≠ null ⇒ { priced, baselineMxnCents, capturedDate =
-día de createdAt del caso }`, `null ⇒ pending` (⇒ `PRICE_PENDING`, fila `pending`). Siguen ganando como hoy: precio por pieza,
+día de createdAt del caso }`, `null ⇒` el **mínimo fresco** de abajo (v1.114.3). Siguen ganando como hoy: precio por pieza,
 override tier 0 y override de variante M-30. ⛔ Sin cambio: sellado (sin candado) y los demás lectores de `getReferencesBatch`.
+- **Sin base (v1.114.3, 💰; sustituye para este caso P-RP-4 y la regla v1.114 «sin base ⇒ `pending`»; dueño, `HECHOS` 2026-10-30
+  «Casos de revisión de precio SIN base: opción A…» y «Español y sellos: TODO automático…»).** Mínimo fresco = la cotización de
+  `priceMxnCents` menor entre las que **votarían** en el árbitro para esa variante en el momento del cálculo: fuentes de
+  `priceArbiterSources`, no manuales, `capturedDate` dentro de `priceArbiterFreshnessDays` (pasos 1–2 de `ARCHITECTURE §4.PRE (b)`;
+  ⛔ fuera `pokemontcg_io`, PPT y residuos). **Por cotización, no por familia ni mediana.** Entra como `{ priced, priceMxnCents,
+  capturedDate de esa cotización }` (empate: `sourceRank`) y sigue el cuerpo como cualquier referencia (curva, piso, IVA, DYN.5.5).
+  **Ninguna cotización fresca ⇒ `pending`** (`PRICE_PENDING`, fila `pending`). Backend extrae una sola función de candidatas
+  frescas que usan el árbitro y este mínimo (pseudofirma `admittedFreshQuotes(variantKey, now): Quote[]`): ⛔ dos filtros distintos.
+  El caso se abre igual y sigue en la cola como registro; `kept` sin base se trata igual que `open`. **Compra:** sin cambio, `pending`.
 - **`keep` conserva:** el caso pasa a `kept` y **sigue vigente**. El barrido trata `kept` como `open`: base congelada
   (`arbiterDetailForKeys`) y dedupe de `recordArbiterDecision` sobre `{open, kept}` — mismo candidato ⇒ nada; otro que dispara ⇒
   el vigente a `superseded` y nace un `open` con la misma base; candidato que ya no dispara ⇒ `superseded` (fin de la retención en
@@ -46069,7 +46079,8 @@ override tier 0 y override de variante M-30. ⛔ Sin cambio: sellado (sin candad
 - **Despliegue (P-RP-6):** sale en la misma publicación que M-94 (su `bootstrap` ya retiene). Antes, devops mide en producción
   (solo lectura) y lo pone en la solicitud de fusión: `SELECT ("baselineMxnCents" IS NULL) AS sin_base, count(*) FROM
   "PriceReviewCase" WHERE status IN ('open','kept') AND "cardProductId" IS NULL AND "sealedProductId" IS NULL GROUP BY 1;` —
-  `sin_base` son variantes que dejan de venderse hasta que el dueño las acepte en la cola (NO MEDIDO hoy).
+  `sin_base` son variantes que se venden al mínimo fresco (v1.114.3) y no se compran; cuántas de ellas no tienen ninguna cotización
+  fresca (⇒ sin venta): NO MEDIDO hoy.
 
 ### DYN.6 Portada servida (DYN.3 de `PROJECT`, criterios 936–938)
 **DYN.6.1 Cabeceras:** `GET /catalog/featured`, `/catalog/cards`, `/catalog/facets` y `/catalog/sealed` responden
@@ -46107,7 +46118,7 @@ de la portada produce **0** `POST /api/v1/telemetry/csp` (hoy 27, medido por fro
 | DYN-B6 | 925 | 5 elegibles ⇒ 5 sin repetir; 0 ⇒ `data: []` | — |
 | DYN-B7 | 926 | los 5 diales `featured*` auditados; la selección vigente no cambia; la siguiente cumple; operador `403`; combinaciones inválidas `422` | aplicar el dial en la lectura |
 | DYN-B8 | 927, I-1 | cálculo forzado a fallar ⇒ se sirve la anterior menos lo vendido, `dataHealth.featuredRotation.status = 'stale'`, y la respuesta **≠** las N más caras (fixture construido para que difieran) | fallback a `sort=price_desc` |
-| DYN-F1 | 920, 928 | (a) fuente: el código (sin comentarios) de `_home/**` no contiene `price_desc` salvo `_home/GradedShelf.tsx` (estante «Gradeadas», no es Destacadas; **única** excepción, nombrada en el candado) y `FeaturedCarousel.tsx` no nombra `getCatalog` y toma sus datos de `getFeatured()`; (b) rotación intacta (v1.114.1): contra `b4213dff`, el diff de `FeaturedCarouselRotation.test.tsx` cae **solo** dentro del ayudante `mockCatalog` (la función espiada pasa de `api.getCatalog` a `api.getFeatured` con la forma `{ businessDate, data }`, más su comentario) y, desde v1.114.2, en la línea `:830`, que deja de comparar el `src` crudo de la líder y pasa a comparar el parámetro `url` de su `/_next/image` con `c-0-large.png` (misma intención: la líder conserva la HD; ⛔ `:843`, la chica de la secundaria, no cambia); el fichero sigue dando sus 51 pruebas en verde, el número de `expect(` es el mismo antes y después y los candados de `ROTATION_REST_MS`/`LEAD_IMAGE_CAP_MS`/`USER_INPUT_WINDOW_MS` no cambian; `e2e/featured-rotation.spec.ts` con diff **vacío**; (c) la pasada recorre 10 tejas; etiqueta en `new_arrival`. (b) lo comprueba QA con `git diff b4213dff -- <fichero>` y los dos conteos | volver a `getCatalog({sort:'price_desc'})`; añadir `price_desc` a otro fichero de `_home/**`; cambiar una aserción o una constante del test de rotación |
+| DYN-F1 | 920, 928 | (a) fuente: el código (sin comentarios) de `_home/**` no contiene `price_desc` salvo `_home/GradedShelf.tsx` (estante «Gradeadas», no es Destacadas; **única** excepción, nombrada en el candado) y `FeaturedCarousel.tsx` no nombra `getCatalog` y toma sus datos de `getFeatured()`; (b) rotación intacta (v1.114.1): contra `b4213dff`, el diff de `FeaturedCarouselRotation.test.tsx` cae **solo** dentro del ayudante `mockCatalog` (la función espiada pasa de `api.getCatalog` a `api.getFeatured` con la forma `{ businessDate, data }`, más su comentario) y, desde v1.114.2, en la línea `:830`, que deja de comparar el `src` crudo de la líder y pasa a comparar el parámetro `url` de su `/_next/image` con `c-0-large.png` (misma intención: la líder conserva la HD; ⛔ `:843`, la chica de la secundaria, no cambia) y, desde v1.114.3, en la prueba «un 404 en la foto líder desbloquea igual…» (`:338`), **un** `act(() => fireEvent.error(<líder>))` más, tras el primero, con su comentario: con DYN-F9 el primer `error` es el del optimizador y el 404 que desbloquea es el de la original, que jsdom no emite solo (misma intención: la foto líder rota no bloquea; sin `expect` nuevo ni tiempos cambiados); el fichero sigue dando sus 51 pruebas en verde, el número de `expect(` es el mismo antes y después y los candados de `ROTATION_REST_MS`/`LEAD_IMAGE_CAP_MS`/`USER_INPUT_WINDOW_MS` no cambian; `e2e/featured-rotation.spec.ts` con diff **vacío** salvo lo que admite DYN-F11; (c) la pasada recorre 10 tejas; etiqueta en `new_arrival`. (b) lo comprueba QA con `git diff b4213dff -- <fichero>`, los dos conteos y el de `fireEvent.error(` (+1, solo en esa prueba) | volver a `getCatalog({sort:'price_desc'})`; añadir `price_desc` a otro fichero de `_home/**`; cambiar una aserción o una constante del test de rotación |
 | DYN-B9 | 929 | 30 sueltas en 30 sets (5 nunca consultadas, 25 con fechas distintas), créditos para 10 sets ⇒ 5 nunca + 5 más viejas; ninguna < 7 días | `orderBy cardId asc` |
 | DYN-B10 | 930 | créditos de sobra, 14 días, 2 corridas/día, sets de 1 y de 5 cartas propias: cada carta **exactamente 2** consultas separadas ≥ 7 días naturales CDMX | reloj por carta en vez de por set |
 | DYN-B11 | 931 | retirada ⇒ no se consulta; republicada a los 3 días ⇒ espera a 7; sellado y gradeadas nunca | — |
@@ -46119,7 +46130,7 @@ de la portada produce **0** `POST /api/v1/telemetry/csp` (hoy 27, medido por fro
 | DYN-B17 | DYN.5.4 | (a) completitud y (b) un testigo por clave de `PRICE_AFFECTING_SETTING_KEYS` (fixture con ≥ 2 fuentes frescas que discrepan y FX en `manual`); (b) sin excepciones; `SIN_PERTURBACION` vacía | quitar una clave de la lista; añadir una clave inerte (p. ej. devolver `price_consensus_tolerance_pct`) |
 | DYN-B23 | DYN.5.9 💰 889(c) | base 184¢ con fila; barrido con una fuente a 10221¢ ⇒ caso `open` + `review_open`; fila, ficha, quote y sesión con `P` de 184¢ y referencia 184¢; con override tier 0 ⇒ el override | leer la referencia sin el caso (el pico llega a la fila) |
 | DYN-B24 | DYN.5.9 | `keep` ⇒ `kept`; barrido 2 con el mismo pico ⇒ sin caso nuevo, base 184¢, fila igual tras `daily`, compra `pending`; candidato dentro de ×5 ⇒ `superseded` y el `daily` siguiente da el robusto | leer solo `open` en la retención, la base congelada o el gate de compra |
-| DYN-B25 | DYN.5.9 | caso vigente con `baselineMxnCents` null ⇒ fila `pending`, no se exhibe ni se cobra | retener solo si hay base |
+| DYN-B25 | DYN.5.9 💰 (v1.114.3) | variante sin base con caso `open` y `baselineMxnCents` null; frescas `tcgcsv_singles` 300¢ y `tcgdex` 500¢ (una familia), `cardmarket` 100¢ **vieja** (> `priceArbiterFreshnessDays`) y `pokemontcg_io` 50¢ ⇒ fila `priced` con referencia **300¢** y `capturedDate` de la de tcgcsv; ficha, quote y sesión con el `P` de 300¢; compra `pending`; con `kept`, igual; con las dos frescas envejecidas ⇒ fila `pending` y `PRICE_PENDING` | (1) usar la mediana o `proposedMxnCents` (400¢); (2) admitir la vieja o la excluida (100¢/50¢); (3) volver a `pending` con frescas; (4) dar el mínimo a compra; (5) tratar `kept` distinto de `open` |
 | DYN-B26 | DYN.5.3, .9 | fila sembrada con el pico + el candado abre caso ⇒ `review_open` reescribe solo esa variante; un `daily` que empezó antes no la pisa | no encolar `review_open` |
 | DYN-B18 | §X.1 | corrida automática de `price-ingest` ⇒ exhibido igual; manual ⇒ recalculado | disparar recálculo en la automática |
 | DYN-B19 | DYN.5.6 | sin fila ⇒ precio en vivo correcto + `missing_row` encolado; `pending` nunca se exhibe ni cobra | — |
@@ -46135,6 +46146,7 @@ de la portada produce **0** `POST /api/v1/telemetry/csp` (hoy 27, medido por fro
 | DYN-F8 | 936, P-39 | (a) unitaria: la `<img>` líder sale de `/_next/image` con `url` = `imageLargeUrl` (o `imageSmallUrl` si es null), `srcset` solo con 384w/640w, el `sizes` de `ARCHITECTURE §4.DYN (f) 7`, `fetchpriority=high` y `eager`; `preload` se llama **una** vez, con `imageSrcSet`/`imageSizes` idénticos a los de la `<img>`; ninguna otra teja de la pista ni de la vitrina pasa por `/_next/image`. (b) `next.config.remote-patterns.test.ts` += `formats` = `['image/webp']`, anchos = {384, 640}, `qualities` = `[75]`, `minimumCacheTTL` ≥ 2 592 000; contra `next start`, `w=1080` o `q=90` ⇒ 400. (c) E2E en el stack: en `/es` la foto líder viaja por `/_next/image` y **no** hay petición a su URL original | `src={imageLargeUrl}` crudo; `sizes` ausente o `100vw`; precargar la URL original (doble descarga); añadir 1080 a los anchos; optimizar una teja secundaria |
 | DYN-F9 | P-39, 937 | `/_next/image` interceptado con 500: la líder cae **una vez** a la URL original sin `srcset` y se pinta, y `onLoaded` (precondición de la rotación, §23.3) se llama una sola vez, tras el respaldo; con el original también roto, `onLoaded` una vez y el pozo sin imagen rota | quitar el respaldo; llamar a `onLoaded` en el primer error; reintentar en bucle |
 | DYN-F10 | 936 (FCP) | (a) `layout.messages.test.tsx` (es y en): la raíz manda exactamente `SHELL_NAMESPACES`, la portada añade exactamente el ámbito `home`, `admin` no va en ninguno, y lo serializado para la portada pesa ≤ el trinquete en bytes que fije frontend al construir. (b) `HomeView`, el encabezado y los `error`/`not-found`/`loading` de la tienda renderizados solo con los mensajes de su ámbito ⇒ 0 `MISSING_MESSAGE`. (c) Estático: todo `page.tsx` bajo `app/[locale]` fuera de `(admin)` tiene **exactamente un** `RouteMessages`, en sí o en un layout entre él y `[locale]/layout`, y el único con ámbito `home` es la portada. (d) E2E, es y en: `/es` → `/catalog` → ficha → `/sellado` → `/buylist` → `/login` → `/es` por navegación de cliente, con 0 `MISSING_MESSAGE` en consola | quitar de `home` un namespace que use la portada; quitar el `RouteMessages` de una página; volver a mandar todo menos `admin` desde la raíz |
+| DYN-F11 | 928, §23.14 i (v1.114.3) | **Candado de la intermitencia de §23.14 i** (frontend: 2/30 rojas con la rama de A, 0/30 en `0d40d0b7`; 959 frente a 960). Leído por el arquitecto en `7a39bad6`: lo único de esa prueba que da «959 ≠ 960» es el `toBe(before)` de `expectFrozen` (`:71`, llamado en `:369`), porque `:365` admite ±2 y `:374` es `<`; y el detector de `:355-362` dispara a ±2 px del tope, así que `before` puede leerse con el desplazamiento suave aún moviéndose (causa INFERIDA, coherente con el dato). **Decisión:** ⛔ sin tolerancia de píxel en `expectFrozen` (es compartido y su `toBe` exacto es lo que prueba «no se mueve»). Se admite **solo** en §23.14 i, entre `:362` y `:364`, una espera de reposo: `scrollLeft` igual en dos lecturas separadas ≥ 250 ms, con tope ≤ 3 s (< `REST_MS`) que falla si no se asienta. **Antes de editar**, frontend mide en base y rama (N=1, determinista) `maxScroll` y el ancho de cada teja: si difieren, la causa es de maquetación de A y se corrige en código, sin tocar la prueba. **Después**, N=30 con la rama: se exige 30/30 verde, con proporción y autor (O-15) | relanzar la pasada al llegar al tope (bucle); espera de reposo sin tope; tolerancia ±1 en `expectFrozen` |
 QA: DYN-B2 con N=10 y DYN-D1 con N=5 por perfil, proporción y autor; repite las mutaciones de DYN-B8, DYN-B14 y DYN-B16. **939 de
 punta a punta** (tester-e2e, navegador, stack sembrado): (a) súper-admin cambia azar 8→6 en Configuración; (b) `POST
 /admin/jobs/featured-rotation {force:true}` (lo dispara el rol técnico, no el dueño) ⇒ 6 + 2 recién llegadas, iguales en dos
@@ -46183,10 +46195,11 @@ el panel. La meta de 936 se mide además en **producción** (N=5 por perfil, med
 ### DYN.9 Reparto (modelo fuerte en todo backend: DYN.4 gasta créditos, DYN.5 es dinero ⇒ triple veredicto)
 - **backend:** M-93 + `firstListedAt` en `claimListed` + DYN.2 (selección pura, job, endpoint, disparo manual, salud) + DYN.3;
   DYN.4 (turnos, presupuesto, AG-24, retiro del dial, veredicto); M-94 + DYN.5 (extraer el cuerpo único, escritor, disparadores,
-  lectores, checkout); DYN.6.1 y DYN.6.5. Pruebas DYN-B*. Orden: M-93 → DYN.2/DYN.4 → M-94 → DYN.5.
+  lectores, checkout); DYN.6.1 y DYN.6.5. Pruebas DYN-B*. Orden: M-93 → DYN.2/DYN.4 → M-94 → DYN.5. v1.114.3: mínimo fresco sin
+  base (DYN.5.9, `admittedFreshQuotes` única) y DYN-B25 rehecha con sus cinco mutaciones.
 - **frontend:** hook de Destacadas a `getFeatured` + etiqueta + 10 tejas (DYN-F1); portada con datos de servidor (DYN.6.2, DYN-F2);
   M10 y panel de presupuesto, retiro del campo (DYN-F5); nonce (DYN-F7); v1.114.2: foto líder optimizada con respaldo y precarga
-  (DYN.6.6, DYN-F8/F9, `FeaturedCarousel.preload.test.tsx` y la línea `:830`) y textos por ruta (DYN.6.7, DYN-F10). En checkout, nada (DYN.5.7 no cambia cuerpos).
+  (DYN.6.6, DYN-F8/F9, `FeaturedCarousel.preload.test.tsx` y la línea `:830`) y textos por ruta (DYN.6.7, DYN-F10); v1.114.3: comentario de `:343-344` sin «PENDIENTE» (DYN-F1 b) y DYN-F11. En checkout, nada (DYN.5.7 no cambia cuerpos).
   ⛔ `frontend-lite` no: todas llevan prueba nueva.
 - **devops:** DYN-D1 y DYN-D2; `POKEMONPRICETRACKER_DAILY_QUOTA`; `scripts/check-graded-estimate-dials.sh` y `scripts/post-deploy.sh`
   sin `ingestMaxCardsPerRun`; las consultas de DYN.4.7 y DYN.5.9 en producción con usuario de solo lectura; v1.114.2: DYN-D3

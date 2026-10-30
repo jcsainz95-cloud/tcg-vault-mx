@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.114.3⟨portada⟩ (2026-10-30).** 💰 §4.PRE (c) y §4.DYN (e): un caso vigente **sin base** ya no deja la variante sin venta: se vende al **mínimo de las cotizaciones frescas admitidas** (sin ninguna ⇒ `PRICE_PENDING`); la compra sigue `pending` · dueño (`HECHOS.md` 2026-10-30 «Casos de revisión de precio SIN base: opción A…» y «Español y sellos: TODO automático…»). §4.DYN (f) 7: sin `sharp`, `/_next/image` responde 200 con la original (no error) · devops/frontend. Contrato: API_CONTRACT §DYN.5.9, DYN-B25, DYN-F1 (b), DYN-F11.
 > **Errata v1.114.2⟨portada⟩ (2026-10-30).** §4.DYN (f) 7–8 NUEVOS: la foto de la teja líder pasa por el optimizador de Next (WebP, anchos 384/640, respaldo a la original, coste NO MEDIDO con su lectura) y los textos de traducción se reparten por ruta (`SHELL` en la raíz + ámbito por segmento); se descarta `imageMediumUrl` · dueño (`HECHOS.md` 2026-10-30 «Portada en celular: opción A…»). Contrato: API_CONTRACT §DYN.6.6/.6.7, DYN-F8…F10, DYN-D3, D-DYN-8/9.
 > **Rev v1.114⟨portada⟩ (2026-10-29).** §4.DYN (e) y §4.PRE (d): el candado retiene la venta (caso `open`/`kept` ⇒ último sano), `keep` sigue reteniendo, trigger `review_open` · orquestador (`HECHOS.md` 2026-10-11 «§PRE APROBADO…», 2026-10-29 «Precio: se cobra lo que se ve…»). Contrato: API_CONTRACT §DYN.5.9.
 > **Errata v1.113.4⟨portada⟩ (2026-10-29).** §4.DYN (e): la tolerancia de consenso no «mueve precio» (solo la lee el candado del barrido); D-DYN-5: el candado de §4.PRE no retiene la venta · backend (DYN-B17). Contrato: API_CONTRACT §DYN.5.4, §DYN.8.
@@ -16,31 +17,14 @@
 > **Rev v1.111⟨aviso-medicion⟩ (2026-10-26).** §14.1 D-MKT2-0b: `legalReviewOn | null` + `legalReviewWaivedByOwnerOn`, exactamente una (`HECHOS.md` 2026-10-23); §14.10 aviso aprobado · orquestador.
 > ---
 > **Rev v1.109⟨envio-v2⟩ (2026-10-24).** **§14.4:** `/buylist` (D-MKT2-8) y `/card-show` (D-MKT2-9) en la lista blanca; §14.10 pregunta 3. Envío v2: solo en API_CONTRACT §4-G.12.
-> ---
 > **Rev v1.107⟨mkt-celdas⟩ (2026-10-19).** **§13.7:** D-MKT-PANEL-5 (umbral por componente y sujeto, poblaciones, auditor). **§9:** `D-MKT-CELLS-1`.
-> ---
-> **Rev v1.106⟨mkt-fase2-r4⟩ (2026-10-19, sobre `a1ba4d2e`).** **§14.1:** `ENCENDER_BLOCKERS` en C-D1. **§14.5:** identidad de ítem
-> (D-MKT2-7). **§9:** `D-MKT2-R4`; `D-MKT-1` cerrada. Contrato: API_CONTRACT §MKT.H.4/.7/.11/.13 y §MKT.G.5.
-> ---
+> **Rev v1.106⟨mkt-fase2-r4⟩ (2026-10-19, sobre `a1ba4d2e`).** **§14.1:** `ENCENDER_BLOCKERS` en C-D1. **§14.5:** identidad de ítem (D-MKT2-7). **§9:** `D-MKT2-R4`; `D-MKT-1` cerrada. Contrato: API_CONTRACT §MKT.H.4/.7/.11/.13 y §MKT.G.5.
 > **Rev v1.104⟨ceq1-mkt⟩ (2026-10-18, sobre `e0cce11b`).** **§4.37.1-b:** eje de query con `@Query('<nombre>')`; SELECTOR §0-Q. **§9:** `D-EQ-5`.
-> ---
 > **Rev v1.102⟨mkt-fase2⟩ + v1.103⟨mkt-panel-exacto⟩ (2026-10-18, sobre `5524bd69`).** **§14 NUEVA:** Fase 2 de marketing (banner, Consent Mode v2 básico, GA4, Meta
 > Pixel y CAPI), construida **apagada** tras dos variables y una puerta de build; sin GTM; eventos de servidor por cola post-commit que no toca el pago; **m86**.
 > **§13.7:** D-MKT-PANEL-2 «el dueño ve cifras exactas» (`HECHOS.md:172`) y D-MKT-PANEL-4 (supresión mes↔semanas). Contrato: API_CONTRACT §MKT.H y §MKT.G.
-> ---
-> **Rev v1.95⟨mkt-tienda⟩ (2026-10-16, arquitecto, rama `feat/mkt-tienda`).** §13 NUEVA: atribución UTM (m81, `firstUtm*` en
-> `Order`/`SellRequest`), ficha pública de sellado con SSR/og, SEO y panel de marketing Fase 0 (m82). Fuente:
-> `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md`. Contrato: API_CONTRACT §MKT (v1.96⟨mkt-tienda⟩).
-> ---
-> **Rev v1.94⟨sellado-display⟩ (2026-10-13, arquitecto, rama `fix/sealed-display`).** Un sellado cobrado bien se pintaba como
-> su carta ancla en pedido, preparación, acta, rastreo y reembolsos (display, no mala venta). **§4.34a.2 NUEVA** (resolutor único
-> de identidad de una pieza) y **§5.2.6** (el acta congela el nombre del sellado; `FrozenCardFacts` += `sealedProductId?`/
-> `sealedProductName?`, sin migración: `cardSnapshot` es JSON). Contrato: API_CONTRACT v1.94⟨sellado-display⟩.
-> ---
-> **Erratas v1.94.1-v1.94.2⟨sellado-display⟩ (2026-10-13), compactadas en v1.109:** re-enumeración de lecturas aliaseadas del
-> ancla (3 escapes cerrados) y, sobre todo, la completitud la garantiza el candado `backend/test/sealed-display-guard.spec.ts`
-> (allowlist con razón), no una lista. Norma y casos aceptados por diseño: §4.34a.2(B)/(C)/(E)/(F).
-> ---
+> **Rev v1.95⟨mkt-tienda⟩ (2026-10-16).** §13 NUEVA: atribución UTM (m81), ficha pública de sellado con SSR/og, SEO y panel de marketing Fase 0 (m82). Contrato: API_CONTRACT §MKT (v1.96⟨mkt-tienda⟩).
+> **Rev v1.94⟨sellado-display⟩ + v1.94.1–.2 (2026-10-13).** Sellado pintado como sellado: **§4.34a.2** (resolutor único de identidad de una pieza, casos aceptados en (B)/(C)/(E)/(F)), **§5.2.6** (`FrozenCardFacts` += `sealedProductId?`/`sealedProductName?`); completitud por el candado `backend/test/sealed-display-guard.spec.ts`. Contrato: API_CONTRACT v1.94.
 > **Revisiones v1.89–v1.91 compactadas en v1.114.2 (una línea cada una; detalle en su sección, historia en git):**
 > - v1.91⟨precios⟩ · 2026-10-11 · 💰 precios robustos: mediana por familia que envuelve `isBetterRef`/`sourceRank` (tier 0 manual intacto), candado ×5, cola `PriceReviewCase` (M-75), diales `priceJumpFactor*`/`priceArbiter*`/`priceConsensusTolerancePct`, egress `api.tcgdex.net` · **§4.PRE**, `API_CONTRACT §PRE`, BACKEND_NOTES §91 · dueño (`HECHOS.md` 2026-10-11, P-RP-1…7).
 > - v1.90⟨miv⟩ · 2026-10-10 · valor de mercado con IVA en la tienda (`marketDisplayCentsOf`, `referenceDisplayCents`, `displayValueMxnCents`/`displayAbsMxnCents`), sustituye para esas tres superficies la fila «`PriceInfo`/`referenceValue` no cambian» de §4.44; `referenceValue` sigue neto · **§4.MIV**, `API_CONTRACT §MIV` · dueño (`HECHOS.md:160`).
@@ -30123,23 +30107,30 @@ resolveRobustMarket() → robustMarketMxnCents, familyCount, consensus
   ├─ 0 frescas admitidas                      → PRICE_PENDING; si había precio vivo, abrir caso (kept=último sano)
   ├─ sin base (nunca tuvo valor sano)
   │     ├─ familyCount ≥ 2 y consensus         → PUBLICA robusto (primer precio sano, nace con consenso)
-  │     └─ familyCount < 2  (fuente única)     → CASO DE REVISIÓN  (P-RP-4: sin base con que comparar ⇒ revisión)
+  │     └─ familyCount < 2  (fuente única)     → CASO DE REVISIÓN sin base (sigue vendiendo al MÍNIMO fresco, v1.114.3)
   ├─ jumpFactor <  N                           → PUBLICA robusto            (movimiento normal)
   └─ jumpFactor ≥  N  (SALTO GRANDE)
         ├─ familyCount ≥ 2 y consensus         → PUBLICA robusto            (el mercado de VERDAD se movió)
         └─ fuente única  O  no-consenso        → CASO DE REVISIÓN
-              efecto: conserva el ÚLTIMO VALOR SANO (o PRICE_PENDING si no tenía); NUNCA publica el disparado
+              efecto: conserva el ÚLTIMO VALOR SANO; NUNCA publica el disparado (sin base: ver abajo)
 ```
 
 Correspondencia con la **regla de consenso** aprobada (`HECHOS.md` 2026-10-11): salto grande + fuentes concuerdan ⇒
 auto; salto grande + única/desacuerdo ⇒ revisión. Y con P-RP-4: una variante de una sola fuente **publica si pasa el
-candado** (rama `jumpFactor < N`), y va a revisión si se dispara o si no hay base.
+candado** (rama `jumpFactor < N`), y va a revisión si se dispara o si no hay base. **Sin base (v1.114.3, sustituye P-RP-4 en
+ese caso; dueño, `HECHOS` 2026-10-30 «Casos de revisión de precio SIN base: opción A…»):** el caso se abre igual (registro, base
+congelada en `null`, cierre automático por consenso), pero la venta **no espera**: usa el mínimo de las cotizaciones frescas
+admitidas (pasos 1–2 de (b), por cotización, no por familia; `API_CONTRACT §DYN.5.9`). Por cotización y no la mediana porque,
+sin base, no hay con qué medir el pico: el mínimo es lo único que nunca publica la más alta. Coste declarado: con una sola
+cotización, su error (alto o bajo) se publica; lo acotan curva y piso MX$25.
 
 **Efecto en COMPRA (buylist), criterio 875.** Mientras una variante tenga **caso de revisión abierto** o esté en
 `PRICE_PENDING`, el cotizador **no ofrece** por ella: devuelve «precio pendiente» reutilizando la conducta de §BMK.3 /
 criterio 854 (`referencePrice.status="pending"`). El caso de revisión es **variante-ancho** (bloquea los dos ejes
 hasta resolverse); el campo `axis` del caso es informativo (dice cuál eje disparó). Así nunca se paga de más sobre un
-valor inflado, que es el lado irrecuperable del error (`§N.0`).
+valor inflado, que es el lado irrecuperable del error (`§N.0`). **v1.114.3:** la compra **no** usa el mínimo de venta; un caso
+sin base sigue `pending` en compra (default del arquitecto: la decisión del dueño habla de vender; pagar sobre una sola fuente
+sin base es el lado irrecuperable). Cambiarlo es una decisión del dueño, no de código.
 
 > **🔒 CANARIO DEL CANDADO (criterio 889(c), obligatorio — DINERO).** Backend escribe una prueba que **siembra**
 > base = MX$1.84 y UNA cotización fresca de una sola familia = MX$102.21 (×55), corre la resolución y **asevera**: la
@@ -30967,8 +30958,8 @@ precios en el carrito del navegador ni precios anteriores en el servidor.
 - **El candado retiene la venta (v1.114).** Una fila guarda un precio para todo el día; si la fila tomara la mediana con el pico
   que el candado detuvo, el pico se cobraría hasta el día siguiente, que es justo lo que §4.PRE (c) prohíbe. Se descartó meter
   `decideLock` en el cuerpo (necesitaría la base de ayer y la tolerancia en cada cálculo, y duplicaría el árbol): el cuerpo lee el
-  **resultado** del candado, el caso vigente. Valor retenido = `baselineMxnCents` del caso; sin base ⇒ `PRICE_PENDING` (P-RP-4: sin
-  con qué comparar, a revisión). `review_open` existe por una ventana: el barrido escribe el pico antes de abrir el caso, y un
+  **resultado** del candado, el caso vigente. Valor retenido = `baselineMxnCents` del caso; sin base ⇒ el mínimo fresco de §4.PRE (c)
+  (v1.114.3; sin ninguna cotización fresca, `PRICE_PENDING`). `review_open` existe por una ventana: el barrido escribe el pico antes de abrir el caso, y un
   cálculo intermedio pudo leerlo. Solo retiene, así que no adelanta ningún movimiento de mercado (el dueño pidió una vez al día).
 - Fase 1 conserva el agrupado en memoria sobre filas ya precalculadas (una consulta con `JOIN`, sin curva ni referencias). Si
   el criterio 294 (p95 < 500 ms con el doble de inventario) no se cumple medido, la fase 2 agrupa en SQL por `variantKey`, que la
@@ -31004,7 +30995,7 @@ precios en el carrito del navegador ni precios anteriores en el servidor.
    - **Parámetros (`next.config.mjs`, reglas de coste 1–3 de §5.3.3):** `formats: ['image/webp']` (sin AVIF: más CPU por transformación y fue el vector de GHSA-2xp9-vwfh-vxw4); anchos permitidos solo 384 y 640 (`imageSizes: [384]`, `deviceSizes: [640]`): otro `w` ⇒ 400, a lo sumo 2 transformaciones por imagen origen; `qualities: [75]` (si la versión de `next` instalada no admite la clave, frontend lo dice antes de construir: sin ella cada `q` es otra transformación); `minimumCacheTTL: 2592000` (30 días: la URL de una carta no cambia); `sizes="(min-width: 1024px) 376px, 212px"` (caja de 236/400 px menos el `p-3` de `CardImage`). `remotePatterns` sin cambio.
    - **Alcance:** solo la líder. Las otras 9 tejas de Destacadas y la vitrina siguen en nivel B con `imageSmallUrl` (no hay medición de que muevan el LCP, y la prueba de rotación fija la chica en las secundarias). Se reabre por §5.3.7 (3). `CardImage` sigue siendo el envoltorio único (§5.3.6 d): gana una prop `optimized` que arma la `<img>` con `getImageProps()` de `next/image`.
    - **Precarga y prioridad:** la `<img>` y `ReactDOM.preload(src, { as: 'image', imageSrcSet, imageSizes, fetchPriority: 'high' })` salen del **mismo** resultado de `getImageProps()`. Precargar la URL original haría que el navegador bajara la foto dos veces. `fetchpriority=high` y `eager` siguen solo en la líder.
-   - **Si el optimizador falla** (`/_next/image` sin 2xx: origen caído, `sharp` ausente, cuota): `next/image` no cae solo a la original. Lo hace `CardImage`: al primer `error` cambia **una vez** a la URL original sin `srcset`, y `onLoaded` (precondición 3 de §23.3) se llama solo tras ese respaldo. El peor caso es el de hoy (la HD original), nunca un hueco. **CSP sin cambio:** `/_next/image` es del mismo origen e `img-src` ya lleva `'self'` (`frontend/src/security/csp.ts:151`).
+   - **Si el optimizador falla** (`/_next/image` sin 2xx: origen caído, cuota): `next/image` no cae solo a la original. Lo hace `CardImage`: al primer `error` cambia **una vez** a la URL original sin `srcset`, y `onLoaded` (precondición 3 de §23.3) se llama solo tras ese respaldo. El peor caso es el de hoy (la HD original), nunca un hueco. **Sin `sharp` no hay error (v1.114.3):** Next 15.5.28 responde **200 con la imagen original** sin transformar (`image-optimizer.js:1105-1117`; medido por devops, releído por frontend, NO releído por el arquitecto), así que el respaldo no salta y la foto pesa como hoy, en silencio. Lo vigilan `Dockerfile.frontend` (no construye sin `sharp`, devops) y DYN-D3 (exige `image/webp`). **CSP sin cambio:** `/_next/image` es del mismo origen e `img-src` ya lleva `'self'` (`frontend/src/security/csp.ts:151`).
    - **Coste en Vercel Pro: NO MEDIDO.** Uso legítimo: ~1 líder nueva al día × 2 anchos ≈ 60 transformaciones al mes (INFERIDO). Techo por abuso: cualquiera puede pedir `/_next/image` sobre cualquier imagen de los dos hosts de `remotePatterns` (~20 000 cartas × 2 anchos). **§5.3.5 sigue siendo precondición de publicar** y se mide así: devops lee en la consola de Vercel (Usage → Image Optimization) las transformaciones incluidas en el plan, el precio del excedente y el consumo diario, lo anota con fecha en `DEVOPS_NOTES`, activa la alerta de gasto, y repite la lectura a los 7 días de publicar. Con más de ~1 000 transformaciones al día se sospecha abuso: se acota `remotePatterns.pathname` o la líder vuelve a nivel B (una prop).
 8. **Textos de traducción por ruta (c1, v1.114.2).** `NextIntlClientProvider` serializa sus mensajes en el HTML. Hoy la raíz manda todo menos `admin` (~35 KB gzip en `/es`), y recortarlos en la portada baja el FCP 0.15–0.20 s (medido por frontend, N=5, tres arneses). Pruebas: API_CONTRACT DYN-F10.
    - **La raíz manda solo `SHELL`:** los namespaces que usan los componentes de cliente que pintan los layouts en toda ruta (encabezado, pie, banner de cookies, guardas, `error`/`not-found`/`loading`). La lista vive **solo** en `i18n/message-scopes.ts`, y se mide renderizando esos componentes; no se supone.
