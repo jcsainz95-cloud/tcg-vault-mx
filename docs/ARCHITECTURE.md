@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.114.2⟨portada⟩ (2026-10-30).** §4.DYN (f) 7–8 NUEVOS: la foto de la teja líder pasa por el optimizador de Next (WebP, anchos 384/640, respaldo a la original, coste NO MEDIDO con su lectura) y los textos de traducción se reparten por ruta (`SHELL` en la raíz + ámbito por segmento); se descarta `imageMediumUrl` · dueño (`HECHOS.md` 2026-10-30 «Portada en celular: opción A…»). Contrato: API_CONTRACT §DYN.6.6/.6.7, DYN-F8…F10, DYN-D3, D-DYN-8/9.
 > **Rev v1.114⟨portada⟩ (2026-10-29).** §4.DYN (e) y §4.PRE (d): el candado retiene la venta (caso `open`/`kept` ⇒ último sano), `keep` sigue reteniendo, trigger `review_open` · orquestador (`HECHOS.md` 2026-10-11 «§PRE APROBADO…», 2026-10-29 «Precio: se cobra lo que se ve…»). Contrato: API_CONTRACT §DYN.5.9.
 > **Errata v1.113.4⟨portada⟩ (2026-10-29).** §4.DYN (e): la tolerancia de consenso no «mueve precio» (solo la lee el candado del barrido); D-DYN-5: el candado de §4.PRE no retiene la venta · backend (DYN-B17). Contrato: API_CONTRACT §DYN.5.4, §DYN.8.
 > **Errata v1.113.3⟨portada⟩ (2026-10-29).** §4.DYN (e): el valor de mercado exhibido se congela en la fila con `P` (M-94 += 2 columnas); precio a mano y cola de revisión disparan cálculo; alcance con apartadas; single-flight ratificado · backend (fase 2, `97f9dd3d`). Contrato: API_CONTRACT §DYN.5.
@@ -40,30 +41,10 @@
 > ancla (3 escapes cerrados) y, sobre todo, la completitud la garantiza el candado `backend/test/sealed-display-guard.spec.ts`
 > (allowlist con razón), no una lista. Norma y casos aceptados por diseño: §4.34a.2(B)/(C)/(E)/(F).
 > ---
-> **Rev v1.91⟨precios⟩ — PRECIOS ROBUSTOS: redundancia multi-fuente, árbitro de MEDIANA y candado anti-inflado ×5**
-> (2026-10-11, arquitecto, rama `claude/precios-redundancia` en `/home/user/tcg-precios`, base `1ba098a4` según el
-> orquestador; ⛔ sha NO MEDIDO: sin Bash). Norma en `API_CONTRACT §PRE` (rev v1.91⟨precios⟩); porqué, modelo y árbol
-> de decisión en **§4.PRE**. Fuente: `HECHOS.md` filas 2026-10-11 (§PRE + P-RP-1…7, «todas como recomiendas»);
-> `PROJECT §PRE`, criterios 870–889. 💰 **DINERO en venta y compra.** Migración **M-75** (tabla `PriceReviewCase` +
-> enums `PriceReviewStatus`/`PriceAxis` + `PriceSource += tcgdex, cardmarket`; EUR en `FxRate` condicional). Diales
-> nuevos (DATA): `priceJumpFactor` (×5), `priceJumpFactorBuy` (×5), `priceArbiterFreshnessDays` (7),
-> `priceConsensusTolerancePct` (25 %), `priceArbiterSources`. Decisión clave: **la mediana ENVUELVE al ranking**
-> `isBetterRef`/`sourceRank` (tier 0 manual intacto; tier 1 mercado = mediana de fuentes frescas por FAMILIA);
-> `pokemontcg_io` queda fuera del árbitro (§I-PP1). Egress NUEVO para devops: `api.tcgdex.net` (y EUR/MXN en Banxico);
-> `api.pokemontcg.io` sigue bloqueado. BACKEND_NOTES §91.
-> **Rev v1.90⟨miv⟩ — valor de mercado CON IVA en la tienda, con la nota «incluye IVA»** (2026-10-10, arquitecto, rama
-> `claude/mercado-iva` en `/home/user/tcg-iva`, base `7e395f0a` según el orquestador; ⛔ sha NO MEDIDO: sin Bash). Norma
-> en `API_CONTRACT §MIV`; porqué en **§4.MIV**. Fuente: `HECHOS.md:160` (2026-10-10). Sin schema, migración, endpoint,
-> código de error ni dial. Una función de dinero nueva en `common/money.ts` (`marketDisplayCentsOf`, recibe la tasa y
-> no el dial de traslación) y tres campos aditivos de presentación (`referenceDisplayCents` en las dos fichas;
-> `displayValueMxnCents`/`displayAbsMxnCents` en la tendencia de sellado). Sustituye, solo para esas tres superficies,
-> la fila «`PriceInfo`/`referenceValue` no cambian» de §4.44 (supuesto de la pregunta 62); `referenceValue` sigue neto.
-> **Rev v1.89⟨bmk⟩ — valor de mercado junto a «Te pagamos», por carta, en el cotizador de venta** (2026-10-08, arquitecto,
-> rama `claude/buylist-mercado` en `/home/user/tcg-bmercado`, base `0cbc4f5c` según el orquestador; ⛔ sha NO MEDIDO: sin
-> Bash). Norma en `API_CONTRACT §BMK`; porqué en **§4.BMK** (sección con nombre, no número, para no chocar con ramas vivas).
-> Sin schema, migración, endpoint ni campo. Un cambio de conducta acotado en backend (`referencePrice` sale `pending` en
-> líneas sin cotizar) y el resto es frontend. Sustituye en un punto §4.36.7(b) («el cotizador de buylist sigue sin mostrar
-> valor de mercado») y corrige la fila del cotizador de la tabla de §4.36.7(b.2).
+> **Revisiones v1.89–v1.91 compactadas en v1.114.2 (una línea cada una; detalle en su sección, historia en git):**
+> - v1.91⟨precios⟩ · 2026-10-11 · 💰 precios robustos: mediana por familia que envuelve `isBetterRef`/`sourceRank` (tier 0 manual intacto), candado ×5, cola `PriceReviewCase` (M-75), diales `priceJumpFactor*`/`priceArbiter*`/`priceConsensusTolerancePct`, egress `api.tcgdex.net` · **§4.PRE**, `API_CONTRACT §PRE`, BACKEND_NOTES §91 · dueño (`HECHOS.md` 2026-10-11, P-RP-1…7).
+> - v1.90⟨miv⟩ · 2026-10-10 · valor de mercado con IVA en la tienda (`marketDisplayCentsOf`, `referenceDisplayCents`, `displayValueMxnCents`/`displayAbsMxnCents`), sustituye para esas tres superficies la fila «`PriceInfo`/`referenceValue` no cambian» de §4.44; `referenceValue` sigue neto · **§4.MIV**, `API_CONTRACT §MIV` · dueño (`HECHOS.md:160`).
+> - v1.89⟨bmk⟩ · 2026-10-08 · valor de mercado junto a «Te pagamos» en el cotizador (`referencePrice` `pending` en líneas sin cotizar); sustituye un punto de §4.36.7(b) y su fila de (b.2) · **§4.BMK**, `API_CONTRACT §BMK`.
 > **Revisiones v1.80.12.1 → v1.88.1 compactadas el 2026-10-29 (v1.113⟨portada⟩; una línea cada una, detalle en su sección,
 > historia en git):**
 > - v1.88 / v1.88.1⟨release-s7⟩ · 2026-10-08 · convivencia accesorios × deseos y limpieza que conoce M-73/M-74 · `docs/specs/LIMPIEZA_DB.md §14.13`, §0-Q del contrato.
@@ -30864,7 +30845,7 @@ aparte del arquitecto tras medir el abuso (**NO MEDIDO** con tráfico real de ev
 ---
 
 <a id="4-DYN"></a>
-### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4 + v1.114, 2026-10-29, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
+### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4 + v1.114 + v1.114.2, 2026-10-29/30, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
 
 Fuentes, en este orden: `HECHOS.md` filas 2026-10-29 «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
 portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre «…VIO…»), 2026-10-04 «Joyas para gradear…», «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA…»,
@@ -31004,8 +30985,8 @@ precios en el carrito del navegador ni precios anteriores en el servidor.
 3. Disponibilidad: el HTML puede llevar hasta ~60 s de retraso (revalidación + `max-age` del API); tras hidratar, el cliente
    revalida y una pieza vendida sale. Lo exacto lo garantiza el checkout (`409 ITEM_UNAVAILABLE`), como hoy. Lectura del
    arquitecto de «en vivo» (§X.1, 924): **≤ 60 s en listas públicas, exacto al pagar**.
-4. **CSP — modelo de fase 1: se queda el nonce por petición; se cachean los DATOS, no el HTML.** El primer pintado ya cumple
-   (FCP 0.60/0.89 s medido); lo que falta es el LCP, y lo resuelve tener las tejas en el HTML, no servir el HTML desde el edge. Así
+4. **CSP — modelo de fase 1: se queda el nonce por petición; se cachean los DATOS, no el HTML.** El primer pintado cumplía
+   (FCP 0.60/0.89 s medido entonces; con imágenes reales, 1.38 s en celular: API_CONTRACT D-DYN-8); lo que falta es el LCP, y lo resuelve tener las tejas en el HTML, no servir el HTML desde el edge. Así
    no se debilita la CSP. **Condición:** el nonce **tiene que llegar** a los `<script>` (hoy no: 53 violaciones y 27 POST por vista);
    lo corrige frontend y lo verifica seguridad, con la prueba de `API_CONTRACT §DYN.6.4`. ⛔ Pasar a `enforce` antes de esa prueba
    en verde rompe la portada (con `'strict-dynamic'` sin nonce no corre ningún script — INFERIDO por el agente, NO MEDIDO).
@@ -31017,6 +30998,19 @@ precios en el carrito del navegador ni precios anteriores en el servidor.
    Requiere veredicto de **seguridad** antes de construirse; no lo decide el dueño.
 6. **CORS `maxAge`:** backend lo fija en `cors.ts` (600 s). No es contrato (no cambia ninguna respuesta), solo ahorra preflights
    en visitas repetidas; quitar `Content-Type` de los GET sin cuerpo (frontend) los elimina en la primera.
+7. **Foto de la teja líder por el optimizador de Next (v1.114.2; dueño, `HECHOS` 2026-10-30 «Portada en celular: opción A…»).** Es el nivel A que §5.3.3 ya preveía para la líder; aquí se fijan sus parámetros. Pruebas: API_CONTRACT DYN-F8, DYN-F9, DYN-D3.
+   - **Por qué:** el origen sirve PNG de 471 KB–1.23 MB (mediana ~880 KB; scrydex N=40, pokemontcg.io `_hires` 542 KB–1.09 MB N=6) y no negocia WebP/AVIF (medido por frontend 2026-10-29; su informe está en el scratchpad del orquestador, `frontend-lcp/INFORME.md`, que no está en git: frontend lo resume en `FRONTEND_NOTES` al construir). WebP a 640 px pesa ~67 KB y en la caja de celular (212 px CSS × DPR 3 = 636 px) se ve igual que la HD (captura `caja-w640`, vista por el dueño): **P-39 se respeta**. En escritorio retina 640 frente a los 733 px del original es −13 % de ancho, no perceptible.
+   - **Se descarta `imageMediumUrl`:** solo scrydex tiene `/medium` (367 px, ×1.7 por debajo de los 636 px de la caja: más blanda, regresión de P-39); pokemontcg.io no tiene tamaño intermedio, así que la mitad del catálogo caería a `small` o a HD; y costaría columna, sync y DTO para un ahorro que el optimizador da sin tocar backend.
+   - **Parámetros (`next.config.mjs`, reglas de coste 1–3 de §5.3.3):** `formats: ['image/webp']` (sin AVIF: más CPU por transformación y fue el vector de GHSA-2xp9-vwfh-vxw4); anchos permitidos solo 384 y 640 (`imageSizes: [384]`, `deviceSizes: [640]`): otro `w` ⇒ 400, a lo sumo 2 transformaciones por imagen origen; `qualities: [75]` (si la versión de `next` instalada no admite la clave, frontend lo dice antes de construir: sin ella cada `q` es otra transformación); `minimumCacheTTL: 2592000` (30 días: la URL de una carta no cambia); `sizes="(min-width: 1024px) 376px, 212px"` (caja de 236/400 px menos el `p-3` de `CardImage`). `remotePatterns` sin cambio.
+   - **Alcance:** solo la líder. Las otras 9 tejas de Destacadas y la vitrina siguen en nivel B con `imageSmallUrl` (no hay medición de que muevan el LCP, y la prueba de rotación fija la chica en las secundarias). Se reabre por §5.3.7 (3). `CardImage` sigue siendo el envoltorio único (§5.3.6 d): gana una prop `optimized` que arma la `<img>` con `getImageProps()` de `next/image`.
+   - **Precarga y prioridad:** la `<img>` y `ReactDOM.preload(src, { as: 'image', imageSrcSet, imageSizes, fetchPriority: 'high' })` salen del **mismo** resultado de `getImageProps()`. Precargar la URL original haría que el navegador bajara la foto dos veces. `fetchpriority=high` y `eager` siguen solo en la líder.
+   - **Si el optimizador falla** (`/_next/image` sin 2xx: origen caído, `sharp` ausente, cuota): `next/image` no cae solo a la original. Lo hace `CardImage`: al primer `error` cambia **una vez** a la URL original sin `srcset`, y `onLoaded` (precondición 3 de §23.3) se llama solo tras ese respaldo. El peor caso es el de hoy (la HD original), nunca un hueco. **CSP sin cambio:** `/_next/image` es del mismo origen e `img-src` ya lleva `'self'` (`frontend/src/security/csp.ts:151`).
+   - **Coste en Vercel Pro: NO MEDIDO.** Uso legítimo: ~1 líder nueva al día × 2 anchos ≈ 60 transformaciones al mes (INFERIDO). Techo por abuso: cualquiera puede pedir `/_next/image` sobre cualquier imagen de los dos hosts de `remotePatterns` (~20 000 cartas × 2 anchos). **§5.3.5 sigue siendo precondición de publicar** y se mide así: devops lee en la consola de Vercel (Usage → Image Optimization) las transformaciones incluidas en el plan, el precio del excedente y el consumo diario, lo anota con fecha en `DEVOPS_NOTES`, activa la alerta de gasto, y repite la lectura a los 7 días de publicar. Con más de ~1 000 transformaciones al día se sospecha abuso: se acota `remotePatterns.pathname` o la líder vuelve a nivel B (una prop).
+8. **Textos de traducción por ruta (c1, v1.114.2).** `NextIntlClientProvider` serializa sus mensajes en el HTML. Hoy la raíz manda todo menos `admin` (~35 KB gzip en `/es`), y recortarlos en la portada baja el FCP 0.15–0.20 s (medido por frontend, N=5, tres arneses). Pruebas: API_CONTRACT DYN-F10.
+   - **La raíz manda solo `SHELL`:** los namespaces que usan los componentes de cliente que pintan los layouts en toda ruta (encabezado, pie, banner de cookies, guardas, `error`/`not-found`/`loading`). La lista vive **solo** en `i18n/message-scopes.ts`, y se mide renderizando esos componentes; no se supone.
+   - **Cada segmento añade su ámbito** con un componente de servidor `RouteMessages({ scope })`. Toma de `getMessages()` los namespaces de primer nivel del ámbito y se los da a un proveedor de cliente que los **funde** con los del padre (el patrón de `AdminMessagesProvider`). Ámbitos: `home` (lo que usa la portada) y `storefront` = todo − `admin` − `SHELL`, calculado y no listado, para que un namespace nuevo caiga ahí solo. El panel recibe `storefront` + `admin`.
+   - **Dónde va:** en la página o en el layout más cercano que no contenga la portada: `(auth)/layout`, `pedido/layout`, `account/layout`, `[...rest]` y cada página directa de `(storefront)` salvo la portada. ⛔ Nunca en `(storefront)/layout`, porque contiene la portada. **Por qué por segmento y no por `pathname` en la raíz:** la raíz no se vuelve a pintar en una navegación de cliente, y portada → catálogo se quedaría con los textos de la portada; el RSC de la página nueva sí trae su ámbito.
+   - **Lo que no cambia:** los componentes de servidor leen el catálogo entero (`getTranslations`). La paridad es/en sigue siendo por clave en `messages/{es,en}.json`, y los ámbitos se declaran por nombre de namespace, igual en los dos idiomas. Fuera de la portada, cada página recibe lo mismo que hoy (`SHELL` + `storefront`).
 
 **(g) Desviaciones que este diseño deja escritas** (dueño y prueba de paridad de cada una en `API_CONTRACT §DYN.8`): el nonce que
 no llega (frontend; prueba DYN-F7); `PROJECT §X.1` «el cobro siempre recalcula» y la gracia/aviso de §X.2 contradicen `HECHOS`
@@ -31471,7 +31465,7 @@ equivocado.
 
 | Nivel | Superficies | Estrategia | Por qué |
 |---|---|---|---|
-| **A — `next/image`** | (1) Teja **líder** del carrusel de home y cualquier imagen del **hero** de la home. (2) Imagen **principal de la ficha de carta** (y de la ficha de sellado). | `next/image` con `priority` en la líder de home, `sizes` **explícito y estrecho**, sin ladder ancho | Son **el LCP** de las dos páginas más vistas. La cabeza tiene conjunto acotado (amortización total). En la ficha es 1–2 transformaciones por carta visitada, sobre un archivo `hires` que es donde AVIF/WebP rinde de verdad (el origen solo sirve PNG). |
+| **A — `next/image`** | (1) Teja **líder** del carrusel de home y cualquier imagen del **hero** de la home. (2) Imagen **principal de la ficha de carta** (y de la ficha de sellado). | `next/image` con `priority` en la líder de home, `sizes` **explícito y estrecho**, sin ladder ancho. Parámetros vigentes de la líder (v1.114.2): §4.DYN (f) 7 | Son **el LCP** de las dos páginas más vistas. La cabeza tiene conjunto acotado (amortización total). En la ficha es 1–2 transformaciones por carta visitada, sobre un archivo `hires` que es donde AVIF/WebP rinde de verdad (el origen solo sirve PNG). |
 | **B — `<img>` con la URL CORRECTA** | Rejilla de Compra, binder de master set, `TopBountiesShelf`, `BountyBoard`, `SealedShelf`, `CellDrawer`, `CardDetailModal`, miniaturas de carrito/checkout/pedido/bóveda, y **todas** las vistas de `admin/m1` | `<img>` crudo, **`imageSmallUrl` siempre**, `imageLargeUrl` **solo** si la caja renderizada supera ~300 px CSS. **Sin `srcset`.** | Cola larga: muchas transformaciones, beneficio pequeño por unidad, y el `srcset` de dos pasos **regresa** bytes en DPR≥2 (§5.3.2). La ganancia real ya la da elegir bien la URL, a coste cero. |
 | **C — ni una cosa ni otra** | `PhotoUploader` (previsualización local `blob:`/`data:`) | `<img>` crudo, sin tocar | No es una imagen remota; pasarla por el optimizador es imposible y absurdo. |
 

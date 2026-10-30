@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-29 (rev **v1.114.1⟨portada⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-30 (rev **v1.114.2⟨portada⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -31,7 +31,8 @@
 > - v1.113.3⟨portada⟩ · 2026-10-29 · 💰 errata de §DYN tras la fase 2 de backend: el «valor de mercado» de la tienda se congela en la fila (M-94 += `referenceMxnCents`, `referenceCapturedDate`); `manual_price` también desde `POST /admin/pricing/override` y la cola de revisión (`manual` y `accept`); alcance = `isSellable` + apartadas con fila; ruta de `PRICE_AFFECTING_SETTING_KEYS`; las cinco claves sin testigo se quedan y DYN-B17 pide testigo por clave; single-flight ratificado; DYN.5.7 sin cálculo de dinero sobre `(P, Order.ivaTransferPct)` · backend (`BACKEND_NOTES` §DYN fase 2, `97f9dd3d`).
 > - v1.113.4⟨portada⟩ · 2026-10-29 · §DYN.5.4: `price_consensus_tolerance_pct` sale de `PRICE_AFFECTING_SETTING_KEYS` (no entra en el cuerpo de DYN.5.1; solo el candado del barrido) y DYN-B17 (b) no admite excepciones (fuera `SIN_TESTIGO`); D-DYN-5 (el candado de §PRE no retiene el precio de venta) · backend (DYN-B17 sobre la errata v1.113.3).
 > - v1.114⟨portada⟩ · 2026-10-29 · 💰 [§DYN.5.9](#DYN) NUEVA (cierra el diseño de D-DYN-5): con caso `open` o `kept` el cuerpo de venta usa `baselineMxnCents` (sin base ⇒ `PRICE_PENDING`); `keep` sigue reteniendo y el barrido lo trata como `open`; compra lee `kept`; trigger `review_open` en `ListingPriceRunTrigger`; DYN-B23…B26; §PRE.F `keep` · orquestador (`HECHOS.md` 2026-10-11 «§PRE APROBADO…» y 2026-10-29 «Precio: se cobra lo que se ve…»).
-> - v1.114.1⟨portada⟩ · 2026-10-29 · errata de §DYN tras frontend: DYN-F1 admite cambiar solo el ayudante `mockCatalog` de `FeaturedCarouselRotation.test.tsx` (aserciones y constantes intactas, contadas) y declara la excepción `GradedShelf.tsx` del candado `price_desc`; DYN.6.2: el marco con alto reservado es solo de Destacadas, la vitrina sigue `DESIGN_SYSTEM §22.6` (sin esqueleto); D-DYN-6 (texto del criterio 928) · frontend (`FRONTEND_NOTES` §DYN, sobre `f7eeecdc`); compactadas las cabeceras v1.80.8.5–v1.80.12 (−367 líneas). La siguiente es **v1.115**.
+> - v1.114.1⟨portada⟩ · 2026-10-29 · errata de §DYN tras frontend: DYN-F1 admite cambiar solo el ayudante `mockCatalog` de `FeaturedCarouselRotation.test.tsx` (aserciones y constantes intactas, contadas) y declara la excepción `GradedShelf.tsx` del candado `price_desc`; DYN.6.2: el marco con alto reservado es solo de Destacadas, la vitrina sigue `DESIGN_SYSTEM §22.6` (sin esqueleto); D-DYN-6 (texto del criterio 928) · frontend (`FRONTEND_NOTES` §DYN, sobre `f7eeecdc`); compactadas las cabeceras v1.80.8.5–v1.80.12 (−367 líneas).
+> - v1.114.2⟨portada⟩ · 2026-10-30 · errata de §DYN, opción A del dueño para el celular: [§DYN.6.6](#DYN) foto de la teja líder por `/_next/image` (sin campo nuevo; `imageMediumUrl` descartado) y §DYN.6.7 textos por ruta; DYN-F1 (b) admite la línea `:830`; DYN-F8…F10 y DYN-D3 nuevas; DYN-D1 en celular pasa a trinquete con la meta en solo reporte y caducidad; 936 en celular **no cumplido** con el número (D-DYN-8); D-DYN-9 (arnés) · dueño (`HECHOS.md` 2026-10-30 «Portada en celular: opción A…»), informe de frontend del 2026-10-29; compactadas las cabeceras v1.80.8.2–.3. La siguiente es **v1.115**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -394,56 +395,9 @@
 > *(Fin de la cabecera ⟨skydropx⟩. Sigue la línea principal: v1.80.8.3 y anteriores. La línea «Versión de API … (rev
 > v1.80.8.3)» que traía la unión se retiró en v1.80.11: la única es la de arriba.)*
 >
-> **Rev v1.80.8.3 — 🔒💰 ERRATA BLOQUEANTE: `charge.refunded` TOTAL LLEVA A `refunded` DESDE `pending`, `failed` Y
-> `settled` (2026-09-29, arquitecto).** ⛔ Sin schema, sin endpoint, sin código de error nuevo. Cambia **conducta de
-> dinero** en el webhook y en `failAndRelease`. Norma: [§M4-SHIP.18.2](#M4-SHIP-18) (bloque «v1.80.8.3») y
-> [§M4-VAULT.2-bis.2](#M4-VAULT-2bis2) (bloque «v1.80.8.3»). Porqué: `ARCHITECTURE §4.57 (v)`.
->
-> - **La contradicción (medida por backend en `claude/release-s5`, `BACKEND_NOTES` «Release s5» §11; sha y cifras
->   reportados por backend, ⛔ NO MEDIDOS por el arquitecto, que no tiene Bash).** §M4-SHIP.18.9 decía «`Order →
->   refunded` con `status IN (settled, refunded)`» y el código de envío quedó con `status: 'settled'`
->   (`payments.service.ts:707` y `:717`, leído por el arquitecto); §M4-VAULT.2-bis.2 «Residual» daba por hecho que el
->   webhook lleva una orden `pending` a `refunded`. Al fusionar ganó la primera: una orden `vault` `pending`
->   reembolsada desde el panel de Stripe se queda `pending`, y un `payment_intent.succeeded` tardío la **liquida** y
->   pone sus cartas `in_custody` del cliente — **carta y dinero**, lo que `SEC-SETTLE-LATE` había cerrado
->   (`settle-late.e2e-spec.ts` 13/15 en `5321b8c6`, 15/15 en `7a32b833`; N=1 por punto, suite determinista, autor backend).
-> - **⭐ LA REGLA:** una constante nueva, **`CHARGE_REFUNDED_SOURCE_STATUSES = ['pending','failed','settled']`**, junto a
->   `SETTLEABLE_ORDER_STATUSES` y con la relación fija `= SETTLEABLE ∪ {settled}`; es el `WHERE` de `Order → refunded`
->   en **las dos** ramas de `onChargeRefunded` (con y sin `fullRefund`). `refunded` ⇒ no-op; `chargeback` ⇒ se
->   conserva (v1.80.7.2, sin cambio). M3 (`refund-ledger`, paso (4)) **sigue** con `status:'settled'`.
-> - **Y dos cosas que la regla arrastra:** (i) `onFullRefund` sobre una orden **nunca liquidada** (estado bajo candado ∈
->   `SETTLEABLE`) sella `fullRefundClosedAt` pero ⛔ **no** sube `chargebackNeedsManual` (no hay nada físico que
->   confirmar y ningún verbo lo bajaría); `AV-3` sale sin la variante `vault`. (ii) `failAndRelease` pasa a CAS
->   (`updateMany where {id, status:'pending'}`, y solo libera si `count 1`): hoy es un `update` por `id` tras una lectura
->   sin candado (`payments.service.ts:622-624`) que puede **pisar** `refunded` (o `settled`) con `failed` — y `failed`
->   es liquidable, así que reabriría el mismo agujero por otro lado.
-> - **Qué se tacha:** §M4-SHIP.18.2, fila `chargebackNeedsManual` de la tabla del sello y la cita `IN ('settled',
->   'refunded')` del bloque M5; §M4-SHIP.18.9, «`Order → refunded` con `status IN (settled, refunded)`»;
->   §M4-VAULT.2-bis.2, «`failAndRelease` (su `status !== 'pending'` no cambia)» y la frase del «Residual» que lo dejaba
->   sin norma.
-> - **Backend:** el código de arriba + la unitaria `payments.service.spec.ts:319-321` (pasa a la constante) + la B5
->   (`:338`, pasa a `updateMany` con `status:'pending'`) + **SL-8…SL-11** nuevas (§M4-VAULT.2-bis.2). **Frontend nada.**
->   **ux-ui nada** (`AV-3` sin variante ya existe). **Seguridad:** re-corre su sonda S4 sobre el camino `pending`.
->
-> **Rev v1.80.8.2 — ERRATA: EL ENLACE A REGISTRAR LA CLABE ES `/account#kyc`, NO `/cuenta#kyc` (2026-09-29, arquitecto).**
-> ⛔ **Sin schema, sin endpoint, sin cambio de conducta:** solo el literal de ruta que el contrato fijaba para el correo.
->
-> - **La contradicción (medida por backend en `claude/release-s5`, HEAD `5321b8c6`; el arquitecto no tiene Bash:
->   sha NO MEDIDO por él).** PS-39, la fila `refunded` con parte SPEI de §M4-SHIP.15 y la fila `AV-14` del catálogo de
->   avisos fijaban el enlace `/cuenta#kyc` (correos AV-14/15/16, `refund-notice.templates.ts`). Pero la pantalla que el
->   propio contrato nombra —`KycSection`— vive en **`/account`**: `frontend/src/app/[locale]/(storefront)/account/page.tsx`,
->   `AccountView.tsx:119` (`SectionShell id="kyc"`), y `PendingsBell.tsx:22` ya enlaza `/account#kyc`. `/cuenta` no
->   existe (404) y el candado `mail-links.frontend-routes.spec.ts` lo pone rojo. El contrato se equivocó de literal: la
->   pantalla manda (existe y es la que el contrato cita), no el literal.
-> - **⭐ LA REGLA:** el enlace a registrar la CLABE en todo correo es **`/account#kyc`** (con el prefijo de locale que
->   ponga el constructor de enlaces de correo, igual que el resto de enlaces). Se corrige en las tres filas, con lo
->   superado tachado: fila PS-39 (tabla de pruebas), fila «v1.80.2 — `refunded` con parte SPEI» (tabla de avisos) y
->   fila `AV-14` (catálogo de avisos). Backend ya lo aplicó en `5321b8c6` (reportado por backend; NO MEDIDO por el arquitecto).
-> - **Otras apariciones de `cuenta` como ruta (revisadas, no se tocan):** las menciones a `cuenta/pedidos` en el
->   resumen de v1.80.x (hueco 5, «fuera de contrato») y en la nota de medición sobre `shipment-notice.templates.ts:73` son
->   **registro de un bug de código ya enrutado a backend**, no literales normativos del contrato. En
->   `ARCHITECTURE.md` no hay ninguna ruta `/cuenta` (la única coincidencia es «plan/cuenta», prosa).
-> - **Frontend nada. Backend nada** (ya hecho). QA: el candado `mail-links.frontend-routes.spec.ts` debe quedar verde.
+> **Revisiones v1.80.8.2–v1.80.8.3, compactadas en v1.114.2 (una línea cada una; la norma vive en su sección; historia en git):**
+> - v1.80.8.3 · 2026-09-29 · 🔒💰 `charge.refunded` total lleva a `refunded` desde `CHARGE_REFUNDED_SOURCE_STATUSES = ['pending','failed','settled']` (= `SETTLEABLE ∪ {settled}`), `onFullRefund` sin liquidar no sube `chargebackNeedsManual`, `failAndRelease` por CAS sobre `pending`; SL-8…SL-11 · [§M4-SHIP.18.2](#M4-SHIP-18) y [§M4-VAULT.2-bis.2](#M4-VAULT-2bis2) (bloques «v1.80.8.3»), `ARCHITECTURE §4.57 (v)` · backend (release s5).
+> - v1.80.8.2 · 2026-09-29 · el enlace a registrar la CLABE en los correos es `/account#kyc` (no `/cuenta#kyc`), corregido en PS-39, la fila «`refunded` con parte SPEI» de §M4-SHIP.15 y `AV-14`; candado `mail-links.frontend-routes.spec.ts` · backend (release s5).
 >
 > **Rev v1.80.8.1 — ERRATA: EL CLIENTE DISTINGUE LOS DOS `429` DEL LOGIN (2026-09-29, arquitecto).** ⛔ **No cambia
 > el servidor:** sin schema, sin endpoint, sin código nuevo, backend nada. Cambia **qué pinta el cliente**.
@@ -45807,7 +45761,7 @@ contado, v1.110.3), bypass del límite rotando IP/correo, carrera del último us
   sin `endsAt` vale hasta pausar; 1 uso por cliente por defecto; 10 intentos en 15 min; lotes ≤ 500; solo `super_admin` edita y pausa.
 - **Preguntas al dueño:** ninguna abierta (P-DSC-3 = (a), `HECHOS.md` 2026-10-25 «…pantallas y P-DSC-3»).
 
-## <a id="DYN"></a>DYN. PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4 + v1.114 + v1.114.1, 2026-10-29, **NORMATIVA**; 💰 DYN.5 es dinero)
+## <a id="DYN"></a>DYN. PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4 + v1.114 + v1.114.1–.2, 2026-10-29/30, **NORMATIVA**; 💰 DYN.5 es dinero)
 
 Fuentes, en este orden: `HECHOS.md` filas **2026-10-29** «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
 portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre la de 2026-10-04 «…VIO…»), **2026-10-04** «"Joyas para gradear" debe incluir cartas baratas…», «Portada y catálogo: el precio exhibido
@@ -46139,6 +46093,8 @@ medición posterior a la fase 1 y el veredicto de seguridad.
 **DYN.6.4 El nonce llega:** en `/es` y `/en`, **todo** `<script>` sin `src` lleva `nonce` igual al de la cabecera CSP, y una carga
 de la portada produce **0** `POST /api/v1/telemetry/csp` (hoy 27, medido por frontend N=5). Prueba DYN-F7.
 **DYN.6.5 CORS:** backend fija `maxAge: 600` en `cors.ts` (sin efecto en ninguna respuesta de este contrato).
+**DYN.6.6 Foto de la teja líder (v1.114.2, opción A del dueño, `HECHOS` 2026-10-30).** Solo la líder de Destacadas pide su foto (`imageLargeUrl ?? imageSmallUrl`, sin cambio de DTO) a `/_next/image`, en WebP y con anchos 384/640. Las otras 9 tejas y la vitrina siguen con `<img>` crudo. ⛔ Sin campo nuevo: `imageMediumUrl` se descarta porque pokemontcg.io no tiene tamaño intermedio y el de scrydex rompe P-39. CSP sin cambio (`img-src` ya lleva `'self'`). Parámetros, precarga, respaldo a la original y cómo se mide el coste: `ARCHITECTURE §4.DYN (f) 7`.
+**DYN.6.7 Textos por ruta (v1.114.2, c1).** El provider raíz manda solo `SHELL`, y cada segmento añade su ámbito (`home` en la portada; `storefront` = todo − `admin` − `SHELL` en el resto). Sin cambio de API: `ARCHITECTURE §4.DYN (f) 8`.
 
 ### DYN.7 Pruebas que deben fallar hoy (deterministas N=1 salvo donde se dice N; sobre copia del árbol ENTERO, O-9)
 | ID | Criterio | Qué asierta | Mutación que la pone roja |
@@ -46151,7 +46107,7 @@ de la portada produce **0** `POST /api/v1/telemetry/csp` (hoy 27, medido por fro
 | DYN-B6 | 925 | 5 elegibles ⇒ 5 sin repetir; 0 ⇒ `data: []` | — |
 | DYN-B7 | 926 | los 5 diales `featured*` auditados; la selección vigente no cambia; la siguiente cumple; operador `403`; combinaciones inválidas `422` | aplicar el dial en la lectura |
 | DYN-B8 | 927, I-1 | cálculo forzado a fallar ⇒ se sirve la anterior menos lo vendido, `dataHealth.featuredRotation.status = 'stale'`, y la respuesta **≠** las N más caras (fixture construido para que difieran) | fallback a `sort=price_desc` |
-| DYN-F1 | 920, 928 | (a) fuente: el código (sin comentarios) de `_home/**` no contiene `price_desc` salvo `_home/GradedShelf.tsx` (estante «Gradeadas», no es Destacadas; **única** excepción, nombrada en el candado) y `FeaturedCarousel.tsx` no nombra `getCatalog` y toma sus datos de `getFeatured()`; (b) rotación intacta (v1.114.1): contra `b4213dff`, el diff de `FeaturedCarouselRotation.test.tsx` cae **solo** dentro del ayudante `mockCatalog` (la función espiada pasa de `api.getCatalog` a `api.getFeatured` con la forma `{ businessDate, data }`, más su comentario); el fichero sigue dando sus 51 pruebas en verde, el número de `expect(` es el mismo antes y después y los candados de `ROTATION_REST_MS`/`LEAD_IMAGE_CAP_MS`/`USER_INPUT_WINDOW_MS` no cambian; `e2e/featured-rotation.spec.ts` con diff **vacío**; (c) la pasada recorre 10 tejas; etiqueta en `new_arrival`. (b) lo comprueba QA con `git diff b4213dff -- <fichero>` y los dos conteos | volver a `getCatalog({sort:'price_desc'})`; añadir `price_desc` a otro fichero de `_home/**`; cambiar una aserción o una constante del test de rotación |
+| DYN-F1 | 920, 928 | (a) fuente: el código (sin comentarios) de `_home/**` no contiene `price_desc` salvo `_home/GradedShelf.tsx` (estante «Gradeadas», no es Destacadas; **única** excepción, nombrada en el candado) y `FeaturedCarousel.tsx` no nombra `getCatalog` y toma sus datos de `getFeatured()`; (b) rotación intacta (v1.114.1): contra `b4213dff`, el diff de `FeaturedCarouselRotation.test.tsx` cae **solo** dentro del ayudante `mockCatalog` (la función espiada pasa de `api.getCatalog` a `api.getFeatured` con la forma `{ businessDate, data }`, más su comentario) y, desde v1.114.2, en la línea `:830`, que deja de comparar el `src` crudo de la líder y pasa a comparar el parámetro `url` de su `/_next/image` con `c-0-large.png` (misma intención: la líder conserva la HD; ⛔ `:843`, la chica de la secundaria, no cambia); el fichero sigue dando sus 51 pruebas en verde, el número de `expect(` es el mismo antes y después y los candados de `ROTATION_REST_MS`/`LEAD_IMAGE_CAP_MS`/`USER_INPUT_WINDOW_MS` no cambian; `e2e/featured-rotation.spec.ts` con diff **vacío**; (c) la pasada recorre 10 tejas; etiqueta en `new_arrival`. (b) lo comprueba QA con `git diff b4213dff -- <fichero>` y los dos conteos | volver a `getCatalog({sort:'price_desc'})`; añadir `price_desc` a otro fichero de `_home/**`; cambiar una aserción o una constante del test de rotación |
 | DYN-B9 | 929 | 30 sueltas en 30 sets (5 nunca consultadas, 25 con fechas distintas), créditos para 10 sets ⇒ 5 nunca + 5 más viejas; ninguna < 7 días | `orderBy cardId asc` |
 | DYN-B10 | 930 | créditos de sobra, 14 días, 2 corridas/día, sets de 1 y de 5 cartas propias: cada carta **exactamente 2** consultas separadas ≥ 7 días naturales CDMX | reloj por carta en vez de por set |
 | DYN-B11 | 931 | retirada ⇒ no se consulta; republicada a los 3 días ⇒ espera a 7; sellado y gradeadas nunca | — |
@@ -46173,13 +46129,18 @@ de la portada produce **0** `POST /api/v1/telemetry/csp` (hoy 27, medido por fro
 | DYN-F2 | 936-937 | HTML de `/es` sin JS contiene `#piezas-destacadas-pista img` y, si la vitrina tiene datos, la vitrina; con el API retrasado 5 s o en `503`, el HTML sale con el marco de Destacadas, **sin** marco de la vitrina (DYN.6.2, v1.114.1), y CLS ≤ 0.1 al llegar | volver a `useQuery` sin datos iniciales; pintar un esqueleto de la vitrina |
 | DYN-F5 | 926, 301 | M10 edita los 6 diales; panel de presupuesto con los campos de DYN.4.6; el campo retirado ya no se pinta ni viaja en el `PUT`, y M2 guarda con un `GET` sin él (D-DYN-4) (`GradedEstimatesSection`, `lib/grading-hook-cost.ts`) | volver a exigir el campo para guardar |
 | DYN-F7 | DYN.6.4 | nonce en todo `<script>` en línea y 0 reportes CSP por vista | quitar el nonce del render |
-| DYN-D1 | 938 | Lighthouse CI sobre el stack sembrado, `numberOfRuns: 5`, mediana: móvil FCP ≤ 1.0 s, LCP ≤ 2.5 s; escritorio FCP ≤ 1.0 s, LCP ≤ 1.5 s; CLS ≤ 0.1. Canario: retraso artificial de la portada (variable solo fuera de producción) ⇒ rojo | — |
+| DYN-D1 | 938 | Lighthouse CI sobre el stack sembrado (arnés de DYN-D3), `numberOfRuns: 5`, mediana. **Bloquean:** escritorio FCP ≤ 1.0 s y LCP ≤ 1.5 s; CLS ≤ 0.1 en los dos perfiles; y en celular (v1.114.2) un **trinquete** de FCP y LCP = la mediana que mida devops en ese arnés con A + c1 construidas, +10 % (el valor va escrito en la configuración del job, con sha y fecha). **Solo reporte:** la meta del 936 en celular (FCP ≤ 1.0 s, LCP ≤ 2.5 s) sale en el resumen del job como «NO CUMPLIDA, decisión del dueño 2026-10-30». Esa condición tiene dueño (orquestador: devolver al dueño la opción B con el número), caducidad 2026-12-31 y candado `home-perf-mobile-goal-expiry`, que se pone rojo desde 2027-01-01 si celular sigue en solo reporte. Canario: retraso artificial de la portada (variable solo fuera de producción) ⇒ rojo | subir el trinquete sin pase del arquitecto |
 | DYN-D2 | 937 | proxy de prueba entre la tienda y el API en el stack de CI que retrasa 5 s o responde `503` a `/catalog/featured` y a la vitrina | — |
+| DYN-D3 | 936, 938 | Arnés de `home-perf` con bytes reales: la foto líder del seed pesa como la real (PNG ≥ 800 KB en el origen; la mediana medida es ~880 KB) y el optimizador la sirve de verdad. El job falla si la `<img>` LCP no tiene `currentSrc` en `/_next/image` con respuesta 200 `image/webp` (caer al respaldo es rojo, no verde). El artefacto sube los `lhr-*.json` | volver a la foto sustituta de 168 KB; quitar `sharp` del build del arnés |
+| DYN-F8 | 936, P-39 | (a) unitaria: la `<img>` líder sale de `/_next/image` con `url` = `imageLargeUrl` (o `imageSmallUrl` si es null), `srcset` solo con 384w/640w, el `sizes` de `ARCHITECTURE §4.DYN (f) 7`, `fetchpriority=high` y `eager`; `preload` se llama **una** vez, con `imageSrcSet`/`imageSizes` idénticos a los de la `<img>`; ninguna otra teja de la pista ni de la vitrina pasa por `/_next/image`. (b) `next.config.remote-patterns.test.ts` += `formats` = `['image/webp']`, anchos = {384, 640}, `qualities` = `[75]`, `minimumCacheTTL` ≥ 2 592 000; contra `next start`, `w=1080` o `q=90` ⇒ 400. (c) E2E en el stack: en `/es` la foto líder viaja por `/_next/image` y **no** hay petición a su URL original | `src={imageLargeUrl}` crudo; `sizes` ausente o `100vw`; precargar la URL original (doble descarga); añadir 1080 a los anchos; optimizar una teja secundaria |
+| DYN-F9 | P-39, 937 | `/_next/image` interceptado con 500: la líder cae **una vez** a la URL original sin `srcset` y se pinta, y `onLoaded` (precondición de la rotación, §23.3) se llama una sola vez, tras el respaldo; con el original también roto, `onLoaded` una vez y el pozo sin imagen rota | quitar el respaldo; llamar a `onLoaded` en el primer error; reintentar en bucle |
+| DYN-F10 | 936 (FCP) | (a) `layout.messages.test.tsx` (es y en): la raíz manda exactamente `SHELL_NAMESPACES`, la portada añade exactamente el ámbito `home`, `admin` no va en ninguno, y lo serializado para la portada pesa ≤ el trinquete en bytes que fije frontend al construir. (b) `HomeView`, el encabezado y los `error`/`not-found`/`loading` de la tienda renderizados solo con los mensajes de su ámbito ⇒ 0 `MISSING_MESSAGE`. (c) Estático: todo `page.tsx` bajo `app/[locale]` fuera de `(admin)` tiene **exactamente un** `RouteMessages`, en sí o en un layout entre él y `[locale]/layout`, y el único con ámbito `home` es la portada. (d) E2E, es y en: `/es` → `/catalog` → ficha → `/sellado` → `/buylist` → `/login` → `/es` por navegación de cliente, con 0 `MISSING_MESSAGE` en consola | quitar de `home` un namespace que use la portada; quitar el `RouteMessages` de una página; volver a mandar todo menos `admin` desde la raíz |
 QA: DYN-B2 con N=10 y DYN-D1 con N=5 por perfil, proporción y autor; repite las mutaciones de DYN-B8, DYN-B14 y DYN-B16. **939 de
 punta a punta** (tester-e2e, navegador, stack sembrado): (a) súper-admin cambia azar 8→6 en Configuración; (b) `POST
 /admin/jobs/featured-rotation {force:true}` (lo dispara el rol técnico, no el dueño) ⇒ 6 + 2 recién llegadas, iguales en dos
 navegadores; (c) un invitado compra una destacada y desaparece en el otro navegador tras ≤ 60 s y recargar; (d) tope bajado ⇒ AG-24 en
 el panel. La meta de 936 se mide además en **producción** (N=5 por perfil, mediana y peor, sha, fecha y carga), como pide `PROJECT §DYN.3`.
+**Estado de 936 (v1.114.2): NO CUMPLIDO en celular, por decisión del dueño** (`HECHOS` 2026-10-30: opción A, sin abrir B). Lo midió frontend el 2026-10-29 con Lighthouse móvil, N=5, mediana [peor], en el arnés local con bytes reales; el arquitecto no lo midió. LCP: 9.62 [9.93] s hoy y 5.47 [5.66] s con WebP 640. FCP: 1.39 s, y 1.24 [1.25] s con c1 (sobre `medium`; A + c1 juntas, **NO MEDIDO**). Faltan ~3 s de LCP y ~0.2 s de FCP. Escritorio: LCP 1.71 s hoy → 0.95 s, cumple. Producción tras publicar: **NO MEDIDO**. Cómo se vigila sin fingir verde: DYN-D1.
 
 ### DYN.8 Desviaciones, ambigüedades, supuestos y preguntas
 - **D-DYN-1 (nonce):** la CSP con nonce de §14.3 no llega a los 28 `<script>` en línea (medido por frontend en producción, N=5;
@@ -46203,11 +46164,13 @@ el panel. La meta de 936 se mide además en **producción** (N=5 por perfil, med
   editarlas», y 920/922 piden otra fuente para Destacadas. `FeaturedCarouselRotation.test.tsx:115-121` espía la fuente
   (`api.getCatalog`); sin cambiar ese doble salen 39/51 rojas (medido por frontend, `FRONTEND_NOTES` §DYN; ⛔ NO MEDIDO por el
   arquitecto). Lectura del contrato: «sin editarlas» = sin tocar aserciones, tiempos ni constantes; el doble de datos sigue a la
-  fuente. Norma: DYN-F1 (b). **Lo corrige product-owner** en el texto de 928; lo vigila DYN-F1 (b).
+  fuente; desde v1.114.2, también la forma de la URL de la líder (`:830`, DYN.6.6). Norma: DYN-F1 (b). **Lo corrige product-owner** en el texto de 928; lo vigila DYN-F1 (b).
 - **D-DYN-7 (`price_desc` en `_home/GradedShelf.tsx:34`, v1.114.1):** ratificada como excepción. Es el estante «Gradeadas»
   (`getCatalog({ productType: 'graded', sort: 'price_desc', pageSize: 4 })`), no Destacadas, y §DYN no lo toca; el candado
   original («`_home/**` sin `price_desc`») era más ancho que la regla (Destacadas no se ordena por precio). La excepción vive
   **solo** en el candado de DYN-F1 (a), nombrada; un segundo fichero con `price_desc` en `_home/**` lo pone rojo.
+- **D-DYN-8 (936/938 en celular, v1.114.2):** `PROJECT.md:7553-7555` dice que lo que tarda en el navegador está «NO MEDIDO aún» (ya lo está). El 936 (`:14932-14936`) queda rojo en celular por decisión del dueño, con el número de arriba. Y el 938 (`:14939-14940`) pide un CI que se ponga rojo si se rebasa la meta: con una meta que se sabe incumplida, ese CI estaría rojo siempre. Lectura del contrato: trinquete bloqueante + meta en solo reporte con caducidad (DYN-D1). **Lo corrige product-owner** (texto de §DYN.3, del 936 con el número y la decisión, y del 938 con el trinquete); lo vigila DYN-D1.
+- **D-DYN-9 (arnés de `home-perf`, medido por frontend el 2026-10-29):** sirve una foto sustituta de 168 KB, y el verde de escritorio en CI se apoya en ella (con bytes reales, 1.71 s > 1.5). Además, el artefacto no trae los `lhr-*.json`, porque `.lighthouseci` es una carpeta oculta y upload-artifact la omite. **Lo corrige devops**; lo vigila DYN-D3.
 - **Lecturas del arquitecto que product-owner debe reflejar en el texto de criterios:** 929/930 se cumplen **por set** (un set
   es la unidad que se pide; con una carta propia por set coinciden con el texto); «recién llegada» se decide por grupo con su pieza
   viva más antigua; «en vivo» en listas = ≤ 60 s (924, 939 c).
@@ -46222,9 +46185,11 @@ el panel. La meta de 936 se mide además en **producción** (N=5 por perfil, med
   DYN.4 (turnos, presupuesto, AG-24, retiro del dial, veredicto); M-94 + DYN.5 (extraer el cuerpo único, escritor, disparadores,
   lectores, checkout); DYN.6.1 y DYN.6.5. Pruebas DYN-B*. Orden: M-93 → DYN.2/DYN.4 → M-94 → DYN.5.
 - **frontend:** hook de Destacadas a `getFeatured` + etiqueta + 10 tejas (DYN-F1); portada con datos de servidor (DYN.6.2, DYN-F2);
-  M10 y panel de presupuesto, retiro del campo (DYN-F5); nonce (DYN-F7). En checkout, nada (DYN.5.7 no cambia cuerpos).
+  M10 y panel de presupuesto, retiro del campo (DYN-F5); nonce (DYN-F7); v1.114.2: foto líder optimizada con respaldo y precarga
+  (DYN.6.6, DYN-F8/F9, `FeaturedCarousel.preload.test.tsx` y la línea `:830`) y textos por ruta (DYN.6.7, DYN-F10). En checkout, nada (DYN.5.7 no cambia cuerpos).
   ⛔ `frontend-lite` no: todas llevan prueba nueva.
 - **devops:** DYN-D1 y DYN-D2; `POKEMONPRICETRACKER_DAILY_QUOTA`; `scripts/check-graded-estimate-dials.sh` y `scripts/post-deploy.sh`
-  sin `ingestMaxCardsPerRun`; las consultas de DYN.4.7 y DYN.5.9 en producción con usuario de solo lectura.
+  sin `ingestMaxCardsPerRun`; las consultas de DYN.4.7 y DYN.5.9 en producción con usuario de solo lectura; v1.114.2: DYN-D3
+  (D-DYN-9), el trinquete y la caducidad de DYN-D1, `sharp` en el build `standalone`, y la lectura de coste de `ARCHITECTURE §5.3.5`/§4.DYN (f) 7 antes de publicar.
 - **ux-ui:** «Recién llegada», texto de AG-24 y de `featuredRotation`/`listingPrices` en salud de datos, panel de presupuesto
-  (sin aviso de cambio de precio). **product-owner:** D-DYN-2, D-DYN-3 y las lecturas de DYN.8.
+  (sin aviso de cambio de precio). **product-owner:** D-DYN-2, D-DYN-3, D-DYN-8 y las lecturas de DYN.8.
