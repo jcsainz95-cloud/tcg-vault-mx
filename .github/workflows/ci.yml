@@ -509,7 +509,7 @@ jobs:
   # un trinquete de no regresión. Condición con dueño (orquestador: devolver al dueño
   # la opción B con el número), caducidad 2026-12-31 y este candado: ROJO desde
   # 2027-01-01 si celular sigue en trinquete. Además, el trinquete no SUBE respecto a
-  # la base sin pase del arquitecto. Cada uno con su canario. DEVOPS_NOTES §105.
+  # la base sin pase del arquitecto. Cada uno con su canario. DEVOPS_NOTES §106.
   # ---------------------------------------------------------------------------
   home-perf-mobile-goal-expiry:
     runs-on: ubuntu-24.04
@@ -835,6 +835,20 @@ jobs:
         run: ./scripts/check-runner-pin-canary.sh
 
   # ---------------------------------------------------------------------------
+  # 🔒 LIMPIEZA DE RAMAS — el script que borra ramas remotas (limpieza-ramas.yml,
+  # lo dispara el dueño) solo borra lo fusionado en `production`. 2026-10-30.
+  # El canario monta un repo de juguete (fusionadas, sin fusionar, PR, protegidas,
+  # carrera, archivo de main) y lee el REMOTO; con --mutaciones, 7 mutaciones del
+  # script tienen que ponerlo rojo. DEVOPS_NOTES §105.
+  # ---------------------------------------------------------------------------
+  limpieza-ramas:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: limpieza-ramas.sh nunca borra lo no fusionado ni lo protegido (y el canario muerde)
+        run: ./scripts/limpieza-ramas-canary.sh --mutaciones
+
+  # ---------------------------------------------------------------------------
   # 🔒 SB-D2 — EL POOL QUE HACE VISIBLE EL 500 DE CHECKOUT ESTÁ ESCRITO, NO
   # HEREDADO DEL RUNNER. 2026-09-11, condición COND-2 del techlead.
   #
@@ -1103,7 +1117,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, dyn-prod-measure, price-provider-interim-expiry, dast-report-only-expiry, home-perf-mobile-goal-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates, runner-pin]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, dyn-prod-measure, price-provider-interim-expiry, dast-report-only-expiry, home-perf-mobile-goal-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates, runner-pin, limpieza-ramas]
     if: always()
     runs-on: ubuntu-24.04
     steps:

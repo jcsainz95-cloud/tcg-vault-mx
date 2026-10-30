@@ -22,9 +22,11 @@
   Playwright 1.56 no instala Chromium ahí (run 40849459030). Candado `scripts/check-runner-pin.sh` + canario, job `runner-pin` de `ci.yml`.
 - **Portada (§DYN, v1.114.2, 2026-10-30):** `home-perf.yml` corre Lighthouse CI (N=5 por perfil, mediana) con canario y los
   dos casos de 937 — §104; desde v1.114.2 con la foto líder de **peso real** y el optimizador comprobado (DYN-D3), y celular
-  con **trinquete** (DYN-D1) — §105. **El trinquete está SIN FIJAR** hasta que se fusione A + c1 de frontend: mientras, celular
-  bloquea con la meta de 936 y el workflow sale rojo. **Precondición de publicar A:** la lectura de coste en Vercel (§105.4,
+  con **trinquete** (DYN-D1) — §106. **El trinquete está SIN FIJAR** hasta que se fusione A + c1 de frontend: mientras, celular
+  bloquea con la meta de 936 y el workflow sale rojo. **Precondición de publicar A:** la lectura de coste en Vercel (§106.4,
   la hace el dueño). Mediciones de producción de §DYN: `scripts/dyn-prod-measure.sh` (§104.4), las corre el dueño.
+- **Limpieza de ramas (2026-10-30):** `limpieza-ramas.yml` (lo dispara el dueño) borra las ramas remotas fusionadas en
+  `production` y archiva `main`. Pasos para el dueño y cómo se deshace: **§105**.
 - **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5); muy por encima del tope: **se compacta antes de añadir**. Encabezado anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
 ---
@@ -14021,25 +14023,10 @@ excepción nueva en `.trivyignore`.
 **Pendiente (no se toca aquí):** el job instala `trivy` por apt sin fijar versión, en contra de «toda dependencia
 externa va fijada». Lo dejo propuesto, no lo cambio.
 
-## §90 · Redis local en MISCONF: `dir` en un scratchpad borrado (2026-10-06, rama `claude/buylist-skydropx`)
+## §90 · Redis local en MISCONF (2026-10-06) — compactada 2026-10-30 (DOC-SIZE); texto: `git show b90bb35d:docs/DEVOPS_NOTES.md`
 
-**Síntoma (B-2/B-3/B-4, 2026-10-06):** `auth-password-attempts-redis` y `reset-admin-password-lock` rojas en todos
-los árboles con `MISCONF ... unable to persist to disk`.
-
-**Causa medida (devops, 2026-10-06):** `redis-server` (pid 20394, arrancado `--daemonize yes` sin `--dir`) tenía
-`dir`/cwd = `scratchpad/qa-mail-7aa2/new (deleted)` (`ls -l /proc/<pid>/cwd`). Al borrarse ese scratchpad (O-20)
-el BGSAVE no puede crear el RDB → `rdb_last_bgsave_status:err` → con `stop-writes-on-bgsave-error yes` rechaza toda
-escritura. No era el disco (88 %, 4.8 GB libres). `CONFIG SET dir` falla: `can't set protected config` (Redis 7).
-
-**Arreglo en caliente:** `redis-cli CONFIG SET save ""` (sin snapshots; el Redis local es efímero de pruebas,
-DBSIZE 0). Reversible con `CONFIG SET save "3600 1 300 100 60 10000"`. No reinicia ni pierde claves.
-Antes: 3/3 corridas rojas (31/31 fallan). Después: 5/5 verdes (31/31). N y logs del agente devops.
-
-**Candado en tooling (`scripts/stack-native.sh` `start_infra`):** Redis se arranca desde `/` con `--save ""`; y si
-ya está arriba con `rdb_last_bgsave_status:err`, aplica el mismo `CONFIG SET save ""` y avisa.
-Rollback: revertir el commit.
-
-**Para los gates:** no arranquéis `redis-server` a mano desde vuestro scratchpad; usad `stack-native.sh up --infra`.
+Vigente: `stack-native.sh up --infra` arranca Redis desde `/` con `--save ""` y lo corrige si ya está en
+`rdb_last_bgsave_status:err`. No arranquéis `redis-server` a mano desde un scratchpad.
 
 ## §91 · `npm-audit` en rojo en todas las ramas: `sharp <0.35.5` (HIGH) en el frontend (2026-10-06, rama `claude/fix-sharp`)
 
@@ -14600,40 +14587,10 @@ Qué mirar: job `selftest` → paso «ZAP real lee la política…» con `ZAP-OK
 revertir **también** las tres líneas `10055-n` de `baseline.conf` o el DAST de release queda sin medición (si eso
 pone rojo el `5-quater` de `check-dast-gate-live.sh`: NO MEDIDO).
 
-## §97 · C6, ronda de control: `--control-only` gasta 6 (no 12) y respeta la autorización del dueño (2026-10-10, rama `claude/salida-real`, devops)
+## §97 · C6, ronda de control (2026-10-10) — compactada 2026-10-30 (DOC-SIZE); texto: `git show b90bb35d:docs/DEVOPS_NOTES.md`
 
-**De dónde viene.** La ronda 1 de C6 (XFF rotatorio) ya se corrió: run `38074439305`, job «sonda», sha `00535194`
-⇒ 6×`401 INVALID_CREDENTIALS`, **ningún 429**. Eso es la rama (a) de §85.4: «nunca 429» rotando XFF no distingue
-un bypass de un tope apagado; hace falta la **ronda de control** (misma IP, sin `X-Forwarded-For`). El dueño
-autorizó HOY **6 peticiones más** y solo 6 (HECHOS.md, fila 2026-10-10 «C6: el dueño AUTORIZA 6 peticiones más»).
-
-**El problema medido.** `edge-xff-probe.sh --with-control` **siempre reenvía la ronda base (6) y luego el control
-(6) = 12 peticiones**. Medido contra un backend de mentira en modo `bypass`:
-
-    rc=1 · peticiones recibidas por el backend: 12  (--with-control)
-    rc=1 · peticiones recibidas por el backend:  6  (--control-only)
-
-12 > 6 autorizadas ⇒ cablear el input a `--with-control` habría doblado el presupuesto del dueño.
-
-**La corrección.** Flag nuevo `--control-only` en `edge-xff-probe.sh`: NO reenvía la base (encaja el resultado ya
-medido, `NUNCA`) y manda **solo** la ronda de control = **6 peticiones en total**. rc 1 si el 6.º del control es
-`429 RATE_LIMITED` (bypass presente → C6 FALLA, arreglo de código: arquitecto → backend); rc 2 si no lo es (no
-concluyente). El workflow `edge-xff-probe.yml` gana el input `control` (booleano, def. `false`): `true` ⇒
-`--control-only`. La confirmación exacta sigue siendo `C6-6-INTENTOS`; el comportamiento por push/PR (solo canario)
-no cambia.
-
-**Canario.** `check-edge-xff-probe-canary.sh` gana dos casos: `bypass + --control-only` ⇒ rc 1 con `peticiones: 6`
-(si la base se reenviara saldría `peticiones: 12` y el canario mordería), y `off + --control-only` ⇒ rc 2. Verificado
-local: **10/10** con N=2 (incluye las dos mutaciones existentes que siguen mordiendo).
-
-**Cómo se corre (lo dispara el orquestador tras autorización del dueño, ventana abierta):**
-`gh workflow run edge-xff-probe.yml --ref claude/salida-real -f confirmar=C6-6-INTENTOS -f control=true`.
-Qué mirar en el resumen del job: `modo: ronda de CONTROL únicamente`, la línea `control: <6 respuestas>` y
-`peticiones: 6` (nunca 12). Otra corrida después de esta requiere **nueva** autorización del dueño.
-
-**Rollback:** `git revert` del commit. El workflow vuelve a invocar solo `--i-have-a-window` (ronda base, 6) y
-pierde el input `control`; el flag `--control-only` del script queda inerte sin el workflow. No toca producción ni
-datos.
+Vigente: `edge-xff-probe.yml` con `control=true` ⇒ `edge-xff-probe.sh --control-only` = **6** peticiones (nunca 12);
+confirmación `C6-6-INTENTOS`; cada corrida exige autorización nueva del dueño. Canario `check-edge-xff-probe-canary.sh`.
 
 ## §98 · La CSP vuelve a `report-only` este release: ZAP 10038/10055 a WARN (2026-10-10, rama `claude/salida-real`, devops)
 
@@ -14907,7 +14864,7 @@ sirve `seed-image-host.py` por HTTPS local y solo el Chrome de Lighthouse las re
 resumen del job y en el artefacto `home-perf`. rc 0 todo como se espera · 1 rojo · 2 **no medido** (nunca verde).
 - **Medido el 2026-10-29** (tabla completa: `git show 0d40d0b7:docs/DEVOPS_NOTES.md`, §104.1): escritorio cumplía 936 y móvil
   no (FCP ≈ 1.4-2.0 s, LCP ≈ 6.4-6.7 s). **Esas cifras se apoyaban en la foto sustituta de 168 KB (D-DYN-9)**: con bytes reales
-  ver §105.1. DYN-D2: la vitrina retrasada 5 s no suma CLS (0.001-0.002); con `503`, CLS 0.066 móvil / 0.037 escritorio (≤ 0.1).
+  ver §106.1. DYN-D2: la vitrina retrasada 5 s no suma CLS (0.001-0.002); con `503`, CLS 0.066 móvil / 0.037 escritorio (≤ 0.1).
 - **El canario ENGORDA, no retrasa (medido).** Con el perfil estándar (throttling **simulado**, Lantern) un retraso de 2 s
   del HTML no mueve el FCP: `server-response-time` 2 073 ms y FCP simulado 1 410 ms frente a 110 ms y 1 425 ms sin
   retraso (N=5 por perfil; el FCP **observado** sí subió a 2 375 ms). Consecuencia que hay que saber: **este check no ve un
@@ -14965,7 +14922,42 @@ de `check-home-perf`, que mide N=10): stack 4/4 · 6/6 · 7/7, diales 6/6, censo
 arnés de Lighthouse 11/11, más los anclajes que se movieron (expected-sha 4/4, upload-origin 3/3). En Actions (run
 40876689037) los jobs `e2e-harness-gaps` y `dyn-prod-measure` salieron verdes.
 
-## §105 · v1.114.2 (opción A): arnés con bytes reales (DYN-D3), trinquete de celular (DYN-D1), `sharp` en standalone y coste de Vercel (2026-10-30, rama `claude/portada-dyn-ops2`, base `0d40d0b7`)
+## §105 · Limpieza de ramas y archivo de `main` (2026-10-30, rama `claude/limpieza-ramas`, base `b90bb35d`)
+
+Autorización: `HECHOS.md`, fila 2026-10-30 «Limpieza de ramas». El proxy de las sesiones de agentes bloquea el borrado
+(`git push --delete` corta la conexión; `DELETE /git/refs` → 403), así que lo dispara el dueño desde Actions.
+
+**Qué borra.** Workflow `.github/workflows/limpieza-ramas.yml` (solo `workflow_dispatch`, job con `contents: write` +
+`pull-requests: read`) → `scripts/limpieza-ramas.sh`. Borra una rama remota solo si su último commit es ancestro de
+`origin/production`, no es `production`/`main`/`staging`/`gh-pages` (lista fija en el script), no es cabeza ni base de
+una PR abierta (API `pulls?state=open`; la base también, porque borrarla cierra la PR) y sigue en el sha medido
+(`--force-with-lease`). Nunca borra etiquetas. Sin la lista de PR ⇒ rc 2 sin tocar nada. Antes de borrar, el job
+corre el canario; el canario con 7 mutaciones corre además en cada push (`ci.yml`, job `limpieza-ramas`).
+Medido 2026-10-30 en local (`confirmar=false`, sin borrar): 192 remotas · **134 a borrar** · 51 sin fusionar ·
+5 en PR abierta (#107, #92, #83, #61, #60) · 2 protegidas presentes (`main`, `production`).
+
+**Pasos para el dueño (en este orden):**
+1. GitHub → Settings → General → **Default branch** → `production`. Va primero: el botón «Run workflow» solo
+   aparece si el workflow está en la rama por defecto, y GitHub no deja borrar la rama por defecto.
+2. Que este workflow llegue a `production` en la próxima publicación (fusión de la solicitud a `production`).
+3. Actions → **«Limpieza de ramas»** → Run workflow, con `confirmar` **apagado**: el resumen del job lista qué ramas
+   se borrarían (rama, último commit, fecha). Si la lista cuadra, otra vez con `confirmar` **encendido**.
+4. Settings → General → activar **«Automatically delete head branches»** (las ramas de PR fusionadas se borran solas).
+5. Archivar `main`: Run workflow con `archivar_main` encendido (primero con `confirmar` apagado para verlo, luego
+   encendido). Crea la etiqueta `archive/main` en el último commit de `main`, comprueba que quedó en el remoto y solo
+   entonces borra `main`. Se niega (rc 2, sin borrar nada) si la rama por defecto aún no es `production` o si
+   `archive/main` ya existe en otro commit.
+
+**Cómo se deshace.** Ninguna rama borrada pierde commits: todas eran ancestro de `production`. Para recrear una, su
+sha está en la tabla del resumen del job: `git push origin <sha>:refs/heads/<rama>` (lo hace un rol técnico; si la
+rama era de una PR cerrada, también vale el botón «Restore branch» de esa PR — NO MEDIDO aquí).
+`main`: `git push origin archive/main:refs/heads/main`.
+Rollback del workflow: revertir el commit; no toca datos ni despliegues.
+
+**NO MEDIDO:** la corrida en GitHub Actions (permisos reales del `GITHUB_TOKEN` para borrar ramas, reglas de
+protección de rama que lo rechacen — saldrían como «FALLÓ» en la tabla, rc 1).
+
+## §106 · v1.114.2 (opción A): arnés con bytes reales (DYN-D3), trinquete de celular (DYN-D1), `sharp` en standalone y coste de Vercel (2026-10-30, rama `claude/portada-dyn-ops2`, base `0d40d0b7`)
 
 Norma: `API_CONTRACT §DYN.7` (DYN-D1 cambiado, DYN-D3), §DYN.6.6, D-DYN-9; `ARCHITECTURE §4.DYN (f) 7` y §5.3.5. Medido
 sobre una copia `git archive 0d40d0b7` con los scripts de este pase, mi backend sembrado (BD `tcg_dyn_ops2`, :3181) y
@@ -14973,7 +14965,7 @@ sobre una copia `git archive 0d40d0b7` con los scripts de este pase, mi backend 
 porque la rama de frontend no existía aún. Ese prototipo **no es** el A de frontend: las cifras sirven para probar el arnés,
 no para fijar el trinquete.
 
-**105.1 DYN-D3 — foto de peso real y optimizador de verdad.**
+**106.1 DYN-D3 — foto de peso real y optimizador de verdad.**
 - `seed-image-host.py` sirve la líder (`*_hires*`) como PNG 733×1024 **generado** (bandas + bloques de 10 px + ruido fino,
   filtro Sub): **928 977 B** en el origen y 62 840 B en WebP 640 q75. La real (medida por frontend, N=40): mediana ~880 KB, WebP
   ~67 KB. La huella fijada es la de los píxeles (`HUELLA_LIDER`, también en `check-home-perf.sh`), no la del PNG (zlib cambia
@@ -14991,7 +14983,7 @@ no para fijar el trinquete.
 - ⚠️ **Hallazgo (medido, Next 15.5.28):** sin `sharp`, `/_next/image` **no falla**: responde **200 con la PNG original**
   (`image/png`, 928 977 B; `image-optimizer.js:1105-1117`, cae al búfer de origen). El respaldo de `CardImage` (al `error`)
   **no salta** y el navegador baja la HD por `/_next/image`. Lo cazan el `image/webp` exigido aquí y la guarda del Dockerfile
-  (105.3). `ARCHITECTURE §4.DYN (f) 7` dice «sharp ausente ⇒ sin 2xx»: lo medido es otra cosa (para el arquitecto).
+  (106.3). `ARCHITECTURE §4.DYN (f) 7` dice «sharp ausente ⇒ sin 2xx»: lo medido es otra cosa (para el arquitecto).
 - El artefacto `home-perf` sube los `lhr-*.json` (`include-hidden-files: true`; `.lighthouseci` es oculta).
 - **Medido** (N=5 por perfil, mediana / peor, 4 CPU, con un vitest de otro agente al lado):
 
@@ -15008,7 +15000,7 @@ no para fijar el trinquete.
 
   Sin `sharp` los números reproducen los de frontend con bytes reales (9.62 s y 1.71 s): el arnés ya no se apoya en la sustituta.
 
-**105.2 DYN-D1 — trinquete de celular y meta en solo reporte.** Una sola fuente: `lhci-config.mjs`. Bloquean escritorio FCP
+**106.2 DYN-D1 — trinquete de celular y meta en solo reporte.** Una sola fuente: `lhci-config.mjs`. Bloquean escritorio FCP
 ≤ 1.0 s / LCP ≤ 1.5 s, CLS ≤ 0.1 en los dos perfiles y, en celular, el trinquete de `scripts/home-perf/mobile-ratchet.json`
 (FCP/LCP = ⌈mediana × 1.10⌉₁₀, con mediana, N, sha y fecha). **Hoy está en `null`**: celular bloquea con la meta de 936 hasta
 fijarlo. La meta de 936 en celular sale siempre en el resumen del job («NO CUMPLIDA, decisión del dueño 2026-10-30» con el
@@ -15025,15 +15017,15 @@ ratificar por el arquitecto**).
   trinquete fijado, verde hasta el 2026-12-31 y **rojo desde el 2027-01-01** (rc 9). Se apaga sola si celular vuelve a
   bloquear con la meta (json a `null`). Dueño de la condición: orquestador (devolver al dueño la opción B con el número).
 
-**105.3 `sharp` en el build `standalone`.** `sharp` ya es dependencia del frontend (`^0.35.4`, lock 0.35.5, con los binarios
+**106.3 `sharp` en el build `standalone`.** `sharp` ya es dependencia del frontend (`^0.35.4`, lock 0.35.5, con los binarios
 glibc y musl en el lock) y `next build` lo traza a `.next/standalone/node_modules` (medido: `sharp` + `@img/sharp-linux-x64` y
 `-linuxmusl-x64`). El standalone sirve `/_next/image` de la líder en 200 `image/webp` 62 840 B; sin `sharp`, 200 `image/png`
-928 977 B (105.1). `Dockerfile.frontend` (etapa runtime) transforma una imagen a WebP 640 q75 con el `sharp` del standalone y
+928 977 B (106.1). `Dockerfile.frontend` (etapa runtime) transforma una imagen a WebP 640 q75 con el `sharp` del standalone y
 **no construye** si falla (`SHARP_STANDALONE_OK` en el log). Medido aquí sobre el standalone glibc: rc 0; quitando
 `node_modules/sharp`: rc 1. La imagen musl la construye `security-sast.yml` (trivy-image) en cada push: **NO MEDIDO aquí** (sin
 Docker en este contenedor); lo cierra ese job.
 
-**105.4 Coste del optimizador en Vercel — PRECONDICIÓN de publicar A (§5.3.5, §4.DYN (f) 7). La lee el dueño.** Devops no
+**106.4 Coste del optimizador en Vercel — PRECONDICIÓN de publicar A (§5.3.5, §4.DYN (f) 7). La lee el dueño.** Devops no
 tiene la consola. Los nombres de pantalla son los de la documentación de Vercel y **no los he visto** (NO MEDIDO): si algo no
 coincide, una captura de lo que sí aparece basta.
 1. vercel.com → arriba a la izquierda, el equipo donde vive la tienda → pestaña **Usage**. Periodo: el ciclo de facturación actual.
@@ -15054,7 +15046,7 @@ coincide, una captura de lo que sí aparece basta.
   |---|---|---|---|---|---|---|
   | — | **NO MEDIDO** | | | | | dueño |
 
-**105.5 Candados y canarios de este pase** (copia `git archive` del commit de este pase; deterministas N=1 salvo el proxy, N=10):
+**106.5 Candados y canarios de este pase** (copia `git archive` del commit de este pase; deterministas N=1 salvo el proxy, N=10):
 - `check-home-perf.sh` (job de `ci.yml`, paso «Arnés de Lighthouse»): umbrales con trinquete, meta en el resumen, artefacto con
   lhr, peso y huella de la líder, reescritura, desvío, comprobación del optimizador, `lcp-optimized.mjs` contra 5 lhr de
   juguete (bueno; respaldo; 500; `<img>` cruda; WebP + original a la vez), `--replace` del proxy y guarda de `sharp` del

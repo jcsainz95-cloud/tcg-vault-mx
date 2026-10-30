@@ -7551,8 +7551,10 @@ precisa:
 **Meta del dueño** (`HECHOS.md` fila 2026-10-04 «Portada: se cobra el precio que el cliente VIO…»): *«Necesito que la
 tienda despliegue home en menos de 1 seg, que cargue lo demás después en lo que navega el cliente»*; reiterada el
 2026-10-29. **Medido** por el orquestador el 2026-10-29 desde el contenedor (N=3): el HTML de `/es` responde en
-0.48–0.84 s y pesa 478 KB. Lo que tarda **en el navegador**: **NO MEDIDO** aún (lo mide hoy un agente frontend); esta
-sección fija la meta y el método, no las causas.
+0.48–0.84 s y pesa 478 KB. **En el navegador**, medido por frontend el 2026-10-29 (Lighthouse, N=5, mediana [peor], arnés
+local con bytes reales; cifras y estado en `docs/API_CONTRACT.md` §DYN.6.6 y «Estado de 936» al pie de §DYN.7): celular
+LCP 9.62 [9.93] s hoy → 5.47 [5.66] s con la opción A; escritorio LCP 1.71 s → 0.95 s. **El dueño eligió A** (`HECHOS.md`
+fila 2026-10-30 «Portada en celular: opción A…»): celular queda **por encima de la meta** (criterio 936) y sin abrir B.
 
 **Cómo se lee la meta** *(SUPUESTO)*:
 - **«Despliega»** = está pintado lo primero visible: encabezado, cabecera de la portada y el **marco** de cada sección
@@ -7569,8 +7571,8 @@ sección fija la meta y el método, no las causas.
 **Cómo se comprueba:** `https://tcghunt.mx/es` (o un entorno con el mismo inventario), caché vacía, **N = 5** corridas
 por perfil. Se reporta la **mediana y la peor**, con sha, fecha y carga de la máquina (O-3, O-16). Hay una **línea base
 antes** de tocar nada y otra **después**. Además sigue vigente §X.3 (servidor p95 < 500 ms, criterio 294). La meta
-queda **vigilada sola**: una comprobación automática en CI se pone roja si la portada la rebasa (herramienta y sitio:
-devops y arquitecto).
+queda **vigilada sola** en CI (criterio 938): escritorio y CLS bloquean contra la meta; celular bloquea contra un tope de
+no regresión y su meta sale en solo reporte hasta el 2026-12-31 (herramienta y sitio: `API_CONTRACT` DYN-D1).
 
 ### T. Envíos con Skydropx — cotizar, comprar la guía e imprimir la etiqueta desde la plataforma (transversal — ⭐ **NUEVO v1.81 · 2026-09-29 · BORRADOR de product-owner para aprobación del dueño; las seis decisiones de `HECHOS.md` NO se re-preguntan**)
 
@@ -14902,8 +14904,10 @@ product-owner con búsqueda en `PROJECT.md` el 2026-10-29.)*
 928. **Lo que no cambia** *(§DYN.1)*: las pruebas de la rotación de 5 s y de la pausa por intervención pasan con sus
    **aserciones, tiempos y constantes intactos** (`ROTATION_REST_MS`, `LEAD_IMAGE_CAP_MS`, `USER_INPUT_WINDOW_MS`: mismo
    valor); **solo** puede cambiar el ayudante que simula de dónde vienen los datos, para seguir a la nueva fuente de
-   Destacadas (920/922). Se comprueba en el diff de esos ficheros: ninguna línea de aserción, temporizador ni constante
-   cambia (`API_CONTRACT` D-DYN-6, DYN-F1 (b)). La pasada recorre las 10 tejas; la burbuja «En PSA 10 vale ≈…» y la
+   Destacadas (920/922), y la línea `:830` de `FeaturedCarouselRotation.test.tsx`, que pasa a comparar la foto HD de la
+   líder dentro de su dirección optimizada (misma intención; la de la secundaria, `:843`, no cambia). Se comprueba en el
+   diff: fuera de eso, ninguna línea de aserción, temporizador ni constante cambia, y el número de aserciones es el
+   mismo (`API_CONTRACT` D-DYN-6, DYN-F1 (b)). La pasada recorre las 10 tejas; la burbuja «En PSA 10 vale ≈…» y la
    nota al pie salen igual que hoy para las mismas cartas, calculadas sobre la lista que pinta el carrusel.
 929. **Orden del turno PSA, por colección** *(§DYN.2)*: con 30 sueltas publicadas en **30 colecciones distintas**
    (una carta por colección; 5 colecciones nunca consultadas y 25 con fechas de última consulta distintas) y créditos
@@ -14932,12 +14936,19 @@ product-owner con búsqueda en `PROJECT.md` el 2026-10-29.)*
 936. **Meta de velocidad** *(§DYN.3)*: sobre `tcghunt.mx/es` (o entorno con el mismo inventario), caché vacía, N = 5
    por perfil, la **mediana** cumple: celular (perfil móvil estándar de Lighthouse) FCP ≤ 1.0 s, LCP ≤ 2.5 s,
    CLS ≤ 0.1; computadora (perfil escritorio estándar) FCP ≤ 1.0 s, LCP ≤ 1.5 s, CLS ≤ 0.1. El reporte trae mediana,
-   peor corrida, sha, fecha, carga de la máquina y la línea base de antes. Si celular no llega a 1.0 s, el criterio
-   queda rojo y vuelve al dueño con el número (§DYN.3), no se cambia la cifra.
+   peor corrida, sha, fecha, carga de la máquina y la línea base de antes. Si celular no llega, el criterio queda rojo
+   y vuelve al dueño con el número (§DYN.3), no se cambia la cifra. **Estado:** escritorio **cumple** (LCP 1.71 → 0.95 s);
+   celular **NO CUMPLIDO por decisión del dueño** (`HECHOS.md` 2026-10-30, opción A sin B): LCP 9.62 [9.93] s → 5.47
+   [5.66] s, FCP 1.39 s → 1.24 [1.25] s con c1 (A + c1 juntas NO MEDIDO); faltan ~3 s de LCP y ~0.2 s de FCP. Medido
+   por frontend en arnés local (N=5, mediana [peor]); en producción NO MEDIDO (`API_CONTRACT` «Estado de 936»).
 937. **Destacadas y Joyas no frenan** *(§DYN.3)*: con sus datos retrasados 5 s, y por separado fallando, el FCP sigue
    cumpliendo el 936, el resto de la portada se ve, y al llegar los datos no se mueve nada (CLS ≤ 0.1).
-938. **Vigilada sola** *(§DYN.3)*: hay una comprobación automática en CI que se pone roja si la portada rebasa la meta
-   del 936; con un retraso artificial en la portada (canario) se pone roja, y sin él, verde.
+938. **Vigilada sola** *(§DYN.3)*: una comprobación automática en CI (N=5 por perfil, mediana) se pone roja si
+   **escritorio** rebasa la meta del 936, si **CLS** pasa de 0.1 en cualquier perfil, o si **celular** rebasa su tope
+   de no regresión (la mediana medida con A + c1 construidas, más 10 %, escrita con sha y fecha). La meta de celular
+   del 936 sale en **solo reporte** como «NO CUMPLIDA, decisión del dueño 2026-10-30», con caducidad **2026-12-31**:
+   desde el 2027-01-01 la comprobación se pone roja si celular sigue en solo reporte, y vuelve al dueño la opción B con
+   el número. Con un retraso artificial en la portada (canario) se pone roja, y sin él, verde (`API_CONTRACT` DYN-D1).
 939. **De punta a punta** *(O-4)*: en el navegador, contra el stack corriendo con datos sembrados: (a) el súper-admin
    cambia los lugares al azar de 8 a 6 en Configuración; (b) al cambio diario (reloj avanzado) la portada muestra 6 +
    2 recién llegadas, iguales en dos navegadores distintos; (c) un invitado compra una destacada y desaparece de la
@@ -14945,23 +14956,6 @@ product-owner con búsqueda en `PROJECT.md` el 2026-10-29.)*
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
-- **✅ CERRADA (2026-09-09) — Negocio — EL CLIENTE YA PAGA 24.69 % POR ENCIMA DE LO PUBLICADO, Y EL DUEÑO CREÍA
-  QUE LA BRECHA ERA 16 %** *(abierta y cerrada en la 16ª ronda, 2026-09-09; la levantó el **inventario
-  técnico**, está **comprobada contra el código**, y **se le enseñó al dueño antes de que decidiera**)*: sobre
-  una ficha de **MX$100.00**, el checkout cobra **MX$124.69** —IVA **16.00** + comisión
-  **8.69**, porque la comisión se calcula **sobre `subtotal + IVA`** (`money.ts:486`)—.
-  **Por qué fue bandera y no solo un dato**: el dueño estaba a punto de tomar una decisión de precio **con una
-  cifra equivocada en la cabeza**. Pidió el dial *«por si no logro trasladarlo completo»* **creyendo que lo
-  que tenía que trasladar eran 16 puntos**. Son **24.69**.
-  **Cómo se cerró**: **se le enseñó, con las tres lecturas y su cifra delante, y decidió** — *«Solo iva
-  adentro, comision por fuera»* y **arrancar el dial en 100 %** (**preguntas 52 y 55**, 2026-09-09).
-  **⛔ Lo que NO se cerró y por eso vive ahora en su propia bandera**: **ninguna posición del dial deja la
-  vitrina en MX$100.00 siendo verdad** — ver la bandera de abajo.
-  *(Corrección `D-IVA-1`, 2026-09-09: esta bandera decía **«el neto cae a MX$78.55 — cede 21.45»** para el
-  caso de vitrina en MX$100.00 como total cobrado. Esa cifra **calcula el IVA sobre el total completo,
-  comisión embebida incluida**; bajo la convención de las tablas de §Q.4 —IVA sobre el precio excluyendo la
-  comisión, que es **la que D54 adopta**— el resultado es **MX$79.60**, cede **20.40**. **Cuál aplica es
-  pregunta de contador (65)**, y **no afecta a D54 porque la comisión quedó fuera del precio exhibido**.)*
 - **⚠ Negocio — LA COMISIÓN SIGUE FUERA DEL PRECIO EXHIBIDO: DECISIÓN DEL DUEÑO, «DE MOMENTO», CON PENDIENTE
   ABIERTO** *(NUEVA 16ª ronda, 2026-09-09, **D54 vigente**; **pendiente DEL DUEÑO**)*: sus palabras fueron
   ***«La comisión déjalo de momento igual»***. **No es descuido: es decisión suya, tomada con la cifra de

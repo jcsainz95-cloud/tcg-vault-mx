@@ -6,6 +6,19 @@
 > Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+## 2026-10-30 — Encargo de marketing: plan de conversión de noviembre (EN COLA, tras publicar §DYN)
+
+> Llegó por send_message de la sesión «SEO/GEO y conversión» (session_01S6V7FxyuMP4xKx6VjjPzvP), citando al dueño: «SI con todas tus sugerencias pero pásalo a la sesión de orquestación de ingenieros para que lo acomode en el pipeline dale todo el detalle». Fuente de verdad: repo `jcsainz95-cloud/tcg-hunt-marketing`, rama `claude/compassionate-hamilton-9zwv1w` @ `a8f5b54`, `briefs/BRIEF_TIENDA_CONVERSION_2026-11.md` (no leído aún por esta sesión: el repo no está en su alcance). ⚠️ Decisiones D-1 (envío de cartas < MX$100) y D-9 (comisión dentro del precio) CAMBIAN filas de HECHOS (2026-10-24 «Regla de envío nueva…», «Embudo móvil…»): se confirman con el dueño en esta sesión antes de registrarlas (O-17). Respuestas que marketing espera de vuelta: fechas en producción de B1, B4, B5, C1-C4 y C7; URL final de Card Show y «Quiénes somos»; si A6 entra; decisiones de C3 y C8.
+
+| # | Qué | Medido por el orquestador | Siguiente |
+|---|---|---|---|
+| MKT-C7 | URGENTE (Card Show 5-6 dic): `/es/card-show` da 404 y `/card-show` 200; una sola canónica con redirección y en el sitemap. | 2026-10-30: `curl` 404 `/es/card-show`, 200 `/card-show` | PO/arquitecto → frontend; puede ir antes que el resto |
+| MKT-OLA1 | Ola 1 compra y confianza (B1 banner barra inferior D-4, B4, B4b, B5 portada 677 px, B2 «Quiénes somos y contacto», B2b, T2, B6b). | 2026-10-30: `/es/sobre-nosotros` 404 | PO (datos del dueño) → ux-ui → frontend |
+| MKT-OLA2 | Ola 2 SEO técnico (C1 fichas SSR con h1, C2 enlaces/paginación SSR, C3 soft-404, C4 títulos/canonical, C5 Product, C6 WebSite/llms.txt, C8, B6 imágenes, C9 slugs tras Card Show). | NO MEDIDO por esta sesión | arquitecto → frontend |
+| MKT-OLA3 | Ola 3 dinero: D-1, D-2 lotes, D-3 cuenta en checkout, D-9 comisión dentro del precio. | NO MEDIDO | confirmar con el dueño → PO → arquitecto → ux-ui → backend+frontend fuertes → 3 veredictos |
+| IDEA-BOPIS+ | Puntos de recolección: el dueño (2026-10-30, en la sesión de marketing) «Vamos a poner puntos de recoleccion pero no estan definidos todavia» (antes nombró Jakomi y lo dejó sin confirmar). Sigue SIN orden de construir. Cuando defina el primer punto: PO prepara preguntas (dirección pública, horario, quién entrega, costo, plazo). | Relayado por marketing (session_01S6V7FxyuMP4xKx6VjjPzvP), no dicho en esta sesión | dueño define punto → PO |
+| MKT-MED | Medición: A3 Meta /tr, A6 tasa del banner en panel, A7 PageView a Meta y telemetría CSP bloqueada por CORP, A10 comentario en schema.prisma. | NO MEDIDO | por asignar |
+
 ## 2026-10-29 — Stream «Portada dinámica» (rama `claude/portada-dinamica`) y release de velocidad (#107)
 
 > Medido por el orquestador el 2026-10-29. Release de velocidad = `claude/portada-velocidad-release` (`5aeda006` + docs), PR #107 → `production`, cuatro veredictos APROBADOS sobre `5aeda006`. El resto de §DYN (Destacadas del día, turnos PSA, `ListingPrice`) vive en `claude/portada-dinamica` y aún NO tiene gates.
