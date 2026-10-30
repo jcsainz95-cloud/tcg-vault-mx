@@ -132,8 +132,24 @@ export class PptApiClient {
   }
 
   /** Espera cancelable, aislada para poder mockear timers en test. */
-  protected async sleep(ms: number): Promise<void> {
-    await new Promise((r) => setTimeout(r, ms));
+  protected async sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    if (!signal) {
+      await new Promise((r) => setTimeout(r, ms));
+      return;
+    }
+    // v1.114.4 (§DYN.4.3): con plazo, la espera del `Retry-After` también se corta al vencer (el plazo es del set ENTERO).
+    await new Promise<void>((resolve, reject) => {
+      if (signal.aborted) return reject(signal.reason);
+      const onAbort = () => {
+        clearTimeout(t);
+        reject(signal.reason);
+      };
+      const t = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   /**
@@ -143,7 +159,16 @@ export class PptApiClient {
    *  - `PptHttpError` ante 4xx/5xx no-429 (tras agotar reintentos de per_minute no aplica aquí).
    *  El llamador es responsable del money-safe (no borrar precios ante fallo).
    */
-  async getJson<T>(path: string, query: Record<string, string>): Promise<PptResponse<T>> {
+  async getJson<T>(
+    path: string,
+    query: Record<string, string>,
+    /**
+     * v1.114.4 (§DYN.4.3) — plazo opcional: aborta la petición en curso Y la espera de reintento. Sin él, la conducta de
+     * siempre (sin tope propio: solo los de `undici`). Lo usa el turno PSA, que no puede tener un set en vuelo más allá de su
+     * candado.
+     */
+    opts: { signal?: AbortSignal } = {},
+  ): Promise<PptResponse<T>> {
     const apiKey = this.apiKey();
     if (!apiKey) {
       throw new PptHttpError(0, 'sin POKEMONPRICETRACKER_API_KEY', `${this.host}${path}`);
@@ -163,6 +188,7 @@ export class PptApiClient {
         const res = await fetch(url, {
           method: 'GET',
           headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+          ...(opts.signal ? { signal: opts.signal } : {}),
         });
 
         // Presupuesto: registra el remaining de CUALQUIER respuesta (incluida 429).
@@ -190,7 +216,8 @@ export class PptApiClient {
             `PPT ${path}: 429 ${parsed.limitType} → espera ${waitMs}ms y reintenta ` +
               `(${attempt + 1}/${this.maxPerMinuteRetries}).`,
           );
-          await this.sleep(waitMs);
+          if (opts.signal) await this.sleep(waitMs, opts.signal);
+          else await this.sleep(waitMs);
           continue;
         }
 

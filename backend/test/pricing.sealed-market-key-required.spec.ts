@@ -36,7 +36,7 @@ function build() {
   const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
   const prisma = { card: { findUnique: jest.fn(async () => ({ id: 'c1' })) } };
   const ctrl = new PricingController(
-    pricing, {} as never, {} as never, audit, prisma as never, {} as never, {} as never, {} as never,
+    pricing, {} as never, {} as never, audit, prisma as never, {} as never, {} as never, {} as never, undefined, undefined, { enqueueVariant: jest.fn(async () => undefined) } as never,
   );
   // Disparador (c) post-escritura: si se llamara, el rechazo habría llegado tarde.
   const trigger = jest

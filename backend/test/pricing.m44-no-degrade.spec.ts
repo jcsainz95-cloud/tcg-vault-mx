@@ -340,7 +340,7 @@ function buildCtrl(opts: { slabs?: { id: string }[]; degrade?: boolean; cardExis
     card: { findUnique: jest.fn(async () => (opts.cardExists === false ? null : { id: 'c1' })) },
   };
   const ctrl = new PricingController(
-    pricing, {} as never, {} as never, audit, prisma as never, {} as never, {} as never, {} as never,
+    pricing, {} as never, {} as never, audit, prisma as never, {} as never, {} as never, {} as never, undefined, undefined, { enqueueVariant: jest.fn(async () => undefined) } as never,
   );
   return { ctrl, pricing, audit, prisma };
 }

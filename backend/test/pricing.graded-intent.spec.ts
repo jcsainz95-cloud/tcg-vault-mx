@@ -44,7 +44,7 @@ function build(publishedSlabs: { id: string }[] = []) {
   // v1.50.3-g (SEC-M43-4): el borde exige que la carta EXISTA (antes: `500` por violación de FK).
   const prisma = { card: { findUnique: jest.fn(async () => ({ id: 'c1' })) } };
   const ctrl = new PricingController(
-    pricing, {} as never, {} as never, audit, prisma as never, {} as never, {} as never, {} as never,
+    pricing, {} as never, {} as never, audit, prisma as never, {} as never, {} as never, {} as never, undefined, undefined, { enqueueVariant: jest.fn(async () => undefined) } as never,
   );
   return { ctrl, pricing, audit, prisma };
 }

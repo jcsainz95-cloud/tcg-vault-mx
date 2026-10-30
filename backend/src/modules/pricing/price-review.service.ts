@@ -12,7 +12,7 @@
  *   compra para NUNCA ofertar sobre un valor que el candado detuvo (§PRE.5, §DYN.5.9). La venta NO pasa por aquí: el cuerpo de
  *   venta lee el caso en su entrada (`SaleDecisionService.loadReferences` → `PricingService.saleRetentionFor`, v1.114).
  */
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Finish, PriceAxis, PriceReviewStatus, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -22,6 +22,7 @@ import { QuoteSnapshot, RobustResult, LockDecision } from '../../common/robust-m
 import { PricingService } from './pricing.service';
 import { ListingPriceService } from './listing-price.service';
 import { vigenteStatusWhere } from './review-vigente';
+import { variantKey } from '../../common/variant-key';
 
 /** Clave lógica de una variante (la misma que dedup la cola, §PRE.D). */
 export interface ReviewVariantKey {
@@ -55,9 +56,9 @@ export class PriceReviewService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly pricing: PricingService,
-    // v1.114 (§DYN.5.9): abrir o renovar un caso encola `review_open` (solo las piezas con fila de la variante). `@Optional`
-    // por los mocks posicionales; en DI real siempre se inyecta (mismo módulo).
-    @Optional() private readonly listingPrices?: ListingPriceService,
+    // v1.114 (§DYN.5.9): abrir o renovar un caso encola `review_open` (solo las piezas con fila de la variante). OBLIGATORIO
+    // (TL-DYN-4, misma clase que TL-DSC-5): sin él, un caso abierto no retendría la venta hasta el siguiente `daily`, en silencio.
+    private readonly listingPrices: ListingPriceService,
   ) {}
 
   private whereKey(k: ReviewVariantKey) {
@@ -139,7 +140,7 @@ export class PriceReviewService {
     // §DYN.5.9: la venta de la variante pasa a retener YA (no al siguiente `daily`). Solo las variantes que lee el cuerpo
     // (sin producto separado ni sellado) y solo las piezas que ya tienen fila: una sin fila se precia en vivo, ya retenida.
     if (key.cardProductId == null && key.sealedProductId == null) {
-      void this.listingPrices?.enqueueVariant(
+      void this.listingPrices.enqueueVariant(
         'review_open',
         { cardId: key.cardId, productType: key.productType, gradeKey: key.gradeKey, finish: key.finish },
         { onlyWithRow: true },
@@ -173,7 +174,7 @@ export class PriceReviewService {
       },
       select: { cardId: true, productType: true, gradeKey: true, finish: true },
     });
-    for (const r of rows) out.add(`${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`);
+    for (const r of rows) out.add(variantKey(r));
     return out;
   }
 

@@ -16,9 +16,11 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ListingPrice, ListingPriceRunTrigger, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BusinessException } from '../../common/business.exception';
 import { SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
 import type { IvaDials } from '../../common/money';
 import { marketBracketOf } from '../../common/pricing-curve';
+import { variantKey } from '../../common/variant-key';
 import { isSchedulerDisabled } from '../../config/test-env';
 import { SettingsService } from '../settings/settings.service';
 import { PRICE_AFFECTING_SETTING_KEYS, SettingKey, SettingKeyType } from '../settings/settings.constants';
@@ -40,6 +42,10 @@ import {
 export const LISTING_PRICE_LOCK_KEY = 91_130_102;
 /** §DYN.5.3: lotes de 500 piezas por transacción. */
 export const LISTING_PRICE_BATCH_SIZE = 500;
+/** §DYN.5.10 (v1.114.4): una `ListingPriceRun` sin fila que la cite se poda pasados estos días (constante, no dial). */
+export const LISTING_PRICE_RUN_RETENTION_DAYS = 90;
+/** §DYN.5.10: la poda borra en lotes de este tamaño. */
+export const LISTING_PRICE_RUN_PRUNE_BATCH = 5_000;
 /** §DYN.5.3: la corrida diaria del día de portada `D` corre desde `effectiveFrom(D) − 60 min`. */
 export const DAILY_RUN_LEAD_MS = 60 * 60_000;
 const HOUR_MS = 3_600_000;
@@ -88,6 +94,14 @@ export function portadaEffectiveFrom(ymd: string, hour: number): Date {
 /** El día de portada que se sirve en `now` (el último cuyo H:00 CDMX ya pasó). */
 export function portadaServedDay(now: Date, hour: number): string {
   return dayMx(new Date(now.getTime() - hour * HOUR_MS));
+}
+
+/**
+ * `ListingPrice.variantKey` (TL-DYN-2): la llave K de la pieza por el helper ÚNICO `variantKey` (P-30 H2) — la misma con que la
+ * leen catálogo y referencias. Graduada sin identidad de slab (sin `gradeKey`) ⇒ `-` en su lugar (la columna no admite null).
+ */
+export function listingPriceVariantKey(item: Pick<SaleItem, 'cardId' | 'productType' | 'finish'>, gradeKey: string | null): string {
+  return variantKey({ cardId: item.cardId, productType: item.productType, gradeKey: gradeKey ?? '-', finish: item.finish });
 }
 
 /** El «valor de mercado» que la fila congeló (§DYN.5.5), con la forma de `referenceInfoOf`. */
@@ -287,7 +301,10 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     ids: string[] | undefined,
     opts: { businessDate?: string } = {},
   ): Promise<ListingPriceRunResult> {
-    const startedAt = new Date();
+    // v1.114.4 (§DYN.5.3, DYN-B30): «empezó» = el reloj de la BD, uno para todas las instancias. ⛔ `new Date()` del proceso:
+    // entre instancias con relojes desfasados invertiría «la que empezó después» (pisaría o borraría la fila más nueva). Es el
+    // `computedAt` de sus filas, el corte del borrado de fuera de alcance y la base de su `businessDate`.
+    const [{ now: startedAt }] = await this.prisma.$queryRaw<{ now: Date }[]>`SELECT statement_timestamp() AS now`;
     const hour = await this.settings.getNumber(SettingKey.FEATURED_ROTATION_HOUR);
     const businessDate = opts.businessDate ?? portadaServedDay(startedAt, hour);
     const run = await this.prisma.listingPriceRun.create({
@@ -394,8 +411,7 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     runId: string,
     computedAt: Date,
   ): Promise<void> {
-    const gk = this.decider.gradeKeyOf(item);
-    const vk = `${item.cardId}|${item.productType}|${gk ?? '-'}|${item.finish}`;
+    const vk = listingPriceVariantKey(item, this.decider.gradeKeyOf(item));
     const d = s.kind === 'priced' ? s.decision : null;
     await tx.$executeRaw`
       INSERT INTO "ListingPrice" ("inventoryItemId", "variantKey", "runId", "status", "unitPriceCents", "listPriceCents",
@@ -449,6 +465,35 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     return out;
   }
 
+  /**
+   * 💰 §DYN.5.7 — lo que se COBRA por pieza (quote y sesión, con cuenta e invitado). TL-DYN-1: la ÚNICA copia de «fila o vivo»
+   * del checkout (antes vivía duplicada en `orders.service.ts`):
+   *   fila `priced`  ⇒ su `P` y su instrumentación tal cual (aunque `PriceReference` o un dial ya se hayan movido);
+   *   fila `pending` ⇒ el mismo `PRICE_PENDING` de siempre (no se exhibe, no se cobra);
+   *   sin fila       ⇒ cálculo en vivo por el cuerpo único (= lo que exhibe el lector, §DYN.5.6) + `missing_row` encolado.
+   * ⛔ Ni `min`/`max` entre fila y vivo, ni recalcular con fila presente: son las dos mutaciones de DYN-B16. Las filas, en UNA
+   * lectura por carrito.
+   */
+  async chargeDecisionsFor(items: readonly SaleItem[], dials: IvaDials): Promise<SaleDecision[]> {
+    const rows = await this.rowsFor(items.map((i) => i.id));
+    const out: SaleDecision[] = [];
+    const missing: string[] = [];
+    for (const item of items) {
+      const row = rows.get(item.id);
+      if (row?.status === 'pending') {
+        throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no publishable price`);
+      }
+      if (row) {
+        out.push(decisionOfRow(row, item));
+      } else {
+        out.push(await this.decider.decide(item, dials));
+        missing.push(item.id);
+      }
+    }
+    if (missing.length > 0) void this.enqueue('missing_row', missing);
+    return out;
+  }
+
   // ───────────────────────────────────────────── diaria y salud ─────────────────────────────────────────────
 
   /** El día de portada cuya corrida diaria ya toca en `now` (desde `effectiveFrom(D) − 60 min`). */
@@ -475,7 +520,38 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     if (now.getTime() < portadaEffectiveFrom(day, hour).getTime() - DAILY_RUN_LEAD_MS) return { status: 'waiting', businessDate: day };
     if (await this.hasDailyOk(day)) return { status: 'exists', businessDate: day };
     const res = await this.run('daily', undefined, { businessDate: day });
+    // §DYN.5.10 — una vez por día de portada, tras su `daily` ok: la poda de corridas viejas sin fila. Su fallo no tumba el tic.
+    if (res.status === 'ok') await this.pruneRuns().catch((e: Error) => this.logger.error(`listing-price: poda falló: ${e.message}`));
     return { status: res.status === 'ok' ? 'ran' : 'failed', businessDate: day };
+  }
+
+  /**
+   * §DYN.5.10 (v1.114.4, DYN-B31) — borra, en lotes de ≤ 5 000 y bajo `LISTING_PRICE_LOCK_KEY`, las corridas con
+   * `startedAt < ahora(BD) − 90 días` que NINGUNA `ListingPrice` cita (la FK `RESTRICT` se queda: protege la procedencia de la
+   * fila vigente; el `NOT EXISTS` hace que nunca salte), sea cual sea su `status`, SALVO las dos que se leen sin límite de
+   * fecha: la `bootstrap` `ok` (borrarla repetiría el arranque, `onApplicationBootstrap`) y la `daily` `ok` más reciente (la de
+   * `health()`: borrarla pasaría la salud de `stale` a `never`). Devuelve cuántas borró.
+   */
+  async pruneRuns(): Promise<number> {
+    let total = 0;
+    for (;;) {
+      const n = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LISTING_PRICE_LOCK_KEY})`;
+        return tx.$executeRaw`
+          DELETE FROM "ListingPriceRun" WHERE id IN (
+            SELECT r.id FROM "ListingPriceRun" r
+            WHERE r."startedAt" < now() - make_interval(days => ${LISTING_PRICE_RUN_RETENTION_DAYS}::int)
+              AND NOT EXISTS (SELECT 1 FROM "ListingPrice" lp WHERE lp."runId" = r.id)
+              AND NOT (r.trigger = 'bootstrap' AND r.status = 'ok')
+              AND NOT (r.trigger = 'daily' AND r.status = 'ok' AND r."businessDate" = (
+                SELECT max(d."businessDate") FROM "ListingPriceRun" d WHERE d.trigger = 'daily' AND d.status = 'ok'))
+            LIMIT ${LISTING_PRICE_RUN_PRUNE_BATCH}::int)`;
+      });
+      total += n;
+      if (n < LISTING_PRICE_RUN_PRUNE_BATCH) break;
+    }
+    this.logger.log(`listing-price: poda de ListingPriceRun (> ${LISTING_PRICE_RUN_RETENTION_DAYS} días, sin fila que las cite): ${total} borradas.`);
+    return total;
   }
 
   /** §DYN.5.8 — `dataHealth.listingPrices`: `stale` ⇔ no hay `daily` ok del día vigente pasada su `effectiveFrom`. */
