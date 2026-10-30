@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.114.4⟨portada⟩ (2026-10-30).** §4.DYN (d) 4: un solo turno PSA vivo (candado consultivo; la segunda corrida sale sin pedir nada) y relectura de lo gastado antes de cada set; §4.DYN (e): «empezó después» con el reloj de la BD y retención de `ListingPriceRun` · techlead (rechazo sobre `d0b40182`: R2, TL-DYN-6/7/10). Contrato: API_CONTRACT §DYN.4.3, §DYN.5.3/.9/.10, DYN-B27…B31, D-DYN-10.
 > **Errata v1.114.3⟨portada⟩ (2026-10-30).** 💰 §4.PRE (c) y §4.DYN (e): un caso vigente **sin base** ya no deja la variante sin venta: se vende al **mínimo de las cotizaciones frescas admitidas** (sin ninguna ⇒ `PRICE_PENDING`); la compra sigue `pending` · dueño (`HECHOS.md` 2026-10-30 «Casos de revisión de precio SIN base: opción A…» y «Español y sellos: TODO automático…»). §4.DYN (f) 7: sin `sharp`, `/_next/image` responde 200 con la original (no error) · devops/frontend. Contrato: API_CONTRACT §DYN.5.9, DYN-B25, DYN-F1 (b), DYN-F11.
 > **Errata v1.114.2⟨portada⟩ (2026-10-30).** §4.DYN (f) 7–8 NUEVOS: la foto de la teja líder pasa por el optimizador de Next (WebP, anchos 384/640, respaldo a la original, coste NO MEDIDO con su lectura) y los textos de traducción se reparten por ruta (`SHELL` en la raíz + ámbito por segmento); se descarta `imageMediumUrl` · dueño (`HECHOS.md` 2026-10-30 «Portada en celular: opción A…»). Contrato: API_CONTRACT §DYN.6.6/.6.7, DYN-F8…F10, DYN-D3, D-DYN-8/9.
 > **Rev v1.114⟨portada⟩ (2026-10-29).** §4.DYN (e) y §4.PRE (d): el candado retiene la venta (caso `open`/`kept` ⇒ último sano), `keep` sigue reteniendo, trigger `review_open` · orquestador (`HECHOS.md` 2026-10-11 «§PRE APROBADO…», 2026-10-29 «Precio: se cobra lo que se ve…»). Contrato: API_CONTRACT §DYN.5.9.
@@ -30836,7 +30837,7 @@ aparte del arquitecto tras medir el abuso (**NO MEDIDO** con tráfico real de ev
 ---
 
 <a id="4-DYN"></a>
-### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4 + v1.114 + v1.114.2, 2026-10-29/30, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
+### 4.DYN PORTADA DINÁMICA Y RÁPIDA — Destacadas del día, Joyas por turnos, precio del día y portada servida (rev v1.113⟨portada⟩ + erratas v1.113.1–.4 + v1.114 + v1.114.2–.4, 2026-10-29/30, NORMATIVO, 💰 **DINERO en DYN-P: precio exhibido y cobrado**; créditos PSA en DYN-J)
 
 Fuentes, en este orden: `HECHOS.md` filas 2026-10-29 «Portada dinámica: Destacadas opción A + Joyas por turnos EN MARCHA +
 portada más rápida» y «Precio: se cobra lo que se ve, sin gracia ni aviso…» (manda sobre «…VIO…»), 2026-10-04 «Joyas para gradear…», «Portada y catálogo: el precio exhibido se calcula UNA VEZ AL DÍA…»,
@@ -30907,6 +30908,7 @@ carta es el de **su set entero**. Ordenar por carta dispersaría los sets y paga
    puede morir de hambre); solo se salta un set cuyo coste supera el tope **entero** de un día, y eso va al aviso. Lo cargado al tope
    es el coste medido (`apiCallsConsumed` atribuible) o, si el proveedor no lo dijo, el estimado. «Nunca se pasa del tope» es
    exacto mientras el estimado sea cota superior; con facturación desconocida el exceso posible es **un set**, y el aviso lo ve.
+   **Un solo turno vivo (v1.114.4).** El tope es del día, no de la corrida, así que dos corridas solapadas (cron y «sincronizar ahora», o dos instancias) que leyeran cada una «lo gastado» al empezar gastarían hasta 2× el tope. Por eso el turno entra por un candado consultivo `try` que sostiene una transacción toda la corrida (no uno de sesión: el pool reparte conexiones), y la que no lo obtiene **sale sin pedir nada** y lo dice en log y veredicto: esperar no sirve, porque al entrar encontraría el día ya gastado. Dentro, lo gastado se relee por esa misma transacción antes de cada set; si caducó, la lectura falla y la corrida para, y tampoco se empieza un set si al candado no le alcanza el tiempo para una petición entera. Detalle: `API_CONTRACT §DYN.4.3`.
 5. El tope es **por día CDMX y no por corrida**: la corrida de las 06:00 puede gastar el día entero si hace falta; la de las 18:00
    usa el resto. Con esto el corte por corrida deja de existir y `graded_estimate_ingest_max_cards_per_run` **se retira** (un solo
    dial, §DYN.2): un tope en cartas no es un presupuesto en créditos (§4.38r.3.4), el de créditos sí.
@@ -30951,7 +30953,9 @@ precios en el carrito del navegador ni precios anteriores en el servidor.
   muestran nuestro precio al lado.
 - **Disparadores manuales:** toda escritura de precio o referencia por decisión del dueño (precio por pieza, override,
   cola de revisión `manual`/`accept`) recalcula su variante al instante; lo automático (ingest, árbitro, Banxico) espera al
-  `daily`. Alcance y single-flight: `API_CONTRACT §DYN.5.2-.3`.
+  `daily`. Alcance y single-flight: `API_CONTRACT §DYN.5.2-.3`. **v1.114.4:** «gana la que empezó después» compara instantes del
+  **reloj de la BD** (uno para todas las instancias; el de cada proceso puede ir desfasado e invertir el orden). Las corridas sin fila
+  que las cite se podan a 90 días (la FK `RESTRICT` se queda: protege la procedencia de la fila vigente); `API_CONTRACT §DYN.5.10`.
 - Qué dial «mueve precio» lo dice **una lista** de backend con candado en los dos sentidos (`API_CONTRACT §DYN.5.4`). Criterio:
   entra el dial que lee el cálculo de la fila, no el que mueve el precio a través del barrido (v1.113.4: la tolerancia de
   consenso solo decide el candado del barrido, y lo que el barrido cambia ya llega en el siguiente `daily`).
