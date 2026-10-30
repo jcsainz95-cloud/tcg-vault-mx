@@ -131,7 +131,7 @@ describe('PricingService.escalatePending — devuelve id + idempotente (④)', (
 describe('PricingController.pending — passthrough del query ?context= (P-6)', () => {
   function buildController(pendingQueue = jest.fn(async () => ({ data: [] }))) {
     const pricing = { pendingQueue } as any;
-    return new PricingController(pricing, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any);
+    return new PricingController(pricing, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, undefined, undefined, { enqueueVariant: jest.fn(async () => undefined) } as never);
   }
 
   it('pasa el context válido a pendingQueue', async () => {

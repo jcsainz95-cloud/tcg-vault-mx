@@ -235,8 +235,11 @@ export class PricingController {
     // v1.91⟨precios⟩ (M-75, §PRE.E/F): la cola de revisión del candado anti-inflado. `@Optional()` por el
     // MISMO motivo que `inventoryPublish` abajo: las pruebas unitarias construyen este controller de forma
     // POSICIONAL; la DI real SIEMPRE lo inyecta (está en `PricingModule`). Los dos endpoints lo asumen presente.
+    // Token EXPLÍCITO: con el tipo unión (`| undefined`, que exige el parámetro obligatorio de abajo) TypeScript emite `Object`
+    // en `design:paramtypes` y Nest inyectaría `undefined` en silencio (medido: la cola de revisión daba 500).
     @Optional()
-    private readonly priceReview?: PriceReviewService,
+    @Inject(PriceReviewService)
+    private readonly priceReview: PriceReviewService | undefined,
     // ⚠️ v1.51.19 (BL-25 · §4.39m.8) — **DISPARADOR (c), productor «acto puntual»**: al fijar un
     // override, el precio de esa variante puede haberse vuelto resoluble.
     //
@@ -252,11 +255,11 @@ export class PricingController {
     // `pending-publish`**.
     @Optional()
     @Inject(INVENTORY_PUBLISH_PORT)
-    private readonly inventoryPublish?: InventoryPublishPort,
+    private readonly inventoryPublish: InventoryPublishPort | undefined,
     // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.3 `manual_price`): fijar a mano el precio de mercado de una variante (override o
-    // decisión manual de la cola de revisión) recalcula el precio del día de sus piezas. `@Optional()` por los dobles
-    // posicionales de las pruebas; en la app `PricingModule` lo provee.
-    @Optional() private readonly listingPrices?: ListingPriceService,
+    // decisión manual de la cola de revisión) recalcula el precio del día de sus piezas. OBLIGATORIO (TL-DYN-4, misma clase
+    // que TL-DSC-5): sin él, el precio a mano no llegaría a lo exhibido hasta el siguiente `daily`, en silencio.
+    private readonly listingPrices: ListingPriceService,
   ) {}
 
   /**
@@ -378,7 +381,7 @@ export class PricingController {
     const res = await this.priceReview!.resolve(id, dto.action, dto.manualPriceMxnCents, userId);
     // 💰 v1.113.3 (§DYN.5.3 `manual_price`): `manual` Y `accept` escriben `PriceReference` por decisión del dueño ⇒ precio del
     // día de las piezas de ESA variante (solo las que leen esa referencia). `keep` no mueve nada ⇒ no dispara.
-    if ((dto.action === 'manual' || dto.action === 'accept') && this.listingPrices) {
+    if (dto.action === 'manual' || dto.action === 'accept') {
       const c = await this.prisma.priceReviewCase.findUnique({
         where: { id },
         select: { cardId: true, productType: true, gradeKey: true, finish: true },
@@ -598,7 +601,7 @@ export class PricingController {
     });
     // 💰 v1.113⟨portada⟩ (§DYN.5.3 `manual_price`): «poner un precio a mano» ⇒ el precio del día de las piezas de ESA
     // variante (v1.113.3: solo las que leen la referencia escrita — carta, tipo, grado y acabado). Fuera de la petición.
-    void this.listingPrices?.enqueueVariant('manual_price', {
+    void this.listingPrices.enqueueVariant('manual_price', {
       cardId: dto.cardId,
       productType: dto.productType,
       gradeKey: dto.gradeKey,

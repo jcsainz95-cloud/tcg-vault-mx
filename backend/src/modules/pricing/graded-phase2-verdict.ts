@@ -114,7 +114,9 @@ export type GradedStopReason =
   /** v1.113⟨portada⟩ (§DYN.3): el tope de créditos PSA del día es 0 ⇒ no se pide nada. Es una DECISIÓN del dueño. */
   | 'daily_credit_cap_zero'
   /** v1.113⟨portada⟩ (§DYN.4.2): todos los sets en alcance se consultaron hace < 7 días ⇒ nada vencido. Estado NORMAL. */
-  | 'nothing_due';
+  | 'nothing_due'
+  /** v1.114.4 (§DYN.4.3, I-4): otra corrida tiene el turno PSA (candado consultivo) ⇒ esta no pidió nada. Estado NORMAL. */
+  | 'already_running';
 
 /**
  * v1.51-c (R1-ter) — **cuántas peticiones se EMITIERON de verdad, y por qué las demás no.**
@@ -524,6 +526,13 @@ function stoppedVerdict(
       'INDETERMINADO',
       'No se preguntó nada: todos los sets en alcance se consultaron hace menos de 7 días (turno semanal por set, §DYN.4). Es el estado normal entre vueltas.',
       'Nada que hacer. El panel de presupuesto (GET /admin/pricing/graded-estimates/budget) dice cuándo vence la siguiente vuelta. No busques nada en el log del proveedor: no hubo ninguna petición.',
+    );
+  }
+  if (o.reason === 'already_running') {
+    return r(
+      'INDETERMINADO',
+      'No se preguntó nada: otra corrida tiene el turno PSA (cron y «sincronizar ahora» a la vez, o dos instancias). Solo una corrida pide créditos a la vez, para no rebasar el tope del día (§DYN.4.3).',
+      'Nada que hacer: el veredicto de esa otra corrida es el que cuenta. No busques nada en el log del proveedor: esta corrida no hizo ninguna petición.',
     );
   }
   // ⛑️ EL CANDADO. Si alguien añade un motivo a `GradedStopReason` sin darle rama, esta línea deja de

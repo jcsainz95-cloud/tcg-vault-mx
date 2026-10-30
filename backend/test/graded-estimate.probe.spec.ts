@@ -490,6 +490,8 @@ describe('v1.51-b (R1) — cada parada dice SU causa: el veredicto ya no manda a
     // v1.113⟨portada⟩ (§DYN.3/§DYN.4): paradas del turno PSA, cada una con su titular.
     daily_credit_cap_zero: true,
     nothing_due: true,
+    // v1.114.4 (§DYN.4.3): otra corrida tiene el turno PSA.
+    already_running: true,
   };
 
   it('CADA motivo de parada tiene SU titular: ninguno hereda el de otro (candado de exhaustividad)', () => {

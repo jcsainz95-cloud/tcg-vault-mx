@@ -1225,8 +1225,12 @@ const SEED_FEATURED_SOURCE = 'seed-e2e';
  * `featured-rotation` (hasta 15 min; medido por frontend) y las pruebas `@real` tenían que forzarla con `POST
  * /admin/jobs/featured-rotation {force:true}`. §DYN.2 no norma un arranque del job: lo hace el seed.
  *
- * Es un FIXTURE, no un sorteo: las piezas `E2E-LST-*` de plataforma, raw/graded, en orden de folio, una por llave, todas `pool`
- * (≤ 20, el CHECK de M-93). El sorteo real (`selectFeatured`, por `P`) necesita el cuerpo de venta y vive en la app; la lectura
+ * Es un FIXTURE, no un sorteo: las piezas `E2E-LST-*` de plataforma, raw/graded, en orden de folio, una por llave. Con la
+ * FORMA de un sorteo real (tester-e2e IMPORTANTE-1): tantos lugares como `featuredRandomSlots + featuredNewArrivalSlots` (10
+ * con el seed), y las DOS últimas llaves por folio son «recién llegadas» (`firstListedAt` dentro de la ventana; las demás, 60
+ * días atrás) y ocupan los lugares `new_arrival` del principio, como `selectFeatured`. Así «Recién llegada» sale en un stack
+ * recién sembrado (criterios 923 y 939 (b)), y también en el sorteo real del tic o de `force`, que lee las mismas fechas.
+ * El sorteo real (`selectFeatured`, por `P`) necesita el cuerpo de venta y vive en la app; la lectura
  * (§DYN.2.2) ya omite lo que no tenga grupo vivo (vendido, sin precio). Con ella, el tic ve el día como existente y no lo
  * reescribe (portada estable durante la suite); `force` la sustituye, y al día siguiente el tic calcula la suya.
  *
@@ -1238,25 +1242,55 @@ async function seedFeaturedSelection(prisma: PrismaClient): Promise<void> {
   const hour = typeof hourRow?.valueJson === 'number' ? hourRow.valueJson : (SETTING_DEFAULTS[SettingKey.FEATURED_ROTATION_HOUR] as number);
   const day = FeaturedService.servedDayAt(new Date(), hour);
   const businessDate = new Date(`${day}T00:00:00.000Z`);
+  const effectiveFrom = FeaturedService.effectiveFromOf(day, hour);
+  const dial = async (key: string): Promise<number> => {
+    const row = await prisma.configSetting.findUnique({ where: { key } });
+    return typeof row?.valueJson === 'number' ? row.valueJson : (SETTING_DEFAULTS[key as keyof typeof SETTING_DEFAULTS] as number);
+  };
+  const randomSlots = await dial(SettingKey.FEATURED_RANDOM_SLOTS);
+  const newArrivalSlots = await dial(SettingKey.FEATURED_NEW_ARRIVAL_SLOTS);
+
+  const items = await prisma.inventoryItem.findMany({
+    where: { folio: { startsWith: 'E2E-LST-' }, ownerType: 'platform', status: 'listed', productType: { in: ['raw', 'graded'] } },
+    orderBy: { folio: 'asc' },
+    select: { id: true, cardId: true, productType: true, rawCondition: true, gradingCompany: true, gradeValue: true, finish: true },
+  });
+  const keys = new Map<string, { cardId: string; productType: 'raw' | 'graded'; gradeKey: string; finish: Finish }>();
+  const idsByKey = new Map<string, string[]>();
+  for (const it of items) {
+    const gradeKey = tryBuildGradeKey(it);
+    if (gradeKey == null) continue;
+    const k = { cardId: it.cardId, productType: it.productType as 'raw' | 'graded', gradeKey, finish: it.finish };
+    const kk = featuredKeyOf(k);
+    if (!keys.has(kk)) keys.set(kk, k);
+    idsByKey.set(kk, [...(idsByKey.get(kk) ?? []), it.id]);
+  }
+  // «Recién llegadas»: las DOS últimas llaves por folio (`firstListedAt` 1 h antes del inicio del día de portada, o de ahora
+  // si es antes: dentro de cualquier ventana ≥ 1 día). El resto, 60 días atrás (fuera de la ventana máxima de 30). Se
+  // escribe en cada siembra (idempotente: mismas llaves) y ANTES de mirar si hay selección: el tic y `force` la leen también.
+  const recentKeys = [...keys.keys()].slice(-2);
+  const recentAt = new Date(Math.min(Date.now(), effectiveFrom.getTime()) - 60 * 60_000);
+  const oldAt = new Date(effectiveFrom.getTime() - 60 * 86_400_000);
+  const recentIds = recentKeys.flatMap((k) => idsByKey.get(k) ?? []);
+  await prisma.inventoryItem.updateMany({ where: { id: { in: items.map((i) => i.id).filter((id) => !recentIds.includes(id)) } }, data: { firstListedAt: oldAt } });
+  await prisma.inventoryItem.updateMany({ where: { id: { in: recentIds } }, data: { firstListedAt: recentAt } });
+
   const existing = await prisma.featuredSelection.findUnique({ where: { businessDate } });
   if (existing) {
     const source = (existing.dials as { source?: unknown } | null)?.source;
     if (source !== SEED_FEATURED_SOURCE) return;
     await prisma.featuredSelection.delete({ where: { businessDate } });
   }
-  const items = await prisma.inventoryItem.findMany({
-    where: { folio: { startsWith: 'E2E-LST-' }, ownerType: 'platform', status: 'listed', productType: { in: ['raw', 'graded'] } },
-    orderBy: { folio: 'asc' },
-    select: { cardId: true, productType: true, rawCondition: true, gradingCompany: true, gradeValue: true, finish: true },
-  });
-  const keys = new Map<string, { cardId: string; productType: 'raw' | 'graded'; gradeKey: string; finish: Finish }>();
-  for (const it of items) {
-    const gradeKey = tryBuildGradeKey(it);
-    if (gradeKey == null) continue;
-    const k = { cardId: it.cardId, productType: it.productType as 'raw' | 'graded', gradeKey, finish: it.finish };
-    if (!keys.has(featuredKeyOf(k))) keys.set(featuredKeyOf(k), k);
-  }
-  const picks = [...keys.values()].slice(0, 20);
+  // La forma de `selectFeatured`: primero los lugares `new_arrival` (hasta `featuredNewArrivalSlots`), luego `pool` hasta
+  // completar `featuredRandomSlots + featuredNewArrivalSlots` lugares (≤ 20, el CHECK de M-93).
+  const na = recentKeys.slice(0, Math.max(0, newArrivalSlots)).map((k) => keys.get(k)!);
+  const naSet = new Set(na.map(featuredKeyOf));
+  const total = Math.min(20, randomSlots + newArrivalSlots);
+  const pool = [...keys.values()].filter((k) => !naSet.has(featuredKeyOf(k))).slice(0, Math.max(0, total - na.length));
+  const picks = [
+    ...na.map((k) => ({ slotKind: 'new_arrival' as const, ...k })),
+    ...pool.map((k) => ({ slotKind: 'pool' as const, ...k })),
+  ];
   await prisma.featuredSelection.create({
     data: {
       businessDate,
@@ -1264,10 +1298,10 @@ async function seedFeaturedSelection(prisma: PrismaClient): Promise<void> {
       // 32 bytes hex deterministas: la columna guarda la semilla del sorteo; aquí no hay sorteo.
       seed: createHash('sha256').update(`${SEED_FEATURED_SOURCE}:${day}`).digest('hex'),
       dials: { source: SEED_FEATURED_SOURCE, rotationHour: hour },
-      poolCount: picks.length,
-      newArrivalCandidates: 0,
+      poolCount: pool.length,
+      newArrivalCandidates: recentKeys.length,
       forcedByUserId: null,
-      items: { create: picks.map((k, i) => ({ position: i + 1, slotKind: 'pool' as const, ...k })) },
+      items: { create: picks.map((k, i) => ({ position: i + 1, ...k })) },
     },
   });
 }

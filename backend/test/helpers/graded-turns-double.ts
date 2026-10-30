@@ -80,6 +80,19 @@ export function withGradedTurns<T extends object>(
       where.setId.in.map((setId) => ({ setId, _count: { _all: world.catalogCards.get(setId) ?? 1 } })),
     );
   }
+  // v1.114.4 (§DYN.4.3) — el turno PSA entra por `$transaction` + `pg_try_advisory_xact_lock`. En memoria el candado siempre
+  // se obtiene y `lockTx` es el mismo doble (la relectura de lo gastado ve las filas que escribe la corrida). La carrera real
+  // se mide contra Postgres en `test/integration/dyn-graded-turns-lock.e2e-spec.ts` (DYN-B27).
+  const anyP = prismaDouble as unknown as Record<string, unknown>;
+  if (typeof anyP.$transaction !== 'function') {
+    anyP.$transaction = jest.fn(async (fn: (tx: unknown) => unknown) => fn(prismaDouble));
+  }
+  const prevQueryRaw = anyP.$queryRaw as ((...a: unknown[]) => Promise<unknown>) | undefined;
+  anyP.$queryRaw = jest.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    if (Array.isArray(strings) && strings.join('?').includes('pg_try_advisory_xact_lock')) return [{ locked: true }];
+    if (prevQueryRaw) return prevQueryRaw(strings, ...values);
+    throw new Error('graded-turns-double: $queryRaw sin doble para esta consulta');
+  });
   const cs = p.configSetting as Record<string, unknown> | undefined;
   if (cs && !cs.findUnique && typeof cs.findMany === 'function') {
     // La IMPLEMENTACIÓN del `findMany` del doble (no el mock): leer el tope no debe sumar llamadas que otras pruebas cuentan.

@@ -1495,6 +1495,22 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
 };
 
 /**
+ * PEN-DYN-2 — las claves con regla CRUZADA (buylist §4.39l y Destacadas §DYN.3). Un `PUT` que toca alguna toma
+ * `SETTINGS_CROSS_RULES_LOCK_KEY` dentro de su transacción y evalúa las reglas releyendo por `tx`; un candado para las dos
+ * familias (los `PUT` de diales son raros: serializarlos no cuesta nada medible).
+ */
+export const CROSS_RULE_KEYS = [
+  SettingKey.BUYLIST_SHIPPING_FEE_CENTS,
+  SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS,
+  SettingKey.BUYLIST_MINIMUM_REQUEST_CENTS,
+  SettingKey.FEATURED_POOL_SIZE,
+  SettingKey.FEATURED_RANDOM_SLOTS,
+  SettingKey.FEATURED_NEW_ARRIVAL_SLOTS,
+] as const;
+/** Candado consultivo de las reglas cruzadas de diales (PEN-DYN-2). Clave propia (censo: `test/lock-keys.census.spec.ts`). */
+export const SETTINGS_CROSS_RULES_LOCK_KEY = 64_440_960;
+
+/**
  * v1.113⟨portada⟩ (API_CONTRACT §DYN.3) — las DOS reglas de combinación de Destacadas, sobre el valor RESULTANTE del `PUT`
  * parcial: `featuredRandomSlots + featuredNewArrivalSlots ∈ [1, 20]` y `featuredPoolSize ≥ featuredRandomSlots`.
  * `null` = cumple; si no, el `details.rule` del `422`.

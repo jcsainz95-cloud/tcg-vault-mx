@@ -2,7 +2,6 @@ import { measurementColumnsData, type MeasurementColumns } from '../measurement/
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   InventoryItem,
-  ListingPrice,
   Card,
   CardSet,
   Finish,
@@ -24,7 +23,7 @@ import { CUSTOMER_TIMELINE_EVENTS_SELECT, TimelineEventRow, providerTrackingUrlO
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
 import { SaleDecision, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
-import { decisionOfRow, ListingPriceService } from '../pricing/listing-price.service';
+import { ListingPriceService } from '../pricing/listing-price.service';
 import { SettingsService } from '../settings/settings.service';
 import { StripeService } from '../payments/stripe.service';
 import { CatalogService } from '../catalog/catalog.service';
@@ -368,22 +367,11 @@ export class OrdersService {
    * lectura por carrito.
    */
   private async saleDecisionsOf(items: SaleItem[], iva: IvaDials): Promise<SaleDecision[]> {
-    const rows = this.listingPrices ? await this.listingPrices.rowsFor(items.map((i) => i.id)) : new Map<string, ListingPrice>();
+    // TL-DYN-1: «fila o vivo» vive en UN sitio (`ListingPriceService.chargeDecisionsFor`). Sin el servicio (dobles unitarios
+    // que construyen a mano) no hay filas que leer: todo en vivo, que es lo que daba la rama «sin fila».
+    if (this.listingPrices) return this.listingPrices.chargeDecisionsFor(items, iva);
     const out: SaleDecision[] = [];
-    const missing: string[] = [];
-    for (const item of items) {
-      const row = rows.get(item.id);
-      if (row?.status === 'pending') {
-        throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no publishable price`);
-      }
-      if (row) {
-        out.push(decisionOfRow(row, item));
-      } else {
-        out.push(await this.decider.decide(item, iva));
-        missing.push(item.id);
-      }
-    }
-    if (missing.length > 0 && this.listingPrices) void this.listingPrices.enqueue('missing_row', missing);
+    for (const item of items) out.push(await this.decider.decide(item, iva));
     return out;
   }
 

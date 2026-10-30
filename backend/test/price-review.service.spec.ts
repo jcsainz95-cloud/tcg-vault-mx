@@ -29,7 +29,8 @@ function makeService(prismaOverrides: any = {}, listingPrices?: any) {
     // v1.91 errata (B): accept promueve una PriceReference robusta NO-manual (no congela).
     promoteRobustReference: jest.fn().mockResolvedValue({ ref: { id: 'ref-accept' } }),
   };
-  const svc = new PriceReviewService(prisma, audit, pricing, listingPrices);
+  // TL-DYN-4: `ListingPriceService` es obligatorio; sin uno propio de la prueba, un doble que solo acepta el encolado.
+  const svc = new PriceReviewService(prisma, audit, pricing, listingPrices ?? { enqueueVariant: jest.fn(async () => undefined) });
   return { svc, prisma, audit, pricing };
 }
 

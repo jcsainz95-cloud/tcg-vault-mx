@@ -67,7 +67,7 @@ function build(stored: Record<string, number> = { ...SEED }, fallback = 25) {
     prisma,
     {} as PriceSyncJobService,
     {} as never,
-    {} as never,
+    {} as never, undefined, undefined, { enqueueVariant: jest.fn(async () => undefined) } as never,
   );
   return { controller, store, audit };
 }

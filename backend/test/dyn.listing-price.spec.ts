@@ -111,6 +111,14 @@ function lpDouble(rows: ListingPrice[]) {
 }
 
 function orders(pricing: PricingService, lp?: ReturnType<typeof lpDouble>) {
+  // TL-DYN-1: «fila o vivo» vive en `ListingPriceService.chargeDecisionsFor`. El doble corre ESE método real sobre sus filas,
+  // con el cuerpo único sobre el mismo `pricing` que usa el checkout: DYN-B16 sigue midiendo el código de producción.
+  if (lp) {
+    Object.assign(lp, {
+      decider: new SaleDecisionService(pricing),
+      chargeDecisionsFor: ListingPriceService.prototype.chargeDecisionsFor,
+    });
+  }
   return new OrdersService(
     {} as PrismaService,
     pricing,

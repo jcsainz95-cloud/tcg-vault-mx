@@ -1,10 +1,16 @@
+import 'reflect-metadata';
 import { isPremiumCanonicalRarity } from '../src/common/rarity-catalog';
+import { PriceReviewService } from '../src/modules/pricing/price-review.service';
+import { PricingController } from '../src/modules/pricing/pricing.controller';
 import { variantKey } from '../src/common/variant-key';
 import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { FxService } from '../src/modules/pricing/fx.service';
+import { ListingPriceService, listingPriceVariantKey } from '../src/modules/pricing/listing-price.service';
+import { SaleDecisionService } from '../src/modules/pricing/sale-decision.service';
+import { featuredKeyOf } from '../src/modules/catalog/featured-selection';
 
 /**
  * Deuda técnica backend (TECH_DEBT) — guards unitarios:
@@ -134,4 +140,80 @@ describe('P-30 H2 · round-trip productor↔consumidor (misma fuente `variantKey
     const hit = map.get(variantKey({ ...sealed }));
     expect(hit).toMatchObject({ status: 'priced', referenceMxnCents: 7700 });
   });
+});
+
+// ===========================================================================
+// TL-DYN-2 (techlead sobre `d0b40182`): la llave K de `ListingPrice.variantKey` y la de Destacadas salen del MISMO `variantKey`.
+// Round-trip: lo que el ESCRITOR del precio del día pone en la columna es exactamente la clave con que un consumidor
+// (catálogo, referencias, Destacadas) hace `.get()` para la misma pieza.
+// ===========================================================================
+describe('TL-DYN-2 · round-trip de `ListingPrice.variantKey` y de la llave de Destacadas', () => {
+  const parts = { cardId: 'card-7', productType: 'raw', gradeKey: 'raw:NM', finish: 'reverse_holo' } as const;
+
+  /** Corre el escritor de UNA fila (`writeRow`) sobre un `tx` que captura los valores del `INSERT`. */
+  async function writtenVariantKey(gradeKey: string | null, item: { cardId: string; productType: string; finish: string }) {
+    const decider = { gradeKeyOf: () => gradeKey } as unknown as SaleDecisionService;
+    const svc = new ListingPriceService({} as PrismaService, decider, {} as SettingsService);
+    let values: unknown[] = [];
+    const tx = {
+      $executeRaw: jest.fn(async (_s: TemplateStringsArray, ...v: unknown[]) => {
+        values = v;
+        return 1;
+      }),
+    };
+    await (svc as unknown as { writeRow: (...a: unknown[]) => Promise<void> }).writeRow(
+      tx,
+      { id: 'it-1', ...item },
+      { kind: 'pending', reference: { status: 'pending' } },
+      { referenceMxnCents: null, capturedDate: null },
+      { ivaRatePct: 16, ivaTransferPct: 0 },
+      'run-1',
+      new Date('2026-10-30T12:00:00Z'),
+    );
+    // Orden de la lista de columnas del INSERT: ("inventoryItemId", "variantKey", …).
+    return values[1];
+  }
+
+  it('el escritor guarda la clave con que el consumidor recupera la variante', async () => {
+    const written = await writtenVariantKey(parts.gradeKey, { cardId: parts.cardId, productType: parts.productType, finish: parts.finish });
+    const consumer = new Map([[variantKey({ ...parts }), 'hit']]);
+    expect(written).toBe(variantKey({ ...parts }));
+    expect(consumer.get(written as string)).toBe('hit');
+    expect(listingPriceVariantKey(parts, parts.gradeKey)).toBe(written);
+  });
+
+  it('graduada sin identidad de slab ⇒ `-` en el lugar del grado (la columna no admite null)', async () => {
+    const g = { cardId: 'card-8', productType: 'graded', finish: 'normal' } as const;
+    expect(await writtenVariantKey(null, g)).toBe(variantKey({ ...g, gradeKey: '-' }));
+  });
+
+  it('la llave de Destacadas es `variantKey`', () => {
+    expect(featuredKeyOf({ ...parts })).toBe(variantKey({ ...parts }));
+  });
+});
+
+// ===========================================================================
+// TL-DYN-4 (techlead sobre `d0b40182`, misma clase que TL-DSC-5): los disparadores de dinero del precio del día NO pueden
+// faltar en silencio. Si `ListingPriceService` fuese `@Optional()` y faltara el proveedor, abrir un caso o fijar un precio a
+// mano no llegaría a lo exhibido hasta el siguiente `daily`. Se lee la metadata de inyección de Nest, no la prosa.
+// ===========================================================================
+describe('TL-DYN-4 · `ListingPriceService` es OBLIGATORIO en los disparadores de dinero (sin `@Optional()`)', () => {
+  it.each([
+    ['PriceReviewService', PriceReviewService],
+    ['PricingController', PricingController],
+  ] as const)('%s', (_n, cls) => {
+    const types: unknown[] = Reflect.getMetadata('design:paramtypes', cls) ?? [];
+    const idx = types.indexOf(ListingPriceService);
+    expect(idx).toBeGreaterThanOrEqual(0);
+    const optional: number[] = Reflect.getMetadata('optional:paramtypes', cls) ?? [];
+    expect(optional).not.toContain(idx);
+  });
+});
+
+it('TL-DYN-4 (regresión): `PricingController` sigue resolviendo `PriceReviewService` (token explícito; la unión emitiría `Object`)', () => {
+  const types: unknown[] = Reflect.getMetadata('design:paramtypes', PricingController) ?? [];
+  const tokens: { index: number; param: unknown }[] = Reflect.getMetadata('self:paramtypes', PricingController) ?? [];
+  const resolved = types.map((t, i) => tokens.find((x) => x.index === i)?.param ?? t);
+  expect(resolved).toContain(PriceReviewService);
+  expect(resolved).not.toContain(Object);
 });

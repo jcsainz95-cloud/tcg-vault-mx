@@ -1005,7 +1005,7 @@ export class CatalogService {
     // `gradingHighlight` (dial off, o superficie que no lo compone) — el DTO sale EXACTAMENTE como hoy.
     grading?: GradingContext | null,
   ) {
-    const groups = new Map<string, { gradeKey: string; members: typeof rows }>();
+    const groups = new Map<string, { gradeKey: string; groupKey: string; members: typeof rows }>();
     for (const r of rows) {
       // v1.53 (§4.40.4b, MONEY) — la clave de AGRUPACIÓN **es** la clave de PRECIO (§P-30). Una pieza
       // `graded` sin identidad de slab no tiene clave, así que **no forma publicación agrupada**: no
@@ -1030,9 +1030,9 @@ export class CatalogService {
       if (keys == null) continue;
       const g = groups.get(keys.variantKey);
       if (g) g.members.push(r);
-      else groups.set(keys.variantKey, { gradeKey: keys.gradeKey, members: [r] });
+      else groups.set(keys.variantKey, { gradeKey: keys.gradeKey, groupKey: keys.variantKey, members: [r] });
     }
-    return [...groups.values()].map(({ gradeKey, members }) => {
+    return [...groups.values()].map(({ gradeKey, groupKey, members }) => {
       // Representante = pieza vendible MÁS BARATA. ⚠️ Se ordena por **`L`** y no por `P`: `P` es
       // monótono en `L`, pero dos `L` distintos pueden dar el MISMO `P` al redondear ⇒ ordenar por
       // `P` podría elegir otro representante que el de antes del corte. Ordenar por `L` deja la
@@ -1149,6 +1149,8 @@ export class CatalogService {
       return {
         dto,
         summary,
+        /** La llave K con que se AGRUPÓ (TL-DYN-2): la usan Destacadas sin volver a derivarla del DTO. */
+        variantKey: groupKey,
         /** `P` — el que se filtra y se ordena de cara al cliente (es lo que ve). */
         displayPriceCents,
         /** `L` — el que consumen los gates y el diagnóstico de admin (escala de mercado). */
@@ -1366,7 +1368,8 @@ export class CatalogService {
         gradeKey: g.dto.gradeKey,
         finish: g.dto.finish,
       };
-      return { ...key, priceCents: g.displayPriceCents, firstListedAt: firstByKey.get(variantKey(key)) ?? null };
+      // TL-DYN-2: la MISMA llave con que se agrupó (`g.variantKey`), no una re-derivada del DTO.
+      return { ...key, priceCents: g.displayPriceCents, firstListedAt: firstByKey.get(g.variantKey) ?? null };
     });
   }
 
@@ -1383,13 +1386,8 @@ export class CatalogService {
     const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId: { in: cardIds } }));
     const grading = await this.loadGradingContext(rows);
     for (const g of this.buildGroups(rows, grading)) {
-      const key = featuredKeyOf({
-        cardId: g.dto.card.id,
-        productType: g.dto.productType as ProductType,
-        gradeKey: g.dto.gradeKey,
-        finish: g.dto.finish,
-      });
-      if (wanted.has(key)) out.set(key, g.summary);
+      // TL-DYN-2: la llave con que se agrupó; `featuredKeyOf` es el mismo `variantKey`, así que casa con la selección guardada.
+      if (wanted.has(g.variantKey)) out.set(g.variantKey, g.summary);
     }
     return out;
   }

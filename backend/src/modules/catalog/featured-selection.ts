@@ -8,6 +8,7 @@
  */
 import { createHash } from 'node:crypto';
 import { Finish, ProductType } from '@prisma/client';
+import { variantKey } from '../../common/variant-key';
 
 /** §DYN.2.3 — las recién llegadas se sortean entre las 10 de mayor precio de la ventana (constante, PROJECT §DYN.1). */
 export const FEATURED_NEW_ARRIVAL_TOP = 10;
@@ -45,9 +46,9 @@ export interface FeaturedSelectionResult {
   newArrivalCandidates: number;
 }
 
-/** La llave K como texto: también es el desempate `K asc` del contrato. */
+/** La llave K como texto (el helper ÚNICO `variantKey`, TL-DYN-2): también es el desempate `K asc` del contrato. */
 export function featuredKeyOf(k: FeaturedKey): string {
-  return `${k.cardId}|${k.productType}|${k.gradeKey}|${k.finish}`;
+  return variantKey(k);
 }
 
 /** (P desc, K asc). */

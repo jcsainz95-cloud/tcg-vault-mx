@@ -86,6 +86,11 @@ function settingsWith(stored: Record<string, unknown>) {
             store.set(where.key, create.valueJson);
           }),
           findUnique: jest.fn(async () => null),
+          // PEN-DYN-2: las reglas cruzadas releen POR `tx`, después del candado.
+          findMany: jest.fn(async (args?: { where?: { key?: { in?: string[] } } }) => {
+            const keys = args?.where?.key?.in ?? [...store.keys()];
+            return keys.filter((k) => store.has(k)).map((k) => ({ key: k, valueJson: store.get(k) }));
+          }),
         },
         $executeRaw: jest.fn(async () => 0),
       }),

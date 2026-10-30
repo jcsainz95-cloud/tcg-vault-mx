@@ -4,7 +4,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { StripeFeeConfig } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 import {
+  CROSS_RULE_KEYS,
   RETIRED_SETTING_KEYS,
+  SETTINGS_CROSS_RULES_LOCK_KEY,
   SETTING_DEFAULTS,
   SETTING_DTO_MAP,
   SETTING_VALIDATORS,
@@ -280,9 +282,13 @@ export class SettingsService implements OnModuleInit {
    * Efecto secundario deseado: N claves ⇒ 1 query (en vez de N `findUnique`), que es como se ha izado
    * la config del gancho por request.
    */
-  async getRawMany(keys: readonly SettingKeyType[]): Promise<Map<SettingKeyType, unknown>> {
+  async getRawMany(
+    keys: readonly SettingKeyType[],
+    /** PEN-DYN-2: dentro de una transacción, la lectura va por su `tx` (después del candado). */
+    db: Pick<Prisma.TransactionClient, 'configSetting'> = this.prisma,
+  ): Promise<Map<SettingKeyType, unknown>> {
     if (keys.length === 0) return new Map();
-    const rows = await this.prisma.configSetting.findMany({
+    const rows = await db.configSetting.findMany({
       where: { key: { in: [...new Set(keys)] } },
     });
     return new Map(rows.map((r) => [r.key as SettingKeyType, r.valueJson as unknown]));
@@ -646,10 +652,10 @@ export class SettingsService implements OnModuleInit {
     // abajo — y por eso las dos puntas se cierran juntas.
     const validated = this.validatePayload(dtoPartial);
 
-    // v1.51 (M-46, §4.39l / criterio 127) — VALIDACIÓN CRUZADA BLOQUEANTE ENTRE TRES DIALES.
-    await this.assertBuylistCrossDials(validated);
-    // v1.113⟨portada⟩ (§DYN.3) — las dos reglas de Destacadas, sobre el valor RESULTANTE del `PUT` parcial.
-    await this.assertFeaturedCombination(validated);
+    // Las reglas CRUZADAS (buylist §4.39l, Destacadas §DYN.3) se evalúan DENTRO de la transacción, bajo candado y releyendo
+    // por `tx` (PEN-DYN-2): fuera, dos `PUT` simultáneos válidos cada uno leían el estado de antes y commiteaban juntos un
+    // estado que rompe la regla (medido por el pentester 3/10 y 1/10; forzado en `settings-cross-rules-race.e2e-spec.ts`).
+    const tocaReglaCruzada = validated.some((v) => (CROSS_RULE_KEYS as readonly SettingKeyType[]).includes(v.settingKey));
 
     // ⚠️ **v1.63.2 · S-FX-1 — el pin y su precondición se movieron DENTRO de la transacción.**
     // Estaban fuera «a propósito» (para no escribir nada si la precondición falla), y esa razón
@@ -688,6 +694,16 @@ export class SettingsService implements OnModuleInit {
       // sirva. Con la lectura fuera, la transacción que espera su turno entra y escribe el estado
       // que vio antes de esperar — el mismo estado imposible, veinte milisegundos más tarde.
       const fxPin = await this.prepareFxModePin(validated, tx);
+
+      // PEN-DYN-2 — candado de los diales con regla cruzada y relectura por el MISMO `tx` (mismo patrón que la puerta del FX:
+      // candado → releer → validar → escribir). El perdedor espera, relee lo que escribió el otro y sale con `422`.
+      if (tocaReglaCruzada) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SETTINGS_CROSS_RULES_LOCK_KEY})`;
+        // v1.51 (M-46, §4.39l / criterio 127) — VALIDACIÓN CRUZADA BLOQUEANTE ENTRE TRES DIALES.
+        await this.assertBuylistCrossDials(validated, tx);
+        // v1.113⟨portada⟩ (§DYN.3) — las dos reglas de Destacadas, sobre el valor RESULTANTE del `PUT` parcial.
+        await this.assertFeaturedCombination(validated, tx);
+      }
 
       // ⭐ El pin va DENTRO de la misma transacción que el valor: es imposible que quede el número
       // nuevo sin su modo materializado (que es, exactamente, el estado en el que la resolución
@@ -864,7 +880,10 @@ export class SettingsService implements OnModuleInit {
    * el body dejaría romper la regla mandando UNA clave). Sin ninguna de las tres en el body ⇒ no lee nada.
    * ⇒ `422 VALIDATION_ERROR` con `details.rule` ∈ {`featured_slots_total`, `featured_pool_lt_random`}.
    */
-  private async assertFeaturedCombination(validated: { settingKey: SettingKeyType; value: unknown }[]): Promise<void> {
+  private async assertFeaturedCombination(
+    validated: { settingKey: SettingKeyType; value: unknown }[],
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
     const KEYS = [
       SettingKey.FEATURED_POOL_SIZE,
       SettingKey.FEATURED_RANDOM_SLOTS,
@@ -875,7 +894,7 @@ export class SettingsService implements OnModuleInit {
       if ((KEYS as readonly SettingKeyType[]).includes(settingKey)) incoming.set(settingKey, value);
     }
     if (incoming.size === 0) return;
-    const rows = await this.getRawMany(KEYS);
+    const rows = await this.getRawMany(KEYS, tx);
     const resolve = (key: SettingKeyType): number =>
       Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
     const problem = validateFeaturedCombination({
@@ -888,6 +907,7 @@ export class SettingsService implements OnModuleInit {
 
   private async assertBuylistCrossDials(
     validated: { settingKey: SettingKeyType; value: unknown }[],
+    tx: Prisma.TransactionClient,
   ): Promise<void> {
     const CROSS_KEYS = [
       SettingKey.BUYLIST_SHIPPING_FEE_CENTS,
@@ -905,7 +925,7 @@ export class SettingsService implements OnModuleInit {
     // ESTADO RESULTANTE = lo VIGENTE (fila de BD, o el default si la fila no existe) pisado por lo
     // que trae este `PUT`. `getRawMany` devuelve SOLO las filas existentes, así que la ausencia se
     // resuelve al default — que es exactamente cómo lo leerá después cualquier consumidor.
-    const rows = await this.getRawMany(CROSS_KEYS);
+    const rows = await this.getRawMany(CROSS_KEYS, tx);
     const resolve = (key: SettingKeyType): number =>
       Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
 

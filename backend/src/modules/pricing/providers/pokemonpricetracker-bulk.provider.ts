@@ -756,6 +756,11 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
     freshnessDays: number;
     /** Fecha de negocio (`YYYY-MM-DD`) contra la que se mide la evidencia. */
     today: string;
+    /**
+     * v1.114.4 (§DYN.4.3) — plazo del set ENTERO (todas sus páginas, reintentos incluidos), en ms. Vencido ⇒ la petición se
+     * aborta y el set sale como petición fallida (`requestFailed`). Sin él, sin tope propio (conducta de antes).
+     */
+    timeoutMs?: number;
   }): Promise<GradedEstimateFetchResult> {
     const empty: GradedEstimateFetchResult = {
       rows: [],
@@ -860,10 +865,12 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
     try {
       let received = 0;
       let offset: number | null = null;
+      const signal = input.timeoutMs != null ? AbortSignal.timeout(input.timeoutMs) : undefined;
       for (let page = 0; page < this.maxPages; page++) {
         const { entries, pagination, url, dailyRemaining, apiCallsConsumed } = await this.fetchGradedPage(
           input.providerSetId,
           offset,
+          signal,
         );
         requestOk = true;
         // El coste se acumula ANTES de cualquier `break`: una página que se pagó cuenta aunque su
@@ -1300,7 +1307,7 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
    * `fetchAllInSet=true` **a propósito**: si el proveedor no admitiera la combinación, el modelo de
    * coste cambia por completo y eso ESCALA al arquitecto — no se degrada a una petición por carta.
    */
-  private async fetchGradedPage(providerSetId: string, offset: number | null): Promise<PricesPage> {
+  private async fetchGradedPage(providerSetId: string, offset: number | null, signal?: AbortSignal): Promise<PricesPage> {
     const query: Record<string, string> = {
       setId: providerSetId,
       fetchAllInSet: 'true',
@@ -1310,7 +1317,9 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
       query.limit = String(this.pageLimit);
       query.offset = String(offset);
     }
-    const res: PptResponse<unknown> = await this.client.getJson<unknown>(this.cardsPath, query);
+    const res: PptResponse<unknown> = signal
+      ? await this.client.getJson<unknown>(this.cardsPath, query, { signal })
+      : await this.client.getJson<unknown>(this.cardsPath, query);
     return {
       entries: this.extractEntries(res.body),
       pagination: this.extractPagination(res.body),

@@ -53,6 +53,17 @@ describe('E2E — seed: Destacadas vigentes al sembrar (sin esperar al tic)', ()
     expect((await h.app.get(FeaturedService).health()).status).toBe('ok');
   });
 
+  it('tester-e2e IMPORTANTE-1: recién sembrado, ≤ 10 lugares y 2 `new_arrival` (con `firstListedAt` en la ventana)', async () => {
+    const r = await h.api<Featured>('GET', '/catalog/featured');
+    const slots = r.body.data.map((d) => d.featuredSlot);
+    expect(slots.length).toBeLessThanOrEqual(10);
+    expect(slots.filter((s) => s === 'new_arrival')).toHaveLength(2);
+    const sel = await h.prisma.featuredSelection.findUniqueOrThrow({ where: { businessDate: dbDate(day) }, include: { items: true } });
+    expect(sel.items.length).toBeLessThanOrEqual(10);
+    const lst = await h.prisma.inventoryItem.findMany({ where: { folio: { startsWith: 'E2E-LST-' } }, select: { firstListedAt: true } });
+    expect(lst.filter((i) => i.firstListedAt == null)).toHaveLength(0);
+  });
+
   it('re-sembrar no duplica y da la misma composición', async () => {
     const before = await h.prisma.featuredSelection.findMany({ include: { items: { orderBy: { position: 'asc' } } } });
     await seedE2E(h.prisma);
