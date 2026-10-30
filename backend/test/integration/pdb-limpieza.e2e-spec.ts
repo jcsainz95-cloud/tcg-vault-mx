@@ -48,6 +48,8 @@ import {
   revertM82M83,
   revertM86,
   revertM92,
+  revertM93,
+  revertM94,
   cloneSchema,
   FROZEN_B_SHA256,
   readFrozenB,
@@ -58,6 +60,8 @@ import { ShipmentOrphanService } from '../../src/modules/shipments/orphan-reconc
 import { AdminAccessoriesService } from '../../src/modules/accessories/admin-accessories.service';
 import { AuditService } from '../../src/modules/audit/audit.service';
 import { deriveBountyState } from '../../src/modules/pricing/bounty-state';
+import { FEATURED_ROTATION_LOCK_KEY } from '../../src/modules/catalog/featured.service';
+import { LISTING_PRICE_LOCK_KEY } from '../../src/modules/pricing/listing-price.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
 
 jest.setTimeout(180_000);
@@ -435,6 +439,109 @@ describe('💰 P-DB-LIMPIEZA · guion B (limpieza, v2: también el inventario)',
       await e.db.inventoryItem.updateMany({ where: { ownerType: 'customer' }, data: { ownerType: 'platform', ownerUserId: null, ownershipStatus: null } });
       commit(e, '');
       expect(await e.db.inventoryItem.count()).toBe(0);
+    });
+  });
+});
+
+/**
+ * v1.114.5⟨portada⟩ (API_CONTRACT §DYN.1 «Limpieza PDB», QA B-1 sobre `d0b40182`): las 6 tablas de M-93/M-94. Se BORRA lo
+ * derivado de las piezas (precio del día y el sorteo de Destacadas); se CONSERVA la bitácora de corridas y el turno PSA
+ * (créditos gastados de verdad y relojes del catálogo).
+ */
+const DYN_EMPTIED = ['ListingPrice', 'FeaturedSelectionItem', 'FeaturedSelection'];
+const DYN_KEPT = ['ListingPriceRun', 'GradedEstimateSetScan', 'GradedEstimateCardScan'];
+
+/** Una fila (o más) en cada una de las seis, colgadas del fixture (una pieza para la fila del precio del día). */
+async function seedDyn(e: Env): Promise<void> {
+  const item = await e.db.inventoryItem.findFirstOrThrow({ select: { id: true, cardId: true } });
+  const card = await e.db.card.findUniqueOrThrow({ where: { id: item.cardId }, select: { id: true, setId: true } });
+  const run = await e.db.listingPriceRun.create({
+    data: { businessDate: new Date('2026-10-30T00:00:00Z'), trigger: 'daily', status: 'ok', scopeItemCount: 1, pricedCount: 1, startedAt: new Date('2026-10-30T11:00:00Z') },
+  });
+  await e.db.listingPrice.create({
+    data: {
+      inventoryItemId: item.id, variantKey: `${card.id}|raw|raw:NM|normal`, runId: run.id, status: 'priced', unitPriceCents: 1160, listPriceCents: 1000,
+      priceBasis: 'market', ivaRatePct: 16, ivaTransferPct: 100, computedAt: new Date('2026-10-30T11:00:00Z'),
+    },
+  });
+  await e.db.featuredSelection.create({
+    data: {
+      businessDate: new Date('2026-10-30T00:00:00Z'), effectiveFrom: new Date('2026-10-30T12:00:00Z'), seed: 'a'.repeat(64), dials: { source: 'lz' },
+      poolCount: 1, newArrivalCandidates: 0,
+      items: { create: [{ position: 1, slotKind: 'pool', cardId: card.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' }] },
+    },
+  });
+  const scan = await e.db.gradedEstimateSetScan.create({
+    data: { setId: card.setId, businessDate: new Date('2026-10-30T00:00:00Z'), outcome: 'ok', creditsEstimated: 20, creditsMeasured: 18, creditsCharged: 18, cardsInScope: 1, cardsReturned: 9 },
+  });
+  await e.db.gradedEstimateCardScan.create({ data: { cardId: card.id, lastScannedAt: new Date('2026-10-30T11:00:00Z'), lastOutcome: 'written', lastSetScanId: scan.id } });
+}
+
+describe('💰 §DYN.1 v1.114.5 · Limpieza PDB de M-93/M-94 (G-8, G-7, G-11)', () => {
+  it('DYN_EMPTIED ⇒ 0 filas; DYN_KEPT ⇒ contenido IDÉNTICO (las seis sembradas con n > 0 antes del commit)', async () => {
+    const e = await fresh();
+    await seedDyn(e);
+    const before = await snapshot(admin, e.schema);
+    for (const t of [...DYN_EMPTIED, ...DYN_KEPT]) expect({ t, n: before.tables[t].n > 0 }).toEqual({ t, n: true });
+    const r = commit(e);
+    const after = await snapshot(admin, e.schema);
+    for (const t of DYN_EMPTIED) expect({ t, n: after.tables[t].n }).toEqual({ t, n: 0 });
+    for (const t of DYN_KEPT) expect({ t, s: after.tables[t] }).toEqual({ t, s: before.tables[t] });
+    expect(r.stdout).toMatch(/11 ListingPrice/);
+    expect(r.stdout).toMatch(/13 FeaturedSelection\b/);
+  });
+
+  it('G-7: tras limpiar, una `FeaturedSelection` nueva (el tic del día) NO la dispara; una `InventoryItem` sí', async () => {
+    const e = await fresh();
+    commit(e);
+    await e.db.featuredSelection.create({
+      data: { businessDate: new Date('2026-10-31T00:00:00Z'), effectiveFrom: new Date('2026-10-31T12:00:00Z'), seed: 'b'.repeat(64), dials: { source: 'tic' }, poolCount: 0, newArrivalCandidates: 0 },
+    });
+    const again = psql(e.schema, commitSql(e));
+    expect({ status: again.status, g7: /G-7/.test(again.stderr) }).toEqual({ status: 0, g7: false });
+    await altaPorApp(e, 1);
+    const before = await snapshot(admin, e.schema);
+    const r = psql(e.schema, commitSql(e));
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/G-7[^\n]*InventoryItem/);
+    expectSame(before, await snapshot(admin, e.schema));
+  });
+
+  it('G-11: los literales del guion son las constantes del código', () => {
+    const code = readRepair('limpieza').replace(/--.*$/gm, '');
+    const keys = [...code.matchAll(/pg_try_advisory_xact_lock\((\d+)\)/g)].map((m) => Number(m[1])).sort();
+    expect(keys).toEqual([FEATURED_ROTATION_LOCK_KEY, LISTING_PRICE_LOCK_KEY].sort());
+    // ⛔ la variante que espera
+    expect(code).not.toMatch(/pg_advisory_xact_lock\(\s*9113010[12]\s*\)|pg_advisory_lock\(/);
+  });
+
+  describe.each([
+    ['FEATURED_ROTATION_LOCK_KEY', FEATURED_ROTATION_LOCK_KEY],
+    ['LISTING_PRICE_LOCK_KEY', LISTING_PRICE_LOCK_KEY],
+  ])('G-11 con %s tomada desde otra conexión', (_name, key) => {
+    it('⇒ aborta con G-11 y la base queda IDÉNTICA', async () => {
+      const e = await fresh();
+      await seedDyn(e);
+      const app = `lzg11_${e.schema}`.slice(0, 63);
+      const holder = psqlAsync(e.schema, `SET application_name = '${app}';\nSELECT pg_advisory_lock(${key});\nSELECT pg_sleep(170);\n`);
+      try {
+        const t0 = Date.now();
+        for (;;) {
+          const [r] = await admin.$queryRawUnsafe<{ pid: number }[]>(
+            `SELECT pid FROM pg_stat_activity WHERE application_name = $1 AND wait_event = 'PgSleep'`, app);
+          if (r) break;
+          if (Date.now() - t0 > 60_000) throw new Error('G-11: el tercero no tomó la llave');
+          await new Promise((res) => setTimeout(res, 50));
+        }
+        const before = await snapshot(admin, e.schema);
+        const r = psql(e.schema, commitSql(e));
+        expect(r.status).not.toBe(0);
+        expect(r.stderr).toMatch(/G-11 · Un cálculo de precios o de Destacadas está escribiendo/);
+        expectSame(before, await snapshot(admin, e.schema));
+      } finally {
+        await admin.$queryRawUnsafe(`SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE application_name = $1`, app);
+        await holder;
+      }
     });
   });
 });
@@ -1119,6 +1226,9 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     // v1.91⟨precios⟩: el B congelado de a7232d7a PRECEDE a §PRE (M-75/M-76) ⇒ no clasifica `PriceReviewCase`
     // en su G-8. Ambos gemelos se revierten a esa era (M-75/M-76 fuera) para comparar como iguales.
     const a = await fresh({ m73: false, m74: false, m75: false });
+    // v1.114.5⟨portada⟩: M-94 y luego M-93 (orden inverso de despliegue) — el B congelado no conoce sus seis tablas.
+    revertM94(a.schema);
+    revertM93(a.schema);
     revertM92(a.schema); // v1.110⟨descuentos⟩: M-92 tampoco la conoce el B congelado (G-8 abortaría con sus cuatro tablas).
     // v1.93⟨cardshow⟩: el B congelado de a7232d7a PRECEDE a M-78 (Card Show) ⇒ su G-8 no clasifica `CardShow*` y
     // abortaría al verlas. Ambos gemelos se revierten a esa era (M-78 fuera) para comparar como iguales.
@@ -1133,7 +1243,9 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     n += 1;
     const twin = `${RUN}_${n}`;
     migrateSchema(twin);
-    revertM92(twin); // v1.110⟨descuentos⟩: primero (orden inverso de despliegue).
+    revertM94(twin); // v1.114.5⟨portada⟩: primero M-94, luego M-93 (orden inverso de despliegue).
+    revertM93(twin);
+    revertM92(twin); // v1.110⟨descuentos⟩: después de §DYN (orden inverso de despliegue).
     revertM75(twin);
     revertM74(twin);
     revertM73(twin);

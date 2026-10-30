@@ -372,7 +372,12 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
       });
       const stale = candidates.map((c) => c.inventoryItemId).filter((x) => !inScope.has(x));
       if (stale.length > 0) {
-        await this.prisma.listingPrice.deleteMany({ where: { inventoryItemId: { in: stale }, computedAt: { lt: startedAt } } });
+        // v1.114.5 (§DYN.1 «Limpieza PDB», G-11): TODA escritura de `ListingPrice` va bajo `LISTING_PRICE_LOCK_KEY`, también este
+        // borrado; así la limpieza, que toma la llave con `try`, nunca convive con un cálculo a medias.
+        await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LISTING_PRICE_LOCK_KEY})`;
+          await tx.listingPrice.deleteMany({ where: { inventoryItemId: { in: stale }, computedAt: { lt: startedAt } } });
+        });
       }
       await this.prisma.listingPriceRun.update({
         where: { id: run.id },

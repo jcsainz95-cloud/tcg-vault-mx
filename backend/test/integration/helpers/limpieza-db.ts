@@ -344,6 +344,36 @@ export function revertM92(schema: string): void {
 }
 
 /**
+ * v1.114.5⟨portada⟩ (API_CONTRACT §DYN.1 «Limpieza PDB») · T-AC3 — la «Reversa» de la cabecera de M-93/M-94, LITERAL (un sitio:
+ * se lee de la migración). Medido: ninguna de las dos trae el bloque `-- REVERSA:BEGIN … -- REVERSA:END` de M-92; traen un
+ * bloque «-- Reversa (…):» de comentarios con las sentencias, que acaba en la primera línea `--   (` (nota) o en la regla
+ * `-- ====`. Si una migración deja de traerlo, esto LANZA (no revierte a medias).
+ */
+function revertFromHeader(schema: string, suffix: string, what: string): void {
+  const file = readdirSync(join(BACKEND_DIR, 'prisma', 'migrations')).find((m) => m.endsWith(suffix));
+  if (!file) throw new Error(`${what}: no encuentro la migración *${suffix}`);
+  const sql = readFileSync(join(BACKEND_DIR, 'prisma', 'migrations', file, 'migration.sql'), 'utf8');
+  const lines = sql.split('\n');
+  const start = lines.findIndex((l) => /^-- Reversa \(/.test(l));
+  if (start < 0) throw new Error(`${what}: ${file} no trae el bloque «-- Reversa (…)»`);
+  const block: string[] = [];
+  for (const l of lines.slice(start + 1)) {
+    if (!l.startsWith('--   ') || l.startsWith('--   (')) break;
+    block.push(l.slice(5));
+  }
+  if (!block.some((l) => /_prisma_migrations/.test(l))) throw new Error(`${what}: la Reversa de ${file} no borra su fila de _prisma_migrations`);
+  psqlOk(schema, `BEGIN;\n${block.join('\n')}\nCOMMIT;\n`, what);
+}
+/** T-AC3 — quita M-94 (precio del día). Va ANTES que M-93 (orden inverso de despliegue). */
+export function revertM94(schema: string): void {
+  revertFromHeader(schema, '_m94_listing_price', 'revertM94');
+}
+/** T-AC3 — quita M-93 (Destacadas, turnos PSA, `firstListedAt` y sus diales sin tocar). */
+export function revertM93(schema: string): void {
+  revertFromHeader(schema, '_m93_portada_dinamica', 'revertM93');
+}
+
+/**
  * §14 T-AC3 — quita M-82 y M-83 (Panel de Marketing: permisos, token del analista, contadores, registro de accesos y
  * anotaciones de fecha) de un esquema ya migrado, para la comparación con el B CONGELADO de `a7232d7a` (que PRECEDE a
  * M-82/M-83 y por tanto no clasifica esas seis tablas en su G-8: abortaría al verlas). Es la REVERSA documentada en la
