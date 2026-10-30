@@ -14,7 +14,7 @@ import { CardImage } from './CardImage';
 const preload = vi.hoisted(() => vi.fn());
 vi.mock('react-dom', async (orig) => ({ ...(await orig<typeof import('react-dom')>()), preload }));
 
-const HD = 'https://images.scrydex.com/me5/88/large';
+const HD = 'https://images.scrydex.com/pokemon/me5-88/large';
 
 let restore: () => void = () => undefined;
 beforeAll(() => {

@@ -58,14 +58,16 @@ function optimizerWouldAccept(url: string): boolean {
 
 /**
  * Los dos hosts legítimos, con su procedencia. Espejo de `SET_IMAGE_HOSTS`
- * (`backend/src/modules/catalog/catalog-sync.service.ts`).
+ * (`backend/src/modules/catalog/catalog-sync.service.ts`). Desde PEN-DYN-1 cada URL tiene además la
+ * forma REAL del arte de carta (medida el 2026-10-30 contra la API del proveedor, FRONTEND_NOTES §DYN.6).
  */
 const HOSTS_QUE_DEBEN_PASAR = [
-  // CDN histórico: logos de todos los sets hasta 2026-08.
+  // CDN histórico: arte de ~19 818 cartas y logos de todos los sets hasta 2026-08.
   'https://images.pokemontcg.io/sv8/logo.png',
+  'https://images.pokemontcg.io/base1/4_hires.png',
   // CDN vigente desde 2026-09 (sets me2pt5/me3/me4/me5 en adelante). Ya servía arte de 661 cartas
   // en producción antes de admitirse en la lista del backend (ARCHITECTURE §4.41.1 hecho 8).
-  'https://images.scrydex.com/me3/logo.png',
+  'https://images.scrydex.com/pokemon/me3-1/large',
 ];
 
 describe('D-IMG-5 · images.remotePatterns no admite hosts arbitrarios', () => {
@@ -118,7 +120,7 @@ describe('D-IMG-5 · images.remotePatterns no admite hosts arbitrarios', () => {
 
   it('🔴 RECHAZA http:// incluso en los hosts admitidos (solo https, §5.3.4)', () => {
     expect(optimizerWouldAccept('http://images.pokemontcg.io/sv8/logo.png')).toBe(false);
-    expect(optimizerWouldAccept('http://images.scrydex.com/me3/logo.png')).toBe(false);
+    expect(optimizerWouldAccept('http://images.scrydex.com/pokemon/me3-1/large')).toBe(false);
   });
 
   it('✅ SIGUE ACEPTANDO los dos hosts legítimos de logos de set', () => {
@@ -134,6 +136,79 @@ describe('D-IMG-5 · images.remotePatterns no admite hosts arbitrarios', () => {
     // `domains` está deprecado, pero Next lo sigue honrando y acepta el host ENTERO sin patrón.
     // Si alguien lo reintroduce, la política efectiva se ensancha sin tocar `remotePatterns`.
     expect(domains).toEqual([]);
+  });
+});
+
+/**
+ * 🔒 PEN-DYN-1 (pentest §DYN, 2026-10-30) — un origen por imagen, no uno por URL.
+ *
+ * Sin `search` ni `pathname`, `/_next/image?url=…/4_hires.png?v=<n>` daba una imagen de origen NUEVA por cada `v`
+ * (10/10 `MISS`, medido por el pentester contra `next start`): transformaciones facturables sin tope. `search: ''` ⇒
+ * cero query; `pathname` ⇒ solo la forma del arte de carta. Las URLs legítimas son reales: el catálogo del proveedor
+ * (las formas de `images.small`/`images.large`, incluidas las rarezas `!_hires` y `question_hires` de ex10), el
+ * seed (`backend/prisma/seed.ts`) y los mocks (`lib/mock/*`). Mutación medida: quitar `search: ''` ⇒ rojo.
+ */
+describe('PEN-DYN-1 · remotePatterns: sin query y solo la forma del arte de carta', () => {
+  const LEGITIMAS = [
+    // pokemontcg.io: `/<set>/<número>.png` y `_hires`, más logo/símbolo del set.
+    'https://images.pokemontcg.io/base1/4.png',
+    'https://images.pokemontcg.io/base1/4_hires.png',
+    'https://images.pokemontcg.io/sv3pt5/199_hires.png',
+    'https://images.pokemontcg.io/swsh12pt5gg/GG70_hires.png',
+    'https://images.pokemontcg.io/ex10/!_hires.png',
+    'https://images.pokemontcg.io/ex10/question_hires.png',
+    'https://images.pokemontcg.io/cel25/logo.png',
+    'https://images.pokemontcg.io/sv8/symbol.png',
+    // scrydex: `/pokemon/<set>-<número>/large|small` (la líder usa `imageLargeUrl ?? imageSmallUrl`).
+    'https://images.scrydex.com/pokemon/me3-1/large',
+    'https://images.scrydex.com/pokemon/me3-1/small',
+    'https://images.scrydex.com/pokemon/me2pt5-12/large',
+    // El arnés DYN-D3 de devops (`scripts/home-perf/run.sh`, IMG_REMOTO + `<externalId>[_hires].png` del seed E2E).
+    'https://images.scrydex.com/e2e/e2e-charizard_hires.png',
+    'https://images.scrydex.com/e2e/e2e-charizard.png',
+  ];
+
+  it('✅ acepta las formas reales del arte de carta', () => {
+    for (const url of LEGITIMAS) expect(optimizerWouldAccept(url), `DEBE aceptar ${url}`).toBe(true);
+  });
+
+  it('🔴 rechaza cualquier query string sobre una URL legítima (el vector medido: ?v=<n>)', () => {
+    for (const url of LEGITIMAS) {
+      for (const q of ['?v=1', '?v=2', '?utm_source=mail', '?a', `?${Math.random().toString(36).slice(2)}`]) {
+        expect(optimizerWouldAccept(`${url}${q}`), `NO debe aceptar ${url}${q}`).toBe(false);
+      }
+    }
+  });
+
+  it('🔴 rechaza rutas fuera de la forma (otra ruta del CDN, alias por %-codificación, otro tamaño)', () => {
+    const fuera = [
+      // Ruta arbitraria del CDN (la otra mitad del vector: «cualquier ruta del CDN también vale»).
+      'https://images.pokemontcg.io/x',
+      'https://images.pokemontcg.io/a/b/c.png',
+      'https://images.pokemontcg.io/base1/4.png/x',
+      'https://images.pokemontcg.io/base1/4.jpg',
+      'https://images.pokemontcg.io//4.png',
+      // %-codificación: el CDN sirve `/base1/%34.png` igual que `/base1/4.png` (200, medido) ⇒ alias.
+      'https://images.pokemontcg.io/base1/%34.png',
+      'https://images.pokemontcg.io/base%31/4.png',
+      'https://images.scrydex.com/pokemon/me3-%31/large',
+      // scrydex: otro tamaño, logo, mayúsculas, raíz, barra final.
+      'https://images.scrydex.com/pokemon/me3-1/medium',
+      'https://images.scrydex.com/pokemon/me3-logo/logo',
+      'https://images.scrydex.com/pokemon/ME3-1/large',
+      'https://images.scrydex.com/pokemon/me3-1/large/',
+      'https://images.scrydex.com/me3/logo.png',
+      'https://images.scrydex.com/x.png',
+      'https://images.scrydex.com/e2e/a/b.png',
+    ];
+    for (const url of fuera) expect(optimizerWouldAccept(url), `NO debe aceptar ${url}`).toBe(false);
+  });
+
+  it('cada patrón fija `search` y `pathname` (si un patrón nuevo los omite, empata cualquier query o ruta)', () => {
+    for (const p of remotePatterns) {
+      expect(p.search, `search de ${p.hostname}`).toBe('');
+      expect(typeof p.pathname === 'string' && p.pathname !== '**', `pathname de ${p.hostname}`).toBe(true);
+    }
   });
 });
 
@@ -159,7 +234,7 @@ describe('DYN-F8 (b) · parámetros del optimizador', () => {
       }
     ).validateParams(
       { headers: { accept: 'image/avif,image/webp,*/*' } },
-      { url: 'https://images.scrydex.com/me5/88/large', w: String(w), q: String(q) },
+      { url: 'https://images.scrydex.com/pokemon/me5-88/large', w: String(w), q: String(q) },
       conf,
       false,
     );

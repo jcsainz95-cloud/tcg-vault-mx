@@ -25,6 +25,11 @@
   La (b) render no ve `t.has` (`error.*`): eso lo cubre la (a) estática.
 - **v1.114.3:** el segundo `fireEvent.error` de «un 404 en la foto líder…» ya lo admite DYN-F1 (b). DYN-F11: §23.14 i
   espera reposo tras el tope (250 ms, tope 3 s); causa medida y mutaciones en el commit que lo introduce.
+- **PEN-DYN-1 (`remotePatterns`, 2026-10-30):** `search: ''` y `pathname` por host. Formas medidas en TODAS las URLs de carta
+  de la API del proveedor (41 340 únicas, 176 sets, matcher real de Next: 0 rechazadas): pokemontcg.io `/<set>/<núm>[_hires].png` (único carácter
+  raro: `!` de ex10), scrydex `/pokemon/<set>-<núm>/large|small`. Más `/e2e/…` de scrydex solo para el arnés DYN-D3 (el CDN
+  real da 400 ahí). Residual: scrydex da **200** genérico a cualquier id con la forma (`me3-99999`), así que la forma acota
+  la superficie, no la cuenta. I3 (userinfo ⇒ 500) sigue: el matcher no mira `username` y el middleware excluye `_next`.
 - **Medido** (2026-10-30, `run.sh` N=5, stack propio BD `tcg_opa`, Redis :6481; foto líder real me55-88 de 883 KB
   servida por el arnés; el `next start` redirige `img.e2e.local` al host del arnés y `remotePatterns` lo admite, solo
   en la copia de medición; mediana [peor]): celular FCP 1.40 [1.41] → 1.23 [1.27] s, LCP 8.71 [10.53] → 5.20 [6.82] s;
@@ -4133,15 +4138,8 @@ ThemeToggle, SafeShippingGuide, DataTable (responsive → cards en móvil), Empt
 QueryState`. Todos consumen solo tokens semánticos (sin hex crudo), tienen foco visible 3px,
 objetivos táctiles ≥44px, y estados carga/vacío/error donde aplica.
 
-## Tests unitarios (vitest, 10, todos verdes)
-
-- `AmountBreakdown.test.tsx`: render de las 4 líneas + total formateado; variante envío; ES y EN.
-- `StatusBadge.test.tsx`: enum→texto en ES y EN (cambio de idioma), badge de precio pendiente.
-- `format.test.ts`: centavos→MXN, nunca centavos crudos, fecha localizada distinta por locale.
-- `i18n-parity.test.ts`: paridad de claves ES↔EN + cobertura enum→clave i18n.
-
-Comando: `npm run test` (vitest). Los unit viven en `src/**/*.test.{ts,tsx}` y están
-**separados** de los E2E por script y por config (vitest `include: src/**` no toca `e2e/`).
+## Tests unitarios
+`npm run test` (vitest; `src/**/*.test.{ts,tsx}`, separados de los E2E de `e2e/` por script y config).
 
 ## Tests E2E (Playwright, 30, todos verdes) — "teoría → realidad"
 

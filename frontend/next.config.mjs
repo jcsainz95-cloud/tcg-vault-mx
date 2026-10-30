@@ -274,9 +274,48 @@ const nextConfig = {
     // `https://images.pokemontcg.io:8443/…` pasaba. `''` significa «sin puerto» ⇒ solo el 443 por
     // defecto. Es la misma regla que el backend ya impone en `SET_IMAGE_HOSTS` («`host`, no
     // `hostname`: incluye el puerto»): otro puerto es OTRO endpoint, y ninguno se ha verificado.
+    //
+    // PEN-DYN-1 (pentest §DYN, 2026-10-30) — `search: ''` y `pathname` acotado. Sin ellos, cada
+    // `?v=<n>` o cada ruta del CDN era una imagen de origen NUEVA (10/10 `MISS` medidos por el
+    // pentester): una transformación facturable por URL, sin tope. `search: ''` ⇒ cero query
+    // (el matcher de Next compara `url.search` exacto). Los `pathname` son las formas REALES del arte
+    // de carta, medidas el 2026-10-30 contra la API del proveedor (todas las URLs `images.small`/
+    // `images.large` del catálogo, ver FRONTEND_NOTES §DYN.6) y el seed:
+    //   · pokemontcg.io  `/<set>/<número>.png` y `/<set>/<número>_hires.png` (también cubre
+    //     `/<set>/logo.png`/`symbol.png`). Sin `%`: `/base1/%34.png` es un alias de `/base1/4.png`
+    //     (200, medido) y multiplicaría los orígenes.
+    //   · scrydex        `/pokemon/<set>-<número>/large|small` (la líder usa `imageLargeUrl ??
+    //     imageSmallUrl`; `/medium` no lo persiste nadie). Los logos de scrydex
+    //     (`/pokemon/<set>-logo/logo`) NO pasan: son Nivel B y no hay consumidor en el optimizador.
+    //   · scrydex `/e2e/<id>[_hires].png` — SOLO el arnés DYN-D3 de devops (`scripts/home-perf/
+    //     run.sh` reescribe el seed a `https://images.scrydex.com/e2e/`). El CDN real responde 400
+    //     a esa ruta (medido), y el optimizador no transforma un no-2xx: coste cero. Se retira
+    //     cuando el arnés use la forma `/pokemon/…` (solicitud a devops).
+    // ⚠ Residual medido: scrydex responde 200 con una imagen genérica a CUALQUIER id con la forma
+    // (`/pokemon/me3-99999/large`), así que la forma acota la superficie pero no la cuenta. Ver el
+    // informe de PEN-DYN-1 en FRONTEND_NOTES §DYN.6.
     remotePatterns: [
-      { protocol: 'https', hostname: 'images.pokemontcg.io', port: '' },
-      { protocol: 'https', hostname: 'images.scrydex.com', port: '' },
+      {
+        protocol: 'https',
+        hostname: 'images.pokemontcg.io',
+        port: '',
+        pathname: '/+([a-z0-9])/+([A-Za-z0-9!_-]).png',
+        search: '',
+      },
+      {
+        protocol: 'https',
+        hostname: 'images.scrydex.com',
+        port: '',
+        pathname: '/pokemon/+([a-z0-9])-+([A-Za-z0-9])/@(large|small)',
+        search: '',
+      },
+      {
+        protocol: 'https',
+        hostname: 'images.scrydex.com',
+        port: '',
+        pathname: '/e2e/+([a-z0-9-])?(_hires).png',
+        search: '',
+      },
     ],
     ...IMAGE_OPTIMIZER,
   },
