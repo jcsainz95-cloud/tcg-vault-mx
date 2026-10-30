@@ -504,6 +504,39 @@ jobs:
         run: ./scripts/check-dast-report-only-expiry-canary.sh
 
   # ---------------------------------------------------------------------------
+  # ⏳ DYN-D1 (API_CONTRACT §DYN.7, v1.114.2): la meta de 936 en celular está en SOLO
+  # REPORTE por decisión del dueño (HECHOS 2026-10-30, opción A) y celular bloquea con
+  # un trinquete de no regresión. Condición con dueño (orquestador: devolver al dueño
+  # la opción B con el número), caducidad 2026-12-31 y este candado: ROJO desde
+  # 2027-01-01 si celular sigue en trinquete. Además, el trinquete no SUBE respecto a
+  # la base sin pase del arquitecto. Cada uno con su canario. DEVOPS_NOTES §106.
+  # ---------------------------------------------------------------------------
+  home-perf-mobile-goal-expiry:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # --against-ref lee mobile-ratchet.json del commit base
+      - name: La meta de celular en solo reporte tiene fecha
+        run: ./scripts/check-home-perf-mobile-goal-expiry.sh
+      - name: Y el candado sabe ponerse rojo cuando toca (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-home-perf-mobile-goal-expiry.sh --canary
+      - name: El trinquete de celular no sube sin pase del arquitecto (y su canario)
+        if: ${{ !cancelled() }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          ./scripts/check-home-perf.sh --against-ref-canary
+          if [ -n "${BASE_SHA:-}" ] && [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ] \
+             && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            ./scripts/check-home-perf.sh --against-ref "$BASE_SHA"
+          else
+            echo "Sin commit base legible (rama nueva): se compara con origin/main."
+            ./scripts/check-home-perf.sh --against-ref origin/main
+          fi
+
+  # ---------------------------------------------------------------------------
   # 🔒 ¿EL CANDADO DEL DAST SIGUE SIENDO UN CANDADO? (P-77, DEVOPS_NOTES §44)
   #
   # Misma familia que las tres guardas de arriba: estática, barata (lee ficheros
@@ -1084,7 +1117,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, dyn-prod-measure, price-provider-interim-expiry, dast-report-only-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates, runner-pin, limpieza-ramas]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, dyn-prod-measure, price-provider-interim-expiry, dast-report-only-expiry, home-perf-mobile-goal-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates, runner-pin, limpieza-ramas]
     if: always()
     runs-on: ubuntu-24.04
     steps:

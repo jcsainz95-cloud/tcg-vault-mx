@@ -1,15 +1,20 @@
 # =============================================================================
 # home-perf.yml — la portada, vigilada sola (PROJECT criterios 936-938) · devops
-# API_CONTRACT §DYN.7: DYN-D1 y DYN-D2. Doc: DEVOPS_NOTES §104.
+# API_CONTRACT §DYN.7: DYN-D1, DYN-D2 y DYN-D3 (v1.114.2). Doc: DEVOPS_NOTES §104 y §106.
 # =============================================================================
 # Levanta el stack SEMBRADO en el runner (Postgres + Redis como services, s3-local y el
-# backend como procesos), y corre `scripts/home-perf/run.sh`:
-#   d1         Lighthouse CI, 5 corridas por perfil (móvil y escritorio estándar), umbrales
-#              sobre la MEDIANA: móvil FCP ≤ 1.0 s / LCP ≤ 2.5 s, escritorio FCP ≤ 1.0 s /
-#              LCP ≤ 1.5 s, CLS ≤ 0.1 (936). Rojo si se rebasa (938).
-#   d1-canary  lo mismo con el HTML de la portada retrasado 2 s por un proxy de prueba:
+# backend como procesos), y corre `scripts/home-perf/run.sh` (umbrales: lhci-config.mjs):
+#   d1         Lighthouse CI, 5 corridas por perfil (móvil y escritorio estándar), sobre la
+#              MEDIANA. Bloquean: escritorio FCP ≤ 1.0 s / LCP ≤ 1.5 s; CLS ≤ 0.1 en los dos;
+#              celular el trinquete de `mobile-ratchet.json` (sin fijar: la meta de 936). La
+#              meta de 936 en celular sale en el resumen (solo reporte, caduca: job
+#              `home-perf-mobile-goal-expiry` de ci.yml). DYN-D3: foto líder de peso real
+#              (≥ 800 KB en el origen) y servida por `/_next/image` en 200 `image/webp`, sin
+#              respaldo a la original, en TODAS las corridas.
+#   d1-canary  lo mismo con el HTML de la portada engordado por un proxy de prueba:
 #              TIENE que salir rojo; si sale verde, el job es rojo (el candado no muerde).
-#   d2-delay   Destacadas y la vitrina retrasadas 5 s en el API ⇒ FCP ≤ 1.0 s, CLS ≤ 0.1 (937).
+#   d2-delay   Destacadas y la vitrina retrasadas 5 s en el API ⇒ FCP (el bloqueante del
+#              perfil) y CLS ≤ 0.1 (937).
 #   d2-503     las dos respondiendo 503 ⇒ lo mismo.
 # El informe (mediana, peor corrida, N, sha, fecha y carga) sale en el resumen del job y
 # en el artefacto `home-perf`.
@@ -159,5 +164,8 @@ jobs:
         with:
           name: home-perf
           path: ${{ runner.temp }}/home-perf
+          # DYN-D3 (D-DYN-9): los lhr-*.json viven en `<modo>-<perfil>/.lighthouseci/`, una carpeta OCULTA, y
+          # upload-artifact omite las ocultas por defecto (medido: el run 40879539432 no los traía).
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14

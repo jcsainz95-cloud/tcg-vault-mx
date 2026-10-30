@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # =============================================================================
 # scripts/home-perf/run.sh — Lighthouse CI de la portada contra el stack SEMBRADO · devops
-# API_CONTRACT §DYN.7: DYN-D1 (criterio 938 sobre la meta de 936) y DYN-D2 (criterio 937).
+# API_CONTRACT §DYN.7: DYN-D1 (938: escritorio y CLS bloquean, celular con trinquete y la meta de 936 en
+# solo reporte), DYN-D2 (937) y DYN-D3 (bytes reales y optimizador de verdad), v1.114.2.
 # =============================================================================
 # QUÉ HACE
 #   Con un backend YA arriba y sembrado (`API_UPSTREAM`), hornea el frontend con `npm run build`
 #   (prebuild + postbuild, como el que se publica) apuntando al API a través de un PROXY DE PRUEBA,
 #   lo sirve con `next start` detrás de OTRO proxy (el de la tienda) y corre Lighthouse CI:
 #     d1         5 corridas por perfil (móvil y escritorio estándar de Lighthouse), umbrales sobre la
-#                MEDIANA: móvil FCP ≤ 1.0 s, LCP ≤ 2.5 s; escritorio FCP ≤ 1.0 s, LCP ≤ 1.5 s; CLS ≤ 0.1.
+#                MEDIANA (`lhci-config.mjs`): escritorio FCP ≤ 1.0 s, LCP ≤ 1.5 s; CLS ≤ 0.1; celular el
+#                trinquete de `mobile-ratchet.json` (o la meta de 936 si no está fijado). La meta de 936 en
+#                celular sale en el resumen (solo reporte). Y DYN-D3: en las 5×2 corridas la foto líder la
+#                sirve `/_next/image` con 200 `image/webp` y sin respaldo a la original (`lcp-optimized.mjs`).
 #     d1-canary  lo mismo con el HTML de la portada ENGORDADO HOME_PERF_CANARY_PAD_KB (1500 KB de
 #                comentario) en el proxy de la tienda: TIENE que salir rojo y con el FCP ≥ 500 ms por
 #                encima del de d1. Si no, el candado no muerde ⇒ rc 1. (Engordar y no retrasar: la
@@ -24,16 +28,19 @@
 #   solo fuera de producción» del canario (§DYN.7) es HOME_PERF_CANARY_PAD_KB, que solo lee este
 #   script: no hay ni una línea en frontend/ ni backend/ (lo vigila scripts/check-home-perf.sh).
 #
-# LAS IMÁGENES DEL SEED
-#   El seed apunta el arte a `https://img.e2e.local/…` (no resuelve). Sin imagen no hay LCP de imagen
-#   y el umbral de LCP saldría verde sin medir la teja líder. `seed-image-host.py` sirve un PNG de peso
-#   realista por HTTPS local y SOLO el Chrome de Lighthouse resuelve ese host hacia él.
+# LAS IMÁGENES DEL SEED (DYN-D3)
+#   El seed apunta el arte a `https://img.e2e.local/…` (no resuelve y no está en `remotePatterns`). El proxy
+#   del API lo reescribe a `https://images.scrydex.com/e2e/…`; `seed-image-host.py` sirve la foto líder con
+#   peso REAL (PNG 733×1024 ≥ 800 KB, huella fijada) por HTTPS local para el Chrome de Lighthouse (MAP de los
+#   hosts de imagen) y por HTTP local para el optimizador de `next start` (`next-image-origin.cjs`, cargado
+#   con NODE_OPTIONS solo aquí). Antes de medir se comprueba: peso en el origen ≥ 800 KB y
+#   `/_next/image?url=<líder>&w=640&q=75` ⇒ 200 `image/webp` (si no, ROJO: p. ej. sin `sharp`).
 #
 # REQUISITOS (variables)
 #   API_UPSTREAM        backend sembrado, p. ej. http://127.0.0.1:3099 (su APP_BASE_URL tiene que
 #                       incluir http://localhost:$HP_FRONT_PORT, si no CORS lo tumba: se comprueba)
 #   CHROME_PATH         Chrome/Chromium (en CI el de Playwright)
-#   HP_FRONT_PORT 3190 · HP_NEXT_PORT 3192 · HP_API_PROXY_PORT 3193 · HP_IMG_PORT 3194
+#   HP_FRONT_PORT 3190 · HP_NEXT_PORT 3192 · HP_API_PROXY_PORT 3193 · HP_IMG_PORT 3194 · HP_IMG_HTTP_PORT 3196
 #   HOME_PERF_OUT       directorio de salida (por defecto <repo>/.home-perf)
 #   HOME_PERF_RUNS      corridas por perfil (5; el contrato pide 5 — no lo bajes en CI)
 #   HP_SKIP_BUILD=1     reutiliza frontend/.next si su sello coincide (solo para iterar en local)
@@ -46,7 +53,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 FE="$ROOT/frontend"
 API_UPSTREAM="${API_UPSTREAM:-http://127.0.0.1:3099}"; API_UPSTREAM="${API_UPSTREAM%/}"
 HP_FRONT_PORT="${HP_FRONT_PORT:-3190}"; HP_NEXT_PORT="${HP_NEXT_PORT:-3192}"
-HP_API_PROXY_PORT="${HP_API_PROXY_PORT:-3193}"; HP_IMG_PORT="${HP_IMG_PORT:-3194}"
+HP_API_PROXY_PORT="${HP_API_PROXY_PORT:-3193}"; HP_IMG_PORT="${HP_IMG_PORT:-3194}"; HP_IMG_HTTP_PORT="${HP_IMG_HTTP_PORT:-3196}"
 OUT="${HOME_PERF_OUT:-$ROOT/.home-perf}"; RUNS="${HOME_PERF_RUNS:-5}"
 CANARY_KB="${HOME_PERF_CANARY_PAD_KB:-1500}"; CANARY_MIN_DELTA_MS=500
 LHCI="${LHCI_BIN:-$HERE/node_modules/.bin/lhci}"
@@ -54,6 +61,9 @@ MODES=("$@"); [ "${#MODES[@]}" -gt 0 ] || MODES=(d1)
 FEATURED_RE='^/api/v1/catalog/featured([?].*)?$'
 SHOWCASE_RE='^/api/v1/catalog/cards[?].*sort=grading_showcase'
 HOME_RE='^/es/?([?].*)?$'
+# DYN-D3: el host del seed se sirve como uno de `remotePatterns` (ver «LAS IMÁGENES DEL SEED»).
+IMG_FIXTURE='https://img.e2e.local/'; IMG_REMOTO='https://images.scrydex.com/e2e/'
+PESO_MIN_LIDER=$((800 * 1024))
 
 say()  { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
 nc()   { printf '\n\033[1;33m∅ NO CONCLUYENTE: %s\033[0m\n' "$*" >&2; exit 2; }
@@ -67,7 +77,7 @@ for m in "${MODES[@]}"; do case "$m" in d1|d1-canary|d2-delay|d2-503|prep) ;; *)
 [ -n "${CHROME_PATH:-}" ] && [ -x "$CHROME_PATH" ] || nc "CHROME_PATH no apunta a un Chrome ejecutable"
 [ -d "$FE/node_modules" ] || nc "falta frontend/node_modules (cd frontend && npm ci)"
 command -v openssl >/dev/null && command -v python3 >/dev/null || nc "faltan openssl o python3"
-for p in "$HP_FRONT_PORT" "$HP_NEXT_PORT" "$HP_API_PROXY_PORT" "$HP_IMG_PORT"; do
+for p in "$HP_FRONT_PORT" "$HP_NEXT_PORT" "$HP_API_PROXY_PORT" "$HP_IMG_PORT" "$HP_IMG_HTTP_PORT"; do
   curl -s -m 2 -o /dev/null "http://127.0.0.1:$p/" 2>/dev/null && nc "el puerto $p ya responde: no es mío, no mido encima"
 done
 mkdir -p "$OUT"
@@ -132,7 +142,11 @@ esac
 CERT_DIR="$(mktemp -d -t hp-cert-XXXXXX)"; trap 'limpiar; rm -rf "$CERT_DIR"' EXIT
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj '/CN=img.e2e.local' \
   -keyout "$CERT_DIR/key.pem" -out "$CERT_DIR/cert.pem" >/dev/null 2>&1 || nc "openssl no generó el certificado"
-python3 -I "$HERE/seed-image-host.py" "$HP_IMG_PORT" "$CERT_DIR/cert.pem" "$CERT_DIR/key.pem" >"$OUT/img.log" 2>&1 & PIDS+=($!)
+python3 -I "$HERE/seed-image-host.py" "$HP_IMG_PORT" "$CERT_DIR/cert.pem" "$CERT_DIR/key.pem" "$HP_IMG_HTTP_PORT" >"$OUT/img.log" 2>&1 & PIDS+=($!)
+for _ in $(seq 1 100); do curl -s -m 1 -o /dev/null "http://127.0.0.1:$HP_IMG_HTTP_PORT/x.png" 2>/dev/null && break; sleep 0.1; done
+PESO_ORIGEN="$(curl -s -m 10 -o /dev/null -w '%{size_download}' "http://127.0.0.1:$HP_IMG_HTTP_PORT/e2e/peso_hires.png" 2>/dev/null)"
+[ "${PESO_ORIGEN:-0}" -ge "$PESO_MIN_LIDER" ] \
+  || nc "la foto líder del origen pesa ${PESO_ORIGEN:-0} B (< $PESO_MIN_LIDER): no es la de peso real (log $OUT/img.log)"
 
 # --- 2. Proxies y servidor -----------------------------------------------------------------------
 esperar_puerto() {  # $1 puerto  $2 up|down
@@ -158,6 +172,7 @@ proxies() {  # $1 modo — fija API_PROXY_PID y FRONT_PROXY_PID (procesos hijos 
     d2-503)    api_rules=(--rule "$FEATURED_RE=503" --rule "$SHOWCASE_RE=503") ;;
   esac
   node "$HERE/delay-proxy.mjs" --listen "$HP_API_PROXY_PORT" --upstream "$API_UPSTREAM" \
+       --replace "$IMG_FIXTURE" --with "$IMG_REMOTO" \
        --log "$OUT/proxy-api-$1.log" "${api_rules[@]}" >/dev/null 2>&1 &
   API_PROXY_PID=$!
   node "$HERE/delay-proxy.mjs" --listen "$HP_FRONT_PORT" --upstream "http://127.0.0.1:$HP_NEXT_PORT" \
@@ -169,7 +184,10 @@ next_up() {
   parar "$NEXT_PID" "$HP_NEXT_PORT"
   # `exec node …/next start`: el pid es el del servidor (que se renombra a next-server); con
   # `npx` delante el pid sería el del npx y matarlo dejaba el servidor vivo (§32.10).
-  ( cd "$FE" && exec env NODE_ENV=production node node_modules/next/dist/bin/next start -p "$HP_NEXT_PORT" ) >>"$OUT/next.log" 2>&1 &
+  # NODE_OPTIONS solo aquí: el optimizador baja la líder del origen LOCAL (next-image-origin.cjs, DYN-D3).
+  ( cd "$FE" && exec env NODE_ENV=production NODE_OPTIONS="--require $HERE/next-image-origin.cjs" \
+      HOME_PERF_IMG_ORIGIN="http://127.0.0.1:$HP_IMG_HTTP_PORT" HOME_PERF_IMG_LOG="$OUT/optimizador-origen.log" \
+      node node_modules/next/dist/bin/next start -p "$HP_NEXT_PORT" ) >>"$OUT/next.log" 2>&1 &
   NEXT_PID=$!
   local _
   for _ in $(seq 1 120); do curl -sf -m 5 -o /dev/null "http://127.0.0.1:$HP_NEXT_PORT/es" 2>/dev/null && return 0; sleep 0.5; done
@@ -196,10 +214,35 @@ config() {  # $1 perfil (mobile|desktop)  $2 tipo (d1|d2)  $3 fichero — umbral
 }
 URL="http://localhost:$HP_FRONT_PORT/es"
 RESUMEN="$OUT/RESUMEN.md"
+MODO_CEL="$(node "$HERE/lhci-config.mjs" --modo-celular)" || nc "lhci-config.mjs --modo-celular falló"
+# DYN-D3, antes de Lighthouse: la líder (la de /catalog/featured tal como la ve la tienda) por el optimizador.
+OPTIMIZADOR=""
+optimizador() {
+  local lider enc hdr code ctype
+  lider="$(curl -sf -m 10 "http://127.0.0.1:$HP_API_PROXY_PORT/api/v1/catalog/featured" \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const c=(JSON.parse(s).data||[])[0].card;process.stdout.write(c.imageLargeUrl||c.imageSmallUrl||"")}catch{}})')"
+  case "$lider" in "$IMG_REMOTO"*) ;; *) nc "la líder del API no sale reescrita a $IMG_REMOTO («${lider:-nada}»): el arnés no mide el optimizador" ;; esac
+  enc="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$lider")"
+  hdr="$(curl -s -m 30 -o "$OUT/optimizador-lider.bin" -D - -H 'Accept: image/avif,image/webp,*/*' \
+         "http://localhost:$HP_FRONT_PORT/_next/image?url=$enc&w=640&q=75" | tr -d '\r')"
+  code="$(printf '%s\n' "$hdr" | awk 'NR==1{print $2}')"
+  ctype="$(printf '%s\n' "$hdr" | awk -F': ' 'tolower($1)=="content-type"{print $2}')"
+  if [ "$code" = 200 ] && [ "$ctype" = image/webp ]; then
+    OPTIMIZADOR="sí: líder $(wc -c <"$OUT/optimizador-lider.bin" | tr -d ' ') B en WebP 640 desde ${PESO_ORIGEN} B en el origen"
+  else
+    OPTIMIZADOR="NO: /_next/image de la líder ⇒ ${code:-sin respuesta} ${ctype:-}"; RC=1
+  fi
+  say "optimizador: $OPTIMIZADOR"
+}
 { echo "# Portada — Lighthouse CI (§DYN.7)"; echo; echo "sha \`$SHA\` · $(date -u '+%Y-%m-%d %H:%M UTC') · carga $(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null) · $(nproc 2>/dev/null) CPU · N=$RUNS por perfil · URL $URL · Destacadas $N_FEAT tejas · vitrina $N_VIT elegible(s)"; echo
+  echo "Celular bloquea con: \`$MODO_CEL\` (\`mobile-ratchet.json\`; \`meta\` = trinquete sin fijar). Foto líder en el origen: $PESO_ORIGEN B."; echo
   echo "| modo | perfil | FCP mediana / peor | LCP mediana / peor | CLS mediana / peor | N | assert |"; echo "|---|---|---|---|---|---|---|"; } > "$RESUMEN"
 RC=0
+# Caché del optimizador VACÍA: si no, una WebP de una tanda anterior (minimumCacheTTL de 30 días) ocultaría un
+# optimizador roto en esta (medido 2026-10-30: sin `sharp` y con la caché llena, la comprobación salía «sí»).
+rm -rf "$FE/.next/cache/images"
 next_up
+proxies d1; optimizador
 for modo in "${MODES[@]}"; do
   proxies "$modo"
   tipo=d1; case "$modo" in d2-*) tipo=d2 ;; esac
@@ -229,6 +272,17 @@ for modo in "${MODES[@]}"; do
         else v="ROJO (esperado: el canario muerde${delta:+; ΔFCP +${delta} ms})"; fi ;;
       *)         [ "$arc" = 0 ] && v="verde" || { v="ROJO"; RC=1; } ;;
     esac
+    if [ "$modo" = d1 ]; then
+      # DYN-D3: la líder por el optimizador en TODAS las corridas (k/N). Caer al respaldo es rojo.
+      lo="$(node "$HERE/lcp-optimized.mjs" "$dir/.lighthouseci")"; lrc=$?
+      printf '%s\n' "$lo" > "$dir/optimizador.txt"
+      if [ "$lrc" = 0 ]; then v="$v · líder por /_next/image $(head -n1 <<<"$lo")"
+      else v="$v · **líder SIN optimizador $(head -n1 <<<"$lo")** (DYN-D3)"; RC=1; fi
+    fi
+    if [ "$modo" = d1 ] && [ "$perfil" = mobile ]; then
+      # Meta de 936 en celular: SOLO REPORTE mientras haya trinquete (DYN-D1, decisión del dueño 2026-10-30).
+      META_CEL="$(node -e 'const m=require(process.argv[1]);const ok=m.fcp<=1000&&m.lcp<=2500;process.stdout.write(`${ok?"CUMPLIDA":"NO CUMPLIDA, decisión del dueño 2026-10-30"} — FCP ${(m.fcp/1000).toFixed(2)} s (meta 1.0) · LCP ${(m.lcp/1000).toFixed(2)} s (meta 2.5), mediana N=${m.n}`)' "$dir/medianas.json")"
+    fi
     # Qué métricas fallaron (para d2: ¿es el FCP o es el CLS de la vitrina?).
     falla="$(node -e 'try{const r=require(process.argv[1]);const f=[...new Set(r.filter(x=>!x.passed).map(x=>x.auditId))];process.stdout.write(f.join(","))}catch{}' \
               "$dir/.lighthouseci/assertion-results.json" 2>/dev/null)"
@@ -237,6 +291,12 @@ for modo in "${MODES[@]}"; do
     [ "$arc" = 0 ] || sed -n '1,40p' "$dir/assert.log" | grep -E 'failure|expected|found|✘|×' | head -n 6 | sed "s/^/    [$modo\/$perfil] /"
   done
 done
-{ echo; echo "Proxies: \`$OUT/proxy-*.log\` (qué se retrasó o tumbó). Informes Lighthouse: \`$OUT/<modo>-<perfil>/.lighthouseci/\`."; } >> "$RESUMEN"
+{ echo
+  echo "**Optimizador (DYN-D3):** ${OPTIMIZADOR:-no se comprobó}."
+  case "$MODO_CEL" in
+    trinquete*) echo "**Meta de 936 en celular (solo reporte, caduca 2026-12-31, candado \`home-perf-mobile-goal-expiry\`):** ${META_CEL:-sin d1 en esta tanda}." ;;
+    *)          echo "**Celular:** trinquete SIN FIJAR ⇒ bloquea la meta de 936 (${META_CEL:-sin d1 en esta tanda}). Se fija con \`fix-ratchet.mjs\` tras medir A + c1." ;;
+  esac
+  echo; echo "Proxies: \`$OUT/proxy-*.log\` (qué se retrasó o tumbó). Optimizador → origen: \`$OUT/optimizador-origen.log\`. Informes Lighthouse: \`$OUT/<modo>-<perfil>/.lighthouseci/lhr-*.json\` (el artefacto los incluye: \`include-hidden-files\`)."; } >> "$RESUMEN"
 cat "$RESUMEN"
 exit "$RC"

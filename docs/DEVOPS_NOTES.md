@@ -20,10 +20,11 @@
   (C-D1), regla de secretos (C-D2), E2E de medición y C-F1. Encendido y apagado: **§101**.
 - **Runners fijados (2026-10-29):** todo `runs-on` es `ubuntu-24.04` (la imagen de production verde, run 40599627832); `ubuntu-latest` pasó a 26.04 y
   Playwright 1.56 no instala Chromium ahí (run 40849459030). Candado `scripts/check-runner-pin.sh` + canario, job `runner-pin` de `ci.yml`.
-- **Portada (§DYN, 2026-10-29):** `home-perf.yml` corre Lighthouse CI (N=5 por perfil, mediana) con canario y los dos
-  casos de 937 contra el stack sembrado — §104. Medido en local: escritorio cumple 936; **móvil no** (FCP ≈ 1.4-2.0 s,
-  LCP ≈ 6.5 s) ⇒ el workflow sale rojo hasta que lo arregle frontend o decida el dueño. Las dos mediciones de producción
-  de §DYN las corre el dueño con `scripts/dyn-prod-measure.sh` (§104.4); `POKEMONPRICETRACKER_DAILY_QUOTA` la pone él en Railway.
+- **Portada (§DYN, v1.114.2, 2026-10-30):** `home-perf.yml` corre Lighthouse CI (N=5 por perfil, mediana) con canario y los
+  dos casos de 937 — §104; desde v1.114.2 con la foto líder de **peso real** y el optimizador comprobado (DYN-D3), y celular
+  con **trinquete** (DYN-D1) — §106. **El trinquete está SIN FIJAR** hasta que se fusione A + c1 de frontend: mientras, celular
+  bloquea con la meta de 936 y el workflow sale rojo. **Precondición de publicar A:** la lectura de coste en Vercel (§106.4,
+  la hace el dueño). Mediciones de producción de §DYN: `scripts/dyn-prod-measure.sh` (§104.4), las corre el dueño.
 - **Limpieza de ramas (2026-10-30):** `limpieza-ramas.yml` (lo dispara el dueño) borra las ramas remotas fusionadas en
   `production` y archiva `main`. Pasos para el dueño y cómo se deshace: **§105**.
 - **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5); muy por encima del tope: **se compacta antes de añadir**. Encabezado anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
@@ -7642,94 +7643,10 @@ Seguridad aprobó el release **con condiciones**. Dos son de devops y están tra
   código, hay que verificarlo por calendario»*) **no había quedado enrutada**: el cron semanal era
   solo DAST.
 
-### 41.1 La medición de S-DEP-1 (antes de decidir nada)
+### 41.1–41.4 S-DEP-1 (cerrado el 2026-09-09; detalle: `git show 0d40d0b7:docs/DEVOPS_NOTES.md`, §41.1–41.4)
 
-`npm audit --omit=dev` en `backend/` — **6 vulnerabilidades: 4 moderadas, 2 altas**, idéntico a lo
-que reportó seguridad:
-
-| Paquete | Sev | Rango vulnerable | Directo | Fix que ofrece npm |
-|---|---|---|---|---|
-| `@nestjs/platform-express` | **high** | `*` | sí | `12.0.1` — **semver MAJOR** |
-| `multer` | **high** | `<=2.2.0` | no | vía `@nestjs/platform-express@12.0.1` — **MAJOR** |
-| `@nestjs/core` | moderate | `<=11.1.17` | sí | `12.0.1` — **MAJOR** |
-| `qs` | moderate | `2.2.5 - 6.15.3` | no | vía platform-express — **MAJOR** |
-| `express` | moderate | `4.22.2` | no | vía platform-express — **MAJOR** |
-| `body-parser` | moderate | `1.20.5 - 1.20.6` | no | no-major |
-
-Y el gate del repo, en rojo (`exit=1`):
-
-```
-✗ backend/: vulnerabilidades >= high detectadas.
-✓ frontend/: sin vulnerabilidades >= high.
-✗ npm audit encontró vulnerabilidades que bloquean el gate.
-```
-
-`frontend/` en **0**: el bump del pase anterior aguantó.
-
-### 41.2 ¿Es alcanzable el vector de `multer`? **No.** (verificado, no asumido)
-
-Las 4 advisories de `multer` son DoS/bypass **en el parseo de multipart**. Para que se ejecute una
-sola línea de multer, Nest tiene que registrar un `FileInterceptor`. Comprobado en `backend/`:
-
-- `FileInterceptor` / `FilesInterceptor` / `FileFieldsInterceptor` / `AnyFilesInterceptor` /
-  `@UploadedFile` / `@UploadedFiles` / `MulterModule` / `import 'multer'` → **cero coincidencias** en `src/`.
-- Sin interceptores globales (`APP_INTERCEPTOR` / `useGlobalInterceptors`): **ninguno**.
-- `main.ts` solo registra `helmet()` y `json()` (más el `json({verify})` del webhook de Stripe para el
-  `rawBody`). **Ningún parser multipart.**
-- Las subidas van por **URL prefirmada**: `POST /uploads/presign` devuelve la firma y el cliente hace
-  `PUT` directo a R2. El binario **nunca** pasa por el backend.
-
-⚠️ **Trampa documentada:** `grep -r multipart backend/` **sí** devuelve resultados
-(`master-set-multipart`, `catalog.multipart.spec.ts`, `master-set.multipart.spec.ts`). Es el concepto
-de dominio *"master set repartido en varias partes"*, **no** HTTP multipart. Quien repita esta
-verificación en el futuro no debe contarlos como uso de multer.
-
-**Conclusión:** vector **no alcanzable**. Se confirma la hipótesis de seguridad.
-
-### 41.3 La decisión: **(a) actualizar**, y no hizo falta ni tocar `package.json`
-
-El dato que cambió la decisión: `multer` **no es dependencia directa** — ya está en `overrides` de
-`backend/package.json`, pinneado a `^2.2.0`. Y el registro publica **`multer@2.3.0`**, que **ya cae
-dentro de ese `^2.2.0`**. Lo mismo con `qs@6.16.0` (override `^6.15.3`) y `body-parser@1.20.8`
-(override `^1.20.6`). **El `package.json` ya permitía las versiones sanas; lo que estaba viejo era el
-lockfile.**
-
-Verificado sobre una copia en scratchpad (sin tocar `backend/`), con `--package-lock-only`:
-
-| Variante | `package.json` | Resultado `--omit=dev` | Gate |
-|---|---|---|---|
-| Hoy | — | 4 mod + **2 high** | `exit=1` ❌ |
-| `npm update multer` | **sin cambios** | 5 mod + **0 high** | `exit=0` ✅ |
-| `npm update multer qs body-parser` | **sin cambios** | 2 mod + **0 high** | `exit=0` ✅ |
-
-**Recomendado a backend: la variante mínima (`npm update multer`).** Deja el gate en verde tocando
-únicamente un paquete que **no se ejecuta en ninguna ruta** (§41.2) — riesgo funcional literalmente
-nulo, que es lo que se quiere en congelación de release. `qs`/`body-parser` sí están en el camino
-caliente de cada request (query string y cuerpo JSON): son moderadas, **no bloquean el gate**, y
-subirlas exige corrida de tests. Van fuera del release.
-
-**Por qué se descarta (b), registrar la excepción en `TECH_DEBT.md`:** la excepción se justifica
-cuando el arreglo no existe o cuesta más que el riesgo. Aquí el arreglo es un `npm update` de un
-paquete muerto, dentro de rangos que `package.json` **ya autoriza**, sin cambio de API y sin major.
-Registrar deuda por algo que se cierra con un comando es convertir el registro de deuda en un
-basurero: la próxima vez que alguien lea esa ficha no sabrá si es "imposible" o "nadie lo intentó".
-La excepción se reserva para las **2 moderadas de `@nestjs/core`/`platform-express`** (GHSA-36xv-jgw5-4q75),
-cuyo único fix **sí** es Nest 12 (major) — esas no bloquean el gate y no se tocan en este release.
-
-**Y lo que no se hizo: silenciar el gate.** No se bajó `AUDIT_LEVEL`, no se añadió `continue-on-error`
-al job de `npm audit` del PR, no se metió nada en `.trivyignore`. El umbral del gate por PR sigue
-siendo `high` y sigue siendo required check.
-
-### 41.4 Lo que le toca a **backend** (devops no edita `backend/package.json`)
-
-```bash
-cd backend
-npm update multer          # -> multer 2.3.0; NO modifica package.json, solo package-lock.json
-npm audit --omit=dev       # esperado: 5 moderate, 0 high
-npm test                   # sanidad; multer no está en ninguna ruta, no debería moverse nada
-```
-
-Commitear **solo** `backend/package-lock.json`. Si `package.json` cambia, algo salió mal: parar.
+`npm audit --omit=dev` en `backend/` daba 4 moderadas + 2 altas; el vector de `multer` no era alcanzable y se cerró
+actualizando el lockfile (backend), sin tocar `package.json`. Vigente de esto: lo que sigue (S-PROC-1).
 
 ### 41.5 S-PROC-1 — `npm audit` semanal en `security-scheduled.yml`
 
@@ -7783,26 +7700,7 @@ mantiene el gate. El issue se cierra **solo** cuando `./security/scripts/audit-n
 Si el paso del issue falla (p. ej. Issues deshabilitado en el repo) es `continue-on-error`: **no tapa
 el rojo**, que sigue siendo la señal de último recurso.
 
-### 41.8 Evidencia — las dos corridas
-
-**Sucio** (estado real del repo hoy, `exit=1`):
-
-```
-| App         | Crit | High | Mod | Low | Estado                    |
-| `backend/`  |    0 |    2 |   4 |   0 | ❌ **bloquea el gate**    |
-| `frontend/` |    0 |    0 |   0 |   0 | ✅ sin hallazgos >= high  |
-```
-
-**Limpio** (mismo script, lockfile refrescado, `exit=0`):
-
-```
-| App         | Crit | High | Mod | Low | Estado                    |
-| `backend/`  |    0 |    0 |   2 |   0 | ✅ sin hallazgos >= high  |
-| `frontend/` |    0 |    0 |   0 |   0 | ✅ sin hallazgos >= high  |
-```
-
-Probadas además las dos ramas del paso de issue (crear la primera semana / comentar la segunda) y la
-sintaxis de los cuatro bloques `run:` (`bash -n`). Sin cambios en `backend/` ni en `frontend/`.
+### 41.8 Evidencia — retirada (DOC-SIZE, 2026-10-30); las dos corridas: `git show 0d40d0b7:docs/DEVOPS_NOTES.md`, §41.8
 
 ### 41.9 Cómo se revierte
 
@@ -14964,36 +14862,15 @@ súper-admin del fixture); `HP_GRADING_HOOK_ON=1` enciende el dial del gancho pa
 sirve `seed-image-host.py` por HTTPS local y solo el Chrome de Lighthouse las resuelve hacia él: sin eso el LCP caía al
 `<h1>` y el umbral de LCP salía verde sin medir la teja. Informe: `RESUMEN.md` (mediana, peor, N, sha, fecha, carga) en el
 resumen del job y en el artefacto `home-perf`. rc 0 todo como se espera · 1 rojo · 2 **no medido** (nunca verde).
-- **Medido, N=5 por perfil, 12:32 UTC, carga 1.7, Destacadas 10 tejas, vitrina 1 elegible** (mediana / peor):
-
-  | modo | perfil | FCP | LCP | CLS | assert |
-  |---|---|---|---|---|---|
-  | d1 | móvil | 1.97 / 2.19 s | 6.71 / 7.73 s | 0.000 / 0.002 | **ROJO** (FCP, LCP) |
-  | d1 | escritorio | 0.38 / 0.43 s | 1.04 / 1.18 s | 0.001 / 0.001 | verde |
-  | d1-canary | móvil | 10.34 / 10.50 s | 14.74 / 15.05 s | 0.000 | rojo, ΔFCP +8 375 ms |
-  | d1-canary | escritorio | 1.64 / 1.67 s | 2.32 / 2.39 s | 0.001 | rojo, ΔFCP +1 256 ms |
-  | d2-delay | móvil | 1.41 / 2.09 s | 6.38 / 6.53 s | 0.002 / 0.002 | **ROJO** (FCP) |
-  | d2-delay | escritorio | 0.37 / 0.37 s | 1.11 / 1.27 s | 0.001 / 0.001 | verde |
-  | d2-503 | móvil | 1.39 / 1.54 s | 4.40 / 4.53 s | 0.066 / 0.066 | **ROJO** (FCP) |
-  | d2-503 | escritorio | 0.36 / 0.36 s | 0.84 / 0.87 s | 0.037 / 0.037 | verde |
-
-  Repetición a las 12:25 (carga 4.2, sin vitrina): móvil FCP 1.39 / 2.14 s, LCP 6.47 / 6.51 s; escritorio 0.36 / 0.38 s,
-  1.23 / 1.24 s. El FCP móvil es **bimodal** por corrida (≈1.4 s o ≈2.1-2.3 s), de ahí que la mediana salte entre tandas.
-- **Lectura.** Escritorio cumple 936 en las cuatro. **Móvil no**: FCP ≈ 1.4-2.0 s (> 1.0) y LCP ≈ 6.4-6.7 s (> 2.5), con el
-  LCP en la imagen de la teja líder (5/5). Es el estado del producto en este stack, no del arnés ⇒ según 936 vuelve **al
-  dueño con el número** (vía orquestador); el workflow `home-perf.yml` sale **rojo** mientras siga así. **DYN-D2 y la
-  vitrina:** con el API retrasado 5 s la vitrina llega a los ~5.0 s y **no suma CLS** (0.001-0.002, 0 desplazamientos en
-  las corridas leídas); el rojo de `d2-*` es el mismo FCP móvil de `d1`. Con `503`, CLS 0.066 móvil / 0.037 escritorio
-  (≤ 0.1, verde) y el elemento que se mueve es `main#main > div > div.border-t` (`lg:hidden`); por qué: **NO MEDIDO**
-  (hallazgo informativo para frontend).
+- **Medido el 2026-10-29** (tabla completa: `git show 0d40d0b7:docs/DEVOPS_NOTES.md`, §104.1): escritorio cumplía 936 y móvil
+  no (FCP ≈ 1.4-2.0 s, LCP ≈ 6.4-6.7 s). **Esas cifras se apoyaban en la foto sustituta de 168 KB (D-DYN-9)**: con bytes reales
+  ver §106.1. DYN-D2: la vitrina retrasada 5 s no suma CLS (0.001-0.002); con `503`, CLS 0.066 móvil / 0.037 escritorio (≤ 0.1).
 - **El canario ENGORDA, no retrasa (medido).** Con el perfil estándar (throttling **simulado**, Lantern) un retraso de 2 s
   del HTML no mueve el FCP: `server-response-time` 2 073 ms y FCP simulado 1 410 ms frente a 110 ms y 1 425 ms sin
   retraso (N=5 por perfil; el FCP **observado** sí subió a 2 375 ms). Consecuencia que hay que saber: **este check no ve un
   TTFB lento** (servidor o caché fríos); eso lo ve solo la medición en producción de 936 (QA, N=5 por perfil).
-- **En GitHub Actions** (run 40879539432, sha `1bf5d2f5`, 13:13 UTC, carga 2.1, N=5 por perfil): móvil FCP 1.37 / 1.38 s,
-  LCP 4.36 / 5.11 s ⇒ **ROJO**; escritorio 0.34 / 0.34 s, 1.16 / 1.23 s ⇒ verde; canario ΔFCP +1 280 ms escritorio y
-  +8 099 ms móvil ⇒ muerde; d2-delay CLS 0.002 / 0.001, d2-503 CLS 0.064 / 0.037 ⇒ verde en CLS, rojo solo por el FCP
-  móvil. Mismo cuadro que en local; en CI el FCP móvil no es bimodal (la bimodalidad local la atribuyo a la carga: NO MEDIDO).
+- **En GitHub Actions** (run 40879539432, sha `1bf5d2f5`, N=5 por perfil): el mismo cuadro que en local; canario ΔFCP
+  +1 280 ms escritorio y +8 099 ms móvil ⇒ muerde.
 - **NO MEDIDO:** cualquier cifra de producción (la mide QA, N=5 por perfil, como pide 936).
 
 **104.2 `POKEMONPRICETRACKER_DAILY_QUOTA`.** En `.env.example`, en los dos compose (`${…:-}`) y en la tabla de §4. Sin ella el
@@ -15079,3 +14956,104 @@ Rollback del workflow: revertir el commit; no toca datos ni despliegues.
 
 **NO MEDIDO:** la corrida en GitHub Actions (permisos reales del `GITHUB_TOKEN` para borrar ramas, reglas de
 protección de rama que lo rechacen — saldrían como «FALLÓ» en la tabla, rc 1).
+
+## §106 · v1.114.2 (opción A): arnés con bytes reales (DYN-D3), trinquete de celular (DYN-D1), `sharp` en standalone y coste de Vercel (2026-10-30, rama `claude/portada-dyn-ops2`, base `0d40d0b7`)
+
+Norma: `API_CONTRACT §DYN.7` (DYN-D1 cambiado, DYN-D3), §DYN.6.6, D-DYN-9; `ARCHITECTURE §4.DYN (f) 7` y §5.3.5. Medido
+sobre una copia `git archive 0d40d0b7` con los scripts de este pase, mi backend sembrado (BD `tcg_dyn_ops2`, :3181) y
+**un prototipo de A solo en mi scratch** (la líder por `getImageProps`, respaldo a la original, `images` de §4.DYN (f) 7),
+porque la rama de frontend no existía aún. Ese prototipo **no es** el A de frontend: las cifras sirven para probar el arnés,
+no para fijar el trinquete.
+
+**106.1 DYN-D3 — foto de peso real y optimizador de verdad.**
+- `seed-image-host.py` sirve la líder (`*_hires*`) como PNG 733×1024 **generado** (bandas + bloques de 10 px + ruido fino,
+  filtro Sub): **928 977 B** en el origen y 62 840 B en WebP 640 q75. La real (medida por frontend, N=40): mediana ~880 KB, WebP
+  ~67 KB. La huella fijada es la de los píxeles (`HUELLA_LIDER`, también en `check-home-perf.sh`), no la del PNG (zlib cambia
+  entre implementaciones). Si no cuadra o pesa < 800 KB, no sirve (rc 3) y `run.sh` sale **no medido** (rc 2).
+- El seed apunta a `https://img.e2e.local/` (fuera de `remotePatterns`: el optimizador daría 400). El proxy del API lo
+  reescribe en todo JSON a `https://images.scrydex.com/e2e/` (`delay-proxy.mjs --replace/--with`). El Chrome de Lighthouse
+  resuelve los tres hosts de imagen a `seed-image-host.py` (HTTPS); el `next start` del arnés lleva
+  `NODE_OPTIONS=--require scripts/home-perf/next-image-origin.cjs`, que desvía el `fetch` del servidor a esos dos hosts
+  hacia el mismo origen local (HTTP). Nada de imagen sale a internet.
+- `run.sh`, antes de Lighthouse: borra `.next/cache/images` (con la caché llena, una WebP de la tanda anterior escondía un
+  optimizador roto: **medido**), exige ≥ 800 KB en el origen y pide `/_next/image?url=<líder>&w=640&q=75`: si no es
+  200 `image/webp`, **ROJO**. Por corrida `d1`, `lcp-optimized.mjs`: todas las `/_next/image` 200 `image/webp`, ninguna
+  petición a la URL original (respaldo de `CardImage`) y, si el LCP es una `<img>`, su `src` es `/_next/image` ⇒ `k/N` en
+  el resumen; N/N o **ROJO**.
+- ⚠️ **Hallazgo (medido, Next 15.5.28):** sin `sharp`, `/_next/image` **no falla**: responde **200 con la PNG original**
+  (`image/png`, 928 977 B; `image-optimizer.js:1105-1117`, cae al búfer de origen). El respaldo de `CardImage` (al `error`)
+  **no salta** y el navegador baja la HD por `/_next/image`. Lo cazan el `image/webp` exigido aquí y la guarda del Dockerfile
+  (106.3). `ARCHITECTURE §4.DYN (f) 7` dice «sharp ausente ⇒ sin 2xx»: lo medido es otra cosa (para el arquitecto).
+- El artefacto `home-perf` sube los `lhr-*.json` (`include-hidden-files: true`; `.lighthouseci` es oculta).
+- **Medido** (N=5 por perfil, mediana / peor, 4 CPU, con un vitest de otro agente al lado):
+
+  | tanda | perfil | FCP | LCP | CLS | líder por `/_next/image` | resultado |
+  |---|---|---|---|---|---|---|
+  | proto A, 18:42 UTC, carga 2.5 | celular | 1.39 / 2.12 s | 5.40 / 6.85 s | 0.002 | 5/5 | rojo (meta 936; trinquete sin fijar) |
+  | proto A | escritorio | 0.37 / 0.39 s | 0.96 / 1.04 s | 0.001 | 5/5 (LCP = `<h1>`) | verde |
+  | proto A **sin `sharp`** | celular | 1.39 / 2.19 s | 10.49 / 10.69 s | 0.002 | **0/5** (`200 image/png`) | **ROJO** (DYN-D3) |
+  | proto A **sin `sharp`** | escritorio | 0.36 / 0.39 s | 1.71 / 1.88 s | 0.001 | **0/5** | **ROJO** (DYN-D3 y LCP > 1.5) |
+  | completa con trinquete de prueba (1530/5950 ms, de la 1.ª fila), 18:50, carga 6.2 | celular | 1.41 / 2.40 s | 5.58 / 6.84 s | 0.002 | 5/5 | verde (trinquete); meta 936 «NO CUMPLIDA» en el resumen |
+  | ídem | escritorio | 0.36 / 0.41 s | 0.92 / 1.10 s | 0.001 | 5/5 | verde |
+  | ídem, `d1-canary` | cel. / esc. | 10.33 / 1.67 s | 14.81 / 2.18 s | 0.000 / 0.001 | — | ROJO los dos (ΔFCP +8 916 / +1 306 ms): muerde con trinquete |
+  | ídem, `d2-delay` / `d2-503` | cel. | 1.43 / 1.38 s | — | 0.002 / 0.066 | — | verde (FCP ≤ trinquete, CLS ≤ 0.1) |
+
+  Sin `sharp` los números reproducen los de frontend con bytes reales (9.62 s y 1.71 s): el arnés ya no se apoya en la sustituta.
+
+**106.2 DYN-D1 — trinquete de celular y meta en solo reporte.** Una sola fuente: `lhci-config.mjs`. Bloquean escritorio FCP
+≤ 1.0 s / LCP ≤ 1.5 s, CLS ≤ 0.1 en los dos perfiles y, en celular, el trinquete de `scripts/home-perf/mobile-ratchet.json`
+(FCP/LCP = ⌈mediana × 1.10⌉₁₀, con mediana, N, sha y fecha). **Hoy está en `null`**: celular bloquea con la meta de 936 hasta
+fijarlo. La meta de 936 en celular sale siempre en el resumen del job («NO CUMPLIDA, decisión del dueño 2026-10-30» con el
+número). DYN-D2 en celular usa el FCP del trinquete (lectura mía de 937 «sigue cumpliendo 936» con 936 en trinquete; **para
+ratificar por el arquitecto**).
+- **Cómo se fija** (cuando A + c1 de frontend estén en la rama): stack sembrado y `scripts/home-perf/run.sh d1` sobre el
+  sha fusionado, en una máquina sin otra carga (`/proc/loadavg` en el resumen); luego
+  `node scripts/home-perf/fix-ratchet.mjs <HOME_PERF_OUT>/d1-mobile <sha> --write` y commit del json. El candado comprueba
+  la fórmula, N ≥ 5, sha y fecha. **Subirlo** después exige un `paseArquitecto` nuevo que esté en `docs/API_CONTRACT.md`
+  (`check-home-perf.sh --against-ref`, job `home-perf-mobile-goal-expiry`). Ojo: el FCP de celular es **bimodal** por
+  corrida (≈1.4 s o ≈2.1 s, §104.1); con +10 % sobre una mediana de 1.39 s, una tanda cuya mediana caiga en el modo alto
+  sale roja. Lo mido antes de fijar (k/N de tandas verdes con el trinquete propuesto).
+- **Caducidad:** `scripts/check-home-perf-mobile-goal-expiry.sh` (job `home-perf-mobile-goal-expiry` de `ci.yml`): con
+  trinquete fijado, verde hasta el 2026-12-31 y **rojo desde el 2027-01-01** (rc 9). Se apaga sola si celular vuelve a
+  bloquear con la meta (json a `null`). Dueño de la condición: orquestador (devolver al dueño la opción B con el número).
+
+**106.3 `sharp` en el build `standalone`.** `sharp` ya es dependencia del frontend (`^0.35.4`, lock 0.35.5, con los binarios
+glibc y musl en el lock) y `next build` lo traza a `.next/standalone/node_modules` (medido: `sharp` + `@img/sharp-linux-x64` y
+`-linuxmusl-x64`). El standalone sirve `/_next/image` de la líder en 200 `image/webp` 62 840 B; sin `sharp`, 200 `image/png`
+928 977 B (106.1). `Dockerfile.frontend` (etapa runtime) transforma una imagen a WebP 640 q75 con el `sharp` del standalone y
+**no construye** si falla (`SHARP_STANDALONE_OK` en el log). Medido aquí sobre el standalone glibc: rc 0; quitando
+`node_modules/sharp`: rc 1. La imagen musl la construye `security-sast.yml` (trivy-image) en cada push: **NO MEDIDO aquí** (sin
+Docker en este contenedor); lo cierra ese job.
+
+**106.4 Coste del optimizador en Vercel — PRECONDICIÓN de publicar A (§5.3.5, §4.DYN (f) 7). La lee el dueño.** Devops no
+tiene la consola. Los nombres de pantalla son los de la documentación de Vercel y **no los he visto** (NO MEDIDO): si algo no
+coincide, una captura de lo que sí aparece basta.
+1. vercel.com → arriba a la izquierda, el equipo donde vive la tienda → pestaña **Usage**. Periodo: el ciclo de facturación actual.
+2. Bajar a **Image Optimization**. Anotar para cada fila que aparezca (**Image Transformations**, **Image Cache Reads**,
+   **Image Cache Writes**; en el plan antiguo, **Source Images**): lo usado y lo **incluido** en el plan.
+3. Abrir esa tarjeta: la gráfica por día. Anotar el consumo de los últimos 7 días (filtrar por el proyecto del frontend si
+   hay selector).
+4. Precio del excedente: **Settings → Billing** (o la página de precios de Vercel, fila «Image Optimization»): el precio por
+   cada 1 000 de cada fila.
+5. **Alerta de gasto:** **Settings → Billing → Spend Management**: fijar un monto y activar los avisos por correo. ⛔ No
+   activar «pausar proyectos» al llegar al monto: apaga la tienda; si se quiere, es decisión aparte del dueño.
+6. Mandar al orquestador: fecha, plan, incluido, precio del excedente, consumo diario y el monto de la alerta (no hay secretos
+   en esto). Devops lo apunta aquí con fecha, y se **repite la lectura a los 7 días** de publicar.
+- Cómo se lee: uso esperado ~2 transformaciones por líder nueva al día (~60 al mes, INFERIDO por el arquitecto). **Más de
+  ~1 000 transformaciones al día** ⇒ se sospecha abuso: se acota `remotePatterns.pathname` o la líder vuelve a nivel B.
+
+  | fecha | plan | incluido (transf. / reads / writes) | excedente por 1 000 | consumo diario (7 días) | alerta | quién |
+  |---|---|---|---|---|---|---|
+  | — | **NO MEDIDO** | | | | | dueño |
+
+**106.5 Candados y canarios de este pase** (copia `git archive` del commit de este pase; deterministas N=1 salvo el proxy, N=10):
+- `check-home-perf.sh` (job de `ci.yml`, paso «Arnés de Lighthouse»): umbrales con trinquete, meta en el resumen, artefacto con
+  lhr, peso y huella de la líder, reescritura, desvío, comprobación del optimizador, `lcp-optimized.mjs` contra 5 lhr de
+  juguete (bueno; respaldo; 500; `<img>` cruda; WebP + original a la vez), `--replace` del proxy y guarda de `sharp` del
+  Dockerfile. `--canary`: **28/28** mutaciones rojas (las 11 de §104 + 17 de este pase).
+- `check-home-perf.sh --against-ref` + `--against-ref-canary` **5/5** (job `home-perf-mobile-goal-expiry`).
+- `check-home-perf-mobile-goal-expiry.sh --canary` **4/4**; y el canario muerde: fecha movida a 2027-06-01, rc 9 cambiado a
+  0, trinquete que nunca caduca y trinquete disfrazado de meta ⇒ canario rojo **4/4**.
+- Conducta del arnés (N=5 por perfil, una tanda cada una): sin `sharp` ⇒ **ROJO, 0/5 y 0/5** (`200 image/png`); con `sharp` ⇒
+  **5/5 y 5/5**; canario de D1 con trinquete ⇒ rojo en los dos perfiles. La estabilidad del trinquete frente a la bimodalidad
+  del FCP: **1/1 tanda verde, NO MEDIDO con N ≥ 10** (se mide al fijarlo).

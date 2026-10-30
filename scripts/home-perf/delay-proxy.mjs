@@ -8,7 +8,12 @@
  *   --rule '<regex>=503'          responde 503 sin reenviar   (criterio 937: «por separado fallando»)
  *   --rule '<regex>=pad:<KB>'     le mete al HTML <KB> de comentario incompresible justo tras `<head>`
  *                                 (canario de DYN-D1: «retraso artificial de la portada»)
- * Sin reglas es transparente. Dos usos en `scripts/home-perf/run.sh`:
+ *   --replace <texto> --with <otro>  reescribe <texto> por <otro> en TODO cuerpo JSON (DYN-D3: el seed
+ *                                 apunta el arte a `https://img.e2e.local/`, que no está en `remotePatterns`;
+ *                                 el proxy del API lo sirve como `https://images.scrydex.com/e2e/` para que el
+ *                                 optimizador de Next acepte la foto líder. Los bytes los sirve igual
+ *                                 `seed-image-host.py` en 127.0.0.1: nada sale a internet)
+ * Sin reglas ni reemplazo es transparente. Dos usos en `scripts/home-perf/run.sh`:
  *   · entre la tienda y el API (DYN-D2): retrasa o tumba `/catalog/featured` y la vitrina;
  *   · delante de la tienda (canario de DYN-D1): engorda el HTML de la portada.
  *
@@ -40,6 +45,8 @@ for (let i = 0; i < args.length; i += 2) {
   if (k === '--listen') opt.listen = Number(v);
   else if (k === '--upstream') opt.upstream = v;
   else if (k === '--log') opt.log = v;
+  else if (k === '--replace') opt.replace = v;
+  else if (k === '--with') opt.with = v;
   else if (k === '--rule') {
     const eq = v.lastIndexOf('=');
     if (eq < 1) die(`regla mal formada: ${v}`);
@@ -53,6 +60,7 @@ for (let i = 0; i < args.length; i += 2) {
   } else die(`opción desconocida ${k}`);
 }
 if (!Number.isInteger(opt.listen) || opt.listen <= 0) die('falta --listen <puerto>');
+if ((opt.replace === undefined) !== (opt.with === undefined) || opt.replace === '') die('--replace y --with van juntos');
 let up;
 try { up = new URL(opt.upstream); } catch { die('falta --upstream http://127.0.0.1:<puerto>'); }
 if (!['localhost', '127.0.0.1', '[::1]', '::1'].includes(up.hostname) || up.protocol !== 'http:') {
@@ -85,10 +93,25 @@ function upstreamRequest(req, headers, onResponse, res) {
 const server = http.createServer((req, res) => {
   const rule = req.method === 'GET' ? opt.rules.find((r) => r.re.test(req.url)) : undefined;
   const headers = { ...req.headers, host: up.host };
+  if (opt.replace !== undefined) headers['accept-encoding'] = 'identity';
   const forward = () =>
     upstreamRequest(req, headers, (r) => {
-      res.writeHead(r.statusCode ?? 502, r.headers);
-      r.pipe(res);
+      const json = /application\/json/.test(String(r.headers['content-type'] ?? ''));
+      if (opt.replace === undefined || !json) {
+        res.writeHead(r.statusCode ?? 502, r.headers);
+        return r.pipe(res);
+      }
+      const chunks = [];
+      r.on('data', (c) => chunks.push(c));
+      r.on('end', () => {
+        const out = Buffer.from(Buffer.concat(chunks).toString('utf8').split(opt.replace).join(opt.with), 'utf8');
+        const h = { ...r.headers, 'content-length': String(out.length) };
+        delete h['transfer-encoding'];
+        delete h['content-encoding'];
+        delete h.etag;
+        res.writeHead(r.statusCode ?? 502, h);
+        res.end(out);
+      });
     }, res);
   if (!rule) return forward();
   log(`${accion(rule.fault)} ${req.method} ${req.url}`);
@@ -120,7 +143,7 @@ const server = http.createServer((req, res) => {
   }, res);
 });
 server.listen(opt.listen, '127.0.0.1', () => {
-  log(`LISTEN 127.0.0.1:${opt.listen} -> ${up.origin} reglas=[${opt.rules.map((r) => r.src).join(' | ')}]`);
+  log(`LISTEN 127.0.0.1:${opt.listen} -> ${up.origin} reglas=[${opt.rules.map((r) => r.src).join(' | ')}]${opt.replace !== undefined ? ` reemplazo=[${opt.replace} -> ${opt.with}]` : ''}`);
   process.stdout.write(`delay-proxy :${opt.listen} -> ${up.origin} (${opt.rules.length} regla/s)\n`);
 });
 // Salida inmediata: con conexiones keep-alive abiertas, `server.close()` esperaría a que el navegador las suelte.
