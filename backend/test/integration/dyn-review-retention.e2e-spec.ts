@@ -1,14 +1,15 @@
 /**
  * dyn-review-retention.e2e-spec.ts — 💰 DYN-B23…B26 (API_CONTRACT §DYN.5.9, v1.114; ARCHITECTURE §4.DYN (e), §4.PRE (d)) contra
  * Postgres REAL y la app por HTTP: **el candado retiene la venta.** Con un `PriceReviewCase` vigente (`open` o `kept`) de la
- * variante, el cuerpo de venta usa el último sano (`baselineMxnCents`) y no la mediana con el pico; sin base, la fila queda
- * `pending`. Siguen ganando el precio por pieza, el override tier 0 y M-30.
+ * variante, el cuerpo de venta usa el último sano (`baselineMxnCents`) y no la mediana con el pico; sin base, el mínimo fresco
+ * admitido (v1.114.3; ninguno ⇒ `pending`). Siguen ganando el precio por pieza, el override tier 0 y M-30.
  *
  *  DYN-B23: base 184¢ con fila; barrido con una fuente a 10221¢ ⇒ caso `open` + `review_open`; fila, ficha, quote y sesión con
  *           `P` de 184¢ y referencia 184¢; con override tier 0 ⇒ el override.
  *  DYN-B24: `keep` ⇒ `kept`; barrido 2 con el mismo pico ⇒ sin caso nuevo, base 184¢, fila igual tras el cálculo diario, compra
  *           `pending`; candidato dentro de ×5 ⇒ `superseded` y el cálculo siguiente da el robusto.
- *  DYN-B25: caso vigente con `baselineMxnCents` null ⇒ fila `pending`, no se exhibe ni se cobra.
+ *  DYN-B25 (v1.114.3): caso vigente (`open` o `kept`) con `baselineMxnCents` null ⇒ la venta usa el MÍNIMO de las cotizaciones
+ *           frescas admitidas (`admittedFreshQuotes`); ninguna fresca ⇒ fila `pending`; la compra sigue `pending`.
  *  DYN-B26: fila sembrada con el pico + el candado abre caso ⇒ `review_open` reescribe solo esa variante; un `daily` que empezó
  *           antes no la pisa.
  *
@@ -345,26 +346,147 @@ describe('E2E — §DYN.5.9: el candado retiene la venta (DYN-B23…B26)', () =>
     });
   });
 
-  describe('DYN-B25 — caso vigente sin base ⇒ `pending`', () => {
-    it('💰 la fila queda `pending`: no se exhibe ni se cobra (aunque el vivo sin caso tendría precio)', async () => {
-      const k = await card(4);
-      await quoteRow(k, 'holofoil', 5_000, today());
-      const X = await item(k, 'holofoil');
-      await lp.run('manual_price', [X]);
-      expect(await row(X)).toMatchObject({ status: 'priced', referenceMxnCents: 5_000 });
-      // Variante sin base (set nuevo, fuente única): el candado abre caso con `baselineMxnCents` null.
-      await sweep(k, 'holofoil');
-      const cs = await cases(k, 'holofoil');
+  describe('DYN-B25 — caso vigente sin base ⇒ la venta usa el mínimo fresco (v1.114.3)', () => {
+    // Contrato §DYN.5.9 «Sin base» (dueño, HECHOS 2026-10-30 «Casos de revisión de precio SIN base: opción A…»). Cada número del
+    // fixture es la huella de una mutación: 300 = el mínimo fresco admitido (lo correcto); 400 = la mediana/promedio de las dos
+    // frescas; 100 = la `cardmarket` vieja; 50 = la `pokemontcg_io` excluida; `pending` = la regla v1.114 que se sustituye.
+    const MIN = 300;
+    const OTRA = 500;
+    const VIEJA = 100;
+    const EXCLUIDA = 50;
+    let k: string;
+    let X: string;
+    let A: string;
+    let B: string;
+    let Z: string;
+    let P_MIN: number;
+    let fresh: number;
+    let caseId: string;
+    const tcgcsvDay = () => daysAgo(2); // ≠ día del caso: la fila exhibe la fecha DE ESA cotización
+
+    async function refRow(cardId: string, finish: Finish, source: 'tcgcsv_singles' | 'tcgdex' | 'cardmarket' | 'pokemontcg_io', cents: number, day: Date) {
+      await h.prisma.priceReference.create({
+        data: { cardId, productType: 'raw', gradeKey: 'raw:NM', finish, source, priceMxnCents: cents, capturedDate: day, refKind: 'market' },
+      });
+    }
+
+    beforeAll(async () => {
+      fresh = (await h.app.get(PricingService).loadArbiterDialsSafe()).freshnessDays;
+      k = await card(4);
+      await refRow(k, 'holofoil', 'tcgcsv_singles', MIN, tcgcsvDay());
+      await refRow(k, 'holofoil', 'tcgdex', OTRA, today());
+      await refRow(k, 'holofoil', 'cardmarket', VIEJA, daysAgo(fresh + 3));
+      await refRow(k, 'holofoil', 'pokemontcg_io', EXCLUIDA, today());
+      // Caso vigente SIN base, tal como lo abre el candado del barrido para una variante sin valor sano (fuente única).
+      caseId = (
+        await h.prisma.priceReviewCase.create({
+          data: {
+            cardId: k,
+            productType: 'raw',
+            gradeKey: 'raw:NM',
+            finish: 'holofoil',
+            axis: 'sell',
+            proposedMxnCents: 400,
+            baselineMxnCents: null,
+            jumpFactorMilli: 0,
+            sourceCount: 2,
+            familyCount: 1,
+            consensus: false,
+            quotesSnapshot: [],
+            status: 'open',
+          },
+        })
+      ).id;
+      X = await item(k, 'holofoil');
+      A = await item(k, 'holofoil');
+      B = await item(k, 'holofoil');
+      Z = await item(k, 'holofoil');
+      P_MIN = await priceAt(MIN);
+    });
+
+    it('💰 `open`: fila `priced` con referencia 300 (no 400, 100, 50 ni `pending`) y el `capturedDate` de la de tcgcsv', async () => {
+      await lp.run('manual_price', [X, A, B, Z]);
+      const fila = (await row(X))!;
+      expect({ status: fila.status, ref: fila.referenceMxnCents }).toEqual({ status: 'priced', ref: MIN });
+      expect(fila.unitPriceCents).toBe(P_MIN);
+      expect(ymd(fila.referenceCapturedDate!)).toBe(ymd(tcgcsvDay()));
+      expect(await live(X)).toBe(P_MIN);
+      // La retención la da el caso, no una casualidad del fixture: sin caso, la referencia viva NO es 300.
+      const sinCaso = await h.app.get(PricingService).getReference(k, 'raw', 'raw:NM', 'holofoil');
+      expect(sinCaso.referenceMxnCents).not.toBe(MIN);
+    });
+
+    it('💰 ficha, quote y sesión (cuenta e invitado) exhiben y cobran el `P` de 300', async () => {
+      const ficha = await h.api<{ listings: { displayPriceCents: number; finish: string; referenceValue: Ref }[] }>('GET', `/catalog/cards/${k}`);
+      expect(ficha.status).toBe(200);
+      const holo = ficha.body.listings.filter((l) => l.finish === 'holofoil');
+      expect(holo.length).toBeGreaterThan(0);
+      for (const l of holo) {
+        expect(l.displayPriceCents).toBe(P_MIN);
+        expect(l.referenceValue.status).toBe('priced');
+        expect([undefined, MIN]).toContain(l.referenceValue.referenceMxnCents);
+      }
+      const q = await quote([X]);
+      expect(q.status).toBe(200);
+      expect(q.body.items[0].unitPriceCents).toBe(P_MIN);
+      const s = await h.api<{ breakdown: { subtotalCents: number } }>('POST', '/checkout/session', {
+        token: customer,
+        json: { inventoryItemIds: [A] },
+        headers: { 'idempotency-key': `rr-${run}-b25` },
+      });
+      expect(s.status).toBe(201);
+      expect(s.body.breakdown.subtotalCents).toBe(P_MIN);
+      const gs = await h.api<{ breakdown: { subtotalCents: number } }>('POST', '/checkout/guest/session', {
+        json: { inventoryItemIds: [B], email: `rr25.${run}@example.com`, shippingAddress: ADDRESS, acceptedTerms: true, locale: 'es' },
+      });
+      expect(gs.status).toBe(201);
+      expect(gs.body.breakdown.subtotalCents).toBe(P_MIN);
+    });
+
+    it('💰 la compra sigue en `pending` (no usa el mínimo de venta)', async () => {
+      const bq = await buyQuote(k, 'holofoil');
+      expect(bq.status).toBe(200);
+      expect(bq.body.referencePrice.status).toBe('pending');
+    });
+
+    it('💰 `kept` sin base se trata igual que `open`: misma fila de 300 y compra `pending`', async () => {
+      await h.prisma.priceReviewCase.update({ where: { id: caseId }, data: { status: 'kept' } });
+      await lp.run('manual_price', [X, Z]);
+      const fila = (await row(Z))!;
+      expect({ status: fila.status, ref: fila.referenceMxnCents, p: fila.unitPriceCents }).toEqual({ status: 'priced', ref: MIN, p: P_MIN });
+      expect(ymd(fila.referenceCapturedDate!)).toBe(ymd(tcgcsvDay()));
+      expect(await live(Z)).toBe(P_MIN);
+      expect((await quote([Z])).body.items[0].unitPriceCents).toBe(P_MIN);
+      expect((await buyQuote(k, 'holofoil')).body.referencePrice.status).toBe('pending');
+    });
+
+    it('💰 con las dos frescas envejecidas (ninguna fresca) ⇒ fila `pending` y `PRICE_PENDING`', async () => {
+      await h.prisma.priceReference.updateMany({
+        where: { cardId: k, finish: 'holofoil', source: { in: ['tcgcsv_singles', 'tcgdex'] } },
+        data: { capturedDate: daysAgo(fresh + 2) },
+      });
+      await lp.run('manual_price', [X, Z]);
+      expect(await row(Z)).toMatchObject({ status: 'pending', unitPriceCents: null, referenceMxnCents: null });
+      expect(await live(Z)).toBe('pending');
+      expect((await h.api('GET', `/catalog/listings/${Z}`)).status).toBe(404);
+      const q = await quote([Z]);
+      expect(q.status).toBe(422);
+      expect(q.body.error!.code).toBe('PRICE_PENDING');
+    });
+
+    it('el barrido sigue abriendo el caso sin base (base `null`) y la fila va a su única cotización fresca', async () => {
+      const k2 = await card(7);
+      await quoteRow(k2, 'holofoil', 5_000, today());
+      const V = await item(k2, 'holofoil');
+      await lp.run('manual_price', [V]);
+      await sweep(k2, 'holofoil');
+      const cs = await cases(k2, 'holofoil');
       expect(cs).toHaveLength(1);
       expect(cs[0]).toMatchObject({ status: 'open', baselineMxnCents: null });
       await lp.idle();
-      await lp.run('manual_price', [X]);
-      expect(await row(X)).toMatchObject({ status: 'pending', unitPriceCents: null, referenceMxnCents: null });
-      expect(await live(X)).toBe('pending');
-      expect((await h.api('GET', `/catalog/listings/${X}`)).status).toBe(404);
-      const q = await quote([X]);
-      expect(q.status).toBe(422);
-      expect(q.body.error!.code).toBe('PRICE_PENDING');
+      await lp.run('manual_price', [V]);
+      expect(await row(V)).toMatchObject({ status: 'priced', referenceMxnCents: 5_000 });
+      expect((await buyQuote(k2, 'holofoil')).body.referencePrice.status).toBe('pending');
     });
   });
 

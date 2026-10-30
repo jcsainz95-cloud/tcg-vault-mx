@@ -110,7 +110,7 @@ export class SaleDecisionService {
    * `getReference`). Para el sellado, su clave de mercado; para el resto, la de su variante.
    *
    * 💰 v1.114 (§DYN.5.9): **con la retención del candado ya aplicada** — una variante raw/graded con caso de revisión vigente
-   * (`open`/`kept`) y sin override tier 0 entra con el último sano del caso (o `pending` sin base), no con la mediana que trae el
+   * (`open`/`kept`) y sin override tier 0 entra con el último sano del caso (sin base, el mínimo fresco admitido, v1.114.3; ninguno ⇒ `pending`), no con la mediana que trae el
    * pico (`PricingService.saleRetentionFor`). Es la ENTRADA del cuerpo: `P`, la instrumentación y el «valor de mercado» que la
    * fila congela (§DYN.5.5) salen del mismo número. ⛔ Solo el cuerpo de venta: los demás lectores de `getReferencesBatch`
    * (bóveda, portafolio, cotizador, admin) no cambian.

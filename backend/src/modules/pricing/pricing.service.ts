@@ -94,6 +94,9 @@ import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 // v1.91⟨precios⟩ (M-75, §PRE.B / ARCHITECTURE §4.PRE (a)(b)): árbitro de mediana que ENVUELVE la lectura.
 import {
   resolveRobustMarket,
+  // v1.114.3 (§DYN.5.9): el filtro ÚNICO de cotizaciones que votan (lo usa también `resolveRobustMarket`).
+  admittedFreshQuotes as admittedFreshQuotesOf,
+  QuoteSnapshot,
   ArbiterCandidate,
   ArbiterDials,
   DEFAULT_PRICE_ARBITER_FRESHNESS_DAYS,
@@ -861,7 +864,9 @@ export class PricingService {
    * 💰 v1.114⟨portada⟩ (API_CONTRACT §DYN.5.9, ARCHITECTURE §4.DYN (e)) — **LA RETENCIÓN DEL CANDADO EN LA VENTA.** Para cada
    * variante raw/graded con caso VIGENTE (`open`/`kept`) cuya referencia NO es el override tier 0, la referencia que entra al
    * cuerpo de venta (y que la fila exhibe, §DYN.5.5): `baselineMxnCents ≠ null ⇒ { priced, baselineMxnCents, capturedDate = día
-   * de createdAt del caso }`; `null ⇒ { pending }` (⇒ `PRICE_PENDING`, P-RP-4: sin con qué comparar, a revisión). Las variantes
+   * de createdAt del caso }`; `null ⇒` el **mínimo fresco** (v1.114.3): la cotización de `priceMxnCents` menor de
+   * `admittedFreshQuotes` (las que votarían en el árbitro), con su `capturedDate`; ninguna ⇒ `{ pending }` (⇒ `PRICE_PENDING`).
+   * `kept` igual que `open`. ⛔ La compra NO pasa por aquí (su gate es `PriceReviewService.vigenteCaseVariantKeySet`). Las variantes
    * que no están en el mapa leen su referencia de siempre. ⛔ El sellado no tiene candado (fuera). ⛔ El override tier 0 sigue
    * ganando (fuera); el precio por pieza y M-30 ganan aguas abajo, en el cuerpo.
    *
@@ -880,16 +885,88 @@ export class PricingService {
     if (cases.size === 0) return out;
     const held = auto.filter((k) => cases.has(variantKey(k)));
     const { manualKeys } = await this.getReferencesBatchWithTier(held);
-    for (const k of held) {
+    const retained = held.filter((k) => !manualKeys.has(variantKey(k)));
+    const hasBase = (vk: string): boolean => {
+      const b = cases.get(vk)!.baselineMxnCents;
+      return b != null && b > 0;
+    };
+    // v1.114.3: las cotizaciones frescas admitidas solo se leen para las variantes SIN base (coste: cero sin ellas).
+    const noBase = retained.filter((k) => !hasBase(variantKey(k)));
+    const freshByKey = noBase.length > 0 ? await this.admittedFreshQuotes(noBase) : new Map<string, QuoteSnapshot[]>();
+    for (const k of retained) {
       const vk = variantKey(k);
-      if (manualKeys.has(vk)) continue;
       const c = cases.get(vk)!;
-      out.set(
-        vk,
-        c.baselineMxnCents != null && c.baselineMxnCents > 0
-          ? { status: 'priced', referenceMxnCents: c.baselineMxnCents, capturedDate: c.createdAt.toISOString().slice(0, 10) }
-          : { status: 'pending' },
+      if (hasBase(vk)) {
+        out.set(vk, { status: 'priced', referenceMxnCents: c.baselineMxnCents!, capturedDate: c.createdAt.toISOString().slice(0, 10) });
+        continue;
+      }
+      // 💰 Sin base (v1.114.3, dueño HECHOS 2026-10-30 «…SIN base: opción A…»): el MÍNIMO fresco admitido, por cotización (no la
+      // mediana ni la familia), con SU fecha; ninguno ⇒ `pending`. `open` y `kept` igual: el estado del caso no entra aquí.
+      const min = freshByKey.get(vk)?.[0];
+      out.set(vk, min ? { status: 'priced', referenceMxnCents: min.priceMxnCents, capturedDate: min.capturedDate } : { status: 'pending' });
+    }
+    return out;
+  }
+
+  /**
+   * 💰 v1.91⟨precios⟩ / v1.114.3 — las filas `PriceReference` que el ÁRBITRO considera para cada variante (paso 1 de
+   * `ARCHITECTURE §4.PRE (b)`): no manuales, de una fuente de `priceArbiterSources`, de mercado (`MONEY_REF_WHERE`), de
+   * cualquier fecha (la frescura la decide `admittedFreshQuotes`). Una sola lectura para el barrido (`arbiterDetailForKeys`) y
+   * para el mínimo fresco de la venta sin base (`admittedFreshQuotes` de abajo): ⛔ dos lecturas distintas serían dos filtros.
+   */
+  private async admittedQuoteRowsByKey(
+    keys: readonly { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+    dials: ArbiterDials,
+  ): Promise<Map<string, RefRow[]>> {
+    const byKey = new Map<string, RefRow[]>();
+    if (keys.length === 0) return byKey;
+    const wanted = new Set(keys.map((k) => variantKey(k)));
+    const rows = await this.prisma.priceReference.findMany({
+      where: {
+        cardId: { in: [...new Set(keys.map((k) => k.cardId))] },
+        productType: { in: [...new Set(keys.map((k) => k.productType))] },
+        gradeKey: { in: [...new Set(keys.map((k) => k.gradeKey))] },
+        finish: { in: [...new Set(keys.map((k) => k.finish))] },
+        isManualOverride: false,
+        source: { in: dials.admittedSources as PriceSource[] },
+        ...MONEY_REF_WHERE,
+      },
+      orderBy: { capturedDate: 'desc' },
+      select: PRICE_REF_SELECT,
+    });
+    for (const r of rows) {
+      const k = variantKey(r);
+      if (!wanted.has(k)) continue;
+      const arr = byKey.get(k);
+      if (arr) arr.push(r);
+      else byKey.set(k, [r]);
+    }
+    return byKey;
+  }
+
+  /**
+   * 💰 v1.114.3⟨portada⟩ (API_CONTRACT §DYN.5.9 «Sin base»; pseudofirma `admittedFreshQuotes(variantKey, now): Quote[]`, aquí en
+   * lote) — por `variantKey`, las cotizaciones que VOTARÍAN en el árbitro en `now`: la lectura del barrido
+   * (`admittedQuoteRowsByKey`), una por fuente (`arbiterCandidatesBySource`, MXN vivo) y el filtro único `admittedFreshQuotes`
+   * de `common/robust-market.ts` (fuentes del dial, sin `pokemontcg_io`/PPT/manual, frescas). Ordenadas: el mínimo es `[0]`.
+   * Variante sin ninguna ⇒ ausente del mapa.
+   */
+  async admittedFreshQuotes(
+    keys: readonly { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+    now: Date = new Date(),
+  ): Promise<Map<string, QuoteSnapshot[]>> {
+    const out = new Map<string, QuoteSnapshot[]>();
+    if (keys.length === 0) return out;
+    const dials = await this.loadArbiterDialsSafe();
+    const fx = await this.fxSnapshotSafe();
+    const nowIso = now.toISOString().slice(0, 10);
+    for (const [k, rows] of await this.admittedQuoteRowsByKey(keys, dials)) {
+      const quotes = admittedFreshQuotesOf(
+        arbiterCandidatesBySource(rows, (r) => this.liveMxnCents(r, fx)),
+        dials,
+        nowIso,
       );
+      if (quotes.length > 0) out.set(k, quotes);
     }
     return out;
   }
@@ -912,28 +989,7 @@ export class PricingService {
     const dials = await this.loadArbiterDialsSafe();
     const fx = await this.fxSnapshotSafe();
     const nowIso = new Date().toISOString().slice(0, 10);
-    const wanted = new Set(keys.map((k) => variantKey(k)));
-    const rows = await this.prisma.priceReference.findMany({
-      where: {
-        cardId: { in: [...new Set(keys.map((k) => k.cardId))] },
-        productType: { in: [...new Set(keys.map((k) => k.productType))] },
-        gradeKey: { in: [...new Set(keys.map((k) => k.gradeKey))] },
-        finish: { in: [...new Set(keys.map((k) => k.finish))] },
-        isManualOverride: false,
-        source: { in: dials.admittedSources as PriceSource[] },
-        ...MONEY_REF_WHERE,
-      },
-      orderBy: { capturedDate: 'desc' },
-      select: PRICE_REF_SELECT,
-    });
-    const byKey = new Map<string, (typeof rows)[number][]>();
-    for (const r of rows) {
-      const k = variantKey(r);
-      if (!wanted.has(k)) continue;
-      const arr = byKey.get(k);
-      if (arr) arr.push(r);
-      else byKey.set(k, [r]);
-    }
+    const byKey = await this.admittedQuoteRowsByKey(keys, dials);
     // ⭐ v1.91⟨precios⟩ errata (cuestión D, §4.PRE (c)) + v1.114 (§DYN.5.9) — BASE CONGELADA mientras hay caso VIGENTE
     // (`open` o `kept`). La base NO es la robusta de ayer recomputada: es el ÚLTIMO VALOR SANO que la tienda PUBLICÓ, el
     // `baselineMxnCents` que el caso guardó al abrirse. Sin esto, un pico de UNA fuente que persiste DOS barridos haría que el
@@ -944,8 +1000,7 @@ export class PricingService {
 
     for (const [k, krows] of byKey) {
       // errata E-CI (§PRE.B): UNA cotización por FUENTE (no por fila), vía `isBetterRef`.
-      const toCand = (rs: (typeof rows)[number][]): ArbiterCandidate[] =>
-        arbiterCandidatesBySource(rs as unknown as RefRow[], (r) => this.liveMxnCents(r, fx));
+      const toCand = (rs: RefRow[]): ArbiterCandidate[] => arbiterCandidatesBySource(rs, (r) => this.liveMxnCents(r, fx));
       const result = resolveRobustMarket(toCand(krows), dials, nowIso);
       // Si hay caso vigente ⇒ base CONGELADA (`caso.baselineMxnCents`). Si NO ⇒ la robusta de ayer (que,
       // sin caso vigente, SÍ fue la publicada y sana).

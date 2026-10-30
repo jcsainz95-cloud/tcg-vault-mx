@@ -140,31 +140,54 @@ function sourceRankOf(source: string, admittedSources: readonly string[]): numbe
   return i < 0 ? admittedSources.length : i;
 }
 
+/** Pasos 1 + marca de frescura: las cotizaciones de fuentes ADMITIDAS (dial ∩ elegibles), frescas o no (foto del caso). */
+function admittedSnapshots(candidates: ArbiterCandidate[], dials: ArbiterDials, nowIso: string): QuoteSnapshot[] {
+  // Solo candidatas de fuentes ADMITIDAS por el dial Y arbitro-elegibles (defensa en profundidad:
+  // `pokemontcg_io`/PPT/`manual` NUNCA, aunque el dial las trajera — criterio 883).
+  return candidates
+    .filter((c) => dials.admittedSources.includes(c.source) && !NON_VOTING_SOURCES.has(c.source))
+    .map((c) => ({
+      source: c.source,
+      family: familyOf(c.source),
+      priceMxnCents: c.priceMxnCents,
+      capturedDate: c.capturedDate,
+      stale: ageDays(nowIso, c.capturedDate) > dials.freshnessDays,
+    }));
+}
+
+/**
+ * 💰 v1.114.3⟨portada⟩ (API_CONTRACT §DYN.5.9 «Sin base», ARCHITECTURE §4.PRE (b) pasos 1–2) — **LAS COTIZACIONES QUE VOTARÍAN
+ * EN EL ÁRBITRO**: fuentes de `priceArbiterSources` (⛔ nunca `pokemontcg_io`, PPT ni `manual`), con `capturedDate` dentro de
+ * `priceArbiterFreshnessDays` y `priceMxnCents > 0`, ordenadas por (precio, orden del dial —el `sourceRank` del árbitro—,
+ * nombre de fuente). Es el ÚNICO filtro: lo usa `resolveRobustMarket` para votar y la retención sin base de la venta para
+ * tomar el mínimo (= el primer elemento). ⛔ No dupliques este filtro en otro sitio: dos filtros acaban votando cosas distintas.
+ */
+export function admittedFreshQuotes(candidates: ArbiterCandidate[], dials: ArbiterDials, nowIso: string): QuoteSnapshot[] {
+  return admittedSnapshots(candidates, dials, nowIso)
+    .filter((q) => !q.stale && q.priceMxnCents > 0)
+    .sort((a, b) => {
+      if (a.priceMxnCents !== b.priceMxnCents) return a.priceMxnCents - b.priceMxnCents;
+      const ra = sourceRankOf(a.source, dials.admittedSources);
+      const rb = sourceRankOf(b.source, dials.admittedSources);
+      if (ra !== rb) return ra - rb;
+      return a.source < b.source ? -1 : a.source > b.source ? 1 : 0;
+    });
+}
+
 /**
  * EL RESOLVEDOR ROBUSTO (§PRE.B / ARCHITECTURE §4.PRE (b)). Reúne candidatas admitidas, filtra por
- * frescura, agrupa por familia y arbitra: 3+ frescas ⇒ mediana · 2 ⇒ promedio entero `round((a+b)/2)` ·
- * 1 ⇒ esa · 0 ⇒ `null` (`PRICE_PENDING`). ⛔ Fuentes que aplanan nunca entran. Todo entero.
+ * frescura (`admittedFreshQuotes`), agrupa por familia y arbitra: 3+ frescas ⇒ mediana · 2 ⇒ promedio entero
+ * `round((a+b)/2)` · 1 ⇒ esa · 0 ⇒ `null` (`PRICE_PENDING`). ⛔ Fuentes que aplanan nunca entran. Todo entero.
  */
 export function resolveRobustMarket(
   candidates: ArbiterCandidate[],
   dials: ArbiterDials,
   nowIso: string,
 ): RobustResult {
-  // Solo candidatas de fuentes ADMITIDAS por el dial Y arbitro-elegibles (defensa en profundidad:
-  // `pokemontcg_io`/PPT/`manual` NUNCA, aunque el dial las trajera — criterio 883).
-  const admitted = candidates.filter(
-    (c) => dials.admittedSources.includes(c.source) && !NON_VOTING_SOURCES.has(c.source),
-  );
-
-  const quotes: QuoteSnapshot[] = admitted.map((c) => ({
-    source: c.source,
-    family: familyOf(c.source),
-    priceMxnCents: c.priceMxnCents,
-    capturedDate: c.capturedDate,
-    stale: ageDays(nowIso, c.capturedDate) > dials.freshnessDays,
-  }));
-
-  const fresh = quotes.filter((q) => !q.stale && q.priceMxnCents > 0);
+  const quotes = admittedSnapshots(candidates, dials, nowIso);
+  // Orden determinista por (precio, prioridad del dial, fuente) para elegir la(s) central(es).
+  const sorted = admittedFreshQuotes(candidates, dials, nowIso);
+  const fresh = sorted;
 
   if (fresh.length === 0) {
     return {
@@ -177,15 +200,6 @@ export function resolveRobustMarket(
       quotes,
     };
   }
-
-  // Orden determinista por (precio, prioridad del dial, fuente) para elegir la(s) central(es).
-  const sorted = [...fresh].sort((a, b) => {
-    if (a.priceMxnCents !== b.priceMxnCents) return a.priceMxnCents - b.priceMxnCents;
-    const ra = sourceRankOf(a.source, dials.admittedSources);
-    const rb = sourceRankOf(b.source, dials.admittedSources);
-    if (ra !== rb) return ra - rb;
-    return a.source < b.source ? -1 : a.source > b.source ? 1 : 0;
-  });
 
   const n = sorted.length;
   let robust: number;
