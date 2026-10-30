@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import { CatalogView } from '../catalog/CatalogView';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
  * Alias de ruta v1.1: la superficie de producto se llama "Compra". La ruta técnica
@@ -8,9 +9,12 @@ import { CatalogView } from '../catalog/CatalogView';
  */
 export default function CompraPage() {
   // useSearchParams (pestaña Gradeadas, ?type=graded) requiere Suspense en Next 15.
+  // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
   return (
-    <Suspense>
-      <CatalogView />
-    </Suspense>
+    <RouteMessages scope="storefront">
+      <Suspense>
+        <CatalogView />
+      </Suspense>
+    </RouteMessages>
   );
 }

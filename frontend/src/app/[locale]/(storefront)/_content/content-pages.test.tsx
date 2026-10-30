@@ -19,6 +19,11 @@ vi.mock('next-intl/server', () => ({
   getTranslations: async ({ locale, namespace }: { locale: string; namespace?: string }) =>
     createTranslator({ locale, messages: locale === 'en' ? en : es, namespace } as never),
 }));
+// §DYN.6.7 (c1): el reparto de textos por ruta lo vigilan `layout.messages.test.tsx` y `RouteMessages.render.test.tsx`;
+// aquí se mide el HTML del servidor (sin provider de cliente), así que `RouteMessages` pasa a sus hijos tal cual.
+vi.mock('@/components/i18n/RouteMessages', () => ({
+  RouteMessages: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
 vi.mock('@/i18n/navigation', () => ({
   Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>

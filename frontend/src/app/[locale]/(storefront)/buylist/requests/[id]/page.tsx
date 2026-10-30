@@ -1,4 +1,5 @@
 import { SellRequestDetailView } from './SellRequestDetailView';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
  * **`/[locale]/buylist/requests/:id` — el destino del CTA del correo de la oferta.**
@@ -21,5 +22,10 @@ export default async function SellRequestDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <SellRequestDetailView sellRequestId={id} />;
+  // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
+  return (
+    <RouteMessages scope="storefront">
+      <SellRequestDetailView sellRequestId={id} />
+    </RouteMessages>
+  );
 }

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { WishlistMailActionPage } from './WishlistMailActionPage';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
  * `/{locale}/lista-de-deseos/aviso?a=&id=&t=` — enlace del correo de la lista de deseos (API_CONTRACT §WSH.6,
@@ -13,5 +14,10 @@ export const metadata: Metadata = {
 };
 
 export default function WishlistMailActionRoute() {
-  return <WishlistMailActionPage />;
+  // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
+  return (
+    <RouteMessages scope="storefront">
+      <WishlistMailActionPage />
+    </RouteMessages>
+  );
 }

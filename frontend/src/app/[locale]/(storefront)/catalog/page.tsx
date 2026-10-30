@@ -7,6 +7,7 @@ import { JsonLd } from '@/components/seo/JsonLd';
 import { NONCE_HEADER } from '@/security/csp';
 import { breadcrumbJsonLd, SITE_URL, siteAbsoluteUrl } from '@/lib/seo';
 import { CatalogView } from './CatalogView';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
  * §E1/§E3 — canonical absoluto SIN query: las vistas filtradas (`?setId=`, `?type=graded`) apuntan
@@ -42,12 +43,15 @@ export default async function CatalogPage({ params }: { params: Promise<{ locale
     ]),
   };
   // useSearchParams (pestaña Gradeadas, ?type=graded) requiere Suspense en Next 15.
+  // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
   return (
-    <>
-      <JsonLd data={jsonLd} nonce={nonce} />
-      <Suspense>
-        <CatalogView />
-      </Suspense>
-    </>
+    <RouteMessages scope="storefront">
+      <>
+        <JsonLd data={jsonLd} nonce={nonce} />
+        <Suspense>
+          <CatalogView />
+        </Suspense>
+      </>
+    </RouteMessages>
   );
 }

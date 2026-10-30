@@ -4,6 +4,7 @@ import type { AppLocale } from '@/i18n/routing';
 import { SITE_URL, siteAbsoluteUrl } from '@/lib/seo';
 import { FEATURED_QUERY_KEY, GEMS_QUERY_KEY } from '@/lib/home-queries';
 import { loadHomeForSSR } from '@/lib/home-ssr';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 import { HomeView } from './HomeView';
 
 /**
@@ -38,9 +39,12 @@ export default async function HomePage() {
   const client = new QueryClient();
   if (featured) client.setQueryData(FEATURED_QUERY_KEY, featured, { updatedAt: 0 });
   if (gems) client.setQueryData(GEMS_QUERY_KEY, gems, { updatedAt: 0 });
+  // §DYN.6.7 (c1): la portada añade SOLO el ámbito `home` a lo que manda la raíz (`SHELL`); el único `home` del árbol.
   return (
-    <HydrationBoundary state={dehydrate(client)}>
-      <HomeView />
-    </HydrationBoundary>
+    <RouteMessages scope="home">
+      <HydrationBoundary state={dehydrate(client)}>
+        <HomeView />
+      </HydrationBoundary>
+    </RouteMessages>
   );
 }
