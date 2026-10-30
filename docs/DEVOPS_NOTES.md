@@ -3,7 +3,7 @@
 > Propiedad: **devops**. Cómo levantar el entorno local, correr CI y desplegar/rollback.
 > Coherente con `docs/ARCHITECTURE.md` (§1 stack, §8 variables) y `PROJECT.md`.
 
-## Estado vigente (2026-10-29)
+## Estado vigente (2026-10-30)
 
 - **Quién publica:** fusionar en `production` despliega solo (Vercel frontend, Root Directory = `frontend`;
   Railway backend). El orquestador no publica; el botón es del dueño (`CLAUDE.md` «Cómo se publica»,
@@ -24,6 +24,8 @@
   casos de 937 contra el stack sembrado — §104. Medido en local: escritorio cumple 936; **móvil no** (FCP ≈ 1.4-2.0 s,
   LCP ≈ 6.5 s) ⇒ el workflow sale rojo hasta que lo arregle frontend o decida el dueño. Las dos mediciones de producción
   de §DYN las corre el dueño con `scripts/dyn-prod-measure.sh` (§104.4); `POKEMONPRICETRACKER_DAILY_QUOTA` la pone él en Railway.
+- **Limpieza de ramas (2026-10-30):** `limpieza-ramas.yml` (lo dispara el dueño) borra las ramas remotas fusionadas en
+  `production` y archiva `main`. Pasos para el dueño y cómo se deshace: **§105**.
 - **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5); muy por encima del tope: **se compacta antes de añadir**. Encabezado anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
 ---
@@ -14123,25 +14125,10 @@ excepción nueva en `.trivyignore`.
 **Pendiente (no se toca aquí):** el job instala `trivy` por apt sin fijar versión, en contra de «toda dependencia
 externa va fijada». Lo dejo propuesto, no lo cambio.
 
-## §90 · Redis local en MISCONF: `dir` en un scratchpad borrado (2026-10-06, rama `claude/buylist-skydropx`)
+## §90 · Redis local en MISCONF (2026-10-06) — compactada 2026-10-30 (DOC-SIZE); texto: `git show b90bb35d:docs/DEVOPS_NOTES.md`
 
-**Síntoma (B-2/B-3/B-4, 2026-10-06):** `auth-password-attempts-redis` y `reset-admin-password-lock` rojas en todos
-los árboles con `MISCONF ... unable to persist to disk`.
-
-**Causa medida (devops, 2026-10-06):** `redis-server` (pid 20394, arrancado `--daemonize yes` sin `--dir`) tenía
-`dir`/cwd = `scratchpad/qa-mail-7aa2/new (deleted)` (`ls -l /proc/<pid>/cwd`). Al borrarse ese scratchpad (O-20)
-el BGSAVE no puede crear el RDB → `rdb_last_bgsave_status:err` → con `stop-writes-on-bgsave-error yes` rechaza toda
-escritura. No era el disco (88 %, 4.8 GB libres). `CONFIG SET dir` falla: `can't set protected config` (Redis 7).
-
-**Arreglo en caliente:** `redis-cli CONFIG SET save ""` (sin snapshots; el Redis local es efímero de pruebas,
-DBSIZE 0). Reversible con `CONFIG SET save "3600 1 300 100 60 10000"`. No reinicia ni pierde claves.
-Antes: 3/3 corridas rojas (31/31 fallan). Después: 5/5 verdes (31/31). N y logs del agente devops.
-
-**Candado en tooling (`scripts/stack-native.sh` `start_infra`):** Redis se arranca desde `/` con `--save ""`; y si
-ya está arriba con `rdb_last_bgsave_status:err`, aplica el mismo `CONFIG SET save ""` y avisa.
-Rollback: revertir el commit.
-
-**Para los gates:** no arranquéis `redis-server` a mano desde vuestro scratchpad; usad `stack-native.sh up --infra`.
+Vigente: `stack-native.sh up --infra` arranca Redis desde `/` con `--save ""` y lo corrige si ya está en
+`rdb_last_bgsave_status:err`. No arranquéis `redis-server` a mano desde un scratchpad.
 
 ## §91 · `npm-audit` en rojo en todas las ramas: `sharp <0.35.5` (HIGH) en el frontend (2026-10-06, rama `claude/fix-sharp`)
 
@@ -14702,40 +14689,10 @@ Qué mirar: job `selftest` → paso «ZAP real lee la política…» con `ZAP-OK
 revertir **también** las tres líneas `10055-n` de `baseline.conf` o el DAST de release queda sin medición (si eso
 pone rojo el `5-quater` de `check-dast-gate-live.sh`: NO MEDIDO).
 
-## §97 · C6, ronda de control: `--control-only` gasta 6 (no 12) y respeta la autorización del dueño (2026-10-10, rama `claude/salida-real`, devops)
+## §97 · C6, ronda de control (2026-10-10) — compactada 2026-10-30 (DOC-SIZE); texto: `git show b90bb35d:docs/DEVOPS_NOTES.md`
 
-**De dónde viene.** La ronda 1 de C6 (XFF rotatorio) ya se corrió: run `38074439305`, job «sonda», sha `00535194`
-⇒ 6×`401 INVALID_CREDENTIALS`, **ningún 429**. Eso es la rama (a) de §85.4: «nunca 429» rotando XFF no distingue
-un bypass de un tope apagado; hace falta la **ronda de control** (misma IP, sin `X-Forwarded-For`). El dueño
-autorizó HOY **6 peticiones más** y solo 6 (HECHOS.md, fila 2026-10-10 «C6: el dueño AUTORIZA 6 peticiones más»).
-
-**El problema medido.** `edge-xff-probe.sh --with-control` **siempre reenvía la ronda base (6) y luego el control
-(6) = 12 peticiones**. Medido contra un backend de mentira en modo `bypass`:
-
-    rc=1 · peticiones recibidas por el backend: 12  (--with-control)
-    rc=1 · peticiones recibidas por el backend:  6  (--control-only)
-
-12 > 6 autorizadas ⇒ cablear el input a `--with-control` habría doblado el presupuesto del dueño.
-
-**La corrección.** Flag nuevo `--control-only` en `edge-xff-probe.sh`: NO reenvía la base (encaja el resultado ya
-medido, `NUNCA`) y manda **solo** la ronda de control = **6 peticiones en total**. rc 1 si el 6.º del control es
-`429 RATE_LIMITED` (bypass presente → C6 FALLA, arreglo de código: arquitecto → backend); rc 2 si no lo es (no
-concluyente). El workflow `edge-xff-probe.yml` gana el input `control` (booleano, def. `false`): `true` ⇒
-`--control-only`. La confirmación exacta sigue siendo `C6-6-INTENTOS`; el comportamiento por push/PR (solo canario)
-no cambia.
-
-**Canario.** `check-edge-xff-probe-canary.sh` gana dos casos: `bypass + --control-only` ⇒ rc 1 con `peticiones: 6`
-(si la base se reenviara saldría `peticiones: 12` y el canario mordería), y `off + --control-only` ⇒ rc 2. Verificado
-local: **10/10** con N=2 (incluye las dos mutaciones existentes que siguen mordiendo).
-
-**Cómo se corre (lo dispara el orquestador tras autorización del dueño, ventana abierta):**
-`gh workflow run edge-xff-probe.yml --ref claude/salida-real -f confirmar=C6-6-INTENTOS -f control=true`.
-Qué mirar en el resumen del job: `modo: ronda de CONTROL únicamente`, la línea `control: <6 respuestas>` y
-`peticiones: 6` (nunca 12). Otra corrida después de esta requiere **nueva** autorización del dueño.
-
-**Rollback:** `git revert` del commit. El workflow vuelve a invocar solo `--i-have-a-window` (ronda base, 6) y
-pierde el input `control`; el flag `--control-only` del script queda inerte sin el workflow. No toca producción ni
-datos.
+Vigente: `edge-xff-probe.yml` con `control=true` ⇒ `edge-xff-probe.sh --control-only` = **6** peticiones (nunca 12);
+confirmación `C6-6-INTENTOS`; cada corrida exige autorización nueva del dueño. Canario `check-edge-xff-probe-canary.sh`.
 
 ## §98 · La CSP vuelve a `report-only` este release: ZAP 10038/10055 a WARN (2026-10-10, rama `claude/salida-real`, devops)
 
@@ -15087,3 +15044,38 @@ rojo. Ahora `--update` solo baja filas existentes; un documento sin fila sigue c
 de `check-home-perf`, que mide N=10): stack 4/4 · 6/6 · 7/7, diales 6/6, censo 3/3, consultas de producción 5/5,
 arnés de Lighthouse 11/11, más los anclajes que se movieron (expected-sha 4/4, upload-origin 3/3). En Actions (run
 40876689037) los jobs `e2e-harness-gaps` y `dyn-prod-measure` salieron verdes.
+
+## §105 · Limpieza de ramas y archivo de `main` (2026-10-30, rama `claude/limpieza-ramas`, base `b90bb35d`)
+
+Autorización: `HECHOS.md`, fila 2026-10-30 «Limpieza de ramas». El proxy de las sesiones de agentes bloquea el borrado
+(`git push --delete` corta la conexión; `DELETE /git/refs` → 403), así que lo dispara el dueño desde Actions.
+
+**Qué borra.** Workflow `.github/workflows/limpieza-ramas.yml` (solo `workflow_dispatch`, job con `contents: write` +
+`pull-requests: read`) → `scripts/limpieza-ramas.sh`. Borra una rama remota solo si su último commit es ancestro de
+`origin/production`, no es `production`/`main`/`staging`/`gh-pages` (lista fija en el script), no es cabeza ni base de
+una PR abierta (API `pulls?state=open`; la base también, porque borrarla cierra la PR) y sigue en el sha medido
+(`--force-with-lease`). Nunca borra etiquetas. Sin la lista de PR ⇒ rc 2 sin tocar nada. Antes de borrar, el job
+corre el canario; el canario con 7 mutaciones corre además en cada push (`ci.yml`, job `limpieza-ramas`).
+Medido 2026-10-30 en local (`confirmar=false`, sin borrar): 192 remotas · **134 a borrar** · 51 sin fusionar ·
+5 en PR abierta (#107, #92, #83, #61, #60) · 2 protegidas presentes (`main`, `production`).
+
+**Pasos para el dueño (en este orden):**
+1. GitHub → Settings → General → **Default branch** → `production`. Va primero: el botón «Run workflow» solo
+   aparece si el workflow está en la rama por defecto, y GitHub no deja borrar la rama por defecto.
+2. Que este workflow llegue a `production` en la próxima publicación (fusión de la solicitud a `production`).
+3. Actions → **«Limpieza de ramas»** → Run workflow, con `confirmar` **apagado**: el resumen del job lista qué ramas
+   se borrarían (rama, último commit, fecha). Si la lista cuadra, otra vez con `confirmar` **encendido**.
+4. Settings → General → activar **«Automatically delete head branches»** (las ramas de PR fusionadas se borran solas).
+5. Archivar `main`: Run workflow con `archivar_main` encendido (primero con `confirmar` apagado para verlo, luego
+   encendido). Crea la etiqueta `archive/main` en el último commit de `main`, comprueba que quedó en el remoto y solo
+   entonces borra `main`. Se niega (rc 2, sin borrar nada) si la rama por defecto aún no es `production` o si
+   `archive/main` ya existe en otro commit.
+
+**Cómo se deshace.** Ninguna rama borrada pierde commits: todas eran ancestro de `production`. Para recrear una, su
+sha está en la tabla del resumen del job: `git push origin <sha>:refs/heads/<rama>` (lo hace un rol técnico; si la
+rama era de una PR cerrada, también vale el botón «Restore branch» de esa PR — NO MEDIDO aquí).
+`main`: `git push origin archive/main:refs/heads/main`.
+Rollback del workflow: revertir el commit; no toca datos ni despliegues.
+
+**NO MEDIDO:** la corrida en GitHub Actions (permisos reales del `GITHUB_TOKEN` para borrar ramas, reglas de
+protección de rama que lo rechacen — saldrían como «FALLÓ» en la tabla, rc 1).
