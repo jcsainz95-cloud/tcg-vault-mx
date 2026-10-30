@@ -1,7 +1,7 @@
 /**
  * review-vigente.ts — 💰 v1.114⟨portada⟩ (API_CONTRACT §DYN.5.9, ARCHITECTURE §4.DYN (e) y §4.PRE (d)): **qué es un caso de
  * revisión VIGENTE.** Un `PriceReviewCase` en `open` o `kept` retiene la variante: la venta usa su `baselineMxnCents` (sin base ⇒
- * `PRICE_PENDING`), el barrido congela su base y deduplica contra él, y el cotizador de compra la pone en «precio pendiente».
+ * el mínimo fresco admitido, v1.114.3; ninguno ⇒ `PRICE_PENDING`), el barrido congela su base y deduplica contra él, y el cotizador de compra la pone en «precio pendiente».
  * `keep` conserva el último sano y SIGUE reteniendo hasta que el barrido lo cierre `superseded`.
  *
  * Una sola definición para los cuatro lectores (`PricingService.vigenteReviewCases` —cuerpo de venta y base congelada del

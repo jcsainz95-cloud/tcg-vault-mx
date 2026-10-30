@@ -6,17 +6,29 @@
  */
 import { PricingService, PriceInfo } from '../src/modules/pricing/pricing.service';
 import { SaleDecisionService, SaleItem } from '../src/modules/pricing/sale-decision.service';
+import { QuoteSnapshot } from '../src/common/robust-market';
 
 type Key = { cardId: string; productType: 'raw' | 'graded' | 'sealed'; gradeKey: string; finish: 'normal' | 'holofoil' };
 
-function pricingWith(cases: unknown[], manualKeys: string[] = []) {
+function pricingWith(cases: unknown[], manualKeys: string[] = [], freshByKey: Record<string, QuoteSnapshot[]> = {}) {
   const pricing = Object.create(PricingService.prototype) as PricingService & Record<string, unknown>;
   const findMany = jest.fn().mockResolvedValue(cases);
   (pricing as unknown as { prisma: unknown }).prisma = { priceReviewCase: { findMany } };
   const tier = jest.fn().mockResolvedValue({ refs: new Map(), manualKeys: new Set(manualKeys) });
   (pricing as unknown as { getReferencesBatchWithTier: unknown }).getReferencesBatchWithTier = tier;
-  return { pricing, findMany, tier };
+  // v1.114.3: la lectura de cotizaciones frescas admitidas (la MISMA del árbitro), simulada por variante.
+  const fresh = jest.fn().mockResolvedValue(new Map(Object.entries(freshByKey)));
+  (pricing as unknown as { admittedFreshQuotes: unknown }).admittedFreshQuotes = fresh;
+  return { pricing, findMany, tier, fresh };
 }
+
+const quote = (source: string, priceMxnCents: number, capturedDate: string): QuoteSnapshot => ({
+  source,
+  family: source === 'cardmarket' ? 'cardmarket' : 'tcgplayer',
+  priceMxnCents,
+  capturedDate,
+  stale: false,
+});
 
 const K1: Key = { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'normal' };
 const K2: Key = { cardId: 'c2', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil' };
@@ -41,9 +53,37 @@ describe('PricingService.saleRetentionFor — qué entra al cuerpo con caso vige
     expect(out.get('c1|raw|raw:NM|normal')).toEqual({ status: 'priced', referenceMxnCents: 184, capturedDate: '2026-10-28' });
   });
 
-  it('caso sin base ⇒ `pending` (⇒ PRICE_PENDING)', async () => {
+  it('💰 caso sin base (v1.114.3) ⇒ el MÍNIMO de `admittedFreshQuotes`, con su `capturedDate` (no la mediana ni la fecha del caso)', async () => {
+    const { pricing, fresh } = pricingWith([caseOf(K2, null, '2026-10-28T10:00:00Z')], [], {
+      'c2|raw|raw:NM|holofoil': [quote('tcgcsv_singles', 300, '2026-10-26'), quote('tcgdex', 500, '2026-10-28')],
+    });
+    expect((await pricing.saleRetentionFor([K2])).get('c2|raw|raw:NM|holofoil')).toEqual({
+      status: 'priced',
+      referenceMxnCents: 300,
+      capturedDate: '2026-10-26',
+    });
+    expect(fresh).toHaveBeenCalledWith([K2]);
+  });
+
+  it('💰 caso sin base y ninguna cotización fresca ⇒ `pending` (⇒ PRICE_PENDING)', async () => {
     const { pricing } = pricingWith([caseOf(K2, null, '2026-10-28T10:00:00Z')]);
     expect((await pricing.saleRetentionFor([K2])).get('c2|raw|raw:NM|holofoil')).toEqual({ status: 'pending' });
+  });
+
+  it('con base ⇒ la base, y las cotizaciones frescas ni se leen (coste: solo para las variantes sin base)', async () => {
+    const { pricing, fresh } = pricingWith([caseOf(K1, 184, '2026-10-28T10:00:00Z'), caseOf(K2, null, '2026-10-28T10:00:00Z')]);
+    await pricing.saleRetentionFor([K1, K2]);
+    expect(fresh).toHaveBeenCalledWith([K2]);
+    const solo = pricingWith([caseOf(K1, 184, '2026-10-28T10:00:00Z')]);
+    await solo.pricing.saleRetentionFor([K1]);
+    expect(solo.fresh).not.toHaveBeenCalled();
+  });
+
+  it('`kept` sin base se trata igual que `open` (el estado no entra en la decisión)', async () => {
+    const quotes = { 'c2|raw|raw:NM|holofoil': [quote('tcgcsv_singles', 300, '2026-10-26')] };
+    const open = pricingWith([{ ...caseOf(K2, null, '2026-10-28T10:00:00Z'), status: 'open' }], [], quotes);
+    const kept = pricingWith([{ ...caseOf(K2, null, '2026-10-28T10:00:00Z'), status: 'kept' }], [], quotes);
+    expect(await kept.pricing.saleRetentionFor([K2])).toEqual(await open.pricing.saleRetentionFor([K2]));
   });
 
   it('override tier 0 ⇒ fuera (gana el override); la lectura de tier solo pide las variantes con caso', async () => {
