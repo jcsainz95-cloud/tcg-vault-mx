@@ -5,6 +5,32 @@
 > ⚠ Este fichero rebasa el tope (~19 900 líneas contra ~1 500, CLAUDE.md «Documentos», ficha FE-DOC-1). Se compacta por
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46); cada pase que añade quita más de lo que añade.
 
+## §DYN.6 · Opción A + c1: foto líder por `/_next/image` y textos por ruta (2026-10-30, rama `claude/portada-opcion-a`)
+
+**Estado vigente** (contrato v1.114.2 §DYN.6.6/.6.7; ARCHITECTURE §4.DYN (f) 7–8).
+- **Foto líder (DYN-F8/F9):** `CardImage` prop `optimized` (solo la líder; candado de fuente: un único uso). `getImageProps()`
+  con `sizes` `minWidthQuery('lg') 376px, 212px` y q 75; `ReactDOM.preload` del mismo resultado, una vez por foto (ya no
+  desde `FeaturedCarousel`). Primer `error` ⇒ la original sin `srcset` (una vez); `onLoaded` una vez, tras el respaldo;
+  original rota ⇒ pozo sin `<img>`. Al montar lee `img.complete`/`naturalWidth`: React no repite `load`/`error` previos a
+  hidratar (medido: sin esa lectura, el F9 E2E sale 20/20 rojo; con ella 20/20 verde). `next.config.mjs` `IMAGE_OPTIMIZER`:
+  webp, 384/640, `qualities: [75]` (admitida en `next` 15.5.28), TTL 30 días. En vitest, `test/next-image-config.ts` aplica
+  esos `images` a `getImageProps()`. Sin `sharp` el optimizador responde 200 con la PNG original
+  (`image-optimizer.js:1105`): no hay `error` y el respaldo no salta; el resultado es el mismo que el respaldo (la HD), lo
+  vigila devops (DYN-D3).
+- **Textos por ruta (DYN-F10):** raíz = `SHELL_NAMESPACES`; portada `RouteMessages scope="home"` (único); `storefront` en
+  cada página directa de `(storefront)`, `(auth)/layout`, `pedido/layout`, `account/layout` (servidor; redirect de staff
+  en `StaffAccountRedirect.tsx`), `[...rest]/layout` y el panel (+ `AdminMessagesProvider`). `RouteMessages` usa
+  `useMessages()` (catálogo de la petición en RSC). Listas medidas con `test/i18n-closure.ts` (módulos de cliente);
+  falsos positivos nombrados: `admin`, `checkout` (`lib/error-audience.ts`). Trinquete 48 500 B (es 47 354; antes 102 316).
+  La (b) render no ve `t.has` (`error.*`): eso lo cubre la (a) estática.
+- **Desviación (pide arquitecto):** DYN-F9 choca con `FeaturedCarouselRotation.test.tsx` «un 404 en la foto líder
+  desbloquea…» (un solo `error`): se añadió un segundo `fireEvent.error`, fuera de lo que admite DYN-F1 (b).
+- **Medido** (2026-10-30, `run.sh` N=5, stack propio BD `tcg_opa`, Redis :6481; foto líder real me55-88 de 883 KB
+  servida por el arnés; el `next start` redirige `img.e2e.local` al host del arnés y `remotePatterns` lo admite, solo
+  en la copia de medición; mediana [peor]): celular FCP 1.40 [1.41] → 1.23 [1.27] s, LCP 8.71 [10.53] → 5.20 [6.82] s;
+  escritorio FCP 0.35 [0.36] → 0.31 [0.32] s, LCP 1.73 [1.76] → 0.94 [1.02] s. Antes `0d40d0b7`, después `08d23693`.
+  Después: 10/10 corridas con la líder 200 `image/webp` 32 KB (w=384) y 0 peticiones a la HD.
+
 ## §DYN · Portada dinámica: Destacadas del día, portada servida, nonce y M10 (2026-10-29, rama `claude/portada-dyn-fe`)
 
 **Estado vigente.** Contrato v1.113.2 §DYN (filas DYN-F1, F2, F5, F7). Backend de §DYN fusionado en la base (`b4213dff`).
@@ -16,8 +42,7 @@
 - **Portada servida (DYN-F2):** `page.tsx` es de servidor: `lib/home-ssr.ts` pide Destacadas y la vitrina con
   `next: { revalidate: 30, tags }` y tope de 400 ms (`withBudget`, sin abortar: la respuesta tardía llena la caché), las
   hidrata con `HydrationBoundary` en las MISMAS claves de `lib/home-queries.ts` con `updatedAt: 0` (el cliente revalida al
-  montar). La foto líder se precarga desde `FeaturedCarousel` (`ReactDOM.preload`; sale como cabecera HTTP `Link`,
-  no en el HTML: Next pasa `onHeaders` al SSR de React). Sin datos a tiempo: Destacadas pinta su marco
+  montar). Precarga de la líder: §DYN.6. Sin datos a tiempo: Destacadas pinta su marco
   (`data-testid="featured-frame"`, foto + líneas de texto); la vitrina sigue la excepción de `DESIGN_SYSTEM §22.6` (sin
   esqueleto: aparece resuelta o no aparece). Candado: `page.dyn.test.tsx` (`renderToString` de la página).
 - **Nonce (DYN-F7 / D-DYN-1):** causa medida en local: Next lee el nonce de la cabecera de petición
@@ -45,23 +70,14 @@
 - **Pendiente fuera de frontend:** un stack recién sembrado no tiene selección hasta el primer tic (≤ 15 min) o
   `POST /admin/jobs/featured-rotation {force:true}`; los `@real` que miran Destacadas (`grading-estimate.spec.ts`)
   lo necesitan en la siembra (backend/devops). CLS con el API retrasado 5 s en navegador: **NO MEDIDO** (DYN-D2, devops).
-- **Medido** (stack local `stack-native` BD `tcg_fe_dyn`, Redis db 11, `next build`; iPhone 13, N=5; antes `b4213dff`,
-  después `f7eeecdc`; mediana [mín–máx] ms): `<img>` de Destacadas en el DOM 624 [478–767] → 240 [160–254] (rápido) y
-  2603 [2561–2633] → 1232 [1231–1235] (Slow 4G: llega con el primer pintado, FCP 1264). LCP de imagen **NO MEDIDO**: las
-  fotos del seed no cargan sin salida a internet (el LCP medido es el H1). Joyas: vacía en el seed, **NO MEDIDO**. CSP:
-  `e2e/csp.spec.ts -g DYN-F7` 8/8 sobre `f7eeecdc`, 4/8 rojas sobre `b4213dff` (16/16 sin nonce con la cabecera).
+- **Medido** (2026-10-29, `b4213dff` → `f7eeecdc`, N=5): `<img>` de Destacadas en el DOM 624 → 240 ms (rápido); CSP
+  `e2e/csp.spec.ts -g DYN-F7` 8/8 (antes 4/8 rojas). Detalle en git (`f7eeecdc`).
 
 ## §DYN.3 · Velocidad de la portada sin contrato (2026-10-29, ramas `claude/portada-velocidad-fe` y `-fe2`)
 
 **Estado vigente.** Sin cambios de contrato ni de backend. Diagnóstico de origen: informe de frontend del 2026-10-29
 (scratchpad del orquestador, `frontend-velocidad-portada/INFORME.md`).
-- **Traducciones:** el layout `[locale]` manda `storefrontMessages()` (todo menos `admin`, el 74 % de `es.json`); `/admin`
-  lo añade en cliente con `AdminMessagesProvider` (`i18n/message-scopes.ts`), que solo reenvía `locale`/`timeZone`: lo
-  demás de la raíz (`formats`, `onError`, `getMessageFallback`, `now`) lo hereda el `IntlProvider` de use-intl.
-  Componentes compartidos con textos `admin.*` (`VariantPricingCompact`, `VariantPriceConsole`, `QuickAddSection` de
-  `CellDrawer`) solo se pintan en modo plataforma. Candados: `layout.messages.test.tsx`, `AdminMessagesProvider.test.tsx`
-  (TL-DYN3-3), `master-set/MasterSet.storefront-messages.test.tsx` (TL-DYN3-1: `user_vault_self` y `quoter` con los
-  mensajes de la tienda ⇒ 0 `MISSING_MESSAGE`).
+- **Traducciones:** reparto por ruta en §DYN.6. `AdminMessagesProvider` solo reenvía `locale`/`timeZone` (TL-DYN3-3); TL-DYN3-1 vigente.
 - **Mocks fuera del build sin mocks** (`next.config.mjs`): `NEXT_PUBLIC_USE_MOCKS` horneado como literal (`useMocksBuild`)
   y `mockModuleAliases` (todo `src/lib/mock/**/*.{ts,tsx}` sin pruebas ⇒ módulo vacío). **Regla:** solo `lib/api.ts` y
   `lib/marketing-api.ts` importan `lib/mock`, y toda referencia suya va bajo `(MOCKS_BUILD && config.useMocks)` (o en
@@ -3515,27 +3531,11 @@ localizadores ahora dicen a cuál se refieren; **no se tocó el checkout**, que 
    de **mercados de referencia**, no de cuántas publicaciones cambian de precio. Sin ese dato el
    diseño es veraz, pero un conteo por bracket haría del diff una decisión con volumen.
 
-## Footer legal — degradación con gracia sin razón social (2026-08-23, P-21)
+## Footer legal — degradación con gracia sin razón social (2026-08-23, P-21; compactado 2026-10-30)
 
-> Rama `fix/variant-composition-regression`. El humano decidió publicar SIN razón social por ahora.
-> El literal placeholder **«[Razón social pendiente]»** NO puede verse en producción.
-
-- **Problema:** el footer del storefront (`(storefront)/layout.tsx`, `Footer()`) renderizaba
-  `«TCG HUNT · tcghunt.mx · © {año} {footer.legalEntity}»` con `footer.legalEntity` =
-  `[Razón social pendiente]` (es) / `[Legal entity pending]` (en), dejando el placeholder visible.
-- **Fix data-driven:** nuevo helper puro `resolveLegalEntity(raw)` en
-  `frontend/src/app/[locale]/(storefront)/footer.ts`. Devuelve `null` cuando el valor es
-  vacío/en blanco o está envuelto en corchetes (convención de placeholder de los archivos de
-  mensajes), y el string recortado en caso contrario. `Footer()` (`layout.tsx:58`) omite la razón
-  social cuando el helper devuelve `null`: el footer queda «TCG HUNT · tcghunt.mx · © {año}»,
-  coherente y sin texto colgando (la marca «TCG HUNT» ya abre la línea, no hay «©» huérfano).
-- **Comportamiento futuro:** cuando el humano cargue una razón social real (sin corchetes) en
-  `messages/*.json` → `common.footer.legalEntity`, aparece automáticamente, sin cambios de código.
-- **Mensajes intactos:** `messages/es.json`/`en.json` conservan el placeholder entre corchetes como
-  marcador de intención; el resolver lo neutraliza en runtime. No toqué el contrato ni el backend.
-- **Cobertura:** `footerLegalEntity.test.ts` (3 casos: vacío/blanco/undefined/null → null;
-  placeholders es/en → null; razón social real recortada). tsc `--noEmit`, `npm test`
-  (622 passed) y `next build` verdes.
+`resolveLegalEntity(raw)` (`(storefront)/footer.ts`) devuelve `null` si `common.footer.legalEntity` está vacío o entre
+corchetes (placeholder de `messages/*.json`) y el pie queda «TCG HUNT · tcghunt.mx · © {año}»; una razón social real
+aparece sola. Candado: `footerLegalEntity.test.ts`.
 
 ## Pase de deuda técnica frontend (2026-08-23) — cotizador H1/H3/H4 + H-P38-5
 
