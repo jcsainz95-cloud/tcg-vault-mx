@@ -38,6 +38,11 @@ test.describe('D-IMG-5 · el optimizador de imágenes solo acepta hosts de la al
       'http://127.0.0.1/x.png',
       // Otro puerto del host bueno (lo cubre `port: ''`).
       'https://images.pokemontcg.io:8443/x.png',
+      // PEN-DYN-1: query o ruta fuera de la forma del arte de carta ⇒ un origen nuevo por URL.
+      'https://images.pokemontcg.io/base1/4_hires.png?v=1',
+      'https://images.scrydex.com/pokemon/me3-1/large?v=1',
+      'https://images.pokemontcg.io/base1/%34.png',
+      'https://images.scrydex.com/pokemon/me3-1/medium',
     ];
 
     for (const target of hostiles) {
@@ -56,7 +61,7 @@ test.describe('D-IMG-5 · el optimizador de imágenes solo acepta hosts de la al
     // el 400 de host no permitido es justo lo que NO debe ocurrir aquí.
     for (const target of [
       'https://images.pokemontcg.io/sv8/logo.png',
-      'https://images.scrydex.com/me3/logo.png',
+      'https://images.scrydex.com/pokemon/me3-1/large',
     ]) {
       const res = await request.get(optimizerUrl(target));
       expect(res.status(), `${target} no debe ser rechazado por la allowlist`).not.toBe(400);

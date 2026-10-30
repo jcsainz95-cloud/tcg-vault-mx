@@ -62,7 +62,7 @@ test.describe('DYN-F8 · la foto líder por /_next/image', () => {
 
   test('(b) contra el servidor: solo w ∈ {384, 640} y q = 75; w=1080 o q=90 ⇒ 400', async ({ request }) => {
     const url = (w: number, q: number) =>
-      `/_next/image?url=${encodeURIComponent('https://images.scrydex.com/me5/88/large')}&w=${w}&q=${q}`;
+      `/_next/image?url=${encodeURIComponent('https://images.scrydex.com/pokemon/me5-88/large')}&w=${w}&q=${q}`;
     expect((await request.get(url(1080, 75))).status(), 'w=1080').toBe(400);
     expect((await request.get(url(640, 90))).status(), 'q=90').toBe(400);
     // Los admitidos pasan el portero de parámetros (sin red, la descarga aguas arriba puede fallar con 5xx).
