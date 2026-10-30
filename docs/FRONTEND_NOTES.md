@@ -23,8 +23,8 @@
   `useMessages()` (catálogo de la petición en RSC). Listas medidas con `test/i18n-closure.ts` (módulos de cliente);
   falsos positivos nombrados: `admin`, `checkout` (`lib/error-audience.ts`). Trinquete 48 500 B (es 47 354; antes 102 316).
   La (b) render no ve `t.has` (`error.*`): eso lo cubre la (a) estática.
-- **Desviación (pide arquitecto):** DYN-F9 choca con `FeaturedCarouselRotation.test.tsx` «un 404 en la foto líder
-  desbloquea…» (un solo `error`): se añadió un segundo `fireEvent.error`, fuera de lo que admite DYN-F1 (b).
+- **v1.114.3:** el segundo `fireEvent.error` de «un 404 en la foto líder…» ya lo admite DYN-F1 (b). DYN-F11: §23.14 i
+  espera reposo tras el tope (250 ms, tope 3 s); causa medida y mutaciones en el commit que lo introduce.
 - **Medido** (2026-10-30, `run.sh` N=5, stack propio BD `tcg_opa`, Redis :6481; foto líder real me55-88 de 883 KB
   servida por el arnés; el `next start` redirige `img.e2e.local` al host del arnés y `remotePatterns` lo admite, solo
   en la copia de medición; mediana [peor]): celular FCP 1.40 [1.41] → 1.23 [1.27] s, LCP 8.71 [10.53] → 5.20 [6.82] s;
