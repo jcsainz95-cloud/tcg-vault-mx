@@ -134,8 +134,9 @@ function slotOf(l: GroupedListingSummaryDTO): FeaturedSlotKind {
 }
 
 /**
- * Etiqueta «Recién llegada» (§DYN.1, criterio 923): SOLO en las tejas `new_arrival` (posiciones 1-2). Texto
- * PROVISIONAL hasta ux-ui. Va dentro del enlace de la teja, así que forma parte de su nombre accesible.
+ * Etiqueta «Recién llegada» (§DYN.1, criterio 923): SOLO en las tejas `new_arrival` (posiciones 1-2). Texto final de
+ * ux-ui (`home.featured.newArrival`, DESIGN_SYSTEM vDYN-1). Va dentro del enlace de la teja, así que forma parte de su
+ * nombre accesible.
  */
 function NewArrivalLabel({ l, className }: { l: GroupedListingSummaryDTO; className?: string }) {
   const t = useTranslations('home.featured');
@@ -189,16 +190,17 @@ function TilePrice({ l, locale, big = false }: { l: GroupedListingSummaryDTO; lo
  * «Piezas destacadas del catálogo» (makeover 1a §4): carrusel horizontal con las Destacadas del día
  * (`GET /catalog/featured`, §DYN.2: el servidor las elige; el cliente no ordena nada).
  * Primera teja grande, resto numeradas en mono rojo (numeración decorativa, aria-hidden
- * §20.3). v1.38-grouped-listings (P-30): la fuente (GET /catalog/cards) es AGRUPADA, así que
+ * §20.3). v1.38-grouped-listings (P-30): la fuente (`GET /catalog/featured`) es AGRUPADA, así que
  * cada teja es un `GroupedListingSummaryDTO` (v2.1.9/D2: la rejilla ya no recibe `priceBasis`
  * ni `referenceValue`) con `stockCount` real (badge Queda 1 / N en stock).
  *
  * **CUARTA superficie del gancho de grading (§22.6b).** Las dos tejas de esta pista pueden llevar la
  * burbuja del estimado. Tres cosas que NO son negociables aquí:
  *
- *  - **El caso disparejo es el NORMAL.** La pista ordena por precio descendente y el gate de ROI
+ *  - **El caso disparejo es el NORMAL.** El servidor sortea las tejas (recién llegadas y, el resto, del
+ *    pool de mayor valor, §DYN.2.3) y el cliente respeta su orden sin reordenar (I-1); el gate de ROI
  *    castiga justo a las caras: lo esperable es **cero burbujas**, y cuando las haya, una o dos entre
- *    ocho. Por eso el badge es el ÚLTIMO elemento de las dos tejas y **no se compensa nada**: sin
+ *    las tejas. Por eso el badge es el ÚLTIMO elemento de las dos tejas y **no se compensa nada**: sin
  *    `min-height`, sin espacio reservado, sin regla ni guion de relleno, sin skeleton del badge y sin
  *    reordenar por elegibilidad (§22.6b-d/i). La ausencia no es un estado degradado.
  *  - **La teja es un `<a>` que envuelve todo**, así que el badge queda DENTRO del enlace y su texto
@@ -207,7 +209,7 @@ function TilePrice({ l, locale, big = false }: { l: GroupedListingSummaryDTO; lo
  *    teja: sustituiría el contenido y borraría el aviso del árbol de accesibilidad, que es el
  *    defecto bloqueante que §22.4c corrigió (§22.6b-h).
  *  - **El encabezado NO cambia** (§22.6b-e): sin kicker, sin subtítulo, sin mención al gradeo. El
- *    carrusel no es una vitrina de gancho; es la pista de las piezas más caras, y algunas resultan
+ *    carrusel no es una vitrina de gancho; es la pista de las Destacadas del día, y algunas resultan
  *    llevar además una cifra estimada.
  *
  * ───────────────────────────────────────────────────────────────────────────────────────────────
