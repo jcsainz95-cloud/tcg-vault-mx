@@ -16,6 +16,7 @@
 | MKT-OLA1 | Ola 1 compra y confianza (B1 banner barra inferior D-4, B4, B4b, B5 portada 677 px, B2 «Quiénes somos y contacto», B2b, T2, B6b). | 2026-10-30: `/es/sobre-nosotros` 404 | PO (datos del dueño) → ux-ui → frontend |
 | MKT-OLA2 | Ola 2 SEO técnico (C1 fichas SSR con h1, C2 enlaces/paginación SSR, C3 soft-404, C4 títulos/canonical, C5 Product, C6 WebSite/llms.txt, C8, B6 imágenes, C9 slugs tras Card Show). | NO MEDIDO por esta sesión | arquitecto → frontend |
 | MKT-OLA3 | Ola 3 dinero: D-1, D-2 lotes, D-3 cuenta en checkout, D-9 comisión dentro del precio. | NO MEDIDO | confirmar con el dueño → PO → arquitecto → ux-ui → backend+frontend fuertes → 3 veredictos |
+| IDEA-BOPIS+ | Puntos de recolección: el dueño (2026-10-30, en la sesión de marketing) «Vamos a poner puntos de recoleccion pero no estan definidos todavia» (antes nombró Jakomi y lo dejó sin confirmar). Sigue SIN orden de construir. Cuando defina el primer punto: PO prepara preguntas (dirección pública, horario, quién entrega, costo, plazo). | Relayado por marketing (session_01S6V7FxyuMP4xKx6VjjPzvP), no dicho en esta sesión | dueño define punto → PO |
 | MKT-MED | Medición: A3 Meta /tr, A6 tasa del banner en panel, A7 PageView a Meta y telemetría CSP bloqueada por CORP, A10 comentario en schema.prisma. | NO MEDIDO | por asignar |
 
 ## 2026-10-29 — Stream «Portada dinámica» (rama `claude/portada-dinamica`) y release de velocidad (#107)
