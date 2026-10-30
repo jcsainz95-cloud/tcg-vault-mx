@@ -235,7 +235,10 @@ export class PricingController {
     // v1.91⟨precios⟩ (M-75, §PRE.E/F): la cola de revisión del candado anti-inflado. `@Optional()` por el
     // MISMO motivo que `inventoryPublish` abajo: las pruebas unitarias construyen este controller de forma
     // POSICIONAL; la DI real SIEMPRE lo inyecta (está en `PricingModule`). Los dos endpoints lo asumen presente.
+    // Token EXPLÍCITO: con el tipo unión (`| undefined`, que exige el parámetro obligatorio de abajo) TypeScript emite `Object`
+    // en `design:paramtypes` y Nest inyectaría `undefined` en silencio (medido: la cola de revisión daba 500).
     @Optional()
+    @Inject(PriceReviewService)
     private readonly priceReview: PriceReviewService | undefined,
     // ⚠️ v1.51.19 (BL-25 · §4.39m.8) — **DISPARADOR (c), productor «acto puntual»**: al fijar un
     // override, el precio de esa variante puede haberse vuelto resoluble.

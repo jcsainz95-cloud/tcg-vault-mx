@@ -209,3 +209,11 @@ describe('TL-DYN-4 · `ListingPriceService` es OBLIGATORIO en los disparadores d
     expect(optional).not.toContain(idx);
   });
 });
+
+it('TL-DYN-4 (regresión): `PricingController` sigue resolviendo `PriceReviewService` (token explícito; la unión emitiría `Object`)', () => {
+  const types: unknown[] = Reflect.getMetadata('design:paramtypes', PricingController) ?? [];
+  const tokens: { index: number; param: unknown }[] = Reflect.getMetadata('self:paramtypes', PricingController) ?? [];
+  const resolved = types.map((t, i) => tokens.find((x) => x.index === i)?.param ?? t);
+  expect(resolved).toContain(PriceReviewService);
+  expect(resolved).not.toContain(Object);
+});
