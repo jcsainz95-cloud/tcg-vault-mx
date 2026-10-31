@@ -503,7 +503,7 @@ export async function getCatalog(
       // v1.50: solo se manda cuando es `true`; omitido ⇒ comportamiento idéntico a hoy.
       gradingHighlight: filters.gradingHighlight ? 'true' : undefined,
     };
-    return apiRequest<GroupedListingListResponse>('/catalog/cards', { query, next: server?.next });
+    return apiRequest<GroupedListingListResponse>('/catalog/cards', { query, ...serverInit(server) });
   }
   // v1.50 (paridad con el contrato): `sort=grading_showcase` SIN `gradingHighlight=true` es un
   // 400 GRADING_SORT_REQUIRES_FILTER — si se aceptara, los grupos no destacados irían a la cola con
@@ -574,6 +574,19 @@ export interface ServerReadOptions {
   next?: { revalidate?: number; tags?: string[] };
   /** TL-MKT2-1: la aborta el tope de SSR (`withAbortBudget`) si el backend no responde a tiempo. */
   signal?: AbortSignal;
+  /** B-R2: cabeceras de la respuesta (el SSR del catálogo lee `Date`, la hora real de la lectura cacheada). */
+  onHeaders?: (headers: Headers) => void;
+}
+
+/**
+ * TL-MKT3-1 — las opciones de servidor viajan ENTERAS a `apiRequest` (antes cada lectura tomaba solo una parte: la ficha
+ * ignoraba `next`, catálogo/portada/envío ignoraban `signal`). Se copian campo a campo, no con `...server`: una función
+ * que react-query usa como `queryFn` recibe su contexto en este argumento y no debe arrastrar `queryKey`/`meta`.
+ */
+function serverInit(server?: ServerReadOptions): ServerReadOptions {
+  if (!server) return {};
+  const { next, signal, onHeaders } = server;
+  return { next, signal, onHeaders };
 }
 
 /**
@@ -582,7 +595,7 @@ export interface ServerReadOptions {
  * cae a «las más caras» (I-1).
  */
 export async function getFeatured(server?: ServerReadOptions): Promise<FeaturedResponse> {
-  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<FeaturedResponse>('/catalog/featured', { next: server?.next });
+  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<FeaturedResponse>('/catalog/featured', serverInit(server));
   return delay(fx.mockFeatured());
 }
 
@@ -626,7 +639,7 @@ export async function getListing(inventoryItemId: string): Promise<ListingDTO> {
  */
 export async function getCardDetail(cardId: string, server?: ServerReadOptions): Promise<GroupedListingDetailResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) {
-    return apiRequest<GroupedListingDetailResponse>(`/catalog/cards/${cardId}`, { signal: server?.signal });
+    return apiRequest<GroupedListingDetailResponse>(`/catalog/cards/${cardId}`, serverInit(server));
   }
   try {
     // ⭐ v1.87⟨wishlist⟩ (§WSH.4): el servidor añade en la raíz `wishlistEnabled` (dial vigente).
@@ -859,7 +872,7 @@ export async function getSealedGroupDetail(
   server?: ServerReadOptions,
 ): Promise<SealedGroupDetailResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) {
-    return apiRequest<SealedGroupDetailResponse>(`/catalog/sealed/${inventoryItemId}`, { signal: server?.signal });
+    return apiRequest<SealedGroupDetailResponse>(`/catalog/sealed/${inventoryItemId}`, serverInit(server));
   }
   try {
     return await delay(fx.mockSealedGroupDetail(inventoryItemId));
@@ -7409,7 +7422,7 @@ export async function getPublicShippingRule(): Promise<PublicShippingRuleDTO> {
  */
 export async function getPublicShippingRuleForServer(server?: ServerReadOptions): Promise<PublicShippingRuleDTO> {
   if (!(MOCKS_BUILD && config.useMocks)) {
-    return apiRequest<PublicShippingRuleDTO>('/checkout/shipping-rule', { next: server?.next });
+    return apiRequest<PublicShippingRuleDTO>('/checkout/shipping-rule', serverInit(server));
   }
   return getPublicShippingRule();
 }

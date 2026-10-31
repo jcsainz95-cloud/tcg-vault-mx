@@ -14,7 +14,7 @@ export { generateMetadata } from '../catalog/page';
  * alias evita romper enlaces que apunten a `/compra`.
  */
 export default function CompraPage() {
-  // useSearchParams (pestaña Gradeadas, ?type=graded) requiere Suspense en Next 15.
+  // useSearchParams (pestaña Gradeadas, ?productType=graded) requiere Suspense en Next 15.
   // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
   return (
     <RouteMessages scope="storefront">

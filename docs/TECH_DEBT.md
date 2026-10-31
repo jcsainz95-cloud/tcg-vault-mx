@@ -37,24 +37,28 @@
 
 ---
 
-## Frontend · 2026-10-31 · catálogo de conversión — rechazo del techlead sobre `561ad425` (R1–R3, TL-MKT2-1…8)
+## Frontend · 2026-10-31 · catálogo de conversión — rechazos sobre `561ad425` (R1–R3, TL-MKT2-1…8) y `e066b0b5` (B-R2, TL-MKT3-1…5)
 
-> Dueño del código anotado: **frontend** salvo indicado. Sin dinero. Medido el 2026-10-31 en `claude/mkt-fe-tl1` (FRONTEND_NOTES §MKT-TL1). MK-D4/D5/D8 (makeover 1a, 2026-08-22) cerradas aquí; su texto queda en git.
+> Dueño del código anotado: **frontend** salvo indicado. Medido el 2026-10-31 en `claude/mkt-fe-tl1` (FRONTEND_NOTES §MKT-TL1) y `claude/mkt-fe-r2b` (§MKT-R2B; B-R2 es precio visible). MK-D4/D5/D8 (makeover 1a, 2026-08-22) cerradas; su texto queda en git.
 
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
-| MK-D5 | CERRADA · filtros del catálogo con dos fuentes (URL solo con `?page=`, resto en `useState`; `sameFilters` por `JSON.stringify`): filtrar → página 2 → recargar perdía el filtro | frontend | 2026-10-31 | `catalog/catalog-url.test.ts` (ida y vuelta `parse(serialize(f))`, clave sin orden de campos, href con filtros) y `CatalogView.tl1.test.tsx` «R1 / MK-D5» (filtrar → paginar → recargar; popstate; sin doble lectura) verdes |
-| MK-D8 | CERRADA · «Limpiar filtros» dentro de los 300 ms del debounce no borraba el término pendiente (comparaba `next.q` con `filters.q`) | frontend | 2026-10-31 | `CatalogView.tl1.test.tsx` «MK-D8» verde (input vacío y ninguna lectura con `q`) |
-| MK-D4 | CERRADA · chips de tipo y acabado con el enum crudo (`graded`, `holofoil`) | frontend | 2026-10-31 | `CatalogView.tl1.test.tsx` «MK-D4» + `CatalogView.test.tsx` «Quitar filtro Graded» verdes |
+| MK-D4, MK-D5, MK-D8 | CERRADAS · chips con enum crudo; filtros con dos fuentes (recargar perdía el filtro); «Limpiar filtros» no borraba el término sin debouncear | frontend | 2026-10-31 | `catalog/catalog-url.test.ts` y `CatalogView.tl1.test.tsx` «R1 / MK-D5», «MK-D8», «MK-D4» + `CatalogView.test.tsx` «Quitar filtro Graded» verdes |
 | R2 | CERRADA · `loadCatalogPageForSSR` leía `no-store` en cada visita (ARCHITECTURE §4.DYN (f) 3: ≤ 60 s) | frontend | 2026-10-31 | `src/lib/catalog-ssr.test.ts` «R2» verde (`{ next: { revalidate: 30, tags: ['catalog'] } }`) |
 | TL-MKT2-1 | CERRADA · `withBudget` vivía en `lib/home-ssr.ts` y no abortaba; las fichas SSR no tenían tope (I-1 de QA: sin respuesta en 30 s con el backend congelado). `api-client` sigue sin timeout global: solo las lecturas SSR con tope pasan `signal` | frontend | 2026-10-31 | `src/lib/ssr-budget.test.ts` y `src/lib/catalog-ssr.test.ts` «I-1» verdes (null al vencer `DETAIL_SSR_BUDGET_MS` y señal abortada; carta y sellado) |
-| TL-MKT2-2 | ABIERTA · dependencia implícita del `staleTime` 30 s de `Providers.tsx`; `CatalogView.c2.test` (y `.tl1`) copian `30_000` | frontend | 2026-10-31 | `Providers.tsx` exporta sus `defaultOptions` y las pruebas los importan (`grep -rn "staleTime: 30_000" frontend/src --include=*.test.tsx` ⇒ 0) |
+| TL-MKT2-2 | CERRADA · dependencia implícita del `staleTime` 30 s de `Providers.tsx`; `CatalogView.c2.test` (y `.tl1`) copiaban `30_000` | frontend | 2026-10-31 | `Providers.tsx` exporta `QUERY_DEFAULTS` y las pruebas lo importan; `grep -rn "staleTime: 30_000" frontend/src --include=*.test.tsx` ⇒ 0 |
 | TL-MKT2-3 | ABIERTA · regla de envío copiada en `lib/seo.ts` y en el oráculo del E2E | frontend (+ arquitecto) | 2026-10-31 | el E2E toma el envío del backend (`GET /checkout/shipping-rule`), sin constante propia |
 | TL-MKT2-4 | ABIERTA · lecturas SSR desde la IP de Vercel contra el límite de 300/min por IP: un 429 degrada el SEO en silencio. **NO MEDIDO** | devops (medir) + arquitecto | 2026-10-31 | medición de 429 en lecturas SSR de producción y decisión del arquitecto (exención o caché) |
 | TL-MKT2-5 | ABIERTA · B5 arreglado puntual: 24 `overflow-x-auto` sin `relative`; la ficha no está en `e2e/mobile-no-overflow.spec.ts` | frontend | 2026-10-31 | la ficha `/es/catalog/<id>` en `PAGES` del spec, verde a 360/390/414 px |
 | TL-MKT2-6 | ABIERTA · el caso `?page=2` de `e2e/seo-raw-html.spec.ts` compara dos vacíos con el seed de 11 grupos (≤ 20 por página) | frontend (+ backend seed) | 2026-10-31 | seed con > 20 grupos publicados y la rama `else` (anotación «sin paginador») borrada del spec |
 | TL-MKT2-7 | ABIERTA · el canonical de `/catalog?page=n` apunta a `/catalog` | arquitecto | 2026-10-31 | decisión en ARCHITECTURE/API_CONTRACT §E3 y prueba de `generateMetadata` que la fije |
 | TL-MKT2-8 | ABIERTA · dos patrones servidor → cliente (`HydrationBoundary` en la portada, `initialData` en el catálogo) sin regla | arquitecto | 2026-10-31 | regla escrita en ARCHITECTURE; los dos sitios la citan |
+| B-R2 | CERRADA · (precio visible) la caché de datos (`revalidate: 30`, stale-while-revalidate) servía la copia vieja tras > 30 s sin visitas y `CatalogView` la daba por fresca: teja MX$1,510.00, cobro MX$1,601.00 (QA 10/10). Ahora la página viaja con su edad (`Date` del backend) e `initialDataUpdatedAt` | frontend | 2026-10-31 | `CatalogView.c2.test` «B-R2» y `catalog-ssr.test` «B-R2» verdes; `e2e/catalog-freshness.spec.ts` (@real, catálogo y portada) verde contra `next start` |
+| TL-MKT3-1 | CERRADA · `ServerReadOptions` se tomaba por partes (ficha ignoraba `next`; catálogo, portada y envío ignoraban `signal`); el catálogo con `withBudget` dejaba sockets colgados | frontend | 2026-10-31 | `grep -nE "server\?\.(next\|signal)" frontend/src/lib/api.ts` ⇒ 0; `api.server-read.test` (las cinco lecturas) y `catalog-ssr.test` «TL-MKT3-1» (señal abortada) verdes |
+| TL-MKT3-2 | CERRADA · la pestaña Gradeadas emitía `?type=graded` | frontend | 2026-10-31 | `StoreTabs.graded.test` verde; `grep -rn "type=graded" frontend/src --exclude=*.test.*` sin `productType` ⇒ 0 (el alias `type` solo se lee en `parseUrlFilters`/pestaña activa) |
+| TL-MKT3-3 | ABIERTA · los filtros en la URL se describen a mano en tres listas (`parseUrlFilters`, `serializeCatalogFilters`, `catalogFiltersKey`) | frontend | 2026-10-31 | tabla de descriptores tipada + prueba que recorre todas sus claves |
+| TL-MKT3-4 | ABIERTA · `CatalogView` mantiene los filtros como espejo de la URL con tres refs (`ownUrlWrite`, `poppedQuery`, `prevUrlKey`) | frontend | 2026-10-31 | filtros derivados de `useSearchParams`; `grep -cE "ownUrlWrite\|poppedQuery" CatalogView.tsx` ⇒ 0 |
+| TL-MKT3-5 | CERRADA · notas y comentarios contradictorios (FRONTEND_NOTES daba `llms.txt` por «Fuera»; comentarios `?type=graded`); la guarda de la línea Card Show no cazaba «5-6 dic» | frontend | 2026-10-31 | notas corregidas; `seo-content.test`: `offenders([llmsCardShowLine()` sin la base del sitio`], [/\d/])` ⇒ [] |
 
 ---
 

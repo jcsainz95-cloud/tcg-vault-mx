@@ -173,7 +173,17 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     expect(hydration, 'errores de hidratación').toEqual([]);
   });
 
-  test('@real C2 · el catálogo tampoco repite en el navegador la página que mandó el servidor', async ({ page }) => {
+  test('@real C2 · el catálogo tampoco repite en el navegador la página que mandó el servidor', async ({
+    page,
+    request,
+  }) => {
+    // B-R2 (§MKT-R2B): la vista relee SOLO si la copia de la caché de datos tiene > 30 s. Esta prueba mide la carga
+    // FRESCA: se calienta antes (la primera visita puede servir una copia vencida y releerla en segundo plano), para que
+    // el resultado no dependa de cuánto tiempo pasó desde la última visita de otra prueba. La copia vieja la cubre
+    // `e2e/catalog-freshness.spec.ts`.
+    await request.get('/es/catalog');
+    await page.waitForTimeout(1500);
+    await request.get('/es/catalog');
     const reads: string[] = [];
     page.on('request', (r) => {
       if (/\/api\/v1\/catalog\/cards(\?|$)/.test(r.url())) reads.push(r.url());
