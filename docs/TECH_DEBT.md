@@ -9633,6 +9633,8 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
+| OPS-MKT-SEAL | ABIERTA · sin `.git`, `up --gate`/`verify:head`/`restart:backend` dicen «VERIFICADO» con el árbol MUTADO: `head_sha` toma `STACK_EXPECTED_SHA` declarado (`scripts/stack-native.sh:387-404`) y el mtime (`:384`) solo ve ediciones posteriores al sello. Reproducido por tester-e2e y seguridad SEC-MKT2-I3 (`app.module.ts` editado); devops NO lo ha re-medido | devops | 2026-10-31 | hash del árbol fuente (`src`+`prisma`+`package.json`) en el sello y comparado en `verify:head`; canario en `check-stack-expected-sha.sh`: copia sin `.git` + 1 byte en `app.module.ts` ⇒ rc≠0, restaurado ⇒ VERIFICADO |
+| PEN-MKT-1 | ABIERTA · 308 de `/es/card-show` con `X-Forwarded-Host` forjado NO MEDIDO en Vercel; en `next start` no reproduce (seguridad, SECURITY_NOTES PEN-MKT-1, 8 variantes × 10/10) | devops | 2026-10-31 | en el primer preview: `curl -sI -H 'X-Forwarded-Host: evil.example' <preview>/es/card-show \| grep -i location` ⇒ relativo o del dominio propio, nunca `evil.example` |
 | TL-OPS-4 | CERRADA · el caso 7 de `e2e-real-suite-canary.sh` comprobaba `restart:backend` con grep de cadenas (candado de presencia) | devops | 2026-10-23 | `./scripts/e2e-real-suite-canary.sh 3` ⇒ VERDE 26/26: corre `restart:backend` en árbol de juguete; sin pidfile ⇒ rc≠0 con motivo «backend.pid» y sin reinicio; con pidfile propio ⇒ apaga ese pid. Ablación «guarda quitada» ⇒ 3/26 rojos (N=3) |
 
 ---
