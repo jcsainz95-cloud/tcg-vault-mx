@@ -9,8 +9,10 @@ import { getCatalog, getCatalogFacets, type CatalogFilters, type CatalogSort } f
 import type { GroupedListingListResponse, GroupedListingSummaryDTO } from '@/types/contract';
 import {
   DEFAULT_CATALOG_SORT,
+  catalogFiltersKey,
   catalogPageHref,
   parseUrlFilters,
+  serializeCatalogFilters,
   sealedHref,
   sealedIntentOf,
 } from './catalog-url';
@@ -57,24 +59,18 @@ export interface CatalogInitialPage {
   data: GroupedListingListResponse;
 }
 
-/** Misma clave de consulta ⇔ mismos filtros (los dos salen de `parseUrlFilters`, mismo orden de campos). */
-function sameFilters(a: CatalogFilters, b: CatalogFilters): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
 /**
- * C2: refleja la página en la barra de direcciones SIN viaje al servidor (`history` nativo, que Next 15 sincroniza
- * con `useSearchParams`). `push` al paginar (atrás vuelve a la página anterior); `replace` al resetear por filtro.
- * Devuelve la query nueva (para que la vista reconozca su propia escritura) o `null` si no cambió nada.
+ * MK-D5 / R1 (techlead sobre `561ad425`): la URL es la única fuente de los filtros. Escribe en la barra de direcciones
+ * los filtros COMPLETOS (no solo la página) SIN viaje al servidor (`history` nativo, que Next 15 sincroniza con
+ * `useSearchParams`); los parámetros ajenos a los filtros se conservan. `push` al paginar (atrás vuelve a la página
+ * anterior); `replace` para todo lo demás. No escribe si la URL ya pide lo mismo (`catalogFiltersKey`). Devuelve la
+ * query nueva (para que la vista reconozca su propia escritura) o `null` si no cambió nada.
  */
-function writePageToUrl(page: number | undefined, mode: 'push' | 'replace'): string | null {
+function writeFiltersToUrl(filters: CatalogFilters, mode: 'push' | 'replace'): string | null {
   if (typeof window === 'undefined') return null;
-  const qs = new URLSearchParams(window.location.search);
-  const had = qs.get('page');
-  if (page && page > 1) qs.set('page', String(page));
-  else qs.delete('page');
-  if ((had ?? '') === (page && page > 1 ? String(page) : '')) return null;
-  const s = qs.toString();
+  const current = new URLSearchParams(window.location.search);
+  if (catalogFiltersKey(parseUrlFilters(current)) === catalogFiltersKey(filters)) return null;
+  const s = serializeCatalogFilters(filters, current).toString();
   const url = `${window.location.pathname}${s ? `?${s}` : ''}`;
   if (mode === 'push') window.history.pushState(null, '', url);
   else window.history.replaceState(null, '', url);
@@ -103,22 +99,38 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
   // (mismo patrón P-5 de useDebouncedValue que HomeQuoter/M3).
   const [searchTerm, setSearchTerm] = useState<string>(() => parseUrlFilters(searchParams).q ?? '');
   const debouncedTerm = useDebouncedValue(searchTerm, 300);
-  // C2: la última query que escribió ESTA vista (paginar / resetear la página). Su eco en `useSearchParams` no es una
-  // navegación del usuario: no se re-aplica sobre el estado (pisaría, p. ej., un término de búsqueda tecleado).
+  // C2: la última query que escribió ESTA vista. Su eco en `useSearchParams` no es una navegación del usuario: no se
+  // re-aplica sobre el estado (pisaría, p. ej., un término de búsqueda tecleado).
   const ownUrlWrite = useRef<string | null>(null);
-  const writePage = useCallback((page: number | undefined, mode: 'push' | 'replace') => {
-    const written = writePageToUrl(page, mode);
+  const writeUrl = useCallback((f: CatalogFilters, mode: 'push' | 'replace') => {
+    const written = writeFiltersToUrl(f, mode);
     if (written !== null) ownUrlWrite.current = written;
   }, []);
+  // MK-D5: clave normalizada de los filtros — la de react-query y la que decide si la URL ya los dice.
+  const filtersKey = catalogFiltersKey(filters);
+  // MK-D5: estado → URL. Todo cambio de filtro (panel, chips, orden, término debounced, pestaña) queda en la barra de
+  // direcciones; paginar ya escribió con `push` en `goToPage`, así que aquí no hay nada que escribir.
+  useEffect(() => {
+    writeUrl(filters, 'replace');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersKey, writeUrl]);
   useEffect(() => {
     const q = debouncedTerm.trim() ? debouncedTerm : undefined;
     // Cambio real de término ⇒ cambia el universo del resultado: resetea página.
-    setFilters((f) => {
-      if ((f.q ?? '') === (q ?? '')) return f;
-      writePage(undefined, 'replace');
-      return { ...f, q, page: undefined };
-    });
-  }, [debouncedTerm, writePage]);
+    setFilters((f) => ((f.q ?? '') === (q ?? '') ? f : { ...f, q, page: undefined }));
+  }, [debouncedTerm]);
+  // MK-D5: atrás/adelante (`popstate`) devuelve una URL que escribió esta vista ⇒ se toma ENTERA (también lo que quita).
+  // Cualquier otra navegación con query (pestañas Sueltas/Gradeadas, enlaces internos) se mergea sobre el panel.
+  // Guarda la query a la que llevó el `popstate`: un `popstate` que no cambia la query (p. ej. volver del ancla de la
+  // nota al pie) no deja la marca puesta para la siguiente navegación.
+  const poppedQuery = useRef<string | null>(null);
+  useEffect(() => {
+    const onPop = () => {
+      poppedQuery.current = new URLSearchParams(window.location.search).toString();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
   const [sheetOpen, setSheetOpen] = useState(false);
   // Toast de confirmación al agregar (timestamp del último add; 0 = oculto).
   // N-17: además del toast, cada teja refleja «En el carrito» derivado del store.
@@ -127,11 +139,10 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
   // Ancla del scroll al paginar: la barra de resultados, no el tope de la página.
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  // URL → filtros: navegar entre pestañas (Sueltas ↔ Gradeadas), back/forward o
-  // enlaces internos con query MERGEA los filtros presentes en la URL sobre el
-  // estado (sin borrar lo elegido en el panel) y retira `graded` al salir de la
-  // pestaña. El ref evita re-aplicar en renders sin cambio real de URL (p. ej.
-  // tras el router.replace de updateFilters, que ya dejó el estado correcto).
+  // URL → filtros. Atrás/adelante toma la URL entera (MK-D5). Navegar entre pestañas (Sueltas ↔ Gradeadas) o un
+  // enlace interno con query MERGEA los filtros presentes en la URL sobre el estado (sin borrar lo elegido en el
+  // panel) y retira `graded` al salir de la pestaña; el efecto estado → URL vuelve a escribir el resultado. El ref
+  // evita re-aplicar en renders sin cambio real de URL (y el eco de la propia escritura, `ownUrlWrite`).
   const urlKey = searchParams?.toString() ?? '';
   const prevUrlKey = useRef(urlKey);
   useEffect(() => {
@@ -142,6 +153,13 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
       return;
     }
     const fromUrl = parseUrlFilters(searchParams);
+    const popped = poppedQuery.current === urlKey;
+    poppedQuery.current = null;
+    if (popped) {
+      setSearchTerm(fromUrl.q ?? '');
+      setFilters(fromUrl);
+      return;
+    }
     // Un q que llega por URL también debe reflejarse en el input (fuente inmediata).
     if (fromUrl.q != null) setSearchTerm(fromUrl.q);
     setFilters((f) => {
@@ -165,30 +183,34 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
   }, [sealedIntent, router]);
 
   /**
-   * Todo cambio de filtro u orden pasa por aquí: resetea la página (el
-   * resultado cambia de universo) y mantiene la URL de la pestaña Gradeadas
-   * coherente cuando el tipo cambia desde el panel o los chips.
+   * Todo cambio de filtro u orden pasa por aquí: resetea la página (el resultado cambia de universo). La URL (también
+   * la de la pestaña Gradeadas, `productType=graded`) la escribe el efecto estado → URL.
    */
   const updateFilters = useCallback(
     (next: CatalogFilters) => {
-      // Si el caller cambió `q` explícitamente (chip «✕», limpiar filtros), el input
-      // se sincroniza; si `q` viene igual (cambio de orden/facetas), el input no se
-      // toca para no pisar un término aún sin debouncear.
+      // Si el caller cambió `q` explícitamente (chip «✕»), el input se sincroniza; si `q` viene igual (cambio de
+      // orden/facetas), el input no se toca para no pisar un término aún sin debouncear.
       if ((next.q ?? '') !== (filters.q ?? '')) setSearchTerm(next.q ?? '');
       setFilters({ ...next, page: undefined });
-      writePage(undefined, 'replace');
-      if (gradedTab && next.productType !== 'graded') router.replace('/catalog');
-      else if (!gradedTab && next.productType === 'graded') router.replace('/catalog?type=graded');
     },
-    [filters.q, gradedTab, router, writePage],
+    [filters.q],
   );
+  /**
+   * MK-D8: «Limpiar filtros» limpia TODO, también el término tecleado que aún no pasó el debounce de 300 ms (antes
+   * `updateFilters({})` comparaba con `filters.q`, vacío en esa ventana, y el término pendiente entraba después).
+   */
+  const clearFilters = useCallback(() => {
+    setSearchTerm('');
+    updateFilters({});
+  }, [updateFilters]);
 
   const facetsQuery = useQuery({ queryKey: ['facets'], queryFn: getCatalogFacets });
   const catalogQuery = useQuery({
-    queryKey: ['catalog', filters],
+    queryKey: ['catalog', filtersKey],
     queryFn: () => getCatalog({ ...filters, sort: filters.sort ?? DEFAULT_CATALOG_SORT }),
     // C2: la lectura del servidor solo vale para SU clave (los filtros con que se pidió).
-    initialData: initialPage && sameFilters(initialPage.filters, filters) ? initialPage.data : undefined,
+    initialData:
+      initialPage && catalogFiltersKey(initialPage.filters) === filtersKey ? initialPage.data : undefined,
     // R5: paginar/filtrar no desmonta la grilla — se sigue mostrando la página
     // anterior mientras llega la nueva (isLoading solo en el primer fetch).
     placeholderData: keepPreviousData,
@@ -198,10 +220,12 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
     enabled: !sealedIntent,
   });
 
+  const tType = useTranslations('shop.type');
+  const tFinish = useTranslations('finish');
   const activeChips = useMemo(
-    // Las facetas dan el nombre legible del set para el chip (QA-1).
-    () => buildChips(filters, facetsQuery.data?.sets),
-    [filters, facetsQuery.data?.sets],
+    // Las facetas dan el nombre legible del set para el chip (QA-1); tipo y acabado, su etiqueta del panel (MK-D4).
+    () => buildChips(filters, facetsQuery.data?.sets, { type: (pt) => tType(pt), finish: (f) => tFinish(f) }),
+    [filters, facetsQuery.data?.sets, tType, tFinish],
   );
   const hasFilters = activeChips.length > 0;
   const total = catalogQuery.data?.total ?? 0;
@@ -219,8 +243,9 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
   }
 
   function goToPage(p: number) {
-    setFilters((f) => ({ ...f, page: p <= 1 ? undefined : p }));
-    writePage(p, 'push');
+    const next = { ...filters, page: p <= 1 ? undefined : p };
+    setFilters(next);
+    writeUrl(next, 'push');
     // jsdom no implementa scrollIntoView; el guard evita romper los tests.
     resultsRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   }
@@ -308,7 +333,7 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
             {hasFilters && (
               <button
                 type="button"
-                onClick={() => updateFilters({})}
+                onClick={clearFilters}
                 className="font-mono text-[10px] uppercase tracking-[0.1em] text-accent hover:text-text"
               >
                 {tc('clearFilters')}
@@ -347,7 +372,7 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
                 ))}
                 <button
                   type="button"
-                  onClick={() => updateFilters({})}
+                  onClick={clearFilters}
                   className="px-1 py-2 font-mono text-xs text-accent hover:text-text"
                 >
                   {tc('clearFilters')}
@@ -376,7 +401,7 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
                 body={t('emptyBody')}
                 action={
                   hasFilters && (
-                    <Button variant="secondary" onClick={() => updateFilters({})}>
+                    <Button variant="secondary" onClick={clearFilters}>
                       {tc('clearFilters')}
                     </Button>
                   )
@@ -401,7 +426,7 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
                     page={page}
                     totalPages={totalPages}
                     onPage={goToPage}
-                    hrefFor={(p) => catalogPageHref(searchParams, p)}
+                    hrefFor={(p) => catalogPageHref(filters, p, searchParams)}
                   />
                 </div>
               </>
@@ -444,7 +469,17 @@ function pesosLabel(cents: number): string {
   return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
 }
 
-function buildChips(filters: CatalogFilters, sets?: { id: string; name: string }[]): Chip[] {
+/** MK-D4: etiquetas localizadas (las mismas del panel de filtros) para los chips de enum. */
+interface ChipLabels {
+  type: (pt: NonNullable<CatalogFilters['productType']>) => string;
+  finish: (f: NonNullable<CatalogFilters['finish']>) => string;
+}
+
+function buildChips(
+  filters: CatalogFilters,
+  sets: { id: string; name: string }[] | undefined,
+  labels: ChipLabels,
+): Chip[] {
   const chips: Chip[] = [];
   if (filters.q) {
     chips.push({ key: 'q', label: `"${filters.q}"`, remove: (f) => ({ ...f, q: undefined }) });
@@ -465,15 +500,15 @@ function buildChips(filters: CatalogFilters, sets?: { id: string; name: string }
   if (filters.productType) {
     chips.push({
       key: 'type',
-      label: filters.productType,
+      label: labels.type(filters.productType),
       remove: (f) => ({ ...f, productType: undefined }),
     });
   }
   // (D-EQ-3: el chip de `sealedSubtype` se va con el filtro. Era, además, el que pintaba el token
   // crudo «box» junto a un «sealed» igual de crudo sobre una rejilla vacía.)
   if (filters.finish) {
-    // v1.6-finish: chip del acabado activo (etiqueta cruda; la localizada vive en el panel de filtros).
-    chips.push({ key: 'finish', label: filters.finish, remove: (f) => ({ ...f, finish: undefined }) });
+    // v1.6-finish: chip del acabado activo, con la etiqueta localizada del panel (`finish.*`, MK-D4).
+    chips.push({ key: 'finish', label: labels.finish(filters.finish), remove: (f) => ({ ...f, finish: undefined }) });
   }
   if (filters.minPriceCents != null) {
     chips.push({ key: 'min', label: `≥ MX$${pesosLabel(filters.minPriceCents)}`, remove: (f) => ({ ...f, minPriceCents: undefined }) });

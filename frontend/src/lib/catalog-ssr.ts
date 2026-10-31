@@ -20,6 +20,7 @@ import {
   type CatalogSort,
 } from '@/lib/api';
 import { withBudget } from '@/lib/home-ssr';
+import { HOME_SSR_REVALIDATE_S } from '@/lib/home-queries';
 import type {
   GroupedListingDetailResponse,
   GroupedListingListResponse,
@@ -50,21 +51,34 @@ export const loadSealedDetailForSSR = cache(
 /**
  * C2 (BRIEF_MKT Ola 2) — tope de la lectura del catálogo en el servidor. Sin datos a tiempo, el HTML sale con el
  * esqueleto y la vista cliente pide sola (lo de antes). Más holgado que el de la portada (400 ms): aquí el listado ES
- * el contenido de la página, y la lectura tardía no se aprovecha (sin caché de datos: precio y stock del momento).
+ * el contenido de la página.
  */
 export const CATALOG_SSR_BUDGET_MS = 1200;
 
 /**
+ * R2 (techlead sobre `561ad425`) — ventana de la caché de datos de Next para la lista pública del catálogo: la misma
+ * que la portada (30 s). ARCHITECTURE §4.DYN (f) 3: «≤ 60 s en listas públicas, exacto al pagar» (el checkout re-cotiza
+ * y responde `409 ITEM_UNAVAILABLE`); tras hidratar, react-query revalida en el cliente.
+ */
+export const CATALOG_SSR_REVALIDATE_S = HOME_SSR_REVALIDATE_S;
+
+/**
  * Página del catálogo para el SSR, con los MISMOS filtros y el MISMO orden por defecto que pide la vista cliente
- * (`CatalogView`), para que el resultado sea el `initialData` de su clave. Sin caché de datos de Next (`no-store`, el
- * defecto de `fetch` en Next 15): el precio que se pinta es el del momento, el mismo que se cobra. Nunca lanza.
+ * (`CatalogView`), para que el resultado sea el `initialData` de su clave. Caché de datos de Next de
+ * `CATALOG_SSR_REVALIDATE_S` con etiqueta `catalog` (antes `no-store`: una lectura al API por visita). Nunca lanza.
  */
 export async function loadCatalogPageForSSR(
   filters: CatalogFilters,
   defaultSort: CatalogSort,
   budgetMs: number = CATALOG_SSR_BUDGET_MS,
 ): Promise<GroupedListingListResponse | null> {
-  return withBudget(getCatalog({ ...filters, sort: filters.sort ?? defaultSort }), budgetMs);
+  return withBudget(
+    getCatalog(
+      { ...filters, sort: filters.sort ?? defaultSort },
+      { next: { revalidate: CATALOG_SSR_REVALIDATE_S, tags: ['catalog'] } },
+    ),
+    budgetMs,
+  );
 }
 
 /** C5 — tope de la lectura de la regla de envío para el JSON-LD; sin ella a tiempo, `shippingDetails` se omite. */

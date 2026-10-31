@@ -19,11 +19,75 @@ export interface UrlParams {
   get(name: string): string | null;
 }
 
-/** Ruta del catálogo para la página `page` (la 1 sin parámetro). Conserva los demás parámetros de la URL. */
-export function catalogPageHref(sp: UrlParams & { toString(): string } | null, page: number): string {
-  const qs = new URLSearchParams(sp?.toString() ?? '');
-  if (page <= 1) qs.delete('page');
-  else qs.set('page', String(page));
+/**
+ * MK-D5 / R1 (techlead sobre `561ad425`) — **la URL es la única fuente de los filtros del catálogo.** Estos son los
+ * parámetros que le pertenecen: al escribir la URL desde los filtros se reemplazan todos (también `type`, el alias de
+ * la pestaña Gradeadas) y se conservan los demás (`utm_*`, `from`…).
+ */
+const FILTER_PARAMS = [
+  'q',
+  'setId',
+  'productType',
+  'type',
+  'condition',
+  'finish',
+  'rarity',
+  'minPriceCents',
+  'maxPriceCents',
+  'sort',
+  'page',
+] as const;
+
+/**
+ * Inversa exacta de `parseUrlFilters` (`parseUrlFilters(serializeCatalogFilters(f))` ≡ `f` para todo filtro del
+ * panel; lo fija `catalog-url.test.ts`). Orden fijo de parámetros; la página 1 no se escribe.
+ */
+export function serializeCatalogFilters(f: CatalogFilters, base?: URLSearchParams): URLSearchParams {
+  const qs = new URLSearchParams(base?.toString() ?? '');
+  for (const k of FILTER_PARAMS) qs.delete(k);
+  if (f.q) qs.set('q', f.q);
+  if (f.setId) qs.set('setId', f.setId);
+  if (f.productType) qs.set('productType', f.productType);
+  if (f.condition) qs.set('condition', f.condition);
+  if (f.finish) qs.set('finish', f.finish);
+  if (f.rarity && f.rarity.length) qs.set('rarity', f.rarity.join(','));
+  if (f.minPriceCents != null) qs.set('minPriceCents', String(f.minPriceCents));
+  if (f.maxPriceCents != null) qs.set('maxPriceCents', String(f.maxPriceCents));
+  if (f.sort) qs.set('sort', f.sort);
+  if (f.page && f.page > 1) qs.set('page', String(f.page));
+  return qs;
+}
+
+/**
+ * Clave de consulta normalizada: dos filtros que piden LO MISMO al API dan la misma clave, sea cual sea el orden de
+ * sus campos (sustituye a `JSON.stringify`, que dependía de él). Normaliza lo que el API trata igual: el orden por
+ * defecto explícito ≡ sin orden (la vista manda `sort ?? DEFAULT_CATALOG_SORT`), página 1 ≡ sin página, y las rarezas
+ * como conjunto.
+ */
+export function catalogFiltersKey(f: CatalogFilters): string {
+  const qs = serializeCatalogFilters({
+    ...f,
+    sort: f.sort === DEFAULT_CATALOG_SORT ? undefined : f.sort,
+    rarity: f.rarity ? [...f.rarity].sort() : undefined,
+  });
+  if (f.pageSize != null) qs.set('pageSize', String(f.pageSize));
+  if (f.gradingHighlight) qs.set('gradingHighlight', 'true');
+  return qs.toString();
+}
+
+/**
+ * Ruta del catálogo para la página `page` (la 1 sin parámetro) CON los filtros vigentes. `sp`: la query actual, de la
+ * que solo se conservan los parámetros que no son filtros.
+ */
+export function catalogPageHref(
+  filters: CatalogFilters,
+  page: number,
+  sp?: (UrlParams & { toString(): string }) | null,
+): string {
+  const qs = serializeCatalogFilters(
+    { ...filters, page: page <= 1 ? undefined : page },
+    sp ? new URLSearchParams(sp.toString()) : undefined,
+  );
   const s = qs.toString();
   return s ? `/catalog?${s}` : '/catalog';
 }
@@ -105,6 +169,13 @@ export function parseUrlFilters(sp: UrlParams | null): CatalogFilters {
   if (rarity) {
     const list = rarity.split(',').map((r) => r.trim()).filter(Boolean);
     if (list.length) f.rarity = list;
+  }
+  // MK-D5: `condition` y el rango de precio también viajan en la URL (los pone el panel); enteros ≥ 0 en centavos.
+  const condition = sp.get('condition');
+  if (condition === 'NM') f.condition = condition;
+  for (const k of ['minPriceCents', 'maxPriceCents'] as const) {
+    const v = sp.get(k);
+    if (v && /^[0-9]{1,9}$/.test(v)) f[k] = Number(v);
   }
   const sort = sp.get('sort');
   if (sort === 'newest' || sort === 'price_asc' || sort === 'price_desc') f.sort = sort;
