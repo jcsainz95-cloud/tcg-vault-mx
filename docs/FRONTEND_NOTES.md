@@ -30,6 +30,8 @@
   raro: `!` de ex10), scrydex `/pokemon/<set>-<núm>/large|small`. Más `/e2e/…` de scrydex solo para el arnés DYN-D3 (el CDN
   real da 400 ahí). Residual: scrydex da **200** genérico a cualquier id con la forma (`me3-99999`), así que la forma acota
   la superficie, no la cuenta. I3 (userinfo ⇒ 500) sigue: el matcher no mira `username` y el middleware excluye `_next`.
+- **Interruptor del residual (v1.114.5), APAGADO:** se enciende poniendo `NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH=on` en el entorno del despliegue (build **y** arranque) y redesplegando ⇒ `remotePatterns` vacío (`/_next/image` 400 a todo origen remoto) **y** la líder a nivel B; se apaga quitándola y redesplegando. Otro valor ≠ `on`/`off` rompe el build.
+  Medido 2026-10-31 (build con `on`): `standalone` 4/4 orígenes ⇒ 400 sin la variable al arrancar; `next start` relee el config: sin ella al arrancar ⇒ 200, con ella 4/4 ⇒ 400. Código `lib/image-optimizer-switch.mjs` + `remotePatternsFor()`; candado `lib/next-image-remote-patterns.test.ts` (mutaciones: no vaciar ⇒ 2 rojas; líder fija ⇒ 2 rojas).
 - **Medido** (2026-10-30, `run.sh` N=5, stack propio BD `tcg_opa`, Redis :6481; foto líder real me55-88 de 883 KB
   servida por el arnés; el `next start` redirige `img.e2e.local` al host del arnés y `remotePatterns` lo admite, solo
   en la copia de medición; mediana [peor]): celular FCP 1.40 [1.41] → 1.23 [1.27] s, LCP 8.71 [10.53] → 5.20 [6.82] s;
