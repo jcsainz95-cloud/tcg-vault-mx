@@ -4,11 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
-import type { ReadonlyURLSearchParams } from 'next/navigation';
 import { StoreTabs } from '@/components/domain/StoreTabs';
 import { getCatalog, getCatalogFacets, type CatalogFilters, type CatalogSort } from '@/lib/api';
-import { SEALED_SUBTYPES, type Finish, type GroupedListingSummaryDTO } from '@/types/contract';
-import { FINISH_ORDER } from '@/lib/finish';
+import type { GroupedListingListResponse, GroupedListingSummaryDTO } from '@/types/contract';
+import {
+  DEFAULT_CATALOG_SORT,
+  catalogPageHref,
+  parseUrlFilters,
+  sealedHref,
+  sealedIntentOf,
+} from './catalog-url';
 import { useCart } from '@/lib/cart';
 import { useRouter } from '@/i18n/navigation';
 import { ShopFilters } from '@/components/domain/ShopFilters';
@@ -26,67 +31,8 @@ import { GradingFootnoteBoundary } from '../_shared/grading/GradingFootnote';
 import { pageHasGradingFigures } from '../_shared/grading/estimates';
 
 const SORTS: CatalogSort[] = ['newest', 'price_asc', 'price_desc'];
-/**
- * Fricción 5 (DESIGN_SYSTEM §CHK-MOVIL.5): el selector SIEMPRE muestra un orden real. Sin `sort` en la URL se
- * pinta «Novedades» y se envía ese orden (es también el default del contrato, §2 `sort` default `newest`); con
- * `sort` explícito en la URL, manda la URL.
- */
-export const DEFAULT_CATALOG_SORT: CatalogSort = 'newest';
 /** pageSize del contrato (§2, default del backend); solo para el fallback del total de páginas. */
 const DEFAULT_PAGE_SIZE = 20;
-
-/**
- * ═══════════════════════════════════════════════════════════════════════════════════════════
- * D-EQ-3 · ¿ESTA URL PIDE SELLADO? (contrato v1.73 §2 + §2-S)
- * ═══════════════════════════════════════════════════════════════════════════════════════════
- * `GET /catalog/cards` es la rejilla de SINGLES y **excluye el sellado por construcción**
- * (guardarraíl `H9`). v1.73 retiró `?sealedSubtype=` y le quitó `sealed` a `?productType=`.
- *
- * MEDIDO POR HTTP (2026-09-13, stack nativo real, con UN sellado `box` publicado ⇒
- * `GET /catalog/sealed` ⇒ `total: 1`): `?productType=sealed` ⇒ `total: 0`, `?sealedSubtype=box`
- * ⇒ `total: 0`. Y MEDIDO EN EL NAVEGADOR, que es lo que importa aquí: `/es/compra?productType=sealed`
- * pintaba **«Ninguna carta coincide · Prueba con otros filtros»** con un chip crudo `sealed` y la
- * pestaña «Producto sellado» a diez centímetros, sin decir nada. Y `/es/compra?sealedSubtype=box`
- * (sin `productType`) **descartaba el parámetro EN SILENCIO** y devolvía el catálogo entero.
- *
- * **POR QUÉ REDIRIGIR Y NO SOLO DEJAR DE MANDAR EL PARÁMETRO** (decisión de frontend; `PROJECT.md`
- * §A exige que Compra filtre por tipo **incluyendo sellado** y NO dice por qué endpoint):
- *   · La intención de `?productType=sealed` es inequívoca — «enséñame sellado» — y **tenemos
- *     exactamente una superficie que lo sirve** (§2-S, `/sellado`). Tirar la intención y dejar al
- *     usuario en la rejilla de singles descarta información que sí sabemos honrar.
- *   · Es la única opción que convierte un enlace que hoy funciona A MEDIAS en uno que funciona.
- *     La pestaña «Producto sellado» ya existe (`StoreTabs`) y aun así el usuario no la usó: llegó
- *     por enlace. Una pestaña no rescata a quien entra por la puerta de al lado.
- *   · `sealedSubtype` mapea **1:1**: §2-S acepta el mismo parámetro con el mismo dominio (los siete
- *     de `SealedSubtype`). La redirección **conserva el filtro exacto**, no uno parecido.
- *
- * ⛔ **Lo que NO se arrastra, y por qué.** `q`, `rarity`, `finish`, `condition` y el rango de precio
- * NO viajan: o §2-S no los tiene, o la vitrina de sellado **no puede MOSTRARLOS** (no hay caja de
- * búsqueda, y su selector de set se puebla con los sets de la página cargada). Un filtro aplicado
- * que el usuario no ve en pantalla es exactamente la clase de mentira que este ticket corrige. Lo
- * que sí se arrastra se ve en su control. El salto de pantalla se explica con `?from=compra`.
- */
-function sealedIntentOf(sp: ReadonlyURLSearchParams | null): { sealedSubtype?: string } | null {
-  if (!sp) return null;
-  const sub = sp.get('sealedSubtype');
-  const validSub =
-    sub && (SEALED_SUBTYPES as readonly string[]).includes(sub) ? sub : undefined;
-  // `?productType=sealed` (o el `?type=sealed` de la sub-navegación) es intención explícita.
-  const asksSealed = sp.get('productType') === 'sealed' || sp.get('type') === 'sealed';
-  // Un `?sealedSubtype=` VÁLIDO a secas también lo es: nombra una presentación de producto cerrado
-  // y no significa nada más en todo el sistema. Uno inválido NO inventa intención (`?sealedSubtype=zzz`
-  // es basura, no una petición de sellado): se ignora y la vista sigue siendo Compra.
-  if (!asksSealed && !validSub) return null;
-  return validSub ? { sealedSubtype: validSub } : {};
-}
-
-/** Destino de §2-S para una intención de sellado, con su marca de procedencia. */
-function sealedHref(intent: { sealedSubtype?: string }): string {
-  const qs = new URLSearchParams();
-  if (intent.sealedSubtype) qs.set('sealedSubtype', intent.sealedSubtype);
-  qs.set('from', 'compra');
-  return `/sellado?${qs.toString()}`;
-}
 
 /**
  * Vitrina «Comprar»: inventario publicado con precio (DESIGN_SYSTEM §7.1/§7.16).
@@ -101,7 +47,41 @@ function sealedHref(intent: { sealedSubtype?: string }): string {
  * La pestaña «Gradeadas» es ?type=graded: aquí se lee el parámetro y se
  * sincroniza con filters.productType (y viceversa al cambiarlo en el panel).
  */
-export function CatalogView() {
+/**
+ * C2 (BRIEF_MKT Ola 2): primera página leída en el SERVIDOR (`page.tsx`) con los MISMOS filtros que esta vista
+ * deriva de la URL (`parseUrlFilters`). Si coinciden, es el `initialData` de esa clave: las tejas (con su
+ * `<a href>` a la ficha) salen en el HTML crudo y el cliente no repite la lectura al montar.
+ */
+export interface CatalogInitialPage {
+  filters: CatalogFilters;
+  data: GroupedListingListResponse;
+}
+
+/** Misma clave de consulta ⇔ mismos filtros (los dos salen de `parseUrlFilters`, mismo orden de campos). */
+function sameFilters(a: CatalogFilters, b: CatalogFilters): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * C2: refleja la página en la barra de direcciones SIN viaje al servidor (`history` nativo, que Next 15 sincroniza
+ * con `useSearchParams`). `push` al paginar (atrás vuelve a la página anterior); `replace` al resetear por filtro.
+ * Devuelve la query nueva (para que la vista reconozca su propia escritura) o `null` si no cambió nada.
+ */
+function writePageToUrl(page: number | undefined, mode: 'push' | 'replace'): string | null {
+  if (typeof window === 'undefined') return null;
+  const qs = new URLSearchParams(window.location.search);
+  const had = qs.get('page');
+  if (page && page > 1) qs.set('page', String(page));
+  else qs.delete('page');
+  if ((had ?? '') === (page && page > 1 ? String(page) : '')) return null;
+  const s = qs.toString();
+  const url = `${window.location.pathname}${s ? `?${s}` : ''}`;
+  if (mode === 'push') window.history.pushState(null, '', url);
+  else window.history.replaceState(null, '', url);
+  return s;
+}
+
+export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage } = {}) {
   const t = useTranslations('catalog');
   const tc = useTranslations('common');
   const tShop = useTranslations('shop');
@@ -123,11 +103,22 @@ export function CatalogView() {
   // (mismo patrón P-5 de useDebouncedValue que HomeQuoter/M3).
   const [searchTerm, setSearchTerm] = useState<string>(() => parseUrlFilters(searchParams).q ?? '');
   const debouncedTerm = useDebouncedValue(searchTerm, 300);
+  // C2: la última query que escribió ESTA vista (paginar / resetear la página). Su eco en `useSearchParams` no es una
+  // navegación del usuario: no se re-aplica sobre el estado (pisaría, p. ej., un término de búsqueda tecleado).
+  const ownUrlWrite = useRef<string | null>(null);
+  const writePage = useCallback((page: number | undefined, mode: 'push' | 'replace') => {
+    const written = writePageToUrl(page, mode);
+    if (written !== null) ownUrlWrite.current = written;
+  }, []);
   useEffect(() => {
     const q = debouncedTerm.trim() ? debouncedTerm : undefined;
     // Cambio real de término ⇒ cambia el universo del resultado: resetea página.
-    setFilters((f) => ((f.q ?? '') === (q ?? '') ? f : { ...f, q, page: undefined }));
-  }, [debouncedTerm]);
+    setFilters((f) => {
+      if ((f.q ?? '') === (q ?? '')) return f;
+      writePage(undefined, 'replace');
+      return { ...f, q, page: undefined };
+    });
+  }, [debouncedTerm, writePage]);
   const [sheetOpen, setSheetOpen] = useState(false);
   // Toast de confirmación al agregar (timestamp del último add; 0 = oculto).
   // N-17: además del toast, cada teja refleja «En el carrito» derivado del store.
@@ -146,11 +137,16 @@ export function CatalogView() {
   useEffect(() => {
     if (prevUrlKey.current === urlKey) return;
     prevUrlKey.current = urlKey;
+    if (ownUrlWrite.current === urlKey) {
+      ownUrlWrite.current = null;
+      return;
+    }
     const fromUrl = parseUrlFilters(searchParams);
     // Un q que llega por URL también debe reflejarse en el input (fuente inmediata).
     if (fromUrl.q != null) setSearchTerm(fromUrl.q);
     setFilters((f) => {
-      const next: CatalogFilters = { ...f, ...fromUrl, page: undefined };
+      // C2: la página la dice la URL (`?page=`, también al volver atrás); sin ella, la 1.
+      const next: CatalogFilters = { ...f, ...fromUrl, page: fromUrl.page };
       if (!gradedTab && f.productType === 'graded' && fromUrl.productType == null)
         next.productType = undefined;
       return next;
@@ -180,16 +176,19 @@ export function CatalogView() {
       // toca para no pisar un término aún sin debouncear.
       if ((next.q ?? '') !== (filters.q ?? '')) setSearchTerm(next.q ?? '');
       setFilters({ ...next, page: undefined });
+      writePage(undefined, 'replace');
       if (gradedTab && next.productType !== 'graded') router.replace('/catalog');
       else if (!gradedTab && next.productType === 'graded') router.replace('/catalog?type=graded');
     },
-    [filters.q, gradedTab, router],
+    [filters.q, gradedTab, router, writePage],
   );
 
   const facetsQuery = useQuery({ queryKey: ['facets'], queryFn: getCatalogFacets });
   const catalogQuery = useQuery({
     queryKey: ['catalog', filters],
     queryFn: () => getCatalog({ ...filters, sort: filters.sort ?? DEFAULT_CATALOG_SORT }),
+    // C2: la lectura del servidor solo vale para SU clave (los filtros con que se pidió).
+    initialData: initialPage && sameFilters(initialPage.filters, filters) ? initialPage.data : undefined,
     // R5: paginar/filtrar no desmonta la grilla — se sigue mostrando la página
     // anterior mientras llega la nueva (isLoading solo en el primer fetch).
     placeholderData: keepPreviousData,
@@ -221,6 +220,7 @@ export function CatalogView() {
 
   function goToPage(p: number) {
     setFilters((f) => ({ ...f, page: p <= 1 ? undefined : p }));
+    writePage(p, 'push');
     // jsdom no implementa scrollIntoView; el guard evita romper los tests.
     resultsRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   }
@@ -397,7 +397,12 @@ export function CatalogView() {
                   ))}
                 </div>
                 <div className="pb-14">
-                  <Paginator page={page} totalPages={totalPages} onPage={goToPage} />
+                  <Paginator
+                    page={page}
+                    totalPages={totalPages}
+                    onPage={goToPage}
+                    hrefFor={(p) => catalogPageHref(searchParams, p)}
+                  />
                 </div>
               </>
             )}
@@ -420,36 +425,6 @@ export function CatalogView() {
       </div>
     </GradingFootnoteBoundary>
   );
-}
-
-/**
- * Filtros iniciales desde la URL (enlaces del Home: `?setId=<id>`,
- * `?productType=graded`; la pestaña Gradeadas usa `?type=graded`). Solo se
- * mapean los filtros del estado con equivalente trivial en query; los valores
- * de enum se validan contra sus listas — un parámetro inválido se ignora.
- */
-function parseUrlFilters(sp: ReadonlyURLSearchParams | null): CatalogFilters {
-  if (!sp) return {};
-  const f: CatalogFilters = {};
-  const setId = sp.get('setId');
-  if (setId) f.setId = setId;
-  const q = sp.get('q');
-  if (q) f.q = q;
-  const pt = sp.get('productType') ?? (sp.get('type') === 'graded' ? 'graded' : null);
-  // ⛔ D-EQ-3 / contrato v1.73 §2: `sealed` NO es un valor de este filtro — la rejilla de singles no
-  // puede servirlo (`H9`). Esa URL ya no llega hasta aquí: `sealedIntentOf` la desvía a §2-S antes.
-  // `sealedSubtype` tampoco se lee: se retiró del contrato y su lectura vive ahora en `/sellado`.
-  if (pt === 'raw' || pt === 'graded') f.productType = pt;
-  const finish = sp.get('finish');
-  if (finish && (FINISH_ORDER as string[]).includes(finish)) f.finish = finish as Finish;
-  const rarity = sp.get('rarity');
-  if (rarity) {
-    const list = rarity.split(',').map((r) => r.trim()).filter(Boolean);
-    if (list.length) f.rarity = list;
-  }
-  const sort = sp.get('sort');
-  if (sort === 'newest' || sort === 'price_asc' || sort === 'price_desc') f.sort = sort;
-  return f;
 }
 
 // Construye los chips removibles del estado de filtros activo.

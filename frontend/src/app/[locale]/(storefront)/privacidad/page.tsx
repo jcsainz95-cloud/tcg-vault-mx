@@ -6,6 +6,7 @@ import { legalEnvFromProcess, privacyVisibility } from '@/content/legal/legal-ga
 import { WISHLIST_PRIVACY_EN } from '@/content/legal/privacy-wishlist';
 import { PrivacyNoticeView } from './PrivacyNoticeView';
 import { RouteMessages } from '@/components/i18n/RouteMessages';
+import { SITE_URL, siteAbsoluteUrl } from '@/lib/seo';
 
 /**
  * LIVE-8 · `/privacidad` (ES y EN; el texto es español, con la línea «Legal notice available in
@@ -24,9 +25,14 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'privacy' });
   const tc = await getTranslations({ locale, namespace: 'common' });
+  const ts = await getTranslations({ locale, namespace: 'seo.pages.privacy' });
   const draft = privacyVisibility(privacyNoticeEs, legalEnvFromProcess()) !== 'published';
   return {
+    metadataBase: new URL(SITE_URL),
     title: `${tc('appName')} — ${t('title')}`,
+    // C4: descripción y canonical propios. El aviso solo existe en español ⇒ `/en/privacidad` apunta a `/es/privacidad`.
+    description: ts('description'),
+    alternates: { canonical: siteAbsoluteUrl('/es/privacidad') },
     robots: draft ? { index: false, follow: false } : undefined,
   };
 }

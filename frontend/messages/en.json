@@ -7493,6 +7493,40 @@
       "ctaCatalog": "Browse the catalog",
       "ctaBuylist": "Get a quote for yours",
       "empty": "We are preparing the guides. Check back soon."
+    },
+    "pages": {
+      "home": {
+        "description": "Buy verified Pokémon cards, condition guaranteed and priced in pesos; keep them in your vault or sell yours. TCG HUNT, Mexico."
+      },
+      "catalog": {
+        "title": "Pokémon card catalog",
+        "description": "Raw and graded Pokémon cards, verified and condition guaranteed. Priced in pesos, with the pieces available right now."
+      },
+      "sealed": {
+        "title": "Sealed Pokémon product",
+        "description": "Factory-sealed Pokémon product: boxes, ETBs, bundles and more, priced in pesos. Sale only, shipped from Mexico."
+      },
+      "accessories": {
+        "title": "Accessories for Pokémon cards",
+        "description": "Sleeves, binders, energy cards and everything you need to protect and play your Pokémon cards. Shipped to your home."
+      },
+      "accessoryDetail": {
+        "description": "{name}: an accessory to protect and play your Pokémon cards, priced in pesos. Shipped to your home."
+      },
+      "decksMeta": {
+        "title": "Meta Battle Decks: Standard top 10",
+        "description": "The Pokémon TCG Standard-format top 10 decks, matched against our inventory: which cards we have and at what price."
+      },
+      "deckDetail": {
+        "description": "The {name} deck list from the Standard top 10, matched against our inventory: which cards we have and at what price."
+      },
+      "buylist": {
+        "title": "Sell your Pokémon cards",
+        "description": "We quote your list at today's market value. You ship, we verify the NM condition and pay you by SPEI."
+      },
+      "privacy": {
+        "description": "TCG HUNT privacy notice (in Spanish): which personal data we process, what we use it for and how to exercise your ARCO rights."
+      }
     }
   },
   "locale": {

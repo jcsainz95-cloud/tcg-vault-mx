@@ -27,6 +27,8 @@ vi.mock('@/i18n/navigation', () => ({
     </a>
   ),
 }));
+// C6: la página lee el nonce de la petición para su JSON-LD; aquí no hay petición de Next.
+vi.mock('next/headers', () => ({ headers: async () => new Headers() }));
 vi.mock('@/lib/session', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/session')>();
   return { ...actual, useSession: () => ({ user: null, isAuthenticated: false, ready: true }) };
@@ -69,7 +71,7 @@ const GEMS = [{ ...grp('g0'), gradingHighlight: [] }] as GroupedListingSummaryDT
 const never = <T,>() => new Promise<T>(() => {});
 
 async function serverHtml(): Promise<string> {
-  const page = await HomePage();
+  const page = await HomePage({ params: Promise.resolve({ locale: 'es' as const }) });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return renderToString(
     <QueryClientProvider client={client}>
