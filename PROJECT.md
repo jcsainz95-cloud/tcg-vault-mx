@@ -2393,137 +2393,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 > y su marca `premium` siguen existiendo como **dato del catálogo** —se usan para el **guardarraíl**, filtros
 > y presentación—, **pero ya no calculan precio**. Los **criterios 73–78** quedan **superseded** por los
 > **79–96**. Esta sección se conserva como **registro histórico** de la taxonomía previa.
-> **Qué es**: reemplazar «**una regla por cada rareza**» por «**una regla por cada `tier`**» y un **mapa
-> rareza canónica → tier**. Hoy el editor de M2 (§E.1) muestra una fila por cada rareza distinta del catálogo
-> sincronizado (~30 tras el sync); el dueño tiene que configurar 30 reglas. Con tiers configura **5** y cada
-> rareza «hereda» la regla de su tier. **Por qué**: para el dueño es más fácil pricear pensando en 5 familias
-> de valor («bulk», «uncommon/reverse», «rare/holo», «chase», «grail») que en 30 nombres de rareza.
-> **Estado**: **decisiones del humano tomadas y cerradas (LOCKED)** — el número de tiers, sus valores, el mapa,
-> el cierre de las rarezas sin mapear y el alcance compra+venta están fijados (ver **Decisiones (v1.9, P-34)**
-> al final). **Qué NO cambia** (crítico, money-safe): la **naturaleza de una regla sigue siendo `fixed` (MX$) o
-> `pct` (% de la referencia de mercado)** exactamente como §E.1; el `tier` solo dice **qué regla aplica a qué
-> rareza**. La **precedencia de compra** (bounty > override > regla/tier > fallback) y la de **venta**
-> (override por pieza > override variante > regla/tier > fallback) **no se tocan**; el **eje de acabado**
-> (`finish`: normal/reverse_holo/holofoil/1st-ed) **sigue siendo un eje aparte** (ver §I). **Único cambio
-> intencional de comportamiento**: **T2 (Rare/Holo) pasa de bin fijo a `pct` bajo de mercado** (ver M.1).
-> **Alcance de esta feature**: la **taxonomía** (definir los tiers y el mapa) + el **editor** de M2. **No** se
-> diseña aquí el schema ni el contrato del editor (eso es del arquitecto tras esta aprobación); aquí se fija el
-> requisito de producto y el mapa aprobado por el humano.
-
-**M.1 — Tiers de precio (LOCKED: 5 tiers, valores por defecto fijados por el humano)**
-> **5 tiers (T0–T4)**, aprobados por el humano. Los tiers no-premium **T0–T1** agrupan lo que hoy es
-> `premium:false` de bin fijo (bulk); **T2** agrupa Rare/Rare Holo pero **ya no es bin fijo: es `pct` bajo de
-> mercado** (cambio intencional, ver abajo); los premium **T3–T4** son % de mercado. Así **ninguna rareza
-> premium/chase puede caer nunca a un bin fijo barato** (se preserva el fix de dinero de Fase 0.1). Salvo T2,
-> los **valores por defecto reproducen el comportamiento actual** (bulk fijo $0.50/$1.50, chase 40%); el
-> humano puede cambiar cada valor sin tocar código.
-
-| Tier | Nombre | `premium` | Regla por defecto (COMPRA/buylist) | Racional |
-|---|---|---|---|---|
-| **T0** | **Bulk** | no | **FIJO MX$0.50** | Cartas de relleno; no vale la pena mirar mercado. Preserva Common $0.50. |
-| **T1** | **Uncommon / Reverse** | no | **FIJO MX$1.50** | Uncommon y reverse/promo de bajo valor. Preserva Reverse Holo $1.50. |
-| **T2** | **Rare / Holo** | no | **PORCENTAJE 25% del mercado** *(default bajo, ajustable)* | **LOCKED — cambio intencional**: Rare y Rare Holo dejan de cotizar al **bin fijo** y pasan a un **`pct` bajo** para no infravalorar cartas de banda intermedia. Money-safe: sin referencia de mercado ⇒ **precio pendiente, nunca $0** (igual que T3/T4). |
-| **T3** | **Premium / Chase** | sí | **PORCENTAJE 40% del mercado** | El grueso de las chase (ex/V/GX/Ultra/Illustration…). Preserva el 40% vigente. |
-| **T4** | **Ultra / Grail** | sí | **PORCENTAJE 40% del mercado** | La cima (Special Illustration, Hyper, Secret, Gold). **LOCKED en 40%** (igual que T3); queda como tier propio por si el dueño luego quiere diferenciarlo sin tocar código. |
-
-> **Cambio intencional de comportamiento (T2)**: antes de v1.9, Rare y Rare Holo eran `premium:false` y
-> cotizaban al **bin fijo de bulk**. A partir de v1.9 el humano decidió que **T2 use `pct` bajo (default 25%)**.
-> Esto **NO** es un bug ni una regresión: es una decisión de negocio para que la banda intermedia se pague a
-> mercado. La money-safety se mantiene: si el `pct` de T2 no tiene referencia de mercado, la carta cae en
-> **«precio pendiente»** (nunca $0, nunca bin fijo).
-> **⚠ Retirado en v2.0 (§N.1)**: esta tabla de tiers **desaparece**. Ninguno de sus valores (T0 $0.50, T1
-> $1.50, T2 25%, T3/T4 40%) sobrevive: los sustituyen el **piso único**, el **bin único** y las **curvas de
-> `markup` y `pct`** por valor de mercado (§N.2).
-> **Alcance compra + venta (LOCKED)**: la misma taxonomía de tiers aplica a **AMBOS** la tabla de **COMPRA**
-> (buylist, `pct` = «% de la referencia») y la de **VENTA** (`computeSalePriceForRarity`, §A/M2, donde `pct` =
-> «markup ARRIBA de mercado»). Es **un** mapa rareza→tier compartido con **dos juegos de valores por tier**
-> (compra vs. venta). Los valores por defecto de venta los define el arquitecto/backend reproduciendo el
-> markup vigente por rareza; el eje de tiers no cambia esa matemática.
-
-**M.2 — Mapa rareza canónica → tier (LOCKED; TODAS las canónicas de `common/rarity-catalog.ts`, v1.29)**
-> Cubre las **26 rarezas canónicas** hoy en el catálogo. El `premium` mostrado es el DATO vigente del catálogo;
-> el tier respeta ese `premium` (no-premium ⇒ T0–T2, premium ⇒ T3–T4). **El mapa es EDITABLE por el dueño**
-> desde M2 (decisión del humano): el dueño puede reasignar una rareza a otro tier sin tocar código; el seed
-> arranca con este mapa. La money-safety no depende de que el dueño no se equivoque: el invariante de
-> refinamiento estricto (ninguna `premium:true` en un tier de bin fijo) se valida server-side (ver M.4).
-
-| Rareza canónica | `premium` (hoy) | Tier propuesto |
-|---|---|---|
-| Common | no | **T0 Bulk** |
-| Uncommon | no | **T1 Uncommon/Reverse** |
-| Reverse Holo | no | **T1 Uncommon/Reverse** |
-| Promo | no | **T1 Uncommon/Reverse** *(default; los promos varían, el dueño puede reasignar en M2)* |
-| Rare | no | **T2 Rare/Holo** |
-| Rare Holo | no | **T2 Rare/Holo** |
-| Double Rare | sí | **T3 Premium/Chase** |
-| Ultra Rare | sí | **T3 Premium/Chase** |
-| Illustration Rare | sí | **T3 Premium/Chase** |
-| Rare Holo EX | sí | **T3 Premium/Chase** |
-| Rare Holo GX | sí | **T3 Premium/Chase** |
-| Rare Holo V | sí | **T3 Premium/Chase** |
-| Rare Holo VMAX | sí | **T3 Premium/Chase** |
-| Rare Holo VSTAR | sí | **T3 Premium/Chase** |
-| Rare Holo LV.X | sí | **T3 Premium/Chase** |
-| Rare Prime | sí | **T3 Premium/Chase** |
-| Rare BREAK | sí | **T3 Premium/Chase** |
-| LEGEND | sí | **T3 Premium/Chase** |
-| Amazing Rare | sí | **T3 Premium/Chase** |
-| Radiant Rare | sí | **T3 Premium/Chase** |
-| Shiny Rare | sí | **T3 Premium/Chase** |
-| Trainer Gallery Rare Holo | sí | **T3 Premium/Chase** |
-| Rare ACE | sí | **T3 Premium/Chase** *(default; el dueño puede subirla a T4 en M2 si quiere pagar más)* |
-| Special Illustration Rare | sí | **T4 Ultra/Grail** |
-| Hyper Rare | sí | **T4 Ultra/Grail** |
-| Secret Rare | sí | **T4 Ultra/Grail** |
-| Gold Rare | sí | **T4 Ultra/Grail** |
-
-**M.3 — Cierre de las rarezas «SIN MAPEAR» (unmapped) — LOCKED (corrección de dinero)**
-> Hoy estas caen como `unmapped` (pass-through Title-case) y su tier lo decide `premiumByPattern` (red por
-> patrón). **Dos de ellas son money-LOSING hoy** porque el patrón NO las reconoce como premium y las manda al
-> bin fijo barato de bulk. El humano **cerró los tres casos** (añadir alias/canónica + tier premium); esto es
-> una **corrección de dinero**: dejan de cotizar al bin de bulk.
-
-| Rareza cruda (SIN MAPEAR) | Verdicto `premiumByPattern` HOY | Riesgo hoy | Decisión LOCKED: canónica → tier |
-|---|---|---|---|
-| **Mega Hyper Rare** | **premium=sí** (contiene «hyper») | OK (cae a fallback %) | **alias de Hyper Rare** → **T4 Ultra/Grail** |
-| **`MEGA_ATTACK_RARE`** (valor crudo, snake_case) | **premium=NO** (sin substring ni token v/ex/gx) | **⚠ money-losing**: hoy cotiza al **bin fijo de bulk** | **nueva canónica premium** (p. ej. «Mega Rare») → **T3 Premium/Chase**. **Corrige el bug**: deja de cotizar al bin de bulk. También se **normaliza el valor crudo** (viene en snake_case sin pasar por normalize). |
-| **Black White Rare** | **premium=NO** (sin match) | **⚠ money-losing**: hoy cotiza al **bin fijo de bulk** | **nueva canónica premium** «Black White Rare» → **T3 Premium/Chase**. **Corrige el bug**: deja de cotizar al bin de bulk. |
-
-> **Política de cierre (LOCKED)**: estos tres casos quedan fijados. **Puede haber más** rarezas `unmapped` en
-> el catálogo real; el **barrido definitivo** (recorrer TODAS las rarezas distintas presentes tras el sync y
-> asignarles canónica+tier) lo ejecuta el arquitecto/backend contra los datos reales al implementar, aplicando
-> esta misma política (una `unmapped` premium por patrón nunca cae a T0–T2 de bin fijo; ver M.4). Esto **no es
-> un hueco de producto** que bloquee al arquitecto: es una tarea de implementación con la política ya fijada.
-
-**M.4 — Money-safe (invariante que NO cambia)**
-- [ ] **Rareza sin tier explícito → tier por defecto = regla `pct` de fallback** (`BUYLIST_PRICE_FALLBACK_PCT`,
-      default 40% del mercado), **NUNCA $0 y NUNCA el bin fijo de bulk**. Una rareza nueva de un set futuro
-      entra `unmapped` y cotiza por el fallback % hasta que se le asigne tier (mismo comportamiento predecible y
-      auditable que hoy, R-5).
-- [ ] **Refinamiento estricto de `premium`**: el mapa rareza→tier debe respetar el `premium` del catálogo
-      canónico —ninguna rareza `premium:true` puede mapear a un tier de bin fijo—, para preservar el fix de
-      Fase 0.1 (una chase jamás cotiza al bin barato de bulk). **Nota v1.9**: con T2 ahora en `pct`, los únicos
-      tiers de **bin fijo** son **T0 y T1**; T2–T4 son `pct`. El invariante aplica igual (una `premium:true`
-      nunca puede caer en T0/T1). Este invariante se valida server-side aunque el mapa sea editable por el dueño.
-- [ ] **`pct` sin referencia de mercado → «precio pendiente»** (se escala al dueño), igual que §E.1; jamás se
-      inventa ni se descarta el precio. **Aplica explícitamente a T2 (Rare/Holo)**, que a partir de v1.9 es
-      `pct`: una Rare/Rare Holo sin precio de mercado del acabado queda **pendiente, nunca $0**.
-- [ ] **Derivación server-side (SEC-A1) intacta**: el tier se resuelve en backend desde la **rareza real** de la
-      carta (`Card.rarityCanonical`) y el acabado validado, nunca del DTO del cliente. Aplica a **compra y
-      venta** por igual (el mismo mapa rareza→tier alimenta ambos ejes de dinero).
-
-**M.5 — Editor (M2) y presencia (LOCKED)**
-- [ ] **Editor por tier en M2** *(§E.1, evoluciona)*: la tabla de M2 pasa de «una fila por rareza» a «una fila
-      por **tier**» (tier → regla `fixed/%` + valor), **para compra Y para venta** (dos juegos de valores por
-      tier, un solo mapa). Editable **sin deploy** y **auditado** (M10).
-- [ ] **Mapa rareza→tier EDITABLE por el dueño** (decisión del humano, Opción B): además de editar la regla de
-      cada tier, el dueño puede **reasignar una rareza a otro tier** desde M2. El backend valida el invariante
-      de refinamiento estricto (M.4) en cada cambio, de modo que una edición no pueda mandar una rareza premium
-      a un tier de bin fijo. Todo cambio queda **auditado** (M10).
-- [ ] **Compatibilidad / migración**: el seed de tiers y del mapa **reproduce el comportamiento vigente para
-      T0/T1/T3/T4** (bulk fijo $0.50/$1.50, chase 40%); **T2 arranca en `pct` 25%** (cambio intencional, NO
-      preserva el bin fijo anterior). Las reglas por-rareza actuales se migran a su tier; las tres rarezas
-      `unmapped` (M.3) se seedan a su canónica+tier premium.
+> **Cuerpo retirado el 2026-10-31 (tope DOC-SIZE):** M.1–M.5 (tabla de 5 tiers, mapa rareza→tier, cierre de las
+> `unmapped` Mega Hyper Rare / `MEGA_ATTACK_RARE` / Black White Rare como premium, invariantes y editor por tier en M2)
+> ya no describen el producto; texto completo en git `83166568` y línea en `docs/DECISIONES.md`.
 
 ### N. Precio puro por valor de mercado (transversal — v2.0, P-48, LOCKED)
 > **Qué es**: el precio de una carta pasa a depender **solo de su valor de mercado**. Se **retiran del
@@ -14954,6 +14826,65 @@ product-owner con búsqueda en `PROJECT.md` el 2026-10-29.)*
    2 recién llegadas, iguales en dos navegadores distintos; (c) un invitado compra una destacada y desaparece de la
    portada en el otro navegador a más tardar 60 s después, al recargar; (d) con el tope de créditos bajado, el dueño ve el aviso de §DYN.2 en el panel.
 
+#### Conversión, confianza y SEO (§MKT-CONV, 2026-10-30) — criterios 940–957
+*(Fuente: orden del dueño del 2026-10-30, «SI con todas tus sugerencias», sobre el plan de conversión de marketing: Ola 1
+y Ola 2; el ID del plan va entre corchetes. Sin dinero: no cambian envío (`HECHOS.md` 2026-10-30 «Envío de pedidos solo de
+cartas: se queda igual»), comisión ni precios; la comisión dentro del precio (misma fecha, «Comisión de plataforma DENTRO
+del precio») va en una entrega aparte. No entran aquí: imágenes (B6), URL con nombre (C9), medición (A*) ni guías (E*).
+Todo texto nuevo de cara al cliente lo aprueba el dueño antes de publicar (`HECHOS.md` 2026-10-24 «Regla de envío nueva…»).
+«HTML crudo» = la respuesta del servidor leída con `curl`, sin ejecutar JavaScript. Más alto previo: 939.)*
+940. **El banner no tapa la compra [B1]**: con el banner de cookies abierto, a 360, 390 y 414 px y a 1366×768, en ficha y
+   catálogo, COMPRAR se ve entero y se puede pulsar; el banner es una barra inferior de ≤ ~90 px y «Aceptar» y «Solo lo
+   necesario» tienen el mismo peso visual. Texto y botones, sin cambio (`HECHOS.md` 2026-10-26 «Aviso de privacidad con la
+   medición: aprobado»). El dueño lo aprueba ante la captura antes de publicar; C-F2/C-F3 (§MKT.H.11) siguen verdes.
+941. **«Ventas finales» una sola vez [B4]**: entre ficha y carrito la regla de ventas finales aparece **1** vez, antes de
+   pagar, con T8 al lado («Si tu carta llega dañada o equivocada, te reembolsamos.», `HECHOS.md` 2026-10-25 «Textos del
+   checkout y medición aprobados»). Su redacción es la vigente; P-LEG-6 (§LEG.4) no se decide aquí.
+942. **Casilla del correo sin guion [B4b]**: con el campo de correo vacío, la casilla nunca dice «Confirmo que — es
+   correcto»: muestra el correo escrito o, si no hay, un texto neutro.
+943. **Nada se sale de la pantalla en celular [B5]**: en portada, catálogo y ficha, a 360, 390 y 414 px, `innerWidth` =
+   `scrollWidth` = ancho de la pantalla (hoy la portada mide 677 px); en el catálogo se ven ≥ 2 tarjetas completas en la
+   primera pantalla (SUPUESTO: también con el banner abierto).
+944. **«Quiénes somos y contacto» [B2]**: una página propia (SUPUESTO: `/es/nosotros` y su par en `/en`) responde 200, es
+   indexable, está en `sitemap.xml` y lleva `Organization` con `contactPoint`. Muestra ciudad, Instagram, los métodos de pago
+   que el checkout acepta ese día, el plazo de entrega y los contactos que el dueño autorice (MKT-1); ningún dato inventado.
+945. **Señales de confianza a la vista [B2]**: una franja de una línea con esas señales se ve en la ficha y en el carrito, y
+   el pie de página enlaza a «Quiénes somos y contacto».
+946. **Instagram en los datos para Google [B2b]**: el JSON-LD `Organization` lleva `sameAs` con la URL de Instagram que
+   confirme el dueño (MKT-2).
+947. **La bóveda en la ficha [T2]**: la ficha de una carta de menos de MX$600 muestra la línea de bóveda del diseño
+   CHK-MOVIL.5 T2 (`DESIGN_SYSTEM.md`).
+948. **Una acción, una etiqueta [B6b]**: en la ficha, la barra fija y el botón del cuerpo dicen lo mismo y hacen lo mismo;
+   COMPRAR es el botón con más peso (el de «Lista de deseos» no lo supera). SUPUESTO: sale la frase «El precio de venta es
+   el precio publicado de esta carta».
+949. **La ficha se lee sin JavaScript [C1]**: el HTML crudo de 4 fichas (suelta, gradeada, sellado y una agotada) trae un
+   `<h1>` con nombre · set · número, el nombre aparece en `<body>` y se ven precio, condición y 2-3 líneas de texto. La
+   ficha no vuelve a pedir en el navegador los datos que ya mandó el servidor.
+950. **Enlaces que Google puede seguir [C2]**: el HTML crudo de `/es` y `/es/catalog` trae enlaces `<a href>` a fichas
+   (> 0) y el catálogo pagina con `?page=` enlazable; no dice «Sin publicaciones disponibles» si hay publicaciones.
+951. **Ficha que no existe y ficha agotada [C3]**: una ficha con identificador inexistente (p. ej. `00000000-…`) responde
+   **404** con su propio título, no el de la portada. Una carta agotada sigue la respuesta del dueño a MKT-3 (SUPUESTO
+   mientras tanto: visible e indexable con «Agotada» y `availability` = `OutOfStock`).
+952. **Cada página con su título [C4]**: las 16 páginas públicas que midió marketing tienen título y descripción propios y
+   `canonical`; catálogo, sellado, buylist, accesorios y decks-meta ya no repiten los de la portada.
+953. **Producto completo [C5]**: el `Product` de la ficha lleva `itemCondition`, `brand`, `shippingDetails` con las tarifas
+   vigentes (`HECHOS.md` 2026-10-25 «Envío gratis desde MX$4,000 para CUALQUIER pedido») y `hasMerchantReturnPolicy` acorde a
+   §LEG.4; la foto del sellado mide ≥ 1000 px; la Prueba de resultados enriquecidos de Google no marca errores.
+954. **Portada y asistentes de IA [C6]**: la portada lleva JSON-LD `WebSite` con `SearchAction`, `logo` y `contactPoint`;
+   `llms.txt` enlaza sellado, Card Show, Instagram y «Quiénes somos»; en `sitemap.xml` las páginas fijas llevan `lastmod`
+   real (no la hora de la petición) y `x-default` apunta a una URL que responde 200 sin redirigir.
+955. **Una sola página del Card Show [C7]**: `tcghunt.mx/card-show` (la que ya existe; palabras del dueño, 2026-10-31: «La
+   página del cardshow ya existe es tcghunt.mx/card-show») responde 200, es la canónica y está en `sitemap.xml`;
+   `/es/card-show` (hoy 404) redirige con 301 o 308 a ella conservando los UTM. Los enlaces de la bio `/es/sellado` y
+   `/es/buylist` también responden 200 con UTM. **Urgente:** en producción antes del Card Show (5-6 dic).
+956. **IVA en los textos para buscadores [C8]**: se cumple la respuesta del dueño a MKT-4. Si es «se quita», `grep -i iva`
+   sobre las meta-descripciones y `llms.txt` da 0 y la ficha sigue mostrando «incluye IVA» como hoy (§MIV). En `/en` esos
+   textos no mezclan español.
+957. **De punta a punta** *(O-4)*: en un celular de 390 px, desde un enlace con UTM de Instagram, un invitado abre la
+   portada con el banner abierto, entra al catálogo, abre una ficha, ve la franja de confianza y la línea de bóveda, pulsa
+   COMPRAR, llega al carrito sin desborde y con «ventas finales» una vez, y abre «Quiénes somos y contacto» desde el pie.
+   Lo recorre tester-e2e en el navegador contra el stack con datos sembrados.
+
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
 - **⚠ Negocio — LA COMISIÓN SIGUE FUERA DEL PRECIO EXHIBIDO: DECISIÓN DEL DUEÑO, «DE MOMENTO», CON PENDIENTE
@@ -16941,31 +16872,24 @@ promesa:**
 > 2026-10-25 y se van integrando aquí al compactar. Al contestarse, cada pregunta sale de aquí y pasa a
 > `docs/DECISIONES.md` con la respuesta literal.
 
-- *(Ninguna abierta a 2026-10-29: P-VIT-1 y las dos de §X.2 se respondieron y están en `docs/DECISIONES.md`.)*
-
-## Preguntas abiertas — precio de buylist por rareza (v1.3)
-> Este requisito (§E.1) está redactado con supuestos razonables para no bloquear. El humano debe confirmar o
-> corregir los siguientes puntos antes de pasar al arquitecto. Los defaults propuestos preservan el
-> comportamiento actual, así que el desarrollo puede arrancar con ellos si el humano lo autoriza.
-1. **Defaults exactos por rareza — rarezas intermedias**: ¿confirmas que el seed inicial reproduce lo de hoy
-   (Common $0.50 fijo, Reverse Holo $1.50 fijo, todo lo demás 40% de referencia)? En particular: **Uncommon**
-   y **Rare (no-holo)** — ¿los quieres como **fijo tipo bulk** (¿qué monto, p. ej. $0.50?) o como **% de la
-   referencia** (¿qué %)?
-2. **Fallback de rareza no listada**: cuando aparezca una **rareza nueva** tras un sync y el dueño aún no le
-   fijó regla, ¿prefieres (a) aplicar **% default** (ej. 40%) para no bloquear la cotización —recomendado—, o
-   (b) dejar la carta en **"precio pendiente"** hasta que el dueño la configure? (Con (a), la carta solo cae en
-   "precio pendiente" si además falta la referencia.)
-3. **¿Un % global de referencia editable, o % por rareza?** El default propone **40% para todas las rarezas
-   de porcentaje**, pero como cada fila es editable podrías fijar **% distinto por rareza** (ej. Illustration
-   Rare 45%, Secret Rare 35%). ¿Quieres esa granularidad desde el MVP o basta un % común para todas las de
-   porcentaje?
-4. **Alcance de la tabla — ¿solo buylist?** Este precio por rareza es para la **compra al usuario (buylist)**.
-   ¿Se queda acotado a buylist (recomendado) o esperas que afecte también otros cálculos (p. ej. costo de
-   aportación en especie del inventario propio, hoy 70% de referencia)?
-5. **Ubicación del editor**: propongo **M2 (Catálogo y precios)** por ser pricing. ¿De acuerdo, o lo prefieres
-   en **M10 (Config)** junto a los demás diales?
-6. **Monedas/límites de valores**: ¿algún **rango válido** por regla (ej. % entre 0–100, fijo ≥ $0) o **tope
-   máximo** de pago por rareza que quieras imponer como salvaguarda?
+*Conversión y SEO (criterios 940–957). Si no contestas, se construye con la recomendación; solo MKT-1 bloquea (944–945).*
+- **MKT-1 · Datos de «Quiénes somos y contacto».** Solo publicamos lo que tú nos des: (a) **ciudad** que se muestra
+  (p. ej. «Guadalajara, Jal.» o solo «México»); (b) **correo público** (p. ej. `hola@tcghunt.mx`) y/o **WhatsApp**:
+  ¿cuál, o ninguno?; (c) **plazo de entrega** que prometes (p. ej. «enviamos en 1-2 días hábiles, llega en 3-7»);
+  (d) ¿hay **atención en persona** (local, con cita, solo en eventos como el Card Show)? **Recomendación:** ciudad,
+  Instagram y un correo de la tienda, sin WhatsApp personal, y el plazo que hoy cumples siempre, no el mejor caso.
+- **MKT-2 · Instagram.** ¿La cuenta oficial es `@tcghunt.mx` (`https://www.instagram.com/tcghunt.mx/`)? **Recomendación:**
+  sí, si es esa; se enlaza en la página de contacto y en los datos que lee Google.
+- **MKT-3 · Carta agotada.** Se vende la última Ash's Pikachu: ¿su página (a) **sigue visible con «Agotada»** o (b)
+  **desaparece** («página no encontrada»)? **Recomendación: (a)**: Google no la pierde y, cuando vuelva a haber, ya
+  está encontrada; quien llegue ve «Agotada» y puede seguir al catálogo. Una dirección que nunca existió da «no
+  encontrada» en ambos casos.
+- **MKT-4 · «IVA incluido» en los textos para Google y asistentes de IA.** Hoy esas descripciones dicen, por ejemplo,
+  «… MX$1,160 · IVA 16 % incluido». Marketing tiene tu regla de no mencionar el IVA (2026-10-25). ¿(a) **se quita** de
+  esos textos (la tienda sigue mostrando «incluye IVA» en la ficha como hoy) o (b) **se queda**? **Recomendación: (a)**:
+  el precio publicado ya es el final, la ficha lo sigue diciendo y los textos de marketing y de la tienda no se contradicen.
+- **MKT-5 · ¿Quién escribe «Quiénes somos»?** (a) marketing lo redacta con tus datos de MKT-1 y tú lo apruebas; (b) lo
+  escribes tú. **Recomendación: (a).**
 
 ## Preguntas abiertas — acabado / versión de carta (v1.4)
 > Requisito §I redactado con las decisiones ya tomadas por el humano; quedan estos huecos menores. Los
@@ -17043,37 +16967,6 @@ promesa:**
    su set-id real (money-safe). ¿Confirmas que **no** quieres, ni ahora ni pronto, fusionar los set-ids en una
    sola llave real (lo que implicaría re-llavear precio/inventario/bóveda)? Si algún día lo quieres, es un
    cambio de modelo aparte.
-
-## Decisiones (v1.9, P-34) — pricing por tiers (LOCKED)
-> El humano respondió las preguntas abiertas del borrador v1.8. Estas decisiones quedan **cerradas** y son la
-> entrada para el arquitecto (schema + contrato del editor). Ninguna bloquea el arranque.
-1. **Número de tiers → 5** (LOCKED): T0 Bulk, T1 Uncommon/Reverse, T2 Rare/Holo, T3 Premium/Chase, T4
-   Ultra/Grail. Define el editor de M2 (5 filas de reglas por eje).
-2. **Nombres de los tiers → los propuestos** (LOCKED): «Bulk / Uncommon-Reverse / Rare-Holo / Premium-Chase /
-   Ultra-Grail».
-3. **T2 (Rare / Holo) → PORCENTAJE bajo del mercado** (LOCKED): default **25%**, ajustable sin código. **NO
-   fijo.** Es un **cambio intencional** de comportamiento (antes Rare/Rare Holo caían al bin fijo de bulk).
-   Money-safe: `pct` sin referencia de mercado ⇒ **precio pendiente, nunca $0** (igual que T3/T4).
-4. **Rarezas SIN MAPEAR → premium** (LOCKED, corrección de dinero): **Mega Hyper Rare → alias de Hyper Rare →
-   T4**; **`MEGA_ATTACK_RARE` → nueva canónica premium → T3**; **Black White Rare → nueva canónica premium →
-   T3**. `MEGA_ATTACK_RARE` y Black White Rare eran **money-losing** (el patrón las trataba como no-premium y
-   cotizaban al bin fijo de bulk): con esto dejan de hacerlo. El **barrido de otras `unmapped`** del catálogo
-   real es tarea de implementación (arquitecto/backend) con esta misma política; no es un hueco de producto.
-5. **Eje acabado (`finish`) → sigue siendo eje aparte** (LOCKED): los tiers son para el eje **rareza**; el eje
-   **acabado** (normal/reverse_holo/holofoil/1st-ed) no se «tieriza» y queda como está (§I).
-6. **Tiers en compra Y venta** (LOCKED): un **mismo mapa rareza→tier** alimenta la tabla de **compra (buylist)**
-   y la de **venta** (`computeSalePriceForRarity`), con **dos juegos de valores por tier** (en compra `pct` = %
-   de la referencia; en venta `pct` = markup arriba de mercado).
-7. **Mapa rareza→tier → EDITABLE por el dueño** (LOCKED, Opción B): además de editar la regla de cada tier, el
-   dueño puede **reasignar una rareza a otro tier** desde M2. El backend valida el invariante de refinamiento
-   estricto (M.4) en cada edición; todo cambio queda auditado (M10).
-8. **T4 (Ultra/Grail) → 40%** (LOCKED): igual que T3 por ahora; queda como tier propio para poder subirlo luego
-   sin código si el dueño quiere pagar más por Special Illustration/Hyper/Secret/Gold.
-
-**Abierto (no bloquea al arquitecto):** ninguna decisión de producto queda pendiente. Lo único que resta es
-**operativo/de implementación**: (a) el **barrido completo de rarezas `unmapped`** contra el catálogo real
-(punto 4) y (b) los **valores por defecto de venta por tier** que reproduzcan el markup vigente (los fija
-backend/arquitecto al implementar, sin decisión de producto adicional).
 
 ## Preguntas abiertas — gancho de grading (v2.0, §O)
 > Las **decisiones de fondo están cerradas** (alcance de **cuatro** superficies *(actualizado 2026-08-31)*,
