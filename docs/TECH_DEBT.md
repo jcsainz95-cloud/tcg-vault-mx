@@ -37,6 +37,27 @@
 
 ---
 
+## Frontend · 2026-10-31 · catálogo de conversión — rechazo del techlead sobre `561ad425` (R1–R3, TL-MKT2-1…8)
+
+> Dueño del código anotado: **frontend** salvo indicado. Sin dinero. Medido el 2026-10-31 en `claude/mkt-fe-tl1` (FRONTEND_NOTES §MKT-TL1). MK-D4/D5/D8 (makeover 1a, 2026-08-22) cerradas aquí; su texto queda en git.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| MK-D5 | CERRADA · filtros del catálogo con dos fuentes (URL solo con `?page=`, resto en `useState`; `sameFilters` por `JSON.stringify`): filtrar → página 2 → recargar perdía el filtro | frontend | 2026-10-31 | `catalog/catalog-url.test.ts` (ida y vuelta `parse(serialize(f))`, clave sin orden de campos, href con filtros) y `CatalogView.tl1.test.tsx` «R1 / MK-D5» (filtrar → paginar → recargar; popstate; sin doble lectura) verdes |
+| MK-D8 | CERRADA · «Limpiar filtros» dentro de los 300 ms del debounce no borraba el término pendiente (comparaba `next.q` con `filters.q`) | frontend | 2026-10-31 | `CatalogView.tl1.test.tsx` «MK-D8» verde (input vacío y ninguna lectura con `q`) |
+| MK-D4 | CERRADA · chips de tipo y acabado con el enum crudo (`graded`, `holofoil`) | frontend | 2026-10-31 | `CatalogView.tl1.test.tsx` «MK-D4» + `CatalogView.test.tsx` «Quitar filtro Graded» verdes |
+| R2 | CERRADA · `loadCatalogPageForSSR` leía `no-store` en cada visita (ARCHITECTURE §4.DYN (f) 3: ≤ 60 s) | frontend | 2026-10-31 | `src/lib/catalog-ssr.test.ts` «R2» verde (`{ next: { revalidate: 30, tags: ['catalog'] } }`) |
+| TL-MKT2-1 | ABIERTA · `withBudget` genérico vive en `lib/home-ssr.ts` y no aborta; las fichas SSR no tienen tope; `api-client` sin timeout | frontend | 2026-10-31 | módulo `lib/ssr-budget.ts` con opción de abortar y su prueba; `loadCardDetailForSSR`/`loadSealedDetailForSSR` con tope |
+| TL-MKT2-2 | ABIERTA · dependencia implícita del `staleTime` 30 s de `Providers.tsx`; `CatalogView.c2.test` (y `.tl1`) copian `30_000` | frontend | 2026-10-31 | `Providers.tsx` exporta sus `defaultOptions` y las pruebas los importan (`grep -rn "staleTime: 30_000" frontend/src --include=*.test.tsx` ⇒ 0) |
+| TL-MKT2-3 | ABIERTA · regla de envío copiada en `lib/seo.ts` y en el oráculo del E2E | frontend (+ arquitecto) | 2026-10-31 | el E2E toma el envío del backend (`GET /checkout/shipping-rule`), sin constante propia |
+| TL-MKT2-4 | ABIERTA · lecturas SSR desde la IP de Vercel contra el límite de 300/min por IP: un 429 degrada el SEO en silencio. **NO MEDIDO** | devops (medir) + arquitecto | 2026-10-31 | medición de 429 en lecturas SSR de producción y decisión del arquitecto (exención o caché) |
+| TL-MKT2-5 | ABIERTA · B5 arreglado puntual: 24 `overflow-x-auto` sin `relative`; la ficha no está en `e2e/mobile-no-overflow.spec.ts` | frontend | 2026-10-31 | la ficha `/es/catalog/<id>` en `PAGES` del spec, verde a 360/390/414 px |
+| TL-MKT2-6 | ABIERTA · el caso `?page=2` de `e2e/seo-raw-html.spec.ts` compara dos vacíos con el seed de 11 grupos (≤ 20 por página) | frontend (+ backend seed) | 2026-10-31 | seed con > 20 grupos publicados y la rama `else` (anotación «sin paginador») borrada del spec |
+| TL-MKT2-7 | ABIERTA · el canonical de `/catalog?page=n` apunta a `/catalog` | arquitecto | 2026-10-31 | decisión en ARCHITECTURE/API_CONTRACT §E3 y prueba de `generateMetadata` que la fije |
+| TL-MKT2-8 | ABIERTA · dos patrones servidor → cliente (`HydrationBoundary` en la portada, `initialData` en el catálogo) sin regla | arquitecto | 2026-10-31 | regla escrita en ARCHITECTURE; los dos sitios la citan |
+
+---
+
 ## Frontend · 2026-10-29/30 · §DYN.3 velocidad de la portada — rechazos del techlead sobre `d1b96eca` (R1, TL-DYN3-1…5) y `d0b40182` (TL-DYN-8)
 
 > Dueño del código anotado: **frontend** (TL-DYN3-4: **backend**). Sin dinero. Medido el 2026-10-29 en la rama `claude/portada-velocidad-fe2` (FRONTEND_NOTES §DYN.3).
@@ -5083,24 +5104,6 @@ aparece, con la bandera SÍ).
 > Paridad ES/EN verificada tras el borrado: **2 285 claves, conjuntos idénticos** (eran 2 287). Se van de
 > los dos locales o de ninguno.
 
-#### MK-D4 · Chips de filtro del catálogo con etiquetas sin traducir (`productType`, acabado) (Baja, frontend)
-- **Dónde:** `catalog/CatalogView.tsx` → `buildChips`: el chip de `productType` pinta el valor crudo
-  del enum (`raw`/`graded`/`sealed`), y el de `finish` la etiqueta cruda (la localizada vive en el
-  panel de filtros). El nombre de set (QA-1) y los límites de precio (QA-2) ya se corrigieron.
-- **Impacto:** bajo (copy en inglés técnico en chips ES). El valor es correcto; solo falta la
-  etiqueta localizada (los catálogos i18n `finish.*` y tipos ya existen).
-- **Disparador:** próximo toque a `buildChips`; mapear a `t('finish.*')` / etiqueta de tipo.
-
-#### MK-D5 · Doble fuente de verdad de filtros del catálogo (URL vs estado) (Media, frontend)
-- **Dónde:** `catalog/CatalogView.tsx`: los filtros viven en `useState` y se MERGEAN desde la URL
-  (efecto sobre `urlKey` + `parseUrlFilters`), y solo `type=graded` se refleja de vuelta con
-  `router.replace`. El resto de filtros no viaja a la URL (no hay deep-link/back-forward completo), y
-  la sincronización bidireccional parcial es frágil (R5 añadió además el término debounced como
-  tercera pieza a coordinar).
-- **Impacto:** medio (UX de compartir/atrás-adelante + complejidad accidental creciente).
-- **Disparador:** a medio plazo, próximo trabajo mayor sobre el catálogo: hacer la **URL la fuente
-  única** (estado derivado de `searchParams`, cambios vía `router.replace` con scroll preservado).
-
 #### MK-D6 · `BuylistView` sigue siendo un monolito (~820 líneas) (Media, frontend)
 - **Dónde:** `buylist/BuylistView.tsx` (~821 líneas) pese a las extracciones previas (TL-C3:
   `useSellCart`, `SellCartContents`, `MyRequestsSection`).
@@ -5124,15 +5127,6 @@ aparece, con la bandera SÍ).
   storefront quedó en `(storefront)/_shared/PendingPriceLabel.tsx` (R2, color accent §16.4/§20.13);
   la **consolidación final va en `PriceTag`** (que hoy pinta su propia variante) cuando se serialice
   la zona compartida — mismo disparador que MK-D1.
-
-#### MK-D8 · `CatalogView` sin test de regresión del debounce/reset de página (Baja, frontend)
-- **Dónde:** `catalog/CatalogView.tsx` — la interacción debounce de búsqueda (300 ms, R5) + reset de
-  página no tiene test de regresión. **Borde conocido:** pulsar «Limpiar filtros» dentro de la
-  ventana de 300 ms no limpia el input de búsqueda y el término pendiente entra como filtro después.
-- **Impacto:** bajo (borde de UX poco frecuente; sin test, una regresión pasaría inadvertida).
-- **Remedio:** limpiar `searchTerm` cuando el caller pasa filtros vacíos + test de regresión del
-  debounce/reset.
-- **Disparador:** próximo toque al catálogo.
 
 #### MK-D9 · `StockBadge` sin prop `size` (Baja, frontend)
 - **Dónde:** `(storefront)/_shared/StockBadge.tsx` — no expone tamaño; `SealedDetailView` pelea con

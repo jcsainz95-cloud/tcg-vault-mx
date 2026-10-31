@@ -6,6 +6,17 @@
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46; 2026-10-31: §MKT tienda §A3/§A4/§E1
 > plegado en §MKT-OLA2); cada pase que añade quita más de lo que añade.
 
+## §MKT-TL1 · Catálogo: la URL es la única fuente de los filtros (2026-10-31, rama `claude/mkt-fe-tl1`, base `561ad425`)
+
+- **Filtros ↔ URL (R1, MK-D5):** `catalog-url.ts` `serializeCatalogFilters` (inversa exacta de `parseUrlFilters`, que lee
+  también `condition` y el rango de precio) y `catalogFiltersKey` (clave de react-query e `initialData`, sin orden de
+  campos; `sort` por defecto ≡ sin `sort`). `CatalogView` escribe los filtros COMPLETOS con `history` (`push` al
+  paginar, `replace` lo demás; ya no hay `router.replace` para Gradeadas: se escribe `productType=graded`). `popstate`
+  toma la URL entera; pestañas y enlaces internos se mergean sobre el panel. `catalogPageHref(filters, p, sp)`.
+- **R2:** `loadCatalogPageForSSR` con `next: { revalidate: 30, tags: ['catalog'] }` (`CATALOG_SSR_REVALIDATE_S` = portada).
+- **MK-D8:** «Limpiar filtros» = `clearFilters` (también vacía el término sin debouncear). **MK-D4:** chips con `shop.type.*`/`finish.*`.
+- Candados y mutaciones: índice de `TECH_DEBT.md` §«2026-10-31 · catálogo de conversión».
+
 ## §MKT-OLA2 · Lo que ve un bot sin JavaScript: fichas, catálogo, metadata y JSON-LD (Ola 2, 2026-10-31, rama `claude/mkt-fe-seo`)
 
 **Estado vigente** (BRIEF_MKT §4 Ola 2 C1/C2/C4/C5/C6; `PROJECT.md` criterios 949, 950, 952–954; código `12b5c11d`).
@@ -15,12 +26,10 @@
   repite la lectura (depende del `staleTime` 30 s de `components/Providers.tsx`). Sin dato (backend caído) la vista
   pide sola. El `<h1>` de la carta lleva nombre · set · número: la línea de set va dentro, como bloque (se ve igual).
 - **Catálogo (C2):** `catalog/page.tsx` deriva los filtros de la URL con `catalog/catalog-url.ts` (puro; un módulo
-  `'use client'` no exporta funciones al servidor) y lee la página con tope `CATALOG_SSR_BUDGET_MS` 1200 ms, sin caché
-  de datos; viaja como `initialPage` y solo vale para su clave (`sameFilters`). `?page=n` (entero ≥ 2) se lee de la URL;
-  paginar escribe `?page=` con `history` nativo (sin viaje al servidor; la vista ignora el eco de su propia escritura).
-  `Paginator` con `hrefFor`: flecha habilitada = `<a href>` (clic normal pagina en cliente, con modificador sigue el
-  enlace); sin `hrefFor` (sellado, accesorios) siguen botones. `/compra` comparte metadata (canonical `/catalog`) pero no
-  lee en servidor. Portada: ya traía enlaces a fichas desde §DYN (DYN-F2).
+  `'use client'` no exporta funciones al servidor) y lee la página con tope 1200 ms y caché de datos 30 s (§MKT-TL1);
+  viaja como `initialPage`. `Paginator` con `hrefFor`: flecha habilitada = `<a href>` (clic normal pagina en cliente, con
+  modificador sigue el enlace); sin `hrefFor` (sellado, accesorios) siguen botones. `/compra` comparte metadata
+  (canonical `/catalog`) pero no lee en servidor.
 - **Metadata (C4):** `lib/seo.ts` `routeMetadata()` (título «TCG HUNT — {página}», descripción, canonical, og) en
   catálogo, sellado, accesorios, decks-meta, buylist; accesorio y deck con su nombre (lectura con tope 400 ms);
   términos y privacidad con canonical (privacidad apunta a `/es`: solo existe en español). Textos en `seo.pages.*`
@@ -58,8 +67,7 @@
   5 241 pruebas en verde. Antes/después en HTML crudo: ficha `42d7abe8` 190 → 662 caracteres visibles, 0 → 1 `<h1>`;
   `/es/catalog` 0 → 22 `href` a fichas; 15 rutas sondeadas: 8 → 13 títulos distintos (los 2 que quedan repetidos son
   `/compra` y `?page=2`, que comparten el del catálogo y su canonical). Cuáles son «las 16 que midió marketing»: NO
-  MEDIDO (la prueba C4 cubre 13). Paginador con > 20 grupos: el seed no llega (11); lo fijan `Paginator.c2` y
-  `CatalogView.c2` — contra el stack, NO MEDIDO.
+  MEDIDO (la prueba C4 cubre 13). Paginador contra el stack con > 20 grupos: NO MEDIDO (TL-MKT2-6, `TECH_DEBT.md`).
 
 ## §MKT-FE-A · Conversión de marketing, Ola 1: C7, B4, B4b, B5 (2026-10-31, rama `claude/mkt-fe-a`, base `83166568`)
 
@@ -3277,36 +3285,12 @@ la llamada `*` y su marcador en la nota.
 `next build` ✓ · `playwright test e2e/grading-estimate.spec.ts` **9/9** ✓ ·
 `playwright test e2e/catalog.spec.ts` **9 passed / 1 failed** (el fallo preexistente F-17).
 
-## §22 · Home «Top Bounties» — de tabla a tarjetas con imagen (2026-08-28, `main`)
+## §22 · Home «Top Bounties» — de tabla a tarjetas con imagen (2026-08-28, `main`; compactado 2026-10-31, detalle en el historial)
 
-Cambio visual pedido por el dueño: la sección de bounties de la home (`_home/BountyBoard.tsx`,
-montada en `page.tsx:128`) pasa de **tabla compacta** («Lo que más buscamos hoy») a **tarjetas con
-imagen de la carta**, y se retitula **«Top Bounties»** para quedar consistente con la vitrina de
-`/buylist` (`components/domain/TopBountiesShelf.tsx`).
-
-- **i18n:** `home.bounties.title` → «Top Bounties» (es/en). Subtítulo se conserva (ya era coherente).
-  Se **retiraron** las claves solo-tabla `colCard`/`colCondition`/`colWePay`/`conditionNm` y se
-  añadieron `home.bounties.wePay` («Pagamos» / «We pay») y `home.bounties.badge` («Bounty») para la
-  tarjeta. Verificado que `home.bounties.*` no lo comparte otra superficie (solo BountyBoard); la
-  vitrina de `/buylist` vive en un namespace aparte, `buylist.bounties.*` (intacto).
-- **Presentación:** el marco de estante (`_shared/Shelf.tsx`, título + «ver todo» → `/buylist`) se
-  mantiene; el interior pasa a una rejilla `grid-cols-2 lg:grid-cols-4` de tarjetas que **reutilizan
-  el lenguaje visual** de `TopBountiesShelf.BountyCard` (FinishBand + imagen `aspect-[5/7]` + chip
-  ☩ BOUNTY sobre scrim de tinta + nombre serif + set·número mono + precio héroe verde «Pagamos»).
-  No se reusó el componente `BountyCard` tal cual porque incluye el CTA «Cotizar esta carta» que
-  necesita el cotizador de `BuylistView` (`onQuote`); en la home no hay cotizador, así que cada
-  tarjeta es un `Link` a `/buylist` sin CTA muerto. Se evitó tocar `TopBountiesShelf` (regla: ya está
-  bien). La imagen usa `alt={name}` (antes `alt=""` aria-hidden en la vitrina) porque aquí es el
-  contenido accesible del enlace.
-- **Sin fuga de demanda:** la tarjeta NO reintroduce `remainingQty`/`targetQty` (se quitaron a
-  propósito en `e3f76e2`/`df50e60`/`965e9f2`). Confirmado por grep: la home no referencia
-  `remainingQty`/`targetQty`/`colWanted` fuera de comentarios y del fixture de test.
-- **Condicional intacto:** sin bounties o en error ⇒ la sección desaparece (misma regla de honestidad
-  que la vitrina).
-- **Tests:** nuevo `_home/BountyBoard.test.tsx` (4 casos): tarjetas con imagen + título «Top
-  Bounties» + precio «Pagamos», enlace a `/buylist`, no-fuga de cantidades, y ocultamiento en
-  vacío/error. `tsc --noEmit` ✓ · `vitest run` BountyBoard + TopBountiesShelf + home `page.test`
-  verdes.
+`_home/BountyBoard.tsx`: rejilla `grid-cols-2 lg:grid-cols-4` de tarjetas (lenguaje visual de `TopBountiesShelf.BountyCard`,
+sin su CTA de cotizar: cada tarjeta es un `Link` a `/buylist`, `alt={name}`), título `home.bounties.title` «Top Bounties».
+Sin `remainingQty`/`targetQty` (no fuga de demanda); sin bounties o en error, la sección desaparece. Candado
+`_home/BountyBoard.test.tsx` (imagen + título + «Pagamos», enlace, no-fuga, vacío/error).
 
 ## §21 · P-48 (v2.0) — precio puro por valor de mercado: editor de la curva, «Valor de mercado» condicional y bounty rebasado (2026-08-24, rama `claude/card-pricing-rules-2e537m`)
 
