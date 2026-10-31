@@ -350,7 +350,9 @@ function Detail({
           <CardImage src={card.imageLargeUrl ?? card.imageSmallUrl} alt={card.name} className="w-full max-w-[420px] bg-transparent p-0" />
         </div>
 
-        <div className="gutter py-10 lg:py-14">
+        {/* MKT-CONV.2: `lg:py-12` (antes 14) es la palanca del diseño para que COMPRAR quede sobre el banner a
+            1366×768 (L-3); el banner no se achica. */}
+        <div className="gutter py-10 lg:py-12">
           {/* C1 (criterio 949): el `<h1>` lleva nombre · set · número. La línea de set va DENTRO del encabezado
               como bloque propio, con la misma letra y el mismo margen que tenía de párrafo: se ve igual. */}
           <h1 className="font-serif text-[32px] leading-[1.05] text-text lg:text-[46px]" lang="en">
@@ -590,6 +592,9 @@ function MobileBuyBar({
   );
 }
 
+/** MKT-CONV.2: el botón del renglón mide 44 px en < lg y 40 px desde lg (`md` del diseño). */
+const ROW_CTA_LG = 'lg:h-10 lg:min-h-10 lg:py-0';
+
 /**
  * CTA por GRUPO con estado «Ver carrito».
  *
@@ -621,7 +626,7 @@ function InstanceCta({
 
   if (sellableUnits.length === 0) {
     return (
-      <Button variant="secondary" size="md" disabled data-testid="instance-cta">
+      <Button variant="secondary" size="md" disabled data-testid="instance-cta" className={ROW_CTA_LG}>
         {tcat('notForSale')}
       </Button>
     );
@@ -629,7 +634,13 @@ function InstanceCta({
 
   if (allInCart) {
     return (
-      <Button variant="secondary" size="md" data-testid="instance-cta" onClick={() => router.push('/checkout')}>
+      <Button
+        variant="secondary"
+        size="md"
+        data-testid="instance-cta"
+        className={ROW_CTA_LG}
+        onClick={() => router.push('/checkout')}
+      >
         {/* Check decorativo (§7.4): el texto es el portador del estado. */}
         <Check size={14} aria-hidden />
         {tcat('viewCart')}
@@ -638,7 +649,7 @@ function InstanceCta({
   }
 
   return (
-    <Button variant="primary" size="md" data-testid="instance-cta" onClick={() => onAdd(nextUnit!)}>
+    <Button variant="primary" size="md" data-testid="instance-cta" className={ROW_CTA_LG} onClick={() => onAdd(nextUnit!)}>
       {tcat('addToCart')}
     </Button>
   );

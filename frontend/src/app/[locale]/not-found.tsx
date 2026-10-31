@@ -5,14 +5,15 @@ import { Link } from '@/i18n/navigation';
 /**
  * C3 (criterio 951) — la página 404 de la tienda, con SU título («Página no encontrada · TCG HUNT») y no el de la
  * portada que heredaba del layout. La sirve todo `notFound()` bajo `[locale]`: la ficha de carta o de sellado que no
- * existe (`DETAIL_NOT_FOUND`), una guía retirada y el comodín `[...rest]`. Next añade `noindex` solo.
+ * existe (`DETAIL_NOT_FOUND`), una guía retirada y el comodín `[...rest]`.
  *
  * Next resuelve los metadatos de la 404 con este módulo (`errorConvention: 'not-found'`). Sin `params`: el idioma sale
  * de la petición (`i18n/request.ts`). Componente de servidor, sin estado de carga ni error propios.
  */
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('notFoundPage');
-  return { title: t('metaTitle'), robots: { index: false, follow: true } };
+  // `noindex` lo pone Next en toda 404; aquí solo el título.
+  return { title: t('metaTitle') };
 }
 
 export default async function LocaleNotFound() {
