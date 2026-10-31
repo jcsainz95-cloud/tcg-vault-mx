@@ -3,8 +3,8 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { SealedDetailView } from './SealedDetailView';
 import * as api from '@/lib/api';
-import { mockSealedGroups } from '@/lib/mock/fixtures';
-import type { ListingDTO, SealedGroupDTO, SealedValueHistoryResponse } from '@/types/contract';
+import { mockSealedGroups, type PricedSealedGroupDTO } from '@/lib/mock/fixtures';
+import type { ListingDTO, SealedValueHistoryResponse } from '@/types/contract';
 
 /**
  * §A1 (MKT-26a, D2=A · dueño 2026-10-16 · HECHOS:65) — **la ficha PÚBLICA de sellado ya NO pinta la
@@ -28,7 +28,7 @@ vi.mock('@/i18n/navigation', () => ({
 
 const BASE = mockSealedGroups[0];
 
-function group(over: Partial<SealedGroupDTO> = {}): SealedGroupDTO {
+function group(over: Partial<PricedSealedGroupDTO> = {}): PricedSealedGroupDTO {
   return {
     ...BASE,
     fromPriceCents: 266800,
@@ -42,7 +42,7 @@ function group(over: Partial<SealedGroupDTO> = {}): SealedGroupDTO {
   };
 }
 
-function listings(g: SealedGroupDTO): ListingDTO[] {
+function listings(g: PricedSealedGroupDTO): ListingDTO[] {
   return [
     {
       inventoryItemId: 'inv-s1',
@@ -61,7 +61,7 @@ function listings(g: SealedGroupDTO): ListingDTO[] {
   ];
 }
 
-function mockDetail(g: SealedGroupDTO, trendEnabled = false) {
+function mockDetail(g: PricedSealedGroupDTO, trendEnabled = false) {
   vi.spyOn(api, 'getSealedGroupDetail').mockResolvedValue({
     group: g,
     listings: listings(g),
@@ -114,7 +114,7 @@ describe('§A1 · la ficha pública de sellado NO pinta la celda «Valor de merc
 
   it('market sin display: tampoco cifra, «Desde» a fila completa', async () => {
     const { referenceDisplayCents: _drop, ...noDisplay } = group();
-    mockDetail(noDisplay as SealedGroupDTO);
+    mockDetail(noDisplay as PricedSealedGroupDTO);
     const { container } = renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
     expect(await screen.findByText('Desde')).toBeInTheDocument();
     expect(screen.queryByText('Valor de mercado')).toBeNull();
@@ -131,7 +131,7 @@ describe('§A1 · la ficha pública de sellado NO pinta la celda «Valor de merc
 describe('Tendencia de valor del sellado (fuera de A1 · §MIV.3)', () => {
   it('sin display no se monta la TENDENCIA (mismo predicado de mercado)', async () => {
     const { referenceDisplayCents: _drop, ...noDisplay } = group();
-    mockDetail(noDisplay as SealedGroupDTO, true);
+    mockDetail(noDisplay as PricedSealedGroupDTO, true);
     const trend = vi.spyOn(api, 'getSealedValueHistory');
     renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
     expect(await screen.findByText('Desde')).toBeInTheDocument();

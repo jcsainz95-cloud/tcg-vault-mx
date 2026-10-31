@@ -100,12 +100,20 @@ export interface CatalogSsrPage {
   ageMs: number | null;
 }
 
-/** Edad de una respuesta por su cabecera `Date` (resolución de 1 s, redondea hacia «más vieja»); `null` si no hay. */
+/**
+ * Edad de una respuesta por su cabecera `Date` (resolución de 1 s, redondea hacia «más vieja»).
+ *
+ * ARCHITECTURE §4.DYN (f) 9 (v1.115, TL-MKT2-8) — **regla de edad: edad desconocida = vieja.** Sin cabecera, ilegible
+ * **o negativa** (una `Date` en el futuro: reloj del backend adelantado o cabecera manipulada por un intermediario) ⇒
+ * `null` ⇒ la vista pone `updatedAt` 0 y relee al montar. Antes una hora futura daba `0` («recién leída»), es decir, la
+ * daba por FRESCA: lo contrario de la regla.
+ */
 export function responseAgeMs(dateHeader: string | null | undefined, now: number = Date.now()): number | null {
   if (!dateHeader) return null;
   const readAt = Date.parse(dateHeader);
   if (Number.isNaN(readAt)) return null;
-  return Math.max(0, now - readAt);
+  const age = now - readAt;
+  return age < 0 ? null : age;
 }
 
 /**
@@ -113,6 +121,12 @@ export function responseAgeMs(dateHeader: string | null | undefined, now: number
  * (`CatalogView`), para que el resultado sea el `initialData` de su clave. Caché de datos de Next de
  * `CATALOG_SSR_REVALIDATE_S` con etiqueta `catalog`. Tope `budgetMs` que ABORTA el fetch al vencer (TL-MKT3-1; antes
  * `withBudget` dejaba el socket colgado contra un backend congelado). Nunca lanza.
+ *
+ * - **Respuesta tardía — ARCHITECTURE §4.DYN (f) 2:** aborta (`withAbortBudget`) porque la clave la elige quien visita
+ *   (`q`/`setId`/`rarity` libres, PEN-MKT-2): dejar que la tardía llene la caché multiplicaría entradas sin tope.
+ * - **Dato servidor → cliente — ARCHITECTURE §4.DYN (f) 9:** patrón `initialData` + `initialDataUpdatedAt` (UNA vista
+ *   posee UNA consulta cuya clave sale de la URL: `catalogFiltersKey`). La página viaja con su edad (`ageMs`, de la
+ *   cabecera `Date`); edad desconocida (sin cabecera, ilegible o negativa) = vieja ⇒ relee al montar.
  */
 export async function loadCatalogPageForSSR(
   filters: CatalogFilters,

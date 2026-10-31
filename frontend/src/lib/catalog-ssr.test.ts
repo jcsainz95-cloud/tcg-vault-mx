@@ -55,10 +55,13 @@ describe('R2 · frescura de la lectura SSR del catálogo', () => {
     expect(got?.ageMs).toBeLessThan(67_000);
   });
 
-  it('responseAgeMs: sin cabecera o ilegible ⇒ null; hora futura ⇒ 0', () => {
+  // ARCHITECTURE §4.DYN (f) 9 (v1.115, TL-MKT2-8): sin cabecera, ilegible o NEGATIVA ⇒ desconocida (= vieja). Antes una
+  // hora futura daba 0 («recién leída»), es decir fresca.
+  it('responseAgeMs: sin cabecera, ilegible o hora futura (edad negativa) ⇒ null', () => {
     expect(responseAgeMs(null, 1_000)).toBeNull();
     expect(responseAgeMs('banana', 1_000)).toBeNull();
-    expect(responseAgeMs(new Date(5_000).toUTCString(), 1_000)).toBe(0);
+    expect(responseAgeMs(new Date(5_000).toUTCString(), 1_000)).toBeNull();
+    expect(responseAgeMs(new Date(1_000).toUTCString(), 1_000)).toBe(0);
     expect(responseAgeMs(new Date(0).toUTCString(), 31_000)).toBe(31_000);
   });
 

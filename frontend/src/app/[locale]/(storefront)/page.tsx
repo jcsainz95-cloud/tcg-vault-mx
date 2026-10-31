@@ -49,6 +49,11 @@ export default async function HomePage({ params }: { params: Promise<{ locale: A
   ]);
   // C6 (BRIEF_MKT Ola 2): la portada lleva JSON-LD `WebSite` + `SearchAction` y la `Organization` con su logo.
   const jsonLd = { '@context': 'https://schema.org', '@graph': [webSiteJsonLd(locale), organizationJsonLd()] };
+  // ARCHITECTURE §4.DYN (f) 9 (v1.115, TL-MKT2-8) — dato servidor → cliente: aquí el patrón es `HydrationBoundary`
+  // (el servidor precarga VARIAS consultas de clave fija que consumen varios componentes). Cada consulta deshidratada
+  // lleva `dataUpdatedAt` = momento de la lectura en origen, ⛔ nunca la hora de deshidratar; hoy va `0` (edad
+  // desconocida = vieja ⇒ relee al montar): cumple la regla a coste de una lectura. Respuesta tardía: §4.DYN (f) 2,
+  // `withBudget` (claves constantes, `lib/ssr-budget.ts`).
   const client = new QueryClient();
   if (featured) client.setQueryData(FEATURED_QUERY_KEY, featured, { updatedAt: 0 });
   if (gems) client.setQueryData(GEMS_QUERY_KEY, gems, { updatedAt: 0 });

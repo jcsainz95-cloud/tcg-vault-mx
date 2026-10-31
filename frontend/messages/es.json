@@ -7980,7 +7980,7 @@
     },
     "buylistCallout": {
       "title": "¿Quieres revender tu sellado a TCG HUNT?",
-      "body": "Escríbenos a contacto@tcghunt.mx con fotos y lo cotizamos.",
+      "body": "Escríbenos a {email} con fotos y lo cotizamos.",
       "cta": "Escríbenos"
     },
     "detail": {
@@ -7991,7 +7991,8 @@
       "addToCart": "Agregar {count} al carrito",
       "goToCart": "Ir al carrito",
       "destinationNote": "Elige en el checkout si prefieres recibirlo en tu domicilio o dejarlo en tu bóveda.",
-      "minorDamageNote": "Producto sellado con un detalle menor en la caja; el contenido no se ve afectado. No cambia el precio."
+      "minorDamageNote": "Producto sellado con un detalle menor en la caja; el contenido no se ve afectado. No cambia el precio.",
+      "soldOut": "Agotado"
     },
     "trend": {
       "title": "Tendencia de valor",
@@ -8013,10 +8014,12 @@
     "restock": {
       "title": "Avísame cuando vuelva",
       "body": "Si se agota, te escribimos una sola vez cuando vuelva a estar disponible.",
+      "bodySoldOut": "Te escribimos una sola vez cuando vuelva a estar disponible.",
       "emailLabel": "Correo",
       "emailPlaceholder": "tucorreo@ejemplo.com",
       "cta": "Avisarme",
       "confirmed": "Listo. Si se agota y vuelve, te escribimos una sola vez.",
+      "confirmedSoldOut": "Listo. Cuando vuelva, te escribimos una sola vez.",
       "signedInAs": "Te avisaremos a {email}.",
       "rateLimited": "Demasiados intentos. Espera un minuto y vuelve a intentar."
     },

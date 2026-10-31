@@ -144,6 +144,18 @@ export function soldOutOfferJsonLd(kind: 'card' | 'sealed', url: string): Record
 }
 
 /**
+ * §MKT.A.1 (v1.115): ¿la ficha de sellado está AGOTADA? El backend responde `200` con `listings: []`, `availableCount 0`
+ * y `fromPriceCents`/`priceSource` en `null` (`null` ⇔ `availableCount = 0`); se miran las tres señales por resiliencia.
+ * La usan la página (metadata y JSON-LD) y la vista (`SealedDetailView`), para que el HTML y el cuerpo no discrepen.
+ */
+export function isSealedSoldOut(d: {
+  group: { availableCount: number; fromPriceCents: number | null };
+  listings: readonly unknown[];
+}): boolean {
+  return d.group.availableCount <= 0 || d.group.fromPriceCents == null || d.listings.length === 0;
+}
+
+/**
  * `ContactPoint` de `Organization` (B2, criterios 944 y 954): el correo público, México y los dos idiomas del sitio;
  * `telephone` solo si el dueño dio el número (`CONTACT_PHONE`, `lib/about.ts`).
  */
