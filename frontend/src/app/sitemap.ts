@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { routing } from '@/i18n/routing';
-import { getSitemap } from '@/lib/api';
+import { getDecksMeta, getSitemap } from '@/lib/api';
+import { staticLastModified } from '@/lib/sitemap-lastmod';
 import { siteAbsoluteUrl } from '@/lib/seo';
 import { contentSitemapPaths } from '@/lib/seo-content';
 
@@ -10,8 +11,8 @@ import { contentSitemapPaths } from '@/lib/seo-content';
  *    cotizador, términos, privacidad) — las dinámicas (fichas) las da el backend;
  *  - una entrada por ficha A LA VENTA (carta y sellado) desde `GET /catalog/sitemap` (§MKT.B).
  *
- * Todas con `lastmod`. Las URL usan el locale por defecto (`es`), que es el canonical de cada ficha
- * (`localePrefix: 'always'`). Las páginas de contenido de §E4/§E6 (`/preguntas`, `/como-funciona`,
+ * `lastmod` REAL o ninguno (C6, `lib/sitemap-lastmod.ts`; antes las fijas llevaban la hora de la petición). Las URL
+ * usan el locale por defecto (`es`), que es el canonical de cada ficha (`localePrefix: 'always'`). Las páginas de contenido de §E4/§E6 (`/preguntas`, `/como-funciona`,
  * `/guias`, `/guias/<slug>`) salen de `contentSitemapPaths()` (`lib/seo-content.ts`) con su fecha de
  * revisión/publicación como `lastmod`; una página sin contenido vigente (FAQ vencidas) NO se lista.
  *
@@ -35,9 +36,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const locale = routing.defaultLocale;
   const now = new Date();
 
+  const [feed, decks] = await Promise.all([
+    getSitemap().catch(() => null),
+    getDecksMeta().catch(() => null),
+  ]);
+  const lastmods = staticLastModified(feed, decks?.updatedAt);
+
   const staticEntries: MetadataRoute.Sitemap = STATIC_PATHS.map((path) => ({
     url: siteAbsoluteUrl(`/${locale}${path}`),
-    lastModified: now,
+    ...(lastmods[path] ? { lastModified: lastmods[path] } : {}),
     changeFrequency: path === '' || path === '/catalog' || path === '/sellado' ? 'daily' : 'weekly',
   }));
 
@@ -47,21 +54,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: 'monthly',
   }));
 
-  let dynamicEntries: MetadataRoute.Sitemap = [];
-  try {
-    const feed = await getSitemap();
-    dynamicEntries = feed.items.map((item) => ({
-      url:
-        item.type === 'card'
-          ? siteAbsoluteUrl(`/${locale}/catalog/${encodeURIComponent(item.id)}`)
-          : siteAbsoluteUrl(`/${locale}/sellado/${encodeURIComponent(item.id)}`),
-      lastModified: item.lastmod,
-      changeFrequency: 'daily',
-    }));
-  } catch {
-    // Backend no disponible: el sitemap sale solo con las estáticas (mejor que un 500).
-    dynamicEntries = [];
-  }
+  // Backend no disponible: el sitemap sale solo con las estáticas (mejor que un 500).
+  const dynamicEntries: MetadataRoute.Sitemap = (feed?.items ?? []).map((item) => ({
+    url:
+      item.type === 'card'
+        ? siteAbsoluteUrl(`/${locale}/catalog/${encodeURIComponent(item.id)}`)
+        : siteAbsoluteUrl(`/${locale}/sellado/${encodeURIComponent(item.id)}`),
+    lastModified: item.lastmod,
+    changeFrequency: 'daily',
+  }));
 
   // C7 (ARCHITECTURE §4.CARDSHOW.a): la landing del Card Show es canónica FUERA del i18n — sin `/es`.
   const cardShowEntry: MetadataRoute.Sitemap = [

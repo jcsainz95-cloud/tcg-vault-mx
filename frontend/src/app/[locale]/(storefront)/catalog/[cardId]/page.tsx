@@ -5,10 +5,15 @@ import type { AppLocale } from '@/i18n/routing';
 import type { GroupedListingDTO } from '@/types/contract';
 import { NONCE_HEADER } from '@/security/csp';
 import { formatMoneyCents } from '@/lib/format';
-import { loadCardDetailForSSR } from '@/lib/catalog-ssr';
+import { loadCardDetailForSSR, loadShippingRuleForSSR } from '@/lib/catalog-ssr';
 import {
   SITE_URL,
+  brandJsonLd,
   breadcrumbJsonLd,
+  jsonLdItemCondition,
+  localeAlternates,
+  merchantReturnPolicyJsonLd,
+  shippingDetailsJsonLd,
   buildFichaDescription,
   cardCanonicalUrl,
   cardConditionLabel,
@@ -23,9 +28,9 @@ import { CardDetailView } from './CardDetailView';
 import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
- * Ficha pública de CARTA (§A4/§E3) — SSR: title/og/JSON-LD en el HTML del servidor; el cuerpo lo
- * pinta la vista cliente (`CardDetailView`). El precio de la ficha es «desde» (el del listado más
- * barato). El layout de `[locale]` fuerza render por petición ⇒ SSR.
+ * Ficha pública de CARTA (§A4/§E3) — SSR: title/og/JSON-LD en el HTML del servidor, y el cuerpo también:
+ * la MISMA lectura viaja a la vista cliente (`CardDetailView`) como `initialData` (C1, sin doble lectura).
+ * El precio de la ficha es «desde» (el del listado más barato). El layout de `[locale]` fuerza render por petición ⇒ SSR.
  */
 
 /** El listado representante = el más barato (la cifra «desde» de la ficha). */
@@ -42,7 +47,7 @@ export async function generateMetadata({
   const canonical = cardCanonicalUrl(locale, cardId);
   const data = await loadCardDetailForSSR(cardId);
   if (!data) {
-    return { metadataBase: new URL(SITE_URL), alternates: { canonical } };
+    return { metadataBase: new URL(SITE_URL), alternates: localeAlternates(locale, `/catalog/${encodeURIComponent(cardId)}`) };
   }
   const { card } = data;
   const rep = cheapestListing(data.listings);
@@ -71,7 +76,7 @@ export async function generateMetadata({
     metadataBase: new URL(SITE_URL),
     title,
     description,
-    alternates: { canonical },
+    alternates: localeAlternates(locale, `/catalog/${encodeURIComponent(cardId)}`),
     openGraph: {
       type: 'website',
       siteName: 'TCG HUNT',
@@ -95,10 +100,11 @@ export default async function CardDetailPage({
   params: Promise<{ locale: AppLocale; cardId: string }>;
 }) {
   const { locale, cardId } = await params;
-  const [data, t, nonce] = await Promise.all([
+  const [data, t, nonce, shippingRule] = await Promise.all([
     loadCardDetailForSSR(cardId),
     getTranslations({ locale }),
     headers().then((h) => h.get(NONCE_HEADER) ?? undefined),
+    loadShippingRuleForSSR(),
   ]);
 
   let jsonLd: Record<string, unknown> | null = null;
@@ -108,6 +114,7 @@ export default async function CardDetailPage({
     const rep = cheapestListing(data.listings);
     const availableCount = data.listings.reduce((n, l) => n + l.stockCount, 0);
     const until = priceValidUntil(data.pricedAsOf);
+    const shippingDetails = rep ? shippingDetailsJsonLd('card', rep.displayPriceCents, shippingRule) : undefined;
     jsonLd = {
       '@context': 'https://schema.org',
       '@graph': [
@@ -115,6 +122,8 @@ export default async function CardDetailPage({
           '@type': 'Product',
           name: `${card.name} · ${card.setName} ${card.number}`,
           ...(data.ogImageUrl ? { image: [data.ogImageUrl] } : {}),
+          // C5: marca, condición, envío y devoluciones (con datos que ya existen en el sitio; ver `lib/seo.ts`).
+          brand: brandJsonLd(),
           ...(rep
             ? {
                 offers: {
@@ -122,8 +131,11 @@ export default async function CardDetailPage({
                   priceCurrency: 'MXN',
                   price: jsonLdPrice(rep.displayPriceCents),
                   availability: jsonLdAvailability(availableCount),
+                  itemCondition: jsonLdItemCondition('card'),
                   url: canonical,
                   ...(until ? { priceValidUntil: until } : {}),
+                  ...(shippingDetails ? { shippingDetails } : {}),
+                  hasMerchantReturnPolicy: merchantReturnPolicyJsonLd(),
                 },
               }
             : {}),
@@ -143,7 +155,7 @@ export default async function CardDetailPage({
     <RouteMessages scope="storefront">
       <>
         {jsonLd && <JsonLd data={jsonLd} nonce={nonce} />}
-        <CardDetailView cardId={cardId} />
+        <CardDetailView cardId={cardId} initialData={data ?? undefined} />
       </>
     </RouteMessages>
   );

@@ -161,7 +161,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
     const getList = vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
     const getPreview = vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
-    await screen.findByRole('heading', { level: 1, name: 'Charizard ex' });
+    await screen.findByRole('heading', { level: 1, name: /^Charizard ex · / });
     const text = document.body.textContent ?? '';
     for (const s of plainWishlistStrings()) {
       if (s === W.card.notHere) continue; // la línea de la ficha sin piezas no es del bloque (WSH-UX.2 g)
@@ -177,7 +177,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
     mockDetail({});
     vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
-    await screen.findByRole('heading', { level: 1, name: 'Charizard ex' });
+    await screen.findByRole('heading', { level: 1, name: /^Charizard ex · / });
     expect(screen.queryByTestId('wishlist-block')).toBeNull();
   });
 
@@ -352,7 +352,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
     mockDetail({ wishlistEnabled: true });
     const getList = vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
-    await screen.findByRole('heading', { level: 1, name: 'Charizard ex' });
+    await screen.findByRole('heading', { level: 1, name: /^Charizard ex · / });
     expect(screen.queryByTestId('wishlist-block')).toBeNull();
     expect(getList).not.toHaveBeenCalled();
   });
@@ -363,7 +363,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
     vi.spyOn(api, 'getWishlist').mockRejectedValue(new ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'off' }));
     vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
-    await screen.findByRole('heading', { level: 1, name: 'Charizard ex' });
+    await screen.findByRole('heading', { level: 1, name: /^Charizard ex · / });
     await waitFor(() => expect(screen.queryByTestId('wishlist-block')).toBeNull());
   });
 

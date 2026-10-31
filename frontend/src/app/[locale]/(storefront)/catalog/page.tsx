@@ -5,13 +5,28 @@ import { getTranslations } from 'next-intl/server';
 import type { AppLocale } from '@/i18n/routing';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { NONCE_HEADER } from '@/security/csp';
-import { breadcrumbJsonLd, SITE_URL, siteAbsoluteUrl } from '@/lib/seo';
-import { CatalogView } from './CatalogView';
+import { breadcrumbJsonLd, routeMetadata, siteAbsoluteUrl } from '@/lib/seo';
+import { loadCatalogPageForSSR } from '@/lib/catalog-ssr';
+import { CatalogView, type CatalogInitialPage } from './CatalogView';
+import { DEFAULT_CATALOG_SORT, parseUrlFilters, sealedIntentOf } from './catalog-url';
 import { RouteMessages } from '@/components/i18n/RouteMessages';
 
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+/** Los `searchParams` de la página como `URLSearchParams` (el primer valor de cada clave, como `useSearchParams().get`). */
+function toUrlParams(sp: Record<string, string | string[] | undefined>): URLSearchParams {
+  const out = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    const first = Array.isArray(v) ? v[0] : v;
+    if (first != null) out.set(k, first);
+  }
+  return out;
+}
+
 /**
- * §E1/§E3 — canonical absoluto SIN query: las vistas filtradas (`?setId=`, `?type=graded`) apuntan
- * todas a `/{locale}/catalog`, para no indexar duplicados del mismo catálogo.
+ * §E1/§E3 — canonical absoluto SIN query: las vistas filtradas (`?setId=`, `?type=graded`, `?page=`) apuntan
+ * todas a `/{locale}/catalog`, para no indexar duplicados del mismo catálogo. C4: título y descripción propios
+ * (antes heredaba los de la portada).
  */
 export async function generateMetadata({
   params,
@@ -19,22 +34,44 @@ export async function generateMetadata({
   params: Promise<{ locale: AppLocale }>;
 }): Promise<Metadata> {
   const { locale } = await params;
-  return {
-    metadataBase: new URL(SITE_URL),
-    alternates: { canonical: siteAbsoluteUrl(`/${locale}/catalog`) },
-  };
+  const [t, tc] = await Promise.all([
+    getTranslations({ locale, namespace: 'seo.pages.catalog' }),
+    getTranslations({ locale, namespace: 'common' }),
+  ]);
+  return routeMetadata({
+    locale,
+    path: '/catalog',
+    title: `${tc('appName')} — ${t('title')}`,
+    description: t('description'),
+  });
 }
 
 /**
  * §MKT tienda §E1/§E3 (brief v1 §2.3) — `BreadcrumbList` en el catálogo (Inicio → Catálogo), en el
  * HTML del servidor, como en las fichas.
+ *
+ * C2 (BRIEF_MKT Ola 2) — la página pedida (`?page=`, filtros de la URL) se lee en el SERVIDOR con los mismos filtros
+ * que deriva la vista (`parseUrlFilters`) y viaja como `initialData`: las tejas, con su `<a href>` a cada ficha, y el
+ * paginador con `<a href="?page=n">` salen en el HTML crudo. Tope `CATALOG_SSR_BUDGET_MS`: sin dato a tiempo, el
+ * HTML sale con el esqueleto y la vista pide sola (lo de antes). Una URL de sellado (D-EQ-3) no se lee aquí: la
+ * vista la desvía a `/sellado`.
  */
-export default async function CatalogPage({ params }: { params: Promise<{ locale: AppLocale }> }) {
+export default async function CatalogPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: AppLocale }>;
+  searchParams?: SearchParams;
+}) {
   const { locale } = await params;
-  const [t, nonce] = await Promise.all([
+  const sp = toUrlParams((await searchParams) ?? {});
+  const filters = parseUrlFilters(sp);
+  const [t, nonce, data] = await Promise.all([
     getTranslations({ locale }),
     headers().then((h) => h.get(NONCE_HEADER) ?? undefined),
+    sealedIntentOf(sp) ? Promise.resolve(null) : loadCatalogPageForSSR(filters, DEFAULT_CATALOG_SORT),
   ]);
+  const initialPage: CatalogInitialPage | undefined = data ? { filters, data } : undefined;
   const jsonLd = {
     '@context': 'https://schema.org',
     ...breadcrumbJsonLd([
@@ -49,7 +86,7 @@ export default async function CatalogPage({ params }: { params: Promise<{ locale
       <>
         <JsonLd data={jsonLd} nonce={nonce} />
         <Suspense>
-          <CatalogView />
+          <CatalogView initialPage={initialPage} />
         </Suspense>
       </>
     </RouteMessages>

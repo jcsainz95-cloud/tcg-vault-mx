@@ -7398,6 +7398,18 @@ export async function getPublicShippingRule(): Promise<PublicShippingRuleDTO> {
 }
 
 /**
+ * C5 (BRIEF_MKT Ola 2) — la MISMA lectura de `GET /checkout/shipping-rule`, para el SERVIDOR (el `shippingDetails` del
+ * JSON-LD de las fichas), con la caché de datos de Next que se le pase (el contrato la declara cacheable 5 min).
+ * Función aparte y no un parámetro de `getPublicShippingRule`: esa va como `queryFn` y react-query le pasa su contexto.
+ */
+export async function getPublicShippingRuleForServer(server?: ServerReadOptions): Promise<PublicShippingRuleDTO> {
+  if (!(MOCKS_BUILD && config.useMocks)) {
+    return apiRequest<PublicShippingRuleDTO>('/checkout/shipping-rule', { next: server?.next });
+  }
+  return getPublicShippingRule();
+}
+
+/**
  * MOCK: réplica local de `computeDirectShipBreakdown` (contrato §4-G / ARCHITECTURE §5.1).
  *
  * ⭐ **Ya no tiene fórmula propia: delega en `computeBreakdown` con la línea de envío.** Tener dos

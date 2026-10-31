@@ -7493,6 +7493,40 @@
       "ctaCatalog": "Ver el catálogo",
       "ctaBuylist": "Cotiza la tuya",
       "empty": "Estamos preparando las guías. Vuelve pronto."
+    },
+    "pages": {
+      "home": {
+        "description": "Compra cartas Pokémon verificadas, con condición garantizada y precio en pesos; guárdalas en tu bóveda o vende las tuyas. TCG HUNT, México."
+      },
+      "catalog": {
+        "title": "Catálogo de cartas Pokémon",
+        "description": "Cartas Pokémon sueltas y gradeadas, verificadas y con condición garantizada. Precio en pesos y piezas disponibles al momento."
+      },
+      "sealed": {
+        "title": "Producto sellado Pokémon",
+        "description": "Producto Pokémon cerrado de fábrica: cajas, ETB, bundles y más, con precio en pesos. Solo venta, enviado desde México."
+      },
+      "accessories": {
+        "title": "Accesorios para cartas Pokémon",
+        "description": "Fundas, carpetas, energías y lo que necesitas para cuidar y jugar tus cartas Pokémon. Se envían a domicilio."
+      },
+      "accessoryDetail": {
+        "description": "{name}: accesorio para cuidar y jugar tus cartas Pokémon, con precio en pesos. Se envía a tu domicilio."
+      },
+      "decksMeta": {
+        "title": "Meta Battle Decks: top-10 del Standard",
+        "description": "El top-10 de decks del formato Standard de Pokémon TCG, cruzado con nuestro inventario: qué cartas tenemos y a qué precio."
+      },
+      "deckDetail": {
+        "description": "Lista del deck {name} del top-10 del Standard, cruzada con nuestro inventario: qué cartas tenemos y a qué precio."
+      },
+      "buylist": {
+        "title": "Vende tus cartas Pokémon",
+        "description": "Cotizamos tu lista con el valor de mercado del día. Tú envías, verificamos la condición NM y te pagamos por SPEI."
+      },
+      "privacy": {
+        "description": "Aviso de privacidad de TCG HUNT: qué datos personales tratamos, para qué los usamos y cómo ejercer tus derechos ARCO."
+      }
     }
   },
   "locale": {

@@ -36,7 +36,19 @@ function sealedItemOf(g: Pick<SealedGroupDTO, 'productName' | 'sealedProductId'>
  * vía el checkout existente (§4/§4-G). Tendencia de valor y «avísame cuando vuelva» quedan cableados
  * pero gateados por feature-flag (trendEnabled/restockEnabled).
  */
-export function SealedDetailView({ inventoryItemId }: { inventoryItemId: string }) {
+/**
+ * C1 (BRIEF_MKT Ola 2): `initialData` = la MISMA respuesta de `GET /catalog/sealed/:inventoryItemId` que la página
+ * ya leyó en el servidor (`loadSealedDetailForSSR`). Con ella el cuerpo sale en el HTML del servidor y el cliente no
+ * repite la lectura al montar; sin ella (backend caído en SSR) la vista pide sola. ⛔ El precio es el
+ * `fromPriceCents` del DTO, el mismo que se cobra.
+ */
+export function SealedDetailView({
+  inventoryItemId,
+  initialData,
+}: {
+  inventoryItemId: string;
+  initialData?: SealedGroupDetailResponse;
+}) {
   const cart = useCart();
   const [addedSignal, setAddedSignal] = useState(0);
   const dismissToast = useCallback(() => setAddedSignal(0), []);
@@ -44,6 +56,7 @@ export function SealedDetailView({ inventoryItemId }: { inventoryItemId: string 
   const query = useQuery({
     queryKey: ['sealed-detail', inventoryItemId],
     queryFn: () => getSealedGroupDetail(inventoryItemId),
+    initialData,
   });
 
   return (
