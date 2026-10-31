@@ -33,10 +33,25 @@ const CONTENT_PATHS = [
   '/es/guias/que-es-una-sir',
 ];
 
+/** Hora de la petición en estas pruebas (reloj falso del `beforeEach`). */
+const REQUEST_TIME = '2026-10-18T18:00:00.000Z';
+
+/**
+ * C6 — NINGUNA entrada del sitemap (fijas, `/card-show`, contenido y fichas) lleva la hora de la petición. Recorre la
+ * lista entera en vez de nombrar rutas: una página fija nueva con `lastModified: now` queda roja sin tocar la prueba.
+ */
+function expectNoEntryAtRequestTime(entries: { url: string; lastModified?: string | Date }[]) {
+  expect(entries.length).toBeGreaterThan(0);
+  const atRequestTime = entries
+    .filter((e) => e.lastModified !== undefined && new Date(e.lastModified).toISOString() === REQUEST_TIME)
+    .map((e) => e.url);
+  expect(atRequestTime).toEqual([]);
+}
+
 describe('sitemap.xml + robots.txt (§E1)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-10-18T18:00:00Z'));
+    vi.setSystemTime(new Date(REQUEST_TIME));
     getSitemap.mockReset();
     getSitemap.mockRejectedValue(new Error('backend caído'));
     getDecksMeta.mockReset();
@@ -79,10 +94,10 @@ describe('sitemap.xml + robots.txt (§E1)', () => {
     expect(lm('/decks-meta')).toBe('2026-10-05T00:00:00.000Z');
     expect(lm('/privacidad')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     for (const p of ['/buylist', '/accesorios', '/terminos']) expect(lm(p)).toBeUndefined();
-    // Ninguna de las 8 fijas lleva la hora de la petición (2026-10-18T18:00:00Z, reloj falso).
-    for (const p of ['', '/catalog', '/sellado', '/accesorios', '/decks-meta', '/buylist', '/terminos', '/privacidad']) {
-      expect(new Date(lm(p) ?? 0).toISOString()).not.toBe('2026-10-18T18:00:00.000Z');
-    }
+    // `/card-show` no tiene fecha real en el código (content/card-show.ts no publica revisión): sale SIN lastmod.
+    expect(entries.find((e) => e.url === 'https://tcghunt.mx/card-show')).toBeDefined();
+    expect(entries.find((e) => e.url === 'https://tcghunt.mx/card-show')?.lastModified).toBeUndefined();
+    expectNoEntryAtRequestTime(entries);
   });
 
   it('C6: sin backend, las fijas salen sin lastmod (salvo privacidad), no con la hora de la petición', async () => {
@@ -91,6 +106,8 @@ describe('sitemap.xml + robots.txt (§E1)', () => {
     const fixed = entries.filter((e) => /\/es(\/(catalog|sellado|accesorios|decks-meta|buylist|terminos))?$/.test(e.url));
     expect(fixed).toHaveLength(7);
     for (const e of fixed) expect(e.lastModified).toBeUndefined();
+    expect(entries.find((e) => e.url === 'https://tcghunt.mx/card-show')?.lastModified).toBeUndefined();
+    expectNoEntryAtRequestTime(entries);
   });
 
   it('C7: lista la canónica del Card Show SIN prefijo de idioma, una sola vez y sin la variante /es', async () => {

@@ -34,7 +34,8 @@
   (`/apple-icon.png`, 180 px) en portada y fichas. `i18n/routing.ts` `alternateLinks: false`: el `Link` de next-intl
   mandaba `x-default` a la URL sin locale (307); ahora cada página pública emite `hreflang` es/en/x-default(=es) en su
   `<head>` (`localeAlternates`). Sitemap: `lastmod` de las fijas desde lo que muestran (`lib/sitemap-lastmod.ts`: feed
-  de fichas, `GET /decks-meta` `updatedAt`, fecha del aviso); buylist, accesorios y términos sin `lastmod`.
+  de fichas, `GET /decks-meta` `updatedAt`, fecha del aviso); buylist, accesorios, términos y `/card-show` (sin fecha
+  de revisión en `content/card-show.ts`) sin `lastmod`; `sitemap-robots.test.ts` recorre TODAS las entradas contra la hora de la petición.
 - **Fuera (esperan decisión o datos):** C3 (404/agotada, MKT-3), C8 (IVA en meta, MKT-4), `contactPoint`/`sameAs`
   (MKT-1/2; `INSTAGRAM_URL = null`), `llms.txt`, slugs (C9). Base absoluta: `NEXT_PUBLIC_SITE_URL` (defecto
   `https://tcghunt.mx`). `robots.ts` bloquea solo cuenta, checkout, órdenes, envíos, bóveda, pedido, auth, admin y `/api/`.
