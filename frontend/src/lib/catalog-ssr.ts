@@ -20,6 +20,7 @@ import {
   type CatalogSort,
 } from '@/lib/api';
 import { withAbortBudget, withBudget } from '@/lib/ssr-budget';
+import { asApiError } from '@/lib/api-client';
 import { HOME_SSR_REVALIDATE_S } from '@/lib/home-queries';
 import type {
   GroupedListingDetailResponse,
@@ -43,14 +44,40 @@ export const CATALOG_SSR_BUDGET_MS = 1200;
  */
 export const DETAIL_SSR_BUDGET_MS = CATALOG_SSR_BUDGET_MS;
 
+/**
+ * C3 (criterio 951) — la ficha NO EXISTE: el backend respondió `404` (carta o grupo de sellado inexistente). Distinto de
+ * `null` (no se sabe: backend caído o lento), que deja la ficha viva con su carga en cliente. Con este valor la página
+ * llama a `notFound()` ⇒ 404 real con su propio título, no un 200 con la cabecera de la portada.
+ */
+export const DETAIL_NOT_FOUND = 'not_found' as const;
+export type DetailRead<T> = T | null | typeof DETAIL_NOT_FOUND;
+
+/** `404` del backend ⇒ `DETAIL_NOT_FOUND`; cualquier otro fallo sigue siendo un fallo (⇒ `null` en el tope). */
+async function notFoundAware<T>(p: Promise<T>): Promise<T | typeof DETAIL_NOT_FOUND> {
+  try {
+    return await p;
+  } catch (e) {
+    if (asApiError(e)?.status === 404) return DETAIL_NOT_FOUND;
+    throw e;
+  }
+}
+
 export const loadCardDetailForSSR = cache(
-  async (cardId: string): Promise<GroupedListingDetailResponse | null> =>
-    withAbortBudget((signal) => getCardDetail(cardId, { signal }), DETAIL_SSR_BUDGET_MS),
+  async (cardId: string): Promise<DetailRead<GroupedListingDetailResponse>> =>
+    withAbortBudget((signal) => notFoundAware(getCardDetail(cardId, { signal })), DETAIL_SSR_BUDGET_MS),
 );
 
+/**
+ * Sellado: el backend responde `404` tanto si la pieza no existe como si su grupo ya no tiene piezas vendibles
+ * (`sealed-catalog.service.ts` `sealedDetail`) ⇒ un sellado agotado es hoy un 404 (solicitud al arquitecto en
+ * FRONTEND_NOTES §MKT-CONV2).
+ */
 export const loadSealedDetailForSSR = cache(
-  async (inventoryItemId: string): Promise<SealedGroupDetailResponse | null> =>
-    withAbortBudget((signal) => getSealedGroupDetail(inventoryItemId, { signal }), DETAIL_SSR_BUDGET_MS),
+  async (inventoryItemId: string): Promise<DetailRead<SealedGroupDetailResponse>> =>
+    withAbortBudget(
+      (signal) => notFoundAware(getSealedGroupDetail(inventoryItemId, { signal })),
+      DETAIL_SSR_BUDGET_MS,
+    ),
 );
 
 /**

@@ -30,6 +30,7 @@ const STATIC_PATHS = [
   '/buylist',
   '/terminos',
   '/privacidad',
+  '/nosotros', // MKT-CONV.4 (B2, criterio 944)
 ] as const;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {

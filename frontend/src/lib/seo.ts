@@ -5,7 +5,8 @@
  * sin levantar Next.
  *
  * Reglas del brief que NO se reabren aquí:
- *  - Precio SIEMPRE con IVA y con fecha, o sin precio (`pricedAsOf`). ⛔ Nunca cantidad de stock.
+ *  - Precio con fecha, o sin precio (`pricedAsOf`). ⛔ Nunca cantidad de stock. ⛔ Sin «IVA» en los textos para
+ *    buscadores (C8, MKT-4 (a), HECHOS 2026-10-31): el precio publicado ya es el final; la ficha sí lo dice.
  *  - `<title>`/`og:title` SIN precio (las vistas previas cachean días).
  *  - `og:image` = `ogImageUrl` ABSOLUTA; si `null`, se OMITE. ⛔ No se afirma ≥1200×630 (NO MEDIDO,
  *    §MKT.F: hoy es la «large» de pokemontcg.io ~734×1024).
@@ -14,6 +15,7 @@
  */
 import type { Metadata } from 'next';
 import type { AppLocale } from '@/i18n/routing';
+import { ABOUT_CITY, CONTACT_PHONE, INSTAGRAM_URL as ABOUT_INSTAGRAM_URL, PUBLIC_CONTACT_EMAIL } from '@/lib/about';
 
 /**
  * Base absoluta del sitio para canonical/og/sitemap. Por entorno vía `NEXT_PUBLIC_SITE_URL`; cae al
@@ -22,12 +24,10 @@ import type { AppLocale } from '@/i18n/routing';
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://tcghunt.mx').replace(/\/+$/, '');
 
 /**
- * Instagram para `Organization.sameAs` (JSON-LD §E3). **NO MEDIDO**: no hay handle de Instagram en el
- * código del sitio (ni en `lib/brand.ts`, ni en el footer, ni en el contenido legal — medido
- * 2026-10-16). Hasta que el dueño/arquitecto lo fije, queda `null` y el `sameAs` se OMITE
- * (⛔ no se inventa una URL de red social). Si se fija, basta poner aquí la URL absoluta.
+ * Instagram para `Organization.sameAs` (JSON-LD §E3, B2b, criterio 946): el que confirmó el dueño (MKT-2, HECHOS
+ * 2026-10-31). Vive en `lib/about.ts` con los demás datos de «Quiénes somos»; se reexporta aquí por compatibilidad.
  */
-export const INSTAGRAM_URL: string | null = null;
+export const INSTAGRAM_URL: string | null = ABOUT_INSTAGRAM_URL;
 
 /** Une la base del sitio con una ruta relativa (que debe empezar por `/`). */
 export function siteAbsoluteUrl(path: string): string {
@@ -96,24 +96,23 @@ export function cardConditionLabel(
 
 /**
  * `meta description` / `og:description` de una ficha (≤155 caracteres, el límite del brief §A4).
- * Estructura: condición + «desde MX$<precio> IVA incluido · precio al <fecha>» + «verificamos la
- * condición». ⛔ Solo lo que es cierto HOY; sin precio si no hay `pricedAsOf`/precio.
+ * Estructura: condición + «desde MX$<precio> · precio al <fecha>» + «verificamos la condición». ⛔ Solo lo que es
+ * cierto HOY; sin precio si no hay `pricedAsOf`/precio. ⛔ Sin «IVA incluido» ni la tasa (C8, criterio 956: el dueño,
+ * MKT-4 (a), HECHOS 2026-10-31); la ficha visible sigue mostrando «IVA incluido» (§MIV).
  * `priceText` ya viene formateado con «MX$» por `formatMoneyCents`.
  */
 export function buildFichaDescription(opts: {
   conditionLabel: string;
   priceText?: string | null;
-  ivaRatePct?: number;
   pricedAsOf?: string;
   locale?: AppLocale;
 }): string {
   const locale = opts.locale ?? 'es';
   const verify = locale === 'en' ? 'We verify the condition.' : 'Verificamos la condición.';
-  const iva = opts.ivaRatePct != null ? `IVA ${opts.ivaRatePct} % incluido` : 'IVA incluido';
   const parts: string[] = [opts.conditionLabel];
   if (opts.priceText && opts.pricedAsOf) {
     const from = locale === 'en' ? 'from' : 'desde';
-    parts.push(`${from} ${opts.priceText} ${iva} · ${locale === 'en' ? 'price as of' : 'precio al'} ${opts.pricedAsOf}`);
+    parts.push(`${from} ${opts.priceText} · ${locale === 'en' ? 'price as of' : 'precio al'} ${opts.pricedAsOf}`);
   }
   parts.push(verify);
   let out = parts.join(' · ');
@@ -129,8 +128,39 @@ export function jsonLdAvailability(availableCount: number): string {
 }
 
 /**
- * `Organization` del JSON-LD (§E3). `sameAs` solo si hay URL (Instagram NO MEDIDO ⇒ se omite el
- * arreglo entero antes que publicar `[]` o una URL inventada).
+ * C3 (criterio 951, MKT-3 (a), HECHOS 2026-10-31) — `Offer` de una ficha AGOTADA: sigue indexable, con
+ * `availability = OutOfStock` y SIN `price` (⛔ no hay precio vigente y no se inventa uno: ni MX$0 ni el de mercado).
+ * Google pide `price` en el `Offer` para el resultado enriquecido; sin él, la ficha agotada no lo obtiene, pero
+ * tampoco publica una cifra falsa. Lo pedimos al arquitecto (último precio publicado) en FRONTEND_NOTES §MKT-CONV2.
+ */
+export function soldOutOfferJsonLd(kind: 'card' | 'sealed', url: string): Record<string, unknown> {
+  return {
+    '@type': 'Offer',
+    priceCurrency: 'MXN',
+    availability: jsonLdAvailability(0),
+    itemCondition: jsonLdItemCondition(kind),
+    url,
+  };
+}
+
+/**
+ * `ContactPoint` de `Organization` (B2, criterios 944 y 954): el correo público, México y los dos idiomas del sitio;
+ * `telephone` solo si el dueño dio el número (`CONTACT_PHONE`, `lib/about.ts`).
+ */
+export function contactPointJsonLd(): Record<string, unknown> {
+  return {
+    '@type': 'ContactPoint',
+    contactType: 'customer service',
+    email: PUBLIC_CONTACT_EMAIL,
+    ...(CONTACT_PHONE ? { telephone: CONTACT_PHONE } : {}),
+    areaServed: 'MX',
+    availableLanguage: ['es', 'en'],
+  };
+}
+
+/**
+ * `Organization` del JSON-LD (§E3). `sameAs` = Instagram (B2b, criterio 946); `contactPoint` y `address` con los datos
+ * del dueño (`lib/about.ts`). Sin URL de red social, el arreglo se omite (nunca `[]`).
  */
 export function organizationJsonLd(): Record<string, unknown> {
   const org: Record<string, unknown> = {
@@ -138,8 +168,10 @@ export function organizationJsonLd(): Record<string, unknown> {
     name: 'TCG HUNT',
     url: siteAbsoluteUrl('/'),
     // C6: el logo es la mira de la marca que el sitio ya sirve (`app/apple-icon.png`, PNG 180×180 ≥ 112 px que pide
-    // Google). ⛔ `contactPoint`/`sameAs` esperan datos del dueño (B2/B2b).
+    // Google).
     logo: siteAbsoluteUrl(ORGANIZATION_LOGO_PATH),
+    contactPoint: contactPointJsonLd(),
+    address: { '@type': 'PostalAddress', addressLocality: ABOUT_CITY.es, addressCountry: 'MX' },
   };
   const sameAs = [INSTAGRAM_URL].filter((u): u is string => !!u);
   if (sameAs.length > 0) org.sameAs = sameAs;

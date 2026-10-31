@@ -43,6 +43,7 @@ import {
   type GuestField,
   type GuestFormState,
 } from './guest-validation';
+import { TrustStrip } from '../_shared/TrustStrip';
 
 export interface GuestCheckoutViewProps {
   /** El pago quedó autorizado: el padre debe mantener esta vista montada (confirmación). */
@@ -580,6 +581,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     <div style={isDesktop ? undefined : { paddingBottom: 'calc(var(--sticky-bottom-h, 0px) + 16px)' }}>
       <div className="gutter pb-7 pt-10 lg:pt-[46px]">
         <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
+        {/* MKT-CONV.4 (B2, criterio 945): franja de confianza bajo el título, sin scroll; nunca en la barra de PAGAR. */}
+        <TrustStrip className="mt-1" />
       </div>
 
       {/* Aviso informativo de poda (v1.21.3), FUERA de QueryState: sobrevive al estado

@@ -334,7 +334,6 @@
     },
     "addToCart": "Añadir al carrito",
     "addToCartShort": "Añadir",
-    "buyNow": "Comprar",
     "inCart": "En el carrito",
     "addedToCart": "Agregado al carrito",
     "viewCart": "Ver carrito",
@@ -379,7 +378,9 @@
       "p6": "<b>Los precios de mercado cambian todos los días</b> y este estimado puede quedar desactualizado en cualquier momento.",
       "back": "Volver al valor estimado"
     },
-    "sealedRedirect": "Te estamos llevando a Producto sellado…"
+    "sealedRedirect": "Te estamos llevando a Producto sellado…",
+    "vaultNote": "Con cuenta, junta cartas en tu bóveda y pide un solo envío. Sin cuenta, te la enviamos a casa.",
+    "soldOutCard": "Agotada"
   },
   "shop": {
     "filtersTitle": "Filtros",
@@ -450,8 +451,7 @@
       "sealed": "Sellado",
       "raw": "Raw"
     },
-    "referenceExplainerWithMarket": "El valor de mercado es la referencia del día y se muestra con IVA incluido, igual que nuestro precio de venta, para que los compares tal cual. El precio de venta se calcula a partir de esa referencia.",
-    "referenceExplainerNoMarket": "El precio de venta es el precio publicado de esta carta."
+    "referenceExplainerWithMarket": "El valor de mercado es la referencia del día y se muestra con IVA incluido, igual que nuestro precio de venta, para que los compares tal cual. El precio de venta se calcula a partir de esa referencia."
   },
   "price": {
     "pendingLabel": "Precio pendiente",
@@ -7476,7 +7476,8 @@
     "nav": {
       "faq": "Preguntas",
       "howItWorks": "Cómo funciona",
-      "guides": "Guías"
+      "guides": "Guías",
+      "about": "Quiénes somos y contacto"
     },
     "lastReview": "Última revisión: {date} · manual {version}",
     "spanishOnly": "Este contenido está en español.",
@@ -8372,5 +8373,52 @@
       "save": "Guardar mi elección",
       "cancel": "Cancelar"
     }
+  },
+  "about": {
+    "title": "Quiénes somos y contacto",
+    "description": "Quiénes somos, cómo compras en TCG HUNT y cómo contactarnos: tienda de cartas Pokémon TCG en Ciudad de México.",
+    "lead": "TCG HUNT es una tienda en línea de cartas Pokémon TCG en México: vendemos cartas sueltas y producto sellado, y te compramos las tuyas.",
+    "who": {
+      "title": "Quién está detrás",
+      "story": "Somos una tienda en línea de Ciudad de México. Cada carta que vendemos se revisa en mano antes de entrar a la bóveda.",
+      "city": "Ciudad",
+      "legalEntity": "Razón social"
+    },
+    "buy": {
+      "title": "Cómo compras con nosotros",
+      "account": "Cuenta",
+      "accountValue": "Puedes comprar como invitado, con tu correo y una dirección en México.",
+      "payment": "Pago",
+      "paymentValue": "Pagas en línea, con tarjeta, en la pantalla de pago.",
+      "shipping": "Envío",
+      "delivery": "Plazo de entrega",
+      "deliveryValue": "4 a 10 días hábiles",
+      "guarantee": "Garantía",
+      "guaranteeTerms": "Términos y política",
+      "invoice": "Factura",
+      "invoiceValue": "Para factura (CFDI) escribe a {email} después de pagar, citando tu pedido.",
+      "shippingValue": "Cartas {cards} por pedido · sellado {sealed} · gratis desde {freeFrom} en cualquier pedido"
+    },
+    "contact": {
+      "title": "Contacto",
+      "email": "Correo",
+      "instagram": "Instagram",
+      "phone": "Teléfono",
+      "phoneNote": "Atención solo por teléfono; no hay atención en persona.",
+      "cardShow": "Card Show",
+      "cardShowLink": "Página del Card Show"
+    },
+    "strip": {
+      "payment": "Pago con tarjeta",
+      "shipping": "Envío a México",
+      "link": "Quiénes somos",
+      "linkLabel": "Quiénes somos y contacto"
+    }
+  },
+  "notFoundPage": {
+    "metaTitle": "Página no encontrada · TCG HUNT",
+    "title": "No encontramos esta página",
+    "body": "El enlace puede estar mal escrito, o la página ya no existe.",
+    "cta": "Ir al catálogo"
   }
 }

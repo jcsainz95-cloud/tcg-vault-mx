@@ -7,6 +7,7 @@ import { PrivacyNoticeLink } from '@/components/legal/PrivacyNoticeLink';
 import { resolveLegalEntity } from './footer';
 import { ConsentBannerSlot } from '@/components/consent/ConsentBanner';
 import { CookiePreferencesLink } from '@/components/consent/CookiePreferencesLink';
+import { ABOUT_PATH, PUBLIC_CONTACT_EMAIL } from '@/lib/about';
 
 /*
  * Dirección 5a: el ancho de lectura es 1280px (max-w-7xl) y el margen crece a 32px
@@ -71,6 +72,15 @@ function Footer() {
         {t('brand.name')} · <span className="normal-case">{t('brand.domain')}</span> ·{' '}
         {`© ${new Date().getFullYear()}`}
         {legalEntity ? ` ${legalEntity}` : ''}
+        {/* MKT-CONV.4: el correo público (`lib/about.ts`), solo si existe. */}
+        {PUBLIC_CONTACT_EMAIL && (
+          <>
+            {' · '}
+            <a href={`mailto:${PUBLIC_CONTACT_EMAIL}`} className="normal-case text-text hover:text-accent">
+              {PUBLIC_CONTACT_EMAIL}
+            </a>
+          </>
+        )}
       </p>
       <div className="flex flex-wrap gap-x-6 gap-y-2">
         {/* §MKT tienda §E4/§E6: páginas de contenido (guías enlazadas desde el pie, v1 §2.5). */}
@@ -82,6 +92,10 @@ function Footer() {
         </Link>
         <Link href="/guias" className="text-text hover:text-accent">
           {ts('nav.guides')}
+        </Link>
+        {/* MKT-CONV.4 (B2, criterio 945): «Quiénes somos y contacto», entre «Guías» y «Términos». */}
+        <Link href={ABOUT_PATH} className="text-text hover:text-accent">
+          {ts('nav.about')}
         </Link>
         <Link href="/terminos" className="text-text hover:text-accent">
           {tn('terms')}

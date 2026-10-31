@@ -88,23 +88,28 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * MKT-CONV.2 (B6b): la lista de deseos es SEGUNDA en jerarquía — título de 18 px y dos ENLACES de texto (13 px,
+ * subrayados; el primero de tinta, el segundo bermellón), con 44 px de toque. En la ficha solo la compra lleva
+ * `primary` (candado L-4).
+ */
 function GuestInvite({ cardId }: { cardId: string }) {
   const t = useTranslations('wishlist');
   const next = `/catalog/${cardId}`;
   return (
     <Shell>
-      <h2 className="mt-3 font-serif text-[22px] leading-tight text-text">{t('guest.title')}</h2>
+      <h2 className="mt-3 font-serif text-[18px] leading-tight text-text">{t('guest.title')}</h2>
       <p className="mt-2 text-sm text-muted">{t('guest.body')}</p>
-      <div className="mt-5 flex flex-wrap items-center gap-5">
+      <div className="mt-3 flex flex-wrap items-center gap-5">
         <Link
           href={{ pathname: '/login', query: { next } }}
-          className="inline-flex min-h-[44px] items-center border border-text px-5 font-mono text-[11px] uppercase tracking-label text-text hover:bg-text hover:text-primary-fg focus-visible:shadow-focus"
+          className="inline-flex min-h-[44px] items-center text-[13px] text-text underline underline-offset-4 hover:text-accent focus-visible:shadow-focus"
         >
           {t('guest.login')}
         </Link>
         <Link
           href={{ pathname: '/register', query: { next } }}
-          className="inline-flex min-h-[44px] items-center border-b border-accent font-mono text-[11px] uppercase tracking-label text-accent hover:border-text hover:text-text"
+          className="inline-flex min-h-[44px] items-center text-[13px] text-accent underline underline-offset-4 hover:text-text"
         >
           {t('guest.register')}
         </Link>
@@ -382,7 +387,8 @@ function CustomerBlock({
               </div>
               <p className="rule-note text-[13px] leading-[1.65] text-muted">{t('block.signalNote')}</p>
               <div className="flex flex-wrap items-center gap-4">
-                <Button loading={add.isPending} onClick={() => add.mutate()}>
+                {/* MKT-CONV.2: `secondary` — en la ficha solo la compra lleva `primary`. */}
+                <Button variant="secondary" size="md" loading={add.isPending} onClick={() => add.mutate()}>
                   {t('block.add', { finish: finishLabel })}
                 </Button>
                 <span className="font-mono text-[11px] text-muted">{t('block.count', { count, limit })}</span>

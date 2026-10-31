@@ -310,8 +310,8 @@ test.describe('§MIV · MIV-E1 — mercado con IVA en la tienda (criterio 869)',
     });
 
     await test.step('(b) carrito: el subtotal es el precio de la ficha; el desglose no trae el mercado', async () => {
-      await page.getByRole('button', { name: t('es', 'catalog.buyNow') }).first().click();
-      // Confirmación (toast §7.5). El CTA «En el carrito» solo sale cuando TODAS las piezas del grupo
+      await page.getByTestId('instance-cta').first().click();
+      // Confirmación (toast §7.5). El CTA «Ver carrito» solo sale cuando TODAS las piezas del grupo
       // están dentro, y el grupo puede tener varias.
       await expect(page.getByRole('status').getByText(t('es', 'catalog.addedToCart'))).toBeVisible();
       await page.goto('/es/checkout');
@@ -345,7 +345,8 @@ test.describe('§MIV · MIV-E1 — mercado con IVA en la tienda (criterio 869)',
       await expect(page.getByText(t('es', 'catalog.salePrice'), { exact: true })).toBeVisible();
       await expect(page.getByText(t('es', 'catalog.marketValue'), { exact: true })).toHaveCount(0);
       await expect(page.getByRole('group', { name: new RegExp(`^${esc(t('es', 'catalog.marketValue'))}`) })).toHaveCount(0);
-      await expect(page.getByText(t('es', 'card.referenceExplainerNoMarket'))).toBeVisible();
+      // MKT-CONV.2 (B6b): la frase de sistema ya no existe en la ficha.
+      await expect(page.getByText(/El precio de venta es el precio publicado/)).toHaveCount(0);
       for (const cents of hidden) await expect(page.getByRole('main')).not.toContainText(mx(cents));
     });
 

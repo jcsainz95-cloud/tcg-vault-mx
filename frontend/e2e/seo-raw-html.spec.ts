@@ -138,7 +138,9 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
       expect(text).toContain(`MX$${priceText}`);
       if (g.productType === 'graded') expect(text).toContain(`${g.gradingCompany} ${g.gradeValue}`);
       else expect(text).toContain(t('es', 'catalog.condition.nm.label'));
-      expect(text).toContain(t('es', 'card.referenceExplainerNoMarket'));
+      // MKT-CONV.2 (B6b): sin la frase de sistema; la pila de avisos (T8) da el texto bajo el precio.
+      expect(text).not.toContain('El precio de venta es el precio publicado');
+      expect(text).toContain(t('es', 'checkout.refundPromise'));
       expect(text.length).toBeGreaterThan(600);
     }
 
@@ -156,6 +158,102 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     expect(h1o).toContain(soldOut!.name);
     expect(h1o).toContain(soldOut!.setName);
     expect(visibleText(o.html)).toContain(t('es', 'wishlist.card.notHere'));
+  });
+
+  /**
+   * C3 (criterio 951; MKT-3 (a), HECHOS 2026-10-31). Mutaciones medidas (FRONTEND_NOTES §MKT-CONV2): quitar el
+   * `notFound()` de la ficha ⇒ la inexistente vuelve a 200 con el título de la portada; quitar `soldOutOfferJsonLd` ⇒
+   * la agotada pierde `offers`.
+   */
+  test('@real C3 · ficha inexistente ⇒ 404 con su propio título; agotada ⇒ 200, «Agotada», OutOfStock sin precio, indexable', async ({
+    request,
+  }) => {
+    const home = await raw(request, '/es');
+    const homeTitle = headTag(home.html, /<title>([^<]*)<\/title>/);
+    for (const path of ['/es/catalog/00000000-0000-0000-0000-000000000000', '/en/catalog/00000000-0000-0000-0000-000000000000', '/es/sellado/00000000-0000-0000-0000-000000000000']) {
+      const r = await raw(request, path);
+      expect(r.status, path).toBe(404);
+      const title = headTag(r.html, /<title>([^<]*)<\/title>/);
+      expect(title, `${path}: título propio`).toBeTruthy();
+      expect(title, `${path}: no es el de la portada`).not.toBe(homeTitle);
+      expect(r.html, `${path}: noindex`).toMatch(/<meta name="robots" content="[^"]*noindex/);
+    }
+
+    const cards = await api<{ data: Group[] }>('/catalog/cards?pageSize=50');
+    const listed = new Set(cards.data.map((g) => g.card.id));
+    const candidates = (await api<{ data: { id: string }[] }>('/buylist/cards?q=E2E&pageSize=50')).data;
+    let soldOutId: string | undefined;
+    for (const c of candidates.filter((x) => !listed.has(x.id))) {
+      const d = await api<{ listings: unknown[] }>(`/catalog/cards/${c.id}`);
+      if (d.listings.length === 0) {
+        soldOutId = c.id;
+        break;
+      }
+    }
+    expect(soldOutId, 'hay una carta sin piezas a la venta').toBeTruthy();
+    const o = await raw(request, `/es/catalog/${soldOutId}`);
+    expect(o.status).toBe(200);
+    expect(visibleText(o.html)).toContain(t('es', 'catalog.soldOutCard'));
+    expect(o.html).not.toMatch(/<meta name="robots" content="[^"]*noindex/);
+    const [product] = ldNodes(o.html, 'Product');
+    const offer = product.offers as Record<string, unknown>;
+    expect(offer.availability).toBe('https://schema.org/OutOfStock');
+    expect(offer).not.toHaveProperty('price');
+  });
+
+  /** B2 (criterios 944–946, MKT-CONV.6 L-6/L-7) y C6/C8 (954, 956) en el HTML crudo. */
+  test('@real B2 · /es y /en/nosotros: 200, un h1, Organization+contactPoint+sameAs, sin huecos; en el sitemap; enlazada en pie y franja', async ({
+    request,
+  }) => {
+    for (const locale of ['es', 'en'] as const) {
+      const r = await raw(request, `/${locale}/nosotros`);
+      expect(r.status, locale).toBe(200);
+      expect(h1s(r.html), locale).toEqual([t(locale, 'about.title')]);
+      expect(r.html).not.toMatch(/<meta name="robots" content="[^"]*noindex/);
+      const [org] = ldNodes(r.html, 'Organization');
+      expect(org.sameAs).toEqual(['https://www.instagram.com/tcghunt.mx/']);
+      expect(org.contactPoint).toMatchObject({ '@type': 'ContactPoint', areaServed: 'MX', availableLanguage: ['es', 'en'] });
+      const text = visibleText(r.html);
+      expect(text).not.toMatch(/DATO DEL DUEÑO|EJEMPLO/);
+      expect(text).toContain(t(locale, 'about.buy.deliveryValue'));
+      // L-7: ninguna fila con valor vacío.
+      for (const m of r.html.matchAll(/<dd[^>]*>([\s\S]*?)<\/dd>/g)) expect(visibleText(`<body>${m[1]}`)).not.toBe('');
+      // El pie enlaza «Quiénes somos y contacto» en los dos idiomas (L-6).
+      const home = await raw(request, `/${locale}`);
+      expect(home.html).toContain(`href="/${locale}/nosotros"`);
+      expect(visibleText(home.html)).toContain(t(locale, 'seo.nav.about'));
+    }
+    const sm = await (await request.get('/sitemap.xml')).text();
+    expect(sm).toMatch(/<loc>[^<]*\/es\/nosotros<\/loc>\s*<lastmod>/);
+
+    // La franja de la ficha enlaza a una ruta que responde 200 (L-6).
+    const cards = await api<{ data: Group[] }>('/catalog/cards?pageSize=1');
+    const ficha = await raw(request, `/es/catalog/${cards.data[0].card.id}`);
+    const strip = /data-testid="about-strip"[\s\S]*?<\/p>/.exec(ficha.html)?.[0] ?? '';
+    const href = /href="([^"]+)"/.exec(strip)?.[1];
+    expect(href).toBe('/es/nosotros');
+    expect((await request.get(href!, { maxRedirects: 0 })).status()).toBe(200);
+  });
+
+  test('@real C8/C6 · sin «IVA» en meta-descripciones ni en llms.txt; llms.txt enlaza Instagram y Quiénes somos', async ({
+    request,
+  }) => {
+    const cards = await api<{ data: Group[] }>('/catalog/cards?pageSize=1');
+    const sealed = (await api<{ data: { representativeItemId: string }[] }>('/catalog/sealed')).data[0];
+    for (const locale of ['es', 'en'] as const) {
+      for (const p of ['', '/catalog', `/catalog/${cards.data[0].card.id}`, '/sellado', `/sellado/${sealed.representativeItemId}`, '/buylist', '/nosotros', '/preguntas', '/como-funciona', '/terminos']) {
+        const { html } = await raw(request, `/${locale}${p}`);
+        for (const re of [/<meta name="description" content="([^"]*)"/, /<meta property="og:description" content="([^"]*)"/]) {
+          const d = headTag(html, re);
+          // Palabra completa: «privacidad»/«privacy» contienen «iva» y no son el impuesto.
+          if (d) expect(d, `${locale}${p}`).not.toMatch(/\biva\b|\bvat\b|16 ?%/i);
+        }
+      }
+    }
+    const llms = await (await request.get('/llms.txt')).text();
+    expect(llms).not.toMatch(/\biva\b/i);
+    expect(llms).toContain('https://www.instagram.com/tcghunt.mx/');
+    expect(llms).toMatch(/\[Quiénes somos y contacto\]\([^)]*\/es\/nosotros\)/);
   });
 
   test('@real C1 · la ficha no vuelve a pedir en el navegador lo que mandó el servidor', async ({ page }) => {
@@ -247,6 +345,7 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
       '/es/preguntas',
       '/es/como-funciona',
       '/es/guias',
+      '/es/nosotros',
     ];
     const titles = new Map<string, string>();
     const descriptions = new Map<string, string>();

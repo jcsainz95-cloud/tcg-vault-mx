@@ -367,6 +367,32 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
     await waitFor(() => expect(screen.queryByTestId('wishlist-block')).toBeNull());
   });
 
+  // MKT-CONV.2 / L-4 (criterio 948): la lista de deseos es SEGUNDA — 0 botones `primary` en su región, con y sin sesión.
+  it('L-4 · invitado: dos enlaces de texto (sin caja); con sesión: «Agregar» secundario; 0 primary en la región', async () => {
+    const primaryIn = (el: HTMLElement) =>
+      [...el.querySelectorAll<HTMLElement>('button, a')].filter((b) => /(^|\s)bg-primary(\s|$)/.test(b.className));
+    mockDetail({ wishlistEnabled: true });
+    const { unmount } = renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    let b = await block();
+    expect(within(b).getByRole('heading', { name: W.guest.title }).className).toContain('text-[18px]');
+    for (const name of [W.guest.login, W.guest.register]) {
+      const a = within(b).getByRole('link', { name });
+      expect(a.className).toContain('underline');
+      expect(a.className).not.toMatch(/(^|\s)border(\s|$)/);
+      expect(a.className).toContain('min-h-[44px]');
+    }
+    expect(primaryIn(b)).toHaveLength(0);
+    unmount();
+
+    setStoredUser(customer);
+    vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
+    vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    b = await block();
+    await within(b).findByRole('radiogroup', { name: W.block.finishLegend });
+    expect(primaryIn(b)).toHaveLength(0);
+  });
+
   it('WSH-UX.2 (g) · ficha sin piezas ⇒ «Hoy no tenemos esta carta.»', async () => {
     mockDetail({ wishlistEnabled: false });
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
