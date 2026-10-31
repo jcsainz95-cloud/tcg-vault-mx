@@ -26,6 +26,8 @@ const SET_ID = `e2e-cnv-set-${RUN}`;
 const ANCHOR = `e2e-cnv-anchor-${RUN}`;
 const NAME = `CNV Caja ${RUN}`;
 const IMG = `https://e2e.local/cnv-${RUN}.jpg`;
+/** Mercado sembrado con un valor que no coincide con ningún otro número del cuerpo (p. ej. `numberSort` = 1000000). */
+const MARKET = 123_457;
 
 describe('E2E — §MKT.A.1: la ficha de sellado resuelve el GRUPO, no el estado de la pieza (v1.115)', () => {
   let h: E2EHarness;
@@ -166,16 +168,20 @@ describe('E2E — §MKT.A.1: la ficha de sellado resuelve el GRUPO, no el estado
   }
 
   it('CNV-B1 — grupo con su única pieza VENDIDA ⇒ 200 agotada, sin número de mercado (mercado sembrado)', async () => {
-    const X = await product({ market: 100_000 });
+    const X = await product({ market: MARKET });
     const sold = await piece(X, SOLD);
     const res = await detail(sold.id);
     expect(res.status).toBe(200);
     expectSoldOut(res.body, sold.id);
-    expect(JSON.stringify(res.body)).not.toContain('100000');
+    // Ni el mercado neto ni el exhibido con IVA (16 %) aparecen en ninguna parte del cuerpo.
+    const blob = JSON.stringify(res.body);
+    expect(blob).not.toContain(String(MARKET));
+    expect(blob).not.toContain(String(Math.round(MARKET * 1.16)));
+    expect(blob).not.toContain('referenceMxnCents');
   });
 
   it('CNV-B1 — grupo con su única pieza en BÓVEDA de cliente ⇒ 200 agotada', async () => {
-    const X = await product({ market: 100_000 });
+    const X = await product({ market: MARKET });
     const vaulted = await piece(X, inVault());
     const res = await detail(vaulted.id);
     expect(res.status).toBe(200);
