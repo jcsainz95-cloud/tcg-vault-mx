@@ -6,6 +6,19 @@
 > Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+## 2026-10-31 — Stream «Conversión de marketing» (rama `claude/mkt-conversion`)
+
+> Medido por el orquestador el 2026-10-31. Entrega 1 (C7, B4, B4b, B5, C1, C2, C4, C5, C6 + arreglos de gates) con cuatro veredictos APROBADOS: QA y techlead sobre `aeaf3d34`; tester-e2e y seguridad sobre `e066b0b5` (delta posterior = frescura del catálogo + censo, revisado por QA y techlead). Entrega 2 (B1 banner, B6b, T2, B2/B2b, C3, C8) espera respuestas del dueño.
+
+| # | Qué | Dueño | Medido | Comprobación |
+|---|---|---|---|---|
+| MKT-DUENO-MAQ | Maquetas D-A (banner), D-B (etiqueta), D-C (T2) enviadas; D-F correo público. Sin respuesta. | dueño | 2026-10-31 | fila en HECHOS |
+| MKT-DUENO-PO | Preguntas MKT-1…5 (datos de «Quiénes somos», Instagram, agotada, IVA en meta, quién redacta) + «Usado» en `itemCondition`. Sin respuesta. | dueño | 2026-10-31 | fila en HECHOS |
+| MKT-VERCEL-AGE | TL-MKT4-1: la frescura del catálogo depende de que la Data Cache devuelva el `Date` de origen; solo medido en `next start`. Medir en producción tras publicar (36 s sin visitas ⇒ `"ageMs":` ≥ 30000). Respaldo: `staleTime: 0` en la consulta del catálogo. | orquestador → frontend | 2026-10-31 (NO MEDIDO en Vercel) | lectura anotada en DEVOPS_NOTES |
+| MKT-DEUDA | Fichas abiertas TL-MKT2-3…8, TL-MKT3-3/4 (en TECH_DEBT), TL-MKT4-1…5 (por anotar: frontend/devops/arquitecto) y ampliar TL-MKT2-8 (regla de edad del dato servidor→cliente, corregir «≤ ~60 s» de ARCHITECTURE §4.DYN (f) 3). OPS-MKT-SEAL (devops). SEC-MKT2-B1/I1/I2 (frontend). | varios | 2026-10-31 | índice de TECH_DEBT |
+| MKT-953-FOTO | Foto de sellado ≥ 1000 px para `Product` (viene del backend). | backend | 2026-10-31 | `ogImageUrl` ≥ 1000 px |
+| FE-HOMEQUOTER-TEARDOWN | `HomeQuoter.tsx:105` setState tras desmontar ⇒ «window is not defined» unhandled en `page.test.tsx` (1/1 en suite completa con load ~8; 0/5 aislado). | frontend | 2026-10-31 (orquestador) | 0 unhandled en 3 suites completas |
+
 ## 2026-10-31 — Tras publicar §DYN (`production` = 223a7224)
 
 > Medido por el orquestador el 2026-10-31. Esta sección manda sobre la fila DYN-STREAM (cerrada: publicada). Hallazgos de los cuatro gates sobre d5f0b38c; ninguno bloqueó.
