@@ -1,140 +1,114 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · estado vigente
 
-> **Estado vigente (2026-10-29).** Último veredicto: **APROBADO** sobre **`5aeda0060e2b87e323579088d211409f9f95d46d`** (2026-10-29,
-> «velocidad de la portada», solo frontend, rama `claude/portada-velocidad-release`). Críticas 0 · Altas 0 · 1 baja preexistente
-> (SEC-DYN3-B1) · 2 info. Antes: APROBADO `2f5a59c0` (2026-10-26) y SEC-MED-1 cerrada sobre `1b777967` (2026-10-27).
-> Siguen heredados en «Registro vigente»: **P-RL-1**, **CL-1** (CSP en `report-only`, sin aceptación escrita del dueño), **BL-42**.
+> **Estado vigente (2026-10-31).** Último veredicto: **APROBADO** sobre **`d5f0b38c968d57c30131ac3e1d9e25c7e3b7c283`** (2026-10-31,
+> release §DYN «Portada dinámica» más el paquete de velocidad de la PR #107; rama `claude/portada-dinamica`). Críticas 0 · Altas 0 ·
+> 1 media aceptada (residual de PEN-DYN-1 con SEC-DYN-M1, cubierta por el candado `image-optimizer-cost-reading-expiry`) · 3 bajas · 3 info.
+> Antes: APROBADO `5aeda006` (2026-10-29). Siguen heredados en «Registro vigente»: **P-RL-1**, **CL-1** (CSP en `report-only`, todavía
+> **sin** fila de aceptación del dueño en `HECHOS.md`: la busqué hoy) y **BL-42**.
 
 ---
 
-# VEREDICTO BLUE TEAM — Release «velocidad de la portada» · SHA **`5aeda0060e2b87e323579088d211409f9f95d46d`** · 2026-10-29 · seguridad
+# VEREDICTO BLUE TEAM — Release §DYN «Portada dinámica» · SHA **`d5f0b38c968d57c30131ac3e1d9e25c7e3b7c283`** · 2026-10-31 · seguridad
 
-> ## VEREDICTO: ✅ **APROBADO** sobre `5aeda006`, sin condiciones
-> **0 críticas · 0 altas · 0 medias · 1 baja preexistente que este paquete no introduce (SEC-DYN3-B1) · 2 info.**
-> Ninguno de los cuatro cambios abre superficie: el servidor no cambia, no hay dependencias nuevas y la cabecera CSP es idéntica.
-> **Pentester: no hace falta para este delta** (argumentos en §6). El orquestador decide.
+> ## VEREDICTO: ✅ **APROBADO** sobre `d5f0b38c`, sin condiciones nuevas
+> **0 críticas · 0 altas.** El dinero aguanta: lo exhibido es lo cobrado y una fila `pending` no se cobra (dos mutaciones mías, las dos
+> cazadas). PEN-DYN-2 queda **cerrada** (carrera 10/10 con el candado y 1/10 y 0/10 sin él). El arreglo de PEN-DYN-1 funciona. Su residual
+> queda **aceptado**, ahora con un vector más que encontré yo (SEC-DYN-M1, el fragmento `#`). Los dos son coste, no datos ni dinero de
+> clientes. `production` hoy está **más abierto** que esta release, y el candado de la lectura de coste lo cobra.
 
 ## 1. Alcance y procedencia
-- **Qué entra** `[MEDIDO]`: `production` (`79c53ca2`, ancestro de `5aeda006`: `git merge-base --is-ancestor` rc 0) más el paquete §DYN.3.
-  `git diff origin/production 5aeda006` está **vacío** en `backend/`, y fuera de `docs/`, `frontend/` y `*.md` también: no cambian
-  `scripts/`, `security/`, `.github/`, `Dockerfile*` ni `vercel.json`. `frontend/package-lock.json` es idéntico, así que no hay
-  dependencias nuevas y `npm audit` no puede cambiar. `package.json` solo suma el `postbuild`.
-- **Dónde medí**: `git archive 5aeda006` del árbol entero en mi scratchpad (`…/scratchpad/sec-5aeda006`) con `npm ci` propio.
-  Para comparar, `git archive 79c53ca2` en una copia aparte. Las dos se compilaron con `npm run build` de producción
-  (`NEXT_PUBLIC_USE_MOCKS` sin definir, API `https://api.sec-probe.invalid`) y se sirvieron con `node .next/standalone/server.js`
-  en `127.0.0.1:3291` y `:3292`. No medí contra Vercel: **NO MEDIDO**. Carga entre 2 y 9 con 4 CPU; ningún resultado depende de
-  tiempos. Copias borradas al terminar; logs en `…/scratchpad/sec-5aeda006-logs/`.
-- **Vitest** `[MEDIDO]` (pruebas del paquete y `src/security`): `api-client`, `api.export-csv`, `home-bundle`, `mock-boundary`,
-  `layout.messages`, `AdminMessagesProvider`, `MasterSet.storefront-messages`, `src/security` ⇒ **9/9 ficheros, 83/83**.
+- **Qué entra** `[MEDIDO]`: `git diff origin/production d5f0b38c` = 328 ficheros. `79c53ca2` es ancestro de `d5f0b38c` y `d5f0b38c` es ancestro de `HEAD`. Desde el sha del pentest (`d0b40182`) hay 16 commits sin merge; fuera de docs tocan 53 ficheros. Esos los revisé uno por uno: `orders.service.ts`, `listing-price.service.ts`, `price-ingest.service.ts`, `pricing.controller.ts`, `settings.service.ts`, `catalog.service.ts`, `next.config.mjs`, `image-optimizer-switch.mjs`, el guion PDB, `ci.yml` y el candado nuevo. **Sin cambio desde `d0b40182`** `[MEDIDO]` (`git diff --quiet`): `catalog.controller.ts`, `featured.service.ts`, `modules/admin`, `middleware.ts`, `src/security` y `limpieza-ramas.yml`. Para esos me apoyo en el pase del pentester.
+- **Dónde medí**: `git archive d5f0b38c` del árbol entero en `…/scratchpad/sec-dyn-d5f0b38c/tree`, con `npm ci` propio. BD propia `tcg_sec_dyn` (rol `tcgsecdyn`) y Redis db 14. Frontend: `next build` de producción (sin mocks, API `https://api.sec-probe.invalid`), servido con `node .next/standalone/server.js` en `127.0.0.1:3791`. La copia no lleva `.git`: el sha lo garantiza el `git archive`. Carga entre 1,5 y 5,8 con 4 CPU, y ningún resultado depende de tiempos (las carreras usan barrera). **No medí contra Vercel ni Railway**: NO MEDIDO. Logs en `…/scratchpad/sec-dyn-d5f0b38c/logs/`.
 
-## 2. Lo que pidió el encargo
-**(1) `Content-Type` solo con cuerpo (`frontend/src/lib/api-client.ts:356-367`) — no abre CSRF.**
-- `[código]` El backend no autentica por cookie. No hay `cookie-parser` ni lectura de `req.cookies` en `backend/src` (grep revisado
-  match por match: las 4 menciones de «cookie» son comentarios de Card Show y marketing). `JwtAuthGuard` lee **solo**
-  `req.headers['authorization']` con el prefijo `Bearer ` (`common/guards/jwt-auth.guard.ts:35-44`). El refresh viaja en el **cuerpo
-  JSON** (`auth.controller.ts:61-64`, `RefreshDto.refreshToken`), no en una cookie. Con `credentials:true` (`cors.ts:32`) no se manda
-  nada, porque no hay cookie de sesión. Las dos rutas de Next (`card-show-cdmx.ics`, `llms.txt`) son GET sin sesión. No hay
-  server actions.
-- **Qué peticiones se vuelven «simples»**: solo las **anónimas sin cuerpo**. Toda petición con sesión lleva `Authorization`, que no
-  está en la lista segura de CORS, así que sigue con preflight. Lo decisivo: el CSRF depende de lo que **el servidor** acepta, no de
-  lo que manda nuestro cliente. Un sitio atacante ya podía mandar un POST simple antes de este cambio, y el servidor sigue exigiendo
-  Bearer en todo lo que no es `@Public()`. `[código]` Ningún middleware del backend usaba `Content-Type` como defensa: grep de
-  `content-type`, `req.is(` y `csrf` en `backend/src` = 0.
-- **Mutación M2** `[MEDIDO]`: volví a `...(json ? {'Content-Type':…})` ⇒ `api-client.test.ts` **2 rojas de 14** («GET anónimo sin
-  cuerpo» y «POST sin cuerpo»). Restaurada (`diff` contra `git show 5aeda006:` vacío) ⇒ 14/14.
+## 2. Consolidación del pase del pentester (`d0b40182`) sobre `d5f0b38c`
+| ID | Sev pentest | Estado en `d5f0b38c` | Evidencia |
+|---|---|---|---|
+| PEN-DYN-1 | Media | **Arreglo verificado; el residual se acepta** (ver §4). `?v=1`, `%34`, subrutas, `.jpg`, mayúsculas, `//`, `/medium`, logos y `large/` ⇒ **400**. Se transforman `base1/4_hires.png` y `pokemon/me3-1/large` | `[MEDIDO]` 22 sondas, `logs/next-image-off.txt`; `next.config.mjs:220-242` |
+| PEN-DYN-2 | Baja | **CERRADA**. `pg_advisory_xact_lock(64_440_960)` y relectura por `tx` dentro del `$transaction`, en Read Committed (sin `isolationLevel`), así que la relectura tras el candado ve lo confirmado | `[código]` `settings.service.ts:698-706`; `[MEDIDO]` abajo, M-A |
+| I1 | Info | Abierto, sin cambio: `@Header('Cache-Control', public…)` también en los 400. Los 4 manejadores son `@Public` y no leen sesión | `[código]` `catalog.controller.ts:28,49-100`, sin cambio desde `d0b40182` |
+| I2 | Info | El nonce está cerrado y **ahora sí ablacionado** (M-D). La política sigue en `report-only` = CL-1 | `[MEDIDO]`; `csp.ts:37` |
+| I3 | Info | Abierto: `url=https://evil.example@images.pokemontcg.io/…` ⇒ **500** (el host sigue siendo el permitido; no es SSRF) | `[MEDIDO]` |
+| I4 | Info | (a)–(c) confirmados en código. (d) y (e) pasan a SEC-DYN-B1 y SEC-DYN-B3 | `[código]` `limpieza-ramas.yml`, `limpieza-ramas.sh:17-25,111,137` |
 
-**(2) Mocks fuera del bundle (`next.config.mjs:151-206`) — no hay forma de encenderlos en runtime.**
-- `[MEDIDO]` En el build de producción, `useMocks:` aparece **solo como `useMocks:!1`**: 9 veces en `.next/server` y `.next/static`
-  y 5 en `.next/standalone/.next/server`. La cadena `NEXT_PUBLIC_USE_MOCKS` no aparece en ningún chunk, así que nadie lee la
-  variable en runtime. `mock.refresh.token` (el login falso) = 0 ficheros. El centinela de `lib/mock` = 0 en chunks compilados.
-  `postbuild` ⇒ `HOME_BUNDLE_OK (169 chunks)`.
-- `[MEDIDO]` Arranqué el standalone con `NEXT_PUBLIC_USE_MOCKS=true` **en runtime**: `/es` y `/es/catalog` dieron 200, sin
-  fixtures (0 apariciones de «Surging Sparks» o «Twilight Masquerade») y sin centinela (N=1 por ruta; es apoyo, la prueba fuerte es
-  el literal horneado). Antes del cambio, `config.useMocks` ya leía `process.env` en el cliente. Ahora `env:` lo hornea también en
-  el servidor, así que el cambio **endurece**.
-- `[MEDIDO]` Las 296 guardas de `api.ts` y las 12 de `marketing-api.ts` son reescritura mecánica, sin cambio de polaridad:
-  `!config.useMocks` pasó a `!(MOCKS_BUILD && config.useMocks)`. Normalicé el diff y solo quedan el import de `requestText`/`getToken`,
-  la constante y FE-15. Con `MOCKS_BUILD=false`, toda función va al camino real.
-- Los mocks **no se saltan auth**. Son del lado del cliente: un build con mocks encendidos pinta datos falsos y un login falso,
-  pero no llama al API ni recibe datos reales, y el backend sigue autorizando cada llamada. La forma de encenderlos es hornearlos en
-  el build (`NEXT_PUBLIC_USE_MOCKS=true` en el entorno de Vercel). Ya podía pasar antes, y nada lo impide en el build: **SEC-DYN3-B1**.
-- **Mutación M1 (ablación del alias)** `[MEDIDO]`: `if (false && useMocksBuild() === 'false')` ⇒ `npm run build` **rc 1**, con
-  `HOME_BUNDLE_FAIL` y el centinela en 3 chunks, entre ellos `admin/marketing/page-*.js`. Restaurada (`diff` vacío). El build base
-  sale verde. Es determinista (build), por eso N=1. Aun sin el alias el build sale con `useMocks:!1`: el alias reduce el tamaño, la
-  seguridad no depende de él.
+## 3. Lo que pidió el encargo
+**(1) Camino del dinero.**
+- `[código]` TL-DYN-1 movió «fila o vivo» a `ListingPriceService.chargeDecisionsFor` (`listing-price.service.ts:482-500`): fila `priced` ⇒ su `P`; `pending` ⇒ `422 PRICE_PENDING`; sin fila ⇒ vivo y `missing_row`. Es una copia literal de la lógica que el pentester midió. `orders.service.ts:372` delega, y el único llamador del checkout es `:338`. El importe del PaymentIntent sale de `order.totalCents` / `breakdown.totalCents` (`orders.service.ts:1104`, `guest-checkout.service.ts:610`), calculado en la misma llamada. `listingPrices` no lleva `@Optional()` (`orders.service.ts:226-229`): si falta, el arranque falla en vez de cobrar en vivo.
+- **M-B** `[MEDIDO]`: `if (row && false)` en `chargeDecisionsFor` (el checkout ignora la fila) ⇒ `dyn-listing-price` **ROJO**, «exhibido = cobrado… quote y sesión (cuenta e invitado)», esperado 66 700 y recibido 113 400. Restaurado (`diff` contra `git show d5f0b38c:` vacío) ⇒ 12/12. Así queda medido que la app real cobra por este método, y no por la rama de respaldo de `orders.service.ts:374`.
+- **M-C** `[MEDIDO]`: sin el `throw PRICE_PENDING` (la `pending` se cobra en vivo) ⇒ **ROJO** en «fila `pending` ⇒ fuera del catálogo y `PRICE_PENDING` en quote y sesión». Restaurado ⇒ verde. Línea base de las tres suites de dinero (`dyn-listing-price`, `dyn-review-retention`, `dyn-v11144`): **36/36**. La prueba compara el `amountCents` del PaymentIntent con el `totalCents` del breakdown contra el **doble** de Stripe. Contra Stripe real: **NO MEDIDO** (LIVE5-STRIPE).
+- **Disparadores** `[código]`: lo nuevo desde el pentest es la poda de `ListingPriceRun` (solo tras un `daily` ok y bajo `LISTING_PRICE_LOCK_KEY`) y el turno PSA, donde `pg_try_advisory_xact_lock(91_130_103)` deja **una** corrida viva y las demás salen con `already_running` sin pedir créditos. No hay puertas nuevas: las 9 puertas de precio y la fusión de disparadores las midió el pentester (1f, 1g) y sus controladores no cambiaron más que en DI (TL-DYN-4: `listingPrices` y `priceReview` pasan a inyección explícita u obligatoria, lo que **endurece**). El turno PSA mantiene una transacción, y por tanto una conexión del pool, hasta 60 min: SEC-DYN-B2.
+- Las copias de la llave K pasan al helper `variantKey` (`common/variant-key.ts`), con el mismo formato `a|b|c|d`: no cambia ninguna clave ya guardada en `ListingPrice.variantKey`.
 
-**(3) Traducciones `admin` solo bajo `/admin` — no se usaban para seguridad.** `[código]` `SuperAdminOnly.tsx:13-24` decide con
-`useRole().isSuperAdmin`, y el texto solo rellena el `EmptyState`. Los dos `useTranslations('admin.m3.role')` son etiquetas.
-`[MEDIDO]` En `es.json.admin` no hay `sk_`/`pk_`, correos, URLs ni JWT. Se manda **menos**: el HTML de `/es` bajó de
-**466 665 a 152 571 B** (N=10, estable). Un anónimo que abre `/es/admin` sigue recibiendo los textos de admin (443 KB), igual que
-antes en cualquier página. No hay regresión.
+**(2) Endpoints nuevos y roles.** `featured` (`@Public`), `jobs/featured-rotation`, los diales y `graded-estimates/budget` (`super_admin`):
+sus controladores no cambian desde `d0b40182` `[MEDIDO]`. Me quedo con la matriz del pentester `[REPORTADO por pentester, 3a: 401/403
+y 200 solo para super_admin, alg:none, rol alterado y token vencido]`.
+**M-A (PEN-DYN-2)** `[MEDIDO]`, `settings-cross-rules-race.e2e-spec.ts` (barrera, N=10 por regla): línea base **10/10 y 10/10**. Sin
+`pg_advisory_xact_lock` y validando con `this.prisma` fuera del `tx`, la regla del buylist se cumple **1/10** y la de Destacadas **0/10**,
+en ROJO. Restaurado (`diff` vacío) ⇒ **10/10 y 10/10**.
 
-**(4) FE-15 · `exportFinanceCsv` → `requestText` (`api-client.ts:315-322`, `api.ts:7245-7249`).** `[código]` Bearer de
-`getToken()`. Si da 401, hace refresh compartido y **un** reintento (`allowRefresh=false` en el reintento). Si el refresh falla,
-limpia la sesión. El token no viaja en la URL, solo `report/from/to`. El error se arma con `toApiError` desde el cuerpo, sin token.
-**Mutación M3** `[MEDIDO]`: `fetchWithSession(path, opts, false, false)` ⇒ `api.export-csv.test.ts` **2/2 rojas**; restaurada ⇒ 2/2.
-**Caché:** el CSV sale sin `Cache-Control` del backend (`admin.controller.ts:536-545`, `626-635`) y el `fetch` no pone
-`cache:'no-store'`. Pasaba igual antes (el `fetch` propio tampoco lo ponía): es **PNL-6** (aceptada). No hay regresión →
-**SEC-DYN3-I2**.
+**(3) Cachés públicas y sesión.** Los cuatro GET públicos con `public, max-age=30` no leen sesión `[código]`, y el pentester midió
+cuerpos idénticos byte a byte con 4 identidades. El HTML de `/es` y `/es/catalog` sale `private, no-store`, y solo pone la cookie
+`NEXT_LOCALE` `[MEDIDO]`. Sin cambio: I1 sigue siendo info.
 
-**(5) SAST** `[MEDIDO]`: semgrep **1.177.0**, la versión de `security-sast.yml:50`, con las 9 configs del CI
-(`security/semgrep.yml` + `p/default`, `typescript`, `javascript`, `nodejs`, `react`, `owasp-top-ten`, `secrets`, `jwt`) sobre los
-34 ficheros añadidos o modificados de `frontend/` ⇒ **0 ERROR** (el gate no se pondría rojo). Hay 4 WARNING
-`detect-non-literal-regexp`: `next.config.mjs:114,122` y `mock/accessories.ts:226` ya estaban en `production`, y
-`mock-boundary.test.ts:109` es una prueba con identificadores propios. Aviso: 5 reglas de Express dieron timeout sobre `api.ts` y
-`fixtures.ts` (código de cliente, no aplican). Grep de secretos en las líneas añadidas (`sk_`, `whsec_`, `AKIA`, JWT, PEM,
-`password=`/`secret=` literales) = 0. No corrí gitleaks en local: lo corre el CI en el PR.
+**(4) CSP y nonce.** `[MEDIDO]` En `/es` y `/es/catalog`, 20 peticiones con `x-nonce`, `content-security-policy` y `-report-only`
+del atacante: **el nonce del atacante no aparece en 20/20**, y los 42 `<script>` de `/es` llevan nonce.
+**M-D**: sin `request.headers.set(CSP_REQUEST_HEADER, policy)` (`middleware.ts:47`) y recompilado, el nonce del atacante sale en el cuerpo
+**20/20** (ROJO). Restaurado y recompilado ⇒ 0/20. La política sigue en `report-only` (`csp.ts:37`). Es **CL-1, abierta**. ⚠ El
+encargo dice «report-only por decisión del dueño», pero `HECHOS.md` no tiene esa fila (grep de `csp`/`report` revisado). Hasta que
+exista, CL-1 sigue siendo Media sin aceptar, igual que antes.
 
-## 3. CSP: este paquete no la empeora
-`[MEDIDO]` Cabecera `content-security-policy-report-only` con el nonce normalizado: **md5 idéntico** entre `79c53ca2` y
-`5aeda006`. `csp.ts` y `middleware` no cambian. Los modos de render no cambian (`/[locale]`, `/admin` y `/catalog` son `●` SSG en
-ambos). Scripts en línea servidos en local (N=10 por ruta, sin variación), `production` frente a release:
-`/es` **19 → 16**, `/es/catalog` **20 → 19**, `/es/admin` **14 → 16**. En las dos versiones todos llevan nonce **en local**. Los +2
-de `/admin` son el payload RSC de `AdminMessagesProvider`, que se mueve ahí: mismo origen y mismo tipo que los que salen de las
-otras rutas. La única fuente nueva de JS es el chunk de `recharts` con `next/dynamic`, del mismo origen (`'self'`). **NO MEDIDO**:
-cuántas violaciones da en Vercel, donde frontend midió 28 scripts sin nonce (D-DYN-1). Eso lo cierra la medición de DYN-F7 en
-producción tras publicar. D-DYN-1 y CL-1 siguen abiertas, sin cambio.
+**(5) `/_next/image` y el residual** → §4.
 
-## 4. Hallazgos de este pase
+**(6) `limpieza-ramas.yml`** `[código]`: solo `workflow_dispatch`, `permissions: {}`, y el job con `contents: write` + `pull-requests: read`.
+Borra solo si se cumplen tres cosas: ancestro de `production`, fuera de las protegidas y de las PR abiertas, y `--force-with-lease`
+al sha medido. Nunca pierde commits. Lo que queda: (d) una rama recién creada sin commits propios y sin PR **se borra** (SEC-DYN-B1),
+y (e) `actions/checkout@v5` es etiqueta móvil con token de escritura (SEC-DYN-B3).
+
+**(7) Guion PDB con G-11** `[MEDIDO]`, `pdb-limpieza.e2e-spec.ts`, bloque §DYN.1: **5/5**. G-11 aborta con la base **idéntica** cuando
+otra conexión tiene `91130101` o `91130102`. Los literales del guion coinciden con las constantes, y G-7 no se dispara con la selección
+del día pero sí con una `InventoryItem`. Usa `pg_try_…` después del último `LOCK` y antes de la foto: no espera, así que no deja la
+foto vieja. `[código]` Todas las escrituras de `ListingPrice` (upsert, borrado de fuera de alcance, poda) van bajo `91_130_102`.
+
+**(8) SAST y dependencias** `[MEDIDO]`. Semgrep **1.177.0** (la versión de `security-sast.yml:50`) con las 9 configs del CI sobre los
+200 ficheros `.ts/.tsx/.mjs/.sh/.yml/.sql` añadidos o modificados:
+- En `backend/` y `frontend/` (el alcance del gate) hay **0 ERROR**.
+- Los 2 ERROR son `secrets-inherit` en `deploy.yml:243,494`: ya estaban en `production`, pasan los secretos `STRIPE_TEST_*` a un flujo interno y quedan fuera del alcance del gate.
+- Las 104 WARNING: 94 son `mutable-action-tag` (SEC-DYN-B3). 4 son `no-secret-in-logs`, que revisé una por una: son conteos y claves de diales retirados, sin secretos. 6 son `non-literal-regexp`, de pruebas o ya presentes en `production`.
+- Grep de secretos en las líneas añadidas: 0. `IMG_SEED` en `security/secretos-*.sha256` es un renombrado del arnés, no una fuga.
+`npm audit --omit=dev`: frontend 0. Backend **0 críticas y 0 altas, 12 moderadas y 4 bajas**. Los lockfiles no cambian frente a
+`production`; el aumento sobre las 4 moderadas del pentester viene de avisos publicados después (`qs` con `arrayFormat:'comma'`,
+`minimatch` y `deepmerge`). Ninguno es alcanzable `[código]`: `arrayFormat`, `minimatch` y `deepmerge` dan 0 en `backend/src` → SEC-DYN-I1.
+
+## 4. `/_next/image`: valido la aceptación del residual, con un vector más
+- **Residual aceptado por el arquitecto** (`ARCHITECTURE.md:31005`): `[MEDIDO]` `images.scrydex.com/pokemon/me3-99999/large` ⇒ **200** WebP. El CDN responde 200 a cualquier id con la forma correcta, así que el número de orígenes no tiene tope.
+- **SEC-DYN-M1 (nuevo, Media, frontend):** la premisa «por URL ya está acotado (2 anchos × 1 calidad × sin query)» **no se cumple**. El **fragmento** (`#…`, que el atacante manda codificado en `url=`) entra en la clave de caché y `remotePatterns` no lo mira. `[MEDIDO]` `https://images.pokemontcg.io/base2/1.png#f<n>`: **10/10 `200` y `X-Nextjs-Cache: MISS`**, y la misma cadena repetida da `HIT`. Así, **una sola** imagen válida de **cualquiera** de los dos hosts da transformaciones sin tope. Los alias `/./`, `/x/../`, `:443` y `?` vacío también pasan. Los dos primeros se normalizan (`HIT` en la segunda), y todos son un número finito; el fragmento no. En Vercel el optimizador es suyo, y si su clave incluye el fragmento está **NO MEDIDO**: lo cerrarían dos peticiones a un *preview* mirando `x-vercel-cache`.
+- **Por qué no bloquea:** es coste, no datos ni dinero; `production` ya acepta cualquier query, cualquier ruta, y todos los anchos y calidades, así que publicar **reduce** la superficie. Además el interruptor la cierra entera. `[MEDIDO]` Build con `NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH=on`: los dos hosts y la variante con fragmento ⇒ **400** «"url" parameter is not allowed». El valor raro hace fallar el build, y eso lo cubre su candado (`next-image-remote-patterns.test.ts` y 4 ficheros más: **72/72** `[MEDIDO]`).
+- **El candado cobra la aceptación** `[MEDIDO]`: `check-image-optimizer-cost-reading-expiry.sh --canary` ⇒ **11/11**. Hoy da rc 0; con `--today 2026-12-01` da **rc 9**. Está en `ci.yml:546` y en `needs` del agregador (`:1137`). Mide el total de transformaciones al día, así que también recoge el abuso por fragmento. Tiene dueño (devops), fecha (2026-12-01) y candado: **la aceptación vale**. ⚠ Solo se pone rojo en el próximo push o PR desde esa fecha (`ci.yml` no tiene `schedule`). Con el ritmo actual del repo es aceptable.
+- ⚠ **La alerta de gasto de Vercel** es parte de la aceptación del arquitecto y **no tiene candado**: es un ajuste del dueño en Vercel y en `HECHOS.md` no consta que esté hecha. No la pongo como condición de mi veredicto (no se puede cobrar sola y la release reduce la exposición). Va como **bandera C.6**, para la solicitud de fusión.
+
+## 5. Hallazgos de este pase
 | ID | Sev | Qué | Ubicación | Dueño | Disparador |
 |---|---|---|---|---|---|
-| SEC-DYN3-B1 | Baja (preexistente) | Nada impide un build de Vercel `production`/`preview` con `NEXT_PUBLIC_USE_MOCKS=true`: serviría fixtures y login mock en cliente (precios falsos; sin acceso a datos reales). `postbuild` se salta con mocks (`check-home-bundle.mjs:81-83`) | `next.config.mjs:170,200` | frontend + devops | El próximo toque de `next.config.mjs` o del entorno de Vercel: un `throw` como el de `MEASUREMENT_NOTICE_REQUIRED` (mocks + `VERCEL_ENV` production/preview) |
-| SEC-DYN3-I1 | Info | El standalone copia `src/lib/mock/*.ts` (11 ficheros, porque el trazado sigue el `readdirSync` de `next.config.mjs`). **No se sirven** `[MEDIDO]`: `/src/lib/mock/fixtures.ts` y 4 variantes con `..`/`%2e%2e` ⇒ 404 (o 307 sin extensión, que redirige a la tienda), centinela 0. Son datos falsos y el repo es público | `.next/standalone/src/lib/mock` | frontend | Que `lib/mock` llegue a tener algo no público |
-| SEC-DYN3-I2 | Info | El CSV financiero sin `no-store`, en ninguna de las dos capas. Sin cambio respecto a `production` (= PNL-6) | `api-client.ts:315`; `admin.controller.ts:536,626` | backend | Los de PNL-6 |
+| SEC-DYN-M1 | Media (aceptada con el residual) | El fragmento `#…` multiplica las transformaciones de cualquier imagen permitida. Remedio: rechazar en el middleware un `url=` de `/_next/image` con `#`, `..`, `/./` o puerto explícito, y añadir el caso al candado | `next.config.mjs:220-242`; `middleware` (el `matcher` hoy excluye `_next`) | frontend (decide el arquitecto) | La alerta de gasto, una lectura > 1 000/día (`image-optimizer-cost-reading-expiry`) o el próximo toque de `images` |
+| SEC-DYN-B1 | Baja (operativa) | `limpieza-ramas` borra una rama recién creada desde `production` sin commits ni PR (= I4-d; no se pierden commits) | `limpieza-ramas.sh:111` | devops | Antes del primer `confirmar=true` con sesiones vivas: excluir ramas con commit de cabeza de menos de 24 h, o avisar en el resumen |
+| SEC-DYN-B2 | Baja | El turno PSA retiene 1 conexión del pool hasta 60 min (`lockTx`). Pool de producción: NO MEDIDO | `price-ingest.service.ts:108-114,1490` | backend + devops | Un `P2024`/timeout de pool en checkout durante una corrida PSA, o un pool ≤ 5 en Railway |
+| SEC-DYN-B3 | Baja | 96 `uses:` por etiqueta móvil y 0 por sha (incluidos `gitleaks-action@v3` y `trivy-action@v0.36.0`, de terceros, con token de solo lectura). Va contra «toda dependencia externa va fijada» | `.github/workflows/*` | devops | Antes del primer `confirmar=true` de `limpieza-ramas` (token de escritura) y de cualquier job nuevo con escritura; candado tipo `runner-pin` para `uses:` |
+| SEC-DYN-I1 | Info | 12 moderadas y 4 bajas en el backend (`qs`, `minimatch`, `deepmerge`), no alcanzables | `backend/package-lock.json` | devops | Los de PRE-P4 |
+| PEN-DYN-I1, I3 | Info | `public` en los 400; userinfo ⇒ 500 | §2 | backend; frontend | El primer manejador público que lea sesión (I1); el próximo toque de `images` (I3) |
 
-## 5. Mutaciones de este pase (cada una restaurada; `diff` contra `git show 5aeda006:<fichero>` vacío)
-M1 alias apagado ⇒ build rc 1 (centinela en 3 chunks) · M2 `Content-Type` siempre ⇒ 2/14 rojas · M3 CSV sin refresh ⇒ 2/2 rojas.
+## 6. VEREDICTO
+### ✅ **APROBADO** sobre `d5f0b38c968d57c30131ac3e1d9e25c7e3b7c283`, sin condiciones nuevas
+No hay críticas ni altas abiertas. Cuatro mutaciones, cada una roja y luego verde al restaurar: M-A (PEN-DYN-2, 1/10 y 0/10), M-B
+(exhibido ≠ cobrado), M-C (`pending` cobrada) y M-D (nonce, 20/20). La única media es un residual de coste que se acepta: tiene dueño,
+fecha y candado medidos (`image-optimizer-cost-reading-expiry`, devops, 2026-12-01) y la release lo deja **mejor** que `production`.
+Nada de lo abierto bloquea la publicación. Lo heredado (P-RL-1, CL-1, BL-42…) no cambia; sigue en el registro y en las banderas al dueño.
 
-## 6. ¿Hace falta pentester para esta release?
-Recomiendo que **no**, para este delta. Lo decide el orquestador y queda anotado como excepción, porque CLAUDE.md pide la fase
-completa «por release». Motivos medidos:
-(a) `backend/`, `prisma/`, CI, `security/` y el despliegue no cambian (§1).
-(b) No hay dependencias nuevas (lock idéntico).
-(c) No hay endpoints, rutas con sesión, PII ni dinero nuevos. El único cambio de flujo con token (FE-15) usa el núcleo de sesión
-ya auditado, con mutación.
-(d) La CSP es idéntica.
-(e) La superficie **baja**: menos JS, menos textos de admin a anónimos, mocks fuera del bundle.
-Lo que un red team atacaría (auth, IDOR, dinero, webhook) está byte a byte igual que en `production`, que ya pasó el pentest. El DAST
-del CI sigue corriendo en el despliegue. **El pentester sí corre** en la próxima release que toque `backend/`, `next.config.mjs`
-en cabeceras o CSP, o el manejo de tokens de `api-client.ts`.
-
-## 7. VEREDICTO
-### ✅ **APROBADO** sobre `5aeda0060e2b87e323579088d211409f9f95d46d`, sin condiciones
-0 críticas y 0 altas en el alcance. Los cuatro cambios se revisaron en código, se midieron en un build de producción y cada uno
-tiene una mutación que su candado caza (M1–M3). SEC-DYN3-B1 es anterior al paquete y queda como deuda con su disparador. Lo
-heredado (P-RL-1, CL-1, BL-42…) no cambia con esta release. Sigue en el registro y en las banderas al dueño.
-
-— SEGURIDAD (blue team / AppSec), 2026-10-29 · sha **`5aeda0060e2b87e323579088d211409f9f95d46d`** · **APROBADO**
+— SEGURIDAD (blue team / AppSec), 2026-10-31 · sha **`d5f0b38c968d57c30131ac3e1d9e25c7e3b7c283`** · **APROBADO**
 
 ---
 
-# Veredictos recientes, compactados el 2026-10-29
-- **Re-verificación SEC-MED-1 · `1b777967` · 2026-10-27: CERRADA.** Con la medición encendida y gtag.js/fbevents.js reales, ninguna
-  llamada a GA4/Meta lleva `q` (mutaciones M1/M2 cazadas). Queda SEC-MED-1-R1 (info, registro B) y el paso de consola de GA4,
-  que yo no medí (bandera C.3).
-- **`2f5a59c0` · 2026-10-26: APROBADO** (códigos de descuento, evento de prueba de Meta, aviso con la medición apagada). DSC-1 cerrada.
-  Sus hallazgos vivos están en el registro B (SEC-DSC-QA7, SEC-DSC-I1/I2, SEC-MTE-1).
-Texto íntegro de los dos: `git show 5aeda006:docs/SECURITY_NOTES.md`.
+# Veredictos recientes, compactados el 2026-10-31
+- **`5aeda006` · 2026-10-29: APROBADO** (velocidad de la portada, solo frontend). Mutaciones M1–M3 cazadas. Sus hallazgos SEC-DYN3-B1/I1/I2 siguen en el registro B. Texto íntegro: `git show d5f0b38c:docs/SECURITY_NOTES.md`.
+- **SEC-MED-1 · `1b777967` · 2026-10-27: CERRADA.** **`2f5a59c0` · 2026-10-26: APROBADO** (códigos de descuento). Texto: `git show 5aeda006:docs/SECURITY_NOTES.md`.
 
 ---
 
@@ -149,7 +123,7 @@ Texto íntegro de los dos: `git show 5aeda006:docs/SECURITY_NOTES.md`.
 | ID | Sev | Qué | Dueño | Última medición | Cierre |
 |---|---|---|---|---|---|
 | **P-RL-1** | **Media** (era Alta antes de C7) | El tope por IP se puede esquivar rotando `X-Forwarded-For` si el edge de Railway pasa el valor del cliente. El tope **por cuenta** (C7: 5 intentos, y luego 429) sí protege el login (pentester, `c62621e6`). Queda la evasión del tope por IP en endpoints públicos: scraping (BMK-1) y DoS de la ruta de cobro (SB-B3). Clasifico Media, como en `c62621e6` §6. El pase `8e1b34d7` copió «Alta» de antes de C7 | devops | 2026-10-10: ronda con XFF rotatorio, 6×401 sin 429; **falta la ronda de control** (`HECHOS.md:168`) | C6 completo (§85.4 de `DEVOPS_NOTES`), con proporción N/N, en ventana autorizada por el dueño |
-| **CL-1** / SEC-HDR-2 / CSP-RO | **Media** | CSP en `report-only` (**[MEDIDO 2026-10-26]** `frontend/src/security/csp.ts:37`; `HECHOS.md` sigue sin fila de aceptación). Con la sesión en `localStorage`, un XSS daría una sesión de súper-admin de hasta 7 días. No se conoce ningún XSS (`grep dangerouslySetInnerHTML` = 0 en el pase `8e1b34d7`) | frontend + devops | `8e1b34d7`, 2026-10-10 (vuelta a report-only a propósito) | CSP en `enforce` según §14.3 de `DEVOPS_NOTES` + `check-csp-zap-parity.sh` rc 0. **O** el dueño lo acepta por escrito en `HECHOS.md` (hoy no hay esa fila: lo busqué) |
+| **CL-1** / SEC-HDR-2 / CSP-RO | **Media** | CSP en `report-only` (**[MEDIDO 2026-10-26]** `frontend/src/security/csp.ts:37`; `HECHOS.md` sigue sin fila de aceptación). Con la sesión en `localStorage`, un XSS daría una sesión de súper-admin de hasta 7 días. No se conoce ningún XSS (`grep dangerouslySetInnerHTML` = 0 en el pase `8e1b34d7`) | frontend + devops | `8e1b34d7`, 2026-10-10 (vuelta a report-only a propósito); **`d5f0b38c` 2026-10-31**: sigue `report-only` (`csp.ts:37`), nonce cerrado con mutación, sin fila en `HECHOS.md` | CSP en `enforce` según §14.3 de `DEVOPS_NOTES` + `check-csp-zap-parity.sh` rc 0. **O** el dueño lo acepta por escrito en `HECHOS.md` (hoy no hay esa fila: lo busqué) |
 | **CL-3** | Media | Evidencias «antes de `sk_live_`»: C6, DAST `full` sellado sobre el sha de producción, C3 = 0, simulacro de restauración con las claves `PII_*` fuera de Railway | devops + dueño | `c62621e6` (2026-10-05); después **NO MEDIDO** | Los cuatro resultados en `DEVOPS_NOTES §85`, con fecha y sha |
 | LIVE5-STRIPE | Media | La lógica de reembolso SPEI (`chargeState`, `to-manual`) solo se probó contra un doble de Stripe | backend + pentester | `8e1b34d7` | Pasada en Stripe modo prueba (CS-1…CS-6) |
 | **BL-42** (caminos 1 y 3) | **Media** | INE sin ancla de purga ⇒ retención indefinida | backend + dueño | `c62621e6` | ⚠️ La primera solicitud ARCO, o la regla 7 encendida |
@@ -192,6 +166,8 @@ MKT-TL2, SEC-MKT-1/2/3, CS-RT-1, C7, CL-2: cerrados. **SEC-MED-1: cerrada el 202
 | SEC-DSC-QA7 | Baja | La clave `email:` del quote de invitado: bloquear 15 min los códigos de un correo ajeno y saber si ya usó un código (veredicto `2f5a59c0` §2) | Código con tope por cliente publicado en redes; queja «no me deja usar mi código»; >3 bloqueos `email:` al día; P-RL-1 confirmado | backend (arquitecto decide) |
 | SEC-DSC-I1, SEC-DSC-I2, SEC-MTE-1 | Info | Candado de DSC-1 solo en la integración; M-92 editada en su sitio (staging o local); `fetch` a Meta sin `redirect:'error'` | La integración fuera de CI o `discounts` en `backend-lite`; un aviso de `migrate deploy` en staging; el próximo toque de `measurement-http.ts` | backend; devops; backend |
 | SEC-MED-1-R1 | Info | Una llamada a `fbq` en cola antes de que baje `fbevents.js` sale con la URL del momento en que se procesa (ventana de cientos de ms; no reproducido) | El catálogo escribe `q` en la URL, o tester-e2e ve un beacon de Meta con `q` | frontend |
+| **PEN-DYN-1 residual + SEC-DYN-M1** | Media | `/_next/image` sin tope de orígenes (scrydex 200 a cualquier id) ni de claves (fragmento `#`); solo coste. Aceptado por el arquitecto (`ARCHITECTURE.md:31005`), validado aquí (veredicto `d5f0b38c` §4) | Candado `image-optimizer-cost-reading-expiry` (devops, **2026-12-01**); alerta de gasto; lectura > 1 000/día ⇒ interruptor u opción (b) | devops; frontend; arquitecto |
+| SEC-DYN-B1/B2/B3, SEC-DYN-I1, PEN-DYN-I1/I3 | Baja/Info | Limpieza borra una rama recién creada; turno PSA con 1 conexión hasta 60 min; `uses:` sin sha; avisos moderados no alcanzables; `public` en 400; userinfo ⇒ 500. Veredicto `d5f0b38c` §5 | Ver ficha (antes del primer `confirmar=true`; `P2024` en checkout; PRE-P4) | devops; backend; frontend |
 | SEC-DYN3-B1, SEC-DYN3-I1/I2 | Baja/Info | Build de Vercel con mocks horneados sin `throw`; fuentes de `lib/mock` copiadas al standalone (no se sirven); CSV sin `no-store` (= PNL-6). Veredicto `5aeda006` §4 | El próximo toque de `next.config.mjs` o del entorno de Vercel; `lib/mock` con algo no público; los de PNL-6 | frontend + devops; frontend; backend |
 | BMK-1 | Info | El cotizador anónimo deja leer el mercado en lote | C6 sale mal, o un mercado propio | backend |
 | REL7-P3 (R7-C2), SEG-R7-1 (R7-C3) | Baja | «Avísame» de sellados con correo ajeno; huecos menores del aviso de la lista de deseos | Una queja, >5 suscripciones a un correo al día, **o `sk_live_` (ya ocurrió ⇒ doble opt-in: re-enruto a backend)**; encender `wishlist_enabled` | backend; dueño |
@@ -205,7 +181,7 @@ MKT-TL2, SEC-MKT-1/2/3, CS-RT-1, C7, CL-2: cerrados. **SEC-MED-1: cerrada el 202
    Esa fila no existe. O se cierran (frontend/devops), o lo aceptas tú y queda escrito.
 2. Varios disparadores de deuda decían «antes de `sk_live_`» y **ya se cumplieron**: A-BSD-1, SEC-SHIP-B1 (SPEI duplicado), el doble
    opt-in de REL7-P3 y D-6. Hay que re-enrutarlos (backend/arquitecto/devops). No los introduce este release.
-3. **Medición:** el aviso está aprobado y publicado apagado, y SEC-MED-1 quedó cerrada (2026-10-27). Antes de encender, en la consola
+3. **Medición:** SEC-MED-1 quedó cerrada (2026-10-27) y la encendiste ese día (`HECHOS.md:195`). Si no lo hiciste ya, en la consola
    de GA4 tienes que apagar **entera** la «medición mejorada», junto con los demás pasos de §MKT.H.10. Si queda encendida, Google lee
    lo que buscó el visitante y el código no lo puede impedir. Te lo pedirá el orquestador con pasos de pantalla.
 4. **RL-INFO-2:** el plazo de «30 días con dinero real» vence hacia el **2026-11-15**, contado desde el 2026-10-16 que declaraste en
@@ -214,6 +190,7 @@ MKT-TL2, SEC-MKT-1/2/3, CS-RT-1, C7, CL-2: cerrados. **SEC-MED-1: cerrada el 202
    primeros 30 días); revisión legal del aviso de privacidad provisional, de la custodia y de INE/CLABE (BL-42); y antes de encender la
    medición, revisión legal de GA4/Meta y decidir si un analista externo verá b1/b2 (SEC-MKT-4).
 
+6. **Antes de fusionar §DYN:** activa la **alerta de gasto** de Vercel (Pro). Es parte de la aceptación del residual del optimizador de imágenes y no hay candado que la vigile: tienes que hacerla tú (`DEVOPS_NOTES` §106.4 paso 5). Si salta, el interruptor está listo (`NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH=on` y volver a desplegar).
 ---
 
 # Índice de veredictos anteriores
@@ -223,4 +200,4 @@ Los más recientes, del más nuevo al más viejo: `60250e90` (2026-10-25, Envío
 `e77b9612` (2026-10-19, Panel de Marketing / Medición Fase 2 apagada), `e454262` (2026-10-16, P&L), `c62621e6` (2026-10-05, «listo-real»).
 Texto íntegro de los 81 anteriores: `git show 60250e90:docs/SECURITY_NOTES.md`; su tabla índice por fecha y sha: `git show 2f5a59c0:docs/SECURITY_NOTES.md`.
 
-_Changelog:_ 2026-10-25 · veredicto `60250e90` APROBADO; compactado de 17 004 líneas a estado vigente + registro + índice. · 2026-10-26 · veredicto `2f5a59c0` APROBADO (DSC-1 cerrada; SEC-MED-1 abierta al encender). · 2026-10-27 · re-verificación `1b777967`: SEC-MED-1 cerrada. · 2026-10-29 · veredicto `5aeda006` APROBADO (velocidad de la portada, solo frontend); compactados los dos anteriores.
+_Changelog:_ 2026-10-25 · veredicto `60250e90` APROBADO; compactado de 17 004 líneas a estado vigente + registro + índice. · 2026-10-26 · veredicto `2f5a59c0` APROBADO (DSC-1 cerrada; SEC-MED-1 abierta al encender). · 2026-10-27 · re-verificación `1b777967`: SEC-MED-1 cerrada. · 2026-10-29 · veredicto `5aeda006` APROBADO (velocidad de la portada, solo frontend); compactados los dos anteriores. · 2026-10-31 · veredicto `d5f0b38c` APROBADO (§DYN portada dinámica; PEN-DYN-2 cerrada; residual de PEN-DYN-1 + SEC-DYN-M1 aceptados con candado).
