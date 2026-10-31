@@ -360,8 +360,10 @@ function Detail({
         {/* MKT-CONV.2 (vMKT-CONV-2, L-9): en lg la columna es `flex-col` y el renglón de compra sube por encima de
             la pila de avisos y de Condición/Acabado (`lg:order-*`), así su posición ya no depende de lo variable.
             En < lg el orden es el del DOM (sin cambio). Lo que se mueve (pila y retícula) no tiene nada enfocable;
-            el certificado (con su botón «Copiar») se pinta en su sitio del DOM en cada ancho (ver `certField`). */}
-        <div className="gutter py-10 lg:flex lg:flex-col lg:py-12" data-testid="card-detail-column">
+            el certificado (con su botón «Copiar») se pinta en su sitio del DOM en cada ancho (copia `lg:hidden`/`lg:block`).
+            Medido (FRONTEND_NOTES §MKT-CONV8): con nombre de 3 renglones a 1280×720 el margen al banner era 40 px < 48
+            (L-9); `lg:pt-10` (antes 12), precio `lg:mt-6` (antes 7) y h2 `lg:mt-5` (antes 6) dan −16 px. */}
+        <div className="gutter py-10 lg:flex lg:flex-col lg:pb-12 lg:pt-10" data-testid="card-detail-column">
           {/* C1 (criterio 949): el `<h1>` lleva nombre · set · número. La línea de set va DENTRO del encabezado
               como bloque propio, con la misma letra y el mismo margen que tenía de párrafo: se ve igual. */}
           <h1 className="font-serif text-[32px] leading-[1.05] text-text lg:order-1 lg:text-[46px]" lang="en">
@@ -389,7 +391,7 @@ function Detail({
               {/* La retícula se parte en dos (precio | condición y acabado) para que en lg el precio quede con el
                   nombre y la condición baje tras la compra. En < lg se ve igual que la retícula única: la regla de
                   arriba la pone la primera y cada celda trae su regla inferior. */}
-              <FactGrid facts={facts.slice(0, 1)} className="mt-9 border-t border-border lg:order-2 lg:mt-7" />
+              <FactGrid facts={facts.slice(0, 1)} className="mt-9 border-t border-border lg:order-2 lg:mt-6" />
               <FactGrid
                 facts={facts.slice(1)}
                 className="lg:order-5 lg:mt-6 lg:border-t lg:border-border"
@@ -431,7 +433,7 @@ function Detail({
           <GradingEstimateBlock detail={detail} className="mt-7 lg:order-2" />
 
           {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. MKT-CONV.2: `mt-8` (antes 10). */}
-          <h2 className="mt-8 font-serif lg:order-3 lg:mt-6 text-[22px] leading-tight text-text">{t('instances')}</h2>
+          <h2 className="mt-8 font-serif lg:order-3 lg:mt-5 text-[22px] leading-tight text-text">{t('instances')}</h2>
           {/* §WSH-UX.2 (g): ficha de una carta sin piezas a la venta (se llega desde el buscador de «Mi lista» o por URL). */}
           {groups.length === 0 && (
             <p className="mt-4 text-[15px] text-muted lg:order-3">{tWishlist('card.notHere')}</p>

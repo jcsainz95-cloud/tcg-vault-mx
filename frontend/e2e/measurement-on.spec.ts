@@ -600,7 +600,7 @@ test.describe('C-F11 / C-F12 / C-F19 · geometría en móvil', () => {
  */
 const NAME_60 = 'Pikachu VMAX Rainbow Rare Alternate Art Special Delivery Set'; // 60 caracteres
 const NAME_120 =
-  'Charizard ex Special Illustration Rare Obsidian Flames Tera Type Darkness Alternate Full Art Gold Secret Hyper Rare 223'; // 120
+  'Charizard ex Special Illustration Rare Obsidian Flames Tera Type Darkness Alternate Full Art Gold Secret Hyper Rare 223a'; // 120
 const PENDING_CLASSES = 'font-mono text-[10px] uppercase leading-none tracking-[0.1em] text-accent order-1 block';
 
 type Worst = 'name' | 'pending';
