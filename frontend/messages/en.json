@@ -504,6 +504,7 @@
         "typoSuggestion": "Did you mean {suggestion}?",
         "typoAccept": "Yes, fix it",
         "confirmCheckbox": "I confirm that <mono>{email}</mono> is correct. It's the only way to track my order.",
+        "confirmCheckboxEmpty": "I confirm that my email is correct. It's the only way to track my order.",
         "confirmReset": "You changed the email: confirm it again before paying."
       },
       "payBlocked": {
@@ -638,7 +639,6 @@
       "cardsOnly": "+ shipping {shipping}, free from {freeFrom} · platform fee at checkout",
       "sealed": "Shipping {shipping}, free from {freeFrom} · platform fee at checkout"
     },
-    "finalSaleShort": "All sales are final.",
     "refundPromise": "If your card arrives damaged or wrong, we refund you.",
     "freeShippingRemaining": "{remaining} more for free shipping",
     "entryLine": "Already have an account? <login>Log in</login> · or <register>create one</register>",

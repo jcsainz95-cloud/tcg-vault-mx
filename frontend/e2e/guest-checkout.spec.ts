@@ -67,11 +67,14 @@ test.describe('guest checkout · identidad y desglose', () => {
     await expect(breakdown.getByText(t('es', 'checkout.platformFee'))).toBeVisible();
     await expect(breakdown.getByText(MONEY_RE).first()).toBeVisible();
 
-    await expect(page.getByText(t('es', 'checkout.finalSaleNotice'))).toBeVisible();
+    // B4 (BRIEF_MKT §4): «ventas finales» UNA vez antes de pagar — en la casilla de términos, que enlaza a
+    // /terminos — con T8 debajo. La nota legal duplicada del pie ya no existe.
+    const terms = page.getByTestId('privacy-site-guestCheckout');
+    await expect(terms).toContainText('todas las ventas son finales');
+    await expect(terms.getByRole('link', { name: /términos/ })).toBeVisible();
+    await expect(page.getByText(t('es', 'checkout.refundPromise'))).toBeVisible();
+    await expect(page.getByText(/ventas son finales/i)).toHaveCount(1);
     await expect(page.getByText(t('es', 'checkout.cfdiNotice'))).toBeVisible();
-    await expect(
-      page.getByRole('main').getByRole('link', { name: t('es', 'checkout.viewTerms') }),
-    ).toBeVisible();
   });
 
   test('un correo inválido impide avanzar al pago (criterio 47)', async ({ page }) => {

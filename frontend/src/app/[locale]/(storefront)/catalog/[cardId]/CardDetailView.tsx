@@ -35,7 +35,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { CardCode } from '@/components/domain/CardCode';
 import { WishlistBlock } from './WishlistBlock';
-import { FinalSaleLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
+import { RefundPromiseLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
 
 /**
  * v1.38-grouped-listings (P-30): ¿la pieza (unit, por-pieza) pertenece a este grupo?
@@ -357,7 +357,7 @@ function Detail({
               {primary.displayPriceCents != null && (
                 <>
                   <ShippingFeeHint kind="cards" className="mt-3" />
-                  <FinalSaleLine className="mt-1" />
+                  <RefundPromiseLine className="mt-1" />
                 </>
               )}
 

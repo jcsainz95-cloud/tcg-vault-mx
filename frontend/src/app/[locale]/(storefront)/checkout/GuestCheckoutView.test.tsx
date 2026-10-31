@@ -83,10 +83,28 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     expect(breakdown.querySelector('[data-informative="true"]')).not.toBeNull();
     // §29 (v3.6): «Comisión de plataforma» — la línea ya no nombra al procesador de pago.
     expect(screen.getByText('Comisión de plataforma')).toBeInTheDocument();
-    expect(
-      screen.getByText('Todas las ventas son finales. Sin reembolsos salvo carta dañada o equivocada.'),
-    ).toBeInTheDocument();
+    // Aviso de ventas finales con enlace a términos: lo lleva la casilla de términos (B4: una sola mención), con T8.
+    const terms = screen.getByTestId('privacy-site-guestCheckout');
+    expect(terms).toHaveTextContent(/todas las ventas son finales/);
+    expect(within(terms).getByRole('link', { name: /términos/ })).toBeInTheDocument();
+    expect(screen.getByText('Si tu carta llega dañada o equivocada, te reembolsamos.')).toBeInTheDocument();
     expect(screen.getByText(/Para solicitar factura \(CFDI\)/)).toBeInTheDocument();
+  });
+
+  it('B4b (E2E-GUEST-GUION): con el correo vacío la casilla NO dice «Confirmo que — es correcto»; con correo, lo muestra', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+    await screen.findByLabelText('Correo electrónico');
+    const confirm = () => document.querySelector('label[for="guest-email-confirm"]')!;
+    expect(confirm()).toHaveTextContent('Confirmo que mi correo es correcto. Es el único canal para dar seguimiento a mi pedido.');
+    expect(confirm().textContent).not.toContain('—');
+    // Solo espacios cuenta como vacío.
+    await user.type(screen.getByLabelText('Correo electrónico'), '   ');
+    expect(confirm().textContent).not.toContain('—');
+    expect(confirm()).toHaveTextContent('Confirmo que mi correo es correcto.');
+    await user.clear(screen.getByLabelText('Correo electrónico'));
+    await user.type(screen.getByLabelText('Correo electrónico'), 'juan@dominio.com');
+    expect(confirm()).toHaveTextContent('Confirmo que juan@dominio.com es correcto.');
   });
 
   it('un correo con formato inválido impide pagar y pinta el resumen de errores (criterio 47)', async () => {
