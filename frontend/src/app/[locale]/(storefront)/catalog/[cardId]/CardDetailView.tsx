@@ -352,7 +352,8 @@ function Detail({
 
         {/* MKT-CONV.2: `lg:py-12` (antes 14) es la palanca del diseño para que COMPRAR quede sobre el banner a
             1366×768 (L-3). Medido: no basta (renglón en y 693–733, banner en 711), así que desde lg también se
-            compactan la miga (`lg:py-4`), la retícula (`lg:mt-7`) y el h2 (`lg:mt-6`): −24 px (margen justo; lo vigila
+            compactan la miga (`lg:py-4`), la retícula (`lg:mt-7`), T1a (`lg:mt-2`), el h2 (`lg:mt-6`) y el renglón
+            (`lg:py-3`): −32 px (margen justo; lo vigila
             L-3). El banner no se achica. */}
         <div className="gutter py-10 lg:py-12">
           {/* C1 (criterio 949): el `<h1>` lleva nombre · set · número. La línea de set va DENTRO del encabezado
@@ -380,7 +381,7 @@ function Detail({
                   anónima). Bajo el precio y FUERA de la retícula; no en la barra fija de COMPRAR. */}
               {primary.displayPriceCents != null && (
                 <>
-                  <ShippingFeeHint kind="cards" className="mt-3" />
+                  <ShippingFeeHint kind="cards" className="mt-3 lg:mt-2" />
                   <RefundPromiseLine className="mt-1" />
                   <VaultNote className="mt-1" />
                 </>
@@ -426,7 +427,7 @@ function Detail({
               return (
                 <div
                   key={g.representativeInventoryItemId}
-                  className="flex flex-wrap items-center justify-between gap-4 border-b border-border py-4"
+                  className="flex flex-wrap items-center justify-between gap-4 border-b border-border py-4 lg:py-3"
                 >
                   <div className="min-w-0">
                     {/* v1.6-finish: cada variante (acabado/condición) es un grupo separado. El cert
