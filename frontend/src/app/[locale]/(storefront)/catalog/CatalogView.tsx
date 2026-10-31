@@ -26,6 +26,7 @@ import { CardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { cn } from '@/lib/cn';
 import { CartAddedToast } from './CartAddedToast';
 import { CatalogTile } from './CatalogTile';
 import { Paginator } from '../_shared/Paginator';
@@ -278,6 +279,18 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
     />
   );
 
+  // MKT-CONV.8: el mismo control en la fila móvil, sin etiqueta visible y con el campo a 44 px de alto.
+  const mobileSortControl = (
+    <Select
+      label={tShop('sortLabel')}
+      labelClassName="sr-only"
+      fieldClassName="mt-0 flex h-11 items-center pb-0"
+      options={SORTS.map((s) => ({ value: s, label: tShop(`sort.${s}`) }))}
+      value={filters.sort ?? DEFAULT_CATALOG_SORT}
+      onChange={(e) => updateFilters({ ...filters, sort: (e.target.value || DEFAULT_CATALOG_SORT) as CatalogSort })}
+    />
+  );
+
   const searchField = (
     <input
       type="search"
@@ -316,24 +329,29 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
       returnToId="catalogo-resultados"
     >
       <div>
-      {/* Encabezado (artboard 2a): eyebrow · título mincho · conteo mono a la línea base. */}
-      <div className="gutter flex flex-col gap-4 pb-6 pt-9 sm:flex-row sm:items-end sm:justify-between lg:pt-10">
-        <div>
-          <p className="eyebrow">{t('eyebrow')}</p>
-          <h1 className="mt-3 font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">
+      {/* Encabezado (artboard 2a): eyebrow · título mincho · conteo mono a la línea base.
+          MKT-CONV.8 (PROJECT 943): en < lg se pliega — eyebrow oculto (decorativo), `h1` 24/28 px con el conteo en
+          la misma línea, `pt-4 pb-2` (52 px). En lg, igual que antes. */}
+      <div className="gutter flex flex-row items-baseline justify-between gap-4 pb-2 pt-4 lg:items-end lg:pb-6 lg:pt-10">
+        <div className="min-w-0">
+          <p className="eyebrow hidden lg:block" data-testid="catalog-eyebrow">
+            {t('eyebrow')}
+          </p>
+          <h1 className="font-serif text-[24px] leading-[28px] text-text lg:mt-3 lg:text-[40px] lg:leading-[1.1]">
             {t('title')}
           </h1>
         </div>
-        <p className="tabular font-mono text-[11px] leading-none text-muted">
+        <p className="tabular shrink-0 font-mono text-[11px] leading-none text-muted">
           {t('piecesAvailable', { count: total })}
         </p>
       </div>
 
       <StoreTabs />
 
-      {/* Acciones móviles: filtros (con conteo activo en rojo) y orden. */}
-      <div className="gutter flex items-end gap-2.5 py-4 lg:hidden">
-        <Button variant="secondary" size="sm" className="flex-1" onClick={() => setSheetOpen(true)}>
+      {/* Acciones móviles: filtros (con conteo activo en rojo) y orden. MKT-CONV.8: UNA fila de 56 px (`py-1.5` +
+          controles de 44 px); la etiqueta del orden queda `sr-only` (el `<select>` conserva su nombre accesible). */}
+      <div className="gutter flex items-center gap-2.5 py-1.5 lg:hidden" data-testid="catalog-mobile-actions">
+        <Button variant="secondary" size="sm" className="h-11 flex-1 sm:min-h-[44px]" onClick={() => setSheetOpen(true)}>
           {tShop('filtersTitle')}
           {hasFilters && (
             <span className="tabular font-mono text-accent" aria-hidden>
@@ -341,7 +359,7 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
             </span>
           )}
         </Button>
-        <div className="flex-1">{sortControl}</div>
+        <div className="flex-1">{mobileSortControl}</div>
       </div>
 
       <div className="grid border-t border-border lg:grid-cols-[252px_1fr] lg:border-t-0">
@@ -369,13 +387,23 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
             ref={resultsRef}
             // Destino del enlace de regreso de la nota al pie (§22.4a): el viaje es de ida Y vuelta.
             id="catalogo-resultados"
-            className="gutter flex flex-wrap items-center gap-x-4 gap-y-3 scroll-mt-[calc(var(--app-header-h,0px)+16px)] border-b border-border py-4"
+            // MKT-CONV.8: en < lg la barra solo ocupa alto si hay chips (una fila de 48 px con scroll horizontal, sin
+            // wrap); sin chips mide 0 y el conteo, `sr-only`, sigue siendo la región viva. En lg, igual que antes.
+            className={cn(
+              'gutter flex items-center gap-x-4 scroll-mt-[calc(var(--app-header-h,0px)+16px)] lg:flex-wrap lg:gap-y-3 lg:border-b lg:border-border lg:py-4',
+              hasFilters ? 'h-12 flex-nowrap overflow-x-auto border-b border-border lg:h-auto lg:overflow-visible' : 'h-0 lg:h-auto',
+            )}
           >
-            <p className="tabular font-mono text-[11px] text-muted">
+            <p
+              role="status"
+              aria-live="polite"
+              data-testid="catalog-results-count"
+              className="tabular sr-only font-mono text-[11px] text-muted lg:not-sr-only"
+            >
               {t('resultsCount', { count: total })}
             </p>
             {hasFilters && (
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex shrink-0 flex-nowrap items-center gap-2 lg:shrink lg:flex-wrap">
                 {activeChips.map((chip) => (
                   <button
                     key={chip.key}
@@ -383,7 +411,7 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
                     onClick={() => updateFilters(chip.remove(filters))}
                     // D7: el nombre accesible dice la ACCIÓN (quitar), no solo el valor.
                     aria-label={t('removeFilter', { label: chip.label })}
-                    className="inline-flex items-center gap-1.5 border border-border-strong px-2.5 py-2 font-mono text-xs text-text hover:border-text"
+                    className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border border-border-strong px-2.5 py-2 font-mono text-xs text-text hover:border-text"
                   >
                     <span lang={chip.lang}>{chip.label}</span>
                     <span aria-hidden>✕</span>
@@ -392,7 +420,7 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="px-1 py-2 font-mono text-xs text-accent hover:text-text"
+                  className="shrink-0 whitespace-nowrap px-1 py-2 font-mono text-xs text-accent hover:text-text"
                 >
                   {tc('clearFilters')}
                 </button>
@@ -407,7 +435,7 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
             error={catalogQuery.error}
             onRetry={() => catalogQuery.refetch()}
             loading={
-              <div className="gutter grid grid-cols-2 gap-x-4 gap-y-8 py-8 sm:grid-cols-3 lg:gap-x-7 xl:grid-cols-4">
+              <div className="gutter grid grid-cols-2 gap-x-4 gap-y-8 pb-8 pt-3 sm:grid-cols-3 lg:gap-x-7 lg:pt-8 xl:grid-cols-4">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <CardSkeleton key={i} />
                 ))}
@@ -448,7 +476,8 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
               />
             ) : (
               <>
-                <div className="gutter grid grid-cols-2 gap-x-4 gap-y-8 pb-10 pt-8 sm:grid-cols-3 lg:gap-x-7 xl:grid-cols-4">
+                {/* MKT-CONV.8: `pt-3` en < lg (antes `pt-8`): con la regla de arriba, 13 px. */}
+                <div className="gutter grid grid-cols-2 gap-x-4 gap-y-8 pb-10 pt-3 sm:grid-cols-3 lg:gap-x-7 lg:pt-8 xl:grid-cols-4">
                   {catalogQuery.data!.data.map((listing) => (
                     <CatalogTile
                       key={listing.representativeInventoryItemId}
