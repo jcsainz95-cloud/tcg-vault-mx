@@ -114,7 +114,10 @@ SELECT to_regclass(format('%I', 'Accessory')) IS NOT NULL AS lz_m73,
        -- v1.102⟨mkt-fase2⟩ (M-86): ¿tiene tu base la cola de medición (GA4/Meta)? Mismo patrón condicional.
        to_regclass(format('%I', 'MeasurementOutbox')) IS NOT NULL AS lz_m86,
        -- v1.110⟨descuentos⟩ (M-92): ¿tiene tu base los códigos de descuento? Mismo patrón condicional.
-       to_regclass(format('%I', 'DiscountRedemption')) IS NOT NULL AS lz_m92 \gset
+       to_regclass(format('%I', 'DiscountRedemption')) IS NOT NULL AS lz_m92,
+       -- v1.114.5⟨portada⟩ (API_CONTRACT §DYN.1 «Limpieza PDB»): ¿tiene tu base Destacadas (M-93) y el precio del día (M-94)?
+       to_regclass(format('%I', 'FeaturedSelection')) IS NOT NULL AS lz_m93,
+       to_regclass(format('%I', 'ListingPrice')) IS NOT NULL AS lz_m94 \gset
 
 -- C-4: REPEATABLE READ = una sola FOTO de la base para toda la transacción. Un alta de usuario o de precio que entre
 -- MIENTRAS esto corre no cambia los conteos «antes/después» (sin G-5 falso). La foto se toma en la primera consulta,
@@ -150,6 +153,28 @@ LOCK TABLE "MeasurementOutbox", "MeasurementContext" IN SHARE ROW EXCLUSIVE MODE
 -- v1.110⟨descuentos⟩ (M-92): los usos los escribe la sesión de checkout y el webhook; los intentos fallidos, el quote.
 \if :lz_m92
 LOCK TABLE "DiscountRedemption", "DiscountCodeThrottle" IN SHARE ROW EXCLUSIVE MODE;
+\endif
+
+-- G-11 (v1.114.5⟨portada⟩, API_CONTRACT §DYN.1 «Limpieza PDB») · justo después del último LOCK y como PRIMERA consulta (la
+-- foto de C-4): si el cálculo de Destacadas (`FEATURED_ROTATION_LOCK_KEY`, `catalog/featured.service.ts`) o el del precio del
+-- día (`LISTING_PRICE_LOCK_KEY`, `pricing/listing-price.service.ts`) está escribiendo, se PARA sin escribir nada. ⛔ Nunca la
+-- variante que espera (`pg_advisory_xact_lock`): la foto ya estaría tomada y no vería lo que el job confirme. Los candados
+-- quedan tomados hasta el final de esta transacción: ningún cálculo nuevo escribe a mitad de la limpieza.
+\if :lz_m93
+DO $$
+BEGIN
+  IF NOT pg_try_advisory_xact_lock(91130101) THEN
+    RAISE EXCEPTION 'G-11 · Un cálculo de precios o de Destacadas está escribiendo: vuelve a correr esto en un minuto. No se escribió nada.';
+  END IF;
+END $$;
+\endif
+\if :lz_m94
+DO $$
+BEGIN
+  IF NOT pg_try_advisory_xact_lock(91130102) THEN
+    RAISE EXCEPTION 'G-11 · Un cálculo de precios o de Destacadas está escribiendo: vuelve a correr esto en un minuto. No se escribió nada.';
+  END IF;
+END $$;
 \endif
 
 -- Estados y tipos en castellano para las listas (función temporal: desaparece al cerrar la sesión).
@@ -217,7 +242,11 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   -- v1.110⟨descuentos⟩ (M-92, G-8; clasificación de backend a ratificar por el arquitecto en LIMPIEZA_DB §14.2): los USOS
   -- de código cuelgan de pedidos y retiros que esta limpieza borra (FK RESTRICT ⇒ van antes) y los intentos fallidos son
   -- telemetría sin PII en claro (HMAC) ⇒ borrar.
-  'DiscountRedemption','DiscountCodeThrottle']) AS t
+  'DiscountRedemption','DiscountCodeThrottle',
+  -- v1.114.5⟨portada⟩ (M-93/M-94, G-8; API_CONTRACT §DYN.1 «Limpieza PDB»): el precio del día de piezas que dejan de existir
+  -- y el sorteo de Destacadas hecho sobre piezas de prueba ⇒ borrar (lo derivado se vacía y lo rehace la app). G-7 no las
+  -- vigila: el job escribe la selección (vacía) cada día aunque no haya nada real.
+  'ListingPrice','FeaturedSelectionItem','FeaturedSelection']) AS t
 UNION ALL
 SELECT t, 'ajustar' FROM unnest(ARRAY['VariantPriceOverride','PendingPriceEntry',
   -- v2.2: el accesorio se queda (catálogo); sus existencias y apartados vuelven a 0
@@ -249,7 +278,11 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   'UserPermission','MarketingApiToken','MarketingAccessLog','MarketingDateAnnotation',
   -- v1.110.1⟨descuentos⟩ (M-92, G-8; ratificado en API_CONTRACT §DSC.1 «Limpieza PDB»): los códigos y sus lotes son
   -- CONFIGURACIÓN del dueño (como `ConfigSetting`) ⇒ conservar, con `firstReservedAt` a NULL (paso 13): sin usos no hay bloqueo.
-  'DiscountCode','DiscountCodeBatch']) AS t;
+  'DiscountCode','DiscountCodeBatch',
+  -- v1.114.5⟨portada⟩ (M-93/M-94, G-8; API_CONTRACT §DYN.1 «Limpieza PDB»): la bitácora de corridas del precio del día (solo
+  -- conteos; borrarla repetiría el `bootstrap` y pasaría la salud a `never`, y su retención de 90 días la vacía sola) y el
+  -- turno PSA (créditos GASTADOS de verdad y relojes por carta/set del catálogo, que se conserva) ⇒ conservar.
+  'ListingPriceRun','GradedEstimateSetScan','GradedEstimateCardScan']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.
@@ -320,7 +353,8 @@ BEGIN
   -- G-7 · La limpieza ya se hizo y DESPUÉS apareció cualquier fila en lo que se borra (un pedido real, una carta que
   -- ya volviste a subir, el portafolio o un aviso que escribe un job diario…): eso ya es real. Se niega ENTERO.
   SELECT string_agg(tabla || ' (' || antes || ')', ', ' ORDER BY tabla) INTO ej
-    FROM lz_conteo WHERE grupo = 'borrar' AND tabla <> 'AuditLog' AND antes > 0;
+    FROM lz_conteo WHERE grupo = 'borrar' AND tabla NOT IN ('AuditLog', 'ListingPrice', 'FeaturedSelection', 'FeaturedSelectionItem')
+     AND antes > 0;
   IF EXISTS (SELECT 1 FROM "AuditLog" WHERE action = 'maintenance.test_data_purge') AND ej IS NOT NULL THEN
     RAISE EXCEPTION 'G-7 · La limpieza YA se hizo (hay rastro «maintenance.test_data_purge» del %) y después aparecieron filas nuevas en: %. Eso ya es real: NO se borra nada. No hace falta volver a correr este fichero.',
       (SELECT to_char(max("createdAt"), 'YYYY-MM-DD HH24:MI') FROM "AuditLog" WHERE action = 'maintenance.test_data_purge'), ej;
@@ -462,6 +496,11 @@ WITH x AS (DELETE FROM "Order" RETURNING 1) INSERT INTO lz_cambio SELECT '9 Orde
 -- 10 · Solicitudes de venta (cascada: sus líneas).
 WITH x AS (DELETE FROM "SellRequest" RETURNING 1) INSERT INTO lz_cambio SELECT '10 SellRequest', count(*) FROM x;
 
+-- 11 (antes) · v1.114.5⟨portada⟩: el precio del día de las piezas que se van. Su FK ya es Cascade, pero explícito para que
+--      `lz_cambio` lo cuente.
+\if :lz_m94
+WITH x AS (DELETE FROM "ListingPrice" RETURNING 1) INSERT INTO lz_cambio SELECT '11 ListingPrice', count(*) FROM x;
+\endif
 -- 11 · EL INVENTARIO, ENTERO (plataforma, custodia y sellado). Cascada: movimientos y levantamientos.
 --      El sellado del catálogo (SealedProduct) NO se toca: la pieza apunta a él con SET NULL.
 WITH x AS (DELETE FROM "InventoryItem" RETURNING 1) INSERT INTO lz_cambio SELECT '11 InventoryItem', count(*) FROM x;
@@ -510,6 +549,12 @@ WITH x AS (UPDATE "DiscountCode" SET "firstReservedAt" = NULL WHERE "firstReserv
 INSERT INTO lz_cambio SELECT '13 DiscountCode sin sello de uso', count(*) FROM x;
 \endif
 WITH x AS (DELETE FROM "PortfolioSnapshot" RETURNING 1) INSERT INTO lz_cambio SELECT '13 PortfolioSnapshot', count(*) FROM x;
+-- v1.114.5⟨portada⟩ (M-93): Destacadas sorteadas sobre piezas de prueba. Primero los ítems, luego la selección. El siguiente tic
+-- escribe la del día (vacía) y se llena en el cambio siguiente (o con `force` tras re-subir).
+\if :lz_m93
+WITH x AS (DELETE FROM "FeaturedSelectionItem" RETURNING 1) INSERT INTO lz_cambio SELECT '13 FeaturedSelectionItem', count(*) FROM x;
+WITH x AS (DELETE FROM "FeaturedSelection" RETURNING 1) INSERT INTO lz_cambio SELECT '13 FeaturedSelection', count(*) FROM x;
+\endif
 WITH x AS (
   UPDATE "VariantPriceOverride" SET "bountyAcquiredQty" = 0, "bountyCompletedAt" = NULL, "updatedAt" = now()
    WHERE "bountyAcquiredQty" <> 0 OR "bountyCompletedAt" IS NOT NULL

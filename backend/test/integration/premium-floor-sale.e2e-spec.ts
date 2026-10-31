@@ -19,6 +19,7 @@ import { PriceSyncJobService } from '../../src/jobs/price-sync.service';
 import { PricingService } from '../../src/modules/pricing/pricing.service';
 import { PricingCurve, resolveBuyFromCurve, resolveSaleFromCurve } from '../../src/common/pricing-curve';
 import { P } from './helpers/iva-display';
+import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
 
 const SET_ID = 'e2e-pf-set';
 const PREFIX = 'e2e-pf-';
@@ -69,6 +70,11 @@ describe('E2E — M2-PF: premium en el piso, en VENTA, según el dial (v1.80.8.5
   async function setDial(value: unknown) {
     const res = await h.api('PUT', '/admin/settings', { token: admin, json: { premiumFloorSalePublish: value } });
     expect({ status: res.status, body: res.status === 200 ? null : res.body }).toEqual({ status: 200, body: null });
+    // §DYN.5.3: el dial mueve precio ⇒ `dial_change` recalcula el precio del día FUERA de la petición; hasta que esa corrida
+    // llega a la pieza se exhibe y cobra su fila (exhibido = cobrado). Se espera a que termine (y a cualquier `missing_row`
+    // encolado antes): sin esto, la lectura de abajo competía con la corrida y bajo carga leía la fila vieja (medido en la
+    // suite completa en orden inverso: 200 en vez de 404).
+    await h.app.get(ListingPriceService).idle();
   }
 
   async function market(slug: Slug, cents: number) {

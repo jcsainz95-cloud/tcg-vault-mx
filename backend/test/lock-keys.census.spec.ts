@@ -51,6 +51,23 @@ describe('censo de claves de candado consultivo', () => {
     expect(duplicates(keys)).toEqual([]);
   });
 
+  /**
+   * v1.114.5 (API_CONTRACT §DYN.1 «Limpieza PDB», G-11): la limpieza solo se protege de un cálculo a medias si TODA escritura de
+   * `ListingPrice` y `FeaturedSelection*` va bajo su llave. Hoy viven en dos ficheros, leídos a mano (cada escritura dentro
+   * de una transacción que tomó la llave); un fichero NUEVO que escriba en ellas pone esto rojo hasta que alguien lo lea.
+   */
+  it('G-11: solo `listing-price.service.ts` y `featured.service.ts` escriben `ListingPrice` / `FeaturedSelection*`', () => {
+    const W = /(listingPrice|featuredSelection|featuredSelectionItem)\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\b|(INSERT INTO|UPDATE|DELETE FROM) "(ListingPrice|FeaturedSelection|FeaturedSelectionItem)"/;
+    const writers = walk(src)
+      .filter((f) => W.test(readFileSync(f, 'utf8')))
+      .map((f) => f.slice(src.length + 1))
+      .sort();
+    expect(writers).toEqual(['modules/catalog/featured.service.ts', 'modules/pricing/listing-price.service.ts']);
+    // canario del patrón
+    expect(W.test('await tx.listingPrice.deleteMany({})')).toBe(true);
+    expect(W.test('await tx.listingPriceRun.update({})')).toBe(false);
+  });
+
   it('canario: una clave repetida se detecta', () => {
     const fake = lockKeysIn([
       { file: 'a.ts', text: 'export const A_LOCK_KEY = 91_130_103;' },
