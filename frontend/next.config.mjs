@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import createNextIntlPlugin from 'next-intl/plugin';
 import { measurementCspConnectFor, measurementModeOf } from './src/security/measurement-origins.mjs';
+import { imageOptimizerKillSwitchOf } from './src/lib/image-optimizer-switch.mjs';
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
@@ -212,11 +213,55 @@ export const IMAGE_OPTIMIZER = {
   minimumCacheTTL: 2592000,
 };
 
+/**
+ * Lista de orígenes del optimizador (ver el comentario largo en `images` abajo: procedencia, `port: ''`, PEN-DYN-1).
+ * Candado: `src/lib/next-image-remote-patterns.test.ts`.
+ */
+export const REMOTE_PATTERNS = [
+  {
+    protocol: 'https',
+    hostname: 'images.pokemontcg.io',
+    port: '',
+    pathname: '/+([a-z0-9])/+([A-Za-z0-9!_-]).png',
+    search: '',
+  },
+  {
+    protocol: 'https',
+    hostname: 'images.scrydex.com',
+    port: '',
+    pathname: '/pokemon/+([a-z0-9])-+([A-Za-z0-9])/@(large|small)',
+    search: '',
+  },
+  {
+    protocol: 'https',
+    hostname: 'images.scrydex.com',
+    port: '',
+    pathname: '/e2e/+([a-z0-9-])?(_hires).png',
+    search: '',
+  },
+];
+
+/**
+ * Interruptor de emergencia, ARCHITECTURE §4.DYN (f) 7 (v1.114.5, residual de PEN-DYN-1): con
+ * `NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH=on` en el BUILD, `remotePatterns` queda VACÍO ⇒ `/_next/image` responde 400
+ * a todo origen remoto; la otra mitad (la líder a nivel B) la lee `CardImage` vía `leadImageOptimized()`. Apagado por
+ * defecto. Módulo y valores: `src/lib/image-optimizer-switch.mjs`. Candado: `next-image-remote-patterns.test.ts`.
+ *
+ * @param {Record<string, string | undefined>} [env]
+ */
+export const remotePatternsFor = (env = process.env) =>
+  imageOptimizerKillSwitchOf(env.NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH) === 'on' ? [] : REMOTE_PATTERNS;
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
   distDir,
-  env: { ...measurementBuildEnv(), NEXT_PUBLIC_USE_MOCKS: useMocksBuild() },
+  env: {
+    ...measurementBuildEnv(),
+    NEXT_PUBLIC_USE_MOCKS: useMocksBuild(),
+    // §4.DYN (f) 7: horneado SIEMPRE como `on`|`off` (un valor raro hace fallar aquí), igual en servidor y cliente.
+    NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH: imageOptimizerKillSwitchOf(process.env.NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH),
+  },
   webpack(config) {
     if (useMocksBuild() === 'false') {
       config.resolve.alias = { ...config.resolve.alias, ...mockModuleAliases() };
@@ -293,30 +338,9 @@ const nextConfig = {
     //     cuando el arnés use la forma `/pokemon/…` (solicitud a devops).
     // ⚠ Residual medido: scrydex responde 200 con una imagen genérica a CUALQUIER id con la forma
     // (`/pokemon/me3-99999/large`), así que la forma acota la superficie pero no la cuenta. Ver el
-    // informe de PEN-DYN-1 en FRONTEND_NOTES §DYN.6.
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'images.pokemontcg.io',
-        port: '',
-        pathname: '/+([a-z0-9])/+([A-Za-z0-9!_-]).png',
-        search: '',
-      },
-      {
-        protocol: 'https',
-        hostname: 'images.scrydex.com',
-        port: '',
-        pathname: '/pokemon/+([a-z0-9])-+([A-Za-z0-9])/@(large|small)',
-        search: '',
-      },
-      {
-        protocol: 'https',
-        hostname: 'images.scrydex.com',
-        port: '',
-        pathname: '/e2e/+([a-z0-9-])?(_hires).png',
-        search: '',
-      },
-    ],
+    // informe de PEN-DYN-1 en FRONTEND_NOTES §DYN.6. Lo acepta el arquitecto (v1.114.5) con un interruptor de
+    // emergencia, APAGADO por defecto: `remotePatternsFor()` arriba y `src/lib/image-optimizer-switch.mjs`.
+    remotePatterns: remotePatternsFor(),
     ...IMAGE_OPTIMIZER,
   },
 };

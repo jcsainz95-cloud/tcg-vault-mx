@@ -34,7 +34,11 @@
  * **añade el host exacto** a `remotePatterns` — detrás del backend, nunca por delante (§5.3.4) —
  * y añádelo también a `HOSTS_QUE_DEBEN_PASAR` de abajo, con su procedencia.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createElement } from 'react';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { screen } from '@testing-library/react';
 import { hasRemoteMatch } from 'next/dist/shared/lib/match-remote-pattern.js';
 import { imageConfigDefault } from 'next/dist/shared/lib/image-config.js';
 import { ImageOptimizerCache } from 'next/dist/server/image-optimizer.js';
@@ -42,7 +46,27 @@ import { ImageOptimizerCache } from 'next/dist/server/image-optimizer.js';
 // El config REAL, tal cual lo carga Next (pasa por el plugin de next-intl). Importarlo —en vez de
 // redeclarar los patrones aquí— es lo que hace que el candado vigile el fichero de verdad: una
 // copia local se quedaría en verde mientras `next.config.mjs` se pudre.
-import nextConfig from '../../next.config.mjs';
+import nextConfig, { REMOTE_PATTERNS, remotePatternsFor } from '../../next.config.mjs';
+import { imageOptimizerKillSwitchOf, leadImageOptimized } from './image-optimizer-switch.mjs';
+import { renderWithProviders } from '@/test/render';
+import { applyNextImageConfig } from '@/test/next-image-config';
+import { stripComments } from '@/test/strip-comments';
+import * as api from '@/lib/api';
+import type { CardDTO, FeaturedListingDTO } from '@/types/contract';
+import { FeaturedCarousel } from '@/app/[locale]/(storefront)/_home/FeaturedCarousel';
+
+// Solo para el bloque «Interruptor» (al final): la teja líder se monta de verdad.
+const preload = vi.hoisted(() => vi.fn());
+vi.mock('react-dom', async (orig) => ({ ...(await orig<typeof import('react-dom')>()), preload }));
+vi.mock('@/i18n/navigation', async () => {
+  const { createElement: h } = await import('react');
+  return {
+    usePathname: () => '/',
+    useRouter: () => ({ push: vi.fn() }),
+    Link: ({ href, children, ...props }: { href: string; children?: unknown }) =>
+      h('a', { href, ...props }, children as never),
+  };
+});
 
 type RemotePatternish = Parameters<typeof hasRemoteMatch>[1][number];
 
@@ -254,5 +278,187 @@ describe('DYN-F8 (b) · parámetros del optimizador', () => {
     }
     expect(ask(1080, 75).errorMessage).toMatch(/width/);
     expect(ask(640, 90).errorMessage).toMatch(/quality/);
+  });
+});
+
+/**
+ * 🔒 INTERRUPTOR DE EMERGENCIA · ARCHITECTURE §4.DYN (f) 7 (v1.114.5), residual de PEN-DYN-1 — escrito, probado y
+ * APAGADO. scrydex da 200 genérico a cualquier id con la forma, así que la forma no acota la cuenta de orígenes; si la
+ * alerta de gasto salta, el rol técnico construye con `NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH=on` y pasan DOS cosas
+ * a la vez: `remotePatterns` vacío (⇒ `/_next/image` 400 a todo origen remoto) **y** la líder a nivel B (`<img>` crudo).
+ * ⛔ Solo la líder a nivel B no basta: el endpoint seguiría aceptando la URL de cualquiera.
+ * Mutaciones medidas (FRONTEND_NOTES §DYN.6): `remotePatternsFor` que ignora el interruptor, o `images` que no lo usa
+ * ⇒ 2 rojas; `optimized` fijo en la líder ⇒ 2 rojas.
+ */
+describe('Interruptor §4.DYN (f) 7 · encendido, /_next/image no acepta ningún origen remoto y la líder no lo pide', () => {
+  const KEY = 'NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH';
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    preload.mockReset();
+  });
+
+  /** El `next.config.mjs` REAL, cargado de nuevo con el entorno de build que se le dé. */
+  async function loadConfigWith(value: string) {
+    vi.stubEnv(KEY, value);
+    vi.resetModules();
+    const mod = (await import('../../next.config.mjs')) as unknown as {
+      default: { images: Record<string, unknown>; env: Record<string, string> };
+    };
+    return mod.default;
+  }
+
+  /** El portero de `/_next/image` (`ImageOptimizerCache.validateParams`) con una config dada. */
+  const gatekeeper = (images: Record<string, unknown>, url: string) =>
+    (
+      ImageOptimizerCache as unknown as {
+        validateParams: (
+          req: { headers: Record<string, string> },
+          query: Record<string, string>,
+          c: unknown,
+          isDev: boolean,
+        ) => { errorMessage?: string };
+      }
+    ).validateParams(
+      { headers: { accept: 'image/webp,*/*' } },
+      { url, w: '640', q: '75' },
+      { images: { ...imageConfigDefault, ...images } },
+      false,
+    );
+
+  const TODAS = [
+    ...HOSTS_QUE_DEBEN_PASAR,
+    'https://images.pokemontcg.io/base1/4.png',
+    'https://images.scrydex.com/pokemon/me3-1/small',
+    'https://images.scrydex.com/pokemon/me3-99999/large', // el residual medido de PEN-DYN-1
+    'https://images.scrydex.com/e2e/e2e-charizard_hires.png',
+    'https://evil.example/payload.avif',
+    `https://h${Math.random().toString(36).slice(2)}.example/x.png`,
+  ];
+
+  it('APAGADO por defecto: la config vigente lleva la lista completa y hornea `off`', () => {
+    expect(process.env[KEY]).toBeUndefined();
+    expect(remotePatterns).toEqual(REMOTE_PATTERNS);
+    expect(remotePatterns.length).toBeGreaterThan(0);
+    expect((nextConfig as { env?: Record<string, string> }).env?.[KEY]).toBe('off');
+    expect(remotePatternsFor({})).toBe(REMOTE_PATTERNS);
+    expect(remotePatternsFor({ [KEY]: 'off' })).toBe(REMOTE_PATTERNS);
+    expect(leadImageOptimized()).toBe(true);
+  });
+
+  it('🔴 ENCENDIDO: remotePatterns y domains vacíos en el next.config REAL; el build hornea `on`', async () => {
+    expect(remotePatternsFor({ [KEY]: 'on' })).toEqual([]);
+    const conf = await loadConfigWith('on');
+    expect(conf.images.remotePatterns).toEqual([]);
+    expect(conf.images.domains ?? []).toEqual([]);
+    expect(conf.env[KEY]).toBe('on');
+  });
+
+  it('🔴 ENCENDIDO: el portero de /_next/image rechaza TODO origen remoto, los legítimos incluidos (⇒ 400)', async () => {
+    const conf = await loadConfigWith('on');
+    const rp = conf.images.remotePatterns as RemotePatternish[];
+    for (const url of TODAS) {
+      expect(hasRemoteMatch([], rp, new URL(url)), `NO debe aceptar ${url}`).toBe(false);
+      expect(gatekeeper(conf.images, url).errorMessage, url).toBe('"url" parameter is not allowed');
+    }
+    // Control: apagado, el mismo portero SÍ deja pasar una legítima (si no, lo de arriba no mediría nada).
+    expect(gatekeeper(images as Record<string, unknown>, HOSTS_QUE_DEBEN_PASAR[2]).errorMessage).toBeUndefined();
+  });
+
+  it('un valor que no es `on`/`off` hace fallar el build (un error tipográfico no deja el interruptor apagado en silencio)', async () => {
+    for (const v of ['ON', 'true', '1', 'yes', ' on']) {
+      expect(() => imageOptimizerKillSwitchOf(v), v).toThrow(/solo admite/);
+      await expect(loadConfigWith(v), v).rejects.toThrow(/solo admite/);
+      vi.unstubAllEnvs();
+    }
+  });
+
+  function lead(i: number): FeaturedListingDTO {
+    const card: CardDTO = {
+      id: `c-${i}`,
+      externalId: `x-${i}`,
+      name: `Carta ${i}`,
+      number: '1',
+      rarity: 'Rare',
+      supertype: 'Pokémon',
+      subtypes: [],
+      setId: 's1',
+      setName: 'Set',
+      setPtcgoCode: null,
+      imageSmallUrl: `https://images.scrydex.com/pokemon/me3-${i}/small`,
+      imageLargeUrl: `https://images.scrydex.com/pokemon/me3-${i}/large`,
+      availableFinishes: ['normal'],
+    };
+    return {
+      representativeInventoryItemId: `inv-${i}`,
+      productType: 'raw',
+      rawCondition: 'NM',
+      finish: 'normal',
+      gradeKey: 'raw:NM',
+      stockCount: 1,
+      displayPriceCents: 1000,
+      ivaIncluded: true,
+      ivaRatePct: 16,
+      currency: 'MXN',
+      card,
+      featuredSlot: 'pool',
+    };
+  }
+  const viaOptimizer = (src: string | null) => new URL(src ?? '', 'http://tienda.test').pathname === '/_next/image';
+
+  async function renderLead() {
+    vi.spyOn(api, 'getFeatured').mockResolvedValue({ businessDate: '2026-10-30', data: [0, 1, 2].map(lead) });
+    renderWithProviders(createElement(FeaturedCarousel), 'es');
+    return screen.findByAltText('Carta 0');
+  }
+
+  it('🔴 ENCENDIDO: la teja líder NO pide /_next/image — <img> crudo con la URL original, sin srcset ni precarga', async () => {
+    vi.stubEnv(KEY, 'on');
+    const restore = applyNextImageConfig();
+    try {
+      const img = await renderLead();
+      expect(img).toHaveAttribute('src', 'https://images.scrydex.com/pokemon/me3-0/large');
+      expect(img).not.toHaveAttribute('srcset');
+      expect(img).toHaveAttribute('fetchpriority', 'high');
+      expect(preload).not.toHaveBeenCalled();
+      for (const el of Array.from(document.querySelectorAll('img'))) {
+        expect(viaOptimizer(el.getAttribute('src')), el.alt).toBe(false);
+      }
+    } finally {
+      restore();
+    }
+  });
+
+  it('control APAGADO: la misma líder sí pasa por /_next/image (el interruptor no viene encendido)', async () => {
+    const restore = applyNextImageConfig();
+    try {
+      const img = await renderLead();
+      expect(viaOptimizer(img.getAttribute('src'))).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it('fuente: `next/image` solo en CardImage y la líder toma `optimized` del interruptor (nadie más depende de remotePatterns)', () => {
+    // §4.DYN (f) 7 deja NO MEDIDO «que ningún otro componente dependa de `remotePatterns`»: aquí se mide.
+    // `remotePatterns` solo lo consulta `/_next/image`, y desde `src/` a `/_next/image` solo se llega por `next/image`.
+    const SRC = join(__dirname, '..');
+    const users: string[] = [];
+    const walk = (dir: string) => {
+      for (const f of readdirSync(dir)) {
+        const p = join(dir, f);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/\.(tsx?|mjs)$/.test(f) && !/\.test\.tsx?$/.test(f)) {
+          const code = stripComments(readFileSync(p, 'utf8'), p);
+          if (/from\s+['"]next\/(legacy\/)?image['"]|['"`]\/_next\/image/.test(code)) users.push(relative(SRC, p));
+        }
+      }
+    };
+    walk(SRC);
+    expect(users).toEqual(['components/ui/CardImage.tsx']);
+    const carousel = readFileSync(join(SRC, 'app/[locale]/(storefront)/_home/FeaturedCarousel.tsx'), 'utf8');
+    const code = stripComments(carousel, 'FeaturedCarousel.tsx');
+    expect(code.match(/\boptimized\b[^\n]*/g)).toEqual(['optimized={leadImageOptimized()}']);
   });
 });

@@ -103,6 +103,9 @@ describe('D7 · cargar next.config.mjs (lo que hace `next build`)', () => {
       copyFileSync(join(FRONTEND, 'next.config.mjs'), join(dir, 'next.config.mjs'));
       mkdirSync(join(dir, 'src/security'), { recursive: true });
       copyFileSync(join(FRONTEND, 'src/security/measurement-origins.mjs'), join(dir, 'src/security/measurement-origins.mjs'));
+      // Interruptor del optimizador (§4.DYN (f) 7): `next.config.mjs` lo importa.
+      mkdirSync(join(dir, 'src/lib'), { recursive: true });
+      copyFileSync(join(FRONTEND, 'src/lib/image-optimizer-switch.mjs'), join(dir, 'src/lib/image-optimizer-switch.mjs'));
       mkdirSync(join(dir, 'src/content/legal'), { recursive: true });
       writeFileSync(join(dir, 'src/content/legal/measurement-disclosure.ts'), source);
       run(dir);

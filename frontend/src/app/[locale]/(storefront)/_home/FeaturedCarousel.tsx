@@ -10,6 +10,7 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
 import { CardImage } from '@/components/ui/CardImage';
+import { leadImageOptimized } from '@/lib/image-optimizer-switch.mjs';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { QueryState } from '@/components/ui/QueryState';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -757,7 +758,8 @@ export function FeaturedCarousel() {
                       priority
                       // §DYN.6.6 (opción A del dueño): SOLO esta teja pasa por `/_next/image` (WebP 384/640), con
                       // respaldo a la original; `onLoaded` llega una vez, tras el respaldo si lo hubo (DYN-F9).
-                      optimized
+                      // Interruptor de emergencia §4.DYN (f) 7 (v1.114.5): encendido en el build ⇒ nivel B (`<img>` crudo).
+                      optimized={leadImageOptimized()}
                       onLoaded={() => setLeadImageReady(true)}
                     />
                     <div className="mt-3 flex flex-col gap-2 lg:mt-[18px] lg:flex-row lg:items-end lg:justify-between lg:gap-5">
