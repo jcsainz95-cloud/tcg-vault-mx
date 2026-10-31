@@ -177,7 +177,7 @@ interface FactSpec {
 function FactGrid({ facts }: { facts: FactSpec[] }) {
   let column = 0; // columna que ocupa la celda actual dentro de la fila (0 = abre fila)
   return (
-    <div className="mt-9 grid border-t border-border sm:grid-cols-2">
+    <div className="mt-9 grid lg:mt-7 border-t border-border sm:grid-cols-2">
       {facts.map((f) => {
         const opensRow = column === 0;
         column = f.fullRow ? 0 : (column + 1) % 2;
@@ -331,7 +331,7 @@ function Detail({
     <div className="pb-24 lg:pb-0">
       <nav
         aria-label="Breadcrumb"
-        className="gutter flex items-center gap-3 border-b border-border py-5 font-mono text-xs tracking-[0.06em] text-muted"
+        className="gutter flex items-center gap-3 border-b border-border py-5 font-mono lg:py-4 text-xs tracking-[0.06em] text-muted"
       >
         <Link href="/catalog" className="hover:text-text">
           {t('backToCatalog')}
@@ -351,7 +351,9 @@ function Detail({
         </div>
 
         {/* MKT-CONV.2: `lg:py-12` (antes 14) es la palanca del diseño para que COMPRAR quede sobre el banner a
-            1366×768 (L-3); el banner no se achica. */}
+            1366×768 (L-3). Medido: no basta (renglón en y 693–733, banner en 711), así que desde lg también se
+            compactan la miga (`lg:py-4`), la retícula (`lg:mt-7`) y el h2 (`lg:mt-6`): −24 px (margen justo; lo vigila
+            L-3). El banner no se achica. */}
         <div className="gutter py-10 lg:py-12">
           {/* C1 (criterio 949): el `<h1>` lleva nombre · set · número. La línea de set va DENTRO del encabezado
               como bloque propio, con la misma letra y el mismo margen que tenía de párrafo: se ve igual. */}
@@ -411,7 +413,7 @@ function Detail({
           <GradingEstimateBlock detail={detail} className="mt-7" />
 
           {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. MKT-CONV.2: `mt-8` (antes 10). */}
-          <h2 className="mt-8 font-serif text-[22px] leading-tight text-text">{t('instances')}</h2>
+          <h2 className="mt-8 font-serif lg:mt-6 text-[22px] leading-tight text-text">{t('instances')}</h2>
           {/* §WSH-UX.2 (g): ficha de una carta sin piezas a la venta (se llega desde el buscador de «Mi lista» o por URL). */}
           {groups.length === 0 && (
             <p className="mt-4 text-[15px] text-muted">{tWishlist('card.notHere')}</p>
