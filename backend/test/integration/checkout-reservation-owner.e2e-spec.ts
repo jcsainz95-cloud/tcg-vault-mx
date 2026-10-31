@@ -10,6 +10,7 @@
  * orden de BÓVEDA `pending` expira: barrido único), R-7 (el invitado recupera SOLO con
  * `retryOfCheckoutToken`; el correo solo no es identidad).
  */
+import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
 import { E2EHarness } from './helpers/e2e-app';
 import { OrderReservationSweepJobService } from '../../src/jobs/order-reservation-sweep.service';
 import { seedE2E } from '../../prisma/seed-e2e';
@@ -393,6 +394,9 @@ describe('E2E — v1.68 §4-R: la reserva tiene DUEÑO (reintento del mismo clie
       frozenBreakdown = s.body.breakdown;
       nuevoL = frozenUnit + 50000;
       await h.prisma.inventoryItem.update({ where: { id: Q }, data: { listPriceCents: nuevoL } });
+      // 💰 v1.113⟨portada⟩ (§DYN.5.3): un precio a mano mueve lo exhibido cuando corre su cálculo (`manual_price`, que la
+      // puerta del `PATCH` dispara sola). Aquí se escribió por BD, así que el cálculo se corre a mano.
+      await h.app.get(ListingPriceService).run('manual_price', [Q]);
       const res = await quote(tokenC, [Q]);
       expect(res.status).toBe(200);
       expect(res.body.unavailableItems).toEqual([]);

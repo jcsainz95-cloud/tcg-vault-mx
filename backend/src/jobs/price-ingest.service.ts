@@ -125,7 +125,10 @@ export class PriceIngestJobService {
    * todo. Va DESPUÉS del barrido y encadenado (no en paralelo): el gancho depende del precio de venta
    * raw para su gate, y correr los dos a la vez duplicaría la presión sobre la cuota del proveedor.
    */
-  async runBackground(): Promise<PriceIngestTriggerResult> {
+  async runBackground(
+    /** 💰 v1.113⟨portada⟩ (§DYN.5.3): lo que corre al terminar el barrido de precios de VENTA (el `manual_ingest`). */
+    onSaleSweepDone?: () => void,
+  ): Promise<PriceIngestTriggerResult> {
     if (this.ingest.getSyncStatus().running) {
       this.logger.warn('price-ingest ya en curso (background); no se lanza otro (single-flight).');
       return { job: JOB, enqueued: false, background: true, alreadyRunning: true };
@@ -141,7 +144,11 @@ export class PriceIngestJobService {
       // `.then` tras el `.catch`: el gancho se refresca AUNQUE el barrido de venta haya fallado. La
       // dependencia va en un solo sentido (`runGradedEstimates` ya se aísla en su propio try) y un
       // fallo del barrido no es razón para dejar los estimados rancios.
-      .then(() => this.runGradedEstimates(fx));
+      .then(() => {
+        // 💰 §DYN.5.3: el barrido terminó (bien o mal) ⇒ recalcular lo exhibido con las referencias que haya.
+        onSaleSweepDone?.();
+        return this.runGradedEstimates(fx);
+      });
     return { job: JOB, enqueued: true, background: true, alreadyRunning: false };
   }
 

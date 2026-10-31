@@ -1,8 +1,9 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import createNextIntlPlugin from 'next-intl/plugin';
 import { measurementCspConnectFor, measurementModeOf } from './src/security/measurement-origins.mjs';
+import { imageOptimizerKillSwitchOf } from './src/lib/image-optimizer-switch.mjs';
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
@@ -148,11 +149,125 @@ if (disclosureProblem) {
   throw new Error(`MEASUREMENT_NOTICE_REQUIRED mode=on (next.config): ${disclosureProblem}. Publica el aviso revisado o pon NEXT_PUBLIC_MEASUREMENT_MODE=off.`);
 }
 
+/**
+ * PERF portada (§DYN.3) — los fixtures de MOCK fuera del bundle de producción.
+ *
+ * `lib/api.ts` y `lib/marketing-api.ts` importan `lib/mock/*` de forma estática y deciden en cada
+ * función con `config.useMocks` (una propiedad de objeto, que el minificador no puede plegar): los
+ * fixtures viajaban a todo visitante (chunk de ~51 KB gzip en la portada, medido 2026-10-29).
+ *
+ * Remedio en dos piezas, las dos de build:
+ *  1. `NEXT_PUBLIC_USE_MOCKS` se hornea SIEMPRE como literal `'true'|'false'` (también si falta), así
+ *     `config.useMocks` vale lo mismo en servidor y cliente y no puede encenderse en runtime sobre un
+ *     build que no trae los fixtures.
+ *  2. Con mocks apagados, cada módulo de `src/lib/mock/` (no las pruebas; `.ts`/`.tsx`, también en subcarpetas)
+ *     se resuelve a un módulo vacío (`resolve.alias` → `false`). Es seguro porque solo `api.ts` y
+ *     `marketing-api.ts` importan `lib/mock`, y toda referencia suya queda bajo `(MOCKS_BUILD && config.useMocks)`;
+ *     un módulo vacío no da avisos de «export not found».
+ * Candados: `src/test/mock-boundary.test.ts` (R1: quién importa `lib/mock` y que toda referencia esté guardada) y
+ * `scripts/check-home-bundle.mjs` (postbuild: el centinela de `lib/mock` en ningún chunk de `.next/static`).
+ */
+/** @param {Record<string, string | undefined>} [env] */
+export const useMocksBuild = (env = process.env) => (env.NEXT_PUBLIC_USE_MOCKS === 'true' ? 'true' : 'false');
+
+/**
+ * Alias `false` para cada módulo de `src/lib/mock` (recursivo; `.ts` y `.tsx`; nunca una prueba): la ruta sin
+ * extensión (como se importa), la ruta con su extensión y, para un `index`, la carpeta.
+ */
+export function mockModuleAliases({ baseDir = dirname(fileURLToPath(import.meta.url)) } = {}) {
+  const aliases = {};
+  const walk = (dir) => {
+    for (const f of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, f.name);
+      if (f.isDirectory()) {
+        walk(p);
+        continue;
+      }
+      if (!/\.tsx?$/.test(f.name) || /\.(test|spec)\.tsx?$/.test(f.name) || f.name.endsWith('.d.ts')) continue;
+      const base = p.replace(/\.tsx?$/, '');
+      aliases[base] = false;
+      aliases[p] = false;
+      if (/^index\.tsx?$/.test(f.name)) aliases[dir] = false;
+    }
+  };
+  walk(join(baseDir, 'src/lib/mock'));
+  return aliases;
+}
+
+/**
+ * §DYN.6.6 / ARCHITECTURE §4.DYN (f) 7 (opción A del dueño, `HECHOS` 2026-10-30) — parámetros del optimizador
+ * (`/_next/image`), que hoy solo usa la foto de la teja LÍDER de Destacadas (`CardImage` con `optimized`).
+ * Reglas de coste 1–3 de §5.3.3: a lo sumo 2 transformaciones por imagen origen.
+ *  - `formats` solo WebP: AVIF cuesta más CPU por transformación y fue el vector de GHSA-2xp9-vwfh-vxw4.
+ *  - anchos permitidos 384 y 640 (la caja de celular, 212 px CSS × DPR 3 ≈ 636): otro `w` ⇒ 400.
+ *  - `qualities: [75]`: otro `q` ⇒ 400. La clave existe en `next` 15.5.28 (esquema `config-schema.js` y
+ *    `ImageOptimizerCache.validateParams`, leído y probado el 2026-10-30).
+ *  - `minimumCacheTTL` 30 días: la URL de una carta no cambia.
+ * Candado: `src/lib/next-image-remote-patterns.test.ts` (DYN-F8 b). Ver `docs/FRONTEND_NOTES.md` §DYN.
+ */
+export const IMAGE_OPTIMIZER = {
+  formats: ['image/webp'],
+  imageSizes: [384],
+  deviceSizes: [640],
+  qualities: [75],
+  minimumCacheTTL: 2592000,
+};
+
+/**
+ * Lista de orígenes del optimizador (ver el comentario largo en `images` abajo: procedencia, `port: ''`, PEN-DYN-1).
+ * Candado: `src/lib/next-image-remote-patterns.test.ts`.
+ */
+export const REMOTE_PATTERNS = [
+  {
+    protocol: 'https',
+    hostname: 'images.pokemontcg.io',
+    port: '',
+    pathname: '/+([a-z0-9])/+([A-Za-z0-9!_-]).png',
+    search: '',
+  },
+  {
+    protocol: 'https',
+    hostname: 'images.scrydex.com',
+    port: '',
+    pathname: '/pokemon/+([a-z0-9])-+([A-Za-z0-9])/@(large|small)',
+    search: '',
+  },
+  {
+    protocol: 'https',
+    hostname: 'images.scrydex.com',
+    port: '',
+    pathname: '/e2e/+([a-z0-9-])?(_hires).png',
+    search: '',
+  },
+];
+
+/**
+ * Interruptor de emergencia, ARCHITECTURE §4.DYN (f) 7 (v1.114.5, residual de PEN-DYN-1): con
+ * `NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH=on` en el BUILD, `remotePatterns` queda VACÍO ⇒ `/_next/image` responde 400
+ * a todo origen remoto; la otra mitad (la líder a nivel B) la lee `CardImage` vía `leadImageOptimized()`. Apagado por
+ * defecto. Módulo y valores: `src/lib/image-optimizer-switch.mjs`. Candado: `next-image-remote-patterns.test.ts`.
+ *
+ * @param {Record<string, string | undefined>} [env]
+ */
+export const remotePatternsFor = (env = process.env) =>
+  imageOptimizerKillSwitchOf(env.NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH) === 'on' ? [] : REMOTE_PATTERNS;
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
   distDir,
-  env: measurementBuildEnv(),
+  env: {
+    ...measurementBuildEnv(),
+    NEXT_PUBLIC_USE_MOCKS: useMocksBuild(),
+    // §4.DYN (f) 7: horneado SIEMPRE como `on`|`off` (un valor raro hace fallar aquí), igual en servidor y cliente.
+    NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH: imageOptimizerKillSwitchOf(process.env.NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH),
+  },
+  webpack(config) {
+    if (useMocksBuild() === 'false') {
+      config.resolve.alias = { ...config.resolve.alias, ...mockModuleAliases() };
+    }
+    return config;
+  },
   typescript: { tsconfigPath: tsconfigPathForDistDir(distDir) },
   reactStrictMode: true,
   // SEC-HDR-1 (2026-09-29): anti-clickjacking. La sesión vive en localStorage, así que sin esto el
@@ -204,10 +319,29 @@ const nextConfig = {
     // `https://images.pokemontcg.io:8443/…` pasaba. `''` significa «sin puerto» ⇒ solo el 443 por
     // defecto. Es la misma regla que el backend ya impone en `SET_IMAGE_HOSTS` («`host`, no
     // `hostname`: incluye el puerto»): otro puerto es OTRO endpoint, y ninguno se ha verificado.
-    remotePatterns: [
-      { protocol: 'https', hostname: 'images.pokemontcg.io', port: '' },
-      { protocol: 'https', hostname: 'images.scrydex.com', port: '' },
-    ],
+    //
+    // PEN-DYN-1 (pentest §DYN, 2026-10-30) — `search: ''` y `pathname` acotado. Sin ellos, cada
+    // `?v=<n>` o cada ruta del CDN era una imagen de origen NUEVA (10/10 `MISS` medidos por el
+    // pentester): una transformación facturable por URL, sin tope. `search: ''` ⇒ cero query
+    // (el matcher de Next compara `url.search` exacto). Los `pathname` son las formas REALES del arte
+    // de carta, medidas el 2026-10-30 contra la API del proveedor (todas las URLs `images.small`/
+    // `images.large` del catálogo, ver FRONTEND_NOTES §DYN.6) y el seed:
+    //   · pokemontcg.io  `/<set>/<número>.png` y `/<set>/<número>_hires.png` (también cubre
+    //     `/<set>/logo.png`/`symbol.png`). Sin `%`: `/base1/%34.png` es un alias de `/base1/4.png`
+    //     (200, medido) y multiplicaría los orígenes.
+    //   · scrydex        `/pokemon/<set>-<número>/large|small` (la líder usa `imageLargeUrl ??
+    //     imageSmallUrl`; `/medium` no lo persiste nadie). Los logos de scrydex
+    //     (`/pokemon/<set>-logo/logo`) NO pasan: son Nivel B y no hay consumidor en el optimizador.
+    //   · scrydex `/e2e/<id>[_hires].png` — SOLO el arnés DYN-D3 de devops (`scripts/home-perf/
+    //     run.sh` reescribe el seed a `https://images.scrydex.com/e2e/`). El CDN real responde 400
+    //     a esa ruta (medido), y el optimizador no transforma un no-2xx: coste cero. Se retira
+    //     cuando el arnés use la forma `/pokemon/…` (solicitud a devops).
+    // ⚠ Residual medido: scrydex responde 200 con una imagen genérica a CUALQUIER id con la forma
+    // (`/pokemon/me3-99999/large`), así que la forma acota la superficie pero no la cuenta. Ver el
+    // informe de PEN-DYN-1 en FRONTEND_NOTES §DYN.6. Lo acepta el arquitecto (v1.114.5) con un interruptor de
+    // emergencia, APAGADO por defecto: `remotePatternsFor()` arriba y `src/lib/image-optimizer-switch.mjs`.
+    remotePatterns: remotePatternsFor(),
+    ...IMAGE_OPTIMIZER,
   },
 };
 

@@ -4,13 +4,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { StripeFeeConfig } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 import {
+  CROSS_RULE_KEYS,
   RETIRED_SETTING_KEYS,
+  SETTINGS_CROSS_RULES_LOCK_KEY,
   SETTING_DEFAULTS,
   SETTING_DTO_MAP,
   SETTING_VALIDATORS,
   SettingKey,
   SettingKeyType,
   validateBuylistCrossDials,
+  validateFeaturedCombination,
   validateIvaTransferPct,
 } from './settings.constants';
 // ⭐⭐ v1.74 (D56, §M10-IVA.9 / §4.55) — la ARITMÉTICA de la puerta del dial, PURA y sin infra. Vive
@@ -55,6 +58,33 @@ export class SettingsService implements OnModuleInit {
   private readonly logger = new Logger(SettingsService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * 💰 v1.113⟨portada⟩ (API_CONTRACT §DYN.5.3/.4) — quién quiere saber que se ESCRIBIERON claves (tras el commit). Lo usa el
+   * precio del día: una clave de `PRICE_AFFECTING_SETTING_KEYS` dispara `dial_change`. Un oyente que falla ⛔ no tumba la
+   * escritura (ya se confirmó): se loguea.
+   */
+  private readonly writeListeners: ((keys: readonly SettingKeyType[]) => void)[] = [];
+
+  onKeysWritten(listener: (keys: readonly SettingKeyType[]) => void): void {
+    this.writeListeners.push(listener);
+  }
+
+  /**
+   * Avisa a los oyentes de que estas claves se escribieron (llamar DESPUÉS del commit). TODA puerta que escriba
+   * `ConfigSetting` pasa por aquí: `update`, `setIvaTransferPct` y las puertas propias de pricing (curva, spreads del
+   * sellado, modo FX). Candado: `test/dyn.listing-price-settings-doors.spec.ts`.
+   */
+  notifyKeysWritten(keys: readonly SettingKeyType[]): void {
+    if (keys.length === 0) return;
+    for (const l of this.writeListeners) {
+      try {
+        l(keys);
+      } catch (e) {
+        this.logger.error(`settings: un oyente de escritura falló (${keys.join(',')}): ${(e as Error).message}`);
+      }
+    }
+  }
 
   /**
    * §11.0 (v1.50.3-a; **endurecido en v1.50.3-b**) — **INVENTARIO DE CONFIGURACIÓN al arrancar.** Una
@@ -252,9 +282,13 @@ export class SettingsService implements OnModuleInit {
    * Efecto secundario deseado: N claves ⇒ 1 query (en vez de N `findUnique`), que es como se ha izado
    * la config del gancho por request.
    */
-  async getRawMany(keys: readonly SettingKeyType[]): Promise<Map<SettingKeyType, unknown>> {
+  async getRawMany(
+    keys: readonly SettingKeyType[],
+    /** PEN-DYN-2: dentro de una transacción, la lectura va por su `tx` (después del candado). */
+    db: Pick<Prisma.TransactionClient, 'configSetting'> = this.prisma,
+  ): Promise<Map<SettingKeyType, unknown>> {
     if (keys.length === 0) return new Map();
-    const rows = await this.prisma.configSetting.findMany({
+    const rows = await db.configSetting.findMany({
       where: { key: { in: [...new Set(keys)] } },
     });
     return new Map(rows.map((r) => [r.key as SettingKeyType, r.valueJson as unknown]));
@@ -453,7 +487,11 @@ export class SettingsService implements OnModuleInit {
       // exista uno sin el otro, en cualquier orden de fallo (misma doctrina que `update()`).
       if (auditWithin) await auditWithin(tx, { before: currentPct, after: proposedPct });
 
-      return { ivaTransferPct: proposedPct, preview };
+      return { ivaTransferPct: proposedPct, preview, changed: true as const };
+    }).then((r) => {
+      // 💰 §DYN.5.3: el dial de traslación mueve `P` ⇒ `dial_change` (solo si de verdad cambió y ya se confirmó).
+      if ('changed' in r) this.notifyKeysWritten([SettingKey.IVA_TRANSFER_PCT]);
+      return { ivaTransferPct: r.ivaTransferPct, preview: r.preview };
     });
   }
 
@@ -614,8 +652,10 @@ export class SettingsService implements OnModuleInit {
     // abajo — y por eso las dos puntas se cierran juntas.
     const validated = this.validatePayload(dtoPartial);
 
-    // v1.51 (M-46, §4.39l / criterio 127) — VALIDACIÓN CRUZADA BLOQUEANTE ENTRE TRES DIALES.
-    await this.assertBuylistCrossDials(validated);
+    // Las reglas CRUZADAS (buylist §4.39l, Destacadas §DYN.3) se evalúan DENTRO de la transacción, bajo candado y releyendo
+    // por `tx` (PEN-DYN-2): fuera, dos `PUT` simultáneos válidos cada uno leían el estado de antes y commiteaban juntos un
+    // estado que rompe la regla (medido por el pentester 3/10 y 1/10; forzado en `settings-cross-rules-race.e2e-spec.ts`).
+    const tocaReglaCruzada = validated.some((v) => (CROSS_RULE_KEYS as readonly SettingKeyType[]).includes(v.settingKey));
 
     // ⚠️ **v1.63.2 · S-FX-1 — el pin y su precondición se movieron DENTRO de la transacción.**
     // Estaban fuera «a propósito» (para no escribir nada si la precondición falla), y esa razón
@@ -643,7 +683,8 @@ export class SettingsService implements OnModuleInit {
     );
 
     // TODO O NADA DE VERDAD: los upserts y la bitácora, en una sola transacción.
-    return this.prisma.$transaction(async (tx) => {
+    let fxModePinned = false;
+    const applied = await this.prisma.$transaction(async (tx) => {
       // ⭐⭐ La puerta única del FX. Se toma **solo** cuando este `PUT` toca el valor del tipo de
       // cambio: los otros veinte diales no comparten invariante con nadie y no tienen por qué
       // serializarse entre sí.
@@ -654,10 +695,21 @@ export class SettingsService implements OnModuleInit {
       // que vio antes de esperar — el mismo estado imposible, veinte milisegundos más tarde.
       const fxPin = await this.prepareFxModePin(validated, tx);
 
+      // PEN-DYN-2 — candado de los diales con regla cruzada y relectura por el MISMO `tx` (mismo patrón que la puerta del FX:
+      // candado → releer → validar → escribir). El perdedor espera, relee lo que escribió el otro y sale con `422`.
+      if (tocaReglaCruzada) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SETTINGS_CROSS_RULES_LOCK_KEY})`;
+        // v1.51 (M-46, §4.39l / criterio 127) — VALIDACIÓN CRUZADA BLOQUEANTE ENTRE TRES DIALES.
+        await this.assertBuylistCrossDials(validated, tx);
+        // v1.113⟨portada⟩ (§DYN.3) — las dos reglas de Destacadas, sobre el valor RESULTANTE del `PUT` parcial.
+        await this.assertFeaturedCombination(validated, tx);
+      }
+
       // ⭐ El pin va DENTRO de la misma transacción que el valor: es imposible que quede el número
       // nuevo sin su modo materializado (que es, exactamente, el estado en el que la resolución
       // legacy volvería a inferir `manual` del valor).
       if (fxPin?.materialized) {
+        fxModePinned = true;
         await tx.configSetting.upsert({
           where: { key: SettingKey.FX_RATE_MODE },
           create: {
@@ -682,6 +734,12 @@ export class SettingsService implements OnModuleInit {
       if (auditWithin) await auditWithin(tx, applied, { fxPin: fxPin ?? undefined });
       return applied;
     });
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3): ya confirmado ⇒ los oyentes (precio del día: `dial_change` si alguna mueve `P`).
+    this.notifyKeysWritten([
+      ...validated.map((v) => v.settingKey),
+      ...(fxModePinned ? [SettingKey.FX_RATE_MODE] : []),
+    ]);
+    return applied;
   }
 
   /**
@@ -816,8 +874,40 @@ export class SettingsService implements OnModuleInit {
    * paga tres queries por una regla que no puede haber roto. (El estado vigente ya cumplía el
    * invariante: es la postcondición de todo `PUT` anterior.)
    */
+  /**
+   * v1.113⟨portada⟩ (API_CONTRACT §DYN.3) — `featuredRandomSlots + featuredNewArrivalSlots ∈ [1, 20]` y `featuredPoolSize ≥
+   * featuredRandomSlots`, evaluadas sobre `{...vigente, ...body}` (mismo patrón que `assertBuylistCrossDials`: validar solo
+   * el body dejaría romper la regla mandando UNA clave). Sin ninguna de las tres en el body ⇒ no lee nada.
+   * ⇒ `422 VALIDATION_ERROR` con `details.rule` ∈ {`featured_slots_total`, `featured_pool_lt_random`}.
+   */
+  private async assertFeaturedCombination(
+    validated: { settingKey: SettingKeyType; value: unknown }[],
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const KEYS = [
+      SettingKey.FEATURED_POOL_SIZE,
+      SettingKey.FEATURED_RANDOM_SLOTS,
+      SettingKey.FEATURED_NEW_ARRIVAL_SLOTS,
+    ] as const;
+    const incoming = new Map<SettingKeyType, unknown>();
+    for (const { settingKey, value } of validated) {
+      if ((KEYS as readonly SettingKeyType[]).includes(settingKey)) incoming.set(settingKey, value);
+    }
+    if (incoming.size === 0) return;
+    const rows = await this.getRawMany(KEYS, tx);
+    const resolve = (key: SettingKeyType): number =>
+      Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
+    const problem = validateFeaturedCombination({
+      poolSize: resolve(SettingKey.FEATURED_POOL_SIZE),
+      randomSlots: resolve(SettingKey.FEATURED_RANDOM_SLOTS),
+      newArrivalSlots: resolve(SettingKey.FEATURED_NEW_ARRIVAL_SLOTS),
+    });
+    if (problem) throw BusinessException.validation('VALIDATION_ERROR', problem.message, { rule: problem.rule });
+  }
+
   private async assertBuylistCrossDials(
     validated: { settingKey: SettingKeyType; value: unknown }[],
+    tx: Prisma.TransactionClient,
   ): Promise<void> {
     const CROSS_KEYS = [
       SettingKey.BUYLIST_SHIPPING_FEE_CENTS,
@@ -835,7 +925,7 @@ export class SettingsService implements OnModuleInit {
     // ESTADO RESULTANTE = lo VIGENTE (fila de BD, o el default si la fila no existe) pisado por lo
     // que trae este `PUT`. `getRawMany` devuelve SOLO las filas existentes, así que la ausencia se
     // resuelve al default — que es exactamente cómo lo leerá después cualquier consumidor.
-    const rows = await this.getRawMany(CROSS_KEYS);
+    const rows = await this.getRawMany(CROSS_KEYS, tx);
     const resolve = (key: SettingKeyType): number =>
       Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
 

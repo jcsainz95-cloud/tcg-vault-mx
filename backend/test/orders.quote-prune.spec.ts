@@ -68,6 +68,8 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
       // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
       // puede divergir de producción ni reimplementar la matemática.
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
+      // v1.114 (§DYN.5.9): sin caso de revisión vigente ⇒ la entrada del cuerpo de venta no cambia.
+      saleRetentionFor: jest.fn(async () => new Map()),
       gradeKeyFor: jest.fn(() => 'NM'),
       tryGradeKeyFor: jest.fn(() => 'NM'),
       getReference: jest.fn(async () => ({ status: 'pending', referenceMxnCents: null })),

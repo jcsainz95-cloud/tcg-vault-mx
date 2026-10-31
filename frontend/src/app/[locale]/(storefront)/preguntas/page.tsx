@@ -13,6 +13,7 @@ import {
 } from '@/lib/seo-content';
 import { FAQ_LAST_REVIEW, FAQ_MANUAL_VERSION } from '@/content/seo/faq.es';
 import { ContentPage, EmptyContent, FaqGroups } from '../_content/ContentPage';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
  * ⭐ §MKT tienda §E4 — `/preguntas` con JSON-LD `FAQPage`. El texto es `RESPUESTAS.md` §12.2 (manual
@@ -63,20 +64,23 @@ export default async function PreguntasPage({ params }: { params: Promise<{ loca
     ],
   };
 
+  // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
   return (
-    <>
-      <JsonLd data={jsonLd} nonce={nonce} />
-      <ContentPage
-        title={t('faq.title')}
-        dateLine={t('lastReview', { date: FAQ_LAST_REVIEW, version: FAQ_MANUAL_VERSION })}
-        spanishOnlyNotice={locale !== 'es' ? t('spanishOnly') : undefined}
-      >
-        {faqs.length > 0 ? (
-          <FaqGroups groups={groupFaqs(faqs)} />
-        ) : (
-          <EmptyContent message={t('faq.empty')} />
-        )}
-      </ContentPage>
-    </>
+    <RouteMessages scope="storefront">
+      <>
+        <JsonLd data={jsonLd} nonce={nonce} />
+        <ContentPage
+          title={t('faq.title')}
+          dateLine={t('lastReview', { date: FAQ_LAST_REVIEW, version: FAQ_MANUAL_VERSION })}
+          spanishOnlyNotice={locale !== 'es' ? t('spanishOnly') : undefined}
+        >
+          {faqs.length > 0 ? (
+            <FaqGroups groups={groupFaqs(faqs)} />
+          ) : (
+            <EmptyContent message={t('faq.empty')} />
+          )}
+        </ContentPage>
+      </>
+    </RouteMessages>
   );
 }

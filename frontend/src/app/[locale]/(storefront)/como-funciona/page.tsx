@@ -7,6 +7,7 @@ import { organizationJsonLd, SITE_URL } from '@/lib/seo';
 import { breadcrumb, contentCanonical, howItWorksSections, webPageJsonLd } from '@/lib/seo-content';
 import { FAQ_LAST_REVIEW, FAQ_MANUAL_VERSION } from '@/content/seo/faq.es';
 import { ContentPage, EmptyContent, FaqGroups } from '../_content/ContentPage';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
  * ⭐ §MKT tienda §E4 — `/como-funciona` (brief v1 §3.1). Compone respuestas públicas de
@@ -60,20 +61,23 @@ export default async function ComoFuncionaPage({
     ],
   };
 
+  // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
   return (
-    <>
-      <JsonLd data={jsonLd} nonce={nonce} />
-      <ContentPage
-        title={t('howItWorks.title')}
-        dateLine={t('lastReview', { date: FAQ_LAST_REVIEW, version: FAQ_MANUAL_VERSION })}
-        spanishOnlyNotice={locale !== 'es' ? t('spanishOnly') : undefined}
-      >
-        {sections.length > 0 ? (
-          <FaqGroups groups={sections} />
-        ) : (
-          <EmptyContent message={t('howItWorks.empty')} />
-        )}
-      </ContentPage>
-    </>
+    <RouteMessages scope="storefront">
+      <>
+        <JsonLd data={jsonLd} nonce={nonce} />
+        <ContentPage
+          title={t('howItWorks.title')}
+          dateLine={t('lastReview', { date: FAQ_LAST_REVIEW, version: FAQ_MANUAL_VERSION })}
+          spanishOnlyNotice={locale !== 'es' ? t('spanishOnly') : undefined}
+        >
+          {sections.length > 0 ? (
+            <FaqGroups groups={sections} />
+          ) : (
+            <EmptyContent message={t('howItWorks.empty')} />
+          )}
+        </ContentPage>
+      </>
+    </RouteMessages>
   );
 }

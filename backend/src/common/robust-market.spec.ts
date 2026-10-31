@@ -7,6 +7,7 @@
  * COPIA del árbol (ver BACKEND_NOTES §91), no aquí.
  */
 import {
+  admittedFreshQuotes,
   ArbiterCandidate,
   ArbiterDials,
   DEFAULT_PRICE_ARBITER_SOURCES,
@@ -127,6 +128,60 @@ describe('resolveRobustMarket — el árbitro de mediana por familia (§PRE.B)',
     const single = resolveRobustMarket([c('tcgcsv_singles', 100), c('tcgdex', 101)], DIALS, NOW);
     expect(single.familyCount).toBe(1);
     expect(single.consensus).toBe(false);
+  });
+});
+
+describe('💰 admittedFreshQuotes — las cotizaciones que VOTARÍAN en el árbitro (v1.114.3, §DYN.5.9 «Sin base»)', () => {
+  // El fixture de DYN-B25: tcgcsv 300 y tcgdex 500 frescas, cardmarket 100 vieja, pokemontcg_io 50 excluida.
+  const B25 = [c('tcgcsv_singles', 300, '2026-10-09'), c('tcgdex', 500), c('cardmarket', 100, '2026-10-01'), c('pokemontcg_io', 50)];
+
+  it('solo fuentes del dial, no manuales, frescas y > 0; ordenadas por precio ⇒ el mínimo fresco es la primera (300, no 400/100/50)', () => {
+    const q = admittedFreshQuotes(B25, DIALS, NOW);
+    expect(q.map((x) => [x.source, x.priceMxnCents, x.capturedDate])).toEqual([
+      ['tcgcsv_singles', 300, '2026-10-09'],
+      ['tcgdex', 500, NOW],
+    ]);
+    expect(q.every((x) => !x.stale)).toBe(true);
+  });
+
+  it('⛔ PPT, manual, fuentes fuera del dial y precios ≤ 0 no entran (aunque el dial las nombrara)', () => {
+    const dials = { ...DIALS, admittedSources: ['tcgcsv_singles', 'pokemontcg_io', 'pokemonpricetracker', 'manual'] };
+    const q = admittedFreshQuotes(
+      [c('pokemontcg_io', 1), c('pokemonpricetracker', 2), c('manual', 3), c('tcgdex', 4), c('tcgcsv_singles', 0), c('tcgcsv_singles', 900)],
+      dials,
+      NOW,
+    );
+    expect(q.map((x) => x.priceMxnCents)).toEqual([900]);
+  });
+
+  it('empate de precio ⇒ decide el orden del dial (`sourceRank` del árbitro), luego el nombre', () => {
+    const dials = { ...DIALS, admittedSources: ['cardmarket', 'tcgdex', 'tcgcsv_singles'] };
+    expect(admittedFreshQuotes([c('tcgcsv_singles', 300), c('tcgdex', 300), c('cardmarket', 300)], dials, NOW).map((x) => x.source)).toEqual([
+      'cardmarket',
+      'tcgdex',
+      'tcgcsv_singles',
+    ]);
+  });
+
+  it('ninguna fresca ⇒ lista vacía', () => {
+    expect(admittedFreshQuotes([c('tcgcsv_singles', 300, '2026-10-01'), c('pokemontcg_io', 50)], DIALS, NOW)).toEqual([]);
+  });
+
+  it('UN solo filtro: el árbitro vota exactamente sobre estas cotizaciones (conteo, familias y mediana salen de ellas)', () => {
+    const fixtures: ArbiterCandidate[][] = [
+      B25,
+      [c('tcgcsv_singles', 184), c('tcgdex', 190), c('cardmarket', 10221)],
+      [c('tcgcsv_singles', 184, '2026-10-03'), c('cardmarket', 0), c('pokemonpricetracker', 7)],
+      [c('tcgdex', 100, '2026-10-04'), c('cardmarket', 120, '2026-10-03')],
+    ];
+    for (const f of fixtures) {
+      const q = admittedFreshQuotes(f, DIALS, NOW);
+      const r = resolveRobustMarket(f, DIALS, NOW);
+      expect(r.sourceCount).toBe(q.length);
+      expect(r.familyCount).toBe(new Set(q.map((x) => x.family)).size);
+      if (q.length === 0) expect(r.robustMarketMxnCents).toBeNull();
+      else expect(r.robustMarketMxnCents).toBeGreaterThanOrEqual(q[0].priceMxnCents);
+    }
   });
 });
 

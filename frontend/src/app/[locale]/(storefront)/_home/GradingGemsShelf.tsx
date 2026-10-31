@@ -3,14 +3,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { getCatalog } from '@/lib/api';
+import { GEMS_FILTERS, GEMS_PAGE_SIZE, GEMS_QUERY_KEY } from '@/lib/home-queries';
 import type { GroupedListingSummaryDTO } from '@/types/contract';
 import { useCart } from '@/lib/cart';
 import { cn } from '@/lib/cn';
 import { Shelf } from '../_shared/Shelf';
 import { CatalogTile } from '../catalog/CatalogTile';
-
-/** Cap de la vitrina (§O.3(3)); es también el `pageSize` que se le pide al servidor. */
-const GEMS_PAGE_SIZE = 8;
 
 /** `id` de la sección: destino del enlace de regreso de la nota al pie del home (§22.4a). */
 export const GRADING_GEMS_ID = 'joyas-para-gradear';
@@ -25,10 +23,10 @@ export const GRADING_GEMS_ID = 'joyas-para-gradear';
  * servidor entrega la lista **ya curada y ordenada**; el cliente no ve ni un número del cálculo.
  */
 export function useGradingGems() {
+  // v1.113 (§DYN.6.2): la MISMA clave y los MISMOS filtros que hidrata la página de servidor (`lib/home-queries.ts`).
   return useQuery({
-    queryKey: ['catalog', { home: true, gradingHighlight: true }],
-    queryFn: () =>
-      getCatalog({ gradingHighlight: true, sort: 'grading_showcase', pageSize: GEMS_PAGE_SIZE }),
+    queryKey: GEMS_QUERY_KEY,
+    queryFn: () => getCatalog(GEMS_FILTERS),
     staleTime: 60_000,
     retry: false,
   });

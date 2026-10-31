@@ -24,6 +24,8 @@ import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
 import { isYmd } from '../modules/spend-alerts/mx-day';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
+import { FeaturedService } from '../modules/catalog/featured.service';
+import { ListingPriceService } from '../modules/pricing/listing-price.service';
 
 /**
  * Body opcional del disparo de `spend-digest` (💰 C1, API_CONTRACT §M4-SHIP.19.33.9): `day?: 'YYYY-MM-DD'` re-manda el resumen de
@@ -57,6 +59,11 @@ class PriceIngestDto {
 }
 
 /** Body opcional del disparo de `sealed-price-ingest` (2ª excepción a la familia, §M10-ops). */
+/** v1.113⟨portada⟩ (§DYN.2.4): `{ force?: boolean }`. */
+class FeaturedRotationDto {
+  @IsOptional() @IsBoolean() force?: boolean;
+}
+
 class SealedPriceIngestDto {
   // v1.19-sealed-tcgcsv: `groupId?` (entero positivo) para ingestar UN solo grupo TCGCSV —
   // verificación del esquema real en staging antes del flip del dial (§4.19f). Omitirlo
@@ -99,7 +106,45 @@ export class AdminJobsController {
     @Optional() private readonly spendDigest?: SpendDigestService,
     // rev v1.87⟨wishlist⟩ (§WSH.5): el aviso «ya la tenemos». `@Optional()` como los de arriba; sin él ⇒ `404`.
     @Optional() private readonly wishlistNotify?: WishlistNotifyService,
+    @Optional() private readonly featuredRotation?: FeaturedService,
+    // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.3): «Actualizar precios» (manual) recalcula el precio del día al terminar.
+    @Optional() private readonly listingPrices?: ListingPriceService,
   ) {}
+
+  /**
+   * v1.113⟨portada⟩ (API_CONTRACT §DYN.2.4) — `POST /admin/jobs/featured-rotation { force? }` (`super_admin`, auditado).
+   * Sin `force` ⇒ el tic (escribe la del día solo si falta y ya es hora). `force: true` ⇒ rehace la selección del día que se
+   * SIRVE (semilla nueva, diales vigentes, `forcedByUserId`) y deja `featured.selection.forced` con antes → después.
+   * ⛔ Herramienta de ops y de la prueba de navegador (939 b): no elige piezas.
+   */
+  @Post('featured-rotation')
+  @HttpCode(200)
+  async runFeaturedRotation(@Body() dto: FeaturedRotationDto, @CurrentUser() user: { id: string; role: Role }) {
+    const svc = this.need(this.featuredRotation);
+    if (dto?.force === true) {
+      const r = await svc.force(user.id);
+      await this.audit.log({
+        actorUserId: user.id,
+        actorRole: user.role,
+        action: 'featured.selection.forced',
+        entityType: 'FeaturedSelection',
+        entityId: r.businessDate,
+        before: (r.before ?? null) as unknown as Record<string, unknown>,
+        after: r.after as unknown as Record<string, unknown>,
+      });
+      return { status: 'forced' as const, businessDate: r.businessDate };
+    }
+    const result = await svc.tick();
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'jobs.featured_rotation.run',
+      entityType: 'Job',
+      entityId: 'featured-rotation',
+      after: { ...result },
+    });
+    return result;
+  }
 
   private need<T>(svc: T | undefined): T {
     if (!svc) throw BusinessException.notFound();
@@ -342,7 +387,12 @@ export class AdminJobsController {
   async runPriceIngest(@Body() dto: PriceIngestDto, @CurrentUser() user: { id: string; role: Role }) {
     // N-11: `setId` → ingesta AWAITED de UN set (verificación de esquema). Sin `setId` → barrido del
     // catálogo COMPLETO en SEGUNDO PLANO (fire-and-forget); el front pollea `GET /admin/pricing/sync-status`.
-    const result = dto.setId ? await this.priceIngest.run(dto.setId) : await this.priceIngest.runBackground();
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3 `manual_ingest`): al TERMINAR el barrido manual se recalcula el precio del día (todo).
+    // ⛔ Solo este disparo manual: las corridas automáticas (cron) NO mueven lo exhibido (DYN-B18).
+    const afterSweep = () => void this.listingPrices?.enqueue('manual_ingest');
+    const result = dto.setId
+      ? await this.priceIngest.run(dto.setId).then((r) => (afterSweep(), r))
+      : await this.priceIngest.runBackground(afterSweep);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,

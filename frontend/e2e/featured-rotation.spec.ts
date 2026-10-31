@@ -360,6 +360,26 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
       TRACK,
       { timeout: 80_000 },
     );
+    // DYN-F11 (contrato v1.114.3): el detector de arriba dispara a ±2 px del tope, con el
+    // deslizamiento suave aún en vuelo (medido en base `0d40d0b7` y en la rama, N=1 cada una:
+    // 958 al disparar, 960 a los 50 ms; misma geometría en las dos). Si `expectFrozen` lee `before`
+    // en vuelo, compara 958 con 960 y da un rojo que no es un tic. Se espera a que la pista se
+    // asiente: dos lecturas iguales separadas 250 ms, con tope de 3 s (< REST_MS) que FALLA si no
+    // se asienta — una pista que sigue moviéndose aquí es justo el defecto que este caso busca.
+    const SETTLE_GAP_MS = 250;
+    const settleDeadline = Date.now() + 3_000;
+    let settled = false;
+    let previous = (await readTrack(page)).scrollLeft;
+    while (Date.now() + SETTLE_GAP_MS <= settleDeadline) {
+      await page.waitForTimeout(SETTLE_GAP_MS);
+      const current = (await readTrack(page)).scrollLeft;
+      if (current === previous) {
+        settled = true;
+        break;
+      }
+      previous = current;
+    }
+    expect(settled, 'la pista no se asentó en 3 s tras llegar al tope').toBe(true);
 
     const ended = await readTrack(page);
     expect(Math.abs(ended.scrollLeft - ended.maxScroll)).toBeLessThanOrEqual(2);

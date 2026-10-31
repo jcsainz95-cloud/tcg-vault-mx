@@ -341,7 +341,7 @@ describe('loadGradedEstimateConfig — fail-closed en dos niveles (§4.38d)', ()
         SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
         SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
         SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
-        SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
+        // v1.113⟨portada⟩ (§DYN.3): `graded_estimate_ingest_max_cards_per_run` retirada ⇒ ya no se lee.
       ]),
     );
   });

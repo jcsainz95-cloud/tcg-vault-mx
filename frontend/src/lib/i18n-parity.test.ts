@@ -80,9 +80,12 @@ describe('i18n catalogs', () => {
   // la frase entera de M10: §22.14 añadió una segunda superficie que publica la misma cifra —el
   // aviso de gasto de M2— y allí el sujeto es explícito («si **el proveedor** cobra por petición»).
   // Un candado que exigiera la variante literal de una pantalla dejaría la otra sin cubrir.
+  // v1.113⟨portada⟩ (API_CONTRACT §DYN.3/§DYN.4.3): el tope de cartas por corrida se retiró y el techo pasó a ser el
+  // TOPE DIARIO de créditos que el servidor aplica sobre lo cargado. Ya no depende del régimen de cobro, así que su
+  // calificador es decirlo como tope («lo acota un tope diario» / «limited by a daily cap»). La cifra desnuda sigue roja.
   it.each([
-    ['es', es, /cobra por petición/],
-    ['en', en, /charges per request/],
+    ['es', es, /cobra por petición|lo acota un tope diario/],
+    ['en', en, /charges per request|limited by a daily cap/],
   ])(
     '%s no publica un techo de créditos sin el régimen de cobro que lo condiciona',
     (_locale, catalog, condicional) => {

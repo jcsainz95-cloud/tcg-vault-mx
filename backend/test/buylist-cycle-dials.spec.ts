@@ -321,6 +321,8 @@ describe('M-46 §4.39l — la cruzada se evalúa sobre el ESTADO RESULTANTE, no 
       },
     };
     prisma.$transaction = jest.fn(async (cb: (tx: unknown) => unknown) => cb(prisma));
+    // PEN-DYN-2: la regla cruzada toma su candado dentro de la transacción (`pg_advisory_xact_lock`).
+    prisma.$executeRaw = jest.fn(async () => 0);
     service = new SettingsService(prisma as unknown as PrismaService);
   }
 

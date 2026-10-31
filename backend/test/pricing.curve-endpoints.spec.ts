@@ -27,6 +27,8 @@ function build(savedCurve: PricingCurve = DEFAULT_PRICING_CURVE) {
   const settings = {
     getRaw: jest.fn(async (key: string) => store.get(key) ?? null),
     getNumber: jest.fn(async () => 0),
+    // v1.113⟨portada⟩ (§DYN.5.3): la puerta avisa la escritura (precio del día, `dial_change`).
+    notifyKeysWritten: jest.fn(),
   } as unknown as SettingsService;
   const prisma = {
     configSetting: {
@@ -53,7 +55,7 @@ function build(savedCurve: PricingCurve = DEFAULT_PRICING_CURVE) {
     prisma,
     {} as PriceSyncJobService,
     {} as never,
-    {} as never,
+    {} as never, undefined, undefined, { enqueueVariant: jest.fn(async () => undefined) } as never,
   );
   return { controller, prisma, audit, settings, store };
 }

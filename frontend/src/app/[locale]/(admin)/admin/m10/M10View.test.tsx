@@ -8,6 +8,7 @@ import { mockSettings } from '@/lib/mock/fixtures';
 import { M10View, M10_LIST_DIAL_KEYS } from './M10View';
 import { WISHLIST_DIAL_KEYS } from './sections/WishlistDialsSection';
 import { DIRECT_SHIP_DIAL_KEYS } from './sections/DirectShipSection';
+import { FEATURED_PSA_DIAL_KEYS } from './sections/FeaturedPsaDialsSection';
 import es from '../../../../../../messages/es.json';
 
 // `@/i18n/navigation` (next-intl) no resuelve bajo vitest; se stubea a un <a> que preserva href.
@@ -125,19 +126,17 @@ describe('M10View · Config y bitácora', () => {
 
   /**
    * §22.13(d) — encender es un ACTO DE DINERO. El aviso tiene que decir las dos cosas: que publica y
-   * que gasta créditos de un proveedor de paga. Y la cifra sale del tope VIVO de M2, no horneada.
+   * que gasta créditos de un proveedor de paga. Y la cifra sale del tope VIVO, no horneada.
    *
-   * **v2.4 — por qué esta aserción ya no fija la cifra a secas.** Hasta hoy este test exigía
-   * `/1[.,\s]?000 créditos al día/`: un número **desnudo**. Ese número es el techo **bajo el
-   * supuesto de que el proveedor cobra por petición**, y la petición manda `fetchAllInSet=true`
-   * —pide el **set entero**—, así que puede quedarse corto por un **factor de 16** (§22.13d.1).
-   * Fijarlo así no verificaba la verdad del aviso: **la protegía al revés**, convirtiendo una
-   * hipótesis en un invariante de CI que rechazaba la corrección. La aserción nueva exige la
-   * **frase condicional completa** —cifra + régimen de facturación + que la primera corrida lo
-   * mide—, así que un copy que vuelva a afirmar la cifra sin supuesto **no pasa**.
+   * v1.113⟨portada⟩ (§DYN.3/§DYN.4.3, DYN-F5): el techo ya NO es `cartas por corrida × 2 × 2` bajo el supuesto de cobro
+   * por petición (el tope de cartas de M2 se retiró). Es el tope de créditos PSA por día de M10
+   * (`gradedEstimateDailyCreditCap`), que el servidor aplica sobre lo CARGADO (reportado por el proveedor o estimado):
+   * por eso la cifra va calificada como TOPE, con su única holgura (el error de estimación de un set).
    */
-  it('v1.51 · al encenderlo el aviso dice que PUBLICA y que GASTA, con el techo de créditos CALIFICADO', async () => {
-    const spy = withHookSavedOff();
+  it('v1.51 · al encenderlo el aviso dice que PUBLICA y que GASTA, con el tope diario de créditos CALIFICADO', async () => {
+    const spy = vi
+      .spyOn(api, 'getSettings')
+      .mockResolvedValue({ ...mockSettings, gradingHookEnabled: 'off', gradedEstimateDailyCreditCap: 1200 });
     renderWithProviders(<M10View />, 'es');
     const dial = (await screen.findByLabelText(/Gancho de grading/)) as HTMLSelectElement;
 
@@ -153,33 +152,15 @@ describe('M10View · Config y bitácora', () => {
     expect(warning.textContent).toMatch(/Publica\./);
     expect(warning.textContent).toMatch(/Y gasta\./);
     expect(warning.textContent).toMatch(/proveedor/i);
-    // 250 cartas × 2 créditos × 2 corridas = 1 000 créditos/día, derivado del `ingestMaxCardsPerRun`
-    // VIVO de M2: la cifra llega con la config, así que se espera a ella (si estuviera horneada,
-    // aparecería en el primer render y este `waitFor` no probaría nada).
-    //
-    // §22.13(k.m): se exige LA FRASE ENTERA, en orden. La cifra sola no basta — tiene que venir con
-    // el régimen que la hace válida («si cobra por petición»), con el que la invalida («si cobra por
-    // carta devuelta» + «set entero» + «varias veces») y con quién lo dirime («La primera corrida lo
-    // mide»). Un copy que diga «hasta 1 000 créditos al día» y nada más falla aquí.
-    await waitFor(() =>
-      expect(warning.textContent).toMatch(
-        /si cobra por petición, el techo son\s*1[.,\s]?000 créditos al día[\s\S]*?si cobra por carta devuelta[\s\S]*?set entero[\s\S]*?varias veces[\s\S]*?La primera corrida lo mide/,
-      ),
-    );
-    // Y el alcance, que sí sabemos, separado de la factura, que no: el tope acota CARTAS TUYAS.
-    expect(warning.textContent).toMatch(/el barrido mira hasta\s*250 cartas tuyas/);
-    expect(warning.textContent).toMatch(/2 corridas al día/);
-    // La cuenta sigue derivándose del tope vivo (§22.13k.g): 250 × 2 × 2, no un literal.
-    expect(warning.textContent).toMatch(/250 × 2 × 2/);
-    // (k.l) — INVARIANTE, no una frase suelta: NINGUNA oración que mencione «créditos al día» puede
-    // hacerlo sin su calificador en la MISMA oración. Es lo que impide que el candado vuelva a
-    // moverse cambiando un número por otro, o colando la cifra desnuda en otro párrafo.
-    //
-    // El corte en oraciones vive en `@/test/grading` y NO se copia aquí: la versión que vivía en
-    // esta línea exigía **espacio** tras el punto, y `textContent` no lo pone entre bloques, así
-    // que una cifra desnuda pegada al punto anterior se fusionaba con la oración calificada y
-    // pasaba (lo demostró QA con la suite en verde). Mismo candado para las dos pantallas que
-    // publican la cifra — M10 aquí, M2 en `GradedEstimatesSection.test.tsx`.
+    // La cifra es el tope VIVO del servidor (1 200 en este GET), no el seed 3 000 ni un literal.
+    expect(warning.textContent).toMatch(/no pasa de\s*1[.,\s]?200 créditos al día/);
+    expect(warning.textContent).not.toMatch(/3[.,\s]?000 créditos al día/);
+    // Y dice cómo se cuentan y su única holgura.
+    expect(warning.textContent).toMatch(/contados como los reporta el proveedor/);
+    expect(warning.textContent).toMatch(/error de estimar una colección/);
+    // El modelo retirado no reaparece: ni cartas por corrida ni la multiplicación que lo producía.
+    expect(warning.textContent).not.toMatch(/cartas tuyas|corridas al día|\d\s*×\s*\d/);
+    // (k.l) — ninguna oración con «créditos al día» sin su calificador en la MISMA oración.
     expectCreditsFigureQualified(warning.textContent!);
     // §7.6: la acción de dinero declara quién puede y dónde queda.
     expect(warning.textContent).toMatch(/Solo súper-admin · queda en bitácora/);
@@ -189,22 +170,12 @@ describe('M10View · Config y bitácora', () => {
   });
 
   /**
-   * §22.13(d) + (h) — «cede la cifra, nunca el aviso». Si la config de M2 no está disponible, el
-   * aviso NO desaparece: cae a `onNoFigures`. Ocultar el aviso por falta de un número sería
-   * exactamente el bloqueante que §22.13(k.f) manda buscar.
-   *
-   * **v2.4 — esta variante también mentía, y por eso el `not.toMatch` de abajo no basta solo.**
-   * Decía «consume créditos en cada corrida, **hasta el tope de cartas que fijaste en M2**»:
-   * insinuaba que ese tope acota el GASTO. No lo acota — acota las cartas **en alcance**, y cada
-   * petición pide el set entero (§22.13k.f, «y ese texto no insinúa que el tope acote el gasto»).
-   * Que no aparezca una cifra es necesario pero no suficiente; se exige además que diga QUÉ acota
-   * el tope y qué no.
+   * §22.13(d) + (h) — «cede la cifra, nunca el aviso». Un servidor anterior a §DYN no trae el tope diario: el aviso NO
+   * desaparece, cae a `onNoFigures` y no publica cifra.
    */
-  it('v1.51 · si el tope de M2 no está disponible, el aviso de encendido SIGUE saliendo (sin la cifra)', async () => {
-    const settingsSpy = withHookSavedOff();
-    const spy = vi
-      .spyOn(api, 'getGradedEstimateConfig')
-      .mockRejectedValue(new Error('403 FORBIDDEN'));
+  it('v1.51 · si el tope diario no viene, el aviso de encendido SIGUE saliendo (sin la cifra)', async () => {
+    const { gradedEstimateDailyCreditCap: _drop, ...sinTope } = mockSettings;
+    const settingsSpy = vi.spyOn(api, 'getSettings').mockResolvedValue({ ...sinTope, gradingHookEnabled: 'off' });
     renderWithProviders(<M10View />, 'es');
     const dial = (await screen.findByLabelText(/Gancho de grading/)) as HTMLSelectElement;
     fireEvent.change(dial, { target: { value: 'on' } });
@@ -213,16 +184,10 @@ describe('M10View · Config y bitácora', () => {
     settingsSpy.mockRestore();
     expect(warning.textContent).toMatch(/Publica\./);
     expect(warning.textContent).toMatch(/Y gasta\./);
-    expect(warning.textContent).toMatch(/consume créditos en cada corrida/i);
-    // Sin tope no hay cuenta que publicar: ni el techo diario ni la multiplicación que lo produce.
-    expect(warning.textContent).not.toMatch(/créditos al día/);
+    expect(warning.textContent).toMatch(/gasta créditos en cada corrida/i);
+    expect(warning.textContent).not.toMatch(/créditos al día\b(?! de)/);
     expect(warning.textContent).not.toMatch(/\d\s*×\s*\d/);
-    // Lo que SÍ tiene que decir: el tope acota cartas MIRADAS, no lo que el proveedor factura.
-    expect(warning.textContent).toMatch(/cuántas cartas tuyas mira/i);
-    expect(warning.textContent).toMatch(/no cuántas te cobra el proveedor/i);
-    expect(warning.textContent).toMatch(/cada petición pide el set entero/i);
-    expect(warning.textContent).toMatch(/lo mide la primera corrida/i);
-    spy.mockRestore();
+    expect(warning.textContent).toMatch(/hasta el tope de créditos al día de «Destacadas y PSA»/);
   });
 
   /**
@@ -372,6 +337,9 @@ describe('M10View · Config y bitácora', () => {
     for (const k of ['energyBundlePriceCents', 'accessorySuggestionCount']) {
       expect(M10_LIST_DIAL_KEYS).not.toContain(k);
     }
+    // v1.113⟨portada⟩ (§DYN.3): los seis de Destacadas y PSA solo en su sección.
+    expect(FEATURED_PSA_DIAL_KEYS).toHaveLength(6);
+    for (const k of FEATURED_PSA_DIAL_KEYS) expect(M10_LIST_DIAL_KEYS).not.toContain(k);
   });
 
   it('REL-S7 · ningún dial se pinta dos veces: los de la lista de deseos solo en su sección, los de accesorios fuera de M10', async () => {

@@ -112,12 +112,11 @@ function grp(c: CardDTO): GroupedListingSummaryDTO {
 const NAMES = ['Charizard', 'Blastoise', 'Venusaur', 'Alakazam', 'Machamp', 'Gengar', 'Mewtwo', 'Mew'];
 const EIGHT = NAMES.map((n, i) => grp(card(`c-${i}`, n)));
 
+// v1.113⟨portada⟩ (§DYN.2, DYN-F1): el carrusel lee `GET /catalog/featured`; SOLO cambia la fuente que se espía.
 function mockCatalog(data: GroupedListingSummaryDTO[]) {
-  vi.spyOn(api, 'getCatalog').mockResolvedValue({
-    data,
-    page: 1,
-    pageSize: data.length,
-    total: data.length,
+  vi.spyOn(api, 'getFeatured').mockResolvedValue({
+    businessDate: '2026-10-29',
+    data: data.map((g) => ({ ...g, featuredSlot: 'pool' as const })),
   });
 }
 
@@ -338,6 +337,11 @@ describe('§23.3 · cuándo arranca (y cuándo no) — R2: la rotación nunca co
    */
   it('un 404 en la foto líder desbloquea igual, sin esperar el tope de 3 s (`onError` = `settle`)', async () => {
     const { track } = await mountCarousel({ loadLeadImage: false });
+    await act(async () => {
+      fireEvent.error(screen.getByAltText(NAMES[0]));
+    });
+    // v1.114.2 (DYN-F9): el primer `error` es el del optimizador (`/_next/image`) y solo cambia a la original; el 404
+    // que desbloquea es el de la original. Ratificado por el arquitecto en DYN-F1 (b), contrato v1.114.3.
     await act(async () => {
       fireEvent.error(screen.getByAltText(NAMES[0]));
     });
@@ -828,7 +832,7 @@ describe('§23.2 · rota la VENTANA, nunca el ROL (R1) — lo que protege el LCP
     const { track } = await mountCarousel();
     const leadBefore = track.firstElementChild;
     const imgBefore = screen.getByAltText(NAMES[0]);
-    expect(imgBefore).toHaveAttribute('src', 'https://img.example/c-0-large.png');
+    expect(new URL(imgBefore.getAttribute('src') ?? '', 'http://t.test').searchParams.get('url')).toBe('https://img.example/c-0-large.png');
     expect(imgBefore).toHaveAttribute('fetchpriority', 'high');
 
     const order = () =>

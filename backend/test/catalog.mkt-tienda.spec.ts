@@ -93,6 +93,8 @@ function pricingMock() {
     getGradedEstimatesBatch: jest.fn(async () => new Map()),
     getPublishedSlabGradesBatch: jest.fn(async () => new Map()),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
+    // v1.114 (§DYN.5.9): sin caso de revisión vigente ⇒ la entrada del cuerpo de venta no cambia.
+    saleRetentionFor: jest.fn(async () => new Map()),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     gradeKeyFor: jest.fn((i: { productType: string; rawCondition?: string }) =>
       i.productType === 'raw' ? `raw:${i.rawCondition ?? 'NM'}` : 'graded:PSA:10',

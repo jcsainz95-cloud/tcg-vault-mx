@@ -33782,3 +33782,78 @@ Viewports 360×740, 390×844, 414×896, ES y EN. **DL1** `scrollWidth ≤ innerW
 
 **vDSC-1.1 (2026-10-25):** C11v/C11s (barra de bóveda), C17-C21 (motivos de «no aplica») y subtítulo de «Envío regalado» por pedidos/retiros, ES/EN.
 **vDSC-1 (2026-10-25):** sección nueva con `CodeRow`, fila de desglose, T9/barra tras el descuento, retiro (P-DSC-3 A/B), textos C1-C16 ES/EN, panel (lista, crear, bloqueo, lote, reporte, móvil) y candados DL1-DL7. **Tope de 2 000 líneas rebasado desde antes de esta versión (este archivo supera las 33 000)**: NO compactado en este cambio, ver resumen.
+
+## DYN-UX. Portada dinámica: textos finales es/en de Destacadas, M10 y avisos (vDYN-1, 2026-10-29 · `API_CONTRACT §DYN` · `PROJECT.md` §DYN)
+
+Sustituyen a los PROVISIONALES de `docs/FRONTEND_NOTES.md §DYN`. Sin cambio de componentes ni de tokens. Reglas: nada de «dial», «gancho», «PSA cycle», «stale», «rotación» ni «barrido» de cara al dueño (se dice «ajuste», «cifras estimadas de PSA», «revisión diaria», «selección»); «PSA» y «créditos» sí, porque el dueño los paga y los ve en su cuenta. Los marcadores `{…}`, `<b>`, `<n>` y `<review>` no se tocan. Rutas relativas a `admin.m10.featuredPsa` (**FP**), `admin.m10.dials.gradingHook` (**GH**), `admin.dashboard.dynHealth` (**DH**), `admin.spendAlerts` (**SA**).
+
+| Clave | es | en |
+|---|---|---|
+| `home.featured.newArrival` | Recién llegada | Just arrived |
+| FP`.title` | Destacadas y PSA | Featured & PSA |
+| FP`.subtitle` | Cómo se eligen las Destacadas de cada día y cuántos créditos PSA puede gastar al día la revisión de «Joyas para gradear». | How each day’s Featured pieces are picked and how many PSA credits the “Gems to grade” check may spend per day. |
+| FP`.notAvailable` | El servidor todavía no tiene estos ajustes. | The server does not have these settings yet. |
+| FP`.nextSelection` | Los cambios en Destacadas cuentan desde el siguiente cambio diario; la selección de hoy no se toca. | Featured changes apply from the next daily change; today’s selection is not touched. |
+| FP`.labels.featuredPoolSize` | Piezas de más valor entre las que se sortea | Highest-value pieces to draw from |
+| FP`.labels.featuredRandomSlots` | Lugares al azar | Random slots |
+| FP`.labels.featuredNewArrivalSlots` | Lugares de recién llegadas | New-arrival slots |
+| FP`.labels.featuredNewArrivalWindowDays` | Días que una pieza cuenta como recién llegada | Days a piece counts as a new arrival |
+| FP`.labels.featuredRotationHour` | Hora del cambio diario (hora del centro de México) | Daily change hour (Central Mexico time) |
+| FP`.labels.gradedEstimateDailyCreditCap` | Tope de créditos PSA al día | Daily PSA credit cap |
+| FP`.help.featuredPoolSize` | De 1 a 500. Si no cambias nada, 60. | From 1 to 500. If you change nothing, 60. |
+| FP`.help.featuredRandomSlots` | De 0 a 20. Si no cambias nada, 8. | From 0 to 20. If you change nothing, 8. |
+| FP`.help.featuredNewArrivalSlots` | De 0 a 4; con 0 no hay recién llegadas. Si no cambias nada, 2. | From 0 to 4; 0 means no new arrivals. If you change nothing, 2. |
+| FP`.help.featuredNewArrivalWindowDays` | De 1 a 30. Si no cambias nada, 7. | From 1 to 30. If you change nothing, 7. |
+| FP`.help.featuredRotationHour` | De 0 a 23. Si no cambias nada, 6 (las 06:00). | From 0 to 23. If you change nothing, 6 (06:00). |
+| FP`.help.gradedEstimateDailyCreditCap` | De 0 a 20 000; con 0 no se pide nada. Si no cambias nada, 3 000. | From 0 to 20,000; 0 means nothing is requested. If you change nothing, 3,000. |
+| FP`.rule.featured_slots_total` | Los lugares al azar y los de recién llegadas deben sumar entre 1 y 20. | Random slots and new-arrival slots must add up to between 1 and 20. |
+| FP`.rule.featured_pool_lt_random` | Las piezas entre las que se sortea no pueden ser menos que los lugares al azar. | The pieces to draw from cannot be fewer than the random slots. |
+| FP`.checkFields` | Revisa los campos marcados: hay un valor fuera de su rango. No se guardó nada. | Check the marked fields: a value is out of range. Nothing was saved. |
+| FP`.save` | `{count, plural, =0 {Guardar} one {Guardar 1 cambio} other {Guardar # cambios}}` | `{count, plural, =0 {Save} one {Save 1 change} other {Save # changes}}` |
+| FP`.saved` | Ajustes guardados. | Settings saved. |
+| FP`.budget.title` | Créditos PSA | PSA credits |
+| FP`.budget.hook` | Cifras estimadas de PSA | Estimated PSA figures |
+| FP`.budget.hookOn` / `hookOff` | publicándose / apagadas | being published / off |
+| FP`.budget.dailyCreditCap` | Tope al día | Daily cap |
+| FP`.budget.creditsToday` / `includesEstimate` | Gastados hoy / incluye estimados | Spent today / includes estimates |
+| FP`.budget.creditsLast7Days` | Gastados en 7 días | Spent in 7 days |
+| FP`.budget.providerDailyQuota` | Cuota diaria del proveedor | Provider daily quota |
+| FP`.budget.providerDailyRemaining` | Le quedan al proveedor hoy | Provider remaining today |
+| FP`.budget.notSet` / `notReported` | sin fijar / el proveedor no lo dice | not set / the provider does not say |
+| FP`.budget.publishedCards` | Cartas sueltas publicadas | Published single cards |
+| FP`.budget.cardsScannedLast7Days` | Revisadas en 7 días | Checked in 7 days |
+| FP`.budget.cardsUnmapped` | Sin colección en el proveedor | No set at the provider |
+| FP`.budget.weeklyCreditsNeeded` | Créditos para revisar todas en una semana | Credits to check them all in a week |
+| FP`.budget.cycleDays` | La vuelta completa tarda | A full round takes |
+| FP`.budget.cycleNever` | nunca (tope en 0) | never (cap at 0) |
+| FP`.budget.days` | `{count, plural, one {# día} other {# días}}` | `{count, plural, one {# day} other {# days}}` |
+| FP`.budget.capToCoverWeek` | Tope que cubriría la semana | Cap that would cover the week |
+| FP`.budget.short` | Con este tope, la vuelta completa tarda {cycleDays} días. Para revisar todas cada semana, el tope tendría que ser {capToCoverWeek}. | With this cap a full round takes {cycleDays} days. To check them all every week, the cap would need to be {capToCoverWeek}. |
+| `admin.m2.gradedEstimates.dailyCapMoved` | Lo que se gasta en créditos PSA lo limita el tope de créditos al día, en «Configuración › Destacadas y PSA», junto a su presupuesto. | What is spent on PSA credits is limited by the daily credit cap, in “Settings › Featured & PSA”, next to its budget. |
+| `admin.m10.*.invalid` (es.json:5362, m10 de Ajustes) | Ese valor no es válido para este ajuste. | That value isn’t valid for this setting. |
+| SA`.kind.AG-24.title` | Los créditos PSA no alcanzan para la semana | The PSA credits do not cover the week |
+| SA`.kind.AG-24.projected` | Con {cap} créditos al día no alcanza para revisar tus {cards} cartas cada semana: revisarlas todas tardaría {days} días. Para cubrir la semana, sube el tope a {capToCover}. | With {cap} credits a day there is not enough to check your {cards} cards every week: checking them all would take {days} days. To cover the week, raise the cap to {capToCover}. |
+| SA`.kind.AG-24.overdue` | Alguna colección lleva más de 8 días sin revisarse. Con {cap} créditos al día, la vuelta a tus {cards} cartas tarda {days} días; para cubrir la semana, sube el tope a {capToCover}. Colecciones que no caben en el tope de un día: {setsOverCap}. | Some set has gone more than 8 days without a check. With {cap} credits a day, a full round of your {cards} cards takes {days} days; to cover the week, raise the cap to {capToCover}. Sets that do not fit in one day’s cap: {setsOverCap}. |
+| SA`.factReason.projected` | el tope no alcanza la semana | the cap does not cover the week |
+| SA`.factReason.overdue` | una colección lleva más de 8 días sin revisarse | a set has gone more than 8 days without a check |
+| SA`.fact.publishedCards` / `cycleDays` | Cartas publicadas / Días de la vuelta | Published cards / Days per round |
+| SA`.fact.dailyCreditCap` / `capToCoverWeek` | Tope de créditos al día / Tope que cubriría la semana | Daily credit cap / Cap that would cover the week |
+| SA`.fact.setsOverCap` / `reason` | Colecciones que no caben en un día / Motivo | Sets that do not fit in a day / Reason |
+| DH`.featured.ok` | Destacadas: al día ({serving}). | Featured: up to date ({serving}). |
+| DH`.featured.stale` | Destacadas: sin cambiar a tiempo. La tienda muestra {serving}; ya tocaba {expected}. | Featured: not changed on time. The store is showing {serving}; {expected} was due. |
+| DH`.featured.never` | Destacadas: todavía no se arma ninguna selección. | Featured: no selection has been put together yet. |
+| DH`.prices.ok` | Precios del día: al día ({last}). | Daily prices: up to date ({last}). |
+| DH`.prices.stale` | Precios del día: sin actualizar desde {last}. | Daily prices: not updated since {last}. |
+| DH`.prices.never` | Precios del día: todavía no se calculan. | Daily prices: not calculated yet. |
+
+**Interruptor de cifras estimadas (GH).** Cuatro textos comparten dos bloques que se escriben una vez: **P** (apertura) y **S** (cierre). Cada clave `on`, `onMeasured` y `onNoFigures` es **P + su parte propia + S**; frontend los concatena en el JSON, no en código.
+- **P es:** `<b>Publica.</b> Encendido, la tienda muestra cifras estimadas de PSA 10 y PSA 9 en cartas sin gradear, con su aviso (aprobado por el dueño; sin revisión legal profesional): es una afirmación comercial de la tienda. <b>Y gasta.</b> También autoriza a la revisión diaria a pedir esas cifras a un proveedor <b>de paga</b> y a guardar precios estimados.`
+- **P en:** `<b>It publishes.</b> When on, the store shows estimated PSA 10 and PSA 9 figures for ungraded cards, with its notice (approved by the owner; not reviewed by a lawyer): it is a commercial claim by the store. <b>And it spends.</b> It also lets the daily check ask a <b>paid</b> provider for those figures and save estimated prices.`
+- **S es:** `Los créditos gastados no se recuperan al apagar. No cambia ningún precio de venta, valuación ni cotización: cambia lo que la tienda afirma <b>y lo que cuesta</b>.` · **S en:** `Credits spent are not recovered by turning it off. It changes no sale price, valuation or quote: it changes what the store claims — <b>and what it costs</b>.`
+- `on` parte propia es: `El gasto lo acota un tope diario: no pasa de <b><n>{credits, number}</n> créditos al día</b>, contados como los reporta el proveedor (o a <n>{perCard}</n> por carta de la colección si no los reporta); solo puede excederse por el error de estimar una colección. Ese tope se cambia en «Destacadas y PSA», en esta pantalla, junto a lo gastado hoy.` · en: `Spending is limited by a daily cap: it won’t go over <b><n>{credits, number}</n> credits a day</b>, counted as the provider reports them (or at <n>{perCard}</n> per card in the set if it does not); it can only go over by the error of estimating one set. That cap is changed in “Featured & PSA”, on this screen, next to today’s spend.`
+- `onMeasured` parte propia es: `<b>Cuánto gasta, ya está medido.</b> La corrida del {measuredOn} gastó a razón de <b><n>{credits, number}</n> créditos al día</b>, con un tope de <n>{cap, number}</n>. Es una medición, no un supuesto: si cambia el tope, el inventario o el proveedor, se vuelve a medir.` · en: `<b>How much it spends has been measured.</b> The run on {measuredOn} spent at a rate of <b><n>{credits, number}</n> credits a day</b>, with a cap of <n>{cap, number}</n>. That is a measurement, not an assumption: if the cap, the inventory or the provider changes, it is measured again.`
+- `onNoFigures` parte propia es: `Gasta créditos en cada corrida, hasta el tope de créditos al día de «Destacadas y PSA» (ahora no se pudo leer).` · en: `It spends credits on every run, up to the daily credit cap in “Featured & PSA” (it could not be read right now).`
+- `note` es: `Un solo interruptor manda sobre las cifras estimadas de PSA: encendido, la tienda las publica <b>y</b> la revisión diaria las pide a un proveedor de paga; apagado, no publica ninguna <b>y</b> tampoco actualiza ninguna. Los escalones de costo de gradeo, el margen mínimo y la frescura se editan en «Catálogo y precios», junto con la lista de revisión, que sirve para corregir una cifra concreta. Lo que la revisión puede gastar al día lo limita <b>el tope de créditos al día</b> de «Destacadas y PSA», en esta pantalla.` · en: `A single switch controls the estimated PSA figures: on, the store publishes them <b>and</b> the daily check requests them from a paid provider; off, it publishes none <b>and</b> updates none. Grading cost tiers, minimum upside and freshness are edited in “Catalog & pricing”, along with the review list, which is the tool for a single figure. What the check may spend per day is limited by <b>the daily credit cap</b> in “Featured & PSA”, on this screen.`
+- Fuera de la lista de claves provisionales, pero con la misma palabra: `GH.off` (es/en actuales) no dice «dial»; no se toca.
+
+**vDYN-1 (2026-10-29):** sección nueva con el texto final es/en de las claves provisionales de §DYN (Recién llegada, M10 «Destacadas y PSA», presupuesto PSA, AG-24, salud de datos); `.invalid` de M10 pierde «dial».

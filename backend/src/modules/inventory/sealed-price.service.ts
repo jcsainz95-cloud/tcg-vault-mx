@@ -1,3 +1,4 @@
+import { ListingPriceService } from '../pricing/listing-price.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, Role, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -122,6 +123,9 @@ export class SealedPriceService {
     private readonly pricing: PricingService,
     private readonly settings: SettingsService,
     private readonly inventory: InventoryService,
+    // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.3 `manual_price`): el precio del producto mueve el precio del día de sus piezas.
+    // ⛔ Sin `@Optional()` (obligatorio en la app); `?` solo por los unitarios que construyen a mano.
+    private readonly listingPrices?: ListingPriceService,
   ) {}
 
   // =============================================================== GET …/sealed-price-sheet
@@ -362,6 +366,9 @@ export class SealedPriceService {
       // 5. Cola de precio pendiente de ESTE producto (`context='inventory'`), por el método de `pricing` (VQ-5).
       await this.pricing.closeSealedProductSaleQueue(tx, sealedProductId);
     });
+
+    // 💰 v1.113⟨portada⟩ (§DYN.5.3 `manual_price`): ya confirmado ⇒ el precio del día de las piezas de ESTE producto.
+    void this.listingPrices?.enqueueWhere('manual_price', { sealedProductId });
 
     // 💰 §M11-SP.12.6 (A-2): DESPUÉS del commit, best-effort — el precio ya es la decisión del dueño y que una pieza
     // no se pueda publicar no lo deshace. El MISMO cuerpo (`reevaluateForPublication`), llamada directa.

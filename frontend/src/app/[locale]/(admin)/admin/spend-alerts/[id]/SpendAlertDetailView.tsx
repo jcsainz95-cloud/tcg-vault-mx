@@ -62,6 +62,8 @@ export function SpendAlertDetailView({ id }: { id: string }) {
     if (key === 'kind') return typeof v === 'string' && t.has(`chargeKind.${v}`) ? t(`chargeKind.${v}`) : t('chargeKind.other');
     // §43.20.1: un valor sin rótulo ⇒ «sin dato» (⛔ nunca el valor crudo).
     if (key === 'cancelKind') return typeof v === 'string' && t.has(`cancelKind.${v}`) ? t(`cancelKind.${v}`) : none;
+    // v1.113 (AG-24): `reason` con rótulo; otro valor ⇒ «sin dato».
+    if (key === 'reason') return typeof v === 'string' && t.has(`factReason.${v}`) ? t(`factReason.${v}`) : none;
     if (key === 'status') return typeof v === 'string' && tCarrier.has(v) ? tCarrier(v) : String(v);
     if (key === 'providerReference' && typeof v === 'string') {
       const text = `Pedido ${v}`;

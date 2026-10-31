@@ -50,18 +50,23 @@ function grp(over: Partial<GroupedListingSummaryDTO> & { card: CardDTO }): Group
   };
 }
 
+// v1.113⟨portada⟩ (§DYN.2, DYN-F1): la fuente del carrusel es `GET /catalog/featured`.
 function mockCatalog(data: GroupedListingSummaryDTO[]) {
-  vi.spyOn(api, 'getCatalog').mockResolvedValue({
-    data,
-    page: 1,
-    pageSize: data.length,
-    total: data.length,
+  vi.spyOn(api, 'getFeatured').mockResolvedValue({
+    businessDate: '2026-10-29',
+    data: data.map((g) => ({ ...g, featuredSlot: 'pool' as const })),
   });
 }
 
 beforeEach(() => {
   vi.restoreAllMocks();
 });
+
+/** Parámetro `url` de la `<img>` de `/_next/image` (null si la `<img>` no pasa por el optimizador). */
+function optimizerUrlOf(img: HTMLElement): string | null {
+  const u = new URL(img.getAttribute('src') ?? '', 'http://tienda.test');
+  return u.pathname === '/_next/image' ? u.searchParams.get('url') : null;
+}
 
 describe('FeaturedCarousel · P-39 imagen de alta resolución', () => {
   it('la teja destacada (hero) pinta imageLargeUrl, no la chica', async () => {
@@ -70,7 +75,8 @@ describe('FeaturedCarousel · P-39 imagen de alta resolución', () => {
     renderWithProviders(<FeaturedCarousel />, 'es');
 
     const heroImg = await screen.findByAltText('Charizard');
-    expect(heroImg).toHaveAttribute('src', 'https://img.example/c-hero-large.png');
+    // §DYN.6.6 (DYN-F1 b): la HD viaja por `/_next/image`; lo que se fija es QUÉ foto pide (su parámetro `url`).
+    expect(optimizerUrlOf(heroImg)).toBe('https://img.example/c-hero-large.png');
   });
 
   it('cae a imageSmallUrl cuando imageLargeUrl es null (nunca imagen rota)', async () => {
@@ -81,7 +87,7 @@ describe('FeaturedCarousel · P-39 imagen de alta resolución', () => {
     renderWithProviders(<FeaturedCarousel />, 'es');
 
     const heroImg = await screen.findByAltText('Charizard');
-    expect(heroImg).toHaveAttribute('src', 'https://img.example/c-hero-small.png');
+    expect(optimizerUrlOf(heroImg)).toBe('https://img.example/c-hero-small.png');
   });
 });
 

@@ -64,15 +64,18 @@ const ALLOWED: Record<string, { n: number; why: string }> = {
       'SK-5: el sellado sale antes por su propia rama y nunca llega a la llave de cola).',
   },
   'modules/catalog/catalog.service.ts': {
-    n: 4,
-    why:
-      'Grid/storefront de singles: el lote de referencias trata el sellado aparte (`sealedMarketGradeKeyForItem`), ' +
-      'los overrides de variante filtran `!== sealed`, `lookupKeysOf` es clave de agrupación/variante (el ' +
-      'sellado resuelve su ref por `refFromBatch`, rama propia) y `buildListing` solo la usa en la rama no-sellada.',
-  },
-  'modules/orders/orders.service.ts': {
     n: 1,
-    why: 'Checkout: el sellado retorna antes por `getSealedMarketRef` + gate; la llamada es la rama raw/graduada.',
+    why:
+      'Grid/storefront de singles: `lookupKeysOf` es clave de agrupación/variante (`buildGroups`; el sellado no se agrupa ' +
+      'aquí). v1.113⟨portada⟩ (§DYN.5.1): el precio y el lote de referencias salieron al cuerpo único (`sale-decision`).',
+  },
+  'modules/pricing/sale-decision.service.ts': {
+    n: 5,
+    why:
+      'v1.113⟨portada⟩ (§DYN.5.1) — EL cuerpo único del precio de venta (checkout + catálogo + precio del día; el checkout ya ' +
+      'no la llama): `gradeKeyOf` (llave de `ListingPrice.variantKey`), `refKeyOf` (el sellado sale antes por ' +
+      '`sealedMarketGradeKeyForItem`), el filtro de overrides del lote (`!== sealed`), `referenceOf` (el sellado sale ' +
+      'antes por `getSealedMarketRef`) y la rama raw/graduada de `resolve` (el sellado retorna antes).',
   },
   'modules/inventory/inventory.service.ts': {
     n: 3,
@@ -196,10 +199,11 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
         variantKey: true,
       });
     }
-    const producer = methodBody(
-      stripComments(readFileSync(join(SRC, 'modules/pricing/pricing.service.ts'), 'utf8')),
-      'async getReferencesBatch(',
-    );
+    // v1.114 (§DYN.5.9): el cuerpo del productor vive en `getReferencesBatchWithTier` (misma lectura + qué tier ganó);
+    // `getReferencesBatch` delega en él y devuelve su `refs`.
+    const pricingSrc = stripComments(readFileSync(join(SRC, 'modules/pricing/pricing.service.ts'), 'utf8'));
+    expect(/getReferencesBatchWithTier\(items\)\)\.refs/.test(methodBody(pricingSrc, 'async getReferencesBatch('))).toBe(true);
+    const producer = methodBody(pricingSrc, 'async getReferencesBatchWithTier(');
     expect(/\bvariantKey\(/.test(producer)).toBe(true);
     expect(countManualKeys(producer)).toBe(0);
   });

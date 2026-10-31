@@ -849,6 +849,8 @@ model CardSet {
   // presentaciones selladas persistidas del set (catálogo de sellado, cura de raíz de SB-D5).
   sealedGroups   SealedSetGroup[]
   sealedProducts SealedProduct[]
+  // v1.113⟨portada⟩ (M-93, §DYN.4): bitácora de turnos PSA de este set.
+  gradedEstimateScans GradedEstimateSetScan[]
 }
 
 // v1.39-sealed-product-module (M-39, P-38, §4.34b): tabla de enlace set → grupo TCGCSV. Rompe el
@@ -998,6 +1000,8 @@ model Card {
   // rev `decks-portada` (M-60): inversa de `MetaDeckList.coverCard`. Solo lado Prisma (sin columna).
   // Si la carta sale del catálogo, la portada queda en null (ON DELETE SET NULL) y conserva su crudo.
   metaDeckListCovers         MetaDeckList[]              @relation("MetaDeckListCover")
+  // v1.113⟨portada⟩ (M-93, §DYN.4): cuándo se consultó por última vez su precio PSA (turno por set).
+  gradedEstimateScan         GradedEstimateCardScan?
   // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): deseos de esta carta (cualquier acabado).
   wishlistItems              WishlistItem[]
 
@@ -1158,6 +1162,9 @@ model InventoryItem {
   reservedByOrderId       String?
   reservedByOrder         Order?           @relation("ReservedByOrder", fields: [reservedByOrderId], references: [id], onDelete: SetNull)
   reservedUntil           DateTime?
+  // v1.113⟨portada⟩ (M-93, API_CONTRACT §DYN.1): «publicada por primera vez». La escribe SOLO `claimListed` y SOLO si es
+  // NULL (volver a publicar no la mueve, criterio 923). Backfill de M-93 = `createdAt` (ARCHITECTURE §4.DYN (c)). Sin índice.
+  firstListedAt           DateTime?
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
@@ -1174,6 +1181,8 @@ model InventoryItem {
   caseAsReplacement   ReplacementCase[]     @relation("CaseReplacement")
   // rev v1.87⟨wishlist⟩ (M-74, §WSH.1): «esta cuenta ya supo de esta pieza» (una vez por pieza y cuenta).
   wishlistNotices     WishlistNotice[]
+  // v1.113⟨portada⟩ (M-94, API_CONTRACT §DYN.5): el precio del día de la pieza (lo exhibido = lo cobrado).
+  listingPrice        ListingPrice?
 
   @@index([cardId])
   @@index([status])
@@ -1996,6 +2005,7 @@ enum SpendAlertKind {
   owner_account_changed // AG-21 (v1.80.12.10)
   staff_control_by_non_owner // AG-22 (v1.80.12.10)
   buylist_guide_due // AG-23 (rev BSD-1, M-72): «esta solicitud aceptada se cierra sola en N días si no tiene guía»
+  psa_cycle_short // AG-24 (v1.113⟨portada⟩, M-93, API_CONTRACT §DYN.4.5): «con el tope de créditos PSA la vuelta tarda > 7 días»
 }
 
 // Clase E. 🔴 inmediato / 🟡 resumen (Z.2).
@@ -3587,4 +3597,155 @@ model DiscountCodeThrottle {
   updatedAt       DateTime  @updatedAt
   // v1.110.3 (§DSC.6, dueño 2026-10-26): HMAC de los códigos `not_applicable` ya contados en la ventana (uno por código y ventana).
   countedCodeHashes String[] @default([])
+}
+
+// ===== v1.113⟨portada⟩ (M-93, API_CONTRACT §DYN.1) — Destacadas del día y turnos PSA por set =====
+// Clase E (§0 del contrato). `new_arrival` ⇒ etiqueta «Recién llegada»; viaja en `FeaturedListingDTO.featuredSlot`.
+enum FeaturedSlotKind {
+  new_arrival
+  pool
+}
+
+// Clase E. Resultado de la última consulta PSA de una carta (con dato / respondió sin dato). Admin-only, no viaja.
+enum GradedCardScanOutcome {
+  written
+  no_data
+}
+
+// Clase E. Bitácora por set; solo `ok` mueve relojes. Admin-only, no viaja.
+enum GradedSetScanOutcome {
+  ok
+  failed
+  unmapped
+  daily_limited
+  over_daily_cap
+}
+
+// La selección de Destacadas de UN día de portada (CDMX), escrita UNA vez por el job `featured-rotation` (§DYN.2.3).
+// La lectura solo filtra disponibilidad: ni recalcula ni rellena (ARCHITECTURE §4.DYN (c)).
+model FeaturedSelection {
+  businessDate         DateTime                @id @db.Date // día de portada (CDMX)
+  effectiveFrom        DateTime // instante UTC en que empieza a servirse = businessDate a la hora del dial, CDMX
+  computedAt           DateTime                @default(now())
+  seed                 String // 32 bytes hex del sorteo (reproducible en auditoría)
+  dials                Json // los 5 diales `featured_*` CONGELADOS al calcular
+  poolCount            Int // tamaño real del pool (≤ dial)
+  newArrivalCandidates Int
+  forcedByUserId       String? // ≠ null ⇔ recalculada a mano (§DYN.2.4)
+  items                FeaturedSelectionItem[]
+
+  @@index([effectiveFrom])
+}
+
+model FeaturedSelectionItem {
+  businessDate DateTime          @db.Date
+  selection    FeaturedSelection @relation(fields: [businessDate], references: [businessDate], onDelete: Cascade)
+  position     Int // 1..N; CHECK position BETWEEN 1 AND 20 (M-93)
+  slotKind     FeaturedSlotKind
+  // La llave K del grupo de la rejilla (§4.9a). Sin FK: es una llave de presentación, no una pieza.
+  cardId       String
+  productType  ProductType
+  gradeKey     String
+  finish       Finish
+
+  @@id([businessDate, position])
+  @@unique([businessDate, cardId, productType, gradeKey, finish]) // «no se repite una pieza el mismo día»
+}
+
+// Estado por carta raw: cuándo se consultó su precio PSA (§DYN.4.4). Lo escribe SOLO el ingest graded al responder `ok`.
+model GradedEstimateCardScan {
+  cardId        String                @id
+  card          Card                  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  lastScannedAt DateTime
+  lastOutcome   GradedCardScanOutcome
+  lastSetScanId String
+  lastSetScan   GradedEstimateSetScan @relation(fields: [lastSetScanId], references: [id])
+}
+
+// Bitácora APPEND-ONLY: una fila por set intentado (§DYN.4.2–4.3). `creditsCharged` es lo que cuenta contra el tope diario.
+model GradedEstimateSetScan {
+  id               String                   @id @default(uuid())
+  setId            String
+  set              CardSet                  @relation(fields: [setId], references: [id])
+  businessDate     DateTime                 @db.Date // día CDMX al que se carga el gasto
+  startedAt        DateTime                 @default(now())
+  outcome          GradedSetScanOutcome
+  creditsEstimated Int // ≥ 0 (CHECK)
+  creditsMeasured  Int? // apiCallsConsumed atribuible; null = el proveedor no lo dijo
+  creditsCharged   Int // measured ?? estimated (0 si no hubo petición); ≥ 0 (CHECK)
+  cardsInScope     Int
+  cardsReturned    Int
+  cardScans        GradedEstimateCardScan[]
+
+  @@index([businessDate])
+  @@index([setId, startedAt])
+}
+
+// ===== v1.113⟨portada⟩ (M-94, API_CONTRACT §DYN.5, 💰) — precio del día =====
+// Clase E. `pending` ⇔ el cuerpo de venta dio PRICE_PENDING (no se exhibe ni se cobra).
+enum ListingPriceStatus {
+  priced
+  pending
+}
+
+// Clase E. Por qué corrió un cálculo del precio del día (§DYN.5.3). `review_open` v1.114 (§DYN.5.9).
+enum ListingPriceRunTrigger {
+  daily
+  manual_ingest
+  publish_all
+  publish
+  dial_change
+  manual_price
+  bootstrap
+  missing_row
+  review_open
+}
+
+// Clase E.
+enum ListingPriceRunStatus {
+  running
+  ok
+  failed
+}
+
+// UNA fila por pieza de plataforma vendible (`status ∈ {listed, in_stock}`). La escribe SOLO `ListingPriceService` (el
+// cálculo la SOBRESCRIBE; ⛔ sin precio anterior: la historia de un cobro vive en su `OrderItem`). Catálogo, ficha,
+// Destacadas, vitrina y checkout la leen (§DYN.5.6/.7).
+model ListingPrice {
+  inventoryItemId   String                 @id
+  inventoryItem     InventoryItem          @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  variantKey        String // `${cardId}|${productType}|${gradeKey}|${finish}`
+  runId             String
+  run               ListingPriceRun        @relation(fields: [runId], references: [id])
+  status            ListingPriceStatus
+  unitPriceCents    Int? // P vigente (IVA dentro): lo que se exhibe y se cobra. NOT NULL ⇔ priced; CHECK ≥ 1 (M-94)
+  listPriceCents    Int? // L vigente
+  fixedDisplayCents Int?
+  priceBasis        PriceBasis?
+  marketMxnCents    Int?
+  ivaRatePct        Int // instrumentación: los diales con que se derivó P (⛔ no gobiernan el cobro, §DYN.5.7)
+  ivaTransferPct    Int
+  // v1.113.3 (§DYN.5.5): el «valor de mercado» que la tienda exhibe junto a `P`, leído en el MISMO lote que derivó `P` (con el
+  // gate del sellado ya aplicado). `null` ⇔ sin mercado exhibible. ⛔ No es `marketMxnCents` (instrumentación §N.8).
+  referenceMxnCents     Int?
+  referenceCapturedDate DateTime? @db.Date
+  computedAt        DateTime
+
+  @@index([variantKey])
+}
+
+model ListingPriceRun {
+  id             String                 @id @default(uuid())
+  businessDate   DateTime               @db.Date
+  trigger        ListingPriceRunTrigger
+  status         ListingPriceRunStatus
+  scopeItemCount Int
+  pricedCount    Int                    @default(0)
+  pendingCount   Int                    @default(0)
+  startedAt      DateTime               @default(now())
+  finishedAt     DateTime?
+  error          String?
+  prices         ListingPrice[]
+
+  @@index([trigger, businessDate, status])
 }

@@ -1,4 +1,5 @@
 import { CatalogService } from '../src/modules/catalog/catalog.service';
+import { SaleDecisionService } from '../src/modules/pricing/sale-decision.service';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
 import { MasterSetService } from '../src/modules/inventory/master-set.service';
@@ -89,6 +90,8 @@ function buildPricing(opts: { referenceMxnCents?: number | null; override?: unkn
     // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
+    // v1.114 (§DYN.5.9): sin caso de revisión vigente ⇒ la entrada del cuerpo de venta no cambia.
+    saleRetentionFor: jest.fn(async () => new Map()),
     gradeKeyFor: jest.fn(() => 'raw:NM'),
     tryGradeKeyFor: jest.fn(() => 'raw:NM'),
     getReference: jest.fn(async () => ref),
@@ -153,16 +156,17 @@ describe('catálogo — toListingDTO (ruta single, sin ctx)', () => {
     expect(dto.sellable).toBe(false);
   });
 
-  it('ruta batch (ctx): usa el override del LOTE sin re-consultar single', async () => {
-    const pricing = buildPricing({ referenceMxnCents: 10000 });
-    const svc = new CatalogService({} as PrismaService, pricing, ivaDialsStub() as never);
-    const dto = await svc.toListingDTO(rawItem(), {
-      reference: { status: 'priced', referenceMxnCents: 10000 },
-      curve: DEFAULT_PRICING_CURVE,
-      variantOverride: overrideRow(8800) as never,
-    });
-    expect(dto.displayPriceCents).toBe(10208); // `P` de `L = 8800`
+  it('ruta batch (lote): usa el override del LOTE sin re-consultar single', async () => {
+    // v1.113⟨portada⟩ (§DYN.5.1): la ruta batch vive en el cuerpo único (`SaleDecisionService` con `loadBatch`), que es el que
+    // usan el catálogo (piezas sin fila) y el escritor del precio del día.
+    const pricing = buildPricing({ referenceMxnCents: 10000, override: overrideRow(8800) });
+    const decider = new SaleDecisionService(pricing);
+    const batch = await decider.loadBatch([rawItem()] as never);
+    const d = await decider.decide(rawItem() as never, { ivaTransferPct: 100, ivaRatePct: 16 }, batch);
+    expect(d.unitPriceCents).toBe(10208); // `P` de `L = 8800`
+    expect(d.priceBasis).toBe('override');
     expect(pricing.getVariantOverride).not.toHaveBeenCalled();
+    expect(pricing.getReference).not.toHaveBeenCalled();
   });
 });
 

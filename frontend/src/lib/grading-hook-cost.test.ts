@@ -1,25 +1,25 @@
 import { describe, it, expect } from 'vitest';
 import {
   GRADING_COST_MEASUREMENT,
-  GRADING_INGEST_CREDITS_PER_CARD,
-  GRADING_INGEST_RUNS_PER_DAY,
   gradingCostBasis,
-  gradingIngestDailyCreditCeiling,
+  gradingDailyCreditCap,
 } from './grading-hook-cost';
 
-describe('grading-hook-cost · el techo es una CUENTA, no un presupuesto', () => {
-  it('deriva el techo del tope vivo de M2 (nunca un literal): 250 × 2 × 2 = 1 000', () => {
-    expect(gradingIngestDailyCreditCeiling(250)).toBe(
-      250 * GRADING_INGEST_CREDITS_PER_CARD * GRADING_INGEST_RUNS_PER_DAY,
-    );
-    expect(gradingIngestDailyCreditCeiling(250)).toBe(1000);
-    // Se mueve con el tope: si no se moviera, estaría horneado (§22.13k.g).
-    expect(gradingIngestDailyCreditCeiling(1000)).toBe(4000);
+/**
+ * v1.113⟨portada⟩ (§DYN.3/§DYN.4.3): el techo de gasto PSA es el tope diario VIVO de M10, no un producto de constantes
+ * con el tope de cartas por corrida (retirado).
+ */
+describe('grading-hook-cost · el techo es el tope diario de M10 (§DYN.3)', () => {
+  it('devuelve el tope vivo tal cual (nunca un literal) y se mueve con él', () => {
+    expect(gradingDailyCreditCap(3000)).toBe(3000);
+    expect(gradingDailyCreditCap(1200)).toBe(1200);
+    // 0 es un valor válido del dial: «no se pide nada».
+    expect(gradingDailyCreditCap(0)).toBe(0);
   });
 
   it('cede la cifra —no el aviso— cuando el tope no es utilizable', () => {
-    for (const bad of [undefined, null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(gradingIngestDailyCreditCeiling(bad as number | null | undefined)).toBeNull();
+    for (const bad of [undefined, null, -1, 20_001, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(gradingDailyCreditCap(bad as number | null | undefined)).toBeNull();
     }
   });
 });
@@ -46,8 +46,7 @@ describe('grading-hook-cost · el selector `costBasis` (§22.13d.1)', () => {
     const conMedicion = { creditsPerDay: 3720, measuredOn: '2026-09-01' } as const;
     expect(conMedicion.creditsPerDay).toBeGreaterThan(0);
     expect(conMedicion.measuredOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    // Y la medición NO puede ser el producto de las constantes: si lo fuera, «medido» sería el
-    // mismo cálculo con otro nombre.
-    expect(conMedicion.creditsPerDay).not.toBe(gradingIngestDailyCreditCeiling(250));
+    // Y la medición NO puede ser el tope: si lo fuera, «medido» sería el dial con otro nombre.
+    expect(conMedicion.creditsPerDay).not.toBe(gradingDailyCreditCap(3000));
   });
 });

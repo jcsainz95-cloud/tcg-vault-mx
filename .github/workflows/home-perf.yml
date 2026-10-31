@@ -1,0 +1,171 @@
+# =============================================================================
+# home-perf.yml — la portada, vigilada sola (PROJECT criterios 936-938) · devops
+# API_CONTRACT §DYN.7: DYN-D1, DYN-D2 y DYN-D3 (v1.114.2). Doc: DEVOPS_NOTES §104 y §106.
+# =============================================================================
+# Levanta el stack SEMBRADO en el runner (Postgres + Redis como services, s3-local y el
+# backend como procesos), y corre `scripts/home-perf/run.sh` (umbrales: lhci-config.mjs):
+#   d1         Lighthouse CI, 5 corridas por perfil (móvil y escritorio estándar), sobre la
+#              MEDIANA. Bloquean: escritorio FCP ≤ 1.0 s / LCP ≤ 1.5 s; CLS ≤ 0.1 en los dos;
+#              celular el trinquete de `mobile-ratchet.json` (sin fijar: la meta de 936). La
+#              meta de 936 en celular sale en el resumen (solo reporte, caduca: job
+#              `home-perf-mobile-goal-expiry` de ci.yml). DYN-D3: foto líder de peso real
+#              (≥ 800 KB en el origen) y servida por `/_next/image` en 200 `image/webp`, sin
+#              respaldo a la original, en TODAS las corridas.
+#   d1-canary  lo mismo con el HTML de la portada engordado por un proxy de prueba:
+#              TIENE que salir rojo; si sale verde, el job es rojo (el candado no muerde).
+#   d2-delay   Destacadas y la vitrina retrasadas 5 s en el API ⇒ FCP (el bloqueante del
+#              perfil) y CLS ≤ 0.1 (937).
+#   d2-503     las dos respondiendo 503 ⇒ lo mismo.
+# El informe (mediana, peor corrida, N, sha, fecha y carga) sale en el resumen del job y
+# en el artefacto `home-perf`.
+#
+# ⛔ Sin `continue-on-error`: este job ES la comprobación de 938. Si mañana sale rojo por la
+#    portada, el hallazgo es de frontend (o de ux-ui si es la vitrina, DESIGN_SYSTEM §22.6),
+#    no se ablanda aquí. Candado estático del cableado: scripts/check-home-perf.sh (ci.yml).
+# =============================================================================
+name: Portada (Lighthouse)
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+concurrency:
+  group: home-perf-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  home-perf:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tcg
+          POSTGRES_PASSWORD: hp_${{ github.run_id }}_${{ github.run_attempt }}
+          POSTGRES_DB: tcg_home_perf
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tcg -d tcg_home_perf"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql://tcg:hp_${{ github.run_id }}_${{ github.run_attempt }}@localhost:5432/tcg_home_perf?schema=public&connection_limit=5&pool_timeout=10
+      REDIS_URL: redis://localhost:6379
+      PORT: "3099"
+      # La tienda la sirve el proxy de prueba en :3190; CORS tiene que admitir ese origen.
+      APP_BASE_URL: http://localhost:3190
+      APP_PUBLIC_URL: http://localhost:3190
+      NODE_ENV: development
+      SECRETS_ENV: desechable
+      SEED_MODE: synthetic
+      DEFAULT_LOCALE: es
+      S3_ENDPOINT: http://127.0.0.1:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: tcg-photos
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_PUBLIC_BASE_URL: http://127.0.0.1:9000/tcg-photos
+      S3_FORCE_PATH_STYLE: "true"
+      SHIPPING_PROVIDER_ADAPTER: fake
+      # §4.38(r.6.1): sin llave del proveedor de paga (cero peticiones).
+      POKEMONPRICETRACKER_API_KEY: ''
+      STRIPE_PUBLISHABLE_KEY: pk_test_home_perf_dummy
+      API_UPSTREAM: http://127.0.0.1:3099
+      HOME_PERF_RUNS: "5"
+      # La vitrina solo existe con el dial del gancho `on`; aquí es seguro porque la llave del
+      # proveedor de paga está VACÍA arriba (cero peticiones, §4.38(r.6.1)).
+      HP_GRADING_HOOK_ON: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - name: Secretos efímeros (sin literales públicos, S-88-1)
+        env:
+          STRIPE_WEBHOOK_UNREACHABLE: "1"
+        run: |
+          # HOME_PERF_OUT aquí y no en el `env:` del job: el contexto `runner` no existe ahí
+          # (medido: con la expresión runner.temp en el env del job, GitHub rechazó el fichero entero, run 40876687296).
+          echo "HOME_PERF_OUT=$RUNNER_TEMP/home-perf" >> "$GITHUB_ENV"
+          ./scripts/webhook-secret-preflight.sh assert
+          WH="$(./scripts/webhook-secret-preflight.sh resolve)"
+          [ -n "$WH" ] || { echo "::error::el preflight del webhook no devolvió valor"; exit 1; }
+          echo "STRIPE_WEBHOOK_SECRET=$WH" >> "$GITHUB_ENV"
+          ./scripts/secrets-preflight.sh github-env \
+            JWT_ACCESS_SECRET JWT_REFRESH_SECRET STRIPE_SECRET_KEY \
+            PII_ENCRYPTION_KEY PII_HMAC_KEY S3_SECRET_ACCESS_KEY >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            scripts/home-perf/package-lock.json
+            scripts/s3-local/package-lock.json
+      - name: Dependencias (backend, frontend, Lighthouse CI fijado, s3-local)
+        run: |
+          set -euo pipefail
+          ( cd backend && npm ci --no-audit --no-fund )
+          ( cd frontend && npm ci --no-audit --no-fund )
+          ( cd scripts/home-perf && npm ci --ignore-scripts --no-audit --no-fund )
+          ( cd scripts/s3-local && npm ci --omit=dev --no-audit --no-fund )
+      - name: Chromium (el de Playwright del frontend)
+        working-directory: frontend
+        timeout-minutes: 25
+        run: |
+          set -uo pipefail
+          for intento in 1 2 3; do
+            if timeout 420 npx playwright install --with-deps chromium; then break; fi
+            [ "$intento" = "3" ] && { echo "::error title=No se pudo instalar Chromium::3 intentos agotados."; exit 1; }
+            sudo dpkg --configure -a >/dev/null 2>&1 || true
+            sleep 10
+          done
+          CHROMIUM_BIN="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")"
+          [ -x "$CHROMIUM_BIN" ] || { echo "::error::Chromium no quedó instalado: $CHROMIUM_BIN"; exit 1; }
+          echo "CHROME_PATH=$CHROMIUM_BIN" >> "$GITHUB_ENV"
+      - name: Stack sembrado (s3-local, migraciones, seed, backend)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/s3-local-data" "$HOME_PERF_OUT"
+          ( cd scripts/s3-local && S3_LOCAL_HOST=127.0.0.1 S3_LOCAL_PORT=9000 S3_LOCAL_DIR="$RUNNER_TEMP/s3-local-data" \
+              nohup node server.js > "$HOME_PERF_OUT/s3-local.log" 2>&1 & )
+          cd backend
+          npx prisma generate
+          npx prisma migrate deploy
+          npm run seed:synthetic
+          nohup npx ts-node --transpile-only src/main.ts > "$HOME_PERF_OUT/backend.log" 2>&1 &
+          for i in $(seq 1 90); do curl -sf -m 3 http://127.0.0.1:3099/api/v1/health >/dev/null && break; sleep 2; done
+          curl -sf -m 5 http://127.0.0.1:3099/api/v1/health || { tail -n 60 "$HOME_PERF_OUT/backend.log"; echo "::error::el backend no arrancó (log en el artefacto)"; exit 1; }
+      - name: Lighthouse CI — DYN-D1 (936/938, con canario) y DYN-D2 (937)
+        run: |
+          set -o pipefail
+          echo "carga antes: $(cat /proc/loadavg) · $(nproc) CPU"
+          scripts/home-perf/run.sh d1 d1-canary d2-delay d2-503
+          rc=$?
+          cat "$HOME_PERF_OUT/RESUMEN.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          case "$rc" in
+            0) echo "Portada dentro de la meta; el canario muerde." ;;
+            1) echo "::error title=Portada fuera de la meta (936/937) o canario ciego::Ver la tabla del resumen. Dueño: frontend (o ux-ui si es la vitrina, DESIGN_SYSTEM §22.6). DEVOPS_NOTES §104." ;;
+            *) echo "::error title=Portada NO MEDIDA::el arnés no pudo medir (rc=$rc). Dueño: devops. NO es un verde." ;;
+          esac
+          exit "$rc"
+      - name: Informe y logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: home-perf
+          path: ${{ runner.temp }}/home-perf
+          # DYN-D3 (D-DYN-9): los lhr-*.json viven en `<modo>-<perfil>/.lighthouseci/`, una carpeta OCULTA, y
+          # upload-artifact omite las ocultas por defecto (medido: el run 40879539432 no los traía).
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14

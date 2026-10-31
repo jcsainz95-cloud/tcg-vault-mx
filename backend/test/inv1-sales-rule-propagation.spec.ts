@@ -68,6 +68,8 @@ function makePrisma(item: any) {
         return { key, valueJson };
       }),
     },
+    // v1.114 (§DYN.5.9): la retención del candado lee los casos de revisión vigentes; aquí no hay ninguno.
+    priceReviewCase: { findMany: jest.fn(async () => []) },
     // v2.0: el precio SALE del mercado, así que el item necesita su `PriceReference` ($100 de mercado).
     priceReference: {
       findFirst: jest.fn(async () => null),

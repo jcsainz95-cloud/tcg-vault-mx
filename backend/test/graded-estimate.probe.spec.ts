@@ -455,14 +455,14 @@ describe('v1.51-b (R1) — cada parada dice SU causa: el veredicto ya no manda a
   it('⛑️ (a) `ingest_config_invalid` ⇒ dice que el dial está en `on` y NOMBRA la clave a corregir', () => {
     const r = gradedPhase2Verdict({
       ...base,
-      outcome: configInvalida('graded_estimate_ingest_max_cards_per_run'),
+      outcome: configInvalida('graded_estimate_min_sample_count'),
     });
     // La aserción que pone en rojo el bug: el titular ya no puede acusar al dial.
     expect(r.headline).toContain('NO es el dial');
     expect(r.headline).toContain('`on`');
-    expect(r.headline).toContain('graded_estimate_ingest_max_cards_per_run');
+    expect(r.headline).toContain('graded_estimate_min_sample_count');
     // Y la acción tiene que ser la reparación REAL, no «enciende el dial».
-    expect(r.nextStep).toContain('graded_estimate_ingest_max_cards_per_run');
+    expect(r.nextStep).toContain('graded_estimate_min_sample_count');
     expect(r.nextStep).toContain('/admin/pricing/graded-estimates');
     expect(r.nextStep).not.toContain('gradingHookEnabled');
   });
@@ -487,13 +487,18 @@ describe('v1.51-b (R1) — cada parada dice SU causa: el veredicto ya no manda a
     dial_off: true,
     ingest_config_invalid: true,
     no_scope: true,
+    // v1.113⟨portada⟩ (§DYN.3/§DYN.4): paradas del turno PSA, cada una con su titular.
+    daily_credit_cap_zero: true,
+    nothing_due: true,
+    // v1.114.4 (§DYN.4.3): otra corrida tiene el turno PSA.
+    already_running: true,
   };
 
   it('CADA motivo de parada tiene SU titular: ninguno hereda el de otro (candado de exhaustividad)', () => {
     const titulares = Object.keys(TODAS_LAS_PARADAS).map((reason) => {
       const outcome: GradedRunOutcome =
         reason === 'ingest_config_invalid'
-          ? { kind: 'stopped', reason, invalidConfigKeys: ['graded_estimate_ingest_max_cards_per_run'] }
+          ? { kind: 'stopped', reason, invalidConfigKeys: ['graded_estimate_min_sample_count'] }
           : ({ kind: 'stopped', reason } as GradedRunOutcome);
       const r = gradedPhase2Verdict({ ...base, outcome });
       return `${r.headline}\n${r.nextStep}`;
@@ -517,12 +522,13 @@ describe('v1.51-b (R1) — cada parada dice SU causa: el veredicto ya no manda a
   });
 
   // ── El mismo defecto, comprobado en la CORRIDA REAL (provider real + fetch delator) ─────────────
-  it('⛑️ (a) EN LA CORRIDA: dial `on` + `ingestMaxCardsPerRun` corrupto ⇒ el bloque NOMBRA la clave', async () => {
+  // v1.113⟨portada⟩ (§DYN.3): `ingestMaxCardsPerRun` se retiró; la misma regresión se fija con una clave del ingest viva.
+  it('⛑️ (a) EN LA CORRIDA: dial `on` + `minSampleCount` corrupto ⇒ el bloque NOMBRA la clave', async () => {
     const logs = capturarLogs();
     const spy = mockPages([pageS1()]);
     const { ingest, create } = wireJob({}, {
       ...ON,
-      [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 2000, // legal ayer, inválido hoy
+      [SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT]: 0, // fuera de [1, 100]
     });
 
     const res = await ingest.ingestGradedEstimates(FX);
@@ -531,7 +537,7 @@ describe('v1.51-b (R1) — cada parada dice SU causa: el veredicto ya no manda a
     expect(spy).not.toHaveBeenCalled(); // fail-closed intacto: cero créditos
     expect(create).not.toHaveBeenCalled();
     expect(res.verdict).toBe('INDETERMINADO');
-    expect(bloque).toContain(SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN);
+    expect(bloque).toContain(SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT);
     // ⛑️ LA REGRESIÓN: antes, con el dial ENCENDIDO, aquí se leía «el dial está en off · enciende el dial».
     expect(bloque).toContain('NO es el dial');
     expect(bloque).not.toContain('Enciende el dial');

@@ -17,6 +17,8 @@ import { AdminShippingController } from './admin-shipping.controller';
 import { ShippingConfigService } from './shipping-config.service';
 import { DashboardShippingService } from './dashboard-shipping.service';
 import { SalesAnalyticsModule } from '../sales-analytics/sales-analytics.module';
+// v1.113⟨portada⟩ (§DYN.2.5): `dataHealth.featuredRotation` lee `FeaturedService`.
+import { CatalogModule } from '../catalog/catalog.module';
 
 @Module({
   // UploadsModule provee UploadsService para purgar la imagen de INE al borrar un usuario (M6).
@@ -27,7 +29,7 @@ import { SalesAnalyticsModule } from '../sales-analytics/sales-analytics.module'
   // 💰 D2f (§19.13, §19.29.9): M10 «Envíos» (`AdminShippingController`: empaques, catálogos, saldo) con el puerto del
   // proveedor (`ShippingProviderModule`, solo `import`); `SpendAlertsModule` da además la lectura de saldo cacheada del tablero.
   // 💰 §AN (API_CONTRACT §15): `SalesAnalyticsModule` para las rutas `admin/reports/sales*`.
-  imports: [PricingModule, UploadsModule, AuthModule, ShipmentsModule, UsersModule, SpendAlertsModule, ShippingProviderModule, SalesAnalyticsModule],
+  imports: [PricingModule, UploadsModule, AuthModule, ShipmentsModule, UsersModule, SpendAlertsModule, ShippingProviderModule, SalesAnalyticsModule, CatalogModule],
   providers: [AdminService, ShippingConfigService, DashboardShippingService],
   controllers: [
     AdminUsersController,

@@ -1,7 +1,38 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import * as ReactDOM from 'react-dom';
+import { getImageProps } from 'next/image';
 import { cn } from '@/lib/cn';
+import { minWidthQuery } from '@/lib/breakpoints';
+
+/**
+ * §DYN.6.6 / ARCHITECTURE §4.DYN (f) 7 — la foto de la teja LÍDER por el optimizador de Next (`/_next/image`).
+ * Los anchos permitidos (384/640), el formato (solo WebP), `qualities` y `minimumCacheTTL` viven en `next.config.mjs`
+ * (`images`); aquí solo lo que pide la `<img>`: la calidad (la única de `qualities`) y el `sizes` de la caja
+ * (236/400 px de teja menos el `p-3` de este pozo ⇒ 212/376 px de imagen).
+ */
+export const OPTIMIZED_IMAGE_QUALITY = 75;
+export const OPTIMIZED_IMAGE_SIZES = `${minWidthQuery('lg')} 376px, 212px`;
+
+/** `src`/`srcSet`/`sizes` de `/_next/image` para `src`, de UNA llamada a `getImageProps()` (la `<img>` y su precarga). */
+export function optimizedImageAttrs(src: string, alt: string): { src: string; srcSet?: string; sizes?: string } {
+  const { props } = getImageProps({
+    src,
+    alt,
+    // Proporción 5:7 de la carta; con `sizes` en px los anchos salen de `images.{deviceSizes,imageSizes}`.
+    width: 640,
+    height: 896,
+    sizes: OPTIMIZED_IMAGE_SIZES,
+    quality: OPTIMIZED_IMAGE_QUALITY,
+  });
+  return { src: props.src, srcSet: props.srcSet, sizes: props.sizes };
+}
+
+type PreloadFn = (
+  href: string,
+  o: { as: 'image'; imageSrcSet?: string; imageSizes?: string; fetchPriority: 'high' },
+) => void;
 
 export interface CardImageProps {
   /**
@@ -34,6 +65,15 @@ export interface CardImageProps {
    * garantiza que el movimiento nunca coexista con un estado de carga (R2, §23.1).
    */
   onLoaded?: () => void;
+  /**
+   * §DYN.6.6 (opción A del dueño, `HECHOS` 2026-10-30) — SOLO la teja líder de Destacadas: pide la foto a
+   * `/_next/image` (WebP, 384/640 px) en vez de la original (PNG de 0.47–1.23 MB). Con `priority`, además la
+   * precarga con `ReactDOM.preload` sacado del MISMO `getImageProps()` que la `<img>` (precargar la original
+   * bajaría la foto dos veces). Si el optimizador falla, cae UNA vez a la original sin `srcset`; `onLoaded` se
+   * llama una sola vez, después del respaldo. Con la original también rota, el pozo queda sin imagen rota.
+   * ⛔ No se usa en ninguna otra teja (DYN-F8): el resto sigue en `<img>` crudo (nivel B, §5.3).
+   */
+  optimized?: boolean;
 }
 
 /**
@@ -51,15 +91,66 @@ const HIGH_FETCH_PRIORITY = { fetchpriority: 'high' } as unknown as { fetchPrior
  * Dirección 5a: el arte se apoya en un pozo de papel más oscuro, sin borde ni
  * esquina redondeada — la carta ya trae su propio marco.
  */
-export function CardImage({ src, alt, className, priority = false, onLoaded }: CardImageProps) {
+export function CardImage({ src, alt, className, priority = false, onLoaded, optimized = false }: CardImageProps) {
   const [loaded, setLoaded] = useState(false);
+  // Fases del modo `optimized`: 'optimized' (`/_next/image`) → 'original' (respaldo, una vez) → 'broken'.
+  // Por foto: si la líder cambia (revalidación), la nueva vuelve a empezar por el optimizador.
+  const [failure, setFailure] = useState<{ src: string; phase: 'original' | 'broken' } | null>(null);
+  const phase = failure && failure.src === src ? failure.phase : 'optimized';
+  // `onLoaded` UNA vez por foto: el respaldo y la réplica de eventos previos a la hidratación (abajo) pueden
+  // ver la misma foto dos veces; la rotación (§23.3) solo necesita saber que ya no hay nada en vuelo.
+  const settledFor = useRef<string | null>(null);
   const settle = () => {
     setLoaded(true);
+    if (settledFor.current === (src ?? '')) return;
+    settledFor.current = src ?? '';
     onLoaded?.();
   };
+  const attrs = optimized && src && phase === 'optimized' ? optimizedImageAttrs(src, alt) : null;
+
+  // Precarga de la líder: mismos `src`/`srcSet`/`sizes` que la `<img>`, una vez por foto. `preload` es de React 19
+  // (App Router); con el React 18 de la suite unitaria no existe y no se llama.
+  const preloadedFor = useRef<string | null>(null);
+  if (attrs && priority && preloadedFor.current !== attrs.src) {
+    const preload = (ReactDOM as unknown as { preload?: PreloadFn }).preload;
+    if (typeof preload === 'function') {
+      preload(attrs.src, { as: 'image', imageSrcSet: attrs.srcSet, imageSizes: attrs.sizes, fetchPriority: 'high' });
+      preloadedFor.current = attrs.src;
+    }
+  }
+
+  const fail = () => {
+    if (optimized && phase === 'optimized') {
+      // El optimizador no dio 2xx (origen caído, `sharp` ausente, cuota): `next/image` no cae solo. Una vez.
+      setFailure({ src: src ?? '', phase: 'original' });
+      return;
+    }
+    if (optimized) setFailure({ src: src ?? '', phase: 'broken' });
+    settle();
+  };
+  const failRef = useRef(fail);
+  failRef.current = fail;
+  const settleRef = useRef(settle);
+  settleRef.current = settle;
+  /*
+   * La `<img>` líder sale en el HTML (§DYN.6.2) y puede terminar ANTES de hidratar: React no repite esos
+   * `load`/`error`. Al montar se mira el estado real (lo mismo que hace `next/image`): completa con píxeles ⇒
+   * cargada; completa sin píxeles ⇒ error. Solo en `optimized` (la líder es `eager`; en una `lazy` no
+   * cargada aún, `complete` no es fiable).
+   */
+  const replayRef = useCallback(
+    (img: HTMLImageElement | null) => {
+      if (!img || !optimized || !img.complete) return;
+      if (img.naturalWidth > 0) settleRef.current();
+      else failRef.current();
+    },
+    [optimized],
+  );
+
   // Con `priority` no hay fade: la imagen se pinta en cuanto llega. Un `opacity-0` que
   // espera al `onLoad` retrasa el PINTADO (y por tanto el LCP) aunque los bytes ya estén.
   const visible = loaded || priority;
+  const showImg = !!src && !(optimized && phase === 'broken');
   return (
     <div className={cn('relative flex aspect-[5/7] items-center justify-center bg-surface-2 p-3', className)}>
       {/* El esqueleto pulsa SOLO mientras hay una imagen en vuelo. Sin `src` no hay nada que
@@ -67,11 +158,15 @@ export function CardImage({ src, alt, className, priority = false, onLoaded }: C
           —legítimo: `imageSmallUrl` es nullable por contrato— parezca una app colgada. Sin
           `src` queda el pozo de papel quieto, que ES el placeholder que pide el contrato. */}
       {src && !loaded && <div className="absolute inset-0 animate-pulse bg-surface-2" aria-hidden />}
-      {src && (
+      {showImg && (
         // datos de catálogo en inglés → lang="en" para lectores (DESIGN_SYSTEM §9.2)
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={src}
+          // Respaldo: `key` nuevo ⇒ elemento nuevo, sin `srcset` ni `sizes` que el navegador pudiera seguir usando.
+          key={optimized ? phase : undefined}
+          ref={optimized ? replayRef : undefined}
+          {...(attrs ? { srcSet: attrs.srcSet, sizes: attrs.sizes } : {})}
+          src={attrs ? attrs.src : src}
           alt={alt}
           lang="en"
           loading={priority ? 'eager' : 'lazy'}
@@ -80,7 +175,7 @@ export function CardImage({ src, alt, className, priority = false, onLoaded }: C
           // teja mientras el navegador descomprime el JPEG. Barato y sin efecto visual.
           decoding="async"
           onLoad={settle}
-          onError={settle}
+          onError={fail}
           className={cn(
             'h-full w-full object-contain transition-opacity',
             visible ? 'opacity-100' : 'opacity-0',

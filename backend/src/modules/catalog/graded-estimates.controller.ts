@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Logger, Param, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Logger, Optional, Param, Put, Query } from '@nestjs/common';
 import { Prisma, PriceRefKind, Role } from '@prisma/client';
 import { Allow } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -21,9 +21,6 @@ import {
 } from '../settings/settings.constants';
 import {
   validateGradingCostTiers,
-  toGradedEstimateConfigDTO,
-  GradedEstimateConfigDTO,
-  validateGradedEstimateIngestMaxCards,
   validateGradedEstimateManualFreshnessDays,
   validateGradedEstimateMaxRawMultiple,
   validateGradedEstimateMinSampleCount,
@@ -31,6 +28,8 @@ import {
   gradedEstimateGradeKey,
   HighlightReason,
 } from '../../common/graded-estimate';
+import { AdminGradedEstimateConfigDTO, toAdminGradedEstimateConfigDTO } from './graded-estimate-config-dto';
+import { GradedBudgetService } from '../pricing/graded-budget.service';
 
 /**
  * Las 10 claves de M2 que gobierna este recurso (el **dial único** `grading_hook_enabled` NO: se edita
@@ -47,7 +46,6 @@ const GRADED_ESTIMATE_M2_KEYS = [
   SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
   SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
   SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
-  SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
 ] as const;
 
 /**
@@ -68,6 +66,10 @@ class GradedEstimatesPutDto {
   @Allow() maxRawMultiple?: unknown;
   @Allow() minSampleCount?: unknown;
   @Allow() sourceStat?: unknown;
+  /**
+   * ⛔ v1.113⟨portada⟩ (§DYN.3, DYN-B20): RETIRADO. Se declara SOLO para poder RECHAZARLO (`422 {field}`): sin `@Allow` el
+   * pipe global (`whitelist` sin `forbidNonWhitelisted`) lo descartaría en silencio y el contrato pide rechazo.
+   */
   @Allow() ingestMaxCardsPerRun?: unknown;
   /**
    * ESPEJO read-only del dial M10 `gradingHookEnabled`: si viene, se IGNORA (se edita en
@@ -111,7 +113,19 @@ export class GradedEstimatesController {
     private readonly catalog: CatalogService,
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    // v1.113⟨portada⟩ (§DYN.4.6): `@Optional` solo por los dobles posicionales de las pruebas; en la app siempre se inyecta.
+    @Optional() private readonly budgetSvc?: GradedBudgetService,
   ) {}
+
+  /**
+   * v1.113⟨portada⟩ (API_CONTRACT §DYN.4.6, criterio 301) — `GET /admin/pricing/graded-estimates/budget` (`super_admin`):
+   * tope del día, créditos de hoy y de 7 días, cuota/remanente del proveedor y la proyección del ciclo semanal.
+   */
+  @Get('budget')
+  async budget() {
+    if (!this.budgetSvc) throw BusinessException.notFound();
+    return this.budgetSvc.budget();
+  }
 
   /**
    * `GET /admin/pricing/graded-estimates` — config EFECTIVA (la misma que usa el resolver, ya saneada
@@ -123,7 +137,7 @@ export class GradedEstimatesController {
    */
   @Get()
   async get() {
-    return toGradedEstimateConfigDTO(await this.pricing.loadGradedEstimateConfigForAdmin());
+    return toAdminGradedEstimateConfigDTO(await this.pricing.loadGradedEstimateConfigForAdmin());
   }
 
   /**
@@ -138,6 +152,14 @@ export class GradedEstimatesController {
   @Put()
   async put(@Body() dto: GradedEstimatesPutDto, @CurrentUser('id') userId: string) {
     const writes: { key: string; value: Prisma.InputJsonValue }[] = [];
+    // v1.113⟨portada⟩ (§DYN.3, DYN-B20): el corte por corrida se retiró. Rechazo ANTES de leer nada (todo o nada).
+    if (dto.ingestMaxCardsPerRun !== undefined) {
+      throw BusinessException.validation(
+        'VALIDATION_ERROR',
+        'ingestMaxCardsPerRun was retired (v1.113): the PSA ingest is bounded by gradedEstimateDailyCreditCap (PUT /admin/settings)',
+        { field: 'ingestMaxCardsPerRun' },
+      );
+    }
 
     // I7 — `grades`/`highlightGrades` ⊆ {"10","9"}, no vacíos, sin duplicados, y highlightGrades ⊆ grades.
     // El subconjunto se valida contra el ESTADO RESULTANTE (mezcla de lo enviado y lo vigente), no solo
@@ -197,7 +219,7 @@ export class GradedEstimatesController {
     // invariante que nadie obliga a coincidir: relajar el rango en el validador compartido dejaba esta
     // puerta estricta (o al revés) **sin que nada fallara**. El mensaje y el `details.field` que ve el
     // cliente no cambian: `${field} ${err}` reproduce exactamente el texto anterior.
-    const patch: Partial<Record<keyof GradedEstimateConfigDTO, unknown>> = {};
+    const patch: Partial<Record<keyof AdminGradedEstimateConfigDTO, unknown>> = {};
     const applyDial = (
       field:
         | 'freshnessDays'
@@ -205,8 +227,7 @@ export class GradedEstimatesController {
         | 'manualFreshnessDays'
         | 'maxRawMultiple'
         | 'minSampleCount'
-        | 'sourceStat'
-        | 'ingestMaxCardsPerRun',
+        | 'sourceStat',
       key: (typeof GRADED_ESTIMATE_M2_KEYS)[number],
       validate: (v: unknown) => string | null,
     ): void => {
@@ -231,17 +252,12 @@ export class GradedEstimatesController {
     applyDial('maxRawMultiple', SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE, validateGradedEstimateMaxRawMultiple);
     applyDial('minSampleCount', SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT, validateGradedEstimateMinSampleCount);
     applyDial('sourceStat', SettingKey.GRADED_ESTIMATE_SOURCE_STAT, validateGradedEstimateSourceStat);
-    applyDial(
-      'ingestMaxCardsPerRun',
-      SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
-      validateGradedEstimateIngestMaxCards,
-    );
 
     if (writes.length === 0) {
       throw BusinessException.validation(
         'VALIDATION_ERROR',
         'Provide at least one of grades, highlightGrades, freshnessDays, minUpsidePct, gradingCostTiers, ' +
-          'manualFreshnessDays, maxRawMultiple, minSampleCount, sourceStat, ingestMaxCardsPerRun',
+          'manualFreshnessDays, maxRawMultiple, minSampleCount, sourceStat',
       );
     }
 
@@ -251,13 +267,13 @@ export class GradedEstimatesController {
     // valor válido es la identidad, y `highlightGrades ⊆ grades` ya se comprobó contra el ESTADO
     // RESULTANTE unas líneas más arriba. (Re-leer con `loadGradedEstimateConfigForAdmin()` desde dentro
     // de la transacción no serviría: ese lector usa su propia conexión y no vería lo aún no commiteado.)
-    const after: GradedEstimateConfigDTO = {
-      ...toGradedEstimateConfigDTO(before),
+    const after: AdminGradedEstimateConfigDTO = {
+      ...toAdminGradedEstimateConfigDTO(before),
       ...(dto.grades !== undefined ? { grades } : {}),
       ...(dto.highlightGrades !== undefined ? { highlightGrades } : {}),
       ...(gradingCostTiers !== undefined ? { gradingCostTiers } : {}),
       ...patch,
-    } as GradedEstimateConfigDTO;
+    } as AdminGradedEstimateConfigDTO;
 
     // v1.44 D4 — TODO-O-NADA de verdad: los upserts van en UNA transacción. Antes era un bucle suelto,
     // así que un fallo a media escritura (p. ej. `grades` sí y `gradingCostTiers` no) dejaba la config
@@ -287,7 +303,7 @@ export class GradedEstimatesController {
           // tal cual estaban almacenados, con las claves AUSENTES omitidas y las corruptas intactas.
           // Sin él, un `grading_cost_tiers` corrupto se auditaba como `[]` y la bitácora perdía la
           // evidencia de qué había realmente antes de la edición (D4).
-          before: { ...toGradedEstimateConfigDTO(before), storedRaw },
+          before: { ...toAdminGradedEstimateConfigDTO(before), storedRaw },
           after,
         },
         tx,

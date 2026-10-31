@@ -96,7 +96,7 @@ describe('§M2 — las dos rutas normadas devuelven `{ data }` proyectado', () =
     const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
     // Orden real del constructor: (pricing, fx, settings, audit, prisma, priceSync, priceIngest, variantControls)
     return new PricingController(
-      pricing, {} as never, {} as never, audit, prismaDouble(), {} as never, {} as never, {} as never,
+      pricing, {} as never, {} as never, audit, prismaDouble(), {} as never, {} as never, {} as never, undefined, undefined, { enqueueVariant: jest.fn(async () => undefined) } as never,
     );
   }
 
@@ -147,7 +147,7 @@ describe('§M2 — las dos rutas normadas devuelven `{ data }` proyectado', () =
     } as unknown as PricingService;
     const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
     const ctrl = new PricingController(
-      pricing, {} as never, {} as never, audit, prismaDouble(), {} as never, {} as never, {} as never,
+      pricing, {} as never, {} as never, audit, prismaDouble(), {} as never, {} as never, {} as never, undefined, undefined, { enqueueVariant: jest.fn(async () => undefined) } as never,
     );
     const res = await ctrl.override(
       { cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', priceMxnCents: 1 } as never,

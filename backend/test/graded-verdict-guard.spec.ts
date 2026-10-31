@@ -227,10 +227,13 @@ describe('TL-GE7 — toda línea citada por el VEREDICTO-PSA existe en la corrid
       ['dial_off', {}, [{ cardId: 'c1' }]],
       [
         'ingest_config_invalid',
-        { ...ON, [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 2000 },
+        // v1.113: la clave retirada ya no apaga; una del ingest que SIGUE viva sí (`minSampleCount` fuera de rango).
+        { ...ON, [SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT]: 0 },
         [{ cardId: 'c1' }],
       ],
       ['no_scope', ON, []],
+      // v1.113⟨portada⟩ (§DYN.3/§DYN.4): las dos paradas nuevas del turno PSA.
+      ['daily_credit_cap_zero', { ...ON, graded_estimate_daily_credit_cap: 0 }, [{ cardId: 'c1' }]],
     ] as [string, Record<string, unknown>, { cardId: string }[]][]) {
       const logs = capturarLogs();
       mockPages([pageS1()]);
@@ -290,9 +293,12 @@ describe('QA — la parcialidad del recorrido se MARCA', () => {
   it('⛑️ la sonda para al primer set con bloque PSA ⇒ el bloque avisa de que la cifra es un mínimo', async () => {
     const logs = capturarLogs();
     // Orden: `s2` (sin mapeo) → `s1` (mapeado, trae S1) → `s3` (sin mapeo, NUNCA se llega a mirar).
+    // v1.113 (§DYN.4.2): el orden del turno lo fija `firstListedAt` (nunca consultados, la más antigua primero).
     const spy = mockPages([pageS1De(CARD.externalId, CARD.number)], [], [CATALOGO_PARCIAL]);
     const { ingest } = wireJob({ POKEMONPRICETRACKER_MARKET_FORMAT: undefined }, ON, [
-      { cardId: 'c2' }, { cardId: 'c1' }, { cardId: 'c3' },
+      { cardId: 'c2', firstListedAt: new Date('2026-01-01T00:00:00Z') },
+      { cardId: 'c1', firstListedAt: new Date('2026-01-02T00:00:00Z') },
+      { cardId: 'c3', firstListedAt: new Date('2026-01-03T00:00:00Z') },
     ], null, { mapperReal: true, cartas: [CARD_B, CARD, CARD_C] });
 
     const res = await ingest.ingestGradedEstimates(FX);
@@ -310,19 +316,34 @@ describe('QA — la parcialidad del recorrido se MARCA', () => {
     esperarVeredictoCitable(logs, 'sonda que corta el recorrido');
   });
 
-  it('el alcance recortado por `ingestMaxCardsPerRun` también cuenta como recorrido PARCIAL', async () => {
+  it('v1.113 — la corrida PARADA por el presupuesto del día también cuenta como recorrido PARCIAL', async () => {
     const logs = capturarLogs();
-    mockPages([pageS1De(CARD.externalId, CARD.number)], [], [CATALOGO_PARCIAL]);
-    const { ingest } = wireJob({}, { ...ON, [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 1 }, [
+    mockPages([pageS1De(CARD.externalId, CARD.number)]);
+    // tope 2 y dos sets MAPEADOS de ~2 créditos (1 carta en catálogo cada uno): el primero se pide, el segundo ya no cabe.
+    const { ingest } = wireJob({}, { ...ON, graded_estimate_daily_credit_cap: 2 }, [
       { cardId: 'c1' }, { cardId: 'c2' },
-    ], null, { mapperReal: true, cartas: [CARD, CARD_B] });
+    ], null, { cartas: [CARD, CARD_B], mapeos: { s1: { pptSetId: 'sv8' }, s2: { pptSetId: 'sv7' } } });
 
     const res = await ingest.ingestGradedEstimates(FX);
     const bloque = logs.filter((l) => l.includes(GRADED_VERDICT_TAG)).join('\n');
 
-    expect(res.cardsInScope).toBe(1);
+    expect(res.cardsInScope).toBe(2);
+    expect(res.turns?.stoppedByBudget).toBe(true);
     expect(bloque).toContain('ALCANCE RECORRIDO: PARCIAL');
-    esperarVeredictoCitable(logs, 'alcance recortado por el tope de cartas');
+    esperarVeredictoCitable(logs, 'alcance parado por el presupuesto del día');
+  });
+
+  it('v1.113 — `nothing_due`: todos los sets consultados hace < 7 días ⇒ parada con bloque, sin citar al proveedor', async () => {
+    const logs = capturarLogs();
+    mockPages([pageS1()]);
+    const { ingest, turnos } = wireJob({}, ON, [{ cardId: 'c1' }]);
+    turnos.setScans.push({
+      id: 'ok-ayer', setId: 's1', businessDate: new Date(Date.now() - 86_400_000), startedAt: new Date(Date.now() - 86_400_000),
+      outcome: 'ok', creditsEstimated: 2, creditsMeasured: 2, creditsCharged: 2, cardsInScope: 1, cardsReturned: 1,
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.turns?.setsDue).toBe(0);
+    esperarVeredictoCitable(logs, 'nothing_due');
   });
 
   // ⛑️ R-1 — este caso montaba corrida real y NO llamaba al guardián. Hoy no hace falta: `capturarLogs`

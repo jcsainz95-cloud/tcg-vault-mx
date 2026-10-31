@@ -48,6 +48,9 @@ nuclei.jsonl
 # --- Stack NATIVO (scripts/stack-native.sh): pids y logs de procesos locales ---
 # Ruta alternativa a docker-compose para entornos SIN demonio de Docker (DEVOPS_NOTES §29.10).
 .native-stack/
+# --- Lighthouse CI de la portada (scripts/home-perf/run.sh, DEVOPS_NOTES §104): salida por defecto ---
+.home-perf/
+.lighthouseci/
 
 # --- Docker / datos locales ---
 # Los volúmenes de docker-compose son named volumes (no en el árbol),

@@ -233,9 +233,23 @@ describe('WSH-T17 — borrar la cuenta borra la lista (817)', () => {
     await w.h.prisma.sealedRestockSubscription.create({ data: { email: a.email, cardId: c.id, sealedCondition: 'mint' } });
     await w.h.prisma.sealedRestockSubscription.create({ data: { email: `otro-${w.run}@e2e.local`, userId: a.id, cardId: c.id, sealedCondition: 'mint' } });
     expect(rowOf((await demand()).body, c).wantedCount).toBe(1);
-    // una orden liquidada fuerza el borrado SUAVE (con transacciones)
+    // una orden (cualquiera: `order.count > 0`, `admin.service.ts` `deleteUser`) fuerza el borrado SUAVE (con transacciones)
     await w.h.prisma.order.create({
-      data: { userId: a.id, status: 'settled', subtotalCents: 100, processingFeeCents: 0, ivaCents: 0, totalCents: 100, priceConvention: 'IVA_INCLUSIVE' },
+      // QA B-2: ⛔ NO liquidada. La BD de integración se comparte y el P&L suma TODAS las liquidadas del día: una `settled` sin
+      // renglones (ni `OrderItem` ni `OrderAccessoryLine`) entraba en los totales y `mix.byProductType` no podía repartirla
+      // (`accessories-pnl-analytics` daba 86¢ = 100 − 14 de IVA de diferencia). `failed` es un pago que nunca se cobró: fuera de
+      // todo P&L, y basta para el borrado suave. QA-IVA-ORDEN sigue: dial archivado e IVA de su base, como el checkout.
+      data: {
+        userId: a.id,
+        status: 'failed',
+        subtotalCents: 100,
+        processingFeeCents: 0,
+        ivaCents: 14,
+        ivaRatePct: 16,
+        ivaTransferPct: 100,
+        totalCents: 100,
+        priceConvention: 'IVA_INCLUSIVE',
+      },
     });
     const del = await w.h.api('DELETE', `/admin/users/${a.id}`, { token: w.adminToken });
     expect(del.status).toBe(200);

@@ -32,6 +32,9 @@ import { TcgdexBulkProvider } from './providers/tcgdex-bulk.provider';
 import { PptApiClient } from './providers/ppt-api.client';
 import { PptSetMapper } from './ppt-set-mapper.service';
 import { PriceIngestService } from './price-ingest.service';
+import { GradedBudgetService } from './graded-budget.service';
+import { SaleDecisionService } from './sale-decision.service';
+import { ListingPriceService } from './listing-price.service';
 import { PriceIngestJobService } from '../../jobs/price-ingest.service';
 // v1.19-sealed-tcgcsv (§4.19): referencia de mercado del SELLADO vía TCGCSV.
 import { TcgcsvSealedBulkProvider } from './providers/tcgcsv-sealed.provider';
@@ -42,6 +45,8 @@ import { SealedPriceIngestJobService } from '../../jobs/sealed-price-ingest.serv
 // v1.22-1 (§4.22g/§4.22h): `price-ingest` escribe `pricedFinishesSnapshot` y LLAMA al ÚNICO escritor
 // de `availableFinishes`. Se importa el módulo del reconciliador (compartido con CatalogModule sin ciclo).
 import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
+// v1.113⟨portada⟩ (§DYN.4.5): el ingest graded abre/cierra AG-24. Sin ciclo: SpendAlertsModule no importa PricingModule.
+import { SpendAlertsModule } from '../spend-alerts/spend-alerts.module';
 
 /**
  * PricingModule — M2. Providers intercambiables, FxService, PricingService y los
@@ -55,7 +60,7 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
  * aquí para el bulk legacy (instancia propia; NO crea ciclo con CatalogModule).
  */
 @Module({
-  imports: [FinishReconcilerModule],
+  imports: [FinishReconcilerModule, SpendAlertsModule],
   providers: [
     PricingService,
     PriceReviewService,
@@ -80,6 +85,11 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
     TcgdexBulkProvider,
     PriceIngestService,
     PriceIngestJobService,
+    // v1.113⟨portada⟩ (§DYN.4.6): panel de presupuesto PSA.
+    GradedBudgetService,
+    // 💰 v1.113⟨portada⟩ (§DYN.5): el cuerpo único del precio de venta y el precio del día.
+    SaleDecisionService,
+    ListingPriceService,
     // v1.19-sealed-tcgcsv (§4.19): adapter + ingest + curación del mapeo + su job (mismo
     // patrón price-ingest: viven aquí para que JobsModule/Scheduler los inyecten sin ciclos).
     TcgcsvSealedBulkProvider,
@@ -103,6 +113,9 @@ import { FinishReconcilerModule } from '../catalog/finish-reconciler.module';
     FxRefreshJobService,
     PriceIngestService,
     PriceIngestJobService,
+    GradedBudgetService,
+    SaleDecisionService,
+    ListingPriceService,
     SealedPriceIngestService,
     SealedPriceIngestJobService,
     // v1.36-sealed-alta (M-37, P-35): el proxy read-only de TCGCSV lo REUSA el alta dedicada de

@@ -352,9 +352,9 @@ test.describe('Gancho de grading · vitrina del home (§22.6) @real', () => {
 });
 
 /**
- * §22.6b — la CUARTA superficie. Aquí no se puede asertar «hay burbuja»: el carrusel ordena por
- * precio descendente y el gate de ROI castiga justo a las caras, así que **cero burbujas entre ocho
- * es el estado NORMAL** y exigir una haría el test verde por casualidad o rojo por diseño. Lo que sí
+ * §22.6b — la CUARTA superficie. Aquí no se puede asertar «hay burbuja»: el carrusel pinta la
+ * selección del día (§DYN.2: 8 al azar entre las de más valor + 2 recién llegadas) y el gate de ROI
+ * castiga justo a las caras, así que **cero burbujas entre diez es el estado NORMAL** y exigir una haría el test verde por casualidad o rojo por diseño. Lo que sí
  * es determinista son las INVARIANTES de la pista, y son las que se afirman.
  */
 test.describe('Gancho de grading · carrusel «Piezas destacadas» (§22.6b) @real', () => {
@@ -387,7 +387,7 @@ test.describe('Gancho de grading · carrusel «Piezas destacadas» (§22.6b) @re
     const tiles = track.locator('a[href*="/catalog/"]');
     await expect(
       tiles.first(),
-      'la pista de destacadas nunca pintó una teja (¿`GET /catalog/cards?sort=price_desc` vacío o en error?)',
+      'la pista de destacadas nunca pintó una teja (¿`GET /catalog/featured` vacío o en error? En un stack recién sembrado no hay selección hasta el primer tic o `POST /admin/jobs/featured-rotation {force:true}`)',
     ).toBeVisible();
     const tileCount = await tiles.count();
     /**

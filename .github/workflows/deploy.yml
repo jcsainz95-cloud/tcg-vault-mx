@@ -141,7 +141,7 @@ jobs:
   # verificación para el caso en que SÍ estén cargados.
   # ---------------------------------------------------------------------------
   secrets-gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       ready: ${{ steps.check.outputs.ready }}
     steps:
@@ -179,7 +179,7 @@ jobs:
   deploy-ci-gate:
     needs: [secrets-gate]
     if: needs.secrets-gate.outputs.ready == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Verificar que CI terminó verde
         run: |
@@ -200,7 +200,7 @@ jobs:
   # ---------------------------------------------------------------------------
   preflight:
     needs: [deploy-ci-gate]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Verificar secrets de deploy (GitHub Secrets)
         env:
@@ -249,7 +249,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy-staging-backend:
     needs: [preflight]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       # Instante ANTERIOR al deploy. El gate de procedencia (job `staging-serves-head`)
       # exige que el proceso que responde en staging haya NACIDO después de esto.
@@ -287,7 +287,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy-staging-frontend:
     needs: [preflight]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: staging
     env:
@@ -344,7 +344,7 @@ jobs:
   # en security-dast.yml, contra el stack efímero. Ver la tabla de la cabecera.
   staging-serves-head:
     needs: [deploy-staging-backend, deploy-staging-frontend]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
       DEPLOY_EPOCH: ${{ needs.deploy-staging-backend.outputs.deploy_epoch }}
@@ -415,7 +415,7 @@ jobs:
   # y e2e-real.yml: allí el admin lo crea el seed sintético. Ver §44.5.
   staging-provider-parity:
     needs: [staging-serves-head]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
       ADMIN_EMAIL: ${{ secrets.STAGING_ADMIN_EMAIL }}
@@ -506,7 +506,7 @@ jobs:
       needs.dast-release.outputs.blocking == 'false' &&
       needs.e2e-real.result == 'success' &&
       (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       # protégelo con "required reviewers" en GitHub. Sin `url:` a propósito:
       # `environment.url` no admite el contexto `secrets` (causaba startup_failure).
@@ -556,7 +556,7 @@ jobs:
       needs.dast-release.outputs.blocking == 'false' &&
       needs.e2e-real.result == 'success' &&
       (github.event_name == 'workflow_run' || inputs.promote_to_prod == true)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       # Sin `url:` a propósito: `environment.url` no admite `secrets` (startup_failure).
       name: production

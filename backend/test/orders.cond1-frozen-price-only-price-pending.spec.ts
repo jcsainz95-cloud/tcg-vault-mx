@@ -71,6 +71,8 @@ function build(saleSeam: () => Promise<unknown>, itemOver: Record<string, unknow
     gradeKeyFor: jest.fn(() => 'raw:NM'),
     tryGradeKeyFor: jest.fn(() => 'raw:NM'),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 50_000 })),
+    // v1.114 (§DYN.5.9): sin caso de revisión vigente ⇒ la entrada del cuerpo de venta no cambia.
+    saleRetentionFor: jest.fn(async () => new Map()),
     getVariantOverride: jest.fn(async () => null),
     computeSalePriceForItem: jest.fn(saleSeam),
   };

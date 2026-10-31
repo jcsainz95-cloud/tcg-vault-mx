@@ -17,6 +17,7 @@ import {
   validateGradingMinUpsidePct,
 } from '../settings/settings.constants';
 import { FxService } from './fx.service';
+import { vigenteStatusWhere } from './review-vigente';
 import { PokemonTcgIoProvider } from './providers/pokemontcg-io.provider';
 import {
   PokeTraceProvider,
@@ -62,7 +63,7 @@ import {
   isStaleByOrigin,
   GradedEstimateSourceStat,
   sanitizeGradingCostTiers,
-  validateGradedEstimateIngestMaxCards,
+  DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
   validateGradedEstimateManualFreshnessDays,
   validateGradedEstimateMaxRawMultiple,
   validateGradedEstimateMinSampleCount,
@@ -93,6 +94,9 @@ import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 // v1.91⟨precios⟩ (M-75, §PRE.B / ARCHITECTURE §4.PRE (a)(b)): árbitro de mediana que ENVUELVE la lectura.
 import {
   resolveRobustMarket,
+  // v1.114.3 (§DYN.5.9): el filtro ÚNICO de cotizaciones que votan (lo usa también `resolveRobustMarket`).
+  admittedFreshQuotes as admittedFreshQuotesOf,
+  QuoteSnapshot,
   ArbiterCandidate,
   ArbiterDials,
   DEFAULT_PRICE_ARBITER_FRESHNESS_DAYS,
@@ -134,7 +138,7 @@ const GRADED_ESTIMATE_SETTING_KEYS = [
   SettingKey.GRADED_ESTIMATE_MAX_RAW_MULTIPLE,
   SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT,
   SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
-  SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
+  // ⛔ v1.113⟨portada⟩ (M-93, §DYN.3): `graded_estimate_ingest_max_cards_per_run` RETIRADA — ya no se lee (fila inerte).
 ] as const satisfies readonly SettingKeyType[];
 
 /**
@@ -831,6 +835,143 @@ export class PricingService {
   }
 
   /**
+   * 💰 v1.114⟨portada⟩ (§DYN.5.9) — el caso de revisión VIGENTE (`open`/`kept`, `review-vigente.ts`) de cada variante, por
+   * `variantKey`: `cardProductId` y `sealedProductId` nulos (los que abre el candado del barrido), cualquier `axis`; si hubiera
+   * dos, el de `createdAt` mayor. Lectura directa (sin ciclo con `PriceReviewService`). Lo leen la base congelada del barrido
+   * (`arbiterDetailForKeys`) y la retención del cuerpo de venta (`SaleDecisionService.loadReferences`).
+   */
+  async vigenteReviewCases(
+    keys: readonly { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<Map<string, { baselineMxnCents: number | null; createdAt: Date }>> {
+    const out = new Map<string, { baselineMxnCents: number | null; createdAt: Date }>();
+    if (keys.length === 0) return out;
+    const rows = await this.prisma.priceReviewCase.findMany({
+      where: {
+        status: vigenteStatusWhere(),
+        cardProductId: null,
+        sealedProductId: null,
+        OR: keys.map((key) => ({ cardId: key.cardId, productType: key.productType, gradeKey: key.gradeKey, finish: key.finish })),
+      },
+      // Ascendente: el último que se escribe en el mapa es el de `createdAt` mayor.
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { cardId: true, productType: true, gradeKey: true, finish: true, baselineMxnCents: true, createdAt: true },
+    });
+    for (const c of rows) out.set(variantKey(c), { baselineMxnCents: c.baselineMxnCents, createdAt: c.createdAt });
+    return out;
+  }
+
+  /**
+   * 💰 v1.114⟨portada⟩ (API_CONTRACT §DYN.5.9, ARCHITECTURE §4.DYN (e)) — **LA RETENCIÓN DEL CANDADO EN LA VENTA.** Para cada
+   * variante raw/graded con caso VIGENTE (`open`/`kept`) cuya referencia NO es el override tier 0, la referencia que entra al
+   * cuerpo de venta (y que la fila exhibe, §DYN.5.5): `baselineMxnCents ≠ null ⇒ { priced, baselineMxnCents, capturedDate = día
+   * de createdAt del caso }`; `null ⇒` el **mínimo fresco** (v1.114.3): la cotización de `priceMxnCents` menor de
+   * `admittedFreshQuotes` (las que votarían en el árbitro), con su `capturedDate`; ninguna ⇒ `{ pending }` (⇒ `PRICE_PENDING`).
+   * `kept` igual que `open`. ⛔ La compra NO pasa por aquí (su gate es `PriceReviewService.vigenteCaseVariantKeySet`). Las variantes
+   * que no están en el mapa leen su referencia de siempre. ⛔ El sellado no tiene candado (fuera). ⛔ El override tier 0 sigue
+   * ganando (fuera); el precio por pieza y M-30 ganan aguas abajo, en el cuerpo.
+   *
+   * El cuerpo lee el RESULTADO del candado (el caso), no `decideLock`: meter el árbol aquí exigiría la base de ayer y la
+   * tolerancia en cada cálculo, y duplicaría el árbol (ARCHITECTURE §4.DYN (e)). Coste normal: UNA consulta (casos); la de
+   * tier solo corre para las variantes con caso, y es la MISMA lectura de `getReferencesBatch` (un tier 0 gana ⇔ hay fila
+   * manual en el conjunto filtrado, `isBetterRef`), así que «tier 0» significa aquí exactamente lo que significa al leer.
+   */
+  async saleRetentionFor(
+    keys: readonly { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<Map<string, PriceInfo>> {
+    const out = new Map<string, PriceInfo>();
+    const auto = keys.filter((k) => k.productType !== 'sealed');
+    if (auto.length === 0) return out;
+    const cases = await this.vigenteReviewCases(auto);
+    if (cases.size === 0) return out;
+    const held = auto.filter((k) => cases.has(variantKey(k)));
+    const { manualKeys } = await this.getReferencesBatchWithTier(held);
+    const retained = held.filter((k) => !manualKeys.has(variantKey(k)));
+    const hasBase = (vk: string): boolean => {
+      const b = cases.get(vk)!.baselineMxnCents;
+      return b != null && b > 0;
+    };
+    // v1.114.3: las cotizaciones frescas admitidas solo se leen para las variantes SIN base (coste: cero sin ellas).
+    const noBase = retained.filter((k) => !hasBase(variantKey(k)));
+    const freshByKey = noBase.length > 0 ? await this.admittedFreshQuotes(noBase) : new Map<string, QuoteSnapshot[]>();
+    for (const k of retained) {
+      const vk = variantKey(k);
+      const c = cases.get(vk)!;
+      if (hasBase(vk)) {
+        out.set(vk, { status: 'priced', referenceMxnCents: c.baselineMxnCents!, capturedDate: c.createdAt.toISOString().slice(0, 10) });
+        continue;
+      }
+      // 💰 Sin base (v1.114.3, dueño HECHOS 2026-10-30 «…SIN base: opción A…»): el MÍNIMO fresco admitido, por cotización (no la
+      // mediana ni la familia), con SU fecha; ninguno ⇒ `pending`. `open` y `kept` igual: el estado del caso no entra aquí.
+      const min = freshByKey.get(vk)?.[0];
+      out.set(vk, min ? { status: 'priced', referenceMxnCents: min.priceMxnCents, capturedDate: min.capturedDate } : { status: 'pending' });
+    }
+    return out;
+  }
+
+  /**
+   * 💰 v1.91⟨precios⟩ / v1.114.3 — las filas `PriceReference` que el ÁRBITRO considera para cada variante (paso 1 de
+   * `ARCHITECTURE §4.PRE (b)`): no manuales, de una fuente de `priceArbiterSources`, de mercado (`MONEY_REF_WHERE`), de
+   * cualquier fecha (la frescura la decide `admittedFreshQuotes`). Una sola lectura para el barrido (`arbiterDetailForKeys`) y
+   * para el mínimo fresco de la venta sin base (`admittedFreshQuotes` de abajo): ⛔ dos lecturas distintas serían dos filtros.
+   */
+  private async admittedQuoteRowsByKey(
+    keys: readonly { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+    dials: ArbiterDials,
+  ): Promise<Map<string, RefRow[]>> {
+    const byKey = new Map<string, RefRow[]>();
+    if (keys.length === 0) return byKey;
+    const wanted = new Set(keys.map((k) => variantKey(k)));
+    const rows = await this.prisma.priceReference.findMany({
+      where: {
+        cardId: { in: [...new Set(keys.map((k) => k.cardId))] },
+        productType: { in: [...new Set(keys.map((k) => k.productType))] },
+        gradeKey: { in: [...new Set(keys.map((k) => k.gradeKey))] },
+        finish: { in: [...new Set(keys.map((k) => k.finish))] },
+        isManualOverride: false,
+        source: { in: dials.admittedSources as PriceSource[] },
+        ...MONEY_REF_WHERE,
+      },
+      orderBy: { capturedDate: 'desc' },
+      select: PRICE_REF_SELECT,
+    });
+    for (const r of rows) {
+      const k = variantKey(r);
+      if (!wanted.has(k)) continue;
+      const arr = byKey.get(k);
+      if (arr) arr.push(r);
+      else byKey.set(k, [r]);
+    }
+    return byKey;
+  }
+
+  /**
+   * 💰 v1.114.3⟨portada⟩ (API_CONTRACT §DYN.5.9 «Sin base»; pseudofirma `admittedFreshQuotes(variantKey, now): Quote[]`, aquí en
+   * lote) — por `variantKey`, las cotizaciones que VOTARÍAN en el árbitro en `now`: la lectura del barrido
+   * (`admittedQuoteRowsByKey`), una por fuente (`arbiterCandidatesBySource`, MXN vivo) y el filtro único `admittedFreshQuotes`
+   * de `common/robust-market.ts` (fuentes del dial, sin `pokemontcg_io`/PPT/manual, frescas). Ordenadas: el mínimo es `[0]`.
+   * Variante sin ninguna ⇒ ausente del mapa.
+   */
+  async admittedFreshQuotes(
+    keys: readonly { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+    now: Date = new Date(),
+  ): Promise<Map<string, QuoteSnapshot[]>> {
+    const out = new Map<string, QuoteSnapshot[]>();
+    if (keys.length === 0) return out;
+    const dials = await this.loadArbiterDialsSafe();
+    const fx = await this.fxSnapshotSafe();
+    const nowIso = now.toISOString().slice(0, 10);
+    for (const [k, rows] of await this.admittedQuoteRowsByKey(keys, dials)) {
+      const quotes = admittedFreshQuotesOf(
+        arbiterCandidatesBySource(rows, (r) => this.liveMxnCents(r, fx)),
+        dials,
+        nowIso,
+      );
+      if (quotes.length > 0) out.set(k, quotes);
+    }
+    return out;
+  }
+
+  /**
    * v1.91⟨precios⟩ (M-75, §PRE.C / ARCHITECTURE §4.PRE (c)) — DETALLE del árbitro por variante para el
    * CANDADO del barrido/reconcile: devuelve por clave el `RobustResult` de HOY y la `baseline` (último
    * valor SANO de mercado ANTES de hoy). 💰 DINERO. El candado (`decideLock`) decide publicar-auto vs
@@ -848,53 +989,21 @@ export class PricingService {
     const dials = await this.loadArbiterDialsSafe();
     const fx = await this.fxSnapshotSafe();
     const nowIso = new Date().toISOString().slice(0, 10);
-    const wanted = new Set(keys.map((k) => variantKey(k)));
-    const rows = await this.prisma.priceReference.findMany({
-      where: {
-        cardId: { in: [...new Set(keys.map((k) => k.cardId))] },
-        productType: { in: [...new Set(keys.map((k) => k.productType))] },
-        gradeKey: { in: [...new Set(keys.map((k) => k.gradeKey))] },
-        finish: { in: [...new Set(keys.map((k) => k.finish))] },
-        isManualOverride: false,
-        source: { in: dials.admittedSources as PriceSource[] },
-        ...MONEY_REF_WHERE,
-      },
-      orderBy: { capturedDate: 'desc' },
-      select: PRICE_REF_SELECT,
-    });
-    const byKey = new Map<string, (typeof rows)[number][]>();
-    for (const r of rows) {
-      const k = variantKey(r);
-      if (!wanted.has(k)) continue;
-      const arr = byKey.get(k);
-      if (arr) arr.push(r);
-      else byKey.set(k, [r]);
-    }
-    // ⭐ v1.91⟨precios⟩ errata (cuestión D, §4.PRE (c)) — BASE CONGELADA mientras hay caso `open`. La base
-    // NO es la robusta de ayer recomputada: es el ÚLTIMO VALOR SANO que la tienda PUBLICÓ. Mientras un
-    // `PriceReviewCase open` retiene el salto, ese valor es el `baselineMxnCents` que el caso guardó al
-    // abrirse. Sin esto, un pico de UNA fuente que persiste DOS barridos haría que el día 2 las quotes de
-    // ayer YA incluyeran el pico ⇒ base≈pico ⇒ jumpFactor≈1 ⇒ publica y auto-supersede el caso que el día
-    // 1 retuvo — justo lo que el candado existe para frenar. Lectura directa (sin ciclo con PriceReview).
-    const openCases = await this.prisma.priceReviewCase.findMany({
-      where: {
-        status: 'open',
-        cardProductId: null,
-        sealedProductId: null,
-        OR: keys.map((key) => ({ cardId: key.cardId, productType: key.productType, gradeKey: key.gradeKey, finish: key.finish })),
-      },
-      select: { cardId: true, productType: true, gradeKey: true, finish: true, baselineMxnCents: true },
-    });
+    const byKey = await this.admittedQuoteRowsByKey(keys, dials);
+    // ⭐ v1.91⟨precios⟩ errata (cuestión D, §4.PRE (c)) + v1.114 (§DYN.5.9) — BASE CONGELADA mientras hay caso VIGENTE
+    // (`open` o `kept`). La base NO es la robusta de ayer recomputada: es el ÚLTIMO VALOR SANO que la tienda PUBLICÓ, el
+    // `baselineMxnCents` que el caso guardó al abrirse. Sin esto, un pico de UNA fuente que persiste DOS barridos haría que el
+    // día 2 las quotes de ayer YA incluyeran el pico ⇒ base≈pico ⇒ jumpFactor≈1 ⇒ publica y auto-supersede el caso que el día 1
+    // retuvo. `kept` cuenta igual (v1.114): «conservar» sigue reteniendo hasta que el mercado se asiente.
     const frozenBaseByKey = new Map<string, number | null>();
-    for (const c of openCases) frozenBaseByKey.set(variantKey(c), c.baselineMxnCents);
+    for (const [k, c] of await this.vigenteReviewCases(keys)) frozenBaseByKey.set(k, c.baselineMxnCents);
 
     for (const [k, krows] of byKey) {
       // errata E-CI (§PRE.B): UNA cotización por FUENTE (no por fila), vía `isBetterRef`.
-      const toCand = (rs: (typeof rows)[number][]): ArbiterCandidate[] =>
-        arbiterCandidatesBySource(rs as unknown as RefRow[], (r) => this.liveMxnCents(r, fx));
+      const toCand = (rs: RefRow[]): ArbiterCandidate[] => arbiterCandidatesBySource(rs, (r) => this.liveMxnCents(r, fx));
       const result = resolveRobustMarket(toCand(krows), dials, nowIso);
-      // Si hay caso `open` ⇒ base CONGELADA (`caso.baselineMxnCents`). Si NO ⇒ la robusta de ayer (que,
-      // sin caso abierto, SÍ fue la publicada y sana).
+      // Si hay caso vigente ⇒ base CONGELADA (`caso.baselineMxnCents`). Si NO ⇒ la robusta de ayer (que,
+      // sin caso vigente, SÍ fue la publicada y sana).
       let baseline: number | null;
       if (frozenBaseByKey.has(k)) {
         baseline = frozenBaseByKey.get(k) ?? null;
@@ -1023,8 +1132,21 @@ export class PricingService {
   async getReferencesBatch(
     items: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
   ): Promise<Map<string, PriceInfo>> {
+    return (await this.getReferencesBatchWithTier(items)).refs;
+  }
+
+  /**
+   * 💰 v1.114⟨portada⟩ (§DYN.5.9) — `getReferencesBatch` MÁS el conjunto de claves cuya referencia es el override manual
+   * (tier 0, `isManualOverride ∨ source='manual'`). Misma consulta y mismo resultado (`refs` ES lo que devuelve
+   * `getReferencesBatch`); lo único nuevo es decir QUÉ tier ganó, que `PriceInfo` no lleva. Lo usa el cuerpo de venta para
+   * aplicar la retención del candado solo al mercado AUTOMÁTICO: el override tier 0 sigue ganando con caso vigente.
+   */
+  async getReferencesBatchWithTier(
+    items: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+  ): Promise<{ refs: Map<string, PriceInfo>; manualKeys: Set<string> }> {
     const map = new Map<string, PriceInfo>();
-    if (items.length === 0) return map;
+    const manualKeys = new Set<string>();
+    if (items.length === 0) return { refs: map, manualKeys };
     // P-30 H2: MISMA fuente de clave que el consumidor (`variantKey`). Producir e indexar el Map con el
     // helper compartido garantiza que el `.get()` del consumidor caiga en la misma entrada (round-trip).
     const keyOf = (i: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }) =>
@@ -1130,6 +1252,7 @@ export class PricingService {
     const nowIso = new Date().toISOString().slice(0, 10);
     for (const [k, r] of bestByKey) {
       const isManual = r.isManualOverride || r.source === 'manual';
+      if (isManual) manualKeys.add(k);
       const robust = isManual ? null : this.robustMarketForRows(rowsByKey.get(k) ?? [r], arbiterDials, fx, nowIso);
       map.set(
         k,
@@ -1143,7 +1266,7 @@ export class PricingService {
             },
       );
     }
-    return map;
+    return { refs: map, manualKeys };
   }
 
   /**
@@ -1652,10 +1775,6 @@ export class PricingService {
       SettingKey.GRADED_ESTIMATE_SOURCE_STAT,
       validateGradedEstimateSourceStat,
     );
-    const ingestMaxRes = resolve<number>(
-      SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
-      validateGradedEstimateIngestMaxCards,
-    );
 
     // COSTO: se lee del Map SIN consultar `SETTING_DEFAULTS` en NINGÚN estado. Ausente ⇒ `undefined`,
     // corrupta ⇒ el valor tal cual; el saneador devuelve `[]` en ambos casos (money-safe, §4.38d).
@@ -1679,7 +1798,7 @@ export class PricingService {
     // v1.50.2 — dónde cae cada clave NUEVA (§4.38d › «Alcance del apagado», y el contrato lo repite):
     //  · `manualFreshnessDays` gobierna la FICHA además de la rejilla (es frescura) ⇒ apaga las dos.
     //  · `maxRawMultiple` NO participa en la ficha (§4.38k.3) ⇒ apaga solo la promoción.
-    //  · `minSampleCount`/`sourceStat`/`ingestMaxCardsPerRun` son del INGEST: NO apagan ninguna
+    //  · `minSampleCount`/`sourceStat` son del INGEST (v1.113: `ingestMaxCardsPerRun` retirada, §DYN.3): NO apagan ninguna
     //    superficie de LECTURA (corromperlos no puede vaciar una vitrina cuyo dato ya está escrito).
     //    Lo que hacen es que el INGEST se niegue a escribir — fail-closed en su propia ruta.
     // ⚠️ v1.50.3 (I8-bis, §4.38m) — `manualFreshnessDays == null` significa «el override manual NO
@@ -1699,13 +1818,12 @@ export class PricingService {
     }
 
     // v1.51-b (R1) — las claves del INGEST que están PRESENTES-e-INVÁLIDAS, por NOMBRE y en orden fijo.
-    // Son las mismas tres de siempre (`minSampleCount`, `sourceStat`, `ingestMaxCardsPerRun`); lo único
+    // Desde v1.113 son DOS (`minSampleCount`, `sourceStat`; el corte por corrida se retiró, §DYN.3); lo único
     // nuevo es que el fail-closed deja de ser anónimo: el veredicto del ingest las imprime para que el
     // operador sepa qué corregir en vez de mirar el dial —que está bien— y creer que ése es el problema.
     const ingestInvalidKeys: string[] = [];
     if (minSampleRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT);
     if (sourceStatRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_SOURCE_STAT);
-    if (ingestMaxRes.invalid) ingestInvalidKeys.push(SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN);
 
     const estimatesEnabled =
       enabled && !gradesRes.invalid && !freshRes.invalid && !manualFreshRes.invalid;
@@ -1725,7 +1843,9 @@ export class PricingService {
       maxRawMultiple: maxMultipleRes.value,
       minSampleCount: minSampleRes.value,
       sourceStat: sourceStatRes.value,
-      ingestMaxCardsPerRun: ingestMaxRes.value,
+      // ⛔ v1.113⟨portada⟩ (§DYN.3): dial RETIRADO. El campo sigue en el TIPO porque `common/graded-estimate.ts` no se
+      // edita (I-5 / DYN-B15); su valor es la constante de código, NADIE lo lee, y el `GET` de M2 lo quita del DTO.
+      ingestMaxCardsPerRun: DEFAULT_GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN,
       // v1.51-b (R1): la MISMA composición de siempre —las 3 claves del ingest— pero conservando CUÁL
       // falló. `ingestConfigInvalid` se deriva de la lista para que no puedan divergir: si mañana
       // alguien recompone una y olvida la otra, la derivación lo impide por construcción.

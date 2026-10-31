@@ -3,7 +3,7 @@
 > Propiedad: **devops**. Cómo levantar el entorno local, correr CI y desplegar/rollback.
 > Coherente con `docs/ARCHITECTURE.md` (§1 stack, §8 variables) y `PROJECT.md`.
 
-## Estado vigente (2026-10-19)
+## Estado vigente (2026-10-30)
 
 - **Quién publica:** fusionar en `production` despliega solo (Vercel frontend, Root Directory = `frontend`;
   Railway backend). El orquestador no publica; el botón es del dueño (`CLAUDE.md` «Cómo se publica»,
@@ -18,9 +18,16 @@
   a #95.
 - **Fase 2 de marketing (medición):** construida en infraestructura y **APAGADA** — variables, puerta del aviso
   (C-D1), regla de secretos (C-D2), E2E de medición y C-F1. Encendido y apagado: **§101**.
-- **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5). Este documento sigue muy por encima del
-  tope de 1 500 líneas: **se compacta antes de añadir**.
-- **Histórico:** el encabezado anterior vive en `git show b95fbbac:docs/DEVOPS_NOTES.md`.
+- **Runners fijados (2026-10-29):** todo `runs-on` es `ubuntu-24.04` (la imagen de production verde, run 40599627832); `ubuntu-latest` pasó a 26.04 y
+  Playwright 1.56 no instala Chromium ahí (run 40849459030). Candado `scripts/check-runner-pin.sh` + canario, job `runner-pin` de `ci.yml`.
+- **Portada (§DYN, v1.114.2, 2026-10-30):** `home-perf.yml` corre Lighthouse CI (N=5 por perfil, mediana) con canario y los
+  dos casos de 937 — §104; desde v1.114.2 con la foto líder de **peso real** y el optimizador comprobado (DYN-D3), y celular
+  con **trinquete** (DYN-D1) — §106. **Trinquete fijado el 2026-10-30: FCP 1 350 ms / LCP 4 190 ms** (mediana de CI sobre
+  `e4c080ca` +10 %, §106.2); D2 en celular bloquea con ese FCP (v1.114.5). **Precondición de publicar A:** la lectura de coste
+  en Vercel (§106.4, la hace el dueño); la de 7 días tras publicar caduca el 2026-12-01 (candado en §106.4). Mediciones de producción de §DYN: `scripts/dyn-prod-measure.sh` (§104.4), las corre el dueño.
+- **Limpieza de ramas (2026-10-30):** `limpieza-ramas.yml` (lo dispara el dueño) borra las ramas remotas fusionadas en
+  `production` y archiva `main`. Pasos para el dueño y cómo se deshace: **§105**.
+- **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5); muy por encima del tope: **se compacta antes de añadir**. Encabezado anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
 ---
 
@@ -141,6 +148,7 @@ antes de usar esas funciones:
 | `SEALED_PRICE_INGEST_CRON` (opcional) | Cron **en UTC** del ingest **diario de referencia del SELLADO** `sealed-price-ingest` (v1.19, tcgcsv.com; §21). Default `30 21 * * *` (21:30 UTC = 15:30 CDMX), tras el refresh diario de TCGCSV (~20:00 UTC) y tras `fx-refresh`. **El encendido real es el dial M10 `sealed_price_source`** (`tcgcsv \| off`, seed `off` fail-closed) — la env solo mueve el horario. Requiere `REDIS_URL`. | Sin acción salvo querer otro horario (ajuste sin redeploy en Railway) |
 | `POKEMONPRICETRACKER_API_KEY` | **Proveedor de PAGA del ingest masivo `price-ingest` (WS-A, §19)** — bulk `POST /cards/bulk-price`, auth Bearer. **Requisito operativo en prod** cuando `PRICE_PROVIDER=pokemonpricetracker` (con **cuota del plan de paga**). Rol residual: stub graded/sealed per-carta (BE-6). **Valor en Railway, NUNCA en el repo.** | PokemonPriceTracker (**plan de paga**; key **ya en Railway**) |
 | `POKEMONPRICETRACKER_MARKET_FORMAT` (**money-safe, sin default**) | Moneda + unidad del campo `market` del proveedor de paga: `usd_dollars` / `usd_cents` / `mxn_dollars` / `mxn_cents`. **Candado fail-closed:** sin ella, con `PRICE_PROVIDER=pokemonpricetracker` el ingest corre **sample-only** (fetch + log de muestra, **no persiste** ningún precio). El **PO confirmó `usd_dollars`** — fijarla **solo tras leer el log de muestra** de una corrida `{setId}` (§19.5). Con `pokemontcg_io` (legacy) no aplica. **Valor en Railway, no en el repo.** | devops, tras verificar el log de la 1ª corrida (§19.5) |
+| `POKEMONPRICETRACKER_DAILY_QUOTA` (§DYN, no secreto) | Cuota del **plan** del proveedor de paga (créditos/día) que el panel de presupuesto de M10 muestra junto al tope propio (`graded_estimate_daily_credit_cap`, que es el que gobierna el gasto). Vacía ⇒ el panel dice `null`. Detalle en `.env.example`. | **El dueño, en Railway**, con el número de su plan (§32.12.1: 20 000); lo comprueba `check-graded-estimate-dials.sh` (rc 10 si falta) |
 | `POKETRACE_API_KEY` | Respaldo per-carta gradeadas/sellado | PokeTrace (free tier) — **provider stub, ver BE-6** |
 | `S3_*` (endpoint/bucket/keys/force-path-style) | **Object storage SOLO para la INE del buylist (`kyc_ine/`)**, cifrada + presigned PUT/GET. Local=MinIO (ya puesto); prod=R2/S3. v1.2.1: sin `S3_PUBLIC_BASE_URL` (no hay prefijo público) ni fotos de inventario/disputa. Nombres reales que consume el código: `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`. | Cloudflare R2 o AWS S3 |
 | `KYC_UPLOAD_MAX_BYTES` (opcional) | Tope en bytes del upload presignado de la INE (`kyc_ine`); se fija en la firma (`ContentLength`). Sin valor → backend usa **10 MiB** (10485760). | Sin acción salvo querer otro tope |
@@ -1871,247 +1879,10 @@ consume). No hay que tocar env ni cron. Para desmapear un item puntual: `PUT ...
 
 ---
 
-## 22. Desbloqueo de los gates rojos del release PR #3 (`main` → `production`, 2026-08-17)
+## 22. Desbloqueo de los gates rojos del release PR #3 (2026-08-17) — compactada 2026-10-29 (DOC-SIZE); texto: `git show fb67d43b:docs/DEVOPS_NOTES.md`
 
-> **Contexto:** el PR de release #3 (mergeado en `production`, commit `9940adc`) quedó con tres
-> checks en rojo que bloquean el "Wait for CI" del deploy en Railway: `gitleaks`, `frontend-e2e`
-> (y su gemelo del E2E real) y `trivy-image`. Los tres eran fallos de **infraestructura de CI**,
-> no de código de aplicación: se arreglan en zona devops y no hubo que tocar `backend/` ni
-> `frontend/`. Rama del arreglo: `claude/fix-ci-gates-release`.
-
-### 22.1 `gitleaks` — faltaba `GITHUB_TOKEN`
-
-**Síntoma (log real):**
-
-```
-##[error]🛑 GITHUB_TOKEN is now required to scan pull requests. You can use the automatically created token as shown in the README.
-```
-
-**Causa raíz:** `gitleaks/gitleaks-action@v2` exige `GITHUB_TOKEN` para escanear PRs (lo usa para
-resolver los commits del PR y, si procede, comentar). El step de `security-sast.yml` solo pasaba
-`GITLEAKS_CONFIG`. El input va por **`env:`**, no por `with:` (así lo documenta el README de la
-acción).
-
-**Cambio (`.github/workflows/security-sast.yml`, job `gitleaks`):**
-- `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` en el bloque `env:` del step.
-- `permissions:` **a nivel de job** (no del workflow, para no ampliar el scope de los demás):
-  `contents: read` + `pull-requests: read`.
-- `GITLEAKS_ENABLE_COMMENTS: "false"`: publicar comentarios en el PR exigiría
-  `pull-requests: write` y no queremos ese permiso en un job de secretos. El gate **no se relaja**:
-  si hay leaks el job falla igual y el detalle queda en el log y en el artifact SARIF.
-
-**Deuda anotada (no bloqueante):** `gitleaks-action@v2` corre sobre Node 20, que GitHub retira de
-los runners el **2026-09-16**. Antes de esa fecha hay que subir a `@v3` (mismos inputs/env; requiere
-runner ≥ 2.327.1). No se subió en este arreglo para no mezclar un cambio de mayor con el desbloqueo
-del release. Está anotado como comentario en el propio workflow.
-
-### 22.2 `frontend-e2e` / `e2e-real` — Chromium inexistente en `ubuntu-latest`
-
-**Síntoma (log real):**
-
-```
-##[error]No existe /opt/pw-browsers/chromium.
-##[error]Este job usa el Chromium preinstalado del runner-harness (/opt/pw-browsers) y NO ejecuta 'playwright install'.
-```
-
-**Causa raíz:** los dos workflows E2E asumían un **runner-harness** con los navegadores de Playwright
-preinstalados en `/opt/pw-browsers`, pero los jobs corren en `ubuntu-latest` (runner **estándar** de
-GitHub), donde esa ruta **no existe** — solo existe dentro del entorno de Claude Code. El "Guard
-navegador" hacía exactamente lo que decía su mensaje: abortar. Es decir, el job **nunca** pudo pasar
-en CI con esa política.
-
-**Cambio (approach estándar de Playwright en Actions):**
-- `.github/workflows/e2e.yml` (job `frontend-e2e`): se eliminaron
-  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`, `PLAYWRIGHT_BROWSERS_PATH`, `PLAYWRIGHT_CHROMIUM_PATH` y el
-  step *Guard navegador*. Se añadió `npx playwright install --with-deps chromium`
-  (`working-directory: frontend`) **después** del `npm ci` del frontend — el orden importa: el CLI
-  `playwright` vive en `frontend/node_modules`, antes del `npm ci` `npx` no lo encuentra.
-- `.github/workflows/e2e-real.yml` (job `e2e-real`): mismas env vars y mismo guard eliminados; el
-  `playwright install` va justo después del `npm ci` del frontend (que está al final del job) y
-  antes del step *Playwright smoke*.
-- Se reescribieron las cabeceras de ambos workflows y §5.1 de este documento, que documentaban la
-  política vieja ("Chromium PREINSTALADO", "NO se ejecuta playwright install", "REQUISITO DE
-  RUNNER"). Dejarlas habría sido documentación que miente sobre el pipeline.
-- **Detalle que casi se escapa (y que habría dejado el job igual de rojo):**
-  `frontend/playwright.config.ts` (rol **frontend**) fija
-  `launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH ?? '/opt/pw-browsers/chromium'`.
-  Con solo instalar el navegador, Playwright habría seguido intentando lanzar la ruta del harness.
-  Por eso el step, tras instalar, **resuelve la ruta real con la API oficial**
-  (`require('@playwright/test').chromium.executablePath()`), comprueba que el binario existe y es
-  ejecutable (ese check sustituye al viejo *Guard navegador*, ahora sí con sentido en CI) y la
-  exporta a `$GITHUB_ENV` como `PLAYWRIGHT_CHROMIUM_PATH` para los steps siguientes.
-  **Hallazgo → rol frontend (no bloqueante):** el default hardcodeado `/opt/pw-browsers/chromium`
-  del config solo tiene sentido en el runner-harness; lo natural sería dejar que Playwright resuelva
-  el navegador por defecto y usar `executablePath` **solo** si la env está definida. Mientras el
-  config siga así, estos workflows deben exportar la variable.
-- **No** se añadió cache de navegadores (`actions/cache`): con `--with-deps` haría falta igual la
-  instalación de libs de sistema y el ahorro no compensa el riesgo de cache stale. Si el tiempo de
-  job molesta, es una optimización posterior.
-- **Observación NO tocada (decisión consciente):** `e2e-real.yml` invoca el smoke con
-  `E2E_BASE_URL` pero **sin** `E2E_REAL=1`, mientras que el `playwright.config.ts` documenta
-  `E2E_BASE_URL=... E2E_REAL=1 npm run test:e2e` como forma de correr en real (filtra a los tests
-  tagueados `@real`). No se cambió en este arreglo para no alterar qué tests corren en el gate de
-  promoción a prod dentro de un fix de desbloqueo; queda como decisión para la próxima corrida real
-  (si los specs mock-only de esos archivos fallan contra el backend real, la respuesta es añadir
-  `E2E_REAL: "1"` al step del smoke).
-
-### 22.3 `trivy-image` — **no era node-tar de la app: era el npm de la imagen base**
-
-**La premisa inicial ("bumpear node-tar") era equivocada.** Verificado:
-- `npm ls tar` **vacío** en `backend/` y en `frontend/`; ni `backend/package-lock.json` ni
-  `frontend/package-lock.json` tienen una sola entrada de `tar`.
-- Por eso el `"tar": ">=7.5.18"` de `overrides` en `backend/package.json` era **inefectivo**: no
-  existe ningún `tar` en el árbol de dependencias que sobreescribir.
-
-**Causa raíz real:** el reporte que rompía el gate era la sección **Node.js (node-pkg)** — *Total 16
-(HIGH 15, CRITICAL 1)* — y **todos** los paths eran
-`usr/local/lib/node_modules/npm/node_modules/...`: las dependencias internas del **npm empaquetado
-dentro de la imagen base `node:20-alpine`** (`tar` 6.2.1 con CVE-2026-59873 CRITICAL y
-CVE-2026-23745/23950/24842 HIGH, `brace-expansion` 2.0.1, `cross-spawn` 7.0.3, `minimatch`,
-`picomatch`, `sigstore`…). Eso **no se puede arreglar desde package.json**: no lo declaramos
-nosotros, llega con la imagen oficial de Node.
-
-**Arreglo (elimina la vulnerabilidad, no la ignora): npm fuera de la etapa `runtime`.**
-El runtime de producción no necesita npm; borrarlo hace desaparecer toda esa superficie y además
-adelgaza la imagen.
-
-- **`Dockerfile.frontend`** (etapa `runtime`): `RUN rm -rf /usr/local/lib/node_modules/npm
-  /usr/local/bin/npm /usr/local/bin/npx` (en `/usr/local/bin`, `npm` y `npx` son symlinks a esa
-  carpeta). El arranque es `node server.js` (output standalone de Next): no usa npm ni npx.
-- **`Dockerfile.backend`** (etapa `runtime`): mismo `rm -rf`, **y cambio obligado del `CMD`**. El
-  CMD anterior era `sh -c "npx prisma migrate deploy && node dist/main.js"`: sin npx **habría roto
-  el arranque en Railway**. Ahora:
-
-  ```dockerfile
-  CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node dist/main.js"]
-  ```
-
-  `build/index.js` es el entrypoint real del CLI (verificado: `prisma@5.x` declara
-  `"bin": {"prisma": "build/index.js"}`; `node_modules/.bin/prisma` es un symlink a ese archivo, y
-  `node build/index.js --version` responde correctamente). El paquete `prisma` viaja en la imagen
-  porque esta etapa conserva `node_modules` completo con devDeps a propósito (ver NOTA de la etapa
-  build y §6).
-- **Guards de build (ambos Dockerfiles):** tras el `rm -rf`, un `if` falla el build si `npm` sigue
-  presente; en el backend, además, un `test -f node_modules/prisma/build/index.js`. Si una imagen
-  base futura mueve esas rutas, o un bump de Prisma cambia su bin, el **build** falla con mensaje
-  claro en vez de publicar una imagen vulnerable o crash-loopear al arrancar en Railway.
-- **`security/.trivyignore`:** se **retiraron** los 4 CVE de node-tar (CVE-2026-26960/-29786/-31802/
-  -59874) — ya no hay npm en el runtime que los traiga. El archivo queda **sin excepciones activas**
-  (solo la justificación histórica) y se sigue pasando a los jobs para que cualquier excepción futura
-  viva en un único sitio auditable. **No se añadió ningún CVE nuevo.**
-- **Comentarios de `security-sast.yml`** (`trivy-fs`, `trivy-image` backend y frontend) actualizados:
-  ya no justifican nada por node-tar.
-
-**Efecto colateral que hubo que arreglar:** `e2e-real.yml` sembraba con
-`docker compose exec -T backend npm run seed:synthetic --if-present` — **npm ya no existe en ese
-contenedor**. Ahora el step lee el script `seed:synthetic` del `package.json` del contenedor
-(`node -e`, misma fuente de verdad, sin hardcodear la ruta del seed, que es del rol backend) y lo
-ejecuta con `node_modules/.bin` en el `PATH`. Semántica idéntica, incluido el "si no existe, se
-salta" del `--if-present`. Los scripts de host (`scripts/seed.sh`, `scripts/seed-synthetic.sh`,
-`scripts/db-migrate.sh`) **no** se ven afectados: corren en el host (que sí tiene npm/npx), no dentro
-de la imagen.
-
-### 22.4 Qué se verificó y qué NO (honestidad de la verificación)
-
-**Verificado en este entorno:**
-- YAML de `e2e.yml`, `e2e-real.yml`, `security-sast.yml` (+ `ci.yml`, `deploy.yml`) parsea con
-  `yaml.safe_load`.
-- Todos los bloques `run:` de los tres workflows tocados pasan `bash -n`.
-- Lógica de extracción del seed (`node -e` + `sh -c` con PATH) probada localmente con el
-  `backend/package.json` real: devuelve `ts-node prisma/seed-e2e.ts`, y con el script ausente emite
-  el warning y sale 0.
-- Entrypoint del CLI de Prisma: instalación limpia de `prisma@^5.20.0` →
-  `bin.prisma = "build/index.js"`, `node node_modules/prisma/build/index.js --version` OK.
-
-**NO verificado (bloqueo de entorno, no del arreglo):** **no se pudo construir ni escanear las
-imágenes**. El daemon Docker arranca, pero el pull de `node:20-alpine` muere porque la política de
-egress del sandbox bloquea el CDN de blobs de Docker Hub:
-
-```
-403 CONNECT production.cloudfront.docker.com:443
-ERROR: failed to solve: node:20-alpine: ... Forbidden
-```
-
-Por tanto **queda pendiente de la primera corrida en CI**: (a) que el build de ambas imágenes pase
-con el `rm -rf` de npm y los guards, (b) que `trivy image` ya no reporte HIGH/CRITICAL, y (c) que el
-backend arranque con el nuevo `CMD` (migrate deploy + `node dist/main.js`). Si el gate siguiera rojo
-por CVEs que **no** vengan de `usr/local/lib/node_modules/npm/...`, son CVEs reales: se tratan (bump
-de imagen base o de dependencia), **no** se añaden al `.trivyignore`.
-
-### 22.5 Rollback de este cambio
-
-Todo el arreglo es de infraestructura y reversible con `git revert` del commit en
-`claude/fix-ci-gates-release`. Riesgo a vigilar en el **primer deploy** tras el merge: el arranque
-del backend depende ahora de `node node_modules/prisma/build/index.js migrate deploy`. Si en Railway
-apareciera `Cannot find module '/app/node_modules/prisma/build/index.js'`, el rollback inmediato es
-volver al `CMD` con `npx` **y** revertir el `rm -rf` de npm en `Dockerfile.backend` (ambos a la vez:
-el `npx` no funciona sin npm). El guard `test -f` del build debería impedir que ese caso llegue a
-producción.
-
-### 22.6 Tercera capa de `trivy-image`: OpenSSL de la capa OS (`apk upgrade`)
-
-Cerrados los CVE de npm (§22.3) y los 2 HIGH de dependencias reales del backend (`glob` 10.4.5 →
-10.5.0 / CVE-2025-64756, `picomatch` 4.0.1 → 4.0.5 / CVE-2026-33671, que arregló el rol **backend**
-en `backend/package.json` con overrides acotados por rango), el gate SIGUIÓ rojo con un hallazgo de
-naturaleza distinta:
-
-```
-tcg-frontend:scan (alpine 3.23.4)
-libcrypto3  CVE-2026-45447  HIGH  3.5.6-r0 → 3.5.7-r0
-libssl3     CVE-2026-45447  HIGH  3.5.6-r0 → 3.5.7-r0
-openssl: Heap Use-After-Free in PKCS7_verify()
-```
-
-**Por qué solo el frontend:** la base del backend hace `apk add ... openssl`, que resuelve contra el
-índice ACTUAL del repo de Alpine y de paso arrastraba `libcrypto3`/`libssl3` al día. La del frontend
-no instala openssl, así que conservaba las libs congeladas en el tag `node:20-alpine`. O sea: que el
-backend pasara era un **efecto colateral**, no una garantía.
-
-**Arreglo (no un ignore):** `apk upgrade --no-cache` en la etapa `base` de AMBOS Dockerfiles, antes
-del `apk add`. Cierra el CVE en el frontend, iguala la política en los dos, y cubre futuros CVE de la
-capa OS sin depender de que el tag de Node se reconstruya. Se revisa al subir de imagen base.
-
-**Lección para la próxima vez:** los hallazgos de `trivy-image` venían en TRES capas y cada una tapaba
-a la siguiente — npm de la imagen base → devDependencies reales de la app → paquetes del sistema. Un
-"arreglé el CVE" tras la primera capa habría sido falso. Conviene volver a correr el gate después de
-cada capa hasta que salga limpio de verdad.
-
-### 22.7 Robustez de los pasos de instalación en CI (cuelgues de `apt`)
-
-**Síntoma.** En una sola noche, cuatro jobs se quedaron colgados en `apt-get`: `trivy-fs` (×2),
-`trivy-image` y el `playwright install --with-deps` de `frontend-e2e`. Hasta **25 minutos** parados en
-un paso que en un runner sano tarda entre 30 y 90 s — sin log, sin fallo, solo `in_progress` indefinido.
-Hubo que cancelar y relanzar a mano cada vez.
-
-**Por qué importa más de lo que parece.** Railway espera al **check suite COMPLETO** antes de
-desplegar. Un job colgado bloquea el deploy sin dar ninguna señal accionable, y en el dashboard es
-indistinguible de un job que todavía corre. La causa raíz no es el mirror de apt (que va a seguir
-fallando de vez en cuando): era que estos pasos **no tenían ni timeout ni reintentos**, así que un
-fallo transitorio se convertía en un cuelgue permanente.
-
-**Arreglo, en dos iteraciones — la primera estaba mal y conviene que quede escrito:**
-
-1. **Intento 1 (insuficiente):** `timeout` por comando + 3 reintentos + `timeout-minutes`. Acotaba el
-   cuelgue, pero los reintentos **no servían**: `timeout` mata `apt-get` a mitad de la descarga y el
-   proceso huérfano CONSERVA `/var/lib/dpkg/lock-frontend`, así que los intentos 2 y 3 morían al
-   instante con `Could not get lock ... It is held by process N`. Reintentaba contra un lock que el
-   propio timeout dejaba tomado.
-2. **Intento 2 (el bueno):** `liberar_apt()` antes de cada reintento — mata `apt-get`/`dpkg` por
-   **nombre exacto** (`pkill -x`, deliberadamente NO `-f`, para no arriesgarse a matar el propio shell
-   del step), espera con `fuser` a que `lock-frontend` quede libre (máx. 60 s) y repara estado parcial
-   con `dpkg --configure -a`. Además se subieron los márgenes, porque el fallo real **no era un cuelgue
-   sino lentitud**: el log muestra `apt` tardando ~2 min en bajar un solo paquete de fuentes, de 21 MB
-   totales. Playwright: 420 s por intento. `apt-get` de Trivy: 240/300 s.
-
-**El gate NO se relaja.** Si tras 3 intentos no hay Trivy o no hay Chromium, el step FALLA (`exit 1`).
-Nunca se continúa sin escanear ni sin navegador. `timeout-minutes` (20 en SAST, 25 en E2E) es un tope
-duro frente al default de 6 h de Actions.
-
-**Criterio para reintentar un job en el futuro.** Relanzar es legítimo SOLO cuando el job murió o se
-colgó **antes** de ejecutar la verificación (setup del entorno, instalación de herramientas, checkout).
-Si el escaneo o los tests llegaron a correr y fallaron, eso es un hallazgo real y se diagnostica — no
-se relanza. Los cuatro reintentos de esta noche caen todos en el primer caso, y en ninguno se cambió
-el commit entre intentos.
+Histórico. Lo que sigue vigente vive en su sitio: navegador de los E2E (§5.1, «Navegador»), imagen de backend sin
+`npm` (seed por bin, §5.1) y overrides acotados por rango (§74). Los §22.x citados en otras secciones están en ese `git show`.
 
 ---
 
@@ -7872,94 +7643,10 @@ Seguridad aprobó el release **con condiciones**. Dos son de devops y están tra
   código, hay que verificarlo por calendario»*) **no había quedado enrutada**: el cron semanal era
   solo DAST.
 
-### 41.1 La medición de S-DEP-1 (antes de decidir nada)
+### 41.1–41.4 S-DEP-1 (cerrado el 2026-09-09; detalle: `git show 0d40d0b7:docs/DEVOPS_NOTES.md`, §41.1–41.4)
 
-`npm audit --omit=dev` en `backend/` — **6 vulnerabilidades: 4 moderadas, 2 altas**, idéntico a lo
-que reportó seguridad:
-
-| Paquete | Sev | Rango vulnerable | Directo | Fix que ofrece npm |
-|---|---|---|---|---|
-| `@nestjs/platform-express` | **high** | `*` | sí | `12.0.1` — **semver MAJOR** |
-| `multer` | **high** | `<=2.2.0` | no | vía `@nestjs/platform-express@12.0.1` — **MAJOR** |
-| `@nestjs/core` | moderate | `<=11.1.17` | sí | `12.0.1` — **MAJOR** |
-| `qs` | moderate | `2.2.5 - 6.15.3` | no | vía platform-express — **MAJOR** |
-| `express` | moderate | `4.22.2` | no | vía platform-express — **MAJOR** |
-| `body-parser` | moderate | `1.20.5 - 1.20.6` | no | no-major |
-
-Y el gate del repo, en rojo (`exit=1`):
-
-```
-✗ backend/: vulnerabilidades >= high detectadas.
-✓ frontend/: sin vulnerabilidades >= high.
-✗ npm audit encontró vulnerabilidades que bloquean el gate.
-```
-
-`frontend/` en **0**: el bump del pase anterior aguantó.
-
-### 41.2 ¿Es alcanzable el vector de `multer`? **No.** (verificado, no asumido)
-
-Las 4 advisories de `multer` son DoS/bypass **en el parseo de multipart**. Para que se ejecute una
-sola línea de multer, Nest tiene que registrar un `FileInterceptor`. Comprobado en `backend/`:
-
-- `FileInterceptor` / `FilesInterceptor` / `FileFieldsInterceptor` / `AnyFilesInterceptor` /
-  `@UploadedFile` / `@UploadedFiles` / `MulterModule` / `import 'multer'` → **cero coincidencias** en `src/`.
-- Sin interceptores globales (`APP_INTERCEPTOR` / `useGlobalInterceptors`): **ninguno**.
-- `main.ts` solo registra `helmet()` y `json()` (más el `json({verify})` del webhook de Stripe para el
-  `rawBody`). **Ningún parser multipart.**
-- Las subidas van por **URL prefirmada**: `POST /uploads/presign` devuelve la firma y el cliente hace
-  `PUT` directo a R2. El binario **nunca** pasa por el backend.
-
-⚠️ **Trampa documentada:** `grep -r multipart backend/` **sí** devuelve resultados
-(`master-set-multipart`, `catalog.multipart.spec.ts`, `master-set.multipart.spec.ts`). Es el concepto
-de dominio *"master set repartido en varias partes"*, **no** HTTP multipart. Quien repita esta
-verificación en el futuro no debe contarlos como uso de multer.
-
-**Conclusión:** vector **no alcanzable**. Se confirma la hipótesis de seguridad.
-
-### 41.3 La decisión: **(a) actualizar**, y no hizo falta ni tocar `package.json`
-
-El dato que cambió la decisión: `multer` **no es dependencia directa** — ya está en `overrides` de
-`backend/package.json`, pinneado a `^2.2.0`. Y el registro publica **`multer@2.3.0`**, que **ya cae
-dentro de ese `^2.2.0`**. Lo mismo con `qs@6.16.0` (override `^6.15.3`) y `body-parser@1.20.8`
-(override `^1.20.6`). **El `package.json` ya permitía las versiones sanas; lo que estaba viejo era el
-lockfile.**
-
-Verificado sobre una copia en scratchpad (sin tocar `backend/`), con `--package-lock-only`:
-
-| Variante | `package.json` | Resultado `--omit=dev` | Gate |
-|---|---|---|---|
-| Hoy | — | 4 mod + **2 high** | `exit=1` ❌ |
-| `npm update multer` | **sin cambios** | 5 mod + **0 high** | `exit=0` ✅ |
-| `npm update multer qs body-parser` | **sin cambios** | 2 mod + **0 high** | `exit=0` ✅ |
-
-**Recomendado a backend: la variante mínima (`npm update multer`).** Deja el gate en verde tocando
-únicamente un paquete que **no se ejecuta en ninguna ruta** (§41.2) — riesgo funcional literalmente
-nulo, que es lo que se quiere en congelación de release. `qs`/`body-parser` sí están en el camino
-caliente de cada request (query string y cuerpo JSON): son moderadas, **no bloquean el gate**, y
-subirlas exige corrida de tests. Van fuera del release.
-
-**Por qué se descarta (b), registrar la excepción en `TECH_DEBT.md`:** la excepción se justifica
-cuando el arreglo no existe o cuesta más que el riesgo. Aquí el arreglo es un `npm update` de un
-paquete muerto, dentro de rangos que `package.json` **ya autoriza**, sin cambio de API y sin major.
-Registrar deuda por algo que se cierra con un comando es convertir el registro de deuda en un
-basurero: la próxima vez que alguien lea esa ficha no sabrá si es "imposible" o "nadie lo intentó".
-La excepción se reserva para las **2 moderadas de `@nestjs/core`/`platform-express`** (GHSA-36xv-jgw5-4q75),
-cuyo único fix **sí** es Nest 12 (major) — esas no bloquean el gate y no se tocan en este release.
-
-**Y lo que no se hizo: silenciar el gate.** No se bajó `AUDIT_LEVEL`, no se añadió `continue-on-error`
-al job de `npm audit` del PR, no se metió nada en `.trivyignore`. El umbral del gate por PR sigue
-siendo `high` y sigue siendo required check.
-
-### 41.4 Lo que le toca a **backend** (devops no edita `backend/package.json`)
-
-```bash
-cd backend
-npm update multer          # -> multer 2.3.0; NO modifica package.json, solo package-lock.json
-npm audit --omit=dev       # esperado: 5 moderate, 0 high
-npm test                   # sanidad; multer no está en ninguna ruta, no debería moverse nada
-```
-
-Commitear **solo** `backend/package-lock.json`. Si `package.json` cambia, algo salió mal: parar.
+`npm audit --omit=dev` en `backend/` daba 4 moderadas + 2 altas; el vector de `multer` no era alcanzable y se cerró
+actualizando el lockfile (backend), sin tocar `package.json`. Vigente de esto: lo que sigue (S-PROC-1).
 
 ### 41.5 S-PROC-1 — `npm audit` semanal en `security-scheduled.yml`
 
@@ -8013,26 +7700,7 @@ mantiene el gate. El issue se cierra **solo** cuando `./security/scripts/audit-n
 Si el paso del issue falla (p. ej. Issues deshabilitado en el repo) es `continue-on-error`: **no tapa
 el rojo**, que sigue siendo la señal de último recurso.
 
-### 41.8 Evidencia — las dos corridas
-
-**Sucio** (estado real del repo hoy, `exit=1`):
-
-```
-| App         | Crit | High | Mod | Low | Estado                    |
-| `backend/`  |    0 |    2 |   4 |   0 | ❌ **bloquea el gate**    |
-| `frontend/` |    0 |    0 |   0 |   0 | ✅ sin hallazgos >= high  |
-```
-
-**Limpio** (mismo script, lockfile refrescado, `exit=0`):
-
-```
-| App         | Crit | High | Mod | Low | Estado                    |
-| `backend/`  |    0 |    0 |   2 |   0 | ✅ sin hallazgos >= high  |
-| `frontend/` |    0 |    0 |   0 |   0 | ✅ sin hallazgos >= high  |
-```
-
-Probadas además las dos ramas del paso de issue (crear la primera semana / comentar la segunda) y la
-sintaxis de los cuatro bloques `run:` (`bash -n`). Sin cambios en `backend/` ni en `frontend/`.
+### 41.8 Evidencia — retirada (DOC-SIZE, 2026-10-30); las dos corridas: `git show 0d40d0b7:docs/DEVOPS_NOTES.md`, §41.8
 
 ### 41.9 Cómo se revierte
 
@@ -14355,25 +14023,10 @@ excepción nueva en `.trivyignore`.
 **Pendiente (no se toca aquí):** el job instala `trivy` por apt sin fijar versión, en contra de «toda dependencia
 externa va fijada». Lo dejo propuesto, no lo cambio.
 
-## §90 · Redis local en MISCONF: `dir` en un scratchpad borrado (2026-10-06, rama `claude/buylist-skydropx`)
+## §90 · Redis local en MISCONF (2026-10-06) — compactada 2026-10-30 (DOC-SIZE); texto: `git show b90bb35d:docs/DEVOPS_NOTES.md`
 
-**Síntoma (B-2/B-3/B-4, 2026-10-06):** `auth-password-attempts-redis` y `reset-admin-password-lock` rojas en todos
-los árboles con `MISCONF ... unable to persist to disk`.
-
-**Causa medida (devops, 2026-10-06):** `redis-server` (pid 20394, arrancado `--daemonize yes` sin `--dir`) tenía
-`dir`/cwd = `scratchpad/qa-mail-7aa2/new (deleted)` (`ls -l /proc/<pid>/cwd`). Al borrarse ese scratchpad (O-20)
-el BGSAVE no puede crear el RDB → `rdb_last_bgsave_status:err` → con `stop-writes-on-bgsave-error yes` rechaza toda
-escritura. No era el disco (88 %, 4.8 GB libres). `CONFIG SET dir` falla: `can't set protected config` (Redis 7).
-
-**Arreglo en caliente:** `redis-cli CONFIG SET save ""` (sin snapshots; el Redis local es efímero de pruebas,
-DBSIZE 0). Reversible con `CONFIG SET save "3600 1 300 100 60 10000"`. No reinicia ni pierde claves.
-Antes: 3/3 corridas rojas (31/31 fallan). Después: 5/5 verdes (31/31). N y logs del agente devops.
-
-**Candado en tooling (`scripts/stack-native.sh` `start_infra`):** Redis se arranca desde `/` con `--save ""`; y si
-ya está arriba con `rdb_last_bgsave_status:err`, aplica el mismo `CONFIG SET save ""` y avisa.
-Rollback: revertir el commit.
-
-**Para los gates:** no arranquéis `redis-server` a mano desde vuestro scratchpad; usad `stack-native.sh up --infra`.
+Vigente: `stack-native.sh up --infra` arranca Redis desde `/` con `--save ""` y lo corrige si ya está en
+`rdb_last_bgsave_status:err`. No arranquéis `redis-server` a mano desde un scratchpad.
 
 ## §91 · `npm-audit` en rojo en todas las ramas: `sharp <0.35.5` (HIGH) en el frontend (2026-10-06, rama `claude/fix-sharp`)
 
@@ -14934,40 +14587,10 @@ Qué mirar: job `selftest` → paso «ZAP real lee la política…» con `ZAP-OK
 revertir **también** las tres líneas `10055-n` de `baseline.conf` o el DAST de release queda sin medición (si eso
 pone rojo el `5-quater` de `check-dast-gate-live.sh`: NO MEDIDO).
 
-## §97 · C6, ronda de control: `--control-only` gasta 6 (no 12) y respeta la autorización del dueño (2026-10-10, rama `claude/salida-real`, devops)
+## §97 · C6, ronda de control (2026-10-10) — compactada 2026-10-30 (DOC-SIZE); texto: `git show b90bb35d:docs/DEVOPS_NOTES.md`
 
-**De dónde viene.** La ronda 1 de C6 (XFF rotatorio) ya se corrió: run `38074439305`, job «sonda», sha `00535194`
-⇒ 6×`401 INVALID_CREDENTIALS`, **ningún 429**. Eso es la rama (a) de §85.4: «nunca 429» rotando XFF no distingue
-un bypass de un tope apagado; hace falta la **ronda de control** (misma IP, sin `X-Forwarded-For`). El dueño
-autorizó HOY **6 peticiones más** y solo 6 (HECHOS.md, fila 2026-10-10 «C6: el dueño AUTORIZA 6 peticiones más»).
-
-**El problema medido.** `edge-xff-probe.sh --with-control` **siempre reenvía la ronda base (6) y luego el control
-(6) = 12 peticiones**. Medido contra un backend de mentira en modo `bypass`:
-
-    rc=1 · peticiones recibidas por el backend: 12  (--with-control)
-    rc=1 · peticiones recibidas por el backend:  6  (--control-only)
-
-12 > 6 autorizadas ⇒ cablear el input a `--with-control` habría doblado el presupuesto del dueño.
-
-**La corrección.** Flag nuevo `--control-only` en `edge-xff-probe.sh`: NO reenvía la base (encaja el resultado ya
-medido, `NUNCA`) y manda **solo** la ronda de control = **6 peticiones en total**. rc 1 si el 6.º del control es
-`429 RATE_LIMITED` (bypass presente → C6 FALLA, arreglo de código: arquitecto → backend); rc 2 si no lo es (no
-concluyente). El workflow `edge-xff-probe.yml` gana el input `control` (booleano, def. `false`): `true` ⇒
-`--control-only`. La confirmación exacta sigue siendo `C6-6-INTENTOS`; el comportamiento por push/PR (solo canario)
-no cambia.
-
-**Canario.** `check-edge-xff-probe-canary.sh` gana dos casos: `bypass + --control-only` ⇒ rc 1 con `peticiones: 6`
-(si la base se reenviara saldría `peticiones: 12` y el canario mordería), y `off + --control-only` ⇒ rc 2. Verificado
-local: **10/10** con N=2 (incluye las dos mutaciones existentes que siguen mordiendo).
-
-**Cómo se corre (lo dispara el orquestador tras autorización del dueño, ventana abierta):**
-`gh workflow run edge-xff-probe.yml --ref claude/salida-real -f confirmar=C6-6-INTENTOS -f control=true`.
-Qué mirar en el resumen del job: `modo: ronda de CONTROL únicamente`, la línea `control: <6 respuestas>` y
-`peticiones: 6` (nunca 12). Otra corrida después de esta requiere **nueva** autorización del dueño.
-
-**Rollback:** `git revert` del commit. El workflow vuelve a invocar solo `--i-have-a-window` (ronda base, 6) y
-pierde el input `control`; el flag `--control-only` del script queda inerte sin el workflow. No toca producción ni
-datos.
+Vigente: `edge-xff-probe.yml` con `control=true` ⇒ `edge-xff-probe.sh --control-only` = **6** peticiones (nunca 12);
+confirmación `C6-6-INTENTOS`; cada corrida exige autorización nueva del dueño. Canario `check-edge-xff-probe-canary.sh`.
 
 ## §98 · La CSP vuelve a `report-only` este release: ZAP 10038/10055 a WARN (2026-10-10, rama `claude/salida-real`, devops)
 
@@ -15217,3 +14840,239 @@ clon limpio, QA 3/3) y se sella; si falla o no coincide ⇒ se para. Prueba real
 verdad): 1.ª regenera, 2.ª «al día», N=2; `cmp` viejo ⇒ aborta. Canario: N=3 ⇒ 29/29; `cmp` ⇒ 18/29 rojos. **TL-OPS-4:** el caso 7 del canario de 103.3 ya no es un grep:
 corre `restart:backend` (sin pidfile ⇒ rc≠0 con motivo «backend.pid» y sin reinicio; con pidfile propio ⇒ apaga ese
 pid). Sin la guarda el rc también es 1 (muere por `node_modules`), por eso exige el motivo: ablación ⇒ 3/26 rojos.
+
+## §104 · §DYN — portada vigilada sola (DYN-D1/DYN-D2), mediciones de producción y arreglos del stack nativo (2026-10-29, rama `claude/portada-dyn-ops`, base `fb67d43b`)
+
+Norma: `API_CONTRACT §DYN.7` (DYN-D1, DYN-D2) y `§DYN.9` (línea de devops); criterios `PROJECT` 936-938. Aquí, cómo se
+corre y qué se midió. Todo lo «medido» es sobre una copia `git archive` de `fb67d43b` + los scripts de este pase, con
+**mi** stack nativo (base `tcg_dyn_ops`, Redis db 9, puertos 3191/3195/9191), 4 CPU.
+
+**104.1 DYN-D1 / DYN-D2 — `scripts/home-perf/run.sh` y `.github/workflows/home-perf.yml`.** Con un backend sembrado
+(`API_UPSTREAM`), hornea el frontend con `npm run build` apuntando al API **a través de** `delay-proxy.mjs` (:3193),
+lo sirve con `next start` (:3192) detrás de **otro** `delay-proxy.mjs` (:3190, el origen que ve el navegador; el backend
+tiene que admitirlo en `APP_BASE_URL`) y corre Lighthouse CI **0.15.1** (fijado con `package-lock`, `npm ci
+--ignore-scripts`): `d1` 5 corridas por perfil, umbrales sobre la **mediana** (`lhci-config.mjs`, una sola fuente);
+`d1-canary` igual con el HTML de la portada engordado 1 500 KB (`HOME_PERF_CANARY_PAD_KB`, solo la lee `run.sh`): tiene
+que salir rojo **y** con ΔFCP ≥ 500 ms frente a `d1` (si `d1` ya es rojo, el rojo del canario solo no prueba nada);
+`d2-delay` / `d2-503` retrasan 5 s o tumban `/catalog/featured` y la vitrina (FCP ≤ 1.0 s y CLS ≤ 0.1). En `d2-*` cada
+corrida empieza con la caché de datos de Next vacía y el servidor reiniciado (la petición tardía llena la caché y la
+siguiente mediría lo cacheado). Si no hay Destacadas, las fuerza (`POST /admin/jobs/featured-rotation {force:true}` como
+súper-admin del fixture); `HP_GRADING_HOOK_ON=1` enciende el dial del gancho para que exista la vitrina (solo con
+`POKEMONPRICETRACKER_API_KEY=''`, lo vigila el candado). Las imágenes del seed (`https://img.e2e.local/…`, no resuelve) las
+sirve `seed-image-host.py` por HTTPS local y solo el Chrome de Lighthouse las resuelve hacia él: sin eso el LCP caía al
+`<h1>` y el umbral de LCP salía verde sin medir la teja. Informe: `RESUMEN.md` (mediana, peor, N, sha, fecha, carga) en el
+resumen del job y en el artefacto `home-perf`. rc 0 todo como se espera · 1 rojo · 2 **no medido** (nunca verde).
+- **Medido el 2026-10-29** (tabla completa: `git show 0d40d0b7:docs/DEVOPS_NOTES.md`, §104.1): escritorio cumplía 936 y móvil
+  no (FCP ≈ 1.4-2.0 s, LCP ≈ 6.4-6.7 s). **Esas cifras se apoyaban en la foto sustituta de 168 KB (D-DYN-9)**: con bytes reales
+  ver §106.1. DYN-D2: la vitrina retrasada 5 s no suma CLS (0.001-0.002); con `503`, CLS 0.066 móvil / 0.037 escritorio (≤ 0.1).
+- **El canario ENGORDA, no retrasa (medido).** Con el perfil estándar (throttling **simulado**, Lantern) un retraso de 2 s
+  del HTML no mueve el FCP: `server-response-time` 2 073 ms y FCP simulado 1 410 ms frente a 110 ms y 1 425 ms sin
+  retraso (N=5 por perfil; el FCP **observado** sí subió a 2 375 ms). Consecuencia que hay que saber: **este check no ve un
+  TTFB lento** (servidor o caché fríos); eso lo ve solo la medición en producción de 936 (QA, N=5 por perfil).
+- **En GitHub Actions** (run 40879539432, sha `1bf5d2f5`, N=5 por perfil): el mismo cuadro que en local; canario ΔFCP
+  +1 280 ms escritorio y +8 099 ms móvil ⇒ muerde.
+- **NO MEDIDO:** cualquier cifra de producción (la mide QA, N=5 por perfil, como pide 936).
+
+**104.2 `POKEMONPRICETRACKER_DAILY_QUOTA`.** En `.env.example`, en los dos compose (`${…:-}`) y en la tabla de §4. Sin ella el
+panel de presupuesto (`GET /admin/pricing/graded-estimates/budget`) da `providerDailyQuota: null`. **La pone el dueño en
+Railway** (backend → Variables) con el número de su plan (§32.12.1: 20 000); no es secreto. Candado del censo
+`check-env-example-census.sh`: toda variable que lea `backend/src` tiene línea en `.env.example`; las 24 que faltaban el
+2026-10-29 viven en `env-example-census.baseline`, que solo puede bajar. `FEATURED_ROTATION_CRON` también entró
+(default `*/15 * * * *`; ⛔ cadena vacía = cron inválido).
+
+**104.3 Diales del gancho tras §DYN.** `check-graded-estimate-dials.sh` ya no lee `ingestMaxCardsPerRun` (retirado, §DYN.3):
+si el DTO de M2 aún lo trae ⇒ rc 2 (binario anterior a §DYN). Lee `gradedEstimateDailyCreditCap` (M10) y el panel de
+presupuesto: tope ausente o distinto entre los dos ⇒ rc 2; cuota `null` ⇒ rc 10 (falta la variable); tope > cuota ⇒ rc 20
+(decide el dueño). `post-deploy.sh` (paso 8) lo dice igual.
+
+**104.4 Mediciones de producción de §DYN (las corre EL DUEÑO).** `scripts/dyn-prod-measure.sh` hace, en una transacción de
+solo lectura, la consulta de §DYN.4.7 (coste PSA: cartas, sets, sin mapear, W y W/7 contra 3 000) y la de §DYN.5.9 (casos
+`open|kept` con y sin base; `sin_base` = variantes que dejan de venderse con v1.114). Solo acepta `DATABASE_URL_RO` y aborta
+si el rol puede escribir en cualquiera de sus 4 tablas. **Cómo lo corre el dueño** (la credencial no sale de su terminal):
+1. Railway → Postgres → *Data* → *Query*, como admin (contraseña generada, ⛔ ni al repo ni al chat):
+   `CREATE ROLE dyn_ro LOGIN PASSWORD '<generada>'; GRANT CONNECT ON DATABASE railway TO dyn_ro; GRANT USAGE ON SCHEMA public TO dyn_ro;`
+   `GRANT SELECT ON "InventoryItem","Card","CardSet","PriceReviewCase" TO dyn_ro;` (si la base no se llama `railway`, su nombre).
+2. En su terminal, con el host **público** de Railway: `export DATABASE_URL_RO='postgresql://dyn_ro:…@<host>:<puerto>/<base>'`,
+   `./scripts/dyn-prod-measure.sh --target prod`, `unset DATABASE_URL_RO`.
+3. Pega la línea de «PEGAR EN LA SOLICITUD DE FUSIÓN» en la solicitud `main → production` (§DYN.5.9 lo exige ANTES).
+4. `DROP ROLE dyn_ro;` (tras `REVOKE` de lo concedido).
+Probado contra mi base sembrada con el esquema real (rol RO efímero): 10 cartas, 1 set, 1 sin mapear, W=30 (cuadra con SQL
+directo), 0 casos; y contra un Postgres desechable con casos conocidos (candado `check-dyn-prod-measure.sh`, job
+`dyn-prod-measure` de `ci.yml`). **NO MEDIDO en producción** (lo mide el dueño).
+
+**104.5 Stack nativo.** (a) **PEN-VEL-2:** `up --gate` compila con `npm run build` (prebuild C-D1 + postbuild
+`check-home-bundle.mjs`) y exige en el log `MEASUREMENT_NOTICE_OK mode=<modo>` y `HOME_BUNDLE_OK`; medido en mi `up --seed
+--gate`: las dos marcas presentes. (b) **DEVOPS-GATE-MEDICION:** `up --gate --measurement` (o `STACK_MEASUREMENT=on`) hornea
+con medición `on` e IDs de ficción (`G-E2ETEST1`, `1234567890123`, los del E2E de medición); por defecto `off` y los IDs
+vacíos aunque el entorno exporte uno real. El sello y `verify:head` dicen `medición`. Si aceptas el banner el navegador
+pide a Google/Meta: `sudo scripts/measurement-egress-sinkhole.sh apply`. (c) **DEVOPS-VERIFY-SHORT:** `verify:head <sha>`
+valida hex ≥ 7 y compara por **prefijo** (`sha_mismo`, también en `assert-serving-head.sh`); medido en mi copia sin `.git`:
+`verify:head fb67d43` ⇒ VERIFICADO. (d) **`down --all`** se **niega** (rc 1, sin parar nada) si hay procesos de otro clon
+(backend/frontend/s3-local/jest), conexiones de cliente a Postgres o clientes de Redis; `down --all --force-shared` lo
+hace igual y avisa. Candados con canario (en `ci.yml`, job `e2e-harness-gaps`): `check-stack-verify-short.sh` 4/4,
+`check-stack-down-all.sh` 6/6, `check-stack-frontend-build.sh` 7/7.
+
+**104.6 DOC-SIZE `--update` ya no clava documentos nuevos.** Escribía `min(tope de clase, medido)` para un documento sin fila,
+o sea lo medido: `docs/DECISIONES.md` (crece una línea por decisión) quedaba en 77 y la siguiente decisión ponía CI en
+rojo. Ahora `--update` solo baja filas existentes; un documento sin fila sigue con el tope de su clase. Canario
+`check-doc-size-canary.sh` 24/24; contra el script anterior, 2/24 rojos (los dos casos nuevos).
+
+**Candados de este pase y sus canarios** (copia `git archive` de `262f8d91`, N=1 cada uno, deterministas salvo el proxy
+de `check-home-perf`, que mide N=10): stack 4/4 · 6/6 · 7/7, diales 6/6, censo 3/3, consultas de producción 5/5,
+arnés de Lighthouse 11/11, más los anclajes que se movieron (expected-sha 4/4, upload-origin 3/3). En Actions (run
+40876689037) los jobs `e2e-harness-gaps` y `dyn-prod-measure` salieron verdes.
+
+## §105 · Limpieza de ramas y archivo de `main` (2026-10-30, rama `claude/limpieza-ramas`, base `b90bb35d`)
+
+Autorización: `HECHOS.md`, fila 2026-10-30 «Limpieza de ramas». El proxy de las sesiones de agentes bloquea el borrado
+(`git push --delete` corta la conexión; `DELETE /git/refs` → 403), así que lo dispara el dueño desde Actions.
+
+**Qué borra.** Workflow `.github/workflows/limpieza-ramas.yml` (solo `workflow_dispatch`, job con `contents: write` +
+`pull-requests: read`) → `scripts/limpieza-ramas.sh`. Borra una rama remota solo si su último commit es ancestro de
+`origin/production`, no es `production`/`main`/`staging`/`gh-pages` (lista fija en el script), no es cabeza ni base de
+una PR abierta (API `pulls?state=open`; la base también, porque borrarla cierra la PR) y sigue en el sha medido
+(`--force-with-lease`). Nunca borra etiquetas. Sin la lista de PR ⇒ rc 2 sin tocar nada. Antes de borrar, el job
+corre el canario; el canario con 7 mutaciones corre además en cada push (`ci.yml`, job `limpieza-ramas`).
+Medido 2026-10-30 en local (`confirmar=false`, sin borrar): 192 remotas · **134 a borrar** · 51 sin fusionar ·
+5 en PR abierta (#107, #92, #83, #61, #60) · 2 protegidas presentes (`main`, `production`).
+
+**Pasos para el dueño (en este orden):**
+1. GitHub → Settings → General → **Default branch** → `production`. Va primero: el botón «Run workflow» solo
+   aparece si el workflow está en la rama por defecto, y GitHub no deja borrar la rama por defecto.
+2. Que este workflow llegue a `production` en la próxima publicación (fusión de la solicitud a `production`).
+3. Actions → **«Limpieza de ramas»** → Run workflow, con `confirmar` **apagado**: el resumen del job lista qué ramas
+   se borrarían (rama, último commit, fecha). Si la lista cuadra, otra vez con `confirmar` **encendido**.
+4. Settings → General → activar **«Automatically delete head branches»** (las ramas de PR fusionadas se borran solas).
+5. Archivar `main`: Run workflow con `archivar_main` encendido (primero con `confirmar` apagado para verlo, luego
+   encendido). Crea la etiqueta `archive/main` en el último commit de `main`, comprueba que quedó en el remoto y solo
+   entonces borra `main`. Se niega (rc 2, sin borrar nada) si la rama por defecto aún no es `production` o si
+   `archive/main` ya existe en otro commit.
+
+**Cómo se deshace.** Ninguna rama borrada pierde commits: todas eran ancestro de `production`. Para recrear una, su
+sha está en la tabla del resumen del job: `git push origin <sha>:refs/heads/<rama>` (lo hace un rol técnico; si la
+rama era de una PR cerrada, también vale el botón «Restore branch» de esa PR — NO MEDIDO aquí).
+`main`: `git push origin archive/main:refs/heads/main`.
+Rollback del workflow: revertir el commit; no toca datos ni despliegues.
+
+**NO MEDIDO:** la corrida en GitHub Actions (permisos reales del `GITHUB_TOKEN` para borrar ramas, reglas de
+protección de rama que lo rechacen — saldrían como «FALLÓ» en la tabla, rc 1).
+
+## §106 · v1.114.2 (opción A): arnés con bytes reales (DYN-D3), trinquete de celular (DYN-D1), `sharp` en standalone y coste de Vercel (2026-10-30, rama `claude/portada-dyn-ops2`, base `0d40d0b7`)
+
+Norma: `API_CONTRACT §DYN.7` (DYN-D1 cambiado, DYN-D3), §DYN.6.6, D-DYN-9; `ARCHITECTURE §4.DYN (f) 7` y §5.3.5. Medido
+sobre una copia `git archive 0d40d0b7` con los scripts de este pase, mi backend sembrado (BD `tcg_dyn_ops2`, :3181) y
+**un prototipo de A solo en mi scratch** (la líder por `getImageProps`, respaldo a la original, `images` de §4.DYN (f) 7),
+porque la rama de frontend no existía aún. Ese prototipo **no es** el A de frontend: las cifras sirven para probar el arnés,
+no para fijar el trinquete.
+
+**106.1 DYN-D3 — foto de peso real y optimizador de verdad.**
+- `seed-image-host.py` sirve la líder (`*_hires*`) como PNG 733×1024 **generado** (bandas + bloques de 10 px + ruido fino,
+  filtro Sub): **928 977 B** en el origen y 62 840 B en WebP 640 q75. La real (medida por frontend, N=40): mediana ~880 KB, WebP
+  ~67 KB. La huella fijada es la de los píxeles (`HUELLA_LIDER`, también en `check-home-perf.sh`), no la del PNG (zlib cambia
+  entre implementaciones). Si no cuadra o pesa < 800 KB, no sirve (rc 3) y `run.sh` sale **no medido** (rc 2).
+- El seed apunta a `https://img.e2e.local/` (fuera de `remotePatterns`: el optimizador daría 400). El proxy del API lo
+  reescribe en todo JSON a `https://images.scrydex.com/e2e/` (`delay-proxy.mjs --replace/--with`). El Chrome de Lighthouse
+  resuelve los tres hosts de imagen a `seed-image-host.py` (HTTPS); el `next start` del arnés lleva
+  `NODE_OPTIONS=--require scripts/home-perf/next-image-origin.cjs`, que desvía el `fetch` del servidor a esos dos hosts
+  hacia el mismo origen local (HTTP). Nada de imagen sale a internet.
+- `run.sh`, antes de Lighthouse: borra `.next/cache/images` (con la caché llena, una WebP de la tanda anterior escondía un
+  optimizador roto: **medido**), exige ≥ 800 KB en el origen y pide `/_next/image?url=<líder>&w=640&q=75`: si no es
+  200 `image/webp`, **ROJO**. Por corrida `d1`, `lcp-optimized.mjs`: todas las `/_next/image` 200 `image/webp`, ninguna
+  petición a la URL original (respaldo de `CardImage`) y, si el LCP es una `<img>`, su `src` es `/_next/image` ⇒ `k/N` en
+  el resumen; N/N o **ROJO**.
+- ⚠️ **Hallazgo (medido, Next 15.5.28):** sin `sharp`, `/_next/image` **no falla**: responde **200 con la PNG original**
+  (`image/png`, 928 977 B; `image-optimizer.js:1105-1117`, cae al búfer de origen). El respaldo de `CardImage` (al `error`)
+  **no salta** y el navegador baja la HD por `/_next/image`. Lo cazan el `image/webp` exigido aquí y la guarda del Dockerfile
+  (106.3). `ARCHITECTURE §4.DYN (f) 7` dice «sharp ausente ⇒ sin 2xx»: lo medido es otra cosa (para el arquitecto).
+- El artefacto `home-perf` sube los `lhr-*.json` (`include-hidden-files: true`; `.lighthouseci` es oculta).
+- **Medido** (N=5 por perfil, mediana / peor, 4 CPU, con un vitest de otro agente al lado):
+
+  | tanda | perfil | FCP | LCP | CLS | líder por `/_next/image` | resultado |
+  |---|---|---|---|---|---|---|
+  | proto A, 18:42 UTC, carga 2.5 | celular | 1.39 / 2.12 s | 5.40 / 6.85 s | 0.002 | 5/5 | rojo (meta 936; trinquete sin fijar) |
+  | proto A | escritorio | 0.37 / 0.39 s | 0.96 / 1.04 s | 0.001 | 5/5 (LCP = `<h1>`) | verde |
+  | proto A **sin `sharp`** | celular | 1.39 / 2.19 s | 10.49 / 10.69 s | 0.002 | **0/5** (`200 image/png`) | **ROJO** (DYN-D3) |
+  | proto A **sin `sharp`** | escritorio | 0.36 / 0.39 s | 1.71 / 1.88 s | 0.001 | **0/5** | **ROJO** (DYN-D3 y LCP > 1.5) |
+  | completa con trinquete de prueba (1530/5950 ms, de la 1.ª fila), 18:50, carga 6.2 | celular | 1.41 / 2.40 s | 5.58 / 6.84 s | 0.002 | 5/5 | verde (trinquete); meta 936 «NO CUMPLIDA» en el resumen |
+  | ídem | escritorio | 0.36 / 0.41 s | 0.92 / 1.10 s | 0.001 | 5/5 | verde |
+  | ídem, `d1-canary` | cel. / esc. | 10.33 / 1.67 s | 14.81 / 2.18 s | 0.000 / 0.001 | — | ROJO los dos (ΔFCP +8 916 / +1 306 ms): muerde con trinquete |
+  | ídem, `d2-delay` / `d2-503` | cel. | 1.43 / 1.38 s | — | 0.002 / 0.066 | — | verde (FCP ≤ trinquete, CLS ≤ 0.1) |
+
+  Sin `sharp` los números reproducen los de frontend con bytes reales (9.62 s y 1.71 s): el arnés ya no se apoya en la sustituta.
+
+**106.2 DYN-D1 — trinquete de celular y meta en solo reporte.** Una sola fuente: `lhci-config.mjs`. Bloquean escritorio FCP
+≤ 1.0 s / LCP ≤ 1.5 s, CLS ≤ 0.1 en los dos perfiles y, en celular, el trinquete de `scripts/home-perf/mobile-ratchet.json`
+(FCP/LCP = ⌈mediana × 1.10⌉₁₀, con mediana, N, sha y fecha). **Fijado el 2026-10-30: FCP 1 350 / LCP 4 190 ms** (medianas
+1 219 / 3 808 ms, N=5, sha `e4c080ca`). La meta de 936 en celular sale siempre en el resumen del job («NO CUMPLIDA, decisión del
+dueño 2026-10-30» con el número). DYN-D2 en celular bloquea con el FCP del trinquete (ratificado, `API_CONTRACT` v1.114.5);
+mutación «D2 de celular con la meta» en el canario de `check-home-perf.sh`.
+- **De dónde sale el número: del runner de CI, no de este contenedor (medido).** Se fija donde se cobra: la mediana es la del
+  artefacto de `home-perf.yml` run 41144812801 (sha `e4c080ca`, ubuntu-24.04, 4 CPU, carga 2.01). En CI el FCP de celular es
+  estable: 14/15 corridas entre 1.22 y 1.24 s y 1 en 1.65 s (runs 41134931602, 41141178712, 41144812801; LCP medianas 3.52 / 3.73 / 3.81 s).
+  En este contenedor, con jest/vitest de otros agentes al lado (carga 7-9 en 4 CPU), la misma tanda dio FCP 1.67 / LCP 5.49 s
+  y FCP por corrida 1.23-2.17 s: la «bimodalidad» de §104.1 aparece con la carga del contenedor y no en CI (INFERIDO de
+  esas dos series; no aislé la causa). Un trinquete fijado aquí
+  (1 840 / 6 040 ms) habría dejado pasar un +50 % de LCP en CI.
+- **Tandas con el trinquete (N=5 por perfil cada una), en CI:** ver la tabla de §106.5.
+- **Cómo se fija (o se rehace):** `gh run download <run de home-perf.yml> -n home-perf -D <dir>` del sha que se quiere y
+  `node scripts/home-perf/fix-ratchet.mjs <dir>/d1-mobile <sha> --write`; commit del json (campo `fuente` = el run). El candado comprueba
+  la fórmula, N ≥ 5, sha y fecha. **Subirlo** después exige un `paseArquitecto` nuevo que esté en `docs/API_CONTRACT.md`
+  (`check-home-perf.sh --against-ref`, job `home-perf-mobile-goal-expiry`). Se mide en CI (artefacto `home-perf`), no aquí.
+- **Caducidad:** `scripts/check-home-perf-mobile-goal-expiry.sh` (job `home-perf-mobile-goal-expiry` de `ci.yml`): con
+  trinquete fijado, verde hasta el 2026-12-31 y **rojo desde el 2027-01-01** (rc 9). Se apaga sola si celular vuelve a
+  bloquear con la meta (json a `null`). Dueño de la condición: orquestador (devolver al dueño la opción B con el número).
+
+**106.3 `sharp` en el build `standalone`.** `sharp` ya es dependencia del frontend (`^0.35.4`, lock 0.35.5, con los binarios
+glibc y musl en el lock) y `next build` lo traza a `.next/standalone/node_modules` (medido: `sharp` + `@img/sharp-linux-x64` y
+`-linuxmusl-x64`). El standalone sirve `/_next/image` de la líder en 200 `image/webp` 62 840 B; sin `sharp`, 200 `image/png`
+928 977 B (106.1). `Dockerfile.frontend` (etapa runtime) transforma una imagen a WebP 640 q75 con el `sharp` del standalone y
+**no construye** si falla (`SHARP_STANDALONE_OK` en el log). Medido aquí sobre el standalone glibc: rc 0; quitando
+`node_modules/sharp`: rc 1. La imagen musl la construye `security-sast.yml` (trivy-image) en cada push: **NO MEDIDO aquí** (sin
+Docker en este contenedor); lo cierra ese job.
+
+**106.4 Coste del optimizador en Vercel — PRECONDICIÓN de publicar A (§5.3.5, §4.DYN (f) 7). La lee el dueño.** Devops no
+tiene la consola. Los nombres de pantalla son los de la documentación de Vercel y **no los he visto** (NO MEDIDO): si algo no
+coincide, una captura de lo que sí aparece basta.
+1. vercel.com → arriba a la izquierda, el equipo donde vive la tienda → pestaña **Usage**. Periodo: el ciclo de facturación actual.
+2. Bajar a **Image Optimization**. Anotar para cada fila que aparezca (**Image Transformations**, **Image Cache Reads**,
+   **Image Cache Writes**; en el plan antiguo, **Source Images**): lo usado y lo **incluido** en el plan.
+3. Abrir esa tarjeta: la gráfica por día. Anotar el consumo de los últimos 7 días (filtrar por el proyecto del frontend si
+   hay selector).
+4. Precio del excedente: **Settings → Billing** (o la página de precios de Vercel, fila «Image Optimization»): el precio por
+   cada 1 000 de cada fila.
+5. **Alerta de gasto:** **Settings → Billing → Spend Management**: fijar un monto y activar los avisos por correo. ⛔ No
+   activar «pausar proyectos» al llegar al monto: apaga la tienda; si se quiere, es decisión aparte del dueño.
+6. Mandar al orquestador: fecha, plan, incluido, precio del excedente, consumo diario y el monto de la alerta (no hay secretos
+   en esto). Devops lo apunta aquí con fecha, y se **repite la lectura a los 7 días** de publicar.
+- Cómo se lee: uso esperado ~2 transformaciones por líder nueva al día (~60 al mes, INFERIDO por el arquitecto). **Más de
+  ~1 000 transformaciones al día** ⇒ disparador de la opción (b) o del interruptor (`ARCHITECTURE §4.DYN (f) 7`).
+- **Condición del residual de PEN-DYN-1 (v1.114.5):** dueño devops; la lectura **a 7 días de publicar** se apunta aquí, debajo
+  de la tabla, en una línea `LECTURA-IMG-7D <AAAA-MM-DD> <transformaciones/día>` (entero). Candado
+  `scripts/check-image-optimizer-cost-reading-expiry.sh` (job `image-optimizer-cost-reading-expiry` de `ci.yml`): **rojo desde
+  2026-12-01** sin esa línea en este bloque (rc 9), rojo si la lectura pasa de 1 000/día (rc 8), no concluyente sin este bloque
+  (rc 2). Si no se publica antes del 2026-11-24, la fecha se corre con pase del arquitecto. Canario 11/11; muerde (§106.5).
+
+  | fecha | plan | incluido (transf. / reads / writes) | excedente por 1 000 | consumo diario (7 días) | alerta | quién |
+  |---|---|---|---|---|---|---|
+  | — | **NO MEDIDO** | | | | | dueño |
+
+**106.5 Candados y canarios de este pase** (copia `git archive` del commit de este pase; deterministas N=1 salvo el proxy, N=10):
+- `check-home-perf.sh` (job de `ci.yml`, paso «Arnés de Lighthouse»): umbrales con trinquete, meta en el resumen, artefacto con
+  lhr, peso y huella de la líder, reescritura, desvío, comprobación del optimizador, `lcp-optimized.mjs` contra 5 lhr de
+  juguete (bueno; respaldo; 500; `<img>` cruda; WebP + original a la vez), `--replace` del proxy y guarda de `sharp` del
+  Dockerfile. `--canary`: **29/29** mutaciones rojas (11 de §104 + 17 de v1.114.2 + «D2 de celular con la meta», v1.114.5;
+  la de «trinquete que no es mediana+10 %» ya muerde con el trinquete fijado, antes solo con `null`).
+- `check-home-perf.sh --against-ref` + `--against-ref-canary` **5/5** (job `home-perf-mobile-goal-expiry`).
+- `check-home-perf-mobile-goal-expiry.sh --canary` **4/4**; y el canario muerde: fecha movida a 2027-06-01, rc 9 cambiado a
+  0, trinquete que nunca caduca y trinquete disfrazado de meta ⇒ canario rojo **4/4**.
+- Conducta del arnés (N=5 por perfil, una tanda cada una): sin `sharp` ⇒ **ROJO, 0/5 y 0/5** (`200 image/png`); con `sharp` ⇒
+  **5/5 y 5/5**; canario de D1 con trinquete ⇒ rojo en los dos perfiles.
+- `check-image-optimizer-cost-reading-expiry.sh` (§106.4, job `image-optimizer-cost-reading-expiry`): `--canary` **11/11**; y
+  muerde: fecha movida a 2027-06-01, rc 9 → 0, leer todo el fichero y no solo §106.4, disparador a 999 999, aceptar lecturas
+  del futuro, bloque ausente sin rc 2 ⇒ canario rojo **6/6**.
+- **Trinquete (1 350 / 4 190 ms) contra tandas de CI** (N=5 por perfil; celular d1 FCP/LCP y d2 FCP, medianas):
+  runs 41134931602 · 41141178712 · 41144812801 (antes de fijarlo, mismas cifras que con él): 1.22/3.52 · 1.22/3.73 · 1.22/3.81 s,
+  d2 1.22-1.23 s ⇒ 3/3. Con el trinquete ya fijado, sha `5183de06`: runs 41147978343 · 41149112510 · 41150300792 ⇒ d1
+  1.21/3.79 · 1.21/3.48 · 1.22/3.60 s, d2-delay/d2-503 1.22 s, CLS ≤ 0.066 ⇒ **3/3 verdes** (los tres workflows enteros en verde).
+  Total en CI: **6/6 tandas** con la mediana bajo el trinquete; holgura de LCP 9-17 %. En este contenedor bajo carga 7-9: **0/2**
+  (LCP 5.49 y 5.13 s; FCP 1.67 y 1.24 s): no sirve de instrumento con otros agentes al lado.

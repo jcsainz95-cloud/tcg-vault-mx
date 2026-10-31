@@ -6,7 +6,9 @@ import * as api from '@/lib/api';
 import type { CardDTO, GradedEstimateDTO, GroupedListingSummaryDTO } from '@/types/contract';
 import { FeaturedCarousel } from './FeaturedCarousel';
 import { GradingFootnoteBoundary } from '../_shared/grading/GradingFootnote';
-import HomePage from '../page';
+// v1.113⟨portada⟩ (§DYN.6.2): `page.tsx` pasó a componente de servidor asíncrono; el cuerpo que se prueba aquí es la
+// vista cliente (su prueba de servidor vive en `page.dyn.test.tsx`).
+import { HomeView as HomePage } from '../HomeView';
 
 /**
  * **§22.6b — el carrusel «Piezas destacadas» como CUARTA superficie del gancho de grading.**
@@ -78,10 +80,11 @@ function track(eligibleAt: number | null = null): GroupedListingSummaryDTO[] {
   );
 }
 
+// v1.113⟨portada⟩ (§DYN.2, DYN-F1): la fuente del carrusel es `GET /catalog/featured`.
 function mockCatalog(data: GroupedListingSummaryDTO[]) {
   return vi
-    .spyOn(api, 'getCatalog')
-    .mockResolvedValue({ data, page: 1, pageSize: data.length, total: data.length });
+    .spyOn(api, 'getFeatured')
+    .mockResolvedValue({ businessDate: '2026-10-29', data: data.map((g) => ({ ...g, featuredSlot: 'pool' as const })) });
 }
 
 /** Las tejas del carrusel: cada una es un `<a>` que envuelve TODO (§22.6b-h). */
@@ -337,12 +340,13 @@ describe('§22.6b-g · el hospedaje de la nota al pie es la UNIÓN de vitrina y 
     vi.spyOn(api, 'getSealedGroups').mockResolvedValue({ data: [], page: 1, pageSize: 3, total: 0 });
     vi.spyOn(api, 'getPublicBounties').mockResolvedValue({ data: [] });
     vi.spyOn(api, 'getCatalog').mockImplementation(async (filters = {}) => {
-      const data = filters.gradingHighlight
-        ? gems
-        : filters.productType === 'graded'
-          ? []
-          : featured;
+      const data = filters.gradingHighlight ? gems : [];
       return { data, page: 1, pageSize: data.length || 8, total: data.length };
+    });
+    // v1.113⟨portada⟩ (§DYN.2): Destacadas tiene su propio endpoint.
+    vi.spyOn(api, 'getFeatured').mockResolvedValue({
+      businessDate: '2026-10-29',
+      data: featured.map((g) => ({ ...g, featuredSlot: 'pool' as const })),
     });
   }
 

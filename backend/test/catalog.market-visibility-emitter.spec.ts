@@ -103,6 +103,8 @@ function pricingMock(ref: Record<string, unknown> | undefined = MARKET_REF) {
     // La matemática REAL de la curva (no una mock que invente basis): lo que se está verificando es
     // el recorte del emisor, no el precio — así que el basis tiene que salir del cuerpo de verdad.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
+    // v1.114 (§DYN.5.9): sin caso de revisión vigente ⇒ la entrada del cuerpo de venta no cambia.
+    saleRetentionFor: jest.fn(async () => new Map()),
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: { box: 18 }, fallbackPct: 25, sourceOn: true })),

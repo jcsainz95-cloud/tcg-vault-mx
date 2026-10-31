@@ -459,7 +459,9 @@ describe('candado estático — un solo cuerpo de guardas (#M1-merge-rule)', () 
 
   it('`markItem` y `updateItem` no llevan guarda en línea: llaman a `assertOperable`', () => {
     const src = readFileSync(join(SRC, 'modules', 'inventory', 'inventory.service.ts'), 'utf8');
-    for (const name of ['markItem', 'updateItem']) {
+    // v1.113⟨portada⟩ (§DYN.5.3): `updateItem` es ahora el envoltorio que encola el precio del día tras confirmar; su cuerpo
+    // (el que lleva las guardas) es `updateItemInner`.
+    for (const name of ['markItem', 'updateItemInner']) {
       expect({ name, ...bodyShape(methodBody(src, name)) }).toEqual({ name, ...CLEAN });
     }
   });

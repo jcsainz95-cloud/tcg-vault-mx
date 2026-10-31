@@ -68,6 +68,10 @@ Para cada fallo:
 - **Grep no es diagnóstico.** Abres el contexto de cada match e identificas la fuente de cada operando antes de
   afirmar que un control existe o falta.
 - **Tu scratch es propio:** la ruta que te dio el encargo, nunca una genérica.
+- **Meta con red real exige `userAgent` de navegador normal.** `fbevents.js` no envía nada con el UA por defecto de
+  Playwright (`HeadlessChrome`): 14/14 corridas con 0 hits aunque `fbq('track',…)` se llamaba bien; con UA de Chrome
+  normal, 36/36 eventos (tester-e2e, producción, 2026-10-27). Un «0 hits a Meta» con UA headless no prueba ni «no hay
+  fuga» ni «el píxel no funciona». GA4 sí envía con UA headless.
 
 ## Contra qué corriste, siempre dicho
 - Un flujo «verde» dice **contra qué** corrió: **stack real con datos sembrados** o **mocks**. Contra mocks no es

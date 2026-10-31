@@ -50,6 +50,9 @@ import {
 } from '../../common/validation/credentials';
 import { OUTBOUND_ONLY } from '../shipments/label-subject';
 import { scrubInboundShipmentPii } from '../shipments/inbound-sync';
+import { FeaturedHealth, FeaturedService } from '../catalog/featured.service';
+import { ListingPriceService, ListingPricesHealth } from '../pricing/listing-price.service';
+import { dayMx } from '../spend-alerts/spend-alerts.service';
 
 /**
  * ⭐ v1.71 (`A5`, API_CONTRACT §M6-L.3/L.4) — **los valores admitidos por los DOS filtros de
@@ -658,7 +661,31 @@ export class AdminService {
     // servicio (este ⛔ tiene el servicio de diales: candado IVA-11 (c-estructural)). `@Optional()` por los unitarios que
     // construyen a mano; en DI siempre está (`AdminModule` lo provee).
     @Optional() private readonly dashboardShipping?: DashboardShippingService,
+    // v1.113⟨portada⟩ (§DYN.2.5): `dataHealth.featuredRotation`. `@Optional()` por los unitarios que construyen a mano.
+    @Optional() private readonly featured?: FeaturedService,
+    // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.8): `dataHealth.listingPrices`. `@Optional()` por los unitarios que construyen a mano.
+    @Optional() private readonly listingPrices?: ListingPriceService,
   ) {}
+
+  /** §DYN.5.8 — salud del precio del día. Lectura que falla ⇒ `stale` (no se sabe que esté bien; v1.113.2, como Destacadas). */
+  private async listingPricesHealth(): Promise<ListingPricesHealth | undefined> {
+    if (!this.listingPrices) return undefined;
+    try {
+      return await this.listingPrices.health();
+    } catch {
+      return { status: 'stale', lastDailyBusinessDate: null };
+    }
+  }
+
+  /** v1.113⟨portada⟩ (§DYN.2.5) — salud de la rotación de Destacadas. ⛔ Un fallo de lectura no tumba el tablero. */
+  private async featuredRotationHealth(): Promise<FeaturedHealth | undefined> {
+    if (!this.featured) return undefined;
+    try {
+      return await this.featured.health();
+    } catch {
+      return { status: 'stale', servingBusinessDate: null, expectedBusinessDate: dayMx(new Date()) };
+    }
+  }
 
   // ---------------- M6 Users ----------------
 
@@ -2242,6 +2269,10 @@ export class AdminService {
         pendingPriceCount: pendingPrices,
         lastPriceSyncAt: lastSync?.createdAt ?? null,
         lastFxAt: lastFx?.createdAt ?? null,
+        // v1.113⟨portada⟩ (§DYN.2.5): aditivo, sin dinero ⇒ también para `vault_operator`.
+        ...(await this.featuredRotationHealth().then((h) => (h ? { featuredRotation: h } : {}))),
+        // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.8): aditivo; solo fechas y estado (sin cifras) ⇒ también para `vault_operator`.
+        ...(await this.listingPricesHealth().then((h) => (h ? { listingPrices: h } : {}))),
       },
       launchProgress: { users, salesSettled, buylistPaid, withdrawalsNoDispute: withdrawals },
     };

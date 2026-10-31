@@ -231,3 +231,43 @@ describe('api-client · interceptor de refresh (WS-B)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * CANDADO PERF portada (§DYN.3): un GET sin cuerpo NO lleva `Content-Type`. Con la cabecera, la
+ * petición deja de ser «simple» y cada lectura pública del catálogo pagaba un preflight CORS.
+ * Canario: volver a `...(json ? { 'Content-Type': … } : {})` en `fetchWithSession` pone rojos los
+ * dos primeros casos.
+ */
+describe('apiRequest · Content-Type solo con cuerpo (PERF, candado)', () => {
+  const initOf = (i = 0) => (fetchMock.mock.calls[i] as [string, RequestInit])[1];
+  const headersOf = (i = 0) => initOf(i).headers as Record<string, string>;
+
+  it('GET anónimo sin cuerpo: sin Content-Type ni Authorization (petición CORS simple)', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(200, { data: [] }));
+    await apiRequest('/catalog/cards', { query: { sort: 'price_desc', pageSize: 8 } });
+    expect(headersOf()).toEqual({});
+    expect(initOf().body).toBeUndefined();
+  });
+
+  it('POST sin cuerpo: tampoco manda Content-Type', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(200, { ok: true }));
+    await apiRequest('/auth/logout', { method: 'POST' });
+    expect(headersOf()['Content-Type']).toBeUndefined();
+  });
+
+  it('con cuerpo JSON: Content-Type application/json y cuerpo serializado', async () => {
+    fetchMock.mockResolvedValueOnce(makeRes(200, { ok: true }));
+    await apiRequest('/cart/items', { method: 'POST', body: { listingId: 'l1', qty: 1 } });
+    expect(headersOf()['Content-Type']).toBe('application/json');
+    expect(initOf().body).toBe('{"listingId":"l1","qty":1}');
+  });
+
+  it('TL-DYN3-5 · un cuerpo JSON «falso» (0, false, \'\') también viaja, con su Content-Type', async () => {
+    for (const [i, body] of [0, false, ''].entries()) {
+      fetchMock.mockResolvedValueOnce(makeRes(200, { ok: true }));
+      await apiRequest('/x', { method: 'PUT', body });
+      expect(headersOf(i)['Content-Type']).toBe('application/json');
+      expect(initOf(i).body).toBe(JSON.stringify(body));
+    }
+  });
+});

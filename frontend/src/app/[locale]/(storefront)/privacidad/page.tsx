@@ -5,6 +5,7 @@ import { privacyNoticeEs } from '@/content/legal/privacidad.es';
 import { legalEnvFromProcess, privacyVisibility } from '@/content/legal/legal-gate';
 import { WISHLIST_PRIVACY_EN } from '@/content/legal/privacy-wishlist';
 import { PrivacyNoticeView } from './PrivacyNoticeView';
+import { RouteMessages } from '@/components/i18n/RouteMessages';
 
 /**
  * LIVE-8 · `/privacidad` (ES y EN; el texto es español, con la línea «Legal notice available in
@@ -34,13 +35,16 @@ export default async function PrivacyPage({ params }: { params: Promise<{ locale
   const { locale } = await params;
   const visibility = privacyVisibility(privacyNoticeEs, legalEnvFromProcess());
   if (visibility === 'hidden') notFound();
+  // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
   return (
-    <PrivacyNoticeView
-      doc={privacyNoticeEs}
-      draft={visibility === 'draft'}
-      showSpanishOnly={locale !== 'es'}
-      // §WSH.5 · criterio 824: en inglés, el párrafo «Wishlist» literal de PROJECT.md bajo el español.
-      englishAddenda={locale !== 'es' ? [{ sectionId: 'finalidades-primarias', text: WISHLIST_PRIVACY_EN }] : []}
-    />
+    <RouteMessages scope="storefront">
+      <PrivacyNoticeView
+        doc={privacyNoticeEs}
+        draft={visibility === 'draft'}
+        showSpanishOnly={locale !== 'es'}
+        // §WSH.5 · criterio 824: en inglés, el párrafo «Wishlist» literal de PROJECT.md bajo el español.
+        englishAddenda={locale !== 'es' ? [{ sectionId: 'finalidades-primarias', text: WISHLIST_PRIVACY_EN }] : []}
+      />
+    </RouteMessages>
   );
 }

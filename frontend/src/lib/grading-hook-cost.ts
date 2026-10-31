@@ -3,10 +3,9 @@
  * interpola, declaradas **en un solo módulo** (DESIGN_SYSTEM §22.12 nº13.d).
  *
  * **Por qué viven aquí y no en el copy.** El aviso de §22.13(d) cifra el **techo nominal** que
- * autoriza encender `gradingHookEnabled`. Ese número es el producto de tres factores y solo **uno**
- * es configurable desde el producto (`ingestMaxCardsPerRun`, M2). Los otros dos —cuánto cuesta cada
- * carta en el proveedor de paga y cuántas veces al día corre el barrido— son hechos del backend y
- * del cron. Repartidos por el copy o duplicados en dos componentes se desincronizan del día a la
+ * autoriza encender `gradingHookEnabled`. Desde §DYN (v1.113) ese número es el tope diario de créditos PSA
+ * de M10 (`gradedEstimateDailyCreditCap`); antes era un producto de tres factores con el tope de cartas por corrida
+ * de M2, retirado. Repartidos por el copy o duplicados en dos componentes se desincronizan del día a la
  * mañana, y el aviso pasaría a mentir sobre dinero: exactamente el defecto que §4.38(r) existe para
  * cerrar. Con un solo módulo, corregir el hecho es corregir una línea.
  *
@@ -14,52 +13,42 @@
  * aquí después. El presupuesto oficial en créditos lo publica devops en `DEVOPS_NOTES.md`
  * (ARCHITECTURE §4.38r.3.1.1); estas constantes son su reflejo en pantalla.
  *
- * ⚠️ **Y no son un presupuesto.** Su producto es un techo **condicionado** al régimen de cobro del
- * proveedor, que nadie ha observado todavía (§22.13d.1). El módulo publica también el selector
- * `costBasis` para que la pantalla no pueda confundir «calculado» con «medido».
+ * ⚠️ **El tope no es el gasto.** Es lo máximo que el servidor deja cargar en un día CDMX; el gasto real lo dice el
+ * presupuesto (`GET /admin/pricing/graded-estimates/budget`). El módulo publica también el selector `costBasis` para
+ * que la pantalla no pueda confundir «tope» con «medido».
  */
 
 /**
- * Créditos que el proveedor de paga cobra **por carta** en el ingest de fase 2
- * (ARCHITECTURE §4.38h.3: `includeEbay=true` ⇒ **2 créditos/carta**).
+ * v1.113⟨portada⟩ (API_CONTRACT §DYN.4.3) — créditos ESTIMADOS por carta del set cuando el proveedor no reportó lo que
+ * gastó la última vez: `est = creditsMeasured ?? 2 × (cartas del set)`. No es un dial: es la regla del servidor, y aquí
+ * solo se usa para explicarla en pantalla.
  */
 export const GRADING_INGEST_CREDITS_PER_CARD = 2;
 
-/**
- * Corridas del barrido al día (cron `price-ingest`, **2×/día**, ARCHITECTURE §4.38r.3.1.1).
- * El «≤ 12 h» de §4.38(r.5) es la otra cara de este mismo número; no se pinta en pantalla.
- */
-export const GRADING_INGEST_RUNS_PER_DAY = 2;
+/** Rango del dial `gradedEstimateDailyCreditCap` (§DYN.3): entero en `[0, 20000]`; 0 = no se pide nada. */
+export const GRADED_DAILY_CREDIT_CAP_MIN = 0;
+export const GRADED_DAILY_CREDIT_CAP_MAX = 20_000;
 
 /**
- * Techo de gasto diario `cartas × créditos/carta × corridas` **BAJO EL SUPUESTO de que el proveedor
- * cobra por petición**. Con los topes de hoy (250 × 2 × 2) da 1 000 créditos/día — un techo bajo un
- * supuesto, **no un presupuesto**: nadie lo ha medido.
+ * v1.113⟨portada⟩ (§DYN.3/§DYN.4.3) — **el techo de gasto PSA es el tope diario de M10**, ya no un producto
+ * `cartas × créditos × corridas`. El dial `ingestMaxCardsPerRun` (el único factor configurable del modelo anterior) se
+ * RETIRÓ: lo sustituye `gradedEstimateDailyCreditCap`, que el servidor aplica sobre lo CARGADO (lo que el proveedor
+ * reporta o, si no lo reporta, la estimación de arriba). Exceso posible por diseño: el error de estimación de UN set
+ * (I-4). Por eso la cifra ya no depende del régimen de cobro del proveedor.
  *
- * ⚠️ **No es el gasto.** Si el proveedor cobra por carta **devuelta**, la petición pide el set
- * entero y el gasto real es este número × `A` (≥ 1, sin dial que lo acote). Quien pinte este valor
- * está obligado a pintar el supuesto en la misma frase (§22.13d.1): la clave `…gradingHook.on` ya
- * lo hace, y por eso no existe ninguna cadena que interpole `{credits}` a secas.
- *
- * Devuelve `null` cuando el tope de cartas no es un entero positivo utilizable — el aviso entonces
- * cae a su variante sin cifras (`onNoFigures`): **cede la cifra, nunca el aviso** (§22.13d).
+ * Devuelve el tope VIVO del servidor (nunca un literal) o `null` si no es un entero utilizable — el aviso de M10 cae
+ * entonces a su variante sin cifras (`onNoFigures`): **cede la cifra, nunca el aviso** (§22.13d).
  */
-export function gradingIngestDailyCreditCeiling(maxCardsPerRun: number | undefined | null): number | null {
-  if (typeof maxCardsPerRun !== 'number' || !Number.isFinite(maxCardsPerRun) || maxCardsPerRun <= 0) {
-    return null;
-  }
-  return Math.round(maxCardsPerRun) * GRADING_INGEST_CREDITS_PER_CARD * GRADING_INGEST_RUNS_PER_DAY;
+export function gradingDailyCreditCap(cap: number | undefined | null): number | null {
+  if (typeof cap !== 'number' || !Number.isInteger(cap)) return null;
+  if (cap < GRADED_DAILY_CREDIT_CAP_MIN || cap > GRADED_DAILY_CREDIT_CAP_MAX) return null;
+  return cap;
 }
 
 /**
  * ── El selector de VARIANTE del aviso (DESIGN_SYSTEM §22.13d.1, §22.12 nº13g) ────────────────
  *
- * El techo de arriba **solo vale si el proveedor cobra por petición**. La petición manda
- * `fetchAllInSet=true` —pide el **set entero**—, así que `ingestMaxCardsPerRun` acota las cartas
- * **en alcance**, no las **devueltas**: si se cobra por carta devuelta, el gasto real es
- * `techo × A`, con `A = devueltas / en alcance ≥ 1` y **ningún dial que lo acote** (250 cartas en
- * 20 sets de 200 dan `A = 16`). Por eso el copy publica la cifra **con su supuesto pegado** y este
- * selector existe: distingue «techo calculado» de «coste medido».
+ * Distingue «tope» de «coste medido»: el tope dice cuánto PUEDE gastar como máximo; el coste medido, cuánto gastó.
  */
 export type GradingCostBasis = 'estimated' | 'measured';
 
@@ -88,9 +77,9 @@ export const GRADING_COST_MEASUREMENT: GradingCostMeasurement | null = null;
  * Qué variante del aviso de encendido toca (§22.13d.1):
  *
  *   'measured'  ⇒ `onMeasured`  — hay medición del entorno (cifra + fecha)
- *   'estimated' ⇒ `on`          — hay tope de M2, no hay medición  ← hoy, siempre
+ *   'estimated' ⇒ `on`          — hay tope diario (M10), no hay medición  ← hoy, siempre
  *
- * Sin tope de M2 gana `onNoFigures`, y eso lo decide la vista: es ausencia de dato, no base de coste.
+ * Sin tope utilizable gana `onNoFigures`, y eso lo decide la vista: es ausencia de dato, no base de coste.
  */
 export function gradingCostBasis(): GradingCostBasis {
   return GRADING_COST_MEASUREMENT === null ? 'estimated' : 'measured';

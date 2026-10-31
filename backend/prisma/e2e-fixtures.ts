@@ -358,6 +358,17 @@ export const E2E_CARDS = {
    */
   deckember: { externalId: 'e2e-ac-deck-ember', name: 'E2E Deck Ember', number: '40', rarity: 'Common', refNmCents: 5000, availableFinishes: ['normal'] },
   deckspark: { externalId: 'e2e-ac-deck-spark', name: 'E2E Deck Spark', number: '41', rarity: 'Common', refNmCents: 5000, availableFinishes: ['normal'] },
+  /**
+   * v1.113.3 (hallazgo 5 de QA/tester-e2e de la release de la portada) — **la carta que pasa el gate de la vitrina**
+   * («Joyas para gradear»). Ninguna carta del seed lo pasaba, así que la vitrina nunca se veía en un gate local. Raw
+   * publicada (`E2E_FOLIOS.listedGemHunt`) con estimados PSA 10 y PSA 9 FRESCOS (`E2E_GEM_ESTIMATES`) y coherentes: PSA 10 >
+   * raw y ≤ 100×, PSA 10 ≥ PSA 9, y PSA 9 ≥ (raw + costo de gradeo) × 1.3 con los diales de seed.
+   *
+   * ⛔ **El seed NO enciende el dial** (`grading_hook_enabled` sigue `off`): encenderlo autoriza la obtención de paga y es
+   * del dueño (§4.38r.3). Con el dial encendido (el arnés del front lo enciende con su guarda), esta carta sale en la
+   * vitrina sin sembrar nada más. Precio NM MX$60, de los más bajos: el arnés de `grading.ts` toma las raw más caras.
+   */
+  gemhunt: { externalId: 'e2e-gem-hunt', name: 'E2E Gem Hunt', number: '34', rarity: 'Common', refNmCents: 6000, availableFinishes: ['normal'] },
 } as const;
 
 /**
@@ -373,6 +384,16 @@ export const E2E_CARDS = {
  *   manual `manualFreshnessDays`) tienen seed 30, y 120 / 90 días las rebasan **con margen** para que
  *   ningún cambio razonable de dial vuelva fresca una fila que el fixture promete rancia.
  */
+/**
+ * v1.113.3 (hallazgo 5) — los estimados de `E2E_CARDS.gemhunt`: MANUALES y de HOY (el seed los re-declara en cada corrida,
+ * así que nunca envejecen). PSA 10 = MX$1,800 cae en el primer escalón de costo (MX$700); PSA 9 = MX$1,500 deja upside de
+ * sobra contra (raw + MX$700) × 1.3 con la curva de seed. Los mide `test/integration/graded-estimate-seed-gem.e2e-spec.ts`.
+ */
+export const E2E_GEM_ESTIMATES = [
+  { gradeValue: '10', gradeKey: 'graded:PSA:10', priceMxnCents: 180000 },
+  { gradeValue: '9', gradeKey: 'graded:PSA:9', priceMxnCents: 150000 },
+] as const;
+
 export const E2E_STALE_ESTIMATES = [
   { gradeValue: '10', gradeKey: 'graded:PSA:10', priceMxnCents: 250000, daysAgo: 120, isManual: false },
   { gradeValue: '9', gradeKey: 'graded:PSA:9', priceMxnCents: 150000, daysAgo: 90, isManual: true },
@@ -414,7 +435,7 @@ export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'SV107', 'TG01'] as const;
 // v1.50.3-e: entran `32` (la CUARTA raw, libre) y `33` (la carta de los estimados rancios/automáticos).
 // v1.86 (§83.seed): entran `40` y `41` (las cartas del deck de energías de E2E).
 // v1.89⟨bmk⟩: entra `100` (E2E Bin Premium, el guardarraíl de COMPRA) — al final, numérico tras `99`.
-export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '40', '41', '98', '99', '100'] as const;
+export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '34', '40', '41', '98', '99', '100'] as const;
 
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la
@@ -444,6 +465,8 @@ export const E2E_FOLIOS = {
   listedDeckEmber2: 'E2E-LST-0011',
   listedDeckSpark1: 'E2E-LST-0012',
   listedDeckSpark2: 'E2E-LST-0013',
+  // v1.113.3 (hallazgo 5): la raw publicada de `E2E_CARDS.gemhunt`, la carta que pasa el gate de la vitrina.
+  listedGemHunt: 'E2E-LST-0014',
   /**
    * ⚠️ v2.1.10 — **LA PIEZA QUE HABITA LA COLA DE «LISTAS PARA PUBLICAR»** (§4.39m.1, criterio 125).
    *

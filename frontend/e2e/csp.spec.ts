@@ -200,6 +200,49 @@ test.describe('LIVE-3 · CSP con nonce', () => {
     if (mode === 'enforce') expect(ran).toBeUndefined();
   });
 
+  /**
+   * DYN-F7 / D-DYN-1 (API_CONTRACT §DYN.6.4) — en `/es` y `/en`, TODO `<script>` sin `src` lleva el nonce de la
+   * cabecera, y una carga de la portada produce 0 `POST /telemetry/csp`, también cuando la PETICIÓN llega con una
+   * `content-security-policy` sin `script-src` (la estática `frame-ancestors 'none'`): esa es la firma medida de
+   * producción (28/28 sin nonce, 27 POST por vista), reproducida en local con esa cabecera (FRONTEND_NOTES §DYN).
+   * Mutación que la pone roja: quitar del middleware la cabecera de petición `content-security-policy`.
+   */
+  for (const path of ['/es', '/en']) {
+    for (const [label, extra] of [
+      ['sin CSP en la petición', {}],
+      ["con CSP estática en la petición", { 'content-security-policy': "frame-ancestors 'none'" }],
+    ] as const) {
+      test(`DYN-F7 · ${path} ${label}: nonce en todo <script> en línea`, async ({ request }) => {
+        const res = await request.get(path, { headers: extra });
+        expect(res.status()).toBe(200);
+        const { nonce } = cspOf(res.headers());
+        expect(nonce).not.toBe('');
+        const html = await res.text();
+        const inline = (html.match(/<script\b[^>]*>/g) ?? []).filter((t) => !/\bsrc=/.test(t));
+        expect(inline.length).toBeGreaterThan(0);
+        const sinNonce = inline.filter((t) => !t.includes(`nonce="${nonce}"`));
+        expect(sinNonce, `${sinNonce.length}/${inline.length} sin nonce: ${sinNonce.slice(0, 2).join(' ')}`).toEqual([]);
+      });
+
+      test(`DYN-F7 · ${path} ${label}: 0 reportes CSP por vista`, async ({ page }) => {
+        const violations = await watchViolations(page);
+        const reports: string[] = [];
+        page.on('request', (r) => {
+          if (r.method() === 'POST' && /\/telemetry\/csp\b/.test(r.url())) reports.push(r.url());
+        });
+        if (Object.keys(extra).length) {
+          await page.route(`**${path}`, (route) =>
+            route.continue({ headers: { ...route.request().headers(), ...extra } }),
+          );
+        }
+        await page.goto(path);
+        await page.waitForLoadState('networkidle');
+        expect(violations).toEqual([]);
+        expect(reports).toEqual([]);
+      });
+    }
+  }
+
   test('recorrido sin violaciones: portada, catálogo, login, registro, checkout, vender', async ({ page }) => {
     const violations = await watchViolations(page);
     for (const path of ['/es', '/es/catalog', '/es/login', '/es/register', '/es/checkout', '/es/buylist']) {

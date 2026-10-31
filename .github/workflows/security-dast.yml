@@ -160,7 +160,7 @@ jobs:
   # ---------------------------------------------------------------------------
   resolver-ref:
     name: Resolver el ref a SHA completo
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       sha: ${{ steps.r.outputs.sha }}
     steps:
@@ -198,7 +198,7 @@ jobs:
   selftest:
     name: Autoprueba del candado (canario vulnerable)
     needs: [resolver-ref]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
       # Se propaga por aquí porque `dast` DEBE seguir siendo `needs: [selftest]`
@@ -233,7 +233,7 @@ jobs:
   dast:
     name: DAST contra el stack efímero
     needs: [selftest]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 75
     outputs:
       # El HECHO, no el color del paso (techlead F1-1, 2026-09-11). Antes era
@@ -436,7 +436,7 @@ jobs:
     name: Abrir/actualizar issue del hallazgo
     needs: [dast]
     if: (failure() || needs.dast.outputs.blocking == 'true') && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       issues: write

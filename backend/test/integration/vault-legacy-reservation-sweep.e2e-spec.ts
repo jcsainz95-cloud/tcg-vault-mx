@@ -268,7 +268,9 @@ describe('E2E — SEC-SB-1/C9: la reserva LEGADA que nadie puede reclamar vuelve
     it('la orden ya está LIQUIDADA: alguien pagó esa pieza ⇒ el barrido no se la quita', async () => {
       const { itemId, orderId } = await ordenDeBovedaLegada('PAGADA', 3);
       // Anomalía real: la orden liquidó y la pieza se quedó `reserved`. Tiene dueño: el que pagó.
-      await h.prisma.order.update({ where: { id: orderId }, data: { status: 'settled' } });
+      // Con `settledAt`, como toda liquidación del código: la BD de integración se comparte y el P&L (que acota por
+      // `settledAt`) y la identidad SQL de `iva-price-convention` (que suma todas las `settled`) tienen que ver la misma orden.
+      await h.prisma.order.update({ where: { id: orderId }, data: { status: 'settled', settledAt: new Date() } });
 
       await barrer();
 

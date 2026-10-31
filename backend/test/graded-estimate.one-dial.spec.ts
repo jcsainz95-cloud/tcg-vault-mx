@@ -17,6 +17,7 @@ import {
   SETTING_VALIDATORS,
   SettingKey,
 } from '../src/modules/settings/settings.constants';
+import { withGradedTurns } from './helpers/graded-turns-double';
 
 /**
  * v1.51 — **M-46: el gancho de grading pasa de DOS interruptores a UNO** (ARCHITECTURE §4.38r,
@@ -102,6 +103,7 @@ function wireJob(config: Record<string, unknown>) {
     card: { findMany: jest.fn(async () => [CARD]) },
     priceReference: { findFirst: jest.fn(async () => null), create, update },
   } as unknown as PrismaService;
+  withGradedTurns(prisma); // v1.113⟨portada⟩ (§DYN.4): turno PSA en memoria
   const settings = new SettingsService(prisma);
   const pricing = new PricingService(prisma, settings, {} as unknown as FxService, {} as never, {} as never, {} as never);
   jest.spyOn(pricing, 'getPublishedSlabGradesBatch').mockResolvedValue(new Map());
@@ -164,7 +166,6 @@ describe('M-46 — con el dial APAGADO no se gasta: cero peticiones y cero escri
     const { ingest } = wireJob({
       [SettingKey.GRADED_ESTIMATE_MIN_SAMPLE_COUNT]: 5,
       [SettingKey.GRADED_ESTIMATE_SOURCE_STAT]: 'median',
-      [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 250,
     });
 
     const res = await ingest.ingestGradedEstimates(FX);
@@ -238,87 +239,32 @@ describe('M-46 — el gate del INGEST lee el DIAL CRUDO, no el `enabled` derivad
 
 // =================================================================================================
 /**
- * **v1.51-a — I8 estrechado (`ingestMaxCardsPerRun`: `[1, 5000]` → `[1, 1000]`, §4.38r.3.4).**
- *
- * ### Qué protege este bloque, y por qué vive AQUÍ
- * El estrechamiento se decidió «seguro de hacer ahora» por UNA razón concreta y verificable: un valor
- * ya almacenado que se sale del rango nuevo —un `2000` puesto ayer, perfectamente legal entonces— **no
- * se queda gastando**: el lector lo marca presente-e-INVÁLIDA ⇒ `ingestConfigInvalid` ⇒
- * `ingestGradedEstimates` sale **antes de pedir nada**. Es la dirección correcta del fallo (§4.38r.3.4
- * › «Compatibilidad y dirección del fallo»), y sin ella el cambio habría que hacerlo con una migración
- * de datos por delante. Este archivo es el que ya tiene el **delator de `fetch` + provider REAL + llave
- * presente**, o sea el único sitio donde «cero peticiones» significa de verdad cero peticiones.
- *
- * ### El candado que se pide explícitamente
- * `ingestConfigInvalid` se compone hoy en `pricing.service.ts` como
- * `minSampleRes.invalid || sourceStatRes.invalid || ingestMaxRes.invalid`. **Si mañana alguien la
- * recompone y deja de incluir `ingestMaxRes.invalid`**, el `2000` dejaría de apagar el ingest y el job
- * seguiría gastando con un tope que el propio validador acaba de declarar inválido: estos tests se
- * ponen ROJOS ahí, y esa es su única razón de existir.
- *
- * ### ⛔ Lo que NO se está probando
- * Que el gasto esté acotado. Este dial acota las cartas **en alcance**, no las que el proveedor
- * devuelve; la amplificación `A` (nº de sets) no la acota ningún dial. Aquí solo se fija que un valor
- * fuera de rango **apaga**, no que 1 000 sea barato.
+ * **v1.113⟨portada⟩ (§DYN.3) — `graded_estimate_ingest_max_cards_per_run` RETIRADA: su fila vieja es INERTE.**
+ * Antes un `2000` almacenado APAGABA el ingest (I8). Desde v1.113 el corte por corrida no existe: la fila no se lee, ni
+ * apaga ni acota; lo único que acota el gasto es `graded_estimate_daily_credit_cap` (y en `0` no se pide nada). El delator
+ * de `fetch` con provider REAL es el que hace que «cero peticiones» signifique cero peticiones.
  */
-describe('v1.51-a (I8) — un `ingestMaxCardsPerRun` almacenado FUERA de rango APAGA el ingest, no lo deja gastando', () => {
-  /** Legal bajo el rango VIEJO `[1, 5000]`, inválido bajo el nuevo `[1, 1000]`. El caso real. */
-  const ALMACENADO_VIEJO = { ...ON, [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 2000 };
-
-  it('con `2000` almacenado y el dial `on`: `fetch` NUNCA se llama, `written=0` y cero escrituras', async () => {
+describe('v1.113 (§DYN.3) — la fila retirada es inerte; el tope de créditos del día es lo que acota', () => {
+  it('con `2000` almacenado en la clave retirada y el dial `on`: SÍ pide y SÍ escribe (no apaga nada)', async () => {
     const fetchSpy = delatorDeFetch();
-    const { ingest, create, update } = wireJob(ALMACENADO_VIEJO);
-
-    const res = await ingest.ingestGradedEstimates(FX);
-
-    // La aserción del dinero. Si esto se pone en rojo, el estrechamiento pasó a fallar ABRIENDO.
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(res.written).toBe(0);
-    expect(create).not.toHaveBeenCalled();
-    expect(update).not.toHaveBeenCalled();
-    expect(res.cardsInScope).toBe(0); // ni se llegó a resolver el alcance
-  });
-
-  it('y la RAZÓN es la clave, nombrada: `ingestConfigInvalid` con el dial `on` y un `warn` que la identifica', async () => {
-    const warn = jest.spyOn(Logger.prototype, 'warn');
-    const { pricing } = wireJob(ALMACENADO_VIEJO);
-
+    const { ingest, create, pricing } = wireJob({ ...ON, graded_estimate_ingest_max_cards_per_run: 2000 });
     const cfg = await pricing.loadGradedEstimateConfigForAdmin();
-
-    expect(cfg.enabled).toBe(true); // el dial NO es el que apaga: está encendido
-    expect(cfg.ingestConfigInvalid).toBe(true); // lo apaga ESTA clave
-    // v1.51-b (R1): y la clave viaja NOMBRADA, para que el veredicto del ingest pueda decir QUÉ
-    // corregir. «La config del ingest es inválida» no es accionable; el nombre de la clave sí.
-    expect(cfg.ingestInvalidKeys).toEqual([SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]);
-    expect(
-      warn.mock.calls.some(
-        (c) =>
-          String(c[0]).includes(SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN) &&
-          String(c[0]).includes('[1, 1000]'),
-      ),
-    ).toBe(true);
-  });
-
-  it('CONTRASTE — el MISMO fixture con `1000` (el máximo nuevo) SÍ pide y SÍ escribe', async () => {
-    // Sin este contraste, «cero peticiones» podría venir de un fixture flojo y no del estrechamiento.
-    const fetchSpy = delatorDeFetch();
-    const { ingest, create, pricing } = wireJob({
-      ...ON,
-      [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 1000,
-    });
-
-    expect((await pricing.loadGradedEstimateConfigForAdmin()).ingestConfigInvalid).toBe(false);
+    expect(cfg.ingestConfigInvalid).toBe(false);
+    expect(cfg.ingestInvalidKeys).toEqual([]);
     const res = await ingest.ingestGradedEstimates(FX);
     expect(fetchSpy).toHaveBeenCalled();
     expect(res.written).toBe(1);
     expect(create).toHaveBeenCalledTimes(1);
   });
 
-  it('el seed `250` no se ve afectado por el estrechamiento (ningún entorno sembrado cambia de conducta)', async () => {
+  it('con `graded_estimate_daily_credit_cap = 0`: `fetch` NUNCA se llama y nada se escribe', async () => {
     const fetchSpy = delatorDeFetch();
-    const { ingest } = wireJob({ ...ON, [SettingKey.GRADED_ESTIMATE_INGEST_MAX_CARDS_PER_RUN]: 250 });
-    expect((await ingest.ingestGradedEstimates(FX)).written).toBe(1);
-    expect(fetchSpy).toHaveBeenCalled();
+    const { ingest, create } = wireJob({ ...ON, graded_estimate_daily_credit_cap: 0 });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(res.written).toBe(0);
+    expect(create).not.toHaveBeenCalled();
+    expect(res.turns?.stoppedByBudget).toBe(false);
   });
 });
 

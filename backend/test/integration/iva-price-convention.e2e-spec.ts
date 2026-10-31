@@ -35,7 +35,7 @@
  */
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
-import { E2E_FOLIOS, E2E_GUEST_ORDER, E2E_USERS } from '../../prisma/e2e-fixtures';
+import { E2E_FOLIOS, E2E_GUEST_ORDER, E2E_SPEI_FIXTURE, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { computeCartBreakdown, computeDirectShipBreakdown, computeShipmentBreakdown } from '../../src/common/money';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
@@ -98,6 +98,16 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
     orderIds: [],
     inventoryItemIds: [],
   };
+  /**
+   * QA-IVA-ORDEN (PENDIENTES, QA 2026-10-25): el censo final mira **sus propias** órdenes — las que esta suite escribe por los
+   * caminos de checkout y las dos que la siembra declara —, no la BD entera. La BD de integración se comparte y otras suites
+   * (fixtures de wishlist) dejan `Order` `IVA_INCLUSIVE` sin dial: contarlas ponía esto rojo según el orden de jest, sin
+   * defecto de los caminos que este candado vigila. Las mutaciones que muerden (M7b y el `UPDATE` masivo de D56) escriben
+   * precisamente sobre estas filas.
+   */
+  const propias: string[] = [];
+  const SEMBRADAS = [E2E_GUEST_ORDER.orderNumber, E2E_SPEI_FIXTURE.order.orderNumber];
+  const DE_LA_SUITE = `(o.id = ANY($1::text[]) OR o."orderNumber" = ANY($2::text[]))`;
 
   beforeAll(async () => {
     h = await E2EHarness.create();
@@ -423,6 +433,7 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       });
       expect(res.status).toBe(201);
       aLimpiar.orderIds.push(res.body.orderId);
+      propias.push(res.body.orderId);
       aLimpiar.inventoryItemIds.push(pieza.id);
       const order = await h.prisma.order.findUnique({ where: { id: res.body.orderId } });
       expect(order!.priceConvention).toBe('IVA_INCLUSIVE');
@@ -457,6 +468,7 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
         json: { inventoryItemIds: [pieza.id], email: GUEST_EMAIL, shippingAddress: ADDRESS, acceptedTerms: true },
       });
       expect(res.status).toBe(201);
+      propias.push(res.body.orderId);
       const order = await h.prisma.order.findUnique({ where: { id: res.body.orderId } });
       expect(order!.priceConvention).toBe('IVA_INCLUSIVE');
       expect(order!.ivaTransferPct).toBe(100);
@@ -558,20 +570,35 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
      */
     it('⭐⭐ toda `Order` con dial ARCHIVADO es `IVA_INCLUSIVE`, y viceversa — sin cruces', async () => {
       const [cruce] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
-        `SELECT count(*) AS n FROM "Order"
-          WHERE ("ivaTransferPct" IS NOT NULL AND "priceConvention" <> 'IVA_INCLUSIVE')
-             OR ("ivaTransferPct" IS NULL     AND "priceConvention" <> 'IVA_EXCLUSIVE')`,
+        `SELECT count(*) AS n FROM "Order" o
+          WHERE ${DE_LA_SUITE}
+            AND ((o."ivaTransferPct" IS NOT NULL AND o."priceConvention" <> 'IVA_INCLUSIVE')
+              OR (o."ivaTransferPct" IS NULL     AND o."priceConvention" <> 'IVA_EXCLUSIVE'))`,
+        propias,
+        SEMBRADAS,
       );
       expect(Number(cruce.n)).toBe(0);
+      // Control de no-vacuidad: el censo ve las órdenes de la suite (las dos de checkout y las dos sembradas).
+      const [vistas] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*) AS n FROM "Order" o WHERE ${DE_LA_SUITE}`,
+        propias,
+        SEMBRADAS,
+      );
+      expect(propias).toHaveLength(2);
+      expect(Number(vistas.n)).toBe(propias.length + SEMBRADAS.length);
     });
 
     it('⭐⭐ y HAY filas de las DOS clases: el corte convirtió lo nuevo y ⛔ no tocó lo viejo', async () => {
       // Sin esto, el `it` de arriba pasaría sobre una base vacía y estaría verde sin mirar nada.
       const [nuevas] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
-        `SELECT count(*) AS n FROM "Order" WHERE "priceConvention" = 'IVA_INCLUSIVE'`,
+        `SELECT count(*) AS n FROM "Order" o WHERE ${DE_LA_SUITE} AND o."priceConvention" = 'IVA_INCLUSIVE'`,
+        propias,
+        SEMBRADAS,
       );
       const [viejas] = await h.prisma.$queryRawUnsafe<{ n: bigint }[]>(
-        `SELECT count(*) AS n FROM "Order" WHERE "priceConvention" = 'IVA_EXCLUSIVE'`,
+        `SELECT count(*) AS n FROM "Order" o WHERE ${DE_LA_SUITE} AND o."priceConvention" = 'IVA_EXCLUSIVE'`,
+        propias,
+        SEMBRADAS,
       );
       expect(Number(nuevas.n)).toBeGreaterThan(0); // esta suite las creó
       expect(Number(viejas.n)).toBeGreaterThan(0); // la siembra las dejó, y siguen ahí

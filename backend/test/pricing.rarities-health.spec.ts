@@ -33,7 +33,7 @@ function build(grouped: unknown[] = []) {
     prisma,
     {} as PriceSyncJobService,
     {} as never,
-    {} as never,
+    {} as never, undefined, undefined, { enqueueVariant: jest.fn(async () => undefined) } as never,
   );
   return { controller, prisma };
 }

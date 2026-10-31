@@ -155,7 +155,6 @@ const estimateConfig: GradedEstimateConfigDTO = {
   maxRawMultiple: 100,
   minSampleCount: 5,
   sourceStat: 'median',
-  ingestMaxCardsPerRun: 250,
 };
 
 /** Preview SIN slabs publicados ⇒ ningún grado bloqueado. */

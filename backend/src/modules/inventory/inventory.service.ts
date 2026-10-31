@@ -1,3 +1,4 @@
+import { ListingPriceService } from '../pricing/listing-price.service';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   AcquisitionType,
@@ -760,6 +761,10 @@ export class InventoryService {
     // unitarios que construyen el servicio con 3 args: sin él, `publishAll` registra `logger.error` (falla-seguro)
     // en vez de saltarse el barrido en silencio — y VQ-10 (integración, DI real) mide que en la app SÍ barre.
     @Optional() private readonly priceSync?: PriceSyncJobService,
+    // 💰 v1.113⟨portada⟩ (M-94, API_CONTRACT §DYN.5.3): publicar una pieza, «Publicar todo» y el precio a mano recalculan el
+    // precio del día. ⛔ Sin `@Optional()` (en la app es obligatorio, `PricingModule` lo exporta); el `?` es solo por los
+    // unitarios que construyen el servicio a mano.
+    private readonly listingPrices?: ListingPriceService,
   ) {}
 
   /**
@@ -2421,8 +2426,15 @@ export class InventoryService {
         ...fields,
         status: 'listed',
         ...(lineListPriceCents != null ? { listPriceCents: lineListPriceCents } : {}),
+        // v1.113⟨portada⟩ (M-93, API_CONTRACT §DYN.1, criterio 923): «publicada por primera vez». `claimListed` es su ÚNICO
+        // escritor y SOLO la fija si la pieza LEÍDA no la tenía: volver a publicar una retirada NO la mueve (no vuelve a ser
+        // «recién llegada»). Va en ESTE MISMO `UPDATE` condicionado (una sola escritura, todo o nada con el CAS).
+        ...(item.firstListedAt === null ? { firstListedAt: new Date() } : {}),
       },
     });
+    // 💰 §DYN.5.3 `publish`: tras el commit de la publicación. Sin `audited` el `UPDATE` ya se confirmó (no hay tx abierta);
+    // con `audited` lo encola su llamante (`updateItem`) DESPUÉS de su transacción.
+    if (claimed.count === 1 && !audited) void this.listingPrices?.enqueue('publish', [item.id]);
     if (claimed.count !== 1) {
       if (audited) {
         // Relee en la MISMA tx: si sigue siendo de plataforma y publicable, lo que cambió es el precio o el
@@ -2478,6 +2490,13 @@ export class InventoryService {
    *   `listedNowPending`, y **NO cambia de status**.
    */
   async publishAll(req: PublishAllRequestDto, actorUserId: string): Promise<PublishAllResponse> {
+    const res = await this.publishAllInner(req, actorUserId);
+    // 💰 §DYN.5.3 `publish_all`: al TERMINAR «Publicar todo», el precio del día de TODO (fuera de la petición).
+    if (!res.idempotentReplay) void this.listingPrices?.enqueue('publish_all');
+    return res;
+  }
+
+  private async publishAllInner(req: PublishAllRequestDto, actorUserId: string): Promise<PublishAllResponse> {
     // Replay idempotente por batchKey. Un batchKey ya usado por OTRO tipo de lote no se "replay-ea"
     // con un shape ajeno: 409 (la key identifica UN lote concreto).
     if (req.batchKey) {
@@ -2921,6 +2940,14 @@ export class InventoryService {
   }
 
   async updateItem(id: string, dto: UpdateItemDto, actor?: { id: string; role: Role }) {
+    const res = await this.updateItemInner(id, dto, actor);
+    // 💰 §DYN.5.3 — ya confirmado: precio por pieza ⇒ `manual_price`; publicar o editar los datos de una pieza (acabado,
+    // grado…, que entran al precio) ⇒ `publish`. La corrida filtra el alcance (solo plataforma vendible).
+    void this.listingPrices?.enqueue(dto.listPriceCents !== undefined ? 'manual_price' : 'publish', [id]);
+    return res;
+  }
+
+  private async updateItemInner(id: string, dto: UpdateItemDto, actor?: { id: string; role: Role }) {
     const current = await this.getItem(id);
     // 💰 v1.83 (§M11-SP.4): `listPriceCents` sobre sellado LIGADO ⇒ `422` (también el dueño: su precio es del
     // producto); sobre sellado sin producto, solo el dueño (`403`). Raw/graded sin cambio (P-PRE-1). Antes de

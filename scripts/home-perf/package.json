@@ -1,0 +1,9 @@
+{
+  "name": "tcg-home-perf",
+  "private": true,
+  "description": "Lighthouse CI de la portada (API_CONTRACT §DYN.7 DYN-D1/DYN-D2). Versión EXACTA + package-lock: candado scripts/check-home-perf.sh.",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@lhci/cli": "0.15.1"
+  }
+}

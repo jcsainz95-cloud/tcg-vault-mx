@@ -1,0 +1,79 @@
+# =============================================================================
+# limpieza-ramas.yml — borra las ramas remotas ya fusionadas en `production`   · devops
+# =============================================================================
+# Autorizado por el dueño el 2026-10-30 (HECHOS.md, «Limpieza de ramas»). Lo dispara
+# ÉL con un clic (Actions → «Limpieza de ramas» → Run workflow): el proxy de las
+# sesiones de agentes bloquea el borrado de ramas. Pasos y reversión: DEVOPS_NOTES §105.
+#
+#   confirmar = false (por defecto) → solo LISTA en el resumen del job qué se borraría.
+#   confirmar = true                → borra.
+#   archivar_main = true            → además crea la etiqueta `archive/main` en el último
+#                                     commit de `main` y borra `main` (también obedece a
+#                                     `confirmar`; exige que la rama por defecto ya sea
+#                                     `production`).
+#
+# Qué entra, qué no y por qué: cabecera de scripts/limpieza-ramas.sh (lista fija de
+# protegidas incluida). Antes de tocar nada este mismo job corre el canario
+# (scripts/limpieza-ramas-canary.sh, repo de juguete): si el canario no está verde,
+# no se borra nada. El canario también corre en cada push en ci.yml (job `limpieza-ramas`).
+#
+# Solo `workflow_dispatch`: no hay PR ni push que lo dispare, así que no deja
+# check-runs `skipped` en los candidatos (check-candidate-checks.sh).
+# `workflow_dispatch` solo aparece en la UI si este fichero está en la rama POR DEFECTO.
+# =============================================================================
+
+name: Limpieza de ramas
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: "Borrar de verdad (apagado = solo lista lo que se borraría)"
+        type: boolean
+        default: false
+      archivar_main:
+        description: "Además archivar main (etiqueta archive/main + borrar main). Obedece a «confirmar»."
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: limpieza-ramas
+  cancel-in-progress: false
+
+jobs:
+  limpieza:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Canario (repo de juguete) — si no está verde no se borra nada
+        run: ./scripts/limpieza-ramas-canary.sh
+
+      - name: Ramas de PR abiertas (cabeza y base) y rama por defecto
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" \
+            --jq '.[] | .head.ref, .base.ref' | sort -u > "$RUNNER_TEMP/prs.txt"
+          echo "Ramas en PR abiertas:"; cat "$RUNNER_TEMP/prs.txt"
+          echo "RAMA_DEFECTO=$(gh api "repos/$REPO" --jq .default_branch)" >> "$GITHUB_ENV"
+
+      - name: Limpieza
+        env:
+          CONFIRMAR: ${{ inputs.confirmar }}
+          ARCHIVAR: ${{ inputs.archivar_main }}
+        run: |
+          ./scripts/limpieza-ramas.sh \
+            --pr-file "$RUNNER_TEMP/prs.txt" \
+            --confirmar "$CONFIRMAR" \
+            --archivar-main "$ARCHIVAR" \
+            --rama-defecto "$RAMA_DEFECTO"
