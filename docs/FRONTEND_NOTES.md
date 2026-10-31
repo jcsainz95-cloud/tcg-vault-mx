@@ -6,6 +6,18 @@
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46; 2026-10-31: §MKT tienda §A3/§A4/§E1
 > plegado en §MKT-OLA2); cada pase que añade quita más de lo que añade.
 
+## §MKT-E2E1 · Hallazgos de tester-e2e y QA sobre `561ad425` (2026-10-31, rama `claude/mkt-fe-e2e1`, base `815d14d1`)
+
+- **C1 sellado:** el `<h1>` de `SealedDetailView` lleva «nombre · set» con el patrón de la carta (set como bloque dentro).
+- **C6:** `llms.txt` enlaza `/es/sellado` y `tcghunt.mx/card-show` (`llmsCardShowLine`, sin datos del evento; es la única
+  excepción del barrido «sin Card Show» de `seo-content.test.ts`); revisión `2026-10-31`. IVA, Instagram y «Quiénes somos»: esperan al dueño.
+- **MENOR-3:** `CheckoutLines` pinta la meta con `historicalCardMeta` (la regla del pedido): `· NM` raw, `· PSA 10` gradeada.
+- **I-1 / TL-MKT2-1:** `lib/ssr-budget.ts` (`withBudget`, `withAbortBudget`); fichas SSR con `DETAIL_SSR_BUDGET_MS` (= catálogo,
+  1200 ms) que ABORTA el fetch (`signal` en `apiRequest`, `getCardDetail`, `getSealedGroupDetail`) y cae a la carga en cliente.
+- **M-2:** `?page=N` fuera de rango con resultados ⇒ «Esta página ya no tiene cartas» + enlace rastreable a la página 1 (`catalog.pageOutOfRange.*`).
+- **B-1:** el campo de correo del invitado en los E2E se busca con `{ exact: true }` (en, «I confirm that my email…» lo duplicaba).
+- Pruebas, mutaciones (N=3) y E2E con su N: informe de entrega del stream; candados en `TECH_DEBT.md` (TL-MKT2-1).
+
 ## §MKT-TL1 · Catálogo: la URL es la única fuente de los filtros (2026-10-31, rama `claude/mkt-fe-tl1`, base `561ad425`)
 
 - **Filtros ↔ URL (R1, MK-D5):** `catalog-url.ts` `serializeCatalogFilters` (inversa exacta de `parseUrlFilters`, que lee
@@ -19365,36 +19377,9 @@ miré `x-vercel-cache`/`age`. El informe de `POST /telemetry/csp` no guarda `sou
 (`backend/src/modules/health/telemetry-report.ts:4`), y sin ellos no se distingue un script de Next de uno inyectado
 por una extensión o por el navegador integrado de una red social.
 
-## §114 · CSP — este release vuelve a `report-only` (enforce pendiente de medir producción) (2026-10-10, rama `claude/salida-real`)
-
-**Decisión (orquestador, medida).** La causa de los avisos CSP de producción en `/es` y `/es/decks-meta` sigue SIN
-MEDIR (no es la 404 de §113 / `0515d53a`; esos avisos tienen otro `documentPath`). No se garantiza que `enforce` no
-rompa la portada en vivo, así que este release sale con la CSP en `report-only` (la VUELTA ATRÁS que describe el
-propio `csp.ts`). El paso a `enforce` (CL-1) queda para después, una vez medida la tienda en vivo. El arreglo de la
-404 (`0515d53a`, §113) se queda.
-
-**Cambio (solo `frontend/`).**
-- `src/security/csp.ts`: `CSP_MODE` de `'enforce'` a `'report-only'`; el comentario de la constante refleja que la
-  fase VIGENTE es `report-only` (paso 1) y que `enforce` (paso 2, CL-1) queda pendiente de medir producción. La
-  doctrina de las dos fases no se borra.
-- `src/security/csp.test.ts`: el candado «fase vigente» (`LIVE-3 · fase (CSP-6)`) pasa a `expect(CSP_MODE).toBe('report-only')`;
-  muerde si alguien vuelve a `enforce` sin el cambio coordinado de ZAP. El it «por defecto usa la fase vigente» añade
-  `expect(buildCsp(...)).toBe(buildCsp(..., 'report-only'))`, que deja de casar en cuanto el default (CSP_MODE) trae
-  `upgrade-insecure-requests`, es decir, en cuanto se vuelve a `enforce`.
-- `src/middleware.test.ts`: el bloque standalone «sin forzar fase» hardcodeaba la cabecera aplicada (`enforce`). Con
-  `CSP_MODE = report-only` el middleware pone `Content-Security-Policy-Report-Only` y NO la aplicada, así que ese test
-  se ajustó a leer la cabecera report-only. El `describe.each(PHASES)` ya cubría ambas fases y no cambió.
-
-**Medido (2026-10-10, `vitest run`, copia viva de la rama, carga `0.08`):**
-- `src/security` + `src/middleware.test.ts`: **34/34 verdes** (antes del ajuste de middleware: 33/34, la única roja era
-  ese candado de fase vigente).
-- `src/app`: **2318/2318 verdes** (187 ficheros, rc 0). Hay «1 error» no fatal de teardown de worker cuyo detalle
-  truncó el `tail`; NO MEDIDO su origen, pero está fuera de los ficheros tocados y el rc fue 0.
-- `scripts/check-csp-zap-parity.sh`: **rc 0** (`CSP_MODE=report-only · ZAP 10038=WARN · 10055=WARN`). En esta rama el
-  `security/zap/baseline.conf` ya trae 10038/10055 en WARN, así que el candado de paridad está verde; no hubo pieza
-  roja de devops pendiente.
-
-HTML/texto determinista: N=1 basta (no es probabilístico).
+## §114 · CSP en `report-only` (2026-10-10, rama `claude/salida-real`) — compactado 2026-10-31
+Vigente: `src/security/csp.ts` `CSP_MODE = 'report-only'`; `enforce` (CL-1) espera a medir producción. Candado: `csp.test.ts`
+«LIVE-3 · fase (CSP-6)» y paridad con ZAP (`scripts/check-csp-zap-parity.sh`). Detalle y mediciones: `git show 815d14d1:docs/FRONTEND_NOTES.md`.
 
 ## §115 · §MIV vMIV-2 — la nota del VALOR DE MERCADO dice «incluye IVA» (el precio sigue «IVA 16 % incluido») (2026-10-10, rama `claude/mercado-iva`; `DESIGN_SYSTEM §MIV` vMIV-2, fuente de verdad §MIV.10 · criterios §MIV.8 MIV-UX-1/2/3/7; dueño: `HECHOS.md`, fila 2026-10-10 «§MIV — texto de la nota… "incluye iva"»)
 
