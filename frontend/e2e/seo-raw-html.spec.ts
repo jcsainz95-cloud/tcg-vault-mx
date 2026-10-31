@@ -11,7 +11,7 @@ import { t } from './utils/i18n';
  * Datos DESCUBIERTOS por la API pública (nunca ids de fixture): una carta suelta, una gradeada, un sellado y una
  * carta sin piezas a la venta («agotada», 200 con `listings: []`, WSH-T37).
  *
- * Mutaciones que lo ponen rojo (medidas en FRONTEND_NOTES §MKT-SEO): quitar `initialData` de la ficha (C1: sin `<h1>`
+ * Mutaciones que lo ponen rojo (medidas en FRONTEND_NOTES §MKT-OLA2): quitar `initialData` de la ficha (C1: sin `<h1>`
  * ni precio), no leer el catálogo en el servidor (C2: 0 enlaces), quitar `generateMetadata` de una lista (C4),
  * quitar `shippingDetails` (C5), quitar el JSON-LD de la portada o volver a `lastModified: now` (C6).
  */
@@ -193,6 +193,9 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     expect(catLinks.size, 'enlaces a fichas en /es/catalog').toBeGreaterThan(0);
     for (const g of first.data) expect(cat.html).toContain(`href="/es/catalog/${g.card.id}"`);
     expect(visibleText(cat.html)).not.toContain(t('es', 'catalog.emptyTitle'));
+    // Criterio 950: no dice «Sin publicaciones disponibles» (la rama `=0` del conteo) si hay publicaciones.
+    const zeroCount = /=0 \{([^}]*)\}/.exec(t('es', 'catalog.piecesAvailable'))![1];
+    expect(visibleText(cat.html)).not.toContain(zeroCount);
 
     const home = await raw(request, '/es');
     expect([...home.html.matchAll(UUID_LINK)].length, 'enlaces a fichas en /es').toBeGreaterThan(0);
