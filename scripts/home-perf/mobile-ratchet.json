@@ -1,11 +1,12 @@
 {
   "_que": "Trinquete de celular de DYN-D1 (API_CONTRACT §DYN.7, v1.114.2): FCP y LCP = mediana medida por devops en el arnés con A + c1 construidas, +10 % (redondeo hacia arriba a 10 ms). Mientras fcpMs/lcpMs sean null, celular sigue bloqueando con la meta de 936 (FCP 1000, LCP 2500). Se fija con scripts/home-perf/fix-ratchet.mjs. Subirlo exige pase del arquitecto (paseArquitecto = una versión que esté en docs/API_CONTRACT.md); lo vigila scripts/check-home-perf.sh --against-ref.",
-  "fcpMs": null,
-  "lcpMs": null,
-  "medianaFcpMs": null,
-  "medianaLcpMs": null,
-  "runs": null,
-  "sha": null,
-  "fecha": null,
-  "paseArquitecto": "v1.114.2"
+  "fcpMs": 1350,
+  "lcpMs": 4190,
+  "medianaFcpMs": 1219,
+  "medianaLcpMs": 3808,
+  "runs": 5,
+  "sha": "e4c080cae871c87062c0e3e66ccf6db1fb4e60b6",
+  "fecha": "2026-10-30",
+  "paseArquitecto": "v1.114.2",
+  "fuente": "home-perf.yml run 41144812801 (GitHub Actions ubuntu-24.04, 4 CPU, carga 2.01 al medir), d1-mobile N=5 sobre e4c080ca; DEVOPS_NOTES §106.2"
 }
