@@ -8414,5 +8414,11 @@
       "link": "About us",
       "linkLabel": "About us & contact"
     }
+  },
+  "notFoundPage": {
+    "metaTitle": "Page not found · TCG HUNT",
+    "title": "We couldn't find this page",
+    "body": "The link may be mistyped, or the page no longer exists.",
+    "cta": "Go to the catalog"
   }
 }
