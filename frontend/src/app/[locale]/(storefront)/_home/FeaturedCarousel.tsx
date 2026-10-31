@@ -735,7 +735,11 @@ export function FeaturedCarousel() {
               // ata al temporizador, no al modo, para que el caso que importa (usuario de teclado
               // navegando la pista, que la suspende) quede siempre en `polite`.
               aria-live={timerRunning ? 'off' : 'polite'}
-              className="gutter flex snap-x gap-4 overflow-x-auto pb-10 [scrollbar-width:none] lg:gap-7 lg:pb-14 [&::-webkit-scrollbar]:hidden"
+              // B5 (BRIEF_MKT §4): `relative` hace de la pista el bloque contenedor de los `absolute` de sus tejas (el
+              // `sr-only` «aproximadamente» de la cifra de gradeo). Sin él, su bloque era <body>: escapaban del recorte
+              // del scroll y estiraban el documento (portada móvil a 853 px con los mocks, 677 en producción).
+              // Candado: e2e/mobile-no-overflow.spec.ts.
+              className="gutter relative flex snap-x gap-4 overflow-x-auto pb-10 [scrollbar-width:none] lg:gap-7 lg:pb-14 [&::-webkit-scrollbar]:hidden"
             >
               {featured.map((l, i) =>
                 i === 0 ? (

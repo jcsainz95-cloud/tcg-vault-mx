@@ -8,18 +8,18 @@ import { cn } from '@/lib/cn';
 /**
  * Sub-navegación de la «Tienda» (artboard 2a, dirección 1a «Conservadora»):
  * Cartas sueltas (/catalog) · Producto sellado (/sellado) · Gradeadas
- * (/catalog?type=graded) · Accesorios (/accesorios, §AC-UX.1). La pestaña activa lleva subrayado rojo de 2px y
+ * (/catalog?productType=graded) · Accesorios (/accesorios, §AC-UX.1). La pestaña activa lleva subrayado rojo de 2px y
  * versalitas con tracking de etiqueta; el resto queda en muted.
  *
  * «Gradeadas» no es una ruta propia: es el catálogo con el filtro
- * productType=graded pre-aplicado vía query (?type=graded). CatalogView lee
- * ese parámetro y lo sincroniza con sus filtros.
+ * `productType=graded` en la query, el MISMO parámetro que escribe el panel (TL-MKT3-2; antes la pestaña emitía el
+ * alias `type`, que solo sigue leyéndose para enlaces viejos en `parseUrlFilters`).
  */
 export function StoreTabs() {
   const t = useTranslations('storeTabs');
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  // La pestaña usa ?type=graded; los enlaces del Home llegan con ?productType=graded.
+  // Activa con `productType=graded`; el alias viejo `type` también cuenta (enlaces guardados).
   const graded =
     searchParams?.get('type') === 'graded' || searchParams?.get('productType') === 'graded';
   const inCatalog = pathname.startsWith('/catalog');
@@ -27,7 +27,7 @@ export function StoreTabs() {
   const tabs = [
     { key: 'singles', href: '/catalog', label: t('singles'), active: inCatalog && !graded },
     { key: 'sealed', href: '/sellado', label: t('sealed'), active: pathname.startsWith('/sellado') },
-    { key: 'graded', href: '/catalog?type=graded', label: t('graded'), active: inCatalog && graded },
+    { key: 'graded', href: '/catalog?productType=graded', label: t('graded'), active: inCatalog && graded },
     // §AC-UX.1: cuarta pestaña AL FINAL (no mueve lo que el cliente ya conoce); ruta en español como /sellado.
     { key: 'accessories', href: '/accesorios', label: t('accessories'), active: pathname.startsWith('/accesorios') },
   ];

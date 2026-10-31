@@ -35,7 +35,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { CardCode } from '@/components/domain/CardCode';
 import { WishlistBlock } from './WishlistBlock';
-import { FinalSaleLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
+import { RefundPromiseLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
 
 /**
  * v1.38-grouped-listings (P-30): ¿la pieza (unit, por-pieza) pertenece a este grupo?
@@ -56,7 +56,21 @@ const byPriceThenId = (a: ListingDTO, b: ListingDTO) =>
   (a.displayPriceCents ?? 0) - (b.displayPriceCents ?? 0) ||
   a.inventoryItemId.localeCompare(b.inventoryItemId);
 
-export function CardDetailView({ cardId }: { cardId: string }) {
+/**
+ * C1 (BRIEF_MKT Ola 2): `initialData` es la MISMA respuesta de `GET /catalog/cards/:cardId` que la página ya
+ * leyó en el servidor para el `<head>` (`loadCardDetailForSSR`, `cache()` de React ⇒ una sola petición por
+ * render). Con ella, el cuerpo (h1, precio del día, condición) sale en el HTML del servidor y el cliente NO
+ * vuelve a pedir la ficha al montar (nace fresca: `staleTime` global de 30 s, `Providers.tsx`). Sin ella
+ * (backend caído en SSR) la vista pide sola, como antes. ⛔ El precio es el `displayPriceCents` del DTO, el
+ * mismo que se cobra: aquí no se calcula nada.
+ */
+export function CardDetailView({
+  cardId,
+  initialData,
+}: {
+  cardId: string;
+  initialData?: GroupedListingDetailResponse;
+}) {
   const cart = useCart();
   const [tab, setTab] = useState<'description' | 'condition'>('description');
   // Señal del toast de confirmación: timestamp del último add (0 = oculto);
@@ -64,7 +78,7 @@ export function CardDetailView({ cardId }: { cardId: string }) {
   const [addedSignal, setAddedSignal] = useState(0);
   const dismissToast = useCallback(() => setAddedSignal(0), []);
 
-  const query = useQuery({ queryKey: ['card', cardId], queryFn: () => getCardDetail(cardId) });
+  const query = useQuery({ queryKey: ['card', cardId], queryFn: () => getCardDetail(cardId), initialData });
 
   return (
     <QueryState
@@ -335,16 +349,19 @@ function Detail({
         </div>
 
         <div className="gutter py-10 lg:py-14">
+          {/* C1 (criterio 949): el `<h1>` lleva nombre · set · número. La línea de set va DENTRO del encabezado
+              como bloque propio, con la misma letra y el mismo margen que tenía de párrafo: se ve igual. */}
           <h1 className="font-serif text-[32px] leading-[1.05] text-text lg:text-[46px]" lang="en">
             {card.name}
+            <span className="sr-only"> · </span>
+            <span className="mt-3 block font-mono text-xs uppercase tracking-[0.1em] text-muted">
+              {/* v1.80 (P-71, §37.3c): «Twilight Masquerade · TWM 130 · rareza»; sin código, `#130`.
+                  La línea va en versalitas; el código NO (`normal-case`): §37.3b, «mayúsculas tal
+                  como llegan» — la sigla es la impresa en la carta, no la decide el CSS. */}
+              {card.setName} · <CardCode code={card.setPtcgoCode} number={card.number} className="normal-case" /> ·{' '}
+              {card.rarity}
+            </span>
           </h1>
-          <p className="mt-3 font-mono text-xs uppercase tracking-[0.1em] text-muted" lang="en">
-            {/* v1.80 (P-71, §37.3c): «Twilight Masquerade · TWM 130 · rareza»; sin código, `#130`.
-                La línea va en versalitas; el código NO (`normal-case`): §37.3b, «mayúsculas tal
-                como llegan» — la sigla es la impresa en la carta, no la decide el CSS. */}
-            {card.setName} · <CardCode code={card.setPtcgoCode} number={card.number} className="normal-case" /> ·{' '}
-            {card.rarity}
-          </p>
 
           {primary && (
             <>
@@ -357,7 +374,7 @@ function Detail({
               {primary.displayPriceCents != null && (
                 <>
                   <ShippingFeeHint kind="cards" className="mt-3" />
-                  <FinalSaleLine className="mt-1" />
+                  <RefundPromiseLine className="mt-1" />
                 </>
               )}
 

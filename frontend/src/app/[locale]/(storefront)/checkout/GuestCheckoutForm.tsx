@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { PostalCodeNeighborhoodFields, type NeighborhoodMode } from '@/components/domain/PostalCodeNeighborhoodFields';
 import { LINE2_MAX, REFERENCES_MAX } from '@/lib/address-rules';
 import { PrivacySiteNote, privacyPlainTags } from '@/components/legal/PrivacyNoticeLink';
+import { RefundPromiseLine } from '../_shared/ShippingFeeHint';
 import { suggestEmailTypo, type GuestErrors, type GuestField, type GuestFormState } from './guest-validation';
 
 /** Destino de la compra; la fila de estado vive en `GuestCheckoutView` (CHK-MOVIL.2.3). */
@@ -244,10 +245,13 @@ export function GuestCheckoutForm({
               className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[color:var(--color-accent)]"
             />
             <span className="min-w-0 [overflow-wrap:anywhere]">
-              {t.rich('guest.email.confirmCheckbox', {
-                email: state.email || '—',
-                mono: (chunks) => <span className="font-mono text-text">{chunks}</span>,
-              })}
+              {/* B4b (PENDIENTES E2E-GUEST-GUION): sin correo escrito, texto neutro — nunca «Confirmo que — es correcto». */}
+              {state.email.trim()
+                ? t.rich('guest.email.confirmCheckbox', {
+                    email: state.email.trim(),
+                    mono: (chunks) => <span className="font-mono text-text">{chunks}</span>,
+                  })
+                : t('guest.email.confirmCheckboxEmpty')}
             </span>
           </label>
           <p aria-live="polite" className="mt-2 min-h-[1rem] font-mono text-xs text-muted">
@@ -382,6 +386,8 @@ export function GuestCheckoutForm({
         {visible('terms') && (
           <p className="mt-2 font-mono text-xs text-accent">{messageFor('terms')}</p>
         )}
+        {/* T8 junto a la única mención de «ventas finales» antes de pagar (B4; DESIGN_SYSTEM §CHK-MOVIL.4). */}
+        <RefundPromiseLine className="mt-2 max-w-[620px] pl-7" />
       </section>
     </div>
   );

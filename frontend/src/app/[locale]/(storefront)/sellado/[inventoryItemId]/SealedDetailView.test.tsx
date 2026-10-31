@@ -278,3 +278,16 @@ describe('SealedDetailView · §A2 barra de compra fija en móvil (MKT-26b)', ()
     expect(screen.queryByTestId('mobile-buy-bar')).toBeNull();
   });
 });
+
+describe('SealedDetailView · C1 (criterio 949): <h1> con nombre · set', () => {
+  it('el set va DENTRO del <h1>, como en raw y gradeada', async () => {
+    mockDetail({ group: BOX_MINT });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+    const h1 = await screen.findByRole('heading', { level: 1 });
+    expect(h1.textContent).toBe(`${BOX_MINT.productName} · ${BOX_MINT.card.setName}`);
+    // Mismo patrón visual que la ficha raw: la línea de set es un bloque mono en versalitas dentro del encabezado.
+    const setLine = within(h1).getByText(BOX_MINT.card.setName);
+    expect(setLine.className).toContain('block');
+    expect(setLine.className).toContain('font-mono');
+  });
+});

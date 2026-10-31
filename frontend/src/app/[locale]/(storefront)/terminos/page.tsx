@@ -4,6 +4,7 @@ import { ShieldCheck, BadgeCheck } from 'lucide-react';
 import { Banner } from '@/components/ui/Banner';
 import { fetchSupportContactForServer } from '@/lib/support-contact-server';
 import { RouteMessages } from '@/components/i18n/RouteMessages';
+import { SITE_URL, localeAlternates } from '@/lib/seo';
 
 export async function generateMetadata({
   params,
@@ -15,8 +16,11 @@ export async function generateMetadata({
   const tc = await getTranslations({ locale, namespace: 'common' });
   // Patrón de título §17.4: «TCG HUNT — {página}».
   return {
+    metadataBase: new URL(SITE_URL),
     title: `${tc('appName')} — ${t('title')}`,
     description: t('refundBody'),
+    // C4: canonical + hreflang (los términos existen en los dos idiomas).
+    alternates: localeAlternates(locale, '/terminos'),
   };
 }
 

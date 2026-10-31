@@ -46,14 +46,16 @@ export function ShippingFeeHint({ kind, className }: ShippingFeeHintProps) {
 }
 
 /**
- * T8 en la ficha (§CHK-MOVIL.4): «Todas las ventas son finales.» y, en la misma línea, la promesa de reembolso
- * que ya sostiene la política (`checkout.finalSaleNotice`: «…salvo carta dañada o equivocada»). Mono 11 px, sin icono.
+ * T8 en la ficha (§CHK-MOVIL.4): la promesa de reembolso («Si tu carta llega dañada o equivocada, te reembolsamos.»),
+ * mono 11 px, sin icono. B4 (BRIEF_MKT §4, 2026-10-30): la ficha ya NO repite «Todas las ventas son finales»; esa
+ * frase sale una sola vez antes de pagar, en el checkout (casilla de términos del invitado / nota legal con cuenta),
+ * siempre con T8 al lado. Candado de conteo: `final-sale-once.test.tsx`.
  */
-export function FinalSaleLine({ className }: { className?: string }) {
+export function RefundPromiseLine({ className }: { className?: string }) {
   const t = useTranslations('checkout');
   return (
-    <p data-testid="final-sale-line" className={cn('font-mono text-[11px] leading-[1.5] text-muted', className)}>
-      {t('finalSaleShort')} {t('refundPromise')}
+    <p data-testid="refund-promise-line" className={cn('font-mono text-[11px] leading-[1.5] text-muted', className)}>
+      {t('refundPromise')}
     </p>
   );
 }

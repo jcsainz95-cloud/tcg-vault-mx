@@ -1,112 +1,100 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · estado vigente
 
-> **Estado vigente (2026-10-31).** Último veredicto: **APROBADO** sobre **`d5f0b38c968d57c30131ac3e1d9e25c7e3b7c283`** (2026-10-31,
-> release §DYN «Portada dinámica» más el paquete de velocidad de la PR #107; rama `claude/portada-dinamica`). Críticas 0 · Altas 0 ·
-> 1 media aceptada (residual de PEN-DYN-1 con SEC-DYN-M1, cubierta por el candado `image-optimizer-cost-reading-expiry`) · 3 bajas · 3 info.
-> Antes: APROBADO `5aeda006` (2026-10-29). Siguen heredados en «Registro vigente»: **P-RL-1**, **CL-1** (CSP en `report-only`, todavía
-> **sin** fila de aceptación del dueño en `HECHOS.md`: la busqué hoy) y **BL-42**.
+> **Estado vigente (2026-10-31).** Último veredicto: **APROBADO** sobre **`e066b0b5173e8ebe90979c3d2140a3fc4ec39be5`** (release
+> «Marketing / SSR SEO Ola 2», rama `claude/mkt-conversion`, diff `223a7224..e066b0b5` solo frontend; `dd84a5be` encima solo añade
+> `docs/PENTEST_NOTES.md`). Críticas 0 · Altas 0 · Medias 0 nuevas · 1 baja · 4 info. Antes: APROBADO `d5f0b38c` (2026-10-31).
+> Siguen heredados en «Registro vigente»: **P-RL-1**, **CL-1** (CSP en `report-only`, **sin** fila de aceptación en `HECHOS.md`; este
+> pase midió que hoy el escape del JSON-LD es la **única** barrera ante un nombre de carta hostil) y **BL-42**.
 
 ---
 
-# VEREDICTO BLUE TEAM — Release §DYN «Portada dinámica» · SHA **`d5f0b38c968d57c30131ac3e1d9e25c7e3b7c283`** · 2026-10-31 · seguridad
+# VEREDICTO BLUE TEAM — «Marketing / SSR SEO Ola 2» · SHA **`e066b0b5173e8ebe90979c3d2140a3fc4ec39be5`** · 2026-10-31 · seguridad
 
-> ## VEREDICTO: ✅ **APROBADO** sobre `d5f0b38c`, sin condiciones nuevas
-> **0 críticas · 0 altas.** El dinero aguanta: lo exhibido es lo cobrado y una fila `pending` no se cobra (dos mutaciones mías, las dos
-> cazadas). PEN-DYN-2 queda **cerrada** (carrera 10/10 con el candado y 1/10 y 0/10 sin él). El arreglo de PEN-DYN-1 funciona. Su residual
-> queda **aceptado**, ahora con un vector más que encontré yo (SEC-DYN-M1, el fragmento `#`). Los dos son coste, no datos ni dinero de
-> clientes. `production` hoy está **más abierto** que esta release, y el candado de la lectura de coste lo cobra.
+> ## VEREDICTO: ✅ **APROBADO** sobre `e066b0b5`, sin condiciones
+> 0 críticas · 0 altas. Medí en vivo lo que el pentester dejó en código o NO MEDIDO. El 308 no refleja `Host` ni `X-Forwarded-Host`
+> (8 variantes, 10/10 cada una). El JSON-LD y el HTML de servidor no se rompen con nombres hostiles (0 diálogos en 30 cargas de navegador).
+> PEN-MKT-2 es real, pero queda acotado por el throttler. Hice seis ablaciones y las seis se pusieron rojas al quitar su control y verdes
+> al restaurarlo. Lo abierto es coste o SEO. No toca dinero ni PII.
 
 ## 1. Alcance y procedencia
-- **Qué entra** `[MEDIDO]`: `git diff origin/production d5f0b38c` = 328 ficheros. `79c53ca2` es ancestro de `d5f0b38c` y `d5f0b38c` es ancestro de `HEAD`. Desde el sha del pentest (`d0b40182`) hay 16 commits sin merge; fuera de docs tocan 53 ficheros. Esos los revisé uno por uno: `orders.service.ts`, `listing-price.service.ts`, `price-ingest.service.ts`, `pricing.controller.ts`, `settings.service.ts`, `catalog.service.ts`, `next.config.mjs`, `image-optimizer-switch.mjs`, el guion PDB, `ci.yml` y el candado nuevo. **Sin cambio desde `d0b40182`** `[MEDIDO]` (`git diff --quiet`): `catalog.controller.ts`, `featured.service.ts`, `modules/admin`, `middleware.ts`, `src/security` y `limpieza-ramas.yml`. Para esos me apoyo en el pase del pentester.
-- **Dónde medí**: `git archive d5f0b38c` del árbol entero en `…/scratchpad/sec-dyn-d5f0b38c/tree`, con `npm ci` propio. BD propia `tcg_sec_dyn` (rol `tcgsecdyn`) y Redis db 14. Frontend: `next build` de producción (sin mocks, API `https://api.sec-probe.invalid`), servido con `node .next/standalone/server.js` en `127.0.0.1:3791`. La copia no lleva `.git`: el sha lo garantiza el `git archive`. Carga entre 1,5 y 5,8 con 4 CPU, y ningún resultado depende de tiempos (las carreras usan barrera). **No medí contra Vercel ni Railway**: NO MEDIDO. Logs en `…/scratchpad/sec-dyn-d5f0b38c/logs/`.
+- **Copia** `[MEDIDO]`: `git archive e066b0b5` del árbol entero en `…/scratchpad/sec-mkt/tree`, con `npm ci` propio. El stack es mío:
+  `stack-native.sh up --gate --seed` con `STACK_EXPECTED_SHA=e066b0b5…`, backend en :3797, `next build` + `next start` en :3798, s3 en :9797,
+  BD `tcg_sec_mkt` (rol propio) y Redis db 13. `verify:head e066b0b5` ⇒ «VERIFICADO» en backend y bundle. El script cerró con «NO APTO PARA
+  GATE» solo por las capacidades §39: falta COBRO y SUBIDA, porque no hay claves de Stripe. Ningún vector de este pase usa cobro ni
+  subida. Los mutantes se hornearon con `NEXT_DIST_DIR=.next-mut` y se sirvieron en :3799, así que el build auditado no se tocó.
+  Carga entre 2,7 y 11,9 con 4 CPU. Repetí las mediciones con tope de tiempo con carga menor de 8 (O-16). ⛔ No toqué Vercel, Railway
+  ni `tcghunt.mx`. Copia, BD y Redis db 13 están borrados, y apagué por PID. Logs: `…/scratchpad/sec-mkt/logs/`.
+- **Delta** `[MEDIDO]`: 72 ficheros, todos de `frontend/` o `docs/`. `backend/` no cambia desde `d5f0b38c`, que es ancestro
+  (`git diff --quiet`). Los lockfiles tampoco cambian.
 
-## 2. Consolidación del pase del pentester (`d0b40182`) sobre `d5f0b38c`
-| ID | Sev pentest | Estado en `d5f0b38c` | Evidencia |
+## 2. Consolidación del pentester (`docs/PENTEST_NOTES.md`, pase `e066b0b5`)
+| ID | Sev pentest | Sev blue team | Estado medido en vivo |
 |---|---|---|---|
-| PEN-DYN-1 | Media | **Arreglo verificado; el residual se acepta** (ver §4). `?v=1`, `%34`, subrutas, `.jpg`, mayúsculas, `//`, `/medium`, logos y `large/` ⇒ **400**. Se transforman `base1/4_hires.png` y `pokemon/me3-1/large` | `[MEDIDO]` 22 sondas, `logs/next-image-off.txt`; `next.config.mjs:220-242` |
-| PEN-DYN-2 | Baja | **CERRADA**. `pg_advisory_xact_lock(64_440_960)` y relectura por `tx` dentro del `$transaction`, en Read Committed (sin `isolationLevel`), así que la relectura tras el candado ve lo confirmado | `[código]` `settings.service.ts:698-706`; `[MEDIDO]` abajo, M-A |
-| I1 | Info | Abierto, sin cambio: `@Header('Cache-Control', public…)` también en los 400. Los 4 manejadores son `@Public` y no leen sesión | `[código]` `catalog.controller.ts:28,49-100`, sin cambio desde `d0b40182` |
-| I2 | Info | El nonce está cerrado y **ahora sí ablacionado** (M-D). La política sigue en `report-only` = CL-1 | `[MEDIDO]`; `csp.ts:37` |
-| I3 | Info | Abierto: `url=https://evil.example@images.pokemontcg.io/…` ⇒ **500** (el host sigue siendo el permitido; no es SSRF) | `[MEDIDO]` |
-| I4 | Info | (a)–(c) confirmados en código. (d) y (e) pasan a SEC-DYN-B1 y SEC-DYN-B3 | `[código]` `limpieza-ramas.yml`, `limpieza-ramas.sh:17-25,111,137` |
+| R1/R2 open redirect y CRLF | — | — | **Confirmado.** `//evil`, `\\evil`, `%2f%2f`, traversal, `?next=//evil` y `%0d%0a` en query y en path. Todos salen en 308 o 404 con `Location` **relativo** al mismo origen. CR/LF queda percent-encoded y no aparece ninguna cabecera inyectada. 10/10 por sonda `[MEDIDO]` `redir-base.txt`, `redir-headers.txt` |
+| **PEN-MKT-1** | Baja | **Info (baja)** | **No reproduce en `next start`.** `Host`, `XFH`, XFH en lista, `Forwarded` y `X-Forwarded-Port` dan siempre `Location: /card-show…`, 8 variantes × 10/10. `[código]` El origen sale del servidor (`nextUrl` + `getRelativeURL` en `next/dist/server/lib/router-utils/resolve-routes.js:457`), no de la cabecera. **M-4:** quité la relativización de Next. El host sigue siendo el del servidor (`http://localhost:3799`) y **solo el esquema** sigue a `X-Forwarded-Proto`. **M-5:** construí el destino desde `x-forwarded-host`/`host` ⇒ **10/10 `https://evil.example/card-show`** en 5 variantes, en ROJO. Restaurado ⇒ 10/10 relativo. Vercel edge: **NO MEDIDO**. Lo cerraría un `curl -sI -H 'X-Forwarded-Host: evil.example' <preview>/es/card-show` |
+| **PEN-MKT-2** | Baja | **Baja** (→ SEC-MKT2-B1) | **Confirmado con mecanismo más preciso**, ver §3 |
+| PEN-MKT-I1 | Info | Info | De acuerdo: el nonce del 308 es inocuo. Lo que sí falta es un candado para la CSP del 308 ⇒ SEC-MKT2-I1 |
+| PEN-MKT-I2 | Info | — | Es la raíz de SEC-MKT2-B1(c). La asimetría está medida |
+| R4–R10 | — | — | XSS (§3), canonical/hreflang/og desde `SITE_URL`, `llms.txt` (solo `soporte@`), sitemap (27 `<loc>` públicos, 0 de admin/checkout) y robots: confirmados en vivo |
+| Heredados | | | PEN-DYN-2 está **CERRADA** desde `d5f0b38c`, que es ancestro y no tiene cambios en backend. El pentester la lista como abierta. MKT-TL2 general sigue como en el registro. LOW-1 no estaba en el registro: la añado a B |
 
-## 3. Lo que pidió el encargo
-**(1) Camino del dinero.**
-- `[código]` TL-DYN-1 movió «fila o vivo» a `ListingPriceService.chargeDecisionsFor` (`listing-price.service.ts:482-500`): fila `priced` ⇒ su `P`; `pending` ⇒ `422 PRICE_PENDING`; sin fila ⇒ vivo y `missing_row`. Es una copia literal de la lógica que el pentester midió. `orders.service.ts:372` delega, y el único llamador del checkout es `:338`. El importe del PaymentIntent sale de `order.totalCents` / `breakdown.totalCents` (`orders.service.ts:1104`, `guest-checkout.service.ts:610`), calculado en la misma llamada. `listingPrices` no lleva `@Optional()` (`orders.service.ts:226-229`): si falta, el arranque falla en vez de cobrar en vivo.
-- **M-B** `[MEDIDO]`: `if (row && false)` en `chargeDecisionsFor` (el checkout ignora la fila) ⇒ `dyn-listing-price` **ROJO**, «exhibido = cobrado… quote y sesión (cuenta e invitado)», esperado 66 700 y recibido 113 400. Restaurado (`diff` contra `git show d5f0b38c:` vacío) ⇒ 12/12. Así queda medido que la app real cobra por este método, y no por la rama de respaldo de `orders.service.ts:374`.
-- **M-C** `[MEDIDO]`: sin el `throw PRICE_PENDING` (la `pending` se cobra en vivo) ⇒ **ROJO** en «fila `pending` ⇒ fuera del catálogo y `PRICE_PENDING` en quote y sesión». Restaurado ⇒ verde. Línea base de las tres suites de dinero (`dyn-listing-price`, `dyn-review-retention`, `dyn-v11144`): **36/36**. La prueba compara el `amountCents` del PaymentIntent con el `totalCents` del breakdown contra el **doble** de Stripe. Contra Stripe real: **NO MEDIDO** (LIVE5-STRIPE).
-- **Disparadores** `[código]`: lo nuevo desde el pentest es la poda de `ListingPriceRun` (solo tras un `daily` ok y bajo `LISTING_PRICE_LOCK_KEY`) y el turno PSA, donde `pg_try_advisory_xact_lock(91_130_103)` deja **una** corrida viva y las demás salen con `already_running` sin pedir créditos. No hay puertas nuevas: las 9 puertas de precio y la fusión de disparadores las midió el pentester (1f, 1g) y sus controladores no cambiaron más que en DI (TL-DYN-4: `listingPrices` y `priceReview` pasan a inyección explícita u obligatoria, lo que **endurece**). El turno PSA mantiene una transacción, y por tanto una conexión del pool, hasta 60 min: SEC-DYN-B2.
-- Las copias de la llave K pasan al helper `variantKey` (`common/variant-key.ts`), con el mismo formato `a|b|c|d`: no cambia ninguna clave ya guardada en `ListingPrice.variantKey`.
+## 3. Mediciones del encargo
+**XSS en JSON-LD y HTML de servidor** `[MEDIDO]`. En mi BD, la carta `9f04db17…` se llama
+`XSSCARD</script><script>alert(1)</script><img src=x onerror=alert(2)>` + U+2028 + `<!--`, su número es `1</SCRIPT><svg onload=alert(3)>` y su set es
+`XSSSET</script ><script>alert(4)</script>`. Probé además `?q=`, `?setId=` y `?rarity=` con cargas parecidas. HTML crudo de 4 URL: 0 cargas
+crudas y 0 `<script>` ejecutables. Chromium: 10 cargas × 3 URL ⇒ **0 diálogos**, y el nombre se ve como texto 10/10. **M-1:** sin el
+`.replace(/</g,'\\u003c')` de `JsonLd.tsx:11` ⇒ 4 cargas crudas, 3 `<script>alert(n)` y **20 diálogos en 10 cargas** de la ficha, en ROJO. El
+catálogo no se ve afectado, porque su JSON-LD solo lleva el breadcrumb i18n. Restaurado ⇒ 0. ⚠ Con la CSP en `enforce` esos `<script>` sin nonce no
+habrían corrido. Hoy la CSP está en `report-only` (CL-1) y no lo impide. Lo que vale para el JSON-LD vale para el payload RSC del `initialData`, que Next escapa: 0 cargas crudas.
 
-**(2) Endpoints nuevos y roles.** `featured` (`@Public`), `jobs/featured-rotation`, los diales y `graded-estimates/budget` (`super_admin`):
-sus controladores no cambian desde `d0b40182` `[MEDIDO]`. Me quedo con la matriz del pentester `[REPORTADO por pentester, 3a: 401/403
-y 200 solo para super_admin, alg:none, rol alterado y token vencido]`.
-**M-A (PEN-DYN-2)** `[MEDIDO]`, `settings-cross-rules-race.e2e-spec.ts` (barrera, N=10 por regla): línea base **10/10 y 10/10**. Sin
-`pg_advisory_xact_lock` y validando con `this.prisma` fuera del `tx`, la regla del buylist se cumple **1/10** y la de Destacadas **0/10**,
-en ROJO. Restaurado (`diff` vacío) ⇒ **10/10 y 10/10**.
+**Cabeceras** `[MEDIDO]`, en 16 rutas. Las páginas nuevas o tocadas (`/es/catalog`, `?page=2`, la ficha, `/es/sellado`, `/es/decks-meta`, `/es/decks-meta/dragapult-ex`,
+`/es/compra`, `/es/privacidad`, `/es/terminos`, `/card-show`) y los dos 308 llevan `X-Frame-Options: DENY`, `frame-ancestors 'none'`, la CSP-RO
+con nonce, `nosniff` y `Referrer-Policy`. `sitemap.xml`, `robots.txt` y `llms.txt` no llevan la CSP con nonce porque están fuera del `matcher`
+y no son HTML. Lo demás sí lo llevan. HSTS no lo pone Next; lo pone la plataforma, como antes. **M-2:** sin `response.headers.set(header, policy)` en la rama 308
+(`middleware.ts:66`) ⇒ los 308 salen **sin** CSP con nonce (0/2 frente a 2/2), en ROJO, y las 5 suites de middleware siguen **61/61 en verde** ⇒ SEC-MKT2-I1.
 
-**(3) Cachés públicas y sesión.** Los cuatro GET públicos con `public, max-age=30` no leen sesión `[código]`, y el pentester midió
-cuerpos idénticos byte a byte con 4 identidades. El HTML de `/es` y `/es/catalog` sale `private, no-store`, y solo pone la cookie
-`NEXT_LOCALE` `[MEDIDO]`. Sin cambio: I1 sigue siendo info.
+**Amplificación (PEN-MKT-2 ⇒ SEC-MKT2-B1)** `[MEDIDO]`. Hice 400 peticiones a `/es/catalog?q=<aleatorio>` con concurrencia 8:
+- **(a) El throttler acota.** Solo **300/400** llegan con datos al servidor, y el resto sale con el esqueleto. Una segunda ronda dio **0/330**.
+  La lista directa al backend responde **429**. **M-6:** con `limit: 300_000` en `app.module.ts:56` ⇒ **400/400** llegan, en ROJO.
+  Restaurado ⇒ 300/400.
+- **(b) El cubo es del servidor, no del atacante.** Las lecturas de servidor salen todas desde la IP del frontend, así que el atacante
+  agota un cubo compartido. Mientras dura la ventana, un filtro legítimo sin caché (`?productType=graded`) sale **0/10** sin datos en
+  el servidor. Las claves ya cacheadas (`/es/catalog`, `?page=2`) siguen 10/10, y las fichas también, porque el throttler de Nest lleva
+  un cubo por manejador.
+- **(c) Sockets colgados.** Con mi backend congelado (`SIGSTOP` por PID) el catálogo responde en ≤1,66 s, pero deja **10 de 10 sockets
+  abiertos en 10/10 rondas**, que siguen ahí a los 90 s (5/5). Las fichas, con `withAbortBudget`, dejan **0 en 10/10 rondas**. **M-3:**
+  ficha con `withBudget` ⇒ **10 colgados en 10/10 rondas**, en ROJO. Restaurado ⇒ 0.
+- **(d) Data Cache.** Cada `q` distinta con éxito añade una entrada de unos 4 KB (311 entradas = 1,3 MB). Los 429 no se cachean. Así el
+  crecimiento queda acotado por (a). En Vercel: **NO MEDIDO**.
 
-**(4) CSP y nonce.** `[MEDIDO]` En `/es` y `/es/catalog`, 20 peticiones con `x-nonce`, `content-security-policy` y `-report-only`
-del atacante: **el nonce del atacante no aparece en 20/20**, y los 42 `<script>` de `/es` llevan nonce.
-**M-D**: sin `request.headers.set(CSP_REQUEST_HEADER, policy)` (`middleware.ts:47`) y recompilado, el nonce del atacante sale en el cuerpo
-**20/20** (ROJO). Restaurado y recompilado ⇒ 0/20. La política sigue en `report-only` (`csp.ts:37`). Es **CL-1, abierta**. ⚠ El
-encargo dice «report-only por decisión del dueño», pero `HECHOS.md` no tiene esa fila (grep de `csp`/`report` revisado). Hasta que
-exista, CL-1 sigue siendo Media sin aceptar, igual que antes.
+**Varios** `[MEDIDO]`. `cardId` va sin `encodeURIComponent` (`api.ts:629`, preexistente). Las 5 variantes de traversal (`..%2F..%2Fhealth`, etc.) llegan
+como literal y dan `initialData: undefined`, así que no se alcanza otra ruta. El canonical sale doble-codificado (`%252F`) ⇒ SEC-MKT2-I2. **SAST:** semgrep
+1.177.0 con las 9 configs de `security-sast.yml` sobre los 63 `.ts/.tsx` del diff ⇒ **0 ERROR**. Hay 8 WARNING, todos en pruebas o e2e: 7 son
+`non-literal-regexp` y 1 `incomplete-sanitization`. Hubo 1 timeout de regla (`express-ssrf`, en `api.ts`) y 3 parseos parciales de tests.
+**Secretos:** 0 coincidencias en las 3 161 líneas añadidas. `npm audit --omit=dev` del frontend da 0. **Procedencia:** `restart:backend` dijo «verificado
+(e066b0b5)» con `app.module.ts` modificado por M-6. En una copia sin `.git` no detecta ediciones del fuente ⇒ SEC-MKT2-I3.
 
-**(5) `/_next/image` y el residual** → §4.
-
-**(6) `limpieza-ramas.yml`** `[código]`: solo `workflow_dispatch`, `permissions: {}`, y el job con `contents: write` + `pull-requests: read`.
-Borra solo si se cumplen tres cosas: ancestro de `production`, fuera de las protegidas y de las PR abiertas, y `--force-with-lease`
-al sha medido. Nunca pierde commits. Lo que queda: (d) una rama recién creada sin commits propios y sin PR **se borra** (SEC-DYN-B1),
-y (e) `actions/checkout@v5` es etiqueta móvil con token de escritura (SEC-DYN-B3).
-
-**(7) Guion PDB con G-11** `[MEDIDO]`, `pdb-limpieza.e2e-spec.ts`, bloque §DYN.1: **5/5**. G-11 aborta con la base **idéntica** cuando
-otra conexión tiene `91130101` o `91130102`. Los literales del guion coinciden con las constantes, y G-7 no se dispara con la selección
-del día pero sí con una `InventoryItem`. Usa `pg_try_…` después del último `LOCK` y antes de la foto: no espera, así que no deja la
-foto vieja. `[código]` Todas las escrituras de `ListingPrice` (upsert, borrado de fuera de alcance, poda) van bajo `91_130_102`.
-
-**(8) SAST y dependencias** `[MEDIDO]`. Semgrep **1.177.0** (la versión de `security-sast.yml:50`) con las 9 configs del CI sobre los
-200 ficheros `.ts/.tsx/.mjs/.sh/.yml/.sql` añadidos o modificados:
-- En `backend/` y `frontend/` (el alcance del gate) hay **0 ERROR**.
-- Los 2 ERROR son `secrets-inherit` en `deploy.yml:243,494`: ya estaban en `production`, pasan los secretos `STRIPE_TEST_*` a un flujo interno y quedan fuera del alcance del gate.
-- Las 104 WARNING: 94 son `mutable-action-tag` (SEC-DYN-B3). 4 son `no-secret-in-logs`, que revisé una por una: son conteos y claves de diales retirados, sin secretos. 6 son `non-literal-regexp`, de pruebas o ya presentes en `production`.
-- Grep de secretos en las líneas añadidas: 0. `IMG_SEED` en `security/secretos-*.sha256` es un renombrado del arnés, no una fuga.
-`npm audit --omit=dev`: frontend 0. Backend **0 críticas y 0 altas, 12 moderadas y 4 bajas**. Los lockfiles no cambian frente a
-`production`; el aumento sobre las 4 moderadas del pentester viene de avisos publicados después (`qs` con `arrayFormat:'comma'`,
-`minimatch` y `deepmerge`). Ninguno es alcanzable `[código]`: `arrayFormat`, `minimatch` y `deepmerge` dan 0 en `backend/src` → SEC-DYN-I1.
-
-## 4. `/_next/image`: valido la aceptación del residual, con un vector más
-- **Residual aceptado por el arquitecto** (`ARCHITECTURE.md:31005`): `[MEDIDO]` `images.scrydex.com/pokemon/me3-99999/large` ⇒ **200** WebP. El CDN responde 200 a cualquier id con la forma correcta, así que el número de orígenes no tiene tope.
-- **SEC-DYN-M1 (nuevo, Media, frontend):** la premisa «por URL ya está acotado (2 anchos × 1 calidad × sin query)» **no se cumple**. El **fragmento** (`#…`, que el atacante manda codificado en `url=`) entra en la clave de caché y `remotePatterns` no lo mira. `[MEDIDO]` `https://images.pokemontcg.io/base2/1.png#f<n>`: **10/10 `200` y `X-Nextjs-Cache: MISS`**, y la misma cadena repetida da `HIT`. Así, **una sola** imagen válida de **cualquiera** de los dos hosts da transformaciones sin tope. Los alias `/./`, `/x/../`, `:443` y `?` vacío también pasan. Los dos primeros se normalizan (`HIT` en la segunda), y todos son un número finito; el fragmento no. En Vercel el optimizador es suyo, y si su clave incluye el fragmento está **NO MEDIDO**: lo cerrarían dos peticiones a un *preview* mirando `x-vercel-cache`.
-- **Por qué no bloquea:** es coste, no datos ni dinero; `production` ya acepta cualquier query, cualquier ruta, y todos los anchos y calidades, así que publicar **reduce** la superficie. Además el interruptor la cierra entera. `[MEDIDO]` Build con `NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH=on`: los dos hosts y la variante con fragmento ⇒ **400** «"url" parameter is not allowed». El valor raro hace fallar el build, y eso lo cubre su candado (`next-image-remote-patterns.test.ts` y 4 ficheros más: **72/72** `[MEDIDO]`).
-- **El candado cobra la aceptación** `[MEDIDO]`: `check-image-optimizer-cost-reading-expiry.sh --canary` ⇒ **11/11**. Hoy da rc 0; con `--today 2026-12-01` da **rc 9**. Está en `ci.yml:546` y en `needs` del agregador (`:1137`). Mide el total de transformaciones al día, así que también recoge el abuso por fragmento. Tiene dueño (devops), fecha (2026-12-01) y candado: **la aceptación vale**. ⚠ Solo se pone rojo en el próximo push o PR desde esa fecha (`ci.yml` no tiene `schedule`). Con el ritmo actual del repo es aceptable.
-- ⚠ **La alerta de gasto de Vercel** es parte de la aceptación del arquitecto y **no tiene candado**: es un ajuste del dueño en Vercel y en `HECHOS.md` no consta que esté hecha. No la pongo como condición de mi veredicto (no se puede cobrar sola y la release reduce la exposición). Va como **bandera C.6**, para la solicitud de fusión.
-
-## 5. Hallazgos de este pase
+## 4. Hallazgos de este pase
 | ID | Sev | Qué | Ubicación | Dueño | Disparador |
 |---|---|---|---|---|---|
-| SEC-DYN-M1 | Media (aceptada con el residual) | El fragmento `#…` multiplica las transformaciones de cualquier imagen permitida. Remedio: rechazar en el middleware un `url=` de `/_next/image` con `#`, `..`, `/./` o puerto explícito, y añadir el caso al candado | `next.config.mjs:220-242`; `middleware` (el `matcher` hoy excluye `_next`) | frontend (decide el arquitecto) | La alerta de gasto, una lectura > 1 000/día (`image-optimizer-cost-reading-expiry`) o el próximo toque de `images` |
-| SEC-DYN-B1 | Baja (operativa) | `limpieza-ramas` borra una rama recién creada desde `production` sin commits ni PR (= I4-d; no se pierden commits) | `limpieza-ramas.sh:111` | devops | Antes del primer `confirmar=true` con sesiones vivas: excluir ramas con commit de cabeza de menos de 24 h, o avisar en el resumen |
-| SEC-DYN-B2 | Baja | El turno PSA retiene 1 conexión del pool hasta 60 min (`lockTx`). Pool de producción: NO MEDIDO | `price-ingest.service.ts:108-114,1490` | backend + devops | Un `P2024`/timeout de pool en checkout durante una corrida PSA, o un pool ≤ 5 en Railway |
-| SEC-DYN-B3 | Baja | 96 `uses:` por etiqueta móvil y 0 por sha (incluidos `gitleaks-action@v3` y `trivy-action@v0.36.0`, de terceros, con token de solo lectura). Va contra «toda dependencia externa va fijada» | `.github/workflows/*` | devops | Antes del primer `confirmar=true` de `limpieza-ramas` (token de escritura) y de cualquier job nuevo con escritura; candado tipo `runner-pin` para `uses:` |
-| SEC-DYN-I1 | Info | 12 moderadas y 4 bajas en el backend (`qs`, `minimatch`, `deepmerge`), no alcanzables | `backend/package-lock.json` | devops | Los de PRE-P4 |
-| PEN-DYN-I1, I3 | Info | `public` en los 400; userinfo ⇒ 500 | §2 | backend; frontend | El primer manejador público que lea sesión (I1); el próximo toque de `images` (I3) |
+| SEC-MKT2-B1 (= PEN-MKT-2) | Baja | El catálogo de servidor convierte el `q` libre del atacante en lecturas desde la IP del frontend: (b) agota el cubo compartido y deja sin datos de servidor a los filtros sin caché durante la ventana, y (c) con el backend lento deja sockets abiertos ≥90 s. Remedio: `withAbortBudget` en `loadCatalogPageForSSR` (`getCatalog` ya admite `signal` vía `ServerReadOptions`) y cota de longitud de `q` en `parseUrlFilters` | `catalog-ssr.ts:68-80`, `catalog-url.ts:159-171`, `app.module.ts:56` | frontend (abort y cota); backend + devops (cubo de las lecturas de servidor, IPs de salida de Vercel) | Una lectura de 429 desde IPs de Vercel en Railway, Search Console con fichas o catálogo sin productos, subir `CATALOG_SSR_BUDGET_MS`, o el próximo toque de `catalog-ssr.ts` |
+| SEC-MKT2-I1 | Info | La CSP del 308 no tiene candado: M-2 la quita y las suites siguen 61/61. Hoy es inocua (sin cuerpo) | `middleware.ts:66`, `middleware.cardshow.test.ts` | frontend | El próximo toque de `middleware.ts` (añadir `expect(res.headers.get(cspHeaderName(CSP_MODE)))`) |
+| SEC-MKT2-I2 | Info | `cardId` e `inventoryItemId` sin codificar en la ruta del backend (no explotable, medido) y canonical `%252F` | `api.ts:629,862`; `catalog/[cardId]/page.tsx` | frontend | El próximo toque de `getCardDetail`/`getSealedGroupDetail` |
+| SEC-MKT2-I3 | Info | `restart:backend` y `verify:head` certifican el sha en una copia sin `.git` aunque el fuente esté editado | `scripts/stack-native.sh` | devops | El próximo toque de la verificación de procedencia (SEC-OPS-1): sello de hash del árbol fuente |
+| PEN-MKT-1 | Info | Sin reflejo de `Host`/`XFH` en `next start`. En Vercel, NO MEDIDO | `middleware.ts:61-68` | devops | El primer *preview* de esta rama: el `curl` de §2, y anotarlo en `DEVOPS_NOTES` |
 
-## 6. VEREDICTO
-### ✅ **APROBADO** sobre `d5f0b38c968d57c30131ac3e1d9e25c7e3b7c283`, sin condiciones nuevas
-No hay críticas ni altas abiertas. Cuatro mutaciones, cada una roja y luego verde al restaurar: M-A (PEN-DYN-2, 1/10 y 0/10), M-B
-(exhibido ≠ cobrado), M-C (`pending` cobrada) y M-D (nonce, 20/20). La única media es un residual de coste que se acepta: tiene dueño,
-fecha y candado medidos (`image-optimizer-cost-reading-expiry`, devops, 2026-12-01) y la release lo deja **mejor** que `production`.
-Nada de lo abierto bloquea la publicación. Lo heredado (P-RL-1, CL-1, BL-42…) no cambia; sigue en el registro y en las banderas al dueño.
+## 5. VEREDICTO
+### ✅ **APROBADO** sobre `e066b0b5173e8ebe90979c3d2140a3fc4ec39be5`, sin condiciones
+Ningún hallazgo crítico ni alto abierto. Seis ablaciones mías: M-1 (escape del JSON-LD, 20 diálogos), M-2 (CSP del 308), M-3 (aborto de las fichas,
+10/10 rondas), M-4 y M-5 (origen del 308, 10/10 `evil.example`) y M-6 (throttler, 400/400). Todas rojas al quitar su control y verdes al restaurarlo. La única baja es coste
+y SEO, acotada por el throttler y con dueño y disparador. Lo heredado no cambia: CL-1, P-RL-1 y BL-42 siguen en el registro y en las banderas.
 
-— SEGURIDAD (blue team / AppSec), 2026-10-31 · sha **`d5f0b38c968d57c30131ac3e1d9e25c7e3b7c283`** · **APROBADO**
+— SEGURIDAD (blue team / AppSec), 2026-10-31 · sha **`e066b0b5173e8ebe90979c3d2140a3fc4ec39be5`** · **APROBADO**
 
 ---
 
 # Veredictos recientes, compactados el 2026-10-31
+- **`d5f0b38c` · 2026-10-31: APROBADO** (§DYN portada dinámica + PR #107). M-A…M-D cazadas; PEN-DYN-2 cerrada; residual PEN-DYN-1 + SEC-DYN-M1 aceptados con `image-optimizer-cost-reading-expiry` (devops, 2026-12-01). Hallazgos SEC-DYN-* en el registro B. Texto íntegro: `git show dd84a5be:docs/SECURITY_NOTES.md`.
 - **`5aeda006` · 2026-10-29: APROBADO** (velocidad de la portada, solo frontend). Mutaciones M1–M3 cazadas. Sus hallazgos SEC-DYN3-B1/I1/I2 siguen en el registro B. Texto íntegro: `git show d5f0b38c:docs/SECURITY_NOTES.md`.
 - **SEC-MED-1 · `1b777967` · 2026-10-27: CERRADA.** **`2f5a59c0` · 2026-10-26: APROBADO** (códigos de descuento). Texto: `git show 5aeda006:docs/SECURITY_NOTES.md`.
 
@@ -123,7 +111,7 @@ Nada de lo abierto bloquea la publicación. Lo heredado (P-RL-1, CL-1, BL-42…)
 | ID | Sev | Qué | Dueño | Última medición | Cierre |
 |---|---|---|---|---|---|
 | **P-RL-1** | **Media** (era Alta antes de C7) | El tope por IP se puede esquivar rotando `X-Forwarded-For` si el edge de Railway pasa el valor del cliente. El tope **por cuenta** (C7: 5 intentos, y luego 429) sí protege el login (pentester, `c62621e6`). Queda la evasión del tope por IP en endpoints públicos: scraping (BMK-1) y DoS de la ruta de cobro (SB-B3). Clasifico Media, como en `c62621e6` §6. El pase `8e1b34d7` copió «Alta» de antes de C7 | devops | 2026-10-10: ronda con XFF rotatorio, 6×401 sin 429; **falta la ronda de control** (`HECHOS.md:168`) | C6 completo (§85.4 de `DEVOPS_NOTES`), con proporción N/N, en ventana autorizada por el dueño |
-| **CL-1** / SEC-HDR-2 / CSP-RO | **Media** | CSP en `report-only` (**[MEDIDO 2026-10-26]** `frontend/src/security/csp.ts:37`; `HECHOS.md` sigue sin fila de aceptación). Con la sesión en `localStorage`, un XSS daría una sesión de súper-admin de hasta 7 días. No se conoce ningún XSS (`grep dangerouslySetInnerHTML` = 0 en el pase `8e1b34d7`) | frontend + devops | `8e1b34d7`, 2026-10-10 (vuelta a report-only a propósito); **`d5f0b38c` 2026-10-31**: sigue `report-only` (`csp.ts:37`), nonce cerrado con mutación, sin fila en `HECHOS.md` | CSP en `enforce` según §14.3 de `DEVOPS_NOTES` + `check-csp-zap-parity.sh` rc 0. **O** el dueño lo acepta por escrito en `HECHOS.md` (hoy no hay esa fila: lo busqué) |
+| **CL-1** / SEC-HDR-2 / CSP-RO | **Media** | CSP en `report-only` (**[MEDIDO 2026-10-26]** `frontend/src/security/csp.ts:37`; `HECHOS.md` sigue sin fila de aceptación). Con la sesión en `localStorage`, un XSS daría una sesión de súper-admin de hasta 7 días. No se conoce ningún XSS (`grep dangerouslySetInnerHTML` = 0 en el pase `8e1b34d7`) | frontend + devops | `8e1b34d7`, 2026-10-10 (vuelta a report-only a propósito); **`d5f0b38c` 2026-10-31**: sigue `report-only` (`csp.ts:37`), nonce cerrado con mutación, sin fila en `HECHOS.md`; **`e066b0b5` 2026-10-31**: sin el escape del JSON-LD, 20 diálogos/10 cargas que `enforce` habría bloqueado (M-1) | CSP en `enforce` según §14.3 de `DEVOPS_NOTES` + `check-csp-zap-parity.sh` rc 0. **O** el dueño lo acepta por escrito en `HECHOS.md` (hoy no hay esa fila: lo busqué) |
 | **CL-3** | Media | Evidencias «antes de `sk_live_`»: C6, DAST `full` sellado sobre el sha de producción, C3 = 0, simulacro de restauración con las claves `PII_*` fuera de Railway | devops + dueño | `c62621e6` (2026-10-05); después **NO MEDIDO** | Los cuatro resultados en `DEVOPS_NOTES §85`, con fecha y sha |
 | LIVE5-STRIPE | Media | La lógica de reembolso SPEI (`chargeState`, `to-manual`) solo se probó contra un doble de Stripe | backend + pentester | `8e1b34d7` | Pasada en Stripe modo prueba (CS-1…CS-6) |
 | **BL-42** (caminos 1 y 3) | **Media** | INE sin ancla de purga ⇒ retención indefinida | backend + dueño | `c62621e6` | ⚠️ La primera solicitud ARCO, o la regla 7 encendida |
@@ -169,6 +157,9 @@ MKT-TL2, SEC-MKT-1/2/3, CS-RT-1, C7, CL-2: cerrados. **SEC-MED-1: cerrada el 202
 | **PEN-DYN-1 residual + SEC-DYN-M1** | Media | `/_next/image` sin tope de orígenes (scrydex 200 a cualquier id) ni de claves (fragmento `#`); solo coste. Aceptado por el arquitecto (`ARCHITECTURE.md:31005`), validado aquí (veredicto `d5f0b38c` §4) | Candado `image-optimizer-cost-reading-expiry` (devops, **2026-12-01**); alerta de gasto; lectura > 1 000/día ⇒ interruptor u opción (b) | devops; frontend; arquitecto |
 | SEC-DYN-B1/B2/B3, SEC-DYN-I1, PEN-DYN-I1/I3 | Baja/Info | Limpieza borra una rama recién creada; turno PSA con 1 conexión hasta 60 min; `uses:` sin sha; avisos moderados no alcanzables; `public` en 400; userinfo ⇒ 500. Veredicto `d5f0b38c` §5 | Ver ficha (antes del primer `confirmar=true`; `P2024` en checkout; PRE-P4) | devops; backend; frontend |
 | SEC-DYN3-B1, SEC-DYN3-I1/I2 | Baja/Info | Build de Vercel con mocks horneados sin `throw`; fuentes de `lib/mock` copiadas al standalone (no se sirven); CSV sin `no-store` (= PNL-6). Veredicto `5aeda006` §4 | El próximo toque de `next.config.mjs` o del entorno de Vercel; `lib/mock` con algo no público; los de PNL-6 | frontend + devops; frontend; backend |
+| SEC-MKT2-B1 (= PEN-MKT-2) | Baja | Catálogo de servidor: el cubo del throttler compartido por la IP del frontend y sockets sin abortar con el backend lento (veredicto `e066b0b5` §3) | 429 desde IPs de Vercel; Search Console sin productos; subir `CATALOG_SSR_BUDGET_MS`; próximo toque de `catalog-ssr.ts` | frontend; backend + devops |
+| SEC-MKT2-I1/I2/I3, PEN-MKT-1 | Info | CSP del 308 sin candado; ids sin codificar en la ruta del backend; procedencia ciega a ediciones sin `.git`; `Host`/`XFH` en Vercel NO MEDIDO (veredicto `e066b0b5` §4) | Próximo toque de `middleware.ts` / `api.ts` / `verify:head`; primer *preview* | frontend; frontend; devops; devops |
+| LOW-1 (pentest, histórico) | Baja | Refresh token sin uso único: un refresh usado da 200 otra vez (stateless). Sin re-medir | El siguiente pase de `auth` (junto a SEC-C7-RT) | backend |
 | BMK-1 | Info | El cotizador anónimo deja leer el mercado en lote | C6 sale mal, o un mercado propio | backend |
 | REL7-P3 (R7-C2), SEG-R7-1 (R7-C3) | Baja | «Avísame» de sellados con correo ajeno; huecos menores del aviso de la lista de deseos | Una queja, >5 suscripciones a un correo al día, **o `sk_live_` (ya ocurrió ⇒ doble opt-in: re-enruto a backend)**; encender `wishlist_enabled` | backend; dueño |
 | SB-B2/SEC-SB-3, SB-B4/REL-D, SB-B5, P-SEED-1, P-NAME-1/D-10, P-REDIR-1, P-BILL-DoS/D-9, D-2…D-7, D-11/PII-D | Baja/Info | 500 por serialización; deps moderadas; flood de firmas inválidas; `assertSeedTarget`; nombres sin escapar; `safeNext`; rotación de `PII_ENCRYPTION_KEY`; diales sin re-validar (ver SEC-ENV-3); throttler en memoria | Ver ficha. **D-6** (el DAST no escanea producción) ya está en su disparador «antes de dinero real» | backend / devops |
@@ -179,6 +170,8 @@ MKT-TL2, SEC-MKT-1/2/3, CS-RT-1, C7, CL-2: cerrados. **SEC-MED-1: cerrada el 202
 1. **Ya cobras en real con la CSP en modo aviso (CL-1) y sin la ronda de control de C6 (P-RL-1).** Ninguna de las dos es nueva, pero el
    veredicto «listo-real» (`c62621e6`) las ponía **antes** de `sk_live_` y pedía, si cobrabas antes, que lo aceptaras por escrito en `HECHOS.md`.
    Esa fila no existe. O se cierran (frontend/devops), o lo aceptas tú y queda escrito.
+   Medido el 2026-10-31 (`e066b0b5`, M-1): si un nombre de carta llegara con código, hoy solo lo para el escape del JSON-LD. Con la CSP
+   en `enforce` habría una segunda barrera.
 2. Varios disparadores de deuda decían «antes de `sk_live_`» y **ya se cumplieron**: A-BSD-1, SEC-SHIP-B1 (SPEI duplicado), el doble
    opt-in de REL7-P3 y D-6. Hay que re-enrutarlos (backend/arquitecto/devops). No los introduce este release.
 3. **Medición:** SEC-MED-1 quedó cerrada (2026-10-27) y la encendiste ese día (`HECHOS.md:195`). Si no lo hiciste ya, en la consola
@@ -200,4 +193,4 @@ Los más recientes, del más nuevo al más viejo: `60250e90` (2026-10-25, Envío
 `e77b9612` (2026-10-19, Panel de Marketing / Medición Fase 2 apagada), `e454262` (2026-10-16, P&L), `c62621e6` (2026-10-05, «listo-real»).
 Texto íntegro de los 81 anteriores: `git show 60250e90:docs/SECURITY_NOTES.md`; su tabla índice por fecha y sha: `git show 2f5a59c0:docs/SECURITY_NOTES.md`.
 
-_Changelog:_ 2026-10-25 · veredicto `60250e90` APROBADO; compactado de 17 004 líneas a estado vigente + registro + índice. · 2026-10-26 · veredicto `2f5a59c0` APROBADO (DSC-1 cerrada; SEC-MED-1 abierta al encender). · 2026-10-27 · re-verificación `1b777967`: SEC-MED-1 cerrada. · 2026-10-29 · veredicto `5aeda006` APROBADO (velocidad de la portada, solo frontend); compactados los dos anteriores. · 2026-10-31 · veredicto `d5f0b38c` APROBADO (§DYN portada dinámica; PEN-DYN-2 cerrada; residual de PEN-DYN-1 + SEC-DYN-M1 aceptados con candado).
+_Changelog:_ 2026-10-31 · veredicto `e066b0b5` APROBADO (Marketing/SSR SEO Ola 2; PEN-MKT-1 rebajada a Info, PEN-MKT-2 = SEC-MKT2-B1; §DYN compactado). · 2026-10-25 · veredicto `60250e90` APROBADO; compactado de 17 004 líneas a estado vigente + registro + índice. · 2026-10-26 · veredicto `2f5a59c0` APROBADO (DSC-1 cerrada; SEC-MED-1 abierta al encender). · 2026-10-27 · re-verificación `1b777967`: SEC-MED-1 cerrada. · 2026-10-29 · veredicto `5aeda006` APROBADO (velocidad de la portada, solo frontend); compactados los dos anteriores. · 2026-10-31 · veredicto `d5f0b38c` APROBADO (§DYN portada dinámica; PEN-DYN-2 cerrada; residual de PEN-DYN-1 + SEC-DYN-M1 aceptados con candado).

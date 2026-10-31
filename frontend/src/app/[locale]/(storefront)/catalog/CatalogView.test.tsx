@@ -86,7 +86,8 @@ describe('CatalogView · filtros iniciales desde la URL (enlaces del Home)', () 
     // Chips removibles de los dos filtros que vinieron en la URL. El chip de set
     // muestra el NOMBRE desde las facetas (QA-1), no el id crudo.
     expect(await screen.findByRole('button', { name: /Base Set/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /graded/ })).toBeInTheDocument();
+    // MK-D4: el chip de tipo pinta la etiqueta del panel («Graded»), no el enum crudo.
+    expect(screen.getByRole('button', { name: 'Quitar filtro Graded' })).toBeInTheDocument();
   });
 
   it('un productType inválido en la URL se ignora (sin chip, sin romper)', async () => {
