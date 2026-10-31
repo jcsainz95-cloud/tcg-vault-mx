@@ -21,7 +21,7 @@ import {
   publishedGuides,
   todayInMexico,
 } from './seo-content';
-import { buildLlmsTxt } from './llms-txt';
+import { buildLlmsTxt, llmsCardShowLine } from './llms-txt';
 import { FIXTURE_CONTENT as FIX, FX_NOW } from './seo-content.fixture';
 
 /** Un día dentro de la vigencia de la publicación vigente (manual v8). */
@@ -40,7 +40,9 @@ function allContentTexts(): string[] {
   return [
     ...PUBLIC_FAQS.flatMap((f) => [f.question, f.answer]),
     ...GUIDES.flatMap((g) => [g.headline, ...guideTexts(g, NOW)]),
-    buildLlmsTxt({ supportContact: 'soporte@tcghunt.mx', now: NOW }),
+    // Criterio 954 (C6): la línea-enlace al Card Show es la única excepción, y se quita EXACTA (si cambia, vuelve a
+    // contar como ofensora). Que la línea misma no traiga datos del evento lo fija la prueba «sin Card Show».
+    buildLlmsTxt({ supportContact: 'soporte@tcghunt.mx', now: NOW }).replace(`${llmsCardShowLine()}\n`, ''),
   ];
 }
 
@@ -388,6 +390,9 @@ describe('frases prohibidas (brief §E4/§E6) y reglas de §12.0.4', () => {
     const texts = allContentTexts();
     expect(offenders(texts, [/disponible/i])).toEqual([]);
     expect(offenders(texts, [/card\s*show/i, /jakomi/i, /diciembre/i])).toEqual([]);
+    // La excepción del criterio 954: el enlace existe y no trae fechas, sede ni aliados del evento.
+    expect(buildLlmsTxt({ supportContact: 'soporte@tcghunt.mx', now: NOW })).toContain(llmsCardShowLine());
+    expect(offenders([llmsCardShowLine()], [/jakomi/i, /diciembre/i, /\d{1,2} (de|y)\b/i, /insurgentes/i])).toEqual([]);
     expect(offenders(texts, [/MX\$/i, /\$\s?\d/])).toEqual([]);
     expect(offenders(texts, [/\p{Extended_Pictographic}/u])).toEqual([]);
   });

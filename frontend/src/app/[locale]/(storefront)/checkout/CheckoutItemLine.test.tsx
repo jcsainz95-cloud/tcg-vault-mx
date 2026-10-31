@@ -114,16 +114,31 @@ describe('línea de compra · meta y miniatura (contrato §4, OrderItemCardDTO)'
     expect(await screen.findByText(`${card.setName} · #${card.number} · NM`)).toBeInTheDocument();
   });
 
-  it('una pieza graded NO inventa sufijo de condición (rawCondition ausente)', async () => {
+  // MENOR-3 (tester-e2e sobre 561ad425): la gradeada salía «E2E Base Set · #20» sin su grado, mientras la raw lleva
+  // «· NM». El grado viaja en el quote (`card.gradingCompany` + `card.gradeValue`, FrozenCardFacts v1.51-c).
+  it('cuenta: una pieza graded muestra su grado («· PSA 10») y NO inventa condición raw', async () => {
     setStoredUser(user);
     const graded = mockListings.find((l) => l.productType === 'graded');
     expect(graded).toBeDefined();
     const card = orderItemCard(graded!);
+    expect(card.gradingCompany && card.gradeValue).toBeTruthy();
     vi.mocked(getCheckoutQuote).mockResolvedValue(quote(card));
 
     renderWithProviders(<CheckoutView />, 'es');
 
-    expect(await screen.findByText(`${card.setName} · #${card.number}`)).toBeInTheDocument();
+    expect(
+      await screen.findByText(`${card.setName} · #${card.number} · ${card.gradingCompany} ${card.gradeValue}`),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/· NM$/)).toBeNull();
+  });
+
+  it('invitado: la gradeada muestra el mismo grado en su línea', async () => {
+    const card = { ...orderItemCard(mockListings.find((l) => l.productType === 'graded')!), gradingCompany: 'PSA' as const, gradeValue: '10' };
+    vi.mocked(getGuestCheckoutQuote).mockResolvedValue(guestQuote(card));
+
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+
+    expect(await screen.findByText(`${card.setName} · #${card.number} · PSA 10`)).toBeInTheDocument();
   });
 
   it('`imageSmallUrl: null` pinta la miniatura y NO deja un esqueleto pulsando para siempre', async () => {

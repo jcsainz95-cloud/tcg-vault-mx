@@ -105,9 +105,9 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     const cards = await api<{ data: Group[] }>('/catalog/cards?pageSize=50');
     const rawG = cards.data.find((g) => g.productType === 'raw' && g.displayPriceCents != null);
     const graded = cards.data.find((g) => g.productType === 'graded' && g.displayPriceCents != null);
-    const sealed = (await api<{ data: { representativeItemId: string; productName: string }[] }>(
-      '/catalog/sealed',
-    )).data[0];
+    const sealed = (await api<{
+      data: { representativeItemId: string; productName: string; card: { setName: string } }[];
+    }>('/catalog/sealed')).data[0];
     const listed = new Set(cards.data.map((g) => g.card.id));
     const candidates = (await api<{ data: { id: string; name: string }[] }>('/buylist/cards?q=E2E&pageSize=50')).data;
     let soldOut: { id: string; name: string; setName: string; number: string } | undefined;
@@ -144,7 +144,10 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
 
     const s = await raw(request, `/es/sellado/${sealed.representativeItemId}`);
     expect(s.status).toBe(200);
-    expect(h1s(s.html)[0]).toContain(sealed.productName);
+    // Sellado: `<h1>` nombre · set, como raw y gradeada (el sellado no lleva número de carta).
+    const [h1s0] = h1s(s.html);
+    expect(h1s0).toContain(sealed.productName);
+    expect(h1s0).toContain(` · ${sealed.card.setName}`);
     expect(visibleText(s.html)).toMatch(MONEY);
 
     const o = await raw(request, `/es/catalog/${soldOut!.id}`);

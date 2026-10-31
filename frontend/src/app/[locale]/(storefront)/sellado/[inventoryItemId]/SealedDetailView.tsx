@@ -183,12 +183,15 @@ function Detail({
         </div>
 
         <div className="gutter py-10 lg:py-14">
+          {/* C1 (criterio 949): el `<h1>` lleva nombre · set, con el mismo patrón que la ficha raw
+              (`CardDetailView`): la línea de set va DENTRO del encabezado como bloque propio y se ve igual. */}
           <h1 className="font-serif text-[32px] leading-[1.05] text-text lg:text-[46px]" lang="en">
             {group.productName}
+            <span className="sr-only"> · </span>
+            <span className="mt-3 block font-mono text-xs uppercase tracking-[0.1em] text-muted">
+              {group.card.setName}
+            </span>
           </h1>
-          <p className="mt-3 font-mono text-xs uppercase tracking-[0.1em] text-muted" lang="en">
-            {group.card.setName}
-          </p>
 
           {/* Calidad: badge «Sellado» + subtipo + condición legible (visible al comprador, §2-S). */}
           <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 font-mono text-[11px] uppercase tracking-[0.06em]">
