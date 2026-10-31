@@ -50,7 +50,7 @@ async function addCardAndOpenCheckout(page: Page, locale: Locale = 'es') {
   await page.goto(`/${locale}/catalog`);
   await page.getByRole('button', { name: t(locale, 'catalog.addToCart') }).first().click();
   await page.goto(`/${locale}/checkout`);
-  await expect(page.getByLabel(t(locale, 'checkout.guest.email.label'))).toBeVisible();
+  await expect(page.getByLabel(t(locale, 'checkout.guest.email.label'), { exact: true })).toBeVisible();
   await expect(page.getByTestId('checkout-pay-bar')).toBeVisible();
 }
 
@@ -73,7 +73,7 @@ async function expectNoHorizontalOverflow(page: Page, state: string) {
 }
 
 async function fillGuestForm(page: Page) {
-  await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado@dominio.com');
+  await page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true }).fill('invitado@dominio.com');
   await page.getByRole('checkbox', { name: /Confirmo que/ }).check();
   await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Juan Pérez');
   await page.getByLabel(t('es', 'addresses.postalCode')).fill('44100');
@@ -168,7 +168,7 @@ for (const vp of VIEWPORTS) {
       expect(covered.lastBottom).toBeLessThanOrEqual(covered.barTop);
 
       // Teclado abierto (campo enfocado) ⇒ la barra no se pinta y la variable vale 0.
-      await page.getByLabel(t('es', 'checkout.guest.email.label')).focus();
+      await page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true }).focus();
       await expect(bar(page)).toHaveCount(0);
       expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--sticky-bottom-h').trim())).toBe('');
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());

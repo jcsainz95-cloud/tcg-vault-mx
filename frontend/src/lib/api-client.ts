@@ -115,6 +115,14 @@ interface RequestOptions {
    * portada). Se pasan tal cual a `fetch` (`next.revalidate`, `next.tags`); en el navegador `fetch` las ignora.
    */
   next?: { revalidate?: number; tags?: string[] };
+  /** TL-MKT2-1: señal para abortar la lectura (los topes de SSR de `lib/ssr-budget.ts`). Se pasa tal cual a `fetch`. */
+  signal?: AbortSignal;
+  /**
+   * B-R2 (QA sobre `e066b0b5`): recibe las cabeceras de la respuesta final (tras el posible reintento). La usa el SSR
+   * del catálogo para leer el `Date` del backend: la caché de datos de Next guarda las cabeceras junto al cuerpo, así
+   * que una copia vieja servida trae la hora REAL de su lectura, no la de hoy.
+   */
+  onHeaders?: (headers: Headers) => void;
 }
 
 /** Vuelca `opts.query` en la URL: escalares con `set`, arrays con `append` (repetible). */
@@ -370,6 +378,7 @@ async function fetchWithSession(
     // pone el `multipart/form-data; boundary=…`. Solo lo usa `apiRequestMultipart` (json=false).
     body: jsonBody ?? (opts.body instanceof FormData ? opts.body : undefined),
     ...(opts.next ? { next: opts.next } : {}),
+    ...(opts.signal ? { signal: opts.signal } : {}),
   });
 
   // WS-B — interceptor: el access token dura 15m; al vencer, cualquier request da 401.
@@ -420,6 +429,7 @@ async function requestWithRefresh<T>(
   json = true,
 ): Promise<T> {
   const res = await fetchWithSession(path, opts, allowRefresh, json);
+  opts.onHeaders?.(res.headers);
   if (res.status === 204) return undefined as T;
   const payload = await res.json().catch(() => ({}));
   if (!res.ok) throw toApiError(res.status, payload);

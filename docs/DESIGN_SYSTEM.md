@@ -21,172 +21,7 @@
 > `aria-label` con los dos números, nota única de tono y el caso «pagamos más que el mercado». Enmienda puntual a §18.2,
 > §18.5 y §21.8(a). Cero tokens nuevos, cero pares de contraste nuevos.
 >
-> Estado anterior: **v6.1 (2026-10-05) — EL DUEÑO ESCRIBE EL PRECIO DEL SELLADO CON IVA (§70 ajustada a la errata
-> `API_CONTRACT` v1.83.1 §M11-SP.12, `ARCHITECTURE §4.62.8`; `HECHOS.md:51` «Precio del sellado — respuestas a
-> P-SP-1/2/3», punto (3) «yo lo voy a meter con iva»; rama `claude/precio-sellado` — ux-ui sin Bash, sha NO MEDIDO por
-> mí).** Resumen en **§70.0-bis**. La regla dura 2 se invierte (lo que se escribe es lo que paga el cliente); la hoja
-> cambia de columnas (con IVA · sin IVA · margen sobre el sin IVA); el editor envía `displayPriceCents` y su margen en
-> vivo usa la tasa `r`; tras guardar se lee `autoPublish` (A-2 aceptada: se retira la casilla de respaldo); **D-SP-5**:
-> el editor de #69, **ya en producción**, llamaba «Precio final» a un precio antes de IVA — se corrigen sus textos;
-> una línea nueva en la pantalla del dial de traslación (M10). A-1, A-2, A-4, N-1 y N-2 respondidas (§70.8). Cero tokens
-> nuevos, cero pares de contraste nuevos. Lo que sigue es la v6.0 con §70 sustituida donde se indica.
->
-> Estado anterior: **v6.0 (2026-10-05) — EL PRECIO DEL SELLADO ES DEL PRODUCTO (§70 NUEVA; `API_CONTRACT` v1.83 §M11-SP,
-> `ARCHITECTURE §4.62`; `HECHOS.md:50` «Precio del sellado», puntos (1)–(4), y `HECHOS.md:59` de la rama Skydropx
-> «REGLA GENERAL: … lo más automáticos posible»; rama `claude/precio-sellado`, HEAD `9bd8a2da` dado por el orquestador —
-> ux-ui sin Bash, sha NO MEDIDO por mí).** **Numeración elegida para no chocar:** la rama de Skydropx usa v4.2x y §43;
-> la del panel usa v5.0 y §60 (medido con `Grep` de `^## ` en `/home/user/tcg-skyd` y `/home/user/tcg-panel`); aquí
-> **v6.0** y **§70**. **§70.2** la hoja «Precios del sellado» en M11 (una fila por producto, el precio del dueño editable
-> en la fila con CAS y `409`, margen informativo, legado sombreado, `unlinkedCount`; el personal la ve sin lápiz).
-> **§70.3** el rótulo «precio del producto · N piezas» en el panel de la presentación y en «Listas para publicar», y el
-> alta del personal sin precio de sellado (`422 SEALED_PRICE_IS_PER_PRODUCT`). **§70.4** 💰 el aviso «el total cambió»
-> antes del modal de pago en los dos checkouts, con segundo clic. **Cero tokens nuevos, cero pares de contraste
-> nuevos.** Cuatro solicitudes al arquitecto en §70.8 (una, **A-2**, toca el criterio 125: la pieza en caja con
-> ubicación que recibe precio del dueño no se publica y sale de la cola). Lo que sigue es la v4.14 sin cambio.
->
-> *(Fusión sellado+panel, 2026-10-05, orquestador: v6.x de `claude/precio-sellado` va encima; debajo, tal cual, el estado
-> de `claude/arreglos-panel` — §43 y §60 van antes de §70 en el cuerpo, en orden de número.)*
-> Estado (rama `claude/arreglos-panel`): **v5.1 (2026-10-05) — ERRATA DE §60 TRAS `API_CONTRACT` v1.82.2 (§PNL.10.6, §PNL.10.7, §PNL.11; fichero:línea
-> leídos en `/home/user/tcg-panel`, rama `claude/arreglos-panel`, HEAD `5a8a5852` dado por el orquestador — ux-ui sin
-> Bash, sha NO MEDIDO por mí):** **§60.14** el texto del `409 CONFLICT {reason:'ITEM_FINAL'}` del buylist (decidir una
-> carta que ya entró al inventario o ya se pagó) y su conducta (cierra el diálogo, recarga el detalle) — FE-BRJ-4.
-> **§60.15** los dos textos que mandaban pulsar «Marcar recibida», botón que ya no existe; ⚠ uno de ellos vive en la
-> tabla de §26 (`error.REQUEST_NOT_RECEIVED`) y se corrige **allí**, porque el candado de literalidad la lee. **§60.8**
-> alineado con §PNL.10.7: la errata ya existe (F-26 desbloqueado), los correos 20/21 **no** se retiran y la API de
-> disputas **tampoco**. Cero tokens nuevos, cero pares de contraste nuevos. Lo que sigue es la v5.0 sin más cambio.
->
-> Estado anterior: **v5.0 (2026-10-05) — ARREGLOS DEL PANEL (§60 NUEVA; `API_CONTRACT` v1.82 §PNL, `ARCHITECTURE §4.61`;
-> `HECHOS.md:44`, `:45`, `:50` y `:30`–`:32`, `:36`, `:37`; REGLA GENERAL de automatizar, `HECHOS.md` de la rama Skydropx
-> `:59`). ⚠ **Salto de numeración deliberado:** esta rama (`claude/arreglos-panel`) venía de la v4.14; la rama de Skydropx
-> va por la **v4.22** y usa secciones a partir de la 43 (hasta dónde llega: NO MEDIDO). Para no chocar al fusionar, esta
-> entrega es la **v5.0** y su sección es la **§60**. Al fusionar, la cabecera de Skydropx (v4.15–v4.22) se intercala
-> **debajo** de esta como «Estado anterior», sin renumerar nada. Fichero:línea leídos en `/home/user/tcg-panel` el
-> 2026-10-05 (ux-ui sin Bash: sha NO MEDIDO).** **§60.1** «¿Problema con tu pedido? Escríbenos» sustituye a «Abrir
-> disputa» (pedido directo entregado, retiro entregado, seguimiento del invitado) con `GET /support/contact`, y se
-> reescriben los textos que prometían disputa. **§60.2** lo que ve y recibe el cliente tras un reembolso posterior a la
-> entrega (línea de la carta, AV-12 y AV-14 con variante). **§60.3** «Reembolsar esta carta» en Ventas (súper-admin,
-> importe del servidor confirmado). **§60.4** captura del SPEI de un retiro entregado en «Reembolsos». **§60.5** mesa y
-> verificación de M5: selección, «Rechazar seleccionadas», «Declinar» dentro de la mesa, un clic que recibe y abre la
-> revisión, y lo que la mesa dice fuera de «cotizada». **§60.6** el correo ÚNICO de cartas rechazadas (7 días / a cargo
-> del vendedor / 30 días, `HECHOS.md:50` (2)). **§60.7** F-4 «No comprada» y F-9 los diez diales. **§60.8** retiro de
-> M8 (`HECHOS.md:50` (3)). **§60.9** «Pedidos por preparar» en el celular (≤ 390 px, `HECHOS.md:50` (1)) — la única
-> pantalla del panel pensada para celular. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la
-> v4.14 sin cambio (salvo un puntero en §7.11).
->
-> Estado anterior (rama `claude/skydropx-d`, intercalada aquí por la fusión panel+skydropx del 2026-10-05, como pedía la
-> v5.0): **v4.26 (2026-10-05) — NT2-b:** patrón P66-3 con y sin guion `\b(M-?1?[0-9]|AG-[0-9]+|AV-[0-9]+)\b` (regla igual); §43.11 fija el orden de «Movimientos». Anterior: **v4.25 (2026-10-05) — ERRATA v1.80.12.17, U-3 (§43.23 NUEVA; `API_CONTRACT §M4-SHIP.19.36.1` y fila U-3 de
-> §19.36.4; forma del P&L en §M10-IVA.8; criterio 238; ux-ui sin Bash, sha NO MEDIDO por mí):** el estado de resultados de
-> «Finanzas» pinta **ocho renglones con signo** (gana «Reembolsos», «Comisión de plataforma devuelta» y «Compensaciones por
-> carta perdida», siempre visibles aunque valgan cero), dos **sub-renglones «Incluye…»** bajo «Costo de envío» («ajustes de
-> paquetería» y seguro: sin signo, sin sumarse, solo si `> 0`), la ganancia **siempre** `profitCents` del servidor y la
-> fórmula nueva (sigue nombrando a Stripe, §29.4b). Signo leído por lector de pantalla. **FS-68…FS-70**; candados
-> **UX-PNL-1…6**. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la v4.24 sin cambio fuera de §43.23.
->
-> Estado anterior: **v4.24 (2026-10-05) — ERRATA v1.80.12.16, U-1 y U-2 (§43.22 NUEVA; `API_CONTRACT §M4-SHIP.19.35`, filas
-> U-1/U-2 de §19.35.8; ux-ui sin Bash, sha NO MEDIDO por mí):** tarjeta **«Alertas de envíos»** del tablero para
-> `workQueue.shipping` (los dos roles; cifra grande = `withLabelAlert`; enlace a `/admin/m4?tab=envios&alert=true` con
-> su filtro visible en «Envíos»; `lowBalance` solo pinta con `true`; ⛔ jamás la cifra del saldo; nota «un envío puede
-> tener las dos alertas») y **registro** de la línea de rastreo de los correos `AV-4`/`AV-5` («Rastrear mi paquete en la
-> paquetería: {url}», letra chica, un CTA). **FS-63…FS-67**; candados **UX-SDX-39…44**. **Cero tokens nuevos, cero pares
-> de contraste nuevos.** Lo que sigue es la v4.23 sin cambio fuera de §43.22.
->
-> Estado anterior: **v4.23 (2026-10-05) — ERRATA v1.80.12.15, G3 (`API_CONTRACT §M4-SHIP.19.33.10` y `§19.34.3`; ux-ui sin
-> Bash, sha NO MEDIDO por mí):** los CTA de los correos `AVG-2` y `AVG-3` (§43.19.12) apuntan a `admin/spend-alerts`
-> **sin `?`** (PS-153); nota en §43.19.12 con cómo queda la experiencia. **Nada cambia en el panel**, cero claves i18n,
-> cero tokens, cero pares de contraste. Lo que sigue es la v4.22 sin cambio fuera de §43.19.12.
->
-> Estado anterior: **v4.22 (2026-10-05) — ERRATA v1.80.12.12: CUATRO TEXTOS Y EL SUBTÍTULO DE «ENVÍOS» (§43.21 NUEVA;
-> `API_CONTRACT §M4-SHIP.19.31`, fila ux-ui de §19.31.11; ux-ui sin Bash, sha NO MEDIDO por mí):** `409 {reason:
-> 'shipment_changed_during_purchase', labelAutoCancelled}` (dice que **sí** se creó una guía y que se pidió cancelarla;
-> ⛔ nunca «No se compró nada») y `409 {reason:'claim_released'}` en «Capturar guía»; «Cancelar guía» sin respuesta de
-> Skydropx (`label_cancel_unknown`) deja de decir «sigue marcada para cancelar» (el sello se revierte, §19.31.6) y se
-> ramifica por **código**, no por `status ≥ 500`; «N avisos apagados» con `mutedCount` (S-GAS-7 cerrada) y «Ningún
-> aviso ese día» que ya no miente cuando solo hubo apagados; **OWN-1 aplica a «Configuración › Envíos»**: subtítulo
-> nuevo que nombra los dos diales del dueño. **FS-56…FS-62**; candados **UX-SDX-35…38**, **UX-GAS-14…15**. **Cero
-> tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la v4.21 sin cambio fuera de §43.21.
->
-> Estado anterior: **v4.21 (2026-10-05) — LA CUENTA DEL DUEÑO Y LA REVISIÓN DE LOS COPYS PROVISIONALES (§43.20 NUEVA;
-> `API_CONTRACT §M4-SHIP.19.30` v1.80.12.10; `FRONTEND_NOTES §92`; ux-ui sin Bash, sha NO MEDIDO por mí):** cada copy
-> que frontend escribió sin diseño queda **ratificado o corregido** con su clave y ES/EN (§43.20.1); textos de **AG-21**
-> (cuatro variantes) y **AG-22** (uno por `act`); `orphan_cancel_unknown`; avisos **apagados** visibles (filtro
-> `?muted=`, «Apagado: sin correo» en lugar de la línea del correo, nota y diálogo de apagado corregidos: ya no «no se
-> registra»); AG-21/AG-22 **siempre encendidos** en Configuración; `seen` para el súper-admin no dueño («Lo marca el
-> dueño»); «Dueño» en Usuarios; textos que decían «tú» / «súper-admin sin correo» corregidos; **`{ref}` sin artículo**
-> («del pedido», nunca «de el pedido»). **Decisiones:** UX-SDX-28 (c) se corrige el **canario** (excepción anclada
-> `(?<!\d)24 (horas|hours)`), el copy se queda; el operador **no ve** «Avisos de gasto» en el menú (ratificado). Reglas
-> **OWN-1…OWN-4**; **FS-44…FS-55**; candados **UX-GAS-8…13**; solicitudes **S-GAS-7…9**. **Cero tokens nuevos, cero
-> pares de contraste nuevos.** Lo que sigue es la v4.20 con marcas «→ §43.20» donde un texto queda sustituido.
->
-> Estado anterior: **v4.20 (2026-10-04) — CAPTURAR GUÍA TRAS LAS ERRATAS v1.80.12.6–.9 Y EL CONTROL DEL GASTO (§43.19 NUEVA;
-> `API_CONTRACT §M4-SHIP.19.26`–`§19.29`; `HECHOS.md:58` «TAMBIÉN EL PERSONAL», `:59` «REGLA GENERAL», `:61` folio,
-> `:62` «Control del gasto — límites aceptados»; `PROJECT §Z`; ux-ui sin Bash, sha NO MEDIDO por mí):** el paso 3 deja
-> de decir «Solo el dueño» (texto por modo del dial); negativa por tope `403 LABEL_PURCHASE_LIMIT` **sin cifras** con
-> «Capturar a mano» siempre; un copy por `reason` del `409` (`rate_already_purchased`, `provider_id_taken`,
-> `purchase_in_flight` con su espera, `attempts_exhausted`, `stale_purchase_response`); `processing` con
-> `providerError`; **«Verificando con Skydropx…»** y sus seis resultados; `label_unknown` con su motivo y la alerta
-> nueva `label_orphan`; **«Liberar»** con los datos para cuadrar (folio `Pedido ENV-000045-01`, precio, destinatario)
-> y la casilla `confirmConflict`; **el folio** en tarjeta, fila, ventana y hoja de impresión; **«Avisos de gasto»**
-> (página y detalle), tarjeta **«Control del gasto»** del tablero («últimas 24 h»), sección **«Configuración › Control
-> del gasto»**, textos de **AG-1…AG-13** y correos **`AVG-1/2/3`**. Reglas nuevas **SK11…SK15** y **GAS-1…GAS-4**;
-> **FS-25…FS-43**; candados **UX-SDX-27…34**, **UX-GAS-1…7**, **ML-27…29**. **Cero tokens nuevos, cero pares de
-> contraste nuevos.** Lo que sigue es la v4.19 con marcas «→ §43.19» donde un texto viejo queda sustituido.
->
-> Estado anterior: **v4.19 (2026-10-04) — LA COLONIA COMO MERCADO LIBRE: LA LISTA AYUDA, NO BLOQUEA (§43.18m NUEVA; `HECHOS.md:57`
-> «si, hazlo como mercado libre»; ux-ui sin Bash, HEAD `76de8268` dado por el orquestador, NO MEDIDO por mí):**
-> **CA-1** y **CA-2** se sustituyen por **CA-6…CA-9**; **§43.18d** y P-ADR-2 quedan superadas (ya no hay «Escríbenos»
-> para el CP ni para la colonia); **§43.18m** diseña los cuatro modos de la colonia (lista · «Mi colonia no está» ·
-> todo a mano · consultando/falló), el layout en 390 px, el estado de 32 entidades como `<select>` nativo, el aviso
-> «Escrita a mano» en «Capturar guía» (**condicional** al dato del contrato, C-3) y el formulario del operador que ya
-> no borra la colonia escrita; **§43.18i** con las claves nuevas/retiradas; **§43.18j** FC-16…FC-27; **§43.18k**
-> UX-ADR-1 y UX-ADR-7 reescritos, UX-ADR-8…13 nuevos. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que
-> sigue es la v4.18 con esos cambios.
->
-> Estado anterior: **v4.18 (2026-10-04) — LA DIRECCIÓN DEL CLIENTE CON COLONIA DE LISTA (§43.18 NUEVA; `API_CONTRACT §M4-SHIP.19.5`
-> y errata `§19.23.4`; juzga lo que frontend construyó sin diseño, `FRONTEND_NOTES.md` §88.3; ux-ui sin Bash, HEAD
-> `5d597185` dado por el orquestador, NO MEDIDO por mí):** **§43.18b** orden de campos (referencias antes que teléfono,
-> igual que §43.2b) en libreta, alta del buylist e invitado; **§43.18c** contador de referencias ratificado, sin
-> `maxLength` y en bermellón pasado el tope; **§43.18d** CP fuera del catálogo y colonia que no aparece ⇒ «Escríbenos a
-> {contact}» (⛔ sin camino que el servidor no tenga); **§43.18e** `<select>` nativo ratificado en ≤ 390 px, orden
-> alfabético y preselección de colonia única; **§43.18f–h** la fila «Dirección incompleta» nombra lo que falta, modo
-> «Completar dirección» del formulario y cuatro arreglos del bloque del retiro; **§43.18i** veredicto clave por clave
-> ES/EN (`addresses.line2` ratificada); **§43.18j** FC-1…FC-15; **§43.18k** UX-ADR-1…7. **Cero tokens nuevos, cero
-> pares de contraste nuevos.** Lo que sigue es la v4.17 sin cambio.
->
-> Estado anterior: **v4.17 (2026-10-04) — «CAPTURAR A MANO» EN EL PASO 4: SOLO SI NO HAY GUÍA NI COMPRA PENDIENTE (§43 sin
-> contradicción; resuelve el desacuerdo de `FRONTEND_NOTES.md:19163-19169`; ux-ui sin Bash, sha NO MEDIDO por mí):**
-> **SK1**, **SK6**, **§43.1** punto 6 y **UX-SDX-2** reescritos; **§43.5a** nueva con la matriz por estado: «Capturar a
-> mano» presente en pasos 1–3 (deshabilitado solo durante la compra) y en el paso 4 **solo** en «Skydropx no creó la
-> guía»; ausente en `labeled`, `processing`, `in_progress` e `in_flight`. Ratifica lo construido por frontend
-> (`CaptureLabelDialog.tsx`, rama `stage === 'notCreated'`). El «en los cuatro» del resumen de v4.15 (abajo) queda
-> sustituido por esto. **Cero tokens nuevos.** Lo que sigue es la v4.16 con esos cambios dentro de §43.
->
-> Estado anterior: **v4.16 (2026-10-04) — CAPTURAR GUÍA: LA DIRECCIÓN SE CORRIGE ENTERA, COMPRA EN VUELO, PROMOCIÓN, ALERTAS DE
-> GUÍA Y `AV-18`/`AV-19` (§43 actualizada; `API_CONTRACT §M4-SHIP.19.20` errata v1.80.12; `HECHOS.md:50`, fila 2026-10-04
-> «En «Capturar guía» el dueño (y quien prepare) puede corregir TODA la dirección…»; fichero:línea re-leídos en el
-> worktree `claude/skydropx-d`, HEAD `4f926e5c` dado por el orquestador — ux-ui sin Bash, sha NO MEDIDO por mí):**
-> **§43.2** reescrita: el paso 1 se revisa y, con «Corregir dirección», se corrigen destinatario, calle, interior, CP,
-> colonia (de la lista del CP) y referencias; municipio y estado salen del CP; la pantalla dice que **solo cambia este
-> envío**; `409 CONFLICT {reason:'address_changed'}` y `409 QUOTE_EXPIRED {reason:'address_changed'}` con su texto; el
-> teléfono sigue fuera (P-ADR-1, abierta, default no). **SK5** y **SK7** reescritas. **§43.3b** «Cambiar empaque» para
-> el operador (`GET …/packages` operador+). **§43.3c** realce «Promoción» por `isPromo`. **§43.5** `outcome:'in_flight'`.
-> **§43.7** filas nuevas y corregidas. **§43.8** «Guía en proceso» / «Compra sin confirmar» por `labelPending`, las
-> cuatro `labelAlert` y «Liberar» por `canRelease`. **§43.12b–c** los correos `AV-18` y `AV-19`. **§43.17** A-1…A-5
-> cerradas por el contrato. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la v4.15 con esos
-> cambios dentro de §43.
->
-> Estado anterior: **v4.15 (2026-10-04) — CAPTURAR GUÍA CON SKYDROPX (§43 NUEVA; `API_CONTRACT §M4-SHIP.19.19` errata v1.80.11,
-> `ARCHITECTURE §4.60 (l)`, `HECHOS.md` filas 2026-10-04 «Skydropx vive dentro de la ventana «Capturar guía»…»,
-> «Skydropx — Carta Porte…» y «Disputas: se quitan de la tienda…»; precios y campos de
-> `docs/specs/SKYDROPX_API_PROD_RESULTADOS.md`; fichero:línea leídos en el worktree `claude/skydropx-d`, HEAD
-> `79db38f1` dado por el orquestador — ux-ui sin Bash, sha NO MEDIDO por mí):** **§43.1–§43.6** la ventana de
-> cuatro pasos (dirección · opciones · comprar · guía) **sobre el mismo diálogo** `admin.m4.tracking.*`, con
-> «Capturar a mano» en los cuatro; **§43.7** un copy por `error.code` (puerta apagada, solo el dueño, saldo,
-> Skydropx caído, borde bloqueado, `insurance_tier`, dirección rechazada, compra en vuelo); **§43.8** la tarjeta
-> (guía en proceso, imprimir, cancelar y re-emitir, «Liberar», alertas); **§43.9** «Salida de hoy»; **§43.10**
-> «Configuración › Envíos» (puerta de compra, escalones de seguro, Carta Porte, empaques, preferida); **§43.11** lo que
-> ve el cliente (liga de rastreo solo si Skydropx la da, movimientos); **§43.12** el correo `AV-17` sin plazo de
-> disputa y con «¿Problema con tu pedido? Escríbenos». **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que
-> sigue es la v4.14 sin cambio.
+> Estados anteriores de Skydropx v4.15–v4.23 y de §60/§70 (v5.x, v6.x), cabeceras de 2026-10-04/05: retirados por bitácora; viven en git (`83166568`, `docs/DESIGN_SYSTEM.md` líneas 24-139, 26-60 tras la 1.ª compactación) y en el «vXXX» de cada sección.
 >
 > *(Fusión `claude/listo-real` + `claude/precio-sellado`, 2026-10-05, agente de fusión, sin cambiar contenido: la cabecera
 > de `claude/precio-sellado` (v6.x, con panel v5.x y Skydropx v4.15–v4.26 debajo) queda arriba, como estaba; aquí, tal
@@ -33298,22 +33133,7 @@ Reglas de copy: ⛔ «a1», «PM-…», «Fase 0», «MKT», «token marketing-r
 
 ### MKT2-UX.1 Decisión del dueño que contradice una línea del encargo — léela primero
 
-El encargo de ux-ui dice «Aceptar y Solo necesarias deben tener el mismo peso visual». La decisión del dueño, literal en el brief, dice lo contrario:
-
-> «deja solo el de aceptar más grande haz este cambio y se lo paso a orquestador» (`PAQUETE_TIENDA_2026-10-16.md:230`); «**Botón primario "Aceptar".** Grande y destacado: color de marca, ancho completo en móvil, el elemento más visible del banner» (`:235`); «**Secundario "Solo lo necesario".** Visible en la primera capa, sin abrir menús, como botón o enlace más pequeño y de menor contraste (no oculto, no gris ilegible, no detrás de "Configurar")» (`:236`).
-
-No lo resuelvo en silencio. **Decisión de diseño: gana la decisión del dueño (`:230-236`), con el daño de «menor peso» acotado a lo que ella pide** y nada más:
-
-| Atributo | «Aceptar» | «Solo lo necesario» | ¿Lo pide el dueño? |
-|---|---|---|---|
-| Relleno | tinta (`primary`) | papel con **borde de tinta de 1 px** y texto de tinta | Sí: «menor contraste» (`:236`) |
-| Alto | 48 px (`lg`) | 44 px (`md` con área táctil de 44) | Sí: «más pequeño» (`:236`) |
-| Ancho en móvil | completo | **completo** | «Aceptar» completo (`:235`); el otro no se achica más |
-| Tipografía y tamaño de letra | la misma (13 px, 600) | la misma | No: igual a propósito |
-| Posición | primera | inmediatamente después, a la vista | `:236` «visible en la primera capa» |
-| Texto legible | papel sobre tinta 15.45:1 | tinta sobre papel 15.45:1 | `:236` «no gris ilegible» |
-
-Es decir: la diferencia es **relleno + 4 px**. Si el dueño prefiere pesos iguales (variante B), cambian dos atributos —ambos botones `lg` y ambos con borde de tinta sin relleno— y nada más de esta sección. **Duda 1 al dueño** (MKT2-UX.13). Que esto sea legalmente suficiente en México: **NO VERIFICADO**; el dueño decidió sin abogado (HECHOS 2026-10-23).
+**Sustituido (2026-10-31) por §MKT-CONV.1.** El 2026-10-16 el dueño pidió «Aceptar» más grande (`PAQUETE_TIENDA_2026-10-16.md:230-236`); el 2026-10-30 (D-4 A) pidió el **mismo peso**. Vigente: los dos botones idénticos (atributos y variante B en MKT-CONV.1). Legalidad: **NO VERIFICADO** (HECHOS 2026-10-23).
 
 ---
 
@@ -33334,19 +33154,7 @@ Es decir: la diferencia es **relleno + 4 px**. Si el dueño prefiere pesos igual
 
 ### MKT2-UX.3 Primera capa — el banner
 
-**Anatomía (DOM en este orden; el orden de tabulación es el del DOM):**
-
-```
-móvil (< md) · 390×664, apilado                    escritorio (≥ md), una fila
-┌────────────────────────────────────────┐          ┌──────────────────────────────────────────────────────────────┐
-│ Usamos cookies para entenderte mejor   │          │ Usamos cookies para entenderte mejor y mejorar tu   [ Aceptar ] [ Solo lo necesario ] │
-│ y mejorar tu experiencia. Aviso de     │          │ experiencia. Aviso de privacidad ↗                  Configurar                         │
-│ privacidad ↗                           │          │                                                                                    │
-│ [          Aceptar  (tinta, 48)      ] │          └──────────────────────────────────────────────────────────────┘
-│ [ Solo lo necesario (borde tinta, 44) ]│
-│ Configurar                             │
-└────────────────────────────────────────┘
-```
+**Anatomía y botones: vigentes en §MKT-CONV.1** (2026-10-31; barra delgada, «Configurar» dentro de la frase, botones del mismo peso). Lo que sigue en esta tabla vale solo donde MKT-CONV.1 no lo cambia (contenedor, DOM, texto, foco, `Esc`, movimiento); las filas «Aceptar», «Solo lo necesario» y «Configurar» y las medidas de padding/alto de abajo están **sustituidas**.
 
 | Elemento | Decisión |
 |---|---|
@@ -33354,9 +33162,7 @@ móvil (< md) · 390×664, apilado                    escritorio (≥ md), una f
 | Posición | `fixed inset-x-0 z-40`, `bottom: var(--sticky-bottom-h, 0px)` (MKT2-UX.5): **encima** de la barra de COMPRAR, nunca la cubre (brief `:238`). Sin barra, `bottom: 0` y `padding-bottom: max(0.5rem, env(safe-area-inset-bottom))` |
 | Dónde está en el DOM | **justo después del skip-link y antes del resto del shell.** Es visualmente lo último de la pantalla, pero así el visitante de teclado o de lector lo encuentra **sin recorrer toda la página**. Desviación consciente del «orden de tabulación = orden visual» de MKT-UX.2: el banner es un aviso que se resuelve una vez, no contenido de lectura |
 | Texto | `consent.text` (13–14 px, tinta, `leading-[1.5]`), seguido, en la misma frase, del `PrivacyNoticeLink` variante **`inline`** de §80 (pestaña nueva, subrayado, icono y texto «(se abre en otra pestaña)» ya existentes: `privacy.link`, `privacy.opensInNewTab`). Es el **octavo** sitio de §80; ⛔ no se hace un enlace nuevo ni una clave nueva para «Aviso de privacidad» (§80.0.1 y .5). Sin título visible: «nada más en la primera capa» (brief `:234`) |
-| «Aceptar» | `Button` `primary` `lg`, **ancho completo en móvil** (`w-full`), ancho automático con `min-w-[10rem]` en ≥ `md`. Concede analítica **y** publicidad (brief `:235`) |
-| «Solo lo necesario» | `<button>` con borde de tinta 1 px (`border-text`), fondo papel, texto de tinta; `h-11` (44 px), ancho completo en móvil. **No** es un `<a>`, **no** está detrás de «Configurar» ni de un menú. Todo en `denied` (brief `:236`) |
-| «Configurar» | `<button>` con aspecto de enlace (§6.1 `link`: tinta, subrayado `underline underline-offset-4`, 13 px), `min-h-9` (36 px): en móvil, bajo los dos botones, alineado a la izquierda; en escritorio, a la derecha de «Solo lo necesario». Abre la segunda capa (MKT2-UX.7). **Desviación consciente de los 44 px de §6.1**, para no pasar el presupuesto de altura de brief `:238`; cumple los 24 px de WCAG 2.5.8 y deja ≥ 8 px a sus vecinos |
+| «Aceptar», «Solo lo necesario», «Configurar» | **Ver §MKT-CONV.1.** Semántica sin cambio: «Aceptar» concede analítica **y** publicidad; «Solo lo necesario» es un `<button>` en la primera capa que lo deja todo en `denied`; «Configurar» es un `<button>` con aspecto de enlace que abre la segunda capa (MKT2-UX.7) |
 | Foco inicial | **El banner no roba el foco** al aparecer (no es un diálogo). El visitante de teclado llega a él con el primer `Tab` tras el skip-link |
 | `Esc` | **No hace nada** (CK-3 f): no es una respuesta |
 | Movimiento | Ninguno (sin animación de entrada; `prefers-reduced-motion` no tiene qué desactivar) |
@@ -33369,23 +33175,7 @@ móvil (< md) · 390×664, apilado                    escritorio (≥ md), una f
 
 ### MKT2-UX.4 Presupuesto de altura (móvil 390×664, brief `:238` y `:241`)
 
-El brief pide «lo menor posible (orientativo ≤ ~30 % del viewport; propuesta, ajustable)» (`:238`) y, en la captura del criterio 1, ver los dos botones sin scroll y el precio «IVA incluido» y COMPRAR sin tapar (`:241`).
-
-| Pieza (ES, 390 px de ancho, texto en 2 líneas) | px |
-|---|---|
-| Padding superior | 12 |
-| Texto con el enlace al aviso (2 líneas × 20) | 40 |
-| Hueco | 8 |
-| «Aceptar» | 48 |
-| Hueco | 8 |
-| «Solo lo necesario» | 44 |
-| «Configurar» | 36 |
-| Padding inferior | 8 |
-| **Total** | **204** (30.7 % de 664) |
-
-- **Aritmética de diseño, no medida en navegador (NO MEDIDO).** Rebasa el ≈ 30 % orientativo en ~1 punto; el brief lo llama «ajustable». **Techo duro para el candado: 232 px (35 % de 664)** en ES y en EN (el texto de EN puede pasar a 3 líneas: 224 px). Si C-F12 lo mide por encima, la palanca es subir «Configurar» a la misma fila que el enlace al aviso, no achicar los botones.
-- **Con la barra de COMPRAR debajo** (≈ 72 px, `CardDetailView.tsx:504`: `py-3` + contenido; altura real **NO MEDIDA**), lo fijo ocupa ~276 px (≈ 42 %) y quedan ~388 px de contenido. El precio «desde» + IVA + COMPRAR viven **dentro** de la barra (`CardDetailView.test.tsx:448`), así que siguen a la vista por construcción; que el bloque de precio **de la página** también se vea sin scroll depende del layout de la ficha: **NO MEDIDO** (lo cierra la captura del criterio 1).
-- **Escritorio:** una fila de ~84–96 px; sin presupuesto en el brief.
+**Sustituido (2026-10-31) por §MKT-CONV.1** (presupuesto vigente: ≈ 89 px móvil y ≈ 57 px escritorio; techos de candado 96 y 64 px, L-1). El techo de 232/120 px de C-F12 ya no rige.
 
 ---
 
@@ -33664,7 +33454,7 @@ Norma §7.12a/§29 intacta: nombran el cobro, **no** lo justifican, ni proveedor
 Los importes salen de `breakdown.shippingFeeCents` y `processingFeeCents`, nunca del front. Otros textos nuevos: **T2** (CHK-MOVIL.5), **T4** «¿Ya tienes cuenta? Inicia sesión · o crea una cuenta» / “Already have an account? Log in · or create one”, **T5** «Interior y referencias (opcional)» / “Unit and references (optional)”, **T6** «Ver desglose» · «Ocultar desglose» / “Show breakdown” · “Hide breakdown”, **T7** (solo B) «Paso {n} de 2», «Contacto y envío», «Revisar y pagar», «Continuar» / “Step {n} of 2”, “Contact and shipping”, “Review and pay”, “Continue”. Se retiran al implementar: `checkout.identity.{eyebrow,title,cartKept,chosen,guest.hint}`.
 
 ### CHK-MOVIL.5 La bóveda se anuncia antes (fricción 6)
-De lo más temprano a lo más tardío: **T2** en la ficha, solo con sesión anónima, bajo el bloque COMPRAR (mono 11 px muted, sin icono ni candado): ES «La bóveda requiere cuenta. Sin cuenta, te la enviamos a casa.» · EN “The vault requires an account. Without one, we ship it to you.”; la **fila de destino** de 2.3 (`REQUIERE CUENTA`, antes del primer campo); y el `VaultUpsellPanel` al pulsarla. Prohibido el *confirmshaming* (§15.1-2). T2 no promete precio ni plazo.
+De lo más temprano a lo más tardío: **T2** en la ficha, solo con sesión anónima (**posición y variante B: vigentes en §MKT-CONV.3**; mono 11 px muted, sin icono ni candado): ES «La bóveda requiere cuenta. Sin cuenta, te la enviamos a casa.» · EN “The vault requires an account. Without one, we ship it to you.”; la **fila de destino** de 2.3 (`REQUIERE CUENTA`, antes del primer campo); y el `VaultUpsellPanel` al pulsarla. Prohibido el *confirmshaming* (§15.1-2). T2 no promete precio ni plazo.
 
 **Fricción 5 · orden visible en el catálogo.** Quien llega de Instagram ve hoy el selector «Ordenar» en «—». Propuesta: el selector siempre muestra un valor real; por defecto **«Novedades»** (`catalog.sort.newest`, criterio que el catálogo ya tiene; no hay clave nueva), con las otras dos (`price_asc`, `price_desc`) tal cual. Sin `sort` en la URL se pinta «Novedades» y se envía ese orden; con `sort` explícito manda la URL. Si se prefiere otro criterio por defecto, es decisión del dueño.
 
@@ -33857,3 +33647,171 @@ Sustituyen a los PROVISIONALES de `docs/FRONTEND_NOTES.md §DYN`. Sin cambio de 
 - Fuera de la lista de claves provisionales, pero con la misma palabra: `GH.off` (es/en actuales) no dice «dial»; no se toca.
 
 **vDYN-1 (2026-10-29):** sección nueva con el texto final es/en de las claves provisionales de §DYN (Recién llegada, M10 «Destacadas y PSA», presupuesto PSA, AG-24, salud de datos); `.invalid` de M10 pierde «dial».
+
+---
+
+## MKT-CONV. Conversión de marketing, Ola 1: banner de cookies delgado, ficha con una sola acción, línea de bóveda y señales de confianza (vMKT-CONV-1, 2026-10-31 · `BRIEF_MKT.md` §3 D-4 A y §4 Ola 1 (B1, B6b, T2, B2) · evidencia `tcg-hunt-marketing/informes/datos/diagnostico-tienda-2026-10-30/ux-review/`)
+
+> **Estado: PROPUESTO, no implementado.** Cero tokens y cero pares de contraste nuevos (tinta/papel/pozo/`muted` de §2.3). **Sustituye** a MKT2-UX.1, MKT2-UX.3 (anatomía y filas de botones) y MKT2-UX.4 (alturas), que quedan como puntero a esta sección. El resto de MKT2-UX (estados, CK-1…CK-5, segunda capa, enlace del pie, `--sticky-bottom-h`) sigue vigente.
+
+### MKT-CONV.0 Fuentes, lo medido y lo que no
+- **Leído (2026-10-31, rama `claude/mkt-conversion` @ `83166568`; ux-ui sin Bash):** `BRIEF_MKT.md` §3-§4; capturas `d-03-ficha.png` (1366×768), `m-03-ficha.png` y `m-05-carrito.png` (390 px) y sus `.txt`; `m-13-preguntas.txt`; `HECHOS.md:190` (texto del banner); `frontend/messages/{es,en}.json` (`consent`, `catalog.addToCart`/`buyNow`/`viewCart`/`inCart`, `wishlist`); `ConsentBanner.tsx:60-73`; `CardDetailView.tsx:313-618`; `WishlistBlock.tsx:79-114`; `(storefront)/layout.tsx:57-94`; `e2e/measurement-on.spec.ts:466-519`; `API_CONTRACT.md` §MKT.H.11 (C-F2…C-F9). No hay `README.md` en `ux-review/`: el «top 10» se tomó del brief.
+- **Aritmética de diseño, NO MEDIDA en navegador:** toda altura y posición de esta sección. Los px de partida salen de las capturas (banner actual ≈ 212 px en móvil; COMPRAR en y≈722 y banner desde y=695 en 1366×768). Los cierra la captura de los candados MKT-CONV.6.
+- **⛔ Texto y botones del banner NO cambian** (HECHOS 2026-10-26, «Aviso de privacidad con la medición: aprobado»: «Usamos cookies para entenderte mejor y mejorar tu experiencia» + enlace «Aviso de privacidad»; botones «Aceptar», «Solo lo necesario», «Configurar»). EN actual: «We use cookies to understand you better and improve your experience.» / «Accept» / «Necessary only» / «Customize» (`en.json:8308-8311`). Claves `consent.*` intactas.
+- **Datos del dueño:** todo hueco se marca **«DATO DEL DUEÑO — lo pide el PO»**. ⛔ Ninguna cifra, ciudad, plazo ni contacto inventado.
+
+### MKT-CONV.1 B1 · Banner de cookies: barra inferior delgada, botones del mismo peso (D-4 A)
+
+**Decisión del dueño que revierte otra** (léela primero): MKT2-UX.1 acató «deja solo el de aceptar más grande» (`PAQUETE_TIENDA_2026-10-16.md:230-236`). La orden del 2026-10-30 (D-4 A) pide **el mismo peso**. Gana la más reciente; el dueño la confirma al ver la maqueta (MKT-CONV.5, D-A). Que el diseño sea suficiente ante la ley: **NO VERIFICADO** (sin abogado, HECHOS 2026-10-23).
+
+**Estructura (DOM = orden visual = orden de tabulación; sin cambio de roles ni de foco, CK-1…CK-5 y MKT2-UX.3 «Al responder» siguen):**
+```
+360–414 px (< md)                                 ≥ md (768 px y más, 1366×768)
+├────────────────────────────────────┤ regla 1 px  ├──────────────────────────────────────────────────────────────────────────┤
+│ Usamos cookies para entenderte mejor │             │ Usamos cookies para entenderte mejor y mejorar tu    [ ACEPTAR ] [ SOLO LO NECESARIO ]│
+│ y mejorar tu experiencia. Aviso de   │             │ experiencia. Aviso de privacidad ↗ · Configurar                                     │
+│ privacidad ↗ · Configurar            │             └──────────────────────────────────────────────────────────────────────────┘
+│ [   ACEPTAR   ][ SOLO LO NECESARIO ] │  alto total ≈ 89 px                alto total ≈ 57 px
+└────────────────────────────────────┘
+```
+| Elemento | Móvil (< md) | ≥ md |
+|---|---|---|
+| Contenedor | `role="region"` `aria-label` `consent.region`; `fixed inset-x-0 z-40`, `bottom: var(--sticky-bottom-h, 0px)` (MKT2-UX.5); fondo `surface-2`; regla superior `border-strong` 1 px; sin sombra; radio 0; `max-h-[60vh] overflow-y-auto` (C-F19, intacto) | igual |
+| Padding | `px` = gutter; `pt-1 pb-1` (4/4); en la **última** barra de la pila sin barra fija debajo, `pb-[max(0.25rem,env(safe-area-inset-bottom))]` (el inset no cuenta para el tope de alto) | `py-2` (8/8) |
+| Texto | `consent.text` + `PrivacyNoticeLink` `inline` (§80, sin cambio) + ` · ` (`aria-hidden`) + **«Configurar»** como `<button>` con aspecto de enlace (tinta, subrayado, `underline-offset-4`), **dentro de la misma frase** (ya no es una fila propia). 12 px / 16 px de interlínea, tinta | 13 px / 18 px |
+| Área de «Configurar» | inline: exento de 24 px de WCAG 2.5.8 por estar en un renglón de texto; se amplía con `relative` + `after:absolute after:-inset-y-2 after:-inset-x-1` (≈ 32 px de alto de toque) sin cambiar el layout | igual |
+| Botones | `grid grid-cols-2 gap-2` bajo el texto (`mt-1`); **los dos idénticos**: `h-11` (44), `border border-text bg-bg text-text`, 12 px, 600, versalitas, tracking 0.08em, `px-2`, `leading-[1.15]`, texto centrado y **puede partirse en 2 líneas** sin crecer (2×14 = 28 < 44). Debajo de 320 px de ancho (zoom 200 %): `grid-cols-1` | `flex` a la derecha, `h-10` (40), `px-5`, 13 px, tracking 0.16em (como hoy), `min-w-[8.5rem]`, ancho automático |
+| Orden | «Aceptar» a la izquierda, «Solo lo necesario» a la derecha (orden actual) | igual |
+| Estados | hover: fondo `surface-2` en **ambos**; `focus-visible`: anillo global (§4.3) en ambos; `active`: `scale-[.98]` en ambos; sin `loading` ni `disabled` (MKT2-UX.3) | igual |
+
+**Qué ya no existe:** la fila propia de «Configurar», los 48 px de «Aceptar» y los 44 px solo para el rechazo; el relleno de tinta diferenciado (la diferencia de peso que MKT2-UX.1 aceptó). **Variante B de pesos** (decisión D-A, MKT-CONV.5): los dos con `bg-primary text-primary-fg` en vez de papel; nada más cambia.
+
+**Presupuesto (aritmética, NO MEDIDA; ES y EN caben en 2 líneas de texto a 360 px: ≈ 100 caracteres × 5.2 px ≈ 520 px < 2 × 328):**
+| | Móvil | Escritorio |
+|---|---|---|
+| regla + padding sup. + texto + hueco + botones + padding inf. | 1 + 4 + 32 + 4 + 44 + 4 = **89 px** | 1 + 8 + 40 + 8 = **57 px** |
+| Antes (capturas) | ≈ 212 px | ≈ 73 px |
+
+**Efecto en las pantallas del diagnóstico (aritmética):** ficha 390×664: cabecera 77 + banner 89 + barra 69 = **235 px (35 %)** contra 358 px (54 %); quedan ≈ 429 px de contenido. 1366×768: el banner empieza en y≈711 (antes 695); ver MKT-CONV.2 para que COMPRAR salga encima. Catálogo móvil: cabecera 77 + banner 89 = 166 px; quedan ≈ 498 px de 664 (B5 pide ≥ 2 tarjetas completas: lo resuelve el layout del catálogo, no el banner).
+
+**Dependencia B5:** con la portada móvil de 677 px de layout (`mobile-steps.json`), un `fixed inset-x-0` mide 677 y el borde derecho de los botones queda fuera de pantalla. El banner **no compensa** nada: el arreglo es de layout (B5) y el candado L-5 lo vigila.
+
+**Candados del contrato que siguen intactos (§MKT.H.11):** C-F2 (con `off` no se monta: sin cambio de montaje), C-F3 (sin responder 0 peticiones; «Solo lo necesario» solo `th_consent`; «Aceptar» ambos; las capturas 390×664 se retoman con el banner nuevo), C-F5/C-F9 (rutas medidas). El cambio es solo CSS/orden de DOM de `ConsentBanner.tsx`; cero lógica de consentimiento.
+
+### MKT-CONV.2 B6b · Ficha de carta: una etiqueta, compra primero
+
+| Cambio | Especificación |
+|---|---|
+| **Una sola etiqueta** para agregar al carrito (renglón en flujo **y** barra fija móvil) | **«Añadir al carrito»** / “Add to cart” (`catalog.addToCart`, ya existe). Se retira `catalog.buyNow` («Comprar») de la ficha de carta. Decisión D-B (MKT-CONV.5) |
+| Estado «ya agregada» (misma lógica por pieza de hoy) | **«Ver carrito»** / “View cart” (`catalog.viewCart`) en renglón **y** barra; el renglón conserva el check decorativo. Se retira `catalog.inCart` de la ficha. Un estado, un texto |
+| Botón del renglón | `primary` `md` (40), `min-h-11` (44) en < `lg`. Hoy `sm` (32): era más chico que los botones de la lista de deseos |
+| Frase de sistema | **Se elimina** `referenceExplainerNoMarket` de la ficha (`CardDetailView.tsx:378-380`, bloque `rule-note`). Si la clave no tiene otro uso (sellado, lista de deseos), se borra de `es.json`/`en.json` en el mismo cambio. Nada la reemplaza |
+| Pila de avisos bajo el precio | `T1a` (envío) → `T8` (ventas finales + garantía; una sola vez, B4) → `T2` (MKT-CONV.3); mono 11 px muted, `mt-1` entre líneas, sin cajas ni iconos |
+| Lista de deseos (§WSH-UX) | **Segunda en jerarquía:** (1) invitado: `wishlist.guest.title` baja de 22 a 18 px; «ENTRAR PARA AGREGARLA» y «CREAR CUENTA» dejan de ser botón con borde: ambos son **enlaces de texto** (13 px, subrayado; el primero de tinta, el segundo bermellón como hoy), conservan `min-h-[44px]` de toque; (2) con sesión: el botón de agregar a la lista (`WishlistBlock.tsx:385`) pasa de `primary` a `secondary` `md`. **Regla:** en la ficha solo la compra lleva `primary` |
+| Orden en el flujo | precio y pila → «Ejemplares disponibles» + renglones de compra → franja de confianza (MKT-CONV.4) → lista de deseos |
+
+Efecto en 1366×768 (aritmética de `d-03-ficha.png`): sin la frase se ahorran ≈ 50 px (mt-7 + renglón); `h2 «Ejemplares disponibles»` baja su margen superior de `mt-10` a `mt-8` (−8 px). COMPRAR pasa de y≈722 a ≈ 664 (top) y ≈ 704 (bottom, 40 px) con el banner desde y≈711: **visible y pulsable, 7 px de margen** (NO MEDIDO; margen justo, lo cierra L-3). Si la medición real queda en contacto, la palanca es `lg:py-12` en la columna de datos, no achicar el banner.
+
+Textos (todo existente): «Añadir al carrito» · «Ver carrito» · EN “Add to cart” · “View cart”. Estados del botón: hover `primary-hover`, `focus-visible`, `active`, `loading` (§6.1; hoy el alta es inmediata), `disabled` + «No disponible» sin stock (sin cambio).
+
+### MKT-CONV.3 T2 · La bóveda en la ficha (especificación final de CHK-MOVIL.5)
+
+| | Decisión |
+|---|---|
+| Dónde | **Cambio respecto de CHK-MOVIL.5** («bajo el bloque COMPRAR», que en móvil cae bajo el pliegue): ahora **dentro de la pila de avisos bajo el precio**, tercera línea tras T1a y T8 (MKT-CONV.2). Así se ve en la primera pantalla y junto al aviso de envío, que es donde surge la duda «¿cuántos envíos pago?» (el ticket mediano es MX$10 contra MX$100 de envío) |
+| Cuándo | Ficha de **carta suelta y gradeada**, solo con **sesión anónima**. Con sesión: no se pinta (⛔ no se inventa un texto para quien ya tiene cuenta). Sellado: NO MEDIDO si la bóveda lo admite; no se pinta hasta que el PO lo diga. El «< MX$600» del brief es el caso medido por marketing, **no una regla**: T2 sale con cualquier precio salvo que el PO diga otra cosa |
+| Forma | mono 11 px `muted` (4.85:1 sobre papel), ≤ 3 líneas a 360 px, sin icono, sin candado, sin enlace, sin negritas. No promete precio ni plazo. Prohibido el *confirmshaming* (§15.1-2) |
+| Texto **A** (aprobado en CHK-MOVIL.5, literal) | ES «La bóveda requiere cuenta. Sin cuenta, te la enviamos a casa.» · EN “The vault requires an account. Without one, we ship it to you.” |
+| Texto **B** (nuevo; dice el beneficio con un hecho de `/preguntas`: envío conjunto en un solo paquete) | ES «Con cuenta, junta cartas en tu bóveda y pide un solo envío. Sin cuenta, te la enviamos a casa.» · EN “With an account, keep cards in your vault and ship them together. Without one, we ship this to you.” |
+| Recomendación | **B**: A informa una restricción; B informa la restricción **y** la razón para crear la cuenta, sin prometer nada (D-3 A quiere esa cuenta en el checkout). Si el dueño no aprueba texto nuevo, se queda A, que ya está aprobado. Decisión D-C |
+| Clave | `catalog.vaultNote` (nombre libre de frontend); ES/EN en paridad (candado L-5 de CHK-MOVIL.7 se amplía a T2) |
+
+### MKT-CONV.4 B2 · «Quiénes somos y contacto», franja de confianza y enlace del pie
+
+**URL propuesta:** `/nosotros` (con prefijo de idioma, como `/como-funciona` y `/preguntas`: `/es/nosotros`, `/en/nosotros`). La decide el PO; marketing pide la URL final de vuelta (brief §6.2).
+
+**Franja de confianza (1 línea), en ficha y carrito**
+| | Decisión |
+|---|---|
+| Texto ES | «Pago seguro · Envío a México · <enlace>Quiénes somos</enlace>» |
+| Texto EN | “Secure payment · Shipping to Mexico · <link>About us</link>” |
+| Forma | sans 12 px `muted`, sin versalitas, sin iconos, sin caja; separadores « · » `aria-hidden`; el enlace en tinta subrayada, destino `/nosotros`, nombre accesible «Quiénes somos y contacto» (contiene el texto visible, WCAG 2.5.3); `min-h-11` de toque por padding vertical del enlace. ≈ 45 caracteres ≈ 250 px: **1 línea en 360-414 px**; en 320 px puede partirse |
+| Ficha | justo bajo los renglones de compra y antes de la lista de deseos |
+| Carrito | bajo el título «Tu carrito», visible sin scroll; **no** dentro de la barra fija de PAGAR |
+| Huecos | «Pago seguro» es una afirmación comercial: **D-E** (el PO/dueño la aprueba o la cambia por «Pagas en la pantalla de pago»; fuente técnica: el cobro lo procesa el proveedor de pagos, `payments/stripe.service.ts:193`). «Envío a México»: respaldado por `/preguntas` («una dirección en México»). Opcional, cuando el dueño dé su ciudad: sustituir «Envío a México» por «Enviamos desde {ciudad}» (**DATO DEL DUEÑO — lo pide el PO**) |
+| Con `off`/sin la página | si `/nosotros` no está publicada, la franja **no** se pinta (⛔ no enlazar a un 404) |
+
+**Pie:** nuevo enlace «Quiénes somos y contacto» / “About us & contact” entre «Guías» y «Términos y política», mismas clases que sus vecinos (`text-text hover:text-accent`, mono 11 px versalitas). Más una línea de contacto: el correo de la página como `mailto:` en el mismo renglón de la marca (`TCG HUNT · tcghunt.mx · © 2026 · {correo}`), solo cuando el dato exista. En móvil el pie ya parte en filas (`flex-wrap`).
+
+**Página `/nosotros` (estructura; una columna `max-w-[720px]`, sin tarjetas ni fotos obligatorias)**
+```
+QUIÉNES SOMOS Y CONTACTO                       ← h1 serif (46 px escritorio / 32 móvil)
+{lead 1-2 renglones}
+─────────────────────────────────────────
+QUIÉN ESTÁ DETRÁS            ← bloque 1 (eyebrow mono 11)
+ {dl: etiqueta mono 11 muted | valor 15 px}
+CÓMO COMPRAS CON NOSOTROS    ← bloque 2
+CONTACTO                     ← bloque 3
+```
+Móvil: etiqueta sobre valor; ≥ `md`: `dl` de 2 columnas (200 px | resto). Bloques separados por regla (`border`), sin fondos. Cada valor vacío ⇒ **la fila no se pinta** (mismo patrón que `footer.legalEntity`); ⛔ nunca texto de relleno en producción (candado L-7).
+
+| Bloque / fila | Valor | Fuente / estado |
+|---|---|---|
+| Lead | ES «TCG HUNT es una tienda en línea de cartas Pokémon TCG en México: vendemos cartas sueltas y producto sellado, y te compramos las tuyas.» · EN “TCG HUNT is an online Pokémon TCG store in Mexico: we sell single cards and sealed product, and we buy yours.” | existe: tienda, `sellado`, `buylist`. Redacción final: PO/marketing |
+| Quién está detrás · nombre o razón social | `{legalEntity}` | **DATO DEL DUEÑO — lo pide el PO** (hoy vacío: `footer.legalEntity`) |
+| · Ciudad y estado | `{ciudad}` | **DATO DEL DUEÑO — lo pide el PO** |
+| · Historia en 1-2 renglones | `{historia}` | **DATO DEL DUEÑO — lo pide el PO** (opcional) |
+| Cómo compras · Revisión | «Cada carta se revisa en mano antes de entrar a tu bóveda.» | `/preguntas` (`m-13-preguntas.txt:72`) |
+| · Cuenta | «Puedes comprar como invitado, con tu correo y una dirección en México.» | `m-13-preguntas.txt:9` |
+| · Pago | «Pagas en línea en la pantalla de pago.» + lista de métodos | métodos: **DATO — NO MEDIDO** (los define la configuración del proveedor, no el front: `automatic_payment_methods`, `stripe.service.ts:193`); lo pide el PO a devops/dueño. Sin lista, queda solo la frase |
+| · Envío | importes y umbral de envío gratis | **del dato público de envío** (`shipping.*`, T1a), nunca literales: la regla vigente (HECHOS 2026-10-24) cambia con D-1 |
+| · Plazo de entrega | `{plazo}` | **DATO DEL DUEÑO — lo pide el PO** |
+| · Garantía | «Si tu carta llega dañada o equivocada, te reembolsamos. Tienes 7 días desde la entrega para abrir una disputa.» + enlace a «Términos y política» | `T8` y `m-13-preguntas.txt:72`; el texto de T8 vive en su clave, no se copia |
+| · Factura | «Para factura (CFDI) escribe a facturacion@tcghunt.mx después de pagar, citando tu pedido.» | `faq.es.ts:275` |
+| Contacto · Pedidos y cuenta | `soporte@tcghunt.mx` | publicado en `/preguntas` (`faq.es.ts:275`); **D-F: el dueño confirma cuál es «el» correo público** |
+| · Vender sellado | `contacto@tcghunt.mx` | publicado (`es.json:7943`); idem D-F |
+| · Instagram | `@tcghunt.mx` → `https://www.instagram.com/tcghunt.mx/` | brief B2b: **confirmar con el dueño** |
+| · WhatsApp | `{número}` | **DATO DEL DUEÑO — lo pide el PO** (opcional; sin él, no hay fila ni botón) |
+| · Horario o tiempo de respuesta | `{texto}` | **DATO DEL DUEÑO — lo pide el PO** (opcional) |
+| · Atención en persona | `{dirección o punto}` | **DATO DEL DUEÑO — lo pide el PO**; depende de D-6 (sin responder). Sin dato, no se dice nada |
+| · Card Show | enlace «Card Show» → `/card-show` | existe la página; sin sede ni patrocinador (brief §0) |
+
+Los mismos datos alimentan el JSON-LD `Organization` + `contactPoint` (C6/B2b; lo implementa frontend): una fuente por dato, ningún valor repetido a mano. Estados de la página: es estática, sin carga ni error propios; con todos los datos vacíos, queda lead + «Cómo compras» + correos publicados (nunca una página vacía). Metadatos: `title` «Quiénes somos y contacto · TCG HUNT», `description` de 1 renglón (redacta marketing).
+
+### MKT-CONV.5 Maquetas para el dueño (describir en el chat; renderizada antes de publicar, brief D-4)
+
+Lo que el orquestador le enseña, en este orden, **ficha móvil 390×844 con el banner abierto** (antes: capturas `m-03-ficha.png`):
+1. **Antes / después del banner.** Antes: 3 bloques apilados, ≈ 212 px, «Aceptar» negro grande y rechazo con borde. Después: texto en 2 renglones con «Aviso de privacidad ↗ · Configurar» al final, y debajo, lado a lado, dos botones iguales; ≈ 89 px; la barra «Añadir al carrito» queda **debajo y entera**.
+2. **Ficha de arriba abajo:** cabecera → carta → nombre y precio → tres renglones pequeños de aviso (envío / ventas finales con garantía / bóveda) → «Ejemplares disponibles» con **un** botón «Añadir al carrito» → una línea «Pago seguro · Envío a México · Quiénes somos» → «Lista de deseos» con dos enlaces de texto. Ya no existe «El precio de venta es el precio publicado de esta carta».
+3. **Página «Quiénes somos y contacto»** con las filas vacías **ocultas** (lo que se vería hoy) y con ejemplo (datos ficticios rotulados «EJEMPLO»).
+
+**Decisiones del dueño (A/B reales):**
+| Id | Pregunta | A | B | Recomiendo |
+|---|---|---|---|---|
+| **D-A** | Los dos botones del banner, ¿cómo se ven? | Los dos con borde y fondo de papel | Los dos rellenos de tinta | **A** (barra más ligera; ninguno empuja). Confirma además que esto **revierte** su decisión del 2026-10-16 («Aceptar» más grande) |
+| **D-B** | Etiqueta única de la ficha | «Añadir al carrito» (dice lo que hace; no cambia nada más) | «Comprar» (más corta; promete algo que el botón no hace: solo agrega) | **A** |
+| **D-C** | Línea de bóveda | Texto aprobado: «La bóveda requiere cuenta…» | Texto nuevo con el beneficio: «Con cuenta, junta cartas en tu bóveda y pide un solo envío…» | **B** (necesita su aprobación; si no, A) |
+| **D-E** | «Pago seguro» en la franja | Se queda | «Pagas en la pantalla de pago» | **A**, si el PO confirma que el proveedor lo respalda |
+| **D-F** | Qué correo es «el público» | `soporte@` (pedidos y cuenta) y `contacto@` (vender sellado), como hoy en `/preguntas` | Uno solo | no decido: es del dueño |
+| **D-G** | Qué datos da para la página | ciudad, razón social, plazo de entrega, WhatsApp, horario, atención en persona (ver MKT-CONV.4) | solo lo ya publicado (correos, Instagram) | A, pero **ningún dato se inventa**: sin dato, sin fila |
+
+### MKT-CONV.6 Candados (los escribe frontend en Playwright; los ejecuta QA; el barrido se mide N veces, O-3)
+Viewports 360×740, 390×844 (y 390×664 de C-F3), 414×896, 1366×768; ES y EN; modo `on`, terceros interceptados, banner sin responder.
+| Id | Afirma | Mutación que lo pone rojo |
+|---|---|---|
+| **L-1** | alto del banner ≤ **96 px** a 360/390/414 (objetivo ≈ 89) y ≤ **64 px** a 1366×768; reemplaza el tope de 232/120 px de C-F12 (`measurement-on.spec.ts:488-498`). Sigue el `max-h-[60vh]` de C-F19 a 195×332 | volver a la fila propia de «Configurar» |
+| **L-2** | «Aceptar» y «Solo lo necesario»: misma altura, mismo ancho (±1 px en móvil), mismo `background-color`, `border`, `font-size` y `font-weight`; ambos ≥ 44 px de alto en móvil | `bg-primary` solo en «Aceptar» |
+| **L-3** | en ficha de carta con el banner abierto, el botón «Añadir al carrito» de la barra (móvil) y el del primer renglón (1366×768) están en el viewport y `elementFromPoint` en su centro devuelve el botón. Extiende C-F11 | dejar la frase de sistema o `mt-10` |
+| **L-4** | conteo de etiquetas en la ficha: «Añadir al carrito» en renglón y barra, **0** de «Comprar»; no existe el texto «El precio de venta es el precio publicado»; `button.primary` visibles en la región de «Lista de deseos» = 0 | restaurar `buyNow` |
+| **L-5** | paridad ES/EN de `consent.*` sin cambio de texto (literal de HECHOS 2026-10-26), de T2 y de la franja; `scrollWidth ≤ innerWidth` con el banner abierto en portada móvil (B5) | cambiar una palabra del banner |
+| **L-6** | T2 solo con sesión anónima y solo en carta suelta/gradeada; el pie contiene el enlace «Quiénes somos y contacto» en es y en; la franja enlaza a una ruta que responde 200 | enlazar a un 404 |
+| **L-7** | `/nosotros`: 200, un `h1`, `Organization`+`contactPoint` en el HTML; **ninguna** fila con valor vacío ni el texto «DATO DEL DUEÑO» en el HTML servido ni en `messages/*.json` | publicar un hueco sin dato |
+| Intactos | C-F1…C-F9 de §MKT.H.11 (el banner no cambia lógica); C-F11 y C-F19 de `measurement-on.spec.ts` | — |
+
+### MKT-CONV.7 Peticiones numeradas (ninguna bloquea el diseño)
+1. **Product-owner:** pedir al dueño los datos marcados «DATO DEL DUEÑO» (MKT-CONV.4, D-G), la lista de métodos de pago que muestra la pantalla de pago y el correo público (D-F); confirmar la URL `/nosotros` y si T2 aplica a todo precio (el «< MX$600» del brief).
+2. **Arquitecto:** (a) §MKT.H.11 no lista C-F11/C-F12/C-F19 (viven en `frontend/e2e/measurement-on.spec.ts`); sus topes de altura cambian (L-1): decidir si pasan al contrato. (b) Dónde viven los datos de la página (clave de mensajes vacía = fila omitida, como `footer.legalEntity`, o lectura pública); y si T2 necesita saber «sesión anónima» más allá del estado de cliente actual.
+3. **Frontend (vía orquestador):** `ConsentBanner.tsx`, `CardDetailView.tsx`, `WishlistBlock.tsx`, pie y la página nueva son de streams distintos del mapa de módulos: serializar `frontend/src/components/` (zona compartida).
+4. **Orquestador:** `DESIGN_SYSTEM.md` tiene ≈ 33 900 líneas contra un tope de ~2 000; hace falta un pase de compactación dedicado (no cabe en este encargo sin tirar secciones vigentes de otros streams). Mockup HTML renderizable para el dueño: puedo escribirlo en `docs/mockups/mkt-conv.html` si se me autoriza esa ruta.
+
+**vMKT-CONV-1 (2026-10-31):** sección nueva (B1/D-4 A, B6b, T2, B2). MKT2-UX.1 y .4 compactados a puntero; MKT2-UX.3 corregido en anatomía y filas de botones.

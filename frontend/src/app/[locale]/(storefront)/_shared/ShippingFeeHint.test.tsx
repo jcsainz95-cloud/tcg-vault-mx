@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
-import { FinalSaleLine, ShippingFeeHint } from './ShippingFeeHint';
+import { RefundPromiseLine, ShippingFeeHint } from './ShippingFeeHint';
 
 /**
  * T1a / T1b / T8 de la ficha (DESIGN_SYSTEM §CHK-MOVIL.4). ENV-F1: ⛔ ningún importe en i18n ni en el front;
@@ -14,7 +14,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('ShippingFeeHint (T1a/T1b) y FinalSaleLine (T8)', () => {
+describe('ShippingFeeHint (T1a/T1b) y RefundPromiseLine (T8)', () => {
   it('T1a: carta suelta o gradeada ⇒ envío de solo cartas y umbral del endpoint + comisión SIN importe (ES y EN)', async () => {
     // Dueño 2026-10-25 (HECHOS «Envío gratis desde MX$4,000 para CUALQUIER pedido»): T1a también dice el umbral.
     vi.spyOn(api, 'getPublicShippingRule').mockResolvedValue(RULE);
@@ -50,13 +50,11 @@ describe('ShippingFeeHint (T1a/T1b) y FinalSaleLine (T8)', () => {
     expect(screen.queryByText(/MX\$/)).toBeNull();
   });
 
-  it('T8 junto a «Todas las ventas son finales.» (ES y EN)', () => {
-    const { unmount } = renderWithProviders(<FinalSaleLine />, 'es');
-    expect(screen.getByTestId('final-sale-line')).toHaveTextContent(
-      'Todas las ventas son finales. Si tu carta llega dañada o equivocada, te reembolsamos.',
-    );
+  it('T8 en la ficha, SIN «ventas finales» (B4: esa frase sale una vez, en el checkout) (ES y EN)', () => {
+    const { unmount } = renderWithProviders(<RefundPromiseLine />, 'es');
+    expect(screen.getByTestId('refund-promise-line')).toHaveTextContent(/^Si tu carta llega dañada o equivocada, te reembolsamos\.$/);
     unmount();
-    renderWithProviders(<FinalSaleLine />, 'en');
-    expect(screen.getByTestId('final-sale-line')).toHaveTextContent('All sales are final. If your card arrives damaged or wrong, we refund you.');
+    renderWithProviders(<RefundPromiseLine />, 'en');
+    expect(screen.getByTestId('refund-promise-line')).toHaveTextContent(/^If your card arrives damaged or wrong, we refund you\.$/);
   });
 });

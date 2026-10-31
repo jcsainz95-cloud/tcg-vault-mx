@@ -38,7 +38,7 @@ async function openCheckoutWith(page: Page, ids: string[]) {
     ['tcg.cart', ids] as const,
   );
   await page.goto('/es/checkout');
-  await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toBeVisible();
+  await expect(page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true })).toBeVisible();
 }
 
 async function applyCode(page: Page, code: string) {
@@ -105,7 +105,7 @@ test.describe('DSC · cliente con código (invitado, envío a domicilio)', () =>
     await expect(page.getByTestId('code-row-applied')).toContainText('NUEVO20');
     await expect(page.getByTestId('code-row-notice')).toContainText('Cambiamos SEPT10');
     // El formulario completo y PAGAR: el mock de la sesión recibe el código (I-1: sin código no viajaría).
-    await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado@dominio.com');
+    await page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true }).fill('invitado@dominio.com');
     await page.getByRole('checkbox', { name: /Confirmo que/ }).check();
     await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Juan Pérez');
     await page.getByLabel(t('es', 'addresses.postalCode')).fill('44100');
@@ -301,7 +301,7 @@ interface AppliedDiscount {
 }
 
 async function fillGuestForm(page: Page) {
-  await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado.dsc@dominio.com');
+  await page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true }).fill('invitado.dsc@dominio.com');
   await page.getByRole('checkbox', { name: /Confirmo que/ }).check();
   await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Juan Pérez');
   await page.getByLabel(t('es', 'addresses.postalCode')).fill('44100');

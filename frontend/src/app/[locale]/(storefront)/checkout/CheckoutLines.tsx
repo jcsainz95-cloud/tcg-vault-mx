@@ -6,6 +6,7 @@ import type { AppLocale } from '@/i18n/routing';
 import type { OrderItemPreview } from '@/types/contract';
 import { formatMoneyCents } from '@/lib/format';
 import { CardImage } from '@/components/ui/CardImage';
+import { historicalCardMeta } from '@/lib/historical-card';
 
 /** CHK-MOVIL.2.5: las líneas muestran 2 y «Ver {n} más» pliega el resto. */
 export const VISIBLE_LINES = 2;
@@ -19,6 +20,8 @@ export interface CheckoutLinesProps {
  * Renglones del carrito (artboard «Carrito y pago»), comunes a invitado y cuenta: miniatura, nombre en serif
  * (`truncate` dentro de un padre `min-w-0`, CHK-MOVIL.1), meta en mono, «Quitar» con área de 44 px y el precio
  * tabular a la derecha. v1.51-b: `productType`/`rawCondition` viajan DENTRO de `card` (`OrderItemCardDTO`).
+ * MENOR-3: la meta es la MISMA regla que la del pedido (`historicalCardMeta`): set · #número · NM (raw) o
+ * · empresa grado (graded, p. ej. «PSA 10»), omitiendo los fragmentos que no vengan.
  */
 export function CheckoutLines({ items, onRemove }: CheckoutLinesProps) {
   const t = useTranslations('checkout');
@@ -40,8 +43,7 @@ export function CheckoutLines({ items, onRemove }: CheckoutLinesProps) {
                 {item.card.name}
               </p>
               <p className="mt-1.5 font-mono text-[11px] text-muted [overflow-wrap:anywhere]" lang="en">
-                {item.card.setName} · #{item.card.number}
-                {item.card.productType === 'raw' && item.card.rawCondition ? ` · ${item.card.rawCondition}` : ''}
+                {historicalCardMeta(item.card)}
               </p>
               <button
                 type="button"

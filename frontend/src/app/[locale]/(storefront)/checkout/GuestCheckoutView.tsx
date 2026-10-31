@@ -8,7 +8,6 @@ import { ApiClientError } from '@/lib/api-client';
 import { config } from '@/lib/config';
 import { useCart } from '@/lib/cart';
 import { formatMoneyCents } from '@/lib/format';
-import { Link } from '@/i18n/navigation';
 import type { AppLocale } from '@/i18n/routing';
 import type { GuestAddressInput, GuestCheckoutQuoteResponse, GuestCheckoutSessionResponse, UnavailableBundleDTO } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
@@ -752,16 +751,9 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
               {/* <lg: los desenlaces de pago van en flujo, sobre las notas legales (CHK-MOVIL.2.4). */}
               {!isDesktop && <div className="mt-6">{notices}</div>}
 
-              {/* Mismos avisos que el checkout con cuenta (criterio 48b): ninguno se quita. T8 junto a «ventas finales». */}
-              <p className="rule-note mt-10 max-w-[620px] text-[13px] leading-[1.7] text-muted">
-                <span className="font-medium text-text">{t('finalSaleNotice')}</span>{' '}
-                <Link href="/terminos" className="text-accent hover:text-text">
-                  {t('viewTerms')}
-                </Link>
-                <br />
-                <span className="font-mono text-[11px]">{t('refundPromise')}</span>
-              </p>
-              <p className="rule-note-quiet mt-5 max-w-[620px] text-[13px] leading-[1.7] text-muted">
+              {/* Criterio 48b: el aviso de ventas finales con enlace a términos lo lleva la casilla de términos del
+                  formulario (con T8 debajo); B4 (BRIEF_MKT §4) prohíbe repetirlo aquí — candado `final-sale-once.test.tsx`. */}
+              <p className="rule-note-quiet mt-10 max-w-[620px] text-[13px] leading-[1.7] text-muted">
                 {t('cfdiNotice')}
               </p>
               <p className="rule-note-quiet mt-5 max-w-[620px] text-[13px] leading-[1.7] text-muted">

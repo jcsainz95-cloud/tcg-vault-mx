@@ -108,7 +108,7 @@ describe('DYN-F10 (a) · qué manda cada nivel (es y en)', () => {
     captured.locale = locale;
     renderToStaticMarkup(await LocaleLayout({ children: null, params: Promise.resolve({ locale }) }));
     const root = captured.rootMessages!;
-    const home = await sentBy(await HomePage(), 'home');
+    const home = await sentBy(await HomePage({ params: Promise.resolve({ locale }) }), 'home');
     const shell = new Set<string>(SHELL_NAMESPACES);
     expect(Object.keys(home).sort()).toEqual(HOME_NAMESPACES.filter((ns) => !shell.has(ns)).sort());
     expect(Object.keys(home)).not.toContain(ADMIN_NAMESPACE);

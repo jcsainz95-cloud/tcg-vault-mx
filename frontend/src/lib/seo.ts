@@ -12,6 +12,7 @@
  *  - `priceValidUntil` = `pricedAsOf` + 7 días (decisión del orquestador: el ancla honesta es
  *    «precio al <fecha>», y las vistas previas cachean días).
  */
+import type { Metadata } from 'next';
 import type { AppLocale } from '@/i18n/routing';
 
 /**
@@ -136,10 +137,37 @@ export function organizationJsonLd(): Record<string, unknown> {
     '@type': 'Organization',
     name: 'TCG HUNT',
     url: siteAbsoluteUrl('/'),
+    // C6: el logo es la mira de la marca que el sitio ya sirve (`app/apple-icon.png`, PNG 180×180 ≥ 112 px que pide
+    // Google). ⛔ `contactPoint`/`sameAs` esperan datos del dueño (B2/B2b).
+    logo: siteAbsoluteUrl(ORGANIZATION_LOGO_PATH),
   };
   const sameAs = [INSTAGRAM_URL].filter((u): u is string => !!u);
   if (sameAs.length > 0) org.sameAs = sameAs;
   return org;
+}
+
+/** C6 — ruta del logo de `Organization` (la sirve Next desde `src/app/apple-icon.png`). */
+export const ORGANIZATION_LOGO_PATH = '/apple-icon.png';
+
+/**
+ * C6 (BRIEF_MKT Ola 2) — `WebSite` + `SearchAction` de la portada: la búsqueda del sitio es la del catálogo, que lee
+ * `?q=` de la URL (`catalog/catalog-url.ts` `parseUrlFilters`).
+ */
+export function webSiteJsonLd(locale: string): Record<string, unknown> {
+  return {
+    '@type': 'WebSite',
+    name: 'TCG HUNT',
+    url: siteAbsoluteUrl(`/${locale}`),
+    inLanguage: locale === 'en' ? 'en' : 'es-MX',
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: {
+        '@type': 'EntryPoint',
+        urlTemplate: `${siteAbsoluteUrl(`/${locale}/catalog`)}?q={search_term_string}`,
+      },
+      'query-input': 'required name=search_term_string',
+    },
+  };
 }
 
 /** `BreadcrumbList` de 3 niveles: Inicio → sección → ficha. */
@@ -154,5 +182,107 @@ export function breadcrumbJsonLd(
       name: t.name,
       item: t.url,
     })),
+  };
+}
+
+/**
+ * C6 (BRIEF_MKT Ola 2) — canonical + `hreflang` de una ruta pública que existe en los dos idiomas (`path` sin locale,
+ * `''` para la portada). `x-default` apunta a la versión `es` (la del sitio por defecto), que responde 200: el `Link`
+ * de next-intl lo mandaba a la URL SIN locale, que responde 307 a `/es` (desactivado en `i18n/routing.ts`,
+ * `alternateLinks: false`). El contenido solo-español (§E4/§E6) NO usa esto: su canonical es `/es` en los dos idiomas.
+ */
+export function localeAlternates(locale: string, path: string): NonNullable<Metadata['alternates']> {
+  return {
+    canonical: siteAbsoluteUrl(`/${locale}${path}`),
+    languages: {
+      es: siteAbsoluteUrl(`/es${path}`),
+      en: siteAbsoluteUrl(`/en${path}`),
+      'x-default': siteAbsoluteUrl(`/es${path}`),
+    },
+  };
+}
+
+/**
+ * C4 (BRIEF_MKT Ola 2) — metadata de una página de LISTADO pública: título propio (patrón §17.4 «TCG HUNT — {página}»),
+ * descripción propia, canonical + hreflang y og. Antes sellado, accesorios, decks-meta y buylist heredaban el título y
+ * la descripción de la portada (`layout.tsx`) y no tenían canonical.
+ */
+export function routeMetadata(opts: {
+  locale: string;
+  path: string;
+  title: string;
+  description: string;
+}): Metadata {
+  const alternates = localeAlternates(opts.locale, opts.path);
+  return {
+    metadataBase: new URL(SITE_URL),
+    title: opts.title,
+    description: opts.description,
+    alternates,
+    openGraph: {
+      type: 'website',
+      siteName: 'TCG HUNT',
+      title: opts.title,
+      description: opts.description,
+      url: alternates.canonical as string,
+    },
+  };
+}
+
+/**
+ * C5 (BRIEF_MKT Ola 2) — `itemCondition` del `Offer`. Criterio de Google para fichas de comercio: «nuevo» = empaque
+ * original sin abrir; «usado» = empaque original abierto o ausente. Una carta suelta o gradeada ya salió de su sobre
+ * (su condición, NM o el grado, va en el nombre y la descripción) ⇒ `UsedCondition`; el sellado está cerrado de fábrica
+ * ⇒ `NewCondition` (también «caja con detalle menor»: el producto sigue sin abrir, el detalle es del cartón).
+ */
+export function jsonLdItemCondition(kind: 'card' | 'sealed'): string {
+  return kind === 'sealed' ? 'https://schema.org/NewCondition' : 'https://schema.org/UsedCondition';
+}
+
+/** C5 — marca del producto: todo el catálogo es Pokémon TCG (el sitio lo nombra «Carta Pokémon»). */
+export function brandJsonLd(): Record<string, unknown> {
+  return { '@type': 'Brand', name: 'Pokémon' };
+}
+
+/** Lo que el JSON-LD necesita de `GET /checkout/shipping-rule` (§4-G.12 punto 5). */
+export interface ShippingRuleForJsonLd {
+  cardsOnlyFeeCents: number;
+  sealedFeeCents: number;
+  freeFromCents: number;
+  currency: 'MXN';
+}
+
+/**
+ * C5 — `shippingDetails` del `Offer`, con la regla VIVA del endpoint público (⛔ ningún importe escrito a mano): el
+ * envío de un pedido de solo esa pieza. Cartas (sueltas y gradeadas viajan como carta, D-ENV-2) ⇒ `cardsOnlyFeeCents`;
+ * sellado ⇒ `sealedFeeCents`; y 0 si el precio ya alcanza `freeFromCents` (el umbral vale para cualquier pedido,
+ * `subtotal >= freeFrom`, `backend/src/modules/orders/shipping-rule.ts`). La caja grande solo aplica a accesorios. Sin
+ * regla (backend sin responder a tiempo) ⇒ `undefined` y el campo se OMITE.
+ */
+export function shippingDetailsJsonLd(
+  kind: 'card' | 'sealed',
+  priceCents: number,
+  rule: ShippingRuleForJsonLd | null | undefined,
+): Record<string, unknown> | undefined {
+  if (!rule) return undefined;
+  const fee =
+    priceCents >= rule.freeFromCents ? 0 : kind === 'sealed' ? rule.sealedFeeCents : rule.cardsOnlyFeeCents;
+  return {
+    '@type': 'OfferShippingDetails',
+    shippingRate: { '@type': 'MonetaryAmount', value: jsonLdPrice(fee), currency: rule.currency },
+    shippingDestination: { '@type': 'DefinedRegion', addressCountry: 'MX' },
+  };
+}
+
+/**
+ * C5 — `hasMerchantReturnPolicy`: «Todas las ventas son finales» y, en la excepción de carta dañada o equivocada,
+ * «conservas la carta: no hay devolución del producto» (`messages/*.json` `legal.refundBody` /
+ * `legal.deliveryIssueOutcome`) ⇒ no se aceptan devoluciones (`MerchantReturnNotPermitted`).
+ */
+export function merchantReturnPolicyJsonLd(): Record<string, unknown> {
+  return {
+    '@type': 'MerchantReturnPolicy',
+    applicableCountry: 'MX',
+    returnPolicyCategory: 'https://schema.org/MerchantReturnNotPermitted',
   };
 }

@@ -3,7 +3,119 @@
 > Propiedad: **frontend**. Decisiones de implementación del cliente Next.js. El contrato y el sistema de diseño mandan.
 >
 > ⚠ Este fichero rebasa el tope (~19 900 líneas contra ~1 500, CLAUDE.md «Documentos», ficha FE-DOC-1). Se compacta por
-> bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46); cada pase que añade quita más de lo que añade.
+> bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46; 2026-10-31: §MKT tienda §A3/§A4/§E1
+> plegado en §MKT-OLA2); cada pase que añade quita más de lo que añade.
+
+## §MKT-R2B · Frescura de la lista pública tras la caché de datos (2026-10-31, rama `claude/mkt-fe-r2b`, base `478356c0`)
+
+- **B-R2 (QA sobre `e066b0b5`):** la caché de datos de Next es stale-while-revalidate: tras > 30 s sin visitas sirve la
+  copia VIEJA. `loadCatalogPageForSSR` devuelve `{ data, ageMs }`; la edad sale de la cabecera `Date` del backend, que
+  la caché guarda con el cuerpo (`onHeaders` en `RequestOptions`/`ServerReadOptions`); sin cabecera ⇒ `null` ⇒ vieja.
+  `CatalogView` pone `initialDataUpdatedAt = montaje − ageMs` (por edad: un reloj del navegador atrasado no la vuelve
+  fresca): copia fresca ⇒ 0 relecturas; vieja ⇒ relee al hidratar. Portada: sin defecto, `updatedAt: 0` relee siempre al
+  montar (medido con el mismo escenario). Fichas: leen sin caché de datos. Candado E2E: `e2e/catalog-freshness.spec.ts`;
+  `seo-raw-html` «C2 no repite» calienta antes de medir (sin eso dependía de la edad que dejó la prueba anterior).
+- **TL-MKT3-1:** `serverInit()` en `api.ts` pasa `next`/`signal`/`onHeaders` enteros; el catálogo usa `withAbortBudget`
+  (al vencer aborta; la respuesta tardía ya no llena la caché). Portada y regla de envío siguen con `withBudget` a
+  propósito (la tardía llena la caché para la siguiente visita). **TL-MKT3-2:** pestaña Gradeadas = `?productType=graded`.
+  **TL-MKT2-2:** `QUERY_DEFAULTS` exportado de `components/Providers.tsx`.
+
+## §MKT-E2E1 · Hallazgos de tester-e2e y QA sobre `561ad425` (2026-10-31, rama `claude/mkt-fe-e2e1`, base `815d14d1`)
+
+- **C1 sellado:** el `<h1>` de `SealedDetailView` lleva «nombre · set» con el patrón de la carta (set como bloque dentro).
+- **C6:** `llms.txt` enlaza `/es/sellado` y `tcghunt.mx/card-show` (`llmsCardShowLine`, sin datos del evento; es la única
+  excepción del barrido «sin Card Show» de `seo-content.test.ts`); revisión `2026-10-31`. IVA, Instagram y «Quiénes somos»: esperan al dueño.
+- **MENOR-3:** `CheckoutLines` pinta la meta con `historicalCardMeta` (la regla del pedido): `· NM` raw, `· PSA 10` gradeada.
+- **I-1 / TL-MKT2-1:** `lib/ssr-budget.ts` (`withBudget`, `withAbortBudget`); fichas SSR con `DETAIL_SSR_BUDGET_MS` (= catálogo,
+  1200 ms) que ABORTA el fetch (`signal` en `apiRequest`, `getCardDetail`, `getSealedGroupDetail`) y cae a la carga en cliente.
+- **M-2:** `?page=N` fuera de rango con resultados ⇒ «Esta página ya no tiene cartas» + enlace rastreable a la página 1 (`catalog.pageOutOfRange.*`).
+- **B-1:** el campo de correo del invitado en los E2E se busca con `{ exact: true }` (en, «I confirm that my email…» lo duplicaba).
+- Pruebas, mutaciones (N=3) y E2E con su N: informe de entrega del stream; candados en `TECH_DEBT.md` (TL-MKT2-1).
+
+## §MKT-TL1 · Catálogo: la URL es la única fuente de los filtros (2026-10-31, rama `claude/mkt-fe-tl1`, base `561ad425`)
+
+- **Filtros ↔ URL (R1, MK-D5):** `catalog-url.ts` `serializeCatalogFilters` (inversa exacta de `parseUrlFilters`, que lee
+  también `condition` y el rango de precio) y `catalogFiltersKey` (clave de react-query e `initialData`, sin orden de
+  campos; `sort` por defecto ≡ sin `sort`). `CatalogView` escribe los filtros COMPLETOS con `history` (`push` al
+  paginar, `replace` lo demás; ya no hay `router.replace` para Gradeadas: se escribe `productType=graded`). `popstate`
+  toma la URL entera; pestañas y enlaces internos se mergean sobre el panel. `catalogPageHref(filters, p, sp)`.
+- **R2:** `loadCatalogPageForSSR` con `next: { revalidate: 30, tags: ['catalog'] }` (= portada); su edad, §MKT-R2B.
+- **MK-D8:** «Limpiar filtros» = `clearFilters` (también vacía el término sin debouncear). **MK-D4:** chips con `shop.type.*`/`finish.*`.
+- Candados y mutaciones: índice de `TECH_DEBT.md` §«2026-10-31 · catálogo de conversión».
+
+## §MKT-OLA2 · Lo que ve un bot sin JavaScript: fichas, catálogo, metadata y JSON-LD (Ola 2, 2026-10-31, rama `claude/mkt-fe-seo`)
+
+**Estado vigente** (BRIEF_MKT §4 Ola 2 C1/C2/C4/C5/C6; `PROJECT.md` criterios 949, 950, 952–954; código `12b5c11d`).
+- **Fichas (C1):** `page.tsx` de carta y de sellado lee la ficha en el servidor (`lib/catalog-ssr.ts`, `cache()`: una
+  lectura para `generateMetadata` y la página) y la pasa como `initialData` a `CardDetailView`/`SealedDetailView`: el
+  cuerpo (h1, precio `displayPriceCents`/`fromPriceCents` del DTO, condición, texto) sale en el HTML y el cliente no
+  repite la lectura (`QUERY_DEFAULTS.staleTime` 30 s; la ficha no usa caché de datos). Sin dato (backend caído) la vista
+  pide sola. El `<h1>` de la carta lleva nombre · set · número: la línea de set va dentro, como bloque (se ve igual).
+- **Catálogo (C2):** `catalog/page.tsx` deriva los filtros de la URL con `catalog/catalog-url.ts` (puro; un módulo
+  `'use client'` no exporta funciones al servidor) y lee la página con tope 1200 ms y caché de datos 30 s (§MKT-TL1);
+  viaja como `initialPage`. `Paginator` con `hrefFor`: flecha habilitada = `<a href>` (clic normal pagina en cliente, con
+  modificador sigue el enlace); sin `hrefFor` (sellado, accesorios) siguen botones. `/compra` comparte metadata
+  (canonical `/catalog`) pero no lee en servidor.
+- **Metadata (C4):** `lib/seo.ts` `routeMetadata()` (título «TCG HUNT — {página}», descripción, canonical, og) en
+  catálogo, sellado, accesorios, decks-meta, buylist; accesorio y deck con su nombre (lectura con tope 400 ms);
+  términos y privacidad con canonical (privacidad apunta a `/es`: solo existe en español). Textos en `seo.pages.*`
+  (es/en) — **PROVISIONALES: los aprueba el dueño** (`PROJECT.md` §MKT-CONV, «todo texto nuevo…»).
+- **Product (C5):** `brand` Pokémon; `itemCondition` carta = `UsedCondition` (criterio de Google: empaque abierto),
+  sellado = `NewCondition`; `shippingDetails` con la regla viva de `GET /checkout/shipping-rule`
+  (`getPublicShippingRuleForServer`, caché de datos 300 s, tope 400 ms; sin regla, se omite): cartas `cardsOnlyFeeCents`,
+  sellado `sealedFeeCents`, 0 si el precio ≥ `freeFromCents`; `MerchantReturnNotPermitted` (términos: «conservas la
+  carta: no hay devolución del producto»). La foto ≥ 1000 px del sellado (criterio 953) NO está: `ogImageUrl` es del backend.
+- **Portada y sitio (C6):** JSON-LD `WebSite` + `SearchAction` (`/{locale}/catalog?q=`) y `Organization` con `logo`
+  (`/apple-icon.png`, 180 px) en portada y fichas. `i18n/routing.ts` `alternateLinks: false`: el `Link` de next-intl
+  mandaba `x-default` a la URL sin locale (307); ahora cada página pública emite `hreflang` es/en/x-default(=es) en su
+  `<head>` (`localeAlternates`). Sitemap: `lastmod` de las fijas desde lo que muestran (`lib/sitemap-lastmod.ts`: feed
+  de fichas, `GET /decks-meta` `updatedAt`, fecha del aviso); buylist, accesorios, términos y `/card-show` (sin fecha
+  de revisión en `content/card-show.ts`) sin `lastmod`; `sitemap-robots.test.ts` recorre TODAS las entradas contra la hora de la petición.
+- **Fuera (esperan decisión o datos):** C3 (404/agotada, MKT-3), C8 (IVA en meta, MKT-4), `contactPoint`/`sameAs`
+  (MKT-1/2; `INSTAGRAM_URL = null`), slugs (C9); `llms.txt` ya está (§MKT-E2E1). Base absoluta: `NEXT_PUBLIC_SITE_URL` (defecto
+  `https://tcghunt.mx`). `robots.ts` bloquea solo cuenta, checkout, órdenes, envíos, bóveda, pedido, auth, admin y `/api/`.
+- **Candados:** `e2e/seo-raw-html.spec.ts` (`@real`, HTML crudo de `next start` con `request.get` + 2 pruebas de
+  navegador: 0 lecturas repetidas y 0 errores de hidratación); `CatalogView.c2`, `Paginator.c2`, `seo.mkt-ola2`,
+  `sitemap-robots` (C6 lastmod).
+- **Medido** (2026-10-31; stack propio: BD `tcg_seo`, Redis :6491, backend :3381; seed sintético de 11 grupos; copias
+  enteras por `git archive`, `npm run build` + `next start`; carga 7–13 con 4 CPU, ningún rojo fue por tiempo):
+
+  | Árbol | C1 HTML | C1 sin 2ª lectura | C2 rejilla sin 2ª lectura | C2 enlaces/`?page=` | C4 | C5 | C6 |
+  |---|---|---|---|---|---|---|---|
+  | antes `83166568` | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 |
+  | después `12b5c11d` | 10/10 | 10/10 | 10/10 | 10/10 | 10/10 | 10/10 | 10/10 |
+  | m1: sin `initialData` (ficha y rejilla), buylist sin metadata, sin `shippingDetails`, portada sin JSON-LD | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 | 0/10 |
+  | m2: `alternateLinks: true` | 10/10 | 10/10 | 10/10 | 10/10 | 10/10 | 10/10 | 0/10 (`Link` con x-default) |
+  | m3: `lastModified: now` en las fijas | 10/10 | 10/10 | 10/10 | 10/10 | 10/10 | 10/10 | 0/10 (buylist con lastmod) |
+
+  En m1 cada prueba cae por SU mutación (h1 ausente; lecturas desde el navegador; 0 enlaces; buylist sin canonical; sin
+  `shippingDetails`; sin `WebSite`). Vitest completo sobre la copia de `12b5c11d`: 417 ficheros (2 omitidos de antes),
+  5 241 pruebas en verde. Antes/después en HTML crudo: ficha `42d7abe8` 190 → 662 caracteres visibles, 0 → 1 `<h1>`;
+  `/es/catalog` 0 → 22 `href` a fichas; 15 rutas sondeadas: 8 → 13 títulos distintos (los 2 que quedan repetidos son
+  `/compra` y `?page=2`, que comparten el del catálogo y su canonical). Cuáles son «las 16 que midió marketing»: NO
+  MEDIDO (la prueba C4 cubre 13). Paginador contra el stack con > 20 grupos: NO MEDIDO (TL-MKT2-6, `TECH_DEBT.md`).
+
+## §MKT-FE-A · Conversión de marketing, Ola 1: C7, B4, B4b, B5 (2026-10-31, rama `claude/mkt-fe-a`, base `83166568`)
+
+**Estado vigente** (BRIEF_MKT §4, orden del dueño 2026-10-30).
+- **C7:** `middleware.ts` responde **308** de `/{es,en}/card-show[/…]` a `/card-show[/…]` con la query intacta (UTM y
+  tokens de `confirm`/`cancel`/`unsubscribe`), antes de next-intl; `/es/admin/card-show` no casa (regex anclada al segmento
+  tras el locale). `sitemap.ts` lista `https://tcghunt.mx/card-show` una vez (sin prefijo). Candados:
+  `middleware.cardshow.test.ts`, caso C7 de `app/sitemap-robots.test.ts`. El `.ics` (`/es/card-show/*.ics`) no pasa por el
+  middleware (lleva punto): sin redirección; no es subruta pública del encargo.
+- **B4:** «Todas las ventas son finales» sale **una vez** antes de pagar: ficha (carta y sellado) = 0, solo T8
+  (`RefundPromiseLine`, antes `FinalSaleLine`); checkout de invitado = 1, la casilla de términos (`privacy.sites.guestCheckout`,
+  texto sin tocar), con T8 debajo, y sin la nota legal del pie; checkout con cuenta (sin casilla) = 1, nota legal +
+  «Ver términos» + T8, sin cambio. Criterio 48b (aviso de ventas finales con enlace a términos) lo cumple en invitado la
+  casilla. Clave `checkout.finalSaleShort` retirada. Candado de conteo sobre el texto de la página entera:
+  `_shared/final-sale-once.test.tsx` (es/en, escritorio y móvil).
+- **B4b (E2E-GUEST-GUION):** con el correo vacío (o solo espacios) la casilla dice `checkout.guest.email.confirmCheckboxEmpty`
+  («Confirmo que mi correo es correcto…»); con correo, el correo recortado. Caso en `GuestCheckoutView.test.tsx`.
+- **B5:** causa medida: el `sr-only` («aproximadamente») de la cifra de gradeo de una teja de Destacadas es `absolute` con
+  `<body>` como bloque contenedor ⇒ escapaba del recorte `overflow-x:auto` de la pista y estiraba el layout móvil hasta su
+  teja (mocks 853 px en 360/390/414; producción 677). Arreglo: `relative` en la pista (`FeaturedCarousel.tsx`). Candado
+  `e2e/mobile-no-overflow.spec.ts` (`@real`): con `isMobile` compara con el ancho CONFIGURADO, porque el desborde también
+  estira `innerWidth`. ⚠ Quedan 24 contenedores `overflow-x-auto` sin `relative` fuera de portada/catálogo: NO MEDIDOS.
 
 ## §DYN.6 · Opción A + c1: foto líder por `/_next/image` y textos por ruta (2026-10-30, rama `claude/portada-opcion-a`)
 
@@ -211,7 +323,7 @@ gratis» aprobado en lo propio de un código de envío gratis).
   `payInFlight` (ref) además de `loading`, en las dos vistas.
 - **Textos (§CHK-MOVIL.4):** `checkout.feeHint.{cardsOnly,sealed}` (T1a/T1b, `_shared/ShippingFeeHint.tsx`, importes de
   `getPublicShippingRule`; error ⇒ no se pinta), `checkout.bar.*` (T3a/T3b/T6), `checkout.freeShippingRemaining` (T9, `kind ≠ null`
-  y falta > 0; caja grande ⇒ falta `null` ⇒ sin T9, v1.109.5), `checkout.refundPromise` (T8; en la ficha con `checkout.finalSaleShort`). Importes con
+  y falta > 0; caja grande ⇒ falta `null` ⇒ sin T9, v1.109.5), `checkout.refundPromise` (T8; ficha sin «ventas finales» desde §MKT-FE-A). Importes con
   `formatMoneyCents` (MX$100.00). T2 (ficha, sesión anónima) **no** entró en este encargo.
 - **«envío gratis»:** excepción nombrada en `seo-content.test.ts` `KNOWN_OFFENDERS` solo para `checkout.bar.includesShippingFree`
   y `checkout.freeShippingRemaining` (ES/EN), dueño, medida 2026-10-24, caduca 2026-11-24, nota «pendiente de aprobación del
@@ -3199,36 +3311,12 @@ la llamada `*` y su marcador en la nota.
 `next build` ✓ · `playwright test e2e/grading-estimate.spec.ts` **9/9** ✓ ·
 `playwright test e2e/catalog.spec.ts` **9 passed / 1 failed** (el fallo preexistente F-17).
 
-## §22 · Home «Top Bounties» — de tabla a tarjetas con imagen (2026-08-28, `main`)
+## §22 · Home «Top Bounties» — de tabla a tarjetas con imagen (2026-08-28, `main`; compactado 2026-10-31, detalle en el historial)
 
-Cambio visual pedido por el dueño: la sección de bounties de la home (`_home/BountyBoard.tsx`,
-montada en `page.tsx:128`) pasa de **tabla compacta** («Lo que más buscamos hoy») a **tarjetas con
-imagen de la carta**, y se retitula **«Top Bounties»** para quedar consistente con la vitrina de
-`/buylist` (`components/domain/TopBountiesShelf.tsx`).
-
-- **i18n:** `home.bounties.title` → «Top Bounties» (es/en). Subtítulo se conserva (ya era coherente).
-  Se **retiraron** las claves solo-tabla `colCard`/`colCondition`/`colWePay`/`conditionNm` y se
-  añadieron `home.bounties.wePay` («Pagamos» / «We pay») y `home.bounties.badge` («Bounty») para la
-  tarjeta. Verificado que `home.bounties.*` no lo comparte otra superficie (solo BountyBoard); la
-  vitrina de `/buylist` vive en un namespace aparte, `buylist.bounties.*` (intacto).
-- **Presentación:** el marco de estante (`_shared/Shelf.tsx`, título + «ver todo» → `/buylist`) se
-  mantiene; el interior pasa a una rejilla `grid-cols-2 lg:grid-cols-4` de tarjetas que **reutilizan
-  el lenguaje visual** de `TopBountiesShelf.BountyCard` (FinishBand + imagen `aspect-[5/7]` + chip
-  ☩ BOUNTY sobre scrim de tinta + nombre serif + set·número mono + precio héroe verde «Pagamos»).
-  No se reusó el componente `BountyCard` tal cual porque incluye el CTA «Cotizar esta carta» que
-  necesita el cotizador de `BuylistView` (`onQuote`); en la home no hay cotizador, así que cada
-  tarjeta es un `Link` a `/buylist` sin CTA muerto. Se evitó tocar `TopBountiesShelf` (regla: ya está
-  bien). La imagen usa `alt={name}` (antes `alt=""` aria-hidden en la vitrina) porque aquí es el
-  contenido accesible del enlace.
-- **Sin fuga de demanda:** la tarjeta NO reintroduce `remainingQty`/`targetQty` (se quitaron a
-  propósito en `e3f76e2`/`df50e60`/`965e9f2`). Confirmado por grep: la home no referencia
-  `remainingQty`/`targetQty`/`colWanted` fuera de comentarios y del fixture de test.
-- **Condicional intacto:** sin bounties o en error ⇒ la sección desaparece (misma regla de honestidad
-  que la vitrina).
-- **Tests:** nuevo `_home/BountyBoard.test.tsx` (4 casos): tarjetas con imagen + título «Top
-  Bounties» + precio «Pagamos», enlace a `/buylist`, no-fuga de cantidades, y ocultamiento en
-  vacío/error. `tsc --noEmit` ✓ · `vitest run` BountyBoard + TopBountiesShelf + home `page.test`
-  verdes.
+`_home/BountyBoard.tsx`: rejilla `grid-cols-2 lg:grid-cols-4` de tarjetas (lenguaje visual de `TopBountiesShelf.BountyCard`,
+sin su CTA de cotizar: cada tarjeta es un `Link` a `/buylist`, `alt={name}`), título `home.bounties.title` «Top Bounties».
+Sin `remainingQty`/`targetQty` (no fuga de demanda); sin bounties o en error, la sección desaparece. Candado
+`_home/BountyBoard.test.tsx` (imagen + título + «Pagamos», enlace, no-fuga, vacío/error).
 
 ## §21 · P-48 (v2.0) — precio puro por valor de mercado: editor de la curva, «Valor de mercado» condicional y bounty rebasado (2026-08-24, rama `claude/card-pricing-rules-2e537m`)
 
@@ -19303,36 +19391,9 @@ miré `x-vercel-cache`/`age`. El informe de `POST /telemetry/csp` no guarda `sou
 (`backend/src/modules/health/telemetry-report.ts:4`), y sin ellos no se distingue un script de Next de uno inyectado
 por una extensión o por el navegador integrado de una red social.
 
-## §114 · CSP — este release vuelve a `report-only` (enforce pendiente de medir producción) (2026-10-10, rama `claude/salida-real`)
-
-**Decisión (orquestador, medida).** La causa de los avisos CSP de producción en `/es` y `/es/decks-meta` sigue SIN
-MEDIR (no es la 404 de §113 / `0515d53a`; esos avisos tienen otro `documentPath`). No se garantiza que `enforce` no
-rompa la portada en vivo, así que este release sale con la CSP en `report-only` (la VUELTA ATRÁS que describe el
-propio `csp.ts`). El paso a `enforce` (CL-1) queda para después, una vez medida la tienda en vivo. El arreglo de la
-404 (`0515d53a`, §113) se queda.
-
-**Cambio (solo `frontend/`).**
-- `src/security/csp.ts`: `CSP_MODE` de `'enforce'` a `'report-only'`; el comentario de la constante refleja que la
-  fase VIGENTE es `report-only` (paso 1) y que `enforce` (paso 2, CL-1) queda pendiente de medir producción. La
-  doctrina de las dos fases no se borra.
-- `src/security/csp.test.ts`: el candado «fase vigente» (`LIVE-3 · fase (CSP-6)`) pasa a `expect(CSP_MODE).toBe('report-only')`;
-  muerde si alguien vuelve a `enforce` sin el cambio coordinado de ZAP. El it «por defecto usa la fase vigente» añade
-  `expect(buildCsp(...)).toBe(buildCsp(..., 'report-only'))`, que deja de casar en cuanto el default (CSP_MODE) trae
-  `upgrade-insecure-requests`, es decir, en cuanto se vuelve a `enforce`.
-- `src/middleware.test.ts`: el bloque standalone «sin forzar fase» hardcodeaba la cabecera aplicada (`enforce`). Con
-  `CSP_MODE = report-only` el middleware pone `Content-Security-Policy-Report-Only` y NO la aplicada, así que ese test
-  se ajustó a leer la cabecera report-only. El `describe.each(PHASES)` ya cubría ambas fases y no cambió.
-
-**Medido (2026-10-10, `vitest run`, copia viva de la rama, carga `0.08`):**
-- `src/security` + `src/middleware.test.ts`: **34/34 verdes** (antes del ajuste de middleware: 33/34, la única roja era
-  ese candado de fase vigente).
-- `src/app`: **2318/2318 verdes** (187 ficheros, rc 0). Hay «1 error» no fatal de teardown de worker cuyo detalle
-  truncó el `tail`; NO MEDIDO su origen, pero está fuera de los ficheros tocados y el rc fue 0.
-- `scripts/check-csp-zap-parity.sh`: **rc 0** (`CSP_MODE=report-only · ZAP 10038=WARN · 10055=WARN`). En esta rama el
-  `security/zap/baseline.conf` ya trae 10038/10055 en WARN, así que el candado de paridad está verde; no hubo pieza
-  roja de devops pendiente.
-
-HTML/texto determinista: N=1 basta (no es probabilístico).
+## §114 · CSP en `report-only` (2026-10-10, rama `claude/salida-real`) — compactado 2026-10-31
+Vigente: `src/security/csp.ts` `CSP_MODE = 'report-only'`; `enforce` (CL-1) espera a medir producción. Candado: `csp.test.ts`
+«LIVE-3 · fase (CSP-6)» y paridad con ZAP (`scripts/check-csp-zap-parity.sh`). Detalle y mediciones: `git show 815d14d1:docs/FRONTEND_NOTES.md`.
 
 ## §115 · §MIV vMIV-2 — la nota del VALOR DE MERCADO dice «incluye IVA» (el precio sigue «IVA 16 % incluido») (2026-10-10, rama `claude/mercado-iva`; `DESIGN_SYSTEM §MIV` vMIV-2, fuente de verdad §MIV.10 · criterios §MIV.8 MIV-UX-1/2/3/7; dueño: `HECHOS.md`, fila 2026-10-10 «§MIV — texto de la nota… "incluye iva"»)
 
@@ -19813,80 +19874,4 @@ se debilitó ni se borró ninguna parte ajena a la ficha (bóveda/buylist siguen
 
 ---
 
-## §MKT tienda · §A3 ficha de sellado en SSR + §A4 og/title/JSON-LD + §E1 sitemap/robots/canonical (2026-10-16, rama `feat/mkt-tienda`, OLA 1)
-
-Fuente: brief `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` §A3/§A4/§E1/§E3; contrato `§MKT.A/.B`;
-backend `BACKEND_NOTES §MKT` (commit `2f93f36`, campos `pricedAsOf`/`ogImageUrl` + `GET /catalog/sitemap`).
-
-### §A3/§A4 — las DOS fichas pasan a SSR con `generateMetadata`
-- **Patrón de URL (decisión del arquitecto, §MKT.A):** se CONSERVA `/{locale}/sellado/<inventoryItemId>`
-  (ruta viva) y `/{locale}/catalog/<cardId>`. ⛔ No se creó `/{locale}/catalog/sealed/<id>` (el 404 de
-  marketing era esa ruta inexistente).
-- **Patrón adoptado:** `page.tsx` server-component con `generateMetadata` + render de JSON-LD; el cuerpo
-  sigue siendo la vista cliente (`SealedDetailView`/`CardDetailView`, react-query, carrito). El layout de
-  `[locale]` ya fuerza render por petición (lee `headers()`), así que la ruta es **SSR** (`ƒ Dynamic` en
-  `next build`, medido), no SSG. `generateMetadata` y la página comparten UNA sola lectura vía
-  `React.cache()` (`src/lib/catalog-ssr.ts`), tolerante a fallo: si el backend no responde, metadata
-  mínima (solo canonical) y el cuerpo cliente resuelve su propio estado — ⛔ la ruta no se cae.
-- Las fichas de carta ya eran clientes puros (sin SSR); ahora AMBAS tienen SSR, como pide A4.
-- «Disponible»/stock: sin cambio; nunca se imprime la cantidad. El JSON-LD usa `availability=InStock` solo
-  si `availableCount>0` (carta: suma de `stockCount` de los listados), si no `OutOfStock`.
-
-### §A4/§E3 — og/title/JSON-LD en el HTML del servidor (helpers puros en `src/lib/seo.ts`)
-- `<title>`/`og:title` = «<Nombre> · <Set> <nº> | TCG HUNT» (carta) / «<Producto> | TCG HUNT» (sellado).
-  **Sin precio** (las vistas previas cachean días).
-- `meta description`/`og:description` (≤155): condición + «desde MX$<precio> IVA <tasa> % incluido · precio
-  al <pricedAsOf>» + «Verificamos la condición». Sin precio/fecha ⇒ se omite el tramo de precio.
-- `og:image` = `ogImageUrl` (absoluta); si `null`, se **omite** og:image. ⛔ NO se afirma ≥1200×630 (hoy la
-  «large» de pokemontcg.io ~734×1024, §MKT.F — decisión de JC pendiente).
-- `og:url`=canonical absoluto, `og:site_name`=«TCG HUNT», `twitter:card=summary_large_image`.
-  `metadataBase` se fija a `SITE_URL` por página.
-- **JSON-LD** (`@graph`): `Product`+`Offer` (`priceCurrency:MXN`, `price`=precio con IVA en pesos,
-  `availability`, `priceValidUntil` = **`pricedAsOf` + 7 días**, `url`=canonical) · `Organization` (name
-  «TCG HUNT», url) · `BreadcrumbList` (Inicio → Compra/Sellado → ficha). Se inyecta con
-  `components/seo/JsonLd.tsx` (lleva el **nonce** de la petición, porque la CSP gobierna todo `<script>`; `<`
-  escapado).
-- **`Organization.sameAs` a Instagram: NO MEDIDO.** No hay handle de Instagram en el código del sitio
-  (`lib/brand.ts`, footer, legal — buscado 2026-10-16). `INSTAGRAM_URL=null` en `seo.ts` ⇒ el `sameAs` se
-  **omite** (⛔ no se inventa una URL). Solicitud al arquitecto/dueño abajo.
-
-### §E1 — sitemap.xml, robots.txt, canonical
-- `src/app/sitemap.ts` (App Router): páginas estáticas públicas existentes (portada, catálogo, sellado,
-  accesorios, meta-decks, cotizador, términos, privacidad) + una entrada por ficha a la venta desde
-  `GET /catalog/sitemap` (`getSitemap()` en `lib/api.ts`, con mock). §E4/§E6 (`/como-funciona`,
-  `/preguntas`, `/guias`): ver §MKT-SEO-GEO arriba (2026-10-18). `revalidate=3600`; resiliente (si el backend
-  no responde, salen solo las estáticas). URLs con el locale por defecto `es` (canonical de cada ficha).
-- `src/app/robots.ts`: `allow:'/'` + `Sitemap:` → `<SITE_URL>/sitemap.xml`; bloquea SOLO cuenta, checkout/
-  compra, órdenes, envíos, bóveda, pedido-invitado, auth, admin y `/api/` (comodín de segmento para ambos
-  locales).
-- `canonical` absoluto añadido en portada (`(storefront)/page.tsx`, ahora envoltorio server de `HomeView`),
-  catálogo (`catalog/page.tsx`, canonical SIN query) y las dos fichas.
-
-### Config nueva
-- `NEXT_PUBLIC_SITE_URL` (opcional) gobierna la base absoluta de canonical/og/sitemap; por defecto
-  `https://tcghunt.mx` (dominio de producción). Lo puede fijar devops por entorno.
-
-### Tipos y mocks
-- `src/types/contract.ts`: `pricedAsOf?`/`ogImageUrl?` añadidos a `SealedGroupDTO` y a la RAÍZ de
-  `GroupedListingDetailResponse` (opcionales **por resiliencia** de tipo; el backend actual los manda
-  SIEMPRE en la ficha). Nuevo `SitemapResponse`/`SitemapEntry` (§MKT.B). ⛔ NO en las rejillas.
-- `src/lib/mock/fixtures.ts`: los 3 grupos de sellado y `mockGroupedDetail` ganan `pricedAsOf`/`ogImageUrl`;
-  nuevo `mockSitemap()` (cartas vendibles + grupos de sellado).
-
-### Medido por mí (2026-10-16)
-- `npx tsc --noEmit` ⇒ **limpio**.
-- `npx eslint` de los 16 ficheros tocados ⇒ **sin avisos**.
-- `npx vitest run` de `seo.test.ts` + `page.test.tsx` ⇒ **12/12**; `api.test.ts` + 4 suites de ficha ⇒
-  **110/110**.
-- `npx next build` ⇒ **OK**: `/[locale]/catalog/[cardId]` y `/[locale]/sellado/[inventoryItemId]` salen
-  `ƒ (Dynamic) server-rendered on demand` (SSR confirmado); `/robots.txt` y `/sitemap.xml` generados.
-- **NO MEDIDO por mí (lo hace el gate QA con stack+navegador):** `curl` 200 a 3 fichas de sellado con og
-  en el HTML; descripción con «IVA incluido»+«precio al <fecha>»; `curl /robots.txt` 200 con `Sitemap:`; el
-  sitemap lista ≥1 URL por ficha a la venta; Prueba de resultados enriquecidos de Google sin errores;
-  viewport §A2. (O-1: no lo afirmo como medido.)
-
-### Solicitud al arquitecto / dueño
-- **Handle de Instagram para `Organization.sameAs`**: no existe en el código del sitio (NO MEDIDO). Si el
-  dueño lo tiene, fijarlo (p. ej. `INSTAGRAM_URL` en `seo.ts` o una config) y el `sameAs` se publica solo.
-- **§MKT.F abierto (de JC):** variante de imagen ≥1200×630 para `og:image` (hoy ~734×1024). Mientras, se usa
-  la «large» tal cual (WhatsApp/Twitter degradan con gracia).
+## §MKT tienda · §A3 ficha de sellado en SSR + §A4 og/title/JSON-LD + §E1 sitemap/robots/canonical (2026-10-16, rama `feat/mkt-tienda`, OLA 1) — plegado 2026-10-31 en §MKT-OLA2 (arriba): lo vigente vive allí; el detalle, en git (`feat/mkt-tienda`).

@@ -23,7 +23,7 @@ import { StockBadge, stockVariantFromCount } from '../../_shared/StockBadge';
 import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
 import { centsToValue, track } from '@/lib/measurement/track';
 import { measurementItemOf } from '@/lib/measurement/item';
-import { FinalSaleLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
+import { RefundPromiseLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
 
 /** §MKT.H.4 (v1.106): identidad canónica del sellado — `s_<sealedProductId>` o `sc_<cardId ancla>`, nunca la pieza. */
 function sealedItemOf(g: Pick<SealedGroupDTO, 'productName' | 'sealedProductId'> & { card: { id: string } }) {
@@ -36,7 +36,19 @@ function sealedItemOf(g: Pick<SealedGroupDTO, 'productName' | 'sealedProductId'>
  * vía el checkout existente (§4/§4-G). Tendencia de valor y «avísame cuando vuelva» quedan cableados
  * pero gateados por feature-flag (trendEnabled/restockEnabled).
  */
-export function SealedDetailView({ inventoryItemId }: { inventoryItemId: string }) {
+/**
+ * C1 (BRIEF_MKT Ola 2): `initialData` = la MISMA respuesta de `GET /catalog/sealed/:inventoryItemId` que la página
+ * ya leyó en el servidor (`loadSealedDetailForSSR`). Con ella el cuerpo sale en el HTML del servidor y el cliente no
+ * repite la lectura al montar; sin ella (backend caído en SSR) la vista pide sola. ⛔ El precio es el
+ * `fromPriceCents` del DTO, el mismo que se cobra.
+ */
+export function SealedDetailView({
+  inventoryItemId,
+  initialData,
+}: {
+  inventoryItemId: string;
+  initialData?: SealedGroupDetailResponse;
+}) {
   const cart = useCart();
   const [addedSignal, setAddedSignal] = useState(0);
   const dismissToast = useCallback(() => setAddedSignal(0), []);
@@ -44,6 +56,7 @@ export function SealedDetailView({ inventoryItemId }: { inventoryItemId: string 
   const query = useQuery({
     queryKey: ['sealed-detail', inventoryItemId],
     queryFn: () => getSealedGroupDetail(inventoryItemId),
+    initialData,
   });
 
   return (
@@ -170,12 +183,15 @@ function Detail({
         </div>
 
         <div className="gutter py-10 lg:py-14">
+          {/* C1 (criterio 949): el `<h1>` lleva nombre · set, con el mismo patrón que la ficha raw
+              (`CardDetailView`): la línea de set va DENTRO del encabezado como bloque propio y se ve igual. */}
           <h1 className="font-serif text-[32px] leading-[1.05] text-text lg:text-[46px]" lang="en">
             {group.productName}
+            <span className="sr-only"> · </span>
+            <span className="mt-3 block font-mono text-xs uppercase tracking-[0.1em] text-muted">
+              {group.card.setName}
+            </span>
           </h1>
-          <p className="mt-3 font-mono text-xs uppercase tracking-[0.1em] text-muted" lang="en">
-            {group.card.setName}
-          </p>
 
           {/* Calidad: badge «Sellado» + subtipo + condición legible (visible al comprador, §2-S). */}
           <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2 font-mono text-[11px] uppercase tracking-[0.06em]">
@@ -212,7 +228,7 @@ function Detail({
 
           {/* T1b + T8 (§CHK-MOVIL.4): bajo el precio, fuera de su celda; importes del endpoint público. */}
           <ShippingFeeHint kind="sealed" className="mt-3" />
-          <FinalSaleLine className="mt-1" />
+          <RefundPromiseLine className="mt-1" />
 
           {/* Disponibilidad real del endpoint («N en stock»/«Último»/«Agotado») + cantidad por-pieza. */}
           <div className="mt-7">
