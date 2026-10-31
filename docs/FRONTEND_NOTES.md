@@ -6,6 +6,19 @@
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46; 2026-10-31: §MKT tienda §A3/§A4/§E1
 > plegado en §MKT-OLA2); cada pase que añade quita más de lo que añade.
 
+## §MKT-R2B · Frescura de la lista pública tras la caché de datos (2026-10-31, rama `claude/mkt-fe-r2b`, base `478356c0`)
+
+- **B-R2 (QA sobre `e066b0b5`):** la caché de datos de Next es stale-while-revalidate: tras > 30 s sin visitas sirve la
+  copia VIEJA. `loadCatalogPageForSSR` devuelve `{ data, ageMs }`; la edad sale de la cabecera `Date` del backend, que
+  la caché guarda con el cuerpo (`onHeaders` en `RequestOptions`/`ServerReadOptions`); sin cabecera ⇒ `null` ⇒ vieja.
+  `CatalogView` pone `initialDataUpdatedAt = montaje − ageMs` (por edad: un reloj del navegador atrasado no la vuelve
+  fresca): copia fresca ⇒ 0 relecturas; vieja ⇒ relee al hidratar. Portada: sin defecto, `updatedAt: 0` relee siempre al
+  montar (medido con el mismo escenario). Fichas: leen sin caché de datos. Candado E2E: `e2e/catalog-freshness.spec.ts`.
+- **TL-MKT3-1:** `serverInit()` en `api.ts` pasa `next`/`signal`/`onHeaders` enteros; el catálogo usa `withAbortBudget`
+  (al vencer aborta; la respuesta tardía ya no llena la caché). Portada y regla de envío siguen con `withBudget` a
+  propósito (la tardía llena la caché para la siguiente visita). **TL-MKT3-2:** pestaña Gradeadas = `?productType=graded`.
+  **TL-MKT2-2:** `QUERY_DEFAULTS` exportado de `components/Providers.tsx`.
+
 ## §MKT-E2E1 · Hallazgos de tester-e2e y QA sobre `561ad425` (2026-10-31, rama `claude/mkt-fe-e2e1`, base `815d14d1`)
 
 - **C1 sellado:** el `<h1>` de `SealedDetailView` lleva «nombre · set» con el patrón de la carta (set como bloque dentro).
@@ -25,7 +38,7 @@
   campos; `sort` por defecto ≡ sin `sort`). `CatalogView` escribe los filtros COMPLETOS con `history` (`push` al
   paginar, `replace` lo demás; ya no hay `router.replace` para Gradeadas: se escribe `productType=graded`). `popstate`
   toma la URL entera; pestañas y enlaces internos se mergean sobre el panel. `catalogPageHref(filters, p, sp)`.
-- **R2:** `loadCatalogPageForSSR` con `next: { revalidate: 30, tags: ['catalog'] }` (`CATALOG_SSR_REVALIDATE_S` = portada).
+- **R2:** `loadCatalogPageForSSR` con `next: { revalidate: 30, tags: ['catalog'] }` (= portada); su edad, §MKT-R2B.
 - **MK-D8:** «Limpiar filtros» = `clearFilters` (también vacía el término sin debouncear). **MK-D4:** chips con `shop.type.*`/`finish.*`.
 - Candados y mutaciones: índice de `TECH_DEBT.md` §«2026-10-31 · catálogo de conversión».
 
@@ -35,7 +48,7 @@
 - **Fichas (C1):** `page.tsx` de carta y de sellado lee la ficha en el servidor (`lib/catalog-ssr.ts`, `cache()`: una
   lectura para `generateMetadata` y la página) y la pasa como `initialData` a `CardDetailView`/`SealedDetailView`: el
   cuerpo (h1, precio `displayPriceCents`/`fromPriceCents` del DTO, condición, texto) sale en el HTML y el cliente no
-  repite la lectura (depende del `staleTime` 30 s de `components/Providers.tsx`). Sin dato (backend caído) la vista
+  repite la lectura (`QUERY_DEFAULTS.staleTime` 30 s; la ficha no usa caché de datos). Sin dato (backend caído) la vista
   pide sola. El `<h1>` de la carta lleva nombre · set · número: la línea de set va dentro, como bloque (se ve igual).
 - **Catálogo (C2):** `catalog/page.tsx` deriva los filtros de la URL con `catalog/catalog-url.ts` (puro; un módulo
   `'use client'` no exporta funciones al servidor) y lee la página con tope 1200 ms y caché de datos 30 s (§MKT-TL1);
@@ -58,7 +71,7 @@
   de fichas, `GET /decks-meta` `updatedAt`, fecha del aviso); buylist, accesorios, términos y `/card-show` (sin fecha
   de revisión en `content/card-show.ts`) sin `lastmod`; `sitemap-robots.test.ts` recorre TODAS las entradas contra la hora de la petición.
 - **Fuera (esperan decisión o datos):** C3 (404/agotada, MKT-3), C8 (IVA en meta, MKT-4), `contactPoint`/`sameAs`
-  (MKT-1/2; `INSTAGRAM_URL = null`), `llms.txt`, slugs (C9). Base absoluta: `NEXT_PUBLIC_SITE_URL` (defecto
+  (MKT-1/2; `INSTAGRAM_URL = null`), slugs (C9); `llms.txt` ya está (§MKT-E2E1). Base absoluta: `NEXT_PUBLIC_SITE_URL` (defecto
   `https://tcghunt.mx`). `robots.ts` bloquea solo cuenta, checkout, órdenes, envíos, bóveda, pedido, auth, admin y `/api/`.
 - **Candados:** `e2e/seo-raw-html.spec.ts` (`@real`, HTML crudo de `next start` con `request.get` + 2 pruebas de
   navegador: 0 lecturas repetidas y 0 errores de hidratación); `CatalogView.c2`, `Paginator.c2`, `seo.mkt-ola2`,
