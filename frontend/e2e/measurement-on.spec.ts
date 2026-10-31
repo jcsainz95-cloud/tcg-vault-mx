@@ -662,7 +662,7 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
         for (const worst of ['name', 'pending'] as const) {
           await page.setViewportSize({ width: w, height: h });
           await page.goto(`/${locale}/catalog`);
-          await expect(banner(page)).toBeVisible();
+          await expect(page.getByTestId('consent-banner')).toBeVisible();
           await page.locator('main a[href*="/catalog/"] img').first().waitFor();
           await settle(page);
           await seedWorstTiles(page, worst, locale);
@@ -675,7 +675,7 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
       // 390×664 (viewport de C-F3): solo el arranque de la rejilla; las tejas NO se prometen ahí (MKT-CONV.8).
       await page.setViewportSize({ width: 390, height: 664 });
       await page.goto(`/${locale}/catalog`);
-      await expect(banner(page)).toBeVisible();
+      await expect(page.getByTestId('consent-banner')).toBeVisible();
       await page.locator('main a[href*="/catalog/"] img').first().waitFor();
       const g = await catalogGeometry(page);
       testInfo().annotations.push({ type: `L-8-${locale}-390x664`, description: JSON.stringify(g) });
