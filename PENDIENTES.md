@@ -6,6 +6,26 @@
 > Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
 > anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+## 2026-10-31 — Tras publicar §DYN (`production` = 223a7224)
+
+> Medido por el orquestador el 2026-10-31. Esta sección manda sobre la fila DYN-STREAM (cerrada: publicada). Hallazgos de los cuatro gates sobre d5f0b38c; ninguno bloqueó.
+
+| # | Qué | Dueño | Medido | Comprobación |
+|---|---|---|---|---|
+| DUENO-POST-DYN | Confirmar que puso la cuota PSA en Railway y la alerta de gasto en Vercel; recorrer los pasos «después de fusionar» de #108. | dueño | 2026-10-31 (no confirmado) | panel «Destacadas y PSA» muestra la cuota |
+| LECTURA-IMG-7D | Lectura de consumo de Image Optimization de Vercel a 7 días (≈ 2026-11-07) a DEVOPS_NOTES §106.4. | dueño → devops | 2026-10-31 | candado `image-optimizer-cost-reading-expiry` rc 0 tras 2026-12-01 |
+| CL-1-RESP | Preguntado en #108: CSP «solo avisar» o activar. Sin respuesta. | dueño | 2026-10-31 | fila en HECHOS |
+| TL-DYN-11..14 | Deuda del techlead (claves de reglas cruzadas a mano, plazo del proveedor sin prueba, relojes mezclados en `ListingPriceRun`, censo de llaves estrecho) + partir la fila TL-DYN-6/7/10 en una por ficha + comentario de PF-7 (causa no medida). | backend | 2026-10-31 (techlead) | filas en el índice §DYN de TECH_DEBT con comprobación |
+| TL-INV-K | Llave K de 4 partes armada a mano en `inventory.service.ts:2059` y `master-set.service.ts:1127` (clase TL-DYN-2). | backend (stream inventario) | 2026-10-31 (techlead) | grep de TL-DYN-2 sobre `modules/inventory` = 0 |
+| ARQ-LOCK-POOL | `lockTx` del turno PSA retiene una conexión hasta 60 min (SEC-DYN-B2, MENOR-5 QA); propuesta: candado por arriendo. Pool de producción NO MEDIDO. | arquitecto | 2026-10-31 | decisión en API_CONTRACT §DYN.4.3 |
+| SEC-DYN-M1 | Fragmento `#` en `url=` de `/_next/image` da transformaciones sin tope; + PEN-DYN-I3 (userinfo ⇒ 500). | arquitecto → frontend | 2026-10-31 (seguridad) | `#frag` ⇒ 400 en el candado de remotePatterns |
+| SEC-DYN-OPS | SEC-DYN-B1 (limpieza-ramas borra rama recién creada), B3 (96 `uses:` sin sha), I1 (12 moderadas npm backend). | devops | 2026-10-31 (seguridad) | ver SECURITY_NOTES §5 |
+| E2E-SEED-9 | Seed E2E: `seedFeaturedSelection` mete una llave sin precio ⇒ 9 lugares. | backend | 2026-10-31 (tester-e2e) | `GET /catalog/featured` = 10 tras `up --seed` |
+| E2E-HEALTH-BOOT | `dataHealth.listingPrices` solo cuenta `daily`: tras el arranque dice «todavía no se calculan». | backend | 2026-10-31 (tester-e2e) | tablero «al día» tras bootstrap sin daily |
+| E2E-M10-GUARDADO | M10 sin confirmación visible tras «Guardar». | frontend | 2026-10-31 (tester-e2e, NO MEDIDO otra señal) | captura con confirmación |
+| QA-T-AC3-ROL | `stack-native.sh test:integration` no puede dar T-AC3 en local (rol no superusuario); + `home-perf/run.sh` sha `?` en copia; + nota del run fuente del trinquete. | devops | 2026-10-31 (QA) | 3165/3165 local |
+| ORQ-7-7 | Corrección: el trinquete de celular se midió 6/6 tandas (DEVOPS_NOTES:15073-15077, devops), no 7/7 como dijo el orquestador. | orquestador | 2026-10-31 | — |
+
 ## 2026-10-30 — Encargo de marketing: plan de conversión de noviembre (EN COLA, tras publicar §DYN)
 
 > Llegó por send_message de la sesión «SEO/GEO y conversión» (session_01S6V7FxyuMP4xKx6VjjPzvP), citando al dueño: «SI con todas tus sugerencias pero pásalo a la sesión de orquestación de ingenieros para que lo acomode en el pipeline dale todo el detalle». Fuente de verdad: repo `jcsainz95-cloud/tcg-hunt-marketing`, rama `claude/compassionate-hamilton-9zwv1w` @ `a8f5b54`, `briefs/BRIEF_TIENDA_CONVERSION_2026-11.md` (no leído aún por esta sesión: el repo no está en su alcance). ⚠️ Decisiones D-1 (envío de cartas < MX$100) y D-9 (comisión dentro del precio) CAMBIAN filas de HECHOS (2026-10-24 «Regla de envío nueva…», «Embudo móvil…»): se confirman con el dueño en esta sesión antes de registrarlas (O-17). Respuestas que marketing espera de vuelta: fechas en producción de B1, B4, B5, C1-C4 y C7; URL final de Card Show y «Quiénes somos»; si A6 entra; decisiones de C3 y C8.
