@@ -4,7 +4,8 @@ import { getTranslations } from 'next-intl/server';
 import type { AppLocale } from '@/i18n/routing';
 import { NONCE_HEADER } from '@/security/csp';
 import { formatMoneyCents } from '@/lib/format';
-import { loadSealedDetailForSSR, loadShippingRuleForSSR } from '@/lib/catalog-ssr';
+import { notFound } from 'next/navigation';
+import { DETAIL_NOT_FOUND, loadSealedDetailForSSR, loadShippingRuleForSSR } from '@/lib/catalog-ssr';
 import {
   SITE_URL,
   brandJsonLd,
@@ -32,6 +33,10 @@ import { RouteMessages } from '@/components/i18n/RouteMessages';
  * del servidor: la misma lectura viaja a `SealedDetailView` como `initialData` (C1). La ruta se CONSERVA en
  * `/{locale}/sellado/<inventoryItemId>` (decisión del arquitecto, §MKT.A). El layout de `[locale]`
  * fuerza render por petición (lee `headers()`), así que es SSR, no SSG.
+ *
+ * C3 (criterio 951): el backend responde `404` si la pieza no existe O si su grupo ya no tiene piezas vendibles ⇒
+ * `notFound()` (404 real, antes un 200 con el error en cliente). Un sellado AGOTADO no se distingue hoy de uno
+ * inexistente: pedido al arquitecto (FRONTEND_NOTES §MKT-CONV2).
  */
 export async function generateMetadata({
   params,
@@ -41,8 +46,9 @@ export async function generateMetadata({
   const { locale, inventoryItemId } = await params;
   const canonical = sealedCanonicalUrl(locale, inventoryItemId);
   const data = await loadSealedDetailForSSR(inventoryItemId);
+  if (data === DETAIL_NOT_FOUND) notFound();
   if (!data) {
-    // Sin dato (backend caído o pieza inexistente): metadata mínima; el cuerpo cliente resuelve.
+    // Sin dato (backend caído o lento): metadata mínima; el cuerpo cliente resuelve.
     return { metadataBase: new URL(SITE_URL), alternates: localeAlternates(locale, `/sellado/${encodeURIComponent(inventoryItemId)}`) };
   }
   const g = data.group;
@@ -50,7 +56,6 @@ export async function generateMetadata({
   const description = buildFichaDescription({
     conditionLabel: sealedConditionLabel(g.sealedCondition, locale),
     priceText: formatMoneyCents(g.fromPriceCents, locale),
-    ivaRatePct: g.ivaRatePct,
     pricedAsOf: g.pricedAsOf,
     locale,
   });
@@ -89,6 +94,7 @@ export default async function SealedDetailPage({
     headers().then((h) => h.get(NONCE_HEADER) ?? undefined),
     loadShippingRuleForSSR(),
   ]);
+  if (data === DETAIL_NOT_FOUND) notFound();
 
   let jsonLd: Record<string, unknown> | null = null;
   if (data) {

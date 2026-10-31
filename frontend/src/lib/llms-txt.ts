@@ -8,11 +8,13 @@
  * Cada dato citable lleva fecha («Última revisión»).
  *
  * Del Card Show, solo el enlace a su página única (`llmsCardShowLine`, criterio 954, C6), sin datos del
- * evento (v1 §3.3): fechas y sede viven en esa página y se moverían aquí sin aviso. ⛔ Sin la cifra «16 %»: la tasa de IVA
- * viaja por publicación desde la API (`ivaRatePct`); escribirla aquí sería una segunda fuente.
+ * evento (v1 §3.3): fechas y sede viven en esa página y se moverían aquí sin aviso. ⛔ Sin «IVA» (C8, criterio 956:
+ * MKT-4 (a), HECHOS 2026-10-31 — el precio publicado ya es el final). Instagram y «Quiénes somos» (criterio 954) salen
+ * de `lib/about.ts`, la misma fuente de la página y del JSON-LD.
  */
 import es from '../../messages/es.json';
 import { siteAbsoluteUrl } from '@/lib/seo';
+import { ABOUT_PATH, INSTAGRAM_HANDLE, INSTAGRAM_URL } from '@/lib/about';
 import { publishedGuides, contentSitemapPaths, LIVE_CONTENT, type ContentSource } from '@/lib/seo-content';
 
 /** Fecha de la última revisión del texto de `llms.txt`. */
@@ -40,6 +42,8 @@ export function buildLlmsTxt(opts: { supportContact: string; now?: Date; src?: C
   if (live.has('/como-funciona')) links.push(`- [Cómo funciona](${url('/como-funciona')})`);
   if (live.has('/preguntas')) links.push(`- [Preguntas frecuentes](${url('/preguntas')})`);
   links.push(llmsCardShowLine());
+  links.push(`- [Quiénes somos y contacto](${url(ABOUT_PATH)}): quién está detrás de TCG HUNT, cómo compras y cómo contactarnos.`);
+  links.push(`- [Instagram ${INSTAGRAM_HANDLE}](${INSTAGRAM_URL}): la cuenta oficial de TCG HUNT.`);
   if (live.has('/guias')) {
     links.push(`- [Guías](${url('/guias')})`);
     for (const g of publishedGuides(now, src)) links.push(`  - [${g.headline}](${url(`/guias/${g.slug}`)})`);
@@ -51,7 +55,7 @@ export function buildLlmsTxt(opts: { supportContact: string; now?: Date; src?: C
     '',
     `- Sitio: ${siteAbsoluteUrl('/')}`,
     '- País: México. Moneda: pesos mexicanos (MXN).',
-    '- Precios: precios finales con IVA incluido, en MXN, actualizados a diario.',
+    '- Precios: precios finales en MXN, actualizados a diario.',
     '- Condición que compramos: solo Near Mint (NM).',
     `- Contacto público: ${opts.supportContact}`,
     '',

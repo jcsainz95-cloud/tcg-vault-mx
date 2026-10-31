@@ -43,6 +43,16 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     expect(register).toHaveAttribute('aria-expanded', 'false');
   });
 
+  // MKT-CONV.4 (B2, criterio 945): franja de confianza bajo «Tu carrito», fuera de la barra de PAGAR.
+  it('B2 · la franja de confianza va bajo el título, enlazada a /nosotros, y no dentro de la barra de pago', async () => {
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+    const strip = await screen.findByTestId('about-strip');
+    const title = screen.getByRole('heading', { level: 1, name: 'Tu carrito' });
+    expect(title.parentElement!.contains(strip)).toBe(true);
+    expect(within(strip).getByRole('link', { name: 'Quiénes somos y contacto' })).toHaveAttribute('href', '/nosotros');
+    expect(strip.closest('[data-testid="checkout-pay-bar"]')).toBeNull();
+  });
+
   it('conserva carrito y correo al abrir «Inicia sesión» y «crea una cuenta» inline (criterio 46)', async () => {
     const user = userEvent.setup();
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');

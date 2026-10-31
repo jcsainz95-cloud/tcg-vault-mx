@@ -175,7 +175,7 @@ describe('C-F8 · banner accesible y sin muro', () => {
     expect(document.body.style.overflow).not.toBe('hidden');
   });
 
-  it('orden de Tab tras el skip-link: aviso → Aceptar → Solo lo necesario → Configurar', async () => {
+  it('orden de Tab tras el skip-link (MKT-CONV.1: «Configurar» dentro de la frase): aviso → Configurar → Aceptar → Solo lo necesario', async () => {
     const user = userEvent.setup();
     setup();
     await screen.findByTestId('consent-banner');
@@ -183,11 +183,11 @@ describe('C-F8 · banner accesible y sin muro', () => {
     await user.tab();
     expect(document.activeElement).toHaveAccessibleName(/Aviso de privacidad/);
     await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Configurar' }));
+    await user.tab();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Aceptar' }));
     await user.tab();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Solo lo necesario' }));
-    await user.tab();
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Configurar' }));
   });
 
   it('Esc no es una respuesta: ni cookie ni banner-response, y el banner sigue', async () => {
@@ -203,17 +203,21 @@ describe('C-F8 · banner accesible y sin muro', () => {
 });
 
 describe('C-F9 · sin patrones oscuros', () => {
-  it('Aceptar y Solo lo necesario son <button> reales en la primera capa, misma letra', async () => {
+  it('Aceptar y Solo lo necesario son <button> reales en la primera capa, con el MISMO peso (MKT-CONV.1, D-A = A)', async () => {
     setup();
     const banner = await screen.findByTestId('consent-banner');
     const accept = within(banner).getByRole('button', { name: 'Aceptar' });
     const necessary = within(banner).getByRole('button', { name: 'Solo lo necesario' });
     expect(accept.tagName).toBe('BUTTON');
     expect(necessary.tagName).toBe('BUTTON');
-    expect(accept.className).toContain('text-[13px]');
-    expect(necessary.className).toContain('text-[13px]');
-    expect(necessary.className).toContain('h-11');
-    expect(accept.className).toContain('min-h-[48px]');
+    // L-2 en unidad: misma clase entera (borde y fondo de papel, ≥ 44 px en móvil). Lo computado lo mide el E2E.
+    expect(accept.className).toBe(necessary.className);
+    expect(accept.className).toContain('h-11');
+    expect(accept.className).toContain('border-text');
+    expect(accept.className).toContain('bg-bg');
+    expect(accept.className).not.toContain('bg-primary');
+    // «Configurar» va dentro de la frase del aviso (ya no es una fila propia).
+    expect(within(banner).getByRole('button', { name: 'Configurar' }).closest('p')).not.toBeNull();
   });
 
   it('en la segunda capa los dos interruptores nacen apagados', async () => {

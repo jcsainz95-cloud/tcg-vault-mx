@@ -36,6 +36,8 @@ import { cn } from '@/lib/cn';
 import { CardCode } from '@/components/domain/CardCode';
 import { WishlistBlock } from './WishlistBlock';
 import { RefundPromiseLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
+import { VaultNote } from '../../_shared/VaultNote';
+import { TrustStrip } from '../../_shared/TrustStrip';
 
 /**
  * v1.38-grouped-listings (P-30): ¿la pieza (unit, por-pieza) pertenece a este grupo?
@@ -370,11 +372,13 @@ function Detail({
                   condición y acabado. El DTO sigue trayendo `referenceValue`/`referenceDisplayCents`
                   porque alimentan admin y valuación — que viaje no autoriza a pintarlo en la tienda. */}
               <FactGrid facts={facts} />
-              {/* T1a + T8 (§CHK-MOVIL.4): bajo el precio y FUERA de la retícula; no en la barra fija de COMPRAR. */}
+              {/* Pila de avisos (MKT-CONV.2): T1a (envío) → T8 (garantía) → T2 (bóveda, MKT-CONV.3: solo sesión
+                  anónima). Bajo el precio y FUERA de la retícula; no en la barra fija de COMPRAR. */}
               {primary.displayPriceCents != null && (
                 <>
                   <ShippingFeeHint kind="cards" className="mt-3" />
                   <RefundPromiseLine className="mt-1" />
+                  <VaultNote className="mt-1" />
                 </>
               )}
 
@@ -387,24 +391,26 @@ function Detail({
             </>
           )}
 
-          {/* §A1 (MKT-26a): sin «Valor de mercado» en la ficha pública, la nota al pie NUNCA usa el
-              explicador de comparación `referenceExplainerWithMarket` («…para que los compares tal
-              cual»): siempre es `referenceExplainerNoMarket`, que solo dice qué es el precio de venta
-              y no menciona el mercado. (`referenceExplainerWithMarket` sigue en `messages/*.json`;
-              su retiro de catálogo lo evalúa ux-ui.) */}
-          <p className="rule-note mt-7 text-[13px] leading-[1.65] text-muted">
-            {t('referenceExplainerNoMarket')}
-          </p>
+          {/* C3 (criterio 951, MKT-3 (a), HECHOS 2026-10-31): carta sin piezas a la venta ⇒ sigue visible e indexable
+              con «Agotada» donde iría el precio (y `OutOfStock` en el JSON-LD de la página). Sin «vuelve pronto»: no
+              lo sabemos. */}
+          {!primary && (
+            <p
+              data-testid="sold-out"
+              className="mt-9 border-t border-border pt-5 font-mono text-[13px] uppercase tracking-[0.12em] text-muted"
+            >
+              {tcat('soldOutCard')}
+            </p>
+          )}
 
-          {/* «Gancho de grading» (§22.3): junto al precio, DESPUÉS del referenceExplainer —esa prosa
-              separa las dos zonas de dinero— y ANTES de «Ejemplares disponibles». Nunca dentro de la
-              retícula de precio: mismo grid sería la misma categoría que una cifra real (R2). */}
+          {/* MKT-CONV.2 (B6b, D-B = A): ya no hay frase de sistema entre el precio y la compra (se retiró
+              «El precio de venta es el precio publicado de esta carta»). «Gancho de grading» (§22.3): junto al
+              precio y ANTES de «Ejemplares disponibles»; nunca dentro de la retícula de precio (R2). */}
           <GradingEstimateBlock detail={detail} className="mt-7" />
 
-          {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. */}
-          <h2 className="mt-10 font-serif text-[22px] leading-tight text-text">{t('instances')}</h2>
-          {/* §WSH-UX.2 (g): ficha de una carta sin piezas a la venta (se llega desde el buscador de «Mi lista» o por URL).
-              ⛔ Ni «agotado» ni «vuelve pronto»: no lo sabemos. */}
+          {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. MKT-CONV.2: `mt-8` (antes 10). */}
+          <h2 className="mt-8 font-serif text-[22px] leading-tight text-text">{t('instances')}</h2>
+          {/* §WSH-UX.2 (g): ficha de una carta sin piezas a la venta (se llega desde el buscador de «Mi lista» o por URL). */}
           {groups.length === 0 && (
             <p className="mt-4 text-[15px] text-muted">{tWishlist('card.notHere')}</p>
           )}
@@ -446,6 +452,9 @@ function Detail({
               );
             })}
           </div>
+
+          {/* MKT-CONV.4 (B2, criterio 945): franja de confianza bajo los renglones de compra, antes de la lista. */}
+          <TrustStrip className="mt-4" />
 
           {/* §WSH-UX.2 · «Lista de deseos»: después de «Ejemplares disponibles» (comprar va primero). Solo con el dial
               encendido (`wishlistEnabled`, campo aditivo de la ficha, §WSH.4); ⛔ el sellado no lo lleva (823). */}
@@ -548,9 +557,8 @@ function MobileBuyBar({
 
   if (sellableUnits.length === 0 || group.displayPriceCents == null) return null;
 
-  // La barra usa copy PROPIO («Añadir al carrito» / «Ver carrito») y no el de los renglones
-  // («Comprar» / «En el carrito»): es el CTA del grupo «desde», no el de una variante concreta, y así
-  // además no se confunde con ellos para lector de pantalla.
+  // MKT-CONV.2 (B6b, D-B = A, criterio 948): la barra y los renglones dicen LO MISMO y hacen lo mismo:
+  // «Añadir al carrito» agrega la pieza más barata aún fuera del carrito; «Ver carrito» lleva al carrito.
   return (
     <div
       ref={buyBarRef}
@@ -583,12 +591,14 @@ function MobileBuyBar({
 }
 
 /**
- * CTA por GRUPO con estado «En el carrito».
+ * CTA por GRUPO con estado «Ver carrito».
  *
  * v1.38-grouped-listings (P-30): el add-to-cart es por-pieza (units[]) aunque la fila sea un
- * grupo. «Comprar» agrega la pieza más barata del grupo aún NO en el carrito; clics sucesivos
+ * grupo. «Añadir al carrito» agrega la pieza más barata del grupo aún NO en el carrito; clics sucesivos
  * suben hasta `stockCount`. Cuando TODAS las piezas del grupo están en el carrito, el CTA cambia
- * a «En el carrito» y el segundo clic no re-agrega: lleva al carrito (/checkout).
+ * a «Ver carrito» y el clic no re-agrega: lleva al carrito (/checkout). MKT-CONV.2 (B6b, D-B = A, HECHOS
+ * 2026-10-31): una sola etiqueta en ficha y barra (se retiraron «Comprar» y «En el carrito» de la ficha); `primary`
+ * `md` (44 px), el botón de más peso de la ficha.
  *
  * Vive aquí (y no en `ListingCard`) a propósito: `frontend/src/components/` es zona compartida de
  * otro stream y las props actuales de `ListingCard` no expresan este estado.
@@ -611,7 +621,7 @@ function InstanceCta({
 
   if (sellableUnits.length === 0) {
     return (
-      <Button variant="secondary" size="sm" disabled>
+      <Button variant="secondary" size="md" disabled data-testid="instance-cta">
         {tcat('notForSale')}
       </Button>
     );
@@ -619,17 +629,17 @@ function InstanceCta({
 
   if (allInCart) {
     return (
-      <Button variant="secondary" size="sm" onClick={() => router.push('/checkout')}>
+      <Button variant="secondary" size="md" data-testid="instance-cta" onClick={() => router.push('/checkout')}>
         {/* Check decorativo (§7.4): el texto es el portador del estado. */}
         <Check size={14} aria-hidden />
-        {tcat('inCart')}
+        {tcat('viewCart')}
       </Button>
     );
   }
 
   return (
-    <Button variant="primary" size="sm" onClick={() => onAdd(nextUnit!)}>
-      {tcat('buyNow')}
+    <Button variant="primary" size="md" data-testid="instance-cta" onClick={() => onAdd(nextUnit!)}>
+      {tcat('addToCart')}
     </Button>
   );
 }

@@ -29,8 +29,8 @@ async function marketBlockState(page: Page): Promise<{ block: boolean; explainer
   const block = (await page.getByText(t('es', 'catalog.marketValue'), { exact: true }).count()) > 0;
   const withMarket =
     (await page.getByText(t('es', 'card.referenceExplainerWithMarket')).count()) > 0;
-  const noMarket = (await page.getByText(t('es', 'card.referenceExplainerNoMarket')).count()) > 0;
-  return { block, explainer: withMarket ? 'with' : noMarket ? 'no' : 'none' };
+  // MKT-CONV.2 (B6b, 2026-10-31): la frase «sin mercado» se retiró de la ficha ⇒ sin variante «con mercado» = 'none'.
+  return { block, explainer: withMarket ? 'with' : 'none' };
 }
 
 /** Href de las primeras `n` fichas de carta de la vitrina (descubrimiento, sin hardcodear ids). */
@@ -142,9 +142,9 @@ test.describe('@real P-48 contra el stack vivo', () => {
       const st = await marketBlockState(page);
       states.push({ href, ...st });
 
-      // Cada ficha: sin bloque de mercado y con la nota «sin mercado» (nunca la variante «con mercado»).
+      // Cada ficha: sin bloque de mercado y sin nota de comparación (MKT-CONV.2: ya no hay nota al pie).
       expect(st.block, `la ficha ${href} publicó «Valor de mercado» (prohibido por D2=A)`).toBe(false);
-      expect(st.explainer).toBe('no');
+      expect(st.explainer).toBe('none');
     }
     expect(states.length).toBeGreaterThan(0);
     expect(states.every((s) => !s.block)).toBe(true);

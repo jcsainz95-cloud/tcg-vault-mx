@@ -11,7 +11,8 @@ import { loginAs } from './utils/auth';
  *
  * Candados: C-F3 (cuatro caminos de red + capturas 390×664), C-F5 (navegación dura, v1.109 también
  * `/buylist` → paso de crear con CLABE/INE), C-F9 (`/card-show`: solo `page_view` a GA4, sin Meta), C-F10 (sin muro),
- * C-F11 (no tapa COMPRAR), C-F12 (altura), C-F19 (zoom). Los de unidad (C-F8/9/13/14/18) viven en
+ * C-F11 (no tapa COMPRAR), C-F12 / L-1 (altura, MKT-CONV.6), L-2 (mismo peso), L-3 (COMPRAR visible), 943 (dos
+ * tarjetas con el banner), C-F19 (zoom). Los de unidad (C-F8/9/13/14/18) viven en
  * `src/components/consent/ConsentBanner.test.tsx`.
  */
 
@@ -484,20 +485,102 @@ test.describe('C-F11 / C-F12 / C-F19 · geometría en móvil', () => {
     expect(geo.hitIsButton).toBe(true);
   });
 
+  // MKT-CONV.6 L-1 (B1, criterio 940): sustituye el techo de 232/120 px de C-F12. Barra delgada ≤ 96 px en móvil
+  // (objetivo ≈ 89) y ≤ 64 px a 1366×768 (objetivo ≈ 57). Mutación que lo pone rojo: volver a la fila propia de
+  // «Configurar» (FRONTEND_NOTES §MKT-CONV2).
   for (const locale of ['es', 'en'] as const) {
-    test(`C-F12: alto ≤ 232 px a 390×664 (${locale}); una fila ≤ 120 px a 1280×720`, async ({ page, context }) => {
+    test(`C-F12 / L-1: alto ≤ 96 px a 360/390/414 y ≤ 64 px a 1366×768 (${locale}) @real`, async ({ page, context }) => {
       await setup(context);
-      await page.setViewportSize({ width: 390, height: 664 });
+      await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(`/${locale}`);
       const region = page.getByRole('region', { name: t(locale, 'consent.region') });
       await expect(region).toBeVisible();
-      const h = (await region.boundingBox())!.height;
-      testInfo().annotations.push({ type: `alto-${locale}-390`, description: String(h) });
-      expect(h).toBeLessThanOrEqual(232);
-      await page.setViewportSize({ width: 1280, height: 720 });
-      await expect.poll(async () => (await region.boundingBox())!.height).toBeLessThanOrEqual(120);
+      for (const [w, h, max] of [[360, 740, 96], [390, 844, 96], [414, 896, 96], [1366, 768, 64]] as const) {
+        await page.setViewportSize({ width: w, height: h });
+        await expect.poll(async () => (await region.boundingBox())!.height, `alto del banner a ${w}×${h}`).toBeLessThanOrEqual(max);
+        testInfo().annotations.push({ type: `alto-${locale}-${w}`, description: String((await region.boundingBox())!.height) });
+      }
     });
   }
+
+  // L-2: «Aceptar» y «Solo lo necesario» con el mismo peso visual (D-A = A, HECHOS 2026-10-31). Mutación: `bg-primary`
+  // solo en «Aceptar».
+  test('L-2: Aceptar y Solo lo necesario, misma caja, mismo fondo, borde y letra; ≥ 44 px en móvil @real', async ({ page, context }) => {
+    await setup(context);
+    for (const [w, h] of [[390, 844], [1366, 768]] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto('/es');
+      await expect(banner(page)).toBeVisible();
+      const look = (name: string) =>
+        banner(page)
+          .getByRole('button', { name })
+          .evaluate((el) => {
+            const s = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return { h: r.height, w: r.width, bg: s.backgroundColor, border: `${s.borderTopWidth} ${s.borderTopStyle} ${s.borderTopColor}`, fs: s.fontSize, fw: s.fontWeight };
+          });
+      const a = await look(t('es', 'consent.accept'));
+      const n = await look(t('es', 'consent.necessary'));
+      expect({ bg: a.bg, border: a.border, fs: a.fs, fw: a.fw, h: a.h }).toEqual({ bg: n.bg, border: n.border, fs: n.fs, fw: n.fw, h: n.h });
+      if (w < 768) {
+        expect(Math.abs(a.w - n.w)).toBeLessThanOrEqual(1);
+        expect(a.h).toBeGreaterThanOrEqual(44);
+      }
+    }
+  });
+
+  // L-3 (extiende C-F11): con el banner abierto, «Añadir al carrito» de la barra fija (móvil) y del primer renglón
+  // (1366×768) está en pantalla y es lo que recibe el toque. Mutación: devolver la frase de sistema o el `mt-10`.
+  test('L-3: con el banner abierto, «Añadir al carrito» se ve y se pulsa (barra en móvil, renglón a 1366×768) @real', async ({ page, context }) => {
+    await setup(context);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const href = await firstCardHref(page);
+    const hit = (sel: string) =>
+      page.evaluate((s) => {
+        const btn = document.querySelector<HTMLElement>(s);
+        if (!btn) return { found: false, inView: false, hit: false };
+        const r = btn.getBoundingClientRect();
+        const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { found: true, inView: r.top >= 0 && r.bottom <= window.innerHeight, hit: !!el && (el === btn || btn.contains(el)) };
+      }, sel);
+    for (const [w, h] of [[360, 740], [390, 664], [414, 896]] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto(href);
+      await expect(page.getByTestId('mobile-buy-bar')).toBeVisible();
+      await expect(banner(page)).toBeVisible();
+      expect(await hit('[data-testid="mobile-buy-bar"] button'), `barra a ${w}×${h}`).toEqual({ found: true, inView: true, hit: true });
+    }
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.goto(href);
+    await expect(banner(page)).toBeVisible();
+    await expect(page.getByTestId('instance-cta').first()).toBeVisible();
+    expect(await hit('[data-testid="instance-cta"]'), 'renglón a 1366×768').toEqual({ found: true, inView: true, hit: true });
+  });
+
+  // Criterio 943 (B5, SUPUESTO «también con el banner abierto»): ≥ 2 tarjetas COMPLETAS en la primera pantalla del
+  // catálogo a 360/390/414, entre el borde de arriba y el borde superior del banner; y el banner no desborda (L-5).
+  test('943 / L-5: catálogo con el banner abierto ⇒ ≥ 2 tarjetas completas a 360/390/414; sin desborde en portada @real', async ({ page, context }) => {
+    await setup(context);
+    for (const [w, h] of [[360, 740], [390, 844], [414, 896]] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto('/es/catalog');
+      await expect(banner(page)).toBeVisible();
+      await page.locator('main a[href*="/catalog/"] img').first().waitFor();
+      const m = await page.evaluate(() => {
+        const top = document.querySelector('[data-testid="consent-banner"]')!.getBoundingClientRect().top;
+        const tiles = [...document.querySelectorAll<HTMLElement>('main a[href*="/catalog/"]')]
+          .filter((a) => a.querySelector('img'))
+          .map((a) => a.parentElement!.getBoundingClientRect());
+        return { complete: tiles.filter((r) => r.top >= 0 && r.bottom <= top + 0.5 && r.height > 0).length, bannerTop: top };
+      });
+      testInfo().annotations.push({ type: `tarjetas-${w}`, description: JSON.stringify(m) });
+      expect(m.complete, `tarjetas completas a ${w}×${h}`).toBeGreaterThanOrEqual(2);
+      await page.goto('/es');
+      await expect(banner(page)).toBeVisible();
+      const sw = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
+      expect(sw.sw, `portada a ${w}`).toBeLessThanOrEqual(sw.iw);
+    }
+  });
 
   test('C-F19: a 200 % de zoom (195×332) max-height ≤ 60vh, scroll interno, botones alcanzables', async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 195, height: 332 }, deviceScaleFactor: 2, locale: 'es-MX' });

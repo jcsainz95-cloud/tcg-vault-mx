@@ -340,7 +340,6 @@
       "next": "Next page",
       "pageOf": "{page} / {total}"
     },
-    "buyNow": "Buy",
     "inCart": "In cart",
     "addedToCart": "Added to cart",
     "viewCart": "View cart",
@@ -379,7 +378,9 @@
       "p6": "<b>Market prices change every day</b> and this estimate may become outdated at any time.",
       "back": "Back to the estimated value"
     },
-    "sealedRedirect": "Taking you to Sealed product…"
+    "sealedRedirect": "Taking you to Sealed product…",
+    "vaultNote": "With an account, keep cards in your vault and ship them together. Without one, we ship this to you.",
+    "soldOutCard": "Sold out"
   },
   "shop": {
     "filtersTitle": "Filters",
@@ -450,8 +451,7 @@
       "sealed": "Sealed",
       "raw": "Raw"
     },
-    "referenceExplainerWithMarket": "Market value is the day's reference, shown with VAT included just like our sale price, so you can compare them directly. The sale price is derived from that reference.",
-    "referenceExplainerNoMarket": "The sale price is this card's listed price."
+    "referenceExplainerWithMarket": "Market value is the day's reference, shown with VAT included just like our sale price, so you can compare them directly. The sale price is derived from that reference."
   },
   "price": {
     "pendingLabel": "Price pending",
@@ -7476,7 +7476,8 @@
     "nav": {
       "faq": "FAQ",
       "howItWorks": "How it works",
-      "guides": "Guides"
+      "guides": "Guides",
+      "about": "About us & contact"
     },
     "lastReview": "Last reviewed: {date} · manual {version}",
     "spanishOnly": "This content is available in Spanish only.",
@@ -8371,6 +8372,47 @@
       "more": "More detail in the <privacy>Privacy notice</privacy>.",
       "save": "Save my choice",
       "cancel": "Cancel"
+    }
+  },
+  "about": {
+    "title": "About us & contact",
+    "description": "Who we are, how you buy at TCG HUNT and how to reach us: a Pokémon TCG card store in Mexico City.",
+    "lead": "TCG HUNT is an online Pokémon TCG store in Mexico: we sell single cards and sealed product, and we buy yours.",
+    "who": {
+      "title": "Who we are",
+      "story": "We are an online store based in Mexico City. Every card we sell is checked by hand before it goes into the vault.",
+      "city": "City",
+      "legalEntity": "Legal name"
+    },
+    "buy": {
+      "title": "How you buy from us",
+      "account": "Account",
+      "accountValue": "You can buy as a guest, with your email and an address in Mexico.",
+      "payment": "Payment",
+      "paymentValue": "You pay online, by card, on the payment screen.",
+      "shipping": "Shipping",
+      "delivery": "Delivery time",
+      "deliveryValue": "4 to 10 business days",
+      "guarantee": "Guarantee",
+      "guaranteeTerms": "Terms and policy",
+      "invoice": "Invoice",
+      "invoiceValue": "For an invoice (CFDI), email {email} after paying, quoting your order.",
+      "shippingValue": "Cards {cards} per order · sealed {sealed} · free from {freeFrom} on any order"
+    },
+    "contact": {
+      "title": "Contact",
+      "email": "Email",
+      "instagram": "Instagram",
+      "phone": "Phone",
+      "phoneNote": "Support by phone only; no in-person service.",
+      "cardShow": "Card Show",
+      "cardShowLink": "Card Show page"
+    },
+    "strip": {
+      "payment": "Card payment",
+      "shipping": "Shipping to Mexico",
+      "link": "About us",
+      "linkLabel": "About us & contact"
     }
   }
 }
