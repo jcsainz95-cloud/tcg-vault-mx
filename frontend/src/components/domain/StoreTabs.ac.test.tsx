@@ -33,3 +33,18 @@ describe('AC-UX-1 · StoreTabs con «Accesorios»', () => {
     expect(screen.getByRole('link', { name: 'Sealed product' })).not.toHaveAttribute('aria-current');
   });
 });
+
+/** MKT-CONV.8: en < lg cada pestaña es una fila de 44 px; en lg, como antes (`pb-3`, alto automático). */
+describe('MKT-CONV.8 · StoreTabs en < lg', () => {
+  it('cada enlace mide 44 px de alto en < lg y vuelve a `pb-3` en lg; el nav hace scroll horizontal', () => {
+    path.current = '/catalog';
+    renderWithIntl(<StoreTabs />, 'es');
+    const nav = screen.getByRole('navigation', { name: 'Tienda' });
+    expect(nav.className).toContain('overflow-x-auto');
+    for (const link of within(nav).getAllByRole('link')) {
+      const c = link.className.split(/\s+/);
+      expect(c).toEqual(expect.arrayContaining(['flex', 'h-11', 'items-center', 'lg:block', 'lg:h-auto', 'lg:pb-3']));
+      expect(c).not.toContain('pb-3');
+    }
+  });
+});

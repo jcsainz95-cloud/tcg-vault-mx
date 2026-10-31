@@ -247,7 +247,11 @@ test.describe('Compra · D-EQ-3: un enlace de sellado lleva a la vitrina de sell
     // mide aparte, con un filtro que no casa con nada (caso «vitrina vacía» de abajo).
     await expect(page.getByRole('heading', { name: t('es', 'sealed.title'), exact: true })).toBeVisible();
     // Se explica el salto de pantalla: cambiar la URL del usuario sin decir nada parece un fallo.
-    await expect(page.getByRole('status')).toContainText(t('es', 'sealed.fromCatalog.body'));
+    // El localizador se acota al aviso por su TEXTO: con el banner de cookies abierto (stack `--measurement`) la página
+    // tiene otra región `role=status` (`consent-status`) y `getByRole('status')` a secas chocaba en modo estricto.
+    await expect(
+      page.getByRole('status').filter({ hasText: t('es', 'sealed.fromCatalog.body') }),
+    ).toBeVisible();
     // El filtro llegó APLICADO y VISIBLE (nada de filtros fantasma).
     await expect(page.getByLabel(t('es', 'sealed.filters.subtype'))).toHaveValue('box');
     // Y en ningún momento el callejón sin salida de Compra.

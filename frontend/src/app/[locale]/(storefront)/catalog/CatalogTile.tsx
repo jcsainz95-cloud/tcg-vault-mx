@@ -62,10 +62,13 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
         <CardImage src={card.imageSmallUrl} alt={card.name} />
       </Link>
 
-      <p className="mt-3 font-serif text-sm leading-[1.3] text-text sm:text-base" lang="en">
+      {/* MKT-CONV.8: en < sm la teja se compacta (nombre en 2 renglones como máximo, rareza fuera, precio y stock en
+          un renglón, márgenes menores). El recorte es visual: el nombre accesible del enlace sigue completo.
+          ≥ sm, sin cambios (L-10). */}
+      <p className="mt-2 line-clamp-2 font-serif text-sm leading-[1.3] text-text sm:mt-3 sm:line-clamp-none sm:text-base" lang="en" data-testid="tile-name">
         <Link href={href}>{card.name}</Link>
       </p>
-      <p className="mt-1.5 font-mono text-[10px] leading-snug text-muted sm:text-[11px]" lang="en">
+      <p className="mt-1 font-mono text-[10px] leading-snug text-muted sm:mt-1.5 sm:text-[11px]" lang="en">
         {/* v1.80 (P-71, §37.3c): «Set · TWM 130»; sin código, `#130`. */}
         {`${card.setName} · ${formatCardCode(card.setPtcgoCode, card.number)}`}
       </p>
@@ -79,39 +82,44 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
         gradingCompany={listing.gradingCompany}
         gradeValue={listing.gradeValue}
         compact
-        className="mt-2 text-muted"
+        className="mt-1.5 text-muted sm:mt-2"
       />
 
       {/* P-44: rareza junto al acabado (Illustration Rare, Full Art, Hyper Rare…). Discreta,
           mono muted; se omite sola en sellado o sin rareza (RarityLabel). */}
-      <RarityLabel rarity={card.rarity} productType={listing.productType} className="mt-1.5" />
+      <RarityLabel rarity={card.rarity} productType={listing.productType} className="mt-1.5 hidden sm:inline-block" />
 
       {/* Precio «desde» del grupo: cifra tabular en sans; sin precio JAMÁS $0 — pendiente honesto (§7.3).
           ⛔ §M10-IVA.3: `displayPriceCents` **ya lleva el IVA dentro**; la teja lo pinta tal cual y
           ⛔ no multiplica. El rótulo de convención cuelga de `ivaIncluded`, que viaja por fila. */}
-      {listing.displayPriceCents != null ? (
-        <>
-          <p className="tabular mt-2.5 text-[15px] font-medium leading-none text-text sm:text-[17px]">
-            {formatMoneyCents(listing.displayPriceCents, locale)}
-          </p>
-          <IvaLabel
-            ivaIncluded={listing.ivaIncluded}
-            ivaRatePct={listing.ivaRatePct}
-            className="mt-1 block"
-          />
-        </>
-      ) : (
-        <PendingPriceLabel className="mt-2.5 block" />
-      )}
+      {/* MKT-CONV.8: en < sm precio y stock comparten renglón (`flex`, `order-*`) y el rótulo de IVA baja a su
+          propio renglón (`basis-full`); en ≥ sm el contenedor es `block` (el `order` no aplica) y el orden del DOM
+          —precio, IVA, stock— es el de siempre. El orden de lectura no cambia en ningún ancho. */}
+      <div className="mt-2.5 flex flex-wrap items-baseline justify-between gap-x-2 sm:block" data-testid="tile-price-row">
+        {listing.displayPriceCents != null ? (
+          <>
+            <p className="tabular order-1 text-[15px] font-medium leading-none text-text sm:text-[17px]">
+              {formatMoneyCents(listing.displayPriceCents, locale)}
+            </p>
+            <IvaLabel
+              ivaIncluded={listing.ivaIncluded}
+              ivaRatePct={listing.ivaRatePct}
+              className="order-3 mt-1 block basis-full"
+            />
+          </>
+        ) : (
+          <PendingPriceLabel className="order-1 block" />
+        )}
 
-      {/* Distintivo de stock REAL del grupo (§20.6): Queda 1 / N en stock (agotado no llega del backend). */}
-      {sellable && (
-        <StockBadge
-          variant={stockVariantForSingle(listing.stockCount)}
-          count={listing.stockCount}
-          className="mt-2"
-        />
-      )}
+        {/* Distintivo de stock REAL del grupo (§20.6): Queda 1 / N en stock (agotado no llega del backend). */}
+        {sellable && (
+          <StockBadge
+            variant={stockVariantForSingle(listing.stockCount)}
+            count={listing.stockCount}
+            className="order-2 sm:mt-2"
+          />
+        )}
+      </div>
 
       {/* «Gancho de grading» (§22.5): DESPUÉS del precio y del stock, ANTES del CTA — el orden de
           lectura obligatorio es precio real → estimado → CTA. Presencia ⇔ elegibilidad: sin
@@ -120,7 +128,7 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
       <GradingEstimateBadge listing={listing} />
 
       {/* mt-auto alinea el CTA abajo cuando las tejas de la fila difieren de altura */}
-      <div className="mt-auto pt-3">
+      <div className="mt-auto pt-2 sm:pt-3">
         {showInCart ? (
           // Pieza única deduplicada: el segundo clic no re-agrega, lleva al carrito.
           <button

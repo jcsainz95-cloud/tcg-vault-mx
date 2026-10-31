@@ -16,6 +16,10 @@ export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElemen
   hint?: string;
   /** Mensaje de error (§CS-UX.3): sube la regla a danger, pinta `aria-invalid` + `aria-describedby`. */
   error?: string;
+  /** MKT-CONV.8: clases extra de la etiqueta (p. ej. `sr-only` en la fila móvil del catálogo; el nombre accesible no cambia). */
+  labelClassName?: string;
+  /** MKT-CONV.8: clases extra del campo (la regla con el `<select>`), p. ej. alto fijo de 44 px; centra el ▾. */
+  fieldClassName?: string;
 }
 
 /*
@@ -25,7 +29,7 @@ export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElemen
  * con icono (nunca solo color). El color no es el único canal.
  */
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-  { label, options, placeholder, hint, error, className, id, required, ...props },
+  { label, options, placeholder, hint, error, className, labelClassName, fieldClassName, id, required, ...props },
   ref,
 ) {
   const autoId = useId();
@@ -33,7 +37,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   const describedBy = error ? `${selectId}-err` : hint ? `${selectId}-hint` : undefined;
   return (
     <div className="flex flex-col">
-      <label htmlFor={selectId} className="eyebrow">
+      <label htmlFor={selectId} className={cn('eyebrow', labelClassName)}>
         {label}
       </label>
       {/* Anillo de foco (bermellón, --shadow-focus) en el wrapper: el <select> lleva
@@ -43,6 +47,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         className={cn(
           'relative mt-3 border-b pb-3 focus-within:shadow-focus',
           error ? 'border-b-2 border-accent' : 'border-border-strong focus-within:border-text',
+          fieldClassName,
         )}
       >
         <select
@@ -65,7 +70,14 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
             </option>
           ))}
         </select>
-        <span className="pointer-events-none absolute right-0 top-0 text-muted" aria-hidden>
+        <span
+          className={cn(
+            'pointer-events-none absolute right-0 top-0 text-muted',
+            // Con un campo de alto propio (fieldClassName), el ▾ se centra en vertical con el texto.
+            fieldClassName && 'top-1/2 -translate-y-1/2',
+          )}
+          aria-hidden
+        >
           ▾
         </span>
       </div>
