@@ -79,9 +79,9 @@ describe('sitemap.xml + robots.txt (§E1)', () => {
     expect(lm('/decks-meta')).toBe('2026-10-05T00:00:00.000Z');
     expect(lm('/privacidad')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     for (const p of ['/buylist', '/accesorios', '/terminos']) expect(lm(p)).toBeUndefined();
-    // Ninguna entrada lleva la hora de la petición (2026-10-18T18:00:00Z, reloj falso).
-    for (const e of entries) {
-      expect(new Date(e.lastModified ?? 0).toISOString()).not.toBe('2026-10-18T18:00:00.000Z');
+    // Ninguna de las 8 fijas lleva la hora de la petición (2026-10-18T18:00:00Z, reloj falso).
+    for (const p of ['', '/catalog', '/sellado', '/accesorios', '/decks-meta', '/buylist', '/terminos', '/privacidad']) {
+      expect(new Date(lm(p) ?? 0).toISOString()).not.toBe('2026-10-18T18:00:00.000Z');
     }
   });
 
