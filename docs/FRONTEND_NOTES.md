@@ -5,6 +5,28 @@
 > ⚠ Este fichero rebasa el tope (~19 900 líneas contra ~1 500, CLAUDE.md «Documentos», ficha FE-DOC-1). Se compacta por
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46); cada pase que añade quita más de lo que añade.
 
+## §MKT-FE-A · Conversión de marketing, Ola 1: C7, B4, B4b, B5 (2026-10-31, rama `claude/mkt-fe-a`, base `83166568`)
+
+**Estado vigente** (BRIEF_MKT §4, orden del dueño 2026-10-30).
+- **C7:** `middleware.ts` responde **308** de `/{es,en}/card-show[/…]` a `/card-show[/…]` con la query intacta (UTM y
+  tokens de `confirm`/`cancel`/`unsubscribe`), antes de next-intl; `/es/admin/card-show` no casa (regex anclada al segmento
+  tras el locale). `sitemap.ts` lista `https://tcghunt.mx/card-show` una vez (sin prefijo). Candados:
+  `middleware.cardshow.test.ts`, caso C7 de `app/sitemap-robots.test.ts`. El `.ics` (`/es/card-show/*.ics`) no pasa por el
+  middleware (lleva punto): sin redirección; no es subruta pública del encargo.
+- **B4:** «Todas las ventas son finales» sale **una vez** antes de pagar: ficha (carta y sellado) = 0, solo T8
+  (`RefundPromiseLine`, antes `FinalSaleLine`); checkout de invitado = 1, la casilla de términos (`privacy.sites.guestCheckout`,
+  texto sin tocar), con T8 debajo, y sin la nota legal del pie; checkout con cuenta (sin casilla) = 1, nota legal +
+  «Ver términos» + T8, sin cambio. Criterio 48b (aviso de ventas finales con enlace a términos) lo cumple en invitado la
+  casilla. Clave `checkout.finalSaleShort` retirada. Candado de conteo sobre el texto de la página entera:
+  `_shared/final-sale-once.test.tsx` (es/en, escritorio y móvil).
+- **B4b (E2E-GUEST-GUION):** con el correo vacío (o solo espacios) la casilla dice `checkout.guest.email.confirmCheckboxEmpty`
+  («Confirmo que mi correo es correcto…»); con correo, el correo recortado. Caso en `GuestCheckoutView.test.tsx`.
+- **B5:** causa medida: el `sr-only` («aproximadamente») de la cifra de gradeo de una teja de Destacadas es `absolute` con
+  `<body>` como bloque contenedor ⇒ escapaba del recorte `overflow-x:auto` de la pista y estiraba el layout móvil hasta su
+  teja (mocks 853 px en 360/390/414; producción 677). Arreglo: `relative` en la pista (`FeaturedCarousel.tsx`). Candado
+  `e2e/mobile-no-overflow.spec.ts` (`@real`): con `isMobile` compara con el ancho CONFIGURADO, porque el desborde también
+  estira `innerWidth`. ⚠ Quedan 24 contenedores `overflow-x-auto` sin `relative` fuera de portada/catálogo: NO MEDIDOS.
+
 ## §DYN.6 · Opción A + c1: foto líder por `/_next/image` y textos por ruta (2026-10-30, rama `claude/portada-opcion-a`)
 
 **Estado vigente** (contrato v1.114.2 §DYN.6.6/.6.7; ARCHITECTURE §4.DYN (f) 7–8).
@@ -211,7 +233,7 @@ gratis» aprobado en lo propio de un código de envío gratis).
   `payInFlight` (ref) además de `loading`, en las dos vistas.
 - **Textos (§CHK-MOVIL.4):** `checkout.feeHint.{cardsOnly,sealed}` (T1a/T1b, `_shared/ShippingFeeHint.tsx`, importes de
   `getPublicShippingRule`; error ⇒ no se pinta), `checkout.bar.*` (T3a/T3b/T6), `checkout.freeShippingRemaining` (T9, `kind ≠ null`
-  y falta > 0; caja grande ⇒ falta `null` ⇒ sin T9, v1.109.5), `checkout.refundPromise` (T8; en la ficha con `checkout.finalSaleShort`). Importes con
+  y falta > 0; caja grande ⇒ falta `null` ⇒ sin T9, v1.109.5), `checkout.refundPromise` (T8; ficha sin «ventas finales» desde §MKT-FE-A). Importes con
   `formatMoneyCents` (MX$100.00). T2 (ficha, sesión anónima) **no** entró en este encargo.
 - **«envío gratis»:** excepción nombrada en `seo-content.test.ts` `KNOWN_OFFENDERS` solo para `checkout.bar.includesShippingFree`
   y `checkout.freeShippingRemaining` (ES/EN), dueño, medida 2026-10-24, caduca 2026-11-24, nota «pendiente de aprobación del

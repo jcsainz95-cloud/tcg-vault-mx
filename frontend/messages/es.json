@@ -504,6 +504,7 @@
         "typoSuggestion": "¿Quisiste decir {suggestion}?",
         "typoAccept": "Sí, corregir",
         "confirmCheckbox": "Confirmo que <mono>{email}</mono> es correcto. Es el único canal para dar seguimiento a mi pedido.",
+        "confirmCheckboxEmpty": "Confirmo que mi correo es correcto. Es el único canal para dar seguimiento a mi pedido.",
         "confirmReset": "Cambiaste el correo: vuelve a confirmarlo antes de pagar."
       },
       "payBlocked": {
@@ -638,7 +639,6 @@
       "cardsOnly": "+ envío {shipping}, gratis desde {freeFrom} · comisión de plataforma al pagar",
       "sealed": "Envío {shipping}, gratis desde {freeFrom} · comisión de plataforma al pagar"
     },
-    "finalSaleShort": "Todas las ventas son finales.",
     "refundPromise": "Si tu carta llega dañada o equivocada, te reembolsamos.",
     "freeShippingRemaining": "Te faltan {remaining} para envío gratis",
     "entryLine": "¿Ya tienes cuenta? <login>Inicia sesión</login> · o <register>crea una cuenta</register>",

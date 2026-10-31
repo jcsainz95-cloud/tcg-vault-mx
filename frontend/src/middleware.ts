@@ -20,6 +20,17 @@ function isCardShowPath(pathname: string): boolean {
 }
 
 /**
+ * C7 (BRIEF_MKT §4, 2026-10-31): `/{locale}/card-show…` no existe como página (la ruta vive fuera de `[locale]`) y
+ * daba 404 en producción. Se redirige con 308 a la canónica `/card-show…` conservando la query (UTM y tokens de
+ * `confirm`/`cancel`/`unsubscribe`). Solo el segmento exacto tras el locale: `/es/admin/card-show` no casa.
+ */
+const LOCALIZED_CARD_SHOW = new RegExp(`^/(?:${routing.locales.join('|')})(/card-show(?:/.*)?)$`);
+
+function canonicalCardShowPath(pathname: string): string | null {
+  return LOCALIZED_CARD_SHOW.exec(pathname)?.[1] ?? null;
+}
+
+/**
  * i18n (next-intl) + LIVE-3 · CSP con nonce por petición (API_CONTRACT §14.3).
  *
  * El nonce viaja en DOS sentidos:
@@ -45,6 +56,16 @@ export default function middleware(request: NextRequest) {
   // nonce y emite sus `<script>` sin él (medido: 16/16 sin nonce; la firma de producción, 28/28). Por eso se fija
   // SIEMPRE con la política del nonce, en las dos fases. Es cabecera de petición: la fase que ve el navegador no cambia.
   request.headers.set(CSP_REQUEST_HEADER, policy);
+
+  // C7: la variante con idioma salta a la canónica antes de que next-intl la sirva (y dé 404).
+  const canonicalCardShow = canonicalCardShowPath(request.nextUrl.pathname);
+  if (canonicalCardShow) {
+    const target = request.nextUrl.clone();
+    target.pathname = canonicalCardShow;
+    const response = NextResponse.redirect(target, 308);
+    response.headers.set(header, policy);
+    return response;
+  }
 
   // §CARDSHOW.2: `/card-show` se sirve con la CSP pero SIN el redirect de locale (200 directo, sin
   // `Set-Cookie: NEXT_LOCALE`, query intacta). Se copia la petición (con el nonce ya fijado) para

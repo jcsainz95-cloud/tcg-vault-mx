@@ -50,6 +50,14 @@ describe('sitemap.xml + robots.txt (§E1)', () => {
     for (const e of entries) expect(e.lastModified).toBeTruthy();
   });
 
+  it('C7: lista la canónica del Card Show SIN prefijo de idioma, una sola vez y sin la variante /es', async () => {
+    const entries = await sitemap();
+    vi.useRealTimers();
+    const urls = entries.map((e) => e.url);
+    expect(urls.filter((u) => u === 'https://tcghunt.mx/card-show')).toHaveLength(1);
+    expect(urls.filter((u) => /\/(es|en)\/card-show/.test(u))).toEqual([]);
+  });
+
   it('robots.txt no bloquea ninguna página de contenido ni /llms.txt, y sí la cuenta', () => {
     vi.useRealTimers();
     const r = robots();
