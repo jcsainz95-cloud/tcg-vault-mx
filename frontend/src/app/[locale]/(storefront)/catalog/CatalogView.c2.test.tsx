@@ -174,6 +174,19 @@ describe('B-R2 · la página del servidor trae su edad y la vista revalida si es
   });
 
   /**
+   * ARCHITECTURE §4.DYN (f) 9: «edad desconocida, ilegible o negativa = vieja». Defensa en la propia conversión, no
+   * solo en `responseAgeMs`: un `ageMs` negativo que llegue por otra vía no puede dar `now + |ageMs|` (fresco).
+   * Mutación: volver a `ageMs == null ? 0 : Math.max(0, now - ageMs)` ⇒ rojo.
+   */
+  it('§4.DYN (f) 9 · initialDataUpdatedAtOf: edad negativa o no finita ⇒ 0 (vieja)', () => {
+    expect(initialDataUpdatedAtOf(-5_000, 100_000)).toBe(0);
+    expect(initialDataUpdatedAtOf(-1, 100_000)).toBe(0);
+    expect(initialDataUpdatedAtOf(Number.NaN, 100_000)).toBe(0);
+    expect(initialDataUpdatedAtOf(Number.NEGATIVE_INFINITY, 100_000)).toBe(0);
+    expect(initialDataUpdatedAtOf(0, 100_000)).toBe(100_000);
+  });
+
+  /**
    * ARCHITECTURE §4.DYN (f) 9 (v1.115, TL-MKT2-8): una edad NEGATIVA (cabecera `Date` en el futuro) es DESCONOCIDA, o
    * sea vieja. La conversión vive en `responseAgeMs` (`lib/catalog-ssr.ts`), que es lo único que produce `ageMs`; aquí
    * se fija la cadena entera, de la cabecera a la relectura, sin tocar el componente.

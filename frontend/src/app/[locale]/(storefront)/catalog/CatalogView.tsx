@@ -69,10 +69,12 @@ export interface CatalogInitialPage {
 
 /**
  * B-R2: la hora (reloj del NAVEGADOR) a la que se leyó el dato del servidor = ahora − su edad. Por edad y no por hora
- * absoluta: un reloj del navegador atrasado haría pasar por fresca una copia vieja. Edad desconocida ⇒ 0 (vieja).
+ * absoluta: un reloj del navegador atrasado haría pasar por fresca una copia vieja. ARCHITECTURE §4.DYN (f) 9: edad
+ * desconocida, ilegible (no finita) o negativa ⇒ 0 (vieja); una negativa daría `now + |ageMs|`, o sea fresca.
  */
 export function initialDataUpdatedAtOf(ageMs: number | null | undefined, now: number): number {
-  return ageMs == null ? 0 : Math.max(0, now - ageMs);
+  if (ageMs == null || !Number.isFinite(ageMs) || ageMs < 0) return 0;
+  return Math.max(0, now - ageMs);
 }
 
 /**
