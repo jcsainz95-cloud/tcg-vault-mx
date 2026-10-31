@@ -24,18 +24,9 @@ export interface HomeSsrData {
   gems: GroupedListingListResponse | null;
 }
 
-/** Resuelve `p` o `null` si tarda más de `ms` o falla. Nunca lanza. */
-export async function withBudget<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), ms);
-  });
-  try {
-    return await Promise.race([p.catch(() => null), late]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
+// TL-MKT2-1: el tope genérico vive en `lib/ssr-budget.ts`; se re-exporta aquí para los importadores existentes.
+import { withBudget } from '@/lib/ssr-budget';
+export { withBudget };
 
 export async function loadHomeForSSR(budgetMs: number = HOME_SSR_BUDGET_MS): Promise<HomeSsrData> {
   const [featured, gems] = await Promise.all([

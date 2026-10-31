@@ -327,6 +327,11 @@
     "searchPlaceholder": "Buscar carta…",
     "emptyTitle": "Ninguna carta coincide",
     "emptyBody": "Prueba con otros filtros o limpia la búsqueda.",
+    "pageOutOfRange": {
+      "title": "Esta página ya no tiene cartas",
+      "body": "El catálogo tiene menos páginas de las que pide este enlace.",
+      "action": "Ir a la página 1"
+    },
     "addToCart": "Añadir al carrito",
     "addToCartShort": "Añadir",
     "buyNow": "Comprar",

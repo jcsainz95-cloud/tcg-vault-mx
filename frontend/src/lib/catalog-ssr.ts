@@ -19,7 +19,7 @@ import {
   type CatalogFilters,
   type CatalogSort,
 } from '@/lib/api';
-import { withBudget } from '@/lib/home-ssr';
+import { withAbortBudget, withBudget } from '@/lib/ssr-budget';
 import { HOME_SSR_REVALIDATE_S } from '@/lib/home-queries';
 import type {
   GroupedListingDetailResponse,
@@ -28,32 +28,30 @@ import type {
   SealedGroupDetailResponse,
 } from '@/types/contract';
 
-export const loadCardDetailForSSR = cache(
-  async (cardId: string): Promise<GroupedListingDetailResponse | null> => {
-    try {
-      return await getCardDetail(cardId);
-    } catch {
-      return null;
-    }
-  },
-);
-
-export const loadSealedDetailForSSR = cache(
-  async (inventoryItemId: string): Promise<SealedGroupDetailResponse | null> => {
-    try {
-      return await getSealedGroupDetail(inventoryItemId);
-    } catch {
-      return null;
-    }
-  },
-);
-
 /**
  * C2 (BRIEF_MKT Ola 2) — tope de la lectura del catálogo en el servidor. Sin datos a tiempo, el HTML sale con el
  * esqueleto y la vista cliente pide sola (lo de antes). Más holgado que el de la portada (400 ms): aquí el listado ES
  * el contenido de la página.
  */
 export const CATALOG_SSR_BUDGET_MS = 1200;
+
+/**
+ * I-1 de QA sobre `561ad425` (TL-MKT2-1) — tope de las lecturas de FICHA (carta y sellado) en el servidor: el mismo
+ * criterio que el catálogo (la lectura ES el contenido de la página). Al vencer, el fetch se ABORTA y la ficha sale con
+ * su carga en cliente (`initialData` ausente ⇒ react-query pide y pinta su estado de carga/error). Antes esperaban sin
+ * tope: con el backend congelado la ficha no respondía en 30 s.
+ */
+export const DETAIL_SSR_BUDGET_MS = CATALOG_SSR_BUDGET_MS;
+
+export const loadCardDetailForSSR = cache(
+  async (cardId: string): Promise<GroupedListingDetailResponse | null> =>
+    withAbortBudget((signal) => getCardDetail(cardId, { signal }), DETAIL_SSR_BUDGET_MS),
+);
+
+export const loadSealedDetailForSSR = cache(
+  async (inventoryItemId: string): Promise<SealedGroupDetailResponse | null> =>
+    withAbortBudget((signal) => getSealedGroupDetail(inventoryItemId, { signal }), DETAIL_SSR_BUDGET_MS),
+);
 
 /**
  * R2 (techlead sobre `561ad425`) — ventana de la caché de datos de Next para la lista pública del catálogo: la misma

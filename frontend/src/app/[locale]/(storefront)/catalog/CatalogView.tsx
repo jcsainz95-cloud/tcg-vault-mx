@@ -17,7 +17,7 @@ import {
   sealedIntentOf,
 } from './catalog-url';
 import { useCart } from '@/lib/cart';
-import { useRouter } from '@/i18n/navigation';
+import { Link, useRouter } from '@/i18n/navigation';
 import { ShopFilters } from '@/components/domain/ShopFilters';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
@@ -395,7 +395,27 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
               </div>
             }
           >
-            {(catalogQuery.data?.data.length ?? 0) === 0 ? (
+            {(catalogQuery.data?.data.length ?? 0) === 0 && total > 0 && page > totalPages ? (
+              // M-2 (QA sobre 561ad425): `?page=99` con resultados no es «Ninguna carta coincide»; la página no existe
+              // y se ofrece volver a la 1 con los mismos filtros (enlace rastreable; el clic pagina en el cliente).
+              <EmptyState
+                title={t('pageOutOfRange.title')}
+                body={t('pageOutOfRange.body')}
+                action={
+                  <Link
+                    href={catalogPageHref(filters, 1, searchParams)}
+                    onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                      e.preventDefault();
+                      goToPage(1);
+                    }}
+                    className="inline-flex min-h-[44px] items-center text-sm text-text underline underline-offset-4 hover:text-accent"
+                  >
+                    {t('pageOutOfRange.action')}
+                  </Link>
+                }
+              />
+            ) : (catalogQuery.data?.data.length ?? 0) === 0 ? (
               <EmptyState
                 title={t('emptyTitle')}
                 body={t('emptyBody')}

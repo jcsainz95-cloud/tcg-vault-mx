@@ -327,6 +327,11 @@
     "searchPlaceholder": "Search card…",
     "emptyTitle": "No card matches",
     "emptyBody": "Try other filters or clear the search.",
+    "pageOutOfRange": {
+      "title": "This page has no cards",
+      "body": "The catalog has fewer pages than this link asks for.",
+      "action": "Go to page 1"
+    },
     "addToCart": "Add to cart",
     "addToCartShort": "Add",
     "pagination": {

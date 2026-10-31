@@ -185,3 +185,56 @@ describe('MK-D4 · chips con etiqueta traducida', () => {
     expect(screen.queryByRole('button', { name: 'Quitar filtro holofoil' })).toBeNull();
   });
 });
+
+/**
+ * QA sobre `561ad425`:
+ *  · M-2 — `?page=99` decía «33 resultados · Ninguna carta coincide» y no dejaba volver: ahora dice que esa página no
+ *    existe y enlaza (rastreable) a la página 1 conservando los filtros.
+ *  · M-3 — buscar → paginar → recargar conserva el término y la página (lo cerró R1 en `815d14d1`; esto lo fija).
+ */
+describe('M-2 · página fuera de rango', () => {
+  it('?page=99 con 33 resultados: no dice «Ninguna carta coincide» y enlaza a la página 1 con los filtros', async () => {
+    window.history.replaceState(null, '', '/es/catalog?setId=base1&page=99');
+    const getCatalog = vi
+      .spyOn(api, 'getCatalog')
+      .mockImplementation(async (f) => (f?.page === 99 ? { data: [], page: 99, pageSize: 20, total: 33 } : PAGE));
+    render(wrap(<CatalogView />));
+    const back = await screen.findByRole('link', { name: es.catalog.pageOutOfRange.action });
+    expect(screen.queryByText(es.catalog.emptyTitle)).toBeNull();
+    expect(screen.getByText(es.catalog.pageOutOfRange.title)).toBeInTheDocument();
+    expect(back).toHaveAttribute('href', '/es/catalog?setId=base1');
+    fireEvent.click(back);
+    await waitFor(() => expect(window.location.search).toBe('?setId=base1'));
+    expect(getCatalog).toHaveBeenLastCalledWith(expect.objectContaining({ setId: 'base1', page: undefined }));
+    expect(await screen.findByText(`Carta ${PAGE.data[0].card.id}`)).toBeInTheDocument();
+  });
+
+  it('sin resultados de verdad (total 0) sigue diciendo «Ninguna carta coincide»', async () => {
+    vi.spyOn(api, 'getCatalog').mockResolvedValue({ data: [], page: 1, pageSize: 20, total: 0 });
+    render(wrap(<CatalogView />));
+    expect(await screen.findByText(es.catalog.emptyTitle)).toBeInTheDocument();
+    expect(screen.queryByText(es.catalog.pageOutOfRange.title)).toBeNull();
+  });
+});
+
+describe('M-3 · búsqueda + paginar + recargar', () => {
+  it('buscar «pika» → página 2 → recargar conserva el término (en la lectura y en el input) y la página', async () => {
+    const getCatalog = vi.spyOn(api, 'getCatalog').mockResolvedValue(PAGE);
+    const first = render(wrap(<CatalogView />));
+    fireEvent.change(screen.getAllByRole('searchbox')[0], { target: { value: 'pika' } });
+    await waitFor(() => expect(getCatalog).toHaveBeenCalledWith(expect.objectContaining({ q: 'pika' })));
+    await waitFor(() => expect(window.location.search).toBe('?q=pika'));
+    const next = await screen.findByRole('link', { name: es.catalog.pagination.next });
+    expect(next).toHaveAttribute('href', '/es/catalog?q=pika&page=2');
+    fireEvent.click(next);
+    await waitFor(() => expect(getCatalog).toHaveBeenCalledWith(expect.objectContaining({ q: 'pika', page: 2 })));
+    expect(window.location.search).toBe('?q=pika&page=2');
+
+    first.unmount();
+    getCatalog.mockClear();
+    render(wrap(<CatalogView />));
+    await waitFor(() => expect(getCatalog).toHaveBeenCalledWith(expect.objectContaining({ q: 'pika', page: 2 })));
+    expect((screen.getAllByRole('searchbox')[0] as HTMLInputElement).value).toBe('pika');
+    expect(getCatalog).not.toHaveBeenCalledWith(expect.not.objectContaining({ q: 'pika' }));
+  });
+});

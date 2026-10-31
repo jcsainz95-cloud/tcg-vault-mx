@@ -572,6 +572,8 @@ export async function getCatalog(
  */
 export interface ServerReadOptions {
   next?: { revalidate?: number; tags?: string[] };
+  /** TL-MKT2-1: la aborta el tope de SSR (`withAbortBudget`) si el backend no responde a tiempo. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -622,8 +624,10 @@ export async function getListing(inventoryItemId: string): Promise<ListingDTO> {
  * la ficha); `units` = piezas por-pieza (cheapest-first) para el add-to-cart por `inventoryItemId` y
  * el `certNumber` de cada slab en graded.
  */
-export async function getCardDetail(cardId: string): Promise<GroupedListingDetailResponse> {
-  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<GroupedListingDetailResponse>(`/catalog/cards/${cardId}`);
+export async function getCardDetail(cardId: string, server?: ServerReadOptions): Promise<GroupedListingDetailResponse> {
+  if (!(MOCKS_BUILD && config.useMocks)) {
+    return apiRequest<GroupedListingDetailResponse>(`/catalog/cards/${cardId}`, { signal: server?.signal });
+  }
   try {
     // ⭐ v1.87⟨wishlist⟩ (§WSH.4): el servidor añade en la raíz `wishlistEnabled` (dial vigente).
     return await delay({ ...fx.mockGroupedDetail(cardId), wishlistEnabled: wishlistMock.mockWishlistEnabled() });
@@ -852,9 +856,10 @@ export async function getSealedGroups(filters: SealedFilters = {}): Promise<Seal
  */
 export async function getSealedGroupDetail(
   inventoryItemId: string,
+  server?: ServerReadOptions,
 ): Promise<SealedGroupDetailResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) {
-    return apiRequest<SealedGroupDetailResponse>(`/catalog/sealed/${inventoryItemId}`);
+    return apiRequest<SealedGroupDetailResponse>(`/catalog/sealed/${inventoryItemId}`, { signal: server?.signal });
   }
   try {
     return await delay(fx.mockSealedGroupDetail(inventoryItemId));

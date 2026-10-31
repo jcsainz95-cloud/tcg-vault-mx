@@ -115,6 +115,8 @@ interface RequestOptions {
    * portada). Se pasan tal cual a `fetch` (`next.revalidate`, `next.tags`); en el navegador `fetch` las ignora.
    */
   next?: { revalidate?: number; tags?: string[] };
+  /** TL-MKT2-1: señal para abortar la lectura (los topes de SSR de `lib/ssr-budget.ts`). Se pasa tal cual a `fetch`. */
+  signal?: AbortSignal;
 }
 
 /** Vuelca `opts.query` en la URL: escalares con `set`, arrays con `append` (repetible). */
@@ -370,6 +372,7 @@ async function fetchWithSession(
     // pone el `multipart/form-data; boundary=…`. Solo lo usa `apiRequestMultipart` (json=false).
     body: jsonBody ?? (opts.body instanceof FormData ? opts.body : undefined),
     ...(opts.next ? { next: opts.next } : {}),
+    ...(opts.signal ? { signal: opts.signal } : {}),
   });
 
   // WS-B — interceptor: el access token dura 15m; al vencer, cualquier request da 401.
