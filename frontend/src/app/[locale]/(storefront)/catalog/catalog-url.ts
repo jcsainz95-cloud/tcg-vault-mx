@@ -146,8 +146,8 @@ export function sealedHref(intent: { sealedSubtype?: string }): string {
 }
 
 /**
- * Filtros iniciales desde la URL (enlaces del Home: `?setId=<id>`,
- * `?productType=graded`; la pestaña Gradeadas usa `?type=graded`). Solo se
+ * Filtros iniciales desde la URL (enlaces del Home y pestaña Gradeadas: `?setId=<id>`, `?productType=graded`; el
+ * alias viejo de la pestaña, `type`, se sigue leyendo aquí y SOLO aquí, para enlaces guardados). Solo se
  * mapean los filtros del estado con equivalente trivial en query; los valores
  * de enum se validan contra sus listas — un parámetro inválido se ignora.
  */

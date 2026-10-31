@@ -46,8 +46,8 @@ const DEFAULT_PAGE_SIZE = 20;
  * chips removibles y orden; grid de tejas 5/7 (CatalogTile, «Queda 1» literal)
  * y paginador sobrio sincronizado con los filtros (el backend pagina a 20).
  *
- * La pestaña «Gradeadas» es ?type=graded: aquí se lee el parámetro y se
- * sincroniza con filters.productType (y viceversa al cambiarlo en el panel).
+ * La pestaña «Gradeadas» es `?productType=graded`, el mismo parámetro del panel (el alias viejo `type` solo lo lee
+ * `parseUrlFilters`).
  */
 /**
  * C2 (BRIEF_MKT Ola 2): primera página leída en el SERVIDOR (`page.tsx`) con los MISMOS filtros que esta vista
@@ -57,6 +57,21 @@ const DEFAULT_PAGE_SIZE = 20;
 export interface CatalogInitialPage {
   filters: CatalogFilters;
   data: GroupedListingListResponse;
+  /**
+   * B-R2 (QA sobre `e066b0b5`): edad del dato al renderizar en el servidor (`CatalogSsrPage.ageMs`, por la cabecera
+   * `Date` del backend). La caché de datos de Next es stale-while-revalidate: tras > 30 s sin visitas sirve la copia
+   * vieja. Con esta edad react-query sabe si el dato sigue fresco (no relee: la carga fresca hace 0 lecturas) o ya no
+   * (relee al montar). Ausente o `null` ⇒ edad desconocida ⇒ vieja.
+   */
+  ageMs?: number | null;
+}
+
+/**
+ * B-R2: la hora (reloj del NAVEGADOR) a la que se leyó el dato del servidor = ahora − su edad. Por edad y no por hora
+ * absoluta: un reloj del navegador atrasado haría pasar por fresca una copia vieja. Edad desconocida ⇒ 0 (vieja).
+ */
+export function initialDataUpdatedAtOf(ageMs: number | null | undefined, now: number): number {
+  return ageMs == null ? 0 : Math.max(0, now - ageMs);
 }
 
 /**
@@ -84,7 +99,7 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
   const cart = useCart();
   const router = useRouter();
   const searchParams = useSearchParams();
-  // La pestaña Gradeadas usa ?type=graded; los enlaces del Home usan ?productType=graded.
+  // Pestaña Gradeadas y enlaces del Home: `productType=graded`; el alias viejo `type` también cuenta.
   const gradedTab =
     searchParams?.get('type') === 'graded' || searchParams?.get('productType') === 'graded';
 
@@ -205,12 +220,16 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
   }, [updateFilters]);
 
   const facetsQuery = useQuery({ queryKey: ['facets'], queryFn: getCatalogFacets });
+  // B-R2: el instante del montaje, fijo (react-query solo lee `initialDataUpdatedAt` al crear la entrada de la clave).
+  const [mountedAt] = useState(() => Date.now());
+  // C2: la lectura del servidor solo vale para SU clave (los filtros con que se pidió).
+  const initialMatches = !!initialPage && catalogFiltersKey(initialPage.filters) === filtersKey;
   const catalogQuery = useQuery({
     queryKey: ['catalog', filtersKey],
     queryFn: () => getCatalog({ ...filters, sort: filters.sort ?? DEFAULT_CATALOG_SORT }),
-    // C2: la lectura del servidor solo vale para SU clave (los filtros con que se pidió).
-    initialData:
-      initialPage && catalogFiltersKey(initialPage.filters) === filtersKey ? initialPage.data : undefined,
+    initialData: initialMatches ? initialPage.data : undefined,
+    // B-R2: con la edad real, una copia vieja de la caché de datos se revalida al hidratar; una fresca, no.
+    initialDataUpdatedAt: initialMatches ? initialDataUpdatedAtOf(initialPage.ageMs, mountedAt) : undefined,
     // R5: paginar/filtrar no desmonta la grilla — se sigue mostrando la página
     // anterior mientras llega la nueva (isLoading solo en el primer fetch).
     placeholderData: keepPreviousData,

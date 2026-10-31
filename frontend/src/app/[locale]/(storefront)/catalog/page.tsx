@@ -24,7 +24,7 @@ function toUrlParams(sp: Record<string, string | string[] | undefined>): URLSear
 }
 
 /**
- * §E1/§E3 — canonical absoluto SIN query: las vistas filtradas (`?setId=`, `?type=graded`, `?page=`) apuntan
+ * §E1/§E3 — canonical absoluto SIN query: las vistas filtradas (`?setId=`, `?productType=graded`, `?page=`) apuntan
  * todas a `/{locale}/catalog`, para no indexar duplicados del mismo catálogo. C4: título y descripción propios
  * (antes heredaba los de la portada).
  */
@@ -71,7 +71,8 @@ export default async function CatalogPage({
     headers().then((h) => h.get(NONCE_HEADER) ?? undefined),
     sealedIntentOf(sp) ? Promise.resolve(null) : loadCatalogPageForSSR(filters, DEFAULT_CATALOG_SORT),
   ]);
-  const initialPage: CatalogInitialPage | undefined = data ? { filters, data } : undefined;
+  // B-R2: la edad viaja con la página para que la vista revalide si la caché de datos sirvió una copia vieja.
+  const initialPage: CatalogInitialPage | undefined = data ? { filters, data: data.data, ageMs: data.ageMs } : undefined;
   const jsonLd = {
     '@context': 'https://schema.org',
     ...breadcrumbJsonLd([
@@ -79,7 +80,7 @@ export default async function CatalogPage({
       { name: t('nav.catalog'), url: siteAbsoluteUrl(`/${locale}/catalog`) },
     ]),
   };
-  // useSearchParams (pestaña Gradeadas, ?type=graded) requiere Suspense en Next 15.
+  // useSearchParams (pestaña Gradeadas, ?productType=graded) requiere Suspense en Next 15.
   // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).
   return (
     <RouteMessages scope="storefront">

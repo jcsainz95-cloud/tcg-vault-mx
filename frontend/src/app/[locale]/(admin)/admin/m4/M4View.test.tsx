@@ -947,7 +947,7 @@ describe('M4View · Pedidos a preparar (§M4-PREP)', () => {
     /*
      * ⚠️ **Lo que este candado NO mide, dicho aquí para que nadie lea de más su verde:** el cliente
      * de pruebas (`test/render.tsx`) **no fija `staleTime`**, así que la consulta nace obsoleta y
-     * el foco siempre la re-pide. En producción el `staleTime: 30_000` global la hace fresca
+     * el foco siempre la re-pide. En producción el `staleTime` global de 30 s (`QUERY_DEFAULTS`) la hace fresca
      * durante 30 s, y volver a la ventana dentro de esa ventana **no re-pide** — que es la conducta
      * que §35.9 quiere. PR-6 verifica **el cableado**, ⛔ no la ventana de frescura.
      */

@@ -56,27 +56,58 @@ export const loadSealedDetailForSSR = cache(
 /**
  * R2 (techlead sobre `561ad425`) — ventana de la caché de datos de Next para la lista pública del catálogo: la misma
  * que la portada (30 s). ARCHITECTURE §4.DYN (f) 3: «≤ 60 s en listas públicas, exacto al pagar» (el checkout re-cotiza
- * y responde `409 ITEM_UNAVAILABLE`); tras hidratar, react-query revalida en el cliente.
+ * y responde `409 ITEM_UNAVAILABLE`). La caché es stale-while-revalidate: vencida la ventana, la PRIMERA visita recibe
+ * la copia vieja (y Next relee en segundo plano). Por eso la página viaja con su edad (`ageMs`) y la vista revalida
+ * tras hidratar si ya no es fresca (B-R2 de QA sobre `e066b0b5`).
  */
 export const CATALOG_SSR_REVALIDATE_S = HOME_SSR_REVALIDATE_S;
+
+/** La página leída en el servidor y su edad al renderizar. */
+export interface CatalogSsrPage {
+  data: GroupedListingListResponse;
+  /**
+   * Milisegundos desde que el BACKEND respondió esta lectura (su cabecera `Date`, que la caché de datos de Next guarda
+   * con el cuerpo) hasta el render. Una copia cacheada trae su hora real, no la de hoy. `null` = no se sabe (sin
+   * cabecera, modo MOCK) ⇒ la vista la trata como vieja y revalida.
+   */
+  ageMs: number | null;
+}
+
+/** Edad de una respuesta por su cabecera `Date` (resolución de 1 s, redondea hacia «más vieja»); `null` si no hay. */
+export function responseAgeMs(dateHeader: string | null | undefined, now: number = Date.now()): number | null {
+  if (!dateHeader) return null;
+  const readAt = Date.parse(dateHeader);
+  if (Number.isNaN(readAt)) return null;
+  return Math.max(0, now - readAt);
+}
 
 /**
  * Página del catálogo para el SSR, con los MISMOS filtros y el MISMO orden por defecto que pide la vista cliente
  * (`CatalogView`), para que el resultado sea el `initialData` de su clave. Caché de datos de Next de
- * `CATALOG_SSR_REVALIDATE_S` con etiqueta `catalog` (antes `no-store`: una lectura al API por visita). Nunca lanza.
+ * `CATALOG_SSR_REVALIDATE_S` con etiqueta `catalog`. Tope `budgetMs` que ABORTA el fetch al vencer (TL-MKT3-1; antes
+ * `withBudget` dejaba el socket colgado contra un backend congelado). Nunca lanza.
  */
 export async function loadCatalogPageForSSR(
   filters: CatalogFilters,
   defaultSort: CatalogSort,
   budgetMs: number = CATALOG_SSR_BUDGET_MS,
-): Promise<GroupedListingListResponse | null> {
-  return withBudget(
-    getCatalog(
-      { ...filters, sort: filters.sort ?? defaultSort },
-      { next: { revalidate: CATALOG_SSR_REVALIDATE_S, tags: ['catalog'] } },
-    ),
+): Promise<CatalogSsrPage | null> {
+  let date: string | null = null;
+  const data = await withAbortBudget(
+    (signal) =>
+      getCatalog(
+        { ...filters, sort: filters.sort ?? defaultSort },
+        {
+          next: { revalidate: CATALOG_SSR_REVALIDATE_S, tags: ['catalog'] },
+          signal,
+          onHeaders: (h) => {
+            date = h.get('date');
+          },
+        },
+      ),
     budgetMs,
   );
+  return data ? { data, ageMs: responseAgeMs(date) } : null;
 }
 
 /** C5 — tope de la lectura de la regla de envío para el JSON-LD; sin ella a tiempo, `shippingDetails` se omite. */

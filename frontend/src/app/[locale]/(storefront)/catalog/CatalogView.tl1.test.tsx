@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import es from '../../../../../messages/es.json';
 import * as api from '@/lib/api';
 import type { CatalogFacetsDTO, CardDTO, GroupedListingListResponse, GroupedListingSummaryDTO } from '@/types/contract';
+import { QUERY_DEFAULTS } from '@/components/Providers';
 import { CatalogView } from './CatalogView';
 
 /**
@@ -77,7 +78,7 @@ const FACETS: CatalogFacetsDTO = {
 };
 
 function wrap(node: React.ReactNode) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
+  const client = new QueryClient({ defaultOptions: { queries: { ...QUERY_DEFAULTS, retry: false } } });
   return (
     <QueryClientProvider client={client}>
       <NextIntlClientProvider locale="es" messages={es}>
@@ -148,7 +149,7 @@ describe('R1 / MK-D5 · la URL lleva los filtros del panel', () => {
   it('la lectura del servidor vale para su clave aunque los campos vengan en otro orden (sin doble lectura)', async () => {
     window.history.replaceState(null, '', '/es/catalog?setId=base1&productType=graded');
     const getCatalog = vi.spyOn(api, 'getCatalog').mockResolvedValue(PAGE);
-    render(wrap(<CatalogView initialPage={{ filters: { productType: 'graded', setId: 'base1' }, data: PAGE }} />));
+    render(wrap(<CatalogView initialPage={{ filters: { productType: 'graded', setId: 'base1' }, data: PAGE, ageMs: 0 }} />));
     expect(await screen.findByText(`Carta ${PAGE.data[0].card.id}`)).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 50));
     expect(getCatalog).not.toHaveBeenCalled();

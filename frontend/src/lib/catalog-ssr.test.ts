@@ -7,6 +7,7 @@ import {
   loadCardDetailForSSR,
   loadCatalogPageForSSR,
   loadSealedDetailForSSR,
+  responseAgeMs,
 } from '@/lib/catalog-ssr';
 import { HOME_SSR_REVALIDATE_S } from '@/lib/home-queries';
 
@@ -27,11 +28,64 @@ describe('R2 · frescura de la lectura SSR del catálogo', () => {
   it('pide con revalidate 30 s y etiqueta `catalog`, con el orden por defecto si la URL no trae uno', async () => {
     const page = { data: [], page: 1, pageSize: 20, total: 0 };
     const getCatalog = vi.spyOn(api, 'getCatalog').mockResolvedValue(page);
-    await expect(loadCatalogPageForSSR({ setId: 'base1' }, 'newest')).resolves.toEqual(page);
+    await expect(loadCatalogPageForSSR({ setId: 'base1' }, 'newest')).resolves.toEqual({ data: page, ageMs: null });
     expect(getCatalog).toHaveBeenCalledWith(
       { setId: 'base1', sort: 'newest' },
-      { next: { revalidate: 30, tags: ['catalog'] } },
+      expect.objectContaining({ next: { revalidate: 30, tags: ['catalog'] } }),
     );
+  });
+
+  /**
+   * B-R2 (QA sobre `e066b0b5`): la caché de datos de Next guarda las cabeceras con el cuerpo; una copia servida tras
+   * vencer la ventana trae el `Date` de SU lectura. El loader devuelve esa edad (no la hora de servirla).
+   * Mutación que lo pone rojo: devolver `ageMs: 0` (o medir con `Date.now()` al servir) ⇒ la copia de 65 s sale «fresca».
+   */
+  it('B-R2: devuelve la edad real del dato por la cabecera `Date` del backend (copia cacheada de 65 s ⇒ ~65 s)', async () => {
+    const page = { data: [], page: 1, pageSize: 20, total: 0 };
+    const readAt = new Date(Date.now() - 65_000).toUTCString();
+    vi.spyOn(api, 'getCatalog').mockImplementation((async (_f: unknown, server?: api.ServerReadOptions) => {
+      server?.onHeaders?.(new Headers({ date: readAt }));
+      return page;
+    }) as never);
+    const got = await loadCatalogPageForSSR({}, 'newest');
+    expect(got?.data).toBe(page);
+    expect(got?.ageMs).toBeGreaterThanOrEqual(64_000);
+    expect(got?.ageMs).toBeLessThan(67_000);
+  });
+
+  it('responseAgeMs: sin cabecera o ilegible ⇒ null; hora futura ⇒ 0', () => {
+    expect(responseAgeMs(null, 1_000)).toBeNull();
+    expect(responseAgeMs('banana', 1_000)).toBeNull();
+    expect(responseAgeMs(new Date(5_000).toUTCString(), 1_000)).toBe(0);
+    expect(responseAgeMs(new Date(0).toUTCString(), 31_000)).toBe(31_000);
+  });
+
+  /**
+   * TL-MKT3-1 (y seguridad 10/10): con `withBudget` el tope dejaba de esperar pero el fetch seguía vivo (socket colgado
+   * contra un backend congelado). Ahora el tope ABORTA la lectura del catálogo con la señal que recibe `getCatalog`.
+   */
+  it('TL-MKT3-1: backend que no responde ⇒ null al vencer el tope y la señal de `getCatalog` queda abortada', async () => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      vi.spyOn(api, 'getCatalog').mockImplementation(((_f: unknown, server?: api.ServerReadOptions) => {
+        signal = server?.signal;
+        return new Promise<never>((_, reject) => {
+          server?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        });
+      }) as never);
+      let settled: unknown = 'pendiente';
+      const p = loadCatalogPageForSSR({}, 'newest').then((v) => (settled = v));
+      await vi.advanceTimersByTimeAsync(CATALOG_SSR_BUDGET_MS - 1);
+      expect(settled).toBe('pendiente');
+      await vi.advanceTimersByTimeAsync(1);
+      await p;
+      expect(settled).toBeNull();
+      expect(signal, 'getCatalog recibe una señal').toBeDefined();
+      expect(signal!.aborted, 'el tope aborta el fetch').toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('la ventana es la de la portada y cabe en los 60 s de §4.DYN (f) 3', () => {

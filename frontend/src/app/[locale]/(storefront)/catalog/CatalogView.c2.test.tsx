@@ -6,7 +6,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import es from '../../../../../messages/es.json';
 import * as api from '@/lib/api';
 import type { CardDTO, GroupedListingListResponse, GroupedListingSummaryDTO } from '@/types/contract';
-import { CatalogView } from './CatalogView';
+import { QUERY_DEFAULTS } from '@/components/Providers';
+import { CatalogView, initialDataUpdatedAtOf } from './CatalogView';
 
 /**
  * C2 (BRIEF_MKT Ola 2, criterio 950) — el catálogo sale del SERVIDOR con su primera página: la vista toma la lectura
@@ -73,7 +74,7 @@ const never = <T,>() => new Promise<T>(() => {});
 // Mismas opciones por defecto que la app (`components/Providers.tsx`: `staleTime` 30 s): de ellas depende no repetir.
 function wrap(
   node: React.ReactNode,
-  client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } }),
+  client = new QueryClient({ defaultOptions: { queries: { ...QUERY_DEFAULTS, retry: false } } }),
 ) {
   return (
     <QueryClientProvider client={client}>
@@ -102,7 +103,7 @@ describe('C2 · catálogo servido con su primera página', () => {
 
   it('con la misma clave no repite la lectura al montar; con otros filtros, sí', async () => {
     const getCatalog = vi.spyOn(api, 'getCatalog').mockResolvedValue(PAGE1);
-    const { unmount } = render(wrap(<CatalogView initialPage={{ filters: {}, data: PAGE1 }} />));
+    const { unmount } = render(wrap(<CatalogView initialPage={{ filters: {}, data: PAGE1, ageMs: 0 }} />));
     expect(await screen.findByText(`Carta ${PAGE1.data[0].card.id}`)).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 50));
     expect(getCatalog).not.toHaveBeenCalled();
@@ -110,7 +111,7 @@ describe('C2 · catálogo servido con su primera página', () => {
 
     // La URL pide la página 3 pero la lectura del servidor era de otros filtros ⇒ no se usa: se pide la 3.
     urlParams.current = new URLSearchParams('page=3');
-    render(wrap(<CatalogView initialPage={{ filters: {}, data: PAGE1 }} />));
+    render(wrap(<CatalogView initialPage={{ filters: {}, data: PAGE1, ageMs: 0 }} />));
     await waitFor(() => expect(getCatalog).toHaveBeenCalledWith(expect.objectContaining({ page: 3 })));
   });
 
@@ -121,5 +122,48 @@ describe('C2 · catálogo servido con su primera página', () => {
     fireEvent.click(await screen.findByRole('link', { name: es.catalog.pagination.next }));
     await waitFor(() => expect(getCatalog).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })));
     expect(push).toHaveBeenCalledWith(null, '', '/es/catalog?page=2');
+  });
+});
+
+/**
+ * B-R2 (QA sobre `e066b0b5`, medido 10/10): la caché de datos de Next es stale-while-revalidate. Tras > 30 s sin visitas
+ * sirve la copia VIEJA a la primera visita; sin su edad, react-query la daba por fresca (`staleTime` 30 s) y no releía:
+ * el catálogo mostraba MX$1,510.00 y el checkout cobraba MX$1,601.00. Con `ageMs` (cabecera `Date` del backend, que la
+ * caché guarda) la vista relee al hidratar si el dato ya no es fresco, y no relee si lo es.
+ *
+ * Mutación que lo pone rojo: quitar `initialDataUpdatedAt` del `useQuery` del catálogo ⇒ la copia de 31 s no se relee.
+ */
+describe('B-R2 · la página del servidor trae su edad y la vista revalida si es vieja', () => {
+  const NEWER: GroupedListingListResponse = {
+    ...PAGE1,
+    data: PAGE1.data.map((g, i) => (i === 0 ? { ...g, displayPriceCents: 160_100 } : g)),
+  };
+
+  it('copia servida con 31 s de edad ⇒ relee al montar y la teja pasa al precio nuevo', async () => {
+    const getCatalog = vi.spyOn(api, 'getCatalog').mockResolvedValue(NEWER);
+    render(wrap(<CatalogView initialPage={{ filters: {}, data: PAGE1, ageMs: 31_000 }} />));
+    await waitFor(() => expect(getCatalog).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/1,601\.00/)).toBeInTheDocument();
+  });
+
+  it('edad desconocida (sin cabecera `Date`) ⇒ se trata como vieja y relee', async () => {
+    const getCatalog = vi.spyOn(api, 'getCatalog').mockResolvedValue(PAGE1);
+    render(wrap(<CatalogView initialPage={{ filters: {}, data: PAGE1, ageMs: null }} />));
+    await waitFor(() => expect(getCatalog).toHaveBeenCalledTimes(1));
+  });
+
+  it('copia de 29 s ⇒ aún fresca: 0 relecturas', async () => {
+    const getCatalog = vi.spyOn(api, 'getCatalog').mockResolvedValue(PAGE1);
+    render(wrap(<CatalogView initialPage={{ filters: {}, data: PAGE1, ageMs: 29_000 }} />));
+    expect(await screen.findByText(`Carta ${PAGE1.data[0].card.id}`)).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(getCatalog).not.toHaveBeenCalled();
+  });
+
+  it('initialDataUpdatedAtOf: por edad, nunca negativo, desconocida ⇒ 0', () => {
+    expect(initialDataUpdatedAtOf(31_000, 100_000)).toBe(69_000);
+    expect(initialDataUpdatedAtOf(null, 100_000)).toBe(0);
+    expect(initialDataUpdatedAtOf(undefined, 100_000)).toBe(0);
+    expect(initialDataUpdatedAtOf(200_000, 100_000)).toBe(0);
   });
 });
