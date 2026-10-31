@@ -29,7 +29,7 @@ test.describe('guest checkout · identidad y desglose', () => {
 
     // CHK-MOVIL.2.1 (opción A): sin pantalla de tres vías. El invitado ve su formulario en el primer pintado
     // y «¿Ya tienes cuenta? Inicia sesión · o crea una cuenta» (T4) abre el panel inline.
-    const email = page.getByLabel(t('es', 'checkout.guest.email.label'));
+    const email = page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true });
     await expect(email).toBeVisible();
     await expect(page.getByRole('button', { name: /Continuar como invitado/ })).toHaveCount(0);
     await email.fill('invitado@dominio.com');
@@ -81,9 +81,9 @@ test.describe('guest checkout · identidad y desglose', () => {
     await addFirstCardToCart(page);
     await page.goto('/es/checkout');
     // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
-    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toBeVisible();
+    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true })).toBeVisible();
 
-    await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('no-es-correo');
+    await page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true }).fill('no-es-correo');
     await page.getByRole('button', { name: /Pagar/ }).click();
 
     // El invitado ve DOS avisos deliberados y distintos: el RESUMEN de errores del formulario
@@ -103,7 +103,7 @@ test.describe('guest checkout · identidad y desglose', () => {
     await addFirstCardToCart(page);
     await page.goto('/es/checkout');
     // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
-    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toBeVisible();
+    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true })).toBeVisible();
 
     // CHK-MOVIL.2.3: UNA fila de destino antes del formulario; la bóveda es un botón con «REQUIERE CUENTA»
     // (seleccionable, sin `disabled`) que despliega el upsell. Ya no hay radios ni segunda copia en el resumen.
@@ -146,9 +146,9 @@ test.describe('guest checkout · identidad y desglose', () => {
     await addFirstCardToCart(page);
     await page.goto('/es/checkout');
     // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
-    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toBeVisible();
+    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true })).toBeVisible();
 
-    await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado@dominio.com');
+    await page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true }).fill('invitado@dominio.com');
     await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Juan Pérez');
     await page.getByLabel(t('es', 'addresses.line1')).fill('Av. Vallarta 1234');
     // v1.81 (API_CONTRACT §M4-SHIP.19.5): CP → colonia DE LA LISTA del CP; municipio y estado salen

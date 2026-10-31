@@ -61,8 +61,8 @@ test.describe('@real C-F2 · medición apagada: nada sale a Google/Meta', () => 
     await visit(page, '/es/checkout');
     await expectNoConsentUi(page);
     // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
-    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toBeVisible();
-    await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado-cf2@dominio.com');
+    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true })).toBeVisible();
+    await page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true }).fill('invitado-cf2@dominio.com');
     await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Prueba Medición');
     await page.getByLabel(t('es', 'addresses.line1')).fill('Av. Vallarta 1234');
     await page.getByLabel(t('es', 'addresses.postalCode')).fill('44100');

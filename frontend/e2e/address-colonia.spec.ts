@@ -32,9 +32,9 @@ test.describe('colonia como Mercado Libre · §M4-SHIP.19.25', () => {
     await addFirstCardToCart(page);
     await page.goto('/es/checkout');
     // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
-    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toBeVisible();
+    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true })).toBeVisible();
 
-    await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado@dominio.com');
+    await page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true }).fill('invitado@dominio.com');
     await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Juan Pérez');
     await page.getByLabel(t('es', 'addresses.line1')).fill('Av. Madero 100');
     await page.getByLabel(t('es', 'addresses.postalCode')).fill(UNKNOWN_CP);

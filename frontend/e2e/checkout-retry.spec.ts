@@ -119,8 +119,8 @@ test.describe('checkout con cuenta · reintento sobre la propia reserva (§4-R.2
 test.describe('checkout de invitado · el token es la llave del reintento (§4-R.3)', () => {
   async function fillGuestForm(page: Page) {
     // CHK-MOVIL.2.1: sin pantalla de tres vías; el formulario de invitado está desde el primer pintado.
-    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'))).toBeVisible();
-    await page.getByLabel(t('es', 'checkout.guest.email.label')).fill('invitado@dominio.com');
+    await expect(page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true })).toBeVisible();
+    await page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true }).fill('invitado@dominio.com');
     await page.getByLabel(t('es', 'checkout.guest.recipientName')).fill('Juan Pérez');
     await page.getByLabel(t('es', 'addresses.line1')).fill('Av. Vallarta 1234');
     // v1.81 (API_CONTRACT §M4-SHIP.19.5): CP → colonia DE LA LISTA del CP; municipio y estado salen
