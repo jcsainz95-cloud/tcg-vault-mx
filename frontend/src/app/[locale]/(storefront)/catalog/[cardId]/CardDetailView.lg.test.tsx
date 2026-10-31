@@ -176,7 +176,7 @@ describe('CardDetailView · lg: el renglón de compra antes de la pila y de Cond
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
     await screen.findAllByTestId('instance-cta');
     const name = screen.getByTestId('card-name');
-    expect(name.className).toContain('lg:line-clamp-3');
+    expect(name.className.split(/\s+/)).toEqual(expect.arrayContaining(['lg:line-clamp-3', 'lg:pb-1.5', 'lg:-mb-1.5']));
     expect(name.className).not.toMatch(/(?:^|\s)line-clamp-\d/);
     expect(name).toHaveTextContent('Charizard');
     expect(screen.getByRole('heading', { level: 1 })).toHaveAccessibleName(/^Charizard · Base Set/);

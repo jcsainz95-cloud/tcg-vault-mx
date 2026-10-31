@@ -368,8 +368,10 @@ function Detail({
               como bloque propio, con la misma letra y el mismo margen que tenía de párrafo: se ve igual. */}
           <h1 className="font-serif text-[32px] leading-[1.05] text-text lg:order-1 lg:text-[46px]" lang="en">
             {/* vMKT-CONV-2: en lg el nombre se recorta a 3 renglones (visual; el texto y el nombre accesible siguen
-                completos). La línea de set, debajo, no entra en el recorte. */}
-            <span className="lg:line-clamp-3" data-testid="card-name">
+                completos). La línea de set, debajo, no entra en el recorte. `pb-1.5`/`-mb-1.5`: el recorte con
+                `leading-[1.05]` cortaba el descendente del 3.er renglón (medido: la «y» de «Type»); 6 px de caja más sin
+                mover nada (con 6 y 8 px no asoma el 4.º renglón). */}
+            <span className="lg:-mb-1.5 lg:line-clamp-3 lg:pb-1.5" data-testid="card-name">
               {card.name}
             </span>
             <span className="sr-only"> · </span>
