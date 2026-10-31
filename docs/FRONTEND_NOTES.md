@@ -13,7 +13,8 @@
   la caché guarda con el cuerpo (`onHeaders` en `RequestOptions`/`ServerReadOptions`); sin cabecera ⇒ `null` ⇒ vieja.
   `CatalogView` pone `initialDataUpdatedAt = montaje − ageMs` (por edad: un reloj del navegador atrasado no la vuelve
   fresca): copia fresca ⇒ 0 relecturas; vieja ⇒ relee al hidratar. Portada: sin defecto, `updatedAt: 0` relee siempre al
-  montar (medido con el mismo escenario). Fichas: leen sin caché de datos. Candado E2E: `e2e/catalog-freshness.spec.ts`.
+  montar (medido con el mismo escenario). Fichas: leen sin caché de datos. Candado E2E: `e2e/catalog-freshness.spec.ts`;
+  `seo-raw-html` «C2 no repite» calienta antes de medir (sin eso dependía de la edad que dejó la prueba anterior).
 - **TL-MKT3-1:** `serverInit()` en `api.ts` pasa `next`/`signal`/`onHeaders` enteros; el catálogo usa `withAbortBudget`
   (al vencer aborta; la respuesta tardía ya no llena la caché). Portada y regla de envío siguen con `withBudget` a
   propósito (la tardía llena la caché para la siguiente visita). **TL-MKT3-2:** pestaña Gradeadas = `?productType=graded`.
