@@ -15072,4 +15072,7 @@ coincide, una captura de lo que sí aparece basta.
   del futuro, bloque ausente sin rc 2 ⇒ canario rojo **6/6**.
 - **Trinquete (1 350 / 4 190 ms) contra tandas de CI** (N=5 por perfil; celular d1 FCP/LCP y d2 FCP, medianas):
   runs 41134931602 · 41141178712 · 41144812801 (antes de fijarlo, mismas cifras que con él): 1.22/3.52 · 1.22/3.73 · 1.22/3.81 s,
-  d2 1.22-1.23 s ⇒ **3/3 tandas verdes**. Sobre el sha de esta rama: pendiente del run de CI (lo añade el commit siguiente).
+  d2 1.22-1.23 s ⇒ 3/3. Con el trinquete ya fijado, sha `5183de06`: runs 41147978343 · 41149112510 · 41150300792 ⇒ d1
+  1.21/3.79 · 1.21/3.48 · 1.22/3.60 s, d2-delay/d2-503 1.22 s, CLS ≤ 0.066 ⇒ **3/3 verdes** (los tres workflows enteros en verde).
+  Total en CI: **6/6 tandas** con la mediana bajo el trinquete; holgura de LCP 9-17 %. En este contenedor bajo carga 7-9: **0/2**
+  (LCP 5.49 y 5.13 s; FCP 1.67 y 1.24 s): no sirve de instrumento con otros agentes al lado.
