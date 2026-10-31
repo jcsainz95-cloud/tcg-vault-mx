@@ -63,5 +63,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     dynamicEntries = [];
   }
 
-  return [...staticEntries, ...contentEntries, ...dynamicEntries];
+  // C7 (ARCHITECTURE §4.CARDSHOW.a): la landing del Card Show es canónica FUERA del i18n — sin `/es`.
+  const cardShowEntry: MetadataRoute.Sitemap = [
+    { url: siteAbsoluteUrl('/card-show'), lastModified: now, changeFrequency: 'weekly' },
+  ];
+
+  return [...staticEntries, ...cardShowEntry, ...contentEntries, ...dynamicEntries];
 }
