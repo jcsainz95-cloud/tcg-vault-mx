@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.115⟨mkt-conv2⟩ (2026-10-31).** §13.8 NUEVA (sellado agotado por grupo, `Offer` agotado sin precio, correo público, canonical paginado); §4.DYN (f) 2 regla de la respuesta tardía, (f) 3 corregido (el HTML no tiene cota de edad), (f) 9 dato servidor→cliente con su edad; §14.4 `/nosotros` excluida; compactadas las cabeceras C7/P-71 · frontend (§MKT-CONV2), techlead (TL-MKT2-7/8, TL-MKT4-3). Contrato: API_CONTRACT §MKT.A.1.
 > **Errata v1.114.5⟨portada⟩ (2026-10-30).** §4.DYN (f) 7: el residual de PEN-DYN-1 (scrydex da 200 genérico a cualquier id con la forma) se **acepta** con alerta de gasto, lectura a 7 días con caducidad y candado, e interruptor que cierra `/_next/image` a orígenes remotos; el proxy con lista de ids queda como opción (b) con disparador · QA (rechazo sobre `d0b40182`), frontend (medición del residual), pentester. Contrato: API_CONTRACT §DYN.1 «Limpieza PDB», DYN-D2.
 > **Errata v1.114.4⟨portada⟩ (2026-10-30).** §4.DYN (d) 4: un solo turno PSA vivo (candado consultivo; la segunda corrida sale sin pedir nada) y relectura de lo gastado antes de cada set; §4.DYN (e): «empezó después» con el reloj de la BD y retención de `ListingPriceRun` · techlead (rechazo sobre `d0b40182`: R2, TL-DYN-6/7/10). Contrato: API_CONTRACT §DYN.4.3, §DYN.5.3/.9/.10, DYN-B27…B31, D-DYN-10.
 > **Errata v1.114.3⟨portada⟩ (2026-10-30).** 💰 §4.PRE (c) y §4.DYN (e): un caso vigente **sin base** ya no deja la variante sin venta: se vende al **mínimo de las cotizaciones frescas admitidas** (sin ninguna ⇒ `PRICE_PENDING`); la compra sigue `pending` · dueño (`HECHOS.md` 2026-10-30 «Casos de revisión de precio SIN base: opción A…» y «Español y sellos: TODO automático…»). §4.DYN (f) 7: sin `sharp`, `/_next/image` responde 200 con la original (no error) · devops/frontend. Contrato: API_CONTRACT §DYN.5.9, DYN-B25, DYN-F1 (b), DYN-F11.
@@ -103,48 +104,10 @@
 > | **5** | `D-C7-2/3/4` cerradas por backend (`d1fbbf8` / `668b6f8` / `ff3ecc4`; pendiente re-medición de QA/seguridad). `SEC-C7-RT` cerrada entera: secretos JWT iguales ⇒ arranque rechazado en todo entorno + guard estricto (`3c03f36`) | §4.57.8, §8, §9 | **No** |
 >
 > ---
-> **Rev v1.80.1 — C7 TRAS EL VEREDICTO DE SEGURIDAD: UN DISPOSITIVO POR SESIÓN, LA MEMORIA CUENTA SIEMPRE, Y EL SCRIPT
-> DE RESCATE LEVANTA EL CANDADO** (2026-09-29, arquitecto. Base: **v1.80, vigente entera salvo lo que esta rev toca**.
-> Origen: `SECURITY_NOTES` 2026-09-29 sobre `8ea245f` —`SEC-C7-MINT` (Media, bloquea dinero real), `SEC-C7-SCRIPT` y
-> `SEC-C7-RDEG` (Bajas)— y el «IMPORTANTE 1» de QA sobre el mismo sha (plazo de Redis vencido bajo carga ⇒ segunda
-> escalera). `API_CONTRACT` sube a **v1.80.1**. ⛔ **Sin schema, sin migración, sin variable de entorno nueva, sin
-> cambio de frontend.** Todo el trabajo resultante es de **backend**. Detalle y alternativas descartadas: **§4.57.10**.)
->
-> | # | Qué cambia | Dónde | ¿Toca código? |
-> |---|---|---|---|
-> | **1** | ⭐⭐ `SEC-C7-MINT`: el `jti` del `deviceToken` es el **`sid` de la sesión** (claim nuevo del refresh token, opaco para el front). `refresh` **renueva** el dispositivo, no lo multiplica: N refrescos ⇒ **un** cubo | §4.57.4, §4.57.10.1 (a) | **Sí, backend** |
-> | **2** | ⭐ Red de seguridad: **tope agregado por cuenta** de intentos por vía dispositivo (**30 en 24 h**, todos los `jti` juntos); al superarlo el dispositivo deja de ser puerta y se usa el cubo de la cuenta | §4.57.2 #8, §4.57.3, §4.57.10.1 (b) | **Sí, backend** |
-> | **3** | ⭐ QA IMPORTANTE 1: un plazo vencido de Redis **ya no regala una segunda escalera**. La memoria es **caché de la última respuesta de Redis + lo que Redis no vio**, y eso se **repone** en la primera operación que Redis vuelve a contestar. De paso cierra `SEC-C7-RDEG` (el `reset` en modo memoria también se repone) | §4.57.2 #11, §4.57.5, §4.57.10.2 | **Sí, backend** |
-> | **4** | `SEC-C7-SCRIPT`: `prisma/reset-admin-password.ts` **levanta el candado C7** (borra los cubos de la cuenta en Redis si hay `REDIS_URL`; si no, lo dice) | §4.57.10.3, `API_CONTRACT §1` «Script de rescate» | **Sí, backend** |
-> | **5** | ⛔ **NO** se liga el `deviceToken` a `tokenVersion`: se **descarta** la recomendación, con la cuenta hecha | §4.57.4, §4.57.10.1 (c) | **No** |
-> | **6** | Pruebas nuevas **`C7-19…C7-23`** (cada una con la mutación que la pone en rojo) | `API_CONTRACT §1` | **Solo pruebas de backend** |
->
-> ---
-> **Rev v1.80 — C7: LÍMITE DE INTENTOS POR CUENTA** (2026-09-28, arquitecto. Base: **v1.79.5, vigente entera salvo lo
-> que esta rev toca**. Origen: condición **C7** del veredicto de seguridad «release A» (`SECURITY_NOTES`, `P-RL-1`); bloquea
-> el paso a dinero real. `API_CONTRACT` sube a **v1.80**. ⛔ **Sin schema, sin migración, sin variable de entorno
-> nueva.** Toca zonas compartidas: `backend/src/common/`, `backend/src/config/`, `frontend/src/lib/`.)
->
-> | # | Qué cambia | Dónde | ¿Toca código? |
-> |---|---|---|---|
-> | **1** | ⭐⭐ Contador de intentos **por cuenta** (HMAC del correo normalizado) delante de `argon2`: 5 libres, luego candado 1 min que se duplica hasta 60 min; `429 TOO_MANY_PASSWORD_ATTEMPTS` idéntico exista o no la cuenta | §4.57.2–.3 | **Sí, backend** |
-> | **2** | ⭐ **Dispositivo conocido** (`deviceToken`) para que un atacante no pueda dejar fuera al dueño; CAPTCHA descartado | §4.57.2 #8, §4.57.4 | **Sí, backend y frontend** |
-> | **3** | Redis con respaldo en memoria (ni fail-open ni fail-closed) | §4.57.2 #11, §4.57.5 | **Sí, backend** |
-> | **4** | `change-password` con contador propio por `userId` | §4.57.2 #14 | **Sí, backend** |
-> | **5** | Aviso: log + bitácora sin `await` + correo solo a staff | §4.57.2 #10 | **Sí, backend** |
->
-> ---
-> *(Frente P-71 — pantallas. «Rev v1.80» **⟨P-71⟩**; sus `§4.57.x` son de §4.57 (P-71).)*
->
-> **Rev v1.80 — P-71: EL CÓDIGO CORTO DEL SET SE PUBLICA** (2026-09-28, arquitecto. Base: **v1.79.5, vigente entera
-> salvo lo que esta rev toca**. Origen: `DESIGN_SYSTEM §37.3` (v4.9) pidió el dato (regla 9). `API_CONTRACT` sube a
-> **v1.80**. ⛔ **Sin schema, sin migración, sin endpoint, sin código de error, CERO DINERO.**)
->
-> | # | Qué cambia | Dónde | ¿Toca código? |
-> |---|---|---|---|
-> | **1** | `CardSet.ptcgoCode` (ya guardado) se proyecta a seis DTOs con **una** normalización (`trim`, vacío ⇒ `null`) | §4.57.1–.3 | **Sí, backend y frontend** |
-> | **2** | «Buscar set» casa por nombre **o** código (servidor en tres índices; cliente en el cotizador) | §4.57.4 | **Sí, backend y frontend** |
-> | **3** | Qué NO se sabe de los datos de producción, y la consulta de solo lectura que lo mide | §4.57.6 | **No** (medición del dueño) |
+> **Revisiones v1.80⟨C7⟩, v1.80.1⟨C7⟩ y v1.80⟨P-71⟩ compactadas en v1.115 (una línea cada una; norma en su sección, historia en git):**
+> - v1.80.1⟨C7⟩ · 2026-09-29 · `jti` del `deviceToken` = `sid` de la sesión, tope agregado 30/24 h por cuenta, memoria que se repone tras Redis, el script de rescate levanta el candado, `C7-19…C7-23` · **§4.57.10**, `API_CONTRACT §1` · seguridad (`SEC-C7-MINT/SCRIPT/RDEG`), QA.
+> - v1.80⟨C7⟩ · 2026-09-28 · límite de intentos por cuenta (HMAC del correo, 5 libres, candado 1→60 min, `429 TOO_MANY_PASSWORD_ATTEMPTS`), dispositivo conocido, Redis con respaldo en memoria · **§4.57.2–.5** · seguridad (`P-RL-1`).
+> - v1.80⟨P-71⟩ · 2026-09-28 · `CardSet.ptcgoCode` en seis DTOs y «Buscar set» por nombre o código · **§4.57 (P-71) .1–.6** · ux-ui (`DESIGN_SYSTEM §37.3`).
 >
 > ---
 > *(Frente `claude/paquete-dinero`. Sus «Rev v1.80», «v1.80.1» y «v1.80.2» son **⟨dinero⟩**; v1.80.2.1 y v1.80.2.3 no
@@ -30978,9 +30941,19 @@ precios en el carrito del navegador ni precios anteriores en el servidor.
 2. La petición de servidor tiene **tope de 400 ms**: si el API tarda o falla, ninguna de las dos frena el primer pintado (937);
    qué pinta cada una mientras tanto (marco solo en Destacadas; la vitrina sin esqueleto, `DESIGN_SYSTEM §22.6`) lo norma
    `API_CONTRACT §DYN.6.2` (v1.114.1).
-3. Disponibilidad: el HTML puede llevar hasta ~60 s de retraso (revalidación + `max-age` del API); tras hidratar, el cliente
-   revalida y una pieza vendida sale. Lo exacto lo garantiza el checkout (`409 ITEM_UNAVAILABLE`), como hoy. Lectura del
-   arquitecto de «en vivo» (§X.1, 924): **≤ 60 s en listas públicas, exacto al pagar**.
+   **Qué pasa con la respuesta que llega tarde (v1.115, TL-MKT4-3)** — `lib/ssr-budget.ts`: `withBudget` deja que llene la
+   caché de datos; `withAbortBudget` la aborta. Criterio único: **llena la caché solo si el espacio de claves lo fijamos
+   nosotros** (portada `featured`/`showcase`, regla de envío: claves constantes; la tardía sirve a la siguiente visita y no
+   se puede multiplicar). **Aborta si la clave la elige quien visita** (catálogo: `q`/`setId`/`rarity` libres, PEN-MKT-2) **o
+   si no hay caché que llenar** (fichas: leen sin caché de datos). Una lectura SSR nueva cita esta regla al elegir.
+3. Disponibilidad (corregido en v1.115; antes decía «el HTML ≤ ~60 s», que es **falso**): la caché de datos de Next es
+   *stale-while-revalidate*: tras un rato sin visitas, la primera petición recibe la copia **vieja, de cualquier edad**, y
+   dispara la revalidación detrás (medido por QA 10/10 en `next start`; en Vercel, `ageMs` 37–38 s tras 36 s sin visitas,
+   N=3, orquestador, `HECHOS.md` 2026-10-31 «Marketing tanda 1 publicada»). Por eso **el HTML no tiene cota de edad**; lo
+   que se garantiza es: (i) el dato viaja con su edad y el cliente **relee al hidratar** si es vieja (regla de (f) 9), y
+   (ii) lo exacto lo da el checkout (`409 ITEM_UNAVAILABLE`), como hoy. Lectura de «en vivo» (§X.1, 924): **≤ 60 s en lo
+   que ve quien tiene JavaScript, exacto al pagar**; un bot sin JavaScript puede leer un precio o una existencia viejos
+   (no compra: aceptado).
 4. **CSP — modelo de fase 1: se queda el nonce por petición; se cachean los DATOS, no el HTML.** El primer pintado cumplía
    (FCP 0.60/0.89 s medido entonces; con imágenes reales, 1.38 s en celular: API_CONTRACT D-DYN-8); lo que falta es el LCP, y lo resuelve tener las tejas en el HTML, no servir el HTML desde el edge. Así
    no se debilita la CSP. **Condición:** el nonce **tiene que llegar** a los `<script>` (hoy no: 53 violaciones y 27 POST por vista);
@@ -31008,6 +30981,18 @@ precios en el carrito del navegador ni precios anteriores en el servidor.
    - **Cada segmento añade su ámbito** con un componente de servidor `RouteMessages({ scope })`. Toma de `getMessages()` los namespaces de primer nivel del ámbito y se los da a un proveedor de cliente que los **funde** con los del padre (el patrón de `AdminMessagesProvider`). Ámbitos: `home` (lo que usa la portada) y `storefront` = todo − `admin` − `SHELL`, calculado y no listado, para que un namespace nuevo caiga ahí solo. El panel recibe `storefront` + `admin`.
    - **Dónde va:** en la página o en el layout más cercano que no contenga la portada: `(auth)/layout`, `pedido/layout`, `account/layout`, `[...rest]` y cada página directa de `(storefront)` salvo la portada. ⛔ Nunca en `(storefront)/layout`, porque contiene la portada. **Por qué por segmento y no por `pathname` en la raíz:** la raíz no se vuelve a pintar en una navegación de cliente, y portada → catálogo se quedaría con los textos de la portada; el RSC de la página nueva sí trae su ámbito.
    - **Lo que no cambia:** los componentes de servidor leen el catálogo entero (`getTranslations`). La paridad es/en sigue siendo por clave en `messages/{es,en}.json`, y los ámbitos se declaran por nombre de namespace, igual en los dos idiomas. Fuera de la portada, cada página recibe lo mismo que hoy (`SHELL` + `storefront`).
+9. **Dato servidor → cliente (v1.115, TL-MKT2-8). Regla de edad: todo dato que el servidor lea de la caché de datos y pase
+   a react-query viaja con su edad, y edad desconocida = vieja.** La edad sale de la cabecera `Date` del backend guardada con
+   el cuerpo (`onHeaders`, `FRONTEND_NOTES` §MKT-R2B); `ageMs = ahora − Date`; sin cabecera, ilegible **o negativa** ⇒
+   desconocida ⇒ `updatedAt` 0 (relee al montar). Sin caché de datos (fichas) la edad es la del render. **Cuál de los dos
+   patrones:** `initialData` + `initialDataUpdatedAt = montaje − ageMs` cuando **una** vista posee **una** consulta cuya
+   clave sale de la URL o de props (catálogo: `catalogFiltersKey`; fichas: id); `HydrationBoundary` cuando el servidor
+   precarga **varias** consultas de clave fija que consumen varios componentes del árbol (portada), y entonces cada consulta
+   deshidratada lleva `dataUpdatedAt` = momento de la lectura en origen, ⛔ nunca la hora de deshidratar (hoy la portada
+   pone 0 y relee siempre: cumple, a coste de una lectura). Los dos sitios citan este punto en un comentario.
+   **`unstable_cache` con `fetchedAt`: evaluado y no adoptado.** `Date` ya está medido en `next start` y en Vercel (punto 3);
+   `unstable_cache` añadiría una segunda caché con su propia invalidación y una API que Next marca inestable. Se reabre si una
+   lectura pierde `Date` (proxy o fuente sin ella) o al cambiar de versión mayor de Next.
 
 **(g) Desviaciones que este diseño deja escritas** (dueño y prueba de paridad de cada una en `API_CONTRACT §DYN.8`): el nonce que
 no llega (frontend; prueba DYN-F7); `PROJECT §X.1` «el cobro siempre recalcula» y la gracia/aviso de §X.2 contradicen `HECHOS`
@@ -36794,6 +36779,26 @@ es para lecturas de datos.
 interruptor pagado/orgánico, exportar por tabla): §MKT.G.8. **El sistema de diseño no tiene aún sección del panel**
 (`DESIGN_SYSTEM.md`: ninguna mención del panel de marketing, Grep 2026-10-18): la pantalla necesita a ux-ui antes que a frontend.
 
+### 13.8 §MKT-CONV tanda 2 — agotada, precio, correo público y canonical (v1.115⟨mkt-conv2⟩, 2026-10-31; norma en API_CONTRACT §MKT.A.1)
+- **(a) Sellado agotado ⇒ `200`, no `404`.** La URL del sellado nombra una **pieza** (§13.2.1) y la ficha filtraba la pieza por
+  `status: 'listed'` (`sealed-catalog.service.ts:477`, leído 2026-10-31): al venderse, la URL que Google indexó y la del sitemap daban
+  `404` **aunque el grupo siguiera a la venta**, y nadie podía apuntarse a «Avísame cuando vuelva» de un agotado (§WSH.7). Se resuelve
+  por **grupo**: la pieza solo dice qué producto+condición se pide. Descartadas: bandera `soldOut` (redundante con `availableCount = 0`)
+  y URL por producto (es C9, fuera de esta tanda). Coste: un uuid de pieza ya vendida sigue respondiendo; no revela nada de la pieza.
+- **(b) `Offer` agotado sin `price`.** Un «último precio publicado» no es un precio que se cobre (§4.DYN (e): exhibido = `ListingPrice`
+  vigente, y lo no vendible no tiene fila); la regla de marca es «precio final o sin precio» (§MKT). Se acepta perder el resultado
+  enriquecido de comerciante en la ficha agotada; qué marca Google: NO MEDIDO (prueba en API_CONTRACT §MKT.A.1).
+- **(c) Correo público: fuente única en el frontend, no `GET /support/contact`.** Son dos buzones: soporte de pedidos (de entorno,
+  §PNL) y contacto de marca (`contacto@` sobre `common.brand.domain`, `HECHOS.md` 2026-10-31 «Marketing tanda 2…»). El de marca va en
+  HTML y JSON-LD, que ya exigen despliegue para cambiar: no gana nada siendo de entorno y pagaría una lectura al backend en cada
+  render. Fuente única: `lib/about.ts` (`brandEmail('contacto')`). El aviso de sellado de `messages/*.json` (`DESIGN_SYSTEM`
+  «Vender sellado») escribe el literal: segunda fuente; frontend lo interpola desde `about.ts`.
+- **(d) Canonical del catálogo paginado (TL-MKT2-7).** Sin filtros, `?page=n` con n ≥ 2 ⇒ canonical propio `/{locale}/catalog?page=n`
+  (apuntar a la página 1 le dice a Google que la n es un duplicado y deja de seguir sus fichas). `page` 1, ausente o inválida ⇒
+  `/catalog`. Con filtro, búsqueda u orden distinto del de defecto ⇒ `/catalog` (no se indexan combinaciones). Fuera de rango
+  (`catalog.pageOutOfRange`) ⇒ `noindex, follow` y canonical `/catalog`. `hreflang` con la misma `page`. Prueba de `generateMetadata`.
+- **(e) Medición:** `/nosotros` queda **fuera** de la lista blanca (§14.4).
+
 ## 14. §MKT Fase 2 — medición con consentimiento: banner, GA4, píxel y Conversions API (rev v1.102⟨mkt-fase2⟩, 2026-10-18, arquitecto)
 
 > **SOLO DISEÑO. Se construye apagado.** Contrato: **API_CONTRACT §MKT.H**. Fuente: brief v2 §B1/§B2/§B4/§C/§D/§D3b y Panel
@@ -36942,7 +36947,8 @@ visitantes, y antes de la elección no se escribe nada en el dispositivo.
   menores ⇒ solo `page_view` a GA4, sin eventos de formulario (la conversión la mide b5/b6, §MKT.H.14) y, por defecto, **sin Meta**
   (P-CS-MEDIR-1). Si la landing tiene aviso propio, entra en la puerta C-D1 o es un `ENCENDER_BLOCKERS` (`CS-MEDIR-AVISO`, frontend).
 - **Excluidas a propósito:** cuenta y perfil, bóveda, admin, solicitud de venta con CLABE o INE, restablecer contraseña, verificar
-  correo, `/pedido?token=…` (invitado), `/orders` y su detalle, envíos.
+  correo, `/pedido?token=…` (invitado), `/orders` y su detalle, envíos; `/nosotros` (v1.115: sin petición de marketing ni decisión
+  del dueño, nace excluida como toda ruta; entra como entraron `/buylist` y `/card-show`; caso en C-F9 que la fija excluida).
 - **Navegación dura (D-MKT2-2).** Next navega sin recargar: un `gtag`/`fbq` cargado en la ficha seguiría vivo en `/cuenta`. Por
   eso, si hay código de medición cargado en el documento y la navegación va a una ruta excluida, **se hace navegación completa del
   documento** (recarga), que llega sin terceros porque el cargador no actúa allí. Propiedad que vigila el candado C-F5: **nunca

@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-30 (rev **v1.114.5⟨portada⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-31 (rev **v1.115⟨mkt-conv2⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -35,7 +35,8 @@
 > - v1.114.2⟨portada⟩ · 2026-10-30 · errata de §DYN, opción A del dueño para el celular: [§DYN.6.6](#DYN) foto de la teja líder por `/_next/image` (sin campo nuevo; `imageMediumUrl` descartado) y §DYN.6.7 textos por ruta; DYN-F1 (b) admite la línea `:830`; DYN-F8…F10 y DYN-D3 nuevas; DYN-D1 en celular pasa a trinquete con la meta en solo reporte y caducidad; 936 en celular **no cumplido** con el número (D-DYN-8); D-DYN-9 (arnés) · dueño (`HECHOS.md` 2026-10-30 «Portada en celular: opción A…»), informe de frontend del 2026-10-29; compactadas las cabeceras v1.80.8.2–.3.
 > - v1.114.3⟨portada⟩ · 2026-10-30 · 💰 errata de §DYN: [§DYN.5.9](#DYN) caso vigente **sin base** ⇒ la venta usa el **mínimo de las cotizaciones frescas admitidas** (ninguna ⇒ `PRICE_PENDING`), compra sigue `pending`; DYN-B25 rehecha; DYN-F1 (b) admite el segundo `error` de la prueba del 404 (DYN-F9) y la espera de reposo de §23.14 i (DYN-F11 nueva, sin tolerancia de píxel); sin `sharp` el optimizador da 200 con la original (`ARCHITECTURE §4.DYN (f) 7`) · dueño (`HECHOS.md` 2026-10-30 «Casos de revisión de precio SIN base: opción A…» y «Español y sellos: TODO automático…»), frontend y devops.
 > - v1.114.4⟨portada⟩ · 2026-10-30 · errata de §DYN tras el rechazo del techlead sobre `d0b40182`: I-4 con **single-flight del turno PSA** (candado consultivo de entrada, la segunda corrida sale sin pedir nada; relectura de lo gastado y plazo del candado antes de cada set, DYN.4.3); empate del mínimo sin base = orden del dial del árbitro (DYN.5.9); fecha de la base retenida = día **UTC** de `createdAt`; «empezó después» con el **reloj de la BD** (DYN.5.3); retención de `ListingPriceRun` a 90 días sin fila que la cite (DYN.5.10); DYN-B27…B31; D-DYN-10 · techlead (R2, TL-DYN-6/7/10, empate de DYN.5.9).
-> - v1.114.5⟨portada⟩ · 2026-10-30 · errata de §DYN tras el rechazo de QA sobre `d0b40182`: [§DYN.1](#DYN) «Limpieza PDB» clasifica las 6 tablas de M-93/M-94 para G-8 (3 borrar, 3 conservar), G-7 las excluye y G-11 nueva; DYN-D2 en celular bloquea con el FCP del trinquete de DYN-D1 (ratifica `DEVOPS_NOTES` §106.2); residual de PEN-DYN-1 aceptado en `ARCHITECTURE §4.DYN (f) 7` · QA (B-1, B-3/937), devops, frontend. La siguiente es **v1.115**.
+> - v1.114.5⟨portada⟩ · 2026-10-30 · errata de §DYN tras el rechazo de QA sobre `d0b40182`: [§DYN.1](#DYN) «Limpieza PDB» clasifica las 6 tablas de M-93/M-94 para G-8 (3 borrar, 3 conservar), G-7 las excluye y G-11 nueva; DYN-D2 en celular bloquea con el FCP del trinquete de DYN-D1 (ratifica `DEVOPS_NOTES` §106.2); residual de PEN-DYN-1 aceptado en `ARCHITECTURE §4.DYN (f) 7` · QA (B-1, B-3/937), devops, frontend.
+> - v1.115⟨mkt-conv2⟩ · 2026-10-31 · [§MKT.A.1](#MKT-A1) NUEVA: sellado agotado ⇒ `200` con `listings: []` (ya no `404`; también cuando la pieza pedida se vendió y el grupo sigue a la venta), `SealedGroupDTO.fromPriceCents`/`priceSource` nullable solo en la ficha agotada, `Offer` agotado sin `price` (no hay «último precio»), og/meta sin IVA (ajusta §MKT.A a MKT-4), canonical del sellado = `group.representativeItemId`; §2-S ficha de sellado; §0 «Datos de contacto» deja fuera el buzón público de marca (ARCHITECTURE §13.8) · frontend (`FRONTEND_NOTES` §MKT-CONV2, criterio 951), techlead (TL-MKT2-7/8, TL-MKT4-3: viven en ARCHITECTURE §4.DYN (f) y §13.8). La siguiente es **v1.116**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -2591,21 +2592,10 @@
 > propio argumento**: *un control que no se puede ejecutar es PEOR que ninguno — ocupa un renglón en la lista de
 > mitigaciones y hace que nadie busque otra cosa.* **Es literalmente lo que ya pasó una vez con este mismo control.**
 >
-> **C. ⚠️⚠️ `BL-41` SE CIERRA COMO «RETIRADA POR PRODUCTO», NO COMO «IMPLEMENTADA» — Y LA DISTINCIÓN ES EL PUNTO.**
-> Marcarla *resuelta* diría que el hueco se tapó. **No se tapó: se decidió no taparlo, porque no se puede.** El
-> hallazgo —*«ninguna precondición de dinero comprueba de quién es la cuenta»*— **queda vivo como riesgo aceptado**, con
-> las palabras del humano y sin suavizar: ***«pueden capturar una CLABE que digan que es de ellos y no sabríamos»***.
-> ⚠️ **Una ficha marcada «resuelta» sobre un control que no existe es exactamente la clase de registro mentiroso que el
-> techlead encontró en `TECH_DEBT.md` con `BE-1`.** Estado en §9 de ARCHITECTURE: **✅ CERRADA — RETIRADA POR PRODUCTO
-> (D51). El riesgo NO se cerró: se aceptó.**
->
-> **D. ⚠️⚠️ LO QUE **NO** SE RETIRA, Y SE DICE PRIMERO PORQUE ES LA LECTURA FÁCIL Y EQUIVOCADA: **D46 QUEDA ENTERO**.**
-> **Esto NO es «se retira el KYC».** El **INE se sigue pidiendo desde la cotización**, **sobre el umbral**, con sus
-> **DOS compuertas** —**§M5-I** (creación) y **§M5-A** (emisión)—, **cifrado en R2** y con **retención de 180 días**.
-> **`422 INE_REQUIRED` no se toca en ninguna de las dos puertas.** **Lo que muere es COMPARAR EL NOMBRE CONTRA LA
-> CUENTA; IDENTIFICAR A QUIEN NOS VENDE SIGUE EN PIE, y eso es lo que el INE hace.** ⛔ **Backend: si de este changelog
-> sale un solo `INE_REQUIRED` menos, la lectura fue errónea** — criterio **183(e)** es la guarda de regresión y se
-> verifica **con el rol más alto**.
+> **C–D (compactados en v1.115; texto en git).** `BL-41` se cerró como **RETIRADA POR PRODUCTO (D51)**: el riesgo
+> «pueden capturar una CLABE que digan que es de ellos y no sabríamos» queda **aceptado**, no cerrado. **D46 queda
+> entero:** el INE se sigue pidiendo sobre el umbral en sus dos compuertas (§M5-I creación, §M5-A emisión) y
+> `422 INE_REQUIRED` no se toca (guarda de regresión: criterio 183(e)).
 >
 > **E. `legalName` y `kycStatus` — qué son ahora, porque un campo sin escritor y sin lector es la próxima ficha falsa.**
 > | Campo | Qué era | Qué es tras D51 | Qué se hace |
@@ -2621,65 +2611,17 @@
 > CLABE** —que es lo que la pregunta 40 mató—. Por eso es implementable donde `KYC_NOT_VERIFIED` no lo era: son
 > controles distintos aunque suenen parecidos. La regla completa y su borde viven en **[`§M5-K`](#M5-K)**.
 >
-> **F. `BL-42` — SU CAMINO 3 GANA NORMA DE PRODUCTO (D50), Y NO DEPENDÍA DEL COTEJO.**
-> La *`cotizada` que no muere* —el camino que dejé abierto **a propósito** por ser decisión de producto— **la cierra
-> D50**: el plazo **empieza CUANDO LE PEDIMOS lo que falta** (no desde la creación), y si vence **cierra por el camino
-> que YA EXISTE** —**`expirada` + motivo `no_offer`**, con su correo de siempre—, **sin estado nuevo y sin motivo
-> nuevo**. **Al cerrar nace el ancla y la purga vuelve a funcionar sola.** Norma en [`§M5-N.3`](#M5-N).
-> ⚠️ **Con UNA sola causa** (falta de INE): al retirarse D49 desaparece *«el nombre no coincide»*. **D50 no pierde razón
-> de ser: la causa que sobrevive es la original y la más frecuente.**
+> **F–G (compactados en v1.115; texto en git).** `BL-42` camino 3: la `cotizada` sin INE vence por D50 (`expirada` +
+> `no_offer`), norma en [`§M5-N.3`](#M5-N). `BL-44`: la purga se bloquea por perfil, no por solicitud; anclarla a la
+> solicitud es del humano (AML); norma parcial en [`§M5-N.6`](#M5-N), prueba criterio 182(e).
 >
-> **G. ⚠️ `BL-44` — REGISTRO NUEVO: LA PURGA SE BLOQUEA POR PERFIL, NO POR SOLICITUD. D50 NO LO CIERRA.**
-> El hallazgo que motivó a D50 **es más ancho que el camino que D50 cierra**, y merece término propio porque **su dueño
-> y su salida son otros**: el barrido **salta el `KycProfile` ENTERO mientras el usuario tenga cualquier solicitud
-> viva** (`openCount == 0` es condición **(1)** del predicado, medido en v1.59) ⇒ **una sola solicitud viva congela la
-> purga de TODAS las identificaciones de esa persona, incluidas las de solicitudes ya cerradas y PAGADAS.**
-> **D50 hace finita UNA causa de solicitud eterna; NO cambia que la retención esté anclada al perfil.** ⇒ un vendedor
-> recurrente **con una solicitud en curso hoy** mantiene vivo el INE de una solicitud **pagada hace 200 días**.
-> **No lo cierro yo, y por la misma razón que el camino 3:** anclar la retención **a la solicitud** en vez de al perfil
-> **cambia qué significa `INE_RETENTION_DAYS`** ⇒ **es del humano** (bandera AML). Norma parcial y assert en
-> [`§M5-N.6`](#M5-N); criterio **182(e)** de `PROJECT.md` es su prueba.
+> **H–I (compactados en v1.115; texto en git).** Vigente: `kycStatus` **no se pinta en ninguna superficie de vendedor**
+> (criterio 183(c)); el criterio 183 se verifica por ausencia; 180 y 181 están retirados; el estado de `BL-38…BL-43` vive
+> en ARCHITECTURE §9.
 >
-> **H. LO QUE SIGUE PENDIENTE Y NO SE PIERDE DE VISTA EN ESTE REORDEN.** **`BL-43`** —la cota **por ítem** re-anclada al
-> **mensual** (§M5-D.4)— **sigue ABIERTA y BLOQUEANTE**, pendiente **de backend**, y **esta rev no la toca**. **`BL-42`
-> caminos 1 y 2** (boundary atómico §M5-I.4 y barrido de huérfanos §M5-N.4) **siguen pendientes de backend, sin
-> cambios**. **`BL-38`, `BL-39`, `BL-40` sin cambios.**
->
-> **I. LO QUE CAMBIA PARA CADA ROL.** **Backend:** **un cierre MENOS** —§M5-K deja de ser trabajo— y **un conteo
-> pre-merge menos**; lo demás de v1.59 sigue idéntico. **Un solo cambio real: retirar `legalName` de los dos DTOs de
-> admin.** **Frontend:** **nada obligatorio**; ⚠️ **un encargo de revisión**: `kycStatus` **hoy no se pinta en ninguna
-> superficie de vendedor** (medido: solo tests en `(storefront)`) y **así debe seguir** — pintarle *«verificado»* al
-> vendedor afirmaría un acto que no existe (criterio **183(c)**). El badge/selector de **M6 (admin)** se queda. **ux-ui:**
-> §P.2.2(b) **pierde la frase del cotejo** — la pantalla que pide el INE **ya no puede decir que se verifica contra el
-> titular de la cuenta**; era **la única de las dieciocho que salía de la pantalla**. **QA:** el criterio **183** se
-> verifica **por AUSENCIA** (seis puntos), el **182** por D50, y ⛔ **los criterios 180 y 181 NO se ejecutan: están
-> retirados.** **seguridad/pentester:** el riesgo residual es **aceptado y escrito**, no un hallazgo nuevo.
->
-> **J. BARRIDO DE MIS DOS DOCUMENTOS, DICHO CON NÚMERO PORQUE ASÍ SE VERIFICA.** El product-owner encontró la promesa
-> en **18 sitios** de `PROJECT.md` y **tres sobrevivieron a su primera pasada**. **Censo propio: 21 sitios — 14 en este
-> contrato y 7 en `ARCHITECTURE.md`—, todos tocados en esta rev**, y **van en dos categorías porque se corrigen
-> distinto**:
-> - **11 AFIRMABAN el cotejo o lo exigían como precondición** *(7 aquí + 4 en ARCHITECTURE)*: **§0 «Errores»**
->   (`KYC_NOT_VERIFIED`), **§6 / nota de vocabulario de `scope`** (la **lista de contenciones AML** con la que se
->   justificó D47), **`pay-spei`** (§M5), **§M5-K** (entera), **`PATCH /admin/users/:id/kyc`** (M6) y el **changelog
->   v1.59 §E y §G**; en ARCHITECTURE, **rev v1.59 §B**, **§4.39(ac.1)**, y en **§9** la fila `BL-41` y la nota de
->   cabecera de la tabla. ⇒ **se RETIRAN, con el registro tachado y visible.**
-> - **10 SE APOYABAN en él sin nombrarlo** *(7 aquí + 3 en ARCHITECTURE)* — **y ésta es la categoría que se escapa**:
->   `legalName` vivo en los **DTOs de KYC** (§11) y en el soft-delete, **`PUT /users/me/kyc`** y la **nota de login
->   Google** (*«CLABE/INE **a nombre del usuario**»*), las **dos** descripciones de `CLABE_NOT_OWN_NAME` como
->   *«nombre propio»*; en ARCHITECTURE, la **línea de auth Google**, el **modelo `KycProfile`** y el *«historial de
->   verificación»* de **§3.4(d)**. ⇒ **se CORRIGE LA REDACCIÓN**: son afirmaciones de verificación disfrazadas de
->   descripción de campo. *Retirar solo la frase literal habría dejado el documento diciendo lo mismo con otras
->   palabras.*
-> ⚠️ **Verificado al cierre con `grep` sobre los dos documentos, no al escribir** — que es exactamente el paso que le
-> faltó a la primera pasada del product-owner. *(⚠️ **Aparte del censo**: §M5-N gana norma por **D50**, no por D51.)*
->
-> **K. LO QUE ESTA REV NO HACE.** ⛔ **No reintroduce el cotejo por ninguna vía** —ni «al menos guardar el nombre», ni
-> «al menos un checkbox»—: la decisión está **medida contra la banca real del humano** y **cerrada**. ⛔ **No declara el
-> CEP del SPEI** (**pregunta abierta 44**): *«podría traer el nombre del beneficiario DESPUÉS de la transferencia»* es un
-> **supuesto que nadie ha verificado, yo incluido** — **no existe en este contrato y no se diseña contra él.** ⛔ **No
-> toca `CLABE_NOT_OWN_NAME`** (sigue comparando CLABEs, no nombres; su nombre sigue siendo peor que su conducta) **ni
-> mueve la CLABE** (pregunta 29). ⛔ **No toca topes, retención, D16, D46, D47 ni ningún dial.**
+ **J–K (compactados en v1.115; texto en git).** Barrido de la promesa del cotejo en los dos documentos (21 sitios) y
+> lo que v1.60 no hacía: ⛔ no reintroduce el cotejo por ninguna vía, ⛔ no diseña contra el CEP del SPEI (pregunta 44),
+> ⛔ no toca `CLABE_NOT_OWN_NAME` (compara CLABEs, no nombres), topes, retención ni diales.
 >
 > **Changelog v1.59 — D46/D47: EL INE SE EXIGE DESDE LA CREACIÓN, EL TOPE POR SOLICITUD DEJA DE RECHAZAR, Y EL QUE
 > RECHAZA SE EVALÚA ANTES QUE EL QUE IDENTIFICA (2026-09-06, arquitecto; **CERO endpoints nuevos, CERO DDL**. UN dial
@@ -6742,6 +6684,10 @@
      autoridad**. La fuente ejecutable del dominio de marca es la clave i18n **`common.brand.domain`** (hoy
      `tcghunt.mx`); la del valor efectivo de un campo es **su env** (`DISPUTE_EVIDENCE_CONTACT` para
      `evidenceContact`, en cascada con `SUPPORT_EMAIL` donde aplique).
+  6. **(v1.115) Fuera de esta cláusula:** el **buzón público de marca** (el de «Quiénes somos», el pie y el `contactPoint`
+     del JSON-LD) **no lo devuelve la API**: es dato de marca del frontend, no de entorno. Fuente única y razón:
+     `ARCHITECTURE §13.8 (c)`. `GET /support/contact` sigue siendo el buzón de **soporte de pedidos** (§PNL), y no se
+     usa para eso.
 
   **Por qué (y el criterio que hay que recordar).** Un literal escrito en el contrato **sobrevive a un rebrand**:
   como el contrato manda sobre el código, un dominio muerto escrito aquí **autoriza** a backend y frontend a
@@ -8680,12 +8626,15 @@ ListingDTO += { sealedCondition?: SealedCondition }
 // La REJILLA ya NO usa este DTO: usa `SealedGroupSummaryDTO`.
 SealedGroupDTO = { representativeItemId: string, card: CardDTO, productName: string, imageUrl: string | null,
                    sealedSubtype: SealedSubtype | null, sealedCondition: SealedCondition,
-                   availableCount: number, fromPriceCents: number, priceSource: SealedSpreadSource,
-                   priceBasis: PriceBasis, referenceValue: PriceInfo, currency: "MXN" }
+                   availableCount: number, fromPriceCents: number | null, priceSource: SealedSpreadSource | null,
+                   priceBasis: PriceBasis, referenceValue: PriceInfo, currency: "MXN" }   // null: v1.115, abajo
 // ⭐ v1.90⟨miv⟩ (ADITIVO, §MIV.2): SealedGroupDTO += { referenceDisplayCents?: number } — misma regla que en
 //   `GroupedListingDTO`, derivado del `referenceValue` YA PROYECTADO. ⛔ No entra en `SealedGroupSummaryDTO`.
 // ⭐ v1.106 (ADITIVO, §MKT.H.4): SealedGroupDTO y SealedGroupSummaryDTO += { sealedProductId: string | null } — el
 //   `InventoryItem.sealedProductId` del representante; `null` = sellado sin ligar. Solo identidad de medición (`item_id`).
+// ⭐ v1.115 (§MKT.A.1, ficha agotada): en SealedGroupDTO `fromPriceCents: number | null` y `priceSource: SealedSpreadSource
+//   | null`; null ⇔ `availableCount = 0` (y entonces `priceBasis = "pending"`, sin `referenceDisplayCents`). ⛔ La rejilla
+//   (`SealedGroupSummaryDTO`) NO cambia: solo lista grupos con ≥ 1 pieza vendible.
 // ===== v2.1.9 (D2) — REJILLA: `SealedGroupDTO` MENOS `priceBasis`, `referenceValue` y `priceSource` (de este se DERIVA
 // `priceBasis`: dejarlo publicaría la misma señal). Mismas garantías que `GroupedListingSummaryDTO`; TIPO PROPIO. =====
 SealedGroupSummaryDTO = { representativeItemId: string, card: CardDTO, productName: string, imageUrl: string | null,
@@ -9584,7 +9533,13 @@ Res `200` (`SealedGroupDetailResponse`): `{ group, listings: ListingDTO[], trend
 - **v2.1.9 (D2):** en esta ficha `group.priceBasis` y `group.priceSource` **se conservan**, y `group.referenceValue`
   emite su número **si y solo si `priceBasis === "market"`** (el `iff` de §DTOs). Los `listings[]` (piezas, `ListingDTO`)
   siguen la misma regla. La **rejilla** (`GET /catalog/sealed`) ya no recibe ninguno de los tres.
-Err `404 NOT_FOUND` (pieza inexistente o no publicada — no visible en Compra).
+- **v1.115 — la ficha resuelve el GRUPO de la pieza, no el estado de la pieza.** `:inventoryItemId` solo sirve para saber
+  qué producto+condición se pide (la misma clave de grupo de la rejilla); el grupo se arma con las piezas vendibles **de
+  ahora**. Pieza pedida vendida, en bóveda de un cliente, retirada de venta o con precio pendiente, y el grupo con
+  existencia ⇒ `200` con ese grupo (su `representativeItemId` es la pieza vendible más barata, no la pedida). Grupo sin
+  piezas vendibles ⇒ `200` **agotada**: `listings: []`, `group.availableCount = 0` y los campos de §MKT.A.1. Norma
+  completa y pruebas: [§MKT.A.1](#MKT-A1).
+Err `404 NOT_FOUND` **solo** si la pieza no existe o no es `productType='sealed'` (v1.115; antes también «no publicada»).
 
 ### GET /api/v1/catalog/sealed/:inventoryItemId/value-history — `public`  (v1.23 — FEATURE-FLAGGED `sealed_value_trend`)
 Tendencia de valor de mercado del producto sellado (estilo acciones), **reusando** el historial de `PriceReference`
@@ -43997,10 +43952,55 @@ ogImageUrl   : string | null  // URL ABSOLUTA de la imagen del catálogo apta pa
   (superficie de 1 ítem, no de cosecha masiva) — misma doctrina que `referenceDisplayCents` (§MIV / D2).
 - **Reglas de og/JSON-LD (las arma frontend con estos datos, v2 §A4):** `<title>`/`og:title` =
   «<Nombre> · <Set> <nº> | TCG HUNT» (sellado: «<Producto> | TCG HUNT»), **sin precio** (la caché sobrevive días);
-  `og:description` (≤155) con condición + «MX$<precio> IVA incluido · precio al <pricedAsOf>»; `og:image` = `ogImageUrl`
+  `og:description` (≤155) con condición + «MX$<precio> · precio al <pricedAsOf>» (⛔ sin la palabra IVA desde v1.115:
+  MKT-4 = a, criterio 956; el precio sigue siendo el final, IVA dentro); `og:image` = `ogImageUrl`
   (si no null) absoluta ≥1200×630, **sin precio en la imagen**; `og:url`=canonical absoluto; `twitter:card=summary_large_image`.
   JSON-LD `Product`+`Offer`: `priceCurrency:"MXN"`, `price` = precio con IVA, `availability` = InStock **solo si**
   `availableCount>0`, `priceValidUntil` lo calcula frontend desde `pricedAsOf` (ventana a confirmar con JC).
+
+#### <a id="MKT-A1"></a>MKT.A.1 — Ficha agotada y ficha inexistente (v1.115⟨mkt-conv2⟩, criterio 951; porqué en ARCHITECTURE §13.8)
+
+**Respuesta del backend.**
+| Caso | Carta `GET /catalog/cards/:cardId` | Sellado `GET /catalog/sealed/:inventoryItemId` |
+|---|---|---|
+| Identificador inexistente (o sellado que no es `sealed`) | `404 NOT_FOUND` | `404 NOT_FOUND` |
+| Existe, sin nada vendible ahora | `200`, `listings: []`, `units: []` (como hoy) | `200`, `listings: []`, `group.availableCount = 0`, `group.fromPriceCents = null`, `group.priceSource = null`, `group.priceBasis = "pending"`, `referenceValue` con su `status` y **sin número** (el `iff` de v2.1.9), sin `referenceDisplayCents` |
+| Existe y hay existencia | `200` (como hoy) | `200` con el grupo de **ahora**, aunque la pieza pedida ya no esté a la venta |
+
+- **Sellado agotado, de qué sale cada campo:** `card`, `productName`, `imageUrl`, `ogImageUrl`, `sealedSubtype`,
+  `sealedCondition` y `sealedProductId` de la **pieza pedida**; `representativeItemId` = la pieza pedida (es la que
+  acepta `POST /catalog/sealed/restock-subscriptions`, que ya deriva la identidad de cualquier pieza sellada, §WSH.7 (f));
+  `pricedAsOf` = fecha de esta respuesta (sigue requerido). `trendEnabled`/`restockEnabled` como siempre.
+- ⛔ **Ningún campo refleja el estado ni el dueño de la pieza pedida.** Para un mismo grupo, la respuesta es **la misma**
+  si la pieza pedida está vendida, en la bóveda de un cliente, retirada de venta o con precio pendiente (salvo
+  `representativeItemId` y los campos de identidad de la propia pieza en el caso agotado). Pentester lo vigila como
+  oráculo de estado.
+- **El feed del sitemap (§MKT.B) no cambia:** sigue listando solo lo que está a la venta. Agotada = indexable (sin
+  `noindex`), no anunciada en el sitemap.
+
+**Lo que arma el frontend.**
+- **Agotada (carta y sellado):** pinta «Agotada» (patrón de la carta, `DESIGN_SYSTEM`); JSON-LD `Offer` con
+  `availability: "https://schema.org/OutOfStock"` y **sin `price`, sin `priceValidUntil`**. ⛔ No hay «último precio
+  publicado»: no existe un precio que se cobre (§DYN: precio exhibido = `ListingPrice` vigente, y una pieza que no está a la
+  venta no tiene fila), y la regla de §MKT es «precio final con fecha, **o sin precio**». `og:description` sin precio.
+  En el sellado agotado, con `restockEnabled`, el formulario «Avísame cuando vuelva» va con `group.representativeItemId`.
+- **Inexistente:** `notFound()` ⇒ `404` con título propio (ya construido, `FRONTEND_NOTES` §MKT-CONV2 C3).
+- **Canonical del sellado:** `/{locale}/sellado/{group.representativeItemId}` (con existencia, la pieza que lista el
+  sitemap; agotado, la propia URL). Carta: sin cambio.
+
+**Pruebas (las escribe el rol; el canario dice qué cambio las pone rojas).**
+| ID | Rol | Caso | Esperado | Canario |
+|---|---|---|---|---|
+| CNV-B1 | backend | grupo sellado con su única pieza ya vendida (o en bóveda de cliente) | `200`, `listings: []`, `availableCount 0`, `fromPriceCents null`, `priceSource null`, `priceBasis "pending"`, sin número de mercado | volver a filtrar la pieza pedida por `status: 'listed'` ⇒ `404` |
+| CNV-B2 | backend | pieza pedida vendida, otra del grupo a la venta | `200` con la otra como `representativeItemId` y en `listings` | idem ⇒ `404` |
+| CNV-B3 | backend | mismo grupo agotado pedido por una pieza vendida, otra en bóveda y otra retirada de venta | cuerpos iguales salvo `representativeItemId`/identidad de la pieza | añadir `status` de la pieza al DTO ⇒ difiere |
+| CNV-B4 | backend | uuid inexistente; pieza `raw` por la ruta de sellado | `404 NOT_FOUND` las dos | quitar el filtro `productType` ⇒ `200` |
+| CNV-F1 | frontend | HTML crudo de un sellado y una carta agotados | «Agotada», `OutOfStock`, ningún `"price"` en el JSON-LD, `og:description` sin `MX$` | pintar `fromPriceCents ?? 0` ⇒ aparece `"price"` |
+| CNV-F2 | frontend | HTML crudo de una pieza vendida cuyo grupo sigue a la venta | `200`, canonical a `representativeItemId` | canonical a la URL pedida ⇒ rojo |
+
+⚠️ **Lo que Google haga con un `Offer` sin `price`: NO MEDIDO.** Lo esperable es que la ficha agotada no tenga resultado
+enriquecido de comerciante; el criterio 953 («sin errores») se mide sobre fichas con existencia. Lo cierra frontend
+pasando una ficha agotada por la Prueba de resultados enriquecidos y anotando el resultado en `FRONTEND_NOTES`.
 
 ### MKT.B — OLA 1: feed de sitemap (E/SEO)
 
