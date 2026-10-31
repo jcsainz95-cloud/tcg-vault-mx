@@ -6,16 +6,28 @@
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46; 2026-10-31: §MKT tienda §A3/§A4/§E1
 > plegado en §MKT-OLA2); cada pase que añade quita más de lo que añade.
 
+## §MKT-CONV8 · Catálogo móvil con ≥ 2 tejas y ficha lg con la compra arriba (vMKT-CONV-2, 2026-10-31, rama `claude/mkt2-fe-layout`, base `8c66a844`)
+
+Fuente: DESIGN_SYSTEM §MKT-CONV.2 (lg) y §MKT-CONV.8; PROJECT 943. Medido en stack propio (`up --gate --measurement --seed`, :3190/:3199), seed sintético, banner abierto.
+- **Catálogo < lg** (`CatalogView`, `StoreTabs`, `Select` gana `labelClassName`/`fieldClassName`): eyebrow `hidden lg:block`; h1 24/28 con el conteo en la fila; pestañas `h-11`; Filtros+Orden en una fila de 56 (etiqueta `sr-only`); barra de resultados `h-0` sin chips (`h-12` sin wrap con chips); `resultsCount` es `role=status` y `sr-only lg:not-sr-only`; rejilla `pt-3 lg:pt-8`. lg idéntico. El pliegue aplica a todo < lg (también 768: rejilla 396.5 → 243).
+- **Teja < sm** (`CatalogTile`): nombre `line-clamp-2`, rareza `hidden sm:inline-block`, precio y stock en `flex` con `order-*` (IVA `basis-full` debajo; `sm:block` devuelve el orden del DOM), márgenes menores. Alto ≥ sm: 768 = 536.0 y 1366 = 523.0, igual que en `8c66a844` (Δ 0).
+- **Medidas (antes `8c66a844` → ahora):** rejilla y=424 → 243 (diseño: 242). Teja sembrada 416.6/437.6/454.4 → 372.6/393.6/410.4 a 360/390/414; peor caso (nombre de 120, 2 renglones) 390.8/411.8/428.6, fin 633.8/654.8/671.6 contra banner−8 = 643/747/799. Tejas completas 0 → 2 en es y en. El diseño calculaba 354/375/392 (≈ +37 px medidos): a 360 el margen real es 9 px, no 55. 390×664: rejilla 243, 0 tejas (no se promete).
+- **< sm, precio y stock:** van alineados por la línea base (15 px contra 9 px): `top` difiere 5 px (547.7 / 552.7), no ±2 como pedía L-10; el candado afirma que las cajas se solapan en vertical.
+- **Ficha lg** (`CardDetailView`): columna `lg:flex lg:flex-col` + `lg:order-*`: h1 → precio → grading (§22.3: antes de los renglones) → «Ejemplares disponibles», renglones y franja → pila T1a/T8/T2 → Condición/Acabado (la retícula se parte en dos) → certificado → lista. El certificado tiene botón: se pinta dos veces (`lg:hidden` en su sitio / `hidden lg:block` tras la compra) para que el foco siga el orden visual. Nombre `lg:line-clamp-3` (+`pb-1.5 -mb-1.5`: el recorte cortaba la «y» del 3.er renglón). `lg:pt-10`, precio `lg:mt-6`, h2 `lg:mt-5` (−16 px): sin eso, 40 px < 48 a 1280×720.
+- **Ficha, bottom del 1.er «Añadir al carrito»:** antes 701.3 (1 renglón; ya bajo el banner a 1280×720: −38) y 797.9/894.5 con nombres largos. Ahora 510.3 (1 renglón) y 606.9 (3, recortado): margen al banner 200.7/104.1 a 1366×768, 152.7/56.1 a 1280×720, 332.7/236.1 a 1440×900. El diseño calculaba ≈470/≈525. Un nombre de 60 caracteres ocupa 3 renglones a 46 px, no 2.
+- **Candados** (`e2e/measurement-on.spec.ts`, `@real`): L-8 (es/en), L-9, L-10; el peor caso se escribe en el DOM (el seed no trae nombres largos ni precio pendiente en la 1.ª página). L-5 queda solo con el desborde de la portada. Unitarias: `CatalogView.mobile.test.tsx`, `CardDetailView.lg.test.tsx`, casos MKT-CONV.8 en `CatalogTile.test.tsx` y `StoreTabs.ac.test.tsx`. `catalog.spec` D-EQ-3: localizador acotado al aviso (convive con `consent-status`).
+- **Abierto:** el grading (§22.3) sigue sobre los renglones en lg y su alto no lo cubre L-9 (el seed no lo enciende); el seed no tiene gradeada con certificado como grupo primario (la «gradeada» de L-9 es `E2E Slab And Raw`).
+
 ## §MKT-CONV2 · Marketing tanda 2: banner delgado, una etiqueta, T2, Quiénes somos, 404/agotada, sin IVA para buscadores (2026-10-31, rama `claude/mkt2-fe`, base `a60afe42`)
 
 Fuentes: DESIGN_SYSTEM §MKT-CONV.1–.6; PROJECT 940–957; HECHOS 2026-10-31 «Marketing tanda 2: decisiones del dueño» (D-A=A, D-B=A, D-C=B, MKT-2…5).
 - **B1:** `ConsentBanner` barra delgada (89 px móvil / 57 px a 1366, medido), «Configurar» dentro de la frase, los dos botones con la misma clase. L-1/L-2/L-3/L-5 en `e2e/measurement-on.spec.ts` (sustituyen el techo 232/120 de C-F12).
 - **B6b/T2:** ficha con «Añadir al carrito»/«Ver carrito» en renglón (`data-testid="instance-cta"`) y barra; fuera `catalog.buyNow` y `card.referenceExplainerNoMarket`. Pila T1a→T8→T2 (`_shared/VaultNote.tsx`: sale en SSR y se retira al montar si hay sesión). Lista de deseos sin `primary`.
-- **1366×768:** la palanca `lg:py-12` no bastaba (renglón 693–733, banner en 711); desde lg se compactan miga, retícula, T1a, h2 y renglón (−40 px): 10/10 fichas sembradas con el renglón ≤ 704. Margen 7–10 px: una h1 de dos renglones o el bloque de grading lo rompen (pedido a ux-ui).
+- **1366×768:** compactaciones lg de −40 px (miga, retícula, T1a, h2, renglón); la disposición vigente es §MKT-CONV8.
 - **B2:** `lib/about.ts` es la fuente única (correo `brandEmail('contacto')`, ciudad, Instagram, `CONTACT_PHONE` vacío ⇒ sin fila ni `telephone`). `/es|en/nosotros` (sitemap con `lastmod`, `AboutPage`+`Organization`), franja `_shared/TrustStrip.tsx` en ficha y carrito («Pago con tarjeta»: D-E sin decidir), pie con enlace y `mailto:`. `about.who.story` es el texto provisional que sustituye marketing (MKT-5). `/nosotros` NO está en la lista blanca de medición.
 - **C3:** `DETAIL_NOT_FOUND` (404 del backend) ⇒ `notFound()` en carta y sellado; `[locale]/not-found.tsx` da título propio. Carta agotada: «Agotada» + `Offer` `OutOfStock` sin `price`. Sellado agotado = 404 del backend (no se distingue de inexistente).
 - **C8/C6:** sin «IVA» en `buildFichaDescription` ni en `llms.txt`; `llms.txt` enlaza Instagram y Quiénes somos. Las pruebas usan `\biva\b` («privacidad» contiene «iva»).
-- **Abierto:** 943 «≥ 2 tarjetas completas con el banner» NO se cumple (0 en 360/390/414: la teja mide 417 px y la rejilla empieza en y≈424); la prueba lo anota sin afirmarlo hasta que ux-ui especifique el layout. `catalog.spec` D-EQ-3 y `measurement-off` fallan contra un stack `--measurement` (dos `role=status`; banner presente), ajeno a este cambio.
+- **Abierto:** `measurement-off` falla contra un stack `--measurement` (banner presente; NO re-medido en §MKT-CONV8). 943 y D-EQ-3: cerrados en §MKT-CONV8.
 
 ## §MKT-R2B · Frescura de la lista pública tras la caché de datos (2026-10-31, rama `claude/mkt-fe-r2b`, base `478356c0`)
 
@@ -708,23 +720,11 @@ arquitecto) y porque la decisión JC-3 cerraba L2-SEG-01 sobre el correo interno
 sobre el torneo. **Si Jakomi tampoco recibe ya los datos de preinscripción, hay que actualizar §5.** Marcado
 como pregunta, no modificado.
 
-## §CARDSHOW-M88 · `/card-show/confirm` nombra SÁBADO Y DOMINGO en grupo «los dos días» (2026-10-17, rama `fix/card-show-menor-frontend`, base `release/card-show` HEAD `fade4e6`, §CARDSHOW.12 ⭐M-88, BLOQ-A frontend)
+## §CARDSHOW-M88 · `/card-show/confirm` nombra SÁBADO Y DOMINGO en grupo «los dos días» (2026-10-17, §CARDSHOW.12 ⭐M-88; compactado 2026-10-31, el detalle vive en la rama `fix/card-show-menor-frontend`)
 
-**Estado vigente.** Parte frontend de BLOQ-A (el backend confirma AMBAS filas `sat`+`sun` del grupo y
-devuelve `days: { day, state }[]` ADITIVO sobre `ConfirmResult`). La página `/card-show/confirm` usa ese
-desglose para el copy:
-- **`frontend/src/lib/card-show-api.ts`**: nuevo `ConfirmDayResult { day:'sat'|'sun'; state:string }`;
-  `LinkActionSuccess` gana `days?: ConfirmDayResult[]`; `postLinkAction` parsea `body.days` con
-  `parseConfirmDays` (defensivo: solo `day ∈ {sat,sun}` + `state` string; vacío/ausente ⇒ `undefined`).
-- **`frontend/src/app/card-show/_components/LinkActionClient.tsx`**: `COPY.confirm.success(state, days)`.
-  Con `days.length ≥ 2` ⇒ `groupConfirmText`: ambos confirmados → «¡Listo! Quedaste preinscrito para
-  {días}.»; con un día en espera → «…preinscrito para {día} y en lista de espera para {día}; …»; `state`
-  distinto de `waitlist` cuenta como preinscrito. Labels de día desde `CARD_SHOW.torneos.dias` (un hecho,
-  un sitio — ⛔ no se hardcodea «sábado/domingo»). Con `days` ausente (leads) o 1 solo día ⇒ copy de un día
-  SIN cambios (comportamiento previo intacto).
-- **Candado+canario:** `LinkActionGroup.test.tsx` (3 casos: ambos confirmados nombran sat+sun; mixto nombra
-  por separado; 1 día no nombra día). Canary: con la rama de grupo desactivada, 2/3 fallan y el de 1 día
-  pasa. Verificado: `next build` exit 0; vitest `LinkActionGroup` + `LinkAction` **11/11**.
+Vigente: `lib/card-show-api.ts` parsea `days?: { day: 'sat'|'sun'; state }[]` (aditivo de `ConfirmResult`) y
+`LinkActionClient.tsx` (`COPY.confirm.success(state, days)`) nombra los dos días o separa el de lista de espera; sin
+`days` o con uno solo, copy de un día. Etiquetas de día de `CARD_SHOW.torneos.dias`. Candado: `LinkActionGroup.test.tsx`.
 
 ## §CARDSHOW-MENOR · Nombre del premio visible + CTA fija que no tapa el hero (2026-10-17, rama `fix/card-show-menor-frontend`, base `release/card-show` HEAD `4288ca4`)
 
