@@ -7980,7 +7980,7 @@
     },
     "buylistCallout": {
       "title": "Want to sell your sealed product to TCG HUNT?",
-      "body": "Email us at contacto@tcghunt.mx with photos and we will quote it.",
+      "body": "Email us at {email} with photos and we will quote it.",
       "cta": "Email us"
     },
     "detail": {
@@ -7991,7 +7991,8 @@
       "addToCart": "Add {count} to cart",
       "goToCart": "Go to cart",
       "destinationNote": "Choose at checkout whether to have it shipped to you or kept in your vault.",
-      "minorDamageNote": "Sealed product with minor box damage; the contents are unaffected. Price is unchanged."
+      "minorDamageNote": "Sealed product with minor box damage; the contents are unaffected. Price is unchanged.",
+      "soldOut": "Sold out"
     },
     "trend": {
       "title": "Value trend",
@@ -8013,10 +8014,12 @@
     "restock": {
       "title": "Notify me when it returns",
       "body": "If it sells out, we'll email you once when it's back.",
+      "bodySoldOut": "We'll email you once when it's back.",
       "emailLabel": "Email",
       "emailPlaceholder": "you@example.com",
       "cta": "Notify me",
       "confirmed": "Done. If it sells out and comes back, we'll email you once.",
+      "confirmedSoldOut": "Done. When it's back, we'll email you once.",
       "signedInAs": "We'll notify {email}.",
       "rateLimited": "Too many attempts. Wait a minute and try again."
     },

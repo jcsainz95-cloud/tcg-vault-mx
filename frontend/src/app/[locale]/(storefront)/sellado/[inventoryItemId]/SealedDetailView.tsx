@@ -24,6 +24,7 @@ import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
 import { centsToValue, track } from '@/lib/measurement/track';
 import { measurementItemOf } from '@/lib/measurement/item';
 import { RefundPromiseLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
+import { isSealedSoldOut } from '@/lib/seo';
 
 /** §MKT.H.4 (v1.106): identidad canónica del sellado — `s_<sealedProductId>` o `sc_<cardId ancla>`, nunca la pieza. */
 function sealedItemOf(g: Pick<SealedGroupDTO, 'productName' | 'sealedProductId'> & { card: { id: string } }) {
@@ -84,7 +85,9 @@ export function SealedDetailView({
               ids.forEach((id) => cart.add(id));
               setAddedSignal(Date.now());
               // §MKT.H.4 `add_to_cart` (con el modo `off`, no hace nada). Precio por pieza = «desde».
+              // (Agotado no tiene botón: `fromPriceCents` siempre llega aquí con número.)
               const g = query.data!.group;
+              if (g.fromPriceCents == null) return;
               const price = centsToValue(g.fromPriceCents);
               const id = sealedItemOf(g);
               track('add_to_cart', {
@@ -124,8 +127,16 @@ function Detail({
   const productName = group.productName;
   // Un backend anterior a v1.106 no manda la clave ⇒ `sc_<ancla>`, nunca la pieza.
   const sealedProductId = group.sealedProductId ?? null;
+  // §MKT.A.1 (v1.115, criterio 951): grupo sin piezas vendibles ⇒ `200` con `listings: []`, `availableCount 0` y
+  // `fromPriceCents`/`priceSource` en `null`. La ficha sigue visible e indexable con «Agotado» donde iría el precio
+  // (mismo patrón que la carta agotada, `CardDetailView` `sold-out`), sin «desde», sin cantidad ni compra, y con el
+  // «Avísame cuando vuelva» si el dial está encendido. ⛔ Ningún precio inventado (ni MX$0 ni el de mercado).
+  const fromPriceCents = group.fromPriceCents;
+  const soldOut = isSealedSoldOut(detail);
   useEffect(() => {
-    const price = centsToValue(group.fromPriceCents);
+    // Como la carta agotada: sin precio vigente no hay `view_item` (su `value` sería inventado).
+    if (fromPriceCents == null) return;
+    const price = centsToValue(fromPriceCents);
     const id = sealedItemOf({ card: { id: cardId }, productName, sealedProductId });
     track('view_item', {
       items: id ? [{ ...id, price }] : [],
@@ -133,9 +144,9 @@ function Detail({
       currency: 'MXN',
       market_value_shown: false,
     });
-  }, [cardId, sealedProductId, productName, group.fromPriceCents]);
+  }, [cardId, sealedProductId, productName, fromPriceCents]);
 
-  const available = group.availableCount;
+  const available = soldOut ? 0 : group.availableCount;
   const [qty, setQty] = useState(1);
   const clampedQty = Math.max(1, Math.min(qty, available));
 
@@ -207,81 +218,92 @@ function Detail({
             <p className="mt-2 text-[13px] leading-relaxed text-muted">{t('detail.minorDamageNote')}</p>
           )}
 
-          {/* §A1 (MKT-26a): la ficha pública de sellado ya NO pinta «Valor de mercado». Queda una
-              sola celda, «Desde», a fila completa. El predicado del mercado (`showMarketValue`)
-              sigue vivo arriba, pero solo para gobernar la «Tendencia de valor» (§MIV.3), no esta
-              retícula. */}
-          <div className="mt-9 grid border-t border-border sm:grid-cols-2">
-            <div className="border-b border-border py-6 sm:col-span-2">
-              <div className="eyebrow">{t('fromPrice')}</div>
-              <div className="mt-2.5 tabular text-3xl font-medium leading-none text-text">
-                {formatMoneyCents(group.fromPriceCents, locale)}
+          {soldOut ? (
+            <p
+              data-testid="sold-out"
+              className="mt-9 border-t border-border pt-5 font-mono text-[13px] uppercase tracking-[0.12em] text-muted"
+            >
+              {t('detail.soldOut')}
+            </p>
+          ) : (
+            <>
+              {/* §A1 (MKT-26a): la ficha pública de sellado ya NO pinta «Valor de mercado». Queda una
+                  sola celda, «Desde», a fila completa. El predicado del mercado (`showMarketValue`)
+                  sigue vivo arriba, pero solo para gobernar la «Tendencia de valor» (§MIV.3), no esta
+                  retícula. */}
+              <div className="mt-9 grid border-t border-border sm:grid-cols-2">
+                <div className="border-b border-border py-6 sm:col-span-2">
+                  <div className="eyebrow">{t('fromPrice')}</div>
+                  <div className="mt-2.5 tabular text-3xl font-medium leading-none text-text">
+                    {fromPriceCents != null && formatMoneyCents(fromPriceCents, locale)}
+                  </div>
+                  {/* ⛔ §M10-IVA.3 — el rótulo lo dice el DATO (`ivaIncluded`), no la pantalla. */}
+                  <IvaLabel
+                    ivaIncluded={group.ivaIncluded}
+                    ivaRatePct={group.ivaRatePct}
+                    className="mt-2 block text-[11px] leading-none"
+                  />
+                </div>
               </div>
-              {/* ⛔ §M10-IVA.3 — el rótulo lo dice el DATO (`ivaIncluded`), no la pantalla. */}
-              <IvaLabel
-                ivaIncluded={group.ivaIncluded}
-                ivaRatePct={group.ivaRatePct}
-                className="mt-2 block text-[11px] leading-none"
-              />
-            </div>
-          </div>
 
-          {/* T1b + T8 (§CHK-MOVIL.4): bajo el precio, fuera de su celda; importes del endpoint público. */}
-          <ShippingFeeHint kind="sealed" className="mt-3" />
-          <RefundPromiseLine className="mt-1" />
+              {/* T1b + T8 (§CHK-MOVIL.4): bajo el precio, fuera de su celda; importes del endpoint público. */}
+              <ShippingFeeHint kind="sealed" className="mt-3" />
+              <RefundPromiseLine className="mt-1" />
 
-          {/* Disponibilidad real del endpoint («N en stock»/«Último»/«Agotado») + cantidad por-pieza. */}
-          <div className="mt-7">
-            <StockBadge
-              variant={stockVariantFromCount(available)}
-              count={available}
-              className="text-[11px] sm:text-[11px]"
-            />
-          </div>
+              {/* Disponibilidad real del endpoint («N en stock»/«Último»/«Agotado») + cantidad por-pieza. */}
+              <div className="mt-7">
+                <StockBadge
+                  variant={stockVariantFromCount(available)}
+                  count={available}
+                  className="text-[11px] sm:text-[11px]"
+                />
+              </div>
 
-          <div className="mt-4 flex items-center gap-4">
-            <div className="flex items-center border border-border-strong">
-              <button
-                type="button"
-                aria-label={t('detail.decrease')}
-                disabled={clampedQty <= 1}
-                onClick={() => setQty((q) => Math.max(1, q - 1))}
-                className="flex h-11 w-11 items-center justify-center text-text disabled:opacity-40"
-              >
-                <Minus size={16} aria-hidden />
-              </button>
-              <span className="tabular w-12 text-center font-mono text-base text-text" aria-live="polite">
-                {clampedQty}
-              </span>
-              <button
-                type="button"
-                aria-label={t('detail.increase')}
-                disabled={clampedQty >= available}
-                onClick={() => setQty((q) => Math.min(available, q + 1))}
-                className="flex h-11 w-11 items-center justify-center text-text disabled:opacity-40"
-              >
-                <Plus size={16} aria-hidden />
-              </button>
-            </div>
+              <div className="mt-4 flex items-center gap-4">
+                <div className="flex items-center border border-border-strong">
+                  <button
+                    type="button"
+                    aria-label={t('detail.decrease')}
+                    disabled={clampedQty <= 1}
+                    onClick={() => setQty((q) => Math.max(1, q - 1))}
+                    className="flex h-11 w-11 items-center justify-center text-text disabled:opacity-40"
+                  >
+                    <Minus size={16} aria-hidden />
+                  </button>
+                  <span className="tabular w-12 text-center font-mono text-base text-text" aria-live="polite">
+                    {clampedQty}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t('detail.increase')}
+                    disabled={clampedQty >= available}
+                    onClick={() => setQty((q) => Math.min(available, q + 1))}
+                    className="flex h-11 w-11 items-center justify-center text-text disabled:opacity-40"
+                  >
+                    <Plus size={16} aria-hidden />
+                  </button>
+                </div>
 
-            {allInCart ? (
-              <Button variant="secondary" onClick={() => router.push('/checkout')}>
-                {t('detail.goToCart')}
-              </Button>
-            ) : (
-              <Button variant="accent" onClick={() => onAdd(idsToAdd)}>
-                {t('detail.addToCart', { count: clampedQty })}
-              </Button>
-            )}
-          </div>
+                {allInCart ? (
+                  <Button variant="secondary" onClick={() => router.push('/checkout')}>
+                    {t('detail.goToCart')}
+                  </Button>
+                ) : (
+                  <Button variant="accent" onClick={() => onAdd(idsToAdd)}>
+                    {t('detail.addToCart', { count: clampedQty })}
+                  </Button>
+                )}
+              </div>
 
-          {/* Destino: recibir o dejar en bóveda — se decide en el checkout existente (§4/§4-G). */}
-          <p className="rule-note mt-7 text-[13px] leading-[1.65] text-muted">{t('detail.destinationNote')}</p>
+              {/* Destino: recibir o dejar en bóveda — se decide en el checkout existente (§4/§4-G). */}
+              <p className="rule-note mt-7 text-[13px] leading-[1.65] text-muted">{t('detail.destinationNote')}</p>
+            </>
+          )}
 
           {/* Feature-flag: «avísame cuando vuelva» (restock). Se muestra solo si el flag está ON. */}
           {restockEnabled && (
             <div className="mt-8 border-t border-border pt-6">
-              <SealedRestockForm inventoryItemId={group.representativeItemId} />
+              <SealedRestockForm inventoryItemId={group.representativeItemId} soldOut={soldOut} />
             </div>
           )}
         </div>
@@ -308,7 +330,7 @@ function Detail({
           una barra fija al pie, visibles sin scroll en la primera pantalla (la imagen llena el
           alto). Solo con ≥ 1 unidad a la venta (`available > 0`). En ≥ lg se oculta: ahí el precio y
           el CTA ya entran arriba, a la derecha del arte. z-40 como el FAB móvil del storefront. */}
-      {available > 0 && (
+      {!soldOut && fromPriceCents != null && (
         <div
           ref={buyBarRef}
           data-testid="mobile-buy-bar"
@@ -317,7 +339,7 @@ function Detail({
         >
           <div className="min-w-0">
             <div className="tabular text-xl font-medium leading-none text-text">
-              {formatMoneyCents(group.fromPriceCents, locale)}
+              {formatMoneyCents(fromPriceCents, locale)}
             </div>
             <IvaLabel
               ivaIncluded={group.ivaIncluded}

@@ -144,6 +144,7 @@ import type {
   InventoryStatus,
   SealedSubtype,
   SealedGroupDTO,
+  SealedSpreadSource,
   SealedGroupDetailResponse,
   GradedEstimateDTO,
   GradedEstimateConfigDTO,
@@ -4854,7 +4855,12 @@ export function mockCsv(report: 'pnl' | 'iva' | 'inventory'): string {
 const SEALED_BOX = cardById('c-sealed-sv08-box');
 const SEALED_ETB = cardById('c-sealed-sv06-etb');
 
-export const mockSealedGroups: SealedGroupDTO[] = [
+/**
+ * MOCK: grupos A LA VENTA (la rejilla y las fichas con existencia). §MKT.A.1 (v1.115): solo la ficha agotada trae
+ * `fromPriceCents`/`priceSource` en `null`; estos fixtures nunca lo son, y el tipo lo dice.
+ */
+export type PricedSealedGroupDTO = SealedGroupDTO & { fromPriceCents: number; priceSource: SealedSpreadSource };
+export const mockSealedGroups: PricedSealedGroupDTO[] = [
   {
     representativeItemId: 'inv-1008',
     sealedProductId: 'sp-sv08-box', // v1.106: ligado ⇒ item_id s_sp-sv08-box
@@ -4927,7 +4933,7 @@ export const mockSealedGroups: SealedGroupDTO[] = [
 ];
 
 /** Construye las N piezas (ListingDTO) de un grupo, más baratas primero (para la ficha). */
-function sealedListingsForGroup(group: SealedGroupDTO): ListingDTO[] {
+function sealedListingsForGroup(group: PricedSealedGroupDTO): ListingDTO[] {
   return Array.from({ length: group.availableCount }).map((_, i) => ({
     inventoryItemId: i === 0 ? group.representativeItemId : `${group.representativeItemId}-p${i + 1}`,
     card: group.card,

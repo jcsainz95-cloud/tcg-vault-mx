@@ -3,6 +3,9 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { SealedShopView } from './SealedShopView';
 import * as api from '@/lib/api';
+import { PUBLIC_CONTACT_EMAIL } from '@/lib/about';
+import es from '../../../../../messages/es.json';
+import en from '../../../../../messages/en.json';
 
 // El grid enlaza a la ficha con el Link de next-intl; se mockea a un <a> plano.
 // StoreTabs (sub-pestañas de la Tienda) usa usePathname: hay que exportarlo en el mock.
@@ -60,6 +63,22 @@ describe('SealedShopView · grid y conteos', () => {
 
     const body = screen.getByText(/Escríbenos a .+ con fotos/);
     expect(body).toHaveTextContent(email);
+  });
+
+  /**
+   * ARCHITECTURE §13.8 (c) (v1.115): el correo de marca tiene UNA fuente, `lib/about.ts` (`brandEmail('contacto')`).
+   * `messages/*.json` no lo escribe: lleva el hueco `{email}` y la vista lo interpola. Mutación: volver a escribir el
+   * literal en `sealed.buylistCallout.body` ⇒ rojo (segunda fuente).
+   */
+  it.each(['es', 'en'] as const)('§13.8 (c) · el buzón sale de lib/about.ts, no de messages (%s)', async (locale) => {
+    const msgs = locale === 'es' ? es : en;
+    expect(msgs.sealed.buylistCallout.body).toContain('{email}');
+    expect(msgs.sealed.buylistCallout.body).not.toMatch(/@/);
+    const { container } = renderWithProviders(<SealedShopView />, locale);
+    const cta = await screen.findByRole('link', { name: locale === 'es' ? 'Escríbenos' : 'Email us' });
+    expect(cta.getAttribute('href')).toBe(`mailto:${PUBLIC_CONTACT_EMAIL}`);
+    expect(container.textContent).toContain(PUBLIC_CONTACT_EMAIL);
+    expect(container.textContent).not.toContain('{email}');
   });
 });
 

@@ -14,6 +14,7 @@ import {
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
+import { PUBLIC_CONTACT_EMAIL } from '@/lib/about';
 import { IvaLabel } from '@/components/ui/IvaLabel';
 import { Link } from '@/i18n/navigation';
 import { CardImage } from '@/components/ui/CardImage';
@@ -30,14 +31,11 @@ const DEFAULT_PAGE_SIZE = 20;
 const CONDITIONS: SealedCondition[] = ['mint', 'minor_box_damage'];
 
 /**
- * Extrae la dirección de contacto anti-buylist del propio copy i18n (`sealed.buylistCallout.body`)
- * para que el texto que lee el usuario y el `mailto:` del botón NO puedan divergir: el buzón vive
- * en una sola fuente (el string traducido). Si el copy no trae un correo, se cae a un fallback seguro.
+ * ARCHITECTURE §13.8 (c) (v1.115): el buzón del call-out anti-buylist sale de la fuente única del correo público de marca
+ * (`lib/about.ts`, `brandEmail('contacto')`); `messages/*.json` solo lleva el hueco `{email}`. El texto que lee el
+ * usuario y el `mailto:` del botón usan la MISMA constante: no pueden divergir.
  */
-const SEALED_BUYLIST_FALLBACK_EMAIL = 'contacto@tcghunt.mx';
-function extractEmail(text: string): string {
-  return text.match(/[\w.+-]+@[\w.-]+\.\w+/)?.[0] ?? SEALED_BUYLIST_FALLBACK_EMAIL;
-}
+const SEALED_BUYLIST_EMAIL = PUBLIC_CONTACT_EMAIL;
 
 /**
  * Ventana de tienda del producto SELLADO (contrato §2-S · GET /catalog/sealed).
@@ -133,10 +131,10 @@ export function SealedShopView() {
         <div className="rule-note my-5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-medium text-text">{t('buylistCallout.title')}</p>
-            <p className="mt-1 text-[13px] leading-relaxed text-muted">{t('buylistCallout.body')}</p>
+            <p className="mt-1 text-[13px] leading-relaxed text-muted">{t('buylistCallout.body', { email: SEALED_BUYLIST_EMAIL })}</p>
           </div>
           <a
-            href={`mailto:${extractEmail(t('buylistCallout.body'))}`}
+            href={`mailto:${SEALED_BUYLIST_EMAIL}`}
             className="mt-2 inline-flex min-h-[44px] shrink-0 items-center self-start border border-text px-5 text-[11px] font-medium uppercase tracking-label text-text hover:bg-text hover:text-primary-fg sm:self-auto"
           >
             {t('buylistCallout.cta')}

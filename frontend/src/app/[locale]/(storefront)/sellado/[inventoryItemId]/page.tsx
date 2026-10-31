@@ -22,6 +22,8 @@ import {
   sealedCanonicalUrl,
   sealedConditionLabel,
   siteAbsoluteUrl,
+  soldOutOfferJsonLd,
+  isSealedSoldOut,
 } from '@/lib/seo';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { SealedDetailView } from './SealedDetailView';
@@ -34,9 +36,13 @@ import { RouteMessages } from '@/components/i18n/RouteMessages';
  * `/{locale}/sellado/<inventoryItemId>` (decisión del arquitecto, §MKT.A). El layout de `[locale]`
  * fuerza render por petición (lee `headers()`), así que es SSR, no SSG.
  *
- * C3 (criterio 951): el backend responde `404` si la pieza no existe O si su grupo ya no tiene piezas vendibles ⇒
- * `notFound()` (404 real, antes un 200 con el error en cliente). Un sellado AGOTADO no se distingue hoy de uno
- * inexistente: pedido al arquitecto (FRONTEND_NOTES §MKT-CONV2).
+ * §MKT.A.1 (v1.115⟨mkt-conv2⟩, criterio 951; ARCHITECTURE §13.8 (a)/(b)): el backend responde `404` SOLO si la pieza no
+ * existe o no es sellada ⇒ `notFound()`. La URL nombra una pieza, pero la ficha es la del GRUPO de ahora:
+ *  - grupo con existencia (aunque la pieza pedida ya se vendiera) ⇒ canonical = `group.representativeItemId`;
+ *  - grupo AGOTADO (`listings: []`, `availableCount 0`, `fromPriceCents`/`priceSource` `null`) ⇒ `200` indexable:
+ *    «Agotado» en el cuerpo, `Offer` `OutOfStock` SIN `price` ni `priceValidUntil` y `og:description` sin precio
+ *    (no hay «último precio»: lo no vendible no tiene precio que se cobre). Canonical = la propia pieza
+ *    (`representativeItemId` = la pedida en el caso agotado).
  */
 export async function generateMetadata({
   params,
@@ -44,7 +50,6 @@ export async function generateMetadata({
   params: Promise<{ locale: AppLocale; inventoryItemId: string }>;
 }): Promise<Metadata> {
   const { locale, inventoryItemId } = await params;
-  const canonical = sealedCanonicalUrl(locale, inventoryItemId);
   const data = await loadSealedDetailForSSR(inventoryItemId);
   if (data === DETAIL_NOT_FOUND) notFound();
   if (!data) {
@@ -52,10 +57,13 @@ export async function generateMetadata({
     return { metadataBase: new URL(SITE_URL), alternates: localeAlternates(locale, `/sellado/${encodeURIComponent(inventoryItemId)}`) };
   }
   const g = data.group;
+  // §MKT.A.1: canonical (y hreflang) a la pieza que representa el grupo, no a la URL pedida.
+  const canonical = sealedCanonicalUrl(locale, g.representativeItemId);
   const title = `${g.productName} | TCG HUNT`;
   const description = buildFichaDescription({
     conditionLabel: sealedConditionLabel(g.sealedCondition, locale),
-    priceText: formatMoneyCents(g.fromPriceCents, locale),
+    // Agotado ⇒ sin precio (§MKT.A.1); `buildFichaDescription` omite el tramo «desde … · precio al …».
+    priceText: isSealedSoldOut(data) || g.fromPriceCents == null ? null : formatMoneyCents(g.fromPriceCents, locale),
     pricedAsOf: g.pricedAsOf,
     locale,
   });
@@ -64,7 +72,7 @@ export async function generateMetadata({
     metadataBase: new URL(SITE_URL),
     title,
     description,
-    alternates: localeAlternates(locale, `/sellado/${encodeURIComponent(inventoryItemId)}`),
+    alternates: localeAlternates(locale, `/sellado/${encodeURIComponent(g.representativeItemId)}`),
     openGraph: {
       type: 'website',
       siteName: 'TCG HUNT',
@@ -99,9 +107,10 @@ export default async function SealedDetailPage({
   let jsonLd: Record<string, unknown> | null = null;
   if (data) {
     const g = data.group;
-    const canonical = sealedCanonicalUrl(locale, inventoryItemId);
+    const canonical = sealedCanonicalUrl(locale, g.representativeItemId);
+    const priceCents = isSealedSoldOut(data) ? null : g.fromPriceCents;
     const until = priceValidUntil(g.pricedAsOf);
-    const shippingDetails = shippingDetailsJsonLd('sealed', g.fromPriceCents, shippingRule);
+    const shippingDetails = priceCents != null ? shippingDetailsJsonLd('sealed', priceCents, shippingRule) : undefined;
     jsonLd = {
       '@context': 'https://schema.org',
       '@graph': [
@@ -111,17 +120,21 @@ export default async function SealedDetailPage({
           ...(g.ogImageUrl ? { image: [g.ogImageUrl] } : {}),
           // C5: marca, condición, envío y devoluciones (con datos que ya existen en el sitio; ver `lib/seo.ts`).
           brand: brandJsonLd(),
-          offers: {
-            '@type': 'Offer',
-            priceCurrency: 'MXN',
-            price: jsonLdPrice(g.fromPriceCents),
-            availability: jsonLdAvailability(g.availableCount),
-            itemCondition: jsonLdItemCondition('sealed'),
-            url: canonical,
-            ...(until ? { priceValidUntil: until } : {}),
-            ...(shippingDetails ? { shippingDetails } : {}),
-            hasMerchantReturnPolicy: merchantReturnPolicyJsonLd(),
-          },
+          offers:
+            priceCents != null
+              ? {
+                  '@type': 'Offer',
+                  priceCurrency: 'MXN',
+                  price: jsonLdPrice(priceCents),
+                  availability: jsonLdAvailability(g.availableCount),
+                  itemCondition: jsonLdItemCondition('sealed'),
+                  url: canonical,
+                  ...(until ? { priceValidUntil: until } : {}),
+                  ...(shippingDetails ? { shippingDetails } : {}),
+                  hasMerchantReturnPolicy: merchantReturnPolicyJsonLd(),
+                }
+              : // §MKT.A.1 / §13.8 (b): agotado ⇒ `OutOfStock`, sin `price` ni `priceValidUntil` (mismo `Offer` que la carta).
+                soldOutOfferJsonLd('sealed', canonical),
         },
         organizationJsonLd(),
         breadcrumbJsonLd([

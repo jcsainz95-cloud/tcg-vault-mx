@@ -21,7 +21,12 @@ function isEmail(v: string): boolean {
  * éxito siempre muestra el mismo mensaje. Si el flag está apagado el endpoint responde
  * `404 FEATURE_DISABLED` y el componente se OCULTA (cableado apagado limpio).
  */
-export function SealedRestockForm({ inventoryItemId }: { inventoryItemId: string }) {
+/**
+ * `soldOut` (§MKT.A.1, v1.115): en la ficha AGOTADA el producto ya no está a la venta, así que «Si se agota…» deja de
+ * ser cierto: el cuerpo y la confirmación dicen «cuando vuelva». El backend arma la suscripción igual (§WSH.7: una fila
+ * pendiente cuyo producto no tiene piezas vendibles se arma en la siguiente corrida).
+ */
+export function SealedRestockForm({ inventoryItemId, soldOut = false }: { inventoryItemId: string; soldOut?: boolean }) {
   const t = useTranslations('sealed.restock');
   const tc = useTranslations('common');
   const [email, setEmail] = useState('');
@@ -56,11 +61,11 @@ export function SealedRestockForm({ inventoryItemId }: { inventoryItemId: string
   return (
     <div>
       <p className="eyebrow">{t('title')}</p>
-      <p className="mt-2 text-[13px] leading-relaxed text-muted">{t('body')}</p>
+      <p className="mt-2 text-[13px] leading-relaxed text-muted">{t(soldOut ? 'bodySoldOut' : 'body')}</p>
 
       {mutation.isSuccess ? (
         <Banner variant="success" role="status" className="mt-4">
-          {t('confirmed')}
+          {t(soldOut ? 'confirmedSoldOut' : 'confirmed')}
         </Banner>
       ) : accountEmail ? (
         <form
