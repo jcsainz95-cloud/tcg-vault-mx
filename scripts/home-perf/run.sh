@@ -18,7 +18,7 @@
 #                encima del de d1. Si no, el candado no muerde ⇒ rc 1. (Engordar y no retrasar: la
 #                simulación estándar de Lighthouse no ve el TTFB del documento; medido, ver delay-proxy.mjs.)
 #     d2-delay   el API retrasa 5 s `/catalog/featured` y la vitrina (`sort=grading_showcase`):
-#                FCP ≤ 1.0 s y CLS ≤ 0.1 en la mediana (937: el resto se ve y al llegar no se mueve).
+#                FCP (escritorio ≤ 1.0 s; celular ≤ el FCP del trinquete, DYN-D2 v1.114.5) y CLS ≤ 0.1 en la mediana.
 #     d2-503     lo mismo respondiendo 503.
 #   En d2-* cada corrida arranca con la caché de datos de Next VACÍA y el servidor reiniciado: la
 #   petición tardía de la corrida anterior llena la caché y la siguiente mediría el caso cacheado.

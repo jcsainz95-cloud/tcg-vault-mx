@@ -537,6 +537,23 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
+  # ⏳ Residual de PEN-DYN-1 aceptado (ARCHITECTURE §4.DYN (f) 7, v1.114.5): condición
+  # con dueño (devops), lectura de coste de Vercel a 7 días de publicar en
+  # DEVOPS_NOTES §106.4 («LECTURA-IMG-7D <fecha> <transformaciones/día>») y caducidad
+  # 2026-12-01: ROJO desde esa fecha sin la lectura, y ROJO si la lectura pasa de
+  # 1 000/día (disparador de la opción b). Con su canario. DEVOPS_NOTES §106.4.
+  # ---------------------------------------------------------------------------
+  image-optimizer-cost-reading-expiry:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: La lectura de coste del optimizador a 7 días tiene fecha
+        run: ./scripts/check-image-optimizer-cost-reading-expiry.sh
+      - name: Y el candado sabe ponerse rojo cuando toca (canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-image-optimizer-cost-reading-expiry.sh --canary
+
+  # ---------------------------------------------------------------------------
   # 🔒 ¿EL CANDADO DEL DAST SIGUE SIENDO UN CANDADO? (P-77, DEVOPS_NOTES §44)
   #
   # Misma familia que las tres guardas de arriba: estática, barata (lee ficheros
@@ -1117,7 +1134,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, dyn-prod-measure, price-provider-interim-expiry, dast-report-only-expiry, home-perf-mobile-goal-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates, runner-pin, limpieza-ramas]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, dyn-prod-measure, price-provider-interim-expiry, dast-report-only-expiry, home-perf-mobile-goal-expiry, image-optimizer-cost-reading-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates, runner-pin, limpieza-ramas]
     if: always()
     runs-on: ubuntu-24.04
     steps:

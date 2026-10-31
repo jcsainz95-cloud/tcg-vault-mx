@@ -254,7 +254,8 @@ mutar "canario dentro del producto"    frontend/src/x.ts                 'cmd:ec
 mutar "dial encendido con llave"       .github/workflows/home-perf.yml   "s|^      ${LLAVE}: ''\$|      ${LLAVE}: \${{ secrets.PPT }}|"
 mutar "workflow sin el canario"        .github/workflows/home-perf.yml   's|run.sh d1 d1-canary d2-delay d2-503|run.sh d1 d2-delay d2-503|'
 mutar "CLS de celular a 0.25"          scripts/home-perf/lhci-config.mjs 's|cls: 0.1 }|cls: 0.25 }|'
-mutar "trinquete que no es mediana+10%" scripts/home-perf/mobile-ratchet.json 's|"fcpMs": null|"fcpMs": 1600|; s|"lcpMs": null|"lcpMs": 6100|; s|"medianaFcpMs": null|"medianaFcpMs": 1240|; s|"medianaLcpMs": null|"medianaLcpMs": 5470|; s|"runs": null|"runs": 5|; s|"sha": null|"sha": "0d40d0b7"|; s|"fecha": null|"fecha": "2026-10-30"|'
+mutar "trinquete que no es mediana+10%" scripts/home-perf/mobile-ratchet.json 's|"fcpMs": [^,]*|"fcpMs": 1600|; s|"lcpMs": [^,]*|"lcpMs": 6100|; s|"medianaFcpMs": [^,]*|"medianaFcpMs": 1240|; s|"medianaLcpMs": [^,]*|"medianaLcpMs": 5470|; s|"runs": [^,]*|"runs": 5|; s|"sha": [^,]*|"sha": "0d40d0b7"|; s|"fecha": [^,]*|"fecha": "2026-10-30"|'
+mutar "D2 de celular con la meta (v1.114.5)" scripts/home-perf/lhci-config.mjs "s|'first-contentful-paint': a(L\\[perfil\\].fcp)|'first-contentful-paint': a(tipo === 'd2' ? META_936[perfil].fcp : L[perfil].fcp)|"
 mutar "meta de 936 fuera del resumen"   scripts/home-perf/run.sh          's|NO CUMPLIDA, decisión del dueño 2026-10-30|no cumplida|'
 mutar "artefacto sin lhr (ocultas)"     .github/workflows/home-perf.yml   '/include-hidden-files: true/d'
 mutar "foto líder sustituta (ligera)"   scripts/home-perf/seed-image-host.py 's|bloque, amp_bloque, amp_fino = 10, 84, 2|bloque, amp_bloque, amp_fino = 10, 84, 1|'

@@ -22,9 +22,9 @@
   Playwright 1.56 no instala Chromium ahí (run 40849459030). Candado `scripts/check-runner-pin.sh` + canario, job `runner-pin` de `ci.yml`.
 - **Portada (§DYN, v1.114.2, 2026-10-30):** `home-perf.yml` corre Lighthouse CI (N=5 por perfil, mediana) con canario y los
   dos casos de 937 — §104; desde v1.114.2 con la foto líder de **peso real** y el optimizador comprobado (DYN-D3), y celular
-  con **trinquete** (DYN-D1) — §106. **El trinquete está SIN FIJAR** hasta que se fusione A + c1 de frontend: mientras, celular
-  bloquea con la meta de 936 y el workflow sale rojo. **Precondición de publicar A:** la lectura de coste en Vercel (§106.4,
-  la hace el dueño). Mediciones de producción de §DYN: `scripts/dyn-prod-measure.sh` (§104.4), las corre el dueño.
+  con **trinquete** (DYN-D1) — §106. **Trinquete fijado el 2026-10-30: FCP 1 350 ms / LCP 4 190 ms** (mediana de CI sobre
+  `e4c080ca` +10 %, §106.2); D2 en celular bloquea con ese FCP (v1.114.5). **Precondición de publicar A:** la lectura de coste
+  en Vercel (§106.4, la hace el dueño); la de 7 días tras publicar caduca el 2026-12-01 (candado en §106.4). Mediciones de producción de §DYN: `scripts/dyn-prod-measure.sh` (§104.4), las corre el dueño.
 - **Limpieza de ramas (2026-10-30):** `limpieza-ramas.yml` (lo dispara el dueño) borra las ramas remotas fusionadas en
   `production` y archiva `main`. Pasos para el dueño y cómo se deshace: **§105**.
 - **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5); muy por encima del tope: **se compacta antes de añadir**. Encabezado anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
@@ -15002,17 +15002,22 @@ no para fijar el trinquete.
 
 **106.2 DYN-D1 — trinquete de celular y meta en solo reporte.** Una sola fuente: `lhci-config.mjs`. Bloquean escritorio FCP
 ≤ 1.0 s / LCP ≤ 1.5 s, CLS ≤ 0.1 en los dos perfiles y, en celular, el trinquete de `scripts/home-perf/mobile-ratchet.json`
-(FCP/LCP = ⌈mediana × 1.10⌉₁₀, con mediana, N, sha y fecha). **Hoy está en `null`**: celular bloquea con la meta de 936 hasta
-fijarlo. La meta de 936 en celular sale siempre en el resumen del job («NO CUMPLIDA, decisión del dueño 2026-10-30» con el
-número). DYN-D2 en celular usa el FCP del trinquete (lectura mía de 937 «sigue cumpliendo 936» con 936 en trinquete; **para
-ratificar por el arquitecto**).
-- **Cómo se fija** (cuando A + c1 de frontend estén en la rama): stack sembrado y `scripts/home-perf/run.sh d1` sobre el
-  sha fusionado, en una máquina sin otra carga (`/proc/loadavg` en el resumen); luego
-  `node scripts/home-perf/fix-ratchet.mjs <HOME_PERF_OUT>/d1-mobile <sha> --write` y commit del json. El candado comprueba
+(FCP/LCP = ⌈mediana × 1.10⌉₁₀, con mediana, N, sha y fecha). **Fijado el 2026-10-30: FCP 1 350 / LCP 4 190 ms** (medianas
+1 219 / 3 808 ms, N=5, sha `e4c080ca`). La meta de 936 en celular sale siempre en el resumen del job («NO CUMPLIDA, decisión del
+dueño 2026-10-30» con el número). DYN-D2 en celular bloquea con el FCP del trinquete (ratificado, `API_CONTRACT` v1.114.5);
+mutación «D2 de celular con la meta» en el canario de `check-home-perf.sh`.
+- **De dónde sale el número: del runner de CI, no de este contenedor (medido).** Se fija donde se cobra: la mediana es la del
+  artefacto de `home-perf.yml` run 41144812801 (sha `e4c080ca`, ubuntu-24.04, 4 CPU, carga 2.01). En CI el FCP de celular es
+  estable: 14/15 corridas entre 1.22 y 1.24 s y 1 en 1.65 s (runs 41134931602, 41141178712, 41144812801; LCP medianas 3.52 / 3.73 / 3.81 s).
+  En este contenedor, con jest/vitest de otros agentes al lado (carga 7-9 en 4 CPU), la misma tanda dio FCP 1.67 / LCP 5.49 s
+  y FCP por corrida 1.23-2.17 s: la «bimodalidad» de §104.1 aparece con la carga del contenedor y no en CI (INFERIDO de
+  esas dos series; no aislé la causa). Un trinquete fijado aquí
+  (1 840 / 6 040 ms) habría dejado pasar un +50 % de LCP en CI.
+- **Tandas con el trinquete (N=5 por perfil cada una), en CI:** ver la tabla de §106.5.
+- **Cómo se fija (o se rehace):** `gh run download <run de home-perf.yml> -n home-perf -D <dir>` del sha que se quiere y
+  `node scripts/home-perf/fix-ratchet.mjs <dir>/d1-mobile <sha> --write`; commit del json (campo `fuente` = el run). El candado comprueba
   la fórmula, N ≥ 5, sha y fecha. **Subirlo** después exige un `paseArquitecto` nuevo que esté en `docs/API_CONTRACT.md`
-  (`check-home-perf.sh --against-ref`, job `home-perf-mobile-goal-expiry`). Ojo: el FCP de celular es **bimodal** por
-  corrida (≈1.4 s o ≈2.1 s, §104.1); con +10 % sobre una mediana de 1.39 s, una tanda cuya mediana caiga en el modo alto
-  sale roja. Lo mido antes de fijar (k/N de tandas verdes con el trinquete propuesto).
+  (`check-home-perf.sh --against-ref`, job `home-perf-mobile-goal-expiry`). Se mide en CI (artefacto `home-perf`), no aquí.
 - **Caducidad:** `scripts/check-home-perf-mobile-goal-expiry.sh` (job `home-perf-mobile-goal-expiry` de `ci.yml`): con
   trinquete fijado, verde hasta el 2026-12-31 y **rojo desde el 2027-01-01** (rc 9). Se apaga sola si celular vuelve a
   bloquear con la meta (json a `null`). Dueño de la condición: orquestador (devolver al dueño la opción B con el número).
@@ -15040,7 +15045,12 @@ coincide, una captura de lo que sí aparece basta.
 6. Mandar al orquestador: fecha, plan, incluido, precio del excedente, consumo diario y el monto de la alerta (no hay secretos
    en esto). Devops lo apunta aquí con fecha, y se **repite la lectura a los 7 días** de publicar.
 - Cómo se lee: uso esperado ~2 transformaciones por líder nueva al día (~60 al mes, INFERIDO por el arquitecto). **Más de
-  ~1 000 transformaciones al día** ⇒ se sospecha abuso: se acota `remotePatterns.pathname` o la líder vuelve a nivel B.
+  ~1 000 transformaciones al día** ⇒ disparador de la opción (b) o del interruptor (`ARCHITECTURE §4.DYN (f) 7`).
+- **Condición del residual de PEN-DYN-1 (v1.114.5):** dueño devops; la lectura **a 7 días de publicar** se apunta aquí, debajo
+  de la tabla, en una línea `LECTURA-IMG-7D <AAAA-MM-DD> <transformaciones/día>` (entero). Candado
+  `scripts/check-image-optimizer-cost-reading-expiry.sh` (job `image-optimizer-cost-reading-expiry` de `ci.yml`): **rojo desde
+  2026-12-01** sin esa línea en este bloque (rc 9), rojo si la lectura pasa de 1 000/día (rc 8), no concluyente sin este bloque
+  (rc 2). Si no se publica antes del 2026-11-24, la fecha se corre con pase del arquitecto. Canario 11/11; muerde (§106.5).
 
   | fecha | plan | incluido (transf. / reads / writes) | excedente por 1 000 | consumo diario (7 días) | alerta | quién |
   |---|---|---|---|---|---|---|
@@ -15050,10 +15060,16 @@ coincide, una captura de lo que sí aparece basta.
 - `check-home-perf.sh` (job de `ci.yml`, paso «Arnés de Lighthouse»): umbrales con trinquete, meta en el resumen, artefacto con
   lhr, peso y huella de la líder, reescritura, desvío, comprobación del optimizador, `lcp-optimized.mjs` contra 5 lhr de
   juguete (bueno; respaldo; 500; `<img>` cruda; WebP + original a la vez), `--replace` del proxy y guarda de `sharp` del
-  Dockerfile. `--canary`: **28/28** mutaciones rojas (las 11 de §104 + 17 de este pase).
+  Dockerfile. `--canary`: **29/29** mutaciones rojas (11 de §104 + 17 de v1.114.2 + «D2 de celular con la meta», v1.114.5;
+  la de «trinquete que no es mediana+10 %» ya muerde con el trinquete fijado, antes solo con `null`).
 - `check-home-perf.sh --against-ref` + `--against-ref-canary` **5/5** (job `home-perf-mobile-goal-expiry`).
 - `check-home-perf-mobile-goal-expiry.sh --canary` **4/4**; y el canario muerde: fecha movida a 2027-06-01, rc 9 cambiado a
   0, trinquete que nunca caduca y trinquete disfrazado de meta ⇒ canario rojo **4/4**.
 - Conducta del arnés (N=5 por perfil, una tanda cada una): sin `sharp` ⇒ **ROJO, 0/5 y 0/5** (`200 image/png`); con `sharp` ⇒
-  **5/5 y 5/5**; canario de D1 con trinquete ⇒ rojo en los dos perfiles. La estabilidad del trinquete frente a la bimodalidad
-  del FCP: **1/1 tanda verde, NO MEDIDO con N ≥ 10** (se mide al fijarlo).
+  **5/5 y 5/5**; canario de D1 con trinquete ⇒ rojo en los dos perfiles.
+- `check-image-optimizer-cost-reading-expiry.sh` (§106.4, job `image-optimizer-cost-reading-expiry`): `--canary` **11/11**; y
+  muerde: fecha movida a 2027-06-01, rc 9 → 0, leer todo el fichero y no solo §106.4, disparador a 999 999, aceptar lecturas
+  del futuro, bloque ausente sin rc 2 ⇒ canario rojo **6/6**.
+- **Trinquete (1 350 / 4 190 ms) contra tandas de CI** (N=5 por perfil; celular d1 FCP/LCP y d2 FCP, medianas):
+  runs 41134931602 · 41141178712 · 41144812801 (antes de fijarlo, mismas cifras que con él): 1.22/3.52 · 1.22/3.73 · 1.22/3.81 s,
+  d2 1.22-1.23 s ⇒ **3/3 tandas verdes**. Sobre el sha de esta rama: pendiente del run de CI (lo añade el commit siguiente).
