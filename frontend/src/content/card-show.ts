@@ -11,7 +11,7 @@
  * nombradas son **TCG HUNT** y **Jakomi**. El candado de secreto del CI (devops) hace grep de los
  * nombres de patrocinador (env `CARDSHOW_SECRET_TERMS`) sobre esta rama.
  */
-import { CONTACT_PHONE, whatsappHref } from '@/lib/about';
+import { CONTACT_PHONE, PUBLIC_CONTACT_EMAIL, whatsappHref } from '@/lib/about';
 
 /** Juego del torneo / interés (enum `CardShowGame`, §Enums). Pokémon = formal; resto = ligera. */
 export type CardShowGame = 'pokemon' | 'riftbound' | 'lorcana' | 'shardbugs' | 'magic';
@@ -342,8 +342,9 @@ export const CARD_SHOW = {
     // TL-MKT6-4: el número sale de su fuente única (`lib/about.ts`); el href es `wa.me` con lada MX, sin separadores.
     whatsappDisplay: CONTACT_PHONE.es,
     whatsappHref: whatsappHref(),
-    contactoEmail: 'hola@tcghunt.mx',
-    contactoEmailHref: 'mailto:hola@tcghunt.mx',
+    // TL-MKT7-1 (HECHOS 2026-11-01 «"Pago seguro" y correo de contacto…»): el correo público de `lib/about.ts`.
+    contactoEmail: PUBLIC_CONTACT_EMAIL,
+    contactoEmailHref: `mailto:${PUBLIC_CONTACT_EMAIL}`,
     privacidadUrl: AVISO_PRIVACIDAD,
     legal:
       'Card Show CDMX · Organiza TCG HUNT en colaboración con Jakomi TCG Café. Entrada libre. Fechas, sede y dinámicas sujetas a confirmación. La rifa es una dinámica sin costo entre asistentes y registrados; es necesario estar presente para ganar. Pokémon y las demás marcas de juego pertenecen a sus respectivos titulares; TCG HUNT no está afiliado a ellos.',

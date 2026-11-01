@@ -264,7 +264,7 @@ describe('CardDetailView · una acción, una etiqueta; pila de avisos; franja; a
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
     const strip = await screen.findByTestId('about-strip');
-    expect(strip).toHaveTextContent('Pago con tarjeta · Envío a México · Quiénes somos');
+    expect(strip).toHaveTextContent('Pago seguro · Envío a México · Quiénes somos');
     const link = within(strip).getByRole('link', { name: 'Quiénes somos y contacto' });
     expect(link).toHaveAttribute('href', '/nosotros');
     expect(rowCtas()[1].compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
