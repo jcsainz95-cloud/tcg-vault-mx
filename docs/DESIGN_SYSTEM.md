@@ -8008,39 +8008,7 @@ entero**: son lo único que hay.
 
 #### 23.4.0 El estándar lo pedía; el dueño decidió no adoptarlo aquí, y ésta es la razón
 
-Esto es lo que la v2.6 **no distinguió**, y por eso hay que decirlo con precisión:
-
-**(a) Lo que dice el estándar, y sigue diciendo.** **WCAG 2.2.2 «Pause, Stop, Hide» (nivel A)** pide un
-mecanismo para pausar, detener u ocultar cualquier contenido en movimiento que **arranque solo**, dure más
-de 5 segundos y se presente junto a otro contenido. Este carrusel entra de lleno: arranca solo y su pasada
-dura **≈ 39 s a 390 px y ≈ 15 s en escritorio** —reposo inicial incluido, §23.3b—, de modo que **el criterio
-aplica en cualquier anchura**: hasta la cota más corta triplica los 5 s. **Medido contra WCAG, la
-implementación de v2.7 NO cumple 2.2.2.** No se maquilla: queda escrito así, en el documento de diseño, con
-esas palabras.
-
-*(Precisión de v2.7.1: aquí se citaba «≈ 39 s» a secas y §23.3 decía «≈ 44 s». **La cifra canónica es
-≈ 39 s** —los ≈ 44 s eran un error de suma, §23.3b (a)—, y va **siempre con la anchura al lado**, porque la
-pasada es más corta cuanto más ancha es la ventana. **El argumento no dependía del número grande**: aguanta
-con las dos cotas. Lo que **no** se acepta es la lectura de que solo cuentan los ≈ 4 s de traslación pura
-para declararse conforme — prohibida en §23.3b (c).)*
-
-**(b) Lo que WCAG NO es.** WCAG es una **recomendación técnica del W3C**, un consorcio industrial. **No es
-una ley** y el W3C no tiene potestad para imponerla. Se vuelve exigible solo cuando **una norma jurídica la
-adopta por referencia** para un sujeto obligado concreto.
-
-**(c) Si esa norma existe para esta tienda.** Hasta donde alcanza esta decisión, **no**:
-
-| Régimen | ¿Alcanza a TCG HUNT? |
-|---|---|
-| **México — accesibilidad web con dientes** | Las obligaciones exigibles apuntan a **entes públicos** (sitios y servicios digitales de **gobierno**). TCG HUNT es una **tienda privada**: **no es sujeto obligado** |
-| **Unión Europea — European Accessibility Act (Dir. 2019/882)** | **Sí** cubre el **comercio electrónico**… **pero solo para quien vende en la UE**. TCG HUNT vende en México (`MXN`, envíos nacionales): **no aplica hoy** |
-| **WCAG como estándar de oficio** | Se sigue **por criterio propio** en el resto del sistema (§8.2, §10, contraste AA, foco visible, nombre accesible). Aquí, en **un** punto, el dueño decidió no pagar el precio |
-
-**(d) La decisión, y cómo debe citarse.** El dueño vio la función publicada y decidió que el conmutador
-**no vale su coste** en su tienda: un control permanente en el encabezado de la home, con tres etiquetas y
-una máquina de estados detrás, para una rotación que ya se detiene sola en cuanto alguien la toca, la mira
-con el ratón, la tabula o pide menos movimiento. **Es una decisión suya y es legítima tomarla.** Lo que este
-documento fija es **cómo se dice**:
+*(Compactado vC-1; el texto largo está en git.)* **(a)** WCAG 2.2.2 «Pause, Stop, Hide» (nivel A) pide pausar contenido que arranca solo y dura > 5 s; esta pasada dura ≈ 39 s a 390 px y ≈ 15 s en escritorio (§23.3b), así que aplica en cualquier anchura: **medido contra WCAG, v2.7 NO cumple 2.2.2**, y se escribe así. No vale contar solo los ≈ 4 s de traslación (§23.3b c). **(b)** WCAG es una recomendación del W3C, no una ley. **(c)** No alcanza a TCG HUNT hoy: en México lo exigible apunta a entes públicos (tienda privada: no es sujeto obligado) y la Directiva europea 2019/882 cubre comercio electrónico solo para quien vende en la UE; el resto del sistema sí sigue WCAG por criterio propio (§8.2, §10). **(d)** El dueño vio la función y decidió que el conmutador no vale su coste; decisión legítima. Cómo se dice:
 
 > **Redacción canónica.** No se escribe «el control no es obligatorio» a secas, ni «cumplimos 2.2.2», ni
 > «WCAG no aplica». Se escribe: **«WCAG 2.2.2 (nivel A) pide un mecanismo de pausa; este carrusel no lo
@@ -8570,52 +8538,11 @@ elemento que ofrezca pausar, reanudar o repetir — botón, icono, texto, ítem 
 
 ### 23.16 Lo que se perdió — el costo real de retirar el control (v2.7)
 
-Esto se escribe para quien lea §23 dentro de un año y se pregunte qué se dejó por el camino. La decisión es
-del dueño y es legítima; **lo que no sería legítimo es guardar silencio sobre su precio.**
-
-**(a) Quién se queda sin nada: el usuario táctil que solo mira.** Alguien que lee despacio, en un teléfono,
-sin ratón y sin teclado, y que **no toca la pantalla** mientras lee. Para esa persona:
-
-- **F1 (hover)** apenas actúa: en táctil el puntero es transitorio, existe mientras el dedo está apoyado.
-- **F2 (foco)** no actúa: no está tabulando.
-- **F3 (intervención)** no actúa hasta que toque y **mueva** la pista.
-- **F4 (visibilidad)** solo actúa si se va a otra pestaña o hace scroll y saca el estante de la vista — es
-  decir, si deja de mirarlo.
-- **F5 (`prefers-reduced-motion`)** actúa, y del todo — pero **solo si ya tenía la preferencia activada en
-  su sistema operativo**. Si no la conoce, o la conoce pero no quiere apagar el movimiento en **todas** sus
-  apps para leer una pista de ocho cartas, no le sirve.
-
-**Resultado, dicho sin rodeos: esa persona no tiene ninguna forma explícita de detener la rotación.** Le
-quedan dos caminos, y los dos son laterales: **tocar la pista y arrastrarla un poco** (lo que la pausa para
-siempre, F3 — funciona, pero **hay que descubrirlo por accidente**, porque nada en pantalla lo sugiere) o
-**esperar ≈ 39 s** a que la pasada termine sola —ésa es la duración **a 390 px**, que es justamente la
-anchura de esta persona (§23.3b); en una ventana ancha la misma pasada se agota en ≈ 15 s, pero **esa no es
-la pantalla de quien se queda sin nada**, así que aquí manda la cota de móvil—. Un toque **quieto**, sin
-arrastre, solo suspende mientras el dedo esté apoyado: **no** pausa para siempre.
-
-> **Precisión que hay que hacer, porque es fácil consolarse con una media verdad:** «tocar la pista la
-> detiene» es cierto **si el toque mueve la pista**. Un dedo apoyado y quieto **no** dispara F3 (§23.5a
-> exige un `scroll` atribuible). En la práctica casi cualquier contacto real desplaza la pista uno o dos
-> píxeles y la pausa se dispara; pero **no está garantizado**, y este documento no va a fingir que sí.
-
-**(b) Los tres daños menores, para que estén contados:**
-
-1. **Lector de pantalla:** se pierde el elemento cuyo **nombre accesible cambiaba** al cambiar el estado.
-   Queda un único canal, la línea `role="status"` (§23.9c), que **anuncia** pero no **ofrece**: informa de
-   que la rotación se detuvo; no da forma de detenerla.
-2. **Teclado:** sigue habiendo un modo de pararla a voluntad —activar una flecha (F3)—, pero **es implícito**:
-   nada dice que navegar la pista la pausa para siempre. Antes había un control que lo decía con una palabra.
-3. **Verificación:** desaparece el observable de estado más barato que tenía QA. Ahora el estado se infiere
-   midiendo `scrollLeft` en el tiempo (§23.14). Los tests son más largos, más lentos y más frágiles.
-
-**(c) Lo que NO se perdió, para que la lista no se lea peor de lo que es.** La rotación **sigue teniendo
-cinco frenos** y sigue siendo la más contenida posible: una teja por tic, **una sola pasada** —**≈ 39 s a
-390 px, ≈ 15 s en escritorio** (§23.3b), y lo que importa aquí es que **acaba**—, se
-detiene al primer gesto y **no vuelve**, no arranca sobre contenido en carga, y con `prefers-reduced-motion`
-**no existe**. El contenido está entero y accesible sin rotación alguna: las flechas, el dedo y la rueda
-llegan a las ocho tejas, siempre.
-
-**(d) La forma correcta de citar esto** está en §23.4.0 (d), y **cuándo hay que reabrirlo**, en §23.4.0 (e).
+Decisión del dueño, legítima; este es su precio (compactado vC-1; el detalle largo está en git).
+- **Quién se queda sin nada:** el usuario táctil que solo mira. F1 (hover) apenas actúa en táctil, F2 (foco) no actúa, F3 solo actúa si el toque **mueve** la pista (un dedo quieto no pausa para siempre; casi cualquier contacto real la desplaza 1-2 px, **no está garantizado**), F4 solo si saca el estante de la vista, F5 solo si ya tenía la preferencia activada. **No tiene ninguna forma explícita de detener la rotación**: arrastrar un poco (hay que descubrirlo) o esperar ≈ 39 s (la pasada a 390 px, §23.3b).
+- **Daños menores:** (1) lector de pantalla: solo queda el `role="status"` (§23.9c), que anuncia pero no ofrece; (2) teclado: detener es implícito (activar una flecha); (3) QA: el estado se infiere midiendo `scrollLeft` en el tiempo (§23.14).
+- **Lo que NO se perdió:** cinco frenos, una teja por tic, una sola pasada (≈ 39 s a 390 px, ≈ 15 s en escritorio) que acaba; se detiene al primer gesto y no vuelve; con `prefers-reduced-motion` no existe; las ocho tejas son alcanzables sin rotación.
+- Cómo citar esto: §23.4.0 (d); cuándo reabrirlo: §23.4.0 (e).
 
 ---
 
@@ -13171,27 +13098,7 @@ hacer; **`Poner precio` sí**. Comportamiento:
 > *«ninguna acción masiva en v1»*) y **es el humano quien la decide**. Si la reabre, esto es lo que se votó y
 > por qué — y lo que el arquitecto contestó.
 
-**(a) Lo que voté, y sigo sosteniendo: NO a la edición masiva de importes.** Se adoptó tal cual.
-
-1. **El premium es una relación, no un número.** «+15% a los seleccionados» o «MX$ 1,000 a estos veinte»
-   produce, de un clic, veinte precios cuya relación **con la curva de cada variante** el dueño **no ha
-   visto**. Es literalmente la ceguera que esta pantalla vino a curar, servida más rápido.
-2. **La validación es por fila.** `BOUNTY_BELOW_RULE` se evalúa contra la curva **de cada variante**. Un lote
-   de veinte solo tiene dos finales, y los dos son malos: **parcial** (doce guardados, ocho rechazados ⇒ el
-   dueño ya no sabe qué está pagando sin releer las veinte filas) o **atómico** (una fila mala tumba
-   diecinueve buenas). No hay tercera.
-3. **La selección múltiple convierte la tabla en superficie de edición** y le devuelve el resbalón que la
-   regla «la tabla en reposo no tiene formularios» acababa de quitarle.
-
-**(b) Lo que voté y fue RECHAZADO: el apagado en lote de los rebasados.** Mi argumento era que apagar **no
-gasta**, **es reversible** y **no valida por fila**, y que era el gesto real después de mover la curva
-(*«se me rebasaron ocho, apágalos mientras decido»*). **Las tres premisas caen, y la primera es medible:**
-
-| Mi premisa | La refutación (arquitecto) | Mi lectura hoy |
-|---|---|---|
-| «detiene un gasto» | **⭐ Un `rebasada` YA NO PAGA**: la precedencia de compra **se salta** el bounty no efectivo y cotiza la curva. Se pagaría el mismo peso antes y después de pulsar el botón | **Es la que decide, y es un hecho, no una opinión. Mi premisa era falsa**: el botón no frena nada porque el sistema ya frenó solo. *Una acción masiva de dinero cuyo efecto sobre el dinero es cero no es una herramienta: es un ritual — y los rituales sobre botones masivos se acaban usando sobre las filas que sí pagan.* |
-| «no pierde información» | `rebasada` **se explica sola** y trae sus dos puertas; `apagada` dice *«una persona decidió»*. Apagar ocho de un clic convierte **ocho diagnósticos en ocho decisiones que nadie tomó**, y mañana son indistinguibles de las que el dueño retiró a propósito | **La acepto, y me señala una incoherencia mía**: yo mismo escribí que **el porqué dejó de pagarse es el dato que esta pantalla existe para no perder** (§28.3, `completada` vs `apagada`). Mi botón lo borraba a escala |
-| «es reversible» | Cierto en el dato, **falso en la puerta**: apagar cuesta **un** clic; encender son **N escrituras validadas** que pueden fallar con tres códigos distintos. **Y encender exige importe** ⇒ *un lote cuyo deshacer no puede ser lote es una petición de lote de importes con retraso* | **La acepto entera.** Es el vector por el que caería la prohibición que yo mismo defendía en (a) |
+*(Compactado vC-1; el voto completo está en git.)* **(a) NO a la edición masiva de importes** (adoptado): el premium es una relación con la curva de cada variante que el dueño no ha visto; la validación (`BOUNTY_BELOW_RULE`) es por fila, y un lote solo termina parcial o atómico, ambos malos; la selección múltiple convierte la tabla en superficie de edición. **(b) RECHAZADO: apagar en lote los rebasados.** Las premisas cayeron: un `rebasada` ya no paga (la compra se salta el bounty no efectivo), así que el botón no frena nada; apagar ocho de un clic convierte ocho diagnósticos en ocho decisiones que nadie tomó (pierde el porqué de §28.3); y encender son N escrituras validadas que exigen importe, así que un deshacer que no puede ser lote es un lote de importes con retraso.
 
 **(c) Qué se hace en su lugar, y ya está en el diseño:** el chip **`REBASADOS`** (filtro `state`) más el orden
 **`attention_first`** ponen **las ocho juntas y arriba**, cada una con su tarifa vigente al lado, y se decide
@@ -33847,3 +33754,92 @@ El único ancho ajustado es 360: el margen medido en el peor caso es 23.0 px (�
 **vMKT-CONV-1 (2026-10-31):** sección nueva (B1/D-4 A, B6b, T2, B2). MKT2-UX.1 y .4 compactados a puntero; MKT2-UX.3 corregido en anatomía y filas de botones.
 **vMKT-CONV-2 (2026-10-31):** MKT-CONV.8 nuevo (catálogo móvil ≥ 2 tejas); ficha `lg`: renglón de compra antes de la pila (MKT-CONV.2, L-9); T8 alineada (sin «ventas finales» en la ficha); MKT-CONV.5 compactado a decisiones abiertas; L-8, L-10.
 **vMKT-CONV-3 (2026-11-01):** sin badge de estimado en la teja < `sm` (§22.5), foto 4:5, precio/stock con wrap, aritmética de MKT-CONV.8 corregida con medidas, L-8/L-10 ampliados.
+
+## IDS-UX. Español y cartas con sello — insignias de versión y su aplicación (vIDS-1, 2026-11-01 · `HECHOS.md` 2026-10-30 «Español y sellos (§IDS)…», «…TODO automático…», «Casos de revisión de precio SIN base…» y 2026-11-01 «Español y sellos (§IDS) va primero…» · `PROJECT.md` §IDS)
+
+> **Estado: DISEÑO para decisión del dueño; nada implementado.** Maquetas renderizadas (HTML autocontenido, imágenes del catálogo de pokemontcg.io): `docs/mockups/` NO existe aún; viven en el scratchpad de la sesión (`…/scratchpad/ids-maquetas/01…06`) y las copia el orquestador donde corresponda. **Cero tokens y cero pares de contraste nuevos** (tinta/papel/`muted`/`border-strong` de §2.3). Parte del código real: `CatalogTile.tsx`, `DeckAvailability.tsx`, `AddItemModal.tsx`, `QuickAdd.tsx`, `VariantDrawer.tsx` (leídos 2026-11-01). Lo que no se midió en navegador va marcado **NO MEDIDO**.
+
+### IDS-UX.0 Reglas del dueño que mandan (no se rediseñan)
+- Español = la misma carta; su precio sale solo (mercado del inglés × 75 %). Sello = otro producto con su precio. Español con sello existe (sello inglés × 75 %). Hoy solo hay sellos «de liga».
+- **Todo automático, sin colas del dueño:** una versión sin precio no se ofrece y no se publica; no hay pantalla de «revisar».
+- **Captura sin fricción (dueño, 2026-11-01):** el camino normal (inglés, sin sello) **no gana ni un toque**; español y sello se marcan en el mismo paso con botones segmentados visibles (nunca menús ni pantallas extra); el precio se ve al instante.
+- Meta Battle Decks: español y sello cuentan para surtir; solo se indica qué versión es (interpretación del orquestador, **a confirmar por el dueño** con la maqueta 06).
+- Sin valor de mercado ni estimado PSA en la ficha de una versión española. Sin mención de IVA fuera de lo que ya dice el sistema.
+
+### IDS-UX.1 La insignia de versión (`VersionChip`) — un componente, todas las pantallas
+| | Español | Sello (tipo) | Inglés (solo admin y líneas mixtas) |
+|---|---|---|---|
+| Texto | `ESPAÑOL` | `SELLO LIGA` (el tipo viene de una clave corta por tipo: «Liga», «Prize Pack», «Campeonato»…; ≤ 18 caracteres con «Sello») | `EN` en admin; `INGLÉS` en líneas mixtas |
+| Forma | alto 18 px, `px-1.5`, borde 1 px tinta, radio 0, mono 10 px 500 versalitas, tracking 0.08em, sin icono | igual | igual, borde `border-strong` |
+| Color | fondo papel, texto tinta (**relleno vacío**) | fondo tinta, texto papel (**relleno lleno**) | fondo transparente, texto `muted` |
+| Contraste | tinta/papel **15.5:1** (calculado de #1A1A18 y #F4F1EA) | papel/tinta **15.5:1** | `muted` #6E695E sobre papel **4.55:1** (AA, ya medido en `globals.css`) |
+- **Doble canal, sin color semántico:** la diferencia español/sello es vacío frente a lleno **y** texto. No se usa rojo (es «atención», §2.4) ni el azul de acabado (§16.6, exclusivo de `holofoil`).
+- **Regla del silencio:** en superficies de cliente el **inglés sin sello no lleva insignia** (es lo de hoy). Se nombra «Inglés» solo cuando convive con otra versión en el mismo contexto (selector de la ficha, línea mixta del deck) y siempre en el admin.
+- **Sello + español juntos:** dos insignias, sello primero. Nunca una insignia compuesta.
+- **Nombre accesible:** el texto visible ES el nombre (WCAG 2.5.3); la teja y la línea añaden la versión a su `aria-label` («Charizard, español, sello liga»). La insignia no se pinta `aria-hidden`.
+- **Cabe a 360 px:** `ESPAÑOL` ≈ 62 px y `SELLO LIGA` ≈ 82 px (10 caracteres × 6.8 px + relleno; aritmética **NO MEDIDA**) dentro de una columna de teja de 152 px.
+- **Imagen:** siempre la del catálogo (inglés). No existe arte del español ni del sello en la fuente y no se inventa (PROJECT §IDS, P-IDS-5/6); la insignia es el diferenciador.
+- **Prohibido:** colores nuevos, banderas, iconos de «sello» inventados, retocar la imagen, mostrar «Inglés» donde no hay otra versión, y cualquier precio tachado o «ahorras» entre versiones.
+
+### IDS-UX.2 (a) Captura de inventario — `AddItemModal` (maqueta 01)
+Orden del formulario tras elegir la carta: Tipo → Acabado → **Idioma** → **Versión** (solo si hay sellos) → **precio calculado** → Cantidad/Adquisición → Crear.
+- **Idioma:** segmentado de 2 botones `Inglés | Español`, 44 px, **«Inglés» marcado de fábrica**. Mismo patrón que el conmutador `Compra | Aportación` que ya existe.
+- **Versión:** segmentado `Normal | Sello Liga [| otros sellos]`, **«Normal» marcado**; **la fila no se dibuja** si la carta base no tiene versiones con sello (la pantalla es la de hoy más «Idioma»). Con un solo sello son dos botones (la preselección es «Normal»; un toque marca el sello); con varios, un botón por sello.
+- **Precio al instante:** bajo los controles, cifra 24 px + una línea de origen («Sello Liga en inglés MX$480 × 75 % (español)»). Lo calcula el servidor; nadie lo teclea. Cambia al tocar cada control.
+- **Versión sin precio:** el botón sale **apagado, borde discontinuo** con su motivo en `aria-describedby` y visible al enfocarlo («sin precio de mercado»); no se puede crear. Sin cola ni aviso al dueño.
+- **Alta rápida desde la casilla de una versión (§16.5):** 0 toques extra: la casilla ya ES la versión (el objetivo lleva idioma y sello).
+- Idioma y versión no se guardan entre piezas: cada alta vuelve a «Inglés / Normal» (el camino normal sigue siendo el de cero toques).
+
+**Toques añadidos sobre la carta ya elegida (aritmética de la maqueta, NO MEDIDOS en producto):**
+| Qué se captura | Hoy | Opción A (dos segmentados) | Opción B (un segmentado combinado) |
+|---|---|---|---|
+| Inglés normal | +0 | **+0** | **+0** |
+| Español | no existe | +1 | +1 |
+| Con sello | no existe | +1 | +1 |
+| Español con sello | no existe | +2 | +1 |
+**Recomiendo A.** El dueño nombró idioma y sello como dos cosas; A no crece con cada sello nuevo (B: 2 × (1 + k) botones, 6 con dos sellos) y evita botones apagados en combinaciones sin sentido. B ahorra un toque solo en el caso más raro (español con sello). Decisión del dueño si prefiere B.
+
+### IDS-UX.3 (b) Lista de inventario admin — binder de M1 y cajón (maqueta 02)
+- **Una fila por versión** (idioma y sello son parte de la identidad de la variante); la fila nueva no mezcla existencias.
+- Columnas **Idioma** (`EN` gris / `ESPAÑOL`) y **Sello** (insignia o `—`) entre Acabado y Piezas; ordenables y filtrables. Filtros en el encabezado: segmentados de un toque `Idioma: Todos | Inglés | Español` y `Sello: Todos | Con sello | Sin sello` (patrón de §16.1; combinables con los de hoy).
+- Cajón `VariantDrawer`: las insignias de la versión junto a `FinishMark` en el encabezado, y en cada pieza (la etiqueta física lleva idioma y sello). Precio de tienda con su origen («inglés MX$200 × 75 %»).
+- Sin precio: la celda dice «Precio pendiente» y la columna Estado el motivo ya existente («Sin mercado del inglés»); se resuelve sola al llegar el mercado.
+- Export `.xlsx`: `Idioma` y `Sello` al final (PROJECT §IDS.5); aquí no se diseña más.
+
+### IDS-UX.4 (c) Tienda, carrito, pedido y preparación (maquetas 03–05)
+**Teja del catálogo — la decisión de forma:** una teja por **versión** (como hoy es una por publicación agrupada). Descartada una teja por carta con «desde»: el precio «desde» del español (75 %) engañaría a quien busca el inglés.
+| | Opción A — insignia sobre la foto (recomendada) | Opción B — renglón propio bajo la ficha técnica |
+|---|---|---|
+| Dónde | esquina inferior izquierda de la foto, a 4 px del borde, sello arriba y español debajo | `flex-wrap gap-1` entre la ficha técnica y el precio |
+| Alto extra de la teja | **0 px** | **+22 px** (18 + 4), en la fila entera si una teja la lleva (**NO MEDIDO**) |
+| Margen contra el aviso de cookies a 360×740 (medido 23.0 px, `FRONTEND_NOTES` §MKT-CONV8; criterio 943 exige ≥ 20) | intacto | ≈ 1 px: **rompe el criterio** |
+| Qué tapa | el pie de la carta (texto legal, ilustrador); no el nombre ni el arte | nada |
+Recomiendo A. B solo si el dueño prefiere la foto limpia y acepta recomponer la rejilla (p. ej. quitar otro renglón de la teja). Con A, `L-10` y `L-8` no cambian.
+
+**Ficha (maqueta 04)** — las versiones de la misma carta son opciones distintas con su precio y existencia (PROJECT §IDS.4):
+- **Opción A (recomendada): bloque «Versión»** de renglones radio (56 px, precio a la derecha, «Queda 1»/«N en stock» debajo; versión elegida con borde 2 px y pozo). Va **antes** de «Ejemplares disponibles», que se filtra a la versión elegida. Versión agotada: renglón apagado con «Agotado», no seleccionable (MKT-3 a). Preselección: la más barata con existencia; de empate, la inglesa. Si la carta tiene una sola versión, el bloque no se dibuja.
+- **Opción B: dos segmentados** `Idioma` y `Sello` (≈ 140 px fijos). Más compacto, pero deja elegir combinaciones inexistentes y el precio cambia sin que se vea qué se eligió.
+- La barra fija móvil (MKT-CONV.2) lleva el precio de la versión elegida y «Añadir al carrito»; la ficha de una versión española no muestra valor de mercado ni estimado PSA.
+
+**Carrito, checkout, «Mi pedido» y correo (maqueta 05):** la insignia va en una línea propia bajo la ficha técnica de la línea; en correo, texto («Español», «Sello Liga»). Dos piezas que solo difieren en versión **nunca** se fusionan en una línea «2×». Si una versión pierde su precio antes del pago, el checkout la rechaza **nombrando la versión** y no cobra otra (PROJECT §IDS.4).
+**Hoja «Pedidos por preparar» (§35/§37):** insignias **grandes** (26 px, texto 12 px) en cada línea de pieza: el operador está de pie y debe sacar la pieza física correcta.
+
+### IDS-UX.5 (d) Meta Battle Decks — `DeckAvailability` (maqueta 06)
+La línea se surte con lo que haya; **no hay selector**. Solo se indica la versión:
+- **Opción A (recomendada): insignia junto a la disponibilidad**, mismo `VersionChip`. Línea pura en una versión no inglesa: una insignia. Inglés puro: ninguna (como hoy). **Línea mixta** (p. ej. 1 español + 1 inglés): una insignia por tramo con cantidad y precio («Español ×1 · MX$150.00», «Inglés ×1 · MX$200.00»); en mixta el inglés sí se nombra.
+- **Opción B: renglón «Se surte con: …»** bajo la disponibilidad. Dice lo mismo en texto, pero es un patrón que solo existiría aquí.
+- El orden de surtido (más barata primero, como hoy) es de backend. «Agregar de jalón», el carrito y el `deckPull` conservan las insignias. Los sustitutos (otra impresión, Fase 3) siguen aparte y no se confunden con versiones.
+
+### IDS-UX.6 Estados, accesibilidad y candados sugeridos
+- **Estados de `VersionChip`:** sin interacción (no es botón); solo texto. Los segmentados de captura y filtros tienen `hover` (pozo), `focus-visible` (anillo global §4.3), `disabled` (borde discontinuo + motivo) y `aria-pressed`/`radiogroup` con flechas.
+- **Targets:** botones segmentados y renglones de versión ≥ 44 px (móvil) / 36 px (filtros admin de escritorio).
+- **Candados sugeridos (los escribe frontend, los corre QA):** (1) a 360×740 con aviso de cookies abierto, la teja con insignia mide lo mismo que sin ella (±1 px) y el margen de L-8 no baja de 20 px; (2) captura: flujo inglés normal = 0 toques de idioma/sello (el formulario se envía con «Inglés/Normal» sin tocarlos); (3) la fila «Versión» no existe en una carta sin sellos; (4) una versión sin precio no es seleccionable en captura, ficha ni deck; (5) mutación: pintar «Inglés» en la teja del catálogo pone rojo; (6) paridad ES/EN de las claves nuevas.
+
+### IDS-UX.7 Decisiones del dueño y peticiones numeradas
+**Del dueño (A/B con maqueta):** (D-1) captura A o B; (D-2) teja A o B; (D-3) ficha A o B; (D-4) deck A o B; (D-5) confirmar que español y sello cuentan para surtir un deck; (D-6) nombre visible del sello («Sello Liga») y si otros tipos futuros se llaman igual; (D-7) la imagen es la del catálogo en inglés para todas las versiones.
+1. **Arquitecto:** campos `language` y `stamp {type, label}` en `GroupedListingSummaryDTO`, detalle de ficha (`versions[]` con precio y existencia por versión), línea de carrito/cotización, línea de pedido y de preparación; `MetaDeckLineDTO` con la partición por versión (`units[]`: versión, cantidad, precio).
+2. **Arquitecto:** en captura, que la lista de versiones de la carta base traiga `previewPriceCents` o `unavailableReason` por combinación (idioma × sello) para pintar el precio al instante y apagar lo que no tiene precio.
+3. **Product-owner:** etiquetas cortas de los tipos de sello (≤ 18 caracteres con «Sello») y su paridad ES/EN; registrar D-1…D-7 al responder el dueño.
+4. **Frontend (cuando se construya):** `VersionChip` en `frontend/src/components/domain/` (zona compartida: serializar), segmentados con el patrón existente de `Compra | Aportación`.
+
+**vIDS-1 (2026-11-01):** sección nueva (insignias, captura, inventario, tienda, deck); A/B en captura, teja, ficha y deck. Para caber en el tope DOC-SIZE se compactaron §23.4.0, §23.16 y §28.7 (contenido vigente conservado).
