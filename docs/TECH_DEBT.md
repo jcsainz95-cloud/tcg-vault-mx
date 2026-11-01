@@ -7,6 +7,17 @@
 
 ---
 
+## Backend · 2026-10-31/11-01 · marketing tanda 2 (conversión: ficha de sellado agotada, §MKT.A.1)
+
+> Dueño del código anotado: **backend**. Fichas del techlead medidas el 2026-10-31 sobre `43d9eb10`; re-medidas y cerradas el 2026-11-01 en `claude/mkt2-be-debt` (BACKEND_NOTES §MKT-CNV). Ninguna toca el cálculo de precios.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-MKT5-4 | CERRADA (2026-11-01) · bloque de identidad copiado en `toGroupDTO` y `soldOutGroupDTO` (`catalog/sealed-catalog.service.ts`): un campo nuevo podía llegar a una ficha y no a la otra. Ahora `sealedIdentityFieldsOf(item)` (lista blanca, incluye `ogImageUrl`) lo usan las dos | backend | 2026-11-01 | `grep -n "pieceDisplayIdentityOf(" backend/src/modules/catalog/sealed-catalog.service.ts` ⇒ 2: el de `sealedIdentityFieldsOf` y el de `sealedValueHistory` (otro endpoint, ya existía: el «⇒ 1» del encargo no lo contaba); `grep -c "\.\.\.sealedIdentityFieldsOf(item)"` ⇒ 2; CNV-B1…B5 (`test/integration/sealed-sold-out.e2e-spec.ts`) verdes |
+| TL-MKT5-5 | CERRADA (2026-11-01) · `groupWhere` de `sealedDetail` filtraba `sealedCondition` con igualdad de Prisma y la rejilla agrupa con `sealedIdentityKey` (`null` ≡ `'mint'`): con una pieza `mint` y otra `null` la teja decía 2 y la ficha 1. Ahora el `where` acota al producto y el grupo lo elige `groupKey` (la misma regla) | backend | 2026-11-01 | CNV-B5 (mismo spec): `mint` + `null` + `minor_box_damage` del mismo producto ⇒ la ficha pedida por la `mint` o la `null` = teja (2), la de daño en su grupo (1); rojo sobre el código de antes |
+
+---
+
 ## Backend · 2026-10-29 · §DYN fase 2 (M-94, precio del día) y ajustes de la fase 1
 
 > Dueño del código anotado: **backend**. Medido el 2026-10-29 en la rama `claude/portada-dyn-be2`.
@@ -224,31 +235,7 @@
 | TL-MKT2b-b ✅ | `measurement-item.ts` se ejecuta sin compilar (prueba cruzada del frontend): la restricción «solo `import type`, solo sintaxis que se borra» no estaba escrita y solo la cobraba el vitest del frontend | backend | 2026-10-19 | cabecera «SE EJECUTA SIN COMPILAR» en `measurement-item.ts`; `test/measurement.item-erasable.spec.ts` (AST + `node --experimental-strip-types`): rojo con `enum`, con import de valor y con `import { type X }` |
 | TL-MKT2b-d ✅ | la nota de c1 no decía que «Usuarios» es una suma por idioma (cota alta) ni que «< 5» puede ser falso a la baja | backend | 2026-10-19 | `marketing-fase2-v105.spec.ts` «TL-MKT2b-d» (nota de `small_cells` y de `exact`); rojo si `c1UsersNote` sale de `notes` o cambia el texto |
 
-### TL-MKT2b-b · ✅ CERRADA (2026-10-19) · `measurement-item.ts` solo puede llevar sintaxis borrable
-- **Qué:** `frontend/src/lib/measurement/item.cross.test.ts` importa el fichero en un `node` que solo quita tipos. Un `enum`,
-  un `namespace`, una propiedad de parámetro o un import de valor (también `import { type X }`, que deja `import {} from`)
-  lo rompen, y antes solo se enteraba el vitest del frontend.
-- **Cierre:** cabecera en el fichero + `backend/test/measurement.item-erasable.spec.ts`: (a) AST con la API de TypeScript;
-  (b) ejecución real con `node --experimental-strip-types`, comparada con la versión de ts-jest. Mutaciones medidas
-  (N=3 cada una, deterministas): `enum` ⇒ 2 rojas; `import { readFileSync } from 'node:fs'` ⇒ 1 roja (solo AST: Node la
-  resuelve); `import { pesos } from './measurement-bodies'` ⇒ 2 rojas; `import { type ItemCategory }` ⇒ 2 rojas;
-  restaurado ⇒ 3/3 verdes.
-
-### TL-MKT2b-d · ✅ CERRADA (2026-10-19) · Nota de «Usuarios» en c1
-- **Qué:** c1 junta `/es/…` y `/en/…` (`c1Rows`, `marketing-ga4.ts`); GA4 no da los únicos de la unión. Con número, la cifra
-  es la suma por idioma (cota alta); si ningún idioma llega a 5, sale la del idioma mayor (cota baja), que en `small_cells`
-  es «< 5» aunque la unión llegue a 5.
-- **Cierre:** `c1UsersNote(privacy)` en `marketing-analytics.service.ts` lo dice en llano en las notas de c1 (las dos
-  variantes, según régimen). El contrato (§MKT.H.9) no fija el texto de esa nota. Candado: `marketing-fase2-v105.spec.ts`
-  «TL-MKT2b-d»; mutaciones: quitar la nota ⇒ rojo; cambiar «cuenta dos veces» ⇒ rojo; restaurado ⇒ verde (N=1 cada una,
-  deterministas).
-
-### MKT-TL2 ✅ · Cruces entre tablas del Panel — CERRADA 2026-10-23 (rama `be-mkt-tl2`, sha: `86ee9bdb`)
-- **Cierre:** prueba 3 (`marketing-cross-table.audit.spec.ts`, auditor propio en `test/support/disclosure-audit.ts`) verde: casos de
-  §MKT.H.14, 200 semillas en 2026-W41 y 40 en febrero 2027 con T. Roja sobre `01440e56` en «b2 7 = b1 6 + 1» (A1+A2 de
-  `facebook / paid`, el caso E3 de seguridad). Ablaciones N=3: `enforceFamily` sin tocar ⇒ 4 rojas 3/3; sin E3 ⇒ 4 rojas 3/3.
-- **Lo que queda:** quitar `MKT-TL2` de `ENCENDER_BLOCKERS` (frontend), tras la re-medición de seguridad (SECURITY_NOTES).
-  Decisión de lectura de R3b (pareja por la cadena de ocultas): BACKEND_NOTES §MKT-TL2.
+> TL-MKT2b-b, TL-MKT2b-d y MKT-TL2 (cerradas, filas arriba): su texto largo (mutaciones medidas) queda en git; compactado el 2026-11-01.
 
 ### MKT-COV1 · P2 · Cobertura: paridad de cifras contra BD real + pipeline HTTP e2e (necesita integración)
 - **Qué:** el candado `marketing-analytics.service.spec.ts` fija el **ensamblaje** (mocks de `sales-analytics` y Prisma),
