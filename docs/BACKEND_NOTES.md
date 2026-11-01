@@ -33066,8 +33066,8 @@ Resto de la suite unitaria (no-integración): **8551/8552 verde**, la única roj
 - Ficha pública: `pricedAsOf` (día CDMX del servidor) y `ogImageUrl` (`common/og-image.ts`, solo URLs absolutas; la grande
   de pokemontcg.io ronda 734×1024 ⇒ ≥1200×630 **no garantizado**, pregunta abierta al dueño §MKT.F).
 - `GET /catalog/sitemap` (una entrada por ficha a la venta; `lastmod = max(updatedAt)` de las piezas, no hay sello de precio).
-- Ficha de sellado (v1.115, §MKT.A.1): `sealedDetail` busca la pieza solo por `id`+`productType`; agotado ⇒ `soldOutGroupDTO` (lista blanca de identidad;
-  `referenceValue = {status:'pending'}`, sin leer mercado). Tipo con existencia: `InStockSealedGroupDTO`. Pruebas CNV-B1…B4 + mutaciones:
+- Ficha de sellado (v1.115, §MKT.A.1, §MKT-CNV): `sealedDetail` busca la pieza solo por `id`+`productType`; miembros = `where` del producto filtrado por `groupKey` (= `sealedIdentityKey`, `null` ≡ `'mint'`, como la rejilla; TL-MKT5-5); agotado ⇒ `soldOutGroupDTO`
+  (`referenceValue = {status:'pending'}`, sin leer mercado). Identidad de las dos fichas: `sealedIdentityFieldsOf` (lista blanca; TL-MKT5-4). `InStockSealedGroupDTO`. Pruebas CNV-B1…B5:
   `test/integration/sealed-sold-out.e2e-spec.ts`.
 - `parseFirstUtm` (`common/first-utm.ts`): desde m86 lo usa el saneador de `measurement` (abajo).
 - Autorización fina: `@RequirePermission(marketing_read)` + `PermissionGuard` (tras `RolesGuard`; `super_admin` implícito).
