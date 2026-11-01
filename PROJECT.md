@@ -14845,24 +14845,29 @@ Todo texto nuevo de cara al cliente lo aprueba el dueño antes de publicar (`HEC
    correcto»: muestra el correo escrito o, si no hay, un texto neutro.
 943. **Cumplido 2026-10-31.** **Nada se sale de la pantalla en celular [B5]**: en portada, catálogo y ficha, a 360, 390 y 414 px, `innerWidth` =
    `scrollWidth` = ancho de la pantalla (hoy la portada mide 677 px); en el catálogo se ven ≥ 2 tarjetas completas en la
-   primera pantalla (SUPUESTO: también con el banner abierto).
+   primera pantalla, también con el banner de cookies abierto y con margen ≥ 20 px a 360×740: para eso, en celular (< sm)
+   la teja no muestra el estimado PSA, que sigue en la ficha y en escritorio (`HECHOS.md` 2026-11-01 «Estimado PSA fuera
+   de la teja del catálogo en celular»; con la teja nueva: NO MEDIDO).
 944. **«Quiénes somos y contacto» [B2]**: una página propia (SUPUESTO: `/es/nosotros` y su par en `/en`) responde 200, es
    indexable, está en `sitemap.xml` y lleva `Organization` con `contactPoint`. Datos (`HECHOS.md` 2026-10-31 «Marketing
    tanda 2: decisiones del dueño»): ciudad **«Ciudad de México»**; correo público **`contacto@tcghunt.mx`**; plazo de entrega
-   **«4 a 10 días hábiles»**; **solo atención telefónica, sin atención en persona** (no se pinta dirección ni cita);
-   Instagram (946) y los métodos de pago que el checkout acepta ese día. **Teléfono/WhatsApp: fila oculta** hasta que exista
-   el número (pregunta abierta MKT-6); ningún dato inventado, sin dato no hay fila. El texto narrativo lo redacta marketing
-   y lo aprueba el dueño antes de publicar (MKT-5 = a).
+   **«4 a 10 días hábiles»**, contados desde la compra o desde que se pide el envío de la bóveda; **solo atención
+   telefónica, sin atención en persona** (no se pinta dirección ni cita); WhatsApp público **55 6489 3921**; Instagram
+   (946) y los métodos de pago que el checkout acepta ese día (`HECHOS.md` 2026-11-01 «WhatsApp público, plazo de entrega
+   y texto de Quiénes somos»). Ningún dato inventado. El texto narrativo es la versión B que eligió marketing por encargo
+   del dueño (misma fila).
 945. **Señales de confianza a la vista [B2]**: una franja de una línea con esas señales se ve en la ficha y en el carrito, y
-   el pie de página enlaza a «Quiénes somos y contacto». La palabra «Pago seguro» espera D-E (pregunta abierta).
+   el pie de página enlaza a «Quiénes somos y contacto». La franja dice **«Pago seguro»** (antes «Pago con tarjeta») y el
+   pie de la página del Card Show da el correo **`contacto@tcghunt.mx`** (antes `hola@`) (D-E = A; `HECHOS.md` 2026-11-01
+   «"Pago seguro" y correo de contacto en el Card Show»).
 946. **Instagram en los datos para Google [B2b]**: el JSON-LD `Organization` lleva `sameAs` con
    `https://www.instagram.com/tcghunt.mx/` (`@tcghunt.mx`, confirmado por el dueño 2026-10-31, MKT-2).
 947. **La bóveda en la ficha [T2]**: la ficha de una carta de menos de MX$600 muestra la línea de bóveda **B** (D-C = B):
    «Con cuenta, junta cartas en tu bóveda y pide un solo envío. Sin cuenta, te la enviamos a casa.» (EN en
    `DESIGN_SYSTEM.md` §MKT-CONV, CHK-MOVIL.5 T2).
 948. **Una acción, una etiqueta [B6b]**: en la ficha, la barra fija y el botón del cuerpo dicen **«Añadir al carrito»** (D-B
-   = A) y hacen lo mismo; es el botón con más peso (el de «Lista de deseos» no lo supera). Sale la frase «El precio de venta
-   es el precio publicado de esta carta» (maqueta aceptada con D-A/D-B/D-C, `DESIGN_SYSTEM.md` §MKT-CONV.5).
+   = A) y hacen lo mismo; es el botón con más peso (el de «Lista de deseos» no lo supera). La frase «El precio de venta
+   es el precio publicado de esta carta» **se retira de la ficha: no aparece en ningún sitio de ella** (maqueta aceptada con D-A/D-B/D-C, `DESIGN_SYSTEM.md` §MKT-CONV.5).
 949. **Cumplido 2026-10-31.** **La ficha se lee sin JavaScript [C1]**: el HTML crudo de 4 fichas (suelta, gradeada, sellado y una agotada) trae un
    `<h1>` con nombre · set · número, el nombre aparece en `<body>` y se ven precio, condición y 2-3 líneas de texto. La
    ficha no vuelve a pedir en el navegador los datos que ya mandó el servidor.
@@ -16878,13 +16883,7 @@ promesa:**
 > 2026-10-25 y se van integrando aquí al compactar. Al contestarse, cada pregunta sale de aquí y pasa a
 > `docs/DECISIONES.md` con la respuesta literal.
 
-*Conversión y SEO (criterios 940–957). Ninguna bloquea: sin respuesta, la fila no se pinta o se usa la recomendación.*
-- **MKT-6 · Número de teléfono / WhatsApp de la tienda.** Dijiste «solo atención telefónica» y «whatsapp creo ya lo
-  tienes o que marketing te lo pase», pero el número no está escrito en ningún registro del proyecto. ¿Cuál es el número
-  que se publica en «Quiénes somos y contacto»? Mientras no lo tengamos, esa fila no aparece (944).
-- **D-E · «Pago seguro» en la franja de confianza (945).** Es una afirmación comercial. (A) se queda «Pago seguro»
-  (el cobro lo procesa el proveedor de pagos, Stripe); (B) se cambia por «Pagas en la pantalla de pago».
-  **Recomendación: A.** No se publica la franja con «Pago seguro» sin tu sí.
+*Conversión y SEO (criterios 940–957): sin preguntas abiertas.*
 
 ## Preguntas abiertas — acabado / versión de carta (v1.4)
 > Requisito §I redactado con las decisiones ya tomadas por el humano; quedan estos huecos menores. Los

@@ -10,8 +10,8 @@ import { cn } from '@/lib/cn';
  * compra, antes de la lista de deseos) y en el carrito (bajo «Tu carrito»; nunca dentro de la barra de PAGAR).
  * Sans 12 px muted, sin versalitas, iconos ni caja; separadores `aria-hidden`; el enlace en tinta subrayada a
  * `/nosotros`, con nombre accesible «Quiénes somos y contacto» (contiene el texto visible, WCAG 2.5.3) y 44 px de
- * toque por padding vertical. «Pago con tarjeta» en lugar de «Pago seguro»: D-E no está decidida (FRONTEND_NOTES
- * §MKT-CONV2).
+ * toque por padding vertical. «Pago seguro» / «Secure payment»: D-E decidida por el dueño (HECHOS 2026-11-01
+ * «"Pago seguro" y correo de contacto en el Card Show»).
  */
 export function TrustStrip({ className }: { className?: string }) {
   const t = useTranslations('about.strip');
