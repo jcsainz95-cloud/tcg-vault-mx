@@ -744,6 +744,9 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
         await tile.locator('img').waitFor();
         await settle(page);
         expect(await badge.count(), `el badge se renderiza (la carta es elegible) a ${w}`).toBe(1);
+        // Una sola nota por página (el `id` es destino del salto). En 1 de 50 comprobaciones (N=5 en CI local) se vio
+        // un segundo `#nota-estimado` TRANSITORIO al cargar a 768; se exige que se resuelva a uno antes de medir.
+        await expect(page.locator('#nota-estimado'), `una sola nota al pie a ${w}`).toHaveCount(1);
         const f = await facts();
         const snapshot = await tile.ariaSnapshot();
         testInfo().annotations.push({ type: `L-8-badge-${locale}-${w}`, description: JSON.stringify({ ...f, snapshot }) });
