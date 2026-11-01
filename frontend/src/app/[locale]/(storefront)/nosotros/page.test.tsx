@@ -169,6 +169,9 @@ const FINAL = {
     whatsapp: ['WhatsApp', '55 6489 3921'],
     instagram: ['Instagram', '@tcghunt.mx: novedades, cartas y el Card Show.'],
     description: 'Cartas Pokémon TCG en NM desde Ciudad de México: quiénes somos, cómo compras y cómo hablar con nosotros.',
+    // Títulos de bloque: el texto aprobado los escribe en VERSALES; la página los guarda en tipo oración y los
+    // pone en mayúsculas por CSS (`uppercase`). Se compara lo guardado y su forma en mayúsculas contra el aprobado.
+    titles: [['Quién está detrás', 'QUIÉN ESTÁ DETRÁS'], ['Cómo compras con nosotros', 'CÓMO COMPRAS CON NOSOTROS'], ['Contacto', 'CONTACTO']],
   },
   en: {
     lead: "TCG HUNT is an online store for NM Pokémon TCG cards, from Mexico City to all of Mexico. We sell you the ones you're hunting and buy yours in NM.",
@@ -181,12 +184,13 @@ const FINAL = {
     whatsapp: ['WhatsApp', '+52 55 6489 3921'],
     instagram: ['Instagram', '@tcghunt.mx: news, cards and the Card Show.'],
     description: 'NM Pokémon TCG cards from Mexico City: who we are, how buying works and how to reach us.',
+    titles: [['Who we are', 'WHO WE ARE'], ['How buying works', 'HOW BUYING WORKS'], ['Contact', 'CONTACT']],
   },
 } as const;
 
 describe('/nosotros · texto final de marketing, literal (HECHOS 2026-11-01)', () => {
   for (const locale of ['es', 'en'] as const) {
-    it(`${locale}: lead, intros, filas y description tal cual`, async () => {
+    it(`${locale}: lead, títulos de bloque, intros, filas y description tal cual`, async () => {
       const f = FINAL[locale];
       const { container } = await renderPage(locale);
       const norm = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
@@ -204,6 +208,12 @@ describe('/nosotros · texto final de marketing, literal (HECHOS 2026-11-01)', (
         const r = container.querySelector(`[data-about-row="${id}"]`);
         expect(norm(r?.querySelector('dt')?.textContent), `${locale}/${id}`).toBe(label);
         expect(norm(r?.querySelector('dd')?.textContent), `${locale}/${id}`).toBe(value);
+      }
+      const h2 = [...container.querySelectorAll('h2')];
+      expect(h2.map((h) => norm(h.textContent)), `${locale}/títulos`).toEqual(f.titles.map(([stored]) => stored));
+      for (const [i, [, approved]] of f.titles.entries()) {
+        expect(norm(h2[i].textContent).toLocaleUpperCase(locale), `${locale}/título ${i}`).toBe(approved);
+        expect(h2[i].className.split(/\s+/), `${locale}/título ${i} en versales por CSS`).toContain('uppercase');
       }
       const m = await generateMetadata({ params: Promise.resolve({ locale }) });
       expect(m.description).toBe(f.description);

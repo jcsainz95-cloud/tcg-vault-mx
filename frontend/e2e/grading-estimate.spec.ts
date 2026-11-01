@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Locator } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page, type Locator } from '@playwright/test';
 import { t } from './utils/i18n';
 import { MONEY_RE, loginAs, mockOnly, needsSeed, realOnly } from './utils/auth';
 import { apiAs, apiAsOk } from './utils/env';
@@ -158,6 +158,25 @@ function scenario(): Promise<GradingScenario> {
   return scenarioPromise;
 }
 
+/**
+ * QA 2026-11-01 (sobre `4f4280bb`): tras `measurement-on` en el MISMO stack, el `globalTeardown` apaga el dial y una
+ * visita deja `/es/catalog` en la caché de datos de `next start` (`revalidate: 30`, `tags: ['catalog']`) SIN
+ * `gradingHighlight`; `scenario()` lo vuelve a encender, pero la página servía esa copia joven (< 30 s) y la vista la
+ * da por fresca (`initialDataUpdatedAt`, B-R2) ⇒ 0 cifras. Antes de afirmar sobre la teja se espera a que el HTML
+ * del SERVIDOR ya traiga el badge (la copia vieja vence y se revalida: mismo patrón que `warmUntil` de
+ * `catalog-freshness.spec.ts`). No relaja nada: lo que se afirma después es lo mismo, sobre la página fresca; si el
+ * gancho nunca llega al HTML, esto se pone rojo con su propio mensaje.
+ */
+async function warmUntilBadge(request: APIRequestContext, path: string): Promise<void> {
+  await expect
+    .poll(async () => (await (await request.get(path)).text()).includes('data-testid="estimate-badge"'), {
+      message: `la caché de ${path} sigue sin el gancho de grading que \`scenario()\` encendió`,
+      timeout: 90_000,
+      intervals: [2_000],
+    })
+    .toBe(true);
+}
+
 test.describe('Gancho de grading · ficha de carta (§22.3) @real', () => {
   test('pinta una cifra por grado del dial, su micro-aviso VISIBLE y la nota al pie de la página', async ({
     page,
@@ -244,8 +263,11 @@ test.describe('Gancho de grading · ficha de carta (§22.3) @real', () => {
 test.describe('Gancho de grading · teja de Compra (§22.5) @real', () => {
   test('la teja curada lleva la cifra con el condicional y su micro-aviso visible; la nota está al pie', async ({
     page,
+    request,
   }) => {
+    test.setTimeout(180_000); // `warmUntilBadge` puede esperar hasta 90 s a que venza la copia de la caché
     const { curated, badgeGrades } = await scenario();
+    await warmUntilBadge(request, `/es/catalog?q=${encodeURIComponent(curated.name)}`);
     await page.goto(`/es/catalog?q=${encodeURIComponent(curated.name)}`);
     await expect(page.getByText(curated.name).first()).toBeVisible();
 
@@ -264,8 +286,11 @@ test.describe('Gancho de grading · teja de Compra (§22.5) @real', () => {
 
   test('EL BLOQUEANTE: con los `sr-only` ocultos, TODA cifra de la retícula conserva su aviso', async ({
     page,
+    request,
   }) => {
+    test.setTimeout(180_000); // `warmUntilBadge` puede esperar hasta 90 s a que venza la copia de la caché
     const { curated, badgeGrades } = await scenario();
+    await warmUntilBadge(request, '/es/catalog');
     await page.goto('/es/catalog');
     await expect(page.getByText(curated.name).first()).toBeVisible();
     await hideScreenReaderOnly(page);
