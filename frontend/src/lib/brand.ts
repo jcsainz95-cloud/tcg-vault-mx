@@ -3,7 +3,7 @@
  * fixtures del modo mock, los helpers de `lib/`, el contenido de `content/`). Para pintar el DOMINIO en un componente
  * se lee i18n (`common.brand.domain`, p. ej. el pie de `(storefront)/layout.tsx`).
  *
- * **Buzón de marca en UI (ARCHITECTURE §13.8 (c)).** El correo público de contacto de marca (`contacto@`) NO es de
+ * **Buzón de marca en UI (ARCHITECTURE §13.8 (c)).** El correo público de contacto de marca (buzón `contacto`) NO es de
  * entorno: su fuente única es `lib/about.ts` (`PUBLIC_CONTACT_EMAIL = brandEmail('contacto')`), y de ahí lo leen la
  * página «Quiénes somos», el pie, el JSON-LD y las FAQ. El buzón de SOPORTE de pedidos sí es de entorno (§PNL) y no
  * se arma aquí salvo como fallback offline.
@@ -23,7 +23,7 @@
  */
 export const BRAND_DOMAIN = 'tcghunt.mx';
 
-/** Buzón de la marca (`contacto` ⇒ `contacto@tcghunt.mx`). En UI, solo vía `lib/about.ts` (§13.8 (c)); el resto, fixtures/fallback offline. */
+/** Buzón de la marca (`soporte` ⇒ `soporte` + `@` + dominio). En UI, el de contacto solo vía `lib/about.ts` (§13.8 (c)); el resto, fixtures/fallback offline. */
 export function brandEmail(mailbox: string): string {
   return `${mailbox}@${BRAND_DOMAIN}`;
 }

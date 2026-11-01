@@ -37,6 +37,27 @@
 
 ---
 
+## Frontend · 2026-11-01 · catálogo de conversión — deuda del techlead sobre `43d9eb10` (TL-MKT5) y `4f4280bb` (TL-MKT6)
+
+> Dueño del código anotado: **frontend**. Sin dinero. Medido el 2026-11-01 en `claude/mkt2-fe-debt` (base `4f4280bb`; FRONTEND_NOTES §MKT2-FE-DEBT). TL-MKT5-4/-5 (backend) y TL-MKT6-5 (ux-ui) las anota su dueño.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-MKT5-1 | ABIERTA · orden de foco del certificado en lg sin candado de navegador; la anotación L-9 `cert` lee la copia oculta | frontend | 2026-11-01 | E2E @real a 1366: Tab desde el último `instance-cta` llega al «Copiar» visible; `measurement-on.spec.ts` usa `:visible` |
+| TL-MKT5-2 | CERRADA · `hasCatalogFilters` era una cuarta lista de filtros a mano: ahora tabla `IS_FILTER` con `satisfies { [K in keyof Required<CatalogFilters>]: … }` | frontend | 2026-11-01 | `catalog/page.metadata.test.ts` caso `maxPriceCents` verde (rojo al quitar su fila); una clave sin fila no compila (`tsc`) |
+| TL-MKT5-3 | ABIERTA · lectura SSR compartida por `cache()` entre metadata y página sin candado | frontend | 2026-11-01 | E2E contra `next start`: `/es/catalog?page=2` ⇒ exactamente 1 `GET /catalog/cards` |
+| TL-MKT5-6 | ABIERTA · el tipo «con existencia» del sellado vive en fixtures con otro nombre; `isSealedSoldOut` no es guarda de tipo | frontend | 2026-11-01 | `InStockSealedGroupDTO` en `types/contract.ts`; guarda de tipo; `grep -n "fromPriceCents == null" "frontend/src/app/[locale]/(storefront)/sellado/[inventoryItemId]/page.tsx"` ⇒ 0 |
+| TL-MKT5-7 | CERRADA · `contacto@tcghunt.mx` a mano en `content/seo/faq.es.ts` (P13, P22): ahora `${PUBLIC_CONTACT_EMAIL}` | frontend | 2026-11-01 | `grep -rn "contacto@" frontend/src --include=*.ts --exclude=*.test.*` ⇒ 0; `seo-content.test.ts` «TL-MKT5-7» verde |
+| TL-MKT5-8 | CERRADA · la cabecera de `lib/brand.ts` prohibía en UI lo que ARCHITECTURE §13.8 (c) adoptó | frontend | 2026-11-01 | `grep -c "Solo para fixtures" frontend/src/lib/brand.ts` ⇒ 0 y `grep -c "13.8 (c)"` ⇒ ≥ 1 |
+| TL-MKT5-9 | CERRADA · comentario inexacto del orden de lectura en `CatalogTile.tsx` | frontend | 2026-11-01 | `grep -c "ningún ancho" "frontend/src/app/[locale]/(storefront)/catalog/CatalogTile.tsx"` ⇒ 0 |
+| TL-MKT5-10 | ABIERTA · lo «Abierto» de FRONTEND_NOTES §MKT-CONV8/§MKT-CONV2 (grading fuera de L-9, seed sin gradeada con certificado como grupo primario, `measurement-off` contra stack `--measurement`) | frontend (+ backend seed) | 2026-11-01 | cada punto con ficha propia aquí, o cerrado |
+| TL-MKT6-1 | CERRADA · el corte < sm del estimado estaba en dos sitios (badge en `CatalogTile`, nota en `CatalogView`), cabecera de `GradingFootnote.tsx` falsa, prueba de `CatalogTile.test` tautológica. Ahora `figureClassName` de la boundary (una vez, en `CatalogView`) lo aplican nota, badge y bloque | frontend | 2026-11-01 | `CatalogView.test.tsx` «TL-MKT6-1» verde; mutar el corte en `CatalogView` o quitarlo de badge o nota ⇒ rojo; `grep -c "hidden sm:block" "frontend/src/app/[locale]/(storefront)/catalog/CatalogTile.tsx"` ⇒ 0 |
+| TL-MKT6-2 | ABIERTA (falta solo la corrida con stack) · L-8 no afirmaba el margen ≥ 20 px (HECHOS 2026-11-01 «Estimado PSA fuera de la teja…»: «margen ≥ 20 px a 360×740»). Ya lo afirma: L-8 `price5` a 360, límite `top(banner) − 8`; con mocks 5/5 verde (margen 23 es/en) y 3/3 rojo con +8 px en la teja (margen 15, `complete` = 2) | frontend | 2026-11-01 | lo mismo contra stack `up --gate --measurement --seed` verde (no se corrió: QA medía sobre el Postgres/Redis compartido y `--seed` borra) |
+| TL-MKT6-3 | ABIERTA · `#nota-estimado` duplicado transitorio 1/50, causa desconocida; `toHaveCount(1)` con reintento lo oculta | frontend | 2026-11-01 | causa identificada, o contador sin reintento (`addInitScript` + `MutationObserver`, máximo simultáneo) a 768, N ≥ 50 ⇒ 0/50 |
+| TL-MKT6-4 | CERRADA · el WhatsApp estaba en 4 literales (`about.ts` es/en, `content/card-show.ts` display y href): ahora una forma internacional en `lib/about.ts`; el resto se deriva. ⚠️ El pie del Card Show publica `hola@` y «Quiénes somos» `contacto@`: sin tocar, pregunta al PO | frontend | 2026-11-01 | `grep -rn "6489" frontend/src --include=*.ts --include=*.tsx \| grep -v "\.test\."` ⇒ solo `lib/about.ts`; `card-show.content.test.ts` «TL-MKT6-4» verde |
+
+---
+
 ## Frontend · 2026-10-31 · catálogo de conversión — rechazos sobre `561ad425` (R1–R3, TL-MKT2-1…8) y `e066b0b5` (B-R2, TL-MKT3-1…5)
 
 > Dueño del código anotado: **frontend** salvo indicado. Medido el 2026-10-31 en `claude/mkt-fe-tl1` (FRONTEND_NOTES §MKT-TL1) y `claude/mkt-fe-r2b` (§MKT-R2B; B-R2 es precio visible). MK-D4/D5/D8 (makeover 1a, 2026-08-22) cerradas; su texto queda en git.
@@ -62,50 +83,16 @@
 
 ---
 
-## Frontend · 2026-10-29/30 · §DYN.3 velocidad de la portada — rechazos del techlead sobre `d1b96eca` (R1, TL-DYN3-1…5) y `d0b40182` (TL-DYN-8)
+## Frontend · 2026-10-25/30 · §DYN.3 portada (`d1b96eca`, `d0b40182`), §DSC descuentos (`c421de13`) y envío v2 (`230b9bd3`)
 
-> Dueño del código anotado: **frontend** (TL-DYN3-4: **backend**). Sin dinero. Medido el 2026-10-29 en la rama `claude/portada-velocidad-fe2` (FRONTEND_NOTES §DYN.3).
-
-| ID | Qué | Dueño | Medido el | Comprobación de cierre |
-|---|---|---|---|---|
-| R1 | CERRADA · la frontera de los mocks no tenía candado: con mocks apagados `lib/mock/*` llega vacío y un uso fuera de la guarda valía `undefined` en producción sin que nada lo viera | frontend | 2026-10-29 | `src/test/mock-boundary.test.ts` verde (importadores de `lib/mock` + auditoría AST de `api.ts`/`marketing-api.ts`); `fx.mockSettings` en una rama real ⇒ rojo |
-| TL-DYN3-2 | CERRADA · `check-home-bundle.mjs` solo fallaba si faltaban las tres entradas y buscaba `'@example.'` solo en la portada | frontend | 2026-10-29 | `src/lib/home-bundle.test.ts` verde; sin `config.resolve.alias` en `next.config.mjs` ⇒ `npm run build` sale con `HOME_BUNDLE_FAIL` (centinela cuyo valor vive en `lib/mock/sentinel.ts`) |
-| TL-DYN3R-1 | CERRADA (`93310f41`) · huecos de la parte (b) de R1: especificadores distintos de `./mock/…` (H1), `import()`/`require()` sin auditar (H2), función anidada elevada tras el `return` temprano contada como guardada (H3), «fuera» sin el otro cliente (H4), `TEST_SUPPORT` solo por `from '…'` | frontend | 2026-10-29 | `mock-boundary.test.ts` verde con los canarios «M-a», «M-b», «M-c», «H4» y «TL-DYN3R-1 (menor)»; M-a/M-b/M-c inyectados en `api.ts` ⇒ rojo 3/3 cada uno (0/3 sobre `32092bc4`) |
-| TL-DYN3R-2 | CERRADA (`4eb4f15c`) · el centinela vivía en `lib/mock/sentinel.ts` y lo vaciaba el mismo alias (un módulo que escapara viajaba sin él) y dependía de que no hubiera `sideEffects` | frontend | 2026-10-29 | `home-bundle.test.ts` «literal propio» + «sin `sideEffects`» verdes; builds sin mocks: `sales.ts` fuera del alias ⇒ `HOME_BUNDLE_FAIL`; `"sideEffects": false` + sin alias ⇒ `HOME_BUNDLE_FAIL` (los dos daban `HOME_BUNDLE_OK` con fixtures en `static/` sobre `32092bc4`) |
-| TL-DYN3-5 | CERRADA · `api-client` decidía «hay cuerpo» por veracidad; el alias no cubría `.tsx` ni subcarpetas; el JSDoc `@type NextConfig` anotaba otro bloque | frontend | 2026-10-29 | `api-client.test.ts` «TL-DYN3-5»; `home-bundle.test.ts` «TL-DYN3-5 · el alias cubre .tsx y subcarpetas»; `grep -A1 "@type {import('next').NextConfig}" frontend/next.config.mjs` ⇒ `const nextConfig` |
-| TL-DYN3-1 | CERRADA · textos `admin.*` en componentes compartidos que monta la tienda (`CellDrawer`, `VariantPriceConsole`, `MasterSetBinder`) | frontend | 2026-10-29 | `master-set/MasterSet.storefront-messages.test.tsx`: `user_vault_self` y `quoter` con `storefrontMessages(es)` ⇒ 0 `MISSING_MESSAGE` (control `platform` ⇒ sí faltan) |
-| TL-DYN3-3 | CERRADA · `AdminMessagesProvider` solo reenvía `locale`/`timeZone` | frontend | 2026-10-29 | `AdminMessagesProvider.test.tsx` «TL-DYN3-3» (`formats`, `onError`, `getMessageFallback`, `now` de la raíz resuelven bajo el provider: los hereda use-intl) |
-| TL-DYN3-4 | CERRADA · hallazgo de backend del veredicto del techlead sobre `d1b96eca` (un `POST` sin cuerpo ni `Content-Type` dependía de que body-parser 1.x deje `req.body = {}`) | backend | 2026-10-29 | `backend/test/integration/body-less-post.e2e-spec.ts` verde: sin cuerpo ni cabecera ⇒ mismo status (202) que con `Content-Type: application/json` en `POST /admin/jobs/price-ingest` (`@Body()` leído sin `?.`; el canario del mismo fichero muestra que con cuerpo `undefined` sería `TypeError` ⇒ 500) |
-| FE-1 · D7 | CERRADAS · fixtures de mock y `computeBreakdown`/cotizador (lógica de negocio del mock) en el bundle de producción (fichas de abajo); el disparador de D7 «retirarla del bundle real» se cumple | frontend | 2026-10-29 | el mismo candado que TL-DYN3-2 (centinela de `lib/mock` en ningún chunk de `.next/static`) + R1 (`computeBreakdown` sin uso fuera de `api.ts`) |
-| TL-DYN-8 | CERRADA · comentarios obsoletos de `FeaturedCarousel.tsx` que contradecían I-1 (fuente `GET /catalog/cards`, «ordena por precio descendente», «piezas más caras», «PROVISIONAL hasta ux-ui») — techlead, veredicto §DYN sobre `d0b40182` | frontend | 2026-10-30 | `grep -c -e "piezas más caras" -e "precio descendente" -e "GET /catalog/cards" -e "PROVISIONAL" "frontend/src/app/[locale]/(storefront)/_home/FeaturedCarousel.tsx"` ⇒ 0 |
-| FE-15 | CERRADA · `exportFinanceCsv` hacía `fetch` directo, sin refresh de sesión (ficha de abajo) | frontend | 2026-10-29 | `src/lib/api.export-csv.test.ts` (401 → refresh → reintento con el token nuevo); `grep -c "await fetch(" frontend/src/lib/api.ts` ⇒ 1 (solo `uploadToPresignedUrl`, URL firmada sin sesión a propósito) |
-
----
-
-## Frontend · 2026-10-26 · §DSC códigos de descuento — rechazo del techlead sobre `c421de13` (R2, R3, TL-DSC-6)
-
-> Dueño del código anotado: **frontend**. 💰 Toca dinero (precio antes del descuento, PATCH del panel, mock). Medido el 2026-10-26 sobre el contrato v1.110.3 (`083d589c`).
+> Dueño: **frontend** (TL-DYN3-4: backend). 💰 §DSC y envío tocan dinero. Compactado 2026-11-01: las CERRADAS salen en una fila; su texto completo está en el historial del repo (`4f4280bb:docs/TECH_DEBT.md`) y su comprobación vive en las pruebas citadas.
 
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
-| TL-DSC-R2 | CERRADA · ~10 sitios reconstruían el precio antes del descuento (`unitPriceCents + unitDiscountCents`, `subtotalCents + discount.discountCents`); ahora pintan el campo del servidor (v1.110.3) | frontend | 2026-10-26 | candado DCO-F6 `src/test/frontend-never-sums-discount.test.ts` (canario sobre `CheckoutLines.tsx`) |
-| TL-DSC-R3 | CERRADA · editar un código sin usar no podía quitar tope, mínimo ni límite por cliente (el PATCH omitía el campo vacío) y cambiar de tipo arrastraba `percentPct` | frontend | 2026-10-26 | `admin/codes/DiscountCodes.test.tsx` «R3 …» (dos pruebas, rojas con el PATCH de `c421de13`) |
-| TL-DSC-6 | CERRADA · el seguimiento mock con código calculaba su descuento con `floor(P/10)` en vez de `discountOf` | frontend | 2026-10-26 | `pedido/PublicOrderTracking.discount.test.tsx` PT-4 (compara con `discountOf` + `MOCK_SEPT10_RULE`) |
-
----
-
-## Frontend · 2026-10-25 · envío v2 — rechazo del techlead sobre `230b9bd3` (R1, R2, TL-ENV-F1…F4)
-
-> Dueño del código anotado: **frontend**. 💰 Toca dinero (diales de envío de M10 y mock del quote/sesión). Medido el 2026-10-25 sobre `230b9bd3`.
-
-| ID | Qué | Dueño | Medido el | Comprobación de cierre |
-|---|---|---|---|---|
-| TL-ENV-F2 | CERRADA (2026-10-26, stream de descuentos) · ~9 conversores pesos→centavos distintos en `app/` (m2, m3, m4, m5…), cada uno trata el vacío a su manera (`0`, `null`, `undefined`). Ahora uno: `frontend/src/lib/money-input.ts` (vacío ⇒ `null`, mal formado ⇒ `NaN`) | frontend | 2026-10-26 | `grep -rnE "function (pesosToCents\|toCents)" frontend/src/app` ⇒ 0; candado `lib/money-input.test.ts` «TL-ENV-F2 · candado» (app/ + components/, también `const toCents =`) |
+| R1, TL-DYN3-1…5, TL-DYN3R-1/2, FE-1 · D7, TL-DYN-8, FE-15 | CERRADAS · frontera de mocks, bundle de la portada, `api-client`, mensajes de admin en la tienda, comentarios de `FeaturedCarousel`, CSV con refresh | frontend (TL-DYN3-4: backend) | 2026-10-29 | `src/test/mock-boundary.test.ts`, `src/lib/home-bundle.test.ts`, `api-client.test.ts` «TL-DYN3-5», `MasterSet.storefront-messages.test.tsx`, `AdminMessagesProvider.test.tsx` «TL-DYN3-3», `api.export-csv.test.ts`, `backend/test/integration/body-less-post.e2e-spec.ts` verdes |
+| TL-DSC-R2, TL-DSC-R3, TL-DSC-6 | CERRADAS · precio antes del descuento del servidor, PATCH del panel que no podía vaciar campos, descuento del mock | frontend | 2026-10-26 | `src/test/frontend-never-sums-discount.test.ts`, `admin/codes/DiscountCodes.test.tsx` «R3 …», `pedido/PublicOrderTracking.discount.test.tsx` PT-4 verdes |
+| TL-ENV-F1, F2, F4, R1, R2 | CERRADAS · comentarios caducos, conversor pesos→centavos único (`lib/money-input.ts`), dial vacío ⇒ PUT 0, paridad del mock de envío | frontend | 2026-10-25/26 | `grep -rn "v1.110\|gate de identidad" frontend/src` ⇒ 0; `DirectShipSection.test.tsx` «campo vacío…» y `shipping-rule.parity.test.ts` «deckPull SIN paquete…» verdes |
 | TL-ENV-F3 | ABIERTA · `BuylistKycForm` lee la prop `ineExpected` solo al montar (estado inicial); si la prop cambia después, el formulario no se entera | frontend | 2026-10-25 | prueba de cambio de prop (`rerender` con `ineExpected` distinto ⇒ el formulario lo refleja), roja sobre el código actual |
-| TL-ENV-F1 | CERRADA · comentarios «v1.110 pendiente» en `lib/mock/shipping-rule.ts` y `shipping-rule.parity.test.ts` (el contrato ya es v1.109.1, P-ENV-1 cerrada) | frontend | 2026-10-25 | `grep -rn "v1.110" frontend/src` ⇒ 0 |
-| TL-ENV-F4 | CERRADA · comentario «gate de identidad» (ya no existe) en `checkout/InlineAuthPanel.tsx` | frontend | 2026-10-25 | `grep -rn "gate de identidad" frontend/src` ⇒ 0 |
-| TL-ENV-R1 | CERRADA · `DirectShipSection` vaciar un dial ⇒ `PUT` con 0 (envío MX$0 sin aviso) | frontend | 2026-10-25 | `m10/sections/DirectShipSection.test.tsx` «campo vacío/solo espacios/no numérico ⇒ no hay PUT…» (roja sobre `230b9bd3`) |
-| TL-ENV-R2 | CERRADA · el mock contaba todo `deckPulls` como accesorio; el backend solo los paquetes aceptados | frontend | 2026-10-25 | `lib/mock/shipping-rule.parity.test.ts` «paridad: deckPull SIN paquete + solo cartas ⇒ 10000» (roja sobre `230b9bd3`) |
 
 ---
 
