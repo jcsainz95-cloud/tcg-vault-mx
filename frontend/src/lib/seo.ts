@@ -15,7 +15,7 @@
  */
 import type { Metadata } from 'next';
 import type { AppLocale } from '@/i18n/routing';
-import { ABOUT_CITY, CONTACT_PHONE, INSTAGRAM_URL as ABOUT_INSTAGRAM_URL, PUBLIC_CONTACT_EMAIL } from '@/lib/about';
+import { ABOUT_CITY, INSTAGRAM_URL as ABOUT_INSTAGRAM_URL, PUBLIC_CONTACT_EMAIL, schemaTelephone } from '@/lib/about';
 
 /**
  * Base absoluta del sitio para canonical/og/sitemap. Por entorno vía `NEXT_PUBLIC_SITE_URL`; cae al
@@ -157,14 +157,15 @@ export function isSealedSoldOut(d: {
 
 /**
  * `ContactPoint` de `Organization` (B2, criterios 944 y 954): el correo público, México y los dos idiomas del sitio;
- * `telephone` solo si el dueño dio el número (`CONTACT_PHONE`, `lib/about.ts`).
+ * `telephone` = el WhatsApp público del dueño (`CONTACT_PHONE`, `lib/about.ts`, HECHOS 2026-11-01), solo si existe.
  */
 export function contactPointJsonLd(): Record<string, unknown> {
+  const telephone = schemaTelephone();
   return {
     '@type': 'ContactPoint',
     contactType: 'customer service',
     email: PUBLIC_CONTACT_EMAIL,
-    ...(CONTACT_PHONE ? { telephone: CONTACT_PHONE } : {}),
+    ...(telephone ? { telephone } : {}),
     areaServed: 'MX',
     availableLanguage: ['es', 'en'],
   };

@@ -8379,23 +8379,26 @@
   },
   "about": {
     "title": "About us & contact",
-    "description": "Who we are, how you buy at TCG HUNT and how to reach us: a Pokémon TCG card store in Mexico City.",
-    "lead": "TCG HUNT is an online Pokémon TCG store in Mexico: we sell single cards and sealed product, and we buy yours.",
+    "description": "NM Pokémon TCG cards from Mexico City: who we are, how buying works and how to reach us.",
+    "lead": "TCG HUNT is an online store for NM Pokémon TCG cards, from Mexico City to all of Mexico. We sell you the ones you're hunting and buy yours in NM.",
     "who": {
       "title": "Who we are",
-      "story": "We are an online store based in Mexico City. Every card we sell is checked by hand before it goes into the vault.",
       "city": "City",
-      "legalEntity": "Legal name"
+      "what": "What we do",
+      "whatValue": "We're an online store made for people who collect and play Pokémon TCG. We carry NM single cards and sealed product. Want to sell? The quote tool tells you right away what we pay for each NM card, no account and no commitment; for sealed, email us photos. And we run the Card Show CDMX: tables, cards and tournaments."
     },
     "buy": {
       "title": "How you buy from us",
+      "intro": "Shop from your phone or computer, no hassle. With an account, your cards are kept in your name in your vault: build up your pile and request a single shipment whenever you want.",
+      "review": "Inspection",
+      "reviewValue": "Every card is checked by hand before it goes into your vault.",
       "account": "Account",
       "accountValue": "You can buy as a guest, with your email and an address in Mexico.",
       "payment": "Payment",
       "paymentValue": "You pay online, by card, on the payment screen.",
       "shipping": "Shipping",
       "delivery": "Delivery time",
-      "deliveryValue": "4 to 10 business days",
+      "deliveryValue": "4 to 10 business days from your purchase or from when you request your vault shipment.",
       "guarantee": "Guarantee",
       "guaranteeTerms": "Terms and policy",
       "invoice": "Invoice",
@@ -8404,10 +8407,12 @@
     },
     "contact": {
       "title": "Contact",
+      "intro": "We don't do in-person service, but we're here: message us on WhatsApp or email us and we'll help with your order, your sale or your card question.",
       "email": "Email",
+      "whatsapp": "WhatsApp",
       "instagram": "Instagram",
-      "phone": "Phone",
-      "phoneNote": "Support by phone only; no in-person service.",
+      "instagramValue": "<ig>{handle}</ig>: news, cards and the Card Show.",
+      "orders": "Orders and account",
       "cardShow": "Card Show",
       "cardShowLink": "Card Show page"
     },

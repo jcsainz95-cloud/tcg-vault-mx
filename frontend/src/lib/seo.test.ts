@@ -1,4 +1,4 @@
-import { CONTACT_PHONE, PUBLIC_CONTACT_EMAIL } from './about';
+import { PUBLIC_CONTACT_EMAIL } from './about';
 import { describe, it, expect } from 'vitest';
 import {
   INSTAGRAM_URL,
@@ -88,8 +88,8 @@ describe('seo helpers (§A4/§E3/§E1)', () => {
       areaServed: 'MX',
       availableLanguage: ['es', 'en'],
     });
-    // Sin número del dueño (CONTACT_PHONE vacío) no hay `telephone` (⛔ no se inventa).
-    expect((org.contactPoint as Record<string, unknown>).telephone).toBe(CONTACT_PHONE || undefined);
+    // WhatsApp público del dueño (HECHOS 2026-11-01), en formato schema.org con guiones.
+    expect((org.contactPoint as Record<string, unknown>).telephone).toBe('+52-55-6489-3921');
     expect(org.address).toMatchObject({ addressLocality: 'Ciudad de México', addressCountry: 'MX' });
   });
 

@@ -315,7 +315,14 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
       expect(r.html).not.toMatch(/<meta name="robots" content="[^"]*noindex/);
       const [org] = ldNodes(r.html, 'Organization');
       expect(org.sameAs).toEqual(['https://www.instagram.com/tcghunt.mx/']);
-      expect(org.contactPoint).toMatchObject({ '@type': 'ContactPoint', areaServed: 'MX', availableLanguage: ['es', 'en'] });
+      expect(org.contactPoint).toMatchObject({
+        '@type': 'ContactPoint',
+        areaServed: 'MX',
+        availableLanguage: ['es', 'en'],
+        // WhatsApp público (HECHOS 2026-11-01), servido en el HTML crudo.
+        telephone: '+52-55-6489-3921',
+      });
+      expect(r.html).toContain('href="https://wa.me/525564893921"');
       const text = visibleText(r.html);
       expect(text).not.toMatch(/DATO DEL DUEÑO|EJEMPLO/);
       expect(text).toContain(t(locale, 'about.buy.deliveryValue'));

@@ -33,22 +33,10 @@ const rule = vi.hoisted(() => ({
   >,
 }));
 vi.mock('@/lib/catalog-ssr', () => ({ loadShippingRuleForSSR: async () => rule.current }));
-const about = vi.hoisted(() => ({ phone: '' }));
-vi.mock('@/lib/about', async (orig) => {
-  const real = await orig<typeof import('@/lib/about')>();
-  return {
-    ...real,
-    get CONTACT_PHONE() {
-      return about.phone;
-    },
-  };
-});
-
 import AboutPage, { generateMetadata } from './page';
 
 afterEach(() => {
   cleanup();
-  about.phone = '';
   rule.current = { cardsOnlyFeeCents: 10000, sealedFeeCents: 20000, freeFromCents: 400000, currency: 'MXN' };
 });
 
@@ -80,24 +68,58 @@ describe('/nosotros · Quiénes somos y contacto (MKT-CONV.4)', () => {
     expect(text).toContain('MX$4,000.00');
   });
 
-  it('L-7 · ninguna fila vacía: sin razón social ni teléfono del dueño, esas filas NO existen', async () => {
-    const { container } = await renderPage('es');
-    for (const r of rows(container)) expect((r.querySelector('dd') ?? r).textContent?.trim(), r.dataset.aboutRow).not.toBe('');
-    const ids = rows(container).map((r) => r.dataset.aboutRow);
-    expect(ids).not.toContain('phone');
-    expect(ids).not.toContain('legal-entity');
-    expect(container.textContent).not.toMatch(/DATO DEL DUEÑO|EJEMPLO|\[.*pendiente.*\]/i);
-    expect(container.querySelector('a[href^="tel:"]')).toBeNull();
+  it('L-7 · ninguna fila vacía; sin razón social ni la nota «solo por teléfono» (el texto de Contacto ya lo dice)', async () => {
+    for (const locale of ['es', 'en'] as const) {
+      const { container } = await renderPage(locale);
+      for (const r of rows(container)) expect((r.querySelector('dd') ?? r).textContent?.trim(), r.dataset.aboutRow).not.toBe('');
+      const ids = rows(container).map((r) => r.dataset.aboutRow);
+      expect(ids, locale).not.toContain('legal-entity');
+      expect(ids, locale).not.toContain('story');
+      expect(container.textContent).not.toMatch(/DATO DEL DUEÑO|EJEMPLO|\[.*pendiente.*\]/i);
+      expect(container.textContent).not.toMatch(/solo por teléfono|by phone only/i);
+      expect(container.querySelector('a[href^="tel:"]')).toBeNull();
+      cleanup();
+    }
   });
 
-  it('teléfono preparado: con número en `CONTACT_PHONE`, fila con tel: y «Atención solo por teléfono»; y en el JSON-LD', async () => {
-    about.phone = '+52 55 1234 5678';
+  it('WhatsApp (HECHOS 2026-11-01): fila con enlace wa.me y el número como lo dio marketing; telephone en el JSON-LD', async () => {
+    for (const [locale, shown] of [
+      ['es', '55 6489 3921'],
+      ['en', '+52 55 6489 3921'],
+    ] as const) {
+      const { container } = await renderPage(locale);
+      const row = container.querySelector('[data-about-row="whatsapp"]')!;
+      expect(row, locale).not.toBeNull();
+      expect(row.querySelector('dt')?.textContent).toBe('WhatsApp');
+      const a = row.querySelector('a')!;
+      expect(a.getAttribute('href')).toBe('https://wa.me/525564893921');
+      expect(a.textContent).toBe(shown);
+      const org = graph(container).find((x) => x['@type'] === 'Organization')!;
+      expect((org.contactPoint as Record<string, unknown>).telephone).toBe('+52-55-6489-3921');
+      cleanup();
+    }
+  });
+
+  it('filas en el orden del texto final, con las filas fijas de la tienda conservadas', async () => {
     const { container } = await renderPage('es');
-    expect(rows(container).map((r) => r.dataset.aboutRow)).toContain('phone');
-    expect(container.querySelector('a[href="tel:+525512345678"]')).not.toBeNull();
-    expect(container.textContent).toContain('Atención solo por teléfono');
-    const org = graph(container).find((x) => x['@type'] === 'Organization')!;
-    expect((org.contactPoint as Record<string, unknown>).telephone).toBe('+52 55 1234 5678');
+    expect(rows(container).map((r) => r.dataset.aboutRow)).toEqual([
+      'city',
+      'what',
+      'review',
+      'account',
+      'payment',
+      'shipping',
+      'delivery',
+      'guarantee',
+      'invoice',
+      'email',
+      'whatsapp',
+      'instagram',
+      'orders',
+      'card-show',
+    ]);
+    expect(container.querySelector('[data-about-row="orders"] a')?.getAttribute('href')).toBe('mailto:soporte@tcghunt.mx');
+    expect(container.querySelector('[data-about-row="email"] a')?.getAttribute('href')).toBe('mailto:contacto@tcghunt.mx');
   });
 
   it('sin regla de envío a tiempo, la fila de envío se omite (ningún importe a mano)', async () => {
@@ -128,6 +150,66 @@ describe('/nosotros · Quiénes somos y contacto (MKT-CONV.4)', () => {
     expect(String(m.description)).not.toMatch(/\biva\b/i);
     expect(m.alternates?.canonical).toBe('https://tcghunt.mx/es/nosotros');
   });
+});
+
+/**
+ * Texto final de marketing (HECHOS 2026-11-01 «WhatsApp público, plazo de entrega y texto de Quiénes somos»; fuente
+ * `tcg-hunt-marketing` @ 6fed1dd `piezas/2026-11-tienda-nosotros/copy-final.md`), LITERAL. Si alguien edita una clave,
+ * esta prueba se pone roja: el texto se cambia en marketing, no aquí.
+ */
+const FINAL = {
+  es: {
+    lead: 'TCG HUNT es una tienda en línea de cartas Pokémon TCG en NM, de Ciudad de México a todo México. Te vendemos las que buscas y te compramos las tuyas en NM.',
+    what: ['Qué hacemos', 'Somos una tienda en línea hecha para quien colecciona y juega Pokémon TCG. Tenemos cartas sueltas en NM y producto sellado. ¿Quieres vender? El cotizador te dice al momento cuánto te pagamos por cada carta en NM, sin cuenta y sin compromiso; el sellado nos lo mandas en fotos por correo. Y organizamos el Card Show CDMX: mesas, cartas y torneos.'],
+    city: ['Ciudad', 'Ciudad de México'],
+    buyIntro: 'Compras desde tu celular o tu compu, sin vueltas. Si abres cuenta, tus cartas se guardan a tu nombre en tu bóveda: las vas juntando y pides un solo envío cuando tú quieras.',
+    delivery: ['Plazo de entrega', 'De 4 a 10 días hábiles desde tu compra o desde que pides el envío de tu bóveda.'],
+    contactIntro: 'No atendemos en persona, pero aquí estamos: mándanos mensaje o escríbenos y te ayudamos con tu pedido, tu venta o tu duda de cartas.',
+    email: ['Correo', 'contacto@tcghunt.mx'],
+    whatsapp: ['WhatsApp', '55 6489 3921'],
+    instagram: ['Instagram', '@tcghunt.mx: novedades, cartas y el Card Show.'],
+    description: 'Cartas Pokémon TCG en NM desde Ciudad de México: quiénes somos, cómo compras y cómo hablar con nosotros.',
+  },
+  en: {
+    lead: "TCG HUNT is an online store for NM Pokémon TCG cards, from Mexico City to all of Mexico. We sell you the ones you're hunting and buy yours in NM.",
+    what: ['What we do', "We're an online store made for people who collect and play Pokémon TCG. We carry NM single cards and sealed product. Want to sell? The quote tool tells you right away what we pay for each NM card, no account and no commitment; for sealed, email us photos. And we run the Card Show CDMX: tables, cards and tournaments."],
+    city: ['City', 'Mexico City'],
+    buyIntro: 'Shop from your phone or computer, no hassle. With an account, your cards are kept in your name in your vault: build up your pile and request a single shipment whenever you want.',
+    delivery: ['Delivery time', '4 to 10 business days from your purchase or from when you request your vault shipment.'],
+    contactIntro: "We don't do in-person service, but we're here: message us on WhatsApp or email us and we'll help with your order, your sale or your card question.",
+    email: ['Email', 'contacto@tcghunt.mx'],
+    whatsapp: ['WhatsApp', '+52 55 6489 3921'],
+    instagram: ['Instagram', '@tcghunt.mx: news, cards and the Card Show.'],
+    description: 'NM Pokémon TCG cards from Mexico City: who we are, how buying works and how to reach us.',
+  },
+} as const;
+
+describe('/nosotros · texto final de marketing, literal (HECHOS 2026-11-01)', () => {
+  for (const locale of ['es', 'en'] as const) {
+    it(`${locale}: lead, intros, filas y description tal cual`, async () => {
+      const f = FINAL[locale];
+      const { container } = await renderPage(locale);
+      const norm = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+      expect(norm(container.querySelector('[data-about-lead]')?.textContent)).toBe(f.lead);
+      expect(norm(container.querySelector('[data-about-intro="buy"]')?.textContent)).toBe(f.buyIntro);
+      expect(norm(container.querySelector('[data-about-intro="contact"]')?.textContent)).toBe(f.contactIntro);
+      for (const [id, [label, value]] of [
+        ['what', f.what],
+        ['city', f.city],
+        ['delivery', f.delivery],
+        ['email', f.email],
+        ['whatsapp', f.whatsapp],
+        ['instagram', f.instagram],
+      ] as const) {
+        const r = container.querySelector(`[data-about-row="${id}"]`);
+        expect(norm(r?.querySelector('dt')?.textContent), `${locale}/${id}`).toBe(label);
+        expect(norm(r?.querySelector('dd')?.textContent), `${locale}/${id}`).toBe(value);
+      }
+      const m = await generateMetadata({ params: Promise.resolve({ locale }) });
+      expect(m.description).toBe(f.description);
+      expect(norm(container.textContent)).not.toMatch(/\biva\b|patrocin|sponsor/i);
+    });
+  }
 });
 
 /** L-5 / L-7 sobre los ficheros de mensajes: paridad es/en de las claves nuevas y ningún hueco publicado. */

@@ -19,21 +19,21 @@ import {
   INSTAGRAM_HANDLE,
   INSTAGRAM_URL,
   PUBLIC_CONTACT_EMAIL,
-  telHref,
+  whatsappHref,
 } from '@/lib/about';
-import { resolveLegalEntity } from '../footer';
 
 /**
  * DESIGN_SYSTEM MKT-CONV.4 (B2, criterios 944–946) — «Quiénes somos y contacto» en `/{es,en}/nosotros`. Página
  * estática de servidor (sin carga ni error propios): una columna `max-w-[720px]`, h1 serif, lead y tres bloques con
  * `dl` (etiqueta mono 11 muted | valor 15 px). ⛔ **Fila sin valor ⇒ no se pinta** (`Row` devuelve `null`; candado
- * L-7): hoy no hay razón social ni teléfono (HECHOS 2026-10-31), y sus filas no existen.
+ * L-7). Sin fila de razón social: el texto final no la lleva.
  *
- * Datos del dueño en `lib/about.ts`; textos en `messages/*.json` `about.*`. El párrafo «quién está detrás»
- * (`about.who.story`) es un texto mínimo factual hasta que marketing entregue el suyo (MKT-5 (a)): ciudad (HECHOS
- * 2026-10-31) y la revisión en mano, que dice `/preguntas` (`content/seo/faq.es.ts` P7 «Cada carta se revisa en mano al
- * entrar a la bóveda» y P8). Se sustituye cambiando SOLO esa clave. El envío sale de la regla pública viva
- * (`GET /checkout/shipping-rule`): sin ella a tiempo, la fila se omite (ningún importe a mano).
+ * Datos del dueño en `lib/about.ts`; textos en `messages/*.json` `about.*`, que son el texto final de marketing LITERAL
+ * (HECHOS 2026-11-01; `copy-final.md` @ 6fed1dd, versión B): lead, «Qué hacemos», las dos intros, plazo de entrega,
+ * Correo/WhatsApp/Instagram y la `description`. Las filas fijas de la tienda (Revisión, Cuenta, Pago, Envío, Garantía,
+ * Factura, Pedidos y cuenta, Card Show) van donde el texto las marca. Sin nota «solo por teléfono»: la intro de Contacto
+ * ya dice que no hay atención en persona. El envío sale de la regla pública viva (`GET /checkout/shipping-rule`): sin
+ * ella a tiempo, la fila se omite (ningún importe a mano).
  */
 export const revalidate = 3600;
 
@@ -53,10 +53,15 @@ function Row({ label, children, testId }: { label: string; children?: React.Reac
   );
 }
 
-function Block({ title, children }: { title: string; children: React.ReactNode }) {
+function Block({ title, intro, introId, children }: { title: string; intro?: string; introId?: string; children: React.ReactNode }) {
   return (
     <section className="border-t border-border pt-6">
       <h2 className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted">{title}</h2>
+      {intro && (
+        <p data-about-intro={introId} className="mt-3 text-[15px] leading-[1.6] text-text">
+          {intro}
+        </p>
+      )}
       <dl className="mt-2">{children}</dl>
     </section>
   );
@@ -73,7 +78,8 @@ export default async function AboutPage({ params }: { params: Promise<{ locale: 
     headers().then((h) => h.get(NONCE_HEADER) ?? undefined),
     loadShippingRuleForSSR(),
   ]);
-  const legalEntity = resolveLegalEntity(tc('footer.legalEntity'));
+  const phone = CONTACT_PHONE[locale];
+  const wa = whatsappHref();
   const url = siteAbsoluteUrl(`/${locale}${ABOUT_PATH}`);
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -102,22 +108,24 @@ export default async function AboutPage({ params }: { params: Promise<{ locale: 
         <article className="gutter mx-auto flex max-w-[720px] flex-col gap-8 py-10 lg:py-14">
           <header className="flex flex-col gap-4">
             <h1 className="font-serif text-[32px] leading-[1.05] text-text lg:text-[46px]">{t('title')}</h1>
-            <p className="text-[15px] leading-[1.7] text-muted">{t('lead')}</p>
+            <p data-about-lead className="text-[15px] leading-[1.7] text-muted">
+              {t('lead')}
+            </p>
           </header>
 
           <Block title={t('who.title')}>
-            <p data-about-row="story" className="py-3 text-[15px] leading-[1.6] text-text">
-              {t('who.story')}
-            </p>
-            <Row label={t('who.legalEntity')} testId="legal-entity">
-              {legalEntity}
-            </Row>
             <Row label={t('who.city')} testId="city">
               {ABOUT_CITY[locale]}
             </Row>
+            <Row label={t('who.what')} testId="what">
+              {t('who.whatValue')}
+            </Row>
           </Block>
 
-          <Block title={t('buy.title')}>
+          <Block title={t('buy.title')} intro={t('buy.intro')} introId="buy">
+            <Row label={t('buy.review')} testId="review">
+              {t('buy.reviewValue')}
+            </Row>
             <Row label={t('buy.account')} testId="account">
               {t('buy.accountValue')}
             </Row>
@@ -141,7 +149,7 @@ export default async function AboutPage({ params }: { params: Promise<{ locale: 
             </Row>
           </Block>
 
-          <Block title={t('contact.title')}>
+          <Block title={t('contact.title')} intro={t('contact.intro')} introId="contact">
             <Row label={t('contact.email')} testId="email">
               {PUBLIC_CONTACT_EMAIL && (
                 <a href={`mailto:${PUBLIC_CONTACT_EMAIL}`} className={LINK}>
@@ -149,21 +157,28 @@ export default async function AboutPage({ params }: { params: Promise<{ locale: 
                 </a>
               )}
             </Row>
-            <Row label={t('contact.instagram')} testId="instagram">
-              <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className={LINK}>
-                {INSTAGRAM_HANDLE}
-              </a>
-            </Row>
-            {/* Teléfono: preparado; sin número del dueño (`CONTACT_PHONE` vacío) la fila no existe. */}
-            <Row label={t('contact.phone')} testId="phone">
-              {CONTACT_PHONE && (
-                <>
-                  <a href={telHref(CONTACT_PHONE)} className={LINK}>
-                    {CONTACT_PHONE}
-                  </a>
-                  <span className="mt-1 block text-[13px] text-muted">{t('contact.phoneNote')}</span>
-                </>
+            {/* WhatsApp (HECHOS 2026-11-01): el número como lo escribe cada idioma; el enlace abre el chat (`wa.me`). */}
+            <Row label={t('contact.whatsapp')} testId="whatsapp">
+              {phone && wa && (
+                <a href={wa} target="_blank" rel="noopener noreferrer" className={LINK}>
+                  {phone}
+                </a>
               )}
+            </Row>
+            <Row label={t('contact.instagram')} testId="instagram">
+              {t.rich('contact.instagramValue', {
+                handle: INSTAGRAM_HANDLE,
+                ig: (chunks) => (
+                  <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className={LINK}>
+                    {chunks}
+                  </a>
+                ),
+              })}
+            </Row>
+            <Row label={t('contact.orders')} testId="orders">
+              <a href={`mailto:${brandEmail('soporte')}`} className={LINK}>
+                {brandEmail('soporte')}
+              </a>
             </Row>
             <Row label={t('contact.cardShow')} testId="card-show">
               {/* `/card-show` vive fuera del i18n (HECHOS 2026-10-31): enlace de Next sin prefijo de idioma. */}

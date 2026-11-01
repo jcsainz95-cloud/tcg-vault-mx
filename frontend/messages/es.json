@@ -8379,23 +8379,26 @@
   },
   "about": {
     "title": "Quiénes somos y contacto",
-    "description": "Quiénes somos, cómo compras en TCG HUNT y cómo contactarnos: tienda de cartas Pokémon TCG en Ciudad de México.",
-    "lead": "TCG HUNT es una tienda en línea de cartas Pokémon TCG en México: vendemos cartas sueltas y producto sellado, y te compramos las tuyas.",
+    "description": "Cartas Pokémon TCG en NM desde Ciudad de México: quiénes somos, cómo compras y cómo hablar con nosotros.",
+    "lead": "TCG HUNT es una tienda en línea de cartas Pokémon TCG en NM, de Ciudad de México a todo México. Te vendemos las que buscas y te compramos las tuyas en NM.",
     "who": {
       "title": "Quién está detrás",
-      "story": "Somos una tienda en línea de Ciudad de México. Cada carta que vendemos se revisa en mano antes de entrar a la bóveda.",
       "city": "Ciudad",
-      "legalEntity": "Razón social"
+      "what": "Qué hacemos",
+      "whatValue": "Somos una tienda en línea hecha para quien colecciona y juega Pokémon TCG. Tenemos cartas sueltas en NM y producto sellado. ¿Quieres vender? El cotizador te dice al momento cuánto te pagamos por cada carta en NM, sin cuenta y sin compromiso; el sellado nos lo mandas en fotos por correo. Y organizamos el Card Show CDMX: mesas, cartas y torneos."
     },
     "buy": {
       "title": "Cómo compras con nosotros",
+      "intro": "Compras desde tu celular o tu compu, sin vueltas. Si abres cuenta, tus cartas se guardan a tu nombre en tu bóveda: las vas juntando y pides un solo envío cuando tú quieras.",
+      "review": "Revisión",
+      "reviewValue": "Cada carta se revisa en mano antes de entrar a tu bóveda.",
       "account": "Cuenta",
       "accountValue": "Puedes comprar como invitado, con tu correo y una dirección en México.",
       "payment": "Pago",
       "paymentValue": "Pagas en línea, con tarjeta, en la pantalla de pago.",
       "shipping": "Envío",
       "delivery": "Plazo de entrega",
-      "deliveryValue": "4 a 10 días hábiles",
+      "deliveryValue": "De 4 a 10 días hábiles desde tu compra o desde que pides el envío de tu bóveda.",
       "guarantee": "Garantía",
       "guaranteeTerms": "Términos y política",
       "invoice": "Factura",
@@ -8404,10 +8407,12 @@
     },
     "contact": {
       "title": "Contacto",
+      "intro": "No atendemos en persona, pero aquí estamos: mándanos mensaje o escríbenos y te ayudamos con tu pedido, tu venta o tu duda de cartas.",
       "email": "Correo",
+      "whatsapp": "WhatsApp",
       "instagram": "Instagram",
-      "phone": "Teléfono",
-      "phoneNote": "Atención solo por teléfono; no hay atención en persona.",
+      "instagramValue": "<ig>{handle}</ig>: novedades, cartas y el Card Show.",
+      "orders": "Pedidos y cuenta",
       "cardShow": "Card Show",
       "cardShowLink": "Página del Card Show"
     },
