@@ -340,7 +340,6 @@
       "next": "Next page",
       "pageOf": "{page} / {total}"
     },
-    "buyNow": "Buy",
     "inCart": "In cart",
     "addedToCart": "Added to cart",
     "viewCart": "View cart",
@@ -379,7 +378,9 @@
       "p6": "<b>Market prices change every day</b> and this estimate may become outdated at any time.",
       "back": "Back to the estimated value"
     },
-    "sealedRedirect": "Taking you to Sealed product…"
+    "sealedRedirect": "Taking you to Sealed product…",
+    "vaultNote": "With an account, keep cards in your vault and ship them together. Without one, we ship this to you.",
+    "soldOutCard": "Sold out"
   },
   "shop": {
     "filtersTitle": "Filters",
@@ -450,8 +451,7 @@
       "sealed": "Sealed",
       "raw": "Raw"
     },
-    "referenceExplainerWithMarket": "Market value is the day's reference, shown with VAT included just like our sale price, so you can compare them directly. The sale price is derived from that reference.",
-    "referenceExplainerNoMarket": "The sale price is this card's listed price."
+    "referenceExplainerWithMarket": "Market value is the day's reference, shown with VAT included just like our sale price, so you can compare them directly. The sale price is derived from that reference."
   },
   "price": {
     "pendingLabel": "Price pending",
@@ -7476,7 +7476,8 @@
     "nav": {
       "faq": "FAQ",
       "howItWorks": "How it works",
-      "guides": "Guides"
+      "guides": "Guides",
+      "about": "About us & contact"
     },
     "lastReview": "Last reviewed: {date} · manual {version}",
     "spanishOnly": "This content is available in Spanish only.",
@@ -7979,7 +7980,7 @@
     },
     "buylistCallout": {
       "title": "Want to sell your sealed product to TCG HUNT?",
-      "body": "Email us at contacto@tcghunt.mx with photos and we will quote it.",
+      "body": "Email us at {email} with photos and we will quote it.",
       "cta": "Email us"
     },
     "detail": {
@@ -7990,7 +7991,8 @@
       "addToCart": "Add {count} to cart",
       "goToCart": "Go to cart",
       "destinationNote": "Choose at checkout whether to have it shipped to you or kept in your vault.",
-      "minorDamageNote": "Sealed product with minor box damage; the contents are unaffected. Price is unchanged."
+      "minorDamageNote": "Sealed product with minor box damage; the contents are unaffected. Price is unchanged.",
+      "soldOut": "Sold out"
     },
     "trend": {
       "title": "Value trend",
@@ -8012,10 +8014,12 @@
     "restock": {
       "title": "Notify me when it returns",
       "body": "If it sells out, we'll email you once when it's back.",
+      "bodySoldOut": "We'll email you once when it's back.",
       "emailLabel": "Email",
       "emailPlaceholder": "you@example.com",
       "cta": "Notify me",
       "confirmed": "Done. If it sells out and comes back, we'll email you once.",
+      "confirmedSoldOut": "Done. When it's back, we'll email you once.",
       "signedInAs": "We'll notify {email}.",
       "rateLimited": "Too many attempts. Wait a minute and try again."
     },
@@ -8372,5 +8376,57 @@
       "save": "Save my choice",
       "cancel": "Cancel"
     }
+  },
+  "about": {
+    "title": "About us & contact",
+    "description": "NM Pokémon TCG cards from Mexico City: who we are, how buying works and how to reach us.",
+    "lead": "TCG HUNT is an online store for NM Pokémon TCG cards, from Mexico City to all of Mexico. We sell you the ones you're hunting and buy yours in NM.",
+    "who": {
+      "title": "Who we are",
+      "city": "City",
+      "what": "What we do",
+      "whatValue": "We're an online store made for people who collect and play Pokémon TCG. We carry NM single cards and sealed product. Want to sell? The quote tool tells you right away what we pay for each NM card, no account and no commitment; for sealed, email us photos. And we run the Card Show CDMX: tables, cards and tournaments."
+    },
+    "buy": {
+      "title": "How buying works",
+      "intro": "Shop from your phone or computer, no hassle. With an account, your cards are kept in your name in your vault: build up your pile and request a single shipment whenever you want.",
+      "review": "Inspection",
+      "reviewValue": "Every card is checked by hand before it goes into your vault.",
+      "account": "Account",
+      "accountValue": "You can buy as a guest, with your email and an address in Mexico.",
+      "payment": "Payment",
+      "paymentValue": "You pay online, by card, on the payment screen.",
+      "shipping": "Shipping",
+      "delivery": "Delivery time",
+      "deliveryValue": "4 to 10 business days from your purchase or from when you request your vault shipment.",
+      "guarantee": "Guarantee",
+      "guaranteeTerms": "Terms and policy",
+      "invoice": "Invoice",
+      "invoiceValue": "For an invoice (CFDI), email {email} after paying, quoting your order.",
+      "shippingValue": "Cards {cards} per order · sealed {sealed} · free from {freeFrom} on any order"
+    },
+    "contact": {
+      "title": "Contact",
+      "intro": "We don't do in-person service, but we're here: message us on WhatsApp or email us and we'll help with your order, your sale or your card question.",
+      "email": "Email",
+      "whatsapp": "WhatsApp",
+      "instagram": "Instagram",
+      "instagramValue": "<ig>{handle}</ig>: news, cards and the Card Show.",
+      "orders": "Orders and account",
+      "cardShow": "Card Show",
+      "cardShowLink": "Card Show page"
+    },
+    "strip": {
+      "payment": "Card payment",
+      "shipping": "Shipping to Mexico",
+      "link": "About us",
+      "linkLabel": "About us & contact"
+    }
+  },
+  "notFoundPage": {
+    "metaTitle": "Page not found · TCG HUNT",
+    "title": "We couldn't find this page",
+    "body": "The link may be mistyped, or the page no longer exists.",
+    "cta": "Go to the catalog"
   }
 }

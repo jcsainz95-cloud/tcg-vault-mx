@@ -47,6 +47,8 @@ export type SealedListSort = (typeof SEALED_LIST_SORT_VALUES)[number];
 const SEALED_LIST_SORT_DEFAULT: SealedListSort = 'newest';
 
 // 💰 v1.83 (§M11-SP.1, SP-3): con el precio del dueño del producto (`SEALED_SALE_PRICE_INCLUDE`) — obligatorio.
+/** La pieza pedida de la ficha (sin el precio del dueño: en la ficha agotada no se precia nada). */
+type ItemWithCardOnly = InventoryItem & { card: Card & { set?: CardSet | null } };
 type ItemWithCard = InventoryItem & {
   card: Card & { set?: CardSet | null };
   sealedProduct: SealedProductSaleRef | null;
@@ -109,13 +111,18 @@ export interface SealedGroupDTO {
    * Lo que impide que un front sin migrar pinte la mentira son los **dos campos nuevos**, que son
    * REQUERIDOS: omitirlos no compila.
    */
-  fromPriceCents: number;
+  fromPriceCents: number | null;
   /** `true` bajo `IVA_INCLUSIVE`. */
   ivaIncluded: boolean;
   /** La **TASA**, para el rótulo. ⛔ **NO es el dial** (criterio 209). */
   ivaRatePct: number;
-  /** Detalle PROPIO del sellado: qué spread aplicó. Se conserva además de `priceBasis`. */
-  priceSource: SealedSpreadSource;
+  /**
+   * Detalle PROPIO del sellado: qué spread aplicó. Se conserva además de `priceBasis`.
+   * ⭐ v1.115⟨mkt-conv2⟩ (§MKT.A.1): `fromPriceCents` y `priceSource` son `null` **si y solo si** `availableCount = 0`
+   * (ficha agotada; entonces `priceBasis = 'pending'` y sin `referenceDisplayCents`). Con existencia, ver
+   * `InStockSealedGroupDTO`: el compilador sostiene que la rejilla nunca recibe un `null`.
+   */
+  priceSource: SealedSpreadSource | null;
   /**
    * v2.0 (P-48) — DERIVADO de `priceSource`, para que el front tenga UNA sola regla de visibilidad
    * para las dos fichas, sin ramas por tipo de producto (§N.7).
@@ -142,6 +149,9 @@ export interface SealedGroupDTO {
    */
   ogImageUrl: string | null;
 }
+
+/** ⭐ v1.115 (§MKT.A.1) — el grupo CON existencia (≥ 1 pieza vendible): precio y fuente siempre presentes. */
+export type InStockSealedGroupDTO = SealedGroupDTO & { fromPriceCents: number; priceSource: SealedSpreadSource };
 
 /**
  * v1.90⟨miv⟩ (§MIV.3) — `GET /catalog/sealed/:inventoryItemId/value-history`: la forma de `SetValueHistoryResponse`
@@ -181,6 +191,36 @@ interface PricedSealed {
    * día o, sin fila, el lote en vivo (v1.113.3, §DYN.5.5). `pending` si no mapeado o sin mercado.
    */
   marketRef: PriceInfo;
+}
+
+/**
+ * ⭐ TL-MKT5-4 — los campos de IDENTIDAD de una ficha de sellado, de UN solo sitio: la ficha con existencia
+ * (`toGroupDTO`, la pieza representante) y la agotada (`soldOutGroupDTO`, la pieza pedida) los toman de aquí, así que un
+ * campo nuevo de identidad llega a las dos o a ninguna. Por LISTA BLANCA: ⛔ nada de estado, dueño ni precio de la pieza
+ * (CNV-B3). Money-safe: no lee ni deriva ningún precio.
+ *
+ * El grid pinta la identidad real del `SealedProduct` (snapshot por-pieza) y, sin nombre resoluble, «Sellado sin
+ * identificar» — JAMÁS el single ancla (v1.94.1⟨sellado-display⟩, resolutor único §4.34a.2(C)). ⛔ `item.sealedProduct` del
+ * join SOLO trae el precio del dueño (sin `name`/`imageUrl`) ⇒ no se pasa al resolutor (sería un peldaño vivo vacío).
+ * `ogImageUrl` (v1.96⟨mkt-tienda⟩ §MKT.A): la imagen resuelta si es absoluta, si no `null`; la rejilla la recorta.
+ */
+function sealedIdentityFieldsOf(item: ItemWithCardOnly) {
+  const display = pieceDisplayIdentityOf({
+    productType: item.productType,
+    card: item.card,
+    sealedProductId: item.sealedProductId,
+    sealedProductName: item.sealedProductName,
+    sealedImageUrl: item.sealedImageUrl,
+  });
+  return {
+    sealedProductId: item.sealedProductId ?? null,
+    card: toCardDTO(item.card),
+    productName: display.name,
+    imageUrl: display.imageSmallUrl,
+    sealedSubtype: (item.sealedSubtype ?? null) as SealedSubtype | null,
+    sealedCondition: (item.sealedCondition ?? 'mint') as SealedCondition,
+    ogImageUrl: absoluteOgImageUrl(display.imageSmallUrl),
+  };
 }
 
 /**
@@ -275,7 +315,7 @@ export class SealedCatalogService {
    * ⭐ `fromPriceCents` sale de **derivar `P` sobre el `L` del representante** con los diales que se
    * le pasan (⛔ nunca leídos aquí dentro: el grid los iza una vez por petición).
    */
-  private toGroupDTO(members: PricedSealed[], dials: IvaDials): SealedGroupDTO {
+  private toGroupDTO(members: PricedSealed[], dials: IvaDials): InStockSealedGroupDTO {
     // 💰 v1.83.1 (§M11-SP.12.3): el representante es el de menor **`P`** (lo que paga el cliente), ⛔ no el de menor
     // `L`: con un precio del dueño, `L` es un equivalente y comparar equivalentes contra `L` reales elegiría mal.
     const sorted = [...members].sort((a, b) => this.displayOf(a, dials) - this.displayOf(b, dials));
@@ -289,27 +329,9 @@ export class SealedCatalogService {
     // nunca de la cruda de arriba — con un precio a mano la cruda trae el mercado y lo publicaría (MIV-B3).
     const publicReference = toPublicPriceInfo(referenceValue, cheapest.priceBasis);
     const projectedMarketCents = publicReference.referenceMxnCents;
-    // ⭐ v1.94.1⟨sellado-display⟩ (D-2) — UNIFICADO al resolutor único (§4.34a.2(C)): el grid pinta la
-    // identidad real del `SealedProduct` (snapshot por-pieza) y, sin nombre resoluble, «Sellado sin
-    // identificar» — JAMÁS el single ancla («Tropius»). El `sealedProduct` del join solo trae el precio
-    // del dueño (sin `name`/`imageUrl`) ⇒ la cascada de imagen es idéntica a la de antes. Money-safe.
-    // ⛔ `item.sealedProduct` del join SOLO trae el precio del dueño (sin `name`/`imageUrl`) ⇒ no se pasa al
-    // resolutor (sería un peldaño vivo vacío). La cascada usa el snapshot por-pieza, idéntica a la de antes.
-    const display = pieceDisplayIdentityOf({
-      productType: item.productType,
-      card: item.card,
-      sealedProductId: item.sealedProductId,
-      sealedProductName: item.sealedProductName,
-      sealedImageUrl: item.sealedImageUrl,
-    });
     return {
       representativeItemId: item.id,
-      sealedProductId: item.sealedProductId ?? null,
-      card: toCardDTO(item.card),
-      productName: display.name,
-      imageUrl: display.imageSmallUrl,
-      sealedSubtype: (item.sealedSubtype ?? null) as SealedSubtype | null,
-      sealedCondition: (item.sealedCondition ?? 'mint') as SealedCondition,
+      ...sealedIdentityFieldsOf(item),
       availableCount: members.length,
       // ⭐⭐ `P = round(L × (1 + t·r))` — la MISMA función que deriva el precio de una carta y el que
       // congela el checkout. *Si el sellado tuviera su propia derivación, la vitrina y el cobro
@@ -337,12 +359,9 @@ export class SealedCatalogService {
         : {}),
       // Requerido por el contrato y también se omitía.
       currency: 'MXN',
-      // ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A): fecha CDMX del render + imagen absoluta para og. El sellado solo tiene
-      // una imagen resuelta por el cascade de identidad (snapshot → SealedProduct → carta ancla pequeña); se
-      // pasa esa, y si no es absoluta ⇒ `null`. ⛔ Estos dos campos NO viajan a la rejilla (`toGroupSummaryDTO`
-      // los recorta por lista blanca).
+      // ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A): fecha CDMX del render (con `ogImageUrl`, de `sealedIdentityFieldsOf`). ⛔ Estos dos
+      // campos NO viajan a la rejilla (`toGroupSummaryDTO` los recorta por lista blanca).
       pricedAsOf: toMexicoCityDateKey(new Date()),
-      ogImageUrl: absoluteOgImageUrl(display.imageSmallUrl),
     };
   }
 
@@ -352,6 +371,31 @@ export class SealedCatalogService {
    */
   private displayOf(p: PricedSealed, _dials: IvaDials): number {
     return p.displayPriceCents;
+  }
+
+  /**
+   * ⭐ v1.115⟨mkt-conv2⟩ (API_CONTRACT §MKT.A.1) — ficha AGOTADA: el grupo sin piezas vendibles.
+   *
+   * Identidad (`card`, `productName`, `imageUrl`, `ogImageUrl`, `sealedSubtype`, `sealedCondition`, `sealedProductId`) y
+   * `representativeItemId` = la pieza pedida (la que acepta el «avísame», §WSH.7 (f)). Precio: `fromPriceCents`/
+   * `priceSource` `null`, `priceBasis 'pending'`, `referenceValue` sin número, sin `referenceDisplayCents`.
+   * ⛔ Se construye por LISTA BLANCA de campos de identidad: `status`, `ownerType`, `ownerUserId`, `listPriceCents`… de la
+   * pieza no se leen aquí, así que no pueden salir (CNV-B3). ⛔ No toca el cálculo de ningún precio (no hay precio).
+   */
+  private soldOutGroupDTO(item: ItemWithCardOnly, dials: IvaDials): SealedGroupDTO {
+    return {
+      representativeItemId: item.id,
+      ...sealedIdentityFieldsOf(item),
+      availableCount: 0,
+      fromPriceCents: null,
+      ivaIncluded: ivaIsIncluded(PRICE_CONVENTION_OF_NEW_ROWS),
+      ivaRatePct: dials.ivaRatePct,
+      priceSource: null,
+      priceBasis: 'pending',
+      referenceValue: { status: 'pending' },
+      currency: 'MXN',
+      pricedAsOf: toMexicoCityDateKey(new Date()),
+    };
   }
 
   /**
@@ -473,31 +517,38 @@ export class SealedCatalogService {
   // GET /catalog/sealed/:inventoryItemId — ficha (grupo + todas las piezas del grupo).
   // ---------------------------------------------------------------------------
   async sealedDetail(inventoryItemId: string) {
-    const rep = await this.prisma.inventoryItem.findFirst({
-      where: { id: inventoryItemId, productType: 'sealed', status: 'listed', ownerType: 'platform' },
+    // ⭐ v1.115⟨mkt-conv2⟩ (API_CONTRACT §MKT.A.1, ARCHITECTURE §13.8 (a)): la pieza de la URL SOLO dice qué
+    // producto+condición se pide. ⛔ Sin filtro de `status`/`ownerType`: vendida, en bóveda de un cliente, retirada de
+    // venta o con precio pendiente ⇒ se resuelve su GRUPO. `404` SOLO si no existe o no es sellado (CNV-B4).
+    // ⛔ De esta fila solo se leen la clave de grupo (abajo) y, en el caso agotado, su identidad
+    // (`soldOutGroupDTO`): nada de su estado ni de su dueño llega a la respuesta (CNV-B3, oráculo de estado).
+    const requested = await this.prisma.inventoryItem.findFirst({
+      where: { id: inventoryItemId, productType: 'sealed' },
       include: { card: { include: { set: true } } },
     });
-    if (!rep) throw BusinessException.notFound(); // pieza inexistente o no publicada → no visible en Compra
+    if (!requested) throw BusinessException.notFound();
 
-    // Miembros del grupo (mismo producto+condición) publicados y de plataforma.
+    // Miembros del grupo (mismo producto+condición) publicados y de plataforma: las piezas vendibles DE AHORA.
+    // ⭐ TL-MKT5-5 (CNV-B5): la pertenencia al grupo la decide la MISMA regla que agrupa la rejilla y el «avísame»
+    // (`groupKey` = `sealedIdentityKey`: condición `null` ≡ `'mint'`, subtipo `null` ≡ `''`). El `where` solo acota a un
+    // SUPERCONJUNTO (mismo producto, sin condición/subtipo) y el filtro por clave elige; ⛔ no se reescribe la regla en
+    // Prisma, que no sabe que `null` y `'mint'` son la misma condición (antes: ficha 1 pieza, teja 2).
     const groupWhere: Prisma.InventoryItemWhereInput = {
       productType: 'sealed',
       status: 'listed',
       ownerType: 'platform',
-      sealedCondition: rep.sealedCondition,
+      ...(requested.tcgplayerProductId != null
+        ? { tcgplayerProductId: requested.tcgplayerProductId }
+        : { tcgplayerProductId: null, cardId: requested.cardId }),
     };
-    if (rep.tcgplayerProductId != null) {
-      groupWhere.tcgplayerProductId = rep.tcgplayerProductId;
-    } else {
-      groupWhere.tcgplayerProductId = null;
-      groupWhere.cardId = rep.cardId;
-      groupWhere.sealedSubtype = rep.sealedSubtype;
-    }
+    const requestedKey = this.groupKey(requested);
     const dials = await this.settings.getIvaDials();
-    const priced = await this.loadPricedSealed(groupWhere, dials);
-    if (priced.length === 0) throw BusinessException.notFound(); // el grupo no tiene piezas vendibles
+    const priced = (await this.loadPricedSealed(groupWhere, dials)).filter((p) => this.groupKey(p.item) === requestedKey);
 
-    const group = this.toGroupDTO(priced, dials);
+    // Con existencia ⇒ el grupo de ahora (representante = la vendible más barata, no la pedida). Agotado ⇒ `200` con
+    // `listings: []` y la forma de §MKT.A.1 (⛔ ningún «último precio»: lo no vendible no tiene precio que se cobre).
+    const group: SealedGroupDTO =
+      priced.length > 0 ? this.toGroupDTO(priced, dials) : this.soldOutGroupDTO(requested, dials);
     // v2.1.9 (T-2): anotado con el tipo del contrato (`SealedGroupDetailResponse.listings`). 💰 §DYN.5.6: cada pieza con SU
     // precio ya resuelto (el mismo del grupo), ⛔ sin volver a calcular.
     const listings: ListingDTO[] = [...priced]

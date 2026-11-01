@@ -1,3 +1,4 @@
+import { PUBLIC_CONTACT_EMAIL } from './about';
 import { describe, it, expect } from 'vitest';
 import {
   INSTAGRAM_URL,
@@ -9,6 +10,7 @@ import {
   jsonLdAvailability,
   jsonLdPrice,
   organizationJsonLd,
+  soldOutOfferJsonLd,
   priceValidUntil,
   sealedCanonicalUrl,
   sealedConditionLabel,
@@ -42,17 +44,19 @@ describe('seo helpers (§A4/§E3/§E1)', () => {
     expect(jsonLdAvailability(0)).toBe('https://schema.org/OutOfStock');
   });
 
-  it('description lleva condición + precio con IVA + fecha + «verificamos la condición», ≤155', () => {
+  it('description lleva condición + precio + fecha + «verificamos la condición», ≤155; sin IVA (C8, criterio 956)', () => {
+    for (const locale of ['es', 'en'] as const) {
+      const d = buildFichaDescription({ conditionLabel: 'NM (Near Mint)', priceText: 'MX$1,200.00', pricedAsOf: '2026-10-16', locale });
+      expect(d).not.toMatch(/\biva\b|\bvat\b|16 ?%/i);
+    }
     const d = buildFichaDescription({
       conditionLabel: 'NM (Near Mint)',
       priceText: 'MX$1,200.00',
-      ivaRatePct: 16,
       pricedAsOf: '2026-10-16',
       locale: 'es',
     });
     expect(d).toContain('NM (Near Mint)');
     expect(d).toContain('MX$1,200.00');
-    expect(d).toContain('IVA 16 % incluido');
     expect(d).toContain('precio al 2026-10-16');
     expect(d).toContain('Verificamos la condición.');
     expect(d.length).toBeLessThanOrEqual(155);
@@ -71,13 +75,29 @@ describe('seo helpers (§A4/§E3/§E1)', () => {
     expect(cardConditionLabel({ productType: 'raw', rawCondition: 'NM' })).toBe('NM (Near Mint)');
   });
 
-  it('Organization omite sameAs mientras el handle de Instagram esté NO MEDIDO', () => {
+  it('Organization: sameAs = Instagram del dueño (946) y contactPoint con correo, MX y es/en (944/954)', () => {
     const org = organizationJsonLd();
     expect(org.name).toBe('TCG HUNT');
     expect(org.url).toBe(`${SITE_URL}/`);
-    // INSTAGRAM_URL es null (NO MEDIDO) ⇒ no se publica `sameAs` (⛔ no se inventa).
-    expect(INSTAGRAM_URL).toBeNull();
-    expect(org.sameAs).toBeUndefined();
+    // MKT-2 (HECHOS 2026-10-31): `@tcghunt.mx`.
+    expect(INSTAGRAM_URL).toBe('https://www.instagram.com/tcghunt.mx/');
+    expect(org.sameAs).toEqual(['https://www.instagram.com/tcghunt.mx/']);
+    expect(org.contactPoint).toMatchObject({
+      '@type': 'ContactPoint',
+      email: PUBLIC_CONTACT_EMAIL,
+      areaServed: 'MX',
+      availableLanguage: ['es', 'en'],
+    });
+    // WhatsApp público del dueño (HECHOS 2026-11-01), en formato schema.org con guiones.
+    expect((org.contactPoint as Record<string, unknown>).telephone).toBe('+52-55-6489-3921');
+    expect(org.address).toMatchObject({ addressLocality: 'Ciudad de México', addressCountry: 'MX' });
+  });
+
+  it('C3 · Offer de ficha agotada: OutOfStock, sin precio inventado', () => {
+    const o = soldOutOfferJsonLd('card', `${SITE_URL}/es/catalog/x`);
+    expect(o.availability).toBe('https://schema.org/OutOfStock');
+    expect(o).not.toHaveProperty('price');
+    expect(o.itemCondition).toBe('https://schema.org/UsedCondition');
   });
 
   it('BreadcrumbList numera las posiciones en orden', () => {

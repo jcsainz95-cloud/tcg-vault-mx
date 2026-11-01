@@ -47,7 +47,9 @@ export function StoreTabs() {
           href={tab.href}
           aria-current={tab.active ? 'page' : undefined}
           className={cn(
-            'whitespace-nowrap pb-3 text-[11px] font-medium uppercase tracking-label transition-colors sm:text-xs',
+            // MKT-CONV.8: en < lg cada pestaña es una fila de 44 px (toque y altura fijos; scroll horizontal si no
+            // caben). En lg, igual que antes (`pb-3`).
+            'flex h-11 items-center whitespace-nowrap text-[11px] font-medium uppercase tracking-label transition-colors sm:text-xs lg:block lg:h-auto lg:pb-3',
             tab.active
               ? 'border-b-2 border-accent text-text'
               : 'border-b-2 border-transparent text-muted hover:text-text',

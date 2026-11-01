@@ -28,6 +28,9 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 15_000 },
   reporter: [['list'], ['./e2e/reporters/not-measured.ts']],
+  // L-8 (caso badge) siembra el gancho de grading en real (`gradingScenario()`, enciende el dial): el MISMO
+  // teardown que la suite principal lo apaga al terminar. En mocks no hace I/O.
+  globalTeardown: './e2e/global-teardown.ts',
   use: {
     baseURL: `http://localhost:${PORT}`,
     locale: 'es-MX',

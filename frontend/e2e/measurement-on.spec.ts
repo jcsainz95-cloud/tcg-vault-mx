@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { measurementCookies, recordRequests, type RequestLog } from './utils/measurement';
 import { loginAs } from './utils/auth';
+import { gradingScenario } from './utils/grading';
 
 /**
  * Fase 2 con el modo ENCENDIDO — corre SOLO con `playwright.measurement-on.config.ts`, que construye
@@ -11,7 +12,8 @@ import { loginAs } from './utils/auth';
  *
  * Candados: C-F3 (cuatro caminos de red + capturas 390×664), C-F5 (navegación dura, v1.109 también
  * `/buylist` → paso de crear con CLABE/INE), C-F9 (`/card-show`: solo `page_view` a GA4, sin Meta), C-F10 (sin muro),
- * C-F11 (no tapa COMPRAR), C-F12 (altura), C-F19 (zoom). Los de unidad (C-F8/9/13/14/18) viven en
+ * C-F11 (no tapa COMPRAR), C-F12 / L-1 (altura, MKT-CONV.6), L-2 (mismo peso), L-3 (COMPRAR visible), L-5 (portada sin
+ * desborde), L-8 (943: dos tejas con el banner), L-9 (ficha lg), L-10 (teja ≥ sm intacta), C-F19 (zoom). Los de unidad (C-F8/9/13/14/18) viven en
  * `src/components/consent/ConsentBanner.test.tsx`.
  */
 
@@ -484,20 +486,90 @@ test.describe('C-F11 / C-F12 / C-F19 · geometría en móvil', () => {
     expect(geo.hitIsButton).toBe(true);
   });
 
+  // MKT-CONV.6 L-1 (B1, criterio 940): sustituye el techo de 232/120 px de C-F12. Barra delgada ≤ 96 px en móvil
+  // (objetivo ≈ 89) y ≤ 64 px a 1366×768 (objetivo ≈ 57). Mutación que lo pone rojo: volver a la fila propia de
+  // «Configurar» (FRONTEND_NOTES §MKT-CONV2).
   for (const locale of ['es', 'en'] as const) {
-    test(`C-F12: alto ≤ 232 px a 390×664 (${locale}); una fila ≤ 120 px a 1280×720`, async ({ page, context }) => {
+    test(`C-F12 / L-1: alto ≤ 96 px a 360/390/414 y ≤ 64 px a 1366×768 (${locale}) @real`, async ({ page, context }) => {
       await setup(context);
-      await page.setViewportSize({ width: 390, height: 664 });
+      await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(`/${locale}`);
       const region = page.getByRole('region', { name: t(locale, 'consent.region') });
       await expect(region).toBeVisible();
-      const h = (await region.boundingBox())!.height;
-      testInfo().annotations.push({ type: `alto-${locale}-390`, description: String(h) });
-      expect(h).toBeLessThanOrEqual(232);
-      await page.setViewportSize({ width: 1280, height: 720 });
-      await expect.poll(async () => (await region.boundingBox())!.height).toBeLessThanOrEqual(120);
+      for (const [w, h, max] of [[360, 740, 96], [390, 844, 96], [414, 896, 96], [1366, 768, 64]] as const) {
+        await page.setViewportSize({ width: w, height: h });
+        await expect.poll(async () => (await region.boundingBox())!.height, `alto del banner a ${w}×${h}`).toBeLessThanOrEqual(max);
+        testInfo().annotations.push({ type: `alto-${locale}-${w}`, description: String((await region.boundingBox())!.height) });
+      }
     });
   }
+
+  // L-2: «Aceptar» y «Solo lo necesario» con el mismo peso visual (D-A = A, HECHOS 2026-10-31). Mutación: `bg-primary`
+  // solo en «Aceptar».
+  test('L-2: Aceptar y Solo lo necesario, misma caja, mismo fondo, borde y letra; ≥ 44 px en móvil @real', async ({ page, context }) => {
+    await setup(context);
+    for (const [w, h] of [[390, 844], [1366, 768]] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto('/es');
+      await expect(banner(page)).toBeVisible();
+      const look = (name: string) =>
+        banner(page)
+          .getByRole('button', { name })
+          .evaluate((el) => {
+            const s = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return { h: r.height, w: r.width, bg: s.backgroundColor, border: `${s.borderTopWidth} ${s.borderTopStyle} ${s.borderTopColor}`, fs: s.fontSize, fw: s.fontWeight };
+          });
+      const a = await look(t('es', 'consent.accept'));
+      const n = await look(t('es', 'consent.necessary'));
+      expect({ bg: a.bg, border: a.border, fs: a.fs, fw: a.fw, h: a.h }).toEqual({ bg: n.bg, border: n.border, fs: n.fs, fw: n.fw, h: n.h });
+      if (w < 768) {
+        expect(Math.abs(a.w - n.w)).toBeLessThanOrEqual(1);
+        expect(a.h).toBeGreaterThanOrEqual(44);
+      }
+    }
+  });
+
+  // L-3 (extiende C-F11): con el banner abierto, «Añadir al carrito» de la barra fija (móvil) y del primer renglón
+  // (1366×768) está en pantalla y es lo que recibe el toque. Mutación: devolver la frase de sistema o el `mt-10`.
+  test('L-3: con el banner abierto, «Añadir al carrito» se ve y se pulsa (barra en móvil, renglón a 1366×768) @real', async ({ page, context }) => {
+    await setup(context);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const href = await firstCardHref(page);
+    const hit = (sel: string) =>
+      page.evaluate((s) => {
+        const btn = document.querySelector<HTMLElement>(s);
+        if (!btn) return { found: false, inView: false, hit: false };
+        const r = btn.getBoundingClientRect();
+        const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { found: true, inView: r.top >= 0 && r.bottom <= window.innerHeight, hit: !!el && (el === btn || btn.contains(el)) };
+      }, sel);
+    for (const [w, h] of [[360, 740], [390, 664], [414, 896]] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto(href);
+      await expect(page.getByTestId('mobile-buy-bar')).toBeVisible();
+      await expect(banner(page)).toBeVisible();
+      expect(await hit('[data-testid="mobile-buy-bar"] button'), `barra a ${w}×${h}`).toEqual({ found: true, inView: true, hit: true });
+    }
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.goto(href);
+    await expect(banner(page)).toBeVisible();
+    await expect(page.getByTestId('instance-cta').first()).toBeVisible();
+    expect(await hit('[data-testid="instance-cta"]'), 'renglón a 1366×768').toEqual({ found: true, inView: true, hit: true });
+  });
+
+  // L-5 (B5): con el banner abierto la portada no desborda a 360/390/414. El criterio 943 («≥ 2 tarjetas completas con
+  // el banner») ya no se anota aquí: lo AFIRMA L-8 (abajo), con el layout de MKT-CONV.8.
+  test('L-5: con el banner abierto, portada sin desborde a 360/390/414 @real', async ({ page, context }) => {
+    await setup(context);
+    for (const [w, h] of [[360, 740], [390, 844], [414, 896]] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto('/es');
+      await expect(banner(page)).toBeVisible();
+      const sw = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
+      expect(sw.sw, `portada a ${w}`).toBeLessThanOrEqual(sw.iw);
+    }
+  });
 
   test('C-F19: a 200 % de zoom (195×332) max-height ≤ 60vh, scroll interno, botones alcanzables', async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 195, height: 332 }, deviceScaleFactor: 2, locale: 'es-MX' });
@@ -515,6 +587,294 @@ test.describe('C-F11 / C-F12 / C-F19 · geometría en móvil', () => {
       await expect(b).toBeInViewport();
     }
     await context.close();
+  });
+});
+
+/**
+ * MKT-CONV.6 · L-8 / L-9 / L-10 (DESIGN_SYSTEM §MKT-CONV vMKT-CONV-2). Geometría con el banner ABIERTO (sin responder).
+ *
+ * PEOR CASO ESCRITO EN EL DOM, y por qué: el seed sintético (`backend/prisma/e2e-fixtures.ts`) no trae nombres de 60
+ * ni de 120 caracteres ni un grupo con precio pendiente en la primera página, y frontend no escribe en `backend/`. El
+ * peor caso se escribe sobre los nodos REALES que pintó React (mismas clases, mismo contenedor), con lo que el
+ * componente pintaría para ese DTO: nombre largo; o «Precio pendiente» (clases de `PendingPriceLabel`) sin rótulo de IVA
+ * + «Queda 1». Lo que se mide es el LAYOUT ante ese contenido, que es lo que el diseño promete.
+ */
+const NAME_60 = 'Pikachu VMAX Rainbow Rare Alternate Art Special Delivery Set'; // 60 caracteres
+const NAME_120 =
+  'Charizard ex Special Illustration Rare Obsidian Flames Tera Type Darkness Alternate Full Art Gold Secret Hyper Rare 223a'; // 120
+const PENDING_CLASSES = 'font-mono text-[10px] uppercase leading-none tracking-[0.1em] text-accent order-1 block';
+
+/** vMKT-CONV-3: precio de 5 cifras (el que partía el renglón precio/stock a 360, +9 px medido). */
+const PRICE_5 = 'MX$61,886.00';
+
+type Worst = 'name' | 'pending' | 'price5';
+
+/** Escribe el peor caso en las dos primeras tejas (la primera fila de la rejilla de 2 columnas). */
+async function seedWorstTiles(page: Page, worst: Worst, locale: 'es' | 'en') {
+  await page.evaluate(
+    ({ worst, name, pending, lastOne, pendingClasses, price5 }) => {
+      const tiles = [...document.querySelectorAll<HTMLElement>('main a[href*="/catalog/"]')]
+        .filter((a) => a.querySelector('img'))
+        .slice(0, 2)
+        .map((a) => a.parentElement!);
+      for (const tile of tiles) {
+        const nameLink = tile.querySelector('p.font-serif a');
+        if (nameLink) nameLink.textContent = name;
+        if (worst === 'name') continue;
+        const row = tile.querySelector<HTMLElement>('[data-testid="tile-price-row"]');
+        if (!row) continue; // árbol sin MKT-CONV.8: se mide tal cual (con nombre largo) y la prueba lo dirá
+        const [price, ...rest] = [...row.children] as HTMLElement[];
+        if (worst === 'price5') {
+          // Nombre de 120 + «MX$61,886.00» + «Queda 1» (el rótulo de IVA, si lo hay, se queda: es más alto).
+          if (price.matches('p.tabular')) price.textContent = price5;
+          for (const el of rest) if (!/IVA|VAT/.test(el.textContent ?? '')) el.textContent = lastOne;
+          continue;
+        }
+        const label = document.createElement('span');
+        label.className = pendingClasses;
+        label.textContent = pending;
+        price.replaceWith(label);
+        for (const el of rest) {
+          if (/IVA|VAT/.test(el.textContent ?? '')) el.remove();
+          else el.textContent = lastOne;
+        }
+      }
+    },
+    { worst, name: NAME_120, pending: t(locale, 'price.pendingLabel'), lastOne: t(locale, 'stock.lastOne'), pendingClasses: PENDING_CLASSES, price5: PRICE_5 },
+  );
+}
+
+async function catalogGeometry(page: Page) {
+  return page.evaluate(() => {
+    const header = document.querySelector('header')!.getBoundingClientRect();
+    const bannerTop = document.querySelector('[data-testid="consent-banner"]')!.getBoundingClientRect().top;
+    const tiles = [...document.querySelectorAll<HTMLElement>('main a[href*="/catalog/"]')]
+      .filter((a) => a.querySelector('img'))
+      .map((a) => a.parentElement!.getBoundingClientRect());
+    const complete = tiles.filter((r) => r.height > 0 && r.top >= header.bottom - 0.5 && r.bottom <= bannerTop - 8 + 0.5).length;
+    // Renglón precio/stock de la 1.ª teja: mismo renglón (cajas solapadas) o, si el precio no deja sitio, el stock
+    // DEBAJO y a la IZQUIERDA (`flex-wrap`, vMKT-CONV-3 / L-10). Se informa; L-8 lo afirma en el caso `price5`.
+    const row = document.querySelector<HTMLElement>('main [data-testid="tile-price-row"]');
+    const kids = row ? ([...row.children] as HTMLElement[]).map((k) => k.getBoundingClientRect()) : [];
+    const pr = kids[0];
+    const sr = kids[kids.length - 1];
+    const rowLeft = row?.getBoundingClientRect().left ?? 0;
+    const priceRow = !pr || !sr || kids.length < 2
+      ? 'absent'
+      : sr.top < pr.bottom && sr.bottom > pr.top
+        ? 'same'
+        : sr.top >= pr.bottom - 0.5 && Math.abs(sr.left - rowLeft) <= 1
+          ? 'below-left'
+          : 'other';
+    return {
+      headerBottom: header.bottom,
+      bannerTop,
+      firstTop: tiles[0]?.top ?? Infinity,
+      firstHeights: tiles.slice(0, 2).map((r) => Math.round(r.height * 10) / 10),
+      firstBottoms: tiles.slice(0, 2).map((r) => Math.round(r.bottom * 10) / 10),
+      complete,
+      // Margen del peor de las dos primeras tejas contra el límite de L-8 (`bottom ≤ top(banner) − 8`).
+      margin: Math.round((bannerTop - 8 - Math.max(...tiles.slice(0, 2).map((r) => r.bottom))) * 10) / 10,
+      priceRow,
+    };
+  });
+}
+
+test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJECT 943)', () => {
+  // L-8. Mutación que lo pone rojo: restaurar el eyebrow o el `py-8` de la rejilla en móvil (FRONTEND_NOTES §MKT-CONV8).
+  for (const locale of ['es', 'en'] as const) {
+    test(`L-8: ≥ 2 tejas completas a 360/390/414 con nombre de 3 renglones y con precio pendiente + «Queda 1» (${locale}) @real`, async ({ page, context }) => {
+      await setup(context);
+      for (const [w, h] of [[360, 740], [390, 844], [414, 896]] as const) {
+        for (const worst of ['name', 'pending', 'price5'] as const) {
+          await page.setViewportSize({ width: w, height: h });
+          await page.goto(`/${locale}/catalog`);
+          await expect(page.getByTestId('consent-banner')).toBeVisible();
+          await page.locator('main a[href*="/catalog/"] img').first().waitFor();
+          await settle(page);
+          await seedWorstTiles(page, worst, locale);
+          const g = await catalogGeometry(page);
+          testInfo().annotations.push({ type: `L-8-${locale}-${w}-${worst}`, description: JSON.stringify(g) });
+          expect(g.firstTop, `top de la 1ª teja a ${w}×${h} (${worst})`).toBeLessThanOrEqual(250);
+          expect(g.complete, `tejas completas a ${w}×${h} (${worst}): ${JSON.stringify(g)}`).toBeGreaterThanOrEqual(2);
+          if (worst === 'price5') {
+            expect(['same', 'below-left'], `renglón precio/stock con 5 cifras a ${w}: ${JSON.stringify(g)}`).toContain(g.priceRow);
+            // TL-MKT6-2 (HECHOS 2026-11-01: «margen ≥ 20 px a 360×740»): el peor caso a 360 deja ≥ 20 px contra el
+            // mismo límite que `complete` (`top(banner) − 8`). Medido 23.0 en mocks y en real sobre `4496b24d`.
+            if (w === 360) expect(g.margin, `margen al límite de L-8 a 360×740 (price5): ${JSON.stringify(g)}`).toBeGreaterThanOrEqual(20);
+          }
+        }
+      }
+      // 390×664 (viewport de C-F3): solo el arranque de la rejilla; las tejas NO se prometen ahí (MKT-CONV.8).
+      await page.setViewportSize({ width: 390, height: 664 });
+      await page.goto(`/${locale}/catalog`);
+      await expect(page.getByTestId('consent-banner')).toBeVisible();
+      await page.locator('main a[href*="/catalog/"] img').first().waitFor();
+      const g = await catalogGeometry(page);
+      testInfo().annotations.push({ type: `L-8-${locale}-390x664`, description: JSON.stringify(g) });
+      expect(g.firstTop).toBeLessThanOrEqual(250);
+    });
+  }
+
+  // L-8, caso badge (DESIGN_SYSTEM §22.5 «Excepción vigente (2026-11-01)», §MKT-CONV.8 vMKT-CONV-3; HECHOS 2026-11-01
+  // «Estimado PSA fuera de la teja del catálogo en celular», «A»). La carta curada trae el estimado PSA elegible (en
+  // mocks, Blastoise; en real la siembra `gradingScenario()` por la API, y el `globalTeardown` apaga el dial). En < sm
+  // el badge existe en el DOM (presencia ⇔ elegibilidad, R4) pero NO se ve ni se anuncia, la foto es 4:5 y la nota al
+  // pie tampoco se ve; en ≥ sm, badge con cifra y micro-aviso visibles, foto 5:7 y nota visible. Mutaciones que lo
+  // ponen rojo: quitar `hidden sm:block` del badge en `CatalogTile` (rojo en < sm) o dejarlo `hidden` (rojo en ≥ sm).
+  for (const locale of ['es', 'en'] as const) {
+    test(`L-8 (badge): sin estimado PSA en la teja < sm y con estimado en ≥ sm (${locale}) @real`, async ({ page, context }) => {
+      await setup(context);
+      const { curated } = await gradingScenario();
+      const tile = page
+        .locator('main a[href*="/catalog/"]')
+        .filter({ has: page.locator('img') })
+        .and(page.locator(`[href$="/catalog/${curated.id}"]`))
+        .first()
+        .locator('xpath=..');
+      const badge = tile.getByTestId('estimate-badge');
+      // La 2.ª idea del micro-aviso («no evaluamos esta carta» / «we haven't assessed this card»), su `<b>` literal.
+      const idea = [...t(locale, 'catalog.gradingBadge.microNotice').matchAll(/<b>([^<]+)<\/b>/g)][1][1];
+      const notice = tile.getByText(idea, { exact: true });
+      const facts = () =>
+        tile.evaluate((el) => {
+          const well = el.querySelector('a')!.firstElementChild!.getBoundingClientRect();
+          return { wellW: well.width, wellH: well.height };
+        });
+      for (const [w, h, below] of [[360, 740, true], [390, 844, true], [414, 896, true], [768, 1024, false], [1366, 768, false]] as const) {
+        await page.setViewportSize({ width: w, height: h });
+        await page.goto(`/${locale}/catalog?q=${encodeURIComponent(curated.name)}`);
+        await tile.locator('img').waitFor();
+        await settle(page);
+        expect(await badge.count(), `el badge se renderiza (la carta es elegible) a ${w}`).toBe(1);
+        // Una sola nota por página (el `id` es destino del salto). En 1 de 50 comprobaciones (N=5 en CI local) se vio
+        // un segundo `#nota-estimado` TRANSITORIO al cargar a 768; se exige que se resuelva a uno antes de medir.
+        await expect(page.locator('#nota-estimado'), `una sola nota al pie a ${w}`).toHaveCount(1);
+        const f = await facts();
+        const snapshot = await tile.ariaSnapshot();
+        testInfo().annotations.push({ type: `L-8-badge-${locale}-${w}`, description: JSON.stringify({ ...f, snapshot }) });
+        if (below) {
+          await expect(badge, `badge a ${w}`).toBeHidden();
+          await expect(notice, `micro-aviso a ${w}`).toBeHidden();
+          await expect(page.locator('#nota-estimado'), `nota al pie a ${w}`).toBeHidden();
+          // Ni la cifra ni el micro-aviso llegan al árbol de accesibilidad de la teja.
+          expect(snapshot, `árbol accesible de la teja a ${w}`).not.toMatch(/PSA 10|≈/);
+          expect(snapshot).not.toContain(t(locale, 'catalog.gradingNote.callSr'));
+          expect(Math.abs(f.wellH - (f.wellW * 5) / 4), `foto 4:5 a ${w}: ${JSON.stringify(f)}`).toBeLessThanOrEqual(1);
+        } else {
+          await expect(badge, `badge a ${w}`).toBeVisible();
+          await expect(badge, `cifra a ${w}`).toContainText(/PSA 10/);
+          await expect(notice, `micro-aviso a ${w}`).toBeVisible();
+          await expect(page.locator('#nota-estimado'), `nota al pie a ${w}`).toBeVisible();
+          expect(Math.abs(f.wellH - (f.wellW * 7) / 5), `foto 5:7 a ${w}: ${JSON.stringify(f)}`).toBeLessThanOrEqual(1);
+        }
+      }
+    });
+  }
+
+  // L-10. ≥ sm la teja no cambia; < sm se compacta. Mutación que lo pone rojo: aplicar la compactación sin el prefijo
+  // de ancho (p. ej. `hidden` en la rareza sin `sm:inline-block`). Los altos (±1 px de la captura previa) se anotan y se
+  // comparan en FRONTEND_NOTES §MKT-CONV8; lo que se afirma es la mecánica que los produce, medida en el navegador.
+  test('L-10: teja igual en ≥ sm (768 y 1366) y compacta en < sm (390): rareza fuera, precio y stock en un renglón @real', async ({ page, context }) => {
+    await setup(context);
+    const tileFacts = () =>
+      page.evaluate(() => {
+        const a = [...document.querySelectorAll<HTMLElement>('main a[href*="/catalog/"]')].find((x) => x.querySelector('img'))!;
+        const tile = a.parentElement!;
+        const name = tile.querySelector<HTMLElement>('p.font-serif')!;
+        const rarity = tile.querySelector<HTMLElement>('[aria-label^="Rareza"], [aria-label^="Rarity"]');
+        const row = tile.querySelector<HTMLElement>('[data-testid="tile-price-row"]');
+        const price = tile.querySelector<HTMLElement>('p.tabular');
+        const stock = [...tile.querySelectorAll<HTMLElement>('p')].find((p) => /stock|Queda|left/i.test(p.textContent ?? ''));
+        const cta = tile.querySelector('button')!.parentElement!;
+        const cs = (el: Element) => getComputedStyle(el);
+        const pr = price?.getBoundingClientRect();
+        const sr = stock?.getBoundingClientRect();
+        return {
+          height: Math.round(tile.getBoundingClientRect().height * 10) / 10,
+          nameMarginTop: cs(name).marginTop,
+          nameClamp: cs(name).webkitLineClamp,
+          rarityDisplay: rarity ? cs(rarity).display : 'absent',
+          rarityHeight: rarity ? rarity.getBoundingClientRect().height : 0,
+          rowDisplay: row ? cs(row).display : 'absent',
+          priceTop: pr?.top ?? null,
+          priceBottom: pr?.bottom ?? null,
+          stockTop: sr?.top ?? null,
+          stockBottom: sr?.bottom ?? null,
+          ctaPaddingTop: cs(cta).paddingTop,
+        };
+      });
+    for (const [w, h] of [[768, 1024], [1366, 768]] as const) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.goto('/es/catalog');
+      await page.locator('main a[href*="/catalog/"] img').first().waitFor();
+      const f = await tileFacts();
+      testInfo().annotations.push({ type: `L-10-${w}`, description: JSON.stringify(f) });
+      expect(f.nameMarginTop, `nombre a ${w}`).toBe('12px');
+      expect(['none', '', undefined, null].includes(f.nameClamp), `sin recorte a ${w}: ${f.nameClamp}`).toBe(true);
+      expect(f.rarityDisplay, `rareza a ${w}`).not.toBe('none');
+      expect(f.rarityHeight).toBeGreaterThan(0);
+      expect(['block', 'absent'].includes(f.rowDisplay), `renglón de precio a ${w}: ${f.rowDisplay}`).toBe(true);
+      expect(f.stockTop!, `stock BAJO el precio a ${w}`).toBeGreaterThanOrEqual(f.priceBottom!);
+      expect(f.ctaPaddingTop).toBe('12px');
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/es/catalog');
+    await page.locator('main a[href*="/catalog/"] img').first().waitFor();
+    const m = await tileFacts();
+    testInfo().annotations.push({ type: 'L-10-390', description: JSON.stringify(m) });
+    expect(['none', 'absent'].includes(m.rarityDisplay), `rareza a 390: ${m.rarityDisplay}`).toBe(true);
+    expect(m.rarityHeight).toBe(0);
+    // Mismo renglón: las cajas se solapan en vertical. Van alineadas por la LÍNEA BASE (15 px contra 9 px), así que sus
+    // `top` no coinciden ±2 px como decía la aritmética del diseño (diferencia medida: FRONTEND_NOTES §MKT-CONV8).
+    expect(m.stockTop!).toBeLessThan(m.priceBottom!);
+    expect(m.stockBottom!).toBeGreaterThan(m.priceTop!);
+  });
+});
+
+test.describe('L-9 · ficha en lg: el renglón de compra fuera del alcance del banner (vMKT-CONV-2)', () => {
+  // Mutación que lo pone rojo: devolver la pila o la retícula por encima de «Ejemplares disponibles» en lg (rojo con el
+  // nombre de 3 renglones). El barrido se corre N veces (`--repeat-each`, O-3).
+  test('L-9: a 1366×768, 1280×720 y 1440×900, bottom del 1er renglón ≤ top del banner − 48 con nombres de 1/2/3 renglones y una gradeada @real', async ({ page, context }) => {
+    test.setTimeout(180_000);
+    await setup(context);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    const rawHref = await firstCardHref(page);
+    await page.goto('/es/catalog?productType=graded');
+    await page.locator('main a[href*="/catalog/"]').first().waitFor();
+    const gradedHref = (await page.locator('main a[href*="/catalog/"]').first().getAttribute('href'))!;
+    for (const [w, h] of [[1366, 768], [1280, 720], [1440, 900]] as const) {
+      for (const [kind, href] of [['suelta', rawHref], ['gradeada', gradedHref]] as const) {
+        for (const name of [null, NAME_60, NAME_120]) {
+          await page.setViewportSize({ width: w, height: h });
+          await page.goto(href);
+          await expect(banner(page)).toBeVisible();
+          await expect(page.getByTestId('instance-cta').first()).toBeVisible();
+          await settle(page);
+          const m = await page.evaluate((name) => {
+            const h1 = document.querySelector('main h1')!;
+            const nameEl = h1.querySelector<HTMLElement>('[data-testid="card-name"]');
+            const target = nameEl ?? (h1.firstChild as ChildNode);
+            if (name) target.textContent = name;
+            const lh = parseFloat(getComputedStyle(h1).lineHeight);
+            const lines = nameEl ? Math.round(nameEl.getBoundingClientRect().height / lh) : null;
+            const btn = document.querySelector('[data-testid="instance-cta"]')!.getBoundingClientRect();
+            const bannerTop = document.querySelector('[data-testid="consent-banner"]')!.getBoundingClientRect().top;
+            return {
+              lines,
+              cert: !!document.querySelector('[data-testid="cert-number"]'),
+              btnBottom: Math.round(btn.bottom * 10) / 10,
+              bannerTop,
+              margin: Math.round((bannerTop - btn.bottom) * 10) / 10,
+            };
+          }, name);
+          const label = `${w}×${h} ${kind} nombre=${name ? name.length : 'sembrado'}`;
+          testInfo().annotations.push({ type: `L-9 ${label}`, description: JSON.stringify(m) });
+          if (m.lines != null) expect(m.lines, `renglones del nombre (${label})`).toBeLessThanOrEqual(3);
+          expect(m.btnBottom, `${label}: ${JSON.stringify(m)}`).toBeLessThanOrEqual(m.bannerTop - 48);
+        }
+      }
+    }
   });
 });
 

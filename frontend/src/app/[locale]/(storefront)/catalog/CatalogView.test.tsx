@@ -43,13 +43,16 @@ describe('CatalogView · toast de confirmación al agregar', () => {
   it('clic en «Añadir al carrito» guarda la pieza y muestra el toast con enlace al carrito', async () => {
     renderWithProviders(<CatalogView />, 'es');
 
-    // La región aria-live existe desde el inicio, vacía.
-    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    // La región aria-live existe desde el inicio, vacía. MKT-CONV.8: el conteo de resultados también es región viva
+    // (`role=status`), así que se distingue el toast por ser la región sin el conteo.
+    const toast = () => screen.getAllByRole('status').find((el) => el.dataset.testid !== 'catalog-results-count')!;
+    expect(screen.getAllByRole('status')).toHaveLength(2);
+    expect(toast()).toBeEmptyDOMElement();
 
     const addButtons = await screen.findAllByRole('button', { name: 'Añadir al carrito' });
     fireEvent.click(addButtons[0]);
 
-    expect(screen.getByRole('status')).toHaveTextContent('Agregado al carrito');
+    expect(toast()).toHaveTextContent('Agregado al carrito');
     expect(screen.getByRole('link', { name: 'Ver carrito' })).toHaveAttribute('href', '/checkout');
     // Formato v2 del carrito: { ids, updatedAt } (expiración a 30 días).
     expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toHaveLength(1);
@@ -116,6 +119,17 @@ describe('CatalogView · §22.4b nota al pie de Compra', () => {
     expect(screen.getByText(/INFORMACIÓN ILUSTRATIVA/)).toBeInTheDocument();
     // La nota cierra con el enlace de regreso a los resultados (viaje de ida y vuelta).
     expect(document.getElementById('catalogo-resultados')).toBeInTheDocument();
+  });
+
+  it('TL-MKT6-1: badge y nota comparten el MISMO corte < sm (`hidden sm:block`), declarado una vez por la página', async () => {
+    renderWithProviders(<CatalogView />, 'es');
+    await screen.findAllByRole('button', { name: 'Añadir al carrito' });
+    const visibility = (el: Element) => el.className.split(/\s+/).filter((c) => /^(hidden|block|(sm|md|lg|xl):(hidden|block))$/.test(c)).sort();
+    const badges = screen.getAllByTestId('estimate-badge');
+    expect(badges.length).toBeGreaterThan(0);
+    const note = document.getElementById('nota-estimado')!;
+    expect(visibility(note)).toEqual(['hidden', 'sm:block']);
+    for (const b of badges) expect(visibility(b)).toEqual(visibility(note));
   });
 
   it('una página SIN badges (pestaña Gradeadas) no pinta cifra ni nota: la condición es la misma', async () => {

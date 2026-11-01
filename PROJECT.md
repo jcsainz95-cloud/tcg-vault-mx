@@ -14834,55 +14834,61 @@ del precio») va en una entrega aparte. No entran aquí: imágenes (B6), URL con
 Todo texto nuevo de cara al cliente lo aprueba el dueño antes de publicar (`HECHOS.md` 2026-10-24 «Regla de envío nueva…»).
 «HTML crudo» = la respuesta del servidor leída con `curl`, sin ejecutar JavaScript. Más alto previo: 939.)*
 940. **El banner no tapa la compra [B1]**: con el banner de cookies abierto, a 360, 390 y 414 px y a 1366×768, en ficha y
-   catálogo, COMPRAR se ve entero y se puede pulsar; el banner es una barra inferior de ≤ ~90 px y «Aceptar» y «Solo lo
-   necesario» tienen el mismo peso visual. Texto y botones, sin cambio (`HECHOS.md` 2026-10-26 «Aviso de privacidad con la
-   medición: aprobado»). El dueño lo aprueba ante la captura antes de publicar; C-F2/C-F3 (§MKT.H.11) siguen verdes.
-941. **«Ventas finales» una sola vez [B4]**: entre ficha y carrito la regla de ventas finales aparece **1** vez, antes de
+   catálogo, «Añadir al carrito» (948) se ve entero y se puede pulsar; el banner es una barra inferior delgada de ≤ ~90 px y «Aceptar» y «Solo
+   lo necesario» se ven **iguales: los dos con borde y fondo de papel** (D-A = A, `HECHOS.md` 2026-10-31 «Marketing tanda 2:
+   decisiones del dueño»; sustituye la decisión del 2026-10-16 de «Aceptar» más grande). Los textos, sin cambio (`HECHOS.md`
+   2026-10-26 «Aviso de privacidad con la medición: aprobado»). C-F2/C-F3 (§MKT.H.11) siguen verdes.
+941. **Cumplido 2026-10-31.** **«Ventas finales» una sola vez [B4]**: entre ficha y carrito la regla de ventas finales aparece **1** vez, antes de
    pagar, con T8 al lado («Si tu carta llega dañada o equivocada, te reembolsamos.», `HECHOS.md` 2026-10-25 «Textos del
    checkout y medición aprobados»). Su redacción es la vigente; P-LEG-6 (§LEG.4) no se decide aquí.
-942. **Casilla del correo sin guion [B4b]**: con el campo de correo vacío, la casilla nunca dice «Confirmo que — es
+942. **Cumplido 2026-10-31.** **Casilla del correo sin guion [B4b]**: con el campo de correo vacío, la casilla nunca dice «Confirmo que — es
    correcto»: muestra el correo escrito o, si no hay, un texto neutro.
-943. **Nada se sale de la pantalla en celular [B5]**: en portada, catálogo y ficha, a 360, 390 y 414 px, `innerWidth` =
+943. **Cumplido 2026-10-31.** **Nada se sale de la pantalla en celular [B5]**: en portada, catálogo y ficha, a 360, 390 y 414 px, `innerWidth` =
    `scrollWidth` = ancho de la pantalla (hoy la portada mide 677 px); en el catálogo se ven ≥ 2 tarjetas completas en la
    primera pantalla (SUPUESTO: también con el banner abierto).
 944. **«Quiénes somos y contacto» [B2]**: una página propia (SUPUESTO: `/es/nosotros` y su par en `/en`) responde 200, es
-   indexable, está en `sitemap.xml` y lleva `Organization` con `contactPoint`. Muestra ciudad, Instagram, los métodos de pago
-   que el checkout acepta ese día, el plazo de entrega y los contactos que el dueño autorice (MKT-1); ningún dato inventado.
+   indexable, está en `sitemap.xml` y lleva `Organization` con `contactPoint`. Datos (`HECHOS.md` 2026-10-31 «Marketing
+   tanda 2: decisiones del dueño»): ciudad **«Ciudad de México»**; correo público **`contacto@tcghunt.mx`**; plazo de entrega
+   **«4 a 10 días hábiles»**; **solo atención telefónica, sin atención en persona** (no se pinta dirección ni cita);
+   Instagram (946) y los métodos de pago que el checkout acepta ese día. **Teléfono/WhatsApp: fila oculta** hasta que exista
+   el número (pregunta abierta MKT-6); ningún dato inventado, sin dato no hay fila. El texto narrativo lo redacta marketing
+   y lo aprueba el dueño antes de publicar (MKT-5 = a).
 945. **Señales de confianza a la vista [B2]**: una franja de una línea con esas señales se ve en la ficha y en el carrito, y
-   el pie de página enlaza a «Quiénes somos y contacto».
-946. **Instagram en los datos para Google [B2b]**: el JSON-LD `Organization` lleva `sameAs` con la URL de Instagram que
-   confirme el dueño (MKT-2).
-947. **La bóveda en la ficha [T2]**: la ficha de una carta de menos de MX$600 muestra la línea de bóveda del diseño
-   CHK-MOVIL.5 T2 (`DESIGN_SYSTEM.md`).
-948. **Una acción, una etiqueta [B6b]**: en la ficha, la barra fija y el botón del cuerpo dicen lo mismo y hacen lo mismo;
-   COMPRAR es el botón con más peso (el de «Lista de deseos» no lo supera). SUPUESTO: sale la frase «El precio de venta es
-   el precio publicado de esta carta».
-949. **La ficha se lee sin JavaScript [C1]**: el HTML crudo de 4 fichas (suelta, gradeada, sellado y una agotada) trae un
+   el pie de página enlaza a «Quiénes somos y contacto». La palabra «Pago seguro» espera D-E (pregunta abierta).
+946. **Instagram en los datos para Google [B2b]**: el JSON-LD `Organization` lleva `sameAs` con
+   `https://www.instagram.com/tcghunt.mx/` (`@tcghunt.mx`, confirmado por el dueño 2026-10-31, MKT-2).
+947. **La bóveda en la ficha [T2]**: la ficha de una carta de menos de MX$600 muestra la línea de bóveda **B** (D-C = B):
+   «Con cuenta, junta cartas en tu bóveda y pide un solo envío. Sin cuenta, te la enviamos a casa.» (EN en
+   `DESIGN_SYSTEM.md` §MKT-CONV, CHK-MOVIL.5 T2).
+948. **Una acción, una etiqueta [B6b]**: en la ficha, la barra fija y el botón del cuerpo dicen **«Añadir al carrito»** (D-B
+   = A) y hacen lo mismo; es el botón con más peso (el de «Lista de deseos» no lo supera). Sale la frase «El precio de venta
+   es el precio publicado de esta carta» (maqueta aceptada con D-A/D-B/D-C, `DESIGN_SYSTEM.md` §MKT-CONV.5).
+949. **Cumplido 2026-10-31.** **La ficha se lee sin JavaScript [C1]**: el HTML crudo de 4 fichas (suelta, gradeada, sellado y una agotada) trae un
    `<h1>` con nombre · set · número, el nombre aparece en `<body>` y se ven precio, condición y 2-3 líneas de texto. La
    ficha no vuelve a pedir en el navegador los datos que ya mandó el servidor.
-950. **Enlaces que Google puede seguir [C2]**: el HTML crudo de `/es` y `/es/catalog` trae enlaces `<a href>` a fichas
+950. **Cumplido 2026-10-31.** **Enlaces que Google puede seguir [C2]**: el HTML crudo de `/es` y `/es/catalog` trae enlaces `<a href>` a fichas
    (> 0) y el catálogo pagina con `?page=` enlazable; no dice «Sin publicaciones disponibles» si hay publicaciones.
 951. **Ficha que no existe y ficha agotada [C3]**: una ficha con identificador inexistente (p. ej. `00000000-…`) responde
-   **404** con su propio título, no el de la portada. Una carta agotada sigue la respuesta del dueño a MKT-3 (SUPUESTO
-   mientras tanto: visible e indexable con «Agotada» y `availability` = `OutOfStock`).
-952. **Cada página con su título [C4]**: las 16 páginas públicas que midió marketing tienen título y descripción propios y
+   **404** con su propio título, no el de la portada. Una carta agotada **sigue visible e indexable con «Agotada»** y
+   `availability` = `OutOfStock` (MKT-3 = a, dueño 2026-10-31).
+952. **Cumplido 2026-10-31.** **Cada página con su título [C4]**: las 16 páginas públicas que midió marketing tienen título y descripción propios y
    `canonical`; catálogo, sellado, buylist, accesorios y decks-meta ya no repiten los de la portada.
-953. **Producto completo [C5]**: el `Product` de la ficha lleva `itemCondition`, `brand`, `shippingDetails` con las tarifas
+953. **Cumplido 2026-10-31.** **Producto completo [C5]**: el `Product` de la ficha lleva `itemCondition`, `brand`, `shippingDetails` con las tarifas
    vigentes (`HECHOS.md` 2026-10-25 «Envío gratis desde MX$4,000 para CUALQUIER pedido») y `hasMerchantReturnPolicy` acorde a
    §LEG.4; la foto del sellado mide ≥ 1000 px; la Prueba de resultados enriquecidos de Google no marca errores.
-954. **Portada y asistentes de IA [C6]**: la portada lleva JSON-LD `WebSite` con `SearchAction`, `logo` y `contactPoint`;
+954. **Cumplido 2026-10-31.** **Portada y asistentes de IA [C6]**: la portada lleva JSON-LD `WebSite` con `SearchAction`, `logo` y `contactPoint`;
    `llms.txt` enlaza sellado, Card Show, Instagram y «Quiénes somos»; en `sitemap.xml` las páginas fijas llevan `lastmod`
    real (no la hora de la petición) y `x-default` apunta a una URL que responde 200 sin redirigir.
-955. **Una sola página del Card Show [C7]**: `tcghunt.mx/card-show` (la que ya existe; palabras del dueño, 2026-10-31: «La
+955. **Cumplido 2026-10-31.** **Una sola página del Card Show [C7]**: `tcghunt.mx/card-show` (la que ya existe; palabras del dueño, 2026-10-31: «La
    página del cardshow ya existe es tcghunt.mx/card-show») responde 200, es la canónica y está en `sitemap.xml`;
    `/es/card-show` (hoy 404) redirige con 301 o 308 a ella conservando los UTM. Los enlaces de la bio `/es/sellado` y
    `/es/buylist` también responden 200 con UTM. **Urgente:** en producción antes del Card Show (5-6 dic).
-956. **IVA en los textos para buscadores [C8]**: se cumple la respuesta del dueño a MKT-4. Si es «se quita», `grep -i iva`
-   sobre las meta-descripciones y `llms.txt` da 0 y la ficha sigue mostrando «incluye IVA» como hoy (§MIV). En `/en` esos
-   textos no mezclan español.
+956. **IVA en los textos para buscadores [C8]**: el IVA no se menciona en esos textos (MKT-4 = a, dueño 2026-10-31):
+   `grep -i iva` sobre las meta-descripciones y `llms.txt` da 0, y la ficha sigue mostrando «incluye IVA» como hoy (§MIV).
+   En `/en` esos textos no mezclan español.
 957. **De punta a punta** *(O-4)*: en un celular de 390 px, desde un enlace con UTM de Instagram, un invitado abre la
    portada con el banner abierto, entra al catálogo, abre una ficha, ve la franja de confianza y la línea de bóveda, pulsa
-   COMPRAR, llega al carrito sin desborde y con «ventas finales» una vez, y abre «Quiénes somos y contacto» desde el pie.
+   «Añadir al carrito», llega al carrito sin desborde y con «ventas finales» una vez, y abre «Quiénes somos y contacto» desde el pie.
    Lo recorre tester-e2e en el navegador contra el stack con datos sembrados.
 
 ## Riesgos y banderas para el humano
@@ -16872,24 +16878,13 @@ promesa:**
 > 2026-10-25 y se van integrando aquí al compactar. Al contestarse, cada pregunta sale de aquí y pasa a
 > `docs/DECISIONES.md` con la respuesta literal.
 
-*Conversión y SEO (criterios 940–957). Si no contestas, se construye con la recomendación; solo MKT-1 bloquea (944–945).*
-- **MKT-1 · Datos de «Quiénes somos y contacto».** Solo publicamos lo que tú nos des: (a) **ciudad** que se muestra
-  (p. ej. «Guadalajara, Jal.» o solo «México»); (b) **correo público** (p. ej. `hola@tcghunt.mx`) y/o **WhatsApp**:
-  ¿cuál, o ninguno?; (c) **plazo de entrega** que prometes (p. ej. «enviamos en 1-2 días hábiles, llega en 3-7»);
-  (d) ¿hay **atención en persona** (local, con cita, solo en eventos como el Card Show)? **Recomendación:** ciudad,
-  Instagram y un correo de la tienda, sin WhatsApp personal, y el plazo que hoy cumples siempre, no el mejor caso.
-- **MKT-2 · Instagram.** ¿La cuenta oficial es `@tcghunt.mx` (`https://www.instagram.com/tcghunt.mx/`)? **Recomendación:**
-  sí, si es esa; se enlaza en la página de contacto y en los datos que lee Google.
-- **MKT-3 · Carta agotada.** Se vende la última Ash's Pikachu: ¿su página (a) **sigue visible con «Agotada»** o (b)
-  **desaparece** («página no encontrada»)? **Recomendación: (a)**: Google no la pierde y, cuando vuelva a haber, ya
-  está encontrada; quien llegue ve «Agotada» y puede seguir al catálogo. Una dirección que nunca existió da «no
-  encontrada» en ambos casos.
-- **MKT-4 · «IVA incluido» en los textos para Google y asistentes de IA.** Hoy esas descripciones dicen, por ejemplo,
-  «… MX$1,160 · IVA 16 % incluido». Marketing tiene tu regla de no mencionar el IVA (2026-10-25). ¿(a) **se quita** de
-  esos textos (la tienda sigue mostrando «incluye IVA» en la ficha como hoy) o (b) **se queda**? **Recomendación: (a)**:
-  el precio publicado ya es el final, la ficha lo sigue diciendo y los textos de marketing y de la tienda no se contradicen.
-- **MKT-5 · ¿Quién escribe «Quiénes somos»?** (a) marketing lo redacta con tus datos de MKT-1 y tú lo apruebas; (b) lo
-  escribes tú. **Recomendación: (a).**
+*Conversión y SEO (criterios 940–957). Ninguna bloquea: sin respuesta, la fila no se pinta o se usa la recomendación.*
+- **MKT-6 · Número de teléfono / WhatsApp de la tienda.** Dijiste «solo atención telefónica» y «whatsapp creo ya lo
+  tienes o que marketing te lo pase», pero el número no está escrito en ningún registro del proyecto. ¿Cuál es el número
+  que se publica en «Quiénes somos y contacto»? Mientras no lo tengamos, esa fila no aparece (944).
+- **D-E · «Pago seguro» en la franja de confianza (945).** Es una afirmación comercial. (A) se queda «Pago seguro»
+  (el cobro lo procesa el proveedor de pagos, Stripe); (B) se cambia por «Pagas en la pantalla de pago».
+  **Recomendación: A.** No se publica la franja con «Pago seguro» sin tu sí.
 
 ## Preguntas abiertas — acabado / versión de carta (v1.4)
 > Requisito §I redactado con las decisiones ya tomadas por el humano; quedan estos huecos menores. Los

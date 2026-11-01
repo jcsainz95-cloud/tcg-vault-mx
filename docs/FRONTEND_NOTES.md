@@ -6,6 +6,38 @@
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46; 2026-10-31: §MKT tienda §A3/§A4/§E1
 > plegado en §MKT-OLA2); cada pase que añade quita más de lo que añade.
 
+## §MKT-CONV8 · Catálogo móvil con ≥ 2 tejas y ficha lg con la compra arriba (vMKT-CONV-2, 2026-10-31, rama `claude/mkt2-fe-layout`, base `8c66a844`)
+
+Fuente: DESIGN_SYSTEM §MKT-CONV.2 (lg) y §MKT-CONV.8; PROJECT 943. Medido en stack propio (`up --gate --measurement --seed`, :3190/:3199), seed sintético, banner abierto.
+- **Catálogo < lg** (`CatalogView`, `StoreTabs`, `Select` gana `labelClassName`/`fieldClassName`): eyebrow `hidden lg:block`; h1 24/28 con el conteo en la fila; pestañas `h-11`; Filtros+Orden en una fila de 56 (etiqueta `sr-only`); barra de resultados `h-0` sin chips (`h-12` sin wrap con chips); `resultsCount` es `role=status` y `sr-only lg:not-sr-only`; rejilla `pt-3 lg:pt-8`. lg idéntico. El pliegue aplica a todo < lg (también 768: rejilla 396.5 → 243).
+- **Teja < sm** (`CatalogTile`): nombre `line-clamp-2`, rareza `hidden sm:inline-block`, precio y stock en `flex` con `order-*` (IVA `basis-full` debajo; `sm:block` devuelve el orden del DOM), márgenes menores. Alto ≥ sm: 768 = 536.0 y 1366 = 523.0, igual que en `8c66a844` (Δ 0). Precio y stock alineados por la línea base: `top` difiere 5 px, no ±2 como pedía L-10; el candado afirma que las cajas se solapan en vertical.
+- **Medidas (antes `8c66a844` → ahora):** rejilla y=424 → 243 (diseño: 242). Teja sembrada 416.6/437.6/454.4 → 372.6/393.6/410.4 a 360/390/414; peor caso (nombre de 120, 2 renglones) 390.8/411.8/428.6, fin 633.8/654.8/671.6 contra banner−8 = 643/747/799. Tejas completas 0 → 2 en es y en. El diseño calculaba 354/375/392 (≈ +37 px medidos): a 360 el margen real es 9 px, no 55. 390×664: rejilla 243, 0 tejas (no se promete).
+- **Ficha lg** (`CardDetailView`): columna `lg:flex lg:flex-col` + `lg:order-*`: h1 → precio → grading (§22.3: antes de los renglones) → «Ejemplares disponibles», renglones y franja → pila T1a/T8/T2 → Condición/Acabado (la retícula se parte en dos) → certificado → lista. El certificado tiene botón: se pinta dos veces (`lg:hidden` en su sitio / `hidden lg:block` tras la compra) para que el foco siga el orden visual. Nombre `lg:line-clamp-3` (+`pb-1.5 -mb-1.5`: el recorte cortaba la «y» del 3.er renglón). `lg:pt-10`, precio `lg:mt-6`, h2 `lg:mt-5` (−16 px): sin eso, 40 px < 48 a 1280×720.
+- **Ficha, bottom del 1.er «Añadir al carrito»:** antes 701.3 (1 renglón; ya bajo el banner a 1280×720: −38) y 797.9/894.5 con nombres largos. Ahora 510.3 (1 renglón) y 606.9 (3, recortado): margen al banner 200.7/104.1 a 1366×768, 152.7/56.1 a 1280×720, 332.7/236.1 a 1440×900. El diseño calculaba ≈470/≈525. Un nombre de 60 caracteres ocupa 3 renglones a 46 px, no 2.
+- **Candados** (`e2e/measurement-on.spec.ts`, `@real`): L-8 (es/en), L-9, L-10; el peor caso se escribe en el DOM (el seed no trae nombres largos ni precio pendiente en la 1.ª página). L-5 queda solo con el desborde de la portada. Unitarias: `CatalogView.mobile.test.tsx`, `CardDetailView.lg.test.tsx`, casos MKT-CONV.8 en `CatalogTile.test.tsx` y `StoreTabs.ac.test.tsx`. `catalog.spec` D-EQ-3: localizador acotado al aviso (convive con `consent-status`).
+- **vMKT-CONV-3 (2026-11-01, rama `claude/mkt2-fe-l8b`; HECHOS «Estimado PSA fuera de la teja del catálogo en celular», «A»; DESIGN_SYSTEM §22.5 «Excepción vigente», §MKT-CONV.8):** causa del rojo de L-8 en CI (run 41255312425): con el bundle de mocks Blastoise lleva el badge §22.5 y la fila medía 474.1 a 360 (−74.1 px al banner). Ahora `CatalogTile` tiene `surface` (`catalog` por defecto; `shelf` en `GradingGemsShelf`, que no cambia): en el catálogo el badge va `hidden sm:block` (fuera también del árbol accesible: ni cifra ni micro-aviso se anuncian en < sm) y el pozo es `aspect-[4/5] sm:aspect-[5/7]` (`object-contain` sobre `bg-surface-2`: `--color-surface-sunken` no existe en los tokens). El corte < sm lo declara `CatalogView` UNA vez (`figureClassName` de `GradingFootnoteBoundary`, TL-MKT6-1): la boundary lo pone en la nota y lo publica por contexto a badge y bloque; la teja no pone corte propio. Renglón precio/stock: `flex-wrap` sin cambios (con 5 cifras «Queda 1» baja a la izquierda; L-8 `price5` lo afirma). *Medido (mocks de CI y stack real `up --gate --measurement --seed` con el gancho sembrado por `gradingScenario()`, banner abierto, sobre `4496b24d`):* teja peor caso (nombre de 120 + 5 cifras + «Queda 1») 377.0/386.8/401.8 a 360/390/414 en es (en: 395.8 a 390), margen al límite de L-8 23.0/117.3/154.3 (en: 108.3 a 390); idéntico en mocks y en real. Natural en mocks: 358.8 a 360 (margen 41.2). ≥ sm Δ 0 contra `910a221f`: 596.4 a 768 y 583.4 a 1366 (mocks, con badge). Foto 152×190 a 360 (4:5). *Candados:* L-8 añade el peor caso `price5` y «L-8 (badge)» es/en (badge, micro-aviso y nota ocultos y árbol accesible sin cifra en 360/390/414, foto 4:5 ±1; visibles y 5:7 ±1 en 768/1366); exige una sola `#nota-estimado` (se vio un duplicado transitorio 1/50, no reproducido 0/75 aislado). `measurement-on` usa el `globalTeardown` común (apaga el dial). Unitarias en `CatalogTile.test.tsx` y `GradingGemsShelf.test.tsx`.
+- **§MKT2-FE-DEBT (2026-11-01, rama `claude/mkt2-fe-debt`, base `4f4280bb`):** deuda del techlead TL-MKT5/TL-MKT6 anotada en `docs/TECH_DEBT.md` «Frontend · 2026-11-01» (estado y comprobaciones viven allí). Cerradas: TL-MKT5-2 (`hasCatalogFilters` por tabla `IS_FILTER` con `satisfies` sobre `keyof CatalogFilters`), -7 (FAQ P13/P22 interpolan `PUBLIC_CONTACT_EMAIL`), -8 (cabecera de `lib/brand.ts` con §13.8 (c)), -9, TL-MKT6-1 (corte en la boundary) y -4 (WhatsApp: una forma internacional en `lib/about.ts`; nacional, `wa.me` y pie del Card Show derivados). TL-MKT6-2: L-8 `price5` a 360 ya afirma margen ≥ 20 (mocks 5/5, margen 23); queda abierta hasta medirla contra stack. El `hola@` del pie del Card Show es TL-MKT7-1 (sin tocar, pregunta al PO). QA sobre `4f4280bb`: `en` `about.buy.title` = «How buying works» (prueba literal de títulos es/en en `nosotros/page.test.tsx`); `grading-estimate.spec.ts` (teja) espera con `warmUntilBadge` a que el HTML del servidor traiga el badge (la copia de la caché que dejó `measurement-on` sin dial; NO MEDIDO contra stack); `CatalogView.test` «TL-MKT6-1» fija que la nota se oculta en < sm.
+- **§MKT2-FE-DEBT2 (2026-11-01, rama `claude/mkt2-fe-debt2`, base `add50880`):** TL-MKT7-3 cerrada (en `GradingEstimateBadge`/`GradingEstimateBlock` el corte `figureClassName` va DESPUÉS del `className` de quien llama: `twMerge` deja ganar al último). Anotadas en TECH_DEBT «Frontend · 2026-11-01»: TL-MKT7-1/-2, TL-ENV-F2b, TL-MKT-MT-1, TL-MKT2c-4 (cerrada) y TL-MKT5-10 partida en -10a (grading fuera de L-9), -10b (seed sin gradeada con certificado), -10c (`measurement-off` contra stack `--measurement`).
+
+## §MKT-CONV2 · Marketing tanda 2: banner delgado, una etiqueta, T2, Quiénes somos, 404/agotada, sin IVA para buscadores (2026-10-31, rama `claude/mkt2-fe`, base `a60afe42`)
+
+Fuentes: DESIGN_SYSTEM §MKT-CONV.1–.6; PROJECT 940–957; HECHOS 2026-10-31 «Marketing tanda 2: decisiones del dueño» (D-A=A, D-B=A, D-C=B, MKT-2…5).
+- **B1:** `ConsentBanner` barra delgada (89 px móvil / 57 px a 1366, medido), «Configurar» dentro de la frase, los dos botones con la misma clase. L-1/L-2/L-3/L-5 en `e2e/measurement-on.spec.ts` (sustituyen el techo 232/120 de C-F12).
+- **B6b/T2:** ficha con «Añadir al carrito»/«Ver carrito» en renglón (`data-testid="instance-cta"`) y barra; fuera `catalog.buyNow` y `card.referenceExplainerNoMarket`. Pila T1a→T8→T2 (`_shared/VaultNote.tsx`: sale en SSR y se retira al montar si hay sesión). Lista de deseos sin `primary`.
+- **1366×768:** compactaciones lg de −40 px (miga, retícula, T1a, h2, renglón); la disposición vigente es §MKT-CONV8.
+- **B2:** `lib/about.ts` es la fuente única (correo `brandEmail('contacto')`, ciudad, Instagram, WhatsApp `CONTACT_PHONE` por idioma; `wa.me` y `telephone` `+52-55-6489-3921` se derivan de `CONTACT_PHONE.en`). `/es|en/nosotros` (sitemap con `lastmod`, `AboutPage`+`Organization`), franja `_shared/TrustStrip.tsx` en ficha y carrito («Pago con tarjeta»: D-E sin decidir), pie con enlace y `mailto:`. `/nosotros` NO está en la lista blanca de medición.
+- **B2, texto final (2026-11-01, rama `claude/mkt2-fe-about`, base `1e5efe8e`; HECHOS 2026-11-01 «WhatsApp público…»):** `about.*` = `copy-final.md` de marketing @ 6fed1dd LITERAL (lead, «Qué hacemos» en lugar de la historia, intros de «Cómo compras» y «Contacto», plazo, Correo/WhatsApp/Instagram, `description`); fijas de la tienda: Revisión, Cuenta, Pago, Envío, Garantía, Factura, Pedidos y cuenta (`soporte@`), Card Show. Fuera: razón social, `who.story`, `contact.phone`/`phoneNote` («solo por teléfono» contradecía al correo; la intro ya dice «No atendemos en persona»). Candado: `nosotros/page.test.tsx` «texto final… literal».
+- **C3:** `DETAIL_NOT_FOUND` (404 del backend: solo inexistente o no sellado) ⇒ `notFound()` en carta y sellado; `[locale]/not-found.tsx` da título propio. Carta agotada: «Agotada» + `Offer` `OutOfStock` sin `price`.
+- **v1.115 (rama `claude/mkt2-fe-arq`, base `3fc5e1f2`; API_CONTRACT §MKT.A.1, ARCHITECTURE §13.8, §4.DYN (f) 2/9, §14.4):**
+  - *Sellado agotado (CNV-F1/F2):* `SealedGroupDTO.fromPriceCents`/`priceSource` `| null`; `isSealedSoldOut()` (`lib/seo.ts`) lo usan página y vista. Ficha: «Agotado» (`sealed.detail.soldOut`, patrón `sold-out` de la carta) en lugar de precio, cantidad, compra y barra fija; «Avísame» con `representativeItemId` y textos `restock.bodySoldOut`/`confirmedSoldOut`; sin `view_item`. JSON-LD `soldOutOfferJsonLd('sealed')`; og/meta sin precio; canonical y hreflang = `group.representativeItemId`. Los fixtures a la venta son `PricedSealedGroupDTO` (`lib/mock/fixtures.ts`).
+  - *Canonical paginado (§13.8 (d)):* `catalog/catalog-seo.ts` + `generateMetadata` con `searchParams`; la lectura SSR se comparte con la página por `cache()` (clave = query). Sin lectura a tiempo ⇒ canonical propio sin `noindex` (no se sabe si existe). `?page=n` con total 0 también es «fuera de rango».
+  - *Correo de marca (§13.8 (c)):* `sealed.buylistCallout.body` lleva `{email}`; `SealedShopView` interpola `PUBLIC_CONTACT_EMAIL` (texto y `mailto:`).
+  - *Edad (§4.DYN (f) 9):* `responseAgeMs` da `null` con edad negativa. `initialDataUpdatedAtOf` (`CatalogView.tsx`) también da 0 (vieja) con `ageMs` nulo, no finito o negativo (prueba en `CatalogView.c2.test.tsx`).
+  - *Rich Results de Google para una ficha agotada (carta):* NO MEDIDO. La herramienta responde desde aquí, pero «Probar código» exige iniciar sesión en Google («Inicia sesión e inténtalo de nuevo», 2026-10-31) y la ficha local no es pública. Lo cierra quien tenga cuenta: URL pública de una carta agotada en tcghunt.mx.
+  - Rojo → verde y mutaciones (N=3, copia entera `git archive` de `d49a20d8`): informe de entrega del stream; candados en `TECH_DEBT.md` (TL-MKT2-7/8, TL-MKT4-3).
+- **C8/C6:** sin «IVA» en `buildFichaDescription` ni en `llms.txt`; `llms.txt` enlaza Instagram y Quiénes somos. Las pruebas usan `\biva\b` («privacidad» contiene «iva»).
+- `measurement-off` contra stack `--measurement`: TL-MKT5-10c (TECH_DEBT). D-EQ-3 cerrado en §MKT-CONV8; 943 a 360 cerrado en §MKT-CONV8 (vMKT-CONV-3).
+
 ## §MKT-R2B · Frescura de la lista pública tras la caché de datos (2026-10-31, rama `claude/mkt-fe-r2b`, base `478356c0`)
 
 - **B-R2 (QA sobre `e066b0b5`):** la caché de datos de Next es stale-while-revalidate: tras > 30 s sin visitas sirve la
@@ -697,23 +729,11 @@ arquitecto) y porque la decisión JC-3 cerraba L2-SEG-01 sobre el correo interno
 sobre el torneo. **Si Jakomi tampoco recibe ya los datos de preinscripción, hay que actualizar §5.** Marcado
 como pregunta, no modificado.
 
-## §CARDSHOW-M88 · `/card-show/confirm` nombra SÁBADO Y DOMINGO en grupo «los dos días» (2026-10-17, rama `fix/card-show-menor-frontend`, base `release/card-show` HEAD `fade4e6`, §CARDSHOW.12 ⭐M-88, BLOQ-A frontend)
+## §CARDSHOW-M88 · `/card-show/confirm` nombra SÁBADO Y DOMINGO en grupo «los dos días» (2026-10-17, §CARDSHOW.12 ⭐M-88; compactado 2026-10-31, el detalle vive en la rama `fix/card-show-menor-frontend`)
 
-**Estado vigente.** Parte frontend de BLOQ-A (el backend confirma AMBAS filas `sat`+`sun` del grupo y
-devuelve `days: { day, state }[]` ADITIVO sobre `ConfirmResult`). La página `/card-show/confirm` usa ese
-desglose para el copy:
-- **`frontend/src/lib/card-show-api.ts`**: nuevo `ConfirmDayResult { day:'sat'|'sun'; state:string }`;
-  `LinkActionSuccess` gana `days?: ConfirmDayResult[]`; `postLinkAction` parsea `body.days` con
-  `parseConfirmDays` (defensivo: solo `day ∈ {sat,sun}` + `state` string; vacío/ausente ⇒ `undefined`).
-- **`frontend/src/app/card-show/_components/LinkActionClient.tsx`**: `COPY.confirm.success(state, days)`.
-  Con `days.length ≥ 2` ⇒ `groupConfirmText`: ambos confirmados → «¡Listo! Quedaste preinscrito para
-  {días}.»; con un día en espera → «…preinscrito para {día} y en lista de espera para {día}; …»; `state`
-  distinto de `waitlist` cuenta como preinscrito. Labels de día desde `CARD_SHOW.torneos.dias` (un hecho,
-  un sitio — ⛔ no se hardcodea «sábado/domingo»). Con `days` ausente (leads) o 1 solo día ⇒ copy de un día
-  SIN cambios (comportamiento previo intacto).
-- **Candado+canario:** `LinkActionGroup.test.tsx` (3 casos: ambos confirmados nombran sat+sun; mixto nombra
-  por separado; 1 día no nombra día). Canary: con la rama de grupo desactivada, 2/3 fallan y el de 1 día
-  pasa. Verificado: `next build` exit 0; vitest `LinkActionGroup` + `LinkAction` **11/11**.
+Vigente: `lib/card-show-api.ts` parsea `days?: { day: 'sat'|'sun'; state }[]` (aditivo de `ConfirmResult`) y
+`LinkActionClient.tsx` (`COPY.confirm.success(state, days)`) nombra los dos días o separa el de lista de espera; sin
+`days` o con uno solo, copy de un día. Etiquetas de día de `CARD_SHOW.torneos.dias`. Candado: `LinkActionGroup.test.tsx`.
 
 ## §CARDSHOW-MENOR · Nombre del premio visible + CTA fija que no tapa el hero (2026-10-17, rama `fix/card-show-menor-frontend`, base `release/card-show` HEAD `4288ca4`)
 
@@ -19791,87 +19811,8 @@ Lo sirve ahora el frontend como route handler del App Router **FUERA del i18n**
 
 ---
 
-## §MKT tienda · §A1 quitar «valor de mercado» de la ficha pública + §A2 botón COMPRAR en la primera pantalla móvil (2026-10-16, rama `feat/mkt-tienda`)
+## §MKT tienda · §A1 quitar «valor de mercado» de la ficha pública + §A2 botón COMPRAR en la primera pantalla móvil (2026-10-16, rama `feat/mkt-tienda`) — compactado 2026-10-31
 
-Dos cambios de UI pura (sin cambio de contrato ni de tipos) en las DOS fichas públicas de storefront:
-`catalog/[cardId]/CardDetailView.tsx` y `sellado/[inventoryItemId]/SealedDetailView.tsx`. Fuente:
-brief `tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` §A1 (MKT-26a) y §A2 (MKT-26b);
-decisión D2=A del dueño (2026-10-16, HECHOS:65).
-
-### §A1 — retirada de «Valor de mercado» (solo deja de renderizar; el DTO lo sigue trayendo)
-- **Carta:** se eliminó la celda `marketValue` de `FactGrid` (antes gateada por `priceBasis==='market' ∧
-  referenceDisplayCents entero > 0`), su nombre accesible (`role=group`/`aria-labelledby`) y la fecha de
-  captura. `Precio de venta` ocupa SIEMPRE la fila completa (`fullRow: true`). La nota al pie usa SIEMPRE
-  `card.referenceExplainerNoMarket`; nunca `referenceExplainerWithMarket` («…para que los compares tal
-  cual»). Se retiraron del componente: `referenceDisplayCents`, `showMarketValue`, `useId`, `formatDate`,
-  `captured`.
-- **Sellado:** se eliminó la celda «Valor de mercado» (rótulo `sealed.detail.marketValue`, cifra con IVA,
-  fecha, nombre accesible). «Desde» ocupa SIEMPRE la fila completa. Se CONSERVÓ el predicado
-  `showMarketValue`/`referenceDisplayCents` **solo para gobernar la «Tendencia de valor»** (gateada por
-  `trendEnabled`, §MIV.3) — la tendencia NO es parte de A1 y queda intacta. Se retiró `cn`, `useId`,
-  `formatDate`, `captured` del componente.
-- Las claves `card.referenceExplainerWithMarket`, `catalog.marketValue` y `sealed.detail.marketValue`
-  siguen en `messages/*.json` (su retiro de catálogo lo evalúa ux-ui; no es cambio de tienda).
-
-### §A2 — barra de compra FIJA en móvil (precio + «IVA incluido» + COMPRAR sin scroll)
-- Patrón elegido: **barra fija al pie** (`fixed inset-x-0 bottom-0 z-40 lg:hidden`, con
-  `pb-[max(0.75rem,env(safe-area-inset-bottom))]`), consistente con el FAB móvil del storefront
-  (`SellCartFab`, z-40) y el header (`sticky top-0 z-40`). Se descartó reordenar el DOM porque la imagen
-  de la carta llena el alto en móvil y porque mover «Ejemplares disponibles» arriba del bloque PSA
-  violaría `DESIGN_SYSTEM §22.3`.
-- Lleva el precio «desde» del grupo primario (`groups[0]` en carta; `fromPriceCents` en sellado), su
-  rótulo de IVA vía `IvaLabel` (único sitio que rotula la convención, §M10-IVA.3) y el CTA de compra.
-  Solo se pinta con ≥ 1 unidad a la venta (carta: el grupo primario tiene piezas `sellable`; sellado:
-  `availableCount > 0`). `data-testid="mobile-buy-bar"`.
-- La barra usa copy PROPIO para no colisionar —ni en pantalla ni para lector de pantalla— con los botones
-  del cuerpo: `catalog.addToCart` («Añadir al carrito») / `catalog.viewCart` («Ver carrito»), distintos de
-  los `buyNow`/`inCart` por variante (carta) y de `sealed.detail.addToCart`/`goToCart` (sellado). En ≥ lg
-  la barra se oculta: ahí el precio y el CTA ya entran arriba, a la derecha del arte.
-
-### Tests
-- Las suites §MIV de las dos fichas (`*.miv.test.tsx`) y los bloques §21.8 de las bases se reconvirtieron
-  en LOCKS de A1: con los mismos datos de servidor que antes encendían el mercado, ahora muerden que el
-  bloque **NO** se monta (es/en, raw/gradeada/sellado, market/floor/override). Se añadieron tests de §A2
-  (barra `fixed bottom-0 lg:hidden` con precio+IVA+CTA; agrega al carrito; no aparece sin stock; el precio
-  va antes del bloque PSA en el DOM).
-- `src/test/miv-locks.test.ts`: el lock «la ficha de carta lee `referenceDisplayCents`» se invirtió a «ya
-  NO lo lee» (A1); el sellado y la tendencia siguen leyéndolo.
-
-### Medido por mí (2026-10-16)
-- `npx tsc --noEmit` **limpio**; `eslint` de los 6 ficheros tocados **sin avisos**.
-- Vitest de las 4 suites de ficha: **47/47**. Directorios `catalog` + `sellado` + `src/test`: **234/234**.
-- **Criterio grep §A1** (`grep -i "valor de mercado" = 0` en el HTML de 3 fichas renderizadas): **NO
-  MEDIDO** por mí (no levanté la app). Fijado por tests de componente: el bloque no se monta. ⚠ El bloque
-  «Tendencia de valor» del sellado (feature-flag `trendEnabled`) **sí** rotula «valor de mercado de
-  referencia»; si está encendido en la ficha de sellado del grep, daría coincidencias — fuera del alcance
-  de A1 («quita solo ese bloque»); ver PROJECT §MIV.2 A3 / P-MIV-6. Lo mide el gate.
-- **Criterio viewport §A2** (iPhone 13 390×664: borde inferior del botón ≤ 664px; precio con «IVA
-  incluido» visible sin scroll): **NO MEDIDO** por mí (requiere Playwright con la app levantada, coste
-  alto). Por construcción, una barra `fixed bottom-0` queda pinada al pie del viewport con el precio y el
-  CTA dentro. Lo verifica el gate (Playwright) y el evento `buy_button_visible` (§B2).
-
-### E2E de ficha actualizados a D2=A (ABIERTO del A1 — RESUELTO 2026-10-16, OLA 1 SSR/SEO)
-Las aserciones de FICHA que afirmaban «valor de mercado»/`referenceExplainerWithMarket` VISIBLES se
-cambiaron **quirúrgicamente** a «no presente» (`toHaveCount(0)`), al comportamiento correcto de D2=A. ⛔ No
-se debilitó ni se borró ninguna parte ajena a la ficha (bóveda/buylist siguen intactas).
-- `catalog.spec.ts`: el `@real` «la ficha coincide consigo misma» pasó a «la ficha pública NO muestra valor
-  de mercado»: `catalog.marketValue` y `referenceExplainerWithMarket` → `toHaveCount(0)`, y
-  `referenceExplainerNoMarket` → **visible** (CardDetailView lo renderiza SIEMPRE ahora). El test
-  `distingue valor de mercado…` y el de inglés: mismos flips.
-- `miv-market-iva.spec.ts` (solo la **parte de ficha** del `@real MIV-E1`): pasos (a) carta, (d) sellado y
-  (f) inglés — el grupo accesible «Valor de mercado …» → `toHaveCount(0)`; se añadió que ni el neto ni el
-  mercado-con-IVA aparezcan en `main`. (d) **conserva** la verificación de la «Tendencia de valor» (sigue
-  viva con spread). ⛔ NO se tocó el paso (e) «Vender» (buylist) ni (b) carrito, ni las aserciones de API
-  (`sealedMarketCase` lee el DTO, que SÍ sigue trayendo `referenceValue`/`referenceDisplayCents`).
-- `pricing-curve.spec.ts`: el `@real` que exigía que ALGUNA ficha publicara el mercado se **invirtió** a
-  «NINGUNA lo publica» (block=false, explainer='no' en cada ficha; N>0 para no pasar en vacío). El test de
-  sellado por SPREAD: la celda `sealed.detail.marketValue` → `toHaveCount(0)`, la `sealed.trend.title`
-  sigue **visible**. El test de OVERRIDE (ya afirmaba ausencia) y `§21.8f` (tejas de Compra) quedan igual.
-  Se actualizó el doc del módulo para que no describa el bicondicional retirado.
-- **Verificación:** las aserciones reflejan el comportamiento que miden los tests de componente (ya verdes).
-  El VERDE total de estas specs `@real`/mock necesita Playwright + stack ⇒ lo corre **el gate QA**
-  (O-1: no lo afirmo como medido).
-
----
+Vigente: la ficha no pinta «Valor de mercado» (D2=A, HECHOS:65) y la barra fija móvil lleva precio y compra (`MobileBuyBar`). Etiquetas, frase de sistema y orden actuales: §MKT-CONV2. El detalle, en git (`feat/mkt-tienda`).
 
 ## §MKT tienda · §A3 ficha de sellado en SSR + §A4 og/title/JSON-LD + §E1 sitemap/robots/canonical (2026-10-16, rama `feat/mkt-tienda`, OLA 1) — plegado 2026-10-31 en §MKT-OLA2 (arriba): lo vigente vive allí; el detalle, en git (`feat/mkt-tienda`).

@@ -8,6 +8,7 @@ import * as api from '@/lib/api';
 import type { CardDTO, GroupedListingListResponse, GroupedListingSummaryDTO } from '@/types/contract';
 import { QUERY_DEFAULTS } from '@/components/Providers';
 import { CatalogView, initialDataUpdatedAtOf } from './CatalogView';
+import { responseAgeMs } from '@/lib/catalog-ssr';
 
 /**
  * C2 (BRIEF_MKT Ola 2, criterio 950) — el catálogo sale del SERVIDOR con su primera página: la vista toma la lectura
@@ -30,6 +31,11 @@ vi.mock('@/i18n/navigation', () => ({
 }));
 const { urlParams } = vi.hoisted(() => ({ urlParams: { current: new URLSearchParams() } }));
 vi.mock('next/navigation', () => ({ useSearchParams: () => urlParams.current }));
+// `responseAgeMs` vive en `lib/catalog-ssr.ts`, que usa `cache()` de React (solo en el build de servidor): identidad.
+vi.mock('react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react')>()),
+  cache: <F,>(fn: F) => fn,
+}));
 
 function card(id: string): CardDTO {
   return {
@@ -165,5 +171,35 @@ describe('B-R2 · la página del servidor trae su edad y la vista revalida si es
     expect(initialDataUpdatedAtOf(null, 100_000)).toBe(0);
     expect(initialDataUpdatedAtOf(undefined, 100_000)).toBe(0);
     expect(initialDataUpdatedAtOf(200_000, 100_000)).toBe(0);
+  });
+
+  /**
+   * ARCHITECTURE §4.DYN (f) 9: «edad desconocida, ilegible o negativa = vieja». Defensa en la propia conversión, no
+   * solo en `responseAgeMs`: un `ageMs` negativo que llegue por otra vía no puede dar `now + |ageMs|` (fresco).
+   * Mutación: volver a `ageMs == null ? 0 : Math.max(0, now - ageMs)` ⇒ rojo.
+   */
+  it('§4.DYN (f) 9 · initialDataUpdatedAtOf: edad negativa o no finita ⇒ 0 (vieja)', () => {
+    expect(initialDataUpdatedAtOf(-5_000, 100_000)).toBe(0);
+    expect(initialDataUpdatedAtOf(-1, 100_000)).toBe(0);
+    expect(initialDataUpdatedAtOf(Number.NaN, 100_000)).toBe(0);
+    expect(initialDataUpdatedAtOf(Number.NEGATIVE_INFINITY, 100_000)).toBe(0);
+    expect(initialDataUpdatedAtOf(0, 100_000)).toBe(100_000);
+  });
+
+  /**
+   * ARCHITECTURE §4.DYN (f) 9 (v1.115, TL-MKT2-8): una edad NEGATIVA (cabecera `Date` en el futuro) es DESCONOCIDA, o
+   * sea vieja. La conversión vive en `responseAgeMs` (`lib/catalog-ssr.ts`), que es lo único que produce `ageMs`; aquí
+   * se fija la cadena entera, de la cabecera a la relectura, sin tocar el componente.
+   * Mutación: `responseAgeMs` vuelve a `Math.max(0, now - readAt)` ⇒ la copia «del futuro» pasa por fresca y no relee.
+   */
+  it('§4.DYN (f) 9 · Date en el futuro ⇒ edad desconocida ⇒ updatedAt 0 y relee al montar', async () => {
+    const now = Date.now();
+    const ageMs = responseAgeMs(new Date(now + 60_000).toUTCString(), now);
+    expect(ageMs).toBeNull();
+    expect(initialDataUpdatedAtOf(ageMs, now)).toBe(0);
+    const getCatalog = vi.spyOn(api, 'getCatalog').mockResolvedValue(PAGE1);
+    render(wrap(<CatalogView initialPage={{ filters: {}, data: PAGE1, ageMs }} />));
+    expect(await screen.findByText(`Carta ${PAGE1.data[0].card.id}`)).toBeInTheDocument();
+    await waitFor(() => expect(getCatalog).toHaveBeenCalledTimes(1));
   });
 });

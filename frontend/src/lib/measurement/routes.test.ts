@@ -97,6 +97,20 @@ describe('C-F9 · /buylist y /card-show', () => {
     }
   });
 
+  /**
+   * ARCHITECTURE §14.4 / §13.8 (e) (v1.115): `/nosotros` queda FUERA de la lista blanca (sin petición de marketing ni
+   * decisión del dueño, nace excluida como toda ruta). Entra solo como entraron `/buylist` y `/card-show`: cambio de
+   * contrato y este caso actualizado en el mismo pase.
+   */
+  it('`/nosotros` excluida (es/en, con barra, query o hash) y ausente de las dos listas', () => {
+    for (const p of ['/es/nosotros', '/en/nosotros', '/es/nosotros/', '/es/nosotros?utm_source=ig', '/en/nosotros#contacto', '/nosotros']) {
+      expect(isMeasuredPath(p), p).toBe(false);
+      expect(sendsPageView(p), p).toBe(false);
+    }
+    expect(MEASURED_ROUTE_PATTERNS.filter((p) => p.includes('nosotros'))).toEqual([]);
+    expect(MEASURED_UNLOCALIZED_PATHS.filter((p) => p.includes('nosotros'))).toEqual([]);
+  });
+
   it('las listas: `/buylist` sin `:seg` debajo; `/card-show` en la lista SIN idioma y exacta', () => {
     expect(MEASURED_ROUTE_PATTERNS).toContain('/buylist');
     expect(MEASURED_ROUTE_PATTERNS.filter((p) => p.startsWith('/buylist/'))).toEqual([]);

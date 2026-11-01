@@ -89,6 +89,12 @@ describe('§E4 FAQ públicas (RESPUESTAS.md §12.2, manual v8)', () => {
     );
   });
 
+  it('TL-MKT5-7: P13 y P22 llevan el buzón de contacto del manual, interpolado desde `lib/about.ts`', () => {
+    const answer = (id: string) => PUBLIC_FAQS.find((f) => f.id === id)!.answer;
+    expect(answer('P13')).toContain('escribirnos a contacto@tcghunt.mx con fotos');
+    expect(answer('P22')).toContain('Para vender producto sellado, a contacto@tcghunt.mx con fotos.');
+  });
+
   it('agrupa en el orden del manual sin perder ninguna', () => {
     const groups = groupFaqs(publishedFaqs(NOW));
     expect(groups.map((g) => g.group)).toEqual([...FAQ_GROUP_ORDER]);

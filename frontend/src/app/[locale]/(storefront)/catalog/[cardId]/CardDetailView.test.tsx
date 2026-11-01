@@ -4,6 +4,7 @@ import { renderWithProviders } from '@/test/render';
 import { expectVisibleMicroNotice } from '@/test/grading';
 import { CardDetailView } from './CardDetailView';
 import * as api from '@/lib/api';
+import { setStoredUser } from '@/lib/session';
 import type {
   CardDTO,
   GradedEstimateDTO,
@@ -114,21 +115,25 @@ beforeEach(() => {
   vi.restoreAllMocks();
   push.mockClear();
   window.localStorage.clear();
+  setStoredUser(null);
 });
 
-describe('CardDetailView · feedback del CTA «Comprar» (carrito local, shape agrupado)', () => {
-  it('agregar un grupo (última pieza) cambia SU CTA a «En el carrito» y confirma con el toast', async () => {
+/** Los CTA de los renglones «Ejemplares disponibles» (la barra fija móvil lleva el suyo, `mobile-buy-bar`). */
+const rowCtas = () => screen.getAllByTestId('instance-cta');
+const rowLabels = () => rowCtas().map((b) => b.textContent);
+
+describe('CardDetailView · feedback del CTA «Añadir al carrito» (carrito local, shape agrupado; MKT-CONV.2)', () => {
+  it('agregar un grupo (última pieza) cambia SU CTA a «Ver carrito» y confirma con el toast', async () => {
     const { listings, units } = twoVariants();
     mockDetail(listings, units);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
-    const buyButtons = await screen.findAllByRole('button', { name: 'Comprar' });
-    expect(buyButtons).toHaveLength(2);
-    fireEvent.click(buyButtons[0]);
+    await screen.findAllByTestId('instance-cta');
+    expect(rowLabels()).toEqual(['Añadir al carrito', 'Añadir al carrito']);
+    fireEvent.click(rowCtas()[0]);
 
-    // El grupo agregado (una sola pieza ⇒ agotado en carrito) cambia; el otro sigue en «Comprar».
-    expect(await screen.findByRole('button', { name: 'En el carrito' })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Comprar' })).toHaveLength(1);
+    // El grupo agregado (una sola pieza ⇒ agotado en carrito) cambia; el otro sigue en «Añadir al carrito».
+    await vi.waitFor(() => expect(rowLabels()).toEqual(['Ver carrito', 'Añadir al carrito']));
 
     // Toast de confirmación (role=status, aria-live) con enlace al carrito.
     expect(screen.getByRole('status')).toHaveTextContent('Agregado al carrito');
@@ -138,26 +143,27 @@ describe('CardDetailView · feedback del CTA «Comprar» (carrito local, shape a
     expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toEqual(['inv-a']);
   });
 
-  it('el segundo clic («En el carrito») no re-agrega: navega al carrito (/checkout)', async () => {
+  it('el segundo clic («Ver carrito») no re-agrega: navega al carrito (/checkout)', async () => {
     const { listings, units } = twoVariants();
     mockDetail(listings, units);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Comprar' }))[0]);
-    fireEvent.click(await screen.findByRole('button', { name: 'En el carrito' }));
+    fireEvent.click((await screen.findAllByTestId('instance-cta'))[0]);
+    await vi.waitFor(() => expect(rowLabels()[0]).toBe('Ver carrito'));
+    fireEvent.click(rowCtas()[0]);
 
     expect(push).toHaveBeenCalledWith('/checkout');
     expect(JSON.parse(window.localStorage.getItem('tcg.cart')!).ids).toEqual(['inv-a']);
   });
 
-  it('un grupo con todas sus piezas en el carrito al montar → CTA inicial «En el carrito»', async () => {
+  it('un grupo con todas sus piezas en el carrito al montar → CTA inicial «Ver carrito»', async () => {
     window.localStorage.setItem('tcg.cart', JSON.stringify(['inv-b']));
     const { listings, units } = twoVariants();
     mockDetail(listings, units);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
-    expect(await screen.findByRole('button', { name: 'En el carrito' })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Comprar' })).toHaveLength(1);
+    await screen.findAllByTestId('instance-cta');
+    await vi.waitFor(() => expect(rowLabels()).toEqual(['Añadir al carrito', 'Ver carrito']));
     // El toast solo confirma un add de esta sesión de vista, no el estado inicial.
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
@@ -171,12 +177,13 @@ describe('CardDetailView · feedback del CTA «Comprar» (carrito local, shape a
     mockDetail(listings, units);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
-    // Primer clic: agrega la pieza más barata; queda 1 pieza ⇒ el CTA SIGUE «Comprar».
-    fireEvent.click(await screen.findByRole('button', { name: 'Comprar' }));
+    // Primer clic: agrega la pieza más barata; queda 1 pieza ⇒ el CTA SIGUE «Añadir al carrito».
+    fireEvent.click((await screen.findAllByTestId('instance-cta'))[0]);
+    await vi.waitFor(() => expect(rowLabels()).toEqual(['Añadir al carrito']));
     // Segundo clic: agrega la otra pieza (id distinto) ⇒ grupo agotado en carrito.
-    fireEvent.click(await screen.findByRole('button', { name: 'Comprar' }));
+    fireEvent.click(rowCtas()[0]);
 
-    expect(await screen.findByRole('button', { name: 'En el carrito' })).toBeInTheDocument();
+    await vi.waitFor(() => expect(rowLabels()).toEqual(['Ver carrito']));
     const ids = JSON.parse(window.localStorage.getItem('tcg.cart')!).ids;
     expect([...ids].sort()).toEqual(['inv-a', 'inv-a2']);
   });
@@ -195,7 +202,82 @@ describe('CardDetailView · feedback del CTA «Comprar» (carrito local, shape a
 
     const disabledCta = await screen.findByRole('button', { name: 'No disponible' });
     expect(disabledCta).toBeDisabled();
-    expect(screen.getAllByRole('button', { name: 'Comprar' })).toHaveLength(1);
+    expect(rowLabels()).toEqual(['Añadir al carrito', 'No disponible']);
+  });
+});
+
+/**
+ * MKT-CONV.2/.3/.4 (B6b, T2, B2; criterios 945, 947, 948, 951) — candados de unidad L-4 y L-6 (lo que jsdom puede ver;
+ * geometría y peso computado en `e2e/measurement-on.spec.ts` L-3).
+ */
+describe('CardDetailView · una acción, una etiqueta; pila de avisos; franja; agotada (MKT-CONV)', () => {
+  it('L-4 · la barra fija y los renglones dicen «Añadir al carrito»; 0 «Comprar»; sin la frase de sistema', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units);
+    const { container } = renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    await screen.findAllByTestId('instance-cta');
+    const bar = screen.getByTestId('mobile-buy-bar');
+    expect(within(bar).getByRole('button').textContent).toBe('Añadir al carrito');
+    expect(rowLabels().every((l) => l === 'Añadir al carrito')).toBe(true);
+    expect(screen.queryAllByRole('button', { name: 'Comprar' })).toHaveLength(0);
+    expect(container.textContent).not.toContain('El precio de venta es el precio publicado');
+    // La compra es el único `primary` del cuerpo (la lista de deseos no lo supera, criterio 948).
+    expect(rowCtas()[0].className).toContain('bg-primary');
+  });
+
+  it('T2 · sesión anónima: la línea de bóveda (texto B) va tercera en la pila, tras T1a y T8', async () => {
+    vi.spyOn(api, 'getPublicShippingRule').mockResolvedValue({
+      cardsOnlyFeeCents: 10000,
+      sealedFeeCents: 20000,
+      freeFromCents: 400000,
+      currency: 'MXN',
+    } as never);
+    mockDetail([grp()], [unit('inv-a')]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    const note = await screen.findByTestId('vault-note');
+    expect(note).toHaveTextContent(
+      'Con cuenta, junta cartas en tu bóveda y pide un solo envío. Sin cuenta, te la enviamos a casa.',
+    );
+    const hint = await screen.findByTestId('shipping-fee-hint');
+    const refund = screen.getByTestId('refund-promise-line');
+    expect(hint.compareDocumentPosition(refund) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(refund.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // …y antes de «Ejemplares disponibles» (primera pantalla).
+    const instances = screen.getByRole('heading', { name: 'Ejemplares disponibles' });
+    expect(note.compareDocumentPosition(instances) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('T2 · con sesión: no se pinta (⛔ ningún texto inventado para quien ya tiene cuenta)', async () => {
+    setStoredUser({ id: 'u1', email: 'a@b.mx', role: 'customer' } as never);
+    mockDetail([grp()], [unit('inv-a')]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    await screen.findAllByTestId('instance-cta');
+    await vi.waitFor(() => expect(screen.queryByTestId('vault-note')).toBeNull());
+  });
+
+  it('L-6 · franja de confianza tras los renglones de compra, enlazada a /nosotros con nombre accesible', async () => {
+    const { listings, units } = twoVariants();
+    mockDetail(listings, units);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    const strip = await screen.findByTestId('about-strip');
+    expect(strip).toHaveTextContent('Pago con tarjeta · Envío a México · Quiénes somos');
+    const link = within(strip).getByRole('link', { name: 'Quiénes somos y contacto' });
+    expect(link).toHaveAttribute('href', '/nosotros');
+    expect(rowCtas()[1].compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('C3 · carta agotada (`listings: []`): «Agotada» visible, sin CTA de compra ni barra', async () => {
+    mockDetail([], []);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    expect(await screen.findByTestId('sold-out')).toHaveTextContent('Agotada');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Charizard');
+    expect(screen.queryAllByTestId('instance-cta')).toHaveLength(0);
+    expect(screen.queryByTestId('mobile-buy-bar')).toBeNull();
   });
 });
 
@@ -228,7 +310,7 @@ describe('CardDetailView · §22.3 «valor estimado si se gradea»', () => {
     ).toBeInTheDocument();
   });
 
-  it('el bloque va DESPUÉS del referenceExplainer y ANTES de «Ejemplares disponibles» (§22.3)', async () => {
+  it('el bloque va junto al precio y ANTES de «Ejemplares disponibles» (§22.3)', async () => {
     const { listings, units } = twoVariants();
     mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
@@ -265,7 +347,7 @@ describe('CardDetailView · §22.3 «valor estimado si se gradea»', () => {
     mockDetail(listings, units);
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
-    await screen.findAllByRole('button', { name: 'Comprar' });
+    await screen.findAllByTestId('instance-cta');
     expect(screen.queryByText('VALOR ESTIMADO SI SE GRADEA')).not.toBeInTheDocument();
     expect(document.getElementById('nota-estimado')).toBeNull();
     expect(screen.queryByText(/INFORMACIÓN ILUSTRATIVA/)).not.toBeInTheDocument();
@@ -336,10 +418,8 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     expect(screen.queryByText('Valor de mercado')).toBeNull();
     expect(screen.queryByText('MX$1,484.80')).toBeNull(); // mercado con IVA
     expect(screen.queryByText('MX$1,280.00')).toBeNull(); // neto
-    // La nota al pie NUNCA es el explicador de comparación «…para que los compares tal cual».
-    expect(
-      screen.getByText('El precio de venta es el precio publicado de esta carta.'),
-    ).toBeInTheDocument();
+    // MKT-CONV.2 (B6b): ya no hay nota al pie; y NUNCA el explicador de comparación «…para que los compares tal cual».
+    expect(screen.queryByText('El precio de venta es el precio publicado de esta carta.')).toBeNull();
     expect(screen.queryByText(/para que los compares tal cual/i)).toBeNull();
     expect(screen.queryByText(/valor de mercado es la referencia del día/i)).toBeNull();
   });
@@ -358,10 +438,8 @@ describe('CardDetailView · bloque «Valor de mercado» condicional (P-48, §21.
     // Nada lo sustituye: ni «—» donde estaba el bloque, ni la cifra de referencia por otra vía.
     expect(screen.queryByText('MX$1,280.00')).toBeNull();
     expect(screen.queryByText('MX$1,484.80')).toBeNull(); // §MIV: tampoco la cifra con IVA
-    // La nota al pie cambia con el bloque y NO menciona el mercado ni insinúa que falte algo.
-    expect(
-      screen.getByText('El precio de venta es el precio publicado de esta carta.'),
-    ).toBeInTheDocument();
+    // Sin nota al pie (MKT-CONV.2) y nada que mencione el mercado ni insinúe que falte algo.
+    expect(screen.queryByText('El precio de venta es el precio publicado de esta carta.')).toBeNull();
     expect(screen.queryByText(/valor de mercado es la referencia del día/i)).toBeNull();
   });
 

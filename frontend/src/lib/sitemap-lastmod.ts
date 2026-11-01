@@ -3,6 +3,7 @@
  */
 import type { SitemapResponse } from '@/types/contract';
 import { privacyNoticeEs } from '@/content/legal/privacidad.es';
+import { ABOUT_LAST_REVIEW } from '@/lib/about';
 
 const SPANISH_MONTHS = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
@@ -46,5 +47,7 @@ export function staticLastModified(
     '/buylist': undefined,
     '/terminos': undefined,
     '/privacidad': spanishDateToIso(privacyNoticeEs.updatedAt),
+    // B2: la fecha de revisión de los datos de «Quiénes somos» (`lib/about.ts`).
+    '/nosotros': ABOUT_LAST_REVIEW,
   };
 }

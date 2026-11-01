@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { realOnly } from './utils/auth';
-import { resolveApiBaseUrl } from './utils/env';
+import { apiAs, apiAsOk, resolveApiBaseUrl } from './utils/env';
 import { t } from './utils/i18n';
 
 /**
@@ -138,7 +138,9 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
       expect(text).toContain(`MX$${priceText}`);
       if (g.productType === 'graded') expect(text).toContain(`${g.gradingCompany} ${g.gradeValue}`);
       else expect(text).toContain(t('es', 'catalog.condition.nm.label'));
-      expect(text).toContain(t('es', 'card.referenceExplainerNoMarket'));
+      // MKT-CONV.2 (B6b): sin la frase de sistema; la pila de avisos (T8) da el texto bajo el precio.
+      expect(text).not.toContain('El precio de venta es el precio publicado');
+      expect(text).toContain(t('es', 'checkout.refundPromise'));
       expect(text.length).toBeGreaterThan(600);
     }
 
@@ -156,6 +158,212 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     expect(h1o).toContain(soldOut!.name);
     expect(h1o).toContain(soldOut!.setName);
     expect(visibleText(o.html)).toContain(t('es', 'wishlist.card.notHere'));
+  });
+
+  /**
+   * C3 (criterio 951; MKT-3 (a), HECHOS 2026-10-31). Mutaciones medidas (FRONTEND_NOTES §MKT-CONV2): quitar el
+   * `notFound()` de la ficha ⇒ la inexistente vuelve a 200 con el título de la portada; quitar `soldOutOfferJsonLd` ⇒
+   * la agotada pierde `offers`.
+   */
+  test('@real C3 · ficha inexistente ⇒ 404 con su propio título; agotada ⇒ 200, «Agotada», OutOfStock sin precio, indexable', async ({
+    request,
+  }) => {
+    const home = await raw(request, '/es');
+    const homeTitle = headTag(home.html, /<title>([^<]*)<\/title>/);
+    for (const path of ['/es/catalog/00000000-0000-0000-0000-000000000000', '/en/catalog/00000000-0000-0000-0000-000000000000', '/es/sellado/00000000-0000-0000-0000-000000000000']) {
+      const r = await raw(request, path);
+      expect(r.status, path).toBe(404);
+      const title = headTag(r.html, /<title>([^<]*)<\/title>/);
+      expect(title, `${path}: título propio`).toBeTruthy();
+      expect(title, `${path}: no es el de la portada`).not.toBe(homeTitle);
+      expect(r.html, `${path}: noindex`).toMatch(/<meta name="robots" content="[^"]*noindex/);
+    }
+
+    const cards = await api<{ data: Group[] }>('/catalog/cards?pageSize=50');
+    const listed = new Set(cards.data.map((g) => g.card.id));
+    const candidates = (await api<{ data: { id: string }[] }>('/buylist/cards?q=E2E&pageSize=50')).data;
+    let soldOutId: string | undefined;
+    for (const c of candidates.filter((x) => !listed.has(x.id))) {
+      const d = await api<{ listings: unknown[] }>(`/catalog/cards/${c.id}`);
+      if (d.listings.length === 0) {
+        soldOutId = c.id;
+        break;
+      }
+    }
+    expect(soldOutId, 'hay una carta sin piezas a la venta').toBeTruthy();
+    const o = await raw(request, `/es/catalog/${soldOutId}`);
+    expect(o.status).toBe(200);
+    expect(visibleText(o.html)).toContain(t('es', 'catalog.soldOutCard'));
+    expect(o.html).not.toMatch(/<meta name="robots" content="[^"]*noindex/);
+    const [product] = ldNodes(o.html, 'Product');
+    const offer = product.offers as Record<string, unknown>;
+    expect(offer.availability).toBe('https://schema.org/OutOfStock');
+    expect(offer).not.toHaveProperty('price');
+  });
+
+  /**
+   * API_CONTRACT §MKT.A.1 (v1.115⟨mkt-conv2⟩, criterio 951) — CNV-F1 (sellado agotado) y CNV-F2 (pieza que no está a la
+   * venta cuyo grupo sí lo está) en el HTML crudo. La siembra solo publica UN sellado (`E2E_SEALED_LISTED`), así que la
+   * prueba da de alta por la API de admin dos piezas SIN publicar (`POST /admin/inventory/items` nace fuera de venta) y
+   * las retira al final (`error_captura`), pase lo que pase:
+   *  - A: mapeada a un `tcgplayerProductId` propio ⇒ su grupo no tiene piezas vendibles ⇒ ficha AGOTADA;
+   *  - B: mapeada al producto de la siembra, misma condición ⇒ su grupo es el publicado ⇒ canonical al representante.
+   * Canarios (FRONTEND_NOTES §MKT-CONV2): `fromPriceCents ?? 0` ⇒ aparece `"price"`; canonical a la URL pedida ⇒ rojo.
+   */
+  test('@real CNV-F1/F2 · sellado agotado: 200, «Agotado», OutOfStock sin precio, og sin MX$; pieza fuera de venta ⇒ canonical al representante', async ({
+    request,
+  }) => {
+    const listed = (await api<{
+      data: { representativeItemId: string; productName: string; sealedCondition: string; card: { id: string } }[];
+    }>('/catalog/sealed?pageSize=50')).data;
+    expect(listed.length, 'la siembra publica un sellado').toBeGreaterThan(0);
+    const seeded = listed[0];
+    const seededItem = await apiAsOk<{ tcgplayerProductId: number | null; tcgplayerGroupId: number | null }>(
+      'admin',
+      'GET',
+      `/admin/inventory/items/${seeded.representativeItemId}`,
+    );
+    expect(seededItem.tcgplayerProductId, 'el sellado de la siembra está mapeado').toBeTruthy();
+
+    const created: string[] = [];
+    const make = async (pid: number, gid: number): Promise<string> => {
+      const item = await apiAsOk<{ id: string; status: string }>('admin', 'POST', '/admin/inventory/items', {
+        cardId: seeded.card.id,
+        productType: 'sealed',
+        sealedSubtype: 'box',
+        sealedCondition: seeded.sealedCondition,
+        acquisitionType: 'compra',
+        acquisitionCostCents: 1000,
+      });
+      created.push(item.id);
+      expect(item.status, 'el alta nace fuera de venta').not.toBe('listed');
+      await apiAsOk('admin', 'PUT', `/admin/pricing/sealed/items/${item.id}/mapping`, {
+        tcgplayerProductId: pid,
+        tcgplayerGroupId: gid,
+      });
+      return item.id;
+    };
+    try {
+      // ⛔ fuera de los rangos aleatorios de las suites (700M–890M, 990M+) y del de MIV-E1 (619 000 869).
+      const soldOutId = await make(619_000_951, 61_951);
+      const regroupId = await make(seededItem.tcgplayerProductId!, seededItem.tcgplayerGroupId ?? 61_001);
+
+      // El backend (CNV-B1/B2) da lo que la ficha necesita; si no, la prueba falla aquí con su causa.
+      const so = await api<{ group: { availableCount: number; fromPriceCents: number | null; representativeItemId: string; productName: string }; listings: unknown[]; restockEnabled: boolean }>(
+        `/catalog/sealed/${soldOutId}`,
+      );
+      expect(so.listings).toEqual([]);
+      expect(so.group.availableCount).toBe(0);
+      expect(so.group.fromPriceCents).toBeNull();
+      expect(so.group.representativeItemId).toBe(soldOutId);
+
+      for (const locale of ['es', 'en'] as const) {
+        // CNV-F1
+        const r = await raw(request, `/${locale}/sellado/${soldOutId}`);
+        expect(r.status, `${locale} agotado`).toBe(200);
+        expect(r.html).not.toMatch(/<meta name="robots" content="[^"]*noindex/);
+        const text = visibleText(r.html);
+        expect(text).toContain(t(locale, 'sealed.detail.soldOut'));
+        expect(text).not.toMatch(MONEY);
+        expect(text).not.toContain(t(locale, 'sealed.fromPrice'));
+        if (so.restockEnabled) {
+          expect(text).toContain(t(locale, 'sealed.restock.title'));
+          expect(text).toContain(t(locale, 'sealed.restock.bodySoldOut'));
+        } else {
+          expect(text).not.toContain(t(locale, 'sealed.restock.title'));
+        }
+        const [product] = ldNodes(r.html, 'Product');
+        const offer = product.offers as Record<string, unknown>;
+        expect(offer.availability).toBe('https://schema.org/OutOfStock');
+        expect(offer).not.toHaveProperty('price');
+        expect(offer).not.toHaveProperty('priceValidUntil');
+        for (const re of [/<meta name="description" content="([^"]*)"/, /<meta property="og:description" content="([^"]*)"/]) {
+          const d = headTag(r.html, re);
+          expect(d, `${locale} ${re}`).toBeTruthy();
+          expect(d).not.toMatch(/MX\$/);
+        }
+        expect(headTag(r.html, /<link rel="canonical" href="([^"]*)"/)).toMatch(new RegExp(`/${locale}/sellado/${soldOutId}$`));
+
+        // CNV-F2
+        const g = await raw(request, `/${locale}/sellado/${regroupId}`);
+        expect(g.status, `${locale} pieza fuera de venta con grupo a la venta`).toBe(200);
+        const canonical = headTag(g.html, /<link rel="canonical" href="([^"]*)"/);
+        expect(canonical).toMatch(new RegExp(`/${locale}/sellado/${seeded.representativeItemId}$`));
+        expect(headTag(g.html, /<meta property="og:url" content="([^"]*)"/)).toBe(canonical);
+        expect(visibleText(g.html)).toMatch(MONEY);
+      }
+    } finally {
+      for (const id of created) {
+        const res = await apiAs('admin', 'POST', '/admin/inventory/adjustments', {
+          reason: 'error_captura',
+          inventoryItemId: id,
+          note: 'E2E CNV-F1/F2: sellado dado de alta por la prueba, no existe físicamente',
+        });
+        expect([200, 201, 404, 422], `retirar ${id}: ${res.status}`).toContain(res.status);
+      }
+    }
+  });
+
+  /** B2 (criterios 944–946, MKT-CONV.6 L-6/L-7) y C6/C8 (954, 956) en el HTML crudo. */
+  test('@real B2 · /es y /en/nosotros: 200, un h1, Organization+contactPoint+sameAs, sin huecos; en el sitemap; enlazada en pie y franja', async ({
+    request,
+  }) => {
+    for (const locale of ['es', 'en'] as const) {
+      const r = await raw(request, `/${locale}/nosotros`);
+      expect(r.status, locale).toBe(200);
+      expect(h1s(r.html), locale).toEqual([t(locale, 'about.title')]);
+      expect(r.html).not.toMatch(/<meta name="robots" content="[^"]*noindex/);
+      const [org] = ldNodes(r.html, 'Organization');
+      expect(org.sameAs).toEqual(['https://www.instagram.com/tcghunt.mx/']);
+      expect(org.contactPoint).toMatchObject({
+        '@type': 'ContactPoint',
+        areaServed: 'MX',
+        availableLanguage: ['es', 'en'],
+        // WhatsApp público (HECHOS 2026-11-01), servido en el HTML crudo.
+        telephone: '+52-55-6489-3921',
+      });
+      expect(r.html).toContain('href="https://wa.me/525564893921"');
+      const text = visibleText(r.html);
+      expect(text).not.toMatch(/DATO DEL DUEÑO|EJEMPLO/);
+      expect(text).toContain(t(locale, 'about.buy.deliveryValue'));
+      // L-7: ninguna fila con valor vacío.
+      for (const m of r.html.matchAll(/<dd[^>]*>([\s\S]*?)<\/dd>/g)) expect(visibleText(`<body>${m[1]}`)).not.toBe('');
+      // El pie enlaza «Quiénes somos y contacto» en los dos idiomas (L-6).
+      const home = await raw(request, `/${locale}`);
+      expect(home.html).toContain(`href="/${locale}/nosotros"`);
+      expect(visibleText(home.html)).toContain(t(locale, 'seo.nav.about'));
+    }
+    const sm = await (await request.get('/sitemap.xml')).text();
+    expect(sm).toMatch(/<loc>[^<]*\/es\/nosotros<\/loc>\s*<lastmod>/);
+
+    // La franja de la ficha enlaza a una ruta que responde 200 (L-6).
+    const cards = await api<{ data: Group[] }>('/catalog/cards?pageSize=1');
+    const ficha = await raw(request, `/es/catalog/${cards.data[0].card.id}`);
+    const strip = /data-testid="about-strip"[\s\S]*?<\/p>/.exec(ficha.html)?.[0] ?? '';
+    const href = /href="([^"]+)"/.exec(strip)?.[1];
+    expect(href).toBe('/es/nosotros');
+    expect((await request.get(href!, { maxRedirects: 0 })).status()).toBe(200);
+  });
+
+  test('@real C8/C6 · sin «IVA» en meta-descripciones ni en llms.txt; llms.txt enlaza Instagram y Quiénes somos', async ({
+    request,
+  }) => {
+    const cards = await api<{ data: Group[] }>('/catalog/cards?pageSize=1');
+    const sealed = (await api<{ data: { representativeItemId: string }[] }>('/catalog/sealed')).data[0];
+    for (const locale of ['es', 'en'] as const) {
+      for (const p of ['', '/catalog', `/catalog/${cards.data[0].card.id}`, '/sellado', `/sellado/${sealed.representativeItemId}`, '/buylist', '/nosotros', '/preguntas', '/como-funciona', '/terminos']) {
+        const { html } = await raw(request, `/${locale}${p}`);
+        for (const re of [/<meta name="description" content="([^"]*)"/, /<meta property="og:description" content="([^"]*)"/]) {
+          const d = headTag(html, re);
+          // Palabra completa: «privacidad»/«privacy» contienen «iva» y no son el impuesto.
+          if (d) expect(d, `${locale}${p}`).not.toMatch(/\biva\b|\bvat\b|16 ?%/i);
+        }
+      }
+    }
+    const llms = await (await request.get('/llms.txt')).text();
+    expect(llms).not.toMatch(/\biva\b/i);
+    expect(llms).toContain('https://www.instagram.com/tcghunt.mx/');
+    expect(llms).toMatch(/\[Quiénes somos y contacto\]\([^)]*\/es\/nosotros\)/);
   });
 
   test('@real C1 · la ficha no vuelve a pedir en el navegador lo que mandó el servidor', async ({ page }) => {
@@ -219,10 +427,18 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     expect(p2.status).toBe(200);
     const p2Ids = new Set([...p2.html.matchAll(/href="\/es\/catalog\/([0-9a-f-]{36})"/g)].map((m) => m[1]));
     expect([...p2Ids].sort()).toEqual([...new Set(second.data.map((g) => g.card.id))].sort());
+    // ARCHITECTURE §13.8 (d) (v1.115, TL-MKT2-7): la página 1 canoniza a `/catalog`; la 2 sin filtros, a sí misma si
+    // existe; fuera de rango, `/catalog` + `noindex, follow`.
+    const canonicalOf = (html: string) => headTag(html, /<link rel="canonical" href="([^"]*)"/);
+    expect(canonicalOf(cat.html)).toMatch(/\/es\/catalog$/);
     if (first.total > first.pageSize) {
       // Con más de una página, el paginador es un enlace rastreable.
       expect(cat.html).toMatch(/href="\/es\/catalog\?page=2"/);
+      expect(canonicalOf(p2.html)).toMatch(/\/es\/catalog\?page=2$/);
+      expect(p2.html).not.toMatch(/<meta name="robots" content="[^"]*noindex/);
     } else {
+      expect(canonicalOf(p2.html), '?page=2 fuera de rango').toMatch(/\/es\/catalog$/);
+      expect(p2.html).toMatch(/<meta name="robots" content="noindex, follow"/);
       test.info().annotations.push({
         type: 'C2',
         description: `seed con ${first.total} grupos ≤ ${first.pageSize}: sin paginador (lo cubre Paginator.c2.test.tsx)`,
@@ -247,6 +463,7 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
       '/es/preguntas',
       '/es/como-funciona',
       '/es/guias',
+      '/es/nosotros',
     ];
     const titles = new Map<string, string>();
     const descriptions = new Map<string, string>();

@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as api from '@/lib/api';
+import { ApiClientError } from '@/lib/api-client';
 import {
   CATALOG_SSR_BUDGET_MS,
   CATALOG_SSR_REVALIDATE_S,
   DETAIL_SSR_BUDGET_MS,
+  DETAIL_NOT_FOUND,
   loadCardDetailForSSR,
   loadCatalogPageForSSR,
   loadSealedDetailForSSR,
@@ -53,10 +55,13 @@ describe('R2 · frescura de la lectura SSR del catálogo', () => {
     expect(got?.ageMs).toBeLessThan(67_000);
   });
 
-  it('responseAgeMs: sin cabecera o ilegible ⇒ null; hora futura ⇒ 0', () => {
+  // ARCHITECTURE §4.DYN (f) 9 (v1.115, TL-MKT2-8): sin cabecera, ilegible o NEGATIVA ⇒ desconocida (= vieja). Antes una
+  // hora futura daba 0 («recién leída»), es decir fresca.
+  it('responseAgeMs: sin cabecera, ilegible o hora futura (edad negativa) ⇒ null', () => {
     expect(responseAgeMs(null, 1_000)).toBeNull();
     expect(responseAgeMs('banana', 1_000)).toBeNull();
-    expect(responseAgeMs(new Date(5_000).toUTCString(), 1_000)).toBe(0);
+    expect(responseAgeMs(new Date(5_000).toUTCString(), 1_000)).toBeNull();
+    expect(responseAgeMs(new Date(1_000).toUTCString(), 1_000)).toBe(0);
     expect(responseAgeMs(new Date(0).toUTCString(), 31_000)).toBe(31_000);
   });
 
@@ -154,6 +159,13 @@ describe('I-1 · las lecturas SSR de ficha tienen tope y abortan', () => {
       }) as never);
       await expect(load('id-y')).resolves.toBe(data);
       expect(signal?.aborted).toBe(false);
+    });
+
+    it(`${name}: C3 · 404 del backend ⇒ DETAIL_NOT_FOUND (la página da 404); otro error ⇒ null (carga en cliente)`, async () => {
+      vi.spyOn(api, fn).mockRejectedValueOnce(new ApiClientError(404, { code: 'NOT_FOUND', message: 'x' }) as never);
+      await expect(load('id-404')).resolves.toBe(DETAIL_NOT_FOUND);
+      vi.spyOn(api, fn).mockRejectedValueOnce(new ApiClientError(500, { code: 'INTERNAL', message: 'x' }) as never);
+      await expect(load('id-500')).resolves.toBeNull();
     });
   }
 });

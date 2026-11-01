@@ -6,11 +6,11 @@ describe('llms.txt (§E7, brief v1 §3.3)', () => {
   const now = new Date('2026-10-18T18:00:00Z');
   const txt = buildLlmsTxt({ supportContact: 'soporte@tcghunt.mx', now });
 
-  it('lleva qué es, país y moneda, precios con IVA, solo NM, contacto y fecha', () => {
+  it('lleva qué es, país y moneda, precios finales, solo NM, contacto y fecha', () => {
     expect(txt.startsWith('# TCG HUNT\n')).toBe(true);
     expect(txt).toContain('> Compra y vende cartas Pokémon en México, con bóveda.');
     expect(txt).toContain('País: México. Moneda: pesos mexicanos (MXN).');
-    expect(txt).toContain('precios finales con IVA incluido, en MXN, actualizados a diario');
+    expect(txt).toContain('precios finales en MXN, actualizados a diario');
     expect(txt).toContain('solo Near Mint (NM)');
     expect(txt).toContain('Contacto público: soporte@tcghunt.mx');
     expect(txt).toContain(`Última revisión: ${LLMS_LAST_REVIEW}`);
@@ -27,6 +27,18 @@ describe('llms.txt (§E7, brief v1 §3.3)', () => {
     expect(txt).toMatch(/^- \[Sellado\]\(https:\/\/tcghunt\.mx\/es\/sellado\): \S.+$/m);
     expect(txt).toMatch(/^- \[Card Show\]\(https:\/\/tcghunt\.mx\/card-show\): \S.+$/m);
     expect(LLMS_LAST_REVIEW).toBe('2026-10-31');
+  });
+
+  // C8 (criterio 956; MKT-4 (a), HECHOS 2026-10-31): ni «IVA» ni la tasa en el texto para asistentes de IA.
+  it('C8 · sin IVA (palabra completa: «privacidad» no cuenta) ni «16 %»', () => {
+    expect(txt).not.toMatch(/\biva\b/i);
+    expect(txt).not.toMatch(/16 ?%/);
+  });
+
+  // C6 (criterio 954 completo): Instagram y «Quiénes somos y contacto», con la fuente de `lib/about.ts`.
+  it('C6 · enlaza Instagram del dueño y «Quiénes somos y contacto»', () => {
+    expect(txt).toMatch(/^- \[Quiénes somos y contacto\]\(https:\/\/tcghunt\.mx\/es\/nosotros\): \S.+$/m);
+    expect(txt).toMatch(/^- \[Instagram @tcghunt\.mx\]\(https:\/\/www\.instagram\.com\/tcghunt\.mx\/\): \S.+$/m);
   });
 
   // FE-MKT-T1: sobre el fixture (fechas fijas), no sobre las FAQ vivas que se renuevan cada mes.

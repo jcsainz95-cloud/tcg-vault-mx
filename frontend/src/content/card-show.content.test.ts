@@ -53,3 +53,10 @@ describe('card-show · torneos (JC 2026-10-21)', () => {
     expect(costo).toMatch(/Magic: The Gathering.*son gratis/);
   });
 });
+
+describe('card-show · pie: WhatsApp de la fuente única (TL-MKT6-4)', () => {
+  it('el pie muestra y enlaza el mismo número que «Quiénes somos» (lib/about.ts)', () => {
+    expect(CARD_SHOW.footer.whatsappDisplay).toBe('55 6489 3921');
+    expect(CARD_SHOW.footer.whatsappHref).toBe('https://wa.me/525564893921');
+  });
+});

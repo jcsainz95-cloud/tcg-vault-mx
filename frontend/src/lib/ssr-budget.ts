@@ -7,6 +7,15 @@
  * - `withBudget(promise, ms)`: deja de ESPERAR al vencer, pero la petición sigue viva en segundo plano.
  * - `withAbortBudget(run, ms)`: además ABORTA el fetch al vencer (le pasa un `AbortSignal` a `run`); es la que se usa
  *   cuando la lectura acepta señal, para no acumular sockets colgados contra un backend congelado.
+ *
+ * **Cuál elegir — criterio de la respuesta tardía, ARCHITECTURE §4.DYN (f) 2 (v1.115, TL-MKT4-3).** La tardía llena la
+ * caché de datos de Next **solo si el espacio de claves lo fijamos nosotros**:
+ * - `withBudget` (la tardía llena la caché y sirve a la siguiente visita): claves CONSTANTES — portada `featured` /
+ *   `showcase` (`lib/home-ssr.ts`) y la regla de envío (`loadShippingRuleForSSR`). No se pueden multiplicar.
+ * - `withAbortBudget`: si la clave la elige QUIEN VISITA (catálogo: `q`/`setId`/`rarity` libres, PEN-MKT-2) o si no hay
+ *   caché que llenar (fichas de carta y sellado: leen sin caché de datos).
+ * Una lectura SSR nueva cita este criterio al elegir. La edad del dato que llega al cliente: §4.DYN (f) 9
+ * (`responseAgeMs` en `lib/catalog-ssr.ts`).
  */
 
 /** Resuelve `p` o `null` si tarda más de `ms` o falla. Nunca lanza. */

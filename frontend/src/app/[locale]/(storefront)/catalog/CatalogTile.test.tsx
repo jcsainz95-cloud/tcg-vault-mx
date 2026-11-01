@@ -218,3 +218,103 @@ describe('CatalogTile · P-71 código corto del set', () => {
     expect(document.body.textContent).not.toMatch(/null|undefined/);
   });
 });
+
+/**
+ * MKT-CONV.8 (vMKT-CONV-2, L-10): la teja se compacta SOLO en < sm. jsdom no maqueta: se fija la mecánica (clases con
+ * su prefijo de ancho y orden del DOM); la geometría (≥ sm igual ±1 px, precio y stock en un renglón en < sm) la mide
+ * L-10 en el navegador. Mutación que pone esto rojo: aplicar la compactación sin el prefijo `sm:`.
+ */
+describe('CatalogTile · compacta solo en < sm (MKT-CONV.8)', () => {
+  const cls = (el: Element) => el.className.split(/\s+/);
+
+  it('nombre: 2 renglones como máximo en < sm, sin recorte en ≥ sm; el nombre accesible del enlace sigue completo', () => {
+    const long = 'Charizard ex Special Illustration Rare Obsidian Flames Tera Type Darkness Alternate Full Art';
+    renderWithIntl(<CatalogTile listing={listing({ card: { ...card, name: long } })} inCart={false} onAdd={vi.fn()} />, 'es');
+    const name = screen.getByTestId('tile-name');
+    expect(cls(name)).toEqual(expect.arrayContaining(['line-clamp-2', 'sm:line-clamp-none', 'mt-2', 'sm:mt-3']));
+    // Dos enlaces a la ficha (arte y nombre): el del nombre lleva el nombre completo como nombre accesible.
+    expect(screen.getAllByRole('link', { name: long }).some((a) => name.contains(a))).toBe(true);
+  });
+
+  it('rareza: fuera del layout en < sm (`hidden`) y visible en ≥ sm; sigue en el DOM con su nombre accesible', () => {
+    renderWithIntl(<CatalogTile listing={listing()} inCart={false} onAdd={vi.fn()} />, 'es');
+    const rarity = screen.getByText('Rare Holo');
+    expect(cls(rarity)).toEqual(expect.arrayContaining(['hidden', 'sm:inline-block']));
+    expect(cls(rarity)).not.toContain('inline-block');
+  });
+
+  it('precio y stock en un renglón en < sm (flex + order) y apilados en ≥ sm (block); orden del DOM: precio, IVA, stock', () => {
+    renderWithIntl(<CatalogTile listing={listing({ stockCount: 1 })} inCart={false} onAdd={vi.fn()} />, 'es');
+    const row = screen.getByTestId('tile-price-row');
+    expect(cls(row)).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'items-baseline', 'justify-between', 'sm:block']));
+    const [price, iva, stock] = Array.from(row.children);
+    expect(price).toHaveTextContent(/1,408/);
+    expect(iva).toHaveTextContent('IVA 16 % incluido');
+    expect(stock).toHaveTextContent('Queda 1');
+    expect(cls(price)).toContain('order-1');
+    expect(cls(stock)).toEqual(expect.arrayContaining(['order-2', 'sm:mt-2']));
+    expect(cls(stock)).not.toContain('mt-2');
+    expect(cls(iva)).toEqual(expect.arrayContaining(['order-3', 'basis-full']));
+  });
+
+  it('precio pendiente y «Queda 1» comparten el mismo renglón (peor caso de L-8)', () => {
+    renderWithIntl(
+      <CatalogTile listing={listing({ stockCount: 1, displayPriceCents: undefined })} inCart={false} onAdd={vi.fn()} />,
+      'es',
+    );
+    const row = screen.getByTestId('tile-price-row');
+    const [pending, stock] = Array.from(row.children);
+    expect(cls(pending)).toContain('order-1');
+    expect(stock).toHaveTextContent('Queda 1');
+  });
+
+  it('CTA: `pt-2` en < sm (`pt-3` en ≥ sm) y el toque no se achica (44 px)', () => {
+    renderWithIntl(<CatalogTile listing={listing()} inCart={false} onAdd={vi.fn()} />, 'es');
+    const btn = screen.getByRole('button', { name: 'Añadir al carrito' });
+    expect(cls(btn.parentElement!)).toEqual(expect.arrayContaining(['pt-2', 'sm:pt-3']));
+    expect(cls(btn)).toContain('min-h-[44px]');
+  });
+});
+
+/**
+ * §22.5 «Excepción vigente (2026-11-01)» + §MKT-CONV.8 vMKT-CONV-3 (HECHOS 2026-11-01 «Estimado PSA fuera de la teja
+ * del catálogo en celular», «A»). jsdom no maqueta: se fija la mecánica; L-8 (`e2e/measurement-on.spec.ts`) mide en
+ * el navegador que en < sm no se ve y en ≥ sm sí. TL-MKT6-1: el corte NO es de la teja sino de la página (la boundary
+ * lo publica); que `CatalogView` declare `hidden sm:block` y que badge y nota lo compartan lo fija
+ * `CatalogView.test.tsx` «TL-MKT6-1». Aquí: la teja aplica el corte que recibe y no pone uno propio.
+ */
+describe('CatalogTile · el corte del estimado viene de la página; la foto 4:5 es de la teja', () => {
+  const cls = (el: Element) => el.className.split(/\s+/);
+  const tileWith = (surface?: 'catalog' | 'shelf', figureClassName?: string) =>
+    renderWithIntl(
+      <GradingFootnoteBoundary active figureClassName={figureClassName}>
+        <CatalogTile listing={listing({ gradingHighlight: [psa10] })} inCart={false} onAdd={vi.fn()} surface={surface} />
+      </GradingFootnoteBoundary>,
+      'es',
+    );
+
+  it('catálogo (default) bajo una boundary con corte: el badge lleva ese corte; la foto es 4:5 en < sm y 5:7 en ≥ sm', () => {
+    const { container } = tileWith(undefined, 'hidden sm:block');
+    const badge = screen.getByTestId('estimate-badge');
+    expect(cls(badge)).toEqual(expect.arrayContaining(['hidden', 'sm:block']));
+    // La cifra y el micro-aviso viajan DENTRO del nodo oculto: no hay copia visible fuera de él.
+    expect(badge).toHaveTextContent(/no evaluamos esta carta/i);
+    expect(badge).toHaveTextContent('MX$2,900.00');
+    const well = container.querySelector('img')!.parentElement!;
+    expect(cls(well)).toEqual(expect.arrayContaining(['aspect-[4/5]', 'sm:aspect-[5/7]']));
+    expect(cls(well)).not.toContain('aspect-[5/7]');
+  });
+
+  it('sin corte en la boundary la teja no oculta el badge por su cuenta (no hay un segundo sitio del corte)', () => {
+    tileWith();
+    expect(cls(screen.getByTestId('estimate-badge'))).not.toContain('hidden');
+  });
+
+  it('vitrina (`surface="shelf"`): badge visible en todos los anchos y foto 5:7, como antes', () => {
+    const { container } = tileWith('shelf');
+    expect(cls(screen.getByTestId('estimate-badge'))).not.toContain('hidden');
+    const well = container.querySelector('img')!.parentElement!;
+    expect(cls(well)).toContain('aspect-[5/7]');
+    expect(cls(well)).not.toContain('aspect-[4/5]');
+  });
+});

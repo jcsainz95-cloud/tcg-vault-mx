@@ -36,6 +36,8 @@ import { cn } from '@/lib/cn';
 import { CardCode } from '@/components/domain/CardCode';
 import { WishlistBlock } from './WishlistBlock';
 import { RefundPromiseLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
+import { VaultNote } from '../../_shared/VaultNote';
+import { TrustStrip } from '../../_shared/TrustStrip';
 
 /**
  * v1.38-grouped-listings (P-30): ¿la pieza (unit, por-pieza) pertenece a este grupo?
@@ -172,10 +174,10 @@ interface FactSpec {
  * concreto —como hacía la versión anterior con «Valor de mercado» y «Acabado»— es justo el bug:
  * al desaparecer una celda, el divisor lo heredaba quien no le tocaba y la regla moría a media fila.
  */
-function FactGrid({ facts }: { facts: FactSpec[] }) {
+function FactGrid({ facts, className }: { facts: FactSpec[]; className?: string }) {
   let column = 0; // columna que ocupa la celda actual dentro de la fila (0 = abre fila)
   return (
-    <div className="mt-9 grid border-t border-border sm:grid-cols-2">
+    <div className={cn('grid sm:grid-cols-2', className)}>
       {facts.map((f) => {
         const opensRow = column === 0;
         column = f.fullRow ? 0 : (column + 1) % 2;
@@ -256,6 +258,8 @@ function Detail({
   // Índice de piezas por id (para leer el slab/cert de la pieza representativa de un grupo).
   const unitById = useMemo(() => new Map(units.map((u) => [u.inventoryItemId, u])), [units]);
   const primaryUnit = primary ? unitById.get(primary.representativeInventoryItemId) : undefined;
+  // Gradeada: certificado verificable (§7.2c) del SLAB representativo — por pieza (units).
+  const certNumber = primary?.productType === 'graded' ? primaryUnit?.certNumber ?? undefined : undefined;
 
   // La ficha ya no tiene pestaña "Fotos" (v1.2): imagen de catálogo remota, sin fotos propias.
   const tabs = [
@@ -329,7 +333,7 @@ function Detail({
     <div className="pb-24 lg:pb-0">
       <nav
         aria-label="Breadcrumb"
-        className="gutter flex items-center gap-3 border-b border-border py-5 font-mono text-xs tracking-[0.06em] text-muted"
+        className="gutter flex items-center gap-3 border-b border-border py-5 font-mono lg:py-4 text-xs tracking-[0.06em] text-muted"
       >
         <Link href="/catalog" className="hover:text-text">
           {t('backToCatalog')}
@@ -348,11 +352,28 @@ function Detail({
           <CardImage src={card.imageLargeUrl ?? card.imageSmallUrl} alt={card.name} className="w-full max-w-[420px] bg-transparent p-0" />
         </div>
 
-        <div className="gutter py-10 lg:py-14">
+        {/* MKT-CONV.2: `lg:py-12` (antes 14) es la palanca del diseño para que COMPRAR quede sobre el banner a
+            1366×768 (L-3). Medido: no basta (renglón en y 693–733, banner en 711), así que desde lg también se
+            compactan la miga (`lg:py-4`), la retícula (`lg:mt-7`), T1a (`lg:mt-2`), el h2 (`lg:mt-6`) y el renglón
+            (`lg:py-3`): −32 px (margen justo; lo vigila
+            L-3). El banner no se achica. */}
+        {/* MKT-CONV.2 (vMKT-CONV-2, L-9): en lg la columna es `flex-col` y el renglón de compra sube por encima de
+            la pila de avisos y de Condición/Acabado (`lg:order-*`), así su posición ya no depende de lo variable.
+            En < lg el orden es el del DOM (sin cambio). Lo que se mueve (pila y retícula) no tiene nada enfocable;
+            el certificado (con su botón «Copiar») se pinta en su sitio del DOM en cada ancho (copia `lg:hidden`/`lg:block`).
+            Medido (FRONTEND_NOTES §MKT-CONV8): con nombre de 3 renglones a 1280×720 el margen al banner era 40 px < 48
+            (L-9); `lg:pt-10` (antes 12), precio `lg:mt-6` (antes 7) y h2 `lg:mt-5` (antes 6) dan −16 px. */}
+        <div className="gutter py-10 lg:flex lg:flex-col lg:pb-12 lg:pt-10" data-testid="card-detail-column">
           {/* C1 (criterio 949): el `<h1>` lleva nombre · set · número. La línea de set va DENTRO del encabezado
               como bloque propio, con la misma letra y el mismo margen que tenía de párrafo: se ve igual. */}
-          <h1 className="font-serif text-[32px] leading-[1.05] text-text lg:text-[46px]" lang="en">
-            {card.name}
+          <h1 className="font-serif text-[32px] leading-[1.05] text-text lg:order-1 lg:text-[46px]" lang="en">
+            {/* vMKT-CONV-2: en lg el nombre se recorta a 3 renglones (visual; el texto y el nombre accesible siguen
+                completos). La línea de set, debajo, no entra en el recorte. `pb-1.5`/`-mb-1.5`: el recorte con
+                `leading-[1.05]` cortaba el descendente del 3.er renglón (medido: la «y» de «Type»); 6 px de caja más sin
+                mover nada (con 6 y 8 px no asoma el 4.º renglón). */}
+            <span className="lg:-mb-1.5 lg:line-clamp-3 lg:pb-1.5" data-testid="card-name">
+              {card.name}
+            </span>
             <span className="sr-only"> · </span>
             <span className="mt-3 block font-mono text-xs uppercase tracking-[0.1em] text-muted">
               {/* v1.80 (P-71, §37.3c): «Twilight Masquerade · TWM 130 · rareza»; sin código, `#130`.
@@ -369,46 +390,57 @@ function Detail({
                   «Valor de mercado» en la ficha pública (D2=A, dueño 2026-10-16): solo precio,
                   condición y acabado. El DTO sigue trayendo `referenceValue`/`referenceDisplayCents`
                   porque alimentan admin y valuación — que viaje no autoriza a pintarlo en la tienda. */}
-              <FactGrid facts={facts} />
-              {/* T1a + T8 (§CHK-MOVIL.4): bajo el precio y FUERA de la retícula; no en la barra fija de COMPRAR. */}
+              {/* La retícula se parte en dos (precio | condición y acabado) para que en lg el precio quede con el
+                  nombre y la condición baje tras la compra. En < lg se ve igual que la retícula única: la regla de
+                  arriba la pone la primera y cada celda trae su regla inferior. */}
+              <FactGrid facts={facts.slice(0, 1)} className="mt-9 border-t border-border lg:order-2 lg:mt-6" />
+              <FactGrid
+                facts={facts.slice(1)}
+                className="lg:order-5 lg:mt-6 lg:border-t lg:border-border"
+              />
+              {/* Pila de avisos (MKT-CONV.2): T1a (envío) → T8 (garantía) → T2 (bóveda, MKT-CONV.3: solo sesión
+                  anónima). Bajo el precio y FUERA de la retícula; no en la barra fija de COMPRAR. */}
               {primary.displayPriceCents != null && (
                 <>
-                  <ShippingFeeHint kind="cards" className="mt-3" />
-                  <RefundPromiseLine className="mt-1" />
+                  <ShippingFeeHint kind="cards" className="mt-3 lg:order-4 lg:mt-6" />
+                  <RefundPromiseLine className="mt-1 lg:order-4" />
+                  <VaultNote className="mt-1 lg:order-4" />
                 </>
               )}
 
-              {/* Gradeada: certificado verificable (§7.2c) del SLAB representativo — por pieza (units) */}
-              {primary.productType === 'graded' && primaryUnit?.certNumber && (
-                <div className="mt-6">
-                  <CertNumberField certNumber={primaryUnit.certNumber} />
+              {/* Gradeada: certificado (§7.2c). En < lg aquí; en lg, tras la compra (copia de abajo). */}
+              {certNumber && (
+                <div className="mt-6 lg:hidden">
+                  <CertNumberField certNumber={certNumber} />
                 </div>
               )}
             </>
           )}
 
-          {/* §A1 (MKT-26a): sin «Valor de mercado» en la ficha pública, la nota al pie NUNCA usa el
-              explicador de comparación `referenceExplainerWithMarket` («…para que los compares tal
-              cual»): siempre es `referenceExplainerNoMarket`, que solo dice qué es el precio de venta
-              y no menciona el mercado. (`referenceExplainerWithMarket` sigue en `messages/*.json`;
-              su retiro de catálogo lo evalúa ux-ui.) */}
-          <p className="rule-note mt-7 text-[13px] leading-[1.65] text-muted">
-            {t('referenceExplainerNoMarket')}
-          </p>
-
-          {/* «Gancho de grading» (§22.3): junto al precio, DESPUÉS del referenceExplainer —esa prosa
-              separa las dos zonas de dinero— y ANTES de «Ejemplares disponibles». Nunca dentro de la
-              retícula de precio: mismo grid sería la misma categoría que una cifra real (R2). */}
-          <GradingEstimateBlock detail={detail} className="mt-7" />
-
-          {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. */}
-          <h2 className="mt-10 font-serif text-[22px] leading-tight text-text">{t('instances')}</h2>
-          {/* §WSH-UX.2 (g): ficha de una carta sin piezas a la venta (se llega desde el buscador de «Mi lista» o por URL).
-              ⛔ Ni «agotado» ni «vuelve pronto»: no lo sabemos. */}
-          {groups.length === 0 && (
-            <p className="mt-4 text-[15px] text-muted">{tWishlist('card.notHere')}</p>
+          {/* C3 (criterio 951, MKT-3 (a), HECHOS 2026-10-31): carta sin piezas a la venta ⇒ sigue visible e indexable
+              con «Agotada» donde iría el precio (y `OutOfStock` en el JSON-LD de la página). Sin «vuelve pronto»: no
+              lo sabemos. */}
+          {!primary && (
+            <p
+              data-testid="sold-out"
+              className="mt-9 lg:order-2 border-t border-border pt-5 font-mono text-[13px] uppercase tracking-[0.12em] text-muted"
+            >
+              {tcat('soldOutCard')}
+            </p>
           )}
-          <div className="mt-4 border-t border-border">
+
+          {/* MKT-CONV.2 (B6b, D-B = A): ya no hay frase de sistema entre el precio y la compra (se retiró
+              «El precio de venta es el precio publicado de esta carta»). «Gancho de grading» (§22.3): junto al
+              precio y ANTES de «Ejemplares disponibles»; nunca dentro de la retícula de precio (R2). */}
+          <GradingEstimateBlock detail={detail} className="mt-7 lg:order-2" />
+
+          {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. MKT-CONV.2: `mt-8` (antes 10). */}
+          <h2 className="mt-8 font-serif lg:order-3 lg:mt-5 text-[22px] leading-tight text-text">{t('instances')}</h2>
+          {/* §WSH-UX.2 (g): ficha de una carta sin piezas a la venta (se llega desde el buscador de «Mi lista» o por URL). */}
+          {groups.length === 0 && (
+            <p className="mt-4 text-[15px] text-muted lg:order-3">{tWishlist('card.notHere')}</p>
+          )}
+          <div className="mt-4 border-t border-border lg:order-3">
             {groups.map((g) => {
               // Piezas físicas del grupo, cheapest-first, y el slab representativo para el cert.
               const groupUnits = units.filter((u) => unitMatchesGroup(u, g)).sort(byPriceThenId);
@@ -416,7 +448,7 @@ function Detail({
               return (
                 <div
                   key={g.representativeInventoryItemId}
-                  className="flex flex-wrap items-center justify-between gap-4 border-b border-border py-4"
+                  className="flex flex-wrap items-center justify-between gap-4 border-b border-border py-4 lg:py-3"
                 >
                   <div className="min-w-0">
                     {/* v1.6-finish: cada variante (acabado/condición) es un grupo separado. El cert
@@ -447,14 +479,28 @@ function Detail({
             })}
           </div>
 
+          {/* MKT-CONV.4 (B2, criterio 945): franja de confianza bajo los renglones de compra, antes de la lista. */}
+          <TrustStrip className="mt-4 lg:order-3" />
+
+          {/* vMKT-CONV-2: en lg el certificado va tras la compra, junto a Condición/Acabado. Tiene un botón, así que
+              se mueve en el DOM (no solo con `order`) para que el foco siga el orden visual (WCAG 2.4.3): esta copia
+              solo existe en lg y la de arriba solo en < lg (`display:none` la saca del foco y del árbol accesible). */}
+          {certNumber && (
+            <div className="mt-6 hidden lg:order-5 lg:block">
+              <CertNumberField certNumber={certNumber} />
+            </div>
+          )}
+
           {/* §WSH-UX.2 · «Lista de deseos»: después de «Ejemplares disponibles» (comprar va primero). Solo con el dial
               encendido (`wishlistEnabled`, campo aditivo de la ficha, §WSH.4); ⛔ el sellado no lo lleva (823). */}
           {detail.wishlistEnabled === true && (
+            <div className="lg:order-6">
             <WishlistBlock
               cardId={card.id}
               availableFinishes={card.availableFinishes}
               preferredFinish={groups[0]?.finish}
             />
+            </div>
           )}
         </div>
       </div>
@@ -548,9 +594,8 @@ function MobileBuyBar({
 
   if (sellableUnits.length === 0 || group.displayPriceCents == null) return null;
 
-  // La barra usa copy PROPIO («Añadir al carrito» / «Ver carrito») y no el de los renglones
-  // («Comprar» / «En el carrito»): es el CTA del grupo «desde», no el de una variante concreta, y así
-  // además no se confunde con ellos para lector de pantalla.
+  // MKT-CONV.2 (B6b, D-B = A, criterio 948): la barra y los renglones dicen LO MISMO y hacen lo mismo:
+  // «Añadir al carrito» agrega la pieza más barata aún fuera del carrito; «Ver carrito» lleva al carrito.
   return (
     <div
       ref={buyBarRef}
@@ -582,13 +627,18 @@ function MobileBuyBar({
   );
 }
 
+/** MKT-CONV.2: el botón del renglón mide 44 px en < lg y 40 px desde lg (`md` del diseño). */
+const ROW_CTA_LG = 'lg:h-10 lg:min-h-10 lg:py-0';
+
 /**
- * CTA por GRUPO con estado «En el carrito».
+ * CTA por GRUPO con estado «Ver carrito».
  *
  * v1.38-grouped-listings (P-30): el add-to-cart es por-pieza (units[]) aunque la fila sea un
- * grupo. «Comprar» agrega la pieza más barata del grupo aún NO en el carrito; clics sucesivos
+ * grupo. «Añadir al carrito» agrega la pieza más barata del grupo aún NO en el carrito; clics sucesivos
  * suben hasta `stockCount`. Cuando TODAS las piezas del grupo están en el carrito, el CTA cambia
- * a «En el carrito» y el segundo clic no re-agrega: lleva al carrito (/checkout).
+ * a «Ver carrito» y el clic no re-agrega: lleva al carrito (/checkout). MKT-CONV.2 (B6b, D-B = A, HECHOS
+ * 2026-10-31): una sola etiqueta en ficha y barra (se retiraron «Comprar» y «En el carrito» de la ficha); `primary`
+ * `md` (44 px), el botón de más peso de la ficha.
  *
  * Vive aquí (y no en `ListingCard`) a propósito: `frontend/src/components/` es zona compartida de
  * otro stream y las props actuales de `ListingCard` no expresan este estado.
@@ -611,7 +661,7 @@ function InstanceCta({
 
   if (sellableUnits.length === 0) {
     return (
-      <Button variant="secondary" size="sm" disabled>
+      <Button variant="secondary" size="md" disabled data-testid="instance-cta" className={ROW_CTA_LG}>
         {tcat('notForSale')}
       </Button>
     );
@@ -619,17 +669,23 @@ function InstanceCta({
 
   if (allInCart) {
     return (
-      <Button variant="secondary" size="sm" onClick={() => router.push('/checkout')}>
+      <Button
+        variant="secondary"
+        size="md"
+        data-testid="instance-cta"
+        className={ROW_CTA_LG}
+        onClick={() => router.push('/checkout')}
+      >
         {/* Check decorativo (§7.4): el texto es el portador del estado. */}
         <Check size={14} aria-hidden />
-        {tcat('inCart')}
+        {tcat('viewCart')}
       </Button>
     );
   }
 
   return (
-    <Button variant="primary" size="sm" onClick={() => onAdd(nextUnit!)}>
-      {tcat('buyNow')}
+    <Button variant="primary" size="md" data-testid="instance-cta" className={ROW_CTA_LG} onClick={() => onAdd(nextUnit!)}>
+      {tcat('addToCart')}
     </Button>
   );
 }

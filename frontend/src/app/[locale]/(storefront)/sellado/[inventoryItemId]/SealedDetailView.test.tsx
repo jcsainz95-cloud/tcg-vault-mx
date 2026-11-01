@@ -4,7 +4,7 @@ import { renderWithProviders } from '@/test/render';
 import { formatMoneyCents } from '@/lib/format';
 import { SealedDetailView } from './SealedDetailView';
 import * as api from '@/lib/api';
-import { mockSealedGroups } from '@/lib/mock/fixtures';
+import { mockSealedGroups, type PricedSealedGroupDTO } from '@/lib/mock/fixtures';
 import type { ListingDTO, SealedGroupDTO, SealedGroupDetailResponse } from '@/types/contract';
 
 // El CTA «Ir al carrito» navega con el router de next-intl; se mockea para espiarlo.
@@ -22,7 +22,7 @@ vi.mock('@/i18n/navigation', () => ({
 const BOX_MINT = mockSealedGroups[0]; // inv-1008, box, mint, 4 disponibles
 const BOX_MINOR = mockSealedGroups[2]; // inv-1020, box, minor_box_damage, 2 disponibles
 
-function listingsOf(group: SealedGroupDTO, ids: string[]): ListingDTO[] {
+function listingsOf(group: PricedSealedGroupDTO, ids: string[]): ListingDTO[] {
   return ids.map((id, i) => ({
     inventoryItemId: id,
     card: group.card,
@@ -39,7 +39,7 @@ function listingsOf(group: SealedGroupDTO, ids: string[]): ListingDTO[] {
   }));
 }
 
-function mockDetail(over: Partial<SealedGroupDetailResponse> & { group: SealedGroupDTO }): void {
+function mockDetail(over: Partial<SealedGroupDetailResponse> & { group: PricedSealedGroupDTO }): void {
   const detail: SealedGroupDetailResponse = {
     group: over.group,
     listings: over.listings ?? listingsOf(over.group, ['inv-a', 'inv-b', 'inv-c', 'inv-d']),
@@ -101,17 +101,66 @@ describe('SealedDetailView · selector de cantidad y carrito', () => {
   });
 });
 
-describe('SealedDetailView · sin stock', () => {
-  it('grupo agotado: «Agotado», controles de cantidad deshabilitados y carrito intacto', async () => {
-    mockDetail({ group: { ...BOX_MINT, availableCount: 0 }, listings: [] });
-    renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
+/**
+ * API_CONTRACT §MKT.A.1 (v1.115, criterio 951) — ficha AGOTADA: el backend responde `200` con `listings: []`,
+ * `availableCount 0` y `fromPriceCents`/`priceSource` en `null`. «Agotado» donde iría el precio (patrón de la carta,
+ * `data-testid="sold-out"`), sin «Desde», sin cifra, sin cantidad ni compra (ni barra fija), y el «Avísame cuando
+ * vuelva» con `group.representativeItemId` cuando `restockEnabled`.
+ * Canario: pintar `formatMoneyCents(fromPriceCents ?? 0)` ⇒ aparece «MX$0.00».
+ */
+function soldOutGroup(): SealedGroupDTO {
+  return {
+    ...BOX_MINT,
+    representativeItemId: 'inv-sold-0001',
+    availableCount: 0,
+    fromPriceCents: null,
+    priceSource: null,
+    priceBasis: 'pending',
+    referenceValue: { status: 'pending' } as SealedGroupDTO['referenceValue'],
+    referenceDisplayCents: undefined,
+  };
+}
 
-    expect(await screen.findByText('Agotado')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Agregar uno' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Quitar uno' })).toBeDisabled();
+function mockSoldOut(restockEnabled: boolean): void {
+  vi.spyOn(api, 'getSealedGroupDetail').mockResolvedValue({
+    group: soldOutGroup(),
+    listings: [],
+    trendEnabled: true,
+    restockEnabled,
+  });
+}
 
-    fireEvent.click(screen.getByRole('button', { name: 'Agregar 1 al carrito' }));
+describe('SealedDetailView · agotado (§MKT.A.1)', () => {
+  it.each(['es', 'en'] as const)('«Agotado» sin precio, sin «Desde», sin cantidad ni compra (%s)', async (locale) => {
+    mockSoldOut(false);
+    const { container } = renderWithProviders(<SealedDetailView inventoryItemId="inv-sold-0001" />, locale);
+    const sold = await screen.findByTestId('sold-out');
+    expect(sold).toHaveTextContent(locale === 'es' ? 'Agotado' : 'Sold out');
+    expect(container.textContent).not.toMatch(/MX\$/);
+    expect(screen.queryByText(locale === 'es' ? 'Desde' : 'From')).toBeNull();
+    expect(screen.queryByRole('button', { name: locale === 'es' ? 'Agregar uno' : /add one/i })).toBeNull();
+    expect(screen.queryAllByRole('button').filter((b) => /carrito|cart/i.test(b.textContent ?? ''))).toEqual([]);
+    expect(screen.queryByTestId('mobile-buy-bar')).toBeNull();
     expect(window.localStorage.getItem('tcg.cart')).toBeNull();
+  });
+
+  it('con `restockEnabled`: el «Avísame» manda `group.representativeItemId` y dice «cuando vuelva»', async () => {
+    mockSoldOut(true);
+    const sub = vi.spyOn(api, 'subscribeSealedRestock').mockResolvedValue({ subscribed: true });
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-sold-0001" />, 'es');
+    expect(await screen.findByText('Te escribimos una sola vez cuando vuelva a estar disponible.')).toBeInTheDocument();
+    expect(screen.queryByText(/Si se agota/)).toBeNull();
+    fireEvent.change(screen.getByLabelText('Correo'), { target: { value: 'yo@ejemplo.com' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Avisarme' }));
+    await screen.findByText('Listo. Cuando vuelva, te escribimos una sola vez.');
+    expect(sub.mock.calls[0][0]).toEqual({ email: 'yo@ejemplo.com', inventoryItemId: 'inv-sold-0001' });
+  });
+
+  it('sin `restockEnabled`: sin formulario', async () => {
+    mockSoldOut(false);
+    renderWithProviders(<SealedDetailView inventoryItemId="inv-sold-0001" />, 'es');
+    await screen.findByTestId('sold-out');
+    expect(screen.queryByText('Avísame cuando vuelva')).toBeNull();
   });
 });
 

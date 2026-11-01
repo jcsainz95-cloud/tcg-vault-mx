@@ -81,6 +81,7 @@ export function GradingGemsShelf() {
           // retícula, así que su altura y su `mt-auto` se comportan igual que en Compra.
           <div key={l.representativeInventoryItemId} className={cn(i >= 4 ? 'hidden sm:contents' : 'contents')}>
             <CatalogTile
+              surface="shelf"
               listing={l}
               inCart={cart.ids.includes(l.representativeInventoryItemId)}
               onAdd={(g) => cart.add(g.representativeInventoryItemId)}

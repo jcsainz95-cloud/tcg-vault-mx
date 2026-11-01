@@ -153,10 +153,8 @@ describe('§A1 · la ficha pública de carta NO pinta «Valor de mercado» (ni n
     mockDetail(grp());
     renderWithProviders(<CardDetailView cardId="c-miv" />, 'es');
     await screen.findByText('Precio de venta');
-    // §A1: siempre `referenceExplainerNoMarket`; jamás `referenceExplainerWithMarket`.
-    expect(
-      screen.getByText('El precio de venta es el precio publicado de esta carta.'),
-    ).toBeInTheDocument();
+    // MKT-CONV.2 (B6b): la frase de sistema se retiró de la ficha; y jamás `referenceExplainerWithMarket`.
+    expect(screen.queryByText('El precio de venta es el precio publicado de esta carta.')).toBeNull();
     expect(screen.queryByText(/para que los compares tal cual/i)).toBeNull();
     expect(screen.queryByText(/valor de mercado es la referencia del día/i)).toBeNull();
   });

@@ -6218,6 +6218,8 @@ opcional y **no sustituye al micro-aviso**:
 > cambio, la cifra en la rejilla exige confianza** (R6, §22.7): si el número no es confiable, la teja se ve
 > **exactamente como hoy**, sin distintivo de repuesto.
 
+> **Excepción vigente (2026-11-01, dueño, HECHOS «Estimado PSA fuera de la teja del catálogo en celular»: «A»):** en la **teja del catálogo** el badge queda **oculto (`display:none` en < `sm`)** (640 px); sigue en la **ficha** y en la teja ≥ `sm`. Motivo medido: sumaba ≈ 83 px a la teja a 360 (474 vs 391) y con el aviso de cookies abierto no cabía ninguna teja (MKT-CONV.8, L-8). No toca la vitrina ni el carrusel (§22.6, §22.6b). Consecuencias: (1) la foto de la teja pasa a 4:5 en < `sm` (MKT-CONV.8); (2) el `aria-label` de la teja **solo menciona la cifra y el micro-aviso donde el badge se ve** (< `sm` no: etiqueta sin estimado); (3) sin el badge no hay cifra que condicionar, así que la nota al pie de esa página (R3.3) tampoco debe quedar visible en < `sm` del catálogo; la ficha conserva ambos. *(1)–(3) los resuelve frontend; (2) y (3) van como petición al final del encargo.* Lo que sigue describe el badge donde sí se muestra.
+
 **Dónde va en la teja** (`CatalogTile`): **después** del precio de venta y del `StockBadge`, **antes** del
 CTA. Nunca sobre el arte (§7.2b) y **nunca por encima del precio real**: el orden de lectura obligatorio es
 **precio real → estimado → micro-aviso → CTA**. Va separado por una **regla de 1px `--color-border`** con
@@ -33449,7 +33451,7 @@ Norma §7.12a/§29 intacta: nombran el cobro, **no** lo justifican, ni proveedor
 | T1b | Ficha de **sellado**. Importes: `shipping.sealedFeeCents`, `shipping.freeFromCents` | «Envío MX$175, gratis desde MX$4,000 · comisión de plataforma al pagar» | “Shipping MX$175, free from MX$4,000 · platform fee at checkout” |
 | T9 | En flujo, bajo la fila de destino del carrito, si `kind ≠ null ∧ freeShippingRemainingCents > 0` (mono 12 px; **no** en la barra) | «Te faltan {falta} para envío gratis» | “{remaining} more for free shipping” |
 | T3a | Barra fija, invitado (línea 1 de 2.4); con envío 0: «Incluye envío gratis y comisión…» | «Incluye envío {envío} y comisión de plataforma {comisión}» | “Includes shipping {ship} and platform fee {fee}” |
-| T8 | Fricción 4, **junto a** «Todas las ventas son finales» en ficha, carrito y checkout (misma línea o renglón siguiente, mono 11 px muted, sin icono). Apoyada en la política vigente (`checkout.finalSaleNotice`: «…salvo carta dañada o equivocada»; PROJECT 1548: reembolso desde Ventas) | «Si tu carta llega dañada o equivocada, te reembolsamos.» | “If your card arrives damaged or wrong, we refund you.” |
+| T8 | Fricción 4. **Vigente (vMKT-CONV-2):** en la **ficha** va **sola** en la pila bajo el precio (desde la tanda 1 la ficha ya no lleva «Todas las ventas son finales»; MKT-CONV.2); en **carrito y checkout** va **junto a** «Todas las ventas son finales» (misma línea o renglón siguiente). Mono 11 px muted, sin icono. Apoyada en la política vigente (`checkout.finalSaleNotice`: «…salvo carta dañada o equivocada»; PROJECT 1548: reembolso desde Ventas) | «Si tu carta llega dañada o equivocada, te reembolsamos.» | “If your card arrives damaged or wrong, we refund you.” |
 | T3b | Barra fija, con cuenta | «Incluye comisión de plataforma {comisión}» | “Includes platform fee {fee}” |
 Los importes salen de `breakdown.shippingFeeCents` y `processingFeeCents`, nunca del front. Otros textos nuevos: **T2** (CHK-MOVIL.5), **T4** «¿Ya tienes cuenta? Inicia sesión · o crea una cuenta» / “Already have an account? Log in · or create one”, **T5** «Interior y referencias (opcional)» / “Unit and references (optional)”, **T6** «Ver desglose» · «Ocultar desglose» / “Show breakdown” · “Hide breakdown”, **T7** (solo B) «Paso {n} de 2», «Contacto y envío», «Revisar y pagar», «Continuar» / “Step {n} of 2”, “Contact and shipping”, “Review and pay”, “Continue”. Se retiran al implementar: `checkout.identity.{eyebrow,title,cartKept,chosen,guest.hint}`.
 
@@ -33652,7 +33654,7 @@ Sustituyen a los PROVISIONALES de `docs/FRONTEND_NOTES.md §DYN`. Sin cambio de 
 
 ## MKT-CONV. Conversión de marketing, Ola 1: banner de cookies delgado, ficha con una sola acción, línea de bóveda y señales de confianza (vMKT-CONV-1, 2026-10-31 · `BRIEF_MKT.md` §3 D-4 A y §4 Ola 1 (B1, B6b, T2, B2) · evidencia `tcg-hunt-marketing/informes/datos/diagnostico-tienda-2026-10-30/ux-review/`)
 
-> **Estado: PROPUESTO, no implementado.** Cero tokens y cero pares de contraste nuevos (tinta/papel/pozo/`muted` de §2.3). **Sustituye** a MKT2-UX.1, MKT2-UX.3 (anatomía y filas de botones) y MKT2-UX.4 (alturas), que quedan como puntero a esta sección. El resto de MKT2-UX (estados, CK-1…CK-5, segunda capa, enlace del pie, `--sticky-bottom-h`) sigue vigente.
+> **Estado: implementado por frontend (§MKT-CONV2, `FRONTEND_NOTES`) salvo MKT-CONV.8 y la disposición `lg` de MKT-CONV.2 (vMKT-CONV-2, por implementar).** Cero tokens y cero pares de contraste nuevos (tinta/papel/pozo/`muted` de §2.3). **Sustituye** a MKT2-UX.1, MKT2-UX.3 (anatomía y filas de botones) y MKT2-UX.4 (alturas), que quedan como puntero a esta sección. El resto de MKT2-UX (estados, CK-1…CK-5, segunda capa, enlace del pie, `--sticky-bottom-h`) sigue vigente.
 
 ### MKT-CONV.0 Fuentes, lo medido y lo que no
 - **Leído (2026-10-31, rama `claude/mkt-conversion` @ `83166568`; ux-ui sin Bash):** `BRIEF_MKT.md` §3-§4; capturas `d-03-ficha.png` (1366×768), `m-03-ficha.png` y `m-05-carrito.png` (390 px) y sus `.txt`; `m-13-preguntas.txt`; `HECHOS.md:190` (texto del banner); `frontend/messages/{es,en}.json` (`consent`, `catalog.addToCart`/`buyNow`/`viewCart`/`inCart`, `wishlist`); `ConsentBanner.tsx:60-73`; `CardDetailView.tsx:313-618`; `WishlistBlock.tsx:79-114`; `(storefront)/layout.tsx:57-94`; `e2e/measurement-on.spec.ts:466-519`; `API_CONTRACT.md` §MKT.H.11 (C-F2…C-F9). No hay `README.md` en `ux-review/`: el «top 10» se tomó del brief.
@@ -33692,7 +33694,7 @@ Sustituyen a los PROVISIONALES de `docs/FRONTEND_NOTES.md §DYN`. Sin cambio de 
 | regla + padding sup. + texto + hueco + botones + padding inf. | 1 + 4 + 32 + 4 + 44 + 4 = **89 px** | 1 + 8 + 40 + 8 = **57 px** |
 | Antes (capturas) | ≈ 212 px | ≈ 73 px |
 
-**Efecto en las pantallas del diagnóstico (aritmética):** ficha 390×664: cabecera 77 + banner 89 + barra 69 = **235 px (35 %)** contra 358 px (54 %); quedan ≈ 429 px de contenido. 1366×768: el banner empieza en y≈711 (antes 695); ver MKT-CONV.2 para que COMPRAR salga encima. Catálogo móvil: cabecera 77 + banner 89 = 166 px; quedan ≈ 498 px de 664 (B5 pide ≥ 2 tarjetas completas: lo resuelve el layout del catálogo, no el banner).
+**Efecto en las pantallas del diagnóstico (aritmética):** ficha 390×664: cabecera 77 + banner 89 + barra 69 = **235 px (35 %)** contra 358 px (54 %); quedan ≈ 429 px de contenido. 1366×768: el banner empieza en y≈711 (antes 695); ver MKT-CONV.2 para que COMPRAR salga encima. Catálogo móvil: cabecera 77 + banner 89 = 166 px; quedan ≈ 498 px de 664 (B5 pide ≥ 2 tarjetas completas: lo resuelve el layout del catálogo, no el banner; **MKT-CONV.8**).
 
 **Dependencia B5:** con la portada móvil de 677 px de layout (`mobile-steps.json`), un `fixed inset-x-0` mide 677 y el borde derecho de los botones queda fuera de pantalla. El banner **no compensa** nada: el arreglo es de layout (B5) y el candado L-5 lo vigila.
 
@@ -33708,9 +33710,9 @@ Sustituyen a los PROVISIONALES de `docs/FRONTEND_NOTES.md §DYN`. Sin cambio de 
 | Frase de sistema | **Se elimina** `referenceExplainerNoMarket` de la ficha (`CardDetailView.tsx:378-380`, bloque `rule-note`). Si la clave no tiene otro uso (sellado, lista de deseos), se borra de `es.json`/`en.json` en el mismo cambio. Nada la reemplaza |
 | Pila de avisos bajo el precio | `T1a` (envío) → `T8` (ventas finales + garantía; una sola vez, B4) → `T2` (MKT-CONV.3); mono 11 px muted, `mt-1` entre líneas, sin cajas ni iconos |
 | Lista de deseos (§WSH-UX) | **Segunda en jerarquía:** (1) invitado: `wishlist.guest.title` baja de 22 a 18 px; «ENTRAR PARA AGREGARLA» y «CREAR CUENTA» dejan de ser botón con borde: ambos son **enlaces de texto** (13 px, subrayado; el primero de tinta, el segundo bermellón como hoy), conservan `min-h-[44px]` de toque; (2) con sesión: el botón de agregar a la lista (`WishlistBlock.tsx:385`) pasa de `primary` a `secondary` `md`. **Regla:** en la ficha solo la compra lleva `primary` |
-| Orden en el flujo | precio y pila → «Ejemplares disponibles» + renglones de compra → franja de confianza (MKT-CONV.4) → lista de deseos |
+| Orden en el flujo (< `lg`) | precio y pila → «Ejemplares disponibles» + renglones de compra → franja de confianza (MKT-CONV.4) → lista de deseos. **≥ `lg`: ver abajo** (renglones antes que la pila) |
 
-Efecto en 1366×768 (aritmética de `d-03-ficha.png`): sin la frase se ahorran ≈ 50 px (mt-7 + renglón); `h2 «Ejemplares disponibles»` baja su margen superior de `mt-10` a `mt-8` (−8 px). COMPRAR pasa de y≈722 a ≈ 664 (top) y ≈ 704 (bottom, 40 px) con el banner desde y≈711: **visible y pulsable, 7 px de margen** (NO MEDIDO; margen justo, lo cierra L-3). Si la medición real queda en contacto, la palanca es `lg:py-12` en la columna de datos, no achicar el banner.
+**≥ `lg` (1024 px y más): el renglón de compra sube por encima de la pila (vMKT-CONV-2; sustituye la aritmética de 7 px de margen).** Medido por frontend (`FRONTEND_NOTES` §MKT-CONV2, `ficha-banner-1366.png`): con la pila y la rejilla Condición/Acabado delante, el botón queda en y≤704 y el banner en 711 (7-10 px tras compactar −40 px); un `h1` de 2 renglones (≈ +55 px) o el bloque de grading lo tapan. Un margen que depende del largo del nombre no es margen. Solución: **la posición del botón deja de depender de lo variable.** Columna de datos `lg:flex lg:flex-col`, orden visual **h1 → línea de set → precio (+ rótulo de convención) → «Ejemplares disponibles» con sus renglones → pila T1a/T8/T2 → rejilla Condición/Acabado → lista de deseos** (`lg:order-*`; en < `lg` **no cambia**: ahí manda la barra fija). Foco: pila y rejilla no tienen elementos enfocables, así que la tabulación no cambia (si algún día los tienen, se reordena el DOM, no solo el CSS: WCAG 2.4.3). Aritmética sobre `ficha-banner-1366.png` (NO MEDIDA en la nueva disposición): el precio termina en y≈385; h2 ≈ 24 + 20 de margen; botón de 40 px con **bottom ≈ 470 con h1 de 1 renglón y ≈ 525 con h1 de 3** (`lg:line-clamp-3` en el h1); banner desde 711 ⇒ **≥ 180 px de margen**, no 7. Solo el primer renglón tiene que verse; los demás bajan con el scroll. Las compactaciones de −40 px de frontend en `lg` **pueden quedarse**; ya no sostienen nada. Descartadas: banner en esquina en `lg` (cambia la forma que el dueño aprobó en D-A y tapa la foto) y columna `sticky` (el banner sigue encima de ella).
 
 Textos (todo existente): «Añadir al carrito» · «Ver carrito» · EN “Add to cart” · “View cart”. Estados del botón: hover `primary-hover`, `focus-visible`, `active`, `loading` (§6.1; hoy el alta es inmediata), `disabled` + «No disponible» sin stock (sin cambio).
 
@@ -33778,19 +33780,11 @@ Móvil: etiqueta sobre valor; ≥ `md`: `dl` de 2 columnas (200 px | resto). Blo
 
 Los mismos datos alimentan el JSON-LD `Organization` + `contactPoint` (C6/B2b; lo implementa frontend): una fuente por dato, ningún valor repetido a mano. Estados de la página: es estática, sin carga ni error propios; con todos los datos vacíos, queda lead + «Cómo compras» + correos publicados (nunca una página vacía). Metadatos: `title` «Quiénes somos y contacto · TCG HUNT», `description` de 1 renglón (redacta marketing).
 
-### MKT-CONV.5 Maquetas para el dueño (describir en el chat; renderizada antes de publicar, brief D-4)
+### MKT-CONV.5 Decisiones del dueño
 
-Lo que el orquestador le enseña, en este orden, **ficha móvil 390×844 con el banner abierto** (antes: capturas `m-03-ficha.png`):
-1. **Antes / después del banner.** Antes: 3 bloques apilados, ≈ 212 px, «Aceptar» negro grande y rechazo con borde. Después: texto en 2 renglones con «Aviso de privacidad ↗ · Configurar» al final, y debajo, lado a lado, dos botones iguales; ≈ 89 px; la barra «Añadir al carrito» queda **debajo y entera**.
-2. **Ficha de arriba abajo:** cabecera → carta → nombre y precio → tres renglones pequeños de aviso (envío / ventas finales con garantía / bóveda) → «Ejemplares disponibles» con **un** botón «Añadir al carrito» → una línea «Pago seguro · Envío a México · Quiénes somos» → «Lista de deseos» con dos enlaces de texto. Ya no existe «El precio de venta es el precio publicado de esta carta».
-3. **Página «Quiénes somos y contacto»** con las filas vacías **ocultas** (lo que se vería hoy) y con ejemplo (datos ficticios rotulados «EJEMPLO»).
-
-**Decisiones del dueño (A/B reales):**
+**Resueltas** (HECHOS 2026-10-31 «Marketing tanda 2», según `FRONTEND_NOTES` §MKT-CONV2): D-A = A (botones con borde y papel, revierte el «Aceptar» más grande del 2026-10-16), D-B = A («Añadir al carrito»), D-C = B (texto de bóveda con el beneficio). **Abiertas** (A/B reales):
 | Id | Pregunta | A | B | Recomiendo |
 |---|---|---|---|---|
-| **D-A** | Los dos botones del banner, ¿cómo se ven? | Los dos con borde y fondo de papel | Los dos rellenos de tinta | **A** (barra más ligera; ninguno empuja). Confirma además que esto **revierte** su decisión del 2026-10-16 («Aceptar» más grande) |
-| **D-B** | Etiqueta única de la ficha | «Añadir al carrito» (dice lo que hace; no cambia nada más) | «Comprar» (más corta; promete algo que el botón no hace: solo agrega) | **A** |
-| **D-C** | Línea de bóveda | Texto aprobado: «La bóveda requiere cuenta…» | Texto nuevo con el beneficio: «Con cuenta, junta cartas en tu bóveda y pide un solo envío…» | **B** (necesita su aprobación; si no, A) |
 | **D-E** | «Pago seguro» en la franja | Se queda | «Pagas en la pantalla de pago» | **A**, si el PO confirma que el proveedor lo respalda |
 | **D-F** | Qué correo es «el público» | `soporte@` (pedidos y cuenta) y `contacto@` (vender sellado), como hoy en `/preguntas` | Uno solo | no decido: es del dueño |
 | **D-G** | Qué datos da para la página | ciudad, razón social, plazo de entrega, WhatsApp, horario, atención en persona (ver MKT-CONV.4) | solo lo ya publicado (correos, Instagram) | A, pero **ningún dato se inventa**: sin dato, sin fila |
@@ -33801,17 +33795,55 @@ Viewports 360×740, 390×844 (y 390×664 de C-F3), 414×896, 1366×768; ES y EN;
 |---|---|---|
 | **L-1** | alto del banner ≤ **96 px** a 360/390/414 (objetivo ≈ 89) y ≤ **64 px** a 1366×768; reemplaza el tope de 232/120 px de C-F12 (`measurement-on.spec.ts:488-498`). Sigue el `max-h-[60vh]` de C-F19 a 195×332 | volver a la fila propia de «Configurar» |
 | **L-2** | «Aceptar» y «Solo lo necesario»: misma altura, mismo ancho (±1 px en móvil), mismo `background-color`, `border`, `font-size` y `font-weight`; ambos ≥ 44 px de alto en móvil | `bg-primary` solo en «Aceptar» |
-| **L-3** | en ficha de carta con el banner abierto, el botón «Añadir al carrito» de la barra (móvil) y el del primer renglón (1366×768) están en el viewport y `elementFromPoint` en su centro devuelve el botón. Extiende C-F11 | dejar la frase de sistema o `mt-10` |
+| **L-3** | en ficha de carta con el banner abierto, el botón «Añadir al carrito» de la barra (móvil) y el del primer renglón (1366×768) están en el viewport y `elementFromPoint` en su centro devuelve el botón. Extiende C-F11. **Y L-9 (vMKT-CONV-2):** a 1366×768, 1280×720 y 1440×900 el **bottom** del botón del primer renglón ≤ `top` del banner − **48 px** con tres nombres (corto, 60 caracteres en 2 renglones, 120 en 3 con clamp) y con una carta gradeada; el barrido se mide N veces (O-3) | devolver la pila o la rejilla por encima de «Ejemplares disponibles» en `lg` (rojo con el nombre de 3 renglones) |
+| **L-8** | catálogo móvil (MKT-CONV.8): a 360×740, 390×844 y 414×896, ES y EN, banner abierto, sin filtros, ≥ **2** tejas con `top ≥ bottom(cabecera)` y `bottom ≤ top(banner) − 8`; `top` de la primera teja ≤ **250 px**; semilla con un nombre de 3 renglones, precio pendiente y «Queda 1» (peor caso) **y una teja con precio de 5 cifras («MX$61,886.00») y «Queda 1»** (el wrap cabe con margen ≥ 8). A 390×664 solo se afirma el `top` de la rejilla (≤ 250), no las tejas. **Caso badge (2026-11-01):** la semilla incluye una carta con estimado PSA elegible (R6 cumplido); en < `sm` (360/390/414) la teja **no contiene** el badge (0 nodos de `GradingEstimateBadge` visibles, ni su micro-aviso) y su foto es 4:5 (±1 px); en ≥ `sm` (768 y 1366) **sí** lo contiene con cifra y micro-aviso | restaurar el eyebrow o el `py-8` de la rejilla en móvil; renderizar el badge sin prefijo `hidden sm:block` (rojo en < `sm`) o quitarlo en ≥ `sm` (rojo en ≥ `sm`) |
+| **L-10** | tejas ≥ `sm` y todo `lg` **iguales** a antes (alto de teja a 768 y 1366 dentro de ±1 px de la captura previa); en < `sm`: la rareza no ocupa layout y precio y stock comparten renglón (`top` igual ±2 px) **salvo cuando el precio no deja sitio (5 cifras): entonces el stock está debajo, a la izquierda** | aplicar la compactación sin el prefijo de ancho |
 | **L-4** | conteo de etiquetas en la ficha: «Añadir al carrito» en renglón y barra, **0** de «Comprar»; no existe el texto «El precio de venta es el precio publicado»; `button.primary` visibles en la región de «Lista de deseos» = 0 | restaurar `buyNow` |
 | **L-5** | paridad ES/EN de `consent.*` sin cambio de texto (literal de HECHOS 2026-10-26), de T2 y de la franja; `scrollWidth ≤ innerWidth` con el banner abierto en portada móvil (B5) | cambiar una palabra del banner |
 | **L-6** | T2 solo con sesión anónima y solo en carta suelta/gradeada; el pie contiene el enlace «Quiénes somos y contacto» en es y en; la franja enlaza a una ruta que responde 200 | enlazar a un 404 |
 | **L-7** | `/nosotros`: 200, un `h1`, `Organization`+`contactPoint` en el HTML; **ninguna** fila con valor vacío ni el texto «DATO DEL DUEÑO» en el HTML servido ni en `messages/*.json` | publicar un hueco sin dato |
 | Intactos | C-F1…C-F9 de §MKT.H.11 (el banner no cambia lógica); C-F11 y C-F19 de `measurement-on.spec.ts` | — |
 
+### MKT-CONV.8 Catálogo móvil: ≥ 2 tarjetas completas con el banner abierto (PROJECT 943; vMKT-CONV-2)
+
+**Medido por frontend** (`FRONTEND_NOTES` §MKT-CONV2): 0 tejas completas a 360/390/414; teja de 417 px a 390; la rejilla empieza en y≈424 (cabecera 77 + título + conteo + pestañas + fila Filtros/Orden + barra de resultados). **Es posible**, con dos palancas: plegar lo de arriba de la rejilla (≈ −180 px) y compactar la teja solo en < `sm` (≈ −40 px). La rejilla ya es de 2 columnas: «≥ 2 tejas» = la primera fila entera.
+
+**Espacio:** viewport 740 − cabecera 77 − banner 89 = **574 px** (y 77…651). Aritmética **NO MEDIDA en navegador** (base: gutter 20, `gap-x-4`, imagen 5:7; la cierra L-8).
+
+| Bloque (< `lg`, sin chips) | Antes | Ahora | Acumulado |
+|---|---|---|---|
+| Cabecera de tienda | 77 | 77 (sin cambio) | 77 |
+| Título: eyebrow **oculto** (`hidden lg:block`; decorativo); `h1` 24/28 px y el conteo `piecesAvailable` a su derecha, misma línea; `pt-4 pb-2` | ≈ 146 | **52** | 129 |
+| `StoreTabs`, una fila `h-11` (44), scroll horizontal si no caben | ≈ 48 | 44 | 173 |
+| Fila Filtros + Orden: una fila, `py-1.5` + controles `h-11`; etiqueta del orden `sr-only` en < `lg` | ≈ 72 | 56 | 229 |
+| Barra de resultados: **solo si hay chips** (una fila `h-11` con scroll horizontal, sin wrap); sin chips, el texto `resultsCount` queda `sr-only` y **sigue siendo la región viva** (`role=status`) | ≈ 43-80 | 0 (con chips 48) | 229 |
+| Regla + `pt-3` de la rejilla (antes `py-8` = 32) | 33 | 13 | **242** |
+
+**Teja en < `sm` (640 px; ≥ `sm` y `lg` no cambian), v. 2026-11-01 (HECHOS «Estimado PSA fuera de la teja del catálogo en celular», opción A):** **sin `GradingEstimateBadge`** (§22.5; oculto (`display:none` en < `sm`), sigue en la ficha y en ≥ `sm`); **foto 4:5** (`aspect-[4/5] sm:aspect-[5/7]`, `object-contain` sobre `--color-surface-2`: la carta 5:7 se ve entera, ~89 % del ancho, sin recorte; ≥ `sm` queda 5:7); nombre `mt-2` y `line-clamp-2` (nombre accesible completo); set `mt-1`; ficha técnica `mt-1.5`; **rareza oculta** (`hidden sm:inline-block`, `CatalogTile.tsx:103`); **precio y stock en un renglón** `flex flex-wrap items-baseline justify-between gap-x-2` («Queda 1» / «N en stock» a la derecha); IVA bajo el precio; CTA `pt-2` y `min-h-[44px]`.
+
+**Renglón precio/stock con 5 cifras (decisión):** «Queda 1» **no** va siempre debajo. Comparte renglón mientras quepa; si no cabe (p. ej. «MX$61,886.00» a 360, medido +9 px por frontend), `flex-wrap` lo baja **alineado a la izquierda**. Siempre debajo costaría ≈ +9 px en **todas** las tejas por un caso raro; con wrap el peor caso (+9) cabe en el margen. La rejilla alinea el CTA por `mt-auto`, así que una teja más alta no desalinea la fila.
+
+**Aritmética corregida.** La versión anterior estimó el resto fijo `R` ≈ 141 px sin contar el badge ni el margen real: frontend **midió** la teja a 360 en **391 px sin badge y 474 con badge** (el badge suma ≈ 83 px; `R` real ≈ 391 − 213 = **178**, no 141; la diferencia de 37 px no la explico, manda el dato). Con badge no cabía **ninguna** teja con el aviso de cookies abierto (L-8 rojo). Margen real a 360×740 medido por frontend: **≈ 23 px** contra el límite de L-8 (`bottom ≤ top(banner) − 8`) con foto 5:7 y sin badge.
+
+| Ancho (viewport) | Columna | Foto 4:5 | Teja = foto + 178 | Peor caso (+9, precio de 5 cifras) | Margen contra L-8 |
+|---|---|---|---|---|---|
+| 360 (×740) | 152 | 190 | **368** | 377 | **23.0 medido** en el peor caso (`price5`, foto 4:5; `FRONTEND_NOTES` §MKT-CONV8) |
+| 390 (×844) | 167 | 209 | 387 | 396 | hay ≥ 100 px más de viewport: sobra (derivado, NO MEDIDO) |
+| 414 (×896) | 179 | 224 | 402 | 411 | ídem, ≥ 150 px (derivado, NO MEDIDO) |
+
+El único ancho ajustado es 360: el margen medido en el peor caso es 23.0 px (≥ 8; el candado manda; 390 y 414 medidos en `FRONTEND_NOTES`). **Lo que no se promete:** (a) con **chips activos** la rejilla baja ≈ 48 px: el criterio se mide sin filtros; (b) a **390×664** (viewport de C-F3) no cabe y **no se afirma**. Si el PO quiere 664, el siguiente paso es la teja horizontal de una columna (miniatura 88 px + datos), decisión que **no tomo** sin el dueño: cambia el modo de explorar.
+
+**Se mantiene visible:** `h1` (SEO y lectores de pantalla), conteo, pestañas, Filtros con el número activo, Orden, chips, hoja de filtros (`sheet`) y el CTA de cada teja. **Se pliega:** eyebrow, etiqueta del orden, barra de resultados sin chips, rareza de la teja, margen de la rejilla. El texto de `resultsCount` no se pierde: pasa a `sr-only`.
+
+**Candados:** L-8 y L-10 (MKT-CONV.6).
+
 ### MKT-CONV.7 Peticiones numeradas (ninguna bloquea el diseño)
 1. **Product-owner:** pedir al dueño los datos marcados «DATO DEL DUEÑO» (MKT-CONV.4, D-G), la lista de métodos de pago que muestra la pantalla de pago y el correo público (D-F); confirmar la URL `/nosotros` y si T2 aplica a todo precio (el «< MX$600» del brief).
 2. **Arquitecto:** (a) §MKT.H.11 no lista C-F11/C-F12/C-F19 (viven en `frontend/e2e/measurement-on.spec.ts`); sus topes de altura cambian (L-1): decidir si pasan al contrato. (b) Dónde viven los datos de la página (clave de mensajes vacía = fila omitida, como `footer.legalEntity`, o lectura pública); y si T2 necesita saber «sesión anónima» más allá del estado de cliente actual.
 3. **Frontend (vía orquestador):** `ConsentBanner.tsx`, `CardDetailView.tsx`, `WishlistBlock.tsx`, pie y la página nueva son de streams distintos del mapa de módulos: serializar `frontend/src/components/` (zona compartida).
+5. **Frontend / product-owner (abierta, 2026-11-01, QA y tester-e2e tanda 2):** (a) a 1366 el «Añadir» de la teja del catálogo queda en y≈848, bajo el pliegue (768): sin cambio de diseño ahora; decidir si importa en escritorio. (b) Consentimiento a 1366: «Aceptar» mide 136 px y «Solo lo necesario» 213 px (mismo alto, borde y fondo). Pregunta al dueño: si pidió «mismo tamaño», ¿se exige también en ancho en escritorio? Hasta que responda no se exige.
 4. **Orquestador:** `DESIGN_SYSTEM.md` tiene ≈ 33 900 líneas contra un tope de ~2 000; hace falta un pase de compactación dedicado (no cabe en este encargo sin tirar secciones vigentes de otros streams). Mockup HTML renderizable para el dueño: puedo escribirlo en `docs/mockups/mkt-conv.html` si se me autoriza esa ruta.
 
 **vMKT-CONV-1 (2026-10-31):** sección nueva (B1/D-4 A, B6b, T2, B2). MKT2-UX.1 y .4 compactados a puntero; MKT2-UX.3 corregido en anatomía y filas de botones.
+**vMKT-CONV-2 (2026-10-31):** MKT-CONV.8 nuevo (catálogo móvil ≥ 2 tejas); ficha `lg`: renglón de compra antes de la pila (MKT-CONV.2, L-9); T8 alineada (sin «ventas finales» en la ficha); MKT-CONV.5 compactado a decisiones abiertas; L-8, L-10.
+**vMKT-CONV-3 (2026-11-01):** sin badge de estimado en la teja < `sm` (§22.5), foto 4:5, precio/stock con wrap, aritmética de MKT-CONV.8 corregida con medidas, L-8/L-10 ampliados.

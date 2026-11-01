@@ -5,7 +5,8 @@ import type { AppLocale } from '@/i18n/routing';
 import type { GroupedListingDTO } from '@/types/contract';
 import { NONCE_HEADER } from '@/security/csp';
 import { formatMoneyCents } from '@/lib/format';
-import { loadCardDetailForSSR, loadShippingRuleForSSR } from '@/lib/catalog-ssr';
+import { notFound } from 'next/navigation';
+import { DETAIL_NOT_FOUND, loadCardDetailForSSR, loadShippingRuleForSSR } from '@/lib/catalog-ssr';
 import {
   SITE_URL,
   brandJsonLd,
@@ -22,6 +23,7 @@ import {
   organizationJsonLd,
   priceValidUntil,
   siteAbsoluteUrl,
+  soldOutOfferJsonLd,
 } from '@/lib/seo';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { CardDetailView } from './CardDetailView';
@@ -31,6 +33,10 @@ import { RouteMessages } from '@/components/i18n/RouteMessages';
  * Ficha pública de CARTA (§A4/§E3) — SSR: title/og/JSON-LD en el HTML del servidor, y el cuerpo también:
  * la MISMA lectura viaja a la vista cliente (`CardDetailView`) como `initialData` (C1, sin doble lectura).
  * El precio de la ficha es «desde» (el del listado más barato). El layout de `[locale]` fuerza render por petición ⇒ SSR.
+ *
+ * C3 (criterio 951): carta que NO existe (el backend responde 404) ⇒ `notFound()` ⇒ 404 real con el título de la
+ * página 404. Carta AGOTADA (existe, `listings: []`) ⇒ 200, indexable, «Agotada» visible y `Offer` `OutOfStock` sin
+ * precio (MKT-3 (a), HECHOS 2026-10-31).
  */
 
 /** El listado representante = el más barato (la cifra «desde» de la ficha). */
@@ -46,6 +52,7 @@ export async function generateMetadata({
   const { locale, cardId } = await params;
   const canonical = cardCanonicalUrl(locale, cardId);
   const data = await loadCardDetailForSSR(cardId);
+  if (data === DETAIL_NOT_FOUND) notFound();
   if (!data) {
     return { metadataBase: new URL(SITE_URL), alternates: localeAlternates(locale, `/catalog/${encodeURIComponent(cardId)}`) };
   }
@@ -67,7 +74,6 @@ export async function generateMetadata({
         ? 'Pokémon card'
         : 'Carta Pokémon',
     priceText: rep ? formatMoneyCents(rep.displayPriceCents, locale) : null,
-    ivaRatePct: rep?.ivaRatePct,
     pricedAsOf: data.pricedAsOf,
     locale,
   });
@@ -106,6 +112,7 @@ export default async function CardDetailPage({
     headers().then((h) => h.get(NONCE_HEADER) ?? undefined),
     loadShippingRuleForSSR(),
   ]);
+  if (data === DETAIL_NOT_FOUND) notFound();
 
   let jsonLd: Record<string, unknown> | null = null;
   if (data) {
@@ -138,7 +145,8 @@ export default async function CardDetailPage({
                   hasMerchantReturnPolicy: merchantReturnPolicyJsonLd(),
                 },
               }
-            : {}),
+            : // C3: agotada ⇒ sigue indexable con `OutOfStock` y sin precio inventado.
+              { offers: soldOutOfferJsonLd('card', canonical) }),
         },
         organizationJsonLd(),
         breadcrumbJsonLd([

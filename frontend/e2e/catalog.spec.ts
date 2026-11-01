@@ -133,10 +133,10 @@ test.describe('Compra · listado y filtros', () => {
     // D2=A (dueño, 2026-10-16; brief §A1): la ficha pública YA NO pinta «valor de mercado» ni la nota
     // al pie que lo COMPARABA (`referenceExplainerWithMarket`). Antes §21.8d exigía el bicondicional
     // «bloque ⇔ nota WithMarket»; ahora la ficha nunca muestra el bloque ni la variante WithMarket, y
-    // la nota al pie es SIEMPRE `referenceExplainerNoMarket` (solo dice qué es el precio de venta).
+    // MKT-CONV.2 (B6b, HECHOS 2026-10-31): tampoco la frase de sistema «El precio de venta es el precio publicado…».
     await expect(page.getByText(t('es', 'catalog.marketValue'), { exact: true })).toHaveCount(0);
     await expect(page.getByText(t('es', 'card.referenceExplainerWithMarket'))).toHaveCount(0);
-    await expect(page.getByText(t('es', 'card.referenceExplainerNoMarket'))).toBeVisible();
+    await expect(page.getByText(/El precio de venta es el precio publicado/)).toHaveCount(0);
   });
 
   test('condición NM legible con tooltip del estándar', async ({ page }) => {
@@ -173,41 +173,37 @@ test.describe('Compra · ficha de carta', () => {
     // manda que el rótulo lo diga el DATO (`ivaIncluded`), no la pantalla. Medido: la UI pinta
     // «IVA 16 % incluido». La prueba era la equivocada; el producto hace lo que se le pidió.
     await expect(page.getByText(ivaLabelRe('es', 'common.ivaIncluded')).first()).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: t('es', 'catalog.buyNow') }).first(),
-    ).toBeEnabled();
+    await expect(page.getByTestId('instance-cta').first()).toHaveText(t('es', 'catalog.addToCart'));
+    await expect(page.getByTestId('instance-cta').first()).toBeEnabled();
   });
 
-  test('«Comprar» da feedback: toast + CTA «En el carrito»; el segundo clic lleva al carrito', async ({ page }) => {
+  test('«Añadir al carrito» da feedback: toast + CTA «Ver carrito»; el segundo clic lleva al carrito', async ({ page }) => {
     mockOnly('id de carta `c-charizard` del fixture');
     await page.goto('/es/catalog/c-charizard');
-    await page.getByRole('button', { name: t('es', 'catalog.buyNow') }).first().click();
+    await page.getByTestId('instance-cta').first().click();
 
     // Confirmación efímera (toast §7.5) con enlace al carrito.
     await expect(
       page.getByRole('status').getByText(t('es', 'catalog.addedToCart')),
     ).toBeVisible();
 
-    // El CTA de ESA pieza cambia de estado y, al re-clicar, navega al carrito.
-    const inCart = page.getByRole('button', { name: t('es', 'catalog.inCart') }).first();
+    // El CTA de ESA pieza cambia de estado («Ver carrito», MKT-CONV.2) y, al re-clicar, navega al carrito.
+    const inCart = page.getByTestId('instance-cta').filter({ hasText: t('es', 'catalog.viewCart') }).first();
     await expect(inCart).toBeVisible();
     await inCart.click();
     await page.waitForURL('**/checkout');
   });
 
-  test('pieza ya en el carrito al recargar la ficha → CTA inicial «En el carrito»', async ({ page }) => {
+  test('pieza ya en el carrito al recargar la ficha → CTA inicial «Ver carrito»', async ({ page }) => {
     mockOnly('id de carta `c-charizard` del fixture');
     await page.goto('/es/catalog/c-charizard');
-    await page.getByRole('button', { name: t('es', 'catalog.buyNow') }).first().click();
-    await expect(
-      page.getByRole('button', { name: t('es', 'catalog.inCart') }).first(),
-    ).toBeVisible();
+    await page.getByTestId('instance-cta').first().click();
+    const viewCart = page.getByTestId('instance-cta').filter({ hasText: t('es', 'catalog.viewCart') }).first();
+    await expect(viewCart).toBeVisible();
 
     // El carrito vive en localStorage: al recargar, el estado se restaura tras montar.
     await page.reload();
-    await expect(
-      page.getByRole('button', { name: t('es', 'catalog.inCart') }).first(),
-    ).toBeVisible();
+    await expect(viewCart).toBeVisible();
   });
 
   test('ficha traducida a inglés mantiene el nombre de carta en inglés', async ({ page }) => {
@@ -251,7 +247,11 @@ test.describe('Compra · D-EQ-3: un enlace de sellado lleva a la vitrina de sell
     // mide aparte, con un filtro que no casa con nada (caso «vitrina vacía» de abajo).
     await expect(page.getByRole('heading', { name: t('es', 'sealed.title'), exact: true })).toBeVisible();
     // Se explica el salto de pantalla: cambiar la URL del usuario sin decir nada parece un fallo.
-    await expect(page.getByRole('status')).toContainText(t('es', 'sealed.fromCatalog.body'));
+    // El localizador se acota al aviso por su TEXTO: con el banner de cookies abierto (stack `--measurement`) la página
+    // tiene otra región `role=status` (`consent-status`) y `getByRole('status')` a secas chocaba en modo estricto.
+    await expect(
+      page.getByRole('status').filter({ hasText: t('es', 'sealed.fromCatalog.body') }),
+    ).toBeVisible();
     // El filtro llegó APLICADO y VISIBLE (nada de filtros fantasma).
     await expect(page.getByLabel(t('es', 'sealed.filters.subtype'))).toHaveValue('box');
     // Y en ningún momento el callejón sin salida de Compra.

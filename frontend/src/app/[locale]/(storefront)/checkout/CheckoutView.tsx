@@ -32,6 +32,7 @@ import { CheckoutPayBar } from './CheckoutPayBar';
 import { useIsDesktop } from './use-is-desktop';
 import { CodeRow } from '@/components/domain/CodeRow';
 import { DISCOUNT_QUOTE_GC_MS, useDiscountCode } from '@/components/domain/useDiscountCode';
+import { TrustStrip } from '../_shared/TrustStrip';
 
 /**
  * 6e — Los renglones del carrito a la izquierda y el desglose a la derecha, en el
@@ -357,6 +358,8 @@ export function CheckoutView() {
       <div className="gutter pb-7 pt-10 lg:pt-[46px]">
         <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{t('title')}</h1>
         <p className="mt-3.5 max-w-[560px] text-[15px] leading-[1.7] text-muted">{t('subtitle')}</p>
+        {/* MKT-CONV.4 (B2, criterio 945): franja de confianza bajo el título, sin scroll; nunca en la barra de PAGAR. */}
+        <TrustStrip className="mt-1" />
       </div>
 
       {/* Aviso informativo de poda (v1.21.3), FUERA de QueryState: sobrevive al estado

@@ -5642,14 +5642,17 @@ export interface SealedGroupDTO {
    * «desde»—, mientras que `salePriceCents` sí la afirmaba por oposición a «precio con IVA». El
    * riesgo que el rename cerraba en los otros DTOs aquí lo cierra **`ivaIncluded`, que es
    * obligatorio**: no hay forma de pintar esta cifra sin leer su convención al lado.
+   *
+   * ⭐ v1.115 (§MKT.A.1, ficha AGOTADA): `null` ⇔ `availableCount = 0` (no hay precio que se cobre; ⛔ nunca se pinta
+   * `?? 0` ni el de mercado). Solo en la ficha; la rejilla (`SealedGroupSummaryDTO`) sigue con número.
    */
-  fromPriceCents: number;
+  fromPriceCents: number | null;
   /** §M10-IVA.3. Gobierna el rótulo; ⛔ no se supone. */
   ivaIncluded: boolean;
   /** §M10-IVA.3. La TASA. ⛔ NO es `ivaTransferPct`. */
   ivaRatePct: number;
-  /** Detalle propio del sellado: QUÉ spread aplicó. Se CONSERVA en v2.0. */
-  priceSource: SealedSpreadSource;
+  /** Detalle propio del sellado: QUÉ spread aplicó. Se CONSERVA en v2.0. v1.115: `null` en la ficha agotada. */
+  priceSource: SealedSpreadSource | null;
   // v2.0 (P-48): DERIVADO de `priceSource` por el backend, para que el front tenga UNA sola regla de
   // visibilidad para las dos fichas: override⇒"override" · subtype_spread|global_spread⇒"market" ·
   // sin precio⇒"pending". El SELLADO no cambia de matemática (§K): solo gana este campo.
