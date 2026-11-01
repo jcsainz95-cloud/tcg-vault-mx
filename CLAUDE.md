@@ -364,6 +364,17 @@ me acuerde de reinyectarla en cada encargo, y el día que no me acuerdo el error
 **Comprobación:** cada regla nueva en este fichero que nombre a un rol tiene su línea en el fichero de ese rol en el
 mismo commit. `grep -l "<palabra clave de la regla>" .claude/agents/*.md` la encuentra.
 
+### O-23 · La deuda de un veredicto se enruta en el mismo pase, no se apunta
+Cuando un gate aprueba «con deuda», en ese mismo pase lanzo al rol dueño a anotar cada ficha en `docs/TECH_DEBT.md`.
+Apuntarla en `PENDIENTES.md` o en mi scratch no es anotarla: allí nadie la cobra.
+
+> *De dónde viene:* 2026-11-01. El techlead rechazó `4f4280bb` porque sus diez fichas TL-MKT5 del día anterior no
+> estaban en `TECH_DEBT.md`; medido después: tampoco TL-DSC-8, TL-ENV-F2b, TL-429-1, TL-MKT-MT-1 (2026-10-26) ni
+> TL-MKT2c-1…6 y BE-DOC-1 (2026-10-27). Tres veces el mismo patrón: la deuda vivía en `PENDIENTES.md`.
+
+**Comprobación:** antes de lanzar el siguiente gate del stream, `grep -c "<ID>" docs/TECH_DEBT.md` ≥ 1 por cada ficha
+del veredicto anterior. Si da 0, el gate espera.
+
 ## Arranque y traspaso de sesión
 - **Tres ficheros, tres papeles, desde el día uno:** `HECHOS.md` (lo que el dueño estableció y lo medido de
   infraestructura; no se re-pregunta), `PENDIENTES.md` (índice de abiertos con dueño, **fecha de medición** y
