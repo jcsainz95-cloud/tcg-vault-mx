@@ -102,8 +102,9 @@ export function GradingEstimateBadge({
   const nb = (chunks: React.ReactNode) => <span className="whitespace-nowrap">{chunks}</span>;
 
   return (
-    // `figureClassName`: el corte de visibilidad de la página, el MISMO que lleva la nota (TL-MKT6-1).
-    <div className={cn('mt-2.5 border-t border-border pt-2.5', anchors.figureClassName, className)} data-testid="estimate-badge">
+    // `figureClassName`: el corte de visibilidad de la página, el MISMO que lleva la nota (TL-MKT6-1). Va el
+    // ÚLTIMO: `cn` es `twMerge` y el último gana; si no, un `className="flex"` borraba `hidden` (TL-MKT7-3).
+    <div className={cn('mt-2.5 border-t border-border pt-2.5', className, anchors.figureClassName)} data-testid="estimate-badge">
       {items.map((e) => {
         const vars = {
           company: e.gradingCompany,

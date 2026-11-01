@@ -321,3 +321,37 @@ describe('§22.3 · bloque de la ficha', () => {
     expect(screen.getByText(/ILLUSTRATIVE INFORMATION ONLY/)).toBeInTheDocument();
   });
 });
+
+/**
+ * TL-MKT7-3 · el corte de visibilidad de la página (`figureClassName` de la boundary) NO lo puede anular el
+ * `className` de quien llama. `cn` es `twMerge` y el último gana: con el `className` DESPUÉS del corte,
+ * `className="flex"` borraba `hidden` y la cifra se pintaba en < sm, donde la nota al pie está oculta (R3).
+ * El corte va el último en badge y bloque; esto lo fija.
+ */
+describe('TL-MKT7-3 · el className de quien llama no anula el corte de la boundary', () => {
+  const cls = (el: Element) => el.className.split(/\s+/);
+
+  it('badge con className="flex" bajo `hidden sm:block`: sigue `hidden` y `sm:block`, sin `flex`', () => {
+    renderWithIntl(
+      <GradingFootnoteBoundary active figureClassName="hidden sm:block">
+        <GradingEstimateBadge listing={listing({ gradingHighlight: [est('10', 290_000)] })} className="flex" />
+      </GradingFootnoteBoundary>,
+      'es',
+    );
+    const badge = cls(screen.getByTestId('estimate-badge'));
+    expect(badge).toEqual(expect.arrayContaining(['hidden', 'sm:block']));
+    expect(badge).not.toContain('flex');
+  });
+
+  it('bloque con className="flex mt-7" bajo `hidden sm:block`: sigue `hidden`; el resto del className se respeta', () => {
+    renderWithIntl(
+      <GradingFootnoteBoundary active figureClassName="hidden sm:block">
+        <GradingEstimateBlock detail={detail([est('10', 290_000)])} className="flex mt-7" />
+      </GradingFootnoteBoundary>,
+      'es',
+    );
+    const block = cls(screen.getByRole('heading', { name: 'VALOR ESTIMADO SI SE GRADEA' }).closest('section')!);
+    expect(block).toEqual(expect.arrayContaining(['hidden', 'sm:block', 'mt-7']));
+    expect(block).not.toContain('flex');
+  });
+});
