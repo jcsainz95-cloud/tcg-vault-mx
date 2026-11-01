@@ -9605,6 +9605,18 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 
 ---
 
+## Devops · 2026-11-01 · deuda pedida y no anotada (techlead 2026-10-27, orquestador 2026-11-01; base `add50880`)
+
+> Dueño del código anotado: **devops** (`scripts/`, `.github/workflows/`). Solo anotadas, sin arreglar. Medido el 2026-11-01 por devops.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-MKT2c-5 | ABIERTA · el canario `scripts/check-measurement-publish-gate-canary.sh:72` (`bloqueo_canario`) inyecta con `sed …/a` tras la línea `export const ENCENDER_BLOCKERS: … = [`: obliga a que `[` cierre esa línea y `]` vaya en otra; `= [];` o `= [ {…} ]` en una línea rompe el canario por forma, no por conducta (techlead 2026-10-27, sobre `f932333a`) | devops | 2026-11-01 | el canario inyecta igual con la declaración en 1 línea (`= [];`) y en varias; caso nuevo que reescribe la copia a una línea ⇒ M8 sigue VERDE y M9 sigue ROJO |
+| DEVOPS-APT-LOCK | ABIERTA · `.github/workflows/e2e.yml` job `measurement-e2e` (`:692`): `timeout 420 npx playwright install --with-deps chromium` mata npx pero deja el `apt-get` hijo (root) con `/var/lib/apt/lists/lock`; los intentos 2 y 3 fallan por lock (solo hace `dpkg --configure -a`). Visto 2026-10-31 23:23–23:57 UTC con `azure.archive.ubuntu.com` sin responder (runs 41252344615, 41252309544, 41254068578; producción verde a las 20:01). `frontend-e2e` (`:597`) tiene `liberar_apt`, pero espera solo `/var/lib/dpkg/lock-frontend`, no `lists/lock`: si basta, NO MEDIDO | devops | 2026-11-01 | antes de reintentar se espera/mata el `apt-get` y se libera `lists/lock` + `dpkg/lock-frontend` (o un solo intento con timeout mayor y mirror alternativo), en ambos jobs; canario en `scripts/` que deja un proceso reteniendo el lock ⇒ sin el arreglo el intento 2 falla por lock, con el arreglo lo libera |
+| TECH-DEBT-INDEX | ABIERTA · `docs/TECH_DEBT.md` no tiene el índice tabular único arriba que exige CLAUDE.md («una cola, no un sumidero»), solo tablas por sección; eso dejó deuda pedida sin anotar (TL-MKT5, TL-MKT2c-*, BE-DOC-1; ver O-23). No se construye en este pase (techlead, varias veces) | devops | 2026-11-01 | candado en `scripts/` cableado en CI: todo ID citado en una fila de `PENDIENTES.md` con «anotar en TECH_DEBT» que no aparezca en `docs/TECH_DEBT.md` ⇒ rc≠0 con el ID; canario: ID inventado en copia de `PENDIENTES.md` ⇒ rojo, anotado ⇒ verde |
+
+---
+
 ## Devops · 2026-10-23 · rechazo de QA y deuda del techlead sobre `803c4298` (rama `devops-qa-rechazo`, base `442b1e8d`)
 
 > Dueño del código anotado: **devops** (`scripts/`). Medido el 2026-10-23 por devops; detalle en DEVOPS_NOTES §103.3-§103.4.
