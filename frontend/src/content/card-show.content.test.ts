@@ -2,6 +2,7 @@
  * Datos de torneos del Card Show (dueño JC, chat 2026-10-21; API_CONTRACT §CARDSHOW.1a-quater M-90).
  */
 import { describe, expect, it } from 'vitest';
+import { PUBLIC_CONTACT_EMAIL } from '@/lib/about';
 import { CARD_SHOW, CARD_SHOW_GAMES, cardShowGameLabel } from './card-show';
 
 const all = JSON.stringify(CARD_SHOW);
@@ -58,5 +59,15 @@ describe('card-show · pie: WhatsApp de la fuente única (TL-MKT6-4)', () => {
   it('el pie muestra y enlaza el mismo número que «Quiénes somos» (lib/about.ts)', () => {
     expect(CARD_SHOW.footer.whatsappDisplay).toBe('55 6489 3921');
     expect(CARD_SHOW.footer.whatsappHref).toBe('https://wa.me/525564893921');
+  });
+});
+
+// HECHOS 2026-11-01 «"Pago seguro" y correo de contacto en el Card Show»: «pon el correo de contacto».
+describe('card-show · pie: correo de la fuente única (TL-MKT7-1)', () => {
+  it('el pie muestra y enlaza el correo público de «Quiénes somos» (lib/about.ts), contacto@tcghunt.mx', () => {
+    expect(PUBLIC_CONTACT_EMAIL).toBe('contacto@tcghunt.mx');
+    expect(CARD_SHOW.footer.contactoEmail).toBe(PUBLIC_CONTACT_EMAIL);
+    expect(CARD_SHOW.footer.contactoEmailHref).toBe(`mailto:${PUBLIC_CONTACT_EMAIL}`);
+    expect(all).not.toContain('hola@');
   });
 });
