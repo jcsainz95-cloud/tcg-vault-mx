@@ -97,6 +97,8 @@ describe('GradingGemsShelf · §22.6 vitrina «Joyas para gradear»', () => {
     // Cada entrada es la teja de Compra CON su badge y su MICRO-AVISO visible, sin variación: el
     // kicker es refuerzo, NO sustituye al aviso de ninguna teja (§22.6 / R3.1).
     expect(screen.getByText(/no evaluamos esta carta/i)).toBeInTheDocument();
+    // §22.5 «Excepción vigente (2026-11-01)» es SOLO del catálogo: la vitrina no oculta el badge en < sm.
+    expect(screen.getByTestId('estimate-badge').className).not.toMatch(/(^|\s)hidden(\s|$)/);
   });
 
   it('sin cartas elegibles la vitrina COMPLETA no existe (ni encabezado, ni kicker, ni regla)', async () => {

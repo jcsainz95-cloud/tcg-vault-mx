@@ -54,12 +54,18 @@ export interface GradingFootnoteBoundaryProps {
   active: boolean;
   /** `id` al que vuelve el lector desde la nota. Default: la llamada de la ficha. */
   returnToId?: string;
+  /**
+   * Clases extra de la nota. Hoy solo el catálogo: `hidden sm:block`, porque en < `sm` sus tejas no muestran la
+   * cifra (§22.5 «Excepción vigente 2026-11-01») y una nota sin llamada visible sería un asterisco colgando.
+   */
+  noteClassName?: string;
   children: React.ReactNode;
 }
 
 export function GradingFootnoteBoundary({
   active,
   returnToId = GRADING_CALL_ID,
+  noteClassName,
   children,
 }: GradingFootnoteBoundaryProps) {
   const anchors = useMemo<GradingFootnoteAnchors>(
@@ -71,7 +77,7 @@ export function GradingFootnoteBoundary({
   return (
     <GradingFootnoteContext.Provider value={active ? anchors : null}>
       {children}
-      {active && <GradingEstimateNote />}
+      {active && <GradingEstimateNote className={noteClassName} />}
     </GradingFootnoteContext.Provider>
   );
 }
@@ -132,7 +138,7 @@ export function GradingNoteCall({
  * `scroll-margin-top` derivado de `--app-header-h` (§4.5, nada de `top` hardcodeado) y enlace de
  * regreso al punto de partida.
  */
-function GradingEstimateNote() {
+function GradingEstimateNote({ className }: { className?: string }) {
   const anchors = useGradingFootnote();
   const t = useTranslations('catalog.gradingNote');
   if (!anchors) return null;
@@ -144,7 +150,10 @@ function GradingEstimateNote() {
     <section
       id={anchors.noteId}
       aria-labelledby={anchors.headingId}
-      className="gutter scroll-mt-[calc(var(--app-header-h,0px)+16px)] border-t border-border pb-7 pt-6 sm:pb-9 sm:pt-7"
+      className={cn(
+        'gutter scroll-mt-[calc(var(--app-header-h,0px)+16px)] border-t border-border pb-7 pt-6 sm:pb-9 sm:pt-7',
+        className,
+      )}
     >
       <h2
         id={anchors.headingId}
