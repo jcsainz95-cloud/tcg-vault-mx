@@ -13,6 +13,10 @@
  *            identidad, así que no hay otra diferencia legítima). Canario: añadir `status` de la pieza al DTO ⇒ difiere.
  *  - CNV-B4  uuid inexistente y pieza `raw` por la ruta de sellado ⇒ `404 NOT_FOUND` las dos. Canario: quitar el filtro
  *            `productType` ⇒ la `raw` da 200.
+ *  - CNV-B5  (TL-MKT5-5) grupo con una pieza `sealedCondition 'mint'` y otra `null` (la clave de grupo `sealedIdentityKey`
+ *            las iguala: `null` ≡ `'mint'`) ⇒ la ficha pedida por CUALQUIERA de las dos tiene el `availableCount` de la teja
+ *            de la rejilla (2) y lista las dos; una tercera `minor_box_damage` del mismo producto queda en su propio grupo (1).
+ *            Canarios: volver al `where` con `sealedCondition: requested.sealedCondition` ⇒ 1; quitar el filtro por clave ⇒ 3.
  *
  * Datos propios (prefijo `e2e-cnv-`), barridos al empezar y al terminar; ⛔ no toca diales compartidos.
  */
@@ -245,5 +249,28 @@ describe('E2E — §MKT.A.1: la ficha de sellado resuelve el GRUPO, no el estado
     });
     const res = await detail(raw.id);
     expect([res.status, res.body?.error?.code]).toEqual([404, 'NOT_FOUND']);
+  });
+
+  it('CNV-B5 — (TL-MKT5-5) condición `mint` y `null` en el mismo grupo ⇒ la ficha cuenta lo mismo que la teja de la rejilla', async () => {
+    const X = await product({ owner: 900 });
+    const mint = await piece(X);
+    const unset = await piece(X, { sealedCondition: null });
+    // Otra condición del MISMO producto: grupo propio en la rejilla y fuera de la ficha `mint` (y viceversa).
+    const damaged = await piece(X, { sealedCondition: 'minor_box_damage' });
+    const grid = await h.api('GET', `/catalog/sealed?setId=${SET_ID}&pageSize=100`);
+    expect(grid.status).toBe(200);
+    const tiles = (grid.body.data as any[]).filter((t) => t.sealedProductId === X.id);
+    const mintTiles = tiles.filter((t) => t.sealedCondition === 'mint');
+    expect(tiles.map((t) => [t.availableCount, t.sealedCondition]).sort()).toEqual([[1, 'minor_box_damage'], [2, 'mint']]);
+    for (const p of [mint, unset]) {
+      const res = await detail(p.id);
+      expect(res.status).toBe(200);
+      expect({ n: res.body.group.availableCount, c: res.body.group.sealedCondition }).toEqual({ n: mintTiles[0].availableCount, c: 'mint' });
+      expect((res.body.listings as any[]).map((l) => l.inventoryItemId).sort()).toEqual([mint.id, unset.id].sort());
+    }
+    const dmg = await detail(damaged.id);
+    expect(dmg.status).toBe(200);
+    expect({ n: dmg.body.group.availableCount, c: dmg.body.group.sealedCondition }).toEqual({ n: 1, c: 'minor_box_damage' });
+    expect((dmg.body.listings as any[]).map((l) => l.inventoryItemId)).toEqual([damaged.id]);
   });
 });
