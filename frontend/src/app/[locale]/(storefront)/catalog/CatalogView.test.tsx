@@ -121,6 +121,17 @@ describe('CatalogView · §22.4b nota al pie de Compra', () => {
     expect(document.getElementById('catalogo-resultados')).toBeInTheDocument();
   });
 
+  it('TL-MKT6-1: badge y nota comparten el MISMO corte < sm (`hidden sm:block`), declarado una vez por la página', async () => {
+    renderWithProviders(<CatalogView />, 'es');
+    await screen.findAllByRole('button', { name: 'Añadir al carrito' });
+    const visibility = (el: Element) => el.className.split(/\s+/).filter((c) => /^(hidden|block|(sm|md|lg|xl):(hidden|block))$/.test(c)).sort();
+    const badges = screen.getAllByTestId('estimate-badge');
+    expect(badges.length).toBeGreaterThan(0);
+    const note = document.getElementById('nota-estimado')!;
+    expect(visibility(note)).toEqual(['hidden', 'sm:block']);
+    for (const b of badges) expect(visibility(b)).toEqual(visibility(note));
+  });
+
   it('una página SIN badges (pestaña Gradeadas) no pinta cifra ni nota: la condición es la misma', async () => {
     urlParams.current = new URLSearchParams('type=graded');
     renderWithProviders(<CatalogView />, 'es');

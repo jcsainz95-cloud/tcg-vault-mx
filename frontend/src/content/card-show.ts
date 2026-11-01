@@ -11,6 +11,7 @@
  * nombradas son **TCG HUNT** y **Jakomi**. El candado de secreto del CI (devops) hace grep de los
  * nombres de patrocinador (env `CARDSHOW_SECRET_TERMS`) sobre esta rama.
  */
+import { CONTACT_PHONE, whatsappHref } from '@/lib/about';
 
 /** Juego del torneo / interés (enum `CardShowGame`, §Enums). Pokémon = formal; resto = ligera. */
 export type CardShowGame = 'pokemon' | 'riftbound' | 'lorcana' | 'shardbugs' | 'magic';
@@ -338,9 +339,9 @@ export const CARD_SHOW = {
     marca: 'TCG HUNT',
     wordmarkSub: 'tcghunt.mx/card-show',
     colaboracion: 'Organiza TCG HUNT en colaboración con Jakomi TCG Café.',
-    whatsappDisplay: '55 6489 3921',
-    // Accionable: WhatsApp vía wa.me con lada MX (52 + 10 dígitos). ⛔ sin separadores en el href.
-    whatsappHref: 'https://wa.me/525564893921',
+    // TL-MKT6-4: el número sale de su fuente única (`lib/about.ts`); el href es `wa.me` con lada MX, sin separadores.
+    whatsappDisplay: CONTACT_PHONE.es,
+    whatsappHref: whatsappHref(),
     contactoEmail: 'hola@tcghunt.mx',
     contactoEmailHref: 'mailto:hola@tcghunt.mx',
     privacidadUrl: AVISO_PRIVACIDAD,

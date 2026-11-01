@@ -15,6 +15,10 @@ import { cn } from '@/lib/cn';
  * Cómo se hace imposible que un refactor deje cifras huérfanas:
  *  - `GradingFootnoteBoundary` recibe UN solo booleano y con él hace DOS cosas a la vez: publica el
  *    contexto con los anclas y renderiza la nota. No hay dos condiciones que puedan divergir.
+ *  - Lo mismo para la VISIBILIDAD por ancho (TL-MKT6-1): si la página oculta las cifras en un corte (hoy el catálogo
+ *    en < `sm`, §22.5 «Excepción vigente 2026-11-01»), lo declara UNA vez en `figureClassName`; la boundary lo pone
+ *    en la nota y lo publica en el contexto, y cada componente que pinta cifra lo aplica. Cifra y nota no pueden
+ *    quedar con cortes distintos.
  *  - Todos los componentes que pintan cifra (`GradingEstimateBlock`, `GradingEstimateBadge`) y la
  *    propia `GradingNoteCall` **exigen el contexto**: fuera de una boundary activa devuelven `null`.
  *    Mover un badge a una página que no hospeda la nota no produce una cifra sin aviso: produce
@@ -32,6 +36,8 @@ export interface GradingFootnoteAnchors {
   headingId: string;
   /** `id` al que apunta el enlace de regreso de la nota (viaje de ida **y vuelta**). */
   returnToId: string;
+  /** Clases de visibilidad por ancho que comparten TODA cifra y la nota (`figureClassName` de la boundary). */
+  figureClassName?: string;
 }
 
 const GradingFootnoteContext = createContext<GradingFootnoteAnchors | null>(null);
@@ -55,29 +61,30 @@ export interface GradingFootnoteBoundaryProps {
   /** `id` al que vuelve el lector desde la nota. Default: la llamada de la ficha. */
   returnToId?: string;
   /**
-   * Clases extra de la nota. Hoy solo el catálogo: `hidden sm:block`, porque en < `sm` sus tejas no muestran la
-   * cifra (§22.5 «Excepción vigente 2026-11-01») y una nota sin llamada visible sería un asterisco colgando.
+   * Corte de visibilidad de la página, declarado UNA vez: lo llevan la nota y cada cifra (badge y bloque) vía
+   * contexto. Hoy solo el catálogo: `hidden sm:block`, porque en < `sm` sus tejas no muestran la cifra (§22.5
+   * «Excepción vigente 2026-11-01») y una nota sin llamada visible sería un asterisco colgando.
    */
-  noteClassName?: string;
+  figureClassName?: string;
   children: React.ReactNode;
 }
 
 export function GradingFootnoteBoundary({
   active,
   returnToId = GRADING_CALL_ID,
-  noteClassName,
+  figureClassName,
   children,
 }: GradingFootnoteBoundaryProps) {
   const anchors = useMemo<GradingFootnoteAnchors>(
-    () => ({ noteId: NOTE_ID, headingId: HEADING_ID, returnToId }),
-    [returnToId],
+    () => ({ noteId: NOTE_ID, headingId: HEADING_ID, returnToId, figureClassName }),
+    [returnToId, figureClassName],
   );
   // El Provider se renderiza SIEMPRE (cambiar el tipo de nodo desmontaría el árbol al paginar);
   // lo que conmuta es el VALOR: `null` apaga toda cifra. Un único booleano gobierna ambos lados.
   return (
     <GradingFootnoteContext.Provider value={active ? anchors : null}>
       {children}
-      {active && <GradingEstimateNote className={noteClassName} />}
+      {active && <GradingEstimateNote />}
     </GradingFootnoteContext.Provider>
   );
 }
@@ -138,7 +145,7 @@ export function GradingNoteCall({
  * `scroll-margin-top` derivado de `--app-header-h` (§4.5, nada de `top` hardcodeado) y enlace de
  * regreso al punto de partida.
  */
-function GradingEstimateNote({ className }: { className?: string }) {
+function GradingEstimateNote() {
   const anchors = useGradingFootnote();
   const t = useTranslations('catalog.gradingNote');
   if (!anchors) return null;
@@ -152,7 +159,7 @@ function GradingEstimateNote({ className }: { className?: string }) {
       aria-labelledby={anchors.headingId}
       className={cn(
         'gutter scroll-mt-[calc(var(--app-header-h,0px)+16px)] border-t border-border pb-7 pt-6 sm:pb-9 sm:pt-7',
-        className,
+        anchors.figureClassName,
       )}
     >
       <h2

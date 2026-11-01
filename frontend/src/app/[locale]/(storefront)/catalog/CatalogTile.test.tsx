@@ -279,20 +279,22 @@ describe('CatalogTile · compacta solo en < sm (MKT-CONV.8)', () => {
 /**
  * §22.5 «Excepción vigente (2026-11-01)» + §MKT-CONV.8 vMKT-CONV-3 (HECHOS 2026-11-01 «Estimado PSA fuera de la teja
  * del catálogo en celular», «A»). jsdom no maqueta: se fija la mecánica; L-8 (`e2e/measurement-on.spec.ts`) mide en
- * el navegador que en < sm no se ve y en ≥ sm sí.
+ * el navegador que en < sm no se ve y en ≥ sm sí. TL-MKT6-1: el corte NO es de la teja sino de la página (la boundary
+ * lo publica); que `CatalogView` declare `hidden sm:block` y que badge y nota lo compartan lo fija
+ * `CatalogView.test.tsx` «TL-MKT6-1». Aquí: la teja aplica el corte que recibe y no pone uno propio.
  */
-describe('CatalogTile · sin estimado en < sm en el catálogo; la vitrina lo conserva', () => {
+describe('CatalogTile · el corte del estimado viene de la página; la foto 4:5 es de la teja', () => {
   const cls = (el: Element) => el.className.split(/\s+/);
-  const tileWith = (surface?: 'catalog' | 'shelf', noteClassName?: string) =>
+  const tileWith = (surface?: 'catalog' | 'shelf', figureClassName?: string) =>
     renderWithIntl(
-      <GradingFootnoteBoundary active noteClassName={noteClassName}>
+      <GradingFootnoteBoundary active figureClassName={figureClassName}>
         <CatalogTile listing={listing({ gradingHighlight: [psa10] })} inCart={false} onAdd={vi.fn()} surface={surface} />
       </GradingFootnoteBoundary>,
       'es',
     );
 
-  it('catálogo (default): el badge se oculta en < sm y se ve en ≥ sm; la foto es 4:5 en < sm y 5:7 en ≥ sm', () => {
-    const { container } = tileWith();
+  it('catálogo (default) bajo una boundary con corte: el badge lleva ese corte; la foto es 4:5 en < sm y 5:7 en ≥ sm', () => {
+    const { container } = tileWith(undefined, 'hidden sm:block');
     const badge = screen.getByTestId('estimate-badge');
     expect(cls(badge)).toEqual(expect.arrayContaining(['hidden', 'sm:block']));
     // La cifra y el micro-aviso viajan DENTRO del nodo oculto: no hay copia visible fuera de él.
@@ -303,16 +305,16 @@ describe('CatalogTile · sin estimado en < sm en el catálogo; la vitrina lo con
     expect(cls(well)).not.toContain('aspect-[5/7]');
   });
 
+  it('sin corte en la boundary la teja no oculta el badge por su cuenta (no hay un segundo sitio del corte)', () => {
+    tileWith();
+    expect(cls(screen.getByTestId('estimate-badge'))).not.toContain('hidden');
+  });
+
   it('vitrina (`surface="shelf"`): badge visible en todos los anchos y foto 5:7, como antes', () => {
     const { container } = tileWith('shelf');
     expect(cls(screen.getByTestId('estimate-badge'))).not.toContain('hidden');
     const well = container.querySelector('img')!.parentElement!;
     expect(cls(well)).toContain('aspect-[5/7]');
     expect(cls(well)).not.toContain('aspect-[4/5]');
-  });
-
-  it('la nota al pie acepta las clases de la página (el catálogo la oculta en < sm)', () => {
-    tileWith(undefined, 'hidden sm:block');
-    expect(cls(document.getElementById('nota-estimado')!)).toEqual(expect.arrayContaining(['hidden', 'sm:block']));
   });
 });

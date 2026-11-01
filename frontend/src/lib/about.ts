@@ -5,7 +5,7 @@
  *
  * Origen (HECHOS.md 2026-10-31 «Marketing tanda 2: decisiones del dueño»): ciudad «Ciudad de México»; correo público
  * el de contacto; Instagram `@tcghunt.mx` (MKT-2). HECHOS.md 2026-11-01 «WhatsApp público, plazo de entrega y texto de
- * Quiénes somos»: WhatsApp 55 6489 3921 y el texto final de marketing (vive en `messages/*.json` `about.*`).
+ * Quiénes somos»: el WhatsApp (`CONTACT_PHONE`) y el texto final de marketing (vive en `messages/*.json` `about.*`).
  * ⛔ Ningún dato inventado: un valor vacío ⇒ su fila NO se pinta (L-7).
  */
 import { brandEmail } from '@/lib/brand';
@@ -18,10 +18,15 @@ export const PUBLIC_CONTACT_EMAIL = brandEmail('contacto');
 
 /**
  * WhatsApp público del dueño (HECHOS 2026-11-01: «Si ese es el número»), escrito por idioma como lo dio marketing
- * (`copy-final.md` @ 6fed1dd): nacional en español, internacional en inglés. **Es la única fuente del número:** el
- * enlace `wa.me` y el `telephone` del JSON-LD se derivan de la forma internacional (`CONTACT_PHONE.en`).
+ * (`copy-final.md` @ 6fed1dd): nacional en español, internacional en inglés. **Es la única fuente del número**
+ * (TL-MKT6-4): el número se escribe UNA vez, en su forma internacional; la nacional, el enlace `wa.me`, el `telephone`
+ * del JSON-LD y el pie de la landing del Card Show (`content/card-show.ts`) se derivan de ella.
  */
-export const CONTACT_PHONE = { es: '55 6489 3921', en: '+52 55 6489 3921' } as const;
+const CONTACT_PHONE_INTL = '+52 55 6489 3921';
+export const CONTACT_PHONE: { readonly es: string; readonly en: string } = {
+  es: CONTACT_PHONE_INTL.replace(/^\+52\s+/, ''),
+  en: CONTACT_PHONE_INTL,
+};
 
 /** Enlace de WhatsApp (`https://wa.me/<solo dígitos, con lada de país>`); vacío si no hay número. */
 export function whatsappHref(intlPhone: string = CONTACT_PHONE.en): string {

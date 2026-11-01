@@ -22,10 +22,10 @@ export interface CatalogTileProps {
   inCart: boolean;
   onAdd: (listing: GroupedListingSummaryDTO) => void;
   /**
-   * Dónde vive la teja. `catalog` (default): la rejilla de Compra, que en < `sm` NO pinta el badge de estimado
-   * (§22.5 «Excepción vigente 2026-11-01», HECHOS «Estimado PSA fuera de la teja del catálogo en celular») y
-   * lleva la foto 4:5 (§MKT-CONV.8 vMKT-CONV-3). `shelf`: la vitrina «Joyas para gradear» del home (§22.6),
-   * que conserva badge y foto 5:7 en todos los anchos: la excepción del dueño es solo del catálogo.
+   * Dónde vive la teja. `catalog` (default): la rejilla de Compra, con la foto 4:5 en < `sm` (§MKT-CONV.8
+   * vMKT-CONV-3); que ahí no se vea el badge de estimado (§22.5 «Excepción vigente 2026-11-01») lo decide la página
+   * con el corte de su `GradingFootnoteBoundary`, no la teja. `shelf`: la vitrina «Joyas para gradear» del home
+   * (§22.6), foto 5:7 en todos los anchos (su boundary no corta: la excepción del dueño es solo del catálogo).
    */
   surface?: 'catalog' | 'shelf';
 }
@@ -107,7 +107,8 @@ export function CatalogTile({ listing, inCart, onAdd, surface = 'catalog' }: Cat
           ⛔ no multiplica. El rótulo de convención cuelga de `ivaIncluded`, que viaja por fila. */}
       {/* MKT-CONV.8: en < sm precio y stock comparten renglón (`flex`, `order-*`) y el rótulo de IVA baja a su
           propio renglón (`basis-full`); en ≥ sm el contenedor es `block` (el `order` no aplica) y el orden del DOM
-          —precio, IVA, stock— es el de siempre. El orden de lectura no cambia en ningún ancho. */}
+          —precio, IVA, stock— es el de siempre. En < sm el orden VISUAL (precio y stock, IVA debajo) difiere del DOM;
+          el lector de pantalla sigue el DOM (precio, IVA, stock) en todos los anchos. */}
       <div className="mt-2.5 flex flex-wrap items-baseline justify-between gap-x-2 sm:block" data-testid="tile-price-row">
         {listing.displayPriceCents != null ? (
           <>
@@ -139,9 +140,9 @@ export function CatalogTile({ listing, inCart, onAdd, surface = 'catalog' }: Cat
           `gradingHighlight` (o sin nota al pie en esta página) la teja se ve EXACTAMENTE como hoy,
           sin badge vacío ni altura reservada (R4). */}
       {/* §22.5 «Excepción vigente (2026-11-01)»: en el catálogo < sm el badge NO se ve (`display:none` ⇒ fuera
-          también del árbol de accesibilidad: ni la cifra ni el micro-aviso se anuncian donde no se ven); la nota al
-          pie de la página se oculta en el mismo corte (CatalogView). Ficha y ≥ sm, sin cambios. L-8 lo afirma. */}
-      <GradingEstimateBadge listing={listing} className={catalog ? 'hidden sm:block' : undefined} />
+          también del árbol de accesibilidad). El corte NO se escribe aquí: lo declara la página una vez
+          (`CatalogView`, `figureClassName` de la boundary) y lo leen el badge y la nota (TL-MKT6-1). L-8 lo afirma. */}
+      <GradingEstimateBadge listing={listing} />
 
       {/* mt-auto alinea el CTA abajo cuando las tejas de la fila difieren de altura */}
       <div className="mt-auto pt-2 sm:pt-3">

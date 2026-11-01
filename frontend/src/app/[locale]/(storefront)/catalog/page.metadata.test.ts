@@ -85,6 +85,8 @@ describe('§13.8 (d) · canonical del catálogo paginado (generateMetadata)', ()
       { page: '2', rarity: 'Rare' },
       { page: '2', condition: 'NM' },
       { page: '2', minPriceCents: '1000' },
+      // TL-MKT5-2: el tope de precio también es filtro (antes no había caso: quitar su fila no ponía nada rojo).
+      { page: '2', maxPriceCents: '5000' },
       { page: '2', sort: 'price_asc' },
       { page: '2', productType: 'sealed' },
     ]) {

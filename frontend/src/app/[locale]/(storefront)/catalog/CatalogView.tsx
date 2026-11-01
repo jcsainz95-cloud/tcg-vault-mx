@@ -329,8 +329,9 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
     <GradingFootnoteBoundary
       active={pageHasGradingFigures(catalogQuery.data?.data)}
       returnToId="catalogo-resultados"
-      // §22.5 «Excepción vigente (2026-11-01)»: en < sm las tejas no muestran la cifra ⇒ tampoco su nota.
-      noteClassName="hidden sm:block"
+      // §22.5 «Excepción vigente (2026-11-01)»: en < sm ni la cifra de las tejas ni su nota. ÚNICO sitio del corte
+      // (TL-MKT6-1): la boundary lo aplica a la nota y lo publica a los badges.
+      figureClassName="hidden sm:block"
     >
       <div>
       {/* Encabezado (artboard 2a): eyebrow · título mincho · conteo mono a la línea base.

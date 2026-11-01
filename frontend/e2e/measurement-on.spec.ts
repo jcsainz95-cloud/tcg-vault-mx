@@ -699,6 +699,9 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
           expect(g.complete, `tejas completas a ${w}×${h} (${worst}): ${JSON.stringify(g)}`).toBeGreaterThanOrEqual(2);
           if (worst === 'price5') {
             expect(['same', 'below-left'], `renglón precio/stock con 5 cifras a ${w}: ${JSON.stringify(g)}`).toContain(g.priceRow);
+            // TL-MKT6-2 (HECHOS 2026-11-01: «margen ≥ 20 px a 360×740»): el peor caso a 360 deja ≥ 20 px contra el
+            // mismo límite que `complete` (`top(banner) − 8`). Medido 23.0 en mocks y en real sobre `4496b24d`.
+            if (w === 360) expect(g.margin, `margen al límite de L-8 a 360×740 (price5): ${JSON.stringify(g)}`).toBeGreaterThanOrEqual(20);
           }
         }
       }

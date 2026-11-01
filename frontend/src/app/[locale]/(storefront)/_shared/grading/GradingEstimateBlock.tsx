@@ -49,7 +49,7 @@ export function GradingEstimateBlock({
   if (!anchors || !items) return null;
 
   return (
-    <section aria-labelledby={eyebrowId} className={cn('border-t border-text', className)}>
+    <section aria-labelledby={eyebrowId} className={cn('border-t border-text', anchors.figureClassName, className)}>
       {/* Eyebrow único. La LLAMADA ya NO vive aquí: cierra el micro-aviso de abajo (§22.4a,
           corrección de QA) — es lo que convierte el aviso en «hay más abajo».
 

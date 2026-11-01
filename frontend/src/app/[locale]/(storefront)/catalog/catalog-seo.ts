@@ -27,18 +27,31 @@ export interface CatalogSeo {
   noindex: boolean;
 }
 
+/**
+ * TL-MKT5-2: qué cuenta como «filtro» por CADA clave de `CatalogFilters`, en una tabla que `satisfies` exige completa
+ * (una clave nueva en `CatalogFilters` sin su fila aquí no compila; una fila de una clave que ya no existe, tampoco).
+ * Así esto no es una cuarta lista escrita a mano que se queda atrás: `page`/`pageSize` no son filtro (la paginación
+ * tiene canonical propio) y `gradingHighlight` tampoco (es la vitrina del home: `parseUrlFilters` no lo lee).
+ */
+const IS_FILTER = {
+  q: (v) => !!v,
+  setId: (v) => !!v,
+  rarity: (v) => (v?.length ?? 0) > 0,
+  productType: (v) => !!v,
+  condition: (v) => !!v,
+  finish: (v) => !!v,
+  minPriceCents: (v) => v != null,
+  maxPriceCents: (v) => v != null,
+  sort: (v) => v != null && v !== DEFAULT_CATALOG_SORT,
+  page: () => false,
+  pageSize: () => false,
+  gradingHighlight: () => false,
+} satisfies { [K in keyof Required<CatalogFilters>]: (v: CatalogFilters[K]) => boolean };
+
 /** ¿Los filtros piden algo distinto del catálogo entero en su orden por defecto? (la página no cuenta). */
 export function hasCatalogFilters(f: CatalogFilters): boolean {
-  return (
-    !!f.q ||
-    !!f.setId ||
-    !!f.productType ||
-    !!f.condition ||
-    !!f.finish ||
-    (f.rarity?.length ?? 0) > 0 ||
-    f.minPriceCents != null ||
-    f.maxPriceCents != null ||
-    (f.sort != null && f.sort !== DEFAULT_CATALOG_SORT)
+  return (Object.keys(IS_FILTER) as (keyof CatalogFilters)[]).some((k) =>
+    (IS_FILTER[k] as (v: CatalogFilters[typeof k]) => boolean)(f[k]),
   );
 }
 

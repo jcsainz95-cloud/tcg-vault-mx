@@ -23,6 +23,10 @@
  * `seo-content.test.ts`.
  */
 
+import { PUBLIC_CONTACT_EMAIL } from '@/lib/about';
+
+// TL-MKT5-7: el buzón de contacto se interpola de su fuente única (`lib/about.ts`, ARCHITECTURE §13.8 (c)); el texto
+// que resulta es el del manual, letra por letra (`seo-content.test.ts` «TL-MKT5-7» fija el correo en las dos FAQ).
 export const FAQ_MANUAL_VERSION = 'v9';
 /** `FAQ_LAST_REVIEW` de §12.2 v9 de `RESPUESTAS.md`. */
 export const FAQ_LAST_REVIEW = '2026-10-23';
@@ -155,7 +159,7 @@ export const PUBLIC_FAQS: readonly PublicFaq[] = [
     group: "Vender",
     question: "¿Qué cartas compran? ¿Compran jugadas, sellado o gradeadas?",
     answer:
-      "Por el cotizador compramos cartas sueltas en Near Mint (NM). Si al recibirla una carta no está en NM, no se compra: se te devuelve si lo pides, a tu costo, dentro de 7 días, o se considera abandonada a los 30 días. Producto sellado no lo compramos por la app, pero puedes escribirnos a contacto@tcghunt.mx con fotos y lo cotizamos.",
+      `Por el cotizador compramos cartas sueltas en Near Mint (NM). Si al recibirla una carta no está en NM, no se compra: se te devuelve si lo pides, a tu costo, dentro de 7 días, o se considera abandonada a los 30 días. Producto sellado no lo compramos por la app, pero puedes escribirnos a ${PUBLIC_CONTACT_EMAIL} con fotos y lo cotizamos.`,
     validThrough: '2027-01-22',
   },
   {
@@ -272,7 +276,7 @@ export const PUBLIC_FAQS: readonly PublicFaq[] = [
     group: "Contacto",
     question: "¿Cómo los contacto?",
     answer:
-      "Para cualquier duda o aclaración sobre un pedido, una venta o tu cuenta escríbenos a soporte@tcghunt.mx. Para vender producto sellado, a contacto@tcghunt.mx con fotos. Para factura (CFDI), manda tus datos fiscales a facturacion@tcghunt.mx después de pagar, citando tu pedido.",
+      `Para cualquier duda o aclaración sobre un pedido, una venta o tu cuenta escríbenos a soporte@tcghunt.mx. Para vender producto sellado, a ${PUBLIC_CONTACT_EMAIL} con fotos. Para factura (CFDI), manda tus datos fiscales a facturacion@tcghunt.mx después de pagar, citando tu pedido.`,
     validThrough: '2027-01-22',
   },
 ];
