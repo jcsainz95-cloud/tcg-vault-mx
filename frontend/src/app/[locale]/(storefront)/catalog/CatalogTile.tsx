@@ -21,6 +21,13 @@ export interface CatalogTileProps {
   /** Estado DERIVADO del carrito (useCart, por representativeInventoryItemId); el padre lo calcula. */
   inCart: boolean;
   onAdd: (listing: GroupedListingSummaryDTO) => void;
+  /**
+   * Dónde vive la teja. `catalog` (default): la rejilla de Compra, que en < `sm` NO pinta el badge de estimado
+   * (§22.5 «Excepción vigente 2026-11-01», HECHOS «Estimado PSA fuera de la teja del catálogo en celular») y
+   * lleva la foto 4:5 (§MKT-CONV.8 vMKT-CONV-3). `shelf`: la vitrina «Joyas para gradear» del home (§22.6),
+   * que conserva badge y foto 5:7 en todos los anchos: la excepción del dueño es solo del catálogo.
+   */
+  surface?: 'catalog' | 'shelf';
 }
 
 /**
@@ -39,7 +46,8 @@ export interface CatalogTileProps {
  * Vive aquí (no en ListingCard) porque `frontend/src/components/` es zona
  * compartida de otros streams; la teja del makeover es propiedad de esta vista.
  */
-export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
+export function CatalogTile({ listing, inCart, onAdd, surface = 'catalog' }: CatalogTileProps) {
+  const catalog = surface === 'catalog';
   const t = useTranslations('catalog');
   const locale = useLocale() as AppLocale;
   const router = useRouter();
@@ -59,7 +67,12 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
             P-39: el grid del catálogo es DENSO (muchas tejas por viewport) ⇒ se conserva la
             imagen CHICA (imageSmallUrl) por performance/ancho de banda. La alta resolución se
             reserva para superficies prominentes (featured del home y ficha de la carta). */}
-        <CardImage src={card.imageSmallUrl} alt={card.name} />
+        {/* vMKT-CONV-3: en el catálogo < sm el pozo es 4:5 (la carta 5:7 entra entera por `object-contain`). */}
+        <CardImage
+          src={card.imageSmallUrl}
+          alt={card.name}
+          className={catalog ? 'aspect-[4/5] sm:aspect-[5/7]' : undefined}
+        />
       </Link>
 
       {/* MKT-CONV.8: en < sm la teja se compacta (nombre en 2 renglones como máximo, rareza fuera, precio y stock en
@@ -125,7 +138,10 @@ export function CatalogTile({ listing, inCart, onAdd }: CatalogTileProps) {
           lectura obligatorio es precio real → estimado → CTA. Presencia ⇔ elegibilidad: sin
           `gradingHighlight` (o sin nota al pie en esta página) la teja se ve EXACTAMENTE como hoy,
           sin badge vacío ni altura reservada (R4). */}
-      <GradingEstimateBadge listing={listing} />
+      {/* §22.5 «Excepción vigente (2026-11-01)»: en el catálogo < sm el badge NO se ve (`display:none` ⇒ fuera
+          también del árbol de accesibilidad: ni la cifra ni el micro-aviso se anuncian donde no se ven); la nota al
+          pie de la página se oculta en el mismo corte (CatalogView). Ficha y ≥ sm, sin cambios. L-8 lo afirma. */}
+      <GradingEstimateBadge listing={listing} className={catalog ? 'hidden sm:block' : undefined} />
 
       {/* mt-auto alinea el CTA abajo cuando las tejas de la fila difieren de altura */}
       <div className="mt-auto pt-2 sm:pt-3">

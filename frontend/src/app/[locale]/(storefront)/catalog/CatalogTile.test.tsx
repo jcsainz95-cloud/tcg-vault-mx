@@ -275,3 +275,44 @@ describe('CatalogTile · compacta solo en < sm (MKT-CONV.8)', () => {
     expect(cls(btn)).toContain('min-h-[44px]');
   });
 });
+
+/**
+ * §22.5 «Excepción vigente (2026-11-01)» + §MKT-CONV.8 vMKT-CONV-3 (HECHOS 2026-11-01 «Estimado PSA fuera de la teja
+ * del catálogo en celular», «A»). jsdom no maqueta: se fija la mecánica; L-8 (`e2e/measurement-on.spec.ts`) mide en
+ * el navegador que en < sm no se ve y en ≥ sm sí.
+ */
+describe('CatalogTile · sin estimado en < sm en el catálogo; la vitrina lo conserva', () => {
+  const cls = (el: Element) => el.className.split(/\s+/);
+  const tileWith = (surface?: 'catalog' | 'shelf', noteClassName?: string) =>
+    renderWithIntl(
+      <GradingFootnoteBoundary active noteClassName={noteClassName}>
+        <CatalogTile listing={listing({ gradingHighlight: [psa10] })} inCart={false} onAdd={vi.fn()} surface={surface} />
+      </GradingFootnoteBoundary>,
+      'es',
+    );
+
+  it('catálogo (default): el badge se oculta en < sm y se ve en ≥ sm; la foto es 4:5 en < sm y 5:7 en ≥ sm', () => {
+    const { container } = tileWith();
+    const badge = screen.getByTestId('estimate-badge');
+    expect(cls(badge)).toEqual(expect.arrayContaining(['hidden', 'sm:block']));
+    // La cifra y el micro-aviso viajan DENTRO del nodo oculto: no hay copia visible fuera de él.
+    expect(badge).toHaveTextContent(/no evaluamos esta carta/i);
+    expect(badge).toHaveTextContent('MX$2,900.00');
+    const well = container.querySelector('img')!.parentElement!;
+    expect(cls(well)).toEqual(expect.arrayContaining(['aspect-[4/5]', 'sm:aspect-[5/7]']));
+    expect(cls(well)).not.toContain('aspect-[5/7]');
+  });
+
+  it('vitrina (`surface="shelf"`): badge visible en todos los anchos y foto 5:7, como antes', () => {
+    const { container } = tileWith('shelf');
+    expect(cls(screen.getByTestId('estimate-badge'))).not.toContain('hidden');
+    const well = container.querySelector('img')!.parentElement!;
+    expect(cls(well)).toContain('aspect-[5/7]');
+    expect(cls(well)).not.toContain('aspect-[4/5]');
+  });
+
+  it('la nota al pie acepta las clases de la página (el catálogo la oculta en < sm)', () => {
+    tileWith(undefined, 'hidden sm:block');
+    expect(cls(document.getElementById('nota-estimado')!)).toEqual(expect.arrayContaining(['hidden', 'sm:block']));
+  });
+});

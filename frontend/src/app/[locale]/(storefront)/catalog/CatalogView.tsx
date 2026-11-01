@@ -329,6 +329,8 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
     <GradingFootnoteBoundary
       active={pageHasGradingFigures(catalogQuery.data?.data)}
       returnToId="catalogo-resultados"
+      // §22.5 «Excepción vigente (2026-11-01)»: en < sm las tejas no muestran la cifra ⇒ tampoco su nota.
+      noteClassName="hidden sm:block"
     >
       <div>
       {/* Encabezado (artboard 2a): eyebrow · título mincho · conteo mono a la línea base.

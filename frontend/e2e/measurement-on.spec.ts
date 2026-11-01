@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { measurementCookies, recordRequests, type RequestLog } from './utils/measurement';
 import { loginAs } from './utils/auth';
+import { gradingScenario } from './utils/grading';
 
 /**
  * Fase 2 con el modo ENCENDIDO — corre SOLO con `playwright.measurement-on.config.ts`, que construye
@@ -603,12 +604,15 @@ const NAME_120 =
   'Charizard ex Special Illustration Rare Obsidian Flames Tera Type Darkness Alternate Full Art Gold Secret Hyper Rare 223a'; // 120
 const PENDING_CLASSES = 'font-mono text-[10px] uppercase leading-none tracking-[0.1em] text-accent order-1 block';
 
-type Worst = 'name' | 'pending';
+/** vMKT-CONV-3: precio de 5 cifras (el que partía el renglón precio/stock a 360, +9 px medido). */
+const PRICE_5 = 'MX$61,886.00';
+
+type Worst = 'name' | 'pending' | 'price5';
 
 /** Escribe el peor caso en las dos primeras tejas (la primera fila de la rejilla de 2 columnas). */
 async function seedWorstTiles(page: Page, worst: Worst, locale: 'es' | 'en') {
   await page.evaluate(
-    ({ worst, name, pending, lastOne, pendingClasses }) => {
+    ({ worst, name, pending, lastOne, pendingClasses, price5 }) => {
       const tiles = [...document.querySelectorAll<HTMLElement>('main a[href*="/catalog/"]')]
         .filter((a) => a.querySelector('img'))
         .slice(0, 2)
@@ -616,10 +620,16 @@ async function seedWorstTiles(page: Page, worst: Worst, locale: 'es' | 'en') {
       for (const tile of tiles) {
         const nameLink = tile.querySelector('p.font-serif a');
         if (nameLink) nameLink.textContent = name;
-        if (worst !== 'pending') continue;
+        if (worst === 'name') continue;
         const row = tile.querySelector<HTMLElement>('[data-testid="tile-price-row"]');
         if (!row) continue; // árbol sin MKT-CONV.8: se mide tal cual (con nombre largo) y la prueba lo dirá
         const [price, ...rest] = [...row.children] as HTMLElement[];
+        if (worst === 'price5') {
+          // Nombre de 120 + «MX$61,886.00» + «Queda 1» (el rótulo de IVA, si lo hay, se queda: es más alto).
+          if (price.matches('p.tabular')) price.textContent = price5;
+          for (const el of rest) if (!/IVA|VAT/.test(el.textContent ?? '')) el.textContent = lastOne;
+          continue;
+        }
         const label = document.createElement('span');
         label.className = pendingClasses;
         label.textContent = pending;
@@ -630,7 +640,7 @@ async function seedWorstTiles(page: Page, worst: Worst, locale: 'es' | 'en') {
         }
       }
     },
-    { worst, name: NAME_120, pending: t(locale, 'price.pendingLabel'), lastOne: t(locale, 'stock.lastOne'), pendingClasses: PENDING_CLASSES },
+    { worst, name: NAME_120, pending: t(locale, 'price.pendingLabel'), lastOne: t(locale, 'stock.lastOne'), pendingClasses: PENDING_CLASSES, price5: PRICE_5 },
   );
 }
 
@@ -642,6 +652,20 @@ async function catalogGeometry(page: Page) {
       .filter((a) => a.querySelector('img'))
       .map((a) => a.parentElement!.getBoundingClientRect());
     const complete = tiles.filter((r) => r.height > 0 && r.top >= header.bottom - 0.5 && r.bottom <= bannerTop - 8 + 0.5).length;
+    // Renglón precio/stock de la 1.ª teja: mismo renglón (cajas solapadas) o, si el precio no deja sitio, el stock
+    // DEBAJO y a la IZQUIERDA (`flex-wrap`, vMKT-CONV-3 / L-10). Se informa; L-8 lo afirma en el caso `price5`.
+    const row = document.querySelector<HTMLElement>('main [data-testid="tile-price-row"]');
+    const kids = row ? ([...row.children] as HTMLElement[]).map((k) => k.getBoundingClientRect()) : [];
+    const pr = kids[0];
+    const sr = kids[kids.length - 1];
+    const rowLeft = row?.getBoundingClientRect().left ?? 0;
+    const priceRow = !pr || !sr || kids.length < 2
+      ? 'absent'
+      : sr.top < pr.bottom && sr.bottom > pr.top
+        ? 'same'
+        : sr.top >= pr.bottom - 0.5 && Math.abs(sr.left - rowLeft) <= 1
+          ? 'below-left'
+          : 'other';
     return {
       headerBottom: header.bottom,
       bannerTop,
@@ -649,6 +673,9 @@ async function catalogGeometry(page: Page) {
       firstHeights: tiles.slice(0, 2).map((r) => Math.round(r.height * 10) / 10),
       firstBottoms: tiles.slice(0, 2).map((r) => Math.round(r.bottom * 10) / 10),
       complete,
+      // Margen del peor de las dos primeras tejas contra el límite de L-8 (`bottom ≤ top(banner) − 8`).
+      margin: Math.round((bannerTop - 8 - Math.max(...tiles.slice(0, 2).map((r) => r.bottom))) * 10) / 10,
+      priceRow,
     };
   });
 }
@@ -659,7 +686,7 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
     test(`L-8: ≥ 2 tejas completas a 360/390/414 con nombre de 3 renglones y con precio pendiente + «Queda 1» (${locale}) @real`, async ({ page, context }) => {
       await setup(context);
       for (const [w, h] of [[360, 740], [390, 844], [414, 896]] as const) {
-        for (const worst of ['name', 'pending'] as const) {
+        for (const worst of ['name', 'pending', 'price5'] as const) {
           await page.setViewportSize({ width: w, height: h });
           await page.goto(`/${locale}/catalog`);
           await expect(page.getByTestId('consent-banner')).toBeVisible();
@@ -670,6 +697,9 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
           testInfo().annotations.push({ type: `L-8-${locale}-${w}-${worst}`, description: JSON.stringify(g) });
           expect(g.firstTop, `top de la 1ª teja a ${w}×${h} (${worst})`).toBeLessThanOrEqual(250);
           expect(g.complete, `tejas completas a ${w}×${h} (${worst}): ${JSON.stringify(g)}`).toBeGreaterThanOrEqual(2);
+          if (worst === 'price5') {
+            expect(['same', 'below-left'], `renglón precio/stock con 5 cifras a ${w}: ${JSON.stringify(g)}`).toContain(g.priceRow);
+          }
         }
       }
       // 390×664 (viewport de C-F3): solo el arranque de la rejilla; las tejas NO se prometen ahí (MKT-CONV.8).
@@ -680,6 +710,62 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
       const g = await catalogGeometry(page);
       testInfo().annotations.push({ type: `L-8-${locale}-390x664`, description: JSON.stringify(g) });
       expect(g.firstTop).toBeLessThanOrEqual(250);
+    });
+  }
+
+  // L-8, caso badge (DESIGN_SYSTEM §22.5 «Excepción vigente (2026-11-01)», §MKT-CONV.8 vMKT-CONV-3; HECHOS 2026-11-01
+  // «Estimado PSA fuera de la teja del catálogo en celular», «A»). La carta curada trae el estimado PSA elegible (en
+  // mocks, Blastoise; en real la siembra `gradingScenario()` por la API, y el `globalTeardown` apaga el dial). En < sm
+  // el badge existe en el DOM (presencia ⇔ elegibilidad, R4) pero NO se ve ni se anuncia, la foto es 4:5 y la nota al
+  // pie tampoco se ve; en ≥ sm, badge con cifra y micro-aviso visibles, foto 5:7 y nota visible. Mutaciones que lo
+  // ponen rojo: quitar `hidden sm:block` del badge en `CatalogTile` (rojo en < sm) o dejarlo `hidden` (rojo en ≥ sm).
+  for (const locale of ['es', 'en'] as const) {
+    test(`L-8 (badge): sin estimado PSA en la teja < sm y con estimado en ≥ sm (${locale}) @real`, async ({ page, context }) => {
+      await setup(context);
+      const { curated } = await gradingScenario();
+      const tile = page
+        .locator('main a[href*="/catalog/"]')
+        .filter({ has: page.locator('img') })
+        .and(page.locator(`[href$="/catalog/${curated.id}"]`))
+        .first()
+        .locator('xpath=..');
+      const badge = tile.getByTestId('estimate-badge');
+      // La 2.ª idea del micro-aviso («no evaluamos esta carta» / «we haven't assessed this card»), su `<b>` literal.
+      const idea = [...t(locale, 'catalog.gradingBadge.microNotice').matchAll(/<b>([^<]+)<\/b>/g)][1][1];
+      const notice = tile.getByText(idea, { exact: true });
+      const facts = () =>
+        tile.evaluate((el) => {
+          const well = el.querySelector('a')!.firstElementChild!.getBoundingClientRect();
+          return { wellW: well.width, wellH: well.height };
+        });
+      for (const [w, h, below] of [[360, 740, true], [390, 844, true], [414, 896, true], [768, 1024, false], [1366, 768, false]] as const) {
+        await page.setViewportSize({ width: w, height: h });
+        await page.goto(`/${locale}/catalog?q=${encodeURIComponent(curated.name)}`);
+        await tile.locator('img').waitFor();
+        await settle(page);
+        expect(await badge.count(), `el badge se renderiza (la carta es elegible) a ${w}`).toBe(1);
+        // Una sola nota por página (el `id` es destino del salto). En 1 de 50 comprobaciones (N=5 en CI local) se vio
+        // un segundo `#nota-estimado` TRANSITORIO al cargar a 768; se exige que se resuelva a uno antes de medir.
+        await expect(page.locator('#nota-estimado'), `una sola nota al pie a ${w}`).toHaveCount(1);
+        const f = await facts();
+        const snapshot = await tile.ariaSnapshot();
+        testInfo().annotations.push({ type: `L-8-badge-${locale}-${w}`, description: JSON.stringify({ ...f, snapshot }) });
+        if (below) {
+          await expect(badge, `badge a ${w}`).toBeHidden();
+          await expect(notice, `micro-aviso a ${w}`).toBeHidden();
+          await expect(page.locator('#nota-estimado'), `nota al pie a ${w}`).toBeHidden();
+          // Ni la cifra ni el micro-aviso llegan al árbol de accesibilidad de la teja.
+          expect(snapshot, `árbol accesible de la teja a ${w}`).not.toMatch(/PSA 10|≈/);
+          expect(snapshot).not.toContain(t(locale, 'catalog.gradingNote.callSr'));
+          expect(Math.abs(f.wellH - (f.wellW * 5) / 4), `foto 4:5 a ${w}: ${JSON.stringify(f)}`).toBeLessThanOrEqual(1);
+        } else {
+          await expect(badge, `badge a ${w}`).toBeVisible();
+          await expect(badge, `cifra a ${w}`).toContainText(/PSA 10/);
+          await expect(notice, `micro-aviso a ${w}`).toBeVisible();
+          await expect(page.locator('#nota-estimado'), `nota al pie a ${w}`).toBeVisible();
+          expect(Math.abs(f.wellH - (f.wellW * 7) / 5), `foto 5:7 a ${w}: ${JSON.stringify(f)}`).toBeLessThanOrEqual(1);
+        }
+      }
     });
   }
 
