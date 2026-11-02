@@ -6,6 +6,9 @@ import { ApiClientError } from '@/lib/api-client';
 import { setStoredUser } from '@/lib/session';
 import { QueryClient } from '@tanstack/react-query';
 import type { ClaimableOrderDTO, ClaimOrdersResponse, UserDTO } from '@/types/contract';
+import { mockClaimableOrders } from '@/lib/mock/fixtures';
+import es from '../../../../messages/es.json';
+import en from '../../../../messages/en.json';
 import { ClaimableOrdersNotice, CLAIMABLE_DISMISSED_KEY } from './ClaimableOrdersNotice';
 
 vi.mock('@/i18n/navigation', () => ({
@@ -24,6 +27,8 @@ const claimable = (n: number): ClaimableOrderDTO[] =>
     totalCents: 168520 + i,
     itemCount: 1,
     createdAt: '2026-08-10T18:20:00Z',
+    // v1.116.1 (PT-CHK-1): `GET /orders/claimable` solo lista pedidos cobrados ⇒ `settledAt` viene siempre.
+    settledAt: '2026-08-10T18:22:00Z',
   }));
 
 function asCustomer(overrides: Partial<UserDTO> = {}) {
@@ -126,7 +131,7 @@ describe('ClaimableOrdersNotice · aparece, reclama y desaparece (F7)', () => {
     // Cuerpo de la BÓVEDA: dice que NO entran a la bóveda (regla 5); nunca «aparecerán en tu bóveda».
     expect(
       screen.getByText(
-        'Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento.',
+        'Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento. La dirección de envío de los pedidos pagados se guarda en tus direcciones.',
       ),
     ).toBeInTheDocument();
     expect(screen.getByText('TCG-000101')).toBeInTheDocument();
@@ -142,7 +147,9 @@ describe('ClaimableOrdersNotice · aparece, reclama y desaparece (F7)', () => {
 
     await screen.findByTestId('claimable-orders-notice');
     expect(
-      screen.getByText('Vincúlalos para ver su estado y su seguimiento aquí. No cambia nada del pedido.'),
+      screen.getByText(
+        'Vincúlalos para ver su estado y su seguimiento aquí. Guardaremos en tus direcciones la de envío de los pedidos pagados.',
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/bóveda/)).toBeNull();
     expect(screen.getAllByText(/^TCG-0001/).length).toBe(5);
@@ -238,5 +245,53 @@ describe('ClaimableOrdersNotice · aparece, reclama y desaparece (F7)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron vincular los pedidos');
     // El aviso sigue (el usuario puede reintentar la acción).
     expect(notice()).not.toBeNull();
+  });
+});
+
+/**
+ * CLM-F2 (API_CONTRACT §4-G.9c v1.116.1, PT-CHK-1; DESIGN_SYSTEM §4.47.4 y su tabla de claves): al vincular, la
+ * dirección de envío de los pedidos PAGADOS pasa a la libreta del cliente. El aviso ya no puede decir «No cambia
+ * nada del pedido» en ninguna superficie ni idioma, y debe decir el literal de DESIGN_SYSTEM. Y los mocks de
+ * `claimable` solo traen pedidos cobrados (`settledAt` presente): un pedido nunca cobrado ya no se lista.
+ */
+describe('CLM-F2 · el aviso dice que se guarda la dirección de los pedidos pagados', () => {
+  const BODY = {
+    orders: {
+      es: 'Vincúlalos para ver su estado y su seguimiento aquí. Guardaremos en tus direcciones la de envío de los pedidos pagados.',
+      en: "Link them to see their status and tracking here. We'll save the shipping address of paid orders to your addresses.",
+    },
+    vault: {
+      es: 'Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento. La dirección de envío de los pedidos pagados se guarda en tus direcciones.',
+      en: 'They were shipped to your home, not to the vault. Once linked, they appear under Purchases & sales with their tracking. The shipping address of paid orders is saved to your addresses.',
+    },
+  } as const;
+  const FORBIDDEN = /No cambia nada del pedido|Nothing about the order changes/i;
+
+  for (const surface of ['orders', 'vault'] as const) {
+    for (const locale of ['es', 'en'] as const) {
+      it(`${surface} · ${locale}: literal de DESIGN_SYSTEM y nunca «No cambia nada del pedido»`, async () => {
+        asCustomer({ locale });
+        vi.spyOn(api, 'getClaimableOrders').mockResolvedValue(claimable(1));
+        renderWithProviders(<ClaimableOrdersNotice surface={surface} />, locale);
+        const box = await screen.findByTestId('claimable-orders-notice');
+        expect(screen.getByText(BODY[surface][locale])).toBeInTheDocument();
+        expect(box.textContent ?? '').not.toMatch(FORBIDDEN);
+      });
+    }
+  }
+
+  it('ninguna clave `claimable` de es/en conserva el copy viejo', () => {
+    for (const m of [es, en]) {
+      const blob = JSON.stringify([m.orders.claimable, m.vault.claimable]);
+      expect(blob).not.toMatch(FORBIDDEN);
+    }
+  });
+
+  it('los mocks de `claimable` solo traen pedidos cobrados (con `settledAt`, nunca `pending`/`failed`)', () => {
+    expect(mockClaimableOrders.length).toBeGreaterThanOrEqual(2); // api.claimable-mock.test reclama de uno en uno
+    for (const o of [...mockClaimableOrders, ...claimable(3)]) {
+      expect(o.settledAt, o.orderId).toEqual(expect.any(String));
+      expect(['settled', 'refunded', 'chargeback'], o.orderId).toContain(o.status);
+    }
   });
 });
