@@ -1,0 +1,52 @@
+<!doctype html>
+<!--
+  01-captura-v5 · captura con combos acabado × versión (D-IDS-5, vIDS-5). Parte de 01-captura-v4 (misma burbuja de admin, mismos tokens).
+  Caso: carta holo con Prize Pack Normal y Prize Pack Cosmos Holo. «Acabado» pasa de texto fijo a burbujas (unión de acabados de la
+  carta y de sus productos de liga); el acabado de fábrica sigue siendo el de la carta (Holo). Con Acabado = Normal, el botón «Normal»
+  de Versión queda APAGADO (la carta base no existe en Normal) y los otros se calculan por `combos`.
+  Estado mostrado: Acabado Holo, Español, «De liga · Prize Pack Cosmos Holo» elegido. Autocontenida; precios de ejemplo. No es código de producción.
+-->
+<html lang="es-MX"><head><meta charset="utf-8"><meta name="viewport" content="width=390">
+<title>01 · Captura v5 · combos acabado × versión</title>
+<style>
+:root{--bg:#f4f1ea;--s2:#efebe2;--bd:rgba(26,26,24,.16);--bds:rgba(26,26,24,.32);--bdc:rgba(26,26,24,.55);--tx:#1a1a18;--mu:#6e695e}
+*{box-sizing:border-box;margin:0}
+html,body{background:#cfcabd}
+body{font:14px/1.4 Archivo,system-ui,sans-serif;color:var(--tx)}
+.lamina{width:390px;background:var(--bg)}
+.modal{padding:18px 20px 22px;border:1px solid var(--bds)}
+.modal h3{font:400 22px 'Zen Old Mincho',Georgia,serif;margin-bottom:12px}
+.sel{display:flex;gap:12px;background:var(--s2);border:1px solid var(--bd);padding:10px;align-items:center}
+.sel img{width:48px;height:66px;object-fit:contain}.sel b{font:400 16px 'Zen Old Mincho',Georgia,serif}
+.sel small{display:block;font:400 11px 'JetBrains Mono',monospace;color:var(--mu)}
+.f{margin-top:14px}.f label{display:block;font:500 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.1em;color:var(--mu);margin-bottom:6px}
+.fixed{border:1px solid var(--bd);padding:9px 12px;color:var(--mu);font-size:13px}
+.wrap{display:flex;flex-wrap:wrap;gap:8px}
+.bub{border:1.5px solid var(--bdc);background:var(--bg);color:var(--tx);border-radius:999px;display:flex;align-items:center;justify-content:center;text-align:center;min-height:44px;padding:0 18px;font:500 13px Archivo,system-ui,sans-serif;flex:0 0 auto}
+.wrap.eq .bub{flex:1}
+.bub.on{background:var(--tx);border-color:var(--tx);color:var(--bg)}
+.bub.dis{border:1.5px dashed var(--mu);color:var(--mu);background:transparent}
+.bub:focus-visible{outline:2px solid var(--tx);outline-offset:2px}
+.hint{font-size:12px;color:var(--mu);margin-top:5px}
+.pv{margin-top:16px;border-top:1px solid var(--bds);border-bottom:1px solid var(--bds);padding:10px 0;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.pv .v{font:500 24px Archivo,system-ui,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pv small{font:400 11px 'JetBrains Mono',monospace;color:var(--mu);display:block;text-transform:uppercase;letter-spacing:.06em}
+.two{display:grid;grid-template-columns:72px 1fr;gap:12px;margin-top:14px}
+.inp{border:1px solid var(--bds);min-height:44px;padding:11px 12px;background:#fff6}
+.btn{margin-top:18px;display:flex;justify-content:flex-end;gap:8px}
+.btn span{min-height:44px;padding:0 18px;display:flex;align-items:center;border:1px solid var(--tx);font:500 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.14em;border-radius:0}
+.btn .p{background:var(--tx);color:var(--bg)}
+</style></head><body>
+<div class="lamina">
+<div class="modal"><h3>Nueva pieza</h3>
+ <div class="sel"><img src="https://images.pokemontcg.io/base1/4.png" alt="Charizard"><div><b>Charizard</b><small>Base Set · BS 4 · Holo Rare</small></div></div>
+ <div class="f"><label>Tipo</label><div class="fixed">Carta suelta · NM</div></div>
+ <div class="f"><label id="la">Acabado</label><div class="wrap" role="radiogroup" aria-labelledby="la"><div class="bub on" role="radio" aria-checked="true" tabindex="0">Holo</div><div class="bub" role="radio" aria-checked="false" tabindex="-1">Normal</div></div>
+  <p class="hint">«Normal» solo existe como Prize Pack; la carta base es Holo.</p></div>
+ <div class="f"><label id="li">Idioma</label><div class="wrap eq" role="radiogroup" aria-labelledby="li"><div class="bub" role="radio" aria-checked="false" tabindex="-1">Inglés</div><div class="bub on" role="radio" aria-checked="true" tabindex="0">Español</div></div></div>
+ <div class="f"><label id="lv">Versión</label><div class="wrap" role="radiogroup" aria-labelledby="lv"><div class="bub" role="radio" aria-checked="false" tabindex="-1">Normal</div><div class="bub dis" role="radio" aria-checked="false" aria-disabled="true">De liga · Prize Pack</div><div class="bub on" role="radio" aria-checked="true" tabindex="0">De liga · Prize Pack Cosmos Holo</div></div>
+  <p class="hint">«De liga · Prize Pack» apagado: no existe en Holo (solo en Normal).</p></div>
+ <div class="pv"><div><small>Precio de venta (auto)</small><span style="font-size:12px;color:var(--mu)">De liga Cosmos Holo en inglés MX$480 × 75 % (español)</span></div><span class="v">MX$360.00</span></div>
+ <div class="two"><div><div class="f" style="margin:0"><label>Cantidad</label><div class="inp">1</div></div></div><div><div class="f" style="margin:0"><label>Adquisición</label><div class="wrap eq"><div class="bub on">Compra</div><div class="bub">Aportación</div></div></div></div></div>
+ <div class="btn"><span>Cancelar</span><span class="p">Crear pieza</span></div>
+</div></div></body></html>
