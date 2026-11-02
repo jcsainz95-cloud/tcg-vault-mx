@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.116.1⟨ids⟩ (2026-11-02).** [§15](#15-IDS): D-IDS-N (`FinishLabel`, clave cerrada con texto por i18n; Cosmos Holo por el nombre del producto) y D-IDS-O (`versions[]` por producto de liga × acabado, `optionKey`, orden del servidor); D-IDS-4 y D-IDS-5 cerradas; D-IDS-6 nueva · marketing vía dueño (`HECHOS.md` 2026-11-02 «§IDS v5 2×N…»), ux-ui (IDS-UX.7 petición 6). Contrato: API_CONTRACT §IDS.4/.5, IDS-B18/B19.
 > **Rev v1.116⟨ids⟩ (2026-11-02).** [§15](#15-IDS) NUEVA: español y versiones de liga — idioma como columna de la pieza, liga como `CardProduct` `stamped`, precio por sustitución de la referencia en el cuerpo único, empate automático sin cola, ficha por carta con versiones, surtido de Meta decks sin liga primero; D-IDS-1…5 y P-ARQ-IDS-1/2; §4.33 compactada (superseded) · dueño (`HECHOS.md` 2026-10-30 y 2026-11-01/02, filas §IDS), marketing (D-6 v3, burbujas). Contrato: API_CONTRACT §IDS.
 > **Rev v1.115⟨mkt-conv2⟩ (2026-10-31).** §13.8 NUEVA (sellado agotado por grupo, `Offer` agotado sin precio, correo público, canonical paginado); §4.DYN (f) 2 regla de la respuesta tardía, (f) 3 corregido (el HTML no tiene cota de edad), (f) 9 dato servidor→cliente con su edad; §14.4 `/nosotros` excluida; compactadas las cabeceras C7/P-71 · frontend (§MKT-CONV2), techlead (TL-MKT2-7/8, TL-MKT4-3). Contrato: API_CONTRACT §MKT.A.1.
 > **Errata v1.114.5⟨portada⟩ (2026-10-30).** §4.DYN (f) 7: el residual de PEN-DYN-1 (scrydex da 200 genérico a cualquier id con la forma) se **acepta** con alerta de gasto, lectura a 7 días con caducidad y candado, e interruptor que cierra `/_next/image` a orígenes remotos; el proxy con lista de ids queda como opción (b) con disparador · QA (rechazo sobre `d0b40182`), frontend (medición del residual), pentester. Contrato: API_CONTRACT §DYN.1 «Limpieza PDB», DYN-D2.
@@ -36916,7 +36917,7 @@ que no pasa por el interruptor**: acotada a `super_admin`, 5/h, bitácora y ning
 - **seguridad** (antes de encender): diff de etiquetas, rutas excluidas, checkout de invitado con etiquetas, configuración real del píxel y de
   GA4 en sus consolas, riesgo residual de §MKT.G.10 y el endpoint de prueba de D-MKT2-10.
 
-## <a id="15-IDS"></a>15. §IDS — cartas en español y versiones de liga (rev v1.116⟨ids⟩, 2026-11-02, arquitecto)
+## <a id="15-IDS"></a>15. §IDS — cartas en español y versiones de liga (rev v1.116.1⟨ids⟩, 2026-11-02, arquitecto)
 
 > Norma, esquema `M-95`, endpoints, pruebas y reparto: **API_CONTRACT §IDS**. Aquí: estado medido, decisiones con su razón, flujo,
 > despliegue, desviaciones y preguntas. Fuentes del dueño y de marketing: las de API_CONTRACT §IDS (cabecera), citadas por fila (O-17).
@@ -36935,7 +36936,8 @@ Leído en el árbol `claude/ids-diseno` (sin ejecutar; sha no comprobado: no ten
   ×11.1, N=102) e `INVESTIGACION_IDIOMAS.md` (ninguna fuente abierta da precio del español; en Cardmarket es el mismo producto).
 - **NO MEDIDO**, con lo que lo cierra: empate y sufijos de `1539` (IDS-D1); promos SVP/MEP en el catálogo para prerelease/Staff (IDS-D2);
   piezas promo o Deck Exclusive a la venta en producción (IDS-D1); de qué columna sale el «057/191» de nuestro lado (backend, fixture de
-  IDS-B7); imagen del producto de liga en TCGCSV (fuera de esta entrega: D-7 de marketing usa la del catálogo con leyenda).
+  IDS-B7); imagen del producto de liga en TCGCSV (fuera de esta entrega: D-7 de marketing usa la del catálogo con leyenda); `subTypeName` de
+  los 181 productos «(Cosmos Holo)» y filas de liga (producto × acabado) por carta en el peor caso (las dos, IDS-D1).
 
 ### 15.1 Decisiones
 | ID | Decisión | Por qué | Descartado |
@@ -36953,6 +36955,8 @@ Leído en el árbol `claude/ids-diseno` (sin ejecutar; sha no comprobado: no ten
 | D-IDS-K | **Solo raw NM** en esta entrega | `PROJECT §IDS` no dice cómo se precia un slab o un sellado en español; PSA × 75 % sería inventar (P-ARQ-IDS-1) | Graded/sealed en español |
 | D-IDS-L | **Sin override de variante (M-30) ni bounty** para versiones | Su clave es la de la inglesa; aplicarlo cobraría el precio del inglés. Respaldo: precio por pieza | Clave de override con versión (sin pedido del dueño) |
 | D-IDS-M | **Dial X entero en M10** (`spanish_market_pct`) | Patrón de `iva_pct`: auditado, sin redeploy, `dial_change` inmediato; «me lo dejas en algún lugar a mover» (HECHOS 2026-10-30) | Constante; decimales |
+| D-IDS-N | **`finishLabel` es una clave cerrada (`FinishLabel`) que calcula backend** con `finishLabelOf(finish, stampLabel)`; el texto («No holo», «Holo», «Cosmos Holo») es i18n de frontend | El `finish` no distingue Cosmos Holo (TCGplayer la publica como otro `productId`; que su `subTypeName` sea `Holofoil`: NO MEDIDO, IDS-D1): lo dice el nombre del producto, que IDS.3 ya guarda en `stampLabel`. Clave y no texto porque `GroupedListingSummaryDTO` sirve Destacadas, cuya respuesta no puede depender del idioma (DYN I-2), y porque `language`/`type` ya siguen ese patrón. IDS-UX.7 petición 6 pedía texto de backend «como `versionInternalLine`»: esa línea es interna y de un solo idioma; esta no | Texto traducido por el servidor; `Finish` nuevo `cosmos_holo` (mezcla acabado de TCGplayer con producto y tocaría `Card.availableFinishes`, binder y buylist) |
+| D-IDS-O | **`versions[]`: una entrada por (producto de liga × acabado) y una por versión sin liga**, con `optionKey` estable (`es.703819.holofoil`) y el orden de la cuadrícula dado por el servidor | Marketing B (2×N): la fila es producto × acabado y su precio difiere por acabado (K lleva `finish`). La versión sin liga no se parte: su acabado ya se elige en «Ejemplares disponibles» y partirla volvería 2×N toda carta con reverse. Clave estable para enlaces de teja, `?version=` y `sku` | `version.key` con acabado (cambia `variantKey` y M-95); clave que dependa de la existencia |
 
 ### 15.2 Flujo
 ```
@@ -36986,13 +36990,14 @@ Checkout:   cobra la fila; pending ⇒ PRICE_PENDING nombrando la versión; Orde
 - **D-IDS-3 (texto de `PROJECT`):** §IDS.3/.4 y los criterios 521, 526 y 961 dicen «sello», «Con sello · <tipo>» y filtro «con sello»; `HECHOS`
   2026-11-02 (D-6 v3) los sustituye por «de liga» y «Cartas de liga y promos». El 966 sigue como SUPUESTO aunque marketing ya decidió P-IDS-12.
   El 527 conserva «Sello» (admin). **Lo corrige product-owner**; lo vigila IDS-F6 (grep de «sello» en superficies de cliente).
-- **D-IDS-4 (preselección de la ficha):** `DESIGN_SYSTEM` IDS-UX.4 dice «la más barata con existencia; de empate, la inglesa»; marketing (fila 10,
-  delegada por el dueño) dice «la de la teja tocada; sin parámetro, Inglés si hay, si no la más barata». El contrato sirve las dos
-  (`versions[]` + `?version=`). **Lo corrige ux-ui**; lo vigila IDS-F3.
-- **D-IDS-5 (formas que la v4 no cubre):** hay versiones de liga con acabados que la base no tiene (Prize Pack Normal de una carta holo) y dos
-  productos del mismo tipo (Prize Pack y Prize Pack Cosmos Holo: 101 pares medidos en INVESTIGACION_SELLOS §1). La fila «Acabado» de la
-  captura (`01-captura-v4`) sale de la carta y la ficha es 2×2. El contrato da `combos` por (acabado × versión) y `versions[]` por producto.
-  **Lo corrige ux-ui** (cómo se ven); lo vigilan IDS-F1 e IDS-F3.
+- **D-IDS-4 — CERRADA (v1.116.1):** ux-ui (vIDS-5) adoptó la regla de marketing; norma en API_CONTRACT §IDS.5 «Preselección» (teja tocada por
+  `optionKey`; sin parámetro, `en` si hay, si no la más barata). La vigila IDS-F3.
+- **D-IDS-5 — CERRADA (v1.116.1):** marketing eligió B (2×N, `HECHOS.md` 2026-11-02 «§IDS v5 2×N…»; IDS-UX.8); el contrato la sirve con
+  D-IDS-N y D-IDS-O. Quedan dos cuentas en IDS-D1 (Cosmos `subTypeName`, filas por carta). La vigilan IDS-B18, IDS-F1 e IDS-F3.
+- **D-IDS-6 (rótulo de dos filas iguales):** dos productos de liga del mismo tipo y el mismo `finishLabel` («Left/Right Stamp», 3 productos;
+  series 6/7, 2 cartas; INVESTIGACION_SELLOS §1) dan dos filas con el mismo rótulo. El contrato las mantiene separadas y da `stamp.label`
+  (texto del proveedor en inglés: «Left Stamp», «Prize Pack Series 6»). **Lo decide ux-ui con marketing** (cómo se nombra sin «sello»);
+  mientras no decidan, frontend pinta `stamp.label` tal cual en el rótulo. Lo vigila IDS-F3 (dos rótulos distintos).
 
 ### 15.5 Preguntas al dueño (con recomendación; sin respuesta rige la recomendación)
 - **P-ARQ-IDS-1 💰** ¿Tienes cartas **gradeadas** (PSA) o **producto sellado** en español para vender? *Recomendación: en esta entrega solo
