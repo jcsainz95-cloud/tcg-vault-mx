@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-10-31 (rev **v1.115⟨mkt-conv2⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-11-02 (rev **v1.116⟨checkout-friccion⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -36,7 +36,8 @@
 > - v1.114.3⟨portada⟩ · 2026-10-30 · 💰 errata de §DYN: [§DYN.5.9](#DYN) caso vigente **sin base** ⇒ la venta usa el **mínimo de las cotizaciones frescas admitidas** (ninguna ⇒ `PRICE_PENDING`), compra sigue `pending`; DYN-B25 rehecha; DYN-F1 (b) admite el segundo `error` de la prueba del 404 (DYN-F9) y la espera de reposo de §23.14 i (DYN-F11 nueva, sin tolerancia de píxel); sin `sharp` el optimizador da 200 con la original (`ARCHITECTURE §4.DYN (f) 7`) · dueño (`HECHOS.md` 2026-10-30 «Casos de revisión de precio SIN base: opción A…» y «Español y sellos: TODO automático…»), frontend y devops.
 > - v1.114.4⟨portada⟩ · 2026-10-30 · errata de §DYN tras el rechazo del techlead sobre `d0b40182`: I-4 con **single-flight del turno PSA** (candado consultivo de entrada, la segunda corrida sale sin pedir nada; relectura de lo gastado y plazo del candado antes de cada set, DYN.4.3); empate del mínimo sin base = orden del dial del árbitro (DYN.5.9); fecha de la base retenida = día **UTC** de `createdAt`; «empezó después» con el **reloj de la BD** (DYN.5.3); retención de `ListingPriceRun` a 90 días sin fila que la cite (DYN.5.10); DYN-B27…B31; D-DYN-10 · techlead (R2, TL-DYN-6/7/10, empate de DYN.5.9).
 > - v1.114.5⟨portada⟩ · 2026-10-30 · errata de §DYN tras el rechazo de QA sobre `d0b40182`: [§DYN.1](#DYN) «Limpieza PDB» clasifica las 6 tablas de M-93/M-94 para G-8 (3 borrar, 3 conservar), G-7 las excluye y G-11 nueva; DYN-D2 en celular bloquea con el FCP del trinquete de DYN-D1 (ratifica `DEVOPS_NOTES` §106.2); residual de PEN-DYN-1 aceptado en `ARCHITECTURE §4.DYN (f) 7` · QA (B-1, B-3/937), devops, frontend.
-> - v1.115⟨mkt-conv2⟩ · 2026-10-31 · [§MKT.A.1](#MKT-A1) NUEVA: sellado agotado ⇒ `200` con `listings: []` (ya no `404`; también cuando la pieza pedida se vendió y el grupo sigue a la venta), `SealedGroupDTO.fromPriceCents`/`priceSource` nullable solo en la ficha agotada, `Offer` agotado sin `price` (no hay «último precio»), og/meta sin IVA (ajusta §MKT.A a MKT-4), canonical del sellado = `group.representativeItemId`; §2-S ficha de sellado; §0 «Datos de contacto» deja fuera el buzón público de marca (ARCHITECTURE §13.8) · frontend (`FRONTEND_NOTES` §MKT-CONV2, criterio 951), techlead (TL-MKT2-7/8, TL-MKT4-3: viven en ARCHITECTURE §4.DYN (f) y §13.8). La siguiente es **v1.116**.
+> - v1.115⟨mkt-conv2⟩ · 2026-10-31 · [§MKT.A.1](#MKT-A1) NUEVA: sellado agotado ⇒ `200` con `listings: []` (ya no `404`; también cuando la pieza pedida se vendió y el grupo sigue a la venta), `SealedGroupDTO.fromPriceCents`/`priceSource` nullable solo en la ficha agotada, `Offer` agotado sin `price` (no hay «último precio»), og/meta sin IVA (ajusta §MKT.A a MKT-4), canonical del sellado = `group.representativeItemId`; §2-S ficha de sellado; §0 «Datos de contacto» deja fuera el buzón público de marca (ARCHITECTURE §13.8) · frontend (`FRONTEND_NOTES` §MKT-CONV2, criterio 951), techlead (TL-MKT2-7/8, TL-MKT4-3: viven en ARCHITECTURE §4.DYN (f) y §13.8).
+> - v1.116⟨checkout-friccion⟩ · 2026-11-02 · [§4-G.9c](#4-G9c) NUEVA: la dirección del pedido de invitado pasa a la libreta al **ganar el reclamo** (sin migración; `addressesSaved` aditivo en `POST /orders/claim`); §MKT.H.4 `begin_checkout` al pulsar PAGAR y `add_payment_info` al abrir el modal de Stripe (C-F11); §MKT.G.4 tabla **a6** «Pagos iniciados → pagados» de BD (población `PI_START`, C-B16); compactada la cabecera v1.80.8.4 · dueño (`HECHOS.md` 2026-11-02 «Checkout con menos captura: paquete A…» (3)), QA de marketing (§MKT.H.4, medición del 2-nov). La siguiente es **v1.117**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -276,44 +277,7 @@
 > - v1.80.8.7 · 2026-10-04 · precio final del sellado: `inventory.item_updated` con antes/después de `status`/`listPriceCents` en la misma tx (criterio 255), `PendingPublishRowDTO.pendingReason`, `resolvedSalePriceCents?`/`priceBasis?` en sellado, `AdminOrderDetailDTO.settledAt: string | null`; defaults N-11/Q-1/Q-2/N-14/N-15 en §M4-SHIP.18.12 (9); `listPriceCents: null` fuera (`D-SFP-2`) · [§M1 «v1.80.8.7»](#M1-SFP), `ARCHITECTURE §4.36.5 (c-quater)`; detalle compactado en v1.114.1 (git) · ux-ui (S-1…S-5, `DESIGN_SYSTEM §39.6`).
 > - v1.80.8.6 · 2026-10-04 · 💰 reembolso total «depende de si ya salió» (cierra `SSL-R1`): corte por el envío propio bajo candado, no enviado + nunca liquidada ⇒ libera sus `reserved` (`refund_release`), enviado ⇒ motivo cerrado `ShippedRefundReason` o «reembolso por revisar»; `M-62`, `POST /admin/orders/:id/shipped-refund-reason`, `409 SHIPPED_REFUND_REASON_*` · [§M4-SHIP.18.12](#M4-SHIP-18-12), `ARCHITECTURE §4.57 (w)`; detalle compactado en v1.114.1 (git) · dueño (`HECHOS.md` 2026-10-02 y 2026-10-04 «Cartas apartadas (SSL-R1)…»).
 > - v1.80.8.5 · 2026-10-04 · 💰 en VENTA, «premium en el piso» se publica al piso según el dial `premiumFloorSalePublish` (seed `{mode:'only', rarities:['Double Rare','Rare Holo EX']}`); COMPRA sin cambio; `PendingPriceReason` sin cambio; el barrido VQ cierra las filas que el dial publica (PF-1…PF-11) · [§M2 «v1.80.8.5»](#M2-PF), `ARCHITECTURE §4.36.5 (c-ter)`; detalle compactado en v1.114.1 (git) · dueño (`HECHOS.md` «Precios — decisiones del 2026-10-04» (a) y P-PRE-2).
->
-> **Rev v1.80.8.4 — ERRATA: LA COLA DE VENTA LA ESCRIBE SOLO LA VÍA DE PRECIO DE VENTA; `price-sync` DEJA DE ESCALAR
-> (2026-10-02, arquitecto, rama `claude/post-release-s5`).** ⛔ **Sin schema, sin migración, sin enum nuevo, sin
-> endpoint nuevo, sin cambio de forma de respuesta.** Cambia **quién escribe** `PendingPriceEntry` y añade un
-> **barrido único** de las filas `reason IS NULL`. Norma: [§M2 «v1.80.8.4»](#M2-VQ) y `ARCHITECTURE §4.36.5 (c-bis)`.
->
-> - **La contradicción (medida por backend, `BACKEND_NOTES` «§14 · Cola de precio pendiente (Venta)», commit
->   `0a4a6429`; las líneas de código citadas abajo las **leyó** el arquitecto en la rama, ⛔ el sha NO lo midió él).**
->   El dueño ve en M2 Venta `0 SIN MERCADO · 17 PREMIUM EN EL PISO · 19 SIN MOTIVO`. La fuente que queda de filas sin
->   motivo es `PricingService.syncCardPrice` (`pricing.service.ts:1927-1929` y `:1961-1963`), llamado por el job
->   `price-sync` (`jobs/price-sync.service.ts:35-63`) con `context='inventory'` y sin `reason`. Esa escalada **no
->   significa «sin mercado»**: significa «el proveedor POR CARTA no devolvió cotización hoy» — graded y sellado son
->   *stubs* que devuelven siempre `null` (escalan todos los días), el sellado escala con la clave `'sealed'` (no la de
->   mercado que lee la publicación, así que nada la cierra) y un HTTP fallido de pokemontcg.io escala raw aunque
->   `price-ingest` tenga referencia. Y el barrido es `status ∉ {withdrawn, lost}` **sin filtro de dueño**: mete piezas
->   **de clientes** en custodia y piezas **vendidas** en la cola de VENTA, que este contrato define como inventario de
->   **plataforma** (§M2 v1.26 P-6; `ARCHITECTURE §4.24c`). `ARCHITECTURE §5` («`price-sync` … sí escala pendientes»)
->   lo describía así: el error era de diseño, no de backend.
-> - **⭐ LA REGLA (cuatro decisiones):**
->   1. **`price-sync` refresca referencias de TODAS las piezas que recorre hoy (sin cambio de alcance: la valuación de
->      bóveda las usa) y ⛔ NO escribe la cola, nunca.** La escalada sale de `syncCardPrice` entera (sus dos ramas);
->      ningún llamador de `syncCardPrice` escribe `PendingPriceEntry`.
->   2. **No hay tercer motivo.** `PendingPriceReason` sigue siendo `no_market | premium_at_floor`. «El proveedor no
->      contestó hoy» no es trabajo del dueño: es telemetría del job (log con conteos), no una fila en una bandeja.
->      ⛔ **Paridad schema↔contrato: sin cambio.**
->   3. **Las filas `open` con `reason IS NULL` se acaban:** `publish-all` (una vez, tras el deploy) reclasifica o
->      cierra las de piezas de plataforma vendibles; un **barrido VQ** al final de cada `price-sync` completo cierra
->      las demás. Tras ambos, **ningún escritor vigente produce `reason = null`**.
->   4. **El sellado cierra su fila al resolver en publicación** (hasta hoy `pendingKey: null` ⇒ la fila `no_market`
->      del sellado solo la cerraba el override manual; el texto «`no_market` la cura sola» era falso para sellado).
-> - **Qué se tacha:** §M2 `POST /admin/pricing/sync` (descripción), §M2 v1.26 (lista de escritores de VENTA), §M2
->   v2.0 «`no_market` la cura sola el siguiente barrido», §M2 v2.1 definición de `unknown` («filas anteriores a
->   M-41»), §M2 v2.0 «SALIDA de la cola». En `ARCHITECTURE`: §5 (`price-sync` «sí escala pendientes»), §4.24c (lista
->   de VENTA), §4.36.5 (c) «los seams que cierran».
-> - **Backend:** VQ-1…VQ-9 (§M2). **Frontend nada** (la forma no cambia; `unknown` seguirá llegando, en 0). **ux-ui
->   nada.** **QA:** VQ-1…VQ-9 + el invariante `no_market + premium_at_floor + unknown === nº open` sobre VENTA.
-> - ⛔ **No se toca** el guardarraíl `premium_at_floor` ni la curva/piso: las 17 «premium en el piso» esperan decisión
->   del dueño y esta errata no las mueve. *(v1.80.8.5: el dueño decidió — se publican al piso; ver arriba.)*
+> - v1.80.8.4 · 2026-10-02 · la cola de VENTA la escribe solo la vía del precio de venta de plataforma, siempre con motivo; `price-sync`/`syncCardPrice` ⛔ no escalan; sin tercer motivo; el sellado cierra su fila al publicar; barrido VQ de las filas `reason IS NULL` (VQ-1…VQ-9); sin schema ni forma nueva · [§M2 «v1.80.8.4»](#M2-VQ), `ARCHITECTURE §4.36.5 (c-bis)`; detalle compactado en v1.116 (git) · backend (`BACKEND_NOTES` «§14 · Cola de precio pendiente (Venta)», `0a4a6429`).
 >
 > ---
 > *(Cabecera de `claude/skydropx-envios` (base `8fd637fb`, 2026-09-29): revs **v1.81.1** y **v1.81** ⟨skydropx⟩,
@@ -10863,17 +10827,28 @@ Semántica **por pedido** (transaccional, condicional, ganador único):
 (criterio 55) sin bloqueos.
 
 Efectos del reclamo (y **solo** estos): `Order.userId`, `Order.claimedAt`, **revocación de todos los
-`OrderAccessToken` del pedido** (`revokedAt=now`, `reason=CLAIMED`) y `AuditLog` (`action: 'order.claim'`,
-`entityType: 'Order'`, actor = usuario). **NO cambia** destino (sigue `direct_ship`), precio, desglose, políticas,
+`OrderAccessToken` del pedido** (`revokedAt=now`, `reason=CLAIMED`), `AuditLog` (`action: 'order.claim'`,
+`entityType: 'Order'`, actor = usuario) y, desde v1.116, **la dirección del pedido a la libreta** ([4-G.9c](#4-G9c)). **NO cambia** destino (sigue `direct_ship`), precio, desglose, políticas,
 estado del pedido ni el estado/propiedad de los items (criterio 54). Un pedido **ya enviado o entregado** se
 reclama igual.
 
-Res `200`: `{ claimed: string[], failed: [{ orderId, code: "ORDER_ALREADY_CLAIMED" | "CLAIM_EMAIL_MISMATCH" | "NOT_FOUND" }] }`
-(la operación es **parcial-tolerante**: un pedido fallido no tumba los demás; HTTP `200`).
+Res `200`: `{ claimed: string[], failed: [{ orderId, code: "ORDER_ALREADY_CLAIMED" | "CLAIM_EMAIL_MISMATCH" | "NOT_FOUND" }], addressesSaved: number }`
+(la operación es **parcial-tolerante**: un pedido fallido no tumba los demás; HTTP `200`; `addressesSaved` aditivo v1.116, 4-G.9c).
 Err globales: `401`, `403 EMAIL_NOT_VERIFIED`, `400 VALIDATION_ERROR`, `429`.
 > **Consecuencia de revocar al reclamar:** un enlace viejo abierto después responde `410 TOKEN_REVOKED`
 > (`reason: "CLAIMED"`) y el front invita a iniciar sesión. Es deliberado: una vez que el pedido tiene una
 > credencial real detrás, dejar puertas sin contraseña abiertas suma riesgo sin aportar nada.
+
+#### <a id="4-G9c"></a>4-G.9c La dirección del invitado pasa a su libreta al ganar el reclamo (v1.116, NORMATIVA; `HECHOS.md` 2026-11-02 «Checkout con menos captura: paquete A…» punto (3); porqué: `ARCHITECTURE §4.47.4`)
+- **Cuándo:** solo dentro de `POST /orders/claim`, por cada pedido que el reclamo **gana** (`count===1`), después de revocar tokens y auditar. ⛔ Crear la cuenta no guarda nada (sin correo verificado no hay prueba de que el domicilio sea de quien la abre); ⛔ ni por token, `orderNumber`, pago o `GET /orders/claimable`. Si la cuenta nace con el correo ya verificado (Google: NO MEDIDO), el reclamo de la confirmación la guarda en el acto; si no, al reclamar tras verificar (aviso de pedidos reclamables).
+- **Qué dirección:** la que el pedido enseña al cliente (§M4-SHIP.19.20.1): la del envío activo si tiene `addressSnapshot`, si no `Order.shippingAddressSnapshot`; una sola función, la que ya usa el seguimiento del invitado. Sin dirección (pedido sin envío a domicilio) ⇒ nada.
+- **Qué se copia:** los diez campos del snapshot tal cual (`recipientName` y `phone` incluidos; `line2`/`references` vacíos ⇒ `null`), sin re-resolver geografía. Se guarda solo si cumple lo que exige `POST /users/me/addresses` (`recipientName` 1..120 válido, `country='MX'`, `line1`, `city`, `state`, `postalCode`, `phone` no vacíos); si no, ese pedido no guarda dirección, sin error.
+- **Predeterminada:** `isDefault = true` **solo si la libreta está vacía** en ese instante; si no, `false` y ⛔ la predeterminada del cliente no se toca. Varios pedidos en una llamada: se procesan por `Order.createdAt` desc (el más reciente da la predeterminada de una libreta vacía).
+- **Sin duplicados:** clave de lugar `addressPlaceKey` = `postalCode`, `line1`, `line2`, `neighborhood` recortados, espacios colapsados, minúsculas y sin acentos (`null` = vacío). Si una dirección del usuario ya tiene esa clave ⇒ no se crea ni se modifica (gana la del cliente aunque cambien nombre o teléfono).
+- **Idempotencia y carreras:** un reclamo repetido da `ORDER_ALREADY_CLAIMED` y no llega aquí. Consulta de duplicado + alta van en **una** transacción con `pg_advisory_xact_lock` por usuario: dos reclamos a la vez con la misma dirección ⇒ una fila. **Sin migración** (sin índice único ni columna nueva).
+- **Best-effort:** un fallo aquí se registra como `ORDER_CLAIM_ADDRESS_SKIPPED reason=invalid|error` (⛔ sin la dirección) y ⛔ no revierte el reclamo ni cambia otra cosa de la respuesta; no se reintenta. Sin código de error nuevo.
+- **Bitácora:** `AuditLog` `address.create_from_claim` `{entityType:'Address', entityId, after:{orderId, isDefault}}`; ⛔ el domicilio no va a bitácora ni a logs. `addressesSaved` = filas creadas en la llamada; si > 0 el front invalida `GET /users/me/addresses`.
+- **Pruebas (backend, integración con Postgres real; deben fallar hoy):** **CLM-A1** reclamo ganado con libreta vacía ⇒ 1 `Address` con los diez campos del snapshot, `isDefault:true`, `addressesSaved:1` (mutación: no llamar al guardado). **CLM-A2** libreta con predeterminada ⇒ la nueva `isDefault:false` y la otra sigue `true` (mutación: `isDefault:true` siempre). **CLM-A3** misma dirección con mayúsculas/acentos/espacios distintos ⇒ 0 filas, `addressesSaved:0` (mutación: comparar crudo). **CLM-A4** dos `claim` en paralelo de dos pedidos con la misma dirección, N=10 ⇒ 1 fila en 10/10, proporción y autor (mutación: sin candado). **CLM-A5** `403 EMAIL_NOT_VERIFIED`, `CLAIM_EMAIL_MISMATCH` y `ORDER_ALREADY_CLAIMED` ⇒ 0 filas (mutación: guardar antes del `updateMany`). **CLM-A6** envío con dirección corregida ⇒ se guarda la del envío. **CLM-A7** guardado que lanza ⇒ `claimed` igual, tokens revocados, 0 filas, log sin domicilio. **CLM-F1** (frontend) `addressesSaved > 0` invalida la libreta y el siguiente checkout con cuenta la prellena.
 
 #### 4-G.9b POST /api/v1/admin/orders/:id/tracking-link — `vault_operator+` (auditado)
 Soporte reenvía/rota el enlace de un pedido de invitado (PROJECT §J: "el token también puede reenviarse desde
@@ -44176,6 +44151,7 @@ del brief; las S/AD no se emiten en Fase 0. La columna «Hoy» quedó medida sob
 | a | `a3` | Cotizaciones de buylist (enviadas, MX$ ofertado; aceptadas y pagado con «< 5») | BD | medida | ✅ `:157-171` |
 | a | `a4` | Visitas y de dónde (5 grupos) | GA4 | NO MEDIDO — GA4 sin encender | ✅ `:127` |
 | a | `a5` | Embudo sesiones → compra | GA4+BD | NO MEDIDO — GA4 sin encender | ✅ `:128` |
+| a | `a6` | Pagos iniciados → pagados (v1.116): filas «Pagos iniciados» (`PI_START`, `n`) y «De esos, pagados» (`PI_START_PAID`, `n`, `pct` sobre el anterior); sin MX$; sin cookies ni consentimiento (filas propias de BD, como a1) | BD | medida (no depende de GA4) | ❌ falta |
 | b | `b1` | Origen por `utm_*` | GA4+BD | NO MEDIDO (GA4 apagado; `first_utm_*` NULL) | ✅ `:442` |
 | b | `b2` | Instagram por puerta (bio/story/paid/dm) | GA4+BD | NO MEDIDO (ídem b1) | ❌ falta |
 | b | `b3` | Por pieza (`utm_content`; `dm` no) | GA4+BD | NO MEDIDO (ídem b1) | ❌ falta |
@@ -44414,8 +44390,8 @@ Solo con `analytics` (GA4) o `ads` (píxel) concedido, solo en rutas de la lista
 | `select_content` | clic hacia una ficha | `content_type: 'card'\|'sealed'\|'guide'`, `item_id`, `page_path` |
 | `buy_button_visible` | botón COMPRAR en pantalla, una vez por página | `card_id`, `seconds_to_visible` |
 | `add_to_cart` | Comprar/Agregar | `items[]`, `value`, `currency` |
-| `begin_checkout` | cotización recibida | `items[]`, `value`, `currency`, `shipping_cents`, `n_items` |
-| `add_payment_info` | elegir método | `payment_type`, `payment_methods_offered`, `value`, `currency` |
+| `begin_checkout` | **pulsar PAGAR** (v1.116), con la cotización en pantalla | `items[]`, `value`, `currency`, `shipping_cents`, `n_items` |
+| `add_payment_info` | **se abre el modal de Stripe** (v1.116): la sesión respondió con `clientSecret` | `items[]`, `value`, `currency` |
 | `purchase` | `confirmPayment` vuelve `succeeded` en el checkout (sin redirección) | `transaction_id = Order.id`, `items[]`, `value`, `currency`, `shipping_cents`; píxel: `eventID = 'p_' + Order.id` |
 | `click_contact` | clic a WhatsApp/DM | `contact_channel`, `page_path` |
 | `search` | búsqueda | `results_count` (⛔ nunca el término) |
@@ -44439,6 +44415,7 @@ Solo con `analytics` (GA4) o `ads` (píxel) concedido, solo en rutas de la lista
 | `{"cardId":"sv3-1","name":"Booster Obsidian Flames","productType":"sealed","sealedProductId":null}` | `sc_sv3-1` | `Booster Obsidian Flames` | `sealed` |
 | `{"cardId":"sv3-1","name":"Booster Obsidian Flames","productType":"sealed"}` | `sc_sv3-1` | `Booster Obsidian Flames` | `sealed` |
 <!-- MKT-ITEM-ID:end -->
+- **Momento de los dos pasos de pago (v1.116, ⛔ ya no al recibir la cotización: el «Carrito» de la cabecera lleva a `/checkout`).** `begin_checkout`: en `pay()` de `CheckoutView` y `GuestCheckoutView`, cuando pasó sus guardas locales (en vuelo, formulario completo, destino que no abre el upsell de bóveda) y **antes** de pedir la sesión; datos de la cotización vigente; una vez por clave de cotización (ids + total) en la vista. `add_payment_info`: tras `setSession(res)` con `res.stripe.clientSecret`, una vez por `res.stripe.paymentIntentId` (el reuso §4-R no repite); `value` = `res.breakdown.totalCents/100` (lo que cobra el modal), `items` de la cotización. Sesión rechazada ⇒ no sale. `payment_type`/`payment_methods_offered` salen de la lista (el método aún no se eligió). Píxel: `InitiateCheckout` y `AddPaymentInfo` en esos mismos momentos. Candado C-F11. ⛔ Sin réplica de servidor a GA4/Meta (el aviso solo declara compras y solicitudes, ARCHITECTURE §14.10): el conteo sin cookies es la tabla a6.
 - **`generate_lead` no sale del navegador** (la página de venta lleva CLABE/INE): solo servidor (MKT.H.5).
 - Píxel: mismos nombres en su forma estándar (`ViewContent`, `AddToCart`, `InitiateCheckout`, `AddPaymentInfo`, `Purchase`,
   `Contact`; `Lead` solo servidor). `fbq('set','autoConfig',false,PIXEL_ID)` **antes** de `init`; `fbq.disablePushState = true`;
@@ -44556,7 +44533,7 @@ encender; hasta entonces, dobles). Una consulta que falla deja **su** tabla «si
 | Tabla | Dimensiones | Métricas | Cálculo en la tienda (función pura) |
 |---|---|---|---|
 | a4, b4 | `sessionSource`, `sessionMedium`, `sessionDefaultChannelGroup` | `sessions` | a4: 5 grupos — Instagram orgánico (source `instagram`/`ig`/`l.instagram.com`, medium ≠ `paid`), Instagram pagado (medium `paid`), Google orgánico (canal `Organic Search`, source `google`), Asistentes de IA (lista de e3), Directo/otros. b4: Google orgánico, Directo, Referencias por dominio (medium `referral`), Asistentes de IA |
-| a5 | `eventName` ∈ {`view_item`, `add_to_cart`, `begin_checkout`, `add_payment_info`, `purchase`} | `eventCount`; `sessions` sin dimensión | pasos en orden con % sobre el anterior + fila «Compras (BD)» para cuadrar; un paso sin evento cableado ⇒ celda `null` con nota |
+| a5 | `eventName` ∈ {`view_item`, `add_to_cart`, `begin_checkout`, `add_payment_info`, `purchase`} | `eventCount`; `sessions` sin dimensión | pasos en orden con % sobre el anterior + fila «Compras (BD)» para cuadrar; un paso sin evento cableado ⇒ celda `null` con nota; si el periodo cruza el despliegue de v1.116, nota «`begin_checkout` cuenta desde pulsar PAGAR desde el <fecha>» (la anotación h1 la pone el dueño). El conteo de servidor de los pasos de pago es a6, no una fila de a5 |
 | c1 | `pagePath` | `screenPageViews`, `totalUsers`, `userEngagementDuration` | 50 primeras; tiempo medio = duración / vistas; ficha ⇒ nombre y set desde BD por el id de la ruta, si no la ruta |
 | c5 | `deviceCategory`, `browser` | `sessions` | tal cual (que GA4 distinga el navegador de Instagram: NO VERIFICADO) |
 | d1 (vistas), d2 | `itemId` | `itemsViewed`, `itemsAddedToCart` | `itemId` canónico (MKT.H.4): el prefijo dice la tabla (`c_` Card, `s_` SealedProduct, `sc_` Card ancla); las ventas de BD se cruzan por `measurementItemOf(cardSnapshot)`, la misma función del drenador. d1 rellena «vistas»; d2 = ≥ 20 vistas y 0 ventas en BD, con % carrito/vista |
@@ -44595,6 +44572,8 @@ En este orden. Los nombres de menú entre «» están **NO VERIFICADOS** (las co
 | **C-F7** | frontend | `buildCsp` con `off` no lleva ningún origen de medición; con `on` lleva exactamente los de MKT.H.1 | — (prueba de texto, como `csp.test.ts`) |
 | **C-D1** | devops + frontend | build con `on` ⇒ **rojo** si el aviso no declara la medición (`measurementDisclosure = null` o sin **exactamente una** de `legalReviewOn`/`legalReviewWaivedByOwnerOn` con fecha, ARCHITECTURE §14.1; frase de `privacidad.es.ts:266`, sin apartado `cookies`) **o** si `ENCENDER_BLOCKERS` (ARCHITECTURE §14.1) no está vacía; aviso nuevo y lista vacía ⇒ verde; con `off`, la lista no cuenta | aviso válido + un bloqueo ⇒ rojo; `measurementGateProblems` que ignore la lista ⇒ ese caso pasa a verde y la prueba cae |
 | **C-F8** | frontend (unitaria) | `measurementItemOf` rinde exactamente las filas entre los marcadores `MKT-ITEM-ID` de MKT.H.4 (la prueba lee este fichero); `view_item`/`add_to_cart` de sellado y `purchase` usan esa función | cambiar el prefijo `sc_` por `c_` ⇒ rojo |
+| **C-F11** | frontend (unitaria, `CheckoutView` y `GuestCheckoutView`, v1.116) | con `on` y consentimiento: cotización recibida sin pulsar ⇒ 0 `begin_checkout`; pulsar PAGAR ⇒ exactamente 1 con `value` de la cotización, **antes** de la llamada a la sesión; formulario incompleto ⇒ 0; sesión resuelta ⇒ exactamente 1 `add_payment_info` con `value` = total de la sesión; sesión rechazada ⇒ 0; segunda sesión con el mismo `paymentIntentId` ⇒ sigue 1; `add_payment_info` sin `payment_type` (C-F6). Cierra `add_payment_info` de FE-MKT2-2 | volver a disparar `begin_checkout` en el efecto de la cotización ⇒ rojo; disparar `add_payment_info` antes de la respuesta ⇒ rojo |
+| **C-B16** | backend (integración, v1.116) | a6 sobre una semana fija: pedidos sembrados con PI creado dentro (pagado, `failed`, `pending`, reembolsado), uno sin PI, uno con PI creado la semana anterior y pagado en esta ⇒ «Pagos iniciados» = los de dentro con PI, «De esos, pagados» = los de dentro con `PAID`, `pct` exacto; cifras iguales con `MEASUREMENT_MODE` `off` y `on` y sin columnas de consentimiento | contar por `settledAt` (cohorte cruzada) o incluir el pedido sin PI ⇒ rojo |
 | **C-B10** | backend | lo mismo para el `measurementItemOf` del servidor (drenador y d1/d2 la importan; no hay otra) | ídem |
 | **C-B11** | backend (integración, Postgres real) | insertar `MeasurementContext` con `orderId` y `sellRequestId` a la vez, o sin ninguno ⇒ error `23514`; con uno ⇒ OK | quitar el CHECK del SQL ⇒ rojo |
 | **C-P1** | backend + frontend | panel en `small_cells` (MKT.G.5): todo componente con `'< 5'`/`'oculta'` en su conteo lleva `'oculta'` en sus columnas (§MKT.H.14) salvo `aLaVentaHoy` de d1/d3, número exacto (`'oculta'` en «Otros») (backend, sobre c1, d1, d2 y una tabla de BD); la pantalla pinta `null` siempre «—» y `'oculta'` «Oculto» (frontend, `MarketingTable.test.tsx`) | devolver `null` en `vistas` de una fila suprimida de c1 ⇒ rojo |
@@ -44664,7 +44643,7 @@ Fila b1 con `pedidos:'< 5'` y `solicitudes:7` ⇒ «< 5», «Oculto», `7` y su 
 Razones: ARCHITECTURE §13.7 D-MKT-PANEL-5. Origen: `SECURITY_NOTES.md` (rechazo sobre `bfd91ab2`). Solo en `small_cells` (`exact` no
 aplica nada de esto, MKT.G.2). *Sujeto*: lo que protege la regla — pedido, solicitud o usuario (GA4/SC: la unidad de la fuente).
 *Componente*: en una fila, el conteo de sujetos de **una** población más los MX$/derivadas de esos sujetos. *Total aceptado* (sin
-dimensión, exacto, Brief 2 §5.2): a1, a2, a3 «Solicitudes enviadas», a5 y f3 (seguridad nombró a1/a2/f3; a3 y a5 los confirma).
+dimensión, exacto, Brief 2 §5.2): a1, a2, a3 «Solicitudes enviadas», a5, a6 (v1.116) y f3 (seguridad nombró a1/a2/f3; a3, a5 y a6 los confirma).
 
 - **R0 · Orden** solo con valores publicados: visibles por conteo publicado desc (b1-b3: `pedidos`, luego `solicitudes`), después
   las ocultas por clave asc, «Otros» al final. ⛔ Nunca por el N real de una celda oculta.
@@ -44686,7 +44665,10 @@ dimensión, exacto, Brief 2 §5.2): a1, a2, a3 «Solicitudes enviadas», a5 y f3
   (un 0 no se oculta, R1/R3; b1 de una fila bajo f3); ⛔ nunca un MX$. **X2 (fuera del candado):** cotas sobre una suma de ≥ 2 ocultas (dos «< 5» que suman 2). Seguridad
   confirma X1 y X2 en la re-medición.
 
-**Poblaciones:** `PAID` = `Order.settledAt` en el periodo y `status ∈ {settled, refunded, chargeback}` · `PAID_ORIGIN` = `PAID` ∧
+**Poblaciones:** `PAID` = `Order.settledAt` en el periodo y `status ∈ {settled, refunded, chargeback}` · `PI_START` (v1.116) =
+`Order` con `stripePaymentIntentId IS NOT NULL` y `createdAt` en el periodo (CDMX), todo `status`, cuenta e invitado (un reintento
+§4-R que sustituye la orden cuenta otra vez; el reuso no) · `PI_START_PAID` = `PI_START` ∧ `settledAt IS NOT NULL` ∧ `status ∈
+{settled, refunded, chargeback}`, sea cual sea la fecha del pago (cohorte) · `PAID_ORIGIN` = `PAID` ∧
 `firstUtmSource IS NOT NULL`, **base de b1, b2, b3 y g1** (g1 gana el filtro: hoy `:1200` no lo tiene) · `REQ` = `SellRequest`
 creada en el periodo · `REQ_ORIGIN` = `REQ` ∧ `firstUtmSource IS NOT NULL` · `REQ_PAID` = `status='pagada'` ∧ `paidAt` en el periodo ·
 `WISH` = altas de `WishlistItem` en el periodo de cartas con 0 piezas `listed` de plataforma hoy · `GA4:<consulta>` y `SC` (MKT.H.9) ·
@@ -44697,7 +44679,7 @@ baja posterior. Sujeto = buzón distinto (`mailboxHmac`); valor publicado = fila
 
 | Tabla | Componentes: conteo → MX$/derivadas · población (sujeto) | Clase / exactas por diseño |
 |---|---|---|
-| a1, a2, f3, a5 | a1 `pedidos`→`mxn`, a2 derivadas, f3 cada fila · `PAID`/`PAID_ORIGIN`/consentimiento; a5 `n` · `GA4:funnel*`, «Compras (BD)» · `PAID` | total aceptado; `pct` |
+| a1, a2, f3, a5, a6 | a1 `pedidos`→`mxn`, a2 derivadas, f3 cada fila · `PAID`/`PAID_ORIGIN`/consentimiento; a5 `n` · `GA4:funnel*`, «Compras (BD)» · `PAID`; a6 `n` · `PI_START`, `PI_START_PAID` (pedido) | total aceptado; `pct`; a6 fuera de toda ecuación (cohorte ≠ `PAID`) |
 | a3 | «enviadas» `n`→`mxn` · `REQ` (total aceptado); «pagadas» `n`→`mxn` · `REQ_PAID` (dimensión de una fila) | mixta |
 | b1, b2, b3 | `pedidos`→`mxnPedidos` · `PAID_ORIGIN` (pedido) y `solicitudes`→`mxnOfertado` · `REQ_ORIGIN` (solicitud) | dimensión, 2 componentes |
 | c7 · g1 | `pedidos` · `PAID` · g1: `pedidos`→`mxn` · `PAID_ORIGIN` ∧ `firstUtmMedium='paid'` | dimensión · de una fila |

@@ -100,6 +100,12 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   const [upsellOpen, setUpsellOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
+  /**
+   * N-3 «Revisa los datos marcados arriba…»: NO es un `payError` de estado (se quedaba pintado tras corregir el
+   * formulario, QA de marketing 2026-11-02). Es una bandera del intento de pago que solo se pinta mientras el
+   * formulario siga inválido y se apaga sola en cuanto queda válido (ver el efecto junto a `errors`).
+   */
+  const [formIncompleteAttempt, setFormIncompleteAttempt] = useState(false);
   const [session, setSession] = useState<GuestCheckoutSessionResponse | null>(null);
   /** v1.68: último desenlace de la session, separado del modal (ver `CheckoutView`). */
   const [outcome, setOutcome] = useState<GuestCheckoutSessionResponse | null>(null);
@@ -277,6 +283,12 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       : null);
 
   const errors: GuestErrors = useMemo(() => validateGuestForm(form, geoMode), [form, geoMode]);
+  const formHasErrors = Object.keys(errors).length > 0;
+  // Formulario corregido ⇒ el aviso N-3 se apaga y no vuelve a encenderse hasta el siguiente clic en «Pagar».
+  useEffect(() => {
+    if (!formHasErrors) setFormIncompleteAttempt(false);
+  }, [formHasErrors]);
+  const formIncompleteMessage = formIncompleteAttempt && formHasErrors ? t('guest.formIncomplete') : null;
   // `shippingFeeLabel` sale SIEMPRE del `breakdown` de envío directo (la tarifa REAL): alimenta
   // el hint del radio «envío {amount}» y el upsell «te ahorras {amount}» — es cuánto se ahorra
   // el invitado al NO enviar, NO un dato del desglose de bóveda (N-12).
@@ -329,6 +341,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     // Criterio 48: elegir bóveda NO es un error — despliega el upsell in situ.
     setUpsellOpen(next === 'vault');
     setPayError(null);
+    setFormIncompleteAttempt(false);
   }
 
   /** Bloqueos de PAGO que son CONDICIONES (no errores de campo): §15.4 y §15.9. */
@@ -343,6 +356,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     setSubmitAttempted(true);
     setSubmitAttemptId((n) => n + 1);
     setPayError(null);
+    setFormIncompleteAttempt(false);
     if (destination === 'vault') {
       setUpsellOpen(true);
       return;
@@ -350,8 +364,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     // N-3: el botón ya no se queda mudo. Si faltan datos del formulario (p. ej. teléfono
     // inválido) los campos marcan su error arriba, PERO además avisamos junto al botón para
     // que no parezca que "no hace nada".
-    if (Object.keys(errors).length > 0) {
-      setPayError(t('guest.formIncomplete'));
+    if (formHasErrors) {
+      setFormIncompleteAttempt(true);
       return;
     }
 
@@ -561,9 +575,9 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       <div role="status" aria-live="polite" className="text-xs text-muted">
         {shippingChangedTo !== null && tacc('shippingChanged', { amount: formatMoneyCents(shippingChangedTo, locale) })}
       </div>
-      {payError && (
+      {(payError ?? formIncompleteMessage) && (
         <p role="alert" className="mt-6 font-mono text-xs text-accent [overflow-wrap:anywhere]">
-          {payError}
+          {payError ?? formIncompleteMessage}
         </p>
       )}
       {accessoryPayError && (

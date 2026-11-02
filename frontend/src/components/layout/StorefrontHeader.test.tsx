@@ -144,8 +144,44 @@ describe('StorefrontHeader — sesión', () => {
   it('P-28: fuera del flujo de venta muestra el carrito de compra en el header', () => {
     mockPathname = '/catalog';
     renderWithProviders(<StorefrontHeader />, 'es');
-    const cart = screen.getByRole('link', { name: /Carrito/ });
+    // Dos accesos: el de lg (texto «Carrito N») y el icono de < lg (QA mkt 2026-11-02). Ambos a /checkout.
+    const carts = screen.getAllByRole('link', { name: /Carrito/ });
+    expect(carts).toHaveLength(2);
+    for (const cart of carts) expect(cart).toHaveAttribute('href', '/checkout');
+  });
+
+  /**
+   * QA de marketing (2026-11-02, medido por el orquestador en producción a 390 px): en < lg la cabecera no tenía
+   * acceso al carrito (solo «inicio» y «Menú»). Candado: un enlace a /checkout FUERA del drawer (visible sin abrir el
+   * menú), con la clase que lo esconde solo en lg, objetivo ≥ 44 px (`h-11` + `min-w-11`) y `aria-label` con la
+   * cantidad. jsdom no pinta: la geometría real la afirma `e2e/header-cart-mobile.spec.ts`.
+   */
+  it('< lg: acceso al carrito siempre visible en la cabecera, con la cantidad en el nombre accesible', () => {
+    window.localStorage.setItem('tcg.cart', JSON.stringify({ ids: ['inv-1', 'inv-2'], updatedAt: Date.now() }));
+    mockPathname = '/catalog';
+    renderWithProviders(<StorefrontHeader />, 'es');
+    const cart = screen.getByRole('link', { name: 'Carrito: 2 artículos' });
     expect(cart).toHaveAttribute('href', '/checkout');
+    expect(cart).toHaveAttribute('data-testid', 'header-cart-mobile');
+    // Sin abrir el menú: no vive en ningún <nav> (el drawer) y el menú está cerrado.
+    expect(screen.getByRole('button', { name: 'Menú' })).toHaveAttribute('aria-expanded', 'false');
+    expect(cart.closest('nav')).toBeNull();
+    // Visible en < lg y oculto en lg (allí está el botón de texto); objetivo táctil ≥ 44 px.
+    expect(cart.className).toMatch(/(^|\s)inline-flex(\s|$)/);
+    expect(cart.className).toMatch(/(^|\s)lg:hidden(\s|$)/);
+    expect(cart.className).toMatch(/(^|\s)h-11(\s|$)/);
+    expect(cart.className).toMatch(/(^|\s)min-w-11(\s|$)/);
+    expect(cart).toHaveTextContent('2');
+  });
+
+  it('< lg: con el carrito vacío el nombre accesible lo dice («Carrito: vacío» / «Cart: empty»)', () => {
+    mockPathname = '/catalog';
+    const { unmount } = renderWithProviders(<StorefrontHeader />, 'es');
+    expect(screen.getByRole('link', { name: 'Carrito: vacío' })).toHaveAttribute('href', '/checkout');
+    unmount();
+    window.localStorage.setItem('tcg.cart', JSON.stringify({ ids: ['inv-1'], updatedAt: Date.now() }));
+    renderWithProviders(<StorefrontHeader />, 'en');
+    expect(screen.getByRole('link', { name: 'Cart: 1 item' })).toHaveAttribute('href', '/checkout');
   });
 
   it('P-28: en /buylist (Vender) OCULTA el carrito de compra del header (queda solo el FAB de venta)', () => {
