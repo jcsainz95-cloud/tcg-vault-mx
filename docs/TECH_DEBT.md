@@ -9614,6 +9614,18 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 
 ---
 
+## Devops · 2026-11-02 · techlead sobre `9d269935` (rama `claude/checkout-friccion`, G-CP-BOTON, DEVOPS_NOTES §107)
+
+> Dueño: **devops** (`.github/workflows/`, `scripts/`, `docs/DEVOPS_NOTES.md`). Solo anotadas (O-23), sin arreglar. TD-LIVE-8 (cerrada 2026-10-05, DEVOPS_NOTES §85.11) sale de este fichero para hacer sitio.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-CHK-8 | ABIERTA · `.github/workflows/cargar-codigos-postales.yml` (único workflow con secreto que escribe en la BD de producción) fija acciones por etiqueta: `actions/checkout@v5` (`:55`), `actions/setup-node@v5` (`:62`); choca con CLAUDE.md «toda dependencia externa va fijada» | devops | 2026-11-02 | todo `uses:` de ese workflow lleva sha de 40 hex; `scripts/check-cargar-cp-workflow.sh` gana un bloque [H] que pone rojo un `@v…`, con su caso en `check-cargar-cp-workflow-canary.sh` |
+| TL-CHK-9 | ABIERTA · `docs/DEVOPS_NOTES.md` mide 14 893 líneas (`wc -l`) contra el tope ~1 500 de CLAUDE.md; umbral en `scripts/doc-size.baseline` 14 893 | devops | 2026-11-02 | `wc -l < docs/DEVOPS_NOTES.md` ≤ 1500 sin perder el estado vigente, y `./scripts/check-doc-size.sh --update` baja el umbral |
+| TL-CHK-10 | ABIERTA (propuesta techlead/seguridad) · el secreto del botón (`SEPOMEX_DATABASE_URL`, entorno `catalogo-cp`) es la `DATABASE_PUBLIC_URL` de Railway: dueño completo de la BD; lo mínimo es un rol con `GRANT` solo sobre `"PostalCode"` | devops (+ seguridad) | 2026-11-02 | DEVOPS_NOTES §107 documenta el rol mínimo y el workflow lo acepta; o seguridad acepta el riesgo por escrito en `docs/SECURITY_NOTES.md` |
+
+---
+
 ## Devops · 2026-11-01 · deuda pedida y no anotada (techlead 2026-10-27, orquestador 2026-11-01; base `add50880`)
 
 > Dueño del código anotado: **devops** (`scripts/`, `.github/workflows/`). Solo anotadas, sin arreglar. Medido el 2026-11-01 por devops.
@@ -9641,20 +9653,6 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 ---
 
 ## Devops · 2026-10-05 · gate del techlead sobre `241d4dca` (rama `claude/listo-real`, LIVE-9 / E-8)
-
-### TD-LIVE-8 · ✅ CERRADA en este pase (2026-10-05) · El vigía de caídas buscaba su issue solo por título
-- **Dueño:** devops (`.github/workflows/uptime-watch.yml`).
-- **Qué era:** abrir y cerrar el issue `[caída] …` buscaban por **título exacto**. El repo es público: cualquiera
-  podía abrir un issue con ese título y el vigía, al verlo «ya abierto», no abría el suyo ⇒ **un desconocido
-  suprimía la alerta** (y el correo al dueño).
-- **Cierre:** un único filtro `ISSUE_JQ` (env del job `vigilancia`) para abrir y cerrar: título **y** etiqueta
-  `caida` (etiquetar exige permiso de triage) **y** autor bot de Actions (`app/github-actions` /
-  `github-actions[bot]`, `is_bot`). Se evalúa con el `jq` del runner, no con el `--jq` embebido de `gh`.
-- **Candado:** `scripts/check-uptime-watch-canary.sh` sección «issue propio» (corre en `autoprueba` antes de cada
-  vigilancia y en `live-candados`): intruso sin/con etiqueta, otro bot y bot sin etiqueta ⇒ no cuentan; el del bot
-  entre intrusos ⇒ cuenta; mutaciones «solo título» y «sin autor» ⇒ el canario las distingue. Medido 2026-10-05 en
-  `claude/listo-real`: **21/21**, N=1 (determinista: sin red ni reloj). **NO MEDIDO:** el `gh issue list --json author`
-  real de GitHub (forma de `author.login` del bot); por eso se aceptan los dos nombres.
 
 ### TD-LIVE-9 · P3 · Fecha de retiro del `schedule` diario de `ttfb-probe`
 - **Dueño:** devops (`.github/workflows/ttfb-probe.yml`).
