@@ -9886,10 +9886,11 @@ además, qué códigos se usaron. Se descarga en CSV.
 >
 > ⛔ **Antes de construir** (fila 2026-11-01 «…va primero…»): ux-ui hace **maquetas** de (1) la captura de
 > inventario, (2) la lista de inventario del admin, (3) la tienda —teja, ficha y carrito— y (4) Meta Battle Decks.
-> Las elecciones de **presentación** (A/B, P-IDS-5, P-IDS-6, P-IDS-12) las toma la **sesión de marketing** con esas
+> Las elecciones de **presentación** (A/B, P-IDS-5, P-IDS-6, P-IDS-12) las tomó la **sesión de marketing** con esas
 > maquetas, no el dueño (fila 2026-11-01 «Las elecciones de cómo se muestran español y sellos las decide
-> marketing»); marketing entrega además su brief de SEO/GEO/conversión para §IDS (fila 2026-11-01 «Captura de
-> español y sellos: super sencilla, pocos clics; marketing involucrado.»).
+> marketing»); ya integradas en §IDS.3, §IDS.4 y §IDS.7 (filas 2026-11-02 «Nombre visible de la versión de liga…» y
+> «Selector de versión en burbujas…»). Brief de SEO/GEO/conversión: fila 2026-11-01 «Captura de español y sellos:
+> super sencilla, pocos clics; marketing involucrado.».
 > **Captura sencilla** (misma fila): el camino normal (inglés sin sello) **no gana ningún clic**; idioma y sello se
 > eligen en el mismo paso de la captura; el precio sale solo.
 >
@@ -9948,7 +9949,13 @@ además, qué códigos se usaron. Se descarga en CSV.
 #### IDS.3 Cartas con sello de torneo oficial
 
 - [ ] Una carta con sello es **la misma carta con el logo de un torneo oficial**: Prize Pack / Play! Pokémon, liga,
-      campeonato, Staff, prerelease. Se captura como **«versión con sello» de su carta base**.
+      campeonato, Staff, prerelease. Se captura como **versión de liga** (o de promo) **de su carta base**.
+- [ ] **Nombre visible: «de liga», nunca «sello»** (`HECHOS.md` fila 2026-11-02 «Nombre visible de la versión de liga
+      (decisión de marketing D-6 v3…)»; en México se dice «de liga»). «Sello» queda como término **interno**: solo en
+      admin, export y hoja de preparación. Tipos visibles: **«De liga»** (Prize Pack y Liga), **«De torneo»**,
+      **«Prerelease»**, **«Staff»**; EN «Prize Pack» / «League» / «Championship» / «Prerelease» / «Staff». Patrón de
+      versión: **«Inglés»**, **«Español»**, **«Inglés · De liga»**, **«Español · De liga»** (EN «<idioma> · <tipo>»:
+      «English · Prize Pack», «Spanish · Prize Pack»). Tabla completa y medidas: `docs/DESIGN_SYSTEM.md` IDS-UX.1.
 - [ ] **Lo que el dueño tiene hoy son sellos de liga Pokémon** (TCGCSV grupo `1539`): es el caso que tiene que
       funcionar primero. La tasa de empate automático de ese grupo **NO está medida** (la de Prize Pack sí, 96 %); la
       mide el arquitecto antes del diseño. Los demás tipos usan el mismo mecanismo; no se construye nada aparte para
@@ -9968,8 +9975,14 @@ además, qué códigos se usaron. Se descarga en CSV.
       candidatos del proveedor (es una elección de **identidad**, nunca de precio). Si no hay ningún candidato, esa
       versión **no se ofrece** para captura. **No hay reporte, cola ni paso que revise el dueño** (fila 2026-10-30
       «TODO automático…»).
-- [ ] En la captura, el operador elige la carta base, el idioma y, si existe, la **versión con sello** concreta (puede
+- [ ] En la captura, el operador elige la carta base, el idioma y, si existe, la **versión de liga** concreta (puede
       haber varias: p. ej. Prize Pack normal y Prize Pack Cosmos Holo, o prerelease y Staff), cada una con su precio.
+      Son **dos controles** en el mismo paso (opción A del dueño, `HECHOS.md` fila 2026-11-01 «Captura de español y
+      sellos: opción A…»): **Idioma** (Inglés | Español) y **Versión** (Normal | De liga · <tipo>…, solo si la carta
+      tiene versiones), en **burbujas** (fila 2026-11-02 «Selector de versión en burbujas: opción A-contorno de
+      marketing»); Inglés y Normal marcados de fábrica. Una versión sin precio se ve **apagada con su motivo** y no se
+      puede crear. El precio calculado lleva la etiqueta **«Precio de venta (auto)»** (EN «Sale price (auto)»
+      *(SUPUESTO: traducción del PO)*). Forma: `docs/DESIGN_SYSTEM.md` IDS-UX.2 e IDS-UX.8.
 - [ ] En la **ficha** de una pieza con sello **no** se muestra el estimado PSA (es de la carta sin sello). El valor de
       mercado se muestra solo donde la tienda lo muestra hoy para cualquier carta (§MIV), y es el **de su producto**;
       en español con sello, ninguno de los dos (§IDS.2). *(Dónde se muestra hoy el valor de mercado: **NO MEDIDO**;
@@ -9977,22 +9990,31 @@ además, qué códigos se usaron. Se descarga en CSV.
 
 #### IDS.4 En la tienda, el carrito y el cobro
 
-- [ ] El cliente ve el **idioma** y, si la tiene, el **sello** (con su tipo: Prize Pack, Liga, Campeonato, Staff,
-      Prerelease, según lo nombre la fuente) en: la teja del catálogo, la **ficha**, el **carrito**, el **checkout**, el
-      **pedido** (cliente y admin) y el **correo de confirmación**. En la tienda en español y en la de inglés.
-- [ ] La misma carta y acabado en **inglés**, en **español**, **con sello** o **en español con sello** son **opciones
+- [ ] El cliente ve el **idioma** y, si la tiene, la **versión de liga** con los nombres de §IDS.3 (nunca la palabra
+      «sello») en: la teja del catálogo, la **ficha**, el **carrito**, el **checkout**, el **pedido** (cliente y admin)
+      y el **correo de confirmación**. En la tienda en español y en la de inglés. **Teja:** solo la insignia («Español»,
+      «De liga»…; inglés sin liga, ninguna). **Carrito, checkout, pedido y correo:** además, el tipo exacto en texto:
+      **«Español · De liga (Prize Pack)»** (EN «Spanish · Prize Pack»).
+- [ ] La misma carta y acabado en **inglés**, en **español**, **de liga** o **en español de liga** son **opciones
       distintas**, cada una con su precio y su existencia. Comprar una no descuenta existencia de otra.
-- [ ] **Filtros:** por **idioma** (Inglés / Español) y **«con sello»**, combinables con los filtros de hoy. Sin filtro,
-      se ve todo. *(SUPUESTO: por defecto se muestran todos los idiomas.)*
+- [ ] **Ficha: una por carta, selector de versión** (fila 2026-11-02 «Selector de versión en burbujas: opción
+      A-contorno de marketing»): rótulo **«IDIOMA Y VERSIÓN»** (EN «LANGUAGE AND VERSION» *(SUPUESTO: traducción del
+      PO)*) y cuadrícula 2×2 de burbujas «Inglés» · «Español» · «Inglés · De liga» · «Español · De liga», **cada una con
+      su precio**, sin precio grande repetido. Las versiones **agotadas no se muestran** (decisión de marketing, misma
+      fila); con una sola versión con existencia no hay selector. Bajo el selector, con versión de liga elegida, texto
+      tenue «Carta de liga: Prize Pack de Play! Pokémon». Si se agotan todas, la ficha sigue como «Agotada» (criterio
+      951). Forma: `docs/DESIGN_SYSTEM.md` IDS-UX.4 e IDS-UX.8.
+- [ ] **Filtros:** por **idioma** (Inglés / Español) y **«Cartas de liga y promos»**, combinables con los filtros de
+      hoy. Sin filtro, se ve todo. *(SUPUESTO: por defecto se muestran todos los idiomas.)*
 - [ ] 💰 **El cobro es el precio mostrado de la opción elegida**, calculado en el servidor (nunca el que manda el
       navegador). Si entre el carrito y el pago una pieza en español o con sello **pierde su precio** (p. ej. tras una
       corrida el inglés o el producto con sello se queda sin valor de mercado), el checkout **la rechaza** con un mensaje
       claro y **no cobra**; jamás la cobra al precio del inglés o de la carta base.
-- [ ] *(SUPUESTO hasta que marketing decida P-IDS-5 con las maquetas)* La pieza en español usa **la imagen y el nombre del
-      inglés**, con la etiqueta **«Español»** bien visible en teja, ficha, carrito y pedido.
-- [ ] *(SUPUESTO hasta que marketing decida P-IDS-6 con las maquetas)* La pieza con sello usa la imagen del producto con sello que
-      da el proveedor cuando exista; si no, la de la carta base, con la etiqueta **«Con sello · <tipo>»**. (Que esa
-      imagen exista para los sellos de liga: **NO MEDIDO**; lo mide el arquitecto.)
+- [ ] **Imagen y nombre** (P-IDS-5 y P-IDS-6, decididas por marketing; fila 2026-11-02 «Nombre visible de la versión
+      de liga…»): todas las versiones usan **la imagen y el nombre del catálogo en inglés**, con la insignia de versión
+      y, bajo la foto de la ficha, una leyenda: español «Imagen de referencia (versión en inglés)»; de liga «Imagen de
+      referencia (sin logo de liga)»; español de liga «Imagen de referencia (versión en inglés, sin logo de liga)».
+      Textos completos ES/EN: `docs/DESIGN_SYSTEM.md` IDS-UX.1.
 
 #### IDS.5 Operación: preparar el pedido, reportes y export
 
@@ -10004,7 +10026,7 @@ además, qué códigos se usaron. Se descarga en CSV.
       (tipo de sello, o vacío si no tiene). Las piezas existentes salen como «Inglés» y sin sello. *(SUPUESTO: las dos
       columnas van **al final**, para no mover las columnas que el dueño ya usa; el arquitecto lo confirma. Aviso en la
       solicitud de fusión: la forma de la hoja cambia.)*
-- [ ] *(SUPUESTO — confirmar)* Donde hoy el sistema usa el **valor de mercado de una pieza** fuera de la venta (valor
+- [ ] *(SUPUESTO — confirmar en P-ARQ-IDS-2)* Donde hoy el sistema usa el **valor de mercado de una pieza** fuera de la venta (valor
       del portafolio en la bóveda; lo que se paga si una pieza de un retiro no se repone, `HECHOS` 2026-09-29 D-2), una
       pieza en español usa **su** valor (inglés × X %), una con sello usa **el de su producto** y una en español con
       sello, el de su producto × X %; nunca el de la carta inglesa sin sello.
@@ -10020,18 +10042,20 @@ además, qué códigos se usaron. Se descarga en CSV.
   El respaldo manual existente no se elimina, pero no es el camino.
 - Precio del español por **fuente propia** (CardTrader, Cardmarket): no hay fuente abierta hoy; se reabre si el dueño
   decide pagar o abrir una cuenta.
-- Imagen o nombre **en español** desde otra fuente (si se confirma P-IDS-5 con las maquetas).
+- Imagen o nombre **en español** desde otra fuente (marketing eligió la del inglés con leyenda, §IDS.4).
 - **Reportes, colas o pasos de revisión del dueño** para español o sellos (fila 2026-10-30 «TODO automático…»).
 - *(SUPUESTO)* **Lista de deseos** con idioma o sello: un deseo sigue siendo de la carta en inglés sin sello (§WSH).
 - Otros idiomas (francés, alemán, coreano…).
+- *(SUPUESTO hasta P-ARQ-IDS-1)* Cartas **gradeadas** y **producto sellado** en español o de liga: §IDS es solo de
+  cartas sueltas.
 
 #### IDS.7 Meta Battle Decks con piezas en español o con sello
 
 > Fuente: fila 2026-11-01 «Español y sellos (§IDS) va primero…»: «en meta decks se debe considerar para que se las
 > lleven solo debe deplegarse que version es» ⇒ **decidido**: las piezas en español o con sello **cuentan** para
 > surtir el deck y solo se dice qué versión es (lo ratifica la fila 2026-11-01 «Las elecciones de cómo se muestran
-> español y sellos las decide marketing»). La **forma** de mostrarlo y el orden de agregado los decide marketing con
-> las maquetas. Hoy la
+> español y sellos las decide marketing»). La **forma** de mostrarlo y el orden de agregado los decidió marketing
+> (P-IDS-12; `docs/DESIGN_SYSTEM.md` IDS-UX.5, `docs/ARCHITECTURE.md` D-IDS-I). Hoy la
 > disponibilidad del deck (`frontend/src/app/[locale]/(storefront)/decks-meta/DeckAvailability.tsx`) arma cada línea
 > con las piezas propias de la carta casada (`unitInventoryItemIds`), muestra **un** precio por línea y el botón de la
 > línea agrega «la pieza más barata aún no en el carrito» (leído el 2026-11-01). §AC.10 (paquete de energías) no
@@ -10040,12 +10064,17 @@ además, qué códigos se usaron. Se descarga en CSV.
 - [ ] Una pieza **publicada** en español, con sello o en español con sello de la carta de una línea **cuenta** como
       existencia de esa línea, igual que la inglesa, en el detalle del deck y en «Pegar lista».
 - [ ] **Se dice qué versión es**: la línea muestra de qué versiones está hecha su existencia, y cada pieza que entra al
-      carrito desde el deck lleva su etiqueta («Español», «Con sello · Liga»…) en la línea, el carrito y el pedido. Una
-      línea solo con piezas en inglés sin sello se ve como hoy. *(Forma: maqueta de ux-ui, la elige marketing.)*
+      carrito desde el deck lleva su etiqueta («Español», «De liga»…, nombres de §IDS.3) en la línea, el carrito y el
+      pedido. Una línea solo con piezas en inglés sin liga se ve como hoy. En el deck **no hay selector** de versión.
+      *(Forma: `docs/DESIGN_SYSTEM.md` IDS-UX.5.)*
 - [ ] 💰 **El precio de cada pieza es el suyo** (§IDS.2, §IDS.3): la línea muestra el precio de la pieza que agregaría
       el botón; el cobro es la suma de los precios de las piezas en el carrito, calculada en el servidor.
-- [ ] *(SUPUESTO hasta que marketing decida P-IDS-12)* «Agregar de jalón» y el botón de la línea siguen agregando
-      **la más barata primero**, sea cual sea su versión, como hoy.
+- [ ] 💰 **Orden de surtido: primero sin liga, liga solo si no alcanza** (P-IDS-12, decidida por marketing; fila
+      2026-11-02 «Selector de versión en burbujas…», v1 de `IDS_RECOMENDACIONES` de marketing —en el repo de marketing,
+      no leída aquí— y `docs/ARCHITECTURE.md` D-IDS-I). «Agregar de jalón» y el
+      botón de la línea agregan primero las piezas **sin liga** (inglés o español) de **la más barata a la más cara**;
+      una pieza de liga solo entra si las sin liga **no alcanzan** la cantidad de la línea. Motivo: una liga metida sola
+      multiplica el total (mediana ×2.15, hasta ×11).
 - [ ] **Paquete de energías (§AC.10)**: un deck surtido con piezas en español o con sello cuenta como «deck en el
       carrito» (P-EN-4) igual que uno en inglés; MX$20 y sus seis reglas no cambian. El criterio 197 no se afloja.
 - [ ] Una pieza en español o con sello **sin precio** (no publicada) no cuenta ni entra en el jalón.
@@ -15090,8 +15119,8 @@ Todo texto nuevo de cara al cliente lo aprueba el dueño antes de publicar (`HEC
 *(Criterios 512–531 y 958–968 — §IDS, español y cartas con sello (512–531 del 2026-10-06, actualizados el
 2026-11-01; 958–968 nuevos el 2026-11-01, siguiente libre tras 957 medido con `grep` en este `PROJECT.md`; **NO
 MEDIDO** contra otras ramas). **No** bloquean el modo real de Stripe (`HECHOS.md` fila 2026-10-06 «CAMBIO de alcance:
-se sale en vivo SIN español ni sellos…»). En Meta Battle Decks (963–968) la regla está decidida; la forma y el
-orden (966) los decide marketing con las maquetas.)*
+se sale en vivo SIN español ni sellos…»). En los criterios, «sello» es el término interno; lo que ve el cliente usa
+los nombres de §IDS.3 («De liga»…). Forma y orden de Meta Battle Decks (963–968) ya decididos por marketing.)*
 512. **Lo existente no cambia — por ausencia** *(§IDS.1)*: sobre una copia de los datos de producción, se toma una foto
    **antes** y **después** del despliegue de: precio publicado de cada pieza, estado de publicación, totales y líneas
    de cada pedido, solicitudes de venta y portafolio. **Diferencia = 0** en todo lo que ya existía. Toda pieza
@@ -15131,9 +15160,12 @@ orden (966) los decide marketing con las maquetas.)*
 520. **Opciones distintas, existencias separadas** *(§IDS.4)*: con piezas de la misma carta y acabado en inglés, en
    español, con sello y en español con sello, la ficha muestra **cuatro opciones**, cada una con su precio y su
    existencia. Comprar la española descuenta solo la española; las otras tres quedan igual.
-521. **Ficha y filtros** *(§IDS.4)*: la ficha y la teja muestran idioma y sello (con su tipo). El filtro de idioma
-   (Inglés / Español) y el de «con sello» devuelven exactamente las piezas que corresponden, combinados entre sí y con
-   los filtros de hoy, en la tienda en español y en inglés. Sin filtros se ven todas.
+521. **Ficha y filtros** *(§IDS.3, §IDS.4)*: la teja muestra la insignia de idioma y de versión («Español», «De liga»…);
+   la ficha, el selector «IDIOMA Y VERSIÓN» con «Inglés» · «Español» · «Inglés · De liga» · «Español · De liga», cada
+   una con su precio, sin las agotadas. **Ninguna** superficie de cliente (teja, ficha, filtros, carrito, pedido,
+   correo, en ES y EN) dice «sello» ni «Con sello». El filtro de idioma (Inglés / Español) y el de **«Cartas de liga y
+   promos»** devuelven exactamente las piezas que corresponden, combinados entre sí y con los filtros de hoy, en la
+   tienda en español y en inglés. Sin filtros se ven todas.
 522. **Empate automático del sello** *(§IDS.3)*: sin intervención de nadie, la versión con sello de una carta con
    empate único queda colgada de su carta base y disponible para captura. Caso de prueba: **Pikachu ex 057/191** con
    sello (producto TCGplayer `648703`) cuelga de la Pikachu ex 057/191 de Surging Sparks (`590025`).
@@ -15150,7 +15182,9 @@ orden (966) los decide marketing con las maquetas.)*
 525. ⛔ **Sello sin precio = no se publica** *(§IDS.3)*: si el producto con sello no tiene valor de mercado, la pieza
    queda en «precio pendiente» y no se publica; **nunca** toma el precio de la carta base.
 526. 💰 **Carrito y cobro del sello** *(§IDS.4)*: igual que el 518 para una pieza con sello: carrito, checkout, cobro en
-   Stripe = precio mostrado calculado en el servidor, y pedido, correo y hoja de preparar dicen el sello y su tipo.
+   Stripe = precio mostrado calculado en el servidor. Carrito, checkout, pedido y correo dicen la versión como
+   «Español · De liga (Prize Pack)» / «Inglés · De liga (Prize Pack)» (EN «Spanish · Prize Pack»); la hoja de
+   preparar, la línea interna «ES · LIGA · Prize Pack — sello Play! Pokémon, Holo Cosmos».
 527. **Export `.xlsx` con idioma y sello** *(§IDS.5)*: el export del inventario trae, en **todas** las filas, las
    columnas **Idioma** y **Sello**; una pieza existente sale «Inglés» y sin sello; una española, «Español»; una con
    sello, su tipo. Las demás columnas no cambian de nombre, orden ni valor.
@@ -15161,7 +15195,7 @@ orden (966) los decide marketing con las maquetas.)*
    export.
 530. **Sin precio a mano como camino normal** *(§IDS.2, §IDS.6; `HECHOS.md` fila 2026-10-04 «REGLA GENERAL…»)*: en la
    captura de una pieza en español o con sello **no hay campo para teclear el precio**; el precio aparece solo.
-531. 💰 **Otros usos del valor de la pieza** *(§IDS.5, SUPUESTO por confirmar)*: el valor de portafolio en la bóveda de
+531. 💰 **Otros usos del valor de la pieza** *(§IDS.5, SUPUESTO por confirmar en P-ARQ-IDS-2)*: el valor de portafolio en la bóveda de
    una pieza en español es el del inglés × X %, y el de una con sello es el de su producto; lo mismo para lo que se
    paga si una pieza de un retiro no se repone (`HECHOS` 2026-09-29 D-2). Nunca se usa el valor de la carta inglesa
    sin sello para esas piezas.
@@ -15175,8 +15209,9 @@ orden (966) los decide marketing con las maquetas.)*
 960. **Sello de liga** *(§IDS.3)*: una carta real de liga Pokémon (TCGCSV grupo `1539`, el caso lo elige el arquitecto
    al medir el empate) se captura —por empate automático o eligiendo el producto en la captura— y se publica con el
    precio de **su** producto, sin intervención del dueño.
-961. **Lista de inventario del admin** *(§IDS.5)*: cada pieza muestra su idioma y, si lo tiene, su sello con tipo; las
-   existentes se ven «Inglés» y sin sello. *(Forma según la maqueta aprobada.)*
+961. **Lista de inventario del admin** *(§IDS.5)*: cada pieza muestra su idioma y, si la tiene, su versión de liga
+   (insignia «De liga» y el tipo exacto en texto, p. ej. «Prize Pack»; la cabecera de columna interna puede decir
+   «Sello»); las existentes se ven «Inglés» (EN) y sin liga. *(Forma: `docs/DESIGN_SYSTEM.md` IDS-UX.3 (b).)*
 962. **Nada espera al dueño — por ausencia** *(§IDS.2, §IDS.3; fila 2026-10-30 «TODO automático…»)*: no existe pantalla,
    reporte, cola, aviso ni correo de «Sellos por revisar» ni de «falta el % del español»; ningún precio de español o
    sello queda pendiente de una acción del dueño (lo pendiente lo está solo porque la fuente no trae precio).
@@ -15189,8 +15224,10 @@ orden (966) los decide marketing con las maquetas.)*
 965. 💰 **Meta Battle Decks: precio y cobro** *(§IDS.7)*: el precio que muestra la línea es el de la pieza que agregaría
    su botón; el cobro del caso 963 es la suma de los precios publicados de esas tres piezas (cada una con su regla de
    §IDS.2/§IDS.3), calculada en el servidor.
-966. **Meta Battle Decks: orden** *(§IDS.7, SUPUESTO hasta que marketing decida P-IDS-12)*: con varias versiones disponibles, el botón de la
-   línea agrega la más barata aún no en el carrito, como hoy.
+966. 💰 **Meta Battle Decks: orden** *(§IDS.7, P-IDS-12 de marketing)*: línea «2 <carta>» con, publicadas, 1 inglesa
+   de MX$200, 1 española de MX$150 y 1 de liga de MX$100. El jalón y el botón de la línea agregan la española y luego
+   la inglesa (sin liga, de la más barata a la más cara); la de liga **no** entra aunque sea la más barata. Con la
+   línea en «4», entran las tres y la de liga al final.
 967. **Meta Battle Decks: paquete de energías** *(§IDS.7, §AC.10)*: con todas las cartas del jalón en el carrito,
    aunque haya piezas en español o con sello, el recuadro del paquete se habilita igual que con un deck en inglés;
    MX$20 y las reglas de §AC.10 sin cambio; el criterio 197 no se afloja.
@@ -17187,12 +17224,13 @@ promesa:**
 
 *Conversión y SEO (criterios 940–957): sin preguntas abiertas.*
 
-**Español y sellos (§IDS)**: sin preguntas para el dueño. Las de **presentación** las decide la **sesión de
-marketing** con las maquetas delante (`HECHOS.md` fila 2026-11-01 «Las elecciones de cómo se muestran español y
-sellos las decide marketing»): **P-IDS-5** (imagen y nombre del español), **P-IDS-6** (imagen del sello),
-**P-IDS-12** (qué versión entra primero al carrito desde un deck) y las opciones A/B de insignias y pantallas. Su
-elección se integra en §IDS.4 / §IDS.7 y se anota en `docs/DECISIONES.md` como decisión de marketing. Dinero y
-reglas de negocio siguen siendo del dueño.
+**Español y versiones de liga (§IDS)** — dos de dinero, para el dueño (las de presentación ya las decidió marketing):
+- **P-ARQ-IDS-1 💰** ¿Tienes cartas **gradeadas** (PSA) o **producto sellado** en español para vender? *Recomendación
+  (arquitecto, `docs/ARCHITECTURE.md` §15.5): en esta entrega solo cartas sueltas; lo otro se diseña cuando lo tengas,
+  con su propia regla de precio.* (SUPUESTO mientras tanto: §IDS cubre solo cartas sueltas NM sin gradear.)
+- **P-ARQ-IDS-2 💰 (criterio 531)** El valor que ve un cliente de una carta en español guardada en su bóveda, y lo que
+  se le paga si una carta de un retiro no se repone, ¿es el de la carta en español (inglés × 75 %)? *Recomendación:
+  sí; es lo que vale lo que guarda. Ya es el SUPUESTO de §IDS.5.*
 
 ## Preguntas abiertas — acabado / versión de carta (v1.4)
 > Requisito §I redactado con las decisiones ya tomadas por el humano; quedan estos huecos menores. Los
