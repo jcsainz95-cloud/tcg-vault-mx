@@ -13,7 +13,7 @@ import { OrdersService, OwnReservation } from './orders.service';
 import { frozenDirectShipBreakdownOf, frozenShippingRuleOf } from './frozen-breakdown';
 import { RESERVATION_TX_OPTIONS, lockReservationGate, reservedUntilFrom } from './reservation';
 import { OrderAccessTokenService } from './order-access-token.service';
-import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
+import { activeShipment, clientRefundOf, customerAddressSnapshotOf, publicStatus, refundedCentsOf } from './order-public-status';
 import { CUSTOMER_TIMELINE_EVENTS_SELECT, TimelineEventRow, providerTrackingUrlOf, toCustomerTimeline } from '../shipments/customer-timeline';
 import { GuestOrderMailService } from './guest-order-mail.service';
 import { PostalCodeService } from '../shipping-provider/geo/postal-code';
@@ -1062,7 +1062,8 @@ export class GuestCheckoutService {
     // ⭐ v1.80.12 (§M4-SHIP.19.20.1, «lo que ve el cliente»): con envío, la dirección es la DEL ENVÍO (la que el
     // operador pudo corregir); sin envío, la que capturó al pagar. Medido: era la única superficie del cliente que
     // leía `Order.shippingAddressSnapshot` habiendo envío (`/orders/:id` y `/shipments/:id` ya leían el del envío).
-    const address = ((shipment?.addressSnapshot as Prisma.JsonValue | undefined) ?? order.shippingAddressSnapshot ?? {}) as Partial<GuestAddressSnapshot>;
+    // v1.116 (§4-G.9c): la MISMA lectura que el paso a la libreta al reclamar (`customerAddressSnapshotOf`).
+    const address = (customerAddressSnapshotOf(order, order.shipmentRequests) ?? {}) as Partial<GuestAddressSnapshot>;
     const deliveredAt = shipment?.deliveredAt ?? null;
     const trackingUrl = shipment ? providerTrackingUrlOf(shipment) : null;
     // v1.80 (§M4-SHIP.10): lo devuelto POR STRIPE (`submitted|succeeded`) y la regla «todo devuelto ⇒ reembolsado».

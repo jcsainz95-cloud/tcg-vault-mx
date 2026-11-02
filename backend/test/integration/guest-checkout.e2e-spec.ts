@@ -662,7 +662,8 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
     it('POST /orders/claim vincula el pedido y aparece en el historial del usuario', async () => {
       const res = await h.api('POST', '/orders/claim', { token: userToken, json: { orderIds: [orderId] } });
       expect(res.status).toBe(200);
-      expect(res.body).toEqual({ claimed: [orderId], failed: [] });
+      // v1.116 (§4-G.9c): cuenta nueva ⇒ libreta vacía ⇒ la dirección del pedido pasa a ella (1 fila).
+      expect(res.body).toEqual({ claimed: [orderId], failed: [], addressesSaved: 1 });
 
       const list = await h.api('GET', '/orders', { token: userToken });
       expect((list.body.data as any[]).some((o) => o.id === orderId)).toBe(true);

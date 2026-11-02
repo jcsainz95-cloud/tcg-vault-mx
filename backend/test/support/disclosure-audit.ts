@@ -27,6 +27,9 @@ export interface AuditOrder {
   /** c7 (prueba 3): `vault` ⇒ «Recogida en persona»; si no, el estado de la dirección. */
   fulfillmentMode?: 'ship' | 'vault';
   state?: string | null;
+  /** v1.116 (a6, `PI_START`): cohorte por creación del pedido y si llegó a cobro (PaymentIntent). Ausentes ⇒ fuera de a6. */
+  createdAt?: Date;
+  stripePaymentIntentId?: string | null;
 }
 export interface AuditRequest {
   id: string;
@@ -100,6 +103,7 @@ const mxDay = (d: Date): string => new Date(d.getTime() - 6 * 3600_000).toISOStr
 const within = (d: Date | null, r: AuditRange): boolean => d !== null && mxDay(d) >= r.from && mxDay(d) <= r.to;
 
 const paid = (w: AuditWorld, r: AuditRange) => w.orders.filter((o) => SOLD.has(o.status) && within(o.settledAt, r));
+const piStart = (w: AuditWorld, r: AuditRange) => w.orders.filter((o) => o.stripePaymentIntentId != null && within(o.createdAt ?? null, r));
 const req = (w: AuditWorld, r: AuditRange) => w.requests.filter((s) => within(s.createdAt, r));
 const one = (id: string): AuditSubject => ({ id, units: 1 });
 const ext = (rows: AuditExternalRow[] | undefined): AuditSubject[] => (rows ?? []).map((x) => ({ id: x.key, units: x.units }));
@@ -120,6 +124,9 @@ const boxes = (xs: AuditCsRow[]): AuditSubject[] => {
 export const POPULATION_ORACLES: Record<PopulationId | 'CS_LEAD' | 'CS_SIGNUP', (w: AuditWorld, r: AuditRange) => AuditSubject[]> = {
   PAID: (w, r) => paid(w, r).map((o) => one(o.id)),
   PAID_ORIGIN: (w, r) => paid(w, r).filter((o) => o.firstUtmSource !== null).map((o) => one(o.id)),
+  // v1.116 (a6): cohorte por `createdAt`; «pagados» = los MISMOS pedidos con `settledAt` (sea cuando sea) y estado vendido.
+  PI_START: (w, r) => piStart(w, r).map((o) => one(o.id)),
+  PI_START_PAID: (w, r) => piStart(w, r).filter((o) => o.settledAt !== null && SOLD.has(o.status)).map((o) => one(o.id)),
   REQ: (w, r) => req(w, r).map((s) => one(s.id)),
   REQ_ORIGIN: (w, r) => req(w, r).filter((s) => s.firstUtmSource !== null).map((s) => one(s.id)),
   REQ_PAID: (w, r) => w.requests.filter((s) => s.status === 'pagada' && within(s.paidAt, r)).map((s) => one(s.id)),
@@ -201,7 +208,7 @@ interface AuditTableSpec {
 }
 
 /** Totales aceptados (constantes en las ecuaciones): §MKT.H.14 «Total aceptado». */
-export const AUDIT_ACCEPTED_TABLES: ReadonlySet<string> = new Set(['a1', 'a2', 'a5', 'f3']);
+export const AUDIT_ACCEPTED_TABLES: ReadonlySet<string> = new Set(['a1', 'a2', 'a5', 'a6', 'f3']);
 
 const DOORS: Record<string, string> = { bio: 'Bio', story: 'Story', paid: 'Promoción', dm: 'Mensaje directo' };
 const B_PARTS = { pedidos: ['pedidos', 'mxnPedidos'], solicitudes: ['solicitudes', 'mxnOfertado'] } as const;
