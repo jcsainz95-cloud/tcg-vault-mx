@@ -807,6 +807,13 @@ jobs:
       - name: Y el candado tiene que saber morder (canario en ROJO)
         if: ${{ !cancelled() }}
         run: ./scripts/check-sepomex-pin-canary.sh
+      # G-CP-BOTON (DEVOPS_NOTES §107): el botón que carga los CP en producción sigue siendo seguro.
+      - name: El botón de carga de CP es seguro (solo manual, simulacro por defecto, secreto acotado)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-cargar-cp-workflow.sh
+      - name: Y su candado sabe morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-cargar-cp-workflow-canary.sh
 
   # ---------------------------------------------------------------------------
   # 🔒 S-CI-1 — UN SCRIPT QUE SE INVOCA DESDE CI TIENE QUE EXISTIR BAJO EL CWD DEL
