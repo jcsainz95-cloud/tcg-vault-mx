@@ -313,11 +313,10 @@ export class UsersService {
       isDefault: dto.isDefault,
     };
     // ⭐ v1.116.1 (PT-CHK-3): «quitar la predeterminada → alta» bajo el candado de la libreta (validado todo lo anterior).
-    const row = await this.withAddressBookLock(userId, async (tx) => {
+    return this.withAddressBookLock(userId, async (tx) => {
       if (dto.isDefault) await tx.address.updateMany({ where: { userId }, data: { isDefault: false } });
-      return tx.address.create({ data });
+      return toAddressDTO(await tx.address.create({ data })); // S49-R4
     });
-    return toAddressDTO(row); // S49-R4
   }
 
   /**
@@ -456,11 +455,10 @@ export class UsersService {
       data.state = geo.state;
     }
     // ⭐ v1.116.1 (PT-CHK-2): «quitar la predeterminada → editar» bajo el candado de la libreta (validación, geo y dueño, antes).
-    const row = await this.withAddressBookLock(userId, async (tx) => {
+    return this.withAddressBookLock(userId, async (tx) => {
       if (dto.isDefault) await tx.address.updateMany({ where: { userId }, data: { isDefault: false } });
-      return tx.address.update({ where: { id }, data });
+      return toAddressDTO(await tx.address.update({ where: { id }, data })); // S49-R4
     });
-    return toAddressDTO(row); // S49-R4
   }
 
   private requirePostalCodes(): PostalCodeService {
