@@ -33755,91 +33755,72 @@ El único ancho ajustado es 360: el margen medido en el peor caso es 23.0 px (�
 **vMKT-CONV-2 (2026-10-31):** MKT-CONV.8 nuevo (catálogo móvil ≥ 2 tejas); ficha `lg`: renglón de compra antes de la pila (MKT-CONV.2, L-9); T8 alineada (sin «ventas finales» en la ficha); MKT-CONV.5 compactado a decisiones abiertas; L-8, L-10.
 **vMKT-CONV-3 (2026-11-01):** sin badge de estimado en la teja < `sm` (§22.5), foto 4:5, precio/stock con wrap, aritmética de MKT-CONV.8 corregida con medidas, L-8/L-10 ampliados.
 
-## IDS-UX. Español y cartas con sello — insignias de versión y su aplicación (vIDS-1, 2026-11-01 · `HECHOS.md` 2026-10-30 «Español y sellos (§IDS)…», «…TODO automático…», «Casos de revisión de precio SIN base…» y 2026-11-01 «Español y sellos (§IDS) va primero…» · `PROJECT.md` §IDS)
+## IDS-UX. Español y cartas con sello — insignias de versión y su aplicación (vIDS-2, 2026-11-02 · `HECHOS.md` 2026-10-30 «Español y sellos (§IDS)…», 2026-11-01 «Las elecciones de cómo se muestran español y sellos las decide marketing» y «Captura de español y sellos: opción A» · `PROJECT.md` §IDS)
 
-> **Estado: DISEÑO para decisión del dueño; nada implementado.** Maquetas renderizadas (HTML autocontenido, imágenes del catálogo de pokemontcg.io): `docs/mockups/` NO existe aún; viven en el scratchpad de la sesión (`…/scratchpad/ids-maquetas/01…06`) y las copia el orquestador donde corresponda. **Cero tokens y cero pares de contraste nuevos** (tinta/papel/`muted`/`border-strong` de §2.3). Parte del código real: `CatalogTile.tsx`, `DeckAvailability.tsx`, `AddItemModal.tsx`, `QuickAdd.tsx`, `VariantDrawer.tsx` (leídos 2026-11-01). Lo que no se midió en navegador va marcado **NO MEDIDO**.
+> **Estado: DISEÑO; nada implementado.** Maquetas en `docs/mockups/ids/` (HTML autocontenido, imágenes de images.pokemontcg.io): `01`, `02-…-v2`, `03-teja-catalogo-v2`, `04-ficha-v2`, `05-carrito-v2`, `06-meta-deck-v2`; las v1 (`02`–`06` sin sufijo, `03-…-A/B`) quedan como historia y **no vigentes**. **Fuente de la presentación: marketing** (repo `tcg-hunt-marketing`, `origin/main` @ `2ee9c5e`: `plan/IDS_RECOMENDACIONES_2026-11.md` §4–§5 (`aacaca5`), revisión de director-arte `v1-director-arte.md` y brief `BRIEF_TIENDA_IDS_2026-11.md` (`fbf6c78`; qué fichero va en cuál commit, NO verificado)). **Cero tokens nuevos:** tinta/papel/`muted`/`accent` (#B31217) de §2.3. Lo no medido en navegador va **NO MEDIDO**.
 
 ### IDS-UX.0 Reglas del dueño que mandan (no se rediseñan)
-- Español = la misma carta; su precio sale solo (mercado del inglés × 75 %). Sello = otro producto con su precio. Español con sello existe (sello inglés × 75 %). Hoy solo hay sellos «de liga».
-- **Todo automático, sin colas del dueño:** una versión sin precio no se ofrece y no se publica; no hay pantalla de «revisar».
-- **Captura sin fricción (dueño, 2026-11-01):** el camino normal (inglés, sin sello) **no gana ni un toque**; español y sello se marcan en el mismo paso con botones segmentados visibles (nunca menús ni pantallas extra); el precio se ve al instante.
-- Meta Battle Decks: español y sello cuentan para surtir; solo se indica qué versión es (interpretación del orquestador, **a confirmar por el dueño** con la maqueta 06).
-- Sin valor de mercado ni estimado PSA en la ficha de una versión española. Sin mención de IVA fuera de lo que ya dice el sistema.
+- Español = la misma carta; precio = mercado del inglés × 75 %. Sello = otro producto con su precio. Español con sello existe. Todo automático, sin colas: una versión sin precio no se ofrece ni se publica.
+- **Captura sin fricción:** el camino normal (inglés, sin sello) no gana ni un toque; español y sello en el mismo paso, botones segmentados visibles.
+- Meta Battle Decks: español y sello cuentan para surtir; solo se indica la versión (con la regla de IDS-UX.5).
+- Sin valor de mercado ni estimado PSA en la ficha de una versión española. El ahorro del español **no** se anuncia: sin «descuento», «ahorras», tachados ni %; solo los dos precios lado a lado.
 
 ### IDS-UX.1 La insignia de versión (`VersionChip`) — un componente, todas las pantallas
-| | Español | Sello (tipo) | Inglés (solo admin y líneas mixtas) |
-|---|---|---|---|
-| Texto | `ESPAÑOL` | `SELLO LIGA` (el tipo viene de una clave corta por tipo: «Liga», «Prize Pack», «Campeonato»…; ≤ 18 caracteres con «Sello») | `EN` en admin; `INGLÉS` en líneas mixtas |
-| Forma | alto 18 px, `px-1.5`, borde 1 px tinta, radio 0, mono 10 px 500 versalitas, tracking 0.08em, sin icono | igual | igual, borde `border-strong` |
-| Color | fondo papel, texto tinta (**relleno vacío**) | fondo tinta, texto papel (**relleno lleno**) | fondo transparente, texto `muted` |
-| Contraste | tinta/papel **15.5:1** (calculado de #1A1A18 y #F4F1EA) | papel/tinta **15.5:1** | `muted` #6E695E sobre papel **4.55:1** (AA, ya medido en `globals.css`) |
-- **Doble canal, sin color semántico:** la diferencia español/sello es vacío frente a lleno **y** texto. No se usa rojo (es «atención», §2.4) ni el azul de acabado (§16.6, exclusivo de `holofoil`).
-- **Regla del silencio:** en superficies de cliente el **inglés sin sello no lleva insignia** (es lo de hoy). Se nombra «Inglés» solo cuando convive con otra versión en el mismo contexto (selector de la ficha, línea mixta del deck) y siempre en el admin.
-- **Sello + español juntos:** dos insignias, sello primero. Nunca una insignia compuesta.
-- **Nombre accesible:** el texto visible ES el nombre (WCAG 2.5.3); la teja y la línea añaden la versión a su `aria-label` («Charizard, español, sello liga»). La insignia no se pinta `aria-hidden`.
-- **Cabe a 360 px:** `ESPAÑOL` ≈ 62 px y `SELLO LIGA` ≈ 82 px (10 caracteres × 6.8 px + relleno; aritmética **NO MEDIDA**) dentro de una columna de teja de 152 px.
-- **Imagen:** siempre la del catálogo (inglés). No existe arte del español ni del sello en la fuente y no se inventa (PROJECT §IDS, P-IDS-5/6); la insignia es el diferenciador.
-- **Prohibido:** colores nuevos, banderas, iconos de «sello» inventados, retocar la imagen, mostrar «Inglés» donde no hay otra versión, y cualquier precio tachado o «ahorras» entre versiones.
-
-### IDS-UX.2 (a) Captura de inventario — `AddItemModal` (maqueta 01)
-Orden del formulario tras elegir la carta: Tipo → Acabado → **Idioma** → **Versión** (solo si hay sellos) → **precio calculado** → Cantidad/Adquisición → Crear.
-- **Idioma:** segmentado de 2 botones `Inglés | Español`, 44 px, **«Inglés» marcado de fábrica**. Mismo patrón que el conmutador `Compra | Aportación` que ya existe.
-- **Versión:** segmentado `Normal | Sello Liga [| otros sellos]`, **«Normal» marcado**; **la fila no se dibuja** si la carta base no tiene versiones con sello (la pantalla es la de hoy más «Idioma»). Con un solo sello son dos botones (la preselección es «Normal»; un toque marca el sello); con varios, un botón por sello.
-- **Precio al instante:** bajo los controles, cifra 24 px + una línea de origen («Sello Liga en inglés MX$480 × 75 % (español)»). Lo calcula el servidor; nadie lo teclea. Cambia al tocar cada control.
-- **Versión sin precio:** el botón sale **apagado, borde discontinuo** con su motivo en `aria-describedby` y visible al enfocarlo («sin precio de mercado»); no se puede crear. Sin cola ni aviso al dueño.
-- **Alta rápida desde la casilla de una versión (§16.5):** 0 toques extra: la casilla ya ES la versión (el objetivo lleva idioma y sello).
-- Idioma y versión no se guardan entre piezas: cada alta vuelve a «Inglés / Normal» (el camino normal sigue siendo el de cero toques).
-
-**Toques añadidos sobre la carta ya elegida (aritmética de la maqueta, NO MEDIDOS en producto):**
-| Qué se captura | Hoy | Opción A (dos segmentados) | Opción B (un segmentado combinado) |
-|---|---|---|---|
-| Inglés normal | +0 | **+0** | **+0** |
-| Español | no existe | +1 | +1 |
-| Con sello | no existe | +1 | +1 |
-| Español con sello | no existe | +2 | +1 |
-**Recomiendo A.** El dueño nombró idioma y sello como dos cosas; A no crece con cada sello nuevo (B: 2 × (1 + k) botones, 6 con dos sellos) y evita botones apagados en combinaciones sin sentido. B ahorra un toque solo en el caso más raro (español con sello). Decisión del dueño si prefiere B.
-
-### IDS-UX.3 (b) Lista de inventario admin — binder de M1 y cajón (maqueta 02)
-- **Una fila por versión** (idioma y sello son parte de la identidad de la variante); la fila nueva no mezcla existencias.
-- Columnas **Idioma** (`EN` gris / `ESPAÑOL`) y **Sello** (insignia o `—`) entre Acabado y Piezas; ordenables y filtrables. Filtros en el encabezado: segmentados de un toque `Idioma: Todos | Inglés | Español` y `Sello: Todos | Con sello | Sin sello` (patrón de §16.1; combinables con los de hoy).
-- Cajón `VariantDrawer`: las insignias de la versión junto a `FinishMark` en el encabezado, y en cada pieza (la etiqueta física lleva idioma y sello). Precio de tienda con su origen («inglés MX$200 × 75 %»).
-- Sin precio: la celda dice «Precio pendiente» y la columna Estado el motivo ya existente («Sin mercado del inglés»); se resuelve sola al llegar el mercado.
-- Export `.xlsx`: `Idioma` y `Sello` al final (PROJECT §IDS.5); aquí no se diseña más.
-
-### IDS-UX.4 (c) Tienda, carrito, pedido y preparación (maquetas 03–05)
-**Teja del catálogo — la decisión de forma:** una teja por **versión** (como hoy es una por publicación agrupada). Descartada una teja por carta con «desde»: el precio «desde» del español (75 %) engañaría a quien busca el inglés.
-| | Opción A — insignia sobre la foto (recomendada) | Opción B — renglón propio bajo la ficha técnica |
+| | «Español» (EN: «Spanish») | «Con sello» (EN: «Stamped») |
 |---|---|---|
-| Dónde | esquina inferior izquierda de la foto, a 4 px del borde, sello arriba y español debajo | `flex-wrap gap-1` entre la ficha técnica y el precio |
-| Alto extra de la teja | **0 px** | **+22 px** (18 + 4), en la fila entera si una teja la lleva (**NO MEDIDO**) |
-| Margen contra el aviso de cookies a 360×740 (medido 23.0 px, `FRONTEND_NOTES` §MKT-CONV8; criterio 943 exige ≥ 20) | intacto | ≈ 1 px: **rompe el criterio** |
-| Qué tapa | el pie de la carta (texto legal, ilustrador); no el nombre ni el arte | nada |
-Recomiendo A. B solo si el dueño prefiere la foto limpia y acepta recomponer la rejilla (p. ej. quitar otro renglón de la teja). Con A, `L-10` y `L-8` no cambian.
+| Color | fondo tinta, texto papel (relleno) | fondo transparente, borde 1.5 px y texto `accent` #B31217, sobre claro (contorno) |
+| Contraste | papel/tinta **15.45:1** | #B31217/papel #F4F1EA **6.17:1**; sobre pozo #EFEBE2 **5.85:1** (medidos por director-arte, `v1-director-arte.md`) |
+- **Forma:** texto, **esquinas rectas** (`border-radius` del DS web = 0, igual que en piezas), sin icono ni bandera. **Teja y carrito:** 12 px semibold (Archivo), alto 20 px, `px` 6 px, separación 4 px. **Ficha:** 13 px, alto 22 px. **Hoja de preparación:** alto 26 px, 13 px. `white-space:nowrap`; la fila lleva `flex-wrap`, **nunca elipsis ni recorte**. Superficies oscuras: no hay en estas pantallas; si aparecieran, texto papel y borde `accent` (el rojo como texto sobre tinta mide 3.94:1, no vale).
+- **Doble canal:** relleno frente a contorno **y** texto (se distingue en gris). El rojo solo en contorno: el relleno rojo es del CTA. En la teja convive con el «Queda 1» en rojo: se distinguen por forma (marco frente a texto).
+- **Orden fijo Español → Con sello.** Dos insignias, nunca una compuesta. **Inglés sin sello: sin insignia** en superficies de cliente (se escribe, para que nadie invente «Inglés»); en el admin se nombra «EN» (etiqueta mono gris, no insignia) y en líneas mixtas del deck como texto.
+- **Tipo de sello** («Liga», «Prize Pack»…) **solo en ficha, carrito, pedido, correo y admin**, como texto muted junto o dentro del renglón; **nunca en la teja**. «Sello de Liga» solo si el sello es de liga (clave corta por tipo, ≤ 18 caracteres; paridad ES/EN).
+- **Nombre accesible:** el texto visible ES el nombre (WCAG 2.5.3); la teja y la línea añaden la versión al `aria-label` («Charizard, español, con sello»). Nunca `aria-hidden`.
+- **Nunca encima de la carta** (ni en esquinas: tapan nombre, número o rareza que el cliente usa para verificar). **Imagen:** la del catálogo (inglés) para todas las versiones; si la versión usa esa foto, la ficha dice «Imagen de referencia (versión en inglés)» (EN: «Reference image (English version)»).
+- **Ancho a 360 px:** «Español» ≈ 56 px y «Con sello» ≈ 61 px en la maqueta de director-arte (Archivo real, 11-12 px): 56 + 4 + 61 = 121 ≤ 152 px de columna; caben en una fila. Con la tipografía de la tienda, **NO MEDIDO**.
 
-**Ficha (maqueta 04)** — las versiones de la misma carta son opciones distintas con su precio y existencia (PROJECT §IDS.4):
-- **Opción A (recomendada): bloque «Versión»** de renglones radio (56 px, precio a la derecha, «Queda 1»/«N en stock» debajo; versión elegida con borde 2 px y pozo). Va **antes** de «Ejemplares disponibles», que se filtra a la versión elegida. Versión agotada: renglón apagado con «Agotado», no seleccionable (MKT-3 a). Preselección: la más barata con existencia; de empate, la inglesa. Si la carta tiene una sola versión, el bloque no se dibuja.
-- **Opción B: dos segmentados** `Idioma` y `Sello` (≈ 140 px fijos). Más compacto, pero deja elegir combinaciones inexistentes y el precio cambia sin que se vea qué se eligió.
-- La barra fija móvil (MKT-CONV.2) lleva el precio de la versión elegida y «Añadir al carrito»; la ficha de una versión española no muestra valor de mercado ni estimado PSA.
+### IDS-UX.2 (a) Captura de inventario — `AddItemModal` (maqueta 01; **opción A elegida por el dueño**, `HECHOS.md` 2026-11-01)
+Orden tras elegir la carta: Tipo → Acabado → **Idioma** → **Versión** (solo si hay sellos) → **precio calculado** → Cantidad/Adquisición → Crear. Dos segmentados, no uno combinado; la B de la v1 queda descartada.
+- **Idioma:** `Inglés | Español`, 44 px, **«Inglés» de fábrica**; mismo patrón que `Compra | Aportación`.
+- **Versión:** `Normal | Con sello · Liga [| otros sellos]`, **«Normal» de fábrica**; **la fila no se dibuja** si la carta no tiene sellos. Un botón por sello. El tipo va en el botón (es admin).
+- **Precio al instante:** cifra 24 px + línea de origen («Sello Liga en inglés MX$480 × 75 % (español)»), calculada por el servidor; cambia al tocar cada control.
+- **Versión sin precio:** botón **apagado, borde discontinuo**, motivo en `aria-describedby` y visible al enfocar; no se puede crear. Sin cola ni aviso.
+- **Alta rápida desde la casilla de una versión (§16.5):** 0 toques extra (la casilla ya es la versión). Idioma y versión no se guardan entre piezas: cada alta vuelve a «Inglés / Normal».
+- **Toques sobre la carta ya elegida (aritmética, NO MEDIDOS):** inglés normal **+0**; español +1; con sello +1; español con sello +2.
 
-**Carrito, checkout, «Mi pedido» y correo (maqueta 05):** la insignia va en una línea propia bajo la ficha técnica de la línea; en correo, texto («Español», «Sello Liga»). Dos piezas que solo difieren en versión **nunca** se fusionan en una línea «2×». Si una versión pierde su precio antes del pago, el checkout la rechaza **nombrando la versión** y no cobra otra (PROJECT §IDS.4).
-**Hoja «Pedidos por preparar» (§35/§37):** insignias **grandes** (26 px, texto 12 px) en cada línea de pieza: el operador está de pie y debe sacar la pieza física correcta.
+### IDS-UX.3 (b) Lista de inventario admin — binder de M1 y cajón (maqueta `02-inventario-admin-v2`)
+- **Una fila por versión.** Columnas **Idioma** (`EN` gris / insignia «Español») y **Sello** (insignia «Con sello» + tipo en texto, o `—`) entre Acabado y Piezas; ordenables y filtrables con segmentados de un toque `Idioma: Todos | Inglés | Español` y `Sello: Todos | Con sello | Sin sello` (§16.1).
+- Cajón `VariantDrawer`: insignias junto a `FinishMark` y en cada pieza (la etiqueta física lleva idioma y sello); precio con su origen («inglés MX$200 × 75 %»).
+- Sin precio: «Precio pendiente» y el motivo existente en Estado («Sin mercado del inglés»); se resuelve sola. Export `.xlsx`: `Idioma` y `Sello` al final (PROJECT §IDS.5).
 
-### IDS-UX.5 (d) Meta Battle Decks — `DeckAvailability` (maqueta 06)
-La línea se surte con lo que haya; **no hay selector**. Solo se indica la versión:
-- **Opción A (recomendada): insignia junto a la disponibilidad**, mismo `VersionChip`. Línea pura en una versión no inglesa: una insignia. Inglés puro: ninguna (como hoy). **Línea mixta** (p. ej. 1 español + 1 inglés): una insignia por tramo con cantidad y precio («Español ×1 · MX$150.00», «Inglés ×1 · MX$200.00»); en mixta el inglés sí se nombra.
-- **Opción B: renglón «Se surte con: …»** bajo la disponibilidad. Dice lo mismo en texto, pero es un patrón que solo existiría aquí.
-- El orden de surtido (más barata primero, como hoy) es de backend. «Agregar de jalón», el carrito y el `deckPull` conservan las insignias. Los sustitutos (otra impresión, Fase 3) siguen aparte y no se confunden con versiones.
+### IDS-UX.4 (c) Tienda, carrito, pedido y preparación (maquetas `03-teja-catalogo-v2`, `04-ficha-v2`, `05-carrito-v2`)
+**Teja del catálogo:** una teja por **versión** (marketing C6 lo acepta; sin teja «desde»). Orden: foto → nombre · set · número → ficha técnica → **fila de insignias (solo si hay)** → precio. Precio y bloque inferior anclados abajo (`margin-top:auto`): en una fila con y sin insignia los precios y el CTA quedan alineados (la teja sin insignia queda con 24 px de aire sobre el precio). Sin tipo de sello en la teja.
+
+**Conflicto con el criterio 943 y cómo se absorbe (aritmética de deltas, NO MEDIDA en navegador; la cierra L-8 con Playwright).** Línea base medida por frontend: margen **23.0 px** a 360×740 con el aviso abierto, peor caso (`price5`, foto 4:5; `FRONTEND_NOTES` §MKT-CONV8); el criterio 943 pide ≥ 20, o sea **3 px de holgura**. La fila de insignias cuesta **+24 px** (`mt` 4 + alto 20) en toda fila con una teja con insignia: 23.0 − 24 = **−1.0 px, rompe 943**. Compartir línea con «RAW · NM · HOLO» no cabe (≈ 99 px de ficha técnica + 56 de «Español» > 152 px de columna). Se absorbe con tres palancas, solo en < `sm` y para **todas** las tejas (para no desalinear la rejilla):
+| Palanca (< `sm`) | Delta |
+|---|---|
+| P1 foto `aspect-[4/5]` → `aspect-[5/6]` (152 × 182.4; la carta 5:7 queda de 136 a 130 px de ancho, 89 % → 86 %) | −7.6 |
+| P2 cinco márgenes de la teja −2 px: nombre `mt-2`→`mt-1.5`, set `mt-1`→`mt-0.5`, ficha técnica `mt-1.5`→`mt-1`, renglón de precio `mt-2.5`→`mt-2`, CTA `pt-2`→`pt-1.5` | −10.0 |
+| P3 fila Filtros + Orden de MKT-CONV.8: 56 → 48 (`py-1.5` → `py-0.5`; los controles siguen en `h-11` = 44) | −8.0 |
+| **Total recuperado** | **−25.6** |
+**Margen resultante: 23.0 − 24 + 25.6 = 24.6 px ≥ 20** (holgura 4.6; NO MEDIDO). Sin P1 queda 17.0 y sin P3 queda 16.6: **hacen falta las tres**. Plan B si la medición da < 20: (i) el PO baja 943 al límite real de L-8 (8 px) o (ii) el rótulo «IVA incluido» sube del renglón de la teja a un único aviso sobre la rejilla (−17.75 por teja; solo si `ivaIncluded` es igual en toda la página, decisión del PO). La maqueta `03-teja-catalogo-v2` ya lleva P1–P3. Candado: ver IDS-UX.6.
+
+**Ficha (maqueta 04-v2):** una ficha por carta; las versiones son **opciones** con su precio y existencia (PROJECT §IDS.4). Bloque «Versión» de renglones radio (56 px, precio a la derecha, «Queda 1»/«N en stock» debajo), antes de «Ejemplares disponibles», que se filtra a la versión elegida. El renglón es **texto** («Español», «Con sello · Liga», «Español · Con sello · Liga»): **la insignia no se repite dentro del selector**. Las **insignias van bajo el `<h1>`** (no en su línea) y **cambian al elegir la opción**; con «Inglés» la fila queda vacía pero reserva su alto (22 px) para que la ficha no salte. Agotada: renglón apagado, «Agotado», no seleccionable. Preselección: la más barata con existencia; de empate, la inglesa. Una sola versión: el bloque no se dibuja. La barra fija móvil lleva el precio de la versión elegida; la ficha de una versión española no muestra valor de mercado ni estimado PSA.
+
+**Carrito, checkout, «Mi pedido», correo (maqueta 05-v2):** la insignia va en una **segunda línea bajo el nombre**, alineada a la izquierda, antes de la ficha técnica; el tipo de sello en texto muted a su lado; el correo, en texto («Español», «Con sello · Liga»; EN «Spanish», «Stamped»). Dos piezas que solo difieren en versión **nunca** se fusionan en «2×». Si una versión pierde su precio antes del pago, el checkout la rechaza **nombrando la versión** y no cobra otra. **Hoja «Pedidos por preparar» (§35/§37):** insignias grandes (26 px, 13 px) por pieza.
+
+### IDS-UX.5 (d) Meta Battle Decks — `DeckAvailability` (maqueta `06-meta-deck-v2`)
+La línea se surte con lo que haya; **no hay selector**. La versión se indica con el mismo `VersionChip` en **segunda línea bajo el nombre** (no al final de la línea: choca con precio y cantidad a 360 px). Inglés puro: ninguna insignia. **Línea mixta:** un tramo por versión con cantidad y precio («[Español] ×1 · MX$150.00» y, como texto, «Inglés ×1 · MX$200.00»). **Regla de surtido (P-IDS-12, delegada a marketing):** una versión con sello solo entra si **no hay otra versión sin sello** con existencias; orden: la sin sello más barata (inglés o español) → sello solo si no hay otra. Orden y regla son de backend. «Agregar de jalón», el carrito y el `deckPull` conservan las insignias; los sustitutos (otra impresión) siguen aparte. Copy: «Completa tu deck» en singular y en sueltas.
 
 ### IDS-UX.6 Estados, accesibilidad y candados sugeridos
-- **Estados de `VersionChip`:** sin interacción (no es botón); solo texto. Los segmentados de captura y filtros tienen `hover` (pozo), `focus-visible` (anillo global §4.3), `disabled` (borde discontinuo + motivo) y `aria-pressed`/`radiogroup` con flechas.
-- **Targets:** botones segmentados y renglones de versión ≥ 44 px (móvil) / 36 px (filtros admin de escritorio).
-- **Candados sugeridos (los escribe frontend, los corre QA):** (1) a 360×740 con aviso de cookies abierto, la teja con insignia mide lo mismo que sin ella (±1 px) y el margen de L-8 no baja de 20 px; (2) captura: flujo inglés normal = 0 toques de idioma/sello (el formulario se envía con «Inglés/Normal» sin tocarlos); (3) la fila «Versión» no existe en una carta sin sellos; (4) una versión sin precio no es seleccionable en captura, ficha ni deck; (5) mutación: pintar «Inglés» en la teja del catálogo pone rojo; (6) paridad ES/EN de las claves nuevas.
+- **`VersionChip`:** sin interacción (solo texto). Segmentados de captura y filtros: `hover` (pozo), `focus-visible` (anillo §4.3), `disabled` (borde discontinuo + motivo), `aria-pressed`/`radiogroup` con flechas. Targets ≥ 44 px (móvil) / 36 px (filtros admin de escritorio).
+- **Candados sugeridos (los escribe frontend, los corre QA):** (1) a 360×740 con el aviso abierto y **una teja con dos insignias en la primera fila**, el margen de L-8/943 ≥ 20 px (mide P1–P3 de IDS-UX.4; rojo si baja); (2) captura: inglés normal = 0 toques de idioma/sello; (3) la fila «Versión» no existe en una carta sin sellos; (4) una versión sin precio no es seleccionable en captura, ficha ni deck; (5) mutación: pintar «Inglés» (o el tipo de sello) en la teja pone rojo; (6) la insignia nunca es hija del contenedor de la foto (nunca sobre la carta); (7) paridad ES/EN de las claves nuevas («Spanish», «Stamped»); (8) deck: con una versión sin sello disponible, nunca se surte la de sello.
 
-### IDS-UX.7 Decisiones del dueño y peticiones numeradas
-**Del dueño (A/B con maqueta):** (D-1) captura A o B; (D-2) teja A o B; (D-3) ficha A o B; (D-4) deck A o B; (D-5) confirmar que español y sello cuentan para surtir un deck; (D-6) nombre visible del sello («Sello Liga») y si otros tipos futuros se llaman igual; (D-7) la imagen es la del catálogo en inglés para todas las versiones.
-1. **Arquitecto:** campos `language` y `stamp {type, label}` en `GroupedListingSummaryDTO`, detalle de ficha (`versions[]` con precio y existencia por versión), línea de carrito/cotización, línea de pedido y de preparación; `MetaDeckLineDTO` con la partición por versión (`units[]`: versión, cantidad, precio).
-2. **Arquitecto:** en captura, que la lista de versiones de la carta base traiga `previewPriceCents` o `unavailableReason` por combinación (idioma × sello) para pintar el precio al instante y apagar lo que no tiene precio.
-3. **Product-owner:** etiquetas cortas de los tipos de sello (≤ 18 caracteres con «Sello») y su paridad ES/EN; registrar D-1…D-7 al responder el dueño.
-4. **Frontend (cuando se construya):** `VersionChip` en `frontend/src/components/domain/` (zona compartida: serializar), segmentados con el patrón existente de `Compra | Aportación`.
+### IDS-UX.7 Decisiones y peticiones numeradas
+**Registradas:** **D-1 = A** (captura con dos segmentados; dueño, `HECHOS.md` 2026-11-01). **D-2…D-7 las decide marketing** por delegación del dueño (`HECHOS.md` 2026-11-01, «Las elecciones de cómo se muestran español y sellos las decide marketing»; fuentes en el «Estado»): **D-2** teja = fila propia de insignias (la opción B de la v1; la A, sobre la foto, queda descartada: nunca encima de la carta); **D-3** ficha = una por carta con versiones como opciones; **D-4** deck = insignia en segunda línea bajo el nombre; **D-5** español y sello cuentan para surtir, con sello solo si no hay otra sin sello; **D-6** nombre visible «Español» / «Con sello», tipo («Liga»…) solo en ficha, carrito, pedido, correo y admin; **D-7** imagen del catálogo en inglés con la leyenda «Imagen de referencia (versión en inglés)».
+1. **Arquitecto:** campos `language` y `stamp {type, label}` en `GroupedListingSummaryDTO`, detalle de ficha (`versions[]` con precio y existencia por versión), línea de carrito/cotización, de pedido y de preparación; `MetaDeckLineDTO` con partición por versión (`units[]`); y la regla de surtido de IDS-UX.5.
+2. **Arquitecto:** en captura, que la lista de versiones traiga `previewPriceCents` o `unavailableReason` por combinación (idioma × sello).
+3. **Product-owner:** etiquetas cortas de los tipos de sello (≤ 18 caracteres; paridad ES/EN); textos «Imagen de referencia (versión en inglés)», «Spanish», «Stamped»; decidir el plan B del 943 si la medición da < 20 (IDS-UX.4).
+4. **Frontend (cuando se construya):** `VersionChip` en `frontend/src/components/domain/` (zona compartida: serializar); P1–P3 en `CatalogTile`/`CatalogView` (zona compartida de componentes, serializar); segmentados con el patrón de `Compra | Aportación`.
+5. **Orquestador:** medir P1–P3 con Playwright a 360×740 (peor caso con dos insignias) antes de construir.
 
-**vIDS-1 (2026-11-01):** sección nueva (insignias, captura, inventario, tienda, deck); A/B en captura, teja, ficha y deck. Para caber en el tope DOC-SIZE se compactaron §23.4.0, §23.16 y §28.7 (contenido vigente conservado).
+**vIDS-2 (2026-11-02):** presentación de marketing (insignias de texto, fila propia, orden Español → Con sello, sin descuento); D-1 = A; 943 absorbido con P1–P3 (NO MEDIDO). Maquetas v2 en `docs/mockups/ids/`. Compactada la sección. **vIDS-1 (2026-11-01):** sección nueva con A/B.
