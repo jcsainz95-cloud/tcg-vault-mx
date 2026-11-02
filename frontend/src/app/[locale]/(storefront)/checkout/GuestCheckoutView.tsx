@@ -21,7 +21,7 @@ import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
-import { trackBeginCheckout, trackPurchase } from '@/lib/measurement/ecommerce';
+import { trackAddPaymentInfo, trackBeginCheckout, trackPurchase } from '@/lib/measurement/ecommerce';
 import { CheckoutLines } from './CheckoutLines';
 import { CheckoutPayBar } from './CheckoutPayBar';
 import { VaultUpsellPanel } from './VaultUpsellPanel';
@@ -176,16 +176,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     setCodeForQuote(dsc.code);
   }, [dsc.code]);
 
-  // §MKT.H.4 `begin_checkout`: una vez por cotización distinta (con el modo `off`, `track` no hace nada).
+  // §MKT.H.4 v1.116 (C-F11): `begin_checkout` sale de `pay()` tras sus guardas (una vez por cotización: ids + total)
+  // y `add_payment_info` al resolver la sesión (una vez por `paymentIntentId`). Con el modo `off`, no hacen nada.
   const beginCheckoutKey = useRef('');
-  useEffect(() => {
-    const d = query.data;
-    if (!d || query.isPlaceholderData) return;
-    const key = `${d.items.map((i) => i.inventoryItemId).join(',')}:${d.breakdown.totalCents}`;
-    if (key === beginCheckoutKey.current) return;
-    beginCheckoutKey.current = key;
-    trackBeginCheckout(d.breakdown, d.items);
-  }, [query.data, query.isPlaceholderData]);
+  const paymentInfoPi = useRef('');
 
   /**
    * v1.21.3-quote-prune (misma mecánica que CheckoutView): las piezas muertas del
@@ -369,6 +363,15 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       setFormIncompleteAttempt(true);
       return;
     }
+    // C-F11: pasó las guardas locales (en vuelo, destino, formulario) ⇒ `begin_checkout` ANTES de pedir la sesión.
+    const quote = query.isPlaceholderData ? undefined : query.data;
+    if (quote) {
+      const key = `${quote.items.map((i) => i.inventoryItemId).join(',')}:${quote.breakdown.totalCents}`;
+      if (key !== beginCheckoutKey.current) {
+        beginCheckoutKey.current = key;
+        trackBeginCheckout(quote.breakdown, quote.items);
+      }
+    }
 
     payInFlight.current = true;
     setCreating(true);
@@ -403,6 +406,11 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       setRetry({ token: res.checkoutToken, email: emailUsed });
       setOutcome(res);
       setSession(res);
+      // C-F11: el modal de Stripe se abre ⇒ `add_payment_info` una vez por PI (el reuso §4-R no repite).
+      if (res.stripe?.clientSecret && res.stripe.paymentIntentId !== paymentInfoPi.current) {
+        paymentInfoPi.current = res.stripe.paymentIntentId;
+        trackAddPaymentInfo(res.breakdown, (query.data ?? quote)?.items);
+      }
     } catch (e) {
       // 💰 §DSC.6 / C12: `422 DISCOUNT_CODE_*` o `429` ⇒ la sesión no creó nada y NO se cobró. El código se quita con
       // aviso, la clave cambia y la cotización nueva pinta el total sin código antes de volver a pulsar.

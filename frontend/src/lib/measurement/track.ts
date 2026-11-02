@@ -35,7 +35,8 @@ export const EVENT_PARAMS: Readonly<Record<BrowserEvent, readonly string[]>> = {
   buy_button_visible: ['card_id', 'seconds_to_visible'],
   add_to_cart: ['items', 'value', 'currency'],
   begin_checkout: ['items', 'value', 'currency', 'shipping_cents', 'n_items'],
-  add_payment_info: ['payment_type', 'payment_methods_offered', 'value', 'currency'],
+  // v1.116 (C-F11): se manda al abrir el modal de Stripe; el método aún no se eligió ⇒ ⛔ sin `payment_type`.
+  add_payment_info: ['items', 'value', 'currency'],
   purchase: ['transaction_id', 'items', 'value', 'currency', 'shipping_cents'],
   click_contact: ['contact_channel', 'page_path'],
   search: ['results_count'],
@@ -113,13 +114,17 @@ export function filterParams(event: BrowserEvent, params: TrackParams): Record<s
     } else if (key === 'page_path') {
       const s = sanitizePath(typeof v === 'string' ? v : '');
       if (s) out[key] = s;
-    } else if (key === 'payment_methods_offered' && Array.isArray(v)) {
-      out[key] = v.filter((x) => typeof x === 'string').join(',');
     } else if (isScalar(v)) {
       out[key] = v;
     }
   }
-  if (event === 'purchase' || event === 'view_item' || event === 'add_to_cart' || event === 'begin_checkout') {
+  if (
+    event === 'purchase' ||
+    event === 'view_item' ||
+    event === 'add_to_cart' ||
+    event === 'begin_checkout' ||
+    event === 'add_payment_info'
+  ) {
     if ('value' in out || 'items' in out) out.currency = 'MXN';
   }
   return out;

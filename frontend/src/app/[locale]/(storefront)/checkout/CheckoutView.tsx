@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
-import { trackBeginCheckout, trackPurchase } from '@/lib/measurement/ecommerce';
+import { trackAddPaymentInfo, trackBeginCheckout, trackPurchase } from '@/lib/measurement/ecommerce';
 import { EmailNotVerifiedNotice } from '@/components/domain/EmailNotVerifiedNotice';
 import { useSession } from '@/lib/session';
 import { GuestCheckoutView } from './GuestCheckoutView';
@@ -132,16 +132,10 @@ export function CheckoutView() {
     setCodeForQuote(dsc.code);
   }, [dsc.code]);
 
-  // §MKT.H.4 `begin_checkout`: una vez por cotización distinta (con el modo `off`, `track` no hace nada).
+  // §MKT.H.4 v1.116 (C-F11): `begin_checkout` sale de `pay()` (una vez por cotización: ids + total) y
+  // `add_payment_info` al resolver la sesión (una vez por `paymentIntentId`). Con el modo `off`, no hacen nada.
   const beginCheckoutKey = useRef('');
-  useEffect(() => {
-    const d = query.data;
-    if (!d) return;
-    const key = `${d.items.map((i) => i.inventoryItemId).join(',')}:${d.breakdown.totalCents}`;
-    if (key === beginCheckoutKey.current) return;
-    beginCheckoutKey.current = key;
-    trackBeginCheckout(d.breakdown, d.items);
-  }, [query.data]);
+  const paymentInfoPi = useRef('');
 
   /**
    * v1.21.3-quote-prune: si el quote trae piezas muertas, se PODAN del localStorage
@@ -255,11 +249,25 @@ export function CheckoutView() {
     setPayError(null);
     setEmailNotVerified(false);
     setPaymentInProgress(null);
+    // C-F11: pasó las guardas locales ⇒ `begin_checkout` ANTES de pedir la sesión, con la cotización en pantalla.
+    const quote = query.data;
+    if (quote) {
+      const key = `${quote.items.map((i) => i.inventoryItemId).join(',')}:${quote.breakdown.totalCents}`;
+      if (key !== beginCheckoutKey.current) {
+        beginCheckoutKey.current = key;
+        trackBeginCheckout(quote.breakdown, quote.items);
+      }
+    }
     try {
       // 💰 §DSC.6: el código confirmado (sin él, el cuerpo de hoy).
       const res = dsc.code ? await createCheckoutSession(cart.ids, undefined, dsc.code) : await createCheckoutSession(cart.ids);
       setOutcome(res);
       setSession(res);
+      // C-F11: el modal de Stripe se abre ⇒ `add_payment_info` una vez por PI (el reuso §4-R no repite).
+      if (res.stripe?.clientSecret && res.stripe.paymentIntentId !== paymentInfoPi.current) {
+        paymentInfoPi.current = res.stripe.paymentIntentId;
+        trackAddPaymentInfo(res.breakdown, quote?.items);
+      }
     } catch (e) {
       if (dsc.handleSessionError(e)) {
         // C12 (§DSC-UX.4): no se cobró; el código se quita y la cotización nueva pinta el total sin él.
