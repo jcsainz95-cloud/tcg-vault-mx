@@ -51,8 +51,13 @@ export interface PostalCodeNeighborhoodFieldsProps {
  *
  * El `ref` reenviado apunta al control de colonia VIGENTE (`select` o `input`).
  *
- * Paquete A (`HECHOS.md` 2026-11-02 «Checkout con menos captura…» (4)): todos sus usos son direcciones de entrega
- * del cliente, así que el `autocomplete` lleva la sección `shipping` (la misma que el resto del formulario que monta).
+ * Paquete A (`HECHOS.md` 2026-11-02 «Checkout con menos captura…» (4)): el `autocomplete` lleva la sección
+ * `shipping` (la misma que el resto del formulario que lo monta). Sus usos: la entrega del checkout invitado
+ * (`GuestCheckoutForm`), la libreta (`AddressManager`) y, vía `AddressFormFields`, la DIRECCIÓN DE ORIGEN de la
+ * recolección del buylist (`BuylistPickupAddressField`). Esta última no es una entrega, pero se queda en
+ * `shipping` a propósito: es una fila de la MISMA libreta (`POST /users/me/addresses`) que luego sirve de
+ * entrega, el domicilio que el navegador tiene guardado como envío es justo el del vendedor, y HTML no define
+ * una sección «origen» (`billing` sería falsa).
  */
 export const PostalCodeNeighborhoodFields = forwardRef<HTMLInputElement | HTMLSelectElement, PostalCodeNeighborhoodFieldsProps>(
   function PostalCodeNeighborhoodFields(
