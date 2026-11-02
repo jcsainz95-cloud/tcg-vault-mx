@@ -1,9 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { OrderAccessTokenService } from './order-access-token.service';
 import { normalizeEmail } from './guest-privacy';
+import { UsersService } from '../users/users.service';
+import { customerAddressSnapshotOf } from './order-public-status';
 
 /** Motivo por el que un pedido no se pudo reclamar (§4-G.9). Parcial-tolerante: no tumba el lote. */
 export type ClaimFailureCode = 'ORDER_ALREADY_CLAIMED' | 'CLAIM_EMAIL_MISMATCH' | 'NOT_FOUND';
@@ -22,10 +24,14 @@ export type ClaimFailureCode = 'ORDER_ALREADY_CLAIMED' | 'CLAIM_EMAIL_MISMATCH' 
  */
 @Injectable()
 export class OrderClaimService {
+  private readonly logger = new Logger(OrderClaimService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly tokens: OrderAccessTokenService,
+    // ⭐ v1.116 (§4-G.9c): el alta en la libreta es de `users` (⛔ `orders` no escribe `Address`).
+    private readonly users: UsersService,
   ) {}
 
   /** Correo normalizado de la sesión, leído de BD por `id` (no del JWT, que puede ir desfasado). */
@@ -74,14 +80,15 @@ export class OrderClaimService {
    * reclamos simultáneos (criterio 55) sin bloqueos ni transacción serializable.
    *
    * Efectos (y SOLO estos, criterio 54): `userId`, `claimedAt`, revocación de TODOS los
-   * `OrderAccessToken` del pedido y `AuditLog`. NO cambia destino, precio, desglose, políticas,
+   * `OrderAccessToken` del pedido, `AuditLog` y, desde v1.116 (§4-G.9c), la dirección del pedido a la
+   * libreta (best-effort, tras todo lo anterior). NO cambia destino, precio, desglose, políticas,
    * estado del pedido ni el estado/propiedad de los items. Un pedido ya enviado se reclama igual.
    */
   async claim(
     actor: { id: string; role: Role },
     orderIds: string[],
     now = new Date(),
-  ): Promise<{ claimed: string[]; failed: { orderId: string; code: ClaimFailureCode }[] }> {
+  ): Promise<{ claimed: string[]; failed: { orderId: string; code: ClaimFailureCode }[]; addressesSaved: number }> {
     const email = await this.sessionEmail(actor.id);
     const claimed: string[] = [];
     const failed: { orderId: string; code: ClaimFailureCode }[] = [];
@@ -111,7 +118,59 @@ export class OrderClaimService {
       }
       failed.push({ orderId, code: await this.failureCodeFor(orderId, email) });
     }
-    return { claimed, failed };
+    // ⭐ v1.116 (§4-G.9c): SOLO los ganados, y después de revocar y auditar cada uno.
+    const addressesSaved = await this.saveAddresses(actor, claimed);
+    return { claimed, failed, addressesSaved };
+  }
+
+  /**
+   * ⭐ v1.116 (§4-G.9c) — la dirección de cada pedido GANADO pasa a la libreta del usuario. Orden: `createdAt` desc (el más
+   * reciente da la predeterminada de una libreta vacía). Best-effort: un fallo se registra como
+   * `ORDER_CLAIM_ADDRESS_SKIPPED reason=invalid|error` (⛔ sin la dirección ni el mensaje del error, que podría citarla) y
+   * ⛔ no revierte el reclamo ni cambia otra cosa de la respuesta; no se reintenta. Devuelve las filas creadas.
+   */
+  private async saveAddresses(actor: { id: string; role: Role }, claimed: string[]): Promise<number> {
+    if (claimed.length === 0) return 0;
+    let orders: Awaited<ReturnType<OrderClaimService['claimedAddresses']>>;
+    try {
+      orders = await this.claimedAddresses(claimed);
+    } catch (err) {
+      for (const id of claimed) this.skipped(id, 'error', err);
+      return 0;
+    }
+    let saved = 0;
+    for (const o of orders) {
+      const snapshot = customerAddressSnapshotOf(o, o.shipmentRequests);
+      if (snapshot == null) continue; // pedido sin envío a domicilio ⇒ nada
+      try {
+        const r = await this.users.createAddressFromClaim(actor, o.id, snapshot);
+        if (r.created) saved += 1;
+        else if (r.reason === 'invalid') this.skipped(o.id, 'invalid');
+      } catch (err) {
+        this.skipped(o.id, 'error', err);
+      }
+    }
+    return saved;
+  }
+
+  /** Pedidos ganados con lo que hace falta para leer su dirección (envíos por `requestedAt` desc, como el seguimiento). */
+  private claimedAddresses(ids: string[]) {
+    return this.prisma.order.findMany({
+      where: { id: { in: ids } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        shippingAddressSnapshot: true,
+        shipmentRequests: { orderBy: { requestedAt: 'desc' }, select: { status: true, addressSnapshot: true } },
+      },
+    });
+  }
+
+  /** Log del salto. ⛔ Ni el domicilio ni `err.message` (un error de Prisma puede citar valores): solo el nombre/código. */
+  private skipped(orderId: string, reason: 'invalid' | 'error', err?: unknown): void {
+    const e = err as { name?: unknown; code?: unknown } | undefined;
+    const kind = e ? ` error=${typeof e.code === 'string' ? e.code : typeof e.name === 'string' ? e.name : 'unknown'}` : '';
+    this.logger.warn(`ORDER_CLAIM_ADDRESS_SKIPPED reason=${reason} orderId=${orderId}${kind}`);
   }
 
   /** Diagnóstico del fallo. Solo sobre ids que el propio llamante envió (uuids no adivinables). */
