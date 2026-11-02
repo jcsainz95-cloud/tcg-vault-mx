@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.116⟨ids⟩ (2026-11-02).** [§15](#15-IDS) NUEVA: español y versiones de liga — idioma como columna de la pieza, liga como `CardProduct` `stamped`, precio por sustitución de la referencia en el cuerpo único, empate automático sin cola, ficha por carta con versiones, surtido de Meta decks sin liga primero; D-IDS-1…5 y P-ARQ-IDS-1/2; §4.33 compactada (superseded) · dueño (`HECHOS.md` 2026-10-30 y 2026-11-01/02, filas §IDS), marketing (D-6 v3, burbujas). Contrato: API_CONTRACT §IDS.
 > **Rev v1.115⟨mkt-conv2⟩ (2026-10-31).** §13.8 NUEVA (sellado agotado por grupo, `Offer` agotado sin precio, correo público, canonical paginado); §4.DYN (f) 2 regla de la respuesta tardía, (f) 3 corregido (el HTML no tiene cota de edad), (f) 9 dato servidor→cliente con su edad; §14.4 `/nosotros` excluida; compactadas las cabeceras C7/P-71 · frontend (§MKT-CONV2), techlead (TL-MKT2-7/8, TL-MKT4-3). Contrato: API_CONTRACT §MKT.A.1.
 > **Errata v1.114.5⟨portada⟩ (2026-10-30).** §4.DYN (f) 7: el residual de PEN-DYN-1 (scrydex da 200 genérico a cualquier id con la forma) se **acepta** con alerta de gasto, lectura a 7 días con caducidad y candado, e interruptor que cierra `/_next/image` a orígenes remotos; el proxy con lista de ids queda como opción (b) con disparador · QA (rechazo sobre `d0b40182`), frontend (medición del residual), pentester. Contrato: API_CONTRACT §DYN.1 «Limpieza PDB», DYN-D2.
 > **Errata v1.114.4⟨portada⟩ (2026-10-30).** §4.DYN (d) 4: un solo turno PSA vivo (candado consultivo; la segunda corrida sale sin pedir nada) y relectura de lo gastado antes de cada set; §4.DYN (e): «empezó después» con el reloj de la BD y retención de `ListingPriceRun` · techlead (rechazo sobre `d0b40182`: R2, TL-DYN-6/7/10). Contrato: API_CONTRACT §DYN.4.3, §DYN.5.3/.9/.10, DYN-B27…B31, D-DYN-10.
@@ -10628,199 +10629,10 @@ destructivo. Con la app corriendo. `backend/prisma/` es **zona compartida** → 
 
 ### 4.33 Pricing por TIERS — una regla por peldaño + mapa rareza→tier (v1.37, P-34) — ⛔ **SUPERSEDED COMPLETA por §4.36 (v2.0, P-48)**
 
-> ⛔ **SUPERSEDED COMPLETA — esta sección deja de ser NORMATIVA.** PROJECT §M quedó superseded por **§N (v2.0, LOCKED)**:
-> desaparecen **los 5 tiers**, el **mapa rareza→tier** (`PRICING_TIER_MAP`), `common/pricing-tiers.ts`, `TieredRuleSet`,
-> `buildEffectiveRuleSet` y los endpoints `/tiers` + `/tier-map`. **El invariante `premium ⇒ pct` de (d) queda SIN
-> SENTIDO** (no hay modos que refinar) y lo **sustituye el guardarraíl de §4.36.5** (misma finalidad money-safe, otro
-> mecanismo: la rareza premium ya no elige *qué regla* aplica, sino que **bloquea la publicación/cotización** cuando el
-> precio aterriza en el piso/bin). El cambio intencional de T2 y los deltas de (f) quedan **sin efecto**: con la curva
-> no hay tiers de los que salir. **Veredicto sobre la taxonomía: se retira del todo** (razonado en §4.36.4) — la
-> taxonomía que **sobrevive** es la de **rareza canónica** (§4.28b/c/e), y **solo** para guardarraíl, filtros y
-> reportes. Se conserva abajo como registro histórico; **no implementar nada de aquí**.
-
-> **Propósito (PROJECT §M).** El editor de M2 muestra hoy **una fila por CADA rareza canónica** (~30 tras el sync,
-> §4.28). El dueño quiere pricear pensando en **5 familias de valor**, no en 30 nombres. Se introduce una **taxonomía de
-> 5 tiers (T0–T4)** y un **mapa rareza canónica → tier**; cada rareza **hereda** la regla de su tier. **Lo que NO
-> cambia** (crítico, money-safe): la naturaleza de una regla sigue siendo `fixed` (MX$ centavos) o `pct` (buylist: % de
-> la referencia; venta: markup arriba de mercado); la **precedencia** de compra (bounty > override > regla > fallback,
-> §4.26b) y de venta (listPrice por pieza > override variante > regla > fallback, §4.26b); y el **eje `finish`**
-> (`finishRules`, §4.28d) sigue siendo un eje aparte (LOCKED #5). **Único cambio intencional de comportamiento: T2
-> (Rare/Holo) pasa a `pct` bajo (default 25%).** Esta sección NO reabre §4.2/§4.14/§4.28 salvo por el punto de
-> indirección que se documenta abajo.
-
-#### (a) Los tiers son TAXONOMÍA (código, LOCKED), no dato editable — `common/pricing-tiers.ts`
-
-Como `rarity-catalog.ts` (§4.28), el **conjunto de tiers** (los 5 peldaños, su nombre y su **banda `premium`**) es una
-constante **cerrada y versionada** en la zona compartida `backend/src/common/pricing-tiers.ts` (importable desde
-seeds/tests, sin infra). El dueño **NO** crea/borra tiers; edita (1) los **valores** de la regla de cada tier y (2) el
-**mapa** rareza→tier. Forma (backend implementa; el arquitecto fija la forma y el seed):
-
-```ts
-// backend/src/common/pricing-tiers.ts  (NUEVO — zona compartida common/)
-export type TierId = 'T0' | 'T1' | 'T2' | 'T3' | 'T4';
-export interface PricingTier {
-  id: TierId;
-  name: string;      // etiqueta de display (LOCKED, no editable por el dueño)
-  premium: boolean;  // banda del tier: T0/T1/T2 = false ; T3/T4 = true (ver invariante (d))
-}
-export const PRICING_TIERS: PricingTier[] = [
-  { id: 'T0', name: 'Bulk',               premium: false },
-  { id: 'T1', name: 'Uncommon / Reverse', premium: false },
-  { id: 'T2', name: 'Rare / Holo',        premium: false },
-  { id: 'T3', name: 'Premium / Chase',    premium: true  },
-  { id: 'T4', name: 'Ultra / Grail',      premium: true  },
-];
-```
-
-> La banda `premium` del **tier** (T3/T4 = true) es distinta del `premium` de la **rareza** (`rarity-catalog.ts`,
-> §4.28e). El invariante (d) las liga: una rareza `premium:true` solo puede caer en un tier cuya regla de COMPRA sea
-> `pct` (nunca en un bin fijo). Con el seed, eso equivale a «premium ⇒ T3/T4», pero el invariante se valida sobre el
-> **modo de la regla de compra vigente**, no sobre la etiqueta, para que siga siendo money-safe aunque el dueño edite.
-
-#### (b) Persistencia — reshape de los `ConfigSetting` existentes + un mapa nuevo (NO hay tabla nueva)
-
-Los tiers, el mapa y las reglas son **DATO de configuración** (JSON en `ConfigSetting`), como `BUYLIST_PRICE_RULES` lo
-fue desde §4.2. **No requiere DDL de Prisma** (ver M-38, §11: es una migración de datos/seed). Tres claves:
-
-- **`BUYLIST_PRICE_RULES`** (`buylist_price_rules`, RESHAPE): pasa de `PriceRuleSet { rarityRules, finishRules,
-  fallbackPct }` (§4.28d) a **`TieredRuleSet { tierRules, finishRules, fallbackPct }`**, donde `tierRules:
-  Record<TierId, BuylistRule>` (5 entradas) **reemplaza** `rarityRules`. `finishRules` (`Partial<Record<Finish,
-  BuylistRule>>`) y `fallbackPct` **no cambian** (el eje acabado sigue igual, §4.28d).
-- **`SALES_PRICE_RULES`** (`sales_price_rules`, RESHAPE): análogo con `SalesRule` (`pct` = markup arriba de mercado,
-  §4.14b). Mismo `TieredRuleSet` con `tierRules: Record<TierId, SalesRule>`.
-- **`PRICING_TIER_MAP`** (`pricing_tier_map`, NUEVO `SettingKey`): el mapa **COMPARTIDO** `Record<CanonicalRarity.key,
-  TierId>`. **Un** mapa, dos juegos de valores (vive fuera de las dos claves de reglas justamente porque es compartido
-  por compra y venta). Rareza **ausente** del mapa ⇒ tier por defecto ⇒ `fallbackPct` (money-safe, ver (e)).
-
-```ts
-interface TieredRuleSet<R extends BuylistRule | SalesRule> {
-  tierRules: Record<TierId, R>;                 // eje RAREZA re-expresado por tier (5 entradas)
-  finishRules: Partial<Record<Finish, R>>;      // eje ACABADO — IDÉNTICO a §4.28d (no se tieriza)
-  fallbackPct: number;                          // tier por defecto de una rareza sin mapear
-}
-```
-
-#### (c) Resolución — indirección mínima; el resolver money-safe de §4.28d NO se toca
-
-La única función pura nueva **deriva** el `PriceRuleSet` efectivo de siempre a partir de (tiers × mapa), y se lo pasa al
-resolver EXISTENTE (`resolveTwoAxisRule`, §4.28d) **sin cambiarlo**. Así la precedencia, el **gate premium** (§4.2.1) y
-el manejo money-safe quedan **verbatim**:
-
-```ts
-// backend/src/common/money.ts  (aditivo; NO altera resolveTwoAxisRule/quoteAcquisitionForFinish/computeSalePriceForRarity)
-function buildEffectiveRuleSet<R extends BuylistRule | SalesRule>(
-  tiered: TieredRuleSet<R>,
-  tierMap: Record<string, TierId>,        // PRICING_TIER_MAP
-): PriceRuleSet<R> {
-  const rarityRules: Record<string, R> = {};
-  for (const [canonical, tierId] of Object.entries(tierMap)) {
-    const rule = tiered.tierRules[tierId];
-    if (rule != null) rarityRules[canonical] = rule;   // rareza mapeada → regla de su tier
-  }
-  return { rarityRules, finishRules: tiered.finishRules, fallbackPct: tiered.fallbackPct };
-}
-```
-
-- El servicio (buylist/pricing) iza `PRICING_TIER_MAP` + la clave de reglas una vez por request (patrón BE-25) y llama
-  `buildEffectiveRuleSet` → obtiene el `PriceRuleSet` de siempre → sigue con `quoteAcquisitionForFinish` /
-  `computeSalePriceForRarity` **sin ningún otro cambio**. Una rareza `premium` mapeada a un tier `pct` produce un
-  `rarityRules[canonical]` `pct` ⇒ el gate premium la resuelve por su regla, jamás por el bin de acabado (§4.2.1),
-  exactamente como hoy.
-- **Compat on-read:** si `BUYLIST_PRICE_RULES`/`SALES_PRICE_RULES` aún trae el shape `{ rarityRules, ... }` (pre-M-38),
-  `buildEffectiveRuleSet` no aplica y se usa `rarityRules` tal cual (o `toPriceRuleSet`, §4.28d). El reshape M-38 es la
-  transición; ambos shapes conviven durante el deploy (money-safe, sin ventana ciega).
-
-#### (d) Invariante money-safe (refinamiento estricto de `premium`) — validado server-side en CADA write
-
-> Preserva el fix de Fase 0.1 (§4.2.1): una rareza chase **jamás** cotiza al bin fijo barato de bulk, **aunque el dueño
-> edite el mapa** (Opción B, PROJECT §M.5).
-
-**Invariante (normativo).** Para toda `canonical` con `isPremiumCanonicalRarity(canonical) === true` asignada a `tierId`
-en `PRICING_TIER_MAP`, la regla de **COMPRA** de ese tier debe ser `pct`: `BUYLIST_PRICE_RULES.tierRules[tierId].mode
-=== 'pct'`. Equivalente con el seed: una rareza premium solo puede caer en **T2/T3/T4** (nunca T0/T1, los únicos bin
-fijo). Se valida contra el **producto (tiers × mapa)** completo, no sobre un delta aislado, y por eso se re-valida en
-**ambos** writes:
-
-- `PUT /pricing/tier-map` (reasignar una rareza) — rechaza si mandaría una rareza premium a un tier de compra `fixed`.
-- `PUT /pricing/tiers` (cambiar la regla de un tier a `fixed`) — rechaza si ese tier tiene alguna rareza premium mapeada.
-
-Rechazo: `422 PREMIUM_RARITY_FIXED_TIER` con el detalle de los pares `(rareza, tier)` infractores. **El eje de venta NO
-entra al invariante:** un `fixed` de venta es un **piso** money-safe (nunca infravalúa como un bin de compra); la
-matemática de venta (§4.14b) ya lo maneja.
-
-Otros guardarraíles money-safe (heredados, sin cambio):
-- **Rareza sin tier explícito → `fallbackPct`** (default compra 40%, nunca $0 ni bin fijo). Criterio 77.
-- **`pct` sin referencia de mercado del acabado → «precio pendiente»** (escala al dueño, §4.2/§4.14b). Aplica también a
-  **T2** ahora que es `pct`: una Rare/Rare Holo sin market queda pendiente, nunca $0.
-- **Derivación server-side (SEC-A1):** el tier se resuelve desde `Card.rarityCanonical` real + acabado validado, jamás
-  del DTO del cliente. Compra y venta por igual.
-
-#### (e) Seed (reproduce el negocio vigente salvo T2 — LOCKED) y las tres rarezas `unmapped`
-
-`common/rarity-catalog.ts` gana **una alias y dos canónicas** (nota para backend, §4.28b — es zona compartida `common/`;
-el arquitecto define el delta, backend lo implementa):
-
-| Cambio en `rarity-catalog.ts` | Detalle | `premium` | Efecto |
-|---|---|---|---|
-| **alias** en `Hyper Rare` | añadir `'megahyperrare'` a `aliases` | (ya true) | `normalizeRarity('Mega Hyper Rare') → "Hyper Rare"` → T4 |
-| **canónica nueva** `Mega Rare` | `{ key:'Mega Rare', premium:true, aliases:['megaattackrare','megarare'] }` | true | `MEGA_ATTACK_RARE` (snake_case; `normKey` ya lo colapsa) → "Mega Rare" → T3. Deja de cotizar al bin de bulk. |
-| **canónica nueva** `Black White Rare` | `{ key:'Black White Rare', premium:true, aliases:['blackwhiterare'] }` | true | → "Black White Rare" → T3. Deja de cotizar al bin de bulk. |
-
-`PRICING_TIER_MAP` seed (mapa M.2 LOCKED, más las dos canónicas nuevas):
-
-```jsonc
-// PRICING_TIER_MAP  (una entrada por canónica; ausencia ⇒ fallback)
-{ "Common":"T0",
-  "Uncommon":"T1", "Reverse Holo":"T1", "Promo":"T1",
-  "Rare":"T2", "Rare Holo":"T2",
-  "Double Rare":"T3","Ultra Rare":"T3","Illustration Rare":"T3","Rare Holo EX":"T3","Rare Holo GX":"T3",
-  "Rare Holo V":"T3","Rare Holo VMAX":"T3","Rare Holo VSTAR":"T3","Rare Holo LV.X":"T3","Rare Prime":"T3",
-  "Rare BREAK":"T3","LEGEND":"T3","Amazing Rare":"T3","Radiant Rare":"T3","Shiny Rare":"T3",
-  "Trainer Gallery Rare Holo":"T3","Rare ACE":"T3","Mega Rare":"T3","Black White Rare":"T3",
-  "Special Illustration Rare":"T4","Hyper Rare":"T4","Secret Rare":"T4","Gold Rare":"T4" }
-
-// BUYLIST_PRICE_RULES.tierRules  (buy)                 // SALES_PRICE_RULES.tierRules (sell — reproduce markup vigente)
-{ "T0":{"mode":"fixed","value":50},                     // T0: sell fixed piso vigente de Common
-  "T1":{"mode":"fixed","value":150},                    // T1: sell fixed piso vigente de Uncommon
-  "T2":{"mode":"pct","value":25},   // ← CAMBIO LOCKED   // T2: sell pct = fallback de venta vigente (15)
-  "T3":{"mode":"pct","value":40},                        // T3: sell pct = fallback de venta vigente (15)
-  "T4":{"mode":"pct","value":40} }                       // T4: sell pct = fallback de venta vigente (15)
-// BUYLIST_PRICE_RULES.fallbackPct = 40 ; SALES_PRICE_RULES.fallbackPct = 15 (sin cambio)
-// finishRules (buy y sell) = las de hoy, SIN cambio (reverse_holo fixed 150, holofoil …). Eje acabado intacto.
-```
-
-> **Valores de venta por tier:** PROJECT §M deja al arquitecto/backend fijarlos «reproduciendo el markup vigente». Los
-> seed de arriba (T0/T1 = pisos fijos vigentes de Common/Uncommon; T2/T3/T4 = `pct` 15 = `SALES_PRICE_FALLBACK_PCT`
-> vigente) **reproducen la venta de hoy** para las rarezas que hoy caen al fallback de venta. Backend **confirma los
-> pisos exactos** de T0/T1 contra el `SALES_PRICE_RULES` productivo al implementar (sub-decisión de dato, sin producto).
-
-#### (f) Deltas de cotización vs. hoy (transparencia — para PO/QA)
-
-Con el seed, la cotización de **COMPRA** (finish `normal`) cambia SOLO en:
-
-| Rareza | Compra hoy (normal) | Tier | Compra nueva | Nota |
-|---|---|---|---|---|
-| Common | fixed $0.50 | T0 | fixed $0.50 | idéntico ✓ |
-| **Uncommon** | **fixed $0.50** (seed vigente) | **T1** | **fixed $1.50** | **CAMBIO — bandera para PO.** El mapa LOCKED agrupa Uncommon en «Uncommon/Reverse» ($1.50). Criterio 78 asumía T1 «idéntico»; de hecho Uncommon sube $0.50→$1.50. Es cambio de negocio (no money-safety), **reversible sin código** (bajar T1 o reasignar Uncommon→T0). Ver (g) DEV-tiers-1. |
-| Rare, Rare Holo | fallback 40% | T2 | **pct 25%** | **CAMBIO LOCKED intencional** (T2). Sin market ⇒ pendiente, nunca $0. |
-| premium (Double/Ultra/Illustration/ex/V/GX/…) | fallback 40% | T3 | pct 40% | idéntico ✓ |
-| Special Illustration/Hyper/Secret/Gold | fallback 40% | T4 | pct 40% | idéntico ✓ |
-| `MEGA_ATTACK_RARE`, Black White Rare | bin de acabado holo (money-losing en finish holofoil) | T3 | pct 40% | **FIX de dinero:** deja de cotizar al bin barato de bulk. |
-| Mega Hyper Rare | fallback 40% (unmapped, premium por patrón) | T4 | pct 40% | equivalente; ahora explícito/auditable. |
-
-> **Aclaración sobre la narrativa «bin fijo → pct» de T2:** en el seed vigente Rare/Rare Holo NO tienen regla explícita
-> y hoy caen al **fallback 40%** (no a un bin fijo). El cambio LOCKED las lleva a **pct 25%** (una BAJA deliberada de la
-> banda intermedia). El resultado normativo es el mismo que pide §M (T2 = `pct` 25%, money-safe); solo se documenta el
-> punto de partida real para que QA verifique el delta correcto (40%→25%, no «bin fijo→25%»).
-
-#### (g) Riesgos / deuda (abiertos, no bloqueantes)
-
-- **DEV-tiers-1 (bandera para PO):** el mapa LOCKED sube **Uncommon** de $0.50 a $1.50 en compra, en tensión con la prosa
-  del criterio 78 («T0/T1 idéntico»). Se implementa el **mapa tabulado** (más específico y explícito que la prosa); se
-  reporta a PO/humano para que confirme o reasigne Uncommon→T0. Reversible sin deploy.
-- **Barrido de `unmapped` (implementación, §M.3):** además de los tres casos cerrados, backend recorre TODAS las rarezas
-  distintas del catálogo real tras el sync y cierra las `unmapped` restantes con la MISMA política (premium por patrón
-  ⇒ canónica+tier premium; jamás T0/T1). Tarea de implementación con política fijada, no hueco de producto.
+> ⛔ **SUPERSEDED COMPLETA, no normativa.** La curva de §4.36 (PROJECT §N v2.0) retiró los 5 tiers, `PRICING_TIER_MAP`,
+> `common/pricing-tiers.ts`, `TieredRuleSet`, `buildEffectiveRuleSet` y `/tiers` + `/tier-map`; el invariante `premium ⇒ pct`
+> lo sustituye el guardarraíl de §4.36.5. Sobrevive solo la rareza canónica (§4.28b/c/e). El diseño entero (a)–(g) salió en
+> v1.116⟨ids⟩ para compactar (lo guarda git).
 
 ---
 
@@ -37103,3 +36915,95 @@ que no pasa por el interruptor**: acotada a `super_admin`, 5/h, bitácora y ning
   con su prueba: API_CONTRACT §MKT.H.12 (backend + frontend, D-MKT2-10) y §MKT.H.13 (frontend).
 - **seguridad** (antes de encender): diff de etiquetas, rutas excluidas, checkout de invitado con etiquetas, configuración real del píxel y de
   GA4 en sus consolas, riesgo residual de §MKT.G.10 y el endpoint de prueba de D-MKT2-10.
+
+## <a id="15-IDS"></a>15. §IDS — cartas en español y versiones de liga (rev v1.116⟨ids⟩, 2026-11-02, arquitecto)
+
+> Norma, esquema `M-95`, endpoints, pruebas y reparto: **API_CONTRACT §IDS**. Aquí: estado medido, decisiones con su razón, flujo,
+> despliegue, desviaciones y preguntas. Fuentes del dueño y de marketing: las de API_CONTRACT §IDS (cabecera), citadas por fila (O-17).
+
+### 15.0 Estado medido (O-1)
+Leído en el árbol `claude/ids-diseno` (sin ejecutar; sha no comprobado: no tengo Bash):
+- **Precio de venta:** `sale-decision.service.ts:200-207` (`refKeyOf` = cardId, productType, gradeKey, finish: **sin producto**) y `:118-130`
+  (retención de DYN.5.9); `pricing.service.ts:1204-1211` (`getReferencesBatch` solo `set_base|other`) y `:1104-1121` (referencia por producto
+  separado, hoy solo la usa buylist).
+- **Identidad:** `schema.prisma` `CardProduct` (`tcgplayerProductId @unique`, `kind`), `InventoryItem.cardProductId Int?` (M-46; `null` = set
+  base), `ListingPrice.variantKey` = `cardId|productType|gradeKey|finish`, `OrderItem` congela `finish`.
+- **Ingesta:** `card-product-resolver.service.ts:78-85` y `tcgcsv-singles-bulk.provider.ts:92-98` bajan solo el grupo del set ⇒ Prize Pack
+  (`22880`) y Liga (`1539`) nunca entran hoy.
+- **Meta decks:** `decks-meta.service.ts:160-171` toma las primeras `quantity` unidades de `getSellableRawUnitsByCardIds` (más baratas primero).
+- **Investigaciones** (2026-10-06): `docs/specs/INVESTIGACION_SELLOS.md` (22880 = 891 productos; empate único 818/849; liga/base de ×0.81 a
+  ×11.1, N=102) e `INVESTIGACION_IDIOMAS.md` (ninguna fuente abierta da precio del español; en Cardmarket es el mismo producto).
+- **NO MEDIDO**, con lo que lo cierra: empate y sufijos de `1539` (IDS-D1); promos SVP/MEP en el catálogo para prerelease/Staff (IDS-D2);
+  piezas promo o Deck Exclusive a la venta en producción (IDS-D1); de qué columna sale el «057/191» de nuestro lado (backend, fixture de
+  IDS-B7); imagen del producto de liga en TCGCSV (fuera de esta entrega: D-7 de marketing usa la del catálogo con leyenda).
+
+### 15.1 Decisiones
+| ID | Decisión | Por qué | Descartado |
+|---|---|---|---|
+| D-IDS-A | El **idioma es columna de la pieza** (`InventoryItem.language`), no un producto | El español es el mismo producto (Cardmarket `idProduct` 895789 en los dos idiomas) y no tiene precio propio en ninguna fuente abierta: su precio es una regla sobre el inglés. Un `CardProduct` «español» inventaría un `productId` | Producto o catálogo por idioma |
+| D-IDS-B | La **versión de liga es un `CardProduct`** de la carta base con `kind` nuevo `stamped` + `stampType`/`stampLabel` | En TCGCSV es otro producto con su precio y sus acabados (Cosmos Holo es otro `productId`); M-31 ya modela «1 carta ↔ N productos» y `PriceReference` ya se llavea por producto. Kind propio porque el tipo es dato del cliente («De liga», «De torneo») y `promo` ya significa otra cosa en buylist y en la composición | Acabado (liga × acabado no cabe en `Finish`); reutilizar `promo`; tabla aparte (duplica precio e ingesta) |
+| D-IDS-C | **Versión de la pieza = (`language`, `cardProductId` si es `stamped`)**; sin columna nueva para la liga | M-46 ya guarda la identidad de producto de la pieza: una segunda columna serían dos fuentes del mismo hecho | `InventoryItem.stampedProductId` |
+| D-IDS-D 💰 | El precio de una versión **sustituye la referencia de entrada** del cuerpo único (DYN.5.1), antes de la curva | «Las demás dinámicas funcionan igual» (HECHOS 2026-10-30): X va al mercado y después piso, curva, IVA y precio del día como cualquier carta; un segundo cuerpo es un defecto (DYN.5.1). El español toma `R_en` ya retenido, así hereda el candado del inglés | Multiplicar `P` (rompe piso y redondeo); segundo cálculo |
+| D-IDS-E | **Empate automático**: único ⇒ se cuelga; ambiguo ⇒ candidatas que elige quien captura (identidad, no precio); ninguno ⇒ no existe | HECHOS 2026-10-30 «TODO automático…»: sin reporte ni cola. Prize Pack: 96 % único. La carta en la mano es la única información que nadie más tiene | Reporte «Sellos por revisar» (retirado por el dueño); adivinar el set por el total («/189» choca) |
+| D-IDS-F | **Tipo por sufijo, fallando cerrado** | Un campeonato nunca dice «De liga» (D-6 v3, MKT-3). Sin sufijo reconocible no se ofrece; el costo se mide antes (IDS-D1) | Suponer `league` para todo `1539` |
+| D-IDS-G | Productos de liga **sin candado anti-inflado** (§4.PRE) | Igual que las promos hoy: la retención mira variantes sin producto (DYN.5.9) y la liga tiene una sola familia (TCGplayer). Costo declarado en §15.6 | Ampliar §4.PRE ahora (errata aparte si duele) |
+| D-IDS-H | **Teja por versión; ficha por carta** con `versions[]`; el servidor omite las agotadas; `?version=` con canonical a la base; JSON-LD `ProductGroup` | Marketing D-2, D-3 y filas 9–11 (delegado por el dueño, HECHOS 2026-11-01); Google: una URL canónica por grupo de variantes y marcado igual a lo visible. Omitir en el servidor reusa el `stockCount ≥ 1` de la rejilla | URL indexable por versión; `hreflang` por idioma de carta |
+| D-IDS-I 💰 | **Surtido de Meta decks: sin liga primero** (inglés o español, más barata), liga solo si no alcanza; lo ordena backend | P-IDS-12 de marketing: una liga automática multiplica el total (mediana ×2.15, p90 ×11.1). El precio de la línea es el de la pieza que agrega el botón (965) | «La más barata sea cual sea» |
+| D-IDS-J | `OrderItem` **congela** idioma y tipo | La pieza se corrige con `PATCH` (criterio 160); el pedido histórico no cambia (misma doctrina que `finish`) | Leerlo de la pieza |
+| D-IDS-K | **Solo raw NM** en esta entrega | `PROJECT §IDS` no dice cómo se precia un slab o un sellado en español; PSA × 75 % sería inventar (P-ARQ-IDS-1) | Graded/sealed en español |
+| D-IDS-L | **Sin override de variante (M-30) ni bounty** para versiones | Su clave es la de la inglesa; aplicarlo cobraría el precio del inglés. Respaldo: precio por pieza | Clave de override con versión (sin pedido del dueño) |
+| D-IDS-M | **Dial X entero en M10** (`spanish_market_pct`) | Patrón de `iva_pct`: auditado, sin redeploy, `dial_change` inmediato; «me lo dejas en algún lugar a mover» (HECHOS 2026-10-30) | Constante; decimales |
+
+### 15.2 Flujo
+```
+TCGCSV 22880 / 1539 ─(barrido diario, paso stamped)─► stampTypeOf ─► baseMatchKey ─┬─ único ────► CardProduct(stamped) ─► PriceReference(tcgcsv_singles, producto)
+                                                                                    ├─ ambiguo ──► StampedProductCandidate ─(captura: attach)─► CardProduct(stamped)
+                                                                                    └─ 0 / sin tipo ─► log (no se ofrece)
+Captura M1: carta → acabado → idioma → versión → GET …/versions (P por combinación, cuerpo único) → POST items {language, cardProductId}
+Precio:     SaleDecisionService.loadBatch ─► referencia por versión (IDS.2) ─► curva · piso · IVA ─► ListingPrice(variantKey[|v:key]) ─► rejilla · ficha · deck · checkout
+Checkout:   cobra la fila; pending ⇒ PRICE_PENDING nombrando la versión; OrderItem congela la versión ⇒ pedido · correo · preparación
+```
+
+### 15.3 Despliegue y reversa
+- **M-95 es aditiva** y no mueve dinero por construcción (`DEFAULT 'en'`; el `variantKey` de (inglés, sin liga) no cambia). IDS-D3 lo comprueba
+  con la foto del criterio 512 en el ensayo.
+- **Orden:** `m95a` (valor de enum) → `m95b` → código. El primer barrido diario cuelga los productos de liga; hasta entonces la captura no
+  ofrece versiones de liga (falla cerrado, sin cola).
+- ⚠️ **Reversa:** revertir el código deja columnas y el valor `stamped` inertes (Postgres no borra valores de enum; inocuo). **Pero el código
+  anterior preciaría una pieza española o de liga como la inglesa base**: antes de revertir, devops retira (`withdrawn`) las piezas con
+  `language = 'es'` o producto `stamped` y lo dice en la solicitud de fusión, con la consulta exacta. Sin ese paso, la reversa cobra mal.
+
+### 15.4 Desviaciones detectadas (§IDS)
+- **D-IDS-1 💰 Promo y Deck Exclusive se precian y agrupan como la carta base.** `sale-decision.service.ts:200-207` y `pricing.service.ts:1210-1211`:
+  una pieza con `cardProductId` de un `promo`/`deck_exclusive` toma la referencia del `set_base`, aunque §4.27 (M-31) los declara productos con
+  precio propio; la rejilla la agrupa con la base (K sin producto, API_CONTRACT §2). Leído; NO MEDIDO con ejecución ni en datos. **Lo corrige
+  backend** con el mismo mecanismo de IDS.2 `(en, P)` **solo si IDS-D1 da 0 piezas vendibles** de esos kinds; si da más, cambiar su precio es
+  decisión del dueño con la lista delante (va en la solicitud de fusión). Prueba **IDS-B17** (se escribe con esa decisión: una pieza `promo`
+  con mercado propio distinto ⇒ su precio, no el de la base); la vigila también IDS-B1 (que §IDS no la cambie a medias).
+- **D-IDS-2 (medición pedida al arquitecto):** `PROJECT §IDS.3` pedía medir el empate de `1539` antes del diseño; no lo medí (sin Bash ni red).
+  El diseño no depende del número (ambiguo y ninguno tienen camino), el caso del criterio 960 sí. **Lo corrige devops** (IDS-D1); con el
+  resultado, **product-owner** elige el caso del 960.
+- **D-IDS-3 (texto de `PROJECT`):** §IDS.3/.4 y los criterios 521, 526 y 961 dicen «sello», «Con sello · <tipo>» y filtro «con sello»; `HECHOS`
+  2026-11-02 (D-6 v3) los sustituye por «de liga» y «Cartas de liga y promos». El 966 sigue como SUPUESTO aunque marketing ya decidió P-IDS-12.
+  El 527 conserva «Sello» (admin). **Lo corrige product-owner**; lo vigila IDS-F6 (grep de «sello» en superficies de cliente).
+- **D-IDS-4 (preselección de la ficha):** `DESIGN_SYSTEM` IDS-UX.4 dice «la más barata con existencia; de empate, la inglesa»; marketing (fila 10,
+  delegada por el dueño) dice «la de la teja tocada; sin parámetro, Inglés si hay, si no la más barata». El contrato sirve las dos
+  (`versions[]` + `?version=`). **Lo corrige ux-ui**; lo vigila IDS-F3.
+- **D-IDS-5 (formas que la v4 no cubre):** hay versiones de liga con acabados que la base no tiene (Prize Pack Normal de una carta holo) y dos
+  productos del mismo tipo (Prize Pack y Prize Pack Cosmos Holo: 101 pares medidos en INVESTIGACION_SELLOS §1). La fila «Acabado» de la
+  captura (`01-captura-v4`) sale de la carta y la ficha es 2×2. El contrato da `combos` por (acabado × versión) y `versions[]` por producto.
+  **Lo corrige ux-ui** (cómo se ven); lo vigilan IDS-F1 e IDS-F3.
+
+### 15.5 Preguntas al dueño (con recomendación; sin respuesta rige la recomendación)
+- **P-ARQ-IDS-1 💰** ¿Tienes cartas **gradeadas** (PSA) o **producto sellado** en español para vender? *Recomendación: en esta entrega solo
+  cartas sueltas; lo otro se diseña cuando lo tengas, con su propia regla de precio.*
+- **P-ARQ-IDS-2 💰 (criterio 531)** El valor que ve un cliente de una carta en español guardada en su bóveda, y lo que se le paga si una carta de
+  un retiro no se repone, ¿es el de la carta en español (inglés × 75 %)? *Recomendación: sí; es lo que vale lo que guarda. Ya es el supuesto de
+  `PROJECT`.*
+
+### 15.6 Riesgos declarados
+- **Liga sin candado y con una sola fuente** (D-IDS-G): un salto de TCGplayer en un producto de liga se publica en el siguiente `daily`. Se mide
+  con el log del paso (`conPrecio`) y, si aparece, va a TECH_DEBT con su prueba.
+- **Sufijos de `1539`:** si la mayoría no trae sufijo (IDS-D1), las cartas de liga del dueño no se ofrecerán; se reabre D-IDS-F con el dato, sin
+  cambiar el resto del diseño.
+- **Reversa** (§15.3) y **anchos de insignias y burbujas a 360 px** (NO MEDIDOS; candados de IDS-UX.6/.8, frontend).
