@@ -60,7 +60,11 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
   }
 
   /** Pedido de invitado pagado, `direct_ship`, con su snapshot (y opcionalmente un envío con otro snapshot). */
-  async function guestOrder(email: string, snap: Prisma.InputJsonObject = SNAP, opts: { createdAt?: Date; shipmentSnap?: Prisma.InputJsonObject } = {}) {
+  async function guestOrder(
+    email: string,
+    snap: Prisma.InputJsonObject = SNAP,
+    opts: { createdAt?: Date; shipmentSnap?: Prisma.InputJsonObject; correctedByUserId?: string } = {},
+  ) {
     seq += 1;
     const o = await h.prisma.order.create({
       data: {
@@ -80,7 +84,18 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
     });
     if (opts.shipmentSnap) {
       await h.prisma.shipmentRequest.create({
-        data: { orderId: o.id, addressSnapshot: opts.shipmentSnap, status: 'picking', shippingFeeCents: 0, priceConvention: 'IVA_INCLUSIVE', addressVersion: 1 },
+        data: {
+          orderId: o.id,
+          addressSnapshot: opts.shipmentSnap,
+          status: 'picking',
+          shippingFeeCents: 0,
+          priceConvention: 'IVA_INCLUSIVE',
+          // Los tres campos de la corrección van juntos o ninguno (CHECK `shipment_address_corrected_paired` y
+          // `shipment_address_version_iff_corrected`, migración 20261006120000_m64_sdx_c_address).
+          ...(opts.correctedByUserId
+            ? { addressVersion: 1, addressCorrectedAt: new Date(), addressCorrectedByUserId: opts.correctedByUserId }
+            : { addressVersion: 0 }),
+        },
       });
     }
     return o.id;
@@ -184,8 +199,11 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
 
   it('CLM-A6: envío con dirección corregida ⇒ se guarda la del ENVÍO, no la capturada al pagar', async () => {
     const me = await account();
+    const operator = await account(); // quien corrige: usuario real sembrado (la columna no tiene FK dura, pero el dato es real)
     const corrected = { ...SNAP, line1: 'Calle Corregida 7', neighborhood: 'Cuauhtémoc', postalCode: '06500' };
-    const orderId = await guestOrder(me.email, SNAP, { shipmentSnap: corrected });
+    const orderId = await guestOrder(me.email, SNAP, { shipmentSnap: corrected, correctedByUserId: operator.id });
+    const ship = await h.prisma.shipmentRequest.findFirstOrThrow({ where: { orderId } });
+    expect(ship).toMatchObject({ addressVersion: 1, addressCorrectedByUserId: operator.id }); // de verdad corregida
     expect((await claim(me.token, [orderId])).body.addressesSaved).toBe(1);
     const rows = await book(me.id);
     expect(rows).toHaveLength(1);
