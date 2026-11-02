@@ -231,6 +231,25 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
         },
         notMeasured('a4', 'Visitas y de dónde (5 grupos)', 'GA4', GA4_OFF),
         notMeasured('a5', 'Embudo sesiones → compra', 'GA4', GA4_OFF),
+        // MOCK v1.116 (§MKT.G.4 a6, C-B16): misma forma que `marketing-analytics.service.ts` `a6Payments`; cifras inventadas.
+        {
+          id: 'a6',
+          title: 'Pagos iniciados → pagados',
+          source: 'BD',
+          columns: [
+            { key: 'paso', labelEs: 'Paso', kind: 'text' },
+            { key: 'n', labelEs: 'Nº de pedidos', kind: 'count' },
+            { key: 'pct', labelEs: '% sobre el paso anterior', kind: 'pct' },
+          ],
+          rows: [
+            { paso: 'Pagos iniciados', n: 40, pct: null },
+            { paso: 'De esos, pagados', n: 31, pct: 77.5 },
+          ],
+          measured: true,
+          notes: [
+            'Pedidos creados en el periodo que llegaron a cobro (pulsaron PAGAR y se abrió el pago); «De esos, pagados»: los mismos pedidos que ya se pagaron, aunque sea después del periodo. Todos los compradores, sin cookies.',
+          ],
+        },
       ];
     case 'b':
       return [
