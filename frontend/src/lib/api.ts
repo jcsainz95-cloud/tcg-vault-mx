@@ -7908,7 +7908,8 @@ export async function claimGuestOrders(orderIds: string[]): Promise<ClaimOrdersR
   if (typeof window !== 'undefined' && claimed.length > 0) {
     window.localStorage.setItem(MOCK_CLAIMED_KEY, JSON.stringify([...mockClaimedIds(), ...claimed]));
   }
-  return delay<ClaimOrdersResponse>({ claimed, failed }, 400);
+  // MOCK: el doble no tiene libreta de servidor que llenar (§4-G.9c lo hace el backend) ⇒ 0 direcciones.
+  return delay<ClaimOrdersResponse>({ claimed, failed, addressesSaved: 0 }, 400);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────

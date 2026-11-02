@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@/i18n/navigation';
 import { claimGuestOrders } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
@@ -47,6 +48,7 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email, name }: Gu
   const t = useTranslations('checkout.confirmation');
   const tn = useTranslations('nav');
   const tErr = useTranslations('error');
+  const queryClient = useQueryClient();
   // §60.1 b · §PNL.1: el buzón sale de `GET /support/contact` (fallo ⇒ valor de respaldo).
   const { contact: supportContact } = useSupportContact();
   const [copied, setCopied] = useState(false);
@@ -75,6 +77,8 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email, name }: Gu
     setClaim({ kind: 'claiming' });
     try {
       const res = await claimGuestOrders([orderId]);
+      // CLM-F1 (§4-G.9c): la dirección del pedido pasó a la libreta ⇒ `GET /users/me/addresses` está viejo.
+      if (res.addressesSaved > 0) void queryClient.invalidateQueries({ queryKey: ['addresses'] });
       setClaim(res.claimed.includes(orderId) ? { kind: 'claimed' } : { kind: 'neutral' });
     } catch (e) {
       if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {

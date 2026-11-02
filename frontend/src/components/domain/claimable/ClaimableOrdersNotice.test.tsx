@@ -4,7 +4,8 @@ import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { setStoredUser } from '@/lib/session';
-import type { ClaimableOrderDTO, UserDTO } from '@/types/contract';
+import { QueryClient } from '@tanstack/react-query';
+import type { ClaimableOrderDTO, ClaimOrdersResponse, UserDTO } from '@/types/contract';
 import { ClaimableOrdersNotice, CLAIMABLE_DISMISSED_KEY } from './ClaimableOrdersNotice';
 
 vi.mock('@/i18n/navigation', () => ({
@@ -153,7 +154,7 @@ describe('ClaimableOrdersNotice · aparece, reclama y desaparece (F7)', () => {
     const list = vi.spyOn(api, 'getClaimableOrders').mockResolvedValue(claimable(2));
     const claim = vi
       .spyOn(api, 'claimGuestOrders')
-      .mockResolvedValue({ claimed: ['ord-g-1', 'ord-g-2'], failed: [] });
+      .mockResolvedValue({ claimed: ['ord-g-1', 'ord-g-2'], failed: [], addressesSaved: 0 });
     renderWithProviders(<ClaimableOrdersNotice surface="vault" />, 'es');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Vincular a mi cuenta' }));
@@ -170,12 +171,35 @@ describe('ClaimableOrdersNotice · aparece, reclama y desaparece (F7)', () => {
     expect(notice()).toBeNull();
   });
 
+  /**
+   * CLM-F1 (API_CONTRACT §4-G.9c, v1.116): `addressesSaved > 0` ⇒ se invalida `GET /users/me/addresses` (`['addresses']`)
+   * para que la libreta enseñe la dirección copiada del pedido. Con 0 o sin el campo (servidor anterior), no.
+   */
+  for (const [saved, expected] of [[2, 1], [0, 0], [undefined, 0]] as const) {
+    it(`CLM-F1: addressesSaved=${String(saved)} ⇒ ${expected} invalidación de ['addresses']`, async () => {
+      asCustomer();
+      vi.spyOn(api, 'getClaimableOrders').mockResolvedValue(claimable(2));
+      vi.spyOn(api, 'claimGuestOrders').mockResolvedValue({
+        claimed: ['ord-g-1', 'ord-g-2'],
+        failed: [],
+        ...(saved === undefined ? {} : { addressesSaved: saved }),
+      } as ClaimOrdersResponse);
+      const spy = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+      renderWithProviders(<ClaimableOrdersNotice surface="vault" />, 'es');
+      fireEvent.click(await screen.findByRole('button', { name: 'Vincular a mi cuenta' }));
+      expect(await screen.findByText('PEDIDOS EN TU HISTORIAL')).toBeInTheDocument();
+      const forAddresses = spy.mock.calls.filter((c) => JSON.stringify((c[0] as { queryKey?: unknown })?.queryKey) === '["addresses"]');
+      expect(forAddresses).toHaveLength(expected);
+    });
+  }
+
   it('fallo parcial: copy NEUTRO con el contacto, sin decir a quién pertenece', async () => {
     asCustomer();
     vi.spyOn(api, 'getClaimableOrders').mockResolvedValue(claimable(2));
     vi.spyOn(api, 'claimGuestOrders').mockResolvedValue({
       claimed: ['ord-g-1'],
       failed: [{ orderId: 'ord-g-2', code: 'CLAIM_EMAIL_MISMATCH' }],
+      addressesSaved: 0,
     });
     renderWithProviders(<ClaimableOrdersNotice surface="orders" />, 'es');
 
