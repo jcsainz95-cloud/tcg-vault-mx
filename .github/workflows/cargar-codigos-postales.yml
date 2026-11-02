@@ -1,0 +1,87 @@
+# =============================================================================
+# cargar-codigos-postales.yml — carga el catálogo de CP de SEPOMEX en la base de
+# producción con un botón («Run workflow»)   ·  devops
+# =============================================================================
+# Por qué existe (2026-11-02): la tabla `PostalCode` de producción está vacía
+# (los 4 CP 03100/06700/01000/64000 ⇒ 404 POSTAL_CODE_UNKNOWN) porque ningún
+# arranque la carga (G-BOOT, §81) y el `import` explícito pedía al dueño una
+# terminal con `railway run`. El dueño no programa: esto es el mismo `import`
+# estricto, con el archivo fijado del repo (§92), detrás de un botón.
+#
+# Candados de diseño (los vigila scripts/check-cargar-cp-workflow.sh en CI):
+#   · SOLO `workflow_dispatch`: nunca corre solo (ni push, ni PR, ni cron).
+#   · Por defecto `simulacro` (import --dry-run + verify): NADA escrito.
+#   · Solo desde la rama `production` y en el entorno `catalogo-cp`, donde vive
+#     el secreto. Con la regla de rama del entorno, una rama `claude/*` no puede
+#     leer el secreto aunque alguien escriba un workflow que lo pida.
+#   · El secreto entra SOLO en el paso que lo usa, DESPUÉS de `npm ci` (ningún
+#     script de instalación de dependencias lo ve) y se enmascara por trozos.
+#   · Siempre `--strict`, nunca `--allow-shrink`; el sha256 del archivo se
+#     comprueba antes (sepomex-pin) y otra vez dentro del importador.
+#   · Una transacción: o carga entero y pasa C-GEO-1, o ROLLBACK.
+#
+# Rollback y runbook: docs/DEVOPS_NOTES.md §107.
+# =============================================================================
+
+name: Cargar códigos postales (SEPOMEX)
+
+on:
+  workflow_dispatch:
+    inputs:
+      accion:
+        description: "simulacro = no escribe nada · cargar = carga el catálogo · verificar = solo revisa"
+        type: choice
+        options:
+          - simulacro
+          - cargar
+          - verificar
+        default: simulacro
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cargar-codigos-postales
+  cancel-in-progress: false
+
+jobs:
+  catalogo:
+    name: Códigos postales (${{ inputs.accion }})
+    if: github.ref == 'refs/heads/production'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: catalogo-cp
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: El archivo es el fijado (sha256 + manifiesto)
+        run: ./scripts/check-sepomex-pin.sh
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar el backend (sin el secreto en el entorno)
+        working-directory: backend
+        run: npm ci && npx prisma generate
+
+      - name: Ejecutar (${{ inputs.accion }})
+        env:
+          SEPOMEX_DATABASE_URL: ${{ secrets.SEPOMEX_DATABASE_URL }}
+          ACCION: ${{ inputs.accion }}
+        run: ./scripts/geo/cargar-cp-produccion.sh "$ACCION"
+
+      - name: Comprobación pública (los 4 CP en 200; en simulacro solo informa)
+        if: ${{ !cancelled() }}
+        env:
+          ACCION: ${{ inputs.accion }}
+        run: |
+          if [ "$ACCION" = simulacro ]; then
+            ./scripts/geo/probar-cp-publico.sh || echo "::notice::Simulacro: los CP aún no resuelven (esperado si no se ha cargado)."
+          else
+            ./scripts/geo/probar-cp-publico.sh
+          fi
