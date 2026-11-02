@@ -315,6 +315,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         orderNumber={paid.orderNumber}
         orderId={paid.orderId}
         email={form.email.trim()}
+        name={form.address.recipientName.trim()}
       />
     );
   }
@@ -847,6 +848,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         title={t('payTitle')}
         // 💰 F-SP-5: el modal enseña el total de la SESIÓN (lo que Stripe cobra), ⛔ nunca el de la cotización.
         amountLabel={session ? formatMoneyCents(session.breakdown.totalCents, locale) : undefined}
+        // Paquete A (5): lo que el invitado ya capturó (correo y nombre de quien recibe); recortados; vacíos no viajan.
+        billingDetails={{ email: form.email.trim(), name: form.address.recipientName.trim() }}
         onConfirmed={onConfirmed}
       />
     </div>

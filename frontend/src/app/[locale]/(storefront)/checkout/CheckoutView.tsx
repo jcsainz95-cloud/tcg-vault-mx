@@ -83,7 +83,7 @@ export function CheckoutView() {
   const locale = useLocale() as AppLocale;
   const getMessage = useErrorMessage();
   const cart = useCart();
-  const { isAuthenticated, ready } = useSession();
+  const { isAuthenticated, ready, user } = useSession();
   // true si la sesión nació del upsell de bóveda: el desglose se re-cotizó sin envío y hay
   // que anunciarlo (§15.4, estado "éxito" del panel).
   const [vaultUpsellDone, setVaultUpsellDone] = useState(false);
@@ -481,6 +481,8 @@ export function CheckoutView() {
         returnUrl={`${typeof window !== 'undefined' ? window.location.origin : ''}/${locale}/orders`}
         title={t('payTitle')}
         amountLabel={data ? formatMoneyCents(data.breakdown.totalCents, locale) : undefined}
+        // Paquete A (5): correo de la cuenta y nombre solo si lo escribió el cliente (`nameSource`, v1.67).
+        billingDetails={{ email: user?.email, name: user && user.nameSource !== 'derived' ? user.name : undefined }}
         onConfirmed={onConfirmed}
       />
     </div>

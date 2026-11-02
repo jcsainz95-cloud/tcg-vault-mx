@@ -7,7 +7,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { AppLocale } from '@/i18n/routing';
 import { Link, useRouter } from '@/i18n/navigation';
 import { formatMoneyCents } from '@/lib/format';
-import { createShipment, getHoldings, getShipmentQuote, listAddresses, updateAddress } from '@/lib/api';
+import { createShipment, getHoldings, getMe, getShipmentQuote, listAddresses, updateAddress } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
 import type { AddressIncompleteField, ShipmentCreateResponse } from '@/types/contract';
@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/Input';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import {
+  accountAddressDefaults,
   AddressFormModal,
   AddressManager,
   addressIncomplete,
@@ -82,6 +83,9 @@ export function ShipmentsView() {
   const queryClient = useQueryClient();
   const holdingsQuery = useQuery({ queryKey: ['holdings'], queryFn: getHoldings });
   const addressesQuery = useQuery({ queryKey: ['addresses'], queryFn: listAddresses });
+  // Paquete A (2026-11-02): el alta de dirección prellena nombre y teléfono de la CUENTA. `GET /users/me` (no la
+  // sesión guardada): es la que trae `nameSource` siempre, y sin él no se sabe si el nombre es derivado.
+  const meQuery = useQuery({ queryKey: ['me'], queryFn: getMe, enabled: !!user });
 
   // v1.17: `withdrawable` es la fuente ÚNICA de verdad (settled && sin envío activo). Un item settled
   // pero ya EN RETIRO no es seleccionable (evita el 409 ITEM_IN_ANOTHER_SHIPMENT); cae en "no elegibles".
@@ -345,6 +349,7 @@ export function ShipmentsView() {
           {/* Picker real de direcciones (contrato §1). Reemplaza el selector de país + addr-mock. */}
           <AddressManager
             selectable
+            {...accountAddressDefaults(meQuery.data)}
             selectedId={addressId}
             onSelect={(id) => {
               setAddressSaved(false);

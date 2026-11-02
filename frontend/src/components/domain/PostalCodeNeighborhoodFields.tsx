@@ -50,6 +50,9 @@ export interface PostalCodeNeighborhoodFieldsProps {
  *  - ⛔ Ninguna `option` centinela en el `select` (UX-ADR-13); ⛔ ningún «Escríbenos» como salida.
  *
  * El `ref` reenviado apunta al control de colonia VIGENTE (`select` o `input`).
+ *
+ * Paquete A (`HECHOS.md` 2026-11-02 «Checkout con menos captura…» (4)): todos sus usos son direcciones de entrega
+ * del cliente, así que el `autocomplete` lleva la sección `shipping` (la misma que el resto del formulario que monta).
  */
 export const PostalCodeNeighborhoodFields = forwardRef<HTMLInputElement | HTMLSelectElement, PostalCodeNeighborhoodFieldsProps>(
   function PostalCodeNeighborhoodFields(
@@ -145,7 +148,7 @@ export const PostalCodeNeighborhoodFields = forwardRef<HTMLInputElement | HTMLSe
           label={t('postalCode')}
           inputMode="numeric"
           maxLength={5}
-          autoComplete="postal-code"
+          autoComplete="shipping postal-code"
           className="tabular-nums"
           hint={t('geo.cpHint')}
           // FC-16 / CA-7: el CP fuera del catálogo NO es un error del CP; solo lo que decida quien monta.
@@ -166,7 +169,7 @@ export const PostalCodeNeighborhoodFields = forwardRef<HTMLInputElement | HTMLSe
               id={controlId}
               label={t('neighborhood')}
               type="text"
-              autoComplete="address-level3"
+              autoComplete="shipping address-level3"
               value={neighborhood}
               aria-describedby={describedBy}
               aria-invalid={neighborhoodError ? true : undefined}
@@ -179,6 +182,8 @@ export const PostalCodeNeighborhoodFields = forwardRef<HTMLInputElement | HTMLSe
               id={controlId}
               label={t('neighborhood')}
               placeholder={t('geo.placeholder')}
+              // Paquete A (4): en modo lista la colonia también se autocompleta (el navegador elige la opción).
+              autoComplete="shipping address-level3"
               options={neighborhoods.map((n) => ({ value: n, label: n }))}
               value={neighborhoods.includes(neighborhood) ? neighborhood : ''}
               disabled={mode !== 'list'}
@@ -226,7 +231,7 @@ export const PostalCodeNeighborhoodFields = forwardRef<HTMLInputElement | HTMLSe
               id={cityId}
               label={t('city')}
               type="text"
-              autoComplete="address-level2"
+              autoComplete="shipping address-level2"
               value={city}
               error={cityError}
               onChange={(e) => onCity(e.target.value)}
@@ -237,7 +242,7 @@ export const PostalCodeNeighborhoodFields = forwardRef<HTMLInputElement | HTMLSe
                 id={stateControlId}
                 label={t('state')}
                 placeholder={t('geo.statePlaceholder')}
-                autoComplete="address-level1"
+                autoComplete="shipping address-level1"
                 options={mxStateOptions(state)}
                 value={state.trim()}
                 aria-invalid={stateError ? true : undefined}

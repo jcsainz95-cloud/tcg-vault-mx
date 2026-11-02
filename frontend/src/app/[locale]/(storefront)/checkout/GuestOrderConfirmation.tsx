@@ -15,6 +15,11 @@ export interface GuestOrderConfirmationProps {
   orderId: string;
   /** correo capturado: aquí SÍ se muestra completo (§15.5, asimetría deliberada). */
   email: string;
+  /**
+   * Paquete A (`HECHOS.md` 2026-11-02 «Checkout con menos captura…»): nombre ya capturado (el de quien recibe) para
+   * prellenar el alta de cuenta del reclamo. Editable; nunca se pinta fuera del campo.
+   */
+  name?: string;
 }
 
 type ClaimState =
@@ -38,7 +43,7 @@ type ClaimState =
  * —la ve solo quien acaba de pagar, en su propio dispositivo, y es la última oportunidad de
  * detectar una errata—; en la página de seguimiento no se muestra en absoluto.
  */
-export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrderConfirmationProps) {
+export function GuestOrderConfirmation({ orderNumber, orderId, email, name }: GuestOrderConfirmationProps) {
   const t = useTranslations('checkout.confirmation');
   const tn = useTranslations('nav');
   const tErr = useTranslations('error');
@@ -140,6 +145,7 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrd
               <InlineAuthPanel
                 variant="register"
                 defaultEmail={email}
+                defaultName={name}
                 submitLabel={t('claim.cta')}
                 neutralEmailTaken={t('claim.emailTakenNeutral')}
                 onSuccess={claimOrder}

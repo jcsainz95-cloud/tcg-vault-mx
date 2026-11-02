@@ -46,6 +46,24 @@ export interface StripePaymentModalProps {
    * el padre debe limpiar estado (p. ej. cart.clear) y rutear a "procesando".
    */
   onConfirmed: (status: 'succeeded' | 'processing') => void;
+  /**
+   * Paquete A (`HECHOS.md` 2026-11-02 «Checkout con menos captura…» (5)): correo y nombre YA conocidos (cuenta, o lo
+   * que capturó el invitado) como `defaultValues.billingDetails` del `PaymentElement`. Solo prellenado: ⛔ no toca
+   * montos ni el PaymentIntent. Vacíos o en blanco no viajan.
+   */
+  billingDetails?: { email?: string | null; name?: string | null };
+}
+
+/** Lo que llega al `PaymentElement`: solo valores con texto; `undefined` si no queda nada (se monta como antes). */
+export function paymentElementOptions(
+  billing: StripePaymentModalProps['billingDetails'],
+): { defaultValues: { billingDetails: { email?: string; name?: string } } } | undefined {
+  const out: { email?: string; name?: string } = {};
+  const email = billing?.email?.trim();
+  const name = billing?.name?.trim();
+  if (email) out.email = email;
+  if (name) out.name = name;
+  return Object.keys(out).length > 0 ? { defaultValues: { billingDetails: out } } : undefined;
 }
 
 export function StripePaymentModal(props: StripePaymentModalProps) {
@@ -72,7 +90,7 @@ export function StripePaymentModal(props: StripePaymentModalProps) {
  * Rama REAL: monta el PaymentElement y confirma con `redirect:'if_required'`. Maneja loading/error.
  * Éxito sin redirección → `onConfirmed()`; el asentamiento definitivo llega por webhook.
  */
-function RealPaymentForm({ returnUrl, amountLabel, onConfirmed }: StripePaymentModalProps) {
+function RealPaymentForm({ returnUrl, amountLabel, onConfirmed, billingDetails }: StripePaymentModalProps) {
   const t = useTranslations('payment');
   const stripe = useStripe();
   const elements = useElements();
@@ -109,7 +127,7 @@ function RealPaymentForm({ returnUrl, amountLabel, onConfirmed }: StripePaymentM
 
   return (
     <div className="flex flex-col gap-4">
-      <PaymentElement onReady={() => setReady(true)} />
+      <PaymentElement options={paymentElementOptions(billingDetails)} onReady={() => setReady(true)} />
       {error && (
         <p role="alert" className="font-mono text-xs text-accent">
           {error}
