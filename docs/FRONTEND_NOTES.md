@@ -17,6 +17,7 @@ Fuentes: QA de marketing 2026-11-02 (A, B); HECHOS 2026-11-02 «Checkout con men
 - **F · reclamo:** la confirmación del invitado prellena también el nombre del registro (`defaultName`).
 - **G · medición del pago (C-F11):** `begin_checkout` en `pay()` tras las guardas y antes de la sesión (una vez por cotización); `add_payment_info` tras `setSession`, una vez por PI, `value` = total de la sesión; `EVENT_PARAMS.add_payment_info` = items/value/currency. `CheckoutPaymentMeasurement.test.tsx`.
 - **H · CLM-F1:** `addressesSaved > 0` en `POST /orders/claim` invalida `['addresses']` (confirmación del invitado y aviso de reclamables).
+- **I · CLM-F2 (v1.116.1, PT-CHK-1):** `orders.claimable.body`/`vault.claimable.body` es/en = literales de DESIGN_SYSTEM §4.47.4 (se guarda la dirección de los pedidos pagados; fuera «No cambia nada del pedido»); `mockClaimableOrders` solo cobrados (`settledAt`). Candado: `ClaimableOrdersNotice.test.tsx` «CLM-F2».
 
 ## §MKT-CONV8 · Catálogo móvil con ≥ 2 tejas y ficha lg con la compra arriba (vMKT-CONV-2, 2026-10-31, rama `claude/mkt2-fe-layout`, base `8c66a844`)
 

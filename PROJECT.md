@@ -10833,7 +10833,12 @@ nuevo, no como parte de §R**:
     si un correo compró en la plataforma.
 54. **Reclamo post-compra**: si el invitado **crea cuenta con el mismo correo** de su pedido, ese pedido
     **aparece en su historial** con su estado y seguimiento dentro de la sesión, **sin cambiar** destino,
-    precio ni políticas del pedido. Funciona también con el pedido **ya enviado/entregado**.
+    precio ni políticas del pedido. Funciona también con el pedido **ya enviado/entregado**. Al reclamar, la
+    **dirección de envío de cada pedido PAGADO** se guarda en la **libreta de direcciones** de la cuenta,
+    **nunca como predeterminada** (un pedido sin cobrar no aporta dirección); el **aviso** de reclamo solo lista
+    pedidos **cobrados** y dice que su dirección pasa a la libreta. *(Dueño: `HECHOS.md` 2026-11-02 «Checkout con
+    menos captura: paquete A…» (3). «Solo pagados, nunca predeterminada»: decisión técnica derivada del
+    hallazgo de seguridad PT-CHK-1, no del dueño. Norma: `API_CONTRACT` §4-G.9c, v1.116.1.)*
 55. Un pedido **solo puede reclamarse una vez**: un pedido ya vinculado a una cuenta **no** puede vincularse
     a una segunda cuenta, y el intento se rechaza (y queda registrado).
 56. Si el correo del invitado **ya tiene cuenta**, el checkout **no revela** que ese correo está registrado

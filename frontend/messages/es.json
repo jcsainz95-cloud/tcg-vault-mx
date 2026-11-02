@@ -746,7 +746,7 @@
     "requestWithdrawal": "Solicitar retiro",
     "withdrawalRequested": "Retiro solicitado. Aquí verás su avance.",
     "claimable": {
-      "body": "Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento."
+      "body": "Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento. La dirección de envío de los pedidos pagados se guarda en tus direcciones."
     },
     "item": {
       "originRefunded": "Compra en reembolso",
@@ -1216,7 +1216,7 @@
     },
     "claimable": {
       "title": "{count, plural, one {Tienes # pedido hecho sin cuenta} other {Tienes # pedidos hechos sin cuenta}} con este correo",
-      "body": "Vincúlalos para ver su estado y su seguimiento aquí. No cambia nada del pedido.",
+      "body": "Vincúlalos para ver su estado y su seguimiento aquí. Guardaremos en tus direcciones la de envío de los pedidos pagados.",
       "more": "y {count} más",
       "cta": "Vincular a mi cuenta",
       "claiming": "Vinculando…",
