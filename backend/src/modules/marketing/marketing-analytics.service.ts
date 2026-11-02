@@ -470,7 +470,39 @@ export class MarketingAnalyticsService {
 
     const a3 = await this.a3Buylist(period, privacy);
 
-    return [a1, a2, a3, await this.a4Visits(privacy, fam), await this.a5Funnel(period, now)];
+    return [a1, a2, a3, await this.a4Visits(privacy, fam), await this.a5Funnel(period, now), await this.a6Payments(period)];
+  }
+
+  /**
+   * a6 (v1.116, §MKT.G.4; ARCHITECTURE §14.9) — pagos iniciados → pagados, de BD, sin cookies ni consentimiento. Cohorte por
+   * `createdAt` del pedido (`PI_START`): «De esos, pagados» son los MISMOS pedidos que ya pagaron, cuando sea
+   * (`PI_START_PAID`), para que el % sea una proporción honesta. Total sin dimensión ⇒ exacto (§MKT.H.14 «Total aceptado»);
+   * fuera de toda ecuación. ⛔ Sin MX$. ⛔ No se manda a GA4/Meta (el aviso solo declara compras y solicitudes, §14.10).
+   */
+  private async a6Payments(period: MarketingPeriod): Promise<AggTable> {
+    const started = { createdAt: mxRange(period.from, period.to), stripePaymentIntentId: { not: null } };
+    const [n, paid] = await Promise.all([
+      this.prisma.order.count({ where: started }),
+      this.prisma.order.count({ where: { ...started, settledAt: { not: null }, status: { in: SOLD_STATUSES } } }),
+    ]);
+    return {
+      id: 'a6',
+      title: 'Pagos iniciados → pagados',
+      source: 'BD',
+      columns: [
+        { key: 'paso', labelEs: 'Paso', kind: 'text' },
+        { key: 'n', labelEs: 'Nº de pedidos', kind: 'count' },
+        { key: 'pct', labelEs: '% sobre el paso anterior', kind: 'pct' },
+      ],
+      rows: [
+        { paso: 'Pagos iniciados', n, pct: null },
+        { paso: 'De esos, pagados', n: paid, pct: n > 0 ? Math.round((paid / n) * 1000) / 10 : null },
+      ],
+      measured: true,
+      notes: [
+        'Pedidos creados en el periodo que llegaron a cobro (pulsaron PAGAR y se abrió el pago); «De esos, pagados»: los mismos pedidos que ya se pagaron, aunque sea después del periodo. Todos los compradores, sin cookies.',
+      ],
+    };
   }
 
   /** a4 (§MKT.H.9) — sesiones por los cinco grupos de origen. */

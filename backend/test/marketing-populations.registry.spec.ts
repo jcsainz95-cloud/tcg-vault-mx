@@ -155,8 +155,8 @@ describe('MKT-TL2 (a) · registro de poblaciones (§MKT.H.14, prueba 1)', () => 
     const measured = new Set(payloads.flatMap((p) => p.tables.filter((t) => t.measured).map((t) => t.id)));
     const mustMeasure =
       mode === 'on'
-        ? ['a1', 'a3', 'a4', 'a5', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'c1', 'c5', 'c7', 'd1', 'd2', 'd3', 'd4b', 'e1', 'e3', 'f3', 'g1']
-        : ['a1', 'a3', 'b5', 'b6', 'c7', 'd1', 'd3', 'd4', 'd4b', 'e1'];
+        ? ['a1', 'a3', 'a4', 'a5', 'a6', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'c1', 'c5', 'c7', 'd1', 'd2', 'd3', 'd4b', 'e1', 'e3', 'f3', 'g1']
+        : ['a1', 'a3', 'a6', 'b5', 'b6', 'c7', 'd1', 'd3', 'd4', 'd4b', 'e1'];
     expect(mustMeasure.filter((id) => !measured.has(id))).toEqual([]);
   });
 

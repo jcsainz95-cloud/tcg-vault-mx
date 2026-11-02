@@ -16,6 +16,13 @@
 export const MARKETING_POPULATIONS = {
   /** `Order.settledAt` en el periodo y `status ∈ {settled, refunded, chargeback}`. Sujeto: pedido. */
   PAID: { subject: 'pedido', source: 'BD' },
+  /**
+   * v1.116 (a6): `Order` con `stripePaymentIntentId IS NOT NULL` y `createdAt` en el periodo (CDMX), todo `status`, cuenta e
+   * invitado (un reintento §4-R que sustituye la orden cuenta otra vez; el reuso no). Sujeto: pedido.
+   */
+  PI_START: { subject: 'pedido', source: 'BD' },
+  /** v1.116 (a6): `PI_START` ∧ `settledAt IS NOT NULL` ∧ `status ∈ {settled, refunded, chargeback}`, pagado cuando sea (cohorte). */
+  PI_START_PAID: { subject: 'pedido', source: 'BD' },
   /** `PAID` ∧ `firstUtmSource IS NOT NULL` — base de b1, b2, b3 y g1. Sujeto: pedido. */
   PAID_ORIGIN: { subject: 'pedido', source: 'BD' },
   /** `SellRequest` creada en el periodo. Sujeto: solicitud. */
@@ -91,6 +98,12 @@ export const MARKETING_TABLES: Readonly<Record<string, TableRegistration>> = {
     components: [c('n', [], 'GA4:funnel'), c('n', [], 'PAID', { row: 'Compras (BD)' })],
     exact: ['pct'],
   },
+  // v1.116: a6 «Pagos iniciados → pagados» — total aceptado, fuera de toda ecuación (cohorte por `createdAt` ≠ `PAID`).
+  a6: {
+    class: 'accepted_total',
+    components: [c('n', [], 'PI_START', { row: 'Pagos iniciados' }), c('n', [], 'PI_START_PAID', { row: 'De esos, pagados' })],
+    exact: ['pct'],
+  },
   b1: { class: 'dimension', components: [c('pedidos', ['mxnPedidos'], 'PAID_ORIGIN'), c('solicitudes', ['mxnOfertado'], 'REQ_ORIGIN')], exact: [] },
   b2: { class: 'dimension', components: [c('pedidos', ['mxnPedidos'], 'PAID_ORIGIN'), c('solicitudes', ['mxnOfertado'], 'REQ_ORIGIN')], exact: [] },
   b3: { class: 'dimension', components: [c('pedidos', ['mxnPedidos'], 'PAID_ORIGIN'), c('solicitudes', ['mxnOfertado'], 'REQ_ORIGIN')], exact: [] },
@@ -140,7 +153,7 @@ export const MARKETING_TABLES: Readonly<Record<string, TableRegistration>> = {
  * Totales sin dimensión que el dueño acepta exactos (Brief 2 §5.2; §MKT.H.14 «Total aceptado»): `<tabla>` entera o
  * `<tabla>:<fila>`. En las ecuaciones son CONSTANTES (se publican siempre) y R3b nunca los oculta (`isAcceptedTotal`).
  */
-export const ACCEPTED_TOTALS: readonly string[] = ['a1', 'a2', 'a3:Solicitudes enviadas (generate_lead)', 'a5', 'f3'];
+export const ACCEPTED_TOTALS: readonly string[] = ['a1', 'a2', 'a3:Solicitudes enviadas (generate_lead)', 'a5', 'a6', 'f3'];
 
 /** ¿Es (tabla, fila) un total aceptado? */
 export const isAcceptedTotal = (table: string, key: string): boolean => ACCEPTED_TOTALS.includes(table) || ACCEPTED_TOTALS.includes(`${table}:${key}`);
