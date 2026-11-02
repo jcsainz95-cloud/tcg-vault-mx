@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.116.1⟨checkout-friccion⟩ (2026-11-02).** §4.47.4: a la libreta solo la dirección de un pedido cobrado, nunca predeterminada; el aviso solo lista cobrados; candado de la libreta también en las altas del cliente; §9 `D-CLM-55` (PT-CHK-1/2/3) y `D-CLM-56` · pentester (`f2e1de9c`).
 > **Rev v1.116⟨checkout-friccion⟩ (2026-11-02).** §4.47.4: la dirección del invitado pasa a la libreta al ganar el reclamo (sin migración); §14.5: `begin_checkout` al pulsar PAGAR y `add_payment_info` al abrir el modal de Stripe; §14.9: pagos iniciados/pagados de BD (a6); §9 `D-CLM-54`, `D-MKT-BC`; compactadas las cabeceras C7 v1.80.1.1 y ⟨dinero⟩ v1.80.2.2 · dueño (`HECHOS.md` 2026-11-02 «Checkout con menos captura: paquete A…» (3)), QA de marketing. Contrato: API_CONTRACT §4-G.9c, §MKT.H.4, §MKT.G.4 a6.
 > **Rev v1.115⟨mkt-conv2⟩ (2026-10-31).** §13.8 NUEVA (sellado agotado por grupo, `Offer` agotado sin precio, correo público, canonical paginado); §4.DYN (f) 2 regla de la respuesta tardía, (f) 3 corregido (el HTML no tiene cota de edad), (f) 9 dato servidor→cliente con su edad; §14.4 `/nosotros` excluida; compactadas las cabeceras C7/P-71 · frontend (§MKT-CONV2), techlead (TL-MKT2-7/8, TL-MKT4-3). Contrato: API_CONTRACT §MKT.A.1.
 > **Errata v1.114.5⟨portada⟩ (2026-10-30).** §4.DYN (f) 7: el residual de PEN-DYN-1 (scrydex da 200 genérico a cualquier id con la forma) se **acepta** con alerta de gasto, lectura a 7 días con caducidad y candado, e interruptor que cierra `/_next/image` a orígenes remotos; el proxy con lista de ids queda como opción (b) con disparador · QA (rechazo sobre `d0b40182`), frontend (medición del residual), pentester. Contrato: API_CONTRACT §DYN.1 «Limpieza PDB», DYN-D2.
@@ -24238,9 +24239,11 @@ responde `422 PASSWORD_NOT_SET` si aun así lo llaman.
 - **De la compra de invitado a la libreta (v1.116, `HECHOS.md` 2026-11-02 «…paquete A…» (3); norma: API_CONTRACT §4-G.9c).** Se guarda
   **al ganar el reclamo**, no al crear la cuenta: es el único momento con prueba de que el buzón del pedido es de quien abre la cuenta
   (§4-G.9), así que la regla de privacidad sale gratis. Va dentro de `OrderClaimService.claim`, best-effort tras el `updateMany`, y llama a
-  un alta interna de `UsersService` (⛔ `orders` no escribe `Address`). Predeterminada solo con libreta vacía (no se cambia lo que el cliente
-  eligió). Duplicado por **lugar** (CP, calle, interior, colonia), no por destinatario: si ya existe, gana la del cliente. Sin índice único
-  (fallaría con libretas que ya tengan dos filas iguales, que existan: NO MEDIDO): candado consultivo por usuario en la tx ⇒ **sin migración**.
+  un alta interna de `UsersService` (⛔ `orders` no escribe `Address`). Duplicado por **lugar** (CP, calle, interior, colonia): gana la del cliente.
+  **v1.116.1 (PT-CHK-1):** el correo verificado prueba el buzón, **no** el domicilio: un anónimo puede crear un pedido con el correo ajeno y su
+  dirección, y el reclamo la importaba (predeterminada si la libreta estaba vacía). Por eso solo pasa la de un pedido **cobrado** (`settled`; plantar
+  exige pagar y recibir la mercancía en su casa), **nunca predeterminada** (el checkout ya autoselecciona `addresses[0]`), y el aviso solo lista
+  cobrados y dice que guarda la dirección. Sin índice único: candado consultivo por usuario, también en las altas del cliente ⇒ **sin migración**.
 
 #### 4.47.5 El nombre que Google no mandó — `User.nameSource` (P-73-A)
 
@@ -31831,7 +31834,8 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
-> **`D-CLM-54` (🔴 ABIERTA, v1.116, leída 2026-11-02):** `PROJECT.md:10834-10836` (criterio 54, reclamo) no recoge la dirección a la libreta (`HECHOS.md` 2026-11-02 (3)); no la contradice (no cambia destino, precio ni políticas). **Lo corrige product-owner** (criterio nuevo o ampliado); lo vigilan CLM-A1/A5 (API_CONTRACT §4-G.9c). Hoy `order-claim.service.ts` no toca direcciones (leído): **la construye backend**.
+> **`D-CLM-54` (🔴 ABIERTA, v1.116, leída 2026-11-02):** `PROJECT.md:10834-10836` (criterio 54, reclamo) no recoge la dirección a la libreta (`HECHOS.md` 2026-11-02 (3)); no la contradice (no cambia destino, precio ni políticas). **Lo corrige product-owner** (criterio nuevo o ampliado); lo vigilan CLM-A1/A5 (API_CONTRACT §4-G.9c). Construido en `f2e1de9c` (leído 2026-11-02: `order-claim.service.ts:121-167`); el criterio debe decir además «solo pedidos cobrados, nunca predeterminada» (v1.116.1).
+> **`D-CLM-55` (🔴 ABIERTA, PT-CHK-1/2/3, leída 2026-11-02 sobre `f2e1de9c`):** `order-claim.service.ts:57` (`listClaimable`) y `:157-166` (`claimedAddresses`) no filtran por cobro; `users.service.ts:352` pone `isDefault = libreta vacía`; `createAddress` (`:298-316`) y `updateAddress` (`:442-445`) escriben sin transacción ni candado; `frontend/messages/es.json:1219` dice «No cambia nada del pedido». **Lo corrigen backend (servicios) y frontend (copy con el literal de ux-ui)**; lo vigilan CLM-A8…A13 y CLM-F2 (API_CONTRACT §4-G.9c). **`D-CLM-56` (riesgo aceptado por diseño, NO MEDIDO):** pedido reclamado **antes** de cobrarse (confirmación con cuenta Google, si el webhook llega tarde) no guarda dirección nunca; se mide con los pedidos `guestEmail ≠ null ∧ claimedAt < settledAt` sin `AuditLog address.create_from_claim`; si no son ~0, se diseña el guardado al cobrar (toca `payments`: pasa por el arquitecto).
 > **`D-MKT-BC` (🔴 ABIERTA, v1.116, leída 2026-11-02):** `begin_checkout` sale al recibir la cotización (`CheckoutView.tsx:135-144`, `GuestCheckoutView.tsx:173-181`) y `add_payment_info` no tiene llamador (`track.ts:25,38,52` lo declara). **La corrige frontend**; la vigila C-F11 (API_CONTRACT §MKT.H.11).
 > **`D-DYN-1…3` (🔴 ABIERTAS, leídas 2026-10-29 sobre `cfc0332b`):** nonce de CSP que no llega a los `<script>`, `PROJECT §X.1`
 > y §X.2 contra `HECHOS` 2026-10-29 «se cobra lo que se ve», y `PROJECT §DYN.2` «§R». Dueño, prueba y detalle: **solo** en `API_CONTRACT §DYN.8`.
