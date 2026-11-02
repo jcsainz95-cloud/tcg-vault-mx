@@ -7,6 +7,19 @@
 
 ---
 
+## Backend · 2026-11-02 · checkout-fricción — deuda del techlead sobre `9d269935` (TL-CHK)
+
+> Dueño del código anotado: **backend**. Medidas por el techlead leyendo código el 2026-11-02; anotadas sin arreglar (O-23); los sitios citados se re-abrieron el mismo día sobre `9d269935`.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-CHK-1 | ABIERTA (propuesta al arquitecto: predicado único en `users/address-rules.ts`) · `createAddressFromClaim` (`users/users.service.ts:338`) tiene una «dirección válida» más floja que `AddressDto`: solo `assertPersonName`, `country='MX'` y no vacíos; sin `PHONE_PATTERN`/`POSTAL_CODE_PATTERN` ni topes de longitud | backend (+ arquitecto) | 2026-11-02 | `createAddressFromClaim` usa el predicado compartido con `AddressDto`; prueba con snapshot `phone:'55-12'` o `line1` > tope ⇒ `reason:'invalid'`; CLM-A1 verde |
+| TL-CHK-2 | ABIERTA · el censo de candados (`test/lock-keys.census.spec.ts:26`) solo lee `\w+_LOCK_KEY`; los 6 `*_NAMESPACE` (`ADDRESS_BOOK_GATE_…`, `RESERVATION_GATE_…`, `VAULT_GATE_…`, `OPERATOR_REFUND_GATE_…`, `BANNER_COUNTER_LOCK_…`, `META_TEST_EVENT_LOCK_…`) no se vigilan contra duplicados | backend | 2026-11-02 | el censo incluye `\w+_NAMESPACE` con canario de duplicado (rojo/verde); ≥ 6 leídos |
+| TL-CHK-3 | ABIERTA · `createAddress` (`users/users.service.ts:298-316`) hace `updateMany({isDefault:false})` fuera de tx y sin el lock `ADDRESS_BOOK_GATE_NAMESPACE`: un alta manual `isDefault:true` en paralelo a un reclamo con libreta vacía puede dejar 2 predeterminadas | backend | 2026-11-02 | `createAddress`/`updateAddress` en tx con el mismo lock; e2e paralelo N=10 ⇒ ≤ 1 predeterminada en 10/10 |
+| TL-CHK-7 | ABIERTA · `AuditService` es `@Optional()` en `UsersService` (`users/users.service.ts:77`) solo por los unitarios; sin wiring cada alta desde reclamo lanza y `OrderClaimService` la traga como `skipped(…,'error')` (warn silencioso). Misma clase que TL-DSC-5/TL-DYN-4 | backend | 2026-11-02 | `tech-debt-backend.spec.ts` «TL-CHK-7»: el índice de `AuditService` no está en `optional:paramtypes` de `UsersService` |
+
+---
+
 ## Backend · 2026-10-31/11-01 · marketing tanda 2 (conversión: ficha de sellado agotada, §MKT.A.1)
 
 > Dueño del código anotado: **backend**. TL-MKT5-*: del techlead del 2026-10-31 sobre `43d9eb10`, cerradas el 2026-11-01 en `claude/mkt2-be-debt` (BACKEND_NOTES §MKT-CNV). Las demás: deuda de veredictos del 2026-10-26 (`2f5a59c0`) y 2026-10-27 (`f932333a`) que solo vivía en `PENDIENTES.md` (TL-REL4-DEUDA, TL-ENCENDER-DEUDA); anotadas y re-medidas el 2026-11-01 sobre `add50880` en `claude/mkt2-be-debt2`, sin arreglar. TL-DSC-8 toca dinero.
@@ -370,41 +383,7 @@
 > una CERRADA sobre los módulos escaneados y vigilada con conteo (SD-D1), una NO MEDIDA (SD-D2) y los límites del escáner +
 > alcance de `MODULES` como deuda de bajo riesgo (SD-D4).**
 
-### SD-D1 · CERRADA (2026-10-13) · La clase «cascada de display de sellado COPIADA» — cerrada Y vigilada por candado
-- **Qué era:** la regla de display de un sellado (`SealedProduct` → snapshot → «Sellado sin identificar», ⛔ nunca el
-  `card.name` del single **ancla**) vivía COPIADA a mano en varios servicios, cayendo al ancla como último recurso del
-  NOMBRE. Es la clase que parió el bug «Exeggcute». Se cerró en DOS tandas:
-  - **Tanda 1 (b70e272 / 9bdcb18):** las 4 copias D-2 (`vault.service.ts`, `sealed-catalog.service.ts` grid,
-    `sales-analytics.service.ts`, `sealed-restock-notify.service.ts`) + los 3 escapes aliaseados (`toClientShipmentItem`,
-    imagen del tracking de invitado, correo AV-12) pasaron al resolutor único.
-  - **Tanda 2 (este pase, rama `fix/sealed-display`):** QA+techlead (sobre `9bdcb18`) cazaron **4 copias MÁS** fuera del
-    alcance enumerado a mano — porque la enumeración por grep/directorio/función deja pasar accesos aliaseados. Cerradas,
-    todas al resolutor: `catalog/sealed-catalog.service.ts` (serie de valor público), `inventory/sealed-graded.service.ts`
-    (pestaña Sellado, admin), `pricing/pricing.service.ts` (cola M2, admin) y `wishlist/wishlist-demand.service.ts`
-    (demanda de restock, admin). Conducta normada: sin nombre resoluble → «Sellado sin identificar», ⛔ nunca el ancla.
-- **Por qué está cerrada sobre los módulos escaneados — el candado mecánico:** la enumeración a mano falló **tres veces**,
-  así que la clase queda **VIGILADA por `backend/test/sealed-display-guard.spec.ts`**: escanea el código fuente de los
-  **11 módulos de display listados en `MODULES`** y **rompe CI** si aparece una lectura de
-  `card.name`/`card.number`/`card.imageSmallUrl` del ancla (incluidos los aliases locales por asignación) que no pase por
-  `pieceDisplayIdentityOf` ni esté en su allowlist explícita (con razón por entrada). Desde el endurecimiento **D-1**
-  (2026-10-13) el campo `lines` es **load-bearing**: el candado afirma que cada entrada casa con **exactamente `lines.length`**
-  accesos, de modo que una **copia con texto de línea idéntico a uno ya allowlisteado, en el mismo fichero** (que antes pasaba
-  con la regla «≥1») ahora sube el conteo y pone el candado **rojo**, forzando revisión.
-- **Alcance honesto, qué vigila y qué NO (para no sobre-afirmar):** la clase está **cerrada sobre los módulos de display
-  escaneados** (todos los ofensores conocidos pasan por el resolutor) **y vigilada contra copias dentro de ellos** por el
-  candado con conteo. **No afirmamos «no puede reabrirse en silencio» en absoluto**: el escáner es análisis estático y tiene
-  fronteras (destructuring con renombre, alias multilínea, parámetros con otro nombre) y un **alcance de módulos fijo**
-  (`disputes`/`buylist`/`decks-meta` no se escanean hoy). Esos residuos quedan registrados como **SD-D4** (abajo), de bajo
-  riesgo y money-safe. La afirmación medible es: **sobre los 11 módulos escaneados, ninguna copia directa, aliaseada por
-  asignación o línea-idéntica de la cascada puede reaparecer sin poner el candado rojo.**
-- **Verificado por mutación el 2026-10-13** (rama `fix/sealed-display`): (a) una copia directa `card.name` y una aliaseada
-  (`const X = item.card; X.name`) ⇒ candado rojo; (b) una copia **línea-idéntica** a una entrada de la allowlist en el mismo
-  fichero ⇒ test de conteo (D-1) **3/3 corridas rojas** mientras el test de violaciones queda verde (justo el caso que D-1
-  cierra); restaurado ⇒ verde.
-- **Estado:** la clase está **CERRADA sobre los módulos de display escaneados y vigilada con conteo**; ninguna deuda de
-  divergencia conocida de esta clase queda viva. Los límites del escáner y el alcance de `MODULES` son **deuda de bajo riesgo
-  registrada (SD-D4)**, no la clase reabierta. Medido: candado verde (3/3 tests) + suite unitaria/contrato 478/478 suites ·
-  8533/8533 pruebas + E2E `sealed-display-flow.e2e-spec.ts` 7/7 (2026-10-13, rama `fix/sealed-display`).
+### SD-D1 · CERRADA (2026-10-13) · Cascada de display de sellado COPIADA → todo al resolutor `pieceDisplayIdentityOf`, vigilada por `backend/test/sealed-display-guard.spec.ts` (11 módulos, conteo por `lines`; mutación 3/3 roja); residuos del escáner en SD-D4. Detalle en el historial de la rama `fix/sealed-display`.
 
 ### SD-D2 · NO MEDIDO (owner: OPERACIÓN/CAPTURA, no backend) · Piezas selladas vivas sin identidad propia (§4.34a.1)
 - **Qué es:** el resolutor rinde «Sellado sin identificar» para una pieza `productType='sealed'` que no tiene **ni**
@@ -9613,6 +9592,18 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 
 ---
 
+## Devops · 2026-11-02 · techlead sobre `9d269935` (rama `claude/checkout-friccion`, G-CP-BOTON, DEVOPS_NOTES §107)
+
+> Dueño: **devops** (`.github/workflows/`, `scripts/`, `docs/DEVOPS_NOTES.md`). Solo anotadas (O-23), sin arreglar. TD-LIVE-8 (cerrada 2026-10-05, DEVOPS_NOTES §85.11) sale de este fichero para hacer sitio.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-CHK-8 | ABIERTA · `.github/workflows/cargar-codigos-postales.yml` (único workflow con secreto que escribe en la BD de producción) fija acciones por etiqueta: `actions/checkout@v5` (`:55`), `actions/setup-node@v5` (`:62`); choca con CLAUDE.md «toda dependencia externa va fijada» | devops | 2026-11-02 | todo `uses:` de ese workflow lleva sha de 40 hex; `scripts/check-cargar-cp-workflow.sh` gana un bloque [H] que pone rojo un `@v…`, con su caso en `check-cargar-cp-workflow-canary.sh` |
+| TL-CHK-9 | ABIERTA · `docs/DEVOPS_NOTES.md` mide 14 893 líneas (`wc -l`) contra el tope ~1 500 de CLAUDE.md; umbral en `scripts/doc-size.baseline` 14 893 | devops | 2026-11-02 | `wc -l < docs/DEVOPS_NOTES.md` ≤ 1500 sin perder el estado vigente, y `./scripts/check-doc-size.sh --update` baja el umbral |
+| TL-CHK-10 | ABIERTA (propuesta techlead/seguridad) · el secreto del botón (`SEPOMEX_DATABASE_URL`, entorno `catalogo-cp`) es la `DATABASE_PUBLIC_URL` de Railway: dueño completo de la BD; lo mínimo es un rol con `GRANT` solo sobre `"PostalCode"` | devops (+ seguridad) | 2026-11-02 | DEVOPS_NOTES §107 documenta el rol mínimo y el workflow lo acepta; o seguridad acepta el riesgo por escrito en `docs/SECURITY_NOTES.md` |
+
+---
+
 ## Devops · 2026-11-01 · deuda pedida y no anotada (techlead 2026-10-27, orquestador 2026-11-01; base `add50880`)
 
 > Dueño del código anotado: **devops** (`scripts/`, `.github/workflows/`). Solo anotadas, sin arreglar. Medido el 2026-11-01 por devops.
@@ -9640,20 +9631,6 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 ---
 
 ## Devops · 2026-10-05 · gate del techlead sobre `241d4dca` (rama `claude/listo-real`, LIVE-9 / E-8)
-
-### TD-LIVE-8 · ✅ CERRADA en este pase (2026-10-05) · El vigía de caídas buscaba su issue solo por título
-- **Dueño:** devops (`.github/workflows/uptime-watch.yml`).
-- **Qué era:** abrir y cerrar el issue `[caída] …` buscaban por **título exacto**. El repo es público: cualquiera
-  podía abrir un issue con ese título y el vigía, al verlo «ya abierto», no abría el suyo ⇒ **un desconocido
-  suprimía la alerta** (y el correo al dueño).
-- **Cierre:** un único filtro `ISSUE_JQ` (env del job `vigilancia`) para abrir y cerrar: título **y** etiqueta
-  `caida` (etiquetar exige permiso de triage) **y** autor bot de Actions (`app/github-actions` /
-  `github-actions[bot]`, `is_bot`). Se evalúa con el `jq` del runner, no con el `--jq` embebido de `gh`.
-- **Candado:** `scripts/check-uptime-watch-canary.sh` sección «issue propio» (corre en `autoprueba` antes de cada
-  vigilancia y en `live-candados`): intruso sin/con etiqueta, otro bot y bot sin etiqueta ⇒ no cuentan; el del bot
-  entre intrusos ⇒ cuenta; mutaciones «solo título» y «sin autor» ⇒ el canario las distingue. Medido 2026-10-05 en
-  `claude/listo-real`: **21/21**, N=1 (determinista: sin red ni reloj). **NO MEDIDO:** el `gh issue list --json author`
-  real de GitHub (forma de `author.login` del bot); por eso se aceptan los dos nombres.
 
 ### TD-LIVE-9 · P3 · Fecha de retiro del `schedule` diario de `ttfb-probe`
 - **Dueño:** devops (`.github/workflows/ttfb-probe.yml`).
