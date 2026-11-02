@@ -49,12 +49,16 @@ export class OrderClaimService {
    * `GET /orders/claimable` — pedidos de invitado SIN reclamar cuyo `guestEmail` == el correo
    * verificado de la sesión. NO es un oráculo: solo informa sobre el correo de quien pregunta y
    * nunca acepta un correo como parámetro.
+   *
+   * ⭐ v1.116.1 (PT-CHK-1): solo pedidos COBRADOS alguna vez (`settledAt ≠ null`: settled, refunded, chargeback).
+   * `POST /checkout/guest/session` es anónimo y acepta cualquier correo: un pedido que nunca se cobró no prueba nada y
+   * era el cebo del ataque. ⛔ `POST /orders/claim` NO usa este filtro (la confirmación reclama su pedido aún sin cobro).
    */
   async listClaimable(userId: string) {
     const email = await this.sessionEmail(userId);
     if (!email) return { data: [] };
     const orders = await this.prisma.order.findMany({
-      where: { guestEmail: email, userId: null, claimedAt: null },
+      where: { guestEmail: email, userId: null, claimedAt: null, settledAt: { not: null } },
       orderBy: { createdAt: 'desc' },
       include: { _count: { select: { items: true } } },
     });
@@ -80,8 +84,8 @@ export class OrderClaimService {
    * reclamos simultáneos (criterio 55) sin bloqueos ni transacción serializable.
    *
    * Efectos (y SOLO estos, criterio 54): `userId`, `claimedAt`, revocación de TODOS los
-   * `OrderAccessToken` del pedido, `AuditLog` y, desde v1.116 (§4-G.9c), la dirección del pedido a la
-   * libreta (best-effort, tras todo lo anterior). NO cambia destino, precio, desglose, políticas,
+   * `OrderAccessToken` del pedido, `AuditLog` y, desde v1.116 (§4-G.9c), la dirección del pedido COBRADO a la
+   * libreta, nunca predeterminada (v1.116.1; best-effort, tras todo lo anterior). NO cambia destino, precio, desglose, políticas,
    * estado del pedido ni el estado/propiedad de los items. Un pedido ya enviado se reclama igual.
    */
   async claim(
@@ -124,10 +128,13 @@ export class OrderClaimService {
   }
 
   /**
-   * ⭐ v1.116 (§4-G.9c) — la dirección de cada pedido GANADO pasa a la libreta del usuario. Orden: `createdAt` desc (el más
-   * reciente da la predeterminada de una libreta vacía). Best-effort: un fallo se registra como
-   * `ORDER_CLAIM_ADDRESS_SKIPPED reason=invalid|error` (⛔ sin la dirección ni el mensaje del error, que podría citarla) y
-   * ⛔ no revierte el reclamo ni cambia otra cosa de la respuesta; no se reintenta. Devuelve las filas creadas.
+   * ⭐ v1.116 (§4-G.9c) — la dirección de cada pedido GANADO pasa a la libreta del usuario, ⭐ v1.116.1 (PT-CHK-1) solo si el
+   * pedido está COBRADO en ese instante (`status='settled'`) y nunca como predeterminada (`createAddressFromClaim`). Un ganado
+   * sin cobro (`pending`/`failed`/`refunded`/`chargeback`) se reclama igual pero su dirección no entra, ni ahora ni después
+   * (D-CLM-56): solo el cobro prueba que alguien pagó por mandar algo ahí. Orden: `createdAt` desc (solo decide cuál se crea si
+   * dos comparten lugar). Best-effort: un salto se registra como `ORDER_CLAIM_ADDRESS_SKIPPED reason=invalid|unsettled|error`
+   * (⛔ sin la dirección ni el mensaje del error, que podría citarla) y ⛔ no revierte el reclamo ni cambia otra cosa de la
+   * respuesta; no se reintenta. Devuelve las filas creadas.
    */
   private async saveAddresses(actor: { id: string; role: Role }, claimed: string[]): Promise<number> {
     if (claimed.length === 0) return 0;
@@ -142,6 +149,10 @@ export class OrderClaimService {
     for (const o of orders) {
       const snapshot = customerAddressSnapshotOf(o, o.shipmentRequests);
       if (snapshot == null) continue; // pedido sin envío a domicilio ⇒ nada
+      if (o.status !== 'settled') {
+        this.skipped(o.id, 'unsettled'); // ⭐ v1.116.1 (PT-CHK-1): sin cobro no hay prueba del domicilio
+        continue;
+      }
       try {
         const r = await this.users.createAddressFromClaim(actor, o.id, snapshot);
         if (r.created) saved += 1;
@@ -160,6 +171,7 @@ export class OrderClaimService {
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
+        status: true,
         shippingAddressSnapshot: true,
         shipmentRequests: { orderBy: { requestedAt: 'desc' }, select: { status: true, addressSnapshot: true } },
       },
@@ -167,7 +179,7 @@ export class OrderClaimService {
   }
 
   /** Log del salto. ⛔ Ni el domicilio ni `err.message` (un error de Prisma puede citar valores): solo el nombre/código. */
-  private skipped(orderId: string, reason: 'invalid' | 'error', err?: unknown): void {
+  private skipped(orderId: string, reason: 'invalid' | 'unsettled' | 'error', err?: unknown): void {
     const e = err as { name?: unknown; code?: unknown } | undefined;
     const kind = e ? ` error=${typeof e.code === 'string' ? e.code : typeof e.name === 'string' ? e.name : 'unknown'}` : '';
     this.logger.warn(`ORDER_CLAIM_ADDRESS_SKIPPED reason=${reason} orderId=${orderId}${kind}`);

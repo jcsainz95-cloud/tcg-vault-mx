@@ -70,7 +70,8 @@ export const E2E_ACCOUNT_FIXTURES = {
  *
  * Es un pedido **liquidado y entregado** (`status='settled'`, `direct_ship`): el caso real de quien
  * compró como invitado y luego se registró con el mismo correo. Reclamable = `userId IS NULL AND
- * claimedAt IS NULL AND guestEmail = correo verificado` (`order-claim.service.ts`); el estado no filtra.
+ * claimedAt IS NULL AND guestEmail = correo verificado AND settledAt IS NOT NULL` (`order-claim.service.ts`,
+ * v1.116.1 PT-CHK-1: solo pedidos cobrados alguna vez; este lo está).
  * Su pieza (`folio`) es PROPIA del fixture (no toca ninguna `E2E-LST-*`): plataforma, `delivered`, sin
  * ubicación (salió de la bóveda). Idempotencia: la siembra borra el pedido por `orderNumber` (reclamado
  * o no) y lo vuelve a declarar; el reclamo de una corrida no sobrevive a la siguiente siembra.

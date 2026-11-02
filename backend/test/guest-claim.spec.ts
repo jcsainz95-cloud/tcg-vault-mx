@@ -44,7 +44,12 @@ function buildService(opts: { emailVerified?: boolean; email?: string; orders?: 
       findMany: jest.fn(async ({ where }: any) =>
         orders
           .filter(
-            (o) => o.guestEmail === where.guestEmail && o.userId === null && o.claimedAt === null,
+            (o) =>
+              o.guestEmail === where.guestEmail &&
+              o.userId === null &&
+              o.claimedAt === null &&
+              // v1.116.1: el doble aplica el filtro de cobro SOLO si el servicio lo pide (así la mutación «sin filtro» muerde).
+              (where.settledAt?.not !== null || o.settledAt !== null),
           )
           .map((o) => ({ ...o, _count: { items: 2 } })),
       ),
@@ -101,6 +106,21 @@ describe('GET /orders/claimable', () => {
   it('con correo NO verificado no devuelve nada (la prueba de titularidad es el buzón)', async () => {
     const { svc } = buildService({ emailVerified: false });
     expect(await svc.listClaimable(ME.id)).toEqual({ data: [] });
+  });
+
+  it('v1.116.1 (PT-CHK-1): solo pedidos cobrados alguna vez (`settledAt ≠ null`); un `failed`/`pending` sin cobro no aparece', async () => {
+    const base = { userId: null, guestEmail: 'juan@example.com', claimedAt: null, totalCents: 100, createdAt: new Date('2026-08-01T00:00:00.000Z') };
+    const { svc, prisma } = buildService({
+      orders: [
+        { ...base, id: 'failed', orderNumber: 'TCG-1', status: 'failed', settledAt: null },
+        { ...base, id: 'pending', orderNumber: 'TCG-2', status: 'pending', settledAt: null },
+        { ...base, id: 'settled', orderNumber: 'TCG-3', status: 'settled', settledAt: new Date('2026-08-01T00:05:00.000Z') },
+        { ...base, id: 'refunded', orderNumber: 'TCG-4', status: 'refunded', settledAt: new Date('2026-08-01T00:05:00.000Z') },
+      ],
+    });
+    const res = await svc.listClaimable(ME.id);
+    expect(prisma.order.findMany.mock.calls[0][0].where).toMatchObject({ settledAt: { not: null } });
+    expect(res.data.map((o: { orderId: string }) => o.orderId)).toEqual(['settled', 'refunded']);
   });
 
   it('nunca acepta un correo como parámetro (no es un oráculo)', () => {

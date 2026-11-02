@@ -6,8 +6,9 @@
  * | Caso | Qué fija |
  * |---|---|
  * | K1-K3 | `addressPlaceKey`: mayúsculas/acentos/espacios/`null` iguales; interior distinto ⇒ otro lugar; sin colisión de partes |
- * | U1-U6 | alta interna: predeterminada solo con libreta vacía, duplicado ⇒ nada, inválida ⇒ nada, candado ANTES de leer, bitácora sin domicilio |
- * | C1-C6 | reclamo: solo ganados, tras revocar y auditar; orden `createdAt` desc; envío corregido gana; fallo ⇒ log sin domicilio y reclamo intacto |
+ * | U1-U6 | alta interna: NUNCA predeterminada (v1.116.1), duplicado ⇒ nada, inválida ⇒ nada, candado ANTES de leer, bitácora sin domicilio |
+ * | C1-C9 | reclamo: solo ganados y COBRADOS (v1.116.1), tras revocar y auditar; orden `createdAt` desc; envío corregido gana; fallo ⇒ log sin domicilio y reclamo intacto |
+ * | L1-L4 | (v1.116.1, PT-CHK-2/3) alta y edición del cliente: candado de la libreta ANTES de quitar la predeterminada y escribir, todo en la misma tx; validación/dueño fuera |
  */
 import { Logger } from '@nestjs/common';
 import { Role } from '@prisma/client';
@@ -82,11 +83,11 @@ function buildUsers(book: AddrRow[] = []) {
 }
 
 describe('U · UsersService.createAddressFromClaim', () => {
-  it('U1: libreta vacía ⇒ una fila con los diez campos tal cual e `isDefault:true`', async () => {
+  it('U1: libreta vacía ⇒ una fila con los diez campos tal cual e `isDefault:false` (v1.116.1: nunca predeterminada)', async () => {
     const { svc, tx } = buildUsers();
     const r = await svc.createAddressFromClaim(ME, 'order-A', SNAP);
-    expect(r).toEqual({ created: true, addressId: 'addr-1', isDefault: true });
-    expect(tx.address.create.mock.calls[0][0].data).toEqual({ userId: ME.id, ...SNAP, isDefault: true });
+    expect(r).toEqual({ created: true, addressId: 'addr-1', isDefault: false });
+    expect(tx.address.create.mock.calls[0][0].data).toEqual({ userId: ME.id, ...SNAP, isDefault: false });
   });
 
   it('U2: libreta con predeterminada ⇒ la nueva `isDefault:false` y ⛔ ninguna escritura sobre las existentes', async () => {
@@ -134,7 +135,7 @@ describe('U · UsersService.createAddressFromClaim', () => {
     const { svc, audit, tx } = buildUsers();
     await svc.createAddressFromClaim(ME, 'order-A', SNAP);
     expect(audit.log).toHaveBeenCalledWith(
-      { actorUserId: ME.id, actorRole: ME.role, action: 'address.create_from_claim', entityType: 'Address', entityId: 'addr-1', after: { orderId: 'order-A', isDefault: true } },
+      { actorUserId: ME.id, actorRole: ME.role, action: 'address.create_from_claim', entityType: 'Address', entityId: 'addr-1', after: { orderId: 'order-A', isDefault: false } },
       tx,
     );
     const logged = JSON.stringify(audit.log.mock.calls);
@@ -146,6 +147,7 @@ describe('U · UsersService.createAddressFromClaim', () => {
 
 type OrderRow = {
   id: string;
+  status: string;
   userId: string | null;
   guestEmail: string;
   createdAt: Date;
@@ -170,7 +172,7 @@ function buildClaim(orders: OrderRow[], users: { createAddressFromClaim: jest.Mo
         orders
           .filter((o) => where.id.in.includes(o.id))
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-          .map((o) => ({ id: o.id, shippingAddressSnapshot: o.shippingAddressSnapshot, shipmentRequests: [...o.shipmentRequests].sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime()) })),
+          .map((o) => ({ id: o.id, status: o.status, shippingAddressSnapshot: o.shippingAddressSnapshot, shipmentRequests: [...o.shipmentRequests].sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime()) })),
       ),
     },
   };
@@ -186,6 +188,7 @@ function buildClaim(orders: OrderRow[], users: { createAddressFromClaim: jest.Mo
 
 const order = (id: string, day: number, snap: unknown = SNAP, extra: Partial<OrderRow> = {}): OrderRow => ({
   id,
+  status: 'settled',
   userId: null,
   guestEmail: 'juan@example.com',
   createdAt: new Date(Date.UTC(2026, 9, day)),
@@ -219,7 +222,7 @@ describe('C · OrderClaimService.claim → libreta', () => {
     expect(users.createAddressFromClaim).not.toHaveBeenCalled();
   });
 
-  it('C3: varios ganados ⇒ se guardan por `createdAt` desc (el más reciente da la predeterminada de una libreta vacía)', async () => {
+  it('C3: varios ganados ⇒ se guardan por `createdAt` desc (decide cuál se crea si dos comparten lugar)', async () => {
     const users = { createAddressFromClaim: jest.fn() };
     const { svc, trace } = buildClaim([order('viejo', 1), order('nuevo', 20), order('medio', 10)], users);
     await svc.claim(ME, ['viejo', 'nuevo', 'medio']);
@@ -282,5 +285,95 @@ describe('C · OrderClaimService.claim → libreta', () => {
     const res = await svc.claim(ME, ['o1']);
     expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 0 });
     expect(warn).toHaveBeenCalledWith('ORDER_CLAIM_ADDRESS_SKIPPED reason=error orderId=o1 error=Error');
+  });
+
+  it.each([['pending'], ['failed'], ['refunded'], ['chargeback']])(
+    'C9: ganado `%s` (sin `status=settled`) ⇒ reclamado igual, ⛔ sin alta, log `reason=unsettled` sin domicilio (v1.116.1, PT-CHK-1)',
+    async (status) => {
+      const users = { createAddressFromClaim: jest.fn() };
+      const { svc, tokens } = buildClaim([order('o1', 1, SNAP, { status })], users);
+      const res = await svc.claim(ME, ['o1']);
+      expect(res).toEqual({ claimed: ['o1'], failed: [], addressesSaved: 0 });
+      expect(tokens.revokeAll).toHaveBeenCalledWith('o1', expect.any(Date));
+      expect(users.createAddressFromClaim).not.toHaveBeenCalled();
+      expect(warn.mock.calls).toEqual([['ORDER_CLAIM_ADDRESS_SKIPPED reason=unsettled orderId=o1']]);
+    },
+  );
+
+  it('C9b: cobrado viejo + plantado sin cobro más nuevo ⇒ solo el cobrado pasa a la libreta', async () => {
+    const users = { createAddressFromClaim: jest.fn() };
+    const { svc } = buildClaim([order('real', 1), order('plantado', 20, { ...SNAP, line1: 'Bodega' }, { status: 'failed' })], users);
+    const res = await svc.claim(ME, ['real', 'plantado']);
+    expect(res).toEqual({ claimed: ['real', 'plantado'], failed: [], addressesSaved: 1 });
+    expect(users.createAddressFromClaim.mock.calls.map((c) => c[1])).toEqual(['real']);
+  });
+});
+
+// ─────────────────────── v1.116.1: candado de la libreta en alta y edición del cliente (PT-CHK-2/3) ───────────────────────
+
+function buildBook(book: AddrRow[] = []) {
+  const calls: string[] = [];
+  let inTx = false;
+  const rec = (name: string) => calls.push(inTx ? `tx:${name}` : name);
+  const address = {
+    findUnique: jest.fn(async ({ where }: { where: { id: string } }) => (rec('findUnique'), book.find((a) => a.id === where.id) ?? null)),
+    updateMany: jest.fn(async () => (rec('updateMany'), { count: 0 })),
+    create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => (rec('create'), { id: 'addr-new', line2: null, neighborhood: null, references: null, ...data })),
+    update: jest.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => (rec('update'), { ...book.find((a) => a.id === where.id), ...data })),
+  };
+  const tx = {
+    $executeRaw: jest.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => (rec(`lock:${strings.join('?')}|${JSON.stringify(values)}`), 1)),
+    address,
+  };
+  const prisma = {
+    address,
+    $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => {
+      inTx = true;
+      try {
+        return await fn(tx);
+      } finally {
+        inTx = false;
+      }
+    }),
+  };
+  const postalCodes = {
+    resolveAddressGeo: jest.fn(async (postalCode: string, neighborhood: string, city: string, state: string) => (rec('geo'), { postalCode, neighborhood, city, state })),
+  };
+  const svc = new UsersService(prisma as never, {} as never, {} as never, {} as never, undefined, postalCodes as never);
+  return { svc, prisma, calls };
+}
+
+const LOCK = `lock:SELECT pg_advisory_xact_lock(?::int, hashtext(?))|${JSON.stringify([ADDRESS_BOOK_GATE_NAMESPACE, ME.id])}`;
+const BODY = { recipientName: 'Ana Pérez', line1: 'Av. Siempre Viva 742', neighborhood: 'San Ángel', city: 'CDMX', state: 'CDMX', postalCode: '01000', country: 'MX', phone: '5555555555' };
+const MINE: AddrRow = { id: 'a1', userId: ME.id, postalCode: '01000', line1: 'Calle 1', line2: null, neighborhood: 'Centro', isDefault: false };
+
+describe('L · candado de la libreta en POST/PATCH /users/me/addresses (v1.116.1)', () => {
+  it('L1: POST {isDefault:true} ⇒ geo fuera; en la tx: candado → quitar predeterminada → alta', async () => {
+    const { svc, calls } = buildBook();
+    await svc.createAddress(ME.id, { ...BODY, isDefault: true } as never);
+    expect(calls).toEqual(['geo', `tx:${LOCK}`, 'tx:updateMany', 'tx:create']);
+  });
+
+  it('L2: POST sin isDefault ⇒ candado → alta (sin tocar la predeterminada)', async () => {
+    const { svc, calls } = buildBook();
+    await svc.createAddress(ME.id, { ...BODY, isDefault: false } as never);
+    expect(calls).toEqual(['geo', `tx:${LOCK}`, 'tx:create']);
+  });
+
+  it('L3: PATCH {isDefault:true} ⇒ dueño fuera; en la tx: candado → quitar predeterminada → edición', async () => {
+    const { svc, calls } = buildBook([{ ...MINE }]);
+    await svc.updateAddress(ME.id, 'a1', { isDefault: true });
+    expect(calls).toEqual(['findUnique', `tx:${LOCK}`, 'tx:updateMany', 'tx:update']);
+  });
+
+  it('L4: ⛔ nada se escribe ni se abre tx antes de validar: POST inválido, PATCH de dirección ajena', async () => {
+    const a = buildBook();
+    await expect(a.svc.createAddress(ME.id, { ...BODY, recipientName: ' ', isDefault: true } as never)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(a.svc.createAddress(ME.id, { ...BODY, country: 'US', isDefault: true } as never)).rejects.toMatchObject({ code: 'ADDRESS_NOT_MX' });
+    expect(a.prisma.$transaction).not.toHaveBeenCalled();
+    const b = buildBook([{ ...MINE, userId: 'otro' }]);
+    await expect(b.svc.updateAddress(ME.id, 'a1', { isDefault: true })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(b.prisma.$transaction).not.toHaveBeenCalled();
+    expect(b.calls).toEqual(['findUnique']);
   });
 });
