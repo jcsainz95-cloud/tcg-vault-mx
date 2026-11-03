@@ -258,10 +258,12 @@ test.describe('@real §IDS liga sembrada (E2E_IDS)', () => {
     const filter = page.getByTestId('version-filter').filter({ visible: true });
     await filter.getByRole('button', { name: 'Cartas de liga y promos' }).click();
     await expect(page).toHaveURL(/[?&]stamped=true\b/);
-    const tiles = page.locator(`main a[href*="/catalog/${league.cardId}?version="]`);
-    await expect(tiles).toHaveCount(2);
-    const hrefs = (await tiles.evaluateAll((els) => els.map((e) => e.getAttribute('href') ?? ''))).map((h) => h.split('?version=')[1]).sort();
-    expect(hrefs).toEqual([LEAGUE_EN, LEAGUE_ES]);
+    // Cada teja lleva DOS enlaces a la ficha (imagen y nombre): se comparan las versiones DISTINTAS enlazadas.
+    const links = page.locator(`main a[href*="/catalog/${league.cardId}?version="]`);
+    await expect
+      .poll(async () => [...new Set(await links.evaluateAll((els) => els.map((e) => (e.getAttribute('href') ?? '').split('?version=')[1])))].sort())
+      .toEqual([LEAGUE_EN, LEAGUE_ES]);
+    await expect(links.filter({ hasText: LEAGUE.name }).filter({ visible: true })).toHaveCount(2);
     // La teja sin liga de la misma carta (`?version=es`) queda fuera del filtro.
     await expect(page.locator(`main a[href$="/catalog/${league.cardId}?version=es"]`)).toHaveCount(0);
   });
