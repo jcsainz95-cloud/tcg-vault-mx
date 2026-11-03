@@ -498,7 +498,7 @@ export class AuthService {
    * y PT-CTA-2): el enlace prueba el buzón y el cuerpo prueba o fija la credencial. Exactamente uno de `password` |
    * `newPassword` (el DTO da `400` sin tocar el token). Todo dentro del candado, con el token ATADO al correo (§CTA.13).
    *  - `password`: C7 de la cuenta y `argon2.verify` contra el hash actual; falla (o no hay hash) ⇒ `401` SIN consumir. Bien ⇒
-   *    consume y `emailVerified=true`; `tokenVersion` NO cambia. Doble clic (token usado de una cuenta ya verificada) ⇒ `200`.
+   *    consume y `emailVerified=true`; `tokenVersion` NO cambia. Doble clic (token usado y atado al correo actual, cuenta ya verificada) ⇒ `200`.
    *  - `newPassword`: consume y, en UNA escritura, los pasos 3-6 de `account-setup` (403 si no está activa, hash nuevo,
    *    `emailVerified`, `tokenVersion +1`, anula los tres tipos, 5-bis si no estaba verificado, limpia C7). Token usado ⇒ `422`.
    */
@@ -518,8 +518,9 @@ export class AuthService {
       const u = await tx.user.findUnique({ where: { id: ownerId } });
       if (!u) throw this.verifyTokenInvalid();
       if (!(await this.tokens.isLive(tx, token, AuthTokenType.email_verification, u.email))) {
-        // Idempotencia (doble clic), solo en este modo: token usado de una cuenta ya verificada ⇒ 200 sin escribir.
-        if (u.emailVerified && (await this.tokens.isUsed(tx, token, AuthTokenType.email_verification))) return 'already' as const;
+        // Idempotencia (doble clic), solo en este modo: token usado, atado al correo actual, de una cuenta ya verificada ⇒ 200
+        // sin argon2, sin C7 y sin escribir (la respuesta no depende de `password`: no es canal para adivinarla). v1.117.3.
+        if (u.emailVerified && (await this.tokens.isUsed(tx, token, AuthTokenType.email_verification, u.email))) return 'already' as const;
         throw this.verifyTokenInvalid();
       }
       // C7: el intento se reserva ANTES de argon2, en el cubo de la cuenta (con candado ⇒ 429, la misma respuesta que `login`).

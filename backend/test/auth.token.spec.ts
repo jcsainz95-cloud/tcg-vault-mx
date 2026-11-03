@@ -69,6 +69,19 @@ describe('AuthTokenService', () => {
     expect(resetExp.getTime() - before).toBeLessThanOrEqual(AUTH_TOKEN_TTL_MS.password_reset + 2000);
   });
 
+  it('isUsed (v1.117.3, doble clic de verify-email): usado, del tipo Y atado al correo actual; con otro correo o sin correo ⇒ false', async () => {
+    const prisma = prismaMock();
+    const svc = new AuthTokenService(prisma as unknown as PrismaService);
+    const row = { type: AuthTokenType.email_verification, usedAt: new Date(), emailHash: emailHash('a@x.com') };
+    prisma.authToken.findUnique.mockImplementation((async () => row) as never);
+    expect(await svc.isUsed(prisma as any, 'c', AuthTokenType.email_verification, 'a@x.com')).toBe(true);
+    expect(await svc.isUsed(prisma as any, 'c', AuthTokenType.email_verification, 'otro@x.com')).toBe(false);
+    expect(await svc.isUsed(prisma as any, 'c', AuthTokenType.email_verification, null)).toBe(false);
+    expect(await svc.isUsed(prisma as any, 'c', AuthTokenType.password_reset, 'a@x.com')).toBe(false);
+    prisma.authToken.findUnique.mockImplementation((async () => ({ ...row, usedAt: null })) as never);
+    expect(await svc.isUsed(prisma as any, 'c', AuthTokenType.email_verification, 'a@x.com')).toBe(false);
+  });
+
   it('consume: válido → marca usedAt (un solo uso, no expirado) y devuelve el userId', async () => {
     const prisma = prismaMock();
     const svc = new AuthTokenService(prisma as unknown as PrismaService);

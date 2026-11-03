@@ -111,10 +111,17 @@ export class AuthTokenService {
     return n > 0;
   }
 
-  /** ¿Este claro es de un token YA USADO? (idempotencia del doble clic de `verify-email` en modo `password`). */
-  async isUsed(tx: Prisma.TransactionClient, clear: string, type: AuthTokenType): Promise<boolean> {
-    const t = await tx.authToken.findUnique({ where: { tokenHash: hashAuthToken(clear) }, select: { type: true, usedAt: true } });
-    return t !== null && t.type === type && t.usedAt !== null;
+  /**
+   * ¿Este claro es de un token YA USADO y atado a `currentEmail`? (idempotencia del doble clic de `verify-email` en modo
+   * `password`, v1.117.3). La atadura cuenta también aquí: con el correo cambiado, el enlace viejo es `422`, no `200`.
+   */
+  async isUsed(tx: Prisma.TransactionClient, clear: string, type: AuthTokenType, currentEmail: string | null): Promise<boolean> {
+    if (currentEmail === null) return false;
+    const t = await tx.authToken.findUnique({
+      where: { tokenHash: hashAuthToken(clear) },
+      select: { type: true, usedAt: true, emailHash: true },
+    });
+    return t !== null && t.type === type && t.usedAt !== null && t.emailHash === emailHash(currentEmail);
   }
 
   /**

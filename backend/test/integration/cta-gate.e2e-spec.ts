@@ -4,7 +4,7 @@
  *
  * | Caso | Qué fija | Mutación que lo pone rojo |
  * |---|---|---|
- * | CTA-B14 | PT-CTA-1: 5 `PATCH /users/me/email` a la vez (uno a V retrasado δ) ⇒ ningún enlace mandado a otro correo canjea; ≤ 1 vivo; vivo atado al correo final; sin 5xx. N=30 por δ | quitar candado y atadura ((a) en δ=25); solo la atadura ⇒ el determinista; solo el candado ⇒ (d) o B16 |
+ * | CTA-B14 | PT-CTA-1: 5 `PATCH /users/me/email` a la vez (uno a V retrasado δ) ⇒ ningún enlace mandado a otro correo canjea; ≤ 1 vivo; vivo atado al correo final; sin 5xx. N=30 por δ | v1.117.3, ablación de referencia «forma de antes» (sin candado, sin atadura, sin índice, emisión en otra tx tras el commit y correo releído) ⇒ (a) en δ=25 (≥ 3/30, si no se sube N). Candado + atadura con el resto intacto NO muerde y no se exige; cada capa tiene su prueba: solo la atadura ⇒ el determinista; solo el candado ⇒ B16 y CTA-B19 (`cta-v1173.e2e-spec.ts`) |
  * | CTA-B14 det. | token emitido a A, correo cambiado a V en BD ⇒ `account-setup`, `reset-password` y `verify-email` dan su 422 sin escribir | quitar la atadura |
  * | CTA-B14r | 10 `resend` + 10 `forgot-password` a la vez ⇒ ≤ 1 vivo por tipo, sin 5xx. N=30 | rotación fuera del candado y sin el índice de M-97 |
  * | CTA-B15 | PT-CTA-2 (AUTH-PRE-2), dos vías: `verify-email` exige `password` o `newPassword`; `newPassword` revoca, sustituye el hash y el re-login del creador da 401 | aceptar `{token}`; `newPassword` sin `tokenVersion +1`; sin reemplazar el hash |

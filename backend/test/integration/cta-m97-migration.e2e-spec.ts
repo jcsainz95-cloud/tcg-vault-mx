@@ -9,7 +9,8 @@
  *  - el `emailHash` que calcula SQL es bit a bit el `sha256hex` de Node (`createHash('sha256').update(email, 'utf8')`);
  *  - un segundo vivo o un vivo sin `emailHash` ⇒ error de BD (índice parcial y CHECK);
  *  - la reversa deja la tabla como antes (sin columna, índice ni CHECK) y M-97 se vuelve a aplicar.
- * Mutaciones que la ponen roja: relleno con `lower()` o sin `convert_to`; sin índice; sin CHECK.
+ * Mutaciones que la ponen roja (v1.117.3): relleno con `lower()` o con `convert_to(…, 'LATIN1')`; sin índice; sin CHECK. ⛔ `::bytea`
+ * en vez de `convert_to` NO vale como mutación: en una base UTF-8 da los mismos bytes y no muerde.
  *
  * Todo corre en UNA transacción que SIEMPRE se deshace: la BD compartida queda como estaba. Determinista (N=1).
  */

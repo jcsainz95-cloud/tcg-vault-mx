@@ -230,12 +230,14 @@ describe('verify-email (v1.117.2, D-CTA-12: el cuerpo prueba o fija la credencia
 
   it('doble clic (modo `password`): token ya usado de una cuenta ya verificada → { verified:true } sin escribir', async () => {
     const prisma: any = { user: { update: jest.fn(), findUnique: jest.fn(async () => user({ emailVerified: true })) } };
-    const { svc } = make({
+    const { svc, tokens } = make({
       prisma,
       tokens: { ownerOf: jest.fn(async () => 'u1'), isLive: jest.fn(async () => false), isUsed: jest.fn(async () => true) },
     });
     await expect(svc.verifyEmail({ token: 't', password: 'Correcta123' })).resolves.toEqual({ verified: true });
     expect(prisma.user.update).not.toHaveBeenCalled();
+    // v1.117.3: la idempotencia exige la atadura — `isUsed` recibe el correo ACTUAL leído dentro del candado.
+    expect(tokens.isUsed).toHaveBeenCalledWith(prisma, 't', AuthTokenType.email_verification, user().email);
   });
 
   it('`newPassword` ⇒ hash nuevo, emailVerified, tokenVersion +1, anula los tres tipos, 5-bis y deviceToken', async () => {
