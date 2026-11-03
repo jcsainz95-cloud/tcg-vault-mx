@@ -8490,6 +8490,13 @@
       "reverse_holo": "Reverse Holo",
       "first_edition_holo": "1st Edition Holo",
       "cosmos_holo": "Cosmos Holo"
+    },
+    "finishLabelShort": {
+      "non_holo": "No holo",
+      "holo": "Holo",
+      "reverse_holo": "Reverse Holo",
+      "first_edition_holo": "1st Edition",
+      "cosmos_holo": "Cosmos"
     }
   },
   "versionDetail": {

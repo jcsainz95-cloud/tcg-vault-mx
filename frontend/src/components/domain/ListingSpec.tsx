@@ -61,6 +61,7 @@ export function ListingSpec({
   // (sin cert en la retícula), pero §7.2b exige que el aria-label SIEMPRE lleve el
   // certificado (empresa + grado + cert). Se compone aparte cuando se omite del visible.
   let gradedAriaLabel: string | undefined;
+  let fullFinish: string | undefined;
   if (productType === 'graded') {
     const grade = `${gradingCompany ?? ''} ${gradeValue ?? ''}`.trim();
     if (grade) parts.push(grade);
@@ -74,11 +75,20 @@ export function ListingSpec({
   } else {
     // raw: NM es el único valor del contrato (v1.1) y es término de grading, no se traduce.
     if (rawCondition) parts.push(rawCondition);
-    parts.push(finishLabel ? t(`version.finishLabel.${finishLabel}`) : t(`finish.${finish}`));
+    // §IDS-UX.8 candado 15: en el renglón compacto (teja, 152 px a 360) el acabado de cliente va en su forma corta
+    // («Cosmos», «1st Edition»): «RAW · NM · COSMOS HOLO» envolvía a dos renglones (medido: 22 px, +11 a la fila).
+    // ⛔ Nunca elipsis. El nombre completo sigue en la ficha y en el nombre accesible (`fullFinish`).
+    if (finishLabel) fullFinish = t(`version.finishLabel.${finishLabel}`);
+    parts.push(
+      finishLabel
+        ? t(compact ? `version.finishLabelShort.${finishLabel}` : `version.finishLabel.${finishLabel}`)
+        : t(`finish.${finish}`),
+    );
   }
 
   const line = parts.join(' · ');
-  const ariaLabel = nmTooltip ? `${line}. ${nmTooltip}` : gradedAriaLabel;
+  const spoken = fullFinish ? [...parts.slice(0, -1), fullFinish].join(' · ') : line;
+  const ariaLabel = nmTooltip ? `${spoken}. ${nmTooltip}` : gradedAriaLabel;
   return (
     <p
       title={nmTooltip}

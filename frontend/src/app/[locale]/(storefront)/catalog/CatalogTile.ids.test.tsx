@@ -76,9 +76,10 @@ describe('CatalogTile · versión (§IDS-UX.4)', () => {
     expect(text).not.toContain('Cosmos Holo · '); // el detalle del proveedor no sale como texto suelto
   });
 
-  it('la ficha técnica usa finishLabel («COSMOS HOLO» por CSS: el texto es «Cosmos Holo»)', () => {
+  it('(15) la ficha técnica usa finishLabel en su forma corta en la teja («Cosmos»; el nombre accesible lo dice entero)', () => {
     renderWithIntl(<CatalogTile listing={esCosmos} inCart={false} onAdd={vi.fn()} />);
-    expect(screen.getByText(/· NM · Cosmos Holo$/)).toBeInTheDocument();
+    const spec = screen.getByText(/· NM · Cosmos$/);
+    expect(spec.getAttribute('aria-label')).toMatch(/· NM · Cosmos Holo\./);
   });
 
   it('(6) la fila de insignias NO es hija del contenedor de la foto', () => {
