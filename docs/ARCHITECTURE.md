@@ -6,6 +6,7 @@
 > ---
 > **Errata v1.116.1⟨checkout-friccion⟩ (2026-11-02).** §4.47.4: a la libreta solo la dirección de un pedido cobrado, nunca predeterminada; el aviso solo lista cobrados; candado de la libreta también en las altas del cliente; §9 `D-CLM-55` (PT-CHK-1/2/3) y `D-CLM-56` · pentester (`f2e1de9c`).
 > **Rev v1.116⟨checkout-friccion⟩ (2026-11-02).** §4.47.4: la dirección del invitado pasa a la libreta al ganar el reclamo (sin migración); §14.5: `begin_checkout` al pulsar PAGAR y `add_payment_info` al abrir el modal de Stripe; §14.9: pagos iniciados/pagados de BD (a6); §9 `D-CLM-54`, `D-MKT-BC`; compactadas las cabeceras C7 v1.80.1.1 y ⟨dinero⟩ v1.80.2.2 · dueño (`HECHOS.md` 2026-11-02 «Checkout con menos captura: paquete A…» (3)), QA de marketing. Contrato: API_CONTRACT §4-G.9c, §MKT.H.4, §MKT.G.4 a6.
+> **Errata v1.116.3⟨ids⟩ (2026-11-03).** [§15](#15-IDS): D-IDS-J (el `productId` de la liga no se congela: I-7 lo hace estable), D-IDS-P (Destacadas solo `(en, null)`), D-IDS-Q (alta manual solo `stamped`; promo no escala), D-IDS-8 nueva (criterio 160 sin vía de corrección) · backend (D-B-IDS-1/2, `BACKEND_NOTES` §IDS, `58c7fbc8`). Contrato: API_CONTRACT §IDS.0/.2/.4/.5/.6/.9, §0-Q, §M1.
 > **Errata v1.116.2⟨ids⟩ (2026-11-03).** [§15](#15-IDS): §15.0 con lo medido por devops; D-IDS-1 por falla cerrada (Q1 antes de fusionar), D-IDS-2 cerrada, D-IDS-7 nueva (22872/24451 fuera); D-IDS-F con precedencia; D-IDS-N con Cosmos Reverse · devops (`DEVOPS_NOTES §108.4`), frontend (`§IDS-FE`), dueño (`HECHOS.md` 2026-11-03 «El dueño no ha subido cartas promo»). Contrato: API_CONTRACT §IDS.2–.5, .7, .9, .11.
 > **Errata v1.116.1⟨ids⟩ (2026-11-02).** [§15](#15-IDS): D-IDS-N (`FinishLabel`, clave cerrada con texto por i18n; Cosmos Holo por el nombre del producto) y D-IDS-O (`versions[]` por producto de liga × acabado, `optionKey`, orden del servidor); D-IDS-4 y D-IDS-5 cerradas; D-IDS-6 nueva · marketing vía dueño (`HECHOS.md` 2026-11-02 «§IDS v5 2×N…»), ux-ui (IDS-UX.7 petición 6). Contrato: API_CONTRACT §IDS.4/.5, IDS-B18/B19.
 > **Rev v1.116⟨ids⟩ (2026-11-02).** [§15](#15-IDS) NUEVA: español y versiones de liga — idioma como columna de la pieza, liga como `CardProduct` `stamped`, precio por sustitución de la referencia en el cuerpo único, empate automático sin cola, ficha por carta con versiones, surtido de Meta decks sin liga primero; D-IDS-1…5 y P-ARQ-IDS-1/2; §4.33 compactada (superseded) · dueño (`HECHOS.md` 2026-10-30 y 2026-11-01/02, filas §IDS), marketing (D-6 v3, burbujas). Contrato: API_CONTRACT §IDS.
@@ -36911,7 +36912,7 @@ que no pasa por el interruptor**: acotada a `super_admin`, 5/h, bitácora y ning
 - **seguridad** (antes de encender): diff de etiquetas, rutas excluidas, checkout de invitado con etiquetas, configuración real del píxel y de
   GA4 en sus consolas, riesgo residual de §MKT.G.10 y el endpoint de prueba de D-MKT2-10.
 
-## <a id="15-IDS"></a>15. §IDS — cartas en español y versiones de liga (rev v1.116.2⟨ids⟩, 2026-11-03, arquitecto)
+## <a id="15-IDS"></a>15. §IDS — cartas en español y versiones de liga (rev v1.116.3⟨ids⟩, 2026-11-03, arquitecto)
 
 > Norma, esquema `M-95`, endpoints, pruebas y reparto: **API_CONTRACT §IDS**. Aquí: estado medido, decisiones con su razón, flujo,
 > despliegue, desviaciones y preguntas. Fuentes del dueño y de marketing: las de API_CONTRACT §IDS (cabecera), citadas por fila (O-17).
@@ -36934,6 +36935,10 @@ Leído en el árbol `claude/ids-diseno` (sin ejecutar; sha no comprobado: no ten
 - **NO MEDIDO**, con lo que lo cierra: piezas `promo`/`deck_exclusive` vendibles en producción (Q1 de `scripts/ids/ids-d1-produccion.sql`;
   el dueño dice 0 promo, `HECHOS.md` 2026-11-03); tasa real de empate contra el catálogo de producción (el log `stamped-ingest` del primer
   barrido); imagen del producto de liga (fuera: D-7 de marketing usa la del catálogo).
+- **Leído tras la construcción** (2026-11-03, árbol `claude/ids-diseno`, sha NO MEDIDO por mí): `inventory.dto.ts` `CreateItemDto`/`BatchInventoryItemInput`
+  llevan `cardProductId`, `UpdateItemDto` no (solo `language`); `resolveVersionForAlta` (`inventory.service.ts`) acepta solo `stamped`;
+  `OrderItem` (schema) congela `language`/`stampType`/`stampLabel` y referencia la pieza con FK sin `onDelete` (Restrict); `featuredCandidates`
+  filtra `isDefaultVersion`; `GET /catalog/facets` no recibe query. Que no haya otro escritor de `InventoryItem.cardProductId` tras el alta: NO MEDIDO (lo cierra `rg -n "cardProductId" backend/src` sobre los `update*`; IDS-B22 vigila el `PATCH`).
 
 ### 15.1 Decisiones
 | ID | Decisión | Por qué | Descartado |
@@ -36947,7 +36952,9 @@ Leído en el árbol `claude/ids-diseno` (sin ejecutar; sha no comprobado: no ten
 | D-IDS-G | Productos de liga **sin candado anti-inflado** (§4.PRE) | Igual que las promos hoy: la retención mira variantes sin producto (DYN.5.9) y la liga tiene una sola familia (TCGplayer). Costo declarado en §15.6 | Ampliar §4.PRE ahora (errata aparte si duele) |
 | D-IDS-H | **Teja por versión; ficha por carta** con `versions[]`; el servidor omite las agotadas; `?version=` con canonical a la base; JSON-LD `ProductGroup` | Marketing D-2, D-3 y filas 9–11 (delegado por el dueño, HECHOS 2026-11-01); Google: una URL canónica por grupo de variantes y marcado igual a lo visible. Omitir en el servidor reusa el `stockCount ≥ 1` de la rejilla | URL indexable por versión; `hreflang` por idioma de carta |
 | D-IDS-I 💰 | **Surtido de Meta decks: sin liga primero** (inglés o español, más barata), liga solo si no alcanza; lo ordena backend | P-IDS-12 de marketing: una liga automática multiplica el total (mediana ×2.15, p90 ×11.1). El precio de la línea es el de la pieza que agrega el botón (965) | «La más barata sea cual sea» |
-| D-IDS-J | `OrderItem` **congela** idioma y tipo | La pieza se corrige con `PATCH` (criterio 160); el pedido histórico no cambia (misma doctrina que `finish`) | Leerlo de la pieza |
+| D-IDS-J | `OrderItem` **congela** idioma, tipo y rótulo; el `productId` de la liga **se lee de la pieza** (v1.116.3, D-B-IDS-2) | Idioma y rótulo sí cambian después (`PATCH language`; el barrido puede reescribir `stampLabel`); `cardProductId` no (I-7: sin `PATCH` ni proceso que lo toque, FK Restrict), así que una columna más sería una segunda copia de un hecho que no se mueve | Leer idioma/tipo de la pieza; `OrderItem.stampedProductId` ahora (entra con D-IDS-8, antes de abrir una corrección) |
+| D-IDS-P | **Destacadas solo `(en, null)`** (v1.116.3) | La llave de M-93 es K sin versión; ampliarla cambia M-93 y el sorteo, y nadie lo pidió (`PROJECT §IDS` no nombra Destacadas) | Llave de M-93 con versión (si el dueño o marketing lo piden) |
+| D-IDS-Q 💰 | **Alta manual: `cardProductId` solo `stamped`; promo/Deck Exclusive sin precio no escala** (v1.116.3) | La captura solo ofrece ligas; la promo entra por buylist. Escalar abriría una entrada que el operador resolvería con un precio de variante, y M-30 no lleva producto (D-IDS-L; que la cola de venta resuelva así: NO MEDIDO): falla cerrada sin cola, respaldo el precio por pieza. Hoy 0 promos (Q1 lo confirma) | Aceptar cualquier kind (§M1 v1.51); escalar a la cola |
 | D-IDS-K | **Solo raw NM** en esta entrega | `PROJECT §IDS` no dice cómo se precia un slab o un sellado en español; PSA × 75 % sería inventar (P-ARQ-IDS-1) | Graded/sealed en español |
 | D-IDS-L | **Sin override de variante (M-30) ni bounty** para versiones | Su clave es la de la inglesa; aplicarlo cobraría el precio del inglés. Respaldo: precio por pieza | Clave de override con versión (sin pedido del dueño) |
 | D-IDS-M | **Dial X entero en M10** (`spanish_market_pct`) | Patrón de `iva_pct`: auditado, sin redeploy, `dial_change` inmediato; «me lo dejas en algún lugar a mover» (HECHOS 2026-10-30) | Constante; decimales |
@@ -36988,6 +36995,11 @@ Checkout:   cobra la fila; pending ⇒ PRICE_PENDING nombrando la versión; Orde
 - **D-IDS-7 (nueva) 22872/24451 fuera de §IDS:** IDS.3 decía «cambiar la constante»; devops midió que no basta (sin promos ME en
   pokemontcg.io, `svp` sin grupo por nombre, 50/70 sin producto base, colisión con `promo` existente). Se retira de esta entrega; el paso cuenta
   la colisión como `ocupados`. Se diseña con el pedido del dueño de vender promos. Backend corrige el comentario de `STAMPED_SOURCE_GROUPS`.
+- **D-IDS-8 (nueva, v1.116.3) Criterio 160 sin vía de corrección:** `PROJECT.md:12156-12161` exige corregir a mano en M1, auditada, la
+  identidad de producto de una pieza ya capturada; API_CONTRACT §M1 v1.51 lo puso en el `PATCH`, pero `UpdateItemDto` nunca tuvo `cardProductId`
+  (leído 2026-11-03) y el alta tampoco hasta D-B-IDS-1. Previa a §IDS; esta entrega **no** la abre (I-7). **Decide product-owner con el dueño**
+  si sigue haciendo falta (0 promos, `HECHOS.md` 2026-11-03); si sí, backend la construye con `OrderItem.stampedProductId` congelado primero
+  (D-IDS-J) y su prueba de paridad pedido↔pieza; mientras, la vigila IDS-B22 (`PATCH` no cambia la pieza).
 - **D-IDS-3 (texto de `PROJECT`):** §IDS.3/.4 y los criterios 521, 526 y 961 dicen «sello», «Con sello · <tipo>» y filtro «con sello»; `HECHOS`
   2026-11-02 (D-6 v3) los sustituye por «de liga» y «Cartas de liga y promos». El 966 sigue como SUPUESTO aunque marketing ya decidió P-IDS-12.
   El 527 conserva «Sello» (admin). **Lo corrige product-owner**; lo vigila IDS-F6 (grep de «sello» en superficies de cliente).

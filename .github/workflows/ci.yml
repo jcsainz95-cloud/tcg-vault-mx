@@ -220,9 +220,9 @@ jobs:
       # §IDS (IDS-D1/D3): instrumentos de medición de scripts/ids/, sin red. La foto del 512 corre su SQL
       # READ ONLY contra la base de CI ya migrada (tablas existen, salida JSON, sin columnas personales).
       # libpq no acepta los parámetros de Prisma (`?schema=…`): se pasa la URL sin query. DEVOPS_NOTES §108.
-      - name: Instrumentos §IDS — prueba (IDS-D1/D3)
+      - name: Instrumentos §IDS — prueba (IDS-D1/D3 y el botón de solo lectura de Q1, G-IDS-RO)
         run: |
-          out="$(IDS_FOTO_TEST_DATABASE_URL="${DATABASE_URL%%\?*}" node --test --test-reporter=tap ../scripts/ids/ids-lib.test.mjs ../scripts/ids/foto-512.test.mjs)" || { printf '%s\n' "$out"; exit 1; }
+          out="$(IDS_FOTO_TEST_DATABASE_URL="${DATABASE_URL%%\?*}" node --test --test-reporter=tap ../scripts/ids/ids-lib.test.mjs ../scripts/ids/foto-512.test.mjs ../scripts/ids/medir-q1.test.mjs)" || { printf '%s\n' "$out"; exit 1; }
           printf '%s\n' "$out"
           printf '%s\n' "$out" | grep -Eq '^# tests [1-9][0-9]*$' || { echo "::error::sin resumen TAP «# tests N»"; exit 1; }
           printf '%s\n' "$out" | grep -q '^# skipped 0$' || { echo "::error::la prueba con base (foto 512) se saltó"; exit 1; }
@@ -823,6 +823,13 @@ jobs:
       - name: Y su candado sabe morder (canario en ROJO)
         if: ${{ !cancelled() }}
         run: ./scripts/check-cargar-cp-workflow-canary.sh
+      # G-IDS-RO (DEVOPS_NOTES §108.5): el botón que mide Q1 de D-IDS-1 en producción sigue siendo de solo lectura.
+      - name: El botón de Q1 (D-IDS-1) es de solo lectura (manual, sin entradas, READ ONLY + prueba 25006, secreto acotado)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-ids-ro-workflow.sh
+      - name: Y su candado sabe morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-ids-ro-workflow-canary.sh
 
   # ---------------------------------------------------------------------------
   # 🔒 S-CI-1 — UN SCRIPT QUE SE INVOCA DESDE CI TIENE QUE EXISTIR BAJO EL CWD DEL

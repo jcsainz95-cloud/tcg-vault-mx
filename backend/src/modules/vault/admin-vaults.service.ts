@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { SaleDecisionService, versionValuationOf } from '../pricing/sale-decision.service';
 import { Injectable } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -55,6 +57,8 @@ export class AdminVaultsService {
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
     private readonly vault: VaultService,
+    // 💰 v1.116⟨ids⟩ (531). `@Optional()` por los unitarios.
+    @Optional() private readonly decider?: SaleDecisionService,
   ) {}
 
   /**
@@ -93,6 +97,10 @@ export class AdminVaultsService {
       },
       select: {
         ownerUserId: true,
+        // v1.116⟨ids⟩ (531): la versión de la pieza (valor por versión).
+        id: true,
+        language: true,
+        cardProductId: true,
         cardId: true,
         productType: true,
         rawCondition: true,
@@ -135,6 +143,8 @@ export class AdminVaultsService {
     // El dial del sellado, UNA vez por petición y solo si hay sellado que gatear (v1.80.2.2 D-4: un
     // solo cuerpo, `sealedSourceOnFor`).
     const sourceOn = await this.pricing.sealedSourceOnFor(pieces);
+    // 💰 v1.116⟨ids⟩ (531): las piezas en español o de liga valen lo de SU versión.
+    const byVersion = await versionValuationOf(this.decider, pieces);
 
     const agg = new Map<
       string,
@@ -148,7 +158,7 @@ export class AdminVaultsService {
       const k = keyOf[i];
       // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
       const ref = k ? refs.get(variantKey(k)) : undefined;
-      const cents = this.pricing.valuationCentsOf(p, ref, sourceOn);
+      const cents = byVersion.has(p.id) ? (byVersion.get(p.id) ?? null) : this.pricing.valuationCentsOf(p, ref, sourceOn);
       if (cents != null) {
         a.totalValueMxnCents += cents;
       } else {

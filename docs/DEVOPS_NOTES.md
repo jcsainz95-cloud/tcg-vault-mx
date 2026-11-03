@@ -27,6 +27,9 @@
   en Vercel (§106.4, la hace el dueño); la de 7 días tras publicar caduca el 2026-12-01 (candado en §106.4). Mediciones de producción de §DYN: `scripts/dyn-prod-measure.sh` (§104.4), las corre el dueño.
 - **Catálogo de CP (2026-11-02):** en producción está **vacío** (4 CP ⇒ 404). Se carga con el botón «Cargar códigos postales
   (SEPOMEX)» (`cargar-codigos-postales.yml`, lo dispara el dueño; simulacro por defecto) — pasos, candado y rollback: **§107**.
+- **§IDS, Q1 de D-IDS-1 (2026-11-03):** condición bloqueante de la solicitud de fusión de §IDS. Se mide con el botón «Medir
+  D-IDS-1 en producción (solo lectura)» (`medir-ids-produccion.yml`, entorno `medicion-ro` con revisor, rol `ids_ro`
+  recomendado; candado G-IDS-RO) — pasos del dueño, mediciones y rollback: **§108.5**. **NO corrido en producción.**
 - **Limpieza de ramas (2026-10-30):** `limpieza-ramas.yml` (lo dispara el dueño) borra las ramas remotas fusionadas en
   `production` y archiva `main`. Pasos para el dueño y cómo se deshace: **§105**.
 - **§IDS (2026-11-03, rama `claude/ids-diseno`):** IDS-D1/D2 medidas en seco contra TCGCSV público y el instrumento del 512
@@ -14742,27 +14745,36 @@ pokemontcg.io (lo más parecido al catálogo) y **A** los 218 grupos salvo 22880
 tiene producción y su `pptSetId`: **NO MEDIDO** (BD). Cada cifra es N = todos los productos del grupo, una corrida (determinista).
 
 ### 108.1 IDS-D1 — empate, sufijos, Cosmos y filas por carta
+Cifras con la llave del catálogo de la **errata v1.116.2** (IDS.3: número del nombre solo si trae total; si no, `Card.number` +
+`/` + `CardSet.printedTotal`; réplica de `catalogMatchKey`) y candidatos contados **por carta**, como `buildCatalogIndex`.
+Re-medido el 2026-11-03 sobre el mismo `last-updated`; la versión anterior del instrumento (llave = `Number` de TCGCSV, por
+producto) da exactamente las cifras previas (22880 765/56/28, 1539 351/6/118) sobre la misma caché. `printedTotal` = el del set de
+pokemontcg.io que la escalera empata con el grupo (142 de 143 grupos B; 0 grupos con dos totales distintos); `Card.number` ≈ el
+`Number` de TCGCSV antes del «/» (LECTURA DEVOPS: sin tabla `Card`).
+
 | Grupo | Productos | Sin número | Sin tipo | Con tipo y número | Único B | Ambiguo B | Sin pareja B | Único A |
 |---|---|---|---|---|---|---|---|---|
-| 22880 Prize Pack | 891 | 42 | 0 | 849 | **765 (90.1 %)** | 56 | 28 | 449 |
-| 1539 Liga/campeonato | 620 | 99 | 46 | 475 | **351 (73.9 %)** | 6 | 118 | 256 |
+| 22880 Prize Pack | 891 | 42 | 0 | 849 | **789 (92.9 %)** | 0 | 60 | 594 |
+| 1539 Liga/campeonato | 620 | 99 | 46 | 475 | **369 (77.7 %)** | 4 | 102 | 305 |
 
-- **22880, ambiguos B (56):** 32 energías básicas (SVE y Shrouded Fable), 21 duplicados dentro del mismo grupo (White Flare 7,
-  Ascended Heroes 7, Black Bolt 4, Prismatic 3) y 3 reediciones de Classic Collection. **Sin pareja (28):** promos `SWSH…`
-  (el set `swshp` no empata por nombre). La investigación del 2026-10-06 daba 818/849 con 50 grupos.
+- **Qué movió la errata (B, por producto):** 22880 — 24 ambiguos ⇒ únicos (21 duplicados dentro del mismo grupo y 3 reediciones:
+  por carta son una) y **32 ambiguos ⇒ sin pareja**: las energías básicas («Basic Grass Energy - 001»), cuyo `Number` no trae total
+  y el lado del catálogo siempre lo lleva; el resto sin pareja (28): promos `SWSH…` (`swshp` no empata por nombre). 1539 — 16 sin
+  pareja ⇒ únicos (base DP/Platinum sin total en el nombre, p. ej. «Butterfree FB - 17/147») y 2 ambiguos ⇒ únicos. Solo con la
+  llave (sin contar por carta): 22880 768/21/60, 1539 369/4/102. En A, 22872/24451 pasan a 0 únicos (su base, «Quaquaval - 005»,
+  no trae total ni set con `printedTotal`): coherente con D-IDS-7.
 - **1539, tipos** (los 620): `league` 298 · `championship` 105 · `staff` 102 · **sin tipo 115** (99 sin número + 46 con
   número: «Play! Pokemon» 17, sin etiqueta 11, «Cosmos Holo» 6, «Winner»/«Special» 4, otros 8). Con número y tipo, único en B
-  por tipo: league **190/268** · championship **82/105** · staff **79/102**. Sin pareja B (118): 87 el nombre existe con otro
-  número o en un set fuera de B (p. ej. «Sun & Moon» no empata por nombre), 22 la base trae número **sin total** («17» frente a
-  «17/147», sets DP/Platinum), 3 ambiguo por número, 6 nada. `subTypeName`: Reverse Holofoil 406, Holofoil 113, Normal 62.
-- **Cosmos Holo de 22880:** **189** productos (no 181: hay nuevos desde octubre); `subTypeName` **Holofoil 185, Reverse
-  Holofoil 4** (Jet, Luminous y Reversal Energy 190–192/193; Mist Energy 161/162). Ninguno sin fila de precio.
-- **Filas de liga (producto × acabado) por carta colgada, 22880 + 1539, B:** 857 cartas; p50 **1**, p90 **2**, máx **6**;
-  **4 cartas > 4** (distribución 1: 619 · 2: 189 · 3: 15 · 4: 23 · 5: 3 · 6: 1). El peor: Nest Ball 181/198 (base 488087) =
-  Prize Pack normal + Cosmos + 4 de campeonato/Staff reverse. En A: máx 5, p90 2, 1 carta > 4. Es estructura, no existencias:
-  la ficha solo pinta filas con stock (D-IDS-O), así que en la tienda es ≤.
-- **Caso candidato para el 960** (lo elige product-owner): `209911` «Quick Ball - 179/202 (League Cup)», único en A y B, base
-  `208511` (Sword & Shield), Reverse Holofoil **US$3.76**. 118 productos `league` cuelgan igual en A y B con precio.
+  por tipo: league **201/268** · championship **85/105** · staff **83/102**. Ambiguos B (4): Crimson Invasion + Furious Fists.
+  `subTypeName`: Reverse Holofoil 406, Holofoil 113, Normal 62.
+- **Cosmos Holo de 22880:** **189** productos; `subTypeName` **Holofoil 185, Reverse Holofoil 4** (Jet, Luminous y Reversal
+  Energy 190–192/193; Mist Energy 161/162). Ninguno sin fila de precio.
+- **Filas de liga (producto × acabado) por carta colgada, 22880 + 1539, B:** 890 cartas; p50 **1**, p90 **2**, máx **6**;
+  **4 cartas > 4** (distribución 0: 8 · 1: 646 · 2: 194 · 3: 15 · 4: 23 · 5: 3 · 6: 1). El peor: Nest Ball 181/198 (base 488087)
+  = Prize Pack normal + Cosmos + 4 de campeonato/Staff reverse. En A: 702 cartas, máx 6, p90 2, 2 > 4. Es estructura, no
+  existencias: la ficha solo pinta filas con stock (D-IDS-O), así que en la tienda es ≤.
+- **Caso candidato para el 960** (lo elige product-owner): `209911` «Quick Ball - 179/202 (League Cup)», sigue único en A y B con
+  la llave nueva, base `208511` (Sword & Shield), Reverse Holofoil **US$3.76**.
 
 ### 108.2 IDS-D2 — prerelease y Staff
 - `22872` SV Promo: 280 productos, **70 con tipo** (staff 39, prerelease 25, championship 6). `24451` ME Promo: 141, **25 con
@@ -14797,14 +14809,77 @@ una recomputación completa sin ingesta: **NO MEDIDO**, lo nombra backend. ⛔ L
 4. Lecturas que el contrato deja abiertas y este instrumento fijó (marcadas «LECTURA DEVOPS» en `ids-lib.mjs`): el número va
    dentro del nombre (con y sin guion, sin ceros en 1539) y hay que quitarlo; precedencia `staff` > `prerelease` >
    `championship` > `league` («(League Cup) [Staff]»); «International» también casa «(International Version)» fuera de 1539;
-   una base con número sin total no empata (22 en 1539).
+   una base con número sin total no empata (22 en 1539; **resuelto en v1.116.2**: empata por `Card.number`/`printedTotal`, §108.1).
 
-### 108.5 D-IDS-1 y lo que solo da la BD — `scripts/ids/ids-d1-produccion.sql` (la corre el dueño)
+### 108.5 D-IDS-1 y lo que solo da la BD — botón «Medir D-IDS-1 en producción (solo lectura)» (G-IDS-RO)
 Q1 = consulta literal del contrato (piezas vendibles de plataforma por `kind`); Q1b = la lista por producto si Q1 da > 0 en
-`promo`/`deck_exclusive` (va a la solicitud de fusión: decide el dueño); Q2 = sets de promos, `pptSetId` y productos colgados;
-Q3 = productos con sello que ya son `CardProduct`. READ ONLY con `statement_timeout`; salida sin datos personales.
-Cómo: `psql "$DATABASE_URL_RO" -X -v ON_ERROR_STOP=1 -f scripts/ids/ids-d1-produccion.sql` con un rol de solo lectura
-(creación y `DROP ROLE` como §104.4). **Botón (propuesta, NO construido):** `workflow_dispatch` en un entorno nuevo `medicion-ro`
-limitado a `production`, con revisor obligatorio (el dueño) y secreto `IDS_RO_DATABASE_URL` de un rol de solo lectura, que corre
-el `.sql` y deja la salida en el resumen del run (mismo patrón y máscaras que §107). Para cuatro consultas de una vez, correrlo
-a mano es más barato; el botón conviene si §IDS va a repetir mediciones de producción. Lo decide el orquestador con el dueño.
+`promo`/`deck_exclusive` (va a la solicitud de fusión: decide el dueño). Viven en **`scripts/ids/ids-d1-q1.sql`** (una fuente):
+la incluyen el `.sql` manual `ids-d1-produccion.sql` (Q1–Q3, `psql … -f`, rol de solo lectura como §104.4; Q2 lee además `CardSet`) y el botón.
+**Q1 es condición bloqueante de la solicitud de fusión de §IDS** (ARCHITECTURE §15 D-IDS-1). Estado: construido, **NO corrido en
+producción** (no existe hasta que esta rama llegue a `production`, la rama por defecto).
+
+| Ruta | Qué |
+|---|---|
+| `.github/workflows/medir-ids-produccion.yml` | Solo `workflow_dispatch`, **sin entradas**; job solo si `github.ref == refs/heads/production`, entorno **`medicion-ro`** (revisor obligatorio + regla de rama, en GitHub), `contents: read`, `ubuntu-24.04`, 10 min. Dos pasos: `checkout` fijado por sha y «Medir» (único con el secreto `IDS_RO_DATABASE_URL`; no hay `npm ci`). |
+| `scripts/ids/medir-q1-produccion.sh` | URL solo del entorno; `::add-mask::` de URL, contraseña, usuario, host y puerto antes de nada; la parte en `PG*` (la URL nunca va en la línea de `psql`); rechaza esquema no-Postgres y `*.railway.internal`. Corre `ids-q1-boton.sql` con `--csv` y `ON_ERROR_STOP`; el stderr de `psql` **no se vuelca** (trae host/IP): se clasifica (contraseña, red, permiso, tabla, «no era de solo lectura»). Al resumen solo cifras. 0 medido · 1 error. |
+| `scripts/ids/ids-q1-boton.sql` | `BEGIN TRANSACTION READ ONLY` + `statement_timeout 60s` + `lock_timeout 5s` → **prueba**: `UPDATE "InventoryItem" SET status = status WHERE false` tiene que dar 25006 (si no, aborta antes de leer) → rol (¿puede escribir?, sin escribir) → `\ir ids-d1-q1.sql` → `ROLLBACK`. |
+| `scripts/check-ids-ro-workflow.sh` (+ `-canary.sh`) | Candado **G-IDS-RO**, estático: [A] solo dispatch, sin `inputs` · [C] un secreto, en «Medir», sin `env` de job, sin instalar dependencias · [D] `production` + `medicion-ro` · [E] sin escritura · [F] qué corre · [G] máscara antes de partir la URL y de `psql`, URL fuera de la línea de `psql`, sin `set -x`, stderr no volcado, exige el aviso 25006 · [R] el SQL: primera orden READ ONLY, prueba antes de leer, `ROLLBACK` al final, ni COMMIT/READ WRITE/verbos que escriben/`\!`/`\copy`/`\o`, `\ir` solo de `ids-d1-q1.sql` · [H] `uses:` por sha. Canario 3 verdes + 30 rojos. Job `sepomex-pin` de `ci.yml`. |
+| `scripts/ids/medir-q1.test.mjs` | Contra la base de CI migrada (paso «Instrumentos §IDS», `# skipped 0`): el botón mide, aviso 25006, sin URL ni contraseña en log/resumen; canario: sin `READ ONLY` ⇒ rc 1 y nada leído. |
+
+**Qué secreto (recomendación devops): un rol de solo lectura nuevo (`ids_ro`), no `DATABASE_PUBLIC_URL`.** Con la de dueño el
+botón tampoco escribe (READ ONLY + prueba 25006 + sin entradas + revisor), pero esas defensas son del código: quien cambie el
+script en `production` tendría permiso de escritura total con ese secreto. Con `ids_ro` (SELECT en 4 tablas) el límite lo pone
+Postgres. El resumen avisa si el secreto puede escribir («⚠️ … puede escribir (N de M tablas)»). Si el dueño prefiere no crear
+el rol, la de dueño es aceptable **solo** porque el secreto se borra al terminar (paso 7).
+
+**Pasos del dueño (lo que ve en pantalla).** Los nombres de Railway son los de §104.4 (*Data* → *Query*); los de GitHub, de su
+interfaz actual. **NO MEDIDO** por mí en un navegador: no tengo acceso a ninguna de las dos cuentas.
+1. Publicar la rama (fusión a `production`); antes el botón no existe.
+2. Railway → proyecto → servicio **Postgres** → **Data** → **Query**. Pegar y ejecutar
+   `SELECT md5(random()::text || clock_timestamp()::text) || md5(random()::text) AS clave;` y copiar la `clave` (64 letras y
+   números; ⛔ ni al chat ni a un fichero del repo).
+3. En la misma consulta (cambiando `<clave>` por lo copiado, y `railway` por el nombre de la base si fuera otro):
+   `CREATE ROLE ids_ro LOGIN PASSWORD '<clave>'; GRANT CONNECT ON DATABASE railway TO ids_ro; GRANT USAGE ON SCHEMA public TO ids_ro;`
+   `GRANT SELECT ON "InventoryItem", "CardProduct", "Card", "ListingPrice" TO ids_ro;`
+4. Railway → **Postgres** → **Variables** → `DATABASE_PUBLIC_URL` → copiar. Se ve así:
+   `postgresql://postgres:XXXX@algo.proxy.rlwy.net:12345/railway`. En una nota, cambiar `postgres:XXXX` (lo que hay entre `//`
+   y `@`) por `ids_ro:<clave>`. Eso es el secreto.
+5. GitHub → **Settings** → **Environments** → **New environment** → nombre `medicion-ro` → **Configure environment**.
+   En «Deployment protection rules»: marcar **Required reviewers**, buscar y añadir su usuario, dejar **sin marcar** «Prevent
+   self-review» (es él quien dispara y aprueba) → **Save protection rules**. En «Deployment branches and tags»: **Selected
+   branches and tags** → **Add deployment branch or tag rule** → `production` → **Add rule**. En «Environment secrets»:
+   **Add environment secret** → Name `IDS_RO_DATABASE_URL`, Value: lo del paso 4 → **Add secret**.
+6. **Actions** → «Medir D-IDS-1 en producción (solo lectura)» → **Run workflow** → rama `production` → **Run workflow**. El
+   run queda «Waiting»: **Review deployments** → marcar `medicion-ro` → **Approve and deploy**. Verde en ~1 min. En el
+   resumen: «Rol de solo lectura: 0 de N tablas con permiso de escritura» y la línea **«promo + deck_exclusive = N»**. Copiar el
+   enlace del run (o el resumen) a la solicitud de fusión: **= 0** confirma D-IDS-1; **> 0** trae la tabla de piezas y decide él.
+7. Limpiar: GitHub → Settings → Environments → `medicion-ro` → bote de basura junto a `IDS_RO_DATABASE_URL`. Railway → Query:
+   `REVOKE ALL ON "InventoryItem", "CardProduct", "Card", "ListingPrice" FROM ids_ro; REVOKE ALL ON SCHEMA public FROM ids_ro;`
+   `REVOKE ALL ON DATABASE railway FROM ids_ro; DROP ROLE ids_ro;`
+
+Si sale rojo, el resumen dice por qué sin mostrar la URL: «usuario o contraseña rechazados» (paso 4 mal armado), «no se pudo
+conectar» (la red pública del Postgres apagada o la URL interna), «el rol no tiene permiso de lectura» (falta el `GRANT` del
+paso 3), «Copiaste la URL interna», «Falta el secreto».
+
+**Mediciones (2026-11-03, devops; base local propia `tcg_devops_idsro2`, PG 16.15, las 79 migraciones del árbol aplicadas con
+`psql`, rol dueño `devops_idsro2_owner` y rol `devops_idsro2_ro` con SELECT solo en las 4 tablas del paso 3; sembradas 6 piezas
+de plataforma —2 `set_base` vendibles, 1 `promo` publicada con precio de corrida, 1 `deck_exclusive` reservada, 1
+`deck_exclusive` publicada con precio por pieza, 1 `promo` retirada— y base y roles borrados al terminar).** N=1 por caso
+(deterministas):
+- Rol `ro`: rc 0; «escritura de prueba rechazada (25006)»; Q1 `set_base` 2 · `deck_exclusive` 2 · `promo` 1 (la retirada no
+  cuenta); «promo + deck_exclusive = 3» y Q1b con 2 filas (la de `deck_exclusive` con «con precio por pieza» 1, que IDS.2 v1.116.3
+  deja publicada a ese precio; MX$1,234.56 la `promo`; el `|` de un nombre escapado). «0 de 86 tablas con escritura». Rol dueño
+  (corrida previa, sin la pieza con precio por pieza): mismas cifras y el aviso «puede escribir (86 de 86 tablas)».
+- La contraseña de cada rol: **0** veces en el log fuera de las líneas `::add-mask::` y **0** en el resumen, en las 9 corridas.
+- Errores: contraseña mala / puerto inalcanzable / URL `*.railway.internal` / sin secreto ⇒ rc 1 con su mensaje, sin URL.
+- **Mutación** (copia del árbol, `BEGIN;` sin `READ ONLY`): con el rol dueño ⇒ rc 1 «la escritura de prueba NO fue rechazada… No
+  se leyó nada»; con el rol `ro` ⇒ rc 1 «la frenó el permiso del rol, no la transacción». Es la prueba de que una escritura falla
+  y de que el botón no lee si la transacción no es de solo lectura.
+- `node --test` de `ids-lib` + `foto-512` + `medir-q1` contra esa base (rol dueño, como CI): **23/23**, `# skipped 0` (incluye `ids-d1-produccion.sql`
+  con el `\ir`). G-IDS-RO verde, canario **33/33**; G-CP-BOTON A–H verde, canario **22/22**; `check-runner-pin` (74 jobs) +
+  canario 11/11, `check-workflow-cwd` (164) + canario 8/8, `check-secret-masking` 6/6 + canario 5/5, `check-ci-ok --static`.
+- **NO MEDIDO:** que el runner de GitHub alcance el proxy público de Railway (igual que §107.3); que el `psql` 16 del runner
+  hable con la versión de Postgres de Railway; los nombres exactos de las pantallas (arriba).
+
+**Rollback:** el botón no escribe nada que deshacer. Código: `git revert` del commit (se van workflow, scripts, candado y prueba;
+`ids-d1-produccion.sql` vuelve a llevar Q1 dentro). El secreto, el entorno y el rol se borran a mano (paso 7).

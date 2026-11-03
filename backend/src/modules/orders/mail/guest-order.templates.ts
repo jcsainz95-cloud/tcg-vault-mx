@@ -13,7 +13,7 @@ import {
 import { ProductType } from '@prisma/client';
 import { MailMessage } from '../../mail/mail.port';
 import { AccessoryMailLine, accessoryMailTextLines } from './accessory-mail-lines';
-import { OrderMailDiscount, discountMailRows, discountMailTextLines, orderMailLineOf } from './order-notice.templates';
+import { OrderMailDiscount, OrderMailVersion, discountMailRows, discountMailTextLines, orderMailLineOf } from './order-notice.templates';
 
 /**
  * Plantillas LOCALES al módulo `orders` del correo del GUEST CHECKOUT (v1.21, ARCHITECTURE §4.21g).
@@ -59,6 +59,8 @@ export interface GuestOrderMailItem {
   number: string;
   /** §4.34a.2 — para omitir el `#número` del ancla en un sellado. */
   productType: ProductType;
+  /** v1.116⟨ids⟩ (§IDS.5): la versión congelada de la línea (ausente ⇒ inglés sin liga). */
+  version?: OrderMailVersion | null;
 }
 
 export interface GuestOrderMailParams {
@@ -127,8 +129,8 @@ const COPY = {
   },
 } as const;
 
-function itemsText(items: GuestOrderMailItem[]): string {
-  return items.map((i) => `- ${orderMailLineOf(i)}`).join('\n');
+function itemsText(items: GuestOrderMailItem[], l: Locale): string {
+  return items.map((i) => `- ${orderMailLineOf(i, l)}`).join('\n');
 }
 
 /**
@@ -146,7 +148,7 @@ export function guestOrderConfirmationTemplate(
   const intro = t.confirmIntro(params.orderNumber);
   const total = formatMxn(params.totalCents, l);
   const lineas = [
-    ...params.items.map(orderMailLineOf),
+    ...params.items.map((i) => orderMailLineOf(i, l)),
     ...accessoryMailTextLines(params.accessoryLines, l, (c) => formatMxn(c, l)),
   ];
   const discountRows = discountMailRows(params.discount, l, (c) => formatMxn(c, l));
@@ -184,7 +186,7 @@ export function guestOrderConfirmationTemplate(
     t.confirmTitle,
     '',
     `${t.itemsTitle}:`,
-    itemsText(params.items),
+    itemsText(params.items, l),
     ...accessoryMailTextLines(params.accessoryLines, l, (c) => formatMxn(c, l)).map((x) => `- ${x}`),
     '',
     ...discountMailTextLines(discountRows),

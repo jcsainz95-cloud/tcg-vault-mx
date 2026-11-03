@@ -6,29 +6,13 @@
 --    y pega la salida (solo conteos, ids de catálogo y nombres de carta: sin datos personales) en la solicitud de fusión.
 -- Todo dentro de una transacción READ ONLY con tope de tiempo: aunque el rol pudiera escribir, esto no escribe.
 -- Fuente de las preguntas: API_CONTRACT §IDS.9 «Devops» y ARCHITECTURE §15.4 D-IDS-1. Resultados: DEVOPS_NOTES §108.
+-- Q1/Q1b viven en `ids-d1-q1.sql` (los comparte con el botón de solo lectura, §108.5); aquí se incluyen con `\ir`.
 \set QUIET on
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL statement_timeout = '60s';
 \set QUIET off
 
-\echo '== Q1 (D-IDS-1, literal del contrato): piezas de plataforma vendibles por kind de su producto =='
-SELECT cp.kind, count(*) AS piezas
-FROM "InventoryItem" i
-JOIN "CardProduct" cp ON cp."tcgplayerProductId" = i."cardProductId"
-WHERE i."ownerType" = 'platform' AND i.status IN ('listed', 'in_stock', 'reserved')
-GROUP BY 1 ORDER BY 1;
-
-\echo '== Q1b (D-IDS-1, la lista que el dueño ve si Q1 da > 0 en promo/deck_exclusive): por producto y acabado =='
-SELECT cp.kind, cp."tcgplayerProductId", cp.name AS producto, c."externalId" AS carta, i.finish, i."productType",
-       count(*) AS piezas, count(*) FILTER (WHERE i.status = 'listed') AS publicadas,
-       min(lp."unitPriceCents") AS precio_min_cents, max(lp."unitPriceCents") AS precio_max_cents
-FROM "InventoryItem" i
-JOIN "CardProduct" cp ON cp."tcgplayerProductId" = i."cardProductId"
-JOIN "Card" c ON c.id = i."cardId"
-LEFT JOIN "ListingPrice" lp ON lp."inventoryItemId" = i.id
-WHERE i."ownerType" = 'platform' AND i.status IN ('listed', 'in_stock', 'reserved')
-  AND cp.kind IN ('promo', 'deck_exclusive')
-GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY 1, 4, 2;
+\ir ids-d1-q1.sql
 
 \echo '== Q2 (IDS-D2): sets de promos del catálogo, su grupo TCGCSV y cuántos productos tienen colgados =='
 SELECT s."externalId", s.name, s."pptSetId", s."tcgcsvGroupId",
