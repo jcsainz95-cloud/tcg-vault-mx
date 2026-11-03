@@ -47,6 +47,7 @@ import {
   E2E_SPEI_FIXTURE,
   E2E_STALE_ESTIMATES,
   E2E_GEM_ESTIMATES,
+  E2E_IDS,
   E2E_USERS,
 } from './e2e-fixtures';
 import { assertSeedTarget } from './seed-target-guard';
@@ -199,7 +200,7 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   // QA-2 (BACKEND_NOTES §84.cierre): la pieza SELLADA del fixture (`E2E_SEALED_LISTED`, v1.87.4) no está en `E2E_FOLIOS`
   // (los candados que cuentan piezas por ese mapa no deben moverse) ⇒ su folio se suma AQUÍ, solo al reset de movimientos.
   const e2eItems = await prisma.inventoryItem.findMany({
-    where: { folio: { in: [...Object.values(E2E_FOLIOS), E2E_SEALED_LISTED.folio] } },
+    where: { folio: { in: [...Object.values(E2E_FOLIOS), E2E_SEALED_LISTED.folio, ...E2E_IDS.pieces.map((p) => p.folio)] } },
     select: { id: true },
   });
   await prisma.inventoryMovement.deleteMany({ where: { itemId: { in: e2eItems.map((i) => i.id) } } });
@@ -321,6 +322,33 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   await seedCards(set.id, Object.values(E2E_CARDS));
   await seedCards(orderSet.id, Object.values(E2E_ORDER_CARDS));
 
+  // 5-bis. v1.116.3⟨ids⟩ (§IDS.1/.3) — el producto de LIGA de `E2E_CARDS.league` (`E2E_IDS.stamped`). Upsert por su
+  // `tcgplayerProductId` (`@unique`): el `id` interno es ESTABLE entre siembras (lo lleva la clave de su `PriceReference`,
+  // que `seed-idempotency` compara), y el `update` lo devuelve a la carta y forma declaradas si una corrida lo tocó.
+  const leagueCardId = cardIds[E2E_CARDS.league.externalId];
+  const stampedProduct = await prisma.cardProduct.upsert({
+    where: { tcgplayerProductId: E2E_IDS.stamped.tcgplayerProductId },
+    create: {
+      cardId: leagueCardId,
+      tcgplayerProductId: E2E_IDS.stamped.tcgplayerProductId,
+      kind: 'stamped',
+      name: E2E_IDS.stamped.name,
+      finishes: [E2E_IDS.stamped.finish],
+      stampType: E2E_IDS.stamped.stampType,
+      stampLabel: E2E_IDS.stamped.stampLabel,
+      sourceGroupId: E2E_IDS.stamped.sourceGroupId,
+    },
+    update: {
+      cardId: leagueCardId,
+      kind: 'stamped',
+      name: E2E_IDS.stamped.name,
+      finishes: [E2E_IDS.stamped.finish],
+      stampType: E2E_IDS.stamped.stampType,
+      stampLabel: E2E_IDS.stamped.stampLabel,
+      sourceGroupId: E2E_IDS.stamped.sourceGroupId,
+    },
+  });
+
   // Limpia colas de precio pendiente de las cartas E2E (se regeneran en los flujos).
   await prisma.pendingPriceEntry.deleteMany({ where: { cardId: { in: Object.values(cardIds) } } });
 
@@ -396,6 +424,20 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   priceRef(E2E_CARDS.deckspark.externalId, 'raw', 'raw:NM', E2E_CARDS.deckspark.refNmCents);
   // v1.113.3 (hallazgo 5) — la carta de la vitrina: su raw y sus DOS estimados del gancho, MANUALES y de HOY.
   priceRef(E2E_CARDS.gemhunt.externalId, 'raw', 'raw:NM', E2E_CARDS.gemhunt.refNmCents);
+  // v1.116.3⟨ids⟩ — la carta de liga: su raw NM SIN liga (de él sale `(es, null)` = R × X, §IDS.2) y la referencia PROPIA de
+  // su producto de liga (`cardProductId` = el UUID interno, como escribe el barrido de §IDS.3), en otro acabado.
+  priceRef(E2E_CARDS.league.externalId, 'raw', 'raw:NM', E2E_CARDS.league.refNmCents);
+  priceRefs.push({
+    cardId: leagueCardId,
+    productType: 'raw',
+    gradeKey: 'raw:NM',
+    finish: E2E_IDS.stamped.finish,
+    source: 'manual',
+    priceMxnCents: E2E_IDS.stamped.refNmCents,
+    capturedDate: day,
+    isManualOverride: true,
+    cardProductId: stampedProduct.id,
+  });
   for (const e of E2E_GEM_ESTIMATES) {
     priceRefs.push({
       cardId: cardIds[E2E_CARDS.gemhunt.externalId],
@@ -441,6 +483,40 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     prisma.priceReference.deleteMany({ where: { cardId: { in: Object.values(cardIds) } } }),
     prisma.priceReference.createMany({ data: priceRefs }),
   ]);
+
+  // 6-ter. v1.116.3⟨ids⟩ (§IDS.4) — la CANDIDATA sin colgar de la carta de liga (`E2E_IDS.candidate`). Si una corrida la
+  // colgó con `attach`, ese `CardProduct` se borra aquí (sus `PriceReference` ya cayeron en el borra-y-declara de arriba:
+  // son de una carta del fixture) y la candidata vuelve. Las piezas que una prueba diera de alta sobre ese producto son de
+  // esa prueba: las retira ella (como `ids-real.spec.ts` retira la suya).
+  await prisma.priceReference.deleteMany({
+    where: { cardProduct: { tcgplayerProductId: E2E_IDS.candidate.tcgplayerProductId } },
+  });
+  await prisma.cardProduct.deleteMany({
+    where: { tcgplayerProductId: E2E_IDS.candidate.tcgplayerProductId, kind: 'stamped' },
+  });
+  await prisma.stampedProductCandidate.upsert({
+    where: {
+      tcgplayerProductId_cardId: { tcgplayerProductId: E2E_IDS.candidate.tcgplayerProductId, cardId: leagueCardId },
+    },
+    create: {
+      tcgplayerProductId: E2E_IDS.candidate.tcgplayerProductId,
+      cardId: leagueCardId,
+      groupId: E2E_IDS.candidate.groupId,
+      name: E2E_IDS.candidate.name,
+      stampType: E2E_IDS.candidate.stampType,
+      stampLabel: E2E_IDS.candidate.stampLabel,
+      finishes: [...E2E_IDS.candidate.finishes],
+      refreshedAt: day,
+    },
+    update: {
+      groupId: E2E_IDS.candidate.groupId,
+      name: E2E_IDS.candidate.name,
+      stampType: E2E_IDS.candidate.stampType,
+      stampLabel: E2E_IDS.candidate.stampLabel,
+      finishes: [...E2E_IDS.candidate.finishes],
+      refreshedAt: day,
+    },
+  });
 
   // 6-bis. COLA DE PRECIO PENDIENTE (v2.1.7) — la cola de triage de P-48 no tenía NINGÚN dato real:
   // sus `counts` estaban verificados en forma pero no en número. Se siembran las DOS razones, y las
@@ -713,6 +789,41 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
         locationId: platformLoc.id,
       },
       { ownerType: 'platform', ownerUserId: null, ownershipStatus: null, status: 'listed', listPriceCents: null },
+    );
+  }
+
+  // v1.116.3⟨ids⟩ (§IDS.5) — las TRES piezas de versión de la carta de liga (`E2E_IDS.pieces`): `(en, P)` y `(es, P)` del
+  // producto de liga en su acabado, y `(es, null)` de la carta base. Plataforma/`listed` y RESETEADAS en cada corrida
+  // (idioma, producto y acabado incluidos: I-7 prohíbe cambiar `cardProductId` por API, pero una BD vieja se corrige aquí).
+  for (const p of E2E_IDS.pieces) {
+    const version = {
+      language: p.language,
+      cardProductId: p.stamped ? E2E_IDS.stamped.tcgplayerProductId : null,
+      finish: p.stamped ? E2E_IDS.stamped.finish : ('normal' as const),
+    };
+    await upsertItem(
+      p.folio,
+      {
+        cardId: leagueCardId,
+        productType: 'raw',
+        rawCondition: 'NM',
+        ...version,
+        ownerType: 'platform',
+        status: 'listed',
+        acquisitionType: 'compra',
+        acquisitionCostCents: p.acquisitionCostCents,
+        locationId: platformLoc.id,
+      },
+      {
+        cardId: leagueCardId,
+        ...version,
+        ownerType: 'platform',
+        ownerUserId: null,
+        ownershipStatus: null,
+        status: 'listed',
+        listPriceCents: null,
+        locationId: platformLoc.id,
+      },
     );
   }
 

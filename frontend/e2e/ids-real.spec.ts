@@ -9,8 +9,9 @@ import { apiAs, apiAsOk } from './utils/env';
  *  - alta de UNA pieza raw NM `language: 'es'` de «E2E Pidgey» (`e2e-common`, referencia raw NM del seed), que nace
  *    publicada porque el inglés tiene mercado (`P(es)` = cuerpo único sobre `R_en × X`, IDS.2);
  *  - al final, baja por `error_captura` (`POST /admin/inventory/adjustments`) y el dial X de vuelta al valor LEÍDO.
- * Lo que NO se puede medir aquí: versiones de liga (`stamped`), porque `attach` exige una candidata de TCGCSV y el seed
- * no las trae (ni este entorno tiene salida a tcgcsv.com) — FRONTEND_NOTES §IDS-FE «Pendiente».
+ * Versiones de liga (`stamped`): este entorno no tiene salida a tcgcsv.com (ni barrido ni `attach` traen productos), así
+ * que las SIEMBRA el seed (`E2E_IDS` de `backend/prisma/e2e-fixtures.ts`, sobre «E2E League Bird»): el bloque «liga
+ * sembrada» de abajo las lee sin escribir nada.
  * Serie: el caso del dial (F7) mueve X y recalcula el español; los demás leen X.
  */
 
@@ -171,3 +172,110 @@ test.describe('@real §IDS contra el stack sembrado', () => {
   });
 });
 
+
+/**
+ * §IDS — versiones de LIGA contra el stack sembrado (API_CONTRACT §IDS.5 v1.116.3; IDS-F2/F3 con producto `stamped`).
+ * Escrita por backend junto con la siembra que la alimenta (`E2E_IDS`, backend/prisma/e2e-fixtures.ts); es la otra mitad del
+ * mismo seed. Solo LEE: no da de alta piezas ni mueve diales.
+ * Espejo del fixture (si cambia allí, cambia aquí): carta «E2E League Bird», producto `620000001` League Cup en `holofoil`,
+ * piezas `(en, P)`, `(es, P)` y `(es, null)` `normal`; candidata sin colgar `620000002`.
+ */
+const LEAGUE = { name: 'E2E League Bird', productId: 620000001, finish: 'holofoil', candidateId: 620000002 } as const;
+const LEAGUE_EN = `en.${LEAGUE.productId}.${LEAGUE.finish}`;
+const LEAGUE_ES = `es.${LEAGUE.productId}.${LEAGUE.finish}`;
+
+interface VersionOption {
+  optionKey: string;
+  version: { key: string; language: 'en' | 'es'; stamp: { type: string; label: string | null; productId: number } | null };
+  finishLabel: string | null;
+  fromPriceCents: number;
+  stockCount: number;
+}
+
+test.describe('@real §IDS liga sembrada (E2E_IDS)', () => {
+  const league = { cardId: '' };
+
+  test.beforeAll(async () => {
+    if (!IS_REAL) return;
+    const cards = await apiAsOk<{ data: { id: string; name: string }[] }>(
+      'admin',
+      'GET',
+      `/buylist/cards?q=${encodeURIComponent(LEAGUE.name)}&pageSize=10`,
+    );
+    const card = cards.data.find((c) => c.name === LEAGUE.name);
+    if (!card) throw new Error(`el seed no trae «${LEAGUE.name}» (backend/prisma/e2e-fixtures.ts, E2E_IDS)`);
+    league.cardId = card.id;
+  });
+
+  test.beforeEach(() => realOnly('lee las versiones de liga que siembra backend/prisma/seed-e2e.ts'));
+
+  test('@real IDS-L1: la ficha trae la fila sin liga y la fila «De liga» del producto sembrado, y la pinta en 2×N', async ({ page }) => {
+    const detail = await apiAsOk<{ versions: VersionOption[] }>('customer', 'GET', `/catalog/cards/${league.cardId}`);
+    // Orden del servidor (§IDS.5): sin liga (`es`; no hay inglesa sin liga) y luego la fila de liga, `en` antes que `es`.
+    expect(detail.versions.map((v) => v.optionKey)).toEqual(['es', LEAGUE_EN, LEAGUE_ES]);
+    const [base, ligaEn, ligaEs] = detail.versions;
+    expect(base.version.stamp).toBeNull();
+    expect(base.finishLabel).toBe('non_holo');
+    for (const v of [ligaEn, ligaEs]) {
+      expect(v.version.stamp, v.optionKey).toEqual({ type: 'league', label: null, productId: LEAGUE.productId });
+      expect(v.finishLabel).toBe('holo');
+      expect(v.stockCount).toBeGreaterThanOrEqual(1);
+    }
+    // Precio por versión (§IDS.2): la española de liga = la de su producto × X ⇒ distinta (y menor) que la inglesa de liga.
+    expect(ligaEs.fromPriceCents).toBeLessThan(ligaEn.fromPriceCents);
+
+    await page.goto(`/es/catalog/${league.cardId}`);
+    const group = page.getByRole('radiogroup', { name: 'IDIOMA Y VERSIÓN' });
+    await expect(group).toBeVisible();
+    await expect(page.getByTestId('version-pills')).toHaveAttribute('data-form', '2xN');
+    const pills = group.locator('[data-testid="version-pill"]');
+    await expect(pills).toHaveCount(3);
+    expect(await pills.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.optionKey))).toEqual(['es', LEAGUE_EN, LEAGUE_ES]);
+    await expect(page.getByTestId('version-row-label')).toHaveText(['Sin liga · No holo', 'De liga · Promo de la Liga · Holo']);
+    const pillEn = group.locator(`[data-option-key="${LEAGUE_EN}"]`);
+    await pillEn.click();
+    await expect(pillEn).toHaveAttribute('aria-checked', 'true');
+    const price = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 })
+      .format(ligaEn.fromPriceCents / 100)
+      .replace('$', 'MX$');
+    await expect(pillEn).toContainText(price);
+  });
+
+  test('@real IDS-L2: la faceta `stamped` ofrece «Cartas de liga y promos» y el filtro deja solo las tejas de liga', async ({ page }) => {
+    const facets = await apiAsOk<{ stamped?: boolean }>('customer', 'GET', '/catalog/facets');
+    expect(facets.stamped).toBe(true);
+    const onlyLiga = await apiAsOk<{ data: { card: { id: string }; version: VersionOption['version']; versionOptionKey: string }[] }>(
+      'customer',
+      'GET',
+      '/catalog/cards?stamped=true&pageSize=100',
+    );
+    expect(onlyLiga.data.length).toBeGreaterThan(0);
+    for (const row of onlyLiga.data) expect(row.version.stamp, row.versionOptionKey).not.toBeNull();
+    const mine = onlyLiga.data.filter((r) => r.card.id === league.cardId).map((r) => r.versionOptionKey).sort();
+    expect(mine).toEqual([LEAGUE_EN, LEAGUE_ES]);
+
+    await page.goto('/es/catalog');
+    const filter = page.getByTestId('version-filter').filter({ visible: true });
+    await filter.getByRole('button', { name: 'Cartas de liga y promos' }).click();
+    await expect(page).toHaveURL(/[?&]stamped=true\b/);
+    const tiles = page.locator(`main a[href*="/catalog/${league.cardId}?version="]`);
+    await expect(tiles).toHaveCount(2);
+    const hrefs = (await tiles.evaluateAll((els) => els.map((e) => e.getAttribute('href') ?? ''))).map((h) => h.split('?version=')[1]).sort();
+    expect(hrefs).toEqual([LEAGUE_EN, LEAGUE_ES]);
+    // La teja sin liga de la misma carta (`?version=es`) queda fuera del filtro.
+    await expect(page.locator(`main a[href$="/catalog/${league.cardId}?version=es"]`)).toHaveCount(0);
+  });
+
+  test('@real IDS-L3: la captura de la carta lista la candidata sin colgar y el producto colgado con su precio', async () => {
+    const v = await apiAsOk<{ combos: Combo[]; candidates: { tcgplayerProductId: number }[] }>(
+      'admin',
+      'GET',
+      `/admin/inventory/cards/${league.cardId}/versions`,
+    );
+    expect(v.candidates.map((c) => c.tcgplayerProductId)).toEqual([LEAGUE.candidateId]);
+    const ligaEn = v.combos.find((c) => c.language === 'en' && (c.stamp as { productId?: number } | null)?.productId === LEAGUE.productId);
+    expect(ligaEn, JSON.stringify(v.combos)).toBeDefined();
+    expect(ligaEn!.finish).toBe(LEAGUE.finish);
+    expect(ligaEn!.previewPriceCents).not.toBeNull();
+  });
+});
