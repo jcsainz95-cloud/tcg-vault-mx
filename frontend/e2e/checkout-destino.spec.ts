@@ -51,20 +51,25 @@ for (const vp of [
       }
       await expect(ship).toHaveAttribute('aria-pressed', 'true');
       await expect(pay).toBeEnabled();
+      const recipient = page.getByLabel(t('es', 'checkout.guest.recipientName'));
+      await recipient.fill('Ana Pérez');
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
       await vault.click();
       await expect(vault).toHaveAttribute('aria-pressed', 'true');
       await expect(pay).toBeDisabled();
       await expect(page.getByTestId('vault-upsell')).toBeVisible();
       // En modo bóveda la dirección no se ve.
-      await expect(page.getByLabel(t('es', 'checkout.guest.recipientName'))).toBeHidden();
+      await expect(recipient).toBeHidden();
 
       await ship.click();
       await expect(page.getByTestId('vault-upsell')).toBeHidden();
       await expect(ship).toHaveAttribute('aria-pressed', 'true');
       await expect(vault).toHaveAttribute('aria-pressed', 'false');
       await expect(pay).toBeEnabled();
-      await expect(page.getByLabel(t('es', 'checkout.guest.recipientName'))).toBeVisible();
+      // Al volver, lo capturado sigue ahí (el grupo va `hidden`, no se desmonta).
+      await expect(recipient).toBeVisible();
+      await expect(recipient).toHaveValue('Ana Pérez');
     });
 
     test(`el aviso de bloqueo lleva a envío a domicilio (${vp.width})`, async ({ page }) => {
@@ -209,11 +214,19 @@ test.describe('N1 menor · pestañas de la tienda a 390', () => {
     await page.goto('/es/catalog?productType=graded');
     const graded = nav.getByRole('link', { name: t('es', 'storeTabs.graded') });
     await expect(graded).toHaveAttribute('aria-current', 'page');
-    const inside = await graded.evaluate((el) => {
-      const n = el.parentElement!.getBoundingClientRect();
-      const b = el.getBoundingClientRect();
-      return b.left >= n.left - 0.5 && b.right <= Math.min(n.right, window.innerWidth) + 0.5;
-    });
-    expect(inside, '«Gradeadas» activa entera dentro de la fila').toBe(true);
+    // El desplazamiento a la activa lo hace un `useEffect` de `StoreTabs` tras hidratar: una lectura única justo tras
+    // `goto` corre contra él (QA, release-1103: rojo 10/10 con CPU ×6/×12). Se sondea hasta que la condición se cumpla;
+    // lo medido no cambia (entera dentro de la fila y del viewport) y, sin el desplazamiento, nunca se cumple.
+    await expect
+      .poll(
+        () =>
+          graded.evaluate((el) => {
+            const n = el.parentElement!.getBoundingClientRect();
+            const b = el.getBoundingClientRect();
+            return b.left >= n.left - 0.5 && b.right <= Math.min(n.right, window.innerWidth) + 0.5;
+          }),
+        { message: '«Gradeadas» activa entera dentro de la fila' },
+      )
+      .toBe(true);
   });
 });
