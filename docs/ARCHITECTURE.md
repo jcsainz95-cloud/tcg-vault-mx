@@ -4,6 +4,7 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Rev v1.117⟨cuenta-correo⟩ (2026-11-03).** [§16](#16-CTA) NUEVA: cuenta con solo el correo en el carrito, «Termina tu cuenta» como prueba del buzón que abre el reclamo, contraseña desde la sesión solo sin credencial previa, comprar sin correo verificado, AUTH-PRE-1 (Google sobre cuenta sin verificar revoca sesiones), franja solo «tarjeta»; M-96; D-CTA-1…8, AUTH-PRE-2 abierta, P-ARQ-CTA-1 · dueño (`HECHOS.md` 2026-11-03 «Checkout y ficha: tres cambios aprobados…» y «Respuestas a P-CTA-3, P-CTA-5(a) y P-CTA-6»). Contrato: API_CONTRACT §CTA.
 > **Errata v1.116.1⟨checkout-friccion⟩ (2026-11-02).** §4.47.4: a la libreta solo la dirección de un pedido cobrado, nunca predeterminada; el aviso solo lista cobrados; candado de la libreta también en las altas del cliente; §9 `D-CLM-55` (PT-CHK-1/2/3) y `D-CLM-56` · pentester (`f2e1de9c`).
 > **Rev v1.116⟨checkout-friccion⟩ (2026-11-02).** §4.47.4: la dirección del invitado pasa a la libreta al ganar el reclamo (sin migración); §14.5: `begin_checkout` al pulsar PAGAR y `add_payment_info` al abrir el modal de Stripe; §14.9: pagos iniciados/pagados de BD (a6); §9 `D-CLM-54`, `D-MKT-BC`; compactadas las cabeceras C7 v1.80.1.1 y ⟨dinero⟩ v1.80.2.2 · dueño (`HECHOS.md` 2026-11-02 «Checkout con menos captura: paquete A…» (3)), QA de marketing. Contrato: API_CONTRACT §4-G.9c, §MKT.H.4, §MKT.G.4 a6.
 > **Errata v1.116.3⟨ids⟩ (2026-11-03).** [§15](#15-IDS): D-IDS-J (el `productId` de la liga no se congela: I-7 lo hace estable), D-IDS-P (Destacadas solo `(en, null)`), D-IDS-Q (alta manual solo `stamped`; promo no escala), D-IDS-8 nueva (criterio 160 sin vía de corrección) · backend (D-B-IDS-1/2, `BACKEND_NOTES` §IDS, `58c7fbc8`). Contrato: API_CONTRACT §IDS.0/.2/.4/.5/.6/.9, §0-Q, §M1.
@@ -37028,3 +37029,59 @@ Checkout:   cobra la fila; pending ⇒ PRICE_PENDING nombrando la versión; Orde
 - **Empate contra producción:** la tasa de §15.0 es contra pokemontcg.io, no contra el catálogo real (`pptSetId`: NO MEDIDO); la da el log
   `stamped-ingest` del primer barrido.
 - **Reversa** (§15.3) y **anchos de insignias y burbujas a 360 px** (NO MEDIDOS; candados de IDS-UX.6/.8, frontend).
+
+## <a id="16-CTA"></a>16. §CTA — cuenta con solo el correo y «Termina tu cuenta» (rev v1.117⟨cuenta-correo⟩, 2026-11-03, arquitecto)
+
+> Norma, estado medido con fichero:línea, esquema `M-96`, endpoints, errores, pruebas y reparto: **API_CONTRACT §CTA** (ahí y solo ahí).
+> Aquí: por qué, modelo de amenazas, despliegue y reversa, desviaciones y preguntas. Fuentes: las de la cabecera de §CTA.
+
+### 16.1 Decisiones
+| ID | Decisión | Por qué | Descartado |
+|---|---|---|---|
+| D-CTA-1 | **Endpoint propio** `POST /auth/register/email-only`; `register` no se toca | `register` exige contraseña y nombre, y su DTO es la frontera de 128(a). Volver opcionales sus campos debilita esa frontera para todos los llamadores | `register` con `password?`/`name?` |
+| D-CTA-2 | **Comprar deja de exigir correo verificado**; reclamar, retirar y vender lo siguen exigiendo | 969/976 piden pagar a bóveda en la misma sesión, y el invitado ya compra sin verificar nada (§4-G.8). El correo verificado protege lo que **sale** de la cuenta o **entra de otro** (pedidos de invitado, piezas que salen, dinero de una venta). Pagar con tu tarjeta a tu bóveda no entrega nada ajeno. `ACCOUNT_WITHOUT_EMAIL` se conserva (STF-28) | Exención solo para cuentas `setupPending` (una regla con dos lados por el mismo riesgo); dejar el guard (rompe 969, y por lectura ya rompe 48 hoy, CTA.0) |
+| D-CTA-3 | **Tipo de token propio `account_setup` (24 h)**, consumido por un endpoint propio que **siempre** fija la contraseña (también si ya hay una) y verifica el correo | Mismo poder que un restablecimiento (el buzón es la vía de recuperación), con una caducidad pensada para un correo que se abre después de pagar. Separar el tipo impide que un reset de 1 h y un setup de 24 h se crucen y deja la bitácora legible. «Solo verifica si ya hay contraseña» abría un hueco: quien creó la cuenta con un correo ajeno ponía contraseña desde la sesión y el clic del dueño del buzón lo dejaba verificado y dentro | Reutilizar `password_reset` con `expiresAt` de 24 h; modo «solo verificar» |
+| D-CTA-4 | **Contraseña desde la sesión solo con `setupPending`** (`passwordHash IS NULL ∧ googleId IS NULL`), con escritura condicional | La sesión es la credencial **más fuerte** que esa cuenta tiene, así que no se rebaja nada. Con Google, la sesión es más débil que Google y §4.47.3 sigue valiendo. Condicional en una sentencia ⇒ dos peticiones a la vez no dejan dos contraseñas | Abrir el «modo crear» de `change-password` (choca con §4.47.3) |
+| D-CTA-5 | **`setupPending` se deriva, sin columna** | Hoy ninguna otra cuenta cliente activa cumple la condición (censo de API_CONTRACT §CTA.2 antes de desplegar) | Columna `emailOnlySignupAt` (otro hecho que mantener; no cierra AUTH-PRE-2, que vive también en `register`) |
+| D-CTA-6 | **El `409` revela que la cuenta existe** (dueño, P-CTA-3) y se **acota**: un throttler compartido con `register` (5/min/IP) más un techo diario (30/24 h/IP) | El oráculo ya existía en `register` (5/min/IP). Sumar un endpoint con su propio cubo lo **duplicaba**; compartido, la superficie queda igual que antes por minuto y menor por día. `login` y `forgot-password` siguen sin revelar | Respuesta igual para todos (la descartó el dueño); captcha (el proyecto evita captcha, §CARDSHOW) |
+| D-CTA-7 | **AUTH-PRE-1 se corrige aquí:** Google sobre una cuenta sin verificar revoca sesiones, borra la contraseña y anula tokens | Ya existía con `register`, pero la cuenta de un solo campo es la vía natural de quien luego entra con Google (975 la iguala a Google). Sin esto, quien creó la cuenta con un correo ajeno conservaba la sesión después de que el dueño real enlazara Google, y veía lo que el dueño comprara y reclamara | Dejarlo como deuda |
+| D-CTA-8 | **La franja afirma solo «tarjeta»; texto fijo** | Decisión del dueño (OXXO no, por ahora). Un endpoint que leyera el panel de Stripe sería código para un dato que no cambia, y además mediría mal: OXXO activo en el panel no significa que funcione (D-CTA-8b) | Endpoint de métodos ahora |
+| D-CTA-8b | **OXXO no se enciende sin diseño propio** | Vale asíncrono (se paga en días) contra una reserva de 60 min cuyo barrido cancela el PI (`reservation.ts:25`, `orders.service.ts:1351`): el cliente tendría un vale ya muerto | — |
+
+### 16.2 Flujo
+```
+Carrito/upsell ─ correo ─► POST /auth/register/email-only ─┬─ 201 sesión (sin verificar) ─► POST /checkout/session ─► bóveda
+                                                            │        └─ correo «Termina tu cuenta» (account_setup, 24 h, hash)
+                                                            └─ 409 ─► «Ingresar a cuenta» / «¿Olvidaste tu contraseña?»
+Enlace ─► POST /auth/account-setup {nombre, contraseña} ─► emailVerified=true · tokenVersion+1 ─► login ─► claimable/claim (4-G.9/9c)
+Mi cuenta (accountSetupPending) ─► POST /auth/set-password (sin la actual; sigue sin verificar) · PATCH /users/me/email (corrige y reenvía)
+Olvidé mi contraseña / reenviar verificación con setupPending ─► mismo account_setup
+```
+
+### 16.3 Superficie de seguridad (para pentester y seguridad)
+| Activo | Amenaza | Control | Prueba |
+|---|---|---|---|
+| Pedidos de invitado de un correo | Crear cuenta con el correo ajeno y reclamarlos | Reclamo exige correo verificado; solo `account-setup`, `reset-password` o Google lo verifican, y los tres revocan la sesión del creador | CTA-B6, CTA-B8, CTA-B13 |
+| Cuenta existente | Entrar por el alta sin contraseña | `409` sin tokens | CTA-B2 |
+| Existencia de cuentas | Enumeración por el `409` | Aceptada por el dueño; techo compartido 5/min y 30/24 h por IP; `warn` por IP con muchos `409` | CTA-B4 |
+| Buzones de terceros | Usar el alta para mandar correos | Un correo por dirección nueva (la segunda es `409`, sin correo); corrección y reenvíos con tope 3/h por cuenta; techo diario por IP | CTA-B2, CTA-B11 |
+| Token «Termina tu cuenta» | Robo o fuga | 256 bits, SHA-256 en BD, un uso, 24 h, rotación, anulado al usar cualquier vía del buzón; fuera de la URL y sin `Referer` ni scripts de terceros en la página | CTA-B8, CTA-B9, CTA-F4, CTA-F8 |
+| Contraseña sin la actual | Sesión robada que fija contraseña | Solo cuentas sin ninguna credencial (la sesión es lo más fuerte que tienen); condicional; revoca otras sesiones | CTA-B10 |
+| Bóveda pagada en una cuenta con el correo mal tecleado | Piezas que nadie puede reclamar al caducar la sesión | Corrección del correo desde la sesión; retirar exige el enlace; soporte M6 como último recurso | CTA-B11 |
+| Login | Distinguir una cuenta sin contraseña | `401` genérico con `argon2` ficticio y C7 | CTA-B7 |
+Riesgo residual que se acepta: quien creó la cuenta con un correo ajeno puede **dejar cosas** en ella (compras pagadas por él, direcciones) que el dueño del buzón hereda al tomarla. No obtiene nada del dueño. Para que una dirección suya no se convierta en el destino de un retiro, probar el buzón deja la libreta **sin predeterminada** (API_CONTRACT §CTA.4 paso 5-bis, también en el enlace con Google). Lo que queda: que el dueño elija a mano una dirección plantada. Se mitiga con el «Revisa tus direcciones» que ux-ui ponga en el primer acceso tras el enlace (sugerencia, no norma).
+
+### 16.4 Despliegue y reversa
+- **M-96** solo añade un valor al enum (`ADD VALUE IF NOT EXISTS`, precedente m86/m95a). Va sola en su migración y el código que la usa sale en el mismo despliegue de backend.
+- **Reversa recomendada: solo código.** El valor `account_setup` queda inerte (Postgres no borra valores de enum). Los tokens `account_setup` vivos dejan de canjearse y caducan solos en ≤ 24 h. Las cuentas `setupPending` creadas siguen pudiendo entrar con «Olvidé mi contraseña» (el código viejo emite reset a cuentas sin hash, API_CONTRACT §1). **Con el código viejo**, la compra vuelve a exigir correo verificado y esas cuentas ven el banner al pagar: no se pierde dinero ni piezas.
+- **Reversa de esquema** (solo si hiciera falta): `DELETE FROM "AuthToken" WHERE "type"='account_setup'`; renombrar el tipo, crear `AuthTokenType` sin el valor, `ALTER TABLE "AuthToken" ALTER COLUMN "type" TYPE "AuthTokenType" USING "type"::text::"AuthTokenType"` y borrar el viejo. devops la deja escrita en la solicitud de fusión.
+
+### 16.5 Desviaciones detectadas (no las corrijo yo)
+- **D-CTA-A `RegisterDto.phone` es opcional** (`backend/src/modules/auth/dto/auth.dto.ts:43-45`) aunque API_CONTRACT §1 lo lista en `register` y 128(a) dice que el registro no se completa sin celular. Además el carrito registra sin celular (`InlineAuthPanel.tsx:105`). Con §CTA el carrito deja de usar `register`. **Lo decide product-owner:** si el registro de la página «Crear cuenta» debe exigir celular, backend lo vuelve obligatorio con una prueba (`register` sin `phone` ⇒ `400`). Si no, el PO reescribe 128(a). Mientras, vale el código (NO MEDIDO en el front de la página de registro).
+- **D-CTA-B Tope de `forgot-password` por IP:** el contrato §1 dice 3/h; el código tiene `@Throttle({ ttl: HOUR_MS, limit: 10 })` (`auth.controller.ts:110`). El tope por cuenta (3/h, servicio) sí coincide. **Lo corrige backend** a 3/h o pide errata con su razón; lo vigila una prueba de throttle sobre la ruta.
+- **AUTH-PRE-2 (abierta, previa a §CTA) — el clic de verificación no revoca sesiones.** Quien registra una cuenta con un correo ajeno y le pone contraseña (hoy con `register`; desde §CTA también con `set-password`) puede pedir `verify-email/resend`. Si el dueño del buzón pulsa «verificar», la cuenta del atacante queda verificada **y su sesión sigue viva** ⇒ reclama los pedidos de invitado de ese correo. §CTA no lo empeora: `register` lo permite igual de barato. **Lo decide seguridad**, con dos salidas: (a) `POST /auth/verify-email` hace `tokenVersion +1` (coste: el cliente legítimo vuelve a entrar tras verificar); (b) el reclamo exige una sesión emitida después de verificar (columna `emailVerifiedAt` y claim `iat`). Recomendación: (a), por simple. Prueba que lo vigilará: «atacante registra, pide reenvío, la víctima verifica ⇒ `claim` con la sesión del atacante `401`».
+- **Tamaño de este documento y del contrato:** ~37 000 y ~46 300 líneas contra un tope de ~3 000 (CLAUDE.md). Esta entrega añade ~60 y ~190 líneas y no compacta: compactar documentos normativos de dinero en el mismo pase que un diseño de seguridad mezcla dos revisiones. **Lo pido al orquestador** como encargo propio del arquitecto, con QA midiendo después la paridad documental (`enum-values-parity`, `enum-query-axes`).
+
+### 16.6 Preguntas
+- **P-ARQ-CTA-1 (al dueño, sin prisa: no bloquea)** Cuando quieras OXXO, ¿el cliente debe poder pagar el vale en tienda días después, con la carta apartada esos días? *Recomendación: sí, con apartado de hasta 3 días solo para OXXO. Es un diseño aparte (reserva, aviso y correo con el vale) y no se enciende en el panel de Stripe antes de tenerlo.*
+- P-CTA-1, 2 y 4: con la recomendación del PO, provisional. Qué cambia si contestas distinto: API_CONTRACT §CTA.11.

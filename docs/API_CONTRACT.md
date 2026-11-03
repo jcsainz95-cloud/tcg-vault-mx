@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-11-03 (rev **v1.116.3⟨ids⟩** + **v1.116.1⟨checkout-friccion⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-11-03 (rev **v1.117⟨cuenta-correo⟩** + **v1.116.3⟨ids⟩** + **v1.116.1⟨checkout-friccion⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -38,11 +38,12 @@
 > - v1.114.5⟨portada⟩ · 2026-10-30 · errata de §DYN tras el rechazo de QA sobre `d0b40182`: [§DYN.1](#DYN) «Limpieza PDB» clasifica las 6 tablas de M-93/M-94 para G-8 (3 borrar, 3 conservar), G-7 las excluye y G-11 nueva; DYN-D2 en celular bloquea con el FCP del trinquete de DYN-D1 (ratifica `DEVOPS_NOTES` §106.2); residual de PEN-DYN-1 aceptado en `ARCHITECTURE §4.DYN (f) 7` · QA (B-1, B-3/937), devops, frontend.
 > - v1.115⟨mkt-conv2⟩ · 2026-10-31 · [§MKT.A.1](#MKT-A1) NUEVA: sellado agotado ⇒ `200` con `listings: []` (ya no `404`; también cuando la pieza pedida se vendió y el grupo sigue a la venta), `SealedGroupDTO.fromPriceCents`/`priceSource` nullable solo en la ficha agotada, `Offer` agotado sin `price` (no hay «último precio»), og/meta sin IVA (ajusta §MKT.A a MKT-4), canonical del sellado = `group.representativeItemId`; §2-S ficha de sellado; §0 «Datos de contacto» deja fuera el buzón público de marca (ARCHITECTURE §13.8) · frontend (`FRONTEND_NOTES` §MKT-CONV2, criterio 951), techlead (TL-MKT2-7/8, TL-MKT4-3: viven en ARCHITECTURE §4.DYN (f) y §13.8).
 > - v1.116⟨checkout-friccion⟩ · 2026-11-02 · [§4-G.9c](#4-G9c) NUEVA: la dirección del pedido de invitado pasa a la libreta al **ganar el reclamo** (sin migración; `addressesSaved` aditivo en `POST /orders/claim`); §MKT.H.4 `begin_checkout` al pulsar PAGAR y `add_payment_info` al abrir el modal de Stripe (C-F11); §MKT.G.4 tabla **a6** «Pagos iniciados → pagados» de BD (población `PI_START`, C-B16); compactada la cabecera v1.80.8.4 · dueño (`HECHOS.md` 2026-11-02 «Checkout con menos captura: paquete A…» (3)), QA de marketing (§MKT.H.4, medición del 2-nov).
-> - v1.116.1⟨checkout-friccion⟩ · 2026-11-02 · errata de [§4-G.9c](#4-G9c) (PT-CHK-1, Media): a la libreta solo la dirección de un pedido **cobrado** (`status='settled'`), **nunca** predeterminada; `GET /orders/claimable` solo lista pedidos con `settledAt ≠ null`; el aviso deja de decir «No cambia nada del pedido»; altas y ediciones de dirección con el candado consultivo de la libreta (PT-CHK-2/3, TL-CHK-3); CLM-A1 ajustada, CLM-A8…A13 y CLM-F2 nuevas; sin migración ni forma nueva · pentester (`f2e1de9c`, en vivo 10/10, ablación 0/10). La siguiente es **v1.117**.
-> - v1.116⟨ids⟩ · 2026-11-02 · [§IDS](#IDS) NUEVA: idioma de la pieza y versiones de liga (`stamped`), migración `M-95`, precio por versión en el cuerpo único (dial `spanishMarketPct` 75 %), empate automático con TCGCSV 22880/1539 sin cola, captura con vista previa por combinación, `version` en teja/ficha/carrito/pedido/preparación/export, `MetaDeckLineDTO.units[]` y surtido sin liga primero; `CardLanguage`/`StampType` en §0; compactado el texto retirado de tiers/reglas por rareza (§M2) · dueño (`HECHOS.md` 2026-10-30 «Español y sellos (§IDS)…», 2026-11-02 «Nombre visible… (D-6 v3)», «Selector… burbujas…») y marketing (`IDS_DECISIONES_2026-11-01.md`). La siguiente es **v1.117**.
+> - v1.116.1⟨checkout-friccion⟩ · 2026-11-02 · errata de [§4-G.9c](#4-G9c) (PT-CHK-1, Media): a la libreta solo la dirección de un pedido **cobrado** (`status='settled'`), **nunca** predeterminada; `GET /orders/claimable` solo lista pedidos con `settledAt ≠ null`; el aviso deja de decir «No cambia nada del pedido»; altas y ediciones de dirección con el candado consultivo de la libreta (PT-CHK-2/3, TL-CHK-3); CLM-A1 ajustada, CLM-A8…A13 y CLM-F2 nuevas; sin migración ni forma nueva · pentester (`f2e1de9c`, en vivo 10/10, ablación 0/10).
+> - v1.116⟨ids⟩ · 2026-11-02 · [§IDS](#IDS) NUEVA: idioma de la pieza y versiones de liga (`stamped`), migración `M-95`, precio por versión en el cuerpo único (dial `spanishMarketPct` 75 %), empate automático con TCGCSV 22880/1539 sin cola, captura con vista previa por combinación, `version` en teja/ficha/carrito/pedido/preparación/export, `MetaDeckLineDTO.units[]` y surtido sin liga primero; `CardLanguage`/`StampType` en §0; compactado el texto retirado de tiers/reglas por rareza (§M2) · dueño (`HECHOS.md` 2026-10-30 «Español y sellos (§IDS)…», 2026-11-02 «Nombre visible… (D-6 v3)», «Selector… burbujas…») y marketing (`IDS_DECISIONES_2026-11-01.md`).
 > - v1.116.1⟨ids⟩ · 2026-11-02 · §IDS.4/.5: `FinishLabel` (acabado como lo nombra el cliente, Cosmos Holo por el nombre del producto; clave cerrada, texto por i18n), `versions[]` una entrada por (producto de liga × acabado) con `optionKey` y orden del servidor, `versionOptionKey` en la teja, preselección `?version=` cerrada (D-IDS-4), «Sin liga»/«No holo» en captura; IDS-B8/F1/F3/D1 ajustadas, IDS-B18/B19 nuevas · marketing vía dueño (`HECHOS.md` 2026-11-02 «Selector de versión en burbujas…» y «§IDS v5 2×N: marketing elige B…»), ux-ui (IDS-UX.7 petición 6, vIDS-6).
 > - v1.116.2⟨ids⟩ · 2026-11-03 · errata de §IDS con datos: IDS.3 fija precedencia de sufijos, número dentro del nombre, llave del catálogo y log; 22872/24451 fuera (no es «cambiar la constante»); Cosmos Reverse Holofoil sigue `cosmos_holo`; sin tope de filas de liga; `VersionComboDTO += baseReferenceMxnCents, appliedMarketPct`; facetas `languages`/`stamped` nombradas; pantalla del dial asignada a frontend (M10); correo lo traduce backend; D-IDS-1 por falla cerrada (IDS-B17) · devops (`DEVOPS_NOTES §108.4`), frontend (`FRONTEND_NOTES §IDS-FE`), dueño (`HECHOS.md` 2026-11-03 «El dueño no ha subido cartas promo»).
-> - v1.116.3⟨ids⟩ · 2026-11-03 · errata de §IDS tras la construcción (`c03d99aa`…`58c7fbc8`): `cardProductId` del alta ratificado solo para producto `stamped` de la carta (§M1 ajustado; PATCH no lo acepta, D-IDS-8); I-7 `cardProductId` inmutable tras el alta ⇒ el `productId` de la liga en pedidos se lee de la pieza, sin columna nueva (D-B-IDS-2); filas de §0-Q para `language`/`stamped` (4 ejes); ratificados: Destacadas solo `(en, null)`, promo/Deck Exclusive sin precio no escala, `versions[]` solo raw, `units: []` sin carta casada; `/catalog/facets` sin query; IDS-B22/B23 · backend (`BACKEND_NOTES` §IDS). La siguiente es **v1.117**.
+> - v1.116.3⟨ids⟩ · 2026-11-03 · errata de §IDS tras la construcción (`c03d99aa`…`58c7fbc8`): `cardProductId` del alta ratificado solo para producto `stamped` de la carta (§M1 ajustado; PATCH no lo acepta, D-IDS-8); I-7 `cardProductId` inmutable tras el alta ⇒ el `productId` de la liga en pedidos se lee de la pieza, sin columna nueva (D-B-IDS-2); filas de §0-Q para `language`/`stamped` (4 ejes); ratificados: Destacadas solo `(en, null)`, promo/Deck Exclusive sin precio no escala, `versions[]` solo raw, `units: []` sin carta casada; `/catalog/facets` sin query; IDS-B22/B23 · backend (`BACKEND_NOTES` §IDS).
+> - v1.117⟨cuenta-correo⟩ · 2026-11-03 · [§CTA](#CTA) NUEVA: alta con solo el correo (`POST /auth/register/email-only`, `409 EMAIL_TAKEN` sin sesión que ofrece «Ingresar a cuenta», throttlers `signup` 5/min compartido con `register` y `signup-day` 30/24 h por IP), enlace «Termina tu cuenta» (`AuthTokenType += account_setup`, M-96, 24 h, un uso; `POST /auth/account-setup` prueba el buzón y destraba el reclamo), `POST /auth/set-password` sin la actual solo con `accountSetupPending`, `PATCH /users/me/email`, comprar sin correo verificado (`POST /checkout/session`), Google que enlaza una cuenta sin verificar revoca sesiones (AUTH-PRE-1), la franja solo afirma «tarjeta» (P-CTA-6); `ACCOUNT_SETUP_TOKEN_INVALID`/`ACCOUNT_SETUP_NOT_PENDING` · dueño (`HECHOS.md` 2026-11-03 «Checkout y ficha: tres cambios aprobados…» (1)/(2) y «Respuestas a P-CTA-3, P-CTA-5(a) y P-CTA-6»); P-CTA-1/2/4 con la recomendación del PO, provisional. La siguiente es **v1.118**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -6778,7 +6779,8 @@ de sí mismo y **hace bien en no inventarse el código**. La medición que lo ci
     copy en `DESIGN_SYSTEM.md`**. **QA:** es **correcto** que ningún test de contrato pueda producirlo por el borde
     HTTP; ⛔ **no se ensancha la lista de política para poder probarlo** (sería construir el buylist de graduadas para
     satisfacer un test). Su cobertura es **unitaria**, ensanchando la lista en un mock.
-- **`403 EMAIL_NOT_VERIFIED` (v1.5):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (comprar / retirar / vender). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /checkout/session`, `POST /shipments`, `POST /buylist/requests`.
+- **`403 EMAIL_NOT_VERIFIED` (v1.5; v1.117):** un `customer` autenticado con `emailVerified=false` intenta una **acción sensible** (retirar / vender / reclamar). El front muestra el banner "verifica tu correo" y ofrece reenviar; el bloqueo lo aplica **siempre** el backend (`EmailVerifiedGuard`, ARCHITECTURE §4.11). Endpoints afectados: `POST /shipments`, `POST /buylist/requests`, `GET /orders/claimable`, `POST /orders/claim`. **Comprar (`POST /checkout/session`) ya no lo exige** ([§CTA.5](#CTA)); sigue rechazando la cuenta sin correo con `403 ACCOUNT_WITHOUT_EMAIL`.
+- **`422 ACCOUNT_SETUP_TOKEN_INVALID`** y **`422 ACCOUNT_SETUP_NOT_PENDING`** (v1.117): definición en [§CTA.7](#CTA).
 - **`403 ACCOUNT_WITHOUT_EMAIL` (v1.80.9, NUEVO):** una cuenta del equipo **sin correo** intenta una acción de cliente.
   Lo emite `EmailVerifiedGuard` **antes** de mirar `emailVerified`, en las cinco rutas con `@RequireEmailVerified`
   (`POST /checkout/session`, `GET /orders/claimable`, `POST /orders/claim`, `POST /buylist/requests`, `POST /shipments`).
@@ -7335,7 +7337,7 @@ SealedSubtype       = box | etb | bundle | tin | blister | upc | collection
                     // `schema.prisma:69-77`. **SEGUNDA instancia del mismo patrón que `PriceSource`** — por eso el
                     // espejo enum↔schema pasa a ser verificación de contrato (ver §M2 «convención de DTOs»).
 AuthProvider        = local | google                     // v1.1: proveedor de autenticación del User
-AuthTokenType       = email_verification | password_reset // v1.5: token de un solo uso (hash en BD); verificación 24h, reset 1h
+AuthTokenType       = email_verification | password_reset | account_setup // v1.5: token de un solo uso (hash en BD); verificación 24h, reset 1h; v1.117 (M-96): «Termina tu cuenta» 24h, §CTA.4
 GradingCompany      = PSA | CGC
 OwnerType           = platform | customer
 OwnershipStatus     = pending | settled
@@ -8744,6 +8746,9 @@ v1.80.8.1: faltaba en esta lista — se pinta con `auth.rateLimitedByIp*`, sin e
 > correo falla (se registra el error; el usuario puede pedir reenvío). El `user` de la respuesta incluye ahora
 > `emailVerified` (siempre `false` recién registrado). El usuario **puede iniciar sesión y navegar** sin verificar,
 > pero las acciones sensibles quedan bloqueadas hasta verificar (ver `403 EMAIL_NOT_VERIFIED`).
+> ⭐ **v1.117:** el carrito ya **no** usa este endpoint para crear cuenta: usa `POST /auth/register/email-only` (solo el
+> correo), con el enlace «Termina tu cuenta», `set-password` y la corrección del correo. Norma entera en [§CTA](#CTA).
+> `register` comparte con él el throttler `signup` (5/min por IP entre los dos, §CTA.4).
 
 ### POST /api/v1/auth/login — `public`
 Req: `{ email, password, deviceToken? }` → Res `200`: `{ user, accessToken, refreshToken, deviceToken }`.
@@ -8761,7 +8766,7 @@ Err: `401 INVALID_CREDENTIALS`, `403 USER_BLOCKED`, **`429 TOO_MANY_PASSWORD_ATT
 > pruebas en [«Límite de intentos por cuenta»](#auth-password-attempts) más abajo. `deviceToken` (opcional, string
 > ≤ 2048): el último que este navegador recibió; uno ajeno, caducado o mal firmado **se ignora sin error**. El `200`
 > trae siempre uno nuevo (**v1.80.1:** su `jti` es el `sid` de la sesión recién creada).
-Nota: una cuenta creada solo con Google tiene `passwordHash=null`; este endpoint la rechaza con `401 INVALID_CREDENTIALS` (no revela que es cuenta Google) hasta que el usuario fije contraseña.
+Nota: una cuenta creada solo con Google tiene `passwordHash=null`; este endpoint la rechaza con `401 INVALID_CREDENTIALS` (no revela que es cuenta Google) hasta que el usuario fije contraseña. Igual la cuenta nacida con solo el correo (v1.117, criterio 973; prueba CTA-B7).
 > **v1.5:** el login **NO** exige `emailVerified` (un usuario sin verificar sí puede entrar y navegar). El objeto
 > `user` incluye `emailVerified` para que el front decida el banner. `403 USER_BLOCKED` sigue aplicando a
 > cuentas `blocked`/`deleted`; `emailVerified=false` **no** es motivo de rechazo de login.
@@ -8773,6 +8778,8 @@ Res `200`: `{ user, accessToken, refreshToken, deviceToken }` — **mismo shape 
 > **v1.80:** **no** entra al contador de intentos por cuenta (no hay contraseña que adivinar; el correo del token no es
 > de fiar hasta verificar la firma). Conserva su tope por IP. Razón: `ARCHITECTURE §4.57.2` #12.
 Comportamiento: busca por `googleId`; si no, enlaza por **email verificado** a una cuenta `local` existente (account-linking); si no existe, crea `User` (`authProvider=google`, `emailVerified=true`, `passwordHash=null`, `role=customer`).
+> ⭐ **v1.117 (AUTH-PRE-1):** si la cuenta que enlaza tenía `emailVerified=false`, el enlace además revoca sesiones,
+> borra la contraseña y anula tokens pendientes — [§CTA.5](#CTA).
 - **`name` y `nameSource` en el alta nueva (v1.67.1 — NORMATIVO; `ARCHITECTURE §4.47.5`).** El `name` del ID token
   se **`trim()`ea**. Si tras el trim queda **no vacío** ⇒ `User.name = <trimmed>`, `nameSource='google'`. Si viene
   **ausente, vacío o solo espacios** ⇒ se trata como **ausente**: `User.name = email.split('@')[0]`,
@@ -8819,6 +8826,8 @@ Rota los tokens de verificación previos y emite uno nuevo (24h). Rate-limit **3
 Req: `{}` → Res `200`: `{ ok: true }`.
 - Si el usuario **ya está verificado** → `200 { ok: true }` no-op (no reenvía).
 - Rate-limit excedido → `429 RATE_LIMITED`.
+- ⭐ **v1.117:** con `accountSetupPending` emite `account_setup` («Termina tu cuenta») en vez de `email_verification`
+  ([§CTA.5](#CTA)).
 
 #### POST /api/v1/auth/verify-email — `public`
 Consume el token del link (se abre desde el correo, quizá sin sesión). Marca `User.emailVerified=true` y el token
@@ -8842,6 +8851,8 @@ Req: `{ email: string }` → Res `200`: `{ ok: true }` (genérico; nunca revela 
   correos). ⛔ Nunca se busca por `username` aquí. Con `@` y mal formado ⇒ `400 VALIDATION_ERROR`, como hoy.
 - Cuenta solo-Google (sin `passwordHash`): el flujo **fija** una contraseña (habilita login local, igual que el
   reset admin). No cambia la respuesta genérica.
+- ⭐ **v1.117:** cuenta con `accountSetupPending` ⇒ manda «Termina tu cuenta» (`account_setup`, 24 h) en vez del reset
+  ([§CTA.5](#CTA)). Misma respuesta genérica. `reset-password` completado anula además los `account_setup` pendientes.
 - Rate-limit excedido → `429 RATE_LIMITED`.
 
 #### POST /api/v1/auth/reset-password — `public`
@@ -9045,8 +9056,12 @@ de cada regla en `ARCHITECTURE §4.57.10.3`.
   cuántos son** antes de publicar (`SELECT count(*) FROM "User" WHERE "mustChangePassword"`) y, si son operadores, les
   avisa. **NO MEDIDO hoy.**
 
-### GET /api/v1/users/me — `customer+` (v1.67: +`mustChangePassword`, +`hasPassword`, +`nameSource`)
-Res `200`: `{ id, email, name, nameSource, phone, role, locale, kycStatus, status, authProvider, emailVerified, avatarUrl?, hasPassword, mustChangePassword }`.
+### GET /api/v1/users/me — `customer+` (v1.67: +`mustChangePassword`, +`hasPassword`, +`nameSource`; v1.117: +`accountSetupPending`)
+Res `200`: `{ id, email, name, nameSource, phone, role, locale, kycStatus, status, authProvider, emailVerified, avatarUrl?, hasPassword, mustChangePassword, accountSetupPending }`.
+- **`accountSetupPending: boolean`** (v1.117) = `setupPending(u)` de [§CTA.2](#CTA). Con `true` la sección de contraseña
+  pinta «Ponle contraseña a tu cuenta» (`POST /auth/set-password`, sin la actual) y el correo es editable
+  (`PATCH /users/me/email`); con `hasPassword=false` y `accountSetupPending=false` (Google) sigue «Crear contraseña» por
+  correo, como abajo. `PATCH /users/me` devuelve el campo también.
 (`authProvider`/`emailVerified`/`avatarUrl` añadidos en v1.1.) **Exento** de `403 PASSWORD_CHANGE_REQUIRED` (allowlist).
 - **`hasPassword: boolean`** (v1.67) = `passwordHash IS NOT NULL`. ⛔ **Retira la heurística de v1.1** («ocultar
   "cambiar contraseña" cuando `authProvider=google`»): es **falsa** tras un `POST /admin/users/:id/reset-password` o un
@@ -9870,7 +9885,7 @@ Res `201`:
 { "orderId": "…", "breakdown": { "…": "BreakdownDTO" },
   "stripe": { "paymentIntentId": "pi_…", "clientSecret": "…" } }
 ```
-Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `404 NOT_FOUND` (algún `inventoryItemId` no existe), **`403 EMAIL_NOT_VERIFIED`** (v1.5 — `emailVerified=false`; comprar es acción sensible). (No aplica `BILLING_PROFILE_REQUIRED` en el MVP: el billing profile no es obligatorio.)
+Err: `422 PRICE_PENDING`, `409 ITEM_UNAVAILABLE`, `404 NOT_FOUND` (algún `inventoryItemId` no existe), `403 ACCOUNT_WITHOUT_EMAIL` (cuenta del equipo sin correo, §M6-U). **No exige correo verificado** (v1.117, [§CTA.5](#CTA)): la cuenta nacida con solo el correo paga en la misma sesión (criterios 969, 976). (No aplica `BILLING_PROFILE_REQUIRED` en el MVP: el billing profile no es obligatorio.)
 > **v1.21.3 — session sigue ESTRICTO a propósito:** la poda por ítem de v1.21.3 aplica **SOLO a los quotes**. Aquí
 > una pieza muerta en el carrito DEBE seguir fallando con `404`/`409` globales (anti double-sell, caso v de
 > ARCHITECTURE §4.21h-1). El front llega a session con el carrito YA podado por el quote.
@@ -10802,6 +10817,9 @@ misma prueba con la que el invitado recibió su enlace. Por eso:
   migración**: `guestEmail` queda en el pedido y la vinculación es un `UPDATE` posterior — para pasar a
   "auto-vínculo al pagar" basta poblar `userId`+`claimedAt` en el settle, y para "exigir login" basta un check en
   el checkout. **Nada de esto se implementa hoy.**
+- **Cuenta nacida con solo el correo (v1.117, criterio 974):** nace `emailVerified=false`, así que este mismo requisito
+  la deja sin `claimable` ni `claim` hasta que abre «Termina tu cuenta» (`POST /auth/account-setup` marca el correo como
+  verificado). ⛔ Ni el alta, ni `set-password`, ni la corrección del correo verifican nada. Norma: [§CTA](#CTA).
 
 #### GET /api/v1/orders/claimable — `customer` (+ `emailVerified`)
 Lista los pedidos de invitado **sin reclamar** cuyo `guestEmail` == el correo (normalizado) de la sesión.
@@ -46167,3 +46185,159 @@ Viven en `ARCHITECTURE §15.4–§15.6` (D-IDS-1…8, P-ARQ-IDS-1/2, riesgos): u
 - **frontend:** captura (`AddItemModal`, `VersionPills`; «Sin liga», «No holo», Acabado × Versión de IDS-UX.2, desglose con los campos nuevos del combo), inventario admin, teja/ficha (2×2 y 2×N hasta 6 filas, rótulos, preselección D-IDS-4)/filtros por facetas/SEO, carrito/checkout/pedido (**sin correo**: es de backend), `DeckAvailability`, **sección del dial en M10** (IDS.7); IDS-F1…F7; i18n ES/EN de `FinishLabel`. `VersionChip` en `components/domain/` (zona compartida).
 - **devops:** Q1 en producción vía el dueño (condición de la solicitud), IDS-D3, seed en `post-deploy`, alinear `ids-lib.mjs`, cuerpo de la solicitud de fusión (export, migración, Q1 y el paso previo a una reversa de `ARCHITECTURE §15.3`).
 - **ux-ui (con marketing):** D-IDS-6; 2×N con 6 filas a 360 px; par EN «Spanish»+«Championship» (155.9 > 152 px, `FRONTEND_NOTES §IDS-FE`); texto del dial. **product-owner:** D-IDS-3, el caso del 960 (candidato de devops: `209911` Quick Ball League Cup, §108.1) y el copy ES/EN de `FinishLabel` y de «Sin liga». **Dueño:** P-ARQ-IDS-1/2 y Q1.
+
+## <a id="CTA"></a>CTA. CUENTA CON SOLO EL CORREO EN EL CARRITO, «TERMINA TU CUENTA» Y MÉTODOS DE PAGO DE LA FRANJA (rev v1.117⟨cuenta-correo⟩, 2026-11-03, **NORMATIVA**; 🔒 SEGURIDAD: `auth`, `users`, `orders` — pasa por pentester y seguridad)
+> **Fuentes (O-17):** `HECHOS.md` 2026-11-03 «Checkout y ficha: tres cambios aprobados (diagnóstico de marketing 2026-11-03)» (1)/(2) («si a tus cambios») y «Respuestas a P-CTA-3, P-CTA-5(a) y P-CTA-6» («debe decir ingresar a cuenta si ya tiene … no pondre oxxo por el momento»). `PROJECT.md` criterios 35, 48, 54, 128(a), 945, 969–976 y P-CTA-1/2/4. **Razones, amenazas, reversa, desviaciones y preguntas: `ARCHITECTURE §16`.**
+> **Estado de las decisiones:** P-CTA-3 (se revela que el correo tiene cuenta y se ofrece «Ingresar a cuenta») y P-CTA-6 (OXXO no está activo y no se activa por ahora) **las contestó el dueño**. P-CTA-1, 2 y 4 siguen la **recomendación del PO, PROVISIONAL**: si el dueño contesta distinto, lo que cambia está en §CTA.11.
+> **Fuera de esta sección:** quitar «IVA 16 % incluido» junto a los precios (977) y la línea de IVA del resumen (P-CTA-5(a): se queda) no tocan el contrato: ningún DTO cambia; es texto de frontend con el copy de ux-ui.
+
+### CTA.0 Estado medido (leído 2026-11-03 en `claude/ids-diseno`; HEAD `d9cc1e98` según el encargo, NO comprobado por mí: no tengo Bash)
+- El carrito crea cuenta con `register({ email, password, name })` (`frontend/…/checkout/InlineAuthPanel.tsx:105`).
+- `POST /checkout/session` lleva `@RequireEmailVerified()` (`orders.controller.ts:54`) y el front pinta el banner con `403 EMAIL_NOT_VERIFIED` (`CheckoutView.tsx:274`) ⇒ por lectura, quien se registra hoy en el upsell de bóveda (48) **no puede pagar** hasta verificar. NO MEDIDO en navegador (lo cierra tester-e2e: registrarse en el upsell y pulsar PAGAR).
+- `EmailVerifiedGuard` (`common/guards/email-verified.guard.ts:30-41`) hace dos comprobaciones en este orden: `403 ACCOUNT_WITHOUT_EMAIL` (staff sin correo, STF-28) y `403 EMAIL_NOT_VERIFIED`. Cinco rutas: `checkout/session`, `orders/claimable`, `orders/claim` (`orders.controller.ts:54,101,113`), `POST /buylist/requests` (`buylist.controller.ts:125`), `POST /shipments` (`shipments.controller.ts:25`).
+- `AuthTokenType = email_verification | password_reset` (`schema.prisma:598-601`); `AuthToken` guarda solo SHA-256, `usedAt` de un uso, `expiresAt` por fila (`schema.prisma:2743-2758`).
+- `reset-password` fija hash, `tokenVersion +1`, `emailVerified=true`, limpia el candado C7 y devuelve `deviceToken` sin sesión (`auth.service.ts:294-331`).
+- Google enlaza por correo a una cuenta local y pone `emailVerified=true` **sin** `tokenVersion +1` ni tocar `passwordHash` (`auth.service.ts:503-516`) ⇒ AUTH-PRE-1 (CTA.5).
+- `User.passwordHash` y `User.phone` ya son nulos (`schema.prisma:617,620`); `nameSource` existe (`:638`) ⇒ **ninguna columna nueva**.
+- Pagos: `stripe.service.ts:193` crea el PaymentIntent con `automatic_payment_methods: { enabled: true }` (sin `payment_method_types`): los métodos ofrecidos los decide el panel de Stripe. Reserva de 60 min (`orders/reservation.ts:25`) con barrido que cancela el PI (`orders.service.ts:1351`).
+
+### CTA.1 Invariantes (cada una con prueba en CTA.9)
+- **I-1 Un correo existente no da sesión por esta vía** (970): `409` sin tokens, sin `user`, sin correo enviado, sin filas nuevas.
+- **I-2 La cuenta nace sin prueba de nada:** `emailVerified=false`, sin contraseña, sin celular; ⛔ ni el alta, ni `set-password`, ni la corrección del correo verifican el correo. Hasta que se prueba el buzón no ve ni reclama pedidos de invitado (974).
+- **I-3 Probar el buzón y fijar credencial revoca sesiones** (`tokenVersion +1`): `account-setup`, `reset-password` y Google sobre una cuenta sin verificar. Así quien creó la cuenta con un correo ajeno pierde la sesión en cuanto el dueño del buzón actúa.
+- **I-4 Contraseña sin la actual solo con `accountSetupPending`**, con escritura condicional (gana uno).
+- **I-5 Comprar no exige correo verificado; reclamar, retirar y vender sí.** La cuenta sin correo sigue con `ACCOUNT_WITHOUT_EMAIL` en las cinco rutas.
+- **I-6 Ningún token en claro** en BD, logs, bitácora ni cabecera `Referer`; ningún correo en la bitácora.
+
+### CTA.2 `setupPending` y el campo `accountSetupPending`
+`setupPending(u) = u.role = 'customer' ∧ u.status = 'active' ∧ u.email IS NOT NULL ∧ u.passwordHash IS NULL ∧ u.googleId IS NULL`.
+Una sola función en `modules/auth` (firma orientativa `isAccountSetupPending(u: Pick<User,'role'|'status'|'email'|'passwordHash'|'googleId'>): boolean`), usada por CTA.4, CTA.5 y `GET /users/me.accountSetupPending`. Sin columna: hoy solo la cuenta del 969 la cumple (register exige contraseña, Google pone `googleId`, el staff tiene contraseña). **Censo antes de desplegar** (NO MEDIDO): `SELECT count(*) FROM "User" WHERE "role"='customer' AND "status"='active' AND "passwordHash" IS NULL AND "googleId" IS NULL;` — debe dar 0; si no, esas cuentas pasan a poder poner contraseña desde la sesión y la solicitud de fusión lo dice.
+
+### CTA.3 Esquema — `M-96` (aditiva, un paso)
+`m96_auth_token_account_setup`: `ALTER TYPE "AuthTokenType" ADD VALUE IF NOT EXISTS 'account_setup';` y nada más (sin columnas, sin relleno). Línea canónica en §0 ya actualizada ⇒ `enum-values-parity.spec.ts` queda **roja hasta que el schema la tenga** (es el canario de CTA-B0). Constante `ACCOUNT_SETUP_TTL_HOURS = 24` en `modules/auth` (no es dial). Reversa: `ARCHITECTURE §16.4`.
+
+### CTA.4 Endpoints nuevos
+#### POST /api/v1/auth/register/email-only — `public` (969, 970)
+Req: `{ email: string, locale?: 'es' | 'en' }`. `email` con la validación de `register` (`@IsEmail`) sobre `normalizeEmail(email)` (trim + minúsculas, `common/validation/credentials.ts`); llaves extra descartadas por el `whitelist`. ⛔ No acepta `password`, `name` ni `phone`.
+Res `201`: `{ user, accessToken, refreshToken }` — misma forma que `register` (`user.emailVerified = false`, `user.mustChangePassword = false`). La sesión queda iniciada en ese navegador (P-CTA-2, provisional). `GET /users/me` de esa sesión: `hasPassword: false`, `accountSetupPending: true`, `nameSource: 'derived'`, `phone: null`.
+Escritura: `User { email, passwordHash: null, name: parte local del correo, nameSource: 'derived', phone: null, authProvider: 'local', role: 'customer', emailVerified: false, locale }`. ⛔ Ni `Address`, ni reclamo, ni lectura de pedidos de invitado. Post-commit y best-effort: `AuthToken(account_setup)` + correo «Termina tu cuenta» (CTA.6); si el envío falla, el alta no falla (como v1.5). `AuditLog` `auth.register_email_only` (`entityType: 'User'`, sin correo).
+Err:
+- `400 VALIDATION_ERROR` — correo vacío o inválido; el front lo pinta como el 47.
+- `409 EMAIL_TAKEN` — el correo ya tiene cuenta, en cualquier estado (con contraseña, Google, `setupPending`, bloqueada). **Decisión del dueño (P-CTA-3):** se revela, y el front ofrece **«Ingresar a cuenta»** (login con el correo puesto) y «¿Olvidaste tu contraseña?» (`forgot-password` con ese correo); el carrito no se toca. ⛔ Cuerpo sin `user`, `accessToken` ni `refreshToken`; cero correos, cero `AuthToken`, cero filas.
+- `429 RATE_LIMITED`.
+**Límite contra enumeración** (el `409` es un oráculo de existencia aceptado por el dueño; se acota, no se oculta):
+- Throttler con nombre **`signup`**, **compartido** con `POST /auth/register`: **5/min por IP** entre los dos (no 5 + 5).
+- Throttler **`signup-day`** solo en este endpoint: **30 / 24 h por IP**, cuente `201`, `409` o `400`.
+- IP = última entrada de `X-Forwarded-For` con `trust proxy = 1` (C7-18, sin cambio).
+- `login` (401 genérico + C7) y `forgot-password` (200 genérico) **siguen sin revelar**: solo este endpoint y `register` responden la existencia.
+- Telemetría: `logger.warn` agregado cuando una IP pasa de 10 `409` en 24 h (sin correos en el log; 12 caracteres del HMAC de la IP como C7). Sin bloqueo extra: es para que seguridad mida.
+Con un `Bearer` válido, el endpoint lo ignora (es público; el front no lo ofrece con sesión).
+
+#### POST /api/v1/auth/account-setup — `public` (971, 974; P-CTA-1 provisional)
+Req: `{ token: string, name: string, password: string }`. `name`: trim, 1..120 (cota de `PATCH /users/me`). `password`: `MIN_PASSWORD_LENGTH` (la constante compartida).
+Orden **normativo**:
+1. Validación del cuerpo (`400`) **antes** de tocar el token: una contraseña corta no quema el enlace.
+2. `consume(token, account_setup)` atómico (`usedAt`); inválido, caducado, usado o de otro tipo ⇒ **`422 ACCOUNT_SETUP_TOKEN_INVALID`** (no distingue el motivo).
+3. Cuenta `active`; si no, `403 USER_BLOCKED` (como `reset-password`, S15-B4).
+4. **Una escritura:** `passwordHash = argon2id(password)`, `name`, `nameSource = 'user'`, `emailVerified = true`, `tokenVersion +1`, `mustChangePassword = false`. Sin condición sobre el `passwordHash` previo: el enlace prueba el buzón y vale lo que un restablecimiento (`ARCHITECTURE §16` D-CTA-3).
+5. Anula (`usedAt = now`) todo `account_setup` y `password_reset` pendiente de esa cuenta.
+5-bis. Si el correo **no** estaba verificado antes de este paso: `Address.isDefault = false` en toda la libreta, dentro de `withAddressBookLock` (el candado de §4-G.9c). Lo que se cargó antes de probar el buzón no queda como destino por defecto de un retiro. Con una sola dirección, el checkout la sigue autoseleccionando (`addresses[0]`).
+6. Limpia el candado C7 de la cuenta (`clearForUser`: las tres claves, como `reset-password`).
+7. `AuditLog` `auth.account_setup_completed`.
+Res `200`: `{ ok: true, deviceToken }` — como `reset-password`: **sin sesión**; el cliente entra con correo y contraseña (971). Tras esto el aviso de pedidos reclamables (§4-G.9) aparece solo y el 54 aplica.
+Rate limit: 10/min por IP.
+
+#### POST /api/v1/auth/set-password — `customer` (972)
+Req: `{ newPassword: string, name?: string }` (mismas reglas que arriba).
+1. Escritura **condicional** en una sola sentencia: `updateMany({ where: { id, role: 'customer', status: 'active', passwordHash: null, googleId: null }, data: { passwordHash, tokenVersion: { increment: 1 }, …(name ? { name, nameSource: 'user' } : {}) } })`. `count === 0` ⇒ **`422 ACCOUNT_SETUP_NOT_PENDING`** (ya tiene contraseña ⇒ `change-password`; Google sin contraseña ⇒ «Crear contraseña» por correo, como hoy, `ARCHITECTURE §4.47.3`).
+2. `emailVerified` **no cambia** (no hubo buzón): el reclamo sigue cerrado hasta el enlace (974).
+3. Emite un par nuevo con el `tokenVersion` incrementado (las demás sesiones mueren, ésta sigue), como `change-password`.
+4. `AuditLog` `auth.password_set_from_session`. No entra al contador C7 (no hay secreto que adivinar).
+Res `200`: `{ ok: true, accessToken, refreshToken }`. Err: `400 VALIDATION_ERROR`, `422 ACCOUNT_SETUP_NOT_PENDING`, `401`, `429 RATE_LIMITED` (5/min por IP). Front: reemplaza los dos tokens y `patchStoredUser({ hasPassword: true, accountSetupPending: false })`.
+
+#### PATCH /api/v1/users/me/email — `customer` (P-CTA-2, provisional: «si teclea mal su correo, lo corrige desde Mi cuenta»)
+Req: `{ email: string }` (misma validación y `normalizeEmail`).
+1. Igual al actual ⇒ `200` sin escribir ni mandar correo.
+2. Tope: ≥ 3 `account_setup` emitidos a esa cuenta en la última hora (`MAX_EMAILS_PER_HOUR`, el de hoy) ⇒ `429 RATE_LIMITED` **sin escribir**.
+3. Escritura condicional `where: setupPending ∧ emailVerified = false`; `count === 0` ⇒ `422 ACCOUNT_SETUP_NOT_PENDING`; único violado (P2002) ⇒ `409 EMAIL_TAKEN`.
+4. En la misma transacción anula todo `AuthToken` pendiente de la cuenta (los tres tipos): el enlace mandado al correo equivocado deja de valer.
+5. Post-commit: `account_setup` nuevo y «Termina tu cuenta» al correo nuevo.
+6. `AuditLog` `user.email_corrected` (⛔ sin ninguno de los dos correos).
+Res `200`: la forma de `GET /users/me`. Rate limit: 5/min por IP. `tokenVersion` no cambia (la única sesión legítima es la de quien corrige).
+
+### CTA.5 Cambios en endpoints existentes
+| Endpoint | Cambio |
+|---|---|
+| `POST /checkout/session` | Deja de exigir `emailVerified`; **sigue** rechazando la cuenta sin correo (`ACCOUNT_WITHOUT_EMAIL`, STF-28). Mecanismo: el metadato del guard pasa de booleano a modo, `@RequireEmailVerified('present' \| 'verified')` (por defecto `'verified'`); `checkout/session` usa `'present'`. Las otras cuatro rutas, sin cambio. |
+| `POST /buylist/requests`, `POST /shipments`, `GET /orders/claimable`, `POST /orders/claim` | Sin cambio: `403 EMAIL_NOT_VERIFIED` hasta abrir el enlace. Para vender (975): primero el correo (guard) y después el celular (`PHONE_REQUIRED`, `buylist.service.ts:1614`), como a una cuenta de Google. Retirar de la bóveda también espera al enlace. |
+| `POST /auth/forgot-password` | Con `setupPending` ⇒ emite `account_setup` (24 h) y manda «Termina tu cuenta» en vez del reset; tope por cuenta 3/h contado sobre `account_setup`. Respuesta genérica igual. Resto, sin cambio (P-CTA-4: «Olvidé mi contraseña» basta). |
+| `POST /auth/verify-email/resend` | Con `setupPending` ⇒ `account_setup` en vez de `email_verification`. Resto, sin cambio. |
+| `POST /auth/reset-password` | Además anula los `account_setup` pendientes (simetría con CTA.4 paso 5). |
+| `POST /auth/google` (**AUTH-PRE-1**) | Si la cuenta enlazada por correo tenía `emailVerified = false`, en la **misma** escritura: `tokenVersion +1`, `passwordHash = null`, `mustChangePassword = false`, y anula todo `AuthToken` pendiente; además, el paso 5-bis de `account-setup` (libreta sin predeterminada). Con `emailVerified = true`, como hoy. `auth.google_link` lleva `after: { wasUnverified: true }`. |
+| `POST /auth/login` | Sin cambio de código: una cuenta `setupPending` responde `401 INVALID_CREDENTIALS` con `argon2` ficticio y cuenta en C7 (criterio 973). |
+| `GET /users/me`, `PATCH /users/me` | `+ accountSetupPending: boolean` (§1). |
+
+### CTA.6 El correo y la página «Termina tu cuenta»
+- Correo de **autenticación** (como verificación y restablecimiento; fuera de §R, cuyos once correos cuelgan del operador). Plantilla en `mail` (`sendAccountSetup(user, link)`), ES/EN por `User.locale`. Texto final: ux-ui. Debe decir qué es, que el enlace sirve una vez y caduca en 24 h, y que si no creó la cuenta puede ignorarlo. ⛔ Sin datos de pedidos, importes ni dirección.
+- Enlace: `${APP_BASE_URL}/<locale>/account-setup?token=<claro>`. Token como los de hoy (`tokens.issue`: 32 bytes aleatorios, SHA-256 en `tokenHash`), `expiresAt = now + 24 h`, un uso, y emitir uno nuevo anula los `account_setup` previos sin usar (rotación por tipo, la de hoy). El barrido `auth-token-sweep` lo incluye.
+- Página pública `/[locale]/account-setup`: lee el token, lo **quita de la URL** (`history.replaceState`) antes de cualquier otra petición, se sirve con `Referrer-Policy: no-referrer` y **sin** scripts de medición (misma exclusión que `/reset-password` y `/verify-email` en `ARCHITECTURE §14.4`; que estas dos ya la tengan: NO MEDIDO, lo cierra frontend con `grep`). Formulario: nombre y contraseña. `200` ⇒ «Listo» y enlace a entrar. `422 ACCOUNT_SETUP_TOKEN_INVALID` ⇒ «El enlace ya se usó o caducó» y «Mandar otro»: con sesión, `verify-email/resend`; sin sesión, pide el correo y llama a `forgot-password`.
+
+### CTA.7 Errores nuevos (añadir a `common/error-codes.ts`)
+- **`422 ACCOUNT_SETUP_TOKEN_INVALID`** — `POST /auth/account-setup` con un token inválido, caducado, usado o de otro tipo. `details: {}`. No distingue el motivo.
+- **`422 ACCOUNT_SETUP_NOT_PENDING`** — `set-password` o `PATCH /users/me/email` sobre una cuenta sin `setupPending`. `details: {}`. El front decide el remedio con `hasPassword`/`accountSetupPending`.
+`409 EMAIL_TAKEN`, `403 EMAIL_NOT_VERIFIED`, `403 ACCOUNT_WITHOUT_EMAIL` y `429 RATE_LIMITED` ya existen.
+
+### CTA.8 Franja de confianza: qué métodos de pago afirma (945; P-CTA-6 contestada)
+- Afirma **solo «tarjeta»**. Apple Pay, Google Pay y Link no se nombran aparte. Texto constante de i18n; **sin endpoint ni dial**. ⛔ «OXXO» no aparece en franja, ficha, carrito ni «Quiénes somos» (944: misma fuente) — decisión del dueño (`HECHOS.md` 2026-11-03 «Respuestas a P-CTA-3…»: «no pondre oxxo por el momento»).
+- **De dónde sale el dato:** de esa decisión, no del código. El código no lo sabe: con `automatic_payment_methods` los métodos los decide el panel de Stripe (`stripe.service.ts:193`). Que OXXO esté apagado en el panel es palabra del dueño («no lo tengo»); NO MEDIDO por mí. Lo cierra backend con la llave de prueba y la real (`stripe.paymentMethodConfigurations.list()`, campo `oxxo.display_preference.value`), sin pedirle nada al dueño (O-6).
+- **Si algún día se quiere OXXO**, no basta con encenderlo en el panel. El vale se paga en días y la reserva dura 60 min: el barrido cancelaría el PaymentIntent antes del pago. Es diseño aparte (`ARCHITECTURE §16` P-ARQ-CTA-1), y solo entonces la franja leería los métodos de un endpoint.
+
+### CTA.9 Pruebas que deben fallar hoy (escribe el modelo fuerte, antes del código; copia del árbol ENTERO, O-9). Deterministas N=1 salvo donde se dé N.
+**Backend** (integración con Postgres real donde toca BD):
+| # | Prueba | Mutación que la pone en rojo |
+|---|---|---|
+| CTA-B0 | `enum-values-parity.spec.ts` (existente) con la línea de §0 ⇒ roja hasta M-96 | — (canario de la migración) |
+| CTA-B1 | Alta con correo nuevo ⇒ `201`; `User` con `emailVerified=false`, `passwordHash=null`, `phone=null`, `nameSource='derived'`; **un** `AuthToken` `account_setup` con `expiresAt` = +24 h ±1 min y `tokenHash = sha256(claro del correo espiado)`; un correo; `/users/me.accountSetupPending=true` | emitir `email_verification`; exigir `password` |
+| CTA-B2 | (970) Correo existente en cuatro estados (con contraseña, Google, `setupPending`, bloqueada) ⇒ `409 EMAIL_TAKEN`; `Object.keys(body)` exacto sin `user`/`accessToken`/`refreshToken`; 0 `AuthToken`, 0 correos, 0 `User` nuevos | devolver la sesión del existente; mandar correo al existente |
+| CTA-B3 | `"  Ana@X.COM "` contra `ana@x.com` existente ⇒ `409` | quitar `normalizeEmail` |
+| CTA-B4 | Throttle: misma IP, 3 `register` + 2 `email-only` ⇒ el 6.º (cualquiera) `429`; y 30 `email-only` en 24 h con reloj falso ⇒ el 31.º `429` | throttlers separados por ruta; quitar `signup-day` |
+| CTA-B5 | Cuenta `setupPending` ⇒ `POST /checkout/session` `201` con PI (Stripe falso); STF-28 sigue verde (`ACCOUNT_WITHOUT_EMAIL`); `shipments`, `buylist/requests`, `claimable`, `claim` ⇒ `403 EMAIL_NOT_VERIFIED` | dejar `'verified'` en `session` (B5 rojo); quitar el guard de `session` (STF-28 rojo) |
+| CTA-B6 | (974) Pedido de invitado `settled` con el correo E + alta email-only con E ⇒ `claimable`/`claim` `403` y 0 `Address`; tras `account-setup` y login ⇒ `claimable` lo lista, `claim` lo gana y 4-G.9c guarda la dirección | nacer con `emailVerified=true` |
+| CTA-B7 | (973) Login de una cuenta `setupPending` con cualquier contraseña ⇒ `401 INVALID_CREDENTIALS`, `argon2.verify` llamado 1 vez (ficticio), misma forma que cuenta inexistente (amplía C7-3 a una quinta clase) | cortocircuitar sin `argon2` cuando no hay hash |
+| CTA-B8 | `account-setup` válido ⇒ `200 {ok, deviceToken}`; hash, `name`, `nameSource='user'`, `emailVerified=true`, `tokenVersion+1`; el access token viejo ⇒ `401`; segundo uso ⇒ `422`; reloj +24 h +1 s ⇒ `422`; un `password_reset` en `account-setup` ⇒ `422` y un `account_setup` en `reset-password` ⇒ `422 RESET_TOKEN_INVALID`; otros `account_setup`/`password_reset` pendientes quedan usados; cuerpo inválido (`400`) **no** consume el token; una dirección `isDefault:true` dada de alta antes del enlace queda `false` | no subir `tokenVersion`; no consumir; aceptar el tipo cruzado; consumir antes de validar; omitir 5-bis |
+| CTA-B9 | Ningún log (espía del logger) contiene el claro ni el enlace; `AuditLog` de las cinco acciones nuevas sin correo ni token; la BD solo tiene el hash | registrar el enlace |
+| CTA-B10 | `set-password` en `setupPending` ⇒ `200` con par nuevo; el refresh viejo ⇒ `401`; `emailVerified` sigue `false` y `claimable` sigue `403`; con contraseña ⇒ `422 ACCOUNT_SETUP_NOT_PENDING` sin escribir; Google sin hash ⇒ `422`. **Concurrencia:** dos `set-password` simultáneos, **N=10 ⇒ exactamente un `200` en 10/10** (reportar proporción y autor; la mutación debe morder ≥ 5/10 o se sube N) | leer y luego escribir sin condición (dos `200`) |
+| CTA-B11 | `PATCH /users/me/email` en `setupPending` ⇒ correo cambiado; el `account_setup` viejo ⇒ `422` en `account-setup`; uno nuevo al correo nuevo; correo tomado ⇒ `409`; con contraseña ⇒ `422`; 4.º cambio en una hora ⇒ `429` sin cambiar el correo | no anular los tokens viejos; comprobar el tope después de escribir |
+| CTA-B12 | `forgot-password` y `verify-email/resend` sobre `setupPending` ⇒ emiten `account_setup` (no `password_reset`/`email_verification`), respuesta idéntica; sobre local con contraseña ⇒ `password_reset` como hoy | rama `setupPending` ausente |
+| CTA-B13 | (AUTH-PRE-1) Cuenta email-only E con sesión S; Google con E verificado ⇒ enlaza; access y refresh de S ⇒ `401`. Cuenta de `register` sin verificar ⇒ tras Google, login con la contraseña vieja ⇒ `401`. Cuenta ya verificada ⇒ las sesiones siguen vivas | no subir `tokenVersion` al enlazar sin verificar |
+**Frontend** (vitest; mocks con la forma de este contrato):
+| # | Prueba | Mutación |
+|---|---|---|
+| CTA-F1 | «Crear cuenta» del carrito y del upsell (48): **un** input (correo) y la leyenda del 504 con sus dos enlaces; ningún input de contraseña, nombre o celular; envía `registerEmailOnly({ email })` | formulario viejo |
+| CTA-F2 | `409 EMAIL_TAKEN` ⇒ copy de ux-ui con **«Ingresar a cuenta»** (login con el correo puesto) y «¿Olvidaste tu contraseña?»; el carrito no cambia; no se guarda sesión | guardar sesión o vaciar carrito |
+| CTA-F3 | `201` ⇒ sesión guardada, destino bóveda disponible, PAGAR llama a `checkout/session` sin banner de verificación | seguir pintando el banner antes de pagar |
+| CTA-F4 | `/account-setup`: quita el token de la URL antes de llamar; `200` ⇒ «Listo» + entrar; `422` ⇒ «Mandar otro» (con sesión `verify-email/resend`; sin sesión, correo + `forgot-password`) | dejar el token en la URL |
+| CTA-F5 | «Mi cuenta» con `accountSetupPending=true` ⇒ «Ponle contraseña a tu cuenta» sin campo de la actual (llama a `set-password` y reemplaza los dos tokens) y el correo editable; con `hasPassword=true` ⇒ cambiar pide la actual; Google sin hash ⇒ «Crear contraseña» por correo | mostrar el modo sin la actual con `hasPassword=true` |
+| CTA-F6 | Confirmación del invitado (54): «crear cuenta con este correo» usa email-only; `403 EMAIL_NOT_VERIFIED` del reclamo ⇒ «Abre el enlace de tu correo para ver este pedido» (no error) | pintar error |
+| CTA-F7 | Franja, ficha, carrito y «Quiénes somos», ES y EN: el texto de pago no contiene «OXXO» y sí «tarjeta»/«card» | añadir OXXO |
+| CTA-F8 | `/account-setup` sin scripts de medición y con `Referrer-Policy: no-referrer` | quitar la ruta de la exclusión |
+**E2E** (tester-e2e, criterio 976, stack con datos sembrados): ciclo completo a 390 px. Requiere leer el correo del stack: que el stack local lo capture (buzón de prueba o espía): NO MEDIDO, lo dice devops.
+
+### CTA.10 Reparto y orden (modelo fuerte: toca `auth` y `orders`; ⛔ `backend-lite`/`frontend-lite` salvo textos con paridad)
+- **backend:** M-96 → CTA.2 → CTA.4 → CTA.5 (guard con modo, `forgot`/`resend`/`reset`/`google`) → plantilla «Termina tu cuenta» → códigos → CTA-B1…B13. Zonas compartidas: `prisma/schema.prisma`, `common/guards/`, `common/decorators/`, `common/error-codes.ts` (serializa el orquestador).
+- **frontend:** CTA-F1…F8, ruta `/[locale]/account-setup`, `registerEmailOnly`/`accountSetup`/`setPassword`/`updateMyEmail` en `lib/api.ts`, `accountSetupPending` en `types/contract.ts` (zonas compartidas).
+- **ux-ui:** textos del 409, del correo y la página, del bloque de «Mi cuenta» y de la franja «tarjeta».
+- **devops:** buzón de prueba para la E2E; censo de CTA.2 y la medición del panel de Stripe en la solicitud de fusión.
+- **Orden de despliegue:** backend primero (los endpoints nuevos no rompen el front viejo; quitar el guard de `session` tampoco), frontend en el mismo release. **pentester + seguridad antes de publicar** (`ARCHITECTURE §16.3`).
+
+### CTA.11 Si el dueño contesta distinto a la recomendación (P-CTA-1, 2, 4)
+- **P-CTA-1** (otra forma de poner la contraseña): `account-setup` y el correo cambian; I-2 e I-3 no cambian (la prueba del buzón sigue siendo lo que abre el reclamo).
+- **P-CTA-2 = no** (sin sesión hasta confirmar): `email-only` responde `202 { ok: true }` sin tokens, la compra sigue como invitado y la bóveda no está disponible en ese momento (choca con 969/976: lo reescribe el PO); `set-password` y `PATCH /users/me/email` sobran.
+- **P-CTA-4 = enlace para entrar sin contraseña:** es un sistema de acceso nuevo; diseño y revisión de seguridad aparte. Nada de lo de aquí lo bloquea.
+
+### CTA.12 NO MEDIDO (y qué lo cierra)
+- Corte del flujo 48 en PAGAR hoy: recorrido de tester-e2e (CTA.0).
+- Censo `setupPending` = 0: la consulta de CTA.2 en producción, vía devops/dueño.
+- OXXO apagado en el panel: lectura de backend con `paymentMethodConfigurations.list()` en las dos llaves.
+- Exclusión de medición en `/reset-password` y `/verify-email`: `grep` de frontend.
+- Captura de correo en el stack de E2E: devops.
