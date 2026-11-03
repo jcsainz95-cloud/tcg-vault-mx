@@ -7,6 +7,7 @@
 
 | Fecha | Pregunta | Respuesta del dueño | Sección de `PROJECT.md` |
 |---|---|---|---|
+| 2026-11-03 | Diagnóstico de marketing: (1) crear cuenta en el carrito con solo el correo; (2) tarjeta u OXXO, tiempos de entrega, WhatsApp e Instagram también en ficha y carrito; (3) quitar «IVA 16 % incluido» junto a cada precio | «si a tus cambios» (`HECHOS.md`, fila «Checkout y ficha: tres cambios aprobados…») | §A, §B, §J, Restricciones; criterios 35, 48, 54, 128, 195, 270, 945 (reescrito), 969–977 nuevos; P-CTA-1…6 |
 | 2026-11-03 | D-IDS-8 · ¿Cómo se corrige la identidad de una pieza ya capturada (criterio 160 no tenía vía en el código)? | «Dar de baja y volver a subir, como recomiendas» (`HECHOS.md`, fila «Corregir una pieza mal capturada: darla de baja y volver a subirla»); la corrección en sitio no se construye por ahora | criterio 160 (reescrito) |
 | 2026-11-03 | Copy EN definitivo de §IDS (delegado a marketing) | Marketing (relayado por el dueño): «Tournament» (ES «De torneo»), «Regular», «Non-holo», teja «Cosmos»/«1st Edition» y completo en ficha (`HECHOS.md`, fila «Copy EN de §IDS (decisión de marketing, delegada)»); con «Sin liga», «No holo», «LANGUAGE AND VERSION» y «Selling price (auto)» de la fila «§IDS v5 2×N…» | §IDS.3 (quitados los SUPUESTO de traducción) |
 | 2026-11-03 | Caso del criterio 960 (lo elige product-owner, propuesto por devops) | Sin pregunta al dueño: se fija `209911` «Quick Ball - 179/202 (League Cup)», empate único A y B con base `208511` (`docs/DEVOPS_NOTES.md` §108.1) | criterio 960 |

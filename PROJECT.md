@@ -758,7 +758,8 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
   **Compra** (nuestro inventario a la venta), compra cartas, ve su bóveda y el valor de su portafolio (con
   **gráfica de tendencia**), pide retiros/envíos y crea solicitudes de venta (buylist). No opera dinero de
   la plataforma ni ve back-office. *(NUEVO v2.1, D11)*: **el celular es un dato obligatorio de la cuenta** —
-  se pide **al registrarse** y, si la cuenta no lo tiene (entró con **Google** o es una cuenta vieja con el
+  se pide **al registrarse** y, si la cuenta no lo tiene (entró con **Google**, la creó **en el carrito con solo el
+  correo** —criterio 975— o es una cuenta vieja con el
   campo vacío), **se le pide antes de dejarlo crear una solicitud de venta**. *(NUEVO 7ª ronda v2.1,
   **D36/D37**)*: **también necesita una DIRECCIÓN** para crear una solicitud de venta — **la misma libreta de
   direcciones con la que recibe sus compras**: **elige o confirma** una si ya tiene, **la captura** si no
@@ -869,6 +870,10 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       dato **fresco**, de **origen confiable** y **coherente en magnitud**. **Money-safe**: una cifra que no
       existe **no se dibuja** (ni **$0**, ni guion, ni «pendiente»). No aplica a **gradeadas** ni a **sellado**.
 - [ ] Registro/login de usuario **por email/contraseña o con Google** (ver Restricciones técnicas).
+- [ ] **Cuenta desde el carrito con SOLO el correo** *(dueño, 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios
+      aprobados…» (1))*: en el carrito/checkout «Crear cuenta» pide únicamente el correo; nombre y contraseña los pone
+      el cliente después (enlace en su correo o «Mi cuenta») y el celular se pide antes de vender, como a Google.
+      Criterios **969–975**; lo no decidido del flujo, en «Preguntas abiertas» (P-CTA-1…4).
 
 ### B. Compra y checkout (Stripe)
 - [ ] **Comprar NO exige cuenta** *(v1.5)*: el checkout ofrece **"continuar como invitado"** además de
@@ -876,21 +881,18 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       bóveda requiere cuenta**. Reglas completas, flujos y límites en **§J**.
 - [ ] Carrito y checkout con **Stripe**. El **precio de venta** que se cobra es **referencia + markup**
       (el markup es un dial configurable en M10); el "valor de mercado" mostrado sigue siendo la referencia.
-- [ ] ~~Precios en catálogo/ficha se muestran **sin IVA**.~~
-      **⚠⚠ DEROGADO (16ª ronda, 2026-09-09, D54). Se conserva TACHADO, no borrado**, porque **era una
-      instrucción viva y es exactamente lo que D54 invierte**. **Lo sustituye el punto de abajo.**
-- [ ] **Precios en catálogo/ficha se muestran CON EL IVA DENTRO** *(**D54**, 16ª ronda)*: la cifra exhibida en
+- [ ] **Precios en catálogo/ficha se muestran CON EL IVA DENTRO** *(**D54**, 16ª ronda; sustituye a «sin IVA»)*: la cifra exhibida en
       **catálogo, ficha (precio grande **y** filas de variante), ficha de sellado, carrito y checkout** ya
       **lleva el IVA incluido** según la posición del **dial de traslación** (global, fracción **0–100 %**,
       **arranca en 100 %**). Con el dial en **100 %** y base MX$100.00, la vitrina dice **MX$116.00**.
       **⛔ Ninguna superficie de cliente vuelve a apilar IVA sobre el precio exhibido** (criterio **189**).
       **⛔ Una sola convención por pantalla**: se acabó que el precio grande diga *«sin IVA»* y las filas de
       variante no (criterio **186**). Alcance completo por superficie en **§Q.5**; criterios **185–197**.
-- [ ] ~~**Costo de procesamiento trasladado al comprador**: línea visible y desglosada en el checkout.~~
-      **⚠⚠ DEROGADO (15ª ronda, 2026-09-08, D53). Se conserva TACHADO, no borrado**, porque **era un criterio
-      de aceptación vigente y sin marcar**: leído al pie habría hecho que QA exigiera —y el DoD verificara—
-      justo la frase que el dueño mandó retirar. **Lo sustituye el punto de abajo.**
-- [ ] **Comisión de plataforma — línea visible y desglosada en el checkout** *(**D53**, 15ª ronda)*: el
+      **⛔ Sin rótulo de IVA junto al precio** *(dueño, 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios
+      aprobados…» (3))*: el precio lleva el IVA dentro pero **no se dice** al lado («IVA 16 % incluido» ni variantes)
+      en catálogo, ficha, sellado, carrito, decks y accesorios. La cifra no cambia. Criterio **977**; el checkout y la
+      nota del valor de mercado, en P-CTA-5.
+- [ ] **Comisión de plataforma — línea visible y desglosada en el checkout** *(**D53**, 15ª ronda; sustituye al «costo de procesamiento»)*: el
       checkout muestra una línea rotulada **«Comisión de plataforma» / «Platform fee»**, que es **la comisión
       de TCG HUNT por operar la compra**, y que **ya está incluida en el total** que el comprador ve.
       **⛔ La pantalla del cliente NO explica qué costos cubrimos con esa comisión, NO nombra a ningún
@@ -900,12 +902,8 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       *(Rótulos y hint normativos: `DESIGN_SYSTEM §29`; la norma de nombrado que este punto ratifica:
       **`DESIGN_SYSTEM §7.12a`**. El campo del contrato **sigue llamándose `processingFeeCents`** a
       propósito — es nombre **interno**, no un rótulo.)*
-- [ ] ~~**IVA 16% desglosado como línea aparte** en el checkout; el total cobrado lo incluye.~~
-      **⚠⚠ DEROGADO EN SU PAPEL DE LÍNEA QUE SUMA (16ª ronda, 2026-09-09, D54). TACHADO, no borrado.** Con el
-      IVA **dentro** del precio exhibido, una línea que **suma** IVA sobre ese precio **cobraría el impuesto
-      dos veces**. **Lo sustituye el punto de abajo.**
-- [ ] **El IVA del checkout INFORMA, no suma** *(**D54**, 16ª ronda; **el rótulo exacto es SUPUESTO —
-      pregunta 60**, que sigue abierta)*: el checkout **sigue mostrando el importe de IVA** —*«IVA 16 %
+- [ ] **El IVA del checkout INFORMA, no suma** *(**D54**, 16ª ronda; sustituye a la línea que sumaba; **el rótulo
+      exacto es SUPUESTO — pregunta 60**, y si se queda en el checkout, P-CTA-5)*: el checkout **sigue mostrando el importe de IVA** —*«IVA 16 %
       incluido: MX$16.00»*— pero **ya está dentro del precio exhibido y NO mueve el total ni un centavo**.
       **⛔ El importe de IVA no desaparece**: es **la única fuente del desglose** para la factura manual
       (`Order.ivaCents` → `GET /admin/finance/iva` → CSV), y **borrarlo es más difícil de deshacer que
@@ -2100,8 +2098,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 **Qué NO puede hacer un invitado**
 - [ ] **No puede guardar en bóveda** (decisión de producto, ver §C). Si intenta elegir "guardar en bóveda",
       **no se muestra un error**: se muestra un **upsell in-situ** que explica el beneficio (acumular
-      cartas, un solo envío, portafolio valuado) y permite **crear cuenta sin salir del checkout**,
-      **conservando el carrito y los datos ya capturados**; al crear la cuenta, el destino bóveda queda
+      cartas, un solo envío, portafolio valuado) y permite **crear cuenta sin salir del checkout**, **con solo
+      el correo** (criterio 969), **conservando el carrito y los datos ya capturados**; al crear la cuenta, el destino bóveda queda
       disponible y el flujo continúa donde estaba. También puede **descartar** el upsell y seguir con envío
       directo.
 - [ ] **No puede vender (buylist)**, ni acceder a cotizador con solicitud, portafolio, gráfica de tendencia,
@@ -2128,7 +2126,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] En la **pantalla de confirmación de compra** y en el **correo de confirmación** se ofrece
       **crear cuenta con el mismo correo** ("guarda tu pedido y tus próximas compras en tu bóveda").
 - [ ] Al crear la cuenta con **ese mismo correo**, el pedido de invitado **se vincula** a la cuenta y
-      **aparece en su historial de pedidos**, con su estado y su seguimiento ya dentro de la sesión.
+      **aparece en su historial de pedidos**, con su estado y su seguimiento ya dentro de la sesión. Si la cuenta
+      nació con solo el correo, el vínculo espera a que abra el enlace de su correo (criterio 974).
 - [ ] El reclamo **no cambia el pedido**: no altera el destino (sigue siendo envío directo), ni el precio,
       ni las políticas ya aplicadas. Un pedido de invitado **ya enviado o entregado** también puede
       reclamarse (queda en el historial como pedido cerrado).
@@ -10614,13 +10613,13 @@ nuevo, no como parte de §R**:
   del cliente no transporta el monto**.
 - **Celular obligatorio en la cuenta** *(v2.1, D11)*: es dato requerido **al registrarse**, en el **alta de
   usuario por admin** y **antes de crear una solicitud de venta** (este último cubre las cuentas de **Google**
-  y las cuentas viejas con el campo vacío). El **teléfono viaja en la cola de buylist** del back-office (D12)
+  y las cuentas viejas con el campo vacío, y desde 2026-11-03 las creadas en el carrito con solo el correo). El **teléfono viaja en la cola de buylist** del back-office (D12)
   y **nunca** se expone en superficie pública (§J).
 - **Condición del raw — solo Near Mint (NM)**: el raw se opera **únicamente en NM** en todo el marketplace
   (se eliminan LP/MP/HP/DMG). NM se presenta como **"Casi nueva (Near Mint)"** con descripción del estándar
   propio; gradeadas y sellado no cambian.
 - **Autenticación**: registro/login por **email/contraseña** (actual) **o inicio de sesión con Google**
-  (OAuth) como alternativa; ambos disponibles.
+  (OAuth) como alternativa; ambos disponibles. En el carrito, además, alta con **solo el correo** (§A, criterios 969–975).
 - **Sync de catálogo**: se puebla desde la fuente de referencia (pokemontcg.io) trayendo por defecto **sets
   de 2024 en adelante**, con **backfill** de colecciones anteriores por **lotes automatizados** + importación
   puntual. Debe capturar **rarezas modernas** y el **año de lanzamiento del set** para los filtros de Compra.
@@ -10660,7 +10659,8 @@ nuevo, no como parte de §R**:
 > bloqueantes. **Lo que cambió respecto de lo que QA verificaba hasta ayer**: los precios se muestran **con
 > IVA dentro** (no *«sin IVA»*), la línea de IVA del checkout **informa** en vez de **sumar**, y la **comisión
 > de plataforma sigue fuera** del precio exhibido. Los sitios que §Q sustituye quedan **TACHADOS Y
-> REESCRITOS** —criterios **2** y **4**, los dos puntos de **§B** y **Restricciones técnicas**—, no borrados.
+> REESCRITOS** —criterios **2** y **4** y **Restricciones técnicas**—; los tachados de **§B** salieron el 2026-11-03
+> (texto en git).
 > **⚠ Dos criterios dependen de preguntas que siguen abiertas y se verifican con su supuesto declarado**: el
 > **190** (pregunta **57**, órdenes congeladas — la regla propuesta es la que se verifica) y el rótulo exacto
 > del importe de IVA del checkout (pregunta **60**). **Si el dueño responde distinto, se reverifican.**
@@ -10978,7 +10978,7 @@ nuevo, no como parte de §R**:
 
 **Autenticación**
 35. El usuario puede **registrarse/iniciar sesión con email/contraseña** o **con Google** (ambas opciones
-    disponibles).
+    disponibles). En el carrito, la cuenta se crea con **solo el correo** (criterios 969–975).
 
 **Catálogo — población y sincronización**
 36. El sistema **puebla el catálogo desde la fuente de referencia** trayendo por defecto **sets de 2024 en
@@ -11026,7 +11026,7 @@ nuevo, no como parte de §R**:
 48. Un invitado **solo puede elegir envío directo a domicilio nacional**: la opción **"guardar en bóveda"
     no completa la compra sin cuenta**, y al intentarla se muestra un **upsell** (mensaje de beneficio +
     "crear cuenta") **y nunca un error**. Desde ese upsell el invitado **crea cuenta sin salir del
-    checkout**, **conserva el carrito**, y tras registrarse el destino **bóveda queda disponible** y el
+    checkout** tecleando **solo su correo** (criterio 969), **conserva el carrito**, y tras registrarse el destino **bóveda queda disponible** y el
     flujo continúa; si descarta el upsell, sigue con envío directo.
 48b. El checkout de invitado muestra **el mismo desglose y los mismos avisos** que el de un usuario con
     cuenta: ~~subtotal sin IVA~~ **subtotal CON IVA DENTRO** *(**D54**, 16ª ronda, 2026-09-09)*,
@@ -11056,7 +11056,8 @@ nuevo, no como parte de §R**:
     frecuencia** (intentos repetidos se bloquean/atenúan), de modo que no funcione como oráculo para saber
     si un correo compró en la plataforma.
 54. **Reclamo post-compra**: si el invitado **crea cuenta con el mismo correo** de su pedido, ese pedido
-    **aparece en su historial** con su estado y seguimiento dentro de la sesión, **sin cambiar** destino,
+    **aparece en su historial** con su estado y seguimiento dentro de la sesión (cuenta nacida con solo el
+    correo: hasta que abre el enlace de su correo, criterio 974), **sin cambiar** destino,
     precio ni políticas del pedido. Funciona también con el pedido **ya enviado/entregado**. Al reclamar, la
     **dirección de envío de cada pedido PAGADO** se guarda en la **libreta de direcciones** de la cuenta,
     **nunca como predeterminada** (un pedido sin cobrar no aporta dirección); el **aviso** de reclamo solo lista
@@ -11809,7 +11810,8 @@ nuevo, no como parte de §R**:
 128. **Celular obligatorio en los tres puntos (D11)** *(⚠ **PRECISADO 2026-09-05**, a raíz de un hallazgo de
     QA: los tres incisos decían **dónde** se exige el celular pero no **a quién**, y esa ambigüedad se
     resolvió sola en la implementación. **Se precisa el sujeto; no se cambia el requisito.** Ver (f))*:
-    **(a)** el **registro público con email/contraseña** **no se completa** sin celular. **El alta con Google
+    **(a)** el **registro público con email/contraseña** **no se completa** sin celular (⚠ 2026-11-03: **salvo** la
+    cuenta creada en el carrito con solo el correo, que nace sin celular como la de Google — criterio 975). **El alta con Google
     NO se bloquea**: el **criterio 35** la ofrece como opción de primera clase y Google **no entrega
     teléfono**, así que esa cuenta **nace sin el dato a propósito** y la recoge el inciso **(c)**. *(Se dice
     explícito porque un «el registro no se completa» a secas **prohibiría el alta con Google**, que este
@@ -13062,7 +13064,8 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    `DESIGN_SYSTEM §7.12a`; **hoy no hay abogado en el proyecto**)*: se corre el test de copy contra las
    superficies de cliente y **no aparece** ninguna variante de *«trasladado»*, *«conforme a la ley»*, *«no es
    un recargo»*, *«por disposición fiscal»* ni cita de norma alguna — **tampoco en negativo**. El único rótulo
-   admitido es de **importe**: *«IVA 16 % incluido»*. **Se verifica por ausencia.**
+   admitido es de **importe**: *«IVA 16 % incluido»*, y **solo en la línea de IVA del checkout** (sujeto a P-CTA-5),
+   **nunca junto a un precio** (criterio 977, dueño 2026-11-03). **Se verifica por ausencia.**
 196. **El modo mock/desarrollo no contradice al sistema real** *(hoy el mock del frontend tiene el **16
    clavado**, `api.ts:765`, hecho 11)*: con el dial en un valor distinto del default, el modo mock **no muestra
    una cifra que el sistema real no produciría**. Basta con que **derive del mismo dial** o que **la pantalla
@@ -13547,7 +13550,7 @@ cerradas el mismo día: P-STF-4 por decisión del dueño, el resto con default a
    cambia en la pantalla es que el campo acepta correo **o** usuario, §U.3); la cuenta del dueño conserva
    su correo y recupera su contraseña por correo; los números del candado y del límite por IP no cambian; ningún
    rol gana ni pierde permisos por no tener correo; **nadie** tiene doble verificación; el alta de clientes sigue
-   igual.
+   igual. *(Fuera de §U, el alta en el carrito con solo el correo cambia el 2026-11-03: criterios 969–975.)*
 *(Criterios 271–274 **nuevos el 2026-10-04**, de `HECHOS.md` fila «Disputas: se quitan de la tienda…» — §V. 💰 El
 273 toca reembolsos: tres veredictos.)*
 271. **Ningún botón de disputa en la tienda; el pedido entregado dice «Escríbenos»** *(§V.1)*: QA recorre como
@@ -15085,10 +15088,14 @@ Todo texto nuevo de cara al cliente lo aprueba el dueño antes de publicar (`HEC
    (946) y los métodos de pago que el checkout acepta ese día (`HECHOS.md` 2026-11-01 «WhatsApp público, plazo de entrega
    y texto de Quiénes somos»). Ningún dato inventado. El texto narrativo es la versión B que eligió marketing por encargo
    del dueño (misma fila).
-945. **Señales de confianza a la vista [B2]**: una franja de una línea con esas señales se ve en la ficha y en el carrito, y
-   el pie de página enlaza a «Quiénes somos y contacto». La franja dice **«Pago seguro»** (antes «Pago con tarjeta») y el
-   pie de la página del Card Show da el correo **`contacto@tcghunt.mx`** (antes `hola@`) (D-E = A; `HECHOS.md` 2026-11-01
-   «"Pago seguro" y correo de contacto en el Card Show»).
+945. **Señales de confianza a la vista [B2]** *(reescrito 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios
+   aprobados…» (2))*: en la **ficha** de producto y en el **carrito**, en ES y EN, se leen
+   sin pulsar nada las cuatro señales de 944: (a) **cómo se paga** —«tarjeta u OXXO»—, nombrando **solo** los métodos
+   que el checkout acepta ese día (si OXXO no se ofrece al pagar, no aparece; P-CTA-6); (b) **tiempo de entrega «4 a 10
+   días hábiles»**; (c) **WhatsApp 55 6489 3921**, que abre WhatsApp a ese número; (d) **Instagram @tcghunt.mx**, que abre
+   el perfil. Los mismos datos que «Quiénes somos» (944), sin otra fuente. A 360 px no desborda (943) ni tapa «Añadir al
+   carrito» (940). El pie enlaza a «Quiénes somos y contacto», y el de la página del Card Show da **`contacto@tcghunt.mx`**
+   (`HECHOS.md` 2026-11-01). Textos exactos: ux-ui, aprobados por el dueño.
 946. **Instagram en los datos para Google [B2b]**: el JSON-LD `Organization` lleva `sameAs` con
    `https://www.instagram.com/tcghunt.mx/` (`@tcghunt.mx`, confirmado por el dueño 2026-10-31, MKT-2).
 947. **La bóveda en la ficha [T2]**: la ficha de una carta de menos de MX$600 muestra la línea de bóveda **B** (D-C = B):
@@ -15124,6 +15131,37 @@ Todo texto nuevo de cara al cliente lo aprueba el dueño antes de publicar (`HEC
    portada con el banner abierto, entra al catálogo, abre una ficha, ve la franja de confianza y la línea de bóveda, pulsa
    «Añadir al carrito», llega al carrito sin desborde y con «ventas finales» una vez, y abre «Quiénes somos y contacto» desde el pie.
    Lo recorre tester-e2e en el navegador contra el stack con datos sembrados.
+
+#### Cuenta con solo el correo y precios sin rótulo de IVA (2026-11-03) — criterios 969–977
+*(Fuente: `HECHOS.md` fila «Checkout y ficha: tres cambios aprobados (diagnóstico de marketing 2026-11-03)», «si a tus
+cambios». El cambio (2) reescribió el 945. Lo marcado SUPUESTO depende de P-CTA-1…6. Más alto previo: 968.)*
+969. **Cuenta en el carrito con solo el correo**: en el carrito/checkout, «Crear cuenta» (y el upsell de bóveda, 48) muestra
+   **un solo campo, correo**, más la leyenda del 504; ⛔ no pide nombre, contraseña ni celular. Con un correo nuevo válido,
+   al pulsar el botón la cuenta existe, el carrito y lo capturado siguen intactos y la bóveda queda disponible como
+   destino (SUPUESTO: con sesión iniciada en ese navegador, P-CTA-2). Correo inválido ⇒ mismo rechazo que el 47.
+970. ⛔ **Un correo ya registrado no abre esa cuenta**: teclear en el 969 el correo de una cuenta existente **nunca** inicia
+   sesión en ella ni muestra sus datos, pedidos o bóveda; el carrito no se pierde. Qué mensaje ve: P-CTA-3.
+971. **Contraseña y nombre después, desde el correo** (SUPUESTO, P-CTA-1): tras el 969 llega un correo con un enlace que
+   abre una pantalla para poner **nombre y contraseña**; al guardar, sale y vuelve a entrar con correo + esa contraseña.
+   El enlace sirve **una vez** y caduca; usado o caducado, no hace nada y ofrece mandar otro.
+972. **…o desde «Mi cuenta»**: con sesión, «Mi cuenta» muestra «Ponle contraseña a tu cuenta» y deja poner nombre y
+   contraseña **sin pedir una actual**; ya puesta, cambiarla pide la actual como hoy.
+973. **La segunda vez**: con contraseña puesta, entra como cualquier cliente. Sin contraseña, «Olvidé mi contraseña» con
+   su correo le manda el enlace del 971 (SUPUESTO, P-CTA-4). Correo + cualquier contraseña sobre una cuenta sin
+   contraseña ⇒ la misma respuesta que contraseña incorrecta (sin revelar que la cuenta existe).
+974. ⛔ **Pedidos de invitado anteriores esperan la prueba del correo** (lado seguro, P-CTA-1): una cuenta nacida en el 969
+   no ve pedidos de invitado de ese correo hasta que abre el enlace del 971; entonces aplica el 54. Lo que compró con la
+   cuenta en esa misma sesión sí aparece en su historial y su bóveda.
+975. **Celular antes de vender**: la cuenta del 969 no tiene celular; al crear una solicitud de venta se le pide, como a
+   una de Google (128 (c)). Comprar no lo pide.
+976. **Ciclo entero** *(O-4)*: en un celular de 390 px, contra el stack con datos sembrados, un visitante agrega una carta,
+   crea cuenta con solo su correo, elige bóveda, paga; abre el correo, pone nombre y contraseña; sale; vuelve a entrar con
+   correo + contraseña y ve la carta en «Mi bóveda». Lo recorre tester-e2e en el navegador.
+977. **Sin «IVA 16 % incluido» junto a los precios** *(cambio (3); §B)*: en catálogo, ficha (precio grande y filas de
+   variante), ficha de sellado, accesorios, Meta Battle Decks y carrito, en ES y EN, no aparece junto a ningún precio
+   «IVA 16 % incluido», «IVA incluido», «con IVA incluido» ni «VAT included». **Por ausencia**: las cifras, el total
+   cobrado y el IVA guardado por pedido (192) no cambian. La línea del checkout y la nota «incluye IVA» del valor de
+   mercado (§MIV, 863, 956) siguen como hoy mientras P-CTA-5 no se responda.
 *(Criterios 512–531 y 958–968 — §IDS, español y cartas con sello (512–531 del 2026-10-06, actualizados el
 2026-11-01; 958–968 nuevos el 2026-11-01, siguiente libre tras 957 medido con `grep` en este `PROJECT.md`; **NO
 MEDIDO** contra otras ramas). **No** bloquean el modo real de Stripe (`HECHOS.md` fila 2026-10-06 «CAMBIO de alcance:
@@ -17231,6 +17269,27 @@ promesa:**
 > `docs/DECISIONES.md` con la respuesta literal.
 
 *Conversión y SEO (criterios 940–957): sin preguntas abiertas.*
+
+**Cuenta con solo el correo, señales y rótulo de IVA (criterios 945, 969–977)** — ninguna bloquea al arquitecto; si no
+contestas, se construye con la recomendación:
+- **P-CTA-1** ¿Cómo pone el cliente su contraseña? *Recomendación: un correo «Termina tu cuenta» con enlace de un solo
+  uso para poner nombre y contraseña, y lo mismo desde «Mi cuenta» (971, 972). Abrir ese enlace prueba que el correo es
+  suyo; hasta entonces no se le pegan pedidos de invitado viejos (974).*
+- **P-CTA-2** ¿Queda con la sesión abierta al crearla, sin confirmar el correo? *Recomendación: sí, en ese navegador,
+  para que pague y elija bóveda sin salir del carrito; si teclea mal su correo, lo corrige desde «Mi cuenta» mientras
+  siga dentro.*
+- **P-CTA-3** Si el correo ya tiene cuenta, ¿qué ve? *Recomendación: «Ese correo ya tiene cuenta: entra o pide el
+  enlace»; nunca entra sin contraseña ni enlace (970). Alternativa (no revelar que existe): mismo mensaje para todos y
+  sigue como invitado, a costa de que la bóveda no quede disponible en ese momento.*
+- **P-CTA-4** La segunda vez, sin contraseña, ¿basta «Olvidé mi contraseña» o quieres «Entrar con un enlace a mi
+  correo» sin contraseña? *Recomendación: «Olvidé mi contraseña» (ya existe; un acceso solo por enlace es otro sistema
+  que seguridad tendría que revisar).*
+- **P-CTA-5** Al quitar «IVA 16 % incluido» de los precios: (a) ¿la línea del checkout «IVA 16 % incluido: MX$…» también
+  se va?, (b) ¿la nota «incluye IVA» del valor de mercado (la pediste el 2026-10-10) se va? *Recomendación: (a) se queda,
+  es el desglose que piden para facturar; (b) se queda, sin ella el mercado parece más barato que nuestro precio.*
+- **P-CTA-6** ¿El checkout acepta OXXO hoy? NO MEDIDO por product-owner (el código solo nombra OXXO en un reporte de
+  ventas; Stripe lo activa desde su panel). *Recomendación: lo mide backend; si no está activo, la franja dice solo
+  «tarjeta» hasta que lo actives (945).*
 
 **Español y versiones de liga (§IDS)** — dos de dinero, para el dueño (las de presentación ya las decidió marketing):
 - **P-ARQ-IDS-1 💰** ¿Tienes cartas **gradeadas** (PSA) o **producto sellado** en español para vender? *Recomendación
