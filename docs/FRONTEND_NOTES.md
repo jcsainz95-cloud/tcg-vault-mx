@@ -53,6 +53,10 @@ su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cart
   `initialDataUpdatedAt` (freshness), precio grande con 2+ versiones (pricing-curve), teja con `version.key` en vez de
   `versionOptionKey` (C2). ⚠ Con 2+ versiones la ficha a 1280 px no pinta ningún rótulo de IVA (solo la barra fija < lg); con
   una versión sí: inconsistencia que resuelve el criterio 977 (PO/ux-ui), no esta prueba.
+- **Deuda del techlead sobre `f2cd0e31` (2026-11-03):** «inglés sin liga» tiene UNA definición, `isDefaultVersion`
+  (firma estructural para que la use el arnés E2E); tab-stop de `VersionPills`/`PillToggleGroup` = el índice que usan las
+  flechas (con valor apagado o que no casa, la primera habilitada). Fichas y mediciones: `TECH_DEBT.md` §IDS (TL-IDS-5/7)
+  y TL-MKT2-5 (la ficha entra en `mobile-no-overflow.spec.ts`).
 - **Pendiente:** (a) **liga contra el stack:** backend ya la siembra (`E2E_IDS` en `backend/prisma/e2e-fixtures.ts`,
   `9500e70e…a21a425a`: producto `stamped`, cuatro piezas y candidata); qué cubren hoy `ids-real` e «IDS L-8» con ella,
   NO MEDIDO en este pase. (b) **ux-ui:** texto del dial (provisional), D-IDS-6 y la leyenda
