@@ -10,6 +10,7 @@
  */
 import { randomBytes } from 'crypto';
 import { E2EHarness } from './helpers/e2e-app';
+import { SignupConflictTelemetry } from '../../src/modules/auth/signup-telemetry';
 
 const RUN = `${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
 
@@ -67,5 +68,43 @@ describe('CTA-B4 — throttler `signup` compartido entre register y register/ema
     }
     expect(statuses).toEqual([409, 409, 400, 400]);
     expect((await emailOnly(ip)).status).toBe(429);
+  });
+
+  /**
+   * 🔒 CTA-B17 (v1.117.2, PT-CTA-3, D-CTA-13): `PATCH /users/me/email` gasta el MISMO cubo `signup` que el alta (y `signup-day`,
+   * cuya mitad de 24 h con reloj falso está en `test/cta.account-setup.spec.ts`), y cada `409` pasa por la telemetría del alta con
+   * la IP y sale sin `user`, tokens ni correo. Mutaciones: cubo propio del `PATCH`; `409` sin telemetría.
+   */
+  it('CTA-B17 — misma IP: 3 register + 2 email-only ⇒ el PATCH siguiente 429 RATE_LIMITED', async () => {
+    const session = await h.api('POST', '/auth/register/email-only', { json: { email: email() }, headers: { 'x-forwarded-for': ipOf(5000 + (Date.now() % 200)) } });
+    expect(session.status).toBe(201);
+    const ip = ipOf(5300 + (Date.now() % 200));
+    const statuses: number[] = [];
+    for (let i = 0; i < 3; i += 1) statuses.push((await register(ip)).status);
+    for (let i = 0; i < 2; i += 1) statuses.push((await emailOnly(ip)).status);
+    expect(statuses).toEqual([201, 201, 201, 201, 201]);
+    const r = await h.api('PATCH', '/users/me/email', { token: session.body.accessToken, json: { email: email() }, headers: { 'x-forwarded-for': ip } });
+    expect([r.status, r.body?.error?.code]).toEqual([429, 'RATE_LIMITED']);
+  });
+
+  it('CTA-B17 — cada 409 del PATCH pasa por la telemetría con la IP y sale sin user, tokens ni correo', async () => {
+    const record = jest.spyOn(SignupConflictTelemetry.prototype, 'record');
+    try {
+      const taken = email();
+      expect((await h.api('POST', '/auth/register/email-only', { json: { email: taken }, headers: { 'x-forwarded-for': ipOf(5600 + (Date.now() % 200)) } })).status).toBe(201);
+      const s = await h.api('POST', '/auth/register/email-only', { json: { email: email() }, headers: { 'x-forwarded-for': ipOf(5800 + (Date.now() % 200)) } });
+      expect(s.status).toBe(201);
+      const ip = ipOf(6000 + (Date.now() % 200));
+      record.mockClear();
+      for (let i = 0; i < 2; i += 1) {
+        const r = await h.api('PATCH', '/users/me/email', { token: s.body.accessToken, json: { email: taken }, headers: { 'x-forwarded-for': ip } });
+        expect([r.status, r.body?.error?.code]).toEqual([409, 'EMAIL_TAKEN']);
+        expect(Object.keys(r.body)).toEqual(['error']);
+        expect(r.text).not.toMatch(/accessToken|refreshToken|"user"|@example\.com/);
+      }
+      expect(record.mock.calls.map((c) => c[0])).toEqual([ip, ip]);
+    } finally {
+      record.mockRestore();
+    }
   });
 });

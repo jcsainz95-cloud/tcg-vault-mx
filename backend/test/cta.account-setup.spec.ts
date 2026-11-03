@@ -15,6 +15,7 @@ import { AUTH_TOKEN_TTL_MS } from '../src/modules/auth/auth-token.service';
 import { accountSetupTemplate } from '../src/modules/mail/mail.templates';
 import { BusinessException } from '../src/common/business.exception';
 import { SignupConflictTelemetry } from '../src/modules/auth/signup-telemetry';
+import { MeEmailController } from '../src/modules/users/me-email.controller';
 
 /**
  * 🔒 v1.117⟨cuenta-correo⟩ (API_CONTRACT §CTA) — unidades de CTA: `setupPending` (CTA.2), el guard con modo (CTA.5),
@@ -100,16 +101,19 @@ describe('CTA-B4 (reloj falso) — throttlers `signup` (compartido, 5/min) y `si
     await g.onModuleInit();
     return { g, storage };
   }
-  const ctxFor = (handler: keyof AuthController, ip: string): ExecutionContext => {
+  /** `handler` de `AuthController`, o `'patchEmail'` = `PATCH /users/me/email` (`MeEmailController.correctEmail`). */
+  type Handler = keyof AuthController | 'patchEmail';
+  const ctxFor = (handler: Handler, ip: string): ExecutionContext => {
     const res = { header: jest.fn(), setHeader: jest.fn() };
+    const patch = handler === 'patchEmail';
     return {
-      getHandler: () => AuthController.prototype[handler],
-      getClass: () => AuthController,
+      getHandler: () => (patch ? MeEmailController.prototype.correctEmail : AuthController.prototype[handler as keyof AuthController]),
+      getClass: () => (patch ? MeEmailController : AuthController),
       switchToHttp: () => ({ getRequest: () => ({ ip, headers: {} }), getResponse: () => res }),
       getType: () => 'http',
     } as unknown as ExecutionContext;
   };
-  const hit = async (g: AppThrottlerGuard, handler: keyof AuthController, ip: string) => {
+  const hit = async (g: AppThrottlerGuard, handler: Handler, ip: string) => {
     try {
       await g.canActivate(ctxFor(handler, ip));
       return 'ok';
@@ -151,6 +155,30 @@ describe('CTA-B4 (reloj falso) — throttlers `signup` (compartido, 5/min) y `si
     expect(await hit(g, 'register', '3.3.3.3')).toBe('ok');
     jest.advanceTimersByTime(24 * 60 * 60 * 1000);
     expect(await hit(g, 'registerEmailOnly', '3.3.3.3')).toBe('ok');
+  });
+
+  // 🔒 CTA-B17 (v1.117.2, PT-CTA-3, D-CTA-13): el PATCH del correo gasta los MISMOS cubos que el alta.
+  it('CTA-B17 — misma IP: 3 register + 2 email-only ⇒ el PATCH siguiente 429; y un PATCH gasta el cubo de un alta', async () => {
+    const { g } = await makeGuard();
+    const seqs: string[] = [];
+    for (let i = 0; i < 3; i += 1) seqs.push(await hit(g, 'register', '5.5.5.5'));
+    for (let i = 0; i < 2; i += 1) seqs.push(await hit(g, 'registerEmailOnly', '5.5.5.5'));
+    expect(seqs).toEqual(['ok', 'ok', 'ok', 'ok', 'ok']);
+    expect(await hit(g, 'patchEmail', '5.5.5.5')).toBe('429');
+    for (let i = 0; i < 5; i += 1) expect(await hit(g, 'patchEmail', '5.5.5.6')).toBe('ok');
+    expect(await hit(g, 'registerEmailOnly', '5.5.5.6')).toBe('429');
+  });
+
+  it('CTA-B17 — 30 entre email-only y PATCH en 24 h (uno cada 61 s) pasan; el 31.º (cualquiera de los dos) 429', async () => {
+    const { g } = await makeGuard();
+    const outs: string[] = [];
+    for (let i = 0; i < 30; i += 1) {
+      outs.push(await hit(g, i % 2 === 0 ? 'registerEmailOnly' : 'patchEmail', '6.6.6.6'));
+      jest.advanceTimersByTime(61_000);
+    }
+    expect(outs.every((x) => x === 'ok')).toBe(true);
+    expect(await hit(g, 'patchEmail', '6.6.6.6')).toBe('429');
+    expect(await hit(g, 'registerEmailOnly', '6.6.6.6')).toBe('429');
   });
 
   it('otras rutas (login) no gastan el cubo signup', async () => {
