@@ -2,6 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import type { FinishLabel, VersionDTO } from '@/types/contract';
+import { isDefaultVersion } from '@/lib/version';
 
 /*
  * Vive aparte de `VersionChip.tsx` a propósito: la teja (portada) importa la insignia, y lo que esa insignia importa
@@ -18,7 +19,7 @@ export function useVersionText() {
   return {
     /** Línea larga muted de carrito/pedido: `<idioma> · <tipo largo>`; español sin liga = «Español». */
     line(version: Pick<VersionDTO, 'language' | 'stamp'> | null | undefined): string | null {
-      if (!version || (version.language === 'en' && !version.stamp)) return null;
+      if (!version || isDefaultVersion(version)) return null;
       const lang = t(`language.${version.language}`);
       return version.stamp ? `${lang} · ${td(`long.${version.stamp.type}`)}` : lang;
     },

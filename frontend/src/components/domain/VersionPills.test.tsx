@@ -192,6 +192,42 @@ describe('PillToggleGroup · captura admin (IDS-UX.2)', () => {
     expect(v).toBe('none');
     expect(screen.getByRole('radio', { name: 'Sin liga' }).className).toContain('min-h-11');
   });
+
+  /*
+   * TL-IDS-7 (techlead sobre `f2cd0e31`): con `value` en una opción APAGADA (o que no existe) ningún botón llevaba
+   * `tabIndex=0` y el grupo no se alcanzaba con teclado. El tab-stop es la opción vigente si está habilitada; si no,
+   * la primera habilitada (la misma que usa `useRovingKeys` como punto de partida de las flechas).
+   */
+  const OPTS = [
+    { value: 'staff', label: 'Staff', disabledReason: 'Sin mercado de esta versión' },
+    { value: 'none', label: 'Sin liga' },
+    { value: 'league', label: 'Liga' },
+  ] as const;
+  const tabStops = () => screen.getAllByRole('radio').filter((r) => r.tabIndex === 0);
+
+  it.each([
+    ['apagada', 'staff'],
+    ['inexistente', 'nope'],
+  ])('TL-IDS-7: `value` %s ⇒ un tab-stop, en la primera habilitada', (_c, value) => {
+    renderWithIntl(<PillToggleGroup label="Versión" value={value} onChange={() => {}} options={OPTS} />);
+    expect(tabStops()).toHaveLength(1);
+    expect(tabStops()[0]).toHaveAccessibleName('Sin liga');
+  });
+
+  it('TL-IDS-7: `value` habilitado ⇒ el tab-stop es ese', () => {
+    renderWithIntl(<PillToggleGroup label="Versión" value="league" onChange={() => {}} options={OPTS} />);
+    expect(tabStops()).toHaveLength(1);
+    expect(tabStops()[0]).toHaveAccessibleName('Liga');
+  });
+});
+
+describe('VersionPills · tab-stop con `selectedKey` que no casa (misma clase que TL-IDS-7)', () => {
+  it('`selectedKey` que no está en `versions` ⇒ un tab-stop, en la primera burbuja', () => {
+    renderWithIntl(<VersionPills versions={STD} selectedKey="es.999.holofoil" onSelect={() => {}} />);
+    const stops = screen.getAllByRole('radio').filter((r) => r.tabIndex === 0);
+    expect(stops).toHaveLength(1);
+    expect(stops[0].getAttribute('data-option-key')).toBe('en');
+  });
 });
 
 // ---- (13) y (14): candados estáticos ----

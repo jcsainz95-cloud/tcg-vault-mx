@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { cn } from '@/lib/cn';
 import { formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
-import type { CardLanguage, VersionOptionDTO } from '@/types/contract';
+import { CARD_LANGUAGES, type CardLanguage, type VersionOptionDTO } from '@/types/contract';
 import { isExtendedForm, versionRows, type VersionRow } from '@/lib/version';
 import { StampChip } from './VersionChip';
 
@@ -58,8 +58,9 @@ export function VersionPills({ versions, selectedKey, onSelect, className }: Ver
   const labelId = useId();
   const rows = versionRows(versions);
   const extended = isExtendedForm(rows);
-  // Orden de lectura de las burbujas PRESENTES (fila, luego columna en → es): el del teclado.
-  const flat: VersionOptionDTO[] = rows.flatMap((r) => (['en', 'es'] as const).flatMap((l) => (r.cells[l] ? [r.cells[l]!] : [])));
+  // Orden de lectura de las burbujas PRESENTES (fila, luego columna en el orden de `CARD_LANGUAGES`): el del teclado.
+  const flat: VersionOptionDTO[] = rows.flatMap((r) => CARD_LANGUAGES.flatMap((l) => (r.cells[l] ? [r.cells[l]!] : [])));
+  // El tab-stop: la elegida; si `selectedKey` falta o no casa con ninguna, la primera (TL-IDS-7).
   const currentIndex = Math.max(0, flat.findIndex((v) => v.optionKey === selectedKey));
   const { refs, onKeyDown } = useRovingKeys(flat.length, currentIndex, (i) => onSelect(flat[i]));
 
@@ -93,7 +94,7 @@ export function VersionPills({ versions, selectedKey, onSelect, className }: Ver
         aria-checked={checked}
         aria-label={[name, chip, price].filter(Boolean).join(', ')}
         aria-describedby={rowLabelId}
-        tabIndex={checked || (selectedKey == null && index === 0) ? 0 : -1}
+        tabIndex={index === currentIndex ? 0 : -1}
         data-option-key={opt.optionKey}
         data-testid="version-pill"
         onClick={() => onSelect(opt)}
@@ -124,13 +125,12 @@ export function VersionPills({ versions, selectedKey, onSelect, className }: Ver
                     {rowLabel(row)}
                   </p>
                   <div className="grid grid-cols-2 gap-2">
-                    {pill(row, 'en', id)}
-                    {pill(row, 'es', id)}
+                    {CARD_LANGUAGES.map((l) => pill(row, l, id))}
                   </div>
                 </div>
               );
             })
-          : rows.flatMap((row) => [pill(row, 'en', undefined), pill(row, 'es', undefined)].map((el, j) => (
+          : rows.flatMap((row) => CARD_LANGUAGES.map((l) => pill(row, l, undefined)).map((el, j) => (
               <div key={`${row.id}-${j}`} className="contents">
                 {el}
               </div>
@@ -162,6 +162,7 @@ export function PillToggleGroup<V extends string>({
 }) {
   const labelId = useId();
   const enabled = options.filter((o) => !o.disabledReason);
+  // El tab-stop: la vigente si está habilitada; si está apagada o no existe, la primera habilitada (TL-IDS-7).
   const current = Math.max(0, enabled.findIndex((o) => o.value === value));
   const { refs, onKeyDown } = useRovingKeys(enabled.length, current, (i) => onChange(enabled[i].value));
   return (
@@ -186,7 +187,7 @@ export function PillToggleGroup<V extends string>({
                 aria-checked={checked}
                 aria-disabled={disabled || undefined}
                 aria-describedby={disabled ? reasonId : undefined}
-                tabIndex={!disabled && checked ? 0 : -1}
+                tabIndex={ei >= 0 && ei === current ? 0 : -1}
                 data-value={o.value}
                 onClick={() => {
                   if (!disabled) onChange(o.value);
