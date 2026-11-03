@@ -1,0 +1,55 @@
+# =============================================================================
+# medir-ids-produccion.yml — Q1 de D-IDS-1 en la base de producción, en SOLO LECTURA, con un botón   · devops
+# =============================================================================
+# Por qué existe (2026-11-03): Q1 de D-IDS-1 (ARCHITECTURE §15, API_CONTRACT §IDS.9) es condición bloqueante de
+# la solicitud de fusión de §IDS: ¿hay piezas de plataforma vendibles con producto `promo`/`deck_exclusive`? Si
+# da > 0, esas piezas se despublican al desplegar y decide el dueño con la lista Q1b. Solo la BD de producción lo
+# sabe y el dueño no usa terminal: esto es la misma consulta (`scripts/ids/ids-d1-q1.sql`) detrás de un botón.
+#
+# Candados de diseño (los vigila scripts/check-ids-ro-workflow.sh en CI, con su canario):
+#   · SOLO `workflow_dispatch` y SIN entradas: nadie le pasa texto que acabe en SQL.
+#   · Solo desde `production` y en el entorno `medicion-ro`, con REVISOR OBLIGATORIO (el dueño aprueba cada
+#     corrida) y regla de rama: una rama `claude/*` no puede leer el secreto.
+#   · El secreto `IDS_RO_DATABASE_URL` entra SOLO en el paso «Medir» (no hay `npm ci`: ninguna dependencia lo
+#     ve) y el script lo enmascara por partes antes de cualquier salida.
+#   · Transacción `READ ONLY` explícita + PRUEBA de que una escritura falla (25006) antes de leer + ROLLBACK.
+#   · Al resumen solo van cifras: Q1 y, si promo/deck_exclusive > 0, la lista Q1b (sin datos personales); y Q1c
+#     (§IDS.9 v1.116.4: piezas de CLIENTES en bóveda con promo/deck_exclusive, solo agregados; candado [Q]).
+#   · Q1d (§IDS.9 v1.116.5, M-95c): piezas con `cardProductId` inexistente en CardProduct, solo conteos por clase de
+#     dueño y estado; la lista por pieza solo en la consola de Railway (`ids-d1-produccion.sql`). Candado [Q].
+#   · El resumen de un repo público es PÚBLICO: Q1c-detalle da solo conteos y Σ (nunca mín/máx) de Q y de la referencia,
+#     Σ solo con ≥ 3 clientes distintos y ≥ 3 piezas detrás; si no, «<3, oculto» (PT-IDS-6, [K]). Fila entera: consola de Railway.
+#   · TLS obligatorio: sslmode require o más fuerte; un modo más débil en la URL ⇒ rojo sin conectar (PT-IDS-7, candado [S]).
+#   · Acciones fijadas por sha de 40 caracteres (TL-CHK-8).
+#
+# Runbook (pasos del dueño, rol recomendado, rollback): docs/DEVOPS_NOTES.md §108.5.
+# =============================================================================
+
+name: Medir D-IDS-1 en producción (solo lectura)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: medir-ids-produccion
+  cancel-in-progress: false
+
+jobs:
+  q1:
+    name: D-IDS-1 · Q1 (solo lectura)
+    if: github.ref == 'refs/heads/production'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: medicion-ro
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5 el 2026-11-03)
+        with:
+          persist-credentials: false
+
+      - name: Medir
+        env:
+          IDS_RO_DATABASE_URL: ${{ secrets.IDS_RO_DATABASE_URL }}
+        run: ./scripts/ids/medir-q1-produccion.sh

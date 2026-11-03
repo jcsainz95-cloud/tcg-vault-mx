@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+#
+# check-ids-ro-workflow-canary.sh — ¿el candado G-IDS-RO se pone ROJO cuando el botón de solo lectura deja de serlo? · devops
+# =============================================================================
+# Copia workflow, script y los dos .sql a un directorio temporal, exige VERDE en el prístino y en casos de solo
+# comentario, y planta una por una las formas de convertir el botón en un peligro. Cada mutación tiene que dar ROJO
+# **y** nombrar su bloque. Determinista (sin red ni reloj): una corrida por caso basta. DEVOPS_NOTES §108.5.
+# =============================================================================
+set -uo pipefail
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GATE="$ROOT_DIR/scripts/check-ids-ro-workflow.sh"
+WF_REL=".github/workflows/medir-ids-produccion.yml"
+SH_REL="scripts/ids/medir-q1-produccion.sh"
+SB_REL="scripts/ids/ids-q1-boton.sql"
+SQ_REL="scripts/ids/ids-d1-q1.sql"
+[ -f "$GATE" ] || { echo "✗ no existe el candado: eso ya es el rojo"; exit 1; }
+
+FALLOS=0; PASADAS=0
+ok()  { PASADAS=$((PASADAS+1)); printf '  ✔ %s\n' "$*"; }
+bad() { FALLOS=$((FALLOS+1)); printf '  ✗ %s\n' "$*"; }
+BASE="$(mktemp -d -t ids-ro-canario-XXXXXX)"
+trap 'rm -rf "$BASE"' EXIT
+
+caso() { # caso ROJO|VERDE <nombre> <bloque|-> <mutador>
+  local esperado="$1" nombre="$2" bloque="$3" mutador="$4" d="$BASE/caso" salida rc f
+  rm -rf "$d"; mkdir -p "$d/.github/workflows" "$d/scripts/ids"
+  for f in "$WF_REL" "$SH_REL" "$SB_REL" "$SQ_REL"; do cp "$ROOT_DIR/$f" "$d/$f"; done
+  "$mutador" "$d"
+  salida="$(bash "$GATE" --root "$d" 2>&1)"; rc=$?
+  if [ "$esperado" = VERDE ]; then
+    [ "$rc" -eq 0 ] && ok "VERDE  $nombre" || { bad "debía ser VERDE (rc=$rc): $nombre"; printf '%s\n' "$salida" | sed 's/^/      /'; }
+  elif [ "$rc" -ne 0 ] && printf '%s\n' "$salida" | grep -q -- "✗ \[$bloque\]"; then
+    ok "ROJO   $nombre  [$bloque]"
+  else
+    bad "debía ser ROJO en [$bloque] (rc=$rc): $nombre"; printf '%s\n' "$salida" | sed 's/^/      /'
+  fi
+}
+
+W()  { printf '%s/%s' "$1" "$WF_REL"; }
+S()  { printf '%s/%s' "$1" "$SH_REL"; }
+SB() { printf '%s/%s' "$1" "$SB_REL"; }
+SQ() { printf '%s/%s' "$1" "$SQ_REL"; }
+py() { python3 -I -c "import sys;p=sys.argv[1];s=open(p).read();a,b=sys.argv[2],sys.argv[3];assert a in s,('no está',a);open(p,'w').write(s.replace(a,b,1))" "$@"; }
+
+nada()             { :; }
+comentario()       { py "$(W "$1")" "  workflow_dispatch:" "  # push: (no: ver cabecera)
+  workflow_dispatch:"; }
+comentario_sql()   { py "$(SB "$1")" "ROLLBACK;" "-- aquí NO va COMMIT; ni INSERT
+ROLLBACK;"; }
+con_push()         { py "$(W "$1")" "  workflow_dispatch:" "  push:
+    branches: [production]
+  workflow_dispatch:"; }
+con_inputs()       { py "$(W "$1")" "  workflow_dispatch:
+" "  workflow_dispatch:
+    inputs:
+      consulta:
+        type: string
+"; }
+env_de_job()       { py "$(W "$1")" "    environment: medicion-ro
+" "    environment: medicion-ro
+    env:
+      X: \${{ secrets.IDS_RO_DATABASE_URL }}
+"; py "$(W "$1")" "          IDS_RO_DATABASE_URL: \${{ secrets.IDS_RO_DATABASE_URL }}
+" ""; }
+otro_secreto()     { py "$(W "$1")" "          IDS_RO_DATABASE_URL: \${{ secrets.IDS_RO_DATABASE_URL }}
+" "          IDS_RO_DATABASE_URL: \${{ secrets.IDS_RO_DATABASE_URL }}
+          RAILWAY_TOKEN: \${{ secrets.RAILWAY_TOKEN }}
+"; }
+run_interpola()    { py "$(W "$1")" 'run: ./scripts/ids/medir-q1-produccion.sh' 'run: IDS_RO_DATABASE_URL="${{ secrets.IDS_RO_DATABASE_URL }}" ./scripts/ids/medir-q1-produccion.sh'; }
+con_npm()          { py "$(W "$1")" "      - name: Medir" "      - run: npm ci
+      - name: Medir"; }
+sin_rama()         { py "$(W "$1")" "    if: github.ref == 'refs/heads/production'
+" ""; }
+otro_entorno()     { py "$(W "$1")" "    environment: medicion-ro" "    environment: catalogo-cp"; }
+escribe()          { py "$(W "$1")" "  contents: read" "  contents: write"; }
+otro_script()      { py "$(W "$1")" 'run: ./scripts/ids/medir-q1-produccion.sh' 'run: psql -f scripts/ids/ids-d1-produccion.sql'; }
+por_etiqueta()     { py "$(W "$1")" "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09" "actions/checkout@v5"; }
+url_argumento()    { py "$(S "$1")" 'URL="${IDS_RO_DATABASE_URL:-}"' 'URL="${1:-${IDS_RO_DATABASE_URL:-}}"'; }
+con_set_x()        { py "$(S "$1")" 'set -uo pipefail' 'set -xuo pipefail'; }
+sin_mascara()      { py "$(S "$1")" 'print("::add-mask::" + raw)' 'pass'; py "$(S "$1")" 'print("::add-mask::" + p)' 'pass'; py "$(S "$1")" 'print("::add-mask::" + urllib.parse.unquote(p))' 'pass'; }
+imprime_url()      { py "$(S "$1")" 'eval "${pgenv#ERR=}"' 'echo "conectando a $URL"
+eval "${pgenv#ERR=}"'; }
+url_en_psql()      { py "$(S "$1")" 'psql -X -q' 'psql "$URL" -X -q'; }
+sin_on_error()     { py "$(S "$1")" 'psql -X -q -v ON_ERROR_STOP=1 --csv' 'psql -X -q --csv'; }
+vuelca_stderr()    { py "$(S "$1")" 'unset PGPASSWORD' 'unset PGPASSWORD
+cat "$errf" >&2'; }
+sin_aviso_25006()  { py "$(S "$1")" "if ! grep -q 'IDS-RO: escritura rechazada (SQLSTATE 25006)' \"\$errf\"; then" "if false; then"; }
+sin_read_only()    { py "$(SB "$1")" "BEGIN TRANSACTION READ ONLY;" "BEGIN;"; }
+read_write()       { py "$(SB "$1")" "BEGIN TRANSACTION READ ONLY;" "BEGIN TRANSACTION READ ONLY;
+SET TRANSACTION READ WRITE;"; }
+commit_final()     { py "$(SB "$1")" "ROLLBACK;" "COMMIT;"; }
+commit_en_q1()     { printf 'COMMIT;\n' >> "$(SQ "$1")"; }
+insert_en_q1()     { printf 'INSERT INTO "AuditLog"(id) VALUES (1);\n' >> "$(SQ "$1")"; }
+update_real()      { py "$(SB "$1")" 'SET status = status WHERE false;' 'SET status = status;'; }
+sin_handler()      { py "$(SB "$1")" "EXCEPTION WHEN read_only_sql_transaction THEN" "EXCEPTION WHEN others THEN"; }
+prueba_despues()   { py "$(SB "$1")" "\\echo '== ROL =='" "\\ir ids-d1-q1.sql
+\\echo '== ROL =='"; py "$(SB "$1")" "\\ir ids-d1-q1.sql
+
+ROLLBACK;" "
+ROLLBACK;"; py "$(SB "$1")" "SET LOCAL lock_timeout = '5s';" "SET LOCAL lock_timeout = '5s';
+SELECT 1;"; }
+shell_en_sql()     { printf '\\! env\n' >> "$(SQ "$1")"; }
+copy_a_fichero()   { printf '\\copy (SELECT 1) TO /tmp/x\n' >> "$(SQ "$1")"; }
+otro_include()     { py "$(SB "$1")" "\\ir ids-d1-q1.sql" "\\ir ids-d1-q1.sql
+\\ir ../geo/otro.sql"; }
+q1c_sin_cliente()  { py "$(SQ "$1")" "WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "WHERE i.status <> 'withdrawn'"; }
+q1c_plataforma()   { py "$(SQ "$1")" "WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "WHERE i.\"ownerType\" = 'platform' AND i.status <> 'withdrawn'"; }
+q1c_sin_estado()   { py "$(SQ "$1")" "WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "WHERE i.\"ownerType\" = 'customer'"; }
+q1c_id_cliente()   { py "$(SQ "$1")" 'SELECT cp.kind, count(*) AS piezas,' 'SELECT i."ownerUserId", cp.kind, count(*) AS piezas,'; }
+q1cd_sin_cliente() { py "$(SQ "$1")" "  WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "  WHERE i.status <> 'withdrawn'"; }
+q1cd_id_cliente()  { py "$(SQ "$1")" 'SELECT l.kind, l."tcgplayerProductId",' 'SELECT l."ownerUserId", l.kind, l."tcgplayerProductId",'; }
+q1cd_id_pieza()    { py "$(SQ "$1")" 'SELECT l.kind, l."tcgplayerProductId",' 'SELECT l.id, l.kind, l."tcgplayerProductId",'; }
+k_uno()            { py "$(S "$1")" "K_ANON = 3" "K_ANON = 1"; }
+k_sin_anonimizar() { py "$(S "$1")" 'det = anonimizar(rows["Q1c-detalle"])' 'det = rows["Q1c-detalle"]'; }
+k_sin_clientes_q() { py "$(S "$1")" '_n(r, "clientes_con_q") < K_ANON or ' ''; }
+k_sin_columna()    { py "$(SQ "$1")" '       count(DISTINCT l."ownerUserId") FILTER (WHERE o.q_cents IS NOT NULL) AS clientes_con_q,
+' ''; }
+k_min_en_publicas() { py "$(S "$1")" '"clientes_con_q", "q_suma_cents")' '"clientes_con_q", "q_suma_cents", "q_min_cents", "q_max_cents")'; }
+k_max_ref_tabla()  { py "$(S "$1")" 'print(table(det[:tope], PUBLICAS))' 'print(table(det[:tope], PUBLICAS + ("ref_base_max_cents",)))'; }
+k_sin_proyeccion() { py "$(S "$1")" 'r = {c: r.get(c) for c in PUBLICAS}' 'r = dict(r)'; }
+k_otras_columnas() { py "$(S "$1")" 'print(table(det[:tope], PUBLICAS))' 'print(table(det[:tope], list(det[0]) if det else []))'; }
+ssl_prefer()       { py "$(S "$1")" 'ssl = q.get("sslmode", "require")' 'ssl = q.get("sslmode", "prefer")'; }
+ssl_ok_debil()     { py "$(S "$1")" 'SSL_OK = ("require", "verify-ca", "verify-full")' 'SSL_OK = ("prefer", "require", "verify-ca", "verify-full")'; }
+ssl_sin_corte()    { py "$(S "$1")" 'if ssl not in SSL_OK and u.hostname not in LOOPBACK:' 'if False:'; }
+ssl_loopback_mas() { py "$(S "$1")" 'LOOPBACK = ("localhost", "127.0.0.1", "::1")' 'LOOPBACK = ("localhost", "127.0.0.1", "::1", "proxy.rlwy.net")'; }
+ssl_de_la_url()    { py "$(S "$1")" '"PGSSLMODE": ssl,' '"PGSSLMODE": q.get("sslmode", "require"),'; }
+q1d_sin_no_nulo()  { py "$(SQ "$1")" 'WHERE i."cardProductId" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2' 'WHERE NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2'; }
+q1d_exists()       { py "$(SQ "$1")" '  AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2' '  AND EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2'; }
+q1d_id_pieza()     { py "$(SQ "$1")" 'SELECT i."ownerType", i.status, count(*) AS piezas' 'SELECT i.id, i."ownerType", i.status, count(*) AS piezas'; }
+q1d_folio()        { py "$(SQ "$1")" 'SELECT i."ownerType", i.status, count(*) AS piezas' 'SELECT i.folio, i."ownerType", i.status, count(*) AS piezas'; }
+q1d_dueno()        { py "$(SQ "$1")" 'SELECT i."ownerType", i.status, count(*) AS piezas' 'SELECT i."ownerUserId", i."ownerType", i.status, count(*) AS piezas'; }
+q1d_dinero()       { py "$(SQ "$1")" 'SELECT i."ownerType", i.status, count(*) AS piezas' 'SELECT i."ownerType", i.status, sum(i."listPriceCents") AS valor, count(*) AS piezas'; }
+q1d_borrada()      { python3 -I -c "import sys;p=sys.argv[1];s=open(p).read();i=s.index(\"\\\\echo '== Q1d\");open(p,'w').write(s[:i])" "$(SQ "$1")"; }
+q1d_no_exigida()   { py "$(S "$1")" ', "Q1c-detalle", "Q1d"):' ', "Q1c-detalle"):'; }
+q1c_borrada()      { python3 -I -c "import sys,re;p=sys.argv[1];s=open(p).read();i=s.index(\"\\\\echo '== Q1c\");open(p,'w').write(s[:i])" "$(SQ "$1")"; }
+
+echo "Canario G-IDS-RO (check-ids-ro-workflow.sh):"
+caso VERDE "prístino"                                        -  nada
+caso VERDE "un comentario que nombra push"                   -  comentario
+caso VERDE "un comentario SQL que nombra COMMIT/INSERT"      -  comentario_sql
+caso ROJO  "se dispara también en push"                      A  con_push
+caso ROJO  "el botón acepta una entrada de texto"            A  con_inputs
+caso ROJO  "el secreto en env de job"                        C  env_de_job
+caso ROJO  "un segundo secreto"                              C  otro_secreto
+caso ROJO  "un run: interpola el secreto"                    C  run_interpola
+caso ROJO  "npm ci en el job"                                C  con_npm
+caso ROJO  "sin la condición de rama production"             D  sin_rama
+caso ROJO  "otro entorno (catalogo-cp)"                      D  otro_entorno
+caso ROJO  "contents: write"                                 E  escribe
+caso ROJO  "«Medir» corre otra cosa"                         F  otro_script
+caso ROJO  "acción fijada por etiqueta"                      H  por_etiqueta
+caso ROJO  "la URL puede venir de un argumento"              G  url_argumento
+caso ROJO  "set -x"                                          G  con_set_x
+caso ROJO  "sin ::add-mask::"                                G  sin_mascara
+caso ROJO  "imprime la URL"                                  G  imprime_url
+caso ROJO  "la URL en la línea de psql"                      G  url_en_psql
+caso ROJO  "psql sin ON_ERROR_STOP"                          G  sin_on_error
+caso ROJO  "vuelca el stderr de psql"                        G  vuelca_stderr
+caso ROJO  "no exige el aviso 25006"                         G  sin_aviso_25006
+caso ROJO  "BEGIN sin READ ONLY"                             R  sin_read_only
+caso ROJO  "SET TRANSACTION READ WRITE"                      R  read_write
+caso ROJO  "COMMIT en vez de ROLLBACK"                       R  commit_final
+caso ROJO  "COMMIT dentro de ids-d1-q1.sql"                  R  commit_en_q1
+caso ROJO  "INSERT dentro de ids-d1-q1.sql"                  R  insert_en_q1
+caso ROJO  "la prueba escribe de verdad (sin WHERE false)"   R  update_real
+caso ROJO  "el handler traga cualquier error"                R  sin_handler
+caso ROJO  "se lee antes de la prueba"                       R  prueba_despues
+caso ROJO  "\\! en el SQL"                                   R  shell_en_sql
+caso ROJO  "\\copy a fichero en el SQL"                      R  copy_a_fichero
+caso ROJO  "incluye otro fichero"                            R  otro_include
+caso ROJO  "Q1c deja de filtrar por cliente"                 Q  q1c_sin_cliente
+caso ROJO  "Q1c mide plataforma en vez de clientes"          Q  q1c_plataforma
+caso ROJO  "Q1c sin el filtro de portafolio (withdrawn)"     Q  q1c_sin_estado
+caso ROJO  "Q1c saca el id del cliente"                      Q  q1c_id_cliente
+caso ROJO  "Q1c borrada"                                     Q  q1c_borrada
+caso ROJO  "Q1c-detalle deja de filtrar por cliente"         Q  q1cd_sin_cliente
+caso ROJO  "Q1c-detalle saca el id del cliente"              Q  q1cd_id_cliente
+caso ROJO  "Q1c-detalle saca el id de la pieza"              Q  q1cd_id_pieza
+caso ROJO  "Q1d sin el filtro de no nulo (M-95c)"            Q  q1d_sin_no_nulo
+caso ROJO  "Q1d cuenta las que SÍ tienen producto"           Q  q1d_exists
+caso ROJO  "Q1d saca el id de la pieza"                      Q  q1d_id_pieza
+caso ROJO  "Q1d saca el folio"                               Q  q1d_folio
+caso ROJO  "Q1d saca el id del dueño"                        Q  q1d_dueno
+caso ROJO  "Q1d saca dinero"                                 Q  q1d_dinero
+caso ROJO  "Q1d borrada"                                     Q  q1d_borrada
+caso ROJO  "el botón no exige la sección Q1d"                Q  q1d_no_exigida
+caso ROJO  "umbral de anonimato K_ANON = 1 (PT-IDS-6)"       K  k_uno
+caso ROJO  "Q1c-detalle al resumen sin anonimizar"           K  k_sin_anonimizar
+caso ROJO  "anonimizar no mira clientes con Q"               K  k_sin_clientes_q
+caso ROJO  "el SQL deja de dar clientes_con_q"               K  k_sin_columna
+caso ROJO  "mín/máx de Q vuelven a PUBLICAS"                 K  k_min_en_publicas
+caso ROJO  "la tabla añade el máx de la referencia"          K  k_max_ref_tabla
+caso ROJO  "anonimizar deja pasar todas las columnas"        K  k_sin_proyeccion
+caso ROJO  "el detalle se imprime con otras columnas"        K  k_otras_columnas
+caso ROJO  "sslmode por defecto prefer (PT-IDS-7)"           S  ssl_prefer
+caso ROJO  "prefer admitido como TLS suficiente"             S  ssl_ok_debil
+caso ROJO  "un sslmode débil no aborta"                      S  ssl_sin_corte
+caso ROJO  "un host remoto tratado como loopback"            S  ssl_loopback_mas
+caso ROJO  "PGSSLMODE sale de la URL sin validar"            S  ssl_de_la_url
+
+TOTAL=$((PASADAS+FALLOS))
+if [ "$FALLOS" -ne 0 ]; then echo "canario G-IDS-RO: ROJO — $FALLOS de $TOTAL casos no se comportan"; exit 1; fi
+echo "canario G-IDS-RO: $PASADAS/$TOTAL"
