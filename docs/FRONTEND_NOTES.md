@@ -6,49 +6,48 @@
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46; 2026-10-31: §MKT tienda §A3/§A4/§E1
 > plegado en §MKT-OLA2); cada pase que añade quita más de lo que añade.
 
-## §IDS-FE · Español y versiones de liga (2026-11-03, rama `claude/ids-diseno`; contrato v1.116⟨ids⟩/v1.116.1⟨ids⟩, DESIGN_SYSTEM §IDS-UX vIDS-6)
+## §IDS-FE · Español y versiones de liga (2026-11-03, rama `claude/ids-diseno`; contrato v1.116.2⟨ids⟩, DESIGN_SYSTEM §IDS-UX vIDS-6)
 
-**Estado vigente.** Construido contra el contrato con mocks donde el servidor aún no estaba (`lib/mock/versions.ts`:
-`finishLabelOf`, `optionKey`, `versions[]` y su orden, captura `versions`/`attach`; cartas del simulador
-`c-ids-pikachu-057` = 2×N y `c-ids-dedenne-084` = 2×2, fuera de `mockCards`). Backend empujó IDS.2/.3/.4/.7 en paralelo
-(`2f829b1e`): los nombres de `VersionComboDTO` casan con `inventory-versions.service.ts` (leído, sin correr contra él).
+**Estado vigente (medido 2026-11-03 sobre `8ed6d67f`).** Construido contra el contrato; consume el servidor real de §IDS
+(backend ≥ `58c7fbc8`). Mocks solo en el simulador (`lib/mock/versions.ts`: `finishLabelOf`, `optionKey`, `versions[]` y
+su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cartas `c-ids-pikachu-057` 2×N,
+`c-ids-dedenne-084` 2×2 y `c-ids-poffin-6` = peor caso: sin liga + 6 filas de liga, fuera de `mockCards`).
 - **Piezas:** `components/domain/VersionChip.tsx` (Español relleno tinta; De liga/De torneo/Prerelease/Staff contorno
-  #B31217; rectas, `normal-case`, sin mono; tamaños teja 20/ficha 22/hoja 26), `VersionText.ts` (líneas largas; aparte
-  para no meter `versionDetail` en la portada), `VersionPills.tsx` (2×2 con insignia, 2×N con rótulo 12 px arriba/6
-  abajo, roving tabindex; `PillToggleGroup` 44 px para captura). Únicas burbujas: `rounded-pill` (tailwind) y el token
-  `--color-border-control`. `lib/version.ts`: preselección D-IDS-4, filas en el orden del servidor, forma 2×2/2×N,
-  D-IDS-6 (`stamp.label` tal cual hasta que ux-ui decida).
-- **Superficies:** ficha (IDIOMA Y VERSIÓN, insignias bajo el h1, leyenda de imagen, «Carta de liga: …» solo 2×2, sin
-  precio grande ni estimado PSA con versión no default, renglones filtrados, `?version=` del `searchParams`, JSON-LD
-  `ProductGroup` solo con ≥ 2 versiones); teja (fila propia, enlace `?version=<versionOptionKey>` salvo inglés sin liga
-  —misma preselección y URL de siempre—, ficha técnica con `finishLabelShort`, bloque inferior `mt-auto`, P1/P2/P3);
-  filtros idioma + «Cartas de liga y promos» (URL, chips, `noindex, follow`); carrito, pedido, seguimiento de invitado y
-  M3; `PRICE_PENDING` con versión (`error.PRICE_PENDING_WITH_DETAILS`); `DeckAvailability` por `units[]`; captura
-  `AddItemModal` + `IdsCaptureFields`/`ids-capture.ts`; piezas del cajón con Idioma/Sello y filtros; hoja de preparación.
-- **Medido (Chromium, mocks, 360×740 con aviso abierto):** fila de insignias real + peor caso `price5` ⇒ margen **24.6 px**
-  (≥ 20; el diseño calculaba 24.6), tejas 383.4 px, rejilla en y=235 (P3), foto 152×182.4 (P1) — 6/6 (es/en × N=3).
-  Pares «Español»+«Prerelease» 135.2 y «Spanish»+«Prize Pack» 133.4 de 152 px en una fila. **«Spanish»+«Championship» NO
-  cabe:** 57.3 + 4 + 94.6 = **155.9 > 152** (el diseño estimaba 146) ⇒ `test.fail` declarado, pendiente de ux-ui.
-  «RAW · NM · COSMOS HOLO» envolvía a 2 renglones (22 px, +11 a la fila) ⇒ forma corta «Cosmos» en la teja.
-- **Candados:** unitarios `lib/version.test.ts`, `VersionChip.test.tsx` (5, 7, 7b), `VersionPills.test.tsx` (10–14, 16,
-  D-IDS-6), `CatalogTile.ids` (5, 6, 15), `CardDetailView.ids` (IDS-F3, grep de `optionKey`), `catalog-ids` (IDS-F2),
-  `CheckoutLines.ids` (IDS-F4), `DeckAvailability.ids` (IDS-F5; `.ac` sin editar), `AddItemModal.ids` (IDS-F1, 2–4),
-  `PieceVersion.test`. Navegador: `e2e/ids-versions.spec.ts` (9–12, 14–16, 6) y «IDS L-8» en `measurement-on.spec.ts` (1).
-  Sin `@real`: el seed del stack no trae versiones (`mockOnly`/`needsSeed`). **Mutaciones** (copia entera de `90471969`,
-  N=3): 16 unitarias, cada una 3/3 rojo y verde al restaurar (la primera de 7b, `uppercase` antepuesto, dio 0/3: `twMerge`
-  lo anula con el `normal-case` posterior, no era defecto; sustituida por `normal-case`→`uppercase` y `font-sans`→`font-mono`,
-  3/3 cada una). Navegador: sin P1 (foto 4:5) «IDS L-8» 6/6 rojo con margen **17.0** (el diseño calculaba 17.0).
-- **Decisiones propias:** el namespace `version` (insignias, acabados) viaja a la portada; `versionDetail` (rótulos,
-  leyendas, filtros) no (trinquete DYN-F10: con todo en la portada, 49 279 > 48 500 bytes). `QueryState` lo cita con
-  `t.has` (falso positivo declarado en `layout.messages.test`). `test/strip-comments.ts`: `codigoDe` parsea con la ruta;
-  con una etiqueta sin `.tsx` el JSX se parseaba como TS y MIV-F7 leía un comentario como código.
-- **Pendiente / solicitudes al arquitecto:** (a) `GET /catalog/facets` «conteos por `language` y `stamped`» sin nombre de
-  campo: el filtro no consume facetas hasta que el contrato lo nombre; (b) el desglose de captura («MX$480 × 75 %») pide la
-  referencia de entrada y X por combo: `VersionComboDTO` solo trae `previewPriceCents` ⇒ se nombra la base y el dial
-  (`spanishMarketPct` de `GET /admin/settings`, si la cuenta lo lee) sin inventar el importe; (c) el dial
-  `spanishMarketPct` en M10 no está en el reparto de IDS.11 (sin pantalla); (d) correo: lo traduce backend (IDS.11).
-  **Para ux-ui/marketing:** el par EN «Spanish»+«Championship»; copy EN de «Sin liga» («Regular») y «No holo»
-  («Non-holo»), de PO.
+  #B31217; rectas, `normal-case`, sin mono; teja 20/ficha 22/hoja 26), `VersionText.ts`, `VersionPills.tsx` (2×2 con
+  insignia, 2×N con rótulo 12 px arriba/6 abajo, roving tabindex; `PillToggleGroup` 44 px para captura). Burbujas solo
+  ahí (`rounded-pill`, token `--color-border-control`). `lib/version.ts`: preselección D-IDS-4, filas en el orden del
+  servidor, forma 2×2/2×N, D-IDS-6 (`stamp.label` tal cual). Namespace `version` en la portada, `versionDetail` no (DYN-F10).
+- **Superficies:** ficha (IDIOMA Y VERSIÓN, insignias bajo el h1, leyenda de imagen, sin precio grande ni estimado PSA
+  con versión no default, `?version=`, JSON-LD `ProductGroup` con ≥ 2 versiones); teja (`?version=<versionOptionKey>`
+  salvo inglés sin liga, `finishLabelShort`); filtros por facetas (abajo); carrito, pedido, invitado y M3;
+  `PRICE_PENDING` con versión; `DeckAvailability` por `units[]`; captura `AddItemModal` + `IdsCaptureFields`; cajón con
+  Idioma/Sello; hoja de preparación; **M10 `sections/SpanishMarketSection.tsx`** (dial `spanishMarketPct`).
+- **Copy EN (HECHOS 2026-11-03 «Copy EN de §IDS…», definitivo):** campeonato «Tournament» en insignia, rótulo 2×N y botón
+  de captura (ES «De torneo»; la nota larga sigue «Championship promo»); versión sin liga «Regular» (también en captura);
+  acabado «Non-holo»; teja «Cosmos»/«1st Edition».
+- **Captura (IDS-F1):** desglose en una línea con los campos DEL COMBO: «Base: {versión} en inglés · {base} × {X} %
+  (español)» / «… · {base} (mercado de TCGplayer)»; sin base del servidor ⇒ sin cifra. Sin aritmética y sin leer Ajustes.
+- **Filtros (IDS-F2):** «Español» solo con `es ∈ facets.languages`; «Cartas de liga y promos» solo con `facets.stamped`;
+  un filtro activo en la URL se pinta (marcado) aunque la faceta no lo traiga; servidor sin las facetas ⇒ sin bloque.
+- **Dial (IDS-F7):** solo `super_admin` (mismo rol que `PUT /admin/pricing/curve`, IDS-B10; guarda propia además de
+  `SuperAdminOnly`), entero 1–200 con «%» (lo demás no viaja), `PUT` parcial, `422` con el diagnóstico del servidor,
+  refresca la bitácora; título provisional del contrato «Precio del español (% del inglés)».
+- **Medido (Chromium):** insignias a 360×740 con aviso: margen L-8 24.6 px; «Español»+«Prerelease» 135.2,
+  «Spanish»+«Prize Pack» 133.4, **«Spanish»+«Tournament» 141.8** de 152 px (con «Championship» envolvía: 155.9). 2×N peor
+  caso (7 filas, 14 burbujas) a 360: burbujas 64 px de alto, borde derecho 340, rótulos en 1 línea, `scrollWidth` 360,
+  es y en (N=3 cada uno).
+- **Candados:** unitarios `lib/version.test.ts`, `VersionChip.test.tsx`, `VersionPills.test.tsx` (incl. 7 filas),
+  `CatalogTile.ids`, `CardDetailView.ids`, `catalog-ids`, `ShopFilters.ids`, `CheckoutLines.ids`, `DeckAvailability.ids`,
+  `AddItemModal.ids` (desglose), `PieceVersion.test`, `SpanishMarketSection.test`; navegador `e2e/ids-versions.spec.ts`
+  (mocks), «IDS L-8» en `measurement-on.spec.ts` (mocks; `needsSeed` en real) y **`e2e/ids-real.spec.ts` `@real`**
+  (siembra por API una pieza `es` de «E2E Pidgey», la retira con `error_captura` y deja el dial como estaba): facetas +
+  filtro, ficha en/es, desglose de captura, dial en M10 con entrada nueva en la bitácora.
+- **Pendiente:** (a) **liga contra el stack:** el seed no trae productos `stamped` ni candidatas, y `attach` exige una
+  candidata de TCGCSV (sin salida a tcgcsv.com aquí) ⇒ 2×N, insignias de liga, «Cartas de liga y promos» e «IDS L-8»
+  solo se miden con mocks. Lo cierra backend sembrando en `seed-e2e.ts` un `CardProduct kind='stamped'` colgado de una
+  carta con `PriceReference` propia (`cardProductId`) y una pieza `en` y otra `es` publicadas de ese producto (y una
+  `StampedProductCandidate` sin colgar para `attach`). (b) **ux-ui:** texto del dial (provisional), D-IDS-6 y la leyenda
+  «Idioma» del bloque de filtros cuando solo se ofrece «Cartas de liga y promos».
 
 ## §CHK-FRICCION · Checkout con menos fricción (2026-11-02, rama `claude/checkout-friccion`, base `dbeb6111`)
 
