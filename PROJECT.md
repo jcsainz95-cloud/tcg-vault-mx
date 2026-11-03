@@ -9953,9 +9953,12 @@ además, qué códigos se usaron. Se descarga en CSV.
 - [ ] **Nombre visible: «de liga», nunca «sello»** (`HECHOS.md` fila 2026-11-02 «Nombre visible de la versión de liga
       (decisión de marketing D-6 v3…)»; en México se dice «de liga»). «Sello» queda como término **interno**: solo en
       admin, export y hoja de preparación. Tipos visibles: **«De liga»** (Prize Pack y Liga), **«De torneo»**,
-      **«Prerelease»**, **«Staff»**; EN «Prize Pack» / «League» / «Championship» / «Prerelease» / «Staff». Patrón de
+      **«Prerelease»**, **«Staff»**; EN «Prize Pack» / «League» / «Tournament» / «Prerelease» / «Staff». Patrón de
       versión: **«Inglés»**, **«Español»**, **«Inglés · De liga»**, **«Español · De liga»** (EN «<idioma> · <tipo>»:
-      «English · Prize Pack», «Spanish · Prize Pack»). Tabla completa y medidas: `docs/DESIGN_SYSTEM.md` IDS-UX.1.
+      «English · Prize Pack», «Spanish · Prize Pack»). Versión base: **«Sin liga»** (EN «Regular»); acabado sin holo:
+      **«No holo»** (EN «Non-holo»); en la teja «Cosmos» / «1st Edition», en ficha y nombre accesible el nombre
+      completo («Cosmos Holo»). EN definitivo: fila 2026-11-03 «Copy EN de §IDS (decisión de marketing, delegada)»;
+      «Sin liga»/«No holo»: fila 2026-11-02 «§IDS v5 2×N…». Tabla completa y medidas: `docs/DESIGN_SYSTEM.md` IDS-UX.1.
 - [ ] **Lo que el dueño tiene hoy son sellos de liga Pokémon** (TCGCSV grupo `1539`): es el caso que tiene que
       funcionar primero. La tasa de empate automático de ese grupo **NO está medida** (la de Prize Pack sí, 96 %); la
       mide el arquitecto antes del diseño. Los demás tipos usan el mismo mecanismo; no se construye nada aparte para
@@ -9978,11 +9981,11 @@ además, qué códigos se usaron. Se descarga en CSV.
 - [ ] En la captura, el operador elige la carta base, el idioma y, si existe, la **versión de liga** concreta (puede
       haber varias: p. ej. Prize Pack normal y Prize Pack Cosmos Holo, o prerelease y Staff), cada una con su precio.
       Son **dos controles** en el mismo paso (opción A del dueño, `HECHOS.md` fila 2026-11-01 «Captura de español y
-      sellos: opción A…»): **Idioma** (Inglés | Español) y **Versión** (Normal | De liga · <tipo>…, solo si la carta
+      sellos: opción A…»): **Idioma** (Inglés | Español) y **Versión** (Sin liga | De liga · <tipo>…, solo si la carta
       tiene versiones), en **burbujas** (fila 2026-11-02 «Selector de versión en burbujas: opción A-contorno de
-      marketing»); Inglés y Normal marcados de fábrica. Una versión sin precio se ve **apagada con su motivo** y no se
-      puede crear. El precio calculado lleva la etiqueta **«Precio de venta (auto)»** (EN «Sale price (auto)»
-      *(SUPUESTO: traducción del PO)*). Forma: `docs/DESIGN_SYSTEM.md` IDS-UX.2 e IDS-UX.8.
+      marketing»); Inglés y Sin liga marcados de fábrica. Una versión sin precio se ve **apagada con su motivo** y no se
+      puede crear. El precio calculado lleva la etiqueta **«Precio de venta (auto)»** (EN «Selling price (auto)», fila
+      2026-11-02 «§IDS v5 2×N…»). Forma: `docs/DESIGN_SYSTEM.md` IDS-UX.2 e IDS-UX.8.
 - [ ] En la **ficha** de una pieza con sello **no** se muestra el estimado PSA (es de la carta sin sello). El valor de
       mercado se muestra solo donde la tienda lo muestra hoy para cualquier carta (§MIV), y es el **de su producto**;
       en español con sello, ninguno de los dos (§IDS.2). *(Dónde se muestra hoy el valor de mercado: **NO MEDIDO**;
@@ -9998,8 +10001,8 @@ además, qué códigos se usaron. Se descarga en CSV.
 - [ ] La misma carta y acabado en **inglés**, en **español**, **de liga** o **en español de liga** son **opciones
       distintas**, cada una con su precio y su existencia. Comprar una no descuenta existencia de otra.
 - [ ] **Ficha: una por carta, selector de versión** (fila 2026-11-02 «Selector de versión en burbujas: opción
-      A-contorno de marketing»): rótulo **«IDIOMA Y VERSIÓN»** (EN «LANGUAGE AND VERSION» *(SUPUESTO: traducción del
-      PO)*) y cuadrícula 2×2 de burbujas «Inglés» · «Español» · «Inglés · De liga» · «Español · De liga», **cada una con
+      A-contorno de marketing»): rótulo **«IDIOMA Y VERSIÓN»** (EN «LANGUAGE AND VERSION», confirmado por marketing en la
+      fila 2026-11-02 «§IDS v5 2×N…») y cuadrícula 2×2 de burbujas «Inglés» · «Español» · «Inglés · De liga» · «Español · De liga», **cada una con
       su precio**, sin precio grande repetido. Las versiones **agotadas no se muestran** (decisión de marketing, misma
       fila); con una sola versión con existencia no hay selector. Bajo el selector, con versión de liga elegida, texto
       tenue «Carta de liga: Prize Pack de Play! Pokémon». Si se agotan todas, la ficha sigue como «Agotada» (criterio
@@ -12153,12 +12156,12 @@ nuevo, no como parte de §R**:
     solicitud que recorre los dos plazos recibe **exactamente dos** correos de recordatorio, uno por plazo;
     **(b)** corriendo el barrido **tres veces** dentro de cada ventana **no se manda ninguno de más**;
     **(c)** el que llega es el del plazo **que está corriendo**, a **un día hábil** de vencer.
-160. **El inventario ya capturado se corrige a mano; ninguna migración adivina (respuesta a la pregunta 11)**:
-    la separación de identidad de **promos y exclusivos de deck** (D7, §P.8) **no se aplica retroactivamente
-    de forma automática** a las filas ya capturadas: se **reclasifican manualmente desde M1**. Verificable:
-    **no existe** ningún proceso, script ni botón que reasigne identidad de piezas históricas por inferencia;
-    y **sí existe** en M1 la vía para corregir a mano la identidad de una pieza ya capturada, **quedando
-    auditada** (M10).
+160. **Una pieza mal capturada se corrige con baja + alta; nada reasigna identidad** (fila 2026-11-03 «Corregir una
+    pieza mal capturada: darla de baja y volver a subirla»): la separación de **promos y exclusivos de deck** (D7,
+    §P.8) no se aplica retroactivamente. Una pieza con la carta equivocada se **da de baja** y se **vuelve a capturar**
+    con la correcta; la corrección en sitio de la identidad **no se construye** (I-7). Verificable: **no existe**
+    proceso, script, botón ni campo que cambie la carta de una pieza ya capturada (ni por inferencia ni a mano); la
+    baja y la nueva alta **quedan auditadas** (M10).
 
 **Ciclo de adquisición del buylist — 4ª ronda (CORRECTIVA): la condición va al frente, no la pregunta al
 final (v2.1, D30; §E/§H/§P.3/§P.5.1/§P.6/§P.10/§P.11)**
@@ -15211,9 +15214,9 @@ los nombres de §IDS.3 («De liga»…). Forma y orden de Meta Battle Decks (963
 959. **Ficha sin mercado ni PSA donde no corresponde** *(§IDS.2, §IDS.3)*: la ficha de una pieza en español (con o sin
    sello) no muestra valor de mercado ni estimado PSA; la de una con sello no muestra estimado PSA, y si muestra valor
    de mercado es el de su producto (nunca el de la carta base). Lo mismo en la teja.
-960. **Sello de liga** *(§IDS.3)*: una carta real de liga Pokémon (TCGCSV grupo `1539`, el caso lo elige el arquitecto
-   al medir el empate) se captura —por empate automático o eligiendo el producto en la captura— y se publica con el
-   precio de **su** producto, sin intervención del dueño.
+960. **Sello de liga** *(§IDS.3)*: caso fijo TCGCSV `209911` «Quick Ball - 179/202 (League Cup)» (grupo `1539`,
+   empate único con la base `208511`, Sword & Shield, Reverse Holofoil; `docs/DEVOPS_NOTES.md` §108.1) se cuelga sola,
+   se captura como «De liga» y se publica con el precio de **su** producto (nunca el de la base), sin el dueño.
 961. **Lista de inventario del admin** *(§IDS.5)*: cada pieza muestra su idioma y, si la tiene, su versión de liga
    (insignia «De liga» y el tipo exacto en texto, p. ej. «Prize Pack»; la cabecera de columna interna puede decir
    «Sello»); las existentes se ven «Inglés» (EN) y sin liga. *(Forma: `docs/DESIGN_SYSTEM.md` IDS-UX.3 (b).)*
