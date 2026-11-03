@@ -29,14 +29,11 @@ pendientes de contrato; el simulador de `lib/api.ts` espeja el contrato: `MOCK_T
 - **«Mi cuenta» (972):** `accountSetupPending && !hasPassword` ⇒ «Ponle contraseña a tu cuenta» (`SetPasswordForm`,
   nombre opcional + nueva, sin la actual ⇒ `setPassword`, reemplaza los dos tokens). Correo editable en `EmailSection`
   solo pendiente y sin verificar (`updateMyEmail`). `hasPassword` manda sobre una bandera vieja.
-- **Franja (945, CTA.8, DESIGN_SYSTEM §CTA-UX.1):** `TrustStrip` = grupo con nombre (`about.strip.groupLabel`) en dos
-  renglones: `<p>` «Pago seguro con tarjeta · Entrega en 4 a 10 días hábiles» (el único « ·» `aria-hidden`, pegado al
-  primer dato con espacio duro dentro de un bloque `nowrap`: nunca abre renglón) y `<ul>` sin separadores con WhatsApp,
-  Instagram (pestaña nueva + `sr-only` `about.strip.newTab`) y «Quiénes somos»; enlaces `nowrap` de 44 px. Sin teléfono,
-  sin WhatsApp ni hueco. «`/nosotros` sin publicar ⇒ sin enlace» no tiene señal en el código (`ABOUT_PATH` es fijo y la
-  página responde 200, `seo-raw-html.spec.ts`): no se construye un interruptor sin fuente. Un hecho, un sitio:
-  `about.paymentMethod`/`about.deliveryDays` alimentan franja y `/nosotros`; número, `wa.me` e Instagram, `lib/about.ts`.
-  ⛔ OXXO en ningún texto de cliente.
+- **Franja (945, CTA.8, §CTA-UX.1):** `TrustStrip` = grupo con nombre; `<p>` de datos (único « ·» `aria-hidden`, pegado
+  al primer dato con espacio duro en un bloque `nowrap`) + `<ul>` sin separadores (WhatsApp, Instagram con `sr-only`
+  «pestaña nueva», «Quiénes somos»; `nowrap`, 44 px). Sin teléfono, sin WhatsApp ni hueco. «`/nosotros` sin publicar»
+  no tiene señal en el código (`ABOUT_PATH` fijo, responde 200): sin interruptor. Método y plazo: `about.*`; número,
+  `wa.me` e Instagram: `lib/about.ts`. ⛔ OXXO en ningún texto de cliente.
 - **977:** `IvaLabel` ya no pinta el rótulo del PRECIO con IVA dentro (teja, ficha y barra fija, sellado, carrusel,
   vitrina, lista de deseos); fuera `accessories.vatIncluded`, «IVA incluido» del deck y «con IVA incluido» de las notas
   del subtotal. Quedan la línea «IVA 16 % incluido: MX$…» del resumen (P-CTA-5(a)), «incluye IVA» del mercado
@@ -46,16 +43,15 @@ pendientes de contrato; el simulador de `lib/api.ts` espeja el contrato: `MOCK_T
   F7 + 945 `_shared/TrustStrip.test.tsx`; F8 `security-headers.test.ts`; 977 `test/iva-977.test.tsx` + `IvaLabel.test.tsx`
   y los casos de cada superficie. E2E `e2e/cuenta-correo.spec.ts` (todo `@real`, mismos pasos en mocks y real; el token
   real se lee del log del backend con `NoopMailAdapter`, `E2E_BACKEND_LOG`).
-- **§CTA-UX (vCTA-1, las 5 peticiones de §CTA-UX.6, 2026-11-03):** textos ES/EN de §CTA-UX.2–4 + `auth.emailOnly.hint`
-  (ayuda del único campo, `aria-describedby`), `about.strip.groupLabel`/`newTab`; 409 en `Banner info` (tope en tinta);
-  enlaces-botón de `/account-setup`, `/reset-password` y `/verify-email` con `buttonClassName()` (exportada de
-  `ui/Button.tsx`, la MISMA que usa `Button`: un enlace-botón no puede quedarse con otro radio); tope/error de «Mandar
-  otro» como `Banner` (`warning`/`danger`, `role=alert`); foco de «Corregir mi correo» (abrir ⇒ campo; cancelar o
-  guardar ⇒ enlace); fuera `card.referenceExplainerWithMarket` (sin uso; las e2e miden su ausencia por texto).
-  `Banner` expone `data-variant` (lo leen las pruebas). Candados: `test/cta-ux-copy.test.ts`, `TrustStrip.test.tsx`
-  («CTA-UX.1»), `InlineAuthPanel.test.tsx` («CTA-UX.2»), `token-pages.cta.test.tsx` («CTA-UX.3»),
-  `AccountSetupPending.cta.test.tsx` («CTA-UX.4»); navegador a 360×740: `e2e/cuenta-correo.spec.ts` «@real 945».
-  Medición a 360 px: abajo, «Mediciones §CTA-UX».
+- **§CTA-UX.6 (vCTA-1, 2026-11-03):** textos ES/EN de §CTA-UX.2–4 + `auth.emailOnly.hint` (`aria-describedby`) y
+  `about.strip.groupLabel`/`newTab`; 409 en `Banner info`, tope en tinta; enlaces-botón de las tres páginas con token
+  con `buttonClassName()` (de `ui/Button.tsx`, la misma que usa `Button`); tope/error de «Mandar otro» en `Banner`
+  (`data-variant`, que leen las pruebas); foco de «Corregir mi correo» (abrir ⇒ campo; cancelar/guardar ⇒ enlace); fuera
+  `card.referenceExplainerWithMarket`. Candados «CTA-UX.1…4» en `TrustStrip`, `InlineAuthPanel`, `token-pages.cta`,
+  `AccountSetupPending.cta` y `test/cta-ux-copy.test.ts`; navegador: `cuenta-correo.spec.ts` «@real 945» a 360 y 320 px.
+  **Medido en Chromium (2026-11-03, N=3, ficha = carrito):** a 360, franja 320 px, datos en UN renglón, WhatsApp 131 +
+  Instagram 128 + 20 = 279 px juntos, «Quiénes somos» baja ⇒ 104 px. A 320: datos en 2 renglones ⇒ 120 px. (b) mide
+  también a 320 porque a 360 ningún « ·» cae en un salto.
 
 ## §IDS-FE · Español y versiones de liga (2026-11-03, rama `claude/ids-diseno`; contrato v1.116.2⟨ids⟩, DESIGN_SYSTEM §IDS-UX vIDS-6)
 
@@ -210,17 +206,11 @@ Fuentes: DESIGN_SYSTEM §MKT-CONV.1–.6; PROJECT 940–957; HECHOS 2026-10-31 �
   propósito (la tardía llena la caché para la siguiente visita). **TL-MKT3-2:** pestaña Gradeadas = `?productType=graded`.
   **TL-MKT2-2:** `QUERY_DEFAULTS` exportado de `components/Providers.tsx`.
 
-## §MKT-E2E1 · Hallazgos de tester-e2e y QA sobre `561ad425` (2026-10-31, rama `claude/mkt-fe-e2e1`, base `815d14d1`)
+## §MKT-E2E1 · Hallazgos de tester-e2e y QA sobre `561ad425` (2026-10-31, compactado 2026-11-03)
 
-- **C1 sellado:** el `<h1>` de `SealedDetailView` lleva «nombre · set» con el patrón de la carta (set como bloque dentro).
-- **C6:** `llms.txt` enlaza `/es/sellado` y `tcghunt.mx/card-show` (`llmsCardShowLine`, sin datos del evento; es la única
-  excepción del barrido «sin Card Show» de `seo-content.test.ts`); revisión `2026-10-31`. IVA, Instagram y «Quiénes somos»: esperan al dueño.
-- **MENOR-3:** `CheckoutLines` pinta la meta con `historicalCardMeta` (la regla del pedido): `· NM` raw, `· PSA 10` gradeada.
-- **I-1 / TL-MKT2-1:** `lib/ssr-budget.ts` (`withBudget`, `withAbortBudget`); fichas SSR con `DETAIL_SSR_BUDGET_MS` (= catálogo,
-  1200 ms) que ABORTA el fetch (`signal` en `apiRequest`, `getCardDetail`, `getSealedGroupDetail`) y cae a la carga en cliente.
-- **M-2:** `?page=N` fuera de rango con resultados ⇒ «Esta página ya no tiene cartas» + enlace rastreable a la página 1 (`catalog.pageOutOfRange.*`).
-- **B-1:** el campo de correo del invitado en los E2E se busca con `{ exact: true }` (en, «I confirm that my email…» lo duplicaba).
-- Pruebas, mutaciones (N=3) y E2E con su N: informe de entrega del stream; candados en `TECH_DEBT.md` (TL-MKT2-1).
+Vigente: `<h1>` del sellado «nombre · set»; `CheckoutLines` con `historicalCardMeta`; fichas SSR con `lib/ssr-budget.ts`
+(`DETAIL_SSR_BUDGET_MS`, aborta y cae a cliente; TL-MKT2-1 en `TECH_DEBT.md`); `?page=N` fuera de rango ⇒
+`catalog.pageOutOfRange.*`; `llms.txt` con `llmsCardShowLine`. El detalle por hallazgo está en git (rama `claude/mkt-fe-e2e1`).
 
 ## §MKT-TL1 · Catálogo: la URL es la única fuente de los filtros (2026-10-31, rama `claude/mkt-fe-tl1`, base `561ad425`)
 
