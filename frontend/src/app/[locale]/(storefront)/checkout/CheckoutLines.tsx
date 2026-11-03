@@ -45,12 +45,12 @@ export function CheckoutLines({ items, onRemove }: CheckoutLinesProps) {
               <p className="truncate font-serif text-[17px] leading-tight text-text sm:text-[19px]" lang="en">
                 {item.card.name}
               </p>
-              {/* §IDS-UX.4 (05-carrito-v3): insignias en segunda línea bajo el nombre y, debajo, el texto largo muted
-                  («Español · De liga (Prize Pack)»); la versión la da el servidor por línea. Inglés sin liga: nada. */}
+              {/* §IDS-UX.4 (05-carrito-v3): insignias en segunda línea bajo el nombre y, debajo, la línea muted
+                  SOLO con lo que las insignias no dicen («De liga (Prize Pack)»; ES sin liga, ninguna: petición 8). */}
               <VersionChips version={item.version} size="tile" className="mt-1.5" testId="line-version-chips" />
-              {versionText.line(item.version) && (
+              {versionText.detail(item.version) && (
                 <p data-testid="line-version-text" className="mt-1 text-[12px] leading-snug text-muted">
-                  {versionText.line(item.version)}
+                  {versionText.detail(item.version)}
                 </p>
               )}
               <p className="mt-1.5 font-mono text-[11px] text-muted [overflow-wrap:anywhere]" lang="en">

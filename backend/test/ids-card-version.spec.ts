@@ -7,6 +7,7 @@
  *  - `baseMatchKey` / `catalogMatchKey` (§IDS.3): «Pikachu ex - 057/191» de 22880 ⇒ misma llave que el set_base 590025.
  * Deterministas (N=1).
  */
+import { StampType } from '@prisma/client';
 import {
   baseMatchKey,
   catalogMatchKey,
@@ -151,5 +152,26 @@ describe('§IDS.5 — versionInternalLine (hoja de preparación, texto de backen
     expect(versionInternalLineOf({ language: 'es', stampType: 'league', stampLabel: null })).toBe('ES · LIGA · Promo de Liga — sello de la Liga');
     expect(versionInternalLineOf({ language: 'es', stampType: null, stampLabel: null })).toBe('ES');
     expect(versionInternalLineOf({ language: 'en', stampType: null, stampLabel: null })).toBeNull();
+  });
+
+  /**
+   * DESIGN_SYSTEM IDS-UX.3 «Cajón» (petición 7, TL-IDS-2): formato único `IDIOMA · GRUPO · Nombre — sello X[, detalle]` para los
+   * CINCO tipos. La tabla es la del documento, literal; un tipo sin fila aquí no pasa el `satisfies`.
+   */
+  const IDS_UX3: Record<StampType, string> = {
+    prize_pack: 'LIGA · Prize Pack — sello Play! Pokémon',
+    league: 'LIGA · Promo de Liga — sello de la Liga',
+    championship: 'TORNEO · Campeonato — sello de Campeonato',
+    prerelease: 'EVENTO · Promo de Prerelease — sello Prerelease',
+    staff: 'EVENTO · Promo Staff — sello Staff',
+  };
+  it.each(Object.keys(IDS_UX3) as StampType[])('IDS-UX.3 · %s: ES/EN, con y sin detalle', (t) => {
+    expect(versionInternalLineOf({ language: 'es', stampType: t, stampLabel: null })).toBe(`ES · ${IDS_UX3[t]}`);
+    expect(versionInternalLineOf({ language: 'en', stampType: t, stampLabel: null })).toBe(`EN · ${IDS_UX3[t]}`);
+    expect(versionInternalLineOf({ language: 'es', stampType: t, stampLabel: 'Cosmos Holo' })).toBe(`ES · ${IDS_UX3[t]}, Cosmos Holo`);
+  });
+  it('los ejemplos de IDS-UX.3, literales', () => {
+    expect(versionInternalLineOf({ language: 'en', stampType: 'staff', stampLabel: null })).toBe('EN · EVENTO · Promo Staff — sello Staff');
+    expect(versionInternalLineOf({ language: 'es', stampType: 'championship', stampLabel: null })).toBe('ES · TORNEO · Campeonato — sello de Campeonato');
   });
 });

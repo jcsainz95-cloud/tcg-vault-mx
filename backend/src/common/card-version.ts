@@ -39,6 +39,12 @@ export interface VersionDTO {
   stamp: StampDTO | null;
 }
 
+/**
+ * El orden de los idiomas de una versión donde el servidor ordena (ficha `versions[]`, surtido de Meta decks, §IDS.5/.6):
+ * `en` antes que `es`. Una tabla y no `=== 'en' ? 0 : 1` en cada sitio (TL-IDS-4): un idioma nuevo no compila hasta tener fila.
+ */
+export const LANGUAGE_ORDER: Readonly<Record<CardLanguage, number>> = Object.freeze({ en: 0, es: 1 });
+
 /** La versión por defecto (inglés, sin liga): la de toda pieza y línea anterior a M-95 (I-1). */
 export const DEFAULT_VERSION: PieceVersion = Object.freeze({ language: 'en', stamp: null }) as PieceVersion;
 
@@ -279,13 +285,18 @@ export function frozenVersionColumnsOf(v: PieceVersion): { language: CardLanguag
   return { language: v.language, stampType: v.stamp?.type ?? null, stampLabel: v.stamp?.label ?? null };
 }
 
-/** v1.116⟨ids⟩ (§IDS.5): el tipo de liga en la línea interna de preparación (DESIGN_SYSTEM IDS-UX.3, ejemplos del contrato). */
+/**
+ * v1.116⟨ids⟩ (§IDS.5): el tipo de liga en la línea interna de preparación. Fuente única de los 5 textos: DESIGN_SYSTEM IDS-UX.3
+ * «Cajón» (TL-IDS-2, petición 7 de ux-ui), formato `GRUPO · Nombre — sello X` (el `IDIOMA · ` y el `, detalle` los pone
+ * `versionInternalLineOf`): nombra el logo físico que el operador busca en la carta. Candado: `ids-card-version.spec.ts`
+ * (`it.each` sobre los 5 `StampType`, tabla literal del documento).
+ */
 const INTERNAL_STAMP_TEXT: Record<StampType, string> = {
   prize_pack: 'LIGA · Prize Pack — sello Play! Pokémon',
   league: 'LIGA · Promo de Liga — sello de la Liga',
-  championship: 'TORNEO · Campeonato',
-  prerelease: 'PRERELEASE',
-  staff: 'STAFF',
+  championship: 'TORNEO · Campeonato — sello de Campeonato',
+  prerelease: 'EVENTO · Promo de Prerelease — sello Prerelease',
+  staff: 'EVENTO · Promo Staff — sello Staff',
 };
 
 /**

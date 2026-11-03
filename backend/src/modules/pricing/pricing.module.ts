@@ -34,6 +34,7 @@ import { PptSetMapper } from './ppt-set-mapper.service';
 import { PriceIngestService } from './price-ingest.service';
 import { GradedBudgetService } from './graded-budget.service';
 import { SaleDecisionService } from './sale-decision.service';
+import { PatrimonyValuationService } from './patrimony-valuation.service';
 import { StampedIngestService } from './stamped-ingest.service';
 import { ListingPriceService } from './listing-price.service';
 import { PriceIngestJobService } from '../../jobs/price-ingest.service';
@@ -90,6 +91,7 @@ import { SpendAlertsModule } from '../spend-alerts/spend-alerts.module';
     GradedBudgetService,
     // 💰 v1.113⟨portada⟩ (§DYN.5): el cuerpo único del precio de venta y el precio del día.
     SaleDecisionService,
+    PatrimonyValuationService,
     ListingPriceService,
     // v1.116⟨ids⟩ (§IDS.3): paso de productos de liga del barrido diario.
     StampedIngestService,
@@ -118,6 +120,7 @@ import { SpendAlertsModule } from '../spend-alerts/spend-alerts.module';
     PriceIngestJobService,
     GradedBudgetService,
     SaleDecisionService,
+    PatrimonyValuationService,
     ListingPriceService,
     StampedIngestService,
     SealedPriceIngestService,

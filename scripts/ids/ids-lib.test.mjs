@@ -7,6 +7,55 @@ import {
   baseMatchKey, baseName, normalizeNumber, stampTypeOf, classifyCardProductKind, buildBaseIndex, dryRunGroup,
   percentile, rowsPerBase, finishOf, isCosmos, matchGroupForSet, numberFromProductName, catalogMatchKey, cardNumberOf,
 } from './ids-lib.mjs';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// TL-IDS-3: los casos de `stampTypeOf` del BACKEND (la regla que manda), leídos de su propio spec: si backend añade o
+// cambia un caso, esta prueba lo corre sin que nadie lo copie. Solo el TIPO (el instrumento no usa la etiqueta).
+// Necesita el árbol ENTERO (O-9): sin backend/ la prueba es roja por falta del fichero, no por conducta.
+const SPEC = join(dirname(fileURLToPath(import.meta.url)), '../../backend/test/ids-card-version.spec.ts');
+function casosDelBackend(src) {
+  const i = src.indexOf("describe('§IDS.3 — stampTypeOf");
+  assert.ok(i >= 0, 'no encuentro el describe de stampTypeOf en el spec del backend');
+  const j = src.indexOf('\ndescribe(', i + 1);
+  const bloque = src.slice(i, j < 0 ? undefined : j);
+  const casos = [];
+  const str = String.raw`(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")`;
+  const un = (m1, m2) => (m1 ?? m2).replace(/\\(.)/g, '$1');
+  // it.each([...]) del 1539: ['nombre', 'tipo', etiqueta]
+  for (const m of bloque.matchAll(new RegExp(String.raw`^\s*\[\s*${str}\s*,\s*'(\w+)'\s*,`, 'gm'))) {
+    casos.push({ g: 1539, name: un(m[1], m[2]), type: m[3] });
+  }
+  // expect(stampTypeOf(G, 'nombre')).toEqual({ type: 'x' … }) | .toBeNull()
+  for (const m of bloque.matchAll(new RegExp(String.raw`stampTypeOf\((\d+),\s*${str}\)\)\.(?:toEqual\(\{\s*type:\s*'(\w+)'|(toBeNull)\(\))`, 'g'))) {
+    casos.push({ g: Number(m[1]), name: un(m[2], m[3]), type: m[5] ? null : m[4] });
+  }
+  return casos;
+}
+
+test('TL-IDS-3: stampTypeOf da el mismo tipo que el backend en TODOS los casos de su spec (22880/1539/otro grupo)', () => {
+  const casos = casosDelBackend(readFileSync(SPEC, 'utf8'));
+  // Tope inferior: si el parser deja de leer el spec, esto se pone rojo en vez de pasar con 0 casos.
+  assert.ok(casos.length >= 16, `solo ${casos.length} casos leídos del spec del backend`);
+  assert.ok(casos.some((c) => c.g === 1539 && c.type === null), 'faltan los casos «falla cerrado» del 1539');
+  assert.ok(casos.some((c) => c.g !== 1539 && c.g !== 22880), 'falta el caso «otro grupo ⇒ null»');
+  for (const c of casos) assert.equal(stampTypeOf(c.g, c.name), c.type, `${c.g} «${c.name}»`);
+});
+
+test('TL-IDS-3: el parser del spec no es decorativo (lee las tres formas y un caso cambiado se nota)', () => {
+  const src = readFileSync(SPEC, 'utf8');
+  const casos = casosDelBackend(src);
+  const regional = "    ['Ultra Ball - 1/1 (Regionals)', 'championship', null],\n";
+  const mut = src.replace("    ['Quaquaval - 005 (Prerelease)', 'prerelease', null],\n", "$&" + regional);
+  assert.notEqual(mut, src, 'el ancla del spec cambió: actualiza esta prueba');
+  const casosMut = casosDelBackend(mut);
+  assert.equal(casosMut.length, casos.length + 1);
+  // «Regionals» sin «Championship»: lo que la versión anterior (`\bregional\b`) clasificaba null y el backend no.
+  assert.equal(stampTypeOf(1539, 'Ultra Ball - 1/1 (Regionals)'), 'championship');
+  assert.equal(stampTypeOf(22872, 'Quaquaval - 005 (Prerelease)'), 'prerelease', 'extensión de medición IDS-D2 (el backend da null)');
+  assert.equal(stampTypeOf(23651, 'Quaquaval - 005 (Prerelease)'), null, 'otro grupo ⇒ null, como el backend');
+});
 
 test('número: ceros y total', () => {
   assert.equal(normalizeNumber('057/191'), '57/191');

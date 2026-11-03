@@ -1,3 +1,4 @@
+import { PatrimonyValuationService } from '../src/modules/pricing/patrimony-valuation.service';
 import { PortfolioSnapshotJobService } from '../src/jobs/portfolio-snapshot.service';
 import { VaultService } from '../src/modules/vault/vault.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -40,7 +41,7 @@ describe('VaultService.portfolioHistory — cálculo de change', () => {
 
   function withSnapshots(snaps: any[]): VaultService {
     const prisma: any = { portfolioSnapshot: { findMany: jest.fn().mockResolvedValue(snaps) } };
-    return new VaultService(prisma as PrismaService, pricing);
+    return new VaultService(prisma as PrismaService, pricing, {} as PatrimonyValuationService);
   }
 
   it('sin snapshots → points [] y change flat con pct null', async () => {

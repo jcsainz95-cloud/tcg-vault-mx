@@ -516,6 +516,7 @@
       "payBlocked": {
         "email": "Para pagar, confirma que tu correo es correcto.",
         "vault": "Para pagar, crea tu cuenta o elige envío a domicilio.",
+        "vaultAction": "Elegir envío a domicilio",
         "address": "Para pagar, completa tu dirección de envío en México.",
         "terms": "Para pagar, acepta los términos."
       },
@@ -1778,9 +1779,10 @@
           "staff": "Staff"
         },
         "priceLabel": "Precio de venta (auto)",
-        "breakdownEn": "Base: {version} en inglés · mercado de TCGplayer",
-        "breakdownEs": "Base: {version} en inglés · × {pct} % (español)",
-        "breakdownEsNoPct": "Base: {version} en inglés · × el % del español (Ajustes)",
+        "breakdownEn": "Base: {version} en inglés · {base} (mercado de TCGplayer)",
+        "breakdownEnNoBase": "Base: {version} en inglés · mercado de TCGplayer",
+        "breakdownEs": "Base: {version} en inglés · {base} × {pct} % (español)",
+        "breakdownEsNoBase": "Base: {version} en inglés · × {pct} % (español)",
         "noPrice": "Sin precio: esta versión no se puede dar de alta hoy (vuelve sola cuando haya mercado).",
         "loadingVersions": "Cargando versiones…",
         "reason": {
@@ -1805,7 +1807,17 @@
           "stampYes": "Con sello",
           "stampNo": "Sin sello"
         },
-        "pricePending": "Precio pendiente"
+        "pricePending": "Precio pendiente",
+        "versionsErrorTitle": "No se cargaron las versiones",
+        "versionsError": "No pudimos cargar las versiones de esta carta: sin ellas no hay precio calculado ni versiones de liga. Si la carta es en español o de liga, reintenta antes de darla de alta.",
+        "versionsRetry": "Reintentar",
+        "attachErrorTitle": "No se pudo ligar la versión",
+        "attachError": {
+          "NOT_FOUND": "Esa versión ya no está entre las pendientes de ligar. Recarga las versiones para ver cómo quedó la carta.",
+          "STAMPED_PRODUCT_TAKEN": "Esa versión ya está ligada a una carta. Recarga las versiones para ver cómo quedó.",
+          "generic": "No se pudo ligar la versión. Inténtalo de nuevo; si sigue, recarga las versiones."
+        },
+        "reloadVersions": "Recargar versiones"
       }
     },
     "m3": {
@@ -4965,6 +4977,18 @@
             "charged": "Total que paga el comprador"
           }
         }
+      },
+      "spanishMarket": {
+        "title": "Precio del español (% del inglés)",
+        "subtitle": "El valor de mercado de una carta en español es el del inglés (misma carta y acabado) por este porcentaje; después se precia como cualquier carta (curva, piso, redondeo e IVA). Al guardar se recalculan todas las cartas en español, con y sin liga.",
+        "label": "Porcentaje del inglés",
+        "help": "Entero de 1 a 200. De fábrica, 75 %.",
+        "invalid": "Escribe un entero de 1 a 200.",
+        "audit": "Cada cambio queda en la bitácora: quién, cuándo, valor anterior y nuevo.",
+        "save": "Guardar",
+        "saved": "Guardado. Las cartas en español se recalculan con el nuevo porcentaje.",
+        "serverError": "No se guardó: el servidor rechazó el valor.",
+        "unavailable": "Este servidor todavía no tiene este ajuste."
       },
       "premiumFloor": {
         "title": "Cartas premium en el piso (venta)",

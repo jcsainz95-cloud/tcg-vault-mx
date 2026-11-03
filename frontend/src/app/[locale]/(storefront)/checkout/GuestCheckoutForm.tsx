@@ -37,6 +37,11 @@ export interface GuestCheckoutFormProps {
   serverAddressError?: { field: 'neighborhood' | 'city' | 'state'; message: string } | null;
   /** El modo de la colonia (§43.18m.1): la validación de quien monta depende de él. */
   onGeoModeChange?: (mode: NeighborhoodMode) => void;
+  /**
+   * N1: con destino bóveda la dirección de envío no aplica. El grupo «ENVÍO A MÉXICO» se oculta con `hidden` (NO se
+   * desmonta: lo capturado y el estado de la colonia siguen ahí al volver a envío) y sale del resumen de errores.
+   */
+  shippingHidden?: boolean;
 }
 
 export const FIELD_ORDER: GuestField[] = [
@@ -57,6 +62,19 @@ export const FIELD_ORDER: GuestField[] = [
   'references',
   'terms',
 ];
+
+/** Los campos del grupo «ENVÍO A MÉXICO» (N1: fuera del resumen cuando el destino es bóveda). */
+const SHIPPING_FIELDS: ReadonlySet<GuestField> = new Set<GuestField>([
+  'recipientName',
+  'postalCode',
+  'neighborhood',
+  'city',
+  'state',
+  'line1',
+  'phone',
+  'line2',
+  'references',
+]);
 
 /** id del control en el DOM (para los enlaces del resumen de errores). */
 export const FIELD_ID: Record<GuestField, string> = {
@@ -101,6 +119,7 @@ export function GuestCheckoutForm({
   submitAttemptId,
   serverAddressError = null,
   onGeoModeChange,
+  shippingHidden = false,
 }: GuestCheckoutFormProps) {
   const t = useTranslations('checkout');
   const ta = useTranslations('addresses');
@@ -110,7 +129,7 @@ export function GuestCheckoutForm({
   const [foldOpen, setFoldOpen] = useState(false);
 
   const visible = (field: GuestField) => !!errors[field] && (submitAttempted || !!touched[field]);
-  const listed = FIELD_ORDER.filter((f) => !!errors[f]);
+  const listed = FIELD_ORDER.filter((f) => !!errors[f] && !(shippingHidden && SHIPPING_FIELDS.has(f)));
   // T5: plegado por defecto; un error visible en lo plegado lo abre (el resumen enlaza a esos campos).
   const optionalOpen = foldOpen || visible('line2') || visible('references');
 
@@ -263,7 +282,7 @@ export function GuestCheckoutForm({
       </section>
 
       {/* ---- Grupo 2 · ENVÍO A MÉXICO: 5 obligatorios en el orden de CHK-MOVIL.2.2 + lo opcional plegado ---- */}
-      <section aria-labelledby="guest-shipping-group" className="mt-8 border-t border-border pt-8">
+      <section aria-labelledby="guest-shipping-group" hidden={shippingHidden} className="mt-8 border-t border-border pt-8">
         <h2 id="guest-shipping-group" className="eyebrow">
           {t('guest.shippingGroupMx')}
         </h2>

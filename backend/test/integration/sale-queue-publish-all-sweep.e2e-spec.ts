@@ -74,6 +74,8 @@ describe('💰 §M2 «v1.80.8.9» (M2-VQ9) — publish-all barre; la cola se esc
     const its = await h.prisma.inventoryItem.findMany({ where: { cardId: { in: ids } }, select: { id: true } });
     await h.prisma.inventoryMovement.deleteMany({ where: { itemId: { in: its.map((i) => i.id) } } });
     await h.prisma.inventoryItem.deleteMany({ where: { cardId: { in: ids } } });
+    // v1.116.5 (M-95c): el producto de VQ-12 DESPUÉS de sus piezas (FK Restrict).
+    await h.prisma.cardProduct.deleteMany({ where: { tcgplayerProductId: PROMO } });
     await h.prisma.pendingPriceEntry.deleteMany({ where: { cardId: { in: ids } } });
     await h.prisma.priceReference.deleteMany({ where: { cardId: { in: ids } } });
     await h.prisma.card.deleteMany({ where: { id: { in: ids } } });
@@ -291,6 +293,9 @@ describe('💰 §M2 «v1.80.8.9» (M2-VQ9) — publish-all barre; la cola se esc
 
   // =============================================================================================== VQ-12
   it('VQ-12 — `reconcilePublishedPrices` usa la clave ENTERA: (A) cierra la fila con `cardProductId=X`; (B) abre la suya con X; ninguna fila con `cardProductId=null`', async () => {
+    // v1.116.5 (M-95c, FK Restrict): `cardProductId` tiene que existir en `CardProduct`. Kind `other` (ni liga ni producto
+    // separado, D-IDS-1): el barrido la sigue incluyendo y la clave de la cola lleva el eje `cardProductId`, que es lo que mide VQ-12.
+    await h.prisma.cardProduct.create({ data: { cardId: card('p1'), tcgplayerProductId: PROMO, kind: 'other', name: `VQ-12 ${RUN}` } });
     await mk('p1', { status: 'listed', cardProductId: PROMO });
     await mk('p2', { status: 'listed', cardProductId: PROMO });
     await market('p1', GOOD_MARKET);

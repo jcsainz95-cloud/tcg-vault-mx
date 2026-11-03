@@ -39,7 +39,7 @@ describe('VersionChip · textos D-6 v3 (IDS-UX.1)', () => {
     expect(screen.queryByTestId('version-chips')).toBeNull();
   });
 
-  it('EN: «Spanish» + «Prize Pack»; liga antigua «League»; campeonato «Championship» (nunca «De liga»)', () => {
+  it('EN: «Spanish» + «Prize Pack»; liga antigua «League»; campeonato «Tournament» (nunca «De liga» ni «Championship»)', () => {
     renderWithIntl(
       <>
         <VersionChips testId="a" version={{ language: 'es', stamp: { type: 'prize_pack', label: null, productId: 1 } }} />
@@ -50,7 +50,9 @@ describe('VersionChip · textos D-6 v3 (IDS-UX.1)', () => {
     );
     expect(screen.getByTestId('a').textContent).toBe('SpanishPrize Pack');
     expect(screen.getByText('League')).toBeInTheDocument();
-    expect(screen.getByText('Championship')).toBeInTheDocument();
+    // HECHOS 2026-11-03 «Copy EN de §IDS (decisión de marketing…)»: «Tournament» cabe en 152 px con «Spanish».
+    expect(screen.getByText('Tournament')).toBeInTheDocument();
+    expect(screen.queryByText('Championship')).toBeNull();
   });
 
   it('ES: prerelease, Staff y campeonato NUNCA dicen «De liga»', () => {
@@ -111,11 +113,18 @@ describe('IDS-F6 · catálogo de textos `version`', () => {
     expect(es.versionDetail.row.noStamp).toBe('Sin liga');
     expect(strings({ ...es.version, ...es.versionDetail }).filter(([, v]) => /\bnormal\b/i.test(v))).toEqual([]);
   });
-  it('textos EN fijados por marketing: «LANGUAGE AND VERSION», «Spanish», «Prize Pack», «League», «Championship»', () => {
+  it('textos EN fijados por marketing: «LANGUAGE AND VERSION», «Spanish», «Prize Pack», «League», «Tournament», «Regular», «Non-holo»', () => {
     expect(en.versionDetail.picker.label).toBe('LANGUAGE AND VERSION');
     expect(es.versionDetail.picker.label).toBe('IDIOMA Y VERSIÓN');
     expect(en.version.language.es).toBe('Spanish');
-    expect(en.version.chip).toMatchObject({ prize_pack: 'Prize Pack', league: 'League', championship: 'Championship' });
+    expect(en.version.chip).toMatchObject({ prize_pack: 'Prize Pack', league: 'League', championship: 'Tournament' });
+    // El rótulo de fila (2×N) y el botón de captura dicen lo mismo que la insignia; ES sigue «De torneo».
+    expect(en.versionDetail.row.championship).toBe('Tournament');
+    expect(en.admin.m1.ids.stampButton.championship).toBe('Tournament');
+    expect(es.version.chip.championship).toBe('De torneo');
+    // Definitivos (HECHOS 2026-11-03): versión sin liga «Regular», acabado «Non-holo».
+    expect(en.versionDetail.row.noStamp).toBe('Regular');
+    expect(en.version.finishLabel.non_holo).toBe('Non-holo');
   });
   it('(5) «sello» no existe en ningún texto de cliente (todo namespace salvo `admin`)', () => {
     for (const cat of [es, en] as Record<string, unknown>[]) {

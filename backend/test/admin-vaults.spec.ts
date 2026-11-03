@@ -3,7 +3,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { VaultService } from '../src/modules/vault/vault.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
-import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { REAL_VALUATION_GATE, realPatrimony } from './helpers/valuation-gate';
 
 /**
  * v1.20-master-set-everywhere (§4.20c) — GET /admin/vaults: lista de clientes CON bóveda.
@@ -14,7 +14,10 @@ import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
  *  - PII mínima: name/email; nunca CLABE/RFC/INE (el DTO no los conoce).
  */
 
+// v1.116.4 (`IDS-PAT`): con `id`, como el `select` de producción (la puerta devuelve el valor por pieza, por id).
+let pieceSeq = 0;
 const PIECE = (ownerUserId: string, cardId: string, finish = 'normal') => ({
+  id: `p${++pieceSeq}`,
   ownerUserId,
   cardId,
   productType: 'raw',
@@ -49,7 +52,7 @@ function build(over: {
   } as unknown as PricingService;
   // VaultService solo lo usa `AdminVaultsService.sealed` (no `list`); stub vacío para estos tests.
   const vault = { sealedTab: jest.fn() } as unknown as VaultService;
-  return { prisma, pricing, svc: new AdminVaultsService(prisma, pricing, vault) };
+  return { prisma, pricing, svc: new AdminVaultsService(prisma, vault, realPatrimony(pricing)) };
 }
 
 describe('AdminVaultsService.list — valuación de portafolio + sorts (§4.20c)', () => {

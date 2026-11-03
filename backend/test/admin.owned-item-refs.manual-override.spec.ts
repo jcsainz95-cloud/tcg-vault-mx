@@ -4,15 +4,23 @@ import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
-import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { SettingsService } from '../src/modules/settings/settings.service';
+import { FxService } from '../src/modules/pricing/fx.service';
+import { variantKey } from '../src/common/variant-key';
+import { withPatrimony } from './helpers/valuation-gate';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
 import { noLockAttempts } from './helpers/no-lock-attempts';
 
 /**
- * §4.27f-2 (P47-2, v1.46) — la ficha 360° admin (`ownedItemRefs`) usa `isBetterRef`, NO «la primera
+ * §4.27f-2 (P47-2, v1.46) — la ficha 360° admin (`ownedItemRefs`) usa la precedencia `isBetterRef`, NO «la primera
  * vista» del orden `capturedDate desc`. Con un override manual DURABLE viejo + una automática fresca para
  * la misma clave, la vista admin DEBE mostrar el precio manual (paridad con `getReference`), no la
- * automática fresca. `ownedItemRefs` lee sin `take`, así que la manual siempre está presente: el fix es
- * reducir con la MISMA precedencia que el resto de consumidores.
+ * automática fresca.
+ *
+ * 💰 v1.116.4⟨ids⟩ (`IDS-PAT`, D-IDS-R): la ficha ya no reduce su propio lote: su valor sale de la PUERTA única (la misma
+ * que «Mi bóveda»), que lee `getReferencesBatch` (la MISMA precedencia `isBetterRef`, la ventana de frescura efectiva de
+ * P-53 y el árbitro de §PRE.B). Estas pruebas corren el `PricingService` REAL sobre la BD doblada (`makeRefsRawQuery`
+ * emula la consulta podada) y fijan, además de cada caso, la PARIDAD: lo que ve la ficha == `getReferencesBatch`.
  */
 describe('AdminService.ownedItemRefs — override manual durable gana a la automática fresca (P47-2)', () => {
   const pii = new PiiCryptoService(new ConfigService({}));
@@ -85,17 +93,17 @@ describe('AdminService.ownedItemRefs — override manual durable gana a la autom
         }),
       },
     };
-    const pricing = {
-      gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
-      ...REAL_VALUATION_GATE,
-      fxSnapshotSafe: jest.fn().mockResolvedValue(null),
-      liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
-      // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
-      sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
-    } as unknown as PricingService;
-    return new AdminService(prisma as PrismaService, pricing, pii, {} as never, undefined, noLockAttempts());
+    prisma.$queryRaw = makeRefsRawQuery(priceRefs);
+    // El PricingService REAL (lote, precedencia, ventana y árbitro de producción); FX ausente ⇒ MXN congelado.
+    const pricing = new PricingService(prisma as PrismaService, {} as SettingsService, {} as FxService, {} as never, {} as never, {} as never);
+    const service = withPatrimony(new AdminService(prisma as PrismaService, pricing, pii, {} as never, undefined, noLockAttempts()), pricing);
+    return { getUser: service.getUser.bind(service), refPricing: pricing };
+  }
+
+  /** Paridad `IDS-PAT`: la ficha enseña EXACTAMENTE lo que el lote de producción da para su clave. */
+  async function batchRefOf(service: { refPricing: PricingService }) {
+    const k = { cardId: 'c1', productType: 'raw' as const, gradeKey: 'raw:NM', finish: 'normal' as const };
+    return (await service.refPricing.getReferencesBatch([k])).get(variantKey(k));
   }
 
   it('muestra el precio MANUAL viejo, no la automática fresca (aunque la automática sea más reciente)', async () => {
@@ -119,6 +127,7 @@ describe('AdminService.ownedItemRefs — override manual durable gana a la autom
     ];
     const service = buildService(refs);
     const res: any = await service.getUser('u1', Role.super_admin);
+    expect(res.ownedItems[0].referenceValue).toEqual(await batchRefOf(service));
     const item = res.ownedItems[0];
     expect(item.referenceValue.status).toBe('priced');
     expect(item.referenceValue.referenceMxnCents).toBe(MANUAL_PRICE);
@@ -142,6 +151,7 @@ describe('AdminService.ownedItemRefs — override manual durable gana a la autom
     ];
     const service = buildService(refs);
     const res: any = await service.getUser('u1', Role.super_admin);
+    expect(res.ownedItems[0].referenceValue).toEqual(await batchRefOf(service));
     expect(res.ownedItems[0].referenceValue.referenceMxnCents).toBe(AUTO_PRICE);
   });
 
@@ -173,6 +183,7 @@ describe('AdminService.ownedItemRefs — override manual durable gana a la autom
     ];
     const service = buildService(refs);
     const res: any = await service.getUser('u1', Role.super_admin);
+    expect(res.ownedItems[0].referenceValue).toEqual(await batchRefOf(service));
     const item = res.ownedItems[0];
     expect(item.referenceValue.status).toBe('priced');
     expect(item.referenceValue.referenceMxnCents).toBe(100000);
@@ -188,6 +199,7 @@ describe('AdminService.ownedItemRefs — override manual durable gana a la autom
     ];
     const service = buildService(refs);
     const res: any = await service.getUser('u1', Role.super_admin);
+    expect(res.ownedItems[0].referenceValue).toEqual(await batchRefOf(service));
     expect(res.ownedItems[0].referenceValue.referenceMxnCents).toBe(50000);
     expect(res.ownedItems[0].referenceValue.source).toBe('pokemontcg_io');
   });

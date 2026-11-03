@@ -11,6 +11,12 @@ import { FxService } from '../src/modules/pricing/fx.service';
 import { ListingPriceService, listingPriceVariantKey } from '../src/modules/pricing/listing-price.service';
 import { SaleDecisionService } from '../src/modules/pricing/sale-decision.service';
 import { featuredKeyOf } from '../src/modules/catalog/featured-selection';
+import { Injectable, Optional } from '@nestjs/common';
+import { PatrimonyValuationService } from '../src/modules/pricing/patrimony-valuation.service';
+import { VaultService } from '../src/modules/vault/vault.service';
+import { AdminVaultsService } from '../src/modules/vault/admin-vaults.service';
+import { AdminService } from '../src/modules/admin/admin.service';
+import { InventoryService } from '../src/modules/inventory/inventory.service';
 
 /**
  * Deuda técnica backend (TECH_DEBT) — guards unitarios:
@@ -207,6 +213,48 @@ describe('TL-DYN-4 · `ListingPriceService` es OBLIGATORIO en los disparadores d
     expect(idx).toBeGreaterThanOrEqual(0);
     const optional: number[] = Reflect.getMetadata('optional:paramtypes', cls) ?? [];
     expect(optional).not.toContain(idx);
+  });
+});
+
+// ===========================================================================
+// IDS-PAT (API_CONTRACT §IDS.2 v1.116.4, ARCHITECTURE §15.1 D-IDS-R; techlead R1 sobre `f2cd0e31`): la puerta de patrimonio es
+// OBLIGATORIA en los lectores y el cuerpo de venta lo es en la puerta. Con el decider `@Optional()` ausente, la española se valuaba
+// como inglesa SIN aviso (`versionValuationOf` daba mapa vacío). Se lee la metadata de inyección de Nest, no la prosa.
+// ===========================================================================
+function optionalIndexOf(cls: object, dep: unknown): { idx: number; optional: boolean } {
+  const types: unknown[] = Reflect.getMetadata('design:paramtypes', cls) ?? [];
+  const idx = types.indexOf(dep);
+  const optional: number[] = Reflect.getMetadata('optional:paramtypes', cls) ?? [];
+  return { idx, optional: optional.includes(idx) };
+}
+
+describe('IDS-PAT · `PatrimonyValuationService` OBLIGATORIA en los lectores; `SaleDecisionService` obligatoria en la puerta', () => {
+  it.each([
+    ['VaultService', VaultService],
+    ['AdminVaultsService', AdminVaultsService],
+    ['AdminService', AdminService],
+    ['InventoryService', InventoryService],
+  ] as const)('%s inyecta la puerta sin `@Optional()`', (_n, cls) => {
+    const r = optionalIndexOf(cls, PatrimonyValuationService);
+    expect(r.idx).toBeGreaterThanOrEqual(0);
+    expect(r.optional).toBe(false);
+  });
+
+  it('PatrimonyValuationService inyecta SaleDecisionService y PricingService sin `@Optional()`', () => {
+    for (const dep of [SaleDecisionService, PricingService]) {
+      const r = optionalIndexOf(PatrimonyValuationService, dep);
+      expect(r.idx).toBeGreaterThanOrEqual(0);
+      expect(r.optional).toBe(false);
+    }
+  });
+
+  it('CANARIO: un lector con `@Optional()` sobre la puerta SE VE (la metadata lo registra)', () => {
+    @Injectable()
+    class LectorOpcional {
+      constructor(@Optional() readonly patrimony?: PatrimonyValuationService) {}
+    }
+    const r = optionalIndexOf(LectorOpcional, PatrimonyValuationService);
+    expect(r).toEqual({ idx: 0, optional: true });
   });
 });
 

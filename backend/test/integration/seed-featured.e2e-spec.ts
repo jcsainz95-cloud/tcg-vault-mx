@@ -11,6 +11,7 @@
  *
  * Determinista (N=1): no hay reloj ni carrera; el día se lee con las mismas funciones que la app.
  */
+import { portadaServedDay } from '../../src/common/portada-day';
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { seedE2E } from '../../prisma/seed-e2e';
@@ -29,7 +30,7 @@ describe('E2E — seed: Destacadas vigentes al sembrar (sin esperar al tic)', ()
     h = await E2EHarness.create();
     admin = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
     const hour = await h.app.get(SettingsService).getNumber(SettingKey.FEATURED_ROTATION_HOUR);
-    day = FeaturedService.servedDayAt(new Date(), hour);
+    day = portadaServedDay(new Date(), hour);
   });
 
   afterAll(async () => {

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { toCardDTO } from '../catalog/catalog.service';
+import { ListingPriceService } from './listing-price.service';
 
 /** before/after del mapeo para la auditoría (`pricing.sealed_mapping.update`). */
 export interface SealedMappingState {
@@ -31,7 +32,14 @@ export interface SealedMappingUpdateResult {
  */
 @Injectable()
 export class SealedMappingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // 💰 v1.116.5⟨ids⟩ (API_CONTRACT §DYN.5.3 `manual_price`, ARCHITECTURE §15.4 D-IDS-11, IDS-B31): el mapeo decide la
+    // referencia del sellado listado (`sealed:tcg:<productId>`), así que remapear recalcula la fila de la pieza y sus hermanas.
+    // ⛔ Sin `@Optional()`: en la app es obligatorio (`PricingModule` lo provee); el `?` es solo por los unitarios que
+    // construyen el servicio a mano.
+    private readonly listingPrices?: ListingPriceService,
+  ) {}
 
   /** Cola de curación: items `sealed` SIN mapeo, lo más viejo primero. API_CONTRACT §M2. */
   async listUnmapped(page: number, pageSize: number) {
@@ -120,6 +128,7 @@ export class SealedMappingService {
     });
 
     let siblingsUpdated = 0;
+    const touched = [itemId];
     if (input.applyToSiblings && productId !== null) {
       const res = await this.prisma.inventoryItem.updateMany({
         where: {
@@ -132,7 +141,20 @@ export class SealedMappingService {
         data: { tcgplayerProductId: productId, tcgplayerGroupId: groupId },
       });
       siblingsUpdated = res.count;
+      if (res.count > 0) {
+        // Las hermanas que ya leen este producto (el `updateMany` no devuelve ids). Incluye las que ya lo tenían: recalcular de
+        // más cuesta una pieza en la corrida; de menos, un precio de otro producto hasta el `daily`.
+        const siblings = await this.prisma.inventoryItem.findMany({
+          where: { id: { not: itemId }, productType: 'sealed', cardId: item.cardId, sealedSubtype: item.sealedSubtype, tcgplayerProductId: productId },
+          select: { id: true },
+        });
+        touched.push(...siblings.map((r) => r.id));
+      }
     }
+
+    // 💰 v1.116.5⟨ids⟩ (§DYN.5.3, D-IDS-11): ya escrito ⇒ `manual_price` de la pieza y sus hermanas (la corrida filtra el
+    // alcance: solo plataforma vendible). Fuera de la petición: nunca la hace fallar ni esperar.
+    void this.listingPrices?.enqueue('manual_price', touched);
 
     return {
       inventoryItemId: itemId,

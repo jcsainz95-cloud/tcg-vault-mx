@@ -1,5 +1,6 @@
 import { CardLanguage, StampType } from '@prisma/client';
-import { isPricePending, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
+import { hypotheticalRawSaleItem, isPricePending, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
+import { PatrimonyValuationService } from '../pricing/patrimony-valuation.service';
 import { isDefaultVersion, PieceVersion, pieceVersionOf, StampRef, versionDtoOf } from '../../common/card-version';
 import { ListingPriceService } from '../pricing/listing-price.service';
 import { Injectable, Logger, Optional } from '@nestjs/common';
@@ -518,6 +519,12 @@ const PUBLISHABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock',
 export interface ItemAuditState {
   status: InventoryStatus;
   listPriceCents: number | null;
+  /**
+   * 💰 PT-IDS-2 (pentester, pase `db202174`) — la VERSIÓN de la pieza (§IDS: el idioma mueve ±25 % de precio y de
+   * patrimonio). Quien la pasa en `read` y en `written` hace que un cambio de `language` deje fila y que la fila lleve
+   * `language` + `cardProductId` en `before`/`after`. Sin cambio de versión, la fila es la de siempre (sin estas claves).
+   */
+  version?: { language: CardLanguage; cardProductId: number | null };
 }
 
 /** Quién hizo el `PATCH` (el `actor` que `updateItem` recibe del controlador). */
@@ -525,22 +532,32 @@ type ItemAuditActor = { id: string; role: Role } | undefined;
 
 /**
  * ⭐ v1.80.8.7 — **EL ÚNICO cuerpo del `before/after` de `inventory.item_updated`** (SFP-6: un segundo literal
- * de la acción en `inventory/` es rojo). Devuelve `null` si ni `status` ni `listPriceCents` cambian (valor
- * escrito = valor leído): un `PATCH` solo de identidad, o con el mismo precio, no deja fila (SFP-4).
+ * de la acción en `inventory/` es rojo). Devuelve `null` si ni `status` ni `listPriceCents` ni la versión cambian (valor
+ * escrito = valor leído): un `PATCH` solo de identidad, o con el mismo precio, no deja fila (SFP-4). PT-IDS-2: cambiar el
+ * idioma SÍ deja fila, con `language`/`cardProductId` en los dos lados.
  * `fields` = claves del cuerpo saneado, en orden alfabético.
  */
 export function itemUpdatedAudit(
   read: ItemAuditState,
   written: ItemAuditState,
   fields: string[],
-): { action: string; before: ItemAuditState; after: ItemAuditState & { fields: string[] } } | null {
-  if (read.status === written.status && read.listPriceCents === written.listPriceCents) return null;
+): { action: string; before: ItemAuditRow; after: ItemAuditRow & { fields: string[] } } | null {
+  const versionChanged =
+    read.version != null &&
+    written.version != null &&
+    (read.version.language !== written.version.language || read.version.cardProductId !== written.version.cardProductId);
+  if (read.status === written.status && read.listPriceCents === written.listPriceCents && !versionChanged) return null;
+  // PT-IDS-2: con cambio de versión, las DOS claves de la versión van en los dos lados (como `status`/`listPriceCents`).
+  const v = (s: ItemAuditState) => (versionChanged && s.version ? { language: s.version.language, cardProductId: s.version.cardProductId } : {});
   return {
     action: 'inventory.item_updated',
-    before: { status: read.status, listPriceCents: read.listPriceCents },
-    after: { status: written.status, listPriceCents: written.listPriceCents, fields: [...fields].sort() },
+    before: { status: read.status, listPriceCents: read.listPriceCents, ...v(read) },
+    after: { status: written.status, listPriceCents: written.listPriceCents, ...v(written), fields: [...fields].sort() },
   };
 }
+
+/** La fila de `inventory.item_updated` tal como se escribe: `{status, listPriceCents}` y, si cambió la versión, ésta. */
+type ItemAuditRow = { status: InventoryStatus; listPriceCents: number | null; language?: CardLanguage; cardProductId?: number | null };
 
 /**
  * ⭐ v1.80.8.7 — escribe la fila de `itemUpdatedAudit` **con el handle `tx` de la escritura** que audita: si el
@@ -787,8 +804,14 @@ export class InventoryService {
     // precio del día. ⛔ Sin `@Optional()` (en la app es obligatorio, `PricingModule` lo exporta); el `?` es solo por los
     // unitarios que construyen el servicio a mano.
     private readonly listingPrices?: ListingPriceService,
-    // 💰 v1.116⟨ids⟩ (§IDS.2): el cuerpo único para las versiones (español / liga). `@Optional()` por los unitarios.
-    @Optional() private readonly decider?: SaleDecisionService,
+    // 💰 v1.116⟨ids⟩ (§IDS.2): el cuerpo único para las versiones (español / liga). ⛔ Sin `@Optional()` (v1.116.5, nota de QA):
+    // en la app es obligatorio (`PricingModule` lo exporta; si falta, Nest no arranca). El `?` es solo por posición y por los
+    // unitarios que construyen a mano; sin él las versiones fallan cerradas (`no_decider` / sin referencia).
+    private readonly decider?: SaleDecisionService,
+    // 💰 v1.116.4⟨ids⟩ (API_CONTRACT §IDS.2 «Valor de patrimonio» `IDS-PAT`, D-IDS-R): la puerta del valor del export
+    // («Precio mercado MXN»). ⛔ Sin `@Optional()`: en DI es obligatoria; el `?` es solo por posición y por los unitarios que
+    // construyen a mano, y sin ella el export revienta (no hay «camino de siempre»).
+    private readonly patrimony?: PatrimonyValuationService,
   ) {}
 
   /**
@@ -1541,21 +1564,9 @@ export class InventoryService {
   /** v1.116⟨ids⟩ — la referencia de entrada de una versión para el costo de aportación (`null` ⇒ sin referencia). */
   private async versionReferenceForAlta(card: Card, productType: ProductType, finish: Finish, version: PieceVersion): Promise<number | null> {
     if (!this.decider) return null;
-    const hypo = {
-      id: 'alta-version',
-      folio: 'ALTA',
-      cardId: card.id,
-      card,
-      productType,
-      rawCondition: 'NM',
-      finish,
-      language: version.language,
-      cardProductId: version.stamp?.productId ?? null,
-      listPriceCents: null,
-      sealedProduct: null,
-      gradingCompany: null,
-      gradeValue: null,
-    } as unknown as SaleItem;
+    // Solo raw llega aquí con versión no default (`resolveVersionForAlta` rechaza el resto: `version_raw_only`).
+    if (productType !== 'raw') return null;
+    const hypo = hypotheticalRawSaleItem({ id: 'alta-version', folio: 'ALTA', card, finish, language: version.language, cardProductId: version.stamp?.productId ?? null });
     const batch = await this.decider.loadBatch([hypo]);
     return this.decider.versionReferences(hypo, version, batch).price;
   }
@@ -1929,9 +1940,10 @@ export class InventoryService {
     const stamps = await this.pricing.findStampedProducts(candidates.map((i) => i.cardProductId));
     // v1.116.2⟨ids⟩ (D-IDS-1): las piezas de producto separado (`promo`/`deck_exclusive`) también las decide el cuerpo (⇒ pending).
     const separate = await this.pricing.findSeparateProductIds(candidates.map((i) => i.cardProductId));
-    const versioned = candidates.filter(
+    // `PublishableItem` (carta + precio del producto) ya ES un `SaleItem`: sin cast.
+    const versioned: SaleItem[] = candidates.filter(
       (i) => !isDefaultVersion(pieceVersionOf(i, stamps)) || (i.cardProductId != null && separate.has(i.cardProductId)),
-    ) as unknown as SaleItem[];
+    );
     if (versioned.length === 0) return out;
     if (!this.decider) {
       for (const i of versioned) out.set(i.id, { ok: false, reason: 'no_decider' });
@@ -2554,6 +2566,8 @@ export class InventoryService {
       read: ItemAuditState;
       /** El precio que este `UPDATE` deja escrito. */
       writtenListPriceCents: number | null;
+      /** PT-IDS-2: el idioma que este `UPDATE` deja escrito (la versión de `read` + este idioma = el «después»). */
+      writtenLanguage: CardLanguage;
       /** Claves del cuerpo saneado. */
       fields: string[];
     },
@@ -2619,7 +2633,13 @@ export class InventoryService {
         audited.actor,
         item.id,
         audited.read,
-        { status: 'listed', listPriceCents: audited.writtenListPriceCents },
+        {
+          status: 'listed',
+          listPriceCents: audited.writtenListPriceCents,
+          ...(audited.read.version
+            ? { version: { language: audited.writtenLanguage, cardProductId: audited.read.version.cardProductId } }
+            : {}),
+        },
         audited.fields,
       );
     }
@@ -3117,6 +3137,12 @@ export class InventoryService {
   }
 
   private async updateItemInner(id: string, dto: UpdateItemDto, actor?: { id: string; role: Role }) {
+    // ⛔ PT-IDS-8 / I-7: la liga de una pieza no se cambia por `PATCH` (D-IDS-8). Antes de leer ni escribir nada.
+    if (dto.cardProductId !== undefined) {
+      throw BusinessException.validation('VALIDATION_ERROR', 'cardProductId cannot be changed after capture (I-7)', {
+        field: 'cardProductId',
+      });
+    }
     const current = await this.getItem(id);
     // 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.4): `language` solo sobre `in_stock | listed` (si no, `409 ITEM_NOT_ADJUSTABLE`) y el
     // español solo en raw (`version_raw_only`). La escritura va por el camino GUARDADO (CAS), como el precio.
@@ -3163,8 +3189,9 @@ export class InventoryService {
     // escritura (el plano y el de publicación, v1.51 fase 8) y además alimenta el `resulting` sobre el
     // que corren las guardas: con un solo punto de saneo, ninguno de los tres puede quedarse con el
     // campo colado. Todo lo que sigue lee `patch`, nunca `dto`.
-    const { gradingCompany, ...rest } = dto;
-    const patch: UpdateItemDto =
+    // `cardProductId` ya se rechazó arriba (PT-IDS-8); se separa para que el tipo de `patch` no lo lleve a ninguna escritura.
+    const { gradingCompany, cardProductId: _cardProductId, ...rest } = dto;
+    const patch: Omit<UpdateItemDto, 'cardProductId'> =
       current.productType === 'graded' && gradingCompany !== undefined
         ? { ...rest, gradingCompany }
         : rest;
@@ -3222,10 +3249,16 @@ export class InventoryService {
         const { status: nextStatus, ...fields } = patch;
         const statusChanges = nextStatus !== undefined && nextStatus !== item.status;
         // Lo LEÍDO se fija ANTES de escribir (es el «antes» de la bitácora y la condición del CAS).
-        const read: ItemAuditState = { status: item.status, listPriceCents: item.listPriceCents };
+        const read: ItemAuditState = {
+          status: item.status,
+          listPriceCents: item.listPriceCents,
+          version: { language: item.language, cardProductId: item.cardProductId },
+        };
         const written: ItemAuditState = {
           status: statusChanges ? nextStatus : read.status,
           listPriceCents: patch.listPriceCents !== undefined ? patch.listPriceCents : read.listPriceCents,
+          // PT-IDS-2: `cardProductId` no se escribe por PATCH (I-7, PT-IDS-8); viaja para que la fila diga QUÉ versión.
+          version: { language: patch.language ?? item.language, cardProductId: item.cardProductId },
         };
         const row = await this.guardedItemUpdate(tx, item, statusChanges ? patch : fields, {
           listPriceCents: read.listPriceCents,
@@ -3270,8 +3303,13 @@ export class InventoryService {
         this.claimListed(resulting, patch.listPriceCents, fields, {
           tx,
           actor,
-          read: { status: raw.status, listPriceCents: raw.listPriceCents },
+          read: {
+            status: raw.status,
+            listPriceCents: raw.listPriceCents,
+            version: { language: raw.language, cardProductId: raw.cardProductId },
+          },
           writtenListPriceCents: patch.listPriceCents !== undefined ? patch.listPriceCents : raw.listPriceCents,
+          writtenLanguage: patch.language ?? raw.language,
           fields: patchKeys(patch),
         }),
       VAULT_VERB_TX_OPTIONS,
@@ -3658,7 +3696,7 @@ export class InventoryService {
   private async readGuardedItem(
     tx: Prisma.TransactionClient,
     id: string,
-  ): Promise<GuardedItem & { id: string; locationId: string | null; listPriceCents: number | null }> {
+  ): Promise<GuardedItem & { id: string; locationId: string | null; listPriceCents: number | null; language: CardLanguage; cardProductId: number | null }> {
     const item = await tx.inventoryItem.findUnique({ where: { id } });
     if (!item) throw BusinessException.notFound();
     return item;
@@ -4177,6 +4215,17 @@ export class InventoryService {
    *     tecleó el dueño, solo cuando `manualSaleOf(...).origin = 'product'`. Vacío en otro caso.
    * ⛔ Cero lecturas de diales: ninguna columna se deriva.
    */
+  /**
+   * La llave del override M-30 (compra/venta) de una pieza del export: su `variantKey` raw/graduada (la llave de COLA, que para
+   * raw/graduada ES la de variante; `variantKey`, P-30 H2). Sellado ⇒ `null`: no existe fila M-30 de sellado
+   * (`variant-controls.service.ts` acota el write a raw/graded). Graduada sin slab ⇒ `null`. ⛔ No valúa: el valor es de la puerta.
+   */
+  private exportOverrideKeyOf(it: { cardId: string; productType: ProductType; finish: Finish; rawCondition: string | null; gradingCompany: string | null; gradeValue: string | null }): string | null {
+    if (it.productType === 'sealed') return null;
+    const gradeKey = this.pricing.tryGradeKeyFor(it);
+    return gradeKey == null ? null : variantKey({ cardId: it.cardId, productType: it.productType, gradeKey, finish: it.finish });
+  }
+
   async exportInventoryXlsx(filters: {
     setId?: string;
     productType?: ProductType;
@@ -4205,28 +4254,12 @@ export class InventoryService {
       orderBy: [{ card: { setId: 'asc' } }, { folio: 'asc' }],
     });
 
-    // Referencias de mercado EN LOTE (sin N+1) — misma llave que getReferencesBatch.
-    // ⭐ v1.80.2.2 (API_CONTRACT §M2-SK SK-5, errata «séptimo lector», ancla `M2-SK-5-7`; MONEY) — el
-    // export es un LECTOR DE PATRIMONIO y valúa por la MISMA puerta que los otros seis (holdings,
-    // holdingDetail, custodyValue, `/admin/vaults`, ownedItemRefs, inventoryValue):
-    //  - `valuationKeyFor` decide QUÉ fila: sellado mapeado ⇒ `sealed:tcg:<id>` bajo acabado `normal`
-    //    (la fila de mercado del producto vive ahí, sea cual sea el `finish` de la pieza); sellado SIN
-    //    mapeo ⇒ `null` — ⛔ jamás la fila de COLA `'sealed'`, que puede ser el precio de OTRA caja
-    //    anclada a la misma `Card`; graduada sin identidad de slab ⇒ `null` (v1.53 §4.40.4b).
-    //  - `valuationCentsOf` decide CUÁNTO: el gate del dial (`tcgcsv` solo con el dial encendido,
-    //    `manual` sobrevive, `<= 0` ⇒ nada), el mismo que `/vault/sealed`.
-    // `null` ⇒ la pieza NO entra al lote y sus columnas de mercado/compra salen VACÍAS, que es la verdad.
-    // Antes (`exportGradeKey`, retirado) el sellado sin mapeo salía con la fila legada de otra caja, el
-    // mapeado se buscaba con el `finish` de la pieza y el dial no se aplicaba (ARCHITECTURE §4.50.6 D-SK-4).
-    // Se calcula UNA vez, alineado por índice con `items`.
-    const keys = items.map((it) => this.pricing.valuationKeyFor(it));
-    const refReqs = keys.flatMap((k) => (k ? [k] : []));
-    const refs = refReqs.length
-      ? await this.pricing.getReferencesBatch(refReqs)
-      : new Map<string, PriceInfo>();
-    // El dial del sellado, UNA vez por export y solo si hay sellado que gatear (D-4: `sealedSourceOnFor`,
-    // el mismo cuerpo que los otros seis lectores; por debajo es `loadSealedSpreads()` una vez).
-    const sourceOn = await this.pricing.sealedSourceOnFor(items);
+    // ⭐ v1.80.2.2 (API_CONTRACT §M2-SK SK-5, errata «séptimo lector», ancla `M2-SK-5-7`) / 💰 v1.116.4⟨ids⟩ (`IDS-PAT`,
+    // D-IDS-R; MONEY) — el export es un LECTOR DE PATRIMONIO: «Precio mercado MXN» sale de la puerta única, UNA llamada, la misma
+    // que la bóveda y `inventory-value` (SK-5 para (inglés, sin liga) con el gate del dial del sellado; la versión; promo/Deck
+    // Exclusive ⇒ vacía, D-IDS-S). `pending` ⇒ la columna sale VACÍA, que es la verdad (⛔ jamás la fila de COLA `'sealed'`).
+    if (!this.patrimony) throw new Error('InventoryService: PatrimonyValuationService no inyectada (IDS-PAT): el export no valúa por otro camino.');
+    const values = await this.patrimony.valuePieces(items);
 
     // Overrides M-30 (compra/venta) EN LOTE por la MISMA llave de variante que las referencias
     // (`variantKey`, P-30 H2: prohibida la interpolación a mano). Por lectura no existe fila M-30 con
@@ -4240,14 +4273,10 @@ export class InventoryService {
       ovByKey.set(variantKey(o), o);
     }
 
-    // 💰 v1.116⟨ids⟩ (§IDS.4): la versión de cada pieza y, para las no default, su valor de mercado por versión
-    // (`referenceForPieces`); las de (en, sin liga) no cambian.
+    // 💰 v1.116⟨ids⟩ (§IDS.4): la versión de cada pieza (columnas 19 «Idioma» y 20 «Sello»).
     const exportStamps = items.some((i) => i.cardProductId != null)
       ? await this.pricing.findStampedProducts(items.map((i) => i.cardProductId))
       : new Map<number, StampRef>();
-    const versionMarket = this.decider
-      ? await this.decider.referenceForPieces(items as unknown as SaleItem[])
-      : new Map<string, number | null>();
     const workbook = new ExcelJS.Workbook();
     // Marca visible = 'TCG HUNT' (DESIGN_SYSTEM §17.4: mayúsculas, con espacio; dominio tcghunt.mx).
     // Esto SALE del sistema: es el autor que ve cualquiera en las propiedades del .xlsx, así que va
@@ -4268,16 +4297,13 @@ export class InventoryService {
 
     for (let idx = 0; idx < items.length; idx++) {
       const it = items[idx];
-      // v1.53 (§4.40.4b): sin clave no hay mercado ni override que casar — las columnas salen vacías,
-      // que es la verdad. Antes salían con el valor de un PSA 10.
-      // v1.80.2.2 (SK-5): la llave es la de VALUACIÓN (sellado ⇒ bajo `normal`) y el monto pasa por el
-      // gate de `valuationCentsOf` (dial); la COLUMNA `finish` de abajo sigue siendo la de la pieza.
-      const k = keys[idx];
-      const refKey = k == null ? null : variantKey(k);
-      const market = refKey == null ? undefined : refs.get(refKey);
-      const ov = refKey == null ? undefined : ovByKey.get(refKey);
+      // v1.53 (§4.40.4b): sin clave no hay override que casar (graduada sin slab ⇒ columnas vacías, no un PSA 10). La COLUMNA
+      // `finish` de abajo sigue siendo la de la pieza.
+      const ovKey = this.exportOverrideKeyOf(it);
+      const ov = ovKey == null ? undefined : ovByKey.get(ovKey);
       const version = pieceVersionOf(it, exportStamps);
-      const marketCents = versionMarket.has(it.id) ? (versionMarket.get(it.id) ?? null) : this.pricing.valuationCentsOf(it, market, sourceOn);
+      const value = values.get(it.id);
+      const marketCents = value?.status === 'priced' ? (value.referenceMxnCents ?? null) : null;
       const buyCents = ov?.buyOverrideCents ?? null;
       // H-1 (E5-bis): con `??`, un `listPriceCents = 0` ENMASCARABA el `sellOverrideCents` de la
       // variante y el reporte enseñaba $0 donde el sistema cobra el override. Misma precedencia, con

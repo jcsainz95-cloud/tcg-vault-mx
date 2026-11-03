@@ -10,7 +10,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { VaultService } from '../src/modules/vault/vault.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
-import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { REAL_VALUATION_GATE, realPatrimony } from './helpers/valuation-gate';
 
 /**
  * ⭐ API_CONTRACT §M4-VAULT.3 «Nombre y apellido» + H-1 (v1.79.3) — pruebas 27 y 28 (mitad unidad).
@@ -86,7 +86,7 @@ function buildList(users: any[], pieces: any[]) {
     sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
   const vault = { sealedTab: jest.fn().mockResolvedValue({ groups: [] }) } as unknown as VaultService;
-  return { prisma, svc: new AdminVaultsService(prisma, pricing, vault) };
+  return { prisma, svc: new AdminVaultsService(prisma, vault, realPatrimony(pricing)) };
 }
 
 describe('GET /admin/vaults — `name` = customerDisplayName (prueba 27, mitad unidad)', () => {

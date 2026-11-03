@@ -9,6 +9,7 @@ import { M10View, M10_LIST_DIAL_KEYS } from './M10View';
 import { WISHLIST_DIAL_KEYS } from './sections/WishlistDialsSection';
 import { DIRECT_SHIP_DIAL_KEYS } from './sections/DirectShipSection';
 import { FEATURED_PSA_DIAL_KEYS } from './sections/FeaturedPsaDialsSection';
+import { SPANISH_MARKET_DIAL_KEYS } from './sections/SpanishMarketSection';
 import es from '../../../../../../messages/es.json';
 
 // `@/i18n/navigation` (next-intl) no resuelve bajo vitest; se stubea a un <a> que preserva href.
@@ -340,6 +341,8 @@ describe('M10View · Config y bitácora', () => {
     // v1.113⟨portada⟩ (§DYN.3): los seis de Destacadas y PSA solo en su sección.
     expect(FEATURED_PSA_DIAL_KEYS).toHaveLength(6);
     for (const k of FEATURED_PSA_DIAL_KEYS) expect(M10_LIST_DIAL_KEYS).not.toContain(k);
+    // v1.116⟨ids⟩ (§IDS.7): el dial del español solo en su sección.
+    for (const k of SPANISH_MARKET_DIAL_KEYS) expect(M10_LIST_DIAL_KEYS).not.toContain(k);
   });
 
   it('REL-S7 · ningún dial se pinta dos veces: los de la lista de deseos solo en su sección, los de accesorios fuera de M10', async () => {

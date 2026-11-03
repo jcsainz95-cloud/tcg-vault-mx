@@ -8,6 +8,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { ivaDialsStub } from './helpers/iva-dials';
+import { withPatrimony } from './helpers/valuation-gate';
 
 /**
  * P-31 — export de inventario a Excel (GET /admin/inventory/export.xlsx):
@@ -19,6 +20,14 @@ import { ivaDialsStub } from './helpers/iva-dials';
  */
 
 const settings = { ...ivaDialsStub(), getNumber: jest.fn(async () => 70) } as unknown as SettingsService;
+
+/**
+ * 💰 v1.116.4⟨ids⟩ (`IDS-PAT`): el export valúa por la PUERTA REAL de patrimonio, construida sobre el MISMO doble de
+ * `PricingService` que la prueba inspecciona (`refBatchItems` lee sus llamadas a `getReferencesBatch`).
+ */
+function exportService(prisma: PrismaService, pricing: PricingService, s: SettingsService = settings): InventoryService {
+  return withPatrimony(new InventoryService(prisma, pricing, s), pricing);
+}
 
 /**
  * Doble de `PricingService` para el export.
@@ -115,7 +124,7 @@ async function loadSheet(buffer: Buffer) {
 describe('InventoryService.exportInventoryXlsx — .xlsx válido y money-safe (P-31)', () => {
   it('genera un ZIP/.xlsx real con la fila de encabezados esperada', async () => {
     const prisma = buildPrisma([ITEM()]);
-    const svc = new InventoryService(prisma as PrismaService, buildPricing(new Map()), settings);
+    const svc = exportService(prisma as PrismaService, buildPricing(new Map()), settings);
     const buffer = await svc.exportInventoryXlsx({});
     // Firma de un archivo ZIP (contenedor OOXML .xlsx): bytes 'P' 'K' (0x50 0x4B).
     expect(buffer[0]).toBe(0x50);
@@ -129,7 +138,7 @@ describe('InventoryService.exportInventoryXlsx — .xlsx válido y money-safe (P
   it('una fila por pieza con los datos de carta/set/estado; sin precio → celda vacía (no 0)', async () => {
     // Item raw SIN costo, SIN precio de venta y SIN referencia de mercado.
     const prisma = buildPrisma([ITEM()]);
-    const svc = new InventoryService(prisma as PrismaService, buildPricing(new Map()), settings);
+    const svc = exportService(prisma as PrismaService, buildPricing(new Map()), settings);
     const ws = await loadSheet(await svc.exportInventoryXlsx({}));
 
     expect(ws.rowCount).toBe(2); // encabezado + 1 pieza
@@ -166,7 +175,7 @@ describe('InventoryService.exportInventoryXlsx — .xlsx válido y money-safe (P
         },
       ],
     );
-    const svc = new InventoryService(prisma as PrismaService, buildPricing(refs), settings);
+    const svc = exportService(prisma as PrismaService, buildPricing(refs), settings);
     const ws = await loadSheet(await svc.exportInventoryXlsx({}));
     const row = ws.getRow(2);
     expect(row.getCell(colIndex('costMxn')).value).toBe(35);
@@ -179,14 +188,14 @@ describe('InventoryService.exportInventoryXlsx — .xlsx válido y money-safe (P
   it('referencia PENDING no se exporta como precio → celda de mercado vacía (money-safe)', async () => {
     const refs = new Map<string, any>([['c1|raw|raw:NM|normal', { status: 'pending' }]]);
     const prisma = buildPrisma([ITEM()]);
-    const svc = new InventoryService(prisma as PrismaService, buildPricing(refs), settings);
+    const svc = exportService(prisma as PrismaService, buildPricing(refs), settings);
     const ws = await loadSheet(await svc.exportInventoryXlsx({}));
     expect(ws.getRow(2).getCell(colIndex('marketMxn')).value == null).toBe(true);
   });
 
   it('respeta el filtro productType y setId (where a la query, ownerType=platform siempre)', async () => {
     const prisma = buildPrisma([ITEM()]);
-    const svc = new InventoryService(prisma as PrismaService, buildPricing(new Map()), settings);
+    const svc = exportService(prisma as PrismaService, buildPricing(new Map()), settings);
     await svc.exportInventoryXlsx({ productType: 'sealed', setId: 'set-9' });
     expect(prisma.__lastFindWhere()).toMatchObject({
       ownerType: 'platform',
@@ -198,7 +207,7 @@ describe('InventoryService.exportInventoryXlsx — .xlsx válido y money-safe (P
   // H7 (deuda saldada, v1.36): antes un `setId` inexistente devolvía export VACÍO en silencio.
   it('H7 · setId inexistente → 400 VALIDATION_ERROR (no export vacío en silencio)', async () => {
     const prisma = buildPrisma([ITEM()], [], ['set-real']); // solo 'set-real' existe
-    const svc = new InventoryService(prisma as PrismaService, buildPricing(new Map()), settings);
+    const svc = exportService(prisma as PrismaService, buildPricing(new Map()), settings);
     await expect(svc.exportInventoryXlsx({ setId: 'set-fantasma' })).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
       status: 400,
@@ -209,7 +218,7 @@ describe('InventoryService.exportInventoryXlsx — .xlsx válido y money-safe (P
 
   it('H7 · setId EXISTENTE aplica el filtro y exporta normal', async () => {
     const prisma = buildPrisma([ITEM()], [], ['set-real']);
-    const svc = new InventoryService(prisma as PrismaService, buildPricing(new Map()), settings);
+    const svc = exportService(prisma as PrismaService, buildPricing(new Map()), settings);
     const ws = await loadSheet(await svc.exportInventoryXlsx({ setId: 'set-real' }));
     expect(ws.rowCount).toBe(2); // encabezado + 1 pieza
     expect(prisma.__lastFindWhere()).toMatchObject({ card: { setId: 'set-real' } });
@@ -220,7 +229,7 @@ describe('InventoryService.exportInventoryXlsx — .xlsx válido y money-safe (P
   // aserción citando un PROJECT.md que tenía mal la marca; queda fijada en el sentido correcto.
   it('workbook.creator = «TCG HUNT» (marca comercial, no el nombre interno «TCG Vault MX»)', async () => {
     const prisma = buildPrisma([ITEM()]);
-    const svc = new InventoryService(prisma as PrismaService, buildPricing(new Map()), settings);
+    const svc = exportService(prisma as PrismaService, buildPricing(new Map()), settings);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load((await svc.exportInventoryXlsx({})) as unknown as ExcelJS.Buffer);
     expect(wb.creator).toBe('TCG HUNT');
@@ -253,7 +262,7 @@ describe('InventoryService.exportInventoryXlsx — .xlsx válido y money-safe (P
         card: CARD({ name: 'ETB' }),
       }),
     ]);
-    const svc = new InventoryService(prisma as PrismaService, buildPricing(refs), settings);
+    const svc = exportService(prisma as PrismaService, buildPricing(refs), settings);
     const ws = await loadSheet(await svc.exportInventoryXlsx({}));
     // graded en fila 2.
     expect(ws.getRow(2).getCell(colIndex('condition')).value).toBe('PSA 10');
@@ -303,7 +312,7 @@ describe('VK-8 · export .xlsx = séptimo lector de SK-5 (v1.80.2.2, MONEY)', ()
       ['c3|sealed|sealed|normal', { status: 'priced', referenceMxnCents: 80000, source: 'manual' }],
     ]);
     const pricing = buildPricing(refs);
-    const svc = new InventoryService(buildPrisma([SEALED_UNMAPPED()]) as PrismaService, pricing, settings);
+    const svc = exportService(buildPrisma([SEALED_UNMAPPED()]) as PrismaService, pricing, settings);
     const ws = await loadSheet(await svc.exportInventoryXlsx({}));
     const row = ws.getRow(2);
     expect(row.getCell(colIndex('marketMxn')).value == null).toBe(true); // hoy: 800 (la caja de otro)
@@ -316,7 +325,7 @@ describe('VK-8 · export .xlsx = séptimo lector de SK-5 (v1.80.2.2, MONEY)', ()
       ['c2|sealed|sealed:tcg:999|normal', { status: 'priced', referenceMxnCents: 250000, source: 'manual' }],
     ]);
     const pricing = buildPricing(refs, false); // dial apagado: `manual` sobrevive igual
-    const svc = new InventoryService(
+    const svc = exportService(
       buildPrisma([SEALED_MAPPED({ finish: 'holofoil' })]) as PrismaService,
       pricing,
       settings,
@@ -341,7 +350,7 @@ describe('VK-8 · export .xlsx = séptimo lector de SK-5 (v1.80.2.2, MONEY)', ()
         ['c2|sealed|sealed:tcg:999|normal', { status: 'priced', referenceMxnCents: 250000, source }],
       ]);
       const pricing = buildPricing(refs, sourceOn);
-      const svc = new InventoryService(buildPrisma([SEALED_MAPPED()]) as PrismaService, pricing, settings);
+      const svc = exportService(buildPrisma([SEALED_MAPPED()]) as PrismaService, pricing, settings);
       const ws = await loadSheet(await svc.exportInventoryXlsx({}));
       const cell = ws.getRow(2).getCell(colIndex('marketMxn')).value;
       if (expected == null) expect(cell == null).toBe(true);
@@ -385,7 +394,7 @@ describe('💰 SP-20 — export `.xlsx`: col 17 «antes de IVA» y col 18 «del 
 
   async function exportRows() {
     getIvaDials.mockClear();
-    const svc = new InventoryService(buildPrisma(rows, overrides) as PrismaService, buildPricing(new Map()), dialSettings);
+    const svc = exportService(buildPrisma(rows, overrides) as PrismaService, buildPricing(new Map()), dialSettings);
     const ws = await loadSheet(await svc.exportInventoryXlsx({}));
     const out: Record<string, [unknown, unknown]> = {};
     for (let r = 2; r <= ws.rowCount; r++) {

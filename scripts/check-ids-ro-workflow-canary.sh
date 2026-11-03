@@ -103,6 +103,41 @@ shell_en_sql()     { printf '\\! env\n' >> "$(SQ "$1")"; }
 copy_a_fichero()   { printf '\\copy (SELECT 1) TO /tmp/x\n' >> "$(SQ "$1")"; }
 otro_include()     { py "$(SB "$1")" "\\ir ids-d1-q1.sql" "\\ir ids-d1-q1.sql
 \\ir ../geo/otro.sql"; }
+q1c_sin_cliente()  { py "$(SQ "$1")" "WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "WHERE i.status <> 'withdrawn'"; }
+q1c_plataforma()   { py "$(SQ "$1")" "WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "WHERE i.\"ownerType\" = 'platform' AND i.status <> 'withdrawn'"; }
+q1c_sin_estado()   { py "$(SQ "$1")" "WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "WHERE i.\"ownerType\" = 'customer'"; }
+q1c_id_cliente()   { py "$(SQ "$1")" 'SELECT cp.kind, count(*) AS piezas,' 'SELECT i."ownerUserId", cp.kind, count(*) AS piezas,'; }
+q1cd_sin_cliente() { py "$(SQ "$1")" "  WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "  WHERE i.status <> 'withdrawn'"; }
+q1cd_id_cliente()  { py "$(SQ "$1")" 'SELECT l.kind, l."tcgplayerProductId",' 'SELECT l."ownerUserId", l.kind, l."tcgplayerProductId",'; }
+q1cd_id_pieza()    { py "$(SQ "$1")" 'SELECT l.kind, l."tcgplayerProductId",' 'SELECT l.id, l.kind, l."tcgplayerProductId",'; }
+k_uno()            { py "$(S "$1")" "K_ANON = 3" "K_ANON = 1"; }
+k_sin_anonimizar() { py "$(S "$1")" 'det = anonimizar(rows["Q1c-detalle"])' 'det = rows["Q1c-detalle"]'; }
+k_sin_clientes_q() { py "$(S "$1")" '_n(r, "clientes_con_q") < K_ANON or ' ''; }
+k_sin_columna()    { py "$(SQ "$1")" '       count(DISTINCT l."ownerUserId") FILTER (WHERE o.q_cents IS NOT NULL) AS clientes_con_q,
+' ''; }
+k_min_en_publicas() { py "$(S "$1")" '"clientes_con_q", "q_suma_cents")' '"clientes_con_q", "q_suma_cents", "q_min_cents", "q_max_cents")'; }
+k_max_ref_tabla()  { py "$(S "$1")" 'print(table(det[:tope], PUBLICAS))' 'print(table(det[:tope], PUBLICAS + ("ref_base_max_cents",)))'; }
+k_sin_proyeccion() { py "$(S "$1")" 'r = {c: r.get(c) for c in PUBLICAS}' 'r = dict(r)'; }
+k_otras_columnas() { py "$(S "$1")" 'print(table(det[:tope], PUBLICAS))' 'print(table(det[:tope], list(det[0]) if det else []))'; }
+ssl_prefer()       { py "$(S "$1")" 'ssl = q.get("sslmode", "require")' 'ssl = q.get("sslmode", "prefer")'; }
+ssl_ok_debil()     { py "$(S "$1")" 'SSL_OK = ("require", "verify-ca", "verify-full")' 'SSL_OK = ("prefer", "require", "verify-ca", "verify-full")'; }
+ssl_sin_corte()    { py "$(S "$1")" 'if ssl not in SSL_OK and u.hostname not in LOOPBACK:' 'if False:'; }
+ssl_loopback_mas() { py "$(S "$1")" 'LOOPBACK = ("localhost", "127.0.0.1", "::1")' 'LOOPBACK = ("localhost", "127.0.0.1", "::1", "proxy.rlwy.net")'; }
+ssl_de_la_url()    { py "$(S "$1")" '"PGSSLMODE": ssl,' '"PGSSLMODE": q.get("sslmode", "require"),'; }
+q1d_sin_no_nulo()  { py "$(SQ "$1")" 'WHERE i."cardProductId" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2' 'WHERE NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2'; }
+q1d_exists()       { py "$(SQ "$1")" '  AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2' '  AND EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2'; }
+q1d_id_pieza()     { py "$(SQ "$1")" 'SELECT i."ownerType", i.status, count(*) AS piezas' 'SELECT i.id, i."ownerType", i.status, count(*) AS piezas'; }
+q1d_folio()        { py "$(SQ "$1")" 'SELECT i."ownerType", i.status, count(*) AS piezas' 'SELECT i.folio, i."ownerType", i.status, count(*) AS piezas'; }
+q1d_dueno()        { py "$(SQ "$1")" 'SELECT i."ownerType", i.status, count(*) AS piezas' 'SELECT i."ownerUserId", i."ownerType", i.status, count(*) AS piezas'; }
+q1d_dinero()       { py "$(SQ "$1")" 'SELECT i."ownerType", i.status, count(*) AS piezas' 'SELECT i."ownerType", i.status, sum(i."listPriceCents") AS valor, count(*) AS piezas'; }
+q1d_borrada()      { python3 -I -c "import sys;p=sys.argv[1];s=open(p).read();i=s.index(\"\\\\echo '== Q1d\");open(p,'w').write(s[:i])" "$(SQ "$1")"; }
+q1d_no_exigida()   { py "$(S "$1")" ', "Q1c-detalle", "Q1d"):' ', "Q1c-detalle"):'; }
+q1c_borrada()      { python3 -I -c "import sys,re;p=sys.argv[1];s=open(p).read();i=s.index(\"\\\\echo '== Q1c\");open(p,'w').write(s[:i])" "$(SQ "$1")"; }
 
 echo "Canario G-IDS-RO (check-ids-ro-workflow.sh):"
 caso VERDE "prístino"                                        -  nada
@@ -138,6 +173,35 @@ caso ROJO  "se lee antes de la prueba"                       R  prueba_despues
 caso ROJO  "\\! en el SQL"                                   R  shell_en_sql
 caso ROJO  "\\copy a fichero en el SQL"                      R  copy_a_fichero
 caso ROJO  "incluye otro fichero"                            R  otro_include
+caso ROJO  "Q1c deja de filtrar por cliente"                 Q  q1c_sin_cliente
+caso ROJO  "Q1c mide plataforma en vez de clientes"          Q  q1c_plataforma
+caso ROJO  "Q1c sin el filtro de portafolio (withdrawn)"     Q  q1c_sin_estado
+caso ROJO  "Q1c saca el id del cliente"                      Q  q1c_id_cliente
+caso ROJO  "Q1c borrada"                                     Q  q1c_borrada
+caso ROJO  "Q1c-detalle deja de filtrar por cliente"         Q  q1cd_sin_cliente
+caso ROJO  "Q1c-detalle saca el id del cliente"              Q  q1cd_id_cliente
+caso ROJO  "Q1c-detalle saca el id de la pieza"              Q  q1cd_id_pieza
+caso ROJO  "Q1d sin el filtro de no nulo (M-95c)"            Q  q1d_sin_no_nulo
+caso ROJO  "Q1d cuenta las que SÍ tienen producto"           Q  q1d_exists
+caso ROJO  "Q1d saca el id de la pieza"                      Q  q1d_id_pieza
+caso ROJO  "Q1d saca el folio"                               Q  q1d_folio
+caso ROJO  "Q1d saca el id del dueño"                        Q  q1d_dueno
+caso ROJO  "Q1d saca dinero"                                 Q  q1d_dinero
+caso ROJO  "Q1d borrada"                                     Q  q1d_borrada
+caso ROJO  "el botón no exige la sección Q1d"                Q  q1d_no_exigida
+caso ROJO  "umbral de anonimato K_ANON = 1 (PT-IDS-6)"       K  k_uno
+caso ROJO  "Q1c-detalle al resumen sin anonimizar"           K  k_sin_anonimizar
+caso ROJO  "anonimizar no mira clientes con Q"               K  k_sin_clientes_q
+caso ROJO  "el SQL deja de dar clientes_con_q"               K  k_sin_columna
+caso ROJO  "mín/máx de Q vuelven a PUBLICAS"                 K  k_min_en_publicas
+caso ROJO  "la tabla añade el máx de la referencia"          K  k_max_ref_tabla
+caso ROJO  "anonimizar deja pasar todas las columnas"        K  k_sin_proyeccion
+caso ROJO  "el detalle se imprime con otras columnas"        K  k_otras_columnas
+caso ROJO  "sslmode por defecto prefer (PT-IDS-7)"           S  ssl_prefer
+caso ROJO  "prefer admitido como TLS suficiente"             S  ssl_ok_debil
+caso ROJO  "un sslmode débil no aborta"                      S  ssl_sin_corte
+caso ROJO  "un host remoto tratado como loopback"            S  ssl_loopback_mas
+caso ROJO  "PGSSLMODE sale de la URL sin validar"            S  ssl_de_la_url
 
 TOTAL=$((PASADAS+FALLOS))
 if [ "$FALLOS" -ne 0 ]; then echo "canario G-IDS-RO: ROJO — $FALLOS de $TOTAL casos no se comportan"; exit 1; fi

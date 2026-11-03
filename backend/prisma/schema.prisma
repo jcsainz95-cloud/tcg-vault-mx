@@ -1062,6 +1062,8 @@ model CardProduct {
   updatedAt          DateTime        @updatedAt
 
   priceReferences PriceReference[]
+  // v1.116.5⟨ids⟩ (M-95c): las piezas de esta versión (FK Restrict: un producto con piezas no se borra).
+  inventoryItems  InventoryItem[]
 
   @@index([cardId])
   @@index([cardId, kind])
@@ -1180,7 +1182,10 @@ model InventoryItem {
   // M1; (c) la corrección a mano de `PATCH /admin/inventory/items/:id` (criterio 160). El BACKFILL de
   // M-46 la copia SOLO por la FK `@unique` `sourceSellRequestItemId` — copiar por llave única NO es
   // adivinar por heurística, y por eso no viola el criterio 160.
+  // v1.116.5⟨ids⟩ (M-95c, §IDS.1, D-IDS-V, PT-IDS-3): FK → `CardProduct.tcgplayerProductId`, RESTRICT/RESTRICT (un id colgante
+  // se vendería como (idioma, sin liga) con la referencia de la base). I-7: no se reescribe tras el alta.
   cardProductId           Int?
+  cardProduct             CardProduct?     @relation(fields: [cardProductId], references: [tcgplayerProductId], onDelete: Restrict, onUpdate: Restrict)
   // v1.19-sealed-tcgcsv (M-23): mapeo CURADO del item SELLADO al producto de TCGplayer/TCGCSV
   // (ARCHITECTURE §4.19c). Se fijan JUNTOS (ambos null = no mapeado; ambos poblados = mapeado);
   // solo aplican a productType='sealed' — regla de APLICACIÓN, no constraint de BD. El groupId
@@ -1245,6 +1250,8 @@ model InventoryItem {
   // v1.19-sealed-tcgcsv (M-23): sirve la cola de NO-mapeados (sealed AND productId IS NULL)
   // y el DISTINCT tcgplayerGroupId del ingest sin barrer la tabla. ARCHITECTURE §11.
   @@index([tcgplayerProductId])
+  // v1.116.5⟨ids⟩ (M-95c): el índice de la FK de `cardProductId` (sirve la comprobación del `RESTRICT` al borrar un producto).
+  @@index([cardProductId])
   // v1.23-sealed-sales (M-28): sirve el grid público del sellado (`productType='sealed' AND
   // status='listed'`) y la agregación de la pestaña «Sellado» sin barrer la tabla. ARCHITECTURE §4.23i.
   @@index([productType, status])

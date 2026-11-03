@@ -5,13 +5,20 @@
 #
 #   IDS_RO_DATABASE_URL=… scripts/ids/medir-q1-produccion.sh
 #
-# Corre scripts/ids/ids-q1-boton.sql (BEGIN TRANSACTION READ ONLY → prueba de que una escritura falla → rol → Q1/Q1b →
-# ROLLBACK). Al resumen del run solo van cifras: la tabla Q1 y, si promo/deck_exclusive > 0, la lista Q1b (sin datos
-# personales: kind, ids de catálogo, nombre de producto/carta, acabado, conteos, precios).
+# Corre scripts/ids/ids-q1-boton.sql (BEGIN TRANSACTION READ ONLY → prueba de que una escritura falla → rol → Q1/Q1b/Q1c/Q1d →
+# ROLLBACK). Al resumen del run solo van cifras: la tabla Q1, si promo/deck_exclusive > 0 la lista Q1b, y Q1c (piezas de
+# clientes en bóveda con promo/deck_exclusive, solo agregados: kind, estado, conteos). Q1b sin datos
+# personales: kind, ids de catálogo, nombre de producto/carta, acabado, conteos, precios. Q1d (M-95c): piezas con producto
+# inexistente, solo conteos por clase de dueño y estado; su lista por pieza va solo a la consola de Railway.
 # La URL viene SOLO del entorno, nunca de un argumento; nunca se imprime ni va en la línea de órdenes de psql (se pasa
 # por PGHOST/PGUSER/PGPASSWORD…). En GitHub Actions se enmascaran antes de cualquier salida la URL entera, la
 # contraseña, el usuario, el host y el puerto. El stderr de psql NO se vuelca al log (un fallo de conexión trae
 # host e IP): se clasifica.
+# TLS (PT-IDS-7): fuera de loopback exige sslmode require/verify-ca/verify-full (por defecto `require`); un modo más débil
+# (disable/allow/prefer) o desconocido ⇒ rc 1 sin conectar. Loopback (la base de CI) no cruza red: ahí vale cualquiera.
+# Anonimato (PT-IDS-6): el resumen de un repo público es público. En Q1c-detalle solo salen conteos y Σ de Q y de la
+# referencia (nunca mín/máx: con 3 piezas, Σ − mín − máx daría la tercera); Σ solo si la respaldan ≥ K_ANON clientes
+# distintos y ≥ K_ANON piezas; si no, «<3, oculto». La fila entera (con mín/máx): consola de Railway, ids-d1-produccion.sql.
 # Salida: 0 medido (Q1 sea 0 o no: decidir es del dueño) · 1 error / la prueba de solo lectura no se cumplió.
 # Runbook: docs/DEVOPS_NOTES.md §108.5.
 set -uo pipefail
@@ -59,13 +66,18 @@ if not u.hostname:
 if u.hostname.endswith(".railway.internal"):
     print("ERR=interna"); raise SystemExit
 q = dict(urllib.parse.parse_qsl(u.query))
+SSL_OK = ("require", "verify-ca", "verify-full")
+LOOPBACK = ("localhost", "127.0.0.1", "::1")
+ssl = q.get("sslmode", "require")
+if ssl not in SSL_OK and u.hostname not in LOOPBACK:
+    print("ERR=ssl"); raise SystemExit
 kv = {
     "PGHOST": u.hostname,
     "PGPORT": str(u.port or 5432),
     "PGUSER": urllib.parse.unquote(u.username or ""),
     "PGPASSWORD": urllib.parse.unquote(u.password or ""),
     "PGDATABASE": urllib.parse.unquote(u.path.lstrip("/")) or "postgres",
-    "PGSSLMODE": q.get("sslmode", "prefer"),
+    "PGSSLMODE": ssl,
     "PGCONNECT_TIMEOUT": "15",
     "PGAPPNAME": "ids-q1-boton",
 }
@@ -77,6 +89,7 @@ PY
 case "$pgenv" in
   ERR=esquema*) echo "::error title=El secreto no es una URL de Postgres::Debe empezar por postgresql:// (§108.5)."; exit 1 ;;
   ERR=host*)    echo "::error::El secreto no trae host."; exit 1 ;;
+  ERR=ssl*)     echo "::error title=Conexión sin TLS obligatorio::La URL pide un sslmode más débil que require (disable/allow/prefer o desconocido). Nada se leyó. Quita ese parámetro o usa ?sslmode=require (§108.5)."; exit 1 ;;
   ERR=interna*) echo "::error title=Copiaste la URL interna::Esa URL es de la red interna de Railway (*.railway.internal), inalcanzable desde GitHub. Usa la pública (§108.5)."; exit 1 ;;
   ERR=$'\n'*) ;;
   *) echo "::error::No se pudo leer el secreto como URL."; exit 1 ;;
@@ -131,7 +144,7 @@ for line in os.environ["SALIDA"].splitlines(keepends=True):
     elif cur:
         secs[cur] += line
 rows = {k: list(csv.DictReader(io.StringIO(v))) for k, v in secs.items()}
-for k in ("ROL", "Q1", "Q1b"):
+for k in ("ROL", "Q1", "Q1b", "Q1c", "Q1c-detalle", "Q1d"):
     if k not in rows:
         print(f"### D-IDS-1 · Q1: NO concluyente\n\nFalta la sección {k} en la salida.")
         sys.exit(3)
@@ -139,11 +152,38 @@ rol = rows["ROL"][0]
 def money(c):
     if c in (None, ""): return "—"
     c = int(c); return f"MX${c // 100:,}.{c % 100:02d}"
+# PT-IDS-6: umbral de anonimato del resumen PÚBLICO (G-IDS-RO [K]). Una cifra respaldada por < K_ANON clientes o piezas
+# es lo que pagó (o lo que vale lo que tiene) una persona concreta: no se publica. No hay totales de dinero entre filas,
+# así que una celda oculta no se recupera restando. Y la fila sale proyectada a PUBLICAS (sin mín/máx: con Σ, mín y máx
+# de 3 piezas se despeja la tercera).
+K_ANON = 3
+PUBLICAS = ("kind", "tcgplayerProductId", "producto", "finish", "productType", "piezas", "clientes", "con_ref_base",
+            "clientes_con_ref", "ref_base_suma_cents", "sin_origen", "clientes_con_q", "q_suma_cents")
+OCULTO = f"<{K_ANON}, oculto"
+# Q1d: columnas que el resumen publica (solo conteos; la proyección del SQL la vigila G-IDS-RO [Q]).
+Q1D_COLS = ("ownerType", "status", "piezas", "productos_inexistentes")
+def _n(r, c):
+    try: return int(r.get(c) or 0)
+    except ValueError: return 0  # falla cerrado: sin el conteo, se oculta
+def anonimizar(rs):
+    out = []
+    for r in rs:
+        r = {c: r.get(c) for c in PUBLICAS}
+        if _n(r, "clientes_con_ref") < K_ANON or _n(r, "con_ref_base") < K_ANON:
+            r["ref_base_suma_cents"] = OCULTO
+        if _n(r, "clientes_con_q") < K_ANON or _n(r, "piezas") - _n(r, "sin_origen") < K_ANON:
+            r["q_suma_cents"] = OCULTO
+        out.append(r)
+    return out
 def cell(k, v):
+    if v == OCULTO: return v
     if k.endswith("_cents"): return money(v)
     return (v or "—").replace("|", "\\|").replace("\n", " ")
 NOMBRE = {"precio_min_cents": "precio mín.", "precio_max_cents": "precio máx.", "tcgplayerProductId": "producto TCGplayer",
-          "con_precio_por_pieza": "con precio por pieza"}
+          "con_precio_por_pieza": "con precio por pieza", "con_caso_por_reponer": "con caso «Por reponer» abierto", "en_retiro_activo": "en retiro activo",
+          "con_ref_base": "con ref. base", "ref_base_suma_cents": "ref. base Σ",
+          "sin_origen": "sin origen", "q_suma_cents": "Q Σ", "productType": "tipo", "clientes_con_ref": "clientes con ref.", "clientes_con_q": "clientes con Q",
+          "ownerType": "dueño (clase)", "status": "estado", "productos_inexistentes": "productos inexistentes"}
 def table(rs, cols):
     out = ["| " + " | ".join(NOMBRE.get(c, c) for c in cols) + " |", "|" + "---|" * len(cols)]
     out += ["| " + " | ".join(cell(c, r.get(c)) for c in cols) + " |" for r in rs]
@@ -174,7 +214,39 @@ else:
                              "publicadas", "con_precio_por_pieza", "precio_min_cents", "precio_max_cents"]))
     if len(q1b) > tope:
         print(f"\n_…y {len(q1b) - tope} filas más (tope del resumen {tope})._")
-print(f"::notice title=D-IDS-1 Q1::promo+deck_exclusive = {promo} (total {total})", file=sys.stdout)
+print()
+# Q1c (H-Q1): piezas de CLIENTES en bóveda que el «falla cerrado» deja sin valor. Solo agregados.
+q1c = rows["Q1c"]
+clientes_promo = sum(int(r["piezas"]) for r in q1c)
+print(f"**Q1c — piezas de clientes en bóveda con producto promo/deck_exclusive = {clientes_promo}**\n")
+if clientes_promo == 0:
+    print("D-IDS-S no cambia nada visible: ninguna pieza de cliente queda «Precio pendiente» en bóveda ni baja de custody-value.")
+else:
+    print("Al desplegar §IDS (D-IDS-S) esas piezas pasan a «Precio pendiente» en la bóveda del cliente y bajan del valor de "
+          "custodia; en reposición M = null ⇒ R = Q (sin origen ⇒ no_reference). **Decide el dueño** con esta tabla.\n")
+    print(table(q1c, ["kind", "piezas", "clientes", "con_caso_por_reponer", "en_retiro_activo"]))
+    print("\n**Q1c por producto y acabado** (ref. base: MXN almacenado de la carta base, sin FX viva — aproximación; "
+          "Q: lo cobrado en su origen):\n")
+    print(f"_Privacidad (PT-IDS-6): este resumen es público. Solo conteos y Σ; Σ solo con ≥ {K_ANON} clientes y ≥ {K_ANON} piezas "
+          f"detrás; si no, «{OCULTO}». Mínimo, máximo y la fila completa: consola de Railway con `scripts/ids/ids-d1-produccion.sql` (§108.5)._\n")
+    det = anonimizar(rows["Q1c-detalle"]); tope = 200
+    print(table(det[:tope], PUBLICAS))
+    if len(det) > tope:
+        print(f"\n_…y {len(det) - tope} filas más (tope del resumen {tope})._")
+print()
+# Q1d (§IDS.9 v1.116.5, M-95c): piezas con `cardProductId` que no existe en CardProduct. Solo conteos por clase de dueño y
+# estado (sin dinero, sin ids). La lista por pieza: consola de Railway («Q1d-lista» de ids-d1-produccion.sql).
+q1d = rows["Q1d"]
+huerfanas = sum(int(r["piezas"]) for r in q1d)
+print(f"**Q1d — piezas cuyo producto no existe en el catálogo = {huerfanas}**\n")
+if huerfanas == 0:
+    print("M-95c entra: ninguna pieza apunta a un producto inexistente (la llave foránea se puede crear).")
+else:
+    print("Con alguna pieza así, la migración M-95c **aborta** al desplegar (no se crea la llave foránea). **Decide el dueño** "
+          "pieza por pieza; no hay arreglo automático. La lista (id interno de pieza, folio, estado) no se publica aquí: "
+          "consola de Railway con `scripts/ids/ids-d1-produccion.sql`, sección «Q1d-lista» (§108.5).\n")
+    print(table(q1d, Q1D_COLS))
+print(f"::notice title=D-IDS-1 Q1::promo+deck_exclusive = {promo} (total {total}) · Q1c clientes = {clientes_promo} · Q1d huérfanas = {huerfanas}", file=sys.stdout)
 PY
 prc=$?
 [ "$prc" -eq 0 ] || { echo "::error title=D-IDS-1 · Q1 no concluyente::La salida no traía las secciones esperadas o no se pudo escribir el resumen (rc $prc)."; exit 1; }

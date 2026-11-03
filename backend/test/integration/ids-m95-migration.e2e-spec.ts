@@ -125,6 +125,13 @@ describe('IDS-B1 — M-95 es aditiva: lo existente no cambia (criterio 512, I-1)
           }
 
           // --- estado ANTERIOR: la reversa de la cabecera ---
+          // Su precondición (cabecera de M-95b): sin productos `stamped`. Antes de M-95 no podía haberlos, pero esta BD sí los
+          // tiene: el seed E2E trae uno (`E2E_IDS`) y otras suites crean los suyos. Se retiran DENTRO de esta transacción (se
+          // deshace al final); sin esto, re-aplicar M-95b choca con su propio CHECK sobre filas que la reversa dejó sin tipo.
+          // v1.116.5 (M-95c, FK Restrict): las piezas de esos productos los sueltan PRIMERO (antes de M-95 tampoco existían).
+          await tx.inventoryItem.updateMany({ where: { cardProduct: { kind: 'stamped' } }, data: { cardProductId: null } });
+          await tx.priceReference.deleteMany({ where: { cardProduct: { kind: 'stamped' } } });
+          await tx.cardProduct.deleteMany({ where: { kind: 'stamped' } });
           for (const s of reversal(M95B)) await tx.$executeRawUnsafe(s);
           const cols = await tx.$queryRaw<{ n: bigint }[]>`
             SELECT count(*)::bigint AS n FROM information_schema.columns

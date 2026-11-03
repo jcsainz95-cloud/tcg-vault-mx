@@ -295,11 +295,17 @@ describe('WSH-T43 — pagar la promo / el exclusivo de deck / una graded NO quit
   const cases: Case[] = [
     { name: 'raw holofoil de la PROMO', piece: async (cardId) => w.piece(cardId, { finish: 'holofoil', cardProductId: await cardProduct(cardId, 'promo'), listCents: 90000 }), stays: true },
     { name: 'raw holofoil del EXCLUSIVO DE DECK', piece: async (cardId) => w.piece(cardId, { finish: 'holofoil', cardProductId: await cardProduct(cardId, 'deck_exclusive'), listCents: 90000 }), stays: true },
-    { name: 'raw holofoil con `cardProductId` SIN fila de CardProduct', piece: (cardId) => w.piece(cardId, { finish: 'holofoil', cardProductId: uniqueTcg(), listCents: 90000 }), stays: true },
     { name: 'GRADED de la carta', piece: (cardId) => w.piece(cardId, { productType: 'graded', rawCondition: null, gradingCompany: 'PSA', gradeValue: '10', finish: 'holofoil', listCents: 90000 } as never), stays: true },
     { name: 'raw holofoil de SET (`cardProductId` nulo)', piece: (cardId) => w.piece(cardId, { finish: 'holofoil', cardProductId: null, listCents: 90000 }), stays: false },
     { name: 'raw holofoil de SET (`set_base`)', piece: async (cardId) => w.piece(cardId, { finish: 'holofoil', cardProductId: await cardProduct(cardId, 'set_base'), listCents: 90000 }), stays: false },
   ];
+
+  // v1.116.5⟨ids⟩ (M-95c, PT-IDS-3): el caso «raw holofoil con `cardProductId` SIN fila de CardProduct» ya no puede existir — la FK
+  // Restrict rechaza la pieza. Se mide eso en vez del deseo.
+  it('raw holofoil con `cardProductId` SIN fila de CardProduct ⇒ la BD rechaza la pieza (M-95c, FK Restrict)', async () => {
+    const card = await w.card({ finishes: ['normal', 'holofoil'] });
+    await expect(w.piece(card.id, { finish: 'holofoil', cardProductId: uniqueTcg(), listCents: 90000 })).rejects.toThrow(/InventoryItem_cardProductId_fkey/);
+  });
 
   for (const c of cases) {
     it(`${c.name} ⇒ el deseo (C, holofoil) ${c.stays ? 'SIGUE' : 'DESAPARECE'}`, async () => {

@@ -131,6 +131,46 @@ describe('VersionPills · ficha (IDS-UX.8)', () => {
 });
 
 describe('PillToggleGroup · captura admin (IDS-UX.2)', () => {
+  it('IDS-F3 peor caso: sin liga (dos acabados) + 6 filas de liga ⇒ 7 filas, 14 radios en el orden del servidor, 7 rótulos distintos (EN)', () => {
+    const L = { type: 'prize_pack' as const, label: 'Left Stamp', productId: 650001 };
+    const R = { type: 'prize_pack' as const, label: 'Right Stamp', productId: 650002 };
+    const C = { type: 'prize_pack' as const, label: 'Cosmos Holo', productId: 650003 };
+    const LG = { type: 'league' as const, label: null, productId: 650004 };
+    const CH = { type: 'championship' as const, label: null, productId: 650005 };
+    const ST = { type: 'staff' as const, label: null, productId: 650006 };
+    const rows: [NonNullable<VersionOptionDTO['version']['stamp']>, VersionOptionDTO['finish'], VersionOptionDTO['finishLabel'], number][] = [
+      [L, 'normal', 'non_holo', 3000],
+      [R, 'normal', 'non_holo', 3100],
+      [LG, 'reverse_holo', 'reverse_holo', 4000],
+      [C, 'holofoil', 'cosmos_holo', 9000],
+      [CH, 'holofoil', 'holo', 12000],
+      [ST, 'holofoil', 'holo', 15000],
+    ];
+    const versions: VersionOptionDTO[] = [
+      opt('en', 'en', 1500, null, null, null),
+      opt('es', 'es', 1130, null, null, null),
+      ...rows.flatMap(([st, f, fl, p]) => [
+        opt(`en.${st.productId}.${f}`, 'en', p, st, f, fl),
+        opt(`es.${st.productId}.${f}`, 'es', Math.round(p * 0.75), st, f, fl),
+      ]),
+    ];
+    renderWithIntl(<Harness versions={versions} initial="en" />, 'en');
+    expect(screen.getByTestId('version-pills')).toHaveAttribute('data-form', '2xN');
+    const radios = within(screen.getByRole('radiogroup')).getAllByRole('radio');
+    expect(radios.map((r) => r.getAttribute('data-option-key'))).toEqual(versions.map((v) => v.optionKey));
+    const labels = screen.getAllByTestId('version-row-label').map((l) => l.textContent);
+    expect(labels).toEqual([
+      'Regular',
+      'Prize Pack · Non-holo · Left Stamp',
+      'Prize Pack · Non-holo · Right Stamp',
+      'League promo · Reverse Holo',
+      'Prize Pack · Cosmos Holo',
+      'Tournament · Holo',
+      'Staff · Holo',
+    ]);
+    expect(radios.filter((r) => r.tabIndex === 0)).toHaveLength(1);
+  });
+
   it('opción apagada: borde discontinuo, motivo en aria-describedby, no se elige al clic', () => {
     let v = 'none';
     renderWithIntl(
@@ -151,6 +191,42 @@ describe('PillToggleGroup · captura admin (IDS-UX.2)', () => {
     fireEvent.click(staff);
     expect(v).toBe('none');
     expect(screen.getByRole('radio', { name: 'Sin liga' }).className).toContain('min-h-11');
+  });
+
+  /*
+   * TL-IDS-7 (techlead sobre `f2cd0e31`): con `value` en una opción APAGADA (o que no existe) ningún botón llevaba
+   * `tabIndex=0` y el grupo no se alcanzaba con teclado. El tab-stop es la opción vigente si está habilitada; si no,
+   * la primera habilitada (la misma que usa `useRovingKeys` como punto de partida de las flechas).
+   */
+  const OPTS = [
+    { value: 'staff', label: 'Staff', disabledReason: 'Sin mercado de esta versión' },
+    { value: 'none', label: 'Sin liga' },
+    { value: 'league', label: 'Liga' },
+  ] as const;
+  const tabStops = () => screen.getAllByRole('radio').filter((r) => r.tabIndex === 0);
+
+  it.each([
+    ['apagada', 'staff'],
+    ['inexistente', 'nope'],
+  ])('TL-IDS-7: `value` %s ⇒ un tab-stop, en la primera habilitada', (_c, value) => {
+    renderWithIntl(<PillToggleGroup label="Versión" value={value} onChange={() => {}} options={OPTS} />);
+    expect(tabStops()).toHaveLength(1);
+    expect(tabStops()[0]).toHaveAccessibleName('Sin liga');
+  });
+
+  it('TL-IDS-7: `value` habilitado ⇒ el tab-stop es ese', () => {
+    renderWithIntl(<PillToggleGroup label="Versión" value="league" onChange={() => {}} options={OPTS} />);
+    expect(tabStops()).toHaveLength(1);
+    expect(tabStops()[0]).toHaveAccessibleName('Liga');
+  });
+});
+
+describe('VersionPills · tab-stop con `selectedKey` que no casa (misma clase que TL-IDS-7)', () => {
+  it('`selectedKey` que no está en `versions` ⇒ un tab-stop, en la primera burbuja', () => {
+    renderWithIntl(<VersionPills versions={STD} selectedKey="es.999.holofoil" onSelect={() => {}} />);
+    const stops = screen.getAllByRole('radio').filter((r) => r.tabIndex === 0);
+    expect(stops).toHaveLength(1);
+    expect(stops[0].getAttribute('data-option-key')).toBe('en');
   });
 });
 

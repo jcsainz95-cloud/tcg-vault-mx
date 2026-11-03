@@ -3,13 +3,15 @@
  *  (2) inglés + sin liga = 0 toques: la pieza viaja SIN `language` ni `cardProductId` (cuerpo de hoy);
  *  (3) sin productos de liga ni candidatas, la fila «Versión» no existe;
  *  (4) una versión sin precio está apagada con su motivo y no se puede crear;
- *  sin campo de precio (I-4); candidata ⇒ `attach`; «Sin liga» y «No holo» (⛔ «Normal»).
+ *  sin campo de precio (I-4); candidata ⇒ `attach`; «Sin liga» y «No holo» (⛔ «Normal»);
+ *  desglose (v1.116.2) con `baseReferenceMxnCents` y `appliedMarketPct` DEL COMBO, sin aritmética del navegador.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import type { CardDTO, CardVersionsResponse, Paginated, VersionComboDTO } from '@/types/contract';
+import { ApiClientError } from '@/lib/api-client';
 import { AddItemModal } from './AddItemModal';
 
 vi.mock('@/lib/role', () => ({
@@ -49,19 +51,22 @@ const combo = (o: Partial<VersionComboDTO>): VersionComboDTO => ({
   language: 'en',
   stamp: null,
   previewPriceCents: 20000,
+  baseReferenceMxnCents: 20000,
+  appliedMarketPct: null,
   unavailableReason: null,
   ...o,
 });
 
 const PLAIN: CardVersionsResponse = {
-  combos: [combo({}), combo({ language: 'es', previewPriceCents: 15000 })],
+  combos: [combo({}), combo({ language: 'es', previewPriceCents: 15000, appliedMarketPct: 75 })],
   candidates: [],
 };
 const STAMPED: CardVersionsResponse = {
   combos: [
     ...PLAIN.combos,
-    combo({ stamp: PP, previewPriceCents: 48000 }),
-    combo({ stamp: PP, language: 'es', previewPriceCents: 36000 }),
+    combo({ stamp: PP, previewPriceCents: 48000, baseReferenceMxnCents: 48000 }),
+    // `P` ≠ base × X a propósito (curva, piso e IVA van después): el navegador no recompone nada.
+    combo({ stamp: PP, language: 'es', previewPriceCents: 36000, baseReferenceMxnCents: 48000, appliedMarketPct: 75 }),
     // Prize Pack también en No holo (acabado que la carta holo no tiene) ⇒ Acabado pasa a burbujas.
     combo({ stamp: PP, finish: 'normal', finishLabel: 'non_holo', previewPriceCents: 9000 }),
     combo({ stamp: PP, finish: 'normal', finishLabel: 'non_holo', language: 'es', previewPriceCents: 6750 }),
@@ -71,16 +76,16 @@ const STAMPED: CardVersionsResponse = {
   candidates: [{ tcgplayerProductId: 777001, name: 'Pikachu (Prize Pack Series Seven)', stamp: { ...PP, productId: 777001 }, finishes: ['normal'] }],
 };
 
-async function open(c: CardDTO, versions: CardVersionsResponse) {
+async function open(c: CardDTO, versions: CardVersionsResponse, locale: 'es' | 'en' = 'es') {
   vi.spyOn(api, 'getLocations').mockResolvedValue([]);
   vi.spyOn(api, 'searchBuylistCards').mockResolvedValue(page([c]));
   vi.spyOn(api, 'getCardVersions').mockResolvedValue(versions);
   vi.spyOn(api, 'getSettings').mockResolvedValue({ spanishMarketPct: 75 } as never);
   const create = vi.spyOn(api, 'createInventoryItem').mockResolvedValue({ id: 'n1', folio: 'INV-1', status: 'listed', acquisitionCostCents: 0 });
-  renderWithProviders(<AddItemModal onClose={() => {}} onToast={() => {}} />, 'es');
+  renderWithProviders(<AddItemModal onClose={() => {}} onToast={() => {}} />, locale);
   const dialog = await screen.findByRole('dialog');
-  fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'x' } });
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
+  fireEvent.change(within(dialog).getByLabelText(locale === 'es' ? 'Buscar carta' : 'Search card'), { target: { value: 'x' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: locale === 'es' ? 'Buscar' : 'Search' }));
   fireEvent.click(await within(dialog).findByRole('option', { name: new RegExp(c.name) }));
   await within(dialog).findByTestId('ids-price');
   return { dialog, create };
@@ -133,7 +138,7 @@ describe('IDS-F1 · captura (AddItemModal)', () => {
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Español' }));
     fireEvent.click(within(dialog).getByRole('radio', { name: 'De liga · Prize Pack' }));
     expect(within(dialog).getByTestId('ids-price')).toHaveTextContent('MX$360.00');
-    expect(within(dialog).getByTestId('ids-breakdown').textContent).toBe('Base: De liga · Prize Pack en inglés · × 75 % (español)');
+    expect(within(dialog).getByTestId('ids-breakdown').textContent).toBe('Base: De liga · Prize Pack en inglés · MX$480.00 × 75 % (español)');
     expect(within(dialog).getByTestId('ids-breakdown').className).toContain('whitespace-nowrap');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Crear item' }));
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
@@ -141,6 +146,35 @@ describe('IDS-F1 · captura (AddItemModal)', () => {
     expect(body.language).toBe('es');
     expect(body.cardProductId).toBe(648703);
     expect(body).not.toHaveProperty('listPriceCents');
+  });
+
+  it('desglose: la base y el % salen del COMBO (no de Ajustes) y el navegador no los multiplica', async () => {
+    const odd: CardVersionsResponse = {
+      combos: [
+        combo({ baseReferenceMxnCents: 31000, previewPriceCents: 39900 }),
+        // Dial del servidor en 80 aunque Ajustes diga 75; P (25 900) ≠ 31 000 × 80 % (24 800): se pinta P tal cual.
+        combo({ language: 'es', baseReferenceMxnCents: 31000, appliedMarketPct: 80, previewPriceCents: 25900 }),
+      ],
+      candidates: [],
+    };
+    const { dialog } = await open(card('c-odd', ['holofoil']), odd);
+    expect(within(dialog).getByTestId('ids-breakdown').textContent).toBe('Base: Sin liga en inglés · MX$310.00 (mercado de TCGplayer)');
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Español' }));
+    expect(within(dialog).getByTestId('ids-price')).toHaveTextContent('MX$259.00');
+    expect(within(dialog).getByTestId('ids-breakdown').textContent).toBe('Base: Sin liga en inglés · MX$310.00 × 80 % (español)');
+    expect(within(dialog).getByTestId('ids-capture').textContent).not.toMatch(/248\.00|75 %/);
+    expect(api.getSettings).not.toHaveBeenCalled();
+  });
+
+  it('desglose sin base del servidor ⇒ no inventa la cifra', async () => {
+    const noBase: CardVersionsResponse = {
+      combos: [combo({ baseReferenceMxnCents: null }), combo({ language: 'es', baseReferenceMxnCents: null, appliedMarketPct: 75, previewPriceCents: 15000 })],
+      candidates: [],
+    };
+    const { dialog } = await open(card('c-nb', ['holofoil']), noBase);
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Español' }));
+    expect(within(dialog).getByTestId('ids-breakdown').textContent).toBe('Base: Sin liga en inglés · × 75 % (español)');
+    expect(within(dialog).getByTestId('ids-breakdown').textContent).not.toMatch(/MX\$/);
   });
 
   it('(4) versión no default sin precio ⇒ no se puede crear', async () => {
@@ -161,5 +195,65 @@ describe('IDS-F1 · captura (AddItemModal)', () => {
     await waitFor(() => expect(attach).toHaveBeenCalledTimes(1));
     expect(attach.mock.calls[0][0]).toBe(777001);
     expect(attach.mock.calls[0][1].id).toBe('c-st');
+  });
+
+  // QA 2026-11-03 (rechazo de §IDS sobre f2cd0e31): `attach` y `GET …/versions` fallaban EN SILENCIO.
+  for (const [label, err, text] of [
+    ['404 NOT_FOUND', new ApiClientError(404, { code: 'NOT_FOUND', message: 'x' }), 'Esa versión ya no está entre las pendientes de ligar.'],
+    ['409 STAMPED_PRODUCT_TAKEN', new ApiClientError(409, { code: 'STAMPED_PRODUCT_TAKEN', message: 'x' }), 'Esa versión ya está ligada a una carta.'],
+    // Petición 9b (IDS-UX.7): el genérico cubre red, 4xx y 5xx: no dice «el servidor no respondió».
+    ['5xx', new ApiClientError(503, { code: 'INTERNAL_ERROR', message: 'x' }), 'No se pudo ligar la versión. Inténtalo de nuevo; si sigue, recarga las versiones.'],
+    ['4xx', new ApiClientError(422, { code: 'VALIDATION_ERROR', message: 'x' }), 'No se pudo ligar la versión. Inténtalo de nuevo; si sigue, recarga las versiones.'],
+    ['red', new TypeError('Failed to fetch'), 'No se pudo ligar la versión. Inténtalo de nuevo; si sigue, recarga las versiones.'],
+  ] as const) {
+    it(`attach falla (${label}) ⇒ aviso en la caja de candidatas y «Recargar versiones» vuelve a pedir las versiones`, async () => {
+      const attach = vi.spyOn(api, 'attachStampedCandidate').mockRejectedValue(err);
+      const { dialog } = await open(card('c-st', ['holofoil']), STAMPED);
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Es esta: Pikachu (Prize Pack Series Seven)' }));
+      await waitFor(() => expect(attach).toHaveBeenCalledTimes(1));
+      const box = within(dialog).getByTestId('ids-candidates');
+      const alert = await within(box).findByRole('alert');
+      expect(alert).toHaveTextContent('No se pudo ligar la versión');
+      expect(alert).toHaveTextContent(text);
+      expect(alert).not.toHaveTextContent('El servidor no respondió');
+      // Petición 9b: aviso en línea (dentro de la caja de candidatas) y el foco en su botón de acción.
+      await waitFor(() => expect(within(alert).getByRole('button', { name: 'Recargar versiones' })).toHaveFocus());
+      const calls = vi.mocked(api.getCardVersions).mock.calls.length;
+      fireEvent.click(within(alert).getByRole('button', { name: 'Recargar versiones' }));
+      await waitFor(() => expect(vi.mocked(api.getCardVersions).mock.calls.length).toBe(calls + 1));
+      await waitFor(() => expect(within(box).queryByRole('alert')).toBeNull());
+    });
+  }
+
+  it('petición 9b · EN: el genérico de ligar la versión dice qué falló y qué hacer', async () => {
+    vi.spyOn(api, 'attachStampedCandidate').mockRejectedValue(new ApiClientError(500, { code: 'INTERNAL_ERROR', message: 'x' }));
+    const { dialog } = await open(card('c-st', ['holofoil']), STAMPED, 'en');
+    fireEvent.click(within(dialog).getByRole('button', { name: /Pikachu \(Prize Pack Series Seven\)/ }));
+    const alert = await within(within(dialog).getByTestId('ids-candidates')).findByRole('alert');
+    expect(alert).toHaveTextContent("Couldn't link the version. Try again; if it keeps failing, reload the versions.");
+    await waitFor(() => expect(within(alert).getByRole('button', { name: 'Reload versions' })).toHaveFocus());
+  });
+
+  it('GET …/versions falla ⇒ aviso con «Reintentar» (no cae en silencio a los controles de siempre)', async () => {
+    const c = card('c-err', ['holofoil']);
+    vi.spyOn(api, 'getLocations').mockResolvedValue([]);
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue(page([c]));
+    const versions = vi
+      .spyOn(api, 'getCardVersions')
+      .mockRejectedValueOnce(new ApiClientError(503, { code: 'INTERNAL_ERROR', message: 'x' }))
+      .mockResolvedValue(PLAIN);
+    renderWithProviders(<AddItemModal onClose={() => {}} onToast={() => {}} />, 'es');
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'x' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
+    fireEvent.click(await within(dialog).findByRole('option', { name: new RegExp(c.name) }));
+    const alert = within(await within(dialog).findByTestId('ids-versions-error')).getByRole('alert');
+    expect(alert).toHaveTextContent('No pudimos cargar las versiones de esta carta');
+    expect(alert).toHaveTextContent('Si la carta es en español o de liga, reintenta antes de darla de alta.');
+    expect(within(dialog).queryByTestId('ids-price')).toBeNull();
+    fireEvent.click(within(alert).getByRole('button', { name: 'Reintentar' }));
+    await within(dialog).findByTestId('ids-price');
+    expect(versions).toHaveBeenCalledTimes(2);
+    expect(within(dialog).queryByTestId('ids-versions-error')).toBeNull();
   });
 });

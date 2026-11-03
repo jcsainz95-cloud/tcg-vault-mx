@@ -109,9 +109,10 @@ export function mockCardVersions(cardId: string, cardFinishes: Finish[], basePri
   const pct = (c: number | null) => (c == null ? null : Math.floor((c * 75 + 50) / 100));
   for (const finish of cardFinishes) {
     const en = basePriceCents;
-    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'en', stamp: null, previewPriceCents: en, unavailableReason: en == null ? 'no_market' : null });
+    // MOCK: `baseReferenceMxnCents` = la referencia antes de X; en el simulador `P` de la inglesa = su referencia.
+    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'en', stamp: null, previewPriceCents: en, baseReferenceMxnCents: en, appliedMarketPct: null, unavailableReason: en == null ? 'no_market' : null });
     const es = pct(en);
-    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'es', stamp: null, previewPriceCents: es, unavailableReason: es == null ? 'no_english_market' : null });
+    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'es', stamp: null, previewPriceCents: es, baseReferenceMxnCents: en, appliedMarketPct: 75, unavailableReason: es == null ? 'no_english_market' : null });
   }
   const stamps: { stamp: StampDTO; finishes: Finish[]; price: number | null }[] = [];
   if (cardId === 'c-pikachu-ir') {
@@ -129,6 +130,8 @@ export function mockCardVersions(cardId: string, cardFinishes: Finish[], basePri
           language,
           stamp,
           previewPriceCents: p,
+          baseReferenceMxnCents: price,
+          appliedMarketPct: language === 'es' ? 75 : null,
           unavailableReason: p == null ? 'no_stamped_market' : null,
         });
       }

@@ -1,4 +1,5 @@
 import {
+  Allow,
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
@@ -158,6 +159,14 @@ export class UpdateItemDto {
   @IsOptional() @IsIn(['in_stock', 'listed']) status?: 'in_stock' | 'listed';
   // v1.116⟨ids⟩ (API_CONTRACT §IDS.4): corrección del idioma de la pieza (solo `in_stock | listed`) ⇒ `manual_price`.
   @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) language?: CardLanguage;
+  /**
+   * ⛔ PT-IDS-8 (pentester, pase `db202174`) — NO es campo del `PATCH` (I-7: `cardProductId` no se reescribe tras el alta,
+   * D-IDS-8). Se declara SOLO para poder RECHAZARLO: sin `@Allow` el pipe global (`whitelist` sin `forbidNonWhitelisted`)
+   * lo borraba en silencio y el operador recibía `200` creyendo que había corregido la liga. Con valor (número, `null` o
+   * lo que sea) ⇒ `422 VALIDATION_ERROR {field:'cardProductId'}` en `updateItem`, antes de escribir nada (mismo patrón que
+   * `ingestMaxCardsPerRun` en `graded-estimates.controller.ts`).
+   */
+  @Allow() cardProductId?: unknown;
 }
 
 export class MoveItemDto {

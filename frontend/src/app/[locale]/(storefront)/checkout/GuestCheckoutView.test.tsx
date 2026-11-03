@@ -177,6 +177,24 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     expect(screen.queryByText('Para pagar, crea tu cuenta o elige envío a domicilio.')).toBeNull();
   });
 
+  // ux-ui sobre 6b01d17a (2026-11-03): «Envío a mi domicilio» no elegida iba en `text-muted` + subrayado y la bóveda no
+  // elegida en `text-text` + subrayado. Una opción NO elegida se ve igual sea cuál sea; la elegida, igual también.
+  it('CHK-MOVIL.2.3: la opción no elegida tiene UN tratamiento (y la elegida otro), sea envío o bóveda', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+    await screen.findByLabelText('Correo electrónico');
+    const region = screen.getByRole('region', { name: 'DESTINO' });
+    const shipLabel = () => within(region).getByText('Envío a mi domicilio');
+    const vaultLabel = () => within(region).getByText('Guardar en mi bóveda');
+
+    const chosenShip = shipLabel().className;
+    const unchosenVault = vaultLabel().className;
+    await user.click(within(region).getByRole('button', { name: /Guardar en mi bóveda/ }));
+    expect(shipLabel().className, 'envío no elegida = bóveda no elegida').toBe(unchosenVault);
+    expect(vaultLabel().className, 'bóveda elegida = envío elegida').toBe(chosenShip);
+    expect(unchosenVault).not.toBe(chosenShip);
+  });
+
   it('editar el correo desmarca la confirmación y vuelve a bloquear el pago (§15.3)', async () => {
     const user = userEvent.setup();
     renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');

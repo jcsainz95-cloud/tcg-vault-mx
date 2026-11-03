@@ -6,7 +6,7 @@
 --      (read_only_sql_transaction). Si NO falla, se aborta ANTES de leer nada y el botón queda en rojo.
 --      Inofensivo aunque pasara: 0 filas y ROLLBACK al final.
 --   3. ROL: si el secreto es de un rol que puede escribir (dueño completo) — solo informa, sin escribir.
---   4. Q1 y Q1b (ids-d1-q1.sql, la misma consulta que el `.sql` manual).
+--   4. Q1, Q1b, Q1c y Q1d (ids-d1-q1.sql, la misma consulta que el `.sql` manual).
 --   5. ROLLBACK. ⛔ Nunca COMMIT. Candado: scripts/check-ids-ro-workflow.sh [R]. DEVOPS_NOTES §108.5.
 -- QUIET todo el fichero: en --csv las etiquetas de orden («ROLLBACK») se colarían como filas de la última tabla.
 \set QUIET on

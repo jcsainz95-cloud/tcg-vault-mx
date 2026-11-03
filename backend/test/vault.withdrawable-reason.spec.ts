@@ -5,7 +5,7 @@
  */
 import { VaultService, withdrawableReasonOf } from '../src/modules/vault/vault.service';
 import { withM61Defaults } from './helpers/m61-mock-defaults';
-import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { REAL_VALUATION_GATE, realPatrimony } from './helpers/valuation-gate';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
@@ -66,7 +66,7 @@ describe('VaultService.holdings — `withdrawableReason` viaja siempre y el flag
       // si el lote trae sellado). Esta prueba nació en `envio-preparar`, antes de D-4; en release-s5 se completa.
       sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     } as unknown as PricingService;
-    return new VaultService(withM61Defaults(prisma) as PrismaService, pricing);
+    return new VaultService(withM61Defaults(prisma) as PrismaService, pricing, realPatrimony(pricing));
   }
 
   it.each([

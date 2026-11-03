@@ -1,12 +1,16 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { attachStampedCandidate } from '@/lib/api';
 import { formatMoneyCents } from '@/lib/format';
 import { PillToggleGroup } from '@/components/domain/VersionPills';
 import { Button } from '@/components/ui/Button';
-import type { CardDTO, CardLanguage, CardVersionsResponse, Finish, StampDTO } from '@/types/contract';
+import { Banner } from '@/components/ui/Banner';
+import { asApiError } from '@/lib/api-client';
+import type { AppLocale } from '@/i18n/routing';
+import type { CardDTO, CardLanguage, CardVersionsResponse, Finish, StampDTO, VersionComboDTO } from '@/types/contract';
 import type { CaptureModel } from './ids-capture';
 
 /**
@@ -21,46 +25,90 @@ export function IdsCaptureFields({
   model,
   data,
   isLoading,
+  isError,
+  onRetry,
   finish,
   onFinish,
   language,
   onLanguage,
   onStamp,
-  spanishPct,
   onAttached,
 }: {
   card: Pick<CardDTO, 'id' | 'availableFinishes'>;
   model: CaptureModel;
   data: CardVersionsResponse | undefined;
   isLoading: boolean;
+  /** `GET …/versions` falló: sin combos no hay precio ni versiones de liga; el aviso lo dice en vez de caer en silencio. */
+  isError: boolean;
+  /** Vuelve a pedir `GET …/versions` (reintento del aviso y «Recargar versiones» tras un `attach` fallido). */
+  onRetry: () => void;
   finish: Finish;
   onFinish: (f: Finish) => void;
   language: CardLanguage;
   onLanguage: (l: CardLanguage) => void;
   onStamp: (productId: number | null) => void;
-  /** Dial `spanishMarketPct` (M10) si la cuenta lo puede leer; si no, el desglose no inventa la cifra. */
-  spanishPct: number | null;
   onAttached: (res: CardVersionsResponse) => void;
 }) {
   const t = useTranslations('admin.m1.ids');
   const tm1 = useTranslations('admin.m1');
   const tv = useTranslations('version');
   const tFinish = useTranslations('finish');
+  const locale = useLocale() as AppLocale;
 
   const attach = useMutation({
     mutationFn: (productId: number) => attachStampedCandidate(productId, card),
     onSuccess: onAttached,
   });
+  // QA 2026-11-03: `attach` fallaba en silencio. 404 (la candidata ya no existe) y 409 (el producto ya está colgado)
+  // dicen qué pasó; ambos se resuelven releyendo las versiones. El resto (red, 5xx), genérico.
+  const attachCode = asApiError(attach.error)?.code;
+  const attachErrorText =
+    attachCode === 'NOT_FOUND' || attachCode === 'STAMPED_PRODUCT_TAKEN' ? t(`attachError.${attachCode}`) : t('attachError.generic');
+  const reload = () => {
+    attach.reset();
+    onRetry();
+  };
+  // Petición 9b (IDS-UX.7): el aviso va en línea, con `role="alert"`, y el foco pasa a su botón de acción
+  // («Recargar versiones»): quien teclea no se queda en la candidata que acaba de fallar.
+  const reloadRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (attach.isError) reloadRef.current?.focus();
+  }, [attach.isError]);
 
   const stampLabel = (s: StampDTO | null) =>
     s ? `${t(`stampButton.${s.type}`)}${s.label ? ` ${s.label}` : ''}` : t('noStamp');
   const reasonText = (r: string | null) => (r ? t(`reason.${r}`) : null);
 
   const combo = model.combo;
-  const versionName = stampLabel(combo?.stamp ?? null);
+  const breakdown = (c: VersionComboDTO): string => {
+    const version = stampLabel(c.stamp);
+    const base = c.baseReferenceMxnCents != null ? formatMoneyCents(c.baseReferenceMxnCents, locale) : null;
+    if (c.language === 'es' && c.appliedMarketPct != null) {
+      return base
+        ? t('breakdownEs', { version, base, pct: c.appliedMarketPct })
+        : t('breakdownEsNoBase', { version, pct: c.appliedMarketPct });
+    }
+    return base ? t('breakdownEn', { version, base }) : t('breakdownEnNoBase', { version });
+  };
 
   return (
     <div className="flex flex-col gap-4" data-testid="ids-capture">
+      {isError && (
+        <div data-testid="ids-versions-error">
+          <Banner
+            variant="danger"
+            role="alert"
+            title={t('versionsErrorTitle')}
+            action={
+              <Button size="sm" variant="secondary" onClick={onRetry}>
+                {t('versionsRetry')}
+              </Button>
+            }
+          >
+            {t('versionsError')}
+          </Banner>
+        </div>
+      )}
       {model.finishOptions && (
         <PillToggleGroup
           label={tm1('finish')}
@@ -123,6 +171,20 @@ export function IdsCaptureFields({
               {t('candidateAttach', { name: c.name })}
             </Button>
           ))}
+          {attach.isError && (
+            <Banner
+              variant="danger"
+              role="alert"
+              title={t('attachErrorTitle')}
+              action={
+                <Button ref={reloadRef} size="sm" variant="secondary" onClick={reload}>
+                  {t('reloadVersions')}
+                </Button>
+              }
+            >
+              {attachErrorText}
+            </Banner>
+          )}
         </div>
       )}
 
@@ -135,16 +197,12 @@ export function IdsCaptureFields({
             {combo.previewPriceCents != null ? (
               <>
                 <p className="tabular mt-1 text-[24px] font-medium leading-none text-text">
-                  {formatMoneyCents(combo.previewPriceCents)}
+                  {formatMoneyCents(combo.previewPriceCents, locale)}
                 </p>
-                {/* Desglose en UNA línea (a 1280 no envuelve). ⛔ La cifra base no viaja en `VersionComboDTO`: se nombra
-                    la base y el dial, sin inventar el importe (solicitud al arquitecto, FRONTEND_NOTES §IDS-FE). */}
+                {/* Desglose en UNA línea (a 1280 no envuelve), con los campos DEL COMBO (v1.116.2): la base antes de X y
+                    el X aplicado. ⛔ Sin aritmética: `previewPriceCents` ya trae curva, piso e IVA; sin base, sin cifra. */}
                 <p className="mt-1 whitespace-nowrap text-[12px] text-muted" data-testid="ids-breakdown">
-                  {language === 'es'
-                    ? spanishPct != null
-                      ? t('breakdownEs', { version: versionName, pct: spanishPct })
-                      : t('breakdownEsNoPct', { version: versionName })
-                    : t('breakdownEn', { version: versionName })}
+                  {breakdown(combo)}
                 </p>
               </>
             ) : (

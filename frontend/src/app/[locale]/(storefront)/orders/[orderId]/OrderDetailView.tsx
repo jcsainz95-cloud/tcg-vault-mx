@@ -140,11 +140,11 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
                             {itemName}
                           </span>
                         )}
-                        {/* §IDS.5: versión CONGELADA en el `OrderItem` (no de la pieza): insignias + texto largo muted. */}
+                        {/* §IDS.5: versión CONGELADA en el `OrderItem` (no de la pieza): insignias + la línea muted sin el idioma (petición 8). */}
                         <VersionChips version={it.version} size="tile" className="mt-1.5" testId="order-line-version-chips" />
-                        {versionText.line(it.version) && (
+                        {versionText.detail(it.version) && (
                           <p className="mt-1 text-[12px] leading-snug text-muted" data-testid="order-line-version-text">
-                            {versionText.line(it.version)}
+                            {versionText.detail(it.version)}
                           </p>
                         )}
                         {/* Fragmentos que el acta no registró: se OMITEN. Sin renglón vacío. */}

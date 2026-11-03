@@ -6,8 +6,12 @@
  */
 import type { CardLanguage, FinishLabel, StampType, VersionDTO, VersionOptionDTO } from '@/types/contract';
 
-/** Inglés sin liga: la versión «de siempre». En superficies de cliente no lleva insignia (IDS-UX.1). */
-export function isDefaultVersion(v: Pick<VersionDTO, 'language' | 'stamp'> | null | undefined): boolean {
+/**
+ * Inglés sin liga: la versión «de siempre». En superficies de cliente no lleva insignia (IDS-UX.1) ni línea de versión
+ * (`VersionText`), y su teja enlaza a la ficha sin `?version=` (§IDS.5; el arnés E2E lo deriva de aquí,
+ * `e2e/utils/catalog-tile.ts`). La forma es estructural (`language: string`) para que el arnés la use con sus DTO.
+ */
+export function isDefaultVersion(v: { language: string; stamp?: unknown } | null | undefined): boolean {
   return !v || (v.language === 'en' && v.stamp == null);
 }
 

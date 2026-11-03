@@ -33,7 +33,7 @@ import { insuranceCoverageFor, maxCoverageCentsOf } from './insurance';
 import { neutralizeOutboundAddress } from './folio-neutralize';
 import { ExcludedRatesDTO, ShipmentQuoteDTO, ShipmentRateDTO } from './label-dto';
 import { LabelClock, SHIPMENTS_LABEL_CLOCK } from './label-clock';
-import { VaultService } from '../vault/vault.service';
+import { PatrimonyValuationService } from '../pricing/patrimony-valuation.service';
 import { LABEL_SUBJECT_SELECT, LabelSubject, AdminShipmentKind, INBOUND_ADMIN_KIND, isBuylistInbound, labelSubjectOf, lockSubjectRows } from './label-subject';
 import {
   INBOUND_SELL_REQUEST_GUARD_SELECT,
@@ -483,20 +483,21 @@ export class ShipmentQuoteService {
   /**
    * §19.19.5 — lo que va en la caja: directo ⇒ Σ `OrderItem.unitPriceCents` de las líneas `picked`; retiro ⇒ Σ
    * `marketValueOf(pieza)` (la valuación de «Mi bóveda», UN cuerpo) y, sin mercado, lo pagado (`resolveOrigin`).
+   * 💰 v1.116.4⟨ids⟩ (`IDS-PAT`, D-IDS-R): ese valor sale de la puerta única, UNA llamada con todas las piezas del retiro (antes
+   * una `marketValueOf` por pieza).
    */
   private async insuredValueOf(g: GuardedShipment): Promise<number> {
     // ⭐ rev BSD-1 (§BSD.3): la guía de entrada asegura lo que vamos a pagar por las cartas (`offerGrossCents`).
     if (g.inboundInsuredValueCents !== undefined) return g.inboundInsuredValueCents;
     if (g.kind === 'guest_direct_ship') return g.lines.reduce((s, l) => s + (l.paidCents ?? 0), 0) + (g.accessoryInsuredCents ?? 0);
     if (g.lines.length === 0) return 0;
-    // `VaultModule` importa `ShipmentsModule`: la valuación se toma del contenedor (sin ciclo de MÓDULOS Nest).
-    const vault = this.moduleRef.get(VaultService, { strict: false });
+    // La puerta se toma del contenedor (sin ciclo de MÓDULOS Nest; antes, `VaultService.marketValueOf`, que delega en ella).
+    const patrimony = this.moduleRef.get(PatrimonyValuationService, { strict: false });
     const pieces = await this.prisma.inventoryItem.findMany({ where: { id: { in: g.lines.map((l) => l.inventoryItemId) } } });
-    const byId = new Map(pieces.map((p) => [p.id, p]));
+    const values = await patrimony.valuePieces(pieces);
     let total = 0;
     for (const l of g.lines) {
-      const piece = byId.get(l.inventoryItemId);
-      const ref = piece ? await vault.marketValueOf(piece) : null;
+      const ref = values.get(l.inventoryItemId);
       total += ref && ref.status === 'priced' && ref.referenceMxnCents != null ? ref.referenceMxnCents : (l.paidCents ?? 0);
     }
     return total;

@@ -4,6 +4,7 @@
 --    La corre el DUEÑO (o un rol con acceso) con un usuario de SOLO LECTURA, como §104.4 de DEVOPS_NOTES:
 --      psql "$DATABASE_URL_RO" -X -v ON_ERROR_STOP=1 -f scripts/ids/ids-d1-produccion.sql
 --    y pega la salida (solo conteos, ids de catálogo y nombres de carta: sin datos personales) en la solicitud de fusión.
+--    «Q1d-lista» añade ids INTERNOS y folios de pieza (sin cliente): con ella decide el dueño; a la solicitud, solo el conteo.
 -- Todo dentro de una transacción READ ONLY con tope de tiempo: aunque el rol pudiera escribir, esto no escribe.
 -- Fuente de las preguntas: API_CONTRACT §IDS.9 «Devops» y ARCHITECTURE §15.4 D-IDS-1. Resultados: DEVOPS_NOTES §108.
 -- Q1/Q1b viven en `ids-d1-q1.sql` (los comparte con el botón de solo lectura, §108.5); aquí se incluyen con `\ir`.
@@ -13,6 +14,15 @@ SET LOCAL statement_timeout = '60s';
 \set QUIET off
 
 \ir ids-d1-q1.sql
+
+\echo '== Q1d-lista (§IDS.9 v1.116.5, solo CONSOLA privada; el botón público no la corre): piezas huérfanas una por una =='
+-- Si Q1d > 0, esta es la lista con la que decide el dueño: id INTERNO de la pieza, folio, estado y CLASE de dueño. Nunca el
+-- id ni los datos del cliente. Mismo filtro que Q1d (no nulo + no existe). ⛔ Sin arreglo automático (contrato §IDS.9).
+SELECT i.id, i.folio, i.status, i."ownerType", i."cardProductId"
+FROM "InventoryItem" i
+WHERE i."cardProductId" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+ORDER BY i."ownerType", i.status, i.folio;
 
 \echo '== Q2 (IDS-D2): sets de promos del catálogo, su grupo TCGCSV y cuántos productos tienen colgados =='
 SELECT s."externalId", s.name, s."pptSetId", s."tcgcsvGroupId",

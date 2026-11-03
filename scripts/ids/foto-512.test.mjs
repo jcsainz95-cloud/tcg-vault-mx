@@ -69,5 +69,5 @@ test('SQL real contra base desechable (solo con IDS_FOTO_TEST_DATABASE_URL)', { 
 test('ids-d1-produccion.sql corre contra el esquema real (solo con IDS_FOTO_TEST_DATABASE_URL)', { skip: !process.env.IDS_FOTO_TEST_DATABASE_URL }, () => {
   // Misma base desechable: la consulta que correrá el dueño no puede fallar por una columna mal escrita.
   const out = execFileSync('psql', [process.env.IDS_FOTO_TEST_DATABASE_URL, '-X', '-v', 'ON_ERROR_STOP=1', '-f', join(HERE, 'ids-d1-produccion.sql')], { encoding: 'utf8' });
-  for (const q of ['Q1 ', 'Q1b', 'Q2 ', 'Q3 ']) assert.ok(out.includes(`== ${q}`), `falta la sección ${q}`);
+  for (const q of ['Q1 ', 'Q1b', 'Q1c', 'Q2 ', 'Q3 ']) assert.ok(out.includes(`== ${q}`), `falta la sección ${q}`);
 });

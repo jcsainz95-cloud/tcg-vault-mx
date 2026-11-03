@@ -6,49 +6,97 @@
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46; 2026-10-31: §MKT tienda §A3/§A4/§E1
 > plegado en §MKT-OLA2); cada pase que añade quita más de lo que añade.
 
-## §IDS-FE · Español y versiones de liga (2026-11-03, rama `claude/ids-diseno`; contrato v1.116⟨ids⟩/v1.116.1⟨ids⟩, DESIGN_SYSTEM §IDS-UX vIDS-6)
+## §IDS-FE · Español y versiones de liga (2026-11-03, rama `claude/ids-diseno`; contrato v1.116.2⟨ids⟩, DESIGN_SYSTEM §IDS-UX vIDS-6)
 
-**Estado vigente.** Construido contra el contrato con mocks donde el servidor aún no estaba (`lib/mock/versions.ts`:
-`finishLabelOf`, `optionKey`, `versions[]` y su orden, captura `versions`/`attach`; cartas del simulador
-`c-ids-pikachu-057` = 2×N y `c-ids-dedenne-084` = 2×2, fuera de `mockCards`). Backend empujó IDS.2/.3/.4/.7 en paralelo
-(`2f829b1e`): los nombres de `VersionComboDTO` casan con `inventory-versions.service.ts` (leído, sin correr contra él).
+**Estado vigente (medido 2026-11-03 sobre `8ed6d67f`; rechazo de QA sobre `f2cd0e31` cerrado abajo, «Re-pase QA»; peticiones 9a/9b y deck `@real` sobre `94a8325b`, abajo «Deck y 9a/9b»).** Construido contra el contrato; consume el servidor real de §IDS
+(backend ≥ `58c7fbc8`). Mocks solo en el simulador (`lib/mock/versions.ts`: `finishLabelOf`, `optionKey`, `versions[]` y
+su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cartas `c-ids-pikachu-057` 2×N,
+`c-ids-dedenne-084` 2×2 y `c-ids-poffin-6` = peor caso: sin liga + 6 filas de liga, fuera de `mockCards`).
 - **Piezas:** `components/domain/VersionChip.tsx` (Español relleno tinta; De liga/De torneo/Prerelease/Staff contorno
-  #B31217; rectas, `normal-case`, sin mono; tamaños teja 20/ficha 22/hoja 26), `VersionText.ts` (líneas largas; aparte
-  para no meter `versionDetail` en la portada), `VersionPills.tsx` (2×2 con insignia, 2×N con rótulo 12 px arriba/6
-  abajo, roving tabindex; `PillToggleGroup` 44 px para captura). Únicas burbujas: `rounded-pill` (tailwind) y el token
-  `--color-border-control`. `lib/version.ts`: preselección D-IDS-4, filas en el orden del servidor, forma 2×2/2×N,
-  D-IDS-6 (`stamp.label` tal cual hasta que ux-ui decida).
-- **Superficies:** ficha (IDIOMA Y VERSIÓN, insignias bajo el h1, leyenda de imagen, «Carta de liga: …» solo 2×2, sin
-  precio grande ni estimado PSA con versión no default, renglones filtrados, `?version=` del `searchParams`, JSON-LD
-  `ProductGroup` solo con ≥ 2 versiones); teja (fila propia, enlace `?version=<versionOptionKey>` salvo inglés sin liga
-  —misma preselección y URL de siempre—, ficha técnica con `finishLabelShort`, bloque inferior `mt-auto`, P1/P2/P3);
-  filtros idioma + «Cartas de liga y promos» (URL, chips, `noindex, follow`); carrito, pedido, seguimiento de invitado y
-  M3; `PRICE_PENDING` con versión (`error.PRICE_PENDING_WITH_DETAILS`); `DeckAvailability` por `units[]`; captura
-  `AddItemModal` + `IdsCaptureFields`/`ids-capture.ts`; piezas del cajón con Idioma/Sello y filtros; hoja de preparación.
-- **Medido (Chromium, mocks, 360×740 con aviso abierto):** fila de insignias real + peor caso `price5` ⇒ margen **24.6 px**
-  (≥ 20; el diseño calculaba 24.6), tejas 383.4 px, rejilla en y=235 (P3), foto 152×182.4 (P1) — 6/6 (es/en × N=3).
-  Pares «Español»+«Prerelease» 135.2 y «Spanish»+«Prize Pack» 133.4 de 152 px en una fila. **«Spanish»+«Championship» NO
-  cabe:** 57.3 + 4 + 94.6 = **155.9 > 152** (el diseño estimaba 146) ⇒ `test.fail` declarado, pendiente de ux-ui.
-  «RAW · NM · COSMOS HOLO» envolvía a 2 renglones (22 px, +11 a la fila) ⇒ forma corta «Cosmos» en la teja.
-- **Candados:** unitarios `lib/version.test.ts`, `VersionChip.test.tsx` (5, 7, 7b), `VersionPills.test.tsx` (10–14, 16,
-  D-IDS-6), `CatalogTile.ids` (5, 6, 15), `CardDetailView.ids` (IDS-F3, grep de `optionKey`), `catalog-ids` (IDS-F2),
-  `CheckoutLines.ids` (IDS-F4), `DeckAvailability.ids` (IDS-F5; `.ac` sin editar), `AddItemModal.ids` (IDS-F1, 2–4),
-  `PieceVersion.test`. Navegador: `e2e/ids-versions.spec.ts` (9–12, 14–16, 6) y «IDS L-8» en `measurement-on.spec.ts` (1).
-  Sin `@real`: el seed del stack no trae versiones (`mockOnly`/`needsSeed`). **Mutaciones** (copia entera de `90471969`,
-  N=3): 16 unitarias, cada una 3/3 rojo y verde al restaurar (la primera de 7b, `uppercase` antepuesto, dio 0/3: `twMerge`
-  lo anula con el `normal-case` posterior, no era defecto; sustituida por `normal-case`→`uppercase` y `font-sans`→`font-mono`,
-  3/3 cada una). Navegador: sin P1 (foto 4:5) «IDS L-8» 6/6 rojo con margen **17.0** (el diseño calculaba 17.0).
-- **Decisiones propias:** el namespace `version` (insignias, acabados) viaja a la portada; `versionDetail` (rótulos,
-  leyendas, filtros) no (trinquete DYN-F10: con todo en la portada, 49 279 > 48 500 bytes). `QueryState` lo cita con
-  `t.has` (falso positivo declarado en `layout.messages.test`). `test/strip-comments.ts`: `codigoDe` parsea con la ruta;
-  con una etiqueta sin `.tsx` el JSX se parseaba como TS y MIV-F7 leía un comentario como código.
-- **Pendiente / solicitudes al arquitecto:** (a) `GET /catalog/facets` «conteos por `language` y `stamped`» sin nombre de
-  campo: el filtro no consume facetas hasta que el contrato lo nombre; (b) el desglose de captura («MX$480 × 75 %») pide la
-  referencia de entrada y X por combo: `VersionComboDTO` solo trae `previewPriceCents` ⇒ se nombra la base y el dial
-  (`spanishMarketPct` de `GET /admin/settings`, si la cuenta lo lee) sin inventar el importe; (c) el dial
-  `spanishMarketPct` en M10 no está en el reparto de IDS.11 (sin pantalla); (d) correo: lo traduce backend (IDS.11).
-  **Para ux-ui/marketing:** el par EN «Spanish»+«Championship»; copy EN de «Sin liga» («Regular») y «No holo»
-  («Non-holo»), de PO.
+  #B31217; rectas, `normal-case`, sin mono; teja 20/ficha 22/hoja 26), `VersionText.ts`, `VersionPills.tsx` (2×2 con
+  insignia, 2×N con rótulo 12 px arriba/6 abajo, roving tabindex; `PillToggleGroup` 44 px para captura). Burbujas solo
+  ahí (`rounded-pill`, token `--color-border-control`). `lib/version.ts`: preselección D-IDS-4, filas en el orden del
+  servidor, forma 2×2/2×N, D-IDS-6 (`stamp.label` tal cual). Namespace `version` en la portada, `versionDetail` no (DYN-F10).
+- **Superficies:** ficha (IDIOMA Y VERSIÓN, insignias bajo el h1, leyenda de imagen, sin precio grande ni estimado PSA
+  con versión no default, `?version=`, JSON-LD `ProductGroup` con ≥ 2 versiones); teja (`?version=<versionOptionKey>`
+  salvo inglés sin liga, `finishLabelShort`); filtros por facetas (abajo); carrito, pedido, invitado y M3;
+  `PRICE_PENDING` con versión; `DeckAvailability` por `units[]`; captura `AddItemModal` + `IdsCaptureFields`; cajón con
+  Idioma/Sello; hoja de preparación; **M10 `sections/SpanishMarketSection.tsx`** (dial `spanishMarketPct`).
+- **Copy EN (HECHOS 2026-11-03 «Copy EN de §IDS…», definitivo):** campeonato «Tournament» en insignia, rótulo 2×N y botón
+  de captura (ES «De torneo»; la nota larga sigue «Championship promo»); versión sin liga «Regular» (también en captura);
+  acabado «Non-holo»; teja «Cosmos»/«1st Edition».
+- **Captura (IDS-F1):** desglose en una línea con los campos DEL COMBO: «Base: {versión} en inglés · {base} × {X} %
+  (español)» / «… · {base} (mercado de TCGplayer)»; sin base del servidor ⇒ sin cifra. Sin aritmética y sin leer Ajustes.
+  **Errores** (QA 2026-11-03): `GET …/versions` falla ⇒ aviso «No se cargaron las versiones» + «Reintentar» (antes caía
+  en silencio a los controles de siempre); `attach` falla ⇒ aviso en la caja de candidatas + «Recargar versiones».
+  **Textos para revisión de ux-ui** (`admin.m1.ids`, tono de `createErrorTitle`/`createError` de M1): versiones —
+  título «No se cargaron las versiones», cuerpo «No pudimos cargar las versiones de esta carta: sin ellas no hay precio
+  calculado ni versiones de liga. Si la carta es en español o de liga, reintenta antes de darla de alta.», botón
+  «Reintentar»; attach — título «No se pudo ligar la versión», 404 «Esa versión ya no está entre las pendientes de ligar.
+  Recarga las versiones para ver cómo quedó la carta.», 409 «Esa versión ya está ligada a una carta. Recarga las
+  versiones para ver cómo quedó.», otro (red, 4xx, 5xx; petición 9b) «No se pudo ligar la versión. Inténtalo de nuevo; si
+  sigue, recarga las versiones.» (EN «Couldn't link the version. Try again; if it keeps failing, reload the versions.»),
+  botón «Recargar versiones». Aviso en línea en la caja de candidatas, `role="alert"`, y el foco pasa a «Recargar
+  versiones» al fallar. Textos aprobados por ux-ui (IDS-UX.7 punto 9b).
+- **Carrito, checkout, «Mi pedido», seguimiento (petición 8, IDS-UX.4 «Carrito»):** `useVersionText().detail()` = la
+  línea muted bajo las insignias, sin el idioma y solo si el tipo largo difiere de la insignia: ES sin liga ⇒ ninguna;
+  «De liga (Prize Pack)»; EN «Prize Pack» ⇒ ninguna, «League (League promo)». **El deck también** (petición 9a,
+  IDS-UX.5): `DeckAvailability` con un solo tramo no inglés usa `detail()`; `line()` («Español · De liga (…)») queda solo
+  donde no hay insignias (correo, tramos de texto).
+- **Filtros (IDS-F2):** «Español» solo con `es ∈ facets.languages`; «Cartas de liga y promos» solo con `facets.stamped`;
+  un filtro activo en la URL se pinta (marcado) aunque la faceta no lo traiga; servidor sin las facetas ⇒ sin bloque.
+- **Dial (IDS-F7):** solo `super_admin` (mismo rol que `PUT /admin/pricing/curve`, IDS-B10; guarda propia además de
+  `SuperAdminOnly`), entero 1–200 con «%» (lo demás no viaja), `PUT` parcial, `422` con el diagnóstico del servidor,
+  refresca la bitácora; título provisional del contrato «Precio del español (% del inglés)».
+- **Medido (Chromium):** insignias a 360×740 con aviso: margen L-8 24.6 px; «Español»+«Prerelease» 135.2,
+  «Spanish»+«Prize Pack» 133.4, **«Spanish»+«Tournament» 141.8** de 152 px (con «Championship» envolvía: 155.9). 2×N peor
+  caso (7 filas, 14 burbujas) a 360: burbujas 64 px de alto, borde derecho 340, rótulos en 1 línea, `scrollWidth` 360,
+  es y en (N=3 cada uno).
+- **Candados:** unitarios `lib/version.test.ts`, `VersionChip.test.tsx`, `VersionPills.test.tsx` (incl. 7 filas),
+  `CatalogTile.ids`, `CardDetailView.ids`, `catalog-ids`, `ShopFilters.ids`, `CheckoutLines.ids`, `DeckAvailability.ids`,
+  `AddItemModal.ids` (desglose y errores), `VersionText.ux8` (petición 8, 3 superficies), `PieceVersion.test`,
+  `SpanishMarketSection.test`; navegador `e2e/ids-versions.spec.ts` (`@real`: en mocks fixtures, en real «E2E League
+  Bird» con lo esperado leído de la API; solo IDS-F3 «7 filas» es `mockOnly`), «IDS L-8» en `measurement-on.spec.ts`
+  (`@real`, ya sin `needsSeed`) y **`e2e/ids-real.spec.ts`** (fichero `realOnly`): «E2E Pidgey» (siembra por API una pieza
+  `es`, la retira con `error_captura` y deja el dial como estaba: facetas + filtro, ficha en/es, desglose, dial en M10) y
+  liga sembrada IDS-L1…L3 (de backend, adoptados) + **IDS-L4** (carrito de 3 versiones ⇒ quote con `version`/`finishLabel`
+  y precio = `fromPriceCents` ⇒ checkout con insignias y la línea de la petición 8).
+- **Re-pase QA (2026-11-03, sobre `f7f2e5dd` + el clic de IDS-L4 de `a7f3edc6`, copia entera `git archive`):** tsc 0, lint 0 errores, vitest 452 ficheros /
+  5558 pruebas verdes. Censo: mockOnly 160→155, needsSeed 36→33 (= baseline), realOnly 37→36; los +2/+2 que quedan
+  sobre el baseline necesitan `--update --motivo` en `scripts/e2e-skip-census.baseline` (devops; ensayado en la copia:
+  gate 0 y canario 17/17). Stack propio (`up --gate --measurement --seed`, :3486/:3487, BD `fe_ids_qa`, Redis db 9, S3
+  :9486): `ids-real` + `ids-versions` `@real` **48/48** (16 × N=3), «IDS L-8» real **9/9** (3 × N=3); mocks
+  `ids-versions` **30/30** (10 × N=3). Mutaciones (copia, N=3): `detail()` vuelve a «Español · …» ⇒ ux8 rojo 3/3;
+  sin aviso de `attach` ⇒ 3 rojos 3/3; sin aviso de versiones ⇒ 1 rojo 3/3; un `mockOnly` de vuelta en ids-versions ⇒
+  censo rc 1 3/3; checkout con `line()` (bundle real re-horneado) ⇒ IDS-L4 rojo 3/3; restaurado, verde en todos.
+- **`@real` que leían «la primera teja» (2026-11-03, sobre seed `a21a425a`):** `catalog-freshness`, `pricing-curve` y
+  `seo-raw-html` C2 derivan el enlace de cada teja de `e2e/utils/catalog-tile.ts` (`tileHref`: llano en inglés sin liga,
+  `?version=<versionOptionKey>` si no) y no del orden del seed. Freshness identifica el grupo por su pieza representativa
+  y exige enlace único en la página; `pricing-curve` acepta las dos fichas (una versión ⇒ «Precio de venta»; 2+ ⇒ burbuja
+  elegida = la del `?version=`, con precio, y sin precio grande, IDS-UX.8) y busca una ficha de una versión para el rótulo
+  de IVA; C2 compara el **multiconjunto** de enlaces de nombre de teja con la API (página 1 y 2) y calienta hasta
+  `ageMs < 15 s` (la carrera de 28–30 s daba rojo 1/12; con la espera, 20/20). Mutación «pieza `es` reciente»:
+  originales 3 rojas de 7 en 3/3, nuevas 7/7 en 3/3. Canarios de producto (2/2 rojos cada uno): sin
+  `initialDataUpdatedAt` (freshness), precio grande con 2+ versiones (pricing-curve), teja con `version.key` en vez de
+  `versionOptionKey` (C2). ⚠ Con 2+ versiones la ficha a 1280 px no pinta ningún rótulo de IVA (solo la barra fija < lg); con
+  una versión sí: inconsistencia que resuelve el criterio 977 (PO/ux-ui), no esta prueba.
+- **Deuda del techlead sobre `f2cd0e31` (2026-11-03):** «inglés sin liga» tiene UNA definición, `isDefaultVersion`
+  (firma estructural para que la use el arnés E2E); tab-stop de `VersionPills`/`PillToggleGroup` = el índice que usan las
+  flechas (con valor apagado o que no casa, la primera habilitada). Fichas y mediciones: `TECH_DEBT.md` §IDS (TL-IDS-5/7)
+  y TL-MKT2-5 (la ficha entra en `mobile-no-overflow.spec.ts`).
+- **Deck y 9a/9b (2026-11-03, sobre `94a8325b`, copia del árbol entero):** **IDS-D1** en `e2e/ids-real.spec.ts`
+  (fichero `realOnly`: el censo no se mueve) recorre `E2E_IDS.metaDeck` (`e2e-ids-deck-liga`, fijado por
+  `backend/test/integration/ids-seed-deck.e2e-spec.ts`): API ⇒ 3 de 3, `en`/`es` sin liga y la de liga al final aunque sea
+  la más barata (963/966); pantalla ⇒ un tramo por versión en ese orden, inglés como texto, sin «Español» repetido ni
+  «sello», precio de la línea = el de su primera pieza (965); «Agregar de jalón» ⇒ `/checkout/quote` con las tres piezas,
+  la `version` y el precio de cada tramo y la suma (965); checkout con sus insignias (964). Fuera: 967 (el deck sembrado
+  no trae energías) y 968 (sin pieza sin precio en el seed). tsc 0, lint 0 errores, vitest 452 ficheros / 5563 pruebas,
+  censo rc 0 (las cinco claves = baseline). Stack propio (`up --gate --measurement --seed`, :3496/:3497, BD
+  `tcg_fe_ids_deck`, Redis db 11, S3 :9496): `ids-real` + `ids-versions` `@real` **51/51** (17 × N=3). Mutaciones (copia,
+  N=3): deck con `line()` ⇒ 3 rojos 3/3; sin foco en «Recargar versiones» ⇒ 6 rojos 3/3; genérico viejo ⇒ 3 rojos 3/3;
+  precio de la línea = el de la última pieza (bundle rehorneado) ⇒ IDS-D1 rojo 3/3; restaurado, verde (D1 3/3 rehorneado).
+- **Pendiente:** **ux-ui:** texto del dial (provisional), D-IDS-6 y la leyenda «Idioma» del bloque de filtros cuando solo
+  se ofrece «Cartas de liga y promos».
 
 ## §CHK-FRICCION · Checkout con menos fricción (2026-11-02, rama `claude/checkout-friccion`, base `dbeb6111`)
 
@@ -62,6 +110,8 @@ Fuentes: QA de marketing 2026-11-02 (A, B); HECHOS 2026-11-02 «Checkout con men
 - **G · medición del pago (C-F11):** `begin_checkout` en `pay()` tras las guardas y antes de la sesión (una vez por cotización); `add_payment_info` tras `setSession`, una vez por PI, `value` = total de la sesión; `EVENT_PARAMS.add_payment_info` = items/value/currency. `CheckoutPaymentMeasurement.test.tsx`.
 - **H · CLM-F1:** `addressesSaved > 0` en `POST /orders/claim` invalida `['addresses']` (confirmación del invitado y aviso de reclamables).
 - **I · CLM-F2 (v1.116.1, PT-CHK-1):** `orders.claimable.body`/`vault.claimable.body` es/en = literales de DESIGN_SYSTEM §4.47.4 (se guarda la dirección de los pedidos pagados; fuera «No cambia nada del pedido»); `mockClaimableOrders` solo cobrados (`settledAt`). Candado: `ClaimableOrdersNotice.test.tsx` «CLM-F2».
+- **J · N1 destino (2026-11-03, rama `claude/checkout-destino`, base `beff4a8c`; ux-review de marketing):** «Envío a mi domicilio» y «Guardar en mi bóveda» son dos botones `aria-pressed` de 44 px con marca redonda (anillo/punto, `DestinationMark`) — sustituye la «fila de estado» de CHK-MOVIL.2.3, cuyo `<div>` no devolvía a envío —; bóveda ya no se alterna con su propio botón; «Elegir envío a domicilio» (`checkout.guest.payBlocked.vaultAction`) junto al aviso del `aside` y en la barra (`CheckoutPayBar.blockedAction`, 92 px de ancho: barra 119.5 px a 320–414 es/en) vuelve a envío y enfoca la opción; con bóveda el grupo «ENVÍO A MÉXICO» va `hidden` (no se desmonta) y sale del resumen de errores; PAGAR apagado lleva `border-dashed`; `StoreTabs` < lg pinta un degradado `store-tabs-more` mientras quede fila a la derecha y desplaza la pestaña activa a la vista. Candados: `GuestCheckoutDestinationChoice.test.tsx`, `e2e/checkout-destino.spec.ts` (390/1280 + pestañas a 390).
+- **K · N1b (2026-11-03, rama `claude/release-1103`, base `3e2ba42e`; hallazgos de ux-ui sobre J):** (1) la opción no elegida tiene UN tratamiento (`destinationLabelClass`: tinta + subrayado; elegida: tinta sin subrayado), envío o bóveda; antes envío no elegida iba en `muted` (4.55:1, AA justo) y bóveda en tinta. Medido: 15.45:1. (2) Con PAGAR bloqueado el desglose sigue a un toque: en bloqueo, «TOTAL» + importe (subrayado, chevron `aria-hidden`, «Ver desglose» `sr-only`) es el disclosure, con la misma región, `aria-expanded` y Esc; la fila 1 no admite un tercer control de 44 px (barra 119.5 px a 320/360 es/en sin él, y con él igual). Entrar o salir del bloqueo cierra el desglose (ajuste en render). (3) Candados nuevos en `e2e/checkout-destino.spec.ts` «N1b»: a 320/360 es/en con bóveda, barra ≤ 120, salida y explicación ≤ 2 renglones, desglose abre y cierra con Esc, PAGAR `border-dashed` ≥ 1 px con borde/fondo 2.01:1 (umbral 1.5; se mide tras la transición `transition-colors`); a 390, no elegidas con el mismo color/subrayado y ≥ 4.5:1. Unidad: `CheckoutPayBar.test.tsx`, `GuestCheckoutView.test.tsx` «CHK-MOVIL.2.3».
 
 ## §MKT-CONV8 · Catálogo móvil con ≥ 2 tejas y ficha lg con la compra arriba (vMKT-CONV-2, 2026-10-31, rama `claude/mkt2-fe-layout`, base `8c66a844`)
 

@@ -27,7 +27,8 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AdminService } from '../src/modules/admin/admin.service';
-import { ListingPriceService, decisionOfRow, portadaServedDay, referenceOfRow } from '../src/modules/pricing/listing-price.service';
+import { ListingPriceService, decisionOfRow, isCurrentRow, listingPriceVariantKey, referenceOfRow } from '../src/modules/pricing/listing-price.service';
+import { portadaServedDay } from '../src/common/portada-day';
 import { SaleDecisionService } from '../src/modules/pricing/sale-decision.service';
 import { PRICE_AFFECTING_SETTING_KEYS, SettingKey } from '../src/modules/settings/settings.constants';
 import { marketBracketOf, DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
@@ -117,6 +118,8 @@ function orders(pricing: PricingService, lp?: ReturnType<typeof lpDouble>) {
     Object.assign(lp, {
       decider: new SaleDecisionService(pricing),
       chargeDecisionsFor: ListingPriceService.prototype.chargeDecisionsFor,
+      // v1.116.5 (§DYN.5.7 «fila vigente»): el cobro lee la fila por la MISMA función que la tienda (real, sobre `rowsFor`).
+      currentRowsFor: ListingPriceService.prototype.currentRowsFor,
     });
   }
   return new OrdersService(
@@ -264,6 +267,35 @@ describe('DYN-B19 — `ListingPriceService.salesFor`', () => {
       reference: { status: 'priced', referenceMxnCents: 10_000, capturedDate: '2026-10-28' },
     });
     expect(s2.enqueue).toHaveBeenCalledWith('missing_row', ['i1']);
+  });
+
+  it('💰 v1.116.5 «fila vigente» (IDS-B28): una fila de OTRA llave K (versión o grado) ⇒ sin fila: vivo + `missing_row`, en tienda Y cobro', async () => {
+    // Fila escrita cuando la pieza era española; la pieza leída ya es inglesa (PATCH language cuya corrida no llegó).
+    const stale = pricedRow({ variantKey: 'c1|raw|raw:NM|normal|v:es' });
+    const { svc, enqueue } = service([stale]);
+    expect((await svc.salesFor([rawItem({ language: 'en' })], IVA_DIALS_NEUTRAL)).get('i1')).toMatchObject({
+      kind: 'priced',
+      from: 'live',
+      decision: { unitPriceCents: 13_340 },
+    });
+    expect(enqueue).toHaveBeenCalledWith('missing_row', ['i1']);
+    const charge = await svc.chargeDecisionsFor([rawItem({ language: 'en' })], IVA_DIALS_NEUTRAL);
+    expect(charge.map((d) => d.unitPriceCents)).toEqual([13_340]);
+    // Graduada: la fila del grado viejo no cuenta tras cambiar el grado; la del grado actual sí.
+    const pricing = pricingDouble();
+    (pricing.tryGradeKeyFor as jest.Mock).mockImplementation((i: { gradeValue?: string }) => `graded:PSA:${i.gradeValue}`);
+    const g = service([pricedRow({ variantKey: 'c1|graded|graded:PSA:9|normal' })], pricing);
+    const graded = (v: string) => rawItem({ productType: 'graded', rawCondition: null, gradingCompany: 'PSA', gradeValue: v });
+    expect((await g.svc.salesFor([graded('9')], IVA_DIALS_NEUTRAL)).get('i1')).toMatchObject({ from: 'row', decision: { unitPriceCents: 21_000 } });
+    expect((await g.svc.chargeDecisionsFor([graded('9')], IVA_DIALS_NEUTRAL)).map((d) => d.unitPriceCents)).toEqual([21_000]);
+    expect((await g.svc.chargeDecisionsFor([graded('10')], IVA_DIALS_NEUTRAL)).map((d) => d.unitPriceCents)).not.toEqual([21_000]);
+  });
+
+  it('`isCurrentRow`: casa solo con la llave exacta (la de `listingPriceVariantKey`)', () => {
+    const key = listingPriceVariantKey({ cardId: 'c1', productType: 'raw', finish: 'normal' }, 'raw:NM');
+    expect(isCurrentRow(pricedRow(), key)).toBe(true);
+    expect(isCurrentRow(pricedRow({ variantKey: `${key}|v:es` }), key)).toBe(false);
+    expect(isCurrentRow(pricedRow(), `${key}|v:es`)).toBe(false);
   });
 
   it('`pending` nunca se convierte en precio', async () => {

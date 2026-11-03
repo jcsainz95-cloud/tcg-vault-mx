@@ -271,6 +271,17 @@ export class ShipmentPrepService {
         : []
       ).map((oi) => [oi.id, oi]),
     );
+    // v1.116.4⟨ids⟩ (§IDS.5, D-IDS-T): un RETIRO sin pedido de origen toma la versión de la PIEZA — `language` + su producto
+    // `stamped` (rótulo vigente; `cardProductId` no cambia tras el alta, I-7). Una lectura por hoja, solo si hace falta.
+    const pieceStampIds = kind === 'vault_withdrawal'
+      ? [...new Set(row.items.flatMap((si) => (!origins.get(si.inventoryItemId) && si.inventoryItem.cardProductId != null ? [si.inventoryItem.cardProductId] : [])))]
+      : [];
+    const pieceStamps = new Map(
+      (pieceStampIds.length > 0
+        ? await db.cardProduct.findMany({ where: { tcgplayerProductId: { in: pieceStampIds }, kind: 'stamped' }, select: { tcgplayerProductId: true, stampType: true, stampLabel: true } })
+        : []
+      ).map((cp) => [cp.tcgplayerProductId, cp]),
+    );
     const order = row.order;
     const lines: PrepLine[] = row.items.map((si) => {
       const p = si.inventoryItem;
@@ -317,8 +328,15 @@ export class ShipmentPrepService {
         availability: available ? { kind: 'available' } : { kind: 'blocked', reason: 'piece_not_available', pieceStatus: p.status },
         refund,
         versionInternalLine: (() => {
-          const fv = origin ? frozenVersion.get(origin.orderItemId) : undefined;
-          return fv ? versionInternalLineOf(fv) : null;
+          // Con origen manda el `OrderItem` congelado (lo que se compró, D-IDS-J); retiro sin origen ⇒ la pieza (D-IDS-T).
+          if (origin) {
+            const fv = frozenVersion.get(origin.orderItemId);
+            return fv ? versionInternalLineOf(fv) : null;
+          }
+          if (kind !== 'vault_withdrawal') return null;
+          const st = p.cardProductId != null ? pieceStamps.get(p.cardProductId) : undefined;
+          // Una fila sin columna de idioma (anterior a M-95 o doble de prueba) es inglés: sin liga ⇒ `null`, la línea de siempre.
+          return versionInternalLineOf({ language: p.language ?? 'en', stampType: st?.stampType ?? null, stampLabel: st?.stampLabel ?? null });
         })(),
       };
       return {

@@ -61,7 +61,8 @@ const MAIL_VERSION_TEXT: Record<'es' | 'en', { language: Record<CardLanguage, st
     stampLong: {
       prize_pack: 'Prize Pack',
       league: 'League (League promo)',
-      championship: 'Championship (championship promo)',
+      // HECHOS 2026-11-03 «Copy EN de §IDS…»: campeonato en EN = «Tournament» (el catálogo de la tienda ya lo dice; TL-IDS-1).
+      championship: 'Tournament (championship promo)',
       prerelease: 'Prerelease (prerelease promo)',
       staff: 'Staff (Staff promo)',
     },
