@@ -345,8 +345,7 @@ GROUP BY 1, 2`;
 
 test('Q1d (§IDS.9 v1.116.5, M-95c): una huérfana sembrada ⇒ conteo exacto +1 (ni la no huérfana ni la nula), lista solo en consola, y su canario muerde', { skip: !URL_DB }, () => {
   const sfx = `${process.pid}${Date.now().toString(36)}`;
-  const sinNoNulo = arbolMutado(Q1D_FILTRO, `WHERE NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
-GROUP BY 1, 2`, 1);
+  let sinNoNulo = null;
   const raiz = join(HERE, '../..');
   const medir = (root) => {
     const r = correr(root);
@@ -355,7 +354,6 @@ GROUP BY 1, 2`, 1);
   };
   try {
     const a = medir(raiz);
-    const am = medir(sinNoNulo);
     sembrarQ1d(sfx);
     const d = medir(raiz);
     assert.equal(d.total - a.total, 1, 'Q1d debía subir exactamente 1 (solo la huérfana)');
@@ -371,12 +369,15 @@ GROUP BY 1, 2`, 1);
     const lista = c.stdout.split('== Q1d-lista')[1]?.split('\n== ')[0] ?? '';
     assert.match(lista, new RegExp(String.raw`^q1d-${sfx}-i2,Q1D-${sfx}-2,in_stock,platform,\d+$`, 'm'), `Q1d-lista:\n${lista}`);
     for (const n of [1, 3]) assert.ok(!lista.includes(`q1d-${sfx}-i${n},`), `Q1d-lista trae i${n} (no es huérfana)`);
-    // Canario: sin el filtro de no nulo, la pieza sin producto también cuenta.
+    // Canario (se arma DESPUÉS de las aserciones: si el árbol vivo ya trae la mutación, cae arriba por el conteo, no por el
+    // ancla): sin el filtro de no nulo, la pieza sembrada sin producto (i3) también cuenta ⇒ más que el prístino.
+    sinNoNulo = arbolMutado(Q1D_FILTRO, `WHERE NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2`, 1);
     const m = medir(sinNoNulo);
-    assert.notEqual(m.total - am.total, 1, 'canario «Q1d sin IS NOT NULL»: da el mismo +1 — la prueba no distingue el filtro');
+    assert.ok(m.total > d.total, `canario «Q1d sin IS NOT NULL»: da ${m.total} = prístino ${d.total} — la prueba no distingue el filtro`);
   } finally {
     const r = limpiarQ1d(sfx);
-    rmSync(sinNoNulo, { recursive: true, force: true });
+    if (sinNoNulo) rmSync(sinNoNulo, { recursive: true, force: true });
     assert.equal(r.status, 0, `la limpieza falló: ${r.stderr}`);
   }
 });
