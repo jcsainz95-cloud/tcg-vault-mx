@@ -141,8 +141,8 @@ describe('GuestCheckoutView · resumen reactivo al destino (v1.21.4-dual-breakdo
     expect(within(breakdown).getByText('MX$304.00')).toBeInTheDocument();
     expect(within(breakdown).queryByText('Envío')).not.toBeInTheDocument();
 
-    // Bóveda → envío (el mismo botón pliega el upsell): vuelve al desglose con envío, también sin refetch.
-    await user.click(within(form).getByRole('button', { name: /Guardar en mi bóveda/ }));
+    // Bóveda → envío (N1: la opción «Envío a mi domicilio» es un control): vuelve al desglose con envío, sin refetch.
+    await user.click(within(form).getByRole('button', { name: /Envío a mi domicilio/ }));
     expect(within(breakdown).getByText('MX$512.00')).toBeInTheDocument();
     expect(within(breakdown).getByText('Envío')).toBeInTheDocument();
 

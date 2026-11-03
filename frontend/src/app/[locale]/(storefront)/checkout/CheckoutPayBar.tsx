@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/Button';
+import { cn } from '@/lib/cn';
 import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
 
 export interface CheckoutPayBarProps {
@@ -10,6 +11,8 @@ export interface CheckoutPayBarProps {
   summaryLine: string;
   /** Bloqueo por condición (§15.9): sustituye la línea 1 y describe a PAGAR (`aria-describedby`). */
   blockedReason?: string | null;
+  /** N1: la salida del bloqueo (p. ej. «Elegir envío a domicilio»), a un toque junto a su explicación. */
+  blockedAction?: { label: string; onClick: () => void };
   /** Importe de «TOTAL», ya formateado (cotización antes de la sesión; F-SP-5). */
   totalLabel: string;
   /** Texto del botón (`Pagar` / `Preparando…`). */
@@ -43,6 +46,7 @@ function isTextEntry(el: Element | null): boolean {
 export function CheckoutPayBar({
   summaryLine,
   blockedReason,
+  blockedAction,
   totalLabel,
   payLabel,
   loading,
@@ -132,9 +136,21 @@ export function CheckoutPayBar({
         </div>
       )}
       {blockedReason ? (
-        <p id={blockedId} className="flex min-h-[44px] items-center font-mono text-[11px] leading-[1.5] text-muted">
-          {blockedReason}
-        </p>
+        <div className="flex min-h-[44px] items-center gap-2">
+          <p id={blockedId} className="min-w-0 flex-1 font-mono text-[11px] leading-[1.5] text-muted">
+            {blockedReason}
+          </p>
+          {blockedAction && (
+            <button
+              type="button"
+              onClick={blockedAction.onClick}
+              // Angosta a propósito (dos renglones): la explicación conserva ≤ 2 renglones y la barra ≤ 120 px a 320.
+              className="inline-flex min-h-[44px] w-[92px] shrink-0 items-center text-left font-mono text-[11px] leading-[1.3] text-text underline underline-offset-4"
+            >
+              {blockedAction.label}
+            </button>
+          )}
+        </div>
       ) : (
         <button
           ref={toggleRef}
@@ -168,7 +184,8 @@ export function CheckoutPayBar({
           disabled={disabled}
           aria-describedby={blockedReason ? blockedId : undefined}
           onClick={onPay}
-          className="min-h-[48px] min-w-[120px] shrink-0 tracking-eyebrow"
+          // Menor del informe N1: apagado no solo por color — regla discontinua además del cursor (§15.9).
+          className={cn('min-h-[48px] min-w-[120px] shrink-0 tracking-eyebrow', disabled && !loading && 'border-dashed')}
         >
           {payLabel}
         </Button>

@@ -516,6 +516,7 @@
       "payBlocked": {
         "email": "Para pagar, confirma que tu correo es correcto.",
         "vault": "Para pagar, crea tu cuenta o elige envío a domicilio.",
+        "vaultAction": "Elegir envío a domicilio",
         "address": "Para pagar, completa tu dirección de envío en México.",
         "terms": "Para pagar, acepta los términos."
       },

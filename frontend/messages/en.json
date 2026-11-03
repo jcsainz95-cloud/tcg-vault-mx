@@ -516,6 +516,7 @@
       "payBlocked": {
         "email": "To pay, confirm that your email is correct.",
         "vault": "To pay, create your account or choose home delivery.",
+        "vaultAction": "Choose home delivery",
         "address": "To pay, complete your shipping address in Mexico.",
         "terms": "To pay, accept the terms."
       },

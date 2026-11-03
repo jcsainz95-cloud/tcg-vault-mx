@@ -8,6 +8,7 @@ import { ApiClientError } from '@/lib/api-client';
 import { config } from '@/lib/config';
 import { useCart } from '@/lib/cart';
 import { formatMoneyCents } from '@/lib/format';
+import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
 import type { GuestAddressInput, GuestCheckoutQuoteResponse, GuestCheckoutSessionResponse, UnavailableBundleDTO } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
@@ -86,6 +87,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   /** L6: un doble toque en PAGAR crea UNA sesión. El estado `creating` llega tarde para el segundo evento del mismo tick. */
   const payInFlight = useRef(false);
   const vaultButtonRef = useRef<HTMLButtonElement>(null);
+  const shipButtonRef = useRef<HTMLButtonElement>(null);
   const [form, setForm] = useState<GuestFormState>({
     email: '',
     emailConfirmed: false,
@@ -339,8 +341,15 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     setFormIncompleteAttempt(false);
   }
 
+  /** N1: la salida del bloqueo por bóveda, desde la barra o la nota del resumen: vuelve a envío y deja el foco ahí. */
+  function backToShip() {
+    chooseDestination('ship');
+    shipButtonRef.current?.focus();
+  }
+
   /** Bloqueos de PAGO que son CONDICIONES (no errores de campo): §15.4 y §15.9. */
-  const payBlockedReason: string | null = upsellOpen || destination === 'vault'
+  const vaultBlocked = upsellOpen || destination === 'vault';
+  const payBlockedReason: string | null = vaultBlocked
     ? t('guest.payBlocked.vault')
     : errors.emailConfirmed
       ? t('guest.payBlocked.email')
@@ -680,15 +689,24 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                 </div>
               </div>
 
-              {/* CHK-MOVIL.2.3 · fila de destino ANTES del primer campo: envío con su importe y, debajo, la bóveda
-                  (REQUIERE CUENTA) — primer anuncio de la bóveda en el checkout. Sigue seleccionable (criterio 48):
-                  nada de `disabled`, candado ni `Banner danger`; abre el `VaultUpsellPanel` (§15.4) sin cambios. */}
-              <section aria-labelledby="guest-destination-group" className="mt-2 border-y border-border py-2.5">
+              {/* N1 (ux-review de marketing 2026-11-03): el destino es un control de DOS opciones. CHK-MOVIL.2.3 dejaba
+                  «Envío a mi domicilio» como fila de estado (un `<div>`): tras elegir la bóveda, tocarla no hacía nada y
+                  la única salida quedaba bajo el panel. Ahora ambas son botones `aria-pressed` de ≥ 44 px, ANTES del
+                  primer campo; la bóveda (REQUIERE CUENTA) sigue seleccionable (criterio 48): nada de `disabled`,
+                  candado ni `Banner danger`; abre el `VaultUpsellPanel` (§15.4) sin cambios. */}
+              <section aria-labelledby="guest-destination-group" className="mt-2 border-y border-border py-1">
                 <h2 id="guest-destination-group" className="sr-only">
                   {t('destination.eyebrow')}
                 </h2>
-                <div className="flex min-h-8 items-baseline justify-between gap-3">
-                  <span className={destination === 'ship' ? 'text-sm text-text' : 'text-sm text-muted'}>
+                <button
+                  ref={shipButtonRef}
+                  type="button"
+                  aria-pressed={destination === 'ship'}
+                  onClick={() => chooseDestination('ship')}
+                  className="flex min-h-[44px] w-full items-center gap-3 text-left text-sm text-text"
+                >
+                  <DestinationMark on={destination === 'ship'} />
+                  <span className={cn('min-w-0 flex-1', destination === 'ship' ? 'text-text' : 'text-muted underline underline-offset-4')}>
                     {t('destination.ship')}
                   </span>
                   {shippingFeeLabel && (
@@ -696,20 +714,26 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                       {t('destination.shipFeeHint', { amount: shippingFeeLabel })}
                     </span>
                   )}
-                </div>
+                </button>
                 {/* §AC-UX.7: sin cartas ni sellado no hay nada que guardar ⇒ sin opción de bóveda. */}
                 {data.items.length > 0 && (
                   <button
                     ref={vaultButtonRef}
                     type="button"
+                    aria-pressed={destination === 'vault'}
                     aria-expanded={upsellOpen}
                     aria-controls="vault-upsell-panel"
-                    onClick={() => chooseDestination(upsellOpen ? 'ship' : 'vault')}
-                    className="flex min-h-[44px] w-full flex-wrap items-baseline gap-x-2 text-left text-sm text-text"
+                    onClick={() => chooseDestination('vault')}
+                    className="flex min-h-[44px] w-full items-center gap-3 text-left text-sm text-text"
                   >
-                    <span className="underline underline-offset-4">{t('destination.vault')}</span>
-                    <span className="font-mono text-[11px] uppercase tracking-label text-muted">
-                      {t('destination.vaultRequiresAccount')}
+                    <DestinationMark on={destination === 'vault'} />
+                    <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+                      <span className={destination === 'vault' ? 'text-text' : 'underline underline-offset-4'}>
+                        {t('destination.vault')}
+                      </span>
+                      <span className="font-mono text-[11px] uppercase tracking-label text-muted">
+                        {t('destination.vaultRequiresAccount')}
+                      </span>
                     </span>
                   </button>
                 )}
@@ -759,6 +783,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                   submitAttemptId={submitAttemptId}
                   serverAddressError={serverAddressError}
                   onGeoModeChange={setGeoMode}
+                  shippingHidden={destination === 'vault'}
                 />
               </div>
 
@@ -802,7 +827,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                   disabled={payDisabled}
                   aria-describedby={payBlockedReason ? 'pay-blocked-note' : undefined}
                   onClick={pay}
-                  className="mt-7 min-h-[54px] w-full tracking-eyebrow"
+                  // Menor del informe N1: apagado no solo por color — regla discontinua además del cursor (§15.9).
+                  className={cn('mt-7 min-h-[54px] w-full tracking-eyebrow', payDisabled && !creating && 'border-dashed')}
                 >
                   {payLabel}
                 </Button>
@@ -811,6 +837,16 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                   <p id="pay-blocked-note" className="mt-4 text-xs leading-relaxed text-muted">
                     {payBlockedReason}
                   </p>
+                )}
+                {/* N1: el aviso de bóveda lleva a la opción de envío (antes, la salida quedaba bajo el panel). */}
+                {vaultBlocked && (
+                  <button
+                    type="button"
+                    onClick={backToShip}
+                    className="mt-1 inline-flex min-h-[44px] items-center text-xs text-text underline underline-offset-4 hover:text-accent"
+                  >
+                    {t('guest.payBlocked.vaultAction')}
+                  </button>
                 )}
                 {config.useMocks && (
                   <p className="mt-4 font-mono text-[11px] leading-relaxed text-muted">{t('stripeMock')}</p>
@@ -825,6 +861,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         <CheckoutPayBar
           summaryLine={barLine}
           blockedReason={payBlockedReason}
+          blockedAction={vaultBlocked ? { label: t('guest.payBlocked.vaultAction'), onClick: backToShip } : undefined}
           totalLabel={formatMoneyCents((outcome?.breakdown ?? activeBreakdown ?? data.breakdown).totalCents, locale)}
           payLabel={creating ? t('preparing') : t('payNoAmount')}
           loading={creating}
@@ -861,5 +898,25 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         onConfirmed={onConfirmed}
       />
     </div>
+  );
+}
+
+/**
+ * N1: la marca de la opción de destino (§6.4: control visual de 20 px, `primary` al marcar). Anillo vacío / anillo con
+ * punto: la selección no depende del color. Redonda (`rounded-[50%]`, el tema anula `rounded-full`) como los radios
+ * nativos del resto de la app: un cuadro con relleno se leería como casilla (selección múltiple). Decorativa: el estado lo dice `aria-pressed` del botón.
+ */
+function DestinationMark({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden
+      data-testid="destination-mark"
+      className={cn(
+        'flex h-5 w-5 shrink-0 items-center justify-center rounded-[50%] border',
+        on ? 'border-primary' : 'border-border-strong',
+      )}
+    >
+      {on && <span className="h-2.5 w-2.5 rounded-[50%] bg-primary" />}
+    </span>
   );
 }
