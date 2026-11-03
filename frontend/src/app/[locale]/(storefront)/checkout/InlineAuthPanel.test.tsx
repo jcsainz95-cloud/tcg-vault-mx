@@ -21,7 +21,8 @@ vi.mock('@/lib/api', () => ({
   loginWithGoogle: (...a: unknown[]) => loginWithGoogle(...a),
 }));
 
-const TAKEN = 'Ese correo ya tiene una cuenta. Entra con tu contraseña y sigue con tu compra: tu carrito no cambia.';
+const TAKEN = 'Ese correo ya tiene una cuenta. Ingresa y sigue con tu compra: tu carrito no cambia.';
+const HINT = 'Solo tu correo. Te mandamos un enlace para ponerle contraseña a tu cuenta.';
 
 function emailTaken() {
   return new ApiClientError(409, { code: 'EMAIL_TAKEN', message: 'taken' });
@@ -160,11 +161,49 @@ describe('CTA-F2 · correo con cuenta ⇒ «Ingresar a cuenta»', () => {
     expect(getStoredUser()).toBeNull();
   });
 
-  it('en EN: «Log in to account»', async () => {
+  it('en EN: «Sign in to your account» (§CTA-UX.2)', async () => {
     const user = userEvent.setup();
     registerEmailOnly.mockRejectedValue(emailTaken());
     renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="j@d.com" onSuccess={vi.fn()} />, 'en');
     await user.click(screen.getByRole('button', { name: 'Create account' }));
-    expect(await screen.findByRole('button', { name: 'Log in to account' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Sign in to your account' })).toBeInTheDocument();
+  });
+});
+
+/**
+ * DESIGN_SYSTEM §CTA-UX.2 (vCTA-1, peticiones 1 y 3):
+ *  - ayuda bajo el único campo (`auth.emailOnly.hint`, ligada con `aria-describedby`), solo en el alta;
+ *  - el aviso del `409` es `Banner info` (el cliente no se equivocó), no `warning`;
+ *  - el tope de «¿Olvidaste tu contraseña?» va en tinta, no en `text-warning`.
+ * Mutaciones: quitar el `hint`; volver a `variant="warning"`; volver a `text-warning`.
+ */
+describe('CTA-UX.2 · ayuda, aviso informativo y tope en tinta', () => {
+  it('alta: la ayuda describe el campo de correo; en la entrada no aparece', () => {
+    const { unmount } = renderWithProviders(<InlineAuthPanel variant="register" onSuccess={vi.fn()} />, 'es');
+    expect(screen.getByLabelText('Correo')).toHaveAccessibleDescription(HINT);
+    unmount();
+    renderWithProviders(<InlineAuthPanel variant="login" onSuccess={vi.fn()} />, 'es');
+    expect(screen.queryByText(HINT)).toBeNull();
+  });
+
+  it('409 ⇒ Banner info con role=status', async () => {
+    const user = userEvent.setup();
+    registerEmailOnly.mockRejectedValue(emailTaken());
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="juan@dominio.com" onSuccess={vi.fn()} />, 'es');
+    await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
+    const banner = (await screen.findByText(TAKEN)).closest('[role="status"]')!;
+    expect(banner).toHaveAttribute('data-variant', 'info');
+  });
+
+  it('el tope del «¿Olvidaste tu contraseña?» va en tinta (no text-warning)', async () => {
+    const user = userEvent.setup();
+    registerEmailOnly.mockRejectedValue(emailTaken());
+    forgotPassword.mockRejectedValue(new ApiClientError(429, { code: 'RATE_LIMITED', message: 'x' }));
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="juan@dominio.com" onSuccess={vi.fn()} />, 'es');
+    await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
+    await user.click(await screen.findByRole('button', { name: '¿Olvidaste tu contraseña?' }));
+    const tope = await screen.findByText('Ya pediste varios enlaces. Espera unos minutos y vuelve a intentarlo.');
+    expect(tope).toHaveClass('text-text');
+    expect(tope).not.toHaveClass('text-warning');
   });
 });

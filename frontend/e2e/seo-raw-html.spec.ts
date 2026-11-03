@@ -352,7 +352,8 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     // La franja de la ficha enlaza a una ruta que responde 200 (L-6).
     const cards = await api<{ data: Group[] }>('/catalog/cards?pageSize=1');
     const ficha = await raw(request, `/es/catalog/${cards.data[0].card.id}`);
-    const strip = /data-testid="about-strip"[\s\S]*?<\/p>/.exec(ficha.html)?.[0] ?? '';
+    // §CTA-UX.1: la franja es un grupo con un `<p>` de datos y una `<ul>` de enlaces; se toma hasta el fin de la lista.
+    const strip = /data-testid="about-strip"[\s\S]*?<\/ul>/.exec(ficha.html)?.[0] ?? '';
     // 945 (2026-11-03): la franja lleva también WhatsApp e Instagram; se busca el enlace a «Quiénes somos».
     expect(strip).toContain('href="https://wa.me/525564893921"');
     expect(strip).toContain('href="https://www.instagram.com/tcghunt.mx/"');

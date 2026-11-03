@@ -23,7 +23,6 @@ const BANNED = /IVA \{rate\} % incluido|IVA \d+ ?% incluido|IVA incluido|con IVA
 const ALLOWED: Record<string, string> = {
   'common.ivaIncluded': 'clave de la etiqueta de precio que ya NINGÚN componente pinta (IvaLabel la dejó, 977); la leen las e2e para medir su ausencia',
   'common.ivaIncludedBare': 'nota «incluye IVA» del valor de MERCADO (P-CTA-5(b), §MIV.10)',
-  'card.referenceExplainerWithMarket': 'explicador del valor de MERCADO (P-CTA-5(b), §MIV)',
   'checkout.ivaIncluded': 'línea de IVA del resumen del checkout (P-CTA-5(a), criterio 195)',
 };
 

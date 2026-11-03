@@ -6,7 +6,7 @@ import { Link } from '@/i18n/navigation';
 import { resetPassword } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
+import { Button, buttonClassName } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { useStripTokenFromUrl } from '@/lib/token-url';
 
@@ -75,7 +75,7 @@ export function ResetPasswordView({ token }: { token?: string }) {
         </Banner>
         <Link
           href="/login"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-fg"
+          className={buttonClassName({ variant: 'primary', className: 'w-full' })}
         >
           {t('goToLogin')}
         </Link>
@@ -92,7 +92,7 @@ export function ResetPasswordView({ token }: { token?: string }) {
         </Banner>
         <Link
           href="/forgot-password"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-fg"
+          className={buttonClassName({ variant: 'primary', className: 'w-full' })}
         >
           {t('requestAnother')}
         </Link>

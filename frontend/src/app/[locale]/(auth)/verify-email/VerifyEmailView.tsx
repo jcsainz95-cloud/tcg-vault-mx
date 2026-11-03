@@ -7,7 +7,7 @@ import { Link } from '@/i18n/navigation';
 import { verifyEmail } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
-import { Button } from '@/components/ui/Button';
+import { Button, buttonClassName } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { useResendVerification } from '@/hooks/useResendVerification';
 import { useStripTokenFromUrl } from '@/lib/token-url';
@@ -65,7 +65,7 @@ export function VerifyEmailView({ token }: { token?: string }) {
           </Banner>
           <Link
             href="/"
-            className="inline-flex min-h-[44px] items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-fg"
+            className={buttonClassName({ variant: 'primary', className: 'w-full' })}
           >
             {t('goToStore')}
           </Link>

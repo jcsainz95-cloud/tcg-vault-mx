@@ -186,10 +186,19 @@ test.describe('§CTA · cuenta con solo el correo', () => {
 });
 
 test.describe('§CTA · franja de confianza y cabeceras', () => {
-  test('@real 945 · franja en la ficha y el carrito: tarjeta, plazo, WhatsApp e Instagram; sin OXXO; sin desborde a 390 px', async ({
+  /**
+   * 945 + DESIGN_SYSTEM §CTA-UX.1 (vCTA-1, petición 2), medido en navegador a 360×740 (el ancho de ux-ui era aritmética,
+   * NO MEDIDO). Candados:
+   *  (b) a 360 px `scrollWidth ≤ innerWidth` (página y franja) y **ningún renglón empieza con «·»**: el carácter
+   *      visible anterior a cada «·» está en el MISMO renglón;
+   *  (c) cada enlace mide ≥ 44 px de alto.
+   * Además deja anotado (no es candado) cuánto miden WhatsApp e Instagram y si caben juntos en un renglón.
+   * Mutaciones: el « ·» pegado al segundo dato (abre renglón ⇒ (b) rojo); `min-h-[44px]` fuera ⇒ (c) rojo.
+   */
+  test('@real 945 · franja en la ficha y el carrito: tarjeta, plazo, WhatsApp e Instagram; sin OXXO; a 360 px sin desborde, sin «·» abriendo renglón y enlaces de 44 px (CTA-UX.1)', async ({
     page,
-  }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+  }, testInfo) => {
+    await page.setViewportSize({ width: 360, height: 740 });
     await page.goto('/es/catalog');
     const tile = page.locator('a[href*="/catalog/"]').first();
     await tile.click();
@@ -198,15 +207,76 @@ test.describe('§CTA · franja de confianza y cabeceras', () => {
         await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
         await page.goto('/es/checkout');
       }
-      const strip = page.getByTestId('about-strip').first();
+      const strip = page.getByRole('group', { name: t('es', 'about.strip.groupLabel') }).first();
       await expect(strip, where).toBeVisible();
+      await expect(strip).toHaveAttribute('data-testid', 'about-strip');
       await expect(strip).toContainText('tarjeta');
       await expect(strip).toContainText('4 a 10 días hábiles');
       await expect(strip).not.toContainText(/oxxo/i);
-      await expect(strip.getByRole('link', { name: 'WhatsApp 55 6489 3921' })).toHaveAttribute('href', 'https://wa.me/525564893921');
-      await expect(strip.getByRole('link', { name: 'Instagram @tcghunt.mx' })).toHaveAttribute('href', 'https://www.instagram.com/tcghunt.mx/');
+      const newTab = t('es', 'about.strip.newTab');
+      const wa = strip.getByRole('link', { name: `WhatsApp 55 6489 3921${newTab}`, exact: true });
+      const ig = strip.getByRole('link', { name: `Instagram @tcghunt.mx${newTab}`, exact: true });
+      await expect(wa).toHaveAttribute('href', 'https://wa.me/525564893921');
+      await expect(ig).toHaveAttribute('href', 'https://www.instagram.com/tcghunt.mx/');
+
+      // (b) sin desborde: la página y la propia franja.
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      expect(overflow, `${where}: scrollWidth − ancho`).toBeLessThanOrEqual(0);
+      expect(overflow, `${where}: scrollWidth − innerWidth`).toBeLessThanOrEqual(0);
+      const own = await strip.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(own, `${where}: la franja desborda su caja`).toBeLessThanOrEqual(0);
+
+      // (b) ningún renglón empieza con «·»: por cada «·», el carácter visible anterior comparte renglón con él.
+      const dots = await strip.evaluate((root) => {
+        const chars: { ch: string; node: Text; i: number }[] = [];
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+          const el = n.parentElement!;
+          if (el.closest('.sr-only')) continue;
+          for (let i = 0; i < n.data.length; i++) chars.push({ ch: n.data[i], node: n, i });
+        }
+        const rectOf = (c: { node: Text; i: number }) => {
+          const r = document.createRange();
+          r.setStart(c.node, c.i);
+          r.setEnd(c.node, c.i + 1);
+          const rects = r.getClientRects();
+          return rects.length ? rects[0] : null;
+        };
+        const out: { opensRow: boolean; dotTop: number; prevTop: number | null; prev: string }[] = [];
+        chars.forEach((c, k) => {
+          if (c.ch !== '·') return;
+          const dot = rectOf(c)!;
+          let j = k - 1;
+          while (j >= 0 && /\s/.test(chars[j].ch)) j--;
+          const prev = j >= 0 ? rectOf(chars[j]) : null;
+          const opensRow = !prev || Math.abs(prev.top - dot.top) > 2;
+          out.push({ opensRow, dotTop: dot.top, prevTop: prev?.top ?? null, prev: j >= 0 ? chars[j].ch : '' });
+        });
+        return out;
+      });
+      expect(dots.length, `${where}: separadores «·»`).toBeGreaterThan(0);
+      for (const d of dots) expect(d.opensRow, `${where}: un «·» abre renglón ${JSON.stringify(d)}`).toBe(false);
+
+      // (c) enlaces de 44 px.
+      const links = strip.getByRole('link');
+      const n = await links.count();
+      expect(n).toBe(3);
+      for (let i = 0; i < n; i++) {
+        const box = await links.nth(i).boundingBox();
+        expect(box!.height, `${where}: alto del enlace ${i}`).toBeGreaterThanOrEqual(44);
+      }
+
+      // Medición para ux-ui (no candado): ¿WhatsApp + Instagram caben en un renglón a 360 px?
+      const [waBox, igBox, stripBox] = [await wa.boundingBox(), await ig.boundingBox(), await strip.boundingBox()];
+      testInfo.annotations.push({
+        type: `CTA-UX.1 ${where} 360px`,
+        description: JSON.stringify({
+          strip: Math.round(stripBox!.width),
+          whatsapp: Math.round(waBox!.width),
+          instagram: Math.round(igBox!.width),
+          sameRow: Math.abs(waBox!.y - igBox!.y) < 1,
+          stripHeight: Math.round(stripBox!.height),
+        }),
+      });
     }
   });
 

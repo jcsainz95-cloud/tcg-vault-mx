@@ -134,7 +134,8 @@ export function InlineAuthPanel({
   return (
     <form onSubmit={submit} className="flex flex-col">
       {error && (
-        <Banner variant="warning" role="status" className="mb-6">
+        // §CTA-UX.2: el `409` es informativo (el cliente no se equivocó) ⇒ `info`; cualquier otro error, `warning`.
+        <Banner variant={emailTaken ? 'info' : 'warning'} role="status" className="mb-6">
           <span data-testid="inline-auth-error">{error}</span>
           {/* 970: «Ingresar a cuenta» = login INLINE con el correo puesto (no abandona el checkout, §15.2) y
               «¿Olvidaste tu contraseña?» = `forgot-password` aquí mismo. Solo en el alta. */}
@@ -162,7 +163,8 @@ export function InlineAuthPanel({
                 </button>
               )}
               {resetState === 'rateLimited' && (
-                <span role="alert" className="block w-full text-sm text-warning">
+                // §CTA-UX.2: el tope va en tinta (contraste de `text-warning` sobre el aviso no medido).
+                <span role="alert" className="block w-full text-sm text-text">
                   {te('resetRateLimited')}
                 </span>
               )}
@@ -181,6 +183,8 @@ export function InlineAuthPanel({
           spellCheck={false}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          // §CTA-UX.2: sin la ayuda el cliente no sabe qué sigue tras dar solo el correo (`aria-describedby` vía `hint`).
+          hint={activeVariant === 'register' ? te('hint') : undefined}
           required
         />
         {/* 969: el alta del carrito NO pide contraseña (llega después, por el correo o desde «Mi cuenta»). */}

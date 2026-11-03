@@ -29,9 +29,14 @@ pendientes de contrato; el simulador de `lib/api.ts` espeja el contrato: `MOCK_T
 - **«Mi cuenta» (972):** `accountSetupPending && !hasPassword` ⇒ «Ponle contraseña a tu cuenta» (`SetPasswordForm`,
   nombre opcional + nueva, sin la actual ⇒ `setPassword`, reemplaza los dos tokens). Correo editable en `EmailSection`
   solo pendiente y sin verificar (`updateMyEmail`). `hasPassword` manda sobre una bandera vieja.
-- **Franja (945, CTA.8):** `TrustStrip` = «Pago seguro con tarjeta · Entrega en 4 a 10 días hábiles · WhatsApp … ·
-  Instagram @tcghunt.mx · Quiénes somos», `flex-wrap`. Un hecho, un sitio: `about.paymentMethod` y `about.deliveryDays`
-  alimentan franja y `/nosotros`; número, `wa.me` e Instagram salen de `lib/about.ts`. ⛔ OXXO en ningún texto de cliente.
+- **Franja (945, CTA.8, DESIGN_SYSTEM §CTA-UX.1):** `TrustStrip` = grupo con nombre (`about.strip.groupLabel`) en dos
+  renglones: `<p>` «Pago seguro con tarjeta · Entrega en 4 a 10 días hábiles» (el único « ·» `aria-hidden`, pegado al
+  primer dato con espacio duro dentro de un bloque `nowrap`: nunca abre renglón) y `<ul>` sin separadores con WhatsApp,
+  Instagram (pestaña nueva + `sr-only` `about.strip.newTab`) y «Quiénes somos»; enlaces `nowrap` de 44 px. Sin teléfono,
+  sin WhatsApp ni hueco. «`/nosotros` sin publicar ⇒ sin enlace» no tiene señal en el código (`ABOUT_PATH` es fijo y la
+  página responde 200, `seo-raw-html.spec.ts`): no se construye un interruptor sin fuente. Un hecho, un sitio:
+  `about.paymentMethod`/`about.deliveryDays` alimentan franja y `/nosotros`; número, `wa.me` e Instagram, `lib/about.ts`.
+  ⛔ OXXO en ningún texto de cliente.
 - **977:** `IvaLabel` ya no pinta el rótulo del PRECIO con IVA dentro (teja, ficha y barra fija, sellado, carrusel,
   vitrina, lista de deseos); fuera `accessories.vatIncluded`, «IVA incluido» del deck y «con IVA incluido» de las notas
   del subtotal. Quedan la línea «IVA 16 % incluido: MX$…» del resumen (P-CTA-5(a)), «incluye IVA» del mercado
@@ -41,11 +46,16 @@ pendientes de contrato; el simulador de `lib/api.ts` espeja el contrato: `MOCK_T
   F7 + 945 `_shared/TrustStrip.test.tsx`; F8 `security-headers.test.ts`; 977 `test/iva-977.test.tsx` + `IvaLabel.test.tsx`
   y los casos de cada superficie. E2E `e2e/cuenta-correo.spec.ts` (todo `@real`, mismos pasos en mocks y real; el token
   real se lee del log del backend con `NoopMailAdapter`, `E2E_BACKEND_LOG`).
-- **Pendiente de ux-ui (provisional, sin maqueta en DESIGN_SYSTEM):** textos y forma de la franja de 4 señales (MKT-CONV.4
-  fija la de una línea), la página `/account-setup` (copia el patrón de `/reset-password`), el aviso del `409` y sus dos
-  acciones, el bloque «Ponle contraseña» y «Corregir mi correo» de «Mi cuenta», y las notas del subtotal sin «con IVA
-  incluido». Namespaces: `accountSetup.*`, `auth.emailOnly.*`, `account.password.setup*`, `account.email.correct*`,
-  `about.strip.*`.
+- **§CTA-UX (vCTA-1, las 5 peticiones de §CTA-UX.6, 2026-11-03):** textos ES/EN de §CTA-UX.2–4 + `auth.emailOnly.hint`
+  (ayuda del único campo, `aria-describedby`), `about.strip.groupLabel`/`newTab`; 409 en `Banner info` (tope en tinta);
+  enlaces-botón de `/account-setup`, `/reset-password` y `/verify-email` con `buttonClassName()` (exportada de
+  `ui/Button.tsx`, la MISMA que usa `Button`: un enlace-botón no puede quedarse con otro radio); tope/error de «Mandar
+  otro» como `Banner` (`warning`/`danger`, `role=alert`); foco de «Corregir mi correo» (abrir ⇒ campo; cancelar o
+  guardar ⇒ enlace); fuera `card.referenceExplainerWithMarket` (sin uso; las e2e miden su ausencia por texto).
+  `Banner` expone `data-variant` (lo leen las pruebas). Candados: `test/cta-ux-copy.test.ts`, `TrustStrip.test.tsx`
+  («CTA-UX.1»), `InlineAuthPanel.test.tsx` («CTA-UX.2»), `token-pages.cta.test.tsx` («CTA-UX.3»),
+  `AccountSetupPending.cta.test.tsx` («CTA-UX.4»); navegador a 360×740: `e2e/cuenta-correo.spec.ts` «@real 945».
+  Medición a 360 px: abajo, «Mediciones §CTA-UX».
 
 ## §IDS-FE · Español y versiones de liga (2026-11-03, rama `claude/ids-diseno`; contrato v1.116.2⟨ids⟩, DESIGN_SYSTEM §IDS-UX vIDS-6)
 

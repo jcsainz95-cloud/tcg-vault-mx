@@ -5,7 +5,11 @@ import { ApiClientError } from '@/lib/api-client';
 import { setStoredUser } from '@/lib/session';
 
 vi.mock('@/i18n/navigation', () => ({
-  Link: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
+  Link: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => (
+    <a href={href} className={className}>
+      {children}
+    </a>
+  ),
 }));
 
 /** Orden de los hechos que importan: quitar el token de la barra y cada petición. */
@@ -164,5 +168,84 @@ describe('CTA-F4 · «Termina tu cuenta»', () => {
     renderWithIntl(<AccountSetupView token={undefined} />);
     expect(screen.getByText('El enlace ya se usó o caducó')).toBeInTheDocument();
     expect(accountSetup).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * DESIGN_SYSTEM §CTA-UX.3 (vCTA-1, petición 3) — los botones-enlace de las páginas con token llevan el estilo de
+ * `Button` primary (recto, §4.2; etiqueta en versalitas, §6.1), no el `rounded-md` en minúsculas de antes; y los avisos
+ * de tope y error de «Mandar otro» son `Banner` (no un `<p>` en `text-warning`/`text-danger` de contraste no medido).
+ * Mutaciones: devolver el `className` viejo a cualquiera de los enlaces; devolver el `<p>` a cualquiera de los avisos.
+ */
+describe('CTA-UX.3 · botones-enlace como Button primary y avisos como Banner', () => {
+  function expectPrimaryButtonLink(a: HTMLElement) {
+    expect(a.tagName).toBe('A');
+    expect(a).toHaveClass('bg-primary', 'text-primary-fg', 'uppercase', 'tracking-label', 'min-h-[44px]');
+    expect(a.className).not.toMatch(/\brounded/);
+  }
+  function submitSetup() {
+    fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Ana' } });
+    fireEvent.change(screen.getByLabelText('Contraseña'), { target: { value: 'longenough1' } });
+    fireEvent.change(screen.getByLabelText('Confirmar contraseña'), { target: { value: 'longenough1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+  }
+
+  it('/account-setup «Listo»: «Entrar» es un enlace con estilo de Button primary', async () => {
+    accountSetup.mockResolvedValue({ ok: true, deviceToken: 'd' });
+    renderWithIntl(<AccountSetupView token={TOKEN} />);
+    submitSetup();
+    expectPrimaryButtonLink(await screen.findByRole('link', { name: 'Entrar' }));
+  });
+
+  it('/account-setup EN: «Sign in»', async () => {
+    accountSetup.mockResolvedValue({ ok: true, deviceToken: 'd' });
+    renderWithIntl(<AccountSetupView token={TOKEN} />, 'en');
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Ana' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'longenough1' } });
+    fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'longenough1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expectPrimaryButtonLink(await screen.findByRole('link', { name: 'Sign in' }));
+  });
+
+  it('/reset-password: «Iniciar sesión» (éxito) y «Solicitar otro enlace» (enlace caducado) con estilo de Button primary', async () => {
+    resetPassword.mockResolvedValue({ ok: true, deviceToken: 'd' });
+    const { unmount } = renderWithIntl(<ResetPasswordView token={TOKEN} />);
+    fireEvent.change(screen.getByLabelText('Nueva contraseña'), { target: { value: 'longenough1' } });
+    fireEvent.change(screen.getByLabelText('Confirmar contraseña'), { target: { value: 'longenough1' } });
+    fireEvent.click(screen.getByRole('button', { name: /Cambiar contraseña/ }));
+    expectPrimaryButtonLink(await screen.findByRole('link', { name: 'Iniciar sesión' }));
+    unmount();
+    renderWithIntl(<ResetPasswordView token={undefined} />);
+    expectPrimaryButtonLink(screen.getByRole('link', { name: 'Solicitar otro enlace' }));
+  });
+
+  it('/verify-email (misma familia de páginas con token): «Ir a la tienda» con estilo de Button primary', async () => {
+    verifyEmail.mockResolvedValue({ verified: true });
+    renderWithIntl(<VerifyEmailView token={TOKEN} />);
+    expectPrimaryButtonLink(await screen.findByRole('link', { name: 'Ir a la tienda' }));
+  });
+
+  it('«Mandar otro» sin sesión con tope ⇒ Banner warning role=alert', async () => {
+    forgotPassword.mockRejectedValue(new ApiClientError(429, { code: 'RATE_LIMITED', message: 'x' }));
+    renderWithIntl(<AccountSetupView token={undefined} />);
+    fireEvent.change(await screen.findByLabelText('Correo'), { target: { value: 'ana@x.mx' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mandar otro' }));
+    const text = await screen.findByText('Ya pediste varios enlaces. Espera un rato y vuelve a intentarlo.');
+    const banner = text.closest('[data-variant]')!;
+    expect(banner).toHaveAttribute('data-variant', 'warning');
+    expect(banner).toHaveAttribute('role', 'alert');
+  });
+
+  it.each([
+    ['RATE_LIMITED', 'Ya pediste varios enlaces. Espera un rato y vuelve a intentarlo.', 'warning'],
+    ['BOOM', 'No se pudo completar. Inténtalo de nuevo.', 'danger'],
+  ] as const)('«Mandar otro» con sesión, %s ⇒ Banner %s', async (code, msg, variant) => {
+    setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale: 'es', emailVerified: false });
+    resendVerificationEmail.mockRejectedValue(new ApiClientError(code === 'BOOM' ? 500 : 429, { code, message: 'x' }));
+    renderWithIntl(<AccountSetupView token={undefined} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Mandar otro' }));
+    const banner = (await screen.findByText(msg)).closest('[data-variant]')!;
+    expect(banner).toHaveAttribute('data-variant', variant);
+    expect(banner).toHaveAttribute('role', 'alert');
   });
 });

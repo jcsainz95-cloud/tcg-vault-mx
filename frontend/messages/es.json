@@ -222,10 +222,10 @@
       "createSentBody": "Revisa tu correo. El enlace caduca; si no llega, pide otro.",
       "createResend": "Enviar otra vez",
       "setupTitle": "Ponle contraseña a tu cuenta",
-      "setupSummary": "Tu cuenta aún no tiene contraseña. Pónsela para entrar con tu correo desde cualquier lugar.",
-      "setupBody": "Tu cuenta nació solo con tu correo, así que no te pedimos una contraseña actual. Pon tu nombre y tu contraseña.",
+      "setupSummary": "Tu cuenta aún no tiene contraseña. Ponle una para entrar con tu correo desde cualquier lugar.",
+      "setupBody": "Tu cuenta nació solo con tu correo, así que no te pedimos una contraseña actual. Elige tu contraseña; el nombre es opcional.",
       "setupName": "Nombre (opcional)",
-      "setupNameHint": "Como quieres que te llamemos.",
+      "setupNameHint": "Cómo quieres que te llamemos.",
       "setupNameTooLong": "El nombre puede tener hasta 120 caracteres.",
       "setupSubmit": "Guardar contraseña"
     },
@@ -469,8 +469,7 @@
       "graded": "Gradeada",
       "sealed": "Sellado",
       "raw": "Raw"
-    },
-    "referenceExplainerWithMarket": "El valor de mercado es la referencia del día y se muestra con IVA incluido, igual que nuestro precio de venta, para que los compares tal cual. El precio de venta se calcula a partir de esa referencia."
+    }
   },
   "price": {
     "pendingLabel": "Precio pendiente",
@@ -1364,10 +1363,11 @@
       "done": "Listo"
     },
     "emailOnly": {
-      "taken": "Ese correo ya tiene una cuenta. Entra con tu contraseña y sigue con tu compra: tu carrito no cambia.",
+      "taken": "Ese correo ya tiene una cuenta. Ingresa y sigue con tu compra: tu carrito no cambia.",
       "login": "Ingresar a cuenta",
       "resetSent": "Te mandamos un enlace a ese correo para poner una contraseña nueva.",
-      "resetRateLimited": "Ya pediste varios enlaces. Espera unos minutos y vuelve a intentarlo."
+      "resetRateLimited": "Ya pediste varios enlaces. Espera unos minutos y vuelve a intentarlo.",
+      "hint": "Solo tu correo. Te mandamos un enlace para ponerle contraseña a tu cuenta."
     }
   },
   "verifyEmail": {
@@ -8509,7 +8509,9 @@
       "linkLabel": "Quiénes somos y contacto",
       "delivery": "Entrega en {days}",
       "whatsapp": "WhatsApp {phone}",
-      "instagram": "Instagram {handle}"
+      "instagram": "Instagram {handle}",
+      "groupLabel": "Pago, entrega y contacto",
+      "newTab": " (se abre en otra pestaña)"
     },
     "paymentMethod": "tarjeta",
     "deliveryDays": "4 a 10 días hábiles"
@@ -8589,7 +8591,7 @@
   },
   "accountSetup": {
     "title": "Termina tu cuenta",
-    "subtitle": "Ponle nombre y contraseña a tu cuenta. Después entra con tu correo y esa contraseña.",
+    "subtitle": "Dinos tu nombre y elige una contraseña. Después entras con tu correo y esa contraseña.",
     "name": "Nombre",
     "password": "Contraseña",
     "confirm": "Confirmar contraseña",

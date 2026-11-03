@@ -34,22 +34,34 @@ const sizes: Record<Size, string> = {
   lg: 'min-h-[48px] px-8 py-5 text-xs tracking-[0.16em]',
 };
 
+/**
+ * Las clases del botón, para un `<Link>` que navega pero se ve como botón (DESIGN_SYSTEM §CTA-UX.3: «Entrar» de
+ * `/account-setup`, enlaces de `/reset-password`). Una sola fuente: `Button` las usa igual, así que un enlace-botón no
+ * puede quedarse con otro radio ni otra etiqueta.
+ */
+export function buttonClassName({
+  variant = 'primary',
+  size = 'md',
+  className,
+}: { variant?: Variant; size?: Size; className?: string } = {}): string {
+  return cn(
+    'inline-flex items-center justify-center gap-2 font-medium transition-colors',
+    // Deshabilitado: el botón no desaparece, se queda como una regla apagada.
+    'disabled:cursor-not-allowed disabled:border disabled:border-border-strong disabled:bg-transparent disabled:text-muted',
+    variant === 'link' ? 'text-sm' : cn('uppercase leading-none', sizes[size]),
+    variants[variant],
+    className,
+  );
+}
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { variant = 'primary', size = 'md', loading, className, children, disabled, ...props },
   ref,
 ) {
-  const isLink = variant === 'link';
   return (
     <button
       ref={ref}
-      className={cn(
-        'inline-flex items-center justify-center gap-2 font-medium transition-colors',
-        // Deshabilitado: el botón no desaparece, se queda como una regla apagada.
-        'disabled:cursor-not-allowed disabled:border disabled:border-border-strong disabled:bg-transparent disabled:text-muted',
-        isLink ? 'text-sm' : cn('uppercase leading-none', sizes[size]),
-        variants[variant],
-        className,
-      )}
+      className={buttonClassName({ variant, size, className })}
       aria-busy={loading || undefined}
       disabled={disabled || loading}
       {...props}

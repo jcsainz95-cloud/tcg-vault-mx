@@ -29,7 +29,7 @@ import { parseCardHref } from './utils/catalog-tile';
 async function marketBlockState(page: Page): Promise<{ block: boolean; explainer: 'with' | 'no' | 'none' }> {
   const block = (await page.getByText(t('es', 'catalog.marketValue'), { exact: true }).count()) > 0;
   const withMarket =
-    (await page.getByText(t('es', 'card.referenceExplainerWithMarket')).count()) > 0;
+    (await page.getByText(/valor de mercado es la referencia del día/i).count()) > 0;
   // MKT-CONV.2 (B6b, 2026-10-31): la frase «sin mercado» se retiró de la ficha ⇒ sin variante «con mercado» = 'none'.
   return { block, explainer: withMarket ? 'with' : 'none' };
 }

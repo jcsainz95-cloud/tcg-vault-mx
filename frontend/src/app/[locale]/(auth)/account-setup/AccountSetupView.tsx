@@ -9,7 +9,7 @@ import { useSession } from '@/lib/session';
 import { useStripTokenFromUrl } from '@/lib/token-url';
 import { useResendVerification } from '@/hooks/useResendVerification';
 import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
+import { Button, buttonClassName } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 
 /** Política vigente (contrato §1 `MIN_PASSWORD_LENGTH`), la misma de register/reset. */
@@ -28,8 +28,8 @@ type Field = 'name' | 'password' | 'confirm';
  * otro «Termina tu cuenta» a una cuenta pendiente, §CTA.5); sin sesión, pide el correo y llama a `forgot-password`
  * (respuesta genérica: no revela si el correo existe).
  *
- * Aspecto: el de `reset-password` (misma columna del layout `(auth)`), hasta que ux-ui fije la pantalla (FRONTEND_NOTES
- * §CTA-FE, petición a ux-ui). Textos provisionales en `accountSetup.*`.
+ * Aspecto: DESIGN_SYSTEM §CTA-UX.3 (columna de `(auth)` como `reset-password`; «Entrar» con las clases de `Button`
+ * primary; tope y error de «Mandar otro» como `Banner`). Textos en `accountSetup.*`.
  */
 export function AccountSetupView({ token }: { token?: string }) {
   // D-CTA-10 (1): el token sale de la barra antes de cualquier petición (lo conserva la prop).
@@ -80,7 +80,7 @@ export function AccountSetupView({ token }: { token?: string }) {
         </Banner>
         <Link
           href="/login"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-fg"
+          className={buttonClassName({ variant: 'primary', className: 'w-full' })}
         >
           {t('goToLogin')}
         </Link>
@@ -177,8 +177,16 @@ function InvalidLink() {
             <Button variant="secondary" loading={resendStatus === 'sending'} onClick={resend} className="self-start">
               {resendStatus === 'sending' ? t('sending') : t('sendAnother')}
             </Button>
-            {resendStatus === 'rateLimited' && <p className="text-sm text-warning">{t('rateLimited')}</p>}
-            {resendStatus === 'error' && <p className="text-sm text-danger">{t('genericError')}</p>}
+            {resendStatus === 'rateLimited' && (
+              <Banner variant="warning" role="alert">
+                {t('rateLimited')}
+              </Banner>
+            )}
+            {resendStatus === 'error' && (
+              <Banner variant="danger" role="alert">
+                {t('genericError')}
+              </Banner>
+            )}
           </div>
         )
       ) : sendState === 'sent' ? (
@@ -201,7 +209,11 @@ function InvalidLink() {
           <Button type="submit" variant="secondary" loading={sendState === 'sending'} className="self-start">
             {sendState === 'sending' ? t('sending') : t('sendAnother')}
           </Button>
-          {sendState === 'rateLimited' && <p className="text-sm text-warning">{t('rateLimited')}</p>}
+          {sendState === 'rateLimited' && (
+            <Banner variant="warning" role="alert">
+              {t('rateLimited')}
+            </Banner>
+          )}
         </form>
       )}
     </div>

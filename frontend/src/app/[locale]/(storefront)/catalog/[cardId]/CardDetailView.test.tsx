@@ -267,7 +267,13 @@ describe('CardDetailView · una acción, una etiqueta; pila de avisos; franja; a
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
     const strip = await screen.findByTestId('about-strip');
-    expect(strip).toHaveTextContent(/^Pago seguro con tarjeta · Entrega en 4 a 10 días hábiles · WhatsApp 55 6489 3921 · Instagram @tcghunt.mx · Quiénes somos$/);
+    // §CTA-UX.1: renglón de datos (un solo « ·») + lista de enlaces sin separadores.
+    expect(strip.querySelector('p')).toHaveTextContent(/^Pago seguro con tarjeta\s·\sEntrega en 4 a 10 días hábiles$/);
+    expect(within(strip).getAllByRole('link').map((a) => a.textContent)).toEqual([
+      'WhatsApp 55 6489 3921 (se abre en otra pestaña)',
+      'Instagram @tcghunt.mx (se abre en otra pestaña)',
+      'Quiénes somos',
+    ]);
     const link = within(strip).getByRole('link', { name: 'Quiénes somos y contacto' });
     expect(link).toHaveAttribute('href', '/nosotros');
     expect(rowCtas()[1].compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

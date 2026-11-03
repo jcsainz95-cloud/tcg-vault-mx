@@ -130,3 +130,39 @@ describe('CTA-F5 · «Mi cuenta» de la cuenta con solo el correo', () => {
     expect(screen.queryByRole('button', { name: 'Corregir mi correo' })).toBeNull();
   });
 });
+
+/**
+ * DESIGN_SYSTEM §CTA-UX.4 (vCTA-1, petición 4) — foco de «Corregir mi correo»: al abrir, al campo; al cancelar o al
+ * guardar, de vuelta al enlace (antes el formulario y el enlace se desmontaban y el foco caía al `body`). EN: «Correct
+ * my email». Mutaciones: quitar el foco al abrir; quitar el regreso del foco (cancelar / guardar).
+ */
+describe('CTA-UX.4 · foco de «Corregir mi correo»', () => {
+  it('al abrir, el foco va al campo «Correo correcto»', async () => {
+    renderWithProviders(<EmailSection user={pending} canResend />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir mi correo' }));
+    await waitFor(() => expect(screen.getByLabelText('Correo correcto')).toHaveFocus());
+  });
+
+  it('al cancelar, el foco vuelve a «Corregir mi correo»', async () => {
+    renderWithProviders(<EmailSection user={pending} canResend />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir mi correo' }));
+    await waitFor(() => expect(screen.getByLabelText('Correo correcto')).toHaveFocus());
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Corregir mi correo' })).toHaveFocus());
+  });
+
+  it('al guardar, el foco vuelve a «Corregir mi correo» y el aviso de éxito se anuncia', async () => {
+    updateMyEmail.mockResolvedValue({ ...pending, email: 'bien@x.mx' });
+    renderWithProviders(<EmailSection user={pending} canResend />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Corregir mi correo' }));
+    fireEvent.change(screen.getByLabelText('Correo correcto'), { target: { value: 'bien@x.mx' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar correo' }));
+    expect(await screen.findByText('Correo actualizado. Te mandamos el enlace al correo nuevo.')).toHaveAttribute('role', 'status');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Corregir mi correo' })).toHaveFocus());
+  });
+
+  it('EN: «Correct my email»', () => {
+    renderWithProviders(<EmailSection user={pending} canResend />, 'en');
+    expect(screen.getByRole('button', { name: 'Correct my email' })).toBeInTheDocument();
+  });
+});
