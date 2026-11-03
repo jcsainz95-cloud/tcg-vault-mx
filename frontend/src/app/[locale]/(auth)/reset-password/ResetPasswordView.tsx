@@ -6,12 +6,11 @@ import { Link } from '@/i18n/navigation';
 import { resetPassword } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { Input } from '@/components/ui/Input';
-import { Button, buttonClassName } from '@/components/ui/Button';
+import { Button } from '@/components/ui/Button';
+import { buttonClassName } from '@/components/ui/button-classes';
 import { Banner } from '@/components/ui/Banner';
 import { useStripTokenFromUrl } from '@/lib/token-url';
-
-// Política de fuerza igual al registro (contrato §1: password MinLength 8).
-const MIN_PASSWORD = 8;
+import { MIN_PASSWORD } from '@/components/domain/account/account-limits';
 
 type State = 'form' | 'success' | 'invalidToken';
 

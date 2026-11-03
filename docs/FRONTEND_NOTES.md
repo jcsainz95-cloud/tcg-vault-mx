@@ -45,13 +45,17 @@ pendientes de contrato; el simulador de `lib/api.ts` espeja el contrato: `MOCK_T
   real se lee del log del backend con `NoopMailAdapter`, `E2E_BACKEND_LOG`).
 - **§CTA-UX.6 (vCTA-1, 2026-11-03):** textos ES/EN de §CTA-UX.2–4 + `auth.emailOnly.hint` (`aria-describedby`) y
   `about.strip.groupLabel`/`newTab`; 409 en `Banner info`, tope en tinta; enlaces-botón de las tres páginas con token
-  con `buttonClassName()` (de `ui/Button.tsx`, la misma que usa `Button`); tope/error de «Mandar otro» en `Banner`
+  con `buttonClassName()` (`ui/button-classes.ts`, SIN `'use client'`: la llaman Server Components; `Button` y la puerta
+  de `PasswordSection` la importan; candado `button-classes.test.tsx`); tope/error de «Mandar otro» en `Banner`
   (`data-variant`, que leen las pruebas); foco de «Corregir mi correo» (abrir ⇒ campo; cancelar/guardar ⇒ enlace); fuera
   `card.referenceExplainerWithMarket`. Candados «CTA-UX.1…4» en `TrustStrip`, `InlineAuthPanel`, `token-pages.cta`,
   `AccountSetupPending.cta` y `test/cta-ux-copy.test.ts`; navegador: `cuenta-correo.spec.ts` «@real 945» a 360 y 320 px.
   **Medido en Chromium (2026-11-03, N=3, ficha = carrito):** a 360, franja 320 px, datos en UN renglón, WhatsApp 131 +
   Instagram 128 + 20 = 279 px juntos, «Quiénes somos» baja ⇒ 104 px. A 320: datos en 2 renglones ⇒ 120 px. (b) mide
   también a 320 porque a 360 ningún « ·» cae en un salto.
+- **Rechazo del techlead sobre `e9c4c316` (TL-CTA):** cotas `MIN_PASSWORD`/`MAX_NAME` en `account/account-limits.ts`
+  (una de cada una, TL-CTA-7); el SENTINEL de `EmailSection` va escapado (`'\u0000'`): ningún NUL en `src/`, candado
+  `src/source-text.test.ts` (TL-CTA-8). Abiertas TL-CTA-4/5/6/9: índice de `docs/TECH_DEBT.md` §CTA.
 
 ## §IDS-FE · Español y versiones de liga (2026-11-03, rama `claude/ids-diseno`; contrato v1.116.2⟨ids⟩, DESIGN_SYSTEM §IDS-UX vIDS-6)
 
@@ -12653,15 +12657,7 @@ hablaban de M-47** (`contract.ts`, `fixtures.ts`, `MasterSetIndexPlate.test.tsx`
 §42). ⚠️ **Las `§4.39c` / `§4.39(x)` NO se tocaron**: ésas son del ciclo de adquisición y siguen
 apuntando donde deben. Después de la reescritura no queda ninguna cita `§4.39.N` en mis rutas.
 
-> ⛔ **SUPERADO en la fusión siguiente — ver §48.4.** Este párrafo dio por bueno mover las imágenes
-> de set a `§4.40.x` «por radio de citación», y la premisa se cayó al día siguiente: `main` publicó
-> **`§4.40` = identidad de graduación / cotizador raw-only**. Con las dos numeraciones en el mismo
-> árbol `§4.40` nombraba dos cosas —incluso dentro del MISMO fichero (`lib/api.ts`)—, y la que
-> perdía era **la guarda del dinero**. Lo resolvió **el arquitecto**, que es de quien es: `§4.39`
-> queda para el **ciclo de adquisición**, `§4.40` para **graduación/raw-only** (308 citas vivas en
-> `main`) y **las imágenes de set se mudan a `§4.41.1`–`§4.41.9`**. Mis 31 citas `§4.39.N`/`§4.40.N`
-> de logos —y las 4 con `§4.39` a secas— quedan reescritas a `§4.41.N`. **Las `§4.39c` / `§4.39(x)`
-> siguen sin tocarse: ésas son del ciclo y ahora apuntan donde deben sin mover nada.**
+> ⛔ **SUPERADO — ver §48.4:** las imágenes de set viven en `§4.41.1`–`§4.41.9` (`§4.39` ciclo, `§4.40` graduación). Compactado 2026-11-03; texto en `e9c4c316:docs/FRONTEND_NOTES.md`.
 
 **Para el arquitecto — nada pendiente de DT-Gd.** El único punto que quedaba abierto (nombrar los dos
 DTOs) lo cerró v1.53 y el cliente ya está alineado.

@@ -9,9 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { useErrorMessage } from '@/components/ui/QueryState';
 import type { ChangePasswordResponse } from '@/types/contract';
-
-/** Política vigente del contrato §1 (`MIN_PASSWORD_LENGTH`), la misma de register/reset. */
-export const MIN_PASSWORD = 8;
+import { MIN_PASSWORD } from './account-limits';
 
 type Field = 'current' | 'new' | 'confirm';
 

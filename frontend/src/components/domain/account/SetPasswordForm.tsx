@@ -8,10 +8,9 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { useErrorMessage } from '@/components/ui/QueryState';
-import { MIN_PASSWORD } from './PasswordForm';
+import { MAX_NAME, MIN_PASSWORD } from './account-limits';
 
 type Field = 'name' | 'new' | 'confirm';
-const MAX_NAME = 120;
 
 export interface SetPasswordFormProps {
   /** `200`: `setPassword()` ya reemplazó los dos tokens y parcheó la sesión local. */

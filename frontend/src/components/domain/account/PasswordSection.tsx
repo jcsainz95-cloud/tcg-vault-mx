@@ -2,6 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
+import { buttonClassName } from '@/components/ui/button-classes';
 import { passwordRouteForRole } from '@/lib/account-routes';
 import type { UserDTO } from '@/types/contract';
 import { SectionShell } from './SectionShell';
@@ -23,7 +24,7 @@ export function PasswordSection({ user }: { user: UserDTO }) {
       <p className="text-sm text-muted">{setup ? t('setupSummary') : hasPassword ? t('summaryHas') : t('summaryNone')}</p>
       <Link
         href={href}
-        className="mt-5 inline-flex min-h-[44px] w-full items-center justify-center border border-text px-4 text-[10px] font-medium uppercase tracking-label text-text hover:bg-text hover:text-primary-fg sm:min-h-0 sm:w-auto sm:py-3"
+        className={buttonClassName({ variant: 'secondary', size: 'sm', className: 'mt-5 w-full sm:w-auto' })}
       >
         {setup ? t('setupTitle') : hasPassword ? t('goChange') : t('goCreate')}
       </Link>
