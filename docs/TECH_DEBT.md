@@ -7,6 +7,16 @@
 
 ---
 
+## §IDS — deuda del techlead sobre f2cd0e31 (TL-IDS)
+
+> Rechazo del techlead sobre `f2cd0e31` (rama `claude/ids-diseno`). Cada rol anota sus fichas en esta tabla (O-23).
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-IDS-3 | CERRADA (2026-11-03, devops) · la precedencia de sufijos de liga vivía en dos sitios y ya difería: `backend/src/common/card-version.ts` (`regionals?`, `null` fuera de 22880/1539) y `scripts/ids/ids-lib.mjs` (`regional` sin plural, clasificaba cualquier grupo); las cuentas de ARCHITECTURE §15.0 salieron del segundo. Ahora `ids-lib.stampTypeOf` replica al backend (22872/24451 solo como medición IDS-D2, marcado) y su prueba corre los casos del spec del backend. Cuentas sin cambio: 0 discrepancias sobre TCGCSV 2026-11-02T20:06Z en 1539/22880/22872/24451 (DEVOPS_NOTES §108.6) | devops | 2026-11-03 | `node --test scripts/ids/ids-lib.test.mjs` con el árbol entero: «TL-IDS-3: stampTypeOf da el mismo tipo que el backend en TODOS los casos de su spec» verde (≥ 16 casos leídos de `backend/test/ids-card-version.spec.ts`) y «parser no decorativo» verde; mutación staff↔prerelease ⇒ roja (devops, N=3: 3/3) |
+
+---
+
 ## Backend · 2026-11-02 · checkout-fricción — deuda del techlead sobre `9d269935` (TL-CHK)
 
 > Dueño del código anotado: **backend**. Medidas por el techlead leyendo código el 2026-11-02; anotadas sin arreglar (O-23); los sitios citados se re-abrieron el mismo día sobre `9d269935`.

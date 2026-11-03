@@ -17,6 +17,7 @@
 #       (UPDATE … WHERE false con handler read_only_sql_transaction) ANTES de leer, última orden `ROLLBACK;`, ningún
 #       COMMIT/END/BEGIN/SET TRANSACTION/READ WRITE, ningún verbo que escriba salvo esa prueba, sin metaórdenes de psql
 #       peligrosas (\! \copy \o \c \gexec \g \i); `\ir` solo de ids-d1-q1.sql
+#   [Q] Q1c (H-Q1) filtra ownerType='customer', status <> 'withdrawn' y kind promo/deck_exclusive, y no saca ids de cliente/pieza
 #   [H] todo `uses:` fijado por sha de 40 hex (TL-CHK-8)
 # Los comentarios no cuentan. Canario: check-ids-ro-workflow-canary.sh.
 # Uso: ./scripts/check-ids-ro-workflow.sh [--root DIR]      DEVOPS_NOTES §108.5.
@@ -136,6 +137,22 @@ inc="$(printf '%s\n' "$sqlb" | grep -E '\\ir\b' | sed -E 's/[[:space:]]+$//' | t
 [ "$inc" = '\ir ids-d1-q1.sql ' ] || bad R "boton: \\ir debe ser exactamente uno, de ids-d1-q1.sql (es «${inc% }»)"
 printf '%s\n' "$sqlq" | grep -E '\\ir\b' >/dev/null && bad R "q1: incluye otro fichero"
 
+# [Q] Q1c y Q1c-detalle (H-Q1, §IDS.9 v1.116.4): piezas de CLIENTES, solo agregados. Sin el filtro de dueño medirían
+#     (también) plataforma y el número sería otro sin que nada se pusiera rojo; la proyección exterior (el SELECT de
+#     columna 0 hasta su FROM) no puede sacar ownerUserId fuera de count(DISTINCT …), ni ids, folios o correos.
+q1c_bloque() { printf '%s\n' "$sqlq" | awk -v tag="$1" 'index($0, "\\echo '"'"'== " tag " ") == 1 {f=1} f {print} f && /;[[:space:]]*$/ && !/^\\echo/ {exit}'; }
+for q in Q1c Q1c-detalle; do
+  blk="$(q1c_bloque "$q")"
+  if [ -z "$blk" ]; then bad Q "falta la sección $q en ids-d1-q1.sql"; continue; fi
+  printf '%s\n' "$blk" | grep -E "i\.\"ownerType\"[[:space:]]*=[[:space:]]*'customer'" >/dev/null || bad Q "$q no filtra i.\"ownerType\" = 'customer'"
+  printf '%s\n' "$blk" | grep -E "i\.status[[:space:]]*<>[[:space:]]*'withdrawn'" >/dev/null || bad Q "$q no filtra el portafolio (status <> 'withdrawn')"
+  printf '%s\n' "$blk" | grep -E "cp\.kind IN \('promo', 'deck_exclusive'\)" >/dev/null || bad Q "$q no filtra kind promo/deck_exclusive"
+  proy="$(printf '%s\n' "$blk" | awk '/^SELECT/ {p=""; f=1} f && /^FROM/ {f=0} f {p = p $0 "\n"} END {printf "%s", p}')"
+  [ -n "$proy" ] || bad Q "$q sin proyección exterior (SELECT en columna 0)"
+  printf '%s\n' "$proy" | sed -E 's/count\(DISTINCT [a-z]+\."ownerUserId"\)//g; s/=[[:space:]]*[a-z]+\.id\b//g; s/\b[a-z]+\.id[[:space:]]*=//g' | grep -iE 'ownerUserId|customerUserId|"User"|email|\b[a-z]+\.id\b|folio|orderNumber' >/dev/null \
+    && bad Q "$q expone ids de cliente, pieza u orden (solo agregados)"
+done
+
 # [H] acciones fijadas por sha
 while IFS= read -r u; do
   [ -n "$u" ] || continue
@@ -143,4 +160,4 @@ while IFS= read -r u; do
 done <<< "$(printf '%s\n' "$wf" | grep -E '^[[:space:]]*-?[[:space:]]*uses:')"
 
 if [ "$FALLOS" -ne 0 ]; then printf 'check-ids-ro-workflow: ROJO (%s)\n' "$FALLOS"; exit 1; fi
-echo "check-ids-ro-workflow: VERDE (A, C–H, R)"
+echo "check-ids-ro-workflow: VERDE (A, C–H, Q, R)"

@@ -81,21 +81,30 @@ export function baseMatchKey(name, number) {
 }
 
 /**
- * `stampTypeOf(groupId, name)` (IDS.3). 22880 ⇒ prize_pack siempre. Resto, por etiqueta, fallando cerrado.
- * LECTURA DEVOPS (el contrato no fija precedencia): staff > prerelease > championship > league, porque
- * «(League Cup) [Staff]» y «(Regional Championships) [Staff]» existen en 1539 y el contrato lista «[Staff]»
- * como tipo propio; y «Championship» se mira antes que «League» por «(League) … Championship» (0 casos medidos,
- * pero así nunca se rotula «De liga» un campeonato — D-6 v3).
+ * `stampTypeOf(groupId, name)` (IDS.3) — RÉPLICA de `stampTypeOf` de backend/src/common/card-version.ts (la regla que
+ * manda), devolviendo solo el tipo. TL-IDS-3 (2026-11-03): antes divergía en `regional` (sin plural) y en que clasificaba
+ * cualquier grupo; ahora usa los MISMOS segmentos y regex por segmento, y `ids-lib.test.mjs` corre los casos de
+ * `backend/test/ids-card-version.spec.ts` (leídos del propio fichero) con el mismo resultado.
+ *   · 22880 ⇒ prize_pack siempre · 1539 por segmento: staff > prerelease > championship > league, falla cerrado.
+ *   · ⚠️ EXTENSIÓN DE MEDICIÓN, no producción: 22872/24451 (IDS-D2) se clasifican con la misma regla que 1539 para
+ *     contar sus productos con tipo. El backend devuelve `null` para ellos (D-IDS-7: fuera de §IDS).
+ *   · Cualquier otro grupo ⇒ null, como el backend.
+ * Medido 2026-11-03 sobre TCGCSV (last-updated 2026-11-02T20:06Z): la versión anterior y la del backend discrepan en
+ * 0 de 620 productos de 1539 y 0 de 891 de 22880 ⇒ las cuentas de ARCHITECTURE §15.0 no cambian. DEVOPS_NOTES §108.6.
  */
+const SEG_RE = /\(([^()]*)\)|\[([^[\]]*)\]/g;
+const SEG_TYPES = [
+  ['staff', /\bstaff\b/i],
+  ['prerelease', /\bpre-?release\b/i],
+  ['championship', /\b(championships?|regionals?|international|world|worlds)\b/i],
+  ['league', /\bleague\b/i],
+];
+const segmentType = (seg) => SEG_TYPES.find(([, re]) => re.test(seg))?.[0] ?? null;
 export function stampTypeOf(groupId, name) {
   if (groupId === 22880) return 'prize_pack';
-  const tags = tagsOf(name);
-  const any = (re) => tags.some((t) => re.test(t));
-  if (any(/^staff$/i) || any(/\bstaff\b/i)) return 'staff';
-  if (any(/\bpre-?release\b/i)) return 'prerelease';
-  if (any(/\bchampionships?\b|\bregional\b|\binternational\b|\bworlds?\b/i)) return 'championship';
-  if (any(/\bleague\b/i)) return 'league';
-  return null;
+  if (groupId !== 1539 && !PROMO_STAMP_GROUPS.includes(groupId)) return null;
+  const typed = [...String(name ?? '').matchAll(SEG_RE)].map((m) => (m[1] ?? m[2] ?? '').trim()).filter(Boolean).map(segmentType);
+  return SEG_TYPES.map(([t]) => t).find((t) => typed.includes(t)) ?? null;
 }
 
 export const isCosmos = (name) => /cosmos\s*holo/i.test(String(name ?? ''));
