@@ -19,7 +19,7 @@ import { countIdentUses, identCensus, methodBody } from './helpers/ident-census'
  *
  * ⛔ Los lectores de patrimonio de SK-5 **no pueden estar en la lista**: `vault.service.ts`
  * (holdings, holdingDetail, `/vault/sealed`), `admin-vaults.service.ts` (`GET /admin/vaults`) y
- * `admin.service.ts` (custodyValue, ownedItemRefs, inventoryValue). Ahí se valúa con `valuationKeyFor`.
+ * `admin.service.ts` (custodyValue, ownedItemRefs, inventoryValue). Ahí se valúa con `PatrimonyValuationService.valuePieces` (v1.116.4, IDS-B24 abajo).
  */
 
 const SRC = join(__dirname, '..', 'src');
@@ -80,14 +80,17 @@ const ALLOWED: Record<string, { n: number; why: string }> = {
       'antes por `getSealedMarketRef`) y la rama raw/graduada de `resolve` (el sellado retorna antes).',
   },
   'modules/inventory/inventory.service.ts': {
-    n: 3,
+    // v1.116.4⟨ids⟩ (`IDS-PAT`): +1 — `exportOverrideKeyOf`, la llave del override M-30 del export (antes salía de
+    // `valuationKeyFor`, que desde v1.116.4 solo llama la puerta, IDS-B24). Casa una fila M-30, NO valúa.
+    n: 4,
     why:
       'Import + publicación (lote con rama sellada propia) + ' +
       '(techlead D-1, sobre `8a10153e`: `derivePublishSalePrice` ya no la llama — su clave de cola sale de ' +
       '`saleQueueKeyOf`, compartida con el barrido VQ) + ' +
-      're-publicación por variante (casa filas con la clave de COLA — uso legítimo). ⭐ v1.80.2.2 (errata ' +
-      '«séptimo lector», `M2-SK-5-7`): el export .xlsx YA NO está aquí — `exportGradeKey` se retiró y ' +
-      '`exportInventoryXlsx` valúa por la PUERTA (aserción por método abajo).',
+      're-publicación por variante (casa filas con la clave de COLA — uso legítimo) + `exportOverrideKeyOf` (la llave ' +
+      'de VARIANTE raw/graduada del override M-30 que el export enseña en «Precio compra/venta»; el sellado sale antes ' +
+      'con `null`: no hay M-30 de sellado). ⭐ v1.80.2.2 (errata «séptimo lector», `M2-SK-5-7`): el VALOR del export no ' +
+      'está aquí — `exportInventoryXlsx` valúa por la PUERTA (aserción por método abajo).',
   },
   'modules/inventory/inventory-position.adapter.ts': {
     n: 1,
@@ -152,15 +155,18 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
     }
   });
 
-  it('los lectores de patrimonio pasan por la PUERTA (`valuationKeyFor` + `valuationCentsOf`)', () => {
+  /**
+   * v1.116.4⟨ids⟩ (IDS-B24, «VK-6 "pasan por la PUERTA" pasa a exigir `valuePieces(`»): los lectores ya no llaman SK-5
+   * directo; llaman `PatrimonyValuationService.valuePieces`, y la puerta es quien llama `valuationKeyFor` + `valuationCentsOf`.
+   * La aserción por MÉTODO vive en IDS-B24 (abajo); aquí, la de fichero.
+   */
+  it('los lectores de patrimonio pasan por la PUERTA (`valuePieces(`), y la puerta por SK-5 (`valuationKeyFor` + `valuationCentsOf`)', () => {
     for (const f of SK5_READERS) {
       const code = stripComments(readFileSync(join(SRC, f), 'utf8'));
-      expect({ f, key: /\bvaluationKeyFor\(/.test(code), cents: /\bvaluationCentsOf\(/.test(code) }).toEqual({
-        f,
-        key: true,
-        cents: true,
-      });
+      expect({ f, gate: /\bvaluePieces\(/.test(code), key: /\bvaluationKeyFor\(/.test(code) }).toEqual({ f, gate: true, key: false });
     }
+    const gate = stripComments(readFileSync(join(SRC, 'modules/pricing/patrimony-valuation.service.ts'), 'utf8'));
+    expect({ key: /\bvaluationKeyFor\(/.test(gate), cents: /\bvaluationCentsOf\(/.test(gate) }).toEqual({ key: true, cents: true });
   });
 
   /**
@@ -173,15 +179,18 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
     const body = methodBody(stripComments(src), 'async exportInventoryXlsx(');
     expect(body.length).toBeGreaterThan(200); // el ancla existe y el cuerpo no está vacío
     expect(countQueueKeyUses(body)).toBe(0);
-    expect(/\bvaluationKeyFor\(/.test(body)).toBe(true);
-    expect(/\bvaluationCentsOf\(/.test(body)).toBe(true);
+    // v1.116.4 (IDS-B24): el VALOR por la puerta única; SK-5 ya no se llama aquí.
+    expect(/\bvaluePieces\(/.test(body)).toBe(true);
+    expect(/\bvaluationKeyFor\(/.test(body)).toBe(false);
+    expect(/\bvaluationCentsOf\(/.test(body)).toBe(false);
     // `exportGradeKey` (la llave propia del export) se retiró: ni definición ni llamada en el fichero.
     expect(/\bexportGradeKey\b/.test(stripComments(src))).toBe(false);
-    // D-1 / D-4 (abajo) también aplican al séptimo lector.
+    // D-1 / D-4 (abajo) también aplican al séptimo lector: 0 llaves a mano (el override M-30 casa con `variantKey(`) y el
+    // dial del sellado no se lee aquí (lo iza la puerta con `sealedSourceOnFor`).
     expect(countManualKeys(body)).toBe(0);
     expect(/\bvariantKey\(/.test(body)).toBe(true);
-    expect(/\bsealedSourceOnFor\(/.test(body)).toBe(true);
     expect(/\bloadSealedSpreads\b/.test(body)).toBe(false);
+    expect(/\bsealedSourceOnFor\(/.test(body)).toBe(false);
   });
 
   /**
@@ -192,15 +201,14 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
    * en los lectores hay CERO llaves de cuatro componentes a mano y SÍ `variantKey(`; y el productor
    * sigue llaveando con `variantKey(` — así productor y consumidor no pueden divergir por forma.
    */
-  it('D-1 · los lectores de patrimonio llavean el lote con `variantKey(` y NUNCA a mano (0 llaves `a|b|c|d` interpoladas)', () => {
+  it('D-1 · el lote de patrimonio se llavea con `variantKey(` y NUNCA a mano (0 llaves `a|b|c|d` interpoladas)', () => {
+    // v1.116.4 (`IDS-PAT`): quien llavea el lote es la PUERTA; los lectores ya no tocan el `Map` (y siguen sin llaves a mano).
     for (const f of SK5_READERS) {
       const code = stripComments(readFileSync(join(SRC, f), 'utf8'));
-      expect({ f, manual: countManualKeys(code), variantKey: /\bvariantKey\(/.test(code) }).toEqual({
-        f,
-        manual: 0,
-        variantKey: true,
-      });
+      expect({ f, manual: countManualKeys(code) }).toEqual({ f, manual: 0 });
     }
+    const gate = stripComments(readFileSync(join(SRC, 'modules/pricing/patrimony-valuation.service.ts'), 'utf8'));
+    expect({ manual: countManualKeys(gate), variantKey: /\bvariantKey\(/.test(gate) }).toEqual({ manual: 0, variantKey: true });
     // v1.114 (§DYN.5.9): el cuerpo del productor vive en `getReferencesBatchWithTier` (misma lectura + qué tier ganó);
     // `getReferencesBatch` delega en él y devuelve su `refs`.
     const pricingSrc = stripComments(readFileSync(join(SRC, 'modules/pricing/pricing.service.ts'), 'utf8'));
@@ -216,15 +224,14 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
    * false`). Ahora vive UNA vez en `PricingService.sealedSourceOnFor(items)`; los lectores de SK-5 no
    * leen `loadSealedSpreads` directamente.
    */
-  it('D-4 · los lectores de patrimonio izan el dial con `sealedSourceOnFor(` y NO con `loadSealedSpreads`', () => {
+  it('D-4 · el dial del sellado del patrimonio se iza con `sealedSourceOnFor(` (en la puerta) y NO con `loadSealedSpreads`', () => {
+    // v1.116.4 (`IDS-PAT`): el dial lo iza la PUERTA, una vez por petición; los lectores no lo leen de ninguna forma.
     for (const f of SK5_READERS) {
       const code = stripComments(readFileSync(join(SRC, f), 'utf8'));
-      expect({ f, direct: /\bloadSealedSpreads\b/.test(code), helper: /\bsealedSourceOnFor\(/.test(code) }).toEqual({
-        f,
-        direct: false,
-        helper: true,
-      });
+      expect({ f, direct: /\bloadSealedSpreads\b/.test(code), helper: /\bsealedSourceOnFor\(/.test(code) }).toEqual({ f, direct: false, helper: false });
     }
+    const gate = stripComments(readFileSync(join(SRC, 'modules/pricing/patrimony-valuation.service.ts'), 'utf8'));
+    expect({ direct: /\bloadSealedSpreads\b/.test(gate), helper: /\bsealedSourceOnFor\(/.test(gate) }).toEqual({ direct: false, helper: true });
   });
 
   describe('CANARIO — el escáner muerde (y no vigila prosa)', () => {

@@ -36,10 +36,10 @@ import {
   optionKeyOf,
   PieceVersion,
   pieceVersionOf,
-  StampRef,
   VersionDTO,
   versionDtoOf,
   versionKeyOf,
+  LANGUAGE_ORDER,
 } from '../../common/card-version';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish),
 // antes interpolada a mano en 3 sitios de este archivo (riesgo de drift silencioso). Mismo string.
@@ -797,7 +797,7 @@ export class CatalogService {
       ? await this.listingPrices.salesFor(items, ivaDials)
       : await liveSalesFor(this.decider, items, ivaDials, await this.decider.loadBatch(items));
     // v1.116⟨ids⟩ (§IDS.5): la versión de cada pieza (una lectura de productos de liga, solo si alguna trae `cardProductId`).
-    const stamps = await this.stampsOf(items);
+    const stamps = await this.decider.stampsOf(items);
     const out: SellableRow[] = [];
     for (const item of items) {
       const version = pieceVersionOf(item, stamps);
@@ -813,12 +813,6 @@ export class CatalogService {
     return out;
   }
 
-  /** v1.116⟨ids⟩ — los productos de liga de un conjunto de piezas (ninguna lectura si ninguna trae `cardProductId`). */
-  private async stampsOf(items: readonly { cardProductId: number | null }[]): Promise<Map<number, StampRef>> {
-    return items.some((i) => i.cardProductId != null)
-      ? this.pricing.findStampedProducts(items.map((i) => i.cardProductId))
-      : new Map<number, StampRef>();
-  }
 
   /**
    * v1.53 (§4.40.4b, MONEY) — **las DOS claves de LECTURA de una pieza, o `null`.** `null` cuando la
@@ -895,7 +889,7 @@ export class CatalogService {
     return this.toListingRow(item, {
       sale: sales.get(item.id) ?? { kind: 'pending', reference: { status: 'pending' } },
       ivaDials,
-      version: pieceVersionOf(item, await this.stampsOf([item])),
+      version: pieceVersionOf(item, await this.decider.stampsOf([item])),
     }).dto;
   }
 
@@ -2147,9 +2141,8 @@ export function deckAssortmentOrder(
   const sb = b.version.stamp ? 1 : 0;
   if (sa !== sb) return sa - sb;
   if (a.listPriceCents !== b.listPriceCents) return a.listPriceCents - b.listPriceCents;
-  const la = a.version.language === 'en' ? 0 : 1;
-  const lb = b.version.language === 'en' ? 0 : 1;
-  if (la !== lb) return la - lb;
+  const ld = LANGUAGE_ORDER[a.version.language] - LANGUAGE_ORDER[b.version.language];
+  if (ld !== 0) return ld;
   return a.item.folio.localeCompare(b.item.folio);
 }
 
@@ -2206,7 +2199,7 @@ export function versionOptionsOf(
     return fo(a.finish) - fo(b.finish);
   });
   for (const r of ordered) {
-    r.entries.sort((x, y) => (x.version.language === 'en' ? 0 : 1) - (y.version.language === 'en' ? 0 : 1));
+    r.entries.sort((x, y) => LANGUAGE_ORDER[x.version.language] - LANGUAGE_ORDER[y.version.language]);
     out.push(...r.entries);
   }
   return out;

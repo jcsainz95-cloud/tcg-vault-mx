@@ -88,10 +88,18 @@ describe('IDS-B26 — `holdings` sin N+1: 2 y 20 piezas `es`/liga/promo ⇒ mism
     return u.id;
   }
 
+  /**
+   * Los eventos `query` llegan del motor de Prisma DESPUÉS de que la promesa resuelve (medido: la última consulta de una
+   * llamada caía en la cuenta de la siguiente, 22 vs 24). Se espera a que drenen antes de poner a cero y antes de leer.
+   */
+  const drain = () => new Promise((r) => setTimeout(r, 250));
+
   async function countHoldings(userId: string): Promise<number> {
     const vault = h.app.get(VaultService);
+    await drain();
     queries = 0;
     const r = (await vault.holdings(userId)) as unknown as { data: unknown[] };
+    await drain();
     const n = queries;
     expect(r.data.length).toBeGreaterThan(0);
     return n;

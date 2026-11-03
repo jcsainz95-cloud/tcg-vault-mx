@@ -395,9 +395,11 @@ export const E2E_CARDS = {
  *  - `pieces`: cuatro piezas `listed` de plataforma con folio PROPIO (`E2E-IDS-*`, fuera de `E2E_FOLIOS` y fuera del prefijo
  *    `E2E-LST-` que alimenta Destacadas): `(en, P)` y `(es, P)` del producto y `(es, null)`/`(en, null)` de la carta base. Con
  *    ellas `versions[]` de la ficha = `en`, `es`, luego la fila de liga `en.P.holofoil`/`es.P.holofoil` (la forma de IDS-B8).
- *    `createdAt` VIEJO y fijo (`piecesCreatedAt`): la rejilla por defecto es `newest` (pieza más nueva del grupo) y las
- *    pruebas que toman «el primer grupo» de la rejilla (`catalog-freshness`, `pricing-curve`) asumen la ficha de una versión
- *    sin liga; con fecha vieja las tejas de esta carta van AL FINAL de `newest` y no las desplazan.
+ *    `createdAt` VIEJO y fijo (`piecesCreatedAt`) — DEFENSA, no requisito (TL-IDS-6): con fecha vieja las tejas de esta
+ *    carta van al final de la rejilla `newest`. Las pruebas `@real` que toman «el primer grupo» (`catalog-freshness`,
+ *    `pricing-curve`, `seo-raw-html` C2) leen el enlace y el precio de CADA versión desde `f2cd0e31` (frontend; NO MEDIDO por
+ *    backend), así que ya no necesitan que esta carta quede atrás; la fecha solo evita que una prueba nueva que asuma «primer
+ *    grupo = sin liga» falle por el seed. Retirarla exige antes la ablación con QA (seed sin la fecha ⇒ suites `@real` verdes).
  *  - `candidate`: una `StampedProductCandidate` SIN colgar (Prize Pack, 22880) para la captura de la carta. Un `attach` de una
  *    prueba la consume; la siembra siguiente borra el producto que ese `attach` creó (y sus referencias) y la repone.
  * ⛔ `tcgplayerProductId` fuera de los rangos aleatorios de las suites (700M–890M, 990M+) y del sellado (`610000001`).

@@ -13,7 +13,7 @@ import {
   tryBuildGradeKey,
   sealedMarketGradeKey,
 } from '../src/modules/pricing/pricing.types';
-import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { REAL_VALUATION_GATE, realPatrimony, withPatrimony } from './helpers/valuation-gate';
 import { ivaDialsStub } from './helpers/iva-dials';
 
 /**
@@ -135,7 +135,7 @@ describe('bóveda — una graduada sin identidad de slab NO se valúa como PSA 1
       inventoryItem: { findMany: jest.fn(async () => items) },
       shipmentItem: { findMany: jest.fn(async () => []) },
     };
-    return new VaultService(withM61Defaults(prisma) as PrismaService, pricingWithRealKeys());
+    return new VaultService(withM61Defaults(prisma) as PrismaService, pricingWithRealKeys(), realPatrimony(pricingWithRealKeys()));
   }
 
   it('sale `pending` y NO suma al portafolio (antes sumaba MX$900 del grado más caro)', async () => {
@@ -156,7 +156,7 @@ describe('bóveda — una graduada sin identidad de slab NO se valúa como PSA 1
     const prisma: any = {
       inventoryItem: { findUnique: jest.fn(async () => ({ ...item, ownerUserId: 'u1', movements: [] })) },
     };
-    const svc = new VaultService(withM61Defaults(prisma) as PrismaService, pricingWithRealKeys());
+    const svc = new VaultService(withM61Defaults(prisma) as PrismaService, pricingWithRealKeys(), realPatrimony(pricingWithRealKeys()));
     const res = await svc.holdingDetail('u1', 'i-sin');
     expect(res.referenceValue).toEqual({ status: 'pending' });
   });
@@ -169,12 +169,12 @@ describe('bóveda — una graduada sin identidad de slab NO se valúa como PSA 1
 describe('admin — el agregado dice la verdad: cuenta como PENDIENTE, no al precio de un PSA 10', () => {
   function admin(items: unknown[]) {
     const prisma: any = { inventoryItem: { findMany: jest.fn(async () => items) } };
-    return new AdminService(
+    return withPatrimony(new AdminService(
       prisma as PrismaService,
       pricingWithRealKeys(),
       new PiiCryptoService(new ConfigService({})),
       {} as never,
-    );
+    ), pricingWithRealKeys());
   }
 
   it('`inventoryValue`: la pieza sin identidad NO suma a `atReferenceCents` y sí a `pendingPriceCount`', async () => {

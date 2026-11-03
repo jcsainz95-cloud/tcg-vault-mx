@@ -5,6 +5,7 @@ import { withPnlBuylistDoubles } from './helpers/pnl-buylist-doubles';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { withPatrimony } from './helpers/valuation-gate';
 
 /**
  * Fix correctness #3: los reportes "del periodo" respetan el rango de fechas por su
@@ -36,12 +37,12 @@ describe('AdminService — acotado por periodo (fix #3)', () => {
       user: { count: jest.fn().mockResolvedValue(0) },
       inventoryItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new AdminService(
+    service = withPatrimony(new AdminService(
       withPnlBuylistDoubles(withM61Defaults(prisma)) as unknown as PrismaService,
       { sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService,
       new PiiCryptoService(new ConfigService({})),
       {} as any,
-    );
+    ), { sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService);
   });
 
   it('pnl scopes BOTH orders (settledAt) and shipments (pickingAt) by the period', async () => {

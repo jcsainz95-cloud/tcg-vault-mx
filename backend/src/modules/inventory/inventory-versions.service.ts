@@ -6,7 +6,7 @@ import { orderFinishes } from '../../common/card-order';
 import { FinishLabel, finishLabelOf, StampDTO, stampDtoOf, StampRef } from '../../common/card-version';
 import { AuditService } from '../audit/audit.service';
 import { FxService } from '../pricing/fx.service';
-import { isPricePending, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
+import { hypotheticalRawSaleItem, isPricePending, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
 import { StampedIngestService } from '../pricing/stamped-ingest.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -74,24 +74,7 @@ export class InventoryVersionsService {
       finish,
       language,
       stamp,
-      item: {
-        id: `preview:${language}:${stamp?.productId ?? 'base'}:${finish}`,
-        folio: 'PREVIEW',
-        cardId,
-        card,
-        productType: 'raw',
-        rawCondition: 'NM',
-        finish,
-        language,
-        cardProductId: stamp?.productId ?? null,
-        listPriceCents: null,
-        sealedProduct: null,
-        ownerType: 'platform',
-        status: 'in_stock',
-        gradingCompany: null,
-        gradeValue: null,
-        tcgplayerProductId: null,
-      } as unknown as SaleItem,
+      item: hypotheticalRawSaleItem({ id: `preview:${language}:${stamp?.productId ?? 'base'}:${finish}`, folio: 'PREVIEW', card, finish, language, cardProductId: stamp?.productId ?? null }),
     });
     for (const f of orderFinishes(card.availableFinishes)) for (const l of LANGUAGES) hypos.push(mk(f, l, null));
     for (const s of stamps) for (const f of orderFinishes(s.finishes)) for (const l of LANGUAGES) hypos.push(mk(f, l, s));

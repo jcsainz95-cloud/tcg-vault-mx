@@ -13,13 +13,13 @@
  * (`pricing.service.ts:3342-3353`): las dos ramas dan el mismo veredicto por construcción.
  */
 import { Injectable } from '@nestjs/common';
-import { Card, CardSet, Finish, InventoryItem, MarketBracket, ProductType, VariantPriceOverride } from '@prisma/client';
+import { Card, CardLanguage, CardSet, Finish, InventoryItem, MarketBracket, ProductType, VariantPriceOverride } from '@prisma/client';
 import { BusinessException } from '../../common/business.exception';
 import { manualSaleOf, PriceBasis, saleDisplayCentsOf, sealedPriceBasisOf } from '../../common/money';
 import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { marketBracketOf, PremiumFloorPolicy, PricingCurve } from '../../common/pricing-curve';
 import { variantKey } from '../../common/variant-key';
-import { isDefaultVersion, PieceVersion, pieceVersionOf, scaleByPct, StampRef } from '../../common/card-version';
+import { isDefaultVersion, PieceVersion, pieceVersionOf, scaleByPct, StampRef, versionKeyOf } from '../../common/card-version';
 import { cardProductRefKey, PriceInfo, PricingService } from './pricing.service';
 
 /**
@@ -40,6 +40,71 @@ export type SaleItem = InventoryItem & {
   card: Card & { set?: CardSet | null };
   sealedProduct: SealedProductSaleRef | null;
 };
+
+/**
+ * 💰 v1.116.4⟨ids⟩ (API_CONTRACT §IDS.2 «Valor de patrimonio», D-IDS-R) — lo que el cuerpo LEE de una pieza para resolver su
+ * versión y su referencia de entrada: identidad de variante e identidad de versión, ⛔ sin carta ni precio a mano. Con `Pick` el
+ * compilador dice qué columnas hacen falta (antes `as unknown as SaleItem` lo callaba y un `select` sin `language` valuaba una
+ * española como inglesa sin que nada fallara).
+ */
+export type VersionPiece = Pick<
+  InventoryItem,
+  'cardId' | 'productType' | 'finish' | 'rawCondition' | 'gradingCompany' | 'gradeValue' | 'tcgplayerProductId' | 'language' | 'cardProductId'
+>;
+
+/**
+ * v1.116.4⟨ids⟩ (D-IDS-R, techlead R2) — una pieza HIPOTÉTICA raw NM de plataforma, sin precio a mano (captura `GET …/versions`,
+ * costo de una aportación): la fila COMPLETA, tipada, sin `as unknown as SaleItem`. No se persiste. Una columna nueva de
+ * `InventoryItem` no compila aquí hasta que alguien decide su valor hipotético (antes el cast la dejaba `undefined` en silencio).
+ */
+export function hypotheticalRawSaleItem(p: {
+  id: string;
+  folio: string;
+  card: Card & { set?: CardSet | null };
+  finish: Finish;
+  language: CardLanguage;
+  cardProductId: number | null;
+}): SaleItem {
+  const epoch = new Date(0);
+  return {
+    id: p.id,
+    folio: p.folio,
+    cardId: p.card.id,
+    card: p.card,
+    productType: 'raw',
+    rawCondition: 'NM',
+    sealedSubtype: null,
+    sealedCondition: null,
+    gradingCompany: null,
+    gradeValue: null,
+    certNumber: null,
+    locationId: null,
+    ownerType: 'platform',
+    ownerUserId: null,
+    ownershipStatus: null,
+    status: 'in_stock',
+    finish: p.finish,
+    language: p.language,
+    listPriceCents: null,
+    acquisitionType: 'compra',
+    acquisitionCostCents: null,
+    acquisitionCostIvaCents: 0,
+    acquisitionPct: null,
+    sourceSellRequestItemId: null,
+    cardProductId: p.cardProductId,
+    tcgplayerProductId: null,
+    tcgplayerGroupId: null,
+    sealedImageUrl: null,
+    sealedProductName: null,
+    sealedProductId: null,
+    sealedProduct: null,
+    reservedByOrderId: null,
+    reservedUntil: null,
+    firstListedAt: null,
+    createdAt: epoch,
+    updatedAt: epoch,
+  };
+}
 
 /**
  * v2.0 (P-48, §4.36.7c / PROJECT §N.8) — la DECISIÓN de venta de UNA pieza: el monto y los cuatro datos de
@@ -93,6 +158,16 @@ export interface SaleDecisionBatch {
 }
 
 /**
+ * 💰 v1.116.4⟨ids⟩ (§IDS.2, D-IDS-R) — las entradas de VERSIÓN de un lote (`loadVersionInputs`): productos de liga, sus
+ * referencias, productos separados y X. `loadBatch` = esto + curva, política, spreads, referencias retenidas y overrides. La
+ * puerta de patrimonio lee SOLO esto (patrimonio no es venta: sin curva, política ni retención, DYN.5.9).
+ */
+export type VersionInputs = Pick<SaleDecisionBatch, 'stamps' | 'stampedRefs' | 'spanishPct'> & { separateProducts: Set<number> };
+
+/** Las entradas de `versionReferences`: las de versión más el mapa de referencias de la carta base (`R_en` sale de ahí). */
+export type VersionRefInputs = Pick<SaleDecisionBatch, 'stamps' | 'stampedRefs' | 'spanishPct' | 'refs'>;
+
+/**
  * 💰 v1.113.3 (API_CONTRACT §DYN.5.5) — el «valor de mercado» que la tienda EXHIBE junto a `P`: la referencia de la pieza tal
  * como la vio el lote que derivó `P`, con el gate del sellado (`gateSealedMarketCents`: fuente y dial) ya aplicado.
  * `referenceMxnCents === null` ⇔ sin mercado exhibible. Es lo que guarda la fila (`referenceMxnCents`,
@@ -133,7 +208,7 @@ export class SaleDecisionService {
    * fila congela (§DYN.5.5) salen del mismo número. ⛔ Solo el cuerpo de venta: los demás lectores de `getReferencesBatch`
    * (bóveda, portafolio, cotizador, admin) no cambian.
    */
-  async loadReferences(items: readonly SaleItem[], stamps: ReadonlyMap<number, StampRef> = new Map()): Promise<Map<string, PriceInfo>> {
+  async loadReferences(items: readonly VersionPiece[], stamps: ReadonlyMap<number, StampRef> = new Map()): Promise<Map<string, PriceInfo>> {
     const keys = items.flatMap((i): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[] => {
       // v1.116⟨ids⟩: una pieza de liga no lee la referencia de la carta base (I-2).
       if (i.cardProductId != null && stamps.has(i.cardProductId)) return [];
@@ -150,7 +225,7 @@ export class SaleDecisionService {
   }
 
   /** La referencia de una pieza dentro de un mapa de `loadReferences` (`undefined` ⇒ sin referencia ⇒ `pending`). */
-  referenceIn(refs: Map<string, PriceInfo>, item: SaleItem): PriceInfo | undefined {
+  referenceIn(refs: ReadonlyMap<string, PriceInfo>, item: VersionPiece): PriceInfo | undefined {
     const k = this.refKeyOf(item);
     return k ? refs.get(variantKey(k)) : undefined;
   }
@@ -207,21 +282,9 @@ export class SaleDecisionService {
     const sealedSpreads = items.some((i) => i.productType === 'sealed') ? await this.pricing.loadSealedSpreads() : null;
     // Para el SELLADO la clave es la de MERCADO (`sealed:tcg:<productId>`, acabado normal); un sellado no mapeado no
     // aporta clave (sin mercado). v1.53 (§4.40.4b): una graduada sin identidad de slab tampoco (⇒ `pending`).
-    // v1.116⟨ids⟩ (§IDS.2): versiones del lote — productos de liga, sus referencias y X (una lectura cada uno).
-    // Sin ningún `cardProductId` en el lote no hay versión de liga posible: no se consulta (el camino de siempre no paga nada).
-    const stamps = items.some((i) => i.cardProductId != null)
-      ? await this.pricing.findStampedProducts(items.map((i) => i.cardProductId))
-      : new Map<number, StampRef>();
-    const stampedKeys = items.flatMap((i) => {
-      const st = i.cardProductId != null ? stamps.get(i.cardProductId) : undefined;
-      const gk = st && i.productType === 'raw' ? this.pricing.tryGradeKeyFor(i) : null;
-      return st && gk ? [{ cardProductId: st.internalId, productType: 'raw' as ProductType, gradeKey: gk, finish: i.finish }] : [];
-    });
-    const separateProducts = items.some((i) => i.cardProductId != null)
-      ? await this.pricing.findSeparateProductIds(items.map((i) => i.cardProductId))
-      : new Set<number>();
-    const stampedRefs = stampedKeys.length > 0 ? await this.pricing.getReferencesByCardProductBatch(stampedKeys) : new Map<string, PriceInfo>();
-    const spanishPct = items.some((i) => i.language === 'es') ? await this.pricing.loadSpanishMarketPct() : null;
+    // v1.116⟨ids⟩ (§IDS.2): versiones del lote — productos de liga, sus referencias, productos separados y X (v1.116.4: un cuerpo,
+    // `loadVersionInputs`, el mismo que lee la puerta de patrimonio).
+    const { stamps, stampedRefs, spanishPct, separateProducts } = await this.loadVersionInputs(items);
     const refs = await this.loadReferences(items, stamps);
     // v1.28 (P-18, §4.26b): overrides de variante EN LOTE — solo raw/graded que DERIVAN su precio (sin precio a mano).
     // v1.116⟨ids⟩ (§IDS.2, D-IDS-L): y solo (en, sin liga) — el override es de la inglesa.
@@ -235,6 +298,37 @@ export class SaleDecisionService {
         }),
     );
     return { curve, premiumFloorPolicy, sealedSpreads, refs, variantOverrides, stamps, stampedRefs, spanishPct, separateProducts };
+  }
+
+  /**
+   * 💰 v1.116.4⟨ids⟩ (API_CONTRACT §IDS.2, D-IDS-R) — las entradas de VERSIÓN de un lote, extraídas de `loadBatch` para que venta y
+   * patrimonio lean lo mismo: productos de liga (`findStampedProducts`), sus referencias (`getReferencesByCardProductBatch`, sin
+   * retención, D-IDS-G), productos separados (`findSeparateProductIds`) y X (`loadSpanishMarketPct`). Cada lectura ≤ 1 sin importar
+   * N, y solo si el lote la necesita: sin `cardProductId` no hay liga ni producto separado; sin `es` no se lee X.
+   */
+  async loadVersionInputs(items: readonly VersionPiece[]): Promise<VersionInputs> {
+    const withProduct = items.some((i) => i.cardProductId != null);
+    const stamps = await this.stampsOf(items);
+    const stampedKeys = items.flatMap((i) => {
+      const st = i.cardProductId != null ? stamps.get(i.cardProductId) : undefined;
+      const gk = st && i.productType === 'raw' ? this.pricing.tryGradeKeyFor(i) : null;
+      return st && gk ? [{ cardProductId: st.internalId, productType: 'raw' as ProductType, gradeKey: gk, finish: i.finish }] : [];
+    });
+    const separateProducts = withProduct ? await this.pricing.findSeparateProductIds(items.map((i) => i.cardProductId)) : new Set<number>();
+    const stampedRefs = stampedKeys.length > 0 ? await this.pricing.getReferencesByCardProductBatch(stampedKeys) : new Map<string, PriceInfo>();
+    const spanishPct = items.some((i) => i.language === 'es') ? await this.pricing.loadSpanishMarketPct() : null;
+    return { stamps, stampedRefs, spanishPct, separateProducts };
+  }
+
+  /**
+   * v1.116⟨ids⟩ — los productos de LIGA de un conjunto de piezas (`tcgplayerProductId → StampRef`). Sin ningún `cardProductId` no
+   * hay liga posible: ninguna lectura. UNA definición de «¿hay `cardProductId`? ⇒ `findStampedProducts`» (TL-IDS-4): la usan
+   * `loadVersionInputs` y el catálogo.
+   */
+  async stampsOf(items: readonly Pick<VersionPiece, 'cardProductId'>[]): Promise<Map<number, StampRef>> {
+    return items.some((i) => i.cardProductId != null)
+      ? this.pricing.findStampedProducts(items.map((i) => i.cardProductId))
+      : new Map<number, StampRef>();
   }
 
   /** v1.116.2⟨ids⟩ (D-IDS-1) — ¿la pieza es de un producto `promo`/`deck_exclusive`? */
@@ -254,7 +348,7 @@ export class SaleDecisionService {
   }
 
   /** La referencia del producto de liga de una pieza (`(en, P)`; sin fila ⇒ `undefined` ⇒ pending). */
-  private stampedRefOf(item: SaleItem, v: PieceVersion, batch: SaleDecisionBatch): PriceInfo | undefined {
+  private stampedRefOf(item: VersionPiece, v: PieceVersion, batch: Pick<SaleDecisionBatch, 'stampedRefs'>): PriceInfo | undefined {
     const gk = this.pricing.tryGradeKeyFor(item);
     if (!v.stamp || gk == null) return undefined;
     return batch.stampedRefs.get(cardProductRefKey({ cardProductId: v.stamp.internalId, productType: 'raw', gradeKey: gk, finish: item.finish }));
@@ -269,19 +363,30 @@ export class SaleDecisionService {
    * ```
    * `guard` es sobre la que se evalúa el guardarraíl `premium_at_floor`; `price` la que entra a la curva. Solo raw (D-IDS-K):
    * graduada o sellado en una versión ⇒ sin referencia (pending). Sin X (dial inválido) ⇒ `price` pending.
+   *
+   * v1.116.4 (D-IDS-R): entrada `Pick` (`VersionPiece`, `VersionRefInputs`). La venta pasa el lote de `loadBatch` (`refs` CON la
+   * retención de DYN.5.9); la puerta de patrimonio pasa sus `refs` SIN retención — por eso `R_en` de la bóveda es el vivo.
+   * `capturedDate`/`source` son los de la referencia de entrada (`R_en` o `R_P`): el `M` de una reposición los lleva.
    */
   versionReferences(
-    item: SaleItem,
+    item: VersionPiece,
     v: PieceVersion,
-    batch: SaleDecisionBatch,
-  ): { guard: number | null; price: number | null; motive: 'no_english_market' | 'no_stamped_market'; capturedDate: string | null } {
+    batch: VersionRefInputs,
+  ): {
+    guard: number | null;
+    price: number | null;
+    motive: 'no_english_market' | 'no_stamped_market';
+    capturedDate: string | null;
+    source: PriceInfo['source'] | null;
+  } {
     const motive = v.stamp ? 'no_stamped_market' : 'no_english_market';
-    if (item.productType !== 'raw') return { guard: null, price: null, motive, capturedDate: null };
+    const none = { guard: null, price: null, motive, capturedDate: null, source: null } as const;
+    if (item.productType !== 'raw') return none;
     const ref = v.stamp ? this.stampedRefOf(item, v, batch) : this.referenceIn(batch.refs, item);
     const guard = ref?.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
-    if (guard == null) return { guard: null, price: null, motive, capturedDate: null };
+    if (guard == null) return none;
     const price = v.language === 'es' ? (batch.spanishPct == null ? null : scaleByPct(guard, batch.spanishPct)) : guard;
-    return { guard, price, motive, capturedDate: ref?.capturedDate ?? null };
+    return { guard, price, motive, capturedDate: ref?.capturedDate ?? null, source: ref?.source ?? null };
   }
 
   /** El `gradeKey` canónico de una pieza, o `null` (graduada sin identidad de slab, v1.53). */
@@ -293,7 +398,7 @@ export class SaleDecisionService {
    * La clave de referencia de mercado de una pieza (sellado: la de mercado; resto: la de su variante), o `null`. Es también
    * la «variante» de una pieza para los disparadores `manual_price` (§DYN.5.3: solo las piezas que leen esa referencia).
    */
-  refKeyOf(i: SaleItem): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish } | null {
+  refKeyOf(i: VersionPiece): { cardId: string; productType: ProductType; gradeKey: string; finish: Finish } | null {
     if (i.productType === 'sealed') {
       const gk = this.pricing.sealedMarketGradeKeyForItem(i);
       return gk ? { cardId: i.cardId, productType: 'sealed', gradeKey: gk, finish: 'normal' } : null;
@@ -445,31 +550,9 @@ export class SaleDecisionService {
     return instrument(sale.priceCents, sale.basis, sale.marketMxnCents);
   }
 
-  /**
-   * 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.2 «Otros usos del valor de una pieza», `referenceForPiece`, SUPUESTO del 531): el valor de
-   * mercado de las piezas de versión distinta de (en, sin liga) — la referencia de entrada de su versión, ya con X —, por id.
-   * `null` ⇔ sin referencia. Las de (en, sin liga) no aparecen: su valor es el de hoy (cada lector conserva su camino).
-   */
-  async referenceForPieces(items: readonly SaleItem[]): Promise<Map<string, number | null>> {
-    const out = new Map<string, number | null>();
-    const candidates = items.filter((i) => i.language === 'es' || i.cardProductId != null);
-    if (candidates.length === 0) return out;
-    const batch = await this.loadBatch(candidates);
-    for (const i of candidates) {
-      if (this.isSeparateProduct(i, batch)) {
-        out.set(i.id, null);
-        continue;
-      }
-      const v = this.versionOf(i, batch);
-      if (isDefaultVersion(v)) continue;
-      out.set(i.id, this.versionReferences(i, v, batch).price);
-    }
-    return out;
-  }
-
   /** El `PRICE_PENDING` de una versión, con su motivo (`details.reason`) para la captura (§IDS.4). */
   versionPending(item: SaleItem, v: PieceVersion, reason: VersionPendingReason): BusinessException {
-    const tag = `${v.language}${v.stamp ? `.${v.stamp.productId}` : ''}`;
+    const tag = versionKeyOf(v.language, v.stamp?.productId ?? null);
     return BusinessException.validation('PRICE_PENDING', `Item ${item.folio} (version ${tag}) has no publishable price`, { reason });
   }
 
@@ -501,22 +584,4 @@ export class SaleDecisionService {
     if (sale.pendingReason != null || sale.priceCents == null || sale.priceCents <= 0) throw this.versionPending(item, v, r.motive);
     return instrument(sale.priceCents, sale.basis, sale.marketMxnCents);
   }
-}
-
-/**
- * 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.2 «Otros usos del valor de una pieza», criterio 531) — para los LECTORES DE PATRIMONIO
- * (bóveda, portafolio, reposición, `/admin/vaults`, inventario y custodia): el valor de las piezas cuya versión no es (en, sin
- * liga), por id (`null` ⇒ sin referencia ⇒ pendiente). Solo consulta si alguna pieza es `es` o trae `cardProductId`; sin
- * `decider` (unitarios) ⇒ mapa vacío y el lector sigue su camino de siempre.
- */
-export async function versionValuationOf(
-  decider: SaleDecisionService | undefined,
-  items: readonly object[],
-): Promise<Map<string, number | null>> {
-  const cand = items.filter((i) => {
-    const v = i as { id?: string; language?: string | null; cardProductId?: number | null };
-    return v.id != null && (v.language === 'es' || v.cardProductId != null);
-  });
-  if (!decider || cand.length === 0) return new Map();
-  return decider.referenceForPieces(cand as unknown as SaleItem[]);
 }

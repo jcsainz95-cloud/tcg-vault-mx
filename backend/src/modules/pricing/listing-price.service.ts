@@ -25,8 +25,8 @@ import { DEFAULT_VERSION, isDefaultVersion, PieceVersion, versionDtoOf, versionK
 import { isSchedulerDisabled } from '../../config/test-env';
 import { SettingsService } from '../settings/settings.service';
 import { PRICE_AFFECTING_SETTING_KEYS, SettingKey, SettingKeyType } from '../settings/settings.constants';
-import { dayMx } from '../spend-alerts/spend-alerts.service';
-import { mxDayStart } from '../spend-alerts/mx-day';
+// TL-DYN-3: el «día de portada» vive UNA vez, compartido con Destacadas (`FeaturedService`).
+import { portadaEffectiveFrom, portadaServedDay } from '../../common/portada-day';
 import { PricingService } from './pricing.service';
 import type { PriceInfo } from './pricing.service';
 import {
@@ -49,7 +49,6 @@ export const LISTING_PRICE_RUN_RETENTION_DAYS = 90;
 export const LISTING_PRICE_RUN_PRUNE_BATCH = 5_000;
 /** §DYN.5.3: la corrida diaria del día de portada `D` corre desde `effectiveFrom(D) − 60 min`. */
 export const DAILY_RUN_LEAD_MS = 60 * 60_000;
-const HOUR_MS = 3_600_000;
 /** Estados en alcance: el `isSellable` del checkout (`ownerType = platform ∧ status ∈ {listed, in_stock}`, §DYN.5.2). */
 const SCOPE_STATUSES = ['listed', 'in_stock'] as const;
 
@@ -88,14 +87,6 @@ export interface ListingPricesHealth {
 const ymdOf = (d: Date) => d.toISOString().slice(0, 10);
 const dbDate = (ymd: string) => new Date(`${ymd}T00:00:00.000Z`);
 
-/** `effectiveFrom` del día de portada `ymd` = ese día a las H:00 CDMX (en UTC). Mismo cálculo que `FeaturedService`. */
-export function portadaEffectiveFrom(ymd: string, hour: number): Date {
-  return new Date(mxDayStart(ymd).getTime() + hour * HOUR_MS);
-}
-/** El día de portada que se sirve en `now` (el último cuyo H:00 CDMX ya pasó). */
-export function portadaServedDay(now: Date, hour: number): string {
-  return dayMx(new Date(now.getTime() - hour * HOUR_MS));
-}
 
 /**
  * `ListingPrice.variantKey` (TL-DYN-2): la llave K de la pieza por el helper ÚNICO `variantKey` (P-30 H2) — la misma con que la
@@ -529,7 +520,7 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
 
   /** El día de portada cuya corrida diaria ya toca en `now` (desde `effectiveFrom(D) − 60 min`). */
   static dailyDayAt(now: Date, hour: number): string {
-    return dayMx(new Date(now.getTime() + DAILY_RUN_LEAD_MS - hour * HOUR_MS));
+    return portadaServedDay(new Date(now.getTime() + DAILY_RUN_LEAD_MS), hour);
   }
 
   /** ¿Hay `daily` ok del día de portada `ymd`? */

@@ -16,8 +16,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { ListingPriceService } from '../pricing/listing-price.service';
 import { SettingKey } from '../settings/settings.constants';
-import { dayMx } from '../spend-alerts/spend-alerts.service';
-import { mxDayStart } from '../spend-alerts/mx-day';
+// TL-DYN-3: el «día de portada» vive UNA vez, compartido con el precio del día (`ListingPriceService`).
+import { portadaEffectiveFrom, portadaServedDay } from '../../common/portada-day';
 import { CatalogService, GroupedListingSummaryDTO } from './catalog.service';
 import {
   FeaturedDials,
@@ -34,7 +34,6 @@ const LOOKAHEAD_MS = 30 * 60_000;
 const WRITE_FROM_BEFORE_H_MS = 15 * 60_000;
 /** §DYN.2.5: `stale` ⇔ pasaron 15 min de `effectiveFrom(esperado)` sin servirlo. */
 const STALE_GRACE_MS = 15 * 60_000;
-const HOUR_MS = 3_600_000;
 
 export type FeaturedSlotKind = 'new_arrival' | 'pool';
 export type FeaturedListingDTO = GroupedListingSummaryDTO & { featuredSlot: FeaturedSlotKind };
@@ -90,15 +89,6 @@ export class FeaturedService {
     return { poolSize, randomSlots, newArrivalSlots, windowDays, rotationHour };
   }
 
-  /** `effectiveFrom` del día de portada `ymd` = ese día a las H:00 CDMX (en UTC). */
-  static effectiveFromOf(ymd: string, hour: number): Date {
-    return new Date(mxDayStart(ymd).getTime() + hour * HOUR_MS);
-  }
-
-  /** El día de portada que DEBERÍA servirse en `now` (el último cuyo H:00 CDMX ya pasó). */
-  static servedDayAt(now: Date, hour: number): string {
-    return dayMx(new Date(now.getTime() - hour * HOUR_MS));
-  }
 
   private async serving(now: Date, db: Db = this.prisma): Promise<StoredSelection | null> {
     return (await db.featuredSelection.findFirst({
@@ -135,8 +125,8 @@ export class FeaturedService {
       }
     }
     const d = await this.dials();
-    const day = dayMx(new Date(now.getTime() + LOOKAHEAD_MS - d.rotationHour * HOUR_MS));
-    const effectiveFrom = FeaturedService.effectiveFromOf(day, d.rotationHour);
+    const day = portadaServedDay(new Date(now.getTime() + LOOKAHEAD_MS), d.rotationHour);
+    const effectiveFrom = portadaEffectiveFrom(day, d.rotationHour);
     // §DYN.2.3: espera al precio del día (`daily` ok de D), sin bloquear el cambio (a más tardar H − 15 min).
     const priceReady = this.listingPrices ? await this.listingPrices.hasDailyOk(day).catch(() => false) : false;
     if (!priceReady && now.getTime() < effectiveFrom.getTime() - WRITE_FROM_BEFORE_H_MS) {
@@ -177,8 +167,8 @@ export class FeaturedService {
         // `$executeRaw` y no `$queryRaw`: la función devuelve `void`, que Prisma no sabe deserializar (500 medido en e2e).
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${FEATURED_ROTATION_LOCK_KEY})`;
         const before = await this.serving(now, tx);
-        const day = before ? ymdOf(before.businessDate) : FeaturedService.servedDayAt(now, d.rotationHour);
-        const effectiveFrom = before?.effectiveFrom ?? FeaturedService.effectiveFromOf(day, d.rotationHour);
+        const day = before ? ymdOf(before.businessDate) : portadaServedDay(now, d.rotationHour);
+        const effectiveFrom = before?.effectiveFrom ?? portadaEffectiveFrom(day, d.rotationHour);
         if (before) await tx.featuredSelection.delete({ where: { businessDate: before.businessDate } });
         await this.compute(tx, day, effectiveFrom, d, userId);
         const after = (await tx.featuredSelection.findUnique({
@@ -235,14 +225,14 @@ export class FeaturedService {
   async health(): Promise<FeaturedHealth> {
     const now = new Date();
     const hour = await this.settings.getNumber(SettingKey.FEATURED_ROTATION_HOUR);
-    const expected = FeaturedService.servedDayAt(now, hour);
+    const expected = portadaServedDay(now, hour);
     const sel = await this.serving(now);
     const serving = sel ? ymdOf(sel.businessDate) : null;
     if (!sel) {
       const any = await this.prisma.featuredSelection.findFirst({});
       if (!any) return { status: 'never', servingBusinessDate: null, expectedBusinessDate: expected };
     }
-    const late = now.getTime() > FeaturedService.effectiveFromOf(expected, hour).getTime() + STALE_GRACE_MS;
+    const late = now.getTime() > portadaEffectiveFrom(expected, hour).getTime() + STALE_GRACE_MS;
     return { status: serving !== expected && late ? 'stale' : 'ok', servingBusinessDate: serving, expectedBusinessDate: expected };
   }
 }

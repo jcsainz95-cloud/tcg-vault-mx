@@ -51,9 +51,9 @@ import {
   E2E_USERS,
 } from './e2e-fixtures';
 import { assertSeedTarget } from './seed-target-guard';
-import { FeaturedService } from '../src/modules/catalog/featured.service';
 import { featuredKeyOf } from '../src/modules/catalog/featured-selection';
 import { tryBuildGradeKey } from '../src/modules/pricing/pricing.types';
+import { portadaEffectiveFrom, portadaServedDay } from '../src/common/portada-day';
 
 /** Todos los correos que este seed gobierna (usuarios por rol + actores de cuenta de §4.47.10.4). */
 const E2E_FIXTURE_EMAILS: string[] = [
@@ -1354,9 +1354,9 @@ const SEED_FEATURED_SOURCE = 'seed-e2e';
 async function seedFeaturedSelection(prisma: PrismaClient): Promise<void> {
   const hourRow = await prisma.configSetting.findUnique({ where: { key: SettingKey.FEATURED_ROTATION_HOUR } });
   const hour = typeof hourRow?.valueJson === 'number' ? hourRow.valueJson : (SETTING_DEFAULTS[SettingKey.FEATURED_ROTATION_HOUR] as number);
-  const day = FeaturedService.servedDayAt(new Date(), hour);
+  const day = portadaServedDay(new Date(), hour);
   const businessDate = new Date(`${day}T00:00:00.000Z`);
-  const effectiveFrom = FeaturedService.effectiveFromOf(day, hour);
+  const effectiveFrom = portadaEffectiveFrom(day, hour);
   const dial = async (key: string): Promise<number> => {
     const row = await prisma.configSetting.findUnique({ where: { key } });
     return typeof row?.valueJson === 'number' ? row.valueJson : (SETTING_DEFAULTS[key as keyof typeof SETTING_DEFAULTS] as number);
@@ -1408,7 +1408,7 @@ async function seedFeaturedSelection(prisma: PrismaClient): Promise<void> {
   await prisma.featuredSelection.create({
     data: {
       businessDate,
-      effectiveFrom: FeaturedService.effectiveFromOf(day, hour),
+      effectiveFrom: portadaEffectiveFrom(day, hour),
       // 32 bytes hex deterministas: la columna guarda la semilla del sorteo; aquí no hay sorteo.
       seed: createHash('sha256').update(`${SEED_FEATURED_SOURCE}:${day}`).digest('hex'),
       dials: { source: SEED_FEATURED_SOURCE, rotationHour: hour },
