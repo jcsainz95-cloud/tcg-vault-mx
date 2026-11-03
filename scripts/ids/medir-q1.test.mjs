@@ -64,7 +64,7 @@ test('el botón mide: rc 0, prueba 25006, Q1 en el resumen, sin la URL en log ni
 //   6 promo    lost raw NM normal · caso «Por reponer» `open` (su envío está `cancelado`: no es retiro activo) · sin origen
 // Esperado: Q1c +3 (promo +2, deck +1; caso +1; retiro +1), Q1 +1, y la fila del detalle de la promo, en el SQL CRUDO:
 //   piezas 2 · clientes 1 · con ref 2 (1 cliente) · Σ 100.00 · mín/máx 50.00 · sin origen 1 · con Q 1 cliente · Q Σ/mín/máx 30.00;
-//   y en el resumen PÚBLICO la misma fila con las cifras «<3, oculto» (1 cliente: PT-IDS-6).
+//   y en el resumen PÚBLICO la misma fila solo con conteos y Σ «<3, oculto» (1 cliente: PT-IDS-6; mín/máx nunca salen).
 // Canario: la Q1c o su detalle mutados (sin filtro de cliente / sin filtro de portafolio) NO dan esos números.
 const psqlRun = (sql) => spawnSync('psql', [URL_DB, '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' });
 const q1cDe = (summary) => {
@@ -159,7 +159,7 @@ test('Q1c (§IDS.9 v1.116.4) sobre un lote sembrado: tabla por kind, detalle exa
     crudo: ((crudo(root)['Q1c-detalle'] ?? '').match(new RegExp(String.raw`^promo,\d+,Q1c promo ${sfx},.*$`, 'm')) ?? [null])[0],
   });
   const O = '<3, oculto';
-  const ESPERADO_DETALLE = new RegExp(String.raw`^\| promo \| \d+ \| Q1c promo ${sfx} \| normal \| raw \| 2 \| 1 \| 2 \| 1 \| ${O} \| ${O} \| ${O} \| 1 \| 1 \| ${O} \| ${O} \| ${O} \|$`);
+  const ESPERADO_DETALLE = new RegExp(String.raw`^\| promo \| \d+ \| Q1c promo ${sfx} \| normal \| raw \| 2 \| 1 \| 2 \| 1 \| ${O} \| 1 \| 1 \| ${O} \|$`);
   const ESPERADO_CRUDO = new RegExp(String.raw`^promo,\d+,Q1c promo ${sfx},normal,raw,2,1,2,1,10000,5000,5000,1,1,3000,3000,3000$`);
   try {
     const antes = correr(raiz);
@@ -215,10 +215,11 @@ test('canario: sin READ ONLY la prueba de escritura pone el botón en rojo y no 
 
 // ---------------------------------------------------------------------------------------------------------------
 // PT-IDS-6 (pentester §IDS sobre db202174): el resumen del run es PÚBLICO (repo público). En Q1c-detalle, Σ/mín/máx de Q y de
-// la referencia salen solo con ≥ 3 clientes DISTINTOS y ≥ 3 piezas detrás de esa cifra; si no, «<3, oculto» y solo conteos.
+// la referencia: NUNCA mín/máx (Σ − mín − máx despejaría la tercera de 3 piezas); Σ solo con ≥ 3 clientes DISTINTOS y ≥ 3
+// piezas detrás de esa cifra; si no, «<3, oculto» y solo conteos.
 // Lote (sufijo único, borrado al final; una carta con ref. base manual 40.00 para raw:NM normal):
 //   A promo          1 cliente, 1 pieza, Q 11.11                         ⇒ ref y Q ocultas
-//   B deck_exclusive 3 clientes, 1 pieza cada uno, Q 20.00/25.00/31.00   ⇒ ref Σ 120.00 mín/máx 40.00 · Q Σ 76.00 mín 20.00 máx 31.00
+//   B deck_exclusive 3 clientes, 1 pieza cada uno, Q 20.00/25.00/31.00   ⇒ solo Σ: ref 120.00 · Q 76.00 (ni 20.00 ni 31.00)
 //   C promo          3 clientes, solo 1 con origen (Q 70.00)             ⇒ ref visible; Q oculta (1 cliente detrás de la cifra)
 // Canario en la misma prueba: con el umbral quitado (K_ANON = 1, copia del árbol) la fila A publica MX$11.11.
 function arbolCon(rel, desde, hasta) {
@@ -283,10 +284,13 @@ test('PT-IDS-6: umbral k=3 en Q1c-detalle — 1 cliente ⇒ sin cifras; 3 client
     const { rc, log, summary } = correr(join(HERE, '../..'));
     assert.equal(rc, 0, log);
     assert.match(summary, /Privacidad \(PT-IDS-6\)/);
-    assert.match(fila(summary, 'A'), new RegExp(String.raw`^\| promo \| \d+ \| K3 A ${sfx} \| normal \| raw \| 1 \| 1 \| 1 \| 1 \| ${O} \| ${O} \| ${O} \| 0 \| 1 \| ${O} \| ${O} \| ${O} \|$`));
-    assert.match(fila(summary, 'B'), new RegExp(String.raw`\| 3 \| 3 \| 3 \| 3 \| MX\$120\.00 \| MX\$40\.00 \| MX\$40\.00 \| 0 \| 3 \| MX\$76\.00 \| MX\$20\.00 \| MX\$31\.00 \|$`));
-    assert.match(fila(summary, 'C'), new RegExp(String.raw`\| 3 \| 3 \| 3 \| 3 \| MX\$120\.00 \| MX\$40\.00 \| MX\$40\.00 \| 2 \| 1 \| ${O} \| ${O} \| ${O} \|$`));
+    assert.match(fila(summary, 'A'), new RegExp(String.raw`^\| promo \| \d+ \| K3 A ${sfx} \| normal \| raw \| 1 \| 1 \| 1 \| 1 \| ${O} \| 0 \| 1 \| ${O} \|$`));
+    assert.match(fila(summary, 'B'), new RegExp(String.raw`\| 3 \| 3 \| 3 \| 3 \| MX\$120\.00 \| 0 \| 3 \| MX\$76\.00 \|$`));
+    assert.match(fila(summary, 'C'), new RegExp(String.raw`\| 3 \| 3 \| 3 \| 3 \| MX\$120\.00 \| 2 \| 1 \| ${O} \|$`));
     for (const cifra of ['MX$11.11', 'MX$70.00']) assert.ok(!summary.includes(cifra), `el resumen público publica ${cifra} (1 cliente)`);
+    // B solo publica Σ: ni la referencia unitaria ni el mín/máx de Q (con Σ despejarían la tercera pieza).
+    for (const cifra of ['MX$40.00', 'MX$20.00', 'MX$31.00', 'MX$25.00']) assert.ok(!fila(summary, 'B').includes(cifra), `B publica ${cifra}`);
+    assert.doesNotMatch(summary.split('**Q1c por producto y acabado**')[1] ?? '', /mín\.|máx\./, 'el detalle público trae una columna de mínimo o máximo');
     // Canario: sin umbral, la fila A trae lo que pagó ese cliente. Si no, esta prueba no distingue el umbral.
     const mut = correr(sinUmbral);
     assert.equal(mut.rc, 0, mut.log);

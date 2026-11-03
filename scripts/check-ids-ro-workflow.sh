@@ -19,8 +19,8 @@
 #       peligrosas (\! \copy \o \c \gexec \g \i); `\ir` solo de ids-d1-q1.sql
 #   [Q] Q1c (H-Q1) filtra ownerType='customer', status <> 'withdrawn' y kind promo/deck_exclusive, y no saca ids de cliente/pieza
 #   [K] PT-IDS-6 (el resumen de un repo público es público): `K_ANON = 3` (o más); Q1c-detalle pasa por `anonimizar(` antes
-#       del resumen y oculta Σ/mín/máx de ref y de Q con < K_ANON clientes distintos o piezas detrás; el SQL proyecta
-#       clientes_con_ref / clientes_con_q
+#       del resumen, que proyecta a PUBLICAS (conteos y Σ; NUNCA mín/máx de ref ni de Q: con Σ despejarían la tercera de 3
+#       piezas) y oculta Σ con < K_ANON clientes distintos o piezas detrás; el SQL proyecta clientes_con_ref / clientes_con_q
 #   [S] PT-IDS-7: sslmode por defecto `require`; solo require/verify-ca/verify-full fuera de loopback (localhost/127.0.0.1/::1),
 #       un modo más débil ⇒ rc 1 antes de psql; ningún literal "prefer"/"allow"/"disable" en el código
 #   [H] todo `uses:` fijado por sha de 40 hex (TL-CHK-8)
@@ -170,6 +170,12 @@ for c in clientes_con_ref clientes_con_q; do
 done
 printf '%s\n' "$sh" | grep -F '_n(r, "con_ref_base") < K_ANON' >/dev/null || bad K "anonimizar no exige ≥ K_ANON piezas con referencia"
 printf '%s\n' "$sh" | grep -F '_n(r, "piezas") - _n(r, "sin_origen") < K_ANON' >/dev/null || bad K "anonimizar no exige ≥ K_ANON piezas con Q"
+publicas="$(printf '%s\n' "$sh" | awk '/^PUBLICAS = \(/ {f=1} f {print} f && /\)[[:space:]]*$/ {exit}')"
+[ -n "$publicas" ] || bad K "falta PUBLICAS (las columnas que el detalle puede publicar)"
+printf '%s\n' "$publicas" | grep -oE '"(ref_base_suma_cents|q_suma_cents)"' | sort -u | wc -l | tr -d ' ' | grep -qx 2 || bad K "PUBLICAS no trae las dos Σ (ref y Q)"
+printf '%s\n' "$sh" | grep -E '(ref_base|q)_(min|max)_cents' >/dev/null && bad K "el script nombra un mín/máx de ref o de Q (el resumen público solo da Σ)"
+printf '%s\n' "$sh" | grep -E '^[[:space:]]+r = \{c: r\.get\(c\) for c in PUBLICAS\}[[:space:]]*$' >/dev/null || bad K "anonimizar no proyecta la fila a PUBLICAS"
+printf '%s\n' "$sh" | grep -E '^[[:space:]]+print\(table\(det\[:tope\], PUBLICAS\)\)[[:space:]]*$' >/dev/null || bad K "el detalle no se imprime con las columnas PUBLICAS"
 
 # [S] TLS obligatorio (PT-IDS-7)
 printf '%s\n' "$sh" | grep -E '^SSL_OK = \("require", "verify-ca", "verify-full"\)[[:space:]]*$' >/dev/null || bad S "SSL_OK no es exactamente (require, verify-ca, verify-full)"

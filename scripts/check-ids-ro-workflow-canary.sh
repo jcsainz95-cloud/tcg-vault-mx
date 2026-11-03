@@ -115,6 +115,10 @@ k_sin_anonimizar() { py "$(S "$1")" 'det = anonimizar(rows["Q1c-detalle"])' 'det
 k_sin_clientes_q() { py "$(S "$1")" '_n(r, "clientes_con_q") < K_ANON or ' ''; }
 k_sin_columna()    { py "$(SQ "$1")" '       count(DISTINCT l."ownerUserId") FILTER (WHERE o.q_cents IS NOT NULL) AS clientes_con_q,
 ' ''; }
+k_min_en_publicas() { py "$(S "$1")" '"clientes_con_q", "q_suma_cents")' '"clientes_con_q", "q_suma_cents", "q_min_cents", "q_max_cents")'; }
+k_max_ref_tabla()  { py "$(S "$1")" 'print(table(det[:tope], PUBLICAS))' 'print(table(det[:tope], PUBLICAS + ("ref_base_max_cents",)))'; }
+k_sin_proyeccion() { py "$(S "$1")" 'r = {c: r.get(c) for c in PUBLICAS}' 'r = dict(r)'; }
+k_otras_columnas() { py "$(S "$1")" 'print(table(det[:tope], PUBLICAS))' 'print(table(det[:tope], list(det[0]) if det else []))'; }
 ssl_prefer()       { py "$(S "$1")" 'ssl = q.get("sslmode", "require")' 'ssl = q.get("sslmode", "prefer")'; }
 ssl_ok_debil()     { py "$(S "$1")" 'SSL_OK = ("require", "verify-ca", "verify-full")' 'SSL_OK = ("prefer", "require", "verify-ca", "verify-full")'; }
 ssl_sin_corte()    { py "$(S "$1")" 'if ssl not in SSL_OK and u.hostname not in LOOPBACK:' 'if False:'; }
@@ -168,6 +172,10 @@ caso ROJO  "umbral de anonimato K_ANON = 1 (PT-IDS-6)"       K  k_uno
 caso ROJO  "Q1c-detalle al resumen sin anonimizar"           K  k_sin_anonimizar
 caso ROJO  "anonimizar no mira clientes con Q"               K  k_sin_clientes_q
 caso ROJO  "el SQL deja de dar clientes_con_q"               K  k_sin_columna
+caso ROJO  "mín/máx de Q vuelven a PUBLICAS"                 K  k_min_en_publicas
+caso ROJO  "la tabla añade el máx de la referencia"          K  k_max_ref_tabla
+caso ROJO  "anonimizar deja pasar todas las columnas"        K  k_sin_proyeccion
+caso ROJO  "el detalle se imprime con otras columnas"        K  k_otras_columnas
 caso ROJO  "sslmode por defecto prefer (PT-IDS-7)"           S  ssl_prefer
 caso ROJO  "prefer admitido como TLS suficiente"             S  ssl_ok_debil
 caso ROJO  "un sslmode débil no aborta"                      S  ssl_sin_corte
