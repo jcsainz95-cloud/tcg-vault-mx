@@ -338,7 +338,7 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
       expect(r.html).toContain('href="https://wa.me/525564893921"');
       const text = visibleText(r.html);
       expect(text).not.toMatch(/DATO DEL DUEÑO|EJEMPLO/);
-      expect(text).toContain(t(locale, 'about.buy.deliveryValue'));
+      expect(text).toContain(t(locale, 'about.buy.deliveryValue', { days: t(locale, 'about.deliveryDays') }));
       // L-7: ninguna fila con valor vacío.
       for (const m of r.html.matchAll(/<dd[^>]*>([\s\S]*?)<\/dd>/g)) expect(visibleText(`<body>${m[1]}`)).not.toBe('');
       // El pie enlaza «Quiénes somos y contacto» en los dos idiomas (L-6).
