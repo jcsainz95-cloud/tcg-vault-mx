@@ -70,7 +70,9 @@ const ALLOWED: Record<string, { n: number; why: string }> = {
       'aquí). v1.113⟨portada⟩ (§DYN.5.1): el precio y el lote de referencias salieron al cuerpo único (`sale-decision`).',
   },
   'modules/pricing/sale-decision.service.ts': {
-    n: 5,
+    // v1.116⟨ids⟩ (§IDS.2): +2 — la llave de la referencia del producto de liga en `loadBatch` y en `stampedRefOf` (raw NM de
+    // una versión; uso de VENTA del cuerpo único, no valúa patrimonio).
+    n: 7,
     why:
       'v1.113⟨portada⟩ (§DYN.5.1) — EL cuerpo único del precio de venta (checkout + catálogo + precio del día; el checkout ya ' +
       'no la llama): `gradeKeyOf` (llave de `ListingPrice.variantKey`), `refKeyOf` (el sellado sale antes por ' +

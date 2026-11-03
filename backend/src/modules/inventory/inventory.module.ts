@@ -9,6 +9,7 @@ import { SealedProductService } from './sealed-product.service';
 // 💰 v1.83 (§M11-SP): hoja de precios del sellado + precio del dueño por producto.
 import { SealedPriceService } from './sealed-price.service';
 import { InventoryController } from './inventory.controller';
+import { InventoryVersionsService } from './inventory-versions.service';
 import { PricingModule } from '../pricing/pricing.module';
 // v1.51.18 (BL-25, §4.39m.5) / v1.51.20 (R1): el puerto de DISPARO de publicación
 // (`INVENTORY_PUBLISH_PORT`) se declara y provee en `inventory-publish.module.ts` (@Global), atado a
@@ -26,6 +27,8 @@ import { PricingModule } from '../pricing/pricing.module';
     SealedCatalogAdminService,
     SealedProductService,
     SealedPriceService,
+    // v1.116⟨ids⟩ (§IDS.4): captura por versión.
+    InventoryVersionsService,
   ],
   controllers: [InventoryController],
   exports: [

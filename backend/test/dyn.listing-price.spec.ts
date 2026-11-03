@@ -571,6 +571,9 @@ describe('DYN-B22 (unidad) — variante de `manual_price` y referencia congelada
         ['c1|raw|raw:NM|normal', ref],
       ]),
       variantOverrides: new Map(),
+      stamps: new Map(),
+      stampedRefs: new Map(),
+      spanishPct: null,
     } as never;
     const sealed = rawItem({ productType: 'sealed', rawCondition: null, tcgplayerProductId: 9 });
     (pricing.gateSealedMarketCents as unknown as jest.Mock).mockReturnValueOnce(null);

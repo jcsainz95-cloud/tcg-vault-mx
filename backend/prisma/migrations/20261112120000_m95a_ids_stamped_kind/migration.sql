@@ -1,0 +1,13 @@
+-- ===============================================================================================================================
+-- M-95a · v1.116⟨ids⟩ (API_CONTRACT §IDS.1, ARCHITECTURE §15.3) — valor `stamped` de `CardProductKind`. ADITIVA.
+-- Propiedad: backend.
+--
+-- Va SOLA en su migración: `ALTER TYPE … ADD VALUE` no puede USARSE en la misma transacción que lo crea (Postgres ≥ 12);
+-- el CHECK de M-95b lo nombra, así que M-95b va en otra (precedente v1.106.1). IDEMPOTENTE (`IF NOT EXISTS`).
+-- ⛔ No toca filas: ningún producto existente cambia de kind.
+--
+-- Reversa: el valor puede quedarse (inerte; quitarlo exige recrear el tipo). Antes de revertir el CÓDIGO, ver §15.3
+-- (retirar piezas `stamped`/`es`).
+--   DELETE FROM "_prisma_migrations" WHERE migration_name = '20261112120000_m95a_ids_stamped_kind';
+-- ===============================================================================================================================
+ALTER TYPE "CardProductKind" ADD VALUE IF NOT EXISTS 'stamped';
