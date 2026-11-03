@@ -217,19 +217,29 @@ jobs:
           printf '%s\n' "$out" | grep -Eq '^# tests [1-9][0-9]*$' || { echo "::error::sin resumen TAP «# tests N» (¿cambió el reporter?): no puedo saber si la parte con base corrió"; exit 1; }
           # La parte con base NO puede saltarse en verde.
           printf '%s\n' "$out" | grep -q '^# skipped 0$' || { echo "::error::la prueba con base se saltó"; exit 1; }
+      # §IDS · G-IDS-RO: el botón de solo lectura de Q1 (D-IDS-1) corre de verdad contra la base de CI ya migrada. Sale a
+      # production ANTES que §IDS (el dueño mide antes de M-95): sus consultas no usan nada de M-95 y esta prueba siembra solo
+      # columnas anteriores. libpq no acepta `?schema=…` de Prisma: URL sin query. El Postgres del servicio no sirve TLS y el
+      # botón exige `sslmode=require` salvo en loopback (PT-IDS-7): aquí `disable` explícito. DEVOPS_NOTES §108.5.
+      - name: Botón §IDS de solo lectura — prueba (Q1/Q1b/Q1c/Q1d contra la base de CI, G-IDS-RO)
+        run: |
+          out="$(IDS_FOTO_TEST_DATABASE_URL="${DATABASE_URL%%\?*}?sslmode=disable" node --test --test-reporter=tap ../scripts/ids/medir-q1.test.mjs)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | grep -Eq '^# tests [1-9][0-9]*$' || { echo "::error::sin resumen TAP «# tests N»"; exit 1; }
+          printf '%s\n' "$out" | grep -q '^# skipped 0$' || { echo "::error::la prueba con base del botón se saltó"; exit 1; }
+      - name: Build
+        run: npm run build --if-present
       # §IDS (IDS-D1/D3): instrumentos de medición de scripts/ids/, sin red. La foto del 512 corre su SQL
       # READ ONLY contra la base de CI ya migrada (tablas existen, salida JSON, sin columnas personales).
-      # libpq no acepta los parámetros de Prisma (`?schema=…`): se pasa la URL sin query. El Postgres del servicio no
-      # sirve TLS y el botón exige `sslmode=require` por defecto (PT-IDS-7) salvo en loopback: aquí `disable` explícito.
-      # Sin él, «el botón mide», Q1c y k=3 salen «no se pudo conectar» (rojo medido en el run 41612957356). DEVOPS_NOTES §108.
-      - name: Instrumentos §IDS — prueba (IDS-D1/D3 y el botón de solo lectura de Q1, G-IDS-RO)
+      # libpq no acepta los parámetros de Prisma (`?schema=…`): se pasa la URL sin query; el Postgres del servicio no sirve TLS.
+      # El botón de Q1 (G-IDS-RO) tiene su paso propio antes del build: salió a production aparte (rama claude/boton-ids) y
+      # así los dos ficheros fusionan sin conflicto. DEVOPS_NOTES §108.
+      - name: Instrumentos §IDS — prueba (IDS-D1/D3)
         run: |
-          out="$(IDS_FOTO_TEST_DATABASE_URL="${DATABASE_URL%%\?*}?sslmode=disable" node --test --test-reporter=tap ../scripts/ids/ids-lib.test.mjs ../scripts/ids/foto-512.test.mjs ../scripts/ids/medir-q1.test.mjs)" || { printf '%s\n' "$out"; exit 1; }
+          out="$(IDS_FOTO_TEST_DATABASE_URL="${DATABASE_URL%%\?*}?sslmode=disable" node --test --test-reporter=tap ../scripts/ids/ids-lib.test.mjs ../scripts/ids/foto-512.test.mjs)" || { printf '%s\n' "$out"; exit 1; }
           printf '%s\n' "$out"
           printf '%s\n' "$out" | grep -Eq '^# tests [1-9][0-9]*$' || { echo "::error::sin resumen TAP «# tests N»"; exit 1; }
           printf '%s\n' "$out" | grep -q '^# skipped 0$' || { echo "::error::la prueba con base (foto 512) se saltó"; exit 1; }
-      - name: Build
-        run: npm run build --if-present
 
   # ---------------------------------------------------------------------------
   # Frontend: Next.js. Lint + typecheck + test + build.
