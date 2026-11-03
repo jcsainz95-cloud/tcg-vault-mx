@@ -178,7 +178,7 @@ test.describe('@real §IDS contra el stack sembrado', () => {
  * Escrita por backend junto con la siembra que la alimenta (`E2E_IDS`, backend/prisma/e2e-fixtures.ts); es la otra mitad del
  * mismo seed. Solo LEE: no da de alta piezas ni mueve diales.
  * Espejo del fixture (si cambia allí, cambia aquí): carta «E2E League Bird», producto `620000001` League Cup en `holofoil`,
- * piezas `(en, P)`, `(es, P)` y `(es, null)` `normal`; candidata sin colgar `620000002`.
+ * piezas `(en, P)`, `(es, P)` y `(en, null)`/`(es, null)` `normal`; candidata sin colgar `620000002`.
  */
 const LEAGUE = { name: 'E2E League Bird', productId: 620000001, finish: 'holofoil', candidateId: 620000002 } as const;
 const LEAGUE_EN = `en.${LEAGUE.productId}.${LEAGUE.finish}`;
@@ -211,11 +211,13 @@ test.describe('@real §IDS liga sembrada (E2E_IDS)', () => {
 
   test('@real IDS-L1: la ficha trae la fila sin liga y la fila «De liga» del producto sembrado, y la pinta en 2×N', async ({ page }) => {
     const detail = await apiAsOk<{ versions: VersionOption[] }>('customer', 'GET', `/catalog/cards/${league.cardId}`);
-    // Orden del servidor (§IDS.5): sin liga (`es`; no hay inglesa sin liga) y luego la fila de liga, `en` antes que `es`.
-    expect(detail.versions.map((v) => v.optionKey)).toEqual(['es', LEAGUE_EN, LEAGUE_ES]);
-    const [base, ligaEn, ligaEs] = detail.versions;
-    expect(base.version.stamp).toBeNull();
-    expect(base.finishLabel).toBe('non_holo');
+    // Orden del servidor (§IDS.5): sin liga `en`, `es`; luego la fila de liga, `en` antes que `es` (la forma de IDS-B8).
+    expect(detail.versions.map((v) => v.optionKey)).toEqual(['en', 'es', LEAGUE_EN, LEAGUE_ES]);
+    const [baseEn, baseEs, ligaEn, ligaEs] = detail.versions;
+    for (const v of [baseEn, baseEs]) {
+      expect(v.version.stamp, v.optionKey).toBeNull();
+      expect(v.finishLabel).toBe('non_holo');
+    }
     for (const v of [ligaEn, ligaEs]) {
       expect(v.version.stamp, v.optionKey).toEqual({ type: 'league', label: null, productId: LEAGUE.productId });
       expect(v.finishLabel).toBe('holo');
@@ -229,8 +231,10 @@ test.describe('@real §IDS liga sembrada (E2E_IDS)', () => {
     await expect(group).toBeVisible();
     await expect(page.getByTestId('version-pills')).toHaveAttribute('data-form', '2xN');
     const pills = group.locator('[data-testid="version-pill"]');
-    await expect(pills).toHaveCount(3);
-    expect(await pills.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.optionKey))).toEqual(['es', LEAGUE_EN, LEAGUE_ES]);
+    await expect(pills).toHaveCount(4);
+    expect(await pills.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.optionKey))).toEqual(['en', 'es', LEAGUE_EN, LEAGUE_ES]);
+    // Sin `?version=` ⇒ preselección `en` (D-IDS-4).
+    await expect(group.locator('[data-option-key="en"]')).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByTestId('version-row-label')).toHaveText(['Sin liga · No holo', 'De liga · Promo de la Liga · Holo']);
     const pillEn = group.locator(`[data-option-key="${LEAGUE_EN}"]`);
     await pillEn.click();
@@ -264,7 +268,8 @@ test.describe('@real §IDS liga sembrada (E2E_IDS)', () => {
       .poll(async () => [...new Set(await links.evaluateAll((els) => els.map((e) => (e.getAttribute('href') ?? '').split('?version=')[1])))].sort())
       .toEqual([LEAGUE_EN, LEAGUE_ES]);
     await expect(links.filter({ hasText: LEAGUE.name }).filter({ visible: true })).toHaveCount(2);
-    // La teja sin liga de la misma carta (`?version=es`) queda fuera del filtro.
+    // Las tejas sin liga de la misma carta (`en` con enlace llano, `?version=es`) quedan fuera del filtro.
+    await expect(page.locator(`main a[href$="/catalog/${league.cardId}"]`)).toHaveCount(0);
     await expect(page.locator(`main a[href$="/catalog/${league.cardId}?version=es"]`)).toHaveCount(0);
   });
 

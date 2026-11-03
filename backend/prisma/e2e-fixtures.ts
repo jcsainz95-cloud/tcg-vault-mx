@@ -377,8 +377,9 @@ export const E2E_CARDS = {
    * Su producto de liga, sus piezas y su candidata: `E2E_IDS`.
    *
    * **Carta PROPIA y no una reutilizada**: colgar la liga de una carta de escenario le cambiaría su ficha (selector de
-   * versiones) y su rejilla (una teja por versión) a pruebas que no la esperan. **Sin pieza inglesa sin liga**: la rejilla
-   * sin filtro no gana una teja `(en, null)` y el binder/master set (solo inglés sin liga, I-6) la ve sin existencia.
+   * versiones) y su rejilla (una teja por versión) a pruebas que no la esperan. **Con pieza inglesa sin liga**: así la carta
+   * tiene, como cualquier otra del seed, una teja con el enlace llano a su ficha (`seo-raw-html.spec.ts` C2 lo exige de cada
+   * carta de la página).
    * Precios a propósito en MEDIO de las raw publicadas: por debajo de `staleest` (los arneses del front toman las raw más
    * CARAS) y por encima de las del deck y de `gemhunt` (`accessories-scenario.ts` toma la más BARATA).
    */
@@ -391,9 +392,12 @@ export const E2E_CARDS = {
  *    `holofoil` (`refNmCents`, MXN nativo, manual como el resto del seed). Acabado `holofoil` a propósito: la carta base es
  *    `normal`, así que la ficha pinta la fila sin liga y la de liga con acabados distintos (y la clave lógica
  *    `(carta, raw, raw:NM, acabado)` de `seed-idempotency` no se repite).
- *  - `pieces`: tres piezas `listed` de plataforma con folio PROPIO (`E2E-IDS-*`, fuera de `E2E_FOLIOS` y fuera del prefijo
- *    `E2E-LST-` que alimenta Destacadas —que son solo `(en, null)`, I-6—): `(en, P)` y `(es, P)` del producto y `(es, null)`
- *    de la carta base. Con ellas `versions[]` de la ficha = `es`, luego la fila de liga `en.P.holofoil`/`es.P.holofoil`.
+ *  - `pieces`: cuatro piezas `listed` de plataforma con folio PROPIO (`E2E-IDS-*`, fuera de `E2E_FOLIOS` y fuera del prefijo
+ *    `E2E-LST-` que alimenta Destacadas): `(en, P)` y `(es, P)` del producto y `(es, null)`/`(en, null)` de la carta base. Con
+ *    ellas `versions[]` de la ficha = `en`, `es`, luego la fila de liga `en.P.holofoil`/`es.P.holofoil` (la forma de IDS-B8).
+ *    `createdAt` VIEJO y fijo (`piecesCreatedAt`): la rejilla por defecto es `newest` (pieza más nueva del grupo) y las
+ *    pruebas que toman «el primer grupo» de la rejilla (`catalog-freshness`, `pricing-curve`) asumen la ficha de una versión
+ *    sin liga; con fecha vieja las tejas de esta carta van AL FINAL de `newest` y no las desplazan.
  *  - `candidate`: una `StampedProductCandidate` SIN colgar (Prize Pack, 22880) para la captura de la carta. Un `attach` de una
  *    prueba la consume; la siembra siguiente borra el producto que ese `attach` creó (y sus referencias) y la repone.
  * ⛔ `tcgplayerProductId` fuera de los rangos aleatorios de las suites (700M–890M, 990M+) y del sellado (`610000001`).
@@ -412,7 +416,9 @@ export const E2E_IDS = {
     { folio: 'E2E-IDS-0001', language: 'en' as const, stamped: true, acquisitionCostCents: 6000 },
     { folio: 'E2E-IDS-0002', language: 'es' as const, stamped: true, acquisitionCostCents: 5000 },
     { folio: 'E2E-IDS-0003', language: 'es' as const, stamped: false, acquisitionCostCents: 8000 },
+    { folio: 'E2E-IDS-0004', language: 'en' as const, stamped: false, acquisitionCostCents: 9000 },
   ],
+  piecesCreatedAt: '2024-01-01T00:00:00.000Z',
   candidate: {
     tcgplayerProductId: 620000002,
     groupId: 22880,

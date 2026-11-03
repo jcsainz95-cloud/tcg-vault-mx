@@ -792,14 +792,17 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     );
   }
 
-  // v1.116.3⟨ids⟩ (§IDS.5) — las TRES piezas de versión de la carta de liga (`E2E_IDS.pieces`): `(en, P)` y `(es, P)` del
-  // producto de liga en su acabado, y `(es, null)` de la carta base. Plataforma/`listed` y RESETEADAS en cada corrida
-  // (idioma, producto y acabado incluidos: I-7 prohíbe cambiar `cardProductId` por API, pero una BD vieja se corrige aquí).
+  // v1.116.3⟨ids⟩ (§IDS.5) — las CUATRO piezas de versión de la carta de liga (`E2E_IDS.pieces`): `(en, P)` y `(es, P)` del
+  // producto de liga en su acabado, y `(es, null)`/`(en, null)` de la carta base. Plataforma/`listed` y RESETEADAS en cada
+  // corrida (idioma, producto y acabado incluidos: I-7 prohíbe cambiar `cardProductId` por API, pero una BD vieja se corrige
+  // aquí), con `createdAt` viejo y fijo: van al final de la rejilla `newest` (razón en `E2E_IDS`).
+  const idsCreatedAt = new Date(E2E_IDS.piecesCreatedAt);
   for (const p of E2E_IDS.pieces) {
     const version = {
       language: p.language,
       cardProductId: p.stamped ? E2E_IDS.stamped.tcgplayerProductId : null,
       finish: p.stamped ? E2E_IDS.stamped.finish : ('normal' as const),
+      createdAt: idsCreatedAt,
     };
     await upsertItem(
       p.folio,
