@@ -831,18 +831,22 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
     });
   }
 
-  // ⚠️ FALLO DECLARADO (IDS-UX.1 «Ancho a 360 px», aritmética NO MEDIDA del diseño: «Spanish»+«Championship» = 146 de
-  // 152 px). MEDIDO en Chromium (Archivo 12/600, px 6, gap 4): «Spanish» 57.3 + 4 + «Championship» 94.6 = 155.9 > 152 ⇒
-  // el par envuelve a dos filas (+24 px a esa teja). Lo decide ux-ui con marketing (FRONTEND_NOTES §IDS-FE); `test.fail`
-  // lo cobra en los dos sentidos: hoy pasa porque falla, y el día que el par quepa se pone rojo para quitar esta marca.
-  test('IDS L-8 (EN «Spanish»+«Championship»): el par NO cabe en una fila a 360 — pendiente de ux-ui', async ({ page, context }) => {
-    test.fail(true, 'medido 155.9 > 152 px: pendiente de decisión de ux-ui/marketing (IDS-UX.1)');
+  // IDS-UX.1 «Ancho a 360 px» — el par EN más ancho. Con «Championship» midió 57.3 + 4 + 94.6 = 155.9 > 152 px (envolvía,
+  // +24 px a la teja); marketing decidió «Tournament» (HECHOS 2026-11-03 «Copy EN de §IDS…»). El texto sale del CATÁLOGO
+  // EN (`version.chip.championship`), no de un literal: volver a «Championship» en `messages/en.json` lo pone rojo.
+  test('IDS L-8 (EN «Spanish»+«Tournament»): el par del campeonato cabe en una fila de ≤ 152 px a 360', async ({ page, context }) => {
     needsSeed('piezas de liga en español publicadas (backend §IDS: seed con versiones)');
     await setup(context);
     await page.setViewportSize({ width: 360, height: 740 });
-    const pairs = await seedChipsRow(page, 'en', 'Championship');
-    testInfo().annotations.push({ type: 'IDS-L-8-en-championship-360', description: JSON.stringify(pairs) });
-    for (const p of pairs) expect(p.sameLine, `par «Championship» en una fila: ${JSON.stringify(p)}`).toBe(true);
+    const tournament = t('en', 'version.chip.championship');
+    const pairs = await seedChipsRow(page, 'en', tournament);
+    testInfo().annotations.push({ type: 'IDS-L-8-en-tournament-360', description: JSON.stringify({ tournament, pairs }) });
+    expect(pairs.length).toBe(2);
+    for (const p of pairs) {
+      expect(p.sameLine, `par «${tournament}» en una fila: ${JSON.stringify(p)}`).toBe(true);
+      expect(p.pairW, `ancho del par «Spanish»+«${tournament}»: ${JSON.stringify(p)}`).toBeLessThanOrEqual(152);
+      expect(p.rowH, `fila de insignias de una línea: ${JSON.stringify(p)}`).toBeLessThanOrEqual(21);
+    }
   });
 
   // L-10. ≥ sm la teja no cambia; < sm se compacta. Mutación que lo pone rojo: aplicar la compactación sin el prefijo

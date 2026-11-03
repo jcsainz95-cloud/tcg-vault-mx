@@ -63,6 +63,13 @@ export interface VersionComboDTO {
   stamp: StampDTO | null;
   /** `null` ⇔ `unavailableReason ≠ null`. */
   previewPriceCents: number | null;
+  /**
+   * v1.116.2⟨ids⟩ (desglose): la referencia de entrada ANTES de X (`R` en `(en, null)`, `R_en` en `(es, null)`, `R_P` en
+   * `(·, P)`), `null` si no hay. ⛔ El navegador no recompone `previewPriceCents` con ella (curva, piso e IVA van después).
+   */
+  baseReferenceMxnCents: number | null;
+  /** v1.116.2⟨ids⟩: X (`spanishMarketPct`) aplicado en `es`; `null` en `en`. */
+  appliedMarketPct: number | null;
   unavailableReason: VersionUnavailableReason | null;
 }
 export interface StampedCandidateDTO {
@@ -853,6 +860,13 @@ export interface CatalogFacetsDTO {
   // v1.6-finish: distinct de InventoryItem.finish sobre el inventario publicado (para el filtro de acabado).
   finishes: Finish[];
   price: { minCents: number; maxCents: number; currency: 'MXN' };
+  /**
+   * v1.116.2⟨ids⟩ (§IDS.5 «Filtros», IDS-F2): `distinct` de `InventoryItem.language` sobre lo publicado (orden `en`, `es`),
+   * sin conteos. Opcional en el tipo: un servidor anterior a §IDS no la trae (⇒ el filtro de idioma no se ofrece).
+   */
+  languages?: CardLanguage[];
+  /** v1.116.2⟨ids⟩: `true` ⇔ hay al menos una pieza publicada con producto `stamped` («Cartas de liga y promos»). */
+  stamped?: boolean;
 }
 
 export interface CardDetailResponse {

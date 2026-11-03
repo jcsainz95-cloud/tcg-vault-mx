@@ -7,7 +7,7 @@ import type { CardLanguage, StampType, VersionDTO } from '@/types/contract';
 /**
  * §IDS-UX.1 — la insignia de versión. Dos clases, un componente:
  *  - **idioma** («Español» / EN «Spanish»): relleno tinta, texto papel;
- *  - **tipo** («De liga», «De torneo», «Prerelease», «Staff»; EN «Prize Pack», «League», «Championship»…): contorno
+ *  - **tipo** («De liga», «De torneo», «Prerelease», «Staff»; EN «Prize Pack», «League», «Tournament»…): contorno
  *    1.5 px y texto `accent` #B31217.
  * Rectas (radio 0), **nunca mayúsculas ni mono** (candado 7b), `white-space: nowrap`, sin icono. Solo texto: el texto
  * visible ES el nombre accesible (nunca `aria-hidden`). ⛔ Nunca dentro del contenedor de la foto (candado 6).

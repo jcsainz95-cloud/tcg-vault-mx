@@ -1769,18 +1769,19 @@
       "ids": {
         "language": "Language",
         "version": "Version",
-        "noStamp": "No league stamp",
+        "noStamp": "Regular",
         "stampButton": {
           "prize_pack": "League · Prize Pack",
           "league": "League · League promo",
-          "championship": "Championship",
+          "championship": "Tournament",
           "prerelease": "Prerelease",
           "staff": "Staff"
         },
         "priceLabel": "Selling price (auto)",
-        "breakdownEn": "Base: {version} in English · TCGplayer market",
-        "breakdownEs": "Base: {version} in English · × {pct} % (Spanish)",
-        "breakdownEsNoPct": "Base: {version} in English · × the Spanish % (Settings)",
+        "breakdownEn": "Base: {version} in English · {base} (TCGplayer market)",
+        "breakdownEnNoBase": "Base: {version} in English · TCGplayer market",
+        "breakdownEs": "Base: {version} in English · {base} × {pct} % (Spanish)",
+        "breakdownEsNoBase": "Base: {version} in English · × {pct} % (Spanish)",
         "noPrice": "No price: this version can't be added today (it comes back on its own when there's a market).",
         "loadingVersions": "Loading versions…",
         "reason": {
@@ -4965,6 +4966,18 @@
             "charged": "Total the buyer pays"
           }
         }
+      },
+      "spanishMarket": {
+        "title": "Spanish price (% of English)",
+        "subtitle": "A Spanish card's market value is the English one (same card and finish) times this percentage; then it's priced like any card (curve, floor, rounding and VAT). Saving reprices every Spanish card, league or not.",
+        "label": "Percent of English",
+        "help": "Whole number from 1 to 200. Default 75 %.",
+        "invalid": "Enter a whole number from 1 to 200.",
+        "audit": "Every change goes to the audit log: who, when, old and new value.",
+        "save": "Save",
+        "saved": "Saved. Spanish cards are repriced with the new percentage.",
+        "serverError": "Not saved: the server rejected the value.",
+        "unavailable": "This server doesn't have this setting yet."
       },
       "premiumFloor": {
         "title": "Premium cards at the floor (sale)",
@@ -8480,7 +8493,7 @@
     "chip": {
       "prize_pack": "Prize Pack",
       "league": "League",
-      "championship": "Championship",
+      "championship": "Tournament",
       "prerelease": "Prerelease",
       "staff": "Staff"
     },
@@ -8503,7 +8516,7 @@
     "long": {
       "prize_pack": "Prize Pack",
       "league": "League (League promo)",
-      "championship": "Championship (championship promo)",
+      "championship": "Tournament (championship promo)",
       "prerelease": "Prerelease (prerelease promo)",
       "staff": "Staff (Staff promo)"
     },
@@ -8511,7 +8524,7 @@
       "noStamp": "Regular",
       "prize_pack": "Prize Pack",
       "league": "League promo",
-      "championship": "Championship",
+      "championship": "Tournament",
       "prerelease": "Prerelease",
       "staff": "Staff"
     },

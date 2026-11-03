@@ -1,12 +1,13 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { attachStampedCandidate } from '@/lib/api';
 import { formatMoneyCents } from '@/lib/format';
 import { PillToggleGroup } from '@/components/domain/VersionPills';
 import { Button } from '@/components/ui/Button';
-import type { CardDTO, CardLanguage, CardVersionsResponse, Finish, StampDTO } from '@/types/contract';
+import type { AppLocale } from '@/i18n/routing';
+import type { CardDTO, CardLanguage, CardVersionsResponse, Finish, StampDTO, VersionComboDTO } from '@/types/contract';
 import type { CaptureModel } from './ids-capture';
 
 /**
@@ -26,7 +27,6 @@ export function IdsCaptureFields({
   language,
   onLanguage,
   onStamp,
-  spanishPct,
   onAttached,
 }: {
   card: Pick<CardDTO, 'id' | 'availableFinishes'>;
@@ -38,14 +38,13 @@ export function IdsCaptureFields({
   language: CardLanguage;
   onLanguage: (l: CardLanguage) => void;
   onStamp: (productId: number | null) => void;
-  /** Dial `spanishMarketPct` (M10) si la cuenta lo puede leer; si no, el desglose no inventa la cifra. */
-  spanishPct: number | null;
   onAttached: (res: CardVersionsResponse) => void;
 }) {
   const t = useTranslations('admin.m1.ids');
   const tm1 = useTranslations('admin.m1');
   const tv = useTranslations('version');
   const tFinish = useTranslations('finish');
+  const locale = useLocale() as AppLocale;
 
   const attach = useMutation({
     mutationFn: (productId: number) => attachStampedCandidate(productId, card),
@@ -57,7 +56,16 @@ export function IdsCaptureFields({
   const reasonText = (r: string | null) => (r ? t(`reason.${r}`) : null);
 
   const combo = model.combo;
-  const versionName = stampLabel(combo?.stamp ?? null);
+  const breakdown = (c: VersionComboDTO): string => {
+    const version = stampLabel(c.stamp);
+    const base = c.baseReferenceMxnCents != null ? formatMoneyCents(c.baseReferenceMxnCents, locale) : null;
+    if (c.language === 'es' && c.appliedMarketPct != null) {
+      return base
+        ? t('breakdownEs', { version, base, pct: c.appliedMarketPct })
+        : t('breakdownEsNoBase', { version, pct: c.appliedMarketPct });
+    }
+    return base ? t('breakdownEn', { version, base }) : t('breakdownEnNoBase', { version });
+  };
 
   return (
     <div className="flex flex-col gap-4" data-testid="ids-capture">
@@ -135,16 +143,12 @@ export function IdsCaptureFields({
             {combo.previewPriceCents != null ? (
               <>
                 <p className="tabular mt-1 text-[24px] font-medium leading-none text-text">
-                  {formatMoneyCents(combo.previewPriceCents)}
+                  {formatMoneyCents(combo.previewPriceCents, locale)}
                 </p>
-                {/* Desglose en UNA línea (a 1280 no envuelve). ⛔ La cifra base no viaja en `VersionComboDTO`: se nombra
-                    la base y el dial, sin inventar el importe (solicitud al arquitecto, FRONTEND_NOTES §IDS-FE). */}
+                {/* Desglose en UNA línea (a 1280 no envuelve), con los campos DEL COMBO (v1.116.2): la base antes de X y
+                    el X aplicado. ⛔ Sin aritmética: `previewPriceCents` ya trae curva, piso e IVA; sin base, sin cifra. */}
                 <p className="mt-1 whitespace-nowrap text-[12px] text-muted" data-testid="ids-breakdown">
-                  {language === 'es'
-                    ? spanishPct != null
-                      ? t('breakdownEs', { version: versionName, pct: spanishPct })
-                      : t('breakdownEsNoPct', { version: versionName })
-                    : t('breakdownEn', { version: versionName })}
+                  {breakdown(combo)}
                 </p>
               </>
             ) : (

@@ -1778,9 +1778,10 @@
           "staff": "Staff"
         },
         "priceLabel": "Precio de venta (auto)",
-        "breakdownEn": "Base: {version} en inglés · mercado de TCGplayer",
-        "breakdownEs": "Base: {version} en inglés · × {pct} % (español)",
-        "breakdownEsNoPct": "Base: {version} en inglés · × el % del español (Ajustes)",
+        "breakdownEn": "Base: {version} en inglés · {base} (mercado de TCGplayer)",
+        "breakdownEnNoBase": "Base: {version} en inglés · mercado de TCGplayer",
+        "breakdownEs": "Base: {version} en inglés · {base} × {pct} % (español)",
+        "breakdownEsNoBase": "Base: {version} en inglés · × {pct} % (español)",
         "noPrice": "Sin precio: esta versión no se puede dar de alta hoy (vuelve sola cuando haya mercado).",
         "loadingVersions": "Cargando versiones…",
         "reason": {
@@ -4965,6 +4966,18 @@
             "charged": "Total que paga el comprador"
           }
         }
+      },
+      "spanishMarket": {
+        "title": "Precio del español (% del inglés)",
+        "subtitle": "El valor de mercado de una carta en español es el del inglés (misma carta y acabado) por este porcentaje; después se precia como cualquier carta (curva, piso, redondeo e IVA). Al guardar se recalculan todas las cartas en español, con y sin liga.",
+        "label": "Porcentaje del inglés",
+        "help": "Entero de 1 a 200. De fábrica, 75 %.",
+        "invalid": "Escribe un entero de 1 a 200.",
+        "audit": "Cada cambio queda en la bitácora: quién, cuándo, valor anterior y nuevo.",
+        "save": "Guardar",
+        "saved": "Guardado. Las cartas en español se recalculan con el nuevo porcentaje.",
+        "serverError": "No se guardó: el servidor rechazó el valor.",
+        "unavailable": "Este servidor todavía no tiene este ajuste."
       },
       "premiumFloor": {
         "title": "Cartas premium en el piso (venta)",

@@ -131,6 +131,46 @@ describe('VersionPills · ficha (IDS-UX.8)', () => {
 });
 
 describe('PillToggleGroup · captura admin (IDS-UX.2)', () => {
+  it('IDS-F3 peor caso: sin liga (dos acabados) + 6 filas de liga ⇒ 7 filas, 14 radios en el orden del servidor, 7 rótulos distintos (EN)', () => {
+    const L = { type: 'prize_pack' as const, label: 'Left Stamp', productId: 650001 };
+    const R = { type: 'prize_pack' as const, label: 'Right Stamp', productId: 650002 };
+    const C = { type: 'prize_pack' as const, label: 'Cosmos Holo', productId: 650003 };
+    const LG = { type: 'league' as const, label: null, productId: 650004 };
+    const CH = { type: 'championship' as const, label: null, productId: 650005 };
+    const ST = { type: 'staff' as const, label: null, productId: 650006 };
+    const rows: [NonNullable<VersionOptionDTO['version']['stamp']>, VersionOptionDTO['finish'], VersionOptionDTO['finishLabel'], number][] = [
+      [L, 'normal', 'non_holo', 3000],
+      [R, 'normal', 'non_holo', 3100],
+      [LG, 'reverse_holo', 'reverse_holo', 4000],
+      [C, 'holofoil', 'cosmos_holo', 9000],
+      [CH, 'holofoil', 'holo', 12000],
+      [ST, 'holofoil', 'holo', 15000],
+    ];
+    const versions: VersionOptionDTO[] = [
+      opt('en', 'en', 1500, null, null, null),
+      opt('es', 'es', 1130, null, null, null),
+      ...rows.flatMap(([st, f, fl, p]) => [
+        opt(`en.${st.productId}.${f}`, 'en', p, st, f, fl),
+        opt(`es.${st.productId}.${f}`, 'es', Math.round(p * 0.75), st, f, fl),
+      ]),
+    ];
+    renderWithIntl(<Harness versions={versions} initial="en" />, 'en');
+    expect(screen.getByTestId('version-pills')).toHaveAttribute('data-form', '2xN');
+    const radios = within(screen.getByRole('radiogroup')).getAllByRole('radio');
+    expect(radios.map((r) => r.getAttribute('data-option-key'))).toEqual(versions.map((v) => v.optionKey));
+    const labels = screen.getAllByTestId('version-row-label').map((l) => l.textContent);
+    expect(labels).toEqual([
+      'Regular',
+      'Prize Pack · Non-holo · Left Stamp',
+      'Prize Pack · Non-holo · Right Stamp',
+      'League promo · Reverse Holo',
+      'Prize Pack · Cosmos Holo',
+      'Tournament · Holo',
+      'Staff · Holo',
+    ]);
+    expect(radios.filter((r) => r.tabIndex === 0)).toHaveLength(1);
+  });
+
   it('opción apagada: borde discontinuo, motivo en aria-describedby, no se elige al clic', () => {
     let v = 'none';
     renderWithIntl(

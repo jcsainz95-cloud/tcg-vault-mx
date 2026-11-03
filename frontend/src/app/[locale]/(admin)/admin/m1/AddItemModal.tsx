@@ -11,7 +11,6 @@ import {
   createInventoryItem,
   batchCreateItems,
   getCardVersions,
-  getSettings,
 } from '@/lib/api';
 import type {
   ProductType,
@@ -123,8 +122,6 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
     queryFn: () => getCardVersions(selectedCard!),
     enabled: idsEnabled,
   });
-  // Dial `spanishMarketPct` (M10) para el desglose; si la cuenta no puede leer ajustes, el desglose no lo inventa.
-  const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: getSettings, enabled: idsEnabled, retry: false });
   const ids = captureModel(
     idsEnabled ? versionsQuery.data : undefined,
     selectedCard?.availableFinishes ?? [],
@@ -630,7 +627,6 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
             language={language}
             onLanguage={setLanguage}
             onStamp={setStampProductId}
-            spanishPct={settingsQuery.data?.spanishMarketPct ?? null}
             onAttached={(res) => queryClient.setQueryData(['card-versions', selectedCard.id], res)}
           />
         )}

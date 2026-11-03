@@ -479,6 +479,8 @@ export const mockReferenceByCardId: Record<string, number | null> = {
 
 // ---- M10: Config (diales). Va ANTES del catálogo porque el catálogo DERIVA de estos diales. ----
 export let mockSettings: SettingsDTO = {
+  // MOCK §IDS.7: seed del contrato (75). El simulador no re-precia el español al moverlo (los precios de `c-ids-*` son literales).
+  spanishMarketPct: 75,
   shippingFeeCents: 17500,
   // 💰 v1.109 (§4-G.12 punto 3, MOCK con los defaults del contrato): los tres CON IVA INCLUIDO (dueño 2026-10-24).
   directShipCardsFeeCents: 10000,
@@ -788,7 +790,8 @@ const mockListingSeeds: MockListingSeed[] = [
 /**
  * MOCK §IDS (pendiente de servidor): dos cartas con versiones, FUERA de `mockCards` para no mover binder, master set
  * ni conteos de set. `c-ids-pikachu-057` = forma 2×N (sin liga Holo + Prize Pack Holo + Prize Pack Cosmos Holo, en y
- * es); `c-ids-dedenne-084` = forma 2×2 estándar (No holo, en/es + Prize Pack en/es). Precios = `L` sin IVA; el
+ * es); `c-ids-dedenne-084` = forma 2×2 estándar (No holo, en/es + Prize Pack en/es); `c-ids-poffin-6` = peor caso de
+ * filas (sin liga + 6 de liga = 7 filas, 14 burbujas). Precios = `L` sin IVA; el
  * español ≈ 75 % del inglés (dial `spanishMarketPct`), como lo calcularía el servidor.
  */
 function idsMockSeeds(): MockListingSeed[] {
@@ -797,6 +800,18 @@ function idsMockSeeds(): MockListingSeed[] {
   const PP = { type: 'prize_pack' as const, label: null, productId: 648703 };
   const COSMOS = { type: 'prize_pack' as const, label: 'Cosmos Holo', productId: 703900 };
   const DPP = { type: 'prize_pack' as const, label: null, productId: 648800 };
+  // Peor caso de filas (IDS-F3: «2×N con 6 filas a 360 px»; máx 6 productos de liga por carta, DEVOPS_NOTES §108.1):
+  // la fila sin liga (dos acabados ⇒ rótulo sin acabado) + 6 filas de liga, dos de ellas del mismo tipo y acabado
+  // («Left/Right Stamp», D-IDS-6 ⇒ el rótulo añade `stamp.label`).
+  const poff = { ...card('c-ids-poffin-6', 'Buddy-Buddy Poffin', '144', 'Uncommon', 'sv08', 'Surging Sparks', 'Trainer', ['Item'], SV), availableFinishes: ['normal', 'reverse_holo'] as Finish[] };
+  const PF = {
+    left: { type: 'prize_pack' as const, label: 'Left Stamp', productId: 650001 },
+    right: { type: 'prize_pack' as const, label: 'Right Stamp', productId: 650002 },
+    cosmos: { type: 'prize_pack' as const, label: 'Cosmos Holo', productId: 650003 },
+    league: { type: 'league' as const, label: null, productId: 650004 },
+    champ: { type: 'championship' as const, label: null, productId: 650005 },
+    staff: { type: 'staff' as const, label: null, productId: 650006 },
+  };
   const ref = (cents: number | undefined) =>
     cents == null
       ? ({ status: 'pending', source: 'pokemontcg_io' } as const)
@@ -832,6 +847,21 @@ function idsMockSeeds(): MockListingSeed[] {
     piece('inv-ids-d-es', dede, 'normal', 'es', null, 1940),
     piece('inv-ids-d-pp-en', dede, 'normal', 'en', DPP, 4310),
     piece('inv-ids-d-pp-es', dede, 'normal', 'es', DPP, 3230),
+    piece('inv-ids-f-en', poff, 'normal', 'en', null, 1500),
+    piece('inv-ids-f-en-rh', poff, 'reverse_holo', 'en', null, 2200),
+    piece('inv-ids-f-es', poff, 'normal', 'es', null, 1130),
+    piece('inv-ids-f-l-en', poff, 'normal', 'en', PF.left, 3000),
+    piece('inv-ids-f-l-es', poff, 'normal', 'es', PF.left, 2250),
+    piece('inv-ids-f-r-en', poff, 'normal', 'en', PF.right, 3100),
+    piece('inv-ids-f-r-es', poff, 'normal', 'es', PF.right, 2330),
+    piece('inv-ids-f-lg-en', poff, 'reverse_holo', 'en', PF.league, 4000),
+    piece('inv-ids-f-lg-es', poff, 'reverse_holo', 'es', PF.league, 3000),
+    piece('inv-ids-f-c-en', poff, 'holofoil', 'en', PF.cosmos, 9000),
+    piece('inv-ids-f-c-es', poff, 'holofoil', 'es', PF.cosmos, 6750),
+    piece('inv-ids-f-ch-en', poff, 'holofoil', 'en', PF.champ, 12000),
+    piece('inv-ids-f-ch-es', poff, 'holofoil', 'es', PF.champ, 9000),
+    piece('inv-ids-f-st-en', poff, 'holofoil', 'en', PF.staff, 15000),
+    piece('inv-ids-f-st-es', poff, 'holofoil', 'es', PF.staff, 11250),
   ];
 }
 
@@ -1183,6 +1213,9 @@ export const mockFacets: CatalogFacetsDTO = {
   ),
   // v1.6-finish: distinct de InventoryItem.finish sobre lo publicado (para el filtro de acabado).
   finishes: Array.from(new Set(mockListings.map((l) => l.finish))),
+  // MOCK §IDS.5 (v1.116.2): idiomas presentes en lo publicado (orden en, es) y si hay alguna pieza de liga. Sin conteos.
+  languages: (['en', 'es'] as const).filter((lang) => mockListings.some((l) => l.version.language === lang)),
+  stamped: mockListings.some((l) => l.version.stamp != null),
   price: {
     minCents: Math.min(...mockListings.map((l) => l.displayPriceCents ?? 0)),
     maxCents: Math.max(...mockListings.map((l) => l.displayPriceCents ?? 0)),

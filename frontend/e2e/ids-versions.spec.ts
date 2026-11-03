@@ -115,6 +115,56 @@ for (const width of [360, 390] as const) {
   });
 }
 
+// IDS-F3 (v1.116.2: «2×N con 6 filas a 360 px sin desborde, peor caso medido»): `c-ids-poffin-6` = fila sin liga + 6
+// filas de liga (máx medido por carta, DEVOPS_NOTES §108.1), dos del mismo tipo y acabado (D-IDS-6). A 360 px: 14
+// burbujas en 2 columnas, ≥ 44 px, ninguna fuera del viewport, cada fila con sus dos burbujas a la misma altura, 7
+// rótulos distintos y sin desborde horizontal de la página. En ES y EN (EN trae los rótulos más largos).
+test.describe('2×N peor caso · 7 filas a 360 px', () => {
+  test.use({ viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  for (const locale of ['es', 'en'] as const) {
+    test(`IDS-F3 (${locale}): sin liga + 6 filas de liga, 14 burbujas en 2 columnas sin desborde`, async ({ page }) => {
+      mockOnly(FIXTURE);
+      await page.goto(`/${locale}/catalog/c-ids-poffin-6`);
+      await expect(page.getByTestId('version-pills')).toHaveAttribute('data-form', '2xN');
+      const facts = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll<HTMLElement>('[data-testid="version-row"]')];
+        return rows.map((row) => {
+          const label = row.querySelector<HTMLElement>('[data-testid="version-row-label"]')!;
+          const lr = label.getBoundingClientRect();
+          const pills = [...row.querySelectorAll<HTMLElement>('[data-testid="version-pill"]')].map((p) => {
+            const r = p.getBoundingClientRect();
+            return { key: p.dataset.optionKey, left: r.left, right: r.right, top: r.top, h: r.height, w: r.width };
+          });
+          return {
+            label: label.textContent,
+            labelLines: Math.round(lr.height / parseFloat(getComputedStyle(label).lineHeight)),
+            labelRight: lr.right,
+            pills,
+          };
+        });
+      });
+      const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
+      test.info().annotations.push({ type: `ids-2xN-7rows-${locale}-360`, description: JSON.stringify({ scrollW, facts }) });
+      expect(facts).toHaveLength(7);
+      expect(new Set(facts.map((r) => r.label)).size, JSON.stringify(facts.map((r) => r.label))).toBe(7);
+      expect(facts.flatMap((r) => r.pills)).toHaveLength(14);
+      for (const r of facts) {
+        expect(r.pills, JSON.stringify(r)).toHaveLength(2);
+        expect(Math.abs(r.pills[0].top - r.pills[1].top), JSON.stringify(r)).toBeLessThan(1);
+        expect(r.pills[0].right, JSON.stringify(r)).toBeLessThanOrEqual(r.pills[1].left);
+        for (const p of r.pills) {
+          expect(p.h, JSON.stringify(p)).toBeGreaterThanOrEqual(44);
+          expect(p.left, JSON.stringify(p)).toBeGreaterThanOrEqual(0);
+          expect(p.right, JSON.stringify(p)).toBeLessThanOrEqual(360);
+        }
+        expect(r.labelRight, JSON.stringify(r)).toBeLessThanOrEqual(360);
+        expect(r.labelLines, `rótulo en una línea: ${JSON.stringify(r)}`).toBe(1);
+      }
+      expect(scrollW).toBe(360);
+    });
+  }
+});
+
 test('(12) con una sola versión no hay radiogroup (Charizard del simulador)', async ({ page }) => {
   mockOnly('Charizard del simulador tiene una sola versión');
   await page.goto('/es/catalog/c-charizard');

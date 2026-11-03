@@ -3,7 +3,8 @@
  *  (2) inglés + sin liga = 0 toques: la pieza viaja SIN `language` ni `cardProductId` (cuerpo de hoy);
  *  (3) sin productos de liga ni candidatas, la fila «Versión» no existe;
  *  (4) una versión sin precio está apagada con su motivo y no se puede crear;
- *  sin campo de precio (I-4); candidata ⇒ `attach`; «Sin liga» y «No holo» (⛔ «Normal»).
+ *  sin campo de precio (I-4); candidata ⇒ `attach`; «Sin liga» y «No holo» (⛔ «Normal»);
+ *  desglose (v1.116.2) con `baseReferenceMxnCents` y `appliedMarketPct` DEL COMBO, sin aritmética del navegador.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
@@ -49,19 +50,22 @@ const combo = (o: Partial<VersionComboDTO>): VersionComboDTO => ({
   language: 'en',
   stamp: null,
   previewPriceCents: 20000,
+  baseReferenceMxnCents: 20000,
+  appliedMarketPct: null,
   unavailableReason: null,
   ...o,
 });
 
 const PLAIN: CardVersionsResponse = {
-  combos: [combo({}), combo({ language: 'es', previewPriceCents: 15000 })],
+  combos: [combo({}), combo({ language: 'es', previewPriceCents: 15000, appliedMarketPct: 75 })],
   candidates: [],
 };
 const STAMPED: CardVersionsResponse = {
   combos: [
     ...PLAIN.combos,
-    combo({ stamp: PP, previewPriceCents: 48000 }),
-    combo({ stamp: PP, language: 'es', previewPriceCents: 36000 }),
+    combo({ stamp: PP, previewPriceCents: 48000, baseReferenceMxnCents: 48000 }),
+    // `P` ≠ base × X a propósito (curva, piso e IVA van después): el navegador no recompone nada.
+    combo({ stamp: PP, language: 'es', previewPriceCents: 36000, baseReferenceMxnCents: 48000, appliedMarketPct: 75 }),
     // Prize Pack también en No holo (acabado que la carta holo no tiene) ⇒ Acabado pasa a burbujas.
     combo({ stamp: PP, finish: 'normal', finishLabel: 'non_holo', previewPriceCents: 9000 }),
     combo({ stamp: PP, finish: 'normal', finishLabel: 'non_holo', language: 'es', previewPriceCents: 6750 }),
@@ -133,7 +137,7 @@ describe('IDS-F1 · captura (AddItemModal)', () => {
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Español' }));
     fireEvent.click(within(dialog).getByRole('radio', { name: 'De liga · Prize Pack' }));
     expect(within(dialog).getByTestId('ids-price')).toHaveTextContent('MX$360.00');
-    expect(within(dialog).getByTestId('ids-breakdown').textContent).toBe('Base: De liga · Prize Pack en inglés · × 75 % (español)');
+    expect(within(dialog).getByTestId('ids-breakdown').textContent).toBe('Base: De liga · Prize Pack en inglés · MX$480.00 × 75 % (español)');
     expect(within(dialog).getByTestId('ids-breakdown').className).toContain('whitespace-nowrap');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Crear item' }));
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
@@ -141,6 +145,35 @@ describe('IDS-F1 · captura (AddItemModal)', () => {
     expect(body.language).toBe('es');
     expect(body.cardProductId).toBe(648703);
     expect(body).not.toHaveProperty('listPriceCents');
+  });
+
+  it('desglose: la base y el % salen del COMBO (no de Ajustes) y el navegador no los multiplica', async () => {
+    const odd: CardVersionsResponse = {
+      combos: [
+        combo({ baseReferenceMxnCents: 31000, previewPriceCents: 39900 }),
+        // Dial del servidor en 80 aunque Ajustes diga 75; P (25 900) ≠ 31 000 × 80 % (24 800): se pinta P tal cual.
+        combo({ language: 'es', baseReferenceMxnCents: 31000, appliedMarketPct: 80, previewPriceCents: 25900 }),
+      ],
+      candidates: [],
+    };
+    const { dialog } = await open(card('c-odd', ['holofoil']), odd);
+    expect(within(dialog).getByTestId('ids-breakdown').textContent).toBe('Base: Sin liga en inglés · MX$310.00 (mercado de TCGplayer)');
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Español' }));
+    expect(within(dialog).getByTestId('ids-price')).toHaveTextContent('MX$259.00');
+    expect(within(dialog).getByTestId('ids-breakdown').textContent).toBe('Base: Sin liga en inglés · MX$310.00 × 80 % (español)');
+    expect(within(dialog).getByTestId('ids-capture').textContent).not.toMatch(/248\.00|75 %/);
+    expect(api.getSettings).not.toHaveBeenCalled();
+  });
+
+  it('desglose sin base del servidor ⇒ no inventa la cifra', async () => {
+    const noBase: CardVersionsResponse = {
+      combos: [combo({ baseReferenceMxnCents: null }), combo({ language: 'es', baseReferenceMxnCents: null, appliedMarketPct: 75, previewPriceCents: 15000 })],
+      candidates: [],
+    };
+    const { dialog } = await open(card('c-nb', ['holofoil']), noBase);
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Español' }));
+    expect(within(dialog).getByTestId('ids-breakdown').textContent).toBe('Base: Sin liga en inglés · × 75 % (español)');
+    expect(within(dialog).getByTestId('ids-breakdown').textContent).not.toMatch(/MX\$/);
   });
 
   it('(4) versión no default sin precio ⇒ no se puede crear', async () => {

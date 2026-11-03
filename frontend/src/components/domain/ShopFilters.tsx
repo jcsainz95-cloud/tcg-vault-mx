@@ -80,9 +80,7 @@ export function ShopFilters({ facets, filters, onChange }: ShopFiltersProps) {
 
       <FinishFilter facets={facets} filters={filters} onChange={onChange} />
 
-      <FilterSection>
-        <VersionFilter filters={filters} onChange={onChange} />
-      </FilterSection>
+      <VersionFilter facets={facets} filters={filters} onChange={onChange} />
 
       <FilterSection>
         <PriceFilter facets={facets} filters={filters} onChange={onChange} />
@@ -356,39 +354,51 @@ function FinishFilter({ facets, filters, onChange }: ShopFiltersProps) {
   );
 }
 
-// ---- §IDS.5 (v1.116⟨ids⟩): idioma y «Cartas de liga y promos» ----
-// Sin faceta: el contrato dice «facetas += conteos por `language` y `stamped`» sin nombrar los campos (solicitud al
-// arquitecto en FRONTEND_NOTES §IDS-FE); mientras, las opciones son la lista cerrada `CardLanguage` y el interruptor.
-// ⛔ «sello» no se dice al cliente (D-6 v3): el filtro es «Cartas de liga y promos».
-function VersionFilter({ filters, onChange }: Pick<ShopFiltersProps, 'filters' | 'onChange'>) {
+// ---- §IDS.5 (v1.116.2⟨ids⟩, IDS-F2): idioma y «Cartas de liga y promos», por FACETAS ----
+// `facets.languages` (sin conteos) decide qué idiomas se ofrecen: «Español» solo con `es`; con solo inglés no hay nada que
+// filtrar y el bloque no se pinta. `facets.stamped` decide «Cartas de liga y promos». Un filtro ya activo en la URL se
+// pinta aunque la faceta no lo traiga (marcado), para que se pueda quitar. Servidor sin las facetas ⇒ sin bloque.
+// ⛔ «sello» no se dice al cliente (D-6 v3).
+function VersionFilter({ facets, filters, onChange }: ShopFiltersProps) {
   const t = useTranslations('version');
   const td = useTranslations('versionDetail');
+  const offered = facets?.languages ?? [];
+  const languages = CARD_LANGUAGES.filter((l) => offered.includes(l) || filters.language === l);
+  const showLanguage = offered.includes('es') || !!filters.language;
+  const showStamped = facets?.stamped === true || !!filters.stamped;
+  if (!showLanguage && !showStamped) return null;
   return (
-    <fieldset data-testid="version-filter">
-      <legend className="text-[13px] font-medium leading-none text-text">{td('filter.language')}</legend>
-      <div className="mt-3.5 flex flex-wrap gap-2">
-        <TypeChip
-          active={!filters.language}
-          label={td('filter.languageAll')}
-          onClick={() => onChange({ ...filters, language: undefined })}
-        />
-        {CARD_LANGUAGES.map((l) => (
-          <TypeChip
-            key={l}
-            active={filters.language === l}
-            label={t(`language.${l}`)}
-            onClick={() => onChange({ ...filters, language: filters.language === l ? undefined : l })}
-          />
-        ))}
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <TypeChip
-          active={!!filters.stamped}
-          label={td('filter.stamped')}
-          onClick={() => onChange({ ...filters, stamped: filters.stamped ? undefined : true })}
-        />
-      </div>
-    </fieldset>
+    <FilterSection>
+      <fieldset data-testid="version-filter">
+        <legend className="text-[13px] font-medium leading-none text-text">{td('filter.language')}</legend>
+        {showLanguage && (
+          <div className="mt-3.5 flex flex-wrap gap-2">
+            <TypeChip
+              active={!filters.language}
+              label={td('filter.languageAll')}
+              onClick={() => onChange({ ...filters, language: undefined })}
+            />
+            {languages.map((l) => (
+              <TypeChip
+                key={l}
+                active={filters.language === l}
+                label={t(`language.${l}`)}
+                onClick={() => onChange({ ...filters, language: filters.language === l ? undefined : l })}
+              />
+            ))}
+          </div>
+        )}
+        {showStamped && (
+          <div className={showLanguage ? 'mt-3 flex flex-wrap gap-2' : 'mt-3.5 flex flex-wrap gap-2'}>
+            <TypeChip
+              active={!!filters.stamped}
+              label={td('filter.stamped')}
+              onClick={() => onChange({ ...filters, stamped: filters.stamped ? undefined : true })}
+            />
+          </div>
+        )}
+      </fieldset>
+    </FilterSection>
   );
 }
 
