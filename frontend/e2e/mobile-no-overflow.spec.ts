@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { IS_REAL } from './utils/auth';
 
 /**
  * B5 (BRIEF_MKT §4 Ola 1) — la portada y el catálogo NO desbordan a lo ancho en móvil: con la emulación móvil de
@@ -12,13 +13,28 @@ import { test, expect, type Page } from '@playwright/test';
  * scroll y estiraba el documento hasta la teja donde caía. Arreglo: `relative` en la pista (`FeaturedCarousel.tsx`).
  * Mutación: quitar ese `relative` ⇒ portada roja en los tres anchos (mocks: 853 px).
  *
+ * TL-MKT2-5 (techlead 2026-10-31): la FICHA de carta también (tiene pistas `overflow-x-auto` y, desde §IDS, el selector
+ * de versiones). Con mocks se mide la carta del simulador con más burbujas (`c-ids-pikachu-057`, forma 2×N); contra el
+ * stack sembrado, la ficha de la primera teja del catálogo (el seed decide cuál; la prueba no depende de su id).
+ *
  * Etiqueta `@real`: es conducta de layout y corre igual contra el stack sembrado.
  */
 const WIDTHS = [360, 390, 414] as const;
-const PAGES = [
-  { name: 'portada', path: '/es', ready: (p: Page) => p.locator('#piezas-destacadas-pista a').first().waitFor() },
-  { name: 'catálogo', path: '/es/catalog', ready: (p: Page) => p.locator('main a[href*="/catalog/"]').first().waitFor() },
-] as const;
+
+/** La ficha a medir: fija con mocks; contra el stack, la de la primera teja del catálogo. */
+async function cardDetailPath(p: Page): Promise<string> {
+  if (!IS_REAL) return '/es/catalog/c-ids-pikachu-057';
+  await p.goto('/es/catalog');
+  const href = await p.locator('main a[href*="/catalog/"]').first().getAttribute('href');
+  if (!href) throw new Error('el catálogo no pintó ninguna teja con enlace a ficha');
+  return href;
+}
+
+const PAGES: readonly { name: string; path: string | ((p: Page) => Promise<string>); ready: (p: Page) => Promise<void> }[] = [
+  { name: 'portada', path: '/es', ready: (p) => p.locator('#piezas-destacadas-pista a').first().waitFor() },
+  { name: 'catálogo', path: '/es/catalog', ready: (p) => p.locator('main a[href*="/catalog/"]').first().waitFor() },
+  { name: 'ficha de carta', path: cardDetailPath, ready: (p) => p.getByRole('heading', { level: 1 }).waitFor() },
+];
 
 for (const width of WIDTHS) {
   test.describe(`B5 · ${width} px`, () => {
@@ -26,7 +42,7 @@ for (const width of WIDTHS) {
 
     for (const pg of PAGES) {
       test(`${pg.name}: layout = ${width} px (innerWidth y scrollWidth) @real`, async ({ page }) => {
-        await page.goto(pg.path);
+        await page.goto(typeof pg.path === 'string' ? pg.path : await pg.path(page));
         await pg.ready(page);
         // Tras pintar las tejas y sus cifras (las que traen el `sr-only` del desborde original).
         await page.waitForLoadState('networkidle');

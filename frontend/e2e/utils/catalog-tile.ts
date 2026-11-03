@@ -8,6 +8,8 @@
  * nunca del orden del seed: una pieza `es` o de liga recién dada de alta es la primera teja de `newest` y su enlace
  * no es el llano.
  */
+import { isDefaultVersion } from '../../src/lib/version';
+
 export interface TileGroupRef {
   card: { id: string };
   version: { language: string; stamp: unknown | null };
@@ -17,8 +19,7 @@ export interface TileGroupRef {
 /** `/<locale>/catalog/<cardId>` o `/<locale>/catalog/<cardId>?version=<versionOptionKey>`. */
 export function tileHref(g: TileGroupRef, locale: 'es' | 'en' = 'es'): string {
   const base = `/${locale}/catalog/${g.card.id}`;
-  const plain = g.version.language === 'en' && g.version.stamp == null;
-  return plain ? base : `${base}?version=${encodeURIComponent(g.versionOptionKey)}`;
+  return isDefaultVersion(g.version) ? base : `${base}?version=${encodeURIComponent(g.versionOptionKey)}`;
 }
 
 /** `cardId` y `?version=` de un href de ficha (con o sin locale). */

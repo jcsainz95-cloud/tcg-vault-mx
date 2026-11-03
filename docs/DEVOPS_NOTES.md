@@ -27,8 +27,8 @@
   en Vercel (§106.4, la hace el dueño); la de 7 días tras publicar caduca el 2026-12-01 (candado en §106.4). Mediciones de producción de §DYN: `scripts/dyn-prod-measure.sh` (§104.4), las corre el dueño.
 - **Catálogo de CP (2026-11-02):** en producción está **vacío** (4 CP ⇒ 404). Se carga con el botón «Cargar códigos postales
   (SEPOMEX)» (`cargar-codigos-postales.yml`, lo dispara el dueño; simulacro por defecto) — pasos, candado y rollback: **§107**.
-- **§IDS, Q1 de D-IDS-1 (2026-11-03):** condición bloqueante de la solicitud de fusión de §IDS. Se mide con el botón «Medir
-  D-IDS-1 en producción (solo lectura)» (`medir-ids-produccion.yml`, entorno `medicion-ro` con revisor, rol `ids_ro`
+- **§IDS, Q1 y Q1c de D-IDS-1 (2026-11-03):** condiciones bloqueantes de la solicitud de fusión de §IDS (Q1c: piezas de
+  CLIENTES con promo/deck_exclusive, contrato v1.116.4). Se miden con el botón «Medir D-IDS-1 en producción (solo lectura)» (`medir-ids-produccion.yml`, entorno `medicion-ro` con revisor, rol `ids_ro`
   recomendado; candado G-IDS-RO) — pasos del dueño, mediciones y rollback: **§108.5**. **NO corrido en producción.**
 - **Limpieza de ramas (2026-10-30):** `limpieza-ramas.yml` (lo dispara el dueño) borra las ramas remotas fusionadas en
   `production` y archiva `main`. Pasos para el dueño y cómo se deshace: **§105**.
@@ -14747,8 +14747,7 @@ tiene producción y su `pptSetId`: **NO MEDIDO** (BD). Cada cifra es N = todos l
 ### 108.1 IDS-D1 — empate, sufijos, Cosmos y filas por carta
 Cifras con la llave del catálogo de la **errata v1.116.2** (IDS.3: número del nombre solo si trae total; si no, `Card.number` +
 `/` + `CardSet.printedTotal`; réplica de `catalogMatchKey`) y candidatos contados **por carta**, como `buildCatalogIndex`.
-Re-medido el 2026-11-03 sobre el mismo `last-updated`; la versión anterior del instrumento (llave = `Number` de TCGCSV, por
-producto) da exactamente las cifras previas (22880 765/56/28, 1539 351/6/118) sobre la misma caché. `printedTotal` = el del set de
+Re-medido el 2026-11-03 sobre el mismo `last-updated` (la llave anterior daba 22880 765/56/28, 1539 351/6/118). `printedTotal` = el del set de
 pokemontcg.io que la escalera empata con el grupo (142 de 143 grupos B; 0 grupos con dos totales distintos); `Card.number` ≈ el
 `Number` de TCGCSV antes del «/» (LECTURA DEVOPS: sin tabla `Card`).
 
@@ -14757,12 +14756,6 @@ pokemontcg.io que la escalera empata con el grupo (142 de 143 grupos B; 0 grupos
 | 22880 Prize Pack | 891 | 42 | 0 | 849 | **789 (92.9 %)** | 0 | 60 | 594 |
 | 1539 Liga/campeonato | 620 | 99 | 46 | 475 | **369 (77.7 %)** | 4 | 102 | 305 |
 
-- **Qué movió la errata (B, por producto):** 22880 — 24 ambiguos ⇒ únicos (21 duplicados dentro del mismo grupo y 3 reediciones:
-  por carta son una) y **32 ambiguos ⇒ sin pareja**: las energías básicas («Basic Grass Energy - 001»), cuyo `Number` no trae total
-  y el lado del catálogo siempre lo lleva; el resto sin pareja (28): promos `SWSH…` (`swshp` no empata por nombre). 1539 — 16 sin
-  pareja ⇒ únicos (base DP/Platinum sin total en el nombre, p. ej. «Butterfree FB - 17/147») y 2 ambiguos ⇒ únicos. Solo con la
-  llave (sin contar por carta): 22880 768/21/60, 1539 369/4/102. En A, 22872/24451 pasan a 0 únicos (su base, «Quaquaval - 005»,
-  no trae total ni set con `printedTotal`): coherente con D-IDS-7.
 - **1539, tipos** (los 620): `league` 298 · `championship` 105 · `staff` 102 · **sin tipo 115** (99 sin número + 46 con
   número: «Play! Pokemon» 17, sin etiqueta 11, «Cosmos Holo» 6, «Winner»/«Special» 4, otros 8). Con número y tipo, único en B
   por tipo: league **201/268** · championship **85/105** · staff **83/102**. Ambiguos B (4): Crimson Invasion + Furious Fists.
@@ -14793,9 +14786,8 @@ pokemontcg.io que la escalera empata con el grupo (142 de 143 grupos B; 0 grupos
 `SellRequestItem`, `PortfolioSnapshot`; solo columnas de id/estado/`*Cents`/acabado/`variantKey`/idioma/sello: sin datos
 personales; transacción READ ONLY) y `scripts/ids/foto-512.mjs compare antes despues` (0 = diferencia 0 · 1 = lista de
 diferencias · 2 = no concluyente). Una columna nueva solo vale si es de M-95 y está en su default (`language='en'`, sin sello).
-Pruebas (`ids-lib` + `foto-512`, 6 canarios): local 16 verdes + 2 omitidas (las de base). Las dos `.sql` **no las ejecuté**
-(sin Postgres accesible en la sesión; columnas cotejadas con `schema.prisma`, sin `@@map`): las corre el paso «Instrumentos
-§IDS» del job `backend` de `ci.yml` contra la base de CI migrada, con `# skipped 0` obligatorio.
+Las dos `.sql` las corre el paso «Instrumentos §IDS» del job `backend` de `ci.yml` contra la base de CI migrada
+(`# skipped 0` obligatorio); medidas en local en §108.5.
 **Ensayo** (sobre copia, nunca producción): (1) copia con `restore-drill-verify.sh --snapshot --dump` + `--restore` (§85.5);
 (2) con el código de `production` y la ingesta de precios apagada, una corrida de precios del día; `psql … -f foto-512.sql >
 antes.jsonl`; (3) `m95a` → `m95b` → código nuevo, misma corrida sin ingesta; `despues.jsonl`; (4) `compare`. Qué comando dispara
@@ -14806,14 +14798,16 @@ una recomputación completa sin ingesta: **NO MEDIDO**, lo nombra backend. ⛔ L
 2. **Filas por carta:** máx 6 y 4 cartas > 4, frente a «≤ 4» del diseño (D-IDS-5).
 3. **IDS-D2 no es «cambiar la constante»** (IDS.3): sin promos ME en el catálogo, `svp` sin grupo por nombre, 50/70 sin
    producto base y colisión con `promo` existente.
-4. Lecturas que el contrato deja abiertas y este instrumento fijó (marcadas «LECTURA DEVOPS» en `ids-lib.mjs`): el número va
-   dentro del nombre (con y sin guion, sin ceros en 1539) y hay que quitarlo; precedencia `staff` > `prerelease` >
-   `championship` > `league` («(League Cup) [Staff]»); «International» también casa «(International Version)» fuera de 1539;
-   una base con número sin total no empata (22 en 1539; **resuelto en v1.116.2**: empata por `Card.number`/`printedTotal`, §108.1).
+4. Lecturas que fijó el instrumento: el número va dentro del nombre y hay que quitarlo; «International» casa también
+   «(International Version)» fuera de 1539. La precedencia de sufijos ya no es lectura devops: es la del backend (§108.6).
 
 ### 108.5 D-IDS-1 y lo que solo da la BD — botón «Medir D-IDS-1 en producción (solo lectura)» (G-IDS-RO)
 Q1 = consulta literal del contrato (piezas vendibles de plataforma por `kind`); Q1b = la lista por producto si Q1 da > 0 en
-`promo`/`deck_exclusive` (va a la solicitud de fusión: decide el dueño). Viven en **`scripts/ids/ids-d1-q1.sql`** (una fuente):
+`promo`/`deck_exclusive` (va a la solicitud de fusión: decide el dueño). **Q1c** (API_CONTRACT §IDS.9 v1.116.4, D-IDS-S):
+piezas de CLIENTES (`ownerType='customer'`, `status <> 'withdrawn'`) con producto `promo`/`deck_exclusive`, por kind (piezas,
+clientes distintos, con caso «Por reponer» `open`, en retiro activo `solicitado…enviado`) y **Q1c-detalle** por producto y
+acabado (piezas, clientes, Σ/mín/máx de la referencia de la base —fila elegida como `isBetterRef`, `priceMxnCents` almacenado
+**sin FX viva: aproximación**— y de `Q` = origen de `resolveOriginsBatch`; «sin origen»). Solo agregados (candado G-IDS-RO [Q]). Viven en **`scripts/ids/ids-d1-q1.sql`** (una fuente):
 la incluyen el `.sql` manual `ids-d1-produccion.sql` (Q1–Q3, `psql … -f`, rol de solo lectura como §104.4; Q2 lee además `CardSet`) y el botón.
 **Q1 es condición bloqueante de la solicitud de fusión de §IDS** (ARCHITECTURE §15 D-IDS-1). Estado: construido, **NO corrido en
 producción** (no existe hasta que esta rama llegue a `production`, la rama por defecto).
@@ -14828,9 +14822,8 @@ producción** (no existe hasta que esta rama llegue a `production`, la rama por 
 
 **Qué secreto (recomendación devops): un rol de solo lectura nuevo (`ids_ro`), no `DATABASE_PUBLIC_URL`.** Con la de dueño el
 botón tampoco escribe (READ ONLY + prueba 25006 + sin entradas + revisor), pero esas defensas son del código: quien cambie el
-script en `production` tendría permiso de escritura total con ese secreto. Con `ids_ro` (SELECT en 4 tablas) el límite lo pone
-Postgres. El resumen avisa si el secreto puede escribir («⚠️ … puede escribir (N de M tablas)»). Si el dueño prefiere no crear
-el rol, la de dueño es aceptable **solo** porque el secreto se borra al terminar (paso 7).
+script en `production` tendría permiso de escritura total. Con `ids_ro` (SELECT en las 10 tablas del paso 3) el límite lo pone
+Postgres; el resumen avisa si el secreto puede escribir. Sin el rol, la de dueño vale **solo** porque se borra al terminar (paso 7).
 
 **Pasos del dueño (lo que ve en pantalla).** Los nombres de Railway son los de §104.4 (*Data* → *Query*); los de GitHub, de su
 interfaz actual. **NO MEDIDO** por mí en un navegador: no tengo acceso a ninguna de las dos cuentas.
@@ -14840,7 +14833,7 @@ interfaz actual. **NO MEDIDO** por mí en un navegador: no tengo acceso a ningun
    números; ⛔ ni al chat ni a un fichero del repo).
 3. En la misma consulta (cambiando `<clave>` por lo copiado, y `railway` por el nombre de la base si fuera otro):
    `CREATE ROLE ids_ro LOGIN PASSWORD '<clave>'; GRANT CONNECT ON DATABASE railway TO ids_ro; GRANT USAGE ON SCHEMA public TO ids_ro;`
-   `GRANT SELECT ON "InventoryItem", "CardProduct", "Card", "ListingPrice" TO ids_ro;`
+   `GRANT SELECT ON "InventoryItem", "CardProduct", "Card", "ListingPrice", "ReplacementCase", "ShipmentItem", "ShipmentRequest", "Order", "OrderItem", "PriceReference" TO ids_ro;`
 4. Railway → **Postgres** → **Variables** → `DATABASE_PUBLIC_URL` → copiar. Se ve así:
    `postgresql://postgres:XXXX@algo.proxy.rlwy.net:12345/railway`. En una nota, cambiar `postgres:XXXX` (lo que hay entre `//`
    y `@`) por `ids_ro:<clave>`. Eso es el secreto.
@@ -14854,7 +14847,8 @@ interfaz actual. **NO MEDIDO** por mí en un navegador: no tengo acceso a ningun
    resumen: «Rol de solo lectura: 0 de N tablas con permiso de escritura» y la línea **«promo + deck_exclusive = N»**. Copiar el
    enlace del run (o el resumen) a la solicitud de fusión: **= 0** confirma D-IDS-1; **> 0** trae la tabla de piezas y decide él.
 7. Limpiar: GitHub → Settings → Environments → `medicion-ro` → bote de basura junto a `IDS_RO_DATABASE_URL`. Railway → Query:
-   `REVOKE ALL ON "InventoryItem", "CardProduct", "Card", "ListingPrice" FROM ids_ro; REVOKE ALL ON SCHEMA public FROM ids_ro;`
+   `REVOKE ALL ON "InventoryItem", "CardProduct", "Card", "ListingPrice", "ReplacementCase", "ShipmentItem", "ShipmentRequest", "Order", "OrderItem", "PriceReference" FROM ids_ro;`
+   `REVOKE ALL ON SCHEMA public FROM ids_ro;`
    `REVOKE ALL ON DATABASE railway FROM ids_ro; DROP ROLE ids_ro;`
 
 Si sale rojo, el resumen dice por qué sin mostrar la URL: «usuario o contraseña rechazados» (paso 4 mal armado), «no se pudo
@@ -14875,11 +14869,25 @@ de plataforma —2 `set_base` vendibles, 1 `promo` publicada con precio de corri
 - **Mutación** (copia del árbol, `BEGIN;` sin `READ ONLY`): con el rol dueño ⇒ rc 1 «la escritura de prueba NO fue rechazada… No
   se leyó nada»; con el rol `ro` ⇒ rc 1 «la frenó el permiso del rol, no la transacción». Es la prueba de que una escritura falla
   y de que el botón no lee si la transacción no es de solo lectura.
-- `node --test` de `ids-lib` + `foto-512` + `medir-q1` contra esa base (rol dueño, como CI): **23/23**, `# skipped 0` (incluye `ids-d1-produccion.sql`
-  con el `\ir`). G-IDS-RO verde, canario **33/33**; G-CP-BOTON A–H verde, canario **22/22**; `check-runner-pin` (74 jobs) +
-  canario 11/11, `check-workflow-cwd` (164) + canario 8/8, `check-secret-masking` 6/6 + canario 5/5, `check-ci-ok --static`.
 - **NO MEDIDO:** que el runner de GitHub alcance el proxy público de Railway (igual que §107.3); que el `psql` 16 del runner
   hable con la versión de Postgres de Railway; los nombres exactos de las pantallas (arriba).
 
+**Q1c (2026-11-03, devops; base local propia `devops_q1c`, PG 16, las 80 migraciones con `psql`, borrada al terminar).**
+`medir-q1.test.mjs` siembra un lote con sufijo único (6 piezas: 2 promo + 1 deck de cliente que cuentan, 1 retirada, 1
+`set_base`, 1 de plataforma; override manual viejo vs tcgcsv nuevo; dos órdenes `vault`; un envío `picking`; un caso `open`), mide
+diferencias y la fila exacta del detalle, y lo borra (0 filas tras cada corrida). Prístino **3/3** verde; mutaciones sobre copia
+(N=3 cada una), roja **3/3** en todas: tabla o detalle cuentan plataforma · `Q` = el origen más viejo · la automática gana al
+manual · retiro activo incluye `cancelado`. Suite §IDS **26/26**, `# skipped 0`; G-IDS-RO canario **41/41**.
+
 **Rollback:** el botón no escribe nada que deshacer. Código: `git revert` del commit (se van workflow, scripts, candado y prueba;
 `ids-d1-produccion.sql` vuelve a llevar Q1 dentro). El secreto, el entorno y el rol se borran a mano (paso 7).
+
+### 108.6 TL-IDS-3 — una sola regla de sufijos (cerrada 2026-11-03)
+`stampTypeOf` de `scripts/ids/ids-lib.mjs` es ahora réplica de la del backend (`backend/src/common/card-version.ts`): mismos
+segmentos `(…)`/`[…]`, mismas regex por segmento (`regionals?`), `null` fuera de 22880/1539, salvo 22872/24451 que se clasifican
+**solo como medición de IDS-D2** (el backend da `null`: D-IDS-7). `ids-lib.test.mjs` lee los casos de
+`backend/test/ids-card-version.spec.ts` (16) y exige el mismo tipo (necesita el árbol entero, O-9). **Las cuentas de §108.1/§15.0
+no cambian:** versión de `f2cd0e31` vs nueva vs transcripción del backend sobre TCGCSV (`last-updated` 2026-11-02T20:06Z): 0
+discrepancias en 1539 (620; 505 con tipo), 22880 (891), 22872 (280; 70) y 24451 (141; 25). Mutaciones (copia, N=3): staff detrás
+de prerelease ⇒ roja 3/3; la versión vieja ⇒ la paridad con el spec sigue verde 3/3 (sus casos no tienen «(Regionals)» solo) y la
+cobra la prueba «parser no decorativo» 3/3; sin `backend/` ⇒ roja 3/3.

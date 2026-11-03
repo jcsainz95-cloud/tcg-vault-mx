@@ -13,7 +13,8 @@
 #   · El secreto `IDS_RO_DATABASE_URL` entra SOLO en el paso «Medir» (no hay `npm ci`: ninguna dependencia lo
 #     ve) y el script lo enmascara por partes antes de cualquier salida.
 #   · Transacción `READ ONLY` explícita + PRUEBA de que una escritura falla (25006) antes de leer + ROLLBACK.
-#   · Al resumen solo van cifras: Q1 y, si promo/deck_exclusive > 0, la lista Q1b (sin datos personales).
+#   · Al resumen solo van cifras: Q1 y, si promo/deck_exclusive > 0, la lista Q1b (sin datos personales); y Q1c
+#     (§IDS.9 v1.116.4: piezas de CLIENTES en bóveda con promo/deck_exclusive, solo agregados; candado [Q]).
 #   · Acciones fijadas por sha de 40 caracteres (TL-CHK-8).
 #
 # Runbook (pasos del dueño, rol recomendado, rollback): docs/DEVOPS_NOTES.md §108.5.

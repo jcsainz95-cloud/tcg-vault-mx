@@ -4,7 +4,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { VersionOptionDTO } from '@/types/contract';
-import { isExtendedForm, preselectVersionOption, versionRows } from './version';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { isDefaultVersion, isExtendedForm, preselectVersionOption, versionRows } from './version';
+import { tileHref } from '../../e2e/utils/catalog-tile';
 
 function opt(
   optionKey: string,
@@ -112,4 +115,35 @@ describe('IDS-F3 · filas en el orden del servidor y forma de la cuadrícula', (
     // Cosmos y PP No holo: mismo tipo, distinto acabado ⇒ no hace falta el label.
     expect(versionRows(FULL).some((r) => r.needsStampLabel)).toBe(false);
   });
+});
+
+/*
+ * TL-IDS-5 (techlead sobre `f2cd0e31`): «inglés sin liga» tenía tres definiciones (`lib/version.ts`, la línea de
+ * `VersionText.ts` y el enlace del arnés `e2e/utils/catalog-tile.ts`). Ahora hay una: `isDefaultVersion`. Este candado
+ * prueba la conducta del arnés y que ninguno de los dos sitios vuelva a escribir la regla en línea.
+ */
+describe('TL-IDS-5 · una sola definición de «inglés sin liga»', () => {
+  const PP = { type: 'prize_pack', label: null, productId: 1 };
+  it('isDefaultVersion: en sin liga ⇒ sí; es, o en con liga ⇒ no; sin versión ⇒ sí', () => {
+    expect(isDefaultVersion({ language: 'en', stamp: null })).toBe(true);
+    expect(isDefaultVersion(null)).toBe(true);
+    expect(isDefaultVersion({ language: 'es', stamp: null })).toBe(false);
+    expect(isDefaultVersion({ language: 'en', stamp: PP })).toBe(false);
+  });
+
+  it('el enlace de teja del arnés E2E sigue a isDefaultVersion', () => {
+    const g = (language: string, stamp: unknown) => ({ card: { id: 'c1' }, version: { language, stamp }, versionOptionKey: 'k.1' });
+    expect(tileHref(g('en', null))).toBe('/es/catalog/c1');
+    expect(tileHref(g('es', null))).toBe('/es/catalog/c1?version=k.1');
+    expect(tileHref(g('en', PP), 'en')).toBe('/en/catalog/c1?version=k.1');
+  });
+
+  it.each(['src/components/domain/VersionText.ts', 'e2e/utils/catalog-tile.ts'])(
+    '%s usa isDefaultVersion y no reescribe la regla',
+    (rel) => {
+      const src = readFileSync(join(__dirname, '..', '..', rel), 'utf8');
+      expect(src).toMatch(/import \{[^}]*\bisDefaultVersion\b[^}]*\} from '(@\/lib\/version|\.\.\/\.\.\/src\/lib\/version)'/);
+      expect(src).not.toMatch(/language === 'en' &&/);
+    },
+  );
 });
