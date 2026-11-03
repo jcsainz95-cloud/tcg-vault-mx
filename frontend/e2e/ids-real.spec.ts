@@ -329,6 +329,8 @@ test.describe('@real §IDS liga sembrada (E2E_IDS)', () => {
 
     // Pantalla (IDS-UX.4 «Carrito», petición 8): ES sin liga = «Español» sin línea; EN de liga = «De liga» + «De liga
     // (promo de la Liga)»; ES de liga = «Español» + «De liga» + «De liga (promo de la Liga)». Nunca «Español» dos veces.
+    // El checkout muestra 2 líneas y «Ver N más» (CheckoutLines VISIBLE_LINES): se despliegan para leer las tres.
+    await page.getByRole('button', { name: t('es', 'checkout.showMoreLines', { n: 1 }) }).click();
     const lines = page.getByRole('main').getByRole('listitem').filter({ hasText: LEAGUE.name });
     await expect(lines).toHaveCount(3);
     const facts = await lines.evaluateAll((els) =>
