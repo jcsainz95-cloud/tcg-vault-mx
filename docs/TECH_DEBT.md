@@ -82,6 +82,14 @@
 | TL-R1103-6 | ABIERTA · E2E con `new Function` sobre una cadena de JS sin tipos (`CONTRAST_FN`, `frontend/e2e/checkout-destino.spec.ts:94-105`), evaluada ×2 con `eslint-disable` (`:119-120`, `:164-165`; bloques `:115-124` y `:163-175`) | frontend | 2026-11-03 | `grep -c "new Function" frontend/e2e/checkout-destino.spec.ts` ⇒ 0 (hoy 2), con el helper tipado en `frontend/e2e/utils/` y el spec verde |
 | TL-R1103-7 | ABIERTA · `components/domain/StoreTabs.tsx:47`: el `+ 48` es el `w-12` del degradado (`:92`), acoplado sin constante; `moreRight` (`:40`) sin unitaria (`store-tabs-more` no aparece en ninguna prueba de `src/`, solo en `e2e/checkout-destino.spec.ts`) | frontend | 2026-11-03 | `grep -c "+ 48" StoreTabs.tsx` ⇒ 0 (hoy 1); unitaria de `store-tabs-more` presente y ausente al final del scroll |
 
+## Backend · 2026-11-03 · release 1103 — deuda del techlead sobre `54a52323` (TL-R1103)
+
+> Dueño del código anotado: **backend**. Re-medida el 2026-11-03 sobre `e1633782`, sin arreglar (O-14: QA mide). Rutas bajo `backend/src/modules/marketing/` y `backend/test/`.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-R1103-5 | ABIERTA · clasificador `marketing-source-error.ts`: (a) claves al revés respecto a Google: `reason=` lleva `error.status` (`:98`) y `detalle=` lleva `details[]/errors[].reason` (`:100`); (b) `ERR_INVALID_ARG_TYPE` dentro de `CRYPTO_CODE` (`:48`) ⇒ se etiqueta `cripto=`; (c) faltan `TimeoutError` (no está en `ERROR_NAME` `:51` ni en la rama de red `:111-113`) y `ESOCKETTIMEDOUT` (no está en `NET_CODE` `:38-43`); (d) acoplado a la forma de gaxios 6.7.1 (`backend/package-lock.json:6567-6569`): lee `err.error`/`err.code` (`:107-108`) sin candado de versión; con gaxios 7 el código va en `err.cause.code`, que no se lee; (e) sin prueba en `test/marketing-source-error.spec.ts` los caminos `inner.code` (`:108`), `red=ABORT` (`:113`) ni los códigos de certificado de `NET_CODE` (`:40-42`) | backend | 2026-11-03 | claves renombradas a `status=` / `reason=` con el spec al día (`grep -c "detalle=" marketing-source-error.ts` ⇒ 0, hoy 2); caso con un `GaxiosError` real que envuelve un error de red `ECONNREFUSED` ⇒ `red=ECONNREFUSED`; caso `{cause:{code:'ECONNREFUSED'}}` con su desenlace decidido y afirmado; `ERR_INVALID_ARG_TYPE` fuera de `CRYPTO_CODE` (`grep -c ERR_INVALID_ARG_TYPE marketing-source-error.ts` ⇒ 0, hoy 1) |
+
 ---
 
 ## Frontend · 2026-11-02 · fricción del checkout (v1.116) — deuda del techlead sobre `9d269935`
@@ -1574,7 +1582,7 @@ aparece, con la bandera SÍ).
   `resendVerification` y `forgotPassword` (tope 3/h/usuario).
 - **Estado actual:** el tope se evalúa leyendo un `count` y luego emitiendo; una **ráfaga concurrente**
   podría leer el mismo valor y superar el límite de 3 (p. ej. emitir 4-5). **Acotado** por el `@Throttle`
-  por IP del controller (`auth.controller.ts`: 3/h en forgot, 10/h en resend) que limita la tasa de entrada.
+  por IP del controller (`auth.controller.ts:93,110`: 10/h en resend y 10/h en forgot desde `1ec2c037`; re-medido 2026-11-03) que limita la tasa de entrada.
 - **Impacto:** bajo. En el peor caso, unos pocos correos extra por hora a la **propia** dirección del
   usuario; no es amplificación hacia terceros (el correo va al dueño de la cuenta).
 - **Disparador:** fase 2 / storage compartido del throttler. Solución: mover el conteo a **Redis** con

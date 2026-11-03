@@ -9362,7 +9362,7 @@ cotiza variantes cuya `CardProduct` ya existe.
   **Recomendación (no implementada, requiere criterio de arquitecto/seguridad):** registrar el intento y el
   fallo de envío en AuditLog para que prod tenga señal consultable; y considerar un health-check de correo
   (hoy `/health` solo cubre DB, `health.service.ts`).
-- **Tests:** `test/auth.throttle.spec.ts` fija el candado 3/hora de forgot-password (ventana más frágil).
+- **Tests:** `test/auth.throttle.spec.ts` fija el candado de forgot-password: **10/hora/IP** desde `1ec2c037` (decisión del dueño; antes 3/h). El tope por servicio sigue en 3/h/email (`auth.service.ts:20`).
   Suite auth verde (20/20), `tsc --noEmit` limpio.
 
 ## 0.0 Regresión del gate E2E pre-publicación de inventario (2026-08-23) — 2 BLOQ resueltos + 1 escalado al arquitecto
@@ -11877,7 +11877,7 @@ Implementa el changelog v1.5 del contrato (§1 Auth) y ARCHITECTURE §3.2/§4.11
   aunque el token esté usado (doble clic). **No** toca `tokenVersion`. Rate-limit 10/min/IP.
 - `POST /auth/forgot-password` — **public** `{email}` → **SIEMPRE `200 {ok:true}`** (anti-enumeración). Si el
   email existe y la cuenta está **activa**, emite `password_reset` (1h), rota previos y envía correo (tope
-  3/h/email en servicio; blocked/deleted no se procesan pero igual responde 200). Rate-limit **3/h/IP**.
+  3/h/email en servicio; blocked/deleted no se procesan pero igual responde 200). Rate-limit **10/h/IP** (`1ec2c037`).
 - `POST /auth/reset-password` — **public** `{token, password}` → `200 {ok:true}`. Consume el token, setea
   `passwordHash` (**argon2id**), `tokenVersion++` (revoca sesiones, patrón existente), **`emailVerified=true`**
   (v1.5-3), limpia `mustChangePassword`, marca token usado. `422 RESET_TOKEN_INVALID`; `400 VALIDATION_ERROR`
