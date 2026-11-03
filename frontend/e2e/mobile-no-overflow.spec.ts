@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { IS_REAL } from './utils/env';
+import { IS_REAL } from './utils/auth';
 
 /**
  * B5 (BRIEF_MKT §4 Ola 1) — la portada y el catálogo NO desbordan a lo ancho en móvil: con la emulación móvil de
