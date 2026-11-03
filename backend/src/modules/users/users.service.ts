@@ -45,9 +45,29 @@ export function withAddressBookLock<T>(
   fn: (tx: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
   return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADDRESS_BOOK_GATE_NAMESPACE}::int, hashtext(${userId}))`;
+    await lockAddressBook(tx, userId);
     return fn(tx);
   });
+}
+
+/**
+ * 🔒 v1.117.2 (API_CONTRACT §CTA.13 «Orden de candados»): el candado de la libreta DENTRO de una transacción que ya tiene el de la
+ * cuenta (`withAccountGate`) — cuenta → libreta, nunca al revés. Lo usan el 5-bis de `account-setup`, `reset-password`,
+ * `verify-email` (`newPassword`) y el enlace con Google. ⛔ La misma sentencia que `withAddressBookLock`.
+ */
+export async function lockAddressBook(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADDRESS_BOOK_GATE_NAMESPACE}::int, hashtext(${userId}))`;
+}
+
+/**
+ * 🔒 v1.117 §CTA.4 paso 5-bis (v1.117.2: UNA implementación para las cuatro vías que prueban el buzón — `account-setup`,
+ * `reset-password`, `verify-email` con `newPassword` y el enlace con Google; TL-CTA-1): lo cargado antes de probar el buzón no
+ * queda como destino por defecto de un retiro. Dentro de la tx del candado de la cuenta; toma el de la libreta DESPUÉS (cuenta →
+ * libreta). Con una sola dirección, el checkout la sigue autoseleccionando.
+ */
+export async function clearDefaultAddressAfterInboxProof(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+  await lockAddressBook(tx, userId);
+  await tx.address.updateMany({ where: { userId, isDefault: true }, data: { isDefault: false } });
 }
 
 /** Resultado del alta interna desde un reclamo (§4-G.9c). `invalid` lo registra el llamador; `duplicate` no es un fallo. */

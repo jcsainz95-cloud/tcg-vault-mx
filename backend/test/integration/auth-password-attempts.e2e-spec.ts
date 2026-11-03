@@ -20,7 +20,7 @@ jest.mock('argon2', () => {
 import * as argon2 from 'argon2';
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
-import { AuthTokenService } from '../../src/modules/auth/auth-token.service';
+import { authBackgroundIdle, issueAuthToken } from './helpers/auth-tokens';
 import { LOGIN_ATTEMPT_STORE, MemoryLoginAttemptStore } from '../../src/modules/auth/login-attempt.store';
 
 jest.setTimeout(120_000);
@@ -163,7 +163,7 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
     it('(a) reset-password completado ⇒ levanta y devuelve { ok, deviceToken } (sin sesión)', async () => {
       const u = await newUser();
       await lockOut(u.email!);
-      const clear = await h.app.get(AuthTokenService).issue(u.id, AuthTokenType.password_reset);
+      const clear = await issueAuthToken(h, u.id, AuthTokenType.password_reset);
       const r = await h.api('POST', '/auth/reset-password', { json: { token: clear, password: 'Nueva-C7-456' } });
       expect(r.status).toBe(200);
       expect(Object.keys(r.body).sort()).toEqual(['deviceToken', 'ok']);
@@ -195,6 +195,7 @@ describe('E2E — C7: límite de intentos de contraseña por cuenta (v1.80)', ()
       const u = await newUser();
       await lockOut(u.email!);
       expect((await h.api('POST', '/auth/forgot-password', { json: { email: u.email } })).status).toBe(200);
+      await authBackgroundIdle(h);
       expect((await login(u.email!, GOOD)).status).toBe(429);
     });
   });

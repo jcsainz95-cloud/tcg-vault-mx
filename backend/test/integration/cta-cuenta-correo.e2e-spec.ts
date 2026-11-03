@@ -32,7 +32,7 @@ import { E2EHarness } from './helpers/e2e-app';
 import { E2E_FOLIOS } from '../../prisma/e2e-fixtures';
 import { MAIL_PORT, MailMessage, MailPort } from '../../src/modules/mail/mail.port';
 import { GoogleTokenVerifier, GoogleIdentity } from '../../src/modules/auth/google-token-verifier';
-import { AuthTokenService } from '../../src/modules/auth/auth-token.service';
+import { authBackgroundIdle, issueAuthToken } from './helpers/auth-tokens';
 import { AuthService } from '../../src/modules/auth/auth.service';
 
 const RUN = `${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
@@ -398,7 +398,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
 
     it('tipos cruzados: password_reset en account-setup ⇒ 422; account_setup en reset-password ⇒ 422 RESET_TOKEN_INVALID', async () => {
       const p = await pending('b8x');
-      const reset = await h.app.get(AuthTokenService).issue(p.id, AuthTokenType.password_reset);
+      const reset = await issueAuthToken(h, p.id, AuthTokenType.password_reset);
       const a = await accountSetup({ token: reset, name: 'Ana', password: PASSWORD });
       expect([a.status, a.body?.error?.code]).toEqual([422, 'ACCOUNT_SETUP_TOKEN_INVALID']);
       const b = await h.api('POST', '/auth/reset-password', { json: { token: p.clear, password: PASSWORD } });
@@ -411,7 +411,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
 
     it('anula los otros account_setup y password_reset pendientes de la cuenta', async () => {
       const p = await pending('b8a');
-      const reset = await h.app.get(AuthTokenService).issue(p.id, AuthTokenType.password_reset);
+      const reset = await issueAuthToken(h, p.id, AuthTokenType.password_reset);
       const r = await accountSetup({ token: p.clear, name: 'Ana', password: PASSWORD });
       expect(r.status).toBe(200);
       const pend = await h.prisma.authToken.count({ where: { userId: p.id, usedAt: null, type: { in: ['account_setup', 'password_reset'] as AuthTokenType[] } } });
@@ -530,7 +530,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
 
     // Un `password_reset` pendiente (de cualquier vía) también deja de valer: la anulación es de los TRES tipos y va en la
     // tx de la escritura (la rotación de `issue` solo cubre `account_setup`, y es post-commit y best-effort).
-    const strayReset = await h.app.get(AuthTokenService).issue(p.id, AuthTokenType.password_reset);
+    const strayReset = await issueAuthToken(h, p.id, AuthTokenType.password_reset);
     const e1 = nextEmail('b11n');
     const r1 = await patch(p.access, `  ${e1.toUpperCase()} `);
     expect([r1.status, r1.text]).toEqual([200, r1.text]);
@@ -612,6 +612,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
     const p = await pending('b12');
     const f = await h.api('POST', '/auth/forgot-password', { json: { email: p.email } });
     const ghost = await h.api('POST', '/auth/forgot-password', { json: { email: nextEmail('b12x') } });
+    await authBackgroundIdle(h); // v1.117.2 (D-CTA-14): forgot-password emite y envía tras responder.
     expect([f.status, f.body]).toEqual([ghost.status, ghost.body]);
     expect(f.body).toEqual({ ok: true });
     let toks = await tokensOf(p.id);
@@ -627,6 +628,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
 
     const w = await withPassword('b12w');
     await h.api('POST', '/auth/forgot-password', { json: { email: w.email } });
+    await authBackgroundIdle(h);
     await h.api('POST', '/auth/verify-email/resend', { token: w.access });
     const wt = await tokensOf(w.id);
     expect(wt.map((t) => t.type).sort()).toEqual(['email_verification', 'email_verification', 'password_reset']);
@@ -703,6 +705,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
     expect((await h.api('POST', '/auth/verify-email/resend', { token: w.access })).status).toBe(200);
     failOnce();
     expect((await h.api('POST', '/auth/forgot-password', { json: { email: w.email } })).status).toBe(200);
+    await authBackgroundIdle(h);
 
     expect(links).toHaveLength(2);
     const fresh = logged.slice(before).join('\n');

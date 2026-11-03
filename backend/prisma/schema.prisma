@@ -2761,6 +2761,11 @@ model AuthToken {
   usedAt    DateTime?
   requestIp String?
   createdAt DateTime      @default(now())
+  // v1.117.2 (M-97, API_CONTRACT §CTA.13): ATADURA al correo al que se mandó = sha256hex(User.email) al emitir. El canje
+  // exige que case con el correo actual (leído dentro del candado de la cuenta). Prisma no modela lo que M-97 añade en SQL:
+  // el índice único parcial "AuthToken_one_live_per_user_type" (userId, type) WHERE usedAt IS NULL (uno vivo por cuenta y
+  // tipo) y el CHECK "AuthToken_live_has_email_hash" (usedAt IS NOT NULL OR emailHash IS NOT NULL).
+  emailHash String?
 
   @@index([userId, type])
   @@index([expiresAt])

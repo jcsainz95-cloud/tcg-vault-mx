@@ -18,6 +18,7 @@ jest.mock('argon2', () => {
 });
 import * as argon2 from 'argon2';
 import { E2EHarness } from './helpers/e2e-app';
+import { authBackgroundIdle } from './helpers/auth-tokens';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { MAIL_PORT, MailMessage, MailPort } from '../../src/modules/mail/mail.port';
 import {
@@ -359,6 +360,7 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
     expect(a.status).toBe(200);
     expect(a.body).toEqual({ ok: true });
     expect(a.text).toBe(b.text);
+    await authBackgroundIdle(h); // v1.117.2 (D-CTA-14): el trabajo de forgot-password corre tras responder.
     expect(await h.prisma.authToken.count({ where: { userId: s.id } })).toBe(0);
     await settle();
     expect(mailSpy).not.toHaveBeenCalled();
@@ -592,6 +594,7 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
     const r = await h.api('POST', '/auth/verify-email/resend', { token: s.token }); // E-3
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ ok: true });
+    await authBackgroundIdle(h);
     await settle();
     expect(mailSpy).not.toHaveBeenCalled();
     expect(await h.prisma.authToken.count({ where: { userId: s.id, type: { in: [AuthTokenType.email_verification, AuthTokenType.password_reset] } } })).toBe(0);

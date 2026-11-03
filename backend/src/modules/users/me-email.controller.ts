@@ -1,5 +1,5 @@
 import { Body, Controller, Ip, Patch } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { SIGNUP_DAY_THROTTLER, SIGNUP_THROTTLER, SignupThrottle } from '../../common/throttle/signup-throttle';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -21,7 +21,10 @@ export class MeEmailController {
     private readonly users: UsersService,
   ) {}
 
-  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  // v1.117.2 (D-CTA-13, PT-CTA-3): el `409` es un oráculo de existencia ⇒ gasta el MISMO presupuesto que el alta: `signup`
+  // (5/min/IP, compartido con `register` y `email-only`) y `signup-day` (30/24 h/IP, compartido con `email-only`), en toda
+  // petición sea cual sea el resultado. Reemplazan al `default` por ruta (queda el global). Cada `409` pasa por la telemetría.
+  @SignupThrottle(SIGNUP_THROTTLER, SIGNUP_DAY_THROTTLER)
   @Patch('email')
   async correctEmail(@CurrentUser('id') userId: string, @Body() dto: CorrectEmailDto, @Ip() ip: string) {
     await this.auth.correctEmail(userId, dto.email, ip);

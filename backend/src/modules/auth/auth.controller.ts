@@ -135,15 +135,17 @@ export class AuthController {
   }
 
   // Público (el link se abre desde el correo, quizá sin sesión). Rate-limit 10/min/IP.
+  // v1.117.2 (D-CTA-12): `{token, password}` | `{token, newPassword}`; la página NO llama al cargar (PT-CTA-8).
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @Public()
   @Post('verify-email')
   @HttpCode(200)
   verifyEmail(@Body() dto: VerifyEmailDto) {
-    return this.auth.verifyEmail(dto.token);
+    return this.auth.verifyEmail(dto);
   }
 
   // Público. SIEMPRE 200 (anti-enumeración). Rate-limit 10/h/IP (+ tope por email en servicio).
+  // v1.117.2 (D-CTA-14): responde ANTES de buscar la cuenta; el trabajo corre en proceso tras responder.
   @Throttle({ default: { ttl: HOUR_MS, limit: 10 } })
   @Public()
   @Post('forgot-password')

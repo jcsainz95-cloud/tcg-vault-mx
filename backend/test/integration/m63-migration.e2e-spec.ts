@@ -14,6 +14,7 @@ import { join } from 'path';
 import * as argon2 from 'argon2';
 import { Role } from '@prisma/client';
 import { E2EHarness } from './helpers/e2e-app';
+import { authBackgroundIdle } from './helpers/auth-tokens';
 import { MAIL_PORT, MailMessage, MailPort } from '../../src/modules/mail/mail.port';
 
 jest.setTimeout(120_000);
@@ -105,6 +106,7 @@ describe('E2E — STF-25: M-63 no toca al staff que ya existe con correo', () =>
     expect(ok.body.user).toMatchObject({ email: op.email, username: null, role: 'vault_operator' });
     mailSpy.mockClear();
     expect((await h.api('POST', '/auth/forgot-password', { json: { email: op.email } })).status).toBe(200);
+    await authBackgroundIdle(h); // v1.117.2 (D-CTA-14): el correo sale tras responder.
     expect(mailSpy).toHaveBeenCalledTimes(1);
     expect((mailSpy.mock.calls[0][0] as MailMessage).to).toBe(op.email);
     mailSpy.mockClear();

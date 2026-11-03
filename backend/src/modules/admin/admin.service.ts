@@ -52,6 +52,7 @@ import { scrubInboundShipmentPii } from '../shipments/inbound-sync';
 import { FeaturedHealth, FeaturedService } from '../catalog/featured.service';
 import { ListingPriceService, ListingPricesHealth } from '../pricing/listing-price.service';
 import { dayMx } from '../spend-alerts/spend-alerts.service';
+import { withAccountGate } from '../auth/account-gate';
 
 /**
  * ⭐ v1.71 (`A5`, API_CONTRACT §M6-L.3/L.4) — **los valores admitidos por los DOS filtros de
@@ -1507,16 +1508,20 @@ export class AdminService {
     // Alta entropía: 18 bytes → 24 chars base64url. No corresponde a ningún patrón adivinable.
     const tempPassword = randomBytes(18).toString('base64url');
     const passwordHash = await argon2.hash(tempPassword);
-    await this.prisma.user.update({
-      // 🔒 D2g: la protección también en el `where` de la escritura (`where` único extendido; un P2025 aquí ⇒ `403`).
-      where: { id, ...(actorUserId === id ? {} : { isOwner: false }) },
-      data: {
-        passwordHash,
-        mustChangePassword: true,
-        // Revoca refresh/access vigentes (el guard y /auth/refresh rechazan la versión previa).
-        tokenVersion: { increment: 1 },
-      },
-    }).catch((e: unknown) => {
+    // 🔒 v1.117.2 (API_CONTRACT §CTA.13): la escritura de la credencial, bajo el candado de la cuenta (en serie con los enlaces
+    // del correo, `set-password`, etc.).
+    await withAccountGate(this.prisma, id, (tx) =>
+      tx.user.update({
+        // 🔒 D2g: la protección también en el `where` de la escritura (`where` único extendido; un P2025 aquí ⇒ `403`).
+        where: { id, ...(actorUserId === id ? {} : { isOwner: false }) },
+        data: {
+          passwordHash,
+          mustChangePassword: true,
+          // Revoca refresh/access vigentes (el guard y /auth/refresh rechazan la versión previa).
+          tokenVersion: { increment: 1 },
+        },
+      }),
+    ).catch((e: unknown) => {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
         throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
       }

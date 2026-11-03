@@ -8,7 +8,9 @@ import { createHash } from 'crypto';
  * dueño, P-CTA-3); se ACOTA:
  *  - `signup`: 5/min por IP **compartido** entre las dos rutas (no 5 + 5). El `generateKey` por defecto de Nest mete clase y
  *    handler en la clave (un cubo por ruta): aquí la clave es solo `signup:<ip>` ⇒ un cubo para las dos.
- *  - `signup-day`: 30 / 24 h por IP, solo en `email-only`; cuenta `201`, `409` y `400` (el guard corre antes que el pipe).
+ *  - `signup-day`: 30 / 24 h por IP, en `email-only`; cuenta `201`, `409` y `400` (el guard corre antes que el pipe).
+ *  - v1.117.2 (D-CTA-13, PT-CTA-3): `PATCH /users/me/email` también responde la existencia (`409`) ⇒ gasta los DOS cubos, los
+ *    mismos que el alta (la clave no lleva clase ni handler: un cubo por IP para las tres rutas).
  *  - IP = `req.ip` con `trust proxy = 1` (última entrada de `X-Forwarded-For`, C7-18), el tracker por defecto.
  * Cada ruta elige sus cubos con `@SignupThrottle(...)`; en las demás rutas los dos se saltan (`skipIf`). El `default` global
  * (300/min) y los `@Throttle({ default })` por ruta no cambian.

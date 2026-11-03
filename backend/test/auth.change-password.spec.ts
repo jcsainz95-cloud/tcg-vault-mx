@@ -80,7 +80,10 @@ function make(user: Record<string, unknown> | null, jwt?: JwtService) {
     ...data,
     tokenVersion: ((user?.tokenVersion as number) ?? 0) + 1,
   }));
-  const prisma = { user: { findUnique: jest.fn(async () => user), update } };
+  // v1.117.2 (§CTA.13, I-8): la escritura de la credencial va dentro de `withAccountGate`; el doble hace de su propia `tx`.
+  const prisma: Record<string, unknown> = { user: { findUnique: jest.fn(async () => user), update } };
+  prisma.$executeRaw = jest.fn(async () => 0);
+  prisma.$transaction = jest.fn(async (cb: (tx: unknown) => unknown) => cb(prisma));
   const audit = { log: jest.fn(async () => undefined) };
   const svc = new AuthService(
     prisma as unknown as PrismaService,

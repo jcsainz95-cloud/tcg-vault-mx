@@ -89,12 +89,16 @@ function makeWorld(
         return { ...u };
       }),
     },
+    // v1.117.2 (§CTA.13): emisión, canje y escrituras de credencial dentro de `withAccountGate`; el doble hace de su propia `tx`.
+    address: { updateMany: jest.fn(async () => ({ count: 0 })) },
+    $executeRaw: jest.fn(async () => 0),
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown): Promise<unknown> => fn(prisma)),
   };
   const deps: C7Deps = makeC7Deps({ config, audit: opts.audit, store });
   const tokens = {
     issue: jest.fn(async () => 'CLEAR'),
     consume: jest.fn(async () => null as string | null),
-    ownerOf: jest.fn(async () => null),
+    ownerOf: jest.fn(async () => null as string | null),
     countIssuedLastHour: jest.fn(async () => 0),
     // v1.117 (§CTA.5): `reset-password` anula además los `account_setup` pendientes.
     voidPending: jest.fn(async () => 0),
@@ -463,6 +467,7 @@ describe('C7-8 — qué levanta el candado (a nivel de servicio)', () => {
     const u = addUser();
     await lockOut(svc, u.email);
     tokens.consume.mockResolvedValueOnce(u.id);
+    tokens.ownerOf.mockResolvedValueOnce(u.id);
     const r = await svc.resetPassword('tok', 'otra-clave-123');
     expect(typeof r.deviceToken).toBe('string');
     await expect(attempt(svc, { email: u.email, password: 'otra-clave-123' })).resolves.toMatchObject({ status: 200 });

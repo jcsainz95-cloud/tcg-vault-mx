@@ -58,7 +58,7 @@ export interface C7World {
   clock: { t: number };
   store: LoginAttemptStore;
   jwt: JwtService;
-  tokens: { consume: jest.Mock; issue: jest.Mock };
+  tokens: { consume: jest.Mock; issue: jest.Mock; ownerOf: jest.Mock };
   users: Map<string, FakeUser>;
   addUser(p?: Partial<FakeUser>): Promise<FakeUser>;
 }
@@ -100,12 +100,17 @@ export function makeWorld(
         return { ...u };
       }),
     },
+    // v1.117.2 (§CTA.13): emisión y canje van dentro de `withAccountGate`; el doble hace de su propia `tx`.
+    address: { updateMany: jest.fn(async () => ({ count: 0 })) },
+    $executeRaw: jest.fn(async () => 0),
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown): Promise<unknown> => fn(prisma)),
   };
   const deps = makeC7Deps({ config, store, audit: opts.audit });
   const tokens = {
     issue: jest.fn(async () => 'CLEAR'),
     consume: jest.fn(async () => null as string | null),
-    ownerOf: jest.fn(async () => null),
+    // v1.117.2: el canje pregunta antes de quién es el token (para tomar su candado). La spec fija los dos.
+    ownerOf: jest.fn(async () => null as string | null),
     countIssuedLastHour: jest.fn(async () => 0),
     // v1.117 (§CTA.5): `reset-password` anula además los `account_setup` pendientes.
     voidPending: jest.fn(async () => 0),

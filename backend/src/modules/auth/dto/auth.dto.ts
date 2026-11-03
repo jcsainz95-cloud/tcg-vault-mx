@@ -136,10 +136,37 @@ export class GoogleLoginDto {
 
 // v1.5 — Verificación de correo + recuperación self-service.
 
+/**
+ * 🔒 v1.117.2 (API_CONTRACT §1 «Verificación de correo», D-CTA-12): `{ token, password }` **o** `{ token, newPassword }`,
+ * exactamente uno. Los dos o ninguno ⇒ `400 VALIDATION_ERROR` en el pipe, ANTES de tocar el token. `newPassword` con la
+ * política compartida (`MIN_PASSWORD_LENGTH`); `password` es la que YA tiene, sea cual sea (como `currentPassword`).
+ */
+const hasValue = (v: unknown) => v !== undefined && v !== null;
+
 export class VerifyEmailDto {
   @IsString()
   @MinLength(1)
+  @ValidateBy({
+    name: 'exactlyOneCredential',
+    validator: {
+      validate: (_v: unknown, args) => {
+        const o = (args?.object ?? {}) as { password?: unknown; newPassword?: unknown };
+        return hasValue(o.password) !== hasValue(o.newPassword);
+      },
+      defaultMessage: () => 'exactly one of password or newPassword is required',
+    },
+  })
   token!: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  password?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(MIN_PASSWORD_LENGTH)
+  newPassword?: string;
 }
 
 export class ForgotPasswordDto {
