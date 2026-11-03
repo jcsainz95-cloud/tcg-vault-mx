@@ -8,7 +8,7 @@
 
 ## §IDS-FE · Español y versiones de liga (2026-11-03, rama `claude/ids-diseno`; contrato v1.116.2⟨ids⟩, DESIGN_SYSTEM §IDS-UX vIDS-6)
 
-**Estado vigente (medido 2026-11-03 sobre `8ed6d67f`; rechazo de QA sobre `f2cd0e31` cerrado abajo, «Re-pase QA»).** Construido contra el contrato; consume el servidor real de §IDS
+**Estado vigente (medido 2026-11-03 sobre `8ed6d67f`; rechazo de QA sobre `f2cd0e31` cerrado abajo, «Re-pase QA»; peticiones 9a/9b y deck `@real` sobre `94a8325b`, abajo «Deck y 9a/9b»).** Construido contra el contrato; consume el servidor real de §IDS
 (backend ≥ `58c7fbc8`). Mocks solo en el simulador (`lib/mock/versions.ts`: `finishLabelOf`, `optionKey`, `versions[]` y
 su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cartas `c-ids-pikachu-057` 2×N,
 `c-ids-dedenne-084` 2×2 y `c-ids-poffin-6` = peor caso: sin liga + 6 filas de liga, fuera de `mockCards`).
@@ -34,12 +34,15 @@ su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cart
   calculado ni versiones de liga. Si la carta es en español o de liga, reintenta antes de darla de alta.», botón
   «Reintentar»; attach — título «No se pudo ligar la versión», 404 «Esa versión ya no está entre las pendientes de ligar.
   Recarga las versiones para ver cómo quedó la carta.», 409 «Esa versión ya está ligada a una carta. Recarga las
-  versiones para ver cómo quedó.», otro «El servidor no respondió. Inténtalo de nuevo; si sigue, recarga las versiones.»,
-  botón «Recargar versiones». EN equivalentes en `messages/en.json`.
+  versiones para ver cómo quedó.», otro (red, 4xx, 5xx; petición 9b) «No se pudo ligar la versión. Inténtalo de nuevo; si
+  sigue, recarga las versiones.» (EN «Couldn't link the version. Try again; if it keeps failing, reload the versions.»),
+  botón «Recargar versiones». Aviso en línea en la caja de candidatas, `role="alert"`, y el foco pasa a «Recargar
+  versiones» al fallar. Textos aprobados por ux-ui (IDS-UX.7 punto 9b).
 - **Carrito, checkout, «Mi pedido», seguimiento (petición 8, IDS-UX.4 «Carrito»):** `useVersionText().detail()` = la
   línea muted bajo las insignias, sin el idioma y solo si el tipo largo difiere de la insignia: ES sin liga ⇒ ninguna;
-  «De liga (Prize Pack)»; EN «Prize Pack» ⇒ ninguna, «League (League promo)». `line()` («Español · De liga (…)») queda
-  para el deck (IDS-UX.5); si la regla vale también para el deck es pregunta abierta a ux-ui.
+  «De liga (Prize Pack)»; EN «Prize Pack» ⇒ ninguna, «League (League promo)». **El deck también** (petición 9a,
+  IDS-UX.5): `DeckAvailability` con un solo tramo no inglés usa `detail()`; `line()` («Español · De liga (…)») queda solo
+  donde no hay insignias (correo, tramos de texto).
 - **Filtros (IDS-F2):** «Español» solo con `es ∈ facets.languages`; «Cartas de liga y promos» solo con `facets.stamped`;
   un filtro activo en la URL se pinta (marcado) aunque la faceta no lo traiga; servidor sin las facetas ⇒ sin bloque.
 - **Dial (IDS-F7):** solo `super_admin` (mismo rol que `PUT /admin/pricing/curve`, IDS-B10; guarda propia además de
@@ -81,10 +84,19 @@ su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cart
   (firma estructural para que la use el arnés E2E); tab-stop de `VersionPills`/`PillToggleGroup` = el índice que usan las
   flechas (con valor apagado o que no casa, la primera habilitada). Fichas y mediciones: `TECH_DEBT.md` §IDS (TL-IDS-5/7)
   y TL-MKT2-5 (la ficha entra en `mobile-no-overflow.spec.ts`).
-- **Pendiente:** (a) **deck con versión `@real`** (criterios 963–968): espera a que backend siembre un Meta deck con
-  versiones (no estaba en origin el 2026-11-03 08:10). (b) **ux-ui:** texto del dial (provisional), D-IDS-6, la leyenda
-  «Idioma» del bloque de filtros cuando solo se ofrece «Cartas de liga y promos», los textos de error de captura (arriba)
-  y si la regla de la petición 8 vale también para el deck. (c) **devops:** baseline del censo (arriba).
+- **Deck y 9a/9b (2026-11-03, sobre `94a8325b`, copia del árbol entero):** **IDS-D1** en `e2e/ids-real.spec.ts`
+  (fichero `realOnly`: el censo no se mueve) recorre `E2E_IDS.metaDeck` (`e2e-ids-deck-liga`, fijado por
+  `backend/test/integration/ids-seed-deck.e2e-spec.ts`): API ⇒ 3 de 3, `en`/`es` sin liga y la de liga al final aunque sea
+  la más barata (963/966); pantalla ⇒ un tramo por versión en ese orden, inglés como texto, sin «Español» repetido ni
+  «sello», precio de la línea = el de su primera pieza (965); «Agregar de jalón» ⇒ `/checkout/quote` con las tres piezas,
+  la `version` y el precio de cada tramo y la suma (965); checkout con sus insignias (964). Fuera: 967 (el deck sembrado
+  no trae energías) y 968 (sin pieza sin precio en el seed). tsc 0, lint 0 errores, vitest 452 ficheros / 5563 pruebas,
+  censo rc 0 (las cinco claves = baseline). Stack propio (`up --gate --measurement --seed`, :3496/:3497, BD
+  `tcg_fe_ids_deck`, Redis db 11, S3 :9496): `ids-real` + `ids-versions` `@real` **51/51** (17 × N=3). Mutaciones (copia,
+  N=3): deck con `line()` ⇒ 3 rojos 3/3; sin foco en «Recargar versiones» ⇒ 6 rojos 3/3; genérico viejo ⇒ 3 rojos 3/3;
+  precio de la línea = el de la última pieza (bundle rehorneado) ⇒ IDS-D1 rojo 3/3; restaurado, verde (D1 3/3 rehorneado).
+- **Pendiente:** **ux-ui:** texto del dial (provisional), D-IDS-6 y la leyenda «Idioma» del bloque de filtros cuando solo
+  se ofrece «Cartas de liga y promos».
 
 ## §CHK-FRICCION · Checkout con menos fricción (2026-11-02, rama `claude/checkout-friccion`, base `dbeb6111`)
 
