@@ -18,6 +18,13 @@ export interface VersionComboDTO {
   stamp: StampDTO | null;
   previewPriceCents: number | null;
   unavailableReason: 'no_english_market' | 'no_stamped_market' | 'premium_at_floor' | 'no_market' | null;
+  /**
+   * v1.116.2⟨ids⟩ (§IDS.4, IDS-B20): la referencia de mercado SIN X sobre la que se derivó la combinación (`(·, null)` ⇒ la del
+   * inglés de ese acabado; `(·, P)` ⇒ la de P); `null` sin mercado. Es el «Base: MX$…» del desglose de la captura.
+   */
+  baseReferenceMxnCents: number | null;
+  /** v1.116.2⟨ids⟩: X aplicado (`es` ⇒ el dial vigente; `en` ⇒ `null`). */
+  appliedMarketPct: number | null;
 }
 
 export interface CardVersionsResponse {
@@ -92,6 +99,16 @@ export class InventoryVersionsService {
     const batch = hypos.length > 0 ? await this.decider.loadBatch(hypos.map((h) => h.item)) : null;
     const combos: VersionComboDTO[] = [];
     for (const h of hypos) {
+      // IDS-B20: el desglose sale del MISMO lote que el precio (la referencia de entrada sin X y el X aplicado).
+      const v = { language: h.language, stamp: h.stamp };
+      const baseRef = h.stamp == null && h.language === 'en' ? this.decider.referenceIn(batch!.refs, h.item) : undefined;
+      const baseReferenceMxnCents =
+        h.stamp == null && h.language === 'en'
+          ? baseRef?.status === 'priced'
+            ? (baseRef.referenceMxnCents ?? null)
+            : null
+          : this.decider.versionReferences(h.item, v, batch!).guard;
+      const appliedMarketPct = h.language === 'es' ? batch!.spanishPct : null;
       let previewPriceCents: number | null = null;
       let unavailableReason: Reason | null = null;
       try {
@@ -108,6 +125,8 @@ export class InventoryVersionsService {
         stamp: h.stamp ? stampDtoOf(h.stamp) : null,
         previewPriceCents,
         unavailableReason,
+        baseReferenceMxnCents,
+        appliedMarketPct,
       });
     }
     const cands = await this.prisma.stampedProductCandidate.findMany({ where: { cardId }, orderBy: { tcgplayerProductId: 'asc' } });

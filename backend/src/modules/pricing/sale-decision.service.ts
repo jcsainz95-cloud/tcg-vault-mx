@@ -88,6 +88,8 @@ export interface SaleDecisionBatch {
   stampedRefs: Map<string, PriceInfo>;
   /** v1.116⟨ids⟩: X leído UNA vez por lote; `null` ⇔ el lote no trae piezas `es` o el dial es inválido (falla cerrado). */
   spanishPct: number | null;
+  /** v1.116.2⟨ids⟩ (D-IDS-1): `cardProductId` del lote que son `promo`/`deck_exclusive` (⇒ `pending`). Ausente ⇒ ninguno. */
+  separateProducts?: Set<number>;
 }
 
 /**
@@ -160,6 +162,8 @@ export class SaleDecisionService {
    * la tienda con una lectura en vivo (`catalog.service.ts` `toListingRow`, `sealed-catalog.service.ts` `toGroupDTO`).
    */
   exhibitedReferenceOf(item: SaleItem, batch: SaleDecisionBatch): ExhibitedReference {
+    // 💰 v1.116.2⟨ids⟩ (D-IDS-1): una pieza de un producto separado no exhibe el mercado de la base.
+    if (this.isSeparateProduct(item, batch)) return { referenceMxnCents: null, capturedDate: null };
     const v = this.versionOf(item, batch);
     if (!isDefaultVersion(v)) {
       // 💰 v1.116⟨ids⟩ (§IDS.2, 959): español ⇒ sin valor de mercado SIEMPRE; (en, P) ⇒ el de SU producto, nunca el de la base.
@@ -172,7 +176,9 @@ export class SaleDecisionService {
   /** Lo mismo para UNA pieza sin lote (lecturas sueltas de siempre: `referenceOf` y, en sellado, el dial de su fuente). */
   async exhibitedReferenceSingle(item: SaleItem): Promise<ExhibitedReference> {
     // v1.116⟨ids⟩: una versión distinta de (en, sin liga) se lee por el camino del lote (un lote de una pieza).
-    if (!isDefaultVersion(await this.versionSingle(item))) return this.exhibitedReferenceOf(item, await this.loadBatch([item]));
+    if (item.cardProductId != null || !isDefaultVersion(await this.versionSingle(item))) {
+      return this.exhibitedReferenceOf(item, await this.loadBatch([item]));
+    }
     const sourceOn = item.productType === 'sealed' ? (await this.pricing.loadSealedSpreads()).sourceOn : false;
     return this.exhibited(item, await this.referenceOf(item), sourceOn);
   }
@@ -211,6 +217,9 @@ export class SaleDecisionService {
       const gk = st && i.productType === 'raw' ? this.pricing.tryGradeKeyFor(i) : null;
       return st && gk ? [{ cardProductId: st.internalId, productType: 'raw' as ProductType, gradeKey: gk, finish: i.finish }] : [];
     });
+    const separateProducts = items.some((i) => i.cardProductId != null)
+      ? await this.pricing.findSeparateProductIds(items.map((i) => i.cardProductId))
+      : new Set<number>();
     const stampedRefs = stampedKeys.length > 0 ? await this.pricing.getReferencesByCardProductBatch(stampedKeys) : new Map<string, PriceInfo>();
     const spanishPct = items.some((i) => i.language === 'es') ? await this.pricing.loadSpanishMarketPct() : null;
     const refs = await this.loadReferences(items, stamps);
@@ -225,7 +234,12 @@ export class SaleDecisionService {
           return gk ? [{ cardId: i.cardId, productType: i.productType, gradeKey: gk, finish: i.finish }] : [];
         }),
     );
-    return { curve, premiumFloorPolicy, sealedSpreads, refs, variantOverrides, stamps, stampedRefs, spanishPct };
+    return { curve, premiumFloorPolicy, sealedSpreads, refs, variantOverrides, stamps, stampedRefs, spanishPct, separateProducts };
+  }
+
+  /** v1.116.2⟨ids⟩ (D-IDS-1) — ¿la pieza es de un producto `promo`/`deck_exclusive`? */
+  isSeparateProduct(item: Pick<SaleItem, 'cardProductId'>, batch: Pick<SaleDecisionBatch, 'separateProducts'>): boolean {
+    return item.cardProductId != null && (batch.separateProducts?.has(item.cardProductId) ?? false);
   }
 
   /** v1.116⟨ids⟩ (§IDS.2) — la versión de una pieza dentro de un lote. */
@@ -356,6 +370,16 @@ export class SaleDecisionService {
     }
     // v1.23-sealed-sales (§4.23d): el SELLADO deriva por el resolvedor ÚNICO `resolveSealedSalePrice`: precio del producto
     // > mercado×spread > PRICE_PENDING (money-safe). SEC-A1: todo server-side.
+    // 💰 v1.116.2⟨ids⟩ (API_CONTRACT §IDS.2 «Producto separado», D-IDS-1, IDS-B17): `promo`/`deck_exclusive` ⇒ SIN referencia ⇒
+    // `pending` (no se publica). ⛔ Nunca la referencia de la carta base. El precio por pieza (arriba) sigue de respaldo.
+    if (item.cardProductId != null && item.productType !== 'sealed') {
+      const b = batch ?? (await this.loadBatch([item]));
+      if (this.isSeparateProduct(item, b)) {
+        throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} is a separate product (promo/deck exclusive) without its own price`, {
+          reason: 'no_market',
+        });
+      }
+    }
     if (item.productType === 'sealed' && item.language === 'es') {
       // v1.116⟨ids⟩ (D-IDS-K): solo raw NM en una versión; un sellado en español no se precia (falla cerrado).
       throw this.versionPending(item, { language: 'es', stamp: null }, 'no_english_market');

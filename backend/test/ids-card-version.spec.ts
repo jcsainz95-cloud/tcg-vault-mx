@@ -32,6 +32,7 @@ describe('IDS-B19 — finishLabelOf: la tabla de §IDS.5', () => {
     ['holofoil', 'Cosmos Holo', 'cosmos_holo'],
     ['holofoil', 'COSMOS  holo', 'cosmos_holo'],
     ['normal', 'cosmosholo', 'cosmos_holo'],
+    ['reverse_holo', 'Cosmos Holo', 'cosmos_holo'],
     ['reverse_holo', 'Prize Pack, Cosmos Holo', 'cosmos_holo'],
   ] as const)('(%s, %s) ⇒ %s', (finish, label, expected) => {
     expect(finishLabelOf(finish, label)).toBe(expected);
@@ -129,7 +130,9 @@ describe('§IDS.3 — baseMatchKey: el empate con la carta base', () => {
     expect(baseMatchKey('Shelmet 11/101 (Championship Series)', '11/101')).toBe('shelmet|11/101');
     expect(baseMatchKey('Butterfree FB - 17/147 (League Promo)', '017/147')).toBe(catalogMatchKey({ name: 'Butterfree FB', cardNumber: '17', printedTotal: 147 }));
     expect(baseMatchKey('Quaquaval - 005 (Prerelease)', '005')).toBe('quaquaval|5');
-    expect(catalogMatchKey({ name: 'Basic Fire Energy - 010', cardNumber: '10', printedTotal: 16 })).toBe(baseMatchKey('Basic Fire Energy - 010', '010'));
+    // v1.116.2 (§IDS.3): sin total en el nombre ⇒ Card.number/printedTotal; nunca empata con un Number sin total.
+    expect(catalogMatchKey({ name: 'Basic Fire Energy - 010', cardNumber: '10', printedTotal: 16 })).toBe('basic fire energy|10/16');
+    expect(catalogMatchKey({ name: 'Basic Fire Energy - 010', cardNumber: '10', printedTotal: 16 })).not.toBe(baseMatchKey('Basic Fire Energy - 010', '010'));
   });
   it('sin Number ⇒ null (sobres, Code Cards)', () => {
     expect(baseMatchKey('Play! Pokemon Prize Pack Series One', null)).toBeNull();

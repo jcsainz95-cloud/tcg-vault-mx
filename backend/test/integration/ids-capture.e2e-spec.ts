@@ -110,7 +110,7 @@ describe('E2E — §IDS.4 captura por versión', () => {
   });
 
   it('GET versions: combos con el P del cuerpo único o su motivo; sin candidatas', async () => {
-    const r = await h.api<{ combos: { finish: string; finishLabel: string; language: string; stamp: { productId: number } | null; previewPriceCents: number | null; unavailableReason: string | null }[]; candidates: unknown[] }>(
+    const r = await h.api<{ combos: { finish: string; finishLabel: string; language: string; stamp: { productId: number } | null; previewPriceCents: number | null; unavailableReason: string | null; baseReferenceMxnCents: number | null; appliedMarketPct: number | null }[]; candidates: unknown[] }>(
       'GET',
       `/admin/inventory/cards/${cardA}/versions`,
       { token: admin },
@@ -126,6 +126,12 @@ describe('E2E — §IDS.4 captura por versión', () => {
     expect(by.get('es.-.reverse_holo')).toMatchObject({ previewPriceCents: null, unavailableReason: 'no_english_market' });
     expect(by.get(`en.${pid}.holofoil`)).toMatchObject({ finishLabel: 'cosmos_holo', unavailableReason: null });
     expect(r.body.candidates).toEqual([]);
+    // IDS-B20 (v1.116.2): desglose — base SIN X y el X aplicado.
+    expect(by.get('en.-.normal')).toMatchObject({ baseReferenceMxnCents: 40_000, appliedMarketPct: null });
+    expect(by.get('es.-.normal')).toMatchObject({ baseReferenceMxnCents: 40_000, appliedMarketPct: 75 });
+    expect(by.get(`en.${pid}.holofoil`)).toMatchObject({ baseReferenceMxnCents: 90_000, appliedMarketPct: null });
+    expect(by.get(`es.${pid}.holofoil`)).toMatchObject({ baseReferenceMxnCents: 90_000, appliedMarketPct: 75 });
+    expect(by.get('es.-.reverse_holo')).toMatchObject({ baseReferenceMxnCents: null });
     const nf = await h.api('GET', `/admin/inventory/cards/no-existe-${run}/versions`, { token: admin });
     expect(nf.status).toBe(404);
   });

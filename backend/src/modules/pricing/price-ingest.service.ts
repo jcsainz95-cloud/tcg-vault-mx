@@ -1257,7 +1257,13 @@ export class PriceIngestService {
       const stampsOfSet = allItems.some((i) => i.cardProductId != null)
         ? await this.pricing.findStampedProducts(allItems.map((i) => i.cardProductId))
         : new Map();
-      const items = allItems.filter((i) => isDefaultVersion(pieceVersionOf(i, stampsOfSet)));
+      // v1.116.2⟨ids⟩ (D-IDS-1): ni las piezas de producto separado (su precio no sale de la base).
+      const separateOfSet = allItems.some((i) => i.cardProductId != null)
+        ? await this.pricing.findSeparateProductIds(allItems.map((i) => i.cardProductId))
+        : new Set<number>();
+      const items = allItems.filter(
+        (i) => isDefaultVersion(pieceVersionOf(i, stampsOfSet)) && !(i.cardProductId != null && separateOfSet.has(i.cardProductId)),
+      );
       if (items.length === 0) return;
       // Pago mínimo BE-25: curva izada UNA vez; referencias y overrides EN LOTE (sin N+1 por pieza).
       const curve = await this.pricing.loadPricingCurve();

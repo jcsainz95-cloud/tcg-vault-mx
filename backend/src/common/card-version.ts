@@ -108,7 +108,10 @@ export function finishLabelOf(finish: Finish, stampLabel: string | null | undefi
 
 // ─────────────────────────────── §IDS.3 — ingesta de productos de liga ───────────────────────────────
 
-/** Grupos TCGCSV de versiones de liga (§IDS.3). `22872`/`24451` entran solo tras IDS-D2 (cambiar esta constante). */
+/**
+ * Grupos TCGCSV de versiones de liga (§IDS.3). v1.116.2⟨ids⟩ (D-IDS-7): `22872`/`24451` (prerelease/Staff de SV/ME) quedan FUERA
+ * de §IDS — no basta con añadirlos aquí (sus promos no están en el catálogo y chocan con productos `promo`); es diseño aparte.
+ */
 export const STAMPED_SOURCE_GROUPS: readonly number[] = [22880, 1539];
 export const PRIZE_PACK_GROUP_ID = 22880;
 export const LEAGUE_GROUP_ID = 1539;
@@ -208,10 +211,12 @@ export function baseProductName(name: string): string {
   return stripBrackets(name).replace(TRAILING_FULL_NUMBER, ' ').replace(TRAILING_PROMO_NUMBER, ' ').replace(/\s+-\s*$/, ' ').replace(/\s+/g, ' ').trim();
 }
 
-/** El número («057/191» con o sin guion; si no, el de promo/energía « - 005») al final del nombre de un producto TCGplayer, o `null`. */
+/**
+ * El número COMPLETO («057/191», con o sin guion delante) al final del nombre de un producto TCGplayer, o `null`. v1.116.2⟨ids⟩
+ * (§IDS.3): solo con total — un número sin total («- 010») no se lee del nombre (nunca se empata por número sin total).
+ */
 export function numberFromProductName(name: string): string | null {
-  const stripped = stripBrackets(name);
-  const m = TRAILING_FULL_NUMBER.exec(stripped) ?? TRAILING_PROMO_NUMBER.exec(stripped);
+  const m = TRAILING_FULL_NUMBER.exec(stripBrackets(name));
   return m ? m[1].replace(/\s+/g, '') : null;
 }
 
@@ -227,9 +232,9 @@ export function baseMatchKey(name: string, fullNumber: string | null | undefined
 }
 
 /**
- * La `baseMatchKey` de NUESTRO lado (un `CardProduct` `set_base|other` del catálogo). Medido con la fixture de IDS-B7: el
- * número completo sale del NOMBRE del producto (TCGplayer nombra los singles «Pikachu ex - 057/191»); si el nombre no lo trae,
- * de `Card.number` + `/` + `CardSet.printedTotal` (los dos de pokemontcg.io). Sin ninguno ⇒ `null` (no empata).
+ * La `baseMatchKey` de NUESTRO lado (un `CardProduct` `set_base|other` del catálogo), v1.116.2⟨ids⟩ (§IDS.3): el número del NOMBRE
+ * del producto solo si trae total («Pikachu ex - 057/191»); si no, `Card.number` + `/` + `CardSet.printedTotal`. Sin ninguno ⇒
+ * `null`: ⛔ nunca se empata por un número sin total.
  */
 export function catalogMatchKey(p: { name: string; cardNumber: string | null; printedTotal: number | null }): string | null {
   const fromName = numberFromProductName(p.name);

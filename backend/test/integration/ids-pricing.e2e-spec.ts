@@ -231,6 +231,28 @@ describe('E2E — §IDS.2/.7 precio por versión (español y liga)', () => {
     expect(await h.prisma.pendingPriceEntry.count({ where: { cardId: base } })).toBe(0);
   });
 
+  it('IDS-B17 (D-IDS-1, v1.116.2): promo y deck_exclusive ⇒ pending (nunca la base); la base de la misma carta sin cambio', async () => {
+    const c = await card(70);
+    await baseRef(c, 50_000);
+    const promo = await h.prisma.cardProduct.create({ data: { cardId: c, tcgplayerProductId: pidBase + 70, kind: 'promo', name: `Promo ${run}`, finishes: ['normal'] } });
+    const deck = await h.prisma.cardProduct.create({ data: { cardId: c, tcgplayerProductId: pidBase + 71, kind: 'deck_exclusive', name: `Deck ${run}`, finishes: ['normal'] } });
+    const enBase = await item(c);
+    const p1 = await item(c, { cardProductId: promo.tcgplayerProductId });
+    const p2 = await item(c, { cardProductId: deck.tcgplayerProductId });
+    expect(typeof (await live(enBase.id))).toBe('number');
+    expect(await live(p1.id)).toBe('pending:no_market');
+    expect(await live(p2.id)).toBe('pending:no_market');
+    await lp.run('manual_price', [enBase.id, p1.id, p2.id]);
+    const rows = await h.prisma.listingPrice.findMany({ where: { inventoryItemId: { in: [p1.id, p2.id] } } });
+    expect(rows.map((r) => r.status)).toEqual(['pending', 'pending']);
+    const detail = await h.api('GET', `/catalog/cards/${c}`);
+    expect(JSON.stringify(detail.body)).not.toContain(p1.id);
+    expect(JSON.stringify(detail.body)).not.toContain(p2.id);
+    expect(JSON.stringify(detail.body)).toContain(enBase.id);
+    const q = await h.api('POST', '/checkout/quote', { token: customer, json: { inventoryItemIds: [p1.id] } });
+    expect(q.status).toBe(422);
+  });
+
   it('IDS-B4 (517): sin fila ⇒ 75; PUT 74 ⇒ dial_change y españolas recalculadas; validación; bitácora; operador 403', async () => {
     await setDial(null);
     const got = await h.api<{ spanishMarketPct: number }>('GET', '/admin/settings', { token: admin });

@@ -1114,6 +1114,21 @@ export class PricingService {
       : { language: 'en', OR: [{ cardProductId: null }, { cardProductId: { notIn: ids } }] };
   }
 
+  /**
+   * 💰 v1.116.2⟨ids⟩ (API_CONTRACT §IDS.2 «Producto separado», D-IDS-1, IDS-B17): los `tcgplayerProductId` entre estos que son
+   * `promo`/`deck_exclusive`. Una pieza de esos productos ⛔ nunca toma la referencia de la base: queda `pending` (falla cerrada).
+   */
+  async findSeparateProductIds(tcgplayerProductIds: readonly (number | null | undefined)[]): Promise<Set<number>> {
+    const ids = [...new Set(tcgplayerProductIds.filter((n): n is number => n != null))];
+    if (ids.length === 0) return new Set();
+    // PROJECTION-EXEMPT: solo ids, para el cuerpo de venta.
+    const rows = await this.prisma.cardProduct.findMany({
+      where: { tcgplayerProductId: { in: ids }, kind: { in: ['promo', 'deck_exclusive'] } },
+      select: { tcgplayerProductId: true },
+    });
+    return new Set(rows.map((r) => r.tcgplayerProductId));
+  }
+
   async findStampedProducts(tcgplayerProductIds: readonly (number | null | undefined)[]): Promise<Map<number, StampRef>> {
     const ids = [...new Set(tcgplayerProductIds.filter((n): n is number => n != null))];
     if (ids.length === 0) return new Map();

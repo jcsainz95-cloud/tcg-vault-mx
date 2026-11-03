@@ -22,7 +22,7 @@ describe('E2E — IDS-B7 productos de liga: ingesta, empate y attach (sin cola)'
   const run = randomUUID().slice(0, 8);
   // Ids de producto únicos por corrida (la `@unique` es global): base 590025 y liga 648703 «desplazados».
   const off = 100_000_000 + Math.floor(Math.random() * 800_000_000);
-  const P = { base: off + 590025, liga: off + 648703, energyA: off + 1, energyB: off + 2, energyLiga: off + 3, raro: off + 4 };
+  const P = { base: off + 590025, liga: off + 648703, energyA: off + 1, energyB: off + 2, energyLiga: off + 3, raro: off + 4, lone: off + 5, loneLiga: off + 6 };
   const setIds: string[] = [];
   const cardIds: string[] = [];
   const fx = { rate: 20, bufferPct: 0 };
@@ -48,8 +48,11 @@ describe('E2E — IDS-B7 productos de liga: ingesta, empate y attach (sin cola)'
     admin = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
     svc = h.app.get(StampedIngestService);
     pikachu = await catalogCard(`ssp-${run}`, 191, '57', `Pikachu ex ${run}`, P.base, `Pikachu ex ${run} - 057/191`);
+    // Las energías: nombre del catálogo SIN total ⇒ la llave sale de Card.number/printedTotal (v1.116.2) = «10/16» en los dos sets.
     energyA = await catalogCard(`sve-${run}`, 16, '10', `Basic Fire Energy ${run}`, P.energyA, `Basic Fire Energy ${run} - 010`);
     energyB = await catalogCard(`mee-${run}`, 16, '10', `Basic Fire Energy ${run}`, P.energyB, `Basic Fire Energy ${run} - 010`);
+    // Una carta cuyo producto de liga trae número SIN total: ⛔ nunca empata (v1.116.2, IDS-B7).
+    await catalogCard(`ssp-${run}`, 191, '33', `Lone ${run}`, P.lone, `Lone ${run} - 033`);
   });
 
   afterAll(async () => {
@@ -71,17 +74,20 @@ describe('E2E — IDS-B7 productos de liga: ingesta, empate y attach (sin cola)'
       22880,
       [
         { productId: P.liga, name: `Pikachu ex ${run} - 057/191`, number: '057/191' },
-        { productId: P.energyLiga, name: `Basic Fire Energy ${run} - 010`, number: '010' },
+        { productId: P.energyLiga, name: `Basic Fire Energy ${run} - 010/016`, number: '010/016' },
+        { productId: P.loneLiga, name: `Lone ${run} - 033`, number: '033' },
         { productId: off + 9, name: 'Play! Pokemon Prize Pack Series One', number: null },
       ],
       [
         { productId: P.liga, subTypeName: 'Holofoil', marketPrice: 26.39 },
         { productId: P.energyLiga, subTypeName: 'Holofoil', marketPrice: 0.5 },
+        { productId: P.loneLiga, subTypeName: 'Holofoil', marketPrice: 2 },
       ],
       index,
       fx,
     );
-    expect(g22880.log).toMatchObject({ grupo: 22880, colgados: 1, ambiguos: 1, sinPareja: 0, sinTipo: 0, sinNumero: 1, conPrecio: 1 });
+    expect(g22880.log).toMatchObject({ grupo: 22880, colgados: 1, ambiguos: 1, sinPareja: 1, sinTipo: 0, sinNumero: 1, conPrecio: 1 });
+    expect(await h.prisma.cardProduct.findUnique({ where: { tcgplayerProductId: P.loneLiga } })).toBeNull();
     const cp = await h.prisma.cardProduct.findUniqueOrThrow({ where: { tcgplayerProductId: P.liga } });
     expect(cp).toMatchObject({ cardId: pikachu, kind: 'stamped', stampType: 'prize_pack', stampLabel: null, sourceGroupId: 22880, finishes: ['holofoil'] });
     const ref = await h.prisma.priceReference.findFirst({ where: { cardProductId: cp.id } });

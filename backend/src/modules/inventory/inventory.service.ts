@@ -1914,7 +1914,11 @@ export class InventoryService {
     const candidates = items.filter((i) => i.language === 'es' || i.cardProductId != null);
     if (candidates.length === 0) return out;
     const stamps = await this.pricing.findStampedProducts(candidates.map((i) => i.cardProductId));
-    const versioned = candidates.filter((i) => !isDefaultVersion(pieceVersionOf(i, stamps))) as unknown as SaleItem[];
+    // v1.116.2⟨ids⟩ (D-IDS-1): las piezas de producto separado (`promo`/`deck_exclusive`) también las decide el cuerpo (⇒ pending).
+    const separate = await this.pricing.findSeparateProductIds(candidates.map((i) => i.cardProductId));
+    const versioned = candidates.filter(
+      (i) => !isDefaultVersion(pieceVersionOf(i, stamps)) || (i.cardProductId != null && separate.has(i.cardProductId)),
+    ) as unknown as SaleItem[];
     if (versioned.length === 0) return out;
     if (!this.decider) {
       for (const i of versioned) out.set(i.id, { ok: false, reason: 'no_decider' });
