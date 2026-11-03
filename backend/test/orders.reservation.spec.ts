@@ -213,7 +213,9 @@ describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () =
     return { svc, tx, calls };
   }
 
-  const items = [{ id: 'item1', folio: 'INV-000001' }];
+  // 💰 PT-IDS-1: la pieza TAL COMO SE PRECIÓ (versión y precio manual entran al CAS).
+  const priced = { language: 'en' as const, cardProductId: null, listPriceCents: null };
+  const items = [{ id: 'item1', folio: 'INV-000001', ...priced }];
   // v1.68 (§4-R, M-53): toda reserva nueva lleva DUEÑO (la orden) y VENCIMIENTO.
   const RES = { orderId: 'order-1', reservedUntil: new Date('2026-09-11T13:00:00.000Z') };
 
@@ -228,7 +230,16 @@ describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () =
       id: 'item1',
       ownerType: 'platform',
       status: { in: ['listed', 'in_stock'] },
+      language: 'en',
+      cardProductId: null,
+      listPriceCents: null,
     });
+  });
+
+  it('💰 PT-IDS-1: el CAS exige la versión y el precio manual CON LOS QUE SE PRECIÓ (no los que haya ahora)', async () => {
+    const { svc, tx, calls } = buildTx();
+    await svc.reserveItems(tx, [{ id: 'item9', folio: 'INV-000009', language: 'es', cardProductId: 620000001, listPriceCents: 12_345 }], null, RES);
+    expect(calls[0].where).toMatchObject({ language: 'es', cardProductId: 620000001, listPriceCents: 12_345 });
   });
 
   it('con titularidad (bóveda) escribe ownerType/ownerUserId/ownershipStatus', async () => {
@@ -277,8 +288,8 @@ describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () =
     await svc.reserveItems(
       tx,
       [
-        { id: 'item1', folio: 'INV-000001' },
-        { id: 'item2', folio: 'INV-000002' },
+        { id: 'item1', folio: 'INV-000001', ...priced },
+        { id: 'item2', folio: 'INV-000002', ...priced },
       ],
       null,
       RES,

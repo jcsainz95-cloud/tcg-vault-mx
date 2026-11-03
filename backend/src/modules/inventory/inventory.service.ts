@@ -519,6 +519,12 @@ const PUBLISHABLE_ORIGIN_STATUSES: ReadonlyArray<InventoryStatus> = ['in_stock',
 export interface ItemAuditState {
   status: InventoryStatus;
   listPriceCents: number | null;
+  /**
+   * 💰 PT-IDS-2 (pentester, pase `db202174`) — la VERSIÓN de la pieza (§IDS: el idioma mueve ±25 % de precio y de
+   * patrimonio). Quien la pasa en `read` y en `written` hace que un cambio de `language` deje fila y que la fila lleve
+   * `language` + `cardProductId` en `before`/`after`. Sin cambio de versión, la fila es la de siempre (sin estas claves).
+   */
+  version?: { language: CardLanguage; cardProductId: number | null };
 }
 
 /** Quién hizo el `PATCH` (el `actor` que `updateItem` recibe del controlador). */
@@ -526,22 +532,32 @@ type ItemAuditActor = { id: string; role: Role } | undefined;
 
 /**
  * ⭐ v1.80.8.7 — **EL ÚNICO cuerpo del `before/after` de `inventory.item_updated`** (SFP-6: un segundo literal
- * de la acción en `inventory/` es rojo). Devuelve `null` si ni `status` ni `listPriceCents` cambian (valor
- * escrito = valor leído): un `PATCH` solo de identidad, o con el mismo precio, no deja fila (SFP-4).
+ * de la acción en `inventory/` es rojo). Devuelve `null` si ni `status` ni `listPriceCents` ni la versión cambian (valor
+ * escrito = valor leído): un `PATCH` solo de identidad, o con el mismo precio, no deja fila (SFP-4). PT-IDS-2: cambiar el
+ * idioma SÍ deja fila, con `language`/`cardProductId` en los dos lados.
  * `fields` = claves del cuerpo saneado, en orden alfabético.
  */
 export function itemUpdatedAudit(
   read: ItemAuditState,
   written: ItemAuditState,
   fields: string[],
-): { action: string; before: ItemAuditState; after: ItemAuditState & { fields: string[] } } | null {
-  if (read.status === written.status && read.listPriceCents === written.listPriceCents) return null;
+): { action: string; before: ItemAuditRow; after: ItemAuditRow & { fields: string[] } } | null {
+  const versionChanged =
+    read.version != null &&
+    written.version != null &&
+    (read.version.language !== written.version.language || read.version.cardProductId !== written.version.cardProductId);
+  if (read.status === written.status && read.listPriceCents === written.listPriceCents && !versionChanged) return null;
+  // PT-IDS-2: con cambio de versión, las DOS claves de la versión van en los dos lados (como `status`/`listPriceCents`).
+  const v = (s: ItemAuditState) => (versionChanged && s.version ? { language: s.version.language, cardProductId: s.version.cardProductId } : {});
   return {
     action: 'inventory.item_updated',
-    before: { status: read.status, listPriceCents: read.listPriceCents },
-    after: { status: written.status, listPriceCents: written.listPriceCents, fields: [...fields].sort() },
+    before: { status: read.status, listPriceCents: read.listPriceCents, ...v(read) },
+    after: { status: written.status, listPriceCents: written.listPriceCents, ...v(written), fields: [...fields].sort() },
   };
 }
+
+/** La fila de `inventory.item_updated` tal como se escribe: `{status, listPriceCents}` y, si cambió la versión, ésta. */
+type ItemAuditRow = { status: InventoryStatus; listPriceCents: number | null; language?: CardLanguage; cardProductId?: number | null };
 
 /**
  * ⭐ v1.80.8.7 — escribe la fila de `itemUpdatedAudit` **con el handle `tx` de la escritura** que audita: si el
@@ -2548,6 +2564,8 @@ export class InventoryService {
       read: ItemAuditState;
       /** El precio que este `UPDATE` deja escrito. */
       writtenListPriceCents: number | null;
+      /** PT-IDS-2: el idioma que este `UPDATE` deja escrito (la versión de `read` + este idioma = el «después»). */
+      writtenLanguage: CardLanguage;
       /** Claves del cuerpo saneado. */
       fields: string[];
     },
@@ -2613,7 +2631,13 @@ export class InventoryService {
         audited.actor,
         item.id,
         audited.read,
-        { status: 'listed', listPriceCents: audited.writtenListPriceCents },
+        {
+          status: 'listed',
+          listPriceCents: audited.writtenListPriceCents,
+          ...(audited.read.version
+            ? { version: { language: audited.writtenLanguage, cardProductId: audited.read.version.cardProductId } }
+            : {}),
+        },
         audited.fields,
       );
     }
@@ -3111,6 +3135,12 @@ export class InventoryService {
   }
 
   private async updateItemInner(id: string, dto: UpdateItemDto, actor?: { id: string; role: Role }) {
+    // ⛔ PT-IDS-8 / I-7: la liga de una pieza no se cambia por `PATCH` (D-IDS-8). Antes de leer ni escribir nada.
+    if (dto.cardProductId !== undefined) {
+      throw BusinessException.validation('VALIDATION_ERROR', 'cardProductId cannot be changed after capture (I-7)', {
+        field: 'cardProductId',
+      });
+    }
     const current = await this.getItem(id);
     // 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.4): `language` solo sobre `in_stock | listed` (si no, `409 ITEM_NOT_ADJUSTABLE`) y el
     // español solo en raw (`version_raw_only`). La escritura va por el camino GUARDADO (CAS), como el precio.
@@ -3157,8 +3187,9 @@ export class InventoryService {
     // escritura (el plano y el de publicación, v1.51 fase 8) y además alimenta el `resulting` sobre el
     // que corren las guardas: con un solo punto de saneo, ninguno de los tres puede quedarse con el
     // campo colado. Todo lo que sigue lee `patch`, nunca `dto`.
-    const { gradingCompany, ...rest } = dto;
-    const patch: UpdateItemDto =
+    // `cardProductId` ya se rechazó arriba (PT-IDS-8); se separa para que el tipo de `patch` no lo lleve a ninguna escritura.
+    const { gradingCompany, cardProductId: _cardProductId, ...rest } = dto;
+    const patch: Omit<UpdateItemDto, 'cardProductId'> =
       current.productType === 'graded' && gradingCompany !== undefined
         ? { ...rest, gradingCompany }
         : rest;
@@ -3216,10 +3247,16 @@ export class InventoryService {
         const { status: nextStatus, ...fields } = patch;
         const statusChanges = nextStatus !== undefined && nextStatus !== item.status;
         // Lo LEÍDO se fija ANTES de escribir (es el «antes» de la bitácora y la condición del CAS).
-        const read: ItemAuditState = { status: item.status, listPriceCents: item.listPriceCents };
+        const read: ItemAuditState = {
+          status: item.status,
+          listPriceCents: item.listPriceCents,
+          version: { language: item.language, cardProductId: item.cardProductId },
+        };
         const written: ItemAuditState = {
           status: statusChanges ? nextStatus : read.status,
           listPriceCents: patch.listPriceCents !== undefined ? patch.listPriceCents : read.listPriceCents,
+          // PT-IDS-2: `cardProductId` no se escribe por PATCH (I-7, PT-IDS-8); viaja para que la fila diga QUÉ versión.
+          version: { language: patch.language ?? item.language, cardProductId: item.cardProductId },
         };
         const row = await this.guardedItemUpdate(tx, item, statusChanges ? patch : fields, {
           listPriceCents: read.listPriceCents,
@@ -3264,8 +3301,13 @@ export class InventoryService {
         this.claimListed(resulting, patch.listPriceCents, fields, {
           tx,
           actor,
-          read: { status: raw.status, listPriceCents: raw.listPriceCents },
+          read: {
+            status: raw.status,
+            listPriceCents: raw.listPriceCents,
+            version: { language: raw.language, cardProductId: raw.cardProductId },
+          },
           writtenListPriceCents: patch.listPriceCents !== undefined ? patch.listPriceCents : raw.listPriceCents,
+          writtenLanguage: patch.language ?? raw.language,
           fields: patchKeys(patch),
         }),
       VAULT_VERB_TX_OPTIONS,
@@ -3652,7 +3694,7 @@ export class InventoryService {
   private async readGuardedItem(
     tx: Prisma.TransactionClient,
     id: string,
-  ): Promise<GuardedItem & { id: string; locationId: string | null; listPriceCents: number | null }> {
+  ): Promise<GuardedItem & { id: string; locationId: string | null; listPriceCents: number | null; language: CardLanguage; cardProductId: number | null }> {
     const item = await tx.inventoryItem.findUnique({ where: { id } });
     if (!item) throw BusinessException.notFound();
     return item;

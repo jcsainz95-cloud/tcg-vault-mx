@@ -207,6 +207,18 @@ type OrderLineData = {
  * ⛔ Si alguien vuelve a ensanchar esto a `e instanceof BusinessException`, el caso
  * «propaga cualquier otro código» de `cond1-frozen-price-only-price-pending.spec.ts` se pone rojo.
  */
+/**
+ * 💰 PT-IDS-1 — una pieza TAL COMO SE PRECIÓ: lo que la reserva exige que siga igual (ver `reserveItems`). Campos
+ * obligatorios a propósito: un llamante nuevo que no los tenga no compila, en vez de reservar sin la condición.
+ */
+export type PricedAs = {
+  id: string;
+  folio: string;
+  language: CardLanguage;
+  cardProductId: number | null;
+  listPriceCents: number | null;
+};
+
 function isPricePending(e: unknown): e is BusinessException {
   return e instanceof BusinessException && e.code === 'PRICE_PENDING';
 }
@@ -893,16 +905,31 @@ export class OrdersService {
    * v1.68 (§4-R, M-53) — `reservation` es el DUEÑO y el VENCIMIENTO: toda reserva nueva escribe
    * `reservedByOrderId = <orden>` y `reservedUntil = now + TTL`. La orden se crea ANTES en la misma
    * transacción (la FK exige que exista); si esta reserva falla, la transacción entera se deshace.
+   *
+   * 💰 PT-IDS-1 (pentester, pase `db202174`) — **lo PRECIADO entra al CAS.** El precio y la versión de cada línea se
+   * resuelven FUERA de la transacción (`priceCartOutsideGate`, v1.68.1) sobre la fila que se leyó entonces. Si entre esa
+   * lectura y aquí el operador cambia `language` (o `listPriceCents`; o `cardProductId`, que hoy ninguna vía cambia, I-7),
+   * la reserva ganaba igual y la línea quedaba congelada con la versión y el precio de ANTES (medido: 20/20 forzadas,
+   * 12/20 sueltas). Por eso `items` lleva esas tres columnas TAL COMO SE PRECIARON y el `where` las exige: si cambiaron,
+   * `count 0` ⇒ `409 ITEM_UNAVAILABLE` (el código de siempre) y la tx entera se deshace. ⛔ No pasar aquí una fila
+   * releída: tiene que ser la MISMA con la que se armó `lines` (candado `ids-pentest-fixes.e2e-spec.ts`).
    */
   async reserveItems(
     tx: Prisma.TransactionClient,
-    items: { id: string; folio: string }[],
+    items: PricedAs[],
     ownership: ReservationOwnership,
     reservation: { orderId: string; reservedUntil: Date },
   ): Promise<void> {
     for (const item of items) {
       const reserved = await tx.inventoryItem.updateMany({
-        where: { id: item.id, ownerType: 'platform', status: { in: ['listed', 'in_stock'] } },
+        where: {
+          id: item.id,
+          ownerType: 'platform',
+          status: { in: ['listed', 'in_stock'] },
+          language: item.language,
+          cardProductId: item.cardProductId,
+          listPriceCents: item.listPriceCents,
+        },
         data: {
           status: 'reserved',
           reservedByOrderId: reservation.orderId,
@@ -911,7 +938,7 @@ export class OrdersService {
         },
       });
       if (reserved.count !== 1) {
-        // Otro checkout ya reservó/vendió esta pieza (o cambió de estado/titularidad).
+        // Otro checkout ya reservó/vendió esta pieza (o cambió de estado/titularidad, o de lo preciado: PT-IDS-1).
         throw BusinessException.conflict('ITEM_UNAVAILABLE', `Item ${item.folio} unavailable`);
       }
     }
