@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
-import { CREDENTIALS, IS_REAL } from './utils/auth';
+import { credentialsFor, IS_REAL, reserveLoginSlot } from './utils/auth';
 
 /**
  * §CTA — cuenta con solo el correo, «Ingresar a cuenta», «Termina tu cuenta» y franja de confianza (API_CONTRACT §CTA,
@@ -110,7 +110,7 @@ test.describe('§CTA · cuenta con solo el correo', () => {
     const cartIds = () => page.evaluate(() => JSON.parse(window.localStorage.getItem('tcg.cart') ?? '{}').ids ?? []);
     const before = await cartIds();
     expect(before.length).toBeGreaterThan(0);
-    const taken = IS_REAL ? CREDENTIALS.customer : { email: 'taken-e2e@dominio.com', password: 'cualquiera' };
+    const taken = IS_REAL ? credentialsFor('customer') : { email: 'taken-e2e@dominio.com', password: 'cualquiera' };
     await signUpEmailOnlyFromT4(page, taken.email);
 
     await expect(page.getByText(t('es', 'auth.emailOnly.taken'))).toBeVisible();
@@ -121,6 +121,7 @@ test.describe('§CTA · cuenta con solo el correo', () => {
     await expect(panel.getByLabel(t('es', 'auth.email'), { exact: true })).toHaveValue(taken.email);
     await expect(panel.getByLabel(t('es', 'auth.password'), { exact: true })).toBeFocused();
     await panel.getByLabel(t('es', 'auth.password'), { exact: true }).fill(taken.password);
+    if (IS_REAL) await reserveLoginSlot('cuenta-correo · Ingresar a cuenta');
     await panel.getByRole('button', { name: t('es', 'auth.loginCta') }).click();
 
     // Con sesión, el mismo /checkout con el carrito intacto (no navegó a otra página).
@@ -170,6 +171,7 @@ test.describe('§CTA · cuenta con solo el correo', () => {
     await page.goto('/es/login');
     await page.getByLabel(t('es', 'auth.emailOrUsername'), { exact: true }).fill(email);
     await page.getByLabel(t('es', 'auth.password'), { exact: true }).fill(password);
+    if (IS_REAL) await reserveLoginSlot('cuenta-correo · entrar tras «Termina tu cuenta»');
     await page.getByRole('button', { name: t('es', 'auth.loginCta') }).click();
     await expect(page).not.toHaveURL(/\/login/);
     const stored = await page.evaluate(() => JSON.parse(window.localStorage.getItem('tcg.user') ?? 'null'));
