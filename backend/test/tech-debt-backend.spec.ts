@@ -17,6 +17,8 @@ import { VaultService } from '../src/modules/vault/vault.service';
 import { AdminVaultsService } from '../src/modules/vault/admin-vaults.service';
 import { AdminService } from '../src/modules/admin/admin.service';
 import { InventoryService } from '../src/modules/inventory/inventory.service';
+import { UsersService } from '../src/modules/users/users.service';
+import { AuditService } from '../src/modules/audit/audit.service';
 
 /**
  * Deuda técnica backend (TECH_DEBT) — guards unitarios:
@@ -264,4 +266,18 @@ it('TL-DYN-4 (regresión): `PricingController` sigue resolviendo `PriceReviewSer
   const resolved = types.map((t, i) => tokens.find((x) => x.index === i)?.param ?? t);
   expect(resolved).toContain(PriceReviewService);
   expect(resolved).not.toContain(Object);
+});
+
+// ===========================================================================
+// TL-CHK-7 (techlead sobre `9d269935`, misma clase que TL-DSC-5/TL-DYN-4): la bitácora del alta desde un reclamo
+// (`address.create_from_claim`, §4-G.9c) NO puede faltar en silencio. Con `AuditService` `@Optional()` y sin proveedor, cada
+// alta desde un reclamo lanzaba y `OrderClaimService` la tragaba como `skipped(…,'error')`. Se lee la metadata de inyección
+// de Nest, no la prosa (el `?` del parámetro es de posición: los unitarios construyen el servicio a mano).
+// ===========================================================================
+describe('TL-CHK-7 · `AuditService` es OBLIGATORIO en `UsersService` (sin `@Optional()`)', () => {
+  it('el índice de `AuditService` no está en `optional:paramtypes`', () => {
+    const r = optionalIndexOf(UsersService, AuditService);
+    expect(r.idx).toBeGreaterThanOrEqual(0);
+    expect(r.optional).toBe(false);
+  });
 });

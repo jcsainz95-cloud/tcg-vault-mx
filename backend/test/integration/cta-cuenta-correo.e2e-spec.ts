@@ -13,7 +13,7 @@
  * | CTA-B8 | `account-setup` completo (tokenVersion, un uso, 24 h, tipos cruzados, anulación, cuerpo antes del token, 5-bis) | ver el caso |
  * | CTA-B9 | ningún log con el claro o el enlace; bitácora sin correo ni token; BD solo con el hash | registrar el enlace |
  * | CTA-B10 | `set-password` (I-4) + concurrencia N=30 (subido de 10, ver el caso) ⇒ exactamente un 200 | leer y luego escribir sin condición |
- * | CTA-B11 | `PATCH /users/me/email` (anula, reenvía, 409, 422, tope 3/h sin escribir) | no anular; tope después de escribir |
+ * | CTA-B11 | `PATCH /users/me/email` (anula, reenvía, 409, 422, tope 3/h sin escribir); tope en dos casos: (a) alta de hace > 1 h ⇒ 4.º `429`; (b) alta de hace minutos ⇒ 3.º `429` | no anular; tope después de escribir; contar solo las emisiones de la corrección (b) |
  * | CTA-B12 | `forgot-password` y `verify-email/resend` con `setupPending` ⇒ `account_setup` | rama ausente |
  * | CTA-B13 | (AUTH-PRE-1) Google sobre cuenta sin verificar revoca sesiones y borra la contraseña | no subir `tokenVersion` |
  *
@@ -63,6 +63,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
   const clears = new Set<string>();
   const google: { identity: GoogleIdentity | null } = { identity: null };
   const pieces: string[] = [];
+  let sendSpy: jest.SpyInstance;
 
   beforeAll(async () => {
     h = await E2EHarness.create((b) =>
@@ -74,7 +75,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
       }),
     );
     const port = h.app.get<MailPort>(MAIL_PORT);
-    jest.spyOn(port, 'send').mockImplementation(async (msg: MailMessage) => {
+    sendSpy = jest.spyOn(port, 'send').mockImplementation(async (msg: MailMessage) => {
       bandeja.push(msg);
       const m = /account-setup\?token=([^\s"&<]+)/.exec(msg.text ?? '');
       if (m) clears.add(decodeURIComponent(m[1]));
@@ -570,6 +571,41 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
     expect((await accountSetup({ token: lastSetupClear(e3), name: 'Ana', password: PASSWORD })).status).toBe(200);
   });
 
+  /**
+   * CTA-B11 caso (b) (v1.117.1, D-CTA-9; techlead R1 sobre `e9c4c316`): el ALTA cuenta para el tope. Alta por el endpoint en
+   * esta misma prueba (su `account_setup` es de hace segundos, NO se atrasa) ⇒ cambios 1-2 `200`, el 3.º `429` sin escribir ni
+   * emitir. Mutación que lo pone rojo: contar solo las emisiones de la corrección (el caso (a) no la ve: allí el alta ya salió
+   * de la hora y las dos cuentas coinciden).
+   */
+  it('CTA-B11 (b) — alta por el endpoint hace minutos ⇒ cambios 1-2 200, el 3.º ⇒ 429 sin cambiar el correo ni emitir', async () => {
+    const p = await pending('b11b');
+    const patch = (email: string) => h.api('PATCH', '/users/me/email', { token: p.access, json: { email } });
+    const setupTokens = () => h.prisma.authToken.count({ where: { userId: p.id, type: AuthTokenType.account_setup } });
+    // Precondición: el token del alta está DENTRO de la hora (si no, esto sería el caso (a)).
+    const alta = await tokensOf(p.id, AuthTokenType.account_setup);
+    expect(alta).toHaveLength(1);
+    expect(Date.now() - alta[0].createdAt.getTime()).toBeLessThan(HOUR / 2);
+
+    const e1 = nextEmail('b11b');
+    const r1 = await patch(e1);
+    expect([r1.status, r1.text]).toEqual([200, r1.text]);
+    const e2 = nextEmail('b11b');
+    const r2 = await patch(e2);
+    expect([r2.status, r2.text]).toEqual([200, r2.text]);
+    expect(await setupTokens()).toBe(3);
+
+    const e3 = nextEmail('b11b');
+    const mails3 = bandeja.length;
+    const r429 = await patch(e3);
+    expect([r429.status, r429.body?.error?.code]).toEqual([429, 'RATE_LIMITED']);
+    expect((await h.prisma.user.findUniqueOrThrow({ where: { id: p.id } })).email).toBe(e2);
+    expect(bandeja.length).toBe(mails3);
+    expect(await setupTokens()).toBe(3);
+    expect(mailsTo(e3)).toHaveLength(0);
+    // El enlace vigente (del correo e2) sigue terminando la cuenta: el 429 no anuló nada.
+    expect((await accountSetup({ token: lastSetupClear(e2), name: 'Ana', password: PASSWORD })).status).toBe(200);
+  });
+
   // ───────────────────────────────────────────── CTA-B12 ─────────────────────────────────────────────
 
   it('CTA-B12 — forgot-password y verify-email/resend con setupPending ⇒ account_setup (respuesta idéntica); con contraseña ⇒ como hoy', async () => {
@@ -644,6 +680,44 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
   });
 
   // ───────────────────────────────────────────── CTA-B9 (al final: mira lo que dejó toda la suite) ─────────────────────────────────────────────
+
+  /**
+   * CTA-B9 ampliada (TL-CTA-10, I-6): el proveedor de correo falla con un mensaje que LLEVA el enlace (p. ej. un SMTP que devuelve
+   * el cuerpo rechazado). El log del fallo dice la clase del error y la cuenta, ⛔ nunca el mensaje. Cubre los dos sitios que
+   * registraban `String(e)`: la verificación (`verify-email/resend`) y el reset (`forgot-password` con contraseña).
+   * Mutación que lo pone rojo: volver a registrar `String(e)` en cualquiera de los dos.
+   */
+  it('CTA-B9 (TL-CTA-10) — un fallo del correo cuyo mensaje lleva el enlace no lo deja en el log (verificación y reset)', async () => {
+    const w = await withPassword('b9f');
+    const links: string[] = [];
+    const failOnce = () =>
+      sendSpy.mockImplementationOnce(async (msg: MailMessage) => {
+        const m = /\S*(?:verify-email|reset-password)\?token=[^\s"<]+/.exec(msg.text ?? '');
+        if (!m) throw new Error('el correo fallido no traía enlace: la prueba no mide nada');
+        links.push(m[0]);
+        throw new Error(`smtp 550 rechazado: ${msg.text}`);
+      });
+    const before = logged.length;
+
+    failOnce();
+    expect((await h.api('POST', '/auth/verify-email/resend', { token: w.access })).status).toBe(200);
+    failOnce();
+    expect((await h.api('POST', '/auth/forgot-password', { json: { email: w.email } })).status).toBe(200);
+
+    expect(links).toHaveLength(2);
+    const fresh = logged.slice(before).join('\n');
+    // El fallo SÍ se registró (si no, el «no contiene» sería vacío).
+    expect(fresh).toContain(`No se pudo enviar el correo de verificación a ${w.id}`);
+    expect(fresh).toContain(`No se pudo enviar el correo de reset a ${w.id}`);
+    for (const l of links) {
+      const clear = decodeURIComponent((/token=([^\s"&<]+)/.exec(l) as RegExpExecArray)[1]);
+      expect(fresh.includes(l)).toBe(false);
+      expect(fresh.includes(clear)).toBe(false);
+      expect(fresh.includes(encodeURIComponent(clear))).toBe(false);
+    }
+    expect(fresh).not.toMatch(/(verify-email|reset-password)\?token=/);
+    expect(fresh).not.toContain('smtp 550 rechazado');
+  });
 
   it('CTA-B9 — ningún log contiene el claro ni el enlace; bitácora de las acciones nuevas sin correo ni token; la BD solo guarda el hash', async () => {
     expect(clears.size).toBeGreaterThanOrEqual(10);
