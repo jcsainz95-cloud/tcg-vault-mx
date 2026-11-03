@@ -261,7 +261,8 @@ describe('IMG-2 — POST /checkout/quote (EL CARRITO: la queja original)', () =>
     expect(preview.card.rawCondition).toBe('NM');
     expect(preview).not.toHaveProperty('productType');
     expect(preview).not.toHaveProperty('rawCondition');
-    expect(Object.keys(preview).sort()).toEqual(['card', 'inventoryItemId', 'unitPriceCents']);
+    // v1.116⟨ids⟩ (§IDS.5, aditivo): `OrderItemPreview += version, finishLabel`.
+    expect(Object.keys(preview).sort()).toEqual(['card', 'finishLabel', 'inventoryItemId', 'unitPriceCents', 'version']);
   });
 
   it('`OrderItemCardDTO` NO es `CardDTO`: sin `id`, `externalId`, `imageLargeUrl`, `rarity`…', async () => {

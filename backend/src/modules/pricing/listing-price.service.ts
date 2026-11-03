@@ -21,7 +21,7 @@ import { SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
 import type { IvaDials } from '../../common/money';
 import { marketBracketOf } from '../../common/pricing-curve';
 import { variantKey } from '../../common/variant-key';
-import { DEFAULT_VERSION, isDefaultVersion, PieceVersion, versionKeyOf } from '../../common/card-version';
+import { DEFAULT_VERSION, isDefaultVersion, PieceVersion, versionDtoOf, versionKeyOf } from '../../common/card-version';
 import { isSchedulerDisabled } from '../../config/test-env';
 import { SettingsService } from '../settings/settings.service';
 import { PRICE_AFFECTING_SETTING_KEYS, SettingKey, SettingKeyType } from '../settings/settings.constants';
@@ -493,15 +493,31 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     const rows = await this.rowsFor(items.map((i) => i.id));
     const out: SaleDecision[] = [];
     const missing: string[] = [];
+    // 💰 v1.116⟨ids⟩ (§IDS.5): el `422 PRICE_PENDING` de hoy + `details.items: [{ inventoryItemId, version }]` (aditivo: nombra
+    // la versión que no tiene precio). ⛔ Nunca se cobra otra versión.
+    const pendingFor = async (item: SaleItem, cause?: BusinessException): Promise<BusinessException> => {
+      // Leer la versión NO puede cambiar el veredicto: si falla, el `PRICE_PENDING` sale igual, sin el detalle aditivo.
+      const version = await Promise.resolve()
+        .then(() => this.decider.versionSingle(item))
+        .then(versionDtoOf)
+        .catch(() => null);
+      return BusinessException.validation('PRICE_PENDING', cause?.message ?? `Item ${item.folio} has no publishable price`, {
+        ...((cause?.details as Record<string, unknown> | undefined) ?? {}),
+        ...(version ? { items: [{ inventoryItemId: item.id, version }] } : {}),
+      });
+    };
     for (const item of items) {
       const row = rows.get(item.id);
-      if (row?.status === 'pending') {
-        throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no publishable price`);
-      }
+      if (row?.status === 'pending') throw await pendingFor(item);
       if (row) {
         out.push(decisionOfRow(row, item));
       } else {
-        out.push(await this.decider.decide(item, dials));
+        try {
+          out.push(await this.decider.decide(item, dials));
+        } catch (e) {
+          if (isPricePending(e)) throw await pendingFor(item, e);
+          throw e;
+        }
         missing.push(item.id);
       }
     }

@@ -1,3 +1,5 @@
+import { CardLanguage, Finish, StampType } from '@prisma/client';
+import { orderLineVersionOf } from '../../common/card-version';
 import { measurementColumnsData, type MeasurementColumns } from '../measurement/measurement-input';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Locale, Order, OrderStatus, Prisma, ProductType, ShipmentRequest, ShipmentStatus } from '@prisma/client';
@@ -1037,7 +1039,13 @@ export class GuestCheckoutService {
       items: {
         unitPriceCents: number;
         refund?: { status: string; amountCents: number; missingReason: string | null; submittedAt: Date | null; succeededAt: Date | null } | null;
+        // v1.116⟨ids⟩ (§IDS.5): la versión congelada de la línea (el `include` del modelo completo la trae).
+        language?: CardLanguage;
+        stampType?: StampType | null;
+        stampLabel?: string | null;
+        finish?: Finish | null;
         inventoryItem: {
+          cardProductId?: number | null;
           finish: string;
           productType: ProductType;
           rawCondition: string | null;
@@ -1096,6 +1104,8 @@ export class GuestCheckoutService {
         // Imagen = clase P resuelta en lectura (§5.2.3); se conserva la convención «ausente, no null».
         imageSmallUrl: pieceDisplayIdentityOf(oi.inventoryItem).imageSmallUrl ?? undefined,
         unitPriceCents: oi.unitPriceCents,
+        // v1.116⟨ids⟩ (§IDS.5): `version` y `finishLabel` de lo CONGELADO en la línea (D-IDS-J), no de la pieza.
+        ...orderLineVersionOf(oi, oi.inventoryItem.cardProductId, oi.inventoryItem.finish as Finish),
         // v1.80 (§M4-SHIP.10): la carta que no salió y se devolvió — solo filas aceptadas por Stripe. ⛔ Sin actor,
         // `failureCode` ni componentes.
         refund: clientRefundOf(oi.refund),

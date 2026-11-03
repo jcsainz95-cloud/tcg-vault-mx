@@ -183,7 +183,7 @@ async function binderVariants() {
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReferencesBatch: jest.fn(async () => refsMap()),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
-    getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+    getPricedRawFinishesBatch: jest.fn(async () => new Map()), defaultVersionWhere: jest.fn(async () => ({ language: "en" })),
     gradeKeyFor: jest.fn(() => 'raw:NM'),
     tryGradeKeyFor: jest.fn(() => 'raw:NM'),
     getVariantOverridesBatch: jest.fn(async () => overridesByKey),

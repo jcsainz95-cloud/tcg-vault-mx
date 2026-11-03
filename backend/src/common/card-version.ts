@@ -249,3 +249,27 @@ export function scaleByPct(cents: number, pct: number): number {
 export function validateSpanishMarketPct(v: unknown): string | null {
   return typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 200 ? null : 'must be an integer in [1, 200] (percent of the English market)';
 }
+
+/**
+ * v1.116⟨ids⟩ (§IDS.5) — la versión y el `finishLabel` de una LÍNEA DE PEDIDO, leídos de lo CONGELADO en `OrderItem`
+ * (`language`, `stampType`, `stampLabel`, `finish`; D-IDS-J), nunca de la pieza. El `productId` de la liga no se congela
+ * (M-95 no lo pide): se toma de la identidad de la pieza (`InventoryItem.cardProductId`), que no es precio.
+ */
+export function orderLineVersionOf(
+  oi: { language?: CardLanguage | null; stampType?: StampType | null; stampLabel?: string | null; finish?: Finish | null },
+  stampProductId: number | null | undefined,
+  fallbackFinish: Finish = 'normal',
+): { version: VersionDTO; finishLabel: FinishLabel } {
+  const language: CardLanguage = oi.language ?? 'en';
+  const stamp =
+    oi.stampType != null && stampProductId != null ? { type: oi.stampType, label: oi.stampLabel ?? null, productId: stampProductId } : null;
+  return {
+    version: { key: versionKeyOf(language, stamp?.productId ?? null), language, stamp },
+    finishLabel: finishLabelOf(oi.finish ?? fallbackFinish, oi.stampType != null ? (oi.stampLabel ?? null) : null),
+  };
+}
+
+/** Lo que el checkout CONGELA de la versión en `OrderItem` (§IDS.1, D-IDS-J). */
+export function frozenVersionColumnsOf(v: PieceVersion): { language: CardLanguage; stampType: StampType | null; stampLabel: string | null } {
+  return { language: v.language, stampType: v.stamp?.type ?? null, stampLabel: v.stamp?.label ?? null };
+}

@@ -21,6 +21,8 @@ import { CustomerTransferView, ManualRefundService } from '../payments/refunds/m
 import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
 import { CUSTOMER_TIMELINE_EVENTS_SELECT, TimelineEventRow, providerTrackingUrlOf, toCustomerTimeline } from '../shipments/customer-timeline';
 import { BusinessException } from '../../common/business.exception';
+import { CardLanguage, StampType } from '@prisma/client';
+import { FinishLabel, frozenVersionColumnsOf, orderLineVersionOf, pieceVersionOf, StampRef, VersionDTO } from '../../common/card-version';
 import { PricingService } from '../pricing/pricing.service';
 import { SaleDecision, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
 import { ListingPriceService } from '../pricing/listing-price.service';
@@ -180,6 +182,10 @@ type OrderLineData = {
   priceBasis: PriceBasis;
   marketBracket: MarketBracket | null;
   finish: Finish;
+  // 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.1/.5, D-IDS-J): la VERSIÓN, congelada en la MISMA escritura que el precio (como `finish`).
+  language: CardLanguage;
+  stampType: StampType | null;
+  stampLabel: string | null;
 };
 
 /**
@@ -336,6 +342,10 @@ export class OrdersService {
     const lines: OrderLineData[] = [];
     let subtotalCents = 0;
     const decisions = await this.saleDecisionsOf(items, iva);
+    // v1.116⟨ids⟩ (§IDS.5): la versión de cada línea (una lectura de productos de liga por carrito, solo si hay `cardProductId`).
+    const stamps = items.some((i) => i.cardProductId != null)
+      ? await this.pricing.findStampedProducts(items.map((i) => i.cardProductId))
+      : new Map<number, StampRef>();
     for (const [i, item] of items.entries()) {
       const d = decisions[i];
       // R1: el subtotal es la SUMA EXACTA de los precios exhibidos (enteros ya redondeados por
@@ -352,6 +362,7 @@ export class OrdersService {
         priceBasis: d.priceBasis,
         marketBracket: d.marketBracket,
         finish: d.finish,
+        ...frozenVersionColumnsOf(pieceVersionOf(item, stamps)),
       });
     }
     return { subtotalCents, lines };
@@ -625,7 +636,16 @@ export class OrdersService {
   /** Línea de quote con el precio CONGELADO de la `OrderItem` propia (la instrumentación viaja tal cual se congeló). */
   private frozenLine(
     item: InventoryItem & { card: Card & { set?: CardSet | null } },
-    oi: { unitPriceCents: number; marketMxnCents: number | null; priceBasis: PriceBasis | null; marketBracket: MarketBracket | null; finish: Finish | null },
+    oi: {
+      unitPriceCents: number;
+      marketMxnCents: number | null;
+      priceBasis: PriceBasis | null;
+      marketBracket: MarketBracket | null;
+      finish: Finish | null;
+      language?: CardLanguage;
+      stampType?: StampType | null;
+      stampLabel?: string | null;
+    },
   ): OrderLineData {
     return {
       inventoryItemId: item.id,
@@ -635,6 +655,10 @@ export class OrdersService {
       priceBasis: oi.priceBasis ?? 'market',
       marketBracket: oi.marketBracket,
       finish: oi.finish ?? item.finish,
+      // v1.116⟨ids⟩: la versión TAL CUAL se congeló en la línea propia.
+      language: oi.language ?? 'en',
+      stampType: oi.stampType ?? null,
+      stampLabel: oi.stampLabel ?? null,
     };
   }
 
@@ -772,12 +796,22 @@ export class OrdersService {
     lines: OrderLineData[],
     // v1.68.1 (§4-R.5): `reservedByYou: true` SOLO en las piezas reservadas por una orden propia; omitido si falso.
     reservedByYou: Set<string> = new Set(),
-  ): { inventoryItemId: string; card: OrderItemCardDTO; unitPriceCents: number; reservedByYou?: true }[] {
+  ): {
+    inventoryItemId: string;
+    card: OrderItemCardDTO;
+    unitPriceCents: number;
+    version: VersionDTO;
+    finishLabel: FinishLabel;
+    reservedByYou?: true;
+  }[] {
     const cardByItemId = new Map<string, CardImageSource>(items.map((i) => [i.id, i.card]));
+    const productIdOf = new Map(items.map((i) => [i.id, i.cardProductId]));
     return lines.map((l) => ({
       inventoryItemId: l.inventoryItemId,
       card: resolveOrderItemCard(l.cardSnapshot, cardByItemId.get(l.inventoryItemId)),
       unitPriceCents: l.unitPriceCents,
+      // v1.116⟨ids⟩ (§IDS.5): `OrderItemPreview += version, finishLabel` — de la línea que se va a congelar.
+      ...orderLineVersionOf(l, productIdOf.get(l.inventoryItemId)),
       ...(reservedByYou.has(l.inventoryItemId) ? { reservedByYou: true as const } : {}),
     }));
   }
@@ -2032,7 +2066,8 @@ export class OrdersService {
       where: { id: orderId },
       // ⭐ v1.80.2 (§M4-SHIP.16): envíos (con sus líneas para `missingCount`) y el libro en la MISMA consulta.
       include: {
-        items: { include: { refund: true } },
+        // v1.116⟨ids⟩: la identidad de producto de la pieza, solo para el `productId` de la liga (la versión es la congelada).
+        items: { include: { refund: true, inventoryItem: { select: { cardProductId: true } } } },
         // ⭐ D2e (§19.12, PS-89): + los eventos del transportista para la línea de tiempo pública.
         shipmentRequests: { orderBy: { requestedAt: 'desc' }, include: { items: { select: { prepStatus: true } }, carrierEvents: CUSTOMER_TIMELINE_EVENTS_SELECT } },
         refunds: true,
@@ -2079,6 +2114,8 @@ export class OrdersService {
         ...p,
         refund: clientRefundOf(order.items[idx].refund),
         replacement: replacements.get(order.items[idx].id) ?? null,
+        // v1.116⟨ids⟩ (§IDS.5): `version` y `finishLabel` de lo congelado en la línea (D-IDS-J), no de la pieza.
+        ...orderLineVersionOf(order.items[idx], order.items[idx].inventoryItem?.cardProductId),
       })).map((p, idx) => projectLineDiscount(p, order.items[idx].unitDiscountCents)),
       cfdiStatus: order.cfdiStatus,
       invoiceRequested: order.invoiceRequested,
