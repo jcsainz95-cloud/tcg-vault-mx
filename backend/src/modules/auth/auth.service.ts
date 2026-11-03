@@ -414,7 +414,7 @@ export class AuthService {
       });
     } catch (e) {
       // No filtra el token al log; solo el fallo del proveedor.
-      this.logger.error(`No se pudo enviar el correo de verificación a ${user.id}: ${String(e)}`);
+      this.logger.error(`No se pudo enviar el correo de verificación a ${user.id}: ${errorKind(e)}`);
     }
   }
 
@@ -507,7 +507,7 @@ export class AuthService {
             entityId: user.id,
           });
         } catch (e) {
-          this.logger.error(`No se pudo enviar el correo de reset a ${user.id}: ${String(e)}`);
+          this.logger.error(`No se pudo enviar el correo de reset a ${user.id}: ${errorKind(e)}`);
         }
       }
     }

@@ -90,10 +90,11 @@ export class UsersService {
     // ⭐ v1.81 (M-64): la lista de colonias por CP. `@Optional()` por el mismo motivo que el correo (unitarios a
     // mano); sin él, crear/editar una dirección con colonia LANZA (⛔ nunca se guarda sin validar).
     @Optional() private readonly postalCodes?: PostalCodeService,
-    // ⭐ v1.116 (§4-G.9c): bitácora `address.create_from_claim` en la MISMA tx que el alta. `@Optional()` solo por los
-    // unitarios que construyen el servicio a mano; en la app `AuditModule` es global y siempre está. Sin él, el alta
-    // desde un reclamo LANZA (⛔ nunca un alta sin bitácora) y el reclamo la registra como `reason=error`.
-    @Optional() private readonly audit?: AuditService,
+    // ⭐ v1.116 (§4-G.9c): bitácora `address.create_from_claim` en la MISMA tx que el alta. TL-CHK-7: ⛔ sin `@Optional()` —
+    // en la app el proveedor es obligatorio (`AuditModule` es global) y, si faltara, Nest falla al arrancar en vez de que
+    // cada alta desde un reclamo lance y el reclamo la trague como `skipped(…,'error')`. El `?` es solo de posición: los
+    // unitarios construyen el servicio a mano. Candado: `test/tech-debt-backend.spec.ts` «TL-CHK-7».
+    private readonly audit?: AuditService,
   ) {}
 
   // ================================================================ 🔒 setClabe — EL escritor de la CLABE
