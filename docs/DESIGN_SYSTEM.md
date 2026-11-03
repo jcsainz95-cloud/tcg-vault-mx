@@ -21,50 +21,7 @@
 > `aria-label` con los dos números, nota única de tono y el caso «pagamos más que el mercado». Enmienda puntual a §18.2,
 > §18.5 y §21.8(a). Cero tokens nuevos, cero pares de contraste nuevos.
 >
-> Estados anteriores de Skydropx v4.15–v4.23 y de §60/§70 (v5.x, v6.x), cabeceras de 2026-10-04/05: retirados por bitácora; viven en git (`83166568`, `docs/DESIGN_SYSTEM.md` líneas 24-139, 26-60 tras la 1.ª compactación) y en el «vXXX» de cada sección.
->
-> *(Fusión `claude/listo-real` + `claude/precio-sellado`, 2026-10-05, agente de fusión, sin cambiar contenido: la cabecera
-> de `claude/precio-sellado` (v6.x, con panel v5.x y Skydropx v4.15–v4.26 debajo) queda arriba, como estaba; aquí, tal
-> cual, el estado de `claude/listo-real`. ⚠ **Choque de nombres de versión:** la v4.15 y la v4.16 de `claude/listo-real`
-> (§80 y §81, aviso de privacidad y sesión caducada) **no** son la v4.15 y la v4.16 de Skydropx (§43); se distinguen por
-> su sección. §43, §60, §70, §80 y §81 van en el cuerpo en orden de número.)*
-> Estado (rama `claude/listo-real`): **v4.16 (2026-10-05) — AVISO «TU SESIÓN CADUCÓ POR SEGURIDAD» EN EL LOGIN (§81 NUEVA; `API_CONTRACT`
-> v1.84.1 §14.2 LIVE-2, líneas 31283-31285; hallazgo de los gates QA B-2 y techlead C-1):** ante el `401` del refresh
-> con `details.reason:'session_max_age'`, el login pinta el **mismo** `Banner warning role="status"` que ya usa el
-> cierre por inactividad, con la clave nueva **`auth.sessionMaxAgeLogout`** («Tu sesión caducó por seguridad. Vuelve a
-> entrar.» / «Your session expired for security reasons. Log in again.»). Llega por `?reason=session_max_age`
-> (conservando `next`), desaparece al primer intento de entrar, igual en tienda (30 d) y panel (7 d). **Cero tokens
-> nuevos, cero pares de contraste nuevos.** Lo que sigue es la v4.15 sin cambio.
->
-> Estado anterior: **v4.15 (2026-10-05) — ENLACES AL AVISO DE PRIVACIDAD (§80 NUEVA; `API_CONTRACT` v1.84.1 §14.14 E-9;
-> `PROJECT §LEG.3`, criterios 503–505, P-LEG-9):** un componente con dos variantes (`inline` en pestaña nueva y
-> subrayado; `nav` en la misma pestaña), sus dos estados (con enlace / sin enlace), los siete sitios con su posición
-> y los textos ES/EN en `privacy.sites.*`. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la
-> v4.14 sin cambio.
->
-> Estado anterior: **v4.14 (2026-10-04) — EQUIPO SIN CORREO (§42 NUEVA; `PROJECT §U`, criterios 256–270; `HECHOS.md` fila
-> 2026-10-04 «Usuarios de back-office SIN correo», puntos (a)(b)(c); `API_CONTRACT` v1.80.9 §M6-U; fichero:línea medidos
-> en el worktree `claude/precios-s5`, HEAD `43c42b3d` dado por el orquestador — ux-ui sin Bash, sha NO MEDIDO por mí):**
-> **§42.1** login: la etiqueta «Correo o usuario», `type="text"`, el candado por cuenta con usuario tecleado dice
-> «pídele al administrador» sin enlace, y «Usuario o contraseña incorrectos» con usuario tecleado — ⛔ la rama del aviso
-> de los 6 intentos (`HECHOS.md:40`) no se toca. **§42.2** «Olvidé mi contraseña» deja de rechazar un usuario en el
-> navegador (criterio 262). **§42.3** alta en Usuarios con selector Cliente/Equipo, regla del usuario visible y un
-> error por regla. **§42.4** restablecer: «no se manda correo». **§42.5** Usuarios: «Correo o usuario», marca
-> «Bloqueado por intentos hasta HH:MM», `lockState:'unavailable'`. **§42.6** aviso de candado en el panel. **§42.7**
-> `403 ACCOUNT_WITHOUT_EMAIL`. **§42.8** «Mi cuenta» sin correo. **Cero tokens nuevos, cero pares de contraste
-> nuevos.** Lo que sigue es la v4.13 sin cambio.
->
-> Estado anterior: **v4.13 (2026-10-04) — TODOS LOS CORREOS (§41 NUEVA, amplía §31 de «los ocho» a los 30 renders que
-> existen hoy en el código; fuente: auditoría ux-review del 2026-10-04 sobre `60048797` + lectura propia del código en
-> este worktree):** **§41.2** un solo formato de asunto (**sin prefijo de marca**: la marca la pone el remitente) —
-> los ocho asuntos congelados de §31.9 **no cambian**, cambian los otros veintiuno. **§41.3** regla de saludo
-> (`Hola Ana:` / `Hola:` · `Hi Ana,` / `Hi,`; nunca `Hola :`). **§41.4** tono del CTA para los treinta. **§41.5**
-> dinero: **una** forma en los dos idiomas, la misma que ya imprime la web (`MX$1,250.00`, medido en
-> `frontend/src/lib/format.ts:29-40`) — ⚠ **corrige el ejemplo de §9.3**, que tenía un espacio que nadie implementó.
-> **§41.7** norma de los trece correos sin diseño. **§41.8** invitado ≡ registrado (13 ≡ 15). **§41.9** CLABE
-> cambiada. **§41.10** reposición de sellado. **§41.13** lista de cambios para backend con fichero:línea, **§41.14**
-> candados ML-1…ML-23. **Cero tokens nuevos, cero pares de contraste nuevos.** Lo que sigue es la v4.12 sin cambio
-> (salvo el ejemplo de §9.3 y un puntero al inicio de §31).
+> Estados anteriores de Skydropx v4.13–v4.23, §80/§81 y §60/§70 (v5.x, v6.x), cabeceras de 2026-10-04/05: retirados por bitácora; viven en git (`83166568`, `docs/DESIGN_SYSTEM.md` líneas 24-139, 26-60 tras la 1.ª compactación) y en el «vXXX» de cada sección.
 >
 > Estado anterior: **v4.12 (2026-10-04) — reembolso total «depende de si ya salió» (errata de contrato v1.80.8.6,
 > `API_CONTRACT §M4-SHIP.18.12`, `ARCHITECTURE §4.57 (w)`, `PROJECT §S.11`, criterios 249–253; `HECHOS.md` filas
@@ -33644,16 +33601,7 @@ Textos (todo existente): «Añadir al carrito» · «Ver carrito» · EN “Add 
 
 **URL propuesta:** `/nosotros` (con prefijo de idioma, como `/como-funciona` y `/preguntas`: `/es/nosotros`, `/en/nosotros`). La decide el PO; marketing pide la URL final de vuelta (brief §6.2).
 
-**Franja de confianza (1 línea), en ficha y carrito**
-| | Decisión |
-|---|---|
-| Texto ES | «Pago seguro · Envío a México · <enlace>Quiénes somos</enlace>» |
-| Texto EN | “Secure payment · Shipping to Mexico · <link>About us</link>” |
-| Forma | sans 12 px `muted`, sin versalitas, sin iconos, sin caja; separadores « · » `aria-hidden`; el enlace en tinta subrayada, destino `/nosotros`, nombre accesible «Quiénes somos y contacto» (contiene el texto visible, WCAG 2.5.3); `min-h-11` de toque por padding vertical del enlace. ≈ 45 caracteres ≈ 250 px: **1 línea en 360-414 px**; en 320 px puede partirse |
-| Ficha | justo bajo los renglones de compra y antes de la lista de deseos |
-| Carrito | bajo el título «Tu carrito», visible sin scroll; **no** dentro de la barra fija de PAGAR |
-| Huecos | «Pago seguro» es una afirmación comercial: **D-E** (el PO/dueño la aprueba o la cambia por «Pagas en la pantalla de pago»; fuente técnica: el cobro lo procesa el proveedor de pagos, `payments/stripe.service.ts:193`). «Envío a México»: respaldado por `/preguntas` («una dirección en México»). Opcional, cuando el dueño dé su ciudad: sustituir «Envío a México» por «Enviamos desde {ciudad}» (**DATO DEL DUEÑO — lo pide el PO**) |
-| Con `off`/sin la página | si `/nosotros` no está publicada, la franja **no** se pinta (⛔ no enlazar a un 404) |
+**Franja de confianza:** de 4 señales desde vCTA-1 (2026-11-03); su especificación vive en §CTA-UX.1 (la de una línea «Pago seguro · Envío a México» ya no rige).
 
 **Pie:** nuevo enlace «Quiénes somos y contacto» / “About us & contact” entre «Guías» y «Términos y política», mismas clases que sus vecinos (`text-text hover:text-accent`, mono 11 px versalitas). Más una línea de contacto: el correo de la página como `mailto:` en el mismo renglón de la marca (`TCG HUNT · tcghunt.mx · © 2026 · {correo}`), solo cuando el dato exista. En móvil el pie ya parte en filas (`flex-wrap`).
 
@@ -33697,7 +33645,6 @@ Los mismos datos alimentan el JSON-LD `Organization` + `contactPoint` (C6/B2b; l
 **Resueltas** (HECHOS 2026-10-31 «Marketing tanda 2», según `FRONTEND_NOTES` §MKT-CONV2): D-A = A (botones con borde y papel, revierte el «Aceptar» más grande del 2026-10-16), D-B = A («Añadir al carrito»), D-C = B (texto de bóveda con el beneficio). **Abiertas** (A/B reales):
 | Id | Pregunta | A | B | Recomiendo |
 |---|---|---|---|---|
-| **D-E** | «Pago seguro» en la franja | Se queda | «Pagas en la pantalla de pago» | **A**, si el PO confirma que el proveedor lo respalda |
 | **D-F** | Qué correo es «el público» | `soporte@` (pedidos y cuenta) y `contacto@` (vender sellado), como hoy en `/preguntas` | Uno solo | no decido: es del dueño |
 | **D-G** | Qué datos da para la página | ciudad, razón social, plazo de entrega, WhatsApp, horario, atención en persona (ver MKT-CONV.4) | solo lo ya publicado (correos, Instagram) | A, pero **ningún dato se inventa**: sin dato, sin fila |
 
@@ -33735,15 +33682,7 @@ Viewports 360×740, 390×844 (y 390×664 de C-F3), 414×896, 1366×768; ES y EN;
 
 **Renglón precio/stock con 5 cifras (decisión):** «Queda 1» **no** va siempre debajo. Comparte renglón mientras quepa; si no cabe (p. ej. «MX$61,886.00» a 360, medido +9 px por frontend), `flex-wrap` lo baja **alineado a la izquierda**. Siempre debajo costaría ≈ +9 px en **todas** las tejas por un caso raro; con wrap el peor caso (+9) cabe en el margen. La rejilla alinea el CTA por `mt-auto`, así que una teja más alta no desalinea la fila.
 
-**Aritmética corregida.** La versión anterior estimó el resto fijo `R` ≈ 141 px sin contar el badge ni el margen real: frontend **midió** la teja a 360 en **391 px sin badge y 474 con badge** (el badge suma ≈ 83 px; `R` real ≈ 391 − 213 = **178**, no 141; la diferencia de 37 px no la explico, manda el dato). Con badge no cabía **ninguna** teja con el aviso de cookies abierto (L-8 rojo). Margen real a 360×740 medido por frontend: **≈ 23 px** contra el límite de L-8 (`bottom ≤ top(banner) − 8`) con foto 5:7 y sin badge.
-
-| Ancho (viewport) | Columna | Foto 4:5 | Teja = foto + 178 | Peor caso (+9, precio de 5 cifras) | Margen contra L-8 |
-|---|---|---|---|---|---|
-| 360 (×740) | 152 | 190 | **368** | 377 | **23.0 medido** en el peor caso (`price5`, foto 4:5; `FRONTEND_NOTES` §MKT-CONV8) |
-| 390 (×844) | 167 | 209 | 387 | 396 | hay ≥ 100 px más de viewport: sobra (derivado, NO MEDIDO) |
-| 414 (×896) | 179 | 224 | 402 | 411 | ídem, ≥ 150 px (derivado, NO MEDIDO) |
-
-El único ancho ajustado es 360: el margen medido en el peor caso es 23.0 px (≥ 8; el candado manda; 390 y 414 medidos en `FRONTEND_NOTES`). **Lo que no se promete:** (a) con **chips activos** la rejilla baja ≈ 48 px: el criterio se mide sin filtros; (b) a **390×664** (viewport de C-F3) no cabe y **no se afirma**. Si el PO quiere 664, el siguiente paso es la teja horizontal de una columna (miniatura 88 px + datos), decisión que **no tomo** sin el dueño: cambia el modo de explorar.
+**Medido (frontend, `FRONTEND_NOTES` §MKT-CONV8):** teja a 360 de 391 px sin badge y 474 con badge (resto fijo ≈ 178 px, no los 141 estimados); con badge no cabía ninguna teja con el aviso de cookies abierto. Teja con foto 4:5 = foto + 178: 368 px a 360 (377 en el peor caso, precio de 5 cifras) con margen **23.0 px** contra L-8 (`bottom ≤ top(banner) − 8`); 390 y 414 sobran (≥ 100 px más de viewport; medidos en `FRONTEND_NOTES`). **Lo que no se promete:** (a) con **chips activos** la rejilla baja ≈ 48 px: el criterio se mide sin filtros; (b) a **390×664** (viewport de C-F3) no cabe y **no se afirma**. Si el PO quiere 664, el siguiente paso es la teja horizontal de una columna (miniatura 88 px + datos), decisión que **no tomo** sin el dueño: cambia el modo de explorar.
 
 **Se mantiene visible:** `h1` (SEO y lectores de pantalla), conteo, pestañas, Filtros con el número activo, Orden, chips, hoja de filtros (`sheet`) y el CTA de cada teja. **Se pliega:** eyebrow, etiqueta del orden, barra de resultados sin chips, rareza de la teja, margen de la rejilla. El texto de `resultsCount` no se pierde: pasa a `sr-only`.
 
@@ -33756,9 +33695,55 @@ El único ancho ajustado es 360: el margen medido en el peor caso es 23.0 px (�
 5. **Frontend / product-owner (abierta, 2026-11-01, QA y tester-e2e tanda 2):** (a) a 1366 el «Añadir» de la teja del catálogo queda en y≈848, bajo el pliegue (768): sin cambio de diseño ahora; decidir si importa en escritorio. (b) Consentimiento a 1366: «Aceptar» mide 136 px y «Solo lo necesario» 213 px (mismo alto, borde y fondo). Pregunta al dueño: si pidió «mismo tamaño», ¿se exige también en ancho en escritorio? Hasta que responda no se exige.
 4. **Orquestador:** `DESIGN_SYSTEM.md` tiene ≈ 33 900 líneas contra un tope de ~2 000; hace falta un pase de compactación dedicado (no cabe en este encargo sin tirar secciones vigentes de otros streams). Mockup HTML renderizable para el dueño: puedo escribirlo en `docs/mockups/mkt-conv.html` si se me autoriza esa ruta.
 
-**vMKT-CONV-1 (2026-10-31):** sección nueva (B1/D-4 A, B6b, T2, B2). MKT2-UX.1 y .4 compactados a puntero; MKT2-UX.3 corregido en anatomía y filas de botones.
-**vMKT-CONV-2 (2026-10-31):** MKT-CONV.8 nuevo (catálogo móvil ≥ 2 tejas); ficha `lg`: renglón de compra antes de la pila (MKT-CONV.2, L-9); T8 alineada (sin «ventas finales» en la ficha); MKT-CONV.5 compactado a decisiones abiertas; L-8, L-10.
-**vMKT-CONV-3 (2026-11-01):** sin badge de estimado en la teja < `sm` (§22.5), foto 4:5, precio/stock con wrap, aritmética de MKT-CONV.8 corregida con medidas, L-8/L-10 ampliados.
+**vMKT-CONV-1…3 (2026-10-31/11-01):** sección nueva (B1/D-4 A, B6b, T2, B2); MKT-CONV.8 (catálogo móvil ≥ 2 tejas, sin badge < `sm`, foto 4:5, medidas) y ficha `lg` con el renglón de compra antes de la pila (L-9); T8 alineada; MKT-CONV.5 compactado; L-8, L-10.
+**vCTA-1 (2026-11-03):** §CTA-UX nueva: franja de 4 señales (sustituye la de una línea de MKT-CONV.4), alta con solo el correo y aviso 409, `/account-setup`, «Mi cuenta» pendiente, precios sin «IVA incluido»; D-E resuelta (se conserva «Pago seguro»); cabeceras v4.13–v4.16 retiradas. Cero tokens nuevos.
+
+## CTA-UX. Cuenta con solo el correo, franja de 4 señales y precios sin rótulo (vCTA-1, 2026-11-03 · `HECHOS.md` 2026-11-03 «Checkout y ficha: tres cambios aprobados» y «Respuestas a P-CTA-3, P-CTA-5(a) y P-CTA-6» · `PROJECT.md` 945, 969–977, 195 · `API_CONTRACT §CTA` v1.117.1)
+Leído sobre `frontend/src` y `messages/{es,en}.json` (rama `claude/cuenta-correo`, `d4ba9e91`); sin navegador: los anchos son aritmética, **NO MEDIDOS** (los cierra un Playwright a 360×740). Cero tokens nuevos. Texto marcado **cambia** = corrige el de `messages/` (petición 1); **→ n** = petición n a frontend (abajo).
+
+### CTA-UX.1 Franja de confianza (ficha y carrito)
+| Parte | Especificación |
+|---|---|
+| Contenido | Datos: «Pago seguro con tarjeta · Entrega en 4 a 10 días hábiles» (EN “Secure card payment · Delivery in 4 to 10 business days”). Enlaces, en este orden: «WhatsApp {teléfono}» (`wa.me`), «Instagram @tcghunt.mx» (perfil), «Quiénes somos» (`/nosotros`; nombre accesible «Quiénes somos y contacto»). ⛔ Ni OXXO ni otro método en ningún texto (HECHOS: «no pondré oxxo»; activarlo es decisión nueva). Un hecho, un sitio: `about.paymentMethod`, `about.deliveryDays`, `lib/about.ts` |
+| Forma | Grupo `role="group"` con nombre «Pago, entrega y contacto» / “Payment, delivery and contact” (`about.strip.groupLabel`, nueva). Renglón de datos: `<p>` sans 12/16 `muted`, sin versalitas, iconos ni caja; el único separador « ·» es `aria-hidden` y va **pegado al primer dato** (nunca abre un renglón). Renglón de enlaces: `<ul>` `flex flex-wrap gap-x-5`, **sin separadores** (el subrayado separa), tinta subrayada 12 px, `min-h-[44px]`, `hover:text-accent`, foco §4.3 |
+| 360 px | Datos: ≈ 138 + 180 px de texto contra 320 ⇒ 2 renglones. Enlaces: WhatsApp + Instagram ≈ 315 px contra 320 (justo; si no caben, baja Instagram); «Quiénes somos» baja. Peor caso 2×16 + 2×44 ≈ 120 px; desde `sm`, un renglón de enlaces. Cada enlace va entero |
+| Externos | WhatsApp e Instagram abren pestaña nueva (`rel="noopener noreferrer"`) y suman `sr-only` « (se abre en otra pestaña)» / “ (opens in a new tab)” (`about.strip.newTab`, nueva); el nombre sigue conteniendo el texto visible (WCAG 2.5.3) |
+| Estados | Sin teléfono configurado: sin WhatsApp ni hueco. `/nosotros` sin publicar: sin ese enlace (⛔ no enlazar a un 404); los datos se quedan. Sin carga ni error (texto fijo) |
+| Dónde | Ficha: bajo los renglones de compra, antes de la lista de deseos. Carrito: bajo «Tu carrito», nunca en la barra fija de PAGAR |
+| Candados | (a) sin «OXXO» ni «efectivo» en `messages` ni en el DOM; (b) a 360 px `scrollWidth ≤ innerWidth` y ningún renglón empieza con «·»; (c) enlaces ≥ 44 px de alto; (d) sin WhatsApp no hay hueco; (e) paridad ES/EN de `about.strip.*` |
+
+Construido (`TrustStrip.tsx:40-63`): nueve hijos de un `flex-wrap` con cada « · » como hijo propio, así que un salto puede dejar un « · » abriendo o cerrando un renglón; sin grupo con nombre y externos sin aviso (derivado del código, NO MEDIDO en navegador) **→ 2**.
+
+### CTA-UX.2 Alta con solo el correo (carrito T4, upsell de bóveda, confirmación del invitado; `InlineAuthPanel`)
+| Parte | Especificación |
+|---|---|
+| Campo | **Uno**: «Correo» (`Input` `type=email`, `autocomplete=email`, requerido); ⛔ sin nombre, contraseña ni celular (969). Ayuda bajo el campo (`hint`, `aria-describedby`; `auth.emailOnly.hint`, nueva): ES «Solo tu correo. Te mandamos un enlace para ponerle contraseña a tu cuenta.» · EN “Just your email. We'll send you a link to set a password.” Sin ella el cliente no sabe qué sigue **→ 1** |
+| Botón y leyenda | Primary de ancho completo «Crear cuenta» (upsell: «Crear cuenta y guardar en bóveda»). Leyenda 504 (`privacy.sites.register`) 13 px `muted`, `mt-4`, bajo el botón y antes del divisor «o» y de Google. Orden: campo, ayuda, botón, leyenda, «o», Google, cambio a «Ya tengo cuenta» |
+| 409 `EMAIL_TAKEN` | `Banner` **`info`** `role="status"` sobre el campo (**cambia**: hoy `warning`; el cliente no se equivocó) **→ 1**. ES «Ese correo ya tiene una cuenta. Ingresa y sigue con tu compra: tu carrito no cambia.» · EN “That email already has an account. Sign in and keep going: your cart doesn't change.” (**cambia**: hoy «Entra con tu contraseña», que una cuenta pendiente no tiene; la segunda acción la cubre). Dos acciones en un renglón (`flex-wrap gap-x-6`, 14 px tinta subrayado, 44 px): «Ingresar a cuenta» (EN **cambia** “Log in to account” → “Sign in to your account”; pasa al login del mismo panel con el correo puesto y foco en contraseña; no navega) y «¿Olvidaste tu contraseña?» (manda el enlace sin salir). Enviado: la segunda acción se cambia por «Te mandamos un enlace a ese correo para poner una contraseña nueva.» (`role=status`). Tope («Ya pediste varios enlaces. Espera unos minutos y vuelve a intentarlo.») en tinta, no `text-warning` (contraste sobre el banner NO MEDIDO) **→ 3** |
+| Otros errores | Sin cambio (`getMessage`); el correo se conserva |
+
+### CTA-UX.3 `/account-setup` («Termina tu cuenta»)
+Columna de `(auth)` como `/reset-password`; h1 «Termina tu cuenta». Cuatro estados:
+| Estado | Especificación |
+|---|---|
+| Formulario | Subtítulo **cambia**: ES «Dinos tu nombre y elige una contraseña. Después entras con tu correo y esa contraseña.» · EN “Tell us your name and choose a password. Then you sign in with your email and that password.” Campos: Nombre (requerido, ≤ 120, `autocomplete=name`), Contraseña (ayuda «Mínimo 8 caracteres.», `new-password`), Confirmar contraseña; error bajo cada campo y foco al primero con error; error general en `Banner danger` `role=alert` sobre el formulario (EN **cambia**: bloqueada “This account is blocked. Contact us and we'll help.”; genérico “Couldn't save. Try again.”). Botón primary completo «Guardar» / «Guardando…». Valida antes de pedir: no quema el enlace |
+| Listo | `Banner success` `role=status` «Listo» + «Tu cuenta está completa. Entra con tu correo y tu contraseña.» y botón primary «Entrar» → `/login` (EN **cambia** “Log in” → “Sign in”). Sin sesión abierta. El botón hoy es un `<a>` con `rounded-md` y texto en minúsculas (`AccountSetupView.tsx:81-86`), contra radios cero (§4.2) y la etiqueta de §6.1; igual en `ResetPasswordView.tsx:78,95` **→ 3** |
+| Vencido, usado o sin enlace | El servidor no distingue el motivo: un solo estado. `Banner warning` `role=alert` «El enlace ya se usó o caducó» + «Este enlace sirve una vez y dura 24 horas. Pide otro y ábrelo desde tu correo.» y «Mandar otro» (secondary; EN “Send another”). Hasta que la sesión esté resuelta no se pinta ninguna acción (sin parpadeo) |
+| Mandar otro | Con sesión: botón directo; enviado ⇒ `Banner success` «Te mandamos otro enlace. Revisa tu correo.» Sin sesión: campo «Correo» + botón; enviado (respuesta genérica, no revela si el correo existe) ⇒ «Si ese correo tiene una cuenta, te mandamos otro enlace. Revisa tu bandeja.» Tope y error: hoy un `<p>` 14 px `text-warning`/`text-danger` (contraste NO MEDIDO) ⇒ `Banner` **→ 3**. Cargando: «Enviando…» |
+
+### CTA-UX.4 «Mi cuenta» con cuenta pendiente (972)
+- **Contraseña (`#password`):** resumen **cambia**: ES «Tu cuenta aún no tiene contraseña. Ponle una para entrar con tu correo desde cualquier lugar.» · EN “Your account doesn't have a password yet. Set one to sign in with your email from anywhere.” Puerta (botón de borde de siempre): «Ponle contraseña a tu cuenta» / “Set a password for your account”. La página repite el título; cuerpo **cambia** (hoy «Pon tu nombre y tu contraseña» contradice «Nombre (opcional)»): ES «Tu cuenta nació solo con tu correo, así que no te pedimos una contraseña actual. Elige tu contraseña; el nombre es opcional.» · EN “Your account was created with just your email, so we don't ask for a current password. Choose a password; the name is optional.” Campos: Nombre (opcional; ayuda ES **cambia** «Cómo quieres que te llamemos.», con tilde; EN “What you'd like us to call you.”), Nueva contraseña, Confirmar; «Guardar contraseña». La sesión sigue. (Nombre opcional aquí y requerido en `/account-setup`: lo fija el contrato §CTA.4, no se unifica.)
+- **Correo (solo pendiente y sin verificar):** enlace-texto «Corregir mi correo» (EN **cambia** “Fix my email” → “Correct my email”; 14 px tinta subrayado, 44 px) bajo el correo; abre un formulario en el sitio: «Correo correcto» (ayuda «Te mandamos a este correo el enlace para terminar tu cuenta.»), «Guardar correo» (primary `sm`) y «Cancelar» (texto `muted`). Errores en el campo (ya tiene cuenta, tope «espera una hora», correo inválido, «Este correo ya no se puede cambiar desde aquí.», genérico). Éxito `role=status` «Correo actualizado. Te mandamos el enlace al correo nuevo.» **Foco:** al abrir, al campo; al cancelar o guardar, a «Corregir mi correo». Hoy el formulario y el enlace se desmontan y el foco cae al `body` (`EmailSection.tsx:131-183`, derivado del código, NO MEDIDO) **→ 4**.
+
+### CTA-UX.5 Precios sin «IVA incluido» (977)
+Ningún precio de venta lleva rótulo de IVA (sustituye todo «IVA 16 % incluido» o «con IVA incluido» de secciones anteriores). Nota del subtotal: «Precio de venta de las cartas.» / «Precio de venta de tus productos.» (con accesorios). **Se quedan:** la línea «IVA 16 % incluido: MX$…» del resumen, informativa y fuera del total, con «Ya está dentro del subtotal y del envío. No se suma al total.» (P-CTA-5(a)); «incluye IVA» del valor de mercado (P-CTA-5(b), sin responder: rige la recomendación); «sin IVA» de una cifra que no lo lleva (190). Hallazgo: `referenceExplainerWithMarket` (`es.json:473`, también EN) dice «con IVA incluido, igual que nuestro precio de venta» y no se usa: cero coincidencias en `frontend/src` fuera de pruebas, 2026-11-03 **→ 5**.
+
+### CTA-UX.6 Peticiones a frontend (vCTA-1)
+1. Aplicar los textos **cambia** de §CTA-UX.2–4 en `messages/{es,en}.json` (paridad ES/EN), las claves nuevas `auth.emailOnly.hint`, `about.strip.groupLabel`, `about.strip.newTab`, y `Banner info` en el 409.
+2. Rehacer `TrustStrip` como §CTA-UX.1 (dos renglones, grupo con nombre y aviso de pestaña nueva) con sus candados.
+3. Botones-enlace de `/account-setup` y `/reset-password` con el estilo de `Button` primary; avisos de tope y error como `Banner`; tope del 409 en tinta.
+4. Foco de «Corregir mi correo» (§CTA-UX.4).
+5. Borrar `referenceExplainerWithMarket` (ES/EN) si sigue sin uso.
 
 ## IDS-UX. Español y cartas de liga — insignias de versión y su aplicación (vIDS-4, 2026-11-02 · `HECHOS.md` 2026-11-02 «Selector de versión en burbujas: opción A-contorno de marketing», 2026-11-01 «Las elecciones de cómo se muestran español y sellos las decide marketing», «Captura de español y sellos: opción A» y 2026-11-02 «Nombre visible de la versión de liga (decisión de marketing D-6 v3…)» · `PROJECT.md` §IDS)
 
@@ -33835,8 +33820,6 @@ La línea se surte con lo que haya; **no hay selector**. La versión se indica c
 1. **Arquitecto:** campos `language` y `stamp {type, label}` (el `label` es el detalle «Prize Pack»; el nombre de la insignia sale de `type`) en `GroupedListingSummaryDTO`, detalle de ficha (`versions[]` con precio y existencia por versión), línea de carrito/cotización, de pedido y de preparación; `MetaDeckLineDTO` con partición por versión (`units[]`); y la regla de surtido de IDS-UX.5.
 2. **Arquitecto:** en captura, que la lista de versiones traiga `previewPriceCents` o `unavailableReason` por combinación (idioma × sello).
 3. **Product-owner:** claves cortas de los tipos (≤ 18 caracteres; paridad ES/EN, tabla de IDS-UX.1); copy de ficha, leyendas, filtro «Cartas de liga y promos», FAQ y JSON-LD `Versión` (de marketing); decidir el plan B del 943 si la medición da < 20 (IDS-UX.4) y las tres propuestas de marketing de arriba.
-4. **Frontend (cuando se construya):** `VersionChip` en `frontend/src/components/domain/` (zona compartida: serializar); P1–P3 en `CatalogTile`/`CatalogView` (zona compartida de componentes, serializar); segmentados con el patrón de `Compra | Aportación`.
-5. **Orquestador:** medir P1–P3 con Playwright a 360×740 (peor caso con dos insignias) antes de construir.
 6. **Arquitecto (D-IDS-5):** `finishLabel: string` (texto de cliente del acabado, «Holo», «No holo», «Cosmos Holo», de backend como `versionInternalLine`) en `VersionOptionDTO` y `GroupedListingSummaryDTO`: `StampDTO.label` es solo admin y el acabado `Holofoil` de Prize Pack y Prize Pack Cosmos Holo es el mismo, así que sin él dos versiones de liga del mismo tipo no se distinguen al cliente. Además: si un producto de liga tiene dos acabados con existencia, ¿`versions[]` trae una entrada por (producto × acabado)? (el diseño supone una por fila de la cuadrícula); y medir cuántos `versions[]` por carta hay en el peor caso (el diseño cuenta con ≤ 4 filas). Forma extendida: B decidida por marketing (IDS-UX.8).
 7. **Backend (TL-IDS-2):** `INTERNAL_STAMP_TEXT` de `card-version.ts:283-289` con los textos de IDS-UX.3 para `championship`, `prerelease` y `staff` (los otros dos ya coinciden); si una prueba fija los textos viejos, se actualiza con ellos.
 8. **Frontend (carrito, checkout y «Mi pedido»; QA 2026-11-03):** la línea `muted` bajo las insignias no repite el idioma y se omite cuando el tipo exacto coincide con el nombre de la insignia (reglas en IDS-UX.4 «Carrito»): ES sin liga = solo «Español»; EN de liga = solo la insignia si coincide; ES de liga = dos insignias + «De liga (Prize Pack)». Candado: en una línea ES sin liga no hay un segundo «Español» en el renglón; correo y texto sin insignias no cambian. Además: EN «Championship» → «Tournament» (`HECHOS.md` 2026-11-03).
