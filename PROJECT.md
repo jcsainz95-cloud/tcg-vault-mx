@@ -2133,12 +2133,9 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
       reclamarse (queda en el historial como pedido cerrado).
 - [ ] El pedido solo puede reclamarse **una vez**; un pedido ya vinculado a una cuenta no puede vincularse
       a otra.
-- [ ] **Si el correo del invitado YA tiene cuenta**: el checkout **no revela** que ese correo está
-      registrado (evitar enumeración de usuarios) y **la compra como invitado se permite normalmente**.
-      *(SUPUESTO: el pedido **no se vincula en silencio**; queda como pedido de invitado y se ofrece al
-      titular **reclamarlo explícitamente** cuando inicia sesión con ese correo —o desde el enlace de
-      seguimiento—, para que nadie pueda inyectar pedidos al historial de un tercero escribiendo su correo.
-      **Este punto necesita decisión del humano** — ver preguntas abiertas v1.5.)*
+- [ ] **Si el correo del invitado YA tiene cuenta**: la compra como invitado se permite, el pedido no se vincula
+      en silencio (reclamo explícito, para que nadie inyecte pedidos al historial de un tercero), y dónde se dice
+      o no que el correo tiene cuenta lo fija el **criterio 56**.
 
 **Nota de seguridad a nivel producto (el enlace es una puerta sin contraseña)**
 - [ ] El enlace de seguimiento **sustituye a una contraseña**: quien lo tenga ve el pedido. Por eso la vista
@@ -11066,10 +11063,13 @@ nuevo, no como parte de §R**:
     hallazgo de seguridad PT-CHK-1, no del dueño. Norma: `API_CONTRACT` §4-G.9c, v1.116.1.)*
 55. Un pedido **solo puede reclamarse una vez**: un pedido ya vinculado a una cuenta **no** puede vincularse
     a una segunda cuenta, y el intento se rechaza (y queda registrado).
-56. Si el correo del invitado **ya tiene cuenta**, el checkout **no revela** que ese correo está registrado
-    y **permite completar la compra como invitado**; el pedido **no se agrega en silencio** al historial de
-    esa cuenta: requiere el **reclamo explícito** del titular tras iniciar sesión *(sujeto a confirmación
-    del humano — ver preguntas abiertas v1.5)*.
+56. Si el correo del invitado **ya tiene cuenta**, **puede completar la compra como invitado**; el pedido **no se
+    agrega en silencio** al historial de esa cuenta: requiere el **reclamo explícito** del titular tras iniciar sesión
+    *(SUPUESTO, pregunta v1.5 n.º 1)*. **Solo se dice que el correo tiene cuenta** al teclearlo en el alta con solo el
+    correo —panel «Crear cuenta» del carrito/checkout, upsell de bóveda (48) y oferta de cuenta de la confirmación (49)
+    (SUPUESTO: la confirmación usa esa misma alta, P-CTA-7)—, que ofrece «Ingresar a cuenta» (criterio 970). **En lo
+    demás no se revela** y la respuesta es idéntica exista o no la cuenta: el correo de la compra como invitado, la
+    pantalla de entrada (259, 973), «Olvidé mi contraseña» (973, §U.4) y el reenvío del enlace de seguimiento (53).
 56b. ~~Un invitado puede abrir una **disputa de condición** o reportar un **error de plataforma** con las
     **mismas reglas** que un usuario con cuenta (ventana de **7 días desde la entrega**, evidencia **por
     correo a soporte** citando su **número de pedido**); no se le exige crear cuenta para ser atendido ni
@@ -15152,7 +15152,8 @@ depende de P-CTA-1, -2, -4 y -5(b). Más alto previo: 968.)*
 972. **…o desde «Mi cuenta»**: con sesión, «Mi cuenta» muestra «Ponle contraseña a tu cuenta» y deja poner nombre y
    contraseña **sin pedir una actual**; ya puesta, cambiarla pide la actual como hoy.
 973. **La segunda vez**: con contraseña puesta, entra como cualquier cliente. Sin contraseña, «Olvidé mi contraseña» con
-   su correo le manda el enlace del 971 (SUPUESTO, P-CTA-4). Correo + cualquier contraseña sobre una cuenta sin
+   su correo le manda el enlace del 971 (SUPUESTO, P-CTA-4); la pantalla de «Olvidé» responde igual exista o no la
+   cuenta y tenga o no contraseña (56). Correo + cualquier contraseña sobre una cuenta sin
    contraseña ⇒ la misma respuesta que contraseña incorrecta (la pantalla de entrada no distingue los casos, 259).
 974. ⛔ **Pedidos de invitado anteriores esperan la prueba del correo** (lado seguro, P-CTA-1): una cuenta nacida en el 969
    no ve pedidos de invitado de ese correo hasta que abre el enlace del 971; entonces aplica el 54. Lo que compró con la
@@ -17289,6 +17290,9 @@ contestas, se construye con la recomendación:
   que seguridad tendría que revisar).*
 - **P-CTA-5(b)** Al quitar «IVA 16 % incluido» de los precios, ¿la nota «incluye IVA» del valor de mercado (la pediste el
   2026-10-10) también se va? *Recomendación: se queda; sin ella el mercado parece más barato que nuestro precio (977).*
+- **P-CTA-7** «Ingresar a cuenta» si el correo ya tiene cuenta: ¿también en «crear cuenta» de la pantalla de confirmación,
+  o solo en el carrito? *Recomendación: también ahí (es la misma alta con solo el correo); el correo de la compra como
+  invitado sigue sin decir nada (56).*
 
 **Español y versiones de liga (§IDS)** — dos de dinero, para el dueño (las de presentación ya las decidió marketing):
 - **P-ARQ-IDS-1 💰** ¿Tienes cartas **gradeadas** (PSA) o **producto sellado** en español para vender? *Recomendación
@@ -17323,8 +17327,8 @@ contestas, se construye con la recomendación:
 > Las **tres decisiones de producto** del guest checkout (solo envío directo + bóveda con cuenta y upsell;
 > correo obligatorio + enlace tokenizado; reclamo post-compra) están **cerradas** y ya redactadas en §J.
 > Lo que sigue son huecos de detalle; cada uno tiene un supuesto en el documento para no bloquear.
-1. **El correo del invitado YA tiene cuenta (la más importante)**: el supuesto actual es **no revelar** que
-   el correo está registrado (evitar enumeración), **permitir la compra como invitado** y dejar el pedido
+1. **El correo del invitado YA tiene cuenta (la más importante)**: *(qué se revela ya lo decidió el dueño: criterio
+   56/970; sigue abierto solo vincular vs. reclamo)*. El supuesto es **permitir la compra como invitado** y dejar el pedido
    **sin vincular** hasta que el titular inicie sesión y lo **reclame explícitamente** (así nadie inyecta
    pedidos al historial de un tercero escribiendo su correo). Alternativas: (a) **vincular automáticamente**
    el pedido a la cuenta existente al momento del pago —más cómodo, pero permite ensuciar el historial
