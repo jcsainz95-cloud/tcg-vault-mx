@@ -21,6 +21,7 @@ import { SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
 import type { IvaDials } from '../../common/money';
 import { marketBracketOf } from '../../common/pricing-curve';
 import { variantKey } from '../../common/variant-key';
+import { DEFAULT_VERSION, isDefaultVersion, PieceVersion, versionKeyOf } from '../../common/card-version';
 import { isSchedulerDisabled } from '../../config/test-env';
 import { SettingsService } from '../settings/settings.service';
 import { PRICE_AFFECTING_SETTING_KEYS, SettingKey, SettingKeyType } from '../settings/settings.constants';
@@ -100,8 +101,14 @@ export function portadaServedDay(now: Date, hour: number): string {
  * `ListingPrice.variantKey` (TL-DYN-2): la llave K de la pieza por el helper ÚNICO `variantKey` (P-30 H2) — la misma con que la
  * leen catálogo y referencias. Graduada sin identidad de slab (sin `gradeKey`) ⇒ `-` en su lugar (la columna no admite null).
  */
-export function listingPriceVariantKey(item: Pick<SaleItem, 'cardId' | 'productType' | 'finish'>, gradeKey: string | null): string {
-  return variantKey({ cardId: item.cardId, productType: item.productType, gradeKey: gradeKey ?? '-', finish: item.finish });
+export function listingPriceVariantKey(
+  item: Pick<SaleItem, 'cardId' | 'productType' | 'finish'>,
+  gradeKey: string | null,
+  version: PieceVersion = DEFAULT_VERSION,
+): string {
+  const vk = variantKey({ cardId: item.cardId, productType: item.productType, gradeKey: gradeKey ?? '-', finish: item.finish });
+  // 💰 v1.116⟨ids⟩ (§IDS.2): (en, sin liga) ⇒ la de hoy, sin cambio (I-1); otra versión ⇒ `<la de hoy>|v:<versionKey>`.
+  return isDefaultVersion(version) ? vk : `${vk}|v:${versionKeyOf(version.language, version.stamp?.productId ?? null)}`;
 }
 
 /** El «valor de mercado» que la fila congeló (§DYN.5.5), con la forma de `referenceInfoOf`. */
@@ -357,7 +364,8 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
               const s = sales.get(item.id)!;
               if (s.kind === 'priced') priced += 1;
               else pending += 1;
-              await this.writeRow(tx, item, s, this.decider.exhibitedReferenceOf(item, batch), dials, run.id, startedAt);
+              const version = this.decider.versionOf(item, batch);
+              await this.writeRow(tx, item, s, this.decider.exhibitedReferenceOf(item, batch), dials, run.id, startedAt, version);
             }
           },
           { timeout: 120_000 },
@@ -415,8 +423,10 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     dials: IvaDials,
     runId: string,
     computedAt: Date,
+    // v1.116⟨ids⟩ (§IDS.2): la versión de la pieza (del lote); por defecto (en, sin liga) ⇒ la clave de hoy.
+    version: PieceVersion = DEFAULT_VERSION,
   ): Promise<void> {
-    const vk = listingPriceVariantKey(item, this.decider.gradeKeyOf(item));
+    const vk = listingPriceVariantKey(item, this.decider.gradeKeyOf(item), version);
     const d = s.kind === 'priced' ? s.decision : null;
     await tx.$executeRaw`
       INSERT INTO "ListingPrice" ("inventoryItemId", "variantKey", "runId", "status", "unitPriceCents", "listPriceCents",

@@ -125,6 +125,12 @@ describe('§IDS.3 — baseMatchKey: el empate con la carta base', () => {
   it('sin número en el nombre de nuestro producto ⇒ Card.number/printedTotal', () => {
     expect(catalogMatchKey({ name: 'Volcanion', cardNumber: '25', printedTotal: 114 })).toBe(baseMatchKey('Volcanion - 25/114 (Pokemon League)', '25/114'));
   });
+  it('número dentro del nombre SIN guion y sin ceros (IDS-D1, DEVOPS_NOTES §108.4)', () => {
+    expect(baseMatchKey('Shelmet 11/101 (Championship Series)', '11/101')).toBe('shelmet|11/101');
+    expect(baseMatchKey('Butterfree FB - 17/147 (League Promo)', '017/147')).toBe(catalogMatchKey({ name: 'Butterfree FB', cardNumber: '17', printedTotal: 147 }));
+    expect(baseMatchKey('Quaquaval - 005 (Prerelease)', '005')).toBe('quaquaval|5');
+    expect(catalogMatchKey({ name: 'Basic Fire Energy - 010', cardNumber: '10', printedTotal: 16 })).toBe(baseMatchKey('Basic Fire Energy - 010', '010'));
+  });
   it('sin Number ⇒ null (sobres, Code Cards)', () => {
     expect(baseMatchKey('Play! Pokemon Prize Pack Series One', null)).toBeNull();
     expect(catalogMatchKey({ name: 'Volcanion', cardNumber: null, printedTotal: 114 })).toBeNull();

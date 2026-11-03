@@ -213,6 +213,8 @@ describe('E2E — DYN-B17: completitud de PRICE_AFFECTING_SETTING_KEYS (§DYN.5.
         data: { cardId: k4, productType: 'sealed', gradeKey: `sealed:tcg:${pid + i}`, finish: 'normal', source: 'tcgcsv', priceMxnCents: 100_000, capturedDate: today(), refKind: 'market' },
       });
     }
+    // (6) v1.116⟨ids⟩ (§IDS.7, IDS-B16): testigo de `spanish_market_pct` — una pieza ESPAÑOLA de la carta (1).
+    await item(k1, { language: 'es' });
     for (const [key, value] of FIXTURE_DIALS) {
       before.set(key, (await h.prisma.configSetting.findUnique({ where: { key } }))?.valueJson);
       await h.prisma.configSetting.upsert({ where: { key }, create: { key, valueJson: value }, update: { valueJson: value } });
@@ -236,7 +238,7 @@ describe('E2E — DYN-B17: completitud de PRICE_AFFECTING_SETTING_KEYS (§DYN.5.
 
   it('el fixture ejercita las ramas: hay precio de mercado, pendiente por guardarraíl y sellado preciado', async () => {
     const s = JSON.parse(await snapshot()) as unknown[][];
-    expect(s).toHaveLength(5);
+    expect(s).toHaveLength(6);
     expect(s[0][3]).toBe('market');
     expect(s[1][1]).toBe('pending');
     expect(s.slice(2).every((r) => typeof r[1] === 'number')).toBe(true);
@@ -290,6 +292,7 @@ describe('E2E — DYN-B17: completitud de PRICE_AFFECTING_SETTING_KEYS (§DYN.5.
         SettingKey.PRICE_ARBITER_SOURCES,
         SettingKey.FX_MANUAL_OVERRIDE_RATE,
         SettingKey.FX_RATE_MODE,
+        SettingKey.SPANISH_MARKET_PCT,
       ]),
     );
   }, 900_000);

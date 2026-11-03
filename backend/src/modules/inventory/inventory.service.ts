@@ -1,3 +1,5 @@
+import { isPricePending, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
+import { isDefaultVersion, pieceVersionOf } from '../../common/card-version';
 import { ListingPriceService } from '../pricing/listing-price.service';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
@@ -386,6 +388,12 @@ interface PublishPricingCtx {
   ivaDials: IvaDials;
   refs: Map<string, PriceInfo>;
   variantOverrides: Map<string, VariantPriceOverride>;
+  /**
+   * 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.2/.4, I-3) — la decisión del CUERPO ÚNICO (`SaleDecisionService`) para las piezas cuya
+   * versión NO es (inglés, sin liga), por id. `ok:false` ⇒ no se publica y ⛔ NO se escala (sin `PendingPriceEntry`): vuelve
+   * sola cuando el mercado llega. Una pieza de versión ausente del mapa no se publica (falla cerrado).
+   */
+  versions?: Map<string, { ok: true; listCents: number; basis: PriceBasis } | { ok: false; reason: string }>;
 }
 
 /**
@@ -765,6 +773,8 @@ export class InventoryService {
     // precio del día. ⛔ Sin `@Optional()` (en la app es obligatorio, `PricingModule` lo exporta); el `?` es solo por los
     // unitarios que construyen el servicio a mano.
     private readonly listingPrices?: ListingPriceService,
+    // 💰 v1.116⟨ids⟩ (§IDS.2): el cuerpo único para las versiones (español / liga). `@Optional()` por los unitarios.
+    @Optional() private readonly decider?: SaleDecisionService,
   ) {}
 
   /**
@@ -1808,7 +1818,37 @@ export class InventoryService {
     const variantOverrides = await this.pricing.getVariantOverridesBatch(
       derivable.filter((d) => d.productType !== 'sealed'),
     );
-    return { curve, premiumFloorPolicy, sealed, ivaDials, refs, variantOverrides };
+    const versions = await this.versionSalesOf(items, ivaDials);
+    return { curve, premiumFloorPolicy, sealed, ivaDials, refs, variantOverrides, versions };
+  }
+
+  /**
+   * 💰 v1.116⟨ids⟩ (§IDS.2) — las piezas de versión distinta de (en, sin liga) se preciAN por el cuerpo único (su referencia
+   * de entrada, X, curva, piso), no por la derivación de publicación (que lee la referencia de la carta base). Una lectura de
+   * productos de liga por contexto; el lote del cuerpo, solo si hay alguna.
+   */
+  private async versionSalesOf(items: PublishableItem[], ivaDials: IvaDials): Promise<NonNullable<PublishPricingCtx['versions']>> {
+    const out: NonNullable<PublishPricingCtx['versions']> = new Map();
+    const candidates = items.filter((i) => i.language === 'es' || i.cardProductId != null);
+    if (candidates.length === 0) return out;
+    const stamps = await this.pricing.findStampedProducts(candidates.map((i) => i.cardProductId));
+    const versioned = candidates.filter((i) => !isDefaultVersion(pieceVersionOf(i, stamps))) as unknown as SaleItem[];
+    if (versioned.length === 0) return out;
+    if (!this.decider) {
+      for (const i of versioned) out.set(i.id, { ok: false, reason: 'no_decider' });
+      return out;
+    }
+    const batch = await this.decider.loadBatch(versioned);
+    for (const i of versioned) {
+      try {
+        const d = await this.decider.decide(i, ivaDials, batch);
+        out.set(i.id, { ok: true, listCents: d.listPriceCents, basis: d.priceBasis });
+      } catch (e) {
+        if (!isPricePending(e)) throw e;
+        out.set(i.id, { ok: false, reason: String((e.details as { reason?: string } | undefined)?.reason ?? 'no_market') });
+      }
+    }
+    return out;
   }
 
   /**
@@ -1978,6 +2018,20 @@ export class InventoryService {
         fixedDisplayCents: null,
         ...(item.productType === 'sealed' ? { sealedOrigin: 'piece' as const } : {}),
         pendingKey: null,
+      };
+    }
+    // 💰 v1.116⟨ids⟩ (§IDS.2, I-3): una versión (español o de liga) la decidió el cuerpo único en el contexto. Sin precio ⇒ no
+    // se publica y ⛔ sin clave de cola (no escala ni cierra entradas de la inglesa).
+    if (item.language === 'es' || ctx.versions?.has(item.id)) {
+      const v = ctx.versions?.get(item.id);
+      if (v?.ok) {
+        return { ok: true, salePriceCents: v.listCents, priceSource: 'derived', priceBasis: v.basis, fixedDisplayCents: null, pendingKey: null };
+      }
+      return {
+        ok: false,
+        message: `No resolvable sale price for this version (${v && !v.ok ? v.reason : 'unresolved'}); not published, not escalated`,
+        pendingKey: null,
+        pendingReason: null,
       };
     }
     if (item.productType === 'sealed') {

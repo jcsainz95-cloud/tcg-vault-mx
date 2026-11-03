@@ -125,7 +125,7 @@ export function bracketSegments(name: string): string[] {
   return out;
 }
 
-const STAFF_RE = /^staff$/i;
+const STAFF_RE = /\bstaff\b/i;
 const PRERELEASE_RE = /\bpre-?release\b/i;
 const CHAMPIONSHIP_RE = /\b(championships?|regionals?|international|world|worlds)\b/i;
 const LEAGUE_RE = /\bleague\b/i;
@@ -193,19 +193,25 @@ export function normalizeFullNumber(raw: string): string {
     .join('/');
 }
 
-/** El nombre de un producto sin `(…)`/`[…]` y sin el sufijo « - <número>» con que TCGplayer nombra los singles de SV/SWSH. */
+const NUM_TOKEN = String.raw`[A-Za-z]{0,6}\d+[A-Za-z]?`;
+/** Número completo al FINAL del nombre, con o sin guion («Pikachu ex - 057/191», «Shelmet 11/101»). */
+const TRAILING_FULL_NUMBER = new RegExp(String.raw`\s*-?\s*(${NUM_TOKEN}\s*/\s*${NUM_TOKEN})\s*$`);
+/** Número de promo al final, solo con guion («Quaquaval - 005», «Pikachu - XY202»). */
+const TRAILING_PROMO_NUMBER = new RegExp(String.raw`\s+-\s*(${NUM_TOKEN})\s*$`);
+const stripBrackets = (name: string) => name.replace(/\([^()]*\)|\[[^[\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * El nombre de un producto sin `(…)`/`[…]` y sin el número que TCGplayer mete al final del nombre (con o sin guion; medido
+ * por devops en IDS-D1, `DEVOPS_NOTES §108.4` punto 4, misma lectura que `scripts/ids/ids-lib.mjs` `baseName`).
+ */
 export function baseProductName(name: string): string {
-  return name
-    .replace(/\([^()]*\)|\[[^[\]]*\]/g, ' ')
-    .replace(/\s+-\s+[A-Za-z]*\d+[A-Za-z0-9]*(\s*\/\s*[A-Za-z]*\d+[A-Za-z0-9]*)?\s*$/, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return stripBrackets(name).replace(TRAILING_FULL_NUMBER, ' ').replace(TRAILING_PROMO_NUMBER, ' ').replace(/\s+-\s*$/, ' ').replace(/\s+/g, ' ').trim();
 }
 
-/** El número « - 057/191» del nombre de un producto TCGplayer, o `null` si el nombre no lo trae. */
+/** El número («057/191» con o sin guion; si no, el de promo/energía « - 005») al final del nombre de un producto TCGplayer, o `null`. */
 export function numberFromProductName(name: string): string | null {
-  const stripped = name.replace(/\([^()]*\)|\[[^[\]]*\]/g, ' ').replace(/\s+/g, ' ').trim();
-  const m = /\s-\s+([A-Za-z]*\d+[A-Za-z0-9]*(?:\s*\/\s*[A-Za-z]*\d+[A-Za-z0-9]*)?)$/.exec(stripped);
+  const stripped = stripBrackets(name);
+  const m = TRAILING_FULL_NUMBER.exec(stripped) ?? TRAILING_PROMO_NUMBER.exec(stripped);
   return m ? m[1].replace(/\s+/g, '') : null;
 }
 

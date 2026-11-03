@@ -8,6 +8,7 @@
 // v1.50-graded-estimate (M-42, §4.38): seeds + validadores del «gancho de grading» viven en la zona
 // compartida `common/graded-estimate.ts` (pura, sin infra), igual que `pricing-curve.ts`. Aquí solo se
 // cablean como diales.
+import { validateSpanishMarketPct } from '../../common/card-version';
 import {
   DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
   DEFAULT_GRADED_ESTIMATE_GRADES,
@@ -428,6 +429,8 @@ export const SettingKey = {
   FEATURED_ROTATION_HOUR: 'featured_rotation_hour', // hora CDMX del cambio diario
   // Tope de créditos PSA por día CDMX (§DYN.4.3); 0 = no se pide nada. Sustituye al corte por corrida retirado.
   GRADED_ESTIMATE_DAILY_CREDIT_CAP: 'graded_estimate_daily_credit_cap',
+  // 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.7, M-95): mercado del ESPAÑOL = mercado del inglés × este % (entero [1, 200], seed 75).
+  SPANISH_MARKET_PCT: 'spanish_market_pct',
 } as const;
 
 export type SettingKeyType = (typeof SettingKey)[keyof typeof SettingKey];
@@ -672,6 +675,8 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.FEATURED_NEW_ARRIVAL_WINDOW_DAYS]: 7,
   [SettingKey.FEATURED_ROTATION_HOUR]: 6,
   [SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP]: 3000,
+  // v1.116⟨ids⟩ (§IDS.7): sin fila ⇒ 75 (IDS-B4). Decisión del dueño, HECHOS 2026-10-30 «Español y sellos (§IDS)…».
+  [SettingKey.SPANISH_MARKET_PCT]: 75,
 };
 
 /**
@@ -729,6 +734,8 @@ export const PRICE_AFFECTING_SETTING_KEYS: readonly SettingKeyType[] = [
   // llega en el siguiente `daily` o por `review_open`.
   SettingKey.PRICE_ARBITER_FRESHNESS_DAYS,
   SettingKey.PRICE_ARBITER_SOURCES,
+  // v1.116⟨ids⟩ (§IDS.2/.7): X del español ⇒ mueve `P` de toda pieza `es` (con y sin liga).
+  SettingKey.SPANISH_MARKET_PCT,
 ];
 
 const PROVIDER_VALUES = ['pokemontcg_io', 'pokemonpricetracker', 'poketrace', 'manual'];
@@ -1371,6 +1378,8 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.FEATURED_NEW_ARRIVAL_WINDOW_DAYS]: validateIntRange(1, 30),
   [SettingKey.FEATURED_ROTATION_HOUR]: validateIntRange(0, 23),
   [SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP]: validateIntRange(0, 20000),
+  // v1.116⟨ids⟩ (§IDS.7): entero [1, 200]; vacío, 0, negativo, decimal o fuera ⇒ 422.
+  [SettingKey.SPANISH_MARKET_PCT]: validateSpanishMarketPct,
 };
 
 /** Mapea las keys de DB a los nombres camelCase del DTO de M10 (API_CONTRACT §M10). */
@@ -1492,6 +1501,8 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   featuredNewArrivalWindowDays: SettingKey.FEATURED_NEW_ARRIVAL_WINDOW_DAYS,
   featuredRotationHour: SettingKey.FEATURED_ROTATION_HOUR,
   gradedEstimateDailyCreditCap: SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP,
+  // 💰 v1.116⟨ids⟩ (§IDS.7): el dial del español; mismo rol que `PUT /admin/pricing/curve` (IDS-B10), auditado.
+  spanishMarketPct: SettingKey.SPANISH_MARKET_PCT,
 };
 
 /**

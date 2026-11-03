@@ -10,6 +10,7 @@ import {
   IsString,
   Length,
   Max,
+  MaxLength,
   Min,
   ValidateIf,
   ValidateNested,
@@ -407,4 +408,9 @@ export class SetSealedSalePriceDto {
   @Min(1)
   @Max(MAX_LIST_PRICE_CENTS)
   expectedDisplayPriceCents!: number | null;
+}
+
+/** v1.116⟨ids⟩ (API_CONTRACT §IDS.4): `POST /admin/inventory/stamped-candidates/:tcgplayerProductId/attach`. */
+export class AttachStampedCandidateDto {
+  @IsString() @IsNotEmpty() @MaxLength(64) cardId!: string;
 }
