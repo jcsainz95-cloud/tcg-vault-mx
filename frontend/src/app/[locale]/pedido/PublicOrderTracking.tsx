@@ -178,11 +178,11 @@ export function PublicOrderTracking({
                 <p className="mt-1.5 font-mono text-[11px] text-muted" lang="en" data-testid="tracking-item-meta">
                   {item.productType === 'sealed' ? item.setName : `${item.setName} · #${item.number}`}
                 </p>
-                {/* §IDS.5: versión congelada del pedido (insignias + texto muted); inglés sin liga, nada. */}
+                {/* §IDS.5: versión congelada del pedido (insignias + línea muted sin el idioma, petición 8); inglés sin liga, nada. */}
                 <VersionChips version={item.version} size="tile" className="mt-1.5" testId="tracking-version-chips" />
-                {versionText.line(item.version) && (
+                {versionText.detail(item.version) && (
                   <p className="mt-1 text-[12px] leading-snug text-muted" data-testid="tracking-version-text">
-                    {versionText.line(item.version)}
+                    {versionText.detail(item.version)}
                   </p>
                 )}
                 <ListingSpec
