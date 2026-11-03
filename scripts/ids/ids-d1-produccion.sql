@@ -4,6 +4,7 @@
 --    La corre el DUEÑO (o un rol con acceso) con un usuario de SOLO LECTURA, como §104.4 de DEVOPS_NOTES:
 --      psql "$DATABASE_URL_RO" -X -v ON_ERROR_STOP=1 -f scripts/ids/ids-d1-produccion.sql
 --    y pega la salida (solo conteos, ids de catálogo y nombres de carta: sin datos personales) en la solicitud de fusión.
+--    «Q1d-lista» añade ids INTERNOS y folios de pieza (sin cliente): con ella decide el dueño; a la solicitud, solo el conteo.
 -- Todo dentro de una transacción READ ONLY con tope de tiempo: aunque el rol pudiera escribir, esto no escribe.
 -- Fuente de las preguntas: API_CONTRACT §IDS.9 «Devops» y ARCHITECTURE §15.4 D-IDS-1. Resultados: DEVOPS_NOTES §108.
 -- Q1/Q1b viven en `ids-d1-q1.sql` (los comparte con el botón de solo lectura, §108.5); aquí se incluyen con `\ir`.
