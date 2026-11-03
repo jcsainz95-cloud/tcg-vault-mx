@@ -69,6 +69,17 @@
 
 ---
 
+## Frontend · 2026-11-03 · §IDS — deuda del techlead sobre f2cd0e31 (TL-IDS)
+
+> Dueño del código anotado: **frontend**. Sin dinero. Los sitios se re-abrieron el 2026-11-03 sobre `f2cd0e31` (rama `claude/ids-diseno`) antes de anotar; las dos se cerraron en el mismo pase (`26228c1b`). Las demás TL-IDS del veredicto no son de frontend.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-IDS-5 | CERRADA (2026-11-03, `26228c1b`) · «inglés sin liga» reescrito en línea en `components/domain/VersionText.ts:21` y `e2e/utils/catalog-tile.ts:20` en vez de `isDefaultVersion` (`lib/version.ts`), y `['en','es']` a mano en `VersionPills.tsx:62`. Ahora los dos usan `isDefaultVersion` (firma estructural, `language: string`, para el arnés) y `VersionPills` recorre `CARD_LANGUAGES` | frontend | 2026-11-03 | `grep -n "language === 'en' && " frontend/src/components/domain/VersionText.ts frontend/e2e/utils/catalog-tile.ts` ⇒ 0; `src/lib/version.test.ts` «TL-IDS-5» verde (lee los dos ficheros y prueba `tileHref`); mutación «el arnés vuelve a la regla en línea» ⇒ rojo 3/3, restaurado verde 3/3 |
+| TL-IDS-7 | CERRADA (2026-11-03, `26228c1b`) · `PillToggleGroup` (`VersionPills.tsx:189`): con `value` apagado o inexistente ningún botón tenía `tabIndex=0` ⇒ el grupo no se alcanzaba con teclado. Misma clase en `VersionPills` (`:96`) con un `selectedKey` que no casa. Ahora el tab-stop es el índice que ya usan las flechas (vigente habilitada, si no la primera habilitada) | frontend | 2026-11-03 | `VersionPills.test.tsx` «TL-IDS-7» (`value` apagado e inexistente ⇒ 1 tab-stop en la primera habilitada; habilitado ⇒ ese) y «`selectedKey` que no está en `versions`» verdes; rojas sobre `f2cd0e31` (3/15); mutación «tabIndex de f2cd0e31» ⇒ rojo 3/3, restaurado verde 3/3 |
+
+---
+
 ## Frontend · 2026-11-02 · fricción del checkout (v1.116) — deuda del techlead sobre `9d269935`
 
 > Dueño del código anotado: **frontend**. 💰 Toca el checkout (sin tocar el cálculo del dinero). Anotadas y re-medidas el 2026-11-02 sobre `9d269935` (rama `claude/checkout-friccion`), sin arreglar. FE-MKT2-2 (add_payment_info sin E2E) sigue en «Frontend · 2026-10-19».
