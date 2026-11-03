@@ -4,6 +4,7 @@ import { customerEmailOrBlank } from '../../common/customer-email';
 import {
   BuyDecision,
   Card,
+  CardProductKind,
   Finish,
   MovementReason,
   Prisma,
@@ -864,7 +865,8 @@ export class BuylistService implements OnModuleInit {
     productId: number,
   ): Promise<{ id: string; finishes: Finish[] }> {
     const cp = await this.pricing.findCardProductByTcgId(productId);
-    if (!cp) {
+    // v1.116⟨ids⟩ (§IDS.0 I-6, IDS-B13): la buylist solo compra inglés sin liga — un producto de liga no existe para ella.
+    if (!cp || cp.kind === 'stamped') {
       throw BusinessException.validation('PRODUCT_NOT_FOUND', 'Product not found', { productId });
     }
     if (cp.cardId !== cardId) {
@@ -886,9 +888,10 @@ export class BuylistService implements OnModuleInit {
   private assertPrefetchedCardProduct(
     cardId: string,
     productId: number,
-    cp: { id: string; cardId: string; finishes: Finish[] } | null,
+    cp: { id: string; cardId: string; finishes: Finish[]; kind?: CardProductKind } | null,
   ): { id: string; finishes: Finish[] } {
-    if (!cp) {
+    // v1.116⟨ids⟩ (I-6, IDS-B13): un producto de liga no existe para la buylist.
+    if (!cp || cp.kind === 'stamped') {
       throw BusinessException.validation('PRODUCT_NOT_FOUND', 'Product not found', { productId });
     }
     if (cp.cardId !== cardId) {

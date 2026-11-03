@@ -1100,6 +1100,20 @@ export class PricingService {
    * v1.116⟨ids⟩ (§IDS.2, D-IDS-C) — los productos de LIGA (`kind = stamped`) entre estos `tcgplayerProductId`, en UNA query.
    * Un id que no está en el mapa no es versión de liga (set_base, promo, deck_exclusive o inexistente).
    */
+  async stampedProductIds(): Promise<number[]> {
+    // PROJECTION-EXEMPT: solo ids (filtros internos «sin liga» de binder y listados admin).
+    const rows = await this.prisma.cardProduct.findMany({ where: { kind: 'stamped' }, select: { tcgplayerProductId: true } });
+    return rows.map((r) => r.tcgplayerProductId);
+  }
+
+  /** v1.116⟨ids⟩ (§IDS.0 I-6) — `where` de «inglés sin liga» (binder/master set, buylist): idioma `en` y producto que no es de liga. */
+  async defaultVersionWhere(): Promise<Prisma.InventoryItemWhereInput> {
+    const ids = await this.stampedProductIds();
+    return ids.length === 0
+      ? { language: 'en' }
+      : { language: 'en', OR: [{ cardProductId: null }, { cardProductId: { notIn: ids } }] };
+  }
+
   async findStampedProducts(tcgplayerProductIds: readonly (number | null | undefined)[]): Promise<Map<number, StampRef>> {
     const ids = [...new Set(tcgplayerProductIds.filter((n): n is number => n != null))];
     if (ids.length === 0) return new Map();

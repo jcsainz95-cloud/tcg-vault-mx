@@ -25,7 +25,7 @@ import { SealedProductService } from './sealed-product.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
-import { SEALED_GROUP_KIND_VALUES } from '../../common/enum-values';
+import { CARD_LANGUAGE_VALUES, SEALED_GROUP_KIND_VALUES } from '../../common/enum-values';
 import {
   BatchCreateInventoryRequest,
   BulkPublishRequest,
@@ -62,6 +62,9 @@ const FINISH_FILTER_VALUES: readonly Finish[] = Object.values(Finish);
 const PRODUCT_TYPE_FILTER_VALUES: readonly ProductType[] = Object.values(ProductType);
 
 /** v1.51 (fase 8, §M1): filtros de `GET /admin/inventory/pending-publish`. */
+/** v1.116⟨ids⟩ (§IDS.4): el eje `stamped` del listado admin (dominio cerrado del contrato). */
+const STAMPED_FILTER_VALUES = ['true', 'false'] as const;
+
 const ACQUISITION_TYPE_FILTER_VALUES: readonly AcquisitionType[] = Object.values(AcquisitionType);
 
 /**
@@ -614,7 +617,12 @@ export class InventoryController {
     @Query('productType') productType?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    // v1.116⟨ids⟩ (§IDS.4): `language` (§0-Q, clase E) y `stamped` (`true` | `false`).
+    @Query('language') language?: string,
+    @Query('stamped') stamped?: string,
   ) {
+    const languageFilter = parseEnumFilter('language', language, CARD_LANGUAGE_VALUES);
+    const stampedFilter = parseEnumFilter('stamped', stamped, STAMPED_FILTER_VALUES);
     // Contrato §M1 v1.28: validados contra sus enums → 400 VALIDATION_ERROR si inválidos.
     // `P-84`/§0-Q — estos dos YA validaban contra el enum derivado (por eso eran los únicos ejes de
     // enum de este endpoint que **no** daban `500`): es el patrón que el resto copió. Lo que cambia es
@@ -630,6 +638,8 @@ export class InventoryController {
       q,
       finish: finishFilter,
       productType: productTypeFilter,
+      language: languageFilter,
+      stamped: stampedFilter === undefined ? undefined : stampedFilter === 'true',
       page: Math.max(1, parseInt(page, 10) || 1),
       pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
     });

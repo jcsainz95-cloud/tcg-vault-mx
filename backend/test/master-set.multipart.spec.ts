@@ -44,6 +44,8 @@ function buildPricing(over: any = {}) {
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
+    // v1.116⟨ids⟩ (I-6): el binder filtra «inglés sin liga»; ninguna liga en la fixture.
+    defaultVersionWhere: jest.fn().mockResolvedValue({ language: 'en' }),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     tryGradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     getVariantOverridesBatch: jest.fn(async () => new Map()),

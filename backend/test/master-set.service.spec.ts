@@ -70,6 +70,8 @@ function buildPricing(over: any = {}) {
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     // v1.22-2 / N-15: displayFinishes se deriva de este lote (default vacío = sin supresión).
     getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
+    // v1.116⟨ids⟩ (I-6): el binder filtra «inglés sin liga»; ninguna liga en la fixture.
+    defaultVersionWhere: jest.fn().mockResolvedValue({ language: 'en' }),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     tryGradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     ...over,
