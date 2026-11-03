@@ -1806,7 +1806,17 @@
           "stampYes": "Con sello",
           "stampNo": "Sin sello"
         },
-        "pricePending": "Precio pendiente"
+        "pricePending": "Precio pendiente",
+        "versionsErrorTitle": "No se cargaron las versiones",
+        "versionsError": "No pudimos cargar las versiones de esta carta: sin ellas no hay precio calculado ni versiones de liga. Si la carta es en español o de liga, reintenta antes de darla de alta.",
+        "versionsRetry": "Reintentar",
+        "attachErrorTitle": "No se pudo ligar la versión",
+        "attachError": {
+          "NOT_FOUND": "Esa versión ya no está entre las pendientes de ligar. Recarga las versiones para ver cómo quedó la carta.",
+          "STAMPED_PRODUCT_TAKEN": "Esa versión ya está ligada a una carta. Recarga las versiones para ver cómo quedó.",
+          "generic": "El servidor no respondió. Inténtalo de nuevo; si sigue, recarga las versiones."
+        },
+        "reloadVersions": "Recargar versiones"
       }
     },
     "m3": {

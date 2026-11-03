@@ -1806,7 +1806,17 @@
           "stampYes": "Stamped",
           "stampNo": "Not stamped"
         },
-        "pricePending": "Price pending"
+        "pricePending": "Price pending",
+        "versionsErrorTitle": "Versions didn't load",
+        "versionsError": "We couldn't load this card's versions: without them there is no calculated price and no league versions. If the card is Spanish or a league card, retry before adding it.",
+        "versionsRetry": "Retry",
+        "attachErrorTitle": "Couldn't link the version",
+        "attachError": {
+          "NOT_FOUND": "That version is no longer pending a link. Reload the versions to see how the card ended up.",
+          "STAMPED_PRODUCT_TAKEN": "That version is already linked to a card. Reload the versions to see how it ended up.",
+          "generic": "The server didn't respond. Try again; if it keeps failing, reload the versions."
+        },
+        "reloadVersions": "Reload versions"
       }
     },
     "m3": {
