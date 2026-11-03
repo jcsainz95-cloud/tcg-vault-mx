@@ -4,7 +4,7 @@
  *
  * FAIL-CLOSED: sin credenciales, con credenciales mal formadas o con cualquier error de la API, el adaptador devuelve
  * `{ ok: false }` y la tabla viaja `measured:false` con «NO MEDIDO — GA4 sin conectar» / «NO MEDIDO — Search Console sin
- * conectar». ⛔ Nunca «0». ⛔ Nunca se registra la llave, el token de acceso ni el cuerpo de la respuesta.
+ * conectar». ⛔ Nunca «0». ⛔ Nunca se registra la llave, el token de acceso ni el cuerpo de la respuesta; del error, solo su clase.
  *
  * Caché por `(fuente, consulta)` de 6 h (los periodos son cerrados). La red pasa por `GoogleReadPort`: las pruebas lo
  * sustituyen por un doble (⛔ no hay red a Google desde aquí ni desde CI).
@@ -14,6 +14,7 @@
  */
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { classifySourceError } from './marketing-source-error';
 
 export const GA4_READ_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
 export const SC_READ_SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
@@ -166,9 +167,10 @@ export class MarketingExternalSources {
     let value: SourceResult<T>;
     try {
       value = { ok: true, rows: await load() };
-    } catch {
-      // ⛔ Sin el mensaje (podría citar la URL o el cuerpo). El error no se cachea: la siguiente lectura reintenta.
-      this.logger.warn(`marketing: lectura externa fallida (${k.split('|')[0]})`);
+    } catch (err) {
+      // ⛔ Sin el mensaje (podría citar la URL, el sitio o el cuerpo): solo la CLASE, de lista cerrada
+      // (`marketing-source-error.ts`). El error no se cachea: la siguiente lectura reintenta.
+      this.logger.warn(`marketing: lectura externa fallida (${k.split('|')[0]}) ${classifySourceError(err)}`);
       return { ok: false };
     }
     this.cache.set(k, { at: now.getTime(), value });
