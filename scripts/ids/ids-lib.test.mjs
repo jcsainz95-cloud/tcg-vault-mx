@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   baseMatchKey, baseName, normalizeNumber, stampTypeOf, classifyCardProductKind, buildBaseIndex, dryRunGroup,
-  percentile, rowsPerBase, finishOf, isCosmos, matchGroupForSet,
+  percentile, rowsPerBase, finishOf, isCosmos, matchGroupForSet, numberFromProductName, catalogMatchKey, cardNumberOf,
 } from './ids-lib.mjs';
 
 test('número: ceros y total', () => {
@@ -66,13 +66,14 @@ test('acabado y Cosmos', () => {
 });
 
 test('corrida en seco: único, ambiguo, sin pareja, sin tipo, sin número; conPrecio solo > 0', () => {
+  // Errata v1.116.2: el lado del catálogo usa el número del nombre si trae total, si no Card.number/printedTotal.
   const idx = buildBaseIndex([
-    { groupId: 1, products: [{ productId: 10, name: 'Pikachu ex - 057/191', number: '057/191' }] },
-    { groupId: 2, products: [
-      { productId: 20, name: 'Psychic Energy', number: '013' },
+    { groupId: 1, printedTotal: 191, products: [{ productId: 10, name: 'Pikachu ex - 057/191', number: '057/191' }] },
+    { groupId: 2, printedTotal: 102, products: [
+      { productId: 20, name: 'Psychic Energy', number: '013/102' },
       { productId: 21, name: 'Quaquaval - 005 (Prerelease)', number: '005' }, // promo: fuera del universo
     ] },
-    { groupId: 3, products: [{ productId: 30, name: 'Psychic Energy', number: '013' }] },
+    { groupId: 3, printedTotal: 102, products: [{ productId: 30, name: 'Psychic Energy', number: '013/102' }] },
   ]);
   const prices = new Map([
     [100, [{ subTypeName: 'Holofoil', marketPrice: 26.39 }, { subTypeName: 'Normal', marketPrice: 0 }]],
@@ -80,7 +81,7 @@ test('corrida en seco: único, ambiguo, sin pareja, sin tipo, sin número; conPr
   ]);
   const { summary, detail } = dryRunGroup(1539, [
     { productId: 100, name: 'Pikachu ex - 057/191 (League Promo)', number: '057/191' },
-    { productId: 101, name: 'Psychic Energy - 013 (Pokemon League)', number: '013' },
+    { productId: 101, name: 'Psychic Energy - 013/102 (Pokemon League)', number: '013/102' },
     { productId: 102, name: 'Quaquaval - 005 (League Promo)', number: '005' },
     { productId: 103, name: 'Pikachu ex - 057/191', number: '057/191' },
     { productId: 104, name: 'Water Energy (2007-2008 League Promo)', number: null },
@@ -91,6 +92,48 @@ test('corrida en seco: único, ambiguo, sin pareja, sin tipo, sin número; conPr
   );
   assert.equal(detail.find((d) => d.productId === 100).baseProductId, 10);
   assert.deepEqual(detail.find((d) => d.productId === 100).finishes, ['holofoil', 'normal']);
+});
+
+test('errata v1.116.2: llave del catálogo (número del nombre con total; si no, Card.number/printedTotal)', () => {
+  assert.equal(numberFromProductName('Pikachu ex - 057/191'), '057/191');
+  assert.equal(numberFromProductName('Shelmet 11/101 (Championship Series) [Staff]'), '11/101');
+  assert.equal(numberFromProductName('Quaquaval - 005'), null); // sin total: no se lee del nombre
+  assert.equal(numberFromProductName('Porygon2'), null);
+  assert.equal(cardNumberOf('017/147'), '017');
+  assert.equal(cardNumberOf('17'), '17');
+  assert.equal(cardNumberOf(null), null);
+  // El nombre manda si trae total, aunque Card.number/printedTotal digan otra cosa.
+  assert.equal(catalogMatchKey({ name: 'Pikachu ex - 057/191', cardNumber: '99', printedTotal: 200 }), 'pikachuex|57/191');
+  // Sin número en el nombre ⇒ Card.number + '/' + printedTotal.
+  assert.equal(catalogMatchKey({ name: 'Butterfree FB', cardNumber: '17', printedTotal: 147 }), 'butterfreefb|17/147');
+  // Número SIN total en el nombre ⇒ también cae a Card.number/printedTotal.
+  assert.equal(catalogMatchKey({ name: 'Butterfree FB - 17', cardNumber: '17', printedTotal: 147 }), 'butterfreefb|17/147');
+  // Ninguno ⇒ null: nunca por un número sin total.
+  assert.equal(catalogMatchKey({ name: 'Butterfree FB - 17', cardNumber: '17', printedTotal: null }), null);
+  assert.equal(catalogMatchKey({ name: 'Butterfree FB', cardNumber: null, printedTotal: 147 }), null);
+});
+
+test('errata v1.116.2 en la corrida: la base DP/Platinum con número sin total empata por printedTotal; sin él, sinPareja', () => {
+  const src = [{ productId: 900, name: 'Butterfree FB - 17/147 (League Promo)', number: '017/147' }];
+  const con = buildBaseIndex([{ groupId: 7, printedTotal: 147, products: [{ productId: 70, name: 'Butterfree FB', number: '17' }] }]);
+  const sin = buildBaseIndex([{ groupId: 7, printedTotal: null, products: [{ productId: 70, name: 'Butterfree FB', number: '17' }] }]);
+  assert.equal(dryRunGroup(1539, src, new Map(), con).summary.colgados, 1);
+  assert.equal(dryRunGroup(1539, src, new Map(), sin).summary.sinPareja, 1);
+  // Mutación «empatar por el número sin total» (17 ≡ 17/147) ⇒ esta prueba tiene que ponerse roja.
+  assert.equal(con.has('butterfreefb|17'), false);
+});
+
+test('candidatos por CARTA, no por producto: dos productos de la misma carta no hacen ambiguo', () => {
+  const idx = buildBaseIndex([{ groupId: 8, printedTotal: 86, products: [
+    { productId: 80, name: 'Pikachu - 001/086', number: '001/086' },
+    { productId: 81, name: 'Pikachu - 001/086 (Poke Ball Pattern)', number: '001/086' },
+  ] }, { groupId: 9, printedTotal: 86, products: [{ productId: 90, name: 'Pikachu - 001/086', number: '001/086' }] }]);
+  const una = dryRunGroup(22880, [{ productId: 1, name: 'Pikachu - 001/086', number: '001/086' }], new Map(),
+    new Map([...idx].map(([k, v]) => [k, v.filter((c) => c.groupId === 8)])));
+  assert.equal(una.summary.colgados, 1);
+  assert.equal(una.detail[0].baseCardKey, '8:1');
+  const dos = dryRunGroup(22880, [{ productId: 1, name: 'Pikachu - 001/086', number: '001/086' }], new Map(), idx);
+  assert.equal(dos.summary.ambiguos, 1); // dos cartas (grupos 8 y 9) ⇒ ambiguo
 });
 
 test('filas por carta y percentil nearest-rank', () => {

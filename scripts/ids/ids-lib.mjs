@@ -1,5 +1,6 @@
 // scripts/ids/ids-lib.mjs — funciones PURAS de la corrida en seco IDS-D1/IDS-D2 (API_CONTRACT §IDS.3).   · devops
 //
+// Alineado con la errata v1.116.2 (llave del lado del catálogo: `catalogMatchKey`) el 2026-11-03.
 // ⚠️ Es un INSTRUMENTO de medición, no el código de producción. La regla que manda es la de
 // API_CONTRACT §IDS.3; backend la implementa en `price-ingest` (paso stamped). Aquí se replica para medir
 // ANTES de construir, y cada decisión de lectura que el contrato deja abierta va marcada «LECTURA DEVOPS»:
@@ -99,21 +100,66 @@ export function stampTypeOf(groupId, name) {
 
 export const isCosmos = (name) => /cosmos\s*holo/i.test(String(name ?? ''));
 
-/** Índice del universo base: key ⇒ [{productId, groupId}] con los productos set_base|other. */
+/** Número COMPLETO (con total) al final del nombre, con o sin guion («Pikachu ex - 057/191», «Shelmet 11/101»), o null.
+ *  Réplica de `numberFromProductName` (backend/src/common/card-version.ts): «- 005» (sin total) NO se lee del nombre. */
+export function numberFromProductName(name) {
+  const s = String(name ?? '').replace(/[([][^)\]]*[)\]]/g, ' ').replace(/\s+/g, ' ').trim();
+  const m = /\s*-?\s*([A-Za-z]{0,6}\d+[A-Za-z]?\s*\/\s*[A-Za-z]{0,6}\d+[A-Za-z]?)\s*$/.exec(s);
+  return m ? m[1].replace(/\s+/g, '') : null;
+}
+
+/**
+ * Llave del LADO DEL CATÁLOGO (errata v1.116.2, API_CONTRACT §IDS.3; réplica de `catalogMatchKey` de card-version.ts):
+ * el número del NOMBRE del producto solo si trae total; si no, `Card.number` + '/' + `CardSet.printedTotal`; ninguno ⇒ null.
+ * ⛔ Nunca por un número sin total.
+ */
+export function catalogMatchKey({ name, cardNumber, printedTotal }) {
+  const fromName = numberFromProductName(name);
+  if (fromName) return baseMatchKey(name, fromName);
+  if (cardNumber && printedTotal != null && printedTotal > 0) return baseMatchKey(name, `${cardNumber}/${printedTotal}`);
+  return null;
+}
+
+/**
+ * `Card.number` que tendría en el catálogo el producto TCGCSV: la parte de su `Number` antes del «/» («017/147» ⇒ «017»;
+ * «17» ⇒ «17»). LECTURA DEVOPS: el instrumento no tiene la tabla Card; pokemontcg.io numera igual salvo ceros, que
+ * `normalizeNumber` iguala. Sin `Number` ⇒ null.
+ */
+export const cardNumberOf = (number) => {
+  const s = String(number ?? '').trim();
+  return s === '' ? null : s.split('/')[0].trim() || null;
+};
+
+/**
+ * Índice del universo base (lado del catálogo): key ⇒ [{productId, groupId, cardKey}] con los productos set_base|other.
+ * `groups[i].printedTotal` = `CardSet.printedTotal` del set de pokemontcg.io que la escalera empata con ese grupo (o null).
+ * `cardKey` aproxima `Card.id` (grupo + número normalizado): el backend cuenta CARTAS distintas por llave, no productos
+ * (`buildCatalogIndex`: key ⇒ Set<cardId>), así que dos productos de la misma carta (p. ej. «(Poke Ball Pattern)») no
+ * hacen ambiguo. LECTURA DEVOPS: el instrumento no tiene `CardProduct.cardId`.
+ */
 export function buildBaseIndex(groups) {
   const idx = new Map();
-  for (const { groupId, products } of groups) {
+  for (const { groupId, products, printedTotal = null } of groups) {
     for (const p of products) {
       const kind = classifyCardProductKind(p.name);
       if (kind !== 'set_base' && kind !== 'other') continue;
-      const k = baseMatchKey(p.name, p.number);
+      const cardNumber = cardNumberOf(p.number);
+      const k = catalogMatchKey({ name: p.name, cardNumber, printedTotal });
       if (k == null) continue;
+      const cardKey = cardNumber != null ? `${groupId}:${normalizeNumber(cardNumber)}` : `${groupId}:p${p.productId}`;
       const list = idx.get(k) ?? [];
-      list.push({ productId: p.productId, groupId });
+      list.push({ productId: p.productId, groupId, cardKey });
       idx.set(k, list);
     }
   }
   return idx;
+}
+
+/** Candidatos distintos por carta (como el backend), conservando el primer producto de cada una. */
+export function distinctCards(cands) {
+  const seen = new Map();
+  for (const c of cands) if (!seen.has(c.cardKey ?? c.productId)) seen.set(c.cardKey ?? c.productId, c);
+  return [...seen.values()];
 }
 
 /**
@@ -129,7 +175,7 @@ export function dryRunGroup(groupId, products, pricesByProduct, baseIndex) {
     if (key == null) { out.sinNumero += 1; detail.push({ ...p, result: 'sinNumero' }); continue; }
     const type = stampTypeOf(groupId, p.name);
     if (type == null) { out.sinTipo += 1; detail.push({ ...p, key, result: 'sinTipo' }); continue; }
-    const cands = baseIndex.get(key) ?? [];
+    const cands = distinctCards(baseIndex.get(key) ?? []);
     const rows = pricesByProduct.get(p.productId) ?? [];
     const finishes = [...new Set(rows.map((r) => finishOf(r.subTypeName)).filter(Boolean))];
     const priced = rows.filter((r) => finishOf(r.subTypeName) && r.marketPrice != null && r.marketPrice > 0).length;
@@ -137,7 +183,7 @@ export function dryRunGroup(groupId, products, pricesByProduct, baseIndex) {
     if (cands.length === 1) {
       out.colgados += 1;
       out.conPrecio += priced;
-      detail.push({ ...base, result: 'colgado', baseProductId: cands[0].productId });
+      detail.push({ ...base, result: 'colgado', baseProductId: cands[0].productId, baseCardKey: cands[0].cardKey });
     } else if (cands.length >= 2) {
       out.ambiguos += 1;
       detail.push({ ...base, result: 'ambiguo' });
@@ -198,7 +244,8 @@ export function rowsPerBase(detailRows) {
   const m = new Map();
   for (const d of detailRows) {
     if (d.result !== 'colgado') continue;
-    m.set(d.baseProductId, (m.get(d.baseProductId) ?? 0) + Math.max(d.finishes.length, 0));
+    const k = d.baseCardKey ?? d.baseProductId; // por carta, como la ficha (D-IDS-O)
+    m.set(k, (m.get(k) ?? 0) + Math.max(d.finishes.length, 0));
   }
   return m;
 }

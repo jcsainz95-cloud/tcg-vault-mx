@@ -56,14 +56,23 @@ const count = (arr, f) => arr.reduce((m, x) => { const k = f(x); m[k] = (m[k] ??
 
 const lastUpdated = await fetch('https://tcgcsv.com/last-updated.txt', { headers: HEADERS }).then((r) => r.text()).catch(() => 'NO LEÍDO');
 const groups = await cached('groups.json', async () => (await getJson(`${BASE}/groups`)).results.map((g) => ({ groupId: g.groupId, name: g.name })));
-const ptcgSets = await cached('ptcg-sets.json', async () => (await getJson(PTCG_SETS)).map((s) => ({ id: s.id, name: s.name })));
+const ptcgSets = await cached('ptcg-sets-v2.json', async () => (await getJson(PTCG_SETS)).map((s) => ({ id: s.id, name: s.name, printedTotal: s.printedTotal ?? null })));
 const groupName = new Map(groups.map((g) => [g.groupId, g.name]));
+const setToGroup = new Map(ptcgSets.map((s) => [s.id, matchGroupForSet(s.name, groups)]));
+// CardSet.printedTotal por grupo (errata v1.116.2, lado del catálogo): el del set de pokemontcg.io que la escalera empata con
+// el grupo; si dos sets con totales distintos caen en el mismo grupo, null (no se adivina).
+const totalsByGroup = new Map();
+for (const s of ptcgSets) {
+  const g = setToGroup.get(s.id);
+  if (g == null) continue;
+  totalsByGroup.set(g, [...(totalsByGroup.get(g) ?? []), s.printedTotal]);
+}
+const printedTotalOf = (g) => { const t = [...new Set(totalsByGroup.get(g) ?? [])]; return t.length === 1 ? t[0] : null; };
 const baseGroups = [];
 for (const g of groups) {
   if (STAMPED_SOURCE_GROUPS.includes(g.groupId)) continue;
-  baseGroups.push({ groupId: g.groupId, name: g.name, products: await products(g.groupId) });
+  baseGroups.push({ groupId: g.groupId, name: g.name, printedTotal: printedTotalOf(g.groupId), products: await products(g.groupId) });
 }
-const setToGroup = new Map(ptcgSets.map((s) => [s.id, matchGroupForSet(s.name, groups)]));
 const catalogGroupIds = new Set([...setToGroup.values()].filter((g) => g != null && !STAMPED_SOURCE_GROUPS.includes(g)));
 const universes = {
   A: buildBaseIndex(baseGroups),
@@ -72,6 +81,8 @@ const universes = {
 const report = {
   tcgcsvLastUpdated: lastUpdated.trim(), grupos: groups.length, gruposBaseA: baseGroups.length,
   setsPokemontcgio: ptcgSets.length, setsConGrupo: [...setToGroup.values()].filter((g) => g != null).length, gruposBaseB: catalogGroupIds.size,
+  gruposConPrintedTotal: baseGroups.filter((g) => g.printedTotal != null).length,
+  gruposConTotalAmbiguo: [...totalsByGroup.entries()].filter(([, t]) => new Set(t).size > 1).map(([g]) => g),
   promosEnCatalogoB: Object.fromEntries(PROMO_STAMP_GROUPS.map((g) => [g, [...setToGroup.entries()].filter(([, v]) => v === g).map(([k]) => k)])),
   universos: {},
 };
@@ -104,8 +115,8 @@ for (const [U, index] of Object.entries(universes)) {
     cartasConLiga: vals.length, max: Math.max(...vals), p90: percentile(vals, 90), p50: percentile(vals, 50),
     masDe4: vals.filter((v) => v > 4).length, distribucion: count(vals, (v) => v),
     peores: [...per.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([b, n]) => ({
-      baseProductId: b, filas: n,
-      productos: all.filter((d) => d.result === 'colgado' && d.baseProductId === b).map((d) => `${d.productId} ${d.name} [${d.finishes.join(',')}]`),
+      carta: b, baseProductId: all.find((d) => d.result === 'colgado' && (d.baseCardKey ?? d.baseProductId) === b)?.baseProductId, filas: n,
+      productos: all.filter((d) => d.result === 'colgado' && (d.baseCardKey ?? d.baseProductId) === b).map((d) => `${d.productId} ${d.name} [${d.finishes.join(',')}]`),
     })),
   };
   report.universos[U] = { runs, filasLigaPorCarta: filas };

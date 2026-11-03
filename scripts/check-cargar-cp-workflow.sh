@@ -12,6 +12,7 @@
 #   [F] el pin del archivo (`check-sepomex-pin.sh`) corre antes de «Ejecutar»
 #   [G] el script: siempre `--strict`, nunca `--allow-shrink`, enmascara antes de exportar/correr, URL solo del
 #       entorno, sin `set -x` y sin imprimir la URL
+#   [H] todo `uses:` fijado por sha de 40 hex, nunca por etiqueta (TL-CHK-8)
 # Los comentarios no cuentan (documentar el porqué no lo pone rojo). Canario: check-cargar-cp-workflow-canary.sh.
 # Uso: ./scripts/check-cargar-cp-workflow.sh [--root DIR]      DEVOPS_NOTES §107.
 # =============================================================================
@@ -94,5 +95,11 @@ if [ -z "$mask_l" ] || [ -z "$exp_l" ] || [ -z "$run_l" ] || [ "$mask_l" -gt "$e
   bad G "el enmascarado (::add-mask::) no va antes de exportar DATABASE_URL y de correr el importador"
 fi
 
+# [H] acciones fijadas por sha (TL-CHK-8): una etiqueta móvil es una decisión que toma un tercero.
+while IFS= read -r u; do
+  [ -n "$u" ] || continue
+  printf '%s' "$u" | grep -E '@[0-9a-f]{40}[[:space:]]*$' >/dev/null || bad H "acción sin sha de 40 hex: «$(printf '%s' "$u" | sed -E 's/^[[:space:]]*-?[[:space:]]*//')»"
+done <<< "$(printf '%s\n' "$wf" | grep -E '^[[:space:]]*-?[[:space:]]*uses:')"
+
 if [ "$FALLOS" -ne 0 ]; then printf 'check-cargar-cp-workflow: ROJO (%s)\n' "$FALLOS"; exit 1; fi
-echo "check-cargar-cp-workflow: VERDE (A–G)"
+echo "check-cargar-cp-workflow: VERDE (A–H)"
