@@ -6,6 +6,19 @@
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46; 2026-10-31: §MKT tienda §A3/§A4/§E1
 > plegado en §MKT-OLA2); cada pase que añade quita más de lo que añade.
 
+## §CHK-FRICCION · Checkout con menos fricción (2026-11-02, rama `claude/checkout-friccion`, base `dbeb6111`)
+
+Fuentes: QA de marketing 2026-11-02 (A, B); HECHOS 2026-11-02 «Checkout con menos captura: paquete A…» (C–F); API_CONTRACT v1.116 §MKT.H.4 y §4-G.9c (G, H). Mutaciones N=3 sobre copia entera (`git archive`), proporciones en el informe de entrega.
+- **A · carrito en la cabecera < lg:** `StorefrontHeader` pinta un enlace icono (`ShoppingBag` 20/1.5) + contador, `h-11 min-w-11`, `aria-label` `nav.cartAria` con la cantidad, oculto en lg y en `/buylist` (P-28). Alto 44 = el de la mira: la cabecera no crece. Candados: `StorefrontHeader.test.tsx`, `e2e/header-cart-mobile.spec.ts` (≥ 44 px, cabecera ≤ 77, sin desborde a 360/390/414).
+- **B · «Revisa los datos…»:** ya no es un `payError` de estado; bandera del intento que solo se pinta con el formulario inválido y se apaga al quedar válido (`GuestCheckoutFormIncomplete.test.tsx`, escritorio y móvil).
+- **C · alta de dirección prellenada:** `accountAddressDefaults(user)` (nombre solo si `nameSource !== 'derived'`; teléfono de la cuenta) en «Mi cuenta» y en el retiro (`GET /users/me`); si la cuenta llega tarde, rehidrata el alta solo si sigue sin tocar.
+- **D · autocompletado:** `<form>` que no navega en el invitado (`guest-form`) y en `AddressFormFields`; `autocomplete` con sección `shipping` en nombre, calle, interior, CP, colonia (también el `select`), municipio, estado y teléfono. Sin `country` oculto: un `type=hidden` no lo rellena el navegador.
+- **E · Stripe:** `StripePaymentModal` → `PaymentElement options.defaultValues.billingDetails` (correo y nombre; vacíos no viajan). Con cuenta en `/checkout`; invitado, lo capturado. El retiro (`ShipmentsView`) no lo pasa todavía.
+- **F · reclamo:** la confirmación del invitado prellena también el nombre del registro (`defaultName`).
+- **G · medición del pago (C-F11):** `begin_checkout` en `pay()` tras las guardas y antes de la sesión (una vez por cotización); `add_payment_info` tras `setSession`, una vez por PI, `value` = total de la sesión; `EVENT_PARAMS.add_payment_info` = items/value/currency. `CheckoutPaymentMeasurement.test.tsx`.
+- **H · CLM-F1:** `addressesSaved > 0` en `POST /orders/claim` invalida `['addresses']` (confirmación del invitado y aviso de reclamables).
+- **I · CLM-F2 (v1.116.1, PT-CHK-1):** `orders.claimable.body`/`vault.claimable.body` es/en = literales de DESIGN_SYSTEM §4.47.4 (se guarda la dirección de los pedidos pagados; fuera «No cambia nada del pedido»); `mockClaimableOrders` solo cobrados (`settledAt`). Candado: `ClaimableOrdersNotice.test.tsx` «CLM-F2».
+
 ## §MKT-CONV8 · Catálogo móvil con ≥ 2 tejas y ficha lg con la compra arriba (vMKT-CONV-2, 2026-10-31, rama `claude/mkt2-fe-layout`, base `8c66a844`)
 
 Fuente: DESIGN_SYSTEM §MKT-CONV.2 (lg) y §MKT-CONV.8; PROJECT 943. Medido en stack propio (`up --gate --measurement --seed`, :3190/:3199), seed sintético, banner abierto.

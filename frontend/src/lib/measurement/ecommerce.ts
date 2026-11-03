@@ -37,7 +37,10 @@ export function trackPurchase(orderId: string, breakdown: BreakdownDTO, items: r
   );
 }
 
-/** `begin_checkout`: cotización recibida. Misma barrera que `trackPurchase` (TL-MKT2b-a). */
+/**
+ * `begin_checkout` (v1.116, C-F11): al PULSAR PAGAR, tras las guardas locales y antes de pedir la sesión; datos de la
+ * cotización vigente. ⛔ Ya no al recibir la cotización. Misma barrera que `trackPurchase` (TL-MKT2b-a).
+ */
 export function trackBeginCheckout(breakdown: BreakdownDTO, items: readonly OrderItemPreview[] | undefined): void {
   if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE !== 'on') return;
   neverThrow(undefined, () => {
@@ -50,4 +53,20 @@ export function trackBeginCheckout(breakdown: BreakdownDTO, items: readonly Orde
       ...(typeof breakdown.shippingFeeCents === 'number' ? { shipping_cents: breakdown.shippingFeeCents } : {}),
     });
   });
+}
+
+/**
+ * `add_payment_info` (v1.116, C-F11): la sesión respondió con `clientSecret` y se abre el modal de Stripe. `value` =
+ * total de la SESIÓN (lo que cobra el modal), `items` de la cotización. ⛔ Sin `payment_type`: el método aún no se
+ * eligió. Quien llama garantiza «una vez por `paymentIntentId`». Misma barrera que `trackPurchase`.
+ */
+export function trackAddPaymentInfo(sessionBreakdown: BreakdownDTO, items: readonly OrderItemPreview[] | undefined): void {
+  if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE !== 'on') return;
+  neverThrow(undefined, () =>
+    track('add_payment_info', {
+      items: itemsFromQuote(items),
+      value: centsToValue(sessionBreakdown.totalCents),
+      currency: 'MXN',
+    }),
+  );
 }

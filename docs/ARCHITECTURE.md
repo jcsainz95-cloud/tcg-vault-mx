@@ -4,6 +4,8 @@
 > Manda `PROJECT.md` sobre este documento, y este documento sobre el código.
 >
 > ---
+> **Errata v1.116.1⟨checkout-friccion⟩ (2026-11-02).** §4.47.4: a la libreta solo la dirección de un pedido cobrado, nunca predeterminada; el aviso solo lista cobrados; candado de la libreta también en las altas del cliente; §9 `D-CLM-55` (PT-CHK-1/2/3) y `D-CLM-56` · pentester (`f2e1de9c`).
+> **Rev v1.116⟨checkout-friccion⟩ (2026-11-02).** §4.47.4: la dirección del invitado pasa a la libreta al ganar el reclamo (sin migración); §14.5: `begin_checkout` al pulsar PAGAR y `add_payment_info` al abrir el modal de Stripe; §14.9: pagos iniciados/pagados de BD (a6); §9 `D-CLM-54`, `D-MKT-BC`; compactadas las cabeceras C7 v1.80.1.1 y ⟨dinero⟩ v1.80.2.2 · dueño (`HECHOS.md` 2026-11-02 «Checkout con menos captura: paquete A…» (3)), QA de marketing. Contrato: API_CONTRACT §4-G.9c, §MKT.H.4, §MKT.G.4 a6.
 > **Rev v1.115⟨mkt-conv2⟩ (2026-10-31).** §13.8 NUEVA (sellado agotado por grupo, `Offer` agotado sin precio, correo público, canonical paginado); §4.DYN (f) 2 regla de la respuesta tardía, (f) 3 corregido (el HTML no tiene cota de edad), (f) 9 dato servidor→cliente con su edad; §14.4 `/nosotros` excluida; compactadas las cabeceras C7/P-71 · frontend (§MKT-CONV2), techlead (TL-MKT2-7/8, TL-MKT4-3). Contrato: API_CONTRACT §MKT.A.1.
 > **Errata v1.114.5⟨portada⟩ (2026-10-30).** §4.DYN (f) 7: el residual de PEN-DYN-1 (scrydex da 200 genérico a cualquier id con la forma) se **acepta** con alerta de gasto, lectura a 7 días con caducidad y candado, e interruptor que cierra `/_next/image` a orígenes remotos; el proxy con lista de ids queda como opción (b) con disparador · QA (rechazo sobre `d0b40182`), frontend (medición del residual), pentester. Contrato: API_CONTRACT §DYN.1 «Limpieza PDB», DYN-D2.
 > **Errata v1.114.4⟨portada⟩ (2026-10-30).** §4.DYN (d) 4: un solo turno PSA vivo (candado consultivo; la segunda corrida sale sin pedir nada) y relectura de lo gastado antes de cada set; §4.DYN (e): «empezó después» con el reloj de la BD y retención de `ListingPriceRun` · techlead (rechazo sobre `d0b40182`: R2, TL-DYN-6/7/10). Contrato: API_CONTRACT §DYN.4.3, §DYN.5.3/.9/.10, DYN-B27…B31, D-DYN-10.
@@ -89,22 +91,8 @@
 > ---
 > *(Frente `claude/paquete-seguridad` — C7. Sus «Rev v1.80» y «Rev v1.80.1» son **⟨C7⟩**.)*
 >
-> **Errata v1.80.1.1 — C7 CONSTRUIDO: EL DOCUMENTO SE IGUALA A LO MEDIDO POR BACKEND** (2026-09-29, arquitecto. Base:
-> **v1.80.1, vigente entera salvo lo que esta errata toca**. Origen: `BACKEND_NOTES` «C7 rev v1.80.1 … 2026-09-29»,
-> §4 «Decisiones que el contrato no fijaba» y §5 «Discrepancias con el contrato». `API_CONTRACT` sube a **v1.80.1.1**.
-> ⛔ **Sin schema, sin migración, sin variable de entorno nueva, sin cambio de frontend, y ⛔ sin trabajo nuevo de
-> backend:** en los cinco puntos lo construido es lo correcto y el documento se corrige. Razón por punto: **§4.57.10.4**.)
->
-> | # | Qué cambia | Dónde | ¿Toca código? |
-> |---|---|---|---|
-> | **1** | `C7-20`: 7 × 4 = 28, no 29. La prueba usa **8** `jti` (4 × 7 + 1 = 29) y el contrato ahora lo dice | `API_CONTRACT §1` | **No** |
-> | **2** | **`change-password` NO limpia el agregado `auth-pwdevagg`** (sí cuenta + `auth-cp`). Las tres filas que se contradecían quedan iguales | §4.57.2 #7/#14, §4.57.3, §4.57.10.1 (b), `API_CONTRACT §1` | **No** (es lo construido) |
-> | **3** | `C7-23`: 6 fallos seguidos dejan `f = 5` (el 6.º no cuenta); la fila ya no exige un `f` concreto | `API_CONTRACT §1` | **No** |
-> | **4** | Cinco decisiones de backend **aceptadas y normadas**: `sid` interno (no en el objeto de `issueTokens`); refresh sin `sid` ni `iat` numérico ⇒ `401`; lo pendiente se entrega una vez y vuelve si falla; **sin barrido de fondo** para claves huérfanas (con disparador); el guard rechaza **cualquier `typ`** | §4.57.4, §4.57.5, §4.57.10.4, `API_CONTRACT §0` «Auth» | **No** |
-> | **5** | `D-C7-2/3/4` cerradas por backend (`d1fbbf8` / `668b6f8` / `ff3ecc4`; pendiente re-medición de QA/seguridad). `SEC-C7-RT` cerrada entera: secretos JWT iguales ⇒ arranque rechazado en todo entorno + guard estricto (`3c03f36`) | §4.57.8, §8, §9 | **No** |
->
-> ---
-> **Revisiones v1.80⟨C7⟩, v1.80.1⟨C7⟩ y v1.80⟨P-71⟩ compactadas en v1.115 (una línea cada una; norma en su sección, historia en git):**
+> **Revisiones v1.80⟨C7⟩, v1.80.1⟨C7⟩, v1.80.1.1⟨C7⟩ y v1.80⟨P-71⟩ compactadas en v1.115/v1.116 (una línea cada una; norma en su sección, historia en git):**
+> - v1.80.1.1⟨C7⟩ · 2026-09-29 · el documento se iguala a lo construido (`C7-20` = 29 con 8 `jti`, `change-password` no limpia `auth-pwdevagg`, `C7-23` sin `f` concreto, cinco decisiones de backend normadas, `D-C7-2/3/4` y `SEC-C7-RT` cerradas); sin código · **§4.57.10.4**, `API_CONTRACT §1` · backend.
 > - v1.80.1⟨C7⟩ · 2026-09-29 · `jti` del `deviceToken` = `sid` de la sesión, tope agregado 30/24 h por cuenta, memoria que se repone tras Redis, el script de rescate levanta el candado, `C7-19…C7-23` · **§4.57.10**, `API_CONTRACT §1` · seguridad (`SEC-C7-MINT/SCRIPT/RDEG`), QA.
 > - v1.80⟨C7⟩ · 2026-09-28 · límite de intentos por cuenta (HMAC del correo, 5 libres, candado 1→60 min, `429 TOO_MANY_PASSWORD_ATTEMPTS`), dispositivo conocido, Redis con respaldo en memoria · **§4.57.2–.5** · seguridad (`P-RL-1`).
 > - v1.80⟨P-71⟩ · 2026-09-28 · `CardSet.ptcgoCode` en seis DTOs y «Buscar set» por nombre o código · **§4.57 (P-71) .1–.6** · ux-ui (`DESIGN_SYSTEM §37.3`).
@@ -113,14 +101,7 @@
 > *(Frente `claude/paquete-dinero`. Sus «Rev v1.80», «v1.80.1» y «v1.80.2» son **⟨dinero⟩**; v1.80.2.1 y v1.80.2.3 no
 > tienen fila de cabecera aquí — ver `API_CONTRACT` y §4.50 / §9 `INV-P2`.)*
 >
-> **Rev v1.80.2.2 — ERRATA: DOS DECISIONES DEL TECHLEAD SOBRE `a3cde51` (2026-09-29, arquitecto. Base: **v1.80.2.1,
-> vigente entera salvo lo que esta errata toca**. `API_CONTRACT` sube a **v1.80.2.2**. ⛔ Sin schema, sin migración, sin
-> endpoint, sin campo, sin código de error.)**
->
-> | # | Qué cambia | Dónde | ¿Toca código? |
-> |---|---|---|---|
-> | **1** | **D-3:** la vitrina y el composer dejan de copiar a mano el peldaño 1 del bounty y **consumen `quoteAcquisitionWithGuard`**; BC-9 se redacta en tres partes (tope único, compositor único, publicado == pagado por valor). La línea «tres llamadores» de v1.80 queda como historia: el tope tiene **un** llamador (`quoteAcquisitionFromCurve`) | §4.36.6e (fila nueva), §4.50.6 (D-BC-1) | **Sí, backend (pequeño)** |
-> | **2** | **D-5 / SEC-DIN-1:** el export `.xlsx` de inventario es el **séptimo** lector de patrimonio; entra a SK-5 ahora (no es deuda) | §4.50.1-bis (nota), §4.50.6 (D-SK-4) | **Sí, backend (pequeño)** |
+> - v1.80.2.2⟨dinero⟩ · 2026-09-29 · techlead sobre `a3cde51`: vitrina y composer consumen `quoteAcquisitionWithGuard` (el tope tiene un llamador, BC-9 en tres partes); el export `.xlsx` es el séptimo lector de patrimonio (SK-5) · **§4.36.6e**, **§4.50.1-bis**, §4.50.6 (D-BC-1, D-SK-4); detalle compactado en v1.116 (git).
 >
 > ---
 > **Rev v1.80.2 — DINERO: EL GUARDARRAÍL PREMIUM VUELVE A MORDER CUANDO EL BOUNTY SE TOPA CONTRA UN MERCADO ROTO**
@@ -24255,6 +24236,14 @@ responde `422 PASSWORD_NOT_SET` si aun así lo llaman.
   `shipments` snapshot y 422 + M4 render) y **B no entra a `shipments` ni a `(admin)/admin/m4` hasta que aterrice**
   en `main`. Es el único cruce de módulos del stream y está acotado a: `shipments.service.ts` (`create`, `quote`,
   `withAdminKind` sin cambio), `shipments.dto` (ninguno), `M4View.tsx`.
+- **De la compra de invitado a la libreta (v1.116, `HECHOS.md` 2026-11-02 «…paquete A…» (3); norma: API_CONTRACT §4-G.9c).** Se guarda
+  **al ganar el reclamo**, no al crear la cuenta: es el único momento con prueba de que el buzón del pedido es de quien abre la cuenta
+  (§4-G.9), así que la regla de privacidad sale gratis. Va dentro de `OrderClaimService.claim`, best-effort tras el `updateMany`, y llama a
+  un alta interna de `UsersService` (⛔ `orders` no escribe `Address`). Duplicado por **lugar** (CP, calle, interior, colonia): gana la del cliente.
+  **v1.116.1 (PT-CHK-1):** el correo verificado prueba el buzón, **no** el domicilio: un anónimo puede crear un pedido con el correo ajeno y su
+  dirección, y el reclamo la importaba (predeterminada si la libreta estaba vacía). Por eso solo pasa la de un pedido **cobrado** (`settled`; plantar
+  exige pagar y recibir la mercancía en su casa), **nunca predeterminada** (el checkout ya autoselecciona `addresses[0]`), y el aviso solo lista
+  cobrados y dice que guarda la dirección. Sin índice único: candado consultivo por usuario, también en las altas del cliente ⇒ **sin migración**.
 
 #### 4.47.5 El nombre que Google no mandó — `User.nameSource` (P-73-A)
 
@@ -31845,6 +31834,9 @@ Riesgos técnicos:
 
 ## 9. Desviaciones detectadas
 
+> **`D-CLM-54` (🔴 ABIERTA, v1.116, leída 2026-11-02):** `PROJECT.md:10834-10836` (criterio 54, reclamo) no recoge la dirección a la libreta (`HECHOS.md` 2026-11-02 (3)); no la contradice (no cambia destino, precio ni políticas). **Lo corrige product-owner** (criterio nuevo o ampliado); lo vigilan CLM-A1/A5 (API_CONTRACT §4-G.9c). Construido en `f2e1de9c` (leído 2026-11-02: `order-claim.service.ts:121-167`); el criterio debe decir además «solo pedidos cobrados, nunca predeterminada» (v1.116.1).
+> **`D-CLM-55` (🔴 ABIERTA, PT-CHK-1/2/3, leída 2026-11-02 sobre `f2e1de9c`):** `order-claim.service.ts:57` (`listClaimable`) y `:157-166` (`claimedAddresses`) no filtran por cobro; `users.service.ts:352` pone `isDefault = libreta vacía`; `createAddress` (`:298-316`) y `updateAddress` (`:442-445`) escriben sin transacción ni candado; `frontend/messages/es.json:1219` dice «No cambia nada del pedido». **Lo corrigen backend (servicios) y frontend (copy con el literal de ux-ui)**; lo vigilan CLM-A8…A13 y CLM-F2 (API_CONTRACT §4-G.9c). **`D-CLM-56` (riesgo aceptado por diseño, NO MEDIDO):** pedido reclamado **antes** de cobrarse (confirmación con cuenta Google, si el webhook llega tarde) no guarda dirección nunca; se mide con los pedidos `guestEmail ≠ null ∧ claimedAt < settledAt` sin `AuditLog address.create_from_claim`; si no son ~0, se diseña el guardado al cobrar (toca `payments`: pasa por el arquitecto).
+> **`D-MKT-BC` (🔴 ABIERTA, v1.116, leída 2026-11-02):** `begin_checkout` sale al recibir la cotización (`CheckoutView.tsx:135-144`, `GuestCheckoutView.tsx:173-181`) y `add_payment_info` no tiene llamador (`track.ts:25,38,52` lo declara). **La corrige frontend**; la vigila C-F11 (API_CONTRACT §MKT.H.11).
 > **`D-DYN-1…3` (🔴 ABIERTAS, leídas 2026-10-29 sobre `cfc0332b`):** nonce de CSP que no llega a los `<script>`, `PROJECT §X.1`
 > y §X.2 contra `HECHOS` 2026-10-29 «se cobra lo que se ve», y `PROJECT §DYN.2` «§R». Dueño, prueba y detalle: **solo** en `API_CONTRACT §DYN.8`.
 > **`D-DYN-5` (🔴 ABIERTA, 💰, leída 2026-10-29 sobre `9ae27b49`; diseñada en v1.114, falta construir):** con caso `open` el precio de
@@ -36969,16 +36961,16 @@ visitantes, y antes de la elección no se escribe nada en el dispositivo.
 
 ### 14.5 Eventos del navegador (§B2) y sus desvíos
 
-Un único `track(evento, params)` con **lista cerrada de parámetros por evento** (API_CONTRACT §MKT.H.4). Se aparta del brief en dos
-eventos, porque su página está excluida (§14.4):
+Un único `track(evento, params)` con **lista cerrada de parámetros por evento** (API_CONTRACT §MKT.H.4). Se aparta del brief en cuatro
+eventos (los dos primeros porque su página está excluida, §14.4; los dos de pago por su momento):
 
 | Evento | Brief | Aquí | Por qué |
 |---|---|---|---|
 | `purchase` | página de gracias **y** servidor | navegador: en el checkout, cuando `confirmPayment` vuelve con `succeeded` sin redirección; servidor: siempre (§14.6) | la página de gracias es `/pedido?token=` (invitado) u `/orders` (cuenta): excluidas. Con 3DS que redirige, solo cuenta el servidor |
 | `generate_lead` | al enviar la solicitud | solo servidor | el formulario de venta lleva CLABE e INE (§D2.1 lo excluye) |
+| `begin_checkout` / `add_payment_info` (v1.116) | cotización recibida / elegir método | pulsar PAGAR / abrir el modal de Stripe (API_CONTRACT §MKT.H.4) | el «Carrito» de la cabecera abre `/checkout` y la cotización llega sola: `begin_checkout` contaba aperturas del carrito (QA de marketing, 2-nov); el método se elige dentro del Payment Element, que la tienda no ve |
 
-El resto (`view_item`, `select_content`, `buy_button_visible`, `add_to_cart`, `begin_checkout`, `add_payment_info`,
-`click_contact`) como el brief. `search` con `results_count` (Panel c6) sin el término. `page_view` va **solo a GA4**: el píxel
+El resto (`view_item`, `select_content`, `buy_button_visible`, `add_to_cart`, `click_contact`) como el brief. `search` con `results_count` (Panel c6) sin el término. `page_view` va **solo a GA4**: el píxel
 no manda `PageView` (Meta casa la compra por `event_id`, y una visita por página es justo la audiencia que no se quiere).
 
 **D-MKT2-7 (v1.106) — un producto, un `item_id`, en navegador y servidor** (forma y casos: API_CONTRACT §MKT.H.4). GA4 guarda 14
@@ -37075,6 +37067,7 @@ Norma de cada tabla (motivos, consultas de GA4, cobertura): API_CONTRACT §MKT.H
   registrarlas en la consola, que es configuración fuera del repositorio (la razón de §14.2). Lo que no sale con estándar
   queda `measured:false` con motivo propio; ⛔ nunca «0». Celdas pequeñas y §MKT.G.10 también en las tablas de GA4.
 - **Search Console no depende del aviso** (no toca al visitante): e1 se enciende en cuanto el dueño dé acceso.
+- **a6 (v1.116) — pagos sin cookies:** se cuentan las filas `Order` con `PaymentIntent` (una por PAGAR que llegó a cobro) y, de esas, las pagadas; no hace falta tabla ni evento nuevo (el webhook ya escribe `settledAt`). Cohorte por fecha de creación para que «de esos» sea una proporción honesta. ⛔ No se manda a GA4/Meta desde el servidor: el aviso aprobado solo declara compras y solicitudes (§14.10).
 
 ### 14.10 Decisiones del dueño y preguntas abiertas
 

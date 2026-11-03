@@ -137,7 +137,10 @@ test.describe('cuenta · contraseña temporal bloqueante (§33.8) · cliente', (
     await expect(page.getByLabel(t('es', 'account.password.new'), { exact: true })).toHaveAttribute('aria-invalid', 'true');
 
     await changeTemporaryPassword(page, creds.password, DEFINITIVA);
-    await expect(page.getByRole('status')).toHaveText(t('es', 'account.password.successTitle'));
+    // QA-CHK-3: acotado a `<main>`. Con la medición en `on`, `MeasurementProvider` monta FUERA de `<main>` su
+    // región viva `role="status"` (`data-testid="consent-status"`) y un `getByRole('status')` de página
+    // choca en modo estricto (medido con `up --gate --measurement`).
+    await expect(page.locator('main').getByRole('status')).toHaveText(t('es', 'account.password.successTitle'));
     const done = page.getByRole('button', { name: t('es', 'auth.changePassword.done') });
     await expect(done).toBeFocused();
     await done.click();
@@ -172,7 +175,7 @@ test.describe('cuenta · contraseña temporal bloqueante (§33.8) · cliente', (
     await page.getByLabel(t('es', 'account.password.confirm'), { exact: true }).fill('nueva-larga-2026');
     if (IS_REAL) await reserveChangePasswordSlot('account.spec · cambio normal');
     await page.getByRole('button', { name: t('es', 'account.password.submit') }).click();
-    await expect(page.getByRole('status')).toHaveText(t('es', 'account.password.successTitle'));
+    await expect(page.locator('main').getByRole('status')).toHaveText(t('es', 'account.password.successTitle'));
     await expect(page.getByRole('button', { name: t('es', 'account.password.changeAgain') })).toBeVisible();
     await expect(page).toHaveURL(/\/es\/account\/password$/);
   });
@@ -253,7 +256,7 @@ test.describe('cuenta · perfil y contraseña (§33.6, §33.7)', () => {
     await expect(page.getByLabel(t('es', 'account.password.current'))).toHaveCount(0);
     await expect(page.getByLabel(t('es', 'account.password.new'), { exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: t('es', 'account.password.createSend') }).click();
-    await expect(page.getByRole('status')).toHaveText(t('es', 'account.password.createSentTitle'));
+    await expect(page.locator('main').getByRole('status')).toHaveText(t('es', 'account.password.createSentTitle'));
   });
 
   test('@real facturación (§33.6d): vacío «Sin datos de facturación» → alta en línea → RFC enmascarado y «Editar»', async ({ page }) => {

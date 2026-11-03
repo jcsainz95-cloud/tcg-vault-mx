@@ -58,7 +58,10 @@ function build(user: Record<string, unknown>, addresses: Record<string, unknown>
       create: jest.fn(async ({ data }: any) => ({ id: 'addr-new', line2: null, neighborhood: null, isDefault: false, ...data })),
       update: jest.fn(async ({ where, data }: any) => ({ ...addresses.find((a) => a.id === where.id), ...data })),
     },
+    // v1.116.1 (PT-CHK-2/3): alta y edición van en una tx con el candado de la libreta (lo fija `order-claim.address.spec` L1-L4).
+    $executeRaw: jest.fn().mockResolvedValue(1),
   };
+  prisma.$transaction = jest.fn(async (fn: any) => fn(prisma));
   const svc = new UsersService(prisma as PrismaService, {} as SettingsService, {} as PiiCryptoService, {} as never, undefined, fakePostalCodes());
   return { svc, prisma };
 }

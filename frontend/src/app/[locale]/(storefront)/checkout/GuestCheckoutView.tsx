@@ -21,7 +21,7 @@ import { AmountBreakdown } from '@/components/ui/AmountBreakdown';
 import { Button } from '@/components/ui/Button';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { StripePaymentModal } from '@/components/domain/StripePaymentModal';
-import { trackBeginCheckout, trackPurchase } from '@/lib/measurement/ecommerce';
+import { trackAddPaymentInfo, trackBeginCheckout, trackPurchase } from '@/lib/measurement/ecommerce';
 import { CheckoutLines } from './CheckoutLines';
 import { CheckoutPayBar } from './CheckoutPayBar';
 import { VaultUpsellPanel } from './VaultUpsellPanel';
@@ -100,6 +100,12 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   const [upsellOpen, setUpsellOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
+  /**
+   * N-3 «Revisa los datos marcados arriba…»: NO es un `payError` de estado (se quedaba pintado tras corregir el
+   * formulario, QA de marketing 2026-11-02). Es una bandera del intento de pago que solo se pinta mientras el
+   * formulario siga inválido y se apaga sola en cuanto queda válido (ver el efecto junto a `errors`).
+   */
+  const [formIncompleteAttempt, setFormIncompleteAttempt] = useState(false);
   const [session, setSession] = useState<GuestCheckoutSessionResponse | null>(null);
   /** v1.68: último desenlace de la session, separado del modal (ver `CheckoutView`). */
   const [outcome, setOutcome] = useState<GuestCheckoutSessionResponse | null>(null);
@@ -170,16 +176,10 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     setCodeForQuote(dsc.code);
   }, [dsc.code]);
 
-  // §MKT.H.4 `begin_checkout`: una vez por cotización distinta (con el modo `off`, `track` no hace nada).
+  // §MKT.H.4 v1.116 (C-F11): `begin_checkout` sale de `pay()` tras sus guardas (una vez por cotización: ids + total)
+  // y `add_payment_info` al resolver la sesión (una vez por `paymentIntentId`). Con el modo `off`, no hacen nada.
   const beginCheckoutKey = useRef('');
-  useEffect(() => {
-    const d = query.data;
-    if (!d || query.isPlaceholderData) return;
-    const key = `${d.items.map((i) => i.inventoryItemId).join(',')}:${d.breakdown.totalCents}`;
-    if (key === beginCheckoutKey.current) return;
-    beginCheckoutKey.current = key;
-    trackBeginCheckout(d.breakdown, d.items);
-  }, [query.data, query.isPlaceholderData]);
+  const paymentInfoPi = useRef('');
 
   /**
    * v1.21.3-quote-prune (misma mecánica que CheckoutView): las piezas muertas del
@@ -277,6 +277,12 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       : null);
 
   const errors: GuestErrors = useMemo(() => validateGuestForm(form, geoMode), [form, geoMode]);
+  const formHasErrors = Object.keys(errors).length > 0;
+  // Formulario corregido ⇒ el aviso N-3 se apaga y no vuelve a encenderse hasta el siguiente clic en «Pagar».
+  useEffect(() => {
+    if (!formHasErrors) setFormIncompleteAttempt(false);
+  }, [formHasErrors]);
+  const formIncompleteMessage = formIncompleteAttempt && formHasErrors ? t('guest.formIncomplete') : null;
   // `shippingFeeLabel` sale SIEMPRE del `breakdown` de envío directo (la tarifa REAL): alimenta
   // el hint del radio «envío {amount}» y el upsell «te ahorras {amount}» — es cuánto se ahorra
   // el invitado al NO enviar, NO un dato del desglose de bóveda (N-12).
@@ -303,6 +309,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         orderNumber={paid.orderNumber}
         orderId={paid.orderId}
         email={form.email.trim()}
+        name={form.address.recipientName.trim()}
       />
     );
   }
@@ -329,6 +336,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     // Criterio 48: elegir bóveda NO es un error — despliega el upsell in situ.
     setUpsellOpen(next === 'vault');
     setPayError(null);
+    setFormIncompleteAttempt(false);
   }
 
   /** Bloqueos de PAGO que son CONDICIONES (no errores de campo): §15.4 y §15.9. */
@@ -343,6 +351,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     setSubmitAttempted(true);
     setSubmitAttemptId((n) => n + 1);
     setPayError(null);
+    setFormIncompleteAttempt(false);
     if (destination === 'vault') {
       setUpsellOpen(true);
       return;
@@ -350,9 +359,18 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     // N-3: el botón ya no se queda mudo. Si faltan datos del formulario (p. ej. teléfono
     // inválido) los campos marcan su error arriba, PERO además avisamos junto al botón para
     // que no parezca que "no hace nada".
-    if (Object.keys(errors).length > 0) {
-      setPayError(t('guest.formIncomplete'));
+    if (formHasErrors) {
+      setFormIncompleteAttempt(true);
       return;
+    }
+    // C-F11: pasó las guardas locales (en vuelo, destino, formulario) ⇒ `begin_checkout` ANTES de pedir la sesión.
+    const quote = query.isPlaceholderData ? undefined : query.data;
+    if (quote) {
+      const key = `${quote.items.map((i) => i.inventoryItemId).join(',')}:${quote.breakdown.totalCents}`;
+      if (key !== beginCheckoutKey.current) {
+        beginCheckoutKey.current = key;
+        trackBeginCheckout(quote.breakdown, quote.items);
+      }
     }
 
     payInFlight.current = true;
@@ -388,6 +406,11 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       setRetry({ token: res.checkoutToken, email: emailUsed });
       setOutcome(res);
       setSession(res);
+      // C-F11: el modal de Stripe se abre ⇒ `add_payment_info` una vez por PI (el reuso §4-R no repite).
+      if (res.stripe?.clientSecret && res.stripe.paymentIntentId !== paymentInfoPi.current) {
+        paymentInfoPi.current = res.stripe.paymentIntentId;
+        trackAddPaymentInfo(res.breakdown, (query.data ?? quote)?.items);
+      }
     } catch (e) {
       // 💰 §DSC.6 / C12: `422 DISCOUNT_CODE_*` o `429` ⇒ la sesión no creó nada y NO se cobró. El código se quita con
       // aviso, la clave cambia y la cotización nueva pinta el total sin código antes de volver a pulsar.
@@ -561,9 +584,9 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       <div role="status" aria-live="polite" className="text-xs text-muted">
         {shippingChangedTo !== null && tacc('shippingChanged', { amount: formatMoneyCents(shippingChangedTo, locale) })}
       </div>
-      {payError && (
+      {(payError ?? formIncompleteMessage) && (
         <p role="alert" className="mt-6 font-mono text-xs text-accent [overflow-wrap:anywhere]">
-          {payError}
+          {payError ?? formIncompleteMessage}
         </p>
       )}
       {accessoryPayError && (
@@ -833,6 +856,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         title={t('payTitle')}
         // 💰 F-SP-5: el modal enseña el total de la SESIÓN (lo que Stripe cobra), ⛔ nunca el de la cotización.
         amountLabel={session ? formatMoneyCents(session.breakdown.totalCents, locale) : undefined}
+        // Paquete A (5): lo que el invitado ya capturó (correo y nombre de quien recibe); recortados; vacíos no viajan.
+        billingDetails={{ email: form.email.trim(), name: form.address.recipientName.trim() }}
         onConfirmed={onConfirmed}
       />
     </div>

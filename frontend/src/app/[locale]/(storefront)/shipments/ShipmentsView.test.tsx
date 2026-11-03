@@ -366,3 +366,29 @@ describe('ShipmentsView · dirección incompleta (v1.81)', () => {
     expect(alert).not.toHaveTextContent(/le faltan datos para la guía/);
   });
 });
+
+/**
+ * Paquete A (dueño, `HECHOS.md` 2026-11-02 «Checkout con menos captura: paquete A…» (2)): el alta de dirección del
+ * retiro prellena nombre (solo `nameSource !== 'derived'`) y teléfono de la cuenta (`GET /users/me`), editables.
+ */
+describe('ShipmentsView · alta de dirección prellenada desde la cuenta', () => {
+  it('nombre y teléfono de la cuenta en «Nueva dirección»', async () => {
+    asCustomer({ name: 'Ash Ketchum', nameSource: 'user', phone: '5512345678' });
+    renderWithProviders(<ShipmentsView />, 'es');
+    await screen.findByText(/Av\. Reforma 222/);
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar' }));
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() => expect(within(dialog).getByLabelText('Nombre de quien recibe')).toHaveValue('Ash Ketchum'));
+    expect(within(dialog).getByLabelText('Teléfono')).toHaveValue('5512345678');
+  });
+
+  it('⛔ con el nombre derivado del correo el destinatario queda vacío (el teléfono sí)', async () => {
+    asCustomer({ name: 'ash', nameSource: 'derived', phone: '5512345678' });
+    renderWithProviders(<ShipmentsView />, 'es');
+    await screen.findByText(/Av\. Reforma 222/);
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar' }));
+    const dialog = await screen.findByRole('dialog');
+    await waitFor(() => expect(within(dialog).getByLabelText('Teléfono')).toHaveValue('5512345678'));
+    expect(within(dialog).getByLabelText('Nombre de quien recibe')).toHaveValue('');
+  });
+});

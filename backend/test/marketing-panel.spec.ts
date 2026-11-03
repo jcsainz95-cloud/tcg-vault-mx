@@ -28,7 +28,7 @@ const NOW = new Date('2026-10-14T12:00:00.000Z');
 
 /** MKT.G.4 — CATÁLOGO NORMATIVO, copiado a mano del contrato (oráculo independiente del código). */
 const CATALOGO: Record<MarketingScreen, string[]> = {
-  a: ['a1', 'a2', 'a3', 'a4', 'a5'],
+  a: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6'], // v1.116: a6 «Pagos iniciados → pagados» (BD), tras a5
   b: ['b1', 'b2', 'b3', 'b4', 'b5', 'b6'], // v1.109 (MKT-MEDIR-CS): b5/b6 del Card Show
   c: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8'],
   d: ['d1', 'd2', 'd3', 'd4', 'd4b'],
