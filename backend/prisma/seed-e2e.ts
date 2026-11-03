@@ -830,6 +830,51 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
     );
   }
 
+  // v1.116.4⟨ids⟩ (§IDS.6, criterios 963–968) — el Meta deck de liga (`E2E_IDS.metaDeck`): upsert por `slug`; la lista es
+  // INMUTABLE (modelo), así que solo se crea una nueva si la vigente no es exactamente la del fixture (la anterior queda
+  // `supersededById`, como hace el refresco). Idempotente: una segunda siembra no escribe nada.
+  {
+    const md = E2E_IDS.metaDeck;
+    const leagueCard = await prisma.card.findUniqueOrThrow({
+      where: { id: leagueCardId },
+      select: { name: true, number: true, set: { select: { ptcgoCode: true } } },
+    });
+    const deck = await prisma.metaDeck.upsert({
+      where: { slug: md.slug },
+      create: { slug: md.slug, name: md.name, source: 'manual', published: true, rank: md.rank, imageCardId: leagueCardId },
+      update: { name: md.name, source: 'manual', published: true, pausedByOperator: false, rank: md.rank, imageCardId: leagueCardId },
+    });
+    const current = deck.currentListId
+      ? await prisma.metaDeckList.findUnique({ where: { id: deck.currentListId }, include: { cards: true } })
+      : null;
+    const line = current?.cards.length === 1 ? current.cards[0] : null;
+    const sameList = line != null && line.matchedCardId === leagueCardId && line.quantity === md.quantity && line.matchStatus === 'matched';
+    if (!sameList) {
+      const list = await prisma.metaDeckList.create({
+        data: {
+          deckId: deck.id,
+          formatLabel: 'E2E',
+          activeMarksSnapshot: [],
+          cards: {
+            create: [
+              {
+                rawName: leagueCard.name,
+                rawSetCode: leagueCard.set.ptcgoCode ?? 'E2E',
+                rawNumber: leagueCard.number,
+                quantity: md.quantity,
+                group: 'pokemon',
+                matchStatus: 'matched',
+                matchedCardId: leagueCardId,
+              },
+            ],
+          },
+        },
+      });
+      if (current) await prisma.metaDeckList.update({ where: { id: current.id }, data: { supersededById: list.id } });
+      await prisma.metaDeck.update({ where: { id: deck.id }, data: { currentListId: list.id } });
+    }
+  }
+
   // ⚠️ v2.1.10 — LA ÚNICA PIEZA `in_stock` DEL FIXTURE: la que habita la COLA DE «LISTAS PARA
   // PUBLICAR» (§4.39m.1, criterio 125). Ver el porqué largo en `E2E_FOLIOS.pendingPublishNoLocation`.
   //

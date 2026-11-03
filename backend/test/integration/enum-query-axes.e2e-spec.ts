@@ -814,7 +814,9 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/inventory/master-sets', param: 'sort', clazz: 'ORDEN', allowed: MASTER_SET_SORT_VALUES, valid: 'pieces_desc', alterno: 'completion_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /admin/vaults/:userId/master-sets', path: (c) => `/admin/vaults/${c.userId}/master-sets`, param: 'sort', clazz: 'ORDEN', allowed: MASTER_SET_SORT_VALUES, valid: 'pieces_desc', alterno: 'completion_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /vault/master-sets', param: 'sort', clazz: 'ORDEN', allowed: MASTER_SET_SORT_VALUES, valid: 'pieces_desc', alterno: 'completion_asc', auth: 'customer', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
-  { route: 'GET /admin/vaults', param: 'sort', clazz: 'ORDEN', allowed: ADMIN_VAULTS_SORT_VALUES, valid: 'pieces_desc', alterno: 'name_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  // `q=ceq1-vault` (C-EQ-1-VAULTS, 2026-11-03): la lista es GLOBAL (todos los clientes de la BD, página de 20); sin acotar a los
+  // dos clientes propios, el orden de la página 1 dependía de lo que otras suites dejaran en la BD.
+  { route: 'GET /admin/vaults', param: 'sort', clazz: 'ORDEN', allowed: ADMIN_VAULTS_SORT_VALUES, valid: 'pieces_desc', alterno: 'name_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO', extra: () => 'q=ceq1-vault' },
   { route: 'GET /vault/portfolio/history', param: 'range', clazz: 'L', allowed: PORTFOLIO_HISTORY_RANGE_VALUES, valid: 'all', alterno: '5d', obs: OBS_HISTORY, auth: 'customer', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
 
   // ==========================================================================================
@@ -1258,11 +1260,18 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
   const custZzz = await h.prisma.user.create({
     data: { email: CEQ1_VAULT_CUSTOMER_EMAILS[1], name: 'ZZZ CEQ1 Vault', role: 'customer', locale: 'es' },
   });
+  // C-EQ-1-VAULTS (2026-11-03, backend): la carta de estas piezas era `card` = `card.findFirstOrThrow()` SIN orden — la primera
+  // carta física de la BD, con o sin precio según la BD. Con precio, AAA (1 pieza) vale menos que ZZZ (5) ⇒ `value_desc` =
+  // [ZZZ,AAA] = `pieces_desc` ⇒ `dist(pieces_desc, base) = 0` (el rojo intermitente de QA, `:1571`). Carta PROPIA sin
+  // `PriceReference` (se borra con el prefijo `CEQ1-`): valor 0 por construcción.
+  const vaultCard = await h.prisma.card.create({
+    data: { externalId: 'CEQ1-VAULT-CARD', setId: set.id, name: 'CEQ1 Vault sin precio', number: '1', rarity: 'Common' },
+  });
   await h.prisma.inventoryItem.createMany({
     data: [
-      { folio: 'CEQ1-VAULT-AAA-1', cardId: card.id, productType: 'raw', rawCondition: 'NM', finish: 'normal', status: 'in_custody', ownerType: 'customer', ownerUserId: custAaa.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
+      { folio: 'CEQ1-VAULT-AAA-1', cardId: vaultCard.id, productType: 'raw', rawCondition: 'NM', finish: 'normal', status: 'in_custody', ownerType: 'customer', ownerUserId: custAaa.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
       ...[1, 2, 3, 4, 5].map((n) => ({
-        folio: `CEQ1-VAULT-ZZZ-${n}`, cardId: card.id, productType: 'raw' as const, rawCondition: 'NM' as const, finish: 'normal' as const,
+        folio: `CEQ1-VAULT-ZZZ-${n}`, cardId: vaultCard.id, productType: 'raw' as const, rawCondition: 'NM' as const, finish: 'normal' as const,
         status: 'in_custody' as const, ownerType: 'customer' as const, ownerUserId: custZzz.id, ownershipStatus: 'settled' as const, acquisitionType: 'aportacion_en_especie' as const,
       })),
     ],

@@ -429,6 +429,13 @@ export const E2E_IDS = {
     stampLabel: null,
     finishes: ['normal'] as const,
   },
+  /**
+   * v1.116.4⟨ids⟩ (QA sobre `f2cd0e31`: criterios 963–968 sin medir en navegador) — un Meta deck PUBLICADO (curado, `manual`)
+   * con UNA línea: `quantity` × la carta de liga, casada. Con las cuatro piezas de arriba el surtido de §IDS.6 da 3 = las dos
+   * sin liga (`en`, `es`) + la de liga más barata (la de liga solo entra porque no alcanzan las sin liga): tres tramos en
+   * `units`. No crea piezas (no mueve los conteos `@real` del catálogo). Lo mide el `@real` de frontend.
+   */
+  metaDeck: { slug: 'e2e-ids-deck-liga', name: 'E2E Deck de liga', rank: 10, quantity: 3 },
 } as const;
 
 /**
