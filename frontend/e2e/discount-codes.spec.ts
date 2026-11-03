@@ -43,6 +43,9 @@ async function openCheckoutWith(page: Page, ids: string[]) {
 
 async function applyCode(page: Page, code: string) {
   const row = page.getByTestId('code-row');
+  // Con cuenta, `CheckoutView` pinta el renglón DESPUÉS de la cotización (`data && …`): sin esta espera, `count()` lee 0,
+  // no se abre el renglón y el `fill` espera un campo que nadie va a pintar (traza del run 41717549858: count = 0).
+  await expect(row).toBeVisible();
   const toggle = row.getByRole('button', { name: /¿Tienes un código/ });
   if ((await toggle.count()) > 0 && (await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
   const useAnother = row.getByRole('button', { name: t('es', 'checkout.discount.useAnother') });

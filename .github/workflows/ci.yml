@@ -438,6 +438,13 @@ jobs:
       - uses: actions/checkout@v5
       - name: El arnés E2E no puede saltarse el cobro ni la subida del INE
         run: ./scripts/check-e2e-harness-gaps.sh
+      # §24.0 (2026-11-03): `frontend-e2e` salió VERDE con IDS-F7 roja en sus 3
+      # intentos (continue-on-error; run 41702516917, sha 48077124). Candado: sin
+      # continue-on-error, el rc de Playwright llega al veredicto y e2e-ok bloquea;
+      # canario: 5 mutaciones del workflow + 13 salidas reales de Playwright 1.56.0.
+      - name: Una prueba E2E roja en todos sus intentos pone el job en rojo (+ canario)
+        if: ${{ !cancelled() }}
+        run: ./scripts/e2e-mock-verdict-canary.sh
       # M-4 (QA, 2026-10-05): una copia `git archive` (sin .git) pasa su sha con
       # STACK_EXPECTED_SHA o `up --gate` para con un mensaje que lo nombra. Canario:
       # 4 mutaciones, todas rojas. Sin red ni stack (la infra son señuelos).

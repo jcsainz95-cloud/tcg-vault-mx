@@ -64,6 +64,9 @@ test.describe('@real §IDS contra el stack sembrado', () => {
   });
 
   test.afterAll(async () => {
+    // Misma guarda que el `beforeAll`: en mocks no hay backend, y un `afterAll` que lanza Playwright se lo cobra a la
+    // ÚLTIMA prueba del bloque (IDS-F7 salía roja en mocks por «No se encontró la API real», run 41717549858).
+    if (!IS_REAL) return;
     if (state.pieceId) {
       const r = await apiAs('admin', 'POST', '/admin/inventory/adjustments', {
         reason: 'error_captura',
