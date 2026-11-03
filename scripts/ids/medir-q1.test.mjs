@@ -44,6 +44,7 @@ test('el botón mide: rc 0, prueba 25006, Q1 en el resumen, sin la URL en log ni
   assert.match(summary, /\*\*Q1 — piezas de plataforma vendibles/);
   assert.match(summary, /promo \+ deck_exclusive = \d+/);
   assert.match(summary, /\*\*Q1c — piezas de clientes en bóveda/);
+  assert.match(summary, /\*\*Q1d — piezas cuyo producto no existe en el catálogo = \d+\*\*/);
   const pass = new globalThis.URL(URL_DB).password;
   for (const t of [sinMascaras(log), summary]) {
     assert.ok(!t.includes(URL_DB), 'la URL aparece');
@@ -298,6 +299,84 @@ test('PT-IDS-6: umbral k=3 en Q1c-detalle — 1 cliente ⇒ sin cifras; 3 client
   } finally {
     const r = limpiarK(sfx);
     rmSync(sinUmbral, { recursive: true, force: true });
+    assert.equal(r.status, 0, `la limpieza falló: ${r.stderr}`);
+  }
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Q1d (API_CONTRACT §IDS.9 v1.116.5, M-95c): piezas con `cardProductId` que NO existe en CardProduct (con una, la FK de
+// M-95c aborta la migración). Lote con sufijo único, borrado al final; tres piezas de plataforma `in_stock`:
+//   i1 con producto que existe (no huérfana) · i2 con un producto que no existe (HUÉRFANA) · i3 sin producto (nulo: la FK lo admite)
+// Esperado: Q1d +1, y su fila (platform, in_stock) piezas +1, productos inexistentes +1; la lista de la consola
+// (`ids-d1-produccion.sql` «Q1d-lista») trae i2 y no i1 ni i3; el resumen público no trae ids ni folios.
+// Si M-95c ya está aplicada en esta base, la FK impediría sembrar la huérfana: la siembra la salta con
+// `session_replication_role = replica` (SET LOCAL, solo en esa transacción; la base de CI corre como superusuario).
+// Canario (copia del árbol): Q1d sin `IS NOT NULL` cuenta también i3 ⇒ +2 ⇒ la prueba lo distingue.
+const q1dDe = (summary) => Number((summary.match(/\*\*Q1d — piezas cuyo producto no existe en el catálogo = (\d+)\*\*/) ?? assert.fail(`sin Q1d:\n${summary}`))[1]);
+// | dueño (clase) | estado | piezas | productos inexistentes |  (ceros si la tabla no sale: con 0 huérfanas no se imprime)
+const filaQ1d = (summary, owner, status) => {
+  const m = summary.match(new RegExp(String.raw`^\| ${owner} \| ${status} \| (\d+) \| (\d+) \|$`, 'm'));
+  return m ? m.slice(1).map(Number) : [0, 0];
+};
+function sembrarQ1d(sfx) {
+  const pid = 1_800_000_000 - Math.floor(Math.random() * 1_000_000) * 4;
+  const id = (x) => `'q1d-${sfx}-${x}'`;
+  const it = (n, prod) => `(${id(`i${n}`)}, 'Q1D-${sfx}-${n}', ${id('c')}, ${prod}, 'raw', 'compra', 'platform', NULL, NULL, 'in_stock', 'normal', now())`;
+  const sql = `BEGIN;
+SET LOCAL session_replication_role = replica;
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM "CardProduct" WHERE "tcgplayerProductId" IN (${pid}, ${pid + 1})) THEN
+  RAISE EXCEPTION 'Q1d: el id de producto de prueba ya existe; repetir'; END IF; END $$;
+INSERT INTO "CardSet"(id, "externalId", name) VALUES (${id('s')}, 'set-q1d-${sfx}', 'Set Q1d');
+INSERT INTO "Card"(id, "externalId", "setId", name, number) VALUES (${id('c')}, 'carta-q1d-${sfx}', ${id('s')}, 'Carta Q1d', '1');
+INSERT INTO "CardProduct"(id, "cardId", "tcgplayerProductId", name, kind, "updatedAt") VALUES (${id('p1')}, ${id('c')}, ${pid}, 'Q1d base ${sfx}', 'set_base', now());
+INSERT INTO "InventoryItem"(id, folio, "cardId", "cardProductId", "productType", "acquisitionType", "ownerType", "ownerUserId", "ownershipStatus", status, finish, "updatedAt") VALUES
+  ${[it(1, pid), it(2, pid + 1), it(3, 'NULL')].join(',\n  ')};
+COMMIT;`;
+  const r = psqlRun(sql);
+  assert.equal(r.status, 0, `la siembra falló: ${r.stderr}`);
+}
+function limpiarQ1d(sfx) {
+  const tablas = ['InventoryItem', 'CardProduct', 'Card', 'CardSet'];
+  return psqlRun(`BEGIN;\n${tablas.map((t) => `DELETE FROM "${t}" WHERE id LIKE 'q1d-${sfx}-%';`).join('\n')}\nCOMMIT;`);
+}
+const Q1D_FILTRO = `WHERE i."cardProductId" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2`;
+
+test('Q1d (§IDS.9 v1.116.5, M-95c): una huérfana sembrada ⇒ conteo exacto +1 (ni la no huérfana ni la nula), lista solo en consola, y su canario muerde', { skip: !URL_DB }, () => {
+  const sfx = `${process.pid}${Date.now().toString(36)}`;
+  const sinNoNulo = arbolMutado(Q1D_FILTRO, `WHERE NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2`, 1);
+  const raiz = join(HERE, '../..');
+  const medir = (root) => {
+    const r = correr(root);
+    assert.equal(r.rc, 0, r.log);
+    return { ...r, total: q1dDe(r.summary), fila: filaQ1d(r.summary, 'platform', 'in_stock') };
+  };
+  try {
+    const a = medir(raiz);
+    const am = medir(sinNoNulo);
+    sembrarQ1d(sfx);
+    const d = medir(raiz);
+    assert.equal(d.total - a.total, 1, 'Q1d debía subir exactamente 1 (solo la huérfana)');
+    assert.deepEqual(d.fila.map((x, i) => x - a.fila[i]), [1, 1], 'fila platform/in_stock: piezas +1, productos inexistentes +1');
+    assert.match(d.summary, /la migración M-95c \*\*aborta\*\*/);
+    for (const t of [d.summary, d.log]) {
+      assert.ok(!t.includes(`q1d-${sfx}-`), 'un id de pieza sembrado aparece en el resumen o el log público');
+      assert.ok(!t.includes(`Q1D-${sfx}-`), 'un folio aparece en el resumen o el log público');
+    }
+    // La consola privada: la lista por pieza trae la huérfana (id interno y folio) y nada más del lote.
+    const c = spawnSync('psql', [URL_DB, '-X', '-q', '-v', 'ON_ERROR_STOP=1', '--csv', '-f', join(raiz, 'scripts/ids/ids-d1-produccion.sql')], { encoding: 'utf8' });
+    assert.equal(c.status, 0, `la consola falló: ${c.stderr}`);
+    const lista = c.stdout.split('== Q1d-lista')[1]?.split('\n== ')[0] ?? '';
+    assert.match(lista, new RegExp(String.raw`^q1d-${sfx}-i2,Q1D-${sfx}-2,in_stock,platform,\d+$`, 'm'), `Q1d-lista:\n${lista}`);
+    for (const n of [1, 3]) assert.ok(!lista.includes(`q1d-${sfx}-i${n},`), `Q1d-lista trae i${n} (no es huérfana)`);
+    // Canario: sin el filtro de no nulo, la pieza sin producto también cuenta.
+    const m = medir(sinNoNulo);
+    assert.notEqual(m.total - am.total, 1, 'canario «Q1d sin IS NOT NULL»: da el mismo +1 — la prueba no distingue el filtro');
+  } finally {
+    const r = limpiarQ1d(sfx);
+    rmSync(sinNoNulo, { recursive: true, force: true });
     assert.equal(r.status, 0, `la limpieza falló: ${r.stderr}`);
   }
 });

@@ -1,4 +1,4 @@
--- scripts/ids/ids-d1-q1.sql — Q1, Q1b y Q1c de D-IDS-1 (ARCHITECTURE §15, API_CONTRACT §IDS.9). UNA sola fuente para dos usos:   · devops
+-- scripts/ids/ids-d1-q1.sql — Q1, Q1b, Q1c y Q1d de D-IDS-1 (ARCHITECTURE §15, API_CONTRACT §IDS.9). UNA sola fuente para dos usos:   · devops
 --   · `ids-d1-produccion.sql` (a mano, con psql) y
 --   · `ids-q1-boton.sql` (el botón «Medir D-IDS-1 en producción», `.github/workflows/medir-ids-produccion.yml`).
 -- ⛔ Este fichero NO abre ni cierra transacción: lo incluye (`\ir`) un envoltorio que ya abrió `BEGIN TRANSACTION READ ONLY`.
@@ -106,3 +106,17 @@ SELECT l.kind, l."tcgplayerProductId", l.producto, l.finish, l."productType",
        min(o.q_cents) AS q_min_cents, max(o.q_cents) AS q_max_cents
 FROM llave l JOIN ref r ON r.id = l.id JOIN origen o ON o.id = l.id
 GROUP BY 1, 2, 3, 4, 5 ORDER BY 1, 3, 4, 5;
+
+-- Q1d (API_CONTRACT §IDS.9 v1.116.5, M-95c, PT-IDS-3): piezas HUÉRFANAS — `cardProductId` no nulo que no existe como
+-- `CardProduct.tcgplayerProductId`. Con una sola, el `ADD CONSTRAINT "InventoryItem_cardProductId_fkey"` de M-95c aborta la
+-- migración. 0 ⇒ M-95c entra; > 0 ⇒ decide el dueño (⛔ sin arreglo automático). El `IS NOT NULL` no es decorativo: sin él,
+-- `NOT EXISTS (… = NULL)` es siempre verdadero y contaría como huérfanas todas las piezas sin producto (que la FK admite).
+-- SOLO conteos (sin dinero: el umbral k=3 del resumen no tiene cifra que ocultar): ni ids ni folios de pieza, ni dueño
+-- concreto; `ownerType` es la clase (platform/customer). La LISTA por pieza (id interno, folio, estado, ownerType) solo en la
+-- consola privada: `ids-d1-produccion.sql` «Q1d-lista». Candado G-IDS-RO [Q]; prueba medir-q1.test.mjs.
+\echo '== Q1d (§IDS.9 v1.116.5, M-95c): piezas con cardProductId que no existe en CardProduct, por clase de dueño y estado =='
+SELECT i."ownerType", i.status, count(*) AS piezas, count(DISTINCT i."cardProductId") AS productos_inexistentes
+FROM "InventoryItem" i
+WHERE i."cardProductId" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+GROUP BY 1, 2 ORDER BY 1, 2;

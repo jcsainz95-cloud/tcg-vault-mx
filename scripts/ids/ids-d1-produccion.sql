@@ -14,6 +14,15 @@ SET LOCAL statement_timeout = '60s';
 
 \ir ids-d1-q1.sql
 
+\echo '== Q1d-lista (§IDS.9 v1.116.5, solo CONSOLA privada; el botón público no la corre): piezas huérfanas una por una =='
+-- Si Q1d > 0, esta es la lista con la que decide el dueño: id INTERNO de la pieza, folio, estado y CLASE de dueño. Nunca el
+-- id ni los datos del cliente. Mismo filtro que Q1d (no nulo + no existe). ⛔ Sin arreglo automático (contrato §IDS.9).
+SELECT i.id, i.folio, i.status, i."ownerType", i."cardProductId"
+FROM "InventoryItem" i
+WHERE i."cardProductId" IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM "CardProduct" cp WHERE cp."tcgplayerProductId" = i."cardProductId")
+ORDER BY i."ownerType", i.status, i.folio;
+
 \echo '== Q2 (IDS-D2): sets de promos del catálogo, su grupo TCGCSV y cuántos productos tienen colgados =='
 SELECT s."externalId", s.name, s."pptSetId", s."tcgcsvGroupId",
        count(DISTINCT c.id) AS cartas,
