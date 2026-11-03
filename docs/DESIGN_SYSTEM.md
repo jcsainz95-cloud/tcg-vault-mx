@@ -2615,11 +2615,10 @@ base nuevo**. Dos grupos separados por regla, con `eyebrow` mono cada uno.
   elegir bóveda no pierde lo capturado, porque la dirección se oculta sin desmontarse.
 
 **Resumen de errores al intentar pagar:** si hay campos inválidos, se pinta arriba del formulario un bloque
-`role="alert"` con "Revisa {n} campo(s)" y una lista de enlaces al campo correspondiente; el foco va al
-bloque. Esto sustituye a hacer scroll a ciegas.
+`role="alert"` con "Revisa {n} campo(s)" y enlaces a cada campo; el foco va al bloque (sin scroll a ciegas).
 
 **Desglose y avisos (idénticos al checkout con cuenta, criterio 48b):** `AmountBreakdown` (§7.12) con
-**subtotal sin IVA · comisión de plataforma (§29) · IVA 16% · envío (MX$175, del dial, nunca hardcodeado) ·
+**subtotal sin IVA · comisión de plataforma (§29) · IVA 16% · envío (del dial M10, nunca hardcodeado) ·
 total**, más las tres notas al margen ya existentes (ventas finales con enlace a términos, factura CFDI por
 correo, "qué pasa después del pago"). No se añade ni se quita ninguna.
 
@@ -2635,18 +2634,16 @@ invitados y para usuarios con cuenta por igual:
 
 | Opción | Micro-etiqueta mono | Estado para invitado |
 |---|---|---|
-| **Envío a mi domicilio** / Home delivery | `+ MX$175` | seleccionada por defecto |
+| **Envío a mi domicilio** / Home delivery | `+ {envío}` (dial M10) | seleccionada por defecto |
 | **Guardar en mi bóveda** / Keep in my vault | `REQUIERE CUENTA` / `REQUIRES ACCOUNT` | **seleccionable** (no deshabilitada, no oculta, sin candado rojo) |
 
-La micro-etiqueta "REQUIERE CUENTA" en mono muted es **honestidad previa, no una barrera**: evita la
-sorpresa sin impedir el clic. **Prohibido**: `disabled`, `aria-disabled`, candado bermellón, tooltip de
-error, `Banner danger` o cualquier tratamiento que lea como "no puedes".
+"REQUIERE CUENTA" en mono muted es **honestidad previa, no una barrera**: evita la sorpresa sin impedir el
+clic. **Prohibido**: `disabled`, `aria-disabled`, candado bermellón, tooltip de error, `Banner danger` o
+cualquier tratamiento que lea como "no puedes".
 
 **Formato del upsell: panel inline que se expande justo debajo de la opción elegida.** No es modal, no es
-un paso nuevo, no es una ruta.
-
-*Modal y paso separado, descartados* (tapan carrito y total, o violan "sin salir del checkout", criterio 48):
-el panel inline deja visibles artículos y total, y la salida queda a un clic.
+un paso nuevo, no es una ruta (taparían carrito y total, o violarían «sin salir del checkout», criterio 48):
+artículos y total quedan visibles y la salida a un clic.
 
 **Anatomía del panel** (papel sobre pozo `surface-2` + regla superior de énfasis `border-strong`; **sin
 sombra, radio 0**):
@@ -2654,9 +2651,8 @@ sombra, radio 0**):
 2. `h3` serif: "Guarda tus cartas en la bóveda" / "Keep your cards in the vault".
 3. **Tres beneficios**, uno por renglón, separados por regla fina, cada uno en una sola línea
    (`text-sm`, cifra en mono):
-   - "Acumula cartas y paga **un solo envío** — te ahorras **MX$175** cada vez que no envías." *(la cifra
-     sale del dial de envío de la cotización; si no está disponible, se omite el paréntesis, nunca se
-     inventa)*
+   - "Acumula cartas y paga **un solo envío** — te ahorras **{envío}** cada vez que no envías." *({envío} = `shippingFeeCents`
+     del dial M10 vía cotización, `ARCHITECTURE.md`; si falta, se omite la cifra, nunca se inventa)*
    - "Ve el **valor de tu colección** actualizado a diario."
    - "Custodia con **autenticidad y condición garantizadas**."
 4. **Formulario de registro inline** (reusa `AuthForm` en modo compacto):
@@ -2912,9 +2908,8 @@ de minimización de §15.6.
 - **Foco visible** bermellón en todos los controles nuevos (§8.2); ningún panel, disclosure ni sticky bar
   puede quitar el `outline`.
 - **Orden de tabulación** = orden visual: línea de acceso (T4) → destino (→ panel de upsell si está abierto) →
-  contacto → envío → términos → pago. La barra sticky de móvil se coloca al
-  final del DOM pero **no** rompe el orden porque es un duplicado accesible del botón de pago; si se
-  duplica, el duplicado va `aria-hidden` y solo uno recibe foco.
+  contacto → envío → términos → pago. La barra fija de móvil es **una sola copia** del botón de pago
+  (CHK-MOVIL.2.4): sin duplicado, sin `aria-hidden`; un único PAGAR recibe foco.
 - **Botones deshabilitados con explicación:** cada vez que el pago se bloquea (correo sin confirmar, destino
   bóveda sin cuenta, dirección inválida) hay un **texto asociado por `aria-describedby`**; nunca un botón
   apagado y mudo.
@@ -2922,10 +2917,9 @@ de minimización de §15.6.
   `aside` y en la barra móvil; la opacidad sola no se distingue para quien no ve bien el color. En `loading` el
   borde sigue continuo. La condición va en `muted`, no bermellón.
 - **Salida del bloqueo por bóveda:** el aviso («Para pagar, crea tu cuenta o elige envío a domicilio.») lleva
-  siempre el botón-enlace **«Elegir envío a domicilio»**: vuelve a envío y deja el foco en esa opción. `aside`
-  (`lg+`): bajo la nota, `min-h-[44px]`, `text-xs` subrayado. Barra móvil: junto a la explicación, **ancho fijo
-  92 px** (mono 11 px, `leading-[1.3]`, dos renglones) para que la explicación quede en ≤ 2 renglones y **la barra
-  en ≤ 120 px a 320 px** (§CHK-MOVIL.2.4); `min-h-[44px]`.
+  siempre el botón-enlace **«Elegir envío a domicilio»** (vuelve a envío, foco en esa opción), `min-h-[44px]`.
+  `aside` (`lg+`): bajo la nota, `text-xs` subrayado. Barra móvil: junto a la explicación, **ancho fijo 92 px**
+  (mono 11 px, `leading-[1.3]`, dos renglones): explicación en ≤ 2 renglones y **barra ≤ 120 px a 320 px** (§CHK-MOVIL.2.4).
 - **Anuncios asíncronos:** cotización recalculada, cuenta creada, correo desmarcado, resultado del reenvío →
   `aria-live="polite"`. Errores de pago → `aria-live="assertive"` (§8.2).
 - **Etiquetas reales** en todos los campos (`<label htmlFor>`), `autocomplete` correcto en correo y
