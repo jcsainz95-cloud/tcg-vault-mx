@@ -104,10 +104,56 @@ describe('CHK-MOVIL.2.4 · barra fija (invitado)', () => {
     await screen.findByTestId('checkout-pay-bar');
     await user.click(screen.getByRole('button', { name: /Guardar en mi bóveda/ }));
     const bar = screen.getByTestId('checkout-pay-bar');
-    expect(within(bar).queryByRole('button', { name: /Ver desglose/ })).toBeNull();
     const pay = within(bar).getByRole('button', { name: 'Pagar' });
     expect(pay).toBeDisabled();
     expect(pay).toHaveAccessibleDescription('Para pagar, crea tu cuenta o elige envío a domicilio.');
+  });
+
+  // ux-ui sobre 6b01d17a (2026-11-03): con el bloqueo, «Ver desglose» desaparecía y en <lg no hay otra copia del
+  // desglose ⇒ quien elige bóveda no veía su total desglosado. Y `open` quedaba en true y reaparecía abierto al salir.
+  it('con PAGAR bloqueado el desglose sigue a un toque desde la barra (TOTAL), con la misma región y Esc', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(guestQuote({ items: [CARD_ITEM] }));
+    renderGuest();
+    await screen.findByTestId('checkout-pay-bar');
+    await user.click(screen.getByRole('button', { name: /Guardar en mi bóveda/ }));
+    const bar = screen.getByTestId('checkout-pay-bar');
+    expect(within(bar).getByRole('button', { name: 'Pagar' })).toBeDisabled();
+    const toggle = within(bar).getByRole('button', { name: /Ver desglose/ });
+    // El nombre accesible contiene lo visible (TOTAL + importe; WCAG 2.5.3).
+    expect(toggle).toHaveAccessibleName(/Total.*MX\$/);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const region = within(bar).getByRole('region', { name: 'Resumen' });
+    expect(within(region).getByTestId('amount-breakdown')).toBeInTheDocument();
+    expect(screen.getAllByTestId('amount-breakdown')).toHaveLength(1);
+    fireEvent.keyDown(within(region).getByTestId('amount-breakdown'), { key: 'Escape' });
+    expect(within(bar).queryByRole('region')).toBeNull();
+    expect(toggle).toHaveFocus();
+  });
+
+  it('entrar o salir del bloqueo cierra el desglose: nunca reaparece abierto en el otro modo', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(guestQuote({ items: [CARD_ITEM] }));
+    renderGuest();
+    const bar = await screen.findByTestId('checkout-pay-bar');
+    // Abierto en modo normal → elegir bóveda ⇒ cerrado.
+    await user.click(within(bar).getByRole('button', { name: /Ver desglose/ }));
+    expect(within(bar).getByRole('region', { name: 'Resumen' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Guardar en mi bóveda/ }));
+    expect(within(bar).queryByRole('region')).toBeNull();
+    // …y al salir del bloqueo NO reaparece abierto (el defecto: `open` seguía en true durante el bloqueo).
+    await user.click(within(bar).getByRole('button', { name: 'Elegir envío a domicilio' }));
+    expect(within(bar).queryByRole('region')).toBeNull();
+    await user.click(screen.getByRole('button', { name: /Guardar en mi bóveda/ }));
+    // Abierto en bloqueo → salir por «Elegir envío a domicilio» ⇒ cerrado.
+    await user.click(within(bar).getByRole('button', { name: /Ver desglose/ }));
+    expect(within(bar).getByRole('region', { name: 'Resumen' })).toBeInTheDocument();
+    await user.click(within(bar).getByRole('button', { name: 'Elegir envío a domicilio' }));
+    expect(within(bar).getByRole('button', { name: 'Pagar' })).toBeEnabled();
+    expect(within(bar).queryByRole('region')).toBeNull();
+    expect(within(bar).getByRole('button', { name: /Ver desglose/ })).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('T3a con envío 0: «Incluye envío gratis y comisión…»; T9 con cualquier clase y falta > 0', async () => {
