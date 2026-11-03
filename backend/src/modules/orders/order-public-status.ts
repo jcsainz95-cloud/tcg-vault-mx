@@ -6,7 +6,7 @@
  * `chargeback` NO se nombra hacia el invitado (`en_revision`): decir «contracargo» en una vista sin autenticar da
  * información operativa. `refunded` sí se nombra (el comprador ya lo sabe por su banco).
  */
-import { OrderStatus, ShipmentStatus } from '@prisma/client';
+import { OrderStatus, Prisma, ShipmentStatus } from '@prisma/client';
 import { GuestOrderPublicStatus } from './guest-checkout.constants';
 
 /** Las filas del libro que cuentan como «devuelto por Stripe» (§M4-SHIP.10): `submitted|succeeded`. */
@@ -60,6 +60,19 @@ export function publicStatus(
  */
 export function activeShipment<T extends { status: ShipmentStatus }>(shipments: T[]): T | undefined {
   return shipments.find((s) => s.status !== 'cancelado') ?? shipments[0];
+}
+
+/**
+ * ⭐ v1.116 (§4-G.9c, §M4-SHIP.19.20.1 «lo que ve el cliente») — LA dirección que el pedido enseña al cliente: la del envío
+ * VIGENTE si tiene snapshot (la que el operador pudo corregir), si no la que se capturó al pagar. Una sola función para el
+ * seguimiento del invitado (`guest-checkout.service.ts`) y para el paso a la libreta al reclamar (`order-claim.service.ts`).
+ * `shipments` ordenados por `requestedAt` desc (contrato de `activeShipment`). Sin dirección ⇒ `null`.
+ */
+export function customerAddressSnapshotOf(
+  order: { shippingAddressSnapshot: Prisma.JsonValue | null },
+  shipments: { status: ShipmentStatus; addressSnapshot?: Prisma.JsonValue | null }[],
+): Prisma.JsonValue | null {
+  return activeShipment(shipments)?.addressSnapshot ?? order.shippingAddressSnapshot ?? null;
 }
 
 /** v1.82 (§PNL.2): cuándo se reembolsó la carta — al preparar (no salió) o tras la entrega (no llegó / llegó mal). */

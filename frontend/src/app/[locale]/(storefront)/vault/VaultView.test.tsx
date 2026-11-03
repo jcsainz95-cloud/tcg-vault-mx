@@ -191,7 +191,7 @@ describe('VaultView · pestaña «Retiros» (§33.4)', () => {
   it('el aviso de reclamables se pinta entre la cabecera y las pestañas SOLO cuando hay pedidos', async () => {
     setStoredUser({ id: 'u-777', email: 'ash@example.com', name: 'Ash', role: 'customer', locale: 'es', emailVerified: true });
     vi.spyOn(api, 'getClaimableOrders').mockResolvedValue([
-      { orderId: 'ord-g-1', orderNumber: 'TCG-000777', status: 'settled', totalCents: 168520, itemCount: 1, createdAt: '2026-08-10T18:20:00Z' },
+      { orderId: 'ord-g-1', orderNumber: 'TCG-000777', status: 'settled', totalCents: 168520, itemCount: 1, createdAt: '2026-08-10T18:20:00Z', settledAt: '2026-08-10T18:22:00Z' },
     ]);
     renderWithProviders(<VaultView />, 'es');
     const notice = await screen.findByTestId('claimable-orders-notice');

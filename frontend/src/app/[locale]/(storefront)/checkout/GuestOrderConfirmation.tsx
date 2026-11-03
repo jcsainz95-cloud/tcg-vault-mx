@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@/i18n/navigation';
 import { claimGuestOrders } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
@@ -15,6 +16,11 @@ export interface GuestOrderConfirmationProps {
   orderId: string;
   /** correo capturado: aquí SÍ se muestra completo (§15.5, asimetría deliberada). */
   email: string;
+  /**
+   * Paquete A (`HECHOS.md` 2026-11-02 «Checkout con menos captura…»): nombre ya capturado (el de quien recibe) para
+   * prellenar el alta de cuenta del reclamo. Editable; nunca se pinta fuera del campo.
+   */
+  name?: string;
 }
 
 type ClaimState =
@@ -38,10 +44,11 @@ type ClaimState =
  * —la ve solo quien acaba de pagar, en su propio dispositivo, y es la última oportunidad de
  * detectar una errata—; en la página de seguimiento no se muestra en absoluto.
  */
-export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrderConfirmationProps) {
+export function GuestOrderConfirmation({ orderNumber, orderId, email, name }: GuestOrderConfirmationProps) {
   const t = useTranslations('checkout.confirmation');
   const tn = useTranslations('nav');
   const tErr = useTranslations('error');
+  const queryClient = useQueryClient();
   // §60.1 b · §PNL.1: el buzón sale de `GET /support/contact` (fallo ⇒ valor de respaldo).
   const { contact: supportContact } = useSupportContact();
   const [copied, setCopied] = useState(false);
@@ -70,6 +77,8 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrd
     setClaim({ kind: 'claiming' });
     try {
       const res = await claimGuestOrders([orderId]);
+      // CLM-F1 (§4-G.9c): la dirección del pedido pasó a la libreta ⇒ `GET /users/me/addresses` está viejo.
+      if (res.addressesSaved > 0) void queryClient.invalidateQueries({ queryKey: ['addresses'] });
       setClaim(res.claimed.includes(orderId) ? { kind: 'claimed' } : { kind: 'neutral' });
     } catch (e) {
       if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') {
@@ -140,6 +149,7 @@ export function GuestOrderConfirmation({ orderNumber, orderId, email }: GuestOrd
               <InlineAuthPanel
                 variant="register"
                 defaultEmail={email}
+                defaultName={name}
                 submitLabel={t('claim.cta')}
                 neutralEmailTaken={t('claim.emailTakenNeutral')}
                 onSuccess={claimOrder}

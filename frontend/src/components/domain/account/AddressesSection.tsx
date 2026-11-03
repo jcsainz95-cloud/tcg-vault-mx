@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { AddressManager } from '@/components/domain/AddressManager';
+import { AddressManager, accountAddressDefaults } from '@/components/domain/AddressManager';
 import type { UserDTO } from '@/types/contract';
 import { SectionShell } from './SectionShell';
 
@@ -15,10 +15,8 @@ export function AddressesSection({ user }: { user: UserDTO }) {
   const t = useTranslations('account.addresses');
   return (
     <SectionShell id="addresses" title={t('title')}>
-      <AddressManager
-        hideTitle
-        defaultRecipientName={user.nameSource !== 'derived' ? user.name : undefined}
-      />
+      {/* Paquete A (2026-11-02): nombre (regla `nameSource`) y teléfono de la cuenta, editables. */}
+      <AddressManager hideTitle {...accountAddressDefaults(user)} />
     </SectionShell>
   );
 }

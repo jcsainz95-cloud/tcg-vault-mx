@@ -7549,6 +7549,11 @@ export interface ClaimOrdersResponse {
     orderId: string;
     code: 'ORDER_ALREADY_CLAIMED' | 'CLAIM_EMAIL_MISMATCH' | 'NOT_FOUND';
   }[];
+  /**
+   * v1.116 (§4-G.9c, aditivo): direcciones creadas en la libreta por los pedidos que el reclamo GANÓ. Si > 0 el front
+   * invalida `GET /users/me/addresses`. Un servidor anterior a v1.116 no lo manda: se lee como 0.
+   */
+  addressesSaved: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════

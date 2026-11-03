@@ -15,6 +15,7 @@ import { CatalogModule } from '../catalog/catalog.module';
 import { GeoModule } from '../shipping-provider/geo/geo.module';
 import { DecksMetaModule } from '../decks-meta/decks-meta.module';
 import { DiscountsModule } from '../discounts/discounts.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   // JwtModule.register({}) (sin secreto por defecto): lo usa RejectAuthenticatedGuard para
@@ -23,7 +24,8 @@ import { DiscountsModule } from '../discounts/discounts.module';
   // ⭐ v1.81 (M-64): `GeoModule` — la colonia del invitado contra la lista del CP (§M4-SHIP.19.5).
   // 💰 v1.86⟨accesorios⟩ (§AC.19.4): `DecksMetaModule` exporta el validador de `deckPulls` que llama el checkout de invitado.
   // 💰 v1.110⟨descuentos⟩ (§DSC): `DiscountsModule` — validez, límite de intentos y uso del código en quote y sesión.
-  imports: [PricingModule, CatalogModule, GuestOrderTokensModule, JwtModule.register({}), GeoModule, DecksMetaModule, DiscountsModule],
+  // ⭐ v1.116 (§4-G.9c): `UsersModule` — el reclamo pasa la dirección a la libreta por `UsersService.createAddressFromClaim`.
+  imports: [PricingModule, CatalogModule, GuestOrderTokensModule, JwtModule.register({}), GeoModule, DecksMetaModule, DiscountsModule, UsersModule],
   providers: [OrdersService, GuestCheckoutService, OrderClaimService, OrderRefundService, RejectAuthenticatedGuard],
   // v1.82 PNL-1: `GET /support/contact` (público, un resolutor del buzón — `mail/support-contact.ts`).
   controllers: [OrdersController, AdminOrdersController, GuestOrdersController, SupportContactController],

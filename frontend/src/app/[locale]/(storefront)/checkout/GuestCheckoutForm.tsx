@@ -177,7 +177,9 @@ export function GuestCheckoutForm({
   }
 
   return (
-    <div data-testid="guest-form">
+    // Paquete A (4): `<form>` para que el navegador agrupe y autocomplete; el envío NO navega (pagar es el botón
+    // de la vista, fuera de aquí). Sin botón de envío dentro, Enter en un campo tampoco dispara nada.
+    <form data-testid="guest-form" noValidate onSubmit={(e) => e.preventDefault()}>
       {submitAttempted && listed.length > 0 && (
         <div
           ref={summaryRef}
@@ -269,7 +271,7 @@ export function GuestCheckoutForm({
           <Input
             id={FIELD_ID.recipientName}
             label={t('guest.recipientName')}
-            autoComplete="name"
+            autoComplete="shipping name"
             value={state.address.recipientName}
             onChange={(e) => onAddressChange({ recipientName: e.target.value })}
             onBlur={() => onBlurField('recipientName')}
@@ -303,7 +305,7 @@ export function GuestCheckoutForm({
           <Input
             id={FIELD_ID.line1}
             label={ta('line1')}
-            autoComplete="address-line1"
+            autoComplete="shipping address-line1"
             value={state.address.line1}
             onChange={(e) => onAddressChange({ line1: e.target.value })}
             onBlur={() => onBlurField('line1')}
@@ -314,7 +316,7 @@ export function GuestCheckoutForm({
             label={ta('phone')}
             type="tel"
             inputMode="tel"
-            autoComplete="tel"
+            autoComplete="shipping tel"
             value={state.address.phone}
             onChange={(e) => onAddressChange({ phone: e.target.value })}
             onBlur={() => onBlurField('phone')}
@@ -342,7 +344,7 @@ export function GuestCheckoutForm({
                   <Input
                     id={FIELD_ID.line2}
                     label={ta('line2')}
-                    autoComplete="address-line2"
+                    autoComplete="shipping address-line2"
                     value={state.address.line2 ?? ''}
                     onChange={(e) => onAddressChange({ line2: e.target.value })}
                     onBlur={() => onBlurField('line2')}
@@ -389,6 +391,6 @@ export function GuestCheckoutForm({
         {/* T8 junto a la única mención de «ventas finales» antes de pagar (B4; DESIGN_SYSTEM §CHK-MOVIL.4). */}
         <RefundPromiseLine className="mt-2 max-w-[620px] pl-7" />
       </section>
-    </div>
+    </form>
   );
 }

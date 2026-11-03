@@ -7,6 +7,19 @@
 
 ---
 
+## Backend · 2026-11-02 · checkout-fricción — deuda del techlead sobre `9d269935` (TL-CHK)
+
+> Dueño del código anotado: **backend**. Medidas por el techlead leyendo código el 2026-11-02; anotadas sin arreglar (O-23); los sitios citados se re-abrieron el mismo día sobre `9d269935`.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-CHK-1 | ABIERTA (propuesta al arquitecto: predicado único en `users/address-rules.ts`) · `createAddressFromClaim` (`users/users.service.ts:338`) tiene una «dirección válida» más floja que `AddressDto`: solo `assertPersonName`, `country='MX'` y no vacíos; sin `PHONE_PATTERN`/`POSTAL_CODE_PATTERN` ni topes de longitud | backend (+ arquitecto) | 2026-11-02 | `createAddressFromClaim` usa el predicado compartido con `AddressDto`; prueba con snapshot `phone:'55-12'` o `line1` > tope ⇒ `reason:'invalid'`; CLM-A1 verde |
+| TL-CHK-2 | ABIERTA · el censo de candados (`test/lock-keys.census.spec.ts:26`) solo lee `\w+_LOCK_KEY`; los 6 `*_NAMESPACE` (`ADDRESS_BOOK_GATE_…`, `RESERVATION_GATE_…`, `VAULT_GATE_…`, `OPERATOR_REFUND_GATE_…`, `BANNER_COUNTER_LOCK_…`, `META_TEST_EVENT_LOCK_…`) no se vigilan contra duplicados | backend | 2026-11-02 | el censo incluye `\w+_NAMESPACE` con canario de duplicado (rojo/verde); ≥ 6 leídos |
+| TL-CHK-3 | CERRADA (2026-11-02, v1.116.1 PT-CHK-2/3) · `createAddress`/`updateAddress` escribían `updateMany({isDefault:false})` + alta/edición fuera de tx y sin el lock `ADDRESS_BOOK_GATE_NAMESPACE`. Ahora las dos (y `createAddressFromClaim`) pasan por `UsersService.withAddressBookLock` (tx cuya 1.ª sentencia es el lock); validación, geo y dueño, antes | backend | 2026-11-02 | `test/integration/order-claim-address.e2e-spec.ts` CLM-A11 (POST‖POST, N=10) y CLM-A12 (PATCH‖POST N=20, claim‖POST N=10) ⇒ 1 predeterminada en todas las rondas; unitarias L1-L4 (`test/order-claim.address.spec.ts`) |
+| TL-CHK-7 | ABIERTA · `AuditService` es `@Optional()` en `UsersService` (`users/users.service.ts:77`) solo por los unitarios; sin wiring cada alta desde reclamo lanza y `OrderClaimService` la traga como `skipped(…,'error')` (warn silencioso). Misma clase que TL-DSC-5/TL-DYN-4 | backend | 2026-11-02 | `tech-debt-backend.spec.ts` «TL-CHK-7»: el índice de `AuditService` no está en `optional:paramtypes` de `UsersService` |
+
+---
+
 ## Backend · 2026-10-31/11-01 · marketing tanda 2 (conversión: ficha de sellado agotada, §MKT.A.1)
 
 > Dueño del código anotado: **backend**. TL-MKT5-*: del techlead del 2026-10-31 sobre `43d9eb10`, cerradas el 2026-11-01 en `claude/mkt2-be-debt` (BACKEND_NOTES §MKT-CNV). Las demás: deuda de veredictos del 2026-10-26 (`2f5a59c0`) y 2026-10-27 (`f932333a`) que solo vivía en `PENDIENTES.md` (TL-REL4-DEUDA, TL-ENCENDER-DEUDA); anotadas y re-medidas el 2026-11-01 sobre `add50880` en `claude/mkt2-be-debt2`, sin arreglar. TL-DSC-8 toca dinero.
@@ -56,6 +69,20 @@
 
 ---
 
+## Frontend · 2026-11-02 · fricción del checkout (v1.116) — deuda del techlead sobre `9d269935`
+
+> Dueño del código anotado: **frontend**. 💰 Toca el checkout (sin tocar el cálculo del dinero). Anotadas y re-medidas el 2026-11-02 sobre `9d269935` (rama `claude/checkout-friccion`), sin arreglar. FE-MKT2-2 (add_payment_info sin E2E) sigue en «Frontend · 2026-10-19».
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-CHK-4 | ABIERTA · el efecto de un reclamo exitoso sobre la caché está duplicado y ya diverge: `checkout/GuestOrderConfirmation.tsx:81` invalida solo `['addresses']`; `components/domain/claimable/ClaimableOrdersNotice.tsx:79-82` también `['claimable-orders']` y `['orders']`. Y `addressesSaved: number` es obligatorio en `types/contract.ts:7556` aunque un servidor viejo no lo manda | frontend | 2026-11-02 | helper/hook `invalidateAfterClaim(qc, res)` usado por los dos; `grep -c "queryKey: \['addresses'\]"` en esos dos ficheros ⇒ 0 y 0 (hoy 1 y 1); `addressesSaved?: number`; CLM-F1 de los dos (`GuestOrderConfirmation.addresses.test.tsx`, `ClaimableOrdersNotice.test.tsx`) verde |
+| TL-CHK-5 | ABIERTA · dedupe de la medición (`beginCheckoutKey`, `paymentInfoPi`) copiada en `checkout/CheckoutView.tsx:255-270` y `checkout/GuestCheckoutView.tsx:369-413` (refs en `:137-138` y `:181-182`) | frontend | 2026-11-02 | `useCheckoutMeasurement()` en un sitio; `grep -c paymentInfoPi` en las dos vistas ⇒ 0 y 0 (hoy 3 y 3); C-F11 (`checkout/CheckoutPaymentMeasurement.test.tsx`) verde |
+| TL-CHK-6 | ABIERTA · la regla «nombre solo si `nameSource !== 'derived'`» repetida en `checkout/CheckoutView.tsx:493` (`billingDetails`, sin `trim`) en vez de usar `accountAddressDefaults` (`components/domain/AddressManager.tsx:57`, que sí recorta). Medido hoy: el grep de cierre también casa comentarios en `account/AddressesSection.tsx:12` y `shipments/ShipmentsView.tsx:117`; salen o se reescriben en el mismo pase | frontend | 2026-11-02 | `grep -rn "nameSource !== 'derived'" frontend/src --include=*.tsx \| grep -v test` ⇒ solo `AddressManager.tsx` |
+| FE-CHK-7 | ABIERTA · el pago del retiro (`shipments/ShipmentsView.tsx:486-494`) abre `StripePaymentModal` sin `billingDetails`: el checkout con cuenta y el de invitado sí lo pasan (`CheckoutBillingDetails.test.tsx`), el retiro no prellena correo ni nombre en el `PaymentElement` | frontend | 2026-11-02 | prueba en `ShipmentsView.test.tsx` que afirma que el modal del retiro recibe `defaultValues.billingDetails` (correo de la cuenta y nombre según `nameSource`), roja sobre el código de `9d269935` |
+| TL-CHK-11 | ABIERTA (contrato contradictorio; techlead sobre `7107ff8a`) · el DTO de §4-G.9c (`docs/API_CONTRACT.md:10804`) declara `settledAt?: string` pero la prosa (`:10809`) dice que viene siempre; se arrastra a `frontend/src/types/contract.ts:7542` (`settledAt?`) y a `o.settledAt ?? undefined` en `order-claim.service.ts:73` | arquitecto → frontend y backend | 2026-11-02 | §4-G.9c con `settledAt: string`; `grep -n "settledAt?: string" frontend/src/types/contract.ts` no encuentra la línea de `ClaimableOrderDTO`; backend sin `?? undefined` en `listClaimable`; CLM-A10 y CLM-F2 verdes |
+| TL-CHK-12 | ABIERTA (techlead sobre `7107ff8a`) · dos predicados de «cobrado»: la lista usa `settledAt ≠ null` (incluye `refunded`/`chargeback`) y el guardado `status==='settled'`; el copy (`frontend/messages/es.json:749,1219`) promete guardar «la dirección de envío de los pedidos pagados» y un reembolsado que sale en el aviso no la guarda | ux-ui (literal) + frontend (messages) | 2026-11-02 | el literal de `DESIGN_SYSTEM` excluye reembolsados/contracargos (o dice «pedidos vigentes») y CLM-F2 tiene un caso con el texto nuevo |
+
+---
 ## Frontend · 2026-11-03 · retiro (`/shipments`) — gate tester-e2e sobre `52ea9564`
 
 > Dueño del código anotado: **frontend**. Sin dinero. Preexistente; PT-CHK-1 lo vuelve el caso por defecto tras vincular un pedido.
@@ -71,27 +98,18 @@
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
 | TL-MKT5-1 | ABIERTA · orden de foco del certificado en lg sin candado de navegador; la anotación L-9 `cert` lee la copia oculta | frontend | 2026-11-01 | E2E @real a 1366: Tab desde el último `instance-cta` llega al «Copiar» visible; `measurement-on.spec.ts` usa `:visible` |
-| TL-MKT5-2 | CERRADA · `hasCatalogFilters` era una cuarta lista de filtros a mano: ahora tabla `IS_FILTER` con `satisfies { [K in keyof Required<CatalogFilters>]: … }` | frontend | 2026-11-01 | `catalog/page.metadata.test.ts` caso `maxPriceCents` verde (rojo al quitar su fila); una clave sin fila no compila (`tsc`) |
+| TL-MKT5-2/7/8/9, TL-MKT6-1/2/4, TL-MKT7-1/3, TL-MKT2c-4 | CERRADAS · cuarta lista de filtros (`IS_FILTER`), correos y WhatsApp literales (fuente única en `lib/about.ts`), cabecera de `lib/brand.ts`, comentario de `CatalogTile`, corte < sm del estimado en la boundary y que el `className` de quien llama no lo anule, margen ≥ 20 px de L-8, ficha TL-MKT2b-f reescrita. Compactado 2026-11-02: texto completo en `9d269935:docs/TECH_DEBT.md` | frontend | 2026-11-01 | `catalog/page.metadata.test.ts`, `seo-content.test.ts` «TL-MKT5-7», `CatalogView.test.tsx` «TL-MKT6-1», `card-show.content.test.ts` «TL-MKT6-4»/«TL-MKT7-1», `gradingEstimates.test.tsx` «TL-MKT7-3», `measurement-gate.test.ts` «el parser lee el índice real» verdes; L-8 de `e2e/measurement-on.spec.ts` verde contra `up --gate --measurement --seed`, N ≥ 5 por idioma |
 | TL-MKT5-3 | ABIERTA · lectura SSR compartida por `cache()` entre metadata y página sin candado | frontend | 2026-11-01 | E2E contra `next start`: `/es/catalog?page=2` ⇒ exactamente 1 `GET /catalog/cards` |
 | TL-MKT5-6 | ABIERTA · el tipo «con existencia» del sellado vive en fixtures con otro nombre; `isSealedSoldOut` no es guarda de tipo | frontend | 2026-11-01 | `InStockSealedGroupDTO` en `types/contract.ts`; guarda de tipo; `grep -n "fromPriceCents == null" "frontend/src/app/[locale]/(storefront)/sellado/[inventoryItemId]/page.tsx"` ⇒ 0 |
-| TL-MKT5-7 | CERRADA · `contacto@tcghunt.mx` a mano en `content/seo/faq.es.ts` (P13, P22): ahora `${PUBLIC_CONTACT_EMAIL}` | frontend | 2026-11-01 | `grep -rn "contacto@" frontend/src --include=*.ts --exclude=*.test.*` ⇒ 0; `seo-content.test.ts` «TL-MKT5-7» verde |
-| TL-MKT5-8 | CERRADA · la cabecera de `lib/brand.ts` prohibía en UI lo que ARCHITECTURE §13.8 (c) adoptó | frontend | 2026-11-01 | `grep -c "Solo para fixtures" frontend/src/lib/brand.ts` ⇒ 0 y `grep -c "13.8 (c)"` ⇒ ≥ 1 |
-| TL-MKT5-9 | CERRADA · comentario inexacto del orden de lectura en `CatalogTile.tsx` | frontend | 2026-11-01 | `grep -c "ningún ancho" "frontend/src/app/[locale]/(storefront)/catalog/CatalogTile.tsx"` ⇒ 0 |
 | TL-MKT5-10a | ABIERTA · (de la paraguas TL-MKT5-10, borrada) en lg el bloque del estimado (§22.3) va ANTES de los renglones y L-9 no mide una ficha que lo pinte: su alto empuja el 1.er `instance-cta` hacia el banner sin candado | frontend | 2026-11-01 | L-9 (`e2e/measurement-on.spec.ts`) anota y exige una ficha con bloque: `grep -c "estimate" frontend/e2e/measurement-on.spec.ts` dentro de L-9 ≥ 1, y L-9 verde contra `up --gate --measurement --seed` |
 | TL-MKT5-10b | ABIERTA · (de TL-MKT5-10) el seed no trae una gradeada CON certificado como grupo primario: la «gradeada» de L-9 es el primer resultado de `?productType=graded` (`E2E Slab And Raw`) y `cert` solo se anota, no se exige | backend (seed) + frontend (L-9) | 2026-11-01 | seed con esa gradeada como 1.er resultado de `?productType=graded` y L-9 con `expect(m.cert` (`grep -c "expect(m.cert" frontend/e2e/measurement-on.spec.ts` ≥ 1) verde contra stack sembrado |
 | TL-MKT5-10c | ABIERTA · (de TL-MKT5-10) `e2e/measurement-off.spec.ts` falla contra un stack `--measurement` (banner presente); NO re-medido desde §MKT-CONV8 | frontend | 2026-11-01 | el spec se salta con motivo cuando el stack sirve medición encendida (o el proyecto `--measurement` lo excluye) y `up --gate --measurement --seed` sin rojo de `measurement-off`, N ≥ 3 |
-| TL-MKT6-1 | CERRADA · el corte < sm del estimado estaba en dos sitios (badge en `CatalogTile`, nota en `CatalogView`), cabecera de `GradingFootnote.tsx` falsa, prueba de `CatalogTile.test` tautológica. Ahora `figureClassName` de la boundary (una vez, en `CatalogView`) lo aplican nota, badge y bloque | frontend | 2026-11-01 | `CatalogView.test.tsx` «TL-MKT6-1» verde; mutar el corte en `CatalogView` o quitarlo de badge o nota ⇒ rojo; `grep -c "hidden sm:block" "frontend/src/app/[locale]/(storefront)/catalog/CatalogTile.tsx"` ⇒ 0 |
-| TL-MKT6-2 | CERRADA · L-8 no afirmaba el margen ≥ 20 px (HECHOS 2026-11-01 «Estimado PSA fuera de la teja…»: «margen ≥ 20 px a 360×740»). Ya lo afirma: L-8 `price5` a 360, límite `top(banner) − 8`; mocks 5/5 verde y 3/3 rojo con +8 px. QA contra stack real 2026-11-01 sobre `add50880`: L-8 10/10 (N=5 por idioma), margen 23 px 10/10, `margin ≥ 20` verde (log QA `/tmp/claude-0/-home-user-tcg-vault-mx/523ddd07-14c0-5804-8c47-7fb6c11e3780/scratchpad/qa-mkt2d/logs/real-l8-n5.json`) | frontend | 2026-11-01 | L-8 de `e2e/measurement-on.spec.ts` verde contra `up --gate --measurement --seed`, N ≥ 5 por idioma |
 | QA-MKT2D-1 | ABIERTA · (QA 2026-11-01) `e2e/measurement-on.spec.ts:331` (C-F5 cotizador) depende de Charizard de los mocks y no está marcado solo-mocks: contra stack real rojo 3/3 | frontend | 2026-11-01 | `mockOnly` con motivo, o el test usa un dato del seed; verde contra `up --gate --measurement --seed` |
 | QA-MKT2D-2 | ABIERTA · (QA 2026-11-01) `playwright.measurement-on.config.ts` con `E2E_BASE_URL` exportado y sin `E2E_MKT_ON_PORT`/`E2E_REUSE_SERVER=1` levanta su bundle de mocks en :3007 mientras `e2e/utils/env.ts` cree que la app es real: un verde de mocks se lee como real | frontend | 2026-11-01 | la config aborta o avisa si las dos señales se contradicen, con prueba que lo demuestra (roja con las señales contradictorias, verde coherentes) |
 | TL-MKT6-3 | ABIERTA · `#nota-estimado` duplicado transitorio 1/50, causa desconocida; `toHaveCount(1)` con reintento lo oculta | frontend | 2026-11-01 | causa identificada, o contador sin reintento (`addInitScript` + `MutationObserver`, máximo simultáneo) a 768, N ≥ 50 ⇒ 0/50 |
-| TL-MKT6-4 | CERRADA · el WhatsApp estaba en 4 literales (`about.ts` es/en, `content/card-show.ts` display y href): ahora una forma internacional en `lib/about.ts`; el resto se deriva. El correo del pie (`hola@`) es TL-MKT7-1 | frontend | 2026-11-01 | `grep -rn "6489" frontend/src --include=*.ts --include=*.tsx \| grep -v "\.test\."` ⇒ solo `lib/about.ts`; `card-show.content.test.ts` «TL-MKT6-4» verde |
-| TL-MKT7-1 | CERRADA · el pie de la landing del Card Show publicaba `hola@tcghunt.mx` literal (`content/card-show.ts`, `contactoEmail`/`contactoEmailHref`); ahora lee `PUBLIC_CONTACT_EMAIL` de `lib/about.ts` (contacto@, el de «Quiénes somos»). Decisión: HECHOS 2026-11-01 «"Pago seguro" y correo de contacto en el Card Show» | frontend | 2026-11-01 | `grep -rn "@tcghunt.mx" frontend/src/content/card-show.ts` ⇒ 0; `card-show.content.test.ts` «TL-MKT7-1» verde |
 | TL-MKT7-2 | ABIERTA · `e2e/grading-estimate.spec.ts:170` `warmUntilBadge` sondea hasta 90 s (`setTimeout(180_000)` en :268 y :291) a que venza la copia de la caché que dejó otro spec: acopla specs por estado compartido | frontend | 2026-11-01 | el spec que cambia el dial revalida la etiqueta `catalog` en su teardown; `grep -c warmUntilBadge frontend/e2e/grading-estimate.spec.ts` ⇒ 0 (hoy 5) con el spec verde contra stack |
-| TL-MKT7-3 | CERRADA · el `className` de quien llama anulaba el corte de la boundary (`cn` = `twMerge`, el último gana) en `GradingEstimateBadge` y `GradingEstimateBlock`: ahora `figureClassName` va el último. Roja antes del arreglo 2/2; mutación (orden viejo) badge 3/3 y bloque 3/3 rojo, restaurado 3/3 verde | frontend | 2026-11-01 | `_shared/grading/gradingEstimates.test.tsx` «TL-MKT7-3» verde; `grep -c "className, anchors.figureClassName)"` en los dos ficheros ⇒ 1 y 1 |
 | TL-ENV-F2b | ABIERTA · (techlead 2026-10-26) el conversor se importa renombrado `pesosToCentsOrNull as pesosToCents` en `(admin)`: el techlead contó 12; medido hoy 10 (m10 ×3, m2/curve, refunds, m4 ×2, m3, m5 ×2) | frontend | 2026-11-01 | `grep -rn "pesosToCentsOrNull as pesosToCents" frontend/src` ⇒ 0 |
 | TL-MKT-MT-1 | ABIERTA · (techlead 2026-10-26) `MetaTestEventBlock.tsx:222` formatea `sentAt` con `Intl.DateTimeFormat` sin `timeZone` (hora del navegador); la regex `^TEST[0-9]{3,10}$` está en 3 sitios sin paridad: `MetaTestEventBlock.tsx:25`, `lib/mock/marketing.ts:545`, `backend/src/modules/measurement/meta-test-event.ts:15` | frontend | 2026-11-01 | `timeZone: 'America/Mexico_City'` en ese formateador; el mock importa `META_TEST_CODE_RE` (`grep -c "TEST\[0-9\]" frontend/src/lib/mock/marketing.ts` ⇒ 0 fuera de comentarios) y una prueba compara su `source` con la de `TEST_EVENT_CODE_RE` del backend |
-| TL-MKT2c-4 | CERRADA · (techlead 2026-10-27) la ficha TL-MKT2b-f describía la lista de bloqueos del 2026-10-19; reescrita con el estado vigente (lista vacía, salidas del 10-26 y 10-27) | frontend | 2026-11-01 | la fila TL-MKT2b-f de «Frontend · 2026-10-19» no menciona «queda BLOQUEANTE»; `measurement-gate.test.ts` «el parser lee el índice real» verde |
 
 ---
 
@@ -130,16 +148,11 @@
 
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
-| TL-MKT2b-a | CERRADA · `itemsFromQuote`/`centsToValue` se evaluaban fuera de la barrera (también con `off`): una `card: null` salía de `onConfirmed`/`handleMockPay` como rechazo sin capturar | frontend | 2026-10-19 | `checkout/CheckoutMeasurementBarrier.test.tsx` «TL-MKT2b-a» (cuenta e invitado: el pago termina y `unhandledRejection` queda vacío) + `lib/measurement/ecommerce.test.ts` (con `off` no lee la cotización) verdes |
-| TL-MKT2b-c | CERRADA · FE-MKT2-4 / `LEGACY_NULL_HIDDEN_COMPAT` borrada de `MarketingTable.tsx`: `sealHiddenRows` (backend) ya sella todo `null` de fila oculta, y ni el panel ni `modules/marketing` del backend están en `production` (`ls-tree -r origin/production` ⇒ 0 ficheros de cada uno, 2026-10-19): no hay servidor pre-v1.106 con el que convivir. El mock sella igual | frontend | 2026-10-19 | `grep -c LEGACY_NULL_HIDDEN_COMPAT 'frontend/src/app/[locale]/(admin)/admin/marketing/MarketingTable.tsx'` ⇒ 0; `MarketingTable.test.tsx` «null en una fila suprimida ⇒ «—» …» y `mock/marketing.parity.test.ts` «C-P1 · el mock sirve las filas suprimidas selladas» verdes |
-| TL-MKT2b-e | CERRADA · `measurementDisclosureProblem` eximía `on` + `USE_MOCKS=true` también con `VERCEL_ENV=production` | frontend | 2026-10-19 | `lib/next-config-measurement-gate.test.ts` «on + MOCKS en Vercel production o preview ⇒ problema» y «TL-MKT2b-e · … ⇒ lanza (rc ≠ 0)» verdes |
+| TL-MKT2b-a/c/e, QA-MKT2b-2, FE-MKT2-3/4 | CERRADAS · barrera de la medición en el pago (`neverThrow`), compatibilidad pre-v1.106 (`LEGACY_NULL_HIDDEN_COMPAT`) borrada, `on` + mocks en Vercel, apartado `cookies` del aviso. Compactado 2026-11-02: texto completo en `9d269935:docs/TECH_DEBT.md` | frontend | 2026-10-19 | `checkout/CheckoutMeasurementBarrier.test.tsx` «TL-MKT2b-a», `lib/measurement/ecommerce.test.ts`, `MarketingTable.test.tsx`, `mock/marketing.parity.test.ts` «C-P1», `lib/next-config-measurement-gate.test.ts` «TL-MKT2b-e», `measurement-gate.test.ts` «el aviso sin apartado `cookies` ⇒ problema» verdes |
 | TL-MKT2b-f | CERRADA · `ENCENDER_BLOCKERS` (`content/legal/measurement-gate.ts`) está VACÍA: la llenó este pase (2026-10-19) con MKT-F2-3 y MKT-F2-4; salieron MKT-F2-4 y SEC-MED-1 el 2026-10-26 y MKT-F2-3 el 2026-10-27 (HECHOS «Evento de prueba de Meta: recibido en producción»). Que nadie la vacíe con una ficha abierta lo vigila la paridad SEC-MKT-2 contra este índice (medido 2026-11-01, TL-MKT2c-4) | frontend | 2026-11-01 | `content/legal/measurement-gate.test.ts` «por defecto usa ENCENDER_BLOCKERS: vacía ⇒ con on y aviso válido, verde», «TL-MKT2b-f · con off la puerta sigue verde…» y «SEC-MKT-2 · paridad» verdes |
-| QA-MKT2b-2 | CERRADA · el candado de `neverThrow` era débil (si relanzaba caía 1 de 23 pruebas, ninguna de checkout) | frontend | 2026-10-19 | `CheckoutMeasurementBarrier.test.tsx` «TL-MKT2b-a» (las dos) se ponen rojas con `neverThrow` relanzando |
 | QA-MKT2b-1 | ACEPTADA (límite) · la C-D1 mínima de `next.config.mjs` no mide los términos del aviso; la completa (`prebuild`) sí, y es la que corre al publicar | frontend | 2026-10-19 | razón y rutas en FRONTEND_NOTES §MKT2 «Límite aceptado»; se reabre si aparece un camino de publicación con `next build` directo: `grep -rn "npx next build" .github Dockerfile* vercel.json frontend/vercel.json` ⇒ 0 |
-| FE-MKT2-4 | CERRADA (TL-MKT2b-c, 2026-10-19) · compatibilidad pre-v1.106 en `cellMeaning` | frontend | 2026-10-19 | ver TL-MKT2b-c |
 | SEC-MED-1 | CERRADA (2026-10-26, ARCHITECTURE §14.4 D-MKT2-11, v1.112.2; sale de `ENCENDER_BLOCKERS` en el mismo commit) · `page_location` de los eventos de GA4 que no eran `page_view` y la URL que ve el píxel de Meta salían sin sanear (`/catalog?q=<búsqueda>`). Ahora: lista blanca única `MEASUREMENT_QUERY_ALLOWLIST` (`lib/measurement/utm.ts`), `config` y cada `gtag('event')` con `page_location`/`page_referrer` saneados, píxel solo en documento que pasa `isPixelSafeUrl` (en `loadMeta` y en cada llamada a `fbq`). Hallazgo de seguridad sobre `2f5a59c0` (SECURITY_NOTES §4) | frontend | 2026-10-26 | `lib/measurement/utm.test.ts` (C-F4 v1.112.2) y `track.url.test.ts` verdes; `e2e/measurement-on.spec.ts` «C-F3 · ?q= (SEC-MED-1)» verde con `on` ((a)/(b′) rojas sobre el código de `2f5a59c0`, medido con el spec nuevo sobre `a27d20d4`, mismo `lib/measurement`); `grep -c "id: 'SEC-MED-1'" frontend/src/content/legal/measurement-gate.ts` ⇒ 0 |
-| FE-MKT2-2 | ABIERTA · Eventos de §MKT.H.4 sin cablear: `select_content`, `buy_button_visible`, `add_payment_info`, `click_contact`, `search` (la lista cerrada de `track.ts` ya los admite) | frontend | 2026-10-19 | `grep -rnE "track\\('(select_content|buy_button_visible|add_payment_info|click_contact|search)'" frontend/src --include=*.tsx` ⇒ ≥ 1 por evento, con su caso en `measurement-on.spec.ts` |
-| FE-MKT2-3 | CERRADA (v1.105, §MKT.H.13) · El párrafo propio al final del apartado `cookies` es el diseño definitivo; C-D1 exige el apartado | frontend | 2026-10-19 | `measurement-gate.test.ts` «el aviso sin apartado `cookies` ⇒ problema» verde |
+| FE-MKT2-2 | ABIERTA · Eventos de §MKT.H.4 sin cablear: `select_content`, `buy_button_visible`, `click_contact`, `search` (la lista cerrada de `track.ts` ya los admite). `add_payment_info` **cableado 2026-11-02** (v1.116, al abrir el modal de Stripe; `ecommerce.ts` `trackAddPaymentInfo`, candado C-F11 de unidad `checkout/CheckoutPaymentMeasurement.test.tsx`), pero la ficha **sigue abierta también por él**: re-medido 2026-11-02 sobre `9d269935`, `measurement-on.spec.ts` no tiene caso de `add_payment_info` (techlead). Ojo: `add_payment_info` sale de `lib/measurement/ecommerce.ts`, que el grep de cierre (`--include=*.tsx`) no lee: para ese evento cuenta el caso E2E | frontend | 2026-11-02 | `grep -rnE "track\\('(select_content|buy_button_visible|add_payment_info|click_contact|search)'" frontend/src --include=*.tsx` ⇒ ≥ 1 por evento, con su caso en `measurement-on.spec.ts` |
 
 ---
 
@@ -379,41 +392,7 @@
 > una CERRADA sobre los módulos escaneados y vigilada con conteo (SD-D1), una NO MEDIDA (SD-D2) y los límites del escáner +
 > alcance de `MODULES` como deuda de bajo riesgo (SD-D4).**
 
-### SD-D1 · CERRADA (2026-10-13) · La clase «cascada de display de sellado COPIADA» — cerrada Y vigilada por candado
-- **Qué era:** la regla de display de un sellado (`SealedProduct` → snapshot → «Sellado sin identificar», ⛔ nunca el
-  `card.name` del single **ancla**) vivía COPIADA a mano en varios servicios, cayendo al ancla como último recurso del
-  NOMBRE. Es la clase que parió el bug «Exeggcute». Se cerró en DOS tandas:
-  - **Tanda 1 (b70e272 / 9bdcb18):** las 4 copias D-2 (`vault.service.ts`, `sealed-catalog.service.ts` grid,
-    `sales-analytics.service.ts`, `sealed-restock-notify.service.ts`) + los 3 escapes aliaseados (`toClientShipmentItem`,
-    imagen del tracking de invitado, correo AV-12) pasaron al resolutor único.
-  - **Tanda 2 (este pase, rama `fix/sealed-display`):** QA+techlead (sobre `9bdcb18`) cazaron **4 copias MÁS** fuera del
-    alcance enumerado a mano — porque la enumeración por grep/directorio/función deja pasar accesos aliaseados. Cerradas,
-    todas al resolutor: `catalog/sealed-catalog.service.ts` (serie de valor público), `inventory/sealed-graded.service.ts`
-    (pestaña Sellado, admin), `pricing/pricing.service.ts` (cola M2, admin) y `wishlist/wishlist-demand.service.ts`
-    (demanda de restock, admin). Conducta normada: sin nombre resoluble → «Sellado sin identificar», ⛔ nunca el ancla.
-- **Por qué está cerrada sobre los módulos escaneados — el candado mecánico:** la enumeración a mano falló **tres veces**,
-  así que la clase queda **VIGILADA por `backend/test/sealed-display-guard.spec.ts`**: escanea el código fuente de los
-  **11 módulos de display listados en `MODULES`** y **rompe CI** si aparece una lectura de
-  `card.name`/`card.number`/`card.imageSmallUrl` del ancla (incluidos los aliases locales por asignación) que no pase por
-  `pieceDisplayIdentityOf` ni esté en su allowlist explícita (con razón por entrada). Desde el endurecimiento **D-1**
-  (2026-10-13) el campo `lines` es **load-bearing**: el candado afirma que cada entrada casa con **exactamente `lines.length`**
-  accesos, de modo que una **copia con texto de línea idéntico a uno ya allowlisteado, en el mismo fichero** (que antes pasaba
-  con la regla «≥1») ahora sube el conteo y pone el candado **rojo**, forzando revisión.
-- **Alcance honesto, qué vigila y qué NO (para no sobre-afirmar):** la clase está **cerrada sobre los módulos de display
-  escaneados** (todos los ofensores conocidos pasan por el resolutor) **y vigilada contra copias dentro de ellos** por el
-  candado con conteo. **No afirmamos «no puede reabrirse en silencio» en absoluto**: el escáner es análisis estático y tiene
-  fronteras (destructuring con renombre, alias multilínea, parámetros con otro nombre) y un **alcance de módulos fijo**
-  (`disputes`/`buylist`/`decks-meta` no se escanean hoy). Esos residuos quedan registrados como **SD-D4** (abajo), de bajo
-  riesgo y money-safe. La afirmación medible es: **sobre los 11 módulos escaneados, ninguna copia directa, aliaseada por
-  asignación o línea-idéntica de la cascada puede reaparecer sin poner el candado rojo.**
-- **Verificado por mutación el 2026-10-13** (rama `fix/sealed-display`): (a) una copia directa `card.name` y una aliaseada
-  (`const X = item.card; X.name`) ⇒ candado rojo; (b) una copia **línea-idéntica** a una entrada de la allowlist en el mismo
-  fichero ⇒ test de conteo (D-1) **3/3 corridas rojas** mientras el test de violaciones queda verde (justo el caso que D-1
-  cierra); restaurado ⇒ verde.
-- **Estado:** la clase está **CERRADA sobre los módulos de display escaneados y vigilada con conteo**; ninguna deuda de
-  divergencia conocida de esta clase queda viva. Los límites del escáner y el alcance de `MODULES` son **deuda de bajo riesgo
-  registrada (SD-D4)**, no la clase reabierta. Medido: candado verde (3/3 tests) + suite unitaria/contrato 478/478 suites ·
-  8533/8533 pruebas + E2E `sealed-display-flow.e2e-spec.ts` 7/7 (2026-10-13, rama `fix/sealed-display`).
+### SD-D1 · CERRADA (2026-10-13) · Cascada de display de sellado COPIADA → todo al resolutor `pieceDisplayIdentityOf`, vigilada por `backend/test/sealed-display-guard.spec.ts` (11 módulos, conteo por `lines`; mutación 3/3 roja); residuos del escáner en SD-D4. Detalle en el historial de la rama `fix/sealed-display`.
 
 ### SD-D2 · NO MEDIDO (owner: OPERACIÓN/CAPTURA, no backend) · Piezas selladas vivas sin identidad propia (§4.34a.1)
 - **Qué es:** el resolutor rinde «Sellado sin identificar» para una pieza `productType='sealed'` que no tiene **ni**
@@ -9597,6 +9576,18 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 
 ---
 
+## Devops · 2026-11-02 · techlead sobre `9d269935` (rama `claude/checkout-friccion`, G-CP-BOTON, DEVOPS_NOTES §107)
+
+> Dueño: **devops** (`.github/workflows/`, `scripts/`, `docs/DEVOPS_NOTES.md`). Solo anotadas (O-23), sin arreglar. TD-LIVE-8 (cerrada 2026-10-05, DEVOPS_NOTES §85.11) sale de este fichero para hacer sitio.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-CHK-8 | ABIERTA · `.github/workflows/cargar-codigos-postales.yml` (único workflow con secreto que escribe en la BD de producción) fija acciones por etiqueta: `actions/checkout@v5` (`:55`), `actions/setup-node@v5` (`:62`); choca con CLAUDE.md «toda dependencia externa va fijada» | devops | 2026-11-02 | todo `uses:` de ese workflow lleva sha de 40 hex; `scripts/check-cargar-cp-workflow.sh` gana un bloque [H] que pone rojo un `@v…`, con su caso en `check-cargar-cp-workflow-canary.sh` |
+| TL-CHK-9 | ABIERTA · `docs/DEVOPS_NOTES.md` mide 14 893 líneas (`wc -l`) contra el tope ~1 500 de CLAUDE.md; umbral en `scripts/doc-size.baseline` 14 893 | devops | 2026-11-02 | `wc -l < docs/DEVOPS_NOTES.md` ≤ 1500 sin perder el estado vigente, y `./scripts/check-doc-size.sh --update` baja el umbral |
+| TL-CHK-10 | ABIERTA (propuesta techlead/seguridad) · el secreto del botón (`SEPOMEX_DATABASE_URL`, entorno `catalogo-cp`) es la `DATABASE_PUBLIC_URL` de Railway: dueño completo de la BD; lo mínimo es un rol con `GRANT` solo sobre `"PostalCode"` | devops (+ seguridad) | 2026-11-02 | DEVOPS_NOTES §107 documenta el rol mínimo y el workflow lo acepta; o seguridad acepta el riesgo por escrito en `docs/SECURITY_NOTES.md` |
+
+---
+
 ## Devops · 2026-11-01 · deuda pedida y no anotada (techlead 2026-10-27, orquestador 2026-11-01; base `add50880`)
 
 > Dueño del código anotado: **devops** (`scripts/`, `.github/workflows/`). Solo anotadas, sin arreglar. Medido el 2026-11-01 por devops.
@@ -9624,20 +9615,6 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
 ---
 
 ## Devops · 2026-10-05 · gate del techlead sobre `241d4dca` (rama `claude/listo-real`, LIVE-9 / E-8)
-
-### TD-LIVE-8 · ✅ CERRADA en este pase (2026-10-05) · El vigía de caídas buscaba su issue solo por título
-- **Dueño:** devops (`.github/workflows/uptime-watch.yml`).
-- **Qué era:** abrir y cerrar el issue `[caída] …` buscaban por **título exacto**. El repo es público: cualquiera
-  podía abrir un issue con ese título y el vigía, al verlo «ya abierto», no abría el suyo ⇒ **un desconocido
-  suprimía la alerta** (y el correo al dueño).
-- **Cierre:** un único filtro `ISSUE_JQ` (env del job `vigilancia`) para abrir y cerrar: título **y** etiqueta
-  `caida` (etiquetar exige permiso de triage) **y** autor bot de Actions (`app/github-actions` /
-  `github-actions[bot]`, `is_bot`). Se evalúa con el `jq` del runner, no con el `--jq` embebido de `gh`.
-- **Candado:** `scripts/check-uptime-watch-canary.sh` sección «issue propio» (corre en `autoprueba` antes de cada
-  vigilancia y en `live-candados`): intruso sin/con etiqueta, otro bot y bot sin etiqueta ⇒ no cuentan; el del bot
-  entre intrusos ⇒ cuenta; mutaciones «solo título» y «sin autor» ⇒ el canario las distingue. Medido 2026-10-05 en
-  `claude/listo-real`: **21/21**, N=1 (determinista: sin red ni reloj). **NO MEDIDO:** el `gh issue list --json author`
-  real de GitHub (forma de `author.login` del bot); por eso se aceptan los dos nombres.
 
 ### TD-LIVE-9 · P3 · Fecha de retiro del `schedule` diario de `ttfb-probe`
 - **Dueño:** devops (`.github/workflows/ttfb-probe.yml`).

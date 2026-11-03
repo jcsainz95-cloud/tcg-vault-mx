@@ -22,6 +22,24 @@ import { assertPersonName } from './person-name';
 import { AddressDTO, toAddressDTO } from './address-dto';
 import { blankToNull } from './address-rules';
 import { PostalCodeService } from '../shipping-provider/geo/postal-code';
+import { AuditService } from '../audit/audit.service';
+import { addressPlaceKey } from './address-place-key';
+
+/**
+ * ⭐ v1.116 (§4-G.9c): espacio del candado consultivo de la LIBRETA por usuario (`pg_advisory_xact_lock(ns, hashtext(userId))`).
+ * Serializa «¿ya existe este lugar? → alta» entre dos reclamos simultáneos del mismo usuario (sin índice único ⇒ sin migración).
+ * ⭐ v1.116.1 (PT-CHK-2/3, TL-CHK-3): lo toman TODAS las escrituras de la libreta que pueden tocar `isDefault` (alta y edición
+ * del cliente, alta desde el reclamo) ⇒ dos `isDefault:true` a la vez dejan una sola predeterminada.
+ */
+export const ADDRESS_BOOK_GATE_NAMESPACE = 88_120_116;
+
+/** Resultado del alta interna desde un reclamo (§4-G.9c). `invalid` lo registra el llamador; `duplicate` no es un fallo. */
+export type ClaimAddressResult =
+  | { created: true; addressId: string; isDefault: boolean }
+  | { created: false; reason: 'invalid' | 'duplicate' };
+
+/** Texto no vacío tras recortar (la regla de `POST /users/me/addresses` para line1/city/state/postalCode/phone). */
+const filled = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 
 /** `BillingProfileDTO` del contrato §11 (v1.67.1): seis campos, `rfcMasked` y nada más. */
 export interface BillingProfileDTO {
@@ -55,6 +73,10 @@ export class UsersService {
     // ⭐ v1.81 (M-64): la lista de colonias por CP. `@Optional()` por el mismo motivo que el correo (unitarios a
     // mano); sin él, crear/editar una dirección con colonia LANZA (⛔ nunca se guarda sin validar).
     @Optional() private readonly postalCodes?: PostalCodeService,
+    // ⭐ v1.116 (§4-G.9c): bitácora `address.create_from_claim` en la MISMA tx que el alta. `@Optional()` solo por los
+    // unitarios que construyen el servicio a mano; en la app `AuditModule` es global y siempre está. Sin él, el alta
+    // desde un reclamo LANZA (⛔ nunca un alta sin bitácora) y el reclamo la registra como `reason=error`.
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   // ================================================================ 🔒 setClabe — EL escritor de la CLABE
@@ -275,9 +297,6 @@ export class UsersService {
     const recipientName = assertPersonName(dto.recipientName, 'recipientName');
     this.assertMx(dto.country);
     const geo = await this.requirePostalCodes().resolveAddressGeo(dto.postalCode, dto.neighborhood, dto.city, dto.state);
-    if (dto.isDefault) {
-      await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
-    }
     // Lista blanca explícita (misma norma que `updateMe`): un campo nuevo del DTO no se escribe solo.
     const data: Prisma.AddressUncheckedCreateInput = {
       userId,
@@ -293,7 +312,90 @@ export class UsersService {
       references: blankToNull(dto.references),
       isDefault: dto.isDefault,
     };
-    return toAddressDTO(await this.prisma.address.create({ data })); // S49-R4
+    // ⭐ v1.116.1 (PT-CHK-3): «quitar la predeterminada → alta» bajo el candado de la libreta (validado todo lo anterior).
+    return this.withAddressBookLock(userId, async (tx) => {
+      if (dto.isDefault) await tx.address.updateMany({ where: { userId }, data: { isDefault: false } });
+      return toAddressDTO(await tx.address.create({ data })); // S49-R4
+    });
+  }
+
+  /**
+   * ⭐ v1.116.1 (API_CONTRACT §4-G.9c, PT-CHK-2/3) — UNA transacción cuya 1.ª sentencia es
+   * `pg_advisory_xact_lock(ADDRESS_BOOK_GATE_NAMESPACE, hashtext(userId))`: serializa las escrituras de la libreta de un usuario
+   * (alta y edición del cliente, alta desde el reclamo). Quien llama valida ANTES (⛔ nada se escribe sin validar).
+   */
+  private withAddressBookLock<T>(userId: string, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADDRESS_BOOK_GATE_NAMESPACE}::int, hashtext(${userId}))`;
+      return fn(tx);
+    });
+  }
+
+  /**
+   * ⭐ v1.116 (API_CONTRACT §4-G.9c; ARCHITECTURE §4.47.4) — ALTA INTERNA desde el reclamo de un pedido de invitado. La
+   * llama solo `OrderClaimService.claim` tras GANAR el reclamo (⛔ `orders` no escribe `Address`). Sin endpoint propio.
+   *
+   * - Copia los diez campos del snapshot TAL CUAL (⛔ sin re-resolver geografía); `line2`/`references` vacíos ⇒ `null`.
+   * - Solo si cumple lo que exige `POST /users/me/addresses`: `recipientName` válido (`assertPersonName`), `country='MX'`,
+   *   `line1`/`city`/`state`/`postalCode`/`phone` no vacíos. Si no ⇒ `{created:false, reason:'invalid'}`, sin escribir.
+   * - Una transacción (`withAddressBookLock`): candado de la libreta → libreta del usuario → si alguna tiene la misma
+   *   `addressPlaceKey` ⇒ `duplicate` (⛔ ni se crea ni se modifica: gana la del cliente) → alta con `isDefault:false`
+   *   SIEMPRE (⭐ v1.116.1, PT-CHK-1: una dirección importada sin elegirla nunca es la predeterminada; con una sola fila el
+   *   checkout ya la autoselecciona) → `AuditLog` sin domicilio. El llamador solo la pide para pedidos `settled`.
+   */
+  async createAddressFromClaim(actor: { id: string; role: Role }, orderId: string, snapshot: unknown): Promise<ClaimAddressResult> {
+    const s = (snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : {}) as Record<string, unknown>;
+    let recipientName: string;
+    try {
+      recipientName = assertPersonName(s.recipientName, 'recipientName');
+    } catch {
+      return { created: false, reason: 'invalid' };
+    }
+    if (s.country !== 'MX' || ![s.line1, s.city, s.state, s.postalCode, s.phone].every(filled)) {
+      return { created: false, reason: 'invalid' };
+    }
+    const audit = this.audit;
+    if (!audit) throw new Error('createAddressFromClaim: AuditService no inyectado');
+    const userId = actor.id;
+    const key = addressPlaceKey(s);
+    return this.withAddressBookLock(userId, async (tx) => {
+      const book = await tx.address.findMany({
+        where: { userId },
+        select: { postalCode: true, line1: true, line2: true, neighborhood: true },
+      });
+      if (book.some((a) => addressPlaceKey(a) === key)) return { created: false as const, reason: 'duplicate' as const };
+      const isDefault = false; // ⭐ v1.116.1 (PT-CHK-1): NUNCA predeterminada, con libreta vacía o no
+      const row = await tx.address.create({
+        data: {
+          userId,
+          recipientName,
+          line1: s.line1 as string,
+          line2: blankToNull(s.line2),
+          neighborhood: typeof s.neighborhood === 'string' ? blankToNull(s.neighborhood) : null,
+          city: s.city as string,
+          state: s.state as string,
+          postalCode: s.postalCode as string,
+          country: 'MX',
+          phone: s.phone as string,
+          references: blankToNull(s.references),
+          isDefault,
+        },
+        select: { id: true },
+      });
+      // ⛔ El domicilio NO va a bitácora: solo de qué pedido salió y si quedó predeterminada (siempre `false`).
+      await audit.log(
+        {
+          actorUserId: userId,
+          actorRole: actor.role,
+          action: 'address.create_from_claim',
+          entityType: 'Address',
+          entityId: row.id,
+          after: { orderId, isDefault },
+        },
+        tx,
+      );
+      return { created: true as const, addressId: row.id, isDefault };
+    });
   }
 
   /**
@@ -352,10 +454,11 @@ export class UsersService {
       data.city = geo.city;
       data.state = geo.state;
     }
-    if (dto.isDefault) {
-      await this.prisma.address.updateMany({ where: { userId }, data: { isDefault: false } });
-    }
-    return toAddressDTO(await this.prisma.address.update({ where: { id }, data })); // S49-R4
+    // ⭐ v1.116.1 (PT-CHK-2): «quitar la predeterminada → editar» bajo el candado de la libreta (validación, geo y dueño, antes).
+    return this.withAddressBookLock(userId, async (tx) => {
+      if (dto.isDefault) await tx.address.updateMany({ where: { userId }, data: { isDefault: false } });
+      return toAddressDTO(await tx.address.update({ where: { id }, data })); // S49-R4
+    });
   }
 
   private requirePostalCodes(): PostalCodeService {

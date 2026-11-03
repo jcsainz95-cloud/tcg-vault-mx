@@ -3,7 +3,7 @@
 > Propiedad: **devops**. Cómo levantar el entorno local, correr CI y desplegar/rollback.
 > Coherente con `docs/ARCHITECTURE.md` (§1 stack, §8 variables) y `PROJECT.md`.
 
-## Estado vigente (2026-10-30)
+## Estado vigente (2026-11-02)
 
 - **Quién publica:** fusionar en `production` despliega solo (Vercel frontend, Root Directory = `frontend`;
   Railway backend). El orquestador no publica; el botón es del dueño (`CLAUDE.md` «Cómo se publica»,
@@ -25,6 +25,8 @@
   con **trinquete** (DYN-D1) — §106. **Trinquete fijado el 2026-10-30: FCP 1 350 ms / LCP 4 190 ms** (mediana de CI sobre
   `e4c080ca` +10 %, §106.2); D2 en celular bloquea con ese FCP (v1.114.5). **Precondición de publicar A:** la lectura de coste
   en Vercel (§106.4, la hace el dueño); la de 7 días tras publicar caduca el 2026-12-01 (candado en §106.4). Mediciones de producción de §DYN: `scripts/dyn-prod-measure.sh` (§104.4), las corre el dueño.
+- **Catálogo de CP (2026-11-02):** en producción está **vacío** (4 CP ⇒ 404). Se carga con el botón «Cargar códigos postales
+  (SEPOMEX)» (`cargar-codigos-postales.yml`, lo dispara el dueño; simulacro por defecto) — pasos, candado y rollback: **§107**.
 - **Limpieza de ramas (2026-10-30):** `limpieza-ramas.yml` (lo dispara el dueño) borra las ramas remotas fusionadas en
   `production` y archiva `main`. Pasos para el dueño y cómo se deshace: **§105**.
 - **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5); muy por encima del tope: **se compacta antes de añadir**. Encabezado anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
@@ -12748,289 +12750,10 @@ commit), y PS-99 (d) volvería a apoyarse solo en el estático de backend.
   del PR.
 
 ---
-## §79 · Catálogo de CP (SEPOMEX → `PostalCode`, M-64): importador, `C-GEO-1`/`C-GEO-2` y lo que bloquea la ventana (2026-10-04, rama `claude/skydropx-d`)
+## §79–§80 · Catálogo de CP: importador y errata v1.80.12.4 — retiradas 2026-11-02 (DOC-SIZE)
 
-Fuente normativa: `API_CONTRACT §M4-SHIP.19.23.6` (errata v1.80.12.3, `f0009e92`): `C-GEO-1` (qué es «catálogo
-cargado») y `C-GEO-2` (se carga en el arranque, tras `migrate deploy` y antes de servir; idempotente, sin borrar,
-falla-cerrado, archivo fijado por `sha256`; ⛔ ni descargar al arrancar ni cargar a mano después). Por qué importa:
-con `PostalCode` vacía toda dirección nueva es `422 POSTAL_CODE_UNKNOWN` y nadie paga un envío (`BACKEND_NOTES §58`).
-
-### 79.0 Estado en una línea
-
-> ⛔ **v1.80.12.5 (§81):** el catálogo ya **no** se carga en el arranque (`boot` y C-GEO-2 retirados) y la ventana de
-> 79.9 (a)(b)(c) queda sustituida por la de §81.4. Lo de abajo es historia.
->
-> ⚠️ **Superado en parte por §80 (2026-10-04, errata v1.80.12.4):** C-GEO-1 (1) ya no es igualdad de conteo sino
-> inclusión + huella; hay modo estricto/arnés; el `CMD` **ya está cableado** (modo arnés en compose/CI, estricto en
-> Railway). Lo de abajo queda como historia; manda §80.
-
-**El importador está hecho y probado; el cableado en el arranque NO, porque falta el archivo.** No se puede
-descargar desde este contenedor (79.2) y meterlo en el repo —que es público— es una decisión del dueño por tamaño y
-por licencia. ⛔ **Hasta que el archivo esté fijado y el `CMD` cableado, la fase C no se puede publicar** (C-GEO-2).
-
-### 79.1 Qué hay
-
-| Ruta | Qué |
-|---|---|
-| `scripts/geo/sepomex-parse.ts` | Lector puro del TXT de SEPOMEX: UTF-8 si es válido, si no Latin-1; columnas por **nombre** (`d_codigo`, `d_asenta`, `d_mnpio`, `d_estado`); fila con otro número de campos = **error** (fichero roto, no se carga nada); fila inválida (CP no `^\d{5}$`, campo vacío, carácter ilegible) = **descartada y contada por motivo**; duplicados exactos `(CP, colonia)` colapsados (se queda la primera). |
-| `scripts/geo/import-sepomex.ts` | `boot` (C-GEO-2), `verify` (C-GEO-1, solo lectura) e `import` (recarga **explícita**, fuera del arranque). Comprueba el `sha256` antes de leer. Pisos **constantes** (`C_GEO_FLOORS` congelado: ≥ 100 000 filas, ≥ 25 000 CP, = 32 estados); ⛔ no hay opción para bajarlos. |
-| `scripts/geo/import-sepomex.sh` | Lanzador (ts-node con el `node_modules` de `backend/`, como la sonda de §78). |
-| `scripts/geo/import-sepomex.test.ts` | Prueba (`node:test`): parte pura siempre; parte con base solo con `SEPOMEX_TEST_DATABASE_URL` (localhost y nombre con «sepomex»: la prueba vacía la tabla). |
-| `scripts/geo/fixtures/sepomex-extracto-sintetico.txt` (+ `.sha256`) | 13 líneas, 1 350 bytes, Latin-1 con CRLF, **escrito a mano en el formato de SEPOMEX; no es la fuente oficial**. Trae los 5 CP del arnés, ñ, ü, acentos, un `\|` final y un duplicado. |
-| `.github/workflows/ci.yml`, job `backend` | Paso nuevo «Importador SEPOMEX — prueba con base dedicada (M-64)» (79.6). |
-
-**`boot`**, paso a paso, todo en **una** transacción con `pg_advisory_xact_lock` (dos réplicas no se mezclan):
-1. `sha256` del archivo = el fijado (`--sha256` o el hermano `F.sha256`); si no, sale 1 sin abrir la base.
-2. El archivo alcanza los pisos; si no, sale 1 («se para y se pide errata al arquitecto»).
-3. Si C-GEO-1 (1)(2)(4) ya se cumplen ⇒ comprueba (3) y **no escribe** (re-arranque barato: 1.9 s con 143 913 filas).
-4. Si no ⇒ `INSERT … ON CONFLICT ("postalCode", neighborhood) DO NOTHING` (⛔ **nunca borra**) y verifica C-GEO-1
-   **entero dentro de la transacción**, incluidos los 5 CP del arnés por `PostalCodeService.resolvePostalCode` (el
-   mismo cuerpo que la app). Cualquier fallo ⇒ ROLLBACK y salida 1.
-
-### 79.2 La fuente — medido y no medido
-
-- **Medido 2026-10-04:** `www.correosdemexico.gob.mx` da **403 del proxy de salida** (política de la organización)
-  por `https` y por `http`; `docs.railway.com` también. Desde este contenedor **no se puede descargar** el catálogo ni
-  leer la documentación de Railway. No se reintentó ni se buscó rodeo (espejos de terceros: procedencia no fijable).
-- **NO MEDIDO (de memoria; lo cierra quien lo descargue):** la página oficial es
-  `https://www.correosdemexico.gob.mx/SSLServicios/ConsultaCP/CodigoPostal_Exportar.aspx`, un formulario ASP.NET
-  (elegir «Todos» los estados y formato **TXT**; también ofrece XML y Excel); entrega un ZIP con `CPdescarga.txt`,
-  Latin-1, separado por `|`, con una línea de aviso y la cabecera `d_codigo|d_asenta|d_tipo_asenta|D_mnpio|…`. Tamaño
-  del orden de 15 MB sin comprimir. Si hay captcha: no lo sé.
-- ⚠️ **Licencia (NO MEDIDO, de memoria):** la línea de aviso del propio fichero dice que se proporciona «para uso
-  particular, no estando permitida su comercialización, total o parcial, ni su distribución a terceros». **El repo
-  es público**: commitear el fichero podría ser distribuirlo. Decisión del dueño, no mía.
-- **El importador lee el TXT.** ZIP ⇒ error «descomprímelo»; XML/HTML ⇒ error «descarga el TXT».
-
-### 79.3 Lo que necesita el dueño (y por qué)
-
-1. **Descargar una vez** el catálogo en su navegador (79.2), descomprimir y correr en su máquina, desde la raíz del
-   repo con `cd backend && npm ci && npx prisma generate` hecho, **sin base**:
-   ```bash
-   sha256sum CPdescarga.txt > CPdescarga.txt.sha256
-   ls -l CPdescarga.txt                               # el TAMAÑO: el orquestador lo pidió antes de meterlo en el repo
-   scripts/geo/import-sepomex.sh import --file CPdescarga.txt --dry-run   # no abre base si no hay DATABASE_URL
-   ```
-   > ⚠️ **Corregido 2026-10-07 (§92.4, medido):** `import --dry-run` **sí exige base**: sin `DATABASE_URL` sale 1
-   > con `[sepomex] ⛔ falta DATABASE_URL` (lo midió primero el orquestador; re-medido por devops). Es por diseño: el
-   > dry-run informa de la tabla de hoy y de la inclusión (1a). El paso **sin base** es `manifest --file …` (§81.4).
-   El `dry-run` imprime sha256, codificación, filas/CP/estados derivados, descartes por motivo y si alcanza los pisos.
-   Esas cifras son las que el contrato pide anotar aquí (aún **NO MEDIDAS**). Si no alcanza un piso: se para y se pide
-   errata al arquitecto.
-2. **Decidir dónde vive el archivo fijado**, sabiendo el tamaño y la licencia: (a) en el repo
-   (`scripts/geo/data/CPdescarga.txt` + `.sha256`), o (b) un artefacto **privado** con su `sha256` (p. ej. un objeto
-   en el bucket de producción) que el **build** descarga y verifica (no el arranque). (b) añade una dependencia al
-   build y una credencial de lectura; (a) no, pero publica el fichero.
-
-Medición que lo justifica: 403 en la descarga desde aquí (arriba). Sin el archivo no hay `sha256` que fijar.
-
-### 79.4 El cableado que falta (se aplica cuando exista el archivo; no antes)
-
-No lo dejé cableado porque **sin el archivo el arranque falla cerrado en todos los entornos** que usan la imagen
-(Railway, `docker-compose.staging.yml` de `e2e-real.yml` y del DAST). El cambio, ya decidido:
-
-- `.dockerignore`: `!scripts/geo/*.ts` y `!scripts/geo/data/CPdescarga.txt*` (hoy `scripts` está excluido entero).
-- `Dockerfile.backend`, etapa runtime: copiar `scripts/geo/` y el archivo. ⚠️ El importador importa
-  `../../backend/src/...`; en la imagen la fuente vive en `/app/src`. Hay que copiarlo a `/opt/geo/scripts/geo` con
-  un enlace `/opt/geo/backend → /app` (o equivalente) — **se prueba con `docker build` antes de publicar**.
-- `CMD`: entre `migrate deploy` y `node dist/main.js`:
-  `… && node node_modules/prisma/build/index.js migrate deploy && node -r ts-node/register /opt/geo/scripts/geo/import-sepomex.ts boot --file /opt/geo/scripts/geo/data/CPdescarga.txt && node dist/main.js`
-  (con `TS_NODE_TRANSPILE_ONLY=1` y `TS_NODE_PROJECT=/app/tsconfig.json`). Medido en local con un archivo sintético de
-  143 913 filas: primera carga 4.2 s, re-arranque 1.9 s; `healthcheckTimeout` de `railway.json` es 300 s.
-- Candado: que el `CMD` traiga el paso `boot` antes de `dist/main.js` (mismo estilo que los preflights).
-
-### 79.5 Railway ante un arranque que falla — **NO MEDIDO**
-
-El contrato lo pide medido o citado **antes** de la ventana. **No pude**: sin acceso a Railway ni a su documentación
-(403, 79.2). Este documento ya lo **afirma** en las tablas de rollback de §26.4, §27.4 y §29.7 («el contenedor sale ≠0,
-Railway … mantiene activo el deploy anterior») **sin medición citada**: trátese como NO MEDIDO. Lo que
-sí está en el repo: `railway.json` fija `healthcheckPath: /api/v1/health`, `healthcheckTimeout: 300`,
-`restartPolicyType: ON_FAILURE`, `restartPolicyMaxRetries: 10`. Mi expectativa (de memoria): Railway no pasa tráfico a
-un despliegue nuevo hasta que su healthcheck da 200 y, si nunca lo da, lo marca fallido y deja el anterior sirviendo.
-**Cómo se mide** (quien tenga Railway, sin tocar producción): en un entorno de Railway que no sea `production`,
-desplegar una rama cuyo `CMD` haga `exit 1` antes de `node`, y anotar aquí qué dice el panel y si la URL sigue
-respondiendo el despliegue anterior.
-
-### 79.6 El paso de CI (`ci.yml`, job `backend`)
-
-Tras la prueba de la sonda de Skydropx: deriva `tcg_sepomex_ci` de `DATABASE_URL` (falla si no puede), la crea y
-migra con `prisma migrate deploy` (el usuario del servicio es superusuario; en local, sin `CREATEDB`, se midió que
-Prisma **intenta** crearla: `permission denied to create database`), corre `import-sepomex.sh test` y **falla si la
-parte con base se saltó** (`# skipped 0`). Base dedicada porque la prueba vacía la tabla y no debe tocar `tcg_ci`.
-Candados estáticos re-corridos en este árbol: `check-workflow-cwd`, `check-secret-defaults`, `check-secret-masking`,
-`check-skydropx-spend-lock`, `check-secret-absence-wording` ⇒ 0. Que el paso pase en GitHub: **NO MEDIDO** hasta el push.
-
-### 79.7 Mediciones (2026-10-04, base local `tcg_devops_sepomex`, Postgres 16.13)
-
-- **Prueba:** 9/9 con base (3 corridas), 8 pasan + 1 saltada sin base.
-- **Mutaciones** sobre copia (`git archive cd761248` + `scripts/geo`), deterministas, N=1 cada una: **12/12 en ROJO**
-  — `boot` borra · sin los CP del arnés · sin sha256 · piso bajado a 20 000 · sin conteo (1) · sin verificar tras
-  cargar · sin guarda de encogimiento · sin deduplicar · acepta líneas cortas · `import` borra y reinserta · sin
-  Latin-1 · no descarta CP inválido.
-- **Extracto (vía `resolvePostalCode`/`canonicalize`):** `44100` ⇒ 2 colonias (Jalisco); `06600` ⇒ «Juárez»,
-  Cuauhtémoc; `15520` + «penon de los BANOS» ⇒ «Peñón de los Baños»; `58000` + «AGUITA FRIA» ⇒ «Agüita Fría»;
-  `14210` + «jardines de la montana» ⇒ «Jardines de la Montaña»; `99999` ⇒ `null`.
-- **Archivo sintético grande** (Latin-1, 16.7 MB, 143 913 filas, 32 002 CP, 32 estados): `boot` +143 913 en 4.2 s;
-  segundo `boot` sin escribir, md5 de la tabla idéntico; `sha256` falso ⇒ salida 1, tabla idéntica; extracto ⇒ salida
-  1 por pisos; una fila de más ⇒ salida 1, la fila **no** se borra, tabla idéntica.
-- **`kill -9` a mitad de la transacción** (tras ver el `RowExclusiveLock` sobre `PostalCode`): `boot` **5/5** tabla
-  intacta (vacía), `import` **5/5** tabla intacta (md5 idéntico). Carrera de tiempo: N=5 cada uno, autor devops.
-- **Credencial:** con `DATABASE_URL` con contraseña canario, apuntando a `*.railway.internal` o a un puerto muerto, la
-  salida no contiene la contraseña (0 apariciones). Fuera de localhost la etiqueta oculta host y puerto.
-
-### 79.8 Discrepancias para el arquitecto
-
-1. **C-GEO-1 (1) contra las filas del arnés.** (1) exige `count(*)` = filas del archivo; §19.23.6 dice también que en
-   CI «las filas del arnés sobreviven porque el arranque nunca borra». `seed-e2e.ts` mete `E2E_POSTAL_CODES` con
-   colonias que no son de SEPOMEX (`06600 «Roma Norte»`, `01000 «Centro»`, medido en `backend/prisma/e2e-fixtures.ts:119-127`).
-   En un entorno que arranque **después** del seed (re-arranque de staging, DAST), el conteo no cuadra y el `boot`
-   **falla cerrado** (medido con una fila de más: salida 1). Hay que decidir: (1) como «todas las filas del archivo
-   presentes» en vez de igualdad, o que el seed no meta colonias inventadas en entornos con catálogo real.
-2. **Descartes vs. fichero roto.** Sigo el contrato (fila inválida = descarte contado), pero una fila con **otro
-   número de campos** la trato como fichero roto (error, nada se carga), no como descarte: con el `sha256` fijado no
-   debería ocurrir, y si ocurre el archivo fijado está mal.
-
-### 79.9 Ventana y rollback
-
-**En la ventana** (cuando 79.3 y 79.4 estén hechos): el arranque carga solo; no hay paso a mano (⛔ C-GEO-2). Se
-anota en la solicitud de fusión: (a) el registro del `boot` de los logs de Railway (filas, CP, estados, `sha256`);
-(b) los cinco `GET https://<api>/api/v1/geo/postal-codes/{01000,06600,14210,44100,64000}` ⇒ `200` con
-`neighborhoods.length ≥ 1`; (c) el dueño hace una compra con envío eligiendo la colonia de la lista. Comprobación
-extra de solo lectura, si se quiere desde fuera (la credencial no sale del entorno de Railway; el script no la imprime):
-```bash
-railway run --service <servicio-de-Postgres> --environment production -- \
-  scripts/geo/import-sepomex.sh verify --file scripts/geo/data/CPdescarga.txt     # salida 0 ⇔ C-GEO-1 se cumple
-```
-(`railway run` corre en la máquina del dueño con las variables inyectadas; el script usa `DATABASE_PUBLIC_URL` si
-`DATABASE_URL` es `*.railway.internal`. El nombre del servicio y que exista `DATABASE_PUBLIC_URL`: **NO MEDIDO**.)
-
-**Rollback.** Código: redeploy del anterior (no lee `PostalCode`; M-64 es aditiva). La tabla puede quedarse llena.
-Datos: el `boot` solo inserta; para vaciar, la reversa de M-64 (`DROP TABLE "PostalCode"`) o `DELETE FROM "PostalCode"`
-con la versión anterior sirviendo. Un catálogo nuevo de SEPOMEX entra con `import` explícito (reconcilia altas,
-cambios y bajas, aborta si quita > 10 % sin `--allow-shrink`) **y** un nuevo `sha256` fijado. Revertir esta sección:
-`git revert` del commit (se va el paso de CI con él).
-
----
-## §80 · Catálogo de CP, errata v1.80.12.4: inclusión + huella, dos modos por blanco, manifiesto y `CMD` cableado (2026-10-04, rama `claude/skydropx-d`)
-
-Fuente normativa: `API_CONTRACT §M4-SHIP.19.24` (`ab969d0f`), `ARCHITECTURE §4.60 (q)`. Manda sobre §79 donde choque.
-Resuelve las dos discrepancias de §79.8: (1) C-GEO-1 (1) es inclusión + huella, y las filas del arnés se toleran en
-modo arnés; (2) una fila con otro número de campos sigue siendo fichero roto (el contrato no lo cambia).
-
-### 80.0 Estado en una línea
-
-> ⛔ **RETIRADA el 2026-10-04 por §81 (errata v1.80.12.5, `API_CONTRACT §M4-SHIP.19.25.4`).** La consigna «no
-> fusionar a `production` antes de cerrar G-1» existía **solo** porque el `CMD` de 80.2 corría `boot` y, en Railway
-> (estricto, sin manifiesto), la imagen no arrancaba. Ese `boot` era a su vez la respuesta a un problema que ya no
-> existe: con la colonia obligatoria de la lista, una tabla `PostalCode` vacía dejaba a la tienda **sin poder cobrar
-> envíos**. El dueño decidió (`HECHOS.md:57`) que la colonia funcione como en Mercado Libre: la lista ayuda, no
-> bloquea, y con la tabla vacía se vende con la colonia escrita. Sin ese hueco, mantener el `boot` era cambiar «no
-> vender un envío» por «no vender nada». El `boot` salió del `CMD` y del importador, y con él esta consigna. **G-1
-> queda sin urgencia.** Rige §81.
-
-**Construido y cableado todo lo que no depende del archivo.** Falta G-1 (dónde vive el archivo: (A) objeto privado en
-`S3_BUCKET`, por defecto; o (B) repo), el archivo y su manifiesto. ⛔ **Hasta entonces el `CMD` hace que la imagen NO
-arranque en Railway** (modo estricto sin manifiesto ⇒ salida 1). Es el comportamiento que pide el contrato («la versión
-no se publica mientras G-1 esté abierta»), y depende de que Railway conserve la versión anterior: **NO MEDIDO** (80.5).
-Consecuencia práctica: **no fusionar esta rama a `production` antes de cerrar G-1**, o el despliegue falla.
-
-### 80.1 Qué cambió en `scripts/geo/`
-
-| Pieza | Qué |
-|---|---|
-| `sepomex-parse.ts` | Motivo de descarte nuevo `separador_en_campo` (TAB/CR/LF dentro de un valor: la serialización de `setDigest` tiene que ser inyectiva). |
-| `import-sepomex.ts` · `manifest --file F [--out M]` | Sin base. Escribe `{fileSha256, encoding, derived{rows,postalCodes,municipalities,states}, discarded, duplicatesDropped, setDigest, sourceNotice}`. Imprime si alcanza los pisos. Es lo que se commitea (no el archivo). |
-| · `setDigestOf` / `sqlSetDigest` | §19.24.3: `cp TAB colonia TAB municipio TAB estado LF`, orden por **bytes** (`Buffer.compare`; en SQL `COLLATE "C"`), sha256. |
-| · `classifyTarget` | Arnés ⇔ la URL pasa `assertSeedTarget` **importada** de `backend/prisma/seed-target-guard.ts` (incluida su escotilla `SEED_E2E_ALLOW_HOST`); si no, estricto. `--strict` lo fuerza; no hay opción que afloje. |
-| · `boot [--file F] [--strict]` | `DATABASE_URL` **tal cual** (sin salto a `DATABASE_PUBLIC_URL`). Estricto: sin manifiesto ⇒ 1; manifiesto bajo los pisos ⇒ 1; tabla = manifiesto + (3)(4) ⇒ 0 **sin escribir ni pedir el archivo**; si no, archivo con `sha256` comprobado **antes** de interpretarlo, su `setDigest` = el del manifiesto, `INSERT … ON CONFLICT DO NOTHING`, y dentro de la tx (1a)+(1b)+(2)+(3)+(4); ajena o discrepante ⇒ ALARMA y 1, sin borrar. Arnés: sin archivo ⇒ imprime `[sepomex] modo arnés: sin archivo, no se carga; los CP los siembra el arnés` y sale 0 **sin abrir la base**; con archivo ⇒ exige su manifiesto hermano y verifica (1a) `faltan = 0`, (3) y (4); ajenas/discrepantes se imprimen (hasta 10 ejemplos). |
-| · `verify` / `import` | Usan el manifiesto como fijación (sustituye al `.sha256` hermano de §79, que ya no existe). `import` comprueba al final `setDigest(tabla) = setDigest(archivo)`. |
-| `fixtures/sepomex-extracto-sintetico.manifest.json` | El manifiesto del extracto (10 filas, 8 CP, 5 estados): en modo arnés con `--file` se usa ése. |
-| `.github/workflows/ci.yml` | Sin cambios en este pase (el paso de §79.6 corre la prueba nueva). |
-
-**Interpretación mía, para que el arquitecto la confirme:** los pisos (2) se exigen solo en modo **estricto**. En arnés
-con el extracto (10 filas) no podrían cumplirse nunca, y §19.24.5 describe la verificación del arnés como «(1a) con
-`faltan = 0`», sin (2).
-
-### 80.2 El arranque, cableado (`Dockerfile.backend`, `.dockerignore`)
-
-- `.dockerignore`: `!scripts/geo`, y fuera `scripts/geo/fixtures` y `scripts/geo/*.test.ts`.
-- Runtime: `COPY scripts/geo/ /opt/geo/scripts/geo/` + enlace `/opt/geo/backend → /app` (el importador importa
-  `../../backend/src/…` y `../../backend/prisma/seed-target-guard`; en la imagen viven en `/app/src` y `/app/prisma`).
-  Un `RUN` de guarda hace fallar el **build** si falta el importador o el guard, o si viaja la prueba.
-- `CMD`: `… migrate deploy && TS_NODE_PROJECT=/app/tsconfig.json TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register
-  /opt/geo/scripts/geo/import-sepomex.ts boot && node dist/main.js`. Sin `--file`: hoy no hay archivo.
-- Quién queda en qué modo (por el host de `DATABASE_URL`, regla de `assertSeedTarget`):
-
-| Entorno | Host | Modo | Hoy (sin manifiesto) |
-|---|---|---|---|
-| Railway `production` | `*.railway.internal` (de memoria: NO MEDIDO) | estricto | **sale 1 ⇒ la versión no arranca** |
-| `docker-compose.yml` (dev) | `postgres` | arnés | sale 0 sin tocar base |
-| `docker-compose.staging.yml` (`e2e-real.yml`, DAST) | `postgres` | arnés | sale 0 sin tocar base; el seed pone `E2E_POSTAL_CODES` después |
-| CI `backend` (no usa la imagen) | `localhost` | — | corre la prueba (§79.6) |
-
-- Candado nuevo en la prueba (test 19): un solo `CMD`; `boot` va después de `migrate deploy` y antes de
-  `node dist/main.js`, unido con `&&`; sin `--file/--manifest` hoy; el `COPY` está; `.dockerignore` reincluye `scripts/geo`
-  y excluye prueba y extracto. Canarios 3/3 en ROJO: quitar `boot` del `CMD`, cambiar `&&` por `;`, dejar entrar la prueba.
-
-### 80.3 `docker build` — lo medido y lo NO MEDIDO
-
-- **`docker build -f Dockerfile.backend` completo: NO MEDIDO aquí.** Arranqué `dockerd` en el contenedor. La imagen
-  base se descarga, pero `apk upgrade` falla: `dl-cdn.alpinelinux.org` da `TLS: server certificate not trusted`, y con
-  la CA del proxy inyectada en una copia, **`HTTP 403: Forbidden`** (política de salida). No busqué rodeo. Lo miden los
-  workflows que construyen la imagen al empujar (NO MEDIDO hasta entonces).
-- **Medido (2026-10-04) con una réplica de la capa runtime** (`node:24-alpine`, sin `apk`/`npm`; `node_modules`, `src`,
-  `prisma`, `tsconfig.json` del backend local; las líneas de geo y el tramo `boot` del `CMD` **extraídos literales**
-  de `Dockerfile.backend`; contexto = raíz del repo, con su `.dockerignore`): build verde (el `RUN` de guarda pasa: el
-  importador está, la prueba no; en `/opt/geo/scripts/geo` solo `import-sepomex.{sh,ts}` y `sepomex-parse.ts`).
-  Ejecutado con `--network none` y `DATABASE_URL` con contraseña canario:
-  - host `postgres` ⇒ `modo arnés` · `sin archivo, no se carga` · **salida 0**;
-  - host `postgres.railway.internal` ⇒ `modo ESTRICTO` · `no hay manifiesto … la versión no se publica` · **salida 1**;
-  - host `x.proxy.rlwy.net` ⇒ ídem, **salida 1**;
-  - la contraseña canario aparece **0** veces en la salida.
-  Lo que esa réplica **no** prueba: el motor de Prisma para musl (en la imagen real lo genera `prisma generate` dentro
-  de Alpine) — por eso los tres casos son los que no abren conexión.
-
-### 80.4 Pruebas y mutaciones (2026-10-04, base local `tcg_devops_sepomex`, PG 16.13; medido por devops)
-
-- **Prueba:** 19/19 con base; 14 pasan + 5 saltadas sin base.
-- **G1–G11** (§19.24.9): G1 test 8 (+ test 9: `boot` sin salto a `DATABASE_PUBLIC_URL`) · G2/G4/G6/G8/G9 test 16 ·
-  G3 test 15 · G5 test 10 · G7 test 17 (tabla temporal con `COLLATE "und-x-icu"`; la prueba **comprueba la premisa**:
-  el orden ICU difiere del de bytes con `Zapata/Ángel/a/B/ñu/nz/Ñandú/Óscar`) · G10 test 11 · G11 test 13 (canarios
-  en la propia prueba: fila 21 y sin «SINTÉTICO» ⇒ rojo).
-- **Mutaciones** sobre copia (`git archive ab969d0f` + `scripts/geo` vivo), deterministas, N=1 cada una: **24/24 en
-  ROJO**, más 3/3 del cableado (80.2):
-  - de §19.24.9: G1 `*.railway.internal` como arnés · G2 tolerar ajenas sin mirar el modo · G3 igualdad también en
-    arnés · G4 leer el archivo antes de comparar la huella · G6 hash después de parsear · G7 sin `COLLATE "C"` ·
-    G9 por clave en vez de por huella (sin discrepantes ni (1b)) · G11 fila 21 en el extracto · `boot` salta a
-    `DATABASE_PUBLIC_URL` · G5 sin manifiesto pasa · G10 sin pisos del manifiesto · estricto sin archivo sale 0;
-  - **re-declaradas** de §79.7: «sin conteo (1)» ya no existe (el conteo se fue); su papel lo cubren G2 y G9. Las
-    demás siguen: `boot` borra · sin verificar tras cargar · sin sha256 · piso bajado a 20 000 · sin los CP del arnés ·
-    sin guarda de encogimiento · sin deduplicar · acepta líneas cortas · `import` borra y reinserta · sin Latin-1 ·
-    no descarta CP inválido · (nueva) no descarta separador en campo.
-- **`kill -9` a mitad de la transacción** de `boot --strict` (archivo sintético de 143 913 filas, tras ver el
-  `RowExclusiveLock` sobre `PostalCode`): tabla intacta **5/5** (N=5, autor devops). Después: `boot` carga en 5.1 s;
-  re-arranque sin archivo ⇒ «tabla = manifiesto, sin escribir» en 1.2 s.
-- Candados: `check-compose-images`, `check-workflow-cwd`, `check-secret-defaults`, `check-secret-masking` y
-  `check-stripe-webhook-failclosed` (lee el `CMD`) ⇒ 0.
-
-### 80.5 Railway ante un arranque fallido — sigue **NO MEDIDO**
-
-Medición del orquestador (2026-10-04): en los deployments de GitHub del entorno `marvelous-kindness / production`
-(160 en total) el **único** fallido es el primero (`cd530a13`, 2026-08-15): no había versión anterior que conservar, así
-que el historial **no** responde la pregunta. Corregidas las tablas de rollback de §26.4, §27.4 y §29.7, que lo daban por
-hecho. Siguiente medición por coste (§19.24.8): (2) el dueño lee la documentación de Railway o mira en su panel; (3)
-un entorno que no sea `production` con un `CMD` que haga `exit 1` (⛔ no se le pide al dueño sin que (2) falle, O-6).
-**Si Railway no conserva la anterior, no se abre la ventana** y se pide errata al arquitecto.
-
-### 80.6 Lo que falta (tras G-1) y rollback
-
-- **(A) objeto privado** (por defecto): obtenedor con las `S3_*` en `FileSource` (`import-sepomex.ts`), clave
-  `geo/sepomex/<fileSha256>.txt`, la medición del `GET` anónimo ⇒ 403/404, y G4/G6 con ese obtenedor. **(B) repo**:
-  `scripts/geo/data/CPdescarga.txt` y `--file` en el `CMD`.
-- En ambos: el dueño descarga el archivo y corre `scripts/geo/import-sepomex.sh manifest --file CPdescarga.txt --out
-  scripts/geo/sepomex.manifest.json` (sin base; imprime las cifras reales y si alcanza los pisos). Ese JSON se commitea.
-- **Rollback del cableado:** `git revert` del commit de esta sección: el `CMD` vuelve a `migrate deploy && node
-  dist/main.js` y la imagen deja de llevar `scripts/geo`. Datos: el `boot` nunca borra; ver §79.9.
+Superadas por §81 (sin `boot`, G-BOOT), §92 (archivo en el repo) y §107 (botón de carga). Lo que aún se cita de ellas
+(§79.2-§79.9, §80.0-§80.5: G4/G6, licencia, `railway run`) vive en `git show dbeb6111:docs/DEVOPS_NOTES.md`.
 
 ---
 ## §81 · Catálogo de CP, errata v1.80.12.5: `boot` fuera del arranque, candado G-BOOT, C-GEO-2 retirado (2026-10-04, rama `claude/skydropx-d`)
@@ -13101,6 +12824,8 @@ repuesto, exigiendo rojo.
 - **Que el job `boot-no-geo` y el paso del importador pasen en GitHub: NO MEDIDO** hasta el push.
 
 ### 81.4 Cómo se carga el catálogo (cuando exista el archivo; sin urgencia)
+
+> **Superado 2026-11-02 por §107** (botón en GitHub Actions, sin terminal). Lo de abajo sigue valiendo como vía manual.
 
 Lo corre **el dueño, en su máquina, donde la credencial ya vive** (`CLAUDE.md`, «Secretos», segunda vía), con
 `cd backend && npm ci && npx prisma generate` hecho:
@@ -15076,3 +14801,93 @@ coincide, una captura de lo que sí aparece basta.
   1.21/3.79 · 1.21/3.48 · 1.22/3.60 s, d2-delay/d2-503 1.22 s, CLS ≤ 0.066 ⇒ **3/3 verdes** (los tres workflows enteros en verde).
   Total en CI: **6/6 tandas** con la mediana bajo el trinquete; holgura de LCP 9-17 %. En este contenedor bajo carga 7-9: **0/2**
   (LCP 5.49 y 5.13 s; FCP 1.67 y 1.24 s): no sirve de instrumento con otros agentes al lado.
+
+---
+## §107 · Catálogo de CP en producción con un botón (G-CP-BOTON) y diagnóstico de la CSP report-only (CL-1) (2026-11-02, rama `claude/checkout-friccion`, base `dbeb6111`)
+
+### 107.0 Estado
+
+`PostalCode` de producción está **vacía**: `GET https://tcg-vault-mx-production.up.railway.app/api/v1/geo/postal-codes/{03100,06700,01000,64000}`
+⇒ **404 `POSTAL_CODE_UNKNOWN` los 4** (devops 2026-11-02, `curl`; ya lo había medido el orquestador). Causa: por diseño
+ningún arranque la carga (§81, G-BOOT) y el `import` de §81.4 pedía terminal y `railway run`. Ahora la carga es un
+**botón** de GitHub Actions que corre el mismo `import` estricto con el archivo fijado (§92). Solo aparece cuando esta
+rama llegue a `production` (la rama por defecto, medido con `gh api repos/…` ⇒ `production`).
+
+**No hay secreto de base en GitHub** (medido en logs, no en la lista de secretos, que el proxy bloquea con 403):
+`db-disk-watch` run 41462592495 (2026-11-02) ⇒ «No hay secret DB_READONLY_URL»; `deploy` run 41316642179 ⇒ faltan
+`RAILWAY_TOKEN VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID PROD_BASE_URL`. Por eso el dueño pega uno: `SEPOMEX_DATABASE_URL`.
+
+### 107.1 Qué hay
+
+| Ruta | Qué |
+|---|---|
+| `.github/workflows/cargar-codigos-postales.yml` | Solo `workflow_dispatch`; entrada `accion` = `simulacro` (por defecto: `import --dry-run` + `verify`, nada escrito) · `cargar` (`import`: una transacción, entero o ROLLBACK, + `verify`) · `verificar`. Job solo si `github.ref == refs/heads/production`, en el entorno **`catalogo-cp`**, `contents: read`, runner `ubuntu-24.04`. Pasos: checkout → `check-sepomex-pin.sh` → `npm ci && prisma generate` (**sin** el secreto en el entorno) → «Ejecutar» (único paso con el secreto) → comprobación pública de los 4 CP (sin secreto; en simulacro solo informa). |
+| `scripts/geo/cargar-cp-produccion.sh` | Lee la URL **solo** de `SEPOMEX_DATABASE_URL`. En Actions, antes de cualquier salida, `::add-mask::` de la URL, contraseña, usuario, host y puerto (también decodificados). Rechaza con mensaje claro: sin secreto, esquema que no sea `postgres(ql)://`, host `*.railway.internal` («copiaste la URL interna»). Siempre `--strict`, nunca `--allow-shrink`. Al resumen del run solo van líneas de cifras/veredicto del importador (nunca un error). Salida 0 · 1 · 64. |
+| `scripts/geo/probar-cp-publico.sh [BASE]` | `GET` de los 4 CP contra la API publicada; 0 ⇔ los 4 en 200; tabla CP/HTTP/colonias al resumen. Sin credenciales. |
+| `scripts/check-cargar-cp-workflow.sh` (+ `-canary.sh`) | Candado **G-CP-BOTON**, estático: [A] solo `workflow_dispatch` · [B] por defecto `simulacro` · [C] una sola referencia a `secrets.*`, en `env:` de «Ejecutar», después de `npm ci`, sin `env:` de job ni `run:` que interpole · [D] rama `production` + entorno `catalogo-cp` · [E] sin permisos de escritura · [F] pin antes de ejecutar · [G] el script: `--strict`, sin `--allow-shrink`/`set -x`, máscara antes de exportar, URL solo del entorno y sin imprimirla. Canario: 2 verdes + 18 rojos nombrando su bloque. En `ci.yml`, job `sepomex-pin` (ya en el `needs` de `ci-ok`). |
+
+**Por qué un entorno con regla de rama:** las sesiones de agentes empujan ramas `claude/*`; un secreto de repositorio lo
+puede leer cualquier workflow de cualquier rama. Con el secreto **en el entorno `catalogo-cp` limitado a `production`**,
+solo un job de `production` lo recibe. Y se **borra al terminar** (paso 5 de abajo): su vida útil son minutos.
+
+### 107.2 Pasos del dueño (lo que ve en pantalla)
+
+1. Publicar esta rama (fusión a `production`); el botón no existe antes.
+2. Railway → proyecto → servicio **Postgres** → pestaña **Variables** → `DATABASE_PUBLIC_URL` → copiar. (⚠️ No
+   `DATABASE_URL`: es la interna; el botón la rechaza.)
+3. GitHub → **Settings** → **Environments** → **New environment** → nombre `catalogo-cp` → **Configure environment**
+   → «Deployment branches and tags»: **Selected branches and tags** → **Add deployment branch or tag rule** →
+   `production` → **Add rule** → «Environment secrets»: **Add environment secret** → Name `SEPOMEX_DATABASE_URL`,
+   Value: lo copiado → **Add secret**.
+4. **Actions** → «Cargar códigos postales (SEPOMEX)» → **Run workflow** → rama `production`, acción `simulacro` →
+   **Run workflow**. Verde y el resumen dice «faltan 158322» y «catálogo vacío». Luego igual con acción **`cargar`**:
+   verde, «filas: +158322 · … · COMMIT», «CATÁLOGO CARGADO» y la tabla con los 4 CP en **200**.
+5. Settings → Environments → `catalogo-cp` → junto a `SEPOMEX_DATABASE_URL`, el **bote de basura** → confirmar.
+
+### 107.3 Mediciones (2026-11-02, devops; base local propia `tcg_devops_cpboton_sepomex`, rol `devops_cpboton_sepomex`, PG 16, migraciones de `dbeb6111`)
+
+- Paso «Ejecutar» reproducido con `GITHUB_ACTIONS=true` y `GITHUB_STEP_SUMMARY`: `simulacro` ⇒ rc 0, import dry-run
+  «faltan 158322», `verify` rc 2 (vacía, aceptado). `cargar` ⇒ rc 0, **+158 322 · ~0 · −0 · C-GEO-1 OK · 9.7 s · COMMIT**,
+  `verify` rc 0. `cargar` otra vez ⇒ **+0 · ~0 · −0** (10.1 s). `verificar` ⇒ rc 0. Los 4 CP en la tabla: 01000 ⇒ 1,
+  03100 ⇒ 2, 06700 ⇒ 1, 64000 ⇒ 2 colonias. N=1 cada uno (deterministas; los tiempos son de una máquina local).
+- La contraseña aparece **solo** en las 9 líneas `::add-mask::` (que el runner consume) y **0** veces en el resto del log
+  y en el resumen. Errores: sin secreto / URL interna / no-Postgres ⇒ rc 1 con su mensaje, sin abrir base; host
+  inalcanzable ⇒ rc 1 y Prisma imprime `host:puerto` — por eso se enmascaran por separado. Uso inválido ⇒ 64.
+- `probar-cp-publico.sh` contra producción hoy ⇒ **4/4 en 404**, rc 1 (correcto: el catálogo no está).
+- Candados: G-CP-BOTON verde; canario **20/20**; re-corridos en verde `check-runner-pin` (73 jobs; **cazó** mi
+  `ubuntu-latest` inicial), `check-workflow-cwd` (161 invocaciones) + canario 8/8, `check-secret-masking` + canario 5/5,
+  `check-boot-no-geo`, `check-sepomex-pin`, `check-compose-images`, `check-secret-absence-wording`, `check-doc-size`,
+  `check-ci-ok --static` (35 jobs).
+- **NO MEDIDO:** que el runner de GitHub alcance el proxy TCP público de Railway; que exista `DATABASE_PUBLIC_URL`
+  (requiere la red pública del Postgres activa); el tiempo de la transacción por WAN (timeout del job 30 min, de la tx 10 min).
+
+### 107.4 Rollback
+
+- **Datos:** el catálogo es aditivo y nadie lo lee al arrancar. Si hubiera que vaciarlo: `DELETE FROM "PostalCode"` (rol
+  técnico, donde vive la credencial); la tienda sigue vendiendo con colonia escrita a mano (§81.0). Una `cargar` fallida
+  ya hizo ROLLBACK sola.
+- **Código:** `git revert` del commit; se van workflow, scripts y candado. El secreto y el entorno se borran a mano (paso 5).
+
+### 107.5 CSP report-only (CL-1): qué pasa con los reportes y qué falta para `enforce`
+
+Medido con Chromium 141 real (Playwright 1.56.1, solo lectura) sobre `/es`, `/es/catalog`, una ficha, `/es/checkout` y
+`/card-show` (y `/es/catalogo`, que da 404), N=1 por página, más `curl`:
+
+- **Los reportes sí llegan; lo que el navegador muestra en rojo es la respuesta.** Chrome manda `POST` `application/csp-report`
+  de ~1.2-1.3 KB a `report-uri` (no hay `report-to`). El mismo cuerpo por `curl` ⇒ **204**; `application/reports+json` ⇒ 204;
+  `OPTIONS` ⇒ 204. Pero la API responde con `Cross-Origin-Resource-Policy: same-origin` (helmet por defecto, `main.ts`) y el
+  navegador bloquea esa respuesta: **125/127** reportes `net::ERR_BLOCKED_BY_RESPONSE.NotSameOrigin` (`corp-not-same-origin`)
+  y 2 `ERR_BLOCKED_BY_ORB`. Es lo que marketing ve como «la API los rechaza». Arreglo (backend): `CORP: cross-origin` en
+  `/telemetry/csp`. Que el backend los registre (`CSP_VIOLATION` en logs de Railway): **NO MEDIDO** (sin acceso a logs).
+- **Todos los scripts de Next violan la política:** con `'strict-dynamic'`, `'self'` y `https:` no cuentan y hace falta el nonce.
+  En las 6 vistas, **0** `<script>` de Next llevan nonce (p. ej. `/es`: 5 externos + 30 en línea sin nonce; solo el JSON-LD
+  del layout lo lleva, y coincide con el de la cabecera) ⇒ 24-55 violaciones y 8-27 reportes por vista. D-DYN-1/DYN-F7
+  (`3831c1c4`) **está en `production`** y se midió verde en local (`FRONTEND_NOTES` §DYN), pero **en producción no surte
+  efecto**. Causa: NO MEDIDA. Dueño: frontend.
+- El tope de `/telemetry/csp` es 60/min por IP (`telemetry.controller.ts`, `x-ratelimit-limit: 60`) y una vista gasta ~25: a
+  la tercera vista en un minuto los reportes se pierden (inferencia; el 429 no lo medí).
+- **Para `enforce`:** (1) frontend: nonce en todo `<script>` de Next **en producción** (DYN-F7 medido contra `tcghunt.mx`,
+  0 violaciones por vista); (2) backend: CORP `cross-origin` en `/telemetry/csp`; (3) seguridad: ventana de días con 0
+  `CSP_VIOLATION` en los logs, incluido el checkout con Stripe.js y el login con Google; (4) devops: ZAP 10038/10055 de
+  WARN a FAIL (deshacer §98); (5) frontend: `CSP_MODE = 'enforce'` en `frontend/src/security/csp.ts`, revertible con una línea.
+  Hoy, pasar a `enforce` **rompería la tienda entera** (ningún script de Next cargaría).

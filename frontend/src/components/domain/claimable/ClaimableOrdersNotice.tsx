@@ -78,6 +78,8 @@ export function ClaimableOrdersNotice({ surface, className }: ClaimableOrdersNot
       setResult(res);
       void queryClient.invalidateQueries({ queryKey: ['claimable-orders'] });
       if (res.claimed.length > 0) void queryClient.invalidateQueries({ queryKey: ['orders'] });
+      // CLM-F1 (§4-G.9c): la dirección del pedido pasó a la libreta ⇒ `GET /users/me/addresses` está viejo.
+      if (res.addressesSaved > 0) void queryClient.invalidateQueries({ queryKey: ['addresses'] });
     },
     onError: (e) => {
       if (e instanceof ApiClientError && e.code === 'EMAIL_NOT_VERIFIED') setEmailNotVerified(true);

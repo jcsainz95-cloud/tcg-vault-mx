@@ -3,6 +3,7 @@ import { OrderClaimService } from '../src/modules/orders/order-claim.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { OrderAccessTokenService } from '../src/modules/orders/order-access-token.service';
+import { UsersService } from '../src/modules/users/users.service';
 
 const ME = { id: 'user-1', role: Role.customer };
 
@@ -43,7 +44,12 @@ function buildService(opts: { emailVerified?: boolean; email?: string; orders?: 
       findMany: jest.fn(async ({ where }: any) =>
         orders
           .filter(
-            (o) => o.guestEmail === where.guestEmail && o.userId === null && o.claimedAt === null,
+            (o) =>
+              o.guestEmail === where.guestEmail &&
+              o.userId === null &&
+              o.claimedAt === null &&
+              // v1.116.1: el doble aplica el filtro de cobro SOLO si el servicio lo pide (así la mutación «sin filtro» muerde).
+              (where.settledAt?.not !== null || o.settledAt !== null),
           )
           .map((o) => ({ ...o, _count: { items: 2 } })),
       ),
@@ -62,12 +68,15 @@ function buildService(opts: { emailVerified?: boolean; email?: string; orders?: 
   };
   const audit: any = { log: jest.fn(async () => undefined) };
   const tokens: any = { revokeAll: jest.fn(async () => 1) };
+  // v1.116 (§4-G.9c): el paso a la libreta lo cubre `order-claim.address.spec.ts`; aquí, pedidos sin dirección.
+  const users: any = { createAddressFromClaim: jest.fn(async () => ({ created: false, reason: 'duplicate' })) };
   const svc = new OrderClaimService(
     prisma as PrismaService,
     audit as AuditService,
     tokens as OrderAccessTokenService,
+    users as UsersService,
   );
-  return { svc, prisma, audit, tokens, orders };
+  return { svc, prisma, audit, tokens, orders, users };
 }
 
 /** Reclamo del pedido (§4-G.9 / ARCHITECTURE §4.21f). */
@@ -99,6 +108,21 @@ describe('GET /orders/claimable', () => {
     expect(await svc.listClaimable(ME.id)).toEqual({ data: [] });
   });
 
+  it('v1.116.1 (PT-CHK-1): solo pedidos cobrados alguna vez (`settledAt ≠ null`); un `failed`/`pending` sin cobro no aparece', async () => {
+    const base = { userId: null, guestEmail: 'juan@example.com', claimedAt: null, totalCents: 100, createdAt: new Date('2026-08-01T00:00:00.000Z') };
+    const { svc, prisma } = buildService({
+      orders: [
+        { ...base, id: 'failed', orderNumber: 'TCG-1', status: 'failed', settledAt: null },
+        { ...base, id: 'pending', orderNumber: 'TCG-2', status: 'pending', settledAt: null },
+        { ...base, id: 'settled', orderNumber: 'TCG-3', status: 'settled', settledAt: new Date('2026-08-01T00:05:00.000Z') },
+        { ...base, id: 'refunded', orderNumber: 'TCG-4', status: 'refunded', settledAt: new Date('2026-08-01T00:05:00.000Z') },
+      ],
+    });
+    const res = await svc.listClaimable(ME.id);
+    expect(prisma.order.findMany.mock.calls[0][0].where).toMatchObject({ settledAt: { not: null } });
+    expect(res.data.map((o: { orderId: string }) => o.orderId)).toEqual(['settled', 'refunded']);
+  });
+
   it('nunca acepta un correo como parámetro (no es un oráculo)', () => {
     // La firma solo recibe el userId de la sesión: no hay forma de preguntar por un tercero.
     expect(OrderClaimService.prototype.listClaimable.length).toBe(1);
@@ -109,7 +133,7 @@ describe('POST /orders/claim', () => {
   it('vincula el pedido (userId + claimedAt), revoca sus tokens y audita', async () => {
     const { svc, audit, tokens, orders } = buildService();
     const res = await svc.claim(ME, ['order-A']);
-    expect(res).toEqual({ claimed: ['order-A'], failed: [] });
+    expect(res).toEqual({ claimed: ['order-A'], failed: [], addressesSaved: 0 });
     expect(orders[0].userId).toBe(ME.id);
     expect(orders[0].claimedAt).toBeInstanceOf(Date);
     expect(tokens.revokeAll).toHaveBeenCalledWith('order-A', expect.any(Date));

@@ -16312,14 +16312,19 @@ relleno de color — dirección 5a), `role="status"`, no descartable con la ✕ 
   hechos sin cuenta}} con este correo»** · EN “{count, plural, one {You have # order placed without an account}
   other {You have # orders placed without an account}} under this email”.
 - **Cuerpo, por superficie (regla 5):**
-  - `orders`: ES **«Vincúlalos para ver su estado y su seguimiento aquí. No cambia nada del pedido.»** · EN “Link
-    them to see their status and tracking here. Nothing about the order changes.”
+  - `orders`: ES **«Vincúlalos para ver su estado y su seguimiento aquí. Guardaremos en tus direcciones la de
+    envío de los pedidos pagados.»** · EN “Link them to see their status and tracking here. We'll save the shipping
+    address of paid orders to your addresses.” — **prohibido** «No cambia nada del pedido» (v1.116.1: al vincular
+    se guarda en la libreta la dirección de los pedidos PAGADOS, nunca como predeterminada).
   - `vault`: ES **«Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su
-    seguimiento.»** · EN “They were shipped to your home, not to the vault. Once linked, they appear under
-    Purchases & sales with their tracking.” — **prohibido** insinuar que las cartas entrarán a la bóveda.
+    seguimiento. La dirección de envío de los pedidos pagados se guarda en tus direcciones.»** · EN “They were
+    shipped to your home, not to the vault. Once linked, they appear under Purchases & sales with their tracking.
+    The shipping address of paid orders is saved to your addresses.” — **prohibido** insinuar que las cartas
+    entrarán a la bóveda.
 - **Lista** (`<ul>`, máx. 5 filas; si hay más, «y {n} más» en muted — el reclamo es de todos igual): por fila,
   `orderNumber` en mono `tabular-nums` + fecha (`formatDate`) + total (`formatMoneyCents`) + `StatusBadge
-  domain="order"`. Todo viene del `ClaimableOrderDTO` (`contract.ts:4041-4049`): **no se pide nada más**.
+  domain="order"` (v1.116.1: solo pedidos alguna vez cobrados; el estado «Fallida» ya no aparece aquí). Todo viene
+del `ClaimableOrderDTO` (`contract.ts:4041-4049`): **no se pide nada más**.
 - **Acciones** (`action` del Banner, a la derecha en `≥ sm`, debajo en móvil): `primary sm` **«Vincular a mi
   cuenta»** → loading **«Vinculando…»** · `ghost sm` **«Ahora no»**.
 
@@ -16605,8 +16610,8 @@ ahí hasta que aterrice.
 | `auth.changePassword.submit` | Guardar y continuar | Save and continue |
 | `auth.changePassword.done` | Listo | Done |
 | `orders.claimable.title` | {count, plural, one {Tienes # pedido hecho sin cuenta} other {Tienes # pedidos hechos sin cuenta}} con este correo | {count, plural, one {You have # order placed without an account} other {You have # orders placed without an account}} under this email |
-| `orders.claimable.body` | Vincúlalos para ver su estado y su seguimiento aquí. No cambia nada del pedido. | Link them to see their status and tracking here. Nothing about the order changes. |
-| `vault.claimable.body` | Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento. | They were shipped to your home, not to the vault. Once linked, they appear under Purchases & sales with their tracking. |
+| `orders.claimable.body` | Vincúlalos para ver su estado y su seguimiento aquí. Guardaremos en tus direcciones la de envío de los pedidos pagados. | Link them to see their status and tracking here. We'll save the shipping address of paid orders to your addresses. |
+| `vault.claimable.body` | Se enviaron a tu domicilio, no a la bóveda. Al vincularlos aparecen en Compras y ventas con su seguimiento. La dirección de envío de los pedidos pagados se guarda en tus direcciones. | They were shipped to your home, not to the vault. Once linked, they appear under Purchases & sales with their tracking. The shipping address of paid orders is saved to your addresses. |
 | `orders.claimable.more` | y {count} más | and {count} more |
 | `orders.claimable.cta` | Vincular a mi cuenta | Link to my account |
 | `orders.claimable.claiming` | Vinculando… | Linking… |

@@ -10,7 +10,7 @@ import {
   deleteAddress,
   type AddressInput,
 } from '@/lib/api';
-import type { AddressDTO, AddressIncompleteField } from '@/types/contract';
+import type { AddressDTO, AddressIncompleteField, UserDTO } from '@/types/contract';
 import { ApiClientError } from '@/lib/api-client';
 import { isMxPhone, isPostalCode, LINE2_MAX, normalizeMxPhone, REFERENCES_MAX } from '@/lib/address-rules';
 import { Input } from '@/components/ui/Input';
@@ -45,6 +45,21 @@ export interface AddressManagerProps {
   hideTitle?: boolean;
   /** Prellenado del destinatario al CREAR (solo si el nombre de cuenta no es derivado). */
   defaultRecipientName?: string;
+  /** Prellenado del teléfono al CREAR: el de la cuenta, si existe (paquete A, 2026-11-02). Editable. */
+  defaultPhone?: string;
+}
+
+/**
+ * Paquete A (dueño, `HECHOS.md` 2026-11-02 «Checkout con menos captura: paquete A…» (2)): lo que la cuenta
+ * prellena en el ALTA de una dirección. Nombre solo si lo escribió el cliente (`nameSource !== 'derived'`, contrato
+ * v1.67) y no está en blanco; teléfono, el de la cuenta si existe. Una sola regla para «Mi cuenta» y el retiro.
+ */
+export function accountAddressDefaults(
+  user: Pick<UserDTO, 'name' | 'nameSource' | 'phone'> | null | undefined,
+): { defaultRecipientName: string | undefined; defaultPhone: string | undefined } {
+  const name = user && user.nameSource !== 'derived' && user.name?.trim() ? user.name : undefined;
+  const phone = user?.phone?.trim() ? user.phone : undefined;
+  return { defaultRecipientName: name, defaultPhone: phone };
 }
 
 /** `true` si la fila es anterior a M-52 (sin destinatario). Lo usa también el retiro (§33.10b). */
@@ -135,6 +150,7 @@ export function AddressManager({
   onSelect,
   hideTitle,
   defaultRecipientName,
+  defaultPhone,
 }: AddressManagerProps) {
   const t = useTranslations('addresses');
   const getMessage = useErrorMessage();
@@ -214,6 +230,7 @@ export function AddressManager({
         focusField={editor?.mode === 'edit' ? editor.focusField : undefined}
         completeMissing={editor?.mode === 'edit' ? editor.completeMissing : undefined}
         defaultRecipientName={defaultRecipientName}
+        defaultPhone={defaultPhone}
         onClose={() => setEditor(null)}
         onSaved={(saved) => {
           const created = editor?.mode === 'create';
@@ -390,6 +407,8 @@ export interface AddressFormOptions {
   address?: AddressDTO;
   /** Prellenado del destinatario en alta (nunca en edición). */
   defaultRecipientName?: string;
+  /** Prellenado del teléfono en alta (nunca en edición). */
+  defaultPhone?: string;
 }
 
 /** Campos que un `400 VALIDATION_ERROR {field}` puede señalar y que tienen control en el formulario. */
@@ -435,10 +454,12 @@ export function useAddressForm(
   options: AddressFormOptions = {},
 ): AddressFormState {
   const t = useTranslations('addresses');
-  const { address, defaultRecipientName } = options;
-  const initial = (): AddressInput =>
-    address ? formFromAddress(address) : { ...EMPTY_FORM, recipientName: defaultRecipientName ?? '' };
+  const { address, defaultRecipientName, defaultPhone } = options;
+  const blank = (): AddressInput => ({ ...EMPTY_FORM, recipientName: defaultRecipientName ?? '', phone: defaultPhone ?? '' });
+  const initial = (): AddressInput => (address ? formFromAddress(address) : blank());
   const [form, setForm] = useState<AddressInput>(initial);
+  /** El cliente ya tocó el alta: lo escrito manda sobre lo que la cuenta traiga después. */
+  const [touched, setTouched] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [geoMode, setGeoMode] = useState<NeighborhoodMode>('pending');
   const [errorOnField, setErrorOnField] = useState(false);
@@ -454,13 +475,23 @@ export function useAddressForm(
     setForm(initial());
     setErrors({});
     setErrorOnField(false);
+    setTouched(false);
+  }
+  // Paquete A: los datos de la cuenta (`GET /users/me`) pueden llegar DESPUÉS de montar (el retiro monta el modal
+  // cerrado al cargar). Mismo patrón de render: si cambian y el alta sigue sin tocar, se rehidrata con ellos.
+  const defaultsKey = `${defaultRecipientName ?? ''}\u0000${defaultPhone ?? ''}`;
+  const [defaultsFor, setDefaultsFor] = useState(defaultsKey);
+  if (defaultsFor !== defaultsKey) {
+    setDefaultsFor(defaultsKey);
+    if (!address && !touched) setForm(blank());
   }
 
   const mut = useMutation({
     mutationFn: (body: AddressInput) =>
       address ? updateAddress(address.id, body) : createAddress(body),
     onSuccess: (saved) => {
-      setForm({ ...EMPTY_FORM, recipientName: defaultRecipientName ?? '' });
+      setForm(blank());
+      setTouched(false);
       setErrors({});
       setErrorOnField(false);
       onSaved(saved);
@@ -475,6 +506,7 @@ export function useAddressForm(
 
   function set<K extends keyof AddressInput>(key: K, value: AddressInput[K]) {
     setForm((f) => ({ ...f, [key]: value }));
+    setTouched(true);
     // Tocar el campo retira su error.
     setErrors((e) => {
       if (!(key in e)) return e;
@@ -560,7 +592,7 @@ export function AddressFormFields({
   const { form, errors, set } = state;
   const recipientRef = useRef<HTMLInputElement>(null);
   const neighborhoodRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
-  const formRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (!focusField) return;
     // Tras el foco inicial del `Modal` (efecto del padre, que corre DESPUÉS de éste): se difiere un tick.
@@ -576,21 +608,35 @@ export function AddressFormFields({
     return () => window.clearTimeout(id);
   }, [focusField]);
   return (
-    <div ref={formRef} className="flex flex-col gap-4">
+    // Paquete A (4): `<form>` para el autocompletado del navegador; el envío no navega (guardar es el botón de quien
+    // monta: el pie del modal o el del alta inline, ambos FUERA del formulario).
+    <form ref={formRef} noValidate onSubmit={(e) => e.preventDefault()} className="flex flex-col gap-4">
       {/* v1.67: el destinatario va PRIMERO, encima de «Calle y número» (§33.10a). */}
       <Input
         ref={recipientRef}
         label={t('recipientName')}
         name="recipientName"
-        autoComplete="name"
+        autoComplete="shipping name"
         value={form.recipientName}
         onChange={(e) => set('recipientName', e.target.value)}
         hint={errors.recipientName ? undefined : t('recipientNameHint')}
         error={errors.recipientName}
         required
       />
-      <Input label={t('line1')} value={form.line1} onChange={(e) => set('line1', e.target.value)} error={errors.line1} />
-      <Input label={t('line2')} value={form.line2 ?? ''} onChange={(e) => set('line2', e.target.value)} error={errors.line2} />
+      <Input
+        label={t('line1')}
+        autoComplete="shipping address-line1"
+        value={form.line1}
+        onChange={(e) => set('line1', e.target.value)}
+        error={errors.line1}
+      />
+      <Input
+        label={t('line2')}
+        autoComplete="shipping address-line2"
+        value={form.line2 ?? ''}
+        onChange={(e) => set('line2', e.target.value)}
+        error={errors.line2}
+      />
       <div data-field="postalCode" className="flex flex-col gap-4">
         <PostalCodeNeighborhoodFields
           ref={neighborhoodRef}
@@ -624,7 +670,7 @@ export function AddressFormFields({
           label={t('phone')}
           type="tel"
           inputMode="tel"
-          autoComplete="tel"
+          autoComplete="shipping tel"
           value={form.phone}
           onChange={(e) => set('phone', e.target.value)}
           hint={errors.phone ? undefined : t('phoneHint')}
@@ -650,7 +696,7 @@ export function AddressFormFields({
           {getMessage(state.error)}
         </p>
       )}
-    </div>
+    </form>
   );
 }
 
@@ -665,6 +711,7 @@ export function AddressFormModal({
   focusField,
   completeMissing,
   defaultRecipientName,
+  defaultPhone,
   onClose,
   onSaved,
 }: {
@@ -677,12 +724,13 @@ export function AddressFormModal({
    */
   completeMissing?: AddressIncompleteField[];
   defaultRecipientName?: string;
+  defaultPhone?: string;
   onClose: () => void;
   onSaved: (saved: AddressDTO) => void;
 }) {
   const t = useTranslations('addresses');
   const missingText = useMissingText();
-  const state = useAddressForm(onSaved, { address, defaultRecipientName });
+  const state = useAddressForm(onSaved, { address, defaultRecipientName, defaultPhone });
   const completing = !!address && completeMissing !== undefined;
   const introMissing = completing ? missingText(completeMissing) : '';
 

@@ -22,7 +22,7 @@ describe('api · mocks de pedidos reclamables', () => {
     expect(before.map((o) => o.orderId)).toEqual(mockClaimableOrders.map((o) => o.orderId));
 
     const res = await claimGuestOrders([before[0].orderId, 'ord-inexistente']);
-    expect(res).toEqual({ claimed: [before[0].orderId], failed: [{ orderId: 'ord-inexistente', code: 'NOT_FOUND' }] });
+    expect(res).toEqual({ claimed: [before[0].orderId], failed: [{ orderId: 'ord-inexistente', code: 'NOT_FOUND' }], addressesSaved: 0 });
 
     const after = await getClaimableOrders();
     expect(after.map((o) => o.orderId)).toEqual(mockClaimableOrders.slice(1).map((o) => o.orderId));

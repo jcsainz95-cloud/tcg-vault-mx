@@ -9,6 +9,7 @@ import { useCart } from '@/lib/cart';
 import { cn } from '@/lib/cn';
 import { LogoTcgHunt } from '@/components/domain/LogoTcgHunt';
 import { PendingsBell } from '@/components/layout/PendingsBell';
+import { ShoppingBag } from 'lucide-react';
 
 /**
  * Marca TCG HUNT en topbar (§17.3): solo-mira 28px + wordmark en `--font-brand` 700,
@@ -169,6 +170,25 @@ export function StorefrontHeader() {
             >
               {t('cart')}
               <span className="tabular font-mono">{count}</span>
+            </Link>
+          )}
+
+          {/* QA de marketing (2026-11-02): en < lg el carrito solo vivía DENTRO del menú (a 390 px la cabecera
+              enseñaba «inicio» y «Menú»). Acceso siempre visible: icono de bolsa (§5, 20 px, trazo 1.5, como la
+              campana) + contador mono, objetivo táctil ≥ 44 px (`h-11 min-w-11`). El ALTO es el de la mira (44 px):
+              la cabecera no crece y no se toca la aritmética de L-8/MKT-CONV.8 (cabecera 77 px a 360).
+              Icono + número ⇒ `aria-label` con la cantidad (§5). P-28: fuera del flujo de venta, como el de lg. */}
+          {!onSellFlow && (
+            <Link
+              href="/checkout"
+              aria-label={t('cartAria', { count })}
+              data-testid="header-cart-mobile"
+              className="inline-flex h-11 min-w-11 items-center justify-center gap-1 px-1 text-text focus-visible:outline-none focus-visible:shadow-focus lg:hidden"
+            >
+              <ShoppingBag size={20} aria-hidden strokeWidth={1.5} />
+              <span aria-hidden className="tabular font-mono text-[11px] leading-none">
+                {count}
+              </span>
             </Link>
           )}
 
