@@ -24,9 +24,15 @@ function uniqueEmail(tag: string): string {
   return `cta-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@e2e.local`;
 }
 
-async function addFirstCardToCart(page: Page) {
+/**
+ * `which`: CTA-E1 paga (en real crea una sesión de pago que aparta la pieza) ⇒ usa la PRIMERA teja; CTA-E2 entra con la
+ * cuenta sembrada y mide que su carrito siga igual ⇒ usa la ÚLTIMA, para no chocar con una pieza que E1 dejó apartada
+ * (medido: 2/6 rojas con la misma teja, «ya no está disponible y se quitó de tu carrito»).
+ */
+async function addCardToCart(page: Page, which: 'first' | 'last' = 'first') {
   await page.goto('/es/catalog');
-  await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
+  const buttons = page.getByRole('button', { name: t('es', 'catalog.addToCart') });
+  await (which === 'first' ? buttons.first() : buttons.last()).click();
 }
 
 /** El enlace «Termina tu cuenta» del último correo a `email`, leído del log del backend (real). */
@@ -64,7 +70,7 @@ test.describe('§CTA · cuenta con solo el correo', () => {
   test('@real CTA-E1 upsell de bóveda: solo el correo, cuenta creada, destino bóveda y PAGAR sin aviso de verificar (48, 969, CTA-F3)', async ({
     page,
   }) => {
-    await addFirstCardToCart(page);
+    await addCardToCart(page);
     await page.goto('/es/checkout');
     const email = uniqueEmail('e1');
     await page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true }).fill(email);
@@ -105,7 +111,7 @@ test.describe('§CTA · cuenta con solo el correo', () => {
   test('@real CTA-E2 correo con cuenta ⇒ «Ingresar a cuenta» con el correo puesto; entra y el carrito sigue (970, CTA-F2)', async ({
     page,
   }) => {
-    await addFirstCardToCart(page);
+    await addCardToCart(page, 'last');
     await page.goto('/es/checkout');
     const cartIds = () => page.evaluate(() => JSON.parse(window.localStorage.getItem('tcg.cart') ?? '{}').ids ?? []);
     const before = await cartIds();
@@ -134,7 +140,7 @@ test.describe('§CTA · cuenta con solo el correo', () => {
   test('@real CTA-E3 «Termina tu cuenta» con el enlace del correo: token fuera de la URL, sin Referer, nombre y contraseña, y entra (971, CTA-F4/F8)', async ({
     page,
   }) => {
-    await addFirstCardToCart(page);
+    await addCardToCart(page);
     await page.goto('/es/checkout');
     const email = uniqueEmail('e3');
     await signUpEmailOnlyFromT4(page, email);
