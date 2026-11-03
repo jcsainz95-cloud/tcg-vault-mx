@@ -159,6 +159,7 @@ import type {
   SetValueHistoryResponse,
   SealedValueHistoryResponse,
   AuthResponse,
+  VerifyEmailRequest,
   VerifyEmailResponse,
   ResendVerificationResponse,
   ForgotPasswordResponse,
@@ -3767,31 +3768,51 @@ export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
 
 // ---------- Verificación de correo + recuperación self-service (contrato §1, v1.5) ----------
 /**
- * Consume el token del link de verificación (contrato POST /auth/verify-email, `public`).
- * Se abre desde el correo, quizá sin sesión. Éxito → { verified: true } y, si hay sesión
- * local del mismo usuario, marca `emailVerified=true` para quitar el banner sin re-consultar
- * `GET /users/me`. Error → 422 EMAIL_VERIFY_TOKEN_INVALID (inválido/expirado/ya usado).
+ * Canjea el enlace de verificación (contrato §1 `POST /auth/verify-email`, `public`, v1.117.2 · D-CTA-12). El cuerpo
+ * lleva EXACTAMENTE una de las dos pruebas de la credencial: `{ token, password }` (la actual) o
+ * `{ token, newPassword }` (fija una nueva y revoca sesiones). ⛔ Nunca `{ token }` solo y nunca al cargar la página
+ * (PT-CTA-8, CTA-F9): la llama el envío del formulario de `/verify-email`.
+ * - `password` ⇒ `200 { verified: true }`; si hay sesión local se marca `emailVerified=true` (quita el banner sin
+ *   re-consultar `GET /users/me`). `tokenVersion` no cambia: la sesión que hubiera sigue viva.
+ * - `newPassword` ⇒ `200 { verified: true, deviceToken }` SIN sesión: se guarda el `deviceToken` (como `reset-password`)
+ *   y NO se toca la sesión local (el servidor acaba de revocar las de esa cuenta).
  */
-export async function verifyEmail(token: string): Promise<VerifyEmailResponse> {
+export async function verifyEmail(input: VerifyEmailRequest): Promise<VerifyEmailResponse> {
+  // El cuerpo se arma campo a campo: exactamente uno de los dos, aunque el llamador mande de más.
+  const body: { token: string; password: string } | { token: string; newPassword: string } =
+    typeof input.newPassword === 'string'
+      ? { token: input.token, newPassword: input.newPassword }
+      : { token: input.token, password: input.password ?? '' };
   if (!(MOCKS_BUILD && config.useMocks)) {
-    const res = await apiRequest<VerifyEmailResponse>('/auth/verify-email', {
-      method: 'POST',
-      body: { token },
-    });
-    patchStoredUser({ emailVerified: true });
+    const res = await apiRequest<VerifyEmailResponse>('/auth/verify-email', { method: 'POST', body });
+    if ('newPassword' in body) {
+      if (res.deviceToken) storeDeviceToken(res.deviceToken);
+    } else {
+      patchStoredUser({ emailVerified: true });
+    }
     return res;
   }
-  // MOCK: pendiente de backend real. Un token vacío o con "invalid"/"expired" simula el
-  // 422 del contrato; cualquier otro token verifica y actualiza la sesión local si existe.
+  // MOCK (simulador de mocks; espeja el contrato): token vacío o con "invalid/expired/bad/used" ⇒ 422; contraseña
+  // "wrong…" ⇒ 401 INVALID_CREDENTIALS; "locked…" ⇒ 429 TOO_MANY_PASSWORD_ATTEMPTS; el resto verifica.
   await delay(undefined, 300);
-  if (!token || /invalid|expired|bad/i.test(token)) {
-    throw new ApiClientError(422, {
-      code: 'EMAIL_VERIFY_TOKEN_INVALID',
-      message: 'Verification token invalid or expired',
-    });
+  if (!body.token || /invalid|expired|bad|used/i.test(body.token)) {
+    throw new ApiClientError(422, { code: 'EMAIL_VERIFY_TOKEN_INVALID', message: 'Verification token invalid or expired' });
   }
-  patchStoredUser({ emailVerified: true });
-  return { verified: true };
+  if ('password' in body) {
+    if (/^wrong/i.test(body.password)) {
+      throw new ApiClientError(401, { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' });
+    }
+    if (/^locked/i.test(body.password)) {
+      throw new ApiClientError(429, {
+        code: 'TOO_MANY_PASSWORD_ATTEMPTS',
+        message: 'Too many attempts',
+        details: { retryAfterSeconds: 600 },
+      });
+    }
+    patchStoredUser({ emailVerified: true });
+    return { verified: true };
+  }
+  return { verified: true, deviceToken: 'mock.device.token' };
 }
 
 /**

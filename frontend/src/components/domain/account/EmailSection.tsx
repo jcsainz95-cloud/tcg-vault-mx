@@ -11,6 +11,7 @@ import { useResendVerification } from '@/hooks/useResendVerification';
 import { SUPPORT_CONTACT_FALLBACK } from '@/app/[locale]/(storefront)/checkout/support-contact';
 import type { UserDTO } from '@/types/contract';
 import { SectionShell } from './SectionShell';
+import { resendSendsAccountSetup } from './resend-kind';
 
 /**
  * b · Correo y verificación (`#email`, DESIGN_SYSTEM §33.6b). Una sola cuenta SÍ edita su correo aquí: la nacida en el
@@ -28,6 +29,8 @@ export function EmailSection({ user, canResend }: { user: UserDTO; canResend: bo
   const tv = useTranslations('verifyEmail');
   const { status, resend } = useResendVerification();
   const verified = user.emailVerified !== false;
+  // §CTA-UX.6 (9): el botón dice el correo que sale (pendiente ⇒ «Termina tu cuenta»).
+  const setupPending = resendSendsAccountSetup(user);
   const contact = SUPPORT_CONTACT_FALLBACK;
 
   return (
@@ -50,7 +53,7 @@ export function EmailSection({ user, canResend }: { user: UserDTO; canResend: bo
           <p className="text-sm text-muted">{t('unverifiedBody')}</p>
           {status === 'sent' ? (
             <p role="status" className="text-sm font-medium text-success">
-              {tv('sent')}
+              {setupPending ? tv('sentSetup') : tv('sent')}
             </p>
           ) : (
             <Button
@@ -60,7 +63,7 @@ export function EmailSection({ user, canResend }: { user: UserDTO; canResend: bo
               onClick={resend}
               className="w-full sm:w-auto"
             >
-              {status === 'sending' ? tv('sending') : tv('resendCta')}
+              {status === 'sending' ? tv('sending') : setupPending ? t('resendSetupCta') : tv('resendCta')}
             </Button>
           )}
           {status === 'rateLimited' && (
