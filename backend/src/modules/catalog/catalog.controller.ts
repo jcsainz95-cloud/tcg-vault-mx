@@ -75,8 +75,13 @@ export class CatalogController {
     // (`?gradingHighlight=true&sort=grading_showcase`), no un endpoint nuevo — misma teja, misma cifra,
     // cero drift con Compra. Se pasa CRUDO: el saneo (solo se acepta `"true"`) lo hace el servicio.
     @Query('gradingHighlight') gradingHighlight?: string,
+    // v1.116⟨ids⟩ (§IDS.5): idioma de la pieza y «Cartas de liga y promos» (`stamped=true`). Saneo en el servicio.
+    @Query('language') language?: string,
+    @Query('stamped') stamped?: string,
   ) {
     return this.catalog.listCards({
+      language,
+      stamped,
       q,
       setId,
       rarity,

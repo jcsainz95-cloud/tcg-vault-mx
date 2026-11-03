@@ -76,6 +76,7 @@ import {
   CardShowLeadType,
   DiscountCodeStatus,
   DisputeStatus,
+  CardLanguage,
   Finish,
   InventoryStatus,
   KycStatus,
@@ -657,6 +658,12 @@ const REGISTRO: readonly AxisRow[] = [
     },
   },
   { route: 'GET /catalog/cards', param: 'finish', clazz: 'E', allowed: Object.values(Finish), valid: 'reverse_holo', alterno: 'normal', auth: 'public', echoValue: true },
+  // v1.116⟨ids⟩ (§IDS.5): idioma (E, `CardLanguage`) y «Cartas de liga y promos» (L, solo `true`). Sin fila en §0-Q punto 4 ⇒
+  // PENDIENTE-ARQUITECTO; `echoValue` NO (censo congelado). El fixture no tiene piezas `es` ni de liga ⇒ `valid` vacía.
+  { route: 'GET /catalog/cards', param: 'language', clazz: 'E', allowed: Object.values(CardLanguage), valid: 'es', alterno: 'en', auth: 'public', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /catalog/cards', param: 'stamped', clazz: 'L', allowed: ['true'], valid: 'true', auth: 'public', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/inventory/items', param: 'language', clazz: 'E', allowed: Object.values(CardLanguage), valid: 'es', alterno: 'en', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  { route: 'GET /admin/inventory/items', param: 'stamped', clazz: 'L', allowed: ['true', 'false'], valid: 'true', alterno: 'false', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   // ⛔ SIN `alterno`: `ACCEPTED_RAW_CONDITIONS` es `['NM']` (`business-rules.ts:44`, política de
   // PROJECT.md §E) — no hay segundo token con el que discriminar. Lo vigila el test de coherencia.
   { route: 'GET /catalog/cards', param: 'condition', clazz: 'R', allowed: ACCEPTED_RAW_CONDITIONS, valid: 'NM', auth: 'public', echoValue: true },
@@ -1693,6 +1700,9 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       // ⭐ §M4-SHIP (QA BLOQ-2(a), v1.80.7.1 `D-EQ-4`): los SIETE ejes del stream «Pedidos por preparar» — clase
       // decidida (§M4-SHIP.1: E/E/E/E/L + `?reason=` L), conducta medida aquí, fila de §0-Q punto 4 pendiente.
       'GET /admin/finance/shrinkage?reason=',
+      // v1.116⟨ids⟩ (§IDS.4/.5): idioma y liga — clase decidida en §IDS, fila de §0-Q punto 4 pendiente.
+      'GET /admin/inventory/items?language=',
+      'GET /admin/inventory/items?stamped=',
       'GET /admin/inventory/master-sets?sort=',
       'GET /admin/manual-refunds?status=',
       // ⛔ `GET /admin/orders?refundReview=` estuvo aquí desde v1.80.8.6 y **SALIÓ en v1.80.8.8** ((10).3): el
@@ -1717,6 +1727,8 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       'GET /admin/vaults/:userId/sealed?sealedSubtype=',
       'GET /admin/vaults/:userId/sealed?sort=',
       'GET /admin/vaults?sort=',
+      'GET /catalog/cards?language=',
+      'GET /catalog/cards?stamped=',
       'GET /vault/master-sets?sort=',
       'GET /vault/portfolio/history?range=',
       'GET /vault/sealed?condition=',
@@ -1908,8 +1920,10 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // Marketing (SELECTOR, L) y `?game=` de `/admin/card-show/players` y de su CSV (E, `CardShowGame`), todos `transcrita`.
     // 💰 v1.110⟨descuentos⟩ (§DSC.7) — 89 → **91** y 18 fijo: `?status=` (E) y `?state=` (L) de `GET /admin/discount-codes`
     // entran YA `transcrita` (el arquitecto escribió sus dos filas en §0-Q punto 4, v1.110). No sube ningún pendiente.
-    expect(REGISTRO.length).toBe(91);
-    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
+    // 💰 v1.116⟨ids⟩ (§IDS.4/.5) — 91 → **95** y 18 → **22**: `?language=`/`?stamped=` de `GET /catalog/cards` y de
+    // `GET /admin/inventory/items`, clase decidida en §IDS (E y L) y SIN fila en §0-Q punto 4 ⇒ PENDIENTE-ARQUITECTO.
+    expect(REGISTRO.length).toBe(95);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(22);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que

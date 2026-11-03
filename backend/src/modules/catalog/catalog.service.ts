@@ -27,7 +27,20 @@ import {
 } from '../../common/money';
 import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
-import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes } from '../../common/card-order';
+import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes, FINISH_ORDER } from '../../common/card-order';
+import {
+  DEFAULT_VERSION,
+  FinishLabel,
+  finishLabelOf,
+  isDefaultVersion,
+  optionKeyOf,
+  PieceVersion,
+  pieceVersionOf,
+  StampRef,
+  VersionDTO,
+  versionDtoOf,
+  versionKeyOf,
+} from '../../common/card-version';
 // P-30 H2 (TECH_DEBT): helper ÚNICO de la clave de variante K=(cardId,productType,gradeKey,finish),
 // antes interpolada a mano en 3 sitios de este archivo (riesgo de drift silencioso). Mismo string.
 import { variantKey } from '../../common/variant-key';
@@ -36,7 +49,7 @@ import { ACCEPTED_RAW_CONDITIONS } from '../../common/business-rules';
 // P-89 (deuda H3): el validador de filtro de enum vive UNA vez en `common/`. Antes había aquí una
 // copia privada (`validateEnum`) y otra VERBATIM en `sealed-catalog.service.ts`.
 import { parseEnumFilter } from '../../common/enum-filter';
-import { FINISH_VALUES, PRODUCT_TYPE_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
+import { CARD_LANGUAGE_VALUES, FINISH_VALUES, PRODUCT_TYPE_VALUES, SEALED_SUBTYPE_VALUES } from '../../common/enum-values';
 // v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3): `pricedAsOf` (fecha CDMX honesta bajo ISR) y `ogImageUrl` (absoluta).
 import { toMexicoCityDateKey } from '../../common/business-days';
 import { absoluteOgImageUrl } from '../../common/og-image';
@@ -149,6 +162,8 @@ interface SellableRow {
   dto: ListingDTO;
   /** `L` — precio de LISTA, sin IVA. `fetchSellable` solo emite filas con `L != null`. */
   listPriceCents: number;
+  /** v1.116⟨ids⟩ (§IDS.5): la versión de la pieza (idioma + producto de liga). */
+  version: PieceVersion;
 }
 
 /**
@@ -165,6 +180,8 @@ export interface ListingCtx {
   pricedFinishes?: Iterable<Finish>;
   /** ⭐ Los diales de la petición, izados UNA vez (⛔ jamás por pieza). */
   ivaDials: IvaDials;
+  /** v1.116⟨ids⟩ (§IDS.5): la versión de la pieza; ausente ⇒ (inglés, sin liga) (el sellado siempre lo es). */
+  version?: PieceVersion;
 }
 
 /**
@@ -182,6 +199,10 @@ export interface ListingCtx {
 export interface DeckMetaUnitDTO {
   inventoryItemId: string;
   priceMxnCents: number | null;
+  /** v1.116⟨ids⟩ (§IDS.6): la versión de la unidad (el surtido va sin liga primero). Ausente ⇒ (inglés, sin liga). */
+  version?: VersionDTO;
+  /** v1.116⟨ids⟩: desempate del surtido (`folio`, §IDS.6). */
+  folio?: string;
 }
 
 export interface ListingDTO {
@@ -216,6 +237,9 @@ export interface ListingDTO {
   /** v2.0 (P-48, §N.7): QUÉ determinó el precio. REQUERIDO — su ausencia es lo que invirtió B-1. */
   priceBasis: PriceBasis;
   sellable: boolean;
+  /** v1.116⟨ids⟩ (§IDS.5): la versión de la pieza y su acabado como lo nombra el cliente (clave; texto por i18n). */
+  version: VersionDTO;
+  finishLabel: FinishLabel;
 }
 
 /**
@@ -419,6 +443,11 @@ export interface GroupedListingSummaryDTO {
    * exactamente como hoy (criterio 100).
    */
   gradingHighlight?: GradedEstimateDTO[];
+  /** v1.116⟨ids⟩ (§IDS.5): una teja por versión y acabado. */
+  version: VersionDTO;
+  finishLabel: FinishLabel;
+  /** v1.116⟨ids⟩: el `optionKey` de su entrada en la ficha (el enlace lleva `?version=<versionOptionKey>`). */
+  versionOptionKey: string;
 }
 
 export interface GroupedListingDTO {
@@ -453,6 +482,20 @@ export interface GroupedListingDTO {
    */
   referenceDisplayCents?: number;
   currency: 'MXN';
+  /** v1.116⟨ids⟩ (§IDS.5). */
+  version: VersionDTO;
+  finishLabel: FinishLabel;
+}
+
+/** v1.116⟨ids⟩ (API_CONTRACT §IDS.5, D-IDS-O) — una burbuja de la ficha: (producto de liga × acabado) o versión sin liga. */
+export interface VersionOptionDTO {
+  optionKey: string;
+  version: VersionDTO;
+  finish: Finish | null;
+  finishLabel: FinishLabel | null;
+  fromPriceCents: number;
+  stockCount: number;
+  representativeInventoryItemId: string;
 }
 
 /**
@@ -476,6 +519,8 @@ export interface GroupedListingDetailResponse {
   listings: GroupedListingDTO[];
   /** Piezas por-pieza (add-to-cart por `inventoryItemId`, `certNumber` de cada slab). */
   units: ListingDTO[];
+  /** v1.116⟨ids⟩ (§IDS.5): las versiones con existencia, en el orden de la cuadrícula (agotadas omitidas). */
+  versions: VersionOptionDTO[];
   gradedEstimates?: GradedEstimateDTO[];
   /**
    * ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3, A3/A4) — fecha `YYYY-MM-DD` (zona `America/Mexico_City`) en que
@@ -751,17 +796,28 @@ export class CatalogService {
     const sales = this.listingPrices
       ? await this.listingPrices.salesFor(items, ivaDials)
       : await liveSalesFor(this.decider, items, ivaDials, await this.decider.loadBatch(items));
+    // v1.116⟨ids⟩ (§IDS.5): la versión de cada pieza (una lectura de productos de liga, solo si alguna trae `cardProductId`).
+    const stamps = await this.stampsOf(items);
     const out: SellableRow[] = [];
     for (const item of items) {
+      const version = pieceVersionOf(item, stamps);
       const { dto, listPriceCents } = this.toListingRow(item, {
         sale: sales.get(item.id) ?? { kind: 'pending', reference: { status: 'pending' } },
         pricedFinishes: pricedByCard.get(item.cardId),
         ivaDials,
+        version,
       });
       // ⚠️ El filtro mira **`L`** (`listPriceCents`), no `P`: la regla de publicación es de MARGEN.
-      if (dto.sellable && listPriceCents != null) out.push({ item, dto, listPriceCents });
+      if (dto.sellable && listPriceCents != null) out.push({ item, dto, listPriceCents, version });
     }
     return out;
+  }
+
+  /** v1.116⟨ids⟩ — los productos de liga de un conjunto de piezas (ninguna lectura si ninguna trae `cardProductId`). */
+  private async stampsOf(items: readonly { cardProductId: number | null }[]): Promise<Map<number, StampRef>> {
+    return items.some((i) => i.cardProductId != null)
+      ? this.pricing.findStampedProducts(items.map((i) => i.cardProductId))
+      : new Map<number, StampRef>();
   }
 
   /**
@@ -839,6 +895,7 @@ export class CatalogService {
     return this.toListingRow(item, {
       sale: sales.get(item.id) ?? { kind: 'pending', reference: { status: 'pending' } },
       ivaDials,
+      version: pieceVersionOf(item, await this.stampsOf([item])),
     }).dto;
   }
 
@@ -893,6 +950,9 @@ export class CatalogService {
       // v2.0 (P-48, §4.36.7a/b): la señal NORMATIVA de la regla de visibilidad.
       priceBasis,
       sellable,
+      // v1.116⟨ids⟩ (§IDS.5): versión y acabado como lo nombra el cliente (Cosmos Holo por el `stampLabel`).
+      version: versionDtoOf(ctx.version ?? DEFAULT_VERSION),
+      finishLabel: finishLabelOf(item.finish, ctx.version?.stamp?.label ?? null),
     };
     return { dto, listPriceCents };
   }
@@ -1028,9 +1088,13 @@ export class CatalogService {
       // transportado, no recalculado. Esas piezas quedan en el censo §4.40.8 para reparar o retirar.
       const keys = this.lookupKeysOf(r.item);
       if (keys == null) continue;
-      const g = groups.get(keys.variantKey);
+      // 💰 v1.116⟨ids⟩ (§IDS.5): K += (language, stampedProductId). (en, sin liga) ⇒ la llave de hoy, sin cambio.
+      const k = isDefaultVersion(r.version)
+        ? keys.variantKey
+        : `${keys.variantKey}|v:${versionKeyOf(r.version.language, r.version.stamp?.productId ?? null)}`;
+      const g = groups.get(k);
       if (g) g.members.push(r);
-      else groups.set(keys.variantKey, { gradeKey: keys.gradeKey, groupKey: keys.variantKey, members: [r] });
+      else groups.set(k, { gradeKey: keys.gradeKey, groupKey: k, members: [r] });
     }
     return [...groups.values()].map(({ gradeKey, groupKey, members }) => {
       // Representante = pieza vendible MÁS BARATA. ⚠️ Se ordena por **`L`** y no por `P`: `P` es
@@ -1048,7 +1112,9 @@ export class CatalogService {
       // `salePriceCents`, que ES del grupo. Una carta con `normal` y `reverse_holo` publicados tiene UN
       // solo par de estimados (son de la CARTA) pero DOS precios raw ⇒ puede quedar destacada en un
       // acabado y no en el otro. Es deliberado y money-safe.
-      const highlightResult = grading
+      // v1.116⟨ids⟩ (§IDS.5, 959): una versión (español o de liga) nunca lleva `gradingHighlight`.
+      const version = cheapest.version;
+      const highlightResult = grading && isDefaultVersion(version)
         ? evaluateGradingHighlight<GradedEstimateRef>({
             productType: item.productType,
             // ⚠️⚠️ **`L`, ⛔ NUNCA `P`.** El gate compara contra estimados de MERCADO (PSA 10/9),
@@ -1114,6 +1180,8 @@ export class CatalogService {
           ? { referenceDisplayCents: marketDisplayCentsOf(projectedMarketCents, cheapest.dto.ivaRatePct) }
           : {}),
         currency: 'MXN' as const,
+        version: cheapest.dto.version,
+        finishLabel: cheapest.dto.finishLabel,
         // ⚠️ MERGE v1.50.2 — `gradingHighlight` NO va aquí. Tras D2, `GroupedListingDTO` es el DTO de la
         // FICHA, y la ficha expone `gradedEstimates` en su raíz (más rico: PSA 10 y 9, y sin gatear).
         // El destacado vive en `GroupedListingSummaryDTO` (la REJILLA), abajo. Contrato §DTOs base
@@ -1145,10 +1213,14 @@ export class CatalogService {
         // Omitido en cualquier otro caso (incluido el dial `off`) ⇒ la teja se ve EXACTAMENTE como hoy
         // (criterio 100). Jamás `[]`, jamás `eligible:false`.
         ...(gradingHighlight ? { gradingHighlight } : {}),
+        version: dto.version,
+        finishLabel: dto.finishLabel,
+        versionOptionKey: optionKeyOf(dto.version.key, dto.version.stamp != null, dto.finish),
       };
       return {
         dto,
         summary,
+        version,
         /** La llave K con que se AGRUPÓ (TL-DYN-2): la usan Destacadas sin volver a derivarla del DTO. */
         variantKey: groupKey,
         /** `P` — el que se filtra y se ordena de cara al cliente (es lo que ve). */
@@ -1250,6 +1322,9 @@ export class CatalogService {
     sort?: string;
     /** v1.44 (§4.38f): vitrina «Joyas para gradear». Solo se acepta `"true"`. */
     gradingHighlight?: string;
+    /** v1.116⟨ids⟩ (§IDS.5): idioma (§0-Q, `CardLanguage`) y «Cartas de liga y promos» (solo `"true"`). */
+    language?: string;
+    stamped?: string;
   }) {
     // v1.44: se valida ANTES de la query (un sort inválido no debe costar una lectura).
     const onlyHighlighted = this.validateGradingQuery(q);
@@ -1276,6 +1351,11 @@ export class CatalogService {
     if (finish) extra.finish = finish;
     const sealedSubtype = parseEnumFilter('sealedSubtype', q.sealedSubtype, SEALED_SUBTYPES, { echoValue: true });
     if (sealedSubtype) extra.sealedSubtype = sealedSubtype;
+    // v1.116⟨ids⟩ (§IDS.5): `language` y `stamped` (sin filtro, todo; 521).
+    const language = parseEnumFilter('language', q.language, CARD_LANGUAGE_VALUES);
+    if (language) extra.language = language;
+    const stamped = parseEnumFilter('stamped', q.stamped, STAMPED_TRUE);
+    if (stamped) extra.cardProductId = { in: await this.pricing.stampedProductIds() };
     const cardWhere: Prisma.CardWhereInput = {};
     // v1.33 (P-27, §4.31d): si `setId` es el PRINCIPAL de un master combinado, EXPANDE a
     // `setId IN partSetIds` (incluye el inventario publicado de todas las partes: cel25 + cel25c).
@@ -1349,7 +1429,8 @@ export class CatalogService {
    * (ARCHITECTURE §4.DYN (c): un grupo con una pieza vieja no «llega»; una pieza sin fecha cuenta como vieja).
    */
   async featuredCandidates(): Promise<FeaturedCandidate[]> {
-    const rows = await this.fetchSellable(this.singlesPublishedWhere());
+    // v1.116⟨ids⟩: Destacadas sigue llaveada por K de hoy (`featuredKeyOf`) ⇒ solo (inglés, sin liga).
+    const rows = (await this.fetchSellable(this.singlesPublishedWhere())).filter((r) => isDefaultVersion(r.version));
     const firstByKey = new Map<string, Date | null>();
     for (const r of rows) {
       const k = this.lookupKeysOf(r.item);
@@ -1383,7 +1464,7 @@ export class CatalogService {
     const cardIds = [...new Set(keys.map((k) => k.cardId))];
     if (cardIds.length === 0) return out;
     const wanted = new Set(keys.map(featuredKeyOf));
-    const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId: { in: cardIds } }));
+    const rows = (await this.fetchSellable(this.singlesPublishedWhere({ cardId: { in: cardIds } }))).filter((r) => isDefaultVersion(r.version));
     const grading = await this.loadGradingContext(rows);
     for (const g of this.buildGroups(rows, grading)) {
       // TL-DYN-2: la llave con que se agrupó; `featuredKeyOf` es el mismo `variantKey`, así que casa con la selección guardada.
@@ -1439,7 +1520,14 @@ export class CatalogService {
     // ⭐ La faceta de precio es lo que el comprador ve en el control de rango ⇒ **`P`**, coherente
     // con el filtro `minPriceCents`/`maxPriceCents` de arriba.
     const prices = rows.map((r) => r.dto.displayPriceCents ?? 0);
+    // v1.116.2⟨ids⟩ (§IDS.5, IDS-B21): `languages` = idiomas presentes en lo vendible (orden `en`, `es`); `stamped` = hay alguna
+    // pieza de liga a la venta. Sin conteos.
+    const present = new Set(rows.map((r) => r.version.language));
+    const languages = CARD_LANGUAGE_VALUES.filter((l) => present.has(l));
+    const stampedFacet = rows.some((r) => r.version.stamp != null);
     return {
+      languages,
+      stamped: stampedFacet,
       rarities,
       sets,
       productTypes,
@@ -1467,10 +1555,12 @@ export class CatalogService {
     const grading = await this.loadGradingContext(rows);
     // v1.38-grouped-listings (P-30, §4.9a): `listings` = publicaciones AGRUPADAS (una por
     // (productType,gradeKey,finish) con stockCount≥1), cheapest-first — es la grilla de la ficha.
-    const listings = this.buildGroups(rows, grading)
+    const built = this.buildGroups(rows, grading)
       // Orden por `L` (ver `buildGroups`): mismo resultado que por `P` y sin depender del redondeo.
-      .sort((a, b) => a.listPriceCents - b.listPriceCents)
-      .map((g) => g.dto);
+      .sort((a, b) => a.listPriceCents - b.listPriceCents);
+    const listings = built.map((g) => g.dto);
+    // v1.116⟨ids⟩ (§IDS.5, D-IDS-O): las burbujas de la ficha, del servidor (orden, claves y agotadas omitidas).
+    const versions = versionOptionsOf(built.filter((g) => g.dto.productType === 'raw'));
     // `units` = TODAS las piezas vendibles POR-PIEZA (cheapest-first) para el add-to-cart por
     // inventoryItemId (el carrito sigue por-pieza, §4-G) y para exponer el certNumber de cada slab.
     const units = [...rows]
@@ -1506,6 +1596,7 @@ export class CatalogService {
       card: toCardDTO(card, pricedByCard.get(cardId)),
       listings,
       units,
+      versions,
       // ⭐ v1.96⟨mkt-tienda⟩ (§MKT.A): la fecha en que ESTE render resolvió el precio (CDMX) y la imagen
       // absoluta para og. La grande (`imageLargeUrl`) antes que la pequeña; `null` ⇒ front omite og:image.
       pricedAsOf: toMexicoCityDateKey(new Date()),
@@ -1573,12 +1664,15 @@ export class CatalogService {
           r.item.rawCondition != null &&
           RAW_CONDITIONS.includes(r.item.rawCondition),
       )
-      .sort((a, b) => a.listPriceCents - b.listPriceCents);
+      // 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.6, D-IDS-I): SURTIDO — primero sin liga (inglés o español) por precio ascendente
+      // (empate: `en` antes que `es`, luego `folio`); después las de liga, mismo orden. Una de liga solo entra si no alcanzan
+      // las sin liga (el que corta es `decks-meta`, tomando las primeras `availableQty`).
+      .sort(deckAssortmentOrder);
     for (const r of rawNm) {
       const arr = out.get(r.item.cardId) ?? [];
       // `priceMxnCents` = `P` (con IVA), la MISMA cifra que la ficha exhibe. Se copia bajo nombre
       // neutral; la derivación vive sólo en `toListingRow` (arriba), no aquí ni en `decks-meta`.
-      arr.push({ inventoryItemId: r.dto.inventoryItemId, priceMxnCents: r.dto.displayPriceCents ?? null });
+      arr.push({ inventoryItemId: r.dto.inventoryItemId, priceMxnCents: r.dto.displayPriceCents ?? null, version: r.dto.version, folio: r.item.folio });
       out.set(r.item.cardId, arr);
     }
     return out;
@@ -2036,4 +2130,84 @@ export class CatalogService {
       .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
     return { data };
   }
+}
+
+/** v1.116⟨ids⟩ (§IDS.5): el único valor del filtro `stamped` («Cartas de liga y promos»). */
+const STAMPED_TRUE = ['true'] as const;
+
+/**
+ * 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.6) — el orden de SURTIDO de un Meta deck: sin liga antes que de liga; dentro, `P`
+ * ascendente (por `L`, que es monótono en `P`), luego `en` antes que `es`, luego `folio`.
+ */
+export function deckAssortmentOrder(
+  a: { listPriceCents: number; version: PieceVersion; item: { folio: string } },
+  b: { listPriceCents: number; version: PieceVersion; item: { folio: string } },
+): number {
+  const sa = a.version.stamp ? 1 : 0;
+  const sb = b.version.stamp ? 1 : 0;
+  if (sa !== sb) return sa - sb;
+  if (a.listPriceCents !== b.listPriceCents) return a.listPriceCents - b.listPriceCents;
+  const la = a.version.language === 'en' ? 0 : 1;
+  const lb = b.version.language === 'en' ? 0 : 1;
+  if (la !== lb) return la - lb;
+  return a.item.folio.localeCompare(b.item.folio);
+}
+
+/**
+ * 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.5, D-IDS-O) — `versions[]` de la ficha a partir de los grupos raw vendibles (ya sin
+ * agotadas: `stockCount ≥ 1` por construcción). Una entrada por versión sin liga (`en`, `es`; su acabado se elige en
+ * «Ejemplares disponibles»: `finish` solo si todos sus grupos comparten uno) y una por (producto de liga × acabado). Orden:
+ * `en`, `es`; luego las filas de liga por el menor `fromPriceCents` de la fila (empate: `productId`, luego `FINISH_ORDER`);
+ * dentro de la fila, `en` antes que `es`.
+ */
+export function versionOptionsOf(
+  groups: { dto: { finish: Finish; displayPriceCents: number; stockCount: number; representativeInventoryItemId: string; version: VersionDTO }; listPriceCents: number }[],
+): VersionOptionDTO[] {
+  const out: VersionOptionDTO[] = [];
+  for (const lang of ['en', 'es'] as const) {
+    const gs = groups.filter((g) => g.dto.version.stamp == null && g.dto.version.language === lang);
+    if (gs.length === 0) continue;
+    const cheapest = [...gs].sort((a, b) => a.listPriceCents - b.listPriceCents)[0];
+    const finishes = new Set(gs.map((g) => g.dto.finish));
+    const finish = finishes.size === 1 ? gs[0].dto.finish : null;
+    out.push({
+      optionKey: optionKeyOf(gs[0].dto.version.key, false, gs[0].dto.finish),
+      version: gs[0].dto.version,
+      finish,
+      finishLabel: finish ? finishLabelOf(finish, null) : null,
+      fromPriceCents: Math.min(...gs.map((g) => g.dto.displayPriceCents)),
+      stockCount: gs.reduce((n, g) => n + g.dto.stockCount, 0),
+      representativeInventoryItemId: cheapest.dto.representativeInventoryItemId,
+    });
+  }
+  const rows = new Map<string, { productId: number; finish: Finish; entries: VersionOptionDTO[] }>();
+  for (const g of groups) {
+    const st = g.dto.version.stamp;
+    if (!st) continue;
+    const rowKey = `${st.productId}|${g.dto.finish}`;
+    const row = rows.get(rowKey) ?? { productId: st.productId, finish: g.dto.finish, entries: [] };
+    row.entries.push({
+      optionKey: optionKeyOf(g.dto.version.key, true, g.dto.finish),
+      version: g.dto.version,
+      finish: g.dto.finish,
+      finishLabel: finishLabelOf(g.dto.finish, st.label),
+      fromPriceCents: g.dto.displayPriceCents,
+      stockCount: g.dto.stockCount,
+      representativeInventoryItemId: g.dto.representativeInventoryItemId,
+    });
+    rows.set(rowKey, row);
+  }
+  const fo = (f: Finish) => FINISH_ORDER.indexOf(f);
+  const ordered = [...rows.values()].sort((a, b) => {
+    const ma = Math.min(...a.entries.map((e) => e.fromPriceCents));
+    const mb = Math.min(...b.entries.map((e) => e.fromPriceCents));
+    if (ma !== mb) return ma - mb;
+    if (a.productId !== b.productId) return a.productId - b.productId;
+    return fo(a.finish) - fo(b.finish);
+  });
+  for (const r of ordered) {
+    r.entries.sort((x, y) => (x.version.language === 'en' ? 0 : 1) - (y.version.language === 'en' ? 0 : 1));
+    out.push(...r.entries);
+  }
+  return out;
 }

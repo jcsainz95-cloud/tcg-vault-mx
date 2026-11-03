@@ -42,6 +42,7 @@ import {
   MetaDeckGroupsDTO,
   MetaBasicEnergyDTO,
   MetaDeckLineDTO,
+  MetaDeckUnitTrancheDTO,
   MetaDeckListResponseDTO,
   MetaDeckCardTileDTO,
   MetaPasteResponseDTO,
@@ -148,6 +149,7 @@ export class DecksMetaService {
         availableQty: 0,
         unitPriceMxnCents: null,
         unitInventoryItemIds: [],
+        units: [],
       };
     }
 
@@ -168,6 +170,8 @@ export class DecksMetaService {
       // «desde» = la pieza más barata ofrecida; null si no hay stock (faltante).
       unitPriceMxnCents: offered.length > 0 ? offered[0].priceMxnCents : null,
       unitInventoryItemIds: offered.map((u) => u.inventoryItemId),
+      // 💰 v1.116⟨ids⟩ (§IDS.6): las mismas piezas, en su orden de surtido, partidas por versión.
+      units: unitTranchesOf(offered),
     };
   }
 
@@ -695,4 +699,24 @@ function fromMatchedLine(m: MatchedLine): StoredLine {
     matchStatus: m.matchStatus,
     matchedCard: m.matchedCard,
   };
+}
+
+/**
+ * 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.6) — parte las piezas ofrecidas (ya en orden de surtido: sin liga primero, más barata
+ * primero) en tramos consecutivos de la MISMA versión. ⛔ No reordena: la partición respeta el orden de
+ * `unitInventoryItemIds`.
+ */
+export function unitTranchesOf(offered: readonly DeckMetaUnitDTO[]): MetaDeckUnitTrancheDTO[] {
+  const out: MetaDeckUnitTrancheDTO[] = [];
+  for (const u of offered) {
+    const version = u.version ?? { key: 'en', language: 'en' as const, stamp: null };
+    const last = out[out.length - 1];
+    if (last && last.version.key === version.key) {
+      last.qty += 1;
+      last.inventoryItemIds.push(u.inventoryItemId);
+    } else {
+      out.push({ version, qty: 1, unitPriceMxnCents: u.priceMxnCents, inventoryItemIds: [u.inventoryItemId] });
+    }
+  }
+  return out;
 }
