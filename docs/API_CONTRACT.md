@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-11-03 (rev **v1.117⟨cuenta-correo⟩** + **v1.116.3⟨ids⟩** + **v1.116.1⟨checkout-friccion⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-11-03 (rev **v1.117.1⟨cuenta-correo⟩** + **v1.116.3⟨ids⟩** + **v1.116.1⟨checkout-friccion⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -43,7 +43,8 @@
 > - v1.116.1⟨ids⟩ · 2026-11-02 · §IDS.4/.5: `FinishLabel` (acabado como lo nombra el cliente, Cosmos Holo por el nombre del producto; clave cerrada, texto por i18n), `versions[]` una entrada por (producto de liga × acabado) con `optionKey` y orden del servidor, `versionOptionKey` en la teja, preselección `?version=` cerrada (D-IDS-4), «Sin liga»/«No holo» en captura; IDS-B8/F1/F3/D1 ajustadas, IDS-B18/B19 nuevas · marketing vía dueño (`HECHOS.md` 2026-11-02 «Selector de versión en burbujas…» y «§IDS v5 2×N: marketing elige B…»), ux-ui (IDS-UX.7 petición 6, vIDS-6).
 > - v1.116.2⟨ids⟩ · 2026-11-03 · errata de §IDS con datos: IDS.3 fija precedencia de sufijos, número dentro del nombre, llave del catálogo y log; 22872/24451 fuera (no es «cambiar la constante»); Cosmos Reverse Holofoil sigue `cosmos_holo`; sin tope de filas de liga; `VersionComboDTO += baseReferenceMxnCents, appliedMarketPct`; facetas `languages`/`stamped` nombradas; pantalla del dial asignada a frontend (M10); correo lo traduce backend; D-IDS-1 por falla cerrada (IDS-B17) · devops (`DEVOPS_NOTES §108.4`), frontend (`FRONTEND_NOTES §IDS-FE`), dueño (`HECHOS.md` 2026-11-03 «El dueño no ha subido cartas promo»).
 > - v1.116.3⟨ids⟩ · 2026-11-03 · errata de §IDS tras la construcción (`c03d99aa`…`58c7fbc8`): `cardProductId` del alta ratificado solo para producto `stamped` de la carta (§M1 ajustado; PATCH no lo acepta, D-IDS-8); I-7 `cardProductId` inmutable tras el alta ⇒ el `productId` de la liga en pedidos se lee de la pieza, sin columna nueva (D-B-IDS-2); filas de §0-Q para `language`/`stamped` (4 ejes); ratificados: Destacadas solo `(en, null)`, promo/Deck Exclusive sin precio no escala, `versions[]` solo raw, `units: []` sin carta casada; `/catalog/facets` sin query; IDS-B22/B23 · backend (`BACKEND_NOTES` §IDS).
-> - v1.117⟨cuenta-correo⟩ · 2026-11-03 · [§CTA](#CTA) NUEVA: alta con solo el correo (`POST /auth/register/email-only`, `409 EMAIL_TAKEN` sin sesión que ofrece «Ingresar a cuenta», throttlers `signup` 5/min compartido con `register` y `signup-day` 30/24 h por IP), enlace «Termina tu cuenta» (`AuthTokenType += account_setup`, M-96, 24 h, un uso; `POST /auth/account-setup` prueba el buzón y destraba el reclamo), `POST /auth/set-password` sin la actual solo con `accountSetupPending`, `PATCH /users/me/email`, comprar sin correo verificado (`POST /checkout/session`), Google que enlaza una cuenta sin verificar revoca sesiones (AUTH-PRE-1), la franja solo afirma «tarjeta» (P-CTA-6); `ACCOUNT_SETUP_TOKEN_INVALID`/`ACCOUNT_SETUP_NOT_PENDING` · dueño (`HECHOS.md` 2026-11-03 «Checkout y ficha: tres cambios aprobados…» (1)/(2) y «Respuestas a P-CTA-3, P-CTA-5(a) y P-CTA-6»); P-CTA-1/2/4 con la recomendación del PO, provisional. La siguiente es **v1.118**.
+> - v1.117⟨cuenta-correo⟩ · 2026-11-03 · [§CTA](#CTA) NUEVA: alta con solo el correo (`POST /auth/register/email-only`, `409 EMAIL_TAKEN` sin sesión que ofrece «Ingresar a cuenta», throttlers `signup` 5/min compartido con `register` y `signup-day` 30/24 h por IP), enlace «Termina tu cuenta» (`AuthTokenType += account_setup`, M-96, 24 h, un uso; `POST /auth/account-setup` prueba el buzón y destraba el reclamo), `POST /auth/set-password` sin la actual solo con `accountSetupPending`, `PATCH /users/me/email`, comprar sin correo verificado (`POST /checkout/session`), Google que enlaza una cuenta sin verificar revoca sesiones (AUTH-PRE-1), la franja solo afirma «tarjeta» (P-CTA-6); `ACCOUNT_SETUP_TOKEN_INVALID`/`ACCOUNT_SETUP_NOT_PENDING` · dueño (`HECHOS.md` 2026-11-03 «Checkout y ficha: tres cambios aprobados…» (1)/(2) y «Respuestas a P-CTA-3, P-CTA-5(a) y P-CTA-6»); P-CTA-1/2/4 con la recomendación del PO, provisional.
+> - v1.117.1⟨cuenta-correo⟩ · 2026-11-03 · errata de §CTA tras la construcción: `forgot-password` 10/h por IP en §1 (decisión del dueño, `1ec2c037`; se retira D-CTA-B); el alta cuenta para el tope 3/h de `account_setup` y CTA-B11 con dos casos; regla única de las páginas con token (`/account-setup`, `/reset-password`, `/verify-email`: `replaceState` + `no-referrer` por ruta), CTA-F4/F8 ampliadas; backend y frontend salen juntos (`mail-links.frontend-routes`); compactadas las cabeceras ⟨cardshow⟩ v1.99–v1.101, ⟨skydropx⟩ v1.81/v1.81.1, v1.80.8-release §5, ⟨C7⟩ v1.80/v1.80.1/v1.80.1.1 y v1.79.6/v1.79.7 · backend (informe de v1.117), orquestador. La siguiente es **v1.118**.
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -286,84 +287,16 @@
 > - v1.80.8.4 · 2026-10-02 · la cola de VENTA la escribe solo la vía del precio de venta de plataforma, siempre con motivo; `price-sync`/`syncCardPrice` ⛔ no escalan; sin tercer motivo; el sellado cierra su fila al publicar; barrido VQ de las filas `reason IS NULL` (VQ-1…VQ-9); sin schema ni forma nueva · [§M2 «v1.80.8.4»](#M2-VQ), `ARCHITECTURE §4.36.5 (c-bis)`; detalle compactado en v1.116 (git) · backend (`BACKEND_NOTES` «§14 · Cola de precio pendiente (Venta)», `0a4a6429`).
 >
 > ---
-> *(Cabecera de `claude/skydropx-envios` (base `8fd637fb`, 2026-09-29): revs **v1.81.1** y **v1.81** ⟨skydropx⟩,
-> **verbatim**. Su línea «Versión de API … (rev v1.81.1)» pasó a este separador en v1.80.11. Lo que sigue lo corrige
-> la errata **v1.80.11** (arriba) donde choque: `M-62`/`M-62a`/`M-62b` ⇒ `M-SDX-C`/`M-SDX-D`; «`ARCHITECTURE §4.58`» ⇒
-> §4.60; sandbox ⇒ producción sin gastar (`M-PRD`) y primera guía autorizada (`PG`).)*
+> *(Cabecera de `claude/skydropx-envios` (base `8fd637fb`): revs v1.81.1 y v1.81 ⟨skydropx⟩, compactadas en v1.117.1. La
+> errata **v1.80.11** (arriba) las corrige donde choquen: `M-62`/`M-62a`/`M-62b` ⇒ `M-SDX-C`/`M-SDX-D`; «`ARCHITECTURE
+> §4.58`» ⇒ §4.60; sandbox ⇒ producción sin gastar (`M-PRD`) y primera guía autorizada (`PG`).)*
 >
-> **Changelog v1.101⟨cardshow⟩ — M-90: (A) 5.º juego `magic` («Magic: The Gathering») en `CardShowGame`, preinscripción LIGERA
-> (sin Player ID, sin cupo) — `ALTER TYPE … ADD VALUE 'magic'` (§CARDSHOW.1a-quater). (B) Contador público del torneo Pokémon por
-> día `GET /card-show/tournament/count` (0 PII, caché 30 s, 60/min por IP; ocupados = `confirmed`+`checked_in`) — §CARDSHOW.12-bis;
-> desviación `D-CS-8`→backend (el cupo cuenta solo `confirmed`, `ARCHITECTURE §9`). Criterios en §CARDSHOW.§13 [M-90]. Dueño JC
-> chat 2026-10-21 (2026-10-21, arquitecto; base v1.100⟨cardshow⟩).**
->
-> **Changelog v1.100⟨cardshow⟩ — M-89: (A) Jakomi (tercero) recibe SOLO tipo y conteo, nunca PII — el aviso interno CON
-> nombre/teléfono va solo a buzones TCG HUNT (`jsainz`/`scarranza`); `cardshow@jakomi.mx` sale del CC del aviso con PII y solo
-> puede ser destinatario del **resumen agregado** (0 PII) — cierra **L2-SEG-01**. (B) Consentimiento de la rifa SEPARADO: la
-> casilla de privacidad obligatoria no bundlea las bases; `raffleOptIn` es casilla **propia y DESMARCADA** (`default false`) con
-> enlace a bases; `raffleTermsVersion` solo si `raffleOptIn=true` (ya en el DTO). Reglas en §CARDSHOW.9 (A), §CARDSHOW.1b/.18 (B),
-> criterios en §CARDSHOW.§13 [M-89]; regla de negocio del precio del main de Pokémon = MX$200 anotada en §CARDSHOW.12 (content,
-> no contrato). Sin schema (`raffleOptIn`/`raffleTermsVersion` ya existen, M-84). Dueño JC 2026-10-17 (R5, `docs/specs/
-> CARDSHOW_LANDING_ESTADO.md`); «Acepto ese riesgo» (rifa). (2026-10-17, arquitecto; base v1.99⟨cardshow⟩).**
->
-> **Changelog v1.99⟨cardshow⟩ — M-88: confirmar el correo «los dos días» confirma AMBAS filas (`sat`+`sun`) del grupo en una
-> acción (clave FORMAL `(mailboxHmac, pokemon, playerId)` / LIGERA `(mailboxHmac, game)`); cierra BLOQ-A (el domingo quedaba
-> `pending` colgado hasta caducar). Regla en §CARDSHOW.12 (⭐M-88) + criterio en §CARDSHOW.§13; desviación `D-CS-7`→backend
-> (`ARCHITECTURE §9`). Aditivo (`days[]` en la respuesta de `POST /card-show/confirm`), sin schema (2026-10-17, arquitecto;
-> base v1.98⟨cardshow⟩/v1.81.1).**
->
-> **Changelog v1.81.1 — 🔒💰 ERRATA DE §M4-SHIP.19 TRAS EL VEREDICTO APROBADO DE SEGURIDAD SOBRE v1.81 (`SECURITY_NOTES`,
-> sección final sobre `62d0c46`, APROBADO con cinco MEDIAS que entran al contrato antes de construir la fase D —
-> SEC-SDX-1…5 — y ocho BAJAS decididas aquí — SEC-SDX-6…13) (2026-09-29, arquitecto; base v1.81, vigente entera salvo
-> lo que esta errata toca).** 💰 **ZONA DE DINERO + PII + TERCERO.** ⛔ **No cambia** nada de lo que seguridad declaró
-> construible: la fase C (§19.5) no se toca; la fase D entra con estos cierres. Schema **`M-62b` cambia en una línea**
-> (el `@@unique` de `ShipmentCarrierEvent` gana `providerShipmentId`; sin columna nueva). **Un verbo nuevo**
-> (`POST …/label/release`, `super_admin`), **un código nuevo** (`409 LABEL_NOT_RELEASABLE`), **un candado nuevo**
-> (`C-SDX-7`), **una env nueva** (`SKYDROPX_URL_HOSTS`, devops). Norma consolidada: **[§M4-SHIP.19.18](#M4-SHIP-19-18)**;
-> las subsecciones tocadas (§19.2, .3, .4, .7, .8, .10, .12, .13, .16, .17) llevan una o dos líneas cada una que remiten
-> ahí. Porqué: `ARCHITECTURE §4.58 (j)`.
->
-> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
-> |---|---|---|---|
-> | **1** | 🔒💰 **SEC-SDX-1 — la ventana de disputa se cuenta desde que NOSOTROS lo supimos.** Para guía Skydropx, `deliveredAt = max(event.occurredAt, event.observedAt)`; `carrierStatusAt` conserva la fecha del transportista. Un `delivered` fechado 8 días atrás ya no anuncia en `AV-17` una ventana vencida ni cierra `disputes` antes de que el cliente lea el correo (`disputes.service.ts:160,166`, medido) | §19.3 `delivered`, §19.12 `AV-17`, §19.18.1, PS-78 | **Sí, backend** |
-> | **2** | 🔒 **SEC-SDX-2 — el evento sintetizado no lleva `now` en la llave.** Si la API solo da el estado actual: llave `status:<updated_at>` y, sin `updated_at`, **`status`** a secas; y `applyCarrierStatus` lo inserta **solo si `event.status ≠ carrierStatus`** leído bajo el candado. Diez sondeos con el mismo `delivery_attempt` ⇒ una fila, un `AV-19` | §19.3 paso 3, §19.10, §19.18.2, PS-72 | **Sí, backend** |
-> | **3** | 💰 **SEC-SDX-3 — compra que gana en Skydropx pero el envío ya está `cancelado`.** Las dos ramas de éxito del paso 9 llevan `status:'picking'` en el `WHERE`; `count 0` ⇒ se **persiste** la guía (`providerShipmentId`, `labelSource`, costo) con sello `providerCanceledAt/Reason='auto_close'`, `port.cancel` post-commit y `409 SHIPMENT_NOT_IN_PREPARATION {status, labelAutoCancelled:true}`; los dos escritores de `cancelado` tratan `labelProcessingSince ≠ null ∧ providerShipmentId IS NULL` como «compra en vuelo» | §19.7 paso 9, §19.8, §19.18.3, PS-83 | **Sí, backend** |
-> | **4** | 💰 **SEC-SDX-4 — el escape de «reclamo puesto, sin id» es un verbo.** `POST …/label/release` (**`super_admin`**, `@MoneyOut()`): precondición `labelProcessingSince ≠ null ∧ providerShipmentId IS NULL ∧ labelProcessingSince < now − 15 min`, `note` obligatoria, **primero busca** (replay con `Idempotency-Key` si PS-SBX-1 lo confirma; referencia si PS-SBX-6) y **adopta** si encuentra; solo si no hay nada libera. `409 LABEL_NOT_RELEASABLE`. §19.7 paso 9 deja de remitir a `label/cancel {reason:'unknown'}` | §19.18.4, §19.7, §19.10, §0, PS-74 | **Sí, backend y frontend** (botón del súper-admin) |
-> | **5** | 🔒 **SEC-SDX-5 — las URLs del proveedor son entrada no confiable.** `assertProviderUrl(url)` (`https:`, sin credenciales, host en `SKYDROPX_URL_HOSTS`) **al escribir** `labelUrl`/`trackingUrl` (rechazada ⇒ `null` + bitácora `shipment.provider_url_rejected`); el proxy `label.pdf` no sigue redirecciones a otro host, ≤ 5 MB, `application/pdf`. Candado **`C-SDX-7`** | §19.4 (9), §19.7 paso 9, §19.8, §19.18.5, PS-84/PS-88 | **Sí, backend** · devops (`SKYDROPX_URL_HOSTS`, poblada en PS-SBX-4/5) |
-> | **6** | 🔒 **Bajas SEC-SDX-6…13 decididas** (tabla en §19.18.6): **6** `rawResponseJson` redactado antes de persistir + purga a 30 d en el job diario · **7** `Address.references` viaja **solo** en `further_information`; `PurchaseInput.to` pierde `reference?`; log por **lista blanca** · **8** `label` con cotización vencida **reusa** la vigente y solo cotiza si no hay · **9** CAS temporal `carrierStatusAt ≤ occurredAt` + `@@unique` con `providerShipmentId` (**`M-62b`**) · **10** deuda con disparador (medido: `disputes.service.ts` no revierte `withdrawn`) · **11** `cancel` devuelve `refundedCents`; lo no devuelto ⇒ `ShipmentCostAdjustment kind:'other'` · **12** con `off`: `label.pdf`/`label/cancel`/`departed` siguen, `refresh-tracking` ⇒ `404 FEATURE_DISABLED`; **PS-81 corregida** («ignorado», `forbidNonWhitelisted:false` medido en `main.ts:56`) · **13** `sbx-probe.ts` redacta por lista blanca (devops) | §19.18.6, §19.2, §19.4, §19.7, §19.10, §19.16 | **Sí, backend** (6–9, 11, 12) · devops (13) |
->
-> **Changelog v1.81 — 💰🔒 ENVÍOS CON SKYDROPX: cotizar, elegir y comprar la guía desde la plataforma, etiqueta PDF, rastreo
-> por consulta periódica, correos «Entregado» / «en sucursal» / «intentaron entregarte», y el costo real al P&L
-> (2026-09-29, arquitecto; base v1.80.6, vigente entera salvo lo que esta rev toca).** Origen: `PROJECT §T` (v1.81,
-> borrador del PO con las seis decisiones del dueño de `HECHOS.md`), criterios **234–248**, decisión **120**, preguntas
-> **88–91** (defaults SUPUESTOS); `docs/specs/SKYDROPX_*`. 💰 **ZONA DE DINERO + PII A UN TERCERO ⇒ tres veredictos +
-> revisión de seguridad del diseño antes de construir.** Schema: **`M-62`** (nueva, en dos partes: dirección y
-> Skydropx). ⛔ **Ningún valor nuevo en `ShipmentStatus`**: «guía en proceso» y «en sucursal» son hitos con sello.
-> Norma entera: **[§M4-SHIP.19](#M4-SHIP-19)**; fuera de ahí solo punteros. Porqué y alternativas: `ARCHITECTURE §4.58`.
->
-> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
-> |---|---|---|---|
-> | **1** | **Dirección (fase C, zona `users`+`orders`, se despliega sola):** `neighborhood` obligatoria y **de la lista del CP** (`422 NEIGHBORHOOD_NOT_IN_POSTAL_CODE`, `422 POSTAL_CODE_UNKNOWN`), `city` = municipio canónico, `references?` ≤ 70 (nuevo, va a la guía), libreta al nivel del invitado (CP 5, tel 10, MX), `AddressDTO.complete` + `422 ADDRESS_INCOMPLETE` al retirar con una dirección vieja, `PATCH /admin/shipments/:id/address-neighborhood` (auditado), **`GET /geo/postal-codes/:cp`** (público; catálogo local SEPOMEX con proveedor intercambiable) | §M4-SHIP.19.5, §1 Direcciones, §4-G.1/.2, §11 `AddressDTO`, §0 | **Sí, backend y frontend** (antes de D) |
-> | **2** | **Puerto `ShippingProviderPort` + adaptador Skydropx** (módulo `shipping-provider`, solo servidor): OAuth client-credentials en memoria (2 h), ≤ 2 req/s, reintento 401/429, URL base por entorno, PII saliente por lista blanca, respuesta cruda nunca a un DTO | §M4-SHIP.19.4, §19.14 | **Sí, backend** · devops (env, red) |
-> | **3** | **Cotizar:** `POST /admin/shipments/:id/quote` (exige preparado; empaque estándar + seguro + valor declarado; lista ordenada con precio IVA+seguro, días, dónde se entrega, margen; recomendada preseleccionada; sucursal-a-sucursal `hidden`); `GET …/quote` | §M4-SHIP.19.6 | **Sí, backend y frontend** |
-> | **4** | 💰 **Comprar:** `POST /admin/shipments/:id/label` (saldo, vigencia 24 h ⇒ `409 QUOTE_EXPIRED` con cotización nueva, cifras vistas `409 LABEL_PREVIEW_STALE`, confirmaciones `422 LABEL_CONFIRMATION_REQUIRED`, reclamo CAS **antes** de la red ⇒ una guía por N clics, bitácora elegida/recomendada/quién/cuándo, «guía en proceso» sin `AV-4` hasta el número, rechazo ⇒ `422 SHIPPING_PROVIDER_REJECTED` sin rastro); `GET …/label.pdf` (proxy, operador+, `labelUrl` **nunca** viaja); `POST …/label/cancel` (re-emitir antes de `picked_up`; `guia → picking` conservando `preparedAt`, único retroceso, `C-SDX-4`); cancelación automática desde los dos escritores de `cancelado` (`C-SDX-5`) | §M4-SHIP.19.7, .19.8 | **Sí, backend y frontend** · 🔒 seguridad |
-> | **5** | **«Salida de hoy»:** `GET /admin/shipments/departure?date=` (agrupado por paquetería y sucursal configurada, sin precios ni teléfonos) y `POST /admin/shipments/departed {shipmentIds}` (⇒ `enviado` + `AV-5` una vez, idempotente con el sondeo) | §M4-SHIP.19.9 | **Sí, backend y frontend** |
-> | **6** | **Rastreo por CONSULTA PERIÓDICA** (⛔ sin ruta de webhook hasta doc de firma): jobs `shipment-tracking-poll` (≤ `shipping_tracking_poll_minutes`, seed 60), `shipment-label-processing`, `shipment-extra-charges`; **un cuerpo `applyCarrierStatus`** con el mapeo §8.3 completo, `ShipmentCarrierEvent` `@@unique` ⇒ evento repetido = cero escrituras; alertas del transportista **derivadas** (`?alert=true`, `workQueue.shipping`), sin correo al dueño; `POST /admin/shipments/:id/refresh-tracking` | §M4-SHIP.19.3, .19.10 | **Sí, backend y frontend** · devops (crons) |
-> | **7** | 💰 **Dinero:** `shippingCostCents` (bruto = guía + seguro), `shippingCostIvaCents` (línea del proveedor o **16/116 sin gestión**, `shippingIvaSource`), `insuranceCostCents` aparte, **`ShipmentCostAdjustment`** con `chargedAt` propia (cargos extra, mes del cargo — pregunta 89), margen en la tarjeta, P&L gana `shippingAdjustmentsCents`/`shippingInsuranceCents` y excluye Skydropx de `shippingCostMissingCount`; cargo extra y tarifa vencida **se absorben** (88, 90) | §M4-SHIP.19.11, §M10-IVA.8 | **Sí, backend y frontend** (⚠️ v1.80.12.17, [§19.36.1](#M4-SHIP-19-36): el frontend de las dos cifras del P&L no estaba hecho al gate de `31af0883`; se construye en U-3/F-3) |
-> | **8** | **Correos:** `AV-17` Entregado (solo `delivered` vía Skydropx; ventana de 7 días), `AV-18` en sucursal (`delivered_to_branch`; ⛔ no pasa a `entregado`), `AV-19` intentaron entregarte (uno por intento) — sellos propios; **criterio 210 reescrito**: §R.7 deja de declarar mudo `entregado` **solo** con guía Skydropx; **`C-AV-3` se parte en `3a` (manual, intacto) y `3b` (Skydropx)**; `C-AV-1` = 19; `AV-4/5` ganan `trackingUrl?` (solo si Skydropx la dio, `C-SDX-6`); **el invitado recibe `/pedido?token=…`** en todos sus correos de envío (`customerUrl` del servicio, token reemitido si venció) | §M4-SHIP.19.12, §R.3, §R.7, §R.9 | **Sí, backend** · ux-ui |
-> | **9** | **Cliente:** `trackingUrl?` y `timeline[]` (kinds fijos, sin códigos ni detalle) en `guest/track`, `GET /orders/:id.shipment` y `GET /shipments/:id`; título sigue `publicStatus` (§4-G.5 sin cambio) | §M4-SHIP.19.12, §4-G.3, §5, §M4-SHIP.16 | **Sí, backend y frontend** |
-> | **10** | **Ajustes (`super_admin`, auditados):** diales `shipping_provider` (seed `off`, kill switch), origen, preferentes, sucursales de entrega, Carta Porte, regla de empaque, saldo bajo, refresco, tope de valor declarado; `GET/PUT /admin/shipping/packages`, `GET /admin/shipping/catalogs`, `GET /admin/shipping/balance` (leído en vivo); credenciales **solo** en env (`C-SDX-1`) | §M4-SHIP.19.2, .19.13, §M10 | **Sí, backend y frontend** · devops (secretos) |
-> | **11** | `M-62`: `ShipmentRequest` + 25 columnas Skydropx (id, tarifa elegida/recomendada snapshot, `labelUrl` interna, `trackingUrl` nullable, seguro, `carrierStatus/At`, sellos `AV-17/18/19`, «guía en proceso»); tablas `ShipmentQuote`, `ShipmentCarrierEvent`, `ShipmentCostAdjustment`, `ShippingPackage` (seed sobre/caja), `PostalCode`; `Address.references`; enums `ShipmentLabelSource`, `CarrierStatus`, `ShippingIvaSource`, `ShipmentCostAdjustmentKind`; CHECKs; **sin backfill** (`labelSourceOf` deriva `manual`) | §M4-SHIP.19.2, `ARCHITECTURE §11` | **Sí, backend** |
-> | **12** | Pruebas **PS-67…PS-90** (cada una con su mutación; carreras N ≥ 10), candados **`C-SDX-1…6`**, mapa de riesgos **SDX-R1…R14** para el pentester, y el guion de sandbox **PS-SBX-1…12** que cierra cada NO MEDIDO (esquema del `rate`, `tracking_url`, IVA desglosado, historial de eventos, colonias por CP, cargos extra, Idempotency-Key, seguro por API) | §M4-SHIP.19.14–.16 | **Sí** (backend escribe; QA ejecuta; la sesión con sandbox corre PS-SBX) |
->
-> **Códigos nuevos:** `409 SHIPPING_PROVIDER_NOT_CONFIGURED`, `409 SHIPMENT_ALREADY_LABELED`, `409 LABEL_IN_PROGRESS`,
-> `422 SHIPMENT_ADDRESS_INCOMPLETE`, `422 RATE_NOT_IN_QUOTE`, `409 QUOTE_EXPIRED`, `409 LABEL_PREVIEW_STALE`, `422
-> LABEL_CONFIRMATION_REQUIRED`, `409 SHIPPING_INSUFFICIENT_BALANCE`, `422 SHIPPING_PROVIDER_REJECTED`, `502
-> SHIPPING_PROVIDER_ERROR`, `503 SHIPPING_PROVIDER_BUSY`, `404 LABEL_NOT_AVAILABLE`, `409 LABEL_NOT_CANCELLABLE`, `422
-> NEIGHBORHOOD_NOT_IN_POSTAL_CODE`, `422 POSTAL_CODE_UNKNOWN`, `422 ADDRESS_INCOMPLETE`; emisor nuevo de `404
-> FEATURE_DISABLED`. **Fuera y por ausencia (criterio 248):** tarifa en vivo, recolección, compra automática, buylist,
-> `external_shipments`, webhook, multipaquete. **Orden:** A (seguridad revisa) → B (§M4-SHIP) → **C (dirección, sola)** →
-> D (Skydropx; frontend con mocks, ux-ui y devops en paralelo) → E (gates).
+> **Revisiones ⟨cardshow⟩ v1.99–v1.101, compactadas en v1.117.1 (norma en su sección; historia en git):**
+> - v1.101⟨cardshow⟩ · 2026-10-21 · M-90: 5.º juego `magic` (§CARDSHOW.1a-quater) y `GET /card-show/tournament/count` (§CARDSHOW.12-bis); `D-CS-8` · dueño.
+> - v1.100⟨cardshow⟩ · 2026-10-17 · M-89: Jakomi solo recibe agregados sin PII (§CARDSHOW.9, cierra L2-SEG-01); `raffleOptIn` casilla propia desmarcada (§CARDSHOW.1b/.18) · dueño.
+> - v1.99⟨cardshow⟩ · 2026-10-17 · M-88: confirmar «los dos días» confirma las dos filas (§CARDSHOW.12 ⭐M-88); `D-CS-7` · arquitecto.
+> - v1.81.1⟨skydropx⟩ · 2026-09-29 · 🔒💰 errata de §M4-SHIP.19 tras el veredicto de seguridad sobre `62d0c46`: SEC-SDX-1…5 (Medias) y 6…13 (Bajas), `POST …/label/release`, `409 LABEL_NOT_RELEASABLE`, `C-SDX-7`, `SKYDROPX_URL_HOSTS`, `M-62b` · norma consolidada en [§M4-SHIP.19.18](#M4-SHIP-19-18), `ARCHITECTURE §4.58 (j)`; tabla compactada en v1.117.1 (git) · seguridad.
+> - v1.81⟨skydropx⟩ · 2026-09-29 · 💰🔒 envíos con Skydropx (cotizar, comprar guía, PDF, rastreo por consulta, `AV-17/18/19`, costo real al P&L, dirección de la fase C, `M-62`, PS-67…PS-90, `C-SDX-1…6`) · norma entera en [§M4-SHIP.19](#M4-SHIP-19), `ARCHITECTURE §4.58`; tabla compactada en v1.117.1 (git) · dueño (`PROJECT §T`, criterios 234–248).
 >
 > ---
 > *(Fin de la cabecera ⟨skydropx⟩. Sigue la línea principal: v1.80.8.3 y anteriores. La línea «Versión de API … (rev
@@ -485,34 +418,9 @@
 > conducta para volver a un contrato ambiguo. Norma en §M4-SHIP.15.13 (filas `paid` y `cancel`) y §M4-SHIP.17.3 punto
 > 4. **Trabajo:** frontend puede tiparlo (`types/contract.ts`), opcional; backend nada.
 >
-> **5 · ~~Estado que esta consolidación NO cierra~~ ✅ CERRADO en `b8a3e4ce`** (texto original tachado, no borrado:
-> era la foto a mitad de la fusión, 2026-09-29, ⛔ sha NO MEDIDO, sin Bash):
-> - ~~`item-location.rules.ts:66`: `ItemVerb = 'move' | 'mark' | 'status'` — **sin `'price'`** ⇒ INV-SP-8 (v1.80.2.3)
->   **no está construido** en esta rama; `ARCHITECTURE §9 INV-P2` sigue **ABIERTA**. Lo cierra la regla de fusión.~~
-> - ~~`inventory.service.ts` tiene **marcadores de conflicto** en `updateItem`/`markItem` (`:2420`, `:2803`, `:2822`,
->   `:2851`) y además declara `MARKABLE_PLATFORM_STATUSES` local (`:402`) — exactamente lo que la regla de fusión
->   manda borrar. Es trabajo de **backend** con esa regla; ⛔ el contrato no cambia.~~
-> - ~~PS-42b `:818` debe **invertirse** en el árbol fusionado (regla de fusión, D-d del techlead).~~
->
-> ✅ **Estado en `b8a3e4ce` (2026-09-29, arquitecto, condición R-1 del techlead).** Leído por el arquitecto en el árbol
-> de `claude/release-s5` que el orquestador identifica como `b8a3e4ce` (⛔ sha NO MEDIDO por el arquitecto: sin Bash).
-> Los tres puntos de arriba están **cerrados**:
-> - **INV-SP-8 construido:** `backend/src/modules/inventory/item-location.rules.ts:71` declara `ItemVerb = 'move' |
->   'mark' | 'status' | 'price'`; prueba `backend/test/inventory.patch-price-guard.spec.ts` (existe; casos según
->   `BACKEND_NOTES` «Release s5» §2: `:135-248` y `:250-271` — rangos reportados por backend, ⛔ no releídos). ⇒
->   `ARCHITECTURE §9 INV-P2` **cerrada**.
-> - **Sin marcadores de conflicto ni allowlist local:** `rg '^(<<<<<<<|=======|>>>>>>>)|MARKABLE_PLATFORM_STATUSES'`
->   sobre `backend/src/modules/inventory/` ⇒ **cero** marcadores; `MARKABLE_PLATFORM_STATUSES` solo en
->   `item-location.rules.ts` (declaración `:68`, uso `:125`, comentario `:50`); ninguna en `inventory.service.ts`.
->   Candado estático que lo sostiene: `backend/test/inventory.move-mark-guards.spec.ts:452-457` (reportado por backend,
->   `BACKEND_NOTES` «Release s5» §1 y §4; ⛔ no releído).
-> - **PS-42b invertida:** `backend/test/integration/full-refund-vault.e2e-spec.ts:872-921` — leído: la carrera exige
->   `res.a 200`, `res.b 409 CONFLICT`, pieza `reserved/customer` del comprador y `listPriceCents === seeded` (semilla
->   `55_500 + i`, `:904-906`, no nula). Cifras (10/10 con N=10; mutaciones M3/M4 0/10 con N=10): `BACKEND_NOTES`
->   «Release s5» §7 y §8, autor backend, ⛔ NO MEDIDAS por el arquitecto.
-> - Dónde quedó cada punto de la regla de fusión: `BACKEND_NOTES` «Release s5» §1 (tabla punto por punto), §2
->   (INV-SP-8), §3 (PS-42b) y §8 (pendientes cerrados).
-> ⛔ Sin cambio de norma ni de conducta: esta anotación solo corrige el **estado** que la cabecera afirmaba.
+> **5 · Estado de la fusión:** cerrado en `b8a3e4ce` (INV-SP-8 construido ⇒ `ARCHITECTURE §9 INV-P2` cerrada; sin
+> marcadores de conflicto ni allowlist local; PS-42b invertida). Detalle: `BACKEND_NOTES` «Release s5» §1–§3 y §8; la
+> foto anterior, en git (compactada en v1.117.1).
 >
 > **6 · Anclas y enums:** ⛔ ninguna ancla renombrada (`#M1-merge-rule`, `#M1-patch-price-guard`, `#M4-SHIP*`,
 > `#M2-*` intactas); ⛔ ninguna línea canónica de §0 «Enums» tocada.
@@ -520,122 +428,18 @@
 > **Lo que NO cambia:** todo lo normativo de las revs listadas en el punto 1.
 >
 > ---
-> *(Cabecera de `claude/arreglos-operador`: rev v1.79.7.)*
->
-> **Changelog v1.79.7 — ERRATA §M1 (sobre v1.79.6): `mark` ES SOLO DE PLATAFORMA, Y EL `status` DEL `PATCH` GANA LA MISMA
-> GUARDA (2026-09-29, arquitecto; base v1.79.6, vigente entera salvo lo que esta rev toca).** Origen: backend aterrizó en
-> esta rama (`c01f62d`, `451b508`, `7e803bd`) los puntos **D-SHIP-5** y **D-SHIP-6** del diseño §M4-SHIP **v1.80.3**
-> (§M4-SHIP.17.1, SEC-SHIP-A1, puntos (1) y (2); vive en el worktree `claude/envio-preparar`) por orden del orquestador, y
-> dejó en `BACKEND_NOTES` «M1 · D-SHIP-5 y D-SHIP-6 … 2026-09-29» la discrepancia: v1.79.6 §M1 **transcribía `6e3b1b7`**,
-> donde `mark` admitía la pieza de cliente en custodia liquidada fuera de retiro; ese texto queda superado. Regla de
-> conflicto: el diseño aprobado por seguridad manda sobre una errata que solo transcribía código. Esta rev **describe lo
-> construido; ⛔ no cambia conducta ni pide código**: sin código de error nuevo, sin schema, sin migración, sin endpoint
-> nuevo. Leído para escribirla: `item-location.rules.ts:107-126` (`assertOperable` con overloads `'mark' | 'status'` ⇒
-> siempre `'platform'`; la rama de cliente existe **solo** para `'move'`), `inventory.service.ts:2414-2443` (`updateItem`,
-> camino no publicante con `status`) y `:2757-2783` (`markItem`, sin consulta de retiro), y la sección citada de
-> `BACKEND_NOTES`.
->
-> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
-> |---|---|---|---|
-> | **1** | ⭐ **`mark` ⇒ solo plataforma `in_stock \| listed`.** Toda pieza de **cliente** (en retiro o no, `settled` o `pending`) ⇒ **`422 ITEM_NOT_ADJUSTABLE`** `details: { status, ownerType }`; `mark` **ya no consulta retiros** (ni `ShipmentItem` ni puerta del cliente). **`409 ITEM_IN_ANOTHER_SHIPMENT` lo emite solo `move`.** Por qué (§M4-SHIP.17.1 (1)): marcar `lost` la carta de un cliente fuera de un caso la saca de «Por reponer» **sin abrir deuda** (`ReplacementCase`); la incidencia de custodia se registra en el palomeo del retiro/colocación, que abre su caso. Corrige tabla 1 (fila `customer`/`mark`) y tabla 2 (paso 3 de `mark`) de v1.79.6, y la entrada de `ITEM_NOT_ADJUSTABLE` en §0 | §0, §M1 | **No** (construido y probado en `7e803bd`) |
-> | **2** | ⭐ **`PATCH /admin/inventory/items/:id` con `status` (camino no publicante) gana la guarda de `move`/`mark`:** `$transaction` → lectura → `assertOperable(item,'status')` (**mismo allowlist que `mark`**: plataforma `in_stock \| listed`) → escritura **condicionada** al estado y dueño leídos (mismo CAS; `P2025` ⇒ **`409 CONFLICT`**). `status` igual al leído (`in_stock → in_stock`) **no escribe `status`**; ⛔ **sin `InventoryMovement`**; sin `status` en el cuerpo ⇒ camino plano de siempre; `status:'listed'` desde no-`listed` ⇒ pipeline v1.51 **sin cambio**; pieza de cliente ⇒ `422` (el `409 ITEM_IN_ANOTHER_SHIPMENT` **no es alcanzable** desde el `PATCH`). Hasta `4ca6c45` existían `lost → in_stock`, `picking → in_stock` e `in_custody → in_stock` por este verbo (medido por backend); invariante **INV-SP-7**: `lost \| damaged` no vuelve a `in_stock \| listed` por ningún verbo del operador | §M1 (nueva sección **7**), §0 | **No** (construido y probado en `7e803bd`) |
-> | **3** | **Pendiente registrado, del stream que construya §M1 v1.80.3 (⛔ no de este hotfix):** la bitácora `inventory.item_updated` con `before`/`after` que pide §M4-SHIP.17.1 (2). Hoy el controller escribe `inventory.update` sin diff (medido por backend 2026-09-29) | §M1 sección 7 | **No** (no es de esta rama) |
->
-> **Lo que NO cambia:** todo v1.79.6 salvo las dos celdas y la entrada de §0 corregidas; `move` entero (tabla 1 fila
-> `customer`/`move`, destino, puerta, `409`, `location` en la respuesta, `201`); `adjustments` y `bulk-remove`; el
-> pipeline v1.51 del `PATCH` hacia `listed`; los cuatro códigos de error, todos existentes. Pruebas que lo fijan
-> (**cifras de backend**, `BACKEND_NOTES` sección citada, N=1 por corrida, deterministas): `test/inventory.move-mark-guards.spec.ts`
-> **42/42** (3 rojas contra `4ca6c45`: 2 cambian de signo + 1 nuevo), `test/inventory.patch-status-guard.spec.ts` (nuevo)
-> **21/21** (18/21 rojas contra `4ca6c45`), `test/integration/inventory-move-mark-guards.e2e-spec.ts` **17/17** contra
-> Postgres 16 (el caso `mark` cliente en retiro pasa de `409` a `422`; +1 `mark` cliente fuera de retiro; +8 del `PATCH`,
-> incl. que un rechazo no escribe `certNumber`). Mutaciones **3/3 muertas**: (M1) rama `customer` de vuelta en
-> `assertOperable` para `mark` ⇒ 3 rojas; (M2) sin `assertOperable(item,'status')` en `updateItem` ⇒ 14/21 rojas unitarias
-> y 6 rojas e2e; (M3) escritura del `PATCH` sin condición ⇒ 3 rojas. ⚠️ `tsc --noEmit` **NO MEDIDO** por backend en esa
-> corrida (bloqueo del entorno); los ficheros compilan bajo `ts-jest`.
->
-> **Changelog v1.79.6 — ERRATA §M1: `move` Y `mark` TIENEN GUARDAS DE ESTADO Y DE ZONA; EL CONTRATO LAS ESCRIBE TAL CUAL
-> BACKEND LAS CONSTRUYÓ (2026-09-29, arquitecto; base v1.79.5, vigente entera salvo lo que esta rev toca).** Origen: QA
-> aprobó `4ca6c45` (rama `claude/arreglos-operador`) con un IMPORTANTE para el arquitecto: `6e3b1b7` construyó
-> `backend/src/modules/inventory/item-location.rules.ts` y `moveItem`/`markItem` de `inventory.service.ts`, y §M1 seguía
-> describiendo los dos verbos en una línea, sin errores ni forma de respuesta (`BACKEND_NOTES` «M1 · guardas de `move` y
-> `mark`» lo dejó como pendiente del arquitecto). Esta rev **describe lo construido; ⛔ no cambia conducta**: sin código
-> de error nuevo (los cuatro ya están en `common/error-codes.ts`), sin schema, sin migración, sin endpoint nuevo. Leído
-> para escribirla: `item-location.rules.ts` entero; `inventory.service.ts` `moveItem`, `markItem`, `readGuardedItem`,
-> `guardedItemUpdate`; `inventory.controller.ts` `move`/`mark`; `dto/inventory.dto.ts` `MoveItemDto`;
-> `vault/vault-placement.rules.ts` `ACTIVE_WITHDRAWAL_STATUSES`, `lockCustomerVaultGate`; `prisma/schema.prisma`
-> `VaultLocation`; `test/inventory.move-mark-guards.spec.ts`; `test/integration/inventory-move-mark-guards.e2e-spec.ts`;
-> `frontend/.../admin/m1/ItemDetailModal.tsx` y `VariantDrawer.tsx`.
->
-> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
-> |---|---|---|---|
-> | **1** | ⭐ **§M1 `move`/`mark` ganan su tabla:** qué estados admite cada verbo según el dueño de la pieza, qué destino admite el `move`, en qué orden se evalúan las guardas y qué escribe cada rechazo (**nada**: una transacción por verbo). Cuatro errores, todos existentes: `422 ITEM_NOT_ADJUSTABLE` (`details: { status, ownerType }`), `409 ITEM_IN_ANOTHER_SHIPMENT`, `422 LOCATION_NOT_AVAILABLE`, `409 CONFLICT` (escritura condicionada al estado leído: carrera `move` ‖ `mark` ‖ checkout ‖ settle ‖ contracargo) | §M1 | **No** (ya construido y probado en `6e3b1b7`) |
-> | **2** | **`422 LOCATION_NOT_AVAILABLE` gana `reason: 'not_platform_stock'`** (solo lo emite `move`: pieza de plataforma con destino fuera de `platform_stock`) y en `move` **`not_found` nombra un `toLocationId` inexistente** (antes, según backend: `500` por FK). **§0 amplía los emisores** de `LOCATION_NOT_AVAILABLE` y de `ITEM_NOT_ADJUSTABLE`, que hasta hoy se declaraban solo para `confirm` y `adjustments` | §0, §M1 | **No** |
-> | **3** | **Forma y código de respuesta, fijados:** `move` ⇒ **`201`** con la fila admin **más `location: { id, label, zone } \| null`** (ADITIVO); `mark` ⇒ **`201`** con la fila admin. **Decisión: `201`, no `200`** — es lo construido (sin `@HttpCode`, `inventory.controller.ts` `move`/`mark`), lo que fija la suite e2e (tres aserciones `toBe(201)`), el front consume `res.ok` (cualquier 2xx), y el verbo **persiste una fila nueva** (`InventoryMovement`) igual que `adjustments`, que también responde `201`. Normar `200` sería un cambio de conducta sin valor para nadie | §M1 | **No** |
-> | **4** | **`toLocationId` ⛔ NO se valida como UUID en el DTO** (decisión: no se norma). Medido: **0** usos de `@IsUUID` en `backend/src/modules`; `VaultLocation.id` es `String @default(uuid())` **sin `@db.Uuid`**, así que un id malformado **no** rompe la consulta (no hay `P2023`): cae en **`422 not_found`**, con nombre. Un `400` separaría «malformado» de «inexistente» y **el remedio del operador es el mismo** (volver a elegir cajón). Si algún día `VaultLocation.id` pasa a `@db.Uuid`, este punto se reabre | §M1 | **No** |
-> | **5** | **Regla de pantalla (frontend): «Merma» y «Editar precio» ⛔ no se ofrecen sobre una pieza `picking`.** Medido 2026-09-29: `VariantDrawer.tsx` pinta los dos controles en **toda** fila, sin mirar `status`; `ItemDetailModal.tsx` ya restringe la merma a `in_stock \| listed` y ofrece «Mover» también en `picking` (solo a `platform_stock` activo), que es lo correcto | §M1 «Reglas de pantalla» | **Solo frontend** (`VariantDrawer.tsx`) |
->
-> **Lo que NO cambia:** todo v1.79.5; el `confirm` de §M4-VAULT.5 (sus `reason` y su orden); `adjustments` y `bulk-remove`;
-> la doctrina de §M4-VAULT.4 regla 4 (el `move` de cliente **consolida** cajones del mismo cliente; la **primera** colocación
-> es del `confirm`); `solicitado` (retiro sin pagar) **sigue sin bloquear** (`ACTIVE_WITHDRAWAL_STATUSES = picking | guia |
-> enviado`, la misma constante del `confirm`).
+> *(Cabecera de `claude/arreglos-operador`: revs v1.79.7 y v1.79.6, compactadas en v1.117.1; la norma vive en §M1
+> secciones 1–7 y §0; tablas, cifras y mutaciones en git.)*
+> - v1.79.7 · 2026-09-29 · errata §M1: `mark` solo de plataforma `in_stock | listed` (cliente ⇒ `422 ITEM_NOT_ADJUSTABLE`; `409 ITEM_IN_ANOTHER_SHIPMENT` solo de `move`), el `status` del `PATCH` gana la guarda de `mark` (CAS, `409 CONFLICT`, sin `InventoryMovement`), **INV-SP-7** · §M1 sección 7, §0; D-SHIP-5/6 · backend (`7e803bd`).
+> - v1.79.6 · 2026-09-29 · errata §M1: `move`/`mark` con su tabla de guardas por dueño, estado y zona (rechazo no escribe nada), `422 LOCATION_NOT_AVAILABLE` con `not_platform_stock`/`not_found`, ambos responden **`201`**, `toLocationId` sin validación UUID, «Merma» y «Editar precio» no se ofrecen sobre `picking` · §M1 y «Reglas de pantalla», §0 · QA (`4ca6c45`).
 >
 > ---
-> *(Cabecera de `claude/paquete-seguridad`: rev v1.80.1.1 — C7. Sus v1.80 y v1.80.1 son **⟨C7⟩**.)*
->
-> **Errata v1.80.1.1 — C7 CONSTRUIDO: EL CONTRATO SE IGUALA A LO QUE BACKEND MIDIÓ, Y CINCO DECISIONES QUE EL CONTRATO
-> NO FIJABA** (2026-09-29, arquitecto; base v1.80.1, vigente entera salvo lo que esta errata toca). Origen:
-> `BACKEND_NOTES` «C7 rev v1.80.1 … 2026-09-29» (§4 «Decisiones que el contrato no fijaba», §5 «Discrepancias con el
-> contrato»), construido en `668b6f8` / `d1fbbf8` / `ff3ecc4` / `3c03f36` / `7cf48e5` / `8210af6`. ⛔ **Sin schema, sin
-> migración, sin variable de entorno nueva, sin endpoint nuevo, sin código de error nuevo, sin cambio de shape: el frontend
-> NO cambia. Y ⛔ NO resulta trabajo de backend de ninguno de los cinco puntos:** en los cinco el contrato se corrige para
-> decir lo que backend construyó, porque lo construido es lo correcto (razón por punto en `ARCHITECTURE §4.57.10.4`).
->
-> | # | Qué cambia | Dónde | ¿Trabajo backend? |
-> |---|---|---|---|
-> | **1** | **C7-20, aritmética:** decía «7 logins ⇒ 7 `jti` … 29 fallos (≤ 4 por `jti`)»; 7 × 4 = 28. Queda **8 logins ⇒ 8 `jti`, 29 fallos (4 × 7 + 1)**, que es lo que la prueba hace y lo que deja el 30.º como el correcto y el 31.º pasado del tope | §1 tabla C7, fila `C7-20` | **No** (la prueba ya usa 8) |
-> | **2** | **Quién limpia el agregado `auth-pwdevagg`:** la fila «Qué lo limpia» metía a `change-password`; la fila «Tope agregado» y `ARCHITECTURE §4.57.10.1 (b)` no. **Decisión: `change-password` NO limpia el agregado** (sí limpia `auth-cp` y el cubo de la cuenta, como en v1.80). Quien lo ejecuta ya está dentro —no hay puerta que abrirle— y limpiarlo solo regalaría 30 intentos a quien conserve un `deviceToken` viejo, que **no** muere con `tokenVersion` (§4.57.10.1 c). Las tres filas quedan iguales | §1 tabla C7, fila «Qué lo limpia»; `ARCHITECTURE §4.57.2 #7/#14, §4.57.3, §4.57.10.1 (b)` | **No** (es lo construido) |
-> | **3** | **C7-23, «f = 6 + candado»:** con la escalera, 6 fallos seguidos dejan **f = 5** (el 6.º está bloqueado y no cuenta). La prueba vence el candado a mano entre el 5.º y el 6.º para llegar a f = 6 / 120 s. Se reescribe la fila: lo que se demuestra es que **las seis claves desaparecen**, no un `f` concreto | §1 tabla C7, fila `C7-23` | **No** |
-> | **4** | **Cinco decisiones de backend que el contrato no fijaba, todas ACEPTADAS y ahora normadas:** (a) `sid` **no** viaja en el objeto de `issueTokens` (sigue `{ accessToken, refreshToken }`; el llamador lo genera y lo pasa al par y al dispositivo); (b) un refresh **sin `sid` y sin `iat` numérico ⇒ `401`** (no se fabrica un cubo `legacy:<sub>:undefined`); (c) lo pendiente de la memoria se entrega a Redis **una sola vez** y vuelve si la llamada falla; (d) lo pendiente de una clave que **nadie vuelve a tocar no se repone** — **sin barrido de fondo**, aceptado **con disparador**; (e) el guard de `Authorization: Bearer` rechaza **cualquier `typ` presente**, `sub` no string o `tv` no numérico, y compara `tv` estricto | §0 «Auth», §1 `/auth/refresh`, §1 tabla C7 fila «Almacén»; `ARCHITECTURE §4.57.4, §4.57.5, §4.57.10.4` | **No** |
-> | **5** | `D-C7-2` / `D-C7-3` / `D-C7-4` **cerradas por backend** (`d1fbbf8` / `668b6f8` / `ff3ecc4`; reportado por backend con N y proporción; pendiente la re-medición de QA/seguridad para el veredicto). Y **`SEC-C7-RT` cerrada entera**: `env.validation` rechaza `JWT_ACCESS_SECRET === JWT_REFRESH_SECRET` en **todo** entorno y el guard exige la forma del access (`3c03f36`) | `ARCHITECTURE §4.57.8, §8, §9` | **No** |
->
-> **Lo que NO cambia:** todo v1.80.1 (un dispositivo por sesión, tope agregado 30/24 h, memoria-caché con reposición,
-> script de rescate), las respuestas de los cuatro endpoints que emiten `deviceToken`, y `C7-1…C7-19`, `C7-21`, `C7-22`.
->
-> **Changelog v1.80.1 — C7 TRAS EL VEREDICTO DE SEGURIDAD: UN DISPOSITIVO POR SESIÓN, LA MEMORIA CUENTA SIEMPRE, Y EL
-> SCRIPT DE RESCATE LEVANTA EL CANDADO** (2026-09-29, arquitecto; base v1.80, vigente entera salvo lo que esta rev toca).
-> Origen: `SECURITY_NOTES` 2026-09-29 sobre `8ea245f` (`SEC-C7-MINT` Media —bloquea dinero real, no la fusión—,
-> `SEC-C7-SCRIPT`, `SEC-C7-RDEG`) y el «IMPORTANTE 1» de QA. Razón entera: `ARCHITECTURE §4.57.10`. ⛔ **Sin schema, sin
-> migración, sin variable de entorno nueva, sin endpoint nuevo, sin código de error nuevo, sin cambio de shape: el
-> frontend NO cambia.** Todo es de **backend**.
->
-> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
-> |---|---|---|---|
-> | **1** | ⭐⭐ El `jti` del `deviceToken` es el **`sid` de la sesión** (claim nuevo del refresh token, opaco). `POST /auth/refresh` devuelve el **mismo** dispositivo con `exp` renovado: N refrescos ⇒ **un** cubo, no N | §1 `/auth/refresh`, «Límite de intentos por cuenta» | **Sí, backend** |
-> | **2** | ⭐ **Tope agregado por cuenta** de intentos por vía dispositivo: **30 en 24 h** (todos los `jti`); al superarlo el intento va al cubo de la cuenta | §1 «Límite de intentos por cuenta» | **Sí, backend** |
-> | **3** | ⭐ Un plazo de Redis vencido **ya no** regala una segunda escalera: la memoria es caché de Redis + lo no visto, y se repone | §1 «Límite de intentos por cuenta» (Almacén) | **Sí, backend** |
-> | **4** | `prisma/reset-admin-password.ts` **levanta el candado C7**; contrato del script | §1 «Script de rescate» | **Sí, backend** (script) |
-> | **5** | ⛔ El `deviceToken` **sigue sin ligarse a `tokenVersion`** (decisión razonada, `ARCHITECTURE §4.57.10.1 c`) | §1 | **No** |
-> | **6** | Pruebas **`C7-19…C7-23`** y sus mutaciones | §1 «Límite de intentos por cuenta» | **Solo pruebas** |
->
-> **Changelog v1.80 — C7: LÍMITE DE INTENTOS DE CONTRASEÑA POR CUENTA, Y UNA PUERTA QUE EL ATACANTE NO PUEDE CERRAR
-> (2026-09-28, arquitecto; base v1.79.5, vigente entera salvo lo que esta rev toca). Origen: condición **C7** del
-> veredicto de seguridad «release A» (`SECURITY_NOTES`, `P-RL-1`): el login topa solo por IP (`auth.controller.ts:35-41`,
-> leído hoy) y rotando `X-Forwarded-For` el tope no dispara en local (8/8, **reportado por seguridad**). **Bloquea el
-> paso a dinero real.** Razón entera: `ARCHITECTURE §4.57`. ⛔ **Sin schema, sin migración, sin variable de entorno
-> nueva.** ⭐ **Un código de error nuevo.** Todos los campos nuevos son **aditivos**.**
->
-> | # | Qué cambia | Dónde | ¿Hay que desplegar? |
-> |---|---|---|---|
-> | **1** | ⭐⭐ **`POST /auth/login` cuenta intentos por cuenta** (correo normalizado) **antes** de verificar la contraseña: 5 libres, luego **`429 TOO_MANY_PASSWORD_ATTEMPTS`** + `Retry-After`, con candado de 1 min que se duplica hasta 60 min. Igual exista o no la cuenta, y para todos los roles | §1 «Límite de intentos por cuenta», §0 Errores | **Sí, backend** |
-> | **2** | ⭐ **`deviceToken`**: `login`, `google`, `refresh` y `reset-password` lo devuelven; `login` lo acepta (opcional). Un dispositivo conocido **no queda bloqueado por los intentos de otro** | §1 | **Sí, backend y frontend** |
-> | **3** | **`POST /auth/change-password`** gana su propio contador (por `userId`) y el mismo `429` | §1 | **Sí, backend y frontend (texto)** |
-> | **4** | **`reset-password`** (completado), **reset por admin** y **`change-password`** correcto **levantan** el candado. ⛔ **`forgot-password` no** | §1, §M6 | **Sí, backend** |
-> | **5** | Errata: `login` no listaba `429 RATE_LIMITED` (el tope por IP existe desde SEC-C1) | §1 | **No** |
-> | **6** | Pruebas **`C7-1…C7-18`** y sus mutaciones | §1 «Límite de intentos por cuenta» | **Solo pruebas** |
->
-> **Lo que NO cambia:** el tope por IP de todos los endpoints de auth; la respuesta y el tiempo del `401
-> INVALID_CREDENTIALS` (el hash dummy sigue); `403 USER_BLOCKED`; `POST /auth/google` y `register` **no** entran al
-> contador por cuenta (razón en `ARCHITECTURE §4.57.2` #12 y #13); `forgot-password` (siempre `200`, 3/h por correo).
+> *(Cabecera de `claude/paquete-seguridad` ⟨C7⟩: revs v1.80, v1.80.1 y v1.80.1.1, compactadas en v1.117.1. La norma
+> entera vive en §1 «Límite de intentos por cuenta» (tabla C7, `/auth/refresh`, «Script de rescate») y §0
+> [`TOO_MANY_PASSWORD_ATTEMPTS`](#too-many-password-attempts); el porqué en `ARCHITECTURE §4.57 (C7)`; tablas en git.)*
+> - v1.80.1.1⟨C7⟩ · 2026-09-29 · el contrato se iguala a lo construido: C7-20 (8 logins, 29 fallos), `change-password` no limpia `auth-pwdevagg`, C7-23 por claves, cinco decisiones de backend aceptadas (`sid` fuera de `issueTokens`, refresh sin `sid` ni `iat` ⇒ `401`, reposición única, sin barrido, guard estricto); `SEC-C7-RT` cerrada · backend.
+> - v1.80.1⟨C7⟩ · 2026-09-29 · `jti` del `deviceToken` = `sid` de la sesión, tope agregado 30/24 h por cuenta, memoria como caché con reposición, el script de rescate levanta el candado, `deviceToken` sin ligar a `tokenVersion`; C7-19…C7-23 · seguridad (`8ea245f`).
+> - v1.80⟨C7⟩ · 2026-09-28 · límite de intentos de contraseña por cuenta en `login` y `change-password` (`429 TOO_MANY_PASSWORD_ATTEMPTS`, escalera 1→60 min), `deviceToken`, lo levantan `reset-password`/reset por admin/`change-password` (⛔ `forgot-password` no); `google` y `register` fuera del contador; C7-1…C7-18 · seguridad (`P-RL-1`).
 >
 > ---
 > *(Cabecera de P-71 (frente de pantallas): rev v1.80 — **⟨P-71⟩**. Sus citas `ARCHITECTURE §4.57.x` son de §4.57 (P-71).)*
@@ -8844,7 +8648,8 @@ flujos **incrementan `User.tokenVersion`** (revocan sesiones). Token de un solo 
 #### POST /api/v1/auth/forgot-password — `public`
 Solicita el link de restablecimiento. **SIEMPRE responde `200`** exista o no el email (**anti-enumeración**).
 Si el email existe, emite `AuthToken(password_reset, 1h)`, rota tokens de reset previos y envía el correo
-(`${APP_BASE_URL}/<locale>/reset-password?token=<claro>`). Rate-limit **3/hora por IP** (+ tope por email en servicio).
+(`${APP_BASE_URL}/<locale>/reset-password?token=<claro>`). Rate-limit **10/hora por IP** (decisión del dueño, `1ec2c037`
+2026-08-23; candado `auth.throttle.spec`) + tope por cuenta en servicio (3/h; con `setupPending`, el de [§CTA.4](#CTA)).
 Req: `{ email: string }` → Res `200`: `{ ok: true }` (genérico; nunca revela existencia).
 - ⭐ **v1.80.9 ([§M6-U.3](#M6-U)):** un valor **sin `@`** (p. ej. un nombre de usuario) ya **no** es `400`: recorre **el
   mismo código** que un correo inexistente (búsqueda por `email` ⇒ sin fila ⇒ `200 { ok: true }`; cero tokens, cero
@@ -46186,7 +45991,7 @@ Viven en `ARCHITECTURE §15.4–§15.6` (D-IDS-1…8, P-ARQ-IDS-1/2, riesgos): u
 - **devops:** Q1 en producción vía el dueño (condición de la solicitud), IDS-D3, seed en `post-deploy`, alinear `ids-lib.mjs`, cuerpo de la solicitud de fusión (export, migración, Q1 y el paso previo a una reversa de `ARCHITECTURE §15.3`).
 - **ux-ui (con marketing):** D-IDS-6; 2×N con 6 filas a 360 px; par EN «Spanish»+«Championship» (155.9 > 152 px, `FRONTEND_NOTES §IDS-FE`); texto del dial. **product-owner:** D-IDS-3, el caso del 960 (candidato de devops: `209911` Quick Ball League Cup, §108.1) y el copy ES/EN de `FinishLabel` y de «Sin liga». **Dueño:** P-ARQ-IDS-1/2 y Q1.
 
-## <a id="CTA"></a>CTA. CUENTA CON SOLO EL CORREO EN EL CARRITO, «TERMINA TU CUENTA» Y MÉTODOS DE PAGO DE LA FRANJA (rev v1.117⟨cuenta-correo⟩, 2026-11-03, **NORMATIVA**; 🔒 SEGURIDAD: `auth`, `users`, `orders` — pasa por pentester y seguridad)
+## <a id="CTA"></a>CTA. CUENTA CON SOLO EL CORREO EN EL CARRITO, «TERMINA TU CUENTA» Y MÉTODOS DE PAGO DE LA FRANJA (rev v1.117⟨cuenta-correo⟩ + errata v1.117.1, 2026-11-03, **NORMATIVA**; 🔒 SEGURIDAD: `auth`, `users`, `orders` — pasa por pentester y seguridad)
 > **Fuentes (O-17):** `HECHOS.md` 2026-11-03 «Checkout y ficha: tres cambios aprobados (diagnóstico de marketing 2026-11-03)» (1)/(2) («si a tus cambios») y «Respuestas a P-CTA-3, P-CTA-5(a) y P-CTA-6» («debe decir ingresar a cuenta si ya tiene … no pondre oxxo por el momento»). `PROJECT.md` criterios 35, 48, 54, 128(a), 945, 969–976 y P-CTA-1/2/4. **Razones, amenazas, reversa, desviaciones y preguntas: `ARCHITECTURE §16`.**
 > **Estado de las decisiones:** P-CTA-3 (se revela que el correo tiene cuenta y se ofrece «Ingresar a cuenta») y P-CTA-6 (OXXO no está activo y no se activa por ahora) **las contestó el dueño**. P-CTA-1, 2 y 4 siguen la **recomendación del PO, PROVISIONAL**: si el dueño contesta distinto, lo que cambia está en §CTA.11.
 > **Fuera de esta sección:** quitar «IVA 16 % incluido» junto a los precios (977) y la línea de IVA del resumen (P-CTA-5(a): se queda) no tocan el contrato: ningún DTO cambia; es texto de frontend con el copy de ux-ui.
@@ -46199,6 +46004,8 @@ Viven en `ARCHITECTURE §15.4–§15.6` (D-IDS-1…8, P-ARQ-IDS-1/2, riesgos): u
 - `reset-password` fija hash, `tokenVersion +1`, `emailVerified=true`, limpia el candado C7 y devuelve `deviceToken` sin sesión (`auth.service.ts:294-331`).
 - Google enlaza por correo a una cuenta local y pone `emailVerified=true` **sin** `tokenVersion +1` ni tocar `passwordHash` (`auth.service.ts:503-516`) ⇒ AUTH-PRE-1 (CTA.5).
 - `User.passwordHash` y `User.phone` ya son nulos (`schema.prisma:617,620`); `nameSource` existe (`:638`) ⇒ **ninguna columna nueva**.
+- Páginas con token (medido por backend al construir v1.117, leyendo `frontend/`; NO releído por el arquitecto): `/reset-password` y `/verify-email` **no** llevan `Referrer-Policy: no-referrer` (solo la global `strict-origin-when-cross-origin`, `next.config.mjs:283`) y **ninguna** quita el token de la URL con `replaceState`. Lo corrige frontend en CTA-F4/F8 (regla de CTA.6).
+- El tope por IP de `forgot-password` que fija §1 (cifra solo allí) es el del código desde `1ec2c037` (2026-08-23, «petición del humano»; medido por el orquestador con `git show`); candado `auth.throttle.spec`.
 - Pagos: `stripe.service.ts:193` crea el PaymentIntent con `automatic_payment_methods: { enabled: true }` (sin `payment_method_types`): los métodos ofrecidos los decide el panel de Stripe. Reserva de 60 min (`orders/reservation.ts:25`) con barrido que cancela el PI (`orders.service.ts:1351`).
 
 ### CTA.1 Invariantes (cada una con prueba en CTA.9)
@@ -46258,7 +46065,7 @@ Res `200`: `{ ok: true, accessToken, refreshToken }`. Err: `400 VALIDATION_ERROR
 #### PATCH /api/v1/users/me/email — `customer` (P-CTA-2, provisional: «si teclea mal su correo, lo corrige desde Mi cuenta»)
 Req: `{ email: string }` (misma validación y `normalizeEmail`).
 1. Igual al actual ⇒ `200` sin escribir ni mandar correo.
-2. Tope: ≥ 3 `account_setup` emitidos a esa cuenta en la última hora (`MAX_EMAILS_PER_HOUR`, el de hoy) ⇒ `429 RATE_LIMITED` **sin escribir**.
+2. Tope: ≥ 3 `account_setup` emitidos a esa cuenta en la última hora (`MAX_EMAILS_PER_HOUR`, el de hoy) ⇒ `429 RATE_LIMITED` **sin escribir**. Cuentan **todas** las filas `account_setup` de la cuenta con `createdAt` en la última hora, usadas o anuladas incluidas, sea cual sea la vía que las emitió: **el alta cuenta**, igual que esta corrección, `forgot-password` y `verify-email/resend` (un solo contador por cuenta; razón en `ARCHITECTURE §16` D-CTA-9). Con un alta de hace minutos, el 3.er cambio ya es `429`; sin emisiones en la última hora, el 4.º.
 3. Escritura condicional `where: setupPending ∧ emailVerified = false`; `count === 0` ⇒ `422 ACCOUNT_SETUP_NOT_PENDING`; único violado (P2002) ⇒ `409 EMAIL_TAKEN`.
 4. En la misma transacción anula todo `AuthToken` pendiente de la cuenta (los tres tipos): el enlace mandado al correo equivocado deja de valer.
 5. Post-commit: `account_setup` nuevo y «Termina tu cuenta» al correo nuevo.
@@ -46280,7 +46087,8 @@ Res `200`: la forma de `GET /users/me`. Rate limit: 5/min por IP. `tokenVersion`
 ### CTA.6 El correo y la página «Termina tu cuenta»
 - Correo de **autenticación** (como verificación y restablecimiento; fuera de §R, cuyos once correos cuelgan del operador). Plantilla en `mail` (`sendAccountSetup(user, link)`), ES/EN por `User.locale`. Texto final: ux-ui. Debe decir qué es, que el enlace sirve una vez y caduca en 24 h, y que si no creó la cuenta puede ignorarlo. ⛔ Sin datos de pedidos, importes ni dirección.
 - Enlace: `${APP_BASE_URL}/<locale>/account-setup?token=<claro>`. Token como los de hoy (`tokens.issue`: 32 bytes aleatorios, SHA-256 en `tokenHash`), `expiresAt = now + 24 h`, un uso, y emitir uno nuevo anula los `account_setup` previos sin usar (rotación por tipo, la de hoy). El barrido `auth-token-sweep` lo incluye.
-- Página pública `/[locale]/account-setup`: lee el token, lo **quita de la URL** (`history.replaceState`) antes de cualquier otra petición, se sirve con `Referrer-Policy: no-referrer` y **sin** scripts de medición (misma exclusión que `/reset-password` y `/verify-email` en `ARCHITECTURE §14.4`; que estas dos ya la tengan: NO MEDIDO, lo cierra frontend con `grep`). Formulario: nombre y contraseña. `200` ⇒ «Listo» y enlace a entrar. `422 ACCOUNT_SETUP_TOKEN_INVALID` ⇒ «El enlace ya se usó o caducó» y «Mandar otro»: con sesión, `verify-email/resend`; sin sesión, pide el correo y llama a `forgot-password`.
+- **Regla de las páginas con token (v1.117.1, D-CTA-10)** — vale igual para `/[locale]/account-setup`, `/[locale]/reset-password` y `/[locale]/verify-email`: (1) leen el token y lo **quitan de la URL** con `history.replaceState` (misma ruta y locale, sin `token`) **antes** de cualquier otra petición, incluida la del propio canje; (2) se sirven con `Referrer-Policy: no-referrer` **por ruta** (cabecera de respuesta en `next.config.mjs` `headers()` o en el middleware, no solo `<meta>`), que manda sobre la global; (3) **sin** scripts de medición (exclusión de `ARCHITECTURE §14.4`; que las dos viejas ya la tengan: NO MEDIDO, lo cierra CTA-F8). Las dos viejas no cambian de flujo ni de textos: solo ganan (1) y (2).
+- Página pública `/[locale]/account-setup` (cumple la regla de arriba). Formulario: nombre y contraseña. `200` ⇒ «Listo» y enlace a entrar. `422 ACCOUNT_SETUP_TOKEN_INVALID` ⇒ «El enlace ya se usó o caducó» y «Mandar otro»: con sesión, `verify-email/resend`; sin sesión, pide el correo y llama a `forgot-password`.
 
 ### CTA.7 Errores nuevos (añadir a `common/error-codes.ts`)
 - **`422 ACCOUNT_SETUP_TOKEN_INVALID`** — `POST /auth/account-setup` con un token inválido, caducado, usado o de otro tipo. `details: {}`. No distingue el motivo.
@@ -46307,7 +46115,7 @@ Res `200`: la forma de `GET /users/me`. Rate limit: 5/min por IP. `tokenVersion`
 | CTA-B8 | `account-setup` válido ⇒ `200 {ok, deviceToken}`; hash, `name`, `nameSource='user'`, `emailVerified=true`, `tokenVersion+1`; el access token viejo ⇒ `401`; segundo uso ⇒ `422`; reloj +24 h +1 s ⇒ `422`; un `password_reset` en `account-setup` ⇒ `422` y un `account_setup` en `reset-password` ⇒ `422 RESET_TOKEN_INVALID`; otros `account_setup`/`password_reset` pendientes quedan usados; cuerpo inválido (`400`) **no** consume el token; una dirección `isDefault:true` dada de alta antes del enlace queda `false` | no subir `tokenVersion`; no consumir; aceptar el tipo cruzado; consumir antes de validar; omitir 5-bis |
 | CTA-B9 | Ningún log (espía del logger) contiene el claro ni el enlace; `AuditLog` de las cinco acciones nuevas sin correo ni token; la BD solo tiene el hash | registrar el enlace |
 | CTA-B10 | `set-password` en `setupPending` ⇒ `200` con par nuevo; el refresh viejo ⇒ `401`; `emailVerified` sigue `false` y `claimable` sigue `403`; con contraseña ⇒ `422 ACCOUNT_SETUP_NOT_PENDING` sin escribir; Google sin hash ⇒ `422`. **Concurrencia:** dos `set-password` simultáneos, **N=10 ⇒ exactamente un `200` en 10/10** (reportar proporción y autor; la mutación debe morder ≥ 5/10 o se sube N) | leer y luego escribir sin condición (dos `200`) |
-| CTA-B11 | `PATCH /users/me/email` en `setupPending` ⇒ correo cambiado; el `account_setup` viejo ⇒ `422` en `account-setup`; uno nuevo al correo nuevo; correo tomado ⇒ `409`; con contraseña ⇒ `422`; 4.º cambio en una hora ⇒ `429` sin cambiar el correo | no anular los tokens viejos; comprobar el tope después de escribir |
+| CTA-B11 | `PATCH /users/me/email` en `setupPending` ⇒ correo cambiado; el `account_setup` viejo ⇒ `422` en `account-setup`; uno nuevo al correo nuevo; correo tomado ⇒ `409`; con contraseña ⇒ `422`. **Tope (dos casos, v1.117.1):** (a) alta sembrada hace **más** de una hora ⇒ cambios 1-3 `200`, el 4.º `429`; (b) alta por el endpoint **en la misma prueba** (minutos) ⇒ cambios 1-2 `200`, el 3.º `429`; en los dos, el `429` deja el correo sin cambiar y no emite token | no anular los tokens viejos; comprobar el tope después de escribir; contar solo las emisiones de la corrección (b rojo) |
 | CTA-B12 | `forgot-password` y `verify-email/resend` sobre `setupPending` ⇒ emiten `account_setup` (no `password_reset`/`email_verification`), respuesta idéntica; sobre local con contraseña ⇒ `password_reset` como hoy | rama `setupPending` ausente |
 | CTA-B13 | (AUTH-PRE-1) Cuenta email-only E con sesión S; Google con E verificado ⇒ enlaza; access y refresh de S ⇒ `401`. Cuenta de `register` sin verificar ⇒ tras Google, login con la contraseña vieja ⇒ `401`. Cuenta ya verificada ⇒ las sesiones siguen vivas | no subir `tokenVersion` al enlazar sin verificar |
 **Frontend** (vitest; mocks con la forma de este contrato):
@@ -46316,11 +46124,11 @@ Res `200`: la forma de `GET /users/me`. Rate limit: 5/min por IP. `tokenVersion`
 | CTA-F1 | «Crear cuenta» del carrito y del upsell (48): **un** input (correo) y la leyenda del 504 con sus dos enlaces; ningún input de contraseña, nombre o celular; envía `registerEmailOnly({ email })` | formulario viejo |
 | CTA-F2 | `409 EMAIL_TAKEN` ⇒ copy de ux-ui con **«Ingresar a cuenta»** (login con el correo puesto) y «¿Olvidaste tu contraseña?»; el carrito no cambia; no se guarda sesión | guardar sesión o vaciar carrito |
 | CTA-F3 | `201` ⇒ sesión guardada, destino bóveda disponible, PAGAR llama a `checkout/session` sin banner de verificación | seguir pintando el banner antes de pagar |
-| CTA-F4 | `/account-setup`: quita el token de la URL antes de llamar; `200` ⇒ «Listo» + entrar; `422` ⇒ «Mandar otro» (con sesión `verify-email/resend`; sin sesión, correo + `forgot-password`) | dejar el token en la URL |
+| CTA-F4 | `/account-setup`, `/reset-password` y `/verify-email`: `replaceState` sin `token` **antes** de la primera petición (orden de llamadas espiado); en `/account-setup`, `200` ⇒ «Listo» + entrar y `422` ⇒ «Mandar otro» (con sesión `verify-email/resend`; sin sesión, correo + `forgot-password`) | dejar el token en la URL en cualquiera de las tres; llamar antes de limpiar |
 | CTA-F5 | «Mi cuenta» con `accountSetupPending=true` ⇒ «Ponle contraseña a tu cuenta» sin campo de la actual (llama a `set-password` y reemplaza los dos tokens) y el correo editable; con `hasPassword=true` ⇒ cambiar pide la actual; Google sin hash ⇒ «Crear contraseña» por correo | mostrar el modo sin la actual con `hasPassword=true` |
 | CTA-F6 | Confirmación del invitado (54): «crear cuenta con este correo» usa email-only; `403 EMAIL_NOT_VERIFIED` del reclamo ⇒ «Abre el enlace de tu correo para ver este pedido» (no error) | pintar error |
 | CTA-F7 | Franja, ficha, carrito y «Quiénes somos», ES y EN: el texto de pago no contiene «OXXO» y sí «tarjeta»/«card» | añadir OXXO |
-| CTA-F8 | `/account-setup` sin scripts de medición y con `Referrer-Policy: no-referrer` | quitar la ruta de la exclusión |
+| CTA-F8 | Las tres rutas, ES y EN: respuesta con `Referrer-Policy: no-referrer` y sin scripts de medición; el resto del sitio sigue con `strict-origin-when-cross-origin` | quitar cualquiera de las tres de la regla o de la exclusión; poner `no-referrer` global |
 **E2E** (tester-e2e, criterio 976, stack con datos sembrados): ciclo completo a 390 px. Requiere leer el correo del stack: que el stack local lo capture (buzón de prueba o espía): NO MEDIDO, lo dice devops.
 
 ### CTA.10 Reparto y orden (modelo fuerte: toca `auth` y `orders`; ⛔ `backend-lite`/`frontend-lite` salvo textos con paridad)
@@ -46328,7 +46136,7 @@ Res `200`: la forma de `GET /users/me`. Rate limit: 5/min por IP. `tokenVersion`
 - **frontend:** CTA-F1…F8, ruta `/[locale]/account-setup`, `registerEmailOnly`/`accountSetup`/`setPassword`/`updateMyEmail` en `lib/api.ts`, `accountSetupPending` en `types/contract.ts` (zonas compartidas).
 - **ux-ui:** textos del 409, del correo y la página, del bloque de «Mi cuenta» y de la franja «tarjeta».
 - **devops:** buzón de prueba para la E2E; censo de CTA.2 y la medición del panel de Stripe en la solicitud de fusión.
-- **Orden de despliegue:** backend primero (los endpoints nuevos no rompen el front viejo; quitar el guard de `session` tampoco), frontend en el mismo release. **pentester + seguridad antes de publicar** (`ARCHITECTURE §16.3`).
+- **Orden de despliegue (v1.117.1): backend y frontend salen juntos**, en la misma fusión a `main` y la misma solicitud `main → production`. El correo «Termina tu cuenta» enlaza a `/[locale]/account-setup`, y `mail-links.frontend-routes` queda **rojo** hasta que esa ruta exista: ⛔ el stream no fusiona a `main` con solo el backend. En la ventana Railway/Vercel puede haber minutos con una mitad publicada; se acepta (el enlace vale 24 h; los endpoints nuevos no rompen el front viejo). **pentester + seguridad antes de publicar** (`ARCHITECTURE §16.3`).
 
 ### CTA.11 Si el dueño contesta distinto a la recomendación (P-CTA-1, 2, 4)
 - **P-CTA-1** (otra forma de poner la contraseña): `account-setup` y el correo cambian; I-2 e I-3 no cambian (la prueba del buzón sigue siendo lo que abre el reclamo).
@@ -46339,5 +46147,5 @@ Res `200`: la forma de `GET /users/me`. Rate limit: 5/min por IP. `tokenVersion`
 - Corte del flujo 48 en PAGAR hoy: recorrido de tester-e2e (CTA.0).
 - Censo `setupPending` = 0: la consulta de CTA.2 en producción, vía devops/dueño.
 - OXXO apagado en el panel: lectura de backend con `paymentMethodConfigurations.list()` en las dos llaves.
-- Exclusión de medición en `/reset-password` y `/verify-email`: `grep` de frontend.
+- Exclusión de medición en `/reset-password` y `/verify-email`: CTA-F8 (frontend). Su falta de `no-referrer` y de `replaceState` ya está medida por backend (CTA.0).
 - Captura de correo en el stack de E2E: devops.
