@@ -242,8 +242,9 @@ describe('Contrato — metadatos de seguridad de los endpoints de invitado', () 
 
   it('el reclamo exige correo verificado y está limitado por frecuencia', () => {
     const p = OrdersController.prototype;
-    expect(Reflect.getMetadata('requireEmailVerified', p.claimable)).toBe(true);
-    expect(Reflect.getMetadata('requireEmailVerified', p.claim)).toBe(true);
+    // v1.117 (§CTA.5): el metadato es un MODO; el reclamo sigue en `'verified'` (correo verificado).
+    expect(Reflect.getMetadata('requireEmailVerified', p.claimable)).toBe('verified');
+    expect(Reflect.getMetadata('requireEmailVerified', p.claim)).toBe('verified');
     expect({ ttl: ttl(p.claimable), limit: limit(p.claimable) }).toEqual({ ttl: 60_000, limit: 30 });
     expect({ ttl: ttl(p.claim), limit: limit(p.claim) }).toEqual({ ttl: 3_600_000, limit: 10 });
   });

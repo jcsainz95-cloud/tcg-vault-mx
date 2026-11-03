@@ -595,9 +595,11 @@ enum PendingPriceReason {
 // v1.5 (M-17): tipo de token de un solo uso para los flujos self-service por correo.
 // email_verification (24h) / password_reset (1h). El token en claro (32 bytes aleatorios)
 // viaja SOLO por correo; en BD vive su SHA-256 (AuthToken.tokenHash). ARCHITECTURE §3.2/§4.11.
+// v1.117 (M-96, API_CONTRACT §CTA.3): + account_setup («Termina tu cuenta», 24 h, un uso).
 enum AuthTokenType {
   email_verification
   password_reset
+  account_setup
 }
 
 // ============================= USER / KYC / BILLING =============================

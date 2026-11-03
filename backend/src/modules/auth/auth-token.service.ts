@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
-import { AuthTokenType } from '@prisma/client';
+import { AuthTokenType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ACCOUNT_SETUP_TTL_HOURS } from './account-setup';
 
 /** SHA-256 (hex) del token en claro. Basta SHA-256 (no argon2): 32 bytes aleatorios ≈ 256 bits
  * de entropía → no hay riesgo de fuerza bruta (a diferencia de una contraseña). ARCHITECTURE §3.2. */
@@ -9,10 +10,11 @@ export function hashAuthToken(clear: string): string {
   return createHash('sha256').update(clear).digest('hex');
 }
 
-/** TTL por tipo (ARCHITECTURE §3.2/§4.11): verificación 24h, reset 1h. */
+/** TTL por tipo (ARCHITECTURE §3.2/§4.11): verificación 24h, reset 1h; v1.117 (§CTA.3) «Termina tu cuenta» 24 h. */
 export const AUTH_TOKEN_TTL_MS: Record<AuthTokenType, number> = {
   email_verification: 24 * 60 * 60 * 1000,
   password_reset: 60 * 60 * 1000,
+  account_setup: ACCOUNT_SETUP_TTL_HOURS * 60 * 60 * 1000,
 };
 
 /**
@@ -72,6 +74,23 @@ export class AuthTokenService {
       select: { userId: true },
     });
     return token?.userId ?? null;
+  }
+
+  /**
+   * v1.117 (§CTA.4 paso 5, §CTA.5): ANULA (`usedAt = now`) los tokens pendientes de la cuenta de esos tipos — el enlace
+   * deja de valer sin borrarse (el barrido `auth-token-sweep` lo recoge). Con `tx`, dentro de la transacción del llamador.
+   */
+  async voidPending(
+    userId: string,
+    types: readonly AuthTokenType[],
+    tx: Pick<Prisma.TransactionClient, 'authToken'> = this.prisma,
+    now = new Date(),
+  ): Promise<number> {
+    const res = await tx.authToken.updateMany({
+      where: { userId, type: { in: [...types] }, usedAt: null },
+      data: { usedAt: now },
+    });
+    return res.count;
   }
 
   /** Nº de tokens de ese tipo emitidos por el usuario en la última hora (tope anti-abuso). */

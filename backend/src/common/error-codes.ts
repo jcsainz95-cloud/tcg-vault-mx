@@ -55,6 +55,10 @@ export const ErrorCode = {
   // 403 — v1.80.9 (§M6-U.8 (c), criterio 269): una cuenta del equipo SIN correo intenta una acción de cliente (las
   // cinco rutas con `@RequireEmailVerified`). Lo emite `EmailVerifiedGuard` ANTES de mirar `emailVerified`.
   ACCOUNT_WITHOUT_EMAIL: 'ACCOUNT_WITHOUT_EMAIL',
+  // 422 — v1.117 (§CTA.7): `POST /auth/account-setup` con un token inválido, caducado, usado o de otro tipo. details {}.
+  ACCOUNT_SETUP_TOKEN_INVALID: 'ACCOUNT_SETUP_TOKEN_INVALID',
+  // 422 — v1.117 (§CTA.7): `POST /auth/set-password` o `PATCH /users/me/email` sobre una cuenta sin `setupPending`. details {}.
+  ACCOUNT_SETUP_NOT_PENDING: 'ACCOUNT_SETUP_NOT_PENDING',
   // 409 — v1.80.9 (§M6-U.6): `POST /admin/users` con un nombre de usuario ya usado (sin distinguir mayúsculas: se
   // guarda canónico). Lo decide el índice único (`P2002` sobre `username`). Solo `super_admin` lo ve.
   USERNAME_TAKEN: 'USERNAME_TAKEN',

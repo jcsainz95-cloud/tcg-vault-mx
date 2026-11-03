@@ -81,7 +81,8 @@ describe('AuthService.google — verificación del ID token', () => {
   });
 
   it('account-linking por email verificado: enlaza la cuenta local existente SIN duplicar', async () => {
-    const existing = { id: 'u1', email: 'a@x.com', role: 'customer', status: 'active', avatarUrl: null };
+    // v1.117 (AUTH-PRE-1): cuenta YA verificada ⇒ el enlace de siempre (sin revocar). La sin verificar: CTA-B13 (integración).
+    const existing = { id: 'u1', email: 'a@x.com', role: 'customer', status: 'active', avatarUrl: null, emailVerified: true };
     const prisma: any = {
       user: {
         findUnique: jest

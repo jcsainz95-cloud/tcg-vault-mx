@@ -8,7 +8,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
-import { ChangePasswordDto, RegisterDto, LoginDto } from './dto/auth.dto';
+import { AccountSetupDto, ChangePasswordDto, RegisterDto, LoginDto, RegisterEmailOnlyDto, SetPasswordDto } from './dto/auth.dto';
+import { isAccountSetupPending, setupPendingWhere } from './account-setup';
+import { SignupConflictTelemetry } from './signup-telemetry';
+import { assertPersonName } from '../users/person-name';
+import { withAddressBookLock } from '../users/users.service';
 import { GoogleTokenVerifier } from './google-token-verifier';
 import { AuthTokenService } from './auth-token.service';
 import { normalizeIdentifier } from '../../common/validation/credentials';
@@ -16,8 +20,14 @@ import { DeviceTokenService } from './device-token.service';
 import { PasswordAttemptsService } from './password-attempts.service';
 import { SESSION_MAX_AGE_REASON, sessionMaxAgeSeconds, ttlSeconds } from './session-max-age';
 
-/** Máx. de correos por hora y por usuario (reenvío de verificación / olvido de contraseña). */
+/** Máx. de correos por hora y por usuario (reenvío de verificación / olvido de contraseña / «Termina tu cuenta»). */
 const MAX_EMAILS_PER_HOUR = 3;
+
+/** Lo que se puede registrar de un fallo del envío: su clase, ⛔ nunca el mensaje (podría llevar el enlace, I-6). */
+function errorKind(e: unknown): string {
+  if (e instanceof Error) return e.name;
+  return typeof e;
+}
 
 export interface TokenPair {
   accessToken: string;
@@ -53,6 +63,12 @@ export class AuthService {
     private readonly devices: DeviceTokenService,
   ) {}
 
+  /** v1.117 (§CTA.4): `warn` agregado cuando una IP pasa de 10 `409` del alta en 24 h (HMAC de la IP, sin correos). */
+  private readonly signupConflicts = new SignupConflictTelemetry(
+    (ip) => this.attempts.ipFingerprint(ip),
+    this.logger,
+  );
+
   private publicUser(u: User) {
     // v1.5: el `user` de register|login|google incluye `emailVerified` (para el banner del front).
     // v1.67 (D-CTA-1, contrato §1): gana `mustChangePassword` y NADA más. Con `true`, login/google
@@ -77,7 +93,7 @@ export class AuthService {
    */
   private buildFrontendLink(
     user: Pick<User, 'locale'>,
-    path: 'verify-email' | 'reset-password',
+    path: 'verify-email' | 'reset-password' | 'account-setup',
     clearToken: string,
   ): string {
     const raw = this.config.get<string>('APP_BASE_URL') ?? '';
@@ -179,6 +195,205 @@ export class AuthService {
     return { user: this.publicUser(user), ...tokens };
   }
 
+  // ───────────────────── v1.117⟨cuenta-correo⟩ (API_CONTRACT §CTA, ARCHITECTURE §16) ─────────────────────
+
+  /**
+   * POST /auth/register/email-only (public, §CTA.4). La cuenta nace SIN prueba de nada (I-2): sin contraseña, sin celular,
+   * `emailVerified=false`, nombre = parte local con `nameSource='derived'`. Sesión iniciada (P-CTA-2, provisional).
+   * `dto.email` llega YA normalizado (`NormalizedEmail` del DTO, CTA-B3). Correo existente, en cualquier estado ⇒
+   * `409 EMAIL_TAKEN` sin `user` ni tokens, sin correo, sin filas (I-1; el único índice que decide es el único de `email`).
+   * Post-commit y best-effort: `account_setup` + «Termina tu cuenta»; si el envío falla, el alta no falla.
+   * ⛔ Ni `Address`, ni reclamo, ni lectura de pedidos de invitado.
+   */
+  async registerEmailOnly(dto: RegisterEmailOnlyDto, requestIp?: string | null) {
+    const email = dto.email;
+    let user: User;
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          email,
+          passwordHash: null,
+          name: email.split('@')[0],
+          nameSource: NameSource.derived,
+          phone: null,
+          authProvider: AuthProvider.local,
+          role: Role.customer,
+          emailVerified: false,
+          locale: dto.locale ?? 'es',
+        },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        this.signupConflicts.record(requestIp);
+        throw BusinessException.conflict('EMAIL_TAKEN', 'Email already registered');
+      }
+      throw e;
+    }
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'auth.register_email_only',
+      entityType: 'User',
+      entityId: user.id,
+    });
+    await this.sendAccountSetupEmail(user, requestIp);
+    const tokens = await this.issueTokens(user);
+    return { user: this.publicUser(user), ...tokens };
+  }
+
+  /**
+   * Emite `account_setup` (24 h, rota los previos) y manda «Termina tu cuenta». Best-effort: un fallo se registra SIN el
+   * enlace ni el token (I-6) y no tumba al llamador.
+   */
+  private async sendAccountSetupEmail(user: User, requestIp?: string | null): Promise<void> {
+    const email = user.email;
+    if (email === null) throw new Error(`sendAccountSetupEmail: la cuenta ${user.id} no tiene correo`);
+    try {
+      const clear = await this.tokens.issue(user.id, AuthTokenType.account_setup, requestIp);
+      const link = this.buildFrontendLink(user, 'account-setup', clear);
+      await this.mail.sendAccountSetup({ ...user, email }, link);
+      await this.audit.log({
+        actorUserId: user.id,
+        actorRole: user.role,
+        action: 'auth.account_setup_sent',
+        entityType: 'User',
+        entityId: user.id,
+      });
+    } catch (e) {
+      this.logger.error(`No se pudo enviar «Termina tu cuenta» a ${user.id}: ${errorKind(e)}`);
+    }
+  }
+
+  /**
+   * POST /auth/account-setup (public, §CTA.4; D-CTA-3). Orden NORMATIVO:
+   *  1. cuerpo (`400`) ANTES de tocar el token — el `name` aquí (`assertPersonName`); la contraseña, en el pipe;
+   *  2. `consume(token, account_setup)` atómico ⇒ si no, `422 ACCOUNT_SETUP_TOKEN_INVALID` (sin distinguir el motivo);
+   *  3. cuenta `active` ⇒ si no, `403 USER_BLOCKED`;
+   *  4. UNA escritura (hash, nombre, `nameSource='user'`, `emailVerified`, `tokenVersion +1`, `mustChangePassword=false`),
+   *  5. anula `account_setup`/`password_reset` pendientes y 5-bis (libreta sin predeterminada si no estaba verificado),
+   *     las tres en la MISMA transacción, bajo el candado de la libreta;
+   *  6. limpia el candado C7; 7. bitácora. Respuesta como `reset-password`: SIN sesión.
+   */
+  async accountSetup(dto: AccountSetupDto): Promise<{ ok: true; deviceToken: string }> {
+    const name = assertPersonName(dto.name, 'name');
+    const userId = await this.tokens.consume(dto.token, AuthTokenType.account_setup);
+    if (!userId) {
+      throw BusinessException.validation(
+        'ACCOUNT_SETUP_TOKEN_INVALID',
+        'Account setup token is invalid, expired or already used',
+        {},
+      );
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || user.status !== UserStatus.active) {
+      throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
+    }
+    const passwordHash = await argon2.hash(dto.password);
+    const wasVerified = user.emailVerified;
+    await withAddressBookLock(this.prisma, userId, async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          passwordHash,
+          name,
+          nameSource: NameSource.user,
+          emailVerified: true,
+          tokenVersion: { increment: 1 },
+          mustChangePassword: false,
+        },
+      });
+      await this.tokens.voidPending(userId, [AuthTokenType.account_setup, AuthTokenType.password_reset], tx);
+      // 5-bis: lo cargado antes de probar el buzón no queda como destino por defecto de un retiro.
+      if (!wasVerified) await tx.address.updateMany({ where: { userId, isDefault: true }, data: { isDefault: false } });
+    });
+    await this.attempts.clearForUser(user);
+    await this.audit.log({
+      actorUserId: userId,
+      actorRole: user.role,
+      action: 'auth.account_setup_completed',
+      entityType: 'User',
+      entityId: userId,
+    });
+    return { ok: true, deviceToken: await this.devices.issue(userId) };
+  }
+
+  /**
+   * POST /auth/set-password (customer, §CTA.4; D-CTA-4). Contraseña SIN la actual solo con `setupPending` (I-4), en UNA
+   * sentencia condicional: dos peticiones a la vez ⇒ gana una. `emailVerified` NO cambia (no hubo buzón). Par nuevo con el
+   * `tokenVersion` incrementado (las otras sesiones mueren, ésta sigue), como `change-password`. Fuera del contador C7.
+   */
+  async setPassword(userId: string, dto: SetPasswordDto, requestIp?: string | null): Promise<{ ok: true } & TokenPair> {
+    const name = dto.name !== undefined ? assertPersonName(dto.name, 'name') : undefined;
+    const passwordHash = await argon2.hash(dto.newPassword);
+    const res = await this.prisma.user.updateMany({
+      where: setupPendingWhere(userId),
+      data: {
+        passwordHash,
+        tokenVersion: { increment: 1 },
+        ...(name !== undefined ? { name, nameSource: NameSource.user } : {}),
+      },
+    });
+    if (res.count === 0) {
+      throw BusinessException.validation('ACCOUNT_SETUP_NOT_PENDING', 'This account is not pending setup', {});
+    }
+    const updated = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const tokens = await this.issueTokens(updated);
+    await this.audit.log({
+      actorUserId: userId,
+      actorRole: updated.role,
+      action: 'auth.password_set_from_session',
+      entityType: 'User',
+      entityId: userId,
+      ip: requestIp ?? undefined,
+    });
+    return { ok: true, ...tokens };
+  }
+
+  /**
+   * PATCH /users/me/email (customer, §CTA.4; P-CTA-2 provisional). `email` llega YA normalizado (DTO). Orden:
+   *  1. igual al actual ⇒ nada (200 sin escribir ni correo);
+   *  2. tope: ≥ 3 `account_setup` emitidos en la última hora ⇒ `429` ANTES de escribir;
+   *  3. escritura condicional `setupPending ∧ emailVerified=false` (0 filas ⇒ `422 ACCOUNT_SETUP_NOT_PENDING`; P2002 ⇒ `409`)
+   *  4. y, en la misma transacción, anula TODO token pendiente (el enlace al correo equivocado deja de valer);
+   *  5. post-commit: `account_setup` nuevo al correo nuevo; 6. bitácora sin ninguno de los dos correos.
+   * `tokenVersion` no cambia. La respuesta (`GET /users/me`) la arma el controlador.
+   */
+  async correctEmail(userId: string, email: string, requestIp?: string | null): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw BusinessException.notFound();
+    if (user.email === email) return;
+    const recent = await this.tokens.countIssuedLastHour(userId, AuthTokenType.account_setup);
+    if (recent >= MAX_EMAILS_PER_HOUR) {
+      throw new BusinessException('RATE_LIMITED', 429, 'Too many account setup emails; try later');
+    }
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const res = await tx.user.updateMany({
+          where: { ...setupPendingWhere(userId), emailVerified: false },
+          data: { email },
+        });
+        if (res.count === 0) {
+          throw BusinessException.validation('ACCOUNT_SETUP_NOT_PENDING', 'This account is not pending setup', {});
+        }
+        await this.tokens.voidPending(userId, Object.values(AuthTokenType), tx);
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw BusinessException.conflict('EMAIL_TAKEN', 'Email already registered');
+      }
+      throw e;
+    }
+    const fresh = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    await this.sendAccountSetupEmail(fresh, requestIp);
+    await this.audit.log({
+      actorUserId: userId,
+      actorRole: fresh.role,
+      action: 'user.email_corrected',
+      entityType: 'User',
+      entityId: userId,
+    });
+  }
+
   /** Emite el token de verificación y envía el correo (best-effort). */
   private async sendVerificationEmail(user: User, requestIp?: string | null): Promise<void> {
     // v1.80.9 (§M6-U.3): los llamadores ya filtran la cuenta sin correo (`register` siempre trae correo;
@@ -213,6 +428,15 @@ export class AuthService {
     // v1.80.9 (§M6-U.3, E-3): cuenta SIN correo ⇒ `200 {ok:true}` sin emitir token ni correo (antes del «ya verificado»).
     if (user.email === null) return { ok: true };
     if (user.emailVerified) return { ok: true }; // ya verificado → no reenvía
+    // v1.117 (§CTA.5): la cuenta nacida con solo el correo recibe «Termina tu cuenta» (account_setup), no la verificación.
+    if (isAccountSetupPending(user)) {
+      const pendingRecent = await this.tokens.countIssuedLastHour(userId, AuthTokenType.account_setup);
+      if (pendingRecent >= MAX_EMAILS_PER_HOUR) {
+        throw new BusinessException('RATE_LIMITED', 429, 'Too many verification emails; try later');
+      }
+      await this.sendAccountSetupEmail(user, requestIp);
+      return { ok: true };
+    }
     const recent = await this.tokens.countIssuedLastHour(userId, AuthTokenType.email_verification);
     if (recent >= MAX_EMAILS_PER_HOUR) {
       throw new BusinessException('RATE_LIMITED', 429, 'Too many verification emails; try later');
@@ -263,7 +487,12 @@ export class AuthService {
     // Solo procesa cuentas activas (una cuenta blocked/deleted no debe re-habilitarse por reset).
     // v1.80.9 (§M6-U.3): se busca SOLO por `email` (⛔ nunca por `username`): un usuario nunca casa y sale por el
     // mismo `{ ok: true }` que un correo inexistente. `user.email` no es null aquí (se encontró por él).
-    if (user && user.email && user.status === UserStatus.active) {
+    // v1.117 (§CTA.5, P-CTA-4): con `setupPending` ⇒ «Termina tu cuenta» (account_setup, 24 h) en vez del reset; tope por
+    // cuenta 3/h contado sobre account_setup. Misma respuesta genérica.
+    if (user && user.email && user.status === UserStatus.active && isAccountSetupPending(user)) {
+      const recent = await this.tokens.countIssuedLastHour(user.id, AuthTokenType.account_setup);
+      if (recent < MAX_EMAILS_PER_HOUR) await this.sendAccountSetupEmail(user, requestIp);
+    } else if (user && user.email && user.status === UserStatus.active) {
       const email = user.email;
       const recent = await this.tokens.countIssuedLastHour(user.id, AuthTokenType.password_reset);
       if (recent < MAX_EMAILS_PER_HOUR) {
@@ -318,6 +547,8 @@ export class AuthService {
         mustChangePassword: false,
       },
     });
+    // v1.117 (§CTA.5): simetría con `account-setup` paso 5 — probar el buzón por esta vía anula los «Termina tu cuenta».
+    await this.tokens.voidPending(userId, [AuthTokenType.account_setup]);
     await this.audit.log({
       actorUserId: userId,
       action: 'auth.password_reset_completed',
@@ -506,20 +737,34 @@ export class AuthService {
         if (byEmail.status === UserStatus.blocked || byEmail.status === UserStatus.deleted) {
           throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
         }
-        user = await this.prisma.user.update({
-          where: { id: byEmail.id },
-          data: {
-            googleId: identity.sub,
-            emailVerified: true,
-            avatarUrl: byEmail.avatarUrl ?? identity.picture ?? null,
-          },
-        });
+        const linkData = {
+          googleId: identity.sub,
+          emailVerified: true,
+          avatarUrl: byEmail.avatarUrl ?? identity.picture ?? null,
+        };
+        // v1.117 (AUTH-PRE-1, §CTA.5, D-CTA-7): enlazar Google PRUEBA el buzón. Si la cuenta no estaba verificada, quien
+        // la creó pudo ser otro (correo ajeno): en la MISMA escritura se revocan sus sesiones (`tokenVersion +1`), se borra
+        // su contraseña y se anula todo token pendiente; y, como en `account-setup` 5-bis, la libreta queda sin
+        // predeterminada. Con `emailVerified=true`, como antes (sesiones vivas, contraseña intacta).
+        const wasUnverified = !byEmail.emailVerified;
+        user = wasUnverified
+          ? await withAddressBookLock(this.prisma, byEmail.id, async (tx) => {
+              const linked = await tx.user.update({
+                where: { id: byEmail.id },
+                data: { ...linkData, tokenVersion: { increment: 1 }, passwordHash: null, mustChangePassword: false },
+              });
+              await this.tokens.voidPending(byEmail.id, Object.values(AuthTokenType), tx);
+              await tx.address.updateMany({ where: { userId: byEmail.id, isDefault: true }, data: { isDefault: false } });
+              return linked;
+            })
+          : await this.prisma.user.update({ where: { id: byEmail.id }, data: linkData });
         await this.audit.log({
           actorUserId: user.id,
           actorRole: user.role,
           action: 'auth.google_link',
           entityType: 'User',
           entityId: user.id,
+          ...(wasUnverified ? { after: { wasUnverified: true } } : {}),
         });
       }
     }

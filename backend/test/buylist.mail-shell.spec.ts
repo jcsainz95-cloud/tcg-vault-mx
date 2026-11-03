@@ -155,11 +155,13 @@ function reposicion(nombreProducto: string): MailMessage {
 /** Destinos de los CTA de los correos que no van al portal de buylist (ML-5, N9). */
 const VERIFICAR_URL = 'https://tcghunt.mx/es/verify-email?token=t';
 const RESTABLECER_URL = 'https://tcghunt.mx/es/reset-password?token=t';
+const TERMINAR_URL = 'https://tcghunt.mx/es/account-setup?token=t';
 const SEGUIMIENTO_URL = 'https://tcghunt.mx/es/pedido/seguimiento?token=t';
 const PEDIDO = 'TCG-000123';
 const URL_DE: Record<string, string> = {
   '7 · verificar correo': VERIFICAR_URL,
   '8 · restablecer contraseña': RESTABLECER_URL,
+  '8b · termina tu cuenta': TERMINAR_URL,
   '13 · pedido de invitado': SEGUIMIENTO_URL,
   '14 · enlace de invitado': SEGUIMIENTO_URL,
 };
@@ -240,6 +242,9 @@ const MIGRADOS: Record<string, Render> = {
     accountTemplates.emailVerificationTemplate(VERIFICAR_URL, name, locale),
   '8 · restablecer contraseña': (locale, name = NOMBRE) =>
     accountTemplates.passwordResetTemplate(RESTABLECER_URL, name, locale),
+  // v1.117 (§CTA.6): «Termina tu cuenta», mismo esqueleto que 7 y 8.
+  '8b · termina tu cuenta': (locale, name = NOMBRE) =>
+    accountTemplates.accountSetupTemplate(TERMINAR_URL, name, locale),
   '9 · candado del staff': (locale, name = NOMBRE) => accountTemplates.passwordLockAlertTemplate(name, locale),
   // 13: el texto variable es el nombre de la carta (viene del catálogo; ML-10 la quiere hostil igual).
   '13 · pedido de invitado': (locale, name = 'Charizard VMAX') => ({

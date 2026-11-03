@@ -33,6 +33,8 @@ function make(overrides: {
     consume: jest.fn(async () => null),
     ownerOf: jest.fn(async () => null),
     countIssuedLastHour: jest.fn(async () => 0),
+    // v1.117 (§CTA.5): `reset-password` anula además los `account_setup` pendientes.
+    voidPending: jest.fn(async () => 0),
     ...overrides.tokens,
   } as unknown as AuthTokenService;
   const mail = {
@@ -81,7 +83,7 @@ describe('reset-password', () => {
         update: jest.fn(async () => ({})),
       },
     };
-    const { svc } = make({ prisma, tokens: { consume: jest.fn(async () => 'u1') } });
+    const { svc, tokens } = make({ prisma, tokens: { consume: jest.fn(async () => 'u1') } });
     // v1.80 (C7): el 200 trae además un `deviceToken` (sigue SIN sesión: ni access ni refresh).
     await expect(svc.resetPassword('t', 'newStrongPass1')).resolves.toEqual({
       ok: true,
@@ -93,6 +95,8 @@ describe('reset-password', () => {
     expect(data.mustChangePassword).toBe(false);
     expect(typeof data.passwordHash).toBe('string');
     expect(data.passwordHash).not.toBe('newStrongPass1'); // hasheado
+    // v1.117 (§CTA.5): simetría con account-setup paso 5 — los «Termina tu cuenta» pendientes quedan anulados.
+    expect(tokens.voidPending).toHaveBeenCalledWith('u1', ['account_setup']);
   });
 
   it('token inválido/expirado/usado → 422 RESET_TOKEN_INVALID', async () => {

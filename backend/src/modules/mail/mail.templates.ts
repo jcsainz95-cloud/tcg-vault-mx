@@ -111,6 +111,58 @@ export function emailVerificationTemplate(link: string, name: string | null, loc
   };
 }
 
+/**
+ * v1.117⟨cuenta-correo⟩ (API_CONTRACT §CTA.6) — «Termina tu cuenta»: correo de AUTENTICACIÓN (como verificación y
+ * restablecimiento; fuera de §R). El enlace abre la PÁGINA `/<locale>/account-setup?token=` (nombre + contraseña, `POST`
+ * desde ella). Dice qué es, que el enlace sirve una vez y caduca en 24 h, y que si no creó la cuenta puede ignorarlo.
+ * ⛔ Sin datos de pedidos, importes ni dirección. Texto PROVISIONAL de backend: el final lo fija ux-ui (§CTA.10).
+ */
+export function accountSetupTemplate(link: string, name: string | null, locale?: string | null): MailMessage {
+  const l = normalizeLocale(locale);
+  const hi = greeting(l, name);
+  if (l === 'en') {
+    const intro = `You created a ${BRAND} account with this email. To finish it, add your name and a password.`;
+    const once = 'The link works only once and expires in 24 hours.';
+    // Preheader de 40–90 caracteres (N3 de `buylist.mail-shell.spec.ts`).
+    const preheader = `Add your name and a password to your ${BRAND} account.`;
+    return {
+      to: '',
+      subject: 'Finish your account',
+      html: accountMail(l, 'Finish your account', preheader, [
+        proseRow(hi),
+        spacerRow(16),
+        proseRow(intro),
+        spacerRow(16),
+        proseRow(once),
+        spacerRow(32),
+        ctaRows(link, 'FINISH MY ACCOUNT', 'ink'),
+        spacerRow(24),
+        smallPrintRow("If you didn't create this account, ignore this email. If the button doesn't work, copy this URL:"),
+      ]),
+      text: `${hi}\n\n${intro}\n${once}\n${link}\n\nIf you didn't create this account, ignore this email.`,
+    };
+  }
+  const intro = `Creaste una cuenta en ${BRAND} con este correo. Para terminarla, ponle tu nombre y una contraseña.`;
+  const once = 'El enlace sirve una sola vez y caduca en 24 horas.';
+  const preheader = `Ponle tu nombre y una contraseña a tu cuenta de ${BRAND}.`;
+  return {
+    to: '',
+    subject: 'Termina tu cuenta',
+    html: accountMail(l, 'Termina tu cuenta', preheader, [
+      proseRow(hi),
+      spacerRow(16),
+      proseRow(intro),
+      spacerRow(16),
+      proseRow(once),
+      spacerRow(32),
+      ctaRows(link, 'TERMINAR MI CUENTA', 'ink'),
+      spacerRow(24),
+      smallPrintRow('Si no creaste esta cuenta, ignora este correo. Si el botón no funciona, copia esta URL:'),
+    ]),
+    text: `${hi}\n\n${intro}\n${once}\n${link}\n\nSi no creaste esta cuenta, ignora este correo.`,
+  };
+}
+
 /** El enlace abre la PÁGINA `/<locale>/reset-password?token=` (el cambio es un `POST` desde ella). */
 export function passwordResetTemplate(link: string, name: string | null, locale?: string | null): MailMessage {
   const l = normalizeLocale(locale);

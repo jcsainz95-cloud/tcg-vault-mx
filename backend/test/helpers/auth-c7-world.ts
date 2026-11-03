@@ -107,6 +107,8 @@ export function makeWorld(
     consume: jest.fn(async () => null as string | null),
     ownerOf: jest.fn(async () => null),
     countIssuedLastHour: jest.fn(async () => 0),
+    // v1.117 (§CTA.5): `reset-password` anula además los `account_setup` pendientes.
+    voidPending: jest.fn(async () => 0),
   };
   const mail = { sendEmailVerification: jest.fn(), sendPasswordReset: jest.fn(async () => undefined) };
   const svc = new AuthService(

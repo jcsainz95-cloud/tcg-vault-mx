@@ -1,6 +1,7 @@
 import { IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateBy, isEmail } from 'class-validator';
 // BE-9: la longitud mínima de contraseña vive en un solo sitio (compartida con admin.createUser).
-import { LOGIN_IDENTIFIER_MAX_LENGTH, MIN_PASSWORD_LENGTH } from '../../../common/validation/credentials';
+import { LOGIN_IDENTIFIER_MAX_LENGTH, MIN_PASSWORD_LENGTH, normalizeEmail } from '../../../common/validation/credentials';
+import { Transform } from 'class-transformer';
 
 /**
  * v1.80.9 (§M6-U.2/.3) — el campo `email` del login y de `forgot-password` es un IDENTIFICADOR: correo **o** nombre
@@ -47,6 +48,63 @@ export class RegisterDto {
   @IsOptional()
   @IsIn(['es', 'en'])
   locale?: 'es' | 'en';
+}
+
+/**
+ * v1.117⟨cuenta-correo⟩ (§CTA.4) — `normalizeEmail` (trim + minúsculas) ANTES de `@IsEmail`: `"  Ana@X.COM "` valida y casa
+ * con `ana@x.com` (CTA-B3). UN solo sitio de normalización para el alta y la corrección del correo: el servicio usa el valor
+ * ya normalizado (⛔ no lo vuelve a normalizar: dos normalizaciones taparían que una desaparezca).
+ */
+export const NormalizedEmail = () =>
+  Transform(({ value }) => (typeof value === 'string' ? normalizeEmail(value) : value));
+
+/** `POST /auth/register/email-only` (§CTA.4): `{ email, locale? }`. ⛔ Sin `password`, `name` ni `phone` (los descarta el whitelist). */
+export class RegisterEmailOnlyDto {
+  @NormalizedEmail()
+  @IsEmail()
+  email!: string;
+
+  @IsOptional()
+  @IsIn(['es', 'en'])
+  locale?: 'es' | 'en';
+}
+
+/**
+ * `POST /auth/account-setup` (§CTA.4): `{ token, name, password }`. `name` con trim; su cota 1..120 la impone
+ * `assertPersonName` en el servicio ANTES de tocar el token (paso 1 normativo: un cuerpo inválido no quema el enlace).
+ */
+export class AccountSetupDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(512)
+  token!: string;
+
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  name!: string;
+
+  @IsString()
+  @MinLength(MIN_PASSWORD_LENGTH)
+  password!: string;
+}
+
+/** `POST /auth/set-password` (§CTA.4): `{ newPassword, name? }`. Mismas reglas que `account-setup`. */
+export class SetPasswordDto {
+  @IsString()
+  @MinLength(MIN_PASSWORD_LENGTH)
+  newPassword!: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  name?: string;
+}
+
+/** `PATCH /users/me/email` (§CTA.4): `{ email }`, misma validación y normalización que el alta. */
+export class CorrectEmailDto {
+  @NormalizedEmail()
+  @IsEmail()
+  email!: string;
 }
 
 export class LoginDto {

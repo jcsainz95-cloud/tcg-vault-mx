@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { REQUIRE_EMAIL_VERIFIED_KEY } from '../decorators/require-email-verified.decorator';
+import { EmailRequirement, REQUIRE_EMAIL_VERIFIED_KEY } from '../decorators/require-email-verified.decorator';
 import { BusinessException } from '../business.exception';
 
 /**
@@ -15,11 +15,13 @@ export class EmailVerifiedGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const required = this.reflector.getAllAndOverride<boolean>(REQUIRE_EMAIL_VERIFIED_KEY, [
+    // v1.117 (§CTA.5): modo `'present' | 'verified'`. Un `true` (metadato de antes, dobles de prueba) vale `'verified'`.
+    const required = this.reflector.getAllAndOverride<EmailRequirement | boolean | undefined>(REQUIRE_EMAIL_VERIFIED_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
     if (!required) return true;
+    const mode: EmailRequirement = required === 'present' ? 'present' : 'verified';
 
     const req = context.switchToHttp().getRequest();
     const user = req.user as { emailVerified?: boolean; hasEmail?: boolean } | undefined;
@@ -33,6 +35,8 @@ export class EmailVerifiedGuard implements CanActivate {
         'Las cuentas del equipo sin correo no pueden comprar ni vender. Usa una cuenta de cliente.',
       );
     }
+    // v1.117 (§CTA.5, D-CTA-2): comprar solo exige que haya correo; reclamar, retirar y vender exigen además verificarlo.
+    if (mode === 'present') return true;
     if (!user.emailVerified) {
       throw BusinessException.forbidden(
         'EMAIL_NOT_VERIFIED',

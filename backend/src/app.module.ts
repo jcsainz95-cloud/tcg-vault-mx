@@ -38,6 +38,7 @@ import { MarketingModule } from './modules/marketing/marketing.module';
 import { CardShowModule } from './modules/card-show/card-show.module';
 // v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H): medición con consentimiento (GA4 MP / Meta CAPI), construida APAGADA.
 import { MeasurementModule } from './modules/measurement/measurement.module';
+import { APP_THROTTLERS } from './common/throttle/signup-throttle';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PasswordChangeRequiredGuard } from './common/guards/password-change-required.guard';
@@ -53,7 +54,9 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     // Límite general holgado; los endpoints de auth sensibles lo endurecen con @Throttle.
     // Storage in-memory (por instancia). En despliegue multi-instancia devops debe
     // añadir storage compartido (Redis) y `trust proxy` en el borde (ver DEVOPS_NOTES).
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 300 }]),
+    // v1.117 (§CTA.4): + `signup` (5/min compartido register|email-only) y `signup-day` (30/24 h, email-only), que se
+    // saltan en toda ruta sin `@SignupThrottle(...)`. `default` sigue en 300/min. Fuente única: `signup-throttle.ts`.
+    ThrottlerModule.forRoot(APP_THROTTLERS),
     PrismaModule,
     CryptoModule,
     AuditModule,

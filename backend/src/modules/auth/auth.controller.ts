@@ -4,14 +4,20 @@ import { AuthService } from './auth.service';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AllowPasswordChangeRequired } from '../../common/decorators/allow-password-change-required.decorator';
+import { Role } from '@prisma/client';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { SIGNUP_DAY_THROTTLER, SIGNUP_THROTTLER, SignupThrottle } from '../../common/throttle/signup-throttle';
 import {
+  AccountSetupDto,
   ChangePasswordDto,
   ForgotPasswordDto,
   GoogleLoginDto,
   LoginDto,
   RefreshDto,
   RegisterDto,
+  RegisterEmailOnlyDto,
   ResetPasswordDto,
+  SetPasswordDto,
   VerifyEmailDto,
 } from './dto/auth.dto';
 import { PasswordAttemptsRetryAfterInterceptor } from './retry-after.interceptor';
@@ -25,12 +31,43 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   // SEC-C1: registro público → límite estrecho por IP para frenar abuso/creación masiva.
+  // v1.117 (§CTA.4): además el cubo `signup` (5/min por IP) COMPARTIDO con `register/email-only` — 5 entre los dos.
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @SignupThrottle(SIGNUP_THROTTLER)
   @Public()
   @Post('register')
   @HttpCode(201)
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
+  }
+
+  // v1.117⟨cuenta-correo⟩ (§CTA.4): alta con SOLO el correo (carrito/upsell). `409 EMAIL_TAKEN` revela la existencia
+  // (decisión del dueño, P-CTA-3) y se acota: `signup` compartido con `register` (5/min/IP) y `signup-day` (30/24 h/IP).
+  // Con un `Bearer` válido lo ignora (es público).
+  @SignupThrottle(SIGNUP_THROTTLER, SIGNUP_DAY_THROTTLER)
+  @Public()
+  @Post('register/email-only')
+  @HttpCode(201)
+  registerEmailOnly(@Body() dto: RegisterEmailOnlyDto, @Ip() ip: string) {
+    return this.auth.registerEmailOnly(dto, ip);
+  }
+
+  // v1.117 (§CTA.4): el enlace «Termina tu cuenta» (nombre + contraseña). Público; 10/min por IP. Sin sesión en la respuesta.
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @Public()
+  @Post('account-setup')
+  @HttpCode(200)
+  accountSetup(@Body() dto: AccountSetupDto) {
+    return this.auth.accountSetup(dto);
+  }
+
+  // v1.117 (§CTA.4, I-4): contraseña SIN la actual, solo con `accountSetupPending`. Solo `customer`; 5/min por IP.
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @Roles(Role.customer)
+  @Post('set-password')
+  @HttpCode(200)
+  setPassword(@CurrentUser('id') userId: string, @Body() dto: SetPasswordDto, @Ip() ip: string) {
+    return this.auth.setPassword(userId, dto, ip);
   }
 
   // SEC-C1: login público sin lockout era el vector de toma de cuenta admin por fuerza
