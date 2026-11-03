@@ -12,7 +12,7 @@
  * | CTA-B7 | (973) login `setupPending` ⇒ 401 con argon2 ficticio, igual que cuenta inexistente | cortocircuitar sin argon2 |
  * | CTA-B8 | `account-setup` completo (tokenVersion, un uso, 24 h, tipos cruzados, anulación, cuerpo antes del token, 5-bis) | ver el caso |
  * | CTA-B9 | ningún log con el claro o el enlace; bitácora sin correo ni token; BD solo con el hash | registrar el enlace |
- * | CTA-B10 | `set-password` (I-4) + concurrencia N=10 ⇒ exactamente un 200 | leer y luego escribir sin condición |
+ * | CTA-B10 | `set-password` (I-4) + concurrencia N=30 (subido de 10, ver el caso) ⇒ exactamente un 200 | leer y luego escribir sin condición |
  * | CTA-B11 | `PATCH /users/me/email` (anula, reenvía, 409, 422, tope 3/h sin escribir) | no anular; tope después de escribir |
  * | CTA-B12 | `forgot-password` y `verify-email/resend` con `setupPending` ⇒ `account_setup` | rama ausente |
  * | CTA-B13 | (AUTH-PRE-1) Google sobre cuenta sin verificar revoca sesiones y borra la contraseña | no subir `tokenVersion` |
@@ -487,9 +487,14 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
       expect((await userBy(p.email)).passwordHash).toBeNull();
     });
 
-    /** Concurrencia (I-4): dos set-password simultáneos, N=10 rondas ⇒ exactamente un 200 en cada una (autor: backend). */
-    it('concurrencia: dos set-password a la vez, N=10 ⇒ exactamente un 200 en 10/10', async () => {
-      const N = 10;
+    /**
+     * Concurrencia (I-4): dos set-password simultáneos por ronda ⇒ exactamente un 200 en TODAS (autor: backend).
+     * §CTA.9 pide N=10 «y si la mutación no muerde ≥ 5/10, se sube N». Medido (backend, copia de 6ea7f0e3, Postgres 16,
+     * load ~10): la mutación «leer y luego escribir sin condición» deja dos 200 en 2/10 rondas (3 corridas: 2/10, 2/10,
+     * 2/10) ⇒ por ronda muerde ~20 % < 50 %. Se sube a N=30: P(no morder en una corrida) ≈ 0.8³⁰ ≈ 0.1 %.
+     */
+    it('concurrencia: dos set-password a la vez, N=30 ⇒ exactamente un 200 en 30/30', async () => {
+      const N = 30;
       const rounds: string[] = [];
       let ok = 0;
       for (let i = 0; i < N; i += 1) {
@@ -502,8 +507,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
         rounds.push(statuses.join('+'));
         if (statuses.filter((s) => s === 200).length === 1) ok += 1;
       }
-      // eslint-disable-next-line no-console
-      console.info(`CTA-B10 concurrencia: ${ok}/${N} rondas con exactamente un 200 (${rounds.join(',')})`);
+      // `process.stdout` y no `console`: el espía de logs de CTA-B9 se traga `console.*`.
       process.stdout.write(`CTA-B10 concurrencia: ${ok}/${N} rondas con exactamente un 200 (${rounds.join(',')})\n`);
       expect(ok).toBe(N);
     });
@@ -523,6 +527,9 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
     expect(same.status).toBe(200);
     expect(bandeja.length).toBe(mails0);
 
+    // Un `password_reset` pendiente (de cualquier vía) también deja de valer: la anulación es de los TRES tipos y va en la
+    // tx de la escritura (la rotación de `issue` solo cubre `account_setup`, y es post-commit y best-effort).
+    const strayReset = await h.app.get(AuthTokenService).issue(p.id, AuthTokenType.password_reset);
     const e1 = nextEmail('b11n');
     const r1 = await patch(p.access, `  ${e1.toUpperCase()} `);
     expect([r1.status, r1.text]).toEqual([200, r1.text]);
@@ -530,6 +537,8 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
     expect((await h.prisma.user.findUniqueOrThrow({ where: { id: p.id } })).email).toBe(e1);
     const old = await accountSetup({ token: p.clear, name: 'Ana', password: PASSWORD });
     expect([old.status, old.body?.error?.code]).toEqual([422, 'ACCOUNT_SETUP_TOKEN_INVALID']);
+    const stray = await h.api('POST', '/auth/reset-password', { json: { token: strayReset, password: 'OtraClave123' } });
+    expect([stray.status, stray.body?.error?.code]).toEqual([422, 'RESET_TOKEN_INVALID']);
     expect(mailsTo(e1)).toHaveLength(1);
     const c1 = lastSetupClear(e1);
     expect(c1).not.toBe(p.clear);
