@@ -31,6 +31,7 @@ vi.mock('@/lib/catalog-ssr', () => ({
 }));
 
 import SealedDetailPage, { generateMetadata } from './page';
+import { IDS_EN } from '@/test/ids-defaults';
 
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://tcghunt.mx').replace(/\/+$/, '');
 const BASE = mockSealedGroups[0];
@@ -62,6 +63,7 @@ function regroupedDetail(): SealedGroupDetailResponse {
     group: { ...BASE, representativeItemId: 'inv-1008', pricedAsOf: '2026-10-31' },
     listings: [
       {
+        ...IDS_EN,
         inventoryItemId: 'inv-1008',
         card: BASE.card,
         productType: 'sealed',

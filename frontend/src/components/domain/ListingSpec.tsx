@@ -2,13 +2,18 @@
 
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/cn';
-import type { Finish, GradingCompany, ProductType, RawCondition, SealedSubtype } from '@/types/contract';
+import type { Finish, FinishLabel, GradingCompany, ProductType, RawCondition, SealedSubtype } from '@/types/contract';
 
 export interface ListingSpecProps {
   productType: ProductType;
   rawCondition?: RawCondition;
   sealedSubtype?: SealedSubtype;
   finish: Finish;
+  /**
+   * §IDS.5 (v1.116.1⟨ids⟩): el acabado como lo nombra el cliente («No holo», «Holo», «Cosmos Holo»). Presente ⇒ la
+   * ficha técnica raw lo usa en lugar del nombre de `finish` (dos versiones de liga del mismo tipo se distinguen así).
+   */
+  finishLabel?: FinishLabel;
   gradingCompany?: GradingCompany;
   gradeValue?: string;
   certNumber?: string;
@@ -32,6 +37,7 @@ export function ListingSpec({
   rawCondition,
   sealedSubtype,
   finish,
+  finishLabel,
   gradingCompany,
   gradeValue,
   certNumber,
@@ -68,7 +74,7 @@ export function ListingSpec({
   } else {
     // raw: NM es el único valor del contrato (v1.1) y es término de grading, no se traduce.
     if (rawCondition) parts.push(rawCondition);
-    parts.push(t(`finish.${finish}`));
+    parts.push(finishLabel ? t(`version.finishLabel.${finishLabel}`) : t(`finish.${finish}`));
   }
 
   const line = parts.join(' · ');

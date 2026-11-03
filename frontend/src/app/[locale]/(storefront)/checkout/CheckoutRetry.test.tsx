@@ -38,6 +38,7 @@ import { GuestCheckoutView } from './GuestCheckoutView';
 import { GUEST_RETRY_TOKEN_KEY } from './guest-retry-token';
 import { clearUnavailableNotice } from './unavailable-notice';
 import { setCheckoutViewport } from './test-viewport';
+import { IDS_EN } from '@/test/ids-defaults';
 
 // Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
 setCheckoutViewport('desktop');
@@ -103,7 +104,7 @@ function storedIds(): string[] {
 function customerQuote(over: Partial<CheckoutQuoteResponse> = {}): CheckoutQuoteResponse {
   const l = mockListings.find((x) => x.inventoryItemId === 'inv-1002')!;
   return {
-    items: [{ inventoryItemId: 'inv-1002', card: orderItemCard(l), unitPriceCents: l.displayPriceCents ?? 0 }],
+    items: [{ ...IDS_EN, inventoryItemId: 'inv-1002', card: orderItemCard(l), unitPriceCents: l.displayPriceCents ?? 0 }],
     breakdown: { subtotalCents: 1000, ivaCents: 160, ivaRatePct: 16, processingFeeCents: 0, totalCents: 1160, currency: 'MXN', priceConvention: 'IVA_EXCLUSIVE', ivaIncluded: false },
     unavailableItems: [],
     ownReservation: null,

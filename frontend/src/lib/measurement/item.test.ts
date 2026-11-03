@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { measurementItemOf, type MeasurementItemFacts } from './item';
 import { itemsFromQuote } from './ecommerce';
+import { IDS_EN } from '@/test/ids-defaults';
 
 const ROOT = resolve(__dirname, '../../../..');
 const read = (rel: string) => readFileSync(resolve(ROOT, rel), 'utf8');
@@ -50,10 +51,10 @@ describe('C-F8 · cotización/purchase (`itemsFromQuote`)', () => {
     ({ cardId: 'sv3-1', name: 'ETB Obsidian Flames', setName: 'Obsidian Flames', number: '1', productType: 'sealed', rawCondition: null, gradingCompany: null, gradeValue: null, imageSmallUrl: null, ...over }) as never;
   it('sellado ligado ⇒ s_, sin ligar ⇒ sc_, carta ⇒ c_ con set; sin cardId no viaja', () => {
     const items = itemsFromQuote([
-      { inventoryItemId: 'inv-1', unitPriceCents: 12000, card: card({ sealedProductId: 'sp-9' }) },
-      { inventoryItemId: 'inv-2', unitPriceCents: 9900, card: card({ sealedProductId: null }) },
-      { inventoryItemId: 'inv-3', unitPriceCents: 500, card: card({ cardId: 'sv3-125', name: 'Charizard ex', productType: 'raw' }) },
-      { inventoryItemId: 'inv-4', unitPriceCents: 500, card: card({ cardId: '' }) },
+      { ...IDS_EN, inventoryItemId: 'inv-1', unitPriceCents: 12000, card: card({ sealedProductId: 'sp-9' }) },
+      { ...IDS_EN, inventoryItemId: 'inv-2', unitPriceCents: 9900, card: card({ sealedProductId: null }) },
+      { ...IDS_EN, inventoryItemId: 'inv-3', unitPriceCents: 500, card: card({ cardId: 'sv3-125', name: 'Charizard ex', productType: 'raw' }) },
+      { ...IDS_EN, inventoryItemId: 'inv-4', unitPriceCents: 500, card: card({ cardId: '' }) },
     ]);
     expect(items).toEqual([
       { item_id: 's_sp-9', item_name: 'ETB Obsidian Flames', item_category: 'sealed', price: 120 },

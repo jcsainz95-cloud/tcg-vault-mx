@@ -4,6 +4,7 @@ import { renderWithProviders } from '@/test/render';
 import { FeaturedCarousel } from './FeaturedCarousel';
 import * as api from '@/lib/api';
 import type { CardDTO, GroupedListingSummaryDTO } from '@/types/contract';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 // El carrusel usa <Link> de next-intl; se mockea a un <a> plano para aislar la vista.
 vi.mock('@/i18n/navigation', () => ({
@@ -36,6 +37,7 @@ function card(id: string, name: string): CardDTO {
 // v2.1.9 (D2): las tejas del carrusel consumen el DTO de la REJILLA, sin las dos señales de precio.
 function grp(over: Partial<GroupedListingSummaryDTO> & { card: CardDTO }): GroupedListingSummaryDTO {
   return {
+    ...IDS_EN_SUMMARY,
     representativeInventoryItemId: `inv-${over.card.id}`,
     productType: 'raw',
     rawCondition: 'NM',

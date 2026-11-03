@@ -48,6 +48,23 @@ const DETAILED_ERRORS: Record<
     locale: AppLocale,
   ) => Record<string, string | number> | null
 > = {
+  /**
+   * §IDS.5 (v1.116⟨ids⟩, criterio 519): `422 PRICE_PENDING` del quote/sesión trae `details.items: [{ inventoryItemId,
+   * version }]`. Si la línea es una versión distinta de inglés sin liga, el mensaje la NOMBRA («Español · De liga
+   * (Prize Pack)»): ⛔ nunca se cobra otra versión. Inglés sin liga o sin `items` ⇒ `null` ⇒ el copy de siempre.
+   */
+  PRICE_PENDING: (d, t) => {
+    const items = Array.isArray(d.items) ? (d.items as { version?: { language?: string; stamp?: { type?: string } | null } }[]) : [];
+    const v = items.find((i) => i.version && (i.version.language !== 'en' || i.version.stamp))?.version;
+    if (!v?.language) return null;
+    const langKey = `version.language.${v.language}`;
+    if (!t.has(langKey)) return null;
+    const lang = t(langKey);
+    const stampKey = v.stamp?.type ? `versionDetail.long.${v.stamp.type}` : null;
+    if (stampKey && !t.has(stampKey)) return null;
+    return { version: stampKey ? `${lang} · ${t(stampKey)}` : lang };
+  },
+
   GRADED_ESTIMATE_SLAB_PUBLISHED: (d) => {
     const count = d.publishedSlabCount;
     const grade = typeof d.gradeKey === 'string' ? gradeLabelFromKey(d.gradeKey) : null;

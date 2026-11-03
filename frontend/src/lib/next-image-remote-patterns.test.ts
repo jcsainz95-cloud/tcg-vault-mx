@@ -54,6 +54,7 @@ import { stripComments } from '@/test/strip-comments';
 import * as api from '@/lib/api';
 import type { CardDTO, FeaturedListingDTO } from '@/types/contract';
 import { FeaturedCarousel } from '@/app/[locale]/(storefront)/_home/FeaturedCarousel';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 // Solo para el bloque «Interruptor» (al final): la teja líder se monta de verdad.
 const preload = vi.hoisted(() => vi.fn());
@@ -391,6 +392,7 @@ describe('Interruptor §4.DYN (f) 7 · encendido, /_next/image no acepta ningún
       availableFinishes: ['normal'],
     };
     return {
+      ...IDS_EN_SUMMARY,
       representativeInventoryItemId: `inv-${i}`,
       productType: 'raw',
       rawCondition: 'NM',

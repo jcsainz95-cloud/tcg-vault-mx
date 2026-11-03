@@ -1765,6 +1765,47 @@
           "unknown": "Origen desconocido"
         },
         "sealedPriceLink": "Ponle precio en «Precios del sellado»"
+      },
+      "ids": {
+        "language": "Idioma",
+        "version": "Versión",
+        "noStamp": "Sin liga",
+        "stampButton": {
+          "prize_pack": "De liga · Prize Pack",
+          "league": "De liga · Promo de Liga",
+          "championship": "De torneo",
+          "prerelease": "Prerelease",
+          "staff": "Staff"
+        },
+        "priceLabel": "Precio de venta (auto)",
+        "breakdownEn": "Base: {version} en inglés · mercado de TCGplayer",
+        "breakdownEs": "Base: {version} en inglés · × {pct} % (español)",
+        "breakdownEsNoPct": "Base: {version} en inglés · × el % del español (Ajustes)",
+        "noPrice": "Sin precio: esta versión no se puede dar de alta hoy (vuelve sola cuando haya mercado).",
+        "loadingVersions": "Cargando versiones…",
+        "reason": {
+          "no_english_market": "Sin mercado del inglés",
+          "no_stamped_market": "Sin mercado de esta versión",
+          "premium_at_floor": "En el piso con sobreprecio: sin precio automático",
+          "no_market": "Sin mercado",
+          "combo_missing": "No existe con este acabado"
+        },
+        "candidatesTitle": "Hay versiones de liga que no supimos ligar solas. ¿Tienes alguna en la mano?",
+        "candidateAttach": "Es esta: {name}",
+        "candidateAttached": "Versión ligada a la carta.",
+        "column": {
+          "language": "Idioma",
+          "stamp": "Sello"
+        },
+        "filter": {
+          "language": "Idioma",
+          "languageAll": "Todos",
+          "stamp": "Sello",
+          "stampAll": "Todos",
+          "stampYes": "Con sello",
+          "stampNo": "Sin sello"
+        },
+        "pricePending": "Precio pendiente"
       }
     },
     "m3": {
@@ -7720,6 +7761,7 @@
     "FX_NO_AUTOMATIC_RATE_WITH_DETAILS": "No hay ninguna tasa de Banxico, así que pasar a automática dejaría rigiendo un valor fijo de respaldo ({fallbackRate}) que nadie tecleó. Confírmalo desde el aviso, o refresca primero. No se cambió nada.",
     "INTERNAL": "Error del servidor. Intenta de nuevo.",
     "PRICE_PENDING": "Esta carta tiene precio pendiente y aún no se puede comprar.",
+    "PRICE_PENDING_WITH_DETAILS": "La versión {version} de tu carrito ya no tiene precio. Quítala del carrito; no te cobramos otra versión.",
     "ITEM_UNAVAILABLE": "Esta carta ya no está disponible.",
     "ITEM_NOT_SETTLED": "Solo puedes retirar cartas liquidadas (settled).",
     "ADDRESS_NOT_MX": "Solo enviamos a direcciones dentro de México.",
@@ -8429,5 +8471,65 @@
     "title": "No encontramos esta página",
     "body": "El enlace puede estar mal escrito, o la página ya no existe.",
     "cta": "Ir al catálogo"
+  },
+  "version": {
+    "language": {
+      "en": "Inglés",
+      "es": "Español"
+    },
+    "chip": {
+      "prize_pack": "De liga",
+      "league": "De liga",
+      "championship": "De torneo",
+      "prerelease": "Prerelease",
+      "staff": "Staff"
+    },
+    "finishLabel": {
+      "non_holo": "No holo",
+      "holo": "Holo",
+      "reverse_holo": "Reverse Holo",
+      "first_edition_holo": "1st Edition Holo",
+      "cosmos_holo": "Cosmos Holo"
+    }
+  },
+  "versionDetail": {
+    "long": {
+      "prize_pack": "De liga (Prize Pack)",
+      "league": "De liga (promo de la Liga)",
+      "championship": "De torneo (promo de campeonato)",
+      "prerelease": "Prerelease (promo de prerelease)",
+      "staff": "Staff (promo Staff)"
+    },
+    "row": {
+      "noStamp": "Sin liga",
+      "prize_pack": "De liga · Prize Pack",
+      "league": "De liga · Promo de la Liga",
+      "championship": "De torneo",
+      "prerelease": "Prerelease",
+      "staff": "Staff"
+    },
+    "picker": {
+      "label": "IDIOMA Y VERSIÓN"
+    },
+    "stampNote": {
+      "prize_pack": "Carta de liga: Prize Pack de Play! Pokémon",
+      "league": "Carta de liga: promo de la Liga Pokémon",
+      "championship": "Promo de campeonato",
+      "prerelease": "Promo de prerelease",
+      "staff": "Promo Staff"
+    },
+    "imageNote": {
+      "es": "Imagen de referencia (versión en inglés)",
+      "league": "Imagen de referencia (sin logo de liga)",
+      "promo": "Imagen de referencia (sin logo de la promo)",
+      "esLeague": "Imagen de referencia (versión en inglés, sin logo de liga)",
+      "esPromo": "Imagen de referencia (versión en inglés, sin logo de la promo)"
+    },
+    "filter": {
+      "language": "Idioma",
+      "languageAll": "Todos",
+      "stamped": "Cartas de liga y promos"
+    },
+    "jsonLdProperty": "Versión"
   }
 }

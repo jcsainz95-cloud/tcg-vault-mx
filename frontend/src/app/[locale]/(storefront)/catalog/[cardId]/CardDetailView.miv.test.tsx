@@ -4,6 +4,7 @@ import { renderWithProviders } from '@/test/render';
 import { CardDetailView } from './CardDetailView';
 import * as api from '@/lib/api';
 import type { CardDTO, GroupedListingDTO, ListingDTO } from '@/types/contract';
+import { IDS_EN } from '@/test/ids-defaults';
 
 /**
  * §A1 (MKT-26a, D2=A · dueño 2026-10-16 · HECHOS:65) — **la ficha PÚBLICA de carta ya NO pinta
@@ -56,6 +57,7 @@ const refValue: ListingDTO['referenceValue'] = {
 
 function unit(over: Partial<ListingDTO> = {}): ListingDTO {
   return {
+    ...IDS_EN,
     inventoryItemId: 'inv-a',
     card,
     productType: 'raw',
@@ -73,6 +75,7 @@ function unit(over: Partial<ListingDTO> = {}): ListingDTO {
 
 function grp(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
   return {
+    ...IDS_EN,
     representativeInventoryItemId: 'inv-a',
     card,
     productType: 'raw',

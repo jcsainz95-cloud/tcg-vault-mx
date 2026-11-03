@@ -7,6 +7,7 @@ import { codigoDe } from '@/test/strip-comments';
 import * as api from '@/lib/api';
 import type { CardDTO, FeaturedListingDTO, FeaturedSlotKind } from '@/types/contract';
 import { FeaturedCarousel, ROTATION_REST_MS } from './FeaturedCarousel';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 /**
  * DYN-F1 (API_CONTRACT §DYN.2, §DYN.7; criterios 920, 923, 925, 927, 928; I-1).
@@ -48,6 +49,7 @@ function card(id: string, name: string): CardDTO {
 
 function tile(i: number, slot: FeaturedSlotKind): FeaturedListingDTO {
   return {
+    ...IDS_EN_SUMMARY,
     representativeInventoryItemId: `inv-${i}`,
     productType: 'raw',
     rawCondition: 'NM',

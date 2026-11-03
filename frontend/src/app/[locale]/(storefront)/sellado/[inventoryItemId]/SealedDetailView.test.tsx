@@ -6,6 +6,7 @@ import { SealedDetailView } from './SealedDetailView';
 import * as api from '@/lib/api';
 import { mockSealedGroups, type PricedSealedGroupDTO } from '@/lib/mock/fixtures';
 import type { ListingDTO, SealedGroupDTO, SealedGroupDetailResponse } from '@/types/contract';
+import { IDS_EN } from '@/test/ids-defaults';
 
 // El CTA «Ir al carrito» navega con el router de next-intl; se mockea para espiarlo.
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
@@ -24,6 +25,7 @@ const BOX_MINOR = mockSealedGroups[2]; // inv-1020, box, minor_box_damage, 2 dis
 
 function listingsOf(group: PricedSealedGroupDTO, ids: string[]): ListingDTO[] {
   return ids.map((id, i) => ({
+    ...IDS_EN,
     inventoryItemId: id,
     card: group.card,
     productType: 'sealed',

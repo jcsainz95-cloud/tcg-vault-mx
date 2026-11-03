@@ -10,6 +10,7 @@ import {
 } from './FeaturedCarousel';
 import * as api from '@/lib/api';
 import type { CardDTO, GroupedListingSummaryDTO } from '@/types/contract';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 /**
  * ROTACIÓN AUTOMÁTICA DEL CARRUSEL (P-49, DESIGN_SYSTEM §23) — la red de seguridad que no existía.
@@ -95,6 +96,7 @@ function card(id: string, name: string): CardDTO {
 
 function grp(c: CardDTO): GroupedListingSummaryDTO {
   return {
+    ...IDS_EN_SUMMARY,
     representativeInventoryItemId: `inv-${c.id}`,
     productType: 'raw',
     rawCondition: 'NM',

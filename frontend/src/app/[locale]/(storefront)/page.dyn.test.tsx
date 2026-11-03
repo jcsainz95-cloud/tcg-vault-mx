@@ -8,6 +8,7 @@ import type { CardDTO, FeaturedListingDTO, GroupedListingSummaryDTO } from '@/ty
 import { HOME_SSR_BUDGET_MS } from '@/lib/home-queries';
 import { leadImageOf, loadHomeForSSR, withBudget } from '@/lib/home-ssr';
 import HomePage from './page';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 /**
  * DYN-F2 (API_CONTRACT §DYN.6.2, criterios 936-937) — la portada pide Destacadas y la vitrina EN EL SERVIDOR y pinta las
@@ -52,6 +53,7 @@ function card(id: string): CardDTO {
 }
 function grp(id: string): GroupedListingSummaryDTO {
   return {
+    ...IDS_EN_SUMMARY,
     representativeInventoryItemId: `inv-${id}`,
     productType: 'raw',
     rawCondition: 'NM',

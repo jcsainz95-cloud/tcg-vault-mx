@@ -23,6 +23,7 @@ vi.mock('@/i18n/navigation', () => ({
 }));
 
 import { FeaturedCarousel } from './FeaturedCarousel';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 function tile(i: number): FeaturedListingDTO {
   const card: CardDTO = {
@@ -40,6 +41,7 @@ function tile(i: number): FeaturedListingDTO {
     availableFinishes: ['normal'],
   };
   return {
+    ...IDS_EN_SUMMARY,
     representativeInventoryItemId: `inv-${i}`,
     productType: 'raw',
     rawCondition: 'NM',

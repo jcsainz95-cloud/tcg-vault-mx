@@ -4,7 +4,7 @@
  * puede exportar funciones a un componente de servidor (llegan como referencia de cliente), por eso vive aparte.
  */
 import type { CatalogFilters, CatalogSort } from '@/lib/api';
-import { SEALED_SUBTYPES, type Finish } from '@/types/contract';
+import { CARD_LANGUAGES, SEALED_SUBTYPES, type CardLanguage, type Finish } from '@/types/contract';
 import { FINISH_ORDER } from '@/lib/finish';
 
 /**
@@ -32,6 +32,8 @@ const FILTER_PARAMS = [
   'condition',
   'finish',
   'rarity',
+  'language',
+  'stamped',
   'minPriceCents',
   'maxPriceCents',
   'sort',
@@ -51,6 +53,8 @@ export function serializeCatalogFilters(f: CatalogFilters, base?: URLSearchParam
   if (f.condition) qs.set('condition', f.condition);
   if (f.finish) qs.set('finish', f.finish);
   if (f.rarity && f.rarity.length) qs.set('rarity', f.rarity.join(','));
+  if (f.language) qs.set('language', f.language);
+  if (f.stamped) qs.set('stamped', 'true');
   if (f.minPriceCents != null) qs.set('minPriceCents', String(f.minPriceCents));
   if (f.maxPriceCents != null) qs.set('maxPriceCents', String(f.maxPriceCents));
   if (f.sort) qs.set('sort', f.sort);
@@ -173,6 +177,10 @@ export function parseUrlFilters(sp: UrlParams | null): CatalogFilters {
   // MK-D5: `condition` y el rango de precio también viajan en la URL (los pone el panel); enteros ≥ 0 en centavos.
   const condition = sp.get('condition');
   if (condition === 'NM') f.condition = condition;
+  // §IDS.5: idioma (lista cerrada `CardLanguage`) y «Cartas de liga y promos» (solo `true`); otro valor se ignora.
+  const language = sp.get('language');
+  if (language && (CARD_LANGUAGES as readonly string[]).includes(language)) f.language = language as CardLanguage;
+  if (sp.get('stamped') === 'true') f.stamped = true;
   for (const k of ['minPriceCents', 'maxPriceCents'] as const) {
     const v = sp.get(k);
     if (v && /^[0-9]{1,9}$/.test(v)) f[k] = Number(v);

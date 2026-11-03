@@ -9,6 +9,7 @@ import type { CardDTO, GroupedListingListResponse, GroupedListingSummaryDTO } fr
 import { QUERY_DEFAULTS } from '@/components/Providers';
 import { CatalogView, initialDataUpdatedAtOf } from './CatalogView';
 import { responseAgeMs } from '@/lib/catalog-ssr';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 /**
  * C2 (BRIEF_MKT Ola 2, criterio 950) — el catálogo sale del SERVIDOR con su primera página: la vista toma la lectura
@@ -56,6 +57,7 @@ function card(id: string): CardDTO {
 }
 function grp(id: string): GroupedListingSummaryDTO {
   return {
+    ...IDS_EN_SUMMARY,
     representativeInventoryItemId: `inv-${id}`,
     productType: 'raw',
     rawCondition: 'NM',

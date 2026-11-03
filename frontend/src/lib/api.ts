@@ -20,6 +20,7 @@ import * as mockReservation from './mock/reservation';
 import * as mockDecksMeta from './mock/decks-meta';
 import * as mockAcc from './mock/accessories';
 import * as mockDsc from './mock/discounts';
+import * as mockVersions from './mock/versions';
 import {
   DIRECT_SHIP_DEFAULT_DIALS,
   directShipFeeOf,
@@ -127,6 +128,8 @@ import type {
   GradedEstimateReviewReason,
   GradedEstimateReviewResponse,
   Finish,
+  CardLanguage,
+  CardVersionsResponse,
   GradingCompany,
   AcquisitionType,
   InventoryStatus,
@@ -471,6 +474,10 @@ export interface CatalogFilters {
    * `data: []` ES la señal normativa de «no renderizar la vitrina completa».
    */
   gradingHighlight?: true;
+  /** §IDS.5 (v1.116⟨ids⟩): idioma de la pieza (§0-Q, `CardLanguage`). Sin filtro, todo (521). */
+  language?: CardLanguage;
+  /** §IDS.5: «Cartas de liga y promos». Solo se acepta `true` (sin filtro, todo). */
+  stamped?: true;
 }
 
 /**
@@ -502,6 +509,9 @@ export async function getCatalog(
       pageSize: filters.pageSize,
       // v1.50: solo se manda cuando es `true`; omitido ⇒ comportamiento idéntico a hoy.
       gradingHighlight: filters.gradingHighlight ? 'true' : undefined,
+      // §IDS.5: `language` y `stamped=true` (omitidos ⇒ el cuerpo de hoy).
+      language: filters.language,
+      stamped: filters.stamped ? 'true' : undefined,
     };
     return apiRequest<GroupedListingListResponse>('/catalog/cards', { query, ...serverInit(server) });
   }
@@ -530,6 +540,9 @@ export async function getCatalog(
   if (filters.productType) pieces = pieces.filter((l) => l.productType === filters.productType);
   if (filters.condition) pieces = pieces.filter((l) => l.rawCondition === filters.condition);
   if (filters.finish) pieces = pieces.filter((l) => l.finish === filters.finish);
+  // MOCK §IDS.5: idioma y «Cartas de liga y promos».
+  if (filters.language) pieces = pieces.filter((l) => l.version.language === filters.language);
+  if (filters.stamped) pieces = pieces.filter((l) => l.version.stamp != null);
   // v1.50.2: la rejilla usa el DTO del Summary (sin `priceBasis`/`referenceValue`, con el marcador
   // `gradingHighlight` ya resuelto por el servidor).
   let data = fx.groupMockSummaries(pieces);
@@ -1260,7 +1273,7 @@ export const MOCK_QUOTE_CARD_KEYS = [
  * v1.68.1: `reservedByYou: true` es la única llave adicional posible y viaja SOLO cuando la pieza está
  * reservada por una orden propia (omitida cuando es falso) — no está aquí a propósito.
  */
-export const MOCK_QUOTE_ITEM_KEYS = ['inventoryItemId', 'card', 'unitPriceCents'] as const;
+export const MOCK_QUOTE_ITEM_KEYS = ['inventoryItemId', 'card', 'version', 'finishLabel', 'unitPriceCents'] as const;
 
 export async function getCheckoutQuote(inventoryItemIds: string[], discountCode?: string): Promise<CheckoutQuoteResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) {
@@ -1305,6 +1318,9 @@ export async function getCheckoutQuote(inventoryItemIds: string[], discountCode?
     items: items.map((l) => ({
       inventoryItemId: l.inventoryItemId,
       card: fx.orderItemCard(l),
+      // §IDS.5 (v1.116⟨ids⟩): la versión y el acabado de cliente de la línea, del servidor.
+      version: l.version,
+      finishLabel: l.finishLabel,
       // §M10-IVA.3 — `unitPriceCents` ES el `P` congelado, y §M10-IVA.4(a) exige
       // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva. §DSC I-3: con código, el COBRADO.
       ...mockUnitPrice(l.inventoryItemId, l.displayPriceCents ?? 0, applied),
@@ -3954,6 +3970,10 @@ export interface AdminInventoryFilters {
   // el Master Set; con cardId+productType=sealed|graded, los drill-downs de esas pestañas.
   finish?: Finish;
   productType?: ProductType;
+  /** §IDS.4 (v1.116⟨ids⟩): idioma de la pieza (§0-Q). */
+  language?: CardLanguage;
+  /** §IDS.4: `'true'` = con versión de liga; `'false'` = sin ella. */
+  stamped?: 'true' | 'false';
   page?: number;
   pageSize?: number;
 }
@@ -3978,12 +3998,17 @@ export async function getAdminInventory(
         ownerType: filters.ownerType,
         finish: filters.finish,
         productType: filters.productType,
+        language: filters.language,
+        stamped: filters.stamped,
         page: filters.page,
         pageSize: filters.pageSize,
       },
     });
   }
   let data = [...fx.mockInventory];
+  // MOCK §IDS.4: sin `version` la pieza es inglés sin liga (I-1).
+  if (filters.language) data = data.filter((i) => (i.version?.language ?? 'en') === filters.language);
+  if (filters.stamped) data = data.filter((i) => (i.version?.stamp != null) === (filters.stamped === 'true'));
   if (filters.q) {
     const q = filters.q.toLowerCase();
     data = data.filter((i) => i.folio.toLowerCase().includes(q));
@@ -4146,6 +4171,10 @@ export interface CreateInventoryItemInput {
   // v1.28 (P-19): costo capturado para acquisitionType="compra" (documentado en el contrato).
   acquisitionCostCents?: number;
   listPriceCents?: number;
+  /** v1.51 (M-46) / §IDS.4: producto de la pieza; con un producto `stamped` es la versión de liga. */
+  cardProductId?: number;
+  /** §IDS.4 (v1.116⟨ids⟩): idioma de la pieza (default `en`; se omite en inglés: el cuerpo de hoy). */
+  language?: CardLanguage;
 }
 
 export interface CreateInventoryItemResponse {
@@ -4160,6 +4189,40 @@ export interface CreateInventoryItemResponse {
  * proviene del CardDTO del catálogo real (buylist/cards), NO de fixtures. El backend
  * deriva costo/referencia y valida `finish` ∈ Card.availableFinishes (422 FINISH_NOT_AVAILABLE).
  */
+/**
+ * §IDS.4 (v1.116⟨ids⟩) `GET /admin/inventory/cards/:cardId/versions` (`vault_operator+`): combinaciones acabado ×
+ * idioma × versión de liga con su precio de vista previa (cuerpo único del servidor) y las candidatas ambiguas.
+ */
+export async function getCardVersions(card: Pick<CardDTO, 'id' | 'availableFinishes'>): Promise<CardVersionsResponse> {
+  if (!(MOCKS_BUILD && config.useMocks)) {
+    return apiRequest<CardVersionsResponse>(`/admin/inventory/cards/${encodeURIComponent(card.id)}/versions`);
+  }
+  // MOCK: pendiente de servidor (§IDS.4). Precio base = el de la pieza publicada de la carta, si la hay.
+  const base = fx.mockListings.find((l) => l.card.id === card.id && l.productType === 'raw')?.displayPriceCents ?? null;
+  return delay(mockVersions.mockCardVersions(card.id, card.availableFinishes, base));
+}
+
+/**
+ * §IDS.4 `POST /admin/inventory/stamped-candidates/:tcgplayerProductId/attach` `{ cardId }`: quien tiene la carta en la
+ * mano elige la IDENTIDAD de un producto de liga ambiguo (nunca su precio). `200` = el `GET …/versions` nuevo;
+ * `404 NOT_FOUND` sin la candidata; `409 STAMPED_PRODUCT_TAKEN` si ya está colgado.
+ */
+export async function attachStampedCandidate(
+  tcgplayerProductId: number,
+  card: Pick<CardDTO, 'id' | 'availableFinishes'>,
+): Promise<CardVersionsResponse> {
+  if (!(MOCKS_BUILD && config.useMocks)) {
+    return apiRequest<CardVersionsResponse>(`/admin/inventory/stamped-candidates/${tcgplayerProductId}/attach`, {
+      method: 'POST',
+      body: { cardId: card.id },
+    });
+  }
+  if (!mockVersions.mockAttachCandidate(tcgplayerProductId, card.id)) {
+    throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Candidate not found' });
+  }
+  return getCardVersions(card);
+}
+
 export async function createInventoryItem(
   input: CreateInventoryItemInput,
 ): Promise<CreateInventoryItemResponse> {
@@ -7525,6 +7588,9 @@ export async function getGuestCheckoutQuote(
     items: items.map((l) => ({
       inventoryItemId: l.inventoryItemId,
       card: fx.orderItemCard(l),
+      // §IDS.5 (v1.116⟨ids⟩): la versión y el acabado de cliente de la línea, del servidor.
+      version: l.version,
+      finishLabel: l.finishLabel,
       // §M10-IVA.3 — `unitPriceCents` ES el `P` congelado, y §M10-IVA.4(a) exige
       // `Σ unitPriceCents == subtotalCents` EXACTO, sin deriva. §DSC I-3: con código, el COBRADO.
       ...mockUnitPrice(l.inventoryItemId, l.displayPriceCents ?? 0, applied),

@@ -72,11 +72,11 @@ describe('CatalogView · cabecera plegada en < lg (MKT-CONV.8)', () => {
     expect(cls(bar())).toEqual(expect.arrayContaining(['h-12', 'flex-nowrap', 'overflow-x-auto', 'border-b']));
   });
 
-  it('Filtros + Orden en una fila de 56 px; la etiqueta del orden `sr-only` sigue nombrando el control', async () => {
+  it('Filtros + Orden en una fila de 56 px (48 en < sm, §IDS-UX.4 P3); la etiqueta del orden `sr-only` sigue nombrando el control', async () => {
     renderWithProviders(<CatalogView />, 'es');
     await screen.findAllByRole('button', { name: 'Añadir al carrito' });
     const row = screen.getByTestId('catalog-mobile-actions');
-    expect(cls(row)).toEqual(expect.arrayContaining(['py-1.5', 'items-center', 'lg:hidden']));
+    expect(cls(row)).toEqual(expect.arrayContaining(['py-0.5', 'sm:py-1.5', 'items-center', 'lg:hidden']));
     const select = within(row).getByRole('combobox', { name: 'Ordenar' });
     const label = row.querySelector(`label[for="${select.id}"]`)!;
     expect(cls(label)).toContain('sr-only');

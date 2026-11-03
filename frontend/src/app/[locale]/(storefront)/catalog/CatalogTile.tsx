@@ -15,6 +15,8 @@ import { IvaLabel } from '@/components/ui/IvaLabel';
 import { GradingEstimateBadge } from '../_shared/grading/GradingEstimateBadge';
 import { cn } from '@/lib/cn';
 import { formatCardCode } from '@/lib/setCode';
+import { VersionChips } from '@/components/domain/VersionChip';
+import { isDefaultVersion } from '@/lib/version';
 
 export interface CatalogTileProps {
   listing: GroupedListingSummaryDTO;
@@ -49,13 +51,27 @@ export interface CatalogTileProps {
 export function CatalogTile({ listing, inCart, onAdd, surface = 'catalog' }: CatalogTileProps) {
   const catalog = surface === 'catalog';
   const t = useTranslations('catalog');
+  const tv = useTranslations('version');
   const locale = useLocale() as AppLocale;
   const router = useRouter();
   const { card } = listing;
   // Un grupo del catálogo SIEMPRE es vendible (stockCount≥1); los agotados no llegan del backend.
   const sellable = listing.stockCount > 0;
   const showInCart = inCart && sellable;
-  const href = `/catalog/${card.id}`;
+  // §IDS.5 / D-IDS-4: el enlace lleva `?version=<versionOptionKey>` (la clave la da el servidor; ⛔ no se compone).
+  // Inglés sin liga va sin parámetro: la regla 3 de D-IDS-4 preselecciona `en` igual, y la URL de siempre no cambia.
+  const versioned = !isDefaultVersion(listing.version);
+  const href = versioned
+    ? `/catalog/${card.id}?version=${encodeURIComponent(listing.versionOptionKey)}`
+    : `/catalog/${card.id}`;
+  // IDS-UX.1: la teja añade la versión al nombre accesible («Charizard, español, de liga»).
+  const versionAria = versioned
+    ? [
+        card.name,
+        ...(listing.version.language !== 'en' ? [tv(`language.${listing.version.language}`).toLocaleLowerCase(locale)] : []),
+        ...(listing.version.stamp ? [tv(`chip.${listing.version.stamp.type}`).toLocaleLowerCase(locale)] : []),
+      ].join(', ')
+    : undefined;
 
   const ctaBase =
     'flex min-h-[44px] w-full items-center justify-center gap-2 px-2 text-[10px] font-medium uppercase tracking-label transition-colors';
@@ -67,21 +83,25 @@ export function CatalogTile({ listing, inCart, onAdd, surface = 'catalog' }: Cat
             P-39: el grid del catálogo es DENSO (muchas tejas por viewport) ⇒ se conserva la
             imagen CHICA (imageSmallUrl) por performance/ancho de banda. La alta resolución se
             reserva para superficies prominentes (featured del home y ficha de la carta). */}
-        {/* vMKT-CONV-3: en el catálogo < sm el pozo es 4:5 (la carta 5:7 entra entera por `object-contain`). */}
+        {/* vMKT-CONV-3: en el catálogo < sm el pozo es corto (la carta 5:7 entra entera por `object-contain`).
+            §IDS-UX.4 P1: 4:5 → 5:6 (−7.6 px a 360) para que la fila de insignias quepa sin romper el 943. */}
         <CardImage
           src={card.imageSmallUrl}
           alt={card.name}
-          className={catalog ? 'aspect-[4/5] sm:aspect-[5/7]' : undefined}
+          className={catalog ? 'aspect-[5/6] sm:aspect-[5/7]' : undefined}
         />
       </Link>
 
       {/* MKT-CONV.8: en < sm la teja se compacta (nombre en 2 renglones como máximo, rareza fuera, precio y stock en
           un renglón, márgenes menores). El recorte es visual: el nombre accesible del enlace sigue completo.
           ≥ sm, sin cambios (L-10). */}
-      <p className="mt-2 line-clamp-2 font-serif text-sm leading-[1.3] text-text sm:mt-3 sm:line-clamp-none sm:text-base" lang="en" data-testid="tile-name">
-        <Link href={href}>{card.name}</Link>
+      {/* §IDS-UX.4 P2 (< sm): cinco márgenes −2 px (nombre, set, ficha técnica, precio, CTA). ≥ sm sin cambio. */}
+      <p className="mt-1.5 line-clamp-2 font-serif text-sm leading-[1.3] text-text sm:mt-3 sm:line-clamp-none sm:text-base" lang="en" data-testid="tile-name">
+        <Link href={href} aria-label={versionAria}>
+          {card.name}
+        </Link>
       </p>
-      <p className="mt-1 font-mono text-[10px] leading-snug text-muted sm:mt-1.5 sm:text-[11px]" lang="en">
+      <p className="mt-0.5 font-mono text-[10px] leading-snug text-muted sm:mt-1.5 sm:text-[11px]" lang="en">
         {/* v1.80 (P-71, §37.3c): «Set · TWM 130»; sin código, `#130`. */}
         {`${card.setName} · ${formatCardCode(card.setPtcgoCode, card.number)}`}
       </p>
@@ -92,11 +112,16 @@ export function CatalogTile({ listing, inCart, onAdd, surface = 'catalog' }: Cat
         productType={listing.productType}
         rawCondition={listing.rawCondition}
         finish={listing.finish}
+        finishLabel={listing.finishLabel}
         gradingCompany={listing.gradingCompany}
         gradeValue={listing.gradeValue}
         compact
-        className="mt-1.5 text-muted sm:mt-2"
+        className="mt-1 text-muted sm:mt-2"
       />
+
+      {/* §IDS-UX.4 (D-2): fila PROPIA de insignias, solo si hay (español y/o versión de liga). Solo el nombre de la
+          insignia: ni el detalle («Prize Pack») ni «Inglés». ⛔ Nunca sobre la foto (candado 6). */}
+      <VersionChips version={listing.version} size="tile" className="mt-1" testId="tile-version-chips" />
 
       {/* P-44: rareza junto al acabado (Illustration Rare, Full Art, Hyper Rare…). Discreta,
           mono muted; se omite sola en sellado o sin rareza (RarityLabel). */}
@@ -109,77 +134,80 @@ export function CatalogTile({ listing, inCart, onAdd, surface = 'catalog' }: Cat
           propio renglón (`basis-full`); en ≥ sm el contenedor es `block` (el `order` no aplica) y el orden del DOM
           —precio, IVA, stock— es el de siempre. En < sm el orden VISUAL (precio y stock, IVA debajo) difiere del DOM;
           el lector de pantalla sigue el DOM (precio, IVA, stock) en todos los anchos. */}
-      <div className="mt-2.5 flex flex-wrap items-baseline justify-between gap-x-2 sm:block" data-testid="tile-price-row">
-        {listing.displayPriceCents != null ? (
-          <>
-            <p className="tabular order-1 text-[15px] font-medium leading-none text-text sm:text-[17px]">
-              {formatMoneyCents(listing.displayPriceCents, locale)}
-            </p>
-            <IvaLabel
-              ivaIncluded={listing.ivaIncluded}
-              ivaRatePct={listing.ivaRatePct}
-              className="order-3 mt-1 block basis-full"
+      {/* §IDS-UX.4: precio y bloque inferior anclados abajo (`mt-auto`): con y sin insignia, precios y CTA alineados. */}
+      <div className="mt-auto flex flex-col">
+        <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-2 sm:mt-2.5 sm:block" data-testid="tile-price-row">
+          {listing.displayPriceCents != null ? (
+            <>
+              <p className="tabular order-1 text-[15px] font-medium leading-none text-text sm:text-[17px]">
+                {formatMoneyCents(listing.displayPriceCents, locale)}
+              </p>
+              <IvaLabel
+                ivaIncluded={listing.ivaIncluded}
+                ivaRatePct={listing.ivaRatePct}
+                className="order-3 mt-1 block basis-full"
+              />
+            </>
+          ) : (
+            <PendingPriceLabel className="order-1 block" />
+          )}
+
+          {/* Distintivo de stock REAL del grupo (§20.6): Queda 1 / N en stock (agotado no llega del backend). */}
+          {sellable && (
+            <StockBadge
+              variant={stockVariantForSingle(listing.stockCount)}
+              count={listing.stockCount}
+              className="order-2 sm:mt-2"
             />
-          </>
-        ) : (
-          <PendingPriceLabel className="order-1 block" />
-        )}
+          )}
+        </div>
 
-        {/* Distintivo de stock REAL del grupo (§20.6): Queda 1 / N en stock (agotado no llega del backend). */}
-        {sellable && (
-          <StockBadge
-            variant={stockVariantForSingle(listing.stockCount)}
-            count={listing.stockCount}
-            className="order-2 sm:mt-2"
-          />
-        )}
-      </div>
+        {/* «Gancho de grading» (§22.5): DESPUÉS del precio y del stock, ANTES del CTA — el orden de
+            lectura obligatorio es precio real → estimado → CTA. Presencia ⇔ elegibilidad: sin
+            `gradingHighlight` (o sin nota al pie en esta página) la teja se ve EXACTAMENTE como hoy,
+            sin badge vacío ni altura reservada (R4). */}
+        {/* §22.5 «Excepción vigente (2026-11-01)»: en el catálogo < sm el badge NO se ve (`display:none` ⇒ fuera
+            también del árbol de accesibilidad). El corte NO se escribe aquí: lo declara la página una vez
+            (`CatalogView`, `figureClassName` de la boundary) y lo leen el badge y la nota (TL-MKT6-1). L-8 lo afirma. */}
+        <GradingEstimateBadge listing={listing} />
 
-      {/* «Gancho de grading» (§22.5): DESPUÉS del precio y del stock, ANTES del CTA — el orden de
-          lectura obligatorio es precio real → estimado → CTA. Presencia ⇔ elegibilidad: sin
-          `gradingHighlight` (o sin nota al pie en esta página) la teja se ve EXACTAMENTE como hoy,
-          sin badge vacío ni altura reservada (R4). */}
-      {/* §22.5 «Excepción vigente (2026-11-01)»: en el catálogo < sm el badge NO se ve (`display:none` ⇒ fuera
-          también del árbol de accesibilidad). El corte NO se escribe aquí: lo declara la página una vez
-          (`CatalogView`, `figureClassName` de la boundary) y lo leen el badge y la nota (TL-MKT6-1). L-8 lo afirma. */}
-      <GradingEstimateBadge listing={listing} />
-
-      {/* mt-auto alinea el CTA abajo cuando las tejas de la fila difieren de altura */}
-      <div className="mt-auto pt-2 sm:pt-3">
-        {showInCart ? (
-          // Pieza única deduplicada: el segundo clic no re-agrega, lleva al carrito.
-          <button
-            type="button"
-            onClick={() => router.push('/checkout')}
-            className={cn(ctaBase, 'border border-text text-text hover:bg-text hover:text-primary-fg')}
-          >
-            {/* Palomita decorativa (§7.4): el texto es el portador del estado. */}
-            <Check size={14} aria-hidden className="text-accent" />
-            {t('inCart')}
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={!sellable}
-            onClick={() => onAdd(listing)}
-            aria-label={sellable ? t('addToCart') : t('notForSale')}
-            className={cn(
-              ctaBase,
-              'border border-text text-text hover:bg-text hover:text-primary-fg',
-              'disabled:cursor-not-allowed disabled:border-border-strong disabled:text-muted disabled:hover:bg-transparent disabled:hover:text-muted',
-            )}
-          >
-            {sellable ? (
-              <>
-                {/* Móvil 390px: etiqueta corta (artboard 2a móvil «Añadir»). */}
-                <span className="sm:hidden">{t('addToCartShort')}</span>
-                <span className="hidden sm:inline">{t('addToCart')}</span>
-              </>
-            ) : (
-              t('notForSale')
-            )}
-          </button>
-        )}
+        {/* el bloque `mt-auto` de arriba alinea precio y CTA abajo cuando las tejas de la fila difieren de altura */}
+        <div className="pt-1.5 sm:pt-3">
+          {showInCart ? (
+            // Pieza única deduplicada: el segundo clic no re-agrega, lleva al carrito.
+            <button
+              type="button"
+              onClick={() => router.push('/checkout')}
+              className={cn(ctaBase, 'border border-text text-text hover:bg-text hover:text-primary-fg')}
+            >
+              {/* Palomita decorativa (§7.4): el texto es el portador del estado. */}
+              <Check size={14} aria-hidden className="text-accent" />
+              {t('inCart')}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={!sellable}
+              onClick={() => onAdd(listing)}
+              aria-label={sellable ? t('addToCart') : t('notForSale')}
+              className={cn(
+                ctaBase,
+                'border border-text text-text hover:bg-text hover:text-primary-fg',
+                'disabled:cursor-not-allowed disabled:border-border-strong disabled:text-muted disabled:hover:bg-transparent disabled:hover:text-muted',
+              )}
+            >
+              {sellable ? (
+                <>
+                  {/* Móvil 390px: etiqueta corta (artboard 2a móvil «Añadir»). */}
+                  <span className="sm:hidden">{t('addToCartShort')}</span>
+                  <span className="hidden sm:inline">{t('addToCart')}</span>
+                </>
+              ) : (
+                t('notForSale')
+              )}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

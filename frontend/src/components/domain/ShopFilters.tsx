@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import type { CatalogFacetsDTO } from '@/types/contract';
+import { CARD_LANGUAGES, type CatalogFacetsDTO } from '@/types/contract';
 import type { CatalogProductType } from '@/lib/api';
 import type { CatalogFilters } from '@/lib/api';
 import { groupRarities, type RarityGroup } from '@/lib/rarity-groups';
@@ -79,6 +79,10 @@ export function ShopFilters({ facets, filters, onChange }: ShopFiltersProps) {
       </FilterSection>
 
       <FinishFilter facets={facets} filters={filters} onChange={onChange} />
+
+      <FilterSection>
+        <VersionFilter filters={filters} onChange={onChange} />
+      </FilterSection>
 
       <FilterSection>
         <PriceFilter facets={facets} filters={filters} onChange={onChange} />
@@ -349,6 +353,42 @@ function FinishFilter({ facets, filters, onChange }: ShopFiltersProps) {
         </div>
       </fieldset>
     </FilterSection>
+  );
+}
+
+// ---- §IDS.5 (v1.116⟨ids⟩): idioma y «Cartas de liga y promos» ----
+// Sin faceta: el contrato dice «facetas += conteos por `language` y `stamped`» sin nombrar los campos (solicitud al
+// arquitecto en FRONTEND_NOTES §IDS-FE); mientras, las opciones son la lista cerrada `CardLanguage` y el interruptor.
+// ⛔ «sello» no se dice al cliente (D-6 v3): el filtro es «Cartas de liga y promos».
+function VersionFilter({ filters, onChange }: Pick<ShopFiltersProps, 'filters' | 'onChange'>) {
+  const t = useTranslations('version');
+  const td = useTranslations('versionDetail');
+  return (
+    <fieldset data-testid="version-filter">
+      <legend className="text-[13px] font-medium leading-none text-text">{td('filter.language')}</legend>
+      <div className="mt-3.5 flex flex-wrap gap-2">
+        <TypeChip
+          active={!filters.language}
+          label={td('filter.languageAll')}
+          onClick={() => onChange({ ...filters, language: undefined })}
+        />
+        {CARD_LANGUAGES.map((l) => (
+          <TypeChip
+            key={l}
+            active={filters.language === l}
+            label={t(`language.${l}`)}
+            onClick={() => onChange({ ...filters, language: filters.language === l ? undefined : l })}
+          />
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <TypeChip
+          active={!!filters.stamped}
+          label={td('filter.stamped')}
+          onClick={() => onChange({ ...filters, stamped: filters.stamped ? undefined : true })}
+        />
+      </div>
+    </fieldset>
   );
 }
 

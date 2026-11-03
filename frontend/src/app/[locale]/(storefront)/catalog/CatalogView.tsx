@@ -244,10 +244,18 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
 
   const tType = useTranslations('shop.type');
   const tFinish = useTranslations('finish');
+  const tVersion = useTranslations('version');
+  const tVersionD = useTranslations('versionDetail');
   const activeChips = useMemo(
     // Las facetas dan el nombre legible del set para el chip (QA-1); tipo y acabado, su etiqueta del panel (MK-D4).
-    () => buildChips(filters, facetsQuery.data?.sets, { type: (pt) => tType(pt), finish: (f) => tFinish(f) }),
-    [filters, facetsQuery.data?.sets, tType, tFinish],
+    () =>
+      buildChips(filters, facetsQuery.data?.sets, {
+        type: (pt) => tType(pt),
+        finish: (f) => tFinish(f),
+        language: (l) => tVersion(`language.${l}`),
+        stamped: () => tVersionD('filter.stamped'),
+      }),
+    [filters, facetsQuery.data?.sets, tType, tFinish, tVersion, tVersionD],
   );
   const hasFilters = activeChips.length > 0;
   const total = catalogQuery.data?.total ?? 0;
@@ -354,8 +362,9 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
       <StoreTabs />
 
       {/* Acciones móviles: filtros (con conteo activo en rojo) y orden. MKT-CONV.8: UNA fila de 56 px (`py-1.5` +
-          controles de 44 px); la etiqueta del orden queda `sr-only` (el `<select>` conserva su nombre accesible). */}
-      <div className="gutter flex items-center gap-2.5 py-1.5 lg:hidden" data-testid="catalog-mobile-actions">
+          controles de 44 px); la etiqueta del orden queda `sr-only` (el `<select>` conserva su nombre accesible).
+          §IDS-UX.4 P3: en < sm la fila baja a 48 (`py-0.5`; los controles siguen en 44) para la fila de insignias. */}
+      <div className="gutter flex items-center gap-2.5 py-0.5 sm:py-1.5 lg:hidden" data-testid="catalog-mobile-actions">
         <Button variant="secondary" size="sm" className="h-11 flex-1 sm:min-h-[44px]" onClick={() => setSheetOpen(true)}>
           {tShop('filtersTitle')}
           {hasFilters && (
@@ -546,6 +555,8 @@ function pesosLabel(cents: number): string {
 interface ChipLabels {
   type: (pt: NonNullable<CatalogFilters['productType']>) => string;
   finish: (f: NonNullable<CatalogFilters['finish']>) => string;
+  language: (l: NonNullable<CatalogFilters['language']>) => string;
+  stamped: () => string;
 }
 
 function buildChips(
@@ -582,6 +593,13 @@ function buildChips(
   if (filters.finish) {
     // v1.6-finish: chip del acabado activo, con la etiqueta localizada del panel (`finish.*`, MK-D4).
     chips.push({ key: 'finish', label: labels.finish(filters.finish), remove: (f) => ({ ...f, finish: undefined }) });
+  }
+  // §IDS.5: idioma y «Cartas de liga y promos».
+  if (filters.language) {
+    chips.push({ key: 'language', label: labels.language(filters.language), remove: (f) => ({ ...f, language: undefined }) });
+  }
+  if (filters.stamped) {
+    chips.push({ key: 'stamped', label: labels.stamped(), remove: (f) => ({ ...f, stamped: undefined }) });
   }
   if (filters.minPriceCents != null) {
     chips.push({ key: 'min', label: `≥ MX$${pesosLabel(filters.minPriceCents)}`, remove: (f) => ({ ...f, minPriceCents: undefined }) });

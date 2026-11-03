@@ -18,6 +18,7 @@ import {
 import { GradingFootnoteBoundary } from './GradingFootnote';
 import { GradingEstimateBlock } from './GradingEstimateBlock';
 import { GradingEstimateBadge } from './GradingEstimateBadge';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 vi.mock('@/i18n/navigation', () => ({
   usePathname: () => '/',
@@ -42,6 +43,7 @@ function est(gradeValue: string, cents: number | undefined, over: Partial<Graded
 // v1.50.2: `gradingHighlight` vive en el DTO de la REJILLA (`GroupedListingSummaryDTO`), que es
 // el que reciben la teja de Compra y la vitrina. La FICHA no lo lee: usa `gradedEstimates`.
 const listing = (over: Partial<GroupedListingSummaryDTO> = {}): GroupedListingSummaryDTO => ({
+  ...IDS_EN_SUMMARY,
   representativeInventoryItemId: 'inv-a',
   card: {
     id: 'c-1',
