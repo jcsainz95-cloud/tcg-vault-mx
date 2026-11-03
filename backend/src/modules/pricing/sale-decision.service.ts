@@ -502,3 +502,21 @@ export class SaleDecisionService {
     return instrument(sale.priceCents, sale.basis, sale.marketMxnCents);
   }
 }
+
+/**
+ * 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.2 «Otros usos del valor de una pieza», criterio 531) — para los LECTORES DE PATRIMONIO
+ * (bóveda, portafolio, reposición, `/admin/vaults`, inventario y custodia): el valor de las piezas cuya versión no es (en, sin
+ * liga), por id (`null` ⇒ sin referencia ⇒ pendiente). Solo consulta si alguna pieza es `es` o trae `cardProductId`; sin
+ * `decider` (unitarios) ⇒ mapa vacío y el lector sigue su camino de siempre.
+ */
+export async function versionValuationOf(
+  decider: SaleDecisionService | undefined,
+  items: readonly object[],
+): Promise<Map<string, number | null>> {
+  const cand = items.filter((i) => {
+    const v = i as { id?: string; language?: string | null; cardProductId?: number | null };
+    return v.id != null && (v.language === 'es' || v.cardProductId != null);
+  });
+  if (!decider || cand.length === 0) return new Map();
+  return decider.referenceForPieces(cand as unknown as SaleItem[]);
+}

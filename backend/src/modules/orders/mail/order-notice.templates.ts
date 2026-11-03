@@ -33,10 +33,12 @@ export interface OrderMailVersion {
  * Cosmos Holo». `null` para inglés sin liga.
  */
 export function orderMailVersionTextOf(v: OrderMailVersion, locale: 'es' | 'en'): string | null {
-  if (v.language === 'en' && v.stampType == null) return null;
+  // Una línea sin columnas de versión (dobles de prueba, filas previas a M-95) es (en, sin liga): el correo de siempre.
+  const language = v.language ?? 'en';
+  if (language === 'en' && v.stampType == null) return null;
   const t = MAIL_VERSION_TEXT[locale];
   const parts: string[] = [];
-  if (v.language === 'es') parts.push(t.language.es);
+  if (language === 'es') parts.push(t.language.es);
   if (v.stampType) parts.push(t.stampLong[v.stampType]);
   parts.push(t.finishLabel[finishLabelOf(v.finish ?? 'normal', v.stampType ? v.stampLabel : null)]);
   return parts.join(' · ');
