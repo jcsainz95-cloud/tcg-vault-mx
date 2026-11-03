@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAs, realOnly } from './utils/auth';
+import { IS_REAL, loginAs, realOnly } from './utils/auth';
 import { apiAs, apiAsOk } from './utils/env';
 
 /**
@@ -31,7 +31,7 @@ test.describe.configure({ mode: 'serial' });
 
 test.describe('@real §IDS contra el stack sembrado', () => {
   test.beforeAll(async () => {
-    if (!process.env.E2E_BASE_URL && process.env.E2E_REAL !== '1') return;
+    if (!IS_REAL) return;
     const cards = await apiAsOk<{ data: { id: string; name: string }[] }>(
       'admin',
       'GET',
