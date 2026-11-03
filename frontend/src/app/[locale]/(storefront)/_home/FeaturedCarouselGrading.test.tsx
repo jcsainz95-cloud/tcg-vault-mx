@@ -9,6 +9,7 @@ import { GradingFootnoteBoundary } from '../_shared/grading/GradingFootnote';
 // v1.113⟨portada⟩ (§DYN.6.2): `page.tsx` pasó a componente de servidor asíncrono; el cuerpo que se prueba aquí es la
 // vista cliente (su prueba de servidor vive en `page.dyn.test.tsx`).
 import { HomeView as HomePage } from '../HomeView';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 /**
  * **§22.6b — el carrusel «Piezas destacadas» como CUARTA superficie del gancho de grading.**
@@ -58,6 +59,7 @@ function card(id: string, name: string): CardDTO {
 
 function grp(id: string, over: Partial<GroupedListingSummaryDTO> = {}): GroupedListingSummaryDTO {
   return {
+    ...IDS_EN_SUMMARY,
     representativeInventoryItemId: `inv-${id}`,
     card: card(`c-${id}`, `Card ${id}`),
     productType: 'raw',

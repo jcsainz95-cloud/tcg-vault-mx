@@ -41,8 +41,11 @@ const HOME_MESSAGES_MAX_BYTES = 48_500;
  * Falsos positivos de la medición estática (literales `'<ns>.<clave>'` que NO se traducen en la portada):
  *  - `admin`, `checkout`: `lib/error-audience.ts` lista claves PROHIBIDAS (`admin.m5.transition.*`,
  *    `checkout.retry.*`) para su candado; no las pinta nadie.
+ *  - `versionDetail` (§IDS): `QueryState` nombra la versión de un `422 PRICE_PENDING` del checkout
+ *    (`versionDetail.long.*`, con `t.has` como guarda); en la portada no hay checkout y sin el namespace cae al copy
+ *    base. Llevarlo a la portada costaría ~1.6 KB contra el trinquete de bytes por un mensaje que ahí no ocurre.
  */
-const HOME_STATIC_FALSE_POSITIVES = new Set(['admin', 'checkout']);
+const HOME_STATIC_FALSE_POSITIVES = new Set(['admin', 'checkout', 'versionDetail']);
 
 const captured = vi.hoisted(() => ({ rootMessages: null as Record<string, unknown> | null, locale: 'es' }));
 

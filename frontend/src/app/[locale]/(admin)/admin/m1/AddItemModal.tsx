@@ -10,6 +10,8 @@ import {
   searchBuylistCards,
   createInventoryItem,
   batchCreateItems,
+  getCardVersions,
+  getSettings,
 } from '@/lib/api';
 import type {
   ProductType,
@@ -18,6 +20,7 @@ import type {
   Finish,
   CardDTO,
   BatchInventoryItemInput,
+  CardLanguage,
 } from '@/types/contract';
 import { FINISH_ORDER } from '@/lib/finish';
 import { FinishBadge } from '@/components/domain/FinishBadge';
@@ -27,6 +30,8 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
 import { ApiClientError } from '@/lib/api-client';
+import { IdsCaptureFields } from './IdsCaptureFields';
+import { captureModel } from './ids-capture';
 
 // P-35 (§16.8a): el sellado ya NO se da de alta por el buscador de cartas — vive en el flujo
 // dedicado `SealedAddFlow`. El alta por lote clásica conserva solo raw/graded.
@@ -70,6 +75,10 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
   const [acq, setAcq] = useState<AcquisitionType>('aportacion_en_especie');
   const [pct, setPct] = useState('70');
   const [locationId, setLocationId] = useState<string>('');
+  // §IDS.4 / IDS-UX.2: idioma y versión de liga de la pieza. «Inglés / Sin liga» de fábrica y NO se guardan entre
+  // piezas (cada carta elegida vuelve a la de fábrica): el camino normal no gana ni un toque.
+  const [language, setLanguage] = useState<CardLanguage>('en');
+  const [stampProductId, setStampProductId] = useState<number | null>(null);
   // P-5 · Alta MASIVA: modo de selección múltiple + "carrito" de cartas del lote.
   const [multiSelect, setMultiSelect] = useState(false);
   const [batchCards, setBatchCards] = useState<CardDTO[]>([]);
@@ -106,6 +115,23 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
     enabled: hasSearch,
   });
   const cards: CardDTO[] = cardsResult.data?.pages.flatMap((p) => p.data) ?? [];
+
+  // §IDS.4: combinaciones (acabado × idioma × versión) con precio del servidor. Solo alta individual raw (D-IDS-K).
+  const idsEnabled = !!selectedCard && productType === 'raw' && !multiSelect;
+  const versionsQuery = useQuery({
+    queryKey: ['card-versions', selectedCard?.id],
+    queryFn: () => getCardVersions(selectedCard!),
+    enabled: idsEnabled,
+  });
+  // Dial `spanishMarketPct` (M10) para el desglose; si la cuenta no puede leer ajustes, el desglose no lo inventa.
+  const settingsQuery = useQuery({ queryKey: ['settings'], queryFn: getSettings, enabled: idsEnabled, retry: false });
+  const ids = captureModel(
+    idsEnabled ? versionsQuery.data : undefined,
+    selectedCard?.availableFinishes ?? [],
+    finish,
+    language,
+    stampProductId,
+  );
   const cardsTotal = cardsResult.data?.pages[0]?.total ?? 0;
 
   // v1.6-finish: acabados de la carta REAL elegida; en masivo, la UNIÓN del lote.
@@ -144,6 +170,8 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
 
   function pickCard(card: CardDTO) {
     setSelectedCard(card);
+    setLanguage('en');
+    setStampProductId(null);
     setFinish(FINISH_ORDER.find((f) => card.availableFinishes.includes(f)) ?? 'normal');
   }
 
@@ -176,6 +204,10 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
         locationId: locationId || undefined,
         acquisitionType: acq,
         acquisitionPct: acq === 'aportacion_en_especie' ? Number(pct) : undefined,
+        // §IDS.4: el idioma solo viaja si no es el de fábrica (cuerpo de hoy en inglés); la liga, en `cardProductId`.
+        // ⛔ Sin `listPriceCents`: una versión no default no admite precio tecleado (I-4).
+        ...(productType === 'raw' && language !== 'en' ? { language } : {}),
+        ...(productType === 'raw' && ids.stampProductId != null ? { cardProductId: ids.stampProductId } : {}),
       }),
     onSuccess: (data) => {
       setSelectedCard(null);
@@ -277,7 +309,7 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
           ) : (
             <Button
               onClick={() => create.mutate()}
-              disabled={!selectedCard || gradedCertMissing || create.isPending}
+              disabled={!selectedCard || gradedCertMissing || create.isPending || (idsEnabled && !ids.canCreate)}
               loading={create.isPending}
             >
               {t('createItem')}
@@ -569,7 +601,7 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
         {productType === 'raw' && (
           <p className="rounded-md bg-success-bg px-3 py-2 text-sm text-success">{t('conditionNm')}</p>
         )}
-        {showFinishSelect ? (
+        {idsEnabled && ids.finishOptions ? null : showFinishSelect ? (
           <Select
             label={t('finish')}
             options={finishOptions.map((f) => ({ value: f, label: tFinish(f) }))}
@@ -585,6 +617,22 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
               {t('finishFixedSingle', { finish: tFinish(availableFinishes[0] ?? 'normal') })}
             </p>
           )
+        )}
+        {/* §IDS-UX.2: Tipo → Acabado → Idioma → Versión → precio calculado → Cantidad/Adquisición. */}
+        {idsEnabled && selectedCard && (
+          <IdsCaptureFields
+            card={selectedCard}
+            model={ids}
+            data={versionsQuery.data}
+            isLoading={versionsQuery.isLoading}
+            finish={finish}
+            onFinish={setFinish}
+            language={language}
+            onLanguage={setLanguage}
+            onStamp={setStampProductId}
+            spanishPct={settingsQuery.data?.spanishMarketPct ?? null}
+            onAttached={(res) => queryClient.setQueryData(['card-versions', selectedCard.id], res)}
+          />
         )}
         {productType === 'graded' && (
           <>

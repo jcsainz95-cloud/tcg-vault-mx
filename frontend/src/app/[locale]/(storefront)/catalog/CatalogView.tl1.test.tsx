@@ -7,6 +7,7 @@ import * as api from '@/lib/api';
 import type { CatalogFacetsDTO, CardDTO, GroupedListingListResponse, GroupedListingSummaryDTO } from '@/types/contract';
 import { QUERY_DEFAULTS } from '@/components/Providers';
 import { CatalogView } from './CatalogView';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 /**
  * Rechazo del techlead sobre `561ad425` (stream `claude/mkt-conversion`):
@@ -49,6 +50,7 @@ function card(id: string): CardDTO {
 }
 function grp(id: string): GroupedListingSummaryDTO {
   return {
+    ...IDS_EN_SUMMARY,
     representativeInventoryItemId: `inv-${id}`,
     productType: 'raw',
     rawCondition: 'NM',

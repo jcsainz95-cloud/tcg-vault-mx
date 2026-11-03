@@ -41,6 +41,7 @@ import { SealedDetailView } from '../sellado/[inventoryItemId]/SealedDetailView'
 import { GuestCheckoutView } from '../checkout/GuestCheckoutView';
 import { CheckoutView } from '../checkout/CheckoutView';
 import { setCheckoutViewport } from '../checkout/test-viewport';
+import { IDS_EN } from '@/test/ids-defaults';
 
 const FINAL = { es: /ventas son finales/gi, en: /sales are final/gi } as const;
 const T8 = {
@@ -88,6 +89,7 @@ const refValue: ListingDTO['referenceValue'] = {
   capturedDate: '2026-08-13',
 };
 const unit: ListingDTO = {
+  ...IDS_EN,
   inventoryItemId: 'inv-a',
   card,
   productType: 'raw',
@@ -101,6 +103,7 @@ const unit: ListingDTO = {
   sellable: true,
 };
 const group: GroupedListingDTO = {
+  ...IDS_EN,
   representativeInventoryItemId: 'inv-a',
   card,
   productType: 'raw',
@@ -146,6 +149,7 @@ describe.each(['es', 'en'] as const)('B4 · «ventas finales» una sola vez ante
       group: g,
       listings: [
         {
+          ...IDS_EN,
           inventoryItemId: 'inv-a',
           card: g.card,
           productType: 'sealed',

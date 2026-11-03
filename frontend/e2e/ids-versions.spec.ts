@@ -1,0 +1,162 @@
+import { test, expect, type Page } from '@playwright/test';
+import { mockOnly } from './utils/auth';
+
+/**
+ * §IDS (API_CONTRACT §IDS.5/§IDS.9 IDS-F3/F6; DESIGN_SYSTEM §IDS-UX.6/.8) — candados de NAVEGADOR del selector de
+ * versión en burbujas y de la teja con insignias. Geometría real (Chromium), no clases.
+ *  (9)  a 360 px las burbujas ES caben sin envolver y las EN de liga crecen sin desbordar;
+ *  (10) cada burbuja ≥ 44 px de alto (171×64 a 390);
+ *  (11) ninguna versión agotada en el DOM (N burbujas = N entradas de `versions[]`);
+ *  (12) con una sola versión no hay `radiogroup`;
+ *  (14) el borde de la burbuja se computa como `--color-border-control` (rgba(26,26,24,.55)), no `-strong`;
+ *  (16) forma 2×N: 6 entradas ⇒ 3 rótulos de fila (12 px arriba / 6 px abajo), sin insignia dentro, un solo tab-stop;
+ *  (6)  la insignia de la teja nunca es hija del contenedor de la foto;
+ *  (15) la ficha técnica de la teja con `finishLabel` de 11 caracteres («Cosmos Holo») no envuelve a 360.
+ * Datos: fixtures del simulador (`c-ids-pikachu-057` 2×N, `c-ids-dedenne-084` 2×2; `lib/mock/fixtures.ts`). Sin
+ * etiqueta `@real`: el seed del stack aún no trae versiones (§IDS lo construye backend en paralelo); contra el stack
+ * sembrado se medirá cuando el seed tenga una carta con versiones (FRONTEND_NOTES §IDS-FE, pendiente).
+ */
+const FIXTURE = 'cartas con versiones del simulador (c-ids-*); el seed del stack aún no las trae (backend §IDS)';
+
+const PIKA = '/es/catalog/c-ids-pikachu-057';
+const DEDE = '/es/catalog/c-ids-dedenne-084';
+
+async function pillFacts(page: Page) {
+  return page.evaluate(() => {
+    const pills = [...document.querySelectorAll<HTMLElement>('[data-testid="version-pill"]')];
+    return pills.map((p) => {
+      const r = p.getBoundingClientRect();
+      const name = p.firstElementChild as HTMLElement;
+      const nameLines = Math.round(name.getBoundingClientRect().height / parseFloat(getComputedStyle(name).lineHeight));
+      return {
+        key: p.dataset.optionKey,
+        w: Math.round(r.width * 10) / 10,
+        h: Math.round(r.height * 10) / 10,
+        right: r.right,
+        nameLines,
+        border: getComputedStyle(p).borderTopColor,
+        radius: getComputedStyle(p).borderTopLeftRadius,
+        tabIndex: p.tabIndex,
+        chips: p.querySelectorAll('[data-version-chip]').length,
+        checked: p.getAttribute('aria-checked'),
+      };
+    });
+  });
+}
+
+for (const width of [360, 390] as const) {
+  test.describe(`Ficha con versiones · ${width} px`, () => {
+    test.use({ viewport: { width, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+
+    test(`(9)(10)(14) 2×2: ES en una línea, EN de liga sin desborde, ≥ 44 px, borde -control`, async ({ page }) => {
+      mockOnly(FIXTURE);
+      await page.goto(DEDE);
+      await expect(page.getByRole('radiogroup', { name: 'IDIOMA Y VERSIÓN' })).toBeVisible();
+      const f = await pillFacts(page);
+      test.info().annotations.push({ type: `ids-2x2-${width}`, description: JSON.stringify(f) });
+      expect(f).toHaveLength(4);
+      for (const p of f) {
+        expect(p.h, `alto ${p.key}`).toBeGreaterThanOrEqual(44);
+        expect(p.right, `sin desborde ${p.key}`).toBeLessThanOrEqual(width);
+        // §IDS-UX.8: idle = rgba(26,26,24,.55); elegida = tinta sólida.
+        if (p.checked !== 'true') expect(p.border, `borde ${p.key}`).toBe('rgba(26, 26, 24, 0.55)');
+        expect(parseFloat(p.radius), `píldora ${p.key}`).toBeGreaterThan(20);
+      }
+      // «Español · De liga» cabe en una línea (aritmética 108 de 129 px útiles).
+      const esLeague = f.find((p) => p.key === 'es.648800.normal')!;
+      expect(esLeague.nameLines, JSON.stringify(esLeague)).toBe(1);
+      expect(f.find((p) => p.key === 'es')!.nameLines).toBe(1);
+      if (width === 390) {
+        // 171×64 a 390 (IDS-UX.8): (390 − 2×gutter − 8) ÷ 2.
+        expect(f[0].h).toBeGreaterThanOrEqual(64);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    });
+
+    test(`(9) EN: «Spanish»+«Prize Pack» puede bajar a 2ª línea pero no desborda`, async ({ page }) => {
+      mockOnly(FIXTURE);
+      await page.goto(DEDE.replace('/es/', '/en/'));
+      const f = await pillFacts(page);
+      test.info().annotations.push({ type: `ids-2x2-en-${width}`, description: JSON.stringify(f) });
+      for (const p of f) {
+        expect(p.right).toBeLessThanOrEqual(width);
+        expect(p.h).toBeGreaterThanOrEqual(44);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    });
+
+    test(`(11)(16) 2×N: 6 burbujas (las de versions[]), 3 rótulos 12/6, sin insignia dentro, un solo tab-stop`, async ({ page }) => {
+      mockOnly(FIXTURE);
+      await page.goto(PIKA);
+      const group = page.getByRole('radiogroup', { name: 'IDIOMA Y VERSIÓN' });
+      await expect(group).toBeVisible();
+      const f = await pillFacts(page);
+      expect(f).toHaveLength(6);
+      expect(f.filter((p) => p.tabIndex === 0)).toHaveLength(1);
+      expect(f.every((p) => p.chips === 0)).toBe(true);
+      for (const p of f) expect(p.h).toBeGreaterThanOrEqual(44);
+      const labels = await page.getByTestId('version-row-label').evaluateAll((els) =>
+        els.map((el) => {
+          const cs = getComputedStyle(el);
+          return { text: el.textContent, mt: cs.marginTop, mb: cs.marginBottom, size: cs.fontSize };
+        }),
+      );
+      test.info().annotations.push({ type: `ids-2xN-${width}`, description: JSON.stringify({ f, labels }) });
+      expect(labels).toHaveLength(3);
+      expect(labels.map((l) => l.mb)).toEqual(['6px', '6px', '6px']);
+      expect(labels.map((l) => l.mt)).toEqual(['0px', '12px', '12px']);
+      expect(labels.every((l) => l.size === '12px')).toBe(true);
+      // Teclado: la flecha mueve y elige.
+      await page.locator('[data-testid="version-pill"][tabindex="0"]').focus();
+      await page.keyboard.press('ArrowRight');
+      await expect(page.locator('[data-testid="version-pill"][aria-checked="true"]')).toHaveAttribute('data-option-key', 'es');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    });
+  });
+}
+
+test('(12) con una sola versión no hay radiogroup (Charizard del simulador)', async ({ page }) => {
+  mockOnly('Charizard del simulador tiene una sola versión');
+  await page.goto('/es/catalog/c-charizard');
+  await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(page.getByRole('radiogroup')).toHaveCount(0);
+});
+
+test.describe('Teja con insignias · 360 px', () => {
+  test.use({ viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+  test('(6) insignias fuera de la foto; (15) «Cosmos» (forma corta de «Cosmos Holo») en la ficha técnica sin envolver', async ({ page }) => {
+    mockOnly(FIXTURE);
+    await page.goto('/es/catalog?language=es&stamped=true');
+    const tiles = page.locator('main a[href*="/catalog/"]').filter({ has: page.locator('img') });
+    await tiles.first().waitFor();
+    const facts = await page.evaluate(() => {
+      const links = [...document.querySelectorAll<HTMLElement>('main a[href*="/catalog/"]')].filter((a) => a.querySelector('img'));
+      return links.slice(0, 4).map((a) => {
+        const tile = a.parentElement!;
+        const chips = tile.querySelector<HTMLElement>('[data-testid="tile-version-chips"]');
+        // foto · nombre · set · ficha técnica (ListingSpec, renglón mono): el 4.º hijo de la teja.
+        const spec = tile.children[3] as HTMLElement | undefined;
+        // `leading-none` ⇒ line-height = font-size (11 px).
+        const lh = spec ? parseFloat(getComputedStyle(spec).lineHeight) || parseFloat(getComputedStyle(spec).fontSize) : 0;
+        return {
+          href: a.getAttribute('href'),
+          chipsInPhoto: !!a.querySelector('[data-version-chip]'),
+          chipsH: chips ? chips.getBoundingClientRect().height : null,
+          spec: spec?.textContent ?? null,
+          specLines: spec ? Math.round(spec.getBoundingClientRect().height / lh) : null,
+        };
+      });
+    });
+    test.info().annotations.push({ type: 'ids-tile-360', description: JSON.stringify(facts) });
+    expect(facts.length).toBeGreaterThanOrEqual(2);
+    for (const f of facts) {
+      expect(f.chipsInPhoto, JSON.stringify(f)).toBe(false);
+      // Una fila de insignias (alto 20; nunca dos filas).
+      expect(f.chipsH, JSON.stringify(f)).toBeLessThanOrEqual(21);
+      expect(f.href, JSON.stringify(f)).toMatch(/\?version=es\.\d+\.[a-z_]+$/);
+    }
+    const cosmos = facts.find((f) => /Cosmos/i.test(f.spec ?? ''));
+    expect(cosmos, JSON.stringify(facts)).toBeDefined();
+    expect(cosmos!.specLines, JSON.stringify(cosmos)).toBe(1);
+  });
+});

@@ -5,6 +5,7 @@ import { CardDetailView } from './CardDetailView';
 import * as api from '@/lib/api';
 import { setStoredUser } from '@/lib/session';
 import type { CardDTO, GroupedListingDTO, ListingDTO } from '@/types/contract';
+import { IDS_EN } from '@/test/ids-defaults';
 
 /**
  * MKT-CONV.2 (vMKT-CONV-2, L-9 en `e2e/measurement-on.spec.ts`): en lg el renglón de compra sube por encima de la
@@ -48,6 +49,7 @@ const refValue: ListingDTO['referenceValue'] = {
 
 function unit(id: string, over: Partial<ListingDTO> = {}): ListingDTO {
   return {
+    ...IDS_EN,
     inventoryItemId: id,
     card,
     productType: 'raw',
@@ -65,6 +67,7 @@ function unit(id: string, over: Partial<ListingDTO> = {}): ListingDTO {
 
 function grp(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
   return {
+    ...IDS_EN,
     representativeInventoryItemId: 'inv-a',
     card,
     productType: 'raw',

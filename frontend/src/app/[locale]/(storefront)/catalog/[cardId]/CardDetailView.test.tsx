@@ -11,6 +11,7 @@ import type {
   GroupedListingDTO,
   ListingDTO,
 } from '@/types/contract';
+import { IDS_EN } from '@/test/ids-defaults';
 
 // El CTA «En el carrito» navega con el router de next-intl; se mockea para
 // aislar la vista y espiar la navegación (mismo patrón que BuylistView.test).
@@ -50,6 +51,7 @@ const refValue: ListingDTO['referenceValue'] = {
 // v1.38-grouped-listings: una PIEZA física (units[], por-pieza) para resolver el add-to-cart.
 function unit(id: string, over: Partial<ListingDTO> = {}): ListingDTO {
   return {
+    ...IDS_EN,
     inventoryItemId: id,
     card,
     productType: 'raw',
@@ -68,6 +70,7 @@ function unit(id: string, over: Partial<ListingDTO> = {}): ListingDTO {
 // v1.38-grouped-listings: un GRUPO (la grilla de la ficha) por (variante, condición) con stockCount.
 function grp(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
   return {
+    ...IDS_EN,
     representativeInventoryItemId: 'inv-a',
     card,
     productType: 'raw',

@@ -20,6 +20,8 @@
   /* Reglas: el único separador del sistema. Nada de cajas ni sombras. */
   --color-border: rgba(26, 26, 24, 0.16);
   --color-border-strong: rgba(26, 26, 24, 0.32);
+  /* §IDS-UX.8: borde de las burbujas del selector de versión (≥ 3:1 sobre papel; ⛔ no sustituye a -strong, 1.9:1). */
+  --color-border-control: rgba(26, 26, 24, 0.55);
 
   /* Tinta. --color-text-muted a #6E695E ≈ 4.55:1 sobre el papel (AA). */
   --color-text: #1a1a18;

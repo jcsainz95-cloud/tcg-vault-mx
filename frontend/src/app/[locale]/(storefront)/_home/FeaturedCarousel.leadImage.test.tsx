@@ -11,6 +11,7 @@ import { OPTIMIZED_IMAGE_SIZES } from '@/components/ui/CardImage';
 import { FeaturedCarousel } from './FeaturedCarousel';
 import { GradingGemsShelf } from './GradingGemsShelf';
 import { GradingFootnoteBoundary } from '../_shared/grading/GradingFootnote';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 /**
  * 🔒 DYN-F8 (a) · API_CONTRACT §DYN.6.6, ARCHITECTURE §4.DYN (f) 7 — la foto de la teja LÍDER sale de `/_next/image`
@@ -59,6 +60,7 @@ function card(i: number, large: string | null = `https://img.example/${i}-l.png`
 
 function tile(i: number, large?: string | null): FeaturedListingDTO {
   return {
+    ...IDS_EN_SUMMARY,
     representativeInventoryItemId: `inv-${i}`,
     productType: 'raw',
     rawCondition: 'NM',

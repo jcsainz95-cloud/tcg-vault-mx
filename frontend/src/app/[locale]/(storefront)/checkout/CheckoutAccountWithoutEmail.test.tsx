@@ -31,6 +31,7 @@ import { createCheckoutSession, getCheckoutQuote } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { clearUnavailableNotice } from './unavailable-notice';
 import { CheckoutView } from './CheckoutView';
+import { IDS_EN } from '@/test/ids-defaults';
 
 /** Piezas muertas del escenario: id → cardName (null = ya no existe en BD). */
 type Dead = Record<string, string | null>;
@@ -58,6 +59,7 @@ function customerQuote(ids: string[], dead: Dead): CheckoutQuoteResponse {
     // v1.51-b: el preview es `{ inventoryItemId, card, unitPriceCents }` y `card` es un
     // `OrderItemCardDTO` (§4). `productType`/`rawCondition` van DENTRO de `card`.
     items: listings.map((l) => ({
+      ...IDS_EN,
       inventoryItemId: l.inventoryItemId,
       card: orderItemCard(l),
       unitPriceCents: l.displayPriceCents ?? 0,

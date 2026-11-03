@@ -180,7 +180,10 @@ export function codigoDe(abs: string, etiqueta = abs): string {
   const yaEsta = cache.get(abs);
   if (yaEsta !== undefined) return yaEsta;
   const src = readFileSync(abs, 'utf8');
-  const { limpio, lineasConCodigo } = analizarFuente(src, etiqueta);
+  // §IDS-FE (2026-11-03): se parsea con la RUTA, no con la etiqueta. `analizarFuente` decide TSX/TS por la extensión
+  // del nombre que recibe; con una etiqueta sin extensión («CardDetailView») un `.tsx` se parseaba como TS y el JSX
+  // quedaba en recuperación de errores: comentarios JSX leídos como código (medido: MIV-F7 rojo por un comentario).
+  const { limpio, lineasConCodigo } = analizarFuente(src, abs);
   exigirQueConserveElCodigo(src, limpio, etiqueta, lineasConCodigo);
   cache.set(abs, limpio);
   return limpio;

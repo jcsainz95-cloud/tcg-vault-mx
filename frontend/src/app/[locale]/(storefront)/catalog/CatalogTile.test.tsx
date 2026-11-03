@@ -5,6 +5,7 @@ import { expectNoMicroNotice, expectVisibleMicroNotice } from '@/test/grading';
 import { CatalogTile } from './CatalogTile';
 import { GradingFootnoteBoundary } from '../_shared/grading/GradingFootnote';
 import type { CardDTO, GradedEstimateDTO, GroupedListingSummaryDTO } from '@/types/contract';
+import { FINISH_LABEL_OF, IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 // La teja usa <Link> y useRouter de next-intl; se mockean para aislarla del router.
 vi.mock('@/i18n/navigation', () => ({
@@ -37,6 +38,7 @@ const card: CardDTO = {
 // justamente lo que el tipo propio compra frente a un campo opcional).
 function listing(over: Partial<GroupedListingSummaryDTO> = {}): GroupedListingSummaryDTO {
   return {
+    ...IDS_EN_SUMMARY,
     representativeInventoryItemId: 'inv-a',
     card,
     productType: 'raw',
@@ -49,6 +51,8 @@ function listing(over: Partial<GroupedListingSummaryDTO> = {}): GroupedListingSu
     ivaRatePct: 16,
     currency: 'MXN',
     ...over,
+    // §IDS.5: el acabado de cliente lo da el servidor y es coherente con `finish` (sin liga).
+    finishLabel: over.finishLabel ?? FINISH_LABEL_OF[over.finish ?? 'holofoil'],
   };
 }
 
@@ -61,10 +65,11 @@ describe('CatalogTile · P-39 grid denso conserva la imagen chica', () => {
 });
 
 describe('CatalogTile · P-40 acabado legible', () => {
-  it('muestra el acabado (Holofoil) en la ficha técnica de la teja', () => {
+  it('muestra el acabado (Holo) en la ficha técnica de la teja', () => {
     renderWithIntl(<CatalogTile listing={listing({ finish: 'holofoil' })} inCart={false} onAdd={vi.fn()} />, 'es');
-    // ListingSpec renderiza el acabado como último segmento del renglón mono (RAW · NM · HOLOFOIL).
-    expect(screen.getByText(/Holofoil/)).toBeInTheDocument();
+    // ListingSpec renderiza el acabado como último segmento del renglón mono (RAW · NM · HOLO). §IDS.5 (v1.116.1): la
+    // teja usa `finishLabel` («Holo»), ya no el nombre de `finish` («Holofoil»).
+    expect(screen.getByText(/· Holo$/)).toBeInTheDocument();
   });
 
   it('muestra «Reverse Holo» cuando el grupo es reverse_holo', () => {
@@ -231,7 +236,7 @@ describe('CatalogTile · compacta solo en < sm (MKT-CONV.8)', () => {
     const long = 'Charizard ex Special Illustration Rare Obsidian Flames Tera Type Darkness Alternate Full Art';
     renderWithIntl(<CatalogTile listing={listing({ card: { ...card, name: long } })} inCart={false} onAdd={vi.fn()} />, 'es');
     const name = screen.getByTestId('tile-name');
-    expect(cls(name)).toEqual(expect.arrayContaining(['line-clamp-2', 'sm:line-clamp-none', 'mt-2', 'sm:mt-3']));
+    expect(cls(name)).toEqual(expect.arrayContaining(['line-clamp-2', 'sm:line-clamp-none', 'mt-1.5', 'sm:mt-3']));
     // Dos enlaces a la ficha (arte y nombre): el del nombre lleva el nombre completo como nombre accesible.
     expect(screen.getAllByRole('link', { name: long }).some((a) => name.contains(a))).toBe(true);
   });
@@ -268,10 +273,10 @@ describe('CatalogTile · compacta solo en < sm (MKT-CONV.8)', () => {
     expect(stock).toHaveTextContent('Queda 1');
   });
 
-  it('CTA: `pt-2` en < sm (`pt-3` en ≥ sm) y el toque no se achica (44 px)', () => {
+  it('CTA: `pt-1.5` en < sm (§IDS-UX.4 P2) (`pt-3` en ≥ sm) y el toque no se achica (44 px)', () => {
     renderWithIntl(<CatalogTile listing={listing()} inCart={false} onAdd={vi.fn()} />, 'es');
     const btn = screen.getByRole('button', { name: 'Añadir al carrito' });
-    expect(cls(btn.parentElement!)).toEqual(expect.arrayContaining(['pt-2', 'sm:pt-3']));
+    expect(cls(btn.parentElement!)).toEqual(expect.arrayContaining(['pt-1.5', 'sm:pt-3']));
     expect(cls(btn)).toContain('min-h-[44px]');
   });
 });
@@ -293,7 +298,7 @@ describe('CatalogTile · el corte del estimado viene de la página; la foto 4:5 
       'es',
     );
 
-  it('catálogo (default) bajo una boundary con corte: el badge lleva ese corte; la foto es 4:5 en < sm y 5:7 en ≥ sm', () => {
+  it('catálogo (default) bajo una boundary con corte: el badge lleva ese corte; la foto es 5:6 en < sm (§IDS-UX.4 P1) y 5:7 en ≥ sm', () => {
     const { container } = tileWith(undefined, 'hidden sm:block');
     const badge = screen.getByTestId('estimate-badge');
     expect(cls(badge)).toEqual(expect.arrayContaining(['hidden', 'sm:block']));
@@ -301,7 +306,7 @@ describe('CatalogTile · el corte del estimado viene de la página; la foto 4:5 
     expect(badge).toHaveTextContent(/no evaluamos esta carta/i);
     expect(badge).toHaveTextContent('MX$2,900.00');
     const well = container.querySelector('img')!.parentElement!;
-    expect(cls(well)).toEqual(expect.arrayContaining(['aspect-[4/5]', 'sm:aspect-[5/7]']));
+    expect(cls(well)).toEqual(expect.arrayContaining(['aspect-[5/6]', 'sm:aspect-[5/7]']));
     expect(cls(well)).not.toContain('aspect-[5/7]');
   });
 
@@ -315,6 +320,6 @@ describe('CatalogTile · el corte del estimado viene de la página; la foto 4:5 
     expect(cls(screen.getByTestId('estimate-badge'))).not.toContain('hidden');
     const well = container.querySelector('img')!.parentElement!;
     expect(cls(well)).toContain('aspect-[5/7]');
-    expect(cls(well)).not.toContain('aspect-[4/5]');
+    expect(cls(well)).not.toContain('aspect-[5/6]');
   });
 });

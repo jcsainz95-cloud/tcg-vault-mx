@@ -1,7 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { measurementCookies, recordRequests, type RequestLog } from './utils/measurement';
-import { loginAs } from './utils/auth';
+import { loginAs, needsSeed } from './utils/auth';
 import { gradingScenario } from './utils/grading';
 
 /**
@@ -760,7 +760,8 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
           // Ni la cifra ni el micro-aviso llegan al árbol de accesibilidad de la teja.
           expect(snapshot, `árbol accesible de la teja a ${w}`).not.toMatch(/PSA 10|≈/);
           expect(snapshot).not.toContain(t(locale, 'catalog.gradingNote.callSr'));
-          expect(Math.abs(f.wellH - (f.wellW * 5) / 4), `foto 4:5 a ${w}: ${JSON.stringify(f)}`).toBeLessThanOrEqual(1);
+          // §IDS-UX.4 P1: el pozo < sm pasa de 4:5 a 5:6 (para la fila de insignias, criterio 943).
+          expect(Math.abs(f.wellH - (f.wellW * 6) / 5), `foto 5:6 a ${w}: ${JSON.stringify(f)}`).toBeLessThanOrEqual(1);
         } else {
           await expect(badge, `badge a ${w}`).toBeVisible();
           await expect(badge, `cifra a ${w}`).toContainText(/PSA 10/);
@@ -771,6 +772,78 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
       }
     });
   }
+
+  // §IDS-UX.6 candado (1) + IDS-UX.8 (15) (PROJECT 943; DESIGN_SYSTEM §IDS-UX.4 P1–P3): a 360×740 con el aviso abierto,
+  // la PRIMERA fila con dos tejas que llevan DOS insignias y el peor caso de L-8 (`price5`: nombre de 120 + 5 cifras +
+  // «Queda 1») deja margen ≥ 20 px, y el par de insignias no envuelve. La fila de insignias es la REAL: se copia el
+  // marcado que React pintó en una teja de liga en español (`?language=es&stamped=true` del simulador) y se inserta en
+  // las dos primeras tejas del catálogo SIN filtros (con filtros, la barra de chips de < lg suma 48 px y no es el caso
+  // del diseño), como el resto de L-8 escribe su peor caso en el DOM. Pares: «Español»+«Prerelease» (ES) y
+  // «Spanish»+«Prize Pack» (EN). Mutación que lo pone rojo: quitar P1 (foto 5:6 → 4:5) o P3 (`py-0.5` → `py-1.5`).
+  async function seedChipsRow(page: Page, locale: 'es' | 'en', stampText: string) {
+    await page.goto(`/${locale}/catalog?language=es&stamped=true`);
+    const row = page.locator('main [data-testid="tile-version-chips"]').first();
+    await row.waitFor();
+    const html = await row.evaluate((el) => el.outerHTML);
+    await page.goto(`/${locale}/catalog`);
+    await expect(page.getByTestId('consent-banner')).toBeVisible();
+    await page.locator('main a[href*="/catalog/"] img').first().waitFor();
+    await settle(page);
+    await seedWorstTiles(page, 'price5', locale);
+    return page.evaluate(
+      ({ html, stampText }) => {
+        const tiles = [...document.querySelectorAll<HTMLElement>('main a[href*="/catalog/"]')]
+          .filter((a) => a.querySelector('img'))
+          .slice(0, 2)
+          .map((a) => a.parentElement!);
+        return tiles.map((tile) => {
+          const spec = tile.children[3]; // foto · nombre · set · ficha técnica → la fila va DESPUÉS (IDS-UX.4)
+          spec.insertAdjacentHTML('afterend', html);
+          const row = tile.querySelector<HTMLElement>('[data-testid="tile-version-chips"]')!;
+          const stamp = row.querySelector<HTMLElement>('[data-version-chip="stamp"]');
+          if (stamp) stamp.textContent = stampText;
+          const kids = [...row.children].map((k) => k.getBoundingClientRect());
+          return {
+            rowH: Math.round(row.getBoundingClientRect().height * 10) / 10,
+            sameLine: kids.length < 2 || Math.abs(kids[0].top - kids[1].top) < 1,
+            pairW: Math.round((kids[kids.length - 1].right - kids[0].left) * 10) / 10,
+          };
+        });
+      },
+      { html, stampText },
+    );
+  }
+
+  for (const [locale, widest] of [['es', 'Prerelease'], ['en', 'Prize Pack']] as const) {
+    test(`IDS L-8: dos insignias en la 1ª fila a 360×740 con banner, peor caso price5, margen ≥ 20 y par «${widest}» sin envolver (${locale})`, async ({ page, context }) => {
+      needsSeed('piezas de liga en español publicadas (backend §IDS: seed con versiones)');
+      await setup(context);
+      await page.setViewportSize({ width: 360, height: 740 });
+      const pairs = await seedChipsRow(page, locale, widest);
+      const g = await catalogGeometry(page);
+      testInfo().annotations.push({ type: `IDS-L-8-${locale}-360`, description: JSON.stringify({ g, pairs }) });
+      for (const p of pairs) {
+        expect(p.sameLine, `par «${widest}» en una fila: ${JSON.stringify(p)}`).toBe(true);
+        expect(p.rowH, `fila de insignias de una línea: ${JSON.stringify(p)}`).toBeLessThanOrEqual(21);
+      }
+      expect(g.complete, `tejas completas: ${JSON.stringify(g)}`).toBeGreaterThanOrEqual(2);
+      expect(g.margin, `margen al límite de L-8 a 360×740 con insignias: ${JSON.stringify(g)}`).toBeGreaterThanOrEqual(20);
+    });
+  }
+
+  // ⚠️ FALLO DECLARADO (IDS-UX.1 «Ancho a 360 px», aritmética NO MEDIDA del diseño: «Spanish»+«Championship» = 146 de
+  // 152 px). MEDIDO en Chromium (Archivo 12/600, px 6, gap 4): «Spanish» 57.3 + 4 + «Championship» 94.6 = 155.9 > 152 ⇒
+  // el par envuelve a dos filas (+24 px a esa teja). Lo decide ux-ui con marketing (FRONTEND_NOTES §IDS-FE); `test.fail`
+  // lo cobra en los dos sentidos: hoy pasa porque falla, y el día que el par quepa se pone rojo para quitar esta marca.
+  test('IDS L-8 (EN «Spanish»+«Championship»): el par NO cabe en una fila a 360 — pendiente de ux-ui', async ({ page, context }) => {
+    test.fail(true, 'medido 155.9 > 152 px: pendiente de decisión de ux-ui/marketing (IDS-UX.1)');
+    needsSeed('piezas de liga en español publicadas (backend §IDS: seed con versiones)');
+    await setup(context);
+    await page.setViewportSize({ width: 360, height: 740 });
+    const pairs = await seedChipsRow(page, 'en', 'Championship');
+    testInfo().annotations.push({ type: 'IDS-L-8-en-championship-360', description: JSON.stringify(pairs) });
+    for (const p of pairs) expect(p.sameLine, `par «Championship» en una fila: ${JSON.stringify(p)}`).toBe(true);
+  });
 
   // L-10. ≥ sm la teja no cambia; < sm se compacta. Mutación que lo pone rojo: aplicar la compactación sin el prefijo
   // de ancho (p. ej. `hidden` en la rareza sin `sm:inline-block`). Los altos (±1 px de la captura previa) se anotan y se

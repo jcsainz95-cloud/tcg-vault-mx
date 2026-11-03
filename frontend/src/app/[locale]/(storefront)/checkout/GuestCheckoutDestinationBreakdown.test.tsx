@@ -27,6 +27,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import { getGuestCheckoutQuote } from '@/lib/api';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { setCheckoutViewport } from './test-viewport';
+import { IDS_EN } from '@/test/ids-defaults';
 
 // Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
 setCheckoutViewport('desktop');
@@ -42,6 +43,7 @@ function guestQuote(ids: string[]): GuestCheckoutQuoteResponse {
   return {
     // v1.51-b: `OrderItemCardDTO`, no el `CardDTO` del fixture (§4-G.1 comparte forma con §4).
     items: ids.map((id, i) => ({
+      ...IDS_EN,
       inventoryItemId: id,
       card: orderItemCard(listing),
       unitPriceCents: 12500 + i,

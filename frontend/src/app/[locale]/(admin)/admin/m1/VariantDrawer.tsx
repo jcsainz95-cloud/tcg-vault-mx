@@ -34,6 +34,7 @@ import { VariantPriceConsole } from '@/components/master-set/VariantPriceConsole
 import { PerLineErrors } from '@/components/master-set/PerLineErrors';
 import { localUid } from '@/components/master-set/capture';
 import { QuickAddSection, type QuickAddTarget } from './QuickAdd';
+import { PieceVersion, PieceVersionFilters, type LanguageFilter, type StampFilter } from './PieceVersion';
 import { QuickRemoveSection } from './QuickRemove';
 import { ItemDetailModal } from './ItemDetailModal';
 import { SealedFinalPrice } from './SealedFinalPrice';
@@ -119,8 +120,11 @@ export function VariantDrawer(props: VariantDrawerProps) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // §IDS-UX.3: filtros de un toque Idioma / Sello (solo raw: la versión es solo de raw NM, D-IDS-K).
+  const [langFilter, setLangFilter] = useState<LanguageFilter>('all');
+  const [stampFilter, setStampFilter] = useState<StampFilter>('all');
   const pieces = useQuery({
-    queryKey: ['variant-pieces', cardId, finish, productType, props.gradeInfo?.gradeValue ?? null],
+    queryKey: ['variant-pieces', cardId, finish, productType, props.gradeInfo?.gradeValue ?? null, langFilter, stampFilter],
     queryFn: () =>
       getAdminInventory({
         cardId,
@@ -128,6 +132,8 @@ export function VariantDrawer(props: VariantDrawerProps) {
         productType,
         ownerType: 'platform',
         pageSize: 100,
+        ...(productType === 'raw' && langFilter !== 'all' ? { language: langFilter } : {}),
+        ...(productType === 'raw' && stampFilter !== 'all' ? { stamped: stampFilter } : {}),
       }),
   });
 
@@ -350,6 +356,14 @@ export function VariantDrawer(props: VariantDrawerProps) {
               </section>
             )}
 
+            {productType === 'raw' && (
+              <PieceVersionFilters
+                language={langFilter}
+                stamped={stampFilter}
+                onLanguage={setLangFilter}
+                onStamped={setStampFilter}
+              />
+            )}
             <PiecesSection
               rows={rows}
               query={pieces}
@@ -584,6 +598,8 @@ function PiecesSection({
                       </button>
                     )}
                     <StatusBadge domain="inventory" value={piece.status} />
+                    {/* §IDS-UX.3: Idioma (EN gris / «Español») y Sello (insignia + tipo exacto, o —); solo raw. */}
+                    {piece.productType === 'raw' && <PieceVersion version={piece.version} />}
                     {sealedPieceLinkOf(piece) === 'linked' ? (
                       /* §70.3 (a): pieza LIGADA ⇒ solo lectura; el precio es del producto (bloque de arriba). */
                       <span className="ml-auto">
