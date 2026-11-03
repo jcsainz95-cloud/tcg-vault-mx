@@ -8,7 +8,7 @@
 
 ## §IDS-FE · Español y versiones de liga (2026-11-03, rama `claude/ids-diseno`; contrato v1.116.2⟨ids⟩, DESIGN_SYSTEM §IDS-UX vIDS-6)
 
-**Estado vigente (medido 2026-11-03 sobre `8ed6d67f`).** Construido contra el contrato; consume el servidor real de §IDS
+**Estado vigente (medido 2026-11-03 sobre `8ed6d67f`; rechazo de QA sobre `f2cd0e31` cerrado abajo, «Re-pase QA»).** Construido contra el contrato; consume el servidor real de §IDS
 (backend ≥ `58c7fbc8`). Mocks solo en el simulador (`lib/mock/versions.ts`: `finishLabelOf`, `optionKey`, `versions[]` y
 su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cartas `c-ids-pikachu-057` 2×N,
 `c-ids-dedenne-084` 2×2 y `c-ids-poffin-6` = peor caso: sin liga + 6 filas de liga, fuera de `mockCards`).
@@ -27,6 +27,19 @@ su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cart
   acabado «Non-holo»; teja «Cosmos»/«1st Edition».
 - **Captura (IDS-F1):** desglose en una línea con los campos DEL COMBO: «Base: {versión} en inglés · {base} × {X} %
   (español)» / «… · {base} (mercado de TCGplayer)»; sin base del servidor ⇒ sin cifra. Sin aritmética y sin leer Ajustes.
+  **Errores** (QA 2026-11-03): `GET …/versions` falla ⇒ aviso «No se cargaron las versiones» + «Reintentar» (antes caía
+  en silencio a los controles de siempre); `attach` falla ⇒ aviso en la caja de candidatas + «Recargar versiones».
+  **Textos para revisión de ux-ui** (`admin.m1.ids`, tono de `createErrorTitle`/`createError` de M1): versiones —
+  título «No se cargaron las versiones», cuerpo «No pudimos cargar las versiones de esta carta: sin ellas no hay precio
+  calculado ni versiones de liga. Si la carta es en español o de liga, reintenta antes de darla de alta.», botón
+  «Reintentar»; attach — título «No se pudo ligar la versión», 404 «Esa versión ya no está entre las pendientes de ligar.
+  Recarga las versiones para ver cómo quedó la carta.», 409 «Esa versión ya está ligada a una carta. Recarga las
+  versiones para ver cómo quedó.», otro «El servidor no respondió. Inténtalo de nuevo; si sigue, recarga las versiones.»,
+  botón «Recargar versiones». EN equivalentes en `messages/en.json`.
+- **Carrito, checkout, «Mi pedido», seguimiento (petición 8, IDS-UX.4 «Carrito»):** `useVersionText().detail()` = la
+  línea muted bajo las insignias, sin el idioma y solo si el tipo largo difiere de la insignia: ES sin liga ⇒ ninguna;
+  «De liga (Prize Pack)»; EN «Prize Pack» ⇒ ninguna, «League (League promo)». `line()` («Español · De liga (…)») queda
+  para el deck (IDS-UX.5); si la regla vale también para el deck es pregunta abierta a ux-ui.
 - **Filtros (IDS-F2):** «Español» solo con `es ∈ facets.languages`; «Cartas de liga y promos» solo con `facets.stamped`;
   un filtro activo en la URL se pinta (marcado) aunque la faceta no lo traiga; servidor sin las facetas ⇒ sin bloque.
 - **Dial (IDS-F7):** solo `super_admin` (mismo rol que `PUT /admin/pricing/curve`, IDS-B10; guarda propia además de
@@ -38,10 +51,21 @@ su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cart
   es y en (N=3 cada uno).
 - **Candados:** unitarios `lib/version.test.ts`, `VersionChip.test.tsx`, `VersionPills.test.tsx` (incl. 7 filas),
   `CatalogTile.ids`, `CardDetailView.ids`, `catalog-ids`, `ShopFilters.ids`, `CheckoutLines.ids`, `DeckAvailability.ids`,
-  `AddItemModal.ids` (desglose), `PieceVersion.test`, `SpanishMarketSection.test`; navegador `e2e/ids-versions.spec.ts`
-  (mocks), «IDS L-8» en `measurement-on.spec.ts` (mocks; `needsSeed` en real) y **`e2e/ids-real.spec.ts` `@real`**
-  (siembra por API una pieza `es` de «E2E Pidgey», la retira con `error_captura` y deja el dial como estaba): facetas +
-  filtro, ficha en/es, desglose de captura, dial en M10 con entrada nueva en la bitácora.
+  `AddItemModal.ids` (desglose y errores), `VersionText.ux8` (petición 8, 3 superficies), `PieceVersion.test`,
+  `SpanishMarketSection.test`; navegador `e2e/ids-versions.spec.ts` (`@real`: en mocks fixtures, en real «E2E League
+  Bird» con lo esperado leído de la API; solo IDS-F3 «7 filas» es `mockOnly`), «IDS L-8» en `measurement-on.spec.ts`
+  (`@real`, ya sin `needsSeed`) y **`e2e/ids-real.spec.ts`** (fichero `realOnly`): «E2E Pidgey» (siembra por API una pieza
+  `es`, la retira con `error_captura` y deja el dial como estaba: facetas + filtro, ficha en/es, desglose, dial en M10) y
+  liga sembrada IDS-L1…L3 (de backend, adoptados) + **IDS-L4** (carrito de 3 versiones ⇒ quote con `version`/`finishLabel`
+  y precio = `fromPriceCents` ⇒ checkout con insignias y la línea de la petición 8).
+- **Re-pase QA (2026-11-03, sobre `f7f2e5dd` + el clic de IDS-L4 de `a7f3edc6`, copia entera `git archive`):** tsc 0, lint 0 errores, vitest 452 ficheros /
+  5558 pruebas verdes. Censo: mockOnly 160→155, needsSeed 36→33 (= baseline), realOnly 37→36; los +2/+2 que quedan
+  sobre el baseline necesitan `--update --motivo` en `scripts/e2e-skip-census.baseline` (devops; ensayado en la copia:
+  gate 0 y canario 17/17). Stack propio (`up --gate --measurement --seed`, :3486/:3487, BD `fe_ids_qa`, Redis db 9, S3
+  :9486): `ids-real` + `ids-versions` `@real` **48/48** (16 × N=3), «IDS L-8» real **9/9** (3 × N=3); mocks
+  `ids-versions` **30/30** (10 × N=3). Mutaciones (copia, N=3): `detail()` vuelve a «Español · …» ⇒ ux8 rojo 3/3;
+  sin aviso de `attach` ⇒ 3 rojos 3/3; sin aviso de versiones ⇒ 1 rojo 3/3; un `mockOnly` de vuelta en ids-versions ⇒
+  censo rc 1 3/3; checkout con `line()` (bundle real re-horneado) ⇒ IDS-L4 rojo 3/3; restaurado, verde en todos.
 - **`@real` que leían «la primera teja» (2026-11-03, sobre seed `a21a425a`):** `catalog-freshness`, `pricing-curve` y
   `seo-raw-html` C2 derivan el enlace de cada teja de `e2e/utils/catalog-tile.ts` (`tileHref`: llano en inglés sin liga,
   `?version=<versionOptionKey>` si no) y no del orden del seed. Freshness identifica el grupo por su pieza representativa
@@ -57,10 +81,10 @@ su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cart
   (firma estructural para que la use el arnés E2E); tab-stop de `VersionPills`/`PillToggleGroup` = el índice que usan las
   flechas (con valor apagado o que no casa, la primera habilitada). Fichas y mediciones: `TECH_DEBT.md` §IDS (TL-IDS-5/7)
   y TL-MKT2-5 (la ficha entra en `mobile-no-overflow.spec.ts`).
-- **Pendiente:** (a) **liga contra el stack:** backend ya la siembra (`E2E_IDS` en `backend/prisma/e2e-fixtures.ts`,
-  `9500e70e…a21a425a`: producto `stamped`, cuatro piezas y candidata); qué cubren hoy `ids-real` e «IDS L-8» con ella,
-  NO MEDIDO en este pase. (b) **ux-ui:** texto del dial (provisional), D-IDS-6 y la leyenda
-  «Idioma» del bloque de filtros cuando solo se ofrece «Cartas de liga y promos».
+- **Pendiente:** (a) **deck con versión `@real`** (criterios 963–968): espera a que backend siembre un Meta deck con
+  versiones (no estaba en origin el 2026-11-03 08:10). (b) **ux-ui:** texto del dial (provisional), D-IDS-6, la leyenda
+  «Idioma» del bloque de filtros cuando solo se ofrece «Cartas de liga y promos», los textos de error de captura (arriba)
+  y si la regla de la petición 8 vale también para el deck. (c) **devops:** baseline del censo (arriba).
 
 ## §CHK-FRICCION · Checkout con menos fricción (2026-11-02, rama `claude/checkout-friccion`, base `dbeb6111`)
 

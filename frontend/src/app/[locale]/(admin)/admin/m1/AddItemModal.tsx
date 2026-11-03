@@ -622,6 +622,8 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
             model={ids}
             data={versionsQuery.data}
             isLoading={versionsQuery.isLoading}
+            isError={versionsQuery.isError}
+            onRetry={() => void versionsQuery.refetch()}
             finish={finish}
             onFinish={setFinish}
             language={language}

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { mockOnly } from './utils/auth';
+import { IS_REAL, mockOnly } from './utils/auth';
+import { apiAsOk } from './utils/env';
 
 /**
  * §IDS (API_CONTRACT §IDS.5/§IDS.9 IDS-F3/F6; DESIGN_SYSTEM §IDS-UX.6/.8) — candados de NAVEGADOR del selector de
@@ -9,17 +10,79 @@ import { mockOnly } from './utils/auth';
  *  (11) ninguna versión agotada en el DOM (N burbujas = N entradas de `versions[]`);
  *  (12) con una sola versión no hay `radiogroup`;
  *  (14) el borde de la burbuja se computa como `--color-border-control` (rgba(26,26,24,.55)), no `-strong`;
- *  (16) forma 2×N: 6 entradas ⇒ 3 rótulos de fila (12 px arriba / 6 px abajo), sin insignia dentro, un solo tab-stop;
+ *  (16) forma 2×N: un rótulo por fila (12 px arriba / 6 px abajo), sin insignia dentro, un solo tab-stop;
  *  (6)  la insignia de la teja nunca es hija del contenedor de la foto;
- *  (15) la ficha técnica de la teja con `finishLabel` de 11 caracteres («Cosmos Holo») no envuelve a 360.
- * Datos: fixtures del simulador (`c-ids-pikachu-057` 2×N, `c-ids-dedenne-084` 2×2; `lib/mock/fixtures.ts`). Sin
- * etiqueta `@real`: el seed del stack aún no trae versiones (§IDS lo construye backend en paralelo); contra el stack
- * sembrado se medirá cuando el seed tenga una carta con versiones (FRONTEND_NOTES §IDS-FE, pendiente).
+ *  (15) la ficha técnica de la teja no envuelve a 360 (en mocks, con el `finishLabel` de 11 caracteres «Cosmos Holo»).
+ * Corren en los DOS modos (`@real`), cada uno con sus datos (`target()`):
+ *  - mocks: fixtures del simulador (`c-ids-dedenne-084` 2×2, `c-ids-pikachu-057` 2×N de 6, `c-charizard` de una versión;
+ *    `lib/mock/fixtures.ts`);
+ *  - stack sembrado: «E2E League Bird» (`E2E_IDS` de `backend/prisma/e2e-fixtures.ts`: en/es sin liga + en/es de liga, forma
+ *    2×N de 2 filas porque la liga trae otro acabado) y la primera carta del catálogo con una sola versión; lo que se
+ *    espera (burbujas, filas) sale de `GET /catalog/cards/:id`, no de constantes.
+ * Solo IDS-F3 «7 filas» se salta en real (corre solo en mocks): el peor caso medido (sin liga + 6 filas de liga,
+ * `c-ids-poffin-6`) no existe en el seed, y la mecánica 2×N ya la mide en real la ficha de 2 filas; sembrarlo solo
+ * añadiría el número de filas.
  */
-const FIXTURE = 'cartas con versiones del simulador (c-ids-*); el seed del stack aún no las trae (backend §IDS)';
+const FIXTURE = 'peor caso 2×N de 7 filas (`c-ids-poffin-6`): solo en el simulador; el seed real trae una carta de 2 filas';
 
-const PIKA = '/es/catalog/c-ids-pikachu-057';
-const DEDE = '/es/catalog/c-ids-dedenne-084';
+interface VersionOption {
+  optionKey: string;
+  version: { stamp: { productId: number } | null };
+  finishLabel: string | null;
+}
+interface Targets {
+  /** Ficha con versión de liga (2×2 en mocks, 2×N de 2 filas en el seed) y la `optionKey` de su «Español · De liga». */
+  liga: { path: string; esLeagueKey: string; pills: number; rows: number };
+  /** Ficha 2×N: burbujas y filas esperadas. */
+  wide: { path: string; pills: number; rows: number };
+  /** Ficha de una sola versión. */
+  single: string;
+}
+
+const LEAGUE_NAME = 'E2E League Bird';
+let real: Promise<Targets> | null = null;
+
+const rowsOf = (versions: VersionOption[]) =>
+  new Set(versions.map((v) => `${v.version.stamp?.productId ?? 'none'}|${v.finishLabel}`)).size;
+
+async function realTargets(): Promise<Targets> {
+  const cards = await apiAsOk<{ data: { id: string; name: string }[] }>(
+    'admin',
+    'GET',
+    `/buylist/cards?q=${encodeURIComponent(LEAGUE_NAME)}&pageSize=10`,
+  );
+  const card = cards.data.find((c) => c.name === LEAGUE_NAME);
+  if (!card) throw new Error(`el seed no trae «${LEAGUE_NAME}» (backend/prisma/e2e-fixtures.ts, E2E_IDS)`);
+  const detail = await apiAsOk<{ versions: VersionOption[] }>('customer', 'GET', `/catalog/cards/${card.id}`);
+  const esLeague = detail.versions.find((v) => v.optionKey.startsWith('es.'));
+  if (!esLeague) throw new Error(`«${LEAGUE_NAME}» sin versión española de liga: ${JSON.stringify(detail.versions)}`);
+  const liga = { path: `/es/catalog/${card.id}`, esLeagueKey: esLeague.optionKey, pills: detail.versions.length, rows: rowsOf(detail.versions) };
+  // (12): la primera carta del catálogo sembrado con una sola versión con existencia.
+  const list = await apiAsOk<{ data: { card: { id: string } }[] }>('customer', 'GET', '/catalog/cards?pageSize=50');
+  let single: string | null = null;
+  for (const id of [...new Set(list.data.map((r) => r.card.id))]) {
+    const d = await apiAsOk<{ versions?: VersionOption[] }>('customer', 'GET', `/catalog/cards/${id}`);
+    if ((d.versions?.length ?? 0) <= 1) {
+      single = `/es/catalog/${id}`;
+      break;
+    }
+  }
+  if (!single) throw new Error('el catálogo sembrado no trae ninguna carta de una sola versión en la página 1');
+  return { liga, wide: liga, single };
+}
+
+/** Datos de cada modo: los del simulador en mocks; en real, los que dice el servidor sobre el seed. */
+function target(): Promise<Targets> {
+  if (!IS_REAL) {
+    return Promise.resolve({
+      liga: { path: '/es/catalog/c-ids-dedenne-084', esLeagueKey: 'es.648800.normal', pills: 4, rows: 2 },
+      wide: { path: '/es/catalog/c-ids-pikachu-057', pills: 6, rows: 3 },
+      single: '/es/catalog/c-charizard',
+    });
+  }
+  real ??= realTargets();
+  return real;
+}
 
 async function pillFacts(page: Page) {
   return page.evaluate(() => {
@@ -48,13 +111,13 @@ for (const width of [360, 390] as const) {
   test.describe(`Ficha con versiones · ${width} px`, () => {
     test.use({ viewport: { width, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
 
-    test(`(9)(10)(14) 2×2: ES en una línea, EN de liga sin desborde, ≥ 44 px, borde -control`, async ({ page }) => {
-      mockOnly(FIXTURE);
-      await page.goto(DEDE);
+    test(`(9)(10)(14) ficha con liga: ES en una línea, EN de liga sin desborde, ≥ 44 px, borde -control @real`, async ({ page }) => {
+      const { liga } = await target();
+      await page.goto(liga.path);
       await expect(page.getByRole('radiogroup', { name: 'IDIOMA Y VERSIÓN' })).toBeVisible();
       const f = await pillFacts(page);
-      test.info().annotations.push({ type: `ids-2x2-${width}`, description: JSON.stringify(f) });
-      expect(f).toHaveLength(4);
+      test.info().annotations.push({ type: `ids-liga-${width}`, description: JSON.stringify({ path: liga.path, f }) });
+      expect(f).toHaveLength(liga.pills);
       for (const p of f) {
         expect(p.h, `alto ${p.key}`).toBeGreaterThanOrEqual(44);
         expect(p.right, `sin desborde ${p.key}`).toBeLessThanOrEqual(width);
@@ -63,7 +126,7 @@ for (const width of [360, 390] as const) {
         expect(parseFloat(p.radius), `píldora ${p.key}`).toBeGreaterThan(20);
       }
       // «Español · De liga» cabe en una línea (aritmética 108 de 129 px útiles).
-      const esLeague = f.find((p) => p.key === 'es.648800.normal')!;
+      const esLeague = f.find((p) => p.key === liga.esLeagueKey)!;
       expect(esLeague.nameLines, JSON.stringify(esLeague)).toBe(1);
       expect(f.find((p) => p.key === 'es')!.nameLines).toBe(1);
       if (width === 390) {
@@ -73,9 +136,10 @@ for (const width of [360, 390] as const) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     });
 
-    test(`(9) EN: «Spanish»+«Prize Pack» puede bajar a 2ª línea pero no desborda`, async ({ page }) => {
-      mockOnly(FIXTURE);
-      await page.goto(DEDE.replace('/es/', '/en/'));
+    test(`(9) EN: «Spanish»+«Prize Pack» puede bajar a 2ª línea pero no desborda @real`, async ({ page }) => {
+      const { liga } = await target();
+      await page.goto(liga.path.replace('/es/', '/en/'));
+      await expect(page.getByRole('radiogroup', { name: 'LANGUAGE AND VERSION' })).toBeVisible();
       const f = await pillFacts(page);
       test.info().annotations.push({ type: `ids-2x2-en-${width}`, description: JSON.stringify(f) });
       for (const p of f) {
@@ -85,13 +149,14 @@ for (const width of [360, 390] as const) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     });
 
-    test(`(11)(16) 2×N: 6 burbujas (las de versions[]), 3 rótulos 12/6, sin insignia dentro, un solo tab-stop`, async ({ page }) => {
-      mockOnly(FIXTURE);
-      await page.goto(PIKA);
+    test(`(11)(16) 2×N: una burbuja por entrada de versions[], un rótulo 12/6 por fila, sin insignia dentro, un solo tab-stop @real`, async ({ page }) => {
+      const { wide } = await target();
+      await page.goto(wide.path);
       const group = page.getByRole('radiogroup', { name: 'IDIOMA Y VERSIÓN' });
       await expect(group).toBeVisible();
+      await expect(page.getByTestId('version-pills')).toHaveAttribute('data-form', '2xN');
       const f = await pillFacts(page);
-      expect(f).toHaveLength(6);
+      expect(f).toHaveLength(wide.pills);
       expect(f.filter((p) => p.tabIndex === 0)).toHaveLength(1);
       expect(f.every((p) => p.chips === 0)).toBe(true);
       for (const p of f) expect(p.h).toBeGreaterThanOrEqual(44);
@@ -102,9 +167,9 @@ for (const width of [360, 390] as const) {
         }),
       );
       test.info().annotations.push({ type: `ids-2xN-${width}`, description: JSON.stringify({ f, labels }) });
-      expect(labels).toHaveLength(3);
-      expect(labels.map((l) => l.mb)).toEqual(['6px', '6px', '6px']);
-      expect(labels.map((l) => l.mt)).toEqual(['0px', '12px', '12px']);
+      expect(labels).toHaveLength(wide.rows);
+      expect(labels.map((l) => l.mb)).toEqual(Array(wide.rows).fill('6px'));
+      expect(labels.map((l) => l.mt)).toEqual(['0px', ...Array(wide.rows - 1).fill('12px')]);
       expect(labels.every((l) => l.size === '12px')).toBe(true);
       // Teclado: la flecha mueve y elige.
       await page.locator('[data-testid="version-pill"][tabindex="0"]').focus();
@@ -165,17 +230,15 @@ test.describe('2×N peor caso · 7 filas a 360 px', () => {
   }
 });
 
-test('(12) con una sola versión no hay radiogroup (Charizard del simulador)', async ({ page }) => {
-  mockOnly('Charizard del simulador tiene una sola versión');
-  await page.goto('/es/catalog/c-charizard');
+test('(12) con una sola versión no hay radiogroup @real', async ({ page }) => {
+  await page.goto((await target()).single);
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await expect(page.getByRole('radiogroup')).toHaveCount(0);
 });
 
 test.describe('Teja con insignias · 360 px', () => {
   test.use({ viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
-  test('(6) insignias fuera de la foto; (15) «Cosmos» (forma corta de «Cosmos Holo») en la ficha técnica sin envolver', async ({ page }) => {
-    mockOnly(FIXTURE);
+  test('(6) insignias fuera de la foto; (15) la ficha técnica no envuelve («Cosmos», forma corta de «Cosmos Holo», en mocks) @real', async ({ page }) => {
     await page.goto('/es/catalog?language=es&stamped=true');
     const tiles = page.locator('main a[href*="/catalog/"]').filter({ has: page.locator('img') });
     await tiles.first().waitFor();
@@ -198,15 +261,16 @@ test.describe('Teja con insignias · 360 px', () => {
       });
     });
     test.info().annotations.push({ type: 'ids-tile-360', description: JSON.stringify(facts) });
-    expect(facts.length).toBeGreaterThanOrEqual(2);
+    // El seed trae UNA teja española de liga («E2E League Bird»); el simulador, varias.
+    expect(facts.length).toBeGreaterThanOrEqual(IS_REAL ? 1 : 2);
     for (const f of facts) {
       expect(f.chipsInPhoto, JSON.stringify(f)).toBe(false);
       // Una fila de insignias (alto 20; nunca dos filas).
       expect(f.chipsH, JSON.stringify(f)).toBeLessThanOrEqual(21);
       expect(f.href, JSON.stringify(f)).toMatch(/\?version=es\.\d+\.[a-z_]+$/);
+      expect(f.specLines, `ficha técnica en una línea: ${JSON.stringify(f)}`).toBe(1);
     }
-    const cosmos = facts.find((f) => /Cosmos/i.test(f.spec ?? ''));
-    expect(cosmos, JSON.stringify(facts)).toBeDefined();
-    expect(cosmos!.specLines, JSON.stringify(cosmos)).toBe(1);
+    // El peor caso de (15) es un DATO del simulador (el seed no trae Cosmos Holo): en mocks, que esté y se mida arriba.
+    if (!IS_REAL) expect(facts.find((f) => /Cosmos/i.test(f.spec ?? '')), JSON.stringify(facts)).toBeDefined();
   });
 });

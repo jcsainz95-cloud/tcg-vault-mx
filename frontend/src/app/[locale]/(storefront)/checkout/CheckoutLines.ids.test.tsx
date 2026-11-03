@@ -34,21 +34,22 @@ const lines: OrderItemPreview[] = [
 ];
 
 describe('IDS-F4 · líneas del carrito', () => {
-  it('cada pieza es su línea (nunca «2×»); la española de liga lleva insignias y «Español · De liga (Prize Pack)»', () => {
+  it('cada pieza es su línea (nunca «2×»); la española de liga lleva insignias y «De liga (Prize Pack)» (petición 8: sin repetir «Español»)', () => {
     const { container } = renderWithIntl(<CheckoutLines items={lines} onRemove={vi.fn()} />);
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
     expect(container.textContent).not.toMatch(/2\s*×|×\s*2/);
     const chips = screen.getAllByTestId('line-version-chips');
     expect(chips).toHaveLength(1); // inglés sin liga: sin insignia
     expect(chips[0].textContent).toBe('EspañolDe liga');
-    expect(screen.getByTestId('line-version-text').textContent).toBe('Español · De liga (Prize Pack)');
+    expect(screen.getByTestId('line-version-text').textContent).toBe('De liga (Prize Pack)');
     // el `label` del proveedor no sale al cliente; tampoco «sello»
     expect(container.textContent).not.toMatch(/Cosmos Holo|sello/i);
   });
 
-  it('EN: «Spanish · Prize Pack»', () => {
+  it('EN: insignias «Spanish»+«Prize Pack» y sin línea (el tipo largo coincide con la insignia; petición 8)', () => {
     renderWithIntl(<CheckoutLines items={lines} onRemove={vi.fn()} />, 'en');
-    expect(screen.getByTestId('line-version-text').textContent).toBe('Spanish · Prize Pack');
+    expect(screen.getByTestId('line-version-chips').textContent).toBe('SpanishPrize Pack');
+    expect(screen.queryByTestId('line-version-text')).toBeNull();
   });
 });
 

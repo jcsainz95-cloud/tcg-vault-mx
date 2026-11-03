@@ -1,7 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { measurementCookies, recordRequests, type RequestLog } from './utils/measurement';
-import { loginAs, needsSeed } from './utils/auth';
+import { loginAs } from './utils/auth';
 import { gradingScenario } from './utils/grading';
 
 /**
@@ -776,7 +776,7 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
   // §IDS-UX.6 candado (1) + IDS-UX.8 (15) (PROJECT 943; DESIGN_SYSTEM §IDS-UX.4 P1–P3): a 360×740 con el aviso abierto,
   // la PRIMERA fila con dos tejas que llevan DOS insignias y el peor caso de L-8 (`price5`: nombre de 120 + 5 cifras +
   // «Queda 1») deja margen ≥ 20 px, y el par de insignias no envuelve. La fila de insignias es la REAL: se copia el
-  // marcado que React pintó en una teja de liga en español (`?language=es&stamped=true` del simulador) y se inserta en
+  // marcado que React pintó en una teja de liga en español (`?language=es&stamped=true`: del simulador en mocks, «E2E League Bird» en el seed real) y se inserta en
   // las dos primeras tejas del catálogo SIN filtros (con filtros, la barra de chips de < lg suma 48 px y no es el caso
   // del diseño), como el resto de L-8 escribe su peor caso en el DOM. Pares: «Español»+«Prerelease» (ES) y
   // «Spanish»+«Prize Pack» (EN). Mutación que lo pone rojo: quitar P1 (foto 5:6 → 4:5) o P3 (`py-0.5` → `py-1.5`).
@@ -815,8 +815,7 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
   }
 
   for (const [locale, widest] of [['es', 'Prerelease'], ['en', 'Prize Pack']] as const) {
-    test(`IDS L-8: dos insignias en la 1ª fila a 360×740 con banner, peor caso price5, margen ≥ 20 y par «${widest}» sin envolver (${locale})`, async ({ page, context }) => {
-      needsSeed('piezas de liga en español publicadas (backend §IDS: seed con versiones)');
+    test(`IDS L-8: dos insignias en la 1ª fila a 360×740 con banner, peor caso price5, margen ≥ 20 y par «${widest}» sin envolver (${locale}) @real`, async ({ page, context }) => {
       await setup(context);
       await page.setViewportSize({ width: 360, height: 740 });
       const pairs = await seedChipsRow(page, locale, widest);
@@ -834,8 +833,7 @@ test.describe('L-8 / L-10 · catálogo con el banner abierto (MKT-CONV.8, PROJEC
   // IDS-UX.1 «Ancho a 360 px» — el par EN más ancho. Con «Championship» midió 57.3 + 4 + 94.6 = 155.9 > 152 px (envolvía,
   // +24 px a la teja); marketing decidió «Tournament» (HECHOS 2026-11-03 «Copy EN de §IDS…»). El texto sale del CATÁLOGO
   // EN (`version.chip.championship`), no de un literal: volver a «Championship» en `messages/en.json` lo pone rojo.
-  test('IDS L-8 (EN «Spanish»+«Tournament»): el par del campeonato cabe en una fila de ≤ 152 px a 360', async ({ page, context }) => {
-    needsSeed('piezas de liga en español publicadas (backend §IDS: seed con versiones)');
+  test('IDS L-8 (EN «Spanish»+«Tournament»): el par del campeonato cabe en una fila de ≤ 152 px a 360 @real', async ({ page, context }) => {
     await setup(context);
     await page.setViewportSize({ width: 360, height: 740 });
     const tournament = t('en', 'version.chip.championship');

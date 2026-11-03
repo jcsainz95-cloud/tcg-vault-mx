@@ -6,6 +6,8 @@ import { attachStampedCandidate } from '@/lib/api';
 import { formatMoneyCents } from '@/lib/format';
 import { PillToggleGroup } from '@/components/domain/VersionPills';
 import { Button } from '@/components/ui/Button';
+import { Banner } from '@/components/ui/Banner';
+import { asApiError } from '@/lib/api-client';
 import type { AppLocale } from '@/i18n/routing';
 import type { CardDTO, CardLanguage, CardVersionsResponse, Finish, StampDTO, VersionComboDTO } from '@/types/contract';
 import type { CaptureModel } from './ids-capture';
@@ -22,6 +24,8 @@ export function IdsCaptureFields({
   model,
   data,
   isLoading,
+  isError,
+  onRetry,
   finish,
   onFinish,
   language,
@@ -33,6 +37,10 @@ export function IdsCaptureFields({
   model: CaptureModel;
   data: CardVersionsResponse | undefined;
   isLoading: boolean;
+  /** `GET …/versions` falló: sin combos no hay precio ni versiones de liga; el aviso lo dice en vez de caer en silencio. */
+  isError: boolean;
+  /** Vuelve a pedir `GET …/versions` (reintento del aviso y «Recargar versiones» tras un `attach` fallido). */
+  onRetry: () => void;
   finish: Finish;
   onFinish: (f: Finish) => void;
   language: CardLanguage;
@@ -50,6 +58,15 @@ export function IdsCaptureFields({
     mutationFn: (productId: number) => attachStampedCandidate(productId, card),
     onSuccess: onAttached,
   });
+  // QA 2026-11-03: `attach` fallaba en silencio. 404 (la candidata ya no existe) y 409 (el producto ya está colgado)
+  // dicen qué pasó; ambos se resuelven releyendo las versiones. El resto (red, 5xx), genérico.
+  const attachCode = asApiError(attach.error)?.code;
+  const attachErrorText =
+    attachCode === 'NOT_FOUND' || attachCode === 'STAMPED_PRODUCT_TAKEN' ? t(`attachError.${attachCode}`) : t('attachError.generic');
+  const reload = () => {
+    attach.reset();
+    onRetry();
+  };
 
   const stampLabel = (s: StampDTO | null) =>
     s ? `${t(`stampButton.${s.type}`)}${s.label ? ` ${s.label}` : ''}` : t('noStamp');
@@ -69,6 +86,22 @@ export function IdsCaptureFields({
 
   return (
     <div className="flex flex-col gap-4" data-testid="ids-capture">
+      {isError && (
+        <div data-testid="ids-versions-error">
+          <Banner
+            variant="danger"
+            role="alert"
+            title={t('versionsErrorTitle')}
+            action={
+              <Button size="sm" variant="secondary" onClick={onRetry}>
+                {t('versionsRetry')}
+              </Button>
+            }
+          >
+            {t('versionsError')}
+          </Banner>
+        </div>
+      )}
       {model.finishOptions && (
         <PillToggleGroup
           label={tm1('finish')}
@@ -131,6 +164,20 @@ export function IdsCaptureFields({
               {t('candidateAttach', { name: c.name })}
             </Button>
           ))}
+          {attach.isError && (
+            <Banner
+              variant="danger"
+              role="alert"
+              title={t('attachErrorTitle')}
+              action={
+                <Button size="sm" variant="secondary" onClick={reload}>
+                  {t('reloadVersions')}
+                </Button>
+              }
+            >
+              {attachErrorText}
+            </Banner>
+          )}
         </div>
       )}
 

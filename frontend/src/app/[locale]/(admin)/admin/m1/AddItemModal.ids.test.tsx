@@ -11,6 +11,7 @@ import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import type { CardDTO, CardVersionsResponse, Paginated, VersionComboDTO } from '@/types/contract';
+import { ApiClientError } from '@/lib/api-client';
 import { AddItemModal } from './AddItemModal';
 
 vi.mock('@/lib/role', () => ({
@@ -194,5 +195,50 @@ describe('IDS-F1 · captura (AddItemModal)', () => {
     await waitFor(() => expect(attach).toHaveBeenCalledTimes(1));
     expect(attach.mock.calls[0][0]).toBe(777001);
     expect(attach.mock.calls[0][1].id).toBe('c-st');
+  });
+
+  // QA 2026-11-03 (rechazo de §IDS sobre f2cd0e31): `attach` y `GET …/versions` fallaban EN SILENCIO.
+  for (const [label, err, text] of [
+    ['404 NOT_FOUND', new ApiClientError(404, { code: 'NOT_FOUND', message: 'x' }), 'Esa versión ya no está entre las pendientes de ligar.'],
+    ['409 STAMPED_PRODUCT_TAKEN', new ApiClientError(409, { code: 'STAMPED_PRODUCT_TAKEN', message: 'x' }), 'Esa versión ya está ligada a una carta.'],
+    ['5xx', new ApiClientError(503, { code: 'INTERNAL_ERROR', message: 'x' }), 'El servidor no respondió.'],
+  ] as const) {
+    it(`attach falla (${label}) ⇒ aviso en la caja de candidatas y «Recargar versiones» vuelve a pedir las versiones`, async () => {
+      const attach = vi.spyOn(api, 'attachStampedCandidate').mockRejectedValue(err);
+      const { dialog } = await open(card('c-st', ['holofoil']), STAMPED);
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Es esta: Pikachu (Prize Pack Series Seven)' }));
+      await waitFor(() => expect(attach).toHaveBeenCalledTimes(1));
+      const box = within(dialog).getByTestId('ids-candidates');
+      const alert = await within(box).findByRole('alert');
+      expect(alert).toHaveTextContent('No se pudo ligar la versión');
+      expect(alert).toHaveTextContent(text);
+      const calls = vi.mocked(api.getCardVersions).mock.calls.length;
+      fireEvent.click(within(alert).getByRole('button', { name: 'Recargar versiones' }));
+      await waitFor(() => expect(vi.mocked(api.getCardVersions).mock.calls.length).toBe(calls + 1));
+      await waitFor(() => expect(within(box).queryByRole('alert')).toBeNull());
+    });
+  }
+
+  it('GET …/versions falla ⇒ aviso con «Reintentar» (no cae en silencio a los controles de siempre)', async () => {
+    const c = card('c-err', ['holofoil']);
+    vi.spyOn(api, 'getLocations').mockResolvedValue([]);
+    vi.spyOn(api, 'searchBuylistCards').mockResolvedValue(page([c]));
+    const versions = vi
+      .spyOn(api, 'getCardVersions')
+      .mockRejectedValueOnce(new ApiClientError(503, { code: 'INTERNAL_ERROR', message: 'x' }))
+      .mockResolvedValue(PLAIN);
+    renderWithProviders(<AddItemModal onClose={() => {}} onToast={() => {}} />, 'es');
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'x' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
+    fireEvent.click(await within(dialog).findByRole('option', { name: new RegExp(c.name) }));
+    const alert = within(await within(dialog).findByTestId('ids-versions-error')).getByRole('alert');
+    expect(alert).toHaveTextContent('No pudimos cargar las versiones de esta carta');
+    expect(alert).toHaveTextContent('Si la carta es en español o de liga, reintenta antes de darla de alta.');
+    expect(within(dialog).queryByTestId('ids-price')).toBeNull();
+    fireEvent.click(within(alert).getByRole('button', { name: 'Reintentar' }));
+    await within(dialog).findByTestId('ids-price');
+    expect(versions).toHaveBeenCalledTimes(2);
+    expect(within(dialog).queryByTestId('ids-versions-error')).toBeNull();
   });
 });
