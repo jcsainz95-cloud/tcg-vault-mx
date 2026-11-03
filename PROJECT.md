@@ -873,7 +873,7 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
 - [ ] **Cuenta desde el carrito con SOLO el correo** *(dueño, 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios
       aprobados…» (1))*: en el carrito/checkout «Crear cuenta» pide únicamente el correo; nombre y contraseña los pone
       el cliente después (enlace en su correo o «Mi cuenta») y el celular se pide antes de vender, como a Google.
-      Criterios **969–975**; lo no decidido del flujo, en «Preguntas abiertas» (P-CTA-1…4).
+      Criterios **969–975**; lo no decidido del flujo, en «Preguntas abiertas» (P-CTA-1, -2, -4).
 
 ### B. Compra y checkout (Stripe)
 - [ ] **Comprar NO exige cuenta** *(v1.5)*: el checkout ofrece **"continuar como invitado"** además de
@@ -890,8 +890,8 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       variante no (criterio **186**). Alcance completo por superficie en **§Q.5**; criterios **185–197**.
       **⛔ Sin rótulo de IVA junto al precio** *(dueño, 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios
       aprobados…» (3))*: el precio lleva el IVA dentro pero **no se dice** al lado («IVA 16 % incluido» ni variantes)
-      en catálogo, ficha, sellado, carrito, decks y accesorios. La cifra no cambia. Criterio **977**; el checkout y la
-      nota del valor de mercado, en P-CTA-5.
+      en catálogo, ficha, sellado, carrito, decks y accesorios. La cifra no cambia. La línea de IVA del resumen del
+      checkout **se queda** (dueño, P-CTA-5(a)). Criterio **977**; la nota del valor de mercado, en P-CTA-5(b).
 - [ ] **Comisión de plataforma — línea visible y desglosada en el checkout** *(**D53**, 15ª ronda; sustituye al «costo de procesamiento»)*: el
       checkout muestra una línea rotulada **«Comisión de plataforma» / «Platform fee»**, que es **la comisión
       de TCG HUNT por operar la compra**, y que **ya está incluida en el total** que el comprador ve.
@@ -903,7 +903,7 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       **`DESIGN_SYSTEM §7.12a`**. El campo del contrato **sigue llamándose `processingFeeCents`** a
       propósito — es nombre **interno**, no un rótulo.)*
 - [ ] **El IVA del checkout INFORMA, no suma** *(**D54**, 16ª ronda; sustituye a la línea que sumaba; **el rótulo
-      exacto es SUPUESTO — pregunta 60**, y si se queda en el checkout, P-CTA-5)*: el checkout **sigue mostrando el importe de IVA** —*«IVA 16 %
+      exacto es SUPUESTO — pregunta 60**; que se queda en el resumen lo decidió el dueño el 2026-11-03)*: el checkout **sigue mostrando el importe de IVA** —*«IVA 16 %
       incluido: MX$16.00»*— pero **ya está dentro del precio exhibido y NO mueve el total ni un centavo**.
       **⛔ El importe de IVA no desaparece**: es **la única fuente del desglose** para la factura manual
       (`Order.ivaCents` → `GET /admin/finance/iva` → CSV), y **borrarlo es más difícil de deshacer que
@@ -13064,7 +13064,7 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    `DESIGN_SYSTEM §7.12a`; **hoy no hay abogado en el proyecto**)*: se corre el test de copy contra las
    superficies de cliente y **no aparece** ninguna variante de *«trasladado»*, *«conforme a la ley»*, *«no es
    un recargo»*, *«por disposición fiscal»* ni cita de norma alguna — **tampoco en negativo**. El único rótulo
-   admitido es de **importe**: *«IVA 16 % incluido»*, y **solo en la línea de IVA del checkout** (sujeto a P-CTA-5),
+   admitido es de **importe**: *«IVA 16 % incluido»*, y **solo en la línea de IVA del resumen del checkout** (dueño, 2026-11-03),
    **nunca junto a un precio** (criterio 977, dueño 2026-11-03). **Se verifica por ausencia.**
 196. **El modo mock/desarrollo no contradice al sistema real** *(hoy el mock del frontend tiene el **16
    clavado**, `api.ts:765`, hecho 11)*: con el dial en un valor distinto del default, el modo mock **no muestra
@@ -15090,8 +15090,9 @@ Todo texto nuevo de cara al cliente lo aprueba el dueño antes de publicar (`HEC
    del dueño (misma fila).
 945. **Señales de confianza a la vista [B2]** *(reescrito 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios
    aprobados…» (2))*: en la **ficha** de producto y en el **carrito**, en ES y EN, se leen
-   sin pulsar nada las cuatro señales de 944: (a) **cómo se paga** —«tarjeta u OXXO»—, nombrando **solo** los métodos
-   que el checkout acepta ese día (si OXXO no se ofrece al pagar, no aparece; P-CTA-6); (b) **tiempo de entrega «4 a 10
+   sin pulsar nada las cuatro señales de 944: (a) **cómo se paga: solo tarjeta** — ⛔ OXXO **no** aparece en ninguna
+   parte, porque no está activo y no se activará por ahora (`HECHOS.md` «Respuestas a P-CTA-3, P-CTA-5(a) y P-CTA-6»);
+   (b) **tiempo de entrega «4 a 10
    días hábiles»**; (c) **WhatsApp 55 6489 3921**, que abre WhatsApp a ese número; (d) **Instagram @tcghunt.mx**, que abre
    el perfil. Los mismos datos que «Quiénes somos» (944), sin otra fuente. A 360 px no desborda (943) ni tapa «Añadir al
    carrito» (940). El pie enlaza a «Quiénes somos y contacto», y el de la página del Card Show da **`contacto@tcghunt.mx`**
@@ -15134,13 +15135,17 @@ Todo texto nuevo de cara al cliente lo aprueba el dueño antes de publicar (`HEC
 
 #### Cuenta con solo el correo y precios sin rótulo de IVA (2026-11-03) — criterios 969–977
 *(Fuente: `HECHOS.md` fila «Checkout y ficha: tres cambios aprobados (diagnóstico de marketing 2026-11-03)», «si a tus
-cambios». El cambio (2) reescribió el 945. Lo marcado SUPUESTO depende de P-CTA-1…6. Más alto previo: 968.)*
+cambios», y fila «Respuestas a P-CTA-3, P-CTA-5(a) y P-CTA-6». El cambio (2) reescribió el 945. Lo marcado SUPUESTO
+depende de P-CTA-1, -2, -4 y -5(b). Más alto previo: 968.)*
 969. **Cuenta en el carrito con solo el correo**: en el carrito/checkout, «Crear cuenta» (y el upsell de bóveda, 48) muestra
    **un solo campo, correo**, más la leyenda del 504; ⛔ no pide nombre, contraseña ni celular. Con un correo nuevo válido,
    al pulsar el botón la cuenta existe, el carrito y lo capturado siguen intactos y la bóveda queda disponible como
    destino (SUPUESTO: con sesión iniciada en ese navegador, P-CTA-2). Correo inválido ⇒ mismo rechazo que el 47.
 970. ⛔ **Un correo ya registrado no abre esa cuenta**: teclear en el 969 el correo de una cuenta existente **nunca** inicia
-   sesión en ella ni muestra sus datos, pedidos o bóveda; el carrito no se pierde. Qué mensaje ve: P-CTA-3.
+   sesión en ella ni muestra sus datos, pedidos o bóveda. En su lugar se le ofrece **«Ingresar a cuenta»** (dueño,
+   P-CTA-3 = A), que lleva a la pantalla de entrada con ese correo ya escrito; al entrar, vuelve al checkout con el
+   carrito intacto. *(Esto dice en el carrito que el correo tiene cuenta: lo aceptó el dueño; seguridad revisa el
+   límite de intentos.)*
 971. **Contraseña y nombre después, desde el correo** (SUPUESTO, P-CTA-1): tras el 969 llega un correo con un enlace que
    abre una pantalla para poner **nombre y contraseña**; al guardar, sale y vuelve a entrar con correo + esa contraseña.
    El enlace sirve **una vez** y caduca; usado o caducado, no hace nada y ofrece mandar otro.
@@ -15148,7 +15153,7 @@ cambios». El cambio (2) reescribió el 945. Lo marcado SUPUESTO depende de P-CT
    contraseña **sin pedir una actual**; ya puesta, cambiarla pide la actual como hoy.
 973. **La segunda vez**: con contraseña puesta, entra como cualquier cliente. Sin contraseña, «Olvidé mi contraseña» con
    su correo le manda el enlace del 971 (SUPUESTO, P-CTA-4). Correo + cualquier contraseña sobre una cuenta sin
-   contraseña ⇒ la misma respuesta que contraseña incorrecta (sin revelar que la cuenta existe).
+   contraseña ⇒ la misma respuesta que contraseña incorrecta (la pantalla de entrada no distingue los casos, 259).
 974. ⛔ **Pedidos de invitado anteriores esperan la prueba del correo** (lado seguro, P-CTA-1): una cuenta nacida en el 969
    no ve pedidos de invitado de ese correo hasta que abre el enlace del 971; entonces aplica el 54. Lo que compró con la
    cuenta en esa misma sesión sí aparece en su historial y su bóveda.
@@ -15160,8 +15165,9 @@ cambios». El cambio (2) reescribió el 945. Lo marcado SUPUESTO depende de P-CT
 977. **Sin «IVA 16 % incluido» junto a los precios** *(cambio (3); §B)*: en catálogo, ficha (precio grande y filas de
    variante), ficha de sellado, accesorios, Meta Battle Decks y carrito, en ES y EN, no aparece junto a ningún precio
    «IVA 16 % incluido», «IVA incluido», «con IVA incluido» ni «VAT included». **Por ausencia**: las cifras, el total
-   cobrado y el IVA guardado por pedido (192) no cambian. La línea del checkout y la nota «incluye IVA» del valor de
-   mercado (§MIV, 863, 956) siguen como hoy mientras P-CTA-5 no se responda.
+   cobrado y el IVA guardado por pedido (192) no cambian. **Sí se queda** la línea «IVA 16 % incluido: MX$…» en el
+   **resumen del checkout**, como desglose que no suma (dueño, P-CTA-5(a)). La nota «incluye IVA» del valor de mercado
+   (§MIV, 863, 956) sigue como hoy (SUPUESTO, P-CTA-5(b)).
 *(Criterios 512–531 y 958–968 — §IDS, español y cartas con sello (512–531 del 2026-10-06, actualizados el
 2026-11-01; 958–968 nuevos el 2026-11-01, siguiente libre tras 957 medido con `grep` en este `PROJECT.md`; **NO
 MEDIDO** contra otras ramas). **No** bloquean el modo real de Stripe (`HECHOS.md` fila 2026-10-06 «CAMBIO de alcance:
@@ -17278,18 +17284,11 @@ contestas, se construye con la recomendación:
 - **P-CTA-2** ¿Queda con la sesión abierta al crearla, sin confirmar el correo? *Recomendación: sí, en ese navegador,
   para que pague y elija bóveda sin salir del carrito; si teclea mal su correo, lo corrige desde «Mi cuenta» mientras
   siga dentro.*
-- **P-CTA-3** Si el correo ya tiene cuenta, ¿qué ve? *Recomendación: «Ese correo ya tiene cuenta: entra o pide el
-  enlace»; nunca entra sin contraseña ni enlace (970). Alternativa (no revelar que existe): mismo mensaje para todos y
-  sigue como invitado, a costa de que la bóveda no quede disponible en ese momento.*
 - **P-CTA-4** La segunda vez, sin contraseña, ¿basta «Olvidé mi contraseña» o quieres «Entrar con un enlace a mi
   correo» sin contraseña? *Recomendación: «Olvidé mi contraseña» (ya existe; un acceso solo por enlace es otro sistema
   que seguridad tendría que revisar).*
-- **P-CTA-5** Al quitar «IVA 16 % incluido» de los precios: (a) ¿la línea del checkout «IVA 16 % incluido: MX$…» también
-  se va?, (b) ¿la nota «incluye IVA» del valor de mercado (la pediste el 2026-10-10) se va? *Recomendación: (a) se queda,
-  es el desglose que piden para facturar; (b) se queda, sin ella el mercado parece más barato que nuestro precio.*
-- **P-CTA-6** ¿El checkout acepta OXXO hoy? NO MEDIDO por product-owner (el código solo nombra OXXO en un reporte de
-  ventas; Stripe lo activa desde su panel). *Recomendación: lo mide backend; si no está activo, la franja dice solo
-  «tarjeta» hasta que lo actives (945).*
+- **P-CTA-5(b)** Al quitar «IVA 16 % incluido» de los precios, ¿la nota «incluye IVA» del valor de mercado (la pediste el
+  2026-10-10) también se va? *Recomendación: se queda; sin ella el mercado parece más barato que nuestro precio (977).*
 
 **Español y versiones de liga (§IDS)** — dos de dinero, para el dueño (las de presentación ya las decidió marketing):
 - **P-ARQ-IDS-1 💰** ¿Tienes cartas **gradeadas** (PSA) o **producto sellado** en español para vender? *Recomendación
