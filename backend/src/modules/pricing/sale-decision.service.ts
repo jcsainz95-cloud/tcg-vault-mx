@@ -445,6 +445,28 @@ export class SaleDecisionService {
     return instrument(sale.priceCents, sale.basis, sale.marketMxnCents);
   }
 
+  /**
+   * 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.2 «Otros usos del valor de una pieza», `referenceForPiece`, SUPUESTO del 531): el valor de
+   * mercado de las piezas de versión distinta de (en, sin liga) — la referencia de entrada de su versión, ya con X —, por id.
+   * `null` ⇔ sin referencia. Las de (en, sin liga) no aparecen: su valor es el de hoy (cada lector conserva su camino).
+   */
+  async referenceForPieces(items: readonly SaleItem[]): Promise<Map<string, number | null>> {
+    const out = new Map<string, number | null>();
+    const candidates = items.filter((i) => i.language === 'es' || i.cardProductId != null);
+    if (candidates.length === 0) return out;
+    const batch = await this.loadBatch(candidates);
+    for (const i of candidates) {
+      if (this.isSeparateProduct(i, batch)) {
+        out.set(i.id, null);
+        continue;
+      }
+      const v = this.versionOf(i, batch);
+      if (isDefaultVersion(v)) continue;
+      out.set(i.id, this.versionReferences(i, v, batch).price);
+    }
+    return out;
+  }
+
   /** El `PRICE_PENDING` de una versión, con su motivo (`details.reason`) para la captura (§IDS.4). */
   versionPending(item: SaleItem, v: PieceVersion, reason: VersionPendingReason): BusinessException {
     const tag = `${v.language}${v.stamp ? `.${v.stamp.productId}` : ''}`;

@@ -1,4 +1,4 @@
-import { CardLanguage } from '@prisma/client';
+import { CardLanguage, StampType } from '@prisma/client';
 import { isPricePending, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
 import { isDefaultVersion, PieceVersion, pieceVersionOf, StampRef, versionDtoOf } from '../../common/card-version';
 import { ListingPriceService } from '../pricing/listing-price.service';
@@ -653,7 +653,20 @@ export const INVENTORY_EXPORT_COLUMNS: ReadonlyArray<{ header: string; key: stri
   // ⛔ el export no lee diales ni deriva una escala desde la otra (§M1: STORED, sin derivar).
   { header: 'Precio venta antes de IVA MXN', key: 'sellMxn', width: 18 },
   { header: 'Precio del producto con IVA MXN', key: 'productDisplayMxn', width: 22 },
+  // v1.116⟨ids⟩ (API_CONTRACT §IDS.4): al FINAL, sin mover las 18 de hoy.
+  { header: 'Idioma', key: 'language', width: 10 },
+  { header: 'Sello', key: 'stamp', width: 14 },
 ];
+
+/** v1.116⟨ids⟩ (§IDS.4): textos admin de las columnas 19/20 del export. */
+const EXPORT_LANGUAGE_TEXT: Record<CardLanguage, string> = { en: 'Inglés', es: 'Español' };
+const EXPORT_STAMP_TEXT: Record<StampType, string> = {
+  prize_pack: 'Prize Pack',
+  league: 'Liga',
+  championship: 'Campeonato',
+  prerelease: 'Prerelease',
+  staff: 'Staff',
+};
 
 /**
  * v2.1.9 (S49-R4) — **lista blanca de `InventoryItem` para las respuestas de BACK-OFFICE (M1).**
@@ -4227,6 +4240,14 @@ export class InventoryService {
       ovByKey.set(variantKey(o), o);
     }
 
+    // 💰 v1.116⟨ids⟩ (§IDS.4): la versión de cada pieza y, para las no default, su valor de mercado por versión
+    // (`referenceForPieces`); las de (en, sin liga) no cambian.
+    const exportStamps = items.some((i) => i.cardProductId != null)
+      ? await this.pricing.findStampedProducts(items.map((i) => i.cardProductId))
+      : new Map<number, StampRef>();
+    const versionMarket = this.decider
+      ? await this.decider.referenceForPieces(items as unknown as SaleItem[])
+      : new Map<string, number | null>();
     const workbook = new ExcelJS.Workbook();
     // Marca visible = 'TCG HUNT' (DESIGN_SYSTEM §17.4: mayúsculas, con espacio; dominio tcghunt.mx).
     // Esto SALE del sistema: es el autor que ve cualquiera en las propiedades del .xlsx, así que va
@@ -4255,7 +4276,8 @@ export class InventoryService {
       const refKey = k == null ? null : variantKey(k);
       const market = refKey == null ? undefined : refs.get(refKey);
       const ov = refKey == null ? undefined : ovByKey.get(refKey);
-      const marketCents = this.pricing.valuationCentsOf(it, market, sourceOn);
+      const version = pieceVersionOf(it, exportStamps);
+      const marketCents = versionMarket.has(it.id) ? (versionMarket.get(it.id) ?? null) : this.pricing.valuationCentsOf(it, market, sourceOn);
       const buyCents = ov?.buyOverrideCents ?? null;
       // H-1 (E5-bis): con `??`, un `listPriceCents = 0` ENMASCARABA el `sellOverrideCents` de la
       // variante y el reporte enseñaba $0 donde el sistema cobra el override. Misma precedencia, con
@@ -4288,6 +4310,8 @@ export class InventoryService {
         buyMxn: this.centsToMxn(buyCents),
         sellMxn: this.centsToMxn(sellCents),
         productDisplayMxn: this.centsToMxn(productDisplayCents),
+        language: EXPORT_LANGUAGE_TEXT[version.language],
+        stamp: version.stamp ? EXPORT_STAMP_TEXT[version.stamp.type] : '',
       });
     }
 

@@ -16,6 +16,8 @@ import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
 import { listedPiecesFor } from '../../src/modules/wishlist/wishlist-pieces';
+import { InventoryService } from '../../src/modules/inventory/inventory.service';
+import * as ExcelJS from 'exceljs';
 
 jest.setTimeout(120_000);
 
@@ -175,6 +177,28 @@ describe('E2E — §IDS.4 captura por versión', () => {
     expect(none.body.data.every((d) => d.version.stamp === null)).toBe(true);
     const bad = await h.api('GET', `/admin/inventory/items?language=ja`, { token: admin });
     expect(bad.status).toBe(400);
+  });
+
+  it('IDS-B14 (527): export con columnas 19 «Idioma» y 20 «Sello»; mercado de una versión = el de su versión (×X)', async () => {
+    const buf = await h.app.get(InventoryService).exportInventoryXlsx({ setId });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    const ws = wb.getWorksheet('Inventario')!;
+    const headers = (ws.getRow(1).values as unknown[]).slice(1);
+    expect(headers.slice(18)).toEqual(['Idioma', 'Sello']);
+    const rows = new Map<string, unknown[]>();
+    ws.eachRow((r, n) => {
+      if (n > 1) rows.set(String(r.getCell(1).value), (r.values as unknown[]).slice(1));
+    });
+    const pieces = await h.prisma.inventoryItem.findMany({ where: { cardId: cardA } });
+    const en = pieces.find((p) => p.language === 'en' && p.cardProductId == null && p.finish === 'normal')!;
+    const es = pieces.find((p) => p.language === 'es' && p.cardProductId == null)!;
+    const liga = pieces.find((p) => p.cardProductId === pid)!;
+    expect(rows.get(en.folio)!.slice(14, 15)).toEqual([400]);
+    expect(rows.get(en.folio)!.slice(18)).toEqual(['Inglés', '']);
+    expect(rows.get(es.folio)!.slice(14, 15)).toEqual([300]);
+    expect(rows.get(es.folio)![18]).toBe('Español');
+    expect(rows.get(liga.folio)!.slice(18)).toEqual(['Español', 'Prize Pack']);
   });
 
   it('IDS-B13 (528, I-6): la buylist no cotiza la liga y la lista de deseos no casa una pieza en español', async () => {
