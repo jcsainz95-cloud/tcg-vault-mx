@@ -154,6 +154,8 @@ export class PaymentsService {
                 setName: snap.setName ?? '',
                 number: snap.number ?? '',
                 productType: snap.productType ?? 'raw',
+                // v1.116⟨ids⟩ (§IDS.5): la versión CONGELADA en la línea (no la de la pieza).
+                version: { language: oi.language, stampType: oi.stampType, stampLabel: oi.stampLabel, finish: oi.finish },
               };
             }),
             totalCents: order.totalCents,
@@ -721,7 +723,14 @@ export class PaymentsService {
           const snap = readFrozenCardFacts(oi.cardSnapshot);
           // §4.34a.2 — `snap.name` ya trae la identidad resuelta del sellado; `productType` deja
           // omitir el `#número` del ancla en un sellado.
-          return { name: snap.name ?? '', setName: snap.setName ?? '', number: snap.number ?? '', productType: snap.productType ?? 'raw' };
+          return {
+            name: snap.name ?? '',
+            setName: snap.setName ?? '',
+            number: snap.number ?? '',
+            productType: snap.productType ?? 'raw',
+            // v1.116⟨ids⟩ (§IDS.5): la versión CONGELADA en la línea, traducida por la plantilla en el `locale` del pedido.
+            version: { language: oi.language, stampType: oi.stampType, stampLabel: oi.stampLabel, finish: oi.finish },
+          };
         }),
       })
       .catch((e: unknown) =>
