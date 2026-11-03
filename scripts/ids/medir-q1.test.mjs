@@ -124,31 +124,33 @@ function limpiar(sfx) {
     'CardProduct', 'Card', 'CardSet', 'User'];
   return psqlRun(`BEGIN;\n${tablas.map((t) => `DELETE FROM "${t}" WHERE id ${like};`).join('\n')}\nCOMMIT;`);
 }
+// Una copia que no llega a devolverse (ancla ausente, error de E/S) se borra aquí: nadie más tiene su ruta.
 function arbolMutado(desde, hasta, n) {
   const root = mkdtempSync(join(tmpdir(), 'ids-q1c-mut-'));
-  mkdirSync(join(root, 'scripts'), { recursive: true });
-  cpSync(HERE, join(root, 'scripts/ids'), { recursive: true });
-  const f = join(root, 'scripts/ids/ids-d1-q1.sql');
-  const sql = readFileSync(f, 'utf8');
-  // La n-ésima aparición: 1 = la tabla por kind, 2 = el detalle.
-  let k = -1;
-  for (let i = 0; i < n; i += 1) {
-    k = sql.indexOf(desde, k + 1);
-    assert.ok(k >= 0, `la mutación no encuentra su ancla (${n}): el canario no prueba nada`);
+  try {
+    mkdirSync(join(root, 'scripts'), { recursive: true });
+    cpSync(HERE, join(root, 'scripts/ids'), { recursive: true });
+    const f = join(root, 'scripts/ids/ids-d1-q1.sql');
+    const sql = readFileSync(f, 'utf8');
+    // La n-ésima aparición: 1 = la tabla por kind, 2 = el detalle.
+    let k = -1;
+    for (let i = 0; i < n; i += 1) {
+      k = sql.indexOf(desde, k + 1);
+      assert.ok(k >= 0, `la mutación no encuentra su ancla (${n}): el canario no prueba nada`);
+    }
+    writeFileSync(f, sql.slice(0, k) + hasta + sql.slice(k + desde.length));
+    return root;
+  } catch (e) {
+    rmSync(root, { recursive: true, force: true });
+    throw e;
   }
-  writeFileSync(f, sql.slice(0, k) + hasta + sql.slice(k + desde.length));
-  return root;
 }
 const FILTRO = `WHERE i."ownerType" = 'customer' AND i.status <> 'withdrawn'`;
 
 test('Q1c (§IDS.9 v1.116.4) sobre un lote sembrado: tabla por kind, detalle exacto, solo agregados, y su canario muerde', { skip: !URL_DB }, () => {
   const sfx = `${process.pid}${Date.now().toString(36)}`;
-  const mutantes = {
-    'tabla sin filtro de cliente': arbolMutado(FILTRO, `WHERE i.status <> 'withdrawn'`, 1),
-    'tabla sin filtro de portafolio': arbolMutado(FILTRO, `WHERE i."ownerType" = 'customer'`, 1),
-    'detalle sin filtro de cliente': arbolMutado(FILTRO, `WHERE i.status <> 'withdrawn'`, 2),
-    'detalle sin filtro de portafolio': arbolMutado(FILTRO, `WHERE i."ownerType" = 'customer'`, 2),
-  };
+  // Se arman DENTRO del try, de uno en uno: si el tercero no encuentra su ancla, el `finally` borra los dos primeros.
+  const mutantes = {};
   const raiz = join(HERE, '../..');
   const resultado = (summary, root) => ({
     total: q1cDe(summary),
@@ -163,6 +165,12 @@ test('Q1c (§IDS.9 v1.116.4) sobre un lote sembrado: tabla por kind, detalle exa
   const ESPERADO_DETALLE = new RegExp(String.raw`^\| promo \| \d+ \| Q1c promo ${sfx} \| normal \| raw \| 2 \| 1 \| 2 \| 1 \| ${O} \| 1 \| 1 \| ${O} \|$`);
   const ESPERADO_CRUDO = new RegExp(String.raw`^promo,\d+,Q1c promo ${sfx},normal,raw,2,1,2,1,10000,5000,5000,1,1,3000,3000,3000$`);
   try {
+    for (const [k, desde, hasta, n] of [
+      ['tabla sin filtro de cliente', FILTRO, `WHERE i.status <> 'withdrawn'`, 1],
+      ['tabla sin filtro de portafolio', FILTRO, `WHERE i."ownerType" = 'customer'`, 1],
+      ['detalle sin filtro de cliente', FILTRO, `WHERE i.status <> 'withdrawn'`, 2],
+      ['detalle sin filtro de portafolio', FILTRO, `WHERE i."ownerType" = 'customer'`, 2],
+    ]) mutantes[k] = arbolMutado(desde, hasta, n);
     const antes = correr(raiz);
     assert.equal(antes.rc, 0, antes.log);
     const a = resultado(antes.summary, raiz);
@@ -225,13 +233,18 @@ test('canario: sin READ ONLY la prueba de escritura pone el botón en rojo y no 
 // Canario en la misma prueba: con el umbral quitado (K_ANON = 1, copia del árbol) la fila A publica MX$11.11.
 function arbolCon(rel, desde, hasta) {
   const root = mkdtempSync(join(tmpdir(), 'ids-q1-k-'));
-  mkdirSync(join(root, 'scripts'), { recursive: true });
-  cpSync(HERE, join(root, 'scripts/ids'), { recursive: true });
-  const f = join(root, rel);
-  const s = readFileSync(f, 'utf8');
-  assert.ok(s.includes(desde), `la mutación no encuentra su ancla «${desde}»: el canario no prueba nada`);
-  writeFileSync(f, s.replace(desde, hasta));
-  return root;
+  try {
+    mkdirSync(join(root, 'scripts'), { recursive: true });
+    cpSync(HERE, join(root, 'scripts/ids'), { recursive: true });
+    const f = join(root, rel);
+    const s = readFileSync(f, 'utf8');
+    assert.ok(s.includes(desde), `la mutación no encuentra su ancla «${desde}»: el canario no prueba nada`);
+    writeFileSync(f, s.replace(desde, hasta));
+    return root;
+  } catch (e) {
+    rmSync(root, { recursive: true, force: true });
+    throw e;
+  }
 }
 function sembrarK(sfx) {
   const pid = 1_900_000_000 - Math.floor(Math.random() * 1_000_000) * 4;
@@ -274,13 +287,14 @@ function limpiarK(sfx) {
 
 test('PT-IDS-6: umbral k=3 en Q1c-detalle — 1 cliente ⇒ sin cifras; 3 clientes ⇒ cifras; 3 clientes pero 1 con Q ⇒ Q oculta; y su canario muerde', { skip: !URL_DB }, () => {
   const sfx = `${process.pid}${Date.now().toString(36)}`;
-  const sinUmbral = arbolCon('scripts/ids/medir-q1-produccion.sh', 'K_ANON = 3', 'K_ANON = 1');
+  let sinUmbral = null;
   const fila = (summary, letra) => {
     const det = summary.split('**Q1c por producto y acabado**')[1] ?? '';
     return (det.match(new RegExp(String.raw`^\| [a-z_]+ \| \d+ \| K3 ${letra} ${sfx} \|.*$`, 'm')) ?? [''])[0];
   };
   const O = '<3, oculto';
   try {
+    sinUmbral = arbolCon('scripts/ids/medir-q1-produccion.sh', 'K_ANON = 3', 'K_ANON = 1');
     sembrarK(sfx);
     const { rc, log, summary } = correr(join(HERE, '../..'));
     assert.equal(rc, 0, log);
@@ -298,7 +312,7 @@ test('PT-IDS-6: umbral k=3 en Q1c-detalle — 1 cliente ⇒ sin cifras; 3 client
     assert.ok(fila(mut.summary, 'A').includes('MX$11.11'), `canario: sin umbral la fila A debía publicar MX$11.11:\n${fila(mut.summary, 'A')}`);
   } finally {
     const r = limpiarK(sfx);
-    rmSync(sinUmbral, { recursive: true, force: true });
+    if (sinUmbral) rmSync(sinUmbral, { recursive: true, force: true });
     assert.equal(r.status, 0, `la limpieza falló: ${r.stderr}`);
   }
 });
