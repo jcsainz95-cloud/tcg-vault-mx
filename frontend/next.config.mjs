@@ -242,6 +242,17 @@ export const REMOTE_PATTERNS = [
 ];
 
 /**
+ * D-CTA-10 (API_CONTRACT §CTA.6, v1.117.1): las páginas con token en la URL (`/account-setup`, `/reset-password`,
+ * `/verify-email`) llevan `Referrer-Policy: no-referrer` por ruta. La lista de páginas es la de `src/lib/token-url.ts`
+ * (`TOKEN_PAGES`); `security-headers.test.ts` comprueba que las dos coinciden.
+ */
+const TOKEN_PAGE_ALTERNATION = 'account-setup|reset-password|verify-email';
+export const TOKEN_PAGE_SOURCES = [
+  `/:locale(es|en)/:page(${TOKEN_PAGE_ALTERNATION})`,
+  `/:page(${TOKEN_PAGE_ALTERNATION})`,
+];
+
+/**
  * Interruptor de emergencia, ARCHITECTURE §4.DYN (f) 7 (v1.114.5, residual de PEN-DYN-1): con
  * `NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH=on` en el BUILD, `remotePatterns` queda VACÍO ⇒ `/_next/image` responde 400
  * a todo origen remoto; la otra mitad (la líder a nivel B) la lee `CardImage` vía `leadImageOptimized()`. Apagado por
@@ -284,6 +295,13 @@ const nextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
         ],
       },
+      // D-CTA-10 (API_CONTRACT §CTA.6 (2), v1.117.1): las tres páginas con token en la URL se sirven SIN `Referer`.
+      // Va DESPUÉS de la regla global: con dos reglas que ponen la misma cabecera, Next se queda con la última. Con y
+      // sin prefijo de idioma (la segunda es la que redirige el middleware). Candado: `security-headers.test.ts` CTA-F8.
+      ...TOKEN_PAGE_SOURCES.map((source) => ({
+        source,
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      })),
     ];
   },
   images: {

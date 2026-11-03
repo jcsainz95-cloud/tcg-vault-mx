@@ -235,7 +235,8 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
     await within(pctGroup).findByText(`hasta ${mx(105000)}`);
     expect(within(pctGroup).getByText(`hasta ${mx(110000)}`)).toBeInTheDocument();
     expect(within(pctGroup).getByText(`hasta ${mx(116000)}`)).toBeInTheDocument();
-    expect(within(b).getAllByText('IVA 8 % incluido').length).toBeGreaterThan(0);
+    // Criterio 977 (dueño 2026-11-03): la ficha no rotula ninguna cifra con «IVA … incluido».
+    expect(within(b).queryAllByText('IVA 8 % incluido')).toHaveLength(0);
 
     fireEvent.click(within(b).getByRole('button', { name: `Agregar ${es.finish.normal} a mi lista` }));
     await waitFor(() => expect(add).toHaveBeenCalledWith({ cardId: 'c-test', finish: 'normal', maxPct: 10 }));

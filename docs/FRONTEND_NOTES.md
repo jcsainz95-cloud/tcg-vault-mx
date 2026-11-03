@@ -6,6 +6,47 @@
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46; 2026-10-31: §MKT tienda §A3/§A4/§E1
 > plegado en §MKT-OLA2); cada pase que añade quita más de lo que añade.
 
+## §CTA-FE · Cuenta con solo el correo, franja de 4 señales y precios sin rótulo de IVA (2026-11-03, rama `claude/cuenta-correo`; contrato §CTA v1.117/v1.117.1)
+
+**Estado vigente.** Fuentes: `HECHOS.md` 2026-11-03 «Checkout y ficha: tres cambios aprobados…» y «Respuestas a P-CTA-3,
+P-CTA-5(a) y P-CTA-6»; `PROJECT.md` 945, 969–977, 195; `API_CONTRACT §CTA`. Consume el backend real de §CTA (sin mocks
+pendientes de contrato; el simulador de `lib/api.ts` espeja el contrato: `MOCK_TAKEN_EMAIL_RE` ⇒ `409`).
+- **Alta con solo el correo (969/970):** `InlineAuthPanel` (carrito T4, upsell de bóveda, confirmación del invitado) en
+  modo registro = UN campo + leyenda del 504 ⇒ `registerEmailOnly({ email, locale })`. `409 EMAIL_TAKEN` ⇒ aviso con
+  «Ingresar a cuenta» (la entrada de ESE panel con el correo puesto; no navega, el carrito no se toca) y «¿Olvidaste tu
+  contraseña?» (`forgotPassword(email)` sin salir). Se retira el copy neutro del criterio 56 en este panel (P-CTA-3).
+  `register` con contraseña sigue solo en `/register` (`AuthForm`). La confirmación ya no prellena nombre (Paquete A,
+  2026-11-02, sustituido por §CTA).
+- **Pagar sin verificar (§CTA.5):** `VerifyEmailBanner` no se pinta en `/checkout` (`isCheckoutPath`); fuera sigue.
+  Reclamo con `403 EMAIL_NOT_VERIFIED` ⇒ «Abre el enlace de tu correo para ver este pedido» (estado, no error).
+- **`/[locale]/account-setup`** (`(auth)/account-setup/`): nombre + contraseña ⇒ `accountSetup`; `200` «Listo» + entrar;
+  `422 ACCOUNT_SETUP_TOKEN_INVALID` ⇒ «Mandar otro» (con sesión `verify-email/resend`; sin sesión, correo +
+  `forgot-password`). Valida antes de pedir (no quema el enlace).
+- **D-CTA-10 en las tres páginas con token:** `useStripTokenFromUrl()` (`lib/token-url.ts`, efecto de layout ⇒ antes de
+  cualquier `useEffect` que pida) en `/account-setup`, `/reset-password`, `/verify-email`; `Referrer-Policy: no-referrer`
+  por ruta en `next.config.mjs` (`TOKEN_PAGE_SOURCES`, con y sin prefijo de idioma, después de la regla global); fuera
+  de la lista blanca de medición (ya lo estaban; `robots.ts` añade `/*/account-setup`).
+- **«Mi cuenta» (972):** `accountSetupPending && !hasPassword` ⇒ «Ponle contraseña a tu cuenta» (`SetPasswordForm`,
+  nombre opcional + nueva, sin la actual ⇒ `setPassword`, reemplaza los dos tokens). Correo editable en `EmailSection`
+  solo pendiente y sin verificar (`updateMyEmail`). `hasPassword` manda sobre una bandera vieja.
+- **Franja (945, CTA.8):** `TrustStrip` = «Pago seguro con tarjeta · Entrega en 4 a 10 días hábiles · WhatsApp … ·
+  Instagram @tcghunt.mx · Quiénes somos», `flex-wrap`. Un hecho, un sitio: `about.paymentMethod` y `about.deliveryDays`
+  alimentan franja y `/nosotros`; número, `wa.me` e Instagram salen de `lib/about.ts`. ⛔ OXXO en ningún texto de cliente.
+- **977:** `IvaLabel` ya no pinta el rótulo del PRECIO con IVA dentro (teja, ficha y barra fija, sellado, carrusel,
+  vitrina, lista de deseos); fuera `accessories.vatIncluded`, «IVA incluido» del deck y «con IVA incluido» de las notas
+  del subtotal. Quedan la línea «IVA 16 % incluido: MX$…» del resumen (P-CTA-5(a)), «incluye IVA» del mercado
+  (P-CTA-5(b)) y «sin IVA» de una cifra que no lo lleva (190).
+- **Candados:** CTA-F1/F2 `InlineAuthPanel.test.tsx`, `api.cta.test.ts`; F3 `CheckoutEmailOnly.cta.test.tsx`; F4
+  `(auth)/token-pages.cta.test.tsx`; F5 `account/AccountSetupPending.cta.test.tsx`; F6 `GuestOrderConfirmation.test.tsx`;
+  F7 + 945 `_shared/TrustStrip.test.tsx`; F8 `security-headers.test.ts`; 977 `test/iva-977.test.tsx` + `IvaLabel.test.tsx`
+  y los casos de cada superficie. E2E `e2e/cuenta-correo.spec.ts` (todo `@real`, mismos pasos en mocks y real; el token
+  real se lee del log del backend con `NoopMailAdapter`, `E2E_BACKEND_LOG`).
+- **Pendiente de ux-ui (provisional, sin maqueta en DESIGN_SYSTEM):** textos y forma de la franja de 4 señales (MKT-CONV.4
+  fija la de una línea), la página `/account-setup` (copia el patrón de `/reset-password`), el aviso del `409` y sus dos
+  acciones, el bloque «Ponle contraseña» y «Corregir mi correo» de «Mi cuenta», y las notas del subtotal sin «con IVA
+  incluido». Namespaces: `accountSetup.*`, `auth.emailOnly.*`, `account.password.setup*`, `account.email.correct*`,
+  `about.strip.*`.
+
 ## §IDS-FE · Español y versiones de liga (2026-11-03, rama `claude/ids-diseno`; contrato v1.116.2⟨ids⟩, DESIGN_SYSTEM §IDS-UX vIDS-6)
 
 **Estado vigente (medido 2026-11-03 sobre `8ed6d67f`; rechazo de QA sobre `f2cd0e31` cerrado abajo, «Re-pase QA»; peticiones 9a/9b y deck `@real` sobre `94a8325b`, abajo «Deck y 9a/9b»).** Construido contra el contrato; consume el servidor real de §IDS

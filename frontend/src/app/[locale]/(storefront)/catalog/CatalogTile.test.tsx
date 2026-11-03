@@ -248,18 +248,19 @@ describe('CatalogTile · compacta solo en < sm (MKT-CONV.8)', () => {
     expect(cls(rarity)).not.toContain('inline-block');
   });
 
-  it('precio y stock en un renglón en < sm (flex + order) y apilados en ≥ sm (block); orden del DOM: precio, IVA, stock', () => {
+  it('precio y stock en un renglón en < sm (flex + order) y apilados en ≥ sm (block); sin rótulo de IVA (977)', () => {
     renderWithIntl(<CatalogTile listing={listing({ stockCount: 1 })} inCart={false} onAdd={vi.fn()} />, 'es');
     const row = screen.getByTestId('tile-price-row');
     expect(cls(row)).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'items-baseline', 'justify-between', 'sm:block']));
-    const [price, iva, stock] = Array.from(row.children);
+    // Criterio 977 (dueño 2026-11-03): el precio con IVA dentro ya no lleva rótulo ⇒ el renglón es precio y stock.
+    const [price, stock, ...rest] = Array.from(row.children);
+    expect(rest).toHaveLength(0);
+    expect(row.textContent).not.toMatch(/IVA|VAT/);
     expect(price).toHaveTextContent(/1,408/);
-    expect(iva).toHaveTextContent('IVA 16 % incluido');
     expect(stock).toHaveTextContent('Queda 1');
     expect(cls(price)).toContain('order-1');
     expect(cls(stock)).toEqual(expect.arrayContaining(['order-2', 'sm:mt-2']));
     expect(cls(stock)).not.toContain('mt-2');
-    expect(cls(iva)).toEqual(expect.arrayContaining(['order-3', 'basis-full']));
   });
 
   it('precio pendiente y «Queda 1» comparten el mismo renglón (peor caso de L-8)', () => {

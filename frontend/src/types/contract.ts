@@ -576,6 +576,12 @@ export interface UserDTO {
    * ⇒ se trata como `false` (falla cerrado: se deshabilita, el servidor decide).
    */
   isOwner?: boolean;
+  /**
+   * v1.117 (§CTA.2): cuenta nacida en el carrito con solo el correo, sin contraseña ni Google. `GET /users/me` y
+   * `PATCH /users/me` lo traen SIEMPRE; la sesión guardada por el alta no (ausente ⇒ se trata como `false`).
+   * Decide «Ponle contraseña a tu cuenta» (`POST /auth/set-password`, sin la actual) y el correo editable.
+   */
+  accountSetupPending?: boolean;
 }
 
 export interface AuthResponse {
@@ -658,6 +664,37 @@ export interface ChangePasswordResponse {
   ok: true;
   accessToken: string;
   refreshToken: string;
+}
+
+// ---- §CTA (v1.117): cuenta con solo el correo, «Termina tu cuenta» y contraseña desde la sesión ----
+/** POST /auth/register/email-only — `public`. `201` ⇒ `AuthResponse` (sin verificar); `409 EMAIL_TAKEN` sin sesión. */
+export interface RegisterEmailOnlyRequest {
+  email: string;
+  locale?: Locale;
+}
+/** POST /auth/account-setup — `public`. `200` sin sesión; `422 ACCOUNT_SETUP_TOKEN_INVALID` (no distingue el motivo). */
+export interface AccountSetupRequest {
+  token: string;
+  name: string;
+  password: string;
+}
+export interface AccountSetupResponse {
+  ok: true;
+  deviceToken: string;
+}
+/** POST /auth/set-password — `customer`, solo con `accountSetupPending` (si no, `422 ACCOUNT_SETUP_NOT_PENDING`). */
+export interface SetPasswordRequest {
+  newPassword: string;
+  name?: string;
+}
+export interface SetPasswordResponse {
+  ok: true;
+  accessToken: string;
+  refreshToken: string;
+}
+/** PATCH /users/me/email — `customer`, con `accountSetupPending` y sin verificar. `200` ⇒ la forma de `GET /users/me`. */
+export interface UpdateMyEmailRequest {
+  email: string;
 }
 
 export interface AddressDTO {

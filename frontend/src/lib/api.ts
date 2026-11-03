@@ -166,6 +166,11 @@ import type {
   LoginRequest,
   ChangePasswordRequest,
   ChangePasswordResponse,
+  RegisterEmailOnlyRequest,
+  AccountSetupRequest,
+  AccountSetupResponse,
+  SetPasswordRequest,
+  SetPasswordResponse,
   BillingProfileDTO,
   BillingProfileInput,
   Locale,
@@ -3914,6 +3919,120 @@ export async function changePassword(input: ChangePasswordRequest): Promise<Chan
   setRefreshToken(res.refreshToken);
   patchStoredUser({ mustChangePassword: false, hasPassword: true });
   return res;
+}
+
+// ---------- §CTA (v1.117): cuenta con solo el correo ----------
+/**
+ * MOCK: correos que el simulador trata como «ya tienen cuenta» (`409 EMAIL_TAKEN`), para recorrer el
+ * «Ingresar a cuenta» sin backend. El servidor real decide por su tabla de usuarios.
+ */
+export const MOCK_TAKEN_EMAIL_RE = /^(taken|existe)[^@]*@/i;
+
+/**
+ * Alta con SOLO el correo (contrato §CTA.4 · `POST /auth/register/email-only`, `public`). `201` ⇒ la misma forma
+ * que `register` (sesión iniciada, `emailVerified: false`) y se persiste igual. `409 EMAIL_TAKEN` ⇒ se lanza ANTES
+ * de tocar la sesión: ⛔ nunca se guarda nada de una cuenta existente (970, I-1).
+ */
+export async function registerEmailOnly(input: RegisterEmailOnlyRequest): Promise<AuthResponse> {
+  if (!(MOCKS_BUILD && config.useMocks)) {
+    // El `user` del alta trae la forma de `register` (sin `hasPassword` ni `accountSetupPending`): «Mi cuenta» los
+    // lee de `GET /users/me`, que los trae siempre. ⛔ No se deducen aquí.
+    return persistSession(
+      await apiRequest<AuthResponse>('/auth/register/email-only', { method: 'POST', body: input }),
+    );
+  }
+  await delay(undefined, 300);
+  const email = input.email.trim().toLowerCase();
+  if (MOCK_TAKEN_EMAIL_RE.test(email)) {
+    throw new ApiClientError(409, { code: 'EMAIL_TAKEN', message: 'Email already registered' });
+  }
+  return persistSession(
+    mockAuthResponse({
+      email,
+      name: email.split('@')[0] ?? email,
+      emailVerified: false,
+      hasPassword: false,
+      accountSetupPending: true,
+      nameSource: 'derived',
+    }),
+  );
+}
+
+/**
+ * «Termina tu cuenta» (contrato §CTA.4 · `POST /auth/account-setup`, `public`): nombre y contraseña con el token del
+ * correo. `200 { ok, deviceToken }` SIN sesión (como `reset-password`): el cliente entra después con correo y
+ * contraseña. `422 ACCOUNT_SETUP_TOKEN_INVALID` (usado, caducado, inválido), `400 VALIDATION_ERROR`, `403 USER_BLOCKED`.
+ */
+export async function accountSetup(input: AccountSetupRequest): Promise<AccountSetupResponse> {
+  if (!(MOCKS_BUILD && config.useMocks)) {
+    const res = await apiRequest<AccountSetupResponse>('/auth/account-setup', { method: 'POST', body: input });
+    storeDeviceToken(res.deviceToken);
+    return res;
+  }
+  await delay(undefined, 300);
+  if (!input.token || /invalid|expired|bad|used/i.test(input.token)) {
+    throw new ApiClientError(422, { code: 'ACCOUNT_SETUP_TOKEN_INVALID', message: 'Account setup token invalid' });
+  }
+  return { ok: true, deviceToken: 'mock.device.token' };
+}
+
+/**
+ * Contraseña desde la sesión SIN la actual (contrato §CTA.4 · `POST /auth/set-password`, `customer`), solo con
+ * `accountSetupPending`. `200` trae un par NUEVO (las demás sesiones mueren): se reemplazan los dos tokens y la
+ * sesión local pasa a `hasPassword: true, accountSetupPending: false` (y el nombre, si se mandó).
+ */
+export async function setPassword(input: SetPasswordRequest): Promise<SetPasswordResponse> {
+  const name = input.name?.trim() ? input.name.trim() : undefined;
+  const body: SetPasswordRequest = name ? { newPassword: input.newPassword, name } : { newPassword: input.newPassword };
+  let res: SetPasswordResponse;
+  if (!(MOCKS_BUILD && config.useMocks)) {
+    res = await apiRequest<SetPasswordResponse>('/auth/set-password', { method: 'POST', body });
+  } else {
+    await delay(undefined, 300);
+    const current = getStoredUser();
+    if (!current) throw new ApiClientError(401, { code: 'UNAUTHENTICATED', message: 'No session' });
+    if (current.accountSetupPending !== true) {
+      throw new ApiClientError(422, { code: 'ACCOUNT_SETUP_NOT_PENDING', message: 'Account setup not pending' });
+    }
+    if (input.newPassword.length < 8) {
+      throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'newPassword too short', details: { field: 'newPassword' } });
+    }
+    res = { ok: true, accessToken: 'mock.session.token.set', refreshToken: 'mock.refresh.token.set' };
+  }
+  setToken(res.accessToken);
+  setRefreshToken(res.refreshToken);
+  patchStoredUser({
+    hasPassword: true,
+    accountSetupPending: false,
+    ...(name ? { name, nameSource: 'user' as const } : {}),
+  });
+  return res;
+}
+
+/**
+ * Corrige el correo de una cuenta `accountSetupPending` sin verificar (contrato §CTA.4 · `PATCH /users/me/email`).
+ * `200` ⇒ la forma de `GET /users/me` (se sincroniza la sesión). `409 EMAIL_TAKEN`, `422 ACCOUNT_SETUP_NOT_PENDING`,
+ * `429 RATE_LIMITED` (tope de correos por cuenta), `400 VALIDATION_ERROR`.
+ */
+export async function updateMyEmail(email: string): Promise<UserDTO> {
+  if (!(MOCKS_BUILD && config.useMocks)) {
+    const user = await apiRequest<UserDTO>('/users/me/email', { method: 'PATCH', body: { email } });
+    setStoredUser(user);
+    return user;
+  }
+  await delay(undefined, 300);
+  const current = getStoredUser();
+  if (!current) throw new ApiClientError(401, { code: 'UNAUTHENTICATED', message: 'No session' });
+  if (current.accountSetupPending !== true || current.emailVerified !== false) {
+    throw new ApiClientError(422, { code: 'ACCOUNT_SETUP_NOT_PENDING', message: 'Account setup not pending' });
+  }
+  const normalized = email.trim().toLowerCase();
+  if (MOCK_TAKEN_EMAIL_RE.test(normalized)) {
+    throw new ApiClientError(409, { code: 'EMAIL_TAKEN', message: 'Email already registered' });
+  }
+  const user: UserDTO = { ...withMeDefaults(current), email: normalized };
+  setStoredUser(user);
+  return user;
 }
 
 // ---------- Admin ----------

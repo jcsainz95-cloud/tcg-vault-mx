@@ -130,13 +130,13 @@ export default async function AboutPage({ params }: { params: Promise<{ locale: 
               {t('buy.accountValue')}
             </Row>
             <Row label={t('buy.payment')} testId="payment">
-              {t('buy.paymentValue')}
+              {t('buy.paymentValue', { method: t('paymentMethod') })}
             </Row>
             <Row label={t('buy.shipping')} testId="shipping">
               {shipping}
             </Row>
             <Row label={t('buy.delivery')} testId="delivery">
-              {t('buy.deliveryValue')}
+              {t('buy.deliveryValue', { days: t('deliveryDays') })}
             </Row>
             <Row label={t('buy.guarantee')} testId="guarantee">
               {tf('refundPromise')}{' '}

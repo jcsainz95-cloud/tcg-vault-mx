@@ -16,10 +16,16 @@ vi.mock('@/i18n/navigation', () => ({
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
-  return { ...actual, createGuestCheckoutSession: vi.fn() };
+  return {
+    ...actual,
+    createGuestCheckoutSession: vi.fn(),
+    registerEmailOnly: vi.fn(actual.registerEmailOnly),
+    claimGuestOrders: vi.fn(actual.claimGuestOrders),
+  };
 });
 
-import { createGuestCheckoutSession } from '@/lib/api';
+import { claimGuestOrders, createGuestCheckoutSession, registerEmailOnly } from '@/lib/api';
+import { ApiClientError } from '@/lib/api-client';
 import { GuestOrderConfirmation } from './GuestOrderConfirmation';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { setCheckoutViewport } from './test-viewport';
@@ -27,22 +33,38 @@ import { setCheckoutViewport } from './test-viewport';
 setCheckoutViewport('desktop');
 
 /**
- * Paquete A (dueño, `HECHOS.md` 2026-11-02 «Checkout con menos captura…»): la cuenta que se crea tras pagar como
- * invitado (reclamo, §4-G.9) prellena también el NOMBRE (el de quien recibe, ya capturado), no solo el correo.
- * Editable: es un valor inicial.
+ * CTA-F6 (API_CONTRACT §CTA.9, criterios 54/969/974): «Crear cuenta con este correo» de la confirmación del invitado usa
+ * el alta con SOLO el correo (ya escrito). Antes (Paquete A, `HECHOS.md` 2026-11-02) prellenaba también el nombre con
+ * contraseña; §CTA lo sustituye: el nombre se pone después, con el enlace del correo o desde «Mi cuenta».
+ * El reclamo de una cuenta recién nacida responde `403 EMAIL_NOT_VERIFIED` (974) ⇒ NO es un error: «Abre el enlace de
+ * tu correo para ver este pedido». Mutación: pintar error.
  */
-describe('GuestOrderConfirmation · alta de cuenta prellenada', () => {
-  it('correo y nombre capturados en el formulario de registro', () => {
-    renderWithProviders(
-      <GuestOrderConfirmation orderNumber="TCG-1" orderId="o-1" email="juan@dominio.com" name="Juan Pérez" />,
-      'es',
-    );
+describe('CTA-F6 · confirmación del invitado: cuenta con solo el correo', () => {
+  it('el formulario trae solo el correo capturado: sin nombre ni contraseña', () => {
+    renderWithProviders(<GuestOrderConfirmation orderNumber="TCG-1" orderId="o-1" email="juan@dominio.com" />, 'es');
     const claim = screen.getByRole('region');
-    expect(within(claim).getByLabelText('Nombre')).toHaveValue('Juan Pérez');
     expect(within(claim).getByLabelText('Correo')).toHaveValue('juan@dominio.com');
+    expect(within(claim).queryByLabelText('Nombre')).toBeNull();
+    expect(claim.querySelector('input[type="password"]')).toBeNull();
   });
 
-  it('de punta a punta: el nombre de quien recibe del checkout llega al registro de la confirmación', async () => {
+  it('crear cuenta ⇒ registerEmailOnly con el correo; reclamo 403 EMAIL_NOT_VERIFIED ⇒ aviso, no error', async () => {
+    window.localStorage.clear();
+    vi.mocked(claimGuestOrders).mockRejectedValueOnce(
+      new ApiClientError(403, { code: 'EMAIL_NOT_VERIFIED', message: 'verify' }),
+    );
+    const usr = userEvent.setup();
+    renderWithProviders(<GuestOrderConfirmation orderNumber="TCG-1" orderId="o-1" email="juan@dominio.com" />, 'es');
+    await usr.click(screen.getByRole('button', { name: 'Crear cuenta con este correo' }));
+    const notice = await screen.findByText('Cuenta creada. Abre el enlace de tu correo para ver este pedido.');
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(vi.mocked(registerEmailOnly)).toHaveBeenCalledWith(expect.objectContaining({ email: 'juan@dominio.com' }));
+    expect(Object.keys(vi.mocked(registerEmailOnly).mock.calls[0][0]).sort()).toEqual(['email', 'locale']);
+    expect(vi.mocked(claimGuestOrders)).toHaveBeenCalledWith(['o-1']);
+  });
+
+  it('de punta a punta: el correo del checkout llega al alta de la confirmación', async () => {
     window.localStorage.clear();
     window.sessionStorage.clear();
     window.localStorage.setItem('tcg.cart', JSON.stringify({ ids: ['inv-1002'], updatedAt: Date.now() }));
@@ -73,6 +95,7 @@ describe('GuestOrderConfirmation · alta de cuenta prellenada', () => {
     const dialog = await screen.findByRole('dialog');
     await usr.click(within(dialog).getByRole('button', { name: /\(simulado\)/ }));
     await screen.findByTestId('guest-order-number', {}, { timeout: 4000 });
-    expect(screen.getByLabelText('Nombre')).toHaveValue('Juan Pérez');
+    expect(screen.getByLabelText('Correo')).toHaveValue('juan@dominio.com');
+    expect(screen.queryByLabelText('Nombre')).toBeNull();
   });
 });

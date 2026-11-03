@@ -327,14 +327,10 @@ function Detail({
         {
           key: 'salePrice',
           label: tcat('salePrice'),
-          // ⛔ §M10-IVA.3/criterio 190 — el rótulo lo dice el DATO (`ivaIncluded`), no la pantalla.
-          // Antes era el literal `withoutIva`, que bajo `IVA_INCLUSIVE` sería falso.
+          // ⛔ §M10-IVA.3/criterio 190 — el rótulo lo dice el DATO (`ivaIncluded`), no la pantalla. Criterio 977
+          // (dueño 2026-11-03): con el IVA dentro el precio va SIN rótulo; solo una cifra sin IVA lo dice.
           note:
-            primary.displayPriceCents != null
-              ? primary.ivaIncluded
-                ? tc('ivaIncluded', { rate: primary.ivaRatePct })
-                : tc('withoutIva')
-              : undefined,
+            primary.displayPriceCents != null && !primary.ivaIncluded ? tc('withoutIva') : undefined,
           // §A1: sin «Valor de mercado» en la ficha pública, la celda de venta ocupa SIEMPRE la fila
           // completa. La cifra CONSERVA su tamaño y su posición: nada crece para compensar (§21.8c).
           fullRow: true,

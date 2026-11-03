@@ -7,9 +7,8 @@ import { InlineAuthPanel } from './InlineAuthPanel';
 export interface VaultUpsellPanelProps {
   /** Tarifa de envío YA formateada (sale del dial vía `breakdown.shippingFeeCents`). */
   shippingFeeLabel?: string;
-  /** correo y nombre ya capturados: el registro no vuelve a pedir nada más (§15.4) */
+  /** correo ya capturado: el alta (§CTA, solo el correo) no vuelve a pedir nada más (§15.4) */
   defaultEmail?: string;
-  defaultName?: string;
   /** "Seguir con envío a domicilio": colapsa el panel y re-selecciona envío. */
   onDismiss: () => void;
   /** Cuenta creada / sesión iniciada: el checkout continúa donde estaba, con bóveda. */
@@ -36,7 +35,6 @@ export interface VaultUpsellPanelProps {
 export function VaultUpsellPanel({
   shippingFeeLabel,
   defaultEmail,
-  defaultName,
   onDismiss,
   onAccountReady,
   onEscape,
@@ -94,9 +92,7 @@ export function VaultUpsellPanel({
         <InlineAuthPanel
           variant={variant}
           defaultEmail={defaultEmail}
-          defaultName={defaultName}
           submitLabel={variant === 'register' ? t('cta') : undefined}
-          neutralEmailTaken={t('emailTakenNeutral')}
           onSuccess={onAccountReady}
           onSwitchVariant={() => setVariant(variant === 'register' ? 'login' : 'register')}
           switchLabel={variant === 'register' ? t('haveAccount') : t('backToRegister')}

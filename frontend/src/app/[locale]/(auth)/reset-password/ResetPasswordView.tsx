@@ -8,6 +8,7 @@ import { ApiClientError } from '@/lib/api-client';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
+import { useStripTokenFromUrl } from '@/lib/token-url';
 
 // Política de fuerza igual al registro (contrato §1: password MinLength 8).
 const MIN_PASSWORD = 8;
@@ -23,6 +24,8 @@ type State = 'form' | 'success' | 'invalidToken';
  *   (forgot-password).
  */
 export function ResetPasswordView({ token }: { token?: string }) {
+  // D-CTA-10 (1): el token sale de la barra antes de cualquier petición (lo conserva la prop).
+  useStripTokenFromUrl();
   const t = useTranslations('resetPassword');
   const [state, setState] = useState<State>(token ? 'form' : 'invalidToken');
   const [password, setPassword] = useState('');

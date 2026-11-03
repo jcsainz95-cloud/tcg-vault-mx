@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import type { UserDTO } from '@/types/contract';
 import { PasswordForm } from './PasswordForm';
+import { SetPasswordForm } from './SetPasswordForm';
 import { SectionError } from './SectionShell';
 import type { AccountSurface } from './AccountView';
 
@@ -35,6 +36,9 @@ type Phase = 'form' | 'done';
  *   `reason=required`, campo 1 «Contraseña temporal», «Guardar y continuar»; al 200 → «Listo» hacia
  *   `?next=` seguro o la cuenta. Única otra salida: «Cerrar sesión». Sin «← Mi cuenta» (rebotaría).
  * - **Cambiar** (`hasPassword === true`): variante A de §33.7 con «← Mi cuenta».
+ * - **Poner** (`accountSetupPending === true`, §CTA.4, criterio 972): la cuenta nació en el carrito con solo el correo
+ *   ⇒ «Ponle contraseña a tu cuenta», nombre y contraseña **sin la actual** (`POST /auth/set-password`). ⛔ Solo con
+ *   la bandera del servidor y sin contraseña: con `hasPassword === true` manda «Cambiar» (pide la actual).
  * - **Crear** (`hasPassword === false`, solo-Google): SIN campos — explica y «Enviarme el enlace»
  *   (`POST /auth/forgot-password` con el correo de la sesión). ⛔ Nunca `change-password` aquí.
  *
@@ -65,7 +69,9 @@ export function PasswordPage({ surface, next, reason }: PasswordPageProps) {
   // ⭐ v1.80.9 (DESIGN_SYSTEM §42.8, F-15): el modo «crear» manda `forgotPassword(user.email)`; una cuenta
   // del equipo sin correo SIEMPRE tiene contraseña (§M6-U.8 (b)), y aun si la invariante se rompe ⛔ no
   // se llama `forgotPassword(null)` ni se pinta un «olvidé» sin canal.
-  const createMode = !blocked && (forceCreate || user?.hasPassword === false) && user?.email != null;
+  // §CTA (972): poner contraseña sin la actual SOLO con `accountSetupPending` del servidor y sin contraseña (CTA-F5).
+  const setupMode = !blocked && !forceCreate && user?.accountSetupPending === true && user?.hasPassword !== true;
+  const createMode = !blocked && !setupMode && (forceCreate || user?.hasPassword === false) && user?.email != null;
   const dest = safeNext(next) ?? accountRouteForRole(user?.role);
   const backHref = accountRouteForRole(user?.role);
 
@@ -155,6 +161,23 @@ export function PasswordPage({ surface, next, reason }: PasswordPageProps) {
               </button>
             </div>
           )}
+        </div>
+      ) : setupMode ? (
+        <div className="mt-4 flex flex-col gap-5">
+          <h1 ref={h1Ref} tabIndex={-1} className="font-serif text-[30px] leading-[1.1] text-text outline-none lg:text-[38px]">
+            {t('setupTitle')}
+          </h1>
+          <p className="text-[15px] text-muted">{t('setupBody')}</p>
+          <SetPasswordForm
+            onSuccess={() => {
+              // `setPassword()` ya reemplazó tokens y parcheó la sesión local; se sincroniza la query `me`.
+              qc.setQueryData(['me'], (prev: UserDTO | undefined) =>
+                prev ? { ...prev, hasPassword: true, accountSetupPending: false } : prev,
+              );
+              setPhase('done');
+            }}
+            onNotPending={() => void meQuery.refetch()}
+          />
         </div>
       ) : createMode ? (
         <div className="mt-4 flex flex-col gap-5">

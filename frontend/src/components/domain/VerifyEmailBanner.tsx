@@ -1,5 +1,6 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
@@ -19,11 +20,16 @@ export function VerifyEmailBanner() {
   const t = useTranslations('verifyEmail');
   const { user, ready } = useSession();
   const { status, resend } = useResendVerification();
+  const pathname = usePathname();
 
   // Solo clientes sin verificar. Google entra con emailVerified=true (no afectado).
   // ⭐ v1.80.9 (DESIGN_SYSTEM §42.7, UX-13): una cuenta del equipo SIN correo trae `emailVerified:false`
   // (CHECK 4) y no tiene correo que verificar ⇒ no se pinta.
   if (!ready || !user || user.emailVerified !== false || user.email == null) return null;
+  // §CTA.5 (D-CTA-2, criterios 969/976): comprar ya NO exige correo verificado. En el carrito el aviso sobra y empuja
+  // a creer que hay que verificar para pagar ⇒ no se pinta en `/checkout` (CTA-F3). Reclamar, retirar y vender lo
+  // siguen exigiendo: en el resto de la tienda el aviso sigue igual.
+  if (isCheckoutPath(pathname)) return null;
 
   return (
     // Dirección 5a: franja de papel con regla; el aviso lo marca la nota, no un fondo de color.
@@ -61,4 +67,9 @@ export function VerifyEmailBanner() {
       </div>
     </div>
   );
+}
+
+/** `/es/checkout` y `/en/checkout` (con o sin barra final). Sin ruta conocida ⇒ `false` (se pinta, como antes). */
+export function isCheckoutPath(pathname: string | null | undefined): boolean {
+  return pathname != null && /^\/(es|en)\/checkout\/?$/.test(pathname.split(/[?#]/)[0] ?? '');
 }

@@ -93,7 +93,6 @@ export function AccessoryDetailView({ id }: { id: string }) {
           <h1 className="font-serif text-[30px] leading-[1.1] text-text lg:text-[40px]">{item.name}</h1>
           <div>
             <p className="tabular text-[30px] font-medium leading-none text-text">{formatMoneyCents(item.priceCents, locale)}</p>
-            <p className="mt-1.5 text-xs text-muted">{t('vatIncluded')}</p>
           </div>
           {item.description && <p className="whitespace-pre-line text-base leading-relaxed text-text">{item.description}</p>}
 

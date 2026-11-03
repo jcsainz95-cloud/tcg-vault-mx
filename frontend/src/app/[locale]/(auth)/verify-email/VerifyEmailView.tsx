@@ -10,6 +10,7 @@ import { useSession } from '@/lib/session';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { useResendVerification } from '@/hooks/useResendVerification';
+import { useStripTokenFromUrl } from '@/lib/token-url';
 
 type State = 'idle' | 'verifying' | 'success' | 'invalid' | 'error';
 
@@ -21,6 +22,8 @@ type State = 'idle' | 'verifying' | 'success' | 'invalid' | 'error';
  *   (solo si hay sesión: el reenvío es AUTENTICADO).
  */
 export function VerifyEmailView({ token }: { token?: string }) {
+  // D-CTA-10 (1): el token sale de la barra ANTES del canje (efecto de layout: corre antes que el `useEffect` de abajo).
+  useStripTokenFromUrl();
   const t = useTranslations('verifyEmail');
   const { isAuthenticated, ready } = useSession();
   const { status: resendStatus, resend } = useResendVerification();

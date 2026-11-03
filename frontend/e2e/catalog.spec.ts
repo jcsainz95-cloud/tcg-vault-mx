@@ -54,7 +54,7 @@ test.describe('Compra · listado y filtros', () => {
     ).toBeVisible();
   });
 
-  test('@real tarjeta de SELLADO (en /sellado): nombre del producto + precio «desde» con su rótulo de IVA', async ({
+  test('@real tarjeta de SELLADO (en /sellado): nombre del producto + precio «desde», sin rótulo de IVA (977)', async ({
     page,
   }) => {
     // v1.87.4 (BACKEND_NOTES §84.v1.87.4): el seed ya publica UN sellado, «E2E Surging Sparks Booster Box»
@@ -64,11 +64,10 @@ test.describe('Compra · listado y filtros', () => {
     const tile = page.locator('a[href*="/sellado/"]').filter({ hasText: 'Surging Sparks Booster Box' }).first();
     await expect(tile).toBeVisible();
     await expect(tile.getByText(MONEY_RE).first()).toBeVisible();
-    // (B-2) ASSERT CADUCO CON §M10-IVA.3: pedía la convención VIEJA.
-    // `PROJECT.md §Q` (tabla de superficies) marca **SÍ** para esta pantalla, y el criterio **190**
-    // manda que el rótulo lo diga el DATO (`ivaIncluded`), no la pantalla. Medido: la UI pinta
-    // «IVA 16 % incluido». La prueba era la equivocada; el producto hace lo que se le pidió.
-    await expect(page.getByText(ivaLabelRe('es', 'common.ivaIncluded')).first()).toBeVisible();
+    // Criterio 977 (dueño 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios aprobados…» (3)): el precio con
+    // el IVA dentro ya NO lleva «IVA 16 % incluido» ni variante. Por AUSENCIA (antes este assert pedía el rótulo).
+    await expect(page.getByText(ivaLabelRe('es', 'common.ivaIncluded'))).toHaveCount(0);
+    await expect(page.getByText(/IVA incluido|con IVA incluido/)).toHaveCount(0);
     await expect(page.getByText(t('es', 'price.pendingLabel'))).toHaveCount(0);
   });
 
@@ -159,7 +158,7 @@ test.describe('Compra · listado y filtros', () => {
 });
 
 test.describe('Compra · ficha de carta', () => {
-  test('la ficha pública muestra precio de venta con IVA, SIN «valor de mercado» (D2=A)', async ({ page }) => {
+  test('la ficha pública muestra precio de venta (sin rótulo de IVA, 977), SIN «valor de mercado» (D2=A)', async ({ page }) => {
     // Lo que ata este test al fixture es el id `c-charizard`.
     mockOnly('id de carta `c-charizard` del fixture');
     await page.goto('/es/catalog/c-charizard');
@@ -168,11 +167,10 @@ test.describe('Compra · ficha de carta', () => {
     // D2=A (brief §A1): la ficha pública NO muestra «valor de mercado» ni su nota al pie.
     await expect(page.getByText(t('es', 'card.referenceExplainerWithMarket'))).toHaveCount(0);
     await expect(page.getByText(t('es', 'catalog.marketValue'))).toHaveCount(0);
-    // (B-2) ASSERT CADUCO CON §M10-IVA.3: pedía la convención VIEJA.
-    // `PROJECT.md §Q` (tabla de superficies) marca **SÍ** para esta pantalla, y el criterio **190**
-    // manda que el rótulo lo diga el DATO (`ivaIncluded`), no la pantalla. Medido: la UI pinta
-    // «IVA 16 % incluido». La prueba era la equivocada; el producto hace lo que se le pidió.
-    await expect(page.getByText(ivaLabelRe('es', 'common.ivaIncluded')).first()).toBeVisible();
+    // Criterio 977 (dueño 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios aprobados…» (3)): el precio con
+    // el IVA dentro ya NO lleva «IVA 16 % incluido» ni variante. Por AUSENCIA (antes este assert pedía el rótulo).
+    await expect(page.getByText(ivaLabelRe('es', 'common.ivaIncluded'))).toHaveCount(0);
+    await expect(page.getByText(/IVA incluido|con IVA incluido/)).toHaveCount(0);
     await expect(page.getByTestId('instance-cta').first()).toHaveText(t('es', 'catalog.addToCart'));
     await expect(page.getByTestId('instance-cta').first()).toBeEnabled();
   });

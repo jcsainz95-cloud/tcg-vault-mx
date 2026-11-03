@@ -353,7 +353,10 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     const cards = await api<{ data: Group[] }>('/catalog/cards?pageSize=1');
     const ficha = await raw(request, `/es/catalog/${cards.data[0].card.id}`);
     const strip = /data-testid="about-strip"[\s\S]*?<\/p>/.exec(ficha.html)?.[0] ?? '';
-    const href = /href="([^"]+)"/.exec(strip)?.[1];
+    // 945 (2026-11-03): la franja lleva también WhatsApp e Instagram; se busca el enlace a «Quiénes somos».
+    expect(strip).toContain('href="https://wa.me/525564893921"');
+    expect(strip).toContain('href="https://www.instagram.com/tcghunt.mx/"');
+    const href = /href="(\/es\/nosotros)"/.exec(strip)?.[1];
     expect(href).toBe('/es/nosotros');
     expect((await request.get(href!, { maxRedirects: 0 })).status()).toBe(200);
   });

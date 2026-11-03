@@ -277,7 +277,8 @@ test.describe('§WSH · lista de deseos', () => {
     await b.getByText(F('normal'), { exact: true }).click();
     await expect(group.getByText(/^hasta MX\$/)).toHaveCount(3);
     const tenPesos = (await group.locator('label').nth(1).getByText(/^hasta MX\$/).textContent())!.replace('hasta ', '');
-    await expect(b.getByText(t('es', 'common.ivaIncluded', { rate: 16 })).first()).toBeVisible();
+    // Criterio 977 (dueño 2026-11-03): ninguna cifra de la ficha lleva «IVA 16 % incluido». Por ausencia.
+    await expect(b.getByText(t('es', 'common.ivaIncluded', { rate: 16 }))).toHaveCount(0);
     // Acabado sin mercado: ni una cifra.
     await b.getByText(F('reverse_holo'), { exact: true }).click();
     await expect(group.getByText(/MX\$/)).toHaveCount(0);

@@ -301,7 +301,7 @@ describe('SealedDetailView · «avísame» (errata v1.87.3 B-1)', () => {
  * con ≥ 1 unidad a la venta (`availableCount > 0`).
  */
 describe('SealedDetailView · §A2 barra de compra fija en móvil (MKT-26b)', () => {
-  it('con stock: barra fija (fixed bottom-0 lg:hidden) con precio «desde», rótulo de IVA y CTA de compra', async () => {
+  it('con stock: barra fija (fixed bottom-0 lg:hidden) con precio «desde», SIN rótulo de IVA (977) y CTA de compra', async () => {
     mockDetail({ group: BOX_MINT });
     renderWithProviders(<SealedDetailView inventoryItemId="inv-1008" />, 'es');
 
@@ -310,7 +310,8 @@ describe('SealedDetailView · §A2 barra de compra fija en móvil (MKT-26b)', ()
     expect(bar.className).toContain('bottom-0');
     expect(bar.className).toContain('lg:hidden');
     expect(within(bar).getByText('MX$3,200.00')).toBeInTheDocument();
-    expect(within(bar).getByTestId('iva-label')).toHaveTextContent('IVA 16 % incluido');
+    expect(within(bar).queryByTestId('iva-label')).toBeNull();
+    expect(bar.textContent).not.toMatch(/IVA|VAT/);
     expect(within(bar).getByRole('button', { name: 'Añadir al carrito' })).toBeInTheDocument();
   });
 
