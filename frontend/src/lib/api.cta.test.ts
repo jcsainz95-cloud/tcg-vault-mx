@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { accountSetup, registerEmailOnly, setPassword, updateMyEmail } from './api';
-import { getRefreshToken, getToken, setRefreshToken, setToken } from './api-client';
+import { accountSetup, registerEmailOnly, setPassword, updateMyEmail, verifyEmail } from './api';
+import { getDeviceToken, getRefreshToken, getToken, setRefreshToken, setToken } from './api-client';
 import { getStoredUser, setStoredUser } from './session';
 import { config } from './config';
 
@@ -94,5 +94,35 @@ describe('api (rama REAL) · §CTA', () => {
     expect(c.method).toBe('PATCH');
     expect(c.body).toEqual({ email: 'bien@x.mx' });
     expect(getStoredUser()?.email).toBe('bien@x.mx');
+  });
+
+  /**
+   * CTA-F9 (v1.117.2, §1 «Verificación de correo»): el cuerpo lleva EXACTAMENTE una prueba de la credencial; nunca
+   * `{ token }` solo. Mutación: mandar `{ token }` (o los dos campos).
+   */
+  it('verifyEmail modo contraseña: POST /auth/verify-email { token, password } y marca emailVerified local', async () => {
+    setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale: 'es', emailVerified: false });
+    fetchMock.mockResolvedValueOnce(res(200, { verified: true }));
+    await verifyEmail({ token: 't0k', password: 'clave-actual' });
+    const c = call();
+    expect(c.url).toMatch(/\/auth\/verify-email$/);
+    expect(c.method).toBe('POST');
+    expect(c.body).toEqual({ token: 't0k', password: 'clave-actual' });
+    expect(getStoredUser()?.emailVerified).toBe(true);
+  });
+
+  it('verifyEmail modo nueva: { token, newPassword }, guarda el deviceToken y NO toca la sesión local', async () => {
+    setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale: 'es', emailVerified: false });
+    fetchMock.mockResolvedValueOnce(res(200, { verified: true, deviceToken: 'dev-vrf' }));
+    await verifyEmail({ token: 't0k', newPassword: 'nueva-clave-1' });
+    expect(call().body).toEqual({ token: 't0k', newPassword: 'nueva-clave-1' });
+    expect(getDeviceToken()).toBe('dev-vrf');
+    expect(getStoredUser()?.emailVerified).toBe(false);
+  });
+
+  it('verifyEmail: aunque el llamador mande los dos campos, sale UNO (los dos ⇒ 400 en el servidor)', async () => {
+    fetchMock.mockResolvedValueOnce(res(200, { verified: true, deviceToken: 'd' }));
+    await verifyEmail({ token: 't0k', newPassword: 'nueva-clave-1', password: 'x' } as never);
+    expect(Object.keys(call().body as object).sort()).toEqual(['newPassword', 'token']);
   });
 });

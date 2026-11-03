@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
 import { t } from './utils/i18n';
 import { credentialsFor, IS_REAL, reserveLoginSlot } from './utils/auth';
+import { resolveApiBaseUrl } from './utils/env';
 
 /**
  * §CTA — cuenta con solo el correo, «Ingresar a cuenta», «Termina tu cuenta» y franja de confianza (API_CONTRACT §CTA,
@@ -37,6 +38,11 @@ async function addCardToCart(page: Page, which: 'first' | 'last' = 'first') {
 
 /** El enlace «Termina tu cuenta» del último correo a `email`, leído del log del backend (real). */
 async function accountSetupLinkFromMail(email: string): Promise<string> {
+  return linkFromMail(email, 'account-setup');
+}
+
+/** El enlace a `/<locale>/<page>?token=…` del último correo a `email`, leído del log del backend (real). */
+async function linkFromMail(email: string, pagePath: 'account-setup' | 'verify-email'): Promise<string> {
   if (!existsSync(BACKEND_LOG)) {
     throw new Error(
       `No encuentro el log del backend en ${BACKEND_LOG}: sin él no hay correo que leer. Define E2E_BACKEND_LOG con la ruta del log del stack (NoopMailAdapter).`,
@@ -47,13 +53,13 @@ async function accountSetupLinkFromMail(email: string): Promise<string> {
     const log = readFileSync(BACKEND_LOG, 'utf8');
     const at = log.lastIndexOf(`to=${email} `);
     if (at >= 0) {
-      const m = /https?:\/\/[^\s"<>]+\/(?:es|en)\/account-setup\?token=[A-Za-z0-9_\-.~%]+/.exec(log.slice(at));
+      const m = new RegExp(`https?://[^\\s"<>]+/(?:es|en)/${pagePath}\\?token=[A-Za-z0-9_\\-.~%]+`).exec(log.slice(at));
       if (m) return m[0];
     }
     await new Promise((r) => setTimeout(r, 300));
   }
   throw new Error(
-    `El log ${BACKEND_LOG} no trae un enlace /account-setup para ${email} en 15 s. ¿El backend corre con NoopMailAdapter y logger en debug?`,
+    `El log ${BACKEND_LOG} no trae un enlace /${pagePath} para ${email} en 15 s. ¿El backend corre con NoopMailAdapter y logger en debug?`,
   );
 }
 
@@ -182,6 +188,115 @@ test.describe('§CTA · cuenta con solo el correo', () => {
     await expect(page).not.toHaveURL(/\/login/);
     const stored = await page.evaluate(() => JSON.parse(window.localStorage.getItem('tcg.user') ?? 'null'));
     expect(stored?.email).toBe(email);
+  });
+});
+
+/**
+ * CTA-F9 de punta a punta (API_CONTRACT §1 «Verificación de correo» v1.117.2, D-CTA-12; DESIGN_SYSTEM §CTA-UX.3b).
+ * La cuenta nace con contraseña (`POST /auth/register`, que manda «Verifica tu correo»); el enlace se lee del correo
+ * capturado (real) o es un token del simulador (mocks). Abrir el enlace NO llama a `POST /auth/verify-email` (se espía
+ * la red); el canje sale al enviar el formulario con `{ token, password }` o `{ token, newPassword }`.
+ * ⛔ En real exige el backend de v1.117.2 (el viejo canjea con `{ token }` y da 400 a estos cuerpos).
+ */
+test.describe('§CTA · /verify-email sin canje al cargar (CTA-F9)', () => {
+  /** Alta con contraseña ⇒ correo «Verifica tu correo» ⇒ ruta del enlace (real) o un token del simulador (mocks). */
+  async function signUpAndGetVerifyPath(tag: string, password: string): Promise<{ email: string; path: string; token: string }> {
+    const email = uniqueEmail(tag);
+    if (!IS_REAL) {
+      const token = `tok-mock-verifica-${Date.now()}`;
+      return { email, path: `/es/verify-email?token=${token}`, token };
+    }
+    const api = await resolveApiBaseUrl();
+    const res = await fetch(`${api}/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password, name: 'Cliente E2E', locale: 'es' }),
+    });
+    expect(res.status, `register ${email}`).toBe(201);
+    const link = await linkFromMail(email, 'verify-email');
+    const url = new URL(link);
+    return { email, path: url.pathname + url.search, token: url.searchParams.get('token')! };
+  }
+
+  function spyVerifyPosts(page: Page): Array<Record<string, unknown>> {
+    const bodies: Array<Record<string, unknown>> = [];
+    page.on('request', (r) => {
+      if (r.method() === 'POST' && /\/auth\/verify-email$/.test(new URL(r.url()).pathname)) {
+        bodies.push((r.postDataJSON() ?? {}) as Record<string, unknown>);
+      }
+    });
+    return bodies;
+  }
+
+  test('@real CTA-E4 contraseña actual: abrir no canjea, 401 no gasta el enlace, la buena confirma', async ({ page }) => {
+    const password = `Vrf-${Date.now()}-ok`;
+    const { path, token } = await signUpAndGetVerifyPath('e4', password);
+    const posts = spyVerifyPosts(page);
+
+    const res = await page.goto(path);
+    expect(res?.headers()['referrer-policy']).toBe('no-referrer');
+    await expect(page.getByRole('heading', { name: t('es', 'verifyEmailPage.title') })).toBeVisible();
+    await expect.poll(() => page.url()).not.toContain(token);
+    // Abrir el enlace no canjea: se deja pasar tiempo de sobra para cualquier efecto de carga.
+    await page.waitForTimeout(1500);
+    expect(posts).toHaveLength(0);
+
+    // 401: el enlace sigue sirviendo (en mocks, el simulador da 401 a una contraseña que empieza por «wrong»).
+    await page.getByLabel(t('es', 'verifyEmailPage.password'), { exact: true }).fill(IS_REAL ? 'wrong-password-1' : 'wrong-1');
+    await page.getByRole('button', { name: t('es', 'verifyEmailPage.submit') }).click();
+    await expect(page.getByText(t('es', 'verifyEmailPage.wrongPasswordTitle'))).toBeVisible();
+    await expect(page.getByLabel(t('es', 'verifyEmailPage.password'), { exact: true })).toHaveValue('');
+
+    await page.getByLabel(t('es', 'verifyEmailPage.password'), { exact: true }).fill(password);
+    await page.getByRole('button', { name: t('es', 'verifyEmailPage.submit') }).click();
+    await expect(page.getByText(t('es', 'verifyEmailPage.successPassword'))).toBeVisible();
+    await expect(page.getByRole('link', { name: t('es', 'verifyEmailPage.signIn') })).toBeVisible();
+
+    if (IS_REAL) {
+      // En real se ve el cuerpo en la red: siempre `{ token, password }`, nunca `{ token }` solo.
+      expect(posts).toHaveLength(2);
+      for (const b of posts) expect(Object.keys(b).sort()).toEqual(['password', 'token']);
+      expect(posts.every((b) => b.token === token)).toBe(true);
+    }
+  });
+
+  test('@real CTA-E5 contraseña nueva: «¿No creaste esta cuenta…?» fija otra y se entra con ella', async ({ page }) => {
+    const { email, path, token } = await signUpAndGetVerifyPath('e5', `Vrf-${Date.now()}-orig`);
+    const posts = spyVerifyPosts(page);
+    await page.goto(path);
+    await expect(page.getByRole('heading', { name: t('es', 'verifyEmailPage.title') })).toBeVisible();
+    await page.getByRole('button', { name: t('es', 'verifyEmailPage.toNewPassword') }).click();
+    expect(posts).toHaveLength(0);
+
+    const fresh = `Vrf-${Date.now()}-nueva`;
+    await page.getByLabel(t('es', 'verifyEmailPage.newPassword'), { exact: true }).fill(fresh);
+    await page.getByLabel(t('es', 'verifyEmailPage.confirm'), { exact: true }).fill(fresh);
+    await page.getByRole('button', { name: t('es', 'verifyEmailPage.submitNew') }).click();
+    await expect(page.getByText(t('es', 'verifyEmailPage.successNewPassword'))).toBeVisible();
+
+    if (IS_REAL) {
+      expect(posts).toHaveLength(1);
+      expect(Object.keys(posts[0]).sort()).toEqual(['newPassword', 'token']);
+      expect(posts[0].token).toBe(token);
+      // El enlace es de un uso: reabrirlo y fijar otra ⇒ «El enlace ya se usó o caducó».
+      await page.goto(path);
+      await page.getByRole('button', { name: t('es', 'verifyEmailPage.toNewPassword') }).click();
+      await page.getByLabel(t('es', 'verifyEmailPage.newPassword'), { exact: true }).fill(`${fresh}-2`);
+      await page.getByLabel(t('es', 'verifyEmailPage.confirm'), { exact: true }).fill(`${fresh}-2`);
+      await page.getByRole('button', { name: t('es', 'verifyEmailPage.submitNew') }).click();
+      await expect(page.getByText(t('es', 'accountSetup.invalidTitle'))).toBeVisible();
+
+      // Se entra con la nueva, y el correo ya está verificado.
+      await page.goto('/es/login');
+      await page.getByLabel(t('es', 'auth.emailOrUsername'), { exact: true }).fill(email);
+      await page.getByLabel(t('es', 'auth.password'), { exact: true }).fill(fresh);
+      await reserveLoginSlot('cuenta-correo · entrar tras verify-email con contraseña nueva');
+      await page.getByRole('button', { name: t('es', 'auth.loginCta') }).click();
+      await expect(page).not.toHaveURL(/\/login/);
+      const stored = await page.evaluate(() => JSON.parse(window.localStorage.getItem('tcg.user') ?? 'null'));
+      expect(stored?.email).toBe(email);
+      expect(stored?.emailVerified).toBe(true);
+    }
   });
 });
 

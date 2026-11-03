@@ -3,16 +3,15 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
-import { accountSetup, forgotPassword } from '@/lib/api';
+import { accountSetup } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import { useSession } from '@/lib/session';
 import { useStripTokenFromUrl } from '@/lib/token-url';
-import { useResendVerification } from '@/hooks/useResendVerification';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { buttonClassName } from '@/components/ui/button-classes';
 import { Banner } from '@/components/ui/Banner';
 import { MAX_NAME, MIN_PASSWORD } from '@/components/domain/account/account-limits';
+import { TokenLinkInvalid } from '../TokenLinkInvalid';
 
 type State = 'form' | 'success' | 'invalidToken';
 type Field = 'name' | 'password' | 'confirm';
@@ -85,7 +84,7 @@ export function AccountSetupView({ token }: { token?: string }) {
     );
   }
 
-  if (state === 'invalidToken') return <InvalidLink />;
+  if (state === 'invalidToken') return <TokenLinkInvalid title={t('title')} testId="account-setup-invalid" />;
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4" data-testid="account-setup-form">
@@ -134,85 +133,5 @@ export function AccountSetupView({ token }: { token?: string }) {
         {submitting ? t('submitting') : t('submit')}
       </Button>
     </form>
-  );
-}
-
-/** Enlace usado o caducado (971: «no hace nada y ofrece mandar otro»). */
-function InvalidLink() {
-  const t = useTranslations('accountSetup');
-  const { isAuthenticated, ready } = useSession();
-  const { status: resendStatus, resend } = useResendVerification();
-  const [email, setEmail] = useState('');
-  const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'rateLimited'>('idle');
-
-  async function sendByEmail(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSendState('sending');
-    try {
-      await forgotPassword(email.trim());
-      setSendState('sent');
-    } catch (err) {
-      // Como `forgot-password`: solo el tope se distingue; lo demás se trata como enviado (no hay oráculo).
-      setSendState(err instanceof ApiClientError && err.code === 'RATE_LIMITED' ? 'rateLimited' : 'sent');
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-5" data-testid="account-setup-invalid">
-      <h1 className="text-h2 font-bold">{t('title')}</h1>
-      <Banner variant="warning" role="alert" title={t('invalidTitle')}>
-        {t('invalidBody')}
-      </Banner>
-
-      {!ready ? null : isAuthenticated ? (
-        resendStatus === 'sent' ? (
-          <Banner variant="success" role="status">
-            {t('sent')}
-          </Banner>
-        ) : (
-          <div className="flex flex-col gap-2">
-            <Button variant="secondary" loading={resendStatus === 'sending'} onClick={resend} className="self-start">
-              {resendStatus === 'sending' ? t('sending') : t('sendAnother')}
-            </Button>
-            {resendStatus === 'rateLimited' && (
-              <Banner variant="warning" role="alert">
-                {t('rateLimited')}
-              </Banner>
-            )}
-            {resendStatus === 'error' && (
-              <Banner variant="danger" role="alert">
-                {t('genericError')}
-              </Banner>
-            )}
-          </div>
-        )
-      ) : sendState === 'sent' ? (
-        <Banner variant="success" role="status">
-          {t('sentGeneric')}
-        </Banner>
-      ) : (
-        <form onSubmit={sendByEmail} className="flex flex-col gap-4" data-testid="account-setup-resend-by-email">
-          <Input
-            label={t('email')}
-            name="email"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            spellCheck={false}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <Button type="submit" variant="secondary" loading={sendState === 'sending'} className="self-start">
-            {sendState === 'sending' ? t('sending') : t('sendAnother')}
-          </Button>
-          {sendState === 'rateLimited' && (
-            <Banner variant="warning" role="alert">
-              {t('rateLimited')}
-            </Banner>
-          )}
-        </form>
-      )}
-    </div>
   );
 }

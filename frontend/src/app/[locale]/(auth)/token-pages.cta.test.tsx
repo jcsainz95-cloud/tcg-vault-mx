@@ -3,6 +3,8 @@ import { screen, waitFor, fireEvent } from '@testing-library/react';
 import { renderWithIntl } from '@/test/render';
 import { ApiClientError } from '@/lib/api-client';
 import { setStoredUser } from '@/lib/session';
+import es from '../../../../messages/es.json';
+import en from '../../../../messages/en.json';
 
 vi.mock('@/i18n/navigation', () => ({
   Link: ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => (
@@ -71,11 +73,15 @@ function replaceIndex(): number {
  * (orden espiado). Mutación: dejar el token en la URL en cualquiera de las tres, o llamar antes de limpiar.
  */
 describe('CTA-F4 · las tres páginas con token lo quitan de la URL antes de cualquier petición', () => {
-  it.each(['es', 'en'])('/%s/verify-email: replaceState antes del canje, y el canje lleva el token', async (locale) => {
+  it.each(['es', 'en'])('/%s/verify-email: replaceState antes del canje, y el canje (al enviar, CTA-F9) lleva el token', async (locale) => {
     openWithToken('verify-email', locale);
     verifyEmail.mockResolvedValue({ verified: true });
     renderWithIntl(<VerifyEmailView token={TOKEN} />, locale as 'es' | 'en');
-    await waitFor(() => expect(verifyEmail).toHaveBeenCalledWith(TOKEN));
+    const T = (locale === 'es' ? es : en).verifyEmailPage;
+    expect(window.location.href).not.toContain(TOKEN);
+    fireEvent.change(screen.getByLabelText(T.password), { target: { value: 'mi-clave-1' } });
+    fireEvent.click(screen.getByRole('button', { name: T.submit }));
+    await waitFor(() => expect(verifyEmail).toHaveBeenCalledWith({ token: TOKEN, password: 'mi-clave-1' }));
     expect(window.location.pathname).toBe(`/${locale}/verify-email`);
     expect(window.location.search).toBe('?utm_source=mail');
     expect(window.location.href).not.toContain(TOKEN);
@@ -219,10 +225,12 @@ describe('CTA-UX.3 · botones-enlace como Button primary y avisos como Banner', 
     expectPrimaryButtonLink(screen.getByRole('link', { name: 'Solicitar otro enlace' }));
   });
 
-  it('/verify-email (misma familia de páginas con token): «Ir a la tienda» con estilo de Button primary', async () => {
+  it('/verify-email (misma familia de páginas con token): «Entrar» con estilo de Button primary (§CTA-UX.3b)', async () => {
     verifyEmail.mockResolvedValue({ verified: true });
     renderWithIntl(<VerifyEmailView token={TOKEN} />);
-    expectPrimaryButtonLink(await screen.findByRole('link', { name: 'Ir a la tienda' }));
+    fireEvent.change(screen.getByLabelText(es.verifyEmailPage.password), { target: { value: 'mi-clave-1' } });
+    fireEvent.click(screen.getByRole('button', { name: es.verifyEmailPage.submit }));
+    expectPrimaryButtonLink(await screen.findByRole('link', { name: 'Entrar' }));
   });
 
   it('«Mandar otro» sin sesión con tope ⇒ Banner warning role=alert', async () => {

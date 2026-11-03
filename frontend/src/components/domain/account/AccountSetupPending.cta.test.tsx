@@ -166,3 +166,31 @@ describe('CTA-UX.4 · foco de «Corregir mi correo»', () => {
     expect(screen.getByRole('button', { name: 'Correct my email' })).toBeInTheDocument();
   });
 });
+
+/**
+ * DESIGN_SYSTEM §CTA-UX.6 petición 9 — en «Mi cuenta» el reenvío dice el correo que sale (contrato §CTA.5
+ * `verify-email/resend`: con `setupPending` emite «Termina tu cuenta»). Mutación: etiqueta fija «Reenviar correo de
+ * verificación».
+ */
+describe('CTA-UX.6 (9) · reenvío en «Mi cuenta» según el estado de la cuenta', () => {
+  it('pendiente (sin contraseña) ⇒ «Reenviar enlace para terminar tu cuenta» y «otro enlace» al enviar', async () => {
+    resendVerificationEmail.mockResolvedValue({ ok: true });
+    renderWithProviders(<EmailSection user={pending} canResend />, 'es');
+    expect(screen.queryByRole('button', { name: 'Reenviar correo de verificación' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Reenviar enlace para terminar tu cuenta' }));
+    await waitFor(() => expect(resendVerificationEmail).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Te mandamos otro enlace. Revisa tu correo.')).toBeInTheDocument();
+  });
+
+  it('con contraseña y sin verificar ⇒ «Reenviar correo de verificación» (aunque una bandera vieja diga pendiente)', () => {
+    const unverifiedWithPw: UserDTO = { ...withPassword, emailVerified: false, accountSetupPending: true };
+    renderWithProviders(<EmailSection user={unverifiedWithPw} canResend />, 'es');
+    expect(screen.getByRole('button', { name: 'Reenviar correo de verificación' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reenviar enlace para terminar tu cuenta' })).toBeNull();
+  });
+
+  it('EN: «Resend the link to finish your account»', () => {
+    renderWithProviders(<EmailSection user={pending} canResend />, 'en');
+    expect(screen.getByRole('button', { name: 'Resend the link to finish your account' })).toBeInTheDocument();
+  });
+});

@@ -49,7 +49,7 @@ vi.mock('@/components/ui/Banner', async () => {
 });
 
 const ES = 'Tu sesión caducó por seguridad. Vuelve a entrar.';
-const EN = 'Your session expired for security reasons. Log in again.';
+const EN = 'Your session expired for security reasons. Sign in again.'; // §CTA-UX.3b regla EN «Sign in»
 
 function submitLogin(container: HTMLElement) {
   const email = container.querySelector('input[name="email"]') as HTMLInputElement;

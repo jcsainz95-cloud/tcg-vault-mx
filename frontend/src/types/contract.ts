@@ -620,9 +620,21 @@ export interface TooManyPasswordAttemptsDetails {
 }
 
 // ---- Verificación de correo + recuperación self-service (contrato §1, v1.5) ----
-// POST /auth/verify-email {token} → { verified: true } (422 EMAIL_VERIFY_TOKEN_INVALID).
+// POST /auth/verify-email (v1.117.2, D-CTA-12; contrato §1 «Verificación de correo»): el enlace prueba el buzón y el
+// cuerpo prueba o fija la credencial. EXACTAMENTE uno de `password` / `newPassword` (los dos o ninguno ⇒ 400 sin tocar el
+// token). ⛔ `{ token }` solo ya no existe (el back nuevo responde 400).
+//  - `{ token, password }` ⇒ 200 { verified: true }; 401 INVALID_CREDENTIALS sin consumir el token (cuenta como fallo C7;
+//    con el candado C7 puesto, 429 TOO_MANY_PASSWORD_ATTEMPTS como `login`). Sin sesión nueva; `tokenVersion` no cambia.
+//  - `{ token, newPassword }` ⇒ 200 { verified: true, deviceToken }, SIN sesión y con `tokenVersion +1` (revoca sesiones).
+// Err: 422 EMAIL_VERIFY_TOKEN_INVALID (inválido/caducado/usado/atado a otro correo), 401, 400, 403 USER_BLOCKED,
+// 429 RATE_LIMITED (10/min por IP).
+export type VerifyEmailRequest =
+  | { token: string; password: string; newPassword?: never }
+  | { token: string; newPassword: string; password?: never };
 export interface VerifyEmailResponse {
   verified: true;
+  /** Solo en el modo `newPassword` (quien fijó la contraseña probó el buzón; como `reset-password`). */
+  deviceToken?: string;
 }
 // POST /auth/verify-email/resend (autenticado, {}) → { ok: true } (429 RATE_LIMITED).
 export interface ResendVerificationResponse {
