@@ -27,13 +27,13 @@
   en Vercel (§106.4, la hace el dueño); la de 7 días tras publicar caduca el 2026-12-01 (candado en §106.4). Mediciones de producción de §DYN: `scripts/dyn-prod-measure.sh` (§104.4), las corre el dueño.
 - **Catálogo de CP (2026-11-02):** en producción está **vacío** (4 CP ⇒ 404). Se carga con el botón «Cargar códigos postales
   (SEPOMEX)» (`cargar-codigos-postales.yml`, lo dispara el dueño; simulacro por defecto) — pasos, candado y rollback: **§107**.
-- **§IDS, Q1 y Q1c de D-IDS-1 (2026-11-03):** condiciones bloqueantes de la solicitud de fusión de §IDS (Q1c: piezas de
-  CLIENTES con promo/deck_exclusive, contrato v1.116.4). Se miden con el botón «Medir D-IDS-1 en producción (solo lectura)» (`medir-ids-produccion.yml`, entorno `medicion-ro` con revisor, rol `ids_ro`
+- **§IDS, Q1, Q1c y Q1d de D-IDS-1 (2026-11-03):** condiciones bloqueantes de la solicitud de fusión de §IDS (Q1c: piezas de
+  CLIENTES con promo/deck_exclusive, v1.116.4; Q1d: piezas con producto inexistente que harían abortar M-95c, v1.116.5). Se miden con el botón «Medir D-IDS-1 en producción (solo lectura)» (`medir-ids-produccion.yml`, entorno `medicion-ro` con revisor, rol `ids_ro`
   recomendado; candado G-IDS-RO) — pasos del dueño, mediciones y rollback: **§108.5**. **NO corrido en producción.**
 - **Limpieza de ramas (2026-10-30):** `limpieza-ramas.yml` (lo dispara el dueño) borra las ramas remotas fusionadas en
   `production` y archiva `main`. Pasos para el dueño y cómo se deshace: **§105**.
 - **§IDS (2026-11-03, rama `claude/ids-diseno`):** IDS-D1/D2 medidas en seco contra TCGCSV público y el instrumento del 512
-  (IDS-D3) listo, sin tocar producción — **§108**. Tres resultados vuelven al arquitecto (§108.4); las cuentas de producción
+  (IDS-D3) listo, sin tocar producción — **§108**. Lo que volvió al arquitecto, resuelto (v1.116.2); las cuentas de producción
   (D-IDS-1) son una consulta de solo lectura que corre el dueño (`scripts/ids/ids-d1-produccion.sql`).
 - **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5); muy por encima del tope: **se compacta antes de añadir**. Encabezado anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
@@ -14793,13 +14793,7 @@ Las dos `.sql` las corre el paso «Instrumentos §IDS» del job `backend` de `ci
 antes.jsonl`; (3) `m95a` → `m95b` → código nuevo, misma corrida sin ingesta; `despues.jsonl`; (4) `compare`. Qué comando dispara
 una recomputación completa sin ingesta: **NO MEDIDO**, lo nombra backend. ⛔ Las fotos no van al repo ni a artefactos.
 
-### 108.4 Vuelve al arquitecto (con el dato)
-1. **Cosmos no siempre es Holofoil:** 4/189 son Reverse Holofoil (D-IDS-N / IDS.5 lo daban por NO MEDIDO con esa condición).
-2. **Filas por carta:** máx 6 y 4 cartas > 4, frente a «≤ 4» del diseño (D-IDS-5).
-3. **IDS-D2 no es «cambiar la constante»** (IDS.3): sin promos ME en el catálogo, `svp` sin grupo por nombre, 50/70 sin
-   producto base y colisión con `promo` existente.
-4. Lecturas que fijó el instrumento: el número va dentro del nombre y hay que quitarlo; «International» casa también
-   «(International Version)» fuera de 1539. La precedencia de sufijos ya no es lectura devops: es la del backend (§108.6).
+### 108.4 Vuelve al arquitecto — resuelto en el contrato v1.116.2 (API_CONTRACT §IDS «Devops»); texto: `git show 1f5936b5:docs/DEVOPS_NOTES.md`
 
 ### 108.5 D-IDS-1 y lo que solo da la BD — botón «Medir D-IDS-1 en producción (solo lectura)» (G-IDS-RO)
 Q1 = consulta literal del contrato (piezas vendibles de plataforma por `kind`); Q1b = la lista por producto si Q1 da > 0 en
@@ -14807,7 +14801,9 @@ Q1 = consulta literal del contrato (piezas vendibles de plataforma por `kind`); 
 piezas de CLIENTES (`ownerType='customer'`, `status <> 'withdrawn'`) con producto `promo`/`deck_exclusive`, por kind (piezas,
 clientes distintos, con caso «Por reponer» `open`, en retiro activo `solicitado…enviado`) y **Q1c-detalle** por producto y
 acabado (piezas, clientes, Σ/mín/máx de la referencia de la base —fila elegida como `isBetterRef`, `priceMxnCents` almacenado
-**sin FX viva: aproximación**— y de `Q` = origen de `resolveOriginsBatch`; «sin origen»). Solo agregados (candado G-IDS-RO [Q]). Viven en **`scripts/ids/ids-d1-q1.sql`** (una fuente):
+**sin FX viva: aproximación**— y de `Q` = origen de `resolveOriginsBatch`; «sin origen»). Solo agregados (candado G-IDS-RO [Q]).
+**Q1d** (v1.116.5, M-95c): piezas con `cardProductId` **no nulo** que no existe en `CardProduct` (con una, la FK aborta la migración),
+por clase de dueño y estado, **solo conteos**; la lista por pieza (id interno, folio, estado, clase) solo en la consola: «Q1d-lista». Viven en **`scripts/ids/ids-d1-q1.sql`** (una fuente):
 la incluyen el `.sql` manual `ids-d1-produccion.sql` (Q1–Q3, `psql … -f`, rol de solo lectura como §104.4; Q2 lee además `CardSet`) y el botón.
 **Q1 es condición bloqueante de la solicitud de fusión de §IDS** (ARCHITECTURE §15 D-IDS-1). Estado: construido, **NO corrido en
 producción** (no existe hasta que esta rama llegue a `production`, la rama por defecto).
@@ -14815,10 +14811,10 @@ producción** (no existe hasta que esta rama llegue a `production`, la rama por 
 | Ruta | Qué |
 |---|---|
 | `.github/workflows/medir-ids-produccion.yml` | Solo `workflow_dispatch`, **sin entradas**; job solo si `github.ref == refs/heads/production`, entorno **`medicion-ro`** (revisor obligatorio + regla de rama, en GitHub), `contents: read`, `ubuntu-24.04`, 10 min. Dos pasos: `checkout` fijado por sha y «Medir» (único con el secreto `IDS_RO_DATABASE_URL`; no hay `npm ci`). |
-| `scripts/ids/medir-q1-produccion.sh` | URL solo del entorno; `::add-mask::` de URL, contraseña, usuario, host y puerto antes de nada; la parte en `PG*` (la URL nunca va en la línea de `psql`); rechaza esquema no-Postgres y `*.railway.internal`; **TLS obligatorio** (PT-IDS-7): `sslmode` por defecto `require` y, fuera de loopback, solo `require`/`verify-ca`/`verify-full` (otro ⇒ rc 1 sin llamar a `psql`). Corre `ids-q1-boton.sql` con `--csv` y `ON_ERROR_STOP`; el stderr de `psql` **no se vuelca** (trae host/IP): se clasifica (contraseña, red, permiso, tabla, «no era de solo lectura»). Al resumen solo cifras, Q1c-detalle con **umbral k=3** (abajo). 0 medido · 1 error. |
+| `scripts/ids/medir-q1-produccion.sh` | URL solo del entorno; `::add-mask::` de URL, contraseña, usuario, host y puerto antes de nada; la parte en `PG*` (la URL nunca va en la línea de `psql`); rechaza esquema no-Postgres y `*.railway.internal`; **TLS obligatorio** (PT-IDS-7): `sslmode` por defecto `require` y, fuera de loopback, solo `require`/`verify-ca`/`verify-full` (otro ⇒ rc 1 sin llamar a `psql`). Corre `ids-q1-boton.sql` con `--csv` y `ON_ERROR_STOP`; el stderr de `psql` **no se vuelca** (trae host/IP): se clasifica (contraseña, red, permiso, tabla, «no era de solo lectura»). Al resumen solo cifras, Q1c-detalle con **umbral k=3** (abajo); Q1d solo conteos (sin dinero). 0 medido · 1 error. |
 | `scripts/ids/ids-q1-boton.sql` | `BEGIN TRANSACTION READ ONLY` + `statement_timeout 60s` + `lock_timeout 5s` → **prueba**: `UPDATE "InventoryItem" SET status = status WHERE false` tiene que dar 25006 (si no, aborta antes de leer) → rol (¿puede escribir?, sin escribir) → `\ir ids-d1-q1.sql` → `ROLLBACK`. |
-| `scripts/check-ids-ro-workflow.sh` (+ `-canary.sh`) | Candado **G-IDS-RO**, estático: [A] solo dispatch, sin `inputs` · [C] un secreto, en «Medir», sin `env` de job, sin instalar dependencias · [D] `production` + `medicion-ro` · [E] sin escritura · [F] qué corre · [G] máscara antes de partir la URL y de `psql`, URL fuera de la línea de `psql`, sin `set -x`, stderr no volcado, exige el aviso 25006 · [R] el SQL: primera orden READ ONLY, prueba antes de leer, `ROLLBACK` al final, ni COMMIT/READ WRITE/verbos que escriben/`\!`/`\copy`/`\o`, `\ir` solo de `ids-d1-q1.sql` · [Q] Q1c solo clientes y agregados · [K] `K_ANON = 3`, Q1c-detalle por `anonimizar(` y a `PUBLICAS` (conteos + Σ, ningún mín/máx de ref ni Q), umbral sobre clientes distintos y piezas · [S] `require` por defecto, sin literales débiles, loopback fijo · [H] `uses:` por sha. Canario 3 verdes + 51 rojos (54/54). Job `sepomex-pin` de `ci.yml`. |
-| `scripts/ids/medir-q1.test.mjs` | Contra la base de CI migrada (paso «Instrumentos §IDS», `# skipped 0`): el botón mide, aviso 25006, sin URL ni contraseña en log/resumen; Q1c con cifras exactas en el SQL crudo; k=3 (1 cliente ⇒ oculto; 3 ⇒ solo Σ, sin mín/máx; 3 con 1 origen ⇒ Q oculta; canario `K_ANON = 1`); TLS con `psql` falso (sin base); canario: sin `READ ONLY` ⇒ rc 1 y nada leído. |
+| `scripts/check-ids-ro-workflow.sh` (+ `-canary.sh`) | Candado **G-IDS-RO**, estático: [A] solo dispatch, sin `inputs` · [C] un secreto, en «Medir», sin `env` de job, sin instalar dependencias · [D] `production` + `medicion-ro` · [E] sin escritura · [F] qué corre · [G] máscara antes de partir la URL y de `psql`, URL fuera de la línea de `psql`, sin `set -x`, stderr no volcado, exige el aviso 25006 · [R] el SQL: primera orden READ ONLY, prueba antes de leer, `ROLLBACK` al final, ni COMMIT/READ WRITE/verbos que escriben/`\!`/`\copy`/`\o`, `\ir` solo de `ids-d1-q1.sql` · [Q] Q1c solo clientes y agregados; Q1d `IS NOT NULL` + `NOT EXISTS`, sin ids/folios/dinero, exigida por el botón · [K] `K_ANON = 3`, Q1c-detalle por `anonimizar(` y a `PUBLICAS` (conteos + Σ, ningún mín/máx de ref ni Q), umbral sobre clientes distintos y piezas · [S] `require` por defecto, sin literales débiles, loopback fijo · [H] `uses:` por sha. Canario 3 verdes + 59 rojos (62/62). Job `sepomex-pin` de `ci.yml`. |
+| `scripts/ids/medir-q1.test.mjs` | Contra la base de CI migrada (paso «Instrumentos §IDS», `# skipped 0`): el botón mide, aviso 25006, sin URL ni contraseña en log/resumen; Q1c con cifras exactas en el SQL crudo; k=3 (1 cliente ⇒ oculto; 3 ⇒ solo Σ, sin mín/máx; 3 con 1 origen ⇒ Q oculta; canario `K_ANON = 1`); TLS con `psql` falso (sin base); canario: sin `READ ONLY` ⇒ rc 1 y nada leído; Q1d: huérfana +1 exacto (ni la no huérfana ni la nula), «Q1d-lista» solo en consola, canario sin `IS NOT NULL`. |
 
 **Privacidad del resumen (PT-IDS-6, 2026-11-03).** El repo es público: el resumen del run **lo lee cualquiera**, y un artefacto
 también (docs.github.com, «Download workflow artifacts»: lo descarga quien tenga sesión en GitHub y lectura del repo, o sea
@@ -14856,7 +14852,9 @@ interfaz actual. **NO MEDIDO** por mí en un navegador: no tengo acceso a ningun
 6. **Actions** → «Medir D-IDS-1 en producción (solo lectura)» → **Run workflow** → rama `production` → **Run workflow**. El
    run queda «Waiting»: **Review deployments** → marcar `medicion-ro` → **Approve and deploy**. Verde en ~1 min. En el
    resumen: «Rol de solo lectura: 0 de N tablas con permiso de escritura» y la línea **«promo + deck_exclusive = N»**. Copiar las
-   **cifras** (no el enlace: el paso 7 lo borra) a la solicitud de fusión: **= 0** confirma D-IDS-1; **> 0** decide él.
+   **cifras** (no el enlace: el paso 7 lo borra) a la solicitud de fusión: **= 0** confirma D-IDS-1; **> 0** decide él. Y la línea
+   **«Q1d — piezas cuyo producto no existe en el catálogo = N»**: **= 0** ⇒ M-95c entra; **> 0** ⇒ Railway → Postgres → **Data** →
+   **Query** con `scripts/ids/ids-d1-produccion.sql`, sección «Q1d-lista» (id interno, folio, estado): decide él pieza por pieza.
 7. **Borrar el run** (el resumen es público): pestaña **Actions** del repositorio → en la barra izquierda, «Medir D-IDS-1 en
    producción (solo lectura)» → a la derecha de la corrida, el botón de tres puntos **···** → **Delete workflow run** → **Yes,
    permanently delete this workflow run**. Ruta según docs.github.com («Deleting a workflow run»); **NO MEDIDO** en navegador.
@@ -14869,15 +14867,15 @@ Si sale rojo, dice por qué sin la URL: «usuario o contraseña rechazados» (pa
 «sin permiso de lectura» (`GRANT` del paso 3), «Copiaste la URL interna», «Conexión sin TLS obligatorio» (`?sslmode=` débil: quitarlo), «Falta el secreto».
 
 **Mediciones (2026-11-03, devops; bases locales desechables PG 16 con las migraciones del árbol, borradas al terminar).**
-- `tcg_devops_idsro2` (N=1, deterministas): rol `ro` rc 0, aviso 25006, Q1/Q1b exactos sobre 6 piezas, «0 de 86 tablas con escritura»; rol dueño ⇒ «puede escribir».
-  Contraseña 0 veces en log/resumen (9 corridas). Contraseña mala / puerto inalcanzable / `*.railway.internal` / sin secreto ⇒ rc 1 sin URL.
-  Mutación `BEGIN;` sin `READ ONLY` ⇒ rc 1 «no fue rechazada» (dueño) o «la frenó el permiso» (`ro`): sin solo lectura, no lee.
+- `tcg_devops_idsro2` (N=1, deterministas): rol `ro` rc 0, 25006, Q1/Q1b exactos (6 piezas), «0 de 86 tablas»; dueño ⇒ «puede escribir». Contraseña 0 veces
+  (9 corridas); clave mala/puerto/`*.railway.internal`/sin secreto ⇒ rc 1 sin URL; `BEGIN;` sin `READ ONLY` ⇒ rc 1, no lee.
 - `devops_q1c` (6 piezas: manual viejo vs tcgcsv nuevo, 2 órdenes `vault`, envío `picking`, caso `open`): prístino 3/3; mutaciones (copia, N=3) rojas 3/3: cuenta plataforma · `Q` más viejo · automática gana a manual · `cancelado` activo.
-- `devops_idspt` (PT-IDS-6/7, copia entera del árbol, N=3 por caso): sobre `3f04f97c`, sin `anonimizar(` ⇒ k=3 y Q1c rojas,
-  [K] rojo; `prefer` por defecto ⇒ prueba TLS roja, [S] rojo. Sobre `e5b1fd21` (solo Σ): prístino 5/5 pruebas y candado verde;
-  el script de `3f04f97c` (con mín/máx) o mín/máx de vuelta en `PUBLICAS` ⇒ k=3 y Q1c rojas, [K] rojo — todas 3/3. 0 filas
-  sembradas tras cada corrida. Suite §IDS **28/28**, `# skipped 0`; G-IDS-RO canario **54/54**. **NO MEDIDO:** que el runner
-  alcance el proxy público de Railway (§107.3), `psql` 16 contra su versión, nombres de pantallas.
+- `devops_idspt` (PT-IDS-6/7, copia entera, N=3 por caso, 3/3 rojas): sin `anonimizar(`, mín/máx en `PUBLICAS` o el script de
+  `3f04f97c` ⇒ k=3 y Q1c rojas + [K]; `prefer` por defecto ⇒ TLS roja + [S]. Prístino `e5b1fd21` verde.
+- `devops_q1d` (Q1d, copia entera de `1612cff5`, N=3): prístino 29/29 ×3, candado verde; «Q1d sin `IS NOT NULL`» ⇒ Q1d roja ×3
+  («debía subir 1», da 2: cuenta la pieza nula) y [Q] rojo. Con la FK de M-95c creada a mano, 6/6 (siembra con `replica`).
+  CI pasa `?sslmode=disable` (loopback): sin él, 3 rojas por TLS desde PT-IDS-7 (run 41612957356, y en local). 0 filas al final.
+  **NO MEDIDO:** que el runner alcance el proxy público de Railway (§107.3), `psql` 16 contra su versión, nombres de pantallas.
 
 **Rollback:** el botón no escribe nada que deshacer. Código: `git revert` del commit (se van workflow, scripts, candado y prueba;
 `ids-d1-produccion.sql` vuelve a llevar Q1 dentro). El secreto, el entorno y el rol se borran a mano (paso 8).

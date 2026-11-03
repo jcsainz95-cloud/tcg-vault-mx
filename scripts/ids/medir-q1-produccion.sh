@@ -5,10 +5,11 @@
 #
 #   IDS_RO_DATABASE_URL=… scripts/ids/medir-q1-produccion.sh
 #
-# Corre scripts/ids/ids-q1-boton.sql (BEGIN TRANSACTION READ ONLY → prueba de que una escritura falla → rol → Q1/Q1b/Q1c →
+# Corre scripts/ids/ids-q1-boton.sql (BEGIN TRANSACTION READ ONLY → prueba de que una escritura falla → rol → Q1/Q1b/Q1c/Q1d →
 # ROLLBACK). Al resumen del run solo van cifras: la tabla Q1, si promo/deck_exclusive > 0 la lista Q1b, y Q1c (piezas de
 # clientes en bóveda con promo/deck_exclusive, solo agregados: kind, estado, conteos). Q1b sin datos
-# personales: kind, ids de catálogo, nombre de producto/carta, acabado, conteos, precios.
+# personales: kind, ids de catálogo, nombre de producto/carta, acabado, conteos, precios. Q1d (M-95c): piezas con producto
+# inexistente, solo conteos por clase de dueño y estado; su lista por pieza va solo a la consola de Railway.
 # La URL viene SOLO del entorno, nunca de un argumento; nunca se imprime ni va en la línea de órdenes de psql (se pasa
 # por PGHOST/PGUSER/PGPASSWORD…). En GitHub Actions se enmascaran antes de cualquier salida la URL entera, la
 # contraseña, el usuario, el host y el puerto. El stderr de psql NO se vuelca al log (un fallo de conexión trae
@@ -143,7 +144,7 @@ for line in os.environ["SALIDA"].splitlines(keepends=True):
     elif cur:
         secs[cur] += line
 rows = {k: list(csv.DictReader(io.StringIO(v))) for k, v in secs.items()}
-for k in ("ROL", "Q1", "Q1b", "Q1c", "Q1c-detalle"):
+for k in ("ROL", "Q1", "Q1b", "Q1c", "Q1c-detalle", "Q1d"):
     if k not in rows:
         print(f"### D-IDS-1 · Q1: NO concluyente\n\nFalta la sección {k} en la salida.")
         sys.exit(3)
@@ -159,6 +160,8 @@ K_ANON = 3
 PUBLICAS = ("kind", "tcgplayerProductId", "producto", "finish", "productType", "piezas", "clientes", "con_ref_base",
             "clientes_con_ref", "ref_base_suma_cents", "sin_origen", "clientes_con_q", "q_suma_cents")
 OCULTO = f"<{K_ANON}, oculto"
+# Q1d: columnas que el resumen publica (solo conteos; la proyección del SQL la vigila G-IDS-RO [Q]).
+Q1D_COLS = ("ownerType", "status", "piezas", "productos_inexistentes")
 def _n(r, c):
     try: return int(r.get(c) or 0)
     except ValueError: return 0  # falla cerrado: sin el conteo, se oculta
@@ -179,7 +182,8 @@ def cell(k, v):
 NOMBRE = {"precio_min_cents": "precio mín.", "precio_max_cents": "precio máx.", "tcgplayerProductId": "producto TCGplayer",
           "con_precio_por_pieza": "con precio por pieza", "con_caso_por_reponer": "con caso «Por reponer» abierto", "en_retiro_activo": "en retiro activo",
           "con_ref_base": "con ref. base", "ref_base_suma_cents": "ref. base Σ",
-          "sin_origen": "sin origen", "q_suma_cents": "Q Σ", "productType": "tipo", "clientes_con_ref": "clientes con ref.", "clientes_con_q": "clientes con Q"}
+          "sin_origen": "sin origen", "q_suma_cents": "Q Σ", "productType": "tipo", "clientes_con_ref": "clientes con ref.", "clientes_con_q": "clientes con Q",
+          "ownerType": "dueño (clase)", "status": "estado", "productos_inexistentes": "productos inexistentes"}
 def table(rs, cols):
     out = ["| " + " | ".join(NOMBRE.get(c, c) for c in cols) + " |", "|" + "---|" * len(cols)]
     out += ["| " + " | ".join(cell(c, r.get(c)) for c in cols) + " |" for r in rs]
@@ -229,7 +233,20 @@ else:
     print(table(det[:tope], PUBLICAS))
     if len(det) > tope:
         print(f"\n_…y {len(det) - tope} filas más (tope del resumen {tope})._")
-print(f"::notice title=D-IDS-1 Q1::promo+deck_exclusive = {promo} (total {total}) · Q1c clientes = {clientes_promo}", file=sys.stdout)
+print()
+# Q1d (§IDS.9 v1.116.5, M-95c): piezas con `cardProductId` que no existe en CardProduct. Solo conteos por clase de dueño y
+# estado (sin dinero, sin ids). La lista por pieza: consola de Railway («Q1d-lista» de ids-d1-produccion.sql).
+q1d = rows["Q1d"]
+huerfanas = sum(int(r["piezas"]) for r in q1d)
+print(f"**Q1d — piezas cuyo producto no existe en el catálogo = {huerfanas}**\n")
+if huerfanas == 0:
+    print("M-95c entra: ninguna pieza apunta a un producto inexistente (la llave foránea se puede crear).")
+else:
+    print("Con alguna pieza así, la migración M-95c **aborta** al desplegar (no se crea la llave foránea). **Decide el dueño** "
+          "pieza por pieza; no hay arreglo automático. La lista (id interno de pieza, folio, estado) no se publica aquí: "
+          "consola de Railway con `scripts/ids/ids-d1-produccion.sql`, sección «Q1d-lista» (§108.5).\n")
+    print(table(q1d, Q1D_COLS))
+print(f"::notice title=D-IDS-1 Q1::promo+deck_exclusive = {promo} (total {total}) · Q1c clientes = {clientes_promo} · Q1d huérfanas = {huerfanas}", file=sys.stdout)
 PY
 prc=$?
 [ "$prc" -eq 0 ] || { echo "::error title=D-IDS-1 · Q1 no concluyente::La salida no traía las secciones esperadas o no se pudo escribir el resumen (rc $prc)."; exit 1; }
