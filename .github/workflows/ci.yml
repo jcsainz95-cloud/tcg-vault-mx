@@ -217,6 +217,15 @@ jobs:
           printf '%s\n' "$out" | grep -Eq '^# tests [1-9][0-9]*$' || { echo "::error::sin resumen TAP «# tests N» (¿cambió el reporter?): no puedo saber si la parte con base corrió"; exit 1; }
           # La parte con base NO puede saltarse en verde.
           printf '%s\n' "$out" | grep -q '^# skipped 0$' || { echo "::error::la prueba con base se saltó"; exit 1; }
+      # §IDS (IDS-D1/D3): instrumentos de medición de scripts/ids/, sin red. La foto del 512 corre su SQL
+      # READ ONLY contra la base de CI ya migrada (tablas existen, salida JSON, sin columnas personales).
+      # libpq no acepta los parámetros de Prisma (`?schema=…`): se pasa la URL sin query. DEVOPS_NOTES §108.
+      - name: Instrumentos §IDS — prueba (IDS-D1/D3)
+        run: |
+          out="$(IDS_FOTO_TEST_DATABASE_URL="${DATABASE_URL%%\?*}" node --test --test-reporter=tap ../scripts/ids/ids-lib.test.mjs ../scripts/ids/foto-512.test.mjs)" || { printf '%s\n' "$out"; exit 1; }
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | grep -Eq '^# tests [1-9][0-9]*$' || { echo "::error::sin resumen TAP «# tests N»"; exit 1; }
+          printf '%s\n' "$out" | grep -q '^# skipped 0$' || { echo "::error::la prueba con base (foto 512) se saltó"; exit 1; }
       - name: Build
         run: npm run build --if-present
 
