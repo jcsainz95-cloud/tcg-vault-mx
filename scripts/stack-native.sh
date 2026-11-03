@@ -872,12 +872,35 @@ stop_backend_only() {
 #     que rehace node_modules) ⇒ `prisma generate` y se re-mide la copia contra el schema por HUELLA
 #     sin formato (espacios colapsados, sin líneas vacías ≈ `diff -w`); si no coincide o generate
 #     falla ⇒ se para con el remedio. El schema del repo no se toca (nada de `prisma format`).
-# Canario: scripts/check-stack-prisma-client.sh (su `npx` falso REFORMATEA al copiar).
+#   · la huella IGNORA LOS COMENTARIOS (`//` y `///` fuera de comillas): Prisma 5.22 pasa el schema al
+#     generador por una tubería JSON-RPC y su `LineStream` (@prisma/client/generator-build, `byline`)
+#     decodifica CADA trozo con `chunk.toString()` sin StringDecoder ⇒ si un carácter multibyte cae
+#     partido en el borde de un trozo de 64 KiB, la copia lleva U+FFFD U+FFFD en su lugar. Medido
+#     2026-11-03 en d4ba9e91: `QUÉ` del comentario de schema.prisma:2295 ⇒ `QU��` (c3|89 partido en el
+#     byte 131 481 del mensaje), 16/19 generates; 0/10 en 283bb760 y 0/10 en 2bcfd04b (otros offsets).
+#     No es BOM, ni CRLF, ni una línea sin formatear: depende de en qué byte cae cada carácter. En el
+#     schema todo lo no-ASCII está en comentarios (medido), y los comentarios no cambian el cliente;
+#     si el corte cae en código, la huella difiere y se para, como debe.
+# Canario: scripts/check-stack-prisma-client.sh (su `npx` falso REFORMATEA al copiar y, en el caso 10,
+# parte un `É` de un comentario como Prisma; en 11-12 corrompe código / una cadena con `//`).
 # Límite dicho: supone el `output` por defecto del generador (el schema no declara otro; el canario
 # lo comprueba). DEVOPS_NOTES §103.4.
 # >>> PRISMA-CLIENT (no muevas estas marcas: el canario extrae este bloque)
 _prisma_sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
-_prisma_huella() { awk '{$1=$1}; NF' "$1" | _prisma_sha; }
+# Texto del schema sin comentarios ni formato: corta en el primer `//` que NO esté dentro de comillas
+# (`@default("http://…")` se conserva), colapsa espacios y quita líneas vacías. LC_ALL=C: por bytes.
+_prisma_sin_comentarios() {
+  LC_ALL=C awk '
+    index($0, "//") { o = ""; q = 0; n = length($0)
+      for (i = 1; i <= n; i++) { c = substr($0, i, 1)
+        if (q) { o = o c; if (c == "\\") { i++; o = o substr($0, i, 1) } else if (c == "\"") q = 0; continue }
+        if (c == "\"") { q = 1; o = o c; continue }
+        if (c == "/" && substr($0, i + 1, 1) == "/") break
+        o = o c }
+      $0 = o }
+    { $1 = $1 } NF' "$1"
+}
+_prisma_huella() { _prisma_sin_comentarios "$1" | _prisma_sha; }
 ensure_prisma_client() {
   local schema="$BACKEND_DIR/prisma/schema.prisma" copia="$BACKEND_DIR/node_modules/.prisma/client/schema.prisma"
   local sello="$BACKEND_DIR/node_modules/.prisma/client/.tcg-schema.sha256" esperado=""
@@ -894,9 +917,16 @@ ensure_prisma_client() {
     || die "\`prisma generate\` falló. El backend NO arranca con un cliente que no es de este schema
      (moriría con «Cannot convert undefined or null to object» al leer un enum nuevo).
      Remedio:  cd backend && npm ci && npx prisma generate"
-  [ -f "$copia" ] && [ "$(_prisma_huella "$copia")" = "$(_prisma_huella "$schema")" ] \
-    || die "Tras \`prisma generate\` el cliente sigue sin coincidir con prisma/schema.prisma ($copia),
-     ni ignorando el formato. ¿El generador escribe en otra ruta (\`output\`)? Sin paridad no arranco el backend."
+  if [ ! -f "$copia" ] || [ "$(_prisma_huella "$copia")" != "$(_prisma_huella "$schema")" ]; then
+    [ -f "$copia" ] && { echo "  primera diferencia (sin comentarios ni formato; < schema · > copia del cliente):" >&2
+      diff <(_prisma_sin_comentarios "$schema") <(_prisma_sin_comentarios "$copia") 2>&1 | sed -n '1,6p' | sed 's/^/    /' >&2 || true; }
+    die "Tras \`prisma generate\` el cliente sigue sin coincidir con prisma/schema.prisma ($copia),
+     ni ignorando el formato y los comentarios. ¿El generador escribe en otra ruta (\`output\`)? Sin paridad no arranco el backend."
+  fi
+  if [ "$(awk '{$1=$1}; NF' "$copia" | _prisma_sha)" != "$(awk '{$1=$1}; NF' "$schema" | _prisma_sha)" ]; then
+    warn "La copia del cliente difiere del schema SOLO en comentarios ($(grep -c $'\xef\xbf\xbd' "$copia" 2>/dev/null || true) línea(s) con U+FFFD):"
+    warn "es el corte de multibyte de Prisma 5.22 en la tubería del generador (DEVOPS_NOTES §103.4). El cliente es el mismo; sigo."
+  fi
   printf '%s %s\n' "$(_prisma_sha < "$schema")" "$(_prisma_sha < "$copia")" > "$sello"
   ok "cliente Prisma regenerado, al día con prisma/schema.prisma y sellado."
 }
