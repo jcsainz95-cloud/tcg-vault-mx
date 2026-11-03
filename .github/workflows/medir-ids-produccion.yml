@@ -15,6 +15,9 @@
 #   · Transacción `READ ONLY` explícita + PRUEBA de que una escritura falla (25006) antes de leer + ROLLBACK.
 #   · Al resumen solo van cifras: Q1 y, si promo/deck_exclusive > 0, la lista Q1b (sin datos personales); y Q1c
 #     (§IDS.9 v1.116.4: piezas de CLIENTES en bóveda con promo/deck_exclusive, solo agregados; candado [Q]).
+#   · El resumen de un repo público es PÚBLICO: Q1c-detalle da solo conteos y Σ (nunca mín/máx) de Q y de la referencia,
+#     Σ solo con ≥ 3 clientes distintos y ≥ 3 piezas detrás; si no, «<3, oculto» (PT-IDS-6, [K]). Fila entera: consola de Railway.
+#   · TLS obligatorio: sslmode require o más fuerte; un modo más débil en la URL ⇒ rojo sin conectar (PT-IDS-7, candado [S]).
 #   · Acciones fijadas por sha de 40 caracteres (TL-CHK-8).
 #
 # Runbook (pasos del dueño, rol recomendado, rollback): docs/DEVOPS_NOTES.md §108.5.

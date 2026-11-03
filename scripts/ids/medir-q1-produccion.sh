@@ -13,6 +13,11 @@
 # por PGHOST/PGUSER/PGPASSWORD…). En GitHub Actions se enmascaran antes de cualquier salida la URL entera, la
 # contraseña, el usuario, el host y el puerto. El stderr de psql NO se vuelca al log (un fallo de conexión trae
 # host e IP): se clasifica.
+# TLS (PT-IDS-7): fuera de loopback exige sslmode require/verify-ca/verify-full (por defecto `require`); un modo más débil
+# (disable/allow/prefer) o desconocido ⇒ rc 1 sin conectar. Loopback (la base de CI) no cruza red: ahí vale cualquiera.
+# Anonimato (PT-IDS-6): el resumen de un repo público es público. En Q1c-detalle solo salen conteos y Σ de Q y de la
+# referencia (nunca mín/máx: con 3 piezas, Σ − mín − máx daría la tercera); Σ solo si la respaldan ≥ K_ANON clientes
+# distintos y ≥ K_ANON piezas; si no, «<3, oculto». La fila entera (con mín/máx): consola de Railway, ids-d1-produccion.sql.
 # Salida: 0 medido (Q1 sea 0 o no: decidir es del dueño) · 1 error / la prueba de solo lectura no se cumplió.
 # Runbook: docs/DEVOPS_NOTES.md §108.5.
 set -uo pipefail
@@ -60,13 +65,18 @@ if not u.hostname:
 if u.hostname.endswith(".railway.internal"):
     print("ERR=interna"); raise SystemExit
 q = dict(urllib.parse.parse_qsl(u.query))
+SSL_OK = ("require", "verify-ca", "verify-full")
+LOOPBACK = ("localhost", "127.0.0.1", "::1")
+ssl = q.get("sslmode", "require")
+if ssl not in SSL_OK and u.hostname not in LOOPBACK:
+    print("ERR=ssl"); raise SystemExit
 kv = {
     "PGHOST": u.hostname,
     "PGPORT": str(u.port or 5432),
     "PGUSER": urllib.parse.unquote(u.username or ""),
     "PGPASSWORD": urllib.parse.unquote(u.password or ""),
     "PGDATABASE": urllib.parse.unquote(u.path.lstrip("/")) or "postgres",
-    "PGSSLMODE": q.get("sslmode", "prefer"),
+    "PGSSLMODE": ssl,
     "PGCONNECT_TIMEOUT": "15",
     "PGAPPNAME": "ids-q1-boton",
 }
@@ -78,6 +88,7 @@ PY
 case "$pgenv" in
   ERR=esquema*) echo "::error title=El secreto no es una URL de Postgres::Debe empezar por postgresql:// (§108.5)."; exit 1 ;;
   ERR=host*)    echo "::error::El secreto no trae host."; exit 1 ;;
+  ERR=ssl*)     echo "::error title=Conexión sin TLS obligatorio::La URL pide un sslmode más débil que require (disable/allow/prefer o desconocido). Nada se leyó. Quita ese parámetro o usa ?sslmode=require (§108.5)."; exit 1 ;;
   ERR=interna*) echo "::error title=Copiaste la URL interna::Esa URL es de la red interna de Railway (*.railway.internal), inalcanzable desde GitHub. Usa la pública (§108.5)."; exit 1 ;;
   ERR=$'\n'*) ;;
   *) echo "::error::No se pudo leer el secreto como URL."; exit 1 ;;
@@ -140,14 +151,35 @@ rol = rows["ROL"][0]
 def money(c):
     if c in (None, ""): return "—"
     c = int(c); return f"MX${c // 100:,}.{c % 100:02d}"
+# PT-IDS-6: umbral de anonimato del resumen PÚBLICO (G-IDS-RO [K]). Una cifra respaldada por < K_ANON clientes o piezas
+# es lo que pagó (o lo que vale lo que tiene) una persona concreta: no se publica. No hay totales de dinero entre filas,
+# así que una celda oculta no se recupera restando. Y la fila sale proyectada a PUBLICAS (sin mín/máx: con Σ, mín y máx
+# de 3 piezas se despeja la tercera).
+K_ANON = 3
+PUBLICAS = ("kind", "tcgplayerProductId", "producto", "finish", "productType", "piezas", "clientes", "con_ref_base",
+            "clientes_con_ref", "ref_base_suma_cents", "sin_origen", "clientes_con_q", "q_suma_cents")
+OCULTO = f"<{K_ANON}, oculto"
+def _n(r, c):
+    try: return int(r.get(c) or 0)
+    except ValueError: return 0  # falla cerrado: sin el conteo, se oculta
+def anonimizar(rs):
+    out = []
+    for r in rs:
+        r = {c: r.get(c) for c in PUBLICAS}
+        if _n(r, "clientes_con_ref") < K_ANON or _n(r, "con_ref_base") < K_ANON:
+            r["ref_base_suma_cents"] = OCULTO
+        if _n(r, "clientes_con_q") < K_ANON or _n(r, "piezas") - _n(r, "sin_origen") < K_ANON:
+            r["q_suma_cents"] = OCULTO
+        out.append(r)
+    return out
 def cell(k, v):
+    if v == OCULTO: return v
     if k.endswith("_cents"): return money(v)
     return (v or "—").replace("|", "\\|").replace("\n", " ")
 NOMBRE = {"precio_min_cents": "precio mín.", "precio_max_cents": "precio máx.", "tcgplayerProductId": "producto TCGplayer",
           "con_precio_por_pieza": "con precio por pieza", "con_caso_por_reponer": "con caso «Por reponer» abierto", "en_retiro_activo": "en retiro activo",
-          "con_ref_base": "con ref. base", "ref_base_suma_cents": "ref. base Σ", "ref_base_min_cents": "ref. base mín.",
-          "ref_base_max_cents": "ref. base máx.", "sin_origen": "sin origen", "q_suma_cents": "Q Σ", "q_min_cents": "Q mín.",
-          "q_max_cents": "Q máx.", "productType": "tipo"}
+          "con_ref_base": "con ref. base", "ref_base_suma_cents": "ref. base Σ",
+          "sin_origen": "sin origen", "q_suma_cents": "Q Σ", "productType": "tipo", "clientes_con_ref": "clientes con ref.", "clientes_con_q": "clientes con Q"}
 def table(rs, cols):
     out = ["| " + " | ".join(NOMBRE.get(c, c) for c in cols) + " |", "|" + "---|" * len(cols)]
     out += ["| " + " | ".join(cell(c, r.get(c)) for c in cols) + " |" for r in rs]
@@ -191,10 +223,10 @@ else:
     print(table(q1c, ["kind", "piezas", "clientes", "con_caso_por_reponer", "en_retiro_activo"]))
     print("\n**Q1c por producto y acabado** (ref. base: MXN almacenado de la carta base, sin FX viva — aproximación; "
           "Q: lo cobrado en su origen):\n")
-    det = rows["Q1c-detalle"]; tope = 200
-    print(table(det[:tope], ["kind", "tcgplayerProductId", "producto", "finish", "productType", "piezas", "clientes",
-                             "con_ref_base", "ref_base_suma_cents", "ref_base_min_cents", "ref_base_max_cents",
-                             "sin_origen", "q_suma_cents", "q_min_cents", "q_max_cents"]))
+    print(f"_Privacidad (PT-IDS-6): este resumen es público. Solo conteos y Σ; Σ solo con ≥ {K_ANON} clientes y ≥ {K_ANON} piezas "
+          f"detrás; si no, «{OCULTO}». Mínimo, máximo y la fila completa: consola de Railway con `scripts/ids/ids-d1-produccion.sql` (§108.5)._\n")
+    det = anonimizar(rows["Q1c-detalle"]); tope = 200
+    print(table(det[:tope], PUBLICAS))
     if len(det) > tope:
         print(f"\n_…y {len(det) - tope} filas más (tope del resumen {tope})._")
 print(f"::notice title=D-IDS-1 Q1::promo+deck_exclusive = {promo} (total {total}) · Q1c clientes = {clientes_promo}", file=sys.stdout)
