@@ -18,6 +18,11 @@
 #       COMMIT/END/BEGIN/SET TRANSACTION/READ WRITE, ningún verbo que escriba salvo esa prueba, sin metaórdenes de psql
 #       peligrosas (\! \copy \o \c \gexec \g \i); `\ir` solo de ids-d1-q1.sql
 #   [Q] Q1c (H-Q1) filtra ownerType='customer', status <> 'withdrawn' y kind promo/deck_exclusive, y no saca ids de cliente/pieza
+#   [K] PT-IDS-6 (el resumen de un repo público es público): `K_ANON = 3` (o más); Q1c-detalle pasa por `anonimizar(` antes
+#       del resumen y oculta Σ/mín/máx de ref y de Q con < K_ANON clientes distintos o piezas detrás; el SQL proyecta
+#       clientes_con_ref / clientes_con_q
+#   [S] PT-IDS-7: sslmode por defecto `require`; solo require/verify-ca/verify-full fuera de loopback (localhost/127.0.0.1/::1),
+#       un modo más débil ⇒ rc 1 antes de psql; ningún literal "prefer"/"allow"/"disable" en el código
 #   [H] todo `uses:` fijado por sha de 40 hex (TL-CHK-8)
 # Los comentarios no cuentan. Canario: check-ids-ro-workflow-canary.sh.
 # Uso: ./scripts/check-ids-ro-workflow.sh [--root DIR]      DEVOPS_NOTES §108.5.
@@ -153,6 +158,28 @@ for q in Q1c Q1c-detalle; do
     && bad Q "$q expone ids de cliente, pieza u orden (solo agregados)"
 done
 
+# [K] umbral de anonimato del resumen público (PT-IDS-6)
+printf '%s\n' "$sh" | grep -cE '^K_ANON = ([3-9]|[1-9][0-9]+)[[:space:]]*$' | grep -qx 1 || bad K "falta «K_ANON = 3» (o mayor), exactamente una vez"
+printf '%s\n' "$sh" | grep -E '^K_ANON = ' | grep -vE '^K_ANON = ([3-9]|[1-9][0-9]+)[[:space:]]*$' >/dev/null && bad K "K_ANON < 3"
+printf '%s\n' "$sh" | grep -E '^[[:space:]]+det = anonimizar\(rows\["Q1c-detalle"\]\)' >/dev/null || bad K "Q1c-detalle no pasa por anonimizar( antes del resumen"
+[ "$(printf '%s\n' "$sh" | grep -cF 'rows["Q1c-detalle"]')" = 1 ] || bad K "rows[\"Q1c-detalle\"] se usa fuera de anonimizar("
+for c in clientes_con_ref clientes_con_q; do
+  printf '%s\n' "$sh" | grep -F "_n(r, \"$c\") < K_ANON" >/dev/null || bad K "anonimizar no exige ≥ K_ANON en $c"
+  printf '%s\n' "$(q1c_bloque Q1c-detalle)" | grep -E "count\(DISTINCT l\.\"ownerUserId\"\) FILTER \(WHERE [a-z]\.[a-z_]+ IS NOT NULL\) AS $c\b" >/dev/null \
+    || bad K "Q1c-detalle no proyecta $c (clientes distintos detrás de la cifra)"
+done
+printf '%s\n' "$sh" | grep -F '_n(r, "con_ref_base") < K_ANON' >/dev/null || bad K "anonimizar no exige ≥ K_ANON piezas con referencia"
+printf '%s\n' "$sh" | grep -F '_n(r, "piezas") - _n(r, "sin_origen") < K_ANON' >/dev/null || bad K "anonimizar no exige ≥ K_ANON piezas con Q"
+
+# [S] TLS obligatorio (PT-IDS-7)
+printf '%s\n' "$sh" | grep -E '^SSL_OK = \("require", "verify-ca", "verify-full"\)[[:space:]]*$' >/dev/null || bad S "SSL_OK no es exactamente (require, verify-ca, verify-full)"
+printf '%s\n' "$sh" | grep -E '^LOOPBACK = \("localhost", "127\.0\.0\.1", "::1"\)[[:space:]]*$' >/dev/null || bad S "LOOPBACK no es exactamente (localhost, 127.0.0.1, ::1)"
+printf '%s\n' "$sh" | grep -E '^ssl = q\.get\("sslmode", "require"\)[[:space:]]*$' >/dev/null || bad S "el sslmode por defecto no es require"
+printf '%s\n' "$sh" | grep -A1 -E '^if ssl not in SSL_OK and u\.hostname not in LOOPBACK:[[:space:]]*$' | grep -F 'print("ERR=ssl")' >/dev/null || bad S "un sslmode débil no aborta (ERR=ssl)"
+printf '%s\n' "$sh" | grep -E '^[[:space:]]+ERR=ssl\*\).*exit 1' >/dev/null || bad S "el shell no sale 1 ante ERR=ssl"
+[ "$(printf '%s\n' "$sh" | grep -c 'PGSSLMODE')" = 1 ] && printf '%s\n' "$sh" | grep -E '^[[:space:]]+"PGSSLMODE": ssl,' >/dev/null || bad S "PGSSLMODE no sale (solo) de la variable validada"
+printf '%s\n' "$sh" | grep -E '"(prefer|allow|disable)"' >/dev/null && bad S "aparece un literal de sslmode débil"
+
 # [H] acciones fijadas por sha
 while IFS= read -r u; do
   [ -n "$u" ] || continue
@@ -160,4 +187,4 @@ while IFS= read -r u; do
 done <<< "$(printf '%s\n' "$wf" | grep -E '^[[:space:]]*-?[[:space:]]*uses:')"
 
 if [ "$FALLOS" -ne 0 ]; then printf 'check-ids-ro-workflow: ROJO (%s)\n' "$FALLOS"; exit 1; fi
-echo "check-ids-ro-workflow: VERDE (A, C–H, Q, R)"
+echo "check-ids-ro-workflow: VERDE (A, C–H, K, Q, R, S)"
