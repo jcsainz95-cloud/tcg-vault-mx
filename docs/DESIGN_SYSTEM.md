@@ -2610,9 +2610,8 @@ base nuevo**. Dos grupos separados por regla, con `eyebrow` mono cada uno.
 - CP: `inputmode="numeric"`, `maxlength` 5, `tabular-nums`.
 - Teléfono: **opcional**, con ayuda "Solo lo usa la paquetería para entregar." Regla dura: **el teléfono
   nunca aparece en la vista pública de seguimiento** (§15.6).
-- **Destino de la compra** (`FulfillmentChoice`): ver §15.4. Va **después** del envío, porque el upsell
-  necesita que el usuario ya haya invertido esfuerzo (efecto dotación) y porque tras crear cuenta la
-  dirección capturada no se pierde.
+- **Destino de la compra:** ver §15.4 y CHK-MOVIL.2.3. Va **antes** del primer campo (decisión vigente de la opción A):
+  elegir bóveda no pierde lo capturado, porque la dirección se oculta sin desmontarse.
 
 **Resumen de errores al intentar pagar:** si hay campos inválidos, se pinta arriba del formulario un bloque
 `role="alert"` con "Revisa {n} campo(s)" y una lista de enlaces al campo correspondiente; el foco va al
@@ -2630,7 +2629,7 @@ correo, "qué pasa después del pago"). No se añade ni se quita ninguna.
 Este es **el momento de conversión más importante del producto**; el diseño lo trata como una oferta, no
 como un permiso denegado.
 
-**Selector de destino (`FulfillmentChoice`)** — grupo de radios (§6.4) con dos opciones, visible para
+**Selector de destino** — dos botones `aria-pressed` con marca redonda (anatomía en CHK-MOVIL.2.3), visible para
 invitados y para usuarios con cuenta por igual:
 
 | Opción | Micro-etiqueta mono | Estado para invitado |
@@ -2645,9 +2644,8 @@ error, `Banner danger` o cualquier tratamiento que lea como "no puedes".
 **Formato del upsell: panel inline que se expande justo debajo de la opción elegida.** No es modal, no es
 un paso nuevo, no es una ruta.
 
-*Modal y paso separado, descartados:* el modal tapa carrito y total y se lee como interrupción; el paso
-separado viola "crear cuenta **sin salir del checkout**" (criterio 48). **Panel inline, elegido:** deja
-visibles artículos, total y dirección; la salida queda a un clic en el mismo bloque.
+*Modal y paso separado, descartados* (tapan carrito y total, o violan "sin salir del checkout", criterio 48):
+el panel inline deja visibles artículos y total, y la salida queda a un clic.
 
 **Anatomía del panel** (papel sobre pozo `surface-2` + regla superior de énfasis `border-strong`; **sin
 sombra, radio 0**):
@@ -2677,9 +2675,12 @@ sombra, radio 0**):
 
 **Estados del panel:**
 - *Abierto sin cuenta creada:* el destino queda en "bóveda (pendiente)". El **botón de pago se deshabilita**
-  con nota textual asociada por `aria-describedby` (no solo `disabled`): "Para pagar, crea tu cuenta o elige
+  (`border-dashed`, con nota y salida «Elegir envío a domicilio»: §15.9): "Para pagar, crea tu cuenta o elige
   envío a domicilio." / "To pay, create your account or choose home delivery." Tono **muted, no bermellón**:
   es una condición, no un error.
+- *Dirección en modo bóveda:* el grupo «ENVÍO A MÉXICO» se **oculta (`hidden`) pero no se desmonta**: lo capturado
+  y el estado de la colonia siguen ahí al volver a envío. Sus campos salen del resumen de errores de §15.3 mientras
+  esté oculto. También se ocultan el código de descuento, los paquetes y las sugerencias (solo aplican con envío).
 - *Enviando:* solo el botón del panel entra en `loading` (label persistente, §6.1); los datos ya capturados
   no se tocan y ningún otro control se bloquea.
 - *Éxito:* el panel colapsa a un renglón mono en **verde**: `CUENTA CREADA · DESTINO: BÓVEDA` /
@@ -2695,8 +2696,8 @@ sombra, radio 0**):
 
 **Accesibilidad del panel:** `role="region"` etiquetado por su `h3`; al abrirse el foco va al `h3`
 (`tabIndex={-1}`) para que se lea el beneficio antes que los campos; `Esc` **no** descarta datos: devuelve
-el foco al radio de destino sin cambiar la selección (la salida explícita es el botón "Seguir con envío a
-domicilio"). Área táctil de radios y salidas ≥ 44px.
+el foco al botón de bóveda sin cambiar la selección (las salidas explícitas son "Seguir con envío a
+domicilio" y la opción «Envío a mi domicilio», siempre pulsable). Área táctil de opciones y salidas ≥ 44px.
 
 ### 15.5 Confirmación de compra y reclamo post-compra (`GuestOrderConfirmation` + `AccountClaimOffer`) — criterios 49, 54, 55
 
@@ -2909,18 +2910,26 @@ de minimización de §15.6.
 
 - **Foco visible** bermellón en todos los controles nuevos (§8.2); ningún panel, disclosure ni sticky bar
   puede quitar el `outline`.
-- **Orden de tabulación** = orden visual: gate → panel de la vía elegida → contacto → envío → destino
-  (→ panel de upsell si está abierto) → confirmación de correo → pago. La barra sticky de móvil se coloca al
+- **Orden de tabulación** = orden visual: línea de acceso (T4) → destino (→ panel de upsell si está abierto) →
+  contacto → envío → términos → pago. La barra sticky de móvil se coloca al
   final del DOM pero **no** rompe el orden porque es un duplicado accesible del botón de pago; si se
   duplica, el duplicado va `aria-hidden` y solo uno recibe foco.
 - **Botones deshabilitados con explicación:** cada vez que el pago se bloquea (correo sin confirmar, destino
   bóveda sin cuenta, dirección inválida) hay un **texto asociado por `aria-describedby`**; nunca un botón
   apagado y mudo.
+- **PAGAR deshabilitado = regla discontinua, no solo color:** apagado (y no `loading`) lleva `border-dashed`, en el
+  `aside` y en la barra móvil; la opacidad sola no se distingue para quien no ve bien el color. En `loading` el
+  borde sigue continuo. La condición va en `muted`, no bermellón.
+- **Salida del bloqueo por bóveda:** el aviso («Para pagar, crea tu cuenta o elige envío a domicilio.») lleva
+  siempre el botón-enlace **«Elegir envío a domicilio»**: vuelve a envío y deja el foco en esa opción. `aside`
+  (`lg+`): bajo la nota, `min-h-[44px]`, `text-xs` subrayado. Barra móvil: junto a la explicación, **ancho fijo
+  92 px** (mono 11 px, `leading-[1.3]`, dos renglones) para que la explicación quede en ≤ 2 renglones y **la barra
+  en ≤ 120 px a 320 px** (§CHK-MOVIL.2.4); `min-h-[44px]`.
 - **Anuncios asíncronos:** cotización recalculada, cuenta creada, correo desmarcado, resultado del reenvío →
   `aria-live="polite"`. Errores de pago → `aria-live="assertive"` (§8.2).
 - **Etiquetas reales** en todos los campos (`<label htmlFor>`), `autocomplete` correcto en correo y
   dirección (ayuda enorme al invitado, que no tiene datos guardados).
-- **Áreas táctiles ≥ 44px** en las tres opciones del gate, los radios de destino y las salidas del upsell.
+- **Áreas táctiles ≥ 44px** en las dos opciones de destino y las salidas del upsell.
 - **`prefers-reduced-motion`**: la expansión de gate y upsell degrada a mostrar/ocultar sin animación.
 - **Contraste:** cero pares nuevos; todos están en §10 (tinta/papel ~15.5:1, muted ~4.8:1, bermellón ~4.65:1,
   papel sobre bermellón ~4.64:1). El texto muted **no** porta información esencial: `REQUIERE CUENTA` se
@@ -2933,7 +2942,7 @@ de minimización de §15.6.
 (panel inline; `Modal` descartado, §15.4), `PublicOrderTracking` + chrome reducido (ruta pública con
 minimización de datos, §15.6) y `TrackingLinkNeutralState` (el patrón de error de §8.1 no sirve: copy neutro,
 un solo mensaje, enfriamiento visible, §15.7). **Composiciones:** `GuestCheckoutForm`, `FulfillmentChoice`
-(radios hoy; **pasa a fila de estado + enlace**, CHK-MOVIL.2) y `AccountClaimOffer`.
+(dos botones `aria-pressed` con marca redonda, CHK-MOVIL.2.3) y `AccountClaimOffer`.
 
 **Ningún token nuevo.** Cero colores, tipografías, radios, sombras o breakpoints añadidos.
 
@@ -4663,6 +4672,7 @@ Desktop (≥`lg`): barra de **74px**, `padding 0 32px`, `border-bottom` regla 1p
 Matiz de §6.6: en el **storefront** el subrayado activo de tabs es **rojo** (coherente con la nav);
 en el **back-office** sigue siendo tinta (§6.6 sin cambios). Las tabs de la bóveda (2e) usan texto
 14px sin uppercase con subrayado 2px **tinta** — son navegación de contenido, no taxonomía de tienda.
+**«Hay más pestañas» (`StoreTabs`, móvil):** con cuatro pestañas la fila desliza (`overflow-x-auto`) y «GRADEADAS» quedaba cortada sin indicio. Mientras quede contenido a la derecha, un degradado de 48 px (`linear-gradient(to left, --color-bg 25%, transparent)`) cubre el borde derecho, decorativo (`aria-hidden`, `pointer-events-none`, sin tocar la regla inferior) y desaparece al llegar al final. La pestaña activa se desplaza a la vista entera. Sin degradado izquierdo.
 
 Móvil (<`lg`): header de **60px**, `padding 0 16px`: marca (mira 28px + wordmark 16px) + carrito
 compacto + **hamburguesa minimal** (dos reglas horizontales de 1px de tinta, 22px de ancho, gap 5px;
@@ -33429,19 +33439,19 @@ Los candados de contrato de §MKT.H.11 (C-F1…C-F7, C-D1) **no se repiten** aqu
 
 ## CHK-MOVIL. Carrito y checkout en móvil (360-414 px): sin desplazamiento lateral, formulario corto y barra fija (vCHK-1, 2026-10-24 · `HECHOS.md` 2026-10-24 «Embudo móvil…» · brief de marketing `BRIEF_TIENDA_EMBUDO_MOVIL.md` `5237c11`, fricciones 1(a), 2, 3 y 6)
 
-> **Estado: PROPUESTO, no implementado.** Frontend no maqueta hasta que el dueño elija A o B (CHK-MOVIL.3); .1, .2, .4 y .5 son comunes y no dependen de la elección. Las cifras del brief (426 px, 36 px cortados, 3.74 pantallas) las recibió ux-ui del orquestador: **NO MEDIDO por ux-ui** (sin acceso al repo de marketing). Sí se leyó el código (`checkout/GuestCheckoutView.tsx`, `GuestCheckoutForm.tsx`, `CheckoutView.tsx`, `CheckoutIdentityGate.tsx`, `guest-validation.ts`) y `API_CONTRACT.md` §4-G. «Carrito» y «checkout» son **la misma ruta `/checkout`** (título «Tu carrito»). Cero tokens y cero pares de contraste nuevos. No se tocan precios, comisión ni regla de envío (pregunta abierta del dueño).
+> **Estado: implementado (opción A, CHK-MOVIL.3); destino y salida de bloqueo corregidos el 2026-11-03.** Las cifras del brief (36 px cortados, 3.74 pantallas) las recibió ux-ui del orquestador: **NO MEDIDO por ux-ui**. Se leyó el código (`checkout/GuestCheckoutView.tsx`, `GuestCheckoutForm.tsx`, `CheckoutView.tsx`, `CheckoutIdentityGate.tsx`, `guest-validation.ts`) y `API_CONTRACT.md` §4-G. «Carrito» y «checkout» son **la misma ruta `/checkout`** (título «Tu carrito»). Cero tokens y cero pares de contraste nuevos. No se tocan precios, comisión ni regla de envío (pregunta abierta del dueño).
 
 ### CHK-MOVIL.1 Cero desplazamiento lateral (fricción 2)
-Causa de los 426 px: **NO MEDIDA**. Hipótesis del código: la rejilla raíz (`GuestCheckoutView.tsx:481`, `CheckoutView.tsx:301`) declara columnas solo desde `lg:`; en <`lg` la pista implícita `auto` crece al contenido mínimo del hijo más ancho. Primero se mide el elemento culpable (`getBoundingClientRect` a 390) y luego se aplican estas reglas, inocuas aunque la hipótesis falle:
-1. Raíz `grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_420px]`; todo hijo directo `min-w-0`. Los 420 px son solo de `lg+`; en <`lg` ningún ancho fijo, solo `max-w-*`.
-2. Cadenas largas (correo, número de pedido, nombres) con `overflow-wrap:anywhere`; nombres de carta `truncate` dentro de un padre `min-w-0`. Prohibido arreglarlo con `overflow-x:hidden` en `html`/`body` (oculta el defecto y recorta importes).
-3. Con `.gutter` de 20 px el ancho útil es 320 px a 360: dos columnas solo si cada una cabe ahí. Aceptación: candado L1.
+La pista implícita `auto` de la rejilla raíz crecía al contenido mínimo del hijo más ancho en <`lg` (439 px a 390, medido por frontend). Reglas vigentes: (1) raíz `grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_420px]` y todo hijo directo `min-w-0`; en <`lg` ningún ancho fijo, solo `max-w-*`. (2) Cadenas largas con `overflow-wrap:anywhere`; nombres de carta `truncate` en padre `min-w-0`; ⛔ `overflow-x:hidden` en `html`/`body` (oculta el defecto y recorta importes). (3) Con `.gutter` de 20 px el ancho útil es 320 px a 360. Candado L1.
 
 ### CHK-MOVIL.2 Lo común a A y B
 **2.1 Entrada.** Sin pantalla de tres vías: el invitado ve su formulario en el primer pintado. Encima, una línea (objetivo 44 px) «¿Ya tienes cuenta? Inicia sesión · o crea una cuenta» (T4); cada enlace abre `InlineAuthPanel` inline con el estado del formulario intacto (criterio 46: las tres vías siguen a un toque y el carrito se conserva). Con sesión no hay gate.
 **2.2 Campos: orden y mínimo.** Obligatorios, todos exigidos por `GuestAddressInput`/`acceptedTerms` (§4-G.1/§4-G.2) o por PROJECT §J; no se quita ninguno: **1 correo · 2 nombre de quien recibe · 3 CP · 4 colonia · 5 calle y número · 6 teléfono (10 dígitos)**, más la casilla de términos (con `PrivacySiteNote`) y la lectura de vuelta del correo (PROJECT §J). Hoy el orden es correo, nombre, calle, interior, CP, colonia, referencias, teléfono, país. El CP pasa antes de colonia y calle porque rellena colonia, municipio y estado; estos dos salen como **texto de una línea** («Benito Juárez, CDMX»), editables solo en el modo «todo a mano» (`manualAll`). `line2` y `references` quedan **plegados** tras «Interior y referencias (opcional)» (T5; cerrado por defecto, se abre solo si el servidor devuelve error sobre ellos). País fijo: un renglón mono «ENVÍO A MÉXICO» en la cabecera del grupo. `autocomplete` correcto (`email`, `name`, `postal-code`, `address-line1`, `tel`). `FIELD_ORDER` y el resumen de errores siguen el orden del DOM. Sin cambio: validación en `blur`, erratas, anti-enumeración (criterio 56), `role="alert"` con foco al intentar pagar.
-**2.3 Destino sin radios.** `FulfillmentChoice` (radios en el formulario **y otra vez** en el `aside`) pasa a **una fila de estado**: «Envío a mi domicilio» + mono `+ {importe}` y, debajo, un botón de 44 px «Guardar en mi bóveda» + mono `REQUIERE CUENTA` que abre el `VaultUpsellPanel` (§15.4) sin cambios. Sigue seleccionable: nada de `disabled`, candado ni `Banner danger`. Es el primer anuncio de la bóveda dentro del checkout.
-**2.4 Barra fija (<`lg`).** `fixed inset-x-0 bottom-0`, fondo papel, regla superior `border-strong`, sin sombra, `z-30`, `padding-bottom: max(12px, env(safe-area-inset-bottom))`; publica su alto con `useStickyBottomBar` (`--sticky-bottom-h`, MKT2-UX.5) y el contenido reserva `calc(var(--sticky-bottom-h) + 16px)`. Dos filas, alto ≤ 120 px: **(1)** botón de 44 px a ancho completo con la línea T3 (mono 11 px, ≤ 2 líneas) y «Ver desglose» (T6), `aria-expanded`; **(2)** «TOTAL» mono + importe `tabular` a la izquierda y PAGAR `accent` (48 px, ≥ 120 px) a la derecha. «Ver desglose» abre hacia arriba una región (no `dialog`, sin `aria-modal`) con `AmountBreakdown` completo, `max-h-[60vh]` con scroll interno; `Esc` cierra y devuelve el foco; sin animación con `prefers-reduced-motion`. En <`lg` el resumen en flujo se oculta (una sola copia del desglose en el DOM); en `lg+` el `aside` sigue como hoy, con `lg:sticky lg:top-[var(--app-header-h)]`. Reglas: el importe de PAGAR sigue siendo el de la **sesión** (F-SP-5): antes de la sesión dice «Pagar» y «TOTAL» muestra el de la cotización; en `creating` el botón está en `loading` y **no reenvía** (la sesión de invitado se limita a 5/h por IP, §4-G.2); si hay un bloqueo por condición, la línea (1) se sustituye por su explicación (`aria-describedby`, §15.9); los errores de pago, accesorios y reintento se pintan en flujo sobre las notas legales con `role="alert"`; con un campo enfocado la barra se oculta y `--sticky-bottom-h` vale 0 (teclado), y vuelve al desenfocar. Con sesión, la misma barra.
+**2.3 Destino: dos opciones pulsables (una sola copia).** `FulfillmentChoice` (radios en el formulario **y otra vez** en el `aside`) pasa a **un solo grupo** `<section>` con `h2` `sr-only`, **antes del primer campo** y después de la línea T4. Son **dos botones `aria-pressed` de ≥ 44 px a ancho completo**, ambos siempre pulsables (nada de `disabled`, candado ni `Banner danger`; una fila de estado no pulsable fue el defecto N1 del 2026-11-03: tras elegir bóveda, tocar «Envío a mi domicilio» no hacía nada y PAGAR quedaba bloqueado):
+- «Envío a mi domicilio» + mono `+ {importe}` (11 px `muted`, del quote); «Guardar en mi bóveda» + mono `REQUIERE CUENTA`, que abre el `VaultUpsellPanel` (§15.4) sin cambios. Es el primer anuncio de la bóveda. Sin cartas ni sellado (solo accesorios) la bóveda no se pinta (§AC-UX.7).
+- **Marca** (`DestinationMark`, `aria-hidden`; el estado lo dice `aria-pressed`): círculo de 20 px (§6.4), borde 1 px; **anillo vacío** (`border-strong`) = no elegida, **anillo con punto** de 10 px (`primary`) = elegida. No depende del color.
+- **Redonda aunque el tema tenga `--radius-full: 0px` (§4.2):** un cuadro relleno se lee como casilla (selección múltiple) y esto es excluyente. Se fuerza con `rounded-[50%]` (valor arbitrario, no token): única excepción al radio 0, solo para esta marca.
+**2.4 Barra fija (<`lg`).** `fixed inset-x-0 bottom-0`, fondo papel, regla superior `border-strong`, sin sombra, `z-30`, `padding-bottom: max(12px, env(safe-area-inset-bottom))`; publica su alto con `useStickyBottomBar` (`--sticky-bottom-h`, MKT2-UX.5) y el contenido reserva `calc(var(--sticky-bottom-h) + 16px)`. Dos filas, alto ≤ 120 px: **(1)** botón de 44 px a ancho completo con la línea T3 (mono 11 px, ≤ 2 líneas) y «Ver desglose» (T6), `aria-expanded`; **(2)** «TOTAL» mono + importe `tabular` a la izquierda y PAGAR `accent` (48 px, ≥ 120 px) a la derecha. «Ver desglose» abre hacia arriba una región (no `dialog`, sin `aria-modal`) con `AmountBreakdown` completo, `max-h-[60vh]` con scroll interno; `Esc` cierra y devuelve el foco; sin animación con `prefers-reduced-motion`. En <`lg` el resumen en flujo se oculta (una sola copia del desglose en el DOM); en `lg+` el `aside` sigue como hoy, con `lg:sticky lg:top-[var(--app-header-h)]`. Reglas: el importe de PAGAR sigue siendo el de la **sesión** (F-SP-5): antes de la sesión dice «Pagar» y «TOTAL» muestra el de la cotización; en `creating` el botón está en `loading` y **no reenvía** (la sesión de invitado se limita a 5/h por IP, §4-G.2); si hay un bloqueo por condición, la línea (1) se sustituye por su explicación (`aria-describedby`, §15.9) **y** el botón de salida «Elegir envío a domicilio» (§15.9); mientras dura el bloqueo no hay «Ver desglose» en la barra (la región no se pinta); los errores de pago, accesorios y reintento se pintan en flujo sobre las notas legales con `role="alert"`; con un campo enfocado la barra se oculta y `--sticky-bottom-h` vale 0 (teclado), y vuelve al desenfocar. Con sesión, la misma barra.
 **2.5 Accesorios y paquetes después.** `BundleOffers` y `AccessorySuggestions` (hoy antes del formulario) pasan **debajo del último campo obligatorio y de la casilla de términos**, sobre las notas legales (A) o a la revisión (B); máximo 3 tarjetas, una columna. Con sesión, debajo de las líneas. `AccessoryCartLines` (lo ya añadido) no se mueve. Las líneas del carrito muestran 2 y «Ver {n} más» pliega el resto; «Quitar» y cantidades con área ≥ 44 px.
 **2.6 Con cuenta.** Sin formulario: líneas → sugerencias → notas legales → barra. El bloque «Guardar en mi bóveda» (3 beneficios) se reduce al subtítulo existente («Tus piezas entran a tu bóveda al pagar…»). Las tres notas al margen (ventas finales, CFDI, tras el pago) y la del aviso de privacidad **no se quitan** (criterio 48b).
 
@@ -33466,13 +33476,7 @@ De lo más temprano a lo más tardío: **T2** en la ficha, solo con sesión anó
 **Fricción 5 · orden visible en el catálogo.** Quien llega de Instagram ve hoy el selector «Ordenar» en «—». Propuesta: el selector siempre muestra un valor real; por defecto **«Novedades»** (`catalog.sort.newest`, criterio que el catálogo ya tiene; no hay clave nueva), con las otras dos (`price_asc`, `price_desc`) tal cual. Sin `sort` en la URL se pinta «Novedades» y se envía ese orden; con `sort` explícito manda la URL. Si se prefiere otro criterio por defecto, es decisión del dueño.
 
 ### CHK-MOVIL.6 Peticiones numeradas (ninguna bloquea el diseño)
-1. **Arquitecto.** Leído `API_CONTRACT.md` §4-G.1/§4-G.2: A y B **no cambian el contrato ni la sesión de invitado** (misma `quote`, misma `session`, mismos campos; la identidad inicial es estado de cliente). Confirmar. Si el dueño quiere cifra de envío en la ficha, hay que exponerla públicamente (hoy solo viaja en el `quote`).
-2. **Arquitecto (regla de envío ya decidida).** Nombrar y publicar: lectura pública de los importes (T1a/T1b) y `freeShippingRemainingCents` en ambos `quote` (T9), con `shippingFeeCents: 0` coherente con §4-G.0-2 (un solo `PaymentIntent`). Los nombres de CHK-MOVIL.4 son provisionales.
-3. **Product-owner.** (a) Criterio 46 / PROJECT §J («junto a iniciar sesión / crear cuenta»): confirmar que «formulario directo + enlaces» lo cumple. (b) Solo B: confirmar que «Correo · Cambiar» en la revisión satisface «confirmación de que es correcto antes de pagar»; si no, B conserva la casilla.
-4. **Dueño.** Aprobar T1a, T1b, T2-T9. La regla de envío ya está decidida (`HECHOS.md` 2026-10-24).
-5. **Frontend, vía orquestador.** Medir la causa de los 426 px antes de aplicar CHK-MOVIL.1.
-6. **Arquitecto/marketing, solo B.** ¿Evento de medición por paso (`add_shipping_info`)? `trackBeginCheckout` no cambia.
-7. **Sin proponer cambio:** teléfono y nombre son obligatorios por contrato (`GuestAddressInput`); quitarlos exigiría contrato y afecta la guía de envío.
+Cierre NO MEDIDO por ux-ui (2026-11-03): la UI ya consume `shippingRule.freeShippingRemainingCents` (T9), señal de que la petición 2 se atendió; los importes públicos de T1a/T1b y la confirmación del PO del criterio 46 («formulario directo + enlaces») no se han re-medido. Sigue sin proponerse cambio: teléfono y nombre son obligatorios por contrato (`GuestAddressInput`). La opción B (descartada) ya no genera peticiones.
 
 ### CHK-MOVIL.7 Candados sugeridos (Playwright; los escribe frontend, los ejecuta QA)
 Viewports 360×740, 390×844, 414×896 (y 320×568 como estrés), ES y EN.
@@ -33485,7 +33489,7 @@ Viewports 360×740, 390×844, 414×896 (y 320×568 como estrés), ES y EN.
 | L5 | T1, T2 y T3 con paridad ES/EN; T3 contiene el importe de `processingFeeCents` | pintar T3 con un importe calculado en el front |
 | L6 | Doble toque en PAGAR crea **una** sesión | quitar el estado `loading` del botón |
 
-**vCHK-1 (2026-10-24):** sección nueva (propuesta A/B). Compactados en el mismo cambio: §14 (v1.1-v1.3), §13 (ítems 8-9), justificaciones de §15.2-§15.4, contraste de §15.9, §15.10, §15.11 y §15.12.
+**Changelog CHK-MOVIL:** vCHK-1 (2026-10-24) sección nueva. vCHK-2 (2026-11-03) destino = dos botones `aria-pressed` con marca redonda (sustituye la fila de estado, causa del defecto N1); §15.4/§15.9 al día; PAGAR `border-dashed`, salida «Elegir envío a domicilio» y degradado de `StoreTabs` especificados.
 
 ---
 
