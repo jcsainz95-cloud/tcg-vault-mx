@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stripComments } from './helpers/strip-comments';
 import { countIdentUses, identCensus, methodBody } from './helpers/ident-census';
@@ -257,6 +257,113 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
       expect(countManualKeys(stripComments(inject(`    // ${line.trim()}`)))).toBe(base);
       // Tres componentes no son la llave de variante (no se confunde con otras plantillas).
       expect(countManualKeys('`${a}|${b}|${c}`')).toBe(0);
+    });
+  });
+});
+
+// ===========================================================================
+// IDS-B24 (API_CONTRACT §IDS.9 v1.116.4, `IDS-PAT`; ARCHITECTURE §15.1 D-IDS-R) — censo de la PUERTA ÚNICA de patrimonio.
+// SK-5 hizo de `valuationKeyFor` + `valuationCentsOf` la puerta; §IDS añadió la versión AL LADO, como un ternario repetido en
+// seis lectores. Desde v1.116.4 los lectores no la llaman directo: llaman `PatrimonyValuationService.valuePieces` UNA vez por
+// petición, y la puerta es el único llamador de SK-5. Escaneo sin comentarios (mismo autómata que VK-6).
+// ===========================================================================
+const GATE_FILE = 'modules/pricing/patrimony-valuation.service.ts';
+const SK5_IDENT = /\b(?:valuationKeyFor|valuationCentsOf)\(/g;
+
+/** Lista CERRADA de quién llama la valuación de SK-5, con `n` y razón. */
+const SK5_CALLERS: Record<string, { n: number; why: string }> = {
+  'modules/pricing/pricing.service.ts': { n: 2, why: 'DEFINICIÓN de `valuationKeyFor` y de `valuationCentsOf` (SK-5); ninguna llamada.' },
+  [GATE_FILE]: {
+    n: 2,
+    why: 'La PUERTA (`valuePieces`, paso 3 de IDS-PAT): la clave y el monto de (inglés, sin liga), una vez cada uno, sobre el lote.',
+  },
+};
+
+/** Los métodos lectores de IDS-PAT: cada uno pasa por `valuePieces(` (VK-6 «pasan por la PUERTA», v1.116.4). */
+const IDS_PAT_READERS: Record<string, string[]> = {
+  'modules/vault/vault.service.ts': ['async holdings(', 'async holdingDetail(', 'async sealedTab(', 'async marketValueOf(', 'async marketRefOf('],
+  'modules/vault/admin-vaults.service.ts': ['async list('],
+  'modules/admin/admin.service.ts': ['async custodyValue(', 'private async ownedItemRefs(', 'async inventoryValue('],
+  'modules/inventory/inventory.service.ts': ['async exportInventoryXlsx('],
+  // El valor asegurado de un retiro (§19.19.5) es el `M` de cada pieza: por la puerta, en UN lote.
+  'modules/shipments/label-quote.service.ts': ['private async insuredValueOf('],
+};
+
+/** Los constructores que inyectan la puerta: ⛔ `@Optional()` sobre ella (sin la puerta Nest no arranca). */
+const GATE_INJECTED_IN = [
+  'modules/vault/vault.service.ts',
+  'modules/vault/admin-vaults.service.ts',
+  'modules/admin/admin.service.ts',
+  'modules/inventory/inventory.service.ts',
+];
+const OPTIONAL_PARAM = (type: string) =>
+  new RegExp(String.raw`@Optional\(\)\s*(?:@\w+\([^)]*\)\s*)*(?:private|public|protected)?\s*(?:readonly)?\s*\w+\??\s*:\s*${type}\b`);
+const INJECTS = (type: string) => new RegExp(String.raw`(?:private|public|protected)\s+(?:readonly\s+)?\w+\??\s*:\s*${type}\b`);
+
+describe('IDS-B24 · la PUERTA ÚNICA de patrimonio (`PatrimonyValuationService.valuePieces`)', () => {
+  it('la puerta existe en `pricing/patrimony-valuation.service.ts`', () => {
+    expect(existsSync(join(SRC, GATE_FILE))).toBe(true);
+  });
+
+  it('`valuationKeyFor(`/`valuationCentsOf(` SOLO en su definición y en la puerta (lista cerrada con n y razón)', () => {
+    expect(identCensus(SRC, SK5_IDENT)).toEqual(Object.fromEntries(Object.entries(SK5_CALLERS).map(([f, { n }]) => [f, n])));
+    for (const [f, { why }] of Object.entries(SK5_CALLERS)) expect({ f, ok: why.trim().length > 20 }).toEqual({ f, ok: true });
+  });
+
+  it.each([
+    ['versionValuationOf', /\bversionValuationOf\b/g],
+    ['referenceForPieces', /\breferenceForPieces\b/g],
+    ['as unknown as SaleItem', /\bas\s+unknown\s+as\s+SaleItem\b/g],
+  ])('0 `%s` en src/', (_n, re) => {
+    expect(identCensus(SRC, re)).toEqual({});
+  });
+
+  it.each(Object.entries(IDS_PAT_READERS).flatMap(([f, ms]) => ms.map((m) => [f, m] as const)))('%s · `%s` contiene `valuePieces(`', (f, m) => {
+    const body = methodBody(stripComments(readFileSync(join(SRC, f), 'utf8')), m);
+    expect(/\bvaluePieces\(/.test(body)).toBe(true);
+  });
+
+  it.each(GATE_INJECTED_IN)('%s inyecta la puerta SIN `@Optional()`', (f) => {
+    const code = stripComments(readFileSync(join(SRC, f), 'utf8'));
+    expect(INJECTS('PatrimonyValuationService').test(code)).toBe(true);
+    expect(OPTIONAL_PARAM('PatrimonyValuationService').test(code)).toBe(false);
+  });
+
+  it('la puerta inyecta `SaleDecisionService` SIN `@Optional()`', () => {
+    const p = join(SRC, GATE_FILE);
+    const code = existsSync(p) ? stripComments(readFileSync(p, 'utf8')) : '';
+    expect(INJECTS('SaleDecisionService').test(code)).toBe(true);
+    expect(OPTIONAL_PARAM('SaleDecisionService').test(code)).toBe(false);
+  });
+
+  describe('CANARIO — el censo muerde', () => {
+    const vaultSrc = readFileSync(join(SRC, 'modules/vault/vault.service.ts'), 'utf8');
+    const inHoldings = (line: string) => vaultSrc.replace(/async holdings\(userId: string\) \{/, (m) => `${m}\n    ${line}`);
+
+    it('`this.pricing.valuationCentsOf(` inyectado en `holdings` ⇒ vault.service.ts entra al censo de SK-5 (fuera de la lista)', () => {
+      const mutated = inHoldings('const __c = this.pricing.valuationCentsOf(item, undefined, false);');
+      expect(mutated).not.toBe(vaultSrc);
+      expect(countIdentUses(mutated, SK5_IDENT)).toBe(countIdentUses(vaultSrc, SK5_IDENT) + 1);
+      expect(SK5_CALLERS['modules/vault/vault.service.ts']).toBeUndefined();
+    });
+
+    it('`holdings` sin `valuePieces(` ⇒ la aserción por método lo ve', () => {
+      const body = methodBody(stripComments(vaultSrc), 'async holdings(').replace(/\bvaluePieces\(/g, 'valuePiecez(');
+      expect(/\bvaluePieces\(/.test(body)).toBe(false);
+    });
+
+    it('`@Optional()` sobre la puerta SE VE; sin él, no', () => {
+      const opt = 'constructor(@Optional() private readonly patrimony?: PatrimonyValuationService) {}';
+      const req = 'constructor(private readonly patrimony: PatrimonyValuationService) {}';
+      expect(OPTIONAL_PARAM('PatrimonyValuationService').test(opt)).toBe(true);
+      expect(OPTIONAL_PARAM('PatrimonyValuationService').test(req)).toBe(false);
+      expect(INJECTS('PatrimonyValuationService').test(req)).toBe(true);
+    });
+
+    it('`as unknown as SaleItem[]` también cuenta; en un comentario, no', () => {
+      const re = /\bas\s+unknown\s+as\s+SaleItem\b/g;
+      expect(countIdentUses('const x = y as unknown as SaleItem[];', re)).toBe(1);
+      expect(countIdentUses('// y as unknown as SaleItem\nconst a = 1;', re)).toBe(0);
     });
   });
 });
