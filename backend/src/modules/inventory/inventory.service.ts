@@ -804,8 +804,10 @@ export class InventoryService {
     // precio del día. ⛔ Sin `@Optional()` (en la app es obligatorio, `PricingModule` lo exporta); el `?` es solo por los
     // unitarios que construyen el servicio a mano.
     private readonly listingPrices?: ListingPriceService,
-    // 💰 v1.116⟨ids⟩ (§IDS.2): el cuerpo único para las versiones (español / liga). `@Optional()` por los unitarios.
-    @Optional() private readonly decider?: SaleDecisionService,
+    // 💰 v1.116⟨ids⟩ (§IDS.2): el cuerpo único para las versiones (español / liga). ⛔ Sin `@Optional()` (v1.116.5, nota de QA):
+    // en la app es obligatorio (`PricingModule` lo exporta; si falta, Nest no arranca). El `?` es solo por posición y por los
+    // unitarios que construyen a mano; sin él las versiones fallan cerradas (`no_decider` / sin referencia).
+    private readonly decider?: SaleDecisionService,
     // 💰 v1.116.4⟨ids⟩ (API_CONTRACT §IDS.2 «Valor de patrimonio» `IDS-PAT`, D-IDS-R): la puerta del valor del export
     // («Precio mercado MXN»). ⛔ Sin `@Optional()`: en DI es obligatoria; el `?` es solo por posición y por los unitarios que
     // construyen a mano, y sin ella el export revienta (no hay «camino de siempre»).

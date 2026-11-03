@@ -275,7 +275,11 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
 // petición, y la puerta es el único llamador de SK-5. Escaneo sin comentarios (mismo autómata que VK-6).
 // ===========================================================================
 const GATE_FILE = 'modules/pricing/patrimony-valuation.service.ts';
-const SK5_IDENT = /\b(?:valuationKeyFor|valuationCentsOf)\(/g;
+// TL-IDS-8 (a) (v1.116.5): SIN `\(` — toda MENCIÓN fuera de comentarios cuenta. Con el paréntesis pegado el censo no veía
+// `pricing?.valuationCentsOf?.(…)`, `.map(this.pricing.valuationCentsOf)`, `const { valuationCentsOf } = this.pricing`,
+// `pricing['valuationCentsOf'](…)` ni `.valuationCentsOf.bind(this.pricing)` (QA, 2026-11-03). La regla del contrato
+// (IDS-B24: «`valuationKeyFor(`/`valuationCentsOf(` solo en …») queda contenida: una llamada literal es una mención.
+const SK5_IDENT = /\b(?:valuationKeyFor|valuationCentsOf)\b/g;
 
 /** Lista CERRADA de quién llama la valuación de SK-5, con `n` y razón. */
 const SK5_CALLERS: Record<string, { n: number; why: string }> = {
@@ -352,6 +356,23 @@ describe('IDS-B24 · la PUERTA ÚNICA de patrimonio (`PatrimonyValuationService.
       expect(mutated).not.toBe(vaultSrc);
       expect(countIdentUses(mutated, SK5_IDENT)).toBe(countIdentUses(vaultSrc, SK5_IDENT) + 1);
       expect(SK5_CALLERS['modules/vault/vault.service.ts']).toBeUndefined();
+    });
+
+    // TL-IDS-8 (a): las formas que el censo con `\(` no veía. Cada una, inyectada en `holdings`, mete vault.service.ts en el censo.
+    it.each([
+      ['encadenamiento opcional', 'const __c = this.pricing?.valuationCentsOf?.(item, undefined, false);'],
+      ['referencia pasada a `.map`', 'const __c = items.map(this.pricing.valuationCentsOf);'],
+      ['desestructuración', 'const { valuationCentsOf: __v } = this.pricing;'],
+      ['acceso con corchetes', "const __c = this.pricing['valuationCentsOf'](null);"],
+      ['`.bind(this.pricing)`', 'const __c = this.pricing.valuationKeyFor.bind(this.pricing);'],
+    ])('forma «%s» inyectada en `holdings` ⇒ entra al censo de SK-5', (_n, line) => {
+      const mutated = inHoldings(line);
+      expect(mutated).not.toBe(vaultSrc);
+      expect(countIdentUses(mutated, SK5_IDENT)).toBe(countIdentUses(vaultSrc, SK5_IDENT) + 1);
+    });
+
+    it('una mención en un COMENTARIO no cuenta (el censo es sin comentarios)', () => {
+      expect(countIdentUses('// this.pricing.valuationCentsOf(x)\n/* valuationKeyFor */ const a = 1;', SK5_IDENT)).toBe(0);
     });
 
     it('`holdings` sin `valuePieces(` ⇒ la aserción por método lo ve', () => {

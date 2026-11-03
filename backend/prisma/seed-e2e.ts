@@ -488,6 +488,18 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
   // colgó con `attach`, ese `CardProduct` se borra aquí (sus `PriceReference` ya cayeron en el borra-y-declara de arriba:
   // son de una carta del fixture) y la candidata vuelve. Las piezas que una prueba diera de alta sobre ese producto son de
   // esa prueba: las retira ella (como `ids-real.spec.ts` retira la suya).
+  // v1.116.5⟨ids⟩ (M-95c): `InventoryItem.cardProductId` tiene FK Restrict ⇒ un producto con piezas no se borra. Si una prueba
+  // dejó piezas sobre la candidata colgada, el seed PARA nombrándolas (⛔ no las retira por su cuenta: no son suyas).
+  const blocking = await prisma.inventoryItem.findMany({
+    where: { cardProductId: E2E_IDS.candidate.tcgplayerProductId },
+    select: { folio: true },
+  });
+  if (blocking.length > 0) {
+    throw new Error(
+      `seed-e2e: la candidata ${E2E_IDS.candidate.tcgplayerProductId} quedó colgada con piezas (${blocking.map((b) => b.folio).join(', ')}); ` +
+        'retíralas (borra la pieza) antes de resembrar: M-95c no deja borrar un CardProduct con piezas.',
+    );
+  }
   await prisma.priceReference.deleteMany({
     where: { cardProduct: { tcgplayerProductId: E2E_IDS.candidate.tcgplayerProductId } },
   });

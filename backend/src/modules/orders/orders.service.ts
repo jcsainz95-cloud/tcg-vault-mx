@@ -21,7 +21,7 @@ import { CustomerTransferView, ManualRefundService } from '../payments/refunds/m
 import { activeShipment, clientRefundOf, publicStatus, refundedCentsOf } from './order-public-status';
 import { CUSTOMER_TIMELINE_EVENTS_SELECT, TimelineEventRow, providerTrackingUrlOf, toCustomerTimeline } from '../shipments/customer-timeline';
 import { BusinessException } from '../../common/business.exception';
-import { CardLanguage, StampType } from '@prisma/client';
+import { CardLanguage, GradingCompany, StampType } from '@prisma/client';
 import { FinishLabel, frozenVersionColumnsOf, orderLineVersionOf, pieceVersionOf, StampRef, VersionDTO } from '../../common/card-version';
 import { PricingService } from '../pricing/pricing.service';
 import { SaleDecision, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
@@ -217,6 +217,10 @@ export type PricedAs = {
   language: CardLanguage;
   cardProductId: number | null;
   listPriceCents: number | null;
+  // 💰 v1.116.5⟨ids⟩ (API_CONTRACT §DYN.5.7, IDS-B29, D-IDS-10): el grado entra a la llave K de una graduada (`gradeKeyOf`), así
+  // que un `PATCH gradingCompany/gradeValue` entre el precio y la reserva cambia lo preciado igual que `language`.
+  gradingCompany: GradingCompany | null;
+  gradeValue: string | null;
 };
 
 function isPricePending(e: unknown): e is BusinessException {
@@ -908,9 +912,10 @@ export class OrdersService {
    *
    * 💰 PT-IDS-1 (pentester, pase `db202174`) — **lo PRECIADO entra al CAS.** El precio y la versión de cada línea se
    * resuelven FUERA de la transacción (`priceCartOutsideGate`, v1.68.1) sobre la fila que se leyó entonces. Si entre esa
-   * lectura y aquí el operador cambia `language` (o `listPriceCents`; o `cardProductId`, que hoy ninguna vía cambia, I-7),
+   * lectura y aquí el operador cambia `language` (o `listPriceCents`; o `cardProductId`, que hoy ninguna vía cambia, I-7; o,
+   * v1.116.5, `gradingCompany`/`gradeValue` de una graduada listada, IDS-B29),
    * la reserva ganaba igual y la línea quedaba congelada con la versión y el precio de ANTES (medido: 20/20 forzadas,
-   * 12/20 sueltas). Por eso `items` lleva esas tres columnas TAL COMO SE PRECIARON y el `where` las exige: si cambiaron,
+   * 12/20 sueltas). Por eso `items` lleva esas columnas TAL COMO SE PRECIARON y el `where` las exige: si cambiaron,
    * `count 0` ⇒ `409 ITEM_UNAVAILABLE` (el código de siempre) y la tx entera se deshace. ⛔ No pasar aquí una fila
    * releída: tiene que ser la MISMA con la que se armó `lines` (candado `ids-pentest-fixes.e2e-spec.ts`).
    */
@@ -929,6 +934,8 @@ export class OrdersService {
           language: item.language,
           cardProductId: item.cardProductId,
           listPriceCents: item.listPriceCents,
+          gradingCompany: item.gradingCompany,
+          gradeValue: item.gradeValue,
         },
         data: {
           status: 'reserved',

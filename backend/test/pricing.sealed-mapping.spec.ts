@@ -141,6 +141,48 @@ describe('SealedMappingService.updateMapping — validaciones del contrato §M2'
   });
 });
 
+describe('SealedMappingService.updateMapping — 💰 v1.116.5 (D-IDS-11, IDS-B31): remapear ⇒ `manual_price`', () => {
+  function withLp(siblings: string[], count: number) {
+    const prisma = {
+      inventoryItem: {
+        findUnique: jest.fn().mockResolvedValue(SEALED_ITEM),
+        findMany: jest.fn().mockResolvedValue(siblings.map((id) => ({ id }))),
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({ count }),
+      },
+    } as unknown as PrismaService;
+    const lp = { enqueue: jest.fn(async () => undefined) };
+    return { svc: new SealedMappingService(prisma, lp as never), lp, prisma };
+  }
+
+  it('la pieza y las hermanas que ya leen el producto nuevo, DESPUÉS de escribir', async () => {
+    const { svc, lp, prisma } = withLp(['s2', 's3'], 2);
+    await svc.updateMapping('item-1', { tcgplayerProductId: 610903, tcgplayerGroupId: 23821, applyToSiblings: true });
+    expect(lp.enqueue).toHaveBeenCalledWith('manual_price', ['item-1', 's2', 's3']);
+    expect(prisma.inventoryItem.findMany).toHaveBeenCalledWith({
+      where: { id: { not: 'item-1' }, productType: 'sealed', cardId: 'card-1', sealedSubtype: 'etb', tcgplayerProductId: 610903 },
+      select: { id: true },
+    });
+    const order = (m: jest.Mock) => m.mock.invocationCallOrder[0];
+    expect(order(lp.enqueue as jest.Mock)).toBeGreaterThan(order(prisma.inventoryItem.updateMany as unknown as jest.Mock));
+  });
+
+  it('sin hermanas o al desmapear ⇒ solo la pieza', async () => {
+    const a = withLp([], 0);
+    await a.svc.updateMapping('item-1', { tcgplayerProductId: 610903, tcgplayerGroupId: 23821 });
+    expect(a.lp.enqueue).toHaveBeenCalledWith('manual_price', ['item-1']);
+    const b = withLp([], 0);
+    await b.svc.updateMapping('item-1', { tcgplayerProductId: null, applyToSiblings: true });
+    expect(b.lp.enqueue).toHaveBeenCalledWith('manual_price', ['item-1']);
+  });
+
+  it('una validación que falla no encola nada', async () => {
+    const { svc, lp } = withLp([], 0);
+    await expect(svc.updateMapping('item-1', { tcgplayerProductId: 610903 })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(lp.enqueue).not.toHaveBeenCalled();
+  });
+});
+
 describe('SealedMappingService.listUnmapped — cola DERIVADA (sealed AND productId IS NULL)', () => {
   it('proyecta la fila del contrato (inventoryItemId, folio, card, createdAt), asc por createdAt', async () => {
     const row = {

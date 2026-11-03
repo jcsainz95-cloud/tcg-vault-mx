@@ -214,7 +214,8 @@ describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () =
   }
 
   // 💰 PT-IDS-1: la pieza TAL COMO SE PRECIÓ (versión y precio manual entran al CAS).
-  const priced = { language: 'en' as const, cardProductId: null, listPriceCents: null };
+  // v1.116.5 (IDS-B29): y el grado (llave K de una graduada).
+  const priced = { language: 'en' as const, cardProductId: null, listPriceCents: null, gradingCompany: null, gradeValue: null };
   const items = [{ id: 'item1', folio: 'INV-000001', ...priced }];
   // v1.68 (§4-R, M-53): toda reserva nueva lleva DUEÑO (la orden) y VENCIMIENTO.
   const RES = { orderId: 'order-1', reservedUntil: new Date('2026-09-11T13:00:00.000Z') };
@@ -233,13 +234,21 @@ describe('OrdersService.reserveItems — fuente única de la reserva (T2)', () =
       language: 'en',
       cardProductId: null,
       listPriceCents: null,
+      gradingCompany: null,
+      gradeValue: null,
     });
   });
 
   it('💰 PT-IDS-1: el CAS exige la versión y el precio manual CON LOS QUE SE PRECIÓ (no los que haya ahora)', async () => {
     const { svc, tx, calls } = buildTx();
-    await svc.reserveItems(tx, [{ id: 'item9', folio: 'INV-000009', language: 'es', cardProductId: 620000001, listPriceCents: 12_345 }], null, RES);
+    await svc.reserveItems(tx, [{ id: 'item9', folio: 'INV-000009', language: 'es', cardProductId: 620000001, listPriceCents: 12_345, gradingCompany: null, gradeValue: null }], null, RES);
     expect(calls[0].where).toMatchObject({ language: 'es', cardProductId: 620000001, listPriceCents: 12_345 });
+  });
+
+  it('💰 IDS-B29 (v1.116.5): el CAS exige el grado CON EL QUE SE PRECIÓ (gradingCompany y gradeValue)', async () => {
+    const { svc, tx, calls } = buildTx();
+    await svc.reserveItems(tx, [{ id: 'item8', folio: 'INV-000008', language: 'en', cardProductId: null, listPriceCents: null, gradingCompany: 'PSA', gradeValue: '9' }], null, RES);
+    expect(calls[0].where).toMatchObject({ gradingCompany: 'PSA', gradeValue: '9' });
   });
 
   it('con titularidad (bóveda) escribe ownerType/ownerUserId/ownershipStatus', async () => {
