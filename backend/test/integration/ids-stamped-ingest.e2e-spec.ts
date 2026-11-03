@@ -88,6 +88,9 @@ describe('E2E — IDS-B7 productos de liga: ingesta, empate y attach (sin cola)'
     );
     expect(g22880.log).toMatchObject({ grupo: 22880, colgados: 1, ambiguos: 1, sinPareja: 1, sinTipo: 0, sinNumero: 1, conPrecio: 1 });
     expect(await h.prisma.cardProduct.findUnique({ where: { tcgplayerProductId: P.loneLiga } })).toBeNull();
+    // Número sin total (v1.116.2; DEVOPS_NOTES §108.1) ⇒ sinPareja: ni colgado NI candidatas. La ambigüedad de la energía se
+    // prueba arriba con números CON total («010/016»), que es lo único que hoy llega a ser candidata.
+    expect(await h.prisma.stampedProductCandidate.count({ where: { tcgplayerProductId: P.loneLiga } })).toBe(0);
     const cp = await h.prisma.cardProduct.findUniqueOrThrow({ where: { tcgplayerProductId: P.liga } });
     expect(cp).toMatchObject({ cardId: pikachu, kind: 'stamped', stampType: 'prize_pack', stampLabel: null, sourceGroupId: 22880, finishes: ['holofoil'] });
     const ref = await h.prisma.priceReference.findFirst({ where: { cardProductId: cp.id } });
