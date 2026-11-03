@@ -1,11 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { IS_REAL, loginAs, realOnly } from './utils/auth';
 import { apiAs, apiAsOk } from './utils/env';
+import { t } from './utils/i18n';
 
 /**
- * §IDS contra el STACK REAL (API_CONTRACT §IDS v1.116.2; IDS-F1, F2, F3 y F7). El seed sintético
- * (`backend/prisma/seed-e2e.ts`) no trae piezas en español ni productos de liga; esta prueba SIEMBRA lo que necesita por
- * la API de admin del contrato y lo deshace al terminar:
+ * §IDS contra el STACK REAL (API_CONTRACT §IDS v1.116.2; IDS-F1, F2, F3, F4 y F7). El fichero entero es solo-real (un
+ * `beforeEach` de fichero): siembra y lee por la API del backend, que en la corrida de mocks no existe.
+ * Bloque «E2E Pidgey»: el seed sintético (`backend/prisma/seed-e2e.ts`) no trae una pieza en español de esa carta; esta
+ * prueba SIEMBRA lo que necesita por la API de admin del contrato y lo deshace al terminar:
  *  - alta de UNA pieza raw NM `language: 'es'` de «E2E Pidgey» (`e2e-common`, referencia raw NM del seed), que nace
  *    publicada porque el inglés tiene mercado (`P(es)` = cuerpo único sobre `R_en × X`, IDS.2);
  *  - al final, baja por `error_captura` (`POST /admin/inventory/adjustments`) y el dial X de vuelta al valor LEÍDO.
@@ -29,6 +31,8 @@ interface Combo {
 const state: { cardId: string; pieceId: string | null; pct: number } = { cardId: '', pieceId: null, pct: 75 };
 
 test.describe.configure({ mode: 'serial' });
+
+test.beforeEach(() => realOnly('siembra y lee §IDS por la API del backend real (en mocks no hay backend)'));
 
 test.describe('@real §IDS contra el stack sembrado', () => {
   test.beforeAll(async () => {
@@ -76,8 +80,6 @@ test.describe('@real §IDS contra el stack sembrado', () => {
     }
   });
 
-  test.beforeEach(() => realOnly('siembra y lee §IDS por la API del backend real'));
-
   test('@real IDS-F2: la faceta `languages` trae `es` y el catálogo ofrece «Español»; elegirlo filtra con la query del API', async ({ page }) => {
     const facets = await apiAsOk<{ languages?: string[]; stamped?: boolean }>('customer', 'GET', '/catalog/facets');
     expect(facets.languages, JSON.stringify(facets.languages)).toEqual(['en', 'es']);
@@ -90,7 +92,7 @@ test.describe('@real §IDS contra el stack sembrado', () => {
     const tile = page.locator('main a[href*="/catalog/"]').filter({ hasText: CARD_NAME }).first();
     await expect(tile).toBeVisible();
     await expect(tile).toHaveAttribute('href', new RegExp(`/catalog/${state.cardId}\\?version=es$`));
-    // «Cartas de liga y promos» solo con `stamped`: el seed no trae liga.
+    // «Cartas de liga y promos» solo con `stamped` (el seed la trae: «E2E League Bird», bloque de abajo).
     await expect(filter.getByRole('button', { name: 'Cartas de liga y promos' })).toHaveCount(facets.stamped ? 1 : 0);
   });
 
@@ -174,9 +176,10 @@ test.describe('@real §IDS contra el stack sembrado', () => {
 
 
 /**
- * §IDS — versiones de LIGA contra el stack sembrado (API_CONTRACT §IDS.5 v1.116.3; IDS-F2/F3 con producto `stamped`).
- * Escrita por backend junto con la siembra que la alimenta (`E2E_IDS`, backend/prisma/e2e-fixtures.ts); es la otra mitad del
- * mismo seed. Solo LEE: no da de alta piezas ni mueve diales.
+ * §IDS — versiones de LIGA contra el stack sembrado (API_CONTRACT §IDS.5 v1.116.3; IDS-F2/F3/F4 con producto `stamped`).
+ * IDS-L1…L3 los escribió backend (9500e70e, 1e665e49) junto con la siembra que los alimenta (`E2E_IDS`,
+ * backend/prisma/e2e-fixtures.ts); frontend los adopta como suyos (revisados el 2026-11-03: leen la API y la pantalla
+ * sin escribir nada). IDS-L4 (carrito → quote → checkout) es de frontend. Ninguno da de alta piezas ni mueve diales.
  * Espejo del fixture (si cambia allí, cambia aquí): carta «E2E League Bird», producto `620000001` League Cup en `holofoil`,
  * piezas `(en, P)`, `(es, P)` y `(en, null)`/`(es, null)` `normal`; candidata sin colgar `620000002`.
  */
@@ -206,8 +209,6 @@ test.describe('@real §IDS liga sembrada (E2E_IDS)', () => {
     if (!card) throw new Error(`el seed no trae «${LEAGUE.name}» (backend/prisma/e2e-fixtures.ts, E2E_IDS)`);
     league.cardId = card.id;
   });
-
-  test.beforeEach(() => realOnly('lee las versiones de liga que siembra backend/prisma/seed-e2e.ts'));
 
   test('@real IDS-L1: la ficha trae la fila sin liga y la fila «De liga» del producto sembrado, y la pinta en 2×N', async ({ page }) => {
     const detail = await apiAsOk<{ versions: VersionOption[] }>('customer', 'GET', `/catalog/cards/${league.cardId}`);
@@ -284,5 +285,64 @@ test.describe('@real §IDS liga sembrada (E2E_IDS)', () => {
     expect(ligaEn, JSON.stringify(v.combos)).toBeDefined();
     expect(ligaEn!.finish).toBe(LEAGUE.finish);
     expect(ligaEn!.previewPriceCents).not.toBeNull();
+  });
+
+  // IDS-F4 (criterios 518 y 964) + petición 8 de ux-ui contra el stack: tres piezas de la carta de liga al carrito desde la
+  // ficha (`?version=` preselecciona y «Agregar» toma la pieza de ESA versión) ⇒ `POST /checkout/quote` trae `version` y
+  // `finishLabel` por línea y cada precio = `fromPriceCents` de su versión ⇒ el checkout pinta cada línea con sus insignias
+  // y la línea muted sin repetir el idioma (IDS-UX.4 «Carrito»). Solo cotiza: no crea sesión ni aparta piezas.
+  test('@real IDS-L4: carrito con versiones ⇒ quote con `version`/`finishLabel` y precio de su versión ⇒ checkout con insignias sin «Español» repetido', async ({ page }) => {
+    const detail = await apiAsOk<{ versions: VersionOption[] }>('customer', 'GET', `/catalog/cards/${league.cardId}`);
+    const byKey = new Map(detail.versions.map((v) => [v.optionKey, v]));
+    const picks = ['es', LEAGUE_EN, LEAGUE_ES].map((k) => {
+      const v = byKey.get(k);
+      if (!v || v.stockCount < 1) throw new Error(`«${LEAGUE.name}» sin existencia en ${k}: ${JSON.stringify(detail.versions)}`);
+      return v;
+    });
+
+    await loginAs(page, 'customer');
+    for (const v of picks) {
+      await page.goto(`/es/catalog/${league.cardId}?version=${encodeURIComponent(v.optionKey)}`);
+      const pill = page.locator(`[data-testid="version-pill"][data-option-key="${v.optionKey}"]`);
+      await expect(pill).toHaveAttribute('aria-checked', 'true');
+      const cta = page.getByTestId('instance-cta').first();
+      await expect(cta).toHaveText(t('es', 'catalog.addToCart'));
+      await cta.click();
+      await expect(cta).toHaveText(t('es', 'catalog.viewCart'));
+    }
+
+    const quoteP = page.waitForResponse((r) => r.url().endsWith('/checkout/quote') && r.request().method() === 'POST');
+    await page.goto('/es/checkout');
+    const quote = await quoteP;
+    expect(quote.status()).toBe(200);
+    const body = (await quote.json()) as {
+      items: { inventoryItemId: string; version: VersionOption['version']; finishLabel: string; unitPriceCents: number }[];
+    };
+    test.info().annotations.push({ type: 'IDS-L4 quote', description: JSON.stringify(body.items) });
+    expect(body.items).toHaveLength(3);
+    for (const v of picks) {
+      const line = body.items.find((i) => i.version?.key === v.version.key && i.finishLabel === v.finishLabel);
+      expect(line, `${v.optionKey} en el quote: ${JSON.stringify(body.items)}`).toBeDefined();
+      expect(line!.version).toEqual(v.version);
+      expect(line!.unitPriceCents, `precio de ${v.optionKey}`).toBe(v.fromPriceCents);
+    }
+
+    // Pantalla (IDS-UX.4 «Carrito», petición 8): ES sin liga = «Español» sin línea; EN de liga = «De liga» + «De liga
+    // (promo de la Liga)»; ES de liga = «Español» + «De liga» + «De liga (promo de la Liga)». Nunca «Español» dos veces.
+    const lines = page.getByRole('main').getByRole('listitem').filter({ hasText: LEAGUE.name });
+    await expect(lines).toHaveCount(3);
+    const facts = await lines.evaluateAll((els) =>
+      els.map((li) => ({
+        chips: li.querySelector('[data-testid="line-version-chips"]')?.textContent ?? null,
+        text: li.querySelector('[data-testid="line-version-text"]')?.textContent ?? null,
+        spanish: (li.textContent ?? '').split('Español').length - 1,
+      })),
+    );
+    test.info().annotations.push({ type: 'IDS-L4 checkout', description: JSON.stringify(facts) });
+    const long = t('es', 'versionDetail.long.league');
+    expect(facts.map((f) => `${f.chips}|${f.text}`).sort()).toEqual(
+      [`De liga|${long}`, 'Español|null', `EspañolDe liga|${long}`].sort(),
+    );
+    for (const f of facts) expect(f.spanish, JSON.stringify(f)).toBeLessThanOrEqual(1);
   });
 });
