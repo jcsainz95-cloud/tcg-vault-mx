@@ -364,6 +364,10 @@ function revertFromHeader(schema: string, suffix: string, what: string): void {
   if (!block.some((l) => /_prisma_migrations/.test(l))) throw new Error(`${what}: la Reversa de ${file} no borra su fila de _prisma_migrations`);
   psqlOk(schema, `BEGIN;\n${block.join('\n')}\nCOMMIT;\n`, what);
 }
+/** T-AC3 — quita M-95b (idioma y versiones de liga, v1.116⟨ids⟩). Va ANTES que M-94 (orden inverso de despliegue). */
+export function revertM95(schema: string): void {
+  revertFromHeader(schema, '_m95b_ids_versions', 'revertM95');
+}
 /** T-AC3 — quita M-94 (precio del día). Va ANTES que M-93 (orden inverso de despliegue). */
 export function revertM94(schema: string): void {
   revertFromHeader(schema, '_m94_listing_price', 'revertM94');
