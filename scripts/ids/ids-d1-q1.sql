@@ -50,7 +50,7 @@ GROUP BY 1 ORDER BY 1;
 -- de `liveMxnCents`; el dueño decide con el orden de magnitud. «Q_*» = `unitPriceCents` del origen de `resolveOriginsBatch`
 -- (payments/refunds/origin.ts): el `OrderItem` cobrado más reciente (orden `vault` del mismo cliente, `settledAt` no nulo)
 -- o el de un caso `replaced` que dio ESTA pieza; sin ninguno ⇒ «sin_origen». «clientes_con_ref»/«clientes_con_q» = clientes
--- DISTINTOS detrás de cada cifra: el botón (resumen PÚBLICO) oculta Σ/mín/máx con < 3 (PT-IDS-6, candado G-IDS-RO [K]);
+-- DISTINTOS detrás de cada cifra: el botón (resumen PÚBLICO) no da mín/máx y oculta Σ con < 3 (PT-IDS-6, candado G-IDS-RO [K]);
 -- la consola de Railway (`ids-d1-produccion.sql`, privada) ve la fila entera.
 \echo '== Q1c-detalle (§IDS.9 v1.116.4): piezas de CLIENTES promo/deck_exclusive por producto y acabado (solo agregados) =='
 WITH u AS (
