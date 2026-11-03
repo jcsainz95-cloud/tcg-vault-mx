@@ -5,9 +5,10 @@
 #
 #   IDS_RO_DATABASE_URL=… scripts/ids/medir-q1-produccion.sh
 #
-# Corre scripts/ids/ids-q1-boton.sql (BEGIN TRANSACTION READ ONLY → prueba de que una escritura falla → rol → Q1/Q1b →
-# ROLLBACK). Al resumen del run solo van cifras: la tabla Q1 y, si promo/deck_exclusive > 0, la lista Q1b (sin datos
-# personales: kind, ids de catálogo, nombre de producto/carta, acabado, conteos, precios).
+# Corre scripts/ids/ids-q1-boton.sql (BEGIN TRANSACTION READ ONLY → prueba de que una escritura falla → rol → Q1/Q1b/Q1c →
+# ROLLBACK). Al resumen del run solo van cifras: la tabla Q1, si promo/deck_exclusive > 0 la lista Q1b, y Q1c (piezas de
+# clientes en bóveda con promo/deck_exclusive, solo agregados: kind, estado, conteos). Q1b sin datos
+# personales: kind, ids de catálogo, nombre de producto/carta, acabado, conteos, precios.
 # La URL viene SOLO del entorno, nunca de un argumento; nunca se imprime ni va en la línea de órdenes de psql (se pasa
 # por PGHOST/PGUSER/PGPASSWORD…). En GitHub Actions se enmascaran antes de cualquier salida la URL entera, la
 # contraseña, el usuario, el host y el puerto. El stderr de psql NO se vuelca al log (un fallo de conexión trae
@@ -131,7 +132,7 @@ for line in os.environ["SALIDA"].splitlines(keepends=True):
     elif cur:
         secs[cur] += line
 rows = {k: list(csv.DictReader(io.StringIO(v))) for k, v in secs.items()}
-for k in ("ROL", "Q1", "Q1b"):
+for k in ("ROL", "Q1", "Q1b", "Q1c", "Q1c-detalle"):
     if k not in rows:
         print(f"### D-IDS-1 · Q1: NO concluyente\n\nFalta la sección {k} en la salida.")
         sys.exit(3)
@@ -143,7 +144,10 @@ def cell(k, v):
     if k.endswith("_cents"): return money(v)
     return (v or "—").replace("|", "\\|").replace("\n", " ")
 NOMBRE = {"precio_min_cents": "precio mín.", "precio_max_cents": "precio máx.", "tcgplayerProductId": "producto TCGplayer",
-          "con_precio_por_pieza": "con precio por pieza"}
+          "con_precio_por_pieza": "con precio por pieza", "con_caso_por_reponer": "con caso «Por reponer» abierto", "en_retiro_activo": "en retiro activo",
+          "con_ref_base": "con ref. base", "ref_base_suma_cents": "ref. base Σ", "ref_base_min_cents": "ref. base mín.",
+          "ref_base_max_cents": "ref. base máx.", "sin_origen": "sin origen", "q_suma_cents": "Q Σ", "q_min_cents": "Q mín.",
+          "q_max_cents": "Q máx.", "productType": "tipo"}
 def table(rs, cols):
     out = ["| " + " | ".join(NOMBRE.get(c, c) for c in cols) + " |", "|" + "---|" * len(cols)]
     out += ["| " + " | ".join(cell(c, r.get(c)) for c in cols) + " |" for r in rs]
@@ -174,7 +178,26 @@ else:
                              "publicadas", "con_precio_por_pieza", "precio_min_cents", "precio_max_cents"]))
     if len(q1b) > tope:
         print(f"\n_…y {len(q1b) - tope} filas más (tope del resumen {tope})._")
-print(f"::notice title=D-IDS-1 Q1::promo+deck_exclusive = {promo} (total {total})", file=sys.stdout)
+print()
+# Q1c (H-Q1): piezas de CLIENTES en bóveda que el «falla cerrado» deja sin valor. Solo agregados.
+q1c = rows["Q1c"]
+clientes_promo = sum(int(r["piezas"]) for r in q1c)
+print(f"**Q1c — piezas de clientes en bóveda con producto promo/deck_exclusive = {clientes_promo}**\n")
+if clientes_promo == 0:
+    print("D-IDS-S no cambia nada visible: ninguna pieza de cliente queda «Precio pendiente» en bóveda ni baja de custody-value.")
+else:
+    print("Al desplegar §IDS (D-IDS-S) esas piezas pasan a «Precio pendiente» en la bóveda del cliente y bajan del valor de "
+          "custodia; en reposición M = null ⇒ R = Q (sin origen ⇒ no_reference). **Decide el dueño** con esta tabla.\n")
+    print(table(q1c, ["kind", "piezas", "clientes", "con_caso_por_reponer", "en_retiro_activo"]))
+    print("\n**Q1c por producto y acabado** (ref. base: MXN almacenado de la carta base, sin FX viva — aproximación; "
+          "Q: lo cobrado en su origen):\n")
+    det = rows["Q1c-detalle"]; tope = 200
+    print(table(det[:tope], ["kind", "tcgplayerProductId", "producto", "finish", "productType", "piezas", "clientes",
+                             "con_ref_base", "ref_base_suma_cents", "ref_base_min_cents", "ref_base_max_cents",
+                             "sin_origen", "q_suma_cents", "q_min_cents", "q_max_cents"]))
+    if len(det) > tope:
+        print(f"\n_…y {len(det) - tope} filas más (tope del resumen {tope})._")
+print(f"::notice title=D-IDS-1 Q1::promo+deck_exclusive = {promo} (total {total}) · Q1c clientes = {clientes_promo}", file=sys.stdout)
 PY
 prc=$?
 [ "$prc" -eq 0 ] || { echo "::error title=D-IDS-1 · Q1 no concluyente::La salida no traía las secciones esperadas o no se pudo escribir el resumen (rc $prc)."; exit 1; }

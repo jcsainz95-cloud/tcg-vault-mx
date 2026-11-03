@@ -103,6 +103,14 @@ shell_en_sql()     { printf '\\! env\n' >> "$(SQ "$1")"; }
 copy_a_fichero()   { printf '\\copy (SELECT 1) TO /tmp/x\n' >> "$(SQ "$1")"; }
 otro_include()     { py "$(SB "$1")" "\\ir ids-d1-q1.sql" "\\ir ids-d1-q1.sql
 \\ir ../geo/otro.sql"; }
+q1c_sin_cliente()  { py "$(SQ "$1")" "WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "WHERE i.status <> 'withdrawn'"; }
+q1c_plataforma()   { py "$(SQ "$1")" "WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "WHERE i.\"ownerType\" = 'platform' AND i.status <> 'withdrawn'"; }
+q1c_sin_estado()   { py "$(SQ "$1")" "WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "WHERE i.\"ownerType\" = 'customer'"; }
+q1c_id_cliente()   { py "$(SQ "$1")" 'SELECT cp.kind, count(*) AS piezas,' 'SELECT i."ownerUserId", cp.kind, count(*) AS piezas,'; }
+q1cd_sin_cliente() { py "$(SQ "$1")" "  WHERE i.\"ownerType\" = 'customer' AND i.status <> 'withdrawn'" "  WHERE i.status <> 'withdrawn'"; }
+q1cd_id_cliente()  { py "$(SQ "$1")" 'SELECT l.kind, l."tcgplayerProductId",' 'SELECT l."ownerUserId", l.kind, l."tcgplayerProductId",'; }
+q1cd_id_pieza()    { py "$(SQ "$1")" 'SELECT l.kind, l."tcgplayerProductId",' 'SELECT l.id, l.kind, l."tcgplayerProductId",'; }
+q1c_borrada()      { python3 -I -c "import sys,re;p=sys.argv[1];s=open(p).read();i=s.index(\"\\\\echo '== Q1c\");open(p,'w').write(s[:i])" "$(SQ "$1")"; }
 
 echo "Canario G-IDS-RO (check-ids-ro-workflow.sh):"
 caso VERDE "prístino"                                        -  nada
@@ -138,6 +146,14 @@ caso ROJO  "se lee antes de la prueba"                       R  prueba_despues
 caso ROJO  "\\! en el SQL"                                   R  shell_en_sql
 caso ROJO  "\\copy a fichero en el SQL"                      R  copy_a_fichero
 caso ROJO  "incluye otro fichero"                            R  otro_include
+caso ROJO  "Q1c deja de filtrar por cliente"                 Q  q1c_sin_cliente
+caso ROJO  "Q1c mide plataforma en vez de clientes"          Q  q1c_plataforma
+caso ROJO  "Q1c sin el filtro de portafolio (withdrawn)"     Q  q1c_sin_estado
+caso ROJO  "Q1c saca el id del cliente"                      Q  q1c_id_cliente
+caso ROJO  "Q1c borrada"                                     Q  q1c_borrada
+caso ROJO  "Q1c-detalle deja de filtrar por cliente"         Q  q1cd_sin_cliente
+caso ROJO  "Q1c-detalle saca el id del cliente"              Q  q1cd_id_cliente
+caso ROJO  "Q1c-detalle saca el id de la pieza"              Q  q1cd_id_pieza
 
 TOTAL=$((PASADAS+FALLOS))
 if [ "$FALLOS" -ne 0 ]; then echo "canario G-IDS-RO: ROJO — $FALLOS de $TOTAL casos no se comportan"; exit 1; fi
