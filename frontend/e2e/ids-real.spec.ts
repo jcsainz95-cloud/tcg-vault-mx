@@ -348,3 +348,130 @@ test.describe('@real §IDS liga sembrada (E2E_IDS)', () => {
     for (const f of facts) expect(f.spanish, JSON.stringify(f)).toBeLessThanOrEqual(1);
   });
 });
+
+/**
+ * §IDS.6 — Meta deck con versión contra el stack sembrado (criterios 963–966; IDS-UX.5 y petición 9a). Lee
+ * `E2E_IDS.metaDeck` (`backend/prisma/e2e-fixtures.ts`, fijado por `backend/test/integration/ids-seed-deck.e2e-spec.ts`):
+ * deck PUBLICADO `e2e-ids-deck-liga` con UNA línea de 3 × «E2E League Bird»; con las cuatro piezas de `E2E_IDS` el surtido
+ * da 3 tramos: las dos sin liga (`en`, `es`, por precio) y la de liga al final (solo entra porque no alcanzan las sin liga).
+ * Espejo del fixture (si cambia allí, cambia aquí). Solo cotiza: no crea sesión de pago ni aparta piezas.
+ * Fuera: 967 (el deck sembrado no trae energías ni paquete) y 968 (el seed no trae una pieza sin precio de esta carta).
+ */
+const DECK = { slug: 'e2e-ids-deck-liga', quantity: 3, card: LEAGUE.name } as const;
+
+interface DeckUnit {
+  version: VersionOption['version'];
+  qty: number;
+  unitPriceMxnCents: number;
+  inventoryItemIds: string[];
+}
+interface DeckLine {
+  quantity: number;
+  matchStatus: string;
+  card: { cardId: string; name: string } | null;
+  availableQty: number;
+  unitPriceMxnCents: number | null;
+  unitInventoryItemIds: string[];
+  units: DeckUnit[];
+}
+
+test.describe('@real §IDS.6 Meta deck con versión (E2E_IDS.metaDeck)', () => {
+  const mxn = (c: number) =>
+    new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 }).format(c / 100).replace('$', 'MX$');
+  const lang = (l: 'en' | 'es') => t('es', `version.language.${l}`);
+  /** Texto de las insignias de un tramo: «Español» si es español, y el nombre del tipo si es de liga (nunca «Inglés»). */
+  const chipText = (u: DeckUnit) =>
+    `${u.version.language === 'es' ? lang('es') : ''}${u.version.stamp ? t('es', `version.chip.${u.version.stamp.type}`) : ''}`;
+
+  test('@real IDS-D1: la línea surte sin liga primero y la de liga al final, cada tramo con su insignia, y «de jalón» cotiza cada versión a su precio', async ({ page }) => {
+    const deck = await apiAsOk<{ groups: { pokemon: DeckLine[]; trainer: DeckLine[]; energy: DeckLine[] } }>(
+      'customer',
+      'GET',
+      `/decks-meta/${DECK.slug}`,
+    );
+    const all = [...deck.groups.pokemon, ...deck.groups.trainer, ...deck.groups.energy];
+    expect(all, JSON.stringify(all)).toHaveLength(1);
+    const [line] = all;
+    expect(line.card?.name).toBe(DECK.card);
+    expect(line.quantity).toBe(DECK.quantity);
+    // 963: cuentan las tres piezas (inglesa, española y de liga).
+    expect(line.availableQty).toBe(3);
+    // 966 / P-IDS-12: sin liga primero (por precio ascendente), la de liga al final.
+    expect(line.units.map((u) => [u.version.stamp != null, u.qty]), JSON.stringify(line.units)).toEqual([
+      [false, 1],
+      [false, 1],
+      [true, 1],
+    ]);
+    expect(line.units.slice(0, 2).map((u) => u.version.key).sort()).toEqual(['en', 'es']);
+    expect(line.units[0].unitPriceMxnCents).toBeLessThanOrEqual(line.units[1].unitPriceMxnCents);
+    expect(line.units[2].version.stamp).toEqual({ type: 'league', label: null, productId: LEAGUE.productId });
+    // 965: el precio de la línea es el de la pieza que agrega su botón (la primera); `units[]` parte `unitInventoryItemIds`.
+    expect(line.unitPriceMxnCents).toBe(line.units[0].unitPriceMxnCents);
+    expect(line.units.flatMap((u) => u.inventoryItemIds)).toEqual(line.unitInventoryItemIds);
+
+    await loginAs(page, 'customer');
+    await page.goto(`/es/decks-meta/${DECK.slug}`);
+    // 964 + IDS-UX.5: línea mixta = un tramo por versión en el orden del servidor; inglés sin liga como TEXTO (sin
+    // insignia), los demás con sus insignias; ninguno repite «Español» (petición 9a).
+    const version = page.getByTestId('deck-line-version');
+    await expect(version).toBeVisible();
+    const tramos = version.getByTestId('deck-unit-tramo');
+    await expect(tramos).toHaveCount(3);
+    await expect(tramos).toHaveText(
+      line.units.map((u) => `${u.version.key === 'en' ? lang('en') : chipText(u)}×${u.qty} · ${mxn(u.unitPriceMxnCents)}`),
+    );
+    const facts = await tramos.evaluateAll((els) =>
+      els.map((li) => ({
+        chips: li.querySelector('[data-testid="deck-version-chips"]')?.textContent ?? null,
+        spanish: (li.textContent ?? '').split('Español').length - 1,
+      })),
+    );
+    test.info().annotations.push({ type: 'IDS-D1 tramos', description: JSON.stringify(facts) });
+    line.units.forEach((u, i) => {
+      expect(facts[i].chips, `${u.version.key}: el inglés sin liga va sin insignia`).toBe(u.version.key === 'en' ? null : chipText(u));
+      expect(facts[i].spanish, JSON.stringify(facts[i])).toBeLessThanOrEqual(1);
+    });
+    // Ni la palabra «sello» en superficie de cliente (IDS-UX.6 candado 5).
+    await expect(version).not.toContainText('sello');
+    // La línea muestra el precio de la pieza que agrega su botón (965).
+    await expect(page.getByTestId('deck-line-price')).toHaveText(mxn(line.unitPriceMxnCents!));
+
+    // 963/965: «Agregar de jalón» mete las tres; el quote cobra cada pieza al precio de SU versión (calculado en el servidor).
+    const addAll = page.getByRole('button', { name: t('es', 'decksMeta.addAll.button') });
+    await addAll.click();
+    await expect(addAll).toBeDisabled();
+    const quoteP = page.waitForResponse((r) => r.url().endsWith('/checkout/quote') && r.request().method() === 'POST');
+    await page.goto('/es/checkout');
+    const quote = await quoteP;
+    expect(quote.status()).toBe(200);
+    const body = (await quote.json()) as {
+      items: { inventoryItemId: string; version: VersionOption['version']; unitPriceCents: number }[];
+    };
+    test.info().annotations.push({ type: 'IDS-D1 quote', description: JSON.stringify(body.items) });
+    expect(body.items.map((i) => i.inventoryItemId).sort()).toEqual([...line.unitInventoryItemIds].sort());
+    for (const u of line.units) {
+      for (const id of u.inventoryItemIds) {
+        const item = body.items.find((i) => i.inventoryItemId === id);
+        expect(item, `${u.version.key} (${id}) en el quote`).toBeDefined();
+        expect(item!.version, `versión de ${id}`).toEqual(u.version);
+        expect(item!.unitPriceCents, `precio de ${u.version.key}: el del deck = el del quote`).toBe(u.unitPriceMxnCents);
+      }
+    }
+    // 965: el cobro es la suma de los precios publicados de las tres piezas.
+    expect(body.items.reduce((s, i) => s + i.unitPriceCents, 0)).toBe(line.units.reduce((s, u) => s + u.unitPriceMxnCents * u.qty, 0));
+
+    // 964: en el checkout cada pieza lleva su etiqueta (la inglesa sin liga, ninguna) y ninguna repite «Español».
+    await page.getByRole('button', { name: t('es', 'checkout.showMoreLines', { n: 1 }) }).click();
+    const lines = page.getByRole('main').getByRole('listitem').filter({ hasText: DECK.card });
+    await expect(lines).toHaveCount(3);
+    const chips = await lines.evaluateAll((els) =>
+      els.map((li) => ({
+        chips: li.querySelector('[data-testid="line-version-chips"]')?.textContent ?? null,
+        spanish: (li.textContent ?? '').split('Español').length - 1,
+      })),
+    );
+    test.info().annotations.push({ type: 'IDS-D1 checkout', description: JSON.stringify(chips) });
+    expect(chips.map((c) => c.chips ?? '').sort()).toEqual(line.units.map((u) => (u.version.key === 'en' ? '' : chipText(u))).sort());
+    for (const c of chips) expect(c.spanish, JSON.stringify(c)).toBeLessThanOrEqual(1);
+  });
+});

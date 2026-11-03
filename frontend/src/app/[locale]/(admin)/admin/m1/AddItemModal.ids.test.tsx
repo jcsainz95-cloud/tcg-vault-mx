@@ -76,16 +76,16 @@ const STAMPED: CardVersionsResponse = {
   candidates: [{ tcgplayerProductId: 777001, name: 'Pikachu (Prize Pack Series Seven)', stamp: { ...PP, productId: 777001 }, finishes: ['normal'] }],
 };
 
-async function open(c: CardDTO, versions: CardVersionsResponse) {
+async function open(c: CardDTO, versions: CardVersionsResponse, locale: 'es' | 'en' = 'es') {
   vi.spyOn(api, 'getLocations').mockResolvedValue([]);
   vi.spyOn(api, 'searchBuylistCards').mockResolvedValue(page([c]));
   vi.spyOn(api, 'getCardVersions').mockResolvedValue(versions);
   vi.spyOn(api, 'getSettings').mockResolvedValue({ spanishMarketPct: 75 } as never);
   const create = vi.spyOn(api, 'createInventoryItem').mockResolvedValue({ id: 'n1', folio: 'INV-1', status: 'listed', acquisitionCostCents: 0 });
-  renderWithProviders(<AddItemModal onClose={() => {}} onToast={() => {}} />, 'es');
+  renderWithProviders(<AddItemModal onClose={() => {}} onToast={() => {}} />, locale);
   const dialog = await screen.findByRole('dialog');
-  fireEvent.change(within(dialog).getByLabelText('Buscar carta'), { target: { value: 'x' } });
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Buscar' }));
+  fireEvent.change(within(dialog).getByLabelText(locale === 'es' ? 'Buscar carta' : 'Search card'), { target: { value: 'x' } });
+  fireEvent.click(within(dialog).getByRole('button', { name: locale === 'es' ? 'Buscar' : 'Search' }));
   fireEvent.click(await within(dialog).findByRole('option', { name: new RegExp(c.name) }));
   await within(dialog).findByTestId('ids-price');
   return { dialog, create };
@@ -201,7 +201,10 @@ describe('IDS-F1 · captura (AddItemModal)', () => {
   for (const [label, err, text] of [
     ['404 NOT_FOUND', new ApiClientError(404, { code: 'NOT_FOUND', message: 'x' }), 'Esa versión ya no está entre las pendientes de ligar.'],
     ['409 STAMPED_PRODUCT_TAKEN', new ApiClientError(409, { code: 'STAMPED_PRODUCT_TAKEN', message: 'x' }), 'Esa versión ya está ligada a una carta.'],
-    ['5xx', new ApiClientError(503, { code: 'INTERNAL_ERROR', message: 'x' }), 'El servidor no respondió.'],
+    // Petición 9b (IDS-UX.7): el genérico cubre red, 4xx y 5xx: no dice «el servidor no respondió».
+    ['5xx', new ApiClientError(503, { code: 'INTERNAL_ERROR', message: 'x' }), 'No se pudo ligar la versión. Inténtalo de nuevo; si sigue, recarga las versiones.'],
+    ['4xx', new ApiClientError(422, { code: 'VALIDATION_ERROR', message: 'x' }), 'No se pudo ligar la versión. Inténtalo de nuevo; si sigue, recarga las versiones.'],
+    ['red', new TypeError('Failed to fetch'), 'No se pudo ligar la versión. Inténtalo de nuevo; si sigue, recarga las versiones.'],
   ] as const) {
     it(`attach falla (${label}) ⇒ aviso en la caja de candidatas y «Recargar versiones» vuelve a pedir las versiones`, async () => {
       const attach = vi.spyOn(api, 'attachStampedCandidate').mockRejectedValue(err);
@@ -212,12 +215,24 @@ describe('IDS-F1 · captura (AddItemModal)', () => {
       const alert = await within(box).findByRole('alert');
       expect(alert).toHaveTextContent('No se pudo ligar la versión');
       expect(alert).toHaveTextContent(text);
+      expect(alert).not.toHaveTextContent('El servidor no respondió');
+      // Petición 9b: aviso en línea (dentro de la caja de candidatas) y el foco en su botón de acción.
+      await waitFor(() => expect(within(alert).getByRole('button', { name: 'Recargar versiones' })).toHaveFocus());
       const calls = vi.mocked(api.getCardVersions).mock.calls.length;
       fireEvent.click(within(alert).getByRole('button', { name: 'Recargar versiones' }));
       await waitFor(() => expect(vi.mocked(api.getCardVersions).mock.calls.length).toBe(calls + 1));
       await waitFor(() => expect(within(box).queryByRole('alert')).toBeNull());
     });
   }
+
+  it('petición 9b · EN: el genérico de ligar la versión dice qué falló y qué hacer', async () => {
+    vi.spyOn(api, 'attachStampedCandidate').mockRejectedValue(new ApiClientError(500, { code: 'INTERNAL_ERROR', message: 'x' }));
+    const { dialog } = await open(card('c-st', ['holofoil']), STAMPED, 'en');
+    fireEvent.click(within(dialog).getByRole('button', { name: /Pikachu \(Prize Pack Series Seven\)/ }));
+    const alert = await within(within(dialog).getByTestId('ids-candidates')).findByRole('alert');
+    expect(alert).toHaveTextContent("Couldn't link the version. Try again; if it keeps failing, reload the versions.");
+    await waitFor(() => expect(within(alert).getByRole('button', { name: 'Reload versions' })).toHaveFocus());
+  });
 
   it('GET …/versions falla ⇒ aviso con «Reintentar» (no cae en silencio a los controles de siempre)', async () => {
     const c = card('c-err', ['holofoil']);

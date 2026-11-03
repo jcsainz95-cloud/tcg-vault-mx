@@ -1814,7 +1814,7 @@
         "attachError": {
           "NOT_FOUND": "Esa versión ya no está entre las pendientes de ligar. Recarga las versiones para ver cómo quedó la carta.",
           "STAMPED_PRODUCT_TAKEN": "Esa versión ya está ligada a una carta. Recarga las versiones para ver cómo quedó.",
-          "generic": "El servidor no respondió. Inténtalo de nuevo; si sigue, recarga las versiones."
+          "generic": "No se pudo ligar la versión. Inténtalo de nuevo; si sigue, recarga las versiones."
         },
         "reloadVersions": "Recargar versiones"
       }

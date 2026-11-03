@@ -228,7 +228,7 @@ function DeckLineRow({
           {state === 'available' && (
             <>
               {line.unitPriceMxnCents != null ? (
-                <span className="tabular text-[15px] font-medium leading-none text-text">
+                <span className="tabular text-[15px] font-medium leading-none text-text" data-testid="deck-line-price">
                   {formatMoneyCents(line.unitPriceMxnCents, locale)}
                 </span>
               ) : (
@@ -268,7 +268,8 @@ function DeckLineRow({
  * §IDS.6 (v1.116⟨ids⟩) / IDS-UX.5 (D-4, D-5): la línea se surte con lo que haya (orden y regla de surtido: backend, sin
  * liga primero). `units[]` = un tramo por versión, en el orden del servidor.
  *  - todo inglés sin liga (o sin `units[]`: servidor anterior) ⇒ nada (la línea de siempre);
- *  - un solo tramo de otra versión ⇒ insignias + texto largo muted («Español · De liga (Prize Pack)»);
+ *  - un solo tramo de otra versión ⇒ insignias + `detail()` muted solo si dice algo que no digan («De liga (Prize Pack)»;
+ *    ES sin liga y EN «Prize Pack» ⇒ sin línea; petición 9a);
  *  - mezcla ⇒ un tramo por versión con cantidad y precio: insignias para la no inglesa, «Inglés ×1 · MX$…» como texto.
  */
 function DeckLineVersions({ line }: { line: MetaDeckLineDTO }) {
@@ -279,10 +280,13 @@ function DeckLineVersions({ line }: { line: MetaDeckLineDTO }) {
   if (units.length === 0 || units.every((u) => isDefaultVersion(u.version))) return null;
   if (units.length === 1) {
     const v = units[0].version;
+    // Petición 9a (IDS-UX.5/IDS-UX.7): junto a insignias, `detail()` (nunca repite el idioma); `line()` es para correo
+    // y tramos sin insignia.
+    const detail = versionText.detail(v);
     return (
       <div className="mt-1.5" data-testid="deck-line-version">
         <VersionChips version={v} size="tile" testId="deck-version-chips" />
-        {versionText.line(v) && <p className="mt-1 text-[12px] leading-snug text-muted">{versionText.line(v)}</p>}
+        {detail && <p className="mt-1 text-[12px] leading-snug text-muted">{detail}</p>}
       </div>
     );
   }

@@ -1,7 +1,7 @@
 /**
  * IDS-F5 (API_CONTRACT §IDS.9, criterios 963–965; §IDS.6; DESIGN_SYSTEM §IDS-UX.5) — `DeckAvailability` con `units[]`:
  * un tramo por versión en el orden del servidor; inglés puro sin insignia; una sola versión no inglesa ⇒ insignias +
- * texto largo; el «de jalón» agrega lo de siempre (`unitInventoryItemIds`, el surtido lo decide backend).
+ * `detail()` (petición 9a: nunca repite el idioma); el «de jalón» agrega lo de siempre (`unitInventoryItemIds`, el surtido lo decide backend).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
@@ -75,13 +75,40 @@ describe('IDS-F5 · DeckAvailability con units[]', () => {
     expect(screen.queryByTestId('deck-line-version')).toBeNull();
   });
 
-  it('una sola versión de liga: insignias + «Español · De liga (Prize Pack)» bajo el nombre', () => {
+  it('una sola versión de liga: insignias + «De liga (Prize Pack)» bajo el nombre (petición 9a)', () => {
     renderWithProviders(
       <DeckAvailability
         groups={groups(line({ availableQty: 1, unitInventoryItemIds: ['inv-pp'], units: [{ version: ES_PP, qty: 1, unitPriceMxnCents: 36000, inventoryItemIds: ['inv-pp'] }] }))}
       />,
     );
     expect(screen.getByTestId('deck-version-chips').textContent).toBe('EspañolDe liga');
-    expect(screen.getByText('Español · De liga (Prize Pack)')).toBeInTheDocument();
+    // Petición 9a (IDS-UX.5/IDS-UX.7): junto a insignias, `detail()` — nunca repite el idioma.
+    expect(screen.getByText('De liga (Prize Pack)')).toBeInTheDocument();
+    expect(screen.queryByText('Español · De liga (Prize Pack)')).toBeNull();
+  });
+
+  it('petición 9a · ES sin liga: solo la insignia «Español», sin un segundo «Español» en el renglón', () => {
+    renderWithProviders(
+      <DeckAvailability
+        groups={groups(line({ availableQty: 1, unitInventoryItemIds: ['inv-es'], units: [{ version: ES, qty: 1, unitPriceMxnCents: 15000, inventoryItemIds: ['inv-es'] }] }))}
+      />,
+    );
+    const row = screen.getByTestId('deck-line-version');
+    expect(row.textContent).toBe('Español');
+    expect(row.textContent!.match(/Español/g)).toHaveLength(1);
+  });
+
+  it('petición 9a · tienda en inglés, EN de liga coincidente (Prize Pack): solo la insignia, sin línea muted', () => {
+    const EN_PP = { key: 'en.565451', language: 'en' as const, stamp: { type: 'prize_pack' as const, label: null, productId: 565451 } };
+    renderWithProviders(
+      <DeckAvailability
+        groups={groups(line({ availableQty: 1, unitInventoryItemIds: ['inv-pp'], units: [{ version: EN_PP, qty: 1, unitPriceMxnCents: 36000, inventoryItemIds: ['inv-pp'] }] }))}
+      />,
+      'en',
+    );
+    const row = screen.getByTestId('deck-line-version');
+    expect(row.querySelector('p')).toBeNull();
+    expect(screen.getByTestId('deck-version-chips').textContent).toBe('Prize Pack');
+    expect(row.textContent).toBe('Prize Pack');
   });
 });

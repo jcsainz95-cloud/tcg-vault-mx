@@ -1814,7 +1814,7 @@
         "attachError": {
           "NOT_FOUND": "That version is no longer pending a link. Reload the versions to see how the card ended up.",
           "STAMPED_PRODUCT_TAKEN": "That version is already linked to a card. Reload the versions to see how it ended up.",
-          "generic": "The server didn't respond. Try again; if it keeps failing, reload the versions."
+          "generic": "Couldn't link the version. Try again; if it keeps failing, reload the versions."
         },
         "reloadVersions": "Reload versions"
       }

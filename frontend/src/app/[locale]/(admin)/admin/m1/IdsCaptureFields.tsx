@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { attachStampedCandidate } from '@/lib/api';
@@ -67,6 +68,12 @@ export function IdsCaptureFields({
     attach.reset();
     onRetry();
   };
+  // Petición 9b (IDS-UX.7): el aviso va en línea, con `role="alert"`, y el foco pasa a su botón de acción
+  // («Recargar versiones»): quien teclea no se queda en la candidata que acaba de fallar.
+  const reloadRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (attach.isError) reloadRef.current?.focus();
+  }, [attach.isError]);
 
   const stampLabel = (s: StampDTO | null) =>
     s ? `${t(`stampButton.${s.type}`)}${s.label ? ` ${s.label}` : ''}` : t('noStamp');
@@ -170,7 +177,7 @@ export function IdsCaptureFields({
               role="alert"
               title={t('attachErrorTitle')}
               action={
-                <Button size="sm" variant="secondary" onClick={reload}>
+                <Button ref={reloadRef} size="sm" variant="secondary" onClick={reload}>
                   {t('reloadVersions')}
                 </Button>
               }
