@@ -9,13 +9,10 @@ import { useSession } from '@/lib/session';
 import { useStripTokenFromUrl } from '@/lib/token-url';
 import { useResendVerification } from '@/hooks/useResendVerification';
 import { Input } from '@/components/ui/Input';
-import { Button, buttonClassName } from '@/components/ui/Button';
+import { Button } from '@/components/ui/Button';
+import { buttonClassName } from '@/components/ui/button-classes';
 import { Banner } from '@/components/ui/Banner';
-
-/** Política vigente (contrato §1 `MIN_PASSWORD_LENGTH`), la misma de register/reset. */
-const MIN_PASSWORD = 8;
-/** Cota de `name` (§CTA.4: trim, 1..120, la de `PATCH /users/me`). */
-const MAX_NAME = 120;
+import { MAX_NAME, MIN_PASSWORD } from '@/components/domain/account/account-limits';
 
 type State = 'form' | 'success' | 'invalidToken';
 type Field = 'name' | 'password' | 'confirm';
