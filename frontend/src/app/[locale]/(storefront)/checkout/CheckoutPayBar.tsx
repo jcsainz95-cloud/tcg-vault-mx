@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/cn';
 import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
@@ -37,8 +38,10 @@ function isTextEntry(el: Element | null): boolean {
 /**
  * Barra fija de pago en móvil (DESIGN_SYSTEM §CHK-MOVIL.2.4, opción A). Dos filas, ≤ 120 px:
  *  (1) botón de 44 px con la línea T3 y «Ver desglose» (T6, `aria-expanded`) — o, si hay un bloqueo por
- *      condición, su explicación (§15.9);
- *  (2) «TOTAL» + importe tabular y PAGAR `accent` (48 px, ≥ 120 px).
+ *      condición, su explicación (§15.9) y su salida;
+ *  (2) «TOTAL» + importe tabular y PAGAR `accent` (48 px, ≥ 120 px). Con bloqueo, «TOTAL» + importe es el
+ *      disclosure del desglose (mismo `aria-expanded`/región/Esc): en <lg no hay otra copia del desglose, y la fila 1
+ *      no tiene sitio para un tercer control de 44 px sin pasar de 120 px (medido: 119.5 px a 320/360, ES y EN).
  * Publica su alto en `--sticky-bottom-h` (`useStickyBottomBar`, MKT2-UX.5) y desaparece con un campo de texto
  * enfocado (teclado abierto ⇒ la variable vale 0). El desglose abre hacia ARRIBA en una región (no `dialog`);
  * `Esc` lo cierra y devuelve el foco. ⛔ Ningún importe se calcula aquí: todo llega formateado del quote.
@@ -57,6 +60,14 @@ export function CheckoutPayBar({
   const t = useTranslations('checkout');
   const barRef = useStickyBottomBar<HTMLDivElement>();
   const [open, setOpen] = useState(false);
+  // Entrar o salir del bloqueo cierra el desglose (ajuste en render, sin efecto: ni un pintado con la región
+  // abierta en el otro modo). Antes `open` sobrevivía al bloqueo y reaparecía abierto al salir.
+  const blocked = !!blockedReason;
+  const [wasBlocked, setWasBlocked] = useState(blocked);
+  if (wasBlocked !== blocked) {
+    setWasBlocked(blocked);
+    setOpen(false);
+  }
   const [typing, setTyping] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const regionId = useId();
@@ -107,6 +118,13 @@ export function CheckoutPayBar({
     };
   }, []);
 
+  const onToggleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' && open) {
+      e.stopPropagation();
+      setOpen(false);
+    }
+  };
+
   // Con el teclado abierto la barra no se pinta: se desmonta y el registro publica 0 (MKT2-UX.5).
   if (typing) return null;
 
@@ -117,7 +135,7 @@ export function CheckoutPayBar({
       className="fixed inset-x-0 bottom-0 z-30 border-t border-border-strong bg-bg px-5 pt-2"
       style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
     >
-      {open && !blockedReason && (
+      {open && (
         <div
           id={regionId}
           role="region"
@@ -158,12 +176,7 @@ export function CheckoutPayBar({
           aria-expanded={open}
           aria-controls={open ? regionId : undefined}
           onClick={() => setOpen((o) => !o)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && open) {
-              e.stopPropagation();
-              setOpen(false);
-            }
-          }}
+          onKeyDown={onToggleKeyDown}
           className="block min-h-[44px] w-full text-left font-mono text-[11px] leading-[1.5] text-muted"
         >
           <span data-testid="checkout-pay-bar-summary">{summaryLine}</span>
@@ -172,12 +185,37 @@ export function CheckoutPayBar({
         </button>
       )}
       <div className="mt-1 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="eyebrow">{t('bar.total')}</p>
-          <p className="tabular text-[22px] font-medium leading-tight text-text" data-testid="checkout-pay-bar-total">
-            {totalLabel}
-          </p>
-        </div>
+        {blocked ? (
+          <button
+            ref={toggleRef}
+            type="button"
+            aria-expanded={open}
+            aria-controls={open ? regionId : undefined}
+            onClick={() => setOpen((o) => !o)}
+            onKeyDown={onToggleKeyDown}
+            data-testid="checkout-pay-bar-total-toggle"
+            className="block min-h-[44px] min-w-0 text-left"
+          >
+            <span className="eyebrow flex items-center gap-1">
+              {t('bar.total')}
+              {open ? <ChevronDown size={12} aria-hidden /> : <ChevronUp size={12} aria-hidden />}
+            </span>
+            <span
+              className="tabular block text-[22px] font-medium leading-tight text-text underline underline-offset-4"
+              data-testid="checkout-pay-bar-total"
+            >
+              {totalLabel}
+            </span>
+            <span className="sr-only">{open ? t('bar.hideBreakdown') : t('bar.showBreakdown')}</span>
+          </button>
+        ) : (
+          <div className="min-w-0">
+            <p className="eyebrow">{t('bar.total')}</p>
+            <p className="tabular text-[22px] font-medium leading-tight text-text" data-testid="checkout-pay-bar-total">
+              {totalLabel}
+            </p>
+          </div>
+        )}
         <Button
           variant="accent"
           loading={loading}

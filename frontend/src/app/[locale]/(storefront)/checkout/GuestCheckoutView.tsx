@@ -706,8 +706,8 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                   className="flex min-h-[44px] w-full items-center gap-3 text-left text-sm text-text"
                 >
                   <DestinationMark on={destination === 'ship'} />
-                  <span className={cn('min-w-0 flex-1', destination === 'ship' ? 'text-text' : 'text-muted underline underline-offset-4')}>
-                    {t('destination.ship')}
+                  <span className="min-w-0 flex-1">
+                    <span className={destinationLabelClass(destination === 'ship')}>{t('destination.ship')}</span>
                   </span>
                   {shippingFeeLabel && (
                     <span className="tabular shrink-0 font-mono text-[11px] text-muted">
@@ -728,9 +728,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                   >
                     <DestinationMark on={destination === 'vault'} />
                     <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
-                      <span className={destination === 'vault' ? 'text-text' : 'underline underline-offset-4'}>
-                        {t('destination.vault')}
-                      </span>
+                      <span className={destinationLabelClass(destination === 'vault')}>{t('destination.vault')}</span>
                       <span className="font-mono text-[11px] uppercase tracking-label text-muted">
                         {t('destination.vaultRequiresAccount')}
                       </span>
@@ -906,6 +904,15 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
  * punto: la selección no depende del color. Redonda (`rounded-[50%]`, el tema anula `rounded-full`) como los radios
  * nativos del resto de la app: un cuadro con relleno se leería como casilla (selección múltiple). Decorativa: el estado lo dice `aria-pressed` del botón.
  */
+/**
+ * Rótulo de una opción de destino: UN tratamiento para la no elegida (tinta + subrayado: se puede tocar) y otro para la
+ * elegida (tinta, sin subrayado), sean envío o bóveda. Tinta y no `muted` (#6E695E ≈ 4.55:1 sobre el papel, AA justo):
+ * el estado lo dicen la marca y `aria-pressed`, no el color (CHK-MOVIL.2.3). Antes, envío no elegida iba en `muted`.
+ */
+function destinationLabelClass(chosen: boolean): string {
+  return chosen ? 'text-text' : 'text-text underline underline-offset-4';
+}
+
 function DestinationMark({ on }: { on: boolean }) {
   return (
     <span

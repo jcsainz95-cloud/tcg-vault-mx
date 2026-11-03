@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { t } from './utils/i18n';
+import { t, type Locale } from './utils/i18n';
 
 /**
  * N1 (ux-review de marketing 2026-11-03; medido por el orquestador en producción a 390 px, N=1): en el checkout de
@@ -13,11 +13,11 @@ import { t } from './utils/i18n';
  * Más el menor de las pestañas: a 390 «GRADEADAS» queda cortada y debe haber indicio de desplazamiento.
  */
 
-async function openCheckoutWithCard(page: Page) {
-  await page.goto('/es/catalog');
-  await page.getByRole('button', { name: t('es', 'catalog.addToCart') }).first().click();
-  await page.goto('/es/checkout');
-  await expect(page.getByLabel(t('es', 'checkout.guest.email.label'), { exact: true })).toBeVisible();
+async function openCheckoutWithCard(page: Page, locale: Locale = 'es') {
+  await page.goto(`/${locale}/catalog`);
+  await page.getByRole('button', { name: t(locale, 'catalog.addToCart') }).first().click();
+  await page.goto(`/${locale}/checkout`);
+  await expect(page.getByLabel(t(locale, 'checkout.guest.email.label'), { exact: true })).toBeVisible();
 }
 
 async function confirmEmail(page: Page) {
@@ -88,6 +88,111 @@ for (const vp of [
       await expect(region.getByRole('button', { name: new RegExp(t('es', 'checkout.destination.ship')) })).toBeFocused();
     });
   });
+}
+
+/** Luminancia relativa WCAG de un `rgb(a)` ya compuesto sobre `bg` (ambos como [r,g,b,a] de 0–255 / 0–1). */
+const CONTRAST_FN = `
+  (() => {
+    const parse = (c) => { const m = c.match(/rgba?\\(([^)]+)\\)/); const v = m[1].split(',').map((x) => parseFloat(x));
+      return [v[0], v[1], v[2], v.length > 3 ? v[3] : 1]; };
+    const over = (fg, bg) => [0, 1, 2].map((i) => fg[i] * fg[3] + bg[i] * (1 - fg[3])).concat(1);
+    const lum = (c) => { const [r, g, b] = c.slice(0, 3).map((x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    const bgOf = (el) => { for (let n = el; n; n = n.parentElement) { const c = parse(getComputedStyle(n).backgroundColor); if (c[3] > 0) return c; }
+      return [255, 255, 255, 1]; };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+    return { parse, over, bgOf, ratio };
+  })()`;
+
+/**
+ * Cierre de lo que ux-ui encontró en 6b01d17a (2026-11-03, DESIGN_SYSTEM §15.9 / CHK-MOVIL.2.3–2.4), candados que eran
+ * NO MEDIDOS. Contra el bundle de MOCKS: es conducta de pantalla.
+ */
+test.describe('N1b · opción no elegida: un tratamiento y AA (390)', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('envío no elegida = bóveda no elegida (color y subrayado), contraste ≥ 4.5:1', async ({ page }) => {
+    await openCheckoutWithCard(page);
+    const region = page.getByRole('region', { name: t('es', 'checkout.destination.eyebrow') });
+    const style = (text: string) =>
+      region.getByText(text, { exact: true }).evaluate((el, fn) => {
+        // eslint-disable-next-line no-new-func
+        const c = new Function(`return (${fn});`)();
+        const cs = getComputedStyle(el);
+        const bg = c.bgOf(el);
+        return { color: cs.color, deco: cs.textDecorationLine, ratio: c.ratio(c.over(c.parse(cs.color), bg), bg) };
+      }, CONTRAST_FN);
+    const vaultUnchosen = await style(t('es', 'checkout.destination.vault'));
+    await region.getByRole('button', { name: new RegExp(t('es', 'checkout.destination.vault')) }).click();
+    const shipUnchosen = await style(t('es', 'checkout.destination.ship'));
+    expect(shipUnchosen.color, 'mismo color').toBe(vaultUnchosen.color);
+    expect(shipUnchosen.deco, 'mismo subrayado').toBe(vaultUnchosen.deco);
+    expect(vaultUnchosen.deco).toContain('underline');
+    test.info().annotations.push({ type: 'medida', description: `no elegida ${vaultUnchosen.color} ${vaultUnchosen.ratio.toFixed(2)}:1` });
+    for (const s of [vaultUnchosen, shipUnchosen]) expect(s.ratio, `contraste ${s.ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+for (const locale of ['es', 'en'] as const) {
+  for (const width of [320, 360] as const) {
+    test.describe(`N1b · barra móvil en bloqueo · ${locale.toUpperCase()} · ${width}`, () => {
+      test.use({ viewport: { width, height: 640 } });
+
+      test(`≤ 120 px, salida en ≤ 2 renglones, desglose a un toque y PAGAR con borde discontinuo visible (${locale} ${width})`, async ({ page }) => {
+        await openCheckoutWithCard(page, locale);
+        const region = page.getByRole('region', { name: t(locale, 'checkout.destination.eyebrow') });
+        await region.getByRole('button', { name: new RegExp(t(locale, 'checkout.destination.vault')) }).click();
+        const bar = page.getByTestId('checkout-pay-bar');
+        const pay = bar.getByRole('button', { name: new RegExp(`^${t(locale, 'checkout.payNoAmount')}$`) });
+        await expect(pay).toBeDisabled();
+
+        // Alto ≤ 120 (CHK-MOVIL.2.4) y la salida y la explicación en ≤ 2 renglones.
+        expect((await bar.boundingBox())?.height ?? 999).toBeLessThanOrEqual(120);
+        const action = bar.getByRole('button', { name: t(locale, 'checkout.guest.payBlocked.vaultAction') });
+        const lines = (loc: ReturnType<Page['locator']>) =>
+          loc.evaluate((el) => {
+            const r = document.createRange();
+            r.selectNodeContents(el);
+            return new Set([...r.getClientRects()].map((q) => Math.round(q.top))).size;
+          });
+        expect(await lines(action), 'salida ≤ 2 renglones').toBeLessThanOrEqual(2);
+        expect(await lines(bar.getByText(t(locale, 'checkout.guest.payBlocked.vault'), { exact: true })), 'explicación ≤ 2 renglones').toBeLessThanOrEqual(2);
+        expect((await action.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+        // PAGAR apagado: regla discontinua de ≥ 1 px cuyo color, compuesto sobre el fondo, difiere del fondo.
+        const border = await pay.evaluate(async (el, fn) => {
+          // eslint-disable-next-line no-new-func
+          const c = new Function(`return (${fn});`)();
+          // `transition-colors`: se mide el estado final, no un fotograma de la transición al apagarse.
+          await Promise.all(el.getAnimations().map((a) => a.finished));
+          const cs = getComputedStyle(el);
+          const bg = c.bgOf(el);
+          return {
+            style: cs.borderTopStyle,
+            width: parseFloat(cs.borderTopWidth),
+            ratio: c.ratio(c.over(c.parse(cs.borderTopColor), bg), bg),
+          };
+        }, CONTRAST_FN);
+        const barH = (await bar.boundingBox())?.height;
+        test.info().annotations.push({ type: 'medida', description: `barra ${barH} px · borde/fondo ${border.ratio.toFixed(2)}:1` });
+        expect(border.style).toBe('dashed');
+        expect(border.width).toBeGreaterThanOrEqual(1);
+        expect(border.ratio, `borde vs fondo ${border.ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(1.5);
+
+        // El desglose sigue a un toque con PAGAR bloqueado, sin hacer crecer la barra.
+        const toggle = bar.getByTestId('checkout-pay-bar-total-toggle');
+        await expect(toggle).toHaveAccessibleName(new RegExp(t(locale, 'checkout.bar.showBreakdown')));
+        expect((await toggle.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+        await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+        await expect(bar.getByTestId('checkout-pay-bar-breakdown').getByTestId('amount-breakdown')).toBeVisible();
+        expect((await bar.boundingBox())?.height ?? 999).toBeLessThanOrEqual(120);
+        await page.keyboard.press('Escape');
+        await expect(bar.getByTestId('checkout-pay-bar-breakdown')).toHaveCount(0);
+        if (width === 320) await bar.screenshot({ path: test.info().outputPath(`barra-bloqueo-${locale}-320.png`) });
+      });
+    });
+  }
 }
 
 test.describe('N1 menor · pestañas de la tienda a 390', () => {
