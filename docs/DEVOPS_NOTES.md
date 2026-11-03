@@ -14861,13 +14861,15 @@ Si sale rojo, el resumen dice por qué sin mostrar la URL: «usuario o contrase�
 conectar» (la red pública del Postgres apagada o la URL interna), «el rol no tiene permiso de lectura» (falta el `GRANT` del
 paso 3), «Copiaste la URL interna», «Falta el secreto».
 
-**Mediciones (2026-11-03, devops; base local propia `tcg_devops_idsro2`, PG 16.15, las 79 migraciones de `58c7fbc8` aplicadas
-con `psql`, rol dueño `devops_idsro2_owner` y rol `devops_idsro2_ro` con SELECT solo en las 4 tablas del paso 3; sembradas 5 piezas de plataforma —2 `set_base`
-vendibles, 1 `promo` publicada con precio, 1 `deck_exclusive` reservada, 1 `promo` retirada— y borradas al terminar).** N=1 por
-caso (deterministas):
-- Rol `ro`: rc 0; «escritura de prueba rechazada (25006)»; Q1 `set_base` 2 · `deck_exclusive` 1 · `promo` 1 (la retirada no
-  cuenta); «promo + deck_exclusive = 2» y Q1b con las 2 filas (MX$1,234.56 la publicada; el `|` de un nombre escapado). «0 de 86
-  tablas con escritura». Rol dueño: mismo resultado y el aviso «puede escribir (86 de 86 tablas)».
+**Mediciones (2026-11-03, devops; base local propia `tcg_devops_idsro2`, PG 16.15, las 79 migraciones del árbol aplicadas con
+`psql`, rol dueño `devops_idsro2_owner` y rol `devops_idsro2_ro` con SELECT solo en las 4 tablas del paso 3; sembradas 6 piezas
+de plataforma —2 `set_base` vendibles, 1 `promo` publicada con precio de corrida, 1 `deck_exclusive` reservada, 1
+`deck_exclusive` publicada con precio por pieza, 1 `promo` retirada— y base y roles borrados al terminar).** N=1 por caso
+(deterministas):
+- Rol `ro`: rc 0; «escritura de prueba rechazada (25006)»; Q1 `set_base` 2 · `deck_exclusive` 2 · `promo` 1 (la retirada no
+  cuenta); «promo + deck_exclusive = 3» y Q1b con 2 filas (la de `deck_exclusive` con «con precio por pieza» 1, que IDS.2 v1.116.3
+  deja publicada a ese precio; MX$1,234.56 la `promo`; el `|` de un nombre escapado). «0 de 86 tablas con escritura». Rol dueño
+  (corrida previa, sin la pieza con precio por pieza): mismas cifras y el aviso «puede escribir (86 de 86 tablas)».
 - La contraseña de cada rol: **0** veces en el log fuera de las líneas `::add-mask::` y **0** en el resumen, en las 9 corridas.
 - Errores: contraseña mala / puerto inalcanzable / URL `*.railway.internal` / sin secreto ⇒ rc 1 con su mensaje, sin URL.
 - **Mutación** (copia del árbol, `BEGIN;` sin `READ ONLY`): con el rol dueño ⇒ rc 1 «la escritura de prueba NO fue rechazada… No

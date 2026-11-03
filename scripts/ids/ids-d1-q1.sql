@@ -14,6 +14,7 @@ GROUP BY 1 ORDER BY 1;
 \echo '== Q1b (D-IDS-1, la lista que el dueño ve si Q1 da > 0 en promo/deck_exclusive): por producto y acabado =='
 SELECT cp.kind, cp."tcgplayerProductId", cp.name AS producto, c."externalId" AS carta, i.finish, i."productType",
        count(*) AS piezas, count(*) FILTER (WHERE i.status = 'listed') AS publicadas,
+       count(*) FILTER (WHERE i."listPriceCents" IS NOT NULL) AS con_precio_por_pieza,
        min(lp."unitPriceCents") AS precio_min_cents, max(lp."unitPriceCents") AS precio_max_cents
 FROM "InventoryItem" i
 JOIN "CardProduct" cp ON cp."tcgplayerProductId" = i."cardProductId"

@@ -142,7 +142,8 @@ def money(c):
 def cell(k, v):
     if k.endswith("_cents"): return money(v)
     return (v or "—").replace("|", "\\|").replace("\n", " ")
-NOMBRE = {"precio_min_cents": "precio mín.", "precio_max_cents": "precio máx.", "tcgplayerProductId": "producto TCGplayer"}
+NOMBRE = {"precio_min_cents": "precio mín.", "precio_max_cents": "precio máx.", "tcgplayerProductId": "producto TCGplayer",
+          "con_precio_por_pieza": "con precio por pieza"}
 def table(rs, cols):
     out = ["| " + " | ".join(NOMBRE.get(c, c) for c in cols) + " |", "|" + "---|" * len(cols)]
     out += ["| " + " | ".join(cell(c, r.get(c)) for c in cols) + " |" for r in rs]
@@ -165,11 +166,12 @@ print()
 if promo == 0:
     print("**promo + deck_exclusive = 0** ⇒ D-IDS-1 se confirma: IDS-B17 no mueve ningún precio publicado.")
 else:
-    print(f"**promo + deck_exclusive = {promo}** ⇒ al desplegar §IDS esas piezas quedan `pending` (se despublican). "
+    print(f"**promo + deck_exclusive = {promo}** ⇒ al desplegar §IDS esas piezas quedan `pending` (se despublican), "
+          "salvo las que tienen precio por pieza, que siguen a ese precio (IDS.2 v1.116.3). "
           "La lista va en la solicitud de fusión y **decide el dueño**.\n")
     q1b = rows["Q1b"]; tope = 200
     print(table(q1b[:tope], ["kind", "tcgplayerProductId", "producto", "carta", "finish", "productType", "piezas",
-                             "publicadas", "precio_min_cents", "precio_max_cents"]))
+                             "publicadas", "con_precio_por_pieza", "precio_min_cents", "precio_max_cents"]))
     if len(q1b) > tope:
         print(f"\n_…y {len(q1b) - tope} filas más (tope del resumen {tope})._")
 print(f"::notice title=D-IDS-1 Q1::promo+deck_exclusive = {promo} (total {total})", file=sys.stdout)
