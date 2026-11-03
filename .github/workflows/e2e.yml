@@ -19,24 +19,17 @@
 #     producción (+ nightly). Ese es el que hace que "verde" signifique
 #     "funciona de verdad". Ver DEVOPS_NOTES §5.1.
 #
-# POLÍTICA DE GATE (arreglo 2026-08-19, ver DEVOPS_NOTES §24 — incidente Railway
+# POLÍTICA DE GATE (2026-11-03, DEVOPS_NOTES-24 §24.0; antes 2026-08-19, incidente Railway
 # «backend congelado 11 h»):
 #   - `backend-e2e` = DEPLOY-BLOCKING. Es integración REAL (Postgres+Redis+s3-local
 #     como services); un fallo aquí es un bug real. Si falla, `e2e-ok` falla y el
 #     deploy se bloquea. NO cambia.
-#   - `frontend-e2e` (MOCK) = INFORMATIVO, NO deploy-blocking. Corre en cada
-#     push/PR y nightly como señal de regresión de UI contra fixtures, pero un
-#     fallo de aserción NO congela el deploy del backend (el gate REAL de UI es
-#     e2e-real.yml, stack completo). Un fallo de MOCK se reporta como ::warning::
-#     y se enruta al rol frontend; el job termina verde para no bloquear Railway.
-#     OJO: los fallos de INFRAESTRUCTURA del job (instalar Chromium) SÍ son duros
-#     — solo se ablandan las aserciones de la suite, no el arranque del entorno.
-#
-# Por qué así y no quitar «Wait for CI» de Railway: Railway espera al check-suite
-# COMPLETO de GitHub Actions; un solo job en rojo (aunque sea MOCK) tumba el
-# suite y congela el deploy. La única palanca determinista desde el repo es que el
-# job MOCK no reporte failure. Los gates money-safe (build + backend-e2e +
-# seguridad) siguen DUROS y sí bloquean. Ver DEVOPS_NOTES §24.
+#   - `frontend-e2e` (MOCK) = DURO desde 2026-11-03 (DEVOPS_NOTES-24 §24.0). Una
+#     prueba roja en TODOS sus intentos pone el job y `e2e-ok` en rojo; una flaky
+#     (roja y luego verde en un reintento) no bloquea pero queda registrada
+#     (::warning:: + resumen del job). Hasta esa fecha fue «informativo» con
+#     `continue-on-error` (soft-gate 2026-08-19, por «Wait for CI» de Railway):
+#     sin dueño, sin caducidad y sin candado, salió verde con IDS-F7 roja 3/3.
 #
 #   Nombres de script (los exponen los roles backend/frontend):
 #     backend/package.json  -> "test:integration"
@@ -612,23 +605,24 @@ jobs:
           fi
           echo "PLAYWRIGHT_CHROMIUM_PATH=$CHROMIUM_BIN" >> "$GITHUB_ENV"
           echo "Chromium instalado: $CHROMIUM_BIN"
-      # SOFT-GATE (2026-08-19, §24): la suite MOCK es INFORMATIVA, no deploy-blocking.
-      # `continue-on-error` ablanda SOLO las aserciones de Playwright — el paso previo
-      # de instalar Chromium sigue siendo duro (un fallo de infra ahí sí revienta el
-      # job). Así un rojo de fixtures/UI no congela el deploy del backend en Railway,
-      # mientras el gate REAL de UI (e2e-real.yml) y backend-e2e siguen bloqueando.
+      # GATE DURO (2026-11-03, DEVOPS_NOTES-24 §24.0). Antes este paso llevaba
+      # `continue-on-error: true` («soft-gate» de 2026-08-19) y el job salía VERDE con
+      # IDS-F7 y DSC rojas en sus 3 intentos (run 41702516917, sha 48077124). Ahora:
+      # roja en todos sus intentos ⇒ job ROJO; roja y luego verde en un reintento
+      # (flaky) ⇒ verde, pero registrada como ::warning:: y en el resumen del job.
+      # El rc de Playwright manda; scripts/e2e-mock-verdict.sh solo lo endurece
+      # (rc=0 con «failed» en el resumen, o 0 pruebas pasadas ⇒ rojo). Candado:
+      # scripts/e2e-mock-verdict-canary.sh (ci.yml › e2e-harness-gaps) — también
+      # pone rojo si vuelve un `continue-on-error` a este job.
       - name: E2E frontend (MOCK — el config levanta Next con mocks=true)
         id: mock_e2e
-        continue-on-error: true
         working-directory: frontend
-        run: npm run test:e2e
-      - name: Resultado E2E MOCK (informativo — NO bloquea el deploy)
         run: |
-          if [ "${{ steps.mock_e2e.outcome }}" = "failure" ]; then
-            echo "::warning title=E2E MOCK en rojo (informativo)::La suite Playwright MOCK falló. Es señal de PR/nightly, NO bloquea el deploy (el gate REAL de UI es e2e-real.yml, stack completo). Enrutar el fallo al rol frontend (spec en frontend/e2e/). Reporte: artifact playwright-report-mock. Ver DEVOPS_NOTES §24."
-          else
-            echo "E2E MOCK verde."
-          fi
+          set -o pipefail
+          LOG="$RUNNER_TEMP/frontend-e2e-mock.log"
+          rc=0
+          npm run test:e2e 2>&1 | tee "$LOG" || rc=$?
+          ../scripts/e2e-mock-verdict.sh "$rc" "$LOG"
       - name: Subir reporte Playwright
         if: always()
         uses: actions/upload-artifact@v6
@@ -731,12 +725,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Gate final E2E — DEPLOY-BLOCKING.
-  # Bloquea SOLO por `backend-e2e` (integración real Postgres+Redis+s3-local). El
-  # `frontend-e2e` MOCK es INFORMATIVO (§24): su fallo NO tumba este gate ni el
-  # deploy de Railway; el gate REAL de UI es e2e-real.yml. Con el soft-gate del
-  # job MOCK, `needs.frontend-e2e.result` normalmente será 'success' aunque las
-  # aserciones fallen (se degradan a ::warning::); la rama informativa de abajo
-  # queda como red de seguridad y para transparencia en el resumen.
+  # Bloquea por `backend-e2e` (integración real Postgres+Redis+s3-local), por
+  # `measurement-e2e` y, desde 2026-11-03 (DEVOPS_NOTES-24 §24.0), por `frontend-e2e` MOCK: una
+  # prueba roja en todos sus intentos es rojo. `skipped` (detect sin cambios de
+  # frontend) no bloquea; `cancelled` sí (un gate que no corre no gatea).
   # ---------------------------------------------------------------------------
   e2e-ok:
     needs: [detect, backend-e2e, frontend-e2e, measurement-e2e]
@@ -749,7 +741,7 @@ jobs:
           PASO: ${{ needs.backend-e2e.outputs.paso }}
         run: |
           echo "backend-e2e  (deploy-blocking): ${{ needs.backend-e2e.result }} · fase=${FASE:-?} · paso=${PASO:-?}"
-          echo "frontend-e2e (informativo):     ${{ needs.frontend-e2e.result }}"
+          echo "frontend-e2e (bloqueante):      ${{ needs.frontend-e2e.result }}"
           # S-CI-1: un rojo sin fase se leyó seis commits como «la suite falla». Aquí el
           # rojo NOMBRA lo que se midió y a quién le toca — y `skipped`/`cancelled`
           # tampoco son verde: un gate deploy-blocking que no corre no gatea.
@@ -772,14 +764,19 @@ jobs:
               fi
               exit 1 ;;
           esac
-          if [ "${{ needs.frontend-e2e.result }}" = "failure" ]; then
-            echo "::warning::frontend-e2e MOCK falló (informativo). NO bloquea el deploy. Ver DEVOPS_NOTES §24."
-          fi
+          ROJO=0
+          case "${{ needs.frontend-e2e.result }}" in
+            success|skipped) ;;
+            *)
+              echo "::error::frontend-e2e MOCK terminó en '${{ needs.frontend-e2e.result }}': una prueba roja en todos sus intentos (nombrada en el job) o el job no corrió. Dueño: frontend si es un spec; devops si murió la infraestructura. Bloquea (DEVOPS_NOTES-24 §24.0)."
+              ROJO=1 ;;
+          esac
           # Fase 2 de marketing (C-F2/C-F3/C-F5 + C-F1 on): BLOQUEANTE. Es un candado de
           # privacidad, no una señal de UI: un rojo aquí es medición donde no debe haberla.
           echo "measurement-e2e (bloqueante): ${{ needs.measurement-e2e.result }}"
           if [ "${{ needs.measurement-e2e.result }}" != "success" ]; then
             echo "::error::measurement-e2e terminó en '${{ needs.measurement-e2e.result }}'. Candado de privacidad de la Fase 2 (DEVOPS_NOTES §101.4). Dueño: frontend si falló el spec o C-F1; devops si murió la infraestructura. Bloquea el deploy."
-            exit 1
+            ROJO=1
           fi
-          echo "E2E gate OK (backend-e2e y measurement-e2e verdes)."
+          [ "$ROJO" -eq 0 ] || exit 1
+          echo "E2E gate OK (backend-e2e, frontend-e2e y measurement-e2e verdes)."
