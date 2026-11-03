@@ -26,7 +26,13 @@
 #   8. generate no actualiza         ⇒ NO arranca, rc≠0, «sigue sin coincidir»
 #   9. (estático) en `up`, el cliente se pone al día ANTES de `seed_synthetic`; y el generador del
 #      schema real no declara `output` (la ruta que se compara es la de por defecto)
-# Ablación: STACK_UNDER_TEST=<otro stack-native.sh> mide esa versión (la de 96cda136, con `cmp`, ⇒ rojo).
+#  10. generate que PARTE un `É` de un comentario en U+FFFD U+FFFD (lo que hace Prisma 5.22 cuando el
+#      carácter cae en el borde de un trozo de 64 KiB de su tubería; medido 2026-11-03 en d4ba9e91, 16/19)
+#      ⇒ arranca al día y AVISA de que la diferencia es solo de comentarios (antes: «sigue sin coincidir»)
+#  11. generate que corrompe CÓDIGO (un nombre de campo)          ⇒ NO arranca (ignorar comentarios no tapa código)
+#  12. generate que cambia lo que va tras `//` DENTRO de una cadena ⇒ NO arranca (`"https://…"` no es comentario)
+# Ablación: STACK_UNDER_TEST=<otro stack-native.sh> mide esa versión (la de 96cda136, con `cmp`, ⇒ rojo;
+# la de 283bb760, huella sin ignorar comentarios, ⇒ rojo en 10).
 # Uso: ./scripts/check-stack-prisma-client.sh [N]
 # =============================================================================
 set -uo pipefail
@@ -52,11 +58,17 @@ case "$1 $2" in
     echo "GENERATE" >> "$CANARY_LOG"
     case "${FAKE_GEN:-ok}" in
       ok)   mkdir -p "$(dirname "$C")" && reformatea "$S" > "$C" ;;
+      # Como Prisma 5.22 con un multibyte en el borde de un trozo: c3|89 ⇒ ef bf bd ef bf bd.
+      fffd) mkdir -p "$(dirname "$C")" && reformatea "$S" | sed 's/y QUÉ\./y QU\xef\xbf\xbd\xef\xbf\xbd./' > "$C" ;;
+      codigo) mkdir -p "$(dirname "$C")" && reformatea "$S" | sed 's/^  email /  correo /' > "$C" ;;
+      cadena) mkdir -p "$(dirname "$C")" && reformatea "$S" | sed 's|"https://x"|"https://y"|' > "$C" ;;
       noop) : ;;
       *)    echo "Error: fallo simulado de prisma generate" >&2; exit 1 ;;
     esac ;;
   "ts-node --transpile-only")
-    if [ -f "$C" ] && diff -w -q "$S" "$C" >/dev/null; then echo "ARRANQUE cliente=al-dia" >> "$CANARY_LOG"
+    # «Al día» = mismo schema salvo formato y comentarios (los comentarios no cambian el cliente).
+    sc() { sed 's#[[:space:]]*//[^"]*$##' "$1"; }
+    if [ -f "$C" ] && diff -w -q <(sc "$S") <(sc "$C") >/dev/null; then echo "ARRANQUE cliente=al-dia" >> "$CANARY_LOG"
     else echo "ARRANQUE cliente=viejo" >> "$CANARY_LOG"
          echo "TypeError: Cannot convert undefined or null to object" >&2; fi
     exit 1 ;;
@@ -77,7 +89,8 @@ arbol() {
     cp "$ROOT_DIR/scripts/$f" "$R/scripts/$f"
   done
   # Schema SIN formatear (columnas sin alinear), como el `model User` del repo frente a su copia.
-  printf 'enum MeasurementDestination {\n  meta_capi\n  ga4_mp\n}\n\nmodel User {\n  id String @id\n  email String? @unique\n}\n' \
+  # Con un comentario con `É` (caso 10) y una cadena con `//` (caso 12).
+  printf 'enum MeasurementDestination {\n  meta_capi\n  ga4_mp\n}\n\nmodel User {\n  id String @id\n  // A QUIÉN SE LE DEBE y QUÉ.\n  email String? @unique\n  web String @default("https://x") // url\n}\n' \
     > "$R/backend/prisma/schema.prisma"
   echo "// juguete" > "$R/backend/src/main.ts"
   local C="$R/backend/node_modules/.prisma/client/schema.prisma"
@@ -127,6 +140,19 @@ for ((r=1;r<=N;r++)); do
   if [ "$RC" -ne 0 ] && ! grep -q ARRANQUE "$R/log.txt" && grep -q 'sigue sin coincidir' "$R/salida.txt"; then
     ok "8. generate que no actualiza ⇒ no arranca (rc=$RC)"
   else bad "8. generate que no actualiza ⇒ rc=$RC log: $(log_de "$R")"; fi
+  arbol viejo; corre "$R" fffd
+  if [ "$(log_de "$R")" = "$G" ] && grep -q $'QU\xef\xbf\xbd' "$R/backend/node_modules/.prisma/client/schema.prisma" \
+     && grep -q 'SOLO en comentarios' "$R/salida.txt"; then
+    ok "10. generate parte un É de un comentario (U+FFFD) ⇒ arranca al día y avisa «solo en comentarios»"
+  else bad "10. generate parte un É de un comentario ⇒ rc=$RC log: $(log_de "$R")"; tail -4 "$R/salida.txt" | sed 's/^/      /'; fi
+  arbol viejo; corre "$R" codigo
+  if [ "$RC" -ne 0 ] && ! grep -q ARRANQUE "$R/log.txt" && grep -q 'sigue sin coincidir' "$R/salida.txt"; then
+    ok "11. generate que corrompe código ⇒ no arranca (rc=$RC)"
+  else bad "11. generate que corrompe código ⇒ rc=$RC log: $(log_de "$R")"; fi
+  arbol viejo; corre "$R" cadena
+  if [ "$RC" -ne 0 ] && ! grep -q ARRANQUE "$R/log.txt" && grep -q 'sigue sin coincidir' "$R/salida.txt"; then
+    ok "12. generate que cambia una cadena con // ⇒ no arranca (rc=$RC)"
+  else bad "12. generate que cambia una cadena con // ⇒ rc=$RC log: $(log_de "$R")"; fi
 done
 
 # --- 9. Estáticos (dichos como tales: el camino `up` necesita Postgres) ---------------
