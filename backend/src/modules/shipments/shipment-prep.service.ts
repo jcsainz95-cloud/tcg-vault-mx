@@ -1,3 +1,4 @@
+import { versionInternalLineOf } from '../../common/card-version';
 /**
  * §M4-SHIP.3/.5/.6/.11 (v1.80 → v1.80.6) — «Pedidos por preparar», cubeta ENVÍO: la vista interactiva, los
  * TRES verbos (palomear, dar por preparado, deshacer preparado), las guardas de la guía/enviado, el
@@ -91,6 +92,8 @@ export interface ShipPreparationItemDTO {
   prepMarkedBy: { userId: string; name: string | null } | null;
   availability: LineAvailability;
   refund: LineRefund;
+  /** v1.116⟨ids⟩ (§IDS.5): la versión de la línea, de su `OrderItem` de origen (congelada); `null` en inglés sin liga o sin origen. */
+  versionInternalLine: string | null;
 }
 
 interface Counts {
@@ -260,6 +263,14 @@ export class ShipmentPrepService {
     const refundDtos = await this.ledger.toDtos(refundRows);
     const refundByLine = new Map(refundRows.map((r, i) => [r.shipmentItemId as string, { row: r, dto: refundDtos[i] }]));
     const caseByLine = new Map(cases.map((c) => [c.shipmentItemId as string, c]));
+    // v1.116⟨ids⟩ (§IDS.5): la versión CONGELADA de la línea de pedido de origen de cada pieza (una lectura por hoja).
+    const originIds = [...origins.values()].flatMap((o) => (o ? [o.orderItemId] : []));
+    const frozenVersion = new Map(
+      (originIds.length > 0
+        ? await db.orderItem.findMany({ where: { id: { in: originIds } }, select: { id: true, language: true, stampType: true, stampLabel: true } })
+        : []
+      ).map((oi) => [oi.id, oi]),
+    );
     const order = row.order;
     const lines: PrepLine[] = row.items.map((si) => {
       const p = si.inventoryItem;
@@ -305,6 +316,10 @@ export class ShipmentPrepService {
         prepMarkedBy: si.prepMarkedByUserId ? { userId: si.prepMarkedByUserId, name: markers.get(si.prepMarkedByUserId) ?? null } : null,
         availability: available ? { kind: 'available' } : { kind: 'blocked', reason: 'piece_not_available', pieceStatus: p.status },
         refund,
+        versionInternalLine: (() => {
+          const fv = origin ? frozenVersion.get(origin.orderItemId) : undefined;
+          return fv ? versionInternalLineOf(fv) : null;
+        })(),
       };
       return {
         dto,

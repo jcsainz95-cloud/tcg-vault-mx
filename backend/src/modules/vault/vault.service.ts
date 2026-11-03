@@ -1,3 +1,5 @@
+import { Optional } from '@nestjs/common';
+import { SaleDecisionService, versionValuationOf } from '../pricing/sale-decision.service';
 import { Injectable } from '@nestjs/common';
 import {
   Card,
@@ -167,6 +169,9 @@ export class VaultService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
+    // 💰 v1.116⟨ids⟩ (§IDS.2 «Otros usos», criterio 531): el valor de una pieza en español o de liga es el de SU versión.
+    // `@Optional()` por los unitarios que construyen el servicio a mano (sin él: el camino de siempre).
+    @Optional() private readonly decider?: SaleDecisionService,
   ) {}
 
   /**
@@ -579,6 +584,14 @@ export class VaultService {
     item: Parameters<PricingService['valuationKeyFor']>[0],
     sourceOn: boolean,
   ): Promise<PriceInfo> {
+    // 💰 v1.116⟨ids⟩ (§IDS.2, 531; P-ARQ-IDS-2 rige la recomendación): versión distinta de (en, sin liga) ⇒ la referencia de
+    // SU versión (`referenceForPieces`: español = inglés × X; liga = su producto), no la de la carta base.
+    const byVersion = await versionValuationOf(this.decider, [item]);
+    const vid = (item as { id?: string }).id;
+    if (vid != null && byVersion.has(vid)) {
+      const cents = byVersion.get(vid) ?? null;
+      return cents == null ? { status: 'pending' } : { status: 'priced', referenceMxnCents: cents };
+    }
     const key = this.pricing.valuationKeyFor(item);
     if (key == null) return { status: 'pending' };
     const ref = await this.pricing.getReference(key.cardId, key.productType, key.gradeKey, key.finish);

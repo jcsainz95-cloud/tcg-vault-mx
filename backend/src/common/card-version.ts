@@ -278,3 +278,23 @@ export function orderLineVersionOf(
 export function frozenVersionColumnsOf(v: PieceVersion): { language: CardLanguage; stampType: StampType | null; stampLabel: string | null } {
   return { language: v.language, stampType: v.stamp?.type ?? null, stampLabel: v.stamp?.label ?? null };
 }
+
+/** v1.116⟨ids⟩ (§IDS.5): el tipo de liga en la línea interna de preparación (DESIGN_SYSTEM IDS-UX.3, ejemplos del contrato). */
+const INTERNAL_STAMP_TEXT: Record<StampType, string> = {
+  prize_pack: 'LIGA · Prize Pack — sello Play! Pokémon',
+  league: 'LIGA · Promo de Liga — sello de la Liga',
+  championship: 'TORNEO · Campeonato',
+  prerelease: 'PRERELEASE',
+  staff: 'STAFF',
+};
+
+/**
+ * v1.116⟨ids⟩ (API_CONTRACT §IDS.5 «Pedidos por preparar»): `versionInternalLine`, texto de backend de una sola lengua para la
+ * hoja, de lo CONGELADO en `OrderItem`: «ES · LIGA · Prize Pack — sello Play! Pokémon, Cosmos Holo». `null` en inglés sin liga.
+ */
+export function versionInternalLineOf(v: { language: CardLanguage; stampType: StampType | null; stampLabel: string | null }): string | null {
+  if (v.language === 'en' && v.stampType == null) return null;
+  const parts = [v.language.toUpperCase()];
+  if (v.stampType) parts.push(INTERNAL_STAMP_TEXT[v.stampType] + (v.stampLabel ? `, ${v.stampLabel}` : ''));
+  return parts.join(' · ');
+}

@@ -254,7 +254,8 @@ describe('PaymentsService — settle de un pedido direct_ship', () => {
         guestEmail: 'juan@example.com',
         locale: 'es',
         totalCents: 51812,
-        items: [{ name: 'Charizard', setName: 'Base', number: '4', productType: 'raw' }],
+        // v1.116⟨ids⟩ (§IDS.5): la línea lleva además su versión congelada (la plantilla la traduce).
+        items: [expect.objectContaining({ name: 'Charizard', setName: 'Base', number: '4', productType: 'raw' })],
       }),
     );
   });

@@ -1,3 +1,4 @@
+import { SaleDecisionService, versionValuationOf } from '../pricing/sale-decision.service';
 import { isOwnerAccount } from '../spend-alerts/owner';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { REFUND_REVIEW_PENDING_WHERE } from '../payments/refunds/refund-review';
@@ -665,6 +666,8 @@ export class AdminService {
     @Optional() private readonly featured?: FeaturedService,
     // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.8): `dataHealth.listingPrices`. `@Optional()` por los unitarios que construyen a mano.
     @Optional() private readonly listingPrices?: ListingPriceService,
+    // 💰 v1.116⟨ids⟩ (§IDS.2, 531): valor de las piezas en español o de liga por SU versión. `@Optional()` por los unitarios.
+    @Optional() private readonly decider?: SaleDecisionService,
   ) {}
 
   /** §DYN.5.8 — salud del precio del día. Lectura que falla ⇒ `stale` (no se sabe que esté bien; v1.113.2, como Destacadas). */
@@ -1202,6 +1205,8 @@ export class AdminService {
     // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear
     // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
     const sourceOn = await this.pricing.sealedSourceOnFor(items);
+    // 💰 v1.116⟨ids⟩ (531): la ficha 360° y «Mi bóveda» cuadran también para las versiones.
+    const byVersion = await versionValuationOf(this.decider, items);
     return items.map((item) => {
       // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — por la ÚNICA puerta de valuación, la misma que
       // «Mi bóveda» del cliente: la ficha 360° y lo que ve el cliente cuadran.
@@ -1218,8 +1223,15 @@ export class AdminService {
             capturedDate: r.capturedDate.toISOString().slice(0, 10),
           }
         : undefined;
+      const vCents = byVersion.has(item.id) ? (byVersion.get(item.id) ?? null) : undefined;
       const referenceValue: PriceInfo =
-        ref && this.pricing.valuationCentsOf(item, ref, sourceOn) != null ? ref : { status: 'pending' };
+        vCents !== undefined
+          ? vCents == null
+            ? { status: 'pending' }
+            : { status: 'priced', referenceMxnCents: vCents }
+          : ref && this.pricing.valuationCentsOf(item, ref, sourceOn) != null
+            ? ref
+            : { status: 'pending' };
       return {
         inventoryItemId: item.id,
         folio: item.folio,
@@ -1842,6 +1854,10 @@ export class AdminService {
         gradingCompany: true,
         gradeValue: true,
         acquisitionCostCents: true,
+        // v1.116⟨ids⟩ (531): la versión de la pieza (valor por versión).
+        id: true,
+        language: true,
+        cardProductId: true,
         tcgplayerProductId: true,
       },
     });
@@ -1863,6 +1879,8 @@ export class AdminService {
       pendingPriceCount: 0,
     });
     const breakdown = { raw: emptyBucket(), sealed: emptyBucket(), graded: emptyBucket() };
+    // 💰 v1.116⟨ids⟩ (531): las piezas en español o de liga valen lo de SU versión.
+    const byVersion = await versionValuationOf(this.decider, items);
     items.forEach((item, i) => {
       const bucket = breakdown[item.productType];
       bucket.pieceCount += 1;
@@ -1871,7 +1889,7 @@ export class AdminService {
       // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
       const ref = k ? refs.get(variantKey(k)) : undefined;
       // `null` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`. ⛔ Sin `?? 'sealed'`.
-      const cents = this.pricing.valuationCentsOf(item, ref, sourceOn);
+      const cents = byVersion.has(item.id) ? (byVersion.get(item.id) ?? null) : this.pricing.valuationCentsOf(item, ref, sourceOn);
       if (cents != null) bucket.atReferenceCents += cents;
       else bucket.pendingPriceCount += 1;
     });
@@ -1894,7 +1912,13 @@ export class AdminService {
     // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
     const sourceOn = await this.pricing.sealedSourceOnFor(items);
     let totalCustodyValueCents = 0;
+    // 💰 v1.116⟨ids⟩ (531): el pasivo de una pieza en español o de liga es el de SU versión.
+    const byVersion = await versionValuationOf(this.decider, items);
     for (const item of items) {
+      if (byVersion.has(item.id)) {
+        totalCustodyValueCents += byVersion.get(item.id) ?? 0;
+        continue;
+      }
       // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — VALOR DE CUSTODIA por la ÚNICA puerta de
       // valuación, la misma que «Mi bóveda»: el pasivo con el cliente cuadra con lo que él ve.
       //  - sin identidad de slab (v1.53 §4.40.4b) o sellado sin mapeo ⇒ sin clave ⇒ NO suma. Antes el

@@ -16,6 +16,7 @@ import {
   scaleByPct,
   stampTypeOf,
   validateSpanishMarketPct,
+  versionInternalLineOf,
   versionDtoOf,
   versionKeyOf,
   StampRef,
@@ -141,5 +142,14 @@ describe('§IDS.3 — baseMatchKey: el empate con la carta base', () => {
   it('nombre distinto o total distinto ⇒ llaves distintas', () => {
     expect(baseMatchKey('Pikachu ex - 057/191', '057/191')).not.toBe(baseMatchKey('Pikachu ex - 057/189', '057/189'));
     expect(baseMatchKey('Pikachu ex - 057/191', '057/191')).not.toBe(baseMatchKey('Pikachu V - 057/191', '057/191'));
+  });
+});
+
+describe('§IDS.5 — versionInternalLine (hoja de preparación, texto de backend)', () => {
+  it('ejemplo del contrato, 1539, español sin liga e inglés sin liga', () => {
+    expect(versionInternalLineOf({ language: 'es', stampType: 'prize_pack', stampLabel: 'Cosmos Holo' })).toBe('ES · LIGA · Prize Pack — sello Play! Pokémon, Cosmos Holo');
+    expect(versionInternalLineOf({ language: 'es', stampType: 'league', stampLabel: null })).toBe('ES · LIGA · Promo de Liga — sello de la Liga');
+    expect(versionInternalLineOf({ language: 'es', stampType: null, stampLabel: null })).toBe('ES');
+    expect(versionInternalLineOf({ language: 'en', stampType: null, stampLabel: null })).toBeNull();
   });
 });
