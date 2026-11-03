@@ -2,6 +2,7 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 import { realOnly } from './utils/auth';
 import { apiAs, apiAsOk, resolveApiBaseUrl } from './utils/env';
 import { t } from './utils/i18n';
+import { tileHref, type TileGroupRef } from './utils/catalog-tile';
 
 /**
  * BRIEF_MKT Ola 2 · C1/C2/C4/C5/C6 — lo que ve un bot SIN JavaScript (GPTBot, ClaudeBot, la primera ola de Google):
@@ -17,7 +18,10 @@ import { t } from './utils/i18n';
  */
 
 const MONEY = /MX\$[\d,]+\.\d{2}/;
-const UUID_LINK = /href="\/es\/(catalog|sellado)\/[0-9a-f-]{36}"/g;
+// §IDS.5: el enlace de una teja `es`/de liga lleva `?version=<versionOptionKey>`; sigue siendo un enlace a la ficha.
+const UUID_LINK = /href="\/es\/(catalog|sellado)\/[0-9a-f-]{36}(?:\?version=[^"]*)?"/g;
+/** Enlaces del NOMBRE de cada teja del catálogo en el HTML crudo (uno por teja: `<p data-testid="tile-name"><a href>`). */
+const TILE_NAME_HREF = /data-testid="tile-name"[^>]*>\s*<a [^>]*?href="([^"]+)"/g;
 
 /** Texto visible del HTML crudo: sin `<script>`/`<style>`/`<template>` ni etiquetas, con entidades básicas. */
 function visibleText(html: string): string {
@@ -76,12 +80,21 @@ function hydrationErrors(page: Page): string[] {
   return out;
 }
 
+/**
+ * Edad (ms) de la copia de la rejilla que sirvió el servidor, leída del HTML (`CatalogSsrPage.ageMs`, B-R2). Desconocida
+ * ⇒ `Infinity`: la vista la trata como vieja y relee.
+ */
+function servedAgeMs(html: string): number {
+  const m = /ageMs\\?":(\d+)/.exec(html);
+  return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
+}
+
 async function raw(request: APIRequestContext, path: string): Promise<{ status: number; html: string }> {
   const res = await request.get(path, { maxRedirects: 0 });
   return { status: res.status(), html: await res.text() };
 }
 
-interface Group {
+interface Group extends TileGroupRef {
   card: { id: string; name: string; setName: string; number: string };
   productType: 'raw' | 'graded';
   displayPriceCents: number | null;
@@ -386,12 +399,19 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     request,
   }) => {
     // B-R2 (§MKT-R2B): la vista relee SOLO si la copia de la caché de datos tiene > 30 s. Esta prueba mide la carga
-    // FRESCA: se calienta antes (la primera visita puede servir una copia vencida y releerla en segundo plano), para que
-    // el resultado no dependa de cuánto tiempo pasó desde la última visita de otra prueba. La copia vieja la cubre
-    // `e2e/catalog-freshness.spec.ts`.
-    await request.get('/es/catalog');
-    await page.waitForTimeout(1500);
-    await request.get('/es/catalog');
+    // FRESCA: se calienta hasta que el HTML servido traiga una copia JOVEN (su `ageMs`, que viaja en la página para
+    // eso), para que el resultado no dependa de cuánto tiempo pasó desde la última visita de otra prueba. La copia vieja
+    // la cubre `e2e/catalog-freshness.spec.ts`.
+    // Antes eran dos visitas a 1.5 s: una copia de 28–30 s se sirve como fresca (no dispara relectura en el servidor),
+    // cruza los 30 s mientras el navegador hidrata y la vista relee con razón ⇒ rojo de la PRUEBA, no del producto
+    // (medido 2026-11-03: 1/12 sola, con `ageMs` servidos de 30127 y 31180 ms en la misma tanda).
+    await expect
+      .poll(async () => servedAgeMs(await (await request.get('/es/catalog')).text()), {
+        message: 'el HTML de /es/catalog sirve una copia de < 15 s',
+        timeout: 60_000,
+        intervals: [1_000],
+      })
+      .toBeLessThan(15_000);
     const reads: string[] = [];
     page.on('request', (r) => {
       if (/\/api\/v1\/catalog\/cards(\?|$)/.test(r.url())) reads.push(r.url());
@@ -412,7 +432,14 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     expect(cat.status).toBe(200);
     const catLinks = new Set([...cat.html.matchAll(UUID_LINK)].map((m) => m[0]));
     expect(catLinks.size, 'enlaces a fichas en /es/catalog').toBeGreaterThan(0);
-    for (const g of first.data) expect(cat.html).toContain(`href="/es/catalog/${g.card.id}"`);
+    // §IDS.5: una teja por versión y acabado; el enlace de cada una es el que le toca (`tileHref`: llano en inglés sin
+    // liga, `?version=<versionOptionKey>` si no). Lo que se exige es que el HTML crudo pinte EXACTAMENTE las tejas de la
+    // página que da la API: las mismas, con su enlace, y ninguna de más (una carta repetida por versiones con la MISMA
+    // clave, o una teja de otra página, sale aquí). Comparación de multiconjuntos, no de conjuntos.
+    const tilesOf = (html: string) => [...html.matchAll(TILE_NAME_HREF)].map((m) => m[1]).sort();
+    expect(tilesOf(cat.html), 'tejas de /es/catalog = grupos de la página 1').toEqual(
+      first.data.map((g) => tileHref(g)).sort(),
+    );
     expect(visibleText(cat.html)).not.toContain(t('es', 'catalog.emptyTitle'));
     // Criterio 950: no dice «Sin publicaciones disponibles» (la rama `=0` del conteo) si hay publicaciones.
     const zeroCount = /=0 \{([^}]*)\}/.exec(t('es', 'catalog.piecesAvailable'))![1];
@@ -425,8 +452,9 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     const second = await api<{ data: Group[] }>('/catalog/cards?sort=newest&page=2');
     const p2 = await raw(request, '/es/catalog?page=2');
     expect(p2.status).toBe(200);
-    const p2Ids = new Set([...p2.html.matchAll(/href="\/es\/catalog\/([0-9a-f-]{36})"/g)].map((m) => m[1]));
-    expect([...p2Ids].sort()).toEqual([...new Set(second.data.map((g) => g.card.id))].sort());
+    expect(tilesOf(p2.html), 'tejas de /es/catalog?page=2 = grupos de la página 2').toEqual(
+      second.data.map((g) => tileHref(g)).sort(),
+    );
     // ARCHITECTURE §13.8 (d) (v1.115, TL-MKT2-7): la página 1 canoniza a `/catalog`; la 2 sin filtros, a sí misma si
     // existe; fuera de rango, `/catalog` + `noindex, follow`.
     const canonicalOf = (html: string) => headTag(html, /<link rel="canonical" href="([^"]*)"/);

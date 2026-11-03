@@ -42,11 +42,20 @@ su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cart
   (mocks), «IDS L-8» en `measurement-on.spec.ts` (mocks; `needsSeed` en real) y **`e2e/ids-real.spec.ts` `@real`**
   (siembra por API una pieza `es` de «E2E Pidgey», la retira con `error_captura` y deja el dial como estaba): facetas +
   filtro, ficha en/es, desglose de captura, dial en M10 con entrada nueva en la bitácora.
-- **Pendiente:** (a) **liga contra el stack:** el seed no trae productos `stamped` ni candidatas, y `attach` exige una
-  candidata de TCGCSV (sin salida a tcgcsv.com aquí) ⇒ 2×N, insignias de liga, «Cartas de liga y promos» e «IDS L-8»
-  solo se miden con mocks. Lo cierra backend sembrando en `seed-e2e.ts` un `CardProduct kind='stamped'` colgado de una
-  carta con `PriceReference` propia (`cardProductId`) y una pieza `en` y otra `es` publicadas de ese producto (y una
-  `StampedProductCandidate` sin colgar para `attach`). (b) **ux-ui:** texto del dial (provisional), D-IDS-6 y la leyenda
+- **`@real` que leían «la primera teja» (2026-11-03, sobre seed `a21a425a`):** `catalog-freshness`, `pricing-curve` y
+  `seo-raw-html` C2 derivan el enlace de cada teja de `e2e/utils/catalog-tile.ts` (`tileHref`: llano en inglés sin liga,
+  `?version=<versionOptionKey>` si no) y no del orden del seed. Freshness identifica el grupo por su pieza representativa
+  y exige enlace único en la página; `pricing-curve` acepta las dos fichas (una versión ⇒ «Precio de venta»; 2+ ⇒ burbuja
+  elegida = la del `?version=`, con precio, y sin precio grande, IDS-UX.8) y busca una ficha de una versión para el rótulo
+  de IVA; C2 compara el **multiconjunto** de enlaces de nombre de teja con la API (página 1 y 2) y calienta hasta
+  `ageMs < 15 s` (la carrera de 28–30 s daba rojo 1/12; con la espera, 20/20). Mutación «pieza `es` reciente»:
+  originales 3 rojas de 7 en 3/3, nuevas 7/7 en 3/3. Canarios de producto (2/2 rojos cada uno): sin
+  `initialDataUpdatedAt` (freshness), precio grande con 2+ versiones (pricing-curve), teja con `version.key` en vez de
+  `versionOptionKey` (C2). ⚠ Con 2+ versiones la ficha a 1280 px no pinta ningún rótulo de IVA (solo la barra fija < lg); con
+  una versión sí: inconsistencia que resuelve el criterio 977 (PO/ux-ui), no esta prueba.
+- **Pendiente:** (a) **liga contra el stack:** backend ya la siembra (`E2E_IDS` en `backend/prisma/e2e-fixtures.ts`,
+  `9500e70e…a21a425a`: producto `stamped`, cuatro piezas y candidata); qué cubren hoy `ids-real` e «IDS L-8» con ella,
+  NO MEDIDO en este pase. (b) **ux-ui:** texto del dial (provisional), D-IDS-6 y la leyenda
   «Idioma» del bloque de filtros cuando solo se ofrece «Cartas de liga y promos».
 
 ## §CHK-FRICCION · Checkout con menos fricción (2026-11-02, rama `claude/checkout-friccion`, base `dbeb6111`)

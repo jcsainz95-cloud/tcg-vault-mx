@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { realOnly } from './utils/auth';
 import { apiAsOk, resolveApiBaseUrl } from './utils/env';
+import { tileHref, type TileGroupRef } from './utils/catalog-tile';
 
 /**
  * B-R2 (QA sobre `e066b0b5`, medido 10/10 y 3/3): la lista pública del catálogo se cachea en la caché de datos de Next
@@ -18,12 +19,17 @@ import { apiAsOk, resolveApiBaseUrl } from './utils/env';
  *
  * Mutación que lo pone rojo (FRONTEND_NOTES §MKT-R2B): quitar `initialDataUpdatedAt` del `useQuery` de `CatalogView`
  * ⇒ la teja se queda con el precio viejo.
+ *
+ * §IDS.5 (v1.116.3): una carta puede tener VARIAS tejas (una por versión y acabado) y la de una versión `es` o de liga
+ * enlaza con `?version=<versionOptionKey>`. El grupo se identifica por su pieza representativa (una sola pieza ⇒ no
+ * cambia al bajar el precio) y la teja por SU enlace (`tileHref`), exigiendo que ninguna otra teja de la página lo
+ * comparta: así la prueba no depende de qué versión siembre primero el seed ni de que la primera teja sea inglesa.
  */
 
 const REVALIDATE_S = 30;
 const IDLE_MS = (REVALIDATE_S + 6) * 1000;
 
-interface Group {
+interface Group extends TileGroupRef {
   representativeInventoryItemId: string;
   productType: 'raw' | 'graded';
   stockCount: number;
@@ -40,9 +46,9 @@ async function publicGet<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** El texto de la teja de `cardId` (el bloque que contiene el enlace por nombre). */
-function tile(page: Page, cardId: string) {
-  return page.locator('main div.flex.flex-col', { has: page.locator(`p a[href="/es/catalog/${cardId}"]`) }).first();
+/** La teja del grupo `g` (el bloque que contiene SU enlace por nombre: llano o con `?version=`, §IDS.5). */
+function tile(page: Page, g: Group) {
+  return page.locator('main div.flex.flex-col', { has: page.locator(`p a[href="${tileHref(g)}"]`) }).first();
 }
 
 /**
@@ -56,8 +62,10 @@ async function lowerPrice(g: Group, listPath: string): Promise<{ newCents: numbe
   const before = await apiAsOk<{ listPriceCents: number | null }>('admin', 'GET', `/admin/inventory/items/${id}`);
   const lowered = Math.max(100, Math.floor((g.displayPriceCents! * 0.8) / 100) * 100 + 37);
   await apiAsOk('admin', 'PATCH', `/admin/inventory/items/${id}`, { listPriceCents: lowered });
+  // El grupo por su pieza representativa, no por la carta: la carta puede tener otra teja (otra versión, §IDS.5).
   const published = async () =>
-    (await publicGet<{ data: Group[] }>(listPath)).data.find((x) => x.card.id === g.card.id)?.displayPriceCents ?? null;
+    (await publicGet<{ data: Group[] }>(listPath)).data.find((x) => x.representativeInventoryItemId === id)
+      ?.displayPriceCents ?? null;
   await expect
     .poll(published, { message: 'el backend publica el precio nuevo', timeout: 15_000 })
     .not.toBe(g.displayPriceCents);
@@ -108,8 +116,15 @@ test.describe('@real B-R2 · una copia vieja de la caché de datos no deja un pr
     test.setTimeout(240_000);
     const listPath = '/catalog/cards?sort=newest';
     const first = await publicGet<{ data: Group[] }>(listPath);
-    const g = first.data.find((x) => x.displayPriceCents != null && x.stockCount === 1);
-    expect(g, 'el catálogo trae un grupo de UNA pieza con precio').toBeTruthy();
+    // Un grupo de UNA pieza con precio cuya teja sea la ÚNICA con ese enlace en la página (dos acabados de la misma
+    // versión comparten enlace y `.first()` podría leer la otra teja).
+    const g = first.data.find(
+      (x) =>
+        x.displayPriceCents != null &&
+        x.stockCount === 1 &&
+        first.data.filter((y) => tileHref(y) === tileHref(x)).length === 1,
+    );
+    expect(g, 'el catálogo trae un grupo de UNA pieza con precio y enlace propio').toBeTruthy();
     const oldText = fmt(g!.displayPriceCents!);
 
     // Calentar: dos visitas (la primera puede servir una copia vencida y releer en segundo plano).
@@ -126,7 +141,7 @@ test.describe('@real B-R2 · una copia vieja de la caché de datos no deja un pr
       const res = await page.goto('/es/catalog');
       const served = (await res!.text()) ?? '';
       expect(served, 'el escenario se reprodujo: el servidor sirvió la copia VIEJA').toContain(oldText);
-      await expect(tile(page, g!.card.id), 'la teja muestra el precio que se cobra').toContainText(fmt(newCents), {
+      await expect(tile(page, g!), 'la teja muestra el precio que se cobra').toContainText(fmt(newCents), {
         timeout: 10_000,
       });
       expect(reads.length, 'la vista releyó la rejilla al hidratar').toBeGreaterThan(0);
