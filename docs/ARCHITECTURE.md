@@ -6,6 +6,7 @@
 > ---
 > **Errata v1.116.1⟨checkout-friccion⟩ (2026-11-02).** §4.47.4: a la libreta solo la dirección de un pedido cobrado, nunca predeterminada; el aviso solo lista cobrados; candado de la libreta también en las altas del cliente; §9 `D-CLM-55` (PT-CHK-1/2/3) y `D-CLM-56` · pentester (`f2e1de9c`).
 > **Rev v1.116⟨checkout-friccion⟩ (2026-11-02).** §4.47.4: la dirección del invitado pasa a la libreta al ganar el reclamo (sin migración); §14.5: `begin_checkout` al pulsar PAGAR y `add_payment_info` al abrir el modal de Stripe; §14.9: pagos iniciados/pagados de BD (a6); §9 `D-CLM-54`, `D-MKT-BC`; compactadas las cabeceras C7 v1.80.1.1 y ⟨dinero⟩ v1.80.2.2 · dueño (`HECHOS.md` 2026-11-02 «Checkout con menos captura: paquete A…» (3)), QA de marketing. Contrato: API_CONTRACT §4-G.9c, §MKT.H.4, §MKT.G.4 a6.
+> **Errata v1.116.2⟨ids⟩ (2026-11-03).** [§15](#15-IDS): §15.0 con lo medido por devops; D-IDS-1 por falla cerrada (Q1 antes de fusionar), D-IDS-2 cerrada, D-IDS-7 nueva (22872/24451 fuera); D-IDS-F con precedencia; D-IDS-N con Cosmos Reverse · devops (`DEVOPS_NOTES §108.4`), frontend (`§IDS-FE`), dueño (`HECHOS.md` 2026-11-03 «El dueño no ha subido cartas promo»). Contrato: API_CONTRACT §IDS.2–.5, .7, .9, .11.
 > **Errata v1.116.1⟨ids⟩ (2026-11-02).** [§15](#15-IDS): D-IDS-N (`FinishLabel`, clave cerrada con texto por i18n; Cosmos Holo por el nombre del producto) y D-IDS-O (`versions[]` por producto de liga × acabado, `optionKey`, orden del servidor); D-IDS-4 y D-IDS-5 cerradas; D-IDS-6 nueva · marketing vía dueño (`HECHOS.md` 2026-11-02 «§IDS v5 2×N…»), ux-ui (IDS-UX.7 petición 6). Contrato: API_CONTRACT §IDS.4/.5, IDS-B18/B19.
 > **Rev v1.116⟨ids⟩ (2026-11-02).** [§15](#15-IDS) NUEVA: español y versiones de liga — idioma como columna de la pieza, liga como `CardProduct` `stamped`, precio por sustitución de la referencia en el cuerpo único, empate automático sin cola, ficha por carta con versiones, surtido de Meta decks sin liga primero; D-IDS-1…5 y P-ARQ-IDS-1/2; §4.33 compactada (superseded) · dueño (`HECHOS.md` 2026-10-30 y 2026-11-01/02, filas §IDS), marketing (D-6 v3, burbujas). Contrato: API_CONTRACT §IDS.
 > **Rev v1.115⟨mkt-conv2⟩ (2026-10-31).** §13.8 NUEVA (sellado agotado por grupo, `Offer` agotado sin precio, correo público, canonical paginado); §4.DYN (f) 2 regla de la respuesta tardía, (f) 3 corregido (el HTML no tiene cota de edad), (f) 9 dato servidor→cliente con su edad; §14.4 `/nosotros` excluida; compactadas las cabeceras C7/P-71 · frontend (§MKT-CONV2), techlead (TL-MKT2-7/8, TL-MKT4-3). Contrato: API_CONTRACT §MKT.A.1.
@@ -36910,7 +36911,7 @@ que no pasa por el interruptor**: acotada a `super_admin`, 5/h, bitácora y ning
 - **seguridad** (antes de encender): diff de etiquetas, rutas excluidas, checkout de invitado con etiquetas, configuración real del píxel y de
   GA4 en sus consolas, riesgo residual de §MKT.G.10 y el endpoint de prueba de D-MKT2-10.
 
-## <a id="15-IDS"></a>15. §IDS — cartas en español y versiones de liga (rev v1.116.1⟨ids⟩, 2026-11-02, arquitecto)
+## <a id="15-IDS"></a>15. §IDS — cartas en español y versiones de liga (rev v1.116.2⟨ids⟩, 2026-11-03, arquitecto)
 
 > Norma, esquema `M-95`, endpoints, pruebas y reparto: **API_CONTRACT §IDS**. Aquí: estado medido, decisiones con su razón, flujo,
 > despliegue, desviaciones y preguntas. Fuentes del dueño y de marketing: las de API_CONTRACT §IDS (cabecera), citadas por fila (O-17).
@@ -36927,10 +36928,12 @@ Leído en el árbol `claude/ids-diseno` (sin ejecutar; sha no comprobado: no ten
 - **Meta decks:** `decks-meta.service.ts:160-171` toma las primeras `quantity` unidades de `getSellableRawUnitsByCardIds` (más baratas primero).
 - **Investigaciones** (2026-10-06): `docs/specs/INVESTIGACION_SELLOS.md` (22880 = 891 productos; empate único 818/849; liga/base de ×0.81 a
   ×11.1, N=102) e `INVESTIGACION_IDIOMAS.md` (ninguna fuente abierta da precio del español; en Cardmarket es el mismo producto).
-- **NO MEDIDO**, con lo que lo cierra: empate y sufijos de `1539` (IDS-D1); promos SVP/MEP en el catálogo para prerelease/Staff (IDS-D2);
-  piezas promo o Deck Exclusive a la venta en producción (IDS-D1); de qué columna sale el «057/191» de nuestro lado (backend, fixture de
-  IDS-B7); imagen del producto de liga en TCGCSV (fuera de esta entrega: D-7 de marketing usa la del catálogo con leyenda); `subTypeName` de
-  los 181 productos «(Cosmos Holo)» y filas de liga (producto × acabado) por carta en el peor caso (las dos, IDS-D1).
+- **Medido por devops** (TCGCSV público, 2026-11-02, N = todos los productos, `DEVOPS_NOTES §108`): empate único 22880 765/849 y 1539
+  351/475 (sin tipo 115 de 620); Cosmos 189 (185 Holofoil, 4 Reverse); filas de liga por carta p90 2, máx 6; 22872/24451 sin base ni
+  promos en el catálogo. El número del lado nuestro sale del nombre del producto o de `Card.number`/`printedTotal` (backend, IDS-B7).
+- **NO MEDIDO**, con lo que lo cierra: piezas `promo`/`deck_exclusive` vendibles en producción (Q1 de `scripts/ids/ids-d1-produccion.sql`;
+  el dueño dice 0 promo, `HECHOS.md` 2026-11-03); tasa real de empate contra el catálogo de producción (el log `stamped-ingest` del primer
+  barrido); imagen del producto de liga (fuera: D-7 de marketing usa la del catálogo).
 
 ### 15.1 Decisiones
 | ID | Decisión | Por qué | Descartado |
@@ -36940,7 +36943,7 @@ Leído en el árbol `claude/ids-diseno` (sin ejecutar; sha no comprobado: no ten
 | D-IDS-C | **Versión de la pieza = (`language`, `cardProductId` si es `stamped`)**; sin columna nueva para la liga | M-46 ya guarda la identidad de producto de la pieza: una segunda columna serían dos fuentes del mismo hecho | `InventoryItem.stampedProductId` |
 | D-IDS-D 💰 | El precio de una versión **sustituye la referencia de entrada** del cuerpo único (DYN.5.1), antes de la curva | «Las demás dinámicas funcionan igual» (HECHOS 2026-10-30): X va al mercado y después piso, curva, IVA y precio del día como cualquier carta; un segundo cuerpo es un defecto (DYN.5.1). El español toma `R_en` ya retenido, así hereda el candado del inglés | Multiplicar `P` (rompe piso y redondeo); segundo cálculo |
 | D-IDS-E | **Empate automático**: único ⇒ se cuelga; ambiguo ⇒ candidatas que elige quien captura (identidad, no precio); ninguno ⇒ no existe | HECHOS 2026-10-30 «TODO automático…»: sin reporte ni cola. Prize Pack: 96 % único. La carta en la mano es la única información que nadie más tiene | Reporte «Sellos por revisar» (retirado por el dueño); adivinar el set por el total («/189» choca) |
-| D-IDS-F | **Tipo por sufijo, fallando cerrado** | Un campeonato nunca dice «De liga» (D-6 v3, MKT-3). Sin sufijo reconocible no se ofrece; el costo se mide antes (IDS-D1) | Suponer `league` para todo `1539` |
+| D-IDS-F | **Tipo por sufijo, fallando cerrado; precedencia `staff` > `prerelease` > `championship` > `league`** | Un campeonato nunca dice «De liga» (D-6 v3, MKT-3). «(League Cup) [Staff]» es otro producto físico, el de Staff. Costo medido: 46 productos de 1539 con número y sin tipo («Play! Pokemon», «Cosmos Holo», sin etiqueta) no se ofrecen | Suponer `league` para todo `1539`; empatar por número sin total |
 | D-IDS-G | Productos de liga **sin candado anti-inflado** (§4.PRE) | Igual que las promos hoy: la retención mira variantes sin producto (DYN.5.9) y la liga tiene una sola familia (TCGplayer). Costo declarado en §15.6 | Ampliar §4.PRE ahora (errata aparte si duele) |
 | D-IDS-H | **Teja por versión; ficha por carta** con `versions[]`; el servidor omite las agotadas; `?version=` con canonical a la base; JSON-LD `ProductGroup` | Marketing D-2, D-3 y filas 9–11 (delegado por el dueño, HECHOS 2026-11-01); Google: una URL canónica por grupo de variantes y marcado igual a lo visible. Omitir en el servidor reusa el `stockCount ≥ 1` de la rejilla | URL indexable por versión; `hreflang` por idioma de carta |
 | D-IDS-I 💰 | **Surtido de Meta decks: sin liga primero** (inglés o español, más barata), liga solo si no alcanza; lo ordena backend | P-IDS-12 de marketing: una liga automática multiplica el total (mediana ×2.15, p90 ×11.1). El precio de la línea es el de la pieza que agrega el botón (965) | «La más barata sea cual sea» |
@@ -36948,7 +36951,7 @@ Leído en el árbol `claude/ids-diseno` (sin ejecutar; sha no comprobado: no ten
 | D-IDS-K | **Solo raw NM** en esta entrega | `PROJECT §IDS` no dice cómo se precia un slab o un sellado en español; PSA × 75 % sería inventar (P-ARQ-IDS-1) | Graded/sealed en español |
 | D-IDS-L | **Sin override de variante (M-30) ni bounty** para versiones | Su clave es la de la inglesa; aplicarlo cobraría el precio del inglés. Respaldo: precio por pieza | Clave de override con versión (sin pedido del dueño) |
 | D-IDS-M | **Dial X entero en M10** (`spanish_market_pct`) | Patrón de `iva_pct`: auditado, sin redeploy, `dial_change` inmediato; «me lo dejas en algún lugar a mover» (HECHOS 2026-10-30) | Constante; decimales |
-| D-IDS-N | **`finishLabel` es una clave cerrada (`FinishLabel`) que calcula backend** con `finishLabelOf(finish, stampLabel)`; el texto («No holo», «Holo», «Cosmos Holo») es i18n de frontend | El `finish` no distingue Cosmos Holo (TCGplayer la publica como otro `productId`; que su `subTypeName` sea `Holofoil`: NO MEDIDO, IDS-D1): lo dice el nombre del producto, que IDS.3 ya guarda en `stampLabel`. Clave y no texto porque `GroupedListingSummaryDTO` sirve Destacadas, cuya respuesta no puede depender del idioma (DYN I-2), y porque `language`/`type` ya siguen ese patrón. IDS-UX.7 petición 6 pedía texto de backend «como `versionInternalLine`»: esa línea es interna y de un solo idioma; esta no | Texto traducido por el servidor; `Finish` nuevo `cosmos_holo` (mezcla acabado de TCGplayer con producto y tocaría `Card.availableFinishes`, binder y buylist) |
+| D-IDS-N | **`finishLabel` es una clave cerrada (`FinishLabel`) que calcula backend** con `finishLabelOf(finish, stampLabel)`; el texto («No holo», «Holo», «Cosmos Holo») es i18n de frontend; el nombre manda sobre el acabado | El `finish` no distingue Cosmos Holo (TCGplayer la publica como otro `productId`; medido: 185 Holofoil y 4 Reverse Holofoil, uno por producto, así que no hay dos filas Cosmos de un producto): lo dice el nombre del producto, que IDS.3 ya guarda en `stampLabel`. Clave y no texto porque `GroupedListingSummaryDTO` sirve Destacadas, cuya respuesta no puede depender del idioma (DYN I-2), y porque `language`/`type` ya siguen ese patrón. IDS-UX.7 petición 6 pedía texto de backend «como `versionInternalLine`»: esa línea es interna y de un solo idioma; esta no | Texto traducido por el servidor; `Finish` nuevo `cosmos_holo` (mezcla acabado de TCGplayer con producto y tocaría `Card.availableFinishes`, binder y buylist) |
 | D-IDS-O | **`versions[]`: una entrada por (producto de liga × acabado) y una por versión sin liga**, con `optionKey` estable (`es.703819.holofoil`) y el orden de la cuadrícula dado por el servidor | Marketing B (2×N): la fila es producto × acabado y su precio difiere por acabado (K lleva `finish`). La versión sin liga no se parte: su acabado ya se elige en «Ejemplares disponibles» y partirla volvería 2×N toda carta con reverse. Clave estable para enlaces de teja, `?version=` y `sku` | `version.key` con acabado (cambia `variantKey` y M-95); clave que dependa de la existencia |
 
 ### 15.2 Flujo
@@ -36973,20 +36976,26 @@ Checkout:   cobra la fila; pending ⇒ PRICE_PENDING nombrando la versión; Orde
 ### 15.4 Desviaciones detectadas (§IDS)
 - **D-IDS-1 💰 Promo y Deck Exclusive se precian y agrupan como la carta base.** `sale-decision.service.ts:200-207` y `pricing.service.ts:1210-1211`:
   una pieza con `cardProductId` de un `promo`/`deck_exclusive` toma la referencia del `set_base`, aunque §4.27 (M-31) los declara productos con
-  precio propio; la rejilla la agrupa con la base (K sin producto, API_CONTRACT §2). Leído; NO MEDIDO con ejecución ni en datos. **Lo corrige
-  backend** con el mismo mecanismo de IDS.2 `(en, P)` **solo si IDS-D1 da 0 piezas vendibles** de esos kinds; si da más, cambiar su precio es
-  decisión del dueño con la lista delante (va en la solicitud de fusión). Prueba **IDS-B17** (se escribe con esa decisión: una pieza `promo`
-  con mercado propio distinto ⇒ su precio, no el de la base); la vigila también IDS-B1 (que §IDS no la cambie a medias).
-- **D-IDS-2 (medición pedida al arquitecto):** `PROJECT §IDS.3` pedía medir el empate de `1539` antes del diseño; no lo medí (sin Bash ni red).
-  El diseño no depende del número (ambiguo y ninguno tienen camino), el caso del criterio 960 sí. **Lo corrige devops** (IDS-D1); con el
-  resultado, **product-owner** elige el caso del 960.
+  precio propio; la rejilla la agrupa con la base (K sin producto, API_CONTRACT §2). Leído; NO MEDIDO con ejecución. **Decidido (v1.116.2):**
+  **falla cerrada**, no precio propio: esa pieza queda `pending` (API_CONTRACT §IDS.2 «Producto separado»). Precio propio exigiría agrupación y
+  versión para promos, que es vender promos: trabajo nuevo que el dueño no ha pedido (`HECHOS.md` 2026-11-03 «El dueño no ha subido cartas
+  promo»; además la captura no ofrece sets de promos, `DEVOPS_NOTES §108.2`). **Sin cambiar precios publicados: confirmado solo si Q1 da 0** en esos kinds.
+  La palabra del dueño cubre los sets de promos, no una pieza de un set normal con producto `promo`/`deck_exclusive` (p. ej. «(Prerelease)»
+  dentro del grupo del set, que `classifyCardProductKind` clasifica `promo`): Q1 es **condición bloqueante de la solicitud de fusión**; si da
+  > 0, la lista Q1b va en la solicitud y esas piezas se despublicarían al desplegar (decide el dueño). **Lo corrige backend** (IDS-B17); la
+  vigila también IDS-B1.
+- **D-IDS-2 — CERRADA (v1.116.2):** devops midió (§15.0); product-owner elige el caso del 960 (candidato `209911`, `DEVOPS_NOTES §108.1`).
+- **D-IDS-7 (nueva) 22872/24451 fuera de §IDS:** IDS.3 decía «cambiar la constante»; devops midió que no basta (sin promos ME en
+  pokemontcg.io, `svp` sin grupo por nombre, 50/70 sin producto base, colisión con `promo` existente). Se retira de esta entrega; el paso cuenta
+  la colisión como `ocupados`. Se diseña con el pedido del dueño de vender promos. Backend corrige el comentario de `STAMPED_SOURCE_GROUPS`.
 - **D-IDS-3 (texto de `PROJECT`):** §IDS.3/.4 y los criterios 521, 526 y 961 dicen «sello», «Con sello · <tipo>» y filtro «con sello»; `HECHOS`
   2026-11-02 (D-6 v3) los sustituye por «de liga» y «Cartas de liga y promos». El 966 sigue como SUPUESTO aunque marketing ya decidió P-IDS-12.
   El 527 conserva «Sello» (admin). **Lo corrige product-owner**; lo vigila IDS-F6 (grep de «sello» en superficies de cliente).
 - **D-IDS-4 — CERRADA (v1.116.1):** ux-ui (vIDS-5) adoptó la regla de marketing; norma en API_CONTRACT §IDS.5 «Preselección» (teja tocada por
   `optionKey`; sin parámetro, `en` si hay, si no la más barata). La vigila IDS-F3.
 - **D-IDS-5 — CERRADA (v1.116.1):** marketing eligió B (2×N, `HECHOS.md` 2026-11-02 «§IDS v5 2×N…»; IDS-UX.8); el contrato la sirve con
-  D-IDS-N y D-IDS-O. Quedan dos cuentas en IDS-D1 (Cosmos `subTypeName`, filas por carta). La vigilan IDS-B18, IDS-F1 e IDS-F3.
+  D-IDS-N y D-IDS-O. Cuentas cerradas por devops: Cosmos (D-IDS-N) y filas por carta (máx 6, no ≤ 4: sin tope en el contrato; ux-ui
+  confirma 2×N con 6 filas a 360 px). La vigilan IDS-B18, IDS-F1 e IDS-F3.
 - **D-IDS-6 (rótulo de dos filas iguales):** dos productos de liga del mismo tipo y el mismo `finishLabel` («Left/Right Stamp», 3 productos;
   series 6/7, 2 cartas; INVESTIGACION_SELLOS §1) dan dos filas con el mismo rótulo. El contrato las mantiene separadas y da `stamp.label`
   (texto del proveedor en inglés: «Left Stamp», «Prize Pack Series 6»). **Lo decide ux-ui con marketing** (cómo se nombra sin «sello»);
@@ -37002,6 +37011,8 @@ Checkout:   cobra la fila; pending ⇒ PRICE_PENDING nombrando la versión; Orde
 ### 15.6 Riesgos declarados
 - **Liga sin candado y con una sola fuente** (D-IDS-G): un salto de TCGplayer en un producto de liga se publica en el siguiente `daily`. Se mide
   con el log del paso (`conPrecio`) y, si aparece, va a TECH_DEBT con su prueba.
-- **Sufijos de `1539`:** si la mayoría no trae sufijo (IDS-D1), las cartas de liga del dueño no se ofrecerán; se reabre D-IDS-F con el dato, sin
-  cambiar el resto del diseño.
+- **Sufijos de `1539`:** medido, 115/620 sin tipo (46 con número). Si el dueño tiene una de esas, no se ofrecerá; se reabre D-IDS-F con el
+  producto concreto, sin cambiar el resto del diseño.
+- **Empate contra producción:** la tasa de §15.0 es contra pokemontcg.io, no contra el catálogo real (`pptSetId`: NO MEDIDO); la da el log
+  `stamped-ingest` del primer barrido.
 - **Reversa** (§15.3) y **anchos de insignias y burbujas a 360 px** (NO MEDIDOS; candados de IDS-UX.6/.8, frontend).
