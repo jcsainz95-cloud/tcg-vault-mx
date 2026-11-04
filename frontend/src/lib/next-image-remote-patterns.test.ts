@@ -48,6 +48,9 @@ import { ImageOptimizerCache } from 'next/dist/server/image-optimizer.js';
 // copia local se quedaría en verde mientras `next.config.mjs` se pudre.
 import nextConfig, { REMOTE_PATTERNS, remotePatternsFor } from '../../next.config.mjs';
 import { imageOptimizerKillSwitchOf, leadImageOptimized } from './image-optimizer-switch.mjs';
+// Estático (no dinámico): los bloques de arriba hacen `vi.resetModules()`, y una importación dinámica posterior daría
+// OTRA instancia del módulo; la paridad de abajo compara identidad de objetos.
+import * as optimizerHosts from './image-optimizer-hosts.mjs';
 import { renderWithProviders } from '@/test/render';
 import { applyNextImageConfig } from '@/test/next-image-config';
 import { stripComments } from '@/test/strip-comments';
@@ -464,5 +467,76 @@ describe('Interruptor §4.DYN (f) 7 · encendido, /_next/image no acepta ningún
     // 2026-11-04: dos usos (líder y tejas de Destacadas), LOS DOS colgados del interruptor; un tercero o uno sin
     // `leadImageOptimized()` lo pone rojo.
     expect(code.match(/\boptimized\b[^\n]*/g)).toEqual(['optimized={leadImageOptimized()}', 'optimized={leadImageOptimized()}']);
+  });
+});
+
+/**
+ * 🔒 DYN-F10 · Hosts en el cliente — `CardImage` solo pide `/_next/image` si el ORIGEN de `src` está en `remotePatterns`
+ * (medido 2026-11-04: un origen fuera de la lista ⇒ 400 + respaldo a la original, dos peticiones por foto). La lista
+ * que consulta el cliente (`image-optimizer-hosts.mjs`) es LA MISMA que aplica `next.config.mjs` (re-exportada, no
+ * copiada); aquí se mide la paridad con `remotePatternsFor()` y con el matcher de Next, y que el interruptor la vacía.
+ * Mutación medida: una lista a mano en `image-optimizer-hosts.mjs` con un host de más o de menos ⇒ rojo.
+ */
+describe('DYN-F10 · hosts del cliente == remotePatterns del servidor', () => {
+  const KEY = 'NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH';
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('next.config.mjs re-exporta la lista del módulo del cliente (una fuente, no dos)', async () => {
+    const hosts = optimizerHosts;
+    expect(hosts.REMOTE_PATTERNS).toBe(REMOTE_PATTERNS);
+    expect(hosts.remotePatternsFor).toBe(remotePatternsFor);
+    expect(remotePatterns).toBe(REMOTE_PATTERNS);
+  });
+
+  it('imageOptimizerOrigins() == orígenes de remotePatternsFor() (sin comodines: la comparación exacta ES la de Next)', async () => {
+    const { imageOptimizerOrigins } = optimizerHosts;
+    const esperados = [
+      ...new Set(remotePatternsFor({}).map((p) => `${p.protocol}://${p.hostname}${p.port ? `:${p.port}` : ''}`)),
+    ];
+    expect(imageOptimizerOrigins({})).toEqual(esperados);
+    expect(imageOptimizerOrigins()).toEqual(esperados);
+    expect(esperados.length).toBeGreaterThan(0);
+    for (const p of remotePatterns) expect(p.hostname, `hostname de ${p.hostname}`).not.toMatch(/[*?+@!()[\]{}]/);
+  });
+
+  it('interruptor encendido ⇒ ninguna URL va al optimizador desde el cliente', async () => {
+    const { imageOptimizerOrigins, imageOptimizerAccepts } = optimizerHosts;
+    expect(imageOptimizerOrigins({ [KEY]: 'on' })).toEqual([]);
+    vi.stubEnv(KEY, 'on');
+    expect(imageOptimizerOrigins()).toEqual([]);
+    for (const url of [...HOSTS_QUE_DEBEN_PASAR, 'https://images.scrydex.com/e2e/e2e-charizard.png']) {
+      expect(imageOptimizerAccepts(url), url).toBe(false);
+    }
+  });
+
+  it('imageOptimizerAccepts: acepta todo lo que acepta el matcher de Next; rechaza hosts hostiles, http y otro puerto', async () => {
+    const { imageOptimizerAccepts } = optimizerHosts;
+    const legitimas = [
+      ...HOSTS_QUE_DEBEN_PASAR,
+      'https://images.pokemontcg.io/base1/4.png',
+      'https://images.scrydex.com/pokemon/me3-1/small',
+      'https://images.scrydex.com/e2e/e2e-charizard_hires.png',
+    ];
+    for (const url of legitimas) {
+      expect(optimizerWouldAccept(url), `control: Next acepta ${url}`).toBe(true);
+      expect(imageOptimizerAccepts(url), `DEBE aceptar ${url}`).toBe(true);
+    }
+    const hostiles = [
+      'https://img.e2e.local/e2e-charizard.png', // el seed sintético sin reescribir (arnés DYN-D3)
+      'https://evil.example/payload.avif',
+      'https://images.pokemontcg.io.evil.example/x.png',
+      'https://cdn.images.scrydex.com/x.png',
+      'https://images.pokemontcg.io@evil.example/x.png',
+      'https://images.pokemontcg.io:8443/base1/4.png',
+      'http://images.pokemontcg.io/base1/4.png',
+      'http://images.scrydex.com/pokemon/me3-1/large',
+      `https://h${Math.random().toString(36).slice(2)}.example/x.png`,
+      'no-es-una-url',
+      '',
+    ];
+    for (const url of hostiles) {
+      expect(imageOptimizerAccepts(url), `NO debe aceptar «${url}»`).toBe(false);
+      if (/^https?:\/\//.test(url)) expect(optimizerWouldAccept(url), `control: Next tampoco acepta ${url}`).toBe(false);
+    }
   });
 });

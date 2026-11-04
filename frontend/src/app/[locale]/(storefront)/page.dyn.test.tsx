@@ -46,8 +46,8 @@ function card(id: string): CardDTO {
     subtypes: [],
     setId: 's1',
     setName: 'Set', setPtcgoCode: null,
-    imageSmallUrl: `https://img.example/${id}-s.png`,
-    imageLargeUrl: `https://img.example/${id}-l.png`,
+    imageSmallUrl: `https://images.pokemontcg.io/t/${id}-s.png`,
+    imageLargeUrl: `https://images.pokemontcg.io/t/${id}-l.png`,
     availableFinishes: ['normal'],
   };
 }
@@ -102,7 +102,7 @@ describe('DYN-F2 · la portada sale del servidor con Destacadas en el HTML', () 
     expect(html).toMatch(/id="piezas-destacadas-pista"/);
     const track = html.slice(html.indexOf('id="piezas-destacadas-pista"'));
     // §DYN.6.6 (opción A): la foto grande de la líder viaja por `/_next/image` (su parámetro `url`).
-    expect(track).toMatch(/<img[^>]*src="\/_next\/image\?url=https%3A%2F%2Fimg\.example%2Ff0-l\.png&amp;/);
+    expect(track).toMatch(/<img[^>]*src="\/_next\/image\?url=https%3A%2F%2Fimages\.pokemontcg\.io%2Ft%2Ff0-l\.png&amp;/);
     expect(track).toContain('Recién llegada');
     expect(html).not.toContain('data-testid="featured-frame"');
     // La lectura de servidor usa la caché de datos de Next (30 s, etiqueta `featured`) — mismos endpoints que el cliente.
@@ -163,10 +163,10 @@ describe('DYN-F2 · el cargador de servidor', () => {
   });
 
   it('`leadImageOf`: la foto grande de la teja 1, o la chica si no hay grande', () => {
-    expect(leadImageOf({ businessDate: 'x', data: FEATURED })).toBe('https://img.example/f0-l.png');
+    expect(leadImageOf({ businessDate: 'x', data: FEATURED })).toBe('https://images.pokemontcg.io/t/f0-l.png');
     expect(
       leadImageOf({ businessDate: 'x', data: [{ ...FEATURED[0], card: { ...FEATURED[0].card, imageLargeUrl: null as unknown as string } }] }),
-    ).toBe('https://img.example/f0-s.png');
+    ).toBe('https://images.pokemontcg.io/t/f0-s.png');
     expect(leadImageOf(null)).toBeNull();
     expect(leadImageOf({ businessDate: null, data: [] })).toBeNull();
   });

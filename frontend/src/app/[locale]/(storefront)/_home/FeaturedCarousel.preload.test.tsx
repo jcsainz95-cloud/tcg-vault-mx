@@ -36,8 +36,8 @@ function tile(i: number): FeaturedListingDTO {
     subtypes: [],
     setId: 's1',
     setName: 'Set', setPtcgoCode: null,
-    imageSmallUrl: `https://img.example/${i}-s.png`,
-    imageLargeUrl: `https://img.example/${i}-l.png`,
+    imageSmallUrl: `https://images.pokemontcg.io/t/${i}-s.png`,
+    imageLargeUrl: `https://images.pokemontcg.io/t/${i}-l.png`,
     availableFinishes: ['normal'],
   };
   return {
@@ -75,7 +75,7 @@ describe('§DYN.6.2 · precarga de la foto líder', () => {
         { as: 'image', imageSrcSet: img.getAttribute('srcset'), imageSizes: img.getAttribute('sizes'), fetchPriority: 'high' },
       ],
     ]);
-    expect(new URL(preload.mock.calls[0][0], 'http://t.test').searchParams.get('url')).toBe('https://img.example/0-l.png');
+    expect(new URL(preload.mock.calls[0][0], 'http://t.test').searchParams.get('url')).toBe('https://images.pokemontcg.io/t/0-l.png');
   });
 
   it('sin datos no precarga nada', async () => {

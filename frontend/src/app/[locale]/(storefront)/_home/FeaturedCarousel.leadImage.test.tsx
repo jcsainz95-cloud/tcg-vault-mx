@@ -44,7 +44,7 @@ beforeAll(() => {
 });
 afterAll(() => restoreImageConfig());
 
-function card(i: number, large: string | null = `https://img.example/${i}-l.png`): CardDTO {
+function card(i: number, large: string | null = `https://images.pokemontcg.io/t/${i}-l.png`): CardDTO {
   return {
     id: `c-${i}`,
     externalId: `x-${i}`,
@@ -56,7 +56,7 @@ function card(i: number, large: string | null = `https://img.example/${i}-l.png`
     setId: 's1',
     setName: 'Set',
     setPtcgoCode: null,
-    imageSmallUrl: `https://img.example/${i}-s.png`,
+    imageSmallUrl: `https://images.pokemontcg.io/t/${i}-s.png`,
     imageLargeUrl: large as string,
     availableFinishes: ['normal'],
   };
@@ -111,13 +111,13 @@ describe('DYN-F8 (a) · la teja líder por /_next/image; nada más', () => {
     const lead = await screen.findByAltText('Carta 0');
 
     const src = optimizer(lead.getAttribute('src'));
-    expect(src?.searchParams.get('url')).toBe('https://img.example/0-l.png');
+    expect(src?.searchParams.get('url')).toBe('https://images.pokemontcg.io/t/0-l.png');
     expect(src?.searchParams.get('q')).toBe('75');
     const srcset = (lead.getAttribute('srcset') ?? '').split(',').map((s) => s.trim().split(/\s+/));
     expect(srcset.map(([, w]) => w)).toEqual(['384w', '640w']);
     for (const [u, w] of srcset) {
       const p = optimizer(u);
-      expect(p?.searchParams.get('url')).toBe('https://img.example/0-l.png');
+      expect(p?.searchParams.get('url')).toBe('https://images.pokemontcg.io/t/0-l.png');
       expect(`${p?.searchParams.get('w')}w`).toBe(w);
     }
     expect(lead.getAttribute('sizes')).toBe('(min-width: 1024px) 376px, 212px');
@@ -130,7 +130,7 @@ describe('DYN-F8 (a) · la teja líder por /_next/image; nada más', () => {
     vi.spyOn(api, 'getFeatured').mockResolvedValue({ businessDate: '2026-10-30', data: [tile(0, null), tile(1)] });
     renderWithProviders(<FeaturedCarousel />, 'es');
     const lead = await screen.findByAltText('Carta 0');
-    expect(optimizer(lead.getAttribute('src'))?.searchParams.get('url')).toBe('https://img.example/0-s.png');
+    expect(optimizer(lead.getAttribute('src'))?.searchParams.get('url')).toBe('https://images.pokemontcg.io/t/0-s.png');
   });
 
   it('preload UNA vez, con imageSrcSet/imageSizes idénticos a los de la <img> (nunca la URL original)', async () => {
@@ -158,11 +158,11 @@ describe('DYN-F8 (a) · la teja líder por /_next/image; nada más', () => {
     for (const i of [1, 2, 3, 4]) {
       const img = screen.getByAltText(`Carta ${i}`);
       const src = optimizer(img.getAttribute('src'));
-      expect(src?.searchParams.get('url')).toBe(`https://img.example/${i}-s.png`);
+      expect(src?.searchParams.get('url')).toBe(`https://images.pokemontcg.io/t/${i}-s.png`);
       expect(src?.searchParams.get('q')).toBe('75');
       const srcset = (img.getAttribute('srcset') ?? '').split(',').map((s) => s.trim().split(/\s+/));
       expect(srcset.map(([, w]) => w)).toEqual(['384w', '640w']);
-      for (const [u] of srcset) expect(optimizer(u)?.searchParams.get('url')).toBe(`https://img.example/${i}-s.png`);
+      for (const [u] of srcset) expect(optimizer(u)?.searchParams.get('url')).toBe(`https://images.pokemontcg.io/t/${i}-s.png`);
       expect(img.getAttribute('sizes')).toBe('(min-width: 1024px) 244px, 136px');
       expect(img).not.toHaveAttribute('fetchpriority');
     }
@@ -185,9 +185,9 @@ describe('DYN-F8 (a) · la teja líder por /_next/image; nada más', () => {
       vi.spyOn(api, 'getFeatured').mockResolvedValue({ businessDate: '2026-11-04', data: [0, 1, 2].map((i) => tile(i)) });
       renderWithProviders(<FeaturedCarousel />, 'es');
       await screen.findByAltText('Carta 2');
-      expect(screen.getByAltText('Carta 0')).toHaveAttribute('src', 'https://img.example/0-l.png');
+      expect(screen.getByAltText('Carta 0')).toHaveAttribute('src', 'https://images.pokemontcg.io/t/0-l.png');
       for (const i of [1, 2]) {
-        expect(screen.getByAltText(`Carta ${i}`)).toHaveAttribute('src', `https://img.example/${i}-s.png`);
+        expect(screen.getByAltText(`Carta ${i}`)).toHaveAttribute('src', `https://images.pokemontcg.io/t/${i}-s.png`);
         expect(screen.getByAltText(`Carta ${i}`)).not.toHaveAttribute('srcset');
       }
     } finally {
@@ -229,5 +229,48 @@ describe('DYN-F8 (a) · la teja líder por /_next/image; nada más', () => {
     walk(SRC);
     // ×2 exactos: una teja cruda en Destacadas (×1) o un uso en CatalogTile (fichero extra) lo ponen rojo.
     expect(hits).toEqual(['app/[locale]/(storefront)/_home/FeaturedCarousel.tsx×2']);
+  });
+});
+
+/**
+ * 🔒 DYN-F10 · una foto cuyo ORIGEN no está en `images.remotePatterns` NO pasa por `/_next/image` (respondería 400 y
+ * la teja caería al respaldo: dos peticiones por foto, medido 2026-11-04). Líder y tejas van a nivel B directamente,
+ * sin precarga; las de host admitido de la MISMA pista siguen por el optimizador. Los orígenes son los de
+ * `image-optimizer-hosts.mjs` (fuente única con `next.config.mjs`; paridad en `next-image-remote-patterns.test.ts`).
+ */
+describe('DYN-F10 · host fuera de remotePatterns ⇒ <img> cruda, sin precarga; el resto de la pista sigue optimizado', () => {
+  const FOREIGN = 'https://img.e2e.local';
+  const foreign = (i: number): FeaturedListingDTO => {
+    const t = tile(i);
+    return { ...t, card: { ...t.card, imageSmallUrl: `${FOREIGN}/${i}-s.png`, imageLargeUrl: `${FOREIGN}/${i}-l.png` } };
+  };
+
+  it('líder de host ajeno: src = la original, sin srcset, fetchpriority=high y NINGUNA precarga', async () => {
+    vi.spyOn(api, 'getFeatured').mockResolvedValue({ businessDate: '2026-11-04', data: [foreign(0), tile(1), tile(2)] });
+    renderWithProviders(<FeaturedCarousel />, 'es');
+    const lead = await screen.findByAltText('Carta 0');
+    await screen.findByAltText('Carta 2');
+    expect(lead).toHaveAttribute('src', `${FOREIGN}/0-l.png`);
+    expect(lead).not.toHaveAttribute('srcset');
+    expect(lead).toHaveAttribute('fetchpriority', 'high');
+    expect(preload).not.toHaveBeenCalled();
+    // Las tejas de host admitido de la misma pista sí van por el optimizador.
+    for (const i of [1, 2]) {
+      expect(optimizer(screen.getByAltText(`Carta ${i}`).getAttribute('src'))?.searchParams.get('url')).toBe(
+        `https://images.pokemontcg.io/t/${i}-s.png`,
+      );
+    }
+  });
+
+  it('teja secundaria de host ajeno: cruda (sin srcset) entre tejas optimizadas; la líder sigue precargada', async () => {
+    vi.spyOn(api, 'getFeatured').mockResolvedValue({ businessDate: '2026-11-04', data: [tile(0), tile(1), foreign(2), tile(3)] });
+    renderWithProviders(<FeaturedCarousel />, 'es');
+    await screen.findByAltText('Carta 3');
+    expect(screen.getByAltText('Carta 2')).toHaveAttribute('src', `${FOREIGN}/2-s.png`);
+    expect(screen.getByAltText('Carta 2')).not.toHaveAttribute('srcset');
+    expect(screen.getByAltText('Carta 2')).toHaveAttribute('loading', 'eager');
+    for (const i of [1, 3]) expect(optimizer(screen.getByAltText(`Carta ${i}`).getAttribute('src'))).not.toBeNull();
+    expect(preload).toHaveBeenCalledTimes(1);
+    expect(optimizer(preload.mock.calls[0][0])?.searchParams.get('url')).toBe('https://images.pokemontcg.io/t/0-l.png');
   });
 });

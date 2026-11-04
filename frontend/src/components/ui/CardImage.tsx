@@ -5,6 +5,7 @@ import * as ReactDOM from 'react-dom';
 import { getImageProps } from 'next/image';
 import { cn } from '@/lib/cn';
 import { minWidthQuery } from '@/lib/breakpoints';
+import { imageOptimizerAccepts } from '@/lib/image-optimizer-hosts.mjs';
 
 /**
  * §DYN.6.6 / ARCHITECTURE §4.DYN (f) 7 — la foto de la teja LÍDER por el optimizador de Next (`/_next/image`).
@@ -77,11 +78,13 @@ export interface CardImageProps {
    */
   onLoaded?: () => void;
   /**
-   * §DYN.6.6 (opción A del dueño, `HECHOS` 2026-10-30) — SOLO la teja líder de Destacadas: pide la foto a
-   * `/_next/image` (WebP, 384/640 px) en vez de la original (PNG de 0.47–1.23 MB). Con `priority`, además la
-   * precarga con `ReactDOM.preload` sacado del MISMO `getImageProps()` que la `<img>` (precargar la original
-   * bajaría la foto dos veces). Si el optimizador falla, cae UNA vez a la original sin `srcset`; `onLoaded` se
-   * llama una sola vez, después del respaldo. Con la original también rota, el pozo queda sin imagen rota.
+   * §DYN.6.6 (opción A del dueño, `HECHOS` 2026-10-30) — SOLO Destacadas (líder y, desde 2026-11-04, sus tejas):
+   * pide la foto a `/_next/image` (WebP, 384/640 px) en vez de la original (PNG de 0.47–1.23 MB). Con `priority`,
+   * además la precarga con `ReactDOM.preload` sacado del MISMO `getImageProps()` que la `<img>` (precargar la
+   * original bajaría la foto dos veces). Si el optimizador falla, cae UNA vez a la original sin `srcset`; `onLoaded`
+   * se llama una sola vez, después del respaldo. Con la original también rota, el pozo queda sin imagen rota.
+   * DYN-F10: solo aplica si el ORIGEN de `src` está en `images.remotePatterns` (`imageOptimizerAccepts`); si no, la
+   * foto va cruda desde el principio (sin 400 ni respaldo), y con el interruptor de emergencia encendido, todas.
    * ⛔ No se usa en ninguna otra teja (DYN-F8): el resto sigue en `<img>` crudo (nivel B, §5.3).
    */
   optimized?: boolean;
@@ -126,6 +129,11 @@ export function CardImage({
   // Por foto: si la líder cambia (revalidación), la nueva vuelve a empezar por el optimizador.
   const [failure, setFailure] = useState<{ src: string; phase: 'original' | 'broken' } | null>(null);
   const phase = failure && failure.src === src ? failure.phase : 'optimized';
+  // DYN-F10: `/_next/image` solo acepta los orígenes de `images.remotePatterns` (400 a cualquier otro, y con el
+  // interruptor de emergencia a todos). Una `src` de otro origen va a nivel B DIRECTAMENTE (`<img>` cruda, sin
+  // precarga ni respaldo): pedirla al optimizador costaría un 400 y después la original, dos peticiones por foto
+  // (medido 2026-11-04, FRONTEND_NOTES §DYN.6). La lista es la MISMA que aplica `next.config.mjs`.
+  const viaOptimizer = optimized && !!src && imageOptimizerAccepts(src);
   // `onLoaded` UNA vez por foto: el respaldo y la réplica de eventos previos a la hidratación (abajo) pueden
   // ver la misma foto dos veces; la rotación (§23.3) solo necesita saber que ya no hay nada en vuelo.
   const settledFor = useRef<string | null>(null);
@@ -135,7 +143,7 @@ export function CardImage({
     settledFor.current = src ?? '';
     onLoaded?.();
   };
-  const attrs = optimized && src && phase === 'optimized' ? optimizedImageAttrs(src, alt, optimizedSizes) : null;
+  const attrs = viaOptimizer && src && phase === 'optimized' ? optimizedImageAttrs(src, alt, optimizedSizes) : null;
 
   // Precarga de la líder: mismos `src`/`srcSet`/`sizes` que la `<img>`, una vez por foto. `preload` es de React 19
   // (App Router); con el React 18 de la suite unitaria no existe y no se llama.
@@ -149,12 +157,12 @@ export function CardImage({
   }
 
   const fail = () => {
-    if (optimized && phase === 'optimized') {
+    if (viaOptimizer && phase === 'optimized') {
       // El optimizador no dio 2xx (origen caído, `sharp` ausente, cuota): `next/image` no cae solo. Una vez.
       setFailure({ src: src ?? '', phase: 'original' });
       return;
     }
-    if (optimized) setFailure({ src: src ?? '', phase: 'broken' });
+    if (viaOptimizer) setFailure({ src: src ?? '', phase: 'broken' });
     settle();
   };
   const failRef = useRef(fail);
@@ -182,7 +190,7 @@ export function CardImage({
   // Con `priority` no hay fade: la imagen se pinta en cuanto llega. Un `opacity-0` que
   // espera al `onLoad` retrasa el PINTADO (y por tanto el LCP) aunque los bytes ya estén.
   const visible = loaded || priority;
-  const showImg = !!src && !(optimized && phase === 'broken');
+  const showImg = !!src && !(viaOptimizer && phase === 'broken');
   return (
     <div className={cn('relative flex aspect-[5/7] items-center justify-center bg-surface-2 p-3', className)}>
       {/* El esqueleto pulsa SOLO mientras hay una imagen en vuelo. Sin `src` no hay nada que
@@ -195,7 +203,7 @@ export function CardImage({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           // Respaldo: `key` nuevo ⇒ elemento nuevo, sin `srcset` ni `sizes` que el navegador pudiera seguir usando.
-          key={optimized ? phase : undefined}
+          key={viaOptimizer ? phase : undefined}
           ref={replayRef}
           {...(attrs ? { srcSet: attrs.srcSet, sizes: attrs.sizes } : {})}
           src={attrs ? attrs.src : src}
