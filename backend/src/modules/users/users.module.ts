@@ -7,14 +7,17 @@ import { MePendingsController } from './me-pendings.controller';
 import { PendingsService } from './pendings.service';
 import { UploadsModule } from '../uploads/uploads.module';
 import { GeoModule } from '../shipping-provider/geo/geo.module';
+import { AuthModule } from '../auth/auth.module';
+import { MeEmailController } from './me-email.controller';
 
 @Module({
   // v1.69 (P-78, BK-4): `UploadsService` para borrar la imagen de INE SUSTITUIDA al re-subir
   // (§M6-K.4.1). Mismo motivo por el que `AdminModule` ya lo importaba para el borrado de usuario.
   // ⭐ v1.81 (M-64): `GeoModule` — validar la colonia contra la lista del CP (§M4-SHIP.19.5).
-  imports: [UploadsModule, GeoModule],
+  // ⭐ v1.117 (§CTA.4): `AuthModule` — `PATCH /users/me/email` delega la regla en `AuthService.correctEmail`.
+  imports: [UploadsModule, GeoModule, AuthModule],
   providers: [UsersService, PendingsService],
-  controllers: [UsersController, MePendingsController],
+  controllers: [UsersController, MePendingsController, MeEmailController],
   exports: [UsersService],
 })
 export class UsersModule {}

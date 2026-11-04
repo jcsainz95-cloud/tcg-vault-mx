@@ -84,6 +84,8 @@ describe('SRF-13 — por ausencia (criterio 253)', () => {
       .flatMap((f) => [...stripComments(readFileSync(f, 'utf8')).matchAll(/export (?:async )?function (\w+Template)\b/g)].map((m) => m[1]))
       .sort();
     expect(names).toEqual([
+      // v1.117 (§CTA.6): «Termina tu cuenta» — correo de autenticación, no aviso de reembolso (AV-3 intacto).
+      'accountSetupTemplate',
       'clabeChangedTemplate',
       'disputeRejectedTemplate',
       'disputeRepurchaseTemplate',

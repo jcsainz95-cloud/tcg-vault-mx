@@ -23,6 +23,8 @@ const ME_KEYS = [
   'authProvider', 'emailVerified', 'avatarUrl', 'hasPassword', 'mustChangePassword',
   // 🔒 D2g (API_CONTRACT §M4-SHIP.19.30.3): + `isOwner` (= `isOwnerAccount` de la fila; `false` para todo cliente).
   'isOwner',
+  // v1.117 (§CTA.2): + `accountSetupPending`.
+  'accountSetupPending',
 ].sort();
 
 function baseUser(over: Record<string, unknown> = {}) {
@@ -39,6 +41,7 @@ function baseUser(over: Record<string, unknown> = {}) {
     emailVerified: true,
     avatarUrl: null,
     passwordHash: '$argon2id$fake',
+    googleId: null,
     mustChangePassword: false,
     kycProfile: null,
     ...over,
@@ -77,10 +80,18 @@ describe('UsersService.me — +hasPassword, +nameSource, +mustChangePassword (v1
   });
 
   it('cuenta solo-Google (passwordHash null) ⇒ hasPassword=false aunque authProvider=google', async () => {
-    const { svc } = build(baseUser({ passwordHash: null, authProvider: 'google', nameSource: 'derived' }));
+    const { svc } = build(baseUser({ passwordHash: null, authProvider: 'google', nameSource: 'derived', googleId: 'g-1' }));
     const me = await svc.me('u1');
     expect(me.hasPassword).toBe(false);
     expect(me.nameSource).toBe('derived');
+    expect(me.accountSetupPending).toBe(false);
+  });
+
+  it('v1.117 (§CTA.2): accountSetupPending = cliente activo con correo, sin hash y sin Google', async () => {
+    const pending = build(baseUser({ passwordHash: null, emailVerified: false, nameSource: 'derived' }));
+    expect((await pending.svc.me('u1')).accountSetupPending).toBe(true);
+    const withHash = build(baseUser());
+    expect((await withHash.svc.me('u1')).accountSetupPending).toBe(false);
   });
 
   it('cuenta Google CON hash (reset admin / forgot-password) ⇒ hasPassword=true: la heurística v1.1 era falsa', async () => {

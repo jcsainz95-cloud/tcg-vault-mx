@@ -53,6 +53,8 @@ const RENDERS: Record<string, Render> = {
   // Cuenta (verificación, restablecer contraseña) y el aviso de bloqueo, mismo pie.
   emailVerificationTemplate: (l) => accountTpl.emailVerificationTemplate('https://x.test/v?token=t', 'Ana', l),
   passwordResetTemplate: (l) => accountTpl.passwordResetTemplate('https://x.test/r?token=t', 'Ana', l),
+  // v1.117 (§CTA.6): «Termina tu cuenta», correo de cuenta con el mismo pie.
+  accountSetupTemplate: (l) => accountTpl.accountSetupTemplate('https://x.test/a?token=t', 'Ana', l),
   passwordLockAlertTemplate: (l) => accountTpl.passwordLockAlertTemplate('Ana', l),
   // Confirmación con cuenta (y su reembolso).
   orderSettledTemplate: (l) =>

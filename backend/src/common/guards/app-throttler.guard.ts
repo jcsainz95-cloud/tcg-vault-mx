@@ -1,5 +1,5 @@
 import { ExecutionContext, Injectable } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerLimitDetail } from '@nestjs/throttler';
 import { isThrottlerDisabled } from '../../config/test-env';
 
 /**
@@ -20,5 +20,18 @@ export class AppThrottlerGuard extends ThrottlerGuard {
   protected async shouldSkip(context: ExecutionContext): Promise<boolean> {
     if (isThrottlerDisabled()) return true;
     return super.shouldSkip(context);
+  }
+
+  /**
+   * v1.117 (§CTA.4): con throttlers CON NOMBRE (`signup`, `signup-day`) Nest pone `Retry-After-<nombre>`, no `Retry-After`,
+   * y la norma de forma del 429 (§0 v1.80.7: `Retry-After: n` ∧ `details.retryAfterSeconds = n`) lee `Retry-After`. Se pone
+   * aquí la cabecera canónica con la MISMA cifra que Nest calculó; para `default` es la que ya ponía (mismo valor).
+   */
+  protected async throwThrottlingException(context: ExecutionContext, detail: ThrottlerLimitDetail): Promise<void> {
+    const res = context.switchToHttp().getResponse<{ header?: (k: string, v: unknown) => unknown }>();
+    if (typeof res?.header === 'function' && Number.isInteger(detail.timeToBlockExpire) && detail.timeToBlockExpire > 0) {
+      res.header('Retry-After', detail.timeToBlockExpire);
+    }
+    return super.throwThrottlingException(context, detail);
   }
 }

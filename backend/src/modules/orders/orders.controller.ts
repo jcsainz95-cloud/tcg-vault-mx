@@ -47,11 +47,11 @@ export class OrdersController {
     return this.orders.quote(dto.inventoryItemIds, userId, { discountCode: dto.discountCode, ip });
   }
 
-  // v1.5: comprar es acción sensible → requiere emailVerified (403 EMAIL_NOT_VERIFIED si no).
-  // El `checkout/quote` (read-only, arriba) NO se bloquea, para mostrar precios con el banner.
+  // v1.117 (§CTA.5, D-CTA-2): comprar YA NO exige correo verificado (la cuenta nacida con solo el correo paga en la misma
+  // sesión, criterios 969/976); sigue exigiendo que la cuenta TENGA correo (`403 ACCOUNT_WITHOUT_EMAIL`, STF-28).
   // v1.68 (§4-R.2): el código DEPENDE del resultado — `201` (orden nueva, con o sin sustitución) o
   // `200` (REUSO de la orden y el PaymentIntent propios). Se fija con `@Res({ passthrough: true })`.
-  @RequireEmailVerified()
+  @RequireEmailVerified('present')
   @Post('checkout/session')
   async session(
     @CurrentUser('id') userId: string,

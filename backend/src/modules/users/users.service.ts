@@ -24,6 +24,7 @@ import { blankToNull } from './address-rules';
 import { PostalCodeService } from '../shipping-provider/geo/postal-code';
 import { AuditService } from '../audit/audit.service';
 import { addressPlaceKey } from './address-place-key';
+import { isAccountSetupPending } from '../auth/account-setup';
 
 /**
  * ⭐ v1.116 (§4-G.9c): espacio del candado consultivo de la LIBRETA por usuario (`pg_advisory_xact_lock(ns, hashtext(userId))`).
@@ -32,6 +33,42 @@ import { addressPlaceKey } from './address-place-key';
  * del cliente, alta desde el reclamo) ⇒ dos `isDefault:true` a la vez dejan una sola predeterminada.
  */
 export const ADDRESS_BOOK_GATE_NAMESPACE = 88_120_116;
+
+/**
+ * ⭐ v1.116.1 (§4-G.9c) — UNA transacción cuya 1.ª sentencia es el candado de la libreta del usuario. Función de módulo (no
+ * solo método) desde v1.117 (§CTA.4 paso 5-bis): `account-setup` y el enlace con Google (AUTH-PRE-1) dejan la libreta sin
+ * predeterminada bajo EL MISMO candado, en la misma transacción que su escritura de `User`. ⛔ Una sola implementación.
+ */
+export function withAddressBookLock<T>(
+  prisma: Pick<PrismaService, '$transaction'>,
+  userId: string,
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    await lockAddressBook(tx, userId);
+    return fn(tx);
+  });
+}
+
+/**
+ * 🔒 v1.117.2 (API_CONTRACT §CTA.13 «Orden de candados»): el candado de la libreta DENTRO de una transacción que ya tiene el de la
+ * cuenta (`withAccountGate`) — cuenta → libreta, nunca al revés. Lo usan el 5-bis de `account-setup`, `reset-password`,
+ * `verify-email` (`newPassword`) y el enlace con Google. ⛔ La misma sentencia que `withAddressBookLock`.
+ */
+export async function lockAddressBook(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADDRESS_BOOK_GATE_NAMESPACE}::int, hashtext(${userId}))`;
+}
+
+/**
+ * 🔒 v1.117 §CTA.4 paso 5-bis (v1.117.2: UNA implementación para las cuatro vías que prueban el buzón — `account-setup`,
+ * `reset-password`, `verify-email` con `newPassword` y el enlace con Google; TL-CTA-1): lo cargado antes de probar el buzón no
+ * queda como destino por defecto de un retiro. Dentro de la tx del candado de la cuenta; toma el de la libreta DESPUÉS (cuenta →
+ * libreta). Con una sola dirección, el checkout la sigue autoseleccionando.
+ */
+export async function clearDefaultAddressAfterInboxProof(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+  await lockAddressBook(tx, userId);
+  await tx.address.updateMany({ where: { userId, isDefault: true }, data: { isDefault: false } });
+}
 
 /** Resultado del alta interna desde un reclamo (§4-G.9c). `invalid` lo registra el llamador; `duplicate` no es un fallo. */
 export type ClaimAddressResult =
@@ -73,10 +110,11 @@ export class UsersService {
     // ⭐ v1.81 (M-64): la lista de colonias por CP. `@Optional()` por el mismo motivo que el correo (unitarios a
     // mano); sin él, crear/editar una dirección con colonia LANZA (⛔ nunca se guarda sin validar).
     @Optional() private readonly postalCodes?: PostalCodeService,
-    // ⭐ v1.116 (§4-G.9c): bitácora `address.create_from_claim` en la MISMA tx que el alta. `@Optional()` solo por los
-    // unitarios que construyen el servicio a mano; en la app `AuditModule` es global y siempre está. Sin él, el alta
-    // desde un reclamo LANZA (⛔ nunca un alta sin bitácora) y el reclamo la registra como `reason=error`.
-    @Optional() private readonly audit?: AuditService,
+    // ⭐ v1.116 (§4-G.9c): bitácora `address.create_from_claim` en la MISMA tx que el alta. TL-CHK-7: ⛔ sin `@Optional()` —
+    // en la app el proveedor es obligatorio (`AuditModule` es global) y, si faltara, Nest falla al arrancar en vez de que
+    // cada alta desde un reclamo lance y el reclamo la trague como `skipped(…,'error')`. El `?` es solo de posición: los
+    // unitarios construyen el servicio a mano. Candado: `test/tech-debt-backend.spec.ts` «TL-CHK-7».
+    private readonly audit?: AuditService,
   ) {}
 
   // ================================================================ 🔒 setClabe — EL escritor de la CLABE
@@ -196,6 +234,7 @@ export class UsersService {
     emailVerified: boolean;
     avatarUrl: string | null;
     passwordHash: string | null;
+    googleId: string | null;
     mustChangePassword: boolean;
     kycProfile: { kycStatus: KycStatus } | null;
     // 🔒 D2g (§M4-SHIP.19.30.3): para `isOwner` (= `isOwnerAccount` de la fila; `false` para todo cliente).
@@ -219,6 +258,8 @@ export class UsersService {
       avatarUrl: user.avatarUrl ?? undefined,
       hasPassword: user.passwordHash != null,
       mustChangePassword: user.mustChangePassword,
+      // v1.117 (§CTA.2): la cuenta nacida con solo el correo (`setupPending`). Una función, la de `modules/auth`.
+      accountSetupPending: isAccountSetupPending(user),
       lockNotice: user.lockNoticeAt ? { since: user.lockNoticeAt.toISOString() } : null,
       // 🔒 D2g (§M4-SHIP.19.30.3): el front lo usa SOLO para mostrar u ocultar (diales del dueño, acciones sobre su cuenta);
       // ⛔ nunca autoriza: autoriza el servidor (`OWNER_ONLY_SETTING`, `OWNER_ACCOUNT_PROTECTED`).
@@ -325,10 +366,7 @@ export class UsersService {
    * (alta y edición del cliente, alta desde el reclamo). Quien llama valida ANTES (⛔ nada se escribe sin validar).
    */
   private withAddressBookLock<T>(userId: string, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADDRESS_BOOK_GATE_NAMESPACE}::int, hashtext(${userId}))`;
-      return fn(tx);
-    });
+    return withAddressBookLock(this.prisma, userId, fn);
   }
 
   /**

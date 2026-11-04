@@ -128,6 +128,7 @@ describe('C7-20 — tope agregado por cuenta: 30 intentos por vía dispositivo e
     clock.t += 1000;
     await attempt(svc, { email: u.email, password: BAD, deviceToken: devices[3] }); // n = 2 en la ventana nueva
     tokens.consume.mockResolvedValueOnce(u.id);
+    tokens.ownerOf.mockResolvedValueOnce(u.id);
     await svc.resetPassword('tok', 'otra-clave-123');
     await expect(store.bump(DEVICE_AGGREGATE_KEY_PREFIX + u.id, DEVICE_ROUTE_WINDOW_MS)).resolves.toBe(1);
   });
@@ -210,6 +211,7 @@ describe('C7 v1.80.1 — el sid por endpoint (§4.57.4)', () => {
     // El access token NO lleva sid (no lo necesita: no emite dispositivos).
     expect(claims(a.accessToken).sid).toBeUndefined();
     tokens.consume.mockResolvedValue(u.id);
+    tokens.ownerOf.mockResolvedValue(u.id);
     const r1 = await svc.resetPassword('t1', 'otra-clave-123');
     const r2 = await svc.resetPassword('t2', 'otra-clave-456');
     expect(claims(r1.deviceToken).jti).not.toBe(claims(r2.deviceToken).jti);

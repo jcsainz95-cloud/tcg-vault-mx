@@ -35,6 +35,13 @@
 - **§IDS (2026-11-03, rama `claude/ids-diseno`):** IDS-D1/D2 medidas en seco contra TCGCSV público y el instrumento del 512
   (IDS-D3) listo, sin tocar producción — **§108**. Lo que volvió al arquitecto, resuelto (v1.116.2); las cuentas de producción
   (D-IDS-1) son una consulta de solo lectura que corre el dueño (`scripts/ids/ids-d1-produccion.sql`).
+- **Correo en el E2E real (2026-11-04):** `e2e-real.yml` corre con NODE_ENV=production ⇒ `ResendMailAdapter` con llave efímera, que
+  moría en api.resend.com (run 41757369935). Ahora `docker-compose.e2e-mail.yml` (solo en el `up` de ese workflow) apunta la URL base
+  del SDK de Resend a `scripts/e2e-mail-sink.mjs` en el runner, que escribe `to=… subject=…` + texto en `$RUNNER_TEMP/e2e-mail/mail.log`
+  (fuera de artefactos). `cuenta-correo.spec.ts` corre en SU paso: `--retries=0`, `sleep 61` (cubo `signup` 5/min por IP vacío; el
+  spec gasta 5, margen cero), `check-e2e-must-run.sh --min 7`. El límite de producción NO se toca ni se rodea con XFF. Candado
+  `check-mail-sink-scope.sh` + canario (job `mail-sink-scope`): esa URL solo en el override. ⚠️ No ve Railway: en producción la
+  variable `RESEND_BASE_URL` **no debe existir**. Rollback: quitar el `-f "$COMPOSE_E2E_MAIL"` del `up` y el paso §CTA.
 - **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5); muy por encima del tope: **se compacta antes de añadir**. Encabezado anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
 ---
@@ -1902,16 +1909,9 @@ Histórico. Lo que sigue vigente vive en su sitio: navegador de los E2E (§5.1, 
 > acceso, no de conocimiento), **qué sí se verificó** y deja el **guion exacto** para que lo corra quien
 > tenga las credenciales. Cross-ref: §19.5 (runbook original del flip), §19.7 (rollback), §21 (sellado).
 
-### 23.1 Por qué no se pudo ejecutar (bloqueos verificados, no supuestos)
+### 23.1 Por qué no se pudo ejecutar (compactado 2026-11-04)
 
-| Bloqueo | Evidencia |
-|---|---|
-| **Sin acceso a Railway** | No hay `railway` CLI ni `RAILWAY_TOKEN` en el entorno de la sesión (`which railway` → nada; `env` sin variables de Railway). Fijar `POKEMONPRICETRACKER_MARKET_FORMAT` y `SEALED_PRICE_INGEST_CRON` es **dashboard de Railway**, no repo. |
-| **Sin credenciales `super_admin`** | Los diales (`PUT /admin/settings`) y los disparos (`POST /admin/jobs/*`) exigen bearer de `super_admin`. La sesión no tiene ni token ni el `NEXT_PUBLIC_API_BASE_URL` real del backend en prod (en el repo solo hay placeholders `api.tudominio.com`). |
-| **Egress bloqueado hacia la app** | El proxy de la sesión rechaza el CONNECT a producción: `403 … "host":"www.tcgvaultmx.com:443"` (`$HTTPS_PROXY/__agentproxy/status` → `recentRelayFailures`). Aun con token, **no se puede llamar a prod desde aquí**. La red de la sesión solo abre registries + GitHub. |
-
-> Consecuencia: los pasos 2–6 de la Tarea A y todo §21 los ejecuta **el humano** (o una sesión con
-> credenciales). Abajo va el guion copiable, con los criterios de go/no-go y qué traer de vuelta.
+Sin Railway, sin `super_admin` y sin egress a producción desde la sesión de 2026-08-18: los pasos los corrió el humano. Tabla de evidencias: `git show f12a9d34:docs/DEVOPS_NOTES.md` §23.1.
 
 ### 23.2 Lo que SÍ se verificó desde aquí (precondición de código)
 

@@ -1,6 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { MAIL_PORT, MailPort } from './mail.port';
-import { emailVerificationTemplate, passwordLockAlertTemplate, passwordResetTemplate } from './mail.templates';
+import {
+  accountSetupTemplate,
+  emailVerificationTemplate,
+  passwordLockAlertTemplate,
+  passwordResetTemplate,
+} from './mail.templates';
 import { greetingName, NameSourceLike } from './greeting-name';
 
 /**
@@ -19,6 +24,15 @@ export class MailService {
     link: string,
   ): Promise<void> {
     const msg = emailVerificationTemplate(link, greetingName(user), user.locale);
+    await this.mail.send({ ...msg, to: user.email });
+  }
+
+  /** v1.117 (§CTA.6): «Termina tu cuenta» (`account_setup`, 24 h, un uso). ES/EN por `User.locale`. */
+  async sendAccountSetup(
+    user: { email: string; name: string; nameSource?: NameSourceLike | null; locale?: string | null },
+    link: string,
+  ): Promise<void> {
+    const msg = accountSetupTemplate(link, greetingName(user), user.locale);
     await this.mail.send({ ...msg, to: user.email });
   }
 

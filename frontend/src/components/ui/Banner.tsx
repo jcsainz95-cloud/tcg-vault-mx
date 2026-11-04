@@ -44,6 +44,7 @@ export function Banner({
   return (
     <div
       role={role}
+      data-variant={variant}
       className={cn(
         // flex-wrap + basis: en contenedores angostos (p. ej. el carrito de venta) el
         // `action` baja a su propia línea en vez de exprimir el texto a una palabra por

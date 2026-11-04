@@ -29,7 +29,7 @@ import { parseCardHref } from './utils/catalog-tile';
 async function marketBlockState(page: Page): Promise<{ block: boolean; explainer: 'with' | 'no' | 'none' }> {
   const block = (await page.getByText(t('es', 'catalog.marketValue'), { exact: true }).count()) > 0;
   const withMarket =
-    (await page.getByText(t('es', 'card.referenceExplainerWithMarket')).count()) > 0;
+    (await page.getByText(/valor de mercado es la referencia del día/i).count()) > 0;
   // MKT-CONV.2 (B6b, 2026-10-31): la frase «sin mercado» se retiró de la ficha ⇒ sin variante «con mercado» = 'none'.
   return { block, explainer: withMarket ? 'with' : 'none' };
 }
@@ -221,7 +221,8 @@ test.describe('@real P-48 contra el stack vivo', () => {
     // manda `ivaIncluded:true` (medido contra el stack: `GET /catalog/cards` ⇒ `ivaIncluded:true`,
     // `ivaRatePct:16`). El rojo era de la PRUEBA, no del producto — y afirmar «sin IVA» sobre una
     // cifra que ya lo lleva dentro es exactamente la mentira que §M10-IVA existe para impedir.
-    await expect(page.getByText(ivaLabelRe('es', 'common.ivaIncluded')).first()).toBeVisible();
+    // Criterio 977 (dueño 2026-11-03): el precio con IVA dentro ya NO se rotula. Por ausencia.
+    await expect(page.getByText(ivaLabelRe('es', 'common.ivaIncluded'))).toHaveCount(0);
   });
 
   test('@real el editor de la curva carga del servidor y el dry-run responde', async ({ page }) => {

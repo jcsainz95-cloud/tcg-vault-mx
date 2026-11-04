@@ -82,7 +82,8 @@ describe('§WSH-UX.4 · el renglón de un deseo (WSH-F2)', () => {
     expect(r.textContent).toContain('Near Mint');
     expect(within(r).getByText('Tu máximo: hasta 10 % sobre mercado sin IVA' /* §MIV.6: solo cambia el texto; el 10 % no */)).toBeInTheDocument();
     expect(within(r).getByText(`Hoy: hasta ${mx(110000)}`)).toBeInTheDocument();
-    expect(within(r).getByText('IVA 8 % incluido')).toBeInTheDocument();
+    // Criterio 977 (dueño 2026-11-03): ninguna cifra lleva «IVA … incluido».
+    expect(within(r).queryByText('IVA 8 % incluido')).toBeNull();
     expect(within(r).getByText(W.approx)).toBeInTheDocument();
     expect(within(r).getByText(W.row.notYet)).toBeInTheDocument();
     expect(within(r).getByText(W.row.neverNotified)).toBeInTheDocument();

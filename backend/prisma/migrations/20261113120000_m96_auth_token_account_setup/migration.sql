@@ -1,0 +1,21 @@
+-- M-96 — `m96_auth_token_account_setup` (v1.117⟨cuenta-correo⟩). Contrato: API_CONTRACT §CTA.3. Diseño: ARCHITECTURE §16.
+-- Siguiente libre tras M-95 (`20261112120100_m95b_ids_versions`).
+--
+-- QUÉ HACE: el enum `AuthTokenType` gana `account_setup` (enlace «Termina tu cuenta», 24 h, un uso). Una sentencia, sin
+-- columnas ni relleno. `IF NOT EXISTS` (precedente m86/m95a): Postgres no quita valores de un enum, así que tras una
+-- reversa de código el valor queda inerte y un re-deploy no falla con 42710. Ninguna sentencia de esta migración usa el
+-- valor nuevo (no se puede en la misma transacción que lo añade).
+--
+-- REVERSA: la recomendada es SOLO CÓDIGO (ARCHITECTURE §16.4): el valor queda inerte y los tokens vivos caducan en ≤ 24 h.
+-- Reversa de esquema (solo si hiciera falta), documentada, NO automática:
+-- REVERSA:BEGIN
+--   DELETE FROM "AuthToken" WHERE "type" = 'account_setup';
+--   ALTER TYPE "AuthTokenType" RENAME TO "AuthTokenType_m96";
+--   CREATE TYPE "AuthTokenType" AS ENUM ('email_verification', 'password_reset');
+--   ALTER TABLE "AuthToken" ALTER COLUMN "type" TYPE "AuthTokenType" USING "type"::text::"AuthTokenType";
+--   DROP TYPE "AuthTokenType_m96";
+--   DELETE FROM "_prisma_migrations" WHERE migration_name = '20261113120000_m96_auth_token_account_setup';
+-- REVERSA:END
+
+-- AlterEnum
+ALTER TYPE "AuthTokenType" ADD VALUE IF NOT EXISTS 'account_setup';

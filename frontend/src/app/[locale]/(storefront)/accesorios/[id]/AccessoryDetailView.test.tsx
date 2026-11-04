@@ -39,11 +39,11 @@ beforeEach(() => {
 });
 
 describe('AC-F3 · ficha de accesorio', () => {
-  it('pinta nombre, precio, «IVA incluido», descripción y la nota de envío', async () => {
+  it('pinta nombre, precio (sin «IVA incluido», 977), descripción y la nota de envío', async () => {
     vi.spyOn(api, 'getAccessory').mockResolvedValue(DETAIL);
     renderWithProviders(<AccessoryDetailView id="acc-1" />, 'es');
     expect(await screen.findByRole('heading', { level: 1, name: 'Penny sleeves x100' })).toBeInTheDocument();
-    expect(screen.getByText('IVA incluido')).toBeInTheDocument();
+    expect(screen.queryByText('IVA incluido')).toBeNull();
     expect(screen.getByText(/Cien fundas\./)).toBeInTheDocument();
     expect(screen.getByText('Se envía a tu domicilio. Los accesorios no se guardan en la bóveda.')).toBeInTheDocument();
   });

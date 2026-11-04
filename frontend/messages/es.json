@@ -101,7 +101,8 @@
         "hint": "Así te llamamos en los correos y en tus envíos.",
         "required": "Escribe tu nombre.",
         "tooLong": "Máximo 120 caracteres.",
-        "derivedFromEmail": "Este nombre lo tomamos de tu correo porque Google no nos dio tu nombre. Escribe cómo quieres que te llamemos."
+        "derivedFromEmail": "Este nombre lo tomamos de tu correo porque Google no nos dio tu nombre. Escribe cómo quieres que te llamemos.",
+        "derivedFromEmailLocal": "Este nombre lo tomamos de tu correo. Escribe cómo quieres que te llamemos."
       },
       "phone": {
         "label": "Celular",
@@ -117,8 +118,20 @@
       "title": "Correo",
       "verified": "VERIFICADO",
       "unverified": "SIN VERIFICAR",
-      "unverifiedBody": "Verifica tu correo para comprar, vender y retirar.",
-      "changeNote": "Para cambiar tu correo escríbenos a {contact}."
+      "unverifiedBody": "Verifica tu correo para vender, retirar y ver tus pedidos anteriores.",
+      "changeNote": "Para cambiar tu correo escríbenos a {contact}.",
+      "correctOpen": "Corregir mi correo",
+      "correctLabel": "Correo correcto",
+      "correctHint": "Te mandamos a este correo el enlace para terminar tu cuenta.",
+      "correctSubmit": "Guardar correo",
+      "correctCancel": "Cancelar",
+      "correctSaved": "Correo actualizado. Te mandamos el enlace al correo nuevo.",
+      "correctTaken": "Ese correo ya tiene una cuenta.",
+      "correctRateLimited": "Ya cambiaste el correo varias veces. Espera una hora y vuelve a intentarlo.",
+      "correctInvalid": "Escribe un correo válido.",
+      "correctNotPending": "Este correo ya no se puede cambiar desde aquí.",
+      "correctError": "No se pudo guardar. Inténtalo de nuevo.",
+      "resendSetupCta": "Reenviar enlace para terminar tu cuenta"
     },
     "username": {
       "title": "Usuario",
@@ -209,7 +222,14 @@
       "createSending": "Enviando…",
       "createSentTitle": "ENLACE ENVIADO",
       "createSentBody": "Revisa tu correo. El enlace caduca; si no llega, pide otro.",
-      "createResend": "Enviar otra vez"
+      "createResend": "Enviar otra vez",
+      "setupTitle": "Ponle contraseña a tu cuenta",
+      "setupSummary": "Tu cuenta aún no tiene contraseña. Ponle una para entrar con tu correo desde cualquier lugar.",
+      "setupBody": "Tu cuenta nació solo con tu correo, así que no te pedimos una contraseña actual. Elige tu contraseña; el nombre es opcional.",
+      "setupName": "Nombre (opcional)",
+      "setupNameHint": "Cómo quieres que te llamemos.",
+      "setupNameTooLong": "El nombre puede tener hasta 120 caracteres.",
+      "setupSubmit": "Guardar contraseña"
     },
     "session": {
       "title": "Sesión",
@@ -451,8 +471,7 @@
       "graded": "Gradeada",
       "sealed": "Sellado",
       "raw": "Raw"
-    },
-    "referenceExplainerWithMarket": "El valor de mercado es la referencia del día y se muestra con IVA incluido, igual que nuestro precio de venta, para que los compares tal cual. El precio de venta se calcula a partir de esa referencia."
+    }
   },
   "price": {
     "pendingLabel": "Precio pendiente",
@@ -466,7 +485,7 @@
     "removeItem": "Quitar",
     "subtotal": "Subtotal",
     "subtotalHint": "Precio de venta de las cartas, sin IVA.",
-    "subtotalHintIvaIncluded": "Precio de venta de las cartas, con IVA incluido.",
+    "subtotalHintIvaIncluded": "Precio de venta de las cartas.",
     "platformFee": "Comisión de plataforma",
     "platformFeeHint": "Nuestra comisión por operar tu compra en TCG HUNT. Ya está incluida en el total que ves aquí.",
     "iva": "IVA {rate}%",
@@ -545,7 +564,6 @@
       "backToRegister": "Prefiero crear una cuenta",
       "created": "CUENTA CREADA · DESTINO: BÓVEDA",
       "shippingRemoved": "El envío ya no aplica: tus cartas quedan en la bóveda.",
-      "emailTakenNeutral": "No se pudo crear la cuenta con ese correo. Puedes iniciar sesión o seguir como invitado.",
       "retry": "Reintentar"
     },
     "confirmation": {
@@ -565,9 +583,8 @@
         "cta": "Crear cuenta con este correo",
         "success": "PEDIDO EN TU HISTORIAL",
         "successLink": "Ver mis pedidos",
-        "needsVerification": "Cuenta creada. Verifica tu correo y vincula el pedido desde tu historial.",
-        "alreadyClaimedNeutral": "No fue posible vincular este pedido.",
-        "emailTakenNeutral": "No se pudo crear la cuenta con ese correo. Si ya tienes una, inicia sesión para reclamar el pedido desde tu historial."
+        "needsVerification": "Cuenta creada. Abre el enlace de tu correo para ver este pedido.",
+        "alreadyClaimedNeutral": "No fue posible vincular este pedido."
       }
     },
     "retry": {
@@ -581,7 +598,7 @@
       "ownActive": "Este carrito ya está reservado a tu nombre ({orderNumber}): al pagar recuperas ese mismo pedido, sin cobro doble.",
       "ownExpired": "Tu reserva anterior ({orderNumber}) venció: al pagar se renovará con un pedido nuevo y el intento anterior se cancela."
     },
-    "subtotalHintProducts": "Precio de venta de tus productos, con IVA incluido.",
+    "subtotalHintProducts": "Precio de venta de tus productos.",
     "payNoAmount": "Pagar",
     "accessories": {
       "groupAccessories": "ACCESORIOS",
@@ -1322,7 +1339,6 @@
     "registerCta": "Crear cuenta",
     "toRegister": "¿No tienes cuenta? Regístrate",
     "toLogin": "¿Ya tienes cuenta? Inicia sesión",
-    "loginWithThisEmail": "Iniciar sesión con este correo",
     "loading": "Procesando…",
     "mockNotice": "Autenticación pendiente de backend: el envío simula el flujo y guarda una sesión local.",
     "inactivityLogout": "Tu sesión se cerró por inactividad.",
@@ -1347,32 +1363,61 @@
       "temporaryLabel": "Contraseña temporal",
       "submit": "Guardar y continuar",
       "done": "Listo"
+    },
+    "emailOnly": {
+      "taken": "Ese correo ya tiene una cuenta. Ingresa y sigue con tu compra: tu carrito no cambia.",
+      "resetError": "No pudimos mandar el enlace. Inténtalo de nuevo en unos minutos.",
+      "login": "Ingresar a cuenta",
+      "resetSent": "Te mandamos un enlace a ese correo para poner una contraseña nueva.",
+      "resetRateLimited": "Ya pediste varios enlaces. Espera unos minutos y vuelve a intentarlo.",
+      "hint": "Solo tu correo. Te mandamos un enlace para ponerle contraseña a tu cuenta."
     }
   },
   "verifyEmail": {
-    "title": "Verificar correo",
-    "verifying": "Verificando tu correo…",
-    "noToken": "Falta el enlace de verificación. Abre el enlace que te enviamos por correo.",
-    "successTitle": "Correo verificado",
-    "successBody": "Tu correo quedó verificado. Ya puedes comprar, vender y retirar.",
-    "goToStore": "Ir a la tienda",
-    "invalidTitle": "No pudimos verificar tu correo",
-    "invalidBody": "El enlace es inválido o expiró. Solicita uno nuevo para verificar tu correo.",
-    "genericError": "Ocurrió un error al verificar tu correo. Intenta de nuevo.",
-    "loginToResend": "Inicia sesión para reenviarte el correo de verificación.",
-    "goToLogin": "Iniciar sesión",
     "resendCta": "Reenviar correo de verificación",
     "sending": "Enviando…",
     "sent": "Te enviamos un nuevo correo de verificación.",
     "rateLimited": "Enviaste demasiadas solicitudes. Espera un momento e intenta de nuevo.",
     "resendError": "No pudimos reenviar el correo. Intenta de nuevo.",
     "bannerTitle": "Verifica tu correo",
-    "bannerBody": "Verifica tu correo para poder comprar, vender y retirar. Puedes seguir navegando mientras tanto.",
+    "bannerBody": "Verifica tu correo para vender, retirar y ver tus pedidos anteriores.",
     "blockedTitle": "Verifica tu correo para completar esta acción",
-    "blockedBody": "Esta acción requiere un correo verificado. Reenvíate el correo de verificación y confírmalo para continuar."
+    "blockedBody": "Esta acción requiere un correo verificado. Reenvíate el correo de verificación y confírmalo para continuar.",
+    "successBody": "Ya puedes vender, retirar y ver tus pedidos anteriores.",
+    "resendSetupCta": "Reenviar enlace para terminar tu cuenta",
+    "sentSetup": "Te mandamos otro enlace. Revisa tu correo."
+  },
+  "verifyEmailPage": {
+    "title": "Confirma tu correo",
+    "titleVerified": "Tu correo",
+    "passwordLead": "Para confirmar que eres tú, escribe tu contraseña actual.",
+    "password": "Contraseña",
+    "submit": "Confirmar correo",
+    "submitting": "Confirmando…",
+    "toNewPassword": "¿No creaste esta cuenta o no recuerdas la contraseña?",
+    "newPasswordLead": "Elige una contraseña nueva. Cerraremos las demás sesiones de esta cuenta y tendrás que entrar de nuevo.",
+    "newPassword": "Nueva contraseña",
+    "confirm": "Confirmar contraseña",
+    "policyHint": "Mínimo 8 caracteres.",
+    "weak": "La contraseña debe tener al menos 8 caracteres.",
+    "mismatch": "Las contraseñas no coinciden.",
+    "submitNew": "Guardar contraseña y confirmar",
+    "submittingNew": "Guardando…",
+    "toPassword": "Recordé mi contraseña",
+    "wrongPasswordTitle": "Esa contraseña no es correcta. Inténtalo de nuevo.",
+    "wrongPasswordBody": "El enlace sigue sirviendo, pero cada intento fallido cuenta.",
+    "tooManyAttempts": "Demasiados intentos. Espera unos minutos y vuelve a intentarlo.",
+    "blocked": "Esta cuenta está bloqueada. Escríbenos y te ayudamos.",
+    "genericError": "No se pudo completar. Inténtalo de nuevo.",
+    "successTitle": "Listo",
+    "successPassword": "Tu correo quedó confirmado.",
+    "successNewPassword": "Confirmamos tu correo y cambiamos tu contraseña. Entra con la nueva.",
+    "signIn": "Entrar",
+    "goToAccount": "Ir a mi cuenta"
   },
   "forgotPassword": {
     "title": "Recuperar contraseña",
+    "sendError": "No pudimos mandar el enlace. Inténtalo de nuevo en unos minutos.",
     "subtitle": "Escribe tu correo y te enviaremos instrucciones para restablecer tu contraseña.",
     "email": "Correo",
     "submit": "Enviar instrucciones",
@@ -8195,7 +8240,7 @@
       "eyebrow": "PAQUETE DE ENERGÍAS",
       "headline": "Las {n} energías de este deck por {price}",
       "loose": "Sueltas costarían {amount}.",
-      "note": "Precio fijo, IVA incluido. Solo con envío a domicilio y con el deck completo en tu carrito.",
+      "note": "Precio fijo. Solo con envío a domicilio y con el deck completo en tu carrito.",
       "add": "Agregar paquete",
       "inCart": "En el carrito",
       "remove": "Quitar paquete",
@@ -8241,7 +8286,6 @@
     "clearSearch": "Limpiar búsqueda",
     "add": "Agregar",
     "addAria": "Agregar {name} al carrito",
-    "vatIncluded": "IVA incluido",
     "quantity": "Cantidad",
     "maxHint": "Puedes agregar hasta {n}.",
     "addToCart": "Agregar al carrito",
@@ -8462,10 +8506,10 @@
       "account": "Cuenta",
       "accountValue": "Puedes comprar como invitado, con tu correo y una dirección en México.",
       "payment": "Pago",
-      "paymentValue": "Pagas en línea, con tarjeta, en la pantalla de pago.",
+      "paymentValue": "Pagas en línea, con {method}, en la pantalla de pago.",
       "shipping": "Envío",
       "delivery": "Plazo de entrega",
-      "deliveryValue": "De 4 a 10 días hábiles desde tu compra o desde que pides el envío de tu bóveda.",
+      "deliveryValue": "De {days} desde tu compra o desde que pides el envío de tu bóveda.",
       "guarantee": "Garantía",
       "guaranteeTerms": "Términos y política",
       "invoice": "Factura",
@@ -8484,11 +8528,17 @@
       "cardShowLink": "Página del Card Show"
     },
     "strip": {
-      "payment": "Pago seguro",
-      "shipping": "Envío a México",
+      "payment": "Pago seguro con {method}",
       "link": "Quiénes somos",
-      "linkLabel": "Quiénes somos y contacto"
-    }
+      "linkLabel": "Quiénes somos y contacto",
+      "delivery": "Entrega en {days}",
+      "whatsapp": "WhatsApp {phone}",
+      "instagram": "Instagram {handle}",
+      "groupLabel": "Pago, entrega y contacto",
+      "newTab": " (se abre en otra pestaña)"
+    },
+    "paymentMethod": "tarjeta",
+    "deliveryDays": "4 a 10 días hábiles"
   },
   "notFoundPage": {
     "metaTitle": "Página no encontrada · TCG HUNT",
@@ -8562,5 +8612,34 @@
       "stamped": "Cartas de liga y promos"
     },
     "jsonLdProperty": "Versión"
+  },
+  "accountSetup": {
+    "title": "Termina tu cuenta",
+    "sendError": "No pudimos mandar el enlace. Inténtalo de nuevo en unos minutos.",
+    "titleVerified": "Tu cuenta",
+    "subtitle": "Dinos tu nombre y elige una contraseña. Después entras con tu correo y esa contraseña.",
+    "name": "Nombre",
+    "password": "Contraseña",
+    "confirm": "Confirmar contraseña",
+    "policyHint": "Mínimo 8 caracteres.",
+    "submit": "Guardar",
+    "submitting": "Guardando…",
+    "nameRequired": "Escribe tu nombre (hasta 120 caracteres).",
+    "weak": "La contraseña debe tener al menos 8 caracteres.",
+    "mismatch": "Las contraseñas no coinciden.",
+    "successTitle": "Listo",
+    "successBody": "Tu cuenta está completa. Entra con tu correo y tu contraseña.",
+    "goToLogin": "Entrar",
+    "invalidTitle": "El enlace ya se usó o caducó",
+    "invalidBody": "Este enlace sirve una vez y dura 24 horas. Pide otro y ábrelo desde tu correo.",
+    "sendAnother": "Mandar otro",
+    "sending": "Enviando…",
+    "sent": "Te mandamos otro enlace. Revisa tu correo.",
+    "sentGeneric": "Si ese correo tiene una cuenta, te mandamos otro enlace. Revisa tu bandeja.",
+    "alreadyVerified": "Tu correo ya está confirmado: no necesitas otro enlace.",
+    "email": "Correo",
+    "rateLimited": "Ya pediste varios enlaces. Espera un rato y vuelve a intentarlo.",
+    "blocked": "Esta cuenta está bloqueada. Escríbenos y te ayudamos.",
+    "genericError": "No se pudo completar. Inténtalo de nuevo."
   }
 }

@@ -53,7 +53,8 @@ const DS_ES: [string, string][] = [
   ['storeTabs.accessories', 'Accesorios'],
   ['accessories.signedInNotice', 'Los accesorios se compran con envío a domicilio. Pronto también desde tu cuenta.'],
   ['checkout.suggestions.title', '¿Te falta algo?'],
-  ['checkout.subtotalHintProducts', 'Precio de venta de tus productos, con IVA incluido.'],
+  // Criterio 977 (dueño 2026-11-03): sin «con IVA incluido» junto al subtotal del carrito.
+  ['checkout.subtotalHintProducts', 'Precio de venta de tus productos.'],
   ['checkout.accessories.boxHint', 'Calculado por el tamaño de la caja que necesita tu pedido.'],
   ['decksMeta.bundle.needsDeck', 'Primero agrega el deck con «Agregar de jalón»: el paquete solo va con el deck completo.'],
   ['admin.accessories.subtitle', 'Fundas, carpetas, energías y demás. Sin foto no se publica.'],

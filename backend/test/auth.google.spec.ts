@@ -33,6 +33,14 @@ const mail = {
   sendPasswordReset: jest.fn(async () => undefined),
 } as unknown as import('../src/modules/mail/mail.service').MailService;
 
+/** v1.117.2 (§CTA.13): el enlace con Google escribe dentro de `withAccountGate`; el doble hace de su propia `tx`. */
+function withTx(prisma: any) {
+  prisma.$executeRaw = prisma.$executeRaw ?? jest.fn(async () => 0);
+  prisma.$transaction = prisma.$transaction ?? jest.fn(async (cb: any) => cb(prisma));
+  prisma.address = prisma.address ?? { updateMany: jest.fn(async () => ({ count: 0 })) };
+  return prisma;
+}
+
 function verifierReturning(identity: GoogleIdentity): GoogleTokenVerifier {
   return { verify: jest.fn(async () => identity) } as unknown as GoogleTokenVerifier;
 }
@@ -48,7 +56,7 @@ describe('AuthService.google — verificación del ID token', () => {
   it('token inválido (aud/firma) → 401 GOOGLE_TOKEN_INVALID; no crea usuario', async () => {
     const prisma: any = { user: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() } };
     const svc = new AuthService(
-      prisma as PrismaService,
+      withTx(prisma) as PrismaService,
       jwt,
       config,
       verifierRejecting(new BusinessException('GOOGLE_TOKEN_INVALID', 401, 'bad aud')),
@@ -66,7 +74,7 @@ describe('AuthService.google — verificación del ID token', () => {
       user: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
     };
     const svc = new AuthService(
-      prisma as PrismaService,
+      withTx(prisma) as PrismaService,
       jwt,
       config,
       verifierReturning({ sub: 'g1', email: 'a@x.com', emailVerified: false }),
@@ -81,19 +89,21 @@ describe('AuthService.google — verificación del ID token', () => {
   });
 
   it('account-linking por email verificado: enlaza la cuenta local existente SIN duplicar', async () => {
-    const existing = { id: 'u1', email: 'a@x.com', role: 'customer', status: 'active', avatarUrl: null };
+    // v1.117 (AUTH-PRE-1): cuenta YA verificada ⇒ el enlace de siempre (sin revocar). La sin verificar: CTA-B13 (integración).
+    const existing = { id: 'u1', email: 'a@x.com', role: 'customer', status: 'active', avatarUrl: null, emailVerified: true };
     const prisma: any = {
       user: {
         findUnique: jest
           .fn()
           .mockResolvedValueOnce(null) // por googleId
-          .mockResolvedValueOnce(existing), // por email
+          .mockResolvedValueOnce(existing) // por email
+          .mockResolvedValueOnce(existing), // v1.117.2: releída DENTRO del candado de la cuenta (§CTA.13)
         update: jest.fn(async ({ data }: any) => ({ ...existing, ...data })),
         create: jest.fn(),
       },
     };
     const svc = new AuthService(
-      prisma as PrismaService,
+      withTx(prisma) as PrismaService,
       jwt,
       config,
       verifierReturning({ sub: 'g1', email: 'a@x.com', emailVerified: true, picture: 'p' }),
@@ -119,7 +129,7 @@ describe('AuthService.google — verificación del ID token', () => {
       },
     };
     const svc = new AuthService(
-      prisma as PrismaService,
+      withTx(prisma) as PrismaService,
       jwt,
       config,
       verifierReturning({ sub: 'g2', email: 'New@X.com', emailVerified: true, name: 'New' }),
@@ -149,7 +159,7 @@ describe('AuthService.google — verificación del ID token', () => {
       },
     };
     const svc = new AuthService(
-      prisma as PrismaService,
+      withTx(prisma) as PrismaService,
       jwt,
       config,
       verifierReturning({ sub: 'g3', email: 'b@x.com', emailVerified: true }),

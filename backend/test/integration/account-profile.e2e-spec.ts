@@ -16,6 +16,8 @@ const ME_KEYS = [
   'authProvider', 'emailVerified', 'avatarUrl', 'hasPassword', 'mustChangePassword',
   // 🔒 D2g (API_CONTRACT §M4-SHIP.19.30.3): + `isOwner` (`false` para todo cliente).
   'isOwner',
+  // v1.117 (API_CONTRACT §CTA.2, §1 `GET /users/me`): + `accountSetupPending` (= 18).
+  'accountSetupPending',
 ].sort();
 
 const ADDRESS_KEYS = [
@@ -64,7 +66,7 @@ describe('E2E — Cuenta del cliente: /users/me y libreta (v1.67)', () => {
   });
 
   describe('GET /users/me', () => {
-    it('devuelve las 17 claves del contrato (v1.80.9 + `isOwner` de D2g); hasPassword=true con hash local', async () => {
+    it('devuelve las 18 claves del contrato (v1.80.9 + `isOwner` de D2g + `accountSetupPending` de v1.117); hasPassword=true con hash local', async () => {
       const res = await h.api('GET', '/users/me', { token });
       expect(res.status).toBe(200);
       // `avatarUrl` es opcional y desaparece del JSON cuando es undefined.

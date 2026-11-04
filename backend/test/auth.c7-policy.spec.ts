@@ -88,14 +88,31 @@ function makeWorld(
         }
         return { ...u };
       }),
+      // R4: `change-password` escribe con un `updateMany` condicional a la fila leída y relee con `findUniqueOrThrow`.
+      updateMany: jest.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        const u = [...users.values()].find((x) => x.id === where.id);
+        if (!u || !Object.entries(where).every(([k, v]) => (u as unknown as Record<string, unknown>)[k] === v)) return { count: 0 };
+        for (const [k, v] of Object.entries(data)) {
+          if (k === 'tokenVersion') u.tokenVersion += 1;
+          else (u as unknown as Record<string, unknown>)[k] = v;
+        }
+        return { count: 1 };
+      }),
+      findUniqueOrThrow: jest.fn(async ({ where }: { where: { id: string } }) => ({ ...[...users.values()].find((x) => x.id === where.id)! })),
     },
+    // v1.117.2 (§CTA.13): emisión, canje y escrituras de credencial dentro de `withAccountGate`; el doble hace de su propia `tx`.
+    address: { updateMany: jest.fn(async () => ({ count: 0 })) },
+    $executeRaw: jest.fn(async () => 0),
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown): Promise<unknown> => fn(prisma)),
   };
   const deps: C7Deps = makeC7Deps({ config, audit: opts.audit, store });
   const tokens = {
     issue: jest.fn(async () => 'CLEAR'),
     consume: jest.fn(async () => null as string | null),
-    ownerOf: jest.fn(async () => null),
+    ownerOf: jest.fn(async () => null as string | null),
     countIssuedLastHour: jest.fn(async () => 0),
+    // v1.117 (§CTA.5): `reset-password` anula además los `account_setup` pendientes.
+    voidPending: jest.fn(async () => 0),
   };
   const mail = { sendEmailVerification: jest.fn(), sendPasswordReset: jest.fn(async () => undefined) };
   const svc = new AuthService(
@@ -461,6 +478,7 @@ describe('C7-8 — qué levanta el candado (a nivel de servicio)', () => {
     const u = addUser();
     await lockOut(svc, u.email);
     tokens.consume.mockResolvedValueOnce(u.id);
+    tokens.ownerOf.mockResolvedValueOnce(u.id);
     const r = await svc.resetPassword('tok', 'otra-clave-123');
     expect(typeof r.deviceToken).toBe('string');
     await expect(attempt(svc, { email: u.email, password: 'otra-clave-123' })).resolves.toMatchObject({ status: 200 });

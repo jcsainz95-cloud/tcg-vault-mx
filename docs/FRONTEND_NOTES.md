@@ -6,6 +6,79 @@
 > bloques sin anclas citadas (2026-10-29: pases de agosto, −2 446 líneas; §87, −46; 2026-10-31: §MKT tienda §A3/§A4/§E1
 > plegado en §MKT-OLA2); cada pase que añade quita más de lo que añade.
 
+## §CTA-FE · Cuenta con solo el correo, franja de 4 señales y precios sin rótulo de IVA (2026-11-03, rama `claude/cuenta-correo`; contrato §CTA v1.117/v1.117.1)
+
+**Estado vigente.** Fuentes: `HECHOS.md` 2026-11-03 «Checkout y ficha: tres cambios aprobados…» y «Respuestas a P-CTA-3,
+P-CTA-5(a) y P-CTA-6»; `PROJECT.md` 945, 969–977, 195; `API_CONTRACT §CTA`. Consume el backend real de §CTA (sin mocks
+pendientes de contrato; el simulador de `lib/api.ts` espeja el contrato: `MOCK_TAKEN_EMAIL_RE` ⇒ `409`).
+- **Alta con solo el correo (969/970):** `InlineAuthPanel` (carrito T4, upsell de bóveda, confirmación del invitado) en
+  modo registro = UN campo + leyenda del 504 ⇒ `registerEmailOnly({ email, locale })`. `409 EMAIL_TAKEN` ⇒ aviso con
+  «Ingresar a cuenta» (la entrada de ESE panel con el correo puesto; no navega, el carrito no se toca) y «¿Olvidaste tu
+  contraseña?» (`forgotPassword(email)` sin salir). Se retira el copy neutro del criterio 56 en este panel (P-CTA-3).
+  `register` con contraseña sigue solo en `/register` (`AuthForm`). La confirmación ya no prellena nombre (Paquete A,
+  2026-11-02, sustituido por §CTA).
+- **Pagar sin verificar (§CTA.5):** `VerifyEmailBanner` no se pinta en `/checkout` (`isCheckoutPath`); fuera sigue.
+  Reclamo con `403 EMAIL_NOT_VERIFIED` ⇒ «Abre el enlace de tu correo para ver este pedido» (estado, no error).
+- **`/[locale]/account-setup`** (`(auth)/account-setup/`): nombre + contraseña ⇒ `accountSetup`; `200` «Listo» + entrar;
+  `422 ACCOUNT_SETUP_TOKEN_INVALID` ⇒ «Mandar otro» (con sesión `verify-email/resend`; sin sesión, correo +
+  `forgot-password`). Valida antes de pedir (no quema el enlace).
+- **D-CTA-10 en las tres páginas con token:** `useStripTokenFromUrl()` (`lib/token-url.ts`, efecto de layout ⇒ antes de
+  cualquier `useEffect` que pida) en `/account-setup`, `/reset-password`, `/verify-email`; `Referrer-Policy: no-referrer`
+  por ruta en `next.config.mjs` (`TOKEN_PAGE_SOURCES`, con y sin prefijo de idioma, después de la regla global); fuera
+  de la lista blanca de medición (ya lo estaban; `robots.ts` añade `/*/account-setup`).
+- **«Mi cuenta» (972):** `accountSetupPending && !hasPassword` ⇒ «Ponle contraseña a tu cuenta» (`SetPasswordForm`,
+  nombre opcional + nueva, sin la actual ⇒ `setPassword`, reemplaza los dos tokens). Correo editable en `EmailSection`
+  solo pendiente y sin verificar (`updateMyEmail`). `hasPassword` manda sobre una bandera vieja.
+- **Franja (945, CTA.8, §CTA-UX.1):** `TrustStrip` = grupo con nombre; `<p>` de datos (único « ·» `aria-hidden`, pegado
+  al primer dato con espacio duro en un bloque `nowrap`) + `<ul>` sin separadores (WhatsApp, Instagram con `sr-only`
+  «pestaña nueva», «Quiénes somos»; `nowrap`, 44 px). Sin teléfono, sin WhatsApp ni hueco. «`/nosotros` sin publicar»
+  no tiene señal en el código (`ABOUT_PATH` fijo, responde 200): sin interruptor. Método y plazo: `about.*`; número,
+  `wa.me` e Instagram: `lib/about.ts`. ⛔ OXXO en ningún texto de cliente.
+- **977:** `IvaLabel` ya no pinta el rótulo del PRECIO con IVA dentro (teja, ficha y barra fija, sellado, carrusel,
+  vitrina, lista de deseos); fuera `accessories.vatIncluded`, «IVA incluido» del deck y «con IVA incluido» de las notas
+  del subtotal. Quedan la línea «IVA 16 % incluido: MX$…» del resumen (P-CTA-5(a)), «incluye IVA» del mercado
+  (P-CTA-5(b)) y «sin IVA» de una cifra que no lo lleva (190).
+- **Candados:** CTA-F1/F2 `InlineAuthPanel.test.tsx`, `api.cta.test.ts`; F3 `CheckoutEmailOnly.cta.test.tsx`; F4
+  `(auth)/token-pages.cta.test.tsx`; F5 `account/AccountSetupPending.cta.test.tsx`; F6 `GuestOrderConfirmation.test.tsx`;
+  F7 + 945 `_shared/TrustStrip.test.tsx`; F8 `security-headers.test.ts`; 977 `test/iva-977.test.tsx` + `IvaLabel.test.tsx`
+  y los casos de cada superficie. E2E `e2e/cuenta-correo.spec.ts` (todo `@real`, mismos pasos en mocks y real; el token
+  real se lee del log del backend con `NoopMailAdapter`, `E2E_BACKEND_LOG`).
+- **§CTA-UX.6 (vCTA-1, 2026-11-03):** textos ES/EN de §CTA-UX.2–4 + `auth.emailOnly.hint` (`aria-describedby`) y
+  `about.strip.groupLabel`/`newTab`; 409 en `Banner info`, tope en tinta; enlaces-botón de las tres páginas con token
+  con `buttonClassName()` (`ui/button-classes.ts`, SIN `'use client'`: la llaman Server Components; `Button` y la puerta
+  de `PasswordSection` la importan; candado `button-classes.test.tsx`); tope/error de «Mandar otro» en `Banner`
+  (`data-variant`, que leen las pruebas); foco de «Corregir mi correo» (abrir ⇒ campo; cancelar/guardar ⇒ enlace); fuera
+  `card.referenceExplainerWithMarket`. Candados «CTA-UX.1…4» en `TrustStrip`, `InlineAuthPanel`, `token-pages.cta`,
+  `AccountSetupPending.cta` y `test/cta-ux-copy.test.ts`; navegador: `cuenta-correo.spec.ts` «@real 945» a 360 y 320 px.
+  **Medido en Chromium (2026-11-03, N=3, ficha = carrito):** a 360, franja 320 px, datos en UN renglón, WhatsApp 131 +
+  Instagram 128 + 20 = 279 px juntos, «Quiénes somos» baja ⇒ 104 px. A 320: datos en 2 renglones ⇒ 120 px. (b) mide
+  también a 320 porque a 360 ningún « ·» cae en un salto.
+- **Rechazo del techlead sobre `e9c4c316` (TL-CTA):** cotas `MIN_PASSWORD`/`MAX_NAME` en `account/account-limits.ts`
+  (una de cada una, TL-CTA-7); el SENTINEL de `EmailSection` va escapado (`'\u0000'`): ningún NUL en `src/`, candado
+  `src/source-text.test.ts` (TL-CTA-8). Los cuatro «olvidé» van por `hooks/useForgotPassword` (5xx/red ⇒ `Banner
+  danger`, nunca «enviado»; TL-CTA-9, §CTA-UX.3b). Abiertas TL-CTA-4/5/6: índice de `docs/TECH_DEBT.md` §CTA.
+- **`/verify-email` v1.117.2 (D-CTA-12, CTA-F9, §CTA-UX.3b; 2026-11-03):** ⛔ no canjea al cargar; formulario
+  «contraseña actual» ⇒ `verifyEmail({ token, password })` o «¿No creaste esta cuenta…?» ⇒ `{ token, newPassword }`
+  (`lib/api.ts` arma el cuerpo con UN campo; modo nueva guarda `deviceToken` y no toca la sesión local; modo contraseña
+  marca `emailVerified`). `401` ⇒ `Banner danger` sobre el campo (vaciado, `aria-invalid`, foco), el token sigue; `429`
+  (`RATE_LIMITED` 10/min IP o `TOO_MANY_PASSWORD_ATTEMPTS` del C7, §1) ⇒ `Banner warning`; `422`/sin token ⇒
+  `(auth)/TokenLinkInvalid.tsx` (el mismo estado y «Mandar otro» de `/account-setup`, extraído de allí; con sesión y
+  correo ya verificado, h1 neutro `accountSetup.titleVerified` / `verifyEmailPage.titleVerified`). «Listo»: modo
+  contraseña con sesión ⇒ «Ir a mi cuenta»; si no, «Entrar» → `/login`. Textos en `verifyEmailPage.*` (fuera del shell);
+  se borraron las claves de la página vieja de `verifyEmail.*`. Candados: `VerifyEmailView.test.tsx`, `api.cta.test.ts`,
+  `token-pages.cta.test.tsx`; E2E `cuenta-correo.spec.ts` CTA-E4/E5 (`@real`; registra con contraseña y lee el enlace
+  «Verifica tu correo» del log). **Contra el backend real NO MEDIDO** (backend de v1.117.2 sin empujar al escribir esto).
+- **Petición 8 (regla EN «Sign in»):** 18 textos de `en.json` (las cinco nombradas + 13 más con «Log in/log in»);
+  candado `test/cta-ux-verify-copy.test.ts` (ningún `\blog\s?in\b` fuera de etiquetas de texto enriquecido).
+- **Petición 9 (comprar no exige verificar):** `account.email.unverifiedBody`, `verifyEmail.bannerBody/successBody` sin
+  «comprar»; candado en el mismo fichero (ámbitos `verifyEmail`, `verifyEmailPage`, `account.email`,
+  `error.EMAIL_NOT_VERIFIED`). `VerifyEmailBanner` solo en `/account`, `/orders`, `/buylist` (vender; «/sell» no existe)
+  y `/shipments` (retiro) — `isVerifyBannerPath`, medido contra los `@RequireEmailVerified()` del backend. Reenvío según
+  la cuenta (`account/resend-kind.ts`: `accountSetupPending && !hasPassword` ⇒ «Reenviar enlace para terminar tu
+  cuenta» / «otro enlace») en el banner, `EmailSection` y `EmailNotVerifiedNotice`.
+- **Plantilla del correo «Verifica tu correo» (petición 7):** vive en `backend/src/modules/mail/mail.templates.ts`:
+  es de backend, no de frontend.
+
 ## §IDS-FE · Español y versiones de liga (2026-11-03, rama `claude/ids-diseno`; contrato v1.116.2⟨ids⟩, DESIGN_SYSTEM §IDS-UX vIDS-6)
 
 **Estado vigente (medido 2026-11-03 sobre `8ed6d67f`; rechazo de QA sobre `f2cd0e31` cerrado abajo, «Re-pase QA»; peticiones 9a/9b y deck `@real` sobre `94a8325b`, abajo «Deck y 9a/9b»).** Construido contra el contrato; consume el servidor real de §IDS
@@ -159,17 +232,11 @@ Fuentes: DESIGN_SYSTEM §MKT-CONV.1–.6; PROJECT 940–957; HECHOS 2026-10-31 �
   propósito (la tardía llena la caché para la siguiente visita). **TL-MKT3-2:** pestaña Gradeadas = `?productType=graded`.
   **TL-MKT2-2:** `QUERY_DEFAULTS` exportado de `components/Providers.tsx`.
 
-## §MKT-E2E1 · Hallazgos de tester-e2e y QA sobre `561ad425` (2026-10-31, rama `claude/mkt-fe-e2e1`, base `815d14d1`)
+## §MKT-E2E1 · Hallazgos de tester-e2e y QA sobre `561ad425` (2026-10-31, compactado 2026-11-03)
 
-- **C1 sellado:** el `<h1>` de `SealedDetailView` lleva «nombre · set» con el patrón de la carta (set como bloque dentro).
-- **C6:** `llms.txt` enlaza `/es/sellado` y `tcghunt.mx/card-show` (`llmsCardShowLine`, sin datos del evento; es la única
-  excepción del barrido «sin Card Show» de `seo-content.test.ts`); revisión `2026-10-31`. IVA, Instagram y «Quiénes somos»: esperan al dueño.
-- **MENOR-3:** `CheckoutLines` pinta la meta con `historicalCardMeta` (la regla del pedido): `· NM` raw, `· PSA 10` gradeada.
-- **I-1 / TL-MKT2-1:** `lib/ssr-budget.ts` (`withBudget`, `withAbortBudget`); fichas SSR con `DETAIL_SSR_BUDGET_MS` (= catálogo,
-  1200 ms) que ABORTA el fetch (`signal` en `apiRequest`, `getCardDetail`, `getSealedGroupDetail`) y cae a la carga en cliente.
-- **M-2:** `?page=N` fuera de rango con resultados ⇒ «Esta página ya no tiene cartas» + enlace rastreable a la página 1 (`catalog.pageOutOfRange.*`).
-- **B-1:** el campo de correo del invitado en los E2E se busca con `{ exact: true }` (en, «I confirm that my email…» lo duplicaba).
-- Pruebas, mutaciones (N=3) y E2E con su N: informe de entrega del stream; candados en `TECH_DEBT.md` (TL-MKT2-1).
+Vigente: `<h1>` del sellado «nombre · set»; `CheckoutLines` con `historicalCardMeta`; fichas SSR con `lib/ssr-budget.ts`
+(`DETAIL_SSR_BUDGET_MS`, aborta y cae a cliente; TL-MKT2-1 en `TECH_DEBT.md`); `?page=N` fuera de rango ⇒
+`catalog.pageOutOfRange.*`; `llms.txt` con `llmsCardShowLine`. El detalle por hallazgo está en git (rama `claude/mkt-fe-e2e1`).
 
 ## §MKT-TL1 · Catálogo: la URL es la única fuente de los filtros (2026-10-31, rama `claude/mkt-fe-tl1`, base `561ad425`)
 
@@ -12612,15 +12679,7 @@ hablaban de M-47** (`contract.ts`, `fixtures.ts`, `MasterSetIndexPlate.test.tsx`
 §42). ⚠️ **Las `§4.39c` / `§4.39(x)` NO se tocaron**: ésas son del ciclo de adquisición y siguen
 apuntando donde deben. Después de la reescritura no queda ninguna cita `§4.39.N` en mis rutas.
 
-> ⛔ **SUPERADO en la fusión siguiente — ver §48.4.** Este párrafo dio por bueno mover las imágenes
-> de set a `§4.40.x` «por radio de citación», y la premisa se cayó al día siguiente: `main` publicó
-> **`§4.40` = identidad de graduación / cotizador raw-only**. Con las dos numeraciones en el mismo
-> árbol `§4.40` nombraba dos cosas —incluso dentro del MISMO fichero (`lib/api.ts`)—, y la que
-> perdía era **la guarda del dinero**. Lo resolvió **el arquitecto**, que es de quien es: `§4.39`
-> queda para el **ciclo de adquisición**, `§4.40` para **graduación/raw-only** (308 citas vivas en
-> `main`) y **las imágenes de set se mudan a `§4.41.1`–`§4.41.9`**. Mis 31 citas `§4.39.N`/`§4.40.N`
-> de logos —y las 4 con `§4.39` a secas— quedan reescritas a `§4.41.N`. **Las `§4.39c` / `§4.39(x)`
-> siguen sin tocarse: ésas son del ciclo y ahora apuntan donde deben sin mover nada.**
+> ⛔ **SUPERADO — ver §48.4:** las imágenes de set viven en `§4.41.1`–`§4.41.9` (`§4.39` ciclo, `§4.40` graduación). Compactado 2026-11-03; texto en `e9c4c316:docs/FRONTEND_NOTES.md`.
 
 **Para el arquitecto — nada pendiente de DT-Gd.** El único punto que quedaba abierto (nombrar los dos
 DTOs) lo cerró v1.53 y el cliente ya está alineado.
@@ -17446,38 +17505,7 @@ failed** (antes de `2e93eb0f`: 3 rojas de specs propios, arregladas en ese commi
 Mutaciones (copia `git archive HEAD` entera, N=1 cada una, deterministas): B1 4/4 rojas · B2 3/3 · B3 3/3 · B4 5/5 ·
 B5 3/3 · B6 4/4 (MOB-3 en Playwright sobre build de la copia, 2 rojas a 360 y 390).
 
-## §99 · **F-26 — M8 «Disputas» se retira de la interfaz** (2026-10-05, rama `claude/arreglos-panel`, base `5a8a5852`; contrato §PNL.10.7 / §PNL.11 errata v1.82.2; `DESIGN_SYSTEM §60.8`)
-
-**Un commit propio y revertible** (§PNL.10.7 paso 3 (b)): si la medición posterior al despliegue da alguna disputa
-`abierta`/`en_revision`, `git revert` de ese commit devuelve menú, ruta, pantalla, enlace del tablero y textos. La API de
-disputas **no cambia** (lecturas y `resolve` siguen; los correos 20/21 tampoco se tocan) — `lib/api.ts` y
-`types/contract.ts` se dejaron intactos a propósito (`getAdminDisputes`, `resolveDispute`, `getAdminUserDisputes`,
-`workQueue.disputes`).
-
-**Qué cambió:**
-1. **Menú:** sale la línea `{ href: '/admin/m8', key: 'm8' }` de `AdminSidebar.tsx` y nada más (cambio mínimo: la rama
-   Skydropx añade «Avisos de gasto» en el mismo grupo, unas líneas más arriba).
-2. **Ruta:** `m8/page.tsx` redirige a `/admin` en el servidor conservando el idioma (patrón de `manual-refunds/page.tsx`).
-   Salen `M8View.tsx`, `M8View.test.tsx` y `components/domain/DisputeEvidenceContact.tsx` (solo lo usaba M8, §88 decisión 1).
-3. **Tablero:** la cola suma envíos + buylist (sin `workQueue.disputes`) y pierde el enlace a M8.
-4. **M6:** la pestaña «Disputas» de la ficha solo se pinta si `detail.disputes?.length > 0`; con cero ni pestaña ni
-   llamada a `GET /admin/disputes?userId=`. Es historia de lectura.
-5. **Textos (es/en):** salen `admin.modules.m8`, `admin.m8.*`, `admin.dashboard.disputes` y el namespace `dispute.*` (el de
-   `DisputeEvidenceContact`). Se quedan `admin.m6.tabs.disputes`, `admin.m6.disputes`, `admin.m6.disputeType.*` y todos los
-   «en disputa» del contracargo. i18n 4287 = 4287 claves.
-6. **Candado de títulos:** sale la fila de M8 y el mapa `PAGES` en el mismo commit; el menú pasa de 16 a 15 entradas.
-7. **E2E:** los dos tests de M8 (`admin.spec.ts`) se sustituyen por uno `@real`: `/es/admin/m8` ⇒ `/es/admin`,
-   `/en/admin/m8` ⇒ `/en/admin`, sin enlaces a `/admin/m8`. Censo: `needsSeed` 36 → **35** (10 ficheros); bajar no es rojo,
-   el baseline (de devops) puede regenerarse para fijar el techo.
-
-**Pruebas:** FE-M8-1…3 en `admin/M8Retired.test.tsx`, FE-M8-4 en `m6/M6View.test.tsx` (tres casos: `[]`, ausente, una).
-Rojas antes del cambio (9 rojas por el motivo esperado; FE-M8-3 `expected '11' to be '8'`).
-
-**Mediciones (copia del árbol entero en scratchpad, sin `.git`):** `tsc` 0 · lint 0 · vitest **219/220 ficheros,
-2618/2619** — la única roja es `error-audience.test.ts` LITERALIDAD §26 («Recibida: empezar revisión»), que ux-ui cambió en
-`DESIGN_SYSTEM` v5.1 y se cierra con F-34 (no es de F-26). Mutaciones, N=3 cada una, deterministas: devolver la entrada
-del menú ⇒ FE-M8-1 3/3 rojo · volver a sumar disputas ⇒ FE-M8-3 3/3 · pestaña sin condición ⇒ FE-M8-4 3/3 · redirigir sin
-idioma ⇒ FE-M8-2 3/3 (rojo el caso `en`). Playwright del nuevo E2E: NO MEDIDO (carga de la máquina > 2× CPUs).
+## §99 · F-26 — M8 «Disputas» se retira de la interfaz (2026-10-05, rama `claude/arreglos-panel`) — compactado 2026-11-03: menú, ruta `/admin/m8` ⇒ `/admin` con idioma, cola del tablero sin disputas y pestaña de M6 solo con disputas; la API no cambió (revertible revirtiendo su commit). Candados FE-M8-1…4 (`admin/M8Retired.test.tsx`, `m6/M6View.test.tsx`); el detalle, en el historial del repo.
 
 ## §100 · **F-33 (FE-BRJ-4 · `409 CONFLICT {reason:'ITEM_FINAL'}`) y F-34 («Recibida: empezar revisión»)** (2026-10-05, rama `claude/arreglos-panel`; `DESIGN_SYSTEM` v5.1 §60.14, §60.15, §26.3; contrato §PNL.10.2 / §PNL.10.6)
 

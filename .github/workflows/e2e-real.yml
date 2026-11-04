@@ -140,6 +140,11 @@ jobs:
     env:
       # El compose de staging ya hornea NEXT_PUBLIC_USE_MOCKS=false en el frontend.
       COMPOSE: docker-compose.staging.yml
+      # Override SOLO de este workflow: URL base de Resend → buzón falso del runner.
+      COMPOSE_E2E_MAIL: docker-compose.e2e-mail.yml
+      E2E_MAIL_SINK_PORT: '8025'
+      # E2E_MAIL_LOG lo fija el paso del buzón en $RUNNER_TEMP: FUERA de los
+      # artefactos (lleva enlaces con token; el repo es público).
       # Puertos del stack de staging (ver docker-compose.staging.yml).
       FRONTEND_URL: http://localhost:3010
       BACKEND_HEALTH: http://localhost:3011/api/v1/health
@@ -307,8 +312,37 @@ jobs:
           echo "STACK_UP_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
           echo "Commit bajo prueba: $GITHUB_SHA"
 
+      # -----------------------------------------------------------------------
+      # CORREO EN EL E2E REAL (devops, 2026-11-04 · DEVOPS_NOTES «Correo en el E2E real»)
+      # Este stack corre con NODE_ENV=production ⇒ RESEND_API_KEY obligatoria (la
+      # efímera del preflight) ⇒ ResendMailAdapter, que hasta hoy moría en
+      # api.resend.com con «API key is invalid» (run 41757369935): ningún correo
+      # se podía leer. Ahora el SDK habla con un buzón falso EN ESTE RUNNER
+      # (`scripts/e2e-mail-sink.mjs`) vía `docker-compose.e2e-mail.yml`
+      # (URL base del SDK, SOLO ahí — candado `check-mail-sink-scope.sh`).
+      # Solo el `up` lleva el override: el resto de comandos `-f "$COMPOSE"`
+      # (ps/exec/logs/down) encuentran los mismos contenedores por proyecto.
+      # -----------------------------------------------------------------------
+      - name: Arrancar el buzón falso de correo (Resend → fichero, solo CI)
+        run: |
+          set -euo pipefail
+          E2E_MAIL_LOG="$RUNNER_TEMP/e2e-mail/mail.log"
+          mkdir -p "$(dirname "$E2E_MAIL_LOG")"
+          echo "E2E_MAIL_LOG=$E2E_MAIL_LOG" >> "$GITHUB_ENV"
+          nohup node scripts/e2e-mail-sink.mjs --port "$E2E_MAIL_SINK_PORT" --out "$E2E_MAIL_LOG" \
+            > "$RUNNER_TEMP/e2e-mail-sink.out" 2>&1 &
+          for _ in $(seq 1 20); do
+            if curl -sf "http://127.0.0.1:$E2E_MAIL_SINK_PORT/health" >/dev/null; then
+              echo "Buzón falso arriba en :$E2E_MAIL_SINK_PORT → $E2E_MAIL_LOG"; exit 0
+            fi
+            sleep 0.5
+          done
+          cat "$RUNNER_TEMP/e2e-mail-sink.out" || true
+          echo "::error title=Buzón E2E::scripts/e2e-mail-sink.mjs no respondió en :$E2E_MAIL_SINK_PORT. Sin él, CTA-E3/E4/E5 no tienen correo que leer."
+          exit 1
+
       - name: Levantar stack real (Postgres/Redis/MinIO + backend + frontend)
-        run: docker compose -f "$COMPOSE" --profile apps up -d --build
+        run: docker compose -f "$COMPOSE" -f "$COMPOSE_E2E_MAIL" --profile apps up -d --build
 
       - name: Esperar salud del backend (migrate deploy + API escuchando)
         run: |
@@ -569,6 +603,67 @@ jobs:
           [ "$PW_RC" -eq 0 ] && [ "$CHK_RC" -eq 0 ]
 
       # -----------------------------------------------------------------------
+      # §CTA CUENTA CON SOLO EL CORREO (REAL) — SU PASO, UN INTENTO, CUBO VACÍO.
+      # (devops, 2026-11-04 · DEVOPS_NOTES «Correo en el E2E real»)
+      #
+      # `frontend/e2e/cuenta-correo.spec.ts` gasta el cubo `signup` del backend
+      # (5/min por IP, compartido por register, register/email-only y
+      # PATCH /users/me/email — backend/src/common/throttle/signup-throttle.ts).
+      # Aquí TODO sale de una IP contra UN backend: el límite de producción se
+      # mide tal cual, NO se relaja ni se rodea con X-Forwarded-For (P-RL-1 /
+      # PT-CTA-6). Lo que se controla es el PRESUPUESTO:
+      #   · gasto por corrida: E1 (email-only) + E2 (409) + E3 (email-only) +
+      #     E4 (register) + E5 (register) = 5 = el límite. Margen CERO.
+      #   · `--retries=0`: cada reintento es otra alta. En el run 41757369935
+      #     (retries=2) E3 gastó 3 y E4/E5 murieron en 429: el rojo real quedó
+      #     tapado por un rojo del arnés.
+      #   · `sleep 61` antes: el cubo es de ventana fija (ttl 60 s desde la 1.ª
+      #     alta). Lo que haya gastado el smoke de arriba ya caducó. Hoy el smoke
+      #     gasta 0 (medido en ese run); esto no depende de que siga así.
+      #   · fuera de `smoke_specs`: si alguien lo mete ahí, este paso aborta
+      #     (gastaría el cubo dos veces en el mismo minuto).
+      #   · `check-e2e-must-run.sh --min 7`: los 7 casos @real ejecutados y
+      #     pasados en su único intento; salto, flaky o reintento ⇒ ROJO.
+      # El correo lo lee de `E2E_MAIL_LOG` (buzón falso, paso de arriba).
+      # Corre aunque el smoke haya fallado (mide otra cosa), si la siembra salió.
+      # -----------------------------------------------------------------------
+      - name: §CTA cuenta con solo el correo (REAL) — un intento, cubo de altas vacío
+        id: cta
+        if: ${{ !cancelled() && steps.seed.outcome == 'success' }}
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: ${{ env.FRONTEND_URL }}
+          E2E_REAL: '1'
+          CTA_SPEC: cuenta-correo.spec.ts
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/frontend/test-results-cta/report.json
+          E2E_NOT_MEASURED_JSON: ${{ github.workspace }}/frontend/test-results-cta/not-measured.json
+          E2E_EXPECT_NOT_MEASURED: '0'
+        run: |
+          set -uo pipefail
+          case " ${EFFECTIVE_SMOKE_SPECS:-} " in
+            *" $CTA_SPEC "*)
+              echo "::error title=§CTA::$CTA_SPEC está también en smoke_specs: gasta el cubo de altas (5/min) y aquí volvería a gastarlo. Quítalo de smoke_specs (corre en este paso)."
+              exit 1 ;;
+          esac
+          [ -n "${E2E_MAIL_LOG:-}" ] && [ -f "$E2E_MAIL_LOG" ] || {
+            echo "::error title=§CTA::no hay buzón falso (E2E_MAIL_LOG='${E2E_MAIL_LOG:-}'). CTA-E3/E4/E5 no tendrían correo que leer."
+            exit 1; }
+          export E2E_BACKEND_LOG="$E2E_MAIL_LOG"
+          echo "Esperando 61 s a que caduque el cubo signup (5/min por IP)…"
+          sleep 61
+          mkdir -p test-results-cta
+          set +e
+          npm run test:e2e -- "$CTA_SPEC" --retries=0 --output=test-results-cta/artifacts \
+            --reporter=list,github,json,./e2e/reporters/not-measured.ts
+          PW_RC=$?
+          echo "playwright rc=$PW_RC"
+          echo "Correos capturados por el buzón: $(grep -c '^\[E2E MAIL SINK\]' "$E2E_MAIL_LOG" || true)"
+          "$GITHUB_WORKSPACE/scripts/check-e2e-must-run.sh" \
+            --report test-results-cta/report.json --spec "$CTA_SPEC" --min 7
+          CHK_RC=$?
+          [ "$PW_RC" -eq 0 ] && [ "$CHK_RC" -eq 0 ]
+
+      # -----------------------------------------------------------------------
       # VEREDICTO EN UNA LÍNEA, EN LA PÁGINA DEL RUN.
       # Requisito explícito: el estado «Stripe no configurado» tiene que ser de
       # primera clase y legible SIN abrir logs. Hoy había que bajar 2 000 líneas
@@ -580,6 +675,7 @@ jobs:
         env:
           PW_OUTCOME: ${{ steps.smoke.outcome }}
           SPEI_OUTCOME: ${{ steps.spei.outcome }}
+          CTA_OUTCOME: ${{ steps.cta.outcome }}
         run: |
           set -uo pipefail
           CORRIDOS=$(printf '%s' "${EFFECTIVE_SMOKE_SPECS:-}" | wc -w | tr -d ' ')
@@ -613,6 +709,11 @@ jobs:
               success) echo "**P-REL-3 cubeta SPEI (real): EJECUTADA y PASÓ** (2 casos, un intento, 0 saltos — \`check-e2e-must-run.sh\`)." ;;
               failure) echo "**P-REL-3 cubeta SPEI (real): ROJO** — falló, se saltó o se reintentó. Ver el paso y \`test-results-spei/\`." ;;
               *)       echo "**P-REL-3 cubeta SPEI (real): NO CORRIÓ** (la siembra no terminó bien o el job murió antes). NO está medida." ;;
+            esac
+            case "${CTA_OUTCOME:-skipped}" in
+              success) echo "**§CTA cuenta con solo el correo (real): EJECUTADA y PASÓ** (7 casos, un intento, 0 saltos — \`check-e2e-must-run.sh\`)." ;;
+              failure) echo "**§CTA cuenta con solo el correo (real): ROJO** — falló, se saltó o se reintentó. Ver el paso y \`test-results-cta/\`." ;;
+              *)       echo "**§CTA cuenta con solo el correo (real): NO CORRIÓ** (la siembra no terminó bien o el job murió antes). NO está medida." ;;
             esac
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "${MONEY_GATE:-}" = "off" ]; then
@@ -690,6 +791,7 @@ jobs:
             frontend/playwright-report
             frontend/test-results
             frontend/test-results-spei
+            frontend/test-results-cta
           if-no-files-found: ignore
           retention-days: 14
 

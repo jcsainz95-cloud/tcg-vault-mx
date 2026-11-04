@@ -113,6 +113,14 @@ export class PasswordAttemptsService {
     return passwordAttemptKeysForUser(this.pii, user).account;
   }
 
+  /**
+   * v1.117 (§CTA.4 «Telemetría»): HMAC (índice ciego, la llave de C7) de una IP con prefijo de dominio propio, para que un
+   * `warn` identifique la IP de forma estable ⛔ sin escribirla en claro. Quien la imprime corta a 12 caracteres.
+   */
+  ipFingerprint(ip: string): string {
+    return this.pii.blindIndex(`signup-409:v1:${ip}`);
+  }
+
   changePasswordKey(userId: string): string {
     return CHANGE_PASSWORD_KEY_PREFIX + userId;
   }

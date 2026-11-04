@@ -57,7 +57,7 @@
     "vault": "My vault",
     "orders": "My orders",
     "account": "Account",
-    "login": "Log in",
+    "login": "Sign in",
     "register": "Sign up",
     "logout": "Log out",
     "admin": "Admin panel",
@@ -101,7 +101,8 @@
         "hint": "This is how we address you in emails and shipments.",
         "required": "Enter your name.",
         "tooLong": "120 characters max.",
-        "derivedFromEmail": "We took this name from your email address because Google didn't share your name. Tell us what to call you."
+        "derivedFromEmail": "We took this name from your email address because Google didn't share your name. Tell us what to call you.",
+        "derivedFromEmailLocal": "We took this name from your email. Type how you'd like us to call you."
       },
       "phone": {
         "label": "Mobile phone",
@@ -117,8 +118,20 @@
       "title": "Email",
       "verified": "VERIFIED",
       "unverified": "NOT VERIFIED",
-      "unverifiedBody": "Verify your email to buy, sell and withdraw.",
-      "changeNote": "To change your email, write to {contact}."
+      "unverifiedBody": "Verify your email to sell, withdraw and see your earlier orders.",
+      "changeNote": "To change your email, write to {contact}.",
+      "correctOpen": "Correct my email",
+      "correctLabel": "Correct email",
+      "correctHint": "We'll send the link to finish your account to this email.",
+      "correctSubmit": "Save email",
+      "correctCancel": "Cancel",
+      "correctSaved": "Email updated. We sent the link to the new email.",
+      "correctTaken": "That email already has an account.",
+      "correctRateLimited": "You've changed the email several times. Wait an hour and try again.",
+      "correctInvalid": "Enter a valid email.",
+      "correctNotPending": "This email can't be changed from here anymore.",
+      "correctError": "Couldn't save. Try again.",
+      "resendSetupCta": "Resend the link to finish your account"
     },
     "username": {
       "title": "Username",
@@ -209,7 +222,14 @@
       "createSending": "Sending…",
       "createSentTitle": "LINK SENT",
       "createSentBody": "Check your email. The link expires; if it doesn't arrive, request another.",
-      "createResend": "Send again"
+      "createResend": "Send again",
+      "setupTitle": "Set a password for your account",
+      "setupSummary": "Your account doesn't have a password yet. Set one to sign in with your email from anywhere.",
+      "setupBody": "Your account was created with just your email, so we don't ask for a current password. Choose a password; the name is optional.",
+      "setupName": "Name (optional)",
+      "setupNameHint": "What you'd like us to call you.",
+      "setupNameTooLong": "The name can be up to 120 characters.",
+      "setupSubmit": "Save password"
     },
     "session": {
       "title": "Session",
@@ -451,8 +471,7 @@
       "graded": "Graded",
       "sealed": "Sealed",
       "raw": "Raw"
-    },
-    "referenceExplainerWithMarket": "Market value is the day's reference, shown with VAT included just like our sale price, so you can compare them directly. The sale price is derived from that reference."
+    }
   },
   "price": {
     "pendingLabel": "Price pending",
@@ -466,7 +485,7 @@
     "removeItem": "Remove",
     "subtotal": "Subtotal",
     "subtotalHint": "Card sale price, before VAT.",
-    "subtotalHintIvaIncluded": "Card sale price, VAT included.",
+    "subtotalHintIvaIncluded": "Card sale price.",
     "platformFee": "Platform fee",
     "platformFeeHint": "Our fee for handling your purchase on TCG HUNT. It's already included in the total shown here.",
     "iva": "VAT {rate}%",
@@ -545,7 +564,6 @@
       "backToRegister": "I'd rather create an account",
       "created": "ACCOUNT CREATED · DESTINATION: VAULT",
       "shippingRemoved": "Shipping no longer applies: your cards stay in the vault.",
-      "emailTakenNeutral": "We couldn't create an account with that email. You can log in or continue as a guest.",
       "retry": "Retry"
     },
     "confirmation": {
@@ -565,9 +583,8 @@
         "cta": "Create account with this email",
         "success": "ORDER IN YOUR HISTORY",
         "successLink": "View my orders",
-        "needsVerification": "Account created. Verify your email and link the order from your history.",
-        "alreadyClaimedNeutral": "We couldn't link this order.",
-        "emailTakenNeutral": "We couldn't create an account with that email. If you already have one, log in to claim the order from your history."
+        "needsVerification": "Account created. Open the link in your email to see this order.",
+        "alreadyClaimedNeutral": "We couldn't link this order."
       }
     },
     "retry": {
@@ -581,7 +598,7 @@
       "ownActive": "This cart is already reserved for you ({orderNumber}): paying resumes that same order, with no double charge.",
       "ownExpired": "Your previous reservation ({orderNumber}) expired: paying renews it with a new order and cancels the previous attempt."
     },
-    "subtotalHintProducts": "Sale price of your products, VAT included.",
+    "subtotalHintProducts": "Sale price of your products.",
     "payNoAmount": "Pay",
     "accessories": {
       "groupAccessories": "ACCESSORIES",
@@ -648,7 +665,7 @@
     },
     "refundPromise": "If your card arrives damaged or wrong, we refund you.",
     "freeShippingRemaining": "{remaining} more for free shipping",
-    "entryLine": "Already have an account? <login>Log in</login> · or <register>create one</register>",
+    "entryLine": "Already have an account? <login>Sign in</login> · or <register>create one</register>",
     "showMoreLines": "Show {n} more",
     "bar": {
       "includesShipping": "Includes shipping {shipping} and platform fee {fee}",
@@ -982,11 +999,11 @@
     "noRequests": "You have no sell requests yet.",
     "viewMyRequests": "See the status of my requests",
     "backToSales": "My sales",
-    "requestsLoginInvite": "Log in to see the status of your sell requests.",
+    "requestsLoginInvite": "Sign in to see the status of your sell requests.",
     "requirementsTitle": "Requirements to get paid",
-    "loginToSellTitle": "Log in or create an account to sell",
+    "loginToSellTitle": "Sign in or create an account to sell",
     "loginToSellBody": "Quoting is free, but to submit your sell request you need an account with a verified email.",
-    "loginCta": "Log in",
+    "loginCta": "Sign in",
     "registerCta": "Create account",
     "reqChecking": "Checking your account status…",
     "reqEmailVerified": "Email verified",
@@ -1308,7 +1325,7 @@
     "deliveryIssueOutcome": "If it applies, you keep the card: there's no product return."
   },
   "auth": {
-    "loginTitle": "Log in",
+    "loginTitle": "Sign in",
     "registerTitle": "Create account",
     "email": "Email",
     "emailOrUsername": "Email or username",
@@ -1321,12 +1338,11 @@
     "loginCta": "Sign in",
     "registerCta": "Create account",
     "toRegister": "No account? Sign up",
-    "toLogin": "Already have an account? Log in",
-    "loginWithThisEmail": "Log in with this email",
+    "toLogin": "Already have an account? Sign in",
     "loading": "Processing…",
     "mockNotice": "Authentication pending backend: submit simulates the flow and stores a local session.",
     "inactivityLogout": "Your session was closed due to inactivity.",
-    "sessionMaxAgeLogout": "Your session expired for security reasons. Log in again.",
+    "sessionMaxAgeLogout": "Your session expired for security reasons. Sign in again.",
     "dividerOr": "or",
     "google": {
       "cta": "Continue with Google",
@@ -1347,32 +1363,61 @@
       "temporaryLabel": "Temporary password",
       "submit": "Save and continue",
       "done": "Done"
+    },
+    "emailOnly": {
+      "taken": "That email already has an account. Sign in and keep going: your cart doesn't change.",
+      "resetError": "We couldn't send the link. Try again in a few minutes.",
+      "login": "Sign in to your account",
+      "resetSent": "We sent a link to that email to set a new password.",
+      "resetRateLimited": "You've requested several links. Wait a few minutes and try again.",
+      "hint": "Just your email. We'll send you a link to set a password."
     }
   },
   "verifyEmail": {
-    "title": "Verify email",
-    "verifying": "Verifying your email…",
-    "noToken": "The verification link is missing. Open the link we emailed you.",
-    "successTitle": "Email verified",
-    "successBody": "Your email is verified. You can now buy, sell, and withdraw.",
-    "goToStore": "Go to the store",
-    "invalidTitle": "We couldn't verify your email",
-    "invalidBody": "The link is invalid or expired. Request a new one to verify your email.",
-    "genericError": "Something went wrong verifying your email. Please try again.",
-    "loginToResend": "Log in to resend the verification email.",
-    "goToLogin": "Log in",
     "resendCta": "Resend verification email",
     "sending": "Sending…",
     "sent": "We sent you a new verification email.",
     "rateLimited": "Too many requests. Please wait a moment and try again.",
     "resendError": "We couldn't resend the email. Please try again.",
     "bannerTitle": "Verify your email",
-    "bannerBody": "Verify your email to buy, sell, and withdraw. You can keep browsing in the meantime.",
+    "bannerBody": "Verify your email to sell, withdraw and see your earlier orders.",
     "blockedTitle": "Verify your email to complete this action",
-    "blockedBody": "This action requires a verified email. Resend the verification email and confirm it to continue."
+    "blockedBody": "This action requires a verified email. Resend the verification email and confirm it to continue.",
+    "successBody": "You can now sell, withdraw and see your earlier orders.",
+    "resendSetupCta": "Resend the link to finish your account",
+    "sentSetup": "We sent you another link. Check your email."
+  },
+  "verifyEmailPage": {
+    "title": "Confirm your email",
+    "titleVerified": "Your email",
+    "passwordLead": "To confirm it's you, enter your current password.",
+    "password": "Password",
+    "submit": "Confirm email",
+    "submitting": "Confirming…",
+    "toNewPassword": "Didn't create this account, or don't remember the password?",
+    "newPasswordLead": "Choose a new password. We'll sign out every other session on this account and you'll need to sign in again.",
+    "newPassword": "New password",
+    "confirm": "Confirm password",
+    "policyHint": "At least 8 characters.",
+    "weak": "The password must be at least 8 characters.",
+    "mismatch": "Passwords don't match.",
+    "submitNew": "Save password and confirm",
+    "submittingNew": "Saving…",
+    "toPassword": "I remember my password",
+    "wrongPasswordTitle": "That password isn't correct. Try again.",
+    "wrongPasswordBody": "The link still works, but every failed attempt counts.",
+    "tooManyAttempts": "Too many attempts. Wait a few minutes and try again.",
+    "blocked": "This account is blocked. Contact us and we'll help.",
+    "genericError": "Couldn't save. Try again.",
+    "successTitle": "Done",
+    "successPassword": "Your email is confirmed.",
+    "successNewPassword": "We confirmed your email and changed your password. Sign in with the new one.",
+    "signIn": "Sign in",
+    "goToAccount": "Go to my account"
   },
   "forgotPassword": {
     "title": "Reset password",
+    "sendError": "We couldn't send the link. Try again in a few minutes.",
     "subtitle": "Enter your email and we'll send you instructions to reset your password.",
     "email": "Email",
     "submit": "Send instructions",
@@ -1380,7 +1425,7 @@
     "sentTitle": "Check your email",
     "sentBody": "If the email exists, we sent you instructions to reset your password.",
     "rateLimited": "Too many requests. Please wait a moment and try again.",
-    "backToLogin": "Back to log in"
+    "backToLogin": "Back to sign in"
   },
   "resetPassword": {
     "title": "New password",
@@ -1393,13 +1438,13 @@
     "submit": "Change password",
     "submitting": "Saving…",
     "successTitle": "Password updated",
-    "successBody": "Your password was updated. Log in with your new password.",
-    "goToLogin": "Log in",
+    "successBody": "Your password was updated. Sign in with your new password.",
+    "goToLogin": "Sign in",
     "invalidTitle": "Invalid or expired link",
     "invalidBody": "This reset link is invalid or expired. Request a new one.",
     "requestAnother": "Request another link",
     "genericError": "We couldn't update your password. Please try again.",
-    "backToLogin": "Back to log in"
+    "backToLogin": "Back to sign in"
   },
   "admin": {
     "shellTitle": "Back-office",
@@ -4334,7 +4379,7 @@
       "addresses": "Addresses",
       "block": "Block",
       "unblock": "Reactivate",
-      "blockQuestion": "Block this user? They won't be able to log in.",
+      "blockQuestion": "Block this user? They won't be able to sign in.",
       "unblockQuestion": "Reactivate this user's account?",
       "deleted": "Deleted",
       "accountTitle": "Account management",
@@ -7766,7 +7811,7 @@
   },
   "error": {
     "VALIDATION_ERROR": "Please check the entered data.",
-    "UNAUTHENTICATED": "Please log in to continue.",
+    "UNAUTHENTICATED": "Please sign in to continue.",
     "CURRENT_PASSWORD_INCORRECT": "The current password is incorrect.",
     "PASSWORD_SAME_AS_CURRENT": "The new password must differ from the current one.",
     "PASSWORD_NOT_SET": "Your account has no password. Create one from “My account”.",
@@ -8195,7 +8240,7 @@
       "eyebrow": "ENERGY BUNDLE",
       "headline": "All {n} energy cards for this deck for {price}",
       "loose": "One by one they'd cost {amount}.",
-      "note": "Fixed price, VAT included. Home delivery only, with the complete deck in your cart.",
+      "note": "Fixed price. Home delivery only, with the complete deck in your cart.",
       "add": "Add bundle",
       "inCart": "In cart",
       "remove": "Remove bundle",
@@ -8241,7 +8286,6 @@
     "clearSearch": "Clear search",
     "add": "Add",
     "addAria": "Add {name} to cart",
-    "vatIncluded": "VAT included",
     "quantity": "Quantity",
     "maxHint": "You can add up to {n}.",
     "addToCart": "Add to cart",
@@ -8331,7 +8375,7 @@
     "guest": {
       "title": "Looking for it? Save it to your wishlist and we'll email you when we get it.",
       "body": "You need an account to have a wishlist.",
-      "login": "Log in to add it",
+      "login": "Sign in to add it",
       "register": "Create account"
     },
     "error": {
@@ -8395,7 +8439,7 @@
     },
     "mailAction": {
       "removeTitle": "Remove a card from your wishlist",
-      "removeBody": "Confirm and we'll remove it. You don't need to log in.",
+      "removeBody": "Confirm and we'll remove it. You don't need to sign in.",
       "removeCta": "Remove from my wishlist",
       "pauseTitle": "Stop your wishlist alerts",
       "pauseBody": "Your wishlist stays saved. You can resume alerts any time in My account.",
@@ -8406,7 +8450,7 @@
       "alreadyRemoved": "That card was no longer on your wishlist.",
       "alreadyPaused": "These alerts were already paused.",
       "invalid": "This link doesn't work.",
-      "invalidHint": "Log in to check your wishlist.",
+      "invalidHint": "Sign in to check your wishlist.",
       "rateLimited": "Too many attempts. Wait a minute and try again.",
       "error": "We couldn't do it. Please try again.",
       "working": "One moment…",
@@ -8462,10 +8506,10 @@
       "account": "Account",
       "accountValue": "You can buy as a guest, with your email and an address in Mexico.",
       "payment": "Payment",
-      "paymentValue": "You pay online, by card, on the payment screen.",
+      "paymentValue": "You pay online, by {method}, on the payment screen.",
       "shipping": "Shipping",
       "delivery": "Delivery time",
-      "deliveryValue": "4 to 10 business days from your purchase or from when you request your vault shipment.",
+      "deliveryValue": "{days} from your purchase or from when you request your vault shipment.",
       "guarantee": "Guarantee",
       "guaranteeTerms": "Terms and policy",
       "invoice": "Invoice",
@@ -8484,11 +8528,17 @@
       "cardShowLink": "Card Show page"
     },
     "strip": {
-      "payment": "Secure payment",
-      "shipping": "Shipping to Mexico",
+      "payment": "Secure {method} payment",
       "link": "About us",
-      "linkLabel": "About us & contact"
-    }
+      "linkLabel": "About us & contact",
+      "delivery": "Delivery in {days}",
+      "whatsapp": "WhatsApp {phone}",
+      "instagram": "Instagram {handle}",
+      "groupLabel": "Payment, delivery and contact",
+      "newTab": " (opens in a new tab)"
+    },
+    "paymentMethod": "card",
+    "deliveryDays": "4 to 10 business days"
   },
   "notFoundPage": {
     "metaTitle": "Page not found · TCG HUNT",
@@ -8562,5 +8612,34 @@
       "stamped": "League cards and promos"
     },
     "jsonLdProperty": "Version"
+  },
+  "accountSetup": {
+    "title": "Finish your account",
+    "sendError": "We couldn't send the link. Try again in a few minutes.",
+    "titleVerified": "Your account",
+    "subtitle": "Tell us your name and choose a password. Then you sign in with your email and that password.",
+    "name": "Name",
+    "password": "Password",
+    "confirm": "Confirm password",
+    "policyHint": "At least 8 characters.",
+    "submit": "Save",
+    "submitting": "Saving…",
+    "nameRequired": "Enter your name (up to 120 characters).",
+    "weak": "The password must be at least 8 characters.",
+    "mismatch": "Passwords don't match.",
+    "successTitle": "Done",
+    "successBody": "Your account is complete. Sign in with your email and your password.",
+    "goToLogin": "Sign in",
+    "invalidTitle": "This link was already used or has expired",
+    "invalidBody": "This link works once and lasts 24 hours. Request another one and open it from your email.",
+    "sendAnother": "Send another",
+    "sending": "Sending…",
+    "sent": "We sent you another link. Check your email.",
+    "sentGeneric": "If that email has an account, we sent another link. Check your inbox.",
+    "alreadyVerified": "Your email is already confirmed: you don't need another link.",
+    "email": "Email",
+    "rateLimited": "You've requested several links. Wait a while and try again.",
+    "blocked": "This account is blocked. Contact us and we'll help.",
+    "genericError": "Couldn't save. Try again."
   }
 }

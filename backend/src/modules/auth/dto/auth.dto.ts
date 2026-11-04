@@ -1,6 +1,7 @@
 import { IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateBy, isEmail } from 'class-validator';
 // BE-9: la longitud mínima de contraseña vive en un solo sitio (compartida con admin.createUser).
-import { LOGIN_IDENTIFIER_MAX_LENGTH, MIN_PASSWORD_LENGTH } from '../../../common/validation/credentials';
+import { LOGIN_IDENTIFIER_MAX_LENGTH, MIN_PASSWORD_LENGTH, normalizeEmail } from '../../../common/validation/credentials';
+import { Transform } from 'class-transformer';
 
 /**
  * v1.80.9 (§M6-U.2/.3) — el campo `email` del login y de `forgot-password` es un IDENTIFICADOR: correo **o** nombre
@@ -49,6 +50,63 @@ export class RegisterDto {
   locale?: 'es' | 'en';
 }
 
+/**
+ * v1.117⟨cuenta-correo⟩ (§CTA.4) — `normalizeEmail` (trim + minúsculas) ANTES de `@IsEmail`: `"  Ana@X.COM "` valida y casa
+ * con `ana@x.com` (CTA-B3). UN solo sitio de normalización para el alta y la corrección del correo: el servicio usa el valor
+ * ya normalizado (⛔ no lo vuelve a normalizar: dos normalizaciones taparían que una desaparezca).
+ */
+export const NormalizedEmail = () =>
+  Transform(({ value }) => (typeof value === 'string' ? normalizeEmail(value) : value));
+
+/** `POST /auth/register/email-only` (§CTA.4): `{ email, locale? }`. ⛔ Sin `password`, `name` ni `phone` (los descarta el whitelist). */
+export class RegisterEmailOnlyDto {
+  @NormalizedEmail()
+  @IsEmail()
+  email!: string;
+
+  @IsOptional()
+  @IsIn(['es', 'en'])
+  locale?: 'es' | 'en';
+}
+
+/**
+ * `POST /auth/account-setup` (§CTA.4): `{ token, name, password }`. `name` con trim; su cota 1..120 la impone
+ * `assertPersonName` en el servicio ANTES de tocar el token (paso 1 normativo: un cuerpo inválido no quema el enlace).
+ */
+export class AccountSetupDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(512)
+  token!: string;
+
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  name!: string;
+
+  @IsString()
+  @MinLength(MIN_PASSWORD_LENGTH)
+  password!: string;
+}
+
+/** `POST /auth/set-password` (§CTA.4): `{ newPassword, name? }`. Mismas reglas que `account-setup`. */
+export class SetPasswordDto {
+  @IsString()
+  @MinLength(MIN_PASSWORD_LENGTH)
+  newPassword!: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  name?: string;
+}
+
+/** `PATCH /users/me/email` (§CTA.4): `{ email }`, misma validación y normalización que el alta. */
+export class CorrectEmailDto {
+  @NormalizedEmail()
+  @IsEmail()
+  email!: string;
+}
+
 export class LoginDto {
   // v1.80.9: identificador (correo o usuario). Ver `isLoginIdentifier`.
   @IsLoginIdentifier()
@@ -78,10 +136,37 @@ export class GoogleLoginDto {
 
 // v1.5 — Verificación de correo + recuperación self-service.
 
+/**
+ * 🔒 v1.117.2 (API_CONTRACT §1 «Verificación de correo», D-CTA-12): `{ token, password }` **o** `{ token, newPassword }`,
+ * exactamente uno. Los dos o ninguno ⇒ `400 VALIDATION_ERROR` en el pipe, ANTES de tocar el token. `newPassword` con la
+ * política compartida (`MIN_PASSWORD_LENGTH`); `password` es la que YA tiene, sea cual sea (como `currentPassword`).
+ */
+const hasValue = (v: unknown) => v !== undefined && v !== null;
+
 export class VerifyEmailDto {
   @IsString()
   @MinLength(1)
+  @ValidateBy({
+    name: 'exactlyOneCredential',
+    validator: {
+      validate: (_v: unknown, args) => {
+        const o = (args?.object ?? {}) as { password?: unknown; newPassword?: unknown };
+        return hasValue(o.password) !== hasValue(o.newPassword);
+      },
+      defaultMessage: () => 'exactly one of password or newPassword is required',
+    },
+  })
   token!: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  password?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(MIN_PASSWORD_LENGTH)
+  newPassword?: string;
 }
 
 export class ForgotPasswordDto {

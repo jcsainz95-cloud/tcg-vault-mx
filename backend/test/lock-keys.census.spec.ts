@@ -9,6 +9,14 @@ import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 import { GRADED_TURNS_LOCK_KEY } from '../src/modules/pricing/price-ingest.service';
 import { SETTINGS_CROSS_RULES_LOCK_KEY } from '../src/modules/settings/settings.constants';
+import { ACCOUNT_AUTH_GATE_NAMESPACE } from '../src/modules/auth/account-gate';
+import { ADDRESS_BOOK_GATE_NAMESPACE } from '../src/modules/users/users.service';
+import { RESERVATION_GATE_NAMESPACE } from '../src/modules/orders/reservation';
+import { VAULT_GATE_NAMESPACE } from '../src/modules/vault/vault-placement.rules';
+import { IDS_ATTACH_NAMESPACE } from '../src/modules/inventory/inventory-versions.service';
+import { OPERATOR_REFUND_GATE_NAMESPACE } from '../src/modules/payments/refunds/refund-ledger.service';
+import { BANNER_COUNTER_LOCK_NAMESPACE } from '../src/modules/measurement/banner-response.service';
+import { META_TEST_EVENT_LOCK_NAMESPACE } from '../src/modules/measurement/meta-test-event.service';
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -20,10 +28,14 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 /** `export const X_LOCK_KEY = 12_345;` ⇒ [nombre, valor, fichero]. */
-export function lockKeysIn(sources: { file: string; text: string }[]): { name: string; value: number; file: string }[] {
+export function lockKeysIn(
+  sources: { file: string; text: string }[],
+  suffix: 'LOCK_KEY' | 'NAMESPACE' = 'LOCK_KEY',
+): { name: string; value: number; file: string }[] {
   const out: { name: string; value: number; file: string }[] = [];
+  const re = new RegExp(`export const (\\w+_${suffix})\\s*=\\s*([\\d_]+)\\s*;`, 'g');
   for (const { file, text } of sources) {
-    for (const m of text.matchAll(/export const (\w+_LOCK_KEY)\s*=\s*([\d_]+)\s*;/g)) {
+    for (const m of text.matchAll(re)) {
       out.push({ name: m[1], value: Number(m[2].replace(/_/g, '')), file });
     }
   }
@@ -74,5 +86,49 @@ describe('censo de claves de candado consultivo', () => {
       { file: 'b.ts', text: 'export const B_LOCK_KEY = 91130103;' },
     ]);
     expect(duplicates(fake)).toEqual(['91130103: A_LOCK_KEY, B_LOCK_KEY']);
+  });
+});
+
+/**
+ * TL-CTA-15 — censo de los NAMESPACES de los candados de dos claves (`pg_advisory_xact_lock(<namespace>::int, hashtext(<id>))`).
+ * El de la cuenta (§CTA.13) debe ser «distinto de los seis de hoy»; hasta aquí eso vivía en prosa (`account-gate.ts` y el
+ * contrato). Espacio aparte del de `*_LOCK_KEY` (la forma de una clave `bigint` y la de dos `int` no se solapan en Postgres).
+ * Lee el código y, además, importa cada constante: si el patrón dejara de casar con una, el valor importado lo delata.
+ */
+describe('censo de namespaces de candado consultivo de dos claves', () => {
+  const src = join(__dirname, '..', 'src');
+  const namespaces = lockKeysIn(
+    walk(src).map((file) => ({ file, text: readFileSync(file, 'utf8') })),
+    'NAMESPACE',
+  );
+  const IMPORTED: Record<string, number> = {
+    ACCOUNT_AUTH_GATE_NAMESPACE,
+    ADDRESS_BOOK_GATE_NAMESPACE,
+    RESERVATION_GATE_NAMESPACE,
+    VAULT_GATE_NAMESPACE,
+    IDS_ATTACH_NAMESPACE,
+    OPERATOR_REFUND_GATE_NAMESPACE,
+    BANNER_COUNTER_LOCK_NAMESPACE,
+    META_TEST_EVENT_LOCK_NAMESPACE,
+  };
+
+  it('el censo leído del código es exactamente el importado (un namespace nuevo se añade aquí a mano, y se mira)', () => {
+    expect(Object.fromEntries(namespaces.map((n) => [n.name, n.value]))).toEqual(IMPORTED);
+  });
+
+  it('ningún namespace se repite', () => {
+    expect(duplicates(Object.entries(IMPORTED).map(([name, value]) => ({ name, value })))).toEqual([]);
+    expect(duplicates(namespaces)).toEqual([]);
+  });
+
+  it('canario: un namespace repetido se detecta', () => {
+    const fake = lockKeysIn(
+      [
+        { file: 'a.ts', text: 'export const A_GATE_NAMESPACE = 88_120_116;' },
+        { file: 'b.ts', text: 'export const B_GATE_NAMESPACE = 88120116;' },
+      ],
+      'NAMESPACE',
+    );
+    expect(duplicates(fake)).toEqual(['88120116: A_GATE_NAMESPACE, B_GATE_NAMESPACE']);
   });
 });

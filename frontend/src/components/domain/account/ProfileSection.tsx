@@ -47,6 +47,13 @@ export function ProfileSection({
 
   const derived = user.nameSource === 'derived';
   /**
+   * tester-e2e sobre `2f136542`: `derived` también lo es la cuenta nacida en el carrito con solo el correo, que nunca
+   * usó Google. «porque Google no nos dio tu nombre» solo es verdad si la cuenta la creó Google: `authProvider`
+   * (`GET /users/me` lo trae siempre; el account-linking no lo cambia ni toca `nameSource`, contrato POST
+   * /auth/google). Ausente o `local` ⇒ texto neutro (falla hacia lo que nunca miente).
+   */
+  const derivedNoteKey = user.authProvider === 'google' ? 'name.derivedFromEmail' : 'name.derivedFromEmailLocal';
+  /**
    * M-3 (QA sobre `da6d910e`): una cuenta SIN correo es siempre del equipo (CHECK 2 de §M6-U.1: cliente
    * ⇒ correo). A esa cuenta no le escribimos correos, no tiene envíos y no vende (§M6-U.8 (c)): los
    * textos de cliente «Así te llamamos en los correos y en tus envíos» y «Sin celular. Lo necesitas
@@ -134,7 +141,7 @@ export function ProfileSection({
               data-testid="name-derived-note"
               className="mt-3 border-l-2 border-accent pl-4 text-sm leading-relaxed text-muted"
             >
-              {t('name.derivedFromEmail')}
+              {t(derivedNoteKey)}
             </p>
           )}
         </div>

@@ -19,6 +19,10 @@ const pii = new PiiCryptoService(new ConfigService({}));
 const users = { eraseClabe: jest.fn(async (..._a: unknown[]) => undefined) };
 
 function svc(prisma: any, uploads: any = { deleteObject: jest.fn() }, attempts?: PasswordAttemptsService) {
+  // v1.117.2 (§CTA.13): el reset del admin escribe dentro de `withAccountGate`; el doble hace de su propia `tx` (salvo que la
+  // prueba traiga la suya).
+  prisma.$executeRaw = prisma.$executeRaw ?? jest.fn(async () => 0);
+  prisma.$transaction = prisma.$transaction ?? jest.fn(async (cb: any) => cb(prisma));
   const s = new AdminService(prisma as PrismaService, {} as PricingService, pii, uploads, undefined, attempts);
   (s as unknown as { users: typeof users }).users = users;
   return s;

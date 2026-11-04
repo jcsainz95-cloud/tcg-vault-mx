@@ -139,6 +139,45 @@ describe('AccountView · un componente, dos puertas (DESIGN_SYSTEM §33.5/§33.6
     expect(screen.getByRole('status')).toHaveTextContent('GUARDADO');
   });
 
+  /**
+   * tester-e2e sobre `2f136542` (4/4, 390/1280 × ES/EN): la cuenta nacida en el carrito con solo el correo
+   * (`authProvider='local'`, contrato §CTA alta solo-correo) también es `nameSource='derived'` y leía «porque Google
+   * no nos dio tu nombre» sin haber usado Google. Señal: `authProvider` de `GET /users/me` (el account-linking no lo
+   * cambia ni toca `nameSource`, contrato POST /auth/google). Mutación: pintar siempre `derivedFromEmail` ⇒ rojo.
+   */
+  const emailOnly: UserDTO = {
+    ...customer,
+    email: 'ana@example.com',
+    name: 'ana',
+    authProvider: 'local',
+    emailVerified: false,
+    accountSetupPending: true,
+  };
+  it.each([
+    ['es', 'Este nombre lo tomamos de tu correo. Escribe cómo quieres que te llamemos.'],
+    ['en', "We took this name from your email. Type how you'd like us to call you."],
+  ] as const)('cuenta solo-correo (derived, sin Google) · %s ⇒ aviso neutro, sin «Google»', async (locale, want) => {
+    setStoredUser(emailOnly);
+    getMe.mockResolvedValue(emailOnly);
+    renderWithProviders(<AccountView surface="storefront" />, locale);
+    const note = await screen.findByTestId('name-derived-note');
+    await waitFor(() => expect(getMe).toHaveBeenCalled());
+    expect(note).toHaveTextContent(want);
+    expect(note.textContent).not.toMatch(/google/i);
+  });
+
+  it.each([
+    ['es', 'Este nombre lo tomamos de tu correo porque Google no nos dio tu nombre. Escribe cómo quieres que te llamemos.'],
+    ['en', "We took this name from your email address because Google didn't share your name. Tell us what to call you."],
+  ] as const)('cuenta Google sin nombre (derived) · %s ⇒ conserva el texto de Google', async (locale, want) => {
+    setStoredUser(customer);
+    getMe.mockResolvedValue(customer);
+    renderWithProviders(<AccountView surface="storefront" />, locale);
+    const note = await screen.findByTestId('name-derived-note');
+    await waitFor(() => expect(getMe).toHaveBeenCalled());
+    expect(note).toHaveTextContent(want);
+  });
+
   it('nameSource=user ⇒ sin aviso y «Guardar» deshabilitado hasta que haya cambios', async () => {
     const u = { ...customer, name: 'Ana', nameSource: 'user' as const };
     setStoredUser(u);

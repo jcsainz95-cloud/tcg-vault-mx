@@ -338,7 +338,7 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
       expect(r.html).toContain('href="https://wa.me/525564893921"');
       const text = visibleText(r.html);
       expect(text).not.toMatch(/DATO DEL DUEÑO|EJEMPLO/);
-      expect(text).toContain(t(locale, 'about.buy.deliveryValue'));
+      expect(text).toContain(t(locale, 'about.buy.deliveryValue', { days: t(locale, 'about.deliveryDays') }));
       // L-7: ninguna fila con valor vacío.
       for (const m of r.html.matchAll(/<dd[^>]*>([\s\S]*?)<\/dd>/g)) expect(visibleText(`<body>${m[1]}`)).not.toBe('');
       // El pie enlaza «Quiénes somos y contacto» en los dos idiomas (L-6).
@@ -352,8 +352,12 @@ test.describe('@real SEO · HTML crudo del servidor (sin JavaScript)', () => {
     // La franja de la ficha enlaza a una ruta que responde 200 (L-6).
     const cards = await api<{ data: Group[] }>('/catalog/cards?pageSize=1');
     const ficha = await raw(request, `/es/catalog/${cards.data[0].card.id}`);
-    const strip = /data-testid="about-strip"[\s\S]*?<\/p>/.exec(ficha.html)?.[0] ?? '';
-    const href = /href="([^"]+)"/.exec(strip)?.[1];
+    // §CTA-UX.1: la franja es un grupo con un `<p>` de datos y una `<ul>` de enlaces; se toma hasta el fin de la lista.
+    const strip = /data-testid="about-strip"[\s\S]*?<\/ul>/.exec(ficha.html)?.[0] ?? '';
+    // 945 (2026-11-03): la franja lleva también WhatsApp e Instagram; se busca el enlace a «Quiénes somos».
+    expect(strip).toContain('href="https://wa.me/525564893921"');
+    expect(strip).toContain('href="https://www.instagram.com/tcghunt.mx/"');
+    const href = /href="(\/es\/nosotros)"/.exec(strip)?.[1];
     expect(href).toBe('/es/nosotros');
     expect((await request.get(href!, { maxRedirects: 0 })).status()).toBe(200);
   });

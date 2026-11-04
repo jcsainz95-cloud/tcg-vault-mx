@@ -7,10 +7,10 @@ import { resetPassword } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { buttonClassName } from '@/components/ui/button-classes';
 import { Banner } from '@/components/ui/Banner';
-
-// Política de fuerza igual al registro (contrato §1: password MinLength 8).
-const MIN_PASSWORD = 8;
+import { useStripTokenFromUrl } from '@/lib/token-url';
+import { MIN_PASSWORD } from '@/components/domain/account/account-limits';
 
 type State = 'form' | 'success' | 'invalidToken';
 
@@ -23,6 +23,8 @@ type State = 'form' | 'success' | 'invalidToken';
  *   (forgot-password).
  */
 export function ResetPasswordView({ token }: { token?: string }) {
+  // D-CTA-10 (1): el token sale de la barra antes de cualquier petición (lo conserva la prop).
+  useStripTokenFromUrl();
   const t = useTranslations('resetPassword');
   const [state, setState] = useState<State>(token ? 'form' : 'invalidToken');
   const [password, setPassword] = useState('');
@@ -72,7 +74,7 @@ export function ResetPasswordView({ token }: { token?: string }) {
         </Banner>
         <Link
           href="/login"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-fg"
+          className={buttonClassName({ variant: 'primary', className: 'w-full' })}
         >
           {t('goToLogin')}
         </Link>
@@ -89,7 +91,7 @@ export function ResetPasswordView({ token }: { token?: string }) {
         </Banner>
         <Link
           href="/forgot-password"
-          className="inline-flex min-h-[44px] items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-fg"
+          className={buttonClassName({ variant: 'primary', className: 'w-full' })}
         >
           {t('requestAnother')}
         </Link>

@@ -86,10 +86,9 @@ function placeholders(s: string): string[] {
 
 /** `DESIGN_SYSTEM §MIV.6` — claves modificadas, con el texto final es/en. */
 const MIV6: Record<string, { es: string; en: string }> = {
-  'card.referenceExplainerWithMarket': {
-    es: 'El valor de mercado es la referencia del día y se muestra con IVA incluido, igual que nuestro precio de venta, para que los compares tal cual. El precio de venta se calcula a partir de esa referencia.',
-    en: "Market value is the day's reference, shown with VAT included just like our sale price, so you can compare them directly. The sale price is derived from that reference.",
-  },
+  // `card.referenceExplainerWithMarket` salió del catálogo (DESIGN_SYSTEM §CTA-UX.5, petición 5, 2026-11-03): no lo
+  // pintaba ningún componente y decía «con IVA incluido, igual que nuestro precio de venta» (977). Su ausencia la
+  // vigila `src/test/cta-ux-copy.test.ts`.
   'sealed.trend.marketRefNote': {
     es: 'Con base en el valor de mercado de referencia (TCGCSV), actualizado a diario.',
     en: 'Based on the reference market value (TCGCSV), updated daily.',

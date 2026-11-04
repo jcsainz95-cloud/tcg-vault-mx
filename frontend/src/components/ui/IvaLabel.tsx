@@ -57,12 +57,15 @@ export interface IvaLabelProps {
  * conflicto: `PROJECT.md` manda sobre el contrato, y el contrato sobre el código) y queda anotado
  * en `docs/FRONTEND_NOTES.md`.
  */
-export function IvaLabel({ ivaIncluded, ivaRatePct, showRate = true, className, id }: IvaLabelProps) {
+export function IvaLabel({ ivaIncluded, showRate = true, className, id }: IvaLabelProps) {
   const t = useTranslations('common');
   if (ivaIncluded === undefined) return null;
-  // §MIV.10 (vMIV-2): la rama inclusiva pinta la TASA por defecto (precio) o la variante sin tasa
-  // («incluye IVA») cuando `showRate === false` (mercado). La rama «sin IVA» es invariable (criterio 190).
-  const inclusive = showRate ? t('ivaIncluded', { rate: ivaRatePct ?? 0 }) : t('ivaIncludedBare');
+  // ⭐ Criterio 977 (dueño 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios aprobados…» (3)): el PRECIO con el
+  // IVA dentro ya NO se rotula — ni «IVA 16 % incluido» ni variante — en ninguna superficie de cliente. Se verifica por
+  // ausencia (`iva-977.test.tsx`). Quedan: la nota «incluye IVA» del valor de MERCADO (`showRate={false}`, §MIV.10,
+  // P-CTA-5(b) sin responder) y «sin IVA» de una cifra que no lo lleva (criterio 190). La línea «IVA 16 % incluido:
+  // MX$…» del resumen del checkout no pasa por aquí (`AmountBreakdown`, P-CTA-5(a): se queda).
+  if (ivaIncluded && showRate) return null;
   return (
     <span
       id={id}
@@ -70,7 +73,7 @@ export function IvaLabel({ ivaIncluded, ivaRatePct, showRate = true, className, 
       data-iva-included={ivaIncluded ? 'true' : 'false'}
       className={cn('font-mono text-[11px] leading-relaxed text-muted', className)}
     >
-      {ivaIncluded ? inclusive : t('withoutIva')}
+      {ivaIncluded ? t('ivaIncludedBare') : t('withoutIva')}
     </span>
   );
 }

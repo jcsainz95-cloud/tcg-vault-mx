@@ -77,8 +77,11 @@ function greeting(l: Locale, name: string | null): string {
 export function emailVerificationTemplate(link: string, name: string | null, locale?: string | null): MailMessage {
   const l = normalizeLocale(locale);
   const hi = greeting(l, name);
+  // v1.117.2 (D-CTA-12; DESIGN_SYSTEM §CTA-UX.3b, texto exacto): la página pide la contraseña actual o una nueva, y el correo
+  // lo avisa ANTES de abrirlo. El botón va en mayúsculas como todo CTA de correo (§41.4). Candado: `test/mail.verify-email-copy.spec.ts`.
   if (l === 'en') {
-    const intro = `Confirm your email address to unlock buying, withdrawing and selling on ${BRAND}.`;
+    const intro = `Confirm your email for your ${BRAND} account.`;
+    const notice = VERIFY_EMAIL_PASSWORD_NOTICE.en;
     return {
       to: '', // lo fija MailService
       subject: 'Verify your email',
@@ -87,14 +90,17 @@ export function emailVerificationTemplate(link: string, name: string | null, loc
         spacerRow(16),
         proseRow(intro),
         spacerRow(32),
-        ctaRows(link, 'VERIFY MY EMAIL', 'ink'),
+        ctaRows(link, 'CONFIRM MY EMAIL', 'ink'),
         spacerRow(24),
+        proseRow(notice),
+        spacerRow(16),
         smallPrintRow("This link expires in 24 hours. If the button doesn't work, copy this URL:"),
       ]),
-      text: `${hi}\n\nVerify your email for ${BRAND} (link expires in 24 hours):\n${link}\n\nIf you didn't create an account, ignore this message.`,
+      text: `${hi}\n\n${intro}\n${link}\n\n${notice}\n\nThis link expires in 24 hours.`,
     };
   }
-  const intro = `Confirma tu correo para poder comprar, retirar y vender en ${BRAND}.`;
+  const intro = `Confirma tu correo para tu cuenta en ${BRAND}.`;
+  const notice = VERIFY_EMAIL_PASSWORD_NOTICE.es;
   return {
     to: '',
     subject: 'Verifica tu correo',
@@ -103,11 +109,71 @@ export function emailVerificationTemplate(link: string, name: string | null, loc
       spacerRow(16),
       proseRow(intro),
       spacerRow(32),
-      ctaRows(link, 'VERIFICAR MI CORREO', 'ink'),
+      ctaRows(link, 'CONFIRMAR MI CORREO', 'ink'),
       spacerRow(24),
+      proseRow(notice),
+      spacerRow(16),
       smallPrintRow('Este enlace caduca en 24 horas. Si el botón no funciona, copia esta URL:'),
     ]),
-    text: `${hi}\n\nVerifica tu correo en ${BRAND} (el enlace caduca en 24 horas):\n${link}\n\nSi no creaste una cuenta, ignora este mensaje.`,
+    text: `${hi}\n\n${intro}\n${link}\n\n${notice}\n\nEste enlace caduca en 24 horas.`,
+  };
+}
+
+/** DESIGN_SYSTEM §CTA-UX.3b — aviso de «Verifica tu correo»: al abrir el enlace se pide la contraseña (texto exacto ES/EN). */
+export const VERIFY_EMAIL_PASSWORD_NOTICE = {
+  es: 'Al abrir el enlace te pediremos tu contraseña. Si no creaste esta cuenta o no la recuerdas, ábrelo igual: podrás elegir una nueva. El enlace sirve una vez.',
+  en: "When you open the link we'll ask for your password. If you didn't create this account or don't remember it, open it anyway: you can choose a new one. The link works once.",
+} as const;
+
+/**
+ * v1.117⟨cuenta-correo⟩ (API_CONTRACT §CTA.6) — «Termina tu cuenta»: correo de AUTENTICACIÓN (como verificación y
+ * restablecimiento; fuera de §R). El enlace abre la PÁGINA `/<locale>/account-setup?token=` (nombre + contraseña, `POST`
+ * desde ella). Dice qué es, que el enlace sirve una vez y caduca en 24 h, y que si no creó la cuenta puede ignorarlo.
+ * ⛔ Sin datos de pedidos, importes ni dirección. Texto PROVISIONAL de backend: el final lo fija ux-ui (§CTA.10).
+ */
+export function accountSetupTemplate(link: string, name: string | null, locale?: string | null): MailMessage {
+  const l = normalizeLocale(locale);
+  const hi = greeting(l, name);
+  if (l === 'en') {
+    const intro = `You created a ${BRAND} account with this email. To finish it, add your name and a password.`;
+    const once = 'The link works only once and expires in 24 hours.';
+    // Preheader de 40–90 caracteres (N3 de `buylist.mail-shell.spec.ts`).
+    const preheader = `Add your name and a password to your ${BRAND} account.`;
+    return {
+      to: '',
+      subject: 'Finish your account',
+      html: accountMail(l, 'Finish your account', preheader, [
+        proseRow(hi),
+        spacerRow(16),
+        proseRow(intro),
+        spacerRow(16),
+        proseRow(once),
+        spacerRow(32),
+        ctaRows(link, 'FINISH MY ACCOUNT', 'ink'),
+        spacerRow(24),
+        smallPrintRow("If you didn't create this account, ignore this email. If the button doesn't work, copy this URL:"),
+      ]),
+      text: `${hi}\n\n${intro}\n${once}\n${link}\n\nIf you didn't create this account, ignore this email.`,
+    };
+  }
+  const intro = `Creaste una cuenta en ${BRAND} con este correo. Para terminarla, ponle tu nombre y una contraseña.`;
+  const once = 'El enlace sirve una sola vez y caduca en 24 horas.';
+  const preheader = `Ponle tu nombre y una contraseña a tu cuenta de ${BRAND}.`;
+  return {
+    to: '',
+    subject: 'Termina tu cuenta',
+    html: accountMail(l, 'Termina tu cuenta', preheader, [
+      proseRow(hi),
+      spacerRow(16),
+      proseRow(intro),
+      spacerRow(16),
+      proseRow(once),
+      spacerRow(32),
+      ctaRows(link, 'TERMINAR MI CUENTA', 'ink'),
+      spacerRow(24),
+      smallPrintRow('Si no creaste esta cuenta, ignora este correo. Si el botón no funciona, copia esta URL:'),
+    ]),
+    text: `${hi}\n\n${intro}\n${once}\n${link}\n\nSi no creaste esta cuenta, ignora este correo.`,
   };
 }
 

@@ -576,6 +576,12 @@ export interface UserDTO {
    * ⇒ se trata como `false` (falla cerrado: se deshabilita, el servidor decide).
    */
   isOwner?: boolean;
+  /**
+   * v1.117 (§CTA.2): cuenta nacida en el carrito con solo el correo, sin contraseña ni Google. `GET /users/me` y
+   * `PATCH /users/me` lo traen SIEMPRE; la sesión guardada por el alta no (ausente ⇒ se trata como `false`).
+   * Decide «Ponle contraseña a tu cuenta» (`POST /auth/set-password`, sin la actual) y el correo editable.
+   */
+  accountSetupPending?: boolean;
 }
 
 export interface AuthResponse {
@@ -614,9 +620,21 @@ export interface TooManyPasswordAttemptsDetails {
 }
 
 // ---- Verificación de correo + recuperación self-service (contrato §1, v1.5) ----
-// POST /auth/verify-email {token} → { verified: true } (422 EMAIL_VERIFY_TOKEN_INVALID).
+// POST /auth/verify-email (v1.117.2, D-CTA-12; contrato §1 «Verificación de correo»): el enlace prueba el buzón y el
+// cuerpo prueba o fija la credencial. EXACTAMENTE uno de `password` / `newPassword` (los dos o ninguno ⇒ 400 sin tocar el
+// token). ⛔ `{ token }` solo ya no existe (el back nuevo responde 400).
+//  - `{ token, password }` ⇒ 200 { verified: true }; 401 INVALID_CREDENTIALS sin consumir el token (cuenta como fallo C7;
+//    con el candado C7 puesto, 429 TOO_MANY_PASSWORD_ATTEMPTS como `login`). Sin sesión nueva; `tokenVersion` no cambia.
+//  - `{ token, newPassword }` ⇒ 200 { verified: true, deviceToken }, SIN sesión y con `tokenVersion +1` (revoca sesiones).
+// Err: 422 EMAIL_VERIFY_TOKEN_INVALID (inválido/caducado/usado/atado a otro correo), 401, 400, 403 USER_BLOCKED,
+// 429 RATE_LIMITED (10/min por IP).
+export type VerifyEmailRequest =
+  | { token: string; password: string; newPassword?: never }
+  | { token: string; newPassword: string; password?: never };
 export interface VerifyEmailResponse {
   verified: true;
+  /** Solo en el modo `newPassword` (quien fijó la contraseña probó el buzón; como `reset-password`). */
+  deviceToken?: string;
 }
 // POST /auth/verify-email/resend (autenticado, {}) → { ok: true } (429 RATE_LIMITED).
 export interface ResendVerificationResponse {
@@ -658,6 +676,37 @@ export interface ChangePasswordResponse {
   ok: true;
   accessToken: string;
   refreshToken: string;
+}
+
+// ---- §CTA (v1.117): cuenta con solo el correo, «Termina tu cuenta» y contraseña desde la sesión ----
+/** POST /auth/register/email-only — `public`. `201` ⇒ `AuthResponse` (sin verificar); `409 EMAIL_TAKEN` sin sesión. */
+export interface RegisterEmailOnlyRequest {
+  email: string;
+  locale?: Locale;
+}
+/** POST /auth/account-setup — `public`. `200` sin sesión; `422 ACCOUNT_SETUP_TOKEN_INVALID` (no distingue el motivo). */
+export interface AccountSetupRequest {
+  token: string;
+  name: string;
+  password: string;
+}
+export interface AccountSetupResponse {
+  ok: true;
+  deviceToken: string;
+}
+/** POST /auth/set-password — `customer`, solo con `accountSetupPending` (si no, `422 ACCOUNT_SETUP_NOT_PENDING`). */
+export interface SetPasswordRequest {
+  newPassword: string;
+  name?: string;
+}
+export interface SetPasswordResponse {
+  ok: true;
+  accessToken: string;
+  refreshToken: string;
+}
+/** PATCH /users/me/email — `customer`, con `accountSetupPending` y sin verificar. `200` ⇒ la forma de `GET /users/me`. */
+export interface UpdateMyEmailRequest {
+  email: string;
 }
 
 export interface AddressDTO {

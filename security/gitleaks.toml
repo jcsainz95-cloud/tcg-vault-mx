@@ -189,6 +189,11 @@ regexes = [
   #   · `bk-p79-legacy`        → backend/test/inventory.sealed-product-alta.spec.ts:521.
   '''^ref-secret-rt-0123456789abcdef0123456789$''',
   '''^otra-clave-123$''',
+  # §CTA (2026-11-04, PR #118): contraseña FICTICIA de la prueba CTA-B1
+  # (`backend/test/integration/cta-cuenta-correo.e2e-spec.ts`, commit 0fc47570;
+  # el alta la descarta). Sustituida en el árbol por `OtraClave123` (cfbfeb20),
+  # pero el escaneo del rango de la PR sigue viendo el commit viejo. Valor exacto, anclado.
+  '''^NoSeUsa12345$''',
   '''^bk-p79-legacy$''',
   # P-GL-2 / CL-2 (2026-10-05): al retirar la exención POR RUTA de `docs/*.md`,
   # `security/*` y `docker-compose*.yml` (ver `paths` abajo), el escaneo de

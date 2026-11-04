@@ -11,12 +11,17 @@ import { IvaLabel } from './IvaLabel';
  * medición por ausencia vale para todas ellas.
  */
 describe('IvaLabel · el rótulo lo dice el DATO, no la pantalla', () => {
-  it('`ivaIncluded: true` ⇒ rótulo de IMPORTE con la tasa, en ES y EN', () => {
-    const { unmount } = renderWithIntl(<IvaLabel ivaIncluded ivaRatePct={16} />, 'es');
-    expect(screen.getByTestId('iva-label')).toHaveTextContent('IVA 16 % incluido');
-    unmount();
-    renderWithIntl(<IvaLabel ivaIncluded ivaRatePct={16} />, 'en');
-    expect(screen.getByTestId('iva-label')).toHaveTextContent('16 % VAT included');
+  /**
+   * ⭐ **Criterio 977 (dueño 2026-11-03, «quitar "IVA 16 % incluido"»):** el PRECIO con el IVA dentro ya no lleva
+   * rótulo, en ES ni en EN. Antes este caso pintaba «IVA 16 % incluido» / «16 % VAT included». Por AUSENCIA.
+   */
+  it('977 · `ivaIncluded: true` (precio) ⇒ SIN rótulo, en ES y EN', () => {
+    for (const locale of ['es', 'en'] as const) {
+      const { container, unmount } = renderWithIntl(<IvaLabel ivaIncluded ivaRatePct={16} />, locale);
+      expect(screen.queryByTestId('iva-label')).toBeNull();
+      expect(container.textContent).toBe('');
+      unmount();
+    }
   });
 
   /**
@@ -81,9 +86,14 @@ describe('IvaLabel · el rótulo lo dice el DATO, no la pantalla', () => {
    * posición el rótulo dice **16 %**, porque el IVA registrado no se mueve — lo que se mueve es
    * nuestro neto. *Un rótulo que cambiara con el dial publicaría qué fracción absorbemos.*
    */
-  it('⛔ el rótulo dice la TASA, y la tasa no se mueve con el dial', () => {
-    renderWithIntl(<IvaLabel ivaIncluded ivaRatePct={16} />, 'es');
-    expect(screen.getByTestId('iva-label').textContent).toBe('IVA 16 % incluido');
+  it('⛔ ningún rótulo pinta la tasa (ni el dial): precio sin rótulo, mercado sin tasa', () => {
+    for (const rate of [0, 16, 50]) {
+      for (const showRate of [true, false]) {
+        const { container, unmount } = renderWithIntl(<IvaLabel ivaIncluded ivaRatePct={rate} showRate={showRate} />, 'es');
+        expect(container.textContent ?? '').not.toMatch(/%|\d/);
+        unmount();
+      }
+    }
   });
 
   /**
@@ -94,7 +104,7 @@ describe('IvaLabel · el rótulo lo dice el DATO, no la pantalla', () => {
    * `ivaIncluded={false}` sigue siendo «sin IVA» (criterio 190) y con la convención ausente no pinta nada. Y el
    * **precio** (sin la prop, o `showRate` por defecto) sigue «IVA 16 % incluido»: su tasa no desaparece.
    */
-  it('`showRate={false}` ⇒ «incluye IVA» / «VAT included», SIN tasa; el precio conserva la tasa', () => {
+  it('`showRate={false}` ⇒ «incluye IVA» / «VAT included», SIN tasa; el precio, sin rótulo (977)', () => {
     const { unmount } = renderWithIntl(<IvaLabel ivaIncluded showRate={false} />, 'es');
     const es = screen.getByTestId('iva-label');
     expect(es).toHaveTextContent('incluye IVA');
@@ -112,8 +122,8 @@ describe('IvaLabel · el rótulo lo dice el DATO, no la pantalla', () => {
     expect(screen.getByTestId('iva-label')).toHaveTextContent('sin IVA');
     u3();
 
-    // El PRECIO (default `showRate`) conserva la tasa: la variante nueva no se la come.
+    // El PRECIO (default `showRate`) ya no lleva rótulo (977): el mercado conserva el suyo (P-CTA-5(b)).
     renderWithIntl(<IvaLabel ivaIncluded ivaRatePct={16} />, 'es');
-    expect(screen.getByTestId('iva-label')).toHaveTextContent('IVA 16 % incluido');
+    expect(screen.queryByTestId('iva-label')).toBeNull();
   });
 });

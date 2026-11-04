@@ -311,7 +311,6 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         orderNumber={paid.orderNumber}
         orderId={paid.orderId}
         email={form.email.trim()}
-        name={form.address.recipientName.trim()}
       />
     );
   }
@@ -680,8 +679,6 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                       <InlineAuthPanel
                         variant={authPanel}
                         defaultEmail={form.email}
-                        defaultName={form.address.recipientName}
-                        neutralEmailTaken={t('vaultUpsell.emailTakenNeutral')}
                         onSuccess={() => onAccountReady({ fromVaultUpsell: false })}
                       />
                     </div>
@@ -740,7 +737,6 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
                     <VaultUpsellPanel
                       shippingFeeLabel={shippingFeeLabel}
                       defaultEmail={form.email}
-                      defaultName={form.address.recipientName}
                       onDismiss={() => {
                         setUpsellOpen(false);
                         setDestination('ship');

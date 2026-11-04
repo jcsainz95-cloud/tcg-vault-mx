@@ -801,6 +801,21 @@ jobs:
         run: ./scripts/check-skydropx-spend-lock-canary.sh
 
   # ---------------------------------------------------------------------------
+  # 🔒 Buzón falso de correo del E2E real — la URL base de Resend que lo activa
+  # solo vive en el override de correo del E2E real, que solo usa e2e-real.yml. En prod
+  # desviaría todo el correo (tokens incluidos). DEVOPS_NOTES «Correo en el E2E real».
+  # ---------------------------------------------------------------------------
+  mail-sink-scope:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: El desvío de correo no sale del E2E real
+        run: ./scripts/check-mail-sink-scope.sh
+      - name: Y el candado tiene que saber morder (canario en ROJO)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-mail-sink-scope-canary.sh
+
+  # ---------------------------------------------------------------------------
   # 💰 G-BOOT — «la tienda nunca deja de vender por el catálogo de CP», al nivel
   # del arranque (API_CONTRACT §M4-SHIP.19.25.4, decisión del dueño HECHOS.md:57).
   # Hasta v1.80.12.4 el CMD corría `import-sepomex.ts boot` y en Railway, sin
@@ -1176,7 +1191,7 @@ jobs:
   # en `skipped` pone rojo. Útil como required check en la protección de rama.
   # ---------------------------------------------------------------------------
   ci-ok:
-    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, dyn-prod-measure, price-provider-interim-expiry, dast-report-only-expiry, home-perf-mobile-goal-expiry, image-optimizer-cost-reading-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, boot-no-geo, sepomex-pin, doc-size, measurement-gates, runner-pin, limpieza-ramas]
+    needs: [detect, backend, frontend, format-mix-base, format-mix, e2e-provider-guard, provenance-gate, e2e-harness-gaps, dyn-prod-measure, price-provider-interim-expiry, dast-report-only-expiry, home-perf-mobile-goal-expiry, image-optimizer-cost-reading-expiry, dast-gate-live, daemon-stdout-leak, secret-masking, compose-images, parity-gate-canary, stripe-webhook-failclosed, stripe-webhook-events, workflow-cwd, db-pool-limit, e2e-skip-census, stack-kill-scope, secret-absence-wording, live-candados, vercel-deploy-branches, skydropx-spend-lock, mail-sink-scope, boot-no-geo, sepomex-pin, doc-size, measurement-gates, runner-pin, limpieza-ramas]
     if: always()
     runs-on: ubuntu-24.04
     steps:

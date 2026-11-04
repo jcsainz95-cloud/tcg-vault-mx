@@ -1,0 +1,23 @@
+# =============================================================================
+# docker-compose.e2e-mail.yml — override SOLO del E2E real (e2e-real.yml) · devops
+# =============================================================================
+# Se aplica ENCIMA de docker-compose.staging.yml y solo en el `up` de e2e-real.yml:
+#   docker compose -f docker-compose.staging.yml -f docker-compose.e2e-mail.yml --profile apps up -d --build
+#
+# Apunta el SDK de Resend del backend (`RESEND_BASE_URL`, leída por `resend` 4.8.0
+# al cargar) al buzón falso `scripts/e2e-mail-sink.mjs`, que corre en el RUNNER y
+# escribe destinatario, asunto y texto de cada correo en un fichero que lee
+# `frontend/e2e/cuenta-correo.spec.ts` (E2E_BACKEND_LOG). El backend sigue usando
+# el adaptador de PRODUCCIÓN (`ResendMailAdapter`); solo cambia a dónde llama.
+#
+# ⛔ RESEND_BASE_URL solo puede vivir AQUÍ. En producción redirigiría todo el
+# correo (enlaces de verificación y de reseteo con token) fuera de Resend.
+# Candado: scripts/check-mail-sink-scope.sh (+ canario), en ci.yml.
+# DEVOPS_NOTES, «Correo en el E2E real».
+# =============================================================================
+services:
+  backend:
+    environment:
+      RESEND_BASE_URL: http://host.docker.internal:${E2E_MAIL_SINK_PORT:-8025}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

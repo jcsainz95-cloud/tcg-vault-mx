@@ -267,7 +267,13 @@ describe('CardDetailView · una acción, una etiqueta; pila de avisos; franja; a
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
     const strip = await screen.findByTestId('about-strip');
-    expect(strip).toHaveTextContent('Pago seguro · Envío a México · Quiénes somos');
+    // §CTA-UX.1: renglón de datos (un solo « ·») + lista de enlaces sin separadores.
+    expect(strip.querySelector('p')).toHaveTextContent(/^Pago seguro con tarjeta\s·\sEntrega en 4 a 10 días hábiles$/);
+    expect(within(strip).getAllByRole('link').map((a) => a.textContent)).toEqual([
+      'WhatsApp 55 6489 3921 (se abre en otra pestaña)',
+      'Instagram @tcghunt.mx (se abre en otra pestaña)',
+      'Quiénes somos',
+    ]);
     const link = within(strip).getByRole('link', { name: 'Quiénes somos y contacto' });
     expect(link).toHaveAttribute('href', '/nosotros');
     expect(rowCtas()[1].compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -526,7 +532,7 @@ describe('CardDetailView · P-71 código corto del set en la línea del set', ()
  * precio «desde» con su rótulo de IVA y el CTA de compra, y solo aparece con ≥ 1 unidad a la venta.
  */
 describe('CardDetailView · §A2 barra de compra fija en móvil (MKT-26b)', () => {
-  it('con pieza a la venta: barra fija (fixed bottom-0 lg:hidden) con precio «desde», rótulo de IVA y CTA de compra', async () => {
+  it('con pieza a la venta: barra fija (fixed bottom-0 lg:hidden) con precio «desde», SIN rótulo de IVA (977) y CTA de compra', async () => {
     mockDetail([grp()], [unit('inv-a')]); // priceBasis market, displayPriceCents 140800
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
 
@@ -535,9 +541,10 @@ describe('CardDetailView · §A2 barra de compra fija en móvil (MKT-26b)', () =
     expect(bar.className).toContain('fixed');
     expect(bar.className).toContain('bottom-0');
     expect(bar.className).toContain('lg:hidden');
-    // Precio «desde» con su rótulo de IVA (§M10-IVA.3) y el CTA de compra, todo dentro de la barra.
+    // Precio «desde» y el CTA de compra, todo dentro de la barra. Criterio 977 (dueño 2026-11-03): sin rótulo de IVA.
     expect(within(bar).getByText('MX$1,408.00')).toBeInTheDocument();
-    expect(within(bar).getByTestId('iva-label')).toHaveTextContent('IVA 16 % incluido');
+    expect(within(bar).queryByTestId('iva-label')).toBeNull();
+    expect(bar.textContent).not.toMatch(/IVA|VAT/);
     expect(within(bar).getByRole('button', { name: 'Añadir al carrito' })).toBeInTheDocument();
   });
 
