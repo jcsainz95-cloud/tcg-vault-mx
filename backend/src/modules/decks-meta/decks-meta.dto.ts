@@ -1,3 +1,4 @@
+import { VersionDTO } from '../../common/card-version';
 import { EnergyType, MetaCardGroup, MetaMatchStatus } from '@prisma/client';
 import type { AccessoryPhotoDTO, EnergyBundleOfferReason } from './energy-bundle';
 
@@ -41,6 +42,11 @@ export interface MetaDeckLineDTO {
   unitPriceMxnCents: number | null;
   /** hasta `availableQty`, cheapest-first — el add-to-cart «de jalón». Vacío si no es ofrecible. */
   unitInventoryItemIds: string[];
+  /**
+   * 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.6): partición de `unitInventoryItemIds` EN SU ORDEN, un tramo por versión (sin liga
+   * primero). `unitPriceMxnCents` del tramo = el de su primera pieza. Vacío si no es ofrecible.
+   */
+  units: MetaDeckUnitTrancheDTO[];
   /** OPCIONAL (Fase 3): otra impresión LEGAL de la misma carta en stock. Ausente en Fase 1. */
   substitute?: MetaSubstituteDTO;
   /**
@@ -49,6 +55,14 @@ export interface MetaDeckLineDTO {
    * servidor lo manda `null` en toda otra línea. ⛔ No toca `unitInventoryItemIds`/`availableQty`/`unitPriceMxnCents`.
    */
   basicEnergy?: MetaBasicEnergyDTO | null;
+}
+
+/** v1.116⟨ids⟩ (§IDS.6) — un tramo de piezas de la MISMA versión dentro de una línea de deck. */
+export interface MetaDeckUnitTrancheDTO {
+  version: VersionDTO;
+  qty: number;
+  unitPriceMxnCents: number | null;
+  inventoryItemIds: string[];
 }
 
 /** §AC.8 — la energía suelta que se puede agregar por línea. */

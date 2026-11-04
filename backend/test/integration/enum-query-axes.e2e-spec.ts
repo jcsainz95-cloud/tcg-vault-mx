@@ -76,6 +76,7 @@ import {
   CardShowLeadType,
   DiscountCodeStatus,
   DisputeStatus,
+  CardLanguage,
   Finish,
   InventoryStatus,
   KycStatus,
@@ -657,6 +658,12 @@ const REGISTRO: readonly AxisRow[] = [
     },
   },
   { route: 'GET /catalog/cards', param: 'finish', clazz: 'E', allowed: Object.values(Finish), valid: 'reverse_holo', alterno: 'normal', auth: 'public', echoValue: true },
+  // v1.116⟨ids⟩ (§IDS.5): idioma (E, `CardLanguage`) y «Cartas de liga y promos» (L, solo `true`; admin `true|false`). Filas en
+  // §0-Q punto 4 desde v1.116.3 ⇒ `transcrita`; `echoValue` NO (censo congelado). El fixture no tiene piezas `es` ni de liga.
+  { route: 'GET /catalog/cards', param: 'language', clazz: 'E', allowed: Object.values(CardLanguage), valid: 'es', alterno: 'en', auth: 'public', echoValue: false, filaEn0Q: 'transcrita' },
+  { route: 'GET /catalog/cards', param: 'stamped', clazz: 'L', allowed: ['true'], valid: 'true', auth: 'public', echoValue: false, filaEn0Q: 'transcrita' },
+  { route: 'GET /admin/inventory/items', param: 'language', clazz: 'E', allowed: Object.values(CardLanguage), valid: 'es', alterno: 'en', auth: 'admin', echoValue: false, filaEn0Q: 'transcrita' },
+  { route: 'GET /admin/inventory/items', param: 'stamped', clazz: 'L', allowed: ['true', 'false'], valid: 'true', alterno: 'false', auth: 'admin', echoValue: false, filaEn0Q: 'transcrita' },
   // ⛔ SIN `alterno`: `ACCEPTED_RAW_CONDITIONS` es `['NM']` (`business-rules.ts:44`, política de
   // PROJECT.md §E) — no hay segundo token con el que discriminar. Lo vigila el test de coherencia.
   { route: 'GET /catalog/cards', param: 'condition', clazz: 'R', allowed: ACCEPTED_RAW_CONDITIONS, valid: 'NM', auth: 'public', echoValue: true },
@@ -807,7 +814,9 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/inventory/master-sets', param: 'sort', clazz: 'ORDEN', allowed: MASTER_SET_SORT_VALUES, valid: 'pieces_desc', alterno: 'completion_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /admin/vaults/:userId/master-sets', path: (c) => `/admin/vaults/${c.userId}/master-sets`, param: 'sort', clazz: 'ORDEN', allowed: MASTER_SET_SORT_VALUES, valid: 'pieces_desc', alterno: 'completion_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /vault/master-sets', param: 'sort', clazz: 'ORDEN', allowed: MASTER_SET_SORT_VALUES, valid: 'pieces_desc', alterno: 'completion_asc', auth: 'customer', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
-  { route: 'GET /admin/vaults', param: 'sort', clazz: 'ORDEN', allowed: ADMIN_VAULTS_SORT_VALUES, valid: 'pieces_desc', alterno: 'name_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
+  // `q=ceq1-vault` (C-EQ-1-VAULTS, 2026-11-03): la lista es GLOBAL (todos los clientes de la BD, página de 20); sin acotar a los
+  // dos clientes propios, el orden de la página 1 dependía de lo que otras suites dejaran en la BD.
+  { route: 'GET /admin/vaults', param: 'sort', clazz: 'ORDEN', allowed: ADMIN_VAULTS_SORT_VALUES, valid: 'pieces_desc', alterno: 'name_asc', auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO', extra: () => 'q=ceq1-vault' },
   { route: 'GET /vault/portfolio/history', param: 'range', clazz: 'L', allowed: PORTFOLIO_HISTORY_RANGE_VALUES, valid: 'all', alterno: '5d', obs: OBS_HISTORY, auth: 'customer', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
 
   // ==========================================================================================
@@ -1251,11 +1260,18 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
   const custZzz = await h.prisma.user.create({
     data: { email: CEQ1_VAULT_CUSTOMER_EMAILS[1], name: 'ZZZ CEQ1 Vault', role: 'customer', locale: 'es' },
   });
+  // C-EQ-1-VAULTS (2026-11-03, backend): la carta de estas piezas era `card` = `card.findFirstOrThrow()` SIN orden — la primera
+  // carta física de la BD, con o sin precio según la BD. Con precio, AAA (1 pieza) vale menos que ZZZ (5) ⇒ `value_desc` =
+  // [ZZZ,AAA] = `pieces_desc` ⇒ `dist(pieces_desc, base) = 0` (el rojo intermitente de QA, `:1571`). Carta PROPIA sin
+  // `PriceReference` (se borra con el prefijo `CEQ1-`): valor 0 por construcción.
+  const vaultCard = await h.prisma.card.create({
+    data: { externalId: 'CEQ1-VAULT-CARD', setId: set.id, name: 'CEQ1 Vault sin precio', number: '1', rarity: 'Common' },
+  });
   await h.prisma.inventoryItem.createMany({
     data: [
-      { folio: 'CEQ1-VAULT-AAA-1', cardId: card.id, productType: 'raw', rawCondition: 'NM', finish: 'normal', status: 'in_custody', ownerType: 'customer', ownerUserId: custAaa.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
+      { folio: 'CEQ1-VAULT-AAA-1', cardId: vaultCard.id, productType: 'raw', rawCondition: 'NM', finish: 'normal', status: 'in_custody', ownerType: 'customer', ownerUserId: custAaa.id, ownershipStatus: 'settled', acquisitionType: 'aportacion_en_especie' },
       ...[1, 2, 3, 4, 5].map((n) => ({
-        folio: `CEQ1-VAULT-ZZZ-${n}`, cardId: card.id, productType: 'raw' as const, rawCondition: 'NM' as const, finish: 'normal' as const,
+        folio: `CEQ1-VAULT-ZZZ-${n}`, cardId: vaultCard.id, productType: 'raw' as const, rawCondition: 'NM' as const, finish: 'normal' as const,
         status: 'in_custody' as const, ownerType: 'customer' as const, ownerUserId: custZzz.id, ownershipStatus: 'settled' as const, acquisitionType: 'aportacion_en_especie' as const,
       })),
     ],
@@ -1908,7 +1924,10 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // Marketing (SELECTOR, L) y `?game=` de `/admin/card-show/players` y de su CSV (E, `CardShowGame`), todos `transcrita`.
     // 💰 v1.110⟨descuentos⟩ (§DSC.7) — 89 → **91** y 18 fijo: `?status=` (E) y `?state=` (L) de `GET /admin/discount-codes`
     // entran YA `transcrita` (el arquitecto escribió sus dos filas en §0-Q punto 4, v1.110). No sube ningún pendiente.
-    expect(REGISTRO.length).toBe(91);
+    // 💰 v1.116⟨ids⟩ (§IDS.4/.5) — 91 → **95** y 18 → **22**: `?language=`/`?stamped=` de `GET /catalog/cards` y de
+    // `GET /admin/inventory/items`, clase decidida en §IDS (E y L) y SIN fila en §0-Q punto 4 ⇒ PENDIENTE-ARQUITECTO.
+    // ⭐ v1.116.3⟨ids⟩ — 95 fijo y 22 → **18**: el arquitecto escribió las cuatro filas en §0-Q punto 4. Se pagó una deuda.
+    expect(REGISTRO.length).toBe(95);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.

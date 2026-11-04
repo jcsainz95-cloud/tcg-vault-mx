@@ -63,7 +63,7 @@ function buildPricing(pricedByCard: Map<string, Set<Finish>>): PricingService {
     // puede divergir de producción ni reimplementar la matemática.
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
     getReferencesBatch: jest.fn().mockResolvedValue(new Map()),
-    getPricedRawFinishesBatch: jest.fn().mockResolvedValue(pricedByCard),
+    getPricedRawFinishesBatch: jest.fn().mockResolvedValue(pricedByCard), defaultVersionWhere: jest.fn(async () => ({ language: "en" })),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),

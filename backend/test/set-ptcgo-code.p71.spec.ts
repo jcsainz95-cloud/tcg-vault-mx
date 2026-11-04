@@ -139,7 +139,7 @@ function masterSetPricing(): PricingService {
     saleRetentionFor: jest.fn(async () => new Map()),
     getReferencesBatch: jest.fn(async () => new Map()),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
-    getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+    getPricedRawFinishesBatch: jest.fn(async () => new Map()), defaultVersionWhere: jest.fn(async () => ({ language: "en" })),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     tryGradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
@@ -285,7 +285,7 @@ describe('P71-B3 — binder: MasterSetRefDTO.ptcgoCode y SetPartDTO.ptcgoCode po
 // ─────────────────────────── P71-B4 · /buylist/sets y /catalog/sets ───────────────────────────
 
 describe('P71-B4 — GET /buylist/sets trae ptcgoCode; GET /catalog/sets NO', () => {
-  const pricing = () => ({ getPricedRawFinishesBatch: jest.fn(async () => new Map()) }) as unknown as PricingService;
+  const pricing = () => ({ getPricedRawFinishesBatch: jest.fn(async () => new Map()), defaultVersionWhere: jest.fn(async () => ({ language: "en" })) }) as unknown as PricingService;
 
   it('clave presente en cada elemento; normalizada; `\'\'` ⇒ null', async () => {
     const rows = [
@@ -383,7 +383,7 @@ function storefrontPricing(): PricingService {
     gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
     getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
-    getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+    getPricedRawFinishesBatch: jest.fn(async () => new Map()), defaultVersionWhere: jest.fn(async () => ({ language: "en" })),
     loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),

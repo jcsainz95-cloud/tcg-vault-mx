@@ -28,6 +28,7 @@ import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState } from '@/components/ui/QueryState';
 import { IvaTransferSection } from './sections/IvaTransferSection';
+import { SpanishMarketSection } from './sections/SpanishMarketSection';
 import { ShippingSection } from './sections/ShippingSection';
 import { SpendControlSection } from './sections/SpendControlSection';
 import { PremiumFloorSection } from './sections/PremiumFloorSection';
@@ -450,6 +451,9 @@ export function M10View() {
           envío — un dial que gobierna dinero y cuyo único guardián es una pantalla no tiene
           guardián, y aquí el guardián es el servidor (`PUT /admin/settings/iva-transfer`). */}
       <IvaTransferSection />
+
+      {/* 💰 §IDS.7 (IDS-F7) — «Precio del español (% del inglés)»: junto a los diales de IVA, mismo rol que la curva. */}
+      <SpanishMarketSection />
 
       {/* §39.1 — premium en el piso (venta): sección propia, entre el IVA y la ingesta. */}
       <PremiumFloorSection />

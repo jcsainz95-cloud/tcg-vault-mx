@@ -23,6 +23,7 @@ import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { withPatrimony } from './helpers/valuation-gate';
 
 const CICLO = { offerSentAt: new Date('2026-08-01T00:00:00Z') };
 const LEGACY = { offerSentAt: null };
@@ -138,12 +139,12 @@ describe('⚠️⚠️ §11 / §M5-V.8(7) — la tarjeta del tablero SUMA `appro
       user: { count: jest.fn().mockResolvedValue(0) },
       inventoryItem: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const svc = new AdminService(
+    const svc = withPatrimony(new AdminService(
       withPnlBuylistDoubles(withM61Defaults(prisma)) as unknown as PrismaService,
       { sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService,
       new PiiCryptoService(new ConfigService({})),
       {} as any,
-    );
+    ), { sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService);
     return { svc, prisma, aggregate };
   }
 

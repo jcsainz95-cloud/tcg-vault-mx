@@ -108,7 +108,7 @@ function buildPricing(opts: { referenceMxnCents?: number | null; override?: unkn
     }),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 25, sourceOn: false })),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
-    getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+    getPricedRawFinishesBatch: jest.fn(async () => new Map()), defaultVersionWhere: jest.fn(async () => ({ language: "en" })),
     // v2.1.1: el seam single delega en `decideSalePrice` y en `loadPricingCurve` del propio mock;
     // se usa el CUERPO REAL para que el test no reimplemente la precedencia de venta.
     computeSalePriceForItem: jest.fn(PricingService.prototype.computeSalePriceForItem),

@@ -1050,7 +1050,15 @@ function ShipItemRow({
 
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <div className="flex min-w-0 gap-3">
-          <CardInfo card={item.card} folio={item.folio} quantity={item.quantity} nameId={nameId} t={t} />
+          <CardInfo
+            card={item.card}
+            folio={item.folio}
+            quantity={item.quantity}
+            nameId={nameId}
+            t={t}
+            version={item.version}
+            versionInternalLine={item.versionInternalLine}
+          />
         </div>
 
         {/* Estado en palabras (§37.3b) y la línea de dinero (§37.3c). */}

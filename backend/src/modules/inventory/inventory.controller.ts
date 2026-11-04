@@ -17,6 +17,7 @@ import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { InventoryService } from './inventory.service';
+import { InventoryVersionsService } from './inventory-versions.service';
 import { MasterSetService } from './master-set.service';
 import { SealedGradedInventoryService } from './sealed-graded.service';
 import { SealedCatalogAdminService } from './sealed-catalog-admin.service';
@@ -24,7 +25,7 @@ import { SealedProductService } from './sealed-product.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
-import { SEALED_GROUP_KIND_VALUES } from '../../common/enum-values';
+import { CARD_LANGUAGE_VALUES, SEALED_GROUP_KIND_VALUES } from '../../common/enum-values';
 import {
   BatchCreateInventoryRequest,
   BulkPublishRequest,
@@ -40,6 +41,7 @@ import {
   SetMainGroupRequestDto,
   UpdateItemDto,
   SetSealedSalePriceDto,
+  AttachStampedCandidateDto,
 } from './dto/inventory.dto';
 import { SEALED_PRICE_STATE_VALUES } from './sealed-product.service';
 import { SEALED_PRICE_SHEET_SCOPE_VALUES, SealedPriceService } from './sealed-price.service';
@@ -60,6 +62,9 @@ const FINISH_FILTER_VALUES: readonly Finish[] = Object.values(Finish);
 const PRODUCT_TYPE_FILTER_VALUES: readonly ProductType[] = Object.values(ProductType);
 
 /** v1.51 (fase 8, §M1): filtros de `GET /admin/inventory/pending-publish`. */
+/** v1.116⟨ids⟩ (§IDS.4): el eje `stamped` del listado admin (dominio cerrado del contrato). */
+const STAMPED_FILTER_VALUES = ['true', 'false'] as const;
+
 const ACQUISITION_TYPE_FILTER_VALUES: readonly AcquisitionType[] = Object.values(AcquisitionType);
 
 /**
@@ -102,6 +107,8 @@ export class InventoryController {
     private readonly sealedProduct?: SealedProductService,
     // 💰 v1.83 (§M11-SP): hoja de precios del sellado + precio del dueño por producto.
     private readonly sealedPrice?: SealedPriceService,
+    // v1.116⟨ids⟩ (§IDS.4): captura por versión (combinaciones con su precio y `attach` de candidatas).
+    private readonly versions?: InventoryVersionsService,
   ) {}
 
   // ===== v1.16-master-set (§4.17) — Master Set + inventario a escala (vault_operator+) =====
@@ -610,7 +617,12 @@ export class InventoryController {
     @Query('productType') productType?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
+    // v1.116⟨ids⟩ (§IDS.4): `language` (§0-Q, clase E) y `stamped` (`true` | `false`).
+    @Query('language') language?: string,
+    @Query('stamped') stamped?: string,
   ) {
+    const languageFilter = parseEnumFilter('language', language, CARD_LANGUAGE_VALUES);
+    const stampedFilter = parseEnumFilter('stamped', stamped, STAMPED_FILTER_VALUES);
     // Contrato §M1 v1.28: validados contra sus enums → 400 VALIDATION_ERROR si inválidos.
     // `P-84`/§0-Q — estos dos YA validaban contra el enum derivado (por eso eran los únicos ejes de
     // enum de este endpoint que **no** daban `500`): es el patrón que el resto copió. Lo que cambia es
@@ -626,6 +638,8 @@ export class InventoryController {
       q,
       finish: finishFilter,
       productType: productTypeFilter,
+      language: languageFilter,
+      stamped: stampedFilter === undefined ? undefined : stampedFilter === 'true',
       page: Math.max(1, parseInt(page, 10) || 1),
       pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
     });
@@ -679,6 +693,30 @@ export class InventoryController {
       // `pageSize` ≤ 100 (contrato §M1), como el resto de los listados de back-office.
       pageSize: Math.min(100, Math.max(1, parseInt(pageSize, 10) || 20)),
     });
+  }
+
+  /** v1.116⟨ids⟩ (API_CONTRACT §IDS.4): combinaciones acabado × idioma × liga de una carta, con su precio, y candidatas. */
+  @Get('inventory/cards/:cardId/versions')
+  cardVersions(@Param('cardId') cardId: string) {
+    return this.versionsOrThrow().versionsFor(cardId);
+  }
+
+  /** v1.116⟨ids⟩ (§IDS.4): elección de IDENTIDAD de un producto de liga ambiguo (404 sin candidata · 409 ya colgado). */
+  @Post('inventory/stamped-candidates/:tcgplayerProductId/attach')
+  @HttpCode(200)
+  attachStamped(
+    @Param('tcgplayerProductId') productId: string,
+    @Body() dto: AttachStampedCandidateDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const id = /^\d{1,10}$/.test(productId) ? Number(productId) : NaN;
+    if (!Number.isSafeInteger(id) || id <= 0 || id > 2_147_483_647) throw BusinessException.notFound('NOT_FOUND', 'Unknown product');
+    return this.versionsOrThrow().attach(id, dto.cardId, user);
+  }
+
+  private versionsOrThrow(): InventoryVersionsService {
+    if (!this.versions) throw new Error('InventoryVersionsService no inyectado');
+    return this.versions;
   }
 
   @Get('inventory/items/:id')

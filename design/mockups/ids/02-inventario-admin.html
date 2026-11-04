@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es-MX"><head><meta charset="utf-8"><meta name="viewport" content="width=1280">
+<title>02 · Lista de inventario (admin)</title>
+<style>
+:root{--bg:#f4f1ea;--s2:#efebe2;--bd:rgba(26,26,24,.16);--bds:rgba(26,26,24,.32);--tx:#1a1a18;--mu:#6e695e;--ac:#b31217;--ok:#4a7345;--holo:#1f5c8f}
+*{box-sizing:border-box;margin:0}
+body{width:1280px;background:var(--bg);font:14px/1.4 Archivo,system-ui,sans-serif;color:var(--tx)}
+.mock-title{background:#1a1a18;color:#f4f1ea;padding:10px 20px;font:600 12px/1.4 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em}
+.main{display:grid;grid-template-columns:1fr 480px;min-height:640px}
+.l{padding:20px 24px}.r{border-left:1px solid var(--bds);padding:20px;background:var(--bg)}
+h2{font:400 22px 'Zen Old Mincho',Georgia,serif;margin-bottom:12px}
+.flt{display:flex;gap:24px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.flt label{font:500 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.1em;color:var(--mu);margin-right:8px}
+.seg{display:inline-flex}.seg span{min-height:36px;display:flex;align-items:center;padding:0 12px;border:1px solid var(--tx);margin-left:-1px;font:500 12px Archivo}.seg .on{background:var(--tx);color:var(--bg)}
+table{border-collapse:collapse;width:100%;font-size:13px}th{font:600 10.5px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;color:var(--mu);text-align:left;border-bottom:1px solid var(--bds);padding:8px 8px}
+td{border-bottom:1px solid var(--bd);padding:10px 8px;vertical-align:middle}tr.sel td{background:var(--s2)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.th{display:flex;gap:10px;align-items:center}.th img{width:32px;height:45px;object-fit:contain;background:var(--s2)}
+.fin{font:500 10px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.18em;border-top:3px solid var(--holo);padding-top:3px;display:inline-block}
+.vchip{display:inline-flex;align-items:center;height:18px;padding:0 6px;border:1px solid var(--tx);font:500 10px/1 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap}
+.vchip.es{background:var(--bg)}.vchip.sello{background:var(--tx);color:var(--bg)}.vchip.en{border-color:var(--bds);color:var(--mu);background:transparent}
+.pend{font:500 10px 'JetBrains Mono',monospace;color:var(--ac);text-transform:uppercase;letter-spacing:.06em}
+.pc{display:grid;grid-template-columns:auto 1fr auto;gap:8px 10px;align-items:center;border-bottom:1px solid var(--bd);padding:10px 0;font-size:13px}
+.mono{font:400 12px 'JetBrains Mono',monospace}
+.note{margin:0 24px 24px;background:#fff9;border:1px dashed var(--bds);padding:12px 14px;font-size:12.5px;line-height:1.55}
+</style></head><body>
+<div class="mock-title">02 · Lista de inventario (admin, 1280 px) · binder de M1 con una fila por versión + cajón de piezas · maqueta IDS-UX</div>
+<div class="main">
+<div class="l"><h2>Base Set · Charizard y compañía</h2>
+ <div class="flt"><div><label>Idioma</label><span class="seg"><span class="on">Todos</span><span>Inglés</span><span>Español</span></span></div>
+  <div><label>Sello</label><span class="seg"><span class="on">Todos</span><span>Con sello</span><span>Sin sello</span></span></div></div>
+ <table><tr><th>Carta</th><th>Acabado</th><th>Idioma</th><th>Sello</th><th class="num" style="text-align:right">Piezas</th><th style="text-align:right">Precio tienda</th><th>Estado</th></tr>
+ <tr><td><div class="th"><img src="https://images.pokemontcg.io/base1/4.png" alt=""><div>Charizard<br><span class="mono" style="color:var(--mu)">BS 4</span></div></div></td><td><span class="fin">HOLO</span></td><td><span class="vchip en">EN</span></td><td>—</td><td class="num">1</td><td class="num">MX$200.00</td><td>Publicada</td></tr>
+ <tr class="sel"><td><div class="th"><img src="https://images.pokemontcg.io/base1/4.png" alt=""><div>Charizard<br><span class="mono" style="color:var(--mu)">BS 4</span></div></div></td><td><span class="fin">HOLO</span></td><td><span class="vchip es">Español</span></td><td>—</td><td class="num">3</td><td class="num">MX$150.00</td><td>Publicada</td></tr>
+ <tr><td><div class="th"><img src="https://images.pokemontcg.io/base1/4.png" alt=""><div>Charizard<br><span class="mono" style="color:var(--mu)">BS 4</span></div></div></td><td><span class="fin">HOLO</span></td><td><span class="vchip en">EN</span></td><td><span class="vchip sello">Sello Liga</span></td><td class="num">1</td><td class="num">MX$480.00</td><td>Publicada</td></tr>
+ <tr><td><div class="th"><img src="https://images.pokemontcg.io/base1/4.png" alt=""><div>Charizard<br><span class="mono" style="color:var(--mu)">BS 4</span></div></div></td><td><span class="fin">HOLO</span></td><td><span class="vchip es">Español</span></td><td><span class="vchip sello">Sello Liga</span></td><td class="num">1</td><td class="num">MX$360.00</td><td>Publicada</td></tr>
+ <tr><td><div class="th"><img src="https://images.pokemontcg.io/base1/2.png" alt=""><div>Blastoise<br><span class="mono" style="color:var(--mu)">BS 2</span></div></div></td><td><span class="fin" style="border-top-color:var(--holo)">HOLO</span></td><td><span class="vchip es">Español</span></td><td>—</td><td class="num">2</td><td class="num"><span class="pend">Precio pendiente</span></td><td>Sin mercado del inglés</td></tr>
+ </table></div>
+<div class="r"><div style="display:flex;justify-content:space-between"><h2 style="margin:0">Charizard · BS 4</h2><span class="mono">cerrar ✕</span></div>
+ <div style="margin:8px 0 4px;display:flex;gap:6px;align-items:center"><span class="fin">HOLO</span><span class="vchip es">Español</span></div>
+ <p class="mono" style="color:var(--mu)">Precio tienda MX$150.00 · inglés MX$200 × 75 %</p>
+ <h2 style="font-size:16px;margin-top:18px">Piezas (3)</h2>
+ <div class="pc"><span class="mono">TCG-000412</span><span>NM · Estante A2</span><span class="vchip es">Español</span></div>
+ <div class="pc"><span class="mono">TCG-000413</span><span>NM · Estante A2</span><span class="vchip es">Español</span></div>
+ <div class="pc"><span class="mono">TCG-000420</span><span>NM · Bóveda de María</span><span class="vchip es">Español</span></div>
+</div></div>
+<div class="note"><b>Decisiones.</b> Una fila por versión: «Idioma» y «Sello» son columnas propias, así se filtra y se ordena. En el admin el inglés <i>sí</i> se nombra («EN», gris, sin relleno) porque aquí conviven las versiones y callar una sería ambiguo; en la tienda el inglés no lleva insignia. Los filtros son los mismos segmentados de un toque. El cajón de piezas repite la insignia de la versión en el encabezado y en cada pieza (la pieza física lleva idioma y sello en su etiqueta). Una fila sin precio muestra su motivo ya existente («Sin mercado del inglés»), nunca un cálculo inventado; la pieza no se publica y no hay cola que revise el dueño: se resuelve sola cuando llega el mercado (HECHOS 2026-10-30). La exportación .xlsx añade «Idioma» y «Sello» al final.</div>
+</body></html>

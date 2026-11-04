@@ -1,7 +1,7 @@
 import { VaultService, VAULT_SEALED_SORT_VALUES } from '../src/modules/vault/vault.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
-import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { REAL_VALUATION_GATE, realPatrimony } from './helpers/valuation-gate';
 import { UNIDENTIFIED_SEALED_NAME } from '../src/common/piece-display-identity';
 
 /**
@@ -79,7 +79,7 @@ function build(items: any[], refs: Map<string, any>) {
     // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
     sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
-  return { prisma, pricing, svc: new VaultService(prisma, pricing) };
+  return { prisma, pricing, svc: new VaultService(prisma, pricing, realPatrimony(pricing)) };
 }
 
 describe('VaultService.sealedTab — agregación + valuación de la bóveda sellada', () => {
@@ -192,7 +192,7 @@ describe('VaultService.sealedTab — agregación + valuación de la bóveda sell
       ['c1|sealed|sealed:tcg:101|normal', { status: 'priced', referenceMxnCents: 200000 }],
     ]);
     const { pricing } = build([], refs);
-    const svc = new VaultService(prisma, pricing);
+    const svc = new VaultService(prisma, pricing, realPatrimony(pricing));
 
     const upcOnly = await svc.sealedTab('u1', { sealedSubtype: 'upc' });
     expect(upcOnly.data).toHaveLength(1);

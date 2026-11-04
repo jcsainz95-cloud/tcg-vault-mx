@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es-MX"><head><meta charset="utf-8"><meta name="viewport" content="width=1280">
+<title>01 · Captura de inventario (admin) · v3</title>
+<style>
+:root{--bg:#f4f1ea;--s2:#efebe2;--bd:rgba(26,26,24,.16);--bds:rgba(26,26,24,.32);--tx:#1a1a18;--mu:#6e695e;--ac:#b31217;--ok:#4a7345}
+*{box-sizing:border-box;margin:0}
+body{width:1280px;background:#cfcabd;font:14px/1.4 Archivo,system-ui,sans-serif;color:var(--tx)}
+.mock-title{background:#1a1a18;color:#f4f1ea;padding:10px 20px;font:600 12px/1.4 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em}.mock-title b{color:#f0685f}
+.wrap{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:24px}
+.col h2{font:600 12px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.modal{background:var(--bg);border:1px solid var(--bds);padding:20px}
+.modal h3{font:400 22px 'Zen Old Mincho',Georgia,serif;margin-bottom:12px}
+.sel{display:flex;gap:12px;background:var(--s2);border:1px solid var(--bd);padding:10px;align-items:center}
+.sel img{width:48px;height:67px;object-fit:contain}.sel b{font:400 16px 'Zen Old Mincho',Georgia,serif}
+.sel small{display:block;font:400 11px 'JetBrains Mono',monospace;color:var(--mu)}
+.f{margin-top:14px}.f label{display:block;font:500 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.1em;color:var(--mu);margin-bottom:6px}
+.fixed{border:1px solid var(--bd);padding:9px 12px;color:var(--mu);font-size:13px}
+.seg{display:flex}.seg span{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;border:1px solid var(--tx);margin-left:-1px;font:500 13px Archivo;background:var(--bg);text-align:center;padding:0 8px}
+.seg span.on{background:var(--tx);color:var(--bg)}.seg span.dis{color:var(--mu);border-color:var(--bds);border-style:dashed}
+.hint{font-size:12px;color:var(--mu);margin-top:4px}
+.price{margin-top:16px;border-top:1px solid var(--bds);border-bottom:1px solid var(--bds);padding:10px 0;display:flex;justify-content:space-between;align-items:baseline}
+.price .v{font:500 24px Archivo;font-variant-numeric:tabular-nums}.price small{font:400 11px 'JetBrains Mono',monospace;color:var(--mu);display:block;text-transform:uppercase;letter-spacing:.06em}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.inp{border:1px solid var(--bds);min-height:44px;padding:11px 12px;background:#fff6}
+.btn{margin-top:16px;display:flex;justify-content:flex-end;gap:8px}.btn span{min-height:44px;padding:0 20px;display:flex;align-items:center;border:1px solid var(--tx);font:500 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.14em}.btn .p{background:var(--tx);color:var(--bg)}
+.note{margin:0 24px 24px;background:#fff9;border:1px dashed var(--bds);padding:12px 14px;font-size:12.5px;line-height:1.55}
+</style></head><body>
+<div class="mock-title">01 · Captura de inventario (admin, 1280 px) · <b>v3 — opción A elegida</b>; el segmentado «Versión» dice «De liga» · maqueta IDS-UX</div>
+<div class="wrap">
+ <div class="col"><h2>Una carta con un solo tipo de liga</h2>
+  <div class="modal"><h3>Nueva pieza</h3>
+   <div class="sel"><img src="https://images.pokemontcg.io/base1/4.png" alt="Charizard"><div><b>Charizard</b><small>Base Set · BS 4 · Holo Rare</small></div></div>
+   <div class="f"><label>Tipo</label><div class="fixed">Carta suelta · NM</div></div>
+   <div class="f"><label>Acabado</label><div class="fixed">Holo (único disponible)</div></div>
+   <div class="f"><label>Idioma</label><div class="seg"><span>Inglés</span><span class="on">Español</span></div></div>
+   <div class="f"><label>Versión</label><div class="seg"><span>Normal</span><span class="on">De liga · Prize Pack</span></div>
+    <p class="hint">La fila solo existe si la carta tiene versiones de liga o promo. Un botón por tipo, con el nombre del mercado.</p></div>
+   <div class="price"><div><small>Precio de venta (se calcula solo)</small><span style="font-size:12px;color:var(--mu)">De liga en inglés MX$480 × 75 % (español)</span></div><span class="v">MX$360.00</span></div>
+   <div class="two" style="margin-top:14px"><div><div class="f" style="margin:0"><label>Cantidad</label><div class="inp">1</div></div></div><div><div class="f" style="margin:0"><label>Adquisición</label><div class="seg"><span class="on">Compra</span><span>Aportación</span></div></div></div></div>
+   <div class="btn"><span>Cancelar</span><span class="p">Crear pieza</span></div>
+  </div></div>
+ <div class="col"><h2>Una carta con varios tipos (uno sin precio, apagado)</h2>
+  <div class="modal"><h3>Nueva pieza</h3>
+   <div class="sel"><img src="https://images.pokemontcg.io/base1/58.png" alt="Pikachu"><div><b>Pikachu</b><small>Base Set · BS 58 · Common</small></div></div>
+   <div class="f"><label>Idioma</label><div class="seg"><span class="on">Inglés</span><span>Español</span></div></div>
+   <div class="f"><label>Versión</label><div class="seg"><span class="on">Normal</span><span>De liga · Prize Pack</span><span>Prerelease</span><span class="dis">Staff</span></div>
+    <p class="hint">«Staff» apagado, borde discontinuo: sin precio de mercado (motivo visible al enfocar). Sin cola ni aviso.</p></div>
+   <div class="price"><div><small>Precio de venta (se calcula solo)</small><span style="font-size:12px;color:var(--mu)">Inglés normal, mercado MX$40</span></div><span class="v">MX$40.00</span></div>
+   <div class="btn"><span>Cancelar</span><span class="p">Crear pieza</span></div>
+  </div></div>
+</div>
+<div class="note"><b>v3 (marketing D-6 v3, <code>HECHOS.md</code> 2026-11-02).</b> Cambia solo el rótulo de los botones de «Versión» (antes «Sello Liga»): ahora <b>«De liga · Prize Pack»</b>, «Prerelease», «Staff», «De torneo» (admin: el tipo exacto va en el botón). Para la sola identidad de la fila se conserva «Versión» y el orden Tipo → Acabado → Idioma → Versión → precio. Origen del precio: «De liga en inglés MX$480 × 75 % (español)». Toques: sin cambio (+0 / +1 / +1 / +2, aritmética NO MEDIDA). El grupo <code>1539</code> se rotula «De liga · Promo de Liga». La opción B de la v1 sigue descartada (D-1 = A).</div>
+</body></html>

@@ -1,4 +1,5 @@
-import { ProductType } from '@prisma/client';
+import { CardLanguage, Finish, ProductType, StampType } from '@prisma/client';
+import { FinishLabel, finishLabelOf } from '../../../common/card-version';
 import { MailMessage } from '../../mail/mail.port';
 import { AccessoryMailLine, accessoryMailTextLines } from './accessory-mail-lines';
 
@@ -6,9 +7,68 @@ import { AccessoryMailLine, accessoryMailTextLines } from './accessory-mail-line
  * §4.34a.2 — renglón de una línea en el correo. Un sellado NO enseña el `#número` del ancla (es de la
  * carta ancla del set, no del producto sellado; `name` ya trae la identidad resuelta del SealedProduct).
  */
-export function orderMailLineOf(i: { name: string; setName: string; number: string; productType: ProductType }): string {
-  return i.productType === 'sealed' ? `${i.name} — ${i.setName}` : `${i.name} — ${i.setName} #${i.number}`;
+export function orderMailLineOf(
+  i: { name: string; setName: string; number: string; productType: ProductType; version?: OrderMailVersion | null },
+  locale: 'es' | 'en' = 'es',
+): string {
+  const base = i.productType === 'sealed' ? `${i.name} — ${i.setName}` : `${i.name} — ${i.setName} #${i.number}`;
+  // v1.116⟨ids⟩ (§IDS.5, IDS-B21): la versión congelada en la línea, traducida AQUÍ en el idioma del pedido. Inglés sin liga
+  // no añade nada (el correo de siempre, I-1).
+  const v = i.version ? orderMailVersionTextOf(i.version, locale) : null;
+  return v ? `${base} · ${v}` : base;
 }
+
+/** v1.116⟨ids⟩ — lo congelado de la versión en `OrderItem` (D-IDS-J). */
+export interface OrderMailVersion {
+  language: CardLanguage;
+  stampType: StampType | null;
+  stampLabel: string | null;
+  finish: Finish | null;
+}
+
+/**
+ * v1.116⟨ids⟩ (API_CONTRACT §IDS.5 «correo», DESIGN_SYSTEM IDS-UX.1, HECHOS 2026-11-02 D-6 v3): el texto de la versión de una
+ * línea de pedido en el correo, con los MISMOS literales que la tienda (`frontend/messages/{es,en}.json` `version.*`):
+ * idioma (solo español), tipo de liga en texto largo y el acabado como lo nombra el cliente. «Español · De liga (Prize Pack) ·
+ * Cosmos Holo». `null` para inglés sin liga.
+ */
+export function orderMailVersionTextOf(v: OrderMailVersion, locale: 'es' | 'en'): string | null {
+  // Una línea sin columnas de versión (dobles de prueba, filas previas a M-95) es (en, sin liga): el correo de siempre.
+  const language = v.language ?? 'en';
+  if (language === 'en' && v.stampType == null) return null;
+  const t = MAIL_VERSION_TEXT[locale];
+  const parts: string[] = [];
+  if (language === 'es') parts.push(t.language.es);
+  if (v.stampType) parts.push(t.stampLong[v.stampType]);
+  parts.push(t.finishLabel[finishLabelOf(v.finish ?? 'normal', v.stampType ? v.stampLabel : null)]);
+  return parts.join(' · ');
+}
+
+const MAIL_VERSION_TEXT: Record<'es' | 'en', { language: Record<CardLanguage, string>; stampLong: Record<StampType, string>; finishLabel: Record<FinishLabel, string> }> = {
+  es: {
+    language: { en: 'Inglés', es: 'Español' },
+    stampLong: {
+      prize_pack: 'De liga (Prize Pack)',
+      league: 'De liga (promo de la Liga)',
+      championship: 'De torneo (promo de campeonato)',
+      prerelease: 'Prerelease (promo de prerelease)',
+      staff: 'Staff (promo Staff)',
+    },
+    finishLabel: { non_holo: 'No holo', holo: 'Holo', reverse_holo: 'Reverse Holo', first_edition_holo: '1st Edition Holo', cosmos_holo: 'Cosmos Holo' },
+  },
+  en: {
+    language: { en: 'English', es: 'Spanish' },
+    stampLong: {
+      prize_pack: 'Prize Pack',
+      league: 'League (League promo)',
+      // HECHOS 2026-11-03 «Copy EN de §IDS…»: campeonato en EN = «Tournament» (el catálogo de la tienda ya lo dice; TL-IDS-1).
+      championship: 'Tournament (championship promo)',
+      prerelease: 'Prerelease (prerelease promo)',
+      staff: 'Staff (Staff promo)',
+    },
+    finishLabel: { non_holo: 'Non-holo', holo: 'Holo', reverse_holo: 'Reverse Holo', first_edition_holo: '1st Edition Holo', cosmos_holo: 'Cosmos Holo' },
+  },
+};
 import {
   appUrl,
   ctaRows,
@@ -115,6 +175,8 @@ export interface OrderNoticeItem {
   number: string;
   /** §4.34a.2 — para omitir el `#número` del ancla en un sellado. */
   productType: ProductType;
+  /** v1.116⟨ids⟩ (§IDS.5): la versión congelada de la línea (ausente ⇒ inglés sin liga). */
+  version?: OrderMailVersion | null;
 }
 
 export interface OrderSettledParams {
@@ -168,7 +230,7 @@ export function orderSettledTemplate(
   const url = orderDetailUrl(params.orderId, l);
   const ctaLabel = en ? 'SEE MY ORDER' : 'VER MI PEDIDO';
   const lineas = [
-    ...params.items.map(orderMailLineOf),
+    ...params.items.map((i) => orderMailLineOf(i, l)),
     ...accessoryMailTextLines(params.accessoryLines, l, (c) => money(c, l)),
   ];
   const discountRows = discountMailRows(params.discount, l, (c) => money(c, l));

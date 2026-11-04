@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="es-MX"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>03 · Teja del catálogo · Opción A</title>
+<style>
+:root{--bg:#f4f1ea;--s2:#efebe2;--bd:rgba(26,26,24,.16);--bds:rgba(26,26,24,.32);--tx:#1a1a18;--mu:#6e695e;--ac:#b31217;--ok:#4a7345}
+*{box-sizing:border-box;margin:0}
+body{background:#cfcabd;font-family:Archivo,system-ui,sans-serif;color:var(--tx)}
+.serif{font-family:'Zen Old Mincho',Georgia,'Times New Roman',serif}.mono{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace}
+.mock-title{background:#1a1a18;color:#f4f1ea;padding:10px 20px;font:600 12px/1.4 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em}
+.mock-title b{color:#f0685f}
+.phone{width:390px;background:var(--bg);margin:0 auto;border-left:1px solid var(--bds);border-right:1px solid var(--bds);padding-bottom:20px}
+.hdr{height:77px;border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 20px;font:700 17px Montserrat,Archivo,sans-serif;letter-spacing:.04em}
+h1{font:400 24px/28px 'Zen Old Mincho',Georgia,serif;padding:16px 20px 8px;display:flex;justify-content:space-between;align-items:baseline}
+h1 small{font:400 11px 'JetBrains Mono',monospace;color:var(--mu)}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px 16px;padding:12px 20px 0;border-top:1px solid var(--bd);margin-top:8px}
+.tile{display:flex;flex-direction:column;min-width:0}
+.ph{position:relative;aspect-ratio:4/5;background:var(--s2);display:flex;justify-content:center;overflow:hidden;min-width:0}
+.ph img{height:100%;width:100%;max-width:100%;object-fit:contain}
+.phone{max-width:100%;overflow-x:hidden}
+.nm{margin-top:8px;font:400 14px/1.3 'Zen Old Mincho',Georgia,serif;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.set{margin-top:4px;font:400 10px/1.3 'JetBrains Mono',monospace;color:var(--mu)}
+.spec{margin-top:6px;font:400 10px/1.3 'JetBrains Mono',monospace;color:var(--mu);text-transform:uppercase;letter-spacing:.06em}
+.row{margin-top:10px;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:0 8px}
+.pr{font:500 15px/1 Archivo,sans-serif;font-variant-numeric:tabular-nums}
+.st{font:400 10px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.06em}
+.iva{flex-basis:100%;order:3;margin-top:4px;font:400 10px 'JetBrains Mono',monospace;color:var(--mu)}
+.cta{margin-top:auto;}.cta span{display:flex;min-height:44px;align-items:center;justify-content:center;border:1px solid var(--tx);font:500 10px 'Archivo';text-transform:uppercase;letter-spacing:.14em;margin-top:8px}
+/* insignias de versión (IDS-UX.1) */
+.stack{position:absolute;left:4px;bottom:4px;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.vchip{display:inline-flex;align-items:center;height:18px;padding:0 6px;border:1px solid var(--tx);font:500 10px/1 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap}
+.vchip.es{background:var(--bg);color:var(--tx)}.vchip.sello{background:var(--tx);color:var(--bg)}
+.note{max-width:390px;margin:16px auto;background:#fff9;border:1px dashed var(--bds);padding:12px 14px;font:12px/1.5 Archivo,sans-serif}
+.cookie{border-top:1px solid var(--bds);background:var(--s2);padding:6px 20px;font-size:12px;line-height:16px;height:89px;margin-top:16px}
+.cookie .b{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px}.cookie .b i{height:44px;border:1px solid var(--tx);background:var(--bg);display:flex;align-items:center;justify-content:center;font:600 12px Archivo;font-style:normal;text-transform:uppercase;letter-spacing:.08em}
+</style></head><body>
+<div class="mock-title">03 · Teja del catálogo (móvil 390 px) · <b>Opción A — insignia sobre la foto</b> · maqueta IDS-UX</div>
+<div class="phone">
+ <div class="hdr">TCG HUNT</div>
+ <h1>Comprar <small>4 piezas</small></h1>
+ <div class="grid">
+  <div class="tile"><div class="ph"><img src="https://images.pokemontcg.io/base1/4.png" alt="Charizard"></div>
+   <p class="nm">Charizard</p><p class="set">Base Set · BS 4</p><p class="spec">RAW · NM · HOLO</p>
+   <div class="row"><span class="pr">MX$200.00</span><span class="st" style="color:var(--ac)">Queda 1</span><span class="iva">IVA incluido</span></div>
+   <div class="cta"><span>Añadir</span></div></div>
+  <div class="tile"><div class="ph"><img src="https://images.pokemontcg.io/base1/4.png" alt="Charizard, versión en español"><div class="stack"><span class="vchip es">Español</span></div></div>
+   <p class="nm">Charizard</p><p class="set">Base Set · BS 4</p><p class="spec">RAW · NM · HOLO</p>
+   <div class="row"><span class="pr">MX$150.00</span><span class="st">3 en stock</span><span class="iva">IVA incluido</span></div>
+   <div class="cta"><span>Añadir</span></div></div>
+  <div class="tile"><div class="ph"><img src="https://images.pokemontcg.io/base1/4.png" alt="Charizard, con sello de liga"><div class="stack"><span class="vchip sello">Sello Liga</span></div></div>
+   <p class="nm">Charizard</p><p class="set">Base Set · BS 4</p><p class="spec">RAW · NM · HOLO</p>
+   <div class="row"><span class="pr">MX$480.00</span><span class="st" style="color:var(--ac)">Queda 1</span><span class="iva">IVA incluido</span></div>
+   <div class="cta"><span>Añadir</span></div></div>
+  <div class="tile"><div class="ph"><img src="https://images.pokemontcg.io/base1/4.png" alt="Charizard, español con sello de liga"><div class="stack"><span class="vchip sello">Sello Liga</span><span class="vchip es">Español</span></div></div>
+   <p class="nm">Charizard</p><p class="set">Base Set · BS 4</p><p class="spec">RAW · NM · HOLO</p>
+   <div class="row"><span class="pr">MX$360.00</span><span class="st" style="color:var(--ac)">Queda 1</span><span class="iva">IVA incluido</span></div>
+   <div class="cta"><span>Añadir</span></div></div>
+ </div>
+ <div class="cookie">Usamos cookies para entenderte mejor y mejorar tu experiencia. Aviso de privacidad · Configurar<div class="b"><i>Aceptar</i><i>Solo lo necesario</i></div></div>
+</div>
+<div class="note"><b>Cómo se lee.</b> Inglés es lo normal y no lleva insignia. «Español» = contorno (papel con borde de tinta); «Sello» = relleno de tinta. Van pegadas a la esquina inferior izquierda de la foto (pie de la carta, no tapan el nombre). Alto extra de la teja: <b>0 px</b> (aritmética: la insignia flota sobre la foto 4:5; la teja mide lo mismo que hoy, margen de 23 px a 360×740 intacto, NO MEDIDO en navegador). Las cuatro tejas usan la imagen del catálogo (inglés): no existe arte del español ni del sello en la fuente y no se inventa. Fuentes de marca no cargadas en esta maqueta (sustitutas del sistema).</div>
+</body></html>

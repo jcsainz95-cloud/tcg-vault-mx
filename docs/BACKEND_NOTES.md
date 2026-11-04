@@ -5,6 +5,54 @@
 > Redis/BullMQ (jobs), JWT + argon2, S3/MinIO (presigned URLs), Stripe.
 > **v1.116/v1.116.1⟨checkout-friccion⟩ (2026-11-02) — dirección del invitado a la libreta al reclamar + a6.** **Reclamo (§4-G.9c):** `OrderClaimService.claim` (`orders/order-claim.service.ts`), tras el bucle de `updateMany`/revocar/auditar, lee los pedidos GANADOS (`createdAt` desc, envíos `requestedAt` desc) y por cada uno toma `customerAddressSnapshotOf` (`orders/order-public-status.ts`: envío vigente con snapshot, si no `Order.shippingAddressSnapshot`; la MISMA función que ahora usa el seguimiento del invitado en `guest-checkout.service.ts`) y, **solo si `status='settled'`** (v1.116.1, PT-CHK-1; si no ⇒ `reason=unsettled`, sin reintento), llama a `UsersService.createAddressFromClaim(actor, orderId, snapshot)` (`users/users.service.ts`; `OrdersModule` importa `UsersModule`; ⛔ `orders` no escribe `Address`). El alta valida como `POST /users/me/addresses` (`assertPersonName`, `country='MX'`, line1/city/state/postalCode/phone no vacíos ⇒ si no, `invalid` sin abrir tx), y en UNA tx (`UsersService.withAddressBookLock`: `pg_advisory_xact_lock(ADDRESS_BOOK_GATE_NAMESPACE = 88_120_116, hashtext(userId))` como 1.ª sentencia; desde v1.116.1 también la usan `createAddress`/`updateAddress` para `updateMany(isDefault=false)` + alta/edición, PT-CHK-2/3, TL-CHK-3 cerrada) → libreta → duplicado por `addressPlaceKey` (`users/address-place-key.ts`: CP, line1, line2, colonia; trim, espacios colapsados, minúsculas, sin acentos; separador U+001F) ⇒ nada → alta con `isDefault:false` SIEMPRE (v1.116.1) → `AuditLog address.create_from_claim {orderId, isDefault}` con el `tx`. `listClaimable` filtra `settledAt ≠ null` (`POST /orders/claim` no). Best-effort: `invalid`, `unsettled` o excepción ⇒ `warn ORDER_CLAIM_ADDRESS_SKIPPED reason=invalid|unsettled|error orderId=… [error=<code|name>]` (⛔ ni domicilio ni `err.message`); el reclamo no cambia. Respuesta `+addressesSaved`. `AuditService` entra en `UsersService` como `@Optional()` (unitarios a mano); sin él el alta lanza ⇒ `reason=error`. Sin migración. Pruebas: `test/order-claim.address.spec.ts` (K1-3, U1-6, C1-8), `test/integration/order-claim-address.e2e-spec.ts` (CLM-A1…A12; A4/A11/A12 imprimen `k/N`); v1.116.1: C9/C9b/L1-L4 en `order-claim.address.spec.ts`, claimable en `guest-claim.spec.ts`; medido por backend sobre copia de `8c49d49a`+arreglo contra Postgres 16: mutación «sin candado» ⇒ A11 y A12 PATCH‖POST (N=20 rondas: muerde ~47 %/ronda) rojas en 10/10 corridas; claim‖POST solo muerde si caen candado Y `isDefault:false` (son dos defensas; cada una la vigilan A11/A12 y A1); PoC del pentester adaptado (`poc-inject.sh`, puerto propio) 10/10 inyectadas antes ⇒ 0/10 después. **a6 (§MKT.G.4):** `MarketingAnalyticsService.a6Payments` tras a5: dos `order.count` (`createdAt` en el periodo ∧ `stripePaymentIntentId ≠ null`; y además `settledAt ≠ null` ∧ estado vendido), filas «Pagos iniciados» / «De esos, pagados» con `pct` a 1 decimal (`null` si 0 iniciados), total aceptado (exacto en ambos regímenes), `PI_START`/`PI_START_PAID` en `marketing-populations.ts` (`ACCEPTED_TOTALS += a6`, fuera de familias y ecuaciones); oráculos en `test/support/disclosure-audit.ts`. Pruebas: `test/marketing-a6.payments.spec.ts` (C-B16 unitaria, evaluador del `where` en memoria), `test/integration/marketing-a6.e2e-spec.ts` (C-B16 contra Postgres, semana 2033-W20). **Integración corrida (2026-11-02):** QA midió `order-claim-address` 7/7 en N=3 corridas y CLM-A4 30/30 rondas (reportado por el orquestador); backend, sobre copia de `966ef6f1` contra Postgres 16: 7/7 en 3/3, canario precedencia invertida en `customerAddressSnapshotOf` ⇒ CLM-A6 rojo (1/1). **Dato CLM-A6 (B-1 de QA sobre 9d269935):** el `ShipmentRequest` sembrado lleva la corrección COMPLETA (`addressVersion:1` + `addressCorrectedAt` + `addressCorrectedByUserId`) o ninguna (`addressVersion:0`); a medias lo rechazan los CHECK `shipment_address_corrected_paired` / `shipment_address_version_iff_corrected` (M-64, 23514; canario 1/1). Solo dato de prueba.
 
+> **§IDS v1.116/v1.116.2⟨ids⟩ (2026-11-03) — español y versiones de liga 💰 (norma: `API_CONTRACT §IDS`; razones: `ARCHITECTURE §15`).**
+> **Dónde vive:** funciones puras en `common/card-version.ts` (versión, `optionKeyOf`, `finishLabelOf`, `stampTypeOf` con precedencia
+> staff>prerelease>championship>league, `baseMatchKey`/`catalogMatchKey` con número del nombre solo si trae total, `scaleByPct`);
+> M-95 = `20261112120000_m95a…` + `20261112120100_m95b…` (reversa en la cabecera; CHECK `CardProduct_stamped_type_check`).
+> **Precio:** `SaleDecisionService` (cuerpo único) resuelve la versión por lote (`stamps`, `stampedRefs`, `separateProducts`, X
+> una vez; sin consultas si el lote no trae `cardProductId`/`es`) y `versionReferences` da `guard` (sin X, guardarraíl) y `price`
+> (con X); sin override M-30 ni bounty; `PRICE_PENDING.details.reason` ∈ no_english_market|no_stamped_market|premium_at_floor|no_market.
+> `promo`/`deck_exclusive` ⇒ `pending` (D-IDS-1 falla cerrada). `ListingPrice.variantKey` no default = `<K>|v:<versionKey>`.
+> Publicación: las versiones las decide el cuerpo vía `PublishPricingCtx.versions` y ⛔ no escalan (I-3); el barrido de cola
+> (`reconcilePublishedPrices`) las excluye. Ingesta: `StampedIngestService` (paso tras los sets, en la rama secuencial y la de cola).
+> **Captura:** `InventoryVersionsService` (`GET …/cards/:cardId/versions`, `attach` con candado `IDS_ATTACH_NAMESPACE`); altas con
+> `language`/`cardProductId` (solo producto `stamped` de la carta; **D-B-IDS-1** el DTO de alta no tenía `cardProductId` aunque el
+> contrato dice «ya existe»: se añadió). I-6: buylist rechaza `stamped`, deseos `language='en'`, binder `defaultVersionWhere`.
+> **Tienda/pedido/decks:** K del catálogo += versión; `versionOptionsOf` (orden de la ficha) y `deckAssortmentOrder` (surtido) en
+> `catalog.service.ts`; `OrderItem` congela `language/stampType/stampLabel` en `buildLines`; el `productId` de la liga en pedidos sale
+> de `InventoryItem.cardProductId` (M-95 no lo congela: **D-B-IDS-2**, al arquitecto). Facetas `languages`/`stamped:boolean`.
+> **Correo, hoja y patrimonio (2026-11-03):** el correo traduce la versión congelada en el `locale` del pedido
+> (`orderMailVersionTextOf`, literales de `frontend/messages` `version.*`); la hoja lleva `versionInternalLine` del `OrderItem` de
+> origen (`versionInternalLineOf`, los 5 textos de DESIGN_SYSTEM IDS-UX.3); un retiro SIN pedido de origen la toma de la pieza
+> (`language` + su `CardProduct stamped`, D-IDS-T). Correo: literales iguales a `frontend/messages` (`ids-mail-parity.spec.ts`, TL-IDS-1).
+> **Patrimonio (v1.116.4, `IDS-PAT`):** UNA puerta, `PatrimonyValuationService.valuePieces` (`pricing/patrimony-valuation.service.ts`):
+> promo/Deck Exclusive ⇒ `pending`; versión ⇒ `versionReferences` con `R_en` del lote SIN retención (💰 la bóveda del español usa el
+> inglés VIVO × X; la venta, el retenido); (en, sin liga) ⇒ SK-5. Una llamada por petición en los 9 lectores + valor asegurado del
+> retiro (`label-quote`); inyectada sin `@Optional()` (en `AdminService`/`InventoryService` el `?` es de posición y sin ella lanzan).
+> Entradas `Pick`: `VersionPiece`, `loadVersionInputs` (extraído de `loadBatch`), `hypotheticalRawSaleItem` (captura y alta, sin cast).
+> Unitarios: `test/helpers/valuation-gate.ts` (`realPatrimony`/`withPatrimony`: la puerta REAL sobre el doble). Candados: IDS-B24
+> (censo), B25 (paridad entre superficies, Postgres), B26 (consultas 2 = 20 piezas), B27 (hoja). Pruebas: `test/ids-*.spec.ts` e
+> `test/integration/ids-*.e2e-spec.ts` (B1–B27); los 4 ejes de query, `transcrita` desde v1.116.3 (95/18).
+> **Seed E2E de liga (2026-11-03):** `E2E_IDS` (`prisma/e2e-fixtures.ts`) sobre la carta nueva «E2E League Bird» (n.º 35 de E2E Base Set):
+> `CardProduct stamped` `620000001` (League Cup, `holofoil`, `PriceReference` propia MX$120), piezas `E2E-IDS-0001..4` = `(en,P)`,
+> `(es,P)`, `(es,null)`, `(en,null)` con `createdAt` fijo 2024-01-01 (defensa, no requisito: TL-IDS-6, razón en `e2e-fixtures.ts`) y
+> candidata sin colgar `620000002`; un `attach` previo se deshace al resembrar. Folios fuera
+> de `E2E_FOLIOS` y de `E2E-LST-` (Destacadas). Lo mide `frontend/e2e/ids-real.spec.ts` bloque «liga sembrada». Meta deck `E2E_IDS.metaDeck` (`e2e-ids-deck-liga`, publicado, 3 × la carta de liga:
+> surte `en`/`es` sin liga + la de liga; idempotente, lista nueva solo si cambia; lo fija `ids-seed-deck.e2e-spec.ts`).
+> **Pentest §IDS cerrado en backend (2026-11-03; hallazgos en `PENTEST_NOTES` §IDS, fichas en `TECH_DEBT` §IDS):** PT-IDS-1 — `reserveItems`
+> recibe `PricedAs` (la fila TAL COMO SE PRECIÓ) y su CAS exige además `language`, `cardProductId` y `listPriceCents` ⇒ un cambio entre el
+> precio (fuera de la tx) y la reserva da `409 ITEM_UNAVAILABLE`. PT-IDS-2 — `ItemAuditState.version`: cambiar el idioma deja
+> `inventory.item_updated` con `language`+`cardProductId` en `before/after` (sin cambio de versión, la fila de §M1-SFP tal cual).
+> PT-IDS-8 — `PATCH {cardProductId}` ⇒ `422 VALIDATION_ERROR {field:'cardProductId'}` (`@Allow()` + rechazo en `updateItem`).
+> Candado: `test/integration/ids-pentest-fixes.e2e-spec.ts` (barrera tras `priceCartOutsideGate`, N=20).
+> **Errata v1.116.5 (2026-11-03):** «fila vigente» = `ListingPriceService.currentRowsFor` (+ `isCurrentRow`): la fila cuenta solo si su
+> `variantKey` == `listingPriceVariantKey(pieza leída, gradeKeyOf, versionOf)`; si no, vivo + `missing_row`. La usan `salesFor` y
+> `chargeDecisionsFor` (⛔ `rowsFor` directo en un lector). `PricedAs` += `gradingCompany`, `gradeValue`. `M-95c`
+> (`20261112120200_m95c_ids_card_product_fk`): FK Restrict `InventoryItem.cardProductId` → `CardProduct.tcgplayerProductId` + índice ⇒
+> **una prueba o seed que borre un `CardProduct` borra antes sus piezas** (`seed-e2e` para con mensaje si la candidata colgada tiene
+> piezas). `SealedMappingService.updateMapping` encola `manual_price` de la pieza y sus hermanas tras escribir. `InventoryService.decider`
+> sin `@Optional()`. Candados: `ids-fila-vigente.e2e-spec.ts` (IDS-B28), `ids-pentest-fixes` (B29), `ids-v1165.e2e-spec.ts` (B30, B31);
+> mediciones y mutaciones en `TECH_DEBT` (BE-IDS-PT-9, PT-IDS-3).
 > **§DYN v1.114.4 (2026-10-30) — turno PSA, reloj de la BD, poda y PEN-DYN-2:** **Turno PSA (I-4, DYN.4.3):** `ingestGradedEstimates` entra por una `$transaction` (`lockTx`) cuya 1.ª sentencia es `pg_try_advisory_xact_lock(GRADED_TURNS_LOCK_KEY = 91_130_103)`; sin candado ⇒ `stopped: 'already_running'` (sin peticiones, sin filas, sin AG-24; `GradedIngestResult.stopped`). Antes de cada set (tras el mapper, antes de escribir o pedir): relee Σ `creditsCharged` de hoy POR `lockTx` (falla ⇒ `turns.lockStop = 'lock_lost'`, sin AG-24) y si al candado le quedan < `deadlineMarginMs` ⇒ `lock_deadline`. Plazos (`PriceIngestService.gradedTurnTiming`, constantes en `price-ingest.service.ts`): **`lockTx` 60 min**; **proveedor 120 s por set ENTERO** (todas las páginas y esperas de `Retry-After`: `AbortSignal.timeout` en `fetchGradedEstimatesForSet` → `PptApiClient.getJson(…, {signal})`; antes NO había tope propio, solo los de `undici`, y el `Retry-After` no tenía techo); margen = 120 s + 60 s. **Medición:** con el proveedor de prueba, una corrida de 3 sets + los sets del seed sin mapear tarda ~60 ms (10 corridas en 614 ms, `dyn-graded-turns-lock.e2e-spec.ts`, Postgres local); la latencia real del proveedor por set es **NO MEDIDA** (sin llave en este entorno). Con 60 min y el peor caso de 120 s por set caben ≥ 28 sets antes de `lock_deadline` (el tope de 3 000 créditos/día da ~7 sets de ~200 cartas); si una corrida no cabe, lo que quede lo pide la siguiente. `lockTx` no escribe (sin xid): no retiene el horizonte de VACUUM; ocupa 1 conexión del pool durante la corrida. **`ListingPrice` (DYN-B30):** `startedAt` = `SELECT statement_timestamp()` (reloj de la BD) ⇒ `computedAt`, corte del borrado y `businessDate`. **Poda (DYN.5.10, DYN-B31):** `ListingPriceService.pruneRuns()` tras el `daily` ok del tic, bajo `LISTING_PRICE_LOCK_KEY`, lotes de 5 000, `startedAt < now() − 90 d` sin `ListingPrice` que la cite, salvo `bootstrap` ok y la(s) `daily` ok del `businessDate` máximo. **Cobro (TL-DYN-1):** «fila o vivo» solo en `ListingPriceService.chargeDecisionsFor` (orders lo llama). **K (TL-DYN-2):** `listingPriceVariantKey`/`featuredKeyOf` = `variantKey`; `buildGroups` devuelve la `variantKey` con que agrupó. **TL-DYN-4:** `ListingPriceService` obligatorio en `PriceReviewService` y `PricingController`. **PEN-DYN-2:** las reglas cruzadas de diales (buylist §4.39l, Destacadas §DYN.3) se evalúan DENTRO de la transacción de `SettingsService.update`, tras `pg_advisory_xact_lock(SETTINGS_CROSS_RULES_LOCK_KEY = 64_440_960)` y releyendo por `tx` (`getRawMany(keys, tx)`). Censo de claves `*_LOCK_KEY` únicas: `test/lock-keys.census.spec.ts`. **Seed E2E:** Destacadas con `featuredRandomSlots + featuredNewArrivalSlots` lugares (10) y las 2 últimas llaves `E2E-LST-*` como `new_arrival` (`firstListedAt` 1 h antes del día de portada; el resto, 60 días atrás); `grading_hook_enabled` sigue **`off`** en el seed: el seed también lo corre `stack-native.sh` contra el stack local, cuya llave del proveedor no está medida, y ese dial es la única puerta del gasto ⇒ **encenderlo desde el panel de admin (el dial `gradingHookEnabled`, `PUT /admin/settings`) es parte del flujo E2E de Joyas**. **Limpieza PDB (v1.114.5, QA B-1):** `…_2_limpieza.sql` borra `ListingPrice` (antes del paso 11), `FeaturedSelectionItem` y `FeaturedSelection` (paso 13) y conserva `ListingPriceRun` y `GradedEstimate{Set,Card}Scan`; G-7 excluye las tres borradas; G-11 (`pg_try_advisory_xact_lock` de 91130101/91130102 tras el último `LOCK TABLE`) aborta si un cálculo escribe. Escritores medidos: `featured.service.ts` (tic con `try`, `force` con espera, ambos en su tx) y `listing-price.service.ts` (lotes y, desde v1.114.5, el borrado de fuera de alcance, bajo `pg_advisory_xact_lock`); fuera de la llave solo quedan la cascada de `InventoryItem` (bloqueada por el `LOCK TABLE` de la limpieza) y `seed-e2e.ts`; censo en `test/lock-keys.census.spec.ts`. M-93/M-94 no traen bloque `REVERSA:BEGIN/END`: `revertM94`/`revertM93` (`test/integration/helpers/limpieza-db.ts`) leen su «-- Reversa (…)» de cabecera.
 > **§DYN v1.114 (2026-10-29) — el candado retiene la venta 💰:** caso vigente = `open|kept` (`pricing/review-vigente.ts`, una definición para venta, base congelada, dedupe del barrido y compra). Entrada del cuerpo: `SaleDecisionService.loadReferences`/`referenceOf` (lote y suelta, mismo camino) sobreponen `PricingService.saleRetentionFor` a `getReferencesBatch`: raw/graded con caso vigente y sin override tier 0 (`getReferencesBatchWithTier.manualKeys`, la misma lectura) ⇒ `{priced, baselineMxnCents, capturedDate = día UTC de createdAt}`; base `null` (o ≤ 0) ⇒ **v1.114.3** el mínimo fresco: `[0]` de `PricingService.admittedFreshQuotes(keys, now)` (`{priced, priceMxnCents, capturedDate de esa cotización}`; ninguna ⇒ `pending`; `open` = `kept`), que lee con `admittedQuoteRowsByKey` (la MISMA lectura del barrido, `arbiterDetailForKeys`) y filtra con `admittedFreshQuotes` de `common/robust-market.ts` (el MISMO filtro con que vota `resolveRobustMarket`; orden precio → orden del dial → nombre); solo se consulta si hay casos sin base; compra sigue `pending` (su gate no pasa por aquí). Sellado y los demás lectores de `getReferencesBatch` sin cambio; precio por pieza y M-30 ganan aguas abajo. `recordArbiterDecision` deduplica/supersede sobre `open|kept` y, al abrir o renovar, encola `review_open` (`ListingPriceService.enqueueVariant(…, {onlyWithRow:true})`); `resolve` sigue exigiendo `open`. Gate de compra: `PriceReviewService.vigenteCaseVariantKeySet`. `openCaseVariantKeys` (sin llamador) retirada. `ListingPriceRunTrigger += review_open` editando M-94 en sitio (una BD con la M-94 vieja se recrea). Mock de unitarias: un `PricingService` falso que llegue al cuerpo de venta necesita `saleRetentionFor`. Pruebas: `test/integration/dyn-review-retention.e2e-spec.ts` (DYN-B23…B26), `test/dyn.review-retention.spec.ts`. **Seed:** paso 14 de `seed-e2e.ts` deja una selección de Destacadas vigente (fixture `dials.source='seed-e2e'`, piezas `E2E-LST-*` raw/graded en orden de folio, todas `pool`): `GET /catalog/featured` trae datos sin esperar al tic; no pisa una selección calculada por la app; candado `test/integration/seed-featured.e2e-spec.ts`.
 > **§DYN fase 2 + errata v1.113.3 (M-94, 2026-10-29) — precio del día 💰:** cuerpo único `pricing/sale-decision.service.ts` (checkout, catálogo y escritor lo usan); escritor/lector `pricing/listing-price.service.ts` (cadena en proceso + candado `91_130_102` por lote de 500; `FOR KEY SHARE SKIP LOCKED` antes de escribir —las saltadas conservan su fila y la corrida las cuenta: `skippedCount` en el resultado y en el log—; la fila solo la pisa una corrida que empezó después). **La fila congela también el «valor de mercado» exhibido** (`referenceMxnCents`, `referenceCapturedDate`, M-94 editada en sitio: una BD que aplicó la vieja se recrea): la referencia del MISMO lote que derivó `P`, con `gateSealedMarketCents` ya aplicado (`SaleDecisionService.exhibitedReferenceOf`). Lectores de la tienda (`fetchSellable`, `toListingDTO`, `loadPricedSealed`): fila ⇒ `P` y `referenceValue = referenceMxnCents ≠ null ? priced : pending` (`referenceOfRow`), sin leer referencias; `pending` ⇒ `PRICE_PENDING`; sin fila ⇒ vivo (precio y referencia del lote) + `missing_row`; encima, D2 y §MIV.2 de siempre. Bóveda, portafolio, cotizador de venta y admin siguen en vivo. Alcance: `isSellable` + apartadas con fila; fuera ⇒ fila borrada. Disparadores: `daily` (tic de Destacadas, H − 60), `manual_ingest` (solo `POST /admin/jobs/price-ingest`), `publish_all`, `publish`, `dial_change` (`SettingsService.notifyKeysWritten`), `bootstrap`, `review_open` (v1.114, arriba), `manual_price` (precio por pieza, precio del sellado por producto y, **solo las piezas de la variante** vía `ListingPriceService.enqueueVariant`: override de variante de venta, `POST /admin/pricing/override`, cola de revisión `manual` **y `accept`**; `keep` no dispara). Medido: `POST /admin/fx/refresh` y el job `fx-refresh` solo escriben `FxRate` (`fx.service.ts` `refreshFromBanxico`, `jobs/fx-refresh.service.ts`) y no disparan cálculo. `PRICE_AFFECTING_SETTING_KEYS` en `modules/settings/settings.constants.ts`; DYN-B17 en los dos sentidos (`dyn-listing-price-dials.e2e-spec.ts`, fixture con dos fuentes frescas que discrepan y FX `manual`): las 12 claves de la lista lo mueven, sin excepciones (v1.113.4: `price_consensus_tolerance_pct` salió de la lista; `SIN_TESTIGO` retirada; `SIN_PERTURBACION` cerrada y vacía). Arnés E2E: cada suite arranca sin filas (`helpers/e2e-app.ts`). Seed: `E2E_CARDS.gemhunt` pasa el gate de la vitrina con el dial `on` (el seed lo deja `off`).
@@ -934,72 +982,7 @@ plantilla / línea / bloque), con canario propio: `test/strip-comments.spec.ts`.
 cotizador de buylist y sus cinco correos, y `GET /admin/settings` (el dial **sigue sin salir ahí**,
 `IVA-8(f)`).
 
-## 0.52 — **§31.5(c): las dos rayas del bloque de marca eran dos bloques grises de 216×72** (2026-09-10)
-
-> Propiedad: **backend** (`src/modules/buylist/mail-shell.ts`). Lo levantó **frontend** midiendo con
-> Playwright; **lo verifiqué yo antes de tocarlo**, que es lo que se me pidió. ⛔ **Nada que ver con el
-> pase del IVA**: es un fichero distinto, un cambio distinto y se puede revertir por separado.
-
-**El defecto.** En `brandRows()`, la celda que pinta la raya **compartía fila** con la celda de la mira
-(72 px). En una tabla, **`height` es un MÍNIMO, no un máximo**: la celda se estira a la altura de su
-fila **y su fondo con ella**. Donde `§31.5(c)` pide un filete salían **dos rectángulos grises**.
-
-**Medido por mí, Chromium sobre el correo renderizado y con las imágenes BLOQUEADAS** (`route.abort`
-de todo `*.png`, para descartar que lo causara el PNG nuevo de la mira — no lo causa: el `<img>` con
-`width`/`height` explícitos reserva su caja igual):
-
-| | antes | después |
-|---|---|---|
-| cada raya del bloque de marca | **216 × 72** | **216 × 1** |
-| `ruleRow()` de debajo del wordmark (**control**) | 536 × 1 | 536 × 1 |
-| centro vertical de la raya vs. centro de la mira | 68 vs 68 | **68 vs 68** |
-
-⭐ **El control es lo que convierte la hipótesis en diagnóstico.** La regla de debajo del wordmark
-**siempre midió 1 px**, con el mismo color y el mismo `height="1"`; lo único que la diferencia es que
-**va sola en su fila**. ⇒ el arreglo es darle a cada raya **su propia fila** (tabla anidada de una
-celda), que es literalmente lo que ya hacía `ruleRow()`. El centrado sale gratis: el `valign` por
-defecto de una celda es `middle`.
-
-**⛔ Es mecánica de tablas, no una peculiaridad de Chromium.** Que un fondo llene su celda y que la
-altura de fila la marque la celda más alta es común a todos los motores; el de Word/Outlook —que es el
-que manda (§31.2)— **infla las celdas más, no menos**. Y las tablas anidadas son el recurso que este
-mismo shell usa en todas partes. *Aun así, `ML-11` (mirarlo en Gmail/Outlook de verdad) sigue siendo
-de un humano: `npm run mail:preview`.*
-
-### ⚠️ Para ux-ui: `DESIGN_SYSTEM §31.5(c)` **sigue cumplido al pie de la letra** — no hay que cambiarlo
-
-El documento prescribe `<td height="1" bgcolor="#AEACA7">` a izquierda y derecha de la celda de la
-mira. **Ese `<td>` sigue ahí, idéntico, a los dos lados**; lo único que cambió es **de qué fila
-cuelga**, que §31.5(c) no prescribe. La composición tampoco cambia: la fila de la mira sigue teniendo
-**tres celdas** (`raya · mira · raya`), y hay un control que lo asierta. ⇒ **no es un caso de
-«el documento está mal»**, sino el otro: **había una forma de cumplirlo que sí renderiza como filete**.
-*Lo único que le pediría a ux-ui es añadir el PORQUÉ al documento —una celda con fondo pinta toda su
-fila— para que el siguiente que lo lea no lo repita.*
-
-### El candado, con su mutación
-
-`test/buylist.mail-shell.spec.ts` → **N9**: *ninguna celda que pinte una regla comparte fila con otra
-celda*, barrido sobre el HTML de **los ocho correos × dos idiomas**. ⛔ **No asierta píxeles** —eso no
-se puede medir en jest y en Outlook lo pinta otro motor—: asierta **la forma que causa el defecto en
-cualquier motor de tablas**. Más un **control positivo** de que el bloque sigue siendo `raya · mira ·
-raya`, para que «arreglarlo» quitando una raya o sacando la mira también sea rojo.
-
-| Mutación (sobre una COPIA) | Rojos |
-|---|---|
-| volver a la raya que comparte fila con la mira (el defecto original) | **16** (los 16 renders de los seis correos migrados), y el control **sigue verde**: la composición no cambia, solo la fila |
-
-**Dos errores míos que el propio candado cazó, dichos porque enseñan dónde está la línea:**
-
-1. Exigí *«el barrido encuentra al menos una regla»* a **los ocho** correos ⇒ **4 rojos con razón y
-   sin defecto**: el **7 y el 8** no tienen ni una regla porque **no usan el esqueleto de §31** (viven
-   en `mail/mail.templates.ts`, otro work stream, deuda **BE-43**). El invariante se les aplica igual
-   —se cumple en vacío— y **empezará a morder solo** el día que se migren; el *control* de no-vacío se
-   exige solo a los migrados. *Un control que confunde «no aplica» con «está mal» enseña a ignorar el
-   rojo.*
-2. Buscar la fila con `lastIndexOf('<tr>')` **miente en cuanto hay tablas anidadas**: para la celda de
-   la mira, el `<tr>` más cercano hacia atrás es el de la raya izquierda **ya cerrada**. Se recorre con
-   una pila y se toma la fila abierta más interna; y las celdas se cuentan **directas** (vaciando las
-   tablas anidadas), o la fila de la mira cuenta 5 en vez de 3.
+## 0.52 — §31.5(c) rayas del bloque de marca del PDF (2026-09-10) — compactado en v1.116⟨ids⟩: cerrado, el detalle vive en `git log -- backend/src/modules/mail` y en los candados de su suite.
 
 ## 0.51 — **v1.64(4): `ShipmentRequest.shippingCostIvaCents` — una columna más en M-50, y D-1 sigue sin cambiar nada** (2026-09-10)
 

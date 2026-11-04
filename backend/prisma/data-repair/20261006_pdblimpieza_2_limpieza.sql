@@ -282,7 +282,10 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   -- v1.114.5⟨portada⟩ (M-93/M-94, G-8; API_CONTRACT §DYN.1 «Limpieza PDB»): la bitácora de corridas del precio del día (solo
   -- conteos; borrarla repetiría el `bootstrap` y pasaría la salud a `never`, y su retención de 90 días la vacía sola) y el
   -- turno PSA (créditos GASTADOS de verdad y relojes por carta/set del catálogo, que se conserva) ⇒ conservar.
-  'ListingPriceRun','GradedEstimateSetScan','GradedEstimateCardScan']) AS t;
+  'ListingPriceRun','GradedEstimateSetScan','GradedEstimateCardScan',
+  -- v1.116⟨ids⟩ (M-95, G-8; API_CONTRACT §IDS.1 «Limpieza PDB»): candidatas de liga con empate ambiguo = CATÁLOGO (como
+  -- `CardProduct`); borrarlas quitaría a quien captura la elección de identidad hasta el siguiente barrido ⇒ conservar.
+  'StampedProductCandidate']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.

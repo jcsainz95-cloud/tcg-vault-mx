@@ -1,3 +1,4 @@
+import { isDefaultVersion, pieceVersionOf } from '../../common/card-version';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CardSet, Finish, Prisma, ProductType } from '@prisma/client';
@@ -12,6 +13,7 @@ import {
 } from './providers/pokemonpricetracker-bulk.provider';
 import { PokemonTcgIoBulkProvider } from './providers/pokemontcg-io-bulk.provider';
 import { TcgcsvSinglesBulkPriceProvider } from './providers/tcgcsv-singles-bulk.provider';
+import { StampedIngestService } from './stamped-ingest.service';
 // v1.91⟨precios⟩ (M-75, §PRE.A/6): TCGdex (tcgdex+cardmarket) + cola de revisión del candado.
 import { TcgdexBulkProvider } from './providers/tcgdex-bulk.provider';
 import { PriceReviewService } from './price-review.service';
@@ -476,7 +478,34 @@ export class PriceIngestService {
     // v1.113⟨portada⟩ (§DYN.4.5): AG-24 `psa_cycle_short`. `@Optional` por los mocks posicionales; en DI real siempre se
     // inyecta (`PricingModule` importa `SpendAlertsModule`). Sin él la corrida NO falla: solo no abre el aviso, y lo loguea.
     @Optional() private readonly spendAlerts?: SpendAlertsService,
+    // v1.116⟨ids⟩ (§IDS.3): el paso de productos de liga. `@Optional` por los mocks posicionales; en DI real siempre está.
+    @Optional() private readonly stampedIngest?: StampedIngestService,
   ) {}
+
+  /**
+   * 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.3) — el paso de productos de LIGA del barrido diario (después de los sets). Automático y
+   * sin cola: cuelga, deja candidatas o nada; escribe su precio; y pide reevaluar la publicación de las piezas de esos
+   * productos (las que estaban sin precio se publican solas, I-3). ⛔ Nunca tumba el barrido.
+   */
+  async ingestStamped(fx: FxSnapshot): Promise<void> {
+    if (!this.stampedIngest) return;
+    try {
+      const { written } = await this.stampedIngest.ingestAll(fx);
+      const variants = new Map<string, VariantPublishRef>();
+      for (const w of written) {
+        variants.set(`${w.cardId}|${w.tcgplayerProductId}|${w.finish}`, {
+          cardId: w.cardId,
+          productType: 'raw',
+          gradeKey: 'raw:NM',
+          finish: w.finish,
+          cardProductId: w.tcgplayerProductId,
+        });
+      }
+      await this.triggerPublishForVariants(variants);
+    } catch (e) {
+      this.logger.error(`stamped-ingest falló (no afecta al barrido de sets): ${(e as Error).message}`);
+    }
+  }
 
   /**
    * Elige el `BulkPriceProvider` según el dial `PRICE_PROVIDER`. El enum, la semántica de cada valor y
@@ -719,6 +748,8 @@ export class PriceIngestService {
       this.syncStatus.pending = ids.length - processed;
     }
 
+    // v1.116⟨ids⟩ (§IDS.3): productos de liga, después de los sets (no consume la cuota del proveedor de pago).
+    await this.ingestStamped(fx);
     const pending = ids.length - processed;
     if (dailyLimited) {
       this.logger.warn(
@@ -1211,7 +1242,7 @@ export class PriceIngestService {
    */
   private async reconcilePublishedPrices(set: CardSet): Promise<void> {
     try {
-      const items = await this.prisma.inventoryItem.findMany({
+      const allItems = await this.prisma.inventoryItem.findMany({
         where: {
           ownerType: 'platform',
           status: 'listed',
@@ -1221,6 +1252,18 @@ export class PriceIngestService {
         // 💰 v1.83 (§M11-SP.1, SP-3): el predicado único exige el precio del producto en el tipo.
         include: { card: true, ...SEALED_SALE_PRICE_INCLUDE },
       });
+      // 💰 v1.116⟨ids⟩ (§IDS.0 I-3): una versión (español o de liga) ⛔ nunca abre ni cierra la cola de la inglesa: su precio
+      // lo decide el cuerpo único con su referencia y, sin ella, vuelve sola. Fuera del barrido de la cola.
+      const stampsOfSet = allItems.some((i) => i.cardProductId != null)
+        ? await this.pricing.findStampedProducts(allItems.map((i) => i.cardProductId))
+        : new Map();
+      // v1.116.2⟨ids⟩ (D-IDS-1): ni las piezas de producto separado (su precio no sale de la base).
+      const separateOfSet = allItems.some((i) => i.cardProductId != null)
+        ? await this.pricing.findSeparateProductIds(allItems.map((i) => i.cardProductId))
+        : new Set<number>();
+      const items = allItems.filter(
+        (i) => isDefaultVersion(pieceVersionOf(i, stampsOfSet)) && !(i.cardProductId != null && separateOfSet.has(i.cardProductId)),
+      );
       if (items.length === 0) return;
       // Pago mínimo BE-25: curva izada UNA vez; referencias y overrides EN LOTE (sin N+1 por pieza).
       const curve = await this.pricing.loadPricingCurve();

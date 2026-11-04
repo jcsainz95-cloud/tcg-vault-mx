@@ -90,6 +90,7 @@ import {
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
 // MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
 import { variantKey } from '../../common/variant-key';
+import { StampRef, validateSpanishMarketPct } from '../../common/card-version';
 import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 // v1.91⟨precios⟩ (M-75, §PRE.B / ARCHITECTURE §4.PRE (a)(b)): árbitro de mediana que ENVUELVE la lectura.
 import {
@@ -1096,6 +1097,61 @@ export class PricingService {
   }
 
   /**
+   * v1.116⟨ids⟩ (§IDS.2, D-IDS-C) — los productos de LIGA (`kind = stamped`) entre estos `tcgplayerProductId`, en UNA query.
+   * Un id que no está en el mapa no es versión de liga (set_base, promo, deck_exclusive o inexistente).
+   */
+  async stampedProductIds(): Promise<number[]> {
+    // PROJECTION-EXEMPT: solo ids (filtros internos «sin liga» de binder y listados admin).
+    const rows = await this.prisma.cardProduct.findMany({ where: { kind: 'stamped' }, select: { tcgplayerProductId: true } });
+    return rows.map((r) => r.tcgplayerProductId);
+  }
+
+  /** v1.116⟨ids⟩ (§IDS.0 I-6) — `where` de «inglés sin liga» (binder/master set, buylist): idioma `en` y producto que no es de liga. */
+  async defaultVersionWhere(): Promise<Prisma.InventoryItemWhereInput> {
+    const ids = await this.stampedProductIds();
+    return ids.length === 0
+      ? { language: 'en' }
+      : { language: 'en', OR: [{ cardProductId: null }, { cardProductId: { notIn: ids } }] };
+  }
+
+  /**
+   * 💰 v1.116.2⟨ids⟩ (API_CONTRACT §IDS.2 «Producto separado», D-IDS-1, IDS-B17): los `tcgplayerProductId` entre estos que son
+   * `promo`/`deck_exclusive`. Una pieza de esos productos ⛔ nunca toma la referencia de la base: queda `pending` (falla cerrada).
+   */
+  async findSeparateProductIds(tcgplayerProductIds: readonly (number | null | undefined)[]): Promise<Set<number>> {
+    const ids = [...new Set(tcgplayerProductIds.filter((n): n is number => n != null))];
+    if (ids.length === 0) return new Set();
+    // PROJECTION-EXEMPT: solo ids, para el cuerpo de venta.
+    const rows = await this.prisma.cardProduct.findMany({
+      where: { tcgplayerProductId: { in: ids }, kind: { in: ['promo', 'deck_exclusive'] } },
+      select: { tcgplayerProductId: true },
+    });
+    return new Set(rows.map((r) => r.tcgplayerProductId));
+  }
+
+  async findStampedProducts(tcgplayerProductIds: readonly (number | null | undefined)[]): Promise<Map<number, StampRef>> {
+    const ids = [...new Set(tcgplayerProductIds.filter((n): n is number => n != null))];
+    if (ids.length === 0) return new Map();
+    // PROJECTION-EXEMPT: lectura interna de resolución de versión; se proyecta a `StampRef`.
+    const rows = await this.prisma.cardProduct.findMany({
+      where: { tcgplayerProductId: { in: ids }, kind: 'stamped' },
+      select: { id: true, tcgplayerProductId: true, stampType: true, stampLabel: true, finishes: true },
+    });
+    const out = new Map<number, StampRef>();
+    for (const r of rows) {
+      if (r.stampType == null) continue; // el CHECK de M-95b lo impide; defensivo
+      out.set(r.tcgplayerProductId, {
+        productId: r.tcgplayerProductId,
+        internalId: r.id,
+        type: r.stampType,
+        label: r.stampLabel,
+        finishes: r.finishes,
+      });
+    }
+    return out;
+  }
+
+  /**
    * v1.30 (M-32, §4.29b) — Referencia de mercado de un producto SEPARADO: `PriceReference` filtrada por
    * ESE `cardProductId` (UUID interno de M-31), no por (cardId, finish) del set_base. Su precio propio
    * (source `tcgcsv_singles` primario, override/PPT si aplica). Sin fila ⇒ `pending` («—», nunca 0,
@@ -1555,6 +1611,23 @@ export class PricingService {
       );
     }
     return policy;
+  }
+
+  /**
+   * 💰 v1.116⟨ids⟩ (API_CONTRACT §IDS.2/.7) — X del español (`spanish_market_pct`), leído UNA vez por lote (`loadBatch`). Sin fila
+   * ⇒ el seed 75 (`getRaw` cae a `SETTING_DEFAULTS`). Fila corrupta (no entero en [1, 200]) ⇒ `null` ⇒ toda pieza `es` queda
+   * `PRICE_PENDING` (falla cerrado: un X inventado cobraría mal).
+   */
+  async loadSpanishMarketPct(): Promise<number | null> {
+    const raw = await this.settings.getRaw(SettingKey.SPANISH_MARKET_PCT);
+    if (validateSpanishMarketPct(raw) != null) {
+      this.logger.error(
+        `[MONEY] El setting ${SettingKey.SPANISH_MARKET_PCT} es INVÁLIDO en BD (${JSON.stringify(raw)}): ninguna pieza en ` +
+          'español se precia hasta corregirlo en M10 (PUT /admin/settings).',
+      );
+      return null;
+    }
+    return raw as number;
   }
 
   /**

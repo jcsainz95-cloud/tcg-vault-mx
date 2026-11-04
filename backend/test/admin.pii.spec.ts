@@ -5,8 +5,10 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { maskRfc } from '../src/common/crypto/pii-mask';
-import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
-import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { withPatrimony } from './helpers/valuation-gate';
+import { makeRefsRawQuery } from './helpers/refs-raw-emulate';
+import { SettingsService } from '../src/modules/settings/settings.service';
+import { FxService } from '../src/modules/pricing/fx.service';
 import { noLockAttempts } from './helpers/no-lock-attempts';
 
 /**
@@ -80,27 +82,14 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
         }),
       },
     };
-    // v1.8-ronda-c (BE-10): ownedItemRefs usa pricing.gradeKeyFor; se stubbea a una clave fija.
-    // v1.x-fx-live (BE): ownedItemRefs recalcula el MXN con la FX vigente. Stub sin FX (fxSnapshotSafe
-    // → null) ⇒ liveMxnCents devuelve el priceMxnCents almacenado (congelado), como el modelo previo.
-    const pricing = {
-      loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
-      // v2.1.1 (§4.36.5b): el seam de VENTA devuelve una DECISIÓN (monto + veredicto). El mock usa
-      // el CUERPO REAL (`PricingService.prototype`): es puro y no toca `this`, así que el test no
-      // puede divergir de producción ni reimplementar la matemática.
-      decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),
-      gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
-      // v1.80.1 (SK-5): la puerta de valuación REAL (los lectores ya no llaman `tryGradeKeyFor`).
-      ...REAL_VALUATION_GATE,
-      fxSnapshotSafe: jest.fn().mockResolvedValue(null),
-      liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
-      // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
-      sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
-    } as unknown as PricingService;
+    // 💰 v1.116.4⟨ids⟩ (`IDS-PAT`): el `referenceValue` de la ficha 360° sale de la PUERTA única sobre el `PricingService`
+    // REAL (lote `getReferencesBatch` y acabados `getPricedRawFinishesBatch`, ambos por `$queryRaw`, emulado sobre `priceRefs`).
+    // Sin FX (el doble no la tiene ⇒ `fxSnapshotSafe` null) el MXN es el `priceMxnCents` almacenado, como el modelo previo.
+    prisma.$queryRaw = makeRefsRawQuery(priceRefs);
+    const pricing = new PricingService(prisma as PrismaService, {} as SettingsService, {} as FxService, {} as never, {} as never, {} as never);
     return {
       prisma,
-      service: new AdminService(prisma as PrismaService, pricing, pii, {} as any, undefined, noLockAttempts()),
+      service: withPatrimony(new AdminService(prisma as PrismaService, pricing, pii, {} as any, undefined, noLockAttempts()), pricing),
     };
   }
 
@@ -247,7 +236,9 @@ describe('AdminService.getUser — PII cifrada + enmascarado por rol', () => {
       source: 'pokemontcg_io',
       capturedDate: '2026-08-13',
     });
-    // Lectura batch: UNA query de PriceReference por cardId IN (...), no N+1.
-    expect(prisma.priceReference.findMany).toHaveBeenCalledTimes(1);
+    // Lectura batch, no N+1: v1.116.4 (`IDS-PAT`) — el lote de la puerta (`getReferencesBatch`) y los acabados exhibidos
+    // (`getPricedRawFinishesBatch`), un `$queryRaw` cada uno; la ficha ya no lee `PriceReference` por su cuenta.
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.priceReference.findMany).not.toHaveBeenCalled();
   });
 });

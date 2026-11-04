@@ -10,6 +10,7 @@ import type {
   GroupedListingDetailResponse,
   GroupedListingDTO,
   ListingDTO,
+  VersionOptionDTO,
 } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
@@ -38,6 +39,9 @@ import { WishlistBlock } from './WishlistBlock';
 import { RefundPromiseLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
 import { VaultNote } from '../../_shared/VaultNote';
 import { TrustStrip } from '../../_shared/TrustStrip';
+import { VersionChips } from '@/components/domain/VersionChip';
+import { VersionPills } from '@/components/domain/VersionPills';
+import { isDefaultVersion, isExtendedForm, isLeagueStamp, preselectVersionOption, versionRows } from '@/lib/version';
 
 /**
  * v1.38-grouped-listings (P-30): ¿la pieza (unit, por-pieza) pertenece a este grupo?
@@ -46,6 +50,8 @@ import { TrustStrip } from '../../_shared/TrustStrip';
  */
 function unitMatchesGroup(u: ListingDTO, g: GroupedListingDTO): boolean {
   if (u.productType !== g.productType || u.finish !== g.finish) return false;
+  // §IDS.5: K += versión — una pieza española o de liga nunca resuelve el carrito de otro grupo.
+  if (u.version.key !== g.version.key) return false;
   if (g.productType === 'graded')
     return u.gradingCompany === g.gradingCompany && u.gradeValue === g.gradeValue;
   return (u.rawCondition ?? 'NM') === (g.rawCondition ?? 'NM');
@@ -59,6 +65,15 @@ const byPriceThenId = (a: ListingDTO, b: ListingDTO) =>
   a.inventoryItemId.localeCompare(b.inventoryItemId);
 
 /**
+ * §IDS.5 — ¿el grupo pertenece a la opción de versión elegida? Misma `version.key`; con liga, además el acabado de la
+ * fila (producto × acabado). Sin liga, todos sus acabados (se eligen en «Ejemplares disponibles»).
+ */
+function groupMatchesOption(g: GroupedListingDTO, opt: VersionOptionDTO): boolean {
+  if (g.version.key !== opt.version.key) return false;
+  return opt.version.stamp == null || opt.finish == null || g.finish === opt.finish;
+}
+
+/**
  * C1 (BRIEF_MKT Ola 2): `initialData` es la MISMA respuesta de `GET /catalog/cards/:cardId` que la página ya
  * leyó en el servidor para el `<head>` (`loadCardDetailForSSR`, `cache()` de React ⇒ una sola petición por
  * render). Con ella, el cuerpo (h1, precio del día, condición) sale en el HTML del servidor y el cliente NO
@@ -69,9 +84,12 @@ const byPriceThenId = (a: ListingDTO, b: ListingDTO) =>
 export function CardDetailView({
   cardId,
   initialData,
+  versionParam,
 }: {
   cardId: string;
   initialData?: GroupedListingDetailResponse;
+  /** §IDS.5 / D-IDS-4: `?version=<optionKey | version.key>` de la URL (el enlace de la teja lo lleva). */
+  versionParam?: string | null;
 }) {
   const cart = useCart();
   const [tab, setTab] = useState<'description' | 'condition'>('description');
@@ -115,6 +133,7 @@ export function CardDetailView({
             groups={query.data.listings}
             units={query.data.units}
             detail={query.data}
+            versionParam={versionParam ?? null}
             tab={tab}
             setTab={setTab}
             // Sin riesgo de mismatch SSR: useCart inicia `ids=[]` y lo puebla
@@ -217,6 +236,7 @@ function Detail({
   groups,
   units,
   detail,
+  versionParam,
   tab,
   setTab,
   cartIds,
@@ -227,6 +247,7 @@ function Detail({
   units: ListingDTO[];
   /** v1.44: respuesta completa — `gradedEstimates` vive en la RAÍZ, no en los grupos. */
   detail: GroupedListingDetailResponse;
+  versionParam: string | null;
   tab: 'description' | 'condition';
   setTab: (v: 'description' | 'condition') => void;
   cartIds: string[];
@@ -237,8 +258,34 @@ function Detail({
   const tFinish = useTranslations('finish');
   const tc = useTranslations('common');
   const tWishlist = useTranslations('wishlist');
+  const tv = useTranslations('version');
+  const tvd = useTranslations('versionDetail');
   const locale = useLocale() as AppLocale;
-  const primary = groups[0];
+
+  // §IDS.5 / IDS-UX.4 — versiones en el orden del servidor (agotadas ya omitidas por él). La preselección D-IDS-4 se
+  // aplica una vez al montar; el clic en una burbuja la cambia. Sin `versions[]` (servidor anterior) ⇒ como hoy.
+  const versions = detail.versions ?? [];
+  const [selectedKey, setSelectedKey] = useState<string | null>(
+    () => preselectVersionOption(versions, versionParam)?.optionKey ?? null,
+  );
+  const selected: VersionOptionDTO | null =
+    versions.find((v) => v.optionKey === selectedKey) ?? preselectVersionOption(versions, versionParam);
+  const multiVersion = versions.length >= 2;
+  const extended = multiVersion && isExtendedForm(versionRows(versions));
+  // «Ejemplares disponibles» se filtra a la versión elegida; las gradeadas son inglés sin liga y van con `en`.
+  const visibleGroups = selected ? groups.filter((g) => groupMatchesOption(g, selected)) : groups;
+  const primary = visibleGroups[0];
+  const selectedVersion = selected?.version ?? primary?.version ?? null;
+  // §IDS-UX.0 / 959: una versión española o de liga no muestra valor de mercado ni estimado PSA.
+  const showGradingHook = isDefaultVersion(selectedVersion);
+  const imageNoteKey = (() => {
+    if (!selectedVersion || isDefaultVersion(selectedVersion)) return null;
+    const es = selectedVersion.language === 'es';
+    const stamp = selectedVersion.stamp;
+    if (!stamp) return 'es' as const;
+    const league = isLeagueStamp(stamp.type);
+    return es ? (league ? ('esLeague' as const) : ('esPromo' as const)) : league ? ('league' as const) : ('promo' as const);
+  })();
 
   // §MKT.H.4 `view_item`: una vez por carta, con el precio «desde» del grupo primario. La ficha ya
   // no pinta el mercado (§A1) ⇒ `market_value_shown: false`. Con el modo `off`, `track` no hace nada.
@@ -317,10 +364,17 @@ function Detail({
         {
           key: 'finish',
           label: tFinish('label'),
-          node: <span className="text-base text-text">{tFinish(primary.finish)}</span>,
+          // §IDS.5: el acabado como lo nombra el cliente (`finishLabel`: «No holo», «Holo», «Cosmos Holo»).
+          node: (
+            <span className="text-base text-text">
+              {primary.finishLabel ? tv(`finishLabel.${primary.finishLabel}`) : tFinish(primary.finish)}
+            </span>
+          ),
         },
       ]
     : [];
+  // IDS-UX.8: con 2+ versiones el precio vive en la burbuja y en la barra fija (sin precio grande repetido).
+  const priceFacts = multiVersion ? [] : facts.slice(0, 1);
 
   // §A2 (MKT-26b): la barra de compra fija en móvil opera sobre el grupo primario (el «desde»,
   // groups[0]), cheapest-first, con el MISMO add-to-cart por-pieza que InstanceCta (units[]).
@@ -349,7 +403,15 @@ function Detail({
         <div className="flex items-center justify-center border-b border-border bg-surface-2 px-6 py-10 lg:border-b-0 lg:border-r lg:px-11 lg:py-14">
           {/* imagen de catálogo remota de pokemontcg.io (v1.2, sin fotos propias).
               P-39: la ficha es una vista prominente ⇒ alta resolución; fallback a la chica si null. */}
-          <CardImage src={card.imageLargeUrl ?? card.imageSmallUrl} alt={card.name} className="w-full max-w-[420px] bg-transparent p-0" />
+          <div className="flex w-full max-w-[420px] flex-col items-center">
+            <CardImage src={card.imageLargeUrl ?? card.imageSmallUrl} alt={card.name} className="w-full max-w-[420px] bg-transparent p-0" />
+            {/* D-7 / IDS-UX.1: la imagen es la del catálogo (inglés); la leyenda lo dice. Inglés sin liga: ninguna. */}
+            {imageNoteKey && (
+              <p data-testid="image-note" className="mt-3 self-start font-mono text-[11px] leading-snug text-muted">
+                {tvd(`imageNote.${imageNoteKey}`)}
+              </p>
+            )}
+          </div>
         </div>
 
         {/* MKT-CONV.2: `lg:py-12` (antes 14) es la palanca del diseño para que COMPRAR quede sobre el banner a
@@ -384,6 +446,33 @@ function Detail({
             </span>
           </h1>
 
+          {/* IDS-UX.4: insignias de la versión elegida bajo el `<h1>` (cambian al elegir). Con varias versiones la fila
+              reserva 22 px aunque quede vacía (inglés), para que elegir no mueva la página. ⛔ Nunca sobre la foto. */}
+          {(multiVersion || !isDefaultVersion(selectedVersion)) && (
+            <div className="mt-3 min-h-[22px] lg:order-1" data-testid="detail-version-chips-row">
+              <VersionChips version={selectedVersion} size="detail" testId="detail-version-chips" />
+            </div>
+          )}
+
+          {/* IDS-UX.8: selector de versión en burbujas (solo con 2+ versiones), antes de «Ejemplares disponibles». */}
+          {multiVersion && selected && (
+            <div className="mt-7 lg:order-2 lg:mt-6">
+              <VersionPills versions={versions} selectedKey={selected.optionKey} onSelect={(o) => setSelectedKey(o.optionKey)} />
+              {/* Bajo la cuadrícula: «Carta de liga: …» solo con versión de liga elegida y en la forma 2×2 (en la 2×N el
+                  rótulo de fila ya lo dice). Reserva 17 px. Después, «Queda N». */}
+              {!extended && (
+                <p data-testid="stamp-note" className="mt-2 min-h-[17px] text-[12px] leading-[17px] text-muted">
+                  {selected.version.stamp ? tvd(`stampNote.${selected.version.stamp.type}`) : null}
+                </p>
+              )}
+              <StockBadge
+                variant={stockVariantForSingle(selected.stockCount)}
+                count={selected.stockCount}
+                className="mt-2 block font-mono text-[10px]"
+              />
+            </div>
+          )}
+
           {primary && (
             <>
               {/* §A1 (MKT-26a): la retícula se arma sobre la lista de hechos VISIBLES. Ya NO incluye
@@ -393,7 +482,9 @@ function Detail({
               {/* La retícula se parte en dos (precio | condición y acabado) para que en lg el precio quede con el
                   nombre y la condición baje tras la compra. En < lg se ve igual que la retícula única: la regla de
                   arriba la pone la primera y cada celda trae su regla inferior. */}
-              <FactGrid facts={facts.slice(0, 1)} className="mt-9 border-t border-border lg:order-2 lg:mt-6" />
+              {priceFacts.length > 0 && (
+                <FactGrid facts={priceFacts} className="mt-9 border-t border-border lg:order-2 lg:mt-6" />
+              )}
               <FactGrid
                 facts={facts.slice(1)}
                 className="lg:order-5 lg:mt-6 lg:border-t lg:border-border"
@@ -432,7 +523,7 @@ function Detail({
           {/* MKT-CONV.2 (B6b, D-B = A): ya no hay frase de sistema entre el precio y la compra (se retiró
               «El precio de venta es el precio publicado de esta carta»). «Gancho de grading» (§22.3): junto al
               precio y ANTES de «Ejemplares disponibles»; nunca dentro de la retícula de precio (R2). */}
-          <GradingEstimateBlock detail={detail} className="mt-7 lg:order-2" />
+          {showGradingHook && <GradingEstimateBlock detail={detail} className="mt-7 lg:order-2" />}
 
           {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. MKT-CONV.2: `mt-8` (antes 10). */}
           <h2 className="mt-8 font-serif lg:order-3 lg:mt-5 text-[22px] leading-tight text-text">{t('instances')}</h2>
@@ -441,7 +532,7 @@ function Detail({
             <p className="mt-4 text-[15px] text-muted lg:order-3">{tWishlist('card.notHere')}</p>
           )}
           <div className="mt-4 border-t border-border lg:order-3">
-            {groups.map((g) => {
+            {visibleGroups.map((g) => {
               // Piezas físicas del grupo, cheapest-first, y el slab representativo para el cert.
               const groupUnits = units.filter((u) => unitMatchesGroup(u, g)).sort(byPriceThenId);
               const repUnit = unitById.get(g.representativeInventoryItemId) ?? groupUnits[0];
@@ -457,6 +548,7 @@ function Detail({
                       productType={g.productType}
                       rawCondition={g.rawCondition}
                       finish={g.finish}
+                      finishLabel={g.finishLabel}
                       gradingCompany={g.gradingCompany}
                       gradeValue={g.gradeValue}
                       certNumber={repUnit?.certNumber}

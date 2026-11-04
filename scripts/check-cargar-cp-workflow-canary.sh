@@ -81,6 +81,8 @@ con_set_x()        { py "$(S "$1")" 'set -uo pipefail' 'set -xuo pipefail'; }
 sin_mascara()      { py "$(S "$1")" 'print("::add-mask::" + raw)' 'pass'; py "$(S "$1")" 'print("::add-mask::" + p)' 'pass'; py "$(S "$1")" 'print("::add-mask::" + urllib.parse.unquote(p))' 'pass'; }
 imprime_url()      { py "$(S "$1")" 'export DATABASE_URL="$URL"' 'echo "conectando a $URL"
 export DATABASE_URL="$URL"'; }
+checkout_etiqueta() { py "$(W "$1")" "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09" "actions/checkout@v5"; }
+node_etiqueta()    { py "$(W "$1")" "actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444" "actions/setup-node@main"; }
 url_de_argumento() { py "$(S "$1")" 'URL="${SEPOMEX_DATABASE_URL:-}"' 'URL="${2:-${SEPOMEX_DATABASE_URL:-}}"'; }
 
 echo "Canario G-CP-BOTON (check-cargar-cp-workflow.sh):"
@@ -104,6 +106,8 @@ caso ROJO  "set -x"                                          G  con_set_x
 caso ROJO  "sin ::add-mask::"                                G  sin_mascara
 caso ROJO  "imprime la URL"                                  G  imprime_url
 caso ROJO  "la URL puede venir de un argumento"              G  url_de_argumento
+caso ROJO  "checkout fijado por etiqueta (TL-CHK-8)"         H  checkout_etiqueta
+caso ROJO  "setup-node por rama móvil (TL-CHK-8)"            H  node_etiqueta
 
 TOTAL=$((PASADAS+FALLOS))
 if [ "$FALLOS" -ne 0 ]; then echo "canario G-CP-BOTON: ROJO — $FALLOS de $TOTAL casos no se comportan"; exit 1; fi

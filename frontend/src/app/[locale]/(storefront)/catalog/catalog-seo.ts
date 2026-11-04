@@ -7,6 +7,7 @@
  * - `page` 1, ausente o inválida ⇒ `/catalog`.
  * - Con filtro, búsqueda, intención de sellado u orden distinto del de defecto ⇒ `/catalog` (no se indexan combinaciones).
  * - Fuera de rango (la vista pinta `catalog.pageOutOfRange`) ⇒ `noindex, follow` y canonical `/catalog`.
+ * - §IDS.5 (IDS-F2): con `language` o `stamped` ⇒ `noindex, follow` (no se indexa el catálogo por idioma ni por liga).
  *
  * «Filtro» = lo que `parseUrlFilters` acepta (un valor inválido se ignora y la página servida es la del catálogo sin
  * filtro, así que tampoco cuenta); los parámetros ajenos (`utm_*`, `from`…) no son filtros.
@@ -46,6 +47,8 @@ const IS_FILTER = {
   page: () => false,
   pageSize: () => false,
   gradingHighlight: () => false,
+  language: (v) => !!v,
+  stamped: (v) => !!v,
 } satisfies { [K in keyof Required<CatalogFilters>]: (v: CatalogFilters[K]) => boolean };
 
 /** ¿Los filtros piden algo distinto del catálogo entero en su orden por defecto? (la página no cuenta). */
@@ -65,6 +68,7 @@ export function catalogSeoOf(sp: UrlParams, count: CatalogPageCount | null): Cat
   const page = filters.page ?? 1;
   const totalPages = count ? Math.max(1, Math.ceil(count.total / Math.max(1, count.pageSize))) : Infinity;
   if (page > 1 && page > totalPages) return { path: '/catalog', noindex: true };
+  if (filters.language || filters.stamped) return { path: '/catalog', noindex: true };
   if (page < 2 || sealedIntentOf(sp) || hasCatalogFilters(filters)) return { path: '/catalog', noindex: false };
   return { path: `/catalog?page=${page}`, noindex: false };
 }

@@ -17,6 +17,9 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { CardImage } from '@/components/ui/CardImage';
 import { CardCode } from '@/components/domain/CardCode';
+import { VersionChips } from '@/components/domain/VersionChip';
+import { useVersionText } from '@/components/domain/VersionText';
+import { isDefaultVersion } from '@/lib/version';
 import { StockBadge, stockVariantForSingle } from '../_shared/StockBadge';
 import { PendingPriceLabel } from '../_shared/PendingPriceLabel';
 import { CartAddedToast } from '../catalog/CartAddedToast';
@@ -216,13 +219,16 @@ function DeckLineRow({
           )}
         </div>
 
+        {/* §IDS.6 / IDS-UX.5: versión de lo que se surte, en segunda línea bajo el nombre (nunca al final). */}
+        {state === 'available' && <DeckLineVersions line={line} />}
+
         {/* DISPONIBILIDAD: qué tenemos, qué está agotado y qué no se identificó. */}
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
           <AvailabilityBadge state={state} />
           {state === 'available' && (
             <>
               {line.unitPriceMxnCents != null ? (
-                <span className="tabular text-[15px] font-medium leading-none text-text">
+                <span className="tabular text-[15px] font-medium leading-none text-text" data-testid="deck-line-price">
                   {formatMoneyCents(line.unitPriceMxnCents, locale)}
                 </span>
               ) : (
@@ -255,6 +261,48 @@ function DeckLineRow({
         <LineCta line={line} cartIds={cartIds} onAdd={onAdd} />
       )}
     </div>
+  );
+}
+
+/**
+ * §IDS.6 (v1.116⟨ids⟩) / IDS-UX.5 (D-4, D-5): la línea se surte con lo que haya (orden y regla de surtido: backend, sin
+ * liga primero). `units[]` = un tramo por versión, en el orden del servidor.
+ *  - todo inglés sin liga (o sin `units[]`: servidor anterior) ⇒ nada (la línea de siempre);
+ *  - un solo tramo de otra versión ⇒ insignias + `detail()` muted solo si dice algo que no digan («De liga (Prize Pack)»;
+ *    ES sin liga y EN «Prize Pack» ⇒ sin línea; petición 9a);
+ *  - mezcla ⇒ un tramo por versión con cantidad y precio: insignias para la no inglesa, «Inglés ×1 · MX$…» como texto.
+ */
+function DeckLineVersions({ line }: { line: MetaDeckLineDTO }) {
+  const locale = useLocale() as AppLocale;
+  const tv = useTranslations('version');
+  const versionText = useVersionText();
+  const units = line.units ?? [];
+  if (units.length === 0 || units.every((u) => isDefaultVersion(u.version))) return null;
+  if (units.length === 1) {
+    const v = units[0].version;
+    // Petición 9a (IDS-UX.5/IDS-UX.7): junto a insignias, `detail()` (nunca repite el idioma); `line()` es para correo
+    // y tramos sin insignia.
+    const detail = versionText.detail(v);
+    return (
+      <div className="mt-1.5" data-testid="deck-line-version">
+        <VersionChips version={v} size="tile" testId="deck-version-chips" />
+        {detail && <p className="mt-1 text-[12px] leading-snug text-muted">{detail}</p>}
+      </div>
+    );
+  }
+  return (
+    <ul className="mt-1.5 flex flex-col gap-1" data-testid="deck-line-version">
+      {units.map((u) => (
+        <li key={u.version.key} data-testid="deck-unit-tramo" className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-muted">
+          {isDefaultVersion(u.version) ? (
+            <span>{tv('language.en')}</span>
+          ) : (
+            <VersionChips version={u.version} size="tile" testId="deck-version-chips" />
+          )}
+          <span className="tabular">{`×${u.qty} · ${formatMoneyCents(u.unitPriceMxnCents, locale)}`}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

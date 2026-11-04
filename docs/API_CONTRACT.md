@@ -2,7 +2,7 @@
 
 > Propiedad: **arquitecto**. **Fuente de verdad** de la interfaz backend↔frontend.
 > Manda `PROJECT.md` sobre este contrato, y este contrato sobre el código.
-> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-11-02 (rev **v1.116.1⟨checkout-friccion⟩**; la lista
+> Versión de API: **v1**. Prefijo: `/api/v1`. Formato: **REST/JSON**. Fecha: 2026-11-03 (rev **v1.116.5⟨ids⟩** + **v1.116.1⟨checkout-friccion⟩**; la lista
 > de revisiones va justo debajo, una línea cada una). ⛔ Es la **única** línea «Versión de API». Las cabeceras antiguas (v1.84.5 hacia atrás) siguen debajo de la lista, cada una vigente entera salvo lo que tocan las de encima.
 >
 > **Revisiones de [§MKT](#MKT) (una línea cada una; detalle en su sección, historia en git).** ⚠️ Dos v1.96: ⟨mkt-tienda⟩ y ⟨cardshow-leads⟩; v1.97-v1.100 son del Card Show. Desde v1.101 no se repite y vale para cualquier sección (siguiente: al final de esta lista).
@@ -39,6 +39,12 @@
 > - v1.115⟨mkt-conv2⟩ · 2026-10-31 · [§MKT.A.1](#MKT-A1) NUEVA: sellado agotado ⇒ `200` con `listings: []` (ya no `404`; también cuando la pieza pedida se vendió y el grupo sigue a la venta), `SealedGroupDTO.fromPriceCents`/`priceSource` nullable solo en la ficha agotada, `Offer` agotado sin `price` (no hay «último precio»), og/meta sin IVA (ajusta §MKT.A a MKT-4), canonical del sellado = `group.representativeItemId`; §2-S ficha de sellado; §0 «Datos de contacto» deja fuera el buzón público de marca (ARCHITECTURE §13.8) · frontend (`FRONTEND_NOTES` §MKT-CONV2, criterio 951), techlead (TL-MKT2-7/8, TL-MKT4-3: viven en ARCHITECTURE §4.DYN (f) y §13.8).
 > - v1.116⟨checkout-friccion⟩ · 2026-11-02 · [§4-G.9c](#4-G9c) NUEVA: la dirección del pedido de invitado pasa a la libreta al **ganar el reclamo** (sin migración; `addressesSaved` aditivo en `POST /orders/claim`); §MKT.H.4 `begin_checkout` al pulsar PAGAR y `add_payment_info` al abrir el modal de Stripe (C-F11); §MKT.G.4 tabla **a6** «Pagos iniciados → pagados» de BD (población `PI_START`, C-B16); compactada la cabecera v1.80.8.4 · dueño (`HECHOS.md` 2026-11-02 «Checkout con menos captura: paquete A…» (3)), QA de marketing (§MKT.H.4, medición del 2-nov).
 > - v1.116.1⟨checkout-friccion⟩ · 2026-11-02 · errata de [§4-G.9c](#4-G9c) (PT-CHK-1, Media): a la libreta solo la dirección de un pedido **cobrado** (`status='settled'`), **nunca** predeterminada; `GET /orders/claimable` solo lista pedidos con `settledAt ≠ null`; el aviso deja de decir «No cambia nada del pedido»; altas y ediciones de dirección con el candado consultivo de la libreta (PT-CHK-2/3, TL-CHK-3); CLM-A1 ajustada, CLM-A8…A13 y CLM-F2 nuevas; sin migración ni forma nueva · pentester (`f2e1de9c`, en vivo 10/10, ablación 0/10). La siguiente es **v1.117**.
+> - v1.116⟨ids⟩ · 2026-11-02 · [§IDS](#IDS) NUEVA: idioma de la pieza y versiones de liga (`stamped`), migración `M-95`, precio por versión en el cuerpo único (dial `spanishMarketPct` 75 %), empate automático con TCGCSV 22880/1539 sin cola, captura con vista previa por combinación, `version` en teja/ficha/carrito/pedido/preparación/export, `MetaDeckLineDTO.units[]` y surtido sin liga primero; `CardLanguage`/`StampType` en §0; compactado el texto retirado de tiers/reglas por rareza (§M2) · dueño (`HECHOS.md` 2026-10-30 «Español y sellos (§IDS)…», 2026-11-02 «Nombre visible… (D-6 v3)», «Selector… burbujas…») y marketing (`IDS_DECISIONES_2026-11-01.md`). La siguiente es **v1.117**.
+> - v1.116.1⟨ids⟩ · 2026-11-02 · §IDS.4/.5: `FinishLabel` (acabado como lo nombra el cliente, Cosmos Holo por el nombre del producto; clave cerrada, texto por i18n), `versions[]` una entrada por (producto de liga × acabado) con `optionKey` y orden del servidor, `versionOptionKey` en la teja, preselección `?version=` cerrada (D-IDS-4), «Sin liga»/«No holo» en captura; IDS-B8/F1/F3/D1 ajustadas, IDS-B18/B19 nuevas · marketing vía dueño (`HECHOS.md` 2026-11-02 «Selector de versión en burbujas…» y «§IDS v5 2×N: marketing elige B…»), ux-ui (IDS-UX.7 petición 6, vIDS-6).
+> - v1.116.2⟨ids⟩ · 2026-11-03 · errata de §IDS con datos: IDS.3 fija precedencia de sufijos, número dentro del nombre, llave del catálogo y log; 22872/24451 fuera (no es «cambiar la constante»); Cosmos Reverse Holofoil sigue `cosmos_holo`; sin tope de filas de liga; `VersionComboDTO += baseReferenceMxnCents, appliedMarketPct`; facetas `languages`/`stamped` nombradas; pantalla del dial asignada a frontend (M10); correo lo traduce backend; D-IDS-1 por falla cerrada (IDS-B17) · devops (`DEVOPS_NOTES §108.4`), frontend (`FRONTEND_NOTES §IDS-FE`), dueño (`HECHOS.md` 2026-11-03 «El dueño no ha subido cartas promo»).
+> - v1.116.3⟨ids⟩ · 2026-11-03 · errata de §IDS tras la construcción (`c03d99aa`…`58c7fbc8`): `cardProductId` del alta ratificado solo para producto `stamped` de la carta (§M1 ajustado; PATCH no lo acepta, D-IDS-8); I-7 `cardProductId` inmutable tras el alta ⇒ el `productId` de la liga en pedidos se lee de la pieza, sin columna nueva (D-B-IDS-2); filas de §0-Q para `language`/`stamped` (4 ejes); ratificados: Destacadas solo `(en, null)`, promo/Deck Exclusive sin precio no escala, `versions[]` solo raw, `units: []` sin carta casada; `/catalog/facets` sin query; IDS-B22/B23 · backend (`BACKEND_NOTES` §IDS). La siguiente es **v1.117**.
+> - v1.116.4⟨ids⟩ · 2026-11-03 · errata de §IDS tras el RECHAZO del techlead sobre `f2cd0e31` (R1, R2, H-Q1): valor de patrimonio por **una** puerta con versión, `PatrimonyValuationService.valuePieces` (lote, `Pick` tipado, sin retención, obligatoria) en vez de seis ternarios; promo/Deck Exclusive también `pending` en patrimonio de cliente (D-IDS-S); `versionInternalLine` de un retiro sin origen sale de la pieza (D-IDS-T); Q1c a devops; IDS-B24…B27; SK-5 enlaza a la puerta nueva · techlead (R1/R2/H-Q1 y su propuesta de `versionInternalLine`). Sin migración ni forma nueva.
+> - v1.116.5⟨ids⟩ · 2026-11-03 · errata de §IDS tras el pentest (PT-IDS-1…8) y BE-IDS-PT-9: **fila vigente** (DYN.5.7: fila de otra `variantKey` = sin fila, en cobro y en tienda); CAS de la reserva += grado; `M-95c` FK `InventoryItem.cardProductId` Restrict + Q1d; I-4 no alcanza al `PATCH`; el operador ve el dial en `…/versions`; `PATCH {cardProductId}` ⇒ 422; §M1-SFP con versión; mapeo de sellado ⇒ `manual_price`; IDS-B28…B31 · pentester (`PENTEST_NOTES` §IDS), backend (`TECH_DEBT` §IDS).
 >
 > **Revisiones anteriores a §MKT, compactadas en v1.109 (detalle en su sección; historia en git):**
 > - v1.95⟨pnl-finanzas⟩ · 2026-10-14 · P&L de M7: COGS neto de IVA (`IVA-15`), reembolso en el dashboard de Stripe
@@ -4282,7 +4288,7 @@
 >   cola**. Pasa a correr el pipeline completo: **`422 ITEM_NOT_PUBLISHABLE`** y **`422 PRICE_PENDING`** (con
 >   escalada y `pendingPriceEntryId`). Desviación **INV-P1**, ARCHITECTURE §9. **Cero rediseño de precios de venta.**
 > - **`POST /admin/inventory/items`** y **`PATCH …/items/:id`** ganan **`cardProductId?`** (D7 / criterio 160: la
->   reclasificación de lo ya capturado es **a mano desde M1**, auditada; **ninguna migración adivina**).
+>   reclasificación de lo ya capturado es **a mano desde M1**, auditada; **ninguna migración adivina**). *(Vigente desde v1.116.3: alta solo `stamped`, PATCH sin él — §IDS.0 I-7, D-IDS-8.)*
 >
 > **E. M10 (§M10) — OCHO diales nuevos y UNA validación cruzada BLOQUEANTE.**
 > *(⛔ **v1.51.2 / D34: son NUEVE diales** —entra `buylistMinimumOfferNetCents`— y la validación cruzada pasa a tener
@@ -6459,6 +6465,8 @@
   | `GET /admin/inventory/items` (§M1) | `ownerType` | `OwnerType` | **E** |
   | `GET /admin/inventory/items` (§M1) | `zone` | `VaultZone` (vía `VaultLocation.zone`) — ⚠️ `details.field` = **`"zone"`** | **E** |
   | `GET /admin/inventory/items` (§M1) | `finish` · `productType` | `Finish` · `ProductType` | **E** |
+  | `GET /admin/inventory/items` (§IDS.4, **v1.116.3**) | `language` | `CardLanguage` | **E** |
+  | `GET /admin/inventory/items` (§IDS.4, **v1.116.3**) | `stamped` | `true \| false` — canónico en **§IDS.4** (`true` ⇔ `cardProductId` de un `CardProduct` `stamped`); ausente/vacío ⇒ los dos. Partición computada, ⛔ sin columna | **L** |
   | `GET /admin/inventory/pending-publish` (§M1) | `acquisitionType` | `AcquisitionType` | **E** |
   | `GET /admin/inventory/pending-publish` (§M1) | `missing` | `location \| price` — canónico en **§M1**. ⚠️ v1.80.7.1: `enum MissingReason` (`schema.prisma:171`) es **homónimo de nombre, no de dominio** (valores disjuntos); `C-EQ-1` lo declara como excepción nombrada con aserción de disjunción (changelog v1.80.7.1 punto 1) | **L** |
   | `GET /admin/inventory/pending-publish` (§M1) | `productType` **(M11)** | `ProductType` | **E** |
@@ -6477,6 +6485,8 @@
   | `GET /catalog/cards` (§2) | `productType` | `ProductType` **menos `sealed`** — cláusula en **§2** (`/catalog/cards` es la rejilla de **SINGLES**; el sellado se sirve por §2-S) | **R** |
   | `GET /catalog/cards` (§2) | `finish` | `Finish` | **E** |
   | `GET /catalog/cards` (§2) | `condition` | `ACCEPTED_RAW_CONDITIONS` — cláusula `PROJECT §H` | **R** |
+  | `GET /catalog/cards` (§IDS.5, **v1.116.3**) | `language` | `CardLanguage`; ⛔ sin `details.value` (eje nuevo, punto 2) | **E** |
+  | `GET /catalog/cards` (§IDS.5, **v1.116.3**) | `stamped` | `true` (un solo token; `false` ⇒ `400`, como `alert`) — canónico en **§IDS.5**. Partición computada (producto `stamped`), ⛔ sin columna | **L** |
   | `GET /catalog/cards` (§2) | `sort` **(ORDEN, v1.77)** | `newest \| price_asc \| price_desc \| grading_showcase` — canónico en **§2**; default `newest` (punto 6) | **L** |
   | `GET /catalog/sealed` (§2-S) | `sealedSubtype` | `SealedSubtype` | **E** |
   | `GET /catalog/sealed` (§2-S) | `condition` | `SealedCondition` | **E** |
@@ -7562,6 +7572,8 @@ GradedSetScanOutcome = ok | failed | unmapped | daily_limited | over_daily_cap /
 ListingPriceStatus  = priced | pending                      // v1.113⟨portada⟩ (M-94, §DYN.5). Clase E. `pending` ⇔ el cuerpo de venta dio PRICE_PENDING (no se publica ni se cobra).
 ListingPriceRunTrigger = daily | manual_ingest | publish_all | publish | dial_change | manual_price | bootstrap | missing_row | review_open // v1.113⟨portada⟩ (M-94, §DYN.5.3); `review_open` v1.114 (§DYN.5.9). Clase E. Por qué corrió un cálculo del precio del día.
 ListingPriceRunStatus = running | ok | failed               // v1.113⟨portada⟩ (M-94, §DYN.5.3). Clase E.
+CardLanguage        = en | es                                // v1.116⟨ids⟩ (M-95, §IDS.1). Clase E. Idioma de la pieza (y del `OrderItem`). Sin `ja` (§IDS.6 de PROJECT).
+StampType           = prize_pack | league | championship | prerelease | staff // v1.116⟨ids⟩ (M-95, §IDS.1/.3). Clase E. Tipo de versión de liga de un `CardProduct` `stamped`.
 ```
 
 ### DTOs base (compartidos)
@@ -9296,6 +9308,7 @@ Res `200`:
   > `GET /catalog/facets` en esa condición, mirando si `productTypes` trae `"sealed"` y si `sealedSubtypes` viene no
   > vacío. *Decidir sin medir es exactamente lo que v1.73 vino a cerrar; se deja abierta, no se resuelve a ojo.*
 - `finishes` (v1.6-finish): `distinct` de `InventoryItem.finish` sobre el inventario publicado (subconjunto de `Finish`), para el filtro de acabado.
+- `languages`, `stamped` (v1.116.2⟨ids⟩): norma en [§IDS.5](#IDS) «Filtros».
 - **⛔ v1.52 — `sets[]` NO lleva `logoUrl`, y es deliberado (ARCHITECTURE §4.41.5).** Esta faceta alimenta los **chips
   de texto** «Sets buscados» de la home y el **filtro de texto** de Compra: ninguna de las dos es una teja con imagen,
   y la home **ya** carga imágenes de terceros (en este mismo ciclo se corrigió que pedía de más). El logo vive en
@@ -13368,6 +13381,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
 ### M1 — Inventario y bóveda (`vault_operator+`)
 - `POST /api/v1/admin/inventory/items` — alta de item.
   Req: `{ cardId, productType, rawCondition?, finish?, sealedSubtype?, sealedCondition?, gradingCompany?, gradeValue?, certNumber?, locationId?, acquisitionType, acquisitionPct?, acquisitionCostCents?, listPriceCents?, sourceSellRequestItemId?, cardProductId? }`
+  - ⭐ **v1.116.3 (vigente; manda sobre el párrafo siguiente):** en el alta manual (`items` y `items/batch`) `cardProductId` **solo** acepta un `CardProduct` `stamped` de la carta (versión de liga, §IDS.4); otro kind ⇒ `422 VALIDATION_ERROR {field:'cardProductId'}`. La identidad promo/Deck Exclusive entra solo por `convert-to-inventory` (§IDS.0 I-7).
   - **`cardProductId?: number` (v1.51/M-46, ADITIVO, D7 — criterios 131/160):** identidad de **producto separado**
     (promo / exclusivo de deck) de **esta copia física**. Es el **`tcgplayerProductId`** (mismo eje que
     `SellRequestItem.cardProductId` M-32 y `PriceReference.cardProductId` M-31), **no** el UUID interno de
@@ -13432,6 +13446,7 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
   > editable aquí.** Es el **override manual POR PIEZA de M1**, que **precede a este ciclo**. D10 prohíbe capturar
   > precio de venta **dentro del ciclo de buylist** —por eso `convert-to-inventory` **no** lo acepta—, **no** retira
   > una perilla de M1 que ya existía. **Cero rediseño de precios de venta en esta release.**
+  > ⛔ **v1.116.3: NO VIGENTE — el `PATCH` no acepta `cardProductId`** (nunca se construyó; §IDS.0 I-7; la vía del criterio 160 queda como desviación D-IDS-8, `ARCHITECTURE §15.4`). Texto original:
   > **v1.51 — `cardProductId?: number | null` (NUEVO, aditivo, D7 / criterio 160):** identidad de **producto separado**
   > (promo / exclusivo de deck) de la pieza. Es la **vía de corrección A MANO** que exige el criterio 160 —
   > **auditada** (M10)— para reclasificar el inventario **ya capturado**. ⚠️ **NO existe** ningún proceso, script ni
@@ -13958,6 +13973,9 @@ Todas requieren `vault_operator` o `super_admin` según §7 de ARCHITECTURE. Acc
     // CUÁNDO = AuditLog.createdAt. Las dos claves van SIEMPRE en before y after (aunque solo cambie una):
     // quien lea la fila no tiene que reconstruir el estado de la otra.
     ```
+    **Versión (v1.116.5⟨ids⟩, PT-IDS-2):** un `PATCH` que cambia `language` (escrito ≠ leído) también deja esta fila, en los dos
+    caminos, y entonces `before` y `after` llevan **además** `language` y `cardProductId` (este, igual en los dos lados: I-7; dice
+    qué versión). Sin cambio de versión la fila es la de arriba, sin esas claves. `language` igual al leído ⇒ no cuenta como cambio.
     *Por qué la misma `action` y no una nueva:* `inventory.item_updated` ya existe con `before/after` para el
     `status` (`:2522`) y §M1 v1.80.8-release ya la prometía con «los campos que cambió»; una segunda acción para el
     mismo verbo partiría la bitácora de una pieza en dos búsquedas.
@@ -15731,7 +15749,7 @@ teniendo mercado, o sale con el precio de la fila legada.
 
 **Decisión: no se toca `tryBuildGradeKey`.** Devolver `null` para sellado arreglaría estos cinco y **rompería los
 sitios que la usan como llave de COLA** (SK-2: `'sealed'` es clave de cola) — hay ~15 llamadores y no los medí todos.
-En su lugar, **una función de valuación** que es la única puerta de los lectores de patrimonio:
+En su lugar, **una función de valuación** que es la única puerta de los lectores de patrimonio *(desde v1.116.4 los lectores no la llaman directo: la llaman a través de `PatrimonyValuationService.valuePieces`, que añade la versión, [§IDS.2 «Valor de patrimonio»](#IDS-PAT); su censo es IDS-B24)*:
 
 ```
 // PricingService (módulo pricing). Firmas normativas; el cuerpo es de backend.
@@ -17967,176 +17985,9 @@ se mueven en el mismo cambio o no se mueve ninguna**: media banda es una diverge
   "mapped": true, "cardCount": 87 } ] }` — **se retiran** `rule`, `tierId`, `source` y `fallbackPct` (ya no hay
   reglas). `rarity` (alias deprecado de `canonical`) se retira también. Ordenado por `cardCount` desc.
 
-#### Pricing por TIERS (v1.37) — ⛔ **RETIRADO por la curva (v2.0, P-48); ver «Curva de precio por VALOR DE MERCADO» arriba**
-> ⛔ **RETIRADO.** PROJECT §M quedó superseded por §N v2.0. Los endpoints `/tiers` y `/tier-map` **ya no existen** y la
-> taxonomía de 5 tiers se retira del código (`common/pricing-tiers.ts`). Se conserva abajo como registro de
-> procedencia. **No implementar nada de aquí.**
-> **P-34, PROJECT §M v1.9 LOCKED, ARCHITECTURE §4.33.** El editor pasa de «una fila por CADA rareza canónica» (~30) a
-> «una fila por `tier`» (**5 tiers T0–T4**) + un **mapa rareza canónica → tier** compartido por compra y venta. La
-> naturaleza de la regla (`fixed` MX$ centavos / `pct`), la precedencia money-safe y el **eje `finish`** (`finishRules`)
-> **no cambian**: los tiers solo re-expresan el **eje rareza** de `PriceRuleSet` (§4.28d). Toda edición se **audita**
-> (M10) y **surte efecto sin redeploy**. `Rule = { mode:'fixed'|'pct', value:number }` (buy `pct`=% de la referencia;
-> sell `pct`=markup arriba de mercado, §4.14b).
-
-- `GET /api/v1/admin/pricing/tiers` — **(NUEVO)** lee los 5 tiers (regla de COMPRA y VENTA), el eje acabado y los
-  fallbacks. Read-only.
-  Res `200`:
-  ```json
-  { "tiers": [
-      { "id":"T0", "name":"Bulk",               "premium":false, "buy":{"mode":"fixed","value":50},  "sell":{"mode":"fixed","value":500},  "rarityCount":1 },
-      { "id":"T1", "name":"Uncommon / Reverse",  "premium":false, "buy":{"mode":"fixed","value":150}, "sell":{"mode":"fixed","value":1000}, "rarityCount":3 },
-      { "id":"T2", "name":"Rare / Holo",         "premium":false, "buy":{"mode":"pct","value":25},    "sell":{"mode":"pct","value":15},     "rarityCount":2 },
-      { "id":"T3", "name":"Premium / Chase",     "premium":true,  "buy":{"mode":"pct","value":40},    "sell":{"mode":"pct","value":15},     "rarityCount":19 },
-      { "id":"T4", "name":"Ultra / Grail",       "premium":true,  "buy":{"mode":"pct","value":40},    "sell":{"mode":"pct","value":15},     "rarityCount":4 }
-    ],
-    "finishRules": { "buy":  { "reverse_holo":{"mode":"fixed","value":150} },
-                     "sell": { "holofoil":{"mode":"fixed","value":1000}, "reverse_holo":{"mode":"fixed","value":1000} } },
-    "fallbackPct": { "buy": 40, "sell": 15 } }
-  ```
-  - `id`/`name`/`premium` = taxonomía **LOCKED** (`common/pricing-tiers.ts`); NO editables. `rarityCount` = nº de
-    rarezas canónicas mapeadas a ese tier (informativo). `finishRules` keyeadas por el enum `Finish` (§4.28d), eje
-    ACABADO **sin cambio**; `buy`/`sell` separan los dos juegos de valores. Valores de venta = reproducen el markup
-    vigente (backend confirma los pisos exactos de T0/T1, ARCHITECTURE §4.33e).
-- `PUT /api/v1/admin/pricing/tiers` — **(NUEVO)** reemplaza los VALORES de las 5 reglas (buy y sell), el eje acabado y
-  los fallbacks.
-  Req: `{ tiers: [{ id: TierId, buy: Rule, sell: Rule }], finishRules?: { buy?, sell? }, fallbackPct?: { buy?, sell? } }`.
-  - **`name`/`premium` se ignoran** si vienen (taxonomía LOCKED). Deben venir las 5 filas (`T0..T4`).
-  - **Validación:** `mode ∈ {fixed, pct}`; `fixed` → `value` **entero ≥ 0** (centavos); buy `pct` → `value` en `[0,100]`;
-    sell `pct` → `value` en `[0,1000]` (markup, puede >100%, `SALES_PCT_MAX`); `fallbackPct` en su rango respectivo.
-  - **Invariante de refinamiento (money-safe, §4.33d):** se valida contra el **mapa vigente**. Poner la regla de
-    **COMPRA** de un tier en `fixed` cuando ese tier tiene alguna rareza `premium:true` mapeada ⇒ **rechazo**. (El eje
-    de VENTA no entra al invariante: un `fixed` de venta es un piso, no un bin de compra.)
-  - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.tiers.update`, before/after). **Sin
-    redeploy.** Cambiar la regla de un tier **repricia todas** las rarezas mapeadas a él (criterio 74).
-  - Err `422 VALIDATION_ERROR` (modo/valor/rango/filas); `422 PREMIUM_RARITY_FIXED_TIER` (una rareza premium quedaría en
-    un tier de compra `fixed`; el body lista los pares `(rarity, tierId)` infractores).
-- `GET /api/v1/admin/pricing/tier-map` — **(NUEVO)** el **mapa rareza canónica → tier**, unido al catálogo canónico
-  (§4.28c) para poblar el editor de asignación. Muestra rarezas mapeadas y rarezas del catálogo aún sin mapear.
-  Res `200`:
-  ```json
-  { "tiers": [ { "id":"T0","name":"Bulk","premium":false }, { "id":"T4","name":"Ultra / Grail","premium":true } ],
-    "rarities": [
-      { "canonical":"Common",            "premium":false, "mapped":true, "cardCount":5326, "tierId":"T0", "source":"map" },
-      { "canonical":"Rare Holo",         "premium":false, "mapped":true, "cardCount":1617, "tierId":"T2", "source":"map" },
-      { "canonical":"Illustration Rare", "premium":true,  "mapped":true, "cardCount":87,   "tierId":"T3", "source":"map" },
-      { "canonical":"Some New Rarity",   "premium":true,  "mapped":false,"cardCount":3,    "tierId":null, "source":"fallback" }
-    ] }
-  ```
-  - `premium` = del catálogo canónico (§4.28e, DATO). `mapped=false` = rareza `unmapped` (sin entrada en el catálogo
-    canónico). `tierId:null` + `source:"fallback"` = rareza del catálogo **sin entrada en `PRICING_TIER_MAP`** ⇒ cotiza
-    por el **tier por defecto = `pct` de fallback** (money-safe, nunca $0/bin fijo). Ordenado por `cardCount` desc.
-- `PUT /api/v1/admin/pricing/tier-map` — **(NUEVO)** reasigna rarezas a tiers (Opción B, editable por el dueño).
-  Req: `{ assignments: { [canonical: string]: TierId } }` (patch **parcial**: solo las rarezas a cambiar).
-  - **Validación:** `TierId ∈ {T0,T1,T2,T3,T4}` (`422 VALIDATION_ERROR`). Cada `canonical` debe ser una key canónica del
-    catálogo (§4.28); una key desconocida ⇒ `422 UNKNOWN_RARITY`.
-  - **Invariante de refinamiento (money-safe, §4.33d):** una rareza con `premium:true` no puede asignarse a un tier cuya
-    regla de **COMPRA** sea `fixed` (con el seed: no puede caer en T0/T1) ⇒ **rechazo** con los pares infractores.
-  - Res `200`: mismo shape que `GET /admin/pricing/tier-map`. **Auditado** (`AuditLog action=pricing.tier_map.update`,
-    before/after). **Sin redeploy.** Err `422 VALIDATION_ERROR`, `422 UNKNOWN_RARITY`, `422 PREMIUM_RARITY_FIXED_TIER`.
-- **SUPERSEDED por los tiers:** `GET/PUT /api/v1/admin/pricing/buylist-rules` y `/sales-rules` (mapa plano rareza→regla,
-  §4.28d). Los **`PUT` se retiran** (el eje rareza ya no se edita por rareza suelta, sino por tier). Los **`GET` pueden
-  conservarse** como lectura del `PriceRuleSet` **efectivo** derivado de `tiers × tier-map` (§4.33c) durante la
-  transición, o retirarse. `GET /admin/pricing/rarities` (+ `/sales-rarities`) **se conservan** y ganan `tierId` +
-  `source:'map'|'fallback'`; su `rule` refleja la regla **RESUELTA vía tier** (retrocompatible). El editor nuevo consume
-  `/tiers` + `/tier-map`.
-
-#### Precio de buylist por RAREZA (v1.3.1) — ⛔ **RETIRADO por la CURVA (v2.0, P-48)**
-> ⛔ **RETIRADO (v2.0).** Los endpoints `GET /admin/pricing/buylist-rules` y `GET /admin/pricing/rarities` con
-> `rule`/`fallbackPct` **ya no existen en esa forma**: la compra sale de la **curva**
-> (`GET/PUT /admin/pricing/curve`, arriba) y `/rarities` sobrevive **re-propositado** como salud del catálogo de
-> rarezas (sin reglas). Registro histórico; **no implementar nada de aquí.**
-> **DEPRECADO (v1.37):** superseded por el editor por `tier` (arriba). Se conserva para procedencia. Reemplazó
-> `rarity-map`. Una fila por rareza oficial con regla **`fixed` (MX$ centavos)** o **`pct` (% de la
-> referencia)** + un **fallback %** para rarezas sin regla. Toda edición se **audita** (M10). Ver ARCHITECTURE §4.2.
-
-- `GET /api/v1/admin/pricing/rarities` — **(NUEVO)** lista las **rarezas CANÓNICAS del catálogo sincronizado**
-  **unidas** a las reglas configuradas, para poblar el editor. Devuelve tanto rarezas con regla explícita como
-  rarezas del catálogo aún sin regla (que muestran el fallback).
-  > **v1.29 (ARCHITECTURE §4.28):** agrupa por **`Card.rarityCanonical`** (no por `Card.rarity` crudo) ⇒ la lista que
-  > el admin edita empata **1:1** con la forma canónica que produce el ingest. Cada entrada añade `raw?` (una forma
-  > cruda observada, para diagnóstico), `canonical` (la key editable), `premium` (del catálogo canónico, §4.28e) y
-  > `mapped` (`false` = rareza `unmapped` aún sin entrada en el catálogo canónico → cae al fallback pct de forma
-  > predecible; visible para que el admin la resuelva). El campo `rarity` se conserva como ALIAS de `canonical`
-  > (compat) y queda DEPRECADO.
-  Res `200`:
-  ```json
-  { "fallbackPct": 40,
-    "rarities": [
-      { "canonical": "Common",           "raw": "Common",           "premium": false, "mapped": true,  "cardCount": 1234, "rule": { "mode": "fixed", "value": 50 }, "source": "rule" },
-      { "canonical": "Illustration Rare", "raw": "Illustration Rare", "premium": true,  "mapped": true,  "cardCount": 87,   "rule": { "mode": "pct",   "value": 40 }, "source": "fallback" }
-    ] }
-  ```
-  - `cardCount` = nº de cartas del catálogo con esa rareza canónica. `source="rule"` si hay fila explícita en
-    `rarityRules`; `source="fallback"` si la rareza existe en el catálogo pero aún no tiene regla (muestra
-    `{ mode:"pct", value: fallbackPct }`). Ordenado por `cardCount` desc (rarezas más frecuentes primero).
-  - **Reglas en DOS ejes (v1.29, §4.28d):** las reglas dejan de ser un mapa plano que mezcla rareza y acabado. Pasan a
-    `PriceRuleSet { rarityRules: { [canonicalRarity]: Rule }, finishRules: { [finish]: Rule }, fallbackPct }`. El eje
-    `finishRules` (keyeado por el enum `Finish`: `reverse_holo`, `holofoil`, `first_edition_holofoil`) **reemplaza** las
-    keys sintéticas `Holo`/`Reverse Holo` del mapa plano y **retira el parche INV-1 del front**. La precedencia de
-    resolución (finish-rule vs rarity-rule vs fallback) conserva la semántica de negocio vigente. Money-safe: rareza sin
-    regla → fallback pct predecible y auditable, nunca 0.
-- `GET /api/v1/admin/pricing/buylist-rules` — **(NUEVO)** lee la tabla cruda + fallback.
-  Res `200`: `{ rules: { [rarity: string]: BuylistRule }, fallbackPct: number }`
-  (ej. `{ "rules": { "Common": { "mode":"fixed","value":50 }, "Reverse Holo": { "mode":"fixed","value":150 } }, "fallbackPct": 40 }`).
-- `PUT /api/v1/admin/pricing/buylist-rules` — **(NUEVO)** reemplaza la tabla y/o el fallback.
-  Req: `{ rules: { [rarity: string]: BuylistRule }, fallbackPct?: number }`
-  - **Validación:** `mode ∈ {fixed, pct}`; si `fixed` → `value` **entero ≥ 0** (centavos); si `pct` → `value`
-    **número en `[0, 100]`**; `fallbackPct` **número en `[0, 100]`**. `rules` debe ser objeto (no array).
-  - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.buylist_rules.update`, con
-    `before`/`after`). **Surte efecto sin redeploy** (criterio 12b). Err `422 VALIDATION_ERROR` (modo/valor/rango inválidos).
-  > **v1.29 (§4.28d) — dos ejes:** `buylist-rules` (y su análogo de ventas) evolucionan de `{ rules, fallbackPct }`
-  > (mapa plano rareza∪acabado) a `PriceRuleSet { rarityRules, finishRules, fallbackPct }`. `rarityRules` keyeadas por
-  > **rareza canónica**; `finishRules` keyeadas por el enum **`Finish`**. El seed migra las keys `Holo`/`Reverse Holo`
-  > a `finishRules[holofoil]`/`finishRules[reverse_holo]` y canonicaliza las demás; reproduce EXACTAMENTE el negocio
-  > vigente. La validación de `Rule` (`mode ∈ {fixed,pct}`, rangos) no cambia. **Auditado**, sin redeploy.
-- **RETIRADOS (v1.32; deprecados desde v1.3.1):** `GET/PUT /api/v1/admin/pricing/rarity-map` **ya no existen** — el
-  código los **retiró** junto con el setting `RARITY_MAP` (backend, rama `fix/variant-composition-regression`,
-  `BACKEND_NOTES.md` §0-quater). Fueron **reemplazados** por `BUYLIST_PRICE_RULES` / `SALES_PRICE_RULES` (reglas en dos
-  ejes §4.28d) + el **catálogo canónico de rarezas** (§4.28c, normalizador `rawRarity→canonical`) y su endpoint de
-  lectura `GET /admin/pricing/rarities` (+ `sales-rarities`). El editor nuevo consume `rarities` + `buylist-rules`.
-  Filas `ConfigSetting key='rarity_map'` que existan en BD quedan huérfanas e inertes (nadie las lee); no requieren
-  migración y los deploys nuevos ya no las siembran.
-
-#### Precio de VENTA por RAREZA (v1.13-sales-pricing) — ⛔ **RETIRADO por la CURVA (v2.0, P-48)**
-> ⛔ **RETIRADO (v2.0).** `GET /admin/pricing/sales-rules` y `GET /admin/pricing/sales-rarities` **ya no existen**.
-> **Aquí vivía la causa raíz del bug P-48**: la regla `fixed` se documenta y etiqueta como **«Piso (MX$)»** pero se
-> implementa como **precio absoluto** (nunca se compara contra el mercado) — por eso una carta con mercado de $400 se
-> publicaba en $15 y una barata en $1.31. En la curva el `max` hace que el **piso sea piso de verdad** y el modo
-> `fixed` **desaparece**. Registro histórico; **no implementar nada de aquí.**
-> **Análogo al de buylist** (arriba), pero para el **precio de VENTA** (lo que se cobra en Compra/checkout).
-> Reemplaza el markup GLOBAL único (`salesMarkupPct`, §M10, ahora **DEPRECADO**). Una fila por rareza con regla
-> **`fixed` (piso MX$ centavos)** o **`pct` (% ARRIBA de mercado)** + un **fallback %** para rarezas sin regla.
-> **Semántica de `pct`:** `salePriceCents = round(referencia × (1 + value/100))` (markup sobre mercado — NO "% de la
-> referencia" como en buylist). Toda edición se **audita** (M10). Ver ARCHITECTURE §4.14.
-
-- `GET /api/v1/admin/pricing/sales-rarities` — **(NUEVO)** lista las **rarezas distintas del catálogo sincronizado**
-  (`distinct Card.rarity`) **unidas** a las reglas de venta configuradas, para poblar el editor. Devuelve tanto
-  rarezas con regla explícita como rarezas del catálogo aún sin regla (que muestran el fallback).
-  Res `200`:
-  ```json
-  { "fallbackPct": 15,
-    "rarities": [
-      { "rarity": "Common",            "cardCount": 1234, "rule": { "mode": "fixed", "value": 500  }, "source": "rule" },
-      { "rarity": "Uncommon",          "cardCount": 980,  "rule": { "mode": "fixed", "value": 1000 }, "source": "rule" },
-      { "rarity": "Illustration Rare", "cardCount": 87,   "rule": { "mode": "pct",   "value": 15   }, "source": "fallback" }
-    ] }
-  ```
-  - `cardCount` = nº de cartas del catálogo con esa rareza. `source="rule"` si hay fila explícita en
-    `SALES_PRICE_RULES`; `source="fallback"` si la rareza existe en el catálogo pero aún no tiene regla (muestra
-    `{ mode:"pct", value: fallbackPct }`). Ordenado por `cardCount` desc.
-- `GET /api/v1/admin/pricing/sales-rules` — **(NUEVO)** lee la tabla cruda + fallback.
-  Res `200`: `{ rules: { [rarity: string]: SalesRule }, fallbackPct: number }`
-  (ej. `{ "rules": { "Common": { "mode":"fixed","value":500 }, "Reverse Holo": { "mode":"fixed","value":1000 } }, "fallbackPct": 15 }`).
-  - **Claves sintéticas de acabado:** además de rarezas, la tabla admite las claves `"Reverse Holo"` y `"Holo"`
-    (que el resolver por acabado, ARCHITECTURE §4.2.1/§4.14b, usa para los finish `reverse_holo`/`holofoil` de bulk).
-- `PUT /api/v1/admin/pricing/sales-rules` — **(NUEVO)** reemplaza la tabla y/o el fallback.
-  Req: `{ rules: { [rarity: string]: SalesRule }, fallbackPct?: number }`
-  - **Validación:** `mode ∈ {fixed, pct}`; si `fixed` → `value` **entero ≥ 0** (centavos); si `pct` → `value`
-    **número en `[0, 1000]`** (markup arriba de mercado, puede >100% a diferencia del pct de buylist; tope propuesto
-    `SALES_PCT_MAX=1000`, ver ARCHITECTURE decisión abierta v1.13-2); `fallbackPct` en el mismo rango. `rules` debe
-    ser objeto (no array).
-  - Res `200`: mismo shape que el `GET`. **Auditado** (`AuditLog action=pricing.sales_rules.update`, con
-    `before`/`after`). **Surte efecto sin redeploy.** Err `422 VALIDATION_ERROR` (modo/valor/rango inválidos).
+#### Pricing por TIERS (v1.37), precio de buylist por RAREZA (v1.3.1) y de VENTA por RAREZA (v1.13) — ⛔ **RETIRADOS por la curva (v2.0, P-48)**
+> `GET/PUT /admin/pricing/tiers`, `/tier-map`, `/buylist-rules`, `/sales-rules`, `/sales-rarities` y `/rarity-map` **no existen**: la compra y la venta salen de la
+> curva (arriba) y `/rarities` sobrevive como salud del catálogo de rarezas. Su texto histórico salió en v1.116 (lo guarda git; razones en ARCHITECTURE §4.2, §4.14 y §4.33).
 
 #### <a id="M2-CS"></a>⚠️⚠️ §M2-CS — LO QUE M2 PUEDE AFIRMAR DE UN BARRIDO DE CATÁLOGO: **reparto**, **cobertura de precio** y **corte** (v1.66 — NORMATIVA, FUENTE ÚNICA; razón entera en `ARCHITECTURE §4.45`)
 
@@ -45981,7 +45832,7 @@ ahora ≥ `effectiveFrom(D) − 60 min` y no hay `daily` ok de `D`; `manual_inge
 `publish_all` al terminar «Publicar todo»; `publish` tras el commit de cada publicación (los ids publicados); `dial_change` tras
 un `PUT` que toque una clave de `PRICE_AFFECTING_SETTING_KEYS` — incluido `PUT /admin/settings/iva-transfer` (§M10-IVA), que
 escribe `iva_transfer_pct` fuera de `PUT /admin/settings`; `manual_price` tras precio por pieza, override de variante de venta,
-precio del producto sellado, `POST /admin/pricing/override` y `POST /admin/pricing/review-queue/:id/resolve` con `manual` **o
+precio del producto sellado, mapeo TCGCSV de un sellado (la pieza y sus hermanas; v1.116.5, hoy no dispara: D-IDS-11), `POST /admin/pricing/override` y `POST /admin/pricing/review-queue/:id/resolve` con `manual` **o
 `accept`** (las dos escriben `PriceReference` por decisión del dueño; `keep` no mueve nada) — solo las piezas de la variante
 tocada; `bootstrap` una vez al desplegar M-94; `missing_row` cuando un lector no encuentra fila; `review_open` (v1.114) cuando
 el candado abre un caso o lo renueva con otro candidato — solo las piezas con fila de esa variante (DYN.5.9). ⛔ Lo **automático**
@@ -46018,7 +45869,7 @@ el siguiente cálculo (`HECHOS` 2026-10-29 «…se mueve hasta la proxima corrid
 cotizador de venta, admin) el mercado sigue leyéndose en vivo, sin cambio.
 **DYN.5.6 Lectores:** `GET /catalog/cards`, `/catalog/facets`, `/catalog/cards/:cardId`, `/catalog/listings/:id`, `/catalog/sealed*`,
 `/catalog/featured` y la vitrina leen la fila — precio **y** valor de mercado (`fetchSellable` y `toListingDTO` dejan de cargar
-curva, políticas, referencias y overrides para las piezas con fila). Sin fila ⇒ cálculo en vivo por DYN.5.1 para esa pieza, con
+curva, políticas, referencias y overrides para las piezas con fila). Sin fila vigente (DYN.5.7) ⇒ cálculo en vivo por DYN.5.1 para esa pieza, con
 su referencia en vivo, + `missing_row` encolado. Las formas de respuesta **no cambian**.
 **DYN.5.7 Checkout — se cobra la fila (quote y sesión de §4 y §4-G, con cuenta e invitado).** ⛔ Los cuerpos de request y
 response **no cambian** (ningún campo de precio del cliente, ningún aviso de cambio). Por línea:
@@ -46027,6 +45878,7 @@ fila priced    ⇒ unitPriceCents de la fila, tal cual (aunque PriceReference o 
 fila pending   ⇒ el mismo error PRICE_PENDING que hoy (no se exhibe, no se cobra)
 sin fila       ⇒ cálculo en vivo por DYN.5.1 (= lo que exhibe el lector, DYN.5.6) + missing_row encolado
 ```
+💰 **Fila vigente (v1.116.5, BE-IDS-PT-9):** «fila» = fila **vigente**: `row.variantKey === listingPriceVariantKey(pieza, gradeKeyOf(pieza), versión)` con la pieza **tal como se leyó en esa petición** (la lectura que luego condiciona la reserva). Si no casa (un `PATCH` de `language` o de `gradingCompany`/`gradeValue` y su corrida aún no llegó, o una corrida empezada antes del `PATCH` que escribió después) ⇒ **sin fila** (vivo + `missing_row`), nunca `min`/`max` ni la fila vieja. Una sola función en `ListingPriceService`, usada por `chargeDecisionsFor` **y** `salesFor` (exhibido = cobrado); ≤ 1 lectura de versiones por llamada (solo si alguna pieza tiene `cardProductId`). ⛔ No se borra la fila en el `PATCH`: no cubre la corrida en vuelo y obliga a cada escritor a acordarse. La reserva (§4, `reserveItems`) condiciona además a `gradingCompany`/`gradeValue` leídos (cambio ⇒ `409 ITEM_UNAVAILABLE`, como `language`); `finish`, `rawCondition`, `cardId` y `productType` no tienen escritor tras el alta (leído en `UpdateItemDto`, 2026-11-03).
 `OrderItem` congela `unitPriceCents`, `marketMxnCents`, `priceBasis`, `marketBracket` (= `marketBracketOf(marketMxnCents)`) y
 `finish` **de la fila cobrada** (o del cálculo en vivo; §N.8: un solo cálculo). Diales de IVA: el pedido los congela con la regla de
 §M10-IVA sin cambio (vigentes al cotizar), y su desglose de IVA parte del `P` cobrado. Un cambio de dial dispara `dial_change`
@@ -46199,3 +46051,142 @@ el panel. La meta de 936 se mide además en **producción** (N=5 por perfil, med
   (D-DYN-9), el trinquete y la caducidad de DYN-D1, `sharp` en el build `standalone`, y la lectura de coste de `ARCHITECTURE §5.3.5`/§4.DYN (f) 7 antes de publicar. v1.114.5: DYN-D2 en celular con el trinquete de DYN-D1 (ratificado) y el candado `image-optimizer-cost-reading-expiry` de PEN-DYN-1 (`ARCHITECTURE §4.DYN (f) 7`).
 - **ux-ui:** «Recién llegada», texto de AG-24 y de `featuredRotation`/`listingPrices` en salud de datos, panel de presupuesto
   (sin aviso de cambio de precio). **product-owner:** D-DYN-2, D-DYN-3, D-DYN-8 y las lecturas de DYN.8.
+
+## <a id="IDS"></a>IDS. ESPAÑOL Y VERSIONES DE LIGA — idioma y versión de la pieza, precio, captura, tienda, pedido y Meta decks (rev v1.116.5⟨ids⟩, 2026-11-03, **NORMATIVA**; 💰 IDS.2, IDS.5 e IDS.6 son dinero)
+> **Fuentes (O-17):** `HECHOS.md` 2026-10-30 «Español y sellos (§IDS) — respuestas del dueño», «Español y sellos: TODO automático…», «Casos de revisión de precio SIN base…»; 2026-11-01 «…(§IDS) va primero…», «Captura … pocos clics…», «Las elecciones de cómo se muestran… las decide marketing», «Captura … opción A»; 2026-11-02 «“Con sello” no es como lo llama la gente…», «Nombre visible de la versión de liga (D-6 v3)», «Selector de versión en burbujas…», «§IDS v5 2×N: marketing elige B…»; 2026-11-03 «El dueño no ha subido cartas promo». Mediciones: `DEVOPS_NOTES §108`. `PROJECT.md` §IDS y criterios 512–531, 958–968. `DESIGN_SYSTEM.md` §IDS-UX (vIDS-6). **Razones, flujo, desviaciones y preguntas: `ARCHITECTURE §15`.**
+> **Vocabulario:** al cliente, «de liga» (nunca «sello», D-6 v3); en código y admin, `stamped` / «Sello». «Versión» = (idioma, producto de liga o ninguno).
+
+### IDS.0 Invariantes (cada una con prueba en IDS.9)
+- **I-1 Lo existente no cambia:** toda pieza y línea de pedido existente queda `en` y sin versión de liga; su `variantKey`, su `ListingPrice` y su precio no se mueven (512).
+- **I-2 💰 Una versión se precia por el cuerpo único (DYN.5.1)** con la referencia de **su** versión (IDS.2); ⛔ nunca con la del inglés ni la de la carta base sin sustituir; sin referencia ⇒ `PRICE_PENDING` (falla cerrado). Una fila del día calculada para otra versión no cuenta: «fila vigente» de DYN.5.7 (v1.116.5).
+- **I-3 Nada espera al dueño:** una versión en español o de liga **no** abre `PendingPriceEntry`, `PriceReviewCase`, aviso del centro de avisos ni correo (962). Sin precio = no se ofrece y vuelve sola.
+- **I-4 Sin precio tecleado:** el alta de una versión distinta de (inglés, sin liga) rechaza `listPriceCents` (530). **Solo el alta** (v1.116.5, PT-IDS-4): `PATCH {listPriceCents}` sigue abierto para toda versión, porque es el respaldo manual que `PROJECT §IDS.6` conserva («no se elimina, pero no es el camino») y el de promo/Deck Exclusive (IDS.2); auditado por §M1-SFP, mismos roles que hoy.
+- **I-5 El servidor decide:** precio, versión mostrada y surtido del deck; el navegador nunca manda precio ni versión al pagar.
+- **I-6 Fuera:** buylist, lista de deseos, binder/master set y valor de set siguen solo con inglés sin liga (528; `PROJECT §IDS.6`). **Destacadas** (§DYN.2) también: su llave de M-93 es K sin versión ⇒ solo `(en, null)`; su `version` sale siempre `en`/`null` (v1.116.3).
+- **I-7 `InventoryItem.cardProductId` no se reescribe tras el alta** (v1.116.3): se fija en `POST items`/`items/batch` (solo `stamped`) o en `convert-to-inventory` (promo/Deck Exclusive) y ningún `PATCH` ni proceso lo cambia. Por eso el `productId` de la liga de una línea de pedido se lee de la pieza (sin columna en `OrderItem`). ⛔ Quien abra una vía para cambiarlo (D-IDS-8) añade antes `OrderItem.stampedProductId` congelado.
+
+### IDS.1 Esquema — `M-95` (aditiva; `m95a` solo `ALTER TYPE "CardProductKind" ADD VALUE IF NOT EXISTS 'stamped'`, `m95b` el resto: el valor nuevo no se usa en la misma transacción, precedente v1.106.1)
+- Enums nuevos `CardLanguage` y `StampType` (líneas canónicas en §0). `CardProductKind` += `stamped` (sigue en `SIN_LINEA_CANONICA` de `enum-values-parity.spec.ts`).
+- `CardProduct` += `stampType StampType?`, `stampLabel String?` (detalle físico del proveedor tal cual: «Cosmos Holo», «Left Stamp»; `null` si no hay), `sourceGroupId Int?` (grupo TCGCSV). CHECK en `m95b`: `("kind" = 'stamped') = ("stampType" IS NOT NULL)`.
+- `InventoryItem` += `language CardLanguage NOT NULL DEFAULT 'en'`. **La versión de liga de una pieza es su `cardProductId`** (el `Int` de TCGplayer de M-46) cuando ese producto es `stamped`; no hay columna nueva para la liga.
+- **`M-95c` (v1.116.5, PT-IDS-3; aparte de `m95b` para revertirla sola):** `InventoryItem.cardProductId` → `CardProduct.tcgplayerProductId` `ON DELETE RESTRICT ON UPDATE RESTRICT` (`cardProduct CardProduct? @relation(…)`, inversa `inventoryItems`) + `@@index([cardProductId])`. Reversa: `DROP CONSTRAINT "InventoryItem_cardProductId_fkey"` y el índice. Si hay huérfanos el `ADD CONSTRAINT` aborta la migración: Q1d (IDS.9) los cuenta antes.
+- `OrderItem` += `language CardLanguage NOT NULL DEFAULT 'en'`, `stampType StampType?`, `stampLabel String?`, congelados en la transacción del checkout como `finish` (DYN.5.7).
+- Tabla nueva `StampedProductCandidate { tcgplayerProductId Int, cardId String → Card, groupId Int, name String, stampType StampType, stampLabel String?, finishes Finish[], refreshedAt DateTime }`, `@@id([tcgplayerProductId, cardId])`, `@@index([cardId])`: solo productos de liga con empate **ambiguo** (IDS.3). Interna.
+- Seed `ConfigSetting` `spanish_market_pct = 75` (regla de propagación de seeds, ARCHITECTURE §11.0). ⛔ Sin backfill: los `DEFAULT` hacen la migración segura por construcción.
+- Limpieza PDB: `StampedProductCandidate` **se conserva** (es catálogo, como `CardProduct`; criterio de `docs/specs/LIMPIEZA_DB.md §14.2.1`, como DYN.1); la tabla entra en la clasificación G-8/G-7 con esa razón.
+
+### IDS.2 💰 Precio de una versión — referencia de entrada al cuerpo único
+`versionOf(pieza) = { language, stampedProductId }` (`stampedProductId` = `cardProductId` si su `CardProduct.kind = 'stamped'`; si no, `null`). `X` = `spanishMarketPct` leído una vez por lote (`loadBatch`). `×X` = entero half-up `⌊(R·X + 50) / 100⌋`.
+```
+(en, null) ⇒ la de hoy, sin cambio (retención de DYN.5.9 incluida)
+(es, null) ⇒ R_en = la referencia que tendría la pieza inglesa (cardId, raw, gradeKey, finish), con la retención de DYN.5.9
+             priced ⇒ { priced, R_en ×X, capturedDate de R_en }   ·   pending ⇒ pending, motivo no_english_market
+(en, P)    ⇒ getReferencesByCardProductBatch(P, raw, 'raw:NM', finish) (pricing.service.ts:1104-1121); sin fila ⇒ pending, no_stamped_market
+(es, P)    ⇒ la de (en, P) ×X; pending ⇒ pending, no_stamped_market
+```
+Después, **igual que cualquier carta:** curva, piso, redondeo, IVA (§M10-IVA.3) y fila del día (DYN.5).
+- 💰 **Producto separado (`promo`/`deck_exclusive`, D-IDS-1, IDS-B17):** una pieza cuyo `cardProductId` es de esos kinds ⛔ nunca toma la referencia de la base: **sin referencia** ⇒ `pending`: no se publica y **no escala** (v1.116.3: ni `PendingPriceEntry` ni barrido de cola, como I-3; razón en `ARCHITECTURE §15.1` D-IDS-Q); respaldo = precio por pieza (`PATCH listPriceCents`), que la publica a ese precio. No hay agrupación ni versión para ellos: vender promos es diseño aparte, cuando el dueño lo pida (`HECHOS.md` 2026-11-03).
+- **Override de variante (M-30) y bounty: solo `(en, null)`.** `VariantPriceOverride` es de la inglesa; aplicarlo a otra versión cobraría el precio del inglés (I-2). El precio por pieza (`PATCH`, `listPriceCents`) sigue como respaldo manual, no como camino (`PROJECT §IDS.6`).
+- **Guardarraíl `premium_at_floor` (§4.36.5):** en `(es, null)` se evalúa sobre `R_en`; en `(·, P)` sobre la del producto. Su `pending` deja la fila `pending` ⛔ sin `PendingPriceEntry` (I-3).
+- **Valor de mercado exhibido (`ListingPrice.referenceMxnCents`, DYN.5.5):** `(es, ·)` ⇒ `null` siempre (959); `(en, P)` ⇒ el de P, nunca el de la base. `marketMxnCents` (instrumentación) = la referencia de entrada ya con X.
+- **`variantKey`** (fila del día y disparadores): `(en, null)` ⇒ el de hoy; otra versión ⇒ `<el de hoy>|v:<versionKey>`. Un `manual_price` sobre una variante inglesa incluye sus piezas `(es, null)`.
+- <a id="IDS-PAT"></a>💰 **Valor de patrimonio (531, SUPUESTO de P-ARQ-IDS-2 vigente por recomendación; puerta única desde v1.116.4).** `holdings`, `holdingDetail`, `/vault/sealed`, `marketValueOf`/`marketRefOf` (`M` de §M4-SHIP.15.5 y valor asegurado del retiro), `/admin/vaults`, `custodyValue`, `ownedItemRefs`, `inventoryValue` y el export («Precio mercado MXN») valúan **solo** con `PatrimonyValuationService.valuePieces` (`pricing/patrimony-valuation.service.ts`; depende de `PricingService` y `SaleDecisionService`, que ya depende de `PricingService`: por eso no vive en `PricingService`), **una llamada por petición** con todas sus piezas, inyectado **obligatorio** (⛔ `@Optional()`: sin la puerta Nest no arranca; no hay «camino de siempre»). Razón: `ARCHITECTURE §15.1` D-IDS-R/S.
+  ```
+  valuePieces(items: readonly PatrimonyPiece[]): Promise<Map<string, PriceInfo>>   // una entrada por pieza; priced ⇒ referenceMxnCents ≠ null (+ capturedDate y source de su referencia)
+  PatrimonyPiece = Pick<InventoryItem, 'id'|'cardId'|'productType'|'finish'|'rawCondition'|'gradingCompany'|'gradeValue'|'tcgplayerProductId'|'language'|'cardProductId'>
+  1. cardProductId de un promo|deck_exclusive ⇒ pending (D-IDS-S; plataforma Y cliente)
+  2. versión ≠ (en, null) ⇒ versionReferences(pieza, v, entradas).price (solo raw; graded/sealed ⇒ pending)   ·   3. (en, null) ⇒ valuationKeyFor + valuationCentsOf (SK-5, sin cambio)
+  Lecturas por llamada, cada una ≤ 1 sin importar N: getReferencesBatch SIN retención (DYN.5.9 es solo de venta; R_en de 2 sale del mismo mapa que 3 ⇒ español = inglés × X exacto en la bóveda), sealedSourceOnFor, y solo con piezas es o con cardProductId: loadVersionInputs (stamps, stampedRefs, separateProducts, X).
+  ```
+  `loadVersionInputs` y `versionReferences` se tipan con `Pick` (`loadBatch` = `loadVersionInputs` + curva, política, spreads, referencias retenidas y overrides); ⛔ `versionValuationOf`, `referenceForPieces` y `as unknown as SaleItem` salen. `pending` no suma ni en `custody-value` (SK-5). Reposición: `M = null` ⇒ `R = max(Q ?? 0, 0)` = lo pagado; `R = 0` ⇒ `no_reference` (bloquea; ⛔ nunca paga 0).
+- **Disparadores:** `PUT` del dial ⇒ `dial_change` (`spanish_market_pct` en `PRICE_AFFECTING_SETTING_KEYS`; testigo de DYN-B17 con una pieza española). El paso de liga (IDS.3) es automático ⇒ siguiente `daily`, y llama a `reevaluateVariantsForPublication` con `cardProductId` y `language` (las piezas sin precio se publican solas).
+
+### IDS.3 Productos de liga: ingesta, empate y precio (automático, sin cola)
+- **Paso nuevo del barrido diario de `price-ingest`**, después de los sets: `STAMPED_SOURCE_GROUPS = [22880, 1539]` (constante de código). Por grupo, `getProducts` + `getPrices` del cliente TCGCSV existente. Un fallo de un grupo no tumba el barrido (log, conserva lo previo).
+- **Clasificación pura `stampTypeOf(groupId, name)`:** `22880` ⇒ `prize_pack`; `1539` por los segmentos `(…)`/`[…]`: «Staff» ⇒ `staff`; «Prerelease»/«Pre-release» ⇒ `prerelease`; «Championship(s)», «Regional(s)», «International», «World(s)» ⇒ `championship`; «League» (Promo, Challenge, Cup) ⇒ `league`. **Precedencia entre segmentos `staff` > `prerelease` > `championship` > `league`** («(League Cup) [Staff]» ⇒ `staff`, `stampLabel` «League Cup»). Otro grupo ⇒ `null` («International» solo cuenta dentro de 1539: fuera también casa «(International Version)»). **Sin segmento reconocible ⇒ `null` ⇒ no se ofrece** (46 con número en 1539, medido; campeonato nunca «De liga», D-6 v3). `stampLabel` = los demás segmentos unidos con «, ». Sin `Number` ⇒ fuera (sobres, Code Cards).
+- **Empate:** `baseMatchKey = normalizar(nombre sin «(…)»/«[…]» y sin el número final, con o sin guion) | normalizar(Number completo)` (por parte: mayúsculas, sin ceros a la izquierda: «057/191» = «57/191»). **Lado del catálogo** (`CardProduct` `set_base|other`): el número **con total** del nombre del producto; si el nombre no lo trae (o lo trae sin total, «- 17»), `Card.number` + `/` + `CardSet.printedTotal`; ninguno ⇒ no empata. ⛔ Nunca se empata por un número sin total (casaría cualquier set). **1 candidato** ⇒ upsert `CardProduct { kind: stamped, cardId, stampType, stampLabel, sourceGroupId, finishes = deriveStructuralFinishes(subTypeName) }`; **≥ 2** ⇒ filas de `StampedProductCandidate` (una por carta); **0** ⇒ nada; `productId` ya `CardProduct` de otro kind ⇒ no se toca (`ocupados`). Un producto colgado **no se re-cuelga** (`tcgplayerProductId @unique`). ⛔ Nunca se adivina; ⛔ ningún reporte al dueño: el log lleva `{grupo, colgados, ambiguos, sinPareja, sinTipo, sinNumero, ocupados, conPrecio}`.
+- **Precio:** por producto colgado y acabado con `marketPrice > 0` ⇒ `PriceReference { source: tcgcsv_singles, cardProductId, productType: raw, gradeKey: 'raw:NM' }` con el escritor de singles y la FX Banxico de la corrida; sin precio ⇒ nada (jamás 0).
+- **`stamped` no entra** en `Card.availableFinishes` (`FinishReconciler`), binder/master set, valor de set, productos del cotizador de buylist ni `getReferencesBatch` (que ya filtra `set_base|other`, `pricing.service.ts:1210-1211`).
+- **`22872`/`24451` (prerelease/Staff de SV/ME) quedan FUERA de §IDS** (D-IDS-7): no basta cambiar la constante (sin promos ME en el catálogo, `svp` sin grupo, 50/70 sin producto base, choque con `promo` existente; `DEVOPS_NOTES §108.2`). Diseño aparte si el dueño pide vender promos.
+
+### IDS.4 Captura e inventario (M1, `vault_operator+`)
+- **`GET /api/v1/admin/inventory/cards/:cardId/versions`** (NUEVO). Res `200`: `{ combos: VersionComboDTO[], candidates: { tcgplayerProductId: number, name: string, stamp: StampDTO, finishes: Finish[] }[] }`;
+  `VersionComboDTO = { finish, finishLabel: FinishLabel, language, stamp: StampDTO | null, previewPriceCents: number | null, baseReferenceMxnCents: number | null, appliedMarketPct: number | null, unavailableReason: 'no_english_market' | 'no_stamped_market' | 'premium_at_floor' | 'no_market' | null }` (`FinishLabel`: IDS.5). **Desglose** (v1.116.2): `baseReferenceMxnCents` = la referencia de entrada **antes de X** (IDS.2: `R` en `(en, null)`, `R_en` en `(es, null)`, `R_P` en `(·, P)`; la `guard` del cuerpo), `null` si no hay; `appliedMarketPct` = X en `es`, `null` en `en`. Así la captura pinta «Base: MX$480 × 75 % (español)» sin componer nada; ⛔ el navegador no recalcula `previewPriceCents` (curva, piso e IVA van después). **El `vault_operator` ve X aquí aunque `GET /admin/settings` le dé 403 (decidido v1.116.5, PT-IDS-5):** es lectura del dato con que captura, y X ya se deduce de `previewPriceCents`/`baseReferenceMxnCents`, que tiene que ver; escribirlo sigue siendo del rol de la curva (IDS.7). Textos de captura (frontend, IDS-UX.2): `stamp = null` ⇒ «Sin liga» (⛔ «Normal»); `finishLabel = non_holo` ⇒ «No holo»; dos productos de liga del mismo tipo se distinguen por `stamp.label` (admin).
+  `combos` = (acabados de la carta × {en, es}) ∪ (cada `stamped` colgado × sus acabados × {en, es}); solo raw NM. `previewPriceCents` = `P` del cuerpo único sobre la pieza hipotética con los diales vigentes; `null` ⇔ `unavailableReason ≠ null`. `candidates` = sus filas de `StampedProductCandidate`. Err `404 NOT_FOUND`.
+- **`POST /api/v1/admin/inventory/stamped-candidates/:tcgplayerProductId/attach`** `{ cardId }` (NUEVO): elección de **identidad** de quien tiene la carta en la mano (nunca de precio). Sin la fila `(tcgplayerProductId, cardId)` ⇒ `404 NOT_FOUND`; ya colgado ⇒ `409 STAMPED_PRODUCT_TAKEN`. En una transacción crea el `CardProduct stamped` y borra las candidatas de ese producto; después (best-effort) baja el precio de su grupo (IDS.3). Res `200` = el `GET …/versions`. Auditado (`inventory.stamped_attach`).
+- **`POST /admin/inventory/items`** e **`items/batch`** += `language?: CardLanguage` (default `en`) y `cardProductId?` (v1.116.3: no estaba construido; D-B-IDS-1): **solo** un `CardProduct` `stamped` de la carta; inexistente ⇒ `422 PRODUCT_NOT_FOUND`, de otra carta ⇒ `422 PRODUCT_CARD_MISMATCH`, otro kind ⇒ `422 VALIDATION_ERROR {field:'cardProductId'}` (en el lote, con la conducta de error del lote de hoy). `es` o producto `stamped` con `productType ≠ raw` ⇒ `422 VALIDATION_ERROR` `details.rule = 'version_raw_only'`; con `stamped`, `finish ∉ CardProduct.finishes` ⇒ `422 FINISH_NOT_AVAILABLE`; versión no default con `listPriceCents` ⇒ `422 VALIDATION_ERROR` `details.field = 'listPriceCents'` (I-4). Aportación en especie: costo = referencia de la versión × pct. Respuesta sin cambio; la publicación de SU.8 publica si hay precio y si no deja `in_stock` **sin escalar** (I-3).
+- **`PATCH /admin/inventory/items/:id`** += `language?` (solo `status ∈ {in_stock, listed}`, si no `409 ITEM_NOT_ADJUSTABLE`) ⇒ `manual_price` de esa pieza; hasta que llega, la tienda y el cobro la precian en vivo con su versión nueva («fila vigente», DYN.5.7). Bitácora: §M1-SFP punto 1. ⛔ `cardProductId` no (I-7): con cualquier valor (número, `null`) ⇒ `422 VALIDATION_ERROR {field:'cardProductId'}` antes de leer o escribir (v1.116.5, PT-IDS-8; antes `200` y lo ignoraba); corregir la liga de una pieza capturada no entra en esta entrega (D-IDS-8). `listPriceCents` sigue abierto (I-4).
+- **`GET /admin/inventory/items`** y su detalle: `version: VersionDTO` por pieza; query `language?` (§0-Q, clase E) y `stamped?: 'true' | 'false'`.
+- **Export `.xlsx`:** columnas **19 «Idioma»** («Inglés»/«Español») y **20 «Sello»** («Prize Pack», «Liga», «Campeonato», «Prerelease», «Staff»; vacía sin liga), al final; las 18 de hoy no cambian de nombre, orden ni valor, salvo «Precio mercado MXN» de una versión no default o de un promo/Deck Exclusive = `valuePieces` ([IDS.2 «Valor de patrimonio»](#IDS-PAT)). La solicitud de fusión avisa que la hoja cambia.
+
+### IDS.5 💰 Tienda: rejilla, ficha, filtros, carrito, pedido, correo y preparación
+- `VersionDTO = { key: string, language: CardLanguage, stamp: StampDTO | null }`; `StampDTO = { type: StampType, label: string | null, productId: number }`; `key` = `en` | `es` | `en.<productId>` | `es.<productId>`. Los textos («Español», «De liga», «Prize Pack»…) salen de `language`/`type` por i18n (IDS-UX.1); `label` solo en admin y en la hoja de preparación (excepción: el rótulo de D-IDS-6, abajo).
+- **`FinishLabel = non_holo | holo | reverse_holo | first_edition_holo | cosmos_holo`** (derivada, no es enum de BD ⇒ sin línea en §0, como `unavailableReason`): el acabado **como lo nombra el cliente**. Backend, función pura `finishLabelOf(finish, stampLabel)`: `stampLabel` contiene «cosmos holo» (sin distinguir mayúsculas ni espacios) ⇒ `cosmos_holo`; si no, `normal ⇒ non_holo`, `holofoil ⇒ holo`, `reverse_holo ⇒ reverse_holo`, `first_edition_holofoil ⇒ first_edition_holo`. **De dónde sale:** `finish` del `subTypeName` de TCGCSV (`deriveStructuralFinishes`, IDS.3); «Cosmos Holo» del **nombre del producto** (su paréntesis es el `stampLabel`, IDS.3): TCGplayer publica la versión cósmica como **otro `productId`** (189 en 22880, `DEVOPS_NOTES §108.1`) y su `subTypeName` no la distingue: **185 `Holofoil` y 4 `Reverse Holofoil`** (energías Jet/Luminous/Reversal 190–192/193, Mist 161/162), uno por producto. **Decidido (v1.116.2):** el nombre manda sobre el acabado ⇒ las 4 son `cosmos_holo` con `finish = reverse_holo` (precio y `variantKey` por su fila real); sin cambio en `finishLabelOf`. Así Prize Pack (`565451`) y Prize Pack Cosmos Holo (`703819`) son dos versiones (`version.key` distinto) y el cliente las distingue por `finishLabel`. ⛔ El servidor **no** manda texto traducido: `GroupedListingSummaryDTO` también sirve Destacadas, que no dependen del idioma (DYN I-2); el texto («No holo», «Holo», «Cosmos Holo»; ES/EN) es i18n de frontend, como `language`/`type`. En pedido, correo y preparación sale de `OrderItem.finish` + `OrderItem.stampLabel` congelados (sin columna nueva). Meta decks: sin `finishLabel`.
+- **Agrupación (§2):** K = `(cardId, productType, gradeKey, finish, language, stampedProductId)`. `GroupedListingSummaryDTO`, `GroupedListingDTO` y `ListingDTO` += `version: VersionDTO`, `finishLabel: FinishLabel` (siempre); `GroupedListingSummaryDTO` += `versionOptionKey: string` (el `optionKey` de su entrada en la ficha: el enlace de la teja lleva `?version=<versionOptionKey>`). Una teja por versión y acabado; agotada ⇒ no se emite (invariante de hoy). Destacadas: solo `(en, null)` (I-6).
+- **Ficha `GET /catalog/cards/:cardId`:** `GroupedListingDetailResponse += versions: VersionOptionDTO[]` (v1.116.3: **solo de las piezas raw**, las únicas con versión, D-IDS-K; carta sin raw en existencia ⇒ `[]` y no hay selector), `VersionOptionDTO = { optionKey: string, version, finish: Finish | null, finishLabel: FinishLabel | null, fromPriceCents, stockCount, representativeInventoryItemId }`. **Una entrada por (producto de liga × acabado)** con existencia y **una por versión sin liga** (`en`, `es`; su acabado se sigue eligiendo entre los grupos de «Ejemplares disponibles»: partirla multiplicaría filas en toda carta con reverse). Sin liga: `finish`/`finishLabel` = el de sus grupos raw si todos comparten uno, si no `null` (rótulo sin acabado). `optionKey` = `version.key` (sin liga) | `version.key + '.' + finish` (liga: `es.703819.holofoil`), estable aunque cambie la existencia; ⛔ el navegador no lo compone. **Agotadas OMITIDAS por el servidor** (`stockCount ≥ 1`, como la rejilla). **Orden (del servidor; la cuadrícula lo pinta tal cual, fila = producto × acabado, columna = idioma):** `en`, `es`; luego las filas de liga por el menor `fromPriceCents` de la fila (empate: `productId`, luego `FINISH_ORDER`); dentro de la fila, `en` antes que `es`. **Sin tope de filas** (medido: p90 2, máx 6 por carta en estructura, `DEVOPS_NOTES §108.1`; solo salen las de stock). Dos filas con el mismo `stamp.type` y `finishLabel` (medido en 22880: «Left/Right Stamp», 3 productos; series 6/7 de 2 cartas, `INVESTIGACION_SELLOS.md` §1) son entradas distintas y su rótulo añade `stamp.label` (único `label` en superficie de cliente; texto: `ARCHITECTURE §15.4` D-IDS-6). Grupos `es`: sin `gradingHighlight`, `referenceValue` sin número ni `referenceDisplayCents`; `(en, P)`: sin `gradingHighlight` (959). **Preselección (D-IDS-4, cerrada; la aplica frontend sobre `versions[]`):** `?version=<optionKey>` presente ⇒ esa; `?version=<version.key>` de liga sin acabado ⇒ la entrada más barata de esa versión; sin parámetro, agotada o inexistente ⇒ `en` si está, si no la de menor `fromPriceCents` (empate: la primera del orden). ⛔ Sin redirección ni 404 por un `?version=` que no existe.
+- **Filtros** (query solo en `GET /catalog/cards`; `/catalog/facets` no lleva query, v1.116.3): `language?` y `stamped?: 'true'` («Cartas de liga y promos»), filas en §0-Q punto 4; `GET /catalog/facets` += `languages: CardLanguage[]` (`distinct` de `InventoryItem.language` sobre el inventario publicado, orden `en`, `es`) y `stamped: boolean` (`true` ⇔ hay al menos una pieza publicada con producto `stamped`), con la forma de las de hoy (listas presentes, **sin conteos**: ninguna faceta los trae). Frontend ofrece «Español» solo si `languages` incluye `es` y «Cartas de liga y promos» solo si `stamped`. Sin filtro, todo (521).
+- **Carrito y checkout (§4, §4-G; quote y sesión):** `OrderItemPreview += version, finishLabel`. Se cobra la fila del día (DYN.5.7, cuerpos sin cambio). Fila `pending` ⇒ el `422 PRICE_PENDING` de hoy con `details.items: [{ inventoryItemId, version }]` (aditivo, para nombrar la versión); ⛔ nunca se cobra otra versión (519; «fila vigente», DYN.5.7).
+- **Pedido** (`GET /orders*`, M3, invitado), **correo de confirmación** y **«Pedidos por preparar»** (§M4-SHIP): cada línea += `version`, `finishLabel`, leídos del `OrderItem` (no de la pieza); única excepción, `stamp.productId` (y con él `version.key`) = `InventoryItem.cardProductId` de la línea, estable por I-7; `OrderItem.stampType = null` ⇒ `stamp = null` aunque la pieza tenga producto. **El correo lo arma y traduce backend** (plantilla de `mail`, `locale` del pedido; literales de DESIGN_SYSTEM §IDS-UX.1, los mismos que pinta frontend); frontend no toca el correo. La hoja += `versionInternalLine: string | null` (texto de backend, «ES · LIGA · Prize Pack — sello Play! Pokémon, Cosmos Holo»; `null` en inglés sin liga): del `OrderItem` de origen; **retiro sin pedido de origen** (v1.116.4, D-IDS-T) ⇒ de la pieza (`language` + su `CardProduct` `stamped`, rótulo vigente) con la misma `versionInternalLineOf`; promo/Deck Exclusive no es liga.
+- **SEO (frontend):** `?version=<optionKey>` preselecciona; canonical = ficha sin parámetro; sitemap solo la base; JSON-LD `ProductGroup` (`productGroupID = cardId`) con `hasVariant` = un `Product` por `versions[]` (`sku = <cardId>.<optionKey>`, `offers` con precio e `InStock`, `additionalProperty {name: "Versión", value: <texto visible>}`); ⛔ `inLanguage`, `variesBy` por idioma y `hreflang` por idioma de carta. Catálogo con `language`/`stamped` ⇒ `noindex, follow`.
+
+### IDS.6 💰 Meta Battle Decks (§13)
+- `getSellableRawUnitsByCardIds` devuelve cada unidad con `version`. **Orden de surtido** (P-IDS-12 de marketing, D-5): primero las unidades **sin liga** (inglés o español) por `priceMxnCents` ascendente (empate: `en` antes que `es`, luego `folio`); después las de liga, mismo orden. `unitInventoryItemIds` = las primeras `availableQty = min(quantity, unidades)`: una de liga solo entra si no alcanzan las sin liga. Sin precio no cuenta (968).
+- `MetaDeckLineDTO += units: { version: VersionDTO, qty: number, unitPriceMxnCents: number, inventoryItemIds: string[] }[]`: partición de `unitInventoryItemIds` en su orden, un tramo por versión. `unitPriceMxnCents` de la línea = el de su primera pieza (la que agrega el botón, 965). `substitute` y «Pegar lista» siguen la misma regla. Línea sin carta casada o sin unidades ⇒ `units: []` (siempre presente, v1.116.3). `energyBundle`, `pullToken` y §AC.10: sin cambio (967).
+
+### IDS.7 Dial `spanishMarketPct` (M10)
+`GET/PUT /api/v1/admin/settings` += `spanishMarketPct` (`spanish_market_pct`): seed **75**, entero `[1, 200]`; vacío, 0, negativo, no entero o fuera ⇒ `422 VALIDATION_ERROR`. Mismo rol que `PUT /admin/pricing/curve` (IDS-B10); auditado antes → después; en `PRICE_AFFECTING_SETTING_KEYS` ⇒ `dial_change` (517). **Pantalla:** frontend, sección nueva en la M10 existente junto a los diales de IVA (`m10/sections/`), visible para el mismo rol que la curva; entero 1–200 con «%», guardar ⇒ `PUT`, error 422 del servidor tal cual; texto de ux-ui (IDS-UX), mientras tanto «Precio del español (% del inglés)».
+
+### IDS.8 Errores
+Nuevo: `409 STAMPED_PRODUCT_TAKEN` (IDS.4). Lo demás reutiliza `VALIDATION_ERROR`, `FINISH_NOT_AVAILABLE`, `PRODUCT_NOT_FOUND`, `PRODUCT_CARD_MISMATCH`, `PRICE_PENDING`, `ITEM_NOT_ADJUSTABLE` y `NOT_FOUND`.
+
+### IDS.9 Pruebas que deben fallar hoy (sobre copia del árbol ENTERO, O-9; deterministas, N=1)
+**Backend** (`backend/test/ids.*`):
+- **IDS-B1 (512, I-1)** migración sobre fixture con piezas, filas del día y pedidos: `unitPriceCents`, `variantKey`, totales y `cardSnapshot` idénticos antes y después; toda pieza y `OrderItem` `en`.
+- **IDS-B2 (515)** tres cartas (en el piso, tramo medio, cara): `P(es)` = `P` de una inglesa con mercado `R ×75`. Mutación: `R` sin X ⇒ rojo.
+- **IDS-B3 (514, 516)** inglés sin mercado ⇒ española `PRICE_PENDING`: fuera de rejilla, ficha y API pública; quote y sesión forjadas ⇒ 422; cero `PendingPriceEntry`. Barrido que trae el mercado ⇒ publicada sin acción. Mutación: caer a `R_en` sin X ⇒ rojo.
+- **IDS-B4 (517)** sin fila de config ⇒ 75; `PUT` 74 ⇒ corrida `dial_change` y todas las españolas (con y sin liga) recalculadas; rechaza `""`, 0, −1, 201, 7.5 y `"a"`; bitácora antes → después; rol sin permiso ⇒ 403.
+- **IDS-B5 (524, 525)** `(en, P)` = precio de su producto, distinto de la base con mercados distintos; mover la base no lo mueve; producto sin precio ⇒ pending, nunca el de la base.
+- **IDS-B6 (958)** `(es, P)` = producto ×X; mover la base no lo mueve y mover X sí; pierde mercado ⇒ despublica y vuelve sola.
+- **IDS-B7 (522, 523, 960, 962)** fixture TCGCSV: `648703` «Pikachu ex - 057/191» ⇒ `stamped` de la carta de `590025`; energía básica 009–016 en dos sets ⇒ 2 candidatas, 0 colgadas; `attach` ⇒ colgada y candidatas borradas; segundo `attach` ⇒ 409; sufijo de 1539 desconocido ⇒ sin producto. *(v1.116.2)* «X (League Cup) [Staff]» ⇒ `staff`/«League Cup»; «Shelmet 11/101 (League)» sin guion empata; base con número sin total en el nombre empata por `Card.number`/`printedTotal` y sin `printedTotal` ⇒ `sinPareja` (mutación: empatar por «17» ⇒ rojo); `productId` ya `promo` ⇒ `ocupados`, intacto. En todo el caso: cero filas de cola, aviso o correo.
+- **IDS-B8 (520)** cuatro versiones de una carta (una liga, un acabado) ⇒ `versions[]` de 4 en el orden de IDS.5 y 4 tejas con `versionOptionKey` == el `optionKey` de su entrada; vender la española baja solo su `stockCount`; agotarla ⇒ 3 entradas (omitida, no «agotada»).
+- **IDS-B18 (D-IDS-5)** fixture Buddy-Buddy Poffin: base `542659` Normal + Reverse, `565451` Prize Pack Normal, `703819` «(Cosmos Holo)» Holofoil, existencia en `en` y `es` ⇒ `versions[]` = `en`, `es` (`finishLabel null`: dos acabados) + filas `565451/non_holo` y `703819/cosmos_holo` por precio de fila; un producto de liga con dos acabados con existencia ⇒ dos entradas con `optionKey` distintos; cuerpo idéntico con `Accept-Language` es y en. Mutaciones: `finishLabelOf` sin mirar `stampLabel` ⇒ rojo; filas ordenadas por `productId` ⇒ rojo.
+- **IDS-B17 (D-IDS-1)** pieza con `cardProductId` `promo` y otra `deck_exclusive`, base con mercado ⇒ las dos `pending` (fuera de rejilla y ficha; quote ⇒ 422 `PRICE_PENDING`); la pieza base de la misma carta, sin cambio. Mutación: caer a la referencia de la base ⇒ rojo. *(v1.116.3)* Cero `PendingPriceEntry` tras publicar y tras el barrido de cola; con `listPriceCents` ⇒ publicada a ese precio.
+- **IDS-B19** `finishLabelOf`: tabla completa de IDS.5 (incluye «COSMOS  holo», `stampLabel null` y `(reverse_holo, "Cosmos Holo")` ⇒ `cosmos_holo`); la línea de pedido de una pieza Cosmos conserva `cosmos_holo` aunque la pieza se corrija después (lee `OrderItem`).
+- **IDS-B9 (518, 519, 526)** quote y sesión ⇒ `version` por línea, cobro = suma de filas, `OrderItem` congela la versión; fila a `pending` entre quote y sesión ⇒ `422 PRICE_PENDING` con `details.items[].version` y sin sesión de Stripe.
+- **IDS-B10 (517)** los metadatos de rol del dial == los de `PUT /admin/pricing/curve`.
+- **IDS-B11 (530)** alta de versión no default con `listPriceCents` ⇒ 422; graded o sealed con `es` ⇒ 422 `version_raw_only`.
+- **IDS-B12 (963, 965, 966, 968)** deck «4 X» con 1 inglesa, 1 española y 1 de liga ⇒ `availableQty` 3, tres tramos, la de liga al final; con 2 sin liga + 2 de liga y `quantity` 2 ⇒ ninguna de liga (mutación: ordenar solo por precio ⇒ rojo); pieza sin precio no cuenta.
+- **IDS-B13 (528, I-6)** cotizador, `convert-to-inventory`, binder, valor de set y avisos de lista de deseos ignoran `stamped` y `es`; las suites de buylist de hoy, verdes sin tocarlas.
+- **IDS-B14 (527)** export: columnas 19/20 en todas las filas; las 18 previas byte-idénticas para piezas existentes.
+- **IDS-B15 (959)** ficha española sin `gradingHighlight` ni número en `referenceValue`; `(en, P)` con la referencia de su producto.
+- **IDS-B16** paridad `CardLanguage`/`StampType` (§0 == schema, `enum-values-parity.spec.ts`) y DYN-B17 con testigo de `spanish_market_pct`.
+- **IDS-B20 (desglose, IDS.4)** combo `(es, null)` ⇒ `baseReferenceMxnCents` == el de `(en, null)` del mismo acabado y `appliedMarketPct` == dial; `(en, ·)` ⇒ `appliedMarketPct null`; `(·, P)` ⇒ base = la de P; sin mercado ⇒ base `null`. Mutación: base ya con X ⇒ rojo.
+- **IDS-B21 (facetas y correo)** facetas con piezas `en` y `es` publicadas y una `stamped` ⇒ `languages = ['en','es']`, `stamped = true`; solo inglés sin liga ⇒ `['en']`, `false`; correo de una línea Cosmos española: es «Español» y «Cosmos Holo», en «Spanish» y «Cosmos Holo» (literales de IDS-UX.1).
+- **IDS-B22 (I-7, D-B-IDS-1/2; v1.116.3)** alta con `cardProductId` `stamped` de la carta ⇒ 201; inexistente ⇒ `PRODUCT_NOT_FOUND`; de otra carta ⇒ `PRODUCT_CARD_MISMATCH`; `promo` de la carta ⇒ `VALIDATION_ERROR {field:'cardProductId'}` (también en `items/batch`). `PATCH {cardProductId}` ⇒ `422 {field:'cardProductId'}` y pieza y bitácora intactas (v1.116.5; hoy `ids-pentest-fixes.e2e-spec.ts` «PT-IDS-8»). Línea de pedido de liga: `stamp.productId` == `cardProductId` de la pieza y `type`/`label` del `OrderItem` aunque luego cambie `CardProduct.stampLabel`; línea con `stampType null` ⇒ `stamp null`. Mutación: leer `type` de la pieza ⇒ rojo.
+- **IDS-B23 (v1.116.3)** con piezas `es` y de liga de una carta: `featuredCandidates` ⇒ solo `(en, null)`; ficha con solo graded ⇒ `versions = []`; línea de deck sin carta casada ⇒ `units = []`. `C-EQ-1`: las 4 filas de §0-Q pasan a `transcrita` (pendientes 22 ⇒ 18, registro 95 sin cambio; cifras de backend, NO MEDIDAS por el arquitecto).
+- **IDS-B24 (v1.116.4, censo; extiende VK-6, `test/pricing.valuation-callers-census.spec.ts`)** escaneo sin comentarios: `valuationKeyFor(`/`valuationCentsOf(` solo en `pricing.service.ts` (definición) y `patrimony-valuation.service.ts` (lista cerrada con `n` y razón); 0 `versionValuationOf`, `referenceForPieces` y `as unknown as SaleItem` en `src/`; cada método lector de [IDS-PAT](#IDS-PAT) contiene `valuePieces(` (`methodBody`; VK-6 «pasan por la PUERTA» pasa a exigir eso); 0 `@Optional()` sobre `PatrimonyValuationService` en los lectores y sobre `SaleDecisionService` en la puerta. Canario: `this.pricing.valuationCentsOf(` inyectado en `holdings` ⇒ rojo.
+- **IDS-B25 (531, D-IDS-S; integración Postgres, fixture propio)** cliente con `(en,null)` R, `(es,null)` misma carta, `(en,P)`, `(es,P)`, promo con base cotizada, sellado mapeado y graduada sin slab ⇒ por pieza el mismo valor en `holdings`, `holdingDetail`, `marketRefOf`, `/admin/vaults`, ficha 360° y (Σ priced) `custody-value`; `es` = `⌊(R·X+50)/100⌋`; promo `pending`, fuera del total, +1 `pendingPriceCount`; `marketRefOf(es).capturedDate` = la de `R_en` (no `''`); copias de plataforma ⇒ `inventory-value` y export iguales. Caso de revisión abierto en la inglesa (retenida R0, viva R1): bóveda `es` = R1×X y venta `es` con R0. «Por reponer» de la promo ⇒ `referenceCents == paidReferenceCents`; retiro entregado de la promo sin origen ⇒ `409 no_reference`. Mutaciones (una cada una): base para la promo; un lector sin la puerta; `loadBatch` retenido en la puerta ⇒ rojo.
+- **IDS-B26 (sin N+1)** `holdings` con 2 y con 20 piezas `es`/liga/promo ⇒ mismo número de consultas Prisma (contador de eventos `query`). Mutación: `valuePieces([pieza])` por pieza ⇒ rojo.
+- **IDS-B27 (D-IDS-T)** retiro de pieza de cliente `es` + `stamped` sin pedido de origen ⇒ `versionInternalLine` de la pieza; con origen ⇒ la del `OrderItem` aunque cambie `CardProduct.stampLabel`; `(en, null)` y promo `en` sin origen ⇒ `null`. Mutación: quitar el respaldo ⇒ rojo.
+- **IDS-B28 💰 (fila vigente, BE-IDS-PT-9; integración, recálculo retenido, forzada N ≥ 10)** pieza `es` con fila 40 600, `PATCH language:'en'` (P en vivo 53 360): quote **y** sesión cobran 53 360 y el `OrderItem` congela `en` con ese precio; ficha, rejilla y `GET /catalog/listings/:id` exhiben 53 360 bajo `version.key = 'en'` (ninguna superficie muestra 40 600); `missing_row` encolado; hoy 10/10 `en|40600` (backend), debe dar 0/N. Variantes: (b) inglés sin mercado ⇒ `422 PRICE_PENDING` nombrando `en` y fuera de la ficha; (c) graduada listada con `PATCH gradeValue` ⇒ cobra el grado nuevo; (d) corrida empezada antes del `PATCH` que escribe la fila vieja después ⇒ ignorada; (e) pieza de Destacadas pasada a `es` ⇒ fuera de `/catalog/featured` (I-6; NO MEDIDO hoy). Mutaciones (N=3 c/u): `chargeDecisionsFor` sin el predicado ⇒ rojo; `salesFor` sin él ⇒ rojo (exhibido ≠ cobrado).
+- **IDS-B29 💰 (CAS de grado, PT-IDS-1 ampliado)** con la barrera de `ids-pentest-fixes.e2e-spec.ts`: `PATCH gradeValue` entre el precio y la reserva ⇒ `409 ITEM_UNAVAILABLE`, forzada N=20 ⇒ 20/20. Mutación: sin `gradeValue` en el CAS ⇒ rojo.
+- **IDS-B30 (M-95c, PT-IDS-3)** borrar un `CardProduct` con piezas ⇒ `23503`; alta con `cardProductId` inexistente sigue `422 PRODUCT_NOT_FOUND` (no 500). Canario: sin la FK ⇒ el borrado pasa ⇒ rojo. La reversa de M-95c sobre la BD de prueba deja la tabla como `m95b`.
+- **IDS-B31 (D-IDS-11)** remapear un sellado listado (y `applyToSiblings`) ⇒ corrida `manual_price` con esas piezas; tras ella la fila sale del producto nuevo. Mutación: sin encolar ⇒ rojo.
+**Frontend:**
+- **IDS-F1 (513, 530; IDS-UX.6 2–4)** captura: inglés normal = 0 toques de idioma y versión; sin productos ni candidatas no hay fila «Versión»; sin campo de precio en versión no default; combo sin precio apagado con su motivo; candidata ⇒ `attach`; sin liga se lee «Sin liga» y el acabado `non_holo` «No holo» (mutación: «Normal» ⇒ rojo); desglose con `baseReferenceMxnCents` y `appliedMarketPct` del combo, sin aritmética propia.
+- **IDS-F2 (521)** filtros `language`/`stamped` ⇒ query del API y `noindex, follow`; opción «Español» solo con `es ∈ facets.languages`, la de liga solo con `facets.stamped`.
+- **IDS-F3 (520; IDS-UX.8 11–12, 15–16)** ficha: una burbuja por `versions[]` en el orden del servidor (2×2 o 2×N), ninguna agotada en el DOM, sin `radiogroup` con una sola; rótulo con `finishLabel` traducido (`null` ⇒ sin acabado; dos filas del mismo tipo y acabado ⇒ rótulos distintos con `stamp.label`, D-IDS-6); 2×N con **6 filas** a 360 px sin desborde (peor caso medido); preselección D-IDS-4 en sus cuatro casos (`optionKey`, `version.key` sin acabado, sin parámetro con y sin `en`); ningún `optionKey` compuesto en el navegador (grep); canonical sin parámetro; `hasVariant` = `versions[]` con `sku` de `optionKey`.
+- **IDS-F7 (517)** sección del dial en M10: lee `spanishMarketPct`, `PUT` con el entero, pinta el 422 del servidor; oculta para un rol sin permiso de la curva.
+- **IDS-F4 (518, 964)** carrito, checkout y pedido pintan `version` del servidor; dos versiones no se funden en «2×»; `PRICE_PENDING` nombra la versión.
+- **IDS-F5 (963–965)** `DeckAvailability`: un tramo por `units[]`; inglés puro sin insignia; `DeckAvailability.ac.test.tsx` verde sin editarla.
+- **IDS-F6** candados 1, 5, 6, 7, 7b y 9–16 de IDS-UX.6/.8 («sello» solo en admin y preparación; (7) incluye las cinco claves de `FinishLabel`).
+**Devops:** IDS-D1 en seco e IDS-D2 **hechas** (`DEVOPS_NOTES §108`; su ⟨108.4⟩ resuelto en v1.116.2). **Queda antes de fusionar (condición bloqueante de la solicitud):** Q1 de `scripts/ids/ids-d1-produccion.sql` en producción con rol de solo lectura (la corre el dueño, §108.5): `promo`/`deck_exclusive` = 0 confirma que IDS-B17 no mueve ningún precio publicado; > 0 ⇒ la lista Q1b va a la solicitud y decide el dueño. **Q1c (v1.116.4, misma vía y mismas reglas de salida que Q1; también bloqueante):** piezas `ownerType='customer'`, `status ≠ 'withdrawn'`, con producto `promo`/`deck_exclusive`, por kind; de ellas, cuántas con caso «Por reponer» `open` o en un retiro activo; y por producto y acabado: piezas, dueños distintos (solo el conteo), Σ/mín/máx de la referencia vigente de la base que hoy les da valor y de `Q` (último `OrderItem` cobrado de la pieza; sin él, «sin origen»). 0 ⇒ D-IDS-S no cambia nada visible; > 0 ⇒ la tabla va a la solicitud (lo que pasa a «Precio pendiente» en la bóveda y baja de `custody-value`) y decide el dueño. Español o liga de cliente no se mide: es 0 por construcción antes de M-95. **Q1d (v1.116.5, misma vía, bloqueante):** `InventoryItem` con `cardProductId` sin `CardProduct.tcgplayerProductId` (conteo y lista id/folio/status/owner); 0 ⇒ M-95c entra; > 0 ⇒ la lista va a la solicitud y decide el dueño (⛔ sin arreglo automático). **IDS-D3 (512)** foto antes/después sobre copia de producción en el ensayo (instrumento §108.3). El paso `ids-lib.mjs` se alinea con IDS.3 v1.116.2 (llave del catálogo).
+
+### IDS.10 Desviaciones, supuestos y preguntas
+Viven en `ARCHITECTURE §15.4–§15.6` (D-IDS-1…8, P-ARQ-IDS-1/2, riesgos): un hecho, un documento. Supuestos adoptados aquí: X entero con redondeo half-up; solo raw NM; sin override M-30 para versiones.
+
+### IDS.11 Reparto (modelo fuerte: `pricing`, `inventory`, `orders` y Meta decks son dinero ⇒ triple veredicto; ⛔ `backend-lite`/`frontend-lite` salvo textos con paridad)
+- **backend:** M-95 → IDS.3 (paso, clasificación, empate, `attach`) → IDS.2 (referencia por versión en `SaleDecisionService`; patrimonio por `valuePieces`) → IDS.4 → IDS.5 (`finishLabelOf` pura, `versions[]` por producto × acabado con `optionKey` y orden, `versionOptionKey` en la teja, `finishLabel` en grupos, líneas y combos; el correo traduce `FinishLabel` en el `locale` del pedido) → IDS.6 → IDS.7 → correo (traduce `version`/`FinishLabel` en el `locale` del pedido); IDS-B1…B21. Zonas compartidas: `prisma/`, `common/variant-key.ts`, `common/card-version.ts` (serializar con el orquestador). **Errata v1.116.2 sobre lo ya construido (`c03d99aa`, `2f829b1e`):** (1) `catalogMatchKey` usa el número del nombre solo si trae total, si no `Card.number`/`printedTotal` (IDS-B7); (2) `VersionComboDTO += baseReferenceMxnCents, appliedMarketPct` (IDS-B20); (3) rama `promo`/`deck_exclusive` ⇒ `pending` en `SaleDecisionService` (IDS-B17); (4) facetas `languages`/`stamped` (IDS-B21); (5) comentario de `STAMPED_SOURCE_GROUPS` («cambiar esta constante») ⇒ D-IDS-7. Sin cambio: precedencia de sufijos, número en el nombre, `ocupados`/`sinNumero`, `finishLabelOf`. **Errata v1.116.3 (sobre `58c7fbc8`; ratifica lo construido, sin migración ni código de precio nuevo):** (1) `C-EQ-1`: `language`/`stamped` ×2 a `transcrita`; (2) IDS-B22, IDS-B23 y la extensión de IDS-B17 (escribirlas; si alguna ya existe, citarla en `BACKEND_NOTES`). Frontend: nada nuevo (con `versions = []` no pinta selector, IDS-F3). **Errata v1.116.4 (sobre `f2cd0e31`, rechazo del techlead):** primero IDS-B24…B27 en rojo; después (1) `PatrimonyValuationService.valuePieces` y los nueve lectores de [IDS-PAT](#IDS-PAT) por ella, inyectada sin `@Optional()` (unitarios: doble de la puerta o la real con dobles de `PricingService`); (2) `loadVersionInputs` extraído de `loadBatch` y `versionReferences` con `Pick`; (3) fuera `versionValuationOf`/`referenceForPieces`; (4) respaldo de `versionInternalLine` (D-IDS-T). Sin migración ni forma nueva; frontend nada. **Errata v1.116.5 (tras PT-IDS-1/2/8):** primero IDS-B28…B31 en rojo; después (1) «fila vigente» de DYN.5.7 en `chargeDecisionsFor` y `salesFor` (una función); (2) `PricedAs` += `gradingCompany`, `gradeValue`; (3) `M-95c` (y fixtures/seeds que borren `CardProduct` antes que sus piezas); (4) mapeo de sellado ⇒ `manual_price` (DYN.5.3, D-IDS-11); (5) cerrar PT-IDS-4/5 citando I-4 e IDS.4. Sin forma nueva; frontend nada.
+- **frontend:** captura (`AddItemModal`, `VersionPills`; «Sin liga», «No holo», Acabado × Versión de IDS-UX.2, desglose con los campos nuevos del combo), inventario admin, teja/ficha (2×2 y 2×N hasta 6 filas, rótulos, preselección D-IDS-4)/filtros por facetas/SEO, carrito/checkout/pedido (**sin correo**: es de backend), `DeckAvailability`, **sección del dial en M10** (IDS.7); IDS-F1…F7; i18n ES/EN de `FinishLabel`. `VersionChip` en `components/domain/` (zona compartida).
+- **devops:** Q1, Q1c y Q1d (IDS.9) en producción vía el dueño (condición de la solicitud), IDS-D3, seed en `post-deploy`, alinear `ids-lib.mjs`, cuerpo de la solicitud de fusión (export, migración, Q1 y el paso previo a una reversa de `ARCHITECTURE §15.3`).
+- **ux-ui (con marketing):** D-IDS-6; 2×N con 6 filas a 360 px; par EN «Spanish»+«Championship» (155.9 > 152 px, `FRONTEND_NOTES §IDS-FE`); texto del dial. **product-owner:** D-IDS-3, el caso del 960 (candidato de devops: `209911` Quick Ball League Cup, §108.1) y el copy ES/EN de `FinishLabel` y de «Sin liga». **Dueño:** P-ARQ-IDS-1/2 y Q1.

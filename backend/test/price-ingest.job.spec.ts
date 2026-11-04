@@ -20,6 +20,8 @@ function build(hasRecentIngest = true) {
     ingestSet: jest.fn(async () => ({})),
     ingestSetByExternalId: jest.fn(async () => ({})),
     ingestAll: jest.fn(async () => ({ sets: 2, priced: 4, pending: 0, dailyLimited: false })),
+    // v1.116⟨ids⟩ (§IDS.3): el paso de liga en la rama CON cola.
+    ingestStamped: jest.fn(async () => undefined),
     // v1.50.2 (§4.38h): el gancho corre APARTE del barrido por set. Se mockea aquí porque las TRES
     // vías de disparo del barrido completo (cron con cola, cron sin cola y el botón N-11) lo llaman.
     ingestGradedEstimates: jest.fn(async () => ({ sets: 1, written: 2, escalation: null })),

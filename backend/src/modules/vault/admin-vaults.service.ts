@@ -1,12 +1,11 @@
+import { PatrimonyValuationService } from '../pricing/patrimony-valuation.service';
 import { Injectable } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService } from '../pricing/pricing.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
 import { VaultService } from './vault.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
-import { variantKey } from '../../common/variant-key';
 import { compareByDisplayName, customerDisplayName } from './customer-display-name';
 
 /**
@@ -53,8 +52,9 @@ export interface AdminVaultListResponse {
 export class AdminVaultsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly pricing: PricingService,
     private readonly vault: VaultService,
+    // 💰 v1.116.4⟨ids⟩ (`IDS-PAT`, D-IDS-R): la puerta del valor de patrimonio. Obligatoria (⛔ `@Optional()`).
+    private readonly patrimony: PatrimonyValuationService,
   ) {}
 
   /**
@@ -93,6 +93,10 @@ export class AdminVaultsService {
       },
       select: {
         ownerUserId: true,
+        // v1.116⟨ids⟩ (531): la versión de la pieza (valor por versión).
+        id: true,
+        language: true,
+        cardProductId: true,
         cardId: true,
         productType: true,
         rawCondition: true,
@@ -130,25 +134,20 @@ export class AdminVaultsService {
     // v1.80.1 (SK-5, MONEY): por la ÚNICA puerta de valuación. Sellado mapeado ⇒ su `sealed:tcg:<id>`
     // con el gate de dial de `/vault/sealed`; sin mapeo ⇒ sin clave ⇒ pendiente. ⛔ Nunca la fila
     // legada `'sealed'` (clave de COLA: puede ser el precio de otra caja anclada a la misma `Card`).
-    const keyOf = pieces.map((p) => this.pricing.valuationKeyFor(p));
-    const refs = await this.pricing.getReferencesBatch(keyOf.flatMap((k) => (k ? [k] : [])));
-    // El dial del sellado, UNA vez por petición y solo si hay sellado que gatear (v1.80.2.2 D-4: un
-    // solo cuerpo, `sealedSourceOnFor`).
-    const sourceOn = await this.pricing.sealedSourceOnFor(pieces);
+    // 💰 v1.116.4⟨ids⟩ (`IDS-PAT`, D-IDS-R): UNA llamada a la puerta con todas las piezas (SK-5 + versión + D-IDS-S + dial).
+    const values = await this.patrimony.valuePieces(pieces);
 
     const agg = new Map<
       string,
       { pieceCount: number; totalValueMxnCents: number; pendingPriceCount: number }
     >();
-    pieces.forEach((p, i) => {
+    pieces.forEach((p) => {
       const userId = p.ownerUserId as string;
       if (!userById.has(userId)) return; // fuera del filtro q (o usuario inexistente)
       const a = agg.get(userId) ?? { pieceCount: 0, totalValueMxnCents: 0, pendingPriceCount: 0 };
       a.pieceCount += 1;
-      const k = keyOf[i];
-      // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
-      const ref = k ? refs.get(variantKey(k)) : undefined;
-      const cents = this.pricing.valuationCentsOf(p, ref, sourceOn);
+      const v = values.get(p.id);
+      const cents = v?.status === 'priced' ? (v.referenceMxnCents ?? null) : null;
       if (cents != null) {
         a.totalValueMxnCents += cents;
       } else {

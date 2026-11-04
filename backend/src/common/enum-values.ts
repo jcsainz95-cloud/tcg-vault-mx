@@ -1,5 +1,6 @@
 import {
   AcquisitionType,
+  CardLanguage,
   Finish,
   GradingCompany,
   Locale,
@@ -93,6 +94,9 @@ export const SEALED_CONDITION_VALUES = Object.values(SealedCondition);
 
 /** Acabados de una carta (identidad de variante, §4.22). */
 export const FINISH_VALUES = Object.values(Finish);
+
+/** v1.116⟨ids⟩ (§IDS.1): idioma de la pieza. */
+export const CARD_LANGUAGE_VALUES = Object.values(CardLanguage);
 
 /** `raw` | `graded` | `sealed`. */
 export const PRODUCT_TYPE_VALUES = Object.values(ProductType);

@@ -10,6 +10,8 @@ const config: Config = {
         'surface-2': 'var(--color-surface-2)',
         border: 'var(--color-border)',
         'border-strong': 'var(--color-border-strong)',
+        // §IDS-UX.8: SOLO el borde de las burbujas del selector de versión (`VersionPills`).
+        'border-control': 'var(--color-border-control)',
         text: 'var(--color-text)',
         muted: 'var(--color-text-muted)',
         subtle: 'var(--color-text-subtle)',
@@ -47,6 +49,8 @@ const config: Config = {
         '3xl': '0px',
         full: '0px',
         DEFAULT: '0px',
+        // §IDS-UX.8: la ÚNICA excepción redondeada del sistema — las burbujas de `VersionPills` (candado 13).
+        pill: '999px',
       },
       fontFamily: {
         // Títulos: mincho. Da el aire y la voz editorial de la dirección 5a.

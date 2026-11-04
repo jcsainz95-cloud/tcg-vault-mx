@@ -28,6 +28,7 @@ import {
 import { JsonLd } from '@/components/seo/JsonLd';
 import { CardDetailView } from './CardDetailView';
 import { RouteMessages } from '@/components/i18n/RouteMessages';
+import { productGroupJsonLd } from './version-jsonld';
 
 /**
  * Ficha pública de CARTA (§A4/§E3) — SSR: title/og/JSON-LD en el HTML del servidor, y el cuerpo también:
@@ -102,10 +103,15 @@ export async function generateMetadata({
 
 export default async function CardDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: AppLocale; cardId: string }>;
+  /** §IDS.5 / D-IDS-4: `?version=` preselecciona; el canonical sigue sin parámetro (`generateMetadata`). */
+  searchParams?: Promise<{ version?: string | string[] }>;
 }) {
   const { locale, cardId } = await params;
+  const rawVersion = (await searchParams)?.version;
+  const versionParam = Array.isArray(rawVersion) ? rawVersion[0] ?? null : rawVersion ?? null;
   const [data, t, nonce, shippingRule] = await Promise.all([
     loadCardDetailForSSR(cardId),
     getTranslations({ locale }),
@@ -122,32 +128,50 @@ export default async function CardDetailPage({
     const availableCount = data.listings.reduce((n, l) => n + l.stockCount, 0);
     const until = priceValidUntil(data.pricedAsOf);
     const shippingDetails = rep ? shippingDetailsJsonLd('card', rep.displayPriceCents, shippingRule) : undefined;
+    const versions = data.versions ?? [];
+    const name = `${card.name} · ${card.setName} ${card.number}`;
     jsonLd = {
       '@context': 'https://schema.org',
       '@graph': [
-        {
-          '@type': 'Product',
-          name: `${card.name} · ${card.setName} ${card.number}`,
-          ...(data.ogImageUrl ? { image: [data.ogImageUrl] } : {}),
-          // C5: marca, condición, envío y devoluciones (con datos que ya existen en el sitio; ver `lib/seo.ts`).
-          brand: brandJsonLd(),
-          ...(rep
-            ? {
-                offers: {
-                  '@type': 'Offer',
-                  priceCurrency: 'MXN',
-                  price: jsonLdPrice(rep.displayPriceCents),
-                  availability: jsonLdAvailability(availableCount),
-                  itemCondition: jsonLdItemCondition('card'),
-                  url: canonical,
-                  ...(until ? { priceValidUntil: until } : {}),
-                  ...(shippingDetails ? { shippingDetails } : {}),
-                  hasMerchantReturnPolicy: merchantReturnPolicyJsonLd(),
-                },
-              }
-            : // C3: agotada ⇒ sigue indexable con `OutOfStock` y sin precio inventado.
-              { offers: soldOutOfferJsonLd('card', canonical) }),
-        },
+        // §IDS.5: con 2+ versiones, `ProductGroup` con un `Product` por versión (precio e `InStock` de cada una).
+        versions.length >= 2
+          ? productGroupJsonLd({
+              cardId: card.id,
+              name,
+              canonical,
+              versions,
+              t: (k) => t(k),
+              base: { ...(data.ogImageUrl ? { image: [data.ogImageUrl] } : {}), brand: brandJsonLd() },
+              offerExtras: {
+                itemCondition: jsonLdItemCondition('card'),
+                ...(until ? { priceValidUntil: until } : {}),
+                ...(shippingDetails ? { shippingDetails } : {}),
+                hasMerchantReturnPolicy: merchantReturnPolicyJsonLd(),
+              },
+            })
+          : {
+              '@type': 'Product',
+              name,
+              ...(data.ogImageUrl ? { image: [data.ogImageUrl] } : {}),
+              // C5: marca, condición, envío y devoluciones (con datos que ya existen en el sitio; ver `lib/seo.ts`).
+              brand: brandJsonLd(),
+              ...(rep
+                ? {
+                    offers: {
+                      '@type': 'Offer',
+                      priceCurrency: 'MXN',
+                      price: jsonLdPrice(rep.displayPriceCents),
+                      availability: jsonLdAvailability(availableCount),
+                      itemCondition: jsonLdItemCondition('card'),
+                      url: canonical,
+                      ...(until ? { priceValidUntil: until } : {}),
+                      ...(shippingDetails ? { shippingDetails } : {}),
+                      hasMerchantReturnPolicy: merchantReturnPolicyJsonLd(),
+                    },
+                  }
+                : // C3: agotada ⇒ sigue indexable con `OutOfStock` y sin precio inventado.
+                  { offers: soldOutOfferJsonLd('card', canonical) }),
+            },
         organizationJsonLd(),
         breadcrumbJsonLd([
           { name: t('common.appName'), url: siteAbsoluteUrl(`/${locale}`) },
@@ -163,7 +187,7 @@ export default async function CardDetailPage({
     <RouteMessages scope="storefront">
       <>
         {jsonLd && <JsonLd data={jsonLd} nonce={nonce} />}
-        <CardDetailView cardId={cardId} initialData={data ?? undefined} />
+        <CardDetailView cardId={cardId} initialData={data ?? undefined} versionParam={versionParam} />
       </>
     </RouteMessages>
   );

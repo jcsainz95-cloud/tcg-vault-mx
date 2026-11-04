@@ -431,7 +431,7 @@ function masterSetPricing(): PricingService {
     saleRetentionFor: jest.fn(async () => new Map()),
     getReferencesBatch: jest.fn(async () => new Map()),
     getSeparateProductsByCard: jest.fn(async () => new Map()),
-    getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+    getPricedRawFinishesBatch: jest.fn(async () => new Map()), defaultVersionWhere: jest.fn(async () => ({ language: "en" })),
     gradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     tryGradeKeyFor: jest.fn().mockReturnValue('raw_NM'),
     getVariantOverridesBatch: jest.fn(async () => new Map()),
@@ -536,7 +536,7 @@ describe('M-47 (B) — MasterSetSummaryDTO expone logoUrl (§4.39.5, los CUATRO 
 
 describe('M-47 (B) — GET /buylist/sets expone logoUrl (fuente de la teja del COTIZADOR, §4.39.5)', () => {
   function catalogPricing(): PricingService {
-    return { getPricedRawFinishesBatch: jest.fn(async () => new Map()) } as unknown as PricingService;
+    return { getPricedRawFinishesBatch: jest.fn(async () => new Map()), defaultVersionWhere: jest.fn(async () => ({ language: "en" })) } as unknown as PricingService;
   }
 
   it('cada fila de data[] trae logoUrl (valor o `null` con clave presente)', async () => {
@@ -585,7 +585,7 @@ describe('M-47 (C) — symbolUrl SE PERSISTE Y NO SE EXPONE en ningún DTO (§4.
     };
     const svc = new CatalogService(
       prisma as PrismaService,
-      { getPricedRawFinishesBatch: jest.fn(async () => new Map()) } as unknown as PricingService,
+      { getPricedRawFinishesBatch: jest.fn(async () => new Map()), defaultVersionWhere: jest.fn(async () => ({ language: "en" })) } as unknown as PricingService,
     );
     const res = await svc.listSetsWithImportedCards();
     expect(Object.keys(res.data[0])).not.toContain('symbolUrl');
@@ -646,7 +646,7 @@ describe('M-47 (C) — logoUrl NO entra en las superficies que §4.39.5 PROHÍBE
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       getReference: jest.fn(async () => ({ status: 'priced', referenceMxnCents: 10000 })),
-      getPricedRawFinishesBatch: jest.fn(async () => new Map()),
+      getPricedRawFinishesBatch: jest.fn(async () => new Map()), defaultVersionWhere: jest.fn(async () => ({ language: "en" })),
       loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
       loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
       decideSalePrice: jest.fn(PricingService.prototype.decideSalePrice),

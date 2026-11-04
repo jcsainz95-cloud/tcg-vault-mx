@@ -6,7 +6,8 @@
  *  - el ESCRITOR (`run` / `enqueue`): calcula por el cuerpo único (`SaleDecisionService`, §DYN.5.1) y SOBRESCRIBE la fila
  *    (⛔ sin precio anterior, §DYN.5.5); bitácora en `ListingPriceRun`; lotes de 500 por transacción; single-flight;
  *  - el LECTOR (`salesFor`): fila `priced` ⇒ su `P` tal cual; `pending` ⇒ no se exhibe ni se cobra (`PRICE_PENDING`); sin
- *    fila ⇒ cálculo en vivo por el cuerpo único + `missing_row` encolado (§DYN.5.6/.7). v1.113.3: el «valor de mercado»
+ *    fila ⇒ cálculo en vivo por el cuerpo único + `missing_row` encolado (§DYN.5.6/.7). v1.116.5: «fila» = fila VIGENTE
+ *    (`currentRowsFor`, la de la llave K actual de la pieza; otra ⇒ sin fila), la misma para el cobro. v1.113.3: el «valor de mercado»
  *    exhibido viaja con `P` (la fila lo congela, §DYN.5.5); solo las piezas SIN fila leen referencias en vivo;
  *  - los disparadores que no tienen un sitio mejor (`onSettingsWritten` ⇒ `dial_change`, `bootstrap` al arrancar);
  *  - `health()` = `dataHealth.listingPrices` (§DYN.5.8).
@@ -21,11 +22,12 @@ import { SEALED_SALE_PRICE_INCLUDE } from '../../common/money';
 import type { IvaDials } from '../../common/money';
 import { marketBracketOf } from '../../common/pricing-curve';
 import { variantKey } from '../../common/variant-key';
+import { DEFAULT_VERSION, isDefaultVersion, PieceVersion, versionDtoOf, versionKeyOf } from '../../common/card-version';
 import { isSchedulerDisabled } from '../../config/test-env';
 import { SettingsService } from '../settings/settings.service';
 import { PRICE_AFFECTING_SETTING_KEYS, SettingKey, SettingKeyType } from '../settings/settings.constants';
-import { dayMx } from '../spend-alerts/spend-alerts.service';
-import { mxDayStart } from '../spend-alerts/mx-day';
+// TL-DYN-3: el «día de portada» vive UNA vez, compartido con Destacadas (`FeaturedService`).
+import { portadaEffectiveFrom, portadaServedDay } from '../../common/portada-day';
 import { PricingService } from './pricing.service';
 import type { PriceInfo } from './pricing.service';
 import {
@@ -48,7 +50,6 @@ export const LISTING_PRICE_RUN_RETENTION_DAYS = 90;
 export const LISTING_PRICE_RUN_PRUNE_BATCH = 5_000;
 /** §DYN.5.3: la corrida diaria del día de portada `D` corre desde `effectiveFrom(D) − 60 min`. */
 export const DAILY_RUN_LEAD_MS = 60 * 60_000;
-const HOUR_MS = 3_600_000;
 /** Estados en alcance: el `isSellable` del checkout (`ownerType = platform ∧ status ∈ {listed, in_stock}`, §DYN.5.2). */
 const SCOPE_STATUSES = ['listed', 'in_stock'] as const;
 
@@ -87,21 +88,27 @@ export interface ListingPricesHealth {
 const ymdOf = (d: Date) => d.toISOString().slice(0, 10);
 const dbDate = (ymd: string) => new Date(`${ymd}T00:00:00.000Z`);
 
-/** `effectiveFrom` del día de portada `ymd` = ese día a las H:00 CDMX (en UTC). Mismo cálculo que `FeaturedService`. */
-export function portadaEffectiveFrom(ymd: string, hour: number): Date {
-  return new Date(mxDayStart(ymd).getTime() + hour * HOUR_MS);
-}
-/** El día de portada que se sirve en `now` (el último cuyo H:00 CDMX ya pasó). */
-export function portadaServedDay(now: Date, hour: number): string {
-  return dayMx(new Date(now.getTime() - hour * HOUR_MS));
-}
 
 /**
  * `ListingPrice.variantKey` (TL-DYN-2): la llave K de la pieza por el helper ÚNICO `variantKey` (P-30 H2) — la misma con que la
  * leen catálogo y referencias. Graduada sin identidad de slab (sin `gradeKey`) ⇒ `-` en su lugar (la columna no admite null).
  */
-export function listingPriceVariantKey(item: Pick<SaleItem, 'cardId' | 'productType' | 'finish'>, gradeKey: string | null): string {
-  return variantKey({ cardId: item.cardId, productType: item.productType, gradeKey: gradeKey ?? '-', finish: item.finish });
+export function listingPriceVariantKey(
+  item: Pick<SaleItem, 'cardId' | 'productType' | 'finish'>,
+  gradeKey: string | null,
+  version: PieceVersion = DEFAULT_VERSION,
+): string {
+  const vk = variantKey({ cardId: item.cardId, productType: item.productType, gradeKey: gradeKey ?? '-', finish: item.finish });
+  // 💰 v1.116⟨ids⟩ (§IDS.2): (en, sin liga) ⇒ la de hoy, sin cambio (I-1); otra versión ⇒ `<la de hoy>|v:<versionKey>`.
+  return isDefaultVersion(version) ? vk : `${vk}|v:${versionKeyOf(version.language, version.stamp?.productId ?? null)}`;
+}
+
+/**
+ * 💰 v1.116.5⟨ids⟩ (§DYN.5.7 «fila vigente») — ¿la fila es de la llave K ACTUAL de la pieza? `currentKey` =
+ * `listingPriceVariantKey(pieza leída, gradeKeyOf, versionOf)`, la misma función que la escribió (`writeRow`). Puro.
+ */
+export function isCurrentRow(row: Pick<ListingPrice, 'variantKey'>, currentKey: string): boolean {
+  return row.variantKey === currentKey;
 }
 
 /** El «valor de mercado» que la fila congeló (§DYN.5.5), con la forma de `referenceInfoOf`. */
@@ -357,7 +364,8 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
               const s = sales.get(item.id)!;
               if (s.kind === 'priced') priced += 1;
               else pending += 1;
-              await this.writeRow(tx, item, s, this.decider.exhibitedReferenceOf(item, batch), dials, run.id, startedAt);
+              const version = this.decider.versionOf(item, batch);
+              await this.writeRow(tx, item, s, this.decider.exhibitedReferenceOf(item, batch), dials, run.id, startedAt, version);
             }
           },
           { timeout: 120_000 },
@@ -415,8 +423,10 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     dials: IvaDials,
     runId: string,
     computedAt: Date,
+    // v1.116⟨ids⟩ (§IDS.2): la versión de la pieza (del lote); por defecto (en, sin liga) ⇒ la clave de hoy.
+    version: PieceVersion = DEFAULT_VERSION,
   ): Promise<void> {
-    const vk = listingPriceVariantKey(item, this.decider.gradeKeyOf(item));
+    const vk = listingPriceVariantKey(item, this.decider.gradeKeyOf(item), version);
     const d = s.kind === 'priced' ? s.decision : null;
     await tx.$executeRaw`
       INSERT INTO "ListingPrice" ("inventoryItemId", "variantKey", "runId", "status", "unitPriceCents", "listPriceCents",
@@ -438,11 +448,36 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
 
   // ───────────────────────────────────────────── lector ─────────────────────────────────────────────
 
-  /** Las filas de estas piezas (una consulta). */
+  /** Las filas de estas piezas (una consulta), SIN mirar si son vigentes: el lector y el cobro usan `currentRowsFor`. */
   async rowsFor(ids: readonly string[], db: Prisma.TransactionClient | PrismaService = this.prisma): Promise<Map<string, ListingPrice>> {
     if (ids.length === 0) return new Map();
     const rows = await db.listingPrice.findMany({ where: { inventoryItemId: { in: [...new Set(ids)] } } });
     return new Map(rows.map((r) => [r.inventoryItemId, r]));
+  }
+
+  /**
+   * 💰 v1.116.5⟨ids⟩ (API_CONTRACT §DYN.5.7 «fila vigente», BE-IDS-PT-9, ARCHITECTURE §15.1 D-IDS-U) — la ÚNICA definición de
+   * «la fila de esta pieza», usada por `salesFor` (tienda) Y `chargeDecisionsFor` (cobro): exhibido = cobrado. Una fila cuenta
+   * solo si es VIGENTE (`isCurrentRow`): su `variantKey` es la llave K de la pieza TAL COMO SE LEYÓ en esta petición, calculada
+   * por la MISMA función que la escribió (`listingPriceVariantKey` con `gradeKeyOf` y `versionOf`). Si no casa —un `PATCH
+   * language`/`gradingCompany`/`gradeValue` cuya corrida no llegó, o una corrida empezada ANTES del `PATCH` que escribió
+   * después— la pieza queda «sin fila» (vivo + `missing_row`), ⛔ nunca la fila vieja ni `min`/`max`. ⛔ No se borra la fila en
+   * el `PATCH`: no cubre la corrida en vuelo y obliga a cada escritor a acordarse.
+   * Lecturas: las filas (1) y, solo si alguna pieza CON fila trae `cardProductId`, los productos de liga (≤ 1, `stampsOf`).
+   */
+  async currentRowsFor(items: readonly SaleItem[]): Promise<Map<string, ListingPrice>> {
+    const rows = await this.rowsFor(items.map((i) => i.id));
+    if (rows.size === 0) return rows;
+    const withRow = items.filter((i) => rows.has(i.id));
+    const stamps = await this.decider.stampsOf(withRow);
+    const out = new Map<string, ListingPrice>();
+    for (const item of withRow) {
+      const r = rows.get(item.id)!;
+      if (isCurrentRow(r, listingPriceVariantKey(item, this.decider.gradeKeyOf(item), this.decider.versionOf(item, { stamps })))) {
+        out.set(item.id, r);
+      }
+    }
+    return out;
   }
 
   /**
@@ -452,7 +487,8 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
    * lote en vivo de las piezas sin fila); ⛔ con fila no se lee ninguna referencia.
    */
   async salesFor(items: readonly SaleItem[], dials: IvaDials): Promise<Map<string, PieceSale>> {
-    const rows = await this.rowsFor(items.map((i) => i.id));
+    // 💰 v1.116.5: solo la fila VIGENTE (una de otra versión o grado = sin fila ⇒ vivo + `missing_row`).
+    const rows = await this.currentRowsFor(items);
     const out = new Map<string, PieceSale>();
     const missing: SaleItem[] = [];
     for (const item of items) {
@@ -480,18 +516,35 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
    * lectura por carrito.
    */
   async chargeDecisionsFor(items: readonly SaleItem[], dials: IvaDials): Promise<SaleDecision[]> {
-    const rows = await this.rowsFor(items.map((i) => i.id));
+    // 💰 v1.116.5: la MISMA fila vigente que exhibe `salesFor` (exhibido = cobrado). ⛔ `rowsFor` aquí cobraría la de otra versión.
+    const rows = await this.currentRowsFor(items);
     const out: SaleDecision[] = [];
     const missing: string[] = [];
+    // 💰 v1.116⟨ids⟩ (§IDS.5): el `422 PRICE_PENDING` de hoy + `details.items: [{ inventoryItemId, version }]` (aditivo: nombra
+    // la versión que no tiene precio). ⛔ Nunca se cobra otra versión.
+    const pendingFor = async (item: SaleItem, cause?: BusinessException): Promise<BusinessException> => {
+      // Leer la versión NO puede cambiar el veredicto: si falla, el `PRICE_PENDING` sale igual, sin el detalle aditivo.
+      const version = await Promise.resolve()
+        .then(() => this.decider.versionSingle(item))
+        .then(versionDtoOf)
+        .catch(() => null);
+      return BusinessException.validation('PRICE_PENDING', cause?.message ?? `Item ${item.folio} has no publishable price`, {
+        ...((cause?.details as Record<string, unknown> | undefined) ?? {}),
+        ...(version ? { items: [{ inventoryItemId: item.id, version }] } : {}),
+      });
+    };
     for (const item of items) {
       const row = rows.get(item.id);
-      if (row?.status === 'pending') {
-        throw BusinessException.validation('PRICE_PENDING', `Item ${item.folio} has no publishable price`);
-      }
+      if (row?.status === 'pending') throw await pendingFor(item);
       if (row) {
         out.push(decisionOfRow(row, item));
       } else {
-        out.push(await this.decider.decide(item, dials));
+        try {
+          out.push(await this.decider.decide(item, dials));
+        } catch (e) {
+          if (isPricePending(e)) throw await pendingFor(item, e);
+          throw e;
+        }
         missing.push(item.id);
       }
     }
@@ -503,7 +556,7 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
 
   /** El día de portada cuya corrida diaria ya toca en `now` (desde `effectiveFrom(D) − 60 min`). */
   static dailyDayAt(now: Date, hour: number): string {
-    return dayMx(new Date(now.getTime() + DAILY_RUN_LEAD_MS - hour * HOUR_MS));
+    return portadaServedDay(new Date(now.getTime() + DAILY_RUN_LEAD_MS), hour);
   }
 
   /** ¿Hay `daily` ok del día de portada `ymd`? */

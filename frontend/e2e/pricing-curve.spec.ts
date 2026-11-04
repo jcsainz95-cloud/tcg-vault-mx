@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { ivaLabelRe, t } from './utils/i18n';
 import { IS_REAL, MONEY_RE, loginAs, mockOnly } from './utils/auth';
+import { parseCardHref } from './utils/catalog-tile';
 
 /**
  * Flujo v2.0 (P-48): **precio puro por valor de mercado**. Cubre los tres frentes de UI de §N
@@ -31,6 +32,44 @@ async function marketBlockState(page: Page): Promise<{ block: boolean; explainer
     (await page.getByText(t('es', 'card.referenceExplainerWithMarket')).count()) > 0;
   // MKT-CONV.2 (B6b, 2026-10-31): la frase «sin mercado» se retiró de la ficha ⇒ sin variante «con mercado» = 'none'.
   return { block, explainer: withMarket ? 'with' : 'none' };
+}
+
+/**
+ * §IDS.5 / DESIGN_SYSTEM §IDS-UX.8 — dónde publica la ficha su precio de venta, según la versión:
+ *  - con **una** versión (o ninguna): la celda «Precio de venta» de la retícula, como siempre;
+ *  - con **2+** versiones: el selector «Idioma y versión» en burbujas y **sin precio grande repetido**; el precio de la
+ *    versión elegida vive en SU burbuja (y en la barra fija < lg). La elegida es la del `?version=` de la teja (D-IDS-4:
+ *    la clave de la teja es un `optionKey` de `versions[]`, IDS-B8); sin parámetro, «Inglés».
+ * Se lee del DOM (corre también en mock) y la rama la decide lo que se pintó; cualquiera de las dos exige un precio con
+ * formato MXN, así que una ficha sin ninguno de los dos sigue en rojo. Devuelve la rama, para que quien llama afirme lo
+ * que solo vale en ella. La teja que enlaza a la ficha la elige el orden de la rejilla, no la prueba: una pieza `es` o
+ * de liga recién dada de alta es la primera teja de `newest` (antes la prueba exigía «Precio de venta» y se ponía roja).
+ */
+async function expectSalePriceShown(page: Page, href: string): Promise<'single' | 'multi'> {
+  const salePrice = page.getByText(t('es', 'catalog.salePrice'), { exact: true });
+  const pills = page.getByTestId('version-pills');
+  await expect(salePrice.or(pills).first(), `la ficha ${href} publica su precio de venta`).toBeVisible();
+  if ((await pills.count()) === 0) {
+    await expect(salePrice).toBeVisible();
+    await expect(salePrice.locator('xpath=..')).toContainText(MONEY_RE);
+    return 'single';
+  }
+  const { version } = parseCardHref(href);
+  const checked = page.locator('[data-testid="version-pill"][aria-checked="true"]');
+  await expect(checked, `${href}: una sola versión elegida`).toHaveCount(1);
+  const keys = await page
+    .getByTestId('version-pill')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-option-key') ?? ''));
+  // D-IDS-4: `?version=<optionKey>` ⇒ esa; sin parámetro ⇒ «Inglés» si está (la regla de la más barata la fija el
+  // unitario de `preselectVersionOption`). Un enlace de teja que no exista en `versions[]` es un defecto: rojo aquí.
+  const expected = version ?? (keys.includes('en') ? 'en' : null);
+  if (expected) {
+    expect(keys, `${href}: la versión de la teja está en el selector`).toContain(expected);
+    await expect(checked).toHaveAttribute('data-option-key', expected);
+  }
+  await expect(checked, `${href}: la burbuja elegida lleva su precio`).toContainText(MONEY_RE);
+  await expect(salePrice, `${href}: sin precio grande repetido (IDS-UX.8)`).toHaveCount(0);
+  return 'multi';
 }
 
 /** Href de las primeras `n` fichas de carta de la vitrina (descubrimiento, sin hardcodear ids). */
@@ -138,7 +177,7 @@ test.describe('@real P-48 contra el stack vivo', () => {
     const states: { href: string; block: boolean; explainer: string }[] = [];
     for (const href of hrefs) {
       await page.goto(href);
-      await expect(page.getByText(t('es', 'catalog.salePrice'), { exact: true })).toBeVisible();
+      await expectSalePriceShown(page, href);
       const st = await marketBlockState(page);
       states.push({ href, ...st });
 
@@ -159,10 +198,22 @@ test.describe('@real P-48 contra el stack vivo', () => {
     await expect(page.getByText(MONEY_RE).first()).toBeVisible();
     await expect(page.getByText(t('es', 'price.pendingLabel'))).toHaveCount(0);
 
-    const [href] = await firstCardHrefs(page, 1);
-    await page.goto(href);
-    await expect(page.getByText(t('es', 'catalog.salePrice'), { exact: true })).toBeVisible();
+    // La primera ficha de la rejilla, sea cual sea su versión (§IDS.5): publica precio con formato MXN.
+    const hrefs = await firstCardHrefs(page, 8);
+    expect(hrefs.length).toBeGreaterThan(0);
+    await page.goto(hrefs[0]);
+    let mode = await expectSalePriceShown(page, hrefs[0]);
     await expect(page.getByText(MONEY_RE).first()).toBeVisible();
+    await expect(page.getByText(t('es', 'price.pendingLabel'))).toHaveCount(0);
+    // El rótulo de convención cuelga de la celda «Precio de venta», que solo existe en una ficha de UNA versión
+    // (IDS-UX.8: con 2+ el precio va en la burbuja, sin rótulo). Se busca la primera ficha así de la rejilla, en vez de
+    // depender de que la primera teja sea inglesa.
+    for (const href of hrefs.slice(1)) {
+      if (mode === 'single') break;
+      await page.goto(href);
+      mode = await expectSalePriceShown(page, href);
+    }
+    expect(mode, 'alguna de las primeras fichas tiene una sola versión').toBe('single');
     // ⚠️ **Este assert decía `common.withoutIva` («sin IVA») y quedó CADUCO con §M10-IVA.3.**
     // `PROJECT.md §Q` (tabla de superficies) manda: *«Ficha de carta — precio grande y filas de
     // variante · ¿Precio con IVA dentro? **SÍ**»*, y el contrato retira `salePriceCents` en favor

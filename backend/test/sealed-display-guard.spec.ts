@@ -149,6 +149,12 @@ function scan(): Hit[] {
 type Allow = { file: string; snippet: string; lines: number[]; reason: string };
 
 const ALLOWLIST: Allow[] = [
+  {
+    file: 'src/modules/pricing/stamped-ingest.service.ts',
+    snippet: 'const k = catalogMatchKey({ name: r.name, cardNumber: r.card.number ?? null, printedTotal: r.card.set?.printedTotal ?? null });',
+    lines: [88],
+    reason: 'v1.116⟨ids⟩ (§IDS.3): número de la carta de un CardProduct set_base|other para el empate de liga; nunca es una pieza sellada.',
+  },
   // ───────────────────────── NÚMERO del ancla (el resolutor no lo produce) ─────────────────────────
   {
     file: 'src/modules/orders/guest-checkout.service.ts',

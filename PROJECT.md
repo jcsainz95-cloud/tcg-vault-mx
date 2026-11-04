@@ -758,7 +758,8 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
   **Compra** (nuestro inventario a la venta), compra cartas, ve su bóveda y el valor de su portafolio (con
   **gráfica de tendencia**), pide retiros/envíos y crea solicitudes de venta (buylist). No opera dinero de
   la plataforma ni ve back-office. *(NUEVO v2.1, D11)*: **el celular es un dato obligatorio de la cuenta** —
-  se pide **al registrarse** y, si la cuenta no lo tiene (entró con **Google** o es una cuenta vieja con el
+  se pide **al registrarse** y, si la cuenta no lo tiene (entró con **Google**, la creó **en el carrito con solo el
+  correo** —criterio 975— o es una cuenta vieja con el
   campo vacío), **se le pide antes de dejarlo crear una solicitud de venta**. *(NUEVO 7ª ronda v2.1,
   **D36/D37**)*: **también necesita una DIRECCIÓN** para crear una solicitud de venta — **la misma libreta de
   direcciones con la que recibe sus compras**: **elige o confirma** una si ya tiene, **la captura** si no
@@ -869,6 +870,10 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       dato **fresco**, de **origen confiable** y **coherente en magnitud**. **Money-safe**: una cifra que no
       existe **no se dibuja** (ni **$0**, ni guion, ni «pendiente»). No aplica a **gradeadas** ni a **sellado**.
 - [ ] Registro/login de usuario **por email/contraseña o con Google** (ver Restricciones técnicas).
+- [ ] **Cuenta desde el carrito con SOLO el correo** *(dueño, 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios
+      aprobados…» (1))*: en el carrito/checkout «Crear cuenta» pide únicamente el correo; nombre y contraseña los pone
+      el cliente después (enlace en su correo o «Mi cuenta») y el celular se pide antes de vender, como a Google.
+      Criterios **969–975**; lo no decidido del flujo, en «Preguntas abiertas» (P-CTA-1, -2, -4).
 
 ### B. Compra y checkout (Stripe)
 - [ ] **Comprar NO exige cuenta** *(v1.5)*: el checkout ofrece **"continuar como invitado"** además de
@@ -876,21 +881,18 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       bóveda requiere cuenta**. Reglas completas, flujos y límites en **§J**.
 - [ ] Carrito y checkout con **Stripe**. El **precio de venta** que se cobra es **referencia + markup**
       (el markup es un dial configurable en M10); el "valor de mercado" mostrado sigue siendo la referencia.
-- [ ] ~~Precios en catálogo/ficha se muestran **sin IVA**.~~
-      **⚠⚠ DEROGADO (16ª ronda, 2026-09-09, D54). Se conserva TACHADO, no borrado**, porque **era una
-      instrucción viva y es exactamente lo que D54 invierte**. **Lo sustituye el punto de abajo.**
-- [ ] **Precios en catálogo/ficha se muestran CON EL IVA DENTRO** *(**D54**, 16ª ronda)*: la cifra exhibida en
+- [ ] **Precios en catálogo/ficha se muestran CON EL IVA DENTRO** *(**D54**, 16ª ronda; sustituye a «sin IVA»)*: la cifra exhibida en
       **catálogo, ficha (precio grande **y** filas de variante), ficha de sellado, carrito y checkout** ya
       **lleva el IVA incluido** según la posición del **dial de traslación** (global, fracción **0–100 %**,
       **arranca en 100 %**). Con el dial en **100 %** y base MX$100.00, la vitrina dice **MX$116.00**.
       **⛔ Ninguna superficie de cliente vuelve a apilar IVA sobre el precio exhibido** (criterio **189**).
       **⛔ Una sola convención por pantalla**: se acabó que el precio grande diga *«sin IVA»* y las filas de
       variante no (criterio **186**). Alcance completo por superficie en **§Q.5**; criterios **185–197**.
-- [ ] ~~**Costo de procesamiento trasladado al comprador**: línea visible y desglosada en el checkout.~~
-      **⚠⚠ DEROGADO (15ª ronda, 2026-09-08, D53). Se conserva TACHADO, no borrado**, porque **era un criterio
-      de aceptación vigente y sin marcar**: leído al pie habría hecho que QA exigiera —y el DoD verificara—
-      justo la frase que el dueño mandó retirar. **Lo sustituye el punto de abajo.**
-- [ ] **Comisión de plataforma — línea visible y desglosada en el checkout** *(**D53**, 15ª ronda)*: el
+      **⛔ Sin rótulo de IVA junto al precio** *(dueño, 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios
+      aprobados…» (3))*: el precio lleva el IVA dentro pero **no se dice** al lado («IVA 16 % incluido» ni variantes)
+      en catálogo, ficha, sellado, carrito, decks y accesorios. La cifra no cambia. La línea de IVA del resumen del
+      checkout **se queda** (dueño, P-CTA-5(a)). Criterio **977**; la nota del valor de mercado, en P-CTA-5(b).
+- [ ] **Comisión de plataforma — línea visible y desglosada en el checkout** *(**D53**, 15ª ronda; sustituye al «costo de procesamiento»)*: el
       checkout muestra una línea rotulada **«Comisión de plataforma» / «Platform fee»**, que es **la comisión
       de TCG HUNT por operar la compra**, y que **ya está incluida en el total** que el comprador ve.
       **⛔ La pantalla del cliente NO explica qué costos cubrimos con esa comisión, NO nombra a ningún
@@ -900,12 +902,8 @@ de autenticidad/condición y precios opacos. Este marketplace resuelve:
       *(Rótulos y hint normativos: `DESIGN_SYSTEM §29`; la norma de nombrado que este punto ratifica:
       **`DESIGN_SYSTEM §7.12a`**. El campo del contrato **sigue llamándose `processingFeeCents`** a
       propósito — es nombre **interno**, no un rótulo.)*
-- [ ] ~~**IVA 16% desglosado como línea aparte** en el checkout; el total cobrado lo incluye.~~
-      **⚠⚠ DEROGADO EN SU PAPEL DE LÍNEA QUE SUMA (16ª ronda, 2026-09-09, D54). TACHADO, no borrado.** Con el
-      IVA **dentro** del precio exhibido, una línea que **suma** IVA sobre ese precio **cobraría el impuesto
-      dos veces**. **Lo sustituye el punto de abajo.**
-- [ ] **El IVA del checkout INFORMA, no suma** *(**D54**, 16ª ronda; **el rótulo exacto es SUPUESTO —
-      pregunta 60**, que sigue abierta)*: el checkout **sigue mostrando el importe de IVA** —*«IVA 16 %
+- [ ] **El IVA del checkout INFORMA, no suma** *(**D54**, 16ª ronda; sustituye a la línea que sumaba; **el rótulo
+      exacto es SUPUESTO — pregunta 60**; que se queda en el resumen lo decidió el dueño el 2026-11-03)*: el checkout **sigue mostrando el importe de IVA** —*«IVA 16 %
       incluido: MX$16.00»*— pero **ya está dentro del precio exhibido y NO mueve el total ni un centavo**.
       **⛔ El importe de IVA no desaparece**: es **la única fuente del desglose** para la factura manual
       (`Order.ivaCents` → `GET /admin/finance/iva` → CSV), y **borrarlo es más difícil de deshacer que
@@ -2100,8 +2098,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 **Qué NO puede hacer un invitado**
 - [ ] **No puede guardar en bóveda** (decisión de producto, ver §C). Si intenta elegir "guardar en bóveda",
       **no se muestra un error**: se muestra un **upsell in-situ** que explica el beneficio (acumular
-      cartas, un solo envío, portafolio valuado) y permite **crear cuenta sin salir del checkout**,
-      **conservando el carrito y los datos ya capturados**; al crear la cuenta, el destino bóveda queda
+      cartas, un solo envío, portafolio valuado) y permite **crear cuenta sin salir del checkout**, **con solo
+      el correo** (criterio 969), **conservando el carrito y los datos ya capturados**; al crear la cuenta, el destino bóveda queda
       disponible y el flujo continúa donde estaba. También puede **descartar** el upsell y seguir con envío
       directo.
 - [ ] **No puede vender (buylist)**, ni acceder a cotizador con solicitud, portafolio, gráfica de tendencia,
@@ -2128,7 +2126,8 @@ Principio: cada objeto (carta física, orden, solicitud, envío, disputa) es una
 - [ ] En la **pantalla de confirmación de compra** y en el **correo de confirmación** se ofrece
       **crear cuenta con el mismo correo** ("guarda tu pedido y tus próximas compras en tu bóveda").
 - [ ] Al crear la cuenta con **ese mismo correo**, el pedido de invitado **se vincula** a la cuenta y
-      **aparece en su historial de pedidos**, con su estado y su seguimiento ya dentro de la sesión.
+      **aparece en su historial de pedidos**, con su estado y su seguimiento ya dentro de la sesión. Si la cuenta
+      nació con solo el correo, el vínculo espera a que abra el enlace de su correo (criterio 974).
 - [ ] El reclamo **no cambia el pedido**: no altera el destino (sigue siendo envío directo), ni el precio,
       ni las políticas ya aplicadas. Un pedido de invitado **ya enviado o entregado** también puede
       reclamarse (queda en el historial como pedido cerrado).
@@ -8806,9 +8805,9 @@ de P-DSP-3 y P-DSP-4, que el dueño **ya respondió** distinto el 2026-10-04 (`H
   acuerdo 20 por cuenta»). Al llegar al tope, el botón explica que hay que quitar uno. *(SUPUESTO: el 20 es un dial
   del súper-admin, como los demás topes; bajarlo no borra deseos ya guardados, solo impide agregar.)*
 - **Fuera:** cartas **gradeadas** (el deseo es de una carta NM sin gradear) y cartas en **español, japonés o con sello
-  de torneo** — esos productos salen **después** de cobrar en real (`HECHOS.md` fila 77, 2026-10-06, «CAMBIO de
-  alcance: se sale en vivo SIN español ni sellos…»). *(SUPUESTO: al llegar §IDS se decide si un deseo puede pedir
-  idioma.)*
+  de torneo** — esos productos salen **después** de cobrar en real (`HECHOS.md` fila 2026-10-06, «CAMBIO de
+  alcance: se sale en vivo SIN español ni sellos…»). *(SUPUESTO, §IDS.6: con §IDS el deseo sigue siendo de la carta
+  en inglés sin sello.)*
 - **Sellados:** no entran en la lista de deseos; tienen su propio «avísame», que se enciende (ver WSH.7).
 
 #### WSH.2 Dónde se agrega y se quita
@@ -9861,6 +9860,227 @@ además, qué códigos se usaron. Se descarga en CSV.
 
 - Criterios **890–919**. Sin preguntas abiertas de §DSC (P-DSC-1/2/3 resueltas, ver `docs/DECISIONES.md`).
 
+### IDS. Idioma español y cartas con sello en el inventario (transversal — 2026-10-06, act. 2026-11-01 · va **antes** de D-9 · **no** bloquea el modo real)
+
+> **Fuentes que mandan (citadas por fila de `HECHOS.md`; O-17):**
+> - **2026-10-06** «Idiomas del inventario (P-INV-IDIOMA) y sellos (P-INV-SELLO) — respuestas del dueño…»: sin captura
+>   manual; el español «son de los mismos sets, versión de otro país»; la carta con sello «solo cambia que tienen un
+>   logo distinto, te las dan cuando juegas torneo oficial».
+> - **2026-10-06** «Alcance para salir en vivo: español + cartas con sello; japonés después.»: (c) español = inglés ×
+>   X % con dial; (d) sello = precio propio del producto, sin multiplicador. Su «antes de salir» y su «X lo mide el
+>   dueño… hasta tenerlo no se publica» **ya no valen** (filas siguientes).
+> - **2026-10-06** «CAMBIO de alcance: se sale en vivo SIN español ni sellos; ambos (y el japonés) van DESPUÉS.» ⇒
+>   §IDS y sus criterios **no bloquean** el modo real de Stripe.
+> - **2026-10-30** «Español y sellos (§IDS) — respuestas del dueño.»: español = mercado del inglés × **75 %**, dial que
+>   el dueño mueve; «las demas dinamicas funcionan igual»; «nuestro proveedor tiene precio de cartas de torneo»; tiene
+>   cartas **en español con sello**; sin valor de mercado ni estimado PSA en la ficha del español; hoy solo tiene
+>   sellos «de los que parecen de liga pokemon».
+> - **2026-10-30** «Español y sellos: TODO automático, sin colas que revise el dueño.»: «nada de cossas que revise yo
+>   porque creas cuellos de botella». El precio de español y sellos **nunca espera al dueño**.
+> - **2026-10-30** «Casos de revisión de precio SIN base: opción A, automático; y precio del español con sello.»:
+>   español con sello = esa carta con sello en inglés × 75 % (el mismo dial).
+> - **2026-11-01** «Español y sellos (§IDS) va primero; el dueño quiere ver cómo se muestra.»: §IDS antes que D-9;
+>   maquetas antes de construir; Meta Battle Decks (§IDS.7).
+> - **2026-10-04** «REGLA GENERAL: los procesos se diseñan LO MÁS AUTOMÁTICOS POSIBLE…»: lo manual es respaldo.
+>
+> ⛔ **Antes de construir** (fila 2026-11-01 «…va primero…»): ux-ui hace **maquetas** de (1) la captura de
+> inventario, (2) la lista de inventario del admin, (3) la tienda —teja, ficha y carrito— y (4) Meta Battle Decks.
+> Las elecciones de **presentación** (A/B, P-IDS-5, P-IDS-6, P-IDS-12) las tomó la **sesión de marketing** con esas
+> maquetas, no el dueño (fila 2026-11-01 «Las elecciones de cómo se muestran español y sellos las decide
+> marketing»); ya integradas en §IDS.3, §IDS.4 y §IDS.7 (filas 2026-11-02 «Nombre visible de la versión de liga…» y
+> «Selector de versión en burbujas…»). Brief de SEO/GEO/conversión: fila 2026-11-01 «Captura de español y sellos:
+> super sencilla, pocos clics; marketing involucrado.».
+> **Captura sencilla** (misma fila): el camino normal (inglés sin sello) **no gana ningún clic**; idioma y sello se
+> eligen en el mismo paso de la captura; el precio sale solo.
+>
+> **Lo medido que sostiene la sección** (investigaciones de solo lectura del 2026-10-06, `IDIOMAS.md` y `SELLOS.md`
+> del scratchpad de la sesión 6; ⚠️ **no están en git**, por eso va resumido aquí):
+> - **Español = mismo producto que el inglés.** En Cardmarket la carta española y la inglesa son **el mismo
+>   producto** (Tropius me05: `idProduct` 895789 en los dos idiomas). **Ninguna fuente abierta da un precio propio
+>   del español** ⇒ el precio del español solo puede salir de una **regla sobre el inglés**.
+> - **Japonés:** los sets japoneses **no** coinciden 1:1 con los ingleses (numeración distinta: Mega Charizard X ex
+>   110/080 en JP vs 125/094 en EN) ⇒ necesita **catálogo propio** (TCGCSV categoría 85). Por eso va después.
+> - **Sello:** en TCGplayer/TCGCSV la carta con sello es **otro producto, con su propio precio** (Prize Pack: grupo
+>   `22880`, 891 productos; liga y campeonatos: grupo `1539`; prerelease/Staff/«Stamped»: grupos de promos de la era).
+>   pokemontcg.io (nuestro catálogo de hoy) **no las tiene**. Relación de precio sello/base, N = 102 pares: mediana
+>   **×2.15**, de **×0.81** (percentil 10) a **×11.1** (percentil 90), y **17 %** valen *menos* que la normal ⇒ ningún
+>   multiplicador sirve.
+> - **Empate automático con la carta base (Prize Pack):** por nombre + número completo, **818 de 849 (96 %)** tienen
+>   pareja única; los ambiguos tienen causa conocida (energías básicas iguales en dos sets; reediciones). **NO MEDIDO:**
+>   la tasa de empate de liga/campeonato (`1539`) y de prerelease/Staff (cuelgan de la **promo**, no de una carta de
+>   set; que esas promos estén en nuestro catálogo tampoco está medido).
+>
+> ⛔ **El «cómo» es del arquitecto** (si el sello es un tipo de producto nuevo o reutiliza «promo», campos, migración,
+> contrato). Aquí solo va **qué** tiene que pasar y **cómo se comprueba**.
+
+#### IDS.1 Español: qué es una pieza en español
+
+- [ ] Toda pieza de inventario tiene un **idioma**: **Inglés** (lo de hoy) o **Español**. Al capturar, el idioma por
+      defecto es **Inglés**; elegir Español es una opción explícita del operador.
+- [ ] Una pieza en español es **la misma carta del mismo set** (mismo nombre, número, set y acabado) que la inglesa,
+      con la etiqueta de idioma. **No** hay catálogo aparte para el español (Cardmarket la trata como el mismo
+      producto; ver lo medido arriba).
+- [ ] Idioma y sello se combinan: una pieza es **Inglés**, **Español**, **Inglés con sello** o **Español con sello**
+      (el dueño tiene cartas en español con sello, fila 2026-10-30 «Español y sellos (§IDS) — respuestas del dueño.»).
+- [ ] **Todo lo existente queda en Inglés y sin sello, sin cambiar nada**: ni precios, ni lo publicado, ni los
+      pedidos, ni las solicitudes de venta, ni el portafolio de los clientes. Este cambio **solo añade**.
+
+#### IDS.2 Precio del español: automático, con dial de 75 %
+
+- [ ] **Regla:** valor de mercado de referencia del español = **valor de mercado del inglés** (misma carta, mismo
+      acabado) × **X %**. A partir de ahí la pieza en español se precia **igual que cualquier carta**: curva de §N,
+      piso, redondeo, IVA dentro de §Q y precio del día de §DYN («las demas dinamicas funcionan igual»).
+- [ ] **X es un solo porcentaje** para todas las cartas y **arranca en 75 %**. Es un dial que el dueño cambia en
+      **Configuración**, sin tocar código ni desplegar; lo edita el mismo rol que hoy edita la curva de precios (§N.3).
+      Cada cambio queda en la **bitácora** (quién, cuándo, valor anterior y nuevo). *(SUPUESTO: bitácora como en los
+      demás diales de dinero.)*
+- [ ] El dial **no se puede dejar vacío** y rechaza 0, negativos y texto. *(SUPUESTO: acepta de 1 % a 200 %; el tope
+      solo protege de un error al teclear, p. ej. 750 en vez de 75.)*
+- [ ] **Automático de punta a punta:** cuando el mercado del inglés cambia en el barrido diario, o cuando el dueño
+      mueve X, el precio de las piezas en español se recalcula solo. Nadie teclea precios de español y **ningún precio
+      de español espera al dueño**.
+- [ ] ⛔ **Falla cerrado sin cola:** si el inglés de esa carta y acabado **no tiene valor de mercado**, la pieza en
+      español no se publica (motivo «sin mercado del inglés») y se publica **sola** en cuanto un barrido lo traiga.
+      **Nunca** se publica ni se cobra con el precio del inglés.
+- [ ] En la **ficha** de una pieza en español **no** se muestran valor de mercado ni estimado PSA (son de la carta en
+      inglés).
+
+#### IDS.3 Cartas con sello de torneo oficial
+
+- [ ] Una carta con sello es **la misma carta con el logo de un torneo oficial**: Prize Pack / Play! Pokémon, liga,
+      campeonato, Staff, prerelease. Se captura como **versión de liga** (o de promo) **de su carta base**.
+- [ ] **Nombre visible: «de liga», nunca «sello»** (`HECHOS.md` fila 2026-11-02 «Nombre visible de la versión de liga
+      (decisión de marketing D-6 v3…)»; en México se dice «de liga»). «Sello» queda como término **interno**: solo en
+      admin, export y hoja de preparación. Tipos visibles: **«De liga»** (Prize Pack y Liga), **«De torneo»**,
+      **«Prerelease»**, **«Staff»**; EN «Prize Pack» / «League» / «Tournament» / «Prerelease» / «Staff». Patrón de
+      versión: **«Inglés»**, **«Español»**, **«Inglés · De liga»**, **«Español · De liga»** (EN «<idioma> · <tipo>»:
+      «English · Prize Pack», «Spanish · Prize Pack»). Versión base: **«Sin liga»** (EN «Regular»); acabado sin holo:
+      **«No holo»** (EN «Non-holo»); en la teja «Cosmos» / «1st Edition», en ficha y nombre accesible el nombre
+      completo («Cosmos Holo»). EN definitivo: fila 2026-11-03 «Copy EN de §IDS (decisión de marketing, delegada)»;
+      «Sin liga»/«No holo»: fila 2026-11-02 «§IDS v5 2×N…». Tabla completa y medidas: `docs/DESIGN_SYSTEM.md` IDS-UX.1.
+- [ ] **Lo que el dueño tiene hoy son sellos de liga Pokémon** (TCGCSV grupo `1539`): es el caso que tiene que
+      funcionar primero. La tasa de empate automático de ese grupo **NO está medida** (la de Prize Pack sí, 96 %); la
+      mide el arquitecto antes del diseño. Los demás tipos usan el mismo mecanismo; no se construye nada aparte para
+      ellos.
+- [ ] **El precio es el propio de ese producto** en el proveedor que ya usamos (TCGCSV/TCGplayer; «nuestro proveedor
+      tiene precio de cartas de torneo»), por su acabado, con el mismo barrido diario y la misma conversión a pesos que
+      el resto; luego curva de §N, IVA de §Q y precio del día de §DYN como cualquier carta. ⛔ **Nunca un
+      multiplicador** sobre la carta base (la investigación midió de ×0.8 a ×11).
+- [ ] **Español con sello:** valor de mercado de referencia = valor de mercado de **esa carta con sello en inglés** ×
+      **X %** (el mismo dial de §IDS.2), y de ahí igual que cualquier carta.
+- [ ] ⛔ Si el producto con sello **no tiene valor de mercado**, la pieza (en inglés o en español) no se publica y se
+      publica **sola** cuando un barrido lo traiga. **Nunca** toma el precio de la carta base.
+- [ ] **El empate con la carta base es automático.** La tienda busca sola, en la fuente, las versiones con sello y
+      las cuelga de su carta base cuando el empate es **único**.
+- [ ] ⛔ **Cuando el empate no es único, no se adivina ni se pregunta al dueño:** la versión con sello no se cuelga
+      sola. En la **captura**, quien tiene la carta en la mano elige el producto con sello concreto entre los
+      candidatos del proveedor (es una elección de **identidad**, nunca de precio). Si no hay ningún candidato, esa
+      versión **no se ofrece** para captura. **No hay reporte, cola ni paso que revise el dueño** (fila 2026-10-30
+      «TODO automático…»).
+- [ ] En la captura, el operador elige la carta base, el idioma y, si existe, la **versión de liga** concreta (puede
+      haber varias: p. ej. Prize Pack normal y Prize Pack Cosmos Holo, o prerelease y Staff), cada una con su precio.
+      Son **dos controles** en el mismo paso (opción A del dueño, `HECHOS.md` fila 2026-11-01 «Captura de español y
+      sellos: opción A…»): **Idioma** (Inglés | Español) y **Versión** (Sin liga | De liga · <tipo>…, solo si la carta
+      tiene versiones), en **burbujas** (fila 2026-11-02 «Selector de versión en burbujas: opción A-contorno de
+      marketing»); Inglés y Sin liga marcados de fábrica. Una versión sin precio se ve **apagada con su motivo** y no se
+      puede crear. El precio calculado lleva la etiqueta **«Precio de venta (auto)»** (EN «Selling price (auto)», fila
+      2026-11-02 «§IDS v5 2×N…»). Forma: `docs/DESIGN_SYSTEM.md` IDS-UX.2 e IDS-UX.8.
+- [ ] En la **ficha** de una pieza con sello **no** se muestra el estimado PSA (es de la carta sin sello). El valor de
+      mercado se muestra solo donde la tienda lo muestra hoy para cualquier carta (§MIV), y es el **de su producto**;
+      en español con sello, ninguno de los dos (§IDS.2). *(Dónde se muestra hoy el valor de mercado: **NO MEDIDO**;
+      el dueño cree que ya no se muestra. Lo cierra abrir una ficha en `tcghunt.mx` y `grep` de §MIV en el frontend.)*
+
+#### IDS.4 En la tienda, el carrito y el cobro
+
+- [ ] El cliente ve el **idioma** y, si la tiene, la **versión de liga** con los nombres de §IDS.3 (nunca la palabra
+      «sello») en: la teja del catálogo, la **ficha**, el **carrito**, el **checkout**, el **pedido** (cliente y admin)
+      y el **correo de confirmación**. En la tienda en español y en la de inglés. **Teja:** solo la insignia («Español»,
+      «De liga»…; inglés sin liga, ninguna). **Carrito, checkout, pedido y correo:** además, el tipo exacto en texto:
+      **«Español · De liga (Prize Pack)»** (EN «Spanish · Prize Pack»).
+- [ ] La misma carta y acabado en **inglés**, en **español**, **de liga** o **en español de liga** son **opciones
+      distintas**, cada una con su precio y su existencia. Comprar una no descuenta existencia de otra.
+- [ ] **Ficha: una por carta, selector de versión** (fila 2026-11-02 «Selector de versión en burbujas: opción
+      A-contorno de marketing»): rótulo **«IDIOMA Y VERSIÓN»** (EN «LANGUAGE AND VERSION», confirmado por marketing en la
+      fila 2026-11-02 «§IDS v5 2×N…») y cuadrícula 2×2 de burbujas «Inglés» · «Español» · «Inglés · De liga» · «Español · De liga», **cada una con
+      su precio**, sin precio grande repetido. Las versiones **agotadas no se muestran** (decisión de marketing, misma
+      fila); con una sola versión con existencia no hay selector. Bajo el selector, con versión de liga elegida, texto
+      tenue «Carta de liga: Prize Pack de Play! Pokémon». Si se agotan todas, la ficha sigue como «Agotada» (criterio
+      951). Forma: `docs/DESIGN_SYSTEM.md` IDS-UX.4 e IDS-UX.8.
+- [ ] **Filtros:** por **idioma** (Inglés / Español) y **«Cartas de liga y promos»**, combinables con los filtros de
+      hoy. Sin filtro, se ve todo. *(SUPUESTO: por defecto se muestran todos los idiomas.)*
+- [ ] 💰 **El cobro es el precio mostrado de la opción elegida**, calculado en el servidor (nunca el que manda el
+      navegador). Si entre el carrito y el pago una pieza en español o con sello **pierde su precio** (p. ej. tras una
+      corrida el inglés o el producto con sello se queda sin valor de mercado), el checkout **la rechaza** con un mensaje
+      claro y **no cobra**; jamás la cobra al precio del inglés o de la carta base.
+- [ ] **Imagen y nombre** (P-IDS-5 y P-IDS-6, decididas por marketing; fila 2026-11-02 «Nombre visible de la versión
+      de liga…»): todas las versiones usan **la imagen y el nombre del catálogo en inglés**, con la insignia de versión
+      y, bajo la foto de la ficha, una leyenda: español «Imagen de referencia (versión en inglés)»; de liga «Imagen de
+      referencia (sin logo de liga)»; español de liga «Imagen de referencia (versión en inglés, sin logo de liga)».
+      Textos completos ES/EN: `docs/DESIGN_SYSTEM.md` IDS-UX.1.
+
+#### IDS.5 Operación: preparar el pedido, reportes y export
+
+- [ ] La **hoja de «Pedidos por preparar»** (§S) y el detalle del pedido en admin dicen **idioma y sello** de cada línea,
+      para que el operador saque **la pieza física correcta** del estante.
+- [ ] **Lista de inventario del admin**: cada pieza dice su **idioma** y, si lo tiene, su **sello** (con tipo).
+      *(Forma exacta: la de la maqueta que elija marketing.)*
+- [ ] **Export `.xlsx` del inventario** (`GET /admin/inventory/export.xlsx`): cada fila trae **Idioma** y **Sello**
+      (tipo de sello, o vacío si no tiene). Las piezas existentes salen como «Inglés» y sin sello. *(SUPUESTO: las dos
+      columnas van **al final**, para no mover las columnas que el dueño ya usa; el arquitecto lo confirma. Aviso en la
+      solicitud de fusión: la forma de la hoja cambia.)*
+- [ ] *(SUPUESTO — confirmar en P-ARQ-IDS-2)* Donde hoy el sistema usa el **valor de mercado de una pieza** fuera de la venta (valor
+      del portafolio en la bóveda; lo que se paga si una pieza de un retiro no se repone, `HECHOS` 2026-09-29 D-2), una
+      pieza en español usa **su** valor (inglés × X %), una con sello usa **el de su producto** y una en español con
+      sello, el de su producto × X %; nunca el de la carta inglesa sin sello.
+
+#### IDS.6 Fuera de alcance de §IDS (escrito como tal)
+
+- **Japonés.** Va **después** de salir en vivo (`HECHOS.md` fila 2026-10-06 «Alcance para salir en vivo…» (b)): sus
+  sets no coinciden con los ingleses y necesita **catálogo propio** (TCGCSV categoría 85). No aparece en captura,
+  filtros ni export en esta entrega.
+- **Buylist** (lo que los clientes le venden a la tienda): sigue **solo con cartas en inglés y sin sello**. El
+  cotizador no ofrece idioma ni sello, y una pieza que entra por buylist nace **Inglés, sin sello**.
+- **Precio capturado a mano como camino normal** para español o sello (`HECHOS.md` fila 2026-10-04 «REGLA GENERAL…»).
+  El respaldo manual existente no se elimina, pero no es el camino.
+- Precio del español por **fuente propia** (CardTrader, Cardmarket): no hay fuente abierta hoy; se reabre si el dueño
+  decide pagar o abrir una cuenta.
+- Imagen o nombre **en español** desde otra fuente (marketing eligió la del inglés con leyenda, §IDS.4).
+- **Reportes, colas o pasos de revisión del dueño** para español o sellos (fila 2026-10-30 «TODO automático…»).
+- *(SUPUESTO)* **Lista de deseos** con idioma o sello: un deseo sigue siendo de la carta en inglés sin sello (§WSH).
+- Otros idiomas (francés, alemán, coreano…).
+- *(SUPUESTO hasta P-ARQ-IDS-1)* Cartas **gradeadas** y **producto sellado** en español o de liga: §IDS es solo de
+  cartas sueltas.
+
+#### IDS.7 Meta Battle Decks con piezas en español o con sello
+
+> Fuente: fila 2026-11-01 «Español y sellos (§IDS) va primero…»: «en meta decks se debe considerar para que se las
+> lleven solo debe deplegarse que version es» ⇒ **decidido**: las piezas en español o con sello **cuentan** para
+> surtir el deck y solo se dice qué versión es (lo ratifica la fila 2026-11-01 «Las elecciones de cómo se muestran
+> español y sellos las decide marketing»). La **forma** de mostrarlo y el orden de agregado los decidió marketing
+> (P-IDS-12; `docs/DESIGN_SYSTEM.md` IDS-UX.5, `docs/ARCHITECTURE.md` D-IDS-I). Hoy la
+> disponibilidad del deck (`frontend/src/app/[locale]/(storefront)/decks-meta/DeckAvailability.tsx`) arma cada línea
+> con las piezas propias de la carta casada (`unitInventoryItemIds`), muestra **un** precio por línea y el botón de la
+> línea agrega «la pieza más barata aún no en el carrito» (leído el 2026-11-01). §AC.10 (paquete de energías) no
+> cambia.
+
+- [ ] Una pieza **publicada** en español, con sello o en español con sello de la carta de una línea **cuenta** como
+      existencia de esa línea, igual que la inglesa, en el detalle del deck y en «Pegar lista».
+- [ ] **Se dice qué versión es**: la línea muestra de qué versiones está hecha su existencia, y cada pieza que entra al
+      carrito desde el deck lleva su etiqueta («Español», «De liga»…, nombres de §IDS.3) en la línea, el carrito y el
+      pedido. Una línea solo con piezas en inglés sin liga se ve como hoy. En el deck **no hay selector** de versión.
+      *(Forma: `docs/DESIGN_SYSTEM.md` IDS-UX.5.)*
+- [ ] 💰 **El precio de cada pieza es el suyo** (§IDS.2, §IDS.3): la línea muestra el precio de la pieza que agregaría
+      el botón; el cobro es la suma de los precios de las piezas en el carrito, calculada en el servidor.
+- [ ] 💰 **Orden de surtido: primero sin liga, liga solo si no alcanza** (P-IDS-12, decidida por marketing; fila
+      2026-11-02 «Selector de versión en burbujas…», v1 de `IDS_RECOMENDACIONES` de marketing —en el repo de marketing,
+      no leída aquí— y `docs/ARCHITECTURE.md` D-IDS-I). «Agregar de jalón» y el
+      botón de la línea agregan primero las piezas **sin liga** (inglés o español) de **la más barata a la más cara**;
+      una pieza de liga solo entra si las sin liga **no alcanzan** la cantidad de la línea. Motivo: una liga metida sola
+      multiplica el total (mediana ×2.15, hasta ×11).
+- [ ] **Paquete de energías (§AC.10)**: un deck surtido con piezas en español o con sello cuenta como «deck en el
+      carrito» (P-EN-4) igual que uno en inglés; MX$20 y sus seis reglas no cambian. El criterio 197 no se afloja.
+- [ ] Una pieza en español o con sello **sin precio** (no publicada) no cuenta ni entra en el jalón.
+
 ## Fuera de alcance (por ahora — fase 2 o posterior)
 - **De §DSC (códigos de descuento)** *(2026-10-25)*: detalle en **§DSC.5**.
 - **De §PRE (precios robustos)** *(2026-10-11)*: recalcular importes ya cobrados o pagados; cambiar margen, IVA, piso
@@ -9880,6 +10100,9 @@ además, qué códigos se usaron. Se descarga en CSV.
   paquete de energías del deck y los códigos de §DSC), galería de fotos, «avísame cuando vuelva», sugerencias inteligentes, accesorios en
   bóveda/portafolio/buylist/retiros, energías especiales o por set, compras a proveedores e importación por archivo.
   Detalle en **§AC.8**.
+- **De §IDS (español y sellos)** *(2026-10-06, act. 2026-11-01)*: **japonés**; **buylist** con español o sello;
+  **precio a mano** como camino normal; precio del español por **fuente propia**; colas o reportes que revise el
+  dueño; lista de deseos con idioma o sello; otros idiomas. Detalle en **§IDS.6**.
 - **De §Z (control del gasto)** *(2026-10-04)*: avisos por **SMS o WhatsApp**; avisos o correos **al personal**;
   **aprobación previa del dueño guía por guía** como camino normal (el freno es el tope y el interruptor general);
   **bloqueo automático de cuentas** del personal por un aviso; **conciliación automática** del saldo de Skydropx
@@ -10390,13 +10613,13 @@ nuevo, no como parte de §R**:
   del cliente no transporta el monto**.
 - **Celular obligatorio en la cuenta** *(v2.1, D11)*: es dato requerido **al registrarse**, en el **alta de
   usuario por admin** y **antes de crear una solicitud de venta** (este último cubre las cuentas de **Google**
-  y las cuentas viejas con el campo vacío). El **teléfono viaja en la cola de buylist** del back-office (D12)
+  y las cuentas viejas con el campo vacío, y desde 2026-11-03 las creadas en el carrito con solo el correo). El **teléfono viaja en la cola de buylist** del back-office (D12)
   y **nunca** se expone en superficie pública (§J).
 - **Condición del raw — solo Near Mint (NM)**: el raw se opera **únicamente en NM** en todo el marketplace
   (se eliminan LP/MP/HP/DMG). NM se presenta como **"Casi nueva (Near Mint)"** con descripción del estándar
   propio; gradeadas y sellado no cambian.
 - **Autenticación**: registro/login por **email/contraseña** (actual) **o inicio de sesión con Google**
-  (OAuth) como alternativa; ambos disponibles.
+  (OAuth) como alternativa; ambos disponibles. En el carrito, además, alta con **solo el correo** (§A, criterios 969–975).
 - **Sync de catálogo**: se puebla desde la fuente de referencia (pokemontcg.io) trayendo por defecto **sets
   de 2024 en adelante**, con **backfill** de colecciones anteriores por **lotes automatizados** + importación
   puntual. Debe capturar **rarezas modernas** y el **año de lanzamiento del set** para los filtros de Compra.
@@ -10436,7 +10659,8 @@ nuevo, no como parte de §R**:
 > bloqueantes. **Lo que cambió respecto de lo que QA verificaba hasta ayer**: los precios se muestran **con
 > IVA dentro** (no *«sin IVA»*), la línea de IVA del checkout **informa** en vez de **sumar**, y la **comisión
 > de plataforma sigue fuera** del precio exhibido. Los sitios que §Q sustituye quedan **TACHADOS Y
-> REESCRITOS** —criterios **2** y **4**, los dos puntos de **§B** y **Restricciones técnicas**—, no borrados.
+> REESCRITOS** —criterios **2** y **4** y **Restricciones técnicas**—; los tachados de **§B** salieron el 2026-11-03
+> (texto en git).
 > **⚠ Dos criterios dependen de preguntas que siguen abiertas y se verifican con su supuesto declarado**: el
 > **190** (pregunta **57**, órdenes congeladas — la regla propuesta es la que se verifica) y el rótulo exacto
 > del importe de IVA del checkout (pregunta **60**). **Si el dueño responde distinto, se reverifican.**
@@ -10754,7 +10978,7 @@ nuevo, no como parte de §R**:
 
 **Autenticación**
 35. El usuario puede **registrarse/iniciar sesión con email/contraseña** o **con Google** (ambas opciones
-    disponibles).
+    disponibles). En el carrito, la cuenta se crea con **solo el correo** (criterios 969–975).
 
 **Catálogo — población y sincronización**
 36. El sistema **puebla el catálogo desde la fuente de referencia** trayendo por defecto **sets de 2024 en
@@ -10802,7 +11026,7 @@ nuevo, no como parte de §R**:
 48. Un invitado **solo puede elegir envío directo a domicilio nacional**: la opción **"guardar en bóveda"
     no completa la compra sin cuenta**, y al intentarla se muestra un **upsell** (mensaje de beneficio +
     "crear cuenta") **y nunca un error**. Desde ese upsell el invitado **crea cuenta sin salir del
-    checkout**, **conserva el carrito**, y tras registrarse el destino **bóveda queda disponible** y el
+    checkout** tecleando **solo su correo** (criterio 969), **conserva el carrito**, y tras registrarse el destino **bóveda queda disponible** y el
     flujo continúa; si descarta el upsell, sigue con envío directo.
 48b. El checkout de invitado muestra **el mismo desglose y los mismos avisos** que el de un usuario con
     cuenta: ~~subtotal sin IVA~~ **subtotal CON IVA DENTRO** *(**D54**, 16ª ronda, 2026-09-09)*,
@@ -10832,7 +11056,8 @@ nuevo, no como parte de §R**:
     frecuencia** (intentos repetidos se bloquean/atenúan), de modo que no funcione como oráculo para saber
     si un correo compró en la plataforma.
 54. **Reclamo post-compra**: si el invitado **crea cuenta con el mismo correo** de su pedido, ese pedido
-    **aparece en su historial** con su estado y seguimiento dentro de la sesión, **sin cambiar** destino,
+    **aparece en su historial** con su estado y seguimiento dentro de la sesión (cuenta nacida con solo el
+    correo: hasta que abre el enlace de su correo, criterio 974), **sin cambiar** destino,
     precio ni políticas del pedido. Funciona también con el pedido **ya enviado/entregado**. Al reclamar, la
     **dirección de envío de cada pedido PAGADO** se guarda en la **libreta de direcciones** de la cuenta,
     **nunca como predeterminada** (un pedido sin cobrar no aporta dirección); el **aviso** de reclamo solo lista
@@ -11585,7 +11810,8 @@ nuevo, no como parte de §R**:
 128. **Celular obligatorio en los tres puntos (D11)** *(⚠ **PRECISADO 2026-09-05**, a raíz de un hallazgo de
     QA: los tres incisos decían **dónde** se exige el celular pero no **a quién**, y esa ambigüedad se
     resolvió sola en la implementación. **Se precisa el sujeto; no se cambia el requisito.** Ver (f))*:
-    **(a)** el **registro público con email/contraseña** **no se completa** sin celular. **El alta con Google
+    **(a)** el **registro público con email/contraseña** **no se completa** sin celular (⚠ 2026-11-03: **salvo** la
+    cuenta creada en el carrito con solo el correo, que nace sin celular como la de Google — criterio 975). **El alta con Google
     NO se bloquea**: el **criterio 35** la ofrece como opción de primera clase y Google **no entrega
     teléfono**, así que esa cuenta **nace sin el dato a propósito** y la recoge el inciso **(c)**. *(Se dice
     explícito porque un «el registro no se completa» a secas **prohibiría el alta con Google**, que este
@@ -11932,12 +12158,12 @@ nuevo, no como parte de §R**:
     solicitud que recorre los dos plazos recibe **exactamente dos** correos de recordatorio, uno por plazo;
     **(b)** corriendo el barrido **tres veces** dentro de cada ventana **no se manda ninguno de más**;
     **(c)** el que llega es el del plazo **que está corriendo**, a **un día hábil** de vencer.
-160. **El inventario ya capturado se corrige a mano; ninguna migración adivina (respuesta a la pregunta 11)**:
-    la separación de identidad de **promos y exclusivos de deck** (D7, §P.8) **no se aplica retroactivamente
-    de forma automática** a las filas ya capturadas: se **reclasifican manualmente desde M1**. Verificable:
-    **no existe** ningún proceso, script ni botón que reasigne identidad de piezas históricas por inferencia;
-    y **sí existe** en M1 la vía para corregir a mano la identidad de una pieza ya capturada, **quedando
-    auditada** (M10).
+160. **Una pieza mal capturada se corrige con baja + alta; nada reasigna identidad** (fila 2026-11-03 «Corregir una
+    pieza mal capturada: darla de baja y volver a subirla»): la separación de **promos y exclusivos de deck** (D7,
+    §P.8) no se aplica retroactivamente. Una pieza con la carta equivocada se **da de baja** y se **vuelve a capturar**
+    con la correcta; la corrección en sitio de la identidad **no se construye** (I-7). Verificable: **no existe**
+    proceso, script, botón ni campo que cambie la carta de una pieza ya capturada (ni por inferencia ni a mano); la
+    baja y la nueva alta **quedan auditadas** (M10).
 
 **Ciclo de adquisición del buylist — 4ª ronda (CORRECTIVA): la condición va al frente, no la pregunta al
 final (v2.1, D30; §E/§H/§P.3/§P.5.1/§P.6/§P.10/§P.11)**
@@ -12838,7 +13064,8 @@ de este documento (v2.1, D41 + D42; §E/§H/§P.3/§P.11)**
    `DESIGN_SYSTEM §7.12a`; **hoy no hay abogado en el proyecto**)*: se corre el test de copy contra las
    superficies de cliente y **no aparece** ninguna variante de *«trasladado»*, *«conforme a la ley»*, *«no es
    un recargo»*, *«por disposición fiscal»* ni cita de norma alguna — **tampoco en negativo**. El único rótulo
-   admitido es de **importe**: *«IVA 16 % incluido»*. **Se verifica por ausencia.**
+   admitido es de **importe**: *«IVA 16 % incluido»*, y **solo en la línea de IVA del resumen del checkout** (dueño, 2026-11-03),
+   **nunca junto a un precio** (criterio 977, dueño 2026-11-03). **Se verifica por ausencia.**
 196. **El modo mock/desarrollo no contradice al sistema real** *(hoy el mock del frontend tiene el **16
    clavado**, `api.ts:765`, hecho 11)*: con el dial en un valor distinto del default, el modo mock **no muestra
    una cifra que el sistema real no produciría**. Basta con que **derive del mismo dial** o que **la pantalla
@@ -13323,7 +13550,7 @@ cerradas el mismo día: P-STF-4 por decisión del dueño, el resto con default a
    cambia en la pantalla es que el campo acepta correo **o** usuario, §U.3); la cuenta del dueño conserva
    su correo y recupera su contraseña por correo; los números del candado y del límite por IP no cambian; ningún
    rol gana ni pierde permisos por no tener correo; **nadie** tiene doble verificación; el alta de clientes sigue
-   igual.
+   igual. *(Fuera de §U, el alta en el carrito con solo el correo cambia el 2026-11-03: criterios 969–975.)*
 *(Criterios 271–274 **nuevos el 2026-10-04**, de `HECHOS.md` fila «Disputas: se quitan de la tienda…» — §V. 💰 El
 273 toca reembolsos: tres veredictos.)*
 271. **Ningún botón de disputa en la tienda; el pedido entregado dice «Escríbenos»** *(§V.1)*: QA recorre como
@@ -14861,10 +15088,15 @@ Todo texto nuevo de cara al cliente lo aprueba el dueño antes de publicar (`HEC
    (946) y los métodos de pago que el checkout acepta ese día (`HECHOS.md` 2026-11-01 «WhatsApp público, plazo de entrega
    y texto de Quiénes somos»). Ningún dato inventado. El texto narrativo es la versión B que eligió marketing por encargo
    del dueño (misma fila).
-945. **Señales de confianza a la vista [B2]**: una franja de una línea con esas señales se ve en la ficha y en el carrito, y
-   el pie de página enlaza a «Quiénes somos y contacto». La franja dice **«Pago seguro»** (antes «Pago con tarjeta») y el
-   pie de la página del Card Show da el correo **`contacto@tcghunt.mx`** (antes `hola@`) (D-E = A; `HECHOS.md` 2026-11-01
-   «"Pago seguro" y correo de contacto en el Card Show»).
+945. **Señales de confianza a la vista [B2]** *(reescrito 2026-11-03, `HECHOS.md` «Checkout y ficha: tres cambios
+   aprobados…» (2))*: en la **ficha** de producto y en el **carrito**, en ES y EN, se leen
+   sin pulsar nada las cuatro señales de 944: (a) **cómo se paga: solo tarjeta** — ⛔ OXXO **no** aparece en ninguna
+   parte, porque no está activo y no se activará por ahora (`HECHOS.md` «Respuestas a P-CTA-3, P-CTA-5(a) y P-CTA-6»);
+   (b) **tiempo de entrega «4 a 10
+   días hábiles»**; (c) **WhatsApp 55 6489 3921**, que abre WhatsApp a ese número; (d) **Instagram @tcghunt.mx**, que abre
+   el perfil. Los mismos datos que «Quiénes somos» (944), sin otra fuente. A 360 px no desborda (943) ni tapa «Añadir al
+   carrito» (940). El pie enlaza a «Quiénes somos y contacto», y el de la página del Card Show da **`contacto@tcghunt.mx`**
+   (`HECHOS.md` 2026-11-01). Textos exactos: ux-ui, aprobados por el dueño.
 946. **Instagram en los datos para Google [B2b]**: el JSON-LD `Organization` lleva `sameAs` con
    `https://www.instagram.com/tcghunt.mx/` (`@tcghunt.mx`, confirmado por el dueño 2026-10-31, MKT-2).
 947. **La bóveda en la ficha [T2]**: la ficha de una carta de menos de MX$600 muestra la línea de bóveda **B** (D-C = B):
@@ -14900,6 +15132,160 @@ Todo texto nuevo de cara al cliente lo aprueba el dueño antes de publicar (`HEC
    portada con el banner abierto, entra al catálogo, abre una ficha, ve la franja de confianza y la línea de bóveda, pulsa
    «Añadir al carrito», llega al carrito sin desborde y con «ventas finales» una vez, y abre «Quiénes somos y contacto» desde el pie.
    Lo recorre tester-e2e en el navegador contra el stack con datos sembrados.
+
+#### Cuenta con solo el correo y precios sin rótulo de IVA (2026-11-03) — criterios 969–977
+*(Fuente: `HECHOS.md` fila «Checkout y ficha: tres cambios aprobados (diagnóstico de marketing 2026-11-03)», «si a tus
+cambios», y fila «Respuestas a P-CTA-3, P-CTA-5(a) y P-CTA-6». El cambio (2) reescribió el 945. Lo marcado SUPUESTO
+depende de P-CTA-1, -2, -4 y -5(b). Más alto previo: 968.)*
+969. **Cuenta en el carrito con solo el correo**: en el carrito/checkout, «Crear cuenta» (y el upsell de bóveda, 48) muestra
+   **un solo campo, correo**, más la leyenda del 504; ⛔ no pide nombre, contraseña ni celular. Con un correo nuevo válido,
+   al pulsar el botón la cuenta existe, el carrito y lo capturado siguen intactos y la bóveda queda disponible como
+   destino (SUPUESTO: con sesión iniciada en ese navegador, P-CTA-2). Correo inválido ⇒ mismo rechazo que el 47.
+970. ⛔ **Un correo ya registrado no abre esa cuenta**: teclear en el 969 el correo de una cuenta existente **nunca** inicia
+   sesión en ella ni muestra sus datos, pedidos o bóveda. En su lugar se le ofrece **«Ingresar a cuenta»** (dueño,
+   P-CTA-3 = A), que lleva a la pantalla de entrada con ese correo ya escrito; al entrar, vuelve al checkout con el
+   carrito intacto. *(Esto dice en el carrito que el correo tiene cuenta: lo aceptó el dueño; seguridad revisa el
+   límite de intentos.)*
+971. **Contraseña y nombre después, desde el correo** (SUPUESTO, P-CTA-1): tras el 969 llega un correo con un enlace que
+   abre una pantalla para poner **nombre y contraseña**; al guardar, sale y vuelve a entrar con correo + esa contraseña.
+   El enlace sirve **una vez** y caduca; usado o caducado, no hace nada y ofrece mandar otro.
+972. **…o desde «Mi cuenta»**: con sesión, «Mi cuenta» muestra «Ponle contraseña a tu cuenta» y deja poner nombre y
+   contraseña **sin pedir una actual**; ya puesta, cambiarla pide la actual como hoy.
+973. **La segunda vez**: con contraseña puesta, entra como cualquier cliente. Sin contraseña, «Olvidé mi contraseña» con
+   su correo le manda el enlace del 971 (SUPUESTO, P-CTA-4). Correo + cualquier contraseña sobre una cuenta sin
+   contraseña ⇒ la misma respuesta que contraseña incorrecta (la pantalla de entrada no distingue los casos, 259).
+974. ⛔ **Pedidos de invitado anteriores esperan la prueba del correo** (lado seguro, P-CTA-1): una cuenta nacida en el 969
+   no ve pedidos de invitado de ese correo hasta que abre el enlace del 971; entonces aplica el 54. Lo que compró con la
+   cuenta en esa misma sesión sí aparece en su historial y su bóveda.
+975. **Celular antes de vender**: la cuenta del 969 no tiene celular; al crear una solicitud de venta se le pide, como a
+   una de Google (128 (c)). Comprar no lo pide.
+976. **Ciclo entero** *(O-4)*: en un celular de 390 px, contra el stack con datos sembrados, un visitante agrega una carta,
+   crea cuenta con solo su correo, elige bóveda, paga; abre el correo, pone nombre y contraseña; sale; vuelve a entrar con
+   correo + contraseña y ve la carta en «Mi bóveda». Lo recorre tester-e2e en el navegador.
+977. **Sin «IVA 16 % incluido» junto a los precios** *(cambio (3); §B)*: en catálogo, ficha (precio grande y filas de
+   variante), ficha de sellado, accesorios, Meta Battle Decks y carrito, en ES y EN, no aparece junto a ningún precio
+   «IVA 16 % incluido», «IVA incluido», «con IVA incluido» ni «VAT included». **Por ausencia**: las cifras, el total
+   cobrado y el IVA guardado por pedido (192) no cambian. **Sí se queda** la línea «IVA 16 % incluido: MX$…» en el
+   **resumen del checkout**, como desglose que no suma (dueño, P-CTA-5(a)). La nota «incluye IVA» del valor de mercado
+   (§MIV, 863, 956) sigue como hoy (SUPUESTO, P-CTA-5(b)).
+*(Criterios 512–531 y 958–968 — §IDS, español y cartas con sello (512–531 del 2026-10-06, actualizados el
+2026-11-01; 958–968 nuevos el 2026-11-01, siguiente libre tras 957 medido con `grep` en este `PROJECT.md`; **NO
+MEDIDO** contra otras ramas). **No** bloquean el modo real de Stripe (`HECHOS.md` fila 2026-10-06 «CAMBIO de alcance:
+se sale en vivo SIN español ni sellos…»). En los criterios, «sello» es el término interno; lo que ve el cliente usa
+los nombres de §IDS.3 («De liga»…). Forma y orden de Meta Battle Decks (963–968) ya decididos por marketing.)*
+512. **Lo existente no cambia — por ausencia** *(§IDS.1)*: sobre una copia de los datos de producción, se toma una foto
+   **antes** y **después** del despliegue de: precio publicado de cada pieza, estado de publicación, totales y líneas
+   de cada pedido, solicitudes de venta y portafolio. **Diferencia = 0** en todo lo que ya existía. Toda pieza
+   existente sale como **Inglés, sin sello**. Las pruebas de precio, buylist y checkout de hoy siguen verdes sin
+   tocarlas.
+513. **Capturar una pieza en español** *(§IDS.1)*: en la captura de inventario, el idioma por defecto es Inglés;
+   el operador elige Español y guarda. La pieza queda con la **misma carta, set, número y acabado** que la inglesa y
+   con idioma Español, visible en el detalle de admin. Una pieza capturada sin tocar el idioma queda en Inglés.
+514. 💰 **Español sin mercado del inglés = no se publica, y vuelve solo** *(§IDS.2, falla cerrado)*: se captura una
+   pieza en español de una carta cuyo inglés (mismo acabado) **no** tiene valor de mercado. Resultado: no se publica
+   (motivo «sin mercado del inglés»); **no** aparece en el catálogo, la búsqueda, la ficha ni la API pública; intentar
+   agregarla al carrito o pagarla (incluso forjando la petición) se **rechaza**; en ningún punto aparece el precio del
+   inglés. Tras un barrido que trae ese mercado, la pieza se publica **sin que nadie intervenga**.
+515. 💰 **Precio del español = regla** *(§IDS.2)*: con X en su valor de fábrica, **75 %**, el precio publicado de una
+   pieza en español es **idéntico** al que la tienda daría hoy a una carta inglesa cuyo valor de mercado fuera el del
+   inglés × 0.75 (misma curva, piso, redondeo, IVA dentro y precio del día). Se comprueba con al menos tres cartas: una
+   que cae en el piso, una del tramo medio y una cara.
+516. 💰 **El español sigue al mercado solo** *(§IDS.2)*: tras un barrido diario en que cambia el valor de mercado del
+   inglés de una carta, el precio de su pieza en español cambia en el **mismo** barrido conforme al 515, sin que nadie
+   intervenga. Si el inglés se queda sin valor de mercado, la pieza en español pasa a «precio pendiente» y se
+   despublica.
+517. **El dial X en Configuración** *(§IDS.2)*: en una base recién migrada, X vale **75 %** sin que nadie lo ponga. El
+   dueño lo cambia en Configuración (sin código ni despliegue); al guardar, **todas** las piezas en español (con y
+   sin sello) se recalculan y la tienda muestra los precios nuevos. Rechaza vacío, 0, negativos, texto y valores
+   fuera de 1–200 % *(SUPUESTO)*.
+   El cambio queda en la bitácora con quién, cuándo, valor anterior y nuevo. Un usuario sin el rol que edita la
+   curva de precios **no** puede cambiarlo (la petición forjada se rechaza).
+518. 💰 **Carrito y cobro del español** *(§IDS.4)*: un cliente agrega una pieza en español; el carrito y el checkout
+   dicen «Español» y su precio; **el cobro en Stripe es la suma de los precios mostrados** y el precio lo calcula el
+   servidor (un precio alterado en la petición se ignora). El pedido (cliente y admin), el correo de confirmación y
+   la hoja de «Pedidos por preparar» dicen «Español» en esa línea.
+519. 💰 **Pierde el precio entre el carrito y el pago** *(§IDS.4)*: con una pieza en español en el carrito, una corrida
+   deja al inglés sin valor de mercado; con una pieza con sello en el carrito, su producto se queda sin valor de
+   mercado. En ambos casos el
+   checkout **rechaza** la línea con mensaje claro y **no cobra**; nunca cobra el precio del inglés ni el de la carta
+   base.
+520. **Opciones distintas, existencias separadas** *(§IDS.4)*: con piezas de la misma carta y acabado en inglés, en
+   español, con sello y en español con sello, la ficha muestra **cuatro opciones**, cada una con su precio y su
+   existencia. Comprar la española descuenta solo la española; las otras tres quedan igual.
+521. **Ficha y filtros** *(§IDS.3, §IDS.4)*: la teja muestra la insignia de idioma y de versión («Español», «De liga»…);
+   la ficha, el selector «IDIOMA Y VERSIÓN» con «Inglés» · «Español» · «Inglés · De liga» · «Español · De liga», cada
+   una con su precio, sin las agotadas. **Ninguna** superficie de cliente (teja, ficha, filtros, carrito, pedido,
+   correo, en ES y EN) dice «sello» ni «Con sello». El filtro de idioma (Inglés / Español) y el de **«Cartas de liga y
+   promos»** devuelven exactamente las piezas que corresponden, combinados entre sí y con los filtros de hoy, en la
+   tienda en español y en inglés. Sin filtros se ven todas.
+522. **Empate automático del sello** *(§IDS.3)*: sin intervención de nadie, la versión con sello de una carta con
+   empate único queda colgada de su carta base y disponible para captura. Caso de prueba: **Pikachu ex 057/191** con
+   sello (producto TCGplayer `648703`) cuelga de la Pikachu ex 057/191 de Surging Sparks (`590025`).
+523. ⛔ **Empate dudoso = no se adivina, ni se encola** *(§IDS.3)*: una versión con sello con empate ambiguo **no** se
+   cuelga sola; en la captura, el operador la elige entre los candidatos del proveedor y la pieza queda con ese
+   producto y su precio. Una versión **sin** candidatos no se ofrece en la captura. En ningún caso aparece un reporte,
+   cola o aviso para el dueño. Caso de prueba: una **energía básica** de Prize Pack (números 009–016, iguales en dos
+   sets).
+524. 💰 **Precio propio del sello** *(§IDS.3)*: el precio publicado de una pieza con sello sale del valor de mercado
+   de **su** producto y acabado (misma curva, piso, redondeo e IVA), y es **distinto** del de la carta base cuando sus
+   mercados difieren (Pikachu ex 057/191: fuente medida el 2026-10-06 en US$26.39 con sello vs US$4.69 sin sello).
+   No existe ningún multiplicador sobre la carta base: cambiar el mercado de la carta base **no** mueve el precio de
+   la pieza con sello.
+525. ⛔ **Sello sin precio = no se publica** *(§IDS.3)*: si el producto con sello no tiene valor de mercado, la pieza
+   queda en «precio pendiente» y no se publica; **nunca** toma el precio de la carta base.
+526. 💰 **Carrito y cobro del sello** *(§IDS.4)*: igual que el 518 para una pieza con sello: carrito, checkout, cobro en
+   Stripe = precio mostrado calculado en el servidor. Carrito, checkout, pedido y correo dicen la versión como
+   «Español · De liga (Prize Pack)» / «Inglés · De liga (Prize Pack)» (EN «Spanish · Prize Pack»); la hoja de
+   preparar, la línea interna «ES · LIGA · Prize Pack — sello Play! Pokémon, Holo Cosmos».
+527. **Export `.xlsx` con idioma y sello** *(§IDS.5)*: el export del inventario trae, en **todas** las filas, las
+   columnas **Idioma** y **Sello**; una pieza existente sale «Inglés» y sin sello; una española, «Español»; una con
+   sello, su tipo. Las demás columnas no cambian de nombre, orden ni valor.
+528. **Buylist sin cambios — por ausencia** *(§IDS.6)*: el cotizador y la solicitud de venta no ofrecen idioma ni
+   sello; las ofertas de buylist no cambian de precio (mismas pruebas verdes); una pieza que entra por buylist nace
+   **Inglés, sin sello**.
+529. **Sin japonés — por ausencia** *(§IDS.6)*: no hay opción «Japonés» en la captura, los filtros, la ficha ni el
+   export.
+530. **Sin precio a mano como camino normal** *(§IDS.2, §IDS.6; `HECHOS.md` fila 2026-10-04 «REGLA GENERAL…»)*: en la
+   captura de una pieza en español o con sello **no hay campo para teclear el precio**; el precio aparece solo.
+531. 💰 **Otros usos del valor de la pieza** *(§IDS.5, SUPUESTO por confirmar en P-ARQ-IDS-2)*: el valor de portafolio en la bóveda de
+   una pieza en español es el del inglés × X %, y el de una con sello es el de su producto; lo mismo para lo que se
+   paga si una pieza de un retiro no se repone (`HECHOS` 2026-09-29 D-2). Nunca se usa el valor de la carta inglesa
+   sin sello para esas piezas.
+958. 💰 **Español con sello** *(§IDS.3)*: con X = 75 %, el precio publicado de una pieza en español con sello es
+   **idéntico** al que la tienda daría a una carta cuyo valor de mercado fuera el del **producto con sello en inglés**
+   × 0.75; cambiar el mercado de la carta base no lo mueve, y mover X sí. Si el producto con sello pierde su mercado,
+   la pieza se despublica y vuelve sola (como el 514).
+959. **Ficha sin mercado ni PSA donde no corresponde** *(§IDS.2, §IDS.3)*: la ficha de una pieza en español (con o sin
+   sello) no muestra valor de mercado ni estimado PSA; la de una con sello no muestra estimado PSA, y si muestra valor
+   de mercado es el de su producto (nunca el de la carta base). Lo mismo en la teja.
+960. **Sello de liga** *(§IDS.3)*: caso fijo TCGCSV `209911` «Quick Ball - 179/202 (League Cup)» (grupo `1539`,
+   empate único con la base `208511`, Sword & Shield, Reverse Holofoil; `docs/DEVOPS_NOTES.md` §108.1) se cuelga sola,
+   se captura como «De liga» y se publica con el precio de **su** producto (nunca el de la base), sin el dueño.
+961. **Lista de inventario del admin** *(§IDS.5)*: cada pieza muestra su idioma y, si la tiene, su versión de liga
+   (insignia «De liga» y el tipo exacto en texto, p. ej. «Prize Pack»; la cabecera de columna interna puede decir
+   «Sello»); las existentes se ven «Inglés» (EN) y sin liga. *(Forma: `docs/DESIGN_SYSTEM.md` IDS-UX.3 (b).)*
+962. **Nada espera al dueño — por ausencia** *(§IDS.2, §IDS.3; fila 2026-10-30 «TODO automático…»)*: no existe pantalla,
+   reporte, cola, aviso ni correo de «Sellos por revisar» ni de «falta el % del español»; ningún precio de español o
+   sello queda pendiente de una acción del dueño (lo pendiente lo está solo porque la fuente no trae precio).
+963. **Meta Battle Decks: cuentan** *(§IDS.7)*: deck de prueba con una línea «4 <carta>»
+   y, en inventario publicado, 1 pieza en inglés, 1 en español y 1 con sello de esa carta y acabado. La línea dice 3
+   disponibles de 4; «Agregar de jalón» mete las tres al carrito. Lo mismo en «Pegar lista».
+964. **Meta Battle Decks: qué versión es** *(§IDS.7)*: en el caso del 963, la línea dice de qué versiones está hecha su
+   existencia, y en el carrito, el checkout y el pedido cada una de las tres piezas lleva su etiqueta (sin etiqueta la
+   inglesa sin sello). Un deck cuyas líneas solo tienen piezas en inglés sin sello se ve igual que hoy.
+965. 💰 **Meta Battle Decks: precio y cobro** *(§IDS.7)*: el precio que muestra la línea es el de la pieza que agregaría
+   su botón; el cobro del caso 963 es la suma de los precios publicados de esas tres piezas (cada una con su regla de
+   §IDS.2/§IDS.3), calculada en el servidor.
+966. 💰 **Meta Battle Decks: orden** *(§IDS.7, P-IDS-12 de marketing)*: línea «2 <carta>» con, publicadas, 1 inglesa
+   de MX$200, 1 española de MX$150 y 1 de liga de MX$100. El jalón y el botón de la línea agregan la española y luego
+   la inglesa (sin liga, de la más barata a la más cara); la de liga **no** entra aunque sea la más barata. Con la
+   línea en «4», entran las tres y la de liga al final.
+967. **Meta Battle Decks: paquete de energías** *(§IDS.7, §AC.10)*: con todas las cartas del jalón en el carrito,
+   aunque haya piezas en español o con sello, el recuadro del paquete se habilita igual que con un deck en inglés;
+   MX$20 y las reglas de §AC.10 sin cambio; el criterio 197 no se afloja.
+968. **Meta Battle Decks: sin precio no cuenta** *(§IDS.7)*: una pieza en español o con sello no publicada (sin
+   precio) no suma a la existencia de la línea ni entra en el jalón; las pruebas actuales de `decks-meta` (backend y
+   frontend, incluida `DeckAvailability.ac.test.tsx`) siguen en verde.
 
 ## Riesgos y banderas para el humano
 > No bloquean el desarrollo técnico del MVP, pero deben resolverse antes de operar con público real.
@@ -16890,6 +17276,28 @@ promesa:**
 
 *Conversión y SEO (criterios 940–957): sin preguntas abiertas.*
 
+**Cuenta con solo el correo, señales y rótulo de IVA (criterios 945, 969–977)** — ninguna bloquea al arquitecto; si no
+contestas, se construye con la recomendación:
+- **P-CTA-1** ¿Cómo pone el cliente su contraseña? *Recomendación: un correo «Termina tu cuenta» con enlace de un solo
+  uso para poner nombre y contraseña, y lo mismo desde «Mi cuenta» (971, 972). Abrir ese enlace prueba que el correo es
+  suyo; hasta entonces no se le pegan pedidos de invitado viejos (974).*
+- **P-CTA-2** ¿Queda con la sesión abierta al crearla, sin confirmar el correo? *Recomendación: sí, en ese navegador,
+  para que pague y elija bóveda sin salir del carrito; si teclea mal su correo, lo corrige desde «Mi cuenta» mientras
+  siga dentro.*
+- **P-CTA-4** La segunda vez, sin contraseña, ¿basta «Olvidé mi contraseña» o quieres «Entrar con un enlace a mi
+  correo» sin contraseña? *Recomendación: «Olvidé mi contraseña» (ya existe; un acceso solo por enlace es otro sistema
+  que seguridad tendría que revisar).*
+- **P-CTA-5(b)** Al quitar «IVA 16 % incluido» de los precios, ¿la nota «incluye IVA» del valor de mercado (la pediste el
+  2026-10-10) también se va? *Recomendación: se queda; sin ella el mercado parece más barato que nuestro precio (977).*
+
+**Español y versiones de liga (§IDS)** — dos de dinero, para el dueño (las de presentación ya las decidió marketing):
+- **P-ARQ-IDS-1 💰** ¿Tienes cartas **gradeadas** (PSA) o **producto sellado** en español para vender? *Recomendación
+  (arquitecto, `docs/ARCHITECTURE.md` §15.5): en esta entrega solo cartas sueltas; lo otro se diseña cuando lo tengas,
+  con su propia regla de precio.* (SUPUESTO mientras tanto: §IDS cubre solo cartas sueltas NM sin gradear.)
+- **P-ARQ-IDS-2 💰 (criterio 531)** El valor que ve un cliente de una carta en español guardada en su bóveda, y lo que
+  se le paga si una carta de un retiro no se repone, ¿es el de la carta en español (inglés × 75 %)? *Recomendación:
+  sí; es lo que vale lo que guarda. Ya es el SUPUESTO de §IDS.5.*
+
 ## Preguntas abiertas — acabado / versión de carta (v1.4)
 > Requisito §I redactado con las decisiones ya tomadas por el humano; quedan estos huecos menores. Los
 > supuestos preservan el comportamiento actual y permiten arrancar si el humano los autoriza.
@@ -17330,315 +17738,10 @@ promesa:**
 > segunda ronda (D13–D23)**, las **seis de la tercera (D24–D29)**, la **correctiva de la cuarta (D30)**, las
 > **tres de la quinta (D31–D33)** y las **dos de la sexta (D34–D35)** están cerradas y ya redactadas en §P,
 > §E, §H y §N.6; **no se re-litigan**.
-> Abajo se conservan **las veintisiete preguntas con su desenlace** —qué se cerró, con qué decisión y si
-> **corrigió** el supuesto que yo había tomado—.
->
-> ## **ESTADO (2026-09-06, 10ª ronda — RESOLUCIÓN DE DIVERGENCIA): se abrieron DOS (34 y 35) y las DOS quedaron CERRADAS el mismo día. NO queda ninguna abierta de esta ronda.**
-> **La 34 llegó a bloquear el cierre del proyecto** —no por lo que preguntaba, sino porque **el criterio 127
-> no se cumplía** y **127 es un criterio de aceptación**—. **El humano RATIFICÓ D44**, así que **deja de
-> bloquear el DoD** y **el supuesto que yo había tomado queda confirmado, no corregido**. Aceptó el coste con
-> el número delante: **la tarifa máxima configurable baja de MX$499 a MX$300**. **Cierra sin tocar código.**
-> **La 35 era un hallazgo nuevo que no reportó QA** —lo vi al releer el criterio 167 entero— y la dejé **sin
-> supuesto a propósito**, sin tocar el 167(f). **El humano decidió (D45): el `0` deja de ser un valor legal
-> del dial; el suelo queda en MX$0.01**, y **eligió esa vía sobre un invariante independiente del dial**,
-> aceptando a ojos abiertos que **si alguien relaja esa validación, el agujero vuelve**.
-> **Ninguna de las dos re-litigó nada cerrado**: la 34 corrigió una frase que **se quedó rancia cuando D34
-> añadió un dial**, y la 35 corrigió una **inconsistencia aritmética** dentro del propio criterio 167.
-> **Dos supuestos míos, dos desenlaces**: el de la 34 **confirmado**; la 35 **no llevaba supuesto** — la
-> decidió el humano de cero.
->
-> ## **ESTADO (2026-09-01, 7ª ronda — CORRECTIVA FINAL): las 27 anteriores siguen CERRADAS; se abren DOS nuevas (28 y 29), ninguna bloqueante.**
-> **Lo que cerró esta ronda sin preguntar nada**: **(D36/D37)** la **dirección del vendedor** —el **hueco
-> BLOQUEANTE** que hacía que **D16 no fuera ejecutable**: **no hay etiqueta sin domicilio de origen**—, que
-> se pide **al crear la solicitud** **reusando la libreta que ya existe**; **(D38)** el **reloj de caducidad
-> SÍ reinicia** al cancelar una oferta —**este documento lo había señalado como bandera y el humano le dio
-> la razón**—; **(D39)** existe **«declinar ahora»**, mismo correo y mismo estado terminal **sin la espera**
-> —**también señalado por este documento**—; **(D40)** el **piso de neto es inclusivo**, confirmado **sin
-> cambio**. Y **(o.17)** se corrigieron los **ejemplos numéricos** de «neto MX$20 / MX$0» que quedaban como
-> válidos (la **regla** del criterio **158(c)** **no cambió**).
-> **Las DOS nuevas** salen de decisiones de la propia ronda: **(28)** el **alcance fino de la dirección**
-> (congelado por solicitud, hasta cuándo se puede corregir) y **(29)** la **contradicción de la CLABE**
-> —*«igual que hoy pasa con la CLABE»* **no describe lo que este documento dice hoy**—. **Ambas con supuesto
-> tomado**, así que **no bloquean al arquitecto**.
-> **⚠ Un supuesto de la 6ª ronda quedó CORREGIDO por el humano en la 7ª**: el **no-reinicio del reloj**
-> (pregunta 27c). **Y el riesgo que abre D38 —el bucle cancelar/re-emitir— queda SEÑALADO sin remedio
-> inventado**: el candado, si hace falta, lo decide el arquitecto.
->
-> ## **ESTADO (2026-09-01, 6ª ronda — CIERRE CORRECTIVO — histórico; superado en lo que toca al reinicio del reloj): las 27 preguntas están CERRADAS. El bloque v2.1 NO tiene preguntas abiertas propias.**
-> **Las tres que abrió la quinta ronda quedaron cerradas en la sexta**: **(25)** el humano puso **piso: neto
-> mínimo de MX$200 para EMITIR** (**D34**) — la tabla de §P.10 pasa a **NUEVE diales**; **(26)** el humano
-> fijó el **objetivo del bounty por defecto en 2** y **los viejos se llenan con 2, sin desactivarse**
-> (**D35**); **(27)** la resolvió el **arquitecto**: **`expirada` + motivo en columna propia**
-> (`no_offer` / `not_shipped`), así que **los terminales vuelven a ser CUATRO**, **sí caduca** con oferta en
-> cola de autorización —**el barrido la anula**— y ~~**el reloj NO reinicia** al cancelar una oferta~~
-> *(**⚠ REVERTIDO en la 7ª ronda por D38: SÍ reinicia, 7 días hábiles completos**)*.
-> **Dos supuestos míos quedaron corregidos en esta ronda**: el **nombre/modelado `caducada`** y el
-> **reinicio del reloj desde la cancelación**. **Uno más quedó corregido por D35**: tratar a los bounties
-> viejos como «sin bounty».
->
-> ## **ESTADO (2026-09-01, 5ª ronda — histórico): las 24 anteriores están CERRADAS; hay TRES nuevas, ninguna bloqueante.**
-> Las **doce del primer pase**, las **diez de la segunda**, **la 23 de la tercera** y **la 24 de la cuarta**
-> quedaron todas resueltas. **Ningún número de dinero sigue sin fijar**: tope de oferta del operador
-> **MX$1,500**, tarifa de envío **MX$180**, tope de piezas por variante **10**, alerta de «ya lo mandé»
-> **5 días hábiles**, **plazo de caducidad 7 días hábiles** *(NUEVO, D33)*, **mínimo MX$500 inclusivo — único
-> borde**.
-> ~~umbral de recorte material **20%**~~ — **retirado por D30: dial sin objeto** (§P.10).
-> ~~umbral de guía **MX$1,000 inclusivo**~~ — **retirado por D31: dial sin objeto** (§P.10, §P.12).
->
-> **La pregunta 23 quedó CERRADA POR ELIMINACIÓN (D30)**: preguntaba qué plazo tenía el vendedor para
-> contestar *«¿continúas?»*, qué significaba su silencio y si llevaba recordatorio. **Ya no hay tal
-> pregunta al vendedor**, así que **no hay plazo que fijar, ni semántica del silencio que decidir, ni
-> recordatorio que agregar**. *(Ese hueco era, precisamente, una de las señales de que D27 estaba mal
-> planteada.)*
->
-> **La pregunta 24 quedó CERRADA en la 5ª ronda (D31)**: preguntaba **cuánto colchón** dejar entre la
-> **tarifa de envío** y el **umbral de guía**. **Ese umbral ya no existe**, así que la validación se
-> **re-ancló** en el **mínimo de compra** (**$180 < $500**) y el **colchón quedó decidido: ninguno** — el
-> humano **aceptó a ojos abiertos** que en el piso de $500 el envío pese **36%**.
->
-> **Se abren TRES preguntas nuevas (25, 26, 27)**, todas **no bloqueantes** y todas con **supuesto
-> redactado**: **(25)** el **piso de cero ahora es alcanzable sin rechazo de cartas** —efecto colateral de
-> quitar la banda intermedia—; **(26)** qué hacer con los **bounties ya creados sin objetivo**; **(27)** el
-> **modelado y los bordes del nuevo plazo de caducidad**. **⚠ Las TRES quedaron CERRADAS en la 6ª ronda** —
-> ver el bloque de estado de arriba y el desenlace de cada una abajo.
->
-> **Un residuo que NO es pregunta, sino riesgo aceptado:** el **límite anti-abuso** de guías por
-> usuario/periodo (segunda mitad de la pregunta 16) **no se decidió**, y la resolución registrada es **no
-> imponerlo en el MVP** y vigilar a mano. Vive en «Riesgos y banderas», **no** como pregunta abierta, porque
-> ponerlo sería **inventar alcance**. Si el humano lo quiere, hay que pedirlo.
-> **Nota de la 4ª ronda sobre ese riesgo**: D30 **no lo empeora ni lo mejora** — el costo del ciclo abusado
-> sigue siendo **una etiqueta de MX$180**. Lo único que cambia es que **ya no existe la posibilidad de que el
-> vendedor abusivo se quede además con un «no» que nos obligue a devolver todo**.
-
-**Las doce del primer pase — desenlace:**
-1. ~~**¿Quién puede EMITIR una oferta?**~~ → **CERRADA por D13 — mi supuesto era INCORRECTO.** No es «solo el
-   súper-admin»: **el operador oferta hasta un tope de monto** y **por encima autoriza el súper-admin**,
-   reusando la mecánica de topes del buylist. *(Residuo **CERRADO en la 3ª ronda por D24**: el tope es
-   **MX$1,500**.)*
-2. ~~**¿Se puede RE-OFERTAR sobre una solicitud rechazada o expirada?**~~ → **CERRADA: NO.** Son
-   **terminales**; si el cliente quiere, **cotiza de nuevo**. *(Supuesto confirmado.)*
-3. ~~**¿Una oferta ya enviada se puede EDITAR?**~~ → **CERRADA: NO.** Se **cancela y se emite otra**.
-   *(Supuesto confirmado.)*
-4. ~~**¿Cómo se cuentan los plazos?**~~ → **CERRADA por D14 — mi supuesto era INCORRECTO.** Son **días
-   HÁBILES**, no naturales: una oferta enviada el viernes **no vence el domingo**. *(Residuo **CERRADO en la
-   3ª ronda**: «día hábil» = **lunes a viernes**, sin **festivos oficiales de México**, en
-   **`America/Mexico_City`**.)*
-5. ~~**¿Quién paga el envío del vendedor?**~~ → **CERRADA por D16 — mi supuesto era INCORRECTO.** **La guía
-   la mandamos nosotros** ~~(arriba del umbral de D18b)~~ **SIEMPRE, desde el mínimo de MX$500** *(5ª ronda,
-   **D31**: el umbral se elimina — **la respuesta se vuelve todavía más simple de lo que yo la había
-   escrito**)* y **se descuenta del pago**. Esto además **deja sin efecto a D5**: el cliente **ya no captura**
-   la guía.
-6. ~~**¿Qué correos son obligatorios en el ciclo?**~~ → **CERRADA por D23; RE-CERRADA con otro número en la 5ª
-   ronda por D33; ⚠ RE-CERRADA OTRA VEZ EN LA 8ª RONDA — es la TERCERA vez que este conteo cambia, y la
-   razón siempre fue la misma: un correo que agrupaba hechos distintos.** ~~Son **tres**: oferta,
-   recordatorio y expiración.~~ ~~**⚠ SON CUATRO**~~ **⚠ SON CINCO**: **oferta**,
-   **recordatorio** (uno por plazo del vendedor, a un día hábil, una sola vez), **expiración**,
-   **«no procederemos» por caducidad** (**D33**) y **«cancelamos la oferta»** (**8ª ronda**).
-   **Lo que la 8ª ronda corrige, dicho corto**: la **cancelación** vivía **dentro** del correo de
-   expiración, y ahí **afirmaba un hecho falso** —*«se venció tu plazo»* cuando **no venció nada** y **la
-   solicitud sigue viva**—. Es **el mismo error que D33 arregló en el otro extremo**, así que la respuesta
-   es la misma: **correo propio**. Y se cierra un caso que nunca se había preguntado: **cancelar una oferta
-   que aún esperaba autorización NO manda ningún correo**. Ver §P.3 (tabla, origen único del conteo), §H y
-   criterio **173**.
-   *(**Nota de método, porque el patrón ya se repitió tres veces**: el conteo se equivoca cada vez que se
-   agrupan correos **por el estado en que queda la solicitud** en lugar de **por el hecho que se le
-   afirma al vendedor**. La regla que evita la cuarta vez está escrita en §H: **un correo = un hecho**.)* *(Residuo **CERRADO en la 3ª ronda**: el recordatorio es
-   **uno POR PLAZO** —hasta dos en el ciclo, cada uno una sola vez—. ~~Nota: con **D27** puede aparecer **un
-   tercer plazo**; ver pregunta 23.~~ **Corrección de la 4ª ronda**: con **D30 no hay tercer plazo ni cuarto
-   correo**.)*
-   **Corrección de la 5ª ronda (D33)**: **sí hay un tercer plazo y un cuarto correo**, pero **no los que D27
-   proponía**. El de D27 era *«pregúntale al vendedor si continúa, con las cartas ya en la bóveda»*; **el de
-   D33 es lo contrario**: un plazo **para nosotros**, que **nos obliga a responderle**. **El cuarto correo no
-   es una variante de la expiración**: uno dice *«aceptaste y no mandaste»*, el otro dice *«no vamos a
-   ofertarte»*. Ver §P.3, §P.3.1 y criterios **16/142/165**.
-7. ~~**¿Aceptar exige sesión iniciada?**~~ → **CERRADA: SÍ.** **No hay enlace anónimo de aceptación.**
-   *(Supuesto confirmado.)*
-8. ~~**¿Sobre qué monto se evalúan los topes y el INE?**~~ → **REFINADA y cerrada por D16**: se juzgan sobre
-   el **BRUTO ofertado** —el valor comprometido—, mientras que el **SPEI sale por el NETO**. Descontar el
-   envío **no baja** una operación por debajo del umbral de INE. *(Residuo **CERRADO en la 3ª ronda**: el
-   **acumulado mensual del tope** suma **BRUTOS**, y en paralelo el **acumulado de dinero pagado** se mide en
-   **NETOS**.)*
-9. ~~**¿Qué dispara exactamente el "no comprar" de la sugerencia?**~~ → **CERRADA por D15** y **precisada por
-   D29 (3ª ronda)**: ya **no es un «o»** sino una **precedencia** —**con bounty manda el objetivo del
-   bounty**; **sin bounty manda el tope general, que es de 10 piezas**—, y la **posición** que se compara
-   pasa a ser **stock + verificando + tránsito + comprometido**. **Nunca bloquea** (D6 intacta). *(Residuo del
-   número **CERRADO**: **10**.)*
-10. ~~**¿Qué cuenta como "solicitud viva"?**~~ → **CERRADA: todo lo que NO sea terminal.** Terminales:
-   **`pagada`, `rechazada`, `abandonada`, `expirada`**. *(Nota: la respuesta **agrega `abandonada`** a la
-   lista de terminales que yo había escrito; ya está reflejado en §P.1, M5 y el criterio 129.)*
-   ~~*(**Nota de la 5ª ronda, D33**: la lista pasa a **CINCO** con **`caducada`**…)*~~
-   *(**⚠ Nota de la 6ª ronda**: la lista **NO pasó a cinco** — **siguen siendo CUATRO**. La caducidad es un
-   **motivo de `expirada`**. **La definición por exclusión se pagó sola por partida doble**: no solo el
-   desenlace nuevo entró sin tocar la lista, es que **ni siquiera hubo desenlace nuevo que agregar**.)*
-11. ~~**Producto separado (D7) — ¿qué hacemos con lo ya capturado?**~~ → **CERRADA (3ª ronda): corrección
-   MANUAL. Mi supuesto era CORRECTO.** Las filas ambiguas ya capturadas se **reclasifican a mano desde M1**;
-   **ninguna migración adivina** cuál era cuál. Ver §P.8 y criterio **160**.
-12. ~~**¿La ubicación física se captura al convertir?**~~ → **CERRADA: NO se exige al convertir** —bloquear la
-   conversión por falta de ubicación **atoraría el flujo de pago**—, pero la pieza sin ubicación **sale
-   señalada** en la cola de piezas listas para publicar. *(Supuesto confirmado y reforzado.)*
-
-**Los diez huecos de la segunda ronda (13–22) — desenlace:**
-13. ~~**¿De cuánto es el tope de oferta del operador, y qué pasa arriba del tope?**~~ → **CERRADA por D24 —
-   mi default era DESCARTADO.** El tope es **MX$1,500** de bruto, no **MX$0**. Y la **mecánica queda
-   confirmada**: arriba del tope la oferta **requiere autorización del súper-admin** —o sea **espera en
-   cola**—, no se bloquea en seco. Ver §P.2, §P.10 y criterio **147**.
-14. ~~**¿El acumulado MENSUAL del buylist suma brutos o netos?**~~ → **CERRADA: LAS DOS COSAS, para medidas
-   distintas.** El **tope de compromiso** (por solicitud y **mensual**) y el **INE** usan **BRUTOS** —misma
-   base que AML—; el **acumulado de dinero pagado** usa **NETOS** —lo que salió por SPEI—. **Son dos medidas
-   y ambas conviven.** *(Mi supuesto era correcto para el tope; la respuesta agrega la segunda medida, que yo
-   no había separado.)* Ver §H, §P.6 y criterio **155**.
-15. ~~**¿Qué cuenta como "día hábil"?**~~ → **CERRADA: lunes a viernes**, excluyendo **festivos oficiales de
-   México**, en zona horaria **`America/Mexico_City`** (la que el proyecto ya usa para fechas). **El sábado
-   NO cuenta.** *(Supuesto confirmado, con la zona horaria hecha explícita.)* Ver §H y criterio **154**.
-16. ~~**En un rechazo PARCIAL, ¿de dónde sale el envío? Y ¿ponemos límite al abuso?**~~ → **CERRADA en su
-   parte de dinero — RE-CERRADA en la 4ª ronda por D30, con otra respuesta.**
-   *(3ª ronda, **superada**)*: ~~**CERRADA por D27/D28 — mi supuesto era INCOMPLETO.** No basta con truncar el
-   neto: **primero se le pregunta al vendedor si quiere continuar**, siempre que el bruto aprobado caiga
-   **más de 20%** (D28), **reusando el flujo de ajuste existente**. Si dice que no, **el envío de ida lo
-   absorbemos nosotros**.~~
-   **(4ª ronda, vigente — D30)**: **sí bastaba con truncar el neto**, siempre que **la condición esté
-   declarada al frente**. En un rechazo parcial: **se paga `max(0, bruto aprobado − envío)` sin preguntar
-   nada**, porque la oferta ya era **condicional a NM línea por línea** y el vendedor **ya la aceptó** (§P.3).
-   El **piso de cero que yo había supuesto SÍ se confirma** y sigue siendo un **invariante con criterio
-   propio** (**152**); y **si se rechaza TODO**, el envío lo absorbemos entero (**D17**, criterio 140).
-   *(O sea: mi supuesto original de la 2ª ronda era **más correcto de lo que la 3ª ronda concluyó** — le
-   faltaba la pieza de comunicación, no la de dinero.)*
-   **La segunda mitad (tope de guías anti-abuso) sigue SIN decidirse** y se registra como **riesgo aceptado
-   sin tope en el MVP** — vive en «Riesgos y banderas», no aquí, porque imponerlo sería inventar alcance.
-   *(**Nota de la 5ª ronda, D31**: ese riesgo **crece de tamaño, no de naturaleza** — al eliminarse el umbral,
-   **la franja de $500 a $1,000 ahora también lleva etiqueta nuestra**, así que **hay más ciclos elegibles**.
-   El costo por ciclo sigue siendo **una etiqueta de MX$180**. **Sigue sin tope y sigue aceptado**; se
-   actualiza la entrada de «Riesgos y banderas» para que el humano lo vea con el número nuevo.)*
-   Ver §P.5.1 y criterios **150/151/152/161**.
-17. ~~**¿Cuánto puede vivir un "ya lo mandé" sin que el operador lo confirme?**~~ → **CERRADA: es un dial,
-   default 5 días hábiles**, y pasado eso la solicitud **se destaca como alerta** en la cola de «por
-   confirmar envío». **No expira ni cancela nada.** Y se confirma que **no infla la cifra de «en camino»**,
-   porque el «ya lo mandé» **no mueve el estado** — solo **detiene el reloj**. Ver §P.13 y criterio **156**.
-18. ~~**Al bajar un plazo en M10, ¿se respetan las fechas ya comunicadas?**~~ → **CERRADA: SÍ, se respetan.**
-   El plazo **se congela por solicitud** en el momento en que se fija; cambiar el dial **solo afecta a las
-   solicitudes nuevas**. *(Supuesto confirmado y reforzado: no solo «no acorta» — queda **congelado**, así
-   que tampoco alarga.)* Ver §P.10 y criterio **157**.
-19. ~~**Los bordes de las tres bandas, y el mínimo después del cherry-pick.**~~ → **CERRADA — mi supuesto
-   estaba MITAD BIEN, MITAD MAL.** **$500 inclusivo** *(correcto)* **y $1,000 TAMBIÉN inclusivo**
-   *(**incorrecto**: yo lo había hecho estricto — una oferta de exactamente $1,000 **SÍ lleva guía
-   nuestra**)*. Y el mínimo **NO se re-aplica tras el cherry-pick**: **gatea la creación de la solicitud, no
-   la oferta** *(supuesto confirmado; se retira de paso el «la mesa debe avisarlo» que yo había añadido)*.
-   Ver §P.12 y criterio **158**.
-   *(**Nota de la 5ª ronda, D31**: **la mitad del borde de $1,000 quedó SIN OBJETO** —ese umbral desapareció—,
-   así que **queda un solo borde, el de $500**, y es **inclusivo en los dos sentidos**: **se crea la
-   solicitud Y lleva guía nuestra**. **La otra mitad —que el mínimo no se re-aplica— sigue vigente**, y es
-   justamente la que abrió la **pregunta 25** — **cerrada en la 6ª ronda por D34**: el mínimo **sigue sin
-   re-aplicarse**, pero **hay otro umbral en otro momento**, el **neto mínimo para EMITIR (MX$200)**.)*
-20. ~~**¿Qué cifra de envío se descuenta, si la guía se compra DESPUÉS de ofertar?**~~ → **CERRADA por D25 —
-   supuesto CONFIRMADO, con número.** Se descuenta una **tarifa fija de MX$180**, **congelada al ofertar**;
-   si la etiqueta real sale **más cara la absorbemos**, si sale **más barata es margen nuestro**. El humano
-   confirmó que **es la salida correcta justo por la razón que se dio**: cualquier otra **rompe que el neto
-   sea vinculante**. Es un **dial**, y es **distinto** de la tarifa de retiro (MX$175). Ver §P.4 y criterio
-   **149**.
-21. ~~**El recordatorio de D23, ¿es uno por plazo o uno en todo el ciclo?**~~ → **CERRADA: UNO POR PLAZO.**
-   Hay **dos plazos** (aceptar y enviar), así que puede haber **hasta dos** recordatorios en el ciclo, **cada
-   uno una sola vez**. *(Supuesto confirmado.)* Ver §H, §P.3 y criterio **159**.
-22. ~~**¿Quién puede aplicar un override manual de compra al ofertar?**~~ → **CERRADA por D26: SÍ, y el
-   OPERADOR también.** Puede **ajustar a mano el precio de una línea dentro de su tope** (MX$1,500), con
-   **motivo obligatorio** y **auditado** (quién, cuánto y por qué). *(Mi supuesto de «solo el súper-admin»
-   quedó corregido; la condición de «dentro de su mismo tope» que yo había propuesto **sí** se confirma, y el
-   **motivo obligatorio** es un requisito **nuevo** que el humano agregó.)* Ver §P.2 y criterio **148**.
-
-**Hueco que abrió la tercera ronda (23) — CERRADO POR ELIMINACIÓN en la cuarta:**
-23. ~~**[ABIERTA — no bloqueante] El plazo de la pregunta «¿continúas?» del rechazo parcial (D27).**~~ →
-   **CERRADA POR ELIMINACIÓN (4ª ronda, D30). No se contestó: dejó de existir.**
-   La pregunta pedía fijar **(a)** cuánto tiempo tenía el vendedor para contestar *«¿continúas?»*, **(b)** qué
-   significaba su silencio y **(c)** si ese plazo llevaba recordatorio. **Con D30 no hay pregunta al
-   vendedor**, así que **no hay plazo, ni semántica del silencio, ni recordatorio, ni cuarto correo** que
-   definir. **Ninguno de los tres supuestos que yo había redactado llega al producto.**
-   **Vale la pena registrar por qué**: este hueco era **la señal** de que D27 estaba mal planteada. Un
-   requisito que, para poder implementarse, **obliga a inventar un plazo nuevo sobre cartas ajenas que ya
-   están en nuestra bóveda**, y donde **el silencio del vendedor no tiene ninguna lectura buena**, no era un
-   detalle pendiente: era el síntoma. La corrección (declarar la condición **al frente**) **elimina el
-   síntoma y la causa a la vez**. Ver §P.5.1 y decisión **89**.
-   ~~*(Supuestos que se habían redactado y que quedan sin efecto: (a) reusar el dial de «plazo para aceptar»,
-   2 días hábiles; (b) silencio = «no continúo», con devolución 7/30 y envío de ida absorbido por nosotros;
-   (c) sí lleva recordatorio, con lo que los correos obligatorios pasarían de tres a cuatro.)*~~
-
-**Hueco que abrió la cuarta ronda (24) — CERRADO en la quinta:**
-24. ~~**[ABIERTA] ¿Cuánto margen debe haber entre la TARIFA DE ENVÍO del buylist y el UMBRAL DE GUÍA?**~~ →
-   **CERRADA en la 5ª ronda por D31 — y el referente de la pregunta desapareció junto con la respuesta.**
-   La pregunta nació del efecto colateral de retirar D28: la validación del criterio **127** se había quedado
-   sin fórmula y yo la reformulé contra el **umbral de guía**, dejando **el margen** por decidir.
-   **Qué pasó**: **D31 eliminó el umbral de guía**, así que la validación se **re-ancló** en el dial que sí
-   quedó — **`tarifa de envío del buylist` < `mínimo de compra`** (**MX$180 < MX$500**) — y **el margen quedó
-   decidido: NINGUNO**. El humano **aceptó a ojos abiertos** que en el piso de $500 el envío pese **36%**
-   (recibe **$320**), con la condición de que **se le diga al vendedor en todos lados y antes de aceptar**
-   (D31). **Tarifa y mínimo siguen siendo diales**: si duele, se mueven.
-   *(Lo que **sí** sobrevivió de esta pregunta, pero **con otra forma**, fue la **pregunta 25**: la validación
-   protege la **solicitud completa**, no la **oferta recortada**. **Cerrada en la 6ª ronda por D34** — la
-   oferta recortada la protege **otro dial en otro momento**: el **neto mínimo de MX$200 al EMITIR**.)*
-
-**Huecos que abrió la quinta ronda (25, 26, 27) — LOS TRES CERRADOS EN LA SEXTA:**
-25. ~~**[ABIERTA] ¿Debe haber un PISO DE NETO para siquiera emitir una oferta?**~~ → **CERRADA en la 6ª ronda
-   por D34: SÍ, y es MX$200 de NETO. Mi supuesto («sin piso») quedó DESCARTADO.**
-   **Lo que preguntaba**: con **una sola banda**, una oferta chica —por ejemplo **MX$200 de bruto** tras
-   cherry-pick de una solicitud de MX$600— deposita **MX$20**, y una de **MX$150** deposita **MX$0** **aunque
-   todas las cartas lleguen en NM**. La validación del criterio 127 (`tarifa < mínimo`) **no cubre ese caso**,
-   porque **el mínimo no se re-aplica a la oferta** (criterio 158c, que **sigue vigente**).
-   **Qué decidió el humano**: **no se puede EMITIR una oferta cuyo neto sea menor a MX$200.** **El operador
-   compra más líneas o no oferta.**
-   **Dónde vive el bloqueo** *(la parte que este documento se había perdido al plantear la pregunta)*: en la
-   **EMISIÓN**, **no** en el dial —**los diales no ven el recorte del operador**— y **no** en la aceptación
-   —**el correo no debe llegar a mandarse**—.
-   **La aritmética que lo sostiene**: operar una solicitud cuesta **~MX$217** (etiqueta **MX$180** + tiempo);
-   al **40% de referencia** hace falta un **bruto de ~MX$362** para que se pague sola (**~MX$182 de neto**).
-   **MX$200 queda justo arriba** (bruto ~**MX$380**) y **conserva el margen de cherry-pick sobre lotes
-   grandes**.
-   **No es un bloqueo nuevo**: el arquitecto ya bloqueaba `neto ≤ 0`; **D34 lo sube a MX$200**.
-   **Consecuencias**: **un dial más** ⇒ §P.10 pasa a **NUEVE**; **el criterio 152 no se toca** (el piso de
-   cero al **pagar** sigue igual). Ver §P.2, §P.10, §P.12, decisión **94** y criterio **167**.
-26. ~~**[ABIERTA] Los bounties YA creados sin objetivo, ¿qué pasa con ellos?**~~ → **CERRADA en la 6ª ronda
-   por D35: el objetivo por defecto es 2, y con 2 se llenan los viejos. Mi supuesto quedó CORREGIDO.**
-   **Lo que yo había supuesto**: exigirles el dato **al editarlos** y, mientras tanto, tratarlos como **«sin
-   bounty» para la sugerencia** (aplicando el tope de 10). Ofrecí «poner un objetivo por defecto» como
-   alternativa **que explícitamente no recomendaba** —*«un número inventado en un dial de compra es justo lo
-   que este documento evita»*—.
-   **Qué decidió el humano**: **esa alternativa, con número: 2.** *(Y la objeción se cae sola: **2 no es un
-   número inventado por este documento, es el número del dueño**, y **no es un dial** — es el valor inicial
-   de un campo editable por bounty.)*
-   **Las tres piezas**: **(a)** **default 2 al dar de alta**; **(b)** **los viejos se llenan con 2** —**NO se
-   desactivan**, siguen en la vitrina y **no cambian de precio**—; **(c)** **editable por bounty**: 2 es el
-   default, **no un tope rígido**.
-   **Qué gana**: el caso «bounty sin meta» deja de existir **también hacia atrás**, sin depender de que
-   alguien recuerde editar los viejos, y **ningún bounty se comporta como «sin bounty»**. ~~**Sigue sin haber
-   panel de bounties.**~~ *(**⚠ 14ª ronda, D52 — decisión 114**: la **pantalla de gestión** entra; el
-   **tablero** y los **reportes de avance** siguen fuera. **Lo tachado era cierto en la 6ª ronda**; lo reabre
-   **D52**, no D35.)* Ver §N.6, §P.2, decisión **95** y criterios **168** y **184**.
-27. ~~**[ABIERTA] Los bordes del plazo de caducidad (D33): modelado y reinicio del reloj.**~~ → **CERRADA en
-   la 6ª ronda POR EL ARQUITECTO. De mis tres supuestos: uno DESCARTADO, uno CONFIRMADO, uno CORREGIDO.**
-   **(a) ¿Estado propio o motivo?** **Mi supuesto (`caducada` como terminal propio) quedó DESCARTADO.**
-   El arquitecto decidió **reusar `expirada`** y **persistir el motivo en columna propia** (**`no_offer`** /
-   **`not_shipped`**). **Su razón, que este documento adopta**: *un estado que se comporta **idéntico** a otro
-   en todas las reglas —cierre, purga de INE, cuota, «no se revive»— **no es un estado, es un atributo**;
-   pero **la causa sí importa** para el correo y **no es derivable**.* **Los terminales vuelven a ser
-   CUATRO**, y **el requisito de negocio que yo había escrito se cumple igual**: los dos desenlaces
-   **distinguibles**, con **correos distintos** y **reportes que los separan**. *(Yo mismo había dicho que
-   «si el arquitecto prefiere modelarlo como `expirada` + motivo, es su decisión» — lo prefirió.)*
-   **(b) ¿Caduca con una oferta esperando autorización?** **Mi supuesto CONFIRMADO: SÍ** —el cliente sigue
-   esperando y el pendiente es nuestro—, **y con el verbo explícito: el barrido ANULA esa oferta al hacerlo**,
-   así que después **no puede autorizarse**.
-   **(c) ¿Desde cuándo cuenta el reloj si se cancela una oferta emitida?** ~~**⚠ Mi supuesto quedó
-   CORREGIDO.** Yo había escrito *«desde la cancelación»*; la regla vigente es **NO se reinicia: cuenta desde
-   la creación de la solicitud**.
-   **Lo que este documento señala sobre (c), en vez de callarlo**: es exactamente el escenario por el que yo
-   había supuesto lo contrario — **una solicitud puede caducar el mismo día en que vuelve a la fila**, y el
-   cliente recibe un *«no procederemos»* **por una corrección nuestra**. **Está decidido y es el vigente**;
-   queda como **bandera** en «Riesgos y banderas» para que el humano lo vea. **Si le parece injusto, mover el
-   arranque del reloj es una decisión de producto de una línea.**~~
-   **⚠ REABIERTA Y RESUELTA AL REVÉS EN LA 7ª RONDA POR EL HUMANO (D38): el reloj SÍ se reinicia — la
-   solicitud vuelve a la fila con los 7 días hábiles COMPLETOS.** **La bandera funcionó**: el humano vio el
-   escenario, le pareció injusto y **movió el arranque del reloj**, que era exactamente la decisión «de una
-   línea» que este documento había anticipado. **Mi supuesto original —«desde la cancelación»— resulta ser
-   el vigente**; lo que quedó superado fue la resolución del arquitecto en este punto **y solo en este
-   punto**: **(a)** *(motivo, no estado)* y **(b)** *(caduca con oferta en cola y el barrido la anula)*
-   **siguen intactas**. **Riesgo nuevo, señalado sin remedio inventado**: el **bucle cancelar/re-emitir**.
-   Ver §P.1, §P.3.1, §P.9, §P.10, decisiones **96** y **98**, y criterios **169** y **172**.
+> **Compactado el 2026-11-01:** las preguntas **1–27** (rondas 1ª–6ª) están cerradas y su desenlace vive en las
+> secciones citadas; el texto de cada desenlace salió de aquí y queda en `docs/DECISIONES.md` (fila «Preguntas
+> 1–27 del ciclo de buylist») y en git. El límite anti-abuso de guías es **riesgo aceptado** («Riesgos y
+> banderas»), no pregunta. Abajo quedan las 28 en adelante.
 
 **Huecos que abrió la séptima ronda (28, 29) — LOS DOS ABIERTOS, ninguno bloqueante:**
 28. **[ABIERTA — no bloqueante] La dirección de la solicitud: ¿se congela, y hasta cuándo se puede

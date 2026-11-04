@@ -13,6 +13,8 @@ import { CardImage } from '@/components/ui/CardImage';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { ShipmentTimeline, TrackingLink } from '@/components/domain/ShipmentTrackingExtras';
 import { ListingSpec } from '@/components/domain/ListingSpec';
+import { VersionChips } from '@/components/domain/VersionChip';
+import { useVersionText } from '@/components/domain/VersionText';
 import { SupportContact } from '@/components/domain/SupportContact';
 import {
   TRACKING_STATUS_KEY,
@@ -55,6 +57,7 @@ export function PublicOrderTracking({
   onResendLink,
 }: PublicOrderTrackingProps) {
   const t = useTranslations('track');
+  const versionText = useVersionText();
   const tRoot = useTranslations();
   const ta = useTranslations('accessories');
   const locale = useLocale() as AppLocale;
@@ -175,12 +178,20 @@ export function PublicOrderTracking({
                 <p className="mt-1.5 font-mono text-[11px] text-muted" lang="en" data-testid="tracking-item-meta">
                   {item.productType === 'sealed' ? item.setName : `${item.setName} · #${item.number}`}
                 </p>
+                {/* §IDS.5: versión congelada del pedido (insignias + línea muted sin el idioma, petición 8); inglés sin liga, nada. */}
+                <VersionChips version={item.version} size="tile" className="mt-1.5" testId="tracking-version-chips" />
+                {versionText.detail(item.version) && (
+                  <p className="mt-1 text-[12px] leading-snug text-muted" data-testid="tracking-version-text">
+                    {versionText.detail(item.version)}
+                  </p>
+                )}
                 <ListingSpec
                   className="mt-1.5"
                   productType={item.productType}
                   rawCondition={item.rawCondition}
                   sealedSubtype={item.sealedSubtype}
                   finish={item.finish}
+                  finishLabel={item.finishLabel}
                   gradingCompany={item.gradingCompany}
                   gradeValue={item.gradeValue}
                   compact

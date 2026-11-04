@@ -841,7 +841,8 @@ export class MasterSetService implements OnModuleInit {
           // v1.42 (BLOQ-3, §4.20b): countsByFinish/totalCount cuentan SOLO SINGLES — un ETB sellado anclado
           // a esta carta ya NO la infla como `finish=normal`. `graded` sigue contando. Sellado → pestaña
           // dedicada. El filtro va aquí (no en scopeWhere, usado por otras rutas) para no cambiar otros scopes.
-          where: { cardId: { in: cardIds }, productType: { not: 'sealed' }, ...this.scopeWhere(scope) },
+          // v1.116⟨ids⟩ (§IDS.0 I-6, IDS-B13): el binder sigue solo con inglés sin liga.
+          where: { cardId: { in: cardIds }, productType: { not: 'sealed' }, ...this.scopeWhere(scope), AND: [await this.pricing.defaultVersionWhere()] },
           _count: { _all: true },
         })
       : [];
@@ -1085,6 +1086,8 @@ export class MasterSetService implements OnModuleInit {
         // SEC-A1 intacto: solo cambia QUÉ piezas son elegibles; salePriceCents sigue server-side.
         productType: { not: 'sealed' },
         cardId: { in: [...new Set(pairs.map((p) => p.cardId))] },
+        // v1.116⟨ids⟩ (I-6, IDS-B13): una pieza en español o de liga no llena la casilla del binder (y se precia aparte).
+        AND: [await this.pricing.defaultVersionWhere()],
       },
       // 💰 v1.83 (§M11-SP.1, SP-3): el precio del dueño del producto viaja con la pieza (aquí solo singles, pero
       // el predicado único lo exige en el tipo).

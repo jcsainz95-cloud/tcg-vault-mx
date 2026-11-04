@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es-MX"><head><meta charset="utf-8"><meta name="viewport" content="width=1280">
+<title>01 · Captura de inventario (admin)</title>
+<style>
+:root{--bg:#f4f1ea;--s2:#efebe2;--bd:rgba(26,26,24,.16);--bds:rgba(26,26,24,.32);--tx:#1a1a18;--mu:#6e695e;--ac:#b31217;--ok:#4a7345}
+*{box-sizing:border-box;margin:0}
+body{width:1280px;background:#cfcabd;font:14px/1.4 Archivo,system-ui,sans-serif;color:var(--tx)}
+.mock-title{background:#1a1a18;color:#f4f1ea;padding:10px 20px;font:600 12px/1.4 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em}.mock-title b{color:#f0685f}
+.wrap{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:24px}
+.col h2{font:600 12px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.modal{background:var(--bg);border:1px solid var(--bds);padding:20px}
+.modal h3{font:400 22px 'Zen Old Mincho',Georgia,serif;margin-bottom:12px}
+.sel{display:flex;gap:12px;background:var(--s2);border:1px solid var(--bd);padding:10px;align-items:center}
+.sel img{width:48px;height:67px;object-fit:contain}.sel b{font:400 16px 'Zen Old Mincho',Georgia,serif}
+.sel small{display:block;font:400 11px 'JetBrains Mono',monospace;color:var(--mu)}
+.f{margin-top:14px}.f label{display:block;font:500 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.1em;color:var(--mu);margin-bottom:6px}
+.fixed{border:1px solid var(--bd);padding:9px 12px;color:var(--mu);font-size:13px}
+.seg{display:flex}.seg span{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;border:1px solid var(--tx);margin-left:-1px;font:500 13px Archivo;background:var(--bg);text-align:center;padding:0 8px}
+.seg span.on{background:var(--tx);color:var(--bg)}.seg span.dis{color:var(--mu);border-color:var(--bds);border-style:dashed}
+.hint{font-size:12px;color:var(--mu);margin-top:4px}
+.price{margin-top:16px;border-top:1px solid var(--bds);border-bottom:1px solid var(--bds);padding:10px 0;display:flex;justify-content:space-between;align-items:baseline}
+.price .v{font:500 24px Archivo;font-variant-numeric:tabular-nums}.price small{font:400 11px 'JetBrains Mono',monospace;color:var(--mu);display:block;text-transform:uppercase;letter-spacing:.06em}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.inp{border:1px solid var(--bds);min-height:44px;padding:11px 12px;background:#fff6}
+.btn{margin-top:16px;display:flex;justify-content:flex-end;gap:8px}.btn span{min-height:44px;padding:0 20px;display:flex;align-items:center;border:1px solid var(--tx);font:500 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.14em}.btn .p{background:var(--tx);color:var(--bg)}
+table{border-collapse:collapse;width:100%;background:var(--bg);font-size:13px}th,td{border:1px solid var(--bds);padding:8px 10px;text-align:left}th{font:600 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.06em;background:var(--s2)}
+.sum{margin:0 24px 24px}.sum h2{font:600 12px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.n{font:600 15px 'JetBrains Mono',monospace;text-align:center}.ok{color:var(--ok)}
+.note{margin:0 24px 24px;background:#fff9;border:1px dashed var(--bds);padding:12px 14px;font-size:12.5px;line-height:1.55}
+</style></head><body>
+<div class="mock-title">01 · Captura de inventario (admin, 1280 px) · <b>Opción A (recomendada): dos controles segmentados</b> frente a <b>Opción B</b>: un solo control combinado</div>
+<div class="wrap">
+ <div class="col"><h2>Opción A — «Idioma» y «Versión» (segmentados, visibles)</h2>
+  <div class="modal"><h3>Nueva pieza</h3>
+   <div class="sel"><img src="https://images.pokemontcg.io/base1/4.png" alt="Charizard"><div><b>Charizard</b><small>Base Set · BS 4 · Holo Rare</small></div></div>
+   <div class="f"><label>Tipo</label><div class="fixed">Carta suelta · NM</div></div>
+   <div class="f"><label>Acabado</label><div class="fixed">Holo (único disponible)</div></div>
+   <div class="f"><label>Idioma</label><div class="seg"><span>Inglés</span><span class="on">Español</span></div></div>
+   <div class="f"><label>Versión</label><div class="seg"><span>Normal</span><span class="on">Sello Liga</span></div>
+    <p class="hint">Esta fila solo existe si la carta tiene versiones con sello. Con un solo sello son dos botones; con varios, uno por sello.</p></div>
+   <div class="price"><div><small>Precio de venta (se calcula solo)</small><span style="font-size:12px;color:var(--mu)">Sello Liga en inglés MX$480 × 75 % (español)</span></div><span class="v">MX$360.00</span></div>
+   <div class="two" style="margin-top:14px"><div><div class="f" style="margin:0"><label>Cantidad</label><div class="inp">1</div></div></div><div><div class="f" style="margin:0"><label>Adquisición</label><div class="seg"><span class="on">Compra</span><span>Aportación</span></div></div></div></div>
+   <div class="btn"><span>Cancelar</span><span class="p">Crear pieza</span></div>
+  </div></div>
+ <div class="col"><h2>Opción B — un solo control «Versión» con todas las combinaciones</h2>
+  <div class="modal"><h3>Nueva pieza</h3>
+   <div class="sel"><img src="https://images.pokemontcg.io/base1/4.png" alt="Charizard"><div><b>Charizard</b><small>Base Set · BS 4 · Holo Rare</small></div></div>
+   <div class="f"><label>Tipo</label><div class="fixed">Carta suelta · NM</div></div>
+   <div class="f"><label>Acabado</label><div class="fixed">Holo (único disponible)</div></div>
+   <div class="f"><label>Versión</label><div class="seg"><span>Inglés</span><span>Español</span><span>Sello Liga</span><span class="on">Sello Liga · Español</span></div>
+    <p class="hint">Cuatro botones fijos con un sello; con dos sellos serían seis. Una combinación sin precio sale apagada con su motivo.</p></div>
+   <div class="price"><div><small>Precio de venta (se calcula solo)</small><span style="font-size:12px;color:var(--mu)">Sello Liga en inglés MX$480 × 75 % (español)</span></div><span class="v">MX$360.00</span></div>
+   <div class="two" style="margin-top:14px"><div><div class="f" style="margin:0"><label>Cantidad</label><div class="inp">1</div></div></div><div><div class="f" style="margin:0"><label>Adquisición</label><div class="seg"><span class="on">Compra</span><span>Aportación</span></div></div></div></div>
+   <div class="btn"><span>Cancelar</span><span class="p">Crear pieza</span></div>
+  </div></div>
+</div>
+<div class="sum"><h2>Toques añadidos por el idioma y el sello, contados sobre la carta ya elegida (hoy = 0 de esto existe)</h2>
+<table><tr><th>Qué se captura</th><th>Flujo de hoy</th><th>Opción A</th><th>Opción B</th></tr>
+<tr><td>Inglés normal (el camino de hoy)</td><td class="n">+0</td><td class="n ok">+0 — «Inglés» y «Normal» ya vienen marcados</td><td class="n ok">+0 — «Inglés» ya viene marcado</td></tr>
+<tr><td>Español</td><td>no existe</td><td class="n">+1 (tocar «Español»)</td><td class="n">+1</td></tr>
+<tr><td>Con sello (inglés)</td><td>no existe</td><td class="n">+1 (tocar «Sello Liga»)</td><td class="n">+1</td></tr>
+<tr><td>Español con sello</td><td>no existe</td><td class="n">+2 (Español, Sello Liga)</td><td class="n ok">+1</td></tr>
+<tr><td>Carta sin versiones con sello</td><td class="n">+0</td><td class="n">la fila «Versión» no se dibuja: solo «Idioma»</td><td class="n">dos botones: Inglés / Español</td></tr>
+<tr><td>Alta rápida desde la casilla de una versión (§16.5)</td><td class="n">+0</td><td class="n ok" colspan="2">+0 en ambas: la casilla ya ES la versión (idioma y sello vienen de ella)</td></tr></table></div>
+<div class="note"><b>Reglas de esta pantalla.</b> (1) Ningún menú desplegable ni pantalla extra: botones de 44 px, visibles, en el mismo paso. (2) El valor por defecto es el camino normal (Inglés, Normal), así que no cuesta un solo toque. (3) El precio aparece al instante bajo los controles, calculado por el servidor; nadie lo teclea. (4) Una versión sin precio (sello sin valor de mercado, o inglés sin mercado para el español) sale <i>apagada</i> con su motivo («sin precio de mercado»); no se ofrece ni se puede crear. (5) Los toques son aritmética de la maqueta, NO MEDIDOS en el producto. Los segmentados reutilizan el patrón del conmutador «Compra / Aportación» que ya existe. <b>Recomiendo A</b>: el español y el sello son dos ideas distintas (el dueño las nombró separadas) y A no crece con cada sello nuevo; B ahorra un toque solo en el caso más raro.</div>
+</body></html>

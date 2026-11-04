@@ -28,6 +28,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import { getCheckoutQuote, getGuestCheckoutQuote } from '@/lib/api';
 import { CheckoutView } from './CheckoutView';
 import { GuestCheckoutView } from './GuestCheckoutView';
+import { IDS_EN } from '@/test/ids-defaults';
 
 /**
  * REGRESIÓN v1.51-b — la meta de una línea de compra.
@@ -65,7 +66,7 @@ const ZERO_BREAKDOWN = {
 
 function quote(card: OrderItemCardDTO): CheckoutQuoteResponse {
   return {
-    items: [{ inventoryItemId: 'inv-x', card, unitPriceCents: 12500 }],
+    items: [{ ...IDS_EN, inventoryItemId: 'inv-x', card, unitPriceCents: 12500 }],
     breakdown: ZERO_BREAKDOWN,
     unavailableItems: [],
   };
@@ -73,7 +74,7 @@ function quote(card: OrderItemCardDTO): CheckoutQuoteResponse {
 
 function guestQuote(card: OrderItemCardDTO): GuestCheckoutQuoteResponse {
   return {
-    items: [{ inventoryItemId: 'inv-x', card, unitPriceCents: 12500 }],
+    items: [{ ...IDS_EN, inventoryItemId: 'inv-x', card, unitPriceCents: 12500 }],
     fulfillmentMode: 'direct_ship',
     breakdown: { ...ZERO_BREAKDOWN, shippingFeeCents: 17500 },
     vaultBreakdown: ZERO_BREAKDOWN,

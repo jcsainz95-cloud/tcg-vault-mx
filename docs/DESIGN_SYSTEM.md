@@ -1157,6 +1157,7 @@ No uses los valores base directamente en componentes: usa estos tokens semántic
 | `--color-surface-2` | Superficie elevada / hover row | `#EFEBE2` (pozo) |
 | `--color-border` | Bordes y divisores (regla) | `rgba(26,26,24,0.16)` |
 | `--color-border-strong` | Borde de énfasis / input | `rgba(26,26,24,0.32)` |
+| `--color-border-control` | Borde de burbujas del selector de versión (≥ 3:1, IDS-UX.8) | `rgba(26,26,24,0.55)` |
 | `--color-text` | Texto principal | `#1A1A18` (tinta) |
 | `--color-text-muted` | Texto secundario | `#6E695E` |
 | `--color-text-subtle` | Texto terciario / placeholder | `#6E695E` |
@@ -2614,11 +2615,10 @@ base nuevo**. Dos grupos separados por regla, con `eyebrow` mono cada uno.
   elegir bóveda no pierde lo capturado, porque la dirección se oculta sin desmontarse.
 
 **Resumen de errores al intentar pagar:** si hay campos inválidos, se pinta arriba del formulario un bloque
-`role="alert"` con "Revisa {n} campo(s)" y una lista de enlaces al campo correspondiente; el foco va al
-bloque. Esto sustituye a hacer scroll a ciegas.
+`role="alert"` con "Revisa {n} campo(s)" y enlaces a cada campo; el foco va al bloque (sin scroll a ciegas).
 
 **Desglose y avisos (idénticos al checkout con cuenta, criterio 48b):** `AmountBreakdown` (§7.12) con
-**subtotal sin IVA · comisión de plataforma (§29) · IVA 16% · envío (MX$175, del dial, nunca hardcodeado) ·
+**subtotal sin IVA · comisión de plataforma (§29) · IVA 16% · envío (del dial M10, nunca hardcodeado) ·
 total**, más las tres notas al margen ya existentes (ventas finales con enlace a términos, factura CFDI por
 correo, "qué pasa después del pago"). No se añade ni se quita ninguna.
 
@@ -2634,18 +2634,16 @@ invitados y para usuarios con cuenta por igual:
 
 | Opción | Micro-etiqueta mono | Estado para invitado |
 |---|---|---|
-| **Envío a mi domicilio** / Home delivery | `+ MX$175` | seleccionada por defecto |
+| **Envío a mi domicilio** / Home delivery | `+ {envío}` (dial M10) | seleccionada por defecto |
 | **Guardar en mi bóveda** / Keep in my vault | `REQUIERE CUENTA` / `REQUIRES ACCOUNT` | **seleccionable** (no deshabilitada, no oculta, sin candado rojo) |
 
-La micro-etiqueta "REQUIERE CUENTA" en mono muted es **honestidad previa, no una barrera**: evita la
-sorpresa sin impedir el clic. **Prohibido**: `disabled`, `aria-disabled`, candado bermellón, tooltip de
-error, `Banner danger` o cualquier tratamiento que lea como "no puedes".
+"REQUIERE CUENTA" en mono muted es **honestidad previa, no una barrera**: evita la sorpresa sin impedir el
+clic. **Prohibido**: `disabled`, `aria-disabled`, candado bermellón, tooltip de error, `Banner danger` o
+cualquier tratamiento que lea como "no puedes".
 
 **Formato del upsell: panel inline que se expande justo debajo de la opción elegida.** No es modal, no es
-un paso nuevo, no es una ruta.
-
-*Modal y paso separado, descartados* (tapan carrito y total, o violan "sin salir del checkout", criterio 48):
-el panel inline deja visibles artículos y total, y la salida queda a un clic.
+un paso nuevo, no es una ruta (taparían carrito y total, o violarían «sin salir del checkout», criterio 48):
+artículos y total quedan visibles y la salida a un clic.
 
 **Anatomía del panel** (papel sobre pozo `surface-2` + regla superior de énfasis `border-strong`; **sin
 sombra, radio 0**):
@@ -2653,9 +2651,8 @@ sombra, radio 0**):
 2. `h3` serif: "Guarda tus cartas en la bóveda" / "Keep your cards in the vault".
 3. **Tres beneficios**, uno por renglón, separados por regla fina, cada uno en una sola línea
    (`text-sm`, cifra en mono):
-   - "Acumula cartas y paga **un solo envío** — te ahorras **MX$175** cada vez que no envías." *(la cifra
-     sale del dial de envío de la cotización; si no está disponible, se omite el paréntesis, nunca se
-     inventa)*
+   - "Acumula cartas y paga **un solo envío** — te ahorras **{envío}** cada vez que no envías." *({envío} = `shippingFeeCents`
+     del dial M10 vía cotización, `ARCHITECTURE.md`; si falta, se omite la cifra, nunca se inventa)*
    - "Ve el **valor de tu colección** actualizado a diario."
    - "Custodia con **autenticidad y condición garantizadas**."
 4. **Formulario de registro inline** (reusa `AuthForm` en modo compacto):
@@ -2911,9 +2908,8 @@ de minimización de §15.6.
 - **Foco visible** bermellón en todos los controles nuevos (§8.2); ningún panel, disclosure ni sticky bar
   puede quitar el `outline`.
 - **Orden de tabulación** = orden visual: línea de acceso (T4) → destino (→ panel de upsell si está abierto) →
-  contacto → envío → términos → pago. La barra sticky de móvil se coloca al
-  final del DOM pero **no** rompe el orden porque es un duplicado accesible del botón de pago; si se
-  duplica, el duplicado va `aria-hidden` y solo uno recibe foco.
+  contacto → envío → términos → pago. La barra fija de móvil es **una sola copia** del botón de pago
+  (CHK-MOVIL.2.4): sin duplicado, sin `aria-hidden`; un único PAGAR recibe foco.
 - **Botones deshabilitados con explicación:** cada vez que el pago se bloquea (correo sin confirmar, destino
   bóveda sin cuenta, dirección inválida) hay un **texto asociado por `aria-describedby`**; nunca un botón
   apagado y mudo.
@@ -2921,10 +2917,9 @@ de minimización de §15.6.
   `aside` y en la barra móvil; la opacidad sola no se distingue para quien no ve bien el color. En `loading` el
   borde sigue continuo. La condición va en `muted`, no bermellón.
 - **Salida del bloqueo por bóveda:** el aviso («Para pagar, crea tu cuenta o elige envío a domicilio.») lleva
-  siempre el botón-enlace **«Elegir envío a domicilio»**: vuelve a envío y deja el foco en esa opción. `aside`
-  (`lg+`): bajo la nota, `min-h-[44px]`, `text-xs` subrayado. Barra móvil: junto a la explicación, **ancho fijo
-  92 px** (mono 11 px, `leading-[1.3]`, dos renglones) para que la explicación quede en ≤ 2 renglones y **la barra
-  en ≤ 120 px a 320 px** (§CHK-MOVIL.2.4); `min-h-[44px]`.
+  siempre el botón-enlace **«Elegir envío a domicilio»** (vuelve a envío, foco en esa opción), `min-h-[44px]`.
+  `aside` (`lg+`): bajo la nota, `text-xs` subrayado. Barra móvil: junto a la explicación, **ancho fijo 92 px**
+  (mono 11 px, `leading-[1.3]`, dos renglones): explicación en ≤ 2 renglones y **barra ≤ 120 px a 320 px** (§CHK-MOVIL.2.4).
 - **Anuncios asíncronos:** cotización recalculada, cuenta creada, correo desmarcado, resultado del reenvío →
   `aria-live="polite"`. Errores de pago → `aria-live="assertive"` (§8.2).
 - **Etiquetas reales** en todos los campos (`<label htmlFor>`), `autocomplete` correcto en correo y
@@ -8018,39 +8013,7 @@ entero**: son lo único que hay.
 
 #### 23.4.0 El estándar lo pedía; el dueño decidió no adoptarlo aquí, y ésta es la razón
 
-Esto es lo que la v2.6 **no distinguió**, y por eso hay que decirlo con precisión:
-
-**(a) Lo que dice el estándar, y sigue diciendo.** **WCAG 2.2.2 «Pause, Stop, Hide» (nivel A)** pide un
-mecanismo para pausar, detener u ocultar cualquier contenido en movimiento que **arranque solo**, dure más
-de 5 segundos y se presente junto a otro contenido. Este carrusel entra de lleno: arranca solo y su pasada
-dura **≈ 39 s a 390 px y ≈ 15 s en escritorio** —reposo inicial incluido, §23.3b—, de modo que **el criterio
-aplica en cualquier anchura**: hasta la cota más corta triplica los 5 s. **Medido contra WCAG, la
-implementación de v2.7 NO cumple 2.2.2.** No se maquilla: queda escrito así, en el documento de diseño, con
-esas palabras.
-
-*(Precisión de v2.7.1: aquí se citaba «≈ 39 s» a secas y §23.3 decía «≈ 44 s». **La cifra canónica es
-≈ 39 s** —los ≈ 44 s eran un error de suma, §23.3b (a)—, y va **siempre con la anchura al lado**, porque la
-pasada es más corta cuanto más ancha es la ventana. **El argumento no dependía del número grande**: aguanta
-con las dos cotas. Lo que **no** se acepta es la lectura de que solo cuentan los ≈ 4 s de traslación pura
-para declararse conforme — prohibida en §23.3b (c).)*
-
-**(b) Lo que WCAG NO es.** WCAG es una **recomendación técnica del W3C**, un consorcio industrial. **No es
-una ley** y el W3C no tiene potestad para imponerla. Se vuelve exigible solo cuando **una norma jurídica la
-adopta por referencia** para un sujeto obligado concreto.
-
-**(c) Si esa norma existe para esta tienda.** Hasta donde alcanza esta decisión, **no**:
-
-| Régimen | ¿Alcanza a TCG HUNT? |
-|---|---|
-| **México — accesibilidad web con dientes** | Las obligaciones exigibles apuntan a **entes públicos** (sitios y servicios digitales de **gobierno**). TCG HUNT es una **tienda privada**: **no es sujeto obligado** |
-| **Unión Europea — European Accessibility Act (Dir. 2019/882)** | **Sí** cubre el **comercio electrónico**… **pero solo para quien vende en la UE**. TCG HUNT vende en México (`MXN`, envíos nacionales): **no aplica hoy** |
-| **WCAG como estándar de oficio** | Se sigue **por criterio propio** en el resto del sistema (§8.2, §10, contraste AA, foco visible, nombre accesible). Aquí, en **un** punto, el dueño decidió no pagar el precio |
-
-**(d) La decisión, y cómo debe citarse.** El dueño vio la función publicada y decidió que el conmutador
-**no vale su coste** en su tienda: un control permanente en el encabezado de la home, con tres etiquetas y
-una máquina de estados detrás, para una rotación que ya se detiene sola en cuanto alguien la toca, la mira
-con el ratón, la tabula o pide menos movimiento. **Es una decisión suya y es legítima tomarla.** Lo que este
-documento fija es **cómo se dice**:
+*(Compactado vC-1; el texto largo está en git.)* **(a)** WCAG 2.2.2 «Pause, Stop, Hide» (nivel A) pide pausar contenido que arranca solo y dura > 5 s; esta pasada dura ≈ 39 s a 390 px y ≈ 15 s en escritorio (§23.3b), así que aplica en cualquier anchura: **medido contra WCAG, v2.7 NO cumple 2.2.2**, y se escribe así. No vale contar solo los ≈ 4 s de traslación (§23.3b c). **(b)** WCAG es una recomendación del W3C, no una ley. **(c)** No alcanza a TCG HUNT hoy: en México lo exigible apunta a entes públicos (tienda privada: no es sujeto obligado) y la Directiva europea 2019/882 cubre comercio electrónico solo para quien vende en la UE; el resto del sistema sí sigue WCAG por criterio propio (§8.2, §10). **(d)** El dueño vio la función y decidió que el conmutador no vale su coste; decisión legítima. Cómo se dice:
 
 > **Redacción canónica.** No se escribe «el control no es obligatorio» a secas, ni «cumplimos 2.2.2», ni
 > «WCAG no aplica». Se escribe: **«WCAG 2.2.2 (nivel A) pide un mecanismo de pausa; este carrusel no lo
@@ -8580,52 +8543,11 @@ elemento que ofrezca pausar, reanudar o repetir — botón, icono, texto, ítem 
 
 ### 23.16 Lo que se perdió — el costo real de retirar el control (v2.7)
 
-Esto se escribe para quien lea §23 dentro de un año y se pregunte qué se dejó por el camino. La decisión es
-del dueño y es legítima; **lo que no sería legítimo es guardar silencio sobre su precio.**
-
-**(a) Quién se queda sin nada: el usuario táctil que solo mira.** Alguien que lee despacio, en un teléfono,
-sin ratón y sin teclado, y que **no toca la pantalla** mientras lee. Para esa persona:
-
-- **F1 (hover)** apenas actúa: en táctil el puntero es transitorio, existe mientras el dedo está apoyado.
-- **F2 (foco)** no actúa: no está tabulando.
-- **F3 (intervención)** no actúa hasta que toque y **mueva** la pista.
-- **F4 (visibilidad)** solo actúa si se va a otra pestaña o hace scroll y saca el estante de la vista — es
-  decir, si deja de mirarlo.
-- **F5 (`prefers-reduced-motion`)** actúa, y del todo — pero **solo si ya tenía la preferencia activada en
-  su sistema operativo**. Si no la conoce, o la conoce pero no quiere apagar el movimiento en **todas** sus
-  apps para leer una pista de ocho cartas, no le sirve.
-
-**Resultado, dicho sin rodeos: esa persona no tiene ninguna forma explícita de detener la rotación.** Le
-quedan dos caminos, y los dos son laterales: **tocar la pista y arrastrarla un poco** (lo que la pausa para
-siempre, F3 — funciona, pero **hay que descubrirlo por accidente**, porque nada en pantalla lo sugiere) o
-**esperar ≈ 39 s** a que la pasada termine sola —ésa es la duración **a 390 px**, que es justamente la
-anchura de esta persona (§23.3b); en una ventana ancha la misma pasada se agota en ≈ 15 s, pero **esa no es
-la pantalla de quien se queda sin nada**, así que aquí manda la cota de móvil—. Un toque **quieto**, sin
-arrastre, solo suspende mientras el dedo esté apoyado: **no** pausa para siempre.
-
-> **Precisión que hay que hacer, porque es fácil consolarse con una media verdad:** «tocar la pista la
-> detiene» es cierto **si el toque mueve la pista**. Un dedo apoyado y quieto **no** dispara F3 (§23.5a
-> exige un `scroll` atribuible). En la práctica casi cualquier contacto real desplaza la pista uno o dos
-> píxeles y la pausa se dispara; pero **no está garantizado**, y este documento no va a fingir que sí.
-
-**(b) Los tres daños menores, para que estén contados:**
-
-1. **Lector de pantalla:** se pierde el elemento cuyo **nombre accesible cambiaba** al cambiar el estado.
-   Queda un único canal, la línea `role="status"` (§23.9c), que **anuncia** pero no **ofrece**: informa de
-   que la rotación se detuvo; no da forma de detenerla.
-2. **Teclado:** sigue habiendo un modo de pararla a voluntad —activar una flecha (F3)—, pero **es implícito**:
-   nada dice que navegar la pista la pausa para siempre. Antes había un control que lo decía con una palabra.
-3. **Verificación:** desaparece el observable de estado más barato que tenía QA. Ahora el estado se infiere
-   midiendo `scrollLeft` en el tiempo (§23.14). Los tests son más largos, más lentos y más frágiles.
-
-**(c) Lo que NO se perdió, para que la lista no se lea peor de lo que es.** La rotación **sigue teniendo
-cinco frenos** y sigue siendo la más contenida posible: una teja por tic, **una sola pasada** —**≈ 39 s a
-390 px, ≈ 15 s en escritorio** (§23.3b), y lo que importa aquí es que **acaba**—, se
-detiene al primer gesto y **no vuelve**, no arranca sobre contenido en carga, y con `prefers-reduced-motion`
-**no existe**. El contenido está entero y accesible sin rotación alguna: las flechas, el dedo y la rueda
-llegan a las ocho tejas, siempre.
-
-**(d) La forma correcta de citar esto** está en §23.4.0 (d), y **cuándo hay que reabrirlo**, en §23.4.0 (e).
+Decisión del dueño, legítima; este es su precio (compactado vC-1; el detalle largo está en git).
+- **Quién se queda sin nada:** el usuario táctil que solo mira. F1 (hover) apenas actúa en táctil, F2 (foco) no actúa, F3 solo actúa si el toque **mueve** la pista (un dedo quieto no pausa para siempre; casi cualquier contacto real la desplaza 1-2 px, **no está garantizado**), F4 solo si saca el estante de la vista, F5 solo si ya tenía la preferencia activada. **No tiene ninguna forma explícita de detener la rotación**: arrastrar un poco (hay que descubrirlo) o esperar ≈ 39 s (la pasada a 390 px, §23.3b).
+- **Daños menores:** (1) lector de pantalla: solo queda el `role="status"` (§23.9c), que anuncia pero no ofrece; (2) teclado: detener es implícito (activar una flecha); (3) QA: el estado se infiere midiendo `scrollLeft` en el tiempo (§23.14).
+- **Lo que NO se perdió:** cinco frenos, una teja por tic, una sola pasada (≈ 39 s a 390 px, ≈ 15 s en escritorio) que acaba; se detiene al primer gesto y no vuelve; con `prefers-reduced-motion` no existe; las ocho tejas son alcanzables sin rotación.
+- Cómo citar esto: §23.4.0 (d); cuándo reabrirlo: §23.4.0 (e).
 
 ---
 
@@ -13181,27 +13103,7 @@ hacer; **`Poner precio` sí**. Comportamiento:
 > *«ninguna acción masiva en v1»*) y **es el humano quien la decide**. Si la reabre, esto es lo que se votó y
 > por qué — y lo que el arquitecto contestó.
 
-**(a) Lo que voté, y sigo sosteniendo: NO a la edición masiva de importes.** Se adoptó tal cual.
-
-1. **El premium es una relación, no un número.** «+15% a los seleccionados» o «MX$ 1,000 a estos veinte»
-   produce, de un clic, veinte precios cuya relación **con la curva de cada variante** el dueño **no ha
-   visto**. Es literalmente la ceguera que esta pantalla vino a curar, servida más rápido.
-2. **La validación es por fila.** `BOUNTY_BELOW_RULE` se evalúa contra la curva **de cada variante**. Un lote
-   de veinte solo tiene dos finales, y los dos son malos: **parcial** (doce guardados, ocho rechazados ⇒ el
-   dueño ya no sabe qué está pagando sin releer las veinte filas) o **atómico** (una fila mala tumba
-   diecinueve buenas). No hay tercera.
-3. **La selección múltiple convierte la tabla en superficie de edición** y le devuelve el resbalón que la
-   regla «la tabla en reposo no tiene formularios» acababa de quitarle.
-
-**(b) Lo que voté y fue RECHAZADO: el apagado en lote de los rebasados.** Mi argumento era que apagar **no
-gasta**, **es reversible** y **no valida por fila**, y que era el gesto real después de mover la curva
-(*«se me rebasaron ocho, apágalos mientras decido»*). **Las tres premisas caen, y la primera es medible:**
-
-| Mi premisa | La refutación (arquitecto) | Mi lectura hoy |
-|---|---|---|
-| «detiene un gasto» | **⭐ Un `rebasada` YA NO PAGA**: la precedencia de compra **se salta** el bounty no efectivo y cotiza la curva. Se pagaría el mismo peso antes y después de pulsar el botón | **Es la que decide, y es un hecho, no una opinión. Mi premisa era falsa**: el botón no frena nada porque el sistema ya frenó solo. *Una acción masiva de dinero cuyo efecto sobre el dinero es cero no es una herramienta: es un ritual — y los rituales sobre botones masivos se acaban usando sobre las filas que sí pagan.* |
-| «no pierde información» | `rebasada` **se explica sola** y trae sus dos puertas; `apagada` dice *«una persona decidió»*. Apagar ocho de un clic convierte **ocho diagnósticos en ocho decisiones que nadie tomó**, y mañana son indistinguibles de las que el dueño retiró a propósito | **La acepto, y me señala una incoherencia mía**: yo mismo escribí que **el porqué dejó de pagarse es el dato que esta pantalla existe para no perder** (§28.3, `completada` vs `apagada`). Mi botón lo borraba a escala |
-| «es reversible» | Cierto en el dato, **falso en la puerta**: apagar cuesta **un** clic; encender son **N escrituras validadas** que pueden fallar con tres códigos distintos. **Y encender exige importe** ⇒ *un lote cuyo deshacer no puede ser lote es una petición de lote de importes con retraso* | **La acepto entera.** Es el vector por el que caería la prohibición que yo mismo defendía en (a) |
+*(Compactado vC-1; el voto completo está en git.)* **(a) NO a la edición masiva de importes** (adoptado): el premium es una relación con la curva de cada variante que el dueño no ha visto; la validación (`BOUNTY_BELOW_RULE`) es por fila, y un lote solo termina parcial o atómico, ambos malos; la selección múltiple convierte la tabla en superficie de edición. **(b) RECHAZADO: apagar en lote los rebasados.** Las premisas cayeron: un `rebasada` ya no paga (la compra se salta el bounty no efectivo), así que el botón no frena nada; apagar ocho de un clic convierte ocho diagnósticos en ocho decisiones que nadie tomó (pierde el porqué de §28.3); y encender son N escrituras validadas que exigen importe, así que un deshacer que no puede ser lote es un lote de importes con retraso.
 
 **(c) Qué se hace en su lugar, y ya está en el diseño:** el chip **`REBASADOS`** (filtro `state`) más el orden
 **`attention_first`** ponen **las ocho juntas y arriba**, cada una con su tarifa vigente al lado, y se decide
@@ -33857,3 +33759,100 @@ El único ancho ajustado es 360: el margen medido en el peor caso es 23.0 px (�
 **vMKT-CONV-1 (2026-10-31):** sección nueva (B1/D-4 A, B6b, T2, B2). MKT2-UX.1 y .4 compactados a puntero; MKT2-UX.3 corregido en anatomía y filas de botones.
 **vMKT-CONV-2 (2026-10-31):** MKT-CONV.8 nuevo (catálogo móvil ≥ 2 tejas); ficha `lg`: renglón de compra antes de la pila (MKT-CONV.2, L-9); T8 alineada (sin «ventas finales» en la ficha); MKT-CONV.5 compactado a decisiones abiertas; L-8, L-10.
 **vMKT-CONV-3 (2026-11-01):** sin badge de estimado en la teja < `sm` (§22.5), foto 4:5, precio/stock con wrap, aritmética de MKT-CONV.8 corregida con medidas, L-8/L-10 ampliados.
+
+## IDS-UX. Español y cartas de liga — insignias de versión y su aplicación (vIDS-4, 2026-11-02 · `HECHOS.md` 2026-11-02 «Selector de versión en burbujas: opción A-contorno de marketing», 2026-11-01 «Las elecciones de cómo se muestran español y sellos las decide marketing», «Captura de español y sellos: opción A» y 2026-11-02 «Nombre visible de la versión de liga (decisión de marketing D-6 v3…)» · `PROJECT.md` §IDS)
+
+> **Estado: DISEÑO; nada implementado.** Maquetas vigentes en `design/mockups/ids/` (HTML autocontenido, imágenes de images.pokemontcg.io; **PNG v3 y v4 no generados**, no tengo Bash: render pendiente del orquestador): **`01-captura-v4`, `04-ficha-v4`** (selector en burbujas, IDS-UX.8; **vigentes con D-IDS-5 = B: `04-ficha-v6` (390 px; forma 2×N y 2×2 normal) y `01-captura-v6` (1280 px)**; `01-captura-v5`, `04-ficha-v5-A/-B` y las v4 quedan superadas) y v3 de `02-inventario-admin`, `03-teja-catalogo`, `05-carrito`, `06-meta-deck`. **`01-captura-v3` y `04-ficha-v3` (selector en renglones/segmentados rectos) ya no son vigentes**, como v2 («Con sello») y v1. **Fuente de la presentación: marketing** (`tcg-hunt-marketing` `plan/IDS_DECISIONES_2026-11-01.md`, D-6 v3 @ `b80974d`, relayada en `HECHOS.md` 2026-11-02; revisión de director-arte pendiente sobre las v3). **Cero tokens nuevos:** tinta/papel/`muted`/`accent` (#B31217) de §2.3. Lo no medido en navegador va **NO MEDIDO**.
+
+### IDS-UX.0 Reglas del dueño que mandan (no se rediseñan)
+- Español = la misma carta; precio = mercado del inglés × 75 %. La versión de liga = otro producto con su precio; español de liga existe. Todo automático, sin colas: una versión sin precio no se ofrece ni se publica.
+- **Captura sin fricción:** el camino normal (inglés, sin liga) no gana ni un toque; idioma y versión en el mismo paso, botones segmentados visibles.
+- Meta Battle Decks: español y liga cuentan para surtir; solo se indica la versión (IDS-UX.5).
+- Sin valor de mercado ni estimado PSA en la ficha de una versión española. El ahorro del español **no** se anuncia: sin «descuento», «ahorras», tachados ni %; solo los precios lado a lado.
+- **«Sello» no se muestra al cliente** (ficha, leyenda, carrito, pedido, correo, FAQ, filtro, JSON-LD): el mercado dice «de liga». Solo vive en lo interno (admin, hoja de preparación) y en el nombre del filtro de admin «Sello: Sí/No».
+
+### IDS-UX.1 La insignia de versión (`VersionChip`) — un componente, todas las pantallas
+Dos clases: **idioma** («Español» / EN «Spanish», relleno) y **tipo** (contorno rojo). Nombre de la insignia de tipo por fuente de la tienda (D-6 v3):
+| Tipo | ES | EN | Texto largo (ficha, carrito, pedido, correo) |
+|---|---|---|---|
+| Prize Pack | **De liga** | **Prize Pack** | «De liga (Prize Pack)» · «Prize Pack» |
+| Liga (promo antigua, grupo `1539`) | **De liga** | **League** | «De liga (promo de la Liga)» |
+| Campeonato | **De torneo** | **Tournament** | «De torneo (promo de campeonato)» |
+| Prerelease | **Prerelease** | **Prerelease** | «Prerelease (promo de prerelease)» |
+| Staff | **Staff** | **Staff** | «Staff (promo Staff)» |
+Mapeo de claves cortas (≤ 18 car.) y tipos nuevos: PO. **Nunca** «De liga» en producto sellado (Baraja Combate de Liga). Prerelease/Staff/Campeonato **nunca** «De liga». Uso en México de Staff y Campeonato N=0 (marketing): nombres de marca, a revisar. A/B pendiente del dueño en marketing: A «De liga» (vigente) / B «Liga».
+| | Idioma | Tipo |
+|---|---|---|
+| Color | fondo tinta, texto papel (relleno) | fondo transparente, borde 1.5 px y texto `accent` #B31217, sobre claro (contorno) |
+| Contraste | papel/tinta **15.45:1** | #B31217/papel #F4F1EA **6.17:1**; sobre pozo #EFEBE2 **5.85:1** (medidos por director-arte, `v1-director-arte.md`) |
+- **Forma:** texto en caja normal, **nunca mayúsculas ni monoespaciada** (`text-transform:none`); **esquinas rectas** (`border-radius` 0), sin icono ni bandera. **Teja y carrito:** 12 px semibold (Archivo), alto 20 px, `px` 6 px, separación 4 px. **Ficha:** 13 px, alto 22 px. **Hoja de preparación:** alto 26 px, 13 px. `white-space:nowrap`; la fila lleva `flex-wrap`, **nunca elipsis ni recorte**. Superficies oscuras: no hay; si aparecieran, texto papel y borde `accent` (rojo sobre tinta mide 3.94:1, no vale).
+- **Doble canal:** relleno frente a contorno **y** texto. El rojo solo en contorno: el relleno rojo es del CTA. En la teja convive con el «Queda 1» en rojo: forma distinta (marco frente a texto).
+- **Orden fijo idioma → tipo.** Español con liga = **dos insignias** («Español» → «De liga»), nunca una compuesta (17 car. > ~14 de presupuesto). **Inglés sin liga: sin insignia** en superficies de cliente; en admin «EN» (etiqueta mono gris, no insignia); en líneas mixtas del deck, texto. El detalle exacto del tipo («Prize Pack») va en texto muted en ficha, carrito, pedido, correo y admin; la teja solo lleva el nombre de la insignia.
+- **Nombre accesible:** el texto visible ES el nombre (WCAG 2.5.3); teja y línea añaden la versión al `aria-label` («Charizard, español, de liga»). Nunca `aria-hidden`.
+- **Nunca encima de la carta.** **Imagen:** la del catálogo (inglés) para todas las versiones; leyenda mono `muted` bajo la foto en la ficha: inglés solo, ninguna · español «Imagen de referencia (versión en inglés)» · liga «Imagen de referencia (sin logo de liga)» · español de liga «Imagen de referencia (versión en inglés, sin logo de liga)»; prerelease/Staff/torneo «(sin logo de la promo)». EN: «Reference image (English version)» / «(no Prize Pack logo)». Foto del proveedor ya con logo (si existe, NO MEDIDO): sin leyenda (inglés) o «versión en inglés» (español).
+- **Ancho a 360 px (aritmética, NO MEDIDA):** chip ≈ 6.0 px × caracteres + 14 (calibrado: «Español» = 56 px medido por director-arte; «Con sello» midió 61, o sea 6.0 es cota alta). Chips: «De liga» 56 · «De torneo» 68 · «Prerelease»/«Prize Pack» 74 · «Staff» 44 · «League» 50 · «Tournament» 74. Pares en la columna de 152 px (304 ÷ 2), con 4 px de separación: ES liga **116** · ES torneo **128** · ES Prerelease **134** · EN Prize Pack **134** · EN «Spanish»+«Tournament» **134** (cálculo; **medido por frontend: 141.8 de 152 px, una línea**, el peor caso; marketing, `HECHOS.md` 2026-11-03 «Copy EN de §IDS»: ni «Champ.» ni envolver). Todos caben en una fila; un envoltorio costaría +24 px y rompe el 943 (IDS-UX.4). Con la tipografía de la tienda, **NO MEDIDO**.
+
+### IDS-UX.2 (a) Captura de inventario — `AddItemModal` (maqueta `01-captura-v4`; **opción A elegida por el dueño**, `HECHOS.md` 2026-11-01)
+Orden tras elegir la carta: Tipo → Acabado → **Idioma** → **Versión** (solo si hay versiones de liga o promo) → **precio calculado** → Cantidad/Adquisición → Crear. Dos controles, **toggles en burbuja** (IDS-UX.8).
+- **Idioma:** `Inglés | Español`, 44 px, **«Inglés» de fábrica**; patrón de `Compra | Aportación`.
+- **Versión:** `Sin liga | De liga · Prize Pack [| Prerelease | Staff | De torneo]`, **«Sin liga» de fábrica** (antes «Normal»); **la fila no se dibuja** si la carta no tiene versiones. Un botón por tipo con el nombre del mercado (grupo `1539`: «De liga · Promo de Liga»); el tipo exacto va en el botón (es admin).
+- **Acabado × versión (D-IDS-5; maqueta `01-captura-v6`; el acabado sin brillo se llama «No holo», nunca «Normal»):** si algún producto de liga tiene acabados que la carta no tiene (Prize Pack No holo de una carta holo) o hay dos productos del mismo tipo, **Acabado** deja de ser texto fijo y pasa a burbujas con la **unión** de acabados de `combos`; **de fábrica, el de la carta** (el camino normal sigue en 0 toques; con un solo acabado se queda el texto fijo). Cada combo se lee de `combos` (acabado × idioma × versión): el botón de **Versión** cuyo combo no existe con el acabado elegido queda **apagado** (borde discontinuo + motivo, como «Staff»; p. ej. «Sin liga» con Acabado No holo) y, si el de fábrica se apaga, se preselecciona el único válido. Dos productos del mismo tipo: un botón por producto con el `label` (admin sí lo ve): «De liga · Prize Pack» y «De liga · Prize Pack Cosmos Holo»; el precio de origen nombra el producto. Toques extra: solo cuando se elige un acabado distinto del de fábrica (+1).
+- **Precio al instante:** cifra 24 px + **desglose en una sola línea** («Base: De liga · Prize Pack Cosmos Holo en inglés · MX$480 × 75 % (español)»; a 1280 px no envuelve), calculado por el servidor. Etiqueta «Precio de venta (auto)» / EN «Selling price (auto)».
+- **Versión sin precio:** botón **apagado, borde discontinuo**, motivo en `aria-describedby` y visible al enfocar; no se puede crear. Sin cola ni aviso.
+- **Alta rápida desde la casilla de una versión (§16.5):** 0 toques extra. Idioma y versión no se guardan entre piezas: cada alta vuelve a «Inglés / Normal».
+- **Toques sobre la carta ya elegida (aritmética, NO MEDIDOS):** inglés normal **+0**; español +1; de liga +1; español de liga +2.
+
+### IDS-UX.3 (b) Lista de inventario admin — binder de M1 y cajón (maqueta `02-inventario-admin-v3`)
+- **Una fila por versión.** Columnas **Idioma** (`EN` gris / insignia «Español») y **Sello** (la cabecera interna se queda; celda: insignia de tipo «De liga» + tipo exacto en texto muted, o `—`); filtros de un toque `Idioma: Todos | Inglés | Español` y `Sello: Todos | Con sello | Sin sello` (interno, §16.1).
+- Cajón `VariantDrawer`: insignias junto a `FinishMark` y en cada pieza; precio con su origen («inglés de liga MX$480 × 75 %»); línea interna mono **como texto, no insignia**, fuente única de los 5 textos (la hoja de preparación la enlaza). Formato `IDIOMA · GRUPO · Nombre — sello X[, detalle]`; `IDIOMA` = `ES`/`EN`; `, detalle` = `stampLabel` (p. ej. «Cosmos Holo», el `finishLabel`, nunca «Holo Cosmos»), solo si el producto lo tiene; el acabado no se repite; `EN` sin liga = sin línea. Tipo → texto: `prize_pack` «LIGA · Prize Pack — sello Play! Pokémon» · `league` «LIGA · Promo de Liga — sello de la Liga» (`1539`) · `championship` «TORNEO · Campeonato — sello de Campeonato» · `prerelease` «EVENTO · Promo de Prerelease — sello Prerelease» · `staff` «EVENTO · Promo Staff — sello Staff». Ejemplos: «ES · LIGA · Prize Pack — sello Play! Pokémon, Cosmos Holo»; «EN · EVENTO · Promo Staff — sello Staff»; «ES · TORNEO · Campeonato — sello de Campeonato». Veredicto de `card-version.ts:283-289`: prize_pack y league **buenos**; championship/prerelease/staff **cambian** (grupo + «— sello X» como los de liga; «PRERELEASE» y «STAFF» a secas no dicen qué logo buscar en la carta). Petición 7 (backend, TL-IDS-2).
+- Sin precio: «Precio pendiente» y el motivo en Estado («Sin mercado del inglés»). Export `.xlsx`: `Idioma` y `Sello` al final (PROJECT §IDS.5).
+
+### IDS-UX.4 (c) Tienda, carrito, pedido y preparación (maquetas `03-teja-catalogo-v3`, `04-ficha-v3`, `05-carrito-v3`)
+**Teja del catálogo:** una teja por **versión** (sin teja «desde»). Orden: foto → nombre · set · número → ficha técnica → **fila de insignias (solo si hay)** → precio. Precio y bloque inferior anclados abajo (`margin-top:auto`): con y sin insignia los precios y el CTA quedan alineados (la teja sin insignia queda con 24 px de aire sobre el precio). Solo el nombre de la insignia de tipo, sin el detalle ni la palabra «sello».
+
+**Conflicto con el criterio 943 y cómo se absorbe (aritmética de deltas, NO MEDIDA en navegador; la cierra L-8 con Playwright).** Línea base medida por frontend: margen **23.0 px** a 360×740 con el aviso abierto, peor caso (`price5`, foto 4:5; `FRONTEND_NOTES` §MKT-CONV8); el criterio 943 pide ≥ 20, o sea **3 px de holgura**. La fila de insignias cuesta **+24 px** (`mt` 4 + alto 20) en toda fila con una teja con insignia: 23.0 − 24 = **−1.0 px, rompe 943**. Compartir línea con «RAW · NM · HOLO» no cabe (≈ 99 px de ficha técnica + 56 de «Español» > 152 px de columna). Se absorbe con tres palancas, solo en < `sm` y para **todas** las tejas (para no desalinear la rejilla):
+| Palanca (< `sm`) | Delta |
+|---|---|
+| P1 foto `aspect-[4/5]` → `aspect-[5/6]` (152 × 182.4; la carta 5:7 queda de 136 a 130 px de ancho, 89 % → 86 %) | −7.6 |
+| P2 cinco márgenes de la teja −2 px: nombre `mt-2`→`mt-1.5`, set `mt-1`→`mt-0.5`, ficha técnica `mt-1.5`→`mt-1`, renglón de precio `mt-2.5`→`mt-2`, CTA `pt-2`→`pt-1.5` | −10.0 |
+| P3 fila Filtros + Orden de MKT-CONV.8: 56 → 48 (`py-1.5` → `py-0.5`; los controles siguen en `h-11` = 44) | −8.0 |
+| **Total recuperado** | **−25.6** |
+**Margen resultante: 23.0 − 24 + 25.6 = 24.6 px ≥ 20** (holgura 4.6; NO MEDIDO). Sin P1 queda 17.0 y sin P3 queda 16.6: **hacen falta las tres**. Los nombres v3 caben en una fila (IDS-UX.1), así que **no cambian** el +24 ni este margen. Plan B si la medición da < 20: (i) el PO baja 943 al límite real de L-8 (8 px) o (ii) «IVA incluido» sube de la teja a un único aviso sobre la rejilla (−17.75 por teja; solo si `ivaIncluded` es igual en toda la página; decisión del PO; marketing la prefiere y sugiere quitarlo, `HECHOS.md` 2026-10-25). `03-teja-catalogo-v3` ya lleva P1–P3. Candado: IDS-UX.6.
+
+**Ficha (`04-ficha-v4`):** una ficha por carta; las versiones son **opciones** con su precio y existencia (PROJECT §IDS.4). Selector = **cuadrícula 2×2 de burbujas, forma y estados en IDS-UX.8** (reemplaza los cuatro renglones de la v3), antes de «Ejemplares disponibles», que se filtra a la versión elegida. Textos de las burbujas: «Inglés» · «Español» · «Inglés · De liga» · «Español · De liga» (otros tipos: «Prerelease», «Staff», «De torneo»; EN «English», «Spanish», «Prize Pack»; la versión sin liga en EN es «Regular» y el acabado «Non-holo»; en la teja «Cosmos»/«1st Edition», en ficha y nombre accesible el completo, `HECHOS.md` 2026-11-03). **Bajo la cuadrícula**, `muted` 12 px y solo con versión de liga elegida: «Carta de liga: Prize Pack de Play! Pokémon» (`1539`: «Carta de liga: promo de la Liga Pokémon»; otros: «Promo de prerelease» / «Promo Staff» / «Promo de campeonato»), reserva 17 px; después «Queda N» (mono 10 px). Las **insignias van bajo el `<h1>`** y **cambian al elegir**; con «Inglés» la fila queda vacía pero reserva 22 px. Agotada: **no se dibuja** (ya no «Agotado»). **Preselección (marketing, fila 10; D-IDS-4):** la versión de la **teja tocada** (el enlace de la teja lleva `?version=<key>`); sin parámetro (búsqueda, enlace externo) o con una `key` agotada o inexistente: **«Inglés» (`en`) si tiene existencia; si no, la más barata con existencia** (empate: la inglesa). Nunca se preselecciona por precio si la teja dice otra cosa. La barra fija móvil lleva el precio de la versión elegida; la ficha de una versión española no muestra valor de mercado ni estimado PSA. FAQ y filtro del catálogo («Cartas de liga y promos») son copy de marketing/PO, no de este documento.
+
+**Carrito, checkout, «Mi pedido», correo (`05-carrito-v3`):** las insignias van en una **segunda línea bajo el nombre**, a la izquierda, antes de la ficha técnica. **La línea de texto `muted` 12 px dice solo lo que las insignias no dicen** (petición 8; la captura de QA mostraba «Español» dos veces): nunca repite el idioma, y solo aparece si el tipo exacto difiere del nombre de la insignia. Sin liga ES: insignia «Español», **sin línea**. EN de liga: insignia del tipo, sin línea si coincide («Prize Pack»), si no el largo («League (League promo)»). ES de liga: «Español» + «De liga» y la línea «De liga (Prize Pack)» / «De liga (promo de la Liga)». Correo (sin insignias) en texto completo: «Nido Ball · 181/198 — Español · De liga (Prize Pack)»; EN «Spanish · Prize Pack». Dos piezas que solo difieren en versión **nunca** se fusionan en «2×». Si una versión pierde su precio antes del pago, el checkout la rechaza **nombrando la versión** y no cobra otra. **Hoja «Pedidos por preparar» (§35/§37, interna):** insignias de 26 px/13 px por pieza (marketing: «se quedan») **más** la línea mono como texto (los 5 textos y el formato, en IDS-UX.3 «Cajón»): es el único sitio donde «sello» y mayúsculas son correctos (nombra el logo físico).
+
+### IDS-UX.5 (d) Meta Battle Decks — `DeckAvailability` (maqueta `06-meta-deck-v3`)
+La línea se surte con lo que haya; **no hay selector**. La versión se indica con el mismo `VersionChip` en **segunda línea bajo el nombre** (no al final: choca con precio y cantidad a 360 px), y, **como en el carrito (IDS-UX.4; petición 9)**, una línea muted que solo dice lo que las insignias no dicen: nunca el idioma, y solo si el tipo exacto difiere del nombre de la insignia (ES de liga: «De liga (Prize Pack)»; ES sin liga y EN de liga coincidente: sin línea). El texto largo «Español · De liga (…)» queda solo donde no hay insignias (correo, tramos de texto de la línea mixta). Inglés puro: ninguna insignia. **Línea mixta:** un tramo por versión con cantidad y precio («[Español] ×1 · MX$150.00» y, como texto, «Inglés ×1 · MX$200.00»; con liga, «Español · De liga ×1 · MX$…»). **Regla de surtido (P-IDS-12, marketing):** una versión de liga solo entra si **no hay otra versión sin liga** con existencias; orden: la sin liga más barata (inglés o español) → liga solo si no hay otra. Orden y regla son de backend. «Agregar de jalón», el carrito y el `deckPull` conservan las insignias; los sustitutos siguen aparte. Copy: «Completa tu deck» en singular y en sueltas.
+
+### IDS-UX.6 Estados, accesibilidad y candados sugeridos
+- **`VersionChip`:** sin interacción (solo texto). Segmentados de captura y filtros: `hover` (pozo), `focus-visible` (anillo §4.3), `disabled` (borde discontinuo + motivo), `aria-pressed`/`radiogroup` con flechas. Targets ≥ 44 px (móvil) / 36 px (filtros admin de escritorio).
+- **Candados sugeridos (los escribe frontend, los corre QA):** (1) a 360×740 con el aviso abierto y **una teja con dos insignias en la primera fila**, el margen de L-8/943 ≥ 20 px (mide P1–P3 de IDS-UX.4; rojo si baja) **y** que los pares ES «Español»+«Prerelease» y EN «Spanish»+«Tournament» (el más ancho, 141.8 de 152 px medido) no envuelvan a dos filas; (2) captura: inglés normal = 0 toques de idioma/sello; (3) la fila «Versión» no existe en una carta sin sellos; (4) una versión sin precio no es seleccionable en captura, ficha ni deck; (5) mutación: pintar «Inglés», el detalle («Prize Pack») o la palabra «sello» en una teja, carrito, pedido o correo pone rojo (grep de «sello» en `messages/*` de superficies de cliente: solo se permite en admin y hoja de preparación); (6) la insignia nunca es hija del contenedor de la foto (nunca sobre la carta); (7) paridad ES/EN de las claves nuevas («Spanish», «Prize Pack», «League», «Tournament», «Regular», «Non-holo»…); (7b) las insignias no usan `uppercase` ni fuente mono; (8) deck: con una versión sin sello disponible, nunca se surte la de sello.
+
+### IDS-UX.7 Decisiones y peticiones numeradas
+**Registradas:** **D-1 = A** (captura con dos segmentados; dueño, `HECHOS.md` 2026-11-01). **D-2…D-7 las decide marketing** por delegación del dueño (`HECHOS.md` 2026-11-01, «Las elecciones de cómo se muestran español y sellos las decide marketing»; fuentes en el «Estado»): **D-2** teja = fila propia de insignias (la opción B de la v1; la A, sobre la foto, queda descartada: nunca encima de la carta); **D-3** ficha = una por carta con versiones como opciones; **D-4** deck = insignia en segunda línea bajo el nombre; **D-5** español y liga cuentan para surtir, con liga solo si no hay otra sin liga; **D-6 v3** nombre visible por tipo (IDS-UX.1; la «v2 / Con sello» ya no es vigente); **D-7** imagen del catálogo en inglés con la leyenda de IDS-UX.1. De las tres propuestas de marketing posteriores, **adoptadas**: ocultar agotadas (IDS-UX.8) y preselección por teja (IDS-UX.4, D-IDS-4); queda para PO/dueño quitar «IVA incluido» (plan B del 943).
+1. **Arquitecto:** campos `language` y `stamp {type, label}` (el `label` es el detalle «Prize Pack»; el nombre de la insignia sale de `type`) en `GroupedListingSummaryDTO`, detalle de ficha (`versions[]` con precio y existencia por versión), línea de carrito/cotización, de pedido y de preparación; `MetaDeckLineDTO` con partición por versión (`units[]`); y la regla de surtido de IDS-UX.5.
+2. **Arquitecto:** en captura, que la lista de versiones traiga `previewPriceCents` o `unavailableReason` por combinación (idioma × sello).
+3. **Product-owner:** claves cortas de los tipos (≤ 18 caracteres; paridad ES/EN, tabla de IDS-UX.1); copy de ficha, leyendas, filtro «Cartas de liga y promos», FAQ y JSON-LD `Versión` (de marketing); decidir el plan B del 943 si la medición da < 20 (IDS-UX.4) y las tres propuestas de marketing de arriba.
+4. **Frontend (cuando se construya):** `VersionChip` en `frontend/src/components/domain/` (zona compartida: serializar); P1–P3 en `CatalogTile`/`CatalogView` (zona compartida de componentes, serializar); segmentados con el patrón de `Compra | Aportación`.
+5. **Orquestador:** medir P1–P3 con Playwright a 360×740 (peor caso con dos insignias) antes de construir.
+6. **Arquitecto (D-IDS-5):** `finishLabel: string` (texto de cliente del acabado, «Holo», «No holo», «Cosmos Holo», de backend como `versionInternalLine`) en `VersionOptionDTO` y `GroupedListingSummaryDTO`: `StampDTO.label` es solo admin y el acabado `Holofoil` de Prize Pack y Prize Pack Cosmos Holo es el mismo, así que sin él dos versiones de liga del mismo tipo no se distinguen al cliente. Además: si un producto de liga tiene dos acabados con existencia, ¿`versions[]` trae una entrada por (producto × acabado)? (el diseño supone una por fila de la cuadrícula); y medir cuántos `versions[]` por carta hay en el peor caso (el diseño cuenta con ≤ 4 filas). Forma extendida: B decidida por marketing (IDS-UX.8).
+7. **Backend (TL-IDS-2):** `INTERNAL_STAMP_TEXT` de `card-version.ts:283-289` con los textos de IDS-UX.3 para `championship`, `prerelease` y `staff` (los otros dos ya coinciden); si una prueba fija los textos viejos, se actualiza con ellos.
+8. **Frontend (carrito, checkout y «Mi pedido»; QA 2026-11-03):** la línea `muted` bajo las insignias no repite el idioma y se omite cuando el tipo exacto coincide con el nombre de la insignia (reglas en IDS-UX.4 «Carrito»): ES sin liga = solo «Español»; EN de liga = solo la insignia si coincide; ES de liga = dos insignias + «De liga (Prize Pack)». Candado: en una línea ES sin liga no hay un segundo «Español» en el renglón; correo y texto sin insignias no cambian. Además: EN «Championship» → «Tournament» (`HECHOS.md` 2026-11-03).
+9. **Frontend (deck y errores de captura; 2026-11-03):** (a) `DeckAvailability` aplica la regla de la petición 8: junto a insignias usa `detail()`, no `line()` (que queda para correo y tramos sin insignia); candado: en una línea de deck ES sin liga no hay un segundo «Español». (b) Textos de `admin.m1.ids` (versiones, 404, 409, «Reintentar», «Recargar versiones») **aprobados**: siguen el tono de `createErrorTitle` (qué falló + qué hacer, sin culpar ni jerga HTTP; sin `STAMPED_PRODUCT_TAKEN` visible). Una corrección: el genérico «El servidor no respondió…» (también cubre 4xx/5xx) pasa a «No se pudo ligar la versión. Inténtalo de nuevo; si sigue, recarga las versiones.» (EN equivalente). Aviso en línea con `role="alert"`, foco en el botón de acción.
+
+### IDS-UX.8 Selector de versión en burbujas (`VersionPills`; maquetas `04-ficha-v4`, `01-captura-v4`)
+Presentación de marketing (opción A-contorno, director-arte 8,6); **las burbujas redondeadas son solo del selector**: insignias de teja/ficha/carrito, CTA, campos y modales siguen rectos.
+- **Ficha:** `role="radiogroup"` con rótulo visible «IDIOMA Y VERSIÓN» / EN «LANGUAGE AND VERSION» (mono 11 px muted, `aria-labelledby`); rejilla 2×2, gap 8 px; **columna = idioma** (inglés izq., español der.), **fila = versión** (normal arriba, de liga abajo). Cada burbuja `role="radio"`: píldora (`border-radius:999px`), **171×64 px a 390 px** (min-h 64, ≥ 44 táctil), nombre Archivo 600 14 px y precio 14 px tabular debajo. **Sin precio grande repetido**: el precio vive en la burbuja y en la barra fija.
+- **Estados:** normal = fondo papel, borde 1.5 px **`--color-border-control`**, texto tinta; **elegida** = fondo tinta, borde tinta, texto papel (doble canal: relleno + `aria-checked`); `hover` = pozo `--color-surface-2`; `focus-visible` = anillo §4.3 (2 px tinta, offset 2 px, sigue la píldora); **agotada = no se dibuja**. Ranuras fijas por (fila, columna): con 3 versiones queda un hueco, sin reordenar.
+- **Insignia «De liga» dentro de la burbuja (solo en la 2×2; en la forma 2×N no va, la dice el rótulo de fila):** recta (`radius 0`), contorno rojo 1.25 px y texto `accent` **12 px** semibold, alto 18 px, tras el nombre; en la elegida, **contorno y texto papel** (rojo sobre tinta 2.5:1, no vale). Misma forma y color que la insignia de la teja. Si no cabe en la línea del nombre (EN «Spanish»+«Tournament»), baja a segunda línea (`flex-wrap`) y la fila crece; nunca elipsis.
+- **Una sola versión con existencia: la cuadrícula NO se dibuja** (una opción no es una elección; igual que v3). Entonces sí se muestra el **precio de la ficha** (28 px) bajo el rótulo de existencia; con 2+ versiones no.
+- **Teclado/lector:** un solo tab-stop (roving `tabindex`, elegida = 0); flechas ←↑ / →↓ mueven y eligen en orden de lectura; el nombre accesible es el texto visible («Español, De liga, MX$360.00»; WCAG 2.5.3).
+- **Token nuevo (uno):** `--color-border-control: rgba(26,26,24,0.55)` (§2.3), solo para el borde de estos controles; **no sustituye** `--color-border-strong` (0.32 ≈ 1.9:1, no llega a 3:1). Contraste del borde sobre papel #F4F1EA ≈ **3.7:1** (director-arte; mi cuenta: mezcla ≈ #7C7C76, luminancias 0.88/0.20 → 3.7), ≥ 3:1 de WCAG 1.4.11. Texto: tinta/papel 15.45:1; papel/tinta (elegida) 15.45:1; rojo/papel 6.17:1 (≥ 4.5). Alternativa sin token: `--color-muted` sólido (≈ 4.8:1 sobre papel; cálculo mío, NO MEDIDO en pantalla). Modo oscuro: no existe (§2.1), nada que derivar.
+- **Ancho a 360 px (aritmética, NO MEDIDA):** contenido 360 − 2×20 = 320; burbuja (320 − 8) ÷ 2 = **156 px**; relleno 2×12 + borde 3 = 27 → **129 px** útiles. «Español»+«De liga» ≈ 51 + 5 + 52 = **108** (holgura ~21): cabe en una línea. «Spanish»+«Prize Pack» ≈ 132 y «Spanish»+«Tournament» ≈ 130: **no caben** y usan la segunda línea (la burbuja crece ~+21 px, ambas de la fila a la vez por la rejilla). Las burbujas no se achican por debajo de 156 px; con cartas EN de liga el costo de alto es el de esa fila, no un desborde.
+- **Admin (`01-captura-v4`):** **Idioma** = `Inglés | Español` en burbujas de ancho igual; **Versión** = burbujas `Sin liga | De liga · Prize Pack | Prerelease | Staff…` con `flex-wrap` (varios tipos pasan a segunda fila); alto **44 px**, borde `--color-border-control`, elegida relleno tinta; **«Staff» sin precio: apagada con borde discontinuo `muted`** + motivo en `aria-describedby` (en admin sí se muestra, a diferencia de la ficha). Siguen siendo **dos controles** (opción A del dueño); mismo orden y 0 toques extra en inglés/normal. Etiqueta del precio «Precio de venta (auto)» / EN «Selling price (auto)», con el desglose en una línea (IDS-UX.2). Mismos radiogroup/teclado que la ficha. Cantidad, Compra | Aportación y botones: sin cambio.
+- **Forma extendida de la ficha (D-IDS-5 = **B**, decide marketing; maqueta `04-ficha-v6`):** la cuadrícula 2×2 es la **forma estándar** y no cambia (base + a lo más un producto de liga con el acabado de la base). Pasa a **2×N** (fila = producto, columna = idioma; sin límite fijo de filas, el diseño cuenta con ≤ 4: NO MEDIDO) si hay **dos productos de liga** o un producto de liga con **acabado distinto** del de la base (Prize Pack No holo de una carta holo). Orden de filas: carta normal → productos de liga por precio ascendente (el de `versions[]`); la ranura vacía (p. ej. sin existencia en español) queda en hueco. La burbuja es la de la v4 (171×64) **sin la insignia «De liga»**: solo nombre del idioma («Inglés» / «Español») + precio; el rótulo de fila ya dice «De liga». Lo nuevo es el **acabado** de cada versión (`finishLabel`, petición 6), texto, nunca insignia ni color. **Rótulo de fila (B, cierra la elección A/B):** texto `muted` **#6E695E** 12 px (4,8:1 sobre papel #F4F1EA; **no se aclara**), a las dos columnas, sobre cada par, con **12 px de aire arriba y 6 px abajo** (pertenece al par que le sigue; el primero sin aire arriba): «Sin liga · Holo» / «De liga · Prize Pack · No holo» / «De liga · Prize Pack · Cosmos Holo»; la burbuja lleva `aria-describedby` al rótulo (nombre accesible = texto visible + descripción). Se lee una vez por fila, admite rótulos largos y no mete texto `muted` dentro del relleno tinta. Sin `row-gap` de rejilla (los márgenes del rótulo lo sustituyen): alto a 3 filas ≈ 3×16 + 3×6 + 2×12 + 3×64 = 282 px y a 2 filas ≈ 184 px (aritmética, NO MEDIDA). En la 2×2 estándar (sin rótulos) la burbuja **conserva** la insignia «De liga». En forma extendida el renglón «Carta de liga: …» bajo la cuadrícula se omite (el rótulo ya lo dice), y la línea de ficha técnica y las insignias bajo el `<h1>` muestran el acabado de la versión elegida. **Teja:** la ficha técnica usa `finishLabel` (dos tejas «De liga» del mismo tipo se distinguen por él; el peor caso «RAW · NM · COSMOS HOLO» puede envolver a 152 px: NO MEDIDO, candado 15).
+- **Candados sugeridos (frontend/QA):** (15) a 360×740, teja con `finishLabel` de 11 caracteres: margen 943 ≥ 20 px y sin envoltura (si envuelve, se abrevia en la teja, nunca elipsis); (16) forma extendida: cada burbuja sigue ≥ 44 px, y con `versions[]` de 6 entradas hay 3 rótulos de fila (12 px arriba / 6 px abajo, sin insignia dentro de las burbujas) y un solo tab-stop; (9) a 360 px las burbujas ES caben sin envolver y las EN de liga crecen sin desbordar; (10) cada burbuja ≥ 44 px de alto (171×64 a 390); (11) una versión agotada no está en el DOM de la ficha; (12) con una sola versión no hay `radiogroup`; (13) solo `VersionPills` usa `border-radius:999px` (grep: las insignias siguen en 0); (14) mutación: borde `--color-border-strong` en vez de `-control` pone rojo el test de contraste ≥ 3:1.
+
+**vIDS-7 (2026-11-03):** EN «Tournament»/«Regular»/«Non-holo» (marketing); línea del carrito sin idioma repetido (petición 8). **vIDS-6 (2026-11-02):** D-IDS-5 = B (marketing, `HECHOS.md` «§IDS v5 2×N»): rótulo de fila 12/6 px, sin insignia en burbujas 2×N; «Normal» → «Sin liga» (versión) y «No holo» (acabado); admin con desglose en una línea; maquetas `04-ficha-v6`, `01-captura-v6`. **vIDS-5 (2026-11-02):** D-IDS-4 preselección alineada a marketing (teja tocada; sin parámetro «Inglés», si no la más barata); D-IDS-5 forma extendida de la ficha 2×N (A/B, recomendada B) y captura con Acabado × Versión; maquetas `04-ficha-v5-A`, `04-ficha-v5-B`, `01-captura-v5` (HTML, sin PNG). **vIDS-4 (2026-11-02):** selector de versión en burbujas (A-contorno de marketing; IDS-UX.8) sustituye los cuatro renglones de la ficha y los segmentados rectos de la captura; agotadas ocultas; un token (`--color-border-control`); maquetas `04-ficha-v4`/`01-captura-v4`. **vIDS-3 (2026-11-02):** D-6 v3 de marketing: «Con sello» sustituido por «De liga»/«De torneo»/«Prerelease»/«Staff» (EN «Prize Pack»/«League»/«Championship»); ficha de cuatro renglones idioma · versión; «sello» solo interno; maquetas v3. **vIDS-2:** v2 («Con sello», no vigente), D-1 = A, 943 con P1–P3. **vIDS-1 (2026-11-01):** sección nueva con A/B.

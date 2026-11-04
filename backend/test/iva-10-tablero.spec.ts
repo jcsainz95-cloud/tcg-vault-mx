@@ -6,6 +6,7 @@ import { AdminService } from '../src/modules/admin/admin.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
+import { withPatrimony } from './helpers/valuation-gate';
 
 /**
  * ⭐ **`IVA-10` — VENTAS BRUTAS Y NETAS: la coherencia POR CONSTRUCCIÓN.**
@@ -109,12 +110,12 @@ function servicio(ordenes: OrdenFake[]) {
     inventoryItem: { findMany: jest.fn().mockResolvedValue([]) },
     vaultItem: { findMany: jest.fn().mockResolvedValue([]) },
   };
-  const service = new AdminService(
+  const service = withPatrimony(new AdminService(
     withPnlBuylistDoubles(withM61Defaults(prisma)) as unknown as PrismaService,
     { sealedMarketGradeKeyForItem: () => null, tryGradeKeyFor: () => null, getReferencesBatch: async () => new Map(), sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService,
     new PiiCryptoService(new ConfigService({})),
     {} as never,
-  );
+  ), { sealedMarketGradeKeyForItem: () => null, tryGradeKeyFor: () => null, getReferencesBatch: async () => new Map(), sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor } as unknown as PricingService);
   return { service, prisma };
 }
 

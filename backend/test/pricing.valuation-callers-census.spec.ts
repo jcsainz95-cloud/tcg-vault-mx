@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stripComments } from './helpers/strip-comments';
 import { countIdentUses, identCensus, methodBody } from './helpers/ident-census';
@@ -19,7 +19,7 @@ import { countIdentUses, identCensus, methodBody } from './helpers/ident-census'
  *
  * ⛔ Los lectores de patrimonio de SK-5 **no pueden estar en la lista**: `vault.service.ts`
  * (holdings, holdingDetail, `/vault/sealed`), `admin-vaults.service.ts` (`GET /admin/vaults`) y
- * `admin.service.ts` (custodyValue, ownedItemRefs, inventoryValue). Ahí se valúa con `valuationKeyFor`.
+ * `admin.service.ts` (custodyValue, ownedItemRefs, inventoryValue). Ahí se valúa con `PatrimonyValuationService.valuePieces` (v1.116.4, IDS-B24 abajo).
  */
 
 const SRC = join(__dirname, '..', 'src');
@@ -70,7 +70,9 @@ const ALLOWED: Record<string, { n: number; why: string }> = {
       'aquí). v1.113⟨portada⟩ (§DYN.5.1): el precio y el lote de referencias salieron al cuerpo único (`sale-decision`).',
   },
   'modules/pricing/sale-decision.service.ts': {
-    n: 5,
+    // v1.116⟨ids⟩ (§IDS.2): +2 — la llave de la referencia del producto de liga en `loadBatch` y en `stampedRefOf` (raw NM de
+    // una versión; uso de VENTA del cuerpo único, no valúa patrimonio).
+    n: 7,
     why:
       'v1.113⟨portada⟩ (§DYN.5.1) — EL cuerpo único del precio de venta (checkout + catálogo + precio del día; el checkout ya ' +
       'no la llama): `gradeKeyOf` (llave de `ListingPrice.variantKey`), `refKeyOf` (el sellado sale antes por ' +
@@ -78,14 +80,17 @@ const ALLOWED: Record<string, { n: number; why: string }> = {
       'antes por `getSealedMarketRef`) y la rama raw/graduada de `resolve` (el sellado retorna antes).',
   },
   'modules/inventory/inventory.service.ts': {
-    n: 3,
+    // v1.116.4⟨ids⟩ (`IDS-PAT`): +1 — `exportOverrideKeyOf`, la llave del override M-30 del export (antes salía de
+    // `valuationKeyFor`, que desde v1.116.4 solo llama la puerta, IDS-B24). Casa una fila M-30, NO valúa.
+    n: 4,
     why:
       'Import + publicación (lote con rama sellada propia) + ' +
       '(techlead D-1, sobre `8a10153e`: `derivePublishSalePrice` ya no la llama — su clave de cola sale de ' +
       '`saleQueueKeyOf`, compartida con el barrido VQ) + ' +
-      're-publicación por variante (casa filas con la clave de COLA — uso legítimo). ⭐ v1.80.2.2 (errata ' +
-      '«séptimo lector», `M2-SK-5-7`): el export .xlsx YA NO está aquí — `exportGradeKey` se retiró y ' +
-      '`exportInventoryXlsx` valúa por la PUERTA (aserción por método abajo).',
+      're-publicación por variante (casa filas con la clave de COLA — uso legítimo) + `exportOverrideKeyOf` (la llave ' +
+      'de VARIANTE raw/graduada del override M-30 que el export enseña en «Precio compra/venta»; el sellado sale antes ' +
+      'con `null`: no hay M-30 de sellado). ⭐ v1.80.2.2 (errata «séptimo lector», `M2-SK-5-7`): el VALOR del export no ' +
+      'está aquí — `exportInventoryXlsx` valúa por la PUERTA (aserción por método abajo).',
   },
   'modules/inventory/inventory-position.adapter.ts': {
     n: 1,
@@ -150,15 +155,18 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
     }
   });
 
-  it('los lectores de patrimonio pasan por la PUERTA (`valuationKeyFor` + `valuationCentsOf`)', () => {
+  /**
+   * v1.116.4⟨ids⟩ (IDS-B24, «VK-6 "pasan por la PUERTA" pasa a exigir `valuePieces(`»): los lectores ya no llaman SK-5
+   * directo; llaman `PatrimonyValuationService.valuePieces`, y la puerta es quien llama `valuationKeyFor` + `valuationCentsOf`.
+   * La aserción por MÉTODO vive en IDS-B24 (abajo); aquí, la de fichero.
+   */
+  it('los lectores de patrimonio pasan por la PUERTA (`valuePieces(`), y la puerta por SK-5 (`valuationKeyFor` + `valuationCentsOf`)', () => {
     for (const f of SK5_READERS) {
       const code = stripComments(readFileSync(join(SRC, f), 'utf8'));
-      expect({ f, key: /\bvaluationKeyFor\(/.test(code), cents: /\bvaluationCentsOf\(/.test(code) }).toEqual({
-        f,
-        key: true,
-        cents: true,
-      });
+      expect({ f, gate: /\bvaluePieces\(/.test(code), key: /\bvaluationKeyFor\(/.test(code) }).toEqual({ f, gate: true, key: false });
     }
+    const gate = stripComments(readFileSync(join(SRC, 'modules/pricing/patrimony-valuation.service.ts'), 'utf8'));
+    expect({ key: /\bvaluationKeyFor\(/.test(gate), cents: /\bvaluationCentsOf\(/.test(gate) }).toEqual({ key: true, cents: true });
   });
 
   /**
@@ -171,15 +179,18 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
     const body = methodBody(stripComments(src), 'async exportInventoryXlsx(');
     expect(body.length).toBeGreaterThan(200); // el ancla existe y el cuerpo no está vacío
     expect(countQueueKeyUses(body)).toBe(0);
-    expect(/\bvaluationKeyFor\(/.test(body)).toBe(true);
-    expect(/\bvaluationCentsOf\(/.test(body)).toBe(true);
+    // v1.116.4 (IDS-B24): el VALOR por la puerta única; SK-5 ya no se llama aquí.
+    expect(/\bvaluePieces\(/.test(body)).toBe(true);
+    expect(/\bvaluationKeyFor\(/.test(body)).toBe(false);
+    expect(/\bvaluationCentsOf\(/.test(body)).toBe(false);
     // `exportGradeKey` (la llave propia del export) se retiró: ni definición ni llamada en el fichero.
     expect(/\bexportGradeKey\b/.test(stripComments(src))).toBe(false);
-    // D-1 / D-4 (abajo) también aplican al séptimo lector.
+    // D-1 / D-4 (abajo) también aplican al séptimo lector: 0 llaves a mano (el override M-30 casa con `variantKey(`) y el
+    // dial del sellado no se lee aquí (lo iza la puerta con `sealedSourceOnFor`).
     expect(countManualKeys(body)).toBe(0);
     expect(/\bvariantKey\(/.test(body)).toBe(true);
-    expect(/\bsealedSourceOnFor\(/.test(body)).toBe(true);
     expect(/\bloadSealedSpreads\b/.test(body)).toBe(false);
+    expect(/\bsealedSourceOnFor\(/.test(body)).toBe(false);
   });
 
   /**
@@ -190,15 +201,14 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
    * en los lectores hay CERO llaves de cuatro componentes a mano y SÍ `variantKey(`; y el productor
    * sigue llaveando con `variantKey(` — así productor y consumidor no pueden divergir por forma.
    */
-  it('D-1 · los lectores de patrimonio llavean el lote con `variantKey(` y NUNCA a mano (0 llaves `a|b|c|d` interpoladas)', () => {
+  it('D-1 · el lote de patrimonio se llavea con `variantKey(` y NUNCA a mano (0 llaves `a|b|c|d` interpoladas)', () => {
+    // v1.116.4 (`IDS-PAT`): quien llavea el lote es la PUERTA; los lectores ya no tocan el `Map` (y siguen sin llaves a mano).
     for (const f of SK5_READERS) {
       const code = stripComments(readFileSync(join(SRC, f), 'utf8'));
-      expect({ f, manual: countManualKeys(code), variantKey: /\bvariantKey\(/.test(code) }).toEqual({
-        f,
-        manual: 0,
-        variantKey: true,
-      });
+      expect({ f, manual: countManualKeys(code) }).toEqual({ f, manual: 0 });
     }
+    const gate = stripComments(readFileSync(join(SRC, 'modules/pricing/patrimony-valuation.service.ts'), 'utf8'));
+    expect({ manual: countManualKeys(gate), variantKey: /\bvariantKey\(/.test(gate) }).toEqual({ manual: 0, variantKey: true });
     // v1.114 (§DYN.5.9): el cuerpo del productor vive en `getReferencesBatchWithTier` (misma lectura + qué tier ganó);
     // `getReferencesBatch` delega en él y devuelve su `refs`.
     const pricingSrc = stripComments(readFileSync(join(SRC, 'modules/pricing/pricing.service.ts'), 'utf8'));
@@ -214,15 +224,14 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
    * false`). Ahora vive UNA vez en `PricingService.sealedSourceOnFor(items)`; los lectores de SK-5 no
    * leen `loadSealedSpreads` directamente.
    */
-  it('D-4 · los lectores de patrimonio izan el dial con `sealedSourceOnFor(` y NO con `loadSealedSpreads`', () => {
+  it('D-4 · el dial del sellado del patrimonio se iza con `sealedSourceOnFor(` (en la puerta) y NO con `loadSealedSpreads`', () => {
+    // v1.116.4 (`IDS-PAT`): el dial lo iza la PUERTA, una vez por petición; los lectores no lo leen de ninguna forma.
     for (const f of SK5_READERS) {
       const code = stripComments(readFileSync(join(SRC, f), 'utf8'));
-      expect({ f, direct: /\bloadSealedSpreads\b/.test(code), helper: /\bsealedSourceOnFor\(/.test(code) }).toEqual({
-        f,
-        direct: false,
-        helper: true,
-      });
+      expect({ f, direct: /\bloadSealedSpreads\b/.test(code), helper: /\bsealedSourceOnFor\(/.test(code) }).toEqual({ f, direct: false, helper: false });
     }
+    const gate = stripComments(readFileSync(join(SRC, 'modules/pricing/patrimony-valuation.service.ts'), 'utf8'));
+    expect({ direct: /\bloadSealedSpreads\b/.test(gate), helper: /\bsealedSourceOnFor\(/.test(gate) }).toEqual({ direct: false, helper: true });
   });
 
   describe('CANARIO — el escáner muerde (y no vigila prosa)', () => {
@@ -255,6 +264,134 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
       expect(countManualKeys(stripComments(inject(`    // ${line.trim()}`)))).toBe(base);
       // Tres componentes no son la llave de variante (no se confunde con otras plantillas).
       expect(countManualKeys('`${a}|${b}|${c}`')).toBe(0);
+    });
+  });
+});
+
+// ===========================================================================
+// IDS-B24 (API_CONTRACT §IDS.9 v1.116.4, `IDS-PAT`; ARCHITECTURE §15.1 D-IDS-R) — censo de la PUERTA ÚNICA de patrimonio.
+// SK-5 hizo de `valuationKeyFor` + `valuationCentsOf` la puerta; §IDS añadió la versión AL LADO, como un ternario repetido en
+// seis lectores. Desde v1.116.4 los lectores no la llaman directo: llaman `PatrimonyValuationService.valuePieces` UNA vez por
+// petición, y la puerta es el único llamador de SK-5. Escaneo sin comentarios (mismo autómata que VK-6).
+// ===========================================================================
+const GATE_FILE = 'modules/pricing/patrimony-valuation.service.ts';
+// TL-IDS-8 (a) (v1.116.5): SIN `\(` — toda MENCIÓN fuera de comentarios cuenta. Con el paréntesis pegado el censo no veía
+// `pricing?.valuationCentsOf?.(…)`, `.map(this.pricing.valuationCentsOf)`, `const { valuationCentsOf } = this.pricing`,
+// `pricing['valuationCentsOf'](…)` ni `.valuationCentsOf.bind(this.pricing)` (QA, 2026-11-03). La regla del contrato
+// (IDS-B24: «`valuationKeyFor(`/`valuationCentsOf(` solo en …») queda contenida: una llamada literal es una mención.
+const SK5_IDENT = /\b(?:valuationKeyFor|valuationCentsOf)\b/g;
+
+/** Lista CERRADA de quién llama la valuación de SK-5, con `n` y razón. */
+const SK5_CALLERS: Record<string, { n: number; why: string }> = {
+  'modules/pricing/pricing.service.ts': { n: 2, why: 'DEFINICIÓN de `valuationKeyFor` y de `valuationCentsOf` (SK-5); ninguna llamada.' },
+  [GATE_FILE]: {
+    n: 2,
+    why: 'La PUERTA (`valuePieces`, paso 3 de IDS-PAT): la clave y el monto de (inglés, sin liga), una vez cada uno, sobre el lote.',
+  },
+};
+
+/** Los métodos lectores de IDS-PAT: cada uno pasa por `valuePieces(` (VK-6 «pasan por la PUERTA», v1.116.4). */
+const IDS_PAT_READERS: Record<string, string[]> = {
+  'modules/vault/vault.service.ts': ['async holdings(', 'async holdingDetail(', 'async sealedTab(', 'async marketValueOf(', 'async marketRefOf('],
+  'modules/vault/admin-vaults.service.ts': ['async list('],
+  'modules/admin/admin.service.ts': ['async custodyValue(', 'private async ownedItemRefs(', 'async inventoryValue('],
+  'modules/inventory/inventory.service.ts': ['async exportInventoryXlsx('],
+  // El valor asegurado de un retiro (§19.19.5) es el `M` de cada pieza: por la puerta, en UN lote.
+  'modules/shipments/label-quote.service.ts': ['private async insuredValueOf('],
+};
+
+/** Los constructores que inyectan la puerta: ⛔ `@Optional()` sobre ella (sin la puerta Nest no arranca). */
+const GATE_INJECTED_IN = [
+  'modules/vault/vault.service.ts',
+  'modules/vault/admin-vaults.service.ts',
+  'modules/admin/admin.service.ts',
+  'modules/inventory/inventory.service.ts',
+];
+const OPTIONAL_PARAM = (type: string) =>
+  new RegExp(String.raw`@Optional\(\)\s*(?:@\w+\([^)]*\)\s*)*(?:private|public|protected)?\s*(?:readonly)?\s*\w+\??\s*:\s*${type}\b`);
+const INJECTS = (type: string) => new RegExp(String.raw`(?:private|public|protected)\s+(?:readonly\s+)?\w+\??\s*:\s*${type}\b`);
+
+describe('IDS-B24 · la PUERTA ÚNICA de patrimonio (`PatrimonyValuationService.valuePieces`)', () => {
+  it('la puerta existe en `pricing/patrimony-valuation.service.ts`', () => {
+    expect(existsSync(join(SRC, GATE_FILE))).toBe(true);
+  });
+
+  it('`valuationKeyFor(`/`valuationCentsOf(` SOLO en su definición y en la puerta (lista cerrada con n y razón)', () => {
+    expect(identCensus(SRC, SK5_IDENT)).toEqual(Object.fromEntries(Object.entries(SK5_CALLERS).map(([f, { n }]) => [f, n])));
+    for (const [f, { why }] of Object.entries(SK5_CALLERS)) expect({ f, ok: why.trim().length > 20 }).toEqual({ f, ok: true });
+  });
+
+  it.each([
+    ['versionValuationOf', /\bversionValuationOf\b/g],
+    ['referenceForPieces', /\breferenceForPieces\b/g],
+    ['as unknown as SaleItem', /\bas\s+unknown\s+as\s+SaleItem\b/g],
+  ])('0 `%s` en src/', (_n, re) => {
+    expect(identCensus(SRC, re)).toEqual({});
+  });
+
+  it.each(Object.entries(IDS_PAT_READERS).flatMap(([f, ms]) => ms.map((m) => [f, m] as const)))('%s · `%s` contiene `valuePieces(`', (f, m) => {
+    const body = methodBody(stripComments(readFileSync(join(SRC, f), 'utf8')), m);
+    expect(/\bvaluePieces\(/.test(body)).toBe(true);
+  });
+
+  it.each(GATE_INJECTED_IN)('%s inyecta la puerta SIN `@Optional()`', (f) => {
+    const code = stripComments(readFileSync(join(SRC, f), 'utf8'));
+    expect(INJECTS('PatrimonyValuationService').test(code)).toBe(true);
+    expect(OPTIONAL_PARAM('PatrimonyValuationService').test(code)).toBe(false);
+  });
+
+  it('la puerta inyecta `SaleDecisionService` SIN `@Optional()`', () => {
+    const p = join(SRC, GATE_FILE);
+    const code = existsSync(p) ? stripComments(readFileSync(p, 'utf8')) : '';
+    expect(INJECTS('SaleDecisionService').test(code)).toBe(true);
+    expect(OPTIONAL_PARAM('SaleDecisionService').test(code)).toBe(false);
+  });
+
+  describe('CANARIO — el censo muerde', () => {
+    const vaultSrc = readFileSync(join(SRC, 'modules/vault/vault.service.ts'), 'utf8');
+    const inHoldings = (line: string) => vaultSrc.replace(/async holdings\(userId: string\) \{/, (m) => `${m}\n    ${line}`);
+
+    it('`this.pricing.valuationCentsOf(` inyectado en `holdings` ⇒ vault.service.ts entra al censo de SK-5 (fuera de la lista)', () => {
+      const mutated = inHoldings('const __c = this.pricing.valuationCentsOf(item, undefined, false);');
+      expect(mutated).not.toBe(vaultSrc);
+      expect(countIdentUses(mutated, SK5_IDENT)).toBe(countIdentUses(vaultSrc, SK5_IDENT) + 1);
+      expect(SK5_CALLERS['modules/vault/vault.service.ts']).toBeUndefined();
+    });
+
+    // TL-IDS-8 (a): las formas que el censo con `\(` no veía. Cada una, inyectada en `holdings`, mete vault.service.ts en el censo.
+    it.each([
+      ['encadenamiento opcional', 'const __c = this.pricing?.valuationCentsOf?.(item, undefined, false);'],
+      ['referencia pasada a `.map`', 'const __c = items.map(this.pricing.valuationCentsOf);'],
+      ['desestructuración', 'const { valuationCentsOf: __v } = this.pricing;'],
+      ['acceso con corchetes', "const __c = this.pricing['valuationCentsOf'](null);"],
+      ['`.bind(this.pricing)`', 'const __c = this.pricing.valuationKeyFor.bind(this.pricing);'],
+    ])('forma «%s» inyectada en `holdings` ⇒ entra al censo de SK-5', (_n, line) => {
+      const mutated = inHoldings(line);
+      expect(mutated).not.toBe(vaultSrc);
+      expect(countIdentUses(mutated, SK5_IDENT)).toBe(countIdentUses(vaultSrc, SK5_IDENT) + 1);
+    });
+
+    it('una mención en un COMENTARIO no cuenta (el censo es sin comentarios)', () => {
+      expect(countIdentUses('// this.pricing.valuationCentsOf(x)\n/* valuationKeyFor */ const a = 1;', SK5_IDENT)).toBe(0);
+    });
+
+    it('`holdings` sin `valuePieces(` ⇒ la aserción por método lo ve', () => {
+      const body = methodBody(stripComments(vaultSrc), 'async holdings(').replace(/\bvaluePieces\(/g, 'valuePiecez(');
+      expect(/\bvaluePieces\(/.test(body)).toBe(false);
+    });
+
+    it('`@Optional()` sobre la puerta SE VE; sin él, no', () => {
+      const opt = 'constructor(@Optional() private readonly patrimony?: PatrimonyValuationService) {}';
+      const req = 'constructor(private readonly patrimony: PatrimonyValuationService) {}';
+      expect(OPTIONAL_PARAM('PatrimonyValuationService').test(opt)).toBe(true);
+      expect(OPTIONAL_PARAM('PatrimonyValuationService').test(req)).toBe(false);
+      expect(INJECTS('PatrimonyValuationService').test(req)).toBe(true);
+    });
+
+    it('`as unknown as SaleItem[]` también cuenta; en un comentario, no', () => {
+      const re = /\bas\s+unknown\s+as\s+SaleItem\b/g;
+      expect(countIdentUses('const x = y as unknown as SaleItem[];', re)).toBe(1);
+      expect(countIdentUses('// y as unknown as SaleItem\nconst a = 1;', re)).toBe(0);
     });
   });
 });

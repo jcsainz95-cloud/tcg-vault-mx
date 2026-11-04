@@ -19,6 +19,7 @@
 #   · Siempre `--strict`, nunca `--allow-shrink`; el sha256 del archivo se
 #     comprueba antes (sepomex-pin) y otra vez dentro del importador.
 #   · Una transacción: o carga entero y pasa C-GEO-1, o ROLLBACK.
+#   · Acciones fijadas por sha de 40 caracteres, no por etiqueta (TL-CHK-8, bloque [H]).
 #
 # Rollback y runbook: docs/DEVOPS_NOTES.md §107.
 # =============================================================================
@@ -52,14 +53,14 @@ jobs:
     timeout-minutes: 30
     environment: catalogo-cp
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (= v5 el 2026-11-03; TL-CHK-8)
         with:
           persist-credentials: false
 
       - name: El archivo es el fijado (sha256 + manifiesto)
         run: ./scripts/check-sepomex-pin.sh
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0 (= v5 el 2026-11-03; TL-CHK-8)
         with:
           node-version: 24
           cache: npm

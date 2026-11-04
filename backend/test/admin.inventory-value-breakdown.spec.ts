@@ -5,7 +5,7 @@ import { PricingService } from '../src/modules/pricing/pricing.service';
 import { PiiCryptoService } from '../src/common/crypto/pii-crypto.service';
 import { buildGradeKey, tryBuildGradeKey, sealedMarketGradeKey } from '../src/modules/pricing/pricing.types';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
-import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { REAL_VALUATION_GATE, withPatrimony } from './helpers/valuation-gate';
 
 /**
  * v1.28 (P-24, §4.26f / API_CONTRACT §M7, ADITIVO) — `GET /admin/finance/inventory-value` gana
@@ -51,16 +51,19 @@ function buildHarness(items: any[], refsByKey: Record<string, number>) {
     // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
     sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
   } as unknown as PricingService;
-  const service = new AdminService(
+  const service = withPatrimony(new AdminService(
     prisma as PrismaService,
     pricing,
     new PiiCryptoService(new ConfigService({})),
     {} as any,
-  );
+  ), pricing);
   return { service, findMany, getReferencesBatch };
 }
 
+// v1.116.4 (`IDS-PAT`): con `id`, como el `select` de producción (la puerta devuelve el valor por pieza, por id).
+let pieceSeq = 0;
 const raw = (over: any = {}) => ({
+  id: `p${++pieceSeq}`,
   cardId: 'c-raw',
   productType: 'raw',
   finish: 'normal',

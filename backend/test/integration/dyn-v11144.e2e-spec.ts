@@ -16,10 +16,8 @@ import { randomUUID } from 'crypto';
 import { Finish, Prisma } from '@prisma/client';
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
-import {
-  ListingPriceService,
-  portadaEffectiveFrom,
-} from '../../src/modules/pricing/listing-price.service';
+import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
+import { portadaEffectiveFrom } from '../../src/common/portada-day';
 import { SaleDecisionService } from '../../src/modules/pricing/sale-decision.service';
 import { SettingsService } from '../../src/modules/settings/settings.service';
 import { SettingKey } from '../../src/modules/settings/settings.constants';

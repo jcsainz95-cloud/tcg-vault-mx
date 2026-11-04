@@ -13,6 +13,83 @@ export type RawCondition = 'NM';
 // v1.6-finish: acabado/versión de carta (derivado de las llaves de tcgplayer.prices,
 // ARCHITECTURE §3.7). graded/sealed = normal. Es la lista blanca de Card.availableFinishes.
 export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_holofoil';
+
+// ---- §IDS (v1.116⟨ids⟩ / v1.116.1⟨ids⟩): idioma y versión de liga de la pieza ----
+/** §0 (M-95). Idioma de la pieza y del `OrderItem`. Sin `ja` (PROJECT §IDS.6). */
+export const CARD_LANGUAGES = ['en', 'es'] as const;
+export type CardLanguage = (typeof CARD_LANGUAGES)[number];
+/** §0 (M-95). Tipo de versión de liga de un `CardProduct` `stamped`. */
+export const STAMP_TYPES = ['prize_pack', 'league', 'championship', 'prerelease', 'staff'] as const;
+export type StampType = (typeof STAMP_TYPES)[number];
+/**
+ * §IDS.5 — el acabado **como lo nombra el cliente** (clave cerrada, derivada por backend con
+ * `finishLabelOf(finish, stampLabel)`). ⛔ El servidor no manda texto: el texto es i18n de frontend
+ * (`version.finishLabel.*`), con paridad ES/EN.
+ */
+export const FINISH_LABELS = ['non_holo', 'holo', 'reverse_holo', 'first_edition_holo', 'cosmos_holo'] as const;
+export type FinishLabel = (typeof FINISH_LABELS)[number];
+/** §IDS.5. `label` es el detalle del proveedor («Cosmos Holo», «Left Stamp»): solo admin, preparación y el rótulo D-IDS-6. */
+export interface StampDTO {
+  type: StampType;
+  label: string | null;
+  productId: number;
+}
+/** §IDS.5. `key` = `en` | `es` | `en.<productId>` | `es.<productId>` (la compone el SERVIDOR). */
+export interface VersionDTO {
+  key: string;
+  language: CardLanguage;
+  stamp: StampDTO | null;
+}
+/**
+ * §IDS.5 — una entrada de `versions[]` de la ficha: una por (producto de liga × acabado) con existencia y una por
+ * versión sin liga. Orden y `optionKey` del servidor; ⛔ el navegador no compone `optionKey`. Agotadas omitidas.
+ */
+export interface VersionOptionDTO {
+  optionKey: string;
+  version: VersionDTO;
+  finish: Finish | null;
+  finishLabel: FinishLabel | null;
+  fromPriceCents: number;
+  stockCount: number;
+  representativeInventoryItemId: string;
+}
+/** §IDS.4 — motivo de una combinación de captura sin precio. */
+export type VersionUnavailableReason = 'no_english_market' | 'no_stamped_market' | 'premium_at_floor' | 'no_market';
+/** §IDS.4 — `GET /admin/inventory/cards/:cardId/versions`, una combinación (acabado × idioma × versión). */
+export interface VersionComboDTO {
+  finish: Finish;
+  finishLabel: FinishLabel;
+  language: CardLanguage;
+  stamp: StampDTO | null;
+  /** `null` ⇔ `unavailableReason ≠ null`. */
+  previewPriceCents: number | null;
+  /**
+   * v1.116.2⟨ids⟩ (desglose): la referencia de entrada ANTES de X (`R` en `(en, null)`, `R_en` en `(es, null)`, `R_P` en
+   * `(·, P)`), `null` si no hay. ⛔ El navegador no recompone `previewPriceCents` con ella (curva, piso e IVA van después).
+   */
+  baseReferenceMxnCents: number | null;
+  /** v1.116.2⟨ids⟩: X (`spanishMarketPct`) aplicado en `es`; `null` en `en`. */
+  appliedMarketPct: number | null;
+  unavailableReason: VersionUnavailableReason | null;
+}
+export interface StampedCandidateDTO {
+  tcgplayerProductId: number;
+  name: string;
+  stamp: StampDTO;
+  finishes: Finish[];
+}
+/** §IDS.4 — respuesta de `GET …/versions` y de `POST …/stamped-candidates/:id/attach`. */
+export interface CardVersionsResponse {
+  combos: VersionComboDTO[];
+  candidates: StampedCandidateDTO[];
+}
+/** §IDS.6 — tramo de una línea de Meta deck: partición de `unitInventoryItemIds` por versión, en su orden. */
+export interface MetaDeckUnitDTO {
+  version: VersionDTO;
+  qty: number;
+  unitPriceMxnCents: number;
+  inventoryItemIds: string[];
+}
 // v1.1: subtipo opcional del sellado.
 // v1.39 (P-38): +`upc` (Ultra Premium Collection) y +`collection` (colecciones/cajas especiales).
 //
@@ -255,6 +332,10 @@ export interface DisplayPriceFields {
 export interface ListingDTO {
   inventoryItemId: string;
   card: CardDTO;
+  /** §IDS.5 (v1.116⟨ids⟩): versión de la pieza/grupo (idioma + liga). Siempre presente. */
+  version: VersionDTO;
+  /** §IDS.5 (v1.116.1⟨ids⟩): acabado como lo nombra el cliente; texto por i18n. Siempre presente. */
+  finishLabel: FinishLabel;
   productType: ProductType;
   rawCondition?: RawCondition;
   sealedSubtype?: SealedSubtype;
@@ -779,6 +860,13 @@ export interface CatalogFacetsDTO {
   // v1.6-finish: distinct de InventoryItem.finish sobre el inventario publicado (para el filtro de acabado).
   finishes: Finish[];
   price: { minCents: number; maxCents: number; currency: 'MXN' };
+  /**
+   * v1.116.2⟨ids⟩ (§IDS.5 «Filtros», IDS-F2): `distinct` de `InventoryItem.language` sobre lo publicado (orden `en`, `es`),
+   * sin conteos. Opcional en el tipo: un servidor anterior a §IDS no la trae (⇒ el filtro de idioma no se ofrece).
+   */
+  languages?: CardLanguage[];
+  /** v1.116.2⟨ids⟩: `true` ⇔ hay al menos una pieza publicada con producto `stamped` («Cartas de liga y promos»). */
+  stamped?: boolean;
 }
 
 export interface CardDetailResponse {
@@ -844,6 +932,10 @@ export interface GradedEstimateDTO {
 export interface GroupedListingDTO {
   representativeInventoryItemId: string;
   card: CardDTO;
+  /** §IDS.5 (v1.116⟨ids⟩): versión de la pieza/grupo (idioma + liga). Siempre presente. */
+  version: VersionDTO;
+  /** §IDS.5 (v1.116.1⟨ids⟩): acabado como lo nombra el cliente; texto por i18n. Siempre presente. */
+  finishLabel: FinishLabel;
   productType: 'raw' | 'graded';
   finish: Finish;
   rawCondition?: RawCondition;
@@ -891,6 +983,12 @@ export interface GroupedListingDTO {
 export interface GroupedListingSummaryDTO {
   representativeInventoryItemId: string;
   card: CardDTO;
+  /** §IDS.5 (v1.116⟨ids⟩): versión de la pieza/grupo (idioma + liga). Siempre presente. */
+  version: VersionDTO;
+  /** §IDS.5 (v1.116.1⟨ids⟩): acabado como lo nombra el cliente; texto por i18n. Siempre presente. */
+  finishLabel: FinishLabel;
+  /** §IDS.5: el `optionKey` de su entrada en `versions[]` de la ficha; el enlace de la teja lleva `?version=<esto>`. */
+  versionOptionKey: string;
   productType: 'raw' | 'graded';
   finish: Finish;
   rawCondition?: RawCondition;
@@ -958,6 +1056,12 @@ export interface GroupedListingDetailResponse {
   card: CardDTO;
   listings: GroupedListingDTO[];
   units: ListingDTO[];
+  /**
+   * §IDS.5 (v1.116.1⟨ids⟩): opciones de versión, en el ORDEN del servidor (fila = producto × acabado, columna = idioma),
+   * agotadas omitidas. La preselección D-IDS-4 la aplica el front (`lib/version.ts`). Opcional en el TIPO por resiliencia
+   * ante un servidor anterior a §IDS: ausente ⇒ como `[]` (sin selector).
+   */
+  versions?: VersionOptionDTO[];
   // v1.44 (ADITIVO): estimados por grado de la FICHA, a nivel CARTA (no se cruzan con el acabado).
   //   * NO va gateado por el ROI (decisión del humano): se emite siempre que haya dato fresco. Una
   //     carta puede mostrar sus estimados en la ficha y NO estar destacada en Compra ni en el home —
@@ -1188,6 +1292,10 @@ export interface OrderItemPreview {
   inventoryItemId: string;
   card: OrderItemCardDTO;
   unitPriceCents: number;
+  /** §IDS.5 (v1.116⟨ids⟩): versión de la pieza/grupo (idioma + liga). Siempre presente. */
+  version: VersionDTO;
+  /** §IDS.5 (v1.116.1⟨ids⟩): acabado como lo nombra el cliente; texto por i18n. Siempre presente. */
+  finishLabel: FinishLabel;
   /**
    * v1.68.1 (§4-R.5): la pieza está `reserved` por una orden `pending` PROPIA (viva o vencida sin
    * barrer). **Omitido cuando es falso.** ⛔ El front NUNCA la poda: es justo la que `session`
@@ -1224,6 +1332,10 @@ export interface OrderItemDTO {
   inventoryItemId: string;
   card: HistoricalOrderItemCardDTO;
   unitPriceCents: number;
+  /** §IDS.5: versión CONGELADA en el `OrderItem` (no de la pieza). Opcional en el tipo: pedido de un servidor anterior ⇒ inglés sin liga. */
+  version?: VersionDTO;
+  /** §IDS.5: acabado de cliente congelado (`OrderItem.finish` + `stampLabel`). */
+  finishLabel?: FinishLabel;
   /** v1.80 (§M4-SHIP.10): «no salió · te devolvimos MX$X». Solo filas `submitted|succeeded`. */
   refund?: CustomerItemRefundInfo | null;
   /** v1.80.2 (§M4-SHIP.16): el caso más reciente con `originOrderItemId` = esta línea. */
@@ -2226,6 +2338,11 @@ export interface PreparationItemDTO {
     imageSmallUrl: string | null; // Card.imageSmallUrl (nullable en catálogo)
   };
   currentLocation: LocationView; // resuelve "UNASSIGNED" (§6.B) — el código deja de viajar como string
+  /** §IDS.5: versión congelada del `OrderItem` (hoja «Pedidos por preparar»). Opcional en el tipo (servidor anterior). */
+  version?: VersionDTO;
+  finishLabel?: FinishLabel;
+  /** §IDS.5: línea interna de backend («ES · LIGA · Prize Pack — sello Play! Pokémon, Cosmos Holo»); `null` en inglés sin liga. */
+  versionInternalLine?: string | null;
 }
 
 // CA #11: "UNASSIGNED" deja de viajar como código; el back manda estado + (opcional) etiqueta.
@@ -3412,6 +3529,8 @@ export interface InventoryItemDTO {
   id: string;
   folio: string;
   card: CardDTO;
+  /** §IDS.4 (v1.116⟨ids⟩): versión de la pieza (idioma + liga). Opcional en el tipo (servidor anterior ⇒ inglés). */
+  version?: VersionDTO;
   productType: ProductType;
   rawCondition?: RawCondition;
   sealedSubtype?: SealedSubtype;
@@ -6274,6 +6393,8 @@ export interface UserAuditEntryDTO {
 
 // ---- M10: Config (diales) y bitácora (contrato §M10) ----
 export interface SettingsDTO {
+  /** §IDS.7 (v1.116⟨ids⟩): dial `spanish_market_pct` (seed 75, entero [1, 200]). Opcional: servidor anterior a §IDS. */
+  spanishMarketPct?: number;
   /** Desde v1.109 gobierna SOLO el retiro desde bóveda (§M10, §4-G.12 punto 3); ⛔ el envío directo no lo lee. */
   shippingFeeCents: number;
   /*
@@ -7458,6 +7579,9 @@ export interface GuestTrackingItemDTO {
   setName: string;
   number: string;
   finish: Finish;
+  /** §IDS.5: versión y acabado de cliente CONGELADOS del `OrderItem`. Opcionales en el tipo (servidor anterior ⇒ inglés). */
+  version?: VersionDTO;
+  finishLabel?: FinishLabel;
   productType: ProductType;
   rawCondition?: RawCondition;
   sealedSubtype?: SealedSubtype;
@@ -7759,6 +7883,11 @@ export interface MetaDeckLineDTO {
   unitPriceMxnCents: number | null;
   /** Hasta `availableQty`, cheapest-first — las piezas del «de jalón». */
   unitInventoryItemIds: string[];
+  /**
+   * §IDS.6 (v1.116⟨ids⟩): partición de `unitInventoryItemIds` en su orden, un tramo por versión (sin liga primero).
+   * Opcional en el TIPO (servidor anterior ⇒ un solo tramo inglés implícito).
+   */
+  units?: MetaDeckUnitDTO[];
   substitute?: MetaDeckLineSubstituteDTO;
   /**
    * 💰 §AC.8 (aditivo): presente y no nulo ⇔ energía básica reconocida con producto ACTIVO de su tipo.

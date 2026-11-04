@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PatrimonyPiece, PatrimonyValuationService } from '../pricing/patrimony-valuation.service';
 import {
   Card,
   CardSet,
@@ -19,7 +20,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { PricingService, PriceInfo, toPublicPriceInfo } from '../pricing/pricing.service';
 import { BusinessException } from '../../common/business.exception';
 import { parseEnumFilter } from '../../common/enum-filter';
-import { variantKey } from '../../common/variant-key';
 import { pieceDisplayIdentityOf, PieceDisplayIdentitySource } from '../../common/piece-display-identity';
 import { CardDTO, toCardDTO } from '../catalog/catalog.service';
 import { NOT_ON_HAND } from '../inventory/master-set.service';
@@ -167,6 +167,9 @@ export class VaultService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: PricingService,
+    // 💰 v1.116.4⟨ids⟩ (API_CONTRACT §IDS.2 «Valor de patrimonio» `IDS-PAT`, D-IDS-R): LA puerta del valor de una pieza, con su
+    // versión. Obligatoria (⛔ `@Optional()`: sin la puerta Nest no arranca; no hay «camino de siempre»).
+    private readonly patrimony: PatrimonyValuationService,
   ) {}
 
   /**
@@ -213,9 +216,9 @@ export class VaultService {
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
 
-    // v1.80.1 (SK-5): el dial del sellado se iza UNA vez por petición, y solo si hay sellado que gatear
-    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
-    const sourceOn = await this.pricing.sealedSourceOnFor(items);
+    // 💰 v1.116.4⟨ids⟩ (`IDS-PAT`, D-IDS-R): el valor de TODAS las piezas en UNA llamada a la puerta (SK-5 + versión + D-IDS-S;
+    // dial del sellado dentro). Antes, una lectura por pieza y un `loadBatch` por versión (N+1, IDS-B26).
+    const values = await this.patrimony.valuePieces(items);
     // ⭐ v1.80.1 (§M4-SHIP.15.8): casos «Por reponer» ABIERTOS de estas piezas — UNA consulta.
     const openCases = itemIds.length
       ? await this.prisma.replacementCase.findMany({
@@ -234,9 +237,9 @@ export class VaultService {
     // sin tipo una rama podía perder un requerido y la otra no — y el test solo mira la que eligió.
     const data: HoldingDTO[] = [];
     for (const item of items) {
-      // v1.6-finish / v1.53 / v1.80.1 (SK-5): valúa con `valuate` — el MISMO cuerpo que `marketValueOf` (el `M` del
-      // reembolso de un caso «Por reponer», §M4-SHIP.15.5); aquí con el dial del sellado izado UNA vez por petición.
-      const referenceValue = await this.valuate(item, sourceOn);
+      // v1.6-finish / v1.53 / v1.80.1 (SK-5) / v1.116.4 (IDS-PAT): el MISMO valor que `marketValueOf` (el `M` del reembolso de un
+      // caso «Por reponer», §M4-SHIP.15.5), porque los dos salen de la puerta.
+      const referenceValue = values.get(item.id) ?? { status: 'pending' };
       if (referenceValue.status === 'priced' && referenceValue.referenceMxnCents != null) {
         totalValueMxnCents += referenceValue.referenceMxnCents;
       } else {
@@ -316,18 +319,18 @@ export class VaultService {
    * MONEY): sin identidad de slab NO HAY REFERENCIA ⇒ `pending` (antes se valuaba como un PSA 10, lo que inflaba el
    * patrimonio del cliente y el pasivo de custodia). v1.6-finish: contra la referencia del ACABADO de la pieza.
    */
-  async marketValueOf(item: Parameters<PricingService['valuationKeyFor']>[0]): Promise<PriceInfo> {
-    // Fusión release-s5: `envio-preparar` extrajo este cuerpo del listado ANTES de SK-5 (v1.80.1) y D-4 (v1.80.2.2);
-    // el listado ganó después `valuate` + el dial del sellado. Para que siga siendo UNA valuación (la regla de
-    // §M4-SHIP.15.5) se delega en `valuate` con el dial de un lote de una pieza — como `holdingDetail`.
-    const sourceOn = await this.pricing.sealedSourceOnFor([item]);
-    return this.valuate(item, sourceOn);
+  async marketValueOf(item: PatrimonyPiece): Promise<PriceInfo> {
+    // v1.116.4 (`IDS-PAT`): la MISMA puerta que el listado — un lote de una pieza.
+    return (await this.patrimony.valuePieces([item])).get(item.id) ?? { status: 'pending' };
   }
 
-  /** `M` del reembolso de un caso (§M4-SHIP.15.5): `{cents, capturedDate}` si `priced`, si no `null`. */
-  async marketRefOf(item: Parameters<VaultService['marketValueOf']>[0]): Promise<{ cents: number; capturedDate: string } | null> {
-    const ref = await this.marketValueOf(item);
-    if (ref.status !== 'priced' || ref.referenceMxnCents == null) return null;
+  /**
+   * `M` del reembolso de un caso (§M4-SHIP.15.5): `{cents, capturedDate}` si `priced`, si no `null`. v1.116.4: por la puerta; una
+   * española lleva la `capturedDate` de `R_en` (antes salía `''`).
+   */
+  async marketRefOf(item: PatrimonyPiece): Promise<{ cents: number; capturedDate: string } | null> {
+    const ref = (await this.patrimony.valuePieces([item])).get(item.id);
+    if (ref?.status !== 'priced' || ref.referenceMxnCents == null) return null;
     return { cents: ref.referenceMxnCents, capturedDate: ref.capturedDate ?? '' };
   }
 
@@ -468,21 +471,10 @@ export class VaultService {
       orderBy: { createdAt: 'desc' },
     })) as (InventoryItem & { card: Card & { set?: CardSet | null } })[];
 
-    // Lote de referencias de MERCADO del sellado (`sealed:tcg:<productId>`, finish normal).
-    // v1.80.1 (SK-5): por la MISMA puerta que «Mis piezas» (`valuationKeyFor`), para que las dos pestañas
-    // no puedan divergir sobre la misma caja. Sin mapeo ⇒ sin clave ⇒ fuera del lote.
-    const refs = await this.pricing.getReferencesBatch(
-      items.flatMap((i) => {
-        const k = this.pricing.valuationKeyFor(i);
-        return k ? [k] : [];
-      }),
-    );
-    // H-1 (v1.24): el mercado del sellado solo cuenta con el dial ENCENDIDO (`sourceOn`), igual que
-    // catálogo/Compra/grid — para que la VALUACIÓN coincida con ellos (con off el ref TCGCSV es inerte,
-    // §4.23a). Antes esta valuación no gateaba por dial (divergía cuando `sealed_price_source=off`).
-    // v1.80.2.2 (D-4): el mismo helper que los otros lectores (aquí todo es sellado: una lectura si hay
-    // piezas; con la bóveda vacía no hay nada que gatear y no se lee el dial).
-    const sourceOn = await this.pricing.sealedSourceOnFor(items);
+    // Valor de MERCADO de cada caja por la MISMA puerta que «Mis piezas» (v1.80.1 SK-5; v1.116.4 `IDS-PAT`), para que las dos
+    // pestañas no puedan divergir sobre la misma caja: sellado mapeado ⇒ `sealed:tcg:<productId>` (acabado normal) con el gate
+    // del dial (H-1 v1.24: la fuente `tcgcsv` solo con el dial encendido); sin mapeo ⇒ `pending`. UNA llamada por petición.
+    const values = await this.patrimony.valuePieces(items);
 
     // v1.22-2 / N-15 (§4.22a-6): acabados priceados por carta EN LOTE (sin N+1) para displayFinishes.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
@@ -504,14 +496,10 @@ export class VaultService {
     let pendingPriceCount = 0;
     const rows = [...groups.values()].map((members) => {
       const rep = members[0];
-      const k = this.pricing.valuationKeyFor(rep);
-      // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
-      const rawRef = k ? refs.get(variantKey(k)) : undefined;
-      // H-1 (v1.24): gate ÚNICO del mercado (dial + priced). Con off / no mapeado → null → pending.
-      // v1.80.1 (SK-5): el gate vive dentro de `valuationCentsOf` (rama sellado = `gateSealedMarketCents`).
-      const marketCents = this.pricing.valuationCentsOf(rep, rawRef, sourceOn);
-      const priced = marketCents != null;
-      const marketRef: PriceInfo = priced ? toPublicPriceInfo(rawRef!) : { status: 'pending' };
+      // H-1 (v1.24) / SK-5: el gate del dial vive en la puerta; con off / no mapeado ⇒ `pending`.
+      const value = values.get(rep.id);
+      const priced = value?.status === 'priced' && value.referenceMxnCents != null;
+      const marketRef: PriceInfo = priced ? toPublicPriceInfo(value!) : { status: 'pending' };
       const count = members.length;
       const ownership = { pending: 0, settled: 0 };
       for (const m of members) {
@@ -563,28 +551,6 @@ export class VaultService {
     return { data: rows, totalValueMxnCents, pendingPriceCount, currency: 'MXN' as const };
   }
 
-  /**
-   * v1.80.1 (API_CONTRACT §M2-SK **SK-5**, **MONEY**) — la referencia de UNA pieza de la bóveda, por la
-   * única puerta de valuación (`valuationKeyFor` + `valuationCentsOf`). La comparten `holdings` y
-   * `holdingDetail` para que la fila y su detalle no puedan divergir.
-   *
-   * - raw/graduada: la clave y el criterio de siempre (v1.6-finish: el ACABADO del holding; v1.53
-   *   §4.40.4b: sin identidad de slab ⇒ `pending`, jamás un PSA 10).
-   * - sellado: SU mercado (`sealed:tcg:<id>`, `normal`) con el gate de dial de `/vault/sealed`; sin
-   *   mapeo ⇒ `pending`. ⛔ Nunca la fila legada `'sealed'`, que puede ser el precio de OTRA caja.
-   *
-   * `null` en cualquiera de las dos ⇒ `{ status: 'pending' }` (no suma, cuenta como pendiente).
-   */
-  private async valuate(
-    item: Parameters<PricingService['valuationKeyFor']>[0],
-    sourceOn: boolean,
-  ): Promise<PriceInfo> {
-    const key = this.pricing.valuationKeyFor(item);
-    if (key == null) return { status: 'pending' };
-    const ref = await this.pricing.getReference(key.cardId, key.productType, key.gradeKey, key.finish);
-    return this.pricing.valuationCentsOf(item, ref, sourceOn) == null ? { status: 'pending' } : ref;
-  }
-
   async holdingDetail(userId: string, inventoryItemId: string) {
     const item = await this.prisma.inventoryItem.findUnique({
       where: { id: inventoryItemId },
@@ -595,10 +561,8 @@ export class VaultService {
     });
     if (!item) throw BusinessException.notFound();
     if (item.ownerUserId !== userId) throw BusinessException.forbidden('FORBIDDEN');
-    // v1.80.1 (SK-5) — MISMA puerta que el listado (y que `/vault/sealed` para el sellado).
-    // v1.80.2.2 (D-4): un solo cuerpo, `sealedSourceOnFor` (lote de una pieza).
-    const sourceOn = await this.pricing.sealedSourceOnFor([item]);
-    const referenceValue = await this.valuate(item, sourceOn);
+    // v1.80.1 (SK-5) / v1.116.4 (`IDS-PAT`) — MISMA puerta que el listado (y que `/vault/sealed` para el sellado).
+    const referenceValue = (await this.patrimony.valuePieces([item])).get(item.id) ?? { status: 'pending' };
     // v1.22-2 / N-15 (§4.22a-6): displayFinishes del detalle usa los acabados priceados de la carta.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch([item.cardId]);
     return {

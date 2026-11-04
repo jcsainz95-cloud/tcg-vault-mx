@@ -130,6 +130,9 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
       priceBasis: 'market' as const,
       marketBracket: 'r80_300' as const,
       finish: 'normal' as const,
+      language: 'en' as const,
+      stampType: null,
+      stampLabel: null,
     })),
   }));
   // v1.21.3-quote-prune: el QUOTE usa la variante tolerante (poda por ítem). Por defecto todo
@@ -155,6 +158,9 @@ function buildService(opts: { stripeFails?: unknown; itemAvailable?: boolean } =
       priceBasis: 'market' as const,
       marketBracket: 'r80_300' as const,
       finish: 'normal' as const,
+      language: 'en' as const,
+      stampType: null,
+      stampLabel: null,
     })),
     unavailableItems: [],
     // v1.68.1 (§4-R.5): sin identidad no hay reserva propia.

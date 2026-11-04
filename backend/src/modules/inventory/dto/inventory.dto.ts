@@ -1,4 +1,5 @@
 import {
+  Allow,
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
@@ -10,6 +11,7 @@ import {
   IsString,
   Length,
   Max,
+  MaxLength,
   Min,
   ValidateIf,
   ValidateNested,
@@ -20,6 +22,7 @@ import { Transform, Type } from 'class-transformer';
 const trim = () => Transform(({ value }) => (typeof value === 'string' ? value.trim() : value));
 import {
   AcquisitionType,
+  CardLanguage,
   Finish,
   GradingCompany,
   ProductType,
@@ -31,6 +34,7 @@ import {
 // v2.1.8: las listas de valores se DERIVAN del schema (una sola declaración, `common/enum-values.ts`).
 import {
   ACQUISITION_TYPE_VALUES,
+  CARD_LANGUAGE_VALUES,
   FINISH_VALUES,
   GRADING_COMPANY_VALUES,
   PRODUCT_TYPE_VALUES,
@@ -125,6 +129,10 @@ export class CreateItemDto {
   // cuando el mercado resuelto es null; `>0` (≤0 → 422 VALIDATION_ERROR en el servicio); AUDITADO. No
   // @Min aquí a propósito: ≤0 debe llegar al servicio para el 422 de negocio (no un 400 del pipe).
   @IsOptional() @IsInt() @Max(MAX_LIST_PRICE_CENTS) manualMarketMxnCents?: number;
+  // v1.116⟨ids⟩ (API_CONTRACT §IDS.4): idioma de la pieza (default `en`) y versión de liga por su producto (`tcgplayerProductId`
+  // de un `CardProduct` `stamped` de la carta). Versión no default: solo raw y sin `listPriceCents` (422).
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) language?: CardLanguage;
+  @IsOptional() @IsInt() @Min(1) @Max(2_147_483_647) cardProductId?: number;
 }
 
 export class UpdateItemDto {
@@ -149,6 +157,16 @@ export class UpdateItemDto {
   @IsOptional() @IsIn(GRADING_COMPANY_VALUES) gradingCompany?: GradingCompany;
   @IsOptional() @IsInt() @Min(1) @Max(MAX_LIST_PRICE_CENTS) listPriceCents?: number;
   @IsOptional() @IsIn(['in_stock', 'listed']) status?: 'in_stock' | 'listed';
+  // v1.116⟨ids⟩ (API_CONTRACT §IDS.4): corrección del idioma de la pieza (solo `in_stock | listed`) ⇒ `manual_price`.
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) language?: CardLanguage;
+  /**
+   * ⛔ PT-IDS-8 (pentester, pase `db202174`) — NO es campo del `PATCH` (I-7: `cardProductId` no se reescribe tras el alta,
+   * D-IDS-8). Se declara SOLO para poder RECHAZARLO: sin `@Allow` el pipe global (`whitelist` sin `forbidNonWhitelisted`)
+   * lo borraba en silencio y el operador recibía `200` creyendo que había corregido la liga. Con valor (número, `null` o
+   * lo que sea) ⇒ `422 VALIDATION_ERROR {field:'cardProductId'}` en `updateItem`, antes de escribir nada (mismo patrón que
+   * `ingestMaxCardsPerRun` en `graded-estimates.controller.ts`).
+   */
+  @Allow() cardProductId?: unknown;
 }
 
 export class MoveItemDto {
@@ -209,6 +227,10 @@ export class BatchInventoryItemInput {
   // v1.39-sealed-product-module (M-39, P-38): IDENTIDAD (recomendado) + fallback manual money-safe.
   @IsOptional() @IsString() sealedProductId?: string;
   @IsOptional() @IsInt() @Max(MAX_LIST_PRICE_CENTS) manualMarketMxnCents?: number;
+  // v1.116⟨ids⟩ (API_CONTRACT §IDS.4): idioma de la pieza (default `en`) y versión de liga por su producto (`tcgplayerProductId`
+  // de un `CardProduct` `stamped` de la carta). Versión no default: solo raw y sin `listPriceCents` (422).
+  @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) language?: CardLanguage;
+  @IsOptional() @IsInt() @Min(1) @Max(2_147_483_647) cardProductId?: number;
 }
 
 export class BatchCreateInventoryRequest {
@@ -407,4 +429,9 @@ export class SetSealedSalePriceDto {
   @Min(1)
   @Max(MAX_LIST_PRICE_CENTS)
   expectedDisplayPriceCents!: number | null;
+}
+
+/** v1.116⟨ids⟩ (API_CONTRACT §IDS.4): `POST /admin/inventory/stamped-candidates/:tcgplayerProductId/attach`. */
+export class AttachStampedCandidateDto {
+  @IsString() @IsNotEmpty() @MaxLength(64) cardId!: string;
 }

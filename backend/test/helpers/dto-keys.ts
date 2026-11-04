@@ -49,6 +49,9 @@ export const GROUPED_LISTING_KEYS = keysOf<GroupedListingDTO>({
   // v1.90⟨miv⟩ (§MIV.2, ADITIVO): el mercado CON IVA. OPCIONAL: viaja ⇔ `priceBasis === 'market'`.
   referenceDisplayCents: true,
   currency: true,
+  // v1.116⟨ids⟩ (§IDS.5, ADITIVO): la versión del grupo y su acabado como lo nombra el cliente.
+  version: true,
+  finishLabel: true,
 });
 
 /** `GroupedListingSummaryDTO` — el DTO de la **REJILLA** de singles (v2.1.9 D2: sin las dos señales). */
@@ -70,6 +73,10 @@ export const GROUPED_LISTING_SUMMARY_KEYS = keysOf<GroupedListingSummaryDTO>({
   // y su PRESENCIA **es** la elegibilidad, así que en un escenario sin gate cumplido —o con el dial
   // `off`— NO viaja: los tests que asertan el conjunto exacto de claves lo recortan explícitamente.
   gradingHighlight: true,
+  // v1.116⟨ids⟩ (§IDS.5, ADITIVO): versión, acabado y la clave de su burbuja en la ficha (enlace de la teja).
+  version: true,
+  finishLabel: true,
+  versionOptionKey: true,
 });
 
 /** `SealedGroupDTO` — el DTO de la **FICHA** de sellado (`SealedGroupDetailResponse.group`). */

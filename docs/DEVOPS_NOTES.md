@@ -27,8 +27,14 @@
   en Vercel (§106.4, la hace el dueño); la de 7 días tras publicar caduca el 2026-12-01 (candado en §106.4). Mediciones de producción de §DYN: `scripts/dyn-prod-measure.sh` (§104.4), las corre el dueño.
 - **Catálogo de CP (2026-11-02):** en producción está **vacío** (4 CP ⇒ 404). Se carga con el botón «Cargar códigos postales
   (SEPOMEX)» (`cargar-codigos-postales.yml`, lo dispara el dueño; simulacro por defecto) — pasos, candado y rollback: **§107**.
-- **Limpieza de ramas (2026-10-30):** `limpieza-ramas.yml` (lo dispara el dueño) borra las ramas remotas fusionadas en
-  `production` y archiva `main`. Pasos para el dueño y cómo se deshace: **§105**.
+- **§IDS, Q1, Q1c y Q1d de D-IDS-1 (2026-11-03):** condiciones bloqueantes de la solicitud de fusión de §IDS (Q1c: piezas de
+  CLIENTES con promo/deck_exclusive, v1.116.4; Q1d: piezas con producto inexistente que harían abortar M-95c, v1.116.5). Se miden con el botón «Medir D-IDS-1 en producción (solo lectura)» (`medir-ids-produccion.yml`, entorno `medicion-ro` con revisor, rol `ids_ro`
+  recomendado; candado G-IDS-RO) — pasos del dueño, mediciones y rollback: **§108.5**. **NO corrido en producción.**
+- **Limpieza de ramas (2026-10-30):** `limpieza-ramas.yml` (lo dispara el dueño) borra las ramas remotas fusionadas en `production` y archiva `main`. Pasos para el dueño y cómo se deshace: **§105**.
+- **E2E MOCK duro (2026-11-03):** `frontend-e2e` roja en sus 3 intentos ⇒ job y `e2e-ok` rojos; flaky registrada, no bloquea. Antes salía verde (`continue-on-error`). Política, candado y rollback: **`DEVOPS_NOTES-24-railway-deploy-gate.md` §24.0**.
+- **§IDS (2026-11-03, rama `claude/ids-diseno`):** IDS-D1/D2 medidas en seco contra TCGCSV público y el instrumento del 512
+  (IDS-D3) listo, sin tocar producción — **§108**. Lo que volvió al arquitecto, resuelto (v1.116.2); las cuentas de producción
+  (D-IDS-1) son una consulta de solo lectura que corre el dueño (`scripts/ids/ids-d1-produccion.sql`).
 - **DOC-SIZE:** trinquete en CI (`scripts/check-doc-size.sh`, §101.5); muy por encima del tope: **se compacta antes de añadir**. Encabezado anterior: `git show b95fbbac:docs/DEVOPS_NOTES.md`.
 
 ---
@@ -6343,7 +6349,7 @@ Revisado archivo por archivo. **Cableado ≠ corriendo**, y la diferencia es jus
 | Pieza del DoD | Archivo | Estado real |
 |---|---|---|
 | **SAST en cada PR** | `security-sast.yml` (semgrep · gitleaks · npm-audit · trivy-fs · trivy-image → `sast-ok`) | ✅ **Cableado y corriendo** en `push` y `pull_request`. |
-| **Harness E2E** | `e2e.yml` → `backend-e2e` (Postgres+Redis reales, **deploy-blocking**) + `frontend-e2e` (mock, **informativo** por decisión §24) | ✅ **Cableado.** El mock es soft-gate **a propósito**; el gate real de UI es `e2e-real.yml`. |
+| **Harness E2E** | `e2e.yml` → `backend-e2e` (Postgres+Redis reales) + `frontend-e2e` (mock), ambos **deploy-blocking** desde 2026-11-03 (`DEVOPS_NOTES-24-railway-deploy-gate.md` §24.0) | ✅ **Cableado.** Flaky no bloquea pero queda registrada; el gate real de UI es `e2e-real.yml`. |
 | **E2E contra stack real** | `e2e-real.yml` (nightly 08:00 UTC · `workflow_dispatch` · `workflow_call` desde deploy con `require_real_stripe: true`) | ⚠️ **Cableado, pero sin `STRIPE_TEST_SECRET_KEY` su preflight ABORTA** la ruta de promoción (hueco §32.7-1, del humano). | **⚠️ CORREGIDO 2026-09-10 → §51: las dos claves de prueba LLEVAN TRES DÍAS en los secrets; el nocturno `34477885121` corrió los flujos en REAL con `MONEY_SKIPPED` vacío. Lo que falta es `STRIPE_TEST_WEBHOOK_SECRET`, y ya no bloquea (§50.4).**
 | **DAST contra staging que bloquea la promoción** | `deploy.yml` → `dast-release` (llama a `security-dast.yml`, stack efímero, `ref: github.sha`) con `promote-production-*` condicionado a `dast-release.outputs.blocking != 'true'` | ⚠️ **Actualizado 2026-09-11 (§56):** `dast-staging` (que apuntaba a `STAGING_BASE_URL`, secret inexistente, y nunca corrió) se retiró. Ahora `deploy.yml` dispara también en **push a `production`** y corre `dast-release` sobre el SHA publicado — en modo **`report_only`** (C2) hasta que seguridad lo suba a bloqueante. El deploy sigue siendo push-to-deploy nativo; el DAST corre **después**, sobre el mismo commit, no se interpone (decisión del dueño pendiente). |
 | **DAST programado semanal** | `security-dast.yml` (lunes 06:00 UTC) | ⚠️ **CORREGIDO en el FICHERO (P-77, §44) — NO en el calendario** (corrección in situ 2026-09-11, §55.3/§56): antes era un no-op silencioso en `security-scheduled.yml` (comprobaba `STAGING_BASE_URL`, faltaba, `::notice::` y verde). El workflow nuevo levanta su propio stack efímero y **bloquea**, con autoprueba del candado, **pero hasta el 2026-09-11 el cron semanal no había corrido nunca**: los 6 runs históricos fueron todos por push a `devops/dast-p77`. Desde §56 corre además en cada push a `production` (`deploy.yml` → `dast-release`, `report_only`). |
@@ -6366,171 +6372,7 @@ cambia el flujo).
 
 ---
 
-## 37. Stack nativo para el gate de QA del stream `buylist-inventory-workflow` — lo que arrancó, y el rojo que **no era del producto** (2026-09-02)
-
-**Encargo:** QA no puede correr su gate sin un stack vivo y no tiene herramientas de escritura
-(es intencional). Levantar la ruta nativa y decir **exactamente** qué puede correr y qué no.
-
-**Regla que gobierna esta sección:** todo número de aquí está **medido** sobre el árbol limpio en
-`claude/buylist-inventory-workflow-hdnls3` (commit `742ce51`). Donde no medí, lo digo.
-
-### 37.1 Punto de partida (confirmado, no asumido)
-
-| Hecho | Comprobación |
-|---|---|
-| No hay demonio de Docker | `/var/run/docker.sock`: *No such file or directory* ⇒ `docker-compose.yml` **no es una opción**; la ruta nativa es la única |
-| Postgres instalado y **parado** | `pg_lsclusters` → `16 main 5432 down` |
-| Redis instalado y **parado** | `redis-cli ping` → *Connection refused* |
-| Sin `.env` en ninguna parte | solo `.env.example` |
-| Puertos 3000/3099 libres | `ss -ltnp` sin coincidencias |
-| `node_modules` presentes | backend 578 paquetes · frontend 447 |
-
-### 37.2 `./scripts/stack-native.sh up --seed --gate` — **exit 0**, literales
-
-```
-▸ Postgres (16/main)          ✔ arriba.            (había un pid file rancio; el script lo purgó solo)
-▸ Redis                       ✔ arriba.
-▸ Rol y base de datos         ✔ rol 'tcg' ya existe.  ✔ base 'tcg_marketplace' ya existe (datos intactos).
-▸ prisma migrate deploy       35 migrations found in prisma/migrations
-                              No pending migrations to apply.
-▸ Seed sintético              ✓ seed-e2e: dataset sintético cargado (determinista).
-▸ Backend NestJS (:3099)      ✔ salud: {"status":"ok","uptime":6,"timestamp":"2026-09-02T04:33:17.395Z","db":"up","redis":"up"}
-▸ next build                  ✔ build listo (NODE_ENV=production, sin aviso de NODE_ENV no estándar).
-▸ Frontend (:3000)            ✔ arriba en http://localhost:3000 (modo build)
-```
-
-`status` tras el arranque: `postgres: accepting connections` · `redis: PONG` · `backend: 200 (:3099)` ·
-`frontend: 200 (:3000)`.
-
-**`DATABASE_URL` efectivo (contraseña enmascarada):**
-`postgresql://tcg:****@localhost:5432/tcg_marketplace?schema=public`
-Credencial de **desarrollo local**, la misma de `.env.example`. Aquí no hay ni se inventó ningún
-secreto real.
-
-**M-46 aplicada — verificada en la BD, no solo en el «no pending».** `migrate deploy` dijo *no
-pending* porque la base **persistió de una sesión previa**; eso por sí solo no prueba nada, así que
-se comprobó el registro **y** los objetos:
-
-```
-migration_name                                  | finished_at         | steps | rolled_back_at
-20260901120000_m46_buylist_acquisition_cycle    | 2026-09-01 21:01:13 |     1 | (null)
-```
-`35 aplicadas · 0 pendientes-o-fallidas · 0 rolled_back` · `prisma migrate status` → *Database schema is up to date!*
-
-Y sus objetos existen de verdad: los 3 enums (`BuyDecision{buy,skip}`,
-`SellOfferState{pending_authorization,sent,cancelled}`, `SellRequestExpiryReason{no_offer,not_shipped}`),
-los 5 índices (`SellRequest_offerState_idx`, `SellRequest_status_offerAcceptDeadlineAt_idx`,
-`SellRequest_status_shipDeadlineAt_idx`, `SellRequest_guideCancellationPendingAt_idx`,
-`SellRequestItem_offerDecision_idx`) y las columnas (`SellRequest.offerState`, `.offerAcceptDeadlineAt`,
-`.shipDeadlineAt`, `.guideCancellationPendingAt`, `.closedAt`, `.expiredReason`, `SellRequestItem.offerDecision`).
-
-**Backend vivo, con guards puestos** (no es un arnés recortado): `GET /api/v1/health` → 200 ·
-`GET /api/v1/catalog/cards?limit=1` → 200 · `GET /api/v1/admin/orders` sin token → **401** ·
-`SchedulerService: BullMQ operativo`.
-Único aviso en el log: `pokemontcg.io … -> HTTP 403` (sin egress). **Esperado y money-safe**: deja los
-precios STALE, no borra ni escribe $0.
-
-### 37.3 El rojo de la suite de integración: **entorno, no producto** — y el footgun que casi me como
-
-El encargo pedía el literal de `cd backend && npm run test:integration`. Es éste:
-
-| # | Cómo se corrió | Resultado literal | Veredicto |
-|---|---|---|---|
-| A | `cd backend && npm run test:integration` (**literal**) | `Test Suites: 1 failed, 14 passed, 15 total` · `Tests: 5 failed, 178 passed, 183 total` · 31.7 s · **exit 1** | rojo de **entorno** |
-| B | igual, con `DATABASE_URL` **exportada** | `15 passed, 15 total` · `183 passed, 183 total` · 26.3 s · **exit 0** | ✅ |
-| C | 1ª versión de mi subcomando (**mal**: filtraba `NODE_ENV=development`) | `3 failed, 12 passed` · `25 failed, 158 passed` · **exit 1**, con **13 asertos fallando en `Received: 429`** | rojo **del arnés** |
-| D | subcomando ya corregido (`NODE_ENV=test`) | `15 passed, 15 total` · `183 passed, 183 total` · 27.2 s · **exit 0** | ✅ |
-
-**Por qué falla A.** Una sola suite, `seed-idempotency.e2e-spec.ts`, y con este literal:
-
-```
-PrismaClientInitializationError: error: Environment variable not found: DATABASE_URL.
-  -->  schema.prisma:11
-   |
-10 |   provider = "postgresql"
-11 |   url      = env("DATABASE_URL")
-    at Object.<anonymous> (test/integration/seed-idempotency.e2e-spec.ts:42:5)
-```
-
-Las otras **14 sí** ven la BD porque arrancan el `AppModule`, y `ConfigModule.forRoot()`
-(`app.module.ts:39`, **sin `envFilePath`** ⇒ default `<cwd>/.env`) carga `backend/.env` dentro de
-`process.env` al importar el módulo. `seed-idempotency` es la **única** que no pasa por Nest: hace
-`new PrismaClient()` a nivel de módulo, o sea **antes** de que nadie cargue el `.env`.
-`test/integration/setup.ts` no tapa el hueco: para `DATABASE_URL` solo emite un `console.warn` (y no
-podría poner default: no existe una BD «de mentira» válida). **Ese warn sale también en la corrida
-verde** — es ruido conocido, no un síntoma.
-
-**El footgun de C, que es el hallazgo que de verdad importa.** Mi primer subcomando reexportaba el
-bloque de env de la cabecera del script, `NODE_ENV=development` incluido. `export` alcanza a todo
-hijo y **jest solo pone `NODE_ENV=test` si nadie lo puso antes**, así que ese `development` ganaba.
-De `src/config/test-env.ts:28` (`process.env.NODE_ENV === 'test'`) cuelgan dos piezas:
-
-1. **`AppThrottlerGuard`** — login 5/min por IP (SEC-C1). Con `NODE_ENV≠test` el guard no se omite y
-   la suite, que hace ~10 logins desde 127.0.0.1 en el mismo minuto, **se autoenvenena con 429**.
-   Es exactamente el fallo de CI del 2026-08-18 que motivó `test-env.ts`.
-2. **El scheduler BullMQ** — cada suite registraría los crons y un worker sobre la cola compartida
-   `tcg-daily`, y el catch-up de `price-ingest` encola trabajo **real**: escrituras de fondo en la
-   misma BD que se está midiendo.
-
-O sea: sin `NODE_ENV=test` el arnés no solo pinta rojos falsos, **mide otra cosa**. Es el **mismo
-footgun de §32.10** (el `NODE_ENV` exportado que rompía `next build`), en otro consumidor. Queda
-cerrado por construcción y comentado en el propio script.
-
-`PORT` no hace falta neutralizarlo: el harness hace `app.listen(0)` (`test/integration/helpers/e2e-app.ts:172`).
-
-**Lo que cablé (todo en rutas de devops):**
-
-| Archivo | Qué |
-|---|---|
-| `backend/.env` (**untracked**, `.gitignore`) | `DATABASE_URL`, `REDIS_URL`, `APP_BASE_URL`, `APP_PUBLIC_URL`, `JWT_*` de desarrollo. **Sin Stripe, sin Resend, sin S3, sin API keys de precios** — a propósito (§37.4). Con él, el comando literal pasa de 0 a **14/15 suites**. |
-| `scripts/stack-native.sh` → `test:integration` | Exporta el mismo env que usa `up` **y fija `NODE_ENV=test`**. Comprueba que Postgres responda antes de correr. Da **15/15 · 183/183 · exit 0**. |
-| `scripts/stack-native.sh` → `migrate deploy` | El mensaje decía «incluida M-41» **desde M-41 hasta M-46**. Ahora el nombre se deriva del árbol: un mensaje que envejece en silencio es peor que no tenerlo, porque se cita en veredictos. |
-| `scripts/stack-native.sh` → `mask_url()` | Un solo sitio que enmascara la contraseña antes de imprimir una URL de conexión. |
-
-### 37.4 Qué puede correr QA y qué no
-
-**✅ Sí, ahora mismo, sin tocar nada:**
-
-| Qué | Comando | Estado medido |
-|---|---|---|
-| Integración contra **BD real** | `./scripts/stack-native.sh test:integration` | **15/15 suites · 183/183 tests · exit 0** |
-| Una spec suelta | `./scripts/stack-native.sh test:integration -t "<patrón>"` | pasa args a jest |
-| Backend en vivo | `curl localhost:3099/api/v1/health` | `{"status":"ok",…,"db":"up","redis":"up"}` |
-| Frontend horneado (mocks=**false**, API→:3099) | `http://localhost:3000/es` | 200, `next build` con `NODE_ENV=production` |
-| Gate E2E real | `cd frontend && E2E_BASE_URL=http://localhost:3000 E2E_REAL=1 npm run test:e2e` | Chromium 141 en `/opt/pw-browsers/chromium` **verificado**; Playwright 1.56.0 |
-
-**❌ No, y no es arreglable en esta máquina** (no son fallos del producto; **no los reporte como bugs**):
-
-| Qué | Por qué | Síntoma esperado |
-|---|---|---|
-| Cobrar de verdad (checkout, guest-checkout, envíos) | **Sin egress a `api.stripe.com`** (CONNECT → 403) y sin `STRIPE_TEST_SECRET_KEY`. No se inventó ninguna clave. | 503 `PAYMENT_PROVIDER_UNAVAILABLE`, se libera la reserva (**money-safe**) | **⚠️ CORREGIDO 2026-09-10 → §51: las dos claves de prueba LLEVAN TRES DÍAS en los secrets; el nocturno `34477885121` corrió los flujos en REAL con `MONEY_SKIPPED` vacío. Lo que falta es `STRIPE_TEST_WEBHOOK_SECRET`, y ya no bloquea (§50.4).**
-| Subir el INE del buylist (sobre el tope AML) | **No hay MinIO/R2** nativo; `uploads` no lo cubre esta ruta | el spec de infra lo **salta** con aviso |
-| Correo real (Resend) | Sin `RESEND_API_KEY` ⇒ `NoopMailAdapter` (degradación de LOCAL_ENVS) | no sale correo; el flujo no se bloquea |
-| Precios frescos de proveedor | Sin egress a `pokemontcg.io` / `tcgcsv.com` (403) | precios **STALE**; no borra, no escribe $0 |
-
-**⚠️ Dos avisos operativos (ninguno bloquea):**
-
-1. **La suite de integración ESCRIBE en la BD** (resiembra el fixture). Si después va el gate de
-   Playwright, **vuelva a sembrar**: `./scripts/stack-native.sh up --seed --infra`. El subcomando lo
-   avisa al empezar. Orden recomendado: **integración → re-seed → E2E**.
-2. **Deriva cosmética de schema** (no bloquea, **no es mía**): `prisma migrate diff` reporta un único
-   `ALTER INDEX "PriceReference_variant_capturedDate_key" RENAME TO
-   "PriceReference_cardId_productType_gradeKey_finish_capturedD_key"`. Mismas columnas, misma
-   unicidad: solo el **nombre** difiere entre `schema.prisma` y la BD. Efecto real: un
-   `prisma migrate dev` querría generar una migración de rename. `backend/prisma/` es del rol
-   **backend**; queda anotado, no tocado.
-
-### 37.5 Apagado y rollback
-
-| Escenario | Acción |
-|---|---|
-| Terminar la sesión, conservar datos | `./scripts/stack-native.sh down` (para backend y frontend; deja PG/Redis) |
-| Apagar todo | `./scripts/stack-native.sh down --all` |
-| BD envenenada por una corrida | `./scripts/stack-native.sh up --seed --infra` (el seed es **idempotente**: lo prueba `seed-idempotency.e2e-spec.ts`) |
-| Revertir lo de esta sección | Borrar `backend/.env` y revertir `scripts/stack-native.sh`. Se pierde el 15/15 (vuelve a 14/15 por `DATABASE_URL`); **nada más**: no toca `backend/`, ni `frontend/`, ni migraciones, ni datos |
-| El subcomando molesta | `cd backend && NODE_ENV=test DATABASE_URL=… npm run test:integration` hace lo mismo a mano |
-
----
+## 37. Stack nativo para el gate de QA (2026-09-02) — compactada 2026-11-03 (DOC-SIZE); texto: `git show d128e8c4:docs/DEVOPS_NOTES.md`; vigente: `scripts/stack-native.sh` y su cabecera
 
 ## 38. SEC-OPS-1 — el gate auditaba un binario más viejo que el código auditado. Y la purga de los datos del PoC (2026-09-06, stream `claude/buylist-inventory-workflow-hdnls3`)
 
@@ -14558,11 +14400,13 @@ de `442b1e8d` ⇒ 3/26 rojos (la tanda común corría `checkout guest-checkout n
 real completa con cobro (sin stack aquí); la cierra QA con el runner 2/2. Specs con >5 sesiones o datos ajenos: frontend.
 
 **103.4 Cliente Prisma al día antes de arrancar (tester-e2e).** Con `.prisma/client` de otro schema el backend moría con
-`Cannot convert undefined or null to object`. `ensure_prisma_client` (`start_backend` y antes del seed de `up --seed`):
-sello `node_modules/.prisma/client/.tcg-schema.sha256` = sha256(schema) + sha256(copia) igual ⇒ nada; si no ⇒ `prisma
-generate`, copia vs schema por huella sin formato (Prisma 5.22 REFORMATEA la copia: el `cmp` de 96cda136 abortaba en todo
-clon limpio, QA 3/3) y se sella; si falla o no coincide ⇒ se para. Prueba real (copia `git archive` + `npm ci`, generate de
-verdad): 1.ª regenera, 2.ª «al día», N=2; `cmp` viejo ⇒ aborta. Canario: N=3 ⇒ 29/29; `cmp` ⇒ 18/29 rojos. **TL-OPS-4:** el caso 7 del canario de 103.3 ya no es un grep:
+`Cannot convert undefined or null to object`. `ensure_prisma_client` (`start_backend` y antes del seed de `up --seed`): sello
+`.prisma/client/.tcg-schema.sha256` = sha256(schema)+sha256(copia) igual ⇒ nada; si no ⇒ `prisma generate`, copia vs schema por
+huella **sin formato ni comentarios** (Prisma 5.22 REFORMATEA la copia: el `cmp` de 96cda136 abortaba en todo clon limpio) y se
+sella; si falla o no coincide ⇒ se para y muestra la primera diferencia. **Comentarios fuera (2026-11-03):** el `LineStream` del
+generador (`@prisma/client/generator-build`) decodifica cada trozo de 64 KiB de su tubería con `chunk.toString()`: un multibyte
+partido en el borde sale como U+FFFD U+FFFD. En d4ba9e91 el `É` de `QUÉ` (schema.prisma:2295) cae en el byte 131 481 ⇒ 16/19 generates
+corruptos (devops, N=19); 283bb760 y 2bcfd04b 0/10 cada una. Todo lo no-ASCII del schema está en comentarios; si el corte cae en código, se para. Canario: 38/38 (N=3); huella vieja ⇒ 3/38 rojos (caso 10); `//` ingenuo dentro de cadena ⇒ 3/38 (caso 12). **TL-OPS-4:** el caso 7 del canario de 103.3 ya no es un grep:
 corre `restart:backend` (sin pidfile ⇒ rc≠0 con motivo «backend.pid» y sin reinicio; con pidfile propio ⇒ apaga ese
 pid). Sin la guarda el rc también es 1 (muere por `node_modules`), por eso exige el motivo: ablación ⇒ 3/26 rojos.
 
@@ -14891,3 +14735,159 @@ Medido con Chromium 141 real (Playwright 1.56.1, solo lectura) sobre `/es`, `/es
   `CSP_VIOLATION` en los logs, incluido el checkout con Stripe.js y el login con Google; (4) devops: ZAP 10038/10055 de
   WARN a FAIL (deshacer §98); (5) frontend: `CSP_MODE = 'enforce'` en `frontend/src/security/csp.ts`, revertible con una línea.
   Hoy, pasar a `enforce` **rompería la tienda entera** (ningún script de Next cargaría).
+
+## §108 · §IDS — IDS-D1, IDS-D2 (en seco) e instrumento de IDS-D3 (2026-11-03, rama `claude/ids-diseno`, base `d128e8c4`)
+
+**Fuente y alcance.** Solo GET públicos: TCGCSV categoría 3 (`last-updated` **2026-11-02T20:06:18Z**, 220 grupos) y la lista
+de sets del repositorio público de pokemontcg.io (176 sets). Nada contra producción ni Railway (no hay credencial de solo
+lectura: §107.0). Instrumento: `scripts/ids/ids-dry-run.mjs` (réplica de IDS.3 en `ids-lib.mjs`; prueba
+`node --test scripts/ids/ids-lib.test.mjs`). Universo de carta base = productos `set_base|other` (réplica de
+`classifyCardProductKind`) de: **B** los 143 grupos que la escalera de `tcgcsv-group-match.ts` empata con un set de
+pokemontcg.io (lo más parecido al catálogo) y **A** los 218 grupos salvo 22880/1539 (cota: ambiguos por arriba). Qué sets
+tiene producción y su `pptSetId`: **NO MEDIDO** (BD). Cada cifra es N = todos los productos del grupo, una corrida (determinista).
+
+### 108.1 IDS-D1 — empate, sufijos, Cosmos y filas por carta
+Cifras con la llave del catálogo de la **errata v1.116.2** (IDS.3: número del nombre solo si trae total; si no, `Card.number` +
+`/` + `CardSet.printedTotal`; réplica de `catalogMatchKey`) y candidatos contados **por carta**, como `buildCatalogIndex`.
+Re-medido el 2026-11-03 sobre el mismo `last-updated` (la llave anterior daba 22880 765/56/28, 1539 351/6/118). `printedTotal` = el del set de
+pokemontcg.io que la escalera empata con el grupo (142 de 143 grupos B; 0 grupos con dos totales distintos); `Card.number` ≈ el
+`Number` de TCGCSV antes del «/» (LECTURA DEVOPS: sin tabla `Card`).
+
+| Grupo | Productos | Sin número | Sin tipo | Con tipo y número | Único B | Ambiguo B | Sin pareja B | Único A |
+|---|---|---|---|---|---|---|---|---|
+| 22880 Prize Pack | 891 | 42 | 0 | 849 | **789 (92.9 %)** | 0 | 60 | 594 |
+| 1539 Liga/campeonato | 620 | 99 | 46 | 475 | **369 (77.7 %)** | 4 | 102 | 305 |
+
+- **1539, tipos** (los 620): `league` 298 · `championship` 105 · `staff` 102 · **sin tipo 115** (99 sin número + 46 con
+  número: «Play! Pokemon» 17, sin etiqueta 11, «Cosmos Holo» 6, «Winner»/«Special» 4, otros 8). Con número y tipo, único en B
+  por tipo: league **201/268** · championship **85/105** · staff **83/102**. Ambiguos B (4): Crimson Invasion + Furious Fists.
+  `subTypeName`: Reverse Holofoil 406, Holofoil 113, Normal 62.
+- **Cosmos Holo de 22880:** **189** productos; `subTypeName` **Holofoil 185, Reverse Holofoil 4** (Jet, Luminous y Reversal
+  Energy 190–192/193; Mist Energy 161/162). Ninguno sin fila de precio.
+- **Filas de liga (producto × acabado) por carta colgada, 22880 + 1539, B:** 890 cartas; p50 **1**, p90 **2**, máx **6**;
+  **4 cartas > 4** (distribución 0: 8 · 1: 646 · 2: 194 · 3: 15 · 4: 23 · 5: 3 · 6: 1). El peor: Nest Ball 181/198 (base 488087)
+  = Prize Pack normal + Cosmos + 4 de campeonato/Staff reverse. En A: 702 cartas, máx 6, p90 2, 2 > 4. Es estructura, no
+  existencias: la ficha solo pinta filas con stock (D-IDS-O), así que en la tienda es ≤.
+- **Caso candidato para el 960** (lo elige product-owner): `209911` «Quick Ball - 179/202 (League Cup)», sigue único en A y B con
+  la llave nueva, base `208511` (Sword & Shield), Reverse Holofoil **US$3.76**.
+
+### 108.2 IDS-D2 — prerelease y Staff
+- `22872` SV Promo: 280 productos, **70 con tipo** (staff 39, prerelease 25, championship 6). `24451` ME Promo: 141, **25 con
+  tipo** (staff 21, prerelease 2, championship 2). Hay más fuera de los dos: 560 productos con tipo en 22 grupos distintos de
+  22880/1539 (SM Promos 119, SWSH Promos 64, Nintendo 59, Miscellaneous 57, XY 45, BW 44…).
+- **¿Están sus promos en el catálogo?** pokemontcg.io **no tiene set de promos ME** (último set `me55c`) ⇒ las MEP no están.
+  `svp` sí existe, pero **ningún «Black Star Promos» empata con un grupo** por la escalera ⇒ sus `CardProduct` solo existen si
+  `CardSet.pptSetId` = `22872` en producción: NO MEDIDO (Q2 de §108.5).
+- Aunque estuviera: **50 de los 70** de 22872 no tienen producto sin sello en TCGCSV (`Quaquaval - 005` solo existe como
+  `(Prerelease)` 487751 y `[Staff]` 522650), así que no hay `set_base` con que empatar (único en A: 17/70). Y
+  `classifyCardProductKind` ya clasifica «(Prerelease)»/«(Staff)» como `promo`: si `svp` está mapeado, ese producto ya es
+  `CardProduct` y el paso stamped lo encontraría ocupado (`@unique`). Q3 lo cuenta.
+
+### 108.3 IDS-D3 — foto del 512 (instrumento; NO ejecutado en producción)
+`scripts/ids/foto-512.sql` (una línea JSON por fila de `InventoryItem`, `ListingPrice`, `Order`, `OrderItem`, `SellRequest`,
+`SellRequestItem`, `PortfolioSnapshot`; solo columnas de id/estado/`*Cents`/acabado/`variantKey`/idioma/sello: sin datos
+personales; transacción READ ONLY) y `scripts/ids/foto-512.mjs compare antes despues` (0 = diferencia 0 · 1 = lista de
+diferencias · 2 = no concluyente). Una columna nueva solo vale si es de M-95 y está en su default (`language='en'`, sin sello).
+Las dos `.sql` las corre el paso «Instrumentos §IDS» del job `backend` de `ci.yml` contra la base de CI migrada
+(`# skipped 0` obligatorio); medidas en local en §108.5.
+**Ensayo** (sobre copia, nunca producción): (1) copia con `restore-drill-verify.sh --snapshot --dump` + `--restore` (§85.5);
+(2) con el código de `production` y la ingesta de precios apagada, una corrida de precios del día; `psql … -f foto-512.sql >
+antes.jsonl`; (3) `m95a` → `m95b` → código nuevo, misma corrida sin ingesta; `despues.jsonl`; (4) `compare`. Qué comando dispara
+una recomputación completa sin ingesta: **NO MEDIDO**, lo nombra backend. ⛔ Las fotos no van al repo ni a artefactos.
+
+### 108.4 Vuelve al arquitecto — resuelto en el contrato v1.116.2 (API_CONTRACT §IDS «Devops»); texto: `git show 1f5936b5:docs/DEVOPS_NOTES.md`
+
+### 108.5 D-IDS-1 y lo que solo da la BD — botón «Medir D-IDS-1 en producción (solo lectura)» (G-IDS-RO)
+Q1 = consulta literal del contrato (piezas vendibles de plataforma por `kind`); Q1b = la lista por producto si Q1 da > 0 en
+`promo`/`deck_exclusive` (va a la solicitud de fusión: decide el dueño). **Q1c** (API_CONTRACT §IDS.9 v1.116.4, D-IDS-S):
+piezas de CLIENTES (`ownerType='customer'`, `status <> 'withdrawn'`) con producto `promo`/`deck_exclusive`, por kind (piezas,
+clientes distintos, con caso «Por reponer» `open`, en retiro activo `solicitado…enviado`) y **Q1c-detalle** por producto y
+acabado (piezas, clientes, Σ/mín/máx de la referencia de la base —fila elegida como `isBetterRef`, `priceMxnCents` almacenado
+**sin FX viva: aproximación**— y de `Q` = origen de `resolveOriginsBatch`; «sin origen»). Solo agregados (candado G-IDS-RO [Q]).
+**Q1d** (v1.116.5, M-95c): piezas con `cardProductId` **no nulo** que no existe en `CardProduct` (con una, la FK aborta la migración),
+por clase de dueño y estado, **solo conteos**; la lista por pieza (id interno, folio, estado, clase) solo en la consola: «Q1d-lista». Viven en **`scripts/ids/ids-d1-q1.sql`** (una fuente):
+la incluyen el `.sql` manual `ids-d1-produccion.sql` (Q1–Q3, `psql … -f`, rol de solo lectura como §104.4; Q2 lee además `CardSet`) y el botón.
+**Q1 es condición bloqueante de la solicitud de fusión de §IDS** (ARCHITECTURE §15 D-IDS-1). Estado: construido, **NO corrido en
+producción** (no existe hasta que esta rama llegue a `production`, la rama por defecto).
+
+| Ruta | Qué |
+|---|---|
+| `.github/workflows/medir-ids-produccion.yml` | Solo `workflow_dispatch`, **sin entradas**; job solo si `github.ref == refs/heads/production`, entorno **`medicion-ro`** (revisor obligatorio + regla de rama, en GitHub), `contents: read`, `ubuntu-24.04`, 10 min. Dos pasos: `checkout` fijado por sha y «Medir» (único con el secreto `IDS_RO_DATABASE_URL`; no hay `npm ci`). |
+| `scripts/ids/medir-q1-produccion.sh` | URL solo del entorno; `::add-mask::` de URL, contraseña, usuario, host y puerto antes de nada; la parte en `PG*` (la URL nunca va en la línea de `psql`); rechaza esquema no-Postgres y `*.railway.internal`; **TLS obligatorio** (PT-IDS-7): `sslmode` por defecto `require` y, fuera de loopback, solo `require`/`verify-ca`/`verify-full` (otro ⇒ rc 1 sin llamar a `psql`). Corre `ids-q1-boton.sql` con `--csv` y `ON_ERROR_STOP`; el stderr de `psql` **no se vuelca** (trae host/IP): se clasifica (contraseña, red, permiso, tabla, «no era de solo lectura»). Al resumen solo cifras, Q1c-detalle con **umbral k=3** (abajo); Q1d solo conteos (sin dinero). 0 medido · 1 error. |
+| `scripts/ids/ids-q1-boton.sql` | `BEGIN TRANSACTION READ ONLY` + `statement_timeout 60s` + `lock_timeout 5s` → **prueba**: `UPDATE "InventoryItem" SET status = status WHERE false` tiene que dar 25006 (si no, aborta antes de leer) → rol (¿puede escribir?, sin escribir) → `\ir ids-d1-q1.sql` → `ROLLBACK`. |
+| `scripts/check-ids-ro-workflow.sh` (+ `-canary.sh`) | Candado **G-IDS-RO**, estático: [A] solo dispatch, sin `inputs` · [C] un secreto, en «Medir», sin `env` de job, sin instalar dependencias · [D] `production` + `medicion-ro` · [E] sin escritura · [F] qué corre · [G] máscara antes de partir la URL y de `psql`, URL fuera de la línea de `psql`, sin `set -x`, stderr no volcado, exige el aviso 25006 · [R] el SQL: primera orden READ ONLY, prueba antes de leer, `ROLLBACK` al final, ni COMMIT/READ WRITE/verbos que escriben/`\!`/`\copy`/`\o`, `\ir` solo de `ids-d1-q1.sql` · [Q] Q1c solo clientes y agregados; Q1d `IS NOT NULL` + `NOT EXISTS`, sin ids/folios/dinero, exigida por el botón · [K] `K_ANON = 3`, Q1c-detalle por `anonimizar(` y a `PUBLICAS` (conteos + Σ, ningún mín/máx de ref ni Q), umbral sobre clientes distintos y piezas · [S] `require` por defecto, sin literales débiles, loopback fijo · [H] `uses:` por sha. Canario 3 verdes + 59 rojos (62/62). Job `sepomex-pin` de `ci.yml`. |
+| `scripts/ids/medir-q1.test.mjs` | Contra la base de CI migrada (paso «Instrumentos §IDS», `# skipped 0`): el botón mide, aviso 25006, sin URL ni contraseña en log/resumen; Q1c con cifras exactas en el SQL crudo; k=3 (1 cliente ⇒ oculto; 3 ⇒ solo Σ, sin mín/máx; 3 con 1 origen ⇒ Q oculta; canario `K_ANON = 1`); TLS con `psql` falso (sin base); canario: sin `READ ONLY` ⇒ rc 1 y nada leído; Q1d: huérfana +1 exacto (ni la no huérfana ni la nula), «Q1d-lista» solo en consola, canario sin `IS NOT NULL`. |
+
+**Privacidad del resumen (PT-IDS-6, 2026-11-03).** El repo es público: el resumen del run **lo lee cualquiera**, y un artefacto
+también (docs.github.com, «Download workflow artifacts»: lo descarga quien tenga sesión en GitHub y lectura del repo, o sea
+todos). Q1c-detalle publica **solo conteos y Σ** de ref. y de Q (nunca mín/máx: con Σ, mín y máx de 3 piezas se despeja la
+tercera), y cada Σ solo si la respaldan **≥ 3 clientes distintos y ≥ 3 piezas** (con ref., o con origen para Q); si no, «<3,
+oculto». **¿Se recupera una cifra restando?** No dentro de un run: no hay totales de dinero entre filas (Q1c por kind solo cuenta;
+Q1b es inventario de plataforma) y una Σ de ≥ 3 clientes no se descompone sin otra ecuación. Queda uno: **dos runs** separados
+por una compra — la diferencia de Σ es lo que pagó quien entró. Por eso el paso 7 **borra el run** tras copiar las cifras.
+**Mín/máx y la fila entera, sin publicarlos:** Railway → Postgres → Data → Query con `scripts/ids/ids-d1-produccion.sql` (mismo
+SQL, sin umbral); no hace falta canal nuevo. TLS (PT-IDS-7): que el proxy público de Railway acepte TLS — **NO MEDIDO**; si no
+lo aceptara, el botón sale «no se pudo conectar» sin degradar.
+
+**Qué secreto (recomendación devops): un rol de solo lectura nuevo (`ids_ro`), no `DATABASE_PUBLIC_URL`.** Con la de dueño el
+botón tampoco escribe (READ ONLY + prueba 25006 + sin entradas + revisor), pero esas defensas son del código: quien cambie el
+script en `production` tendría permiso de escritura total. Con `ids_ro` (SELECT en las 10 tablas del paso 3) el límite lo pone
+Postgres; el resumen avisa si el secreto puede escribir. Sin el rol, la de dueño vale **solo** porque se borra al terminar (paso 8).
+
+**Pasos del dueño (lo que ve en pantalla).** Los nombres de Railway son los de §104.4 (*Data* → *Query*); los de GitHub, de su
+interfaz actual. **NO MEDIDO** por mí en un navegador: no tengo acceso a ninguna de las dos cuentas.
+1. Publicar la rama (fusión a `production`); antes el botón no existe.
+2. Railway → proyecto → servicio **Postgres** → **Data** → **Query**. Pegar y ejecutar
+   `SELECT md5(random()::text || clock_timestamp()::text) || md5(random()::text) AS clave;` y copiar la `clave` (64 letras y
+   números; ⛔ ni al chat ni a un fichero del repo).
+3. En la misma consulta (cambiando `<clave>` por lo copiado, y `railway` por el nombre de la base si fuera otro):
+   `CREATE ROLE ids_ro LOGIN PASSWORD '<clave>'; GRANT CONNECT ON DATABASE railway TO ids_ro; GRANT USAGE ON SCHEMA public TO ids_ro;`
+   `GRANT SELECT ON "InventoryItem", "CardProduct", "Card", "ListingPrice", "ReplacementCase", "ShipmentItem", "ShipmentRequest", "Order", "OrderItem", "PriceReference" TO ids_ro;`
+4. Railway → **Postgres** → **Variables** → `DATABASE_PUBLIC_URL` → copiar. Se ve así:
+   `postgresql://postgres:XXXX@algo.proxy.rlwy.net:12345/railway`. En una nota, cambiar `postgres:XXXX` (lo que hay entre `//`
+   y `@`) por `ids_ro:<clave>`. Eso es el secreto.
+5. GitHub → **Settings** → **Environments** → **New environment** → nombre `medicion-ro` → **Configure environment**.
+   En «Deployment protection rules»: marcar **Required reviewers**, buscar y añadir su usuario, dejar **sin marcar** «Prevent
+   self-review» (es él quien dispara y aprueba) → **Save protection rules**. En «Deployment branches and tags»: **Selected
+   branches and tags** → **Add deployment branch or tag rule** → `production` → **Add rule**. En «Environment secrets»:
+   **Add environment secret** → Name `IDS_RO_DATABASE_URL`, Value: lo del paso 4 → **Add secret**.
+6. **Actions** → «Medir D-IDS-1 en producción (solo lectura)» → **Run workflow** → rama `production` → **Run workflow**. El
+   run queda «Waiting»: **Review deployments** → marcar `medicion-ro` → **Approve and deploy**. Verde en ~1 min. En el
+   resumen: «Rol de solo lectura: 0 de N tablas con permiso de escritura» y la línea **«promo + deck_exclusive = N»**. Copiar las
+   **cifras** (no el enlace: el paso 7 lo borra) a la solicitud de fusión: **= 0** confirma D-IDS-1; **> 0** decide él. Y la línea
+   **«Q1d — piezas cuyo producto no existe en el catálogo = N»**: **= 0** ⇒ M-95c entra; **> 0** ⇒ Railway → Postgres → **Data** →
+   **Query** con `scripts/ids/ids-d1-produccion.sql`, sección «Q1d-lista» (id interno, folio, estado): decide él pieza por pieza.
+7. **Borrar el run** (el resumen es público): pestaña **Actions** del repositorio → en la barra izquierda, «Medir D-IDS-1 en
+   producción (solo lectura)» → a la derecha de la corrida, el botón de tres puntos **···** → **Delete workflow run** → **Yes,
+   permanently delete this workflow run**. Ruta según docs.github.com («Deleting a workflow run»); **NO MEDIDO** en navegador.
+8. Limpiar: GitHub → Settings → Environments → `medicion-ro` → bote de basura junto a `IDS_RO_DATABASE_URL`. Railway → Query:
+   `REVOKE ALL ON "InventoryItem", "CardProduct", "Card", "ListingPrice", "ReplacementCase", "ShipmentItem", "ShipmentRequest", "Order", "OrderItem", "PriceReference" FROM ids_ro;`
+   `REVOKE ALL ON SCHEMA public FROM ids_ro;`
+   `REVOKE ALL ON DATABASE railway FROM ids_ro; DROP ROLE ids_ro;`
+
+Si sale rojo, dice por qué sin la URL: «usuario o contraseña rechazados» (paso 4), «no se pudo conectar» (red pública apagada),
+«sin permiso de lectura» (`GRANT` del paso 3), «Copiaste la URL interna», «Conexión sin TLS obligatorio» (`?sslmode=` débil: quitarlo), «Falta el secreto».
+
+**Mediciones (2026-11-03, devops; bases locales desechables PG 16 con las migraciones del árbol, borradas al terminar).**
+- `tcg_devops_idsro2` (N=1, deterministas): rol `ro` rc 0, 25006, Q1/Q1b exactos (6 piezas), «0 de 86 tablas»; dueño ⇒ «puede escribir». Contraseña 0 veces
+  (9 corridas); clave mala/puerto/`*.railway.internal`/sin secreto ⇒ rc 1 sin URL; `BEGIN;` sin `READ ONLY` ⇒ rc 1, no lee.
+- `devops_q1c` (6 piezas: manual viejo vs tcgcsv nuevo, 2 órdenes `vault`, envío `picking`, caso `open`): prístino 3/3; mutaciones (copia, N=3) rojas 3/3: cuenta plataforma · `Q` más viejo · automática gana a manual · `cancelado` activo.
+- `devops_idspt` (PT-IDS-6/7, copia entera, N=3 por caso, 3/3 rojas): sin `anonimizar(`, mín/máx en `PUBLICAS` o el script de
+  `3f04f97c` ⇒ k=3 y Q1c rojas + [K]; `prefer` por defecto ⇒ TLS roja + [S]. Prístino `e5b1fd21` verde.
+- `devops_q1d` (Q1d, copia entera de `1612cff5`, N=3): prístino 29/29 ×3, candado verde; «Q1d sin `IS NOT NULL`» ⇒ Q1d roja ×3
+  («debía subir 1», da 2: cuenta la pieza nula) y [Q] rojo. Con la FK de M-95c creada a mano, 6/6 (siembra con `replica`).
+  CI pasa `?sslmode=disable` (loopback): sin él, 3 rojas por TLS desde PT-IDS-7 (run 41612957356, y en local). 0 filas al final.
+  **NO MEDIDO:** que el runner alcance el proxy público de Railway (§107.3), `psql` 16 contra su versión, nombres de pantallas.
+
+**Rollback:** el botón no escribe nada que deshacer. Código: `git revert` del commit (se van workflow, scripts, candado y prueba;
+`ids-d1-produccion.sql` vuelve a llevar Q1 dentro). El secreto, el entorno y el rol se borran a mano (paso 8).
+
+### 108.6 TL-IDS-3 — una sola regla de sufijos (cerrada 2026-11-03)
+`stampTypeOf` de `scripts/ids/ids-lib.mjs` es ahora réplica de la del backend (`backend/src/common/card-version.ts`): mismos
+segmentos `(…)`/`[…]`, mismas regex por segmento (`regionals?`), `null` fuera de 22880/1539, salvo 22872/24451 que se clasifican
+**solo como medición de IDS-D2** (el backend da `null`: D-IDS-7). `ids-lib.test.mjs` lee los casos de
+`backend/test/ids-card-version.spec.ts` (16) y exige el mismo tipo (necesita el árbol entero, O-9). **Las cuentas de §108.1/§15.0
+no cambian:** versión de `f2cd0e31` vs nueva vs transcripción del backend sobre TCGCSV (`last-updated` 2026-11-02T20:06Z): 0
+discrepancias en 1539 (620; 505 con tipo), 22880 (891), 22872 (280; 70) y 24451 (141; 25). Mutaciones (copia, N=3): staff detrás
+de prerelease ⇒ roja 3/3; la versión vieja ⇒ la paridad con el spec sigue verde 3/3 (sus casos no tienen «(Regionals)» solo) y la
+cobra la prueba «parser no decorativo» 3/3; sin `backend/` ⇒ roja 3/3.

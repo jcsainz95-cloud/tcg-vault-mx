@@ -92,6 +92,9 @@ function build(rows: ReturnType<typeof piece>[]) {
     pendingPriceEntry: { findMany: jest.fn(async () => []) },
   };
   const pricing = {
+    // v1.116⟨ids⟩ (§IDS.2): ningún producto de la fixture es de liga.
+    findStampedProducts: jest.fn(async () => new Map()),
+    findSeparateProductIds: jest.fn(async () => new Set()),
     loadSalePremiumFloorPolicy: jest.fn(async () => DEFAULT_SALE_PREMIUM_FLOOR_POLICY),
     loadPricingCurve: jest.fn(async () => DEFAULT_PRICING_CURVE),
     loadSealedSpreads: jest.fn(async () => ({ spreadPctBySubtype: {}, fallbackPct: 0, sourceOn: false })),

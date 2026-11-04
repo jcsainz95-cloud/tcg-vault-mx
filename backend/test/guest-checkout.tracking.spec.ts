@@ -267,6 +267,8 @@ describe('POST /orders/guest/track — MINIMIZACIÓN DE DATOS (§4-G.3, criterio
         'productType', 'rawCondition', 'sealedSubtype', 'setName', 'unitPriceCents',
         // v1.80 (§M4-SHIP.10, aditivo): `{ amountCents, reason, refundedAt } | null` — solo filas aceptadas por Stripe.
         'refund',
+        // v1.116⟨ids⟩ (§IDS.5, aditivo): la versión congelada de la línea (clave + `finishLabel`, sin ids internos).
+        'version', 'finishLabel',
       ].sort(),
     );
   });

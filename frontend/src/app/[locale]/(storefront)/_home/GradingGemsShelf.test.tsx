@@ -5,6 +5,7 @@ import * as api from '@/lib/api';
 import type { GradedEstimateDTO, GroupedListingSummaryDTO } from '@/types/contract';
 import { GradingGemsShelf } from './GradingGemsShelf';
 import { GradingFootnoteBoundary } from '../_shared/grading/GradingFootnote';
+import { IDS_EN_SUMMARY } from '@/test/ids-defaults';
 
 vi.mock('@/i18n/navigation', () => ({
   usePathname: () => '/',
@@ -26,6 +27,7 @@ const psa10: GradedEstimateDTO = {
 // v1.50.2: la vitrina recibe el DTO de la REJILLA — sin `priceBasis`/`referenceValue` (D2) y
 // CON el marcador `gradingHighlight` ya gateado por el servidor.
 const gem = (id: string): GroupedListingSummaryDTO => ({
+  ...IDS_EN_SUMMARY,
   representativeInventoryItemId: id,
   card: {
     id: `c-${id}`,

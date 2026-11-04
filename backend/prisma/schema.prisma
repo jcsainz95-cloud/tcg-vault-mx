@@ -423,6 +423,25 @@ enum CardProductKind {
   deck_exclusive
   promo
   other
+  // v1.116⟨ids⟩ (M-95 m95a, API_CONTRACT §IDS.1): versión de LIGA de la carta base (Prize Pack 22880 / Liga 1539 de
+  // TCGCSV). Con `stampType` NOT NULL (CHECK de m95b). ⛔ No entra en `Card.availableFinishes`, binder, valor de set ni
+  // cotizador (§IDS.3, I-6).
+  stamped
+}
+
+// v1.116⟨ids⟩ (M-95, §IDS.1). Idioma de la pieza y de la línea de pedido. Sin `ja` (PROJECT §IDS.6).
+enum CardLanguage {
+  en
+  es
+}
+
+// v1.116⟨ids⟩ (M-95, §IDS.1/.3). Tipo de versión de liga de un `CardProduct` `stamped` (por sufijo, falla cerrado).
+enum StampType {
+  prize_pack
+  league
+  championship
+  prerelease
+  staff
 }
 
 enum KycStatus {
@@ -993,6 +1012,8 @@ model Card {
   variantPriceOverrides      VariantPriceOverride[]
   // v1.29 (M-31, §4.27b): productos TCGplayer bajo esta carta (uno por productId). Navegación Prisma.
   cardProducts               CardProduct[]
+  // v1.116⟨ids⟩ (M-95, §IDS.3): productos de liga con empate AMBIGUO que podrían ser esta carta.
+  stampedCandidates          StampedProductCandidate[]
   // DECKS-META §3.1 (Fase 1) — relación inversa de `MetaDeckCard.matchedCard`. ADITIVA: una carta que
   // sale del catálogo NO borra la línea del deck (la línea guarda el crudo set+número, procedencia).
   // Es LECTURA; el matcher escribe `matchedCardId` sólo al emparejar por `ptcgoCode`+`number`.
@@ -1030,13 +1051,39 @@ model CardProduct {
   kind               CardProductKind @default(set_base)
   name               String
   finishes           Finish[]        @default([])
+  // v1.116⟨ids⟩ (M-95, §IDS.1): solo `kind = stamped` (CHECK `("kind" = 'stamped') = ("stampType" IS NOT NULL)`).
+  // `stampLabel` = detalle físico del proveedor tal cual («Cosmos Holo», «Left Stamp»); `sourceGroupId` = grupo TCGCSV.
+  stampType          StampType?
+  stampLabel         String?
+  sourceGroupId      Int?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 
   priceReferences PriceReference[]
+  // v1.116.5⟨ids⟩ (M-95c): las piezas de esta versión (FK Restrict: un producto con piezas no se borra).
+  inventoryItems  InventoryItem[]
 
   @@index([cardId])
   @@index([cardId, kind])
+}
+
+// v1.116⟨ids⟩ (M-95, API_CONTRACT §IDS.1/.3): producto de liga (22880/1539) cuyo empate con la carta base es AMBIGUO
+// (≥ 2 cartas con la misma `baseMatchKey`). Una fila por carta posible; quien captura elige la IDENTIDAD con `attach`
+// (§IDS.4), que crea el `CardProduct stamped` y borra las filas de ese producto. Interna (no viaja salvo en captura).
+// Limpieza PDB: se CONSERVA (es catálogo, como `CardProduct`).
+model StampedProductCandidate {
+  tcgplayerProductId Int
+  cardId             String
+  card               Card      @relation(fields: [cardId], references: [id])
+  groupId            Int
+  name               String
+  stampType          StampType
+  stampLabel         String?
+  finishes           Finish[]  @default([])
+  refreshedAt        DateTime
+
+  @@id([tcgplayerProductId, cardId])
+  @@index([cardId])
 }
 
 // ============================= INVENTORY / VAULT =============================
@@ -1089,6 +1136,9 @@ model InventoryItem {
   // pertenecer a card.availableFinishes. Afecta la valuación (PriceReference de ESE acabado)
   // y el catálogo "Compra" (filtro/listado por acabado). graded/sealed → normal. ARCHITECTURE §3.7.
   finish                  Finish           @default(normal)
+  // v1.116⟨ids⟩ (M-95, §IDS.1): idioma de ESTA copia. La versión de liga es su `cardProductId` cuando ese producto es
+  // `stamped` (sin columna nueva). ⛔ Sin backfill: el DEFAULT deja todo lo existente en inglés (I-1).
+  language                CardLanguage     @default(en)
   listPriceCents          Int?
   acquisitionType         AcquisitionType
   // v1.64(4)/v1.95⟨pnl-finanzas⟩ (§4.44.f-quater, decisión del dueño): cuando viene de COMPRA FIRME,
@@ -1130,7 +1180,10 @@ model InventoryItem {
   // M1; (c) la corrección a mano de `PATCH /admin/inventory/items/:id` (criterio 160). El BACKFILL de
   // M-46 la copia SOLO por la FK `@unique` `sourceSellRequestItemId` — copiar por llave única NO es
   // adivinar por heurística, y por eso no viola el criterio 160.
+  // v1.116.5⟨ids⟩ (M-95c, §IDS.1, D-IDS-V, PT-IDS-3): FK → `CardProduct.tcgplayerProductId`, RESTRICT/RESTRICT (un id colgante
+  // se vendería como (idioma, sin liga) con la referencia de la base). I-7: no se reescribe tras el alta.
   cardProductId           Int?
+  cardProduct             CardProduct?     @relation(fields: [cardProductId], references: [tcgplayerProductId], onDelete: Restrict, onUpdate: Restrict)
   // v1.19-sealed-tcgcsv (M-23): mapeo CURADO del item SELLADO al producto de TCGplayer/TCGCSV
   // (ARCHITECTURE §4.19c). Se fijan JUNTOS (ambos null = no mapeado; ambos poblados = mapeado);
   // solo aplican a productType='sealed' — regla de APLICACIÓN, no constraint de BD. El groupId
@@ -1195,6 +1248,8 @@ model InventoryItem {
   // v1.19-sealed-tcgcsv (M-23): sirve la cola de NO-mapeados (sealed AND productId IS NULL)
   // y el DISTINCT tcgplayerGroupId del ingest sin barrer la tabla. ARCHITECTURE §11.
   @@index([tcgplayerProductId])
+  // v1.116.5⟨ids⟩ (M-95c): el índice de la FK de `cardProductId` (sirve la comprobación del `RESTRICT` al borrar un producto).
+  @@index([cardProductId])
   // v1.23-sealed-sales (M-28): sirve el grid público del sellado (`productType='sealed' AND
   // status='listed'`) y la agregación de la pestaña «Sellado» sin barrer la tabla. ARCHITECTURE §4.23i.
   @@index([productType, status])
@@ -1640,6 +1695,11 @@ model OrderItem {
   priceBasis      PriceBasis?
   marketBracket   MarketBracket?
   finish          Finish?
+  // v1.116⟨ids⟩ (M-95, §IDS.1, D-IDS-J): la VERSIÓN congelada en el checkout como `finish` (la pieza se puede corregir
+  // después; el pedido no cambia). Toda línea previa queda `en` sin liga (I-1).
+  language        CardLanguage   @default(en)
+  stampType       StampType?
+  stampLabel      String?
   // 💰 v1.110⟨descuentos⟩ (M-92, §DSC.0 I-3): la rebaja POR UNIDAD; `unitPriceCents` es lo COBRADO (ya descontado).
   unitDiscountCents Int          @default(0)
 

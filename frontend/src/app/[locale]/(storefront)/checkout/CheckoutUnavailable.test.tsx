@@ -46,6 +46,7 @@ import { clearUnavailableNotice } from './unavailable-notice';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { CheckoutView } from './CheckoutView';
 import { setCheckoutViewport } from './test-viewport';
+import { IDS_EN } from '@/test/ids-defaults';
 
 // Escritas para el layout de escritorio (`aside`); la barra fija móvil tiene su prueba propia (CheckoutPayBar.test.tsx).
 setCheckoutViewport('desktop');
@@ -76,6 +77,7 @@ function customerQuote(ids: string[], dead: Dead): CheckoutQuoteResponse {
     // v1.51-b: el preview es `{ inventoryItemId, card, unitPriceCents }` y `card` es un
     // `OrderItemCardDTO` (§4). `productType`/`rawCondition` van DENTRO de `card`.
     items: listings.map((l) => ({
+      ...IDS_EN,
       inventoryItemId: l.inventoryItemId,
       card: orderItemCard(l),
       unitPriceCents: l.displayPriceCents ?? 0,
@@ -102,6 +104,7 @@ function guestQuote(ids: string[], dead: Dead): GuestCheckoutQuoteResponse {
   const shipping = live.length > 0 ? 17500 : 0;
   return {
     items: listings.map((l) => ({
+      ...IDS_EN,
       inventoryItemId: l.inventoryItemId,
       card: orderItemCard(l),
       unitPriceCents: l.displayPriceCents ?? 0,

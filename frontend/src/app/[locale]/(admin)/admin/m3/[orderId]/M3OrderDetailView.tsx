@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
+import { VersionChips } from '@/components/domain/VersionChip';
 import { PICKING_SUMMARY_KEY } from '@/hooks/usePickingSummary';
 import { chargebackInventory, getAdminOrder, reclaimVault, recordShippedRefundReason, refundToManual, retryRefund } from '@/lib/api';
 import { asApiError } from '@/lib/api-client';
@@ -329,7 +330,11 @@ export function M3OrderDetailView({ orderId }: { orderId: string }) {
                           : null;
                       return (
                         <li key={it.inventoryItemId} className="flex flex-wrap items-baseline justify-between gap-2 py-3 text-sm text-text">
-                          <span lang="en">{name}</span>
+                          <span className="flex flex-col gap-1">
+                            <span lang="en">{name}</span>
+                            {/* §IDS.5: versión congelada del `OrderItem` (insignias; el detalle del proveedor en admin). */}
+                            <VersionChips version={it.version} size="tile" testId={`m3-item-version-${it.inventoryItemId}`} />
+                          </span>
                           <span className="flex flex-wrap items-baseline gap-3">
                             {/* 💰 §DSC I-3 (914): el exhibido del servidor (v1.110.3, DCO-F6), como el checkout; lo COBRADO va debajo. */}
                             <span className="tabular" data-testid={`m3-item-price-${it.inventoryItemId}`}>

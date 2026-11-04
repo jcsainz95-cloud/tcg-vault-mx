@@ -1,0 +1,63 @@
+<!doctype html>
+<!--
+  04-ficha-v5-B · forma EXTENDIDA del selector (D-IDS-5, vIDS-5). Opción B: rótulo de fila (texto muted a todo el ancho) sobre cada
+  par Inglés | Español; las burbujas quedan IDÉNTICAS a la v4 (nombre + insignia + precio). Mismo caso que v5-A: base (Holo) +
+  Prize Pack Normal + Prize Pack Cosmos Holo; Español de liga Cosmos Holo elegido. Autocontenida; precios de ejemplo. No es código de producción.
+-->
+<html lang="es-MX"><head><meta charset="utf-8"><meta name="viewport" content="width=390">
+<title>04 · Ficha v5-B · rótulo de fila</title>
+<style>
+:root{--bg:#f4f1ea;--s2:#efebe2;--bd:rgba(26,26,24,.16);--bds:rgba(26,26,24,.32);--bdc:rgba(26,26,24,.55);--tx:#1a1a18;--mu:#6e695e;--ac:#b31217}
+*{box-sizing:border-box;margin:0}
+html,body{background:#cfcabd}
+body{font:14px/1.4 Archivo,system-ui,sans-serif;color:var(--tx)}
+.lamina{width:390px;background:var(--bg)}
+.phone{position:relative;padding:0 20px 90px;border:1px solid var(--bds)}
+.hdr{height:56px;display:flex;align-items:center;font:700 16px Montserrat,Archivo,system-ui,sans-serif;margin:0 -20px;padding:0 20px;border-bottom:1px solid var(--bd)}
+.ph{background:var(--s2);margin-top:16px;height:300px;display:flex;justify-content:center;padding:10px}
+.ph img{height:100%;object-fit:contain}
+.ref{font:400 11px 'JetBrains Mono',monospace;color:var(--mu);margin-top:6px;min-height:16px}
+h1{font:400 28px/1.15 'Zen Old Mincho',Georgia,serif;margin-top:10px}
+.vrow{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;min-height:22px}
+.vchip{display:inline-flex;align-items:center;height:22px;padding:0 7px;font:600 13px/1 Archivo,system-ui,sans-serif;white-space:nowrap;border-radius:0}
+.vchip.es{background:var(--tx);color:var(--bg);border:1px solid var(--tx)}
+.vchip.tipo{color:var(--ac);border:1.5px solid var(--ac);padding:0 6.5px}
+.set{font:400 11px 'JetBrains Mono',monospace;color:var(--mu);margin-top:8px;text-transform:uppercase}
+.lab{font:500 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.12em;color:var(--mu);margin:16px 0 4px}
+.stock{font:400 10px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);margin-top:6px}
+.bar{position:absolute;left:0;right:0;bottom:0;height:69px;border-top:1px solid var(--bds);background:var(--bg);display:flex;align-items:center;gap:12px;padding:0 20px}
+.bar b{flex:0 0 auto;font:500 17px Archivo,system-ui,sans-serif;font-variant-numeric:tabular-nums}
+.bar span{flex:1;min-height:44px;background:var(--tx);color:var(--bg);display:flex;align-items:center;justify-content:center;font:600 12px Archivo,system-ui,sans-serif;text-transform:uppercase;letter-spacing:.12em}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+/* B: rótulo de fila = texto muted 12 px, ocupa las 2 columnas; 12 px de aire arriba, 0 abajo (pertenece al par que le sigue) */
+.row{grid-column:1 / -1;font:400 12px/1.3 Archivo,system-ui,sans-serif;color:var(--mu);margin-top:8px;min-height:16px}
+.row:first-child{margin-top:0}
+.bub{border:1.5px solid var(--bdc);background:var(--bg);color:var(--tx);border-radius:999px;display:flex;align-items:center;justify-content:center;text-align:center;min-height:64px;flex-direction:column;gap:3px;padding:8px 12px}
+.bub.on{background:var(--tx);border-color:var(--tx);color:var(--bg)}
+.bub:focus-visible{outline:2px solid var(--tx);outline-offset:2px}
+.n{font:600 14px/1.15 Archivo,system-ui,sans-serif;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:3px 5px}
+.p{font:400 14px/1.1 Archivo,system-ui,sans-serif;font-variant-numeric:tabular-nums}
+.mini{display:inline-flex;align-items:center;height:18px;padding:0 4px;font:600 12px/1 Archivo,system-ui,sans-serif;color:var(--ac);border:1.25px solid var(--ac);border-radius:0;white-space:nowrap}
+.on .mini{color:var(--bg);border-color:var(--bg)}
+</style></head><body>
+<div class="lamina">
+<div class="phone">
+ <div class="hdr">TCG HUNT</div>
+ <div class="ph"><img src="https://images.pokemontcg.io/base1/4_hires.png" alt="Charizard, Base Set 4/102"></div>
+ <p class="ref">Imagen de referencia (versión en inglés, sin logo de liga)</p>
+ <h1>Charizard</h1><div class="vrow"><span class="vchip es">Español</span><span class="vchip tipo">De liga</span></div><p class="set">Base Set · BS 4 · RAW · NM · Cosmos Holo</p>
+ <p class="lab" id="lbl">Idioma y versión</p>
+ <div class="grid" role="radiogroup" aria-labelledby="lbl">
+  <p class="row" id="r1">Carta normal · Holo</p>
+  <div class="bub" role="radio" aria-checked="false" aria-describedby="r1" tabindex="-1"><span class="n">Inglés</span><span class="p">MX$200.00</span></div>
+  <div class="bub" role="radio" aria-checked="false" aria-describedby="r1" tabindex="-1"><span class="n">Español</span><span class="p">MX$150.00</span></div>
+  <p class="row" id="r2">De liga · Prize Pack · Normal</p>
+  <div class="bub" role="radio" aria-checked="false" aria-describedby="r2" tabindex="-1"><span class="n">Inglés <span class="mini">De liga</span></span><span class="p">MX$90.00</span></div>
+  <div class="bub" role="radio" aria-checked="false" aria-describedby="r2" tabindex="-1"><span class="n">Español <span class="mini">De liga</span></span><span class="p">MX$67.50</span></div>
+  <p class="row" id="r3">De liga · Prize Pack · Cosmos Holo</p>
+  <div class="bub" role="radio" aria-checked="false" aria-describedby="r3" tabindex="-1"><span class="n">Inglés <span class="mini">De liga</span></span><span class="p">MX$480.00</span></div>
+  <div class="bub on" role="radio" aria-checked="true" aria-describedby="r3" tabindex="0"><span class="n">Español <span class="mini">De liga</span></span><span class="p">MX$360.00</span></div>
+ </div>
+ <p class="stock">Queda 1</p>
+ <div class="bar"><b>MX$360.00</b><span>Añadir al carrito</span></div>
+</div></div></body></html>

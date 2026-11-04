@@ -370,6 +370,72 @@ export const E2E_CARDS = {
    * vitrina sin sembrar nada más. Precio NM MX$60, de los más bajos: el arnés de `grading.ts` toma las raw más caras.
    */
   gemhunt: { externalId: 'e2e-gem-hunt', name: 'E2E Gem Hunt', number: '34', rarity: 'Common', refNmCents: 6000, availableFinishes: ['normal'] },
+  /**
+   * v1.116.3⟨ids⟩ (API_CONTRACT §IDS, petición de frontend `e2e/ids-real.spec.ts`) — **la carta de las versiones de liga**.
+   * Sin ella el stack sembrado no tenía ningún `CardProduct stamped` (ni este entorno tiene salida a tcgcsv.com para que el
+   * barrido o `attach` lo traigan), y la fila «De liga», la faceta `stamped` y el filtro solo se medían contra mocks.
+   * Su producto de liga, sus piezas y su candidata: `E2E_IDS`.
+   *
+   * **Carta PROPIA y no una reutilizada**: colgar la liga de una carta de escenario le cambiaría su ficha (selector de
+   * versiones) y su rejilla (una teja por versión) a pruebas que no la esperan. **Con pieza inglesa sin liga**: así la carta
+   * tiene, como cualquier otra del seed, una teja con el enlace llano a su ficha (`seo-raw-html.spec.ts` C2 lo exige de cada
+   * carta de la página).
+   * Precios a propósito en MEDIO de las raw publicadas: por debajo de `staleest` (los arneses del front toman las raw más
+   * CARAS) y por encima de las del deck y de `gemhunt` (`accessories-scenario.ts` toma la más BARATA).
+   */
+  league: { externalId: 'e2e-league', name: 'E2E League Bird', number: '35', rarity: 'Common', refNmCents: 20000, availableFinishes: ['normal'] },
+} as const;
+
+/**
+ * v1.116.3⟨ids⟩ (API_CONTRACT §IDS.1/.3/.4/.5) — **las versiones de liga del seed**, sobre `E2E_CARDS.league`:
+ *  - `stamped`: un `CardProduct kind='stamped'` colgado (League Cup, grupo 1539) con su PROPIA `PriceReference` raw NM
+ *    `holofoil` (`refNmCents`, MXN nativo, manual como el resto del seed). Acabado `holofoil` a propósito: la carta base es
+ *    `normal`, así que la ficha pinta la fila sin liga y la de liga con acabados distintos (y la clave lógica
+ *    `(carta, raw, raw:NM, acabado)` de `seed-idempotency` no se repite).
+ *  - `pieces`: cuatro piezas `listed` de plataforma con folio PROPIO (`E2E-IDS-*`, fuera de `E2E_FOLIOS` y fuera del prefijo
+ *    `E2E-LST-` que alimenta Destacadas): `(en, P)` y `(es, P)` del producto y `(es, null)`/`(en, null)` de la carta base. Con
+ *    ellas `versions[]` de la ficha = `en`, `es`, luego la fila de liga `en.P.holofoil`/`es.P.holofoil` (la forma de IDS-B8).
+ *    `createdAt` VIEJO y fijo (`piecesCreatedAt`) — DEFENSA, no requisito (TL-IDS-6): con fecha vieja las tejas de esta
+ *    carta van al final de la rejilla `newest`. Las pruebas `@real` que toman «el primer grupo» (`catalog-freshness`,
+ *    `pricing-curve`, `seo-raw-html` C2) leen el enlace y el precio de CADA versión desde `f2cd0e31` (frontend; NO MEDIDO por
+ *    backend), así que ya no necesitan que esta carta quede atrás; la fecha solo evita que una prueba nueva que asuma «primer
+ *    grupo = sin liga» falle por el seed. Retirarla exige antes la ablación con QA (seed sin la fecha ⇒ suites `@real` verdes).
+ *  - `candidate`: una `StampedProductCandidate` SIN colgar (Prize Pack, 22880) para la captura de la carta. Un `attach` de una
+ *    prueba la consume; la siembra siguiente borra el producto que ese `attach` creó (y sus referencias) y la repone.
+ * ⛔ `tcgplayerProductId` fuera de los rangos aleatorios de las suites (700M–890M, 990M+) y del sellado (`610000001`).
+ */
+export const E2E_IDS = {
+  stamped: {
+    tcgplayerProductId: 620000001,
+    name: 'E2E League Bird - 35/102 (League Cup)',
+    stampType: 'league' as const,
+    stampLabel: null,
+    sourceGroupId: 1539,
+    finish: 'holofoil' as const,
+    refNmCents: 12000,
+  },
+  pieces: [
+    { folio: 'E2E-IDS-0001', language: 'en' as const, stamped: true, acquisitionCostCents: 6000 },
+    { folio: 'E2E-IDS-0002', language: 'es' as const, stamped: true, acquisitionCostCents: 5000 },
+    { folio: 'E2E-IDS-0003', language: 'es' as const, stamped: false, acquisitionCostCents: 8000 },
+    { folio: 'E2E-IDS-0004', language: 'en' as const, stamped: false, acquisitionCostCents: 9000 },
+  ],
+  piecesCreatedAt: '2024-01-01T00:00:00.000Z',
+  candidate: {
+    tcgplayerProductId: 620000002,
+    groupId: 22880,
+    name: 'E2E League Bird - 35/102',
+    stampType: 'prize_pack' as const,
+    stampLabel: null,
+    finishes: ['normal'] as const,
+  },
+  /**
+   * v1.116.4⟨ids⟩ (QA sobre `f2cd0e31`: criterios 963–968 sin medir en navegador) — un Meta deck PUBLICADO (curado, `manual`)
+   * con UNA línea: `quantity` × la carta de liga, casada. Con las cuatro piezas de arriba el surtido de §IDS.6 da 3 = las dos
+   * sin liga (`en`, `es`) + la de liga más barata (la de liga solo entra porque no alcanzan las sin liga): tres tramos en
+   * `units`. No crea piezas (no mueve los conteos `@real` del catálogo). Lo mide el `@real` de frontend.
+   */
+  metaDeck: { slug: 'e2e-ids-deck-liga', name: 'E2E Deck de liga', rank: 10, quantity: 3 },
 } as const;
 
 /**
@@ -436,7 +502,8 @@ export const E2E_ORDER_EXPECTED_NUMBERS = ['2', '10', 'SV107', 'TG01'] as const;
 // v1.50.3-e: entran `32` (la CUARTA raw, libre) y `33` (la carta de los estimados rancios/automáticos).
 // v1.86 (§83.seed): entran `40` y `41` (las cartas del deck de energías de E2E).
 // v1.89⟨bmk⟩: entra `100` (E2E Bin Premium, el guardarraíl de COMPRA) — al final, numérico tras `99`.
-export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '34', '40', '41', '98', '99', '100'] as const;
+// v1.116.3⟨ids⟩: entra `35` (E2E League Bird, la carta de las versiones de liga, `E2E_IDS`).
+export const E2E_SET_EXPECTED_NUMBERS = ['4', '16', '17', '20', '25', '30', '31', '32', '33', '34', '35', '40', '41', '98', '99', '100'] as const;
 
 /**
  * Piezas físicas (InventoryItem) deterministas por folio. Los `E2E-LST-*` son de la

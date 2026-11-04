@@ -5,6 +5,7 @@ import { SealedDetailView } from './SealedDetailView';
 import * as api from '@/lib/api';
 import { mockSealedGroups, type PricedSealedGroupDTO } from '@/lib/mock/fixtures';
 import type { ListingDTO, SealedValueHistoryResponse } from '@/types/contract';
+import { IDS_EN } from '@/test/ids-defaults';
 
 /**
  * §A1 (MKT-26a, D2=A · dueño 2026-10-16 · HECHOS:65) — **la ficha PÚBLICA de sellado ya NO pinta la
@@ -45,6 +46,7 @@ function group(over: Partial<PricedSealedGroupDTO> = {}): PricedSealedGroupDTO {
 function listings(g: PricedSealedGroupDTO): ListingDTO[] {
   return [
     {
+      ...IDS_EN,
       inventoryItemId: 'inv-s1',
       card: g.card,
       productType: 'sealed',

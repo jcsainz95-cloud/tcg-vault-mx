@@ -1,3 +1,4 @@
+import { PatrimonyPiece, PatrimonyValuationService } from '../pricing/patrimony-valuation.service';
 import { isOwnerAccount } from '../spend-alerts/owner';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { REFUND_REVIEW_PENDING_WHERE } from '../payments/refunds/refund-review';
@@ -8,7 +9,6 @@ import { BANXICO_FX_ORDER, BANXICO_FX_WHERE } from '../../common/fx-mode';
 import {
   AuthProvider,
   DisputeStatus,
-  Finish,
   KycStatus,
   Locale,
   NameSource,
@@ -20,14 +20,13 @@ import {
   UserStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PricingService, PriceInfo, MONEY_REF_WHERE, isBetterRef } from '../pricing/pricing.service';
+import { PricingService, PriceInfo, MONEY_REF_WHERE } from '../pricing/pricing.service';
 import { toCardDTO } from '../catalog/catalog.service';
 import { IneViewUrlTtl, UploadsService } from '../uploads/uploads.service';
 import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
-import { variantKey } from '../../common/variant-key';
 import { toAddressDTO } from '../users/address-dto';
 import { UsersService } from '../users/users.service';
 import { netRevenueCents, netShippingRevenueCents } from '../../common/money';
@@ -613,6 +612,10 @@ const ADMIN_USER_DETAIL_SELECT = {
       ownershipStatus: true,
       // v1.80.1 (SK-5): identidad de mercado del sellado — la valuación la necesita; ⛔ no viaja al DTO.
       tcgplayerProductId: true,
+      // 💰 v1.116.4⟨ids⟩ (`IDS-PAT`): la VERSIÓN de la pieza — sin ellas la ficha 360° valuaba una española o de liga como la
+      // inglesa base (el `select` no las traía y el filtro de versión no veía nada; ahora `PatrimonyPiece` lo exige al compilar).
+      language: true,
+      cardProductId: true,
       card: { include: { set: true } },
     },
   },
@@ -665,7 +668,18 @@ export class AdminService {
     @Optional() private readonly featured?: FeaturedService,
     // 💰 v1.113⟨portada⟩ (M-94, §DYN.5.8): `dataHealth.listingPrices`. `@Optional()` por los unitarios que construyen a mano.
     @Optional() private readonly listingPrices?: ListingPriceService,
+    // 💰 v1.116.4⟨ids⟩ (API_CONTRACT §IDS.2 «Valor de patrimonio» `IDS-PAT`, D-IDS-R): LA puerta del valor de patrimonio
+    // (`custodyValue`, `ownedItemRefs`, `inventoryValue`). ⛔ Sin `@Optional()`: en DI es obligatoria (sin ella Nest no arranca).
+    // El `?` de TypeScript es solo por posición (detrás de los opcionales) y por los unitarios que construyen a mano; sin ella,
+    // `patrimonyGate()` revienta en vez de valuar por otro camino (no hay «camino de siempre», techlead R1).
+    private readonly patrimony?: PatrimonyValuationService,
   ) {}
+
+  /** La puerta de patrimonio; ausente (solo posible construyendo a mano) ⇒ error, nunca un valor por otro camino. */
+  private patrimonyGate(): PatrimonyValuationService {
+    if (!this.patrimony) throw new Error('AdminService: PatrimonyValuationService no inyectada (IDS-PAT): no se valúa por otro camino.');
+    return this.patrimony;
+  }
 
   /** §DYN.5.8 — salud del precio del día. Lectura que falla ⇒ `stale` (no se sabe que esté bien; v1.113.2, como Destacadas). */
   private async listingPricesHealth(): Promise<ListingPricesHealth | undefined> {
@@ -1137,99 +1151,33 @@ export class AdminService {
   /**
    * BE-10 (v1.8-ronda-c): conforma la bóveda resumen de la ficha 360° admin al contrato
    * `AdminUserOwnedItemRef`, enriqueciendo cada item con `productType`, `finish` y `referenceValue`
-   * (misma valuación por-acabado que el HoldingDTO del cliente). Los items sin referencia vigente
-   * más reciente (sin filtro de fecha, en paridad con la valuación del cliente) quedan con
+   * (la MISMA valuación que el HoldingDTO del cliente). Los items sin referencia quedan con
    * `referenceValue.status="pending"` (no se excluyen: es una vista 360°, no un total de portafolio).
    *
-   * Rendimiento: evita el N+1 de `getReference` por item (BE-4/D3) con UNA lectura batch de
-   * PriceReference por `cardId IN (...)`; se elige la referencia vigente por `(cardId, productType,
-   * gradeKey, finish)` tomando la más reciente (`capturedDate desc`), misma semántica que `getReference`.
+   * 💰 v1.116.4⟨ids⟩ (`IDS-PAT`, D-IDS-R): el valor sale de la puerta única (`valuePieces`, UNA llamada), la misma que «Mi
+   * bóveda»: la ficha 360° y lo que ve el cliente cuadran también para las versiones y las promos (D-IDS-S). Antes leía su propio
+   * lote de `PriceReference` con su propio desempate; los acabados exhibidos (`displayFinishes`) salen ahora de
+   * `getPricedRawFinishesBatch`, el mismo lote que usa «Mi bóveda» para la misma carta.
    */
   private async ownedItemRefs(
-    items: {
-      id: string;
+    items: (PatrimonyPiece & {
       folio: string;
-      cardId: string;
-      productType: Prisma.InventoryItemGetPayload<{ include: { card: { include: { set: true } } } }>['productType'];
-      finish: Prisma.InventoryItemGetPayload<object>['finish'];
-      rawCondition: string | null;
-      gradingCompany: string | null;
-      gradeValue: string | null;
-      tcgplayerProductId: number | null;
       ownershipStatus: Prisma.InventoryItemGetPayload<object>['ownershipStatus'];
       card: Prisma.CardGetPayload<{ include: { set: true } }>;
-    }[],
+    })[],
   ) {
     if (items.length === 0) return [];
-    const cardIds = [...new Set(items.map((i) => i.cardId))];
-    const refs = await this.prisma.priceReference.findMany({
-      // v1.50.3-f (M-43, §4.38l.4.4A): «cualquier lectura del reporte de dinero de admin» está
-      // ENUMERADA en el dictamen. Este `findMany` alimenta el `referenceValue` y el valor de inventario
-      // de la consola: sin el predicado, el estimado de un slab seguiría valuando la pieza en admin
-      // aunque el storefront ya no la pricie — dos verdades del mismo dinero, que es peor que una mala.
-      where: { cardId: { in: cardIds }, ...MONEY_REF_WHERE },
-      orderBy: [{ capturedDate: 'desc' }, { createdAt: 'desc' }],
-    });
-    // §4.27f-2 (P47-2, v1.46): Mapa (cardId|productType|gradeKey|finish) → MEJOR referencia por el
-    // desempate determinista money-safe (`isBetterRef`), NO «la primera vista» del orden `capturedDate
-    // desc`. Bajo P47-2 el override manual es TIER SUPERIOR ABSOLUTO durable cross-day: «la primera
-    // vista» mostraría la automática más fresca aunque exista un override humano durable (divergiendo de
-    // `getReference` en la ficha 360°). Este findMany NO lleva `take`, así que todas las filas manuales
-    // ya están presentes; solo hay que reducir con la MISMA precedencia que el resto de consumidores
-    // (mismo patrón que `set-value.service.ts` / `getReferencesBatch`).
-    const latest = new Map<string, (typeof refs)[number]>();
-    // v1.22-2 / N-15 (§4.22a-6): acabados priceados (raw `raw:NM`, priceMxnCents>0) por carta para
-    // displayFinishes — DERIVADO de los `refs` YA cargados (sin query extra ni N+1).
-    const pricedByCard = new Map<string, Set<Finish>>();
-    for (const r of refs) {
-      // D-1 (v1.80.2.2): productor y consumidor del `Map` con la MISMA `variantKey` (P-30 H2), nunca a mano.
-      const key = variantKey(r);
-      const cur = latest.get(key);
-      if (cur == null || isBetterRef(r, cur)) latest.set(key, r);
-      if (r.productType === 'raw' && r.gradeKey === 'raw:NM' && r.priceMxnCents > 0) {
-        let s = pricedByCard.get(r.cardId);
-        if (!s) {
-          s = new Set<Finish>();
-          pricedByCard.set(r.cardId, s);
-        }
-        s.add(r.finish);
-      }
-    }
-    // v1.x-fx-live: valuación 360° VIVA — recalcula el MXN de referencias de mercado en USD con la FX
-    // vigente (izada UNA vez), en paridad con getReference/getReferencesBatch. Overrides manuales y
-    // precios nativos en MXN quedan congelados (los distingue `liveMxnCents`).
-    const fx = await this.pricing.fxSnapshotSafe();
-    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear
-    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
-    const sourceOn = await this.pricing.sealedSourceOnFor(items);
-    return items.map((item) => {
-      // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — por la ÚNICA puerta de valuación, la misma que
-      // «Mi bóveda» del cliente: la ficha 360° y lo que ve el cliente cuadran.
-      //  - raw/graduada: la clave de siempre (v1.53 §4.40.4b: sin identidad de slab no hay clave ⇒
-      //    `pending`; antes se resolvía `graded:PSA:10`, el grado MÁS CARO).
-      //  - sellado: su `sealed:tcg:<id>` con el gate de dial; sin mapeo ⇒ `pending`. ⛔ Nunca `'sealed'`.
-      const key = this.pricing.valuationKeyFor(item);
-      const r = key ? latest.get(variantKey(key)) : undefined;
-      const ref: PriceInfo | undefined = r
-        ? {
-            status: 'priced',
-            referenceMxnCents: this.pricing.liveMxnCents(r, fx),
-            source: r.source as PriceInfo['source'],
-            capturedDate: r.capturedDate.toISOString().slice(0, 10),
-          }
-        : undefined;
-      const referenceValue: PriceInfo =
-        ref && this.pricing.valuationCentsOf(item, ref, sourceOn) != null ? ref : { status: 'pending' };
-      return {
-        inventoryItemId: item.id,
-        folio: item.folio,
-        card: toCardDTO(item.card, pricedByCard.get(item.cardId)),
-        productType: item.productType,
-        finish: item.finish,
-        ownershipStatus: item.ownershipStatus,
-        referenceValue,
-      };
-    });
+    const pricedByCard = await this.pricing.getPricedRawFinishesBatch(items.map((i) => i.cardId));
+    const values = await this.patrimonyGate().valuePieces(items);
+    return items.map((item) => ({
+      inventoryItemId: item.id,
+      folio: item.folio,
+      card: toCardDTO(item.card, pricedByCard.get(item.cardId)),
+      productType: item.productType,
+      finish: item.finish,
+      ownershipStatus: item.ownershipStatus,
+      referenceValue: values.get(item.id) ?? ({ status: 'pending' } as PriceInfo),
+    }));
   }
 
   /**
@@ -1842,19 +1790,17 @@ export class AdminService {
         gradingCompany: true,
         gradeValue: true,
         acquisitionCostCents: true,
+        // v1.116⟨ids⟩ (531): la versión de la pieza (valor por versión).
+        id: true,
+        language: true,
+        cardProductId: true,
         tcgplayerProductId: true,
       },
     });
-    // v1.80.1 (API_CONTRACT §M2-SK **SK-5**) — claves por la ÚNICA puerta de valuación. Sellado: SOLO
-    // la de mercado (SK-2 — `'sealed'` jamás se pide); graduada sin identidad de slab: sin clave
-    // (§4.40.4b). Ambos casos caen abajo a `pendingPriceCount`, que es la verdad.
-    const keyOf = items.map((item) => this.pricing.valuationKeyFor(item));
-    const keys = keyOf.flatMap((k) => (k ? [k] : []));
-    const refs = keys.length ? await this.pricing.getReferencesBatch(keys) : new Map<string, PriceInfo>();
-    // SK-5 (efecto declarado en §4.50.1-bis): el sellado gana el gate de dial de `/vault/sealed` — la
-    // fuente `tcgcsv` solo cuenta con el dial encendido; el override manual sobrevive. UNA lectura
-    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
-    const sourceOn = await this.pricing.sealedSourceOnFor(items);
+    // v1.80.1 (SK-5) / 💰 v1.116.4⟨ids⟩ (`IDS-PAT`, D-IDS-R): el valor de cada pieza por la puerta única, UNA llamada. Sellado:
+    // SOLO su mercado con el gate del dial (SK-2: `'sealed'` jamás se pide); graduada sin slab, promo/Deck Exclusive (D-IDS-S) y
+    // versión sin mercado: `pending` ⇒ caen abajo a `pendingPriceCount`, que es la verdad.
+    const values = await this.patrimonyGate().valuePieces(items);
 
     const emptyBucket = () => ({
       atReferenceCents: 0,
@@ -1863,15 +1809,13 @@ export class AdminService {
       pendingPriceCount: 0,
     });
     const breakdown = { raw: emptyBucket(), sealed: emptyBucket(), graded: emptyBucket() };
-    items.forEach((item, i) => {
+    items.forEach((item) => {
       const bucket = breakdown[item.productType];
       bucket.pieceCount += 1;
       bucket.atCostCents += item.acquisitionCostCents ?? 0;
-      const k = keyOf[i];
-      // D-1 (v1.80.2.2): la MISMA `variantKey` que el productor del lote (`getReferencesBatch`).
-      const ref = k ? refs.get(variantKey(k)) : undefined;
-      // `null` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`. ⛔ Sin `?? 'sealed'`.
-      const cents = this.pricing.valuationCentsOf(item, ref, sourceOn);
+      // `pending` ⇒ suma a `pendingPriceCount`, jamás a `atReferenceCents`. ⛔ Sin `?? 'sealed'`.
+      const v = values.get(item.id);
+      const cents = v?.status === 'priced' ? (v.referenceMxnCents ?? null) : null;
       if (cents != null) bucket.atReferenceCents += cents;
       else bucket.pendingPriceCount += 1;
     });
@@ -1890,21 +1834,13 @@ export class AdminService {
     const items = await this.prisma.inventoryItem.findMany({
       where: { ownerType: 'customer' },
     });
-    // v1.80.1 (SK-5): el dial del sellado, UNA vez por petición y solo si hay sellado que gatear
-    // (v1.80.2.2 D-4: un solo cuerpo, `sealedSourceOnFor`).
-    const sourceOn = await this.pricing.sealedSourceOnFor(items);
+    // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) / 💰 v1.116.4⟨ids⟩ (`IDS-PAT`, D-IDS-R) — VALOR DE CUSTODIA por la puerta
+    // única, la misma que «Mi bóveda»: el pasivo con el cliente cuadra con lo que él ve, pieza por pieza. `pending` (sin slab,
+    // sellado sin mapeo, promo/Deck Exclusive, versión sin mercado) ⇒ NO suma (SK-5). UNA llamada (antes, una lectura por pieza).
+    const values = await this.patrimonyGate().valuePieces(items);
     let totalCustodyValueCents = 0;
-    for (const item of items) {
-      // v1.80.1 (API_CONTRACT §M2-SK **SK-5**, MONEY) — VALOR DE CUSTODIA por la ÚNICA puerta de
-      // valuación, la misma que «Mi bóveda»: el pasivo con el cliente cuadra con lo que él ve.
-      //  - sin identidad de slab (v1.53 §4.40.4b) o sellado sin mapeo ⇒ sin clave ⇒ NO suma. Antes el
-      //    sellado sin mapeo sumaba la fila legada `'sealed'` — el precio de otra caja (P-83, medido).
-      //  - sellado mapeado ⇒ su `sealed:tcg:<id>` con el gate de dial de `/vault/sealed`.
-      const key = this.pricing.valuationKeyFor(item);
-      if (key == null) continue;
-      const ref = await this.pricing.getReference(key.cardId, key.productType, key.gradeKey, key.finish);
-      const cents = this.pricing.valuationCentsOf(item, ref, sourceOn);
-      if (cents != null) totalCustodyValueCents += cents;
+    for (const v of values.values()) {
+      if (v.status === 'priced' && v.referenceMxnCents != null) totalCustodyValueCents += v.referenceMxnCents;
     }
     return { totalCustodyValueCents };
   }

@@ -3,7 +3,7 @@ import { withM61Defaults } from './helpers/m61-mock-defaults';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { PricingService } from '../src/modules/pricing/pricing.service';
 import { DEFAULT_PRICING_CURVE } from '../src/common/pricing-curve';
-import { REAL_VALUATION_GATE } from './helpers/valuation-gate';
+import { REAL_VALUATION_GATE, realPatrimony } from './helpers/valuation-gate';
 import { UNIDENTIFIED_SEALED_NAME } from '../src/common/piece-display-identity';
 
 /**
@@ -53,7 +53,7 @@ describe('VaultService.holdings — identidad de sellado (BLOQ-2a)', () => {
       // D-4 (v1.80.2.2): el helper REAL del dial del sellado (delega en `loadSealedSpreads` si el lote trae sellado).
       sealedSourceOnFor: PricingService.prototype.sealedSourceOnFor,
     } as unknown as PricingService;
-    return { svc: new VaultService(withM61Defaults(prisma) as PrismaService, pricing), prisma, pricing };
+    return { svc: new VaultService(withM61Defaults(prisma) as PrismaService, pricing, realPatrimony(pricing)), prisma, pricing };
   }
 
   const sealedItem = (over: Record<string, unknown> = {}) => ({

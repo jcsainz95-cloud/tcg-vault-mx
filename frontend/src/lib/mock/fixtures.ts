@@ -9,8 +9,10 @@
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
 import { brandEmail } from '../brand';
+import { EN_DEFAULT_VERSION, mockFinishLabelOf, mockOptionKeyOf, mockVersionOptions } from './versions';
 import { setMatchesQuery } from '../setCode';
 import type {
+  StampDTO,
   ConfirmVaultPlacementResponse,
   CustomerDrawerRef,
   CustomerPhysicalInventoryDTO,
@@ -477,6 +479,8 @@ export const mockReferenceByCardId: Record<string, number | null> = {
 
 // ---- M10: Config (diales). Va ANTES del catálogo porque el catálogo DERIVA de estos diales. ----
 export let mockSettings: SettingsDTO = {
+  // MOCK §IDS.7: seed del contrato (75). El simulador no re-precia el español al moverlo (los precios de `c-ids-*` son literales).
+  spanishMarketPct: 75,
   shippingFeeCents: 17500,
   // 💰 v1.109 (§4-G.12 punto 3, MOCK con los defaults del contrato): los tres CON IVA INCLUIDO (dueño 2026-10-24).
   directShipCardsFeeCents: 10000,
@@ -608,9 +612,11 @@ let mockIvaTransferPct = 100;
  * `deriveMockListing` calcula `P = round(L × (1 + t·r))` con **`t` y `r` leídos de `mockSettings`**,
  * la misma fila que la pantalla del dial escribe.
  */
-type MockListingSeed = Omit<ListingDTO, 'displayPriceCents' | 'ivaIncluded' | 'ivaRatePct'> & {
+type MockListingSeed = Omit<ListingDTO, 'displayPriceCents' | 'ivaIncluded' | 'ivaRatePct' | 'version' | 'finishLabel'> & {
   /** `L` — precio de lista, **sin IVA**. Es lo que el admin teclea y lo que el P&L recupera. */
   listPriceCents?: number;
+  /** MOCK §IDS: versión de la pieza; ausente ⇒ inglés sin liga (I-1: lo existente queda `en`). */
+  version?: ListingDTO['version'];
 };
 
 /**
@@ -623,11 +629,14 @@ type MockListingSeed = Omit<ListingDTO, 'displayPriceCents' | 'ivaIncluded' | 'i
  * alternativa —clavar `P` en el fixture— es exactamente el defecto que el criterio 196 nombra.
  */
 function deriveMockListing(seed: MockListingSeed): ListingDTO {
-  const { listPriceCents, ...rest } = seed;
+  const { listPriceCents, version = EN_DEFAULT_VERSION, ...rest } = seed;
   const r = mockSettings.ivaPct / 100;
   const t = mockIvaTransferPct / 100;
   return {
     ...rest,
+    // MOCK §IDS.5: el servidor deriva `finishLabel` con `finishLabelOf(finish, stampLabel)`.
+    version,
+    finishLabel: mockFinishLabelOf(rest.finish, version.stamp?.label),
     ...(listPriceCents != null
       ? { displayPriceCents: Math.round(listPriceCents * (1 + t * r)) }
       : {}),
@@ -775,7 +784,86 @@ const mockListingSeeds: MockListingSeed[] = [
     listPriceCents: 105000,
     sellable: true,
   },
+  ...idsMockSeeds(),
 ];
+
+/**
+ * MOCK §IDS (pendiente de servidor): dos cartas con versiones, FUERA de `mockCards` para no mover binder, master set
+ * ni conteos de set. `c-ids-pikachu-057` = forma 2×N (sin liga Holo + Prize Pack Holo + Prize Pack Cosmos Holo, en y
+ * es); `c-ids-dedenne-084` = forma 2×2 estándar (No holo, en/es + Prize Pack en/es); `c-ids-poffin-6` = peor caso de
+ * filas (sin liga + 6 de liga = 7 filas, 14 burbujas). Precios = `L` sin IVA; el
+ * español ≈ 75 % del inglés (dial `spanishMarketPct`), como lo calcularía el servidor.
+ */
+function idsMockSeeds(): MockListingSeed[] {
+  const pika = { ...card('c-ids-pikachu-057', 'Pikachu ex', '57', 'Double Rare', 'sv08', 'Surging Sparks', 'Pokémon', ['Basic', 'ex'], SV), availableFinishes: ['holofoil'] as Finish[] };
+  const dede = { ...card('c-ids-dedenne-084', 'Dedenne', '84', 'Common', 'sv08', 'Surging Sparks', 'Pokémon', ['Basic'], SV), availableFinishes: ['normal'] as Finish[] };
+  const PP = { type: 'prize_pack' as const, label: null, productId: 648703 };
+  const COSMOS = { type: 'prize_pack' as const, label: 'Cosmos Holo', productId: 703900 };
+  const DPP = { type: 'prize_pack' as const, label: null, productId: 648800 };
+  // Peor caso de filas (IDS-F3: «2×N con 6 filas a 360 px»; máx 6 productos de liga por carta, DEVOPS_NOTES §108.1):
+  // la fila sin liga (dos acabados ⇒ rótulo sin acabado) + 6 filas de liga, dos de ellas del mismo tipo y acabado
+  // («Left/Right Stamp», D-IDS-6 ⇒ el rótulo añade `stamp.label`).
+  const poff = { ...card('c-ids-poffin-6', 'Buddy-Buddy Poffin', '144', 'Uncommon', 'sv08', 'Surging Sparks', 'Trainer', ['Item'], SV), availableFinishes: ['normal', 'reverse_holo'] as Finish[] };
+  const PF = {
+    left: { type: 'prize_pack' as const, label: 'Left Stamp', productId: 650001 },
+    right: { type: 'prize_pack' as const, label: 'Right Stamp', productId: 650002 },
+    cosmos: { type: 'prize_pack' as const, label: 'Cosmos Holo', productId: 650003 },
+    league: { type: 'league' as const, label: null, productId: 650004 },
+    champ: { type: 'championship' as const, label: null, productId: 650005 },
+    staff: { type: 'staff' as const, label: null, productId: 650006 },
+  };
+  const ref = (cents: number | undefined) =>
+    cents == null
+      ? ({ status: 'pending', source: 'pokemontcg_io' } as const)
+      : ({ status: 'priced', referenceMxnCents: cents, source: 'pokemontcg_io', capturedDate: '2026-11-02' } as const);
+  const piece = (
+    id: string,
+    c: CardDTO,
+    finish: Finish,
+    language: 'en' | 'es',
+    stamp: StampDTO | null,
+    listPriceCents: number,
+  ): MockListingSeed => ({
+    inventoryItemId: id,
+    card: c,
+    productType: 'raw',
+    rawCondition: 'NM',
+    finish,
+    version: { key: stamp ? `${language}.${stamp.productId}` : language, language, stamp },
+    // §IDS.2 / 959: el español nunca exhibe valor de mercado (`referenceMxnCents` null).
+    referenceValue: language === 'es' ? ref(undefined) : ref(listPriceCents),
+    priceBasis: 'market' as const,
+    listPriceCents,
+    sellable: true,
+  });
+  return [
+    piece('inv-ids-p-en', pika, 'holofoil', 'en', null, 17240),
+    piece('inv-ids-p-es', pika, 'holofoil', 'es', null, 12930),
+    piece('inv-ids-p-pp-en', pika, 'holofoil', 'en', PP, 7760),
+    piece('inv-ids-p-pp-es', pika, 'holofoil', 'es', PP, 5820),
+    piece('inv-ids-p-cos-en', pika, 'holofoil', 'en', COSMOS, 41380),
+    piece('inv-ids-p-cos-es', pika, 'holofoil', 'es', COSMOS, 31030),
+    piece('inv-ids-d-en', dede, 'normal', 'en', null, 2590),
+    piece('inv-ids-d-es', dede, 'normal', 'es', null, 1940),
+    piece('inv-ids-d-pp-en', dede, 'normal', 'en', DPP, 4310),
+    piece('inv-ids-d-pp-es', dede, 'normal', 'es', DPP, 3230),
+    piece('inv-ids-f-en', poff, 'normal', 'en', null, 1500),
+    piece('inv-ids-f-en-rh', poff, 'reverse_holo', 'en', null, 2200),
+    piece('inv-ids-f-es', poff, 'normal', 'es', null, 1130),
+    piece('inv-ids-f-l-en', poff, 'normal', 'en', PF.left, 3000),
+    piece('inv-ids-f-l-es', poff, 'normal', 'es', PF.left, 2250),
+    piece('inv-ids-f-r-en', poff, 'normal', 'en', PF.right, 3100),
+    piece('inv-ids-f-r-es', poff, 'normal', 'es', PF.right, 2330),
+    piece('inv-ids-f-lg-en', poff, 'reverse_holo', 'en', PF.league, 4000),
+    piece('inv-ids-f-lg-es', poff, 'reverse_holo', 'es', PF.league, 3000),
+    piece('inv-ids-f-c-en', poff, 'holofoil', 'en', PF.cosmos, 9000),
+    piece('inv-ids-f-c-es', poff, 'holofoil', 'es', PF.cosmos, 6750),
+    piece('inv-ids-f-ch-en', poff, 'holofoil', 'en', PF.champ, 12000),
+    piece('inv-ids-f-ch-es', poff, 'holofoil', 'es', PF.champ, 9000),
+    piece('inv-ids-f-st-en', poff, 'holofoil', 'en', PF.staff, 15000),
+    piece('inv-ids-f-st-es', poff, 'holofoil', 'es', PF.staff, 11250),
+  ];
+}
 
 /**
  * El catálogo simulado, **ya derivado**. Es un `const` con **identidad estable** —treinta y ocho
@@ -988,7 +1076,8 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
   );
   const map = new Map<string, ListingDTO[]>();
   for (const l of singles) {
-    const key = [l.card.id, l.productType, gradeKeyOf(l), l.finish].join('|');
+    // §IDS.5: K += (language, stampedProductId) — `version.key` los codifica a los dos.
+    const key = [l.card.id, l.productType, gradeKeyOf(l), l.finish, l.version.key].join('|');
     const bucket = map.get(key);
     if (bucket) bucket.push(l);
     else map.set(key, [l]);
@@ -1000,6 +1089,8 @@ export function groupMockListings(items: ListingDTO[]): GroupedListingDTO[] {
     const group: GroupedListingDTO = {
       representativeInventoryItemId: rep.inventoryItemId,
       card: rep.card,
+      version: rep.version,
+      finishLabel: rep.finishLabel,
       productType: rep.productType as 'raw' | 'graded',
       finish: rep.finish,
       rawCondition: rep.rawCondition,
@@ -1043,7 +1134,8 @@ export function groupMockSummaries(items: ListingDTO[]): GroupedListingSummaryDT
       referenceDisplayCents: _referenceDisplayCents, // §MIV.2: ⛔ no entra en la rejilla.
       ...rest
     } = g;
-    const summary: GroupedListingSummaryDTO = { ...rest };
+    // MOCK §IDS.5: el servidor da el `optionKey` de su entrada en la ficha (el enlace de la teja lo lleva).
+    const summary: GroupedListingSummaryDTO = { ...rest, versionOptionKey: mockOptionKeyOf(rest.version, rest.finish) };
     const highlight = mockGradingHighlightFor(summary);
     if (highlight) summary.gradingHighlight = highlight;
     return summary;
@@ -1072,6 +1164,8 @@ export function mockGroupedDetail(cardId: string): GroupedListingDetailResponse 
     card,
     listings,
     units,
+    // MOCK §IDS.5: `versions[]` con el orden y la omisión de agotadas del servidor.
+    versions: mockVersionOptions(listings),
     ...(estimates && estimates.length > 0 ? { gradedEstimates: estimates } : {}),
     // MOCK §MKT.A: fecha de resolución del precio e imagen og absoluta (la grande de pokemontcg.io).
     pricedAsOf: '2026-10-16',
@@ -1119,6 +1213,9 @@ export const mockFacets: CatalogFacetsDTO = {
   ),
   // v1.6-finish: distinct de InventoryItem.finish sobre lo publicado (para el filtro de acabado).
   finishes: Array.from(new Set(mockListings.map((l) => l.finish))),
+  // MOCK §IDS.5 (v1.116.2): idiomas presentes en lo publicado (orden en, es) y si hay alguna pieza de liga. Sin conteos.
+  languages: (['en', 'es'] as const).filter((lang) => mockListings.some((l) => l.version.language === lang)),
+  stamped: mockListings.some((l) => l.version.stamp != null),
   price: {
     minCents: Math.min(...mockListings.map((l) => l.displayPriceCents ?? 0)),
     maxCents: Math.max(...mockListings.map((l) => l.displayPriceCents ?? 0)),
@@ -4942,6 +5039,9 @@ function sealedListingsForGroup(group: PricedSealedGroupDTO): ListingDTO[] {
     sealedSubtype: group.sealedSubtype ?? undefined,
     sealedCondition: group.sealedCondition,
     finish: 'normal' as const,
+    // §IDS.5: `version`/`finishLabel` siempre viajan; el sellado es inglés sin liga (D-IDS-K: solo raw tiene versión).
+    version: EN_DEFAULT_VERSION,
+    finishLabel: 'non_holo' as const,
     referenceValue: group.referenceValue,
     // v2.0: el sellado DERIVA su basis de `priceSource` (override⇒override; spread⇒market).
     priceBasis: group.priceBasis,

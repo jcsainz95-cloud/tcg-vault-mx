@@ -68,6 +68,8 @@ export class PriceIngestJobService {
 
     if (this.queue) {
       const jobId = await this.enqueueAllSets(fx);
+      // v1.116⟨ids⟩ (§IDS.3): el paso de liga no va por set; corre aquí, aislado (nunca tumba el barrido).
+      await this.ingest.ingestStamped(fx);
       // v1.50.2 (§4.38h): el ingest de estimados PSA corre APARTE del fan-out por set. No se encola
       // por set a propósito: su alcance es «cartas con inventario publicado», que es transversal a los
       // sets y ya viene acotado por su propio tope de cuota. Con el dial `off` (seed) es un no-op de

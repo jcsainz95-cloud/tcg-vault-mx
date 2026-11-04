@@ -1,96 +1,102 @@
 # SECURITY_NOTES.md — Seguridad (blue team) · estado vigente
 
-> **Estado vigente (2026-11-03).** Último veredicto: **APROBADO** sobre **`87e7e83f`** (rama `claude/release-1103`, entrega correctiva
-> frente a `production` `beff4a8c`). El release no trae Críticas, Altas, Medias ni Bajas nuevas; trae dos Info (SEC-R1103-I1/I2, en el registro B).
-> Sigue vigente lo de `7107ff8a`/`f2e1de9c` (§V.2–V.3). Críticas 0 · Altas 0 · Medias 2 abiertas (SEC-CHK-1, que depende de la configuración del dueño, y CL-1, heredada).
-> ⚠ **Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir la lista §V.3**, que exige *Required reviewers* (PT-CHK-7). Mal configurado, SEC-CHK-1 pasa a Crítica.
-> Siguen en el registro **P-RL-1**, **CL-1** y **BL-42**. ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2, bandera C.2).
+> **Estado vigente (2026-11-03).** Dos veredictos vigentes, los dos **APROBADO sin condiciones** frente a `production` `beff4a8c`:
+> - **`52481453`** (rama `claude/ids-diseno`, §IDS «Español y versiones de liga»; pentester sobre `db202174`): Críticas 0 · Altas 0 · Medias 0.
+>   PT-IDS-1/2/3/6/7/8 y BE-IDS-PT-9 cerradas en código; PT-IDS-4/5 aceptadas (D-IDS-W); 1 Baja y 3 Info nuevas aceptadas (§IDS.3).
+> - **`87e7e83f`** (release 1103, ya en `production` `2bcfd04b`): sin Críticas, Altas, Medias ni Bajas nuevas; dos Info, SEC-R1103-I1/I2 (registro B). Resumen en §R.
+> Abiertas en el registro A, sin re-medir hoy: Medias **SEC-CHK-1** (depende de la configuración del dueño), **CL-1**, **P-RL-1**, **BL-42**, entre otras.
+> ⚠ **Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir la lista §V.3**, que exige *Required reviewers* (PT-CHK-7). Mal configurada, SEC-CHK-1 pasa a Crítica. ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2, bandera C.2).
 
 ---
 
+# VEREDICTO BLUE TEAM — §IDS «Español y versiones de liga» · SHA **`52481453`** · 2026-11-03 · seguridad
+
+> ## ✅ **APROBADO** sobre `52481453`, sin condiciones
+> Ningún hallazgo crítico, alto ni medio queda abierto. Lo que sigue abierto es deuda aceptada con su disparador (§IDS.3) y dos
+> banderas para el dueño (§IDS.4). No hay condiciones, así que no hacen falta caducidad ni candado.
+> Texto íntegro con todo el detalle de IDS.1–IDS.2: `git show cfd96f56:docs/SECURITY_NOTES.md`.
+
+## IDS.1 Procedencia
+- **[MEDIDO]** Copia `git archive 52481453` del árbol entero, `npm ci` propio, base y Redis propios, 80 migraciones; sin stack ni navegador. Borrado al terminar.
+- **[REPORTADO por el pentester]** `PENTEST_NOTES` §IDS, PoC en vivo sobre `db202174`; **NO re-medido en vivo** sobre `52481453`.
+- **NO MEDIDO:** Stripe real, el botón contra producción, el entorno `medicion-ro` en GitHub y Railway ante una migración fallida.
+
+## IDS.2 Cruce de hallazgos (pentester + revisión) — estado sobre `52481453`
+| ID | Sev pase | Estado | Evidencia mía | Dueño |
+|---|---|---|---|---|
+| **BE-IDS-PT-9** | (dinero; lo halló backend) | **Cerrada.** `salesFor` y `chargeDecisionsFor` leen solo `currentRowsFor`; una fila de otra `variantKey` = sin fila ⇒ precio vivo + `missing_row` | `ids-fila-vigente` 5/5. **Mutación** `chargeDecisionsFor` → `rowsFor`: 4 de 5 pruebas rojas, **3/3 corridas (N=3)**, restaurado con `cmp` | backend |
+| **PT-IDS-1** | Baja | **Cerrada.** El CAS de `reserveItems` exige `language`, `cardProductId`, `listPriceCents`, `gradingCompany` y `gradeValue` tal como se preciaron (tipo `PricedAs` obligatorio); lo usan la cuenta y el invitado | `ids-pentest-fixes` 9/9. **Mutación** quitar `language` del `where`: 3 rojas (forzada cuenta, forzada invitado, suelta N=20), **3/3 corridas (N=3)**, restaurado | backend |
+| **PT-IDS-2** | Baja | **Cerrada.** `itemUpdatedAudit` difea la versión: un cambio de idioma deja `before/after` con `language`/`cardProductId` en los dos caminos | Prueba PT-IDS-2 verde. Sin mutación mía | backend |
+| **PT-IDS-3** | Info | **Cerrada.** FK `RESTRICT/RESTRICT` (M-95c) | Ver IDS.2.3 | backend |
+| PT-IDS-4 / PT-IDS-5 | Info | **Aceptadas** (D-IDS-W). El `PATCH` de precio está auditado y escribir X sigue siendo de `super_admin`; ver X no mueve dinero. Coincido | Lectura | arquitecto |
+| **PT-IDS-6** | Info | **Cerrada.** Residual: SEC-IDS-2 | Ver IDS.2.2 | devops |
+| **PT-IDS-7** | Info | **Cerrada.** Residual: SEC-IDS-3 | Ver IDS.2.2 | devops |
+| **PT-IDS-8** | Info | **Cerrada.** `PATCH {cardProductId}` responde `422` antes de leer o escribir | Prueba PT-IDS-8 verde | backend |
+
+### IDS.2.1 ¿Queda alguna forma de cobrar una versión distinta de la congelada? — **No encontré ninguna** [código + pruebas]
+- **Lectores de `ListingPrice`:** fuera del escritor, `rowsFor` solo lo llama `currentRowsFor`. Sus únicos lectores son `salesFor`
+  (catálogo y sellado) y `chargeDecisionsFor` (`saleDecisionsOf` ⇒ sesión de cuenta y de invitado, `sellableStatusFor`).
+  No hay `include: {listingPrice}` que lea precio ni `$queryRaw` de lectura en `src/`. Lo vi con `grep` y abrí cada sitio.
+  El único lector directo fuera de `src/` es Q1b del botón (mín/máx sin «fila vigente»): mide, no cobra.
+- **Caminos que cambian la variante:** `language` solo por `PATCH` sobre `in_stock|listed`, con `manual_price`. `cardProductId` solo
+  en el alta (I-7; el `PATCH` da `422`). El grado, por `PATCH`, encola `publish`. Aunque una cola no llegue, la fila deja de ser
+  vigente y la pieza se precia en vivo. La corrida que empezó antes del `PATCH` escribe una llave vieja y se ignora (prueba (d)).
+  La versión congelada (`frozenVersionColumnsOf`) y el precio salen de la misma fila leída; el CAS hace fallar la reserva si esa
+  fila cambió. Con la pieza reservada, el `PATCH` da `409`, así que la línea congelada de `ownReserved` no puede quedar desfasada.
+- **Residual fuera de §IDS:** SEC-IDS-1 (sellado remapeado; no es versión).
+
+### IDS.2.2 Botón de medición (repo público, el dueño lo corre contra producción)
+- **Importe deducible del resumen.** Dentro de un run, no: Q1c-detalle solo publica conteos y Σ con ≥ 3 clientes **y** ≥ 3 piezas, sin
+  mín/máx (candado [K], muerde en el canario); Q1b es inventario de plataforma. `medir-q1.test.mjs` 6/6, `# skipped 0`.
+  **Entre runs sí** (diferencia de Σ = Q de un cliente; tampoco resiste 2 de 3 coludidos) ⇒ paso 7 del runbook (borrar el run), SEC-IDS-2.
+- **Log.** La URL llega solo por el entorno, se enmascara entera y por partes, va a `PG*` y nunca a la línea de `psql`; stderr clasificado,
+  sin `set -x`. Contraseña en la salida: **0 veces**. `check-ids-ro-workflow.sh` VERDE; canario **62/62**.
+- **`sslmode=disable`** solo en el paso de `ci.yml` contra `localhost`; el botón no tiene `inputs`. Parser probado con 11 URLs (remoto con
+  `disable`, `REQUIRE`, `127.0.0.1.nip.io`, `0.0.0.0`, `localhost.`, `require&disable` ⇒ `ERR=ssl`; sin parámetro ⇒ `require`). **Acotado a loopback: sí.**
+
+### IDS.2.3 M-95c
+- **Falla cerrado [MEDIDO]:** con una pieza huérfana, `migrate deploy` ⇒ `P3018`/`23503`, marcada fallida y **sin FK ni índice** (se deshace entero).
+  El log muestra el `cardProductId` huérfano, que no es PII.
+- **Q1d [MEDIDO]:** con 1 huérfana y 1 nula da `platform | in_stock | 1 | 1`; la nula no cuenta. Mismo universo que la FK (cualquier dueño y estado).
+- **Reversa [MEDIDO]:** `DROP CONSTRAINT/INDEX IF EXISTS` deja la tabla como en m95b; `migrate resolve --rolled-back` y re-deploy aplican bien.
+  Para el dinero, la reversa solo devuelve PT-IDS-3 (Info).
+- `src/` no tiene ningún `delete` de `CardProduct` (solo `seed-e2e`). m95a/m95b son aditivas: el código viejo las tolera si M-95c aborta.
+
+## IDS.3 Deuda de seguridad aceptada (no bloquea)
+| ID | Sev | Impacto aceptado | Disparador | Dueño |
+|---|---|---|---|---|
+| SEC-IDS-1 | Info | La llave K del sellado no lleva el producto del mapeo, y el CAS de la reserva tampoco. Entre `PUT …/mapping` y su corrida `manual_price` (`void enqueue`), la pieza se exhibe y se cobra con la fila del producto anterior. Es la regla DYN de siempre («la fila manda hasta el siguiente cálculo»): solo la dispara el personal y no es versión | Que una corrida `manual_price` falle o no llegue, o que el remapeo pase a ser masivo | backend |
+| SEC-IDS-2 | Baja | Restando Σ entre dos runs del botón se saca la Q de un cliente que entró entre ambos (sin identidad; Q ≈ el precio público de entonces). k=3 no resiste a 2 de 3 clientes coludidos | Que el run no se borre (paso 7, **NO MEDIDO** en navegador), que haya un segundo run, o que se reuse el botón con dinero por persona | devops / dueño |
+| SEC-IDS-3 | Info | `sslmode=require` cifra, pero no verifica el certificado (el runner no tiene `root.crt`). Un MITM activo entre GitHub y Railway podría ver los agregados. La contraseña no viaja en claro si Railway usa SCRAM (NO MEDIDO) | Que Railway publique una CA verificable ⇒ `verify-full` | devops |
+| SEC-IDS-4 | Info | Si M-95c aborta en producción: `P3018` bloquea los siguientes despliegues hasta `migrate resolve`; que Railway siga sirviendo la versión anterior está NO MEDIDO | Q1d > 0 al fusionar | devops |
+
+## IDS.4 Banderas para el dueño (van en la solicitud de fusión)
+1. Corre el botón **una vez** y **borra el run** en cuanto copies las cifras (paso 7 de `DEVOPS_NOTES` §108.5). Con dos runs vivos
+   se puede despejar lo que pagó un cliente (SEC-IDS-2).
+2. **Q1d tiene que dar 0** antes de fusionar. Si no da 0, el despliegue se detiene en M-95c (falla cerrado, sin riesgo de dinero),
+   pero hay que decidir pieza por pieza y desbloquear la migración (SEC-IDS-4).
+3. Siguen en pie la §V.3 (si se usa el botón de CP) y las banderas C.1–C.7.
+
+— SEGURIDAD (blue team / AppSec), 2026-11-03 · sha **`52481453`** · **APROBADO**
+
+---
 # VEREDICTO BLUE TEAM — release 1103 (clase del error de GA4/SC; N1, destino del checkout de invitado) · SHA **`87e7e83f`** · 2026-11-03
+> ## ✅ **APROBADO** sobre `87e7e83f`, sin condiciones. Resumen; texto íntegro (§R.1–R.4): `git show ca57f7e2:docs/SECURITY_NOTES.md`.
 
-> ## ✅ **APROBADO** sobre `87e7e83f` (`87e7e83fc115`), sin condiciones
-> Delta revisado: `beff4a8c..87e7e83f`, 11 commits. Medí sobre una copia `git archive 87e7e83f` del árbol entero, que ya borré. No levanté el stack.
-
-## R.1 ¿Hace falta la fase completa? No: basta esta revisión
-- **Qué no toca el delta.** Ni auth, ni roles, ni endpoints, ni DTO, ni schema, ni dinero, ni dependencias, ni workflows.
-  `git diff --stat beff4a8c..87e7e83f` en `backend/src` da solo los dos ficheros de marketing. En `frontend/src/lib`, `frontend/src/types`, `*package*.json` y `.github` da 0.
-- **La superficie del servidor es la de `7107ff8a`.** Esa ya pasó pentester (`bd054c7a`) y seguridad, y está en `production`
-  (`git merge-base --is-ancestor 7107ff8a beff4a8c` ⇒ sí). Un pase rojo atacaría lo mismo.
-- **Lo que sí cambia** (una línea de log y la pantalla del destino) lo cubren §R.2 y §R.3, con entradas hostiles y mutaciones.
-- **Cuándo vuelve la fase completa (pentester + seguridad):** en el próximo release que toque un endpoint, un DTO, `orders`/`payments`, auth o dependencias.
-- **CI sobre `87e7e83f`** (medido con `gh run list --commit`): Security SAST, CI, E2E, E2E real (`41589296565`) y Lighthouse, todos en `success`. El DAST contra staging no lo medí aquí: corre en la promoción, como siempre.
-
-## R.2 Clase del error de Search Console / GA4 (`cb7e5bc0`): no filtra nada
-- **Garantía estructural.** Lo único que se escribe es un literal, un entero entre 100 y 599, o una cadena **local** que pasó `Set.has` (`marketing-source-error.ts:56,72-76,95-118`).
-  Cada valor se comprueba sobre la copia local que se escribe; un getter que cambia entre lecturas no cuela nada. El prefijo `(sc|ga4)` es constante (`marketing-external-sources.ts:121,145`).
-  No se leen `message`, `config`, cabeceras ni `cause`.
-- **36 entradas hostiles**, todas deterministas:
-  - getters que alternan entre valor válido y secreto, en 4 fases;
-  - `toString`/`valueOf` sobrescritos, `new String`, `Proxy` que lanza, objetos circulares, `Symbol`, prototipo contaminado;
-  - cadenas de 50 MB y JSON de 10 MB (17 ms);
-  - Unicode (`İ`, ZWSP, RLO), `\n` y `\r\n` en `status`, `reason` y `code`, `status` no numérico.
-
-  **Resultado: 0 fugas.** Todas las salidas casan `^[A-Za-z0-9_= ]*$`, así que no se pueden inyectar líneas falsas en el log.
-- **Spec del backend:** 9/9 en la copia.
-- **Mutaciones** (N=1 cada una; son deterministas):
-  | Mutación | Rojas |
-  |---|---|
-  | `pick` sin lista | 3 |
-  | `cripto=` crudo | 1 |
-  | `tipo=` sin lista | 2 |
-  | `red=` acepta cualquier código con prefijo `E` | 2 |
-  | **`http=` sin validar** | **0 (sobrevive)** ⇒ SEC-R1103-I1 |
-- **TL-R1103-5, impacto de seguridad por punto:**
-  - (a) Claves al revés: ninguno.
-  - (b) `ERR_INVALID_ARG_TYPE` como `cripto=`: no filtra. Riesgo operativo menor: diagnosticar «llave mal pegada» y manipular el secreto sin necesidad. Si se rota, va por el almacén de secretos y nunca por el chat.
-  - (c) Sin `TimeoutError` ni `ESOCKETTIMEDOUT`: caen en `otro`, que falla cerrado.
-  - (d) Con gaxios 7, el código pasa a `err.cause.code`, que no se lee ⇒ `otro`. Se pierde diagnóstico; no se filtra nada. Al arreglarlo: leer `cause` con la misma lista y con profundidad fija, sin recursión sin tope.
-  - (e) Es SEC-R1103-I1.
-
-## R.3 N1, destino del checkout de invitado (`6b01d17a`, `e1bad6b9`, `87e7e83f`): lo que llega al servidor no cambia
-- **`pay()` y `createGuestCheckoutSession` no están en el diff.** El cuerpo lleva `fulfillmentMode: 'direct_ship'` literal y `shippingAddress: toAddressPayload(form.address)` (`GuestCheckoutView.tsx:397-410`).
-- **Con destino bóveda la dirección oculta no se envía.** `pay()` retorna antes de llamar (`:364-367`) y PAGAR está deshabilitado (`:351`, `:554`).
-  Si alguien fuerza `vault`, el servidor responde `422 VAULT_REQUIRES_ACCOUNT` antes de tocar nada (`guest-checkout.service.ts:389-395`).
-- **Al volver a envío, se envía lo que el cliente ve.**
-  - `chooseDestination('ship')` solo cambia el destino, el panel y los avisos (`:334-340`).
-  - La dirección no se desmonta ni se reescribe, y el grupo vuelve a ser visible (`hidden={shippingHidden}`, `GuestCheckoutForm.tsx:285`).
-  - Quitar los campos del resumen de errores en bóveda (`:132`) no afecta a la validación de `pay()`: `formHasErrors` no cambió.
-- **El dinero lo calcula el servidor.** `GuestSessionDto` no tiene importes (`guest-checkout.dto.ts:120-169`), `ValidationPipe({whitelist:true})` descarta lo que sobra (`main.ts:38`) y el servidor recalcula. El total de la barra es solo pantalla.
-- **Sin superficie nueva.** El delta no trae `dangerouslySetInnerHTML` ni `href` con datos del usuario. La acción del bloqueo solo llama a `backToShip`.
-
-## R.4 Hallazgos de este release (los dos van al registro B)
-| ID | Sev | Qué | Dueño |
-|---|---|---|---|
-| SEC-R1103-I1 | Info | La rama `http=` no tiene prueba: la mutación que quita la validación numérica sobrevive. No es explotable: `status` lo pone gaxios desde la respuesta HTTP | backend |
-| SEC-R1103-I2 | Info | `new Function` en una E2E (= TL-R1103-6): es código de prueba y no llega al bundle | frontend |
+- **R.1 Alcance.** Delta `beff4a8c..87e7e83f` (11 commits) sobre copia `git archive` del árbol entero, borrada; sin stack. No toca auth, roles,
+  endpoints, DTO, schema, dinero, dependencias ni workflows: superficie de `7107ff8a`, ya atacada (`bd054c7a`). **La fase completa vuelve** en el
+  próximo release que toque un endpoint, un DTO, `orders`/`payments`, auth o dependencias. CI en `success`; el DAST corre en la promoción.
+- **R.2 Clasificador GA4/SC (`cb7e5bc0`): no filtra.** Solo literales, un entero 100–599 o cadenas que pasaron `Set.has` (`marketing-source-error.ts`);
+  36 entradas hostiles ⇒ **0 fugas**, salidas `^[A-Za-z0-9_= ]*$`. Mutaciones (N=1, deterministas): 4 cazadas; `http=` sin validar **sobrevive**
+  ⇒ SEC-R1103-I1. TL-R1103-5: `cripto=` no filtra; timeouts y `err.cause.code` de gaxios 7 caen en `otro` (falla cerrado; al arreglarlo, `cause` con la misma lista y profundidad fija).
+- **R.3 N1, destino del checkout de invitado: lo que llega al servidor no cambia.** Con bóveda no se envía nada y, forzado, `422 VAULT_REQUIRES_ACCOUNT`;
+  el total lo recalcula el servidor (`GuestSessionDto` sin importes, `whitelist:true`). Sin superficie nueva.
+- **R.4** SEC-R1103-I1 (backend) y SEC-R1103-I2 (`new Function` en una E2E = TL-R1103-6, frontend): Info, en el registro B.
 
 — SEGURIDAD (blue team / AppSec), 2026-11-03 · sha **`87e7e83f`** · **APROBADO**
 
 ---
-
-# Vigente de `7107ff8a` y `f2e1de9c` (checkout-friccion). Su §V.1 completo está en `git show 87e7e83f:docs/SECURITY_NOTES.md`
-
-## V.2 Veredicto `f2e1de9c` (botón de CP, reclamo → libreta, prellenado/Stripe, medición), vigente salvo SEC-CHK-4
-| ID | Sev | Qué | Dueño |
-|---|---|---|---|
-| **SEC-CHK-1** | **Media** (**Crítica** si se configura mal) | `SEPOMEX_DATABASE_URL` es el dueño completo de la BD de producción. Solo lo protegen dos ajustes manuales que el proxy no deja medir (403): secreto **de entorno** y entorno `catalogo-cp` limitado a `production` | devops (runbook), dueño |
-| **CL-1** (heredada) | Media | Ningún `<script>` de Next lleva nonce en producción (`DEVOPS_NOTES §107.5`), así que no hay CSP efectiva. Hipótesis NO MEDIDA: la caché de Vercel. Los reportes bloqueados por CORP son Info: el POST llega con 204. El tope de 60/min de reportes es Baja | frontend, backend, dueño |
-| TL-CHK-8 | Baja | `checkout@v5` y `setup-node@v5` fijadas por etiqueta en el job que lleva el secreto | devops |
-| SEC-CHK-2 | Baja | Fila Stripe del aviso (`privacidad.es.ts:196`): dice «datos que tú capturas», pero ahora la tienda pasa correo y nombre al modal. Si **Link** está activo (NO MEDIDO), el correo prellenado puede disparar su código | dueño/PO → frontend |
-| TL-CHK-10 | Baja, **aceptada** | El secreto no es un rol con `GRANT` solo sobre `"PostalCode"`. Se acepta porque el código está fijado en `production` con sha256, el secreto vive minutos y quien cambia el código ya tiene la credencial. **Vale solo con §V.3 cumplido.** Disparador: el secreto se queda, el uso pasa a periódico, u otro workflow pide un secreto de la BD | devops |
-| SEC-CHK-3 / SEC-CHK-5 | Info | «Ejecutar» corre ts-node y Prisma con el secreto, con la misma confianza que el backend. La medición no lleva PII y a6 son totales sin celdas | — |
-
-- **Lo medido entonces:**
-  - candado `check-cargar-cp-workflow.sh`: VERDE, canario 20/20;
-  - máscara: 0 apariciones de la contraseña en el log;
-  - el reclamo no tiene IDOR (ablaciones de C2 y C6 cazadas);
-  - el prellenado no deja PII en la URL ni en el storage.
-- **Caché de npm:** no es vector, porque `npm ci` verifica la integridad.
-- **Sin medir:** si `production` está protegida en GitHub contra pushes de agentes. Lo cierra `gh api …/branches/production/protection`.
-
-## V.3 Banderas para el humano de este stream (van en la solicitud de fusión, junto a `DEVOPS_NOTES §107.2`)
+## V.3 Precondición SEC-CHK-1: lista para el botón de CP (veredicto `7107ff8a`, sigue vigente)
 1. El secreto va **solo** en *Settings → Environments → `catalogo-cp` → Environment secrets*. Comprobación: *Repository secrets* **no** lista `SEPOMEX_DATABASE_URL`.
 2. «Deployment branches and tags» = **Selected branches and tags**, con una regla `production` de tipo *Branch*. ⛔ No «No restriction».
 3. **Obligatorio** (desde `7107ff8a`, PT-CHK-7): **Required reviewers** = el dueño.
@@ -100,12 +106,10 @@
 
 Candado sugerido a devops (no exigido): un paso en `ci.yml`, sin entorno, que falle si `secrets.SEPOMEX_DATABASE_URL` no está vacío.
 
-— SEGURIDAD (blue team / AppSec), 2026-11-02 · sha **`7107ff8a`** · **APROBADO**
-
 ---
 
-# Veredictos recientes, compactados el 2026-11-02
-- **`7107ff8a` · 2026-11-02: APROBADO** (re-veredicto checkout-friccion: PT-CHK-1 reabre SEC-CHK-4 y se cierra en código; PT-CHK-2/3 cerradas; residual + SEC-CHK-6 aceptados). Texto íntegro: `git show 87e7e83f:docs/SECURITY_NOTES.md`.
+# Veredictos recientes, compactados el 2026-11-03
+- **`7107ff8a` · 2026-11-02: APROBADO** (checkout-friccion, re-veredicto). PT-CHK-1 reabrió SEC-CHK-4 y quedó cerrada en código; PT-CHK-2/3 cerradas; el residual y SEC-CHK-6 están en el registro B. §V.1–V.2 íntegras: `git show 52481453:docs/SECURITY_NOTES.md`; §V.3 sigue arriba.
 - **`f2e1de9c` · 2026-11-02: APROBADO** (checkout-friccion, 1.ª vuelta). Lo vigente está en §V.2–V.3. Texto íntegro: `git show 9fcf1d20:docs/SECURITY_NOTES.md`.
 - **`43d9eb10` · 2026-11-01: APROBADO** (Marketing conversión 2). PEN-CNV-1 rebajada a Info y aceptada (registro B); PEN-CNV-2 = REL7-P3, precondición para encender `sealed_restock_alerts`; ablaciones M-1…M-4 cazadas; semgrep 0. Texto íntegro: `git show f2e1de9c:docs/SECURITY_NOTES.md`.
 - **`e066b0b5` · 2026-10-31: APROBADO** (Marketing / SSR SEO Ola 2, solo frontend). M-1…M-6 cazadas; PEN-MKT-1 rebajada a Info; PEN-MKT-2 = SEC-MKT2-B1. Hallazgos SEC-MKT2-* en el registro B. Texto íntegro: `git show fe2fee57:docs/SECURITY_NOTES.md`.
@@ -218,4 +222,4 @@ Los más recientes, del más nuevo al más viejo: `60250e90` (2026-10-25, Envío
 `e77b9612` (2026-10-19, Panel de Marketing / Medición Fase 2 apagada), `e454262` (2026-10-16, P&L), `c62621e6` (2026-10-05, «listo-real»).
 Texto íntegro de los 81 anteriores: `git show 60250e90:docs/SECURITY_NOTES.md`; su tabla índice por fecha y sha: `git show 2f5a59c0:docs/SECURITY_NOTES.md`.
 
-_Changelog:_ 2026-11-03 · veredicto `87e7e83f` APROBADO (release 1103: clase del error de GA4/SC sin fuga con 36 entradas hostiles; N1 no cambia lo que llega a `POST /checkout/guest/session`; SEC-R1103-I1/I2 Info; §V.1 de `7107ff8a` compactado). · 2026-11-02 · re-veredicto `7107ff8a` APROBADO (PT-CHK-1 reabre SEC-CHK-4 y se cierra en código; PT-CHK-2/3 cerradas; residual Baja + SEC-CHK-6 aceptados; §5.1(3) obligatorio; compactado con `f2e1de9c` a §V.1–V.3, texto íntegro en `9fcf1d20`). · 2026-11-02 · veredicto `f2e1de9c` APROBADO (checkout-friccion: botón de CP, reclamo → libreta, prellenado/Stripe; TL-CHK-10 aceptada; SEC-CHK-1 abierta; `43d9eb10` compactado). · 2026-11-01 · veredicto `43d9eb10` APROBADO (Marketing conversión 2; PEN-CNV-1 rebajada a Info y aceptada; PEN-CNV-2 = REL7-P3; `e066b0b5` compactado). · 2026-10-31 · veredicto `e066b0b5` APROBADO (Marketing/SSR SEO Ola 2; PEN-MKT-1 rebajada a Info, PEN-MKT-2 = SEC-MKT2-B1; §DYN compactado). · 2026-10-25 · veredicto `60250e90` APROBADO; compactado de 17 004 líneas a estado vigente + registro + índice. · 2026-10-26 · veredicto `2f5a59c0` APROBADO (DSC-1 cerrada; SEC-MED-1 abierta al encender). · 2026-10-27 · re-verificación `1b777967`: SEC-MED-1 cerrada. · 2026-10-29 · veredicto `5aeda006` APROBADO (velocidad de la portada, solo frontend); compactados los dos anteriores. · 2026-10-31 · veredicto `d5f0b38c` APROBADO (§DYN portada dinámica; PEN-DYN-2 cerrada; residual de PEN-DYN-1 + SEC-DYN-M1 aceptados con candado).
+_Changelog:_ 2026-11-03 · veredicto §IDS `52481453` APROBADO (BE-IDS-PT-9 y PT-IDS-1/2/3/6/7/8 cerradas; PT-IDS-4/5 aceptadas; SEC-IDS-1…4 aceptadas; checkout compactado a §V.3). · 2026-11-03 · veredicto `87e7e83f` APROBADO (release 1103: clase del error de GA4/SC sin fuga con 36 entradas hostiles; N1 no cambia lo que llega a `POST /checkout/guest/session`; SEC-R1103-I1/I2 Info; §V.1 de `7107ff8a` compactado). · 2026-11-02 · re-veredicto `7107ff8a` APROBADO (PT-CHK-1 reabre SEC-CHK-4 y se cierra en código; PT-CHK-2/3 cerradas; residual Baja + SEC-CHK-6 aceptados; §5.1(3) obligatorio; compactado con `f2e1de9c` a §V.1–V.3, texto íntegro en `9fcf1d20`). · 2026-11-02 · veredicto `f2e1de9c` APROBADO (checkout-friccion: botón de CP, reclamo → libreta, prellenado/Stripe; TL-CHK-10 aceptada; SEC-CHK-1 abierta; `43d9eb10` compactado). · 2026-11-01 · veredicto `43d9eb10` APROBADO (Marketing conversión 2; PEN-CNV-1 rebajada a Info y aceptada; PEN-CNV-2 = REL7-P3; `e066b0b5` compactado). · 2026-10-31 · veredicto `e066b0b5` APROBADO (Marketing/SSR SEO Ola 2; PEN-MKT-1 rebajada a Info, PEN-MKT-2 = SEC-MKT2-B1; §DYN compactado). · 2026-10-25 · veredicto `60250e90` APROBADO; compactado de 17 004 líneas a estado vigente + registro + índice. · 2026-10-26 · veredicto `2f5a59c0` APROBADO (DSC-1 cerrada; SEC-MED-1 abierta al encender). · 2026-10-27 · re-verificación `1b777967`: SEC-MED-1 cerrada. · 2026-10-29 · veredicto `5aeda006` APROBADO (velocidad de la portada, solo frontend); compactados los dos anteriores. · 2026-10-31 · veredicto `d5f0b38c` APROBADO (§DYN portada dinámica; PEN-DYN-2 cerrada; residual de PEN-DYN-1 + SEC-DYN-M1 aceptados con candado).

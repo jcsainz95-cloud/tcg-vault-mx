@@ -1,3 +1,4 @@
+import { versionInternalLineOf } from '../../common/card-version';
 /**
  * §M4-SHIP.3/.5/.6/.11 (v1.80 → v1.80.6) — «Pedidos por preparar», cubeta ENVÍO: la vista interactiva, los
  * TRES verbos (palomear, dar por preparado, deshacer preparado), las guardas de la guía/enviado, el
@@ -91,6 +92,8 @@ export interface ShipPreparationItemDTO {
   prepMarkedBy: { userId: string; name: string | null } | null;
   availability: LineAvailability;
   refund: LineRefund;
+  /** v1.116⟨ids⟩ (§IDS.5): la versión de la línea, de su `OrderItem` de origen (congelada); `null` en inglés sin liga o sin origen. */
+  versionInternalLine: string | null;
 }
 
 interface Counts {
@@ -260,6 +263,25 @@ export class ShipmentPrepService {
     const refundDtos = await this.ledger.toDtos(refundRows);
     const refundByLine = new Map(refundRows.map((r, i) => [r.shipmentItemId as string, { row: r, dto: refundDtos[i] }]));
     const caseByLine = new Map(cases.map((c) => [c.shipmentItemId as string, c]));
+    // v1.116⟨ids⟩ (§IDS.5): la versión CONGELADA de la línea de pedido de origen de cada pieza (una lectura por hoja).
+    const originIds = [...origins.values()].flatMap((o) => (o ? [o.orderItemId] : []));
+    const frozenVersion = new Map(
+      (originIds.length > 0
+        ? await db.orderItem.findMany({ where: { id: { in: originIds } }, select: { id: true, language: true, stampType: true, stampLabel: true } })
+        : []
+      ).map((oi) => [oi.id, oi]),
+    );
+    // v1.116.4⟨ids⟩ (§IDS.5, D-IDS-T): un RETIRO sin pedido de origen toma la versión de la PIEZA — `language` + su producto
+    // `stamped` (rótulo vigente; `cardProductId` no cambia tras el alta, I-7). Una lectura por hoja, solo si hace falta.
+    const pieceStampIds = kind === 'vault_withdrawal'
+      ? [...new Set(row.items.flatMap((si) => (!origins.get(si.inventoryItemId) && si.inventoryItem.cardProductId != null ? [si.inventoryItem.cardProductId] : [])))]
+      : [];
+    const pieceStamps = new Map(
+      (pieceStampIds.length > 0
+        ? await db.cardProduct.findMany({ where: { tcgplayerProductId: { in: pieceStampIds }, kind: 'stamped' }, select: { tcgplayerProductId: true, stampType: true, stampLabel: true } })
+        : []
+      ).map((cp) => [cp.tcgplayerProductId, cp]),
+    );
     const order = row.order;
     const lines: PrepLine[] = row.items.map((si) => {
       const p = si.inventoryItem;
@@ -305,6 +327,17 @@ export class ShipmentPrepService {
         prepMarkedBy: si.prepMarkedByUserId ? { userId: si.prepMarkedByUserId, name: markers.get(si.prepMarkedByUserId) ?? null } : null,
         availability: available ? { kind: 'available' } : { kind: 'blocked', reason: 'piece_not_available', pieceStatus: p.status },
         refund,
+        versionInternalLine: (() => {
+          // Con origen manda el `OrderItem` congelado (lo que se compró, D-IDS-J); retiro sin origen ⇒ la pieza (D-IDS-T).
+          if (origin) {
+            const fv = frozenVersion.get(origin.orderItemId);
+            return fv ? versionInternalLineOf(fv) : null;
+          }
+          if (kind !== 'vault_withdrawal') return null;
+          const st = p.cardProductId != null ? pieceStamps.get(p.cardProductId) : undefined;
+          // Una fila sin columna de idioma (anterior a M-95 o doble de prueba) es inglés: sin liga ⇒ `null`, la línea de siempre.
+          return versionInternalLineOf({ language: p.language ?? 'en', stampType: st?.stampType ?? null, stampLabel: st?.stampLabel ?? null });
+        })(),
       };
       return {
         dto,

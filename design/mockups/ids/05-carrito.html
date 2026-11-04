@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es-MX"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>05 · Carrito, pedido y hoja de preparación</title>
+<style>
+:root{--bg:#f4f1ea;--s2:#efebe2;--bd:rgba(26,26,24,.16);--bds:rgba(26,26,24,.32);--tx:#1a1a18;--mu:#6e695e;--ac:#b31217}
+*{box-sizing:border-box;margin:0}
+body{background:#cfcabd;font:14px/1.4 Archivo,system-ui,sans-serif;color:var(--tx)}
+.mock-title{background:#1a1a18;color:#f4f1ea;padding:10px 20px;font:600 12px/1.4 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em}
+.frames{display:flex;gap:24px;justify-content:center;padding:20px;align-items:flex-start;flex-wrap:wrap}
+.fr h2{font:600 12px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;max-width:390px}
+.phone{width:390px;background:var(--bg);border:1px solid var(--bds);padding:0 20px 24px;position:relative}
+.hdr{height:60px;display:flex;align-items:center;font:700 16px Montserrat,Archivo,sans-serif;margin:0 -20px;padding:0 20px;border-bottom:1px solid var(--bd)}
+h1{font:400 26px/1.15 'Zen Old Mincho',Georgia,serif;margin:16px 0 4px}
+.trust{font-size:12px;color:var(--mu);margin-bottom:8px}
+.ln{display:grid;grid-template-columns:56px 1fr auto;gap:12px;padding:14px 0;border-bottom:1px solid var(--bd)}
+.ln img{width:56px;height:78px;object-fit:contain;background:var(--s2)}
+.nm{font:400 16px/1.25 'Zen Old Mincho',Georgia,serif}.sp{font:400 10px/1.4 'JetBrains Mono',monospace;color:var(--mu);text-transform:uppercase;letter-spacing:.06em;margin-top:3px}
+.pr{font:500 15px Archivo;text-align:right;font-variant-numeric:tabular-nums}.rm{font:400 12px Archivo;text-decoration:underline;color:var(--tx);display:block;margin-top:6px;text-align:right}
+.vchip{display:inline-flex;align-items:center;height:18px;padding:0 6px;border:1px solid var(--tx);font:500 10px/1 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;margin:6px 4px 0 0}
+.vchip.es{background:var(--bg)}.vchip.sello{background:var(--tx);color:var(--bg)}
+.tot{display:flex;justify-content:space-between;padding:14px 0;font:500 17px Archivo}
+.pay{min-height:44px;background:var(--tx);color:var(--bg);display:flex;align-items:center;justify-content:center;font:600 12px Archivo;text-transform:uppercase;letter-spacing:.12em}
+.eyebrow{font:500 11px 'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.12em;color:var(--mu);margin-top:14px}
+.pick{display:grid;grid-template-columns:auto 1fr;gap:10px 12px;padding:14px 0;border-bottom:1px solid var(--bds);align-items:start}
+.pick .q{font:600 22px 'JetBrains Mono',monospace}.pick .loc{font:500 12px 'JetBrains Mono',monospace;color:var(--mu)}
+.pick .big{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.pick .big .vchip{height:26px;font-size:12px;padding:0 9px;margin:0}
+.note{max-width:1260px;margin:0 auto 24px;background:#fff9;border:1px dashed var(--bds);padding:12px 14px;font-size:12.5px;line-height:1.55}
+</style></head><body>
+<div class="mock-title">05 · Carrito, pedido y hoja de preparación (móvil 390 px) · maqueta IDS-UX</div>
+<div class="frames">
+ <div class="fr"><h2>1 · Carrito</h2><div class="phone"><div class="hdr">TCG HUNT</div>
+  <h1>Tu carrito</h1><p class="trust">Pago seguro · Envío a México · <u>Quiénes somos</u></p>
+  <div class="ln"><img src="https://images.pokemontcg.io/base1/4.png" alt=""><div><p class="nm">Charizard</p><p class="sp">Base Set · BS 4 · RAW · NM · HOLO</p><span class="vchip es">Español</span></div><div><p class="pr">MX$150.00</p><a class="rm">Quitar</a></div></div>
+  <div class="ln"><img src="https://images.pokemontcg.io/base1/4.png" alt=""><div><p class="nm">Charizard</p><p class="sp">Base Set · BS 4 · RAW · NM · HOLO</p><span class="vchip sello">Sello Liga</span><span class="vchip es">Español</span></div><div><p class="pr">MX$360.00</p><a class="rm">Quitar</a></div></div>
+  <div class="ln"><img src="https://images.pokemontcg.io/base1/58.png" alt=""><div><p class="nm">Pikachu</p><p class="sp">Base Set · BS 58 · RAW · NM · NORMAL</p></div><div><p class="pr">MX$40.00</p><a class="rm">Quitar</a></div></div>
+  <div class="tot"><span>Subtotal</span><span>MX$550.00</span></div><div class="pay">Continuar al pago</div></div></div>
+ <div class="fr"><h2>2 · Resumen del pedido (checkout y «Mi pedido»)</h2><div class="phone"><div class="hdr">TCG HUNT</div>
+  <h1>Pedido TH-10482</h1><p class="eyebrow">3 piezas</p>
+  <div class="ln" style="grid-template-columns:1fr auto"><div><p class="nm">Charizard</p><p class="sp">BS 4 · RAW · NM · HOLO</p><span class="vchip es">Español</span></div><p class="pr">MX$150.00</p></div>
+  <div class="ln" style="grid-template-columns:1fr auto"><div><p class="nm">Charizard</p><p class="sp">BS 4 · RAW · NM · HOLO</p><span class="vchip sello">Sello Liga</span><span class="vchip es">Español</span></div><p class="pr">MX$360.00</p></div>
+  <div class="ln" style="grid-template-columns:1fr auto"><div><p class="nm">Pikachu</p><p class="sp">BS 58 · RAW · NM · NORMAL</p></div><p class="pr">MX$40.00</p></div>
+  <div class="tot"><span>Total</span><span>MX$550.00</span></div>
+  <p class="trust">Si una versión pierde su precio entre el carrito y el pago, el pago la rechaza con un aviso por nombre de versión y no cobra otra.</p></div></div>
+ <div class="fr"><h2>3 · «Pedidos por preparar» (operador de pie)</h2><div class="phone"><div class="hdr">TCG HUNT · Panel</div>
+  <h1>TH-10482</h1><p class="eyebrow">Saca estas piezas</p>
+  <div class="pick"><span class="q">1×</span><div><p class="nm">Charizard · BS 4 · HOLO · NM</p><div class="big"><span class="vchip es">Español</span></div><p class="loc" style="margin-top:6px">Estante A2 · TCG-000412</p></div></div>
+  <div class="pick"><span class="q">1×</span><div><p class="nm">Charizard · BS 4 · HOLO · NM</p><div class="big"><span class="vchip sello">Sello Liga</span><span class="vchip es">Español</span></div><p class="loc" style="margin-top:6px">Bóveda · TCG-000431</p></div></div>
+  <div class="pick"><span class="q">1×</span><div><p class="nm">Pikachu · BS 58 · NORMAL · NM</p><p class="loc" style="margin-top:6px">Estante B1 · TCG-000108</p></div></div></div></div>
+</div>
+<div class="note"><b>Regla única.</b> La misma insignia (mismo componente, mismos tokens) en carrito, checkout, pedido y hoja de preparación; el inglés sin sello no lleva insignia en estas superficies porque no hay otra versión con la que confundirlo en esa línea. <b>Carrito:</b> la insignia va en una línea propia bajo la ficha técnica (aquí no hay límite de alto de teja). <b>Hoja de preparación:</b> las insignias son más grandes (26 px de alto, 12 px de texto) porque el operador está de pie y debe sacar <i>la pieza física correcta</i>; si dos piezas de la misma carta difieren solo por versión, nunca se fusionan en una línea «2×». <b>Pedido:</b> el nombre de la versión viaja en el correo de confirmación igual (texto, no color: «Español», «Sello Liga»). Precios 75 % ya aplicados por el servidor; sin mención de IVA.</div>
+</body></html>

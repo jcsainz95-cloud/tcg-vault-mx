@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import type { CatalogFacetsDTO } from '@/types/contract';
+import { CARD_LANGUAGES, type CatalogFacetsDTO } from '@/types/contract';
 import type { CatalogProductType } from '@/lib/api';
 import type { CatalogFilters } from '@/lib/api';
 import { groupRarities, type RarityGroup } from '@/lib/rarity-groups';
@@ -79,6 +79,8 @@ export function ShopFilters({ facets, filters, onChange }: ShopFiltersProps) {
       </FilterSection>
 
       <FinishFilter facets={facets} filters={filters} onChange={onChange} />
+
+      <VersionFilter facets={facets} filters={filters} onChange={onChange} />
 
       <FilterSection>
         <PriceFilter facets={facets} filters={filters} onChange={onChange} />
@@ -347,6 +349,54 @@ function FinishFilter({ facets, filters, onChange }: ShopFiltersProps) {
             />
           ))}
         </div>
+      </fieldset>
+    </FilterSection>
+  );
+}
+
+// ---- §IDS.5 (v1.116.2⟨ids⟩, IDS-F2): idioma y «Cartas de liga y promos», por FACETAS ----
+// `facets.languages` (sin conteos) decide qué idiomas se ofrecen: «Español» solo con `es`; con solo inglés no hay nada que
+// filtrar y el bloque no se pinta. `facets.stamped` decide «Cartas de liga y promos». Un filtro ya activo en la URL se
+// pinta aunque la faceta no lo traiga (marcado), para que se pueda quitar. Servidor sin las facetas ⇒ sin bloque.
+// ⛔ «sello» no se dice al cliente (D-6 v3).
+function VersionFilter({ facets, filters, onChange }: ShopFiltersProps) {
+  const t = useTranslations('version');
+  const td = useTranslations('versionDetail');
+  const offered = facets?.languages ?? [];
+  const languages = CARD_LANGUAGES.filter((l) => offered.includes(l) || filters.language === l);
+  const showLanguage = offered.includes('es') || !!filters.language;
+  const showStamped = facets?.stamped === true || !!filters.stamped;
+  if (!showLanguage && !showStamped) return null;
+  return (
+    <FilterSection>
+      <fieldset data-testid="version-filter">
+        <legend className="text-[13px] font-medium leading-none text-text">{td('filter.language')}</legend>
+        {showLanguage && (
+          <div className="mt-3.5 flex flex-wrap gap-2">
+            <TypeChip
+              active={!filters.language}
+              label={td('filter.languageAll')}
+              onClick={() => onChange({ ...filters, language: undefined })}
+            />
+            {languages.map((l) => (
+              <TypeChip
+                key={l}
+                active={filters.language === l}
+                label={t(`language.${l}`)}
+                onClick={() => onChange({ ...filters, language: filters.language === l ? undefined : l })}
+              />
+            ))}
+          </div>
+        )}
+        {showStamped && (
+          <div className={showLanguage ? 'mt-3 flex flex-wrap gap-2' : 'mt-3.5 flex flex-wrap gap-2'}>
+            <TypeChip
+              active={!!filters.stamped}
+              label={td('filter.stamped')}
+              onClick={() => onChange({ ...filters, stamped: filters.stamped ? undefined : true })}
+            />
+          </div>
+        )}
       </fieldset>
     </FilterSection>
   );

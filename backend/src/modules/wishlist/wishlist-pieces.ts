@@ -22,8 +22,11 @@ type Db = Pick<Prisma.TransactionClient, '$queryRaw'>;
  * (`WishlistService.consumeForSettledOrder`): lo que quita el deseo es exactamente lo que lo habría avisado. Promo,
  * exclusivo de deck, `cardProductId` huérfano, graded y sellado no son «esa carta» para la lista. Candado WSH-T43.
  */
+// v1.116⟨ids⟩ (§IDS.0 I-6, IDS-B13): la lista de deseos sigue solo con inglés sin liga — una pieza en español no es «esa
+// carta» (la de liga ya queda fuera por `kind`).
 export const SET_PRODUCT_PREDICATE = Prisma.sql`
   ii."productType"::text = 'raw'
+  AND ii."language"::text = 'en'
   AND (ii."cardProductId" IS NULL OR cp."kind"::text IN ('set_base', 'other'))`;
 
 /** «A la venta» (solo el estado; el precio lo decide el catálogo con `sellableByIds`). */

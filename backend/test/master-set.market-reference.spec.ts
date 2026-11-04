@@ -39,6 +39,8 @@ function buildPricing(refs: Map<string, PriceInfo>) {
       getReferencesBatch,
       getSeparateProductsByCard: jest.fn(async () => new Map()),
       getPricedRawFinishesBatch: jest.fn().mockResolvedValue(new Map()),
+      // v1.116⟨ids⟩ (I-6): el binder filtra «inglés sin liga»; ninguna liga en la fixture.
+      defaultVersionWhere: jest.fn().mockResolvedValue({ language: 'en' }),
       gradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       tryGradeKeyFor: jest.fn().mockReturnValue('raw:NM'),
       // v1.28 (P-18): controles por variante — sin filas M-30 por default (comportamiento previo).

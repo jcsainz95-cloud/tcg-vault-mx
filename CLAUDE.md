@@ -375,6 +375,20 @@ Apuntarla en `PENDIENTES.md` o en mi scratch no es anotarla: allí nadie la cobr
 **Comprobación:** antes de lanzar el siguiente gate del stream, `grep -c "<ID>" docs/TECH_DEBT.md` ≥ 1 por cada ficha
 del veredicto anterior. Si da 0, el gate espera.
 
+### O-24 · Antes de construir un instrumento, el camino más barato: preguntar al dueño o una consulta que él pegue
+Para saber algo de producción, lo primero es (1) ¿lo sabe el dueño o ya está en el código/HECHOS? ⇒ se pregunta o se cita;
+(2) ¿cabe en UNA consulta de solo lectura que el dueño pegue en Railway → Postgres → Data → Query? ⇒ se le da esa línea.
+Solo si ninguna de las dos basta se construye un botón, un rol o un workflow, y el encargo dice por qué no bastaban.
+
+> *De dónde viene:* 2026-11-04. Para medir D-IDS-1 construí un botón de GitHub (solicitud #115) con rol de solo lectura,
+> entorno con revisor, secreto, candado con canario 62/62 y pasos A–E para el dueño. Dos de las tres cifras las sabía el
+> dueño o el código («no puedo inventariar promos porque no están en ninguna colección»; «la segunda es no»), y la tercera
+> (Q1d) salió con **un** `SELECT count(*)` pegado en Railway: 0. Palabras del dueño: «pudiste hacer una consulta así y te
+> fuiste por el camino más largo y caro». Nota: la pantalla Query de Railway falla con `;` final («syntax error at or near LIMIT»).
+
+**Comprobación:** todo encargo que construya un instrumento de medición de producción cita la pregunta al dueño y la consulta
+de una línea que se descartaron, con la razón. Sin esa línea, el encargo no sale.
+
 ## Arranque y traspaso de sesión
 - **Tres ficheros, tres papeles, desde el día uno:** `HECHOS.md` (lo que el dueño estableció y lo medido de
   infraestructura; no se re-pregunta), `PENDIENTES.md` (índice de abiertos con dueño, **fecha de medición** y

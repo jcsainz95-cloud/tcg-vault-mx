@@ -36,6 +36,8 @@ export const HOME_NAMESPACES = [
   'sealed',
   'status',
   'stock',
+  // §IDS: insignias de versión de la teja (`VersionChip`) y acabado de cliente (`ListingSpec`, `finishLabel`).
+  'version',
 ] as const;
 
 export type MessageScope = 'home' | 'storefront';

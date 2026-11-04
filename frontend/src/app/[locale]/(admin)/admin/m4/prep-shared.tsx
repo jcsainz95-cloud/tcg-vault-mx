@@ -6,6 +6,7 @@ import { CardImage } from '@/components/ui/CardImage';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { FinishMark } from '@/components/domain/FinishMark';
+import { VersionChips } from '@/components/domain/VersionChip';
 import { formatAge, formatDate } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
 import type { LocationView, PreparationItemDTO, VaultZone } from '@/types/contract';
@@ -71,10 +72,16 @@ export function CardInfo({
   quantity,
   nameId,
   t,
+  version,
+  versionInternalLine,
 }: {
   card: PreparationItemDTO['card'];
   folio: string;
   quantity: number;
+  /** §IDS.5: versión congelada del pedido (insignias de 26 px, «se quedan» — marketing). */
+  version?: PreparationItemDTO['version'];
+  /** §IDS.5: línea interna de backend, como TEXTO mono (único sitio donde «sello» y mayúsculas son correctos). */
+  versionInternalLine?: string | null;
   /** Id del nombre de la carta: lo usa el `role="group"` de los controles de palomeo (§36.5). */
   nameId?: string;
   t: Translator;
@@ -139,6 +146,13 @@ export function CardInfo({
           <span className="text-text">{card.conditionLabel}</span>
           {quantity !== 1 && <span className="tabular text-text">×{quantity}</span>}
         </p>
+        {/* §IDS-UX.4 «Pedidos por preparar»: insignias por pieza + la línea interna de backend tal cual. */}
+        <VersionChips version={version} size="sheet" testId="prep-version-chips" />
+        {versionInternalLine && (
+          <p className="font-mono text-[11px] tracking-[0.04em] text-text" data-testid="prep-version-line">
+            {versionInternalLine}
+          </p>
+        )}
         <p className={LABEL}>
           {t('folio')} <span className="tabular">{folio}</span>
         </p>
