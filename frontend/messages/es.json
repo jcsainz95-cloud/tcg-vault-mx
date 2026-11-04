@@ -101,7 +101,8 @@
         "hint": "Así te llamamos en los correos y en tus envíos.",
         "required": "Escribe tu nombre.",
         "tooLong": "Máximo 120 caracteres.",
-        "derivedFromEmail": "Este nombre lo tomamos de tu correo porque Google no nos dio tu nombre. Escribe cómo quieres que te llamemos."
+        "derivedFromEmail": "Este nombre lo tomamos de tu correo porque Google no nos dio tu nombre. Escribe cómo quieres que te llamemos.",
+        "derivedFromEmailLocal": "Este nombre lo tomamos de tu correo. Escribe cómo quieres que te llamemos."
       },
       "phone": {
         "label": "Celular",

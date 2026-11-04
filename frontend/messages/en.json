@@ -101,7 +101,8 @@
         "hint": "This is how we address you in emails and shipments.",
         "required": "Enter your name.",
         "tooLong": "120 characters max.",
-        "derivedFromEmail": "We took this name from your email address because Google didn't share your name. Tell us what to call you."
+        "derivedFromEmail": "We took this name from your email address because Google didn't share your name. Tell us what to call you.",
+        "derivedFromEmailLocal": "We took this name from your email. Type how you'd like us to call you."
       },
       "phone": {
         "label": "Mobile phone",

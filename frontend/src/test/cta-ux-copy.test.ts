@@ -64,6 +64,12 @@ const EXPECTED: Record<string, { es: string; en: string }> = {
   // §CTA-UX.1
   'about.strip.groupLabel': { es: 'Pago, entrega y contacto', en: 'Payment, delivery and contact' },
   'about.strip.newTab': { es: ' (se abre en otra pestaña)', en: ' (opens in a new tab)' },
+  // tester-e2e sobre `2f136542` (4/4): la cuenta nacida en el carrito (sin Google) leía «porque Google no nos dio
+  // tu nombre». Texto neutro para `nameSource='derived'` sin Google (dueño, 2026-11-04).
+  'account.profile.name.derivedFromEmailLocal': {
+    es: 'Este nombre lo tomamos de tu correo. Escribe cómo quieres que te llamemos.',
+    en: "We took this name from your email. Type how you'd like us to call you.",
+  },
 };
 
 describe('CTA-UX.6 (1) · textos de §CTA-UX en ES y EN', () => {
@@ -73,7 +79,7 @@ describe('CTA-UX.6 (1) · textos de §CTA-UX en ES y EN', () => {
   });
 
   it('paridad de claves en los namespaces que tocó §CTA-UX', () => {
-    for (const ns of ['auth.emailOnly', 'accountSetup', 'about.strip', 'account.email', 'account.password', 'forgotPassword', 'verifyEmailPage']) {
+    for (const ns of ['auth.emailOnly', 'accountSetup', 'about.strip', 'account.email', 'account.password', 'forgotPassword', 'verifyEmailPage', 'account.profile.name']) {
       const a = Object.keys(get(es, ns) as object).sort();
       const b = Object.keys(get(en, ns) as object).sort();
       expect(b, ns).toEqual(a);
