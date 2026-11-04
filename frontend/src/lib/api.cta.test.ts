@@ -100,15 +100,45 @@ describe('api (rama REAL) · §CTA', () => {
    * CTA-F9 (v1.117.2, §1 «Verificación de correo»): el cuerpo lleva EXACTAMENTE una prueba de la credencial; nunca
    * `{ token }` solo. Mutación: mandar `{ token }` (o los dos campos).
    */
-  it('verifyEmail modo contraseña: POST /auth/verify-email { token, password } y marca emailVerified local', async () => {
+  it('verifyEmail modo contraseña: POST /auth/verify-email { token, password } y re-lee GET /users/me (TL-CTA-17)', async () => {
     setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale: 'es', emailVerified: false });
     fetchMock.mockResolvedValueOnce(res(200, { verified: true }));
+    fetchMock.mockResolvedValueOnce(
+      res(200, { id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale: 'es', emailVerified: true }),
+    );
     await verifyEmail({ token: 't0k', password: 'clave-actual' });
     const c = call();
     expect(c.url).toMatch(/\/auth\/verify-email$/);
     expect(c.method).toBe('POST');
     expect(c.body).toEqual({ token: 't0k', password: 'clave-actual' });
+    expect(call(1).url).toMatch(/\/users\/me$/);
+    expect(call(1).method).toBe('GET');
     expect(getStoredUser()?.emailVerified).toBe(true);
+  });
+
+  it('TL-CTA-17: la sesión de A canjea el token de B ⇒ el emailVerified guardado de A no cambia', async () => {
+    const ana = { id: 'a', email: 'ana@x.mx', name: 'ana', role: 'customer', locale: 'es', emailVerified: false } as const;
+    setStoredUser({ ...ana });
+    fetchMock.mockResolvedValueOnce(res(200, { verified: true })); // el token era de B: el servidor verifica a B
+    fetchMock.mockResolvedValueOnce(res(200, { ...ana })); // GET /users/me de A: sigue sin verificar
+    await verifyEmail({ token: 'token-de-b', password: 'clave-de-b' });
+    expect(getStoredUser()?.id).toBe('a');
+    expect(getStoredUser()?.emailVerified).toBe(false);
+  });
+
+  it('TL-CTA-17: si la relectura de /users/me falla, la verificación no se vuelve error ni se parchea la sesión', async () => {
+    setStoredUser({ id: 'a', email: 'ana@x.mx', name: 'ana', role: 'customer', locale: 'es', emailVerified: false });
+    fetchMock.mockResolvedValueOnce(res(200, { verified: true }));
+    fetchMock.mockResolvedValueOnce(res(500, { code: 'INTERNAL', message: 'x' }));
+    await expect(verifyEmail({ token: 't0k', password: 'clave' })).resolves.toEqual({ verified: true });
+    expect(getStoredUser()?.emailVerified).toBe(false);
+  });
+
+  it('TL-CTA-17: sin sesión local no hay relectura de /users/me', async () => {
+    fetchMock.mockResolvedValueOnce(res(200, { verified: true }));
+    await verifyEmail({ token: 't0k', password: 'clave' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getStoredUser()).toBeNull();
   });
 
   it('verifyEmail modo nueva: { token, newPassword }, guarda el deviceToken y NO toca la sesión local', async () => {
