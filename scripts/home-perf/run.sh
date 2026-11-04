@@ -273,11 +273,18 @@ for modo in "${MODES[@]}"; do
       *)         [ "$arc" = 0 ] && v="verde" || { v="ROJO"; RC=1; } ;;
     esac
     if [ "$modo" = d1 ]; then
-      # DYN-D3: la líder por el optimizador en TODAS las corridas (k/N). Caer al respaldo es rojo.
+      # DYN-D3: la líder (y las tejas) por el optimizador en TODAS las corridas (k/N). Caer al respaldo es rojo.
       lo="$(node "$HERE/lcp-optimized.mjs" "$dir/.lighthouseci")"; lrc=$?
       printf '%s\n' "$lo" > "$dir/optimizador.txt"
-      if [ "$lrc" = 0 ]; then v="$v · líder por /_next/image $(head -n1 <<<"$lo")"
-      else v="$v · **líder SIN optimizador $(head -n1 <<<"$lo")** (DYN-D3)"; RC=1; fi
+      kn="$(head -n1 <<<"$lo")"
+      if [ "$lrc" = 0 ]; then v="$v · líder y tejas por /_next/image $kn"
+      else
+        # El rótulo dice QUÉ url y POR QUÉ (motivos únicos de todas las corridas; no solo «líder SIN optimizador»),
+        # y el log del job trae el detalle completo por corrida (antes solo salía la primera línea, run 41870766214).
+        por="$(grep '^  ✗ ' <<<"$lo" | sed 's/^  ✗ [^:]*: //' | tr ';' '\n' | sed 's/^ *//' | awk '!v[$0]++' | paste -sd ';' - | sed 's/;/; /g' | cut -c1-400)"
+        v="$v · **SIN optimizador $kn — ${por:-sin motivo}** (DYN-D3)"; RC=1
+        printf '%s\n' "$lo" | sed "s/^/    [$modo\/$perfil optimizador] /"
+      fi
     fi
     if [ "$modo" = d1 ] && [ "$perfil" = mobile ]; then
       # Meta de 936 en celular: SOLO REPORTE mientras haya trinquete (DYN-D1, decisión del dueño 2026-10-30).
