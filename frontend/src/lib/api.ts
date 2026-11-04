@@ -3772,8 +3772,8 @@ export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
  * lleva EXACTAMENTE una de las dos pruebas de la credencial: `{ token, password }` (la actual) o
  * `{ token, newPassword }` (fija una nueva y revoca sesiones). ⛔ Nunca `{ token }` solo y nunca al cargar la página
  * (PT-CTA-8, CTA-F9): la llama el envío del formulario de `/verify-email`.
- * - `password` ⇒ `200 { verified: true }`; si hay sesión local se marca `emailVerified=true` (quita el banner sin
- *   re-consultar `GET /users/me`). `tokenVersion` no cambia: la sesión que hubiera sigue viva.
+ * - `password` ⇒ `200 { verified: true }`; si hay sesión local se re-lee `GET /users/me` (TL-CTA-17: el token puede
+ *   ser de otra cuenta, así que no se parchea `emailVerified`). `tokenVersion` no cambia: la sesión sigue viva.
  * - `newPassword` ⇒ `200 { verified: true, deviceToken }` SIN sesión: se guarda el `deviceToken` (como `reset-password`)
  *   y NO se toca la sesión local (el servidor acaba de revocar las de esa cuenta).
  */
@@ -3787,8 +3787,11 @@ export async function verifyEmail(input: VerifyEmailRequest): Promise<VerifyEmai
     const res = await apiRequest<VerifyEmailResponse>('/auth/verify-email', { method: 'POST', body });
     if ('newPassword' in body) {
       if (res.deviceToken) storeDeviceToken(res.deviceToken);
-    } else {
-      patchStoredUser({ emailVerified: true });
+    } else if (getStoredUser()) {
+      // TL-CTA-17: el token puede ser de OTRA cuenta que la de la sesión local; no se parchea `emailVerified`,
+      // se re-lee `GET /users/me` (que sincroniza `tcg.user`). Si la relectura falla, la verificación ya ocurrió
+      // en el servidor: no se convierte en error y la sesión local se queda como estaba.
+      await getMe().catch(() => undefined);
     }
     return res;
   }
