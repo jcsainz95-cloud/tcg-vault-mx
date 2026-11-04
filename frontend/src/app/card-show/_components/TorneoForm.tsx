@@ -17,7 +17,7 @@ import {
   focusFirstInvalid,
   isEmail,
   isPlayerId,
-  readAttribution,
+  readUtm,
   useFormTokens,
 } from './form-shared';
 
@@ -88,7 +88,8 @@ export function TorneoForm() {
     if (cerrado || !validate()) return;
     setStatus('pending');
     const days: CardShowDayId[] = day === 'both' ? ['sat', 'sun'] : [day as CardShowDayId];
-    const attribution = readAttribution();
+    // ⛔ readUtm, NO readAttribution: `/players` rechaza `referrerHost` (400, hotfix 2026-11-04).
+    const attribution = readUtm();
     try {
       for (const d of days) {
         await withToken((token) =>
