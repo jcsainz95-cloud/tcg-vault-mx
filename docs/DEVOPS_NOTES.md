@@ -14440,8 +14440,6 @@ resumen del job y en el artefacto `home-perf`. rc 0 todo como se espera · 1 roj
   del HTML no mueve el FCP: `server-response-time` 2 073 ms y FCP simulado 1 410 ms frente a 110 ms y 1 425 ms sin
   retraso (N=5 por perfil; el FCP **observado** sí subió a 2 375 ms). Consecuencia que hay que saber: **este check no ve un
   TTFB lento** (servidor o caché fríos); eso lo ve solo la medición en producción de 936 (QA, N=5 por perfil).
-- **En GitHub Actions** (run 40879539432, sha `1bf5d2f5`, N=5 por perfil): el mismo cuadro que en local; canario ΔFCP
-  +1 280 ms escritorio y +8 099 ms móvil ⇒ muerde.
 - **NO MEDIDO:** cualquier cifra de producción (la mide QA, N=5 por perfil, como pide 936).
 
 **104.2 `POKEMONPRICETRACKER_DAILY_QUOTA`.** En `.env.example`, en los dos compose (`${…:-}`) y en la tabla de §4. Sin ella el
@@ -14483,15 +14481,9 @@ valida hex ≥ 7 y compara por **prefijo** (`sha_mismo`, también en `assert-ser
 hace igual y avisa. Candados con canario (en `ci.yml`, job `e2e-harness-gaps`): `check-stack-verify-short.sh` 4/4,
 `check-stack-down-all.sh` 6/6, `check-stack-frontend-build.sh` 7/7.
 
-**104.6 DOC-SIZE `--update` ya no clava documentos nuevos.** Escribía `min(tope de clase, medido)` para un documento sin fila,
-o sea lo medido: `docs/DECISIONES.md` (crece una línea por decisión) quedaba en 77 y la siguiente decisión ponía CI en
-rojo. Ahora `--update` solo baja filas existentes; un documento sin fila sigue con el tope de su clase. Canario
-`check-doc-size-canary.sh` 24/24; contra el script anterior, 2/24 rojos (los dos casos nuevos).
+**104.6 DOC-SIZE:** `--update` solo baja filas existentes; un documento sin fila sigue con el tope de su clase (conducta vigente en §101.5; la errata que lo motivó, `git show 0d40d0b7:docs/DEVOPS_NOTES.md` §104.6; canario 24/24).
 
-**Candados de este pase y sus canarios** (copia `git archive` de `262f8d91`, N=1 cada uno, deterministas salvo el proxy
-de `check-home-perf`, que mide N=10): stack 4/4 · 6/6 · 7/7, diales 6/6, censo 3/3, consultas de producción 5/5,
-arnés de Lighthouse 11/11, más los anclajes que se movieron (expected-sha 4/4, upload-origin 3/3). En Actions (run
-40876689037) los jobs `e2e-harness-gaps` y `dyn-prod-measure` salieron verdes.
+**Canarios de este pase** (copia `git archive 262f8d91`, N=1): diales 6/6, censo 3/3, consultas de producción 5/5, expected-sha 4/4, upload-origin 3/3; stack en 104.5, arnés de Lighthouse en §106.5 (vigente). Actions run 40876689037 verde.
 
 ## §105 · Limpieza de ramas y archivo de `main` (2026-10-30, rama `claude/limpieza-ramas`, base `b90bb35d`)
 
@@ -14535,10 +14527,7 @@ DYN-D3 (`lcp-optimized.mjs`): rojo si alguna `/_next/image` no es 200 webp, si u
 Instalación de Chromium: 3 intentos con `setsid -w timeout -k 10 420` y espera (≤ 150 s) a que suelten el candado de dpkg antes de reintentar (run 41868820215: el `apt-get` del intento 1 seguía vivo). NO MEDIDO en CI: que `timeout -k` alcance al `apt-get` bajo `sudo` con pty (por eso la espera).
 
 Norma: `API_CONTRACT §DYN.7` (DYN-D1 cambiado, DYN-D3), §DYN.6.6, D-DYN-9; `ARCHITECTURE §4.DYN (f) 7` y §5.3.5. Medido
-sobre una copia `git archive 0d40d0b7` con los scripts de este pase, mi backend sembrado (BD `tcg_dyn_ops2`, :3181) y
-**un prototipo de A solo en mi scratch** (la líder por `getImageProps`, respaldo a la original, `images` de §4.DYN (f) 7),
-porque la rama de frontend no existía aún. Ese prototipo **no es** el A de frontend: las cifras sirven para probar el arnés,
-no para fijar el trinquete.
+sobre una copia `git archive 0d40d0b7` con los scripts de este pase y mi backend sembrado (BD `tcg_dyn_ops2`, :3181).
 
 **106.1 DYN-D3 — foto de peso real y optimizador de verdad.**
 - `seed-image-host.py` sirve la líder (`*_hires*`) como PNG 733×1024 **generado** (bandas + bloques de 10 px + ruido fino,
@@ -14560,20 +14549,7 @@ no para fijar el trinquete.
   **no salta** y el navegador baja la HD por `/_next/image`. Lo cazan el `image/webp` exigido aquí y la guarda del Dockerfile
   (106.3). `ARCHITECTURE §4.DYN (f) 7` dice «sharp ausente ⇒ sin 2xx»: lo medido es otra cosa (para el arquitecto).
 - El artefacto `home-perf` sube los `lhr-*.json` (`include-hidden-files: true`; `.lighthouseci` es oculta).
-- **Medido** (N=5 por perfil, mediana / peor, 4 CPU, con un vitest de otro agente al lado):
-
-  | tanda | perfil | FCP | LCP | CLS | líder por `/_next/image` | resultado |
-  |---|---|---|---|---|---|---|
-  | proto A, 18:42 UTC, carga 2.5 | celular | 1.39 / 2.12 s | 5.40 / 6.85 s | 0.002 | 5/5 | rojo (meta 936; trinquete sin fijar) |
-  | proto A | escritorio | 0.37 / 0.39 s | 0.96 / 1.04 s | 0.001 | 5/5 (LCP = `<h1>`) | verde |
-  | proto A **sin `sharp`** | celular | 1.39 / 2.19 s | 10.49 / 10.69 s | 0.002 | **0/5** (`200 image/png`) | **ROJO** (DYN-D3) |
-  | proto A **sin `sharp`** | escritorio | 0.36 / 0.39 s | 1.71 / 1.88 s | 0.001 | **0/5** | **ROJO** (DYN-D3 y LCP > 1.5) |
-  | completa con trinquete de prueba (1530/5950 ms, de la 1.ª fila), 18:50, carga 6.2 | celular | 1.41 / 2.40 s | 5.58 / 6.84 s | 0.002 | 5/5 | verde (trinquete); meta 936 «NO CUMPLIDA» en el resumen |
-  | ídem | escritorio | 0.36 / 0.41 s | 0.92 / 1.10 s | 0.001 | 5/5 | verde |
-  | ídem, `d1-canary` | cel. / esc. | 10.33 / 1.67 s | 14.81 / 2.18 s | 0.000 / 0.001 | — | ROJO los dos (ΔFCP +8 916 / +1 306 ms): muerde con trinquete |
-  | ídem, `d2-delay` / `d2-503` | cel. | 1.43 / 1.38 s | — | 0.002 / 0.066 | — | verde (FCP ≤ trinquete, CLS ≤ 0.1) |
-
-  Sin `sharp` los números reproducen los de frontend con bytes reales (9.62 s y 1.71 s): el arnés ya no se apoya en la sustituta.
+- Conducta medida del arnés (k/N sin y con `sharp`, canario, d2): §106.5; la tabla del prototipo de 2026-10-30 (anterior a #108), `git show 0d40d0b7:docs/DEVOPS_NOTES.md` §106.1.
 
 **106.2 DYN-D1 — trinquete de celular y meta en solo reporte.** Una sola fuente: `lhci-config.mjs`. Bloquean escritorio FCP
 ≤ 1.0 s / LCP ≤ 1.5 s, CLS ≤ 0.1 en los dos perfiles y, en celular, el trinquete de `scripts/home-perf/mobile-ratchet.json`
@@ -14583,12 +14559,8 @@ dueño 2026-10-30» con el número). DYN-D2 en celular bloquea con el FCP del tr
 mutación «D2 de celular con la meta» en el canario de `check-home-perf.sh`.
 - **De dónde sale el número: del runner de CI, no de este contenedor (medido).** Se fija donde se cobra: la mediana es la del
   artefacto de `home-perf.yml` run 41144812801 (sha `e4c080ca`, ubuntu-24.04, 4 CPU, carga 2.01). En CI el FCP de celular es
-  estable: 14/15 corridas entre 1.22 y 1.24 s y 1 en 1.65 s (runs 41134931602, 41141178712, 41144812801; LCP medianas 3.52 / 3.73 / 3.81 s).
-  En este contenedor, con jest/vitest de otros agentes al lado (carga 7-9 en 4 CPU), la misma tanda dio FCP 1.67 / LCP 5.49 s
-  y FCP por corrida 1.23-2.17 s: la «bimodalidad» de §104.1 aparece con la carga del contenedor y no en CI (INFERIDO de
-  esas dos series; no aislé la causa). Un trinquete fijado aquí
-  (1 840 / 6 040 ms) habría dejado pasar un +50 % de LCP en CI.
-- **Tandas con el trinquete (N=5 por perfil cada una), en CI:** ver la tabla de §106.5.
+  estable (14/15 corridas 1.22-1.24 s en 3 runs); en este contenedor con otros agentes al lado (carga 7-9 en 4 CPU) la misma tanda
+  dio FCP 1.67 / LCP 5.49 s: un trinquete fijado aquí (1 840 / 6 040 ms) habría dejado pasar un +50 % de LCP en CI.
 - **Cómo se fija (o se rehace):** `gh run download <run de home-perf.yml> -n home-perf -D <dir>` del sha que se quiere y
   `node scripts/home-perf/fix-ratchet.mjs <dir>/d1-mobile <sha> --write`; commit del json (campo `fuente` = el run). El candado comprueba
   la fórmula, N ≥ 5, sha y fecha. **Subirlo** después exige un `paseArquitecto` nuevo que esté en `docs/API_CONTRACT.md`
@@ -14635,15 +14607,14 @@ coincide, una captura de lo que sí aparece basta.
 
 **106.5 Candados y canarios de este pase** (copia `git archive` del commit de este pase; deterministas N=1 salvo el proxy, N=10):
 - `check-home-perf.sh` (job de `ci.yml`, paso «Arnés de Lighthouse»): umbrales con trinquete, meta en el resumen, artefacto con
-  lhr, peso y huella de la líder, reescritura, desvío, comprobación del optimizador, `lcp-optimized.mjs` contra 5 lhr de
-  juguete (bueno; respaldo; 500; `<img>` cruda; WebP + original a la vez), `--replace` del proxy y guarda de `sharp` del
-  Dockerfile. `--canary`: **29/29** mutaciones rojas (11 de §104 + 17 de v1.114.2 + «D2 de celular con la meta», v1.114.5;
-  la de «trinquete que no es mediana+10 %» ya muerde con el trinquete fijado, antes solo con `null`).
+  lhr, peso y huella de la líder, reescritura, desvío, comprobación del optimizador, `lcp-optimized.mjs` contra 7 lhr de
+  juguete (bueno; respaldo; 500; `<img>` cruda; WebP + original a la vez; estante; teja), `--replace` del proxy y guarda de
+  `sharp` del Dockerfile. `--canary`: **32/32** mutaciones rojas (cifra vigente en la cabecera de §106).
 - `check-home-perf.sh --against-ref` + `--against-ref-canary` **5/5** (job `home-perf-mobile-goal-expiry`).
 - `check-home-perf-mobile-goal-expiry.sh --canary` **4/4**; y el canario muerde: fecha movida a 2027-06-01, rc 9 cambiado a
   0, trinquete que nunca caduca y trinquete disfrazado de meta ⇒ canario rojo **4/4**.
-- Conducta del arnés (N=5 por perfil, una tanda cada una): sin `sharp` ⇒ **ROJO, 0/5 y 0/5** (`200 image/png`); con `sharp` ⇒
-  **5/5 y 5/5**; canario de D1 con trinquete ⇒ rojo en los dos perfiles.
+- Conducta del arnés (N=5 por perfil, una tanda cada una): sin `sharp` ⇒ **ROJO, 0/5 y 0/5** (`200 image/png`; LCP 10.5 / 1.7 s,
+  los de frontend con bytes reales); con `sharp` ⇒ **5/5 y 5/5**; canario de D1 con trinquete ⇒ rojo en los dos perfiles (ΔFCP +8 916 / +1 306 ms).
 - `check-image-optimizer-cost-reading-expiry.sh` (§106.4, job `image-optimizer-cost-reading-expiry`): `--canary` **11/11**; y
   muerde: fecha movida a 2027-06-01, rc 9 → 0, leer todo el fichero y no solo §106.4, disparador a 999 999, aceptar lecturas
   del futuro, bloque ausente sin rc 2 ⇒ canario rojo **6/6**.
@@ -14651,8 +14622,7 @@ coincide, una captura de lo que sí aparece basta.
   runs 41134931602 · 41141178712 · 41144812801 (antes de fijarlo, mismas cifras que con él): 1.22/3.52 · 1.22/3.73 · 1.22/3.81 s,
   d2 1.22-1.23 s ⇒ 3/3. Con el trinquete ya fijado, sha `5183de06`: runs 41147978343 · 41149112510 · 41150300792 ⇒ d1
   1.21/3.79 · 1.21/3.48 · 1.22/3.60 s, d2-delay/d2-503 1.22 s, CLS ≤ 0.066 ⇒ **3/3 verdes** (los tres workflows enteros en verde).
-  Total en CI: **6/6 tandas** con la mediana bajo el trinquete; holgura de LCP 9-17 %. En este contenedor bajo carga 7-9: **0/2**
-  (LCP 5.49 y 5.13 s; FCP 1.67 y 1.24 s): no sirve de instrumento con otros agentes al lado.
+  Total en CI: **6/6 tandas** con la mediana bajo el trinquete; holgura de LCP 9-17 % (en este contenedor con carga: §106.2).
 
 ---
 ## §107 · Catálogo de CP en producción con un botón (G-CP-BOTON) y diagnóstico de la CSP report-only (CL-1) (2026-11-02, rama `claude/checkout-friccion`, base `dbeb6111`)
