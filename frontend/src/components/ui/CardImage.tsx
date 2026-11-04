@@ -74,6 +74,14 @@ export interface CardImageProps {
    * ⛔ No se usa en ninguna otra teja (DYN-F8): el resto sigue en `<img>` crudo (nivel B, §5.3).
    */
   optimized?: boolean;
+  /**
+   * proto/B (2026-11-04) — tejas de Destacadas que caben en el primer viewport (01–03): `loading="eager"` SIN
+   * `fetchpriority="high"` (eso sigue siendo solo de la líder, `priority`). Pide la foto al parsear el HTML en vez
+   * de esperar a que el navegador decida que está «cerca» (WebKit usa un margen menor que Chromium).
+   */
+  eager?: boolean;
+  /** proto/B — tejas fuera del primer viewport: `lazy` + `fetchpriority="low"`, para no competir con las visibles. */
+  lowPriority?: boolean;
 }
 
 /**
@@ -85,13 +93,23 @@ export interface CardImageProps {
  * Cuando el proyecto suba a React 19 esto puede volver a `fetchPriority` sin más.
  */
 const HIGH_FETCH_PRIORITY = { fetchpriority: 'high' } as unknown as { fetchPriority: 'high' };
+const LOW_FETCH_PRIORITY = { fetchpriority: 'low' } as unknown as { fetchPriority: 'low' };
 
 /**
  * Imagen de carta 5:7 (DESIGN_SYSTEM §5).
  * Dirección 5a: el arte se apoya en un pozo de papel más oscuro, sin borde ni
  * esquina redondeada — la carta ya trae su propio marco.
  */
-export function CardImage({ src, alt, className, priority = false, onLoaded, optimized = false }: CardImageProps) {
+export function CardImage({
+  src,
+  alt,
+  className,
+  priority = false,
+  onLoaded,
+  optimized = false,
+  eager = false,
+  lowPriority = false,
+}: CardImageProps) {
   const [loaded, setLoaded] = useState(false);
   // Fases del modo `optimized`: 'optimized' (`/_next/image`) → 'original' (respaldo, una vez) → 'broken'.
   // Por foto: si la líder cambia (revalidación), la nueva vuelve a empezar por el optimizador.
@@ -172,8 +190,8 @@ export function CardImage({ src, alt, className, priority = false, onLoaded, opt
           src={attrs ? attrs.src : src}
           alt={alt}
           lang="en"
-          loading={priority ? 'eager' : 'lazy'}
-          {...(priority ? HIGH_FETCH_PRIORITY : {})}
+          loading={priority || eager ? 'eager' : 'lazy'}
+          {...(priority ? HIGH_FETCH_PRIORITY : lowPriority ? LOW_FETCH_PRIORITY : {})}
           // Decodificación fuera del hilo principal: no bloquea el pintado del resto de la
           // teja mientras el navegador descomprime el JPEG. Barato y sin efecto visual.
           decoding="async"

@@ -120,6 +120,9 @@ export type PlaybackMode = 'playing' | 'paused' | 'ended';
  * `featuredSlot`. La portada la hidrata desde el servidor con la MISMA clave (`page.tsx`, §DYN.6.2); aquí se revalida
  * al montar.
  */
+/** proto/B — nº de tejas secundarias (01…) que se piden en caliente: las que caben en el primer viewport. */
+export const FEATURED_EAGER_TILES = 3;
+
 export function useFeaturedCatalog() {
   return useQuery({
     queryKey: FEATURED_QUERY_KEY,
@@ -803,7 +806,9 @@ export function FeaturedCarousel() {
                         un tercio de su ancho — y son SIETE, en el primer bloque con imágenes de la home.
                         La chica (245×342) ya cubre 268px con holgura en pantallas 1x. Si algún día estas
                         tejas crecen por encima de ~245px de ancho real, entonces sí toca revisar. */}
-                    <CardImage src={l.card.imageSmallUrl} alt={l.card.name} />
+                    {/* proto/B (2026-11-04): 01–03 caben en el primer viewport (celular tras el gesto del dueño: 01, 02 y
+                        media 03; escritorio lg: líder + 01, 02 y media 03) ⇒ `eager`; el resto `lazy` + prioridad baja. */}
+                    <CardImage src={l.card.imageSmallUrl} alt={l.card.name} eager={i <= FEATURED_EAGER_TILES} lowPriority={i > FEATURED_EAGER_TILES} />
                     <NewArrivalLabel l={l} className="mt-3 lg:mt-[15px]" />
                     <div className="mt-3 flex items-baseline gap-2 lg:mt-[15px]">
                       {/* Numeración decorativa/orientadora (§20.3): el orden real lo da el DOM.
