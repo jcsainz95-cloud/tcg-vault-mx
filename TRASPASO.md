@@ -36,7 +36,8 @@ no implementas** (salvo un literal de una línea en un fixture o allowlist, y lo
    saltando aunque el árbol ya no la tenga; se exime **por valor exacto anclado** en `security/gitleaks.toml`
    (bloque HISTORIAL), nunca aflojando reglas. Fixtures: usar las contraseñas ficticias que ya existen
    (`OtraClave123`, `Customer123!`), no inventar nuevas con dígitos.
-7. **Cada push cancela el CI del push anterior** y GitHub manda «failure» por esa cancelación: antes de llamar
+7. **El nombre de la variable de Resend que desvía el correo no puede escribirse fuera de `docs/*.md`** (ni en `HECHOS.md`, `PENDIENTES.md` ni este fichero): el candado `mail-sink-scope` pone CI en rojo. Hoy pasó (run 41785216288).
+8. **Cada push cancela el CI del push anterior** y GitHub manda «failure» por esa cancelación: antes de llamar
    rojo a un rojo, mirar `conclusion: cancelled` y el sha.
 
 ## 1 · Primera acción (O-11), antes de hablarle al dueño
@@ -45,7 +46,7 @@ no implementas** (salvo un literal de una línea en un fixture o allowlist, y lo
 2. Parte tu rama de **`origin/claude/orquestacion-1104`** (`git checkout -B claude/orquestacion-<fecha> origin/claude/orquestacion-1104`).
    Esa rama = `production` + las notas de hoy + la PR #119 (abierta, ver §2).
 3. Lee `HECHOS.md` entero (filas 2026-11-03/04: respuestas del dueño a §CTA, Q1/Q1c/Q1d, publicaciones #116/#117/#118,
-   Postgres 18.6, `RESEND_BASE_URL` ausente, «de liga» también en el admin) y el índice de `PENDIENTES.md` (tabla
+   Postgres 18.6, la variable de Resend que desvía el correo (su nombre solo se escribe en `docs/SECURITY_NOTES.md` C.8: el candado `scripts/check-mail-sink-scope.sh` lo prohíbe fuera de `docs/`) ausente, «de liga» también en el admin) y el índice de `PENDIENTES.md` (tabla
    superior; **última limpieza 2026-09-29: compactarla es tu primer encargo barato**, sin ayudante: mover filas ✅ a
    `HISTORIAL.md`).
 4. `cat /proc/loadavg; nproc; df -h /; du -sh <scratchpad>/*` (O-16, O-20).
@@ -105,7 +106,7 @@ no implementas** (salvo un literal de una línea en un fixture o allowlist, y lo
 
 ## 5 · Infraestructura medida (para no re-preguntar)
 
-- Railway: Postgres **18.6**; `RESEND_BASE_URL` **no existe** en production (backend ni frontend); `MEASUREMENT_MODE=on`.
+- Railway: Postgres **18.6**; la variable de Resend que desvía el correo (su nombre solo se escribe en `docs/SECURITY_NOTES.md` C.8: el candado `scripts/check-mail-sink-scope.sh` lo prohíbe fuera de `docs/`) **no existe** en production (backend ni frontend); `MEASUREMENT_MODE=on`.
 - Vercel: `NEXT_PUBLIC_MEASUREMENT_MODE=on`; GA4 `G-YQCXNY30DY`; píxel Meta `1664829718522685`.
 - Backend público: `https://tcg-vault-mx-production.up.railway.app/api/v1/health` (uptime delata cada deploy).
 - Stripe en modo real; la tienda ya cobró de verdad (HECHOS 2026-10-16). Claves de PRUEBA en secrets de GitHub
