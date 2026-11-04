@@ -63,7 +63,10 @@ export async function getFormToken(purpose: FormPurpose): Promise<string> {
   return body.formToken;
 }
 
-/** Cuerpo común a los dos formularios: token, consentimiento, honeypot y atribución. */
+/**
+ * Cuerpo común a los dos formularios: token, consentimiento, honeypot y `utm_*`. ⛔ `referrerHost` NO
+ * es común: solo `CreateLeadDto` lo tiene; en `/players` el `StrictBodyPipe` lo rechaza con 400.
+ */
 export interface BaseSubmitBody {
   /** Token de formulario firmado (§CARDSHOW.5). El DTO del backend exige la clave `formToken`. */
   formToken: string;
@@ -77,7 +80,6 @@ export interface BaseSubmitBody {
   utmMedium?: string;
   utmCampaign?: string;
   utmContent?: string;
-  referrerHost?: string;
 }
 
 /** Juego del torneo / interés (enum `CardShowGame`, §Enums; +`shardbugs` M-85/v1.97; +`magic` M-90/v1.101). */
@@ -109,6 +111,8 @@ export interface LeadSubmitBody extends BaseSubmitBody {
   raffleTermsVersion?: string;
   /** «¿Qué vendes / qué marca?» — opcional merchant/sponsor (⛔ prohibido visitor). */
   sellsWhat?: string;
+  /** Host del referer, sin query ni ruta (§CARDSHOW.1). SOLO `/leads`. */
+  referrerHost?: string;
 }
 
 /**
@@ -126,6 +130,11 @@ export interface PlayerSubmitBody extends BaseSubmitBody {
   isMinor: boolean;
   /** Obligatorio ⇔ isMinor === true (§CARDSHOW.12). */
   guardianConsent?: boolean;
+  /**
+   * ⛔ `CreatePlayerDto` no tiene `referrerHost` ⇒ 400 VALIDATION_ERROR (hotfix 2026-11-04). `never`
+   * hace que un `...readAttribution()` aquí NO compile; usa `readUtm()`.
+   */
+  referrerHost?: never;
 }
 
 /** Lee el cuerpo de error del contrato (`{ error: { code, message, details? } }`) o un genérico. */

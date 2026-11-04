@@ -8,6 +8,7 @@ import {
   getFormToken,
   type BaseSubmitBody,
   type FormPurpose,
+  type LeadSubmitBody,
 } from '@/lib/card-show-api';
 
 /**
@@ -56,26 +57,34 @@ export function isPhone(v: string): boolean {
   return /^\d{10}$/.test(digits);
 }
 
-/** Lee los `utm_*` y el host del referer SIN query ni ruta (§CARDSHOW.1), para la atribución. */
+/** Lee SOLO los `utm_*` (lo que aceptan los DOS DTO: `/leads` y `/players`). */
+export function readUtm(): Pick<BaseSubmitBody, 'utmSource' | 'utmMedium' | 'utmCampaign' | 'utmContent'> {
+  if (typeof window === 'undefined') return {};
+  const q = new URLSearchParams(window.location.search);
+  return {
+    utmSource: q.get('utm_source') ?? undefined,
+    utmMedium: q.get('utm_medium') ?? undefined,
+    utmCampaign: q.get('utm_campaign') ?? undefined,
+    utmContent: q.get('utm_content') ?? undefined,
+  };
+}
+
+/**
+ * Atribución de `/leads`: los `utm_*` + el host del referer SIN query ni ruta (§CARDSHOW.1).
+ * ⛔ SOLO para `submitLead`: `CreatePlayerDto` no tiene `referrerHost` (⇒ 400); el torneo usa `readUtm()`.
+ */
 export function readAttribution(): Pick<
-  BaseSubmitBody,
+  LeadSubmitBody,
   'utmSource' | 'utmMedium' | 'utmCampaign' | 'utmContent' | 'referrerHost'
 > {
   if (typeof window === 'undefined') return {};
-  const q = new URLSearchParams(window.location.search);
   let referrerHost: string | undefined;
   try {
     if (document.referrer) referrerHost = new URL(document.referrer).host || undefined;
   } catch {
     referrerHost = undefined;
   }
-  return {
-    utmSource: q.get('utm_source') ?? undefined,
-    utmMedium: q.get('utm_medium') ?? undefined,
-    utmCampaign: q.get('utm_campaign') ?? undefined,
-    utmContent: q.get('utm_content') ?? undefined,
-    referrerHost,
-  };
+  return { ...readUtm(), referrerHost };
 }
 
 /**

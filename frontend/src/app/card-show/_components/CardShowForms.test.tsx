@@ -298,4 +298,41 @@ describe('TorneoForm · preinscripción (§CARDSHOW.12 M-84)', () => {
     expect(await screen.findByText(FORM_MESSAGES.needGuardian)).toBeInTheDocument();
     expect(submitPlayer).not.toHaveBeenCalled();
   });
+
+  /**
+   * Hotfix 2026-11-04 (producción): entrando desde Instagram (`document.referrer` presente) el torneo
+   * mandaba `referrerHost`, que `CreatePlayerDto` NO tiene ⇒ `StrictBodyPipe` (forbidNonWhitelisted)
+   * ⇒ `400 VALIDATION_ERROR {field:'referrerHost'}` ⇒ «No pudimos procesar tu registro». El cuerpo de
+   * `/card-show/players` solo puede llevar claves del DTO; los `utm_*` sí van (el DTO los acepta).
+   */
+  it('desde Instagram (referrer + utm_*): el POST de /players ⛔ no lleva referrerHost ni claves fuera del DTO', async () => {
+    const PLAYER_DTO_KEYS = new Set([
+      'game', 'day', 'playerName', 'playerId', 'email', 'isMinor', 'guardianConsent', 'guardianName',
+      'consent', 'formToken', 'website', 'utmSource', 'utmMedium', 'utmCampaign', 'utmContent',
+    ]);
+    const prevUrl = window.location.href;
+    const referrerSpy = vi.spyOn(document, 'referrer', 'get').mockReturnValue('https://l.instagram.com/?u=x&e=y');
+    window.history.replaceState(null, '', '/card-show?utm_source=ig&utm_medium=social&utm_content=link_in_bio&fbclid=abc');
+    try {
+      submitPlayer.mockResolvedValue(undefined);
+      const u = userEvent.setup();
+      render(<TorneoForm />);
+      await u.selectOptions(screen.getByLabelText('Juego'), 'shardbugs');
+      await u.click(screen.getByRole('radio', { name: /Sábado/ }));
+      await u.type(screen.getByLabelText('Nombre del jugador'), 'Ana');
+      await u.type(screen.getByLabelText('Correo'), 'ana@correo.com');
+      await u.click(screen.getByLabelText(/He leído el/));
+      await u.click(screen.getByRole('button', { name: 'Preinscríbete' }));
+      expect(await screen.findByText(FORM_MESSAGES.success)).toBeInTheDocument();
+      // Lo que viaja es JSON: las claves con `undefined` no llegan al backend.
+      const sent = JSON.parse(JSON.stringify(submitPlayer.mock.calls[0][0])) as Record<string, unknown>;
+      expect(sent).not.toHaveProperty('referrerHost');
+      expect(Object.keys(sent).filter((k) => !PLAYER_DTO_KEYS.has(k))).toEqual([]);
+      // La atribución que el DTO SÍ acepta se conserva.
+      expect(sent).toMatchObject({ utmSource: 'ig', utmMedium: 'social', utmContent: 'link_in_bio' });
+    } finally {
+      referrerSpy.mockRestore();
+      window.history.replaceState(null, '', prevUrl);
+    }
+  });
 });
