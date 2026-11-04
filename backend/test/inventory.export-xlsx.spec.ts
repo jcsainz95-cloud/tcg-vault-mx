@@ -406,9 +406,9 @@ describe('💰 SP-20 — export `.xlsx`: col 17 «antes de IVA» y col 18 «del 
   }
 
   it('cabeceras: 17 «Precio venta antes de IVA MXN», 18 «Precio del producto con IVA MXN» (width 22); 18 columnas', async () => {
-    // v1.116⟨ids⟩ (§IDS.4, IDS-B14): +19 «Idioma» y +20 «Sello» AL FINAL; las 18 de hoy no se mueven.
+    // v1.116⟨ids⟩ (§IDS.4, IDS-B14): +19 «Idioma» y +20 «Liga» AL FINAL; las 18 de hoy no se mueven.
     expect(INVENTORY_EXPORT_COLUMNS.length).toBe(20);
-    expect(INVENTORY_EXPORT_COLUMNS.slice(18).map((c) => c.header)).toEqual(['Idioma', 'Sello']);
+    expect(INVENTORY_EXPORT_COLUMNS.slice(18).map((c) => c.header)).toEqual(['Idioma', 'Liga']);
     expect(INVENTORY_EXPORT_COLUMNS[16].header).toBe('Precio venta antes de IVA MXN');
     expect(INVENTORY_EXPORT_COLUMNS[17]).toMatchObject({ header: 'Precio del producto con IVA MXN', width: 22 });
     const { ws } = await exportRows();

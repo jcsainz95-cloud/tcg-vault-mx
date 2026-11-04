@@ -179,13 +179,13 @@ describe('E2E — §IDS.4 captura por versión', () => {
     expect(bad.status).toBe(400);
   });
 
-  it('IDS-B14 (527): export con columnas 19 «Idioma» y 20 «Sello»; mercado de una versión = el de su versión (×X)', async () => {
+  it('IDS-B14 (527): export con columnas 19 «Idioma» y 20 «Liga»; mercado de una versión = el de su versión (×X)', async () => {
     const buf = await h.app.get(InventoryService).exportInventoryXlsx({ setId });
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as unknown as ArrayBuffer);
     const ws = wb.getWorksheet('Inventario')!;
     const headers = (ws.getRow(1).values as unknown[]).slice(1);
-    expect(headers.slice(18)).toEqual(['Idioma', 'Sello']);
+    expect(headers.slice(18)).toEqual(['Idioma', 'Liga']);
     const rows = new Map<string, unknown[]>();
     ws.eachRow((r, n) => {
       if (n > 1) rows.set(String(r.getCell(1).value), (r.values as unknown[]).slice(1));
