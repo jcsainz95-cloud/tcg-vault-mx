@@ -3,13 +3,14 @@
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/cn';
 import { LanguageChip, StampChip } from '@/components/domain/VersionChip';
+import { PillToggleGroup } from '@/components/domain/VersionPills';
 import type { VersionDTO } from '@/types/contract';
 
 /**
  * §IDS-UX.3 (lista de inventario admin, `02-inventario-admin-v3`): las dos columnas internas de una pieza.
  *  - **Idioma**: inglés = «EN» (etiqueta mono gris, no insignia); español = insignia «Español».
- *  - **Sello** (la cabecera interna se queda): insignia de tipo + el detalle exacto del proveedor en texto muted
- *    (`stamp.label`, solo admin), o «—».
+ *  - **Liga** (HECHOS 2026-11-04: en el admin también se dice «de liga», no «sello»): insignia de tipo + el detalle
+ *    exacto del proveedor en texto muted (`stamp.label`, solo admin), o «—».
  * Sin `version` (servidor anterior a §IDS) ⇒ inglés sin liga.
  */
 export function PieceVersion({ version, className }: { version?: VersionDTO | null; className?: string }) {
@@ -39,9 +40,15 @@ export function PieceVersion({ version, className }: { version?: VersionDTO | nu
 }
 
 export type LanguageFilter = 'all' | 'en' | 'es';
+/** Valor del query param `stamped` de `GET /admin/inventory` (contrato §16.1): se queda tal cual; solo cambia el rótulo. */
 export type StampFilter = 'all' | 'true' | 'false';
 
-/** Filtros de un toque `Idioma: Todos | Inglés | Español` y `Sello: Todos | Con sello | Sin sello` (§16.1, interno). */
+/**
+ * Filtros de un toque `Idioma: Todos | Inglés | Español` y `Liga: Todas | De liga | Sin liga` (§16.1, interno).
+ * Mismas burbujas de 44 px que la captura (`PillToggleGroup`, IDS-UX.2 / HECHOS 2026-11-02 «Admin (C)»): `radiogroup`
+ * con rótulo mono, `role="radio"` + `aria-checked`, elegida en relleno tinta. ⛔ No se dibuja aquí ninguna burbuja
+ * propia: el radio redondeado vive solo en `VersionPills.tsx` (candado 13).
+ */
 export function PieceVersionFilters({
   language,
   stamped,
@@ -55,39 +62,30 @@ export function PieceVersionFilters({
 }) {
   const t = useTranslations('admin.m1.ids.filter');
   const tv = useTranslations('version');
-  const chip = (active: boolean) =>
-    cn(
-      'inline-flex min-h-9 items-center border px-3 text-xs font-medium transition-colors',
-      active ? 'border-text bg-text text-primary-fg' : 'border-border-strong text-text hover:border-text',
-    );
-  const langs: [LanguageFilter, string][] = [
-    ['all', t('languageAll')],
-    ['en', tv('language.en')],
-    ['es', tv('language.es')],
-  ];
-  const stamps: [StampFilter, string][] = [
-    ['all', t('stampAll')],
-    ['true', t('stampYes')],
-    ['false', t('stampNo')],
-  ];
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2" data-testid="piece-version-filters">
-      <div role="group" aria-label={t('language')} className="flex flex-wrap items-center gap-1.5">
-        <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted">{t('language')}</span>
-        {langs.map(([v, label]) => (
-          <button key={v} type="button" aria-pressed={language === v} className={chip(language === v)} onClick={() => onLanguage(v)}>
-            {label}
-          </button>
-        ))}
-      </div>
-      <div role="group" aria-label={t('stamp')} className="flex flex-wrap items-center gap-1.5">
-        <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-muted">{t('stamp')}</span>
-        {stamps.map(([v, label]) => (
-          <button key={v} type="button" aria-pressed={stamped === v} className={chip(stamped === v)} onClick={() => onStamped(v)}>
-            {label}
-          </button>
-        ))}
-      </div>
+    <div className="flex flex-wrap items-start gap-x-6 gap-y-3" data-testid="piece-version-filters">
+      <PillToggleGroup<LanguageFilter>
+        label={t('language')}
+        testId="piece-filter-language"
+        value={language}
+        onChange={onLanguage}
+        options={[
+          { value: 'all', label: t('languageAll') },
+          { value: 'en', label: tv('language.en') },
+          { value: 'es', label: tv('language.es') },
+        ]}
+      />
+      <PillToggleGroup<StampFilter>
+        label={t('stamp')}
+        testId="piece-filter-stamp"
+        value={stamped}
+        onChange={onStamped}
+        options={[
+          { value: 'all', label: t('stampAll') },
+          { value: 'true', label: t('stampYes') },
+          { value: 'false', label: t('stampNo') },
+        ]}
+      />
     </div>
   );
 }

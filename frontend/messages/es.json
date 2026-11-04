@@ -1842,15 +1842,15 @@
         "candidateAttached": "Versión ligada a la carta.",
         "column": {
           "language": "Idioma",
-          "stamp": "Sello"
+          "stamp": "Liga"
         },
         "filter": {
           "language": "Idioma",
           "languageAll": "Todos",
-          "stamp": "Sello",
-          "stampAll": "Todos",
-          "stampYes": "Con sello",
-          "stampNo": "Sin sello"
+          "stamp": "Liga",
+          "stampAll": "Todas",
+          "stampYes": "De liga",
+          "stampNo": "Sin liga"
         },
         "pricePending": "Precio pendiente",
         "versionsErrorTitle": "No se cargaron las versiones",
