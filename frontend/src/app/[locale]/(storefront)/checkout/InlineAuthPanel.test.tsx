@@ -207,3 +207,47 @@ describe('CTA-UX.2 · ayuda, aviso informativo y tope en tinta', () => {
     expect(tope).not.toHaveClass('text-warning');
   });
 });
+
+/**
+ * TL-CTA-9 (DESIGN_SYSTEM §CTA-UX.3b): «¿Olvidaste tu contraseña?» del `409` con un 5xx o un fallo de red NO dice
+ * «enviado»: `Banner danger` `role=alert` con `auth.emailOnly.resetError`, el correo sigue en el campo y el botón sigue
+ * para reintentar. Mutación: volver a tratar el 5xx como enviado ⇒ rojo.
+ */
+describe('TL-CTA-9 · «¿Olvidaste tu contraseña?» con 5xx o red ⇒ error, no «enviado»', () => {
+  const SENT = 'Te mandamos un enlace a ese correo para poner una contraseña nueva.';
+  const ERR = 'No pudimos mandar el enlace. Inténtalo de nuevo en unos minutos.';
+  it.each([
+    ['500', () => new ApiClientError(500, { code: 'INTERNAL', message: 'x' })],
+    ['red caída', () => new TypeError('Failed to fetch')],
+  ])('%s ⇒ Banner danger role=alert, correo conservado y reintento', async (_l, mkErr) => {
+    const user = userEvent.setup();
+    registerEmailOnly.mockRejectedValue(emailTaken());
+    forgotPassword.mockRejectedValueOnce(mkErr());
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="juan@dominio.com" onSuccess={vi.fn()} />, 'es');
+    await user.click(screen.getByRole('button', { name: 'Crear cuenta' }));
+    await user.click(await screen.findByRole('button', { name: '¿Olvidaste tu contraseña?' }));
+    const banner = (await screen.findByText(ERR)).closest('[data-variant]')!;
+    expect(banner).toHaveAttribute('data-variant', 'danger');
+    expect(banner).toHaveAttribute('role', 'alert');
+    expect(screen.queryByText(SENT)).toBeNull();
+    for (const s of screen.queryAllByRole('status')) expect(s).not.toHaveTextContent(SENT);
+    expect(screen.getByLabelText('Correo')).toHaveValue('juan@dominio.com');
+    forgotPassword.mockResolvedValueOnce({ ok: true });
+    await user.click(screen.getByRole('button', { name: '¿Olvidaste tu contraseña?' }));
+    expect(await screen.findByText(SENT)).toBeInTheDocument();
+    expect(forgotPassword).toHaveBeenCalledTimes(2);
+    expect(forgotPassword).toHaveBeenLastCalledWith('juan@dominio.com');
+    expect(screen.queryByText(ERR)).toBeNull();
+  });
+
+  it('EN: «We couldn\'t send the link…»', async () => {
+    const user = userEvent.setup();
+    registerEmailOnly.mockRejectedValue(emailTaken());
+    forgotPassword.mockRejectedValueOnce(new ApiClientError(502, { code: 'INTERNAL', message: 'x' }));
+    renderWithProviders(<InlineAuthPanel variant="register" defaultEmail="j@d.com" onSuccess={vi.fn()} />, 'en');
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
+    await user.click(await screen.findByRole('button', { name: 'Forgot your password?' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't send the link. Try again in a few minutes.");
+    expect(screen.queryByText('We sent a link to that email to set a new password.')).toBeNull();
+  });
+});

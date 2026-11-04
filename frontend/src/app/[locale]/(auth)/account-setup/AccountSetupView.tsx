@@ -84,7 +84,7 @@ export function AccountSetupView({ token }: { token?: string }) {
     );
   }
 
-  if (state === 'invalidToken') return <TokenLinkInvalid title={t('title')} testId="account-setup-invalid" />;
+  if (state === 'invalidToken') return <TokenLinkInvalid title={t('title')} titleVerified={t('titleVerified')} testId="account-setup-invalid" />;
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4" data-testid="account-setup-form">

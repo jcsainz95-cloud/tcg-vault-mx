@@ -1365,6 +1365,7 @@
     },
     "emailOnly": {
       "taken": "That email already has an account. Sign in and keep going: your cart doesn't change.",
+      "resetError": "We couldn't send the link. Try again in a few minutes.",
       "login": "Sign in to your account",
       "resetSent": "We sent a link to that email to set a new password.",
       "resetRateLimited": "You've requested several links. Wait a few minutes and try again.",
@@ -1387,6 +1388,7 @@
   },
   "verifyEmailPage": {
     "title": "Confirm your email",
+    "titleVerified": "Your email",
     "passwordLead": "To confirm it's you, enter your current password.",
     "password": "Password",
     "submit": "Confirm email",
@@ -1414,6 +1416,7 @@
   },
   "forgotPassword": {
     "title": "Reset password",
+    "sendError": "We couldn't send the link. Try again in a few minutes.",
     "subtitle": "Enter your email and we'll send you instructions to reset your password.",
     "email": "Email",
     "submit": "Send instructions",
@@ -8611,6 +8614,8 @@
   },
   "accountSetup": {
     "title": "Finish your account",
+    "sendError": "We couldn't send the link. Try again in a few minutes.",
+    "titleVerified": "Your account",
     "subtitle": "Tell us your name and choose a password. Then you sign in with your email and that password.",
     "name": "Name",
     "password": "Password",

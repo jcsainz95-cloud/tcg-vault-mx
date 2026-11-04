@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { forgotPassword, login, registerEmailOnly } from '@/lib/api';
+import { login, registerEmailOnly } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { useErrorMessage } from '@/components/ui/QueryState';
+import { useForgotPassword } from '@/hooks/useForgotPassword';
 import { GoogleSignInButton } from '@/components/domain/GoogleSignInButton';
 import { PrivacySiteNote } from '@/components/legal/PrivacyNoticeLink';
 import type { Locale } from '@/types/contract';
@@ -58,7 +59,7 @@ export function InlineAuthPanel({
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resetState, setResetState] = useState<'idle' | 'sending' | 'sent' | 'rateLimited'>('idle');
+  const { status: resetState, send: sendResetTo, reset: clearReset } = useForgotPassword();
   /**
    * N-13 · cuando el alta devuelve `409 EMAIL_TAKEN` ofrecemos entrar con el MISMO correo, sin sacar al usuario de
    * `/checkout` (§15.2). Marcamos el caso para pintar «Ingresar a cuenta» y, donde el padre NO controla la variante
@@ -92,28 +93,25 @@ export function InlineAuthPanel({
     // Conserva el correo (vive en el estado del panel) y limpia el aviso del alta fallida.
     setError(null);
     setEmailTaken(false);
-    setResetState('idle');
+    clearReset();
     setFocusPasswordOnLogin(true);
     if (onSwitchVariant) onSwitchVariant();
     else setVariantOverride('login');
   }
 
-  /** «¿Olvidaste tu contraseña?» del `409`: `forgot-password` con ese correo, sin salir (respuesta genérica). */
-  async function sendReset() {
-    setResetState('sending');
-    try {
-      await forgotPassword(email.trim());
-      setResetState('sent');
-    } catch (err) {
-      setResetState(err instanceof ApiClientError && err.code === 'RATE_LIMITED' ? 'rateLimited' : 'sent');
-    }
+  /**
+   * «¿Olvidaste tu contraseña?» del `409`: `forgot-password` con ese correo, sin salir (respuesta genérica). 5xx o red
+   * ⇒ `Banner danger` `auth.emailOnly.resetError` y el botón sigue para reintentar (TL-CTA-9, §CTA-UX.3b).
+   */
+  function sendReset() {
+    void sendResetTo(email.trim());
   }
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setEmailTaken(false);
-    setResetState('idle');
+    clearReset();
     setLoading(true);
     try {
       if (activeVariant === 'login') await login({ email, password });
@@ -170,6 +168,12 @@ export function InlineAuthPanel({
               )}
             </span>
           )}
+        </Banner>
+      )}
+      {/* TL-CTA-9: fuera del aviso informativo (un `alert` dentro de un `status` no se anuncia bien). */}
+      {emailTaken && activeVariant === 'register' && resetState === 'error' && (
+        <Banner variant="danger" role="alert" className="mb-6">
+          {te('resetError')}
         </Banner>
       )}
 

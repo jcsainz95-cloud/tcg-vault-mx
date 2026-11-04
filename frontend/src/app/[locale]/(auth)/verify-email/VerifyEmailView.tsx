@@ -115,7 +115,7 @@ export function VerifyEmailView({ token }: { token?: string }) {
     }
   }
 
-  if (state === 'invalidToken') return <TokenLinkInvalid title={t('title')} testId="verify-email-invalid" />;
+  if (state === 'invalidToken') return <TokenLinkInvalid title={t('title')} titleVerified={t('titleVerified')} testId="verify-email-invalid" />;
 
   if (state === 'success') {
     // Modo contraseña: la sesión que hubiera sigue viva (tokenVersion no cambia) ⇒ con sesión, «Ir a mi cuenta».
