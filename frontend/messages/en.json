@@ -1842,15 +1842,15 @@
         "candidateAttached": "Version linked to the card.",
         "column": {
           "language": "Language",
-          "stamp": "Stamp"
+          "stamp": "League"
         },
         "filter": {
           "language": "Language",
           "languageAll": "All",
-          "stamp": "Stamp",
+          "stamp": "League",
           "stampAll": "All",
-          "stampYes": "Stamped",
-          "stampNo": "Not stamped"
+          "stampYes": "League",
+          "stampNo": "Regular"
         },
         "pricePending": "Price pending",
         "versionsErrorTitle": "Versions didn't load",

@@ -96,6 +96,26 @@ describe('IDS-F6 · catálogo de textos `version`', () => {
     expect(keyPaths(es.version).sort()).toEqual(keyPaths(en.version).sort());
     expect(keyPaths(es.versionDetail).sort()).toEqual(keyPaths(en.versionDetail).sort());
   });
+  it('(7) paridad ES/EN de `admin.m1.ids` (captura, columna y filtros de liga del cajón de piezas)', () => {
+    expect(keyPaths(es.admin.m1.ids).sort()).toEqual(keyPaths(en.admin.m1.ids).sort());
+  });
+  it('HECHOS 2026-11-04: en el admin el rótulo visible es «Liga»/«League», no «Sello»/«Stamp» (columna y filtro)', () => {
+    expect(es.admin.m1.ids.column.stamp).toBe('Liga');
+    expect(en.admin.m1.ids.column.stamp).toBe('League');
+    expect(es.admin.m1.ids.filter).toMatchObject({ stamp: 'Liga', stampAll: 'Todas', stampYes: 'De liga', stampNo: 'Sin liga' });
+    expect(en.admin.m1.ids.filter).toMatchObject({ stamp: 'League', stampAll: 'All', stampYes: 'League', stampNo: 'Regular' });
+    // La celda y el filtro hablan como la insignia de la tienda («De liga» / «League») y como la captura («Sin liga» / «Regular»).
+    expect(es.admin.m1.ids.filter.stampYes).toBe(es.version.chip.league);
+    expect(en.admin.m1.ids.filter.stampYes).toBe(en.version.chip.league);
+    expect(es.admin.m1.ids.filter.stampNo).toBe(es.admin.m1.ids.noStamp);
+    expect(en.admin.m1.ids.filter.stampNo).toBe(en.admin.m1.ids.noStamp);
+    for (const cat of [es, en]) {
+      const offenders = [...strings(cat.admin.m1.ids.column, 'column'), ...strings(cat.admin.m1.ids.filter, 'filter')]
+        .filter(([, v]) => /\bsellos?\b|\bstamped?\b/i.test(v))
+        .map(([k]) => k);
+      expect(offenders).toEqual([]);
+    }
+  });
   it('(7) las cinco claves de FinishLabel, los cinco StampType y los dos idiomas existen en ambos', () => {
     for (const [cat, catD] of [
       [es.version, es.versionDetail],

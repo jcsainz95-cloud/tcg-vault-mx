@@ -120,7 +120,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // §IDS-UX.3: filtros de un toque Idioma / Sello (solo raw: la versión es solo de raw NM, D-IDS-K).
+  // §IDS-UX.3: filtros de un toque Idioma / Liga en burbujas (solo raw: la versión es solo de raw NM, D-IDS-K).
   const [langFilter, setLangFilter] = useState<LanguageFilter>('all');
   const [stampFilter, setStampFilter] = useState<StampFilter>('all');
   const pieces = useQuery({
@@ -598,7 +598,7 @@ function PiecesSection({
                       </button>
                     )}
                     <StatusBadge domain="inventory" value={piece.status} />
-                    {/* §IDS-UX.3: Idioma (EN gris / «Español») y Sello (insignia + tipo exacto, o —); solo raw. */}
+                    {/* §IDS-UX.3: Idioma (EN gris / «Español») y Liga (insignia + tipo exacto, o —); solo raw. */}
                     {piece.productType === 'raw' && <PieceVersion version={piece.version} />}
                     {sealedPieceLinkOf(piece) === 'linked' ? (
                       /* §70.3 (a): pieza LIGADA ⇒ solo lectura; el precio es del producto (bloque de arriba). */
