@@ -10,7 +10,8 @@
  * | CTA-B20 (c) | cuenta bloqueada: contraseña correcta ⇒ 403, incorrecta ⇒ 401 | — (orden argon2 → estado) |
  * | CTA-B20 (d) | bloqueada en `verify-email` (dos modos), `reset-password` y `account-setup` ⇒ 403, `usedAt` nulo, cuenta igual; reactivada ⇒ el mismo enlace 200 | consumir fuera de la transacción que se deshace |
  * | CTA-B20 (e) | `forgot-password` con el correo cambiado entre la búsqueda y el candado ⇒ 0 `AuthToken` y 0 correos | emitir al correo actual |
- * | CTA-R4 | `change-password` con reset/logout/hash a mano/bloqueo intercalado entre el `argon2.verify` y la escritura ⇒ `401 UNAUTHENTICATED`, sin par, fila intacta | quitar del `where` la condición entera o cada una (hash, `tokenVersion`, `status`) |
+ * | CTA-R4 | `change-password` con reset/verify-email{newPassword}/account-setup/logout/hash a mano/bloqueo intercalado entre el `argon2.verify` y la escritura ⇒ `401 UNAUTHENTICATED`, sin par, fila intacta | quitar del `where` la condición entera o cada una (hash, `tokenVersion`, `status`) |
+ * | PT-CTA-9 | Google: correo cambiado o cuenta bloqueada antes del candado ⇒ no enlaza (alta aparte / 403); admin: cuenta borrada antes del candado ⇒ 422 USER_DELETED sin escribir | quitar la relectura del correo, la del estado, o `status ≠ deleted` del `where` del admin |
  *
  * Espía de SQL: un `PrismaService` propio con `log: query` (eventos del motor, BEGIN/COMMIT incluidos) sustituye al de la app, como
  * IDS-B26. Las vías se ejecutan de una en una (nada concurrente), así que la secuencia de eventos de cada una es la de sus
@@ -529,47 +530,80 @@ describe('CTA v1.117.3 — B19 (cobertura del candado) y B20 (verify-email, cuen
     const actualVerify = (jest.requireActual('argon2') as typeof argon2).verify;
     const CHANGE_PW = 'CambioPerdedor123';
     const RESET_PW = 'ResetGanador123';
-    type Race = (w: { id: string; access: string }) => Promise<() => Promise<void>>;
+    /** Prepara la cuenta (con sesión y contraseña `PASSWORD`) y devuelve la escritura que se intercala. */
+    type Race = () => Promise<{ id: string; access: string; interleave: () => Promise<void> }>;
+    const registered = async (tag: string, interleave: (w: { id: string; email: string; access: string }) => Promise<() => Promise<void>>) => {
+      const w = await register(tag);
+      return { id: w.id, access: w.access, interleave: await interleave(w) };
+    };
     /** [caso, preparación, ¿el hash final debe ser el de RESET_PW?] */
     const RACES: [string, Race, boolean][] = [
       [
         'reset-password del dueño (hash y tokenVersion cambian)',
-        async (w) => {
-          const token = await issueAuthToken(h, w.id, AuthTokenType.password_reset);
-          return async () => expect((await post('/auth/reset-password', { token, password: RESET_PW })).status).toBe(200);
+        () =>
+          registered('r4rp', async (w) => {
+            const token = await issueAuthToken(h, w.id, AuthTokenType.password_reset);
+            return async () => expect((await post('/auth/reset-password', { token, password: RESET_PW })).status).toBe(200);
+          }),
+        true,
+      ],
+      [
+        'verify-email {token, newPassword} del dueño del buzón',
+        () =>
+          registered('r4vn', async (w) => {
+            const token = lastLink(w.email, 'verify-email');
+            return async () => expect((await post('/auth/verify-email', { token, newPassword: RESET_PW })).status).toBe(200);
+          }),
+        true,
+      ],
+      [
+        'account-setup del dueño del buzón (la cuenta tenía contraseña por set-password)',
+        async () => {
+          // PT-CTA-9: alguien da de alta el correo (email-only) y fija contraseña con set-password; el «Termina tu cuenta» sigue vivo.
+          const p = await emailOnly('r4as');
+          const sp = await post('/auth/set-password', { newPassword: PASSWORD }, p.access);
+          expect(sp.status).toBe(200);
+          const token = lastLink(p.email, 'account-setup');
+          return {
+            id: p.id,
+            access: sp.body.accessToken as string,
+            interleave: async () =>
+              expect((await post('/auth/account-setup', { token, name: 'Duena Real', password: RESET_PW })).status).toBe(200),
+          };
         },
         true,
       ],
       [
         'logout (solo tokenVersion cambia)',
-        async (w) => async () => expect((await post('/auth/logout', undefined, w.access)).status).toBeLessThan(300),
+        () => registered('r4lo', async (w) => async () => expect((await post('/auth/logout', undefined, w.access)).status).toBeLessThan(300)),
         false,
       ],
       [
         'hash cambiado a mano sin tocar tokenVersion (solo passwordHash cambia)',
-        async (w) => async () => {
-          await prisma.user.update({ where: { id: w.id }, data: { passwordHash: await argon2.hash(RESET_PW) } });
-        },
+        () =>
+          registered('r4hm', async (w) => async () => {
+            await prisma.user.update({ where: { id: w.id }, data: { passwordHash: await argon2.hash(RESET_PW) } });
+          }),
         true,
       ],
       [
         'cuenta bloqueada por el panel (solo status cambia)',
-        async (w) => async () => {
-          await prisma.user.update({ where: { id: w.id }, data: { status: UserStatus.blocked } });
-        },
+        () =>
+          registered('r4bl', async (w) => async () => {
+            await prisma.user.update({ where: { id: w.id }, data: { status: UserStatus.blocked } });
+          }),
         false,
       ],
     ];
 
     it.each(RACES)('%s ⇒ 401 UNAUTHENTICATED, sin par, sin escribir y sin auditar el cambio', async (_race, prepare, resetWins) => {
-      const w = await register('r4');
-      const interleave = await prepare(w);
+      const w = await prepare();
       let hooked = 0;
       let mid: Awaited<ReturnType<typeof userById>> | null = null;
       verifySpy.mockImplementationOnce(async (hash: string, plain: string) => {
         const ok = await actualVerify(hash, plain);
         hooked += 1;
-        await interleave();
+        await w.interleave();
         mid = await userById(w.id);
         return ok;
       });
@@ -592,6 +626,91 @@ describe('CTA v1.117.3 — B19 (cobertura del candado) y B20 (verify-email, cuen
       expect([r.status, typeof r.body?.accessToken]).toEqual([200, 'string']);
       const after = await userById(w.id);
       expect(await actualVerify(after.passwordHash as string, CHANGE_PW)).toBe(true);
+    });
+  });
+
+  // ─────────────────────── PT-CTA-9 (misma clase que R4): enlace de Google y reset del admin ───────────────────────
+
+  /**
+   * Las dos vías leían y decidían FUERA del candado (Google: la cuenta «del correo» y su estado; admin: existe / no borrada) y
+   * escribían dentro sin volver a exigirlo. Gancho: `prisma.$transaction` envuelto, como CTA-B20 (e): la otra escritura entra
+   * justo antes de abrir la transacción del candado.
+   */
+  describe('PT-CTA-9 — Google y reset del admin re-deciden dentro del candado', () => {
+    async function withHookedGate<T>(before: () => Promise<unknown>, fn: () => Promise<T>): Promise<{ out: T; hooked: number }> {
+      const original = prisma.$transaction.bind(prisma) as (...a: unknown[]) => Promise<unknown>;
+      let hooked = 0;
+      const spy = jest.spyOn(prisma, '$transaction').mockImplementation((async (...args: unknown[]) => {
+        if (hooked === 0 && typeof args[0] === 'function') {
+          hooked += 1;
+          await before();
+        }
+        return original(...args);
+      }) as never);
+      try {
+        return { out: await fn(), hooked };
+      } finally {
+        spy.mockRestore();
+      }
+    }
+
+    it('Google: el correo de la cuenta cambia antes del candado ⇒ NO se enlaza (ni se marca verificado el correo nuevo); alta aparte con el de Google', async () => {
+      const w = await register('pt9g');
+      const moved = nextEmail('pt9gv');
+      const sub = `g-${randomUUID()}`;
+      google.identity = { sub, email: w.email, emailVerified: true, name: 'Ana Pérez' };
+      try {
+        const { out: r, hooked } = await withHookedGate(
+          () => prisma.user.update({ where: { id: w.id }, data: { email: moved } }),
+          () => post('/auth/google', { idToken: 'x' }),
+        );
+        expect(hooked).toBe(1);
+        expect(r.status).toBe(200);
+      } finally {
+        google.identity = null;
+      }
+      const victim = await userById(w.id);
+      expect([victim.email, victim.googleId, victim.emailVerified]).toEqual([moved, null, false]);
+      expect(victim.passwordHash).not.toBeNull();
+      const fresh = await prisma.user.findUniqueOrThrow({ where: { email: w.email } });
+      expect(fresh.id).not.toBe(w.id);
+      expect(fresh.googleId).toBe(sub);
+    });
+
+    it('Google: la cuenta se bloquea antes del candado ⇒ 403 USER_BLOCKED y la cuenta intacta (sin googleId)', async () => {
+      const w = await register('pt9gb');
+      google.identity = { sub: `g-${randomUUID()}`, email: w.email, emailVerified: true, name: 'Ana Pérez' };
+      let before: Awaited<ReturnType<typeof userById>> | null = null;
+      try {
+        const { out: r, hooked } = await withHookedGate(
+          async () => {
+            await prisma.user.update({ where: { id: w.id }, data: { status: UserStatus.blocked } });
+            before = await userById(w.id);
+          },
+          () => post('/auth/google', { idToken: 'x' }),
+        );
+        expect(hooked).toBe(1);
+        expect([r.status, r.body?.error?.code]).toEqual([403, 'USER_BLOCKED']);
+      } finally {
+        google.identity = null;
+      }
+      expect(await userById(w.id)).toEqual(before);
+    });
+
+    it('reset del admin: la cuenta se borra (soft) antes del candado ⇒ 422 USER_DELETED, sin hash nuevo ni tokenVersion', async () => {
+      const w = await register('pt9adm');
+      let before: Awaited<ReturnType<typeof userById>> | null = null;
+      const { out: r, hooked } = await withHookedGate(
+        async () => {
+          await prisma.user.update({ where: { id: w.id }, data: { status: UserStatus.deleted } });
+          before = await userById(w.id);
+        },
+        () => h.api('POST', `/admin/users/${w.id}/reset-password`, { token: adminToken }),
+      );
+      expect(hooked).toBe(1);
+      expect([r.status, r.body?.error?.code]).toEqual([422, 'USER_DELETED']);
+      expect(r.body?.tempPassword).toBeUndefined();
+      expect(await userById(w.id)).toEqual(before);
     });
   });
 });

@@ -1510,22 +1510,28 @@ export class AdminService {
     const passwordHash = await argon2.hash(tempPassword);
     // 🔒 v1.117.2 (API_CONTRACT §CTA.13): la escritura de la credencial, bajo el candado de la cuenta (en serie con los enlaces
     // del correo, `set-password`, etc.).
-    await withAccountGate(this.prisma, id, (tx) =>
-      tx.user.update({
-        // 🔒 D2g: la protección también en el `where` de la escritura (`where` único extendido; un P2025 aquí ⇒ `403`).
-        where: { id, ...(actorUserId === id ? {} : { isOwner: false }) },
-        data: {
-          passwordHash,
-          mustChangePassword: true,
-          // Revoca refresh/access vigentes (el guard y /auth/refresh rechazan la versión previa).
-          tokenVersion: { increment: 1 },
-        },
-      }),
-    ).catch((e: unknown) => {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+    // PT-CTA-9/R4 (2026-11-04): «existe» y «no está borrada» se leyeron FUERA (y argon2 va entre medias); la escritura los
+    // vuelve a exigir en su `where`. Sin fila ⇒ se relee DENTRO para dar el código del motivo: no existe (`404`), borrada
+    // (`422 USER_DELETED`, como la comprobación de arriba) o la del dueño (`403`).
+    await withAccountGate(this.prisma, id, async (tx) => {
+      try {
+        await tx.user.update({
+          // 🔒 D2g: la protección también en el `where` de la escritura (`where` único extendido).
+          where: { id, status: { not: UserStatus.deleted }, ...(actorUserId === id ? {} : { isOwner: false }) },
+          data: {
+            passwordHash,
+            mustChangePassword: true,
+            // Revoca refresh/access vigentes (el guard y /auth/refresh rechazan la versión previa).
+            tokenVersion: { increment: 1 },
+          },
+        });
+      } catch (e: unknown) {
+        if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== 'P2025') throw e;
+        const now = await tx.user.findUnique({ where: { id }, select: { status: true } });
+        if (!now) throw BusinessException.notFound();
+        if (now.status === UserStatus.deleted) throw BusinessException.validation('USER_DELETED', 'Cannot reset a deleted account');
         throw BusinessException.forbidden('OWNER_ACCOUNT_PROTECTED', "This is the owner's account: it can't be changed from another account");
       }
-      throw e;
     });
     // v1.80 (C7): es la vía para que el dueño desbloquee a un operador (contrato §M6).
     await attempts.clearForUser(user);

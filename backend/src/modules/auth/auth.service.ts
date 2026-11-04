@@ -877,9 +877,16 @@ export class AuthService {
         // su contraseña y se anula todo token pendiente; y, como en `account-setup` 5-bis, la libreta queda sin
         // predeterminada. Con `emailVerified=true`, como antes (sesiones vivas, contraseña intacta).
         // v1.117.2 (§CTA.13): todo bajo el candado de la cuenta, y `wasUnverified` se decide con la fila leída DENTRO.
+        // PT-CTA-9/R4 (2026-11-04): la búsqueda por correo y el estado se leyeron FUERA; dentro se vuelven a decidir sobre la
+        // fila releída. Si el correo ya no es éste (un PATCH del correo, el panel o un borrado ganaron la carrera), esta cuenta
+        // ya no es «la del correo de Google»: no se enlaza (enlazarla marcaría verificado un correo que Google no probó) y se
+        // sigue como si la búsqueda no la hubiera encontrado — lo mismo que si la otra escritura hubiera llegado antes.
         const linked = await withAccountGate(this.prisma, byEmail.id, async (tx) => {
           const cur = await tx.user.findUnique({ where: { id: byEmail.id } });
-          if (!cur) throw BusinessException.notFound();
+          if (!cur || cur.email !== email) return null;
+          if (cur.status === UserStatus.blocked || cur.status === UserStatus.deleted) {
+            throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
+          }
           const linkData = {
             googleId: identity.sub,
             emailVerified: true,
@@ -896,16 +903,17 @@ export class AuthService {
           await clearDefaultAddressAfterInboxProof(tx, cur.id);
           return { user: u, wasUnverified: true };
         });
-        user = linked.user;
-        const wasUnverified = linked.wasUnverified;
-        await this.audit.log({
-          actorUserId: user.id,
-          actorRole: user.role,
-          action: 'auth.google_link',
-          entityType: 'User',
-          entityId: user.id,
-          ...(wasUnverified ? { after: { wasUnverified: true } } : {}),
-        });
+        if (linked) {
+          user = linked.user;
+          await this.audit.log({
+            actorUserId: user.id,
+            actorRole: user.role,
+            action: 'auth.google_link',
+            entityType: 'User',
+            entityId: user.id,
+            ...(linked.wasUnverified ? { after: { wasUnverified: true } } : {}),
+          });
+        }
       }
     }
 
