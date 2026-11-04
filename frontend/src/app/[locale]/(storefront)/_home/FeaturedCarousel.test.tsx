@@ -139,9 +139,10 @@ describe('FeaturedCarousel · PERF (candado)', () => {
 
     // Miden 160px (268px en lg): la grande (~734×1024) se descargaría entera para pintarse a
     // menos de un tercio de su ancho, y son SIETE en el primer bloque con imágenes de la home.
+    // 2026-11-04 («Pásalas por el reductor»): la chica viaja por `/_next/image`; lo que se fija es QUÉ foto pide.
     for (const [id, name] of SECONDARY) {
       const img = screen.getByAltText(name);
-      expect(img).toHaveAttribute('src', `https://img.example/${id}-small.png`);
+      expect(optimizerUrlOf(img)).toBe(`https://img.example/${id}-small.png`);
       expect(img.getAttribute('src')).not.toContain('-large');
     }
   });
@@ -163,10 +164,13 @@ describe('FeaturedCarousel · PERF (candado)', () => {
     renderWithProviders(<FeaturedCarousel />, 'es');
     await screen.findByAltText('Charizard');
 
+    // 2026-11-04: 01–03 caben en el primer viewport ⇒ `eager` (sin prioridad alta); 04+ `lazy`. Ninguna `high`.
     for (const [, name] of SECONDARY) {
       const img = screen.getByAltText(name);
-      expect(img).toHaveAttribute('loading', 'lazy');
       expect(img).not.toHaveAttribute('fetchpriority');
     }
+    expect(screen.getByAltText('Blastoise')).toHaveAttribute('loading', 'eager');
+    expect(screen.getByAltText('Venusaur')).toHaveAttribute('loading', 'eager');
+    expect(screen.getByAltText('Pikachu')).toHaveAttribute('loading', 'eager');
   });
 });

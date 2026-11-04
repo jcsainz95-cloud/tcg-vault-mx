@@ -323,8 +323,20 @@ Vigente: `<h1>` del sellado «nombre · set»; `CheckoutLines` con `historicalCa
 ## §DYN.6 · Opción A + c1: foto líder por `/_next/image` y textos por ruta (2026-10-30, rama `claude/portada-opcion-a`)
 
 **Estado vigente** (contrato v1.114.2 §DYN.6.6/.6.7; ARCHITECTURE §4.DYN (f) 7–8).
-- **Foto líder (DYN-F8/F9):** `CardImage` prop `optimized` (solo la líder; candado de fuente: un único uso). `getImageProps()`
-  con `sizes` `minWidthQuery('lg') 376px, 212px` y q 75; `ReactDOM.preload` del mismo resultado, una vez por foto (ya no
+- **Fotos por `/_next/image` (DYN-F8/F9):** `CardImage` prop `optimized` — la líder y, desde el 2026-11-04 («Pásalas por el
+  reductor», `HECHOS` 2026-11-04), las tejas secundarias de Destacadas; candado de fuente: SOLO en `FeaturedCarousel.tsx`
+  (2 usos, los dos colgados de `leadImageOptimized()`; `FeaturedCarousel.leadImage.test.tsx` y
+  `next-image-remote-patterns.test.ts` muerden con un uso más —catálogo— o uno menos). Tejas: la chica (245 px) con
+  `optimizedSizes` = `OPTIMIZED_TILE_IMAGE_SIZES` (`lg` 244px, 136px); el optimizador no reescala hacia arriba ⇒ 384 y 640
+  pesan igual (~16 KB WebP contra 46–165 KB PNG, medido) y NO se añadió ningún ancho a `images.imageSizes`. Coste: ≤ 2
+  transformaciones por teja ⇒ ≤ 20/día si las 10 rotan a cartas nuevas (+2 de la líder), contra el disparador de ~1 000/día
+  (DEVOPS_NOTES §106.4). 01–03 `eager` (`FEATURED_EAGER_TILES`), 04+ `lazy`; `fetchpriority=high` sigue siendo solo de la líder.
+  **Causa medida de las tejas en beige (captura del dueño 2026-11-04):** la relectura de `img.complete` al montar corría
+  solo con `optimized`; las tejas crudas que bajaban antes de hidratar quedaban en `opacity-0` para siempre (producción,
+  Chromium iPhone 13 red rápida N=3: 7–9/10 invisibles a 20 s; WebKit 1/3; catálogo 4–10/10). Ahora corre en toda
+  `CardImage` (candado `CardImage.test.tsx`). Sigue abierto: la teja no se ve hasta hidratar aunque ya bajó (4G: bajada
+  1.9 s, visible 3.7 s) — quitar el fundido `opacity-0` en las tejas es la siguiente palanca, NO MEDIDA en producción.
+  Líder: `getImageProps()` con `sizes` `minWidthQuery('lg') 376px, 212px` y q 75; `ReactDOM.preload` del mismo resultado, una vez por foto (ya no
   desde `FeaturedCarousel`). Primer `error` ⇒ la original sin `srcset` (una vez); `onLoaded` una vez, tras el respaldo;
   original rota ⇒ pozo sin `<img>`. Al montar lee `img.complete`/`naturalWidth`: React no repite `load`/`error` previos a
   hidratar (medido: sin esa lectura, el F9 E2E sale 20/20 rojo; con ella 20/20 verde). `next.config.mjs` `IMAGE_OPTIMIZER`:

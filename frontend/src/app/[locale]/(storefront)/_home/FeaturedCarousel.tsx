@@ -9,7 +9,7 @@ import type { FeaturedSlotKind, GroupedListingSummaryDTO } from '@/types/contrac
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Link } from '@/i18n/navigation';
-import { CardImage } from '@/components/ui/CardImage';
+import { CardImage, OPTIMIZED_TILE_IMAGE_SIZES } from '@/components/ui/CardImage';
 import { leadImageOptimized } from '@/lib/image-optimizer-switch.mjs';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { QueryState } from '@/components/ui/QueryState';
@@ -120,6 +120,9 @@ export type PlaybackMode = 'playing' | 'paused' | 'ended';
  * `featuredSlot`. La portada la hidrata desde el servidor con la MISMA clave (`page.tsx`, §DYN.6.2); aquí se revalida
  * al montar.
  */
+/** Nº de tejas secundarias (01…) que se piden en caliente (`eager`): las que caben en el primer viewport. */
+export const FEATURED_EAGER_TILES = 3;
+
 export function useFeaturedCatalog() {
   return useQuery({
     queryKey: FEATURED_QUERY_KEY,
@@ -803,7 +806,18 @@ export function FeaturedCarousel() {
                         un tercio de su ancho — y son SIETE, en el primer bloque con imágenes de la home.
                         La chica (245×342) ya cubre 268px con holgura en pantallas 1x. Si algún día estas
                         tejas crecen por encima de ~245px de ancho real, entonces sí toca revisar. */}
-                    <CardImage src={l.card.imageSmallUrl} alt={l.card.name} />
+                    {/* 2026-11-04 («Pásalas por el reductor», HECHOS): la chica (245 px) por el optimizador ⇒ los MISMOS
+                        píxeles que antes y ~16 KB WebP en vez de 46–165 KB PNG (medido). Mismo interruptor que la líder
+                        (`leadImageOptimized`) y el `sizes` de ESTA teja (136/244 px), no el de la líder. 01–03 caben en el
+                        primer viewport (celular tras desplazar: 01, 02 y media 03; escritorio lg: líder + 01, 02 y media
+                        03) ⇒ `eager`; el resto `lazy`. Candado: FeaturedCarousel.leadImage.test.tsx (DYN-F8). */}
+                    <CardImage
+                      src={l.card.imageSmallUrl}
+                      alt={l.card.name}
+                      optimized={leadImageOptimized()}
+                      optimizedSizes={OPTIMIZED_TILE_IMAGE_SIZES}
+                      eager={i <= FEATURED_EAGER_TILES}
+                    />
                     <NewArrivalLabel l={l} className="mt-3 lg:mt-[15px]" />
                     <div className="mt-3 flex items-baseline gap-2 lg:mt-[15px]">
                       {/* Numeración decorativa/orientadora (§20.3): el orden real lo da el DOM.
