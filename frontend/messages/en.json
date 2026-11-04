@@ -8630,6 +8630,7 @@
     "sending": "Sending…",
     "sent": "We sent you another link. Check your email.",
     "sentGeneric": "If that email has an account, we sent another link. Check your inbox.",
+    "alreadyVerified": "Your email is already confirmed: you don't need another link.",
     "email": "Email",
     "rateLimited": "You've requested several links. Wait a while and try again.",
     "blocked": "This account is blocked. Contact us and we'll help.",

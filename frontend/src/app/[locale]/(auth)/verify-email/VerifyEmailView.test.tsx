@@ -208,6 +208,40 @@ describe('CTA-F9 · /verify-email no canjea al cargar y prueba o fija la credenc
     expect(forgotPassword).not.toHaveBeenCalled();
   });
 
+  /**
+   * M-1 (QA sobre `36f93c98`): con sesión de una cuenta YA verificada, `verify-email/resend` es un no-op que responde
+   * `{ok:true}` (backend `auth.service.ts` `resendVerification`: `if (u.emailVerified) return null`). «Mandar otro»
+   * pintaría «enviado» sin que salga ningún correo. Mutación: quitar la rama `emailVerified` de `TokenLinkInvalid`.
+   */
+  it.each([
+    ['es', es, '/account'],
+    ['en', en, '/account'],
+  ] as const)(
+    'M-1 · enlace usado con sesión de cuenta YA verificada (%s) ⇒ sin «Mandar otro»: dice que ya está confirmado e «Ir a mi cuenta»',
+    async (locale, M, href) => {
+      setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale, emailVerified: true });
+      verifyEmail.mockRejectedValue(new ApiClientError(422, { code: 'EMAIL_VERIFY_TOKEN_INVALID', message: 'x' }));
+      resendVerificationEmail.mockResolvedValue({ ok: true });
+      renderWithIntl(<VerifyEmailView token={TOKEN} />, locale);
+      fireEvent.change(screen.getByLabelText(M.verifyEmailPage.password), { target: { value: 'mi-clave-123' } });
+      fireEvent.click(screen.getByRole('button', { name: M.verifyEmailPage.submit }));
+      const banner = (await screen.findByText(M.accountSetup.alreadyVerified)).closest('[data-variant]')!;
+      expect(banner).toHaveAttribute('role', 'status');
+      expect(screen.getByRole('link', { name: M.verifyEmailPage.goToAccount })).toHaveAttribute('href', href);
+      expect(screen.queryByRole('button', { name: M.accountSetup.sendAnother })).toBeNull();
+      expect(screen.queryByText(M.accountSetup.sent)).toBeNull();
+      expect(resendVerificationEmail).not.toHaveBeenCalled();
+      expect(forgotPassword).not.toHaveBeenCalled();
+    },
+  );
+
+  it('M-1 · sin token y con sesión de cuenta YA verificada ⇒ tampoco ofrece «Mandar otro»', async () => {
+    setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale: 'es', emailVerified: true });
+    renderWithIntl(<VerifyEmailView token={undefined} />);
+    expect(await screen.findByText(es.accountSetup.alreadyVerified)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: es.accountSetup.sendAnother })).toBeNull();
+  });
+
   it('sin token ⇒ directo al estado de enlace vencido, sin formulario ni petición', async () => {
     renderWithIntl(<VerifyEmailView token={undefined} />);
     await settle();
