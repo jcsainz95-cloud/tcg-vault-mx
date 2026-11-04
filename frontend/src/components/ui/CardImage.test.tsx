@@ -66,3 +66,38 @@ describe('CardImage · prioridad de carga', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * 🔒 proto/C (2026-11-04) — las tejas CRUDAS (sin `optimized`) salen en el HTML del servidor y pueden terminar de
+ * bajar antes de hidratar; React no repite ese `load`. Al montar se lee `img.complete`/`naturalWidth` como ya hacía
+ * la líder: con píxeles ⇒ visible y `onLoaded`; sin ellos (rota) ⇒ `onLoaded` igual (nadie espera a un 404).
+ * Canario medido: con la relectura solo en `optimized` (776a86e) este bloque sale rojo.
+ */
+describe('CardImage · imagen terminada ANTES de hidratar, sin `optimized`', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('completa con píxeles al montar ⇒ opacity-100 y onLoaded (sin esperar un load que no vendrá)', () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(245);
+    const onLoaded = vi.fn();
+    render(<CardImage src={SRC} alt="Charizard" onLoaded={onLoaded} />);
+    expect(screen.getByAltText('Charizard')).toHaveClass('opacity-100');
+    expect(onLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('completa SIN píxeles (rota) ⇒ onLoaded una vez; no se queda «cargando»', () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true);
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(0);
+    const onLoaded = vi.fn();
+    render(<CardImage src={SRC} alt="Charizard" onLoaded={onLoaded} />);
+    expect(onLoaded).toHaveBeenCalledTimes(1);
+  });
+
+  it('aún no pedida (complete=false, lazy) ⇒ sigue en opacity-0 hasta el load de React', () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(false);
+    const onLoaded = vi.fn();
+    render(<CardImage src={SRC} alt="Charizard" onLoaded={onLoaded} />);
+    expect(screen.getByAltText('Charizard')).toHaveClass('opacity-0');
+    expect(onLoaded).not.toHaveBeenCalled();
+  });
+});

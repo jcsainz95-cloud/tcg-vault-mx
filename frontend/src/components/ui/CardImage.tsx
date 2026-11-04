@@ -133,19 +133,22 @@ export function CardImage({ src, alt, className, priority = false, onLoaded, opt
   const settleRef = useRef(settle);
   settleRef.current = settle;
   /*
-   * La `<img>` líder sale en el HTML (§DYN.6.2) y puede terminar ANTES de hidratar: React no repite esos
+   * Toda `<img>` que sale en el HTML del servidor (la líder, §DYN.6.2, y las tejas de Destacadas y del catálogo,
+   * hidratadas con `HydrationBoundary`) puede terminar de bajar ANTES de hidratar, y React no repite esos
    * `load`/`error`. Al montar se mira el estado real (lo mismo que hace `next/image`): completa con píxeles ⇒
-   * cargada; completa sin píxeles ⇒ error. Solo en `optimized` (la líder es `eager`; en una `lazy` no
-   * cargada aún, `complete` no es fiable).
+   * cargada; completa sin píxeles ⇒ error. En una `lazy` que aún no se pidió, `complete` es `false` por
+   * especificación (petición «unavailable»), así que la relectura no la toca y su `load` llega por React.
+   *
+   * proto/C (2026-11-04) — antes esto corría SOLO con `optimized` y las tejas crudas se quedaban en `opacity-0`
+   * para siempre cuando bajaban antes de hidratar (medido en producción, Chromium iPhone 13, red rápida, N=3:
+   * 10/10 bajadas a ~1.1 s, hidratación ~1.5 s, 7–9/10 invisibles a los 20 s; con las imágenes retrasadas 2.5 s,
+   * 0/10 invisibles en 3/3). Es la causa de las tejas en beige de la captura del dueño.
    */
-  const replayRef = useCallback(
-    (img: HTMLImageElement | null) => {
-      if (!img || !optimized || !img.complete) return;
-      if (img.naturalWidth > 0) settleRef.current();
-      else failRef.current();
-    },
-    [optimized],
-  );
+  const replayRef = useCallback((img: HTMLImageElement | null) => {
+    if (!img || !img.complete) return;
+    if (img.naturalWidth > 0) settleRef.current();
+    else failRef.current();
+  }, []);
 
   // Con `priority` no hay fade: la imagen se pinta en cuanto llega. Un `opacity-0` que
   // espera al `onLoad` retrasa el PINTADO (y por tanto el LCP) aunque los bytes ya estén.
@@ -164,7 +167,7 @@ export function CardImage({ src, alt, className, priority = false, onLoaded, opt
         <img
           // Respaldo: `key` nuevo ⇒ elemento nuevo, sin `srcset` ni `sizes` que el navegador pudiera seguir usando.
           key={optimized ? phase : undefined}
-          ref={optimized ? replayRef : undefined}
+          ref={replayRef}
           {...(attrs ? { srcSet: attrs.srcSet, sizes: attrs.sizes } : {})}
           src={attrs ? attrs.src : src}
           alt={alt}
