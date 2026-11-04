@@ -42,15 +42,22 @@ export function TokenLinkInvalid({ title, testId }: { title: string; testId: str
     }
   }
 
+  // m-1 (QA sobre `153f7c40`): con la cuenta ya verificada el aviso «El enlace ya se usó o caducó… Pide otro» contradice
+  // «no necesitas otro enlace»; no se pinta. Tampoco antes de resolver la sesión, para no enseñarlo y quitarlo
+  // (§CTA-UX.3b: «no se pinta hasta saber el estado»). El h1 es el de la página, el mismo que en «Listo».
+  const alreadyVerified = isAuthenticated && !!user?.emailVerified;
+
   return (
     <div className="flex flex-col gap-5" data-testid={testId}>
       <h1 className="text-h2 font-bold">{title}</h1>
-      <Banner variant="warning" role="alert" title={t('invalidTitle')}>
-        {t('invalidBody')}
-      </Banner>
+      {ready && !alreadyVerified && (
+        <Banner variant="warning" role="alert" title={t('invalidTitle')}>
+          {t('invalidBody')}
+        </Banner>
+      )}
 
       {!ready ? null : isAuthenticated ? (
-        user?.emailVerified ? (
+        alreadyVerified ? (
           <div className="flex flex-col gap-4" data-testid="token-link-already-verified">
             <Banner variant="success" role="status">
               {t('alreadyVerified')}

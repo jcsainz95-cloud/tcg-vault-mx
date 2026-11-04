@@ -47,6 +47,17 @@ function typePasswordAndSubmit(pw = 'mi-clave-123') {
   fireEvent.click(screen.getByRole('button', { name: T.submit }));
 }
 
+/**
+ * m-1: con cuenta ya verificada no hay aviso rojo de enlace vencido ni su «Pide otro»; el h1 es el de la página (el mismo
+ * que en «Listo», §CTA-UX.3b), nunca el título del aviso.
+ */
+function expectNoInvalidLinkWarning(M: typeof es) {
+  expect(screen.queryByText(M.accountSetup.invalidTitle)).toBeNull();
+  expect(screen.queryByText(M.accountSetup.invalidBody)).toBeNull();
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(M.verifyEmailPage.title);
+}
+
 function toNewPasswordMode() {
   fireEvent.click(screen.getByRole('button', { name: T.toNewPassword }));
 }
@@ -212,6 +223,8 @@ describe('CTA-F9 · /verify-email no canjea al cargar y prueba o fija la credenc
    * M-1 (QA sobre `36f93c98`): con sesión de una cuenta YA verificada, `verify-email/resend` es un no-op que responde
    * `{ok:true}` (backend `auth.service.ts` `resendVerification`: `if (u.emailVerified) return null`). «Mandar otro»
    * pintaría «enviado» sin que salga ningún correo. Mutación: quitar la rama `emailVerified` de `TokenLinkInvalid`.
+   * m-1 (QA sobre `153f7c40`): en esa rama tampoco va el aviso rojo «El enlace ya se usó o caducó… Pide otro»: diría a la
+   * vez «pide otro» y «no necesitas otro enlace». Mutación: pintar el `Banner warning` fuera de la rama no verificada.
    */
   it.each([
     ['es', es, '/account'],
@@ -230,17 +243,26 @@ describe('CTA-F9 · /verify-email no canjea al cargar y prueba o fija la credenc
       expect(screen.getByRole('link', { name: M.verifyEmailPage.goToAccount })).toHaveAttribute('href', href);
       expect(screen.queryByRole('button', { name: M.accountSetup.sendAnother })).toBeNull();
       expect(screen.queryByText(M.accountSetup.sent)).toBeNull();
+      expectNoInvalidLinkWarning(M);
       expect(resendVerificationEmail).not.toHaveBeenCalled();
       expect(forgotPassword).not.toHaveBeenCalled();
     },
   );
 
-  it('M-1 · sin token y con sesión de cuenta YA verificada ⇒ tampoco ofrece «Mandar otro»', async () => {
-    setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale: 'es', emailVerified: true });
-    renderWithIntl(<VerifyEmailView token={undefined} />);
-    expect(await screen.findByText(es.accountSetup.alreadyVerified)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: es.accountSetup.sendAnother })).toBeNull();
-  });
+  it.each([
+    ['es', es],
+    ['en', en],
+  ] as const)(
+    'M-1 · sin token y con sesión de cuenta YA verificada (%s) ⇒ tampoco ofrece «Mandar otro» ni el aviso rojo',
+    async (locale, M) => {
+      setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale, emailVerified: true });
+      renderWithIntl(<VerifyEmailView token={undefined} />, locale);
+      expect(await screen.findByText(M.accountSetup.alreadyVerified)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: M.verifyEmailPage.goToAccount })).toHaveAttribute('href', '/account');
+      expect(screen.queryByRole('button', { name: M.accountSetup.sendAnother })).toBeNull();
+      expectNoInvalidLinkWarning(M);
+    },
+  );
 
   it('sin token ⇒ directo al estado de enlace vencido, sin formulario ni petición', async () => {
     renderWithIntl(<VerifyEmailView token={undefined} />);
