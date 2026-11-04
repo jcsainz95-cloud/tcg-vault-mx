@@ -9,7 +9,7 @@
 
 ## §CTA — deuda del techlead sobre e9c4c316 (TL-CTA)
 
-> Rechazo del techlead sobre `e9c4c316` (rama `claude/cuenta-correo`). Cada rol anota sus fichas en esta tabla (O-23): backend las TL-CTA-1, 2, 3 y 10 (`fichero:línea` re-medidos el 2026-11-03 sobre `e9c4c316`); frontend las TL-CTA-4…9.
+> Rechazo del techlead sobre `e9c4c316` (rama `claude/cuenta-correo`). Cada rol anota sus fichas en esta tabla (O-23): backend las TL-CTA-1, 2, 3 y 10 (`fichero:línea` re-medidos el 2026-11-03 sobre `e9c4c316`); frontend las TL-CTA-4…9. TL-CTA-11…15: rechazo del techlead sobre `36f93c98` (R4), anotadas por backend el 2026-11-04 con las líneas de ese sha.
 
 | ID | Qué | Dueño | Medido el | Comprobación de cierre |
 |---|---|---|---|---|
@@ -23,6 +23,11 @@
 | TL-CTA-8 | CERRADA (2026-11-03, frontend, `43458484`) · `EmailSection.tsx:83` tenía un byte NUL literal (el SENTINEL) y git lo trataba como binario (`git diff --numstat` ⇒ `-\t-`); ahora `'\u0000'`. JSDoc corregido: la cuenta pendiente sin verificar SÍ corrige su correo. ⚠ El `grep -cP '\x00'` de la ficha da **0 también con el NUL dentro** (grep no cuenta en binarios sin `-a`; medido sobre `e9c4c316`: `-cP` ⇒ 0, `-caP` ⇒ 1) | frontend | 2026-11-03 (`43458484`) | `grep -caP '\x00' frontend/src/components/domain/account/EmailSection.tsx` ⇒ 0 (con `-a`); candado `frontend/src/source-text.test.ts` (ningún NUL en `src/`): NUL reinsertado ⇒ rojo 3/3, restaurado ⇒ verde 3/3 |
 | TL-CTA-9 | ABIERTA (frontend + ux-ui) · «¿Olvidaste tu contraseña?» muestra «enviado» ante red caída o 500 en `checkout/InlineAuthPanel.tsx:108` y `(auth)/account-setup/AccountSetupView.tsx:156` (comentario: «lo demás se trata como enviado (no hay oráculo)»), mientras `components/domain/account/PasswordPage.tsx:109` muestra el error | frontend + ux-ui | 2026-11-03 (`43458484`) | un hook `useForgotPassword` en los tres sitios; prueba con 500 ⇒ mensaje de error (y ux-ui confirma que un 5xx no es oráculo de enumeración) |
 | TL-CTA-10 | CERRADA (2026-11-03, backend) · I-6 a medias: `auth.service.ts:417` (verificación) y `:510` (reset) registraban `String(e)` del fallo del correo (un proveedor que devuelva el cuerpo rechazado deja el enlace en el log). Ahora los dos usan `errorKind(e)` (solo la clase), igual que `:263` | backend | 2026-11-03 (`e9c4c316`) | `grep -c "String(e)" backend/src/modules/auth/auth.service.ts` ⇒ 0 (era 2); `cta-cuenta-correo.e2e-spec.ts` «CTA-B9 (TL-CTA-10)»: el correo falla con un mensaje que lleva el enlace en verificación y en reset ⇒ el log registra el fallo y no contiene el enlace, el claro ni el mensaje (rojo sobre `e9c4c316`) |
+| TL-CTA-11 | CERRADA (2026-11-04, backend, en el pase de R4) · techlead sobre `36f93c98`: el predicado «token vivo atado al correo» estaba duplicado en `consume` (`auth-token.service.ts:75`) e `isLive` (`:109`), e `isUsed` (`:124`) lo repetía en memoria. Ahora `boundTokenWhere` + `liveTokenWhere` (mismo fichero) y los tres lo componen; `isUsed` filtra en la BD | backend | 2026-11-04 (`36f93c98`) | `grep -c "emailHash: emailHash(currentEmail)" backend/src/modules/auth/auth-token.service.ts` ⇒ 1 (medido); canario: quitar `expiresAt` de `liveTokenWhere` ⇒ `auth.token.spec.ts` 2 rojas y `cta-cuenta-correo.e2e-spec.ts` «caducado» roja, 3/3 corridas; restaurado ⇒ verde |
+| TL-CTA-12 | ABIERTA (techlead sobre `36f93c98`) · no hay censo estructural de las escrituras de `passwordHash`/`email`/`emailVerified`/`tokenVersion` fuera de `withAccountGate`. Hoy fuera: logout (`auth.service.ts:178`), borrado de cuenta (`admin.service.ts:1664`), las altas `create` | backend | 2026-11-04 (`36f93c98`) | spec que recorra `backend/src`: cada escritura está dentro del candado o en una lista blanca razonada; canario: quitar el candado de `changePassword` ⇒ rojo |
+| TL-CTA-13 | ABIERTA (techlead sobre `36f93c98`) · `deliver` tiene tres ramas casi iguales (`auth.service.ts:298-319`) y la de reset no lleva `actorRole` | backend | 2026-11-04 (`36f93c98`) | tabla `Record<AuthTokenType,…>`; `grep -c "} else if (type ===" backend/src/modules/auth/auth.service.ts` ⇒ 0; CTA-B9 verde |
+| TL-CTA-14 | ABIERTA (techlead sobre `36f93c98`) · el docstring de `backgroundIdle` (`auth.service.ts:630-633`) promete «apagado ordenado» pero nadie lo llama al apagar, y el JSDoc de `signupConflicts` (`:83`) está huérfano | backend | 2026-11-04 (`36f93c98`) | `onApplicationShutdown` + hooks + prueba, o docstring corregido; JSDoc movido junto a su miembro |
+| TL-CTA-15 | CERRADA (2026-11-04, backend, en el pase de R4) · techlead sobre `36f93c98`: el censo de namespaces de candado consultivo vivía en prosa (`account-gate.ts:18-19` y el contrato). Ahora `backend/test/lock-keys.census.spec.ts` «censo de namespaces…» lee todo `export const *_NAMESPACE` de `src/`, lo compara con los 8 importados y exige que no se repitan; la prosa de `account-gate.ts` remite al censo | backend | 2026-11-04 (`36f93c98`) | `lock-keys.census.spec.ts` verde; canario `ACCOUNT_AUTH_GATE_NAMESPACE = 88_120_116` ⇒ «ningún namespace se repite» rojo, 3/3 corridas; restaurado ⇒ verde |
 | PT-CTA-6-V6 | ABIERTA (backend, 2026-11-03; pentester PT-CTA-6 Info) · los topes por IP (`signup` 5/min, `signup-day` 30/24 h, `common/throttle/signup-throttle.ts`; login 5/min) usan la IP entera: con IPv6 de cliente, un /64 da 2⁶⁴ cubos y el techo diario no acota a nadie. Hoy NO MEDIDO que llegue IPv6 de cliente (depende del edge de Railway) | backend · **disparador:** devops ve una IP de cliente IPv6 en el log de C7-18 | 2026-11-03 | `sharedKey` agrupa IPv6 por /64 (IPv4 tal cual) con prueba: dos IPv6 del mismo /64 comparten cubo y de /64 distintos no (`test/cta.account-setup.spec.ts`) |
 
 ---
@@ -528,12 +533,7 @@
 - **Dirección:** leer los diales una vez fuera del bucle y pasarlos a `salePriceOf(item, dials)`.
 - **Disparador:** que ese bucle aparezca en un perfil de latencia, o el próximo cambio a `sellableStatusFor`.
 
-### SPS-D8 · ✅ CERRADA en este pase (2026-10-05) · Relectura del `PUT …/sale-price` sin producto ⇒ `data: undefined`
-- **Dónde estaba:** `backend/src/modules/inventory/sealed-price.service.ts:375-376` (árbol `4f367aea`).
-- **Qué era:** si el producto desaparecía entre el commit y la relectura, `const [data] = rowsOf([])` daba `200` con
-  `data: undefined`.
-- **Cierre:** `404 NOT_FOUND` explícito antes de `rowsOf`; prueba unitaria «D-8» en `test/sealed-price.sp.spec.ts` (roja
-  sin el arreglo; ver `BACKEND_NOTES §57.10`).
+### SPS-D8 · ✅ CERRADA (2026-10-05) · relectura del `PUT …/sale-price` sin producto daba `200 data: undefined`; ahora `404 NOT_FOUND` (prueba «D-8» de `test/sealed-price.sp.spec.ts`; `BACKEND_NOTES §57.10`)
 
 ## Backend · 2026-09-28 · SEC-SETTLE-LATE (sobre `2fb61f1`)
 

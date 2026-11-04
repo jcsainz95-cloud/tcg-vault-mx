@@ -692,7 +692,8 @@ export class AuthService {
    *  3. `argon2.verify` falso ⇒ 422 CURRENT_PASSWORD_INCORRECT (⛔ NUNCA 401: el cliente cierra sesión
    *     ante 401 y un dedazo en la actual lo echaría);
    *  4. `newPassword === currentPassword` ⇒ 422 PASSWORD_SAME_AS_CURRENT (DESPUÉS del paso 3);
-   *  5. UNA escritura: passwordHash nuevo, `tokenVersion +1`, `mustChangePassword=false`.
+   *  5. UNA escritura: passwordHash nuevo, `tokenVersion +1`, `mustChangePassword=false`, bajo el candado de la cuenta y
+   *     CONDICIONAL a la fila de los pasos 1-3 (R4); si otra escritura ganó entretanto ⇒ 401 UNAUTHENTICATED, sin par.
    *     `emailVerified` NO cambia (aquí no hubo prueba de inbox; en reset-password sí). `authProvider` no cambia;
    *  6. emite un par NUEVO con el `tokenVersion` ya incrementado y lo devuelve: las demás sesiones
    *     mueren en su siguiente petición/refresh y ÉSTA continúa (difiere de reset-password a propósito);
@@ -747,16 +748,27 @@ export class AuthService {
     // 5. Una sola escritura. ⛔ `emailVerified` y `authProvider` NO se tocan.
     const passwordHash = await argon2.hash(dto.newPassword);
     // v1.117.2 (§CTA.1 I-8): toda escritura de la credencial va en serie por cuenta (candado de §CTA.13).
-    const updated = await withAccountGate(this.prisma, user.id, (tx) =>
-      tx.user.update({
-        where: { id: user.id },
+    // R4 (techlead, `36f93c98`): argon2 se queda FUERA, así que la decisión de los pasos 1-3 se toma sobre una fila que otra
+    // escritura (reset-password, logout, panel) pudo cambiar mientras tanto. Dentro del candado la escritura es CONDICIONAL a
+    // esa fila: mismo hash, mismo `tokenVersion`, activa. 0 filas ⇒ el `401` del paso 1 (la sesión o la contraseña que probó
+    // ya no valen), sin par y sin limpiar C7: probar una contraseña ya reemplazada no es un acierto.
+    const updated = await withAccountGate(this.prisma, user.id, async (tx) => {
+      const res = await tx.user.updateMany({
+        where: {
+          id: user.id,
+          passwordHash: user.passwordHash,
+          tokenVersion: user.tokenVersion,
+          status: UserStatus.active,
+        },
         data: {
           passwordHash,
           tokenVersion: { increment: 1 },
           mustChangePassword: false,
         },
-      }),
-    );
+      });
+      if (res.count === 0) throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid or revoked token');
+      return tx.user.findUniqueOrThrow({ where: { id: user.id }, select: { id: true, email: true, role: true, tokenVersion: true } });
+    });
     // 6. Par nuevo con el `tokenVersion` YA incrementado (el de `updated`, no el de `user`).
     const tokens = await this.issueTokens(updated);
     // v1.80 (C7): probó la contraseña ⇒ limpia LOS DOS cubos (este y el del login de su correo).

@@ -75,13 +75,22 @@ function baseUser(over: Record<string, unknown> = {}) {
 }
 
 function make(user: Record<string, unknown> | null, jwt?: JwtService) {
-  const update = jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-    ...(user ?? {}),
-    ...data,
-    tokenVersion: ((user?.tokenVersion as number) ?? 0) + 1,
-  }));
+  // R4: la escritura es un `updateMany` CONDICIONAL a la fila leída; el doble la aplica solo si el `where` casa con la fila
+  // actual (`row`, que una prueba puede cambiar «entre el verify y la escritura») y devuelve `{ count }` como Prisma.
+  let row: Record<string, unknown> | null = user ? { ...user } : null;
+  const update = jest.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+    if (!row || !Object.entries(where).every(([k, v]) => row![k] === v)) return { count: 0 };
+    row = { ...row, ...data, tokenVersion: (row.tokenVersion as number) + 1 };
+    return { count: 1 };
+  });
   // v1.117.2 (§CTA.13, I-8): la escritura de la credencial va dentro de `withAccountGate`; el doble hace de su propia `tx`.
-  const prisma: Record<string, unknown> = { user: { findUnique: jest.fn(async () => user), update } };
+  const prisma: Record<string, unknown> = {
+    user: {
+      findUnique: jest.fn(async () => (row ? { ...row } : null)),
+      findUniqueOrThrow: jest.fn(async () => ({ ...row })),
+      updateMany: update,
+    },
+  };
   prisma.$executeRaw = jest.fn(async () => 0);
   prisma.$transaction = jest.fn(async (cb: (tx: unknown) => unknown) => cb(prisma));
   const audit = { log: jest.fn(async () => undefined) };
@@ -95,7 +104,10 @@ function make(user: Record<string, unknown> | null, jwt?: JwtService) {
     mail,
     ...c7Args(),
   );
-  return { svc, prisma, audit, update };
+  const setRow = (patch: Record<string, unknown>) => {
+    row = { ...row, ...patch };
+  };
+  return { svc, prisma, audit, update, setRow };
 }
 
 async function grab(p: Promise<unknown>): Promise<BusinessException> {
@@ -161,7 +173,8 @@ describe('AuthService.changePassword — orden de evaluación normativo', () => 
     await svc.changePassword('u1', { currentPassword: CURRENT, newPassword: NEW });
     expect(update).toHaveBeenCalledTimes(1);
     const { where, data } = update.mock.calls[0][0] as { where: unknown; data: Record<string, unknown> };
-    expect(where).toEqual({ id: 'u1' });
+    // R4: condicional a la fila de los pasos 1-3 (mismo hash, mismo tokenVersion, activa).
+    expect(where).toEqual({ id: 'u1', passwordHash: CURRENT_HASH, tokenVersion: 1, status: 'active' });
     expect(data.tokenVersion).toEqual({ increment: 1 });
     expect(data.mustChangePassword).toBe(false);
     expect(data).not.toHaveProperty('emailVerified');
@@ -200,6 +213,30 @@ describe('AuthService.changePassword — orden de evaluación normativo', () => 
     expect(dump).not.toContain(CURRENT);
     expect(dump).not.toContain(NEW);
     expect(dump).not.toContain('$argon2');
+  });
+
+  // R4 (techlead, `36f93c98`): la fila cambia entre el verify (fuera del candado) y la escritura (dentro) ⇒ 0 filas ⇒ el 401
+  // del paso 1, sin par y sin auditar el cambio. Una condición por caso: quitarla del `where` lo pone rojo.
+  it.each([
+    ['reset-password (hash y tokenVersion)', { passwordHash: 'otro-hash', tokenVersion: 2 }],
+    ['logout (solo tokenVersion)', { tokenVersion: 2 }],
+    ['hash a mano (solo passwordHash)', { passwordHash: 'otro-hash' }],
+    ['panel bloquea (solo status)', { status: 'blocked' }],
+  ])('R4: %s entre el verify y la escritura ⇒ 401 UNAUTHENTICATED, sin par', async (_c, patch) => {
+    const signAsync = jest.fn(async () => 'tok');
+    const { svc, update, audit, setRow } = make(baseUser(), { signAsync } as unknown as JwtService);
+    const verify = argon2.verify as unknown as jest.Mock;
+    const real = jest.requireActual('argon2').verify as typeof argon2.verify;
+    verify.mockImplementationOnce(async (h: string, p: string) => {
+      const ok = await real(h, p);
+      setRow(patch);
+      return ok;
+    });
+    const err = await grab(svc.changePassword('u1', { currentPassword: CURRENT, newPassword: NEW }));
+    expect([err.code, err.getStatus()]).toEqual(['UNAUTHENTICATED', 401]);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(signAsync).not.toHaveBeenCalled();
+    expect(audit.log).not.toHaveBeenCalled();
   });
 });
 

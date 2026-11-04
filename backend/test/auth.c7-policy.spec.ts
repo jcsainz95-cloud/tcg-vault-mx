@@ -88,6 +88,17 @@ function makeWorld(
         }
         return { ...u };
       }),
+      // R4: `change-password` escribe con un `updateMany` condicional a la fila leída y relee con `findUniqueOrThrow`.
+      updateMany: jest.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        const u = [...users.values()].find((x) => x.id === where.id);
+        if (!u || !Object.entries(where).every(([k, v]) => (u as unknown as Record<string, unknown>)[k] === v)) return { count: 0 };
+        for (const [k, v] of Object.entries(data)) {
+          if (k === 'tokenVersion') u.tokenVersion += 1;
+          else (u as unknown as Record<string, unknown>)[k] = v;
+        }
+        return { count: 1 };
+      }),
+      findUniqueOrThrow: jest.fn(async ({ where }: { where: { id: string } }) => ({ ...[...users.values()].find((x) => x.id === where.id)! })),
     },
     // v1.117.2 (§CTA.13): emisión, canje y escrituras de credencial dentro de `withAccountGate`; el doble hace de su propia `tx`.
     address: { updateMany: jest.fn(async () => ({ count: 0 })) },

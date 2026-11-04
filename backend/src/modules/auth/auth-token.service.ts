@@ -11,6 +11,19 @@ export function hashAuthToken(clear: string): string {
   return createHash('sha256').update(clear).digest('hex');
 }
 
+/**
+ * TL-CTA-11: el predicado «token de este claro, de este tipo y ATADO a este correo» (§CTA.13) vive aquí, una sola vez; `consume`,
+ * `isLive` e `isUsed` lo componen. `currentEmail` es el `User.email` leído DENTRO del candado.
+ */
+export function boundTokenWhere(clear: string, type: AuthTokenType, currentEmail: string): Prisma.AuthTokenWhereInput {
+  return { tokenHash: hashAuthToken(clear), type, emailHash: emailHash(currentEmail) };
+}
+
+/** …y además VIVO: sin usar y sin caducar a `now`. El de `consume` (que lo marca usado) y el de `isLive` (que solo mira). */
+export function liveTokenWhere(clear: string, type: AuthTokenType, currentEmail: string, now: Date): Prisma.AuthTokenWhereInput {
+  return { ...boundTokenWhere(clear, type, currentEmail), usedAt: null, expiresAt: { gt: now } };
+}
+
 /** TTL por tipo (ARCHITECTURE §3.2/§4.11): verificación 24h, reset 1h; v1.117 (§CTA.3) «Termina tu cuenta» 24 h. */
 export const AUTH_TOKEN_TTL_MS: Record<AuthTokenType, number> = {
   email_verification: 24 * 60 * 60 * 1000,
@@ -70,13 +83,12 @@ export class AuthTokenService {
     now = new Date(),
   ): Promise<string | null> {
     if (currentEmail === null) return null;
-    const tokenHash = hashAuthToken(clear);
     const res = await tx.authToken.updateMany({
-      where: { tokenHash, type, usedAt: null, expiresAt: { gt: now }, emailHash: emailHash(currentEmail) },
+      where: liveTokenWhere(clear, type, currentEmail, now),
       data: { usedAt: now },
     });
     if (res.count === 0) return null;
-    const token = await tx.authToken.findUnique({ where: { tokenHash }, select: { userId: true } });
+    const token = await tx.authToken.findUnique({ where: { tokenHash: hashAuthToken(clear) }, select: { userId: true } });
     return token?.userId ?? null;
   }
 
@@ -105,9 +117,7 @@ export class AuthTokenService {
     now = new Date(),
   ): Promise<boolean> {
     if (currentEmail === null) return false;
-    const n = await tx.authToken.count({
-      where: { tokenHash: hashAuthToken(clear), type, usedAt: null, expiresAt: { gt: now }, emailHash: emailHash(currentEmail) },
-    });
+    const n = await tx.authToken.count({ where: liveTokenWhere(clear, type, currentEmail, now) });
     return n > 0;
   }
 
@@ -117,11 +127,8 @@ export class AuthTokenService {
    */
   async isUsed(tx: Prisma.TransactionClient, clear: string, type: AuthTokenType, currentEmail: string | null): Promise<boolean> {
     if (currentEmail === null) return false;
-    const t = await tx.authToken.findUnique({
-      where: { tokenHash: hashAuthToken(clear) },
-      select: { type: true, usedAt: true, emailHash: true },
-    });
-    return t !== null && t.type === type && t.usedAt !== null && t.emailHash === emailHash(currentEmail);
+    const n = await tx.authToken.count({ where: { ...boundTokenWhere(clear, type, currentEmail), usedAt: { not: null } } });
+    return n > 0;
   }
 
   /**

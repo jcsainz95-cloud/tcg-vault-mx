@@ -3,6 +3,7 @@ import {
   AuthTokenService,
   hashAuthToken,
   AUTH_TOKEN_TTL_MS,
+  liveTokenWhere,
 } from '../src/modules/auth/auth-token.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { emailHash } from '../src/modules/auth/account-gate';
@@ -72,14 +73,37 @@ describe('AuthTokenService', () => {
   it('isUsed (v1.117.3, doble clic de verify-email): usado, del tipo Y atado al correo actual; con otro correo o sin correo ⇒ false', async () => {
     const prisma = prismaMock();
     const svc = new AuthTokenService(prisma as unknown as PrismaService);
-    const row = { type: AuthTokenType.email_verification, usedAt: new Date(), emailHash: emailHash('a@x.com') };
-    prisma.authToken.findUnique.mockImplementation((async () => row) as never);
+    // TL-CTA-11: el filtro va a la BD (no se repite en memoria); el doble hace de BD con UNA fila.
+    let row = { tokenHash: hashAuthToken('c'), type: AuthTokenType.email_verification as AuthTokenType, usedAt: new Date() as Date | null, emailHash: emailHash('a@x.com') };
+    prisma.authToken.count.mockImplementation((async ({ where }: any) =>
+      where.tokenHash === row.tokenHash &&
+      where.type === row.type &&
+      where.emailHash === row.emailHash &&
+      (where.usedAt?.not === null ? row.usedAt !== null : true)
+        ? 1
+        : 0) as never);
     expect(await svc.isUsed(prisma as any, 'c', AuthTokenType.email_verification, 'a@x.com')).toBe(true);
+    expect((prisma.authToken.count.mock.calls[0] as any[])[0].where).toEqual({
+      tokenHash: hashAuthToken('c'),
+      type: AuthTokenType.email_verification,
+      emailHash: emailHash('a@x.com'),
+      usedAt: { not: null },
+    });
     expect(await svc.isUsed(prisma as any, 'c', AuthTokenType.email_verification, 'otro@x.com')).toBe(false);
     expect(await svc.isUsed(prisma as any, 'c', AuthTokenType.email_verification, null)).toBe(false);
     expect(await svc.isUsed(prisma as any, 'c', AuthTokenType.password_reset, 'a@x.com')).toBe(false);
-    prisma.authToken.findUnique.mockImplementation((async () => ({ ...row, usedAt: null })) as never);
+    row = { ...row, usedAt: null };
     expect(await svc.isUsed(prisma as any, 'c', AuthTokenType.email_verification, 'a@x.com')).toBe(false);
+  });
+
+  it('isLive (TL-CTA-11): el MISMO predicado que consume (liveTokenWhere), sin escribir', async () => {
+    const prisma = prismaMock();
+    const svc = new AuthTokenService(prisma as unknown as PrismaService);
+    const now = new Date();
+    await svc.isLive(prisma as any, 'c', AuthTokenType.password_reset, 'a@x.com', now);
+    expect((prisma.authToken.count.mock.calls[0] as any[])[0].where).toEqual(liveTokenWhere('c', AuthTokenType.password_reset, 'a@x.com', now));
+    expect((prisma.authToken.count.mock.calls[0] as any[])[0].where).toMatchObject({ usedAt: null, expiresAt: { gt: now } });
+    expect(prisma.authToken.updateMany).not.toHaveBeenCalled();
   });
 
   it('consume: válido → marca usedAt (un solo uso, no expirado) y devuelve el userId', async () => {

@@ -10,6 +10,7 @@
  * | CTA-B20 (c) | cuenta bloqueada: contraseña correcta ⇒ 403, incorrecta ⇒ 401 | — (orden argon2 → estado) |
  * | CTA-B20 (d) | bloqueada en `verify-email` (dos modos), `reset-password` y `account-setup` ⇒ 403, `usedAt` nulo, cuenta igual; reactivada ⇒ el mismo enlace 200 | consumir fuera de la transacción que se deshace |
  * | CTA-B20 (e) | `forgot-password` con el correo cambiado entre la búsqueda y el candado ⇒ 0 `AuthToken` y 0 correos | emitir al correo actual |
+ * | CTA-R4 | `change-password` con reset/logout/hash a mano/bloqueo intercalado entre el `argon2.verify` y la escritura ⇒ `401 UNAUTHENTICATED`, sin par, fila intacta | quitar del `where` la condición entera o cada una (hash, `tokenVersion`, `status`) |
  *
  * Espía de SQL: un `PrismaService` propio con `log: query` (eventos del motor, BEGIN/COMMIT incluidos) sustituye al de la app, como
  * IDS-B26. Las vías se ejecutan de una en una (nada concurrente), así que la secuencia de eventos de cada una es la de sus
@@ -510,6 +511,87 @@ describe('CTA v1.117.3 — B19 (cobertura del candado) y B20 (verify-email, cuen
       expect(hooked).toBe(1);
       expect(await prisma.authToken.count({ where: { userId: w.id } })).toBe(tokensBefore);
       expect(bandeja.slice(from).filter((m) => m.to === w.email || m.to === moved)).toEqual([]);
+    });
+  });
+
+  // ───────────────────────────────────────────── CTA-R4 ─────────────────────────────────────────────
+
+  /**
+   * R4 (techlead sobre `36f93c98`): `change-password` leía y verificaba FUERA del candado y dentro solo escribía, sin condición.
+   * Quien tiene una sesión y la contraseña vieja lanza `change-password` a la vez que el dueño hace forgot+reset: su escritura
+   * pisaba el hash del reset y se llevaba un par válido. Ahora la escritura es condicional a la fila leída (hash, tokenVersion,
+   * activa) y 0 filas ⇒ el `401 UNAUTHENTICATED` del paso 1, sin par.
+   *
+   * Gancho determinista: `argon2.verify` (el paso 3, el único `verify` de la vía) hace el verify real y, ANTES de devolver, deja
+   * ganar a la otra escritura. Cada caso tumba una condición distinta del `where` (ablación por condición).
+   */
+  describe('CTA-R4 — change-password con otra escritura de la cuenta intercalada entre el verify y la escritura', () => {
+    const actualVerify = (jest.requireActual('argon2') as typeof argon2).verify;
+    const CHANGE_PW = 'CambioPerdedor123';
+    const RESET_PW = 'ResetGanador123';
+    type Race = (w: { id: string; access: string }) => Promise<() => Promise<void>>;
+    /** [caso, preparación, ¿el hash final debe ser el de RESET_PW?] */
+    const RACES: [string, Race, boolean][] = [
+      [
+        'reset-password del dueño (hash y tokenVersion cambian)',
+        async (w) => {
+          const token = await issueAuthToken(h, w.id, AuthTokenType.password_reset);
+          return async () => expect((await post('/auth/reset-password', { token, password: RESET_PW })).status).toBe(200);
+        },
+        true,
+      ],
+      [
+        'logout (solo tokenVersion cambia)',
+        async (w) => async () => expect((await post('/auth/logout', undefined, w.access)).status).toBeLessThan(300),
+        false,
+      ],
+      [
+        'hash cambiado a mano sin tocar tokenVersion (solo passwordHash cambia)',
+        async (w) => async () => {
+          await prisma.user.update({ where: { id: w.id }, data: { passwordHash: await argon2.hash(RESET_PW) } });
+        },
+        true,
+      ],
+      [
+        'cuenta bloqueada por el panel (solo status cambia)',
+        async (w) => async () => {
+          await prisma.user.update({ where: { id: w.id }, data: { status: UserStatus.blocked } });
+        },
+        false,
+      ],
+    ];
+
+    it.each(RACES)('%s ⇒ 401 UNAUTHENTICATED, sin par, sin escribir y sin auditar el cambio', async (_race, prepare, resetWins) => {
+      const w = await register('r4');
+      const interleave = await prepare(w);
+      let hooked = 0;
+      let mid: Awaited<ReturnType<typeof userById>> | null = null;
+      verifySpy.mockImplementationOnce(async (hash: string, plain: string) => {
+        const ok = await actualVerify(hash, plain);
+        hooked += 1;
+        await interleave();
+        mid = await userById(w.id);
+        return ok;
+      });
+      const r = await post('/auth/change-password', { currentPassword: PASSWORD, newPassword: CHANGE_PW }, w.access);
+      expect(hooked).toBe(1);
+      expect([r.status, r.body?.error?.code]).toEqual([401, 'UNAUTHENTICATED']);
+      expect(r.body?.accessToken).toBeUndefined();
+      expect(r.body?.refreshToken).toBeUndefined();
+      // La fila queda EXACTAMENTE como la dejó la escritura intercalada: el cambio no pisó nada.
+      expect(await userById(w.id)).toEqual(mid);
+      const after = await userById(w.id);
+      expect(await actualVerify(after.passwordHash as string, CHANGE_PW)).toBe(false);
+      expect(await actualVerify(after.passwordHash as string, resetWins ? RESET_PW : PASSWORD)).toBe(true);
+      expect(await prisma.auditLog.count({ where: { action: 'auth.password_changed', entityId: w.id } })).toBe(0);
+    });
+
+    it('sin carrera, el mismo camino sigue dando 200 con par nuevo (control del gancho)', async () => {
+      const w = await register('r4ok');
+      const r = await post('/auth/change-password', { currentPassword: PASSWORD, newPassword: CHANGE_PW }, w.access);
+      expect([r.status, typeof r.body?.accessToken]).toEqual([200, 'string']);
+      const after = await userById(w.id);
+      expect(await actualVerify(after.passwordHash as string, CHANGE_PW)).toBe(true);
     });
   });
 });

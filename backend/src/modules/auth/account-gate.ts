@@ -15,8 +15,8 @@ import { PrismaService } from '../../prisma/prisma.service';
  * releer (releer era la carrera de PT-CTA-1). ⛔ Orden de candados: cuenta → libreta (`lockAddressBook` en la MISMA tx), nunca al
  * revés. Un candado de libreta tomado antes que éste en otra tx invertiría el orden y podría interbloquear.
  *
- * Namespace propio (distinto de los seis de hoy: libreta 88_120_116, reserva 63_120_959, bóveda 79_125_059, IDS 116_000_116,
- * reembolso 80_125_061, medición 86_120_001/2).
+ * Namespace propio: que no se repita con ningún otro `*_NAMESPACE` lo cobra `test/lock-keys.census.spec.ts` (TL-CTA-15), no esta
+ * prosa.
  */
 export const ACCOUNT_AUTH_GATE_NAMESPACE = 97_120_117;
 
