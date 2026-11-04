@@ -24,7 +24,9 @@
 #      `seed-image-host.py`); `run.sh` la exige en el origen, reescribe el host del seed a uno de
 #      `remotePatterns`, carga `next-image-origin.cjs` en `next start`, comprueba `/_next/image` de la
 #      líder (200 webp) y pasa `lcp-optimized.mjs` por cada corrida d1; `lcp-optimized.mjs` es rojo con
-#      respaldo, con 500 o sin `/_next/image` (lhr de juguete); el proxy reescribe JSON (`--replace`);
+#      respaldo (original cruda cuya `/_next/image` NO fue 200 webp, o la de la LÍDER), con 500 o sin
+#      `/_next/image`, y verde con una original cruda de OTRA superficie cuya `/_next/image` sí fue 200 webp
+#      (lhr de juguete + `lcp-optimized.test.mjs`, run 41870766214); el proxy reescribe JSON (`--replace`);
 #      el desvío del optimizador se niega a un origen no local y no existe en frontend/ ni backend/.
 #
 # Uso:  ./scripts/check-home-perf.sh                      # candado
@@ -173,25 +175,36 @@ desktop d2 fcp=1000/median lcp=- cls=0.1/median preset=desktop"
     && grep -q '^rm -rf "$FE/.next/cache/images"$' "$hp/run.sh" \
     && grep -q '"$HERE/lcp-optimized.mjs" "$dir/.lighthouseci"' "$hp/run.sh" \
     && ok "run.sh: /_next/image de la líder antes de medir y lcp-optimized.mjs por corrida d1" || ko "run.sh no comprueba el optimizador (DYN-D3)"
-  local L="$TMP/lhr$RANDOM"; mkdir -p "$L/bueno" "$L/respaldo" "$L/e500" "$L/crudo" "$L/doble"
-  lhr() {  # $1 dir  $2 peticiones (JSON)  $3 snippet LCP
-    node -e 'const [d,r,s]=process.argv.slice(1);require("fs").writeFileSync(d+"/lhr-1.json",JSON.stringify({audits:{"network-requests":{details:{items:JSON.parse(r)}},"largest-contentful-paint-element":{details:{items:[{items:[{node:{snippet:s}}]}]}}}}))' "$1" "$2" "$3"
+  local L="$TMP/lhr$RANDOM"; mkdir -p "$L/bueno" "$L/respaldo" "$L/e500" "$L/crudo" "$L/doble" "$L/estante" "$L/teja"
+  lhr() {  # $1 dir  $2 peticiones (JSON)  $3 snippet LCP  [$4 url de la imagen LCP, como la da prioritize-lcp-image]
+    node -e 'const [d,r,s,l]=process.argv.slice(1);const a={"network-requests":{details:{items:JSON.parse(r)}},"largest-contentful-paint-element":{details:{items:[{items:[{node:{snippet:s}}]}]}}};if(l)a["prioritize-lcp-image"]={details:{debugData:{initiatorPath:[{url:l}]}}};require("fs").writeFileSync(d+"/lhr-1.json",JSON.stringify({audits:a}))' "$1" "$2" "$3" "${4:-}"
   }
   local O='https://images.scrydex.com/e2e/x_hires.png' N='http://localhost:3190/_next/image?url=https%3A%2F%2Fimages.scrydex.com%2Fe2e%2Fx_hires.png&w=640&q=75'
+  local OY='https://images.scrydex.com/e2e/y.png' NY='http://localhost:3190/_next/image?url=https%3A%2F%2Fimages.scrydex.com%2Fe2e%2Fy.png&w=384&q=75'
   lhr "$L/bueno"    "[{\"url\":\"$N\",\"statusCode\":200,\"mimeType\":\"image/webp\"}]" '<img src="http://localhost:3190/_next/image?url=https%3A%2F%2Fimages.scrydex.com%2Fe2e%2Fx_hires.png&amp;w=640&amp;q=75">'
   lhr "$L/respaldo" "[{\"url\":\"$N\",\"statusCode\":500,\"mimeType\":\"text/plain\"},{\"url\":\"$O\",\"statusCode\":200,\"mimeType\":\"image/png\"}]" "<img src=\"$O\">"
   lhr "$L/e500"     "[{\"url\":\"$N\",\"statusCode\":500,\"mimeType\":\"text/plain\"}]" '<h1 class="x">'
   lhr "$L/crudo"    "[{\"url\":\"$O\",\"statusCode\":200,\"mimeType\":\"image/png\"}]" "<img src=\"$O\">"
-  # doble: la WebP llegó bien, pero el navegador ADEMÁS bajó la original (respaldo, o precarga de la original).
+  # doble: la WebP de la LÍDER llegó bien, pero el navegador ADEMÁS bajó su original (respaldo, o precarga de la original).
   lhr "$L/doble"    "[{\"url\":\"$N\",\"statusCode\":200,\"mimeType\":\"image/webp\"},{\"url\":\"$O\",\"statusCode\":200,\"mimeType\":\"image/png\"}]" '<img src="http://localhost:3190/_next/image?url=https%3A%2F%2Fimages.scrydex.com%2Fe2e%2Fx_hires.png&amp;w=640&amp;q=75">'
-  local lb lr l5 lc ld
+  # estante: la teja Y por /_next/image 200 webp y, además, Y cruda desde OTRA superficie (la estantería, DYN-F8): NO es
+  # respaldo ⇒ verde (run 41870766214: el criterio viejo daba 0/5). El snippet va recortado con «…» como lo escribe Lighthouse.
+  lhr "$L/estante"  "[{\"url\":\"$N\",\"statusCode\":200,\"mimeType\":\"image/webp\"},{\"url\":\"$NY\",\"statusCode\":200,\"mimeType\":\"image/webp\"},{\"url\":\"$OY\",\"statusCode\":200,\"mimeType\":\"image/png\"}]" '<img src="http://localhost:3190/_next/image?url=https%3A%2F%2Fimages.scrydex.com%2Fe…">' "$N"
+  # teja: la /_next/image de Y falló (500) y luego Y cruda ⇒ respaldo ⇒ rojo, aunque la líder esté bien.
+  lhr "$L/teja"     "[{\"url\":\"$N\",\"statusCode\":200,\"mimeType\":\"image/webp\"},{\"url\":\"$NY\",\"statusCode\":500,\"mimeType\":\"text/plain\"},{\"url\":\"$OY\",\"statusCode\":200,\"mimeType\":\"image/png\"}]" '<img src="http://localhost:3190/_next/image?url=https%3A%2F%2Fimages.scrydex.com%2Fe…">' "$N"
+  local lb lr l5 lc ld le lt
   node "$hp/lcp-optimized.mjs" "$L/bueno" >/dev/null 2>&1; lb=$?
   node "$hp/lcp-optimized.mjs" "$L/respaldo" >/dev/null 2>&1; lr=$?
   node "$hp/lcp-optimized.mjs" "$L/e500" >/dev/null 2>&1; l5=$?
   node "$hp/lcp-optimized.mjs" "$L/crudo" >/dev/null 2>&1; lc=$?
   node "$hp/lcp-optimized.mjs" "$L/doble" >/dev/null 2>&1; ld=$?
-  [ "$lb$lr$l5$lc$ld" = 01111 ] && ok "lcp-optimized.mjs: 200 webp verde; respaldo, 500, <img> cruda y doble descarga ROJOS" \
-    || ko "lcp-optimized.mjs no distingue (bueno $lb · respaldo $lr · 500 $l5 · cruda $lc · doble $ld; se espera 0 1 1 1 1)"
+  node "$hp/lcp-optimized.mjs" "$L/estante" >/dev/null 2>&1; le=$?
+  node "$hp/lcp-optimized.mjs" "$L/teja" >/dev/null 2>&1; lt=$?
+  [ "$lb$lr$l5$lc$ld$le$lt" = 0111101 ] && ok "lcp-optimized.mjs: 200 webp y cruda-de-otra-superficie verdes; respaldo, 500, <img> cruda, líder doble y teja con respaldo ROJOS" \
+    || ko "lcp-optimized.mjs no distingue (bueno $lb · respaldo $lr · 500 $l5 · cruda $lc · doble $ld · estante $le · teja $lt; se espera 0 1 1 1 1 0 1)"
+  # Su canario con lhr sintéticos (los del run 41870766214): rótulos con url y estado, líder por prioritize-lcp-image.
+  if [ -f "$hp/lcp-optimized.test.mjs" ] && ( cd "$hp" && node --test lcp-optimized.test.mjs >/dev/null 2>&1 ); then ok "lcp-optimized.test.mjs: verde"
+  else ko "lcp-optimized.test.mjs falta o está rojo"; fi
   node "$hp/delay-proxy.mjs" --listen "$RW_PORT" --upstream "http://127.0.0.1:$UP_PORT" --replace '"ok"' --with '"REESCRITO"' >/dev/null 2>&1 & local rw=$!
   if esperar_http "http://127.0.0.1:$RW_PORT/"; then
     local j h; j="$(curl -s -m 5 "http://127.0.0.1:$RW_PORT/api/v1/health")"; h="$(curl -s -m 5 "http://127.0.0.1:$RW_PORT/es")"
@@ -263,8 +276,11 @@ mutar "run.sh no exige el peso"         scripts/home-perf/run.sh          's|^PE
 mutar "sin reescritura del host"        scripts/home-perf/run.sh          's|--replace "$IMG_FIXTURE" --with "$IMG_REMOTO" ||'
 mutar "next start sin el desvío"        scripts/home-perf/run.sh          's|NODE_OPTIONS="--require $HERE/next-image-origin.cjs" ||'
 mutar "run.sh sin lcp-optimized"        scripts/home-perf/run.sh          's|"$HERE/lcp-optimized.mjs" "$dir/.lighthouseci"|true|'
-mutar "lcp-optimized acepta el respaldo" scripts/home-perf/lcp-optimized.mjs 's|if (origenes.has(r.url)) motivos.push|if (false) motivos.push|'
-mutar "lcp-optimized acepta 500"        scripts/home-perf/lcp-optimized.mjs 's|if (r.statusCode !== 200 |if (false) if (r.statusCode !== 200 |'
+mutar "lcp-optimized acepta el respaldo" scripts/home-perf/lcp-optimized.mjs "s|else if (st !== 'ok') motivos.push|else if (false) motivos.push|"
+mutar "lcp-optimized acepta 500"        scripts/home-perf/lcp-optimized.mjs 's|if (!bien) motivos.push|if (false) motivos.push|'
+mutar "lcp-optimized vuelve a contar toda original (run 41870766214)" scripts/home-perf/lcp-optimized.mjs "s|else if (st !== 'ok') motivos.push|else if (true) motivos.push|"
+mutar "lcp-optimized acepta la líder doble" scripts/home-perf/lcp-optimized.mjs 's|if (url === lider) motivos.push|if (false) motivos.push|'
+mutar "lcp-optimized sin su canario"    scripts/home-perf/lcp-optimized.test.mjs 'cmd:rm scripts/home-perf/lcp-optimized.test.mjs'
 mutar "proxy sin --replace"             scripts/home-perf/delay-proxy.mjs 's|.split(opt.replace).join(opt.with)||'
 mutar "desvío con cualquier origen"     scripts/home-perf/next-image-origin.cjs 's|.test(origen)) {|.test(origen) \&\& false) {|'
 mutar "desvío dentro del producto"      frontend/src/y.ts                 'cmd:echo "import \"../../scripts/home-perf/next-image-origin.cjs\";" > frontend/src/y.ts'

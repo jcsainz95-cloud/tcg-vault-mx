@@ -14412,6 +14412,8 @@ pid). Sin la guarda el rc también es 1 (muere por `node_modules`), por eso exig
 
 ## §104 · §DYN — portada vigilada sola (DYN-D1/DYN-D2), mediciones de producción y arreglos del stack nativo (2026-10-29, rama `claude/portada-dyn-ops`, base `fb67d43b`)
 
+**Estado vigente del arnés `home-perf`: en §106 (cabecera).** Lo de abajo es cómo nació (2026-10-29) y sigue valiendo salvo lo que §106 cambió.
+
 Norma: `API_CONTRACT §DYN.7` (DYN-D1, DYN-D2) y `§DYN.9` (línea de devops); criterios `PROJECT` 936-938. Aquí, cómo se
 corre y qué se midió. Todo lo «medido» es sobre una copia `git archive` de `fb67d43b` + los scripts de este pase, con
 **mi** stack nativo (base `tcg_dyn_ops`, Redis db 9, puertos 3191/3195/9191), 4 CPU.
@@ -14528,6 +14530,10 @@ protección de rama que lo rechacen — saldrían como «FALLÓ» en la tabla, r
 
 ## §106 · v1.114.2 (opción A): arnés con bytes reales (DYN-D3), trinquete de celular (DYN-D1), `sharp` en standalone y coste de Vercel (2026-10-30, rama `claude/portada-dyn-ops2`, base `0d40d0b7`)
 
+**Estado vigente (2026-11-04):** `home-perf.yml` corre `scripts/home-perf/run.sh d1 d1-canary d2-delay d2-503` (N=5 por perfil, bloqueante) contra el stack sembrado; candado estático `scripts/check-home-perf.sh` en `ci.yml` (`--canary` 32/32 mutaciones rojas) + `scripts/home-perf/lcp-optimized.test.mjs` (7 casos, lhr sintéticos del run 41870766214).
+DYN-D3 (`lcp-optimized.mjs`): rojo si alguna `/_next/image` no es 200 webp, si una original cruda tiene su `/_next/image` fallida o es la de la LÍDER, o si el LCP es `<img>` sin `/_next/image`; una original cruda de OTRA superficie con `/_next/image` 200 webp (estantería de gradeadas, DYN-F8) NO es respaldo — con las tejas de Destacadas por `/_next/image` (59db08b) el criterio viejo daba 0/5 falsos; el artefacto de ese run da 5/5 y 5/5 con el nuevo. El rótulo del resumen dice qué url y por qué, y el log del job trae el detalle por corrida.
+Instalación de Chromium: 3 intentos con `setsid -w timeout -k 10 420` y espera (≤ 150 s) a que suelten el candado de dpkg antes de reintentar (run 41868820215: el `apt-get` del intento 1 seguía vivo). NO MEDIDO en CI: que `timeout -k` alcance al `apt-get` bajo `sudo` con pty (por eso la espera).
+
 Norma: `API_CONTRACT §DYN.7` (DYN-D1 cambiado, DYN-D3), §DYN.6.6, D-DYN-9; `ARCHITECTURE §4.DYN (f) 7` y §5.3.5. Medido
 sobre una copia `git archive 0d40d0b7` con los scripts de este pase, mi backend sembrado (BD `tcg_dyn_ops2`, :3181) y
 **un prototipo de A solo en mi scratch** (la líder por `getImageProps`, respaldo a la original, `images` de §4.DYN (f) 7),
@@ -14615,6 +14621,8 @@ coincide, una captura de lo que sí aparece basta.
    en esto). Devops lo apunta aquí con fecha, y se **repite la lectura a los 7 días** de publicar.
 - Cómo se lee: uso esperado ~2 transformaciones por líder nueva al día (~60 al mes, INFERIDO por el arquitecto). **Más de
   ~1 000 transformaciones al día** ⇒ disparador de la opción (b) o del interruptor (`ARCHITECTURE §4.DYN (f) 7`).
+- 2026-11-04 · tejas de Destacadas por /_next/image (59db08b): +≤ 20 transformaciones/día estimadas (10 tejas × 2 anchos,
+  rotación diaria); la lectura LECTURA-IMG-7D debe contarlas.
 - **Condición del residual de PEN-DYN-1 (v1.114.5):** dueño devops; la lectura **a 7 días de publicar** se apunta aquí, debajo
   de la tabla, en una línea `LECTURA-IMG-7D <AAAA-MM-DD> <transformaciones/día>` (entero). Candado
   `scripts/check-image-optimizer-cost-reading-expiry.sh` (job `image-optimizer-cost-reading-expiry` de `ci.yml`): **rojo desde
