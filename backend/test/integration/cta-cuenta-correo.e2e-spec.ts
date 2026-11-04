@@ -188,7 +188,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
     const email = nextEmail('b1');
     const before = Date.now();
     // Llaves extra (`password`, `name`, `phone`) se descartan: ⛔ el alta no las acepta.
-    const r = await emailOnly(email, { password: 'NoSeUsa12345', name: 'Intruso', phone: '5511111111', locale: 'en' });
+    const r = await emailOnly(email, { password: 'OtraClave123', name: 'Intruso', phone: '5511111111', locale: 'en' });
     expect([r.status, r.text]).toEqual([201, r.text]);
     expect(Object.keys(r.body).sort()).toEqual(['accessToken', 'refreshToken', 'user']);
     expect(r.body.user).toMatchObject({ email, emailVerified: false, mustChangePassword: false, role: 'customer', locale: 'en' });
