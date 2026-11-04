@@ -2,12 +2,14 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { Link } from '@/i18n/navigation';
 import { forgotPassword } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
 import { useResendVerification } from '@/hooks/useResendVerification';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { buttonClassName } from '@/components/ui/button-classes';
 import { Banner } from '@/components/ui/Banner';
 
 /**
@@ -16,10 +18,14 @@ import { Banner } from '@/components/ui/Banner';
  * «Mandar otro»: con sesión, `verify-email/resend` (el servidor elige «Termina tu cuenta» o «Verifica tu correo» según
  * la cuenta, §CTA.5); sin sesión, correo + `forgot-password` (respuesta genérica, no revela si el correo existe).
  * Hasta que la sesión esté resuelta no se pinta ninguna acción (sin parpadeo). Textos en `accountSetup.*`.
+ * M-1 (QA sobre `36f93c98`): con sesión de una cuenta YA verificada (`user.emailVerified` guardado al entrar), `resend`
+ * es un no-op que responde `{ok:true}` (`resendVerification`: «ya verificado → no reenvía»), así que «Mandar otro»
+ * diría «enviado» sin correo. En ese caso no se ofrece: se dice que el correo ya está confirmado e «Ir a mi cuenta».
  */
 export function TokenLinkInvalid({ title, testId }: { title: string; testId: string }) {
   const t = useTranslations('accountSetup');
-  const { isAuthenticated, ready } = useSession();
+  const tv = useTranslations('verifyEmailPage');
+  const { user, isAuthenticated, ready } = useSession();
   const { status: resendStatus, resend } = useResendVerification();
   const [email, setEmail] = useState('');
   const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'rateLimited'>('idle');
@@ -44,7 +50,16 @@ export function TokenLinkInvalid({ title, testId }: { title: string; testId: str
       </Banner>
 
       {!ready ? null : isAuthenticated ? (
-        resendStatus === 'sent' ? (
+        user?.emailVerified ? (
+          <div className="flex flex-col gap-4" data-testid="token-link-already-verified">
+            <Banner variant="success" role="status">
+              {t('alreadyVerified')}
+            </Banner>
+            <Link href="/account" className={buttonClassName({ variant: 'primary', className: 'w-full' })}>
+              {tv('goToAccount')}
+            </Link>
+          </div>
+        ) : resendStatus === 'sent' ? (
           <Banner variant="success" role="status">
             {t('sent')}
           </Banner>

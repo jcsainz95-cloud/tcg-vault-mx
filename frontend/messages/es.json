@@ -8630,6 +8630,7 @@
     "sending": "Enviando…",
     "sent": "Te mandamos otro enlace. Revisa tu correo.",
     "sentGeneric": "Si ese correo tiene una cuenta, te mandamos otro enlace. Revisa tu bandeja.",
+    "alreadyVerified": "Tu correo ya está confirmado: no necesitas otro enlace.",
     "email": "Correo",
     "rateLimited": "Ya pediste varios enlaces. Espera un rato y vuelve a intentarlo.",
     "blocked": "Esta cuenta está bloqueada. Escríbenos y te ayudamos.",
