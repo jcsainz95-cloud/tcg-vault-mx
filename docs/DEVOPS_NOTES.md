@@ -14,8 +14,8 @@
   `${VAR:?}` en `docker-compose.staging.yml` y en `security/secretos-exigidos*.txt` (regenerados con
   `./scripts/gen-published-secrets-manifest.sh`); en CI y local el arnés genera valores efímeros. **Los valores
   reales los pone el dueño en Railway** (production y staging), cada uno con `openssl rand -base64 32`. Sin ellos
-  el backend no arranca: no hay rollback «quitándolos»; para revertir la función se despliega el commit anterior
-  a #95.
+  el backend no arranca: no hay rollback «quitándolos»; para revertir la función se despliega el commit anterior a #95.
+- **Botón «Medir D-IDS-1» publicado aparte (2026-11-03, rama `claude/boton-ids`):** `medir-ids-produccion.yml`, sus `scripts/ids/` y el candado G-IDS-RO salen a `production` antes que §IDS porque GitHub solo ofrece un `workflow_dispatch` que exista en la rama por defecto y Q1–Q1d se miden antes de M-95; no usan nada de M-95 (medido contra el esquema hasta m94). Su runbook (§108.5) entra con §IDS.
 - **Fase 2 de marketing (medición):** construida en infraestructura y **APAGADA** — variables, puerta del aviso
   (C-D1), regla de secretos (C-D2), E2E de medición y C-F1. Encendido y apagado: **§101**.
 - **Runners fijados (2026-10-29):** todo `runs-on` es `ubuntu-24.04` (la imagen de production verde, run 40599627832); `ubuntu-latest` pasó a 26.04 y
