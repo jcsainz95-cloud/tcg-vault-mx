@@ -14,16 +14,27 @@ import { minWidthQuery } from '@/lib/breakpoints';
  */
 export const OPTIMIZED_IMAGE_QUALITY = 75;
 export const OPTIMIZED_IMAGE_SIZES = `${minWidthQuery('lg')} 376px, 212px`;
+/**
+ * `sizes` de las tejas SECUNDARIAS de Destacadas: 160/268 px de teja menos el `p-3` del pozo
+ * ⇒ 136/244 px de imagen. Con los anchos 384/640 de `next.config.mjs` el navegador elige 384 (DPR 2 celular, DPR 1–2
+ * escritorio) o 640 (DPR 3 celular); como `imageSmallUrl` mide 245 px, el optimizador NO reescala hacia arriba y las
+ * dos variantes pesan lo mismo (~16 KB WebP, medido contra producción: 46–165 KB PNG ⇒ 15–16 KB).
+ */
+export const OPTIMIZED_TILE_IMAGE_SIZES = `${minWidthQuery('lg')} 244px, 136px`;
 
 /** `src`/`srcSet`/`sizes` de `/_next/image` para `src`, de UNA llamada a `getImageProps()` (la `<img>` y su precarga). */
-export function optimizedImageAttrs(src: string, alt: string): { src: string; srcSet?: string; sizes?: string } {
+export function optimizedImageAttrs(
+  src: string,
+  alt: string,
+  sizes: string = OPTIMIZED_IMAGE_SIZES,
+): { src: string; srcSet?: string; sizes?: string } {
   const { props } = getImageProps({
     src,
     alt,
     // Proporción 5:7 de la carta; con `sizes` en px los anchos salen de `images.{deviceSizes,imageSizes}`.
     width: 640,
     height: 896,
-    sizes: OPTIMIZED_IMAGE_SIZES,
+    sizes,
     quality: OPTIMIZED_IMAGE_QUALITY,
   });
   return { src: props.src, srcSet: props.srcSet, sizes: props.sizes };
@@ -74,14 +85,15 @@ export interface CardImageProps {
    * ⛔ No se usa en ninguna otra teja (DYN-F8): el resto sigue en `<img>` crudo (nivel B, §5.3).
    */
   optimized?: boolean;
+  /** `sizes` de la `<img>` optimizada cuando NO es la líder (tejas: `OPTIMIZED_TILE_IMAGE_SIZES`); por defecto, el de la líder. */
+  optimizedSizes?: string;
   /**
-   * proto/B (2026-11-04) — tejas de Destacadas que caben en el primer viewport (01–03): `loading="eager"` SIN
+   * Tejas de Destacadas que caben en el primer viewport (01–03, `FEATURED_EAGER_TILES`): `loading="eager"` SIN
    * `fetchpriority="high"` (eso sigue siendo solo de la líder, `priority`). Pide la foto al parsear el HTML en vez
-   * de esperar a que el navegador decida que está «cerca» (WebKit usa un margen menor que Chromium).
+   * de esperar a que el navegador decida que está «cerca» (WebKit usa un margen menor que Chromium: 9 imágenes
+   * pedidas contra 13–16 en Chromium, medido 2026-11-04).
    */
   eager?: boolean;
-  /** proto/B — tejas fuera del primer viewport: `lazy` + `fetchpriority="low"`, para no competir con las visibles. */
-  lowPriority?: boolean;
 }
 
 /**
@@ -93,7 +105,6 @@ export interface CardImageProps {
  * Cuando el proyecto suba a React 19 esto puede volver a `fetchPriority` sin más.
  */
 const HIGH_FETCH_PRIORITY = { fetchpriority: 'high' } as unknown as { fetchPriority: 'high' };
-const LOW_FETCH_PRIORITY = { fetchpriority: 'low' } as unknown as { fetchPriority: 'low' };
 
 /**
  * Imagen de carta 5:7 (DESIGN_SYSTEM §5).
@@ -107,8 +118,8 @@ export function CardImage({
   priority = false,
   onLoaded,
   optimized = false,
+  optimizedSizes = OPTIMIZED_IMAGE_SIZES,
   eager = false,
-  lowPriority = false,
 }: CardImageProps) {
   const [loaded, setLoaded] = useState(false);
   // Fases del modo `optimized`: 'optimized' (`/_next/image`) → 'original' (respaldo, una vez) → 'broken'.
@@ -124,7 +135,7 @@ export function CardImage({
     settledFor.current = src ?? '';
     onLoaded?.();
   };
-  const attrs = optimized && src && phase === 'optimized' ? optimizedImageAttrs(src, alt) : null;
+  const attrs = optimized && src && phase === 'optimized' ? optimizedImageAttrs(src, alt, optimizedSizes) : null;
 
   // Precarga de la líder: mismos `src`/`srcSet`/`sizes` que la `<img>`, una vez por foto. `preload` es de React 19
   // (App Router); con el React 18 de la suite unitaria no existe y no se llama.
@@ -157,10 +168,10 @@ export function CardImage({
    * cargada; completa sin píxeles ⇒ error. En una `lazy` que aún no se pidió, `complete` es `false` por
    * especificación (petición «unavailable»), así que la relectura no la toca y su `load` llega por React.
    *
-   * proto/C (2026-11-04) — antes esto corría SOLO con `optimized` y las tejas crudas se quedaban en `opacity-0`
-   * para siempre cuando bajaban antes de hidratar (medido en producción, Chromium iPhone 13, red rápida, N=3:
-   * 10/10 bajadas a ~1.1 s, hidratación ~1.5 s, 7–9/10 invisibles a los 20 s; con las imágenes retrasadas 2.5 s,
-   * 0/10 invisibles en 3/3). Es la causa de las tejas en beige de la captura del dueño.
+   * Hasta el 2026-11-04 esto corría SOLO con `optimized`, y las tejas crudas se quedaban en `opacity-0` para
+   * siempre cuando bajaban antes de hidratar (medido en producción, Chromium iPhone 13, red rápida, N=3: 10/10
+   * bajadas a ~1.1 s, hidratación ~1.5 s, 7–9/10 invisibles a los 20 s; con las imágenes retrasadas 2.5 s, 0/10
+   * invisibles en 3/3; WebKit 1/3 con las mismas dos tejas de la captura del dueño). Candado: CardImage.test.tsx.
    */
   const replayRef = useCallback((img: HTMLImageElement | null) => {
     if (!img || !img.complete) return;
@@ -191,7 +202,7 @@ export function CardImage({
           alt={alt}
           lang="en"
           loading={priority || eager ? 'eager' : 'lazy'}
-          {...(priority ? HIGH_FETCH_PRIORITY : lowPriority ? LOW_FETCH_PRIORITY : {})}
+          {...(priority ? HIGH_FETCH_PRIORITY : {})}
           // Decodificación fuera del hilo principal: no bloquea el pintado del resto de la
           // teja mientras el navegador descomprime el JPEG. Barato y sin efecto visual.
           decoding="async"

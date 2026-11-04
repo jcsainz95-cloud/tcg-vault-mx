@@ -847,7 +847,9 @@ describe('§23.2 · rota la VENTANA, nunca el ROL (R1) — lo que protege el LCP
       expect(track.firstElementChild).toBe(leadBefore);
       expect(order()).toEqual(orderBefore);
       // Ninguna otra teja se convierte en HD (eso dispararía una descarga cada 5 s, §34.1).
-      expect(screen.getByAltText(NAMES[1])).toHaveAttribute('src', 'https://img.example/c-1-small.png');
+      expect(new URL(screen.getByAltText(NAMES[1]).getAttribute('src') ?? '', 'http://t.test').searchParams.get('url')).toBe(
+        'https://img.example/c-1-small.png',
+      );
       expect(screen.getByAltText(NAMES[1])).not.toHaveAttribute('fetchpriority');
     }
     expect(screen.getByAltText(NAMES[0])).toBe(imgBefore);

@@ -442,7 +442,7 @@ describe('Interruptor §4.DYN (f) 7 · encendido, /_next/image no acepta ningún
     }
   });
 
-  it('fuente: `next/image` solo en CardImage y la líder toma `optimized` del interruptor (nadie más depende de remotePatterns)', () => {
+  it('fuente: `next/image` solo en CardImage; líder y tejas de Destacadas toman `optimized` del interruptor (nadie más depende de remotePatterns)', () => {
     // §4.DYN (f) 7 deja NO MEDIDO «que ningún otro componente dependa de `remotePatterns`»: aquí se mide.
     // `remotePatterns` solo lo consulta `/_next/image`, y desde `src/` a `/_next/image` solo se llega por `next/image`.
     const SRC = join(__dirname, '..');
@@ -461,6 +461,8 @@ describe('Interruptor §4.DYN (f) 7 · encendido, /_next/image no acepta ningún
     expect(users).toEqual(['components/ui/CardImage.tsx']);
     const carousel = readFileSync(join(SRC, 'app/[locale]/(storefront)/_home/FeaturedCarousel.tsx'), 'utf8');
     const code = stripComments(carousel, 'FeaturedCarousel.tsx');
-    expect(code.match(/\boptimized\b[^\n]*/g)).toEqual(['optimized={leadImageOptimized()}']);
+    // 2026-11-04: dos usos (líder y tejas de Destacadas), LOS DOS colgados del interruptor; un tercero o uno sin
+    // `leadImageOptimized()` lo pone rojo.
+    expect(code.match(/\boptimized\b[^\n]*/g)).toEqual(['optimized={leadImageOptimized()}', 'optimized={leadImageOptimized()}']);
   });
 });

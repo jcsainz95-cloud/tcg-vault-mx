@@ -28,6 +28,19 @@ describe('CardImage · prioridad de carga', () => {
     expect(img).toHaveAttribute('fetchpriority', 'high');
   });
 
+  it('con `eager` carga en caliente SIN prioridad alta (tejas 01–03 de Destacadas)', () => {
+    render(<CardImage src={SRC} alt="Charizard" eager />);
+    const img = screen.getByAltText('Charizard');
+    expect(img).toHaveAttribute('loading', 'eager');
+    expect(img).not.toHaveAttribute('fetchpriority');
+  });
+
+  it('`optimizedSizes` fija el `sizes` de la <img> optimizada (por defecto, el de la líder)', () => {
+    render(<CardImage src={SRC} alt="Charizard" optimized optimizedSizes="(min-width: 1024px) 244px, 136px" />);
+    expect(screen.getByAltText('Charizard')).toHaveAttribute('sizes', '(min-width: 1024px) 244px, 136px');
+    expect(screen.getByAltText('Charizard').getAttribute('src')).toContain('/_next/image');
+  });
+
   it('decoding="async" siempre (no bloquea el hilo principal al descomprimir)', () => {
     render(<CardImage src={SRC} alt="Charizard" />);
     expect(screen.getByAltText('Charizard')).toHaveAttribute('decoding', 'async');
