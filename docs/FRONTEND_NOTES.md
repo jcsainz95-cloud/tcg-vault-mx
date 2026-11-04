@@ -323,8 +323,20 @@ Vigente: `<h1>` del sellado «nombre · set»; `CheckoutLines` con `historicalCa
 ## §DYN.6 · Opción A + c1: foto líder por `/_next/image` y textos por ruta (2026-10-30, rama `claude/portada-opcion-a`)
 
 **Estado vigente** (contrato v1.114.2 §DYN.6.6/.6.7; ARCHITECTURE §4.DYN (f) 7–8).
-- **Foto líder (DYN-F8/F9):** `CardImage` prop `optimized` (solo la líder; candado de fuente: un único uso). `getImageProps()`
-  con `sizes` `minWidthQuery('lg') 376px, 212px` y q 75; `ReactDOM.preload` del mismo resultado, una vez por foto (ya no
+- **Fotos por `/_next/image` (DYN-F8/F9):** `CardImage` prop `optimized` — la líder y, desde el 2026-11-04 («Pásalas por el
+  reductor», `HECHOS` 2026-11-04), las tejas secundarias de Destacadas; candado de fuente: SOLO en `FeaturedCarousel.tsx`
+  (2 usos, los dos colgados de `leadImageOptimized()`; `FeaturedCarousel.leadImage.test.tsx` y
+  `next-image-remote-patterns.test.ts` muerden con un uso más —catálogo— o uno menos). Tejas: la chica (245 px) con
+  `optimizedSizes` = `OPTIMIZED_TILE_IMAGE_SIZES` (`lg` 244px, 136px); el optimizador no reescala hacia arriba ⇒ 384 y 640
+  pesan igual (~16 KB WebP contra 46–165 KB PNG, medido) y NO se añadió ningún ancho a `images.imageSizes`. Coste: ≤ 2
+  transformaciones por teja ⇒ ≤ 20/día si las 10 rotan a cartas nuevas (+2 de la líder), contra el disparador de ~1 000/día
+  (DEVOPS_NOTES §106.4). 01–03 `eager` (`FEATURED_EAGER_TILES`), 04+ `lazy`; `fetchpriority=high` sigue siendo solo de la líder.
+  **Causa medida de las tejas en beige (captura del dueño 2026-11-04):** la relectura de `img.complete` al montar corría
+  solo con `optimized`; las tejas crudas que bajaban antes de hidratar quedaban en `opacity-0` para siempre (producción,
+  Chromium iPhone 13 red rápida N=3: 7–9/10 invisibles a 20 s; WebKit 1/3; catálogo 4–10/10). Ahora corre en toda
+  `CardImage` (candado `CardImage.test.tsx`). Sigue abierto: la teja no se ve hasta hidratar aunque ya bajó (4G: bajada
+  1.9 s, visible 3.7 s) — quitar el fundido `opacity-0` en las tejas es la siguiente palanca, NO MEDIDA en producción.
+  Líder: `getImageProps()` con `sizes` `minWidthQuery('lg') 376px, 212px` y q 75; `ReactDOM.preload` del mismo resultado, una vez por foto (ya no
   desde `FeaturedCarousel`). Primer `error` ⇒ la original sin `srcset` (una vez); `onLoaded` una vez, tras el respaldo;
   original rota ⇒ pozo sin `<img>`. Al montar lee `img.complete`/`naturalWidth`: React no repite `load`/`error` previos a
   hidratar (medido: sin esa lectura, el F9 E2E sale 20/20 rojo; con ella 20/20 verde). `next.config.mjs` `IMAGE_OPTIMIZER`:
@@ -347,6 +359,8 @@ Vigente: `<h1>` del sellado «nombre · set»; `CheckoutLines` con `historicalCa
   la superficie, no la cuenta. I3 (userinfo ⇒ 500) sigue: el matcher no mira `username` y el middleware excluye `_next`.
 - **Interruptor del residual (v1.114.5), APAGADO:** se enciende poniendo `NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH=on` en el entorno del despliegue (build **y** arranque) y redesplegando ⇒ `remotePatterns` vacío (`/_next/image` 400 a todo origen remoto) **y** la líder a nivel B; se apaga quitándola y redesplegando. Otro valor ≠ `on`/`off` rompe el build.
   Medido 2026-10-31 (build con `on`): `standalone` 4/4 orígenes ⇒ 400 sin la variable al arrancar; `next start` relee el config: sin ella al arrancar ⇒ 200, con ella 4/4 ⇒ 400. Código `lib/image-optimizer-switch.mjs` + `remotePatternsFor()`; candado `lib/next-image-remote-patterns.test.ts` (mutaciones: no vaciar ⇒ 2 rojas; líder fija ⇒ 2 rojas).
+- **Hosts en el cliente (DYN-F10, 2026-11-04):** `REMOTE_PATTERNS`/`remotePatternsFor()` viven en `lib/image-optimizer-hosts.mjs` (sin Node; `next.config.mjs` los re-exporta) y `CardImage` solo pide `/_next/image` si `imageOptimizerAccepts(src)` (origen exacto en la lista e interruptor apagado); otro origen ⇒ `<img>` cruda directa, sin precarga ni respaldo (antes: 400 + original, dos peticiones). Solo origen, no `pathname` (sería meter picomatch en el bundle). Candados: `CardImage.hosts.test.tsx`, `FeaturedCarousel.leadImage.test.tsx` (DYN-F10), paridad con el matcher de Next en `next-image-remote-patterns.test.ts`; `e2e/lead-image.spec.ts` mide líder Y tejas. Producción 2026-11-04: 20/20 URLs de Destacadas en origen y forma admitidos (0 crudas).
+  **Rojo del arnés home-perf (run 41870766214) NO es de hosts:** `/_next/image` 200 webp en todas; el «respaldo a la original» de `e2e-graded`/`e2e-slab-raw` es la `<img>` cruda de `GradedShelf` (misma carta, nivel B por diseño) que `lcp-optimized.mjs` (b) no distingue de un respaldo — es del candado (devops), este cambio no lo pone verde.
 - **Medido** (2026-10-30, `run.sh` N=5, stack propio BD `tcg_opa`, Redis :6481; foto líder real me55-88 de 883 KB
   servida por el arnés; el `next start` redirige `img.e2e.local` al host del arnés y `remotePatterns` lo admite, solo
   en la copia de medición; mediana [peor]): celular FCP 1.40 [1.41] → 1.23 [1.27] s, LCP 8.71 [10.53] → 5.20 [6.82] s;

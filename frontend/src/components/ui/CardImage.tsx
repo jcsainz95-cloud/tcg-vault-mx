@@ -5,6 +5,7 @@ import * as ReactDOM from 'react-dom';
 import { getImageProps } from 'next/image';
 import { cn } from '@/lib/cn';
 import { minWidthQuery } from '@/lib/breakpoints';
+import { imageOptimizerAccepts } from '@/lib/image-optimizer-hosts.mjs';
 
 /**
  * §DYN.6.6 / ARCHITECTURE §4.DYN (f) 7 — la foto de la teja LÍDER por el optimizador de Next (`/_next/image`).
@@ -14,16 +15,27 @@ import { minWidthQuery } from '@/lib/breakpoints';
  */
 export const OPTIMIZED_IMAGE_QUALITY = 75;
 export const OPTIMIZED_IMAGE_SIZES = `${minWidthQuery('lg')} 376px, 212px`;
+/**
+ * `sizes` de las tejas SECUNDARIAS de Destacadas: 160/268 px de teja menos el `p-3` del pozo
+ * ⇒ 136/244 px de imagen. Con los anchos 384/640 de `next.config.mjs` el navegador elige 384 (DPR 2 celular, DPR 1–2
+ * escritorio) o 640 (DPR 3 celular); como `imageSmallUrl` mide 245 px, el optimizador NO reescala hacia arriba y las
+ * dos variantes pesan lo mismo (~16 KB WebP, medido contra producción: 46–165 KB PNG ⇒ 15–16 KB).
+ */
+export const OPTIMIZED_TILE_IMAGE_SIZES = `${minWidthQuery('lg')} 244px, 136px`;
 
 /** `src`/`srcSet`/`sizes` de `/_next/image` para `src`, de UNA llamada a `getImageProps()` (la `<img>` y su precarga). */
-export function optimizedImageAttrs(src: string, alt: string): { src: string; srcSet?: string; sizes?: string } {
+export function optimizedImageAttrs(
+  src: string,
+  alt: string,
+  sizes: string = OPTIMIZED_IMAGE_SIZES,
+): { src: string; srcSet?: string; sizes?: string } {
   const { props } = getImageProps({
     src,
     alt,
     // Proporción 5:7 de la carta; con `sizes` en px los anchos salen de `images.{deviceSizes,imageSizes}`.
     width: 640,
     height: 896,
-    sizes: OPTIMIZED_IMAGE_SIZES,
+    sizes,
     quality: OPTIMIZED_IMAGE_QUALITY,
   });
   return { src: props.src, srcSet: props.srcSet, sizes: props.sizes };
@@ -66,14 +78,25 @@ export interface CardImageProps {
    */
   onLoaded?: () => void;
   /**
-   * §DYN.6.6 (opción A del dueño, `HECHOS` 2026-10-30) — SOLO la teja líder de Destacadas: pide la foto a
-   * `/_next/image` (WebP, 384/640 px) en vez de la original (PNG de 0.47–1.23 MB). Con `priority`, además la
-   * precarga con `ReactDOM.preload` sacado del MISMO `getImageProps()` que la `<img>` (precargar la original
-   * bajaría la foto dos veces). Si el optimizador falla, cae UNA vez a la original sin `srcset`; `onLoaded` se
-   * llama una sola vez, después del respaldo. Con la original también rota, el pozo queda sin imagen rota.
+   * §DYN.6.6 (opción A del dueño, `HECHOS` 2026-10-30) — SOLO Destacadas (líder y, desde 2026-11-04, sus tejas):
+   * pide la foto a `/_next/image` (WebP, 384/640 px) en vez de la original (PNG de 0.47–1.23 MB). Con `priority`,
+   * además la precarga con `ReactDOM.preload` sacado del MISMO `getImageProps()` que la `<img>` (precargar la
+   * original bajaría la foto dos veces). Si el optimizador falla, cae UNA vez a la original sin `srcset`; `onLoaded`
+   * se llama una sola vez, después del respaldo. Con la original también rota, el pozo queda sin imagen rota.
+   * DYN-F10: solo aplica si el ORIGEN de `src` está en `images.remotePatterns` (`imageOptimizerAccepts`); si no, la
+   * foto va cruda desde el principio (sin 400 ni respaldo), y con el interruptor de emergencia encendido, todas.
    * ⛔ No se usa en ninguna otra teja (DYN-F8): el resto sigue en `<img>` crudo (nivel B, §5.3).
    */
   optimized?: boolean;
+  /** `sizes` de la `<img>` optimizada cuando NO es la líder (tejas: `OPTIMIZED_TILE_IMAGE_SIZES`); por defecto, el de la líder. */
+  optimizedSizes?: string;
+  /**
+   * Tejas de Destacadas que caben en el primer viewport (01–03, `FEATURED_EAGER_TILES`): `loading="eager"` SIN
+   * `fetchpriority="high"` (eso sigue siendo solo de la líder, `priority`). Pide la foto al parsear el HTML en vez
+   * de esperar a que el navegador decida que está «cerca» (WebKit usa un margen menor que Chromium: 9 imágenes
+   * pedidas contra 13–16 en Chromium, medido 2026-11-04).
+   */
+  eager?: boolean;
 }
 
 /**
@@ -91,12 +114,26 @@ const HIGH_FETCH_PRIORITY = { fetchpriority: 'high' } as unknown as { fetchPrior
  * Dirección 5a: el arte se apoya en un pozo de papel más oscuro, sin borde ni
  * esquina redondeada — la carta ya trae su propio marco.
  */
-export function CardImage({ src, alt, className, priority = false, onLoaded, optimized = false }: CardImageProps) {
+export function CardImage({
+  src,
+  alt,
+  className,
+  priority = false,
+  onLoaded,
+  optimized = false,
+  optimizedSizes = OPTIMIZED_IMAGE_SIZES,
+  eager = false,
+}: CardImageProps) {
   const [loaded, setLoaded] = useState(false);
   // Fases del modo `optimized`: 'optimized' (`/_next/image`) → 'original' (respaldo, una vez) → 'broken'.
   // Por foto: si la líder cambia (revalidación), la nueva vuelve a empezar por el optimizador.
   const [failure, setFailure] = useState<{ src: string; phase: 'original' | 'broken' } | null>(null);
   const phase = failure && failure.src === src ? failure.phase : 'optimized';
+  // DYN-F10: `/_next/image` solo acepta los orígenes de `images.remotePatterns` (400 a cualquier otro, y con el
+  // interruptor de emergencia a todos). Una `src` de otro origen va a nivel B DIRECTAMENTE (`<img>` cruda, sin
+  // precarga ni respaldo): pedirla al optimizador costaría un 400 y después la original, dos peticiones por foto
+  // (medido 2026-11-04, FRONTEND_NOTES §DYN.6). La lista es la MISMA que aplica `next.config.mjs`.
+  const viaOptimizer = optimized && !!src && imageOptimizerAccepts(src);
   // `onLoaded` UNA vez por foto: el respaldo y la réplica de eventos previos a la hidratación (abajo) pueden
   // ver la misma foto dos veces; la rotación (§23.3) solo necesita saber que ya no hay nada en vuelo.
   const settledFor = useRef<string | null>(null);
@@ -106,7 +143,7 @@ export function CardImage({ src, alt, className, priority = false, onLoaded, opt
     settledFor.current = src ?? '';
     onLoaded?.();
   };
-  const attrs = optimized && src && phase === 'optimized' ? optimizedImageAttrs(src, alt) : null;
+  const attrs = viaOptimizer && src && phase === 'optimized' ? optimizedImageAttrs(src, alt, optimizedSizes) : null;
 
   // Precarga de la líder: mismos `src`/`srcSet`/`sizes` que la `<img>`, una vez por foto. `preload` es de React 19
   // (App Router); con el React 18 de la suite unitaria no existe y no se llama.
@@ -120,12 +157,12 @@ export function CardImage({ src, alt, className, priority = false, onLoaded, opt
   }
 
   const fail = () => {
-    if (optimized && phase === 'optimized') {
+    if (viaOptimizer && phase === 'optimized') {
       // El optimizador no dio 2xx (origen caído, `sharp` ausente, cuota): `next/image` no cae solo. Una vez.
       setFailure({ src: src ?? '', phase: 'original' });
       return;
     }
-    if (optimized) setFailure({ src: src ?? '', phase: 'broken' });
+    if (viaOptimizer) setFailure({ src: src ?? '', phase: 'broken' });
     settle();
   };
   const failRef = useRef(fail);
@@ -133,24 +170,27 @@ export function CardImage({ src, alt, className, priority = false, onLoaded, opt
   const settleRef = useRef(settle);
   settleRef.current = settle;
   /*
-   * La `<img>` líder sale en el HTML (§DYN.6.2) y puede terminar ANTES de hidratar: React no repite esos
+   * Toda `<img>` que sale en el HTML del servidor (la líder, §DYN.6.2, y las tejas de Destacadas y del catálogo,
+   * hidratadas con `HydrationBoundary`) puede terminar de bajar ANTES de hidratar, y React no repite esos
    * `load`/`error`. Al montar se mira el estado real (lo mismo que hace `next/image`): completa con píxeles ⇒
-   * cargada; completa sin píxeles ⇒ error. Solo en `optimized` (la líder es `eager`; en una `lazy` no
-   * cargada aún, `complete` no es fiable).
+   * cargada; completa sin píxeles ⇒ error. En una `lazy` que aún no se pidió, `complete` es `false` por
+   * especificación (petición «unavailable»), así que la relectura no la toca y su `load` llega por React.
+   *
+   * Hasta el 2026-11-04 esto corría SOLO con `optimized`, y las tejas crudas se quedaban en `opacity-0` para
+   * siempre cuando bajaban antes de hidratar (medido en producción, Chromium iPhone 13, red rápida, N=3: 10/10
+   * bajadas a ~1.1 s, hidratación ~1.5 s, 7–9/10 invisibles a los 20 s; con las imágenes retrasadas 2.5 s, 0/10
+   * invisibles en 3/3; WebKit 1/3 con las mismas dos tejas de la captura del dueño). Candado: CardImage.test.tsx.
    */
-  const replayRef = useCallback(
-    (img: HTMLImageElement | null) => {
-      if (!img || !optimized || !img.complete) return;
-      if (img.naturalWidth > 0) settleRef.current();
-      else failRef.current();
-    },
-    [optimized],
-  );
+  const replayRef = useCallback((img: HTMLImageElement | null) => {
+    if (!img || !img.complete) return;
+    if (img.naturalWidth > 0) settleRef.current();
+    else failRef.current();
+  }, []);
 
   // Con `priority` no hay fade: la imagen se pinta en cuanto llega. Un `opacity-0` que
   // espera al `onLoad` retrasa el PINTADO (y por tanto el LCP) aunque los bytes ya estén.
   const visible = loaded || priority;
-  const showImg = !!src && !(optimized && phase === 'broken');
+  const showImg = !!src && !(viaOptimizer && phase === 'broken');
   return (
     <div className={cn('relative flex aspect-[5/7] items-center justify-center bg-surface-2 p-3', className)}>
       {/* El esqueleto pulsa SOLO mientras hay una imagen en vuelo. Sin `src` no hay nada que
@@ -163,13 +203,13 @@ export function CardImage({ src, alt, className, priority = false, onLoaded, opt
         // eslint-disable-next-line @next/next/no-img-element
         <img
           // Respaldo: `key` nuevo ⇒ elemento nuevo, sin `srcset` ni `sizes` que el navegador pudiera seguir usando.
-          key={optimized ? phase : undefined}
-          ref={optimized ? replayRef : undefined}
+          key={viaOptimizer ? phase : undefined}
+          ref={replayRef}
           {...(attrs ? { srcSet: attrs.srcSet, sizes: attrs.sizes } : {})}
           src={attrs ? attrs.src : src}
           alt={alt}
           lang="en"
-          loading={priority ? 'eager' : 'lazy'}
+          loading={priority || eager ? 'eager' : 'lazy'}
           {...(priority ? HIGH_FETCH_PRIORITY : {})}
           // Decodificación fuera del hilo principal: no bloquea el pintado del resto de la
           // teja mientras el navegador descomprime el JPEG. Barato y sin efecto visual.

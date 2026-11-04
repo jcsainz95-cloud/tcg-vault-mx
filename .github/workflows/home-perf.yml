@@ -120,12 +120,22 @@ jobs:
           ( cd scripts/s3-local && npm ci --omit=dev --no-audit --no-fund )
       - name: Chromium (el de Playwright del frontend)
         working-directory: frontend
-        timeout-minutes: 25
+        timeout-minutes: 30
         run: |
           set -uo pipefail
+          # Reintento SIN pisar el intento anterior (run 41868820215: el `apt-get` del intento 1 seguía vivo con el
+          # candado de dpkg y los intentos 2 y 3 murieron con «Could not get lock /var/lib/dpkg/lock-frontend»).
+          # `setsid` + `timeout -k`: al vencer, SIGTERM y a los 10 s SIGKILL al grupo entero (npx → playwright → apt-get)
+          # cuando sudo no abre pty; y antes de reintentar se espera (tope 150 s) a que nadie tenga el candado de dpkg.
+          # Peor caso 3 × 430 s + 2 × 160 s ≈ 27 min < 30 (timeout-minutes). Si `fuser` no existiera, no se espera.
           for intento in 1 2 3; do
-            if timeout 420 npx playwright install --with-deps chromium; then break; fi
+            if setsid -w timeout -k 10 420 npx playwright install --with-deps chromium; then break; fi
             [ "$intento" = "3" ] && { echo "::error title=No se pudo instalar Chromium::3 intentos agotados."; exit 1; }
+            for i in $(seq 1 30); do
+              sudo fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1 || break
+              [ "$i" = 1 ] && echo "::notice::intento $intento: el candado de dpkg sigue tomado; espero a que lo suelten (tope 150 s)"
+              sleep 5
+            done
             sudo dpkg --configure -a >/dev/null 2>&1 || true
             sleep 10
           done

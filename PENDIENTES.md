@@ -3,8 +3,9 @@
 > **Cómo se usa (regla O-5):** un pendiente **afirma su fecha de medición o no afirma nada**. Antes de enrutar
 > trabajo a partir de uno, **se re-mide** (el comando o `fichero:línea` de la columna «Comprobación» es por dónde
 > empezar). Lo cerrado se mueve a `HISTORIAL.md`; los hechos del negocio viven en `HECHOS.md`.
-> Última limpieza: **2026-09-29** (orquestador, sesión 4, al preparar el traspaso a la sesión 5). Las secciones
-> anteriores conservan sus cuerpos **verbatim**; la de abajo manda sobre ellas.
+> Última limpieza: **2026-11-04** (orquestador, sesión hija: filas ✅/~~tachadas~~ y las secciones anteriores al 2026-09-25 y la de
+> `feat/mkt-tienda` del 2026-10-16 movidas a `HISTORIAL.md` verbatim; antes 2026-09-29). Las secciones anteriores conservan
+> sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
 ## 2026-10-31 — Stream «Conversión de marketing» (rama `claude/mkt-conversion`)
 
@@ -12,9 +13,8 @@
 
 | # | Qué | Dueño | Medido | Comprobación |
 |---|---|---|---|---|
-| MKT-DUENO-MAQ | Maquetas D-A (banner), D-B (etiqueta), D-C (T2) enviadas; D-F correo público. Sin respuesta. | dueño | 2026-10-31 | fila en HECHOS |
-| MKT-DUENO-PO | Preguntas MKT-1…5 (datos de «Quiénes somos», Instagram, agotada, IVA en meta, quién redacta) + «Usado» en `itemCondition`. Sin respuesta. | dueño | 2026-10-31 | fila en HECHOS |
-| MKT-VERCEL-AGE | ✅ CERRADO 2026-10-31 (HECHOS: ageMs 37–38 s tras 36 s, N=3, orquestador). TL-MKT4-1: la frescura del catálogo depende de que la Data Cache devuelva el `Date` de origen; solo medido en `next start`. Medir en producción tras publicar (36 s sin visitas ⇒ `"ageMs":` ≥ 30000). Respaldo: `staleTime: 0` en la consulta del catálogo. | orquestador → frontend | 2026-10-31 (NO MEDIDO en Vercel) | lectura anotada en DEVOPS_NOTES |
+| ~~MKT-DUENO-MAQ~~ | **RESPONDIDA** (re-medido 2026-11-04 contra HECHOS): D-A = A, D-B = A, D-C = B en la fila HECHOS 2026-10-31 «Marketing tanda 2: decisiones del dueño»; publicadas en #111 (HECHOS 2026-10-31 «Marketing tanda 2 publicada»). La nota del 2026-10-31 de arriba quedó vieja (O-5). | — | 2026-11-04 | fila en HECHOS |
+| ~~MKT-DUENO-PO~~ | **RESPONDIDA** (re-medido 2026-11-04 contra HECHOS): MKT-1 ciudad, MKT-2 Instagram, MKT-3 agotada (a), MKT-4 (a), MKT-5 (a) en HECHOS 2026-10-31 «Marketing tanda 2: decisiones del dueño»; «Usado» en `itemCondition` en HECHOS 2026-10-31 «Textos nuevos para Google…». | — | 2026-11-04 | fila en HECHOS |
 | MKT-DEUDA | Fichas abiertas TL-MKT2-3…8, TL-MKT3-3/4 (en TECH_DEBT), TL-MKT4-1…5 (por anotar: frontend/devops/arquitecto) y ampliar TL-MKT2-8 (regla de edad del dato servidor→cliente, corregir «≤ ~60 s» de ARCHITECTURE §4.DYN (f) 3). OPS-MKT-SEAL (devops). SEC-MKT2-B1/I1/I2 (frontend). | varios | 2026-10-31 | índice de TECH_DEBT |
 | MKT-953-FOTO | Foto de sellado ≥ 1000 px para `Product` (viene del backend). | backend | 2026-10-31 | `ogImageUrl` ≥ 1000 px |
 | FE-HOMEQUOTER-TEARDOWN | `HomeQuoter.tsx:105` setState tras desmontar ⇒ «window is not defined» unhandled en `page.test.tsx` (1/1 en suite completa con load ~8; 0/5 aislado). | frontend | 2026-10-31 (orquestador) | 0 unhandled en 3 suites completas |
@@ -58,7 +58,11 @@
 | ARQ-IDS-M | Propuesta del techlead (veredicto §IDS sobre db202174, 2026-11-03): en reposición `R = max(Q, M)` (`withdrawal-delivered-refund.service.ts:18`) fija los topes 2R/kR; M es la referencia viva, así que con un caso de revisión de precio abierto (posible pico) el tope sube. Ya pasaba con el inglés; §IDS lo extiende al español. Pregunta: ¿M debe leer la referencia retenida? | arquitecto | 2026-11-03 (techlead, lectura de código) | decisión escrita en API_CONTRACT §reposición; si cambia, prueba de integración que fija M con caso abierto |
 | IDS-E2E-MENOR | tester-e2e §IDS sobre 52481453 (APROBADO, 2026-11-03): MENOR-1 frontend — elegir otra burbuja no actualiza `?version=` (al recargar vuelve la de la teja); MENOR-2 PO/arquitecto — M10 promete «valor anterior y nuevo» en bitácora pero la pantalla no los muestra (están en BD; contrato :14014 lo fija así); MENOR-3 frontend — con `…/versions` en error, «Español» sigue elegible y CREAR habilitado (candado IDS-UX.6(4)); también lo vio QA; MENOR-4 frontend — `role=status` tras crear a 1280 incluye el aviso de celular (NO MEDIDO visual). Capturas: scratchpad/e2e-ids/shots/. | frontend · PO | 2026-11-03 (tester-e2e) | recorrido de los 4 pasos con captura |
 | CS-REG | Registro al torneo del Card Show: el dueño reporta «sigue el error» tras publicar #116 (captura 2026-11-04, Shard Bugs, sábado). Medido en vivo por el orquestador: el cuerpo que manda la página ya es correcto (sin `referrerHost`, sin `playerId`) y el bundle es el nuevo; falta saber si el dueño probó con la pestaña vieja o si el servidor rechaza. Qué lo cierra: el dueño reintenta tras cerrar la pestaña y entrar desde Instagram; si falla, (a) autoriza UN registro de prueba del orquestador con correo propio, o (b) pega las líneas `card-show` de Railway → backend → Logs de ese minuto. | dueño → orquestador (→ backend si es del servidor) | 2026-11-04 04:36 UTC (Playwright, POST abortado) | «Revisa tu correo…» al preinscribirse desde el enlace de la bio |
-| IDS-ADMIN-LIGA | DESIGN_SYSTEM IDS-UX.0 (último punto) e IDS-UX.3 (b) dicen «Sello: Todos / Con sello / Sin sello» y columna «Sello» en el admin; el dueño decidió «de liga» y burbujas también en el admin (HECHOS 2026-11-04). Frontend construido en `4314e3a5` (PieceVersion en `PillToggleGroup`, «Liga: Todas / De liga / Sin liga»; EN «League: All / League / Regular», alineado con la captura). Quedan: **backend/arquitecto** — cabecera «Sello» → «Liga» en `GET /admin/inventory/export.xlsx` (la escribe el backend); **ux-ui** — enmendar IDS-UX.0 (último punto) e IDS-UX.3 (b) y ratificar EN «Regular» vs «Non-league». | frontend (código) · ux-ui (DESIGN_SYSTEM) | 2026-11-04 | `grep -c "Con sello" frontend/messages/es.json` ⇒ 0; DESIGN_SYSTEM sin «Con sello» |
+| ~~FE-HOME-IMG~~ | **HECHO 2026-11-04** (frontend `59db08b` + notas `502a755`, fusionado en `claude/orquestacion-1105`; en PR #120). Causa medida por frontend (refuta el primer diagnóstico del orquestador, O-2): carrera de hidratación en `CardImage` (`opacity-0` hasta `onLoad`; relectura de `img.complete` solo en la líder) ⇒ en producción, red rápida, 7/9/8 de 10 tejas invisibles a los 20 s (N=3 Chromium iPhone 13; WebKit 1/3 con las dos de la captura del dueño); canario retrasando las fotos 2.5 s ⇒ 0/0/0. Arreglo C (relectura en todas) + A (tejas por `/_next/image`, `sizes` `(min-width:1024px) 244px, 136px`, 740→372 KB) + 01–03 `eager`: 4G lento 01+02 visibles a 3.2 s (antes nunca), 3G 7.8 s, red rápida 0.5 s; 0 invisibles en 9/9 corridas. Orquestador O-9 sobre copia del árbol entero (`502a755`): 122/122 verdes (8 suites), `tsc` rc 0, mutación teja cruda ⇒ 5 rojas 2/2. Transformaciones del optimizador: ≤ 22/día estimadas (10 tejas × 2 anchos + líder) frente al disparador ~1 000/día (DEVOPS_NOTES §106.4); **LECTURA-IMG-7D debe contarlas** (≈8 de prueba hoy). Queda: variante D (quitar el fundido `opacity-0`: la teja no se ve hasta hidratar aunque ya bajó, NO MEDIDA); catálogo: el fix C lo corrige de paso (vive en `CardImage`), pero sus tejas siguen crudas (decisión del dueño aparte, coste medido). | frontend → dueño (botón #120) | 2026-11-04 | captura 4G lento 4 s con 01–03 con foto; `grep -c "optimizedSizes" frontend/src/app/\[locale\]/\(storefront\)/_home/FeaturedCarousel.tsx` ≥ 1 |
+| DEVOPS-HP-APT | `home-perf.yml:125-128`: el bucle de 3 intentos de `npx playwright install --with-deps chromium` con `timeout 420` relanza el intento mientras el `apt-get` del intento anterior sigue vivo con el candado de dpkg ⇒ «Could not get lock /var/lib/dpkg/lock-frontend … held by process 3600 (apt-get)» ×3 y el job muere SIN medir (run 41868820215 sobre b0d2a6d, 2026-11-04 16:44 UTC; espejo azure.archive a 48.8 kB/s, 21 MB en 7 min 12 s). Arreglo sugerido: `timeout` que mate el grupo de procesos (`timeout -k`/`setsid`) o esperar el candado (`fuser /var/lib/dpkg/lock-frontend`) antes de reintentar; separar `apt` (`install-deps`) de la descarga del navegador. Re-lanzado una vez por el orquestador (rerun_failed_jobs). | devops | 2026-11-04 (orquestador, log del job 126709966634) | canario: con el candado tomado a mano, el bucle espera en vez de agotar 3 intentos |
+| DEVOPS-HP-D3 | `scripts/home-perf/lcp-optimized.mjs` (DYN-D3) criterio (b) cuenta como «respaldo a la original» cualquier petición a una url que alguna `/_next/image` envuelva, y `run.sh:277-280` rotula el fallo «líder SIN optimizador» mostrando solo `head -n1`. **Causa medida por frontend en el artefacto del run 41870766214 (`d1-mobile/optimizador.txt`), que refuta la primera lectura del orquestador (host del seed; O-2):** las 6 `/_next/image` son 200 webp; los «respaldos» son las `<img>` crudas de la estantería de gradeadas (`GradedShelf.tsx:70`, nivel B por diseño) para las mismas cartas del seed. Con las tejas optimizadas (59db08b) el candado da 0/5 aunque los tiempos estén verdes (celular 1.21/3.56 s). Devops arregla (b) (respaldo solo si la `/_next/image` de esa url no fue 200 webp) con canario, y el bucle apt de DEVOPS-HP-APT. | devops (en curso) | 2026-11-04 (frontend, artefacto; orquestador, log) | canario (i)/(ii)/(iii) verde; d1 `N/N` en CI sobre el head de #120 |
+| DEVOPS-DIALS-CANARY | `scripts/check-graded-estimate-dials-canary.sh:35-36`: levanta `fake-admin-api.py` en :39990 con salida a `/dev/null` y espera ≤ 10 s (50 × 0.2 s) sin fallar si no arranca; luego las 6 comprobaciones dan «HTTP 000 — ni siquiera conectó» y el job `e2e-harness-gaps` se pone rojo sin decir por qué (run 41878547923 sobre 76e1b03, 2026-11-04 17:36 UTC; el diff ccbb806→76e1b03 no toca `scripts/` ni Python, y el mismo job fue verde sobre ccbb806 y 21d9905). Arreglo: si tras la espera no responde, abortar con rc=2 «NO concluyente» mostrando el stderr de la maqueta; subir la espera a 30 s. | devops | 2026-11-04 (orquestador, log del job 126744666149) | con la maqueta impedida de arrancar ⇒ rc=2 y mensaje claro, no 6 «HTTP 000» |
+| ~~IDS-ADMIN-LIGA~~ | **HECHO 2026-11-04** (sesión hija, rama `claude/orquestacion-1105`): frontend `4314e3a5` (en PR #119); backend `b598e09` (cabecera 20 del export «Liga»; orquestador O-9 sobre copia del árbol entero: `inventory.export-xlsx.spec.ts` 3/3 verdes, mutación «Sello» 1/1 roja; `ids-capture.e2e-spec.ts` editado, **NO corrido** en local: lo mide el E2E de CI de la rama); contrato errata v1.116.6⟨ids⟩ `abef52b`; DESIGN_SYSTEM vIDS-8 `91c5754` (EN «League: All | League | Regular» ratificado). PR jcsainz95-cloud/tcg-vault-mx#120 (`claude/orquestacion-1105` → `production`) abierta 2026-11-04 15:4x UTC; falta el botón del dueño. | orquestador | 2026-11-04 | `grep -c "header: 'Sello'" backend/src/modules/inventory/inventory.service.ts` ⇒ 0; `grep -c "Con sello" docs/DESIGN_SYSTEM.md` ⇒ 4 (solo históricas) |
 | DEV-IMG-500 | devops (2026-11-03, medido 1/1 en 283bb760 y en production 2bcfd04b): en `stack-native.sh up` modo `dev`, la 2.ª petición a `/es` da 500 «Invalid src prop (https://img.e2e.local/…) on next/image, hostname not configured» desde `CardImage.tsx:20` (`optimizedImageAttrs`, vino con 2e8e9119 §DYN). `start_frontend` muere. En `FRONTEND_MODE=build` no aparece (NO MEDIDO por qué). Solo arnés local; producción usa hosts en `remotePatterns` (NO MEDIDO). También: BDs/roles `tcg_devops_penc*`, `tcg_fe_cta` sin borrar (los agentes no pueden `su postgres`). | frontend (CardImage) / backend (host del seed) | 2026-11-03 (devops) | `up --seed` modo dev rc 0 sin el aviso de Stripe; `/es` dos veces 200 |
 | IDEA-BOPIS+ | Puntos de recolección: el dueño (2026-10-30, en la sesión de marketing) «Vamos a poner puntos de recoleccion pero no estan definidos todavia» (antes nombró Jakomi y lo dejó sin confirmar). Sigue SIN orden de construir. Cuando defina el primer punto: PO prepara preguntas (dirección pública, horario, quién entrega, costo, plazo). | Relayado por marketing (session_01S6V7FxyuMP4xKx6VjjPzvP), no dicho en esta sesión | dueño define punto → PO |
 | MKT-MED | Medición: A3 Meta /tr, A6 tasa del banner en panel, A7 PageView a Meta y telemetría CSP bloqueada por CORP, A10 comentario en schema.prisma. | NO MEDIDO | por asignar |
@@ -153,7 +157,6 @@
 | P-REL-1 | Fusionar los cinco frentes en una rama de release desde `production` con la regla `#M1-merge-rule` (v1.80.7.2) y abrir **un solo** PR → `production` (qué entra, BD, rollback, pasos del dueño, condiciones abiertas) | orquestador + backend (fusión de `inventory`) + arquitecto (cabecera del contrato consolidada) | 2026-09-29 | PR abierto, CI verde, DAST verde |
 | P-REL-2 | Gate de release: QA E2E completa sobre el stack fusionado; pentester **en vivo**; seguridad consolida; O-9 del orquestador | qa, pentester, seguridad | 2026-09-29 | tres veredictos sobre el sha del release |
 | P-REL-3 | E2E `realOnly` de la cubeta SPEI (revelar → pagar / cancelar): hoy `frontend/e2e/m4-ship.spec.ts` es 100 % mocks y ahí vivió BLOQ-1 | frontend (+ devops el censo) | 2026-09-29 (QA sobre 59a0c1f) | un spec realOnly verde contra el stack real |
-| ~~P-SHIP-57d~~ | **CERRADO 2026-09-29**: PS-57d y `applyStripeOutcome` sin lectura sin candado (cc0570e/3849421), PS-57c simplificada (ff942ca), notas (ff83abf). Orquestador O-9 sobre ff83abf: unitaria 357/5930, tsc limpio. Backend: integración 55/55 en 2 de 3 corridas (N=3); la tercera 54/55 por P-BUYLIST-CONC-FLAKE (ver abajo) | backend | 2026-09-29 | — |
 | P-BUYLIST-CONC-FLAKE+ | `buylist-intake-concurrency` (flake abierto, `PENDIENTES.md` P-BUYLIST-CONC-FLAKE): tras un rojo, su `afterAll` no restaura la BD y **envenena las corridas siguientes** sobre la misma base (0/10 sobre BD envenenada, 10/10 sobre limpia; cruzado código×base). Mecanismo NO MEDIDO | backend (stream catálogo/buylist) | 2026-09-29 (backend, sesión 4) | la suite pasa 10/10 dos veces seguidas sobre la MISMA base tras forzar un rojo |
 | P-O2-CIFRA | Corrección del orquestador (O-2): dijo «1,281 verdes + 2 skip» en la integración sobre cfb43b3; mal sumado (contó dos veces las 26 pruebas re-corridas de KYC/S3). Lo medido: 55/55 suites; backend midió 1,266 pruebas sobre ese sha | — | 2026-09-29 | cerrado al escribirlo |
 | P-SHIP-C1-3 | Condiciones de seguridad del stream de envío antes de `sk_live_`: C1 override de `qs` ^6.16.0; C2 códigos `REFUND_FAILURE_DISPUTE_CODES` contra Stripe prueba; C3 consulta B13 con usuario RO | backend (C1, C2) + dueño (C3) | 2026-09-29 (seguridad sobre 59a0c1f) | `npm audit --omit=dev` limpio; nota en BACKEND_NOTES; resultado de B13 = 0 |
@@ -169,7 +172,6 @@
 | P-M1-BITACORA | Bitácora `inventory.item_updated` con before/after en el PATCH (§M4-SHIP.17.1 (2)) | backend (en la fusión de `inventory`) | 2026-09-29 | spec que lea la bitácora tras el PATCH |
 | P-OUTCOME | `outcome` aditivo en `paid`/`cancel` de la cubeta SPEI: declararlo en el contrato o quitarlo | arquitecto | 2026-09-29 (QA MENOR 2) | línea en §M4-SHIP.17.3 |
 | P-DEUDA | Deuda anotada con disparador: TECH_DEBT SHIP-D1…D8, SHIP-FD-a/b/c, T-2…T-6, DIN-D1, C7-LEGACY-SID (borrar la rama legado 30 d tras publicar), D-SHIP-8 | rol dueño de cada una | 2026-09-29 | cierre según cada entrada |
-| ~~P-M5-DECLINE~~ | **HECHO 2026-10-02 (`5ff5f920` + `653ae11a`, frontend; vitest 2373/2373, E2E mocks 248/0, 11/11 mutaciones rojas): «Declinar» en `cotizada` y «Cancelar la oferta» en `ofertada`, ambos roles. Pendiente: censo E2E (devops), copy neutro por ratificar (ux-ui), `@real` requiere semilla propia (backend).** Era: **Botón «Declinar» en M5 para solicitudes `cotizada`** (y «Cancelar oferta» en `ofertada`): el dueño no puede rechazar una solicitud sin oferta (2026-10-02, captura). Hueco de PANTALLA: `POST /admin/buylist/:id/decline` existe (contrato `API_CONTRACT.md:25118-25176`, D39; backend `admin-buylist.controller.ts:480-497`, `buylist.service.ts:5608-5659`), diseño en `DESIGN_SYSTEM.md:10912-10930`; frontend sin cliente en `lib/api.ts` ni botón ni claves (FRONTEND_NOTES `:14565`, `:14735` lo daban por «no entregado»). Criterio 171 incumplible desde la UI | frontend (tras la pestaña de reembolsos, por `es/en.json`) | 2026-10-02 (Explore sobre 0d6b5362, solo lectura) | botón visible en una `cotizada`; declinar ⇒ `expirada/no_offer` + correo 4; E2E |
 | P-BOVEDA-CLIENTE-PIEZAS | **Bóveda de un cliente (panel admin → Clientes → <cliente> → Cartas → <set>): mostrar SOLO las piezas que tiene, no el binder entero con huecos.** Pedido del dueño 2026-10-02 (captura de «Ascended Heroes» de Juan Carlos Sainz, 2/473 variantes con todo lo demás en «HUECO»), literal: «cuando estamos en bóveda de clientes solo enseña las piezas que tiene no todo el binder con huecos, ponlo como pendiente». Medido 2026-10-04: el filtro «Piezas» ya existe con la opción «Con piezas» (`frontend/messages/es.json:669` `filterWithPieces`) y hoy abre en «Todos»; pantalla en `frontend/src/app/[locale]/(admin)/admin/vaults/[userId]/`. Decidir con ux-ui si basta con abrir en «Con piezas» en la vista de cliente o si se quita el modo binder ahí (y qué pasa con «Qué debe haber») | ux-ui → frontend | 2026-10-04 (lectura de código; pantalla vista por el dueño) | en la bóveda de un cliente solo aparecen sus piezas al entrar; E2E de mocks |
 
 ## Recuento del backlog 2026-09-25 (sobre production 47e4efa) — sustituye al índice del 2026-09-11 como punto de partida
@@ -348,760 +350,10 @@ en `CLAUDE.md` tras O-16, o esta ficha explica por qué se descartó.
 
 **Decisiones del dueño pendientes:** (1) cómo publica el automático (solo vs. tú aprietas) tras validar el ensayo; (2) OK al texto de P-TARIFA; (3) DMARC en el DNS (P-60, viejo).
 
-## Índice de abiertos (re-medido 2026-09-11 ~03:20 UTC sobre `17ce9a9`; **actualizado 2026-09-11 ~08:30 UTC tras fusionar Stream A + andamiaje de CI a `main`**; «—» = el cuerpo no lo dice)
+## Índice de abiertos 2026-09-11, Streams A/B/C y cuerpos verbatim anteriores al 2026-09-25
 
-> Sesión 2, 2026-09-11: se re-midió **cada fila** contra el árbol (O-5). Punteros a línea corregidos donde envejecieron.
-> Cerrado en código en esta re-medición: **P-46** (fix `47c97c1`, dentro de `c13f417`; falta solo la verificación en producción, ver fila).
-> Frentes abiertos por esta sesión el 2026-09-11: **«Andamiaje de CI»** (devops) y **Stream A** (ux-ui + arquitecto → backend + frontend), en `claude/tcg-hunt-orchestration-2`.
-
-| ID | Qué | Dueño | Medido el | Comprobación (por dónde empezar) |
-|---|---|---|---|---|
-| **Stream A** | La cuenta del cliente — **PUBLICADO en `production` el 2026-09-11 18:25 UTC** (`c8bee65`, merge `--no-ff` de `main`; autorizado por el dueño). Medido por el orquestador el 2026-09-11 ~19:00 UTC: el run `34633179107` «Deploy (staging -> prod)» terminó **success**, con `dast-release` verde sobre ese mismo SHA (autoprueba del canario + escaneo del stack efímero, sin bloqueantes); el resto de los trabajos se **saltó a propósito** (`secrets-gate` ⇒ `ready=false`: no hay secrets de CD, publican las integraciones nativas Vercel/Railway). **NO MEDIDO**: que el sitio vivo sirva estas pantallas — desde este contenedor la política de red rechaza `www.tcghunt.mx` y la API de Railway (`CONNECT tunnel failed, 403`); lo cierra el dueño abriendo `/es/account` y `/es/admin/account`, o habilitando esos hosts en la política del entorno. Antes fue: **FUSIONADO en `main` el 2026-09-11** (merge de `claude/tcg-hunt-orchestration-2`, 79 commits; QA + techlead aprobados; cuerpos de P-57/P-73/P-75/P-55 en `HISTORIAL.md`). **Pendiente de RELEASE**: fase de seguridad (pentester + seguridad) sobre `main`; conteo `SELECT count(*) FROM "User" WHERE "mustChangePassword"` en producción antes de publicar el guard (checklist `ARCHITECTURE.md` §4.47.10.4); guard + endpoint en el mismo deploy | orquestador → pentester → seguridad → devops | 2026-09-11 | `git log origin/main --oneline -3`; `docs/ARCHITECTURE.md` §4.47.10.4 |
-| **Stream B** | ✅ **FUSIONADO en `main` el 2026-09-11 21:00 UTC** (`5d2c62b`, merge `--no-ff` de 72 commits). **NO publicado**: `production` sigue en `c8bee65`. Doble veredicto cerrado: **QA** APROBADO CON CONDICIONES (ratificado) y **techlead** con dos bloqueantes, las dos **cerradas y verificadas por el orquestador sobre copia**, no aceptadas de informe — COND-1 (copia limpia 7/7; con el `catch` ensanchado, **2 rojas en 3/3**, y caen exactamente las de «cualquier otro código propaga») y COND-2 (candado rc=0 y **canario 11/11**). Verificación propia sobre copia **completa** del árbol: backend **282 suites / 4631 pruebas** y frontend **153 ficheros / 1715 pruebas**, ambas verdes y **coincidentes con lo que midieron los agentes por separado**. CI de la rama verde en `c5ff58a` (run 34646575742). Entra también, **solo en papel**, el frente de identidad: diseño §34 v4.2.1 y contrato v1.69 con `ARCHITECTURE` §4.49, **sin código**. **PENDIENTE PARA PUBLICAR: fase de seguridad completa** (pentester + seguridad) — toca dinero, así que son **tres** veredictos. Residuales abiertos que salieron de este cierre: **P-80** (Stripe dentro de la tx, acotado no eliminado), **P-81** (§M5-S), **P-82** (dos ventas simultáneas ⇒ 500), **SB-D6**, **RSV-L1**, **FE-SB-4**, **DO-D11**. | orquestador → pentester → seguridad → devops | **2026-09-11 21:00 UTC (orquestador, verificado a mano)** | `git log --oneline -1 main` = `5d2c62b`; `git rev-parse production` = `c8bee65` |
-| **P-78** | ✅ **CONSTRUIDO Y FUSIONADO en `main` el 2026-09-12 01:20 UTC** (`8aeec21`, merge `--no-ff` de 26 commits). **NO publicado**: `production` sigue en `efe65f5`. Doble veredicto cerrado: **QA** APROBADO CON CONDICIONES (ninguna bloquea la fusión) y **techlead** APROBADO CON CONDICIONES con **R-1 bloqueante cerrada y verificada por el orquestador a mano** (cero proyecciones por resto en `admin.service.ts`, `getUser` con `select` acotado, candado de **conjunto de claves** contra el contrato para los dos roles y con columnas intrusas en el fixture). **QA recorrió el ciclo completo contra el stack levantado con navegador real**: el cliente sube, el operador ve las dos caras (`naturalWidth = 16`, el PNG del fixture es 16×10 ⇒ **se pinta de verdad, no es un marco vacío**), rechaza con motivo, y el cliente lee ese motivo textual en su cuenta con el botón de volver a subir. Los **doce candados de §M6-K medidos uno a uno contra el stack vivo**, incluido el tope por actor (12 llamadas, misma sesión, cabecera rotatoria ⇒ `429` en la 11.ª). **PENDIENTE PARA PUBLICAR: fase de seguridad completa** — toca dinero **y datos personales**, así que son tres veredictos; el pentester arrancó el 2026-09-12 sobre `8aeec21`. Residuales: **A5** (columna y filtro de estado en el listado, del arquitecto — sin él nadie se entera de que hay una INE esperando), las cuatro salvaguardas `mockOnly` cuyo motivo caducó con el sembrado de `bec269b` (frontend), y D-1 (la llave de subida es un texto libre del cliente ⇒ `ineOnFile` es un hecho **afirmado por el cliente**). | orquestador → pentester → seguridad → devops | **2026-09-12 01:20 UTC (orquestador, verificado a mano)** | `git log --oneline -1 main` = `8aeec21`; `git rev-parse origin/production` = `efe65f5` |
-| **P-79** | 🔴 **El sellado: tres defectos distintos que el dueño vive como uno** (reporte con captura 2026-09-11 sobre `c8bee65`; **medido por el orquestador el 2026-09-11 ~19:30 UTC**, fichero:línea verificados a mano, no relayados). **(c) Lo que él VE — la cola de M1 no sabe pintar sellado.** `frontend/src/app/[locale]/(admin)/admin/m1/PendingPublishQueue.tsx:139-141` imprime siempre `setName · number · finish`; **`grep -c productType` en ese fichero = 0**: no hay rama de sellado. Y aunque la hubiera, **el DTO no trae con qué pintarlo** (`frontend/src/types/contract.ts:2581-2599` y la proyección `backend/src/modules/inventory/inventory.service.ts:1803-1821` no llevan `sealedProductName`). El `Weedle · 1` y el `Spinarak · 1` **no son su producto convertido en carta**: son la **carta ancla** del set, que el sellado usa solo para satisfacer una columna obligatoria y que el propio código declara «deja de ser identidad» (`inventory.service.ts:820-829`, `resolveAnchorCardId`, menor `numberPrefix/numberSort`). En la base el `productType: 'sealed'` y el `sealedProductId` **están intactos** — se pierde solo en la pantalla. La cola de **M2 sí ramifica bien** (`m2/sections/PendingQueueSection.tsx:35`): a M1 nunca se le hizo ese trabajo. Dueños: **arquitecto** (el DTO necesita `sealedProductName` ⇒ cambio de contrato, regla 9) → **backend** (proyección) + **frontend** (rama de sellado). **(d) Por qué poner precios en M2 NO SIRVE — la llave divergente del alta por LOTE.** El alta **single** escala el pendiente con `sealedMarketGradeKey(tcgplayerProductId)` = `sealed:tcg:<id>` (`inventory.service.ts:586-590`), pero el alta **por lote** —que es la que dispara `SealedAddFlow` y por tanto **la que usa la app publicada**— pasa `r.gradeKey` tal cual (`inventory.service.ts:1144-1155`), y `gradeKey` para sellado es **la constante `'sealed'`** (`backend/src/modules/pricing/pricing.types.ts:682-684`). La publicación, en cambio, lee por `sealedMarketGradeKeyForItem(item)` = `sealed:tcg:<id>` (`inventory.service.ts:1557`). **Se escribe en una llave y se lee de otra**, así que el precio fijado en M2 es ilegible para la publicación y la pieza vuelve a la cola: el bucle exacto que él describe. Las dos llaves existen a propósito (`'sealed'` es la del override manual, §4.19d); el defecto es que el camino de lote escala el **pendiente de mercado** bajo la llave del **override manual**. Agravante: con `tcgplayerProductId` nulo, `:1557` ni siquiera consulta referencia (`gk ? … : undefined`) ⇒ ilegible por construcción. **Es dinero y no está escrito en ningún pendiente previo.** Dueño: **backend**. **(b) El MX$1,300.00 repetido: la promesa se cumple, el diseño lo empuja.** Medido: **ningún** camino copia `acquisitionCostCents` a `listPriceCents` (40 hits, todos COGS/valuación); el único write en alta es `inventory.service.ts:1067` (`dto.listPriceCents ?? null`) y el alta por lote no lo manda. Pero **publicar un sellado EXIGE precio manual**: `frontend/src/app/[locale]/(admin)/admin/m1/ItemDetailModal.tsx:64-66` (`sealedNeedsPrice`) bloquea si no hay `listPriceCents`. O sea: el producto **obliga al operador a inventar el número** que la cola promete no capturar. Lo más probable es que el 1,300 lo tecleara él, empujado por (d). **NO MEDIDO**: el `listPriceCents` real de INV-001944/945, que exige consulta a la base de producción. **(a) El precio de mercado no jala al capturar** = **P-69, re-medido hoy y VIGENTE sin tocar**: `sealedPriceSource` sigue con **0 consumos** en `frontend/src` (el único hit es un comentario, `SealedAddFlow.tsx:167`), y el paso 1 sigue keyeándose en `product.marketRef` sin gatear (`SealedProductPicker.tsx:217`) mientras el paso 2 usa el autoritativo (`SealedAddFlow.tsx:172`). Escalón previo: **P-46** (set sin grupo TCGCSV ⇒ sellado sin `tcgplayerProductId` ⇒ sin mercado) — **Chaos Rising, uno de los dos sets de su captura, está nombrado literalmente en esa fila**, y P-46 sigue **sin verificar en producción**. **Cobertura: NO EXISTE, y por eso pasó inadvertido.** `backend/test/inventory.sealed-product-alta.spec.ts:146-152` sólo prueba `aportacion_en_especie`; los casos con `'compra'` (`:327`) son rechazos. `inventory.pending-publish.spec.ts:34,66` usa sólo `productType: 'raw'`. `PendingPublishQueue.test.tsx` idem. Playwright no da de alta ningún sellado. Y la asimetría de (d) es invisible porque `inventory.sealed-product-alta.spec.ts:196` fija la llave correcta **sobre `createItem` (single)**, no sobre el lote que usa la app. **Dinero ⇒ triple veredicto.** Orden propuesto: (d) primero —es el que rompe el ciclo—, luego (c), luego (a)/P-69. No se enruta hasta que Stream B fusione: (c) y (d) tocan `inventory` y el contrato, zonas que ahora mismo no están libres. | backend (d) · arquitecto → backend + frontend (c) · frontend + backend (a) | **2026-09-11 ~19:30 UTC (orquestador, verificado a mano)** | `inventory.service.ts:1144-1155` vs `:586-590` vs `:1557`; `pricing.types.ts:682-684`; `PendingPublishQueue.tsx:139-141` (`grep -c productType` = 0); `ItemDetailModal.tsx:64-66` |
-| **P-80** | ⚠️ **Stripe vive DENTRO de la transacción del checkout y retiene su conexión toda la latencia del proveedor** — mecanismo **medido, real y reproducible** por backend el 2026-09-11 (`cae1fc1`, contra Postgres real con el pool de CI, doble de Stripe con retardo inyectable, N=6 sustituciones concurrentes de clientes distintos): con 2 s de latencia **6/6 en 201, 0 timeouts, 3/3 tiradas**; con 12 s, **5/6 en 201 y 1/6 en `500` «Timed out fetching a new connection from the connection pool (timeout: 10, limit: 5)», 3/3 tiradas**. A la escala que pidió QA **no se manifiesta**, y la propiedad de dinero aguanta en los dos casos (cero piezas con dos órdenes `pending`). **Acotado, no eliminado**: el SDK de Stripe traía `timeout` por defecto de **80 s**, **2,6× el `timeout: 30_000` de la transacción** — o sea que el proveedor decidía cuánto duraba nuestra transacción. Backend lo fijó en **8 s**, así que el peor caso (1 intento + 2 reintentos) son 24 s y la transacción siempre gana al SDK. Pero con 24 s de conexión retenida, **un N suficientemente alto sigue agotando el pool**. **Sacar la cancelación de Stripe fuera de la transacción es cambio de diseño y NO lo toca backend** (regla 9): «cancelar antes de crear» es justo lo que impide que dos intentos de pago cobren la misma pieza (`ARCHITECTURE.md` §4.48.2). **Dinero ⇒ triple veredicto.** | **arquitecto** (decide el diseño) → backend | 2026-09-11 (medido por backend, mecanismo verificado con proporciones) | `backend/test/integration/stripe-in-tx-pool.e2e-spec.ts`; `backend/src/modules/payments/stripe.service.ts` (`TIMEOUT_MS`); `docs/ARCHITECTURE.md` §4.48.2 |
-| **DO-D2** | ⚠️ **La comprobación de cierre de DO-D2 no se puede cumplir mientras falten los cinco secrets de CD** (medido por devops el 2026-09-11 sobre el run `34633179107`): los jobs `promote-production-*` nunca llegan a evaluar `blocking=false` porque `secrets-gate` emite `ready=false` y todo lo demás cuelga por `needs`. No es un fallo nuevo — los deploys reales van por las integraciones nativas — pero **exige una decisión del dueño**: activar el CD por Actions cargando `RAILWAY_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` y `PROD_BASE_URL`, **o** declarar que esos jobs sobran y retirarlos. **No es una petición al dueño todavía** (O-6): se le plantea cuando haya que cerrar DO-D2, no antes. | HUMANO (decide) · devops (ejecuta) | 2026-09-11 | `docs/TECH_DEBT.md` DO-D2; `docs/DEVOPS_NOTES.md` §57.4 |
-| **P-81** | ⚠️ **§M5-S tiene una tercera rama que el contrato no nombra** (desviación **preexistente**, hecha legible por backend el 2026-09-11, no introducida por Stream B). El contrato dice «terminal ∨ `closedAt ≠ null` ⇒ `CONFLICT`; **en otro caso** ⇒ `INVALID_TRANSITION`». La rama de la **carrera** (dos operadores tocan el mismo paso a la vez) cae en «otro caso» por la letra, pero el código responde `CONFLICT` desde v1.68. Backend solo añadió `details.reason: 'CONCURRENT_UPDATE'` y un aviso al registro para que deje de mentir; **zanjarla es del contrato**: o pasa a `INVALID_TRANSITION`, o se declara `CONFLICT` con su `reason` escrito. | **arquitecto** | 2026-09-11 (medido por backend; desviación verificada contra el contrato) | `backend/src/modules/buylist/buylist.service.ts` (`throwStepRejected`); `docs/API_CONTRACT.md` §M5-S |
-| **RSV-L1** | ⚠️ **La rama legada `reservedByOrderId IS NULL` sigue en TRES sitios** (`reservation.ts:39-44`, `payments.service.ts:642-650`, `guest-checkout.service.ts:435-445`), medido con `grep` el 2026-09-11. Deuda registrada, **no bloqueante**. Su cierre tiene **dos mitades y las dos hacen falta**: que la cuenta `SELECT count(*) … WHERE reservedByOrderId IS NULL` sea **0 en producción** (hoy **NO MEDIDA** — es del cierre de release, necesita ventana) **y** que los tres sitios se retiren. Retirarlos antes de que la cuenta sea 0 rompería reservas vivas. | backend (retira) · orquestador/humano (mide la cuenta) | 2026-09-11 (árbol medido; producción NO MEDIDA) | `docs/TECH_DEBT.md` RSV-L1 |
-| **P-82** | 🔴 **Dos peticiones de venta simultáneas del MISMO vendedor devuelven `500`** (`write conflict or deadlock`), hallado por frontend el 2026-09-11 mientras cableaba el E2E real. Dos `POST /buylist/requests` a la vez del mismo vendedor revientan en `buylist.service.ts:1637`. Un `500` no es un error de negocio: el cliente no sabe qué pasó ni si su petición entró. Falta decidir el desenlace correcto (serializar, o `409` declarado en el contrato) — si es lo segundo, pasa por **arquitecto** antes. | backend (arquitecto si toca contrato) | 2026-09-11 (hallado por frontend contra el stack real; **el orquestador NO lo ha reproducido**) | `backend/src/modules/buylist/buylist.service.ts:1637` |
-| **SB-D6** | ⚠️ **El correo del invitado vive en `sessionStorage` y nadie lo ha bendecido ni prohibido**. Medido por frontend: **sin él, recargar la página PODA la reserva propia del invitado** — o sea que el apaño sostiene una promesa del contrato (§4-R.3) sin estar declarado en él. Decidir: se bendice y se escribe, o se prohíbe y se sustituye. Frontend **no lo tocó**, que es lo correcto (regla 9). Junto con esto: **§4-R se queda sin gate real** mientras no exista una vía declarada para tener un pedido `pending` **reservado** sin Stripe — hoy `POST /checkout/session` devuelve `503` sin clave y el pedido queda `failed` con la reserva liberada, así que el flujo no se puede probar de punta a punta. | **arquitecto** → frontend/backend | 2026-09-11 (medido por frontend contra el stack real) | `docs/API_CONTRACT.md` §4-R.3; `docs/TECH_DEBT.md` FE-SB-1 |
-| **FE-SB-4** | ⚠️ **Los E2E `@real` corrieron contra el frontend horneado del stack, no contra el árbol de la rama** (medido por frontend: el backend solo admite `CORS allow-list: http://localhost:3000`). Ninguna aserción `@real` toca código que frontend cambió hoy, pero **no está medido** que sus cambios corran contra el backend real. Es una limitación del arnés, no del código. | devops | 2026-09-11 | `docs/TECH_DEBT.md` FE-SB-4 |
-| **P-79 (d)** | ✅ **ARREGLADO EN CÓDIGO el 2026-09-11** (`d3b2543`): los tres caminos que escalan el pendiente de precio de un sellado piden ahora la llave a **un único constructor**, así que no pueden volver a divergir. Backend encontró un **tercer** camino con el mismo defecto que no estaba en mi diagnóstico (`adjustFound`, «encontrada», `inventory.service.ts:2745`). Mutaciones: devolver cada uno de los tres a `r.gradeKey` ⇒ **rojo 3/3** en los tres. Suite 282/4638 (desde 4631). **PERO el arreglo cura las altas NUEVAS; las filas ya escritas con la llave equivocada siguen ahí.** ⚠️ **NO MEDIDO y es del dueño**: cuántas son en producción. Backend dejó las tres consultas `SELECT` exactas en `docs/BACKEND_NOTES.md` y **no escribió ninguna migración de datos**, que es lo correcto. Dato que quita ambigüedad: `SealedProduct.tcgplayerProductId` es **NOT NULL**, así que **toda** entrada pendiente con `sealedProductId` tenía llave de mercado disponible ⇒ **todas son erróneas**, no hay que decidir caso por caso. La consulta (C) cuenta **el dinero ya tecleado que quedó ilegible**: son precios a **recuperar**, no a borrar. | HUMANO (autoriza ventana y decide migración) · backend (ejecuta) | 2026-09-11 (árbol medido; **producción NO MEDIDA**) | `docs/BACKEND_NOTES.md`, sección P-79(d), consultas A/B/C |
-| **P-83** | ⚠️ **La llave `'sealed'` no distingue un producto de otro, y eso bloquea el arreglo del último eslabón** (`inventory.service.ts:1557`, el `gk ? … : undefined` que deja el override ilegible cuando no hay mapeo). Backend lo dejó **explicado y sin tocar**, que es lo correcto, con tres mediciones: **(1)** `PriceReference` **no tiene** columna `sealedProductId` (sí la tiene `PendingPriceEntry`), así que dos sellados no mapeados anclados a la misma carta **comparten fila** — leerla valuaría un ETB con el precio de un blíster; **(2)** el precio derivado de publicación **no se persiste** (el storefront re-resuelve en lectura) y el mismo patrón está en `catalog.service.ts:614`, `sealed-catalog.service.ts:128`, `vault.service.ts:372` y `admin.service.ts:944`, así que arreglarlo **solo** en la publicación cambiaría un bucle por un **precio fantasma**, que es peor; **(3)** el fallback sí tiene precedente, pero solo en una **valuación agregada** (`admin.inventoryValue()`), no en un precio de venta al cliente. Dos opciones planteadas por backend, **decide el arquitecto** (schema + contrato, regla 9): dar identidad a `PriceReference` con fallback simétrico en **todos** los lectores, o prohibir el alta de sellado sin mapeo y curarlo en M2 antes. | **arquitecto** → backend | 2026-09-11 (medido por backend, tres mediciones citadas) | `inventory.service.ts:1557`; `schema.prisma` (`PriceReference`); `docs/BACKEND_NOTES.md` sección P-79(d) |
-| **SEC-SB-1 / C9** | ✅ **ARREGLADO EN CÓDIGO el 2026-09-11** (`dbb8e46`), y **el hallazgo resultó MÁS ANCHO de lo que decían los dos informes de seguridad**. Backend confirmó al equipo azul con medición propia (la migración M-53 no lleva ni un `UPDATE`, así que en el instante del despliegue **toda** pieza reservada nació sin dueño, tuviera diez minutos o seis semanas) y aportó lo que ninguno de los dos había visto: el filtro del barrido legado **no era «bóveda sí, envío directo no»**, era `guestEmail IS NOT NULL`. O sea que **un usuario CON CUENTA tampoco se barría, en sus dos modos de entrega**. El hueco era toda orden `pending` de un usuario registrado. Mutaciones **3/3 rojas** en las tres (quitar la cobertura nueva, quitar el plazo, quitar el estado), y cada una cae exactamente donde debe. No suelta lo que tiene dueño vivo: exige `pending`, fuera de plazo de pago, y que el intento de pago quede cancelado. ⚠️ **NO MEDIDO y es del dueño**: cuántas piezas están atascadas hoy en producción — consultas (A) y (B) en `docs/BACKEND_NOTES.md` §SEC-SB-1.4, para ventana autorizada. **Efecto en RSV-L1**: su contador antes **solo bajaba a mano**, ahora baja solo para tres de las cuatro clases; la cuarta (pieza sin orden `pending`) no la drena nadie, pero backend midió que no debería existir en producción porque **ningún camino de la aplicación borra una orden**. | backend (hecho) · HUMANO (ventana para contar) | 2026-09-11 (código medido; **producción NO MEDIDA**) | `docs/BACKEND_NOTES.md` §SEC-SB-1; `backend/test/integration/vault-legacy-reservation-sweep.e2e-spec.ts` |
-| **INFRA-SMOKE** | ⚠️ **La suite `infra-smoke` está roja en la línea base, no por el cambio de nadie** (medido por backend el 2026-09-11 al correr sus gates sobre copia limpia): el S3 local responde `200/204` donde el spec espera `403`. Falla **igual sin los ficheros del agente**, así que no es regresión: es el arnés. | devops | 2026-09-11 (medido en línea base) | correr `infra-smoke` sobre `HEAD` limpio |
-| **MEDICIÓN-PROD 2026-09-12** | ✅ **Los cuatro conteos de producción, corridos por el DUEÑO en la consola de Railway con un rol de solo lectura que creó él** (`tcg_readonly`, SELECT sobre seis tablas). Resultados: **(1) piezas `reserved` con `reservedByOrderId IS NULL` = 0**; **(2) expedientes con INE = 1, de los cuales con llave de forma NO canónica = 0**; **(3) pendientes de sellado escalados con la llave genérica y con `sealedProductId` = 5**; **(4) `PriceReference` con `gradeKey='sealed'` e `isManualOverride` = 4**. **Qué cierra cada uno:** (1) cierra la **primera mitad de RSV-L1** —su condición de retiro era exactamente ese conteo a 0— y cierra **C8** de `SEC-SB-1`: **no hay inventario atascado que rescatar**, el arreglo del barrido queda como preventivo. (2) **cierra la decisión que yo había escalado al dueño sobre migración de datos de `SEC-PII-1`**: la compuerta rota **nunca se explotó**, la única llave existente salió de nuestro presign ⇒ **no hace falta backfill, ni re-pedir documentos, ni marcar filas**. (3) y (4) son el residuo de **P-79(d)**, y son **pequeños y reparables**: nueve filas en total. ⚠️ **Lo que estos números NO dicen** (O-1): (2) mide la **forma** de la llave, no que el objeto exista en R2 — eso exige `HeadObject`, que desde el entorno del orquestador **no se puede correr** (medido: solo sale TCP 443, la conexión a Postgres y a S3 por otros puertos está bloqueada). Con **un solo** expediente, el riesgo residual es despreciable. | orquestador (mide) · backend (repara 3 y 4) | **2026-09-12 ~05:00 UTC (corrido por el dueño, leído por el orquestador)** | consola de Railway, servicio Postgres; consultas en este mismo commit |
-| **P-79 (d) · DIAGNÓSTICO** | ⏸️ **Esperando que el DUEÑO corra la marcha en seco.** El guion está escrito, ensayado y commiteado (`8f8c35c`, `backend/prisma/data-repair/20260912_p79d_llave_de_precio_del_sellado.sql`), con su reversa hermana. **Verificado por el orquestador**: abre transacción en la línea 66 y **termina en `ROLLBACK`** ⇒ tal como está, **enseña y no escribe**. Cuatro escrituras, todas dentro de esa transacción. Ensayo del agente sobre base desechable con las cuatro variantes: **3/3**. ⚠️ **NO MEDIDO, y es el punto**: el guion **nunca ha corrido contra los datos reales**, así que **cómo se reparten las 4 filas de precio entre los cuatro veredictos (se corrige / ambigua / sin candidato / colisión) es desconocido**. El PASO 1 **es la medición**, no un trámite. Las 5 de la cola sí se reparan enteras sin ambigüedad (`SealedProduct.tcgplayerProductId` es `NOT NULL`). **Ya no crece**: el arreglo se publicó el 2026-09-12 en `9050d59`, así que el defecto dejó de escribir filas nuevas. Las nueve viejas siguen. **Aplicar toca dinero ⇒ triple veredicto** antes de cambiar la última palabra del fichero. | **HUMANO** (corre el paso 1) → orquestador enruta según el resultado | 2026-09-12 (guion medido; **reparto real NO MEDIDO**) | `backend/prisma/data-repair/`, PASO 1 |
-| **P-84** | ✅ **CERRADO Y PUBLICADO en tu tienda el 2026-09-13** (`05ded16`, solicitud #33). Los seis ejes daban `500` — **medido por QA por HTTP**, no leído: la ficha decía «rutas NO ejecutadas» y ninguno estaba protegido aguas arriba. Doble veredicto APROBADO (QA + techlead), ninguna condición bloqueante. Verificado por mí sobre copia del árbol ENTERO: control 291/291 · 4782/4782; dos mutaciones **3/3 rojas** cada una. Dejó abiertas: **P-89** (catálogo, cerrado después), **P-90** (el censo) y `D-EQ-2`. | — (cerrado) | 2026-09-13 (publicado y verificado) | `05ded16`; PR #33 |
-| **P-85** | ⚠️ **El back-office tiene DOS contratos opuestos para el mismo parámetro de paginación** (techlead, 2026-09-12). `GET /admin/orders` y `GET /admin/buylist` contestan **`400`** a `pageSize=0` o `pageSize=abc` (`common/admin-list-filters.ts:8-10`, que dice literal «NUNCA se silencia con un clamp»); `GET /admin/users` contesta **`200` con 20**. Y la expresión de acote está **copiada 18 veces en 11 ficheros** mientras el helper validado ya existe en `common/`. Un paginador compartido en el frontend no puede fiarse de ninguna de las dos. La pregunta a decidir es **una**: ¿el back-office valida o acota? Una respuesta, no dos. ⛔ `A5` **no cambia nada** mientras tanto, a propósito. | **arquitecto** (conducta de endpoints publicados, regla 9) | 2026-09-12 (medido por techlead) | `common/admin-list-filters.ts:122-127` vs `admin.controller.ts:151` |
-| **P-86** | ⚠️ **Cuatro maneras distintas de validar un enum de query, y la doctrina del proyecto ya dice que eso es la clase abierta** (techlead, 2026-09-12). Medido: **167 `@Query()` sueltos en 18 ficheros** y **un solo DTO de query** en todo el backend (`buylist.dto.ts:314-318`) ⇒ **este endpoint no era el rezagado, era la norma**; y el `ValidationPipe` global corre con `forbidNonWhitelisted: false`, así que un DTO **tampoco** habría cazado el parámetro ignorado. `assertEnumFilter` (`admin.service.ts:66-74`) es la **cuarta** copia del mismo helper; la deuda **H3** ya pide mover `validateEnum` a `common/` y debe nombrar también estos sitios para que la consolidación no deje tres. ⛔ Techlead **no pide extraerlo ahora**: con un solo llamador sería abstracción prematura. Y `UpdateKycDto.kycStatus` (`admin.controller.ts:30`) tiene su lista **a mano y sin clasificar** E-o-R, mientras su vecino de ocho líneas más abajo dedica diecisiete a explicar por qué la suya no se deriva. Ese `@IsIn` es **lo único** que separa un string crudo de Prisma en `admin.service.ts:1127`. | backend (clasifica y engancha a H3) · arquitecto si resulta derivable | 2026-09-12 (medido por techlead) | `docs/TECH_DEBT.md` H3; `backend/src/common/enum-values.ts:33-37` |
-| **P-89** | ✅ **CERRADO Y FUSIONADO a `main` el 2026-09-13** (`3c1bd1e`). Catálogo público migrado al validador único: **6/6 ejes** conformes por HTTP **sin token** (QA: 24/24 en el borde), **cero `as never`**, H3 mitad-del-enum cerrada (4→2→0 copias). Doble veredicto APROBADO, ninguna condición bloqueante. QA cerró `N-P89-2`: **ninguna pantalla podía emitir un valor de solo espacios** — el defecto era alcanzable solo por la API pública directa, no por la tienda. ⛔ **NO PUBLICADO**: está en `main`, no en `production`. Su condición de cierre (el censo §0-Q) la cerró el arquitecto en `2e40a8b`. | — (cerrado, sin publicar) | 2026-09-13 (fusionado y verificado) | `3c1bd1e`; `2e40a8b` |
-| **P-90** | 🔴 **El censo que se declara «VIGENTE» está desfasado en 12 de sus 14 filas, y le faltan al menos dos ejes — uno en una pantalla de DINERO** (techlead, veredicto de P-89, 2026-09-13; **verificado por el orquestador** leyendo los ficheros). **(a) El censo miente en las dos direcciones.** `docs/API_CONTRACT.md:4977` se rotula «CENSO VIGENTE … se actualiza cuando cambie», y sigue marcando **⛔ «crudo a Prisma»** los seis ejes que P-84 cerró (`:4981-4986`) y **✅ «conforme»** el catálogo citando `catalog.service.ts:1129-1133`, líneas que hoy son **un comentario** (`:4992-4994`). `rg P-89 docs/API_CONTRACT.md` ⇒ **0**. **Y el contrato manda sobre el código** (regla de conflicto): el documento normativo afirma defecto de lo arreglado y conformidad de lo que se midió falso. Es la misma clase que abrió P-89, un nivel más arriba — **tercera repetición en tres días**. **(b) Dos enums de Prisma en query FUERA del censo, con el defecto exacto que P-89 acaba de cerrar.** `GET /admin/pricing/pending?context=` (`pricing.controller.ts:246-252`): `''` pasa el `!== undefined`, no está en la lista ⇒ **lanza**, y lanza **`422`** (`BusinessException.validation`) donde §0-Q ratifica **`400`**. `GET /admin/pricing/bounties?finish=` (`admin-bounties.controller.ts:102-108`): `''` ⇒ **`400`** donde §0-Q fila 1 manda **`200`**. ⚠️ **`pending` es la cola de precios pendientes: pantalla de dinero.** Lo que lo delata: en el mismo controlador, `state` (`:88`) y `sort` (`:112`) **sí** descartan el vacío y `finish` no — nadie decidió eso. **NO MEDIDO por HTTP**: los tres lo hemos leído, ninguno lo ha ejecutado. Cierra: la misma suite que P-89 ya escribió, apuntada a esas dos rutas. | **arquitecto** (censo §0-Q, **bloquea el cierre de P-89**) · backend (`H3-d`: los dos ejes de pricing) | 2026-09-13 (leído por techlead y por mí; **no ejecutado**) | `API_CONTRACT.md:4977,4981-4994`; `pricing.controller.ts:246-252`; `admin-bounties.controller.ts:88,102-108,112` |
-| **P-91** | ⚠️ **«Contra mocks se ve bien» era FALSO — y yo se lo conté al dueño** (frontend, `D-EQ-3`, 2026-09-13; **verificado por el orquestador**). `docs/API_CONTRACT.md:7066` afirma que el filtro de sellado en la rejilla de singles «contra **mocks** **sí devuelve tejas**, así que la pantalla se ve bien en desarrollo y vacía contra el servidor». **Medido por frontend renderizando `CatalogView` en modo mock con `?productType=sealed`: `tejas=0`, `vacío=true`, «Sin resultados» — IDÉNTICO al servidor real.** Causa: los fixtures sí traen sellado (`fixtures.ts:551,562`), pero `groupMockListings` **ya filtra aguas abajo** — `fixtures.ts:721` deja pasar solo `raw|graded` (paridad H9). Verificado por mí en esa línea. **El mock NO miente aquí.** Qué cambia y qué no: cae el *argumento de urgencia* que yo repetí al dueño; **sigue en pie entero el orden** (frontend primero, backend después: si el servidor responde `400` antes, el enlace pasa de «vacío» a «roto»). Es la misma clase que P-89/P-90 — afirmación obtenida leyendo, usada como medida — **quinta vez en tres días**. Deriva: (a) **arquitecto** corrige `:7066`; (b) **ux-ui**: `DESIGN_SYSTEM §7.16(c)` sigue describiendo el filtro de tipo como «Todo · Raw · Graded · Sellado» con sub-filtro, y contradice al contrato v1.73 y al código; (c) **arquitecto**: queda medida su «PREGUNTA ABIERTA» de `:7170` — con sellado publicado, `GET /catalog/facets` **sí** anuncia `productTypes:["sealed"…]` y `sealedSubtypes:["box"]` que la rejilla ya no acepta (inerte hoy: cero consumidores en el front). | arquitecto (a, c) · ux-ui (b) | 2026-09-13 (medido por frontend con navegador y en modo mock; re-verificado por mí en `fixtures.ts:721`) | `API_CONTRACT.md:7066,7170`; `fixtures.ts:721`; `DESIGN_SYSTEM §7.16(c)` |
-| **P-92** | ⚠️ **La suite de frontend tiene una roja intermitente que nadie ha identificado** (orquestador, 2026-09-13). Medido por mí sobre copia del árbol ENTERO en `431e03a`: **5 tiradas ⇒ 4 verdes (1754/1754, exit 0) y 1 con una sola roja (1753/1754)**. ⛔ **NO MEDIDO: cuál prueba.** Fallo de mi medición — corrí la primera tirada con `--silent` y perdí el nombre; las cuatro siguientes salieron verdes y no volvió a aparecer. No lo introdujo `D-EQ-3` (su mutación da **3/3 rojas** limpias y el control **1754/1754**). Una intermitente ~20% en una suite que es gate **no distingue «el candado sirve» de «tuve suerte»** (O-3). Cierra: 10 tiradas capturando el nombre del fichero, y el arreglo al rol dueño de esa prueba. | orquestador (identificar) → rol dueño | 2026-09-13 (proporción medida 4/5; **prueba NO identificada**) | `frontend/`; copia en `431e03a` |
-| **P-93** | 🔴 **LA BÓVEDA IGNORA EN SILENCIO LOS FILTROS DEL CLIENTE — pantalla de CLIENTE, no de admin** (backend, descubierto por el candado `C-EQ-1`, 2026-09-13; **verificado por el orquestador**). `GET /vault/sealed` está bajo `@Roles(Role.customer, …)` (`vault.controller.ts:9,70`): **es la bóveda que el cliente ve de sus propias piezas.** Medido en `vault.service.ts:327,330`: el patrón es `if (q.x && SET.has(q.x))` ⇒ si el valor **no** está en la lista, el `if` es falso y **el filtro no se aplica**. ⚠️ **El cliente filtra su sellado por tipo de caja o por condición, y recibe TODO su sellado con cara de lista filtrada.** Es **exactamente** el defecto de `?kycStatus=` que `A5` cerró hace dos días —el filtro se manda, se descarta en silencio, y el usuario cree que ve una lista filtrada— pero esta vez **no en tu panel: en la pantalla del cliente**. 4 ejes en total. **NO MEDIDO por HTTP**: es lectura de código (backend + yo). Cierra: un test por eje contra el arnés — mandar un valor fuera de dominio y exigir `400`, no la lista entera. Stream *Inventario y vault*. | **backend** | 2026-09-13 (leído por backend y por mí; **no ejecutado**) | `vault.controller.ts:9,70`; `vault.service.ts:327,330`; ficha `EQ-D1` en `docs/TECH_DEBT.md` |
-| **EQ-D1** | 🔴 **El candado descubrió 22 ejes de dominio cerrado que el registro del contrato NO conoce** (backend, `C-EQ-1`, 2026-09-13). Medido: **176 `@Query` en 18 ficheros**, con ruta resuelta. Además de la bóveda (**P-93**, el urgente): `?report=` ×2 en **finanzas** — un valor desconocido **devuelve OTRO informe** del pedido, no un error; `?kind=` (envíos, ignora en silencio); `?scope=` (auditoría, acota); `?range=` ×4 y `?sort=` ×8 (acotan). **Esto es el resultado del pase, no un subproducto:** los tres ejes que se nos escaparon esta semana no se saltaron por descuido — **no estaban en el censo**, y un censo escrito a mano no puede enterarse de lo que nadie le contó. Ahora hay algo que falla cuando falta uno. ⛔ **No arreglados a propósito**: son de tres streams distintos y necesitan clase del arquitecto (§0-Q punto 4). | arquitecto (clase) → backend (migrar) | 2026-09-13 (censo ejecutado; **conducta de cada eje NO ejecutada** salvo los 4 migrados) | `docs/TECH_DEBT.md` ficha `EQ-D1`; `backend/test/helpers/query-axis-census.ts` |
-| **P-94** | 🔴 **AL RECHAZAR UNA IDENTIDAD NO SE LE AVISA AL CLIENTE POR NINGÚN CANAL** (hallado por el DUEÑO revisando en su tienda, 2026-09-13; **medido por el orquestador**). Medido: el sistema entero tiene **cuatro** plantillas de correo —`Verify your email` / `Verifica tu correo` y `Reset your password` / `Restablece tu contraseña`— y **cero** de KYC (`grep -rn kyc backend/src/modules/mail/` ⇒ **0**). No hay centro de notificaciones (`grep -rli notification` en `backend/src/modules` y `frontend/src/app` ⇒ **0 ficheros**). ⇒ El cliente **solo se entera si entra al portal por su cuenta**. El dueño confirmó que ahí sí se ve («del lado del cliente sí se ve la INE rechazada y pide volverla a subir»), así que el estado llega — pero **nadie lo empuja**. Un rechazo silencioso con motivo escrito es un motivo que nadie lee. **El lazo SÍ cierra** (medido, `users.service.ts:444`): resubir la INE devuelve `kycStatus` a `pending`. Lo que falta es el aviso, no el circuito. | **product-owner** (alcance: correo y/o portal) → arquitecto → backend+frontend | 2026-09-13 (medido por el orquestador; el dueño lo vivió) | `backend/src/modules/mail/mail.templates.ts` (4 subjects, 0 de KYC); `users.service.ts:444` |
-| **P-95** | ⚠️ **Se puede rechazar la misma identidad N veces seguidas sin que el cliente haya hecho nada** (hallado por el DUEÑO: «rechacé dos veces en menos de un min»; **medido por el orquestador**). Medido en `admin.service.ts`: el `upsert` usa `where: { userId }` y `update: decision` **sin mirar el estado actual** — valida el motivo (3–500 chars, obligatorio) pero **no comprueba si ya estaba rechazado**. Cada rechazo re-sella `reviewedAt`/`reviewedBy` y **genera una fila de auditoría**. ⚠️ **Hoy es inofensivo por el motivo equivocado: porque P-94 no manda nada.** En el momento en que exista el correo, esto son **N correos de rechazo en un minuto** a alguien que no ha podido contestar. **El orden importa: la guarda entra CON el aviso, o antes — nunca después.** Decisión de producto, no de implementación: ¿rechazar sobre rechazado es error, es no-op, o es una corrección legítima del motivo? El dueño lo planteó como «bloquear el status». | **product-owner** (decide) → arquitecto → backend | 2026-09-13 (medido: sin guarda de estado) | `backend/src/modules/admin/admin.service.ts` (`upsert`, `where: {userId}`, `update: decision`) |
-| **P-96** | 🟢 **CENTRO DE AVISOS — encargo del DUEÑO, 2026-09-13. Alcance dicho por él, verbatim.** ⛔ **No es un correo de rechazo: es el sistema entero.** Sus palabras: *«Quiero correo y que haya también en el portal para notificar, no solo esto sino también todos los avisos que mandamos que valgan la pena. Es lo primero que ve un cliente cuando entra a su cuenta: qué cambios hubo. Tal vez en la bóveda, falta su KYC — que ahí se le notifique. Cambios en su solicitud de lo que nos vende, etc.»* **Dos canales** (correo **y** portal), **dominio abierto de eventos** (no solo KYC), y una tesis de producto suya que manda sobre el diseño: **el aviso es lo PRIMERO que ve el cliente al entrar a su cuenta**, no una campanita escondida. Eventos que él nombró: **bóveda**, **KYC pendiente/rechazado**, **solicitud de venta**. El «etc.» es suyo: el catálogo de eventos lo define el product-owner y lo aprueba él. **Absorbe P-94** (no se avisa por ningún canal; medido: 4 plantillas de correo en todo el sistema, 0 de KYC, 0 ficheros de notificaciones) y **condiciona P-95** (se puede rechazar N veces: la guarda entra **con** el aviso o antes, nunca después — hoy es inofensivo solo porque no se manda nada). ⛔ **Bloqueado por O-14 hasta que QA y techlead entreguen** (el product-owner no escribe mientras un gate mide). ⚠️ **CORRECCIÓN MEDIDA 2026-09-22 (orquestador):** el motivo que esta fila daba —«`PROJECT.md` lo leen **10 suites**»— es **FALSO**. Medido hoy sobre `869b9e3`: `grep -rnE "(readFile|readFileSync|join|resolve)\([^)]*PROJECT\.md|'PROJECT\.md'|PROJECT_MD" --include='*.ts' --include='*.tsx' --include='*.sh'` ⇒ **0 coincidencias**; los ficheros que lo mencionan lo **citan en comentarios**, no lo leen del disco ⇒ **escribir `PROJECT.md` no puede poner roja ninguna suite**. Lo destapó el **product-owner** al medirlo antes de escribir §S, y el orquestador lo verificó. El bloqueo de O-14 **sigue en pie por su motivo real** (no se construye mientras un gate mide); lo que cae es la premisa técnica. *Una nota que afirma un estado que nadie ha re-medido bloquea trabajo que sí se podía hacer* (O-5). | **product-owner** (catálogo de eventos + canales, borrador para el dueño) → arquitecto → backend+frontend | 2026-09-13 (alcance del dueño; **nada medido de implementación**) | `mail.templates.ts` (4 subjects, 0 de KYC); `grep -rli notification` ⇒ 0 |
-| **O-14-b** | ⚠️ **`CLAUDE.md` NO es un fichero libre: lo leen 4 suites** (orquestador, 2026-09-13, medido al auto-auditarme). `backend/test/sell-request-states.spec.ts`, `backend/test/enum-values-parity.spec.ts`, `frontend/src/lib/mock/admin-bounties-mock.test.ts`, `frontend/src/lib/mock/fx-contract-mirror.test.ts`. Escribir mis propias reglas **mientras un gate mide** movería el suelo bajo sus pies igual que lanzar construcción — que es exactamente lo que O-14 prohíbe. **Medido a favor:** `PENDIENTES.md` **no lo lee ninguna suite**, así que mis commits de índice durante los gates de hoy eran seguros; y `91d4318` (O-14/O-15 en `CLAUDE.md`) se commiteó con **cero gates vivos**. No hubo incumplimiento — pero el hueco estaba abierto. Cierre: añadir la frase a O-14 la próxima vez que se toque `CLAUDE.md` **sin gates corriendo**. | orquestador | 2026-09-13 (medido) | `grep -rln CLAUDE.md backend/test frontend/src` ⇒ 4 ficheros |
-| **P-97** | ⚠️ **M8 · Disputas se ve como una pantalla ROTA cuando simplemente está vacía** (hallado por el DUEÑO con captura, 2026-09-13; **medido por el orquestador**). Medido: `M8View.tsx:87` hace `(query.data ?? []).map(...)` **sin rama de vacío** ⇒ con cero disputas la pantalla pinta **el título y nada más**. Su hermana M4 sí la tiene y el dueño la vio en la misma sesión («Sin envíos con ese filtro», «Nada que preparar por ahora»), así que el contraste es visible y la incoherencia también. **Segundo hallazgo del mismo vistazo:** `getAdminDisputes()` (`frontend/src/lib/api.ts:4079`) **no acepta ningún argumento y no manda query**, y `M8View.tsx` **no tiene control de filtro**. El dueño lo dijo exacto: *«en disputas no hay nada que filtrar»*. El backend sí expone `?status=` — o sea que el eje existe en la API y **no existe en la pantalla**. | **frontend** (estado vacío) · ux-ui (si el filtro debe existir) | 2026-09-13 (medido por el orquestador sobre la captura del dueño) | `M8View.tsx:87`; `frontend/src/lib/api.ts:4079` |
-| **O-14-c** | 🔴 **MIS INSTANTÁNEAS DE SEGURIDAD LE ROMPIERON LA MEDICIÓN A UN AGENTE — y lo detectó él, no yo** (orquestador, 2026-09-14). A mitad del pase de `D-AVISO-2` commiteé `64a70f7` («wip … NO verificada») **con el arreglo del agente dentro**. Él hizo la ablación —restaurar el código defectuoso para comprobar que su candado muerde— con `git show HEAD:<fichero>`, y `HEAD` **ya era mi instantánea con el arreglo**: salió **verde 10/10** y estuvo a punto de concluir que «la ventana depende de la carga». Falso. Lo rehízo con el **sha literal** y obtuvo el rojo real. Su frase, que es la regla: ***«Una ablación vale lo que vale el sha que restaura; nunca `HEAD` en árbol compartido.»*** ⚠️ **La clase:** O-14 dice que mientras un gate mide, el **árbol** es su instrumento. Esto añade el recurso que no contemplaba: **el HISTORIAL también lo es**. Un commit mío sobre trabajo ajeno en vuelo mueve el suelo de toda ablación que se ancle en `HEAD`. ⚠️ **Y el contexto que lo hace difícil:** las instantáneas las hago porque un gancho de la sesión exige el árbol limpio en cada parada, y porque un contenedor reciclado pierde el trabajo entero (O-10). **No es que sobren: es que tienen un coste que no estaba medido y ahora sí.** Mitigación inmediata, ya aplicada en los encargos: **todo encargo que pida ablación o mutación dice que se ancle en un SHA literal, nunca en `HEAD`**. Pendiente de decidir: si además conviene que las instantáneas vayan a una rama aparte en vez de a la rama de trabajo. **NO MEDIDO:** cuántas otras mediciones del día se anclaron en `HEAD` y pueden estar contaminadas por la misma causa. | **orquestador** | 2026-09-14 (medido por el agente de `D-AVISO-2`; verificado por mí en el historial: `64a70f7` precede a `dd3522b` y contiene el arreglo) | `git log --oneline 64a70f7 dd3522b`; `docs/BACKEND_NOTES.md` §BE-AV2 |
-| **O-5-bis** | 🔴 **DOS de las TRES preguntas «abiertas» que le llevé al dueño YA ESTABAN CONTESTADAS — él me lo dijo, yo lo medí, y tenía razón** (orquestador, 2026-09-14). Él escribió: *«Checa bien mis respuestas, según yo ya respondí esas.»* **Medido:** **(86)** qué le pasa al pedido y a la bóveda en un contracargo está decidido en `PROJECT.md` en **cuatro sitios** (`:1477` «revierte la carta al inventario y refleja el estado de la orden»; `:2129` «contracargo revierte al inventario»; `:6868-6869`; `:7029` `contracargo` es estado vivo de M3). **No había nada que decidir.** **(87)** los seis motivos de rechazo **ya están en su pantalla y él los usó esta semana** — `KycRejectDialog.tsx:20` y `frontend/messages/es.json` («No se alcanza a leer…», «Falta una de las dos caras de la INE.», «La foto no es de una INE.»…). Pedirle que aprobara lo que ya usaba. **Solo la 85 (redacción de la regla de canal) nació de verdad después de sus respuestas, y no cambia ni un correo.** ⚠️ **La clase:** el product-owner levantó la 86 y el arquitecto la arrastró **sin re-medir si ya estaba contestada**, y **yo se la relayé al dueño DOS VECES sin comprobarlo** — es O-5 incumplida por mí al relayar, igual que O-15 nació de relayar una proporción ajena. *Una pregunta que afirma que algo no está decidido es una afirmación de estado, y O-1 le aplica entera.* Cierra: antes de llevarle una pregunta al dueño, `grep` del término en `PROJECT.md` y en `HECHOS.md`, y la pregunta cita esa medición o no se hace (O-6). | **orquestador** | 2026-09-14 (medido por mí tras su refutación; él tenía razón) | `PROJECT.md:1477,2129,6868-6869,7029`; `KycRejectDialog.tsx:20`; `frontend/messages/es.json` |
-| **P-98** | ⚠️ **En ESPAÑOL, un importe NEGATIVO pierde el «MX» — helper compartido de DINERO** (hallado por **frontend** al construir la pantalla del dial de IVA, 2026-09-14; **medido por el orquestador**). `frontend/src/lib/format.ts:16` normaliza con `.replace(/^\$/, 'MX$')`, anclado en `^`: con signo delante el ancla **no coincide** y el símbolo se queda en `$`. Medido por mí ejecutando `Intl.NumberFormat` con los mismos parámetros: `es` `-690` ⇒ Intl `"-$6.90"` ⇒ normalizado **`"-$6.90"`** (pierde `MX`); `es` `690` ⇒ `"MX$6.90"` ✅; `en` `-690` ⇒ `"-MX$6.90"` ✅. ⚠️ **Solo en español, que es el idioma del dueño y el de su tienda**, y `$` a secas se lee como dólar. Alcance **NO MEDIDO**: cuántas superficies muestran hoy un importe negativo. ⛔ **Frontend NO lo arregló a propósito y con criterio**: es superficie de dinero de media app y había dos agentes backend escribiendo el mismo árbol (O-12); compuso el signo localmente (`signedMoneyCents`, `−` U+2212) para su pantalla y lo enrutó. Cierra: arreglar la normalización para que no dependa del ancla, con prueba de los cuatro casos de arriba. | **frontend** (dueño de `frontend/src/lib/`) | 2026-09-14 (medido por el orquestador ejecutando `Intl`, no leyendo) | `frontend/src/lib/format.ts:16`; `node -e` con los cuatro casos `es/en × ±690` |
-| **O-1-bis** | 🔴 **MIS PASOS DE REVISIÓN ERAN IMPOSIBLES DE EJECUTAR, y la severidad que le conté al dueño estaba inflada** (orquestador, 2026-09-13, medido tras las capturas del dueño). Le di como pasos de verificación *«pega `?status=banana` en la barra de direcciones de M3/M4/M8/M1»*. **Medido: ninguna de esas pantallas lee la barra de direcciones** — `grep useSearchParams` en `m3`, `m4` ⇒ **cero**; `m1` solo lee `?tab=`. El frontend manda `status` desde su **desplegable**, que solo ofrece valores válidos (el dueño lo vio: *«en retiros es una dropdown list, no se puede tipear»*). ⇒ **Los pasos 1 a 6 de la lista no podían hacerse.** Y peor: repetí en tres cuerpos de solicitud de fusión que el `500` de P-84 era *«disparable desde la barra de direcciones por cualquiera con sesión de admin»*. **Para esas cuatro pantallas es falso**: hace falta llamar a la API directamente (`NEXT_PUBLIC_API_BASE_URL`, otro host), no escribir en la barra del navegador. El defecto era real y el arreglo correcto; **la vía de explotación que describí, no**. ⚠️ **Lo que SÍ se sostiene y no se toca:** P-89 (catálogo) es **público y sin sesión**, y eso lo medí yo por HTTP — esa severidad era correcta. | orquestador (corregir la lista y el relato) | 2026-09-13 (medido: `useSearchParams` ⇒ 0 en m3/m4) | `m3`,`m4` sin `useSearchParams`; `api.ts:3995,1229` mandan `status` desde el desplegable |
-| **P-87** | 🔴 **La base de datos compartida de integración está sucia y produce 15 rojas FALSAS** (QA, 2026-09-12, y es la **segunda vez** que esa trampa produce un reporte falso en este proyecto). Medido: sobre `tcg_marketplace` compartida, **3 suites / 15 pruebas en rojo** con errores del tipo `Expected "Av. E2E 123" / Received "Calle Nueva 456"` — residuo de sesiones anteriores en `buylist`/`pricing`/`graded`. Sobre **base virgen** (`tcg_qa_a5`): **34/34 suites, 509/509, exit 0**. Ya produjo antes el reporte de «3 rojos preexistentes» que la propia QA refutó. Cierre: que `test:integration` **cree base efímera**, o un `--fresh-db` documentado; comprobación = **dos corridas seguidas sobre la misma base salen verdes**. | **devops** | 2026-09-12 (medido por QA, las dos configuraciones) | `backend/package.json` (`test:integration`); `scripts/stack-native.sh` |
-| **Stream C** | El disco (P-53) | backend | 2026-09-11 | ídem |
-| H1 | Protección de ramas `main`/`production` (required checks `ci-ok`/`sast-ok`/`e2e-ok`; ruleset JSON en `docs/DEVOPS_NOTES.md` §56.8). Consecuencia: un push directo solo pasa si el SHA ya tiene los 3 checks verdes — **DECISIÓN DEL DUEÑO**. **Evidencia NUEVA 2026-09-13 (medida por el orquestador):** la publicación `9050d59` (PR #31, el KYC) **salió a producción con CI en ROJO y nadie lo vio** — run `34692360680`, job `format-mix` en `failure` ⇒ `ci-ok` en `failure`. Sin protección de ramas, un check rojo **no impide publicar**: solo lo impide que alguien lo mire. La publicación siguiente (`d6b31cb`) salió verde en los tres (`34737215436`/`34737215437`/`34737215464`), así que la condición está cerrada — pero **el agujero que la dejó pasar no**. | HUMANO (decide) · devops (activa) | **2026-09-13** (re-medido: rulesets sigue `[]`; + el caso real de `9050d59`) | `GET /repos/…/rulesets` → `[]`; run `34692360680` job `format-mix`=failure, `ci-ok`=failure |
-| **P-88** | ⚠️ **Un formateador automático ad-hoc mezcló reformateo con lógica en un fichero de dinero, y el candado que lo caza salió rojo sin dueño** (orquestador, 2026-09-13). Medido sobre el run `34692360680` (publicación `9050d59`): `check-format-mix.sh` marcó `backend/src/modules/admin/admin.controller.ts` — **128 líneas de cambio real** escondidas entre cientos de líneas de reformateo. Eso es exactamente lo que BL-27 existe para impedir: **el gate de seguridad y el techlead revisan POR DIFF**, y una línea de dinero entre cientos de reformateo no se ve. **El candado hizo su trabajo** (se puso rojo, con el fichero exacto); lo que falló fue que **nadie miró la roja** (⇒ H1). **Estado hoy:** el fichero ya quedó formateado, así que `d6b31cb` salió **verde** en `format-mix` — la mezcla no se repite. Queda abierto **por qué** pasó: `npm run lint` **no corre prettier** (el `extends: ['prettier']` de eslint apaga las reglas de formato a propósito), así que nada impide que un agente vuelva a pasar un prettier ad-hoc. Cierra: que el encargo a los agentes prohíba el formateo ad-hoc, o que el candado corra **antes** del commit, no después del push. | orquestador (encargo) · devops (si se mueve el candado) | 2026-09-13 (medido sobre el run real) | `scripts/check-format-mix.sh`; run `34692360680` job `format-mix`; `docs/DEVOPS_NOTES.md` §36 |
-| DO-D4 | `dast-release` en `report_only: true` hasta que **seguridad** lo suba a bloqueante; caduca el **2026-10-06** (job `dast-report-only-expiry` pone rojo CI) | seguridad (decide) · devops | 2026-09-11 | `grep -c 'report_only: true' .github/workflows/deploy.yml` |
-| Deuda gates 2026-09-11 | Fichas nuevas con comprobación de cierre: backend BE-82..87, frontend GA-D1..D7, devops DO-D1..D10 (incl. DO-D2/DO-D3: se cierran con el primer push real a `production`) | rol dueño de cada ficha | 2026-09-11 | `docs/TECH_DEBT.md` bloques «… · 2026-09-11 · gates …» |
-| Arquitecto (post-A) | Peticiones abiertas del stream: `orderNumber` en `OrderSummaryDTO`/`OrderDetailDTO` (hoy la columna PEDIDO muestra UUID contra backend real); `customer {id,name,email}` en fila de M4; BE-82 (`details.field` en «ausente» requiere `exceptionFactory`); preguntas §4.47.9 al dueño (allowlist de `PATCH /users/me`, edición de nombre por admin, correos del buylist con nombre derivado) | arquitecto → backend/frontend | 2026-09-11 | `docs/FRONTEND_NOTES.md` §68.4; `docs/ARCHITECTURE.md` §4.47.9 |
-| P-IVA-INCL | Precio con IVA incluido, sin línea aparte. **DEPLOY 2 SÍ está especificado** en contrato (§M10-IVA.6, `docs/API_CONTRACT.md:17107-17121`); falta implementarlo y la decisión de «cómo se muestra» | product-owner → arquitecto → frontend+backend | 2026-09-11 | `AmountBreakdown.tsx:82`, `orders.service.ts:592` (`IVA_EXCLUSIVE`); cero escritores de `IVA_INCLUSIVE` en producción |
-| P-BL | Stream buylist v1.59/v1.60: **1 de 7 cerrado** (`legalName`, `admin.service.ts:47,55-68`). §M5-D abierto (las 4 estructuras siguen); §M5-A **desalineado**: backend emite `scope: per_request`/`per_request_offer` (`buylist.service.ts:1585,3587`) y el frontend ya los retiró (`error-audience.ts:42`); §M5-I, boundary, BL-42, D50 abiertos | backend (arquitecto para D50) | 2026-09-11 | `grep -n BUYLIST_CAP_PER_REQUEST_CENTS backend/src/modules/settings/settings.constants.ts` → `:77,289,949,1058`; `HISTORIAL.md:110-166` |
-| P-53 | Disco: `PriceReference` una fila/producto/día; `evidenceDate` **ni se escribe ni se lee** (9/9 hits son el DTO de un proveedor) | backend | 2026-09-11 | `backend/src/modules/catalog/card-product-resolver.service.ts:201,218-233`; `schema.prisma:967` |
-| P-56 | Wishlist (money-critical) — cero rastro en el árbol | arquitecto → backend+frontend | 2026-09-11 | `grep -rni wishlist backend/src frontend/src docs` → 0; falta alcance (product-owner) |
-| P-58 | «Marcar recibida»: el botón vive **solo en `cotizada`** (el paso equivocado, `M5View.tsx:991`), no «en cualquier estado»; el servidor sí acepta desde cualquier estado vivo (`buylist.service.ts:5492` → `liveRequestWhere()` `:5654`) | frontend (mitad 1) · arquitecto → backend | 2026-09-11 | `buylist.service.ts:5492,5654`; `M5View.tsx:991-1001` |
-| P-59 | La reserva no conoce a su dueño: `where` sin eje de usuario/sesión; invitado ni escribe titularidad | arquitecto → backend | 2026-09-11 | `orders.service.ts:431,436`; `guest-checkout.service.ts:141`; TTL `guest-checkout.constants.ts:43` |
-| P-60 | Entregabilidad: falta DMARC | **HUMANO** (DNS) | — | registro DMARC en el DNS de `tcghunt.mx` |
-| P-61 | Catálogo de Vender se ve chico: carrito lateral fijo de 360 px en escritorio; drawer solo móvil | ux-ui → frontend | 2026-09-11 | `BuylistView.tsx:323,350-352,386-387` |
-| P-65 | Fotos 5–10 s: los cuatro eslabones siguen en serie; cuál pesa NO MEDIBLE sin levantar la app | frontend; arquitecto si toca API | 2026-09-11 | `(storefront)/page.tsx:1`; `(storefront)/_home/FeaturedCarousel.tsx:708`; `CardImage.tsx:72-78` |
-| P-66 | Panel de admin: **8 de 9 puntos abiertos** (B2 requiere navegador); ni el copy «beta cerrada» aprobado por el dueño se corrigió (`es.json:2539`) | ux-ui → frontend | 2026-09-11 | cuerpo del ítem; `git diff --stat 9ff373f..HEAD -- "(admin)"` = solo M10 y M2 |
-| P-67 | Inventario de datos para analytics — no existe doc ni sección | arquitecto/backend → product-owner | 2026-09-11 | `ls docs/`; `grep -rni analytics docs/ PROJECT.md` → 0 |
-| P-68 | FX: modo por defecto = centinela `legacy`; lo decide `fx_manual_override_rate`; fallback duro 18 | devops (consulta) · backend | 2026-09-11 | `fx-mode.ts:285-293` (antes `:157`), `:56,380`; `fx.service.ts:153-154,340` (antes `:85`); la SQL vive solo en el cuerpo |
-| P-69 | Precio de mercado se pierde entre paso 1 y 2 al subir sellado; `sealedPriceSource` viaja y nadie lo consume | backend/frontend | 2026-09-11 | `SealedAddFlow.tsx:172`; `sealed-product.service.ts:65` (antes `:63`); `grep sealedPriceSource SealedAddFlow.tsx` → 0 |
-| P-70 | Decks Meta — **bloqueante CAMBIÓ**: `pricing-iva-v2.1` ya tiene cuerpo (= `PROJECT.md` §Q / D54, `:5708-5714`); encadenado a P-IVA-INCL DEPLOY 2 publicado | product-owner → … | 2026-09-11 | `docs/specs/DECKS_META_V1.md:14`; `money.ts:379` (antes `:374`); `API_CONTRACT.md:17109` |
-| P-71 | Código corto del set: `ptcgoCode` se guarda y **nadie lo lee** (cero en `frontend/src` y en el contrato) | backend (ingesta) + frontend | 2026-09-11 | `schema.prisma:510` (antes `:497`); `catalog-sync.service.ts:1294,1304` (antes `:918`) |
-| P-72 | «SIN PRECIO RESOLUBLE» dice dos cosas: el DTO de la cola no lleva `pendingReason` (`contract.ts:2396-2414`); copy único `es.json:1232` | frontend + arquitecto | 2026-09-11 | `pricing.service.ts:877`; `pricing-curve.ts:566-574`; `inventory.service.ts:359-360` |
-| P-46 | Sincronizar sellado «0 presentaciones»: **CERRADO EN CÓDIGO** (`47c97c1`, dentro de `c13f417`: match tolerante al prefijo, `sealed-product.service.ts:777-798`). **Falta verificar en producción** (sync de Pitch Black / Chaos Rising) y el follow-up de frontend (guiar al linker cuando da 0). Singles siguen sin el arreglo (`card-product-resolver.service.ts:225-238`) | HUMANO/orquestador (verificar) · frontend (follow-up) | 2026-09-11 | correr la sync en producción y contar presentaciones |
-| Razón social | Footer imprime «TCG HUNT · tcghunt.mx · © 2026» sin placeholder (`layout.tsx:58-65`, `footer.ts:13-18`); falta el dato del dueño | **HUMANO** | 2026-09-11 | `es.json:11` / `en.json:11` |
-| Seguridad · release A | **Veredicto 2026-09-11 sobre `abecf73`: APROBADO CON CONDICIONES para modo prueba; dinero real BLOQUEADO** por: **C6** (devops + humano: en ventana autorizada, 6 logins a prod con `X-Forwarded-For` rotatorio ⇒ 429 al 6.º, 6/6, y anotar cabeceras reales tras el edge de Railway), **C7** (backend: throttle por identidad — login/google/register por email, change-password por userId — y test que fije `trust proxy=1`), **C2-bis** (devops: retirar `report_only: true` de `dast-release` ≤ 2026-09-25), **P-GL-2** (devops: exención de gitleaks por valor, no por ruta `docs/*.md`/`security/*`), **P-SEED-1** (backend: `assertSeedTarget` rechaza `?host=`/`options` de libpq), **S-NAT-1** (devops: `secrets.env` a 0600), **P-REDIR-1** (frontend: `safeNext` rechaza `\`/`%5C`). Rutas de backend ocupadas por Stream B: enrutar C7/P-SEED-1 al cerrar B | devops · backend · frontend · humano (C6) | 2026-09-11 | `docs/SECURITY_NOTES.md` bloque superior; `docs/PENTEST_NOTES.md` bloque superior |
-| Seguridad C3 | Condición C3 del veredicto (humano/QA: `gh run view 34538020057 --log \| grep -m1 "Smoke (real) specs:"` con `checkout`, `guest-checkout`, `shipments`). **C1, C2 (parte medible), C4 y C5 cerradas en `main` el 2026-09-11** (ver `HISTORIAL.md` → «FUSIONADO … Stream A + andamiaje de CI»); C2 residual **cerrado el 2026-09-11** (medido por el orquestador): el primer push a `production` (`c8bee65`) disparó el `dast-release` real y salió **verde** — run `34633179107`, trabajos «Autoprueba del candado (canario vulnerable)» y «DAST contra el stack efímero», ambos `success`; queda solo DO-D3 | humano (C3) · devops (DO-D2) | 2026-09-11 | `docs/SECURITY_NOTES.md:237-249`; `docs/TECH_DEBT.md` DO-D2 |
----
-
-# SIGUIENTE RELEASE — «LA CUENTA DEL CLIENTE» (aprobado por el humano, 2026-09-10)
-
-### Añadidos 2026-09-11 02:35 UTC (durante la publicación de `c9ba265`)
-
-- **P-IVA-INCL · Precio con IVA incluido, sin línea aparte (`IVA_INCLUSIVE`).** Decisión del dueño 2026-09-11:
-  «ponlo como pendiente». Hoy el cliente ve «MXN sin IVA» en catálogo y una línea «IVA 16%» en checkout
-  (`frontend/src/components/ui/AmountBreakdown.tsx:82`, `frontend/messages/es.json:315`); M-50 ya deja cada
-  pedido marcado con su convención (`orders.service.ts:586`, `guest-checkout.service.ts:163`). Falta: el
-  DEPLOY 2 de M-50 (contrato §M10-IVA) — decisión de product-owner/arquitecto sobre cómo se muestra, y
-  frontend+backend. **Dinero ⇒ triple veredicto.** No medido: qué dice el contrato hoy sobre DEPLOY 2.
-
-> Arranca **en cuanto se publique el release actual**. Tres work streams **disjuntos** por el mapa de
-> módulos de `CLAUDE.md`, así que corren **en paralelo** sin pisarse. Una sesión = un stream = una rama.
-
-## 🥇 Stream A — «La cuenta del cliente» (el principal)
-> ✅ **FUSIONADO en `main` el 2026-09-11** (sesión 2; QA + techlead aprobados; 79 commits). Lo de abajo se conserva verbatim como alcance del stream. Falta el **release**: fase de seguridad + checklist de despliegue (`ARCHITECTURE.md` §4.47.10.4).
-**Módulos:** backend `auth`, `users`, `settings`, `mail` · frontend `(auth)` y perfil.
-**Rama sugerida:** `claude/cuenta-del-cliente`
-
-| Pendiente | Qué le pasa hoy al cliente |
-|---|---|
-| **P-57(a)** | **No existe pantalla de perfil.** No puede ver ni cambiar correo, direcciones, facturación ni estado de verificación. ⭐ **El servidor YA lo expone todo** (`GET`/`PATCH /users/me`, direcciones, facturación, KYC): **falta solo la pantalla.** |
-| **P-57(b)** | ⭐⭐ **Cada compra de invitado no reclamada en el momento se queda FUERA DE LA BÓVEDA PARA SIEMPRE.** El mecanismo existe entero y bien hecho; `GET /orders/claimable` **no lo consume nadie**. Ubicación decidida con el humano: aviso **en la bóveda** y en pedidos. |
-| **P-73** | Entrar con Google **inventa un nombre** que nadie puede corregir, y los envíos salen **sin destinatario**. |
-| **P-75** | Se le dice *«debes cambiar tu contraseña»* **y no hay dónde hacerlo**. El ciclo no cierra. |
-| **P-55** | Arma el carrito de venta, inicia sesión, **y lo pierde**. |
-
-**Por qué juntos y por qué primero:** son cinco síntomas de **una sola ausencia** —no hay «mi cuenta»—, y
-P-57(b) cuesta bóvedas todos los días. La bóveda es la propuesta de valor.
-
-## 🥈 Stream B — «Lo que se rompe con el dinero»
-**Módulos:** backend `orders`, `shipments` · frontend `(storefront)` pedidos.
-**Rama sugerida:** `claude/ordenes-pacto`
-
-| Pendiente | Qué |
-|---|---|
-| **P-58** | 🔴 «Marcar recibida» se ofrece desde **cualquier estado** — se salta el pacto con el vendedor. |
-| **P-59** | La reserva propia **bloquea el reintento del mismo cliente**. |
-
-## 🥉 Stream C — «El disco»
-**Módulos:** backend `pricing` · devops.
-**Rama sugerida:** `claude/disco-pricing`
-
-**P-53** — 28,559 filas/día (~13 MB/día) que en su mayoría **no cambian nada**. La cura está
-identificada y no se ha implementado: la columna **`evidenceDate`** existe en el esquema y **nadie la
-escribe ni la lee** — es el sitio para distinguir «el precio no cambió» de «el proveedor no respondió».
-⚠️ Antes de tocar, re-medir: `sealed-catalog.service.ts:334` (gráfica por ventana) y
-`hasRecentIngest()` (`price-ingest.service.ts:344`) **sí dependen** de que haya filas de hoy.
-
----
-
-## ⛔ Lo que NO entra, y por qué
-
-- **P-70 · Decks Meta.** Funcionalidad nueva y grande. **Su propio spec exige correr sola**, sin nada que
-  toque `money.ts` ni el contrato. Mezclarla con arreglos hace que un problema en cualquiera detenga a
-  los dos. **Va sola, después.** ⚠️ Y arrastra un bloqueante ya verificado: el spec cita
-  `pricing-iva-v2.1`, que **no existe en este repo** — hay que preguntarle al humano qué es antes de
-  arrancar.
-- **P-60 · DMARC.** No es un release: son **diez minutos del humano** en el panel de su dominio. Sin eso
-  los correos siguen cayendo en spam.
-- **`D-GT-1` / `§M2-GT`** (el grupo TCGCSV de un set): techlead lo dejó fuera del release actual **en
-  primera posición del siguiente**, serializado. **Cruza dos streams y toca dinero** ⇒ el orquestador lo
-  serializa **antes** de que A, B o C toquen `catalog`/`pricing`/`inventory`, y va con triple veredicto.
-
-## Zonas compartidas — serializar, no paralelizar
-`backend/src/common/`, `backend/src/config/`, `backend/prisma/` (schema), `frontend/src/components/`,
-`frontend/src/lib/`, `frontend/src/hooks/`, `docs/API_CONTRACT.md`. **Un solo stream a la vez**, y todo
-cambio de contrato o de schema pasa por el arquitecto primero (regla 9).
-⚠️ Aviso concreto: **A y B comparten `frontend/src/lib/verdict.ts` y `components/ui/VerdictNotice.tsx`**
-si alguno toca avisos de resultado. Y **A toca `shipments` en P-73** (el destinatario), que es módulo de
-**B** ⇒ **serializar ese punto**: lo hace A, y B no entra a `shipments` hasta que aterrice.
-
----
-
-## Abiertos — cuerpos (verbatim)
-
-### Infraestructura · Disco de la base de datos (2026-09-01)
-
-#### P-53 · 💾 El disco de Postgres se llena por el ritmo de escritura del historial de precios — MITIGADO, falta la cura
-- **Detectado por el humano:** alerta de Railway «High Volume Usage — postgres-volume is at 77% capacity».
-- **✅ Mitigación aplicada (humano, 2026-09-01):** volumen ampliado. **El reloj de saturación se detuvo.**
-  Queda pendiente anotar el tamaño nuevo y rehacer la proyección con él.
-- **Medición real en producción (solo lectura, consola de Railway):**
-  | Dato | Valor |
-  |---|---|
-  | Disco usado / disponible | 317 MB de 434 MB (75%) |
-  | `pgdata/base` (datos) | 171 MB |
-  | `pgdata/pg_wal` (bitácora) | **145 MB — 46% de lo ocupado** |
-  | Base de datos completa | 148 MB |
-  | `PriceReference` | **101 MB — 68% de la base** |
-  | Filas de `PriceReference` | 222,614 (2026-08-17 → 2026-09-01, 16 días) ⇒ ~476 B/fila |
-- **Causa raíz (confirmada por consulta, NO por hipótesis):** el **ingest de singles de TCGCSV** escribe
-  **una fila por producto por día**, se muevan o no los precios. El 2026-08-28 el ritmo saltó de **2,062 a
-  ~28,570 filas/día (×14)** y lleva 5 días sostenido — es el nuevo estado estable, no un pico.
-  Desglose del día 2026-09-01: `tcgcsv_singles/raw:NM/market` **28,559** · `pokemonpricetracker/graded:PSA:10`
-  12 · `graded:PSA:9` 6.
-  ⚠ **Corrección registrada:** el orquestador atribuyó primero el salto al pipeline PSA. **Era falso** —
-  el PSA aporta 18 filas de 28,577. La causa es el ingest de singles.
-- **Proyección que motivó la ampliación:** ~13 MB/día contra 107 MB libres ⇒ saturación ≈ **2026-09-09**.
-  Con el disco lleno Postgres **deja de aceptar escrituras** (sin pedidos, sin altas, sin capturas de
-  inventario) y compactar la tabla exige espacio libre ≈ su propio tamaño (101 MB): esperar cerraba la
-  puerta al arreglo, no solo al servicio.
-- **⚠ Una política de retención por antigüedad NO resuelve esto.** El historial completo son 16 días: hoy
-  «conservar 90 días» no borraría ni una fila. El problema es el **ritmo diario**, no la basura vieja.
-  (El orquestador propuso retención antes de medir; queda anotado para no repetir el camino.)
-- **Lo que sí queda por hacer:**
-  - **(devops) Acotar el WAL.** 145 MB de bitácora con **cero replication slots** (verificado: la consulta a
-    `pg_replication_slots` devolvió 0 filas ⇒ no hay fuga). Es Postgres con los valores de fábrica,
-    dimensionados para un disco mucho mayor. Bajar `max_wal_size` recupera del orden de **100 MB**. Requiere
-    reinicio de Postgres ⇒ **con respaldo y ventana**, no en caliente.
-  - **(arquitecto → backend) Escribir menos por día.** Palanca de fondo: hoy se guarda una fila diaria por
-    carta **aunque el precio no se haya movido**, y la mayoría no se mueve. Escribir solo ante cambio recorta
-    el volumen de forma drástica.
-    🔴 **Money-critical:** toca qué tan **fresco** se considera un precio (`capturedDate`/`evidenceDate`,
-    `stale()`) y roza la regla «no se fabrican puntos» de las series del portafolio y de los sets. Mal hecho,
-    una carta se queda con precio viejo **sin que nada avise**. Pasa por el **arquitecto** (regla 9) y exige
-    **triple veredicto (QA + techlead + seguridad)** antes de producción.
-  - **(devops) Vigilancia.** Hoy nos enteramos por la alerta de Railway al 77%. Falta un aviso propio del
-    crecimiento del disco y del ritmo de filas/día, para no volver a descubrirlo a 8 días del tope.
-- **Consultas de diagnóstico (solo lectura) para repetir la medición:** tamaño por tabla vía
-  `pg_total_relation_size`; `du -sh /var/lib/postgresql/data/pgdata/*`; `pg_replication_slots`;
-  `SELECT "capturedDate", count(*) FROM "PriceReference" GROUP BY 1 ORDER BY 1 DESC`.
-
-
-### Encontrado por el humano en producción (2026-09-08, tras publicar el ciclo de compra)
-
-#### P-56 · ⭐ WISHLIST del cliente — «dime qué buscas y te la consigo» — pedido por el humano
-- **La idea:** el cliente arma una **lista de deseos** con las cartas que anda buscando. La plataforma
-  le hace saber que **podría conseguírsela a cierto porcentaje por encima del mercado**.
-- **Por qué es más que una lista:** hoy solo sabes qué te compran de lo que YA tienes. La wishlist te
-  dice **qué te comprarían si lo tuvieras** — es tu demanda insatisfecha, medida, y hoy es invisible.
-- **⚠️ Conecta con los bounties, y ése es el valor real.** El bounty es *«pago X por esta carta»*
-  (oferta); la wishlist es *«alguien la quiere»* (demanda). **Una alimenta a la otra**: N clientes
-  buscando la misma variante es exactamente la señal para levantar un bounty. Diseñar las dos sin
-  mirarse sería construir dos mitades de lo mismo.
-- **🔴 Money-critical, y no es obvio:** *«te la consigo a X% sobre mercado»* es **un compromiso de
-  precio con el cliente**. Hay que decidir si es vinculante, cuánto dura, qué pasa si el mercado se
-  mueve entre la promesa y la entrega, y cómo se cruza con la escalera de redondeo y el tope de
-  compra. Pasa por **arquitecto** (regla 9) y exige **triple veredicto**.
-- **Preguntas para el humano, sin asumir:** ¿el porcentaje es un dial global, por rareza, o por
-  carta? ¿la promesa caduca? ¿se avisa al cliente cuando la conseguimos, y con qué plazo para que
-  responda? ¿la wishlist es privada o alimenta un ranking público («las más buscadas»)?
-- **Rol dueño:** arquitecto (diseño) → backend + frontend. **Sin empezar hasta que el humano cierre
-  el alcance.**
-
-#### P-58 · 🔴 «Marcar recibida» se ofrece desde CUALQUIER estado — se salta el pacto
-- **Encontrado por el humano** mirando la pantalla; **seguridad lo había visto por el código** en su
-  pase y lo dejó anotado. Dos caminos independientes, mismo hallazgo.
-- **Medido:** la guarda de `receive` (`buylist.service.ts:5488`) es `liveRequestWhere()` — solo exige
-  que la solicitud no esté cerrada, **no que esté en el paso correcto**. Y la interfaz ofrece el
-  botón desde el paso 1.
-- **Por qué importa, y no es cosmético:** desde **«Cotizada»** marcar recibida salta al paso 5 **sin
-  que exista precio pactado ni aceptación del vendedor** — acabas con las cartas de alguien sin
-  acuerdo. Desde **«Ofertada»** es peor: **le cierra la ventana al vendedor**, que ya no puede
-  aceptar ni declinar.
-
-- **⚠️⚠️ ANTES DE TOCAR LA GUARDA — LEER ESTO (medido 2026-09-08, y contradice la cura obvia).**
-  La guarda **NO está floja por descuido: está por EXCLUSIÓN a propósito**, y el porqué está escrito
-  en el bloque de documentación de `receive`. Los hechos que dejó quien la escribió:
-  - **La mesa dispara los verbos EN CADENA.** En el incidente que originó la guarda, `receive` y
-    `verify` se ejecutaron seguidos tras `confirm-shipment`, y **la bitácora real muestra
-    `receive`→`verify` con 20 ms de diferencia**. No es un caso teórico: es cómo se trabaja.
-  - Su regla, textual: *«Una guarda que rompe el trabajo legítimo del día siguiente no es más segura:
-    es la que alguien acaba desactivando.»* Misma dirección que el **criterio 129** (estados vivos
-    por complemento): olvidarse falla hacia el lado seguro.
-  - El segundo término, `closedAt: null`, **no es redundante** aunque lo parezca: ya hubo en la base
-    filas con `closedAt` sellado y estado no-terminal, y sobre ésas el término de estado por sí solo
-    dejaba pasar la transición. *Una guarda no puede apoyarse en el invariante que el bug rompió.*
-  ⇒ **Apretar a «solo desde el estado X» sin más inventaría una máquina de estados que la mesa no
-  usa, y rompería la operación real.** Quien lo intente sin leer ese bloque va a romper algo que hoy
-  funciona y a creer que lo arregló.
-
-- **Cómo se cierra bien, en dos mitades separables:**
-  1. **La barata y sin riesgo (hacer ya):** que **la interfaz no ofrezca el botón donde no toca**.
-     Eso quita el 100% del camino accidental —que es como lo encontró el humano— **sin tocar la
-     guarda del servidor**. Rol: **frontend**.
-  2. **La de fondo (decisión, no parche):** ¿desde qué estados es legítimo `receive`? Lo decide el
-     **arquitecto**, y con las dos evidencias delante: el agujero del pacto **y** el encadenamiento
-     de 20 ms de la mesa. Si de ahí sale una guarda más apretada, la escribe **backend**.
-- **Rol dueño:** frontend (mitad 1, ya) · arquitecto → backend (mitad 2, con la evidencia de arriba).
-
-#### P-59 · 🛑 La reserva propia bloquea el reintento del mismo cliente
-- **Encontrado por el humano:** se le congeló el pago, reintentó, y **la carta ya no estaba** —
-  la había reservado su propio intento fallido.
-- **Medido:** el inventario se reserva **60 minutos** (`GUEST_ORDER_RESERVATION_TTL_MIN`) y un
-  barrido cada 15 minutos libera lo no pagado. **No se pierde nada** — pero el cliente espera hasta
-  una hora por un pago que se le cayó, y ve «no disponible» sin explicación.
-- **Lo correcto:** que el mismo cliente/sesión **recupere su propia reserva** al reintentar, en vez
-  de chocar contra ella. **Rol dueño:** arquitecto → backend.
-
-#### P-60 · ✉️ Entregabilidad del correo: falta DMARC y el dominio es nuevo
-- **Medido:** el correo de la oferta **se mandó y se entregó** (Resend: `Delivered`) — y **cayó en
-  spam** en Hotmail. No es defecto de código: es reputación. `tcghunt.mx` tiene 17 días y **dos
-  correos en 15 días**; SPF y DKIM verificados, **DMARC ausente**.
-- **⚠️ Por qué urge más de lo que parece:** el correo de **verificación de cuenta** es la puerta de
-  entrada — sin verificar, el sistema **bloquea comprar y vender**. Si ese correo cae en spam, el
-  usuario nuevo se va y **nadie se entera**.
-- **Acción (humano/devops):** registro TXT `_dmarc` con `v=DMARC1; p=none; rua=mailto:…` (modo
-  observación, sin riesgo); marcar los correos como «no es spam»; el volumen hace el resto.
-
-#### P-61 · 🖼️ El catálogo de Vender se ve chico — carrito a pop-up
-- **Propuesta del humano:** mover el carrito a un pop-up y usar ese espacio para mostrar las cartas
-  más grandes, como en el inventario de admin.
-- **⚠️ Restricción que el diseño debe respetar:** ese panel carga hoy **dos cosas que no pueden
-  esconderse**: la llamada a **iniciar sesión** (es donde el vendedor descubre que necesita cuenta) y
-  el mensaje de que **la guía la ponemos nosotros y no paga nada de su bolsillo** (responde la duda
-  que frena al vendedor primerizo). Hay que **reubicarlas**, no solo mover el carrito.
-- **Rol dueño:** ux-ui → frontend.
-
-
-#### P-65 · 🖼️ Las fotos tardan 5–10 s en aparecer — reportado por el humano
-- **Medido en el código (no supuesto): no es una causa, son cuatro eslabones EN SERIE.**
-  1. **La home y el catálogo son pantallas de cliente** (`'use client'` + TanStack Query en
-     `frontend/src/app/[locale]/(storefront)/page.tsx`). Antes de que exista siquiera la *dirección*
-     de la primera foto hay que: bajar el HTML → bajar y arrancar el JavaScript → preguntar al
-     backend → recibir respuesta. **La foto empieza a bajarse en el cuarto viaje, no en el primero.**
-  2. **La teja líder del carrusel pide la imagen HD** (`FeaturedCarousel.tsx:708`,
-     `imageLargeUrl` → `_hires.png` de pokemontcg.io: cientos de KB, frente a las ~40–60 KB de la
-     chica). Es justo la imagen que decide cuándo el visitante siente que «ya cargó la página».
-  3. **Las fotos no pasan por nosotros.** Todas se piden directo a `images.pokemontcg.io` con `<img>`
-     plano (`components/ui/CardImage.tsx`): ni las redimensionamos, ni las convertimos a formato
-     moderno, ni las guardamos en caché propia. Cada visitante paga el viaje al servidor del
-     proveedor, con su latencia y el peso original.
-     - ⚠️ **CORRECCIÓN (2026-09-08, mía).** Aquí decía que *«el único sitio del front que usa el
-       optimizador de Next es el logo de expansión (`SetPlate.tsx`)»*. **Es falso.** Lo deduje de que
-       un `grep` de `next/image` devolvía ese fichero — y **la coincidencia era un COMENTARIO** que
-       dice literalmente *«sin next/image»*. **No hay una sola línea de `next/image` en el frontend**:
-       todas las imágenes son `<img>` crudo (Nivel B, `ARCHITECTURE §4.41.7`). Propagué el error a un
-       encargo de seguridad y ahí hizo ver un riesgo más pequeño de lo que era; lo cazó el agente al
-       verificar en vez de ejecutar. **La lección: un `grep` dice dónde aparece un texto, no qué hace
-       el código.**
-  4. Las demás van en `lazy` y eso **está bien** — no es ahí donde se van los segundos.
-- **Lo que NO pude medir desde aquí, y decide cuál es la cura:** este contenedor tiene bloqueada la
-  salida a internet (`tcghunt.mx` e `images.pokemontcg.io` devuelven 403 en el proxy), así que **no
-  sé cuál de los cuatro eslabones se lleva los segundos**. La distinción no es un detalle: si el que
-  tarda es el backend (Railway despertando, o la consulta de catálogo), optimizar imágenes **no
-  arregla nada**.
-  - **Dato que el humano da en un minuto:** F12 → pestaña **Red** → recargar → decir (a) cuánto tarda
-    la llamada al backend y (b) cuánto tarda la primera foto. Con eso se sabe qué atacar.
-- **Palancas, de más barata a más cara** (todas reales, ninguna aplicada):
-  - **(a)** usar la imagen chica también en la teja líder — una línea, ahorra cientos de KB en la
-    imagen que marca el tiempo percibido;
-  - **(b)** servir las fotos por el optimizador de Next/Vercel (redimensiona + WebP + caché en el
-    borde) — cambio acotado en `CardImage`. ⚠️ consume cuota de Vercel, **que ya está al 75%**;
-  - **(c)** pintar la primera pantalla en el servidor, para que la foto empiece a bajar en el primer
-    viaje y no en el cuarto — cambio grande: es rediseñar cómo carga la home;
-  - **(d)** copiar las fotos a almacenamiento propio (R2) y servirlas desde ahí — quita la
-    dependencia del tercero; es un proyecto aparte.
-- **Cruce:** (b) y (d) tocan `remotePatterns` de `frontend/next.config.mjs`, hoy abierto a
-  `hostname: '**'` (cualquier host) — mismo terreno que la deuda **M47-R1**.
-- **Rol dueño:** frontend para (a) y (b); arquitecto si se va a (c) o (d).
-  **Antes de tocar nada: la medición del navegador.**
-
-#### P-66 · 🧟 Dar una vuelta al panel de administración — ✅ DIAGNOSTICADO (ux-review, 2026-09-08) · **VEREDICTO: RECHAZADO**
-- **Pedido del humano:** *«siento que tenemos varios zombies ahí que no nos ayudan, o temas de navegabilidad»*.
-- **Cómo se midió:** bundle de producción con mocks recompilado sobre `9ff373f`, recorrido en Chromium a
-  **1280×800 y 390×844**, como `super_admin` y como `vault_operator`. Lo no medido va marcado como tal.
-
-##### 🔴 Bloqueantes
-- **B1 · M5 (Buylist) enseña TODO lo que existe, no lo que toca ahora.** **Diez pestañas en dos barras
-  apiladas** (4 «colas del ciclo» + 6 de estado) y dos jerarquías en la misma pantalla. En «Verificando»,
-  una solicitud de 3 cartas pinta **14 botones**; con 4 solicitudes es una pared, y **«Pagar por SPEI»
-  —dinero— queda al fondo**. La única pista de qué toca ahora va en 11 px. Y la lista de solicitudes
-  empieza a **≈660 px en escritorio y ≈880 px en móvil** (bajo el pliegue): esto es, literalmente, lo que
-  el humano llamó *«súper escondidas»*. **Rol:** ux-ui → frontend.
-  - ⚠️ **P-58 confirmado y precisado:** «Marcar recibida» **no es una fuga** — está cableado a `status ===
-    'cotizada'` **a propósito**, o sea exactamente al paso donde no debería estar.
-- **B2 · Tres pantallas DESBORDAN en 390 px** (medido, `scrollWidth − innerWidth`): **M5 +419 px**
-  (la página se renderiza a 809 px: hay que hacer scroll lateral para llegar a «AUTORIZAR Y MANDAR»),
-  **M1 +89 px**, **M2 +35 px**. Las tres se saltan `DataTable`, que **sí** colapsa a tarjetas. *(Bounties
-  ya no desborda: 0 px, verificado.)* **Rol:** frontend. ⚠️ **Si el humano no usa el teléfono, baja a
-  importante** — es la pregunta 1 de abajo.
-- **B3 · Las pantallas de dinero hablan en identificadores, no en personas.** M3 y M4 pintan `u-777`,
-  `u-778` como «usuario»: para saber a quién le vendió hay que ir a M6 con el id en la cabeza. M10 pinta
-  `u-admin`/`SUPER_ADMIN`/`settings.update`; M6 pinta `CUSTOMER`/`VAULT_OPERATOR`. **§9.2 del sistema de
-  diseño dice «nunca se pinta el enum crudo».** ⭐ **M5 ya lo resolvió** (nombre + correo + enlace a la
-  ficha): la cura existe en el mismo panel. **Rol:** frontend; arquitecto+backend si M3 necesita el DTO.
-
-##### 🟠 Importantes
-- **I1 · Zombies confirmados** *(no se retira nada sin producto y sin el humano)*: **M9 Reportes** — de sus
-  tres secciones, **dos son las mismas de M7** (mismo rango de fechas, **los mismos tres botones de
-  exportar, misma función**); lo único propio son 4 tarjetas cuyo subtítulo dice *«Avance de la beta
-  cerrada frente a las metas N/X/Y/Z»* (álgebra en pantalla, y «beta cerrada» estando en producción).
-  Y la **tarjeta «Progreso de lanzamiento» del dashboard está INERTE POR CONSTRUCCIÓN**: pinta «Meta
-  pendiente» **sin condición**, y su DTO ni siquiera tiene metas ⇒ con los mismos datos, M9 dice 42 % y el
-  dashboard dice «Meta pendiente». **Los mismos cuatro contadores aparecen en tres sitios.**
-  **Rol:** product-owner decide → ux-ui redacta → frontend cablea.
-- **I2 · La navegación rotula por código, y el código no sirve para nada.** Los códigos **no llevan orden**
-  (M1, Bóvedas, M4, M5, M8 / M2 / M3, M7, M9 / M6, M10) y **tres destinos no tienen código**: no ordenan ni
-  identifican, solo **desplazan el nombre 5 caracteres a la derecha en 12 filas**. El rótulo del menú y el
-  título de la página **difieren en 6 de 12**. Las solicitudes de venta se llaman **«Buylist»** en el menú
-  y **«Solicitudes de venta»** en M6 — *el humano las buscó por su nombre y no las encontró*. La etiqueta
-  «SÚPER» sale en **7 de 12 filas** también para el súper-admin, que es el único que la ve.
-  **Rol:** ux-ui → frontend.
-- **I3 · M2 es UNA página de 7.986 px, 11 secciones y 61 botones**, con una barra pegajosa
-  («GUARDAR CURVA») fija al pie **desde el primer scroll**: quien está en «Tipo de cambio» ve un botón que
-  no le corresponde. **Rol:** ux-ui / frontend.
-- **I4 · M8 le habla al dueño como si fuera el cliente** («Envía **tu** evidencia por correo… citando **tu**
-  número de orden») y **no tiene estado vacío**: con cero disputas queda en blanco. **Rol:** frontend.
-- **I5 · El sistema de diseño afirma seis cosas que el panel NO cumple** — buscador global en el topbar
-  (no existe), barra inferior en móvil (no existe), la lista de grupos de §7.15 (desactualizada), tarjetas
-  del dashboard clicables + semáforo + barras (no existen), colapso a tarjetas en `<md` (falso fuera de
-  `DataTable`), y **objetivos táctiles ≥44 px** (medido en el topbar: 15×25, 111×17, 101×16).
-  **Misma clase que los ocho tachones de D52: o se implementan o ux-ui las retira.**
-- **I6 · M3 muestra su única acción como lo más llamativo:** «REEMBOLSAR» en bermellón sólido —dinero que
-  sale— sin detalle de orden, sin enlace al envío ni al comprador.
-
-##### ✅ Lo que está bien y NO se toca
-Foco de teclado visible · M1 cumple §16.1 · **Bóvedas de clientes y Bounties son las dos pantallas más
-limpias del panel** · **M4 tiene estado vacío y acciones acotadas por estado — es el patrón que le falta a
-M5** · los enlaces de «Cola de trabajo» del dashboard sí llevan a su módulo.
-
-##### ❓ No medido, y hace falta
-Volumen real de datos (colas con decenas de filas cambian la lectura de M5 y M3), si las metas de M9 están
-fijadas **en producción**, y **el uso real de cada destino**. Hay 12 preguntas cortas para el humano en el
-reporte; las cuatro que más cambian el trabajo: **¿entra desde el teléfono?** (decide si B2 bloquea),
-**¿fijó las metas N/X/Y/Z?** (decide si M9 es zombie), **¿entra alguien más al panel?** (decide el trato de
-roles) y **¿cómo le llama a M5?**.
-
-
-##### ✅ Respuestas del humano (2026-09-08) — reordenan el trabajo
-| Pregunta | Respuesta | Qué cambia |
-|---|---|---|
-| ¿Entra desde el teléfono? | **No, solo computadora** | ⬇️ **B2 (las tres pantallas que desbordan en 390 px) BAJA a deuda registrada.** No se gasta tiempo ahí ahora. Se anota con su medición para el día que use el móvil o entre un operador que sí |
-| ¿Las metas `N/X/Y/Z`? | **No existen — y quiere una pestaña de analytics de verdad, pero primero saber qué datos hay** | ➡️ **M9 NO se retira: es la semilla.** Nace **P-67** (inventario de datos). Sí se corrige ya el «beta cerrada» |
-| ¿Alguien más en el panel? | **Todavía no, pero pronto** | Se optimiza para él primero, **sin cerrarle la puerta al operador**. La etiqueta «SÚPER» en 7 de 12 filas **no se quita**: pronto informará |
-| ¿Qué usó la última semana? | **M3 · Ventas** y **M10 · Config** (⛔ **no** M8, **no** M9) | ⬆️ **B3 sube**: M3 es de uso real y le enseña `u-777` en vez del comprador. ⬆️ M10 (el ensayo de ingeniería dentro del formulario). ⬇️ **M8 baja** — no lo usó, y lo más probable es que sea porque **no ha habido disputas**, no porque sobre: es una pantalla que espera, no un zombie |
-
-##### 🎯 Orden de trabajo resultante
-1. **B1 · M5 en computadora** — la pantalla que más usa, diez pestañas y catorce botones por solicitud.
-2. **B3 · M3 y M10** — identificadores en vez de personas, en pantallas de uso diario.
-3. **P-67** — el inventario de datos, que desbloquea la pestaña de analytics.
-4. **I2 · los rótulos del menú** — barato y se nota todos los días.
-5. **I1 (dashboard)** — la tarjeta de progreso inerte: se quita o se conecta.
-6. ⬇️ **B2 (móvil)**, **I4 (M8)** — deuda registrada, con su medición, para cuando toque.
-
-#### P-67 · 📊 Inventario de datos para analytics — «¿qué podemos medir hoy?» — pedido por el humano
-- **Lo que dijo, literal (2026-09-08):** *«SÍ me interesa generar una tab de analytics y reportes, sin
-  embargo creo falta saber bien qué datos están disponibles para ver si hay que crear track de algo y
-  elegir de lo que hay.»*
-- **La pregunta es la correcta y va PRIMERO.** Diseñar un tablero antes de saber qué se puede medir es
-  cómo nacieron las metas `N/X/Y/Z`: un marco de reporte sin datos detrás que lleva meses enseñando
-  «Meta sin fijar». **No se diseña ninguna pantalla hasta que este inventario exista.**
-- **Qué hay que producir** — un documento que el humano pueda leer y elegir, no una lista de tablas:
-  1. **Lo que YA se guarda y se puede reportar hoy**, en lenguaje de negocio (qué se vendió, a quién, a
-     qué precio, con qué margen, cuánto se pagó en compras, qué inventario hay y cuánto vale, KYC,
-     disputas, retiros). Con **la granularidad real** (¿por día? ¿por pieza? ¿por set?) y **desde cuándo
-     hay historia** — un dato que empieza el mes pasado no sirve para una tendencia anual.
-  2. **Lo que se guarda pero NO es reportable todavía** y qué faltaría para que lo fuera.
-  3. **Lo que NO se guarda y habría que empezar a registrar** (el «crear track de algo» que él nombra),
-     con el costo de empezar a hacerlo y **desde cuándo tendría historia** — porque lo que se empieza a
-     registrar hoy no tiene pasado.
-  4. ⚠️ **Las trampas conocidas**, que ya nos mordieron: el P&L del tablero suma un campo a secas
-     mientras el control antilavado usa una cascada con respaldo; y `PriceReference` escribe ~28.559
-     filas/día (P-53) — cualquier reporte histórico de precios se apoya en esa tabla.
-- **Cómo se hace, y en qué orden:** un pase de **lectura** (arquitecto o backend, sin escribir código)
-  que produzca el inventario → el **humano elige** qué quiere ver → **product-owner** aterriza el
-  alcance → recién entonces arquitecto/ux-ui/frontend.
-- **Cruce con P-66:** de las tres secciones de **M9 Reportes**, dos son **idénticas a M7**; lo único
-  propio son las tarjetas de `N/X/Y/Z`. ⇒ **M9 no se retira todavía: es la semilla de este trabajo.**
-  Lo que sí se corrige ya es que hable de «beta cerrada» estando en producción.
-- **Rol dueño:** arquitecto/backend (inventario, solo lectura) → product-owner → ux-ui → frontend.
-
-#### P-68 · 💱 Una consulta de UNA fila antes de publicar el interruptor del tipo de cambio (I-1)
-- **El escenario, en lenguaje de dinero:** existe un estado en el que **publicar el interruptor de FX,
-  sin que nadie apriete nada, movería los precios ~5 %** (de 19.00 a 18.00, el fallback duro). Es
-  exactamente el movimiento que el acuse de confirmación existe para impedir — y ahí ocurriría sin un
-  solo clic. QA lo clasificó como **«no aceptable sin decisión explícita del humano»**.
-- **Qué lo dispara, verificado en el código** (`backend/src/common/fx-mode.ts:157` y
-  `backend/src/modules/pricing/fx.service.ts:85`), no supuesto:
-  1. Al desplegar, la fila `fx_rate_mode` todavía no existe (o vale el centinela `"legacy"`), así que
-     `resolveFxMode()` **infiere** el modo en lugar de leerlo. Esa inferencia corre **una sola vez por
-     entorno** y deja de correr en cuanto un humano toca el interruptor.
-  2. La inferencia mira **un solo valor**: el ajuste `fx_manual_override_rate`.
-     - Si **tiene número** ⇒ resuelve `manual` ⇒ rige ese número. **Nada se mueve.** ✅
-     - Si está **vacío/nulo** ⇒ resuelve `auto` ⇒ rige la última fila `FxRate` de origen **`banxico`**,
-       y si no hay ninguna, el **fallback duro de 18**. ⚠️ Ahí está el −5 %.
-- ⚠️ **Corrección a lo que dije antes:** dije que «el 19.0000 puesto» protege producción. Es cierto
-  **solo si ese 19.0000 vive en el ajuste `fx_manual_override_rate`**. La pantalla de admin escribe
-  las dos cosas a la vez (`setManual()` guarda el ajuste **y** una fila `FxRate` de origen `manual`),
-  así que si el número se puso por la pantalla, está protegido. Pero **la fila `FxRate` manual NO rige
-  nunca** (I-FX5, es solo traza forense): si ese 19.0000 llegó por un script o una migración vieja y
-  el ajuste quedó vacío, la protección **no existe**. No es una cosa que se pueda razonar desde el
-  código: **depende de un valor que solo está en la base de producción.**
-- **La cura, y ya está escrita: UNA consulta de solo lectura que emite su propio veredicto.**
-  Se corre en **cada entorno** (staging y producción) antes de promover. No modifica nada.
-
-  ```sql
-  SELECT
-    COALESCE((SELECT "valueJson" #>> '{}' FROM "ConfigSetting" WHERE key = 'fx_rate_mode'), '(no existe)') AS modo_guardado,
-    COALESCE((SELECT "valueJson" #>> '{}' FROM "ConfigSetting" WHERE key = 'fx_manual_override_rate'), '(vacio)') AS tasa_manual,
-    (SELECT count(*) FROM "FxRate" WHERE source = 'banxico') AS filas_banxico,
-    CASE
-      WHEN (SELECT "valueJson" #>> '{}' FROM "ConfigSetting" WHERE key = 'fx_rate_mode') IN ('auto','manual')
-        THEN 'SEGURO — el modo esta puesto explicitamente, publicar no lo cambia'
-      WHEN (SELECT "valueJson" FROM "ConfigSetting" WHERE key = 'fx_manual_override_rate') IS NOT NULL
-       AND (SELECT "valueJson" FROM "ConfigSetting" WHERE key = 'fx_manual_override_rate') <> 'null'::jsonb
-        THEN 'SEGURO — hay tasa manual guardada: al publicar resuelve a MANUAL y rige ese numero'
-      ELSE 'PELIGRO — sin modo y sin tasa manual: al publicar resuelve a AUTOMATICO'
-    END AS veredicto;
-  ```
-
-- ⭐ **La consulta SE PUEDE PONER EN ROJO — verificado por el orquestador (2026-09-09), no supuesto.**
-  Se probó contra una base desechable en los tres estados, porque una consulta que solo sabe decir
-  «seguro» no sirve de nada, igual que un candado que no puede ponerse rojo:
-  | Estado sembrado | Veredicto que emitió |
-  |---|---|
-  | `fx_rate_mode = 'auto'` | ✅ SEGURO — el modo está puesto explícitamente |
-  | sin fila de modo, **con** `19.0` guardado | ✅ SEGURO — resuelve a MANUAL y rige ese número |
-  | sin fila de modo y **sin** tasa manual | 🔴 **PELIGRO** — resuelve a AUTOMÁTICO |
-- **Qué hacer con cada resultado:** `SEGURO` ⇒ se publica sin riesgo. `PELIGRO` ⇒ **no se publica**
-  hasta fijar el modo a mano (o guardar la tasa manual), y entonces se vuelve a correr.
-- **Rol dueño:** devops (la consulta previa al deploy) · backend (la tercera fixture FX-6 que cubre el
-  estado) · arquitecto (declarar el riesgo residual si se decide publicar sin la consulta).
-- **Estado:** ⛔ **BLOQUEA el merge del interruptor de FX** hasta que el humano decida.
-
-
-#### P-70 · 🃏 Stream `decks-meta-v1` — el spec del humano, en espera de arrancar
-- **Entregado por el humano el 2026-09-09**, con instrucción explícita: *«después de que publiques quiero
-  que empieces con esto»*. Guardado **verbatim** en `docs/specs/DECKS_META_V1.md`; nadie lo edita.
-- **Qué es:** una sección «Decks Meta» que traiga los 10 decks del meta de Limitless TCG, con precio en
-  pesos, disponibilidad real por carta y un botón «Agregar las disponibles», más descuento de bundle
-  (5 % con 60/60, 3 % con las *core* completas), job semanal, correo «Qué cambió» y reporte de faltantes.
-- **Cómo arranca, según el propio spec:** sesión 1 es **solo diseño, sin código de producto** — modelo de
-  datos, las dos preguntas bloqueantes de arquitectura, el diseño del job, y el diff propuesto de
-  `API_CONTRACT.md`, todo para **revisión del arquitecto**. Por el paso 0 de `CLAUDE.md`, antes va
-  **product-owner** aterrizándolo a `PROJECT.md`.
-- 🔴 **BLOQUEANTE QUE HAY QUE RESOLVER ANTES, y no es del spec: `pricing-iva-v2.1` NO EXISTE en este
-  repo.** Lo verifiqué: cero ocurrencias de ese nombre en `docs/` y en `PROJECT.md`. Y lo que sí verifiqué
-  del estado real: `backend/src/common/money.ts:374` calcula `iva = round(subtotal × ivaPct/100)` — o sea
-  que **hoy el motor devuelve base y apila el IVA después**, que es exactamente el estado que el spec dice
-  que hay que resolver antes de publicar la sección (*«si el motor sigue devolviendo base con IVA apilado
-  después, el descuento y el total del bundle salen mal»*). ⇒ **Hay que preguntarle al humano** si
-  `pricing-iva-v2.1` es trabajo de otro contexto, si es un stream por abrir aquí, o si lo que existe bajo
-  otro nombre (P-37, contrato v1.40) ya lo cubre. **No se asume.**
-- ⚠️ **Su propia regla de exclusión:** *«corre solo; no se abre en paralelo con `pricing-iva-v2.1` ni con
-  ningún stream que toque `money.ts` o el contrato»*. El stream de FX que se acaba de cerrar tocaba las
-  dos cosas, así que **esperar al merge era correcto** — ya está hecho.
-- **Zonas compartidas que va a tocar:** catálogo, carrito/checkout (la línea de descuento),
-  `API_CONTRACT.md`, `prisma/schema`, jobs programados y correo transaccional. Por la regla de oro, **solo
-  un stream a la vez** puede tocarlas.
-
-#### P-72 · 💸 «SIN PRECIO RESOLUBLE» dice DOS cosas opuestas con la misma frase — ✅ DIAGNOSTICADO (2026-09-10)
-- **Reportado por el humano** con captura, y luego el dato que lo desatascó: *«me sale con precio de mercado
-  en inventario»*.
-- **Veredicto: NO es que el inventario mienta.** Las dos pantallas leen **la misma tabla, con la misma clave
-  por-acabado, con los mismos predicados** — las dos llaman a `PricingService.getReferencesBatch`
-  (`pricing.service.ts:877`), sin ningún fallback entre acabados: `finish` entra al `where` (`:892`) y a la
-  clave del `Map` (`:884`). **Un holofoil sin fila NUNCA hereda la del normal.**
-- ⭐ **La causa, con nombre: el guardarraíl `premium_at_floor`.** Verificado en
-  `backend/src/common/pricing-curve.ts:566`. Su comentario dice literal: *«Una carta de rareza canónica
-  premium que aterriza en el PISO NO se publica ni se cotiza: **su dato de mercado está mal (ausente,
-  aplanado o absurdo)**»*. Las dos piezas son `ex` premium; el piso es **MX$25.00** (`pricing-curve.ts:111`,
-  `floorCents: 2500`, dial editable). ⇒ **Tienen mercado, es implausiblemente bajo, y el sistema lo retiene
-  a propósito.**
-- 🔬 **La prueba que cierra el caso sin mirar la base:** el alta de `aportacion_en_especie`
-  (`inventory.service.ts:739-755`) **exige referencia con el `finish` REAL de la pieza** y lanza 422
-  `PRICE_PENDING` si falta — la pieza **no se crea**. ⇒ **Si INV-001201 y INV-001202 existen, el 9 de
-  septiembre había mercado para su clave exacta.** No pudieron nacer de otro modo. Y las `PriceReference`
-  **no caducan**.
-- ✅ **Los siete a MX$25.00: es el piso, y NO disimulan nada.** Mi hipótesis queda **refutada por código**:
-  una carta **sin** mercado **no puede** salir al piso — `pricing-curve.ts:476` la manda a `pending`, e
-  `inventory.service.ts:1615` lo dice con todas las letras (*«el PISO NO gana — decisión LOCKED»*). ⇒ Los
-  siete **sí tienen mercado**, solo que ≲ MX$15.62. Son bulk (Dustox, Charmander, Charmeleon, Spidops), y
-  están en la cola por **UBICACIÓN**, no por precio. **Nueve piezas, un fenómeno, dos desenlaces por rareza:
-  los siete se publican porque no son premium; las dos no porque sí lo son.**
-- 🔴 **EL DEFECTO REAL, y es de pantalla:** `PendingPublishRowDTO` **no lleva la razón**
-  (`inventory.service.ts:1805-1822`: hay `priceBasis`, `missing`, `pendingPriceEntryId`… y ninguna `reason`).
-  ⇒ La cola de M1 **no distingue «no hay mercado» de «hay mercado y lo estoy reteniendo»**, y las dice con
-  la misma frase. **Por eso el humano y yo leímos lo mismo de dos hechos opuestos.** La razón **sí** existe
-  y **sí** se persiste (`:1516`), y **M2 sí la pinta** (`PendingQueueSection.tsx:116-126`), igual que el
-  binder con su marcador `·!` (`VariantPriceConsole.tsx:120`). **Solo M1 la pierde.**
-- 🔴 **Y la asimetría que más me preocupa, que no estaba anotada:** el guardarraíl vive **solo en el eje de
-  venta/compra** (`decideSalePrice`). **El alta NO pasa por él** ⇒ `inventory.service.ts:761` **ya usó ese
-  mismo número sospechoso para valuar la aportación**. **El eje de venta se negó a publicar con ese dato, y
-  el eje de costo ya lo había aceptado.**
-- ✅ **Acción disponible hoy, y sigue siendo la correcta — pero por otra razón que la que dije:** el sync
-  TCGCSV `tcgcsv_singles` de **JOURNEY TOGETHER** (per-acabado, gana por precedencia,
-  `pricing.service.ts:904`). **No porque falte el precio: porque el que hay es malo.**
-##### ⭐ Por qué «corrí el sync y no pasó nada» (diagnosticado 2026-09-10)
-- 🔴 **No hay UN sync: hay CUATRO acciones en M2, y el botón obvio NO ESCRIBE NINGÚN PRECIO.**
-  Verificado por el orquestador en `catalog-sync.service.ts:784`:
-  ```ts
-  if (firstImport || opts.force === true) { await this.runCardProductResolver(...); }
-  ```
-  **«Re-sincronizar»** (el botón de la fila) manda `sync` **sin `force`** (`useCatalogSync.ts:139`). JOURNEY
-  TOGETHER ya está importado ⇒ **el resolver ni se invoca, no se escribe una sola `PriceReference`** — y el
-  banner responde *«Sync encolado: 1 set(s)»*, **que parece éxito**.
-  | Botón | ¿Escribe precio per-acabado? |
-  |---|---|
-  | **«Re-sincronizar»** (fila) | ⛔ **NO escribe ningún precio** |
-  | **«Variantes + precios»** (fila) | ✅ **SÍ, siempre** — `catalog-sync.service.ts:330`, `void force` |
-  | «Actualizar precios ahora» | ⚠️ solo si el dial lo permite |
-  | «Sync completo» (menú «…») | ✅ fase 1; fase 2 depende del dial |
-- 🔴 **Causa #2, independiente y también viva: el barrido diario NO puede tocar un holofoil hoy.** El
-  proveedor lo elige el dial `price_provider`, y el seed es **`pokemontcg_io`** (`settings.constants.ts:307`).
-  Ponerlo en `tcgcsv_singles` es **la Parte 4 de `P-47`, «(después, devops)», que sigue SIN MARCAR COMO
-  HECHA**. Con PPT y la Parte 1 ya en producción, **solo se escribe la impresión primaria** ⇒ para la clave
-  holofoil no se escribe fila nueva y la vieja sobrevive. **Un sync que corre, reporta bien, y
-  estructuralmente no puede tocar ese acabado.**
-- **Refutada la hipótesis de que el sync respeta la fila vieja:** los dos escritores son **upsert
-  incondicional** (`card-product-resolver.service.ts:197`, `pricing.service.ts:2186`). El **único** freno es
-  un **override manual**, que además gana en la lectura para siempre. ⇒ **Si alguien puso un override
-  manual bajo en esas claves, ningún sync lo moverá jamás.** No se puede descartar leyendo.
-- **Refutado el cruce con `P-46`:** sellado y singles resuelven el grupo TCGCSV por **caminos distintos**
-  (`sealed-product.service.ts:777` vs `card-product-resolver.service.ts:209`), así que el bug del prefijo de
-  P-46 **no alcanza a singles**.
-- ✅ **LA ACCIÓN QUE SÍ CIERRA EL CASO, sin depender de ninguna incógnita:**
-  **M2 → «Cola de precio pendiente» → pestaña «Venta (inventario)» → las dos filas → «Fijar precio» →
-  teclear el MERCADO real en pesos → «Guardar precio».** Escribe una referencia **manual**, cuyo tier es
-  **absoluto y durable** (`pricing.service.ts:361`), **ningún sync futuro la pisa**, y el endpoint
-  **re-dispara la publicación** al guardar. ⚠️ Se teclea **el mercado, no el precio de venta**; para salir
-  del piso tiene que ser **> MX$15.62**.
-- ⛔ **Lo que NO va a poder hacer, y hay que decírselo antes:** en el binder, el campo **«Fijar mercado»
-  solo aparece cuando NO hay mercado** (`VariantPriceConsole.tsx:431`, `marketRefCents != null`). **Estas dos
-  SÍ tienen** ⇒ verá el número y su fecha, **sin campo para corregirlo**. El único sitio es el modal de M2.
-- 🔬 **El dato que decide qué hipótesis queda viva, y solo se ve en pantalla: LA FECHA del mercado.**
-  M1 → binder → teja del **holofoil** → cajón → «Precios» → renglón «Mercado» (monto · fecha).
-  **Fecha ≠ día del sync** ⇒ el sync no escribió esa clave. **Fecha = día del sync y monto sigue bajo** ⇒
-  TCGCSV reporta ese número y **solo el override manual lo arregla**.
-- ⚠️ **Trampa de pantalla que hay que avisarle:** tras «Variantes + precios», si el set **no resuelve su
-  grupo**, el banner sale **VERDE** con **todo en cero** — el estado «parcial» solo se activa con
-  `!tcgcsvReachable || pending > 0` (`CatalogSyncSection.tsx:282`). **Que lea los NÚMEROS, no el color.**
-- 🔴 **Y lo que ninguna pantalla enseña, que es justo lo que falta: la FUENTE de la fila vigente.** El
-  historial por fecha/fuente existe (`GET /admin/pricing/card/:cardId`) y hasta hay cliente en
-  `lib/api.ts:3859`, pero **ningún componente lo consume**. ⇒ Desde la interfaz **no se distingue** «la
-  escribió tcgcsv hoy» de «es un residuo aplanado de PPT de agosto» ni de «es un override manual».
-
-- **Rol dueño:** **frontend + arquitecto** (que la cola de M1 lleve la razón) · **arquitecto** (si el
-  guardarraíl debe cubrir el eje de costo) · **backend** (P-47 parte 3, que cura el dato de origen).
-
-##### Hallazgos de paso del mismo diagnóstico, sin pendiente propio
-- 🔴 **La forma (A) que yo temía SÍ EXISTE, en otra familia de piezas.** `loadPublishPricingCtx:1406` solo
-  usa `getReferencesBatch`, que **excluye** las filas de `promo`/`deck_exclusive` (`BASE_CARD_REF_WHERE`,
-  `pricing.service.ts:150`). Existe la hermana que sí las lee (`getReferencesByCardProductBatch`, `:937`) y
-  **nadie la llama desde publicación**, mientras el binder **sí** las pinta (`MasterSetBinder.tsx:346`).
-  ⇒ Para una **promo o deck-exclusive**, el binder enseña mercado y la publicación dice «sin precio
-  resoluble». **No aplica a estas dos**, pero es real.
-- 🔴 **El alta de aportación acepta un mercado de `0`.** `getReference` marca `status:'priced'` para
-  cualquier fila (`pricing.service.ts:782`, sin filtro `> 0`) y el candado solo comprueba `!= null`
-  (`:741`) ⇒ `computeAportacionCostCents(0, pct) = 0`. El resto del sistema **sí** trata `<= 0` como
-  pendiente. Una aportación puede quedar **valuada en MX$0**.
-
-#### P-71 · 🔤 Mostrar el código corto del set junto a las imágenes — pedido por el humano
-- **Lo que dijo, literal (2026-09-09):** *«quiero que en los sets cuando estamos viendo las imagenes
-  pongamos el codigo chico que viene en las cartas perfect order POR, pitch plack PF etc»*.
-- **Qué es:** la sigla corta impresa en la propia carta (**POR**, **PF**, …), que es como los jugadores
-  y las listas de deck identifican el set. No es el nombre largo del set: es el código que aparece en el
-  cartón y el que se teclea al buscar.
-- ⭐ **NOTICIA BUENA, verificada en el código: el dato YA EXISTE y YA SE ESTÁ GUARDANDO.**
-  - Columna `CardSet.ptcgoCode String?` — `backend/prisma/schema.prisma:497`.
-  - La **puebla sola** el barrido de catálogo desde pokemontcg.io:
-    `backend/src/modules/catalog/catalog-sync.service.ts:918` y `:928`, leyendo
-    `pokemontcg-io.client.ts:20`.
-  - ⇒ **No hay que capturar nada a mano, ni migrar, ni pedirle el dato a un proveedor nuevo.**
-- 🔴 **Lo que falta, y es todo lo que falta: NADIE LO LEE.** Grep sobre `backend/src/`: las únicas tres
-  ocurrencias son las de la escritura. **No viaja en ningún DTO** y no aparece en
-  `frontend/src/types/contract.ts`. El dato está en la base y muere ahí.
-- **Trabajo real:** publicarlo en el DTO del set/carta (**arquitecto**, porque es cambio de contrato —
-  regla 9), emitirlo (**backend**) y pintarlo (**frontend** + **ux-ui** para dónde y con qué jerarquía).
-  Es de los pendientes más baratos de la lista **si el contrato lo permite**.
-- ⚠️ **Lo que hay que medir antes de prometerlo:** cuántos sets tienen `ptcgoCode` **no nulo** en
-  producción. La columna es opcional y el proveedor no siempre lo trae — sobre todo en sets viejos o en
-  promocionales. **Si falta, se omite; NUNCA se inventa una sigla ni se pone un guion que parezca un
-  código.** Es la misma regla que ya aplicamos al precio: sin dato, no se finge.
-- **Cruce con P-70 (`decks-meta-v1`):** ese stream resuelve las cartas de una lista **por set code +
-  número**, y su propio spec lo dice. ⇒ este pendiente y aquél **usan el mismo dato**, así que conviene
-  que el mismo pase decida cómo se publica, en vez de exponerlo dos veces con dos formas distintas.
-- **Estado:** anotado, sin diagnosticar más allá de lo verificado arriba. Sin rol dueño asignado hasta
-  que el arquitecto diga cómo entra al contrato.
-
-#### P-69 · 📦 El precio de mercado se pierde entre el paso 1 y el paso 2 al subir sellado — reportado por el humano
-- **Lo que dijo, literal (2026-09-09):** *«subiendo producto sellado me aparece el precio de mercado, en la
-  siguiente pagina dice que no tiene el precio y no puedo ponerle como aportacion»*. Con captura.
-- **El síntoma, con el dato de la captura:** en el diálogo «Agregar producto sellado», **paso 1 de 2 ·
-  ELIGE PRODUCTO**, con el set *Phantasmal Flames (2025)*, la tarjeta seleccionada
-  («Phantasmal Flames Elite Trainer Box») muestra **`MX$2,981.67 MERCADO`**. En el **paso 2**, ese
-  **mismo** producto aparece **sin precio**, y por eso **no se puede registrar como «aportación»**.
-- ⚠️ **Lo que hace esto distinto de «falta un precio»:** el paso 1 **sí sabe** distinguir los dos casos, y
-  lo hace bien — la cabecera dice *«25 presentaciones · 23 con precio · 2 pendientes de precio»* y otra
-  tarjeta muestra **`SIN PRECIO DE MERCADO`** en rojo. Así que no es que el catálogo no tenga el dato:
-  **es que los dos pasos no coinciden sobre el mismo producto.** Uno de los dos miente.
-- **Por qué importa y no es cosmético:** bloquea **meter inventario**, que es la operación diaria del
-  negocio. Y si el que miente resultara ser el **paso 1**, sería peor que el síntoma reportado — el dueño
-  estaría viendo un número en el que confía para decidir cuánto paga.
-- **Hipótesis a descartar CON CÓDIGO, ninguna confirmada todavía:** (a) dos fuentes distintas — el paso 1
-  pinta un campo del listado y el paso 2 lo vuelve a pedir por otra ruta; (b) el acabado/variante — el
-  precio del paso 1 cuelga de una variante y el paso 2 pregunta por otra (⚠️ regla dura del proyecto:
-  **nunca se copia el precio de un acabado a otro**); (c) se pierde el identificador entre pasos;
-  (d) semántica de omisión — el paso 2 lee «ausente» como «sin precio» cuando significa «no pedido»;
-  (e) una condición extra del paso 2 (frescura, moneda, fila de referencia de hoy).
-- **Segunda pregunta abierta:** ¿el bloqueo de «aportación» sin precio es **regla de negocio deliberada**
-  (no se aporta lo que no está valuado) o efecto colateral? Si es deliberada, la regla está bien y el bug
-  es solo que el precio se pierde.
-- **Estado:** ✅ **DIAGNOSTICADO (2026-09-09). El que miente es el PASO 1.**
-- **La causa, medida en código:** son **dos campos distintos que viajan en la MISMA respuesta del MISMO
-  endpoint** — no se pierde ningún id, no se re-pide nada, no hay acabado de por medio.
-  - **Paso 1** pinta `SealedProductDTO.marketRef` (`SealedProductPicker.tsx:216-217`): lectura **viva/caché
-    de TCGCSV**, **sin gatear** por el dial y **sin respaldo en una fila `PriceReference`**.
-  - **Paso 2** pinta `SealedProductDTO.effectiveMarketCents` (`SealedAddFlow.tsx:172`): el mercado
-    **autoritativo**, ya pasado por `gateSealedMarketCents` (`pricing.service.ts:1763-1780`) con el dial
-    `sealedPriceSource`.
-  - ⇒ **El paso 2 dice la verdad: es lo que el backend aceptaría. El paso 1 enseña un número que el
-    backend rechazaría** — inerte a efectos de dinero: no valúa la aportación, no publica, no fija venta.
-- ⚠️ **Y es una regresión conocida a medio aplicar:** este es el mismo «dead-end de IMP-1» que se corrigió
-  en v1.41 (`BACKEND_NOTES.md:14867-14884`, `FRONTEND_NOTES.md:8121-8145`, con test de regresión en
-  `SealedAddFlow.test.tsx:221-257`). **Ese arreglo se aplicó al paso 2 y NO al paso 1.** La teja del picker
-  se quedó en la semántica vieja — y `DESIGN_SYSTEM.md:3212-3213` todavía la respalda así, o sea que la
-  especificación también quedó desalineada con la doctrina.
-- **El bloqueo de «aportación» NO es el bug — es regla deliberada y correcta.** «Aportación» es
-  `acquisitionType:'aportacion_en_especie'` con `pct:100`: el dueño no paga la pieza y el sistema le
-  acredita un costo **valuado contra la referencia de mercado**. Sin referencia no hay número con el que
-  acreditarla, y `inventory.service.ts:729-761` responde `422 PRICE_PENDING` en vez de valuar en $0. Eso es
-  la doctrina money-safe funcionando. **El bug es que el paso 1 promete un valor que el backend no
-  reconoce, y el operador llega al paso 2 sin entender por qué se le cerró la puerta.**
-- **Agravante medido:** `SealedProductListResponse.sealedPriceSource` **ya llega al frontend**
-  (`sealed-product.service.ts:63`, `:246`) y **el flujo no lo usa en ninguna parte**. El dato para
-  explicarle al operador «la fuente automática está apagada, estos números son informativos» ya está en la
-  respuesta, sin consumir.
-- **El arreglo — rol dueño principal: `frontend`.**
-  1. `SealedProductPicker.tsx:216-217`: la teja se keyea en `product.effectiveMarketCents`, igual que el
-     paso 2. Con eso los dos pasos coinciden **por construcción** y desaparece el número que engaña.
-  2. Si se quiere conservar el informativo, que sea **explícitamente secundario** (otra etiqueta, no
-     «MERCADO»), nunca el número principal de la teja. ⛔ Y jamás $0: sin valor va «—» o «pendiente».
-  3. `SealedProductPicker.tsx:219-226`: el `aria-label` arrastra el mismo error para lectores de pantalla.
-  4. Consumir `sealedPriceSource === 'off'` para un aviso honesto **en el paso 1**.
-- **Secundario, `backend` (no es la causa de esta captura, pero cierra la misma familia):** unificar el
-  ancla del ingest con la del listado/alta (`sealed-price-ingest.service.ts:134-147` vs
-  `sealed-product.service.ts:260` e `inventory.service.ts:822`). Es la deuda **D-2** de
-  `TECH_DEBT.md:4519`, y es el **único** camino por el que el paso 2 diría «sin precio» con el dial
-  encendido y precio ya ingerido. Y `pricedCount` (`sealed-product.service.ts:417-418`) cuenta hoy la
-  fuente **sin gatear**: o cuenta gateado, o se renombra.
-- **Lo que NO se pudo medir desde el código y hay que mirar en la instalación:** el valor real del dial
-  `sealedPriceSource` (`GET /admin/settings`), si el job `sealed-price-ingest` ha corrido, y si esa ETB
-  tiene fila `PriceReference` bajo el ancla del set. La hipótesis que explica la captura entera sin
-  residuos es **dial en `off`** (el seed es `'off'`, `settings.constants.ts:294`), pero **es inferencia,
-  no medición**.
-- ⚠️ **Encender el dial NO cierra este pendiente:** aunque se prenda, el paso 1 seguiría mintiendo en
-  cualquier producto sin fila. El arreglo de frontend hace falta igual.
-- **Work stream:** inventario y vault — **distinto** del stream de FX que está en curso, así que no compite
-  por las mismas rutas.
-
-### Encontrado en pruebas post-publicación (2026-08-23)
-
-
-#### P-46 · Sincronizar sellado devuelve «0 presentaciones»: el set no resuelve grupo TCGCSV (prod)
-- **Reportado por el humano:** al Sincronizar sellado de **Pitch Black (2026)** (y Chaos Rising) sale «0
-  presentaciones». **El botón SÍ funciona** — la sync corre.
-- **Causa raíz (logs prod 2026-08-23):** `sealed-products/sync: set Pitch Black ... **sin grupo resoluble
-  (ni curado ni name-match)** → nada que sincronizar (money-safe: no se adivina)`. El set no está vinculado
-  a su **grupo de TCGCSV** (`tcgcsvGroupId`): ni curado a mano ni por name-match. Sin grupo no hay
-  presentaciones que bajar. (Egress a tcgcsv.com OK — no hubo 502/UPSTREAM.)
-- **Causa confirmada (name-match backend):** `matchScore` en `sealed-product.service.ts:777` usa
-  `normalizeSetName` sobre el nombre directo, pero TCGCSV nombra los grupos con **prefijo de código**
-  («SV08: Pitch Black» → `sv08pitchblack`) vs el catálogo local («Pitch Black» → `pitchblack`) → no empatan
-  → 0.5 < umbral 0.9 → no auto-resuelve. Ya existe `setNameCandidates` (ppt-set-mapper:145) que quita ese
-  prefijo, pero `matchScore` no la usa. **Afecta a CUALQUIER set con prefijo en TCGCSV** (no solo Pitch Black).
-- **Fix (EN CURSO, backend):** `matchScore` tolerante al prefijo (reusa `setNameCandidates`) para que los
-  matches legítimos suban a ≥0.9 y auto-resuelvan; **conserva** la salvaguarda «≥0.9 Y único en el tope →
-  si empate, null (no adivina)». Con tests. Money-safe.
-- **Workaround inmediato (humano, super_admin):** M1 → Sellado → «Agregar producto sellado» → elegir set →
-  enlace «Curar/vincular grupo» (`SealedGroupLinker`) → elegir el candidato de TCGCSV (aparece con confianza
-  media) → «Vincular» → re-sync automático baja las presentaciones.
-- **Follow-up (frontend, no bloqueante):** UX del modal cuando la sync da 0 por «sin grupo resoluble» —
-  guiar explícitamente al linker en vez de solo mostrar «0 presentaciones».
-
-
-### Pendiente del humano · Razón social para el footer — ⚠️ LA NOTA ANTERIOR ERA FALSA (corregida 2026-09-08)
-- **Lo que decía esta nota:** «el footer de producción aún dice [RAZÓN SOCIAL PENDIENTE]». **Medido: es
-  falso.** El footer **ya omite la línea** y nunca ha enseñado el placeholder.
-- **Por qué:** `resolveLegalEntity` (`frontend/src/app/[locale]/(storefront)/footer.ts`) devuelve `null`
-  ante vacío, espacios o cualquier valor **entre corchetes** — y el valor real es `[Razón social
-  pendiente]` / `[Legal entity pending]`. Hay tres tests que lo fijan
-  (`footerLegalEntity.test.ts`). El footer publica «TCG HUNT · tcghunt.mx · © {año}», sin nada colgando.
-- **Lo único que sigue pendiente**, y es dato del humano, no código: **cuál es la razón social**. El día
-  que la dé, se pone en `common.footer.legalEntity` **sin corchetes** y aparece sola, sin desplegar código
-  nuevo. *(El humano pidió el 2026-09-08 que «no salga de momento» — ya se cumple por construcción.)*
-- ⚠️ **Lección:** esta nota afirmaba un estado de producción que nadie había medido, y llevaba semanas
-  mandando a alguien a arreglar algo que ya estaba bien. Misma clase que los ocho tachones de D52.
-
----
-
+> Movidos a `HISTORIAL.md` («MOVIDO DESDE PENDIENTES — compactación del 2026-11-04») el 2026-11-04: los recuentos del
+> 2026-09-25 y 2026-09-29 los sustituyeron como punto de partida. Los cuerpos (P-53…P-72, D52…) se consultan ahí o con `git show 432e95d2:PENDIENTES.md`.
 
 ## Nuevas ideas (aún NO en construcción — falta aterrizar con el humano)
 
@@ -1135,72 +387,9 @@ roles) y **¿cómo le llama a M5?**.
 
 ---
 
-## §MKT TIENDA (sesión `feat/mkt-tienda`, arranque 2026-10-16) — SEO/medición/píxel/cookies/ficha/códigos
+## §MKT TIENDA (sesión `feat/mkt-tienda`, 2026-10-16)
 
-> **Rama:** `feat/mkt-tienda` desde `origin/production` `0dd2d7c` (production es ancestro). **Fuente de verdad:** brief
-> final de JC en el repo de marketing: `/home/user/tcg-hunt-marketing/briefs/PAQUETE_TIENDA_2026-10-16.md` (tres briefs:
-> v2 medición/búsqueda, Panel de Marketing, Códigos de descuento). **NO se copia el brief a este repo.**
-> ⛔ **Secreto Card Show:** nombre de patrocinador «Bodegas Alianza», sede, precio/fecha exactos NUNCA van a este repo
-> (grep de CI). E5 (página del evento) usa solo lo ya anunciado el 14-oct. Patrocinador fuera mientras MKT-11 siga abierta.
-
-### Fases (decisión de JC 2026-10-16, respétalas)
-- **FASE 1 (empieza ya, sin deps):** A1 quitar «valor de mercado» de ficha · A2 COMPRAR en 1ª pantalla móvil · A3 ficha
-  pública sellado · A4 og/title por ficha · §E SEO/GEO · §B1 columnas `first_utm_*` · Panel de Marketing Fase 0 (datos de
-  la tienda + export Excel/CSV + endpoint de agregados).
-- **FASE 2 (se construye, NO se enciende hasta aviso de privacidad del abogado):** §C/§D cookies + Consent Mode v2 + GA4 +
-  Meta Pixel/CAPI. Bloqueante: el aviso de privacidad revisado va en el MISMO despliegue que GA4/píxel.
-- **FASE 3 (se construye, NO se publica código hasta que JC apruebe condiciones):** Brief 3 códigos de descuento (Q1=A
-  código público por campaña/pieza, tope de usos, solo primera compra; ningún código a una sola persona).
-
-### Le debe JC (son suyos; no frenan Fase 1; recordárselos al tocar Fase 2/3)
-- Re-pegar el enlace de la bio con `utm_medium=bio&utm_campaign=perfil` (v2 §B3).
-- Crear el píxel en Meta ANTES de Fase 2 y pasar el ID (no es secreto); el token de CAPI lo carga él en variables de
-  entorno de la tienda, nunca por chat/repo.
-- Llevar el aviso de privacidad al abogado (LFPDPPP 2025, NO VERIFICADO) y mandarlo revisado → desbloquea Fase 2.
-
-### Estado medido (orquestador, 2026-10-16, sobre `0dd2d7c`)
-| Ítem | Medido | Comprobación |
-|---|---|---|
-| A1 valor de mercado en ficha pública | **SE PINTA HOY** en `catalog/[cardId]/CardDetailView.tsx` y `sellado/[inventoryItemId]/SealedDetailView.tsx` | `grep -i "valor de mercado"` en HTML de 3 fichas = 0 |
-| A2 botón COMPRAR móvil | hoy ~2.8 pantallas abajo (marketing, N=1); orden de bloques a reordenar — **EN CURSO (frontend)** | iPhone13 390×664: borde del botón ≤664px + precio con IVA visible |
-| A3 ficha sellado | ruta `/es/sellado/[inventoryItemId]/page.tsx` EXISTE pero es cliente sin SSR/metadata; pública/200 **NO MEDIDO**; patrón ≠ al del brief (`/catalog/sealed/<id>`) | `curl` 200 a 3 fichas de sellado; lista enlaza |
-| A4 og/metadata ficha | `generateMetadata`/`openGraph` en ficha de carta: **grep 0** (ausente) | `curl` HTML con nombre en `<title>`, og:image ≥1200×630, og:description con IVA y fecha |
-| B1 `first_utm_*` | **no existe en schema.prisma** (grep 0) → arquitecto + migración (siguiente libre M81+) | columnas en Order y BuylistRequest; NULL sin consentimiento |
-| E1 robots/sitemap | **no hay** en `frontend/src` (grep 0) | `curl /robots.txt` 200 con `Sitemap:`; sitemap ≥1 URL por ficha a la venta |
-| Panel `/admin/marketing` | **no existe** (hay m1..m12, `_owner`, refunds; no «marketing»); HECHOS:8 lo dejó «en reserva». Módulo `backend/src/modules/sales-analytics` existe (¿reutilizable? NO MEDIDO) | pestaña + `marketing:read` 403 sin permiso; export sin datos personales |
-
-### En curso (2026-10-16)
-- **arquitecto** (diseño, docs): deltas de contrato/schema Fase 1 — B1, A3/A4 (patrón URL sellado + datos og/JSON-LD), E
-  (datos para sitemap), Panel Fase 0 (`marketing:read`, principal `marketing-reader`+`TIENDA_PANEL_TOKEN`, endpoint de
-  agregados, contadores de servidor, export). Sin Bash → lo commiteo yo (O-13).
-- **frontend** (código): A1 (quitar valor de mercado de las 2 fichas públicas) + A2 (COMPRAR en 1ª pantalla móvil).
-
-### Marketing necesita de vuelta (relayar a JC cuando haya datos)
-Fechas de despliegue de cada cosa; URLs de prueba por evento; patrón final de URL de sellado (A3) y del Card Show (E5);
-nombres de columnas `first_utm_*` y de eventos; mensajes exactos del checkout de códigos; costo de envío y métodos de pago
-que ve el comprador (NO MEDIDO); confirmaciones de privacidad (0 fugas, 0 eventos a Meta rechazando).
-
-### Progreso 2026-10-16 (orquestador)
-- ✅ **A1 + A2 hechos y commiteados** (`09e297c`, frontend; verificado por mí O-10: 8 ficheros, 0 backend, sin secretos). A1: quitada la celda «valor de mercado» de las dos fichas públicas (carta y sellado); contrato/tipos sin cambio (el DTO sigue trayendo `referenceValue`, solo deja de pintarse). A2: barra de compra **fija al pie en móvil** (`fixed bottom-0 lg:hidden`) con precio+IVA+CTA, solo con ≥1 unidad a la venta. Tests de componente: tsc limpio, 234/234 verde (medido por el agente; **el grep sobre HTML renderizado y el viewport iPhone13 NO los midió** → los verifica el gate QA/tester-e2e con stack).
-- ✅ rama `feat/mkt-tienda` empujada a remoto (`6816ab0`, `d55692d`, `09e297c`).
-- 🟡 **ABIERTO — Tendencia de valor (sellado) vs D2=A.** El bloque «Tendencia de valor» (flag `SEALED_VALUE_TREND`, **default `off`**, `settings.constants.ts:522`) rotula «valor de mercado de referencia». Hoy OFF ⇒ A1 cumple. Si JC lo enciende, re-mostraría valor de mercado en la ficha pública, contra D2=A. **Decisión para JC** (no urgente, flag off): ¿hacemos que la tendencia respete D2=A (sin «valor de mercado» público) o se acepta que encender el flag revierte D2 para ese bloque? Recomendación: respetar D2=A. No tocado.
-- 🟡 **ABIERTO — E2E de ficha en rojo por A1.** `frontend/e2e/catalog.spec.ts`, `miv-market-iva.spec.ts`, `pricing-curve.spec.ts` afirman que «valor de mercado»/`referenceExplainerWithMarket` son VISIBLES (codifican §MIV D2=B). D2=A lo revierte en la ficha pública ⇒ hay que actualizar esas aserciones (quirúrgico; las partes de bóveda/buylist NO se tocan). Dueño: frontend; se hace en la siguiente ola junto con A3/A4, y QA lo verifica con stack. Documentado en `docs/FRONTEND_NOTES.md`.
-- 🔧 backend OLA 1 en curso (m81 firstUtm + campos ficha pricedAsOf/ogImageUrl + `GET /catalog/sitemap`); sus ficheros están sueltos en el árbol (otro agente, O-12 respetado).
-- **Siguiente ola (tras backend):** frontend A3 (SSR/ISR ficha sellado) + A4 (og/title/JSON-LD en ambas fichas) + E (sitemap.xml/robots/canonical consumiendo `/catalog/sitemap`) + fix de e2e de ficha. Luego gate QA+techlead del stream.
-
-### Hito 2026-10-16 — OLA 1 (ficha+SEO+atribución) FUSIONADA a `main`
-- **Doble veredicto sobre `25cf000`:** QA **APROBADO** (suites 8578 backend + 4346 frontend verde; A1 grep 0/0/0, A2 botón ≤664px+IVA con capturas, A3 200+enlaces, A4 title/og/JSON-LD precio al 2026-10-16, E1 robots+sitemap 10/10 fichas a la venta, e2e 10/10 D2=A) · techlead **APROBADO CON DEUDA** (candado sellado no filtra mercado, e2e refuerza, SSR 1 lectura/petición, UTM sin huecos). Verificación O-9 del orquestador: pase limpio 12/12 + mutación (regex parseFirstUtm ensanchada ⇒ 6/12 rojo, el candado muerde).
-- **Fusionado:** `main` = `f7febcd` (merge `--no-ff`); `feat/mkt-tienda` = `a557f86` (sincronizada con main; main es ancestro). **NO desplegado** (solo production publica; irá en el release-gate con fase de seguridad completa).
-- **Reconciliación O-18:** production avanzó `0dd2d7c`→`bda0c0d` y main→`c9febf2` mientras trabajaba, pero solo con mantenimiento de plantilla/doctrina/merges; diff sobre mis zonas (schema/contrato/catálogo/fichas/common) = VACÍO, sin migraciones nuevas ⇒ cero colisión con m81.
-- NO MEDIDO (límites del seed E2E, se re-miden en producción con la re-medición SEO §E de marketing): og:image responde 200/≥1200×630 (seed sintético); conteos a escala (~884); resultados enriquecidos live.
-
-### Deuda de OLA 1 (techlead, no bloqueante) — enrutada a dueño
-- **[frontend]** doble lectura por ficha (SSR head + refetch cliente sin `initialData`/HydrationBoundary). Anotar en `docs/TECH_DEBT.md` y, si se aborda, pasar el SSR como `initialData`.
-- **[arquitecto]** el «valor de mercado» (`referenceValue`/`referenceDisplayCents`) **sigue viajando en el DTO público** aunque D2=A lo quitó de la UI (conducta MIV previa, no introducida aquí). Evaluar si, ahora que nunca se pinta, el DTO público deja de emitirlo. Candado e2e es a nivel DOM, no de cable.
-- **[frontend]** Instagram `sameAs` omitido (falta el handle de JC → `seo.ts:29 INSTAGRAM_URL=null`). **[backend]** og:image <1200×630 (abierto con JC). Ambos documentados en código/notas.
-
-### Siguiente: Panel de Marketing Fase 0 (Brief 2) — EN CURSO
-Diseño ya en ARCHITECTURE §13.4 / API_CONTRACT §MKT.D/.E (m82). Buildable ahora (Brief 2 §3): permiso `marketing:read`+control de acceso, principal `marketing-reader`+`TIENDA_PANEL_TOKEN` (hash, Bearer, rate-limit), endpoint de agregados (semana/mes cerrados, celdas pequeñas §5.2, 401/403/400/429, no-store), export .xlsx/.csv + botón Excel semanal, indicadores de BD (a1/a2/a3 ventas/MX$/buylist, d1/d3/d4 stock/cotizador), c7 pedidos por estado (P5=B, del snapshot), h1/h2. **DIFERIDO:** c6 términos de búsqueda (necesita pre-revisión de **seguridad** de PM-M2 puntos 1-4 antes de construir); f1/f2 aceptación del banner (se pueblan en Fase 2, cuando exista el banner). Columnas GA4/SC ⇒ «NO MEDIDO — GA4 sin encender».
+> Movida a `HISTORIAL.md` el 2026-11-04: sus fases ya se publicaron (#100, #105; medición encendida 2026-10-27). La sección de abajo («sesiones pendientes») la continúa.
 
 ## §MKT TIENDA — sesión «sesiones pendientes» (rama `claude/sesiones-pendientes-alcances-cznucn`, medido 2026-10-18)
 > Retoma la continuación de `feat/mkt-tienda` (`3d3b738`, ver `git show 3d3b738:PENDIENTES.md`). Rama = `main` 66f10ca
@@ -1209,30 +398,21 @@ Diseño ya en ARCHITECTURE §13.4 / API_CONTRACT §MKT.D/.E (m82). Buildable aho
 
 | # | Qué | Estado (medido 2026-10-18) | Comprobación |
 |---|---|---|---|
-| MKT-PANEL | Panel `/admin/marketing` (pantalla + `GET panel/periods`, tokens del analista, régimen exacto para super_admin — HECHOS 2026-10-18) | ✅ construido y fusionado en la rama (`eb0b995` backend, `093d823` frontend). Orquestador O-9: backend 515/515 · 8936/8936, mutación «panel siempre exact» 3/3 rojo; frontend tsc 0, vitest 4499 verdes, mutación «privacy ausente ⇒ exact» 3/3 rojo. **Integración y E2E contra stack: NO MEDIDOS.** Falta gate QA + techlead. | `git log --oneline eb0b995 093d823` |
-| MKT-SEO | §E4 `/preguntas` (FAQPage), `/como-funciona`, §E6 `/guias`, §E7 `llms.txt`, sitemap | ✅ fusionado (`506c1a6`). Orquestador: tsc 0 (tras arreglo `e36aca3`), vitest 4425, mutación «envío gratis» 3/3 rojo. P8 retenida (dice «autenticamos»). | `curl /llms.txt` y `/es/preguntas` en el stack |
 | MKT-AUTENTICAMOS | `home.sellBody` y `buylist.subtitle` (ES/EN) dicen «nosotros autenticamos»; el brief exige «verificamos la condición NM» | Abierto, medido por frontend-SEO en `5524bd6` (`es.json:302`, `:922`); el trinquete de `seo-content.test.ts` los tolera como excepción | vaciar la lista de excepciones del trinquete |
 | MKT-FAQ-CADUCA | Las FAQ caducan el 2026-11-11 (P19 el 11-05) por regla del manual de marketing | Candado ya en código (`frontend/src/lib/seo-content.test.ts` «⏳ R1», reloj real): se pone **rojo el 2026-10-29** en TODAS las ramas/PR (P19 a 7 días). Se apaga copiando a `faq.es.ts` la revisión de marketing, nunca tocando la prueba. Dueño: orquestador pide la revisión a marketing **antes del 2026-10-28**; frontend la copia. Medido 2026-10-18 (techlead sobre `62e8250`). | vitest `seo-content.test.ts` verde con el reloj real |
-| MKT-E2 | `www.tcghunt.mx` → redirección permanente a apex | ✅ HECHO por el dueño 2026-10-19 (Vercel: www → 308 → tcghunt.mx; Cloudflare: CNAME www, DNS only). Medido por el orquestador 2026-10-19: `https://www.tcghunt.mx/es` → 308 `https://tcghunt.mx/es` (conserva ruta y query); `http://www…` → 308 a https y luego a apex; apex 200. Pendiente devops: `scripts/check-www-apex.sh` (en `7852a98`) debe aceptar 308 además de 301. | `curl -sI https://www.tcghunt.mx/es` ⇒ 308 a apex |
 | MKT-E5 | JSON-LD `Event` del Card Show | No existe (grep 0 en `frontend/src/app/card-show/`) | — |
 | MKT-TL2 | Supresión complementaria: c7 por mes ↔ a1 por mes puede despejar una celda (backend, lectura de código) | Abierto; necesita regla de arquitecto/seguridad | `docs/TECH_DEBT.md` MKT-TL2 |
 | MKT-FASE2 | Cookies/Consent Mode/GA4/Pixel/CAPI, **construir apagado** | Diseñado: API_CONTRACT §MKT.H v1.102 + ARCHITECTURE §14 (`c492b0e`), banner MKT2-UX (`31e510b`). Sin construir. ⚠️ `BannerResponse.custom` en §0 entra en el MISMO commit que m86. Le debe JC: ID del píxel, token CAPI en el almacén del proveedor, aviso del abogado. 6+3 preguntas al dueño con defecto (chat 2026-10-18). | — |
 | MKT-FASE3 | Códigos de descuento (Brief 3) | Sin empezar; no se publica hasta que JC apruebe condiciones | — |
 | DOC-SIZE (D8) | Documentos muy por encima del tope de CLAUDE.md: API_CONTRACT ~46.5k (tope 3k), ARCHITECTURE ~37k (3k), DESIGN_SYSTEM ~33.9k (2k), BACKEND_NOTES ~33.4k (1.5k), FRONTEND_NOTES ~22.5k (1.5k), PROJECT ~19.6k (400) | Abierto; deuda anterior a este stream. Techlead exige un **trinquete en CI** (`scripts/`, devops) que falle si `wc -l` de cualquier documento supera el valor medido hoy y baje con cada compactación, **antes del próximo cierre de release**. Dueño: orquestador (+ devops el script; cada rol compacta lo suyo). Medido 2026-10-18 (techlead). | script de CI con los valores de hoy, rojo si crecen |
-| MKT-MAIN | Stream «Panel de Marketing + SEO/GEO» fusionado a `main` | ✅ 2026-10-19: `main` = `789b8788` (fast-forward desde `66f10ca2`), por autorización del dueño (HECHOS 2026-10-19). Gates: QA + techlead APROBADOS sobre `b95fbbac`; techlead APROBADO CON DEUDA sobre el arreglo del cuelgue `d5c9ccc5`; GitHub CI + SAST + E2E verdes sobre `789b8788` (E2E backend terminó solo en 11,6 min). NO publicado (`production` no cambia). Pendiente para el release: fase de seguridad completa + E2E completa. | `git log -1 origin/main` |
 | HND-DEUDA | Deuda techlead del arreglo del cuelgue: TD-HND-1 (timeout de `backend-e2e`, devops — ya construido en `4dec5465`, sin fusionar), TD-HND-2 (candado sin caso de sockets, backend), TD-HND-3 (cierre `quit` repetido ×4, backend) | Abierto, medido 2026-10-19 (techlead sobre `789b8788`); se anotan en TECH_DEBT con la Fase 2 | `grep TD-HND docs/TECH_DEBT.md` |
 | QA-REL-1 | Seguimiento público del invitado: `toTrackingDto` (`backend/src/modules/orders/guest-checkout.service.ts` ~l.902) arma el desglose sin `priceConvention`/`ivaIncluded` (contrato §4-G.3 exige `BreakdownDTO`); en pantalla un pedido IVA incluido muestra «IVA 16%» como sumando y el total no cuadra (D54, criterio 190) | Abierto, PREEXISTENTE en `production` `69415582` (no es regresión). Medido por QA 2026-10-19 sobre `bfd91ab2`, captura `j1-04-tracking-guia.png`. Dueño: backend | prueba de `toTrackingDto` con `priceConvention` + captura del seguimiento sin «IVA» como sumando |
 | QA-REL-2 | `scripts/check-ci-ok.sh:108-113` acepta un trabajo opcional `cancelled` (no solo `skipped`): un `frontend`/`backend` muerto por tiempo dejaría `ci-ok` verde | Abierto, medido por QA 2026-10-19 (corrida 39279361414 intento 1). Dueño: devops | canario: trabajo detectado y `cancelled` ⇒ `ci-ok` rojo |
 | QA-REL-3 | La suite E2E `@real` completa no es autoconsistente con cobro real: 429 por 5 sesiones de invitado/h/IP, casos que consumen datos del seed de otros (vault:15, buylist-offer:155, accessories AC-F14) | Abierto, medido por QA 2026-10-19 (103/106 y 102/106, N=2; rojos de arnés). Dueños: frontend (specs) + devops (arnés) | suite `@real` completa verde 2/2 con cobro |
-| REL-PR100 | Release `main`→`production` (PR jcsainz95-cloud/tcg-vault-mx#100) sobre `2c125baf` | Abierto 2026-10-19, esperando el botón del dueño. Veredictos: QA ✅ `bfd91ab2`, seguridad ✅ `e77b9612`, techlead ✅ con deuda `e77b9612`, tester-e2e ✅ `e77b9612`; CI/SAST/E2E verdes `2c125baf` | `git log -1 origin/production` = `2c125baf` |
 | MKT-TL9 | Techlead: `plan` (1 componente) no aplica R1 «N=0⇒0» ni R3a «pareja ≠0» como `planByComponent`; desempate con `localeCompare` (`small-cells.ts:100,113-116`). Conservador, no filtra | Abierto 2026-10-19 (techlead, [código]). Dueño: backend; caducidad 2026-11-30, enlazar a la lista de cierre de MKT-TL2 en TECH_DEBT | «R1 N=0 ⇒ 0» en `marketing-small-cells.spec.ts`; g1 con 0 ⇒ `0`; `grep -c localeCompare small-cells.ts` = 0 |
 | PAUSA-VIERNES | Dueño pausa hasta el viernes 2026-10-23 («Lo hacemos el viernes pongamos pausa», 2026-10-20). Al volver: (1) ¿pulsó merge de PR jcsainz95-cloud/tcg-vault-mx#100? (2) doc para el abogado (datos medidos, destinatarios, retención, banner) — ofrecido, sin respuesta; (3) pendientes del dueño para encender: aviso legal, GA4 (`G-…` + nº de propiedad), `GA4_MP_API_SECRET`, píxel Meta, `META_CAPI_TOKEN`, **`MKT_GOOGLE_SA_JSON`** (cuenta de servicio lectura GA4/SC, medido en `marketing-external-sources.ts:99`), `MKT_SEARCH_CONSOLE_SITE` opcional; (4) nuestros: MKT-TL2 (30-nov), MKT-TL9, QA-REL-1..3, textos P1+guía aprobados por marketing (manual v8 `7dd4dcc`, copy-v2 `0b107fa`); (5) revisión mensual FAQ de marketing antes del 28-oct (no llegó al 2026-10-20) | Medido 2026-10-20 | `git log -1 origin/production` |
-| REL2-803c | ✅ 2026-10-23 PR jcsainz95-cloud/tcg-vault-mx#102 abierto sobre `89fbc4c3` (QA ✅ `96cda136`+`89fbc4c3`, CI/SAST/E2E verdes), esperando el botón del dueño. Segunda entrega (IVA QA-REL-1, MKT-TL2/TL9, SEC-MKT-2/3, FAQ v8 + P8, JSON-LD Event, QA-REL-2/3) | 2026-10-23: techlead ✅ con deuda (TL-CS-1 frontend, TL-MKT-10 backend, TL-OPS-4 devops), seguridad ✅, tester-e2e ✅ sobre `803c4298`; QA ❌ por arnés/CI (censo de saltos +2, regex de `e2e-real-suite.sh`, E2E CI cancelado, SAST rojo desde production por vite GHSA-587h-7wmj-h5pm). En curso: frontend (censo, vite, TL-CS-1) y devops (regex, prisma generate en `up`, TL-OPS-4). TL-MKT-10 sin lanzar. | `ci-ok`/`sast-ok`/`e2e-ok` verdes y QA ✅ sobre el sha final |
-| FAQ-V9 | ✅ 2026-10-23 PR jcsainz95-cloud/tcg-vault-mx#103 sobre `e77e74ee` (tester-e2e ✅, CI/SAST/E2E verdes), esperando botón del dueño. Copiar FAQ v9 de marketing (`b1be3cd`, `FAQ_LAST_REVIEW` 2026-10-23; cambian P6, P15, P19 → validThrough 2026-11-20) | En curso 2026-10-23 (frontend, rama `fe-faq-v9` desde production `91c5df71`). Debe publicarse antes del 2026-10-29 (candado ⏳ R1) | `seo-content.test.ts` verde con reloj real; diff 0 contra §12.2 v9 |
 | MKT-EMBUDO | Iniciativa marketing `briefs/BRIEF_TIENDA_EMBUDO_MOVIL.md` (`5237c11`): 6 fricciones del embudo móvil. **NO se construye sin orden del dueño.** Orden sugerido 2 → 1(a) → 4 → 5. Estimación del orquestador (2026-10-23, sin medir en navegador): 2 (carrito/checkout/portada caben en 360-414 px) S; 1(a) «+ envío MX$175» en ficha y barra fija S; 4 línea positiva junto a «ventas finales» S (texto lo valida el dueño); 5 orden por defecto del catálogo S; 1(b)(c) comisión/regla de envío M y **decisión del dueño**; 3 checkout invitado directo L (barra fija con total S-M); 6 bóveda sin cuenta M-L | Abierto, esperando orden | — |
 | MKT-MEDIR-CS | Pedido de marketing (2026-10-23): (a) preregistros del Card Show por día y UTM en el endpoint de agregados del panel (datos ya existen: `CardShowLead`/`CardShowPlayerSignup` con `utm*`; falta tabla con celdas pequeñas → arquitecto + backend); (b) `/buylist` y `/card-show` en `MEASURED_ROUTE_PATTERNS` (`frontend/src/lib/measurement/routes.ts`, S). Estimación: M en conjunto (contrato + backend + frontend + gates) | Abierto 2026-10-23, esperando orden del dueño | — |
-| MKT-FECHAS | Fechas pedidas por marketing: A1 (quitar «valor de mercado» de fichas) y A2 (barra fija de compra en móvil) = commit `09e297cf` (2026-10-16 22:02 UTC); llegaron a producción con PR #100, merge `232f01ea` 2026-10-20 18:43 −06:00 (medido con `git merge-base --is-ancestor` sobre el first-parent de production; hora exacta de fin del deploy de Vercel NO MEDIDA) | ✅ respondido 2026-10-23 | — |
-| REL3-ENVIO | ✅ PUBLICADO 2026-10-25: el dueño fusionó jcsainz95-cloud/tcg-vault-mx#104 (production `bf7d2281`). Medido 19:59 UTC: backend reiniciado (uptime 59 s) y `GET /api/v1/checkout/shipping-rule` = {10000, 17500, 400000, MXN, ivaIncluded:true}. Pendiente: el dueño recorre los 5 pasos de la PR; frontend (Vercel) NO MEDIDO por mí | Medido 2026-10-25 | pasos de la PR #104 |
 | TL-ENV-F5 | Paridad R2 del mock cubre una sola dirección: falta caso pull con paquete aceptado + solo cartas ⇒ `sealed` 17500 (`frontend/src/lib/mock/shipping-rule.parity.test.ts`). Dueño: frontend. Techlead 2026-10-25 sobre `60250e90` | 2026-10-25 | rojo al quitar `+ acc.energyBundles.length` de `frontend/src/lib/api.ts` (~l.7272) |
 | TL-ENV-F6 | Comentarios «contrato v1.109.1» en `GuestCheckoutView.tsx:~495` y `CheckoutPayBar.test.tsx:~148` (fixture fuera de contrato). Dueño: frontend | 2026-10-25 | `grep -rn "v1.109.1 en solo" frontend/src` ⇒ 0 |
 | TL-ENV-5 | Comentarios con la regla vieja en `guest-checkout.service.ts:852-853` y `settings.constants.ts:1290`. Dueño: backend | 2026-10-25 | `grep -n "sellado sobre el umbral\|envío con sellado" backend/src` ⇒ 0 |
@@ -1246,9 +426,7 @@ Diseño ya en ARCHITECTURE §13.4 / API_CONTRACT §MKT.D/.E (m82). Buildable aho
 | IDEA-CUPONES | **DECIDIDO 2026-10-25: opción B, arrancar tras publicar la entrega de envío v2** (HECHOS, fila «Códigos de descuento: opción B»). Siguiente paso: PO integra en PROJECT.md → arquitecto (contrato + esquema) → ux-ui (maqueta para el dueño) → backend/frontend fuertes → 3 veredictos. Códigos de descuento. Dueño 2026-10-25, literal: «necesito dos cosas una un lugar para códigos de descuento no sé cómo te imaginas para que funcione … por el momento como pendiente pero explora las ideas». **NO se construye sin orden.** Explorado por el PO 2026-10-25 (sin escribir PROJECT.md). Hoy no existe nada (PROJECT.md §AC.8 los deja fuera; `Order` sin columna de descuento). **A (M):** códigos escritos por el dueño, % o monto fijo, fecha fin, usos totales, mínimo, tope en pesos, uno por pedido, sin buylist ni retiro de bóveda, umbral de envío gratis medido DESPUÉS del descuento, descuento repartido por línea en `OrderItem.unitPriceCents` (guardando el original) para que el reembolso por carta no devuelva de más, código y monto por pedido en Ventas. **B (L):** + tipo envío gratis, usos por cliente, filtros por producto/destino, lotes de un solo uso, reporte. Riesgos: restar antes del gross-up (`money.ts:1019`), fuerza bruta (mensaje genérico + límite), carreras (apartar el uso como las cartas). Preguntas al dueño: A/B; umbral antes/después; bóveda y retiro; combinar con descuento deck y energías; devolver el uso al reembolsar; quién crea códigos | 2026-10-25 | decisión del dueño (A/B + 6 preguntas) |
 | IDEA-BOPIS | **EN EL TINTERO** (dueño 2026-10-25: «Bopis déjalo en el tintero»). Comprar en línea y recoger en otro lugar. Dueño 2026-10-25, literal: «cómo podríamos hacer para implementar bopis que paguen en línea y pasen a recoger a otro lugar por el momento como pendiente pero explora las ideas». **NO se construye sin orden.** Explorado por el PO 2026-10-25. Reutiliza `ShipmentRequest` y estados del envío directo (sin guía). Freno: con cuenta solo se compra a bóveda (HECHOS:91); accesorios solo a domicilio por constraint de BD (m73); no hay cancelación manual de envío pagado (HECHOS:30). **A (M):** un punto de recogida configurable (dirección, horario, encendido) + opcional por evento con fechas; envío 0; código de recogida guardado cifrado y con límite de intentos; estados «listo para recoger»/«recogido»; 3 correos; plazo fijo con aviso al dueño; solo invitado, cartas y sellado. **B (L-XL):** varios puntos, también con cuenta y retiro de bóveda en persona sin MX$203, accesorios, INE arriba de un monto, salida automática al vencer, QR desde el celular; fase aparte: sucursal Skydropx (`office_points` NO MEDIDO). Cuidado: dirección pública (si es casa, privacidad); Card Show solo tras el anuncio. Preguntas: A/B y dónde; gratis o tarifa; días y qué pasa si no recogen; INE; con cuenta/bóveda; quién entrega | 2026-10-25 | decisión del dueño (A/B + 6 preguntas) |
 | DEVOPS-FAKE-STRIPE | El doble local de Stripe (`fake-stripe.cjs`, `stripe-preload.cjs`) vive solo en scratchpads de tester-e2e/QA; el gate de capacidades de `stack-native.sh` marca «COBRO NO DISPONIBLE» con él. Llevarlo a `scripts/` y que el gate lo reconozca. Medido por frontend 2026-10-26 (`fe-dsc3`). Dueño: devops | 2026-10-26 | `stack-native.sh up --seed --gate` rc=0 con el doble |
-| REL4-DSC | ✅ PUBLICADO 2026-10-26: el dueño fusionó jcsainz95-cloud/tcg-vault-mx#105 (production `23a89244`). Medido 17:19 UTC: backend reiniciado, `/admin/discount-codes` ⇒ 401 (existe), `/es/privacidad` muestra «8. Cookies, medición y tecnologías similares.». Pasos del dueño enviados (código de prueba, evento de prueba Meta, consolas) | 2026-10-26 | capturas del dueño |
 | QA-DSC-MENOR | Menores de QA sobre `c421de13`: (4) M-92 `productScopes`/`destinations` sin NOT NULL (arquitecto/backend); (6) `?pageSize>100` da 400 y el contrato dice «cap 100» (arquitecto); (7) clave `email:` del límite permite bloquear 15 min los códigos de un correo ajeno y saber si un correo ya usó un código (seguridad) | 2026-10-26 | contrato aclarado / veredicto de seguridad |
-| MEDIR-ENCENDER | ✅ CERRADA 2026-10-27/28: medición encendida (HECHOS «Medición ENCENDIDA en producción»); pasos de consola 1–9 hechos (HECHOS 2026-10-27); tester-e2e en producción real con red real, 0 fugas de búsqueda en 181 peticiones (escenarios A–E, 4/4 cada uno, UA normal; ablación del analizador 4/4). Queda: comprobar el lunes 2026-11-02 que el panel lee GA4 de la semana cerrada (MKT-PANEL-GA4); y NO MEDIDO: UTM/fbclid y `purchase` con red real | 2026-10-28 | — |
 | MKT-PANEL-GA4 | Lunes 2026-11-02: comprobar con el dueño que /admin/marketing muestra datos de GA4 de la semana 2026-W44 (primera semana cerrada con medición). Avisar que entre 2026-10-27 23:30 y 2026-10-28 00:20 UTC hay datos sintéticos de tester-e2e (~40 page_view, 20 add_to_cart, 13 begin_checkout en GA4; 18 ViewContent/18 AddToCart/12 InitiateCheckout en Meta; ~16 respuestas al banner) | 2026-10-28 | panel con filas de fuente GA4 en W44 |
 | FE-MED-EVENTOS | frontend: 5 eventos de API_CONTRACT §MKT.H.4 sin llamada en código (`search`, `select_content`, `buy_button_visible`, `click_contact`, `add_payment_info`; solo tipos en `frontend/src/lib/measurement/track.ts:21-22`); 0 hits en 24 corridas (tester-e2e 2026-10-27). No es fuga; el panel c6 queda vacío. Construir o que el arquitecto recorte el contrato | 2026-10-28 | hit `search` sin término en red real |
 | FE-BUSQUEDA-URL | frontend: buscar en el catálogo no actualiza la URL (se queda `?q=` anterior; recargar/compartir devuelve la búsqueda vieja). `CatalogView.tsx:127-130`; medido 5/5 escritorio, 4/4 móvil (tester-e2e 2026-10-27). Ojo: al escribir `q` en la URL el píxel debe seguir sin actuar (SEC-MED-1) | 2026-10-28 | E2E: buscar ⇒ URL con el término nuevo |

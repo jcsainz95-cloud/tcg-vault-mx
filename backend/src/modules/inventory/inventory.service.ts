@@ -670,9 +670,9 @@ export const INVENTORY_EXPORT_COLUMNS: ReadonlyArray<{ header: string; key: stri
   // ⛔ el export no lee diales ni deriva una escala desde la otra (§M1: STORED, sin derivar).
   { header: 'Precio venta antes de IVA MXN', key: 'sellMxn', width: 18 },
   { header: 'Precio del producto con IVA MXN', key: 'productDisplayMxn', width: 22 },
-  // v1.116⟨ids⟩ (API_CONTRACT §IDS.4): al FINAL, sin mover las 18 de hoy.
+  // v1.116⟨ids⟩ (API_CONTRACT §IDS.4): al FINAL, sin mover las 18 de hoy. Cabecera 20 «Liga» desde v1.116.6 (HECHOS 2026-11-04).
   { header: 'Idioma', key: 'language', width: 10 },
-  { header: 'Sello', key: 'stamp', width: 14 },
+  { header: 'Liga', key: 'stamp', width: 14 },
 ];
 
 /** v1.116⟨ids⟩ (§IDS.4): textos admin de las columnas 19/20 del export. */
@@ -4273,7 +4273,7 @@ export class InventoryService {
       ovByKey.set(variantKey(o), o);
     }
 
-    // 💰 v1.116⟨ids⟩ (§IDS.4): la versión de cada pieza (columnas 19 «Idioma» y 20 «Sello»).
+    // 💰 v1.116⟨ids⟩ (§IDS.4): la versión de cada pieza (columnas 19 «Idioma» y 20 «Liga»).
     const exportStamps = items.some((i) => i.cardProductId != null)
       ? await this.pricing.findStampedProducts(items.map((i) => i.cardProductId))
       : new Map<number, StampRef>();

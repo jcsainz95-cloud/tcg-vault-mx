@@ -40,6 +40,7 @@
 > Unitarios: `test/helpers/valuation-gate.ts` (`realPatrimony`/`withPatrimony`: la puerta REAL sobre el doble). Candados: IDS-B24
 > (censo), B25 (paridad entre superficies, Postgres), B26 (consultas 2 = 20 piezas), B27 (hoja). Pruebas: `test/ids-*.spec.ts` e
 > `test/integration/ids-*.e2e-spec.ts` (B1–B27); los 4 ejes de query, `transcrita` desde v1.116.3 (95/18).
+> **Export (v1.116.6⟨ids⟩, 2026-11-04):** la cabecera de la columna 20 del `.xlsx` es **«Liga»** (antes «Sello»; `INVENTORY_EXPORT_COLUMNS`), por la fila de `HECHOS.md` 2026-11-04 «En el admin también se dice “de liga”…»; los valores («Prize Pack», «Liga», «Campeonato», «Prerelease», «Staff», vacío), `stamped`/`StampType` y los query params no cambian. Candados: `inventory.export-xlsx.spec.ts` (cabeceras) e IDS-B14.
 > **Seed E2E de liga (2026-11-03):** `E2E_IDS` (`prisma/e2e-fixtures.ts`) sobre la carta nueva «E2E League Bird» (n.º 35 de E2E Base Set):
 > `CardProduct stamped` `620000001` (League Cup, `holofoil`, `PriceReference` propia MX$120), piezas `E2E-IDS-0001..4` = `(en,P)`,
 > `(es,P)`, `(es,null)`, `(en,null)` con `createdAt` fijo 2024-01-01 (defensa, no requisito: TL-IDS-6, razón en `e2e-fixtures.ts`) y

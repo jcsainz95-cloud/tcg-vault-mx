@@ -51,8 +51,8 @@ function card(id: string, name: string): CardDTO {
     subtypes: ['Stage 2'],
     setId: 'base1',
     setName: 'Base Set', setPtcgoCode: null,
-    imageSmallUrl: `https://img.example/${id}-small.png`,
-    imageLargeUrl: `https://img.example/${id}-large.png`,
+    imageSmallUrl: `https://images.pokemontcg.io/t/${id}-small.png`,
+    imageLargeUrl: `https://images.pokemontcg.io/t/${id}-large.png`,
     availableFinishes: ['normal'],
   };
 }
