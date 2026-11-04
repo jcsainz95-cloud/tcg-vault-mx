@@ -28,8 +28,8 @@ function card(id: string, name: string): CardDTO {
     subtypes: ['Stage 2'],
     setId: 'base1',
     setName: 'Base Set', setPtcgoCode: null,
-    imageSmallUrl: `https://img.example/${id}-small.png`,
-    imageLargeUrl: `https://img.example/${id}-large.png`,
+    imageSmallUrl: `https://images.pokemontcg.io/t/${id}-small.png`,
+    imageLargeUrl: `https://images.pokemontcg.io/t/${id}-large.png`,
     availableFinishes: ['normal', 'reverse_holo'],
   };
 }
@@ -78,7 +78,7 @@ describe('FeaturedCarousel · P-39 imagen de alta resolución', () => {
 
     const heroImg = await screen.findByAltText('Charizard');
     // §DYN.6.6 (DYN-F1 b): la HD viaja por `/_next/image`; lo que se fija es QUÉ foto pide (su parámetro `url`).
-    expect(optimizerUrlOf(heroImg)).toBe('https://img.example/c-hero-large.png');
+    expect(optimizerUrlOf(heroImg)).toBe('https://images.pokemontcg.io/t/c-hero-large.png');
   });
 
   it('cae a imageSmallUrl cuando imageLargeUrl es null (nunca imagen rota)', async () => {
@@ -89,7 +89,7 @@ describe('FeaturedCarousel · P-39 imagen de alta resolución', () => {
     renderWithProviders(<FeaturedCarousel />, 'es');
 
     const heroImg = await screen.findByAltText('Charizard');
-    expect(optimizerUrlOf(heroImg)).toBe('https://img.example/c-hero-small.png');
+    expect(optimizerUrlOf(heroImg)).toBe('https://images.pokemontcg.io/t/c-hero-small.png');
   });
 });
 
@@ -142,7 +142,7 @@ describe('FeaturedCarousel · PERF (candado)', () => {
     // 2026-11-04 («Pásalas por el reductor»): la chica viaja por `/_next/image`; lo que se fija es QUÉ foto pide.
     for (const [id, name] of SECONDARY) {
       const img = screen.getByAltText(name);
-      expect(optimizerUrlOf(img)).toBe(`https://img.example/${id}-small.png`);
+      expect(optimizerUrlOf(img)).toBe(`https://images.pokemontcg.io/t/${id}-small.png`);
       expect(img.getAttribute('src')).not.toContain('-large');
     }
   });

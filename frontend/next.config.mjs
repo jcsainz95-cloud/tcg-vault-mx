@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url';
 import createNextIntlPlugin from 'next-intl/plugin';
 import { measurementCspConnectFor, measurementModeOf } from './src/security/measurement-origins.mjs';
 import { imageOptimizerKillSwitchOf } from './src/lib/image-optimizer-switch.mjs';
+// Fuente única de `images.remotePatterns` (la consulta también el cliente, `CardImage`): se re-exporta tal cual.
+import { REMOTE_PATTERNS, remotePatternsFor } from './src/lib/image-optimizer-hosts.mjs';
+
+export { REMOTE_PATTERNS, remotePatternsFor };
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 
@@ -214,34 +218,6 @@ export const IMAGE_OPTIMIZER = {
 };
 
 /**
- * Lista de orígenes del optimizador (ver el comentario largo en `images` abajo: procedencia, `port: ''`, PEN-DYN-1).
- * Candado: `src/lib/next-image-remote-patterns.test.ts`.
- */
-export const REMOTE_PATTERNS = [
-  {
-    protocol: 'https',
-    hostname: 'images.pokemontcg.io',
-    port: '',
-    pathname: '/+([a-z0-9])/+([A-Za-z0-9!_-]).png',
-    search: '',
-  },
-  {
-    protocol: 'https',
-    hostname: 'images.scrydex.com',
-    port: '',
-    pathname: '/pokemon/+([a-z0-9])-+([A-Za-z0-9])/@(large|small)',
-    search: '',
-  },
-  {
-    protocol: 'https',
-    hostname: 'images.scrydex.com',
-    port: '',
-    pathname: '/e2e/+([a-z0-9-])?(_hires).png',
-    search: '',
-  },
-];
-
-/**
  * D-CTA-10 (API_CONTRACT §CTA.6, v1.117.1): las páginas con token en la URL (`/account-setup`, `/reset-password`,
  * `/verify-email`) llevan `Referrer-Policy: no-referrer` por ruta. La lista de páginas es la de `src/lib/token-url.ts`
  * (`TOKEN_PAGES`); `security-headers.test.ts` comprueba que las dos coinciden.
@@ -251,17 +227,6 @@ export const TOKEN_PAGE_SOURCES = [
   `/:locale(es|en)/:page(${TOKEN_PAGE_ALTERNATION})`,
   `/:page(${TOKEN_PAGE_ALTERNATION})`,
 ];
-
-/**
- * Interruptor de emergencia, ARCHITECTURE §4.DYN (f) 7 (v1.114.5, residual de PEN-DYN-1): con
- * `NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH=on` en el BUILD, `remotePatterns` queda VACÍO ⇒ `/_next/image` responde 400
- * a todo origen remoto; la otra mitad (la líder a nivel B) la lee `CardImage` vía `leadImageOptimized()`. Apagado por
- * defecto. Módulo y valores: `src/lib/image-optimizer-switch.mjs`. Candado: `next-image-remote-patterns.test.ts`.
- *
- * @param {Record<string, string | undefined>} [env]
- */
-export const remotePatternsFor = (env = process.env) =>
-  imageOptimizerKillSwitchOf(env.NEXT_PUBLIC_IMAGE_OPTIMIZER_KILL_SWITCH) === 'on' ? [] : REMOTE_PATTERNS;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -357,7 +322,8 @@ const nextConfig = {
     // ⚠ Residual medido: scrydex responde 200 con una imagen genérica a CUALQUIER id con la forma
     // (`/pokemon/me3-99999/large`), así que la forma acota la superficie pero no la cuenta. Ver el
     // informe de PEN-DYN-1 en FRONTEND_NOTES §DYN.6. Lo acepta el arquitecto (v1.114.5) con un interruptor de
-    // emergencia, APAGADO por defecto: `remotePatternsFor()` arriba y `src/lib/image-optimizer-switch.mjs`.
+    // emergencia, APAGADO por defecto: `remotePatternsFor()` (`src/lib/image-optimizer-hosts.mjs`, fuente única que
+    //     también consulta `CardImage` en el cliente) y `src/lib/image-optimizer-switch.mjs`.
     remotePatterns: remotePatternsFor(),
     ...IMAGE_OPTIMIZER,
   },

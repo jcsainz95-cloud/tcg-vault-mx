@@ -88,8 +88,8 @@ function card(id: string, name: string): CardDTO {
     subtypes: ['Stage 2'],
     setId: 'base1',
     setName: 'Base Set', setPtcgoCode: null,
-    imageSmallUrl: `https://img.example/${id}-small.png`,
-    imageLargeUrl: `https://img.example/${id}-large.png`,
+    imageSmallUrl: `https://images.pokemontcg.io/t/${id}-small.png`,
+    imageLargeUrl: `https://images.pokemontcg.io/t/${id}-large.png`,
     availableFinishes: ['normal'],
   };
 }
@@ -834,7 +834,7 @@ describe('§23.2 · rota la VENTANA, nunca el ROL (R1) — lo que protege el LCP
     const { track } = await mountCarousel();
     const leadBefore = track.firstElementChild;
     const imgBefore = screen.getByAltText(NAMES[0]);
-    expect(new URL(imgBefore.getAttribute('src') ?? '', 'http://t.test').searchParams.get('url')).toBe('https://img.example/c-0-large.png');
+    expect(new URL(imgBefore.getAttribute('src') ?? '', 'http://t.test').searchParams.get('url')).toBe('https://images.pokemontcg.io/t/c-0-large.png');
     expect(imgBefore).toHaveAttribute('fetchpriority', 'high');
 
     const order = () =>
@@ -848,7 +848,7 @@ describe('§23.2 · rota la VENTANA, nunca el ROL (R1) — lo que protege el LCP
       expect(order()).toEqual(orderBefore);
       // Ninguna otra teja se convierte en HD (eso dispararía una descarga cada 5 s, §34.1).
       expect(new URL(screen.getByAltText(NAMES[1]).getAttribute('src') ?? '', 'http://t.test').searchParams.get('url')).toBe(
-        'https://img.example/c-1-small.png',
+        'https://images.pokemontcg.io/t/c-1-small.png',
       );
       expect(screen.getByAltText(NAMES[1])).not.toHaveAttribute('fetchpriority');
     }

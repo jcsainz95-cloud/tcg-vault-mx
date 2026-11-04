@@ -41,8 +41,8 @@ function card(id: string, name: string): CardDTO {
     subtypes: [],
     setId: 's1',
     setName: 'Set', setPtcgoCode: null,
-    imageSmallUrl: `https://img.example/${id}-s.png`,
-    imageLargeUrl: `https://img.example/${id}-l.png`,
+    imageSmallUrl: `https://images.pokemontcg.io/t/${id}-s.png`,
+    imageLargeUrl: `https://images.pokemontcg.io/t/${id}-l.png`,
     availableFinishes: ['normal'],
   };
 }
