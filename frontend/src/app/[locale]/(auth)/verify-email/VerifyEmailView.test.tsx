@@ -48,14 +48,14 @@ function typePasswordAndSubmit(pw = 'mi-clave-123') {
 }
 
 /**
- * m-1: con cuenta ya verificada no hay aviso rojo de enlace vencido ni su «Pide otro»; el h1 es el de la página (el mismo
- * que en «Listo», §CTA-UX.3b), nunca el título del aviso.
+ * m-1: con cuenta ya verificada no hay aviso rojo de enlace vencido ni su «Pide otro»; el h1 es el NEUTRO de §CTA-UX.3b
+ * (`verifyEmailPage.titleVerified`: «Confirma tu correo» contradiría «ya está»), nunca el título del aviso.
  */
 function expectNoInvalidLinkWarning(M: typeof es) {
   expect(screen.queryByText(M.accountSetup.invalidTitle)).toBeNull();
   expect(screen.queryByText(M.accountSetup.invalidBody)).toBeNull();
   expect(screen.queryByRole('alert')).toBeNull();
-  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(M.verifyEmailPage.title);
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(M.verifyEmailPage.titleVerified);
 }
 
 function toNewPasswordMode() {

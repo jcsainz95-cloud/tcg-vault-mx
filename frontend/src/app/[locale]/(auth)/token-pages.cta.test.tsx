@@ -257,3 +257,100 @@ describe('CTA-UX.3 · botones-enlace como Button primary y avisos como Banner', 
     expect(banner).toHaveAttribute('role', 'alert');
   });
 });
+
+/**
+ * DESIGN_SYSTEM §CTA-UX.3b «Enlace vencido con sesión y correo ya verificado»: h1 NEUTRO (un h1 «Termina tu cuenta» /
+ * «Confirma tu correo» contradice «ya está»). Solo en ese estado; los demás conservan el h1 de la página.
+ * Mutación: devolver `title` en la rama verificada ⇒ rojo.
+ */
+describe('CTA-UX.3b · h1 neutro con sesión verificada y enlace inválido', () => {
+  it.each([
+    ['es', es],
+    ['en', en],
+  ] as const)('/account-setup (%s): verificada ⇒ accountSetup.titleVerified; no verificada y sin sesión ⇒ title', (locale, M) => {
+    setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale, emailVerified: true });
+    const a = renderWithIntl(<AccountSetupView token={undefined} />, locale);
+    expect(screen.getByText(M.accountSetup.alreadyVerified)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(M.accountSetup.titleVerified);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).not.toBe(M.accountSetup.title);
+    a.unmount();
+
+    setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale, emailVerified: false });
+    const b = renderWithIntl(<AccountSetupView token={undefined} />, locale);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(M.accountSetup.title);
+    b.unmount();
+
+    window.localStorage.clear();
+    renderWithIntl(<AccountSetupView token={undefined} />, locale);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(M.accountSetup.title);
+  });
+
+  it.each([
+    ['es', es],
+    ['en', en],
+  ] as const)('/verify-email (%s): verificada ⇒ verifyEmailPage.titleVerified; no verificada ⇒ title', (locale, M) => {
+    setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale, emailVerified: true });
+    const a = renderWithIntl(<VerifyEmailView token={undefined} />, locale);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(M.verifyEmailPage.titleVerified);
+    a.unmount();
+    setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale, emailVerified: false });
+    renderWithIntl(<VerifyEmailView token={undefined} />, locale);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(M.verifyEmailPage.title);
+  });
+
+  it('el formulario (con token) conserva su h1 aunque la sesión esté verificada', () => {
+    setStoredUser({ id: 'u', email: 'ana@x.mx', name: 'ana', role: 'customer', locale: 'es', emailVerified: true });
+    const a = renderWithIntl(<AccountSetupView token={TOKEN} />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(es.accountSetup.title);
+    a.unmount();
+    renderWithIntl(<VerifyEmailView token={TOKEN} />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(es.verifyEmailPage.title);
+  });
+});
+
+/**
+ * TL-CTA-9 (DESIGN_SYSTEM §CTA-UX.3b): «Mandar otro» sin sesión (correo + `forgot-password`) con 5xx o red NO dice
+ * «enviado»: `Banner danger` `role=alert` con `accountSetup.sendError`, el correo se queda y se puede reintentar.
+ * Mutación: volver a tratar el 5xx como enviado ⇒ rojo.
+ */
+describe('TL-CTA-9 · «Mandar otro» sin sesión con 5xx o red ⇒ error, no «enviado»', () => {
+  it.each([
+    ['500', () => new ApiClientError(500, { code: 'INTERNAL', message: 'x' })],
+    ['red caída', () => new TypeError('Failed to fetch')],
+  ])('%s ⇒ Banner danger role=alert, correo conservado y reintento', async (_l, mkErr) => {
+    forgotPassword.mockRejectedValueOnce(mkErr());
+    renderWithIntl(<AccountSetupView token={undefined} />);
+    fireEvent.change(await screen.findByLabelText('Correo'), { target: { value: 'ana@x.mx' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mandar otro' }));
+    const banner = (await screen.findByText(es.accountSetup.sendError)).closest('[data-variant]')!;
+    expect(banner).toHaveAttribute('data-variant', 'danger');
+    expect(banner).toHaveAttribute('role', 'alert');
+    expect(screen.queryByText(es.accountSetup.sentGeneric)).toBeNull();
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByLabelText('Correo')).toHaveValue('ana@x.mx');
+    forgotPassword.mockResolvedValueOnce({ ok: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Mandar otro' }));
+    expect(await screen.findByText(es.accountSetup.sentGeneric)).toBeInTheDocument();
+    expect(forgotPassword).toHaveBeenCalledTimes(2);
+    expect(forgotPassword).toHaveBeenLastCalledWith('ana@x.mx');
+  });
+
+  it('/verify-email EN: el mismo error con su copy', async () => {
+    forgotPassword.mockRejectedValueOnce(new ApiClientError(503, { code: 'INTERNAL', message: 'x' }));
+    renderWithIntl(<VerifyEmailView token={undefined} />, 'en');
+    fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'ana@x.mx' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send another' }));
+    const banner = (await screen.findByText(en.accountSetup.sendError)).closest('[data-variant]')!;
+    expect(banner).toHaveAttribute('data-variant', 'danger');
+    expect(banner).toHaveAttribute('role', 'alert');
+    expect(screen.queryByText(en.accountSetup.sentGeneric)).toBeNull();
+  });
+
+  it('un 4xx de validación sigue siendo la respuesta genérica (§CTA-UX.3b: sin cambio)', async () => {
+    forgotPassword.mockRejectedValueOnce(new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'x' }));
+    renderWithIntl(<AccountSetupView token={undefined} />);
+    fireEvent.change(await screen.findByLabelText('Correo'), { target: { value: 'ana@x.mx' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mandar otro' }));
+    expect(await screen.findByText(es.accountSetup.sentGeneric)).toBeInTheDocument();
+  });
+});

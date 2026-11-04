@@ -3,10 +3,9 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
-import { forgotPassword } from '@/lib/api';
-import { ApiClientError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
 import { useResendVerification } from '@/hooks/useResendVerification';
+import { useForgotPassword } from '@/hooks/useForgotPassword';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { buttonClassName } from '@/components/ui/button-classes';
@@ -20,36 +19,40 @@ import { Banner } from '@/components/ui/Banner';
  * Hasta que la sesión esté resuelta no se pinta ninguna acción (sin parpadeo). Textos en `accountSetup.*`.
  * M-1 (QA sobre `36f93c98`): con sesión de una cuenta YA verificada (`user.emailVerified` guardado al entrar), `resend`
  * es un no-op que responde `{ok:true}` (`resendVerification`: «ya verificado → no reenvía»), así que «Mandar otro»
- * diría «enviado» sin correo. En ese caso no se ofrece: se dice que el correo ya está confirmado e «Ir a mi cuenta».
+ * diría «enviado» sin correo. En ese caso no se ofrece: se dice que el correo ya está confirmado e «Ir a mi cuenta», y
+ * el h1 pasa a `titleVerified` (neutro, §CTA-UX.3b: «Termina tu cuenta» / «Confirma tu correo» contradiría «ya está»).
+ * TL-CTA-9: «Mandar otro» sin sesión con 5xx o red ⇒ `Banner danger` `accountSetup.sendError`, el correo se queda.
  */
-export function TokenLinkInvalid({ title, testId }: { title: string; testId: string }) {
+export function TokenLinkInvalid({
+  title,
+  titleVerified,
+  testId,
+}: {
+  title: string;
+  /** h1 neutro del estado «sesión con correo ya verificado» (§CTA-UX.3b). */
+  titleVerified: string;
+  testId: string;
+}) {
   const t = useTranslations('accountSetup');
   const tv = useTranslations('verifyEmailPage');
   const { user, isAuthenticated, ready } = useSession();
   const { status: resendStatus, resend } = useResendVerification();
   const [email, setEmail] = useState('');
-  const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'rateLimited'>('idle');
+  const { status: sendState, send } = useForgotPassword();
 
-  async function sendByEmail(e: React.FormEvent<HTMLFormElement>) {
+  function sendByEmail(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setSendState('sending');
-    try {
-      await forgotPassword(email.trim());
-      setSendState('sent');
-    } catch (err) {
-      // Como `forgot-password`: solo el tope se distingue; lo demás se trata como enviado (no hay oráculo).
-      setSendState(err instanceof ApiClientError && err.code === 'RATE_LIMITED' ? 'rateLimited' : 'sent');
-    }
+    void send(email.trim());
   }
 
   // m-1 (QA sobre `153f7c40`): con la cuenta ya verificada el aviso «El enlace ya se usó o caducó… Pide otro» contradice
   // «no necesitas otro enlace»; no se pinta. Tampoco antes de resolver la sesión, para no enseñarlo y quitarlo
-  // (§CTA-UX.3b: «no se pinta hasta saber el estado»). El h1 es el de la página, el mismo que en «Listo».
-  const alreadyVerified = isAuthenticated && !!user?.emailVerified;
+  // (§CTA-UX.3b: «no se pinta hasta saber el estado»). El h1 neutro, también solo con la sesión resuelta.
+  const alreadyVerified = ready && isAuthenticated && !!user?.emailVerified;
 
   return (
     <div className="flex flex-col gap-5" data-testid={testId}>
-      <h1 className="text-h2 font-bold">{title}</h1>
+      <h1 className="text-h2 font-bold">{alreadyVerified ? titleVerified : title}</h1>
       {ready && !alreadyVerified && (
         <Banner variant="warning" role="alert" title={t('invalidTitle')}>
           {t('invalidBody')}
@@ -110,6 +113,11 @@ export function TokenLinkInvalid({ title, testId }: { title: string; testId: str
           {sendState === 'rateLimited' && (
             <Banner variant="warning" role="alert">
               {t('rateLimited')}
+            </Banner>
+          )}
+          {sendState === 'error' && (
+            <Banner variant="danger" role="alert">
+              {t('sendError')}
             </Banner>
           )}
         </form>

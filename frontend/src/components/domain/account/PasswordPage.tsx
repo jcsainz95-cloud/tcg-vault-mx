@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Link, useRouter } from '@/i18n/navigation';
-import { forgotPassword, getMe, logout as apiLogout } from '@/lib/api';
-import { ApiClientError } from '@/lib/api-client';
+import { getMe, logout as apiLogout } from '@/lib/api';
+import { useForgotPassword } from '@/hooks/useForgotPassword';
 import { useSession } from '@/lib/session';
 import { accountRouteForRole, safeNext } from '@/lib/account-routes';
 import { Banner } from '@/components/ui/Banner';
@@ -63,7 +63,8 @@ export function PasswordPage({ surface, next, reason }: PasswordPageProps) {
   // mostrando «Listo» (no «Cambiar otra vez»).
   const [wasBlocked, setWasBlocked] = useState<boolean | null>(null);
   const [forceCreate, setForceCreate] = useState(false);
-  const [sendState, setSendState] = useState<'idle' | 'sending' | 'sent' | 'rateLimited' | 'error'>('idle');
+  // TL-CTA-9: misma lógica que los otros tres «olvidé» (`useForgotPassword`).
+  const { status: sendState, send } = useForgotPassword();
 
   const blocked = user?.mustChangePassword === true;
   // ⭐ v1.80.9 (DESIGN_SYSTEM §42.8, F-15): el modo «crear» manda `forgotPassword(user.email)`; una cuenta
@@ -98,16 +99,9 @@ export function PasswordPage({ surface, next, reason }: PasswordPageProps) {
     router.replace('/login');
   }
 
-  async function sendLink() {
+  function sendLink() {
     if (!user || user.email == null) return;
-    setSendState('sending');
-    try {
-      await forgotPassword(user.email);
-      setSendState('sent');
-    } catch (e) {
-      const code = e instanceof ApiClientError ? e.code : undefined;
-      setSendState(code === 'RATE_LIMITED' ? 'rateLimited' : 'error');
-    }
+    void send(user.email);
   }
 
   if (!ready || (!user && meQuery.isLoading)) {

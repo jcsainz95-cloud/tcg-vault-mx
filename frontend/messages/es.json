@@ -1365,6 +1365,7 @@
     },
     "emailOnly": {
       "taken": "Ese correo ya tiene una cuenta. Ingresa y sigue con tu compra: tu carrito no cambia.",
+      "resetError": "No pudimos mandar el enlace. Inténtalo de nuevo en unos minutos.",
       "login": "Ingresar a cuenta",
       "resetSent": "Te mandamos un enlace a ese correo para poner una contraseña nueva.",
       "resetRateLimited": "Ya pediste varios enlaces. Espera unos minutos y vuelve a intentarlo.",
@@ -1387,6 +1388,7 @@
   },
   "verifyEmailPage": {
     "title": "Confirma tu correo",
+    "titleVerified": "Tu correo",
     "passwordLead": "Para confirmar que eres tú, escribe tu contraseña actual.",
     "password": "Contraseña",
     "submit": "Confirmar correo",
@@ -1414,6 +1416,7 @@
   },
   "forgotPassword": {
     "title": "Recuperar contraseña",
+    "sendError": "No pudimos mandar el enlace. Inténtalo de nuevo en unos minutos.",
     "subtitle": "Escribe tu correo y te enviaremos instrucciones para restablecer tu contraseña.",
     "email": "Correo",
     "submit": "Enviar instrucciones",
@@ -8611,6 +8614,8 @@
   },
   "accountSetup": {
     "title": "Termina tu cuenta",
+    "sendError": "No pudimos mandar el enlace. Inténtalo de nuevo en unos minutos.",
+    "titleVerified": "Tu cuenta",
     "subtitle": "Dinos tu nombre y elige una contraseña. Después entras con tu correo y esa contraseña.",
     "name": "Nombre",
     "password": "Contraseña",

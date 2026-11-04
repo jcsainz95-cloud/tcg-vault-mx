@@ -55,13 +55,15 @@ pendientes de contrato; el simulador de `lib/api.ts` espeja el contrato: `MOCK_T
   también a 320 porque a 360 ningún « ·» cae en un salto.
 - **Rechazo del techlead sobre `e9c4c316` (TL-CTA):** cotas `MIN_PASSWORD`/`MAX_NAME` en `account/account-limits.ts`
   (una de cada una, TL-CTA-7); el SENTINEL de `EmailSection` va escapado (`'\u0000'`): ningún NUL en `src/`, candado
-  `src/source-text.test.ts` (TL-CTA-8). Abiertas TL-CTA-4/5/6/9: índice de `docs/TECH_DEBT.md` §CTA.
+  `src/source-text.test.ts` (TL-CTA-8). Los cuatro «olvidé» van por `hooks/useForgotPassword` (5xx/red ⇒ `Banner
+  danger`, nunca «enviado»; TL-CTA-9, §CTA-UX.3b). Abiertas TL-CTA-4/5/6: índice de `docs/TECH_DEBT.md` §CTA.
 - **`/verify-email` v1.117.2 (D-CTA-12, CTA-F9, §CTA-UX.3b; 2026-11-03):** ⛔ no canjea al cargar; formulario
   «contraseña actual» ⇒ `verifyEmail({ token, password })` o «¿No creaste esta cuenta…?» ⇒ `{ token, newPassword }`
   (`lib/api.ts` arma el cuerpo con UN campo; modo nueva guarda `deviceToken` y no toca la sesión local; modo contraseña
   marca `emailVerified`). `401` ⇒ `Banner danger` sobre el campo (vaciado, `aria-invalid`, foco), el token sigue; `429`
   (`RATE_LIMITED` 10/min IP o `TOO_MANY_PASSWORD_ATTEMPTS` del C7, §1) ⇒ `Banner warning`; `422`/sin token ⇒
-  `(auth)/TokenLinkInvalid.tsx` (el mismo estado y «Mandar otro» de `/account-setup`, extraído de allí). «Listo»: modo
+  `(auth)/TokenLinkInvalid.tsx` (el mismo estado y «Mandar otro» de `/account-setup`, extraído de allí; con sesión y
+  correo ya verificado, h1 neutro `accountSetup.titleVerified` / `verifyEmailPage.titleVerified`). «Listo»: modo
   contraseña con sesión ⇒ «Ir a mi cuenta»; si no, «Entrar» → `/login`. Textos en `verifyEmailPage.*` (fuera del shell);
   se borraron las claves de la página vieja de `verifyEmail.*`. Candados: `VerifyEmailView.test.tsx`, `api.cta.test.ts`,
   `token-pages.cta.test.tsx`; E2E `cuenta-correo.spec.ts` CTA-E4/E5 (`@real`; registra con contraseña y lee el enlace

@@ -46,6 +46,21 @@ const EXPECTED: Record<string, { es: string; en: string }> = {
   },
   'account.password.setupNameHint': { es: 'Cómo quieres que te llamemos.', en: "What you'd like us to call you." },
   'account.email.correctOpen': { es: 'Corregir mi correo', en: 'Correct my email' },
+  // §CTA-UX.3b (enlace inválido con cuenta ya verificada: h1 neutro; TL-CTA-9: 5xx o red de «¿Olvidaste…?»)
+  'accountSetup.titleVerified': { es: 'Tu cuenta', en: 'Your account' },
+  'verifyEmailPage.titleVerified': { es: 'Tu correo', en: 'Your email' },
+  'forgotPassword.sendError': {
+    es: 'No pudimos mandar el enlace. Inténtalo de nuevo en unos minutos.',
+    en: "We couldn't send the link. Try again in a few minutes.",
+  },
+  'auth.emailOnly.resetError': {
+    es: 'No pudimos mandar el enlace. Inténtalo de nuevo en unos minutos.',
+    en: "We couldn't send the link. Try again in a few minutes.",
+  },
+  'accountSetup.sendError': {
+    es: 'No pudimos mandar el enlace. Inténtalo de nuevo en unos minutos.',
+    en: "We couldn't send the link. Try again in a few minutes.",
+  },
   // §CTA-UX.1
   'about.strip.groupLabel': { es: 'Pago, entrega y contacto', en: 'Payment, delivery and contact' },
   'about.strip.newTab': { es: ' (se abre en otra pestaña)', en: ' (opens in a new tab)' },
@@ -58,7 +73,7 @@ describe('CTA-UX.6 (1) · textos de §CTA-UX en ES y EN', () => {
   });
 
   it('paridad de claves en los namespaces que tocó §CTA-UX', () => {
-    for (const ns of ['auth.emailOnly', 'accountSetup', 'about.strip', 'account.email', 'account.password']) {
+    for (const ns of ['auth.emailOnly', 'accountSetup', 'about.strip', 'account.email', 'account.password', 'forgotPassword', 'verifyEmailPage']) {
       const a = Object.keys(get(es, ns) as object).sort();
       const b = Object.keys(get(en, ns) as object).sort();
       expect(b, ns).toEqual(a);
