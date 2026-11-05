@@ -16720,7 +16720,6 @@ cambió** — y desde el panel **no hay vuelta a automático sin destruir su tas
 <!-- CANON: invariantes-del-modo-fx · estado: VIGENTE · ver ARCHITECTURE §0-B.3 reglas 8 y 10 -->
 <!-- CANON: precedencia-de-la-tasa · estado: VIGENTE · ver ARCHITECTURE §0-B.3 reglas 8 y 10 -->
 
-
 **`fx_rate_mode`** — `ConfigSetting`. **API: `FxRateMode = "auto" | "manual"`.** ⚠️ **Almacenamiento: TRES valores**
 —`auto | manual | legacy`—, donde **`"legacy"` es el valor SEMBRADO** y significa *«ningún humano ha tocado el
 interruptor todavía en este entorno»*. ⛔ **`"legacy"` NUNCA sale por la API**: `resolveFxMode()` lo traduce, y su
@@ -29797,7 +29796,6 @@ pay-spei   ⇔  isPayable  ∧  ( offerSentAt IS NULL  ∨  ninguna línea COMPR
 - ⛔ **Ninguna de las dos listas se transcribe al frontend** (ver V.5).
 <!-- /CANON: predicado-de-pagabilidad -->
 
-
 **V.1 — EL DEFECTO, MEDIDO, Y POR QUÉ ES UNO SOLO Y NO TRES.**
 Reproducido en vivo por **QA y por backend, dos veces** (`docs/BACKEND_NOTES.md` §0.44.4), sobre una solicitud del
 ciclo pagada **sin ninguna decisión por-ítem**:
@@ -35840,8 +35838,7 @@ Los campos de dinero (`profit*`, `inventoryValue*`, `custodyValue*`) se omiten/e
 >   hábiles vive en la fila de la cola, no en el tablero: el tablero cuenta trabajo, no urgencia.)*
 > - **`buylistPendingGuideCancellation`** — guías compradas y no usadas (D22, criterio 139). *Una etiqueta comprada y
 >   olvidada es **dinero tirado que nadie ve**.*
-> - **`pendingPublish`** — piezas convertidas a las que les falta **precio** (⭐ Errata SU-1, [§M1-SU](#M1-SU): la
->   ubicación dejó de contar; antes decía «ubicación o precio») (fase 8, criterio 125:
+> - **`pendingPublish`** — piezas convertidas a las que les falta **precio** (⭐ Errata SU-1, [§M1-SU](#M1-SU)) (fase 8, criterio 125:
 >   *«la cola es **visible en el dashboard** como parte de la cola de trabajo del back-office»*).
 > Los cuatro son **conteos**, sin campos de dinero ⇒ **visibles para `vault_operator`** como el resto de `workQueue`.
 
@@ -46019,7 +46016,7 @@ Nuevo: `409 STAMPED_PRODUCT_TAKEN` (IDS.4). Lo demás reutiliza `VALIDATION_ERRO
 - **IDS-F4 (518, 964)** carrito, checkout y pedido pintan `version` del servidor; dos versiones no se funden en «2×»; `PRICE_PENDING` nombra la versión.
 - **IDS-F5 (963–965)** `DeckAvailability`: un tramo por `units[]`; inglés puro sin insignia; `DeckAvailability.ac.test.tsx` verde sin editarla.
 - **IDS-F6** candados 1, 5, 6, 7, 7b y 9–16 de IDS-UX.6/.8 («sello» solo en la línea interna del tipo exacto, Vocabulario de §IDS, v1.116.6; (7) incluye las cinco claves de `FinishLabel`).
-- **IDS-F11 (v1.116.7, I-6)** `QuickAddSection` con una carta que tiene versiones manda `language` y, si se eligió liga, `cardProductId`; con inglés sin liga no manda ninguno (cuerpo de hoy, 0 toques); `finish` = el de la casilla y combinación `combo_missing` ⇒ botón apagado; nunca `listPriceCents` en versión no default. Prueba de componente (`QuickAdd.ids.test.tsx`, cuerpo exacto del `POST`) + una E2E con mocks (cajón ⇒ «Alta rápida» español de liga ⇒ cuerpo con ambos campos). Mutación: omitir `cardProductId` ⇒ rojo.
+- **IDS-F11 (v1.116.7, I-6)** `QuickAddSection` con una carta que tiene versiones manda `language` solo si ≠ 'en' y, si se eligió liga, `cardProductId`; con inglés sin liga no manda ninguno (cuerpo de hoy, 0 toques); `finish` = el de la casilla y combinación `combo_missing` ⇒ botón apagado; nunca `listPriceCents` en versión no default. Prueba de componente (`QuickAdd.ids.test.tsx`, cuerpo exacto del `POST`) + una E2E con mocks (cajón ⇒ «Alta rápida» español de liga ⇒ cuerpo con ambos campos). Mutación: omitir `cardProductId` ⇒ rojo.
 **Devops:** IDS-D1 en seco e IDS-D2 **hechas** (`DEVOPS_NOTES §108`; su ⟨108.4⟩ resuelto en v1.116.2). **Queda antes de fusionar (condición bloqueante de la solicitud):** Q1 de `scripts/ids/ids-d1-produccion.sql` en producción con rol de solo lectura (la corre el dueño, §108.5): `promo`/`deck_exclusive` = 0 confirma que IDS-B17 no mueve ningún precio publicado; > 0 ⇒ la lista Q1b va a la solicitud y decide el dueño. **Q1c (v1.116.4, misma vía y mismas reglas de salida que Q1; también bloqueante):** piezas `ownerType='customer'`, `status ≠ 'withdrawn'`, con producto `promo`/`deck_exclusive`, por kind; de ellas, cuántas con caso «Por reponer» `open` o en un retiro activo; y por producto y acabado: piezas, dueños distintos (solo el conteo), Σ/mín/máx de la referencia vigente de la base que hoy les da valor y de `Q` (último `OrderItem` cobrado de la pieza; sin él, «sin origen»). 0 ⇒ D-IDS-S no cambia nada visible; > 0 ⇒ la tabla va a la solicitud (lo que pasa a «Precio pendiente» en la bóveda y baja de `custody-value`) y decide el dueño. Español o liga de cliente no se mide: es 0 por construcción antes de M-95. **Q1d (v1.116.5, misma vía, bloqueante):** `InventoryItem` con `cardProductId` sin `CardProduct.tcgplayerProductId` (conteo y lista id/folio/status/owner); 0 ⇒ M-95c entra; > 0 ⇒ la lista va a la solicitud y decide el dueño (⛔ sin arreglo automático). **IDS-D3 (512)** foto antes/después sobre copia de producción en el ensayo (instrumento §108.3). El paso `ids-lib.mjs` se alinea con IDS.3 v1.116.2 (llave del catálogo).
 
 ### IDS.10 Desviaciones, supuestos y preguntas
