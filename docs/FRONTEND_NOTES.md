@@ -110,12 +110,12 @@ su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cart
   en silencio a los controles de siempre); `attach` falla ⇒ aviso en línea en la caja de candidatas (`role="alert"`, 404/409/
   otro con su texto, petición 9b) + «Recargar versiones», que recibe el foco. Textos aprobados por ux-ui (IDS-UX.7 punto 9b);
   viven en `messages/{es,en}.json` `admin.m1.ids` (una sola fuente).
-- **Alta rápida del binder con Idioma/Versión (opción A, HECHOS 2026-11-05; UX-ALTA-LIGA):** `QuickAddSection` reusa `useIdsCapture` +
-  `IdsCaptureFields` con acabado fijo (`fixedFinish`); solo se dibuja con español con combo, liga o candidatas; `language`/`cardProductId` como
-  en `items` (IDS-F11); vuelve a Inglés/Sin liga tras el alta; resumen «… · Español · De liga · Prize Pack · INV-…». **I-1 (QA):** la tarjeta
-  «Aportación», su bloqueo y el camino leen la referencia de la VERSIÓN elegida (`versionContributionReferenceCents`, espejo de `versionReferenceForAlta`:
-  base del combo; español × X con `scaleByPct`); inglés sin liga sigue con `marketRefCents`. El sugerido de compra NO cambia por versión (es salida
-  de la curva; sin cara de compra por versión en el contrato). **M-2:** CTA apagado mientras carga `GET …/versions`. Candados: `QuickAdd.ids.test`, E2E `ids-quick-add.spec`.
+- **Alta rápida del binder con Idioma/Versión (opción A, HECHOS 2026-11-05; UX-ALTA-LIGA; A2 v1.116.8 I-6 / vIDS-10):** `QuickAddSection` reusa
+  `useIdsCapture` + `IdsCaptureFields` en modo casilla (`fixedFinish`): Idioma en TODA carta raw, Versión solo con liga, sin caja de candidatas, sin toast en el cajón.
+  **Acabado del alta** lo resuelve `captureModel` (`altaFinish`/`altaFinishMode`): casilla si la liga lo tiene; único de la liga ⇒ implícito y nombrado «De liga · Promo de Liga (Holo)»
+  (burbuja y desglose); varios ⇒ fila «Acabado» (`ids-alta-finish`, sin preselección, `finishHint`, CTA `aria-disabled`); el POST lleva ese `finish` (IDS-F11 a/b/c). **Compra**: con español o liga
+  el campo abre vacío (`buyNoSuggestionVersion`) y se prellena de vuelta en inglés sin liga (d). **Cajón**: 2.ª lectura `stamped=true` sin `finish` filtrada a acabados ∉ `cardFinishes`
+  (prop nueva desde `M1View`); filtros Idioma/Liga en cliente ⇒ «Piezas (n)» fijo, `slotCountNote`, «Mostrando n de N», vacío filtrado + «Quitar filtros»; baja rápida = 1.ª lectura (e). **I-1:** «Aportación» lee la referencia de la VERSIÓN (`versionContributionReferenceCents`); **M-2:** CTA apagado mientras carga. Candados: `QuickAdd.ids.test`, `VariantDrawer.ids.test`, `ids-capture.test`, `lib/mock/batch-finish.ids.test`, E2E `ids-quick-add.spec` (Pikachu + «Pawmi» `c-pawmi-sv08`).
 - **Carrito, checkout, «Mi pedido», seguimiento (petición 8, IDS-UX.4 «Carrito»):** `useVersionText().detail()` = la
   línea muted bajo las insignias, sin el idioma y solo si el tipo largo difiere de la insignia: ES sin liga ⇒ ninguna;
   «De liga (Prize Pack)»; EN «Prize Pack» ⇒ ninguna, «League (League promo)». **El deck también** (petición 9a,

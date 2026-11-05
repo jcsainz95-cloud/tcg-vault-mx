@@ -6151,7 +6151,11 @@
       "successSummaryVersion": "{count} piezas dadas de alta · {version} · {first} a {last}.",
       "pricePendingError": "No se registró la aportación: esta variante no tiene valor de mercado. Fija el precio y vuelve a intentar.",
       "partialSummary": "{created} creadas · {failed} rechazadas.",
-      "replay": "Reintento idempotente (no se duplicó)."
+      "replay": "Reintento idempotente (no se duplicó).",
+      "finish": "Acabado",
+      "finishHint": "Esta versión viene en más de un acabado: elige el tuyo.",
+      "finishPricePending": "Elige el acabado para ver el precio.",
+      "buyNoSuggestionVersion": "Sin sugerencia para esta versión: escribe lo que pagaste."
     },
     "quickRemove": {
       "title": "Baja rápida",
@@ -6232,7 +6236,11 @@
         "title": "Merma de {folio}",
         "body": "La pieza sale del inventario por ajuste. La nota es obligatoria y queda en bitácora.",
         "confirm": "Registrar merma"
-      }
+      },
+      "slotCountNote": "La casilla cuenta solo inglés sin liga. Las piezas en español o de liga se ven aquí.",
+      "emptyFiltered": "Ninguna pieza con este filtro.",
+      "clearFilters": "Quitar filtros",
+      "showingFiltered": "Mostrando {shown} de {total}"
     },
     "bounty": {
       "toggle": "Marcar como bounty",
