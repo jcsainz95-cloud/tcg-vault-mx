@@ -5,10 +5,10 @@
 # rama. Se rehízo UNA vez: la primera (b95fbbac) no veía lo que entró antes de la fusión del candado.
 # base-sha: aed3ca0d9f0c8cda1bcc34e00067bed43d5c8082
 19155	PROJECT.md
-46211	docs/API_CONTRACT.md
+46210	docs/API_CONTRACT.md
 37106	docs/ARCHITECTURE.md
 33209	docs/BACKEND_NOTES.md
-33858	docs/DESIGN_SYSTEM.md
+33846	docs/DESIGN_SYSTEM.md
 72	docs/DEVOPS_NOTES-24-railway-deploy-gate.md
 14871	docs/DEVOPS_NOTES.md
 19539	docs/FRONTEND_NOTES.md
