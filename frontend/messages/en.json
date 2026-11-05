@@ -6147,6 +6147,8 @@
       "loading": "Adding…",
       "successOne": "Piece added · {folio}.",
       "successSummary": "{count} pieces added · {first} to {last}.",
+      "successOneVersion": "Piece added · {version} · {folio}.",
+      "successSummaryVersion": "{count} pieces added · {version} · {first} to {last}.",
       "pricePendingError": "The contribution was not recorded: this variant has no market value. Set the price and try again.",
       "partialSummary": "{created} created · {failed} rejected.",
       "replay": "Idempotent retry (nothing duplicated)."
@@ -6198,6 +6200,7 @@
     "drawer": {
       "close": "Close",
       "pieces": "Pieces ({count})",
+      "filterPieces": "Filter pieces",
       "addQuick": "Quick intake",
       "removeQuick": "Quick removal",
       "addGraded": "Add graded…",

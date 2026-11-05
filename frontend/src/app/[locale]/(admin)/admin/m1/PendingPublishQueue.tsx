@@ -281,7 +281,11 @@ export function PendingPublishQueue({ productType }: { productType?: ProductType
         {query.data?.data.length === 0 ? (
           <EmptyState title={t('empty')} />
         ) : (
-          <table className="mt-4 w-full border-collapse">
+          /* UX-ALTA-LIGA (medido 2026-11-05 a 390 px): la tabla de 5 columnas mide 466 px y, sin este contenedor, ensanchaba
+             el documento a 486 px; en móvil el viewport de layout crece con él y el cajón `fixed inset-0` del binder nacía
+             de 486 px (burbujas fuera de pantalla). La tabla se desplaza dentro de su caja; la página no desborda. */
+          <div className="mt-4 overflow-x-auto">
+          <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-border">
                 <th scope="col" className="eyebrow px-3 py-2 text-left font-normal">
@@ -436,6 +440,7 @@ export function PendingPublishQueue({ productType }: { productType?: ProductType
               })}
             </tbody>
           </table>
+          </div>
         )}
       </QueryState>
 

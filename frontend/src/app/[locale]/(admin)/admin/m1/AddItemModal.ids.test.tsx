@@ -139,7 +139,8 @@ describe('IDS-F1 · captura (AddItemModal)', () => {
     fireEvent.click(within(dialog).getByRole('radio', { name: 'De liga · Prize Pack' }));
     expect(within(dialog).getByTestId('ids-price')).toHaveTextContent('MX$360.00');
     expect(within(dialog).getByTestId('ids-breakdown').textContent).toBe('Base: De liga · Prize Pack en inglés · MX$480.00 × 75 % (español)');
-    expect(within(dialog).getByTestId('ids-breakdown').className).toContain('whitespace-nowrap');
+    // Una línea desde `sm` (a 1280 no envuelve); bajo 640 px envuelve para no ensanchar el cajón del binder (UX-ALTA-LIGA, 390 px).
+    expect(within(dialog).getByTestId('ids-breakdown').className).toContain('sm:whitespace-nowrap');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Crear item' }));
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     const body = create.mock.calls[0][0];

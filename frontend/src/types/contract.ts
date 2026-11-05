@@ -4658,6 +4658,12 @@ export interface BatchInventoryItemInput {
   acquisitionCostCents?: number;
   listPriceCents?: number;
   qty?: number;
+  // §IDS.4 (v1.116.3⟨ids⟩, contrato «POST /admin/inventory/items e items/batch += language? y cardProductId?»): solo
+  // raw. `language` default `en` (se omite en inglés); `cardProductId` SOLO un `CardProduct` `stamped` de la carta
+  // (versión de liga) — otro kind ⇒ 422 VALIDATION_ERROR {field:'cardProductId'}; `finish ∉ CardProduct.finishes` ⇒
+  // 422 FINISH_NOT_AVAILABLE; versión no default con `listPriceCents` ⇒ 422 (I-4). Mismos campos que `items` (IDS-F11).
+  language?: CardLanguage;
+  cardProductId?: number;
   // v1.36 (P-35): 4 campos ADITIVOS solo para productType='sealed' (ignorados en raw/graded).
   // `tcgplayerProductId` + `tcgplayerGroupId` se fijan JUNTOS (uno sin el otro → 422): la pieza
   // NACE MAPEADA (pobla InventoryItem.tcgplayerProductId/GroupId, columnas M-23) ⇒ sealedMarketRef
