@@ -37006,7 +37006,8 @@ Patrimonio: bóveda · reposición (M) · /admin/vaults · custodia · 360° · 
   dentro del grupo del set, que `classifyCardProductKind` clasifica `promo`): Q1 es **condición bloqueante de la solicitud de fusión**; si da
   > 0, la lista Q1b va en la solicitud y esas piezas se despublicarían al desplegar (decide el dueño). **Lo corrige backend** (IDS-B17); la
   vigila también IDS-B1.
-- **D-IDS-2 — CERRADA (v1.116.2):** devops midió (§15.0); product-owner elige el caso del 960 (candidato `209911`, `DEVOPS_NOTES §108.1`).
+- **Cerradas:** D-IDS-2 (v1.116.2; caso del 960 lo elige product-owner, candidato `209911`, `DEVOPS_NOTES §108.1`), D-IDS-4 (v1.116.1; norma en API_CONTRACT §IDS.5 «Preselección», la vigila IDS-F3) y D-IDS-5 (v1.116.1; 2×N con hasta 6 filas, D-IDS-N/O; la vigilan IDS-B18, IDS-F1 e IDS-F3).
+- **D-IDS-12 (nueva, v1.116.8) La alta rápida de v1.116.7 no da de alta la liga en otro acabado** (tester-e2e, RECHAZADO sobre `9fa42a98`, captura `mobile-f12-es-liga-05-after-liga.png`): «E2E League Bird» #35 (`availableFinishes=['normal']`, liga `holofoil`) sale «No existe con este acabado», y sus piezas de liga no se ven en ninguna casilla (`VariantDrawer.tsx:127` lee por `finish`; `catalog-sync.service.ts:1427` solo reconcilia `set_base|other`). Que sea el caso frecuente de liga (Prize Pack = holo de una común sin holo): NO MEDIDO en producción (lo cierra `SELECT` de piezas o productos `stamped` cuyo acabado ∉ `Card.availableFinishes`). Norma: API_CONTRACT §IDS.0 I-6 (A2). **Lo corrige frontend** (IDS-F11 a–e); backend solo IDS-B32.
 - **D-IDS-7 (nueva) 22872/24451 fuera de §IDS:** IDS.3 decía «cambiar la constante»; devops midió que no basta (sin promos ME en
   pokemontcg.io, `svp` sin grupo por nombre, 50/70 sin producto base, colisión con `promo` existente). Se retira de esta entrega; el paso cuenta
   la colisión como `ocupados`. Se diseña con el pedido del dueño de vender promos. Backend corrige el comentario de `STAMPED_SOURCE_GROUPS`.
@@ -37023,11 +37024,6 @@ Patrimonio: bóveda · reposición (M) · /admin/vaults · custodia · 360° · 
 - **D-IDS-3 (texto de `PROJECT`):** §IDS.3/.4 y los criterios 521, 526 y 961 dicen «sello», «Con sello · <tipo>» y filtro «con sello»; `HECHOS`
   2026-11-02 (D-6 v3) los sustituye por «de liga» y «Cartas de liga y promos». El 966 sigue como SUPUESTO aunque marketing ya decidió P-IDS-12.
   El 527 conserva «Sello» (admin). **Lo corrige product-owner**; lo vigila IDS-F6 (grep de «sello» en superficies de cliente).
-- **D-IDS-4 — CERRADA (v1.116.1):** ux-ui (vIDS-5) adoptó la regla de marketing; norma en API_CONTRACT §IDS.5 «Preselección» (teja tocada por
-  `optionKey`; sin parámetro, `en` si hay, si no la más barata). La vigila IDS-F3.
-- **D-IDS-5 — CERRADA (v1.116.1):** marketing eligió B (2×N, `HECHOS.md` 2026-11-02 «§IDS v5 2×N…»; IDS-UX.8); el contrato la sirve con
-  D-IDS-N y D-IDS-O. Cuentas cerradas por devops: Cosmos (D-IDS-N) y filas por carta (máx 6, no ≤ 4: sin tope en el contrato; ux-ui
-  confirma 2×N con 6 filas a 360 px). La vigilan IDS-B18, IDS-F1 e IDS-F3.
 - **D-IDS-6 (rótulo de dos filas iguales):** dos productos de liga del mismo tipo y el mismo `finishLabel` («Left/Right Stamp», 3 productos;
   series 6/7, 2 cartas; INVESTIGACION_SELLOS §1) dan dos filas con el mismo rótulo. El contrato las mantiene separadas y da `stamp.label`
   (texto del proveedor en inglés: «Left Stamp», «Prize Pack Series 6»). **Lo decide ux-ui con marketing** (cómo se nombra sin «sello»);
@@ -37039,6 +37035,7 @@ Patrimonio: bóveda · reposición (M) · /admin/vaults · custodia · 360° · 
 - **P-ARQ-IDS-2 💰 (criterio 531)** El valor que ve un cliente de una carta en español guardada en su bóveda, y lo que se le paga si una carta de
   un retiro no se repone, ¿es el de la carta en español (inglés × 75 %)? *Recomendación: sí; es lo que vale lo que guarda. Ya es el supuesto de
   `PROJECT`.*
+- **P-ARQ-IDS-3 💰 (v1.116.8)** Al dar de alta una carta en español o de liga, «Pagamos por pieza»: **A)** sale vacío y tecleas lo que pagaste, o **B)** sale una sugerencia calculada para esa versión (regla de compra sobre su precio)? *Recomendación y supuesto vigente: A (B es una regla de compra por versión que hoy no existe, 528).*
 
 ### 15.6 Riesgos declarados
 - **Liga sin candado y con una sola fuente** (D-IDS-G): un salto de TCGplayer en un producto de liga se publica en el siguiente `daily`. Se mide
