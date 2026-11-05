@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Minus, Plus } from 'lucide-react';
@@ -32,11 +32,17 @@ import { useIdsCapture } from './useIdsCapture';
  * casilla picada), SIN ubicación. Reusa POST /admin/inventory/items/batch (lote tolerante).
  * También la usa la pestaña Sellado (§16.8) con `sealedMarketRef` como referencia de aportación.
  *
- * UX-ALTA-LIGA (HECHOS 2026-11-05 «opción A»; §IDS.4 / IDS-UX.2): en raw, si la carta tiene versiones (español con
- * combo, liga o candidatas), ANTES de Cantidad van **Idioma** y **Versión** en burbujas y el «Precio de venta (auto)»
- * —los mismos `IdsCaptureFields`/`useIdsCapture` de la captura por lote—, con el acabado fijo de la casilla. Solo
- * inglés sin liga ⇒ nada se dibuja (0 toques, el panel de siempre). `language` viaja solo si ≠ 'en' y `cardProductId`
- * solo con liga (IDS-F11); tras cada alta vuelve a «Inglés / Sin liga».
+ * UX-ALTA-LIGA (HECHOS 2026-11-05 «opción A»; §IDS.4 / IDS-UX.2; DESIGN_SYSTEM vIDS-10 §16.5 (a).0): en raw, ANTES de
+ * Cantidad van **Idioma** (en TODA carta, «Inglés» de fábrica: 0 toques) y, si la carta tiene liga, **Versión** en
+ * burbujas, más el «Precio de venta (auto)» —los mismos `IdsCaptureFields`/`useIdsCapture` de la captura por lote—.
+ * `language` viaja solo si ≠ 'en' y `cardProductId` solo con liga (IDS-F11); tras cada alta vuelve a «Inglés / Sin liga».
+ * Sin caja de candidatas (queda en Alta por lote).
+ *
+ * A2 (contrato v1.116.8 I-6 «Acabado del alta» / «Compra sugerida»): el acabado del POST es el RESUELTO por el modelo
+ * (`ids.model.altaFinish`): el de la casilla sin liga o si la liga lo tiene; el único de la liga si es otro (la burbuja
+ * lo nombra); el elegido en la fila «Acabado» si la liga tiene varios (sin elección, «Dar de alta» queda `aria-disabled`
+ * con la ayuda como descripción: elegir mal es precio mal). Con español o liga, «Pagamos por pieza» abre vacío (la
+ * sugerencia de compra es del inglés sin liga, P-ARQ-IDS-3) y vuelve a prellenarse al regresar a «Inglés / Sin liga».
  */
 
 export interface QuickAddTarget {
@@ -111,17 +117,22 @@ export function QuickAddSection({
   const { isSuperAdmin } = useRole();
   const errorRef = useRef<HTMLDivElement>(null);
 
-  // §IDS.4: idioma y versión de la pieza, solo raw con carta (D-IDS-K: el sellado no tiene versión). El acabado es el de
-  // la casilla (`fixedFinish`): sin fila de acabado; lo que no exista con él queda apagado (`combo_missing`).
+  // §IDS.4: idioma y versión de la pieza, solo raw con carta (D-IDS-K: el sellado no tiene versión). Modo casilla
+  // (`fixedFinish`, A2): sin burbujas de acabado; el acabado del alta lo resuelve el modelo por versión (`altaFinish`).
   const idsActive = target.productType === 'raw' && !!target.cardId;
   const idsCard = useMemo(
     () => (idsActive ? { id: target.cardId!, availableFinishes: [target.finish] } : null),
     [idsActive, target.cardId, target.finish],
   );
   const ids = useIdsCapture(idsCard, target.finish, { enabled: idsActive, fixedFinish: true });
-  // Solo inglés sin liga ⇒ el panel de siempre. Si `GET …/versions` falló, el aviso con «Reintentar» sí se dibuja (QA
-  // 2026-11-03: nunca caer en silencio a los controles de siempre cuando la carta puede ser española o de liga).
-  const showIds = ids.enabled && (ids.hasVersions || ids.isError);
+  // vIDS-10 (ratificado): Idioma se dibuja en TODA carta raw, también sin liga; la fila Versión solo si hay liga. Si
+  // `GET …/versions` falló, el aviso con «Reintentar» va dentro (QA 2026-11-03: nunca caer en silencio).
+  const showIds = ids.enabled;
+  // A2 (b): liga con varios acabados y ninguno el de la casilla, sin elegir ⇒ el CTA espera (aria-disabled + ayuda).
+  const finishPending = ids.enabled && ids.model.altaFinishMode === 'choose' && ids.model.altaFinish == null;
+  const finishHintId = useId();
+  // El acabado que viaja: el resuelto (IDS-F11 a/b/c); sin modelo (sellado), el del target.
+  const altaFinish: Finish = ids.enabled ? ids.model.altaFinish ?? target.finish : target.finish;
   // «Español · De liga · Prize Pack» para el resumen; `null` en inglés sin liga (el texto de hoy).
   const versionLabel: string | null =
     ids.enabled && (ids.language !== 'en' || ids.model.stampProductId != null)
@@ -143,9 +154,17 @@ export function QuickAddSection({
   // Si la versión elegida pierde su referencia con «Aportación» marcada (p. ej. versiones releídas tras ligar una
   // candidata), el camino vuelve a «Comprar»: nunca un POST de aportación sin referencia.
   if (contribBlocked && path === 'aportacion') setPath('compra');
-  const [price, setPrice] = useState(
-    buyEffectiveCents != null ? String(buyEffectiveCents / 100) : '',
-  );
+  // A2 (d) «Compra sugerida»: el prellenado con `buy.effectiveCents` es del inglés sin liga (curva de compra, 528). Con
+  // español o liga el campo se VACÍA y el operador teclea lo pagado; al volver a «Inglés / Sin liga» (también tras un
+  // alta, por el `reset`) vuelve el prellenado. ⛔ Ningún sugerido por versión (P-ARQ-IDS-3).
+  const prefill = buyEffectiveCents != null ? String(buyEffectiveCents / 100) : '';
+  const [price, setPrice] = useState(prefill);
+  const wasDefaultRef = useRef(isDefaultVersion);
+  useEffect(() => {
+    if (wasDefaultRef.current === isDefaultVersion) return;
+    wasDefaultRef.current = isDefaultVersion;
+    setPrice(isDefaultVersion ? prefill : '');
+  }, [isDefaultVersion, prefill]);
 
   const qtyNum = Math.max(1, Math.floor(Number(qty) || 1));
   const priceCents = parsePesos(price);
@@ -171,8 +190,9 @@ export function QuickAddSection({
         productType: target.productType,
         ...(target.productType === 'raw'
           ? // §IDS.4 / IDS-F11: `language` solo si ≠ 'en' y `cardProductId` solo con liga (`useIdsCapture.payload`);
-            // inglés sin liga = el cuerpo de hoy. ⛔ Sin `listPriceCents` (I-4).
-            { rawCondition: 'NM' as const, finish: target.finish, ...ids.payload }
+            // inglés sin liga = el cuerpo de hoy. A2: `finish` = el RESUELTO (el de la casilla, o el de la liga cuando
+            // la casilla no lo tiene; backend lo valida contra `P.finishes`). ⛔ Sin `listPriceCents` (I-4).
+            { rawCondition: 'NM' as const, finish: altaFinish, ...ids.payload }
           : {
               ...(target.sealedSubtype ? { sealedSubtype: target.sealedSubtype } : {}),
               ...(target.sealedCondition ? { sealedCondition: target.sealedCondition } : {}),
@@ -250,6 +270,8 @@ export function QuickAddSection({
   }
 
   const buyHelper = (() => {
+    // A2 (d): con español o liga no hay sugerencia (la del binder es del inglés sin liga).
+    if (!isDefaultVersion) return t('buyNoSuggestionVersion');
     if (buyEffectiveCents == null) return t('buy.helper.none');
     if (buySource === 'bounty') return t('buy.helper.bounty');
     if (buySource === 'override') return t('buy.helper.manual');
@@ -281,7 +303,7 @@ export function QuickAddSection({
         </Banner>
       )}
 
-      {/* 0. Idioma y Versión (§IDS.4 / IDS-UX.2, opción A): solo si la carta tiene versiones; acabado fijo de la casilla. */}
+      {/* 0. Idioma (siempre), Versión (con liga) y Acabado (A2, solo si la liga tiene varios y ninguno el de la casilla). */}
       {showIds && idsCard && (
         <IdsCaptureFields
           card={idsCard}
@@ -296,6 +318,8 @@ export function QuickAddSection({
           onLanguage={ids.setLanguage}
           onStamp={ids.setStampProductId}
           onAttached={ids.onAttached}
+          slot={{ onChosenFinish: ids.setChosenFinish, finishHintId }}
+          showCandidates={false}
         />
       )}
 
@@ -418,13 +442,22 @@ export function QuickAddSection({
       {/* 3. CTA */}
       <Button
         className="w-full"
-        onClick={() => submit.mutate({ versionLabel })}
-        // IDS-UX.2: una versión no default sin precio (o que no existe con el acabado de la casilla) no se crea.
+        onClick={() => {
+          if (finishPending) return;
+          submit.mutate({ versionLabel });
+        }}
+        // A2 (b): sin acabado elegido el botón queda `aria-disabled` (sigue enfocable) con la ayuda de la fila como
+        // descripción; el clic no hace nada.
+        aria-disabled={finishPending || undefined}
+        aria-describedby={finishPending ? finishHintId : undefined}
+        // IDS-UX.2: una versión no default sin precio no se crea.
         // M-2 (QA 2026-11-05): con `GET …/versions` en vuelo no hay burbujas y `canCreate` aún no sabe nada ⇒ el CTA
         // espera; un clic rápido no crea «inglés sin liga» sin haber visto la opción. Si la consulta falla, el CTA vive
         // (aviso con «Reintentar» arriba; el camino de siempre sigue abierto).
         disabled={
-          submit.isPending || (path === 'compra' && priceInvalid) || (ids.enabled && (ids.isLoading || !ids.model.canCreate))
+          submit.isPending ||
+          (path === 'compra' && priceInvalid) ||
+          (ids.enabled && !finishPending && (ids.isLoading || !ids.model.canCreate))
         }
         loading={submit.isPending}
       >

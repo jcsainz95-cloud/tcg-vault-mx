@@ -24,6 +24,9 @@ export interface IdsCapture {
   setLanguage: (l: CardLanguage) => void;
   stampProductId: number | null;
   setStampProductId: (id: number | null) => void;
+  /** A2 (modo casilla): lo elegido en la fila «Acabado» cuando la liga tiene varios acabados y ninguno es el de la casilla. */
+  chosenFinish: Finish | null;
+  setChosenFinish: (f: Finish | null) => void;
   model: CaptureModel;
   data: CardVersionsResponse | undefined;
   isLoading: boolean;
@@ -31,7 +34,7 @@ export interface IdsCapture {
   refetch: () => void;
   /** El `GET …/versions` nuevo que devuelve `attach`: sustituye la respuesta en caché sin volver a pedirla. */
   onAttached: (res: CardVersionsResponse) => void;
-  /** ¿La carta tiene algo que elegir? (español con precio, liga o candidatas). Solo inglés sin liga ⇒ `false`. */
+  /** ¿La carta tiene algo que elegir? (español con precio, liga o candidatas). Solo inglés sin liga ⇒ `false`. Es `model.hasVersions` (TL-ALTA-5). */
   hasVersions: boolean;
   /** Campos del alta con lo elegido (cuerpo de hoy si inglés sin liga). */
   payload: IdsCapturePayload;
@@ -45,8 +48,9 @@ export function useIdsCapture(
   options: {
     enabled: boolean;
     /**
-     * El acabado lo fija quien llama (la casilla del binder): el modelo NO pasa el Acabado a burbujas aunque la liga
-     * traiga otros acabados; la versión que no existe con ese acabado queda apagada (`combo_missing`).
+     * Modo casilla (A2, I-6 «Acabado del alta»): el acabado lo fija quien llama (la casilla del binder) y el modelo NO
+     * pasa el Acabado a burbujas; por versión, el acabado del alta se RESUELVE (`model.altaFinish`): el de la casilla si la
+     * liga lo tiene, el único de la liga si es otro, o el elegido en la fila «Acabado» (`chosenFinish`) si tiene varios.
      */
     fixedFinish?: boolean;
   },
@@ -54,7 +58,8 @@ export function useIdsCapture(
   const { enabled, fixedFinish = false } = options;
   const queryClient = useQueryClient();
   const [language, setLanguage] = useState<CardLanguage>('en');
-  const [stampProductId, setStampProductId] = useState<number | null>(null);
+  const [stampProductId, setStampProductIdState] = useState<number | null>(null);
+  const [chosenFinish, setChosenFinish] = useState<Finish | null>(null);
 
   const active = enabled && !!card;
   const query = useQuery({
@@ -63,15 +68,15 @@ export function useIdsCapture(
     enabled: active,
   });
   const data = active ? query.data : undefined;
-  const raw = captureModel(data, fixedFinish ? [finish] : card?.availableFinishes ?? [], finish, language, stampProductId);
+  const raw = captureModel(
+    data,
+    fixedFinish ? [finish] : card?.availableFinishes ?? [],
+    finish,
+    language,
+    stampProductId,
+    fixedFinish ? { chosenFinish } : undefined,
+  );
   const model: CaptureModel = fixedFinish ? { ...raw, finishOptions: null } : raw;
-
-  // `combos` SIEMPRE trae (acabados × {en, es}) (§IDS.4): el español cuenta solo si se puede crear (con precio); una
-  // carta con solo inglés creable y sin liga ni candidatas no tiene nada que elegir ⇒ el panel de siempre.
-  const hasVersions =
-    !!data &&
-    (data.candidates.length > 0 ||
-      data.combos.some((c) => c.stamp != null || (c.language !== 'en' && c.unavailableReason == null && c.previewPriceCents != null)));
 
   const payload: IdsCapturePayload = active
     ? {
@@ -80,9 +85,15 @@ export function useIdsCapture(
       }
     : {};
 
+  // La fila «Acabado» es de la liga elegida: cambiar de versión la deja sin preselección (no se hereda).
+  const setStampProductId = useCallback((id: number | null) => {
+    setStampProductIdState(id);
+    setChosenFinish(null);
+  }, []);
   const reset = useCallback(() => {
     setLanguage('en');
-    setStampProductId(null);
+    setStampProductIdState(null);
+    setChosenFinish(null);
   }, []);
   const onAttached = useCallback(
     (res: CardVersionsResponse) => {
@@ -97,13 +108,15 @@ export function useIdsCapture(
     setLanguage,
     stampProductId,
     setStampProductId,
+    chosenFinish,
+    setChosenFinish,
     model,
     data,
     isLoading: active && query.isLoading,
     isError: active && query.isError,
     refetch: () => void query.refetch(),
     onAttached,
-    hasVersions,
+    hasVersions: model.hasVersions,
     payload,
     reset,
   };

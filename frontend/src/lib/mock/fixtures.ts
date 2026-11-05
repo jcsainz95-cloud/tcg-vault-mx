@@ -378,6 +378,10 @@ const CARD_FINISHES: Record<string, Finish[]> = {
   'c-pikachu-ir': ['holofoil'],
   'c-latias-sir': ['holofoil'],
   'c-milotic-fa': ['holofoil'],
+  // A2 (IDS-F11 a/b/e): casilla SOLO `normal` con ligas en otros acabados (`mockCardVersions`): «Promo de Liga» en Holo
+  // (un acabado ≠ casilla) y «Prize Pack» en Reverse Holo + Holo (dos, ninguno el de la casilla). Es la carta sembrada
+  // «E2E League Bird» del stack real, en el simulador.
+  'c-pawmi-sv08': ['normal'],
 };
 
 export const mockCards: CardDTO[] = ([
@@ -392,6 +396,8 @@ export const mockCards: CardDTO[] = ([
   card('c-pikachu-ir', 'Pikachu ex', '238', 'Illustration Rare', 'sv08', 'Surging Sparks', 'Pokémon', ['Basic', 'ex'], SV),
   card('c-latias-sir', 'Latias ex', '242', 'Special Illustration Rare', 'sv08', 'Surging Sparks', 'Pokémon', ['Basic', 'ex'], SV),
   card('c-milotic-fa', 'Milotic ex', '213', 'Ultra Rare', 'sv08', 'Surging Sparks', 'Pokémon', ['Stage 1', 'ex'], SV),
+  // A2: carta común de un solo acabado (`normal`) con productos de liga en otros acabados (ver CARD_FINISHES).
+  card('c-pawmi-sv08', 'Pawmi', '74', 'Common', 'sv08', 'Surging Sparks', 'Pokémon', ['Basic'], SV),
   // Productos sellados (sin rareza ni condición; nombre = producto).
   card('c-sealed-sv08-box', 'Surging Sparks Booster Box', '', '', 'sv08', 'Surging Sparks', 'Sealed', [], SV),
   card('c-sealed-sv06-etb', 'Twilight Masquerade ETB', '', '', 'sv06', 'Twilight Masquerade', 'Sealed', [], SV),
@@ -3394,17 +3400,20 @@ export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateIn
       return { index, ok: false, error: { code: 'VALIDATION_ERROR', message: 'sealed has no condition' } };
     }
     const finish = (line.finish ?? 'normal') as Finish;
-    // MOCK §IDS.4 (v1.116.3): `cardProductId` solo un producto de liga (`stamped`) de la carta; con liga, el acabado
-    // tiene que existir en ese producto. Sin liga, el acabado de la carta, como siempre.
-    const stamp =
+    // MOCK §IDS.4 (v1.116.3): `cardProductId` solo un producto de liga (`stamped`) de la carta. Con liga, el acabado
+    // se valida contra los acabados de ESE producto (`P.finishes`, como `inventory.service.ts:971`; TL-ALTA-2), no
+    // contra `Card.availableFinishes`; sin liga, contra los de la carta, como siempre. Fuera ⇒ `FINISH_NOT_AVAILABLE`.
+    const productCombos =
       line.cardProductId != null
-        ? mockCardVersions(card.id, card.availableFinishes, null).combos.find((c) => c.stamp?.productId === line.cardProductId)?.stamp ?? null
-        : null;
+        ? mockCardVersions(card.id, card.availableFinishes, null).combos.filter((c) => c.stamp?.productId === line.cardProductId)
+        : [];
+    const stamp = productCombos[0]?.stamp ?? null;
     if (line.cardProductId != null && !stamp) {
       failedLines += 1;
       return { index, ok: false, error: { code: 'VALIDATION_ERROR', message: 'cardProductId is not a stamped product of this card' } };
     }
-    if (line.productType === 'raw' && !card.availableFinishes.includes(finish) && !stamp) {
+    const finishAllowed = stamp ? productCombos.some((c) => c.finish === finish) : card.availableFinishes.includes(finish);
+    if (line.productType === 'raw' && !finishAllowed) {
       failedLines += 1;
       return { index, ok: false, error: { code: 'FINISH_NOT_AVAILABLE', message: 'finish not available' } };
     }

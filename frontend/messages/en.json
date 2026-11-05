@@ -6151,7 +6151,11 @@
       "successSummaryVersion": "{count} pieces added · {version} · {first} to {last}.",
       "pricePendingError": "The contribution was not recorded: this variant has no market value. Set the price and try again.",
       "partialSummary": "{created} created · {failed} rejected.",
-      "replay": "Idempotent retry (nothing duplicated)."
+      "replay": "Idempotent retry (nothing duplicated).",
+      "finish": "Finish",
+      "finishHint": "This version comes in more than one finish: pick yours.",
+      "finishPricePending": "Pick the finish to see the price.",
+      "buyNoSuggestionVersion": "No suggestion for this version: enter what you paid."
     },
     "quickRemove": {
       "title": "Quick removal",
@@ -6232,7 +6236,11 @@
         "title": "Loss for {folio}",
         "body": "The piece leaves inventory via adjustment. The note is required and audited.",
         "confirm": "Record loss"
-      }
+      },
+      "slotCountNote": "The slot counts only English, non-league pieces. Spanish and league pieces show up here.",
+      "emptyFiltered": "No pieces match this filter.",
+      "clearFilters": "Clear filters",
+      "showingFiltered": "Showing {shown} of {total}"
     },
     "bounty": {
       "toggle": "Mark as bounty",

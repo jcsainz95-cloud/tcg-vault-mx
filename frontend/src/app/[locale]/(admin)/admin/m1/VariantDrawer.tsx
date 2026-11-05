@@ -59,6 +59,12 @@ export interface VariantDrawerProps {
   imageSmallUrl?: string;
   finish: Finish;
   productType: ProductType;
+  /**
+   * A2 (I-6 «Piezas del cajón»): acabados de la carta en el binder (`MasterSetCardCellDTO.availableFinishes` /
+   * `CardDTO.availableFinishes`). Con él, la lista de una casilla raw suma las piezas de liga cuyo acabado NO tiene
+   * casilla (segunda lectura `stamped=true`). Sin él (sellado, gradeadas, quien no lo sabe) ⇒ solo la lectura de hoy.
+   */
+  cardFinishes?: Finish[];
   /** Consola P-18 (solo scope platform raw/graded del binder; ausente = no se renderiza). */
   pricing?: VariantPricingDTO;
   marketRefCents?: number | null;
@@ -92,6 +98,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
     imageSmallUrl,
     finish,
     productType,
+    cardFinishes,
     pricing,
     marketRefCents,
     marketCapturedDate,
@@ -123,8 +130,13 @@ export function VariantDrawer(props: VariantDrawerProps) {
   // §IDS-UX.3: filtros de un toque Idioma / Liga en burbujas (solo raw: la versión es solo de raw NM, D-IDS-K).
   const [langFilter, setLangFilter] = useState<LanguageFilter>('all');
   const [stampFilter, setStampFilter] = useState<StampFilter>('all');
+  // A2 (I-6 «Piezas del cajón»): la lista de la casilla raw (carta, F) = la lectura de hoy (`finish=F`) ∪ la misma con
+  // `stamped=true` SIN `finish`, quedándose con las piezas de liga cuyo acabado no tiene casilla raw en el binder
+  // (`cardFinishes`; `Card.availableFinishes` no recibe acabados de liga, IDS.3). Los filtros Idioma/Liga se aplican
+  // aquí sobre las dos lecturas (≤ 100 filas cada una; el truncado se dice abajo): así «Piezas (n)» es el total sin
+  // filtrar y no cambia con el filtro (IDS-UX.3), y «Sin liga» deja fuera la segunda lectura entera.
   const pieces = useQuery({
-    queryKey: ['variant-pieces', cardId, finish, productType, props.gradeInfo?.gradeValue ?? null, langFilter, stampFilter],
+    queryKey: ['variant-pieces', cardId, finish, productType, props.gradeInfo?.gradeValue ?? null],
     queryFn: () =>
       getAdminInventory({
         cardId,
@@ -132,13 +144,17 @@ export function VariantDrawer(props: VariantDrawerProps) {
         productType,
         ownerType: 'platform',
         pageSize: 100,
-        ...(productType === 'raw' && langFilter !== 'all' ? { language: langFilter } : {}),
-        ...(productType === 'raw' && stampFilter !== 'all' ? { stamped: stampFilter } : {}),
       }),
+  });
+  const leagueEnabled = productType === 'raw' && cardFinishes != null;
+  const leaguePieces = useQuery({
+    queryKey: ['variant-pieces-league', cardId, productType],
+    queryFn: () => getAdminInventory({ cardId, productType, ownerType: 'platform', pageSize: 100, stamped: 'true' }),
+    enabled: leagueEnabled,
   });
 
   // Gradeadas: el endpoint filtra carta+tipo; el grupo (empresa, grado) se recorta aquí.
-  const rows = useMemo(() => {
+  const slotRows = useMemo(() => {
     let data = pieces.data?.data ?? [];
     if (props.gradeInfo) {
       data = data.filter(
@@ -156,18 +172,38 @@ export function VariantDrawer(props: VariantDrawerProps) {
     }
     return data;
   }, [pieces.data, props.gradeInfo, props.sealedSubtype, props.sealedCondition]);
+  // Segunda lectura: solo las piezas cuyo acabado no tiene casilla (las que sí la tienen viven en SU casilla).
+  const leagueRows = useMemo(() => {
+    if (!leagueEnabled || !cardFinishes) return [];
+    return (leaguePieces.data?.data ?? []).filter((i) => !cardFinishes.includes((i.finish ?? 'normal') as Finish));
+  }, [leagueEnabled, cardFinishes, leaguePieces.data]);
+  const allRows = useMemo(() => {
+    const seen = new Set(slotRows.map((r) => r.id));
+    return [...slotRows, ...leagueRows.filter((r) => !seen.has(r.id))];
+  }, [slotRows, leagueRows]);
+  const filtersActive = productType === 'raw' && (langFilter !== 'all' || stampFilter !== 'all');
+  const matchesFilters = (i: InventoryItemDTO) =>
+    (langFilter === 'all' || (i.version?.language ?? 'en') === langFilter) &&
+    (stampFilter === 'all' || (i.version?.stamp != null) === (stampFilter === 'true'));
+  const rows = useMemo(() => (filtersActive ? allRows.filter(matchesFilters) : allRows), [allRows, filtersActive, langFilter, stampFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Pista del cajón (IDS-UX.3): alguna fila con versión ≠ inglés sin liga ⇒ esas piezas no cuentan en la casilla.
+  const anyNonDefault = allRows.some((i) => i.version != null && (i.version.language !== 'en' || i.version.stamp != null));
 
-  // Estado vacío = invitación a dar de alta: la sección de alta abre desplegada.
+  // Estado vacío = invitación a dar de alta: la sección de alta abre desplegada (vacío = las DOS lecturas sin piezas).
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickRemoveOpen, setQuickRemoveOpen] = useState(false);
-  const emptyKnown = pieces.data != null && rows.length === 0;
+  const emptyKnown = pieces.data != null && (!leagueEnabled || leaguePieces.data != null) && allRows.length === 0;
   useEffect(() => {
     if (emptyKnown) setQuickAddOpen(true);
   }, [emptyKnown]);
 
-  // Conteo VISIBLE de piezas ajustables para la baja rápida (P-29): las filas ya vienen filtradas
-  // a ownerType=platform por el query; aquí sumo solo las que el backend deja ajustar (in_stock|listed).
-  const removableCount = rows.filter((r) => r.status === 'in_stock' || r.status === 'listed').length;
+  // Conteo VISIBLE de piezas ajustables para la baja rápida (P-29): SOLO la primera lectura (la casilla), como hoy;
+  // las piezas de liga sin casilla no se dan de baja desde aquí (I-6). Sumo solo las que el backend deja ajustar.
+  const removableCount = slotRows.filter(matchesFilters).filter((r) => r.status === 'in_stock' || r.status === 'listed').length;
+  const refetchPieces = () => {
+    void pieces.refetch();
+    if (leagueEnabled) void leaguePieces.refetch();
+  };
 
   const [pricesOpen, setPricesOpen] = useState(isSuperAdmin);
   const [highlighted, setHighlighted] = useState<string[]>(highlightFolio ? [highlightFolio] : []);
@@ -281,15 +317,16 @@ export function VariantDrawer(props: VariantDrawerProps) {
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <div className="flex flex-col gap-6">
             {quickAddOpen && quickAddTarget && (
+              // Sin toast en el cajón (vIDS-10 §16.5 (b), MENOR-4): el banner del panel (`role="status"`) es el único
+              // aviso de éxito; el toast tapaba ~130 px del pie a 390.
               <QuickAddSection
                 target={quickAddTarget}
                 buyEffectiveCents={pricing?.buy.effectiveCents ?? null}
                 buySource={pricing?.buy.source ?? null}
                 marketRefCents={marketRefCents ?? null}
-                onToast={onToast}
                 onCreated={(folios) => {
                   setHighlighted(folios);
-                  void pieces.refetch();
+                  refetchPieces();
                   onChanged?.();
                 }}
               />
@@ -307,7 +344,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
                   removableCount={removableCount}
                   onToast={onToast}
                   onRemoved={() => {
-                    void pieces.refetch();
+                    refetchPieces();
                     onChanged?.();
                   }}
                 />
@@ -372,7 +409,20 @@ export function VariantDrawer(props: VariantDrawerProps) {
                 ) : null
               }
               rows={rows}
-              query={pieces}
+              unfilteredCount={allRows.length}
+              filtered={filtersActive}
+              onClearFilters={() => {
+                setLangFilter('all');
+                setStampFilter('all');
+              }}
+              showSlotNote={productType === 'raw' && anyNonDefault}
+              query={{
+                isLoading: pieces.isLoading || (leagueEnabled && leaguePieces.isLoading),
+                isError: pieces.isError || (leagueEnabled && leaguePieces.isError),
+                error: pieces.error ?? leaguePieces.error,
+                refetch: refetchPieces,
+                data: pieces.data,
+              }}
               fetchedCount={pieces.data?.data.length ?? 0}
               totalCount={pieces.data?.total ?? 0}
               highlighted={highlighted}
@@ -383,7 +433,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
               locationsReady={locationsReady}
               onToast={onToast}
               onChanged={() => {
-                void pieces.refetch();
+                refetchPieces();
                 onChanged?.();
               }}
             />
@@ -401,6 +451,10 @@ export function VariantDrawer(props: VariantDrawerProps) {
 function PiecesSection({
   filters,
   rows,
+  unfilteredCount,
+  filtered = false,
+  onClearFilters,
+  showSlotNote = false,
   query,
   fetchedCount,
   totalCount,
@@ -415,7 +469,15 @@ function PiecesSection({
 }: {
   /** Filtros de la LISTA (Idioma/Liga, solo raw): se pintan bajo el título con el eyebrow «Filtrar piezas». */
   filters?: ReactNode;
+  /** Filas VISIBLES (con los filtros aplicados). */
   rows: InventoryItemDTO[];
+  /** «Piezas (n)»: el total de la casilla SIN filtrar (IDS-UX.3: no cambia con el filtro). Por defecto, `rows.length`. */
+  unfilteredCount?: number;
+  /** ¿Hay un filtro Idioma/Liga activo? ⇒ «Mostrando n de N» y el vacío filtrado con «Quitar filtros» (§16.4 punto 5). */
+  filtered?: boolean;
+  onClearFilters?: () => void;
+  /** Pista del cajón (IDS-UX.3): alguna fila no es inglés sin liga ⇒ «La casilla cuenta solo inglés sin liga…». */
+  showSlotNote?: boolean;
   query: { isLoading: boolean; isError: boolean; error: unknown; refetch: () => unknown; data: unknown };
   /** Piezas que el servidor devolvió vs. total real — honestidad del truncado (M-2). */
   fetchedCount: number;
@@ -505,15 +567,24 @@ function PiecesSection({
   }
 
   const publishResults = publish.data?.results ?? [];
+  const count = unfilteredCount ?? rows.length;
 
   return (
-    <section className="flex flex-col gap-3 border-t border-border pt-4" aria-label={t('pieces', { count: rows.length })}>
-      <h3 className="text-h3">{t('pieces', { count: rows.length })}</h3>
+    <section className="flex flex-col gap-3 border-t border-border pt-4" aria-label={t('pieces', { count })}>
+      <h3 className="text-h3">{t('pieces', { count })}</h3>
+
+      {/* Pista del cajón (IDS-UX.3, vIDS-10): bajo «Piezas (n)» y sobre «Filtrar piezas»; sin `role`; hasta dos líneas a 390. */}
+      {showSlotNote && <p className="text-xs text-muted">{t('slotCountNote')}</p>}
 
       {filters && (
         <div className="flex flex-col gap-2">
           <span className="eyebrow">{t('filterPieces')}</span>
           {filters}
+          {filtered && (
+            <p className="text-xs text-muted" role="status">
+              {t('showingFiltered', { shown: rows.length, total: count })}
+            </p>
+          )}
         </div>
       )}
 
@@ -552,7 +623,21 @@ function PiecesSection({
           ))}
         {query.data != null &&
           (rows.length === 0 ? (
-            <p className="text-sm text-muted">{t('noPieces')}</p>
+            filtered && count > 0 ? (
+              // §16.4 punto 5 (vIDS-10): nunca «Sin piezas de esta variante» con piezas ocultas por el filtro.
+              <div className="flex flex-col items-start gap-1">
+                <p className="text-sm text-muted">{t('emptyFiltered')}</p>
+                <button
+                  type="button"
+                  onClick={onClearFilters}
+                  className="min-h-11 px-0 text-sm font-medium text-text underline-offset-4 hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                >
+                  {t('clearFilters')}
+                </button>
+              </div>
+            ) : (
+              <p className="text-sm text-muted">{t('noPieces')}</p>
+            )
           ) : (
             <ul className="flex flex-col">
               {rows.map((piece) => {
