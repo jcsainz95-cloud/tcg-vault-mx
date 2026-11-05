@@ -1350,7 +1350,6 @@ redacción — así sigue mordiendo si alguien reescribe el copy y vuelve a cola
 ### 5. ✅ ~~🔴 NO CONFORMIDAD ABIERTA~~ — **CERRADA** el mismo día por `DESIGN_SYSTEM §35.6a` (v4.5, `27339eb`) · aplicada en §65
 
 > ✅ Cerrada: `fullName === null` ya no pinta «—»; la ausencia se nombra con el copy de `DESIGN_SYSTEM §35.6a`, aplicado en **[§65](#65)**.
-> *(Compactado 2026-10-25: el relato de la costura `PENDIENTE-UX` mientras faltaba el copy; la historia, en git.)*
 
 ### 6. Dos defectos que aparecieron al ESCRIBIR los candados, no al leer §35
 
@@ -4976,7 +4975,6 @@ pasada. Cambios de UX y sus decisiones:
   la primera carta descubierta (Playwright auto-espera a que la fila se habilite con el estimado).
 - Flujos preservados: modal con `BuylistKycForm` (CLABE + INE, gating P-11), respuesta a ajuste F5.
 
-
 ## 2026-08-17 · Feedback del CTA «Comprar» en la ficha de carta (carrito local)
 
 ### Problema
@@ -5017,7 +5015,6 @@ Claves nuevas `catalog.inCart` («En el carrito»/«In cart»), `catalog.addedTo
 ### Solicitud pendiente (otro stream / arquitecto de streams)
 `ListingCard` necesitaría una prop tipo `inCart?: boolean` (+ label alterno del CTA) para que la
 vitrina muestre también el estado «En el carrito» en el botón del card; hoy solo la ficha lo hace.
-
 
 ## 2026-08-17 · M5 admin: rechazos de buylist (contrato v1.18-buylist-rejects)
 
@@ -5208,7 +5205,6 @@ cualquier otro → 404 `INVALID_TOKEN`. `createGuestCheckoutSession` replica
 366 tests) · `npx playwright test` ✓ **60/60** en modo mock (incluye los 9 nuevos de
 `e2e/guest-checkout.spec.ts`, que cubren §J.1: camino feliz, upsell, correo inválido, token
 manipulado vs. expirado con texto idéntico, reenvío neutro con enfriamiento y ES/EN).
-
 
 ## 2026-08-18 (2ª ronda) · v1.21.1 — `checkoutToken` de 120 min + §15.7 corregida
 
@@ -13310,7 +13306,6 @@ alcance de este pase; queda inventariado y con trip-wire, y **su copy ya no se p
 el candado exige que salga de §27, literal, en los dos idiomas. Si el orquestador lo quiere en este
 release, es un pase mecánico de ~14 claves.
 
-
 ---
 
 ## §52 · La cuenta que caducó en un comentario, y el candado que ahora la lee (2026-09-07, rama `main`)
@@ -16099,7 +16094,6 @@ sha256 de origen). La URL del TTF la decide Google y no se puede fijar; por eso 
 del entorno) durante `(storefront)/page.test.tsx`. Ajeno a este cambio (no toca `HomeQuoter`); aislado ese
 fichero: 0/5 errores. Queda registrado como intermitente del test de la home — **no lo corrijo aquí**.
 
-
 ## §80 · **Portada del deck en el ensayo M12** — columna «Portada» (2026-09-28, rama `claude/decks-portada`, base `836442a`)
 
 Contrato: `API_CONTRACT.md §13` («Portada del deck» + `decks[].cover` en `GET /admin/decks-meta/preview`);
@@ -16212,7 +16206,6 @@ Origen: auditoría E2E del recorrido del operador (tester-e2e, 2026-09-29). Solo
   invariante (fila editable UPC/Collection + bicondicional vacío ⇔ «usa el global»). Corrido en mock: 1/1 verde.
 - **Deuda del techlead** registrada en `docs/TECH_DEBT.md` (OPG-D1 mover duplicado, OPG-D2 diálogos gemelos en
   `M4View`, OPG-D3 clave `street`).
-
 
 ### §81.2 · Hallazgos de QA sobre `4ca6c45` (2026-09-29, rama `claude/arreglos-operador`)
 
