@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { localUid } from '@/components/master-set/capture';
 import { IdsCaptureFields, stampButtonLabel } from './IdsCaptureFields';
+import { versionContributionReferenceCents } from './ids-capture';
 import { useIdsCapture } from './useIdsCapture';
 
 /**
@@ -66,7 +67,10 @@ export interface QuickAddProps {
   /** `pricing.buy.effectiveCents` del binder (sugerido/override/bounty vigente) — null sin sugerido. */
   buyEffectiveCents: number | null;
   buySource: PriceBasis | null;
-  /** Referencia de mercado para la APORTACIÓN (raw: variante P-15; sellado: sealedMarketRef). */
+  /**
+   * Referencia de mercado para la APORTACIÓN (raw: variante P-15 en inglés sin liga; sellado: sealedMarketRef). Con otra
+   * versión elegida (español o liga) manda la del combo de `GET …/versions` (I-1), no esta.
+   */
   marketRefCents: number | null;
   /** Refresca lista de piezas/agregados; recibe los folios creados (resaltado 3s). */
   onCreated?: (folios: string[]) => void;
@@ -128,8 +132,17 @@ export function QuickAddSection({
       : null;
 
   const [qty, setQty] = useState('1');
-  const contribBlocked = marketRefCents == null;
+  // I-1 (QA 2026-11-05): el backend costea la aportación de una versión no default con la referencia DE LA VERSIÓN
+  // (`versionReferenceForAlta`), no con la del inglés del binder. La tarjeta «Aportación» y su bloqueo leen la misma:
+  // inglés sin liga ⇒ `marketRefCents` (la de hoy); otra versión ⇒ la de su combo (`versionContributionReferenceCents`),
+  // y sin referencia ⇒ bloqueada con el aviso de siempre (el servidor respondería PRICE_PENDING).
+  const isDefaultVersion = !ids.enabled || (ids.language === 'en' && ids.model.stampProductId == null);
+  const contribRefCents = isDefaultVersion ? marketRefCents : versionContributionReferenceCents(ids.model.combo);
+  const contribBlocked = contribRefCents == null;
   const [path, setPath] = useState<AcqPath>('compra');
+  // Si la versión elegida pierde su referencia con «Aportación» marcada (p. ej. versiones releídas tras ligar una
+  // candidata), el camino vuelve a «Comprar»: nunca un POST de aportación sin referencia.
+  if (contribBlocked && path === 'aportacion') setPath('compra');
   const [price, setPrice] = useState(
     buyEffectiveCents != null ? String(buyEffectiveCents / 100) : '',
   );
@@ -396,7 +409,7 @@ export function QuickAddSection({
             </span>
           ) : (
             <span className="font-mono tabular-nums text-base text-text">
-              {formatMoneyCents(marketRefCents!, locale)}
+              {formatMoneyCents(contribRefCents!, locale)}
             </span>
           )}
         </label>
@@ -407,7 +420,12 @@ export function QuickAddSection({
         className="w-full"
         onClick={() => submit.mutate({ versionLabel })}
         // IDS-UX.2: una versión no default sin precio (o que no existe con el acabado de la casilla) no se crea.
-        disabled={submit.isPending || (path === 'compra' && priceInvalid) || (ids.enabled && !ids.model.canCreate)}
+        // M-2 (QA 2026-11-05): con `GET …/versions` en vuelo no hay burbujas y `canCreate` aún no sabe nada ⇒ el CTA
+        // espera; un clic rápido no crea «inglés sin liga» sin haber visto la opción. Si la consulta falla, el CTA vive
+        // (aviso con «Reintentar» arriba; el camino de siempre sigue abierto).
+        disabled={
+          submit.isPending || (path === 'compra' && priceInvalid) || (ids.enabled && (ids.isLoading || !ids.model.canCreate))
+        }
         loading={submit.isPending}
       >
         {submit.isPending ? t('loading') : t('cta')}

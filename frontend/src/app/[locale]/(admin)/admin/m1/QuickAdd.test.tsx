@@ -17,9 +17,21 @@ vi.mock('@/lib/role', () => ({
 beforeEach(() => {
   vi.restoreAllMocks();
   roleState.role = 'super_admin';
+  // El panel de siempre: la carta solo tiene inglés sin liga (`GET …/versions` sin nada que elegir, UX-ALTA-LIGA). Con la
+  // consulta en vuelo el CTA espera (M-2), así que cada caso que crea aguarda a que esté vivo (`ctaReady`).
+  vi.spyOn(api, 'getCardVersions').mockResolvedValue({
+    combos: [{ finish: 'reverse_holo', finishLabel: 'reverse_holo', language: 'en', stamp: null, previewPriceCents: 125_000, baseReferenceMxnCents: 125_000, appliedMarketPct: null, unavailableReason: null }],
+    candidates: [],
+  });
 });
 
 const target = { cardId: 'c-charizard', productType: 'raw' as const, finish: 'reverse_holo' as const };
+
+async function ctaReady() {
+  const cta = screen.getByRole('button', { name: 'Dar de alta al inventario' });
+  await waitFor(() => expect(cta).toBeEnabled());
+  return cta;
+}
 
 function okBatch(folios: string[]) {
   return {
@@ -65,7 +77,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
     expect(screen.getByText('Precio bounty activo')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Sumar uno' }));
     fireEvent.click(screen.getByRole('button', { name: 'Sumar uno' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+    fireEvent.click(await ctaReady());
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     const { items, batchKey } = spy.mock.calls[0][0];
@@ -99,7 +111,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
     expect(screen.queryByLabelText(/%/)).toBeNull();
 
     fireEvent.click(screen.getByRole('radio', { name: /Aportación/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+    fireEvent.click(await ctaReady());
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     expect(spy.mock.calls[0][0].items[0]).toMatchObject({
@@ -167,7 +179,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
     );
 
     fireEvent.click(screen.getByRole('radio', { name: /Aportación/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+    fireEvent.click(await ctaReady());
 
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain(

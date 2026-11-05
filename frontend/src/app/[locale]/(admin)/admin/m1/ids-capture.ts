@@ -111,3 +111,17 @@ export function captureModel(
       (combo != null && combo.unavailableReason == null && combo.previewPriceCents != null),
   };
 }
+
+/**
+ * I-1 (QA 2026-11-05): la referencia con la que el backend COSTEA la aportación de una versión no default
+ * (`inventory.service.ts` `versionReferenceForAlta` = `SaleDecisionService.versionReferences(...).price`): la base del combo
+ * (`R_P` de la liga; `R_en` en español) y, en español, `× X` con el redondeo de `common/card-version.ts` `scaleByPct`.
+ * Sin base o sin X ⇒ `null` (el servidor responde `PRICE_PENDING`; la tarjeta «Aportación» se bloquea). Espejo declarado:
+ * cuando el contrato exponga esta cifra en `VersionComboDTO`, esta función se sustituye por leerla.
+ */
+export function versionContributionReferenceCents(combo: VersionComboDTO | null): number | null {
+  if (!combo || combo.baseReferenceMxnCents == null) return null;
+  if (combo.language !== 'es') return combo.baseReferenceMxnCents;
+  if (combo.appliedMarketPct == null) return null;
+  return Math.floor((combo.baseReferenceMxnCents * combo.appliedMarketPct + 50) / 100);
+}
