@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Minus, Plus } from 'lucide-react';
@@ -21,6 +21,8 @@ import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { localUid } from '@/components/master-set/capture';
+import { IdsCaptureFields, stampButtonLabel } from './IdsCaptureFields';
+import { useIdsCapture } from './useIdsCapture';
 
 /**
  * Alta rápida simplificada — P-19 (DESIGN_SYSTEM §16.5). SOLO cantidad + adquisición:
@@ -28,6 +30,12 @@ import { localUid } from '@/components/master-set/capture';
  * mercado, NO editable, `acquisitionPct: 100` explícito). SIN dropdown de acabado (viene de la
  * casilla picada), SIN ubicación. Reusa POST /admin/inventory/items/batch (lote tolerante).
  * También la usa la pestaña Sellado (§16.8) con `sealedMarketRef` como referencia de aportación.
+ *
+ * UX-ALTA-LIGA (HECHOS 2026-11-05 «opción A»; §IDS.4 / IDS-UX.2): en raw, si la carta tiene versiones (español con
+ * combo, liga o candidatas), ANTES de Cantidad van **Idioma** y **Versión** en burbujas y el «Precio de venta (auto)»
+ * —los mismos `IdsCaptureFields`/`useIdsCapture` de la captura por lote—, con el acabado fijo de la casilla. Solo
+ * inglés sin liga ⇒ nada se dibuja (0 toques, el panel de siempre). `language` viaja solo si ≠ 'en' y `cardProductId`
+ * solo con liga (IDS-F11); tras cada alta vuelve a «Inglés / Sin liga».
  */
 
 export interface QuickAddTarget {
@@ -92,10 +100,32 @@ export function QuickAddSection({
 }: QuickAddProps) {
   const t = useTranslations('admin.quickAdd');
   const tRoot = useTranslations();
+  const tIds = useTranslations('admin.m1.ids');
+  const tv = useTranslations('version');
   const queryClient = useQueryClient();
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
   const errorRef = useRef<HTMLDivElement>(null);
+
+  // §IDS.4: idioma y versión de la pieza, solo raw con carta (D-IDS-K: el sellado no tiene versión). El acabado es el de
+  // la casilla (`fixedFinish`): sin fila de acabado; lo que no exista con él queda apagado (`combo_missing`).
+  const idsActive = target.productType === 'raw' && !!target.cardId;
+  const idsCard = useMemo(
+    () => (idsActive ? { id: target.cardId!, availableFinishes: [target.finish] } : null),
+    [idsActive, target.cardId, target.finish],
+  );
+  const ids = useIdsCapture(idsCard, target.finish, { enabled: idsActive, fixedFinish: true });
+  // Solo inglés sin liga ⇒ el panel de siempre. Si `GET …/versions` falló, el aviso con «Reintentar» sí se dibuja (QA
+  // 2026-11-03: nunca caer en silencio a los controles de siempre cuando la carta puede ser española o de liga).
+  const showIds = ids.enabled && (ids.hasVersions || ids.isError);
+  // «Español · De liga · Prize Pack» para el resumen; `null` en inglés sin liga (el texto de hoy).
+  const versionLabel: string | null =
+    ids.enabled && (ids.language !== 'en' || ids.model.stampProductId != null)
+      ? [
+          tv(`language.${ids.language}`),
+          stampButtonLabel(tIds, ids.model.versionOptions.find((o) => (o.stamp?.productId ?? null) === ids.model.stampProductId)?.stamp ?? null),
+        ].join(' · ')
+      : null;
 
   const [qty, setQty] = useState('1');
   const contribBlocked = marketRefCents == null;
@@ -116,7 +146,9 @@ export function QuickAddSection({
   }
 
   const submit = useMutation({
-    mutationFn: () => {
+    // `versionLabel` viaja como variable del intento: el resumen lo lee de ahí aunque el panel ya haya vuelto a
+    // «Inglés / Sin liga» (reset tras el éxito).
+    mutationFn: (_vars: { versionLabel: string | null }) => {
       // v1.39 (P-38): con IDENTIDAD (`sealedProductId`) el backend deriva la Card ancla ⇒ se OMITE
       // el cardId del cliente (la pieza nace «ETB …», no un single). Los 4 campos M-37 sueltos quedan
       // deprecados y solo se envían en el camino legacy (sin sealedProductId).
@@ -125,7 +157,9 @@ export function QuickAddSection({
         ...(usesSealedIdentity ? {} : { cardId: target.cardId }),
         productType: target.productType,
         ...(target.productType === 'raw'
-          ? { rawCondition: 'NM' as const, finish: target.finish }
+          ? // §IDS.4 / IDS-F11: `language` solo si ≠ 'en' y `cardProductId` solo con liga (`useIdsCapture.payload`);
+            // inglés sin liga = el cuerpo de hoy. ⛔ Sin `listPriceCents` (I-4).
+            { rawCondition: 'NM' as const, finish: target.finish, ...ids.payload }
           : {
               ...(target.sealedSubtype ? { sealedSubtype: target.sealedSubtype } : {}),
               ...(target.sealedCondition ? { sealedCondition: target.sealedCondition } : {}),
@@ -157,17 +191,19 @@ export function QuickAddSection({
       };
       return batchCreateItems({ batchKey: ensureBatchKey(), items: [line] });
     },
-    onSuccess: (data) => {
+    onSuccess: (data, vars) => {
       if (data.summary.failedLines === 0) {
         // Éxito → la siguiente alta usa una batchKey nueva (un reintento del MISMO intento
         // fallido reusa la key = replay idempotente).
         batchKeyRef.current = null;
         const folios = data.results.flatMap((r) => (r.ok ? r.folios : []));
         onCreated?.(folios);
+        // IDS-UX.2: idioma y versión no se guardan entre piezas; cada alta vuelve a «Inglés / Sin liga».
+        ids.reset();
         // §SU-UX.6 (e): el alta puede dejar piezas en «Listas para publicar» → se refresca la cola.
         void queryClient.invalidateQueries({ queryKey: ['pending-publish'] });
         // §SU-UX.6 (d): la nota va solo en el toast, DETRÁS del texto de hoy (el resultado del panel no cambia).
-        onToast?.(`${summaryOf(data)} ${tRoot('admin.m1.batchPublishNote')}`);
+        onToast?.(`${summaryOf(data, vars.versionLabel)} ${tRoot('admin.m1.batchPublishNote')}`);
       } else {
         // Fallo por-línea (p. ej. PRICE_PENDING): el banner anclado lo pinta el render.
         batchKeyRef.current = null;
@@ -184,14 +220,14 @@ export function QuickAddSection({
     }
   }, [submit.isError, failedLine]);
 
-  function summaryOf(data: BatchCreateInventoryResponse): string {
+  function summaryOf(data: BatchCreateInventoryResponse, version: string | null): string {
     const folios = data.results.flatMap((r) => (r.ok ? r.folios : []));
-    if (folios.length === 1) return t('successOne', { folio: folios[0] });
-    return t('successSummary', {
-      count: folios.length,
-      first: folios[0] ?? '',
-      last: folios[folios.length - 1] ?? '',
-    });
+    // UX-ALTA-LIGA: la versión se nombra en el resumen si no es inglés sin liga («… · Español · De liga · Prize Pack · INV-…»).
+    if (folios.length === 1) {
+      return version ? t('successOneVersion', { version, folio: folios[0] }) : t('successOne', { folio: folios[0] });
+    }
+    const range = { count: folios.length, first: folios[0] ?? '', last: folios[folios.length - 1] ?? '' };
+    return version ? t('successSummaryVersion', { version, ...range }) : t('successSummary', range);
   }
 
   function lineErrorMessage(code: string, message: string): string {
@@ -227,9 +263,27 @@ export function QuickAddSection({
       )}
       {succeeded && submit.data && (
         <Banner variant="success" role="status">
-          {summaryOf(submit.data)}
+          {summaryOf(submit.data, submit.variables?.versionLabel ?? null)}
           {submit.data.idempotentReplay ? ` · ${t('replay')}` : ''}
         </Banner>
+      )}
+
+      {/* 0. Idioma y Versión (§IDS.4 / IDS-UX.2, opción A): solo si la carta tiene versiones; acabado fijo de la casilla. */}
+      {showIds && idsCard && (
+        <IdsCaptureFields
+          card={idsCard}
+          model={ids.model}
+          data={ids.data}
+          isLoading={ids.isLoading}
+          isError={ids.isError}
+          onRetry={ids.refetch}
+          finish={target.finish}
+          onFinish={() => {}}
+          language={ids.language}
+          onLanguage={ids.setLanguage}
+          onStamp={ids.setStampProductId}
+          onAttached={ids.onAttached}
+        />
       )}
 
       {/* 1. Cantidad — stepper (botones 44px, mín 1). */}
@@ -351,8 +405,9 @@ export function QuickAddSection({
       {/* 3. CTA */}
       <Button
         className="w-full"
-        onClick={() => submit.mutate()}
-        disabled={submit.isPending || (path === 'compra' && priceInvalid)}
+        onClick={() => submit.mutate({ versionLabel })}
+        // IDS-UX.2: una versión no default sin precio (o que no existe con el acabado de la casilla) no se crea.
+        disabled={submit.isPending || (path === 'compra' && priceInvalid) || (ids.enabled && !ids.model.canCreate)}
         loading={submit.isPending}
       >
         {submit.isPending ? t('loading') : t('cta')}

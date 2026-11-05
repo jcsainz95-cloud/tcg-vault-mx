@@ -117,6 +117,10 @@ su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cart
   sigue, recarga las versiones.» (EN «Couldn't link the version. Try again; if it keeps failing, reload the versions.»),
   botón «Recargar versiones». Aviso en línea en la caja de candidatas, `role="alert"`, y el foco pasa a «Recargar
   versiones» al fallar. Textos aprobados por ux-ui (IDS-UX.7 punto 9b).
+- **Alta rápida del binder con Idioma/Versión (opción A, HECHOS 2026-11-05; UX-ALTA-LIGA):** `QuickAddSection` reusa `useIdsCapture` (hook
+  extraído de `AddItemModal`) + `IdsCaptureFields` con acabado fijo de la casilla (`fixedFinish`); solo se dibuja si hay español con combo,
+  liga o candidatas; `language`/`cardProductId` como en `items` (IDS-F11); vuelve a Inglés/Sin liga tras el alta; resumen «… · Español · De
+  liga · Prize Pack · INV-…». Filtros del cajón bajo «Piezas (n)», eyebrow «Filtrar piezas». Candados: `QuickAdd.ids.test`, `VariantDrawer.test`, E2E `ids-quick-add.spec`.
 - **Carrito, checkout, «Mi pedido», seguimiento (petición 8, IDS-UX.4 «Carrito»):** `useVersionText().detail()` = la
   línea muted bajo las insignias, sin el idioma y solo si el tipo largo difiere de la insignia: ES sin liga ⇒ ninguna;
   «De liga (Prize Pack)»; EN «Prize Pack» ⇒ ninguna, «League (League promo)». **El deck también** (petición 9a,

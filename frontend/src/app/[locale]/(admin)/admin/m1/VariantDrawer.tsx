@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { X, Copy, Megaphone, EyeOff, TriangleAlert, FileText, Info } from 'lucide-react';
@@ -212,7 +212,9 @@ export function VariantDrawer(props: VariantDrawerProps) {
         aria-modal="true"
         aria-label={`${cardName} · ${specParts.join(' · ')}`}
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full w-full flex-col overflow-hidden border-l border-border bg-bg outline-none lg:max-w-[480px]"
+        // `min-w-0`: el cajón es un flex item; sin esto, cualquier hijo con `nowrap` más ancho que el viewport lo ensancha
+        // por `min-width:auto` (medido a 390 px el 2026-11-05 con el desglose de precio: cajón de ≈405 px).
+        className="flex h-full w-full min-w-0 flex-col overflow-hidden border-l border-border bg-bg outline-none lg:max-w-[480px]"
       >
         {/* Header */}
         <div className="flex shrink-0 items-start gap-3 border-b border-border p-4">
@@ -356,15 +358,19 @@ export function VariantDrawer(props: VariantDrawerProps) {
               </section>
             )}
 
-            {productType === 'raw' && (
-              <PieceVersionFilters
-                language={langFilter}
-                stamped={stampFilter}
-                onLanguage={setLangFilter}
-                onStamped={setStampFilter}
-              />
-            )}
             <PiecesSection
+              // UX-ALTA-LIGA (2026-11-05): los filtros Idioma/Liga de la LISTA van bajo el título «Piezas (n)», rotulados
+              // «Filtrar piezas» — nunca entre los botones y el panel de alta, donde se confundían con la versión del alta.
+              filters={
+                productType === 'raw' ? (
+                  <PieceVersionFilters
+                    language={langFilter}
+                    stamped={stampFilter}
+                    onLanguage={setLangFilter}
+                    onStamped={setStampFilter}
+                  />
+                ) : null
+              }
               rows={rows}
               query={pieces}
               fetchedCount={pieces.data?.data.length ?? 0}
@@ -393,6 +399,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
 // ---------------------------------------------------------------------------
 
 function PiecesSection({
+  filters,
   rows,
   query,
   fetchedCount,
@@ -406,6 +413,8 @@ function PiecesSection({
   onToast,
   onChanged,
 }: {
+  /** Filtros de la LISTA (Idioma/Liga, solo raw): se pintan bajo el título con el eyebrow «Filtrar piezas». */
+  filters?: ReactNode;
   rows: InventoryItemDTO[];
   query: { isLoading: boolean; isError: boolean; error: unknown; refetch: () => unknown; data: unknown };
   /** Piezas que el servidor devolvió vs. total real — honestidad del truncado (M-2). */
@@ -500,6 +509,13 @@ function PiecesSection({
   return (
     <section className="flex flex-col gap-3 border-t border-border pt-4" aria-label={t('pieces', { count: rows.length })}>
       <h3 className="text-h3">{t('pieces', { count: rows.length })}</h3>
+
+      {filters && (
+        <div className="flex flex-col gap-2">
+          <span className="eyebrow">{t('filterPieces')}</span>
+          {filters}
+        </div>
+      )}
 
       {/* M-2: el endpoint capea a 100 (pageSize máx del contrato) — el truncado se DICE, no se
           esconde (la lista no es todo lo que hay para esta carta). */}

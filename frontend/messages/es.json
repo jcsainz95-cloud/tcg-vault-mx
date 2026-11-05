@@ -6147,6 +6147,8 @@
       "loading": "Dando de alta…",
       "successOne": "Pieza dada de alta · {folio}.",
       "successSummary": "{count} piezas dadas de alta · {first} a {last}.",
+      "successOneVersion": "Pieza dada de alta · {version} · {folio}.",
+      "successSummaryVersion": "{count} piezas dadas de alta · {version} · {first} a {last}.",
       "pricePendingError": "No se registró la aportación: esta variante no tiene valor de mercado. Fija el precio y vuelve a intentar.",
       "partialSummary": "{created} creadas · {failed} rechazadas.",
       "replay": "Reintento idempotente (no se duplicó)."
@@ -6198,6 +6200,7 @@
     "drawer": {
       "close": "Cerrar",
       "pieces": "Piezas ({count})",
+      "filterPieces": "Filtrar piezas",
       "addQuick": "Alta rápida",
       "removeQuick": "Baja rápida",
       "addGraded": "Agregar gradeada…",

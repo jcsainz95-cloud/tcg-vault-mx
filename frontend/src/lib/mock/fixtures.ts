@@ -9,7 +9,7 @@
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
 import { brandEmail } from '../brand';
-import { EN_DEFAULT_VERSION, mockFinishLabelOf, mockOptionKeyOf, mockVersionOptions } from './versions';
+import { EN_DEFAULT_VERSION, mockCardVersions, mockFinishLabelOf, mockOptionKeyOf, mockVersionOptions } from './versions';
 import { setMatchesQuery } from '../setCode';
 import type {
   StampDTO,
@@ -3322,11 +3322,15 @@ const mockBatchStore = new Map<string, BatchCreateInventoryResponse>();
 
 /** Alta por LOTE (POST /admin/inventory/items/batch) — tolerante por-línea. */
 export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateInventoryResponse {
+  // MOCK (arnés E2E, `ids-quick-add.spec.ts`): en el simulador no hay red que interceptar; la última petición al lote
+  // queda expuesta para que el navegador afirme el CUERPO que el alta rápida mandó (`language`, `cardProductId`).
+  (globalThis as { __thMockLastBatchRequest?: BatchCreateInventoryRequest }).__thMockLastBatchRequest = req;
   const prior = mockBatchStore.get(req.batchKey);
   if (prior) return { ...prior, idempotentReplay: true };
 
   let createdItems = 0;
   let failedLines = 0;
+  let pushed = 0;
   const results: BatchInventoryLineResult[] = req.items.map((line, index) => {
     // v1.39 (P-38): sellado por IDENTIDAD (`sealedProductId`) — el backend DERIVA la Card ancla y el
     // mercado desde el SealedProduct; el cliente NO manda cardId. Money-safe: manual solo llena el hueco.
@@ -3390,7 +3394,17 @@ export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateIn
       return { index, ok: false, error: { code: 'VALIDATION_ERROR', message: 'sealed has no condition' } };
     }
     const finish = (line.finish ?? 'normal') as Finish;
-    if (line.productType === 'raw' && !card.availableFinishes.includes(finish)) {
+    // MOCK §IDS.4 (v1.116.3): `cardProductId` solo un producto de liga (`stamped`) de la carta; con liga, el acabado
+    // tiene que existir en ese producto. Sin liga, el acabado de la carta, como siempre.
+    const stamp =
+      line.cardProductId != null
+        ? mockCardVersions(card.id, card.availableFinishes, null).combos.find((c) => c.stamp?.productId === line.cardProductId)?.stamp ?? null
+        : null;
+    if (line.cardProductId != null && !stamp) {
+      failedLines += 1;
+      return { index, ok: false, error: { code: 'VALIDATION_ERROR', message: 'cardProductId is not a stamped product of this card' } };
+    }
+    if (line.productType === 'raw' && !card.availableFinishes.includes(finish) && !stamp) {
       failedLines += 1;
       return { index, ok: false, error: { code: 'FINISH_NOT_AVAILABLE', message: 'finish not available' } };
     }
@@ -3400,7 +3414,8 @@ export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateIn
       return { index, ok: false, error: { code: 'PRICE_PENDING', message: 'no reference for aportacion' } };
     }
     const qty = line.productType === 'graded' ? 1 : line.qty ?? 1;
-    const base = mockInventory.length + createdItems + 1;
+    // Las piezas raw se PERSISTEN en el simulador (abajo): el folio sigue la longitud real del inventario.
+    const base = mockInventory.length - pushed + createdItems + 1;
     const folios: string[] = [];
     const inventoryItemIds: string[] = [];
     for (let k = 0; k < qty; k++) {
@@ -3409,6 +3424,27 @@ export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateIn
       inventoryItemIds.push(`inv-batch-${seq}`);
     }
     createdItems += qty;
+    if (line.productType === 'raw') {
+      // MOCK §IDS.4: la pieza nace con su versión (idioma + liga) y aparece en el cajón de la variante con sus insignias
+      // (`PieceVersion`), como la devolvería `GET /admin/inventory/items`. Inglés sin liga = `EN_DEFAULT_VERSION`.
+      const language = line.language ?? 'en';
+      for (let k = 0; k < qty; k++) {
+        mockInventory.push({
+          id: inventoryItemIds[k],
+          folio: folios[k],
+          card,
+          version: stamp || language !== 'en' ? { key: stamp ? `${language}.${stamp.productId}` : language, language, stamp } : EN_DEFAULT_VERSION,
+          productType: 'raw',
+          rawCondition: 'NM',
+          finish,
+          status: 'in_stock',
+          ownerType: 'platform',
+          acquisitionType: line.acquisitionType,
+          ...(line.acquisitionCostCents != null ? { acquisitionCostCents: line.acquisitionCostCents } : {}),
+        });
+        pushed += 1;
+      }
+    }
     return { index, ok: true, folios, inventoryItemIds };
   });
 

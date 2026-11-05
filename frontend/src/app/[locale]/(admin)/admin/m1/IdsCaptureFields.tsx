@@ -13,6 +13,11 @@ import type { AppLocale } from '@/i18n/routing';
 import type { CardDTO, CardLanguage, CardVersionsResponse, Finish, StampDTO, VersionComboDTO } from '@/types/contract';
 import type { CaptureModel } from './ids-capture';
 
+/** Texto del botón de versión (`admin.m1.ids.stampButton.*` + `label` del producto, o «Sin liga»). Lo reusa el resumen del alta rápida. */
+export function stampButtonLabel(t: (key: string) => string, s: StampDTO | null): string {
+  return s ? `${t(`stampButton.${s.type}`)}${s.label ? ` ${s.label}` : ''}` : t('noStamp');
+}
+
 /**
  * §IDS-UX.2 / IDS-UX.8 (captura, `01-captura-v6`; opción A del dueño): tras el Acabado, **Idioma** (`Inglés | Español`,
  * «Inglés» de fábrica) y **Versión** (`Sin liga | De liga · Prize Pack | …`, solo si la carta tiene versiones), en
@@ -75,8 +80,7 @@ export function IdsCaptureFields({
     if (attach.isError) reloadRef.current?.focus();
   }, [attach.isError]);
 
-  const stampLabel = (s: StampDTO | null) =>
-    s ? `${t(`stampButton.${s.type}`)}${s.label ? ` ${s.label}` : ''}` : t('noStamp');
+  const stampLabel = (s: StampDTO | null) => stampButtonLabel(t, s);
   const reasonText = (r: string | null) => (r ? t(`reason.${r}`) : null);
 
   const combo = model.combo;
@@ -199,9 +203,12 @@ export function IdsCaptureFields({
                 <p className="tabular mt-1 text-[24px] font-medium leading-none text-text">
                   {formatMoneyCents(combo.previewPriceCents, locale)}
                 </p>
-                {/* Desglose en UNA línea (a 1280 no envuelve), con los campos DEL COMBO (v1.116.2): la base antes de X y
-                    el X aplicado. ⛔ Sin aritmética: `previewPriceCents` ya trae curva, piso e IVA; sin base, sin cifra. */}
-                <p className="mt-1 whitespace-nowrap text-[12px] text-muted" data-testid="ids-breakdown">
+                {/* Desglose en UNA línea desde `sm` (a 1280 no envuelve), con los campos DEL COMBO (v1.116.2): la base antes
+                    de X y el X aplicado. Bajo 640 px (cajón del binder a 390) envuelve: medido 2026-11-05, `nowrap` a 12 px
+                    mide ≈373 px y, por `min-width:auto` del flex item, ensanchaba el cajón entero a ≈405 px (desborde
+                    horizontal, burbujas fuera del viewport). ⛔ Sin aritmética: `previewPriceCents` ya trae curva, piso e
+                    IVA; sin base, sin cifra. */}
+                <p className="mt-1 text-[12px] text-muted sm:whitespace-nowrap" data-testid="ids-breakdown">
                   {breakdown(combo)}
                 </p>
               </>
