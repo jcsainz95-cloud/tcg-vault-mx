@@ -107,20 +107,15 @@ su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cart
 - **Captura (IDS-F1):** desglose en una línea con los campos DEL COMBO: «Base: {versión} en inglés · {base} × {X} %
   (español)» / «… · {base} (mercado de TCGplayer)»; sin base del servidor ⇒ sin cifra. Sin aritmética y sin leer Ajustes.
   **Errores** (QA 2026-11-03): `GET …/versions` falla ⇒ aviso «No se cargaron las versiones» + «Reintentar» (antes caía
-  en silencio a los controles de siempre); `attach` falla ⇒ aviso en la caja de candidatas + «Recargar versiones».
-  **Textos para revisión de ux-ui** (`admin.m1.ids`, tono de `createErrorTitle`/`createError` de M1): versiones —
-  título «No se cargaron las versiones», cuerpo «No pudimos cargar las versiones de esta carta: sin ellas no hay precio
-  calculado ni versiones de liga. Si la carta es en español o de liga, reintenta antes de darla de alta.», botón
-  «Reintentar»; attach — título «No se pudo ligar la versión», 404 «Esa versión ya no está entre las pendientes de ligar.
-  Recarga las versiones para ver cómo quedó la carta.», 409 «Esa versión ya está ligada a una carta. Recarga las
-  versiones para ver cómo quedó.», otro (red, 4xx, 5xx; petición 9b) «No se pudo ligar la versión. Inténtalo de nuevo; si
-  sigue, recarga las versiones.» (EN «Couldn't link the version. Try again; if it keeps failing, reload the versions.»),
-  botón «Recargar versiones». Aviso en línea en la caja de candidatas, `role="alert"`, y el foco pasa a «Recargar
-  versiones» al fallar. Textos aprobados por ux-ui (IDS-UX.7 punto 9b).
-- **Alta rápida del binder con Idioma/Versión (opción A, HECHOS 2026-11-05; UX-ALTA-LIGA):** `QuickAddSection` reusa `useIdsCapture` (hook
-  extraído de `AddItemModal`) + `IdsCaptureFields` con acabado fijo de la casilla (`fixedFinish`); solo se dibuja si hay español con combo,
-  liga o candidatas; `language`/`cardProductId` como en `items` (IDS-F11); vuelve a Inglés/Sin liga tras el alta; resumen «… · Español · De
-  liga · Prize Pack · INV-…». Filtros del cajón bajo «Piezas (n)», eyebrow «Filtrar piezas». Candados: `QuickAdd.ids.test`, `VariantDrawer.test`, E2E `ids-quick-add.spec`.
+  en silencio a los controles de siempre); `attach` falla ⇒ aviso en línea en la caja de candidatas (`role="alert"`, 404/409/
+  otro con su texto, petición 9b) + «Recargar versiones», que recibe el foco. Textos aprobados por ux-ui (IDS-UX.7 punto 9b);
+  viven en `messages/{es,en}.json` `admin.m1.ids` (una sola fuente).
+- **Alta rápida del binder con Idioma/Versión (opción A, HECHOS 2026-11-05; UX-ALTA-LIGA):** `QuickAddSection` reusa `useIdsCapture` +
+  `IdsCaptureFields` con acabado fijo (`fixedFinish`); solo se dibuja con español con combo, liga o candidatas; `language`/`cardProductId` como
+  en `items` (IDS-F11); vuelve a Inglés/Sin liga tras el alta; resumen «… · Español · De liga · Prize Pack · INV-…». **I-1 (QA):** la tarjeta
+  «Aportación», su bloqueo y el camino leen la referencia de la VERSIÓN elegida (`versionContributionReferenceCents`, espejo de `versionReferenceForAlta`:
+  base del combo; español × X con `scaleByPct`); inglés sin liga sigue con `marketRefCents`. El sugerido de compra NO cambia por versión (es salida
+  de la curva; sin cara de compra por versión en el contrato). **M-2:** CTA apagado mientras carga `GET …/versions`. Candados: `QuickAdd.ids.test`, E2E `ids-quick-add.spec`.
 - **Carrito, checkout, «Mi pedido», seguimiento (petición 8, IDS-UX.4 «Carrito»):** `useVersionText().detail()` = la
   línea muted bajo las insignias, sin el idioma y solo si el tipo largo difiere de la insignia: ES sin liga ⇒ ninguna;
   «De liga (Prize Pack)»; EN «Prize Pack» ⇒ ninguna, «League (League promo)». **El deck también** (petición 9a,

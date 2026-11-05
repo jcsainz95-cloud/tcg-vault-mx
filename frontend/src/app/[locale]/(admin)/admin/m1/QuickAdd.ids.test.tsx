@@ -15,6 +15,7 @@ import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import type { CardVersionsResponse, VersionComboDTO } from '@/types/contract';
 import { QuickAddSection } from './QuickAdd';
+import { versionContributionReferenceCents } from './ids-capture';
 
 vi.mock('@/lib/role', () => ({
   useRole: () => ({ role: 'super_admin', setRole: () => {}, isSuperAdmin: true, canSwitchRole: false }),
@@ -289,5 +290,173 @@ describe('UX-ALTA-LIGA · alta rápida con Idioma y Versión (opción A)', () =>
     await new Promise((r) => setTimeout(r, 20));
     expect(versions).not.toHaveBeenCalled();
     expect(screen.queryByTestId('ids-capture')).toBeNull();
+  });
+});
+
+/**
+ * I-1 (QA sobre `4538fd1f`): el backend costea la aportación de una versión no default con la referencia DE LA VERSIÓN
+ * (`inventory.service.ts` `versionReferenceForAlta` = `versionReferences(...).price`: `R_P` de la liga, y en español
+ * `× X` con `scaleByPct`). La tarjeta «Aportación», su bloqueo («Precio pendiente») y lo que viaja tienen que leer esa
+ * misma referencia —la que trae cada combo de `GET …/versions` (`baseReferenceMxnCents`, `appliedMarketPct`)— y no la
+ * del inglés del binder (`marketRefCents`). Inglés sin liga: la cifra de siempre (0 cambios en el POST).
+ */
+describe('I-1 · la Aportación se valúa con la referencia de la VERSIÓN elegida', () => {
+  /** QA: inglesa MX$1,250 con X = 75 % ⇒ la española se registra en MX$937.50 (no en MX$1,250). */
+  const EN_REF = 125_000;
+  const WITH_ES: CardVersionsResponse = {
+    combos: [
+      combo({ previewPriceCents: EN_REF, baseReferenceMxnCents: EN_REF }),
+      combo({ language: 'es', previewPriceCents: 93_750, baseReferenceMxnCents: EN_REF, appliedMarketPct: 75 }),
+      combo({ stamp: PP, previewPriceCents: 48_000, baseReferenceMxnCents: 48_000 }),
+      combo({ stamp: PP, language: 'es', previewPriceCents: 36_000, baseReferenceMxnCents: 48_000, appliedMarketPct: 75 }),
+    ],
+    candidates: [],
+  };
+  /** El inglés sin mercado; la liga sí lo tiene (en inglés). */
+  const LEAGUE_ONLY_MARKET: CardVersionsResponse = {
+    combos: [
+      combo({ previewPriceCents: null, baseReferenceMxnCents: null, unavailableReason: 'no_market' }),
+      combo({ language: 'es', previewPriceCents: null, baseReferenceMxnCents: null, appliedMarketPct: 75, unavailableReason: 'no_english_market' }),
+      combo({ stamp: PP, previewPriceCents: 48_000, baseReferenceMxnCents: 48_000 }),
+      combo({ stamp: PP, language: 'es', previewPriceCents: 36_000, baseReferenceMxnCents: 48_000, appliedMarketPct: 75 }),
+    ],
+    candidates: [],
+  };
+  const contribCard = () => screen.getByText('Aportación').closest('label')!;
+  const contribRadio = () => within(contribCard()).getByRole('radio');
+  const contribAmount = () => within(contribCard()).queryByText(/^MX\$/)?.textContent ?? null;
+  const cta = () => screen.getByRole('button', { name: 'Dar de alta al inventario' });
+
+  it('(a) Español ⇒ la tarjeta muestra R_en × X con el redondeo del servidor (MX$937.50), no la del inglés (MX$1,250.00); la liga, la suya', async () => {
+    const { spy } = render(WITH_ES);
+    await screen.findByRole('radiogroup', { name: 'Idioma' });
+    expect(contribAmount()).toBe('MX$1,250.00');
+    fireEvent.click(screen.getByRole('radio', { name: 'Español' }));
+    expect(contribAmount()).toBe('MX$937.50');
+    expect(contribRadio()).toBeEnabled();
+    fireEvent.click(screen.getByRole('radio', { name: 'De liga · Prize Pack' }));
+    expect(contribAmount()).toBe('MX$360.00');
+    fireEvent.click(screen.getByRole('radio', { name: 'Inglés' }));
+    expect(contribAmount()).toBe('MX$480.00');
+    fireEvent.click(screen.getByRole('radio', { name: 'Sin liga' }));
+    expect(contribAmount()).toBe('MX$1,250.00');
+    // Y lo que viaja: aportación de la española = `acquisitionPct: 100` + `language` (el servidor valúa; sin costo del cliente).
+    fireEvent.click(screen.getByRole('radio', { name: 'Español' }));
+    fireEvent.click(contribRadio());
+    fireEvent.click(cta());
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][0].items).toEqual([
+      { cardId: 'c-pikachu-ir', productType: 'raw', rawCondition: 'NM', finish: 'holofoil', language: 'es', qty: 1, acquisitionType: 'aportacion_en_especie', acquisitionPct: 100 },
+    ]);
+  });
+
+  it('(b) liga con mercado propio cuando el inglés NO tiene mercado ⇒ la aportación de la liga no se bloquea', async () => {
+    vi.spyOn(api, 'getCardVersions').mockResolvedValue(LEAGUE_ONLY_MARKET);
+    const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000502']));
+    renderWithProviders(<QuickAddSection target={target} buyEffectiveCents={null} buySource={null} marketRefCents={null} />, 'es');
+    await screen.findByRole('radiogroup', { name: 'Versión' });
+    // Inglés sin liga sin mercado: bloqueada como hoy.
+    expect(contribRadio()).toBeDisabled();
+    expect(within(contribCard()).getByText('Precio pendiente')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'De liga · Prize Pack' }));
+    expect(contribRadio()).toBeEnabled();
+    expect(within(contribCard()).queryByText('Precio pendiente')).toBeNull();
+    expect(contribAmount()).toBe('MX$480.00');
+    fireEvent.click(contribRadio());
+    fireEvent.click(cta());
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    const line = spy.mock.calls[0][0].items[0];
+    expect(line).toMatchObject({ cardProductId: 648703, acquisitionType: 'aportacion_en_especie', acquisitionPct: 100 });
+    expect(line).not.toHaveProperty('language');
+    expect(line).not.toHaveProperty('acquisitionCostCents');
+  });
+
+  it('(c) inglés sin liga ⇒ la cifra de siempre (la del binder), aunque el combo (en, null) traiga otra base; POST de hoy', async () => {
+    // STAMPED trae base 20 000 en (en, null) y el binder 125 000: la default sigue leyendo `marketRefCents` (0 cambios).
+    const { spy } = render(STAMPED);
+    await screen.findByRole('radiogroup', { name: 'Idioma' });
+    expect(contribAmount()).toBe('MX$1,250.00');
+    expect(contribRadio()).toBeEnabled();
+    fireEvent.click(contribRadio());
+    fireEvent.click(cta());
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][0].items).toEqual([
+      { cardId: 'c-pikachu-ir', productType: 'raw', rawCondition: 'NM', finish: 'holofoil', qty: 1, acquisitionType: 'aportacion_en_especie', acquisitionPct: 100 },
+    ]);
+  });
+
+  it('(d) la versión elegida se queda sin referencia ⇒ aportación bloqueada con el aviso de hoy y el camino vuelve a «Comprar»', async () => {
+    const withCandidate: CardVersionsResponse = {
+      ...WITH_ES,
+      candidates: [{ tcgplayerProductId: 777001, name: 'Pikachu ex (Prize Pack Series Seven)', stamp: { ...PP, productId: 777001 }, finishes: ['holofoil'] }],
+    };
+    const afterAttach: CardVersionsResponse = {
+      combos: WITH_ES.combos.map((c) =>
+        c.stamp?.productId === PP.productId && c.language === 'es'
+          ? { ...c, previewPriceCents: null, baseReferenceMxnCents: null, unavailableReason: 'no_stamped_market' as const }
+          : c,
+      ),
+      candidates: [],
+    };
+    vi.spyOn(api, 'attachStampedCandidate').mockResolvedValue(afterAttach);
+    render(withCandidate);
+    await screen.findByRole('radiogroup', { name: 'Idioma' });
+    fireEvent.click(screen.getByRole('radio', { name: 'Español' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'De liga · Prize Pack' }));
+    fireEvent.click(contribRadio());
+    expect(contribRadio()).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Es esta: Pikachu ex (Prize Pack Series Seven)' }));
+    await waitFor(() => expect(contribRadio()).toBeDisabled());
+    expect(within(contribCard()).getByText('Precio pendiente')).toBeInTheDocument();
+    expect(within(contribCard()).getByText('Sin valor de mercado — fíjalo en la sección Precios y vuelve a intentar.')).toBeInTheDocument();
+    expect(contribAmount()).toBeNull();
+    expect(within(screen.getByText('Comprar').closest('label')!).getByRole('radio')).toBeChecked();
+  });
+
+  it('espejo de `versionReferenceForAlta`: base de la liga tal cual; español = base × X con `scaleByPct` (floor((c·pct+50)/100)); sin base o sin X ⇒ null', () => {
+    expect(versionContributionReferenceCents(null)).toBeNull();
+    expect(versionContributionReferenceCents(combo({ stamp: PP, baseReferenceMxnCents: 48_000 }))).toBe(48_000);
+    expect(versionContributionReferenceCents(combo({ language: 'es', baseReferenceMxnCents: 125_000, appliedMarketPct: 75 }))).toBe(93_750);
+    // Redondeo del servidor (`common/card-version.ts` `scaleByPct`): 33 333 × 75 % = 24 999.75 ⇒ 25 000 (medio arriba).
+    expect(versionContributionReferenceCents(combo({ language: 'es', baseReferenceMxnCents: 33_333, appliedMarketPct: 75 }))).toBe(25_000);
+    expect(versionContributionReferenceCents(combo({ language: 'es', baseReferenceMxnCents: 1, appliedMarketPct: 50 }))).toBe(1);
+    expect(versionContributionReferenceCents(combo({ language: 'es', baseReferenceMxnCents: 125_000, appliedMarketPct: null }))).toBeNull();
+    expect(versionContributionReferenceCents(combo({ stamp: PP, baseReferenceMxnCents: null, previewPriceCents: null, unavailableReason: 'no_stamped_market' }))).toBeNull();
+  });
+});
+
+/** M-2 (QA): con `GET …/versions` en vuelo no hay burbujas y el CTA no debe crear «inglés sin liga» sin haber visto la opción. */
+describe('M-2 · mientras cargan las versiones el CTA está apagado', () => {
+  const cta = () => screen.getByRole('button', { name: 'Dar de alta al inventario' });
+
+  it.each([
+    ['con versiones', STAMPED],
+    ['sin versiones (solo inglés: el panel de siempre)', EN_ONLY],
+  ])('CTA apagado con la consulta en vuelo y vivo al resolver (%s)', async (_label, versions) => {
+    let resolve!: (v: CardVersionsResponse) => void;
+    vi.spyOn(api, 'getCardVersions').mockReturnValue(new Promise<CardVersionsResponse>((r) => (resolve = r)));
+    const spy = vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000503']));
+    renderWithProviders(<QuickAddSection target={target} buyEffectiveCents={87_500} buySource="market" marketRefCents={125_000} />, 'es');
+    await waitFor(() => expect(api.getCardVersions).toHaveBeenCalledTimes(1));
+    expect(cta()).toBeDisabled();
+    fireEvent.click(cta());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(spy).not.toHaveBeenCalled();
+    resolve(versions);
+    await waitFor(() => expect(cta()).toBeEnabled());
+  });
+
+  it('sellado: no hay nada que cargar ⇒ CTA vivo desde el primer render', () => {
+    vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000504']));
+    renderWithProviders(
+      <QuickAddSection
+        target={{ productType: 'sealed', finish: 'normal', sealedProductId: 'sp-bundle', sealedSubtype: 'bundle', sealedCondition: 'mint' }}
+        buyEffectiveCents={1_000}
+        buySource="market"
+        marketRefCents={null}
+      />,
+      'es',
+    );
+    expect(cta()).toBeEnabled();
   });
 });
