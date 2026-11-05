@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { measurementDisclosureProblem, MEASUREMENT_REVIEW_BOTH as CFG_BOTH, MEASUREMENT_REVIEW_NONE as CFG_NONE } from '../../next.config.mjs';
 import { MEASUREMENT_REVIEW_BOTH, MEASUREMENT_REVIEW_NONE } from '@/content/legal/measurement-gate';
 
@@ -94,18 +94,32 @@ describe('D7 · cargar next.config.mjs (lo que hace `next build`)', () => {
     });
 
   /**
+   * Copia `file` (ruta relativa a `FRONTEND`) a `dir` y, de forma TRANSITIVA, todo lo que importe por ruta
+   * relativa (`from './x.mjs'`, `import './x.mjs'`). Así la copia carga igual que la real sin que esta prueba
+   * tenga que enumerar los imports del config (DYN-F10 añadió `image-optimizer-hosts.mjs`, que a su vez importa
+   * `image-optimizer-switch.mjs`; `next.config.mjs` sigue siendo la única lista). No se usa un symlink a `src/`
+   * porque la copia escribe su propio `measurement-disclosure.ts` y lo pisaría en el árbol real.
+   */
+  const RELATIVE_IMPORT = /\b(?:from|import)\s*['"](\.\.?\/[^'"]+)['"]/g;
+  const copyWithRelativeImports = (file: string, dir: string, seen = new Set<string>()) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const src = join(FRONTEND, file);
+    mkdirSync(dirname(join(dir, file)), { recursive: true });
+    copyFileSync(src, join(dir, file));
+    for (const m of readFileSync(src, 'utf8').matchAll(RELATIVE_IMPORT)) {
+      copyWithRelativeImports(relative(FRONTEND, resolve(dirname(src), m[1])), dir, seen);
+    }
+  };
+
+  /**
    * Copia mínima de la configuración DENTRO de `frontend/` (para que `next-intl/plugin` resuelva desde su
    * `node_modules`) con una declaración dada. Así se prueba que CARGAR lanza, ahora que el fichero real ya declara.
    */
   const withDisclosure = (source: string, run: (dir: string) => void) => {
     const dir = mkdtempSync(join(FRONTEND, '.ncfg-gate-'));
     try {
-      copyFileSync(join(FRONTEND, 'next.config.mjs'), join(dir, 'next.config.mjs'));
-      mkdirSync(join(dir, 'src/security'), { recursive: true });
-      copyFileSync(join(FRONTEND, 'src/security/measurement-origins.mjs'), join(dir, 'src/security/measurement-origins.mjs'));
-      // Interruptor del optimizador (§4.DYN (f) 7): `next.config.mjs` lo importa.
-      mkdirSync(join(dir, 'src/lib'), { recursive: true });
-      copyFileSync(join(FRONTEND, 'src/lib/image-optimizer-switch.mjs'), join(dir, 'src/lib/image-optimizer-switch.mjs'));
+      copyWithRelativeImports('next.config.mjs', dir);
       mkdirSync(join(dir, 'src/content/legal'), { recursive: true });
       writeFileSync(join(dir, 'src/content/legal/measurement-disclosure.ts'), source);
       run(dir);
