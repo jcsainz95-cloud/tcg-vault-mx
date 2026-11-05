@@ -52,6 +52,22 @@
 
 ---
 
+## §ALTA — deuda del techlead sobre 4538fd1f (TL-ALTA)
+
+> Aprobado con deuda por el techlead sobre `4538fd1f` (rama `claude/orquestacion-1105`, stream UX-ALTA-LIGA: alta rápida del binder con Idioma y Versión, opción A). Cinco fichas, todas de frontend, medidas el 2026-11-05 sobre ese sha; anotadas por frontend en el mismo pase (O-23). `fichero:línea` relativos a `frontend/src/app/[locale]/(admin)/admin/m1/` salvo ruta explícita.
+
+| ID | Qué | Dueño | Medido el | Comprobación de cierre |
+|---|---|---|---|---|
+| TL-ALTA-1 | `QuickAdd` inventa la carta (`QuickAdd.tsx:113-116`), fija el acabado dos veces (`useIdsCapture.ts:66-67`), pasa `onFinish={() => {}}` (`:281`), y la caché compartida `['card-versions', id]` da combos recortados en mocks (`lib/api.ts:4345`). Además, los 12 props sueltos a `IdsCaptureFields` (`QuickAdd.tsx:273-286`, `AddItemModal.tsx:604-617`) | frontend | 2026-11-05 (`4538fd1f`) | El hook recibe `cardId` o la carta real, sin inventar acabados. `onFinish` opcional cuando `finishOptions` es null. `grep -n "availableFinishes: \[target.finish\]\|onFinish={() => {}}" "frontend/src/app/[locale]/(admin)/admin/m1/QuickAdd.tsx"` ⇒ 0. Prueba: `QuickAdd` y luego `AddItemModal` sobre la misma carta multi-acabado en mocks ⇒ `AddItemModal` ve todos los acabados |
+| TL-ALTA-2 | Comentario que miente en el mock (`frontend/src/lib/mock/fixtures.ts:3397-3398`: «con liga, el acabado tiene que existir en ese producto»): el código `:3399-3410` no rechaza liga + acabado inexistente en ese producto; el contrato pide `FINISH_NOT_AVAILABLE` (`types/contract.ts:4663-4664`) | frontend | 2026-11-05 (`4538fd1f`) | El mock devuelve `FINISH_NOT_AVAILABLE` para `cardProductId` + `finish` ∉ combos de esa liga, con prueba unitaria; canario: quitar la comprobación ⇒ rojo. (O bien se corrige el comentario) |
+| TL-ALTA-3 | Desvío de DESIGN_SYSTEM vIDS-9: falta el rótulo `admin.quickAdd.versionTitle` «Versión de la pieza que das de alta» (§16.5 item 0, `DESIGN_SYSTEM.md:3090`; `grep versionTitle frontend/` ⇒ 0); el filtro del cajón va como «Filtrar piezas» sin «· Idioma / Liga», con clave `filterPieces` en vez de `filterTitle` (`VariantDrawer.tsx:515`) y sin bajar a 36 px en escritorio (IDS-UX.3, `DESIGN_SYSTEM.md:33810`; `PieceVersion.tsx:66-88`) | frontend (o ux-ui enmienda el DS si ratifica lo hecho) | 2026-11-05 (`4538fd1f`) | `grep -c '"versionTitle"' frontend/messages/es.json` ≥ 1 y usado en `QuickAdd.tsx`, con un caso en `QuickAdd.ids.test.tsx` que lo encuentre; filtro alineado al DS o DS enmendado |
+| TL-ALTA-4 | Sin prueba del aviso de error de versiones en el alta rápida: el comentario de `QuickAdd.tsx:118-120` promete aviso con «Reintentar» cuando falla `GET …/versions`; ninguno de los casos de `QuickAdd.ids.test.tsx` lo cubre | frontend | 2026-11-05 (`4538fd1f`) | Caso en `QuickAdd.ids.test.tsx`: `getCardVersions` rechaza ⇒ `ids-versions-error` visible y «Reintentar» relee. Mutación `showIds = ids.enabled && ids.hasVersions` ⇒ rojo |
+| TL-ALTA-5 | La regla «tiene versiones» vive en el hook (`useIdsCapture.ts:71-74`) y no en `captureModel` (`ids-capture.ts`); el panel depende de los datos (`QuickAdd.tsx:120`) y el cuerpo del POST del estado (`useIdsCapture.ts:76-81`): si una relectura apaga `hasVersions` con «Español» elegido, el panel desaparece, `language:'es'` sigue vivo y el botón queda apagado sin motivo visible (riesgo bajo hoy: `refetchOnWindowFocus:false`, `Providers.tsx:12`) | frontend | 2026-11-05 (`4538fd1f`) | `hasVersions` en `ids-capture.ts` con prueba pura. Caso en `QuickAdd`: versiones pasan de STAMPED a `EN_ONLY_ES_NO_PRICE` con «Español» elegido ⇒ el panel sigue visible o el estado vuelve a «Inglés / Sin liga», nunca un botón apagado sin motivo |
+
+> Recomendación del techlead: pagar TD-SU-D4a (clave `['pending-publish']` a mano en `QuickAdd.tsx:204` y `AddItemModal.tsx:198`) en el próximo pase sobre m1; este stream cerró 0 fichas por ser estrecho de UX.
+
+---
+
 ## Backend · 2026-11-02 · checkout-fricción — deuda del techlead sobre `9d269935` (TL-CHK)
 
 > Dueño del código anotado: **backend**. Medidas por el techlead leyendo código el 2026-11-02; anotadas sin arreglar (O-23); los sitios citados se re-abrieron el mismo día sobre `9d269935`. **Cerradas** (una fila cada una hasta `e9c4c316`; texto completo en `git show e9c4c316:docs/TECH_DEBT.md`): TL-CHK-3; TL-CHK-7 (2026-11-03, quitado el `@Optional()` de `AuditService` en `UsersService`; fila en `git show d5524106:docs/TECH_DEBT.md`).
@@ -8355,13 +8371,7 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
 - **Comprobación de cierre:** `rg -n "from '\.\./(\.\./)?(m4|vaults)/" "frontend/src/app/[locale]/(admin)/admin"` ⇒ **0**.
 
 ### VLT-D6 · La regla del nombre en tres sitios y la columna de ubicación duplicada — **CERRADO en este pase** (frontend, 2026-09-28)
-- **Qué era:** `VaultDetailView.tsx` reimplementaba el `trim`/`null` de `CustomerNameBlock`, y la columna de
-  ubicación con zona estaba copiada en `VaultPlacementCard.tsx` y `PhysicalInventoryPanel.tsx`.
-- **Cierre:** `vaults/customer-name.ts · customerDisplayName` (lo usan `CustomerNameBlock`, la cabecera del detalle y
-  la fila de `VaultsView`, que era un cuarto sitio) y `m4/prep-shared.tsx · ZonedLocationColumn`.
-- **Residual (no bloqueante, fuera de M4-VAULT):** `components/master-set/MasterSetBinder.tsx:436` y
-  `MasterSetIndex.tsx:138` repiten `owner.name?.trim()` para «Bóveda de {name}». Se une a `customerDisplayName` cuando
-  VLT-D5 lo mueva a `components/`.
+- **Cierre:** `vaults/customer-name.ts · customerDisplayName` y `m4/prep-shared.tsx · ZonedLocationColumn` (detalle en `git show 4538fd1f:docs/TECH_DEBT.md`). **Residual** (no bloqueante): `MasterSetBinder.tsx` y `MasterSetIndex.tsx` repiten `owner.name?.trim()`; se une a `customerDisplayName` cuando VLT-D5 lo mueva a `components/`.
 
 ### VLT-D7 · `VaultPlacementCard.tsx` mide 828 líneas; las cuatro mutaciones deben salir a `useVaultPlacementActions` (frontend · Inventario y vault, 2026-09-28)
 - **Dónde:** `frontend/src/app/[locale]/(admin)/admin/m4/VaultPlacementCard.tsx` (`wc -l` ⇒ 828, 2026-09-28): el
@@ -8745,12 +8755,7 @@ defecto convertiría un hueco conocido en seis huecos invisibles.
   ⇒ **0**.
 
 ### SHIP-FD-c · `asApiError` copiado en 5 vistas — **CERRADO en este pase** (frontend, 2026-09-29)
-- **Qué era:** la misma función de 3 líneas en `ShipPreparationCard.tsx`, `VaultPlacementCard.tsx`,
-  `ReplacementCaseView.tsx`, `M3OrderDetailView.tsx` y `ManualRefundDetailView.tsx`.
-- **Cierre:** vive en `frontend/src/lib/api-client.ts` (`export function asApiError`); las cinco vistas la importan
-  (commit `8f48d28`). Juez: las 4 suites de esas vistas, **48/48**.
-- **Comprobación:** `rg -n "^function asApiError" frontend/src` ⇒ **0**; `rg -c "import \{ asApiError" frontend/src`
-  ⇒ **5**.
+- **Cierre:** una sola en `frontend/src/lib/api-client.ts` (commit `8f48d28`); comprobación: `rg -n "^function asApiError" frontend/src` ⇒ **0**. Detalle en `git show 4538fd1f:docs/TECH_DEBT.md`.
 
 ### SHIP-D-c (techlead sobre `59a0c1f`) · contar interbloqueos con `pg_stat_database.deadlocks` + espera de 1,5 s es frágil (backend · Órdenes y dinero, 2026-09-29)
 - **Dueño:** backend. **Severidad:** Baja. **No bloqueante.** (Nombre con prefijo para no chocar con el `D-c` de enums de
@@ -9468,14 +9473,7 @@ barridos. Ver `docs/FRONTEND_NOTES.md §96`.
   '!**/m4-*'` ⇒ **0**; `npm test` y la lista de títulos de Playwright (`--list`) sin cambios de número de casos.
 
 ### RS5-FE-LECCIÓN · ✅ cerrado en `7b9c196e` · Un aviso añadido «reusando copy» no tiene respaldo de diseño por reusar copy
-- **Qué pasó:** `ea6b72a3` (ux-pulido) añadió en el resumen del checkout con cuenta un segundo
-  `<p>{t('afterPayment')}</p>` («reusa el copy existente; no se inventa texto nuevo»). `DESIGN_SYSTEM §15.3`
-  (`DESIGN_SYSTEM.md:2569-2570`) fija **tres** notas al margen, «no se añade ni se quita ninguna», y PROJECT 48b iguala
-  los avisos del invitado (que pinta una). Resultado: el aviso salía **dos veces**. Lo cazó el gate de release (B-3b);
-  `7b9c196e` lo retiró (`CheckoutView.tsx:344`, comentario ⛔) y dejó candado.
-- **Lección (frontend):** reusar una clave de i18n no es respaldo: **cada bloque visible nuevo necesita su § en
-  `DESIGN_SYSTEM`**; si no está, se pide a ux-ui antes de pintar, igual que un campo nuevo se pide al arquitecto.
-- **Prueba que lo sostiene:** `frontend/e2e/checkout.spec.ts:41` (`checkout.afterPayment` ⇒ `toHaveCount(1)`).
+- **Lección (frontend):** cada bloque visible nuevo necesita su § en `DESIGN_SYSTEM`; reusar una clave de i18n no es respaldo. Candado: `frontend/e2e/checkout.spec.ts` (`checkout.afterPayment` ⇒ `toHaveCount(1)`). Historia en `git show 4538fd1f:docs/TECH_DEBT.md`.
 
 ---
 
@@ -10779,9 +10777,7 @@ D-7 se **cerró** en esta rama (ver al final); quedan cinco, ninguna bloqueante.
   `grep -n "refKind?:" frontend/e2e/miv-market-iva.spec.ts` da 0.
 
 ### D-7 · CERRADA en esta rama — MIV-E1 ya no corta en «NO MEDIDO»
-- Las dos ramas que anotaban «NO MEDIDO» en (d) (tendencia apagada; `value-history` 404) se quitaron: (d) prepara su
-  estado por la API de admin y un 404/serie vacía es rojo. Medido: real 2/2 verde, mock 1/1, canarios C1/C2
-  (`FRONTEND_NOTES §111.e2e-real`). `check-e2e-skip-census.sh` = baseline.
+- (d) prepara su estado por la API de admin y un 404/serie vacía es rojo; medido real 2/2, mock 1/1, canarios C1/C2 (`FRONTEND_NOTES §111.e2e-real`).
 
 ### TD-MIV-F6 · P4 · Prop `ivaRatePct` vestigial en la tendencia + incoherencia entre superficies de mercado (2026-10-10)
 - **Qué es:** tras vMIV-2, `SealedValueTrend` conserva `ivaRatePct?: number` en su firma
