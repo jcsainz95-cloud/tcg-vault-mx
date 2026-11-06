@@ -153,12 +153,16 @@ export function PillToggleGroup<V extends string>({
   value,
   onChange,
   testId,
+  describedBy,
 }: {
   label: string;
   options: readonly PillToggleOption<V>[];
+  /** La elegida; un valor que no casa con ninguna opción = ninguna elegida (A2 §16.5 (a).0: la fila «Acabado» abre sin preselección). */
   value: V;
   onChange: (v: V) => void;
   testId?: string;
+  /** `id` de la ayuda del grupo (`aria-describedby` del `radiogroup`), p. ej. `admin.quickAdd.finishHint`. */
+  describedBy?: string;
 }) {
   const labelId = useId();
   const enabled = options.filter((o) => !o.disabledReason);
@@ -170,7 +174,7 @@ export function PillToggleGroup<V extends string>({
       <p id={labelId} className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
         {label}
       </p>
-      <div role="radiogroup" aria-labelledby={labelId} className="mt-1.5 flex flex-wrap gap-2">
+      <div role="radiogroup" aria-labelledby={labelId} aria-describedby={describedBy} className="mt-1.5 flex flex-wrap gap-2">
         {options.map((o) => {
           const checked = o.value === value;
           const disabled = !!o.disabledReason;

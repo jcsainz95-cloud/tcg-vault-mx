@@ -236,3 +236,40 @@ describe('VariantDrawer (P-17, §16.4) · piezas de la variante', () => {
     expect(await screen.findByText(/CERT 82749163/)).toBeInTheDocument();
   });
 });
+
+/**
+ * UX-ALTA-LIGA (PENDIENTES 2026-11-05, simulador): los filtros `Idioma / Liga` de la LISTA de piezas se confundían con la
+ * selección de versión del alta. Van DEBAJO del título «Piezas (n)» —nunca entre los botones y el panel de alta— y se
+ * rotulan como filtro («Filtrar piezas»). Siguen siendo `radiogroup` (PieceVersion.test los mide por dentro).
+ */
+describe('VariantDrawer · filtros de piezas rotulados y bajo «Piezas (n)»', () => {
+  const follows = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  it('raw: eyebrow «Filtrar piezas» + los dos radiogroups van DESPUÉS del título «Piezas (n)» y del panel de alta', async () => {
+    vi.spyOn(api, 'getCardVersions').mockResolvedValue({ combos: [], candidates: [] });
+    renderDrawer();
+    const heading = await screen.findByRole('heading', { name: 'Piezas (2)' });
+    const filters = screen.getByTestId('piece-version-filters');
+    const eyebrow = screen.getByText('Filtrar piezas');
+    expect(follows(heading, eyebrow)).toBe(true);
+    expect(follows(eyebrow, filters)).toBe(true);
+    expect(screen.getByRole('radiogroup', { name: 'Idioma' })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: 'Liga' })).toBeInTheDocument();
+    // Con el alta rápida abierta, el panel de alta queda ANTES de los filtros (y el botón también).
+    const addButton = screen.getByRole('button', { name: 'Alta rápida' });
+    fireEvent.click(addButton);
+    const panel = await screen.findByRole('region', { name: 'Alta rápida' });
+    expect(follows(addButton, panel)).toBe(true);
+    expect(follows(panel, heading)).toBe(true);
+    expect(follows(panel, filters)).toBe(true);
+    // Los filtros viven dentro de la sección «Piezas (n)».
+    expect(screen.getByRole('region', { name: 'Piezas (2)' })).toContainElement(filters);
+  });
+
+  it('graded: sin filtros de versión (D-IDS-K) ni su rótulo', async () => {
+    renderDrawer({ productType: 'graded', cardId: 'c-charizard', gradeInfo: { gradingCompany: 'PSA', gradeValue: '9' } });
+    expect(await screen.findByText(/CERT 82749163/)).toBeInTheDocument();
+    expect(screen.queryByTestId('piece-version-filters')).toBeNull();
+    expect(screen.queryByText('Filtrar piezas')).toBeNull();
+  });
+});

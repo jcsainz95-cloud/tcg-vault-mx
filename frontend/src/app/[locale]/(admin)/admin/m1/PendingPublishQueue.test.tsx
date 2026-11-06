@@ -85,6 +85,13 @@ describe('Cola «listas para publicar» — la red que cierra el ciclo', () => {
     expect(screen.getAllByText('Compra a vendedor').length).toBe(2);
   });
 
+  it('la tabla vive en una caja con desplazamiento horizontal (a 390 px la página no desborda; UX-ALTA-LIGA 2026-11-05)', async () => {
+    stub([row()]);
+    renderWithProviders(<PendingPublishQueue />, 'es');
+    const table = (await screen.findByText('INV-004201')).closest('table')!;
+    expect(table.parentElement?.className).toContain('overflow-x-auto');
+  });
+
   it('sin precio resoluble NO pinta MX$0.00: «—» + «sin precio», la frase del motivo y el enlace a la cola', async () => {
     stub([
       row({ missing: ['price'], resolvedSalePriceCents: null, priceBasis: null, pendingPriceEntryId: 'ppe-77' }),

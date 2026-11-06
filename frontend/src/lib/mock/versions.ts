@@ -107,17 +107,26 @@ const MOCK_ATTACHED = new Map<string, StampDTO[]>();
 export function mockCardVersions(cardId: string, cardFinishes: Finish[], basePriceCents: number | null): CardVersionsResponse {
   const combos: VersionComboDTO[] = [];
   const pct = (c: number | null) => (c == null ? null : Math.floor((c * 75 + 50) / 100));
+  // MOCK de `buySuggestedCents` (IDS-F12): el servidor real aplica la curva de compra y luego X; aquí, 60 % fijo.
+  const buy = (c: number | null) => (c == null ? null : Math.floor((c * 60 + 50) / 100));
   for (const finish of cardFinishes) {
     const en = basePriceCents;
     // MOCK: `baseReferenceMxnCents` = la referencia antes de X; en el simulador `P` de la inglesa = su referencia.
-    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'en', stamp: null, previewPriceCents: en, baseReferenceMxnCents: en, appliedMarketPct: null, unavailableReason: en == null ? 'no_market' : null });
+    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'en', stamp: null, previewPriceCents: en, baseReferenceMxnCents: en, appliedMarketPct: null, buySuggestedCents: buy(en), unavailableReason: en == null ? 'no_market' : null });
     const es = pct(en);
-    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'es', stamp: null, previewPriceCents: es, baseReferenceMxnCents: en, appliedMarketPct: 75, unavailableReason: es == null ? 'no_english_market' : null });
+    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'es', stamp: null, previewPriceCents: es, baseReferenceMxnCents: en, appliedMarketPct: 75, buySuggestedCents: pct(buy(en)), unavailableReason: es == null ? 'no_english_market' : null });
   }
   const stamps: { stamp: StampDTO; finishes: Finish[]; price: number | null }[] = [];
   if (cardId === 'c-pikachu-ir') {
     stamps.push({ stamp: { type: 'prize_pack', label: null, productId: 648703 }, finishes: ['holofoil'], price: 48000 });
     stamps.push({ stamp: { type: 'staff', label: null, productId: 610001 }, finishes: ['holofoil'], price: null });
+  }
+  // A2 (IDS-F11 a/b): carta de casilla SOLO `normal` (`CARD_FINISHES`): «Promo de Liga» solo en Holo (un acabado ≠
+  // casilla ⇒ implícito, la burbuja lo nombra) y «Prize Pack» en Reverse Holo + Holo (dos ⇒ fila «Acabado», sin
+  // preselección). Es la «E2E League Bird» del stack real (`finishes={holofoil}`), en el simulador.
+  if (cardId === 'c-pawmi-sv08') {
+    stamps.push({ stamp: { type: 'league', label: null, productId: 651001 }, finishes: ['holofoil'], price: 12000 });
+    stamps.push({ stamp: { type: 'prize_pack', label: null, productId: 651002 }, finishes: ['reverse_holo', 'holofoil'], price: 15000 });
   }
   for (const s of MOCK_ATTACHED.get(cardId) ?? []) stamps.push({ stamp: s, finishes: ['normal'], price: 9000 });
   for (const { stamp, finishes, price } of stamps) {
@@ -132,6 +141,7 @@ export function mockCardVersions(cardId: string, cardFinishes: Finish[], basePri
           previewPriceCents: p,
           baseReferenceMxnCents: price,
           appliedMarketPct: language === 'es' ? 75 : null,
+          buySuggestedCents: language === 'en' ? buy(price) : pct(buy(price)),
           unavailableReason: p == null ? 'no_stamped_market' : null,
         });
       }

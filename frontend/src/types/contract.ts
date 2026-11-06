@@ -70,6 +70,11 @@ export interface VersionComboDTO {
   baseReferenceMxnCents: number | null;
   /** v1.116.2⟨ids⟩: X (`spanishMarketPct`) aplicado en `es`; `null` en `en`. */
   appliedMarketPct: number | null;
+  /**
+   * IDS-F12 (compra sugerida por versión, backend a1a7a3ec): centavos enteros MXN calculados SOLO en el servidor (curva de
+   * compra y, en español, X); `null` ⇒ sin sugerido (campo vacío). ⛔ El navegador no multiplica: solo muestra pesos.
+   */
+  buySuggestedCents: number | null;
   unavailableReason: VersionUnavailableReason | null;
 }
 export interface StampedCandidateDTO {
@@ -4658,6 +4663,12 @@ export interface BatchInventoryItemInput {
   acquisitionCostCents?: number;
   listPriceCents?: number;
   qty?: number;
+  // §IDS.4 (v1.116.3⟨ids⟩, contrato «POST /admin/inventory/items e items/batch += language? y cardProductId?»): solo
+  // raw. `language` default `en` (se omite en inglés); `cardProductId` SOLO un `CardProduct` `stamped` de la carta
+  // (versión de liga) — otro kind ⇒ 422 VALIDATION_ERROR {field:'cardProductId'}; `finish ∉ CardProduct.finishes` ⇒
+  // 422 FINISH_NOT_AVAILABLE; versión no default con `listPriceCents` ⇒ 422 (I-4). Mismos campos que `items` (IDS-F11).
+  language?: CardLanguage;
+  cardProductId?: number;
   // v1.36 (P-35): 4 campos ADITIVOS solo para productType='sealed' (ignorados en raw/graded).
   // `tcgplayerProductId` + `tcgplayerGroupId` se fijan JUNTOS (uno sin el otro → 422): la pieza
   // NACE MAPEADA (pobla InventoryItem.tcgplayerProductId/GroupId, columnas M-23) ⇒ sealedMarketRef

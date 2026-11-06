@@ -3,10 +3,12 @@ import { CardLanguage, Finish, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { orderFinishes } from '../../common/card-order';
-import { FinishLabel, finishLabelOf, StampDTO, stampDtoOf, StampRef } from '../../common/card-version';
+import { FinishLabel, finishLabelOf, scaleByPct, StampDTO, stampDtoOf, StampRef } from '../../common/card-version';
+import { variantKey } from '../../common/variant-key';
 import { AuditService } from '../audit/audit.service';
 import { FxService } from '../pricing/fx.service';
-import { hypotheticalRawSaleItem, isPricePending, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
+import { hypotheticalRawSaleItem, isPricePending, referenceInfoOf, SaleDecisionBatch, SaleDecisionService, SaleItem } from '../pricing/sale-decision.service';
+import { composeVariantPricing } from '../pricing/variant-pricing';
 import { StampedIngestService } from '../pricing/stamped-ingest.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -25,6 +27,13 @@ export interface VersionComboDTO {
   baseReferenceMxnCents: number | null;
   /** v1.116.2⟨ids⟩: X aplicado (`es` ⇒ el dial vigente; `en` ⇒ `null`). */
   appliedMarketPct: number | null;
+  /**
+   * v1.116.5⟨ids⟩ (§2 «Compra sugerida por versión», IDS-B33…B37): compra sugerida en centavos enteros. `B(R)` = la curva de compra
+   * (`composeVariantPricing().buy.effectiveCents`, la del binder) sobre la referencia `R` de la versión; (en, sin liga) ⇒ `B(R_en)`
+   * CON override/bounty de la carta (como el binder); el resto, curva PURA (`scaleByPct(B(R), X)` en español). `null` sin referencia,
+   * sin compra, X inválido, o graduada/sellado fuera de (en, sin liga).
+   */
+  buySuggestedCents: number | null;
 }
 
 export interface CardVersionsResponse {
@@ -92,6 +101,7 @@ export class InventoryVersionsService {
             : null
           : this.decider.versionReferences(h.item, v, batch!).guard;
       const appliedMarketPct = h.language === 'es' ? batch!.spanishPct : null;
+      const buySuggestedCents = this.buySuggestedFor(h.item, v, card, batch!, baseRef);
       let previewPriceCents: number | null = null;
       let unavailableReason: Reason | null = null;
       try {
@@ -110,6 +120,7 @@ export class InventoryVersionsService {
         unavailableReason,
         baseReferenceMxnCents,
         appliedMarketPct,
+        buySuggestedCents,
       });
     }
     const cands = await this.prisma.stampedProductCandidate.findMany({ where: { cardId }, orderBy: { tcgplayerProductId: 'asc' } });
@@ -122,6 +133,36 @@ export class InventoryVersionsService {
         finishes: c.finishes,
       })),
     };
+  }
+
+  /**
+   * `buySuggestedCents` de una combinación (ver `VersionComboDTO`). La curva y el guardarraíl de COMPRA salen de
+   * `composeVariantPricing` (único cuerpo del binder); aquí solo se elige la referencia `R` (la de `versionReferences`) y se
+   * aplica `scaleByPct` DESPUÉS de la curva en español. Override/bounty: solo (en, sin liga) (`variantOverrides` solo trae ésa).
+   */
+  private buySuggestedFor(
+    item: SaleItem,
+    v: { language: CardLanguage; stamp: StampRef | null },
+    card: { rarityCanonical: string | null; rarity: string | null; id: string },
+    b: SaleDecisionBatch,
+    baseRef: ReturnType<SaleDecisionService['referenceIn']>,
+  ): number | null {
+    if (item.productType !== 'raw' || !b.curve || !b.premiumFloorPolicy) return null;
+    const base = v.stamp == null && v.language === 'en';
+    const R = base ? (baseRef?.status === 'priced' ? (baseRef.referenceMxnCents ?? null) : null) : this.decider.versionReferences(item, v, b).guard;
+    if (R == null) return null;
+    const k = this.decider.refKeyOf(item);
+    const override = base && k ? (b.variantOverrides.get(variantKey(k)) ?? null) : null;
+    const curveBuy = composeVariantPricing(
+      base ? baseRef : referenceInfoOf({ referenceMxnCents: R, capturedDate: null }),
+      b.curve,
+      override,
+      card.rarityCanonical ?? card.rarity,
+      b.premiumFloorPolicy,
+    ).buy.effectiveCents;
+    if (curveBuy == null) return null;
+    if (v.language !== 'es') return curveBuy;
+    return b.spanishPct == null ? null : scaleByPct(curveBuy, b.spanishPct);
   }
 
   /**

@@ -107,16 +107,15 @@ su orden, combos de captura con `baseReferenceMxnCents`/`appliedMarketPct`; cart
 - **Captura (IDS-F1):** desglose en una línea con los campos DEL COMBO: «Base: {versión} en inglés · {base} × {X} %
   (español)» / «… · {base} (mercado de TCGplayer)»; sin base del servidor ⇒ sin cifra. Sin aritmética y sin leer Ajustes.
   **Errores** (QA 2026-11-03): `GET …/versions` falla ⇒ aviso «No se cargaron las versiones» + «Reintentar» (antes caía
-  en silencio a los controles de siempre); `attach` falla ⇒ aviso en la caja de candidatas + «Recargar versiones».
-  **Textos para revisión de ux-ui** (`admin.m1.ids`, tono de `createErrorTitle`/`createError` de M1): versiones —
-  título «No se cargaron las versiones», cuerpo «No pudimos cargar las versiones de esta carta: sin ellas no hay precio
-  calculado ni versiones de liga. Si la carta es en español o de liga, reintenta antes de darla de alta.», botón
-  «Reintentar»; attach — título «No se pudo ligar la versión», 404 «Esa versión ya no está entre las pendientes de ligar.
-  Recarga las versiones para ver cómo quedó la carta.», 409 «Esa versión ya está ligada a una carta. Recarga las
-  versiones para ver cómo quedó.», otro (red, 4xx, 5xx; petición 9b) «No se pudo ligar la versión. Inténtalo de nuevo; si
-  sigue, recarga las versiones.» (EN «Couldn't link the version. Try again; if it keeps failing, reload the versions.»),
-  botón «Recargar versiones». Aviso en línea en la caja de candidatas, `role="alert"`, y el foco pasa a «Recargar
-  versiones» al fallar. Textos aprobados por ux-ui (IDS-UX.7 punto 9b).
+  en silencio a los controles de siempre); `attach` falla ⇒ aviso en línea en la caja de candidatas (`role="alert"`, 404/409/
+  otro con su texto, petición 9b) + «Recargar versiones», que recibe el foco. Textos aprobados por ux-ui (IDS-UX.7 punto 9b);
+  viven en `messages/{es,en}.json` `admin.m1.ids` (una sola fuente).
+- **Alta rápida del binder con Idioma/Versión (opción A, HECHOS 2026-11-05; UX-ALTA-LIGA; A2 v1.116.8 I-6 / vIDS-10):** `QuickAddSection` reusa
+  `useIdsCapture` + `IdsCaptureFields` en modo casilla (`fixedFinish`): Idioma en TODA carta raw, Versión solo con liga, sin caja de candidatas, sin toast en el cajón.
+  **Acabado del alta** lo resuelve `captureModel` (`altaFinish`/`altaFinishMode`): casilla si la liga lo tiene; único de la liga ⇒ implícito y nombrado «De liga · Promo de Liga (Holo)»
+  (burbuja y desglose); varios ⇒ fila «Acabado» (`ids-alta-finish`, sin preselección, `finishHint`, CTA `aria-disabled`); el POST lleva ese `finish` (IDS-F11 a/b/c). **Compra**: con español o liga
+  el campo abre vacío (`buyNoSuggestionVersion`) y se prellena de vuelta en inglés sin liga (d). **Cajón**: 2.ª lectura `stamped=true` sin `finish` filtrada a acabados ∉ `cardFinishes`
+  (prop nueva desde `M1View`); filtros Idioma/Liga en cliente ⇒ «Piezas (n)» fijo, `slotCountNote`, «Mostrando n de N», vacío filtrado + «Quitar filtros»; baja rápida = 1.ª lectura (e). **I-1:** «Aportación» lee la referencia de la VERSIÓN (`versionContributionReferenceCents`); **M-2:** CTA apagado mientras carga. Candados: `QuickAdd.ids.test`, `VariantDrawer.ids.test`, `ids-capture.test`, `lib/mock/batch-finish.ids.test`, E2E `ids-quick-add.spec` (Pikachu + «Pawmi» `c-pawmi-sv08`).
 - **Carrito, checkout, «Mi pedido», seguimiento (petición 8, IDS-UX.4 «Carrito»):** `useVersionText().detail()` = la
   línea muted bajo las insignias, sin el idioma y solo si el tipo largo difiere de la insignia: ES sin liga ⇒ ninguna;
   «De liga (Prize Pack)»; EN «Prize Pack» ⇒ ninguna, «League (League promo)». **El deck también** (petición 9a,
@@ -1346,7 +1345,6 @@ redacción — así sigue mordiendo si alguien reescribe el copy y vuelve a cola
 ### 5. ✅ ~~🔴 NO CONFORMIDAD ABIERTA~~ — **CERRADA** el mismo día por `DESIGN_SYSTEM §35.6a` (v4.5, `27339eb`) · aplicada en §65
 
 > ✅ Cerrada: `fullName === null` ya no pinta «—»; la ausencia se nombra con el copy de `DESIGN_SYSTEM §35.6a`, aplicado en **[§65](#65)**.
-> *(Compactado 2026-10-25: el relato de la costura `PENDIENTE-UX` mientras faltaba el copy; la historia, en git.)*
 
 ### 6. Dos defectos que aparecieron al ESCRIBIR los candados, no al leer §35
 
@@ -4972,7 +4970,6 @@ pasada. Cambios de UX y sus decisiones:
   la primera carta descubierta (Playwright auto-espera a que la fila se habilite con el estimado).
 - Flujos preservados: modal con `BuylistKycForm` (CLABE + INE, gating P-11), respuesta a ajuste F5.
 
-
 ## 2026-08-17 · Feedback del CTA «Comprar» en la ficha de carta (carrito local)
 
 ### Problema
@@ -5013,7 +5010,6 @@ Claves nuevas `catalog.inCart` («En el carrito»/«In cart»), `catalog.addedTo
 ### Solicitud pendiente (otro stream / arquitecto de streams)
 `ListingCard` necesitaría una prop tipo `inCart?: boolean` (+ label alterno del CTA) para que la
 vitrina muestre también el estado «En el carrito» en el botón del card; hoy solo la ficha lo hace.
-
 
 ## 2026-08-17 · M5 admin: rechazos de buylist (contrato v1.18-buylist-rejects)
 
@@ -5204,7 +5200,6 @@ cualquier otro → 404 `INVALID_TOKEN`. `createGuestCheckoutSession` replica
 366 tests) · `npx playwright test` ✓ **60/60** en modo mock (incluye los 9 nuevos de
 `e2e/guest-checkout.spec.ts`, que cubren §J.1: camino feliz, upsell, correo inválido, token
 manipulado vs. expirado con texto idéntico, reenvío neutro con enfriamiento y ES/EN).
-
 
 ## 2026-08-18 (2ª ronda) · v1.21.1 — `checkoutToken` de 120 min + §15.7 corregida
 
@@ -13306,7 +13301,6 @@ alcance de este pase; queda inventariado y con trip-wire, y **su copy ya no se p
 el candado exige que salga de §27, literal, en los dos idiomas. Si el orquestador lo quiere en este
 release, es un pase mecánico de ~14 claves.
 
-
 ---
 
 ## §52 · La cuenta que caducó en un comentario, y el candado que ahora la lee (2026-09-07, rama `main`)
@@ -16095,7 +16089,6 @@ sha256 de origen). La URL del TTF la decide Google y no se puede fijar; por eso 
 del entorno) durante `(storefront)/page.test.tsx`. Ajeno a este cambio (no toca `HomeQuoter`); aislado ese
 fichero: 0/5 errores. Queda registrado como intermitente del test de la home — **no lo corrijo aquí**.
 
-
 ## §80 · **Portada del deck en el ensayo M12** — columna «Portada» (2026-09-28, rama `claude/decks-portada`, base `836442a`)
 
 Contrato: `API_CONTRACT.md §13` («Portada del deck» + `decks[].cover` en `GET /admin/decks-meta/preview`);
@@ -16208,7 +16201,6 @@ Origen: auditoría E2E del recorrido del operador (tester-e2e, 2026-09-29). Solo
   invariante (fila editable UPC/Collection + bicondicional vacío ⇔ «usa el global»). Corrido en mock: 1/1 verde.
 - **Deuda del techlead** registrada en `docs/TECH_DEBT.md` (OPG-D1 mover duplicado, OPG-D2 diálogos gemelos en
   `M4View`, OPG-D3 clave `street`).
-
 
 ### §81.2 · Hallazgos de QA sobre `4ca6c45` (2026-09-29, rama `claude/arreglos-operador`)
 

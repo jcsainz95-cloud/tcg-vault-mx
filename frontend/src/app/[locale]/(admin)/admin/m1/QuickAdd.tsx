@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Minus, Plus } from 'lucide-react';
@@ -21,6 +21,9 @@ import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { localUid } from '@/components/master-set/capture';
+import { IdsCaptureFields, stampWithFinishLabel } from './IdsCaptureFields';
+import { versionContributionReferenceCents } from './ids-capture';
+import { useIdsCapture } from './useIdsCapture';
 
 /**
  * Alta rápida simplificada — P-19 (DESIGN_SYSTEM §16.5). SOLO cantidad + adquisición:
@@ -28,6 +31,18 @@ import { localUid } from '@/components/master-set/capture';
  * mercado, NO editable, `acquisitionPct: 100` explícito). SIN dropdown de acabado (viene de la
  * casilla picada), SIN ubicación. Reusa POST /admin/inventory/items/batch (lote tolerante).
  * También la usa la pestaña Sellado (§16.8) con `sealedMarketRef` como referencia de aportación.
+ *
+ * UX-ALTA-LIGA (HECHOS 2026-11-05 «opción A»; §IDS.4 / IDS-UX.2; DESIGN_SYSTEM vIDS-10 §16.5 (a).0): en raw, ANTES de
+ * Cantidad van **Idioma** (en TODA carta, «Inglés» de fábrica: 0 toques) y, si la carta tiene liga, **Versión** en
+ * burbujas, más el «Precio de venta (auto)» —los mismos `IdsCaptureFields`/`useIdsCapture` de la captura por lote—.
+ * `language` viaja solo si ≠ 'en' y `cardProductId` solo con liga (IDS-F11); tras cada alta vuelve a «Inglés / Sin liga».
+ * Sin caja de candidatas (queda en Alta por lote).
+ *
+ * A2 (contrato v1.116.8 I-6 «Acabado del alta» / «Compra sugerida»): el acabado del POST es el RESUELTO por el modelo
+ * (`ids.model.altaFinish`): el de la casilla sin liga o si la liga lo tiene; el único de la liga si es otro (la burbuja
+ * lo nombra); el elegido en la fila «Acabado» si la liga tiene varios (sin elección, «Dar de alta» queda `aria-disabled`
+ * con la ayuda como descripción: elegir mal es precio mal). Con español o liga, «Pagamos por pieza» abre vacío (la
+ * sugerencia de compra es del inglés sin liga, P-ARQ-IDS-3) y vuelve a prellenarse al regresar a «Inglés / Sin liga».
  */
 
 export interface QuickAddTarget {
@@ -58,7 +73,10 @@ export interface QuickAddProps {
   /** `pricing.buy.effectiveCents` del binder (sugerido/override/bounty vigente) — null sin sugerido. */
   buyEffectiveCents: number | null;
   buySource: PriceBasis | null;
-  /** Referencia de mercado para la APORTACIÓN (raw: variante P-15; sellado: sealedMarketRef). */
+  /**
+   * Referencia de mercado para la APORTACIÓN (raw: variante P-15 en inglés sin liga; sellado: sealedMarketRef). Con otra
+   * versión elegida (español o liga) manda la del combo de `GET …/versions` (I-1), no esta.
+   */
   marketRefCents: number | null;
   /** Refresca lista de piezas/agregados; recibe los folios creados (resaltado 3s). */
   onCreated?: (folios: string[]) => void;
@@ -92,17 +110,80 @@ export function QuickAddSection({
 }: QuickAddProps) {
   const t = useTranslations('admin.quickAdd');
   const tRoot = useTranslations();
+  const tIds = useTranslations('admin.m1.ids');
+  const tv = useTranslations('version');
   const queryClient = useQueryClient();
   const locale = useLocale() as AppLocale;
   const { isSuperAdmin } = useRole();
   const errorRef = useRef<HTMLDivElement>(null);
 
-  const [qty, setQty] = useState('1');
-  const contribBlocked = marketRefCents == null;
-  const [path, setPath] = useState<AcqPath>('compra');
-  const [price, setPrice] = useState(
-    buyEffectiveCents != null ? String(buyEffectiveCents / 100) : '',
+  // §IDS.4: idioma y versión de la pieza, solo raw con carta (D-IDS-K: el sellado no tiene versión). Modo casilla
+  // (`fixedFinish`, A2): sin burbujas de acabado; el acabado del alta lo resuelve el modelo por versión (`altaFinish`).
+  const idsActive = target.productType === 'raw' && !!target.cardId;
+  const idsCard = useMemo(
+    () => (idsActive ? { id: target.cardId!, availableFinishes: [target.finish] } : null),
+    [idsActive, target.cardId, target.finish],
   );
+  const ids = useIdsCapture(idsCard, target.finish, { enabled: idsActive, fixedFinish: true });
+  // vIDS-10 (ratificado): Idioma se dibuja en TODA carta raw, también sin liga; la fila Versión solo si hay liga. Si
+  // `GET …/versions` falló, el aviso con «Reintentar» va dentro (QA 2026-11-03: nunca caer en silencio).
+  const showIds = ids.enabled;
+  // A2 (b): liga con varios acabados y ninguno el de la casilla, sin elegir ⇒ el CTA espera (aria-disabled + ayuda).
+  const finishPending = ids.enabled && ids.model.altaFinishMode === 'choose' && ids.model.altaFinish == null;
+  const finishHintId = useId();
+  // El acabado que viaja: el resuelto (IDS-F11 a/b/c); sin modelo (sellado), el del target.
+  const altaFinish: Finish = ids.enabled ? ids.model.altaFinish ?? target.finish : target.finish;
+  // «Español · De liga · Promo de Liga (Holo)» para el resumen (misma función de rótulo que la burbuja, TL-A2-3); el
+  // sufijo del acabado solo si la liga va en uno distinto al de la casilla. `null` en inglés sin liga (el texto de hoy).
+  const versionLabel: string | null =
+    ids.enabled && (ids.language !== 'en' || ids.model.stampProductId != null)
+      ? [
+          tv(`language.${ids.language}`),
+          stampWithFinishLabel(
+            tIds,
+            tv,
+            ids.model.versionOptions.find((o) => (o.stamp?.productId ?? null) === ids.model.stampProductId)?.stamp ?? null,
+            ids.model.stampProductId != null && ids.model.altaFinish != null && ids.model.altaFinish !== target.finish
+              ? ids.model.combo?.finishLabel ?? null
+              : null,
+          ),
+        ].join(' · ')
+      : null;
+
+  const [qty, setQty] = useState('1');
+  // I-1 (QA 2026-11-05): el backend costea la aportación de una versión no default con la referencia DE LA VERSIÓN
+  // (`versionReferenceForAlta`), no con la del inglés del binder. La tarjeta «Aportación» y su bloqueo leen la misma:
+  // inglés sin liga ⇒ `marketRefCents` (la de hoy); otra versión ⇒ la de su combo (`versionContributionReferenceCents`),
+  // y sin referencia ⇒ bloqueada con el aviso de siempre (el servidor respondería PRICE_PENDING).
+  const isDefaultVersion = !ids.enabled || (ids.language === 'en' && ids.model.stampProductId == null);
+  const contribRefCents = isDefaultVersion ? marketRefCents : versionContributionReferenceCents(ids.model.combo);
+  const contribBlocked = contribRefCents == null;
+  const [path, setPath] = useState<AcqPath>('compra');
+  // Si la versión elegida pierde su referencia con «Aportación» marcada (p. ej. versiones releídas tras ligar una
+  // candidata), el camino vuelve a «Comprar»: nunca un POST de aportación sin referencia.
+  if (contribBlocked && path === 'aportacion') setPath('compra');
+  // IDS-F12 «Compra sugerida por versión»: inglés sin liga ⇒ `buy.effectiveCents` (curva de compra, 528, como hoy); otra
+  // versión (español, liga, ambas) ⇒ el `buySuggestedCents` de SU combo, calculado por el servidor (⛔ el front no
+  // multiplica). `null` ⇒ campo vacío. Al cambiar de versión (o de acabado elegido) el campo se vuelve a prellenar con el
+  // de la nueva versión, aunque se hubiera tecleado; también al volver a «Inglés / Sin liga» tras un alta (`reset`).
+  const suggestedCents = isDefaultVersion ? buyEffectiveCents : ids.model.combo?.buySuggestedCents ?? null;
+  const prefill = suggestedCents != null ? String(suggestedCents / 100) : '';
+  const [price, setPrice] = useState(prefill);
+  const versionKey = isDefaultVersion ? 'default' : `${ids.language}|${ids.model.stampProductId ?? ''}`;
+  const finishKey = ids.model.altaFinish ?? '';
+  const lastVersionKeyRef = useRef(versionKey);
+  const lastFinishKeyRef = useRef(finishKey);
+  const touchedRef = useRef(false);
+  useEffect(() => {
+    const versionChanged = lastVersionKeyRef.current !== versionKey;
+    // Elegir el acabado dentro de la MISMA versión (fila «Acabado») solo prellena si el operador aún no tecleó.
+    const finishChanged = lastFinishKeyRef.current !== finishKey && !touchedRef.current;
+    lastVersionKeyRef.current = versionKey;
+    lastFinishKeyRef.current = finishKey;
+    if (!versionChanged && !finishChanged) return;
+    touchedRef.current = false;
+    setPrice(prefill);
+  }, [versionKey, finishKey, prefill]);
 
   const qtyNum = Math.max(1, Math.floor(Number(qty) || 1));
   const priceCents = parsePesos(price);
@@ -116,7 +197,9 @@ export function QuickAddSection({
   }
 
   const submit = useMutation({
-    mutationFn: () => {
+    // `versionLabel` viaja como variable del intento: el resumen lo lee de ahí aunque el panel ya haya vuelto a
+    // «Inglés / Sin liga» (reset tras el éxito).
+    mutationFn: (_vars: { versionLabel: string | null }) => {
       // v1.39 (P-38): con IDENTIDAD (`sealedProductId`) el backend deriva la Card ancla ⇒ se OMITE
       // el cardId del cliente (la pieza nace «ETB …», no un single). Los 4 campos M-37 sueltos quedan
       // deprecados y solo se envían en el camino legacy (sin sealedProductId).
@@ -125,7 +208,10 @@ export function QuickAddSection({
         ...(usesSealedIdentity ? {} : { cardId: target.cardId }),
         productType: target.productType,
         ...(target.productType === 'raw'
-          ? { rawCondition: 'NM' as const, finish: target.finish }
+          ? // §IDS.4 / IDS-F11: `language` solo si ≠ 'en' y `cardProductId` solo con liga (`useIdsCapture.payload`);
+            // inglés sin liga = el cuerpo de hoy. A2: `finish` = el RESUELTO (el de la casilla, o el de la liga cuando
+            // la casilla no lo tiene; backend lo valida contra `P.finishes`). ⛔ Sin `listPriceCents` (I-4).
+            { rawCondition: 'NM' as const, finish: altaFinish, ...ids.payload }
           : {
               ...(target.sealedSubtype ? { sealedSubtype: target.sealedSubtype } : {}),
               ...(target.sealedCondition ? { sealedCondition: target.sealedCondition } : {}),
@@ -157,17 +243,19 @@ export function QuickAddSection({
       };
       return batchCreateItems({ batchKey: ensureBatchKey(), items: [line] });
     },
-    onSuccess: (data) => {
+    onSuccess: (data, vars) => {
       if (data.summary.failedLines === 0) {
         // Éxito → la siguiente alta usa una batchKey nueva (un reintento del MISMO intento
         // fallido reusa la key = replay idempotente).
         batchKeyRef.current = null;
         const folios = data.results.flatMap((r) => (r.ok ? r.folios : []));
         onCreated?.(folios);
+        // IDS-UX.2: idioma y versión no se guardan entre piezas; cada alta vuelve a «Inglés / Sin liga».
+        ids.reset();
         // §SU-UX.6 (e): el alta puede dejar piezas en «Listas para publicar» → se refresca la cola.
         void queryClient.invalidateQueries({ queryKey: ['pending-publish'] });
-        // §SU-UX.6 (d): la nota va solo en el toast, DETRÁS del texto de hoy (el resultado del panel no cambia).
-        onToast?.(`${summaryOf(data)} ${tRoot('admin.m1.batchPublishNote')}`);
+        // §SU-UX.6 (d): la nota va en el toast (si hay) DETRÁS del texto de hoy; sin toast (cajón) va en el banner.
+        onToast?.(`${summaryOf(data, vars.versionLabel)} ${tRoot('admin.m1.batchPublishNote')}`);
       } else {
         // Fallo por-línea (p. ej. PRICE_PENDING): el banner anclado lo pinta el render.
         batchKeyRef.current = null;
@@ -184,14 +272,14 @@ export function QuickAddSection({
     }
   }, [submit.isError, failedLine]);
 
-  function summaryOf(data: BatchCreateInventoryResponse): string {
+  function summaryOf(data: BatchCreateInventoryResponse, version: string | null): string {
     const folios = data.results.flatMap((r) => (r.ok ? r.folios : []));
-    if (folios.length === 1) return t('successOne', { folio: folios[0] });
-    return t('successSummary', {
-      count: folios.length,
-      first: folios[0] ?? '',
-      last: folios[folios.length - 1] ?? '',
-    });
+    // UX-ALTA-LIGA: la versión se nombra en el resumen si no es inglés sin liga («… · Español · De liga · Prize Pack · INV-…»).
+    if (folios.length === 1) {
+      return version ? t('successOneVersion', { version, folio: folios[0] }) : t('successOne', { folio: folios[0] });
+    }
+    const range = { count: folios.length, first: folios[0] ?? '', last: folios[folios.length - 1] ?? '' };
+    return version ? t('successSummaryVersion', { version, ...range }) : t('successSummary', range);
   }
 
   function lineErrorMessage(code: string, message: string): string {
@@ -201,6 +289,8 @@ export function QuickAddSection({
   }
 
   const buyHelper = (() => {
+    // IDS-F12: otra versión ⇒ sugerido del servidor para esa versión («por regla») o, sin él, «escribe lo que pagaste».
+    if (!isDefaultVersion) return suggestedCents != null ? t('buy.helper.rule') : t('buyNoSuggestionVersion');
     if (buyEffectiveCents == null) return t('buy.helper.none');
     if (buySource === 'bounty') return t('buy.helper.bounty');
     if (buySource === 'override') return t('buy.helper.manual');
@@ -227,9 +317,31 @@ export function QuickAddSection({
       )}
       {succeeded && submit.data && (
         <Banner variant="success" role="status">
-          {summaryOf(submit.data)}
+          {summaryOf(submit.data, submit.variables?.versionLabel ?? null)}
           {submit.data.idempotentReplay ? ` · ${t('replay')}` : ''}
+          {/* §16.5 (b): sin toast (cajón) la nota «Listas para publicar» es la segunda frase del banner. */}
+          {!onToast && ` ${tRoot('admin.m1.batchPublishNote')}`}
         </Banner>
+      )}
+
+      {/* 0. Idioma (siempre), Versión (con liga) y Acabado (A2, solo si la liga tiene varios y ninguno el de la casilla). */}
+      {showIds && idsCard && (
+        <IdsCaptureFields
+          card={idsCard}
+          model={ids.model}
+          data={ids.data}
+          isLoading={ids.isLoading}
+          isError={ids.isError}
+          onRetry={ids.refetch}
+          finish={target.finish}
+          onFinish={() => {}}
+          language={ids.language}
+          onLanguage={ids.setLanguage}
+          onStamp={ids.setStampProductId}
+          onAttached={ids.onAttached}
+          slot={{ onChosenFinish: ids.setChosenFinish, finishHintId }}
+          showCandidates={false}
+        />
       )}
 
       {/* 1. Cantidad — stepper (botones 44px, mín 1). */}
@@ -293,7 +405,10 @@ export function QuickAddSection({
             prefix="MX$"
             inputMode="decimal"
             value={price}
-            onChange={(e) => setPrice(e.target.value)}
+            onChange={(e) => {
+              touchedRef.current = true;
+              setPrice(e.target.value);
+            }}
             onFocus={() => setPath('compra')}
             error={
               path === 'compra' && price.trim() !== '' && (priceCents == null || priceCents <= 0)
@@ -342,7 +457,7 @@ export function QuickAddSection({
             </span>
           ) : (
             <span className="font-mono tabular-nums text-base text-text">
-              {formatMoneyCents(marketRefCents!, locale)}
+              {formatMoneyCents(contribRefCents!, locale)}
             </span>
           )}
         </label>
@@ -351,8 +466,23 @@ export function QuickAddSection({
       {/* 3. CTA */}
       <Button
         className="w-full"
-        onClick={() => submit.mutate()}
-        disabled={submit.isPending || (path === 'compra' && priceInvalid)}
+        onClick={() => {
+          if (finishPending) return;
+          submit.mutate({ versionLabel });
+        }}
+        // A2 (b): sin acabado elegido el botón queda `aria-disabled` (sigue enfocable) con la ayuda de la fila como
+        // descripción; el clic no hace nada. TL-A2-1: en ese estado NADA lo vuelve `disabled` real (ni el precio vacío).
+        aria-disabled={finishPending || undefined}
+        aria-describedby={finishPending ? finishHintId : undefined}
+        // IDS-UX.2: una versión no default sin precio no se crea.
+        // M-2 (QA 2026-11-05): con `GET …/versions` en vuelo no hay burbujas y `canCreate` aún no sabe nada ⇒ el CTA
+        // espera; un clic rápido no crea «inglés sin liga» sin haber visto la opción. Si la consulta falla, el CTA vive
+        // (aviso con «Reintentar» arriba; el camino de siempre sigue abierto).
+        disabled={
+          submit.isPending ||
+          (path === 'compra' && priceInvalid && !finishPending) ||
+          (ids.enabled && !finishPending && (ids.isLoading || !ids.model.canCreate))
+        }
         loading={submit.isPending}
       >
         {submit.isPending ? t('loading') : t('cta')}

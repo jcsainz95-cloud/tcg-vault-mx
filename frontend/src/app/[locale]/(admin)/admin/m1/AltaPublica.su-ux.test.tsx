@@ -36,7 +36,19 @@ beforeEach(() => {
   vi.restoreAllMocks();
   roleState.role = 'super_admin';
   window.history.replaceState(null, '', '/');
+  // `QuickAddSection` raw consulta `GET …/versions` (UX-ALTA-LIGA): aquí la carta solo tiene inglés sin liga, el panel de
+  // siempre; con la consulta en vuelo el CTA espera (M-2), por eso los casos de QuickAdd aguardan a que esté vivo.
+  vi.spyOn(api, 'getCardVersions').mockResolvedValue({
+    combos: [{ finish: 'normal', finishLabel: 'non_holo', language: 'en', stamp: null, previewPriceCents: 125_000, baseReferenceMxnCents: 125_000, appliedMarketPct: null, buySuggestedCents: null, unavailableReason: null }],
+    candidates: [],
+  });
 });
+
+async function quickAddCtaReady() {
+  const cta = screen.getByRole('button', { name: 'Dar de alta al inventario' });
+  await waitFor(() => expect(cta).toBeEnabled());
+  return cta;
+}
 
 type Dict = Record<string, unknown>;
 const at = (d: Dict, path: string): unknown => path.split('.').reduce<unknown>((o, k) => (o as Dict | undefined)?.[k], d);
@@ -194,7 +206,7 @@ describe('SU-UX-9 · Lote: la nota se AÑADE detrás del texto de hoy', () => {
       />,
       'es',
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+    fireEvent.click(await quickAddCtaReady());
     await waitFor(() => expect(onToast).toHaveBeenCalledTimes(1));
     const msg = onToast.mock.calls[0][0] as string;
     expect(msg).toContain('Pieza dada de alta · INV-000501.');
@@ -223,7 +235,7 @@ describe('SU-UX-10 · Toda alta correcta refresca «Listas para publicar» (`[\'
       <QuickAddSection target={{ cardId: 'c-charizard', productType: 'raw', finish: 'normal' }} buyEffectiveCents={87_500} buySource="market" marketRefCents={125_000} />,
       'es',
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+    fireEvent.click(await quickAddCtaReady());
     await waitFor(() => expect(spy).toHaveBeenCalledWith(PENDING));
   });
   it('M1View, gradeada: invalida la cola y pinta el aviso (M1View le pasa `pushToast`)', async () => {

@@ -10,7 +10,6 @@ import {
   searchBuylistCards,
   createInventoryItem,
   batchCreateItems,
-  getCardVersions,
 } from '@/lib/api';
 import type {
   ProductType,
@@ -19,7 +18,6 @@ import type {
   Finish,
   CardDTO,
   BatchInventoryItemInput,
-  CardLanguage,
 } from '@/types/contract';
 import { FINISH_ORDER } from '@/lib/finish';
 import { FinishBadge } from '@/components/domain/FinishBadge';
@@ -30,7 +28,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
 import { ApiClientError } from '@/lib/api-client';
 import { IdsCaptureFields } from './IdsCaptureFields';
-import { captureModel } from './ids-capture';
+import { useIdsCapture } from './useIdsCapture';
 
 // P-35 (§16.8a): el sellado ya NO se da de alta por el buscador de cartas — vive en el flujo
 // dedicado `SealedAddFlow`. El alta por lote clásica conserva solo raw/graded.
@@ -74,10 +72,6 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
   const [acq, setAcq] = useState<AcquisitionType>('aportacion_en_especie');
   const [pct, setPct] = useState('70');
   const [locationId, setLocationId] = useState<string>('');
-  // §IDS.4 / IDS-UX.2: idioma y versión de liga de la pieza. «Inglés / Sin liga» de fábrica y NO se guardan entre
-  // piezas (cada carta elegida vuelve a la de fábrica): el camino normal no gana ni un toque.
-  const [language, setLanguage] = useState<CardLanguage>('en');
-  const [stampProductId, setStampProductId] = useState<number | null>(null);
   // P-5 · Alta MASIVA: modo de selección múltiple + "carrito" de cartas del lote.
   const [multiSelect, setMultiSelect] = useState(false);
   const [batchCards, setBatchCards] = useState<CardDTO[]>([]);
@@ -115,20 +109,11 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
   });
   const cards: CardDTO[] = cardsResult.data?.pages.flatMap((p) => p.data) ?? [];
 
-  // §IDS.4: combinaciones (acabado × idioma × versión) con precio del servidor. Solo alta individual raw (D-IDS-K).
+  // §IDS.4 / IDS-UX.2: idioma y versión de liga de la pieza («Inglés / Sin liga» de fábrica; cada carta elegida vuelve
+  // a la de fábrica: el camino normal no gana ni un toque). Combinaciones (acabado × idioma × versión) con precio del
+  // servidor. Solo alta individual raw (D-IDS-K). El mismo hook lo usa el alta rápida del cajón (`QuickAddSection`).
   const idsEnabled = !!selectedCard && productType === 'raw' && !multiSelect;
-  const versionsQuery = useQuery({
-    queryKey: ['card-versions', selectedCard?.id],
-    queryFn: () => getCardVersions(selectedCard!),
-    enabled: idsEnabled,
-  });
-  const ids = captureModel(
-    idsEnabled ? versionsQuery.data : undefined,
-    selectedCard?.availableFinishes ?? [],
-    finish,
-    language,
-    stampProductId,
-  );
+  const ids = useIdsCapture(selectedCard, finish, { enabled: idsEnabled });
   const cardsTotal = cardsResult.data?.pages[0]?.total ?? 0;
 
   // v1.6-finish: acabados de la carta REAL elegida; en masivo, la UNIÓN del lote.
@@ -167,8 +152,7 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
 
   function pickCard(card: CardDTO) {
     setSelectedCard(card);
-    setLanguage('en');
-    setStampProductId(null);
+    ids.reset();
     setFinish(FINISH_ORDER.find((f) => card.availableFinishes.includes(f)) ?? 'normal');
   }
 
@@ -201,10 +185,10 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
         locationId: locationId || undefined,
         acquisitionType: acq,
         acquisitionPct: acq === 'aportacion_en_especie' ? Number(pct) : undefined,
-        // §IDS.4: el idioma solo viaja si no es el de fábrica (cuerpo de hoy en inglés); la liga, en `cardProductId`.
-        // ⛔ Sin `listPriceCents`: una versión no default no admite precio tecleado (I-4).
-        ...(productType === 'raw' && language !== 'en' ? { language } : {}),
-        ...(productType === 'raw' && ids.stampProductId != null ? { cardProductId: ids.stampProductId } : {}),
+        // §IDS.4: el idioma solo viaja si no es el de fábrica (cuerpo de hoy en inglés); la liga, en `cardProductId`
+        // (`useIdsCapture.payload`, vacío si el hook no está activo). ⛔ Sin `listPriceCents`: una versión no default no
+        // admite precio tecleado (I-4).
+        ...ids.payload,
       }),
     onSuccess: (data) => {
       setSelectedCard(null);
@@ -306,7 +290,7 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
           ) : (
             <Button
               onClick={() => create.mutate()}
-              disabled={!selectedCard || gradedCertMissing || create.isPending || (idsEnabled && !ids.canCreate)}
+              disabled={!selectedCard || gradedCertMissing || create.isPending || (idsEnabled && !ids.model.canCreate)}
               loading={create.isPending}
             >
               {t('createItem')}
@@ -598,7 +582,7 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
         {productType === 'raw' && (
           <p className="rounded-md bg-success-bg px-3 py-2 text-sm text-success">{t('conditionNm')}</p>
         )}
-        {idsEnabled && ids.finishOptions ? null : showFinishSelect ? (
+        {idsEnabled && ids.model.finishOptions ? null : showFinishSelect ? (
           <Select
             label={t('finish')}
             options={finishOptions.map((f) => ({ value: f, label: tFinish(f) }))}
@@ -619,17 +603,17 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
         {idsEnabled && selectedCard && (
           <IdsCaptureFields
             card={selectedCard}
-            model={ids}
-            data={versionsQuery.data}
-            isLoading={versionsQuery.isLoading}
-            isError={versionsQuery.isError}
-            onRetry={() => void versionsQuery.refetch()}
+            model={ids.model}
+            data={ids.data}
+            isLoading={ids.isLoading}
+            isError={ids.isError}
+            onRetry={ids.refetch}
             finish={finish}
             onFinish={setFinish}
-            language={language}
-            onLanguage={setLanguage}
-            onStamp={setStampProductId}
-            onAttached={(res) => queryClient.setQueryData(['card-versions', selectedCard.id], res)}
+            language={ids.language}
+            onLanguage={ids.setLanguage}
+            onStamp={ids.setStampProductId}
+            onAttached={ids.onAttached}
           />
         )}
         {productType === 'graded' && (

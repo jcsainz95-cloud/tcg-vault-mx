@@ -9,7 +9,7 @@
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
 import { brandEmail } from '../brand';
-import { EN_DEFAULT_VERSION, mockFinishLabelOf, mockOptionKeyOf, mockVersionOptions } from './versions';
+import { EN_DEFAULT_VERSION, mockCardVersions, mockFinishLabelOf, mockOptionKeyOf, mockVersionOptions } from './versions';
 import { setMatchesQuery } from '../setCode';
 import type {
   StampDTO,
@@ -378,6 +378,10 @@ const CARD_FINISHES: Record<string, Finish[]> = {
   'c-pikachu-ir': ['holofoil'],
   'c-latias-sir': ['holofoil'],
   'c-milotic-fa': ['holofoil'],
+  // A2 (IDS-F11 a/b/e): casilla SOLO `normal` con ligas en otros acabados (`mockCardVersions`): «Promo de Liga» en Holo
+  // (un acabado ≠ casilla) y «Prize Pack» en Reverse Holo + Holo (dos, ninguno el de la casilla). Es la carta sembrada
+  // «E2E League Bird» del stack real, en el simulador.
+  'c-pawmi-sv08': ['normal'],
 };
 
 export const mockCards: CardDTO[] = ([
@@ -392,6 +396,8 @@ export const mockCards: CardDTO[] = ([
   card('c-pikachu-ir', 'Pikachu ex', '238', 'Illustration Rare', 'sv08', 'Surging Sparks', 'Pokémon', ['Basic', 'ex'], SV),
   card('c-latias-sir', 'Latias ex', '242', 'Special Illustration Rare', 'sv08', 'Surging Sparks', 'Pokémon', ['Basic', 'ex'], SV),
   card('c-milotic-fa', 'Milotic ex', '213', 'Ultra Rare', 'sv08', 'Surging Sparks', 'Pokémon', ['Stage 1', 'ex'], SV),
+  // A2: carta común de un solo acabado (`normal`) con productos de liga en otros acabados (ver CARD_FINISHES).
+  card('c-pawmi-sv08', 'Pawmi', '74', 'Common', 'sv08', 'Surging Sparks', 'Pokémon', ['Basic'], SV),
   // Productos sellados (sin rareza ni condición; nombre = producto).
   card('c-sealed-sv08-box', 'Surging Sparks Booster Box', '', '', 'sv08', 'Surging Sparks', 'Sealed', [], SV),
   card('c-sealed-sv06-etb', 'Twilight Masquerade ETB', '', '', 'sv06', 'Twilight Masquerade', 'Sealed', [], SV),
@@ -3322,11 +3328,15 @@ const mockBatchStore = new Map<string, BatchCreateInventoryResponse>();
 
 /** Alta por LOTE (POST /admin/inventory/items/batch) — tolerante por-línea. */
 export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateInventoryResponse {
+  // MOCK (arnés E2E, `ids-quick-add.spec.ts`): en el simulador no hay red que interceptar; la última petición al lote
+  // queda expuesta para que el navegador afirme el CUERPO que el alta rápida mandó (`language`, `cardProductId`).
+  (globalThis as { __thMockLastBatchRequest?: BatchCreateInventoryRequest }).__thMockLastBatchRequest = req;
   const prior = mockBatchStore.get(req.batchKey);
   if (prior) return { ...prior, idempotentReplay: true };
 
   let createdItems = 0;
   let failedLines = 0;
+  let pushed = 0;
   const results: BatchInventoryLineResult[] = req.items.map((line, index) => {
     // v1.39 (P-38): sellado por IDENTIDAD (`sealedProductId`) — el backend DERIVA la Card ancla y el
     // mercado desde el SealedProduct; el cliente NO manda cardId. Money-safe: manual solo llena el hueco.
@@ -3390,7 +3400,20 @@ export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateIn
       return { index, ok: false, error: { code: 'VALIDATION_ERROR', message: 'sealed has no condition' } };
     }
     const finish = (line.finish ?? 'normal') as Finish;
-    if (line.productType === 'raw' && !card.availableFinishes.includes(finish)) {
+    // MOCK §IDS.4 (v1.116.3): `cardProductId` solo un producto de liga (`stamped`) de la carta. Con liga, el acabado
+    // se valida contra los acabados de ESE producto (`P.finishes`, como `inventory.service.ts:971`; TL-ALTA-2), no
+    // contra `Card.availableFinishes`; sin liga, contra los de la carta, como siempre. Fuera ⇒ `FINISH_NOT_AVAILABLE`.
+    const productCombos =
+      line.cardProductId != null
+        ? mockCardVersions(card.id, card.availableFinishes, null).combos.filter((c) => c.stamp?.productId === line.cardProductId)
+        : [];
+    const stamp = productCombos[0]?.stamp ?? null;
+    if (line.cardProductId != null && !stamp) {
+      failedLines += 1;
+      return { index, ok: false, error: { code: 'VALIDATION_ERROR', message: 'cardProductId is not a stamped product of this card' } };
+    }
+    const finishAllowed = stamp ? productCombos.some((c) => c.finish === finish) : card.availableFinishes.includes(finish);
+    if (line.productType === 'raw' && !finishAllowed) {
       failedLines += 1;
       return { index, ok: false, error: { code: 'FINISH_NOT_AVAILABLE', message: 'finish not available' } };
     }
@@ -3400,7 +3423,8 @@ export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateIn
       return { index, ok: false, error: { code: 'PRICE_PENDING', message: 'no reference for aportacion' } };
     }
     const qty = line.productType === 'graded' ? 1 : line.qty ?? 1;
-    const base = mockInventory.length + createdItems + 1;
+    // Las piezas raw se PERSISTEN en el simulador (abajo): el folio sigue la longitud real del inventario.
+    const base = mockInventory.length - pushed + createdItems + 1;
     const folios: string[] = [];
     const inventoryItemIds: string[] = [];
     for (let k = 0; k < qty; k++) {
@@ -3409,6 +3433,27 @@ export function mockBatchCreate(req: BatchCreateInventoryRequest): BatchCreateIn
       inventoryItemIds.push(`inv-batch-${seq}`);
     }
     createdItems += qty;
+    if (line.productType === 'raw') {
+      // MOCK §IDS.4: la pieza nace con su versión (idioma + liga) y aparece en el cajón de la variante con sus insignias
+      // (`PieceVersion`), como la devolvería `GET /admin/inventory/items`. Inglés sin liga = `EN_DEFAULT_VERSION`.
+      const language = line.language ?? 'en';
+      for (let k = 0; k < qty; k++) {
+        mockInventory.push({
+          id: inventoryItemIds[k],
+          folio: folios[k],
+          card,
+          version: stamp || language !== 'en' ? { key: stamp ? `${language}.${stamp.productId}` : language, language, stamp } : EN_DEFAULT_VERSION,
+          productType: 'raw',
+          rawCondition: 'NM',
+          finish,
+          status: 'in_stock',
+          ownerType: 'platform',
+          acquisitionType: line.acquisitionType,
+          ...(line.acquisitionCostCents != null ? { acquisitionCostCents: line.acquisitionCostCents } : {}),
+        });
+        pushed += 1;
+      }
+    }
     return { index, ok: true, folios, inventoryItemIds };
   });
 
