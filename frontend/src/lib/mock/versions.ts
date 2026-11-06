@@ -107,12 +107,14 @@ const MOCK_ATTACHED = new Map<string, StampDTO[]>();
 export function mockCardVersions(cardId: string, cardFinishes: Finish[], basePriceCents: number | null): CardVersionsResponse {
   const combos: VersionComboDTO[] = [];
   const pct = (c: number | null) => (c == null ? null : Math.floor((c * 75 + 50) / 100));
+  // MOCK de `buySuggestedCents` (IDS-F12): el servidor real aplica la curva de compra y luego X; aquí, 60 % fijo.
+  const buy = (c: number | null) => (c == null ? null : Math.floor((c * 60 + 50) / 100));
   for (const finish of cardFinishes) {
     const en = basePriceCents;
     // MOCK: `baseReferenceMxnCents` = la referencia antes de X; en el simulador `P` de la inglesa = su referencia.
-    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'en', stamp: null, previewPriceCents: en, baseReferenceMxnCents: en, appliedMarketPct: null, unavailableReason: en == null ? 'no_market' : null });
+    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'en', stamp: null, previewPriceCents: en, baseReferenceMxnCents: en, appliedMarketPct: null, buySuggestedCents: buy(en), unavailableReason: en == null ? 'no_market' : null });
     const es = pct(en);
-    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'es', stamp: null, previewPriceCents: es, baseReferenceMxnCents: en, appliedMarketPct: 75, unavailableReason: es == null ? 'no_english_market' : null });
+    combos.push({ finish, finishLabel: mockFinishLabelOf(finish, null), language: 'es', stamp: null, previewPriceCents: es, baseReferenceMxnCents: en, appliedMarketPct: 75, buySuggestedCents: pct(buy(en)), unavailableReason: es == null ? 'no_english_market' : null });
   }
   const stamps: { stamp: StampDTO; finishes: Finish[]; price: number | null }[] = [];
   if (cardId === 'c-pikachu-ir') {
@@ -139,6 +141,7 @@ export function mockCardVersions(cardId: string, cardFinishes: Finish[], basePri
           previewPriceCents: p,
           baseReferenceMxnCents: price,
           appliedMarketPct: language === 'es' ? 75 : null,
+          buySuggestedCents: language === 'en' ? buy(price) : pct(buy(price)),
           unavailableReason: p == null ? 'no_stamped_market' : null,
         });
       }

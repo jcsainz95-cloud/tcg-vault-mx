@@ -20,7 +20,7 @@ beforeEach(() => {
   // El panel de siempre: la carta solo tiene inglés sin liga (`GET …/versions` sin nada que elegir, UX-ALTA-LIGA). Con la
   // consulta en vuelo el CTA espera (M-2), así que cada caso que crea aguarda a que esté vivo (`ctaReady`).
   vi.spyOn(api, 'getCardVersions').mockResolvedValue({
-    combos: [{ finish: 'reverse_holo', finishLabel: 'reverse_holo', language: 'en', stamp: null, previewPriceCents: 125_000, baseReferenceMxnCents: 125_000, appliedMarketPct: null, unavailableReason: null }],
+    combos: [{ finish: 'reverse_holo', finishLabel: 'reverse_holo', language: 'en', stamp: null, previewPriceCents: 125_000, baseReferenceMxnCents: 125_000, appliedMarketPct: null, buySuggestedCents: null, unavailableReason: null }],
     candidates: [],
   });
 });

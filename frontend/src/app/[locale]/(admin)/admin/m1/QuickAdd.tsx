@@ -162,17 +162,28 @@ export function QuickAddSection({
   // Si la versión elegida pierde su referencia con «Aportación» marcada (p. ej. versiones releídas tras ligar una
   // candidata), el camino vuelve a «Comprar»: nunca un POST de aportación sin referencia.
   if (contribBlocked && path === 'aportacion') setPath('compra');
-  // A2 (d) «Compra sugerida»: el prellenado con `buy.effectiveCents` es del inglés sin liga (curva de compra, 528). Con
-  // español o liga el campo se VACÍA y el operador teclea lo pagado; al volver a «Inglés / Sin liga» (también tras un
-  // alta, por el `reset`) vuelve el prellenado. ⛔ Ningún sugerido por versión (P-ARQ-IDS-3).
-  const prefill = buyEffectiveCents != null ? String(buyEffectiveCents / 100) : '';
+  // IDS-F12 «Compra sugerida por versión»: inglés sin liga ⇒ `buy.effectiveCents` (curva de compra, 528, como hoy); otra
+  // versión (español, liga, ambas) ⇒ el `buySuggestedCents` de SU combo, calculado por el servidor (⛔ el front no
+  // multiplica). `null` ⇒ campo vacío. Al cambiar de versión (o de acabado elegido) el campo se vuelve a prellenar con el
+  // de la nueva versión, aunque se hubiera tecleado; también al volver a «Inglés / Sin liga» tras un alta (`reset`).
+  const suggestedCents = isDefaultVersion ? buyEffectiveCents : ids.model.combo?.buySuggestedCents ?? null;
+  const prefill = suggestedCents != null ? String(suggestedCents / 100) : '';
   const [price, setPrice] = useState(prefill);
-  const wasDefaultRef = useRef(isDefaultVersion);
+  const versionKey = isDefaultVersion ? 'default' : `${ids.language}|${ids.model.stampProductId ?? ''}`;
+  const finishKey = ids.model.altaFinish ?? '';
+  const lastVersionKeyRef = useRef(versionKey);
+  const lastFinishKeyRef = useRef(finishKey);
+  const touchedRef = useRef(false);
   useEffect(() => {
-    if (wasDefaultRef.current === isDefaultVersion) return;
-    wasDefaultRef.current = isDefaultVersion;
-    setPrice(isDefaultVersion ? prefill : '');
-  }, [isDefaultVersion, prefill]);
+    const versionChanged = lastVersionKeyRef.current !== versionKey;
+    // Elegir el acabado dentro de la MISMA versión (fila «Acabado») solo prellena si el operador aún no tecleó.
+    const finishChanged = lastFinishKeyRef.current !== finishKey && !touchedRef.current;
+    lastVersionKeyRef.current = versionKey;
+    lastFinishKeyRef.current = finishKey;
+    if (!versionChanged && !finishChanged) return;
+    touchedRef.current = false;
+    setPrice(prefill);
+  }, [versionKey, finishKey, prefill]);
 
   const qtyNum = Math.max(1, Math.floor(Number(qty) || 1));
   const priceCents = parsePesos(price);
@@ -278,8 +289,8 @@ export function QuickAddSection({
   }
 
   const buyHelper = (() => {
-    // A2 (d): con español o liga no hay sugerencia (la del binder es del inglés sin liga).
-    if (!isDefaultVersion) return t('buyNoSuggestionVersion');
+    // IDS-F12: otra versión ⇒ sugerido del servidor para esa versión («por regla») o, sin él, «escribe lo que pagaste».
+    if (!isDefaultVersion) return suggestedCents != null ? t('buy.helper.rule') : t('buyNoSuggestionVersion');
     if (buyEffectiveCents == null) return t('buy.helper.none');
     if (buySource === 'bounty') return t('buy.helper.bounty');
     if (buySource === 'override') return t('buy.helper.manual');
@@ -394,7 +405,10 @@ export function QuickAddSection({
             prefix="MX$"
             inputMode="decimal"
             value={price}
-            onChange={(e) => setPrice(e.target.value)}
+            onChange={(e) => {
+              touchedRef.current = true;
+              setPrice(e.target.value);
+            }}
             onFocus={() => setPath('compra')}
             error={
               path === 'compra' && price.trim() !== '' && (priceCents == null || priceCents <= 0)

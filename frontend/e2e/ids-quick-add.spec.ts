@@ -144,10 +144,11 @@ for (const width of [390, 1280] as const) {
       // Precio del servidor (simulador: Prize Pack 48 000 × 75 % = 36 000) con su desglose.
       await expect(panel.getByTestId('ids-price')).toContainText('MX$360.00');
       await expect(panel.getByTestId('ids-breakdown')).toHaveText('Base: De liga · Prize Pack en inglés · MX$480.00 × 75 % (español)');
-      // (d) Compra sin prellenar: vacío con su ayuda, y el CTA espera el precio.
-      await expect(buyInput(panel)).toHaveValue('');
-      await expect(panel.getByText(t('es', 'admin.quickAdd.buyNoSuggestionVersion'))).toBeVisible();
-      await expect(panel.getByRole('button', { name: t('es', 'admin.quickAdd.cta') })).toBeDisabled();
+      // IDS-F12: compra prellenada con el `buySuggestedCents` del combo (simulador: 48 000 × 60 % × 75 % = 21 600), editable.
+      await expect(buyInput(panel)).toHaveValue('216');
+      await expect(panel.getByRole('button', { name: t('es', 'admin.quickAdd.cta') })).toBeEnabled();
+      await buyInput(panel).scrollIntoViewIfNeeded();
+      await shot(page, `buy-prefilled-es-${width}`);
 
       // Geometría real: cada burbuja ≥ 44 px y dentro del viewport; la página no desborda.
       const facts = await expectPillsFit(page, width, `quickadd-pills-${width}`, ['Español', 'De liga · Prize Pack']);
@@ -210,8 +211,7 @@ for (const width of [390, 1280] as const) {
       await expect(panel.getByTestId('ids-price')).toContainText('MX$120.00');
       await expect(panel.getByTestId('ids-breakdown')).toHaveText('Base: De liga · Promo de Liga (Holo) en inglés · MX$120.00 (mercado de TCGplayer)');
       // (d) compra vacía con su ayuda.
-      await expect(buyInput(panel)).toHaveValue('');
-      await expect(panel.getByText(t('es', 'admin.quickAdd.buyNoSuggestionVersion'))).toBeVisible();
+      await expect(buyInput(panel)).toHaveValue('72'); // IDS-F12: 12 000 × 60 % (simulador)
       await expectPillsFit(page, width, `pawmi-league-pills-${width}`, ['Inglés', 'De liga · Promo de Liga (Holo)']);
       await shot(page, `pawmi-league-holo-${width}`);
 

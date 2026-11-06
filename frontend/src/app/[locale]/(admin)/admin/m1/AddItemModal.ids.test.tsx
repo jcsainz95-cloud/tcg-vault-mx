@@ -53,6 +53,7 @@ const combo = (o: Partial<VersionComboDTO>): VersionComboDTO => ({
   previewPriceCents: 20000,
   baseReferenceMxnCents: 20000,
   appliedMarketPct: null,
+  buySuggestedCents: null,
   unavailableReason: null,
   ...o,
 });

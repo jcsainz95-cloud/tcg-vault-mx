@@ -37,6 +37,7 @@ const combo = (o: Partial<VersionComboDTO>): VersionComboDTO => ({
   previewPriceCents: 20000,
   baseReferenceMxnCents: 20000,
   appliedMarketPct: null,
+  buySuggestedCents: null,
   unavailableReason: null,
   ...o,
 });
@@ -245,6 +246,8 @@ describe('UX-ALTA-LIGA · alta rápida con Idioma y Versión (opción A)', () =>
     // De vuelta a inglés (Prize Pack en inglés sí tiene precio), el CTA vuelve a estar vivo.
     fireEvent.click(screen.getByRole('radio', { name: 'Inglés' }));
     expect(screen.getByTestId('ids-price')).toHaveTextContent('MX$480.00');
+    // IDS-F12: cambiar de versión re-prellena la compra (aquí sin sugerido ⇒ vacía); se vuelve a teclear.
+    typePrice();
     expect(cta).toBeEnabled();
   });
 
@@ -653,6 +656,52 @@ describe('A2 · acabado del alta desde la casilla (IDS-F11 a/b/c) y compra sin p
     fireEvent.click(cta());
     await new Promise((r) => setTimeout(r, 0));
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  /** IDS-F12: casilla `holofoil`; cada versión trae su `buySuggestedCents` del servidor (es 75, liga 90, es+liga sin sugerido). */
+  const SUGGESTED: CardVersionsResponse = {
+    combos: [
+      combo({ buySuggestedCents: 100_00 }),
+      combo({ language: 'es', previewPriceCents: 15000, buySuggestedCents: 75_00, appliedMarketPct: 75 }),
+      combo({ stamp: LEAGUE, previewPriceCents: 12000, baseReferenceMxnCents: 12000, buySuggestedCents: 90_00 }),
+      combo({ stamp: LEAGUE, language: 'es', previewPriceCents: 9000, baseReferenceMxnCents: 12000, buySuggestedCents: null, appliedMarketPct: 75 }),
+    ],
+    candidates: [],
+  };
+  const holoSlot = { cardId: 'c-league-bird', productType: 'raw' as const, finish: 'holofoil' as const };
+
+  it('IDS-F12 · «Pagamos por pieza» se prellena con el sugerido del combo elegido y se vuelve a prellenar al cambiar de versión (aunque se haya tecleado)', async () => {
+    renderSlot(SUGGESTED, holoSlot);
+    const lang = await screen.findByRole('radiogroup', { name: 'Idioma' });
+    // Inglés sin liga: el de siempre (`buy.effectiveCents` = 875).
+    expect(buyInput().value).toBe('875');
+    fireEvent.click(within(lang).getByRole('radio', { name: 'Español' }));
+    await waitFor(() => expect(buyInput().value).toBe('75'));
+    fireEvent.change(buyInput(), { target: { value: '33' } });
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Versión' })).getByRole('radio', { name: 'De liga · Promo de Liga' }));
+    // es + liga sin sugerido ⇒ vacío (no conserva el 33 ni el 75).
+    await waitFor(() => expect(buyInput().value).toBe(''));
+    fireEvent.click(within(lang).getByRole('radio', { name: 'Inglés' }));
+    await waitFor(() => expect(buyInput().value).toBe('90'));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Versión' })).getByRole('radio', { name: 'Sin liga' }));
+    await waitFor(() => expect(buyInput().value).toBe('875'));
+  });
+
+  it('IDS-F12 · el POST envía lo que muestra el campo (sugerido aceptado, o el tecleado tras editarlo)', async () => {
+    const spy = renderSlot(SUGGESTED, holoSlot);
+    const lang = await screen.findByRole('radiogroup', { name: 'Idioma' });
+    fireEvent.click(within(lang).getByRole('radio', { name: 'Español' }));
+    await waitFor(() => expect(buyInput().value).toBe('75'));
+    fireEvent.click(cta());
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy.mock.calls[0][0].items[0]).toMatchObject({ language: 'es', acquisitionCostCents: 7_500 });
+    await screen.findByRole('status');
+    fireEvent.click(within(lang).getByRole('radio', { name: 'Español' }));
+    await waitFor(() => expect(buyInput().value).toBe('75'));
+    fireEvent.change(buyInput(), { target: { value: '60' } });
+    fireEvent.click(cta());
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    expect(spy.mock.calls[1][0].items[0]).toMatchObject({ acquisitionCostCents: 6_000 });
   });
 
   it('(b) al volver a «Sin liga» la fila Acabado desaparece y el acabado vuelve a ser el de la casilla', async () => {

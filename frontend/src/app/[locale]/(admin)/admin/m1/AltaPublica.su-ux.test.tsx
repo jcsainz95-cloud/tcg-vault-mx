@@ -39,7 +39,7 @@ beforeEach(() => {
   // `QuickAddSection` raw consulta `GET …/versions` (UX-ALTA-LIGA): aquí la carta solo tiene inglés sin liga, el panel de
   // siempre; con la consulta en vuelo el CTA espera (M-2), por eso los casos de QuickAdd aguardan a que esté vivo.
   vi.spyOn(api, 'getCardVersions').mockResolvedValue({
-    combos: [{ finish: 'normal', finishLabel: 'non_holo', language: 'en', stamp: null, previewPriceCents: 125_000, baseReferenceMxnCents: 125_000, appliedMarketPct: null, unavailableReason: null }],
+    combos: [{ finish: 'normal', finishLabel: 'non_holo', language: 'en', stamp: null, previewPriceCents: 125_000, baseReferenceMxnCents: 125_000, appliedMarketPct: null, buySuggestedCents: null, unavailableReason: null }],
     candidates: [],
   });
 });

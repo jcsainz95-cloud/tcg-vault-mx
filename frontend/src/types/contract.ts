@@ -70,6 +70,11 @@ export interface VersionComboDTO {
   baseReferenceMxnCents: number | null;
   /** v1.116.2⟨ids⟩: X (`spanishMarketPct`) aplicado en `es`; `null` en `en`. */
   appliedMarketPct: number | null;
+  /**
+   * IDS-F12 (compra sugerida por versión, backend a1a7a3ec): centavos enteros MXN calculados SOLO en el servidor (curva de
+   * compra y, en español, X); `null` ⇒ sin sugerido (campo vacío). ⛔ El navegador no multiplica: solo muestra pesos.
+   */
+  buySuggestedCents: number | null;
   unavailableReason: VersionUnavailableReason | null;
 }
 export interface StampedCandidateDTO {
