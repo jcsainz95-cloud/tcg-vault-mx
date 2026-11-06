@@ -7,6 +7,12 @@
 > `feat/mkt-tienda` del 2026-10-16 movidas a `HISTORIAL.md` verbatim; antes 2026-09-29). Las secciones anteriores conservan
 > sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+## 2026-11-06 — Tras publicar #122 y #123
+
+| # | Qué | Dueño | Medido | Comprobación |
+|---|---|---|---|---|
+| CI-APT-LOCK | El paso «Instalar Chromium de Playwright» de `measurement-e2e (on/off)` falla cuando el runner tiene tomado `/var/lib/dpkg/lock-frontend` (otro apt-get); los 3 reintentos caen en < 15 s y se agotan. Pasó 2 veces el 2026-11-06 (run 42270439578 en #122; run 42293757193 en #123); ambas verdes al relanzar 1 vez. Robustecer: esperar el candado de apt (p. ej. `DPkg::Lock::Timeout`) o espaciar reintentos. Dueño 2026-11-06: «Déjalo en pendientes». | devops | 2026-11-06 (orquestador) | `e2e.yml` paso de Chromium; log con «Could not get lock» |
+
 ## 2026-10-31 — Stream «Conversión de marketing» (rama `claude/mkt-conversion`)
 
 > Medido por el orquestador el 2026-10-31. Entrega 1 (C7, B4, B4b, B5, C1, C2, C4, C5, C6 + arreglos de gates) con cuatro veredictos APROBADOS: QA y techlead sobre `aeaf3d34`; tester-e2e y seguridad sobre `e066b0b5` (delta posterior = frescura del catálogo + censo, revisado por QA y techlead). Entrega 2 (B1 banner, B6b, T2, B2/B2b, C3, C8) espera respuestas del dueño.
