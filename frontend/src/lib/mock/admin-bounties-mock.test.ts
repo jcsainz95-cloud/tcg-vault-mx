@@ -47,7 +47,7 @@ import { BOUNTY_SORTS } from '@/app/[locale]/(admin)/admin/m2/bounties/bounty-vi
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-const CONTRACT_PATH = join(__dirname, '..', '..', '..', '..', 'docs', 'API_CONTRACT.md');
+const CONTRACT_PATH = join(__dirname, '..', '..', '..', '..', 'docs', 'archive', 'API_CONTRACT.md');
 
 /** El cuerpo de §M2-B.1, anclado en el **id de la sección**, jamás en un número de línea. */
 function sectionM2B1(): string {

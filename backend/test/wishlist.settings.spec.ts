@@ -48,7 +48,7 @@ describe('WSH-T30 — las ocho claves de §WSH.2', () => {
 
 describe('WSH-T30 — paridad de `WishlistNoticeStatus` (banda 3: schema en disco ⇄ contrato)', () => {
   it('la línea canónica de §0 = el enum del schema', () => {
-    const contract = readFileSync(join(__dirname, '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
+    const contract = readFileSync(join(__dirname, '..', '..', 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
     const line = /^WishlistNoticeStatus\s+=\s+(.+)$/m.exec(contract);
     expect(line).not.toBeNull();
     const fromContract = line![1].replace(/\/\/.*$/, '').split('|').map((v) => v.trim()).filter(Boolean).sort();

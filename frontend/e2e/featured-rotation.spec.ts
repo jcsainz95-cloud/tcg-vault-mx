@@ -114,7 +114,7 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
    * `FeaturedCarouselRotation.test.tsx`.
    *
    * Si esto se pone rojo, la respuesta no es actualizar el literal: es traer la decisión del dueño y
-   * actualizar `DESIGN_SYSTEM.md` §23 y `docs/FRONTEND_NOTES.md` en el mismo commit.
+   * actualizar `DESIGN_SYSTEM.md` §23 y `docs/archive/FRONTEND_NOTES.md` en el mismo commit.
    */
   test('§23.3 · la cadencia de este archivo es la MISMA que compila el componente, y son 5 s', async () => {
     expect(constantInSource('ROTATION_REST_MS')).toBe(REST_MS);
@@ -208,7 +208,7 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
     // geométricamente inevitable a R6 («ningún reposo deja una teja cortada por el borde
     // izquierdo»): en `scrollWidth − clientWidth` la última teja queda flush a la DERECHA, y la
     // primera visible sale cortada salvo que el contenido sea múltiplo exacto del paso. Ver
-    // `docs/FRONTEND_NOTES.md` — es un hallazgo del navegador, no una licencia de implementación.
+    // `docs/archive/FRONTEND_NOTES.md` — es un hallazgo del navegador, no una licencia de implementación.
     const landed =
       after.tileLefts.some((left) => Math.abs(left) <= 2) ||
       Math.abs(after.scrollLeft - after.maxScroll) <= 2;
@@ -421,7 +421,7 @@ test.describe('Carrusel destacadas · rotación automática (§23)', () => {
  * no lo introduce §23**: las tejas las trae `GET /catalog/cards` por react-query **en el cliente**,
  * así que sin JS el estante se queda en su estado de carga. Corregirlo es mover la consulta a
  * servidor (RSC/prefetch), que es una decisión de arquitectura fuera de este pase. Anotado en
- * `docs/FRONTEND_NOTES.md` como solicitud al arquitecto; el test afirma lo verificable y no finge
+ * `docs/archive/FRONTEND_NOTES.md` como solicitud al arquitecto; el test afirma lo verificable y no finge
  * una cobertura que no tiene.
  */
 test.describe('Carrusel destacadas · sin JavaScript (§23.8)', () => {

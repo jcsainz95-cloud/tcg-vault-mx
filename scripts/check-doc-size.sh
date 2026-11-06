@@ -60,7 +60,7 @@ done < "$BASELINE"
 
 # Documentos medidos: todo fichero de texto bajo docs/ (recursivo) + PROJECT.md. Se excluye el
 # marcador vacío `.gitkeep`.
-mapfile -t DOCS < <(cd "$ROOT_DIR" && { [ -f PROJECT.md ] && echo PROJECT.md; find docs -type f ! -name '.gitkeep' 2>/dev/null; } | LC_ALL=C sort)
+mapfile -t DOCS < <(cd "$ROOT_DIR" && { [ -f PROJECT.md ] && echo PROJECT.md; find docs -type f ! -name '.gitkeep' ! -path 'docs/archive/*' 2>/dev/null; } | LC_ALL=C sort)
 
 if [ "$MODO" = update ]; then
   TMP="$(mktemp)"

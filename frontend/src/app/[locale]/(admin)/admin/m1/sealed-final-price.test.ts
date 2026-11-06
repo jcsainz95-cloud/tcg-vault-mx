@@ -8,7 +8,7 @@ import { MAX_LIST_PRICE_CENTS, marginPreview, SEALED_FINAL_PRICE_INVALIDATES } f
  * (solicitud al arquitecto); el ancla documental que el front consume es `DESIGN_SYSTEM §39` («`MAX_LIST_PRICE_CENTS =
  * 100_000_000`»). Si cualquiera de los dos se mueve sin el otro, esto se pone rojo.
  */
-const DS_PATH = join(__dirname, '..', '..', '..', '..', '..', '..', '..', 'docs', 'DESIGN_SYSTEM.md');
+const DS_PATH = join(__dirname, '..', '..', '..', '..', '..', '..', '..', 'docs', 'archive', 'DESIGN_SYSTEM.md');
 
 describe('MAX_LIST_PRICE_CENTS ↔ DESIGN_SYSTEM §39', () => {
   it('la cifra del front es la que cita el sistema de diseño', () => {

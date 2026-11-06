@@ -158,7 +158,7 @@ import { MARKETING_EXPORT_FORMATS, MARKETING_SCREENS, marketingPeriodOptions } f
 type ErrorBody = { error: { code: string; message: string; details: Record<string, unknown> } };
 
 const SRC = join(__dirname, '..', '..', 'src');
-const CONTRACT = join(__dirname, '..', '..', '..', 'docs', 'API_CONTRACT.md');
+const CONTRACT = join(__dirname, '..', '..', '..', 'docs', 'archive', 'API_CONTRACT.md');
 const SCHEMA = join(__dirname, '..', '..', 'prisma', 'schema.prisma');
 
 /** Una fila del registro de §0-Q punto 4, con lo que hace falta para ejercitarla por HTTP. */
@@ -1846,7 +1846,7 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
    *
    * La primera versión de este bloque se titulaba *«no puede crecer ni encogerse»* y solo
    * comprobaba lo segundo: que toda llave de la cola siguiera existiendo en el código. **La mitad de
-   * «crecer» no estaba implementada**, y `docs/TECH_DEBT.md` la afirmaba como hecha — o sea, este
+   * «crecer» no estaba implementada**, y `docs/archive/TECH_DEBT.md` la afirmaba como hecha — o sea, este
    * pase, que existe para cerrar la clase *«afirmación de mecanismo que nadie mide»*, estaba
    * **abriendo una instancia nueva de esa misma clase**. techlead lo leyó y tiene razón.
    *

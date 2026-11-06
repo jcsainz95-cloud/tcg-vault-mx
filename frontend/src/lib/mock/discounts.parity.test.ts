@@ -44,8 +44,8 @@ const mockAuditOf = (id: string) => mockAudit('DiscountCode', id);
  */
 
 const ROOT = join(__dirname, '..', '..', '..', '..');
-const CONTRACT = readFileSync(join(ROOT, 'docs', 'API_CONTRACT.md'), 'utf8');
-const PROJECT = readFileSync(join(ROOT, 'PROJECT.md'), 'utf8');
+const CONTRACT = readFileSync(join(ROOT, 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
+const PROJECT = readFileSync(join(ROOT, 'docs', 'archive', 'PROJECT.md'), 'utf8');
 /** §DSC entera, con los saltos de línea aplanados (las cifras cruzan renglones). */
 const DSC = (() => {
   const start = CONTRACT.indexOf('## <a id="DSC"></a>DSC.');

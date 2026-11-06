@@ -139,7 +139,7 @@ function parityProblems(frontendGate: string, techDebt: string, backendIds: read
 
 describe('SEC-MKT-3 · paridad de bloqueos backend ↔ frontend ↔ TECH_DEBT', () => {
   const gate = readFileSync(resolve(ROOT, 'frontend/src/content/legal/measurement-gate.ts'), 'utf8');
-  const debt = readFileSync(resolve(ROOT, 'docs/TECH_DEBT.md'), 'utf8');
+  const debt = readFileSync(resolve(ROOT, 'docs/archive/TECH_DEBT.md'), 'utf8');
   const ids = BACKEND_ENCENDER_BLOCKERS.map((b) => b.id);
 
   it('hoy: verde', () => {

@@ -47,7 +47,7 @@ describe('mockMetaTestEvent · salidas', () => {
   });
 
   it('la versión del mock es la de la tabla `META-GRAPH-VERSION` del contrato', () => {
-    const contract = readFileSync(resolve(__dirname, '../../../../docs/API_CONTRACT.md'), 'utf8');
+    const contract = readFileSync(resolve(__dirname, '../../../../docs/archive/API_CONTRACT.md'), 'utf8');
     const block = contract.split('<!-- META-GRAPH-VERSION:start -->')[1]?.split('<!-- META-GRAPH-VERSION:end -->')[0] ?? '';
     const version = /\|\s*`(v\d+\.\d+)`\s*\|/.exec(block)?.[1];
     expect(version).toBeDefined();

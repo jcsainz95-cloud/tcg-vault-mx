@@ -1265,7 +1265,7 @@ describe('FX-19 ⭐ — `before.bufferPct` y `after.bufferPct` son NÚMEROS DIST
 });
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════════
-// v1.63.2 · **S-FX-1 / S-FX-2 — LOS DOS HALLAZGOS DEL PENTESTER** (`docs/PENTEST_NOTES.md`)
+// v1.63.2 · **S-FX-1 / S-FX-2 — LOS DOS HALLAZGOS DEL PENTESTER** (`docs/archive/PENTEST_NOTES.md`)
 // ══════════════════════════════════════════════════════════════════════════════════════════════════
 
 // ── FX-20 ⭐⭐ — la carrera entre las dos puertas ─────────────────────────────────────────────────

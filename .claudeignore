@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+coverage/
+.git/
+.obsidian/workspace*
+playwright-report/
+test-results/
+*.log
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+docs/archive/
+docs/team-overview.html
+**/fixtures.ts
+**/es.json
+**/en.json

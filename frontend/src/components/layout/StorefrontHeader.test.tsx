@@ -63,7 +63,7 @@ describe('StorefrontHeader — sesión', () => {
     expect(account).toHaveAttribute('href', '/account');
     const nav = account.closest('nav') as HTMLElement;
     const labels = Array.from(nav.querySelectorAll('a')).map((a) => a.textContent?.trim());
-    expect(labels).toEqual(['Comprar', 'Vender', 'Meta Battle Decks', 'Mi bóveda', 'Compras y ventas', 'Mi cuenta']);
+    expect(labels).toEqual(['Comprar', 'Vende tus cartas', 'Meta Battle Decks', 'Mi bóveda', 'Compras y ventas', 'Mi cuenta']);
     expect(screen.getByRole('link', { name: 'Meta Battle Decks' })).toHaveAttribute('href', '/decks-meta');
     expect(screen.queryByText('Ash Ketchum')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Cerrar sesión/ })).not.toBeInTheDocument();
@@ -92,12 +92,12 @@ describe('StorefrontHeader — sesión', () => {
     expect(await screen.findByRole('link', { name: 'Mi bóveda' })).toHaveAttribute('aria-current', 'page');
   });
 
-  it('en /buylist/requests/:id se activa «Compras y ventas», no «Vender»', async () => {
+  it('en /buylist/requests/:id se activa «Compras y ventas», no «Vende tus cartas»', async () => {
     mockPathname = '/buylist/requests/sr-1';
     setStoredUser(user);
     renderWithProviders(<StorefrontHeader />, 'es');
     expect(await screen.findByRole('link', { name: 'Compras y ventas' })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: 'Vender' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('link', { name: 'Vende tus cartas' })).not.toHaveAttribute('aria-current');
   });
 
   it('el drawer móvil lleva las mismas seis entradas y ningún «Cerrar sesión»', async () => {
@@ -110,23 +110,23 @@ describe('StorefrontHeader — sesión', () => {
     expect(screen.queryByText('Ash Ketchum')).not.toBeInTheDocument();
   });
 
-  it('en inglés el nav de venta se etiqueta "Sell" (ruta interna /buylist)', () => {
+  it('en inglés el nav de venta se etiqueta "Sell your cards" (ruta interna /buylist)', () => {
     renderWithProviders(<StorefrontHeader />, 'en');
-    const sell = screen.getByRole('link', { name: 'Sell' });
+    const sell = screen.getByRole('link', { name: 'Sell your cards' });
     expect(sell).toHaveAttribute('href', '/buylist');
   });
 
-  it('en español el nav de venta se etiqueta "Vender"', () => {
+  it('en español el nav de venta se etiqueta "Vende tus cartas"', () => {
     renderWithProviders(<StorefrontHeader />, 'es');
-    const vender = screen.getByRole('link', { name: 'Vender' });
+    const vender = screen.getByRole('link', { name: 'Vende tus cartas' });
     expect(vender).toHaveAttribute('href', '/buylist');
   });
 
-  it('sin sesión el nav público muestra Comprar, Vender y Mi cuenta (oculta bóveda y órdenes)', () => {
+  it('sin sesión el nav público muestra Comprar, Vende tus cartas y Mi cuenta (oculta bóveda y órdenes)', () => {
     renderWithProviders(<StorefrontHeader />, 'es');
     // "Comprar" agrupa Cartas sueltas + Producto sellado; apunta a /catalog por default.
     expect(screen.getByRole('link', { name: 'Comprar' })).toHaveAttribute('href', '/catalog');
-    expect(screen.getByRole('link', { name: 'Vender' })).toHaveAttribute('href', '/buylist');
+    expect(screen.getByRole('link', { name: 'Vende tus cartas' })).toHaveAttribute('href', '/buylist');
     expect(screen.getByRole('link', { name: 'Mi cuenta' })).toHaveAttribute('href', '/login');
     // Áreas privadas: no visibles para el público (P-13).
     expect(screen.queryByRole('link', { name: 'Mi bóveda' })).not.toBeInTheDocument();

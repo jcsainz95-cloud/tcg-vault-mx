@@ -2,23 +2,23 @@
  * ⏰🔒 CANDADO DE CADUCIDAD — MKT-TL2 (residuo aceptado con dueño + caducidad + candado; SECURITY_NOTES, rechazo sobre
  * `bfd91ab2`, «Vía alternativa»). Dueño: backend. Caducidad: **2026-11-30** (00:00 CDMX).
  *
- * QUÉ HACE: con el RELOJ REAL, a partir del 2026-11-30 esta prueba sale ROJA mientras la ficha MKT-TL2 de `docs/TECH_DEBT.md`
+ * QUÉ HACE: con el RELOJ REAL, a partir del 2026-11-30 esta prueba sale ROJA mientras la ficha MKT-TL2 de `docs/archive/TECH_DEBT.md`
  * siga abierta. Antes de esa fecha, verde.
  *
  * CÓMO SE APAGA (lo único que la apaga): cerrar MKT-TL2 de verdad —
  *   1. escribir la prueba 3 de API_CONTRACT §MKT.H.14 (`test/marketing-cross-table.audit.spec.ts`: auditor de cruces por
  *      ecuaciones, `MARKETING_EQUATIONS`, `exposedCells`, `enforceFamily`, R2 por (tabla, clave, parte), R3b y R4);
  *   2. dejar verdes las pruebas 1 (`marketing-populations.registry.spec.ts`) y 3;
- *   3. marcar la fila de MKT-TL2 del índice de `docs/TECH_DEBT.md` como `MKT-TL2 ✅` (o «CERRADA») con el sha.
+ *   3. marcar la fila de MKT-TL2 del índice de `docs/archive/TECH_DEBT.md` como `MKT-TL2 ✅` (o «CERRADA») con el sha.
  * ⛔ Borrar la fila NO la apaga (rojo: «la ficha no existe»). ⛔ La fecha vive AQUÍ, no en el documento: moverla exige un
- * veredicto nuevo de seguridad (`docs/SECURITY_NOTES.md`), no una edición.
+ * veredicto nuevo de seguridad (`docs/archive/SECURITY_NOTES.md`), no una edición.
  */
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
 /** 2026-11-30 00:00 en CDMX (UTC−6). */
 export const MKT_TL2_DEADLINE = new Date('2026-11-30T06:00:00.000Z');
-const TECH_DEBT = resolve(__dirname, '../../docs/TECH_DEBT.md');
+const TECH_DEBT = resolve(__dirname, '../../docs/archive/TECH_DEBT.md');
 const AUDIT_SPEC = resolve(__dirname, 'marketing-cross-table.audit.spec.ts');
 
 type TL2State = 'open' | 'closed' | 'missing';
@@ -35,7 +35,7 @@ export function tl2State(techDebt: string): TL2State {
 export function tl2ExpiryProblem(now: Date, techDebt: string, auditSpecExists: boolean): string | null {
   const state = tl2State(techDebt);
   if (state === 'missing') {
-    return 'La ficha MKT-TL2 no está en el índice de docs/TECH_DEBT.md. No se borra: se cierra (fila «MKT-TL2 ✅» con su comprobación).';
+    return 'La ficha MKT-TL2 no está en el índice de docs/archive/TECH_DEBT.md. No se borra: se cierra (fila «MKT-TL2 ✅» con su comprobación).';
   }
   if (state === 'closed') {
     return auditSpecExists
@@ -44,10 +44,10 @@ export function tl2ExpiryProblem(now: Date, techDebt: string, auditSpecExists: b
   }
   if (now.getTime() < MKT_TL2_DEADLINE.getTime()) return null;
   return (
-    'MKT-TL2 venció el 2026-11-30 y sigue abierta (docs/TECH_DEBT.md). Para apagar esta prueba: escribe la prueba 3 de ' +
+    'MKT-TL2 venció el 2026-11-30 y sigue abierta (docs/archive/TECH_DEBT.md). Para apagar esta prueba: escribe la prueba 3 de ' +
     'API_CONTRACT §MKT.H.14 (test/marketing-cross-table.audit.spec.ts), déjala verde junto a la prueba 1 ' +
     '(test/marketing-populations.registry.spec.ts) y marca la fila del índice como «MKT-TL2 ✅» con el sha. ' +
-    'No muevas la fecha: la puso seguridad; cambiarla exige su veredicto en docs/SECURITY_NOTES.md.'
+    'No muevas la fecha: la puso seguridad; cambiarla exige su veredicto en docs/archive/SECURITY_NOTES.md.'
   );
 }
 

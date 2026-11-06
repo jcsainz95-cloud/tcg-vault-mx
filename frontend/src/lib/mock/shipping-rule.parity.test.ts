@@ -25,7 +25,7 @@ import { createGuestCheckoutSession, getGuestCheckoutQuote, getPublicShippingRul
  * (mixtos, energía, vacío) va como tabla propia abajo porque el contrato lo dice en prosa sin cifras.
  */
 
-const CONTRACT = readFileSync(join(__dirname, '..', '..', '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
+const CONTRACT = readFileSync(join(__dirname, '..', '..', '..', '..', 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
 const SECTION = (() => {
   const start = CONTRACT.indexOf('### <a id="4-G12"></a>4-G.12');
   const end = CONTRACT.indexOf('\n## 5. ', start);

@@ -12,7 +12,7 @@ import { IDS_EN } from '@/test/ids-defaults';
 
 const ROOT = resolve(__dirname, '../../../..');
 const read = (rel: string) => readFileSync(resolve(ROOT, rel), 'utf8');
-const CONTRACT = read('docs/API_CONTRACT.md');
+const CONTRACT = read('docs/archive/API_CONTRACT.md');
 
 function contractRows(): Array<{ facts: MeasurementItemFacts; item_id: string; item_name: string; item_category: string }> {
   const m = CONTRACT.match(/<!-- MKT-ITEM-ID:start -->([\s\S]*?)<!-- MKT-ITEM-ID:end -->/);

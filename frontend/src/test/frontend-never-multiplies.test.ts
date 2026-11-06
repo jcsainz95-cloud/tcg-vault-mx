@@ -176,7 +176,7 @@ describe('§M10-IVA.3 · ⛔ el frontend nunca multiplica', () => {
      * se cae sola y hay que borrarla. *Una excepción silenciosa se vuelve la regla; una excepción
      * que hay que mantener a mano se paga cada vez que alguien la lee.*
      *
-     * ⇒ **SOLICITUD AL ARQUITECTO**, registrada en `docs/FRONTEND_NOTES.md`:
+     * ⇒ **SOLICITUD AL ARQUITECTO**, registrada en `docs/archive/FRONTEND_NOTES.md`:
      * `MasterSetVariantDTO.buyable.salePriceCents` → `displayPriceCents` (+ `ivaIncluded`,
      * `ivaRatePct`), igual que las otras seis filas de §M10-IVA.3.
      */

@@ -13,6 +13,12 @@ import { imageOptimizerAccepts } from '@/lib/image-optimizer-hosts.mjs';
  * (`images`); aquí solo lo que pide la `<img>`: la calidad (la única de `qualities`) y el `sizes` de la caja
  * (236/400 px de teja menos el `p-3` de este pozo ⇒ 212/376 px de imagen).
  */
+/** Paso 1 de fotos: cuántas fotos del primer viewport se piden ya (`eager`); el resto, `lazy`. */
+export const CATALOG_EAGER_TILES = 8;
+export const QUOTER_EAGER_TILES = 6;
+export const SELL_CART_EAGER_LINES = 4;
+export const BOUNTY_EAGER_TILES = 4;
+
 export const OPTIMIZED_IMAGE_QUALITY = 75;
 export const OPTIMIZED_IMAGE_SIZES = `${minWidthQuery('lg')} 376px, 212px`;
 /**
@@ -91,7 +97,8 @@ export interface CardImageProps {
   /** `sizes` de la `<img>` optimizada cuando NO es la líder (tejas: `OPTIMIZED_TILE_IMAGE_SIZES`); por defecto, el de la líder. */
   optimizedSizes?: string;
   /**
-   * Tejas de Destacadas que caben en el primer viewport (01–03, `FEATURED_EAGER_TILES`): `loading="eager"` SIN
+   * Tejas del primer viewport (Destacadas `FEATURED_EAGER_TILES`; paso 1 de fotos 2026-11-06: `CATALOG_EAGER_TILES`,
+   * `QUOTER_EAGER_TILES`, `SELL_CART_EAGER_LINES`, `BOUNTY_EAGER_TILES`, definidas abajo): `loading="eager"` SIN
    * `fetchpriority="high"` (eso sigue siendo solo de la líder, `priority`). Pide la foto al parsear el HTML en vez
    * de esperar a que el navegador decida que está «cerca» (WebKit usa un margen menor que Chromium: 9 imágenes
    * pedidas contra 13–16 en Chromium, medido 2026-11-04).

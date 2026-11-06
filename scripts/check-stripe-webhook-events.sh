@@ -13,7 +13,7 @@
 #
 # QUE COMPRUEBA (rc=1 con el evento exacto; rc=0 si todo cuadra)
 #   A. todo `case '<evento Stripe>':` de backend/src/**/*.ts (sin specs) esta en el manifiesto;
-#   B. todo evento del manifiesto aparece en la seccion §11.G de docs/DEVOPS_NOTES.md.
+#   B. todo evento del manifiesto aparece en la seccion §11.G de docs/archive/DEVOPS_NOTES.md.
 #   (El sentido inverso —manifiesto con un evento que el backend aun no maneja— solo avisa:
 #    es el orden natural cuando devops se adelanta a backend.)
 # Uso:  ./scripts/check-stripe-webhook-events.sh [RAIZ]    (RAIZ = arbol a medir; por defecto el repo)
@@ -22,9 +22,9 @@
 set -uo pipefail
 ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 MANIFEST="$ROOT/security/stripe-webhook-events.txt"
-NOTES="$ROOT/docs/DEVOPS_NOTES.md"
+NOTES="$ROOT/docs/archive/DEVOPS_NOTES.md"
 [ -f "$MANIFEST" ] || { echo "::error::falta security/stripe-webhook-events.txt"; exit 1; }
-[ -f "$NOTES" ] || { echo "::error::falta docs/DEVOPS_NOTES.md"; exit 1; }
+[ -f "$NOTES" ] || { echo "::error::falta docs/archive/DEVOPS_NOTES.md"; exit 1; }
 [ -d "$ROOT/backend/src" ] || { echo "::error::falta backend/src"; exit 1; }
 
 PREFIJOS='(payment_intent|charge|refund|checkout|customer|invoice|payout|setup_intent|payment_method)'

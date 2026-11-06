@@ -16,7 +16,7 @@ import { MOCK_PAYABILITY_TERM_KEYS } from './fixtures';
  *
  * *Un candado que no cubre la clase entera del defecto no es el candado: es la mitad que ya
  * pasó.* Este archivo cierra la otra mitad **leyendo la fuente de verdad** —la fórmula normativa
- * de `docs/API_CONTRACT.md` §M5-V.0— y exigiendo que **los términos del documento sean
+ * de `docs/archive/API_CONTRACT.md` §M5-V.0— y exigiendo que **los términos del documento sean
  * exactamente las claves de la tabla del servidor falso**.
  *
  * ### Los dos candados de CÓDIGO miden cosas distintas, y por eso van los dos
@@ -38,7 +38,7 @@ import { MOCK_PAYABILITY_TERM_KEYS } from './fixtures';
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-const CONTRACT_PATH = join(__dirname, '..', '..', '..', '..', 'docs', 'API_CONTRACT.md');
+const CONTRACT_PATH = join(__dirname, '..', '..', '..', '..', 'docs', 'archive', 'API_CONTRACT.md');
 
 /**
  * El bloque normativo de §M5-V.0 («LA NORMA, EN CUATRO LÍNEAS»), sin los comentarios `//` de sus

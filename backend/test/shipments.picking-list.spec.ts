@@ -1014,7 +1014,7 @@ describe('pickingList — la forma vieja ya no viaja', () => {
  * reintroduciría exactamente ese defecto dentro del candado que lo cierra.
  *
  * Precedente del repo para este patrón: `enum-values-parity.spec.ts` y `sell-request-states.spec.ts`
- * leen `docs/API_CONTRACT.md` y asertan contra él. ⛔ Y §M4P-ORDER prohíbe explícitamente un fichero
+ * leen `docs/archive/API_CONTRACT.md` y asertan contra él. ⛔ Y §M4P-ORDER prohíbe explícitamente un fichero
  * de casos compartido con frontend: lo consumirían **los dos sobre Node**, medirían la misma
  * collation, y la única divergencia real seguiría invisible.
  *
@@ -1023,9 +1023,9 @@ describe('pickingList — la forma vieja ya no viaja', () => {
  */
 type Caso = { n: number; entrada: { id: string; label: string | null }[]; salida: string[] };
 
-/** Lee y parsea el bloque `M4P-ORDER-CASE` de `docs/API_CONTRACT.md`. UNA sola puerta al contrato. */
+/** Lee y parsea el bloque `M4P-ORDER-CASE` de `docs/archive/API_CONTRACT.md`. UNA sola puerta al contrato. */
 function casosDelContrato(): Caso[] {
-  const contrato = readFileSync(join(__dirname, '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
+  const contrato = readFileSync(join(__dirname, '..', '..', 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
   const re = /^\s*M4P-ORDER-CASE\s+(\d+)\s*\|\s*IN:\s*(.+?)\s*\|\s*OUT:\s*(.+?)\s*$/gm;
   const casos: Caso[] = [];
   for (let m = re.exec(contrato); m !== null; m = re.exec(contrato)) {

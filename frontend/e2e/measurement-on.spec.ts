@@ -297,7 +297,7 @@ test.describe('C-F5 · navegación dura hacia rutas excluidas', () => {
     });
   }
 
-  // v1.109: «Vender» lleva a `/buylist`, que ya se mide; el enlace excluido del encabezado es «Decks».
+  // v1.109: «Vende tus cartas» lleva a `/buylist`, que ya se mide; el enlace excluido del encabezado es «Decks».
   test('clic en un enlace del encabezado (Decks) y del pie (Términos) ⇒ documento nuevo sin etiquetas', async ({ page, context }) => {
     const { log, href } = await acceptOnCard(page, context);
     let before = log.measurement.length;

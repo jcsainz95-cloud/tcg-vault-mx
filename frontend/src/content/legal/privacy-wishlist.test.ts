@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { privacyNoticeEs } from './privacidad.es';
 import { WISHLIST_PRIVACY_EN, WISHLIST_PRIVACY_ES } from './privacy-wishlist';
 
-const PROJECT = readFileSync(join(__dirname, '..', '..', '..', '..', 'PROJECT.md'), 'utf8');
+const PROJECT = readFileSync(join(__dirname, '..', '..', '..', '..', 'docs', 'archive', 'PROJECT.md'), 'utf8');
 
 function literal(lang: 'es' | 'en'): string {
   const start = PROJECT.indexOf('Texto exacto de la línea del aviso de privacidad');

@@ -13,13 +13,13 @@ import { BuylistCycleSection } from './BuylistCycleSection';
 /**
  * F-9 · DESIGN_SYSTEM §60.7 b · contrato §E2E-ADM.3/.4 (M10-BL-1…4).
  * - **M10-BL-1**: los diez nombres de la tabla de §M10 se pintan y son editables. ⚠️ La lista se LEE de la tabla del
- *   contrato (`docs/API_CONTRACT.md`, §M10 «DIEZ diales»), no del componente.
+ *   contrato (`docs/archive/API_CONTRACT.md`, §M10 «DIEZ diales»), no del componente.
  * - **M10-BL-2**: editar uno manda un `PUT` con SOLO esa clave.
  * - **M10-BL-3**: ni «umbral de guía» ni «recorte material».
  * - **M10-BL-4**: el `422` cruzado pinta el copy con las tres cifras de `details`.
  * - **M10-UI**: el `422` por clave NO pinta el texto del servidor: marca el campo y pinta SU regla.
  */
-const CONTRACT = readFileSync(resolve(__dirname, '../../../../../../../../docs/API_CONTRACT.md'), 'utf8');
+const CONTRACT = readFileSync(resolve(__dirname, '../../../../../../../../docs/archive/API_CONTRACT.md'), 'utf8');
 function tenDialsFromContract(): string[] {
   const start = CONTRACT.indexOf('DIEZ** diales nuevos del CICLO DE ADQUISICIÓN DEL BUYLIST');
   expect(start, 'no se encontró la tabla «DIEZ diales» de §M10').toBeGreaterThan(0);

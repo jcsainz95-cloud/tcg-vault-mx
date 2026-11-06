@@ -8,6 +8,7 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { BOUNTY_EAGER_TILES, CardImage } from '@/components/ui/CardImage';
 import { FinishBand } from '@/components/domain/FinishMark';
 import { HuntMarkMicro } from '@/components/domain/LogoTcgHunt';
 
@@ -60,9 +61,9 @@ export function TopBountiesShelf({
         </div>
       ) : (
         <ul className="-mx-1 mt-6 flex snap-x gap-6 overflow-x-auto px-1 pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible">
-          {items?.map((b) => (
+          {items?.map((b, idx) => (
             <li key={`${b.cardId}:${b.finish}`} className="w-44 shrink-0 snap-start lg:w-auto">
-              <BountyCard bounty={b} onQuote={onQuote} />
+              <BountyCard bounty={b} onQuote={onQuote} eager={idx < BOUNTY_EAGER_TILES} />
             </li>
           ))}
         </ul>
@@ -75,9 +76,12 @@ export function TopBountiesShelf({
 export function BountyCard({
   bounty,
   onQuote,
+  eager = false,
 }: {
   bounty: PublicBountyDTO;
   onQuote?: (bounty: PublicBountyDTO) => void;
+  /** Paso 1 de fotos (2026-11-06): primer viewport ⇒ `loading="eager"`; el resto, `lazy`. */
+  eager?: boolean;
 }) {
   const t = useTranslations('buylist.bounties');
   const locale = useLocale() as AppLocale;
@@ -86,15 +90,18 @@ export function BountyCard({
     <article className="flex h-full flex-col">
       <FinishBand finish={bounty.finish} />
       <div className="relative aspect-[5/7] w-full bg-surface-2">
+        {/* `CardImage` (sin `optimized`): trae el arreglo de la carrera de hidratación de #120 (la foto que
+            baja antes de hidratar no se queda en `opacity-0`) y reserva el aspecto 5:7 (sin salto de layout).
+            Decorativa (`alt=""`): el nombre va en el texto de abajo. `p-0 bg-transparent` = el pozo del contenedor. */}
         {bounty.imageSmallUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={bounty.imageSmallUrl}
-            alt=""
-            aria-hidden
-            loading="lazy"
-            className="h-full w-full object-contain"
-          />
+          <div aria-hidden className="h-full w-full">
+            <CardImage
+              src={bounty.imageSmallUrl}
+              alt=""
+              eager={eager}
+              className="aspect-auto h-full w-full bg-transparent p-0"
+            />
+          </div>
         )}
         {/* Chip con scrim de tinta (§7.2b): texto papel sobre tinta (~15:1). */}
         <span className="absolute left-1 top-1 flex items-center gap-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--color-on-ink)]">

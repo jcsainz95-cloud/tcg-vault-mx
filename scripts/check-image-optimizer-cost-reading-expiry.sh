@@ -11,7 +11,7 @@
 # ⇒ ROJO. Y si la lectura trae > 1 000 transformaciones/día, es el disparador de la opción (b) (§4.DYN (f) 7) ⇒ ROJO
 # también: un disparador que nadie vigila no dispara nada.
 #
-# QUÉ MIRA (estático, sin red): solo el bloque **106.4** de docs/DEVOPS_NOTES.md (desde «**106.4» hasta «**106.5»). Una
+# QUÉ MIRA (estático, sin red): solo el bloque **106.4** de docs/archive/DEVOPS_NOTES.md (desde «**106.4» hasta «**106.5»). Una
 # línea con el formato fuera de ese bloque no cuenta. Si el bloque no está (renombrado, borrado), NO CONCLUYENTE (rc 2,
 # rojo en CI): un candado cuyo operando nadie produce no es un candado.
 # Fecha de la lectura válida: 2026-10-30 ≤ fecha ≤ hoy (una lectura «del futuro» no es una lectura).
@@ -34,11 +34,11 @@ if [ "${1:-}" = "--canary" ]; then
   TMP="$(mktemp -d -t img-cost-XXXXXX)"; trap 'rm -rf "$TMP"' EXIT
   ok=0; total=0
   notas() {  # $1 = línea dentro de §106.4 (o vacía) · $2 = línea fuera (o vacía) · $3 = "sin-bloque" para quitar §106.4
-    local d="$TMP/c$total"; mkdir -p "$d/docs"
+    local d="$TMP/c$total"; mkdir -p "$d/docs/archive"
     if [ "${3:-}" = sin-bloque ]; then
-      printf '## §106\n\n**106.3 algo.**\n\n%s\n\n**106.5 Candados.**\n' "$1" > "$d/docs/DEVOPS_NOTES.md"
+      printf '## §106\n\n**106.3 algo.**\n\n%s\n\n**106.5 Candados.**\n' "$1" > "$d/docs/archive/DEVOPS_NOTES.md"
     else
-      printf '## §106\n\n**106.4 Coste del optimizador.** LECTURA-IMG-7D <fecha> <transformaciones/día>\n| — | **NO MEDIDO** | | dueño |\n%s\n\n**106.5 Candados.**\n%s\n' "$1" "$2" > "$d/docs/DEVOPS_NOTES.md"
+      printf '## §106\n\n**106.4 Coste del optimizador.** LECTURA-IMG-7D <fecha> <transformaciones/día>\n| — | **NO MEDIDO** | | dueño |\n%s\n\n**106.5 Candados.**\n%s\n' "$1" "$2" > "$d/docs/archive/DEVOPS_NOTES.md"
     fi
     printf '%s' "$d"
   }
@@ -71,10 +71,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 [[ "$HOY" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "::error::--today debe ser AAAA-MM-DD (recibí '$HOY')"; exit 2; }
-NOTAS="$ROOT_DIR/docs/DEVOPS_NOTES.md"
+NOTAS="$ROOT_DIR/docs/archive/DEVOPS_NOTES.md"
 [ -f "$NOTAS" ] || { echo "::error::no existe $NOTAS (NO concluyente)"; exit 2; }
 BLOQUE="$(awk '/^\*\*106\.4[ .]/{d=1} /^\*\*106\.5[ .]/{d=0} d' "$NOTAS")"
-[ -n "$BLOQUE" ] || { echo "::error title=image-optimizer-cost-reading-expiry: NO CONCLUYENTE::No encuentro el bloque **106.4 de docs/DEVOPS_NOTES.md (hasta **106.5): el candado no tiene dónde leer. Dueño: devops."; exit 2; }
+[ -n "$BLOQUE" ] || { echo "::error title=image-optimizer-cost-reading-expiry: NO CONCLUYENTE::No encuentro el bloque **106.4 de docs/archive/DEVOPS_NOTES.md (hasta **106.5): el candado no tiene dónde leer. Dueño: devops."; exit 2; }
 
 # Lecturas válidas: «LECTURA-IMG-7D AAAA-MM-DD N» con FECHA_MIN ≤ fecha ≤ hoy. Se queda con la MÁS RECIENTE.
 mejor_f=""; mejor_n=""

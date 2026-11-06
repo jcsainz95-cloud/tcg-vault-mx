@@ -11,7 +11,7 @@ import { flatten, P66_3_CODE_RE } from './i18n-p66-3.testkit';
  * claves previas de `admin.m9.*` siguen en su sitio. **UX-AN-20**: `admin.m9.sales.csv.*` no habla de centavos.
  * Determinista (N=1).
  */
-const DS = readFileSync(resolve(__dirname, '../../../docs/DESIGN_SYSTEM.md'), 'utf8');
+const DS = readFileSync(resolve(__dirname, '../../../docs/archive/DESIGN_SYSTEM.md'), 'utf8');
 const START = DS.indexOf('### AN-UX.14');
 const END = DS.indexOf('### AN-UX.15');
 const section = DS.slice(START, END);

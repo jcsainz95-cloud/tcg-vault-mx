@@ -208,7 +208,7 @@ describe('§60.5 b · ✏ §BSD-UX.6a · la fila `aceptada` dice dónde está la
  */
 describe('F-33 · BRJ-UI-5 = FE-BRJ-4 — `409 CONFLICT {reason: ITEM_FINAL}`', () => {
   // Los textos se leen de la TABLA de §60.14 (el candado de literalidad de §26/§27 no parsea §60).
-  const DS = readFileSync(resolvePath(__dirname, '../../../../../../../docs/DESIGN_SYSTEM.md'), 'utf8');
+  const DS = readFileSync(resolvePath(__dirname, '../../../../../../../docs/archive/DESIGN_SYSTEM.md'), 'utf8');
   function dsRow(key: string): { es: string; en: string } {
     const line = DS.split('\n').find((l) => l.startsWith(`| \`error.${key}\` |`));
     if (!line) throw new Error(`§60.14 no tiene la fila error.${key}`);

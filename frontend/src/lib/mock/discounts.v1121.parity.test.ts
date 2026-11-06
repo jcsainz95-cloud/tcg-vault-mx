@@ -23,7 +23,7 @@ import { mockDiscountedDirectShip } from '@/lib/api';
  */
 
 const ROOT = join(__dirname, '..', '..', '..', '..');
-const CONTRACT = readFileSync(join(ROOT, 'docs', 'API_CONTRACT.md'), 'utf8');
+const CONTRACT = readFileSync(join(ROOT, 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
 const DSC = (() => {
   const start = CONTRACT.indexOf('## <a id="DSC"></a>DSC.');
   expect(start).toBeGreaterThan(-1);

@@ -191,7 +191,7 @@ describe('§4.39c — paridad a TRES BANDAS del enum: schema.prisma ⇄ Prisma �
     // especificación diciendo una cosa y el sistema haciendo otra. La declaración del contrato ocupa
     // DOS líneas (continúa con `| rechazada | abandonada | expirada`), así que se leen las de
     // continuación además de la primera.
-    const contract = readFileSync(join(ROOT, 'docs', 'API_CONTRACT.md'), 'utf8');
+    const contract = readFileSync(join(ROOT, 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
     const m = /^SellRequestStatus\s+=\s+(.+(?:\n\s+\|.+)*)$/m.exec(contract);
     expect(m).not.toBeNull();
     const values = (m as RegExpExecArray)[1]

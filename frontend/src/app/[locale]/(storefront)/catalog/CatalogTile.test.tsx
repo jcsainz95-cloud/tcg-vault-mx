@@ -62,6 +62,17 @@ describe('CatalogTile · P-39 grid denso conserva la imagen chica', () => {
     const img = screen.getByAltText('Charizard');
     expect(img).toHaveAttribute('src', 'https://img.example/charizard-small.png');
   });
+
+  it('paso 1 de fotos: `eagerImage` ⇒ loading=eager SIN fetchpriority y SIN pasar por /_next/image; por defecto, lazy', () => {
+    const { unmount } = renderWithIntl(<CatalogTile listing={listing()} inCart={false} onAdd={vi.fn()} eagerImage />, 'es');
+    const eager = screen.getByAltText('Charizard');
+    expect(eager).toHaveAttribute('loading', 'eager');
+    expect(eager).not.toHaveAttribute('fetchpriority');
+    expect(eager.getAttribute('src')).not.toContain('/_next/image');
+    unmount();
+    renderWithIntl(<CatalogTile listing={listing()} inCart={false} onAdd={vi.fn()} />, 'es');
+    expect(screen.getByAltText('Charizard')).toHaveAttribute('loading', 'lazy');
+  });
 });
 
 describe('CatalogTile · P-40 acabado legible', () => {
