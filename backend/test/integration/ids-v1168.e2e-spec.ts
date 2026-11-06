@@ -20,6 +20,7 @@ import { randomUUID } from 'crypto';
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_CARDS, E2E_IDS, E2E_SET, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { seedE2E } from '../../prisma/seed-e2e';
+import { scaleByPct } from '../../src/common/card-version';
 import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
 
 jest.setTimeout(120_000);
@@ -82,7 +83,7 @@ describe('E2E — §IDS v1.116.8 (A2): IDS-B32, alta de liga por lote con el aca
   afterAll(async () => {
     if (h) {
       await lp?.idle();
-      // Limpieza por FOLIO del lote (no solo por `created`): con el código mutado el lote crea piezas que la prueba nunca llega a
+      // Limpieza por `created` Y por (cardId, cardProductId=P, createdAt ≥ startedAt) —no por folio—: con el código mutado el lote crea piezas que la prueba nunca llega a
       // registrar (falla antes), y quedarían en la BD para la corrida siguiente (medido: 3 sobrantes ⇒ falso rojo al restaurar).
       const mine = await h.prisma.inventoryItem.findMany({
         where: { OR: [{ id: { in: created } }, { cardId, createdAt: { gte: startedAt }, cardProductId: P }] },
@@ -153,7 +154,7 @@ describe('E2E — §IDS v1.116.8 (A2): IDS-B32, alta de liga por lote con el aca
     expect(rowEn.referenceMxnCents).not.toBe(E2E_CARDS.league.refNmCents);
     expect(rowEs.referenceMxnCents).toBeNull();
     expect(rowEs.unitPriceCents).toBeLessThan(rowEn.unitPriceCents!);
-    expect(await h.prisma.pendingPriceEntry.count({ where: { cardId } })).toBe(0);
+    expect(await h.prisma.pendingPriceEntry.count({ where: { cardId, createdAt: { gte: startedAt } } })).toBe(0);
 
     // Lectura del cajón (A2): la de hoy (`finish=normal`) no la trae; la segunda (`stamped=true` sin `finish`) sí, con su versión.
     const first = await drawerRead('&finish=normal');
@@ -168,7 +169,8 @@ describe('E2E — §IDS v1.116.8 (A2): IDS-B32, alta de liga por lote con el aca
       ].sort(),
     );
     expect(second.every((i) => i.version.stamp != null)).toBe(true);
-    expect(second.length).toBe(stampedBefore.length + 2);
+    // Ids, no longitudes: con restos de otras corridas (tope pageSize=100) una resta de largos mide otra cosa.
+    expect(second.map((i) => i.id).sort()).toEqual([...stampedBefore, esId, enId].sort());
     const esOnly = await drawerRead('&stamped=true&language=es');
     expect(esOnly.map((i) => i.id)).toContain(esId);
     expect(esOnly.map((i) => i.id)).not.toContain(enId);
@@ -178,5 +180,24 @@ describe('E2E — §IDS v1.116.8 (A2): IDS-B32, alta de liga por lote con el aca
     expect(after.countsByFinish.find((c) => c.finish === 'normal')?.count ?? 0).toBe(normalBefore);
     expect(after.totalCount).toBe(before.totalCount);
     expect(after.countsByFinish.find((c) => c.finish === 'holofoil')).toBeUndefined();
+  });
+  it('IDS-B33/B35/B37 (integración): GET …/versions trae buySuggestedCents entero por combo; liga usa el mercado de P; es = scaleByPct(en, X) sobre la MISMA referencia', async () => {
+    type Combo = { finish: string; language: 'en' | 'es'; stamp: { productId: number } | null; buySuggestedCents: number | null; appliedMarketPct: number | null; baseReferenceMxnCents: number | null };
+    const r = await h.api<{ combos: Combo[] }>('GET', `/admin/inventory/cards/${cardId}/versions`, { token: admin });
+    expect(r.status).toBe(200);
+    const pick = (language: 'en' | 'es', league: boolean) => r.body.combos.find((c) => c.language === language && (c.stamp != null) === league && (league ? c.finish === 'holofoil' : c.finish === 'normal'))!;
+    const [enBase, esBase, enP, esP] = [pick('en', false), pick('es', false), pick('en', true), pick('es', true)];
+    for (const c of [enBase, esBase, enP, esP]) {
+      expect(c).toBeDefined();
+      expect(Number.isInteger(c.buySuggestedCents)).toBe(true);
+      expect(c.buySuggestedCents!).toBeGreaterThan(0);
+    }
+    // IDS-B35: el mercado de P (MX$120) no es el de la carta (MX$200) ⇒ otra compra.
+    expect(enP.baseReferenceMxnCents).toBe(E2E_IDS.stamped.refNmCents);
+    expect(enP.buySuggestedCents).not.toBe(enBase.buySuggestedCents);
+    // IDS-B33/B37: primero la curva, después X, con scaleByPct.
+    const pct = esBase.appliedMarketPct!;
+    expect(esBase.buySuggestedCents).toBe(scaleByPct(enBase.buySuggestedCents!, pct));
+    expect(esP.buySuggestedCents).toBe(scaleByPct(enP.buySuggestedCents!, pct));
   });
 });
