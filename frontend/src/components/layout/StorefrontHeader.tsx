@@ -81,8 +81,8 @@ export function StorefrontHeader() {
 
   /**
    * Nav por sesión (P-13), tabla de DESIGN_SYSTEM §33.1 (v1.67, supersede §7.15/§20.1):
-   * - Sin sesión: Comprar · Vender · Meta Battle Decks · Mi cuenta (→ /login).
-   * - Con sesión: Comprar · Vender · Meta Battle Decks · Mi bóveda · Compras y ventas · Mi cuenta (→ /account).
+   * - Sin sesión: Comprar · Vende tus cartas · Meta Battle Decks · Mi cuenta (→ /login).
+   * - Con sesión: Comprar · Vende tus cartas · Meta Battle Decks · Mi bóveda · Compras y ventas · Mi cuenta (→ /account).
    *   **Seis entradas, ni una más**: salen el nombre (vitrina del nombre inventado, regla 2) y
    *   «Cerrar sesión» (vive en «Mi cuenta», regla 8). «Envíos» sale del menú: los retiros viven en
    *   la pestaña «Retiros» de la bóveda (§33.4) y `nav.vault` se activa también en `/shipments*`.

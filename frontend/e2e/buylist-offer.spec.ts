@@ -54,7 +54,7 @@ import { SCENARIO_SELLER, sellerOfferedRequest } from './utils/m5-scenario';
  */
 async function waitForPortal(page: Page) {
   await expect(page).toHaveURL(/\/es\/buylist\/requests\//);
-  await expect(page.getByText(t('es', 'buylist.offer.cardsTitle'))).toBeVisible();
+  await expect(page.getByText(t('es', 'buylist.offer.cardsTitle'), { exact: true })).toBeVisible();
 }
 
 /** Enlaces «Ver esta solicitud» de «Mis solicitudes», ya pintados. */

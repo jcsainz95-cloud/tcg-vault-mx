@@ -8,7 +8,7 @@ import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { CardImage } from '@/components/ui/CardImage';
+import { BOUNTY_EAGER_TILES, CardImage } from '@/components/ui/CardImage';
 import { FinishBand } from '@/components/domain/FinishMark';
 import { HuntMarkMicro } from '@/components/domain/LogoTcgHunt';
 
@@ -63,7 +63,7 @@ export function TopBountiesShelf({
         <ul className="-mx-1 mt-6 flex snap-x gap-6 overflow-x-auto px-1 pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible">
           {items?.map((b, idx) => (
             <li key={`${b.cardId}:${b.finish}`} className="w-44 shrink-0 snap-start lg:w-auto">
-              <BountyCard bounty={b} onQuote={onQuote} eager={idx < 4} />
+              <BountyCard bounty={b} onQuote={onQuote} eager={idx < BOUNTY_EAGER_TILES} />
             </li>
           ))}
         </ul>

@@ -31,7 +31,7 @@ import { compareCardNumber, deriveNumberParts } from '@/lib/cardOrder';
 import { Select } from '@/components/ui/Select';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
-import { CardImage } from '@/components/ui/CardImage';
+import { CardImage, QUOTER_EAGER_TILES } from '@/components/ui/CardImage';
 import { CardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
@@ -580,7 +580,7 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
                         className="min-w-0"
                       >
                         <SeparateProductTile
-                          eager={sectionIdx === 0 && tileIdx < 6}
+                          eager={isQuoter && sectionIdx === 0 && tileIdx < QUOTER_EAGER_TILES}
                           cell={tile.cell}
                           product={tile.product}
                           finish={tile.finish}
@@ -604,7 +604,7 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
                       <li key={`${tile.cell.cardId}:${tile.variant.finish}`} className="min-w-0">
                         {isQuoter ? (
                           <QuoterTile
-                            eager={sectionIdx === 0 && tileIdx < 6}
+                            eager={isQuoter && sectionIdx === 0 && tileIdx < QUOTER_EAGER_TILES}
                             cell={tile.cell}
                             variant={tile.variant}
                             imageLargeUrl={binder.data?.imageLargeByCardId?.[tile.cell.cardId]}

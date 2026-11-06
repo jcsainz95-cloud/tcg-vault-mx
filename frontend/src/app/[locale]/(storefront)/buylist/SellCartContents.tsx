@@ -8,7 +8,7 @@ import type { SellRequirements } from '@/hooks/useSellRequirements';
 import { formatMoneyCents } from '@/lib/format';
 import { visibleMarketCents } from '@/lib/sell-market';
 import { Button } from '@/components/ui/Button';
-import { CardImage } from '@/components/ui/CardImage';
+import { CardImage, SELL_CART_EAGER_LINES } from '@/components/ui/CardImage';
 import { Link } from '@/i18n/navigation';
 import { FinishMark } from '@/components/domain/FinishMark';
 import { SellRequirementsPanel } from '@/components/domain/SellRequirementsPanel';
@@ -203,7 +203,7 @@ export function SellCartContents({
                       según un dato que el usuario no controla. */}
                   <div className="flex gap-3">
                     <div className="w-12 shrink-0">
-                      <CardImage src={l.card.imageSmallUrl} alt={l.card.name} className="p-1" eager={idx < 4} />
+                      <CardImage src={l.card.imageSmallUrl} alt={l.card.name} className="p-1" eager={idx < SELL_CART_EAGER_LINES} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-3">

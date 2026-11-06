@@ -29,6 +29,7 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { cn } from '@/lib/cn';
 import { CartAddedToast } from './CartAddedToast';
 import { CatalogTile } from './CatalogTile';
+import { CATALOG_EAGER_TILES } from '@/components/ui/CardImage';
 import { Paginator } from '../_shared/Paginator';
 import { GradingFootnoteBoundary } from '../_shared/grading/GradingFootnote';
 import { pageHasGradingFigures } from '../_shared/grading/estimates';
@@ -496,8 +497,8 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
                     <CatalogTile
                       key={listing.representativeInventoryItemId}
                       listing={listing}
-                      // Paso 1 de fotos: las 8 primeras (2 filas de 4 en 1280; 4 filas de 2 en 390) piden la foto ya.
-                      eagerImage={idx < 8}
+                      // Paso 1 de fotos: las primeras (2 filas de 4 en 1280; 4 filas de 2 en 390) piden la foto ya.
+                      eagerImage={idx < CATALOG_EAGER_TILES}
                       onAdd={onAdd}
                       // N-17: estado «en carrito» DERIVADO del store (useCart), sin duplicarlo. El grupo
                       // se refleja «en carrito» cuando su pieza representativa (la más barata) ya está.
