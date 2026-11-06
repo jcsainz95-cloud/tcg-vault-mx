@@ -36,11 +36,16 @@ Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de toolin
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
 
-## Bugs abiertos (qa) — medido 2026-10-31
+## Bugs abiertos (qa) — gate UX-ALTA-LIGA sobre ead1753a (2026-11-06): APROBADO código/dinero; publicar exige TL-DOC-1
 | ID | Qué | Dueño |
 |---|---|---|
-| FE-HOMEQUOTER-TEARDOWN | `HomeQuoter.tsx` hace setState tras desmontar ⇒ «window is not defined» en `page.test.tsx` (1/1 en suite con carga ~8; 0/5 aislado, N=5, orquestador) | frontend |
+| QA-IDS-OVR | Español con override/bounty en la inglesa: el sugerido usa la curva pura (`inventory-versions.service.ts:155,165`; prueba `…buy-suggested.spec.ts:100`: override 9999 ⇒ es 4500, no 7499). HECHOS 2026-11-06 dice «% × lo que la tienda paga por la inglesa». Decidir y fijar en contrato | arquitecto (+dueño) |
+| QA-IDS-ROW | Fila de pieza en el cajón no muestra el acabado: pieza Holo de liga en casilla NORMAL sale «Español · De liga» sin «Holo» (captura 390-3) | frontend |
+| QA-SCRIPTS | `scripts/doc-size.baseline` (ruta devops) editado por frontend (fdce7701, 2faf249f) y orquestador (9fa42a98) | orquestador |
+| FE-HOMEQUOTER-TEARDOWN | `HomeQuoter.tsx` setState tras desmontar (1/1 con carga ~8; 0/5 aislado) — no reapareció hoy (suite completa verde) | frontend |
 | MKT-953-FOTO | Foto de sellado < 1000 px para `Product` (og) | backend |
+Medido en ead1753a: tsc back/front 0 errores; jest pricing+inventory+common 320/320; buy-suggested 8/8; integración IDS-B32/B33-B37 (Postgres desechable) 2/2 ×2; mutación «liga usa R_en» ⇒ unit 8/8 rojo + integración 1/2 rojo; mutación «truncar» ⇒ 1/8 rojo. Front m1+master-set+i18n+mock+pricing 1621/1621 (90 ficheros); suite completa 5872 verdes, 13 saltadas (468+2 ficheros), 0 rojos. e2e mocks `ids-quick-add` 21/21 (7×3). `.skip/.only` nuevos en el rango: 0. DOC-SIZE rojo (TL-DOC-1).
+Navegador, stack real con semilla (dev), 390 y 1280: League Bird: compra en la casilla MX$85.00 ⇒ Español MX$63.75 (=0.75×85), inglés de liga MX$48.60 (=40.5 %×120, curva), español de liga MX$36.45 (=0.75×48.60); tras teclear 99 y cambiar de versión se vuelve a prellenar; alta Español+De liga ⇒ POST finish holofoil, cardProductId 620000001, cost 3645; «Piezas» 4→5→6 con la pista; la casilla sigue en «1 pieza»; sin toast (solo indicador de Next dev); scrollWidth = viewport; 0 errores de página. Sin referencia (No Price): campo vacío + «Sin sugerido»; Español apagado. NO MEDIDO en navegador: combo disponible con sugerido null (la semilla no tiene ninguno; cubierto por unit). Capturas: scratchpad de la sesión `qa-alta/`.
 Resto del backlog con dueño y fecha: índice de `PENDIENTES.md`.
 
 ## Deuda técnica activa (todas las secciones)
