@@ -10,12 +10,26 @@ import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { asApiError } from '@/lib/api-client';
 import type { AppLocale } from '@/i18n/routing';
-import type { CardDTO, CardLanguage, CardVersionsResponse, Finish, StampDTO, VersionComboDTO } from '@/types/contract';
+import type { CardDTO, CardLanguage, CardVersionsResponse, Finish, FinishLabel, StampDTO, VersionComboDTO } from '@/types/contract';
 import type { CaptureModel } from './ids-capture';
 
 /** Texto del botón de versión (`admin.m1.ids.stampButton.*` + `label` del producto, o «Sin liga»). Lo reusa el resumen del alta rápida. */
 export function stampButtonLabel(t: (key: string) => string, s: StampDTO | null): string {
   return s ? `${t(`stampButton.${s.type}`)}${s.label ? ` ${s.label}` : ''}` : t('noStamp');
+}
+
+/**
+ * TL-A2-3: UNA sola función de rótulo «De liga · Promo de Liga (Holo)» para la burbuja, el desglose y el resumen del alta
+ * rápida. `finishLabel` solo se pasa cuando el acabado difiere del de la casilla; `null` ⇒ el rótulo sin sufijo.
+ */
+export function stampWithFinishLabel(
+  t: (key: string) => string,
+  tv: (key: string) => string,
+  s: StampDTO | null,
+  finishLabel: FinishLabel | null,
+): string {
+  const base = stampButtonLabel(t, s);
+  return finishLabel ? `${base} (${tv(`finishLabel.${finishLabel}`)})` : base;
 }
 
 /**
@@ -97,21 +111,22 @@ export function IdsCaptureFields({
   const stampLabel = (s: StampDTO | null) => stampButtonLabel(t, s);
   const reasonText = (r: string | null) => (r ? t(`reason.${r}`) : null);
   /** Nombre de cliente del acabado `f` de la liga `stampId` (el `finishLabel` de cualquier combo de esa liga con ese acabado). */
+  const finishLabelOf = (f: Finish, stampId: number | null): FinishLabel | null =>
+    data?.combos.find((c) => c.finish === f && (c.stamp?.productId ?? null) === stampId)?.finishLabel ?? null;
   const finishText = (f: Finish, stampId: number | null): string => {
-    const fl = data?.combos.find((c) => c.finish === f && (c.stamp?.productId ?? null) === stampId)?.finishLabel;
+    const fl = finishLabelOf(f, stampId);
     return fl ? tv(`finishLabel.${fl}`) : tFinish(f);
   };
   /** A2: «De liga · Promo de Liga (Holo)» cuando la liga solo existe en un acabado distinto al de la casilla. */
   const versionText = (o: { stamp: StampDTO | null; altaFinish: Finish | null; implicitFinish: boolean }): string => {
-    const base = stampLabel(o.stamp);
-    return slot && o.implicitFinish && o.altaFinish && o.altaFinish !== finish ? `${base} (${finishText(o.altaFinish, o.stamp?.productId ?? null)})` : base;
+    const differs = slot && o.implicitFinish && o.altaFinish && o.altaFinish !== finish;
+    return stampWithFinishLabel(t, tv, o.stamp, differs ? finishLabelOf(o.altaFinish!, o.stamp?.productId ?? null) : null);
   };
 
   const combo = model.combo;
   const breakdown = (c: VersionComboDTO): string => {
     // A2: el desglose nombra el acabado cuando el alta va en uno distinto al de la casilla (implícito o elegido).
-    const version =
-      slot && c.stamp && model.altaFinish && model.altaFinish !== finish ? `${stampLabel(c.stamp)} (${tv(`finishLabel.${c.finishLabel}`)})` : stampLabel(c.stamp);
+    const version = stampWithFinishLabel(t, tv, c.stamp, slot && c.stamp && model.altaFinish && model.altaFinish !== finish ? c.finishLabel : null);
     const base = c.baseReferenceMxnCents != null ? formatMoneyCents(c.baseReferenceMxnCents, locale) : null;
     if (c.language === 'es' && c.appliedMarketPct != null) {
       return base

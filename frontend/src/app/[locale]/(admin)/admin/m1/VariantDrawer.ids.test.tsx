@@ -185,6 +185,17 @@ describe('A2 (e) · piezas del cajón: segunda lectura `stamped=true` filtrada a
     expect(await screen.findByText('1 piezas disponibles para dar de baja.')).toBeInTheDocument();
   });
 
+  it('TL-A2-5 · la baja rápida cuenta TODA la casilla: con el filtro «Español» activo (1 ES + 2 EN) sigue diciendo 3, porque bulk-remove opera sobre la casilla entera', async () => {
+    const SLOT_EN2 = piece({ id: 'p-5', folio: 'INV-000805', finish: 'normal' });
+    spyInventory([SLOT_EN, SLOT_ES, SLOT_EN2], []);
+    renderDrawer();
+    await screen.findByText(/INV-000802/);
+    fireEvent.click(within(langFilter()).getByRole('radio', { name: 'Español' }));
+    await waitFor(() => expect(screen.queryByText(/INV-000801/)).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: 'Baja rápida' }));
+    expect(await screen.findByText('3 piezas disponibles para dar de baja.')).toBeInTheDocument();
+  });
+
   it('tras un alta en el cajón se releen las dos lecturas y no hay toast: el banner del panel es el único aviso', async () => {
     const league: InventoryItemDTO[] = [];
     const spy = spyInventory([SLOT_EN], league);
@@ -202,7 +213,7 @@ describe('A2 (e) · piezas del cajón: segunda lectura `stamped=true` filtrada a
     const cta = within(panel).getByRole('button', { name: 'Dar de alta al inventario' });
     await waitFor(() => expect(cta).toBeEnabled());
     fireEvent.click(cta);
-    expect(await within(panel).findByRole('status')).toHaveTextContent('Pieza dada de alta · INV-000803.');
+    expect(await within(panel).findByRole('status')).toHaveTextContent('Pieza dada de alta · INV-000803. Las que tienen precio quedan a la venta');
     expect(await within(piecesRegion()).findByText(/INV-000803/)).toBeInTheDocument();
     expect(onToast).not.toHaveBeenCalled();
     expect(spy.mock.calls.filter((c) => c[0]?.stamped === 'true').length).toBeGreaterThanOrEqual(2);

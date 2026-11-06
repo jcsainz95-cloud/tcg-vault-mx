@@ -94,9 +94,7 @@ describe('QuickAddSection (P-19, §16.5) · alta rápida simplificada', () => {
       },
     ]);
     // Resultado DENTRO del panel: resumen con rango de folios.
-    expect(
-      await screen.findByText('3 piezas dadas de alta · INV-000301 a INV-000303.'),
-    ).toBeInTheDocument();
+    expect((await screen.findByRole('status')).textContent).toMatch(/^3 piezas dadas de alta · INV-000301 a INV-000303\. /);
   });
 
   it('«Aportación» manda acquisitionPct: 100 EXPLÍCITO (sin % visible en ninguna parte)', async () => {

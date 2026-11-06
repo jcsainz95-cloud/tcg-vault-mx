@@ -17,6 +17,8 @@ import * as api from '@/lib/api';
 import type { CardVersionsResponse, VersionComboDTO } from '@/types/contract';
 import { QuickAddSection } from './QuickAdd';
 import { versionContributionReferenceCents } from './ids-capture';
+import es from '../../../../../../messages/es.json';
+import en from '../../../../../../messages/en.json';
 
 vi.mock('@/lib/role', () => ({
   useRole: () => ({ role: 'super_admin', setRole: () => {}, isSuperAdmin: true, canSwitchRole: false }),
@@ -290,7 +292,7 @@ describe('UX-ALTA-LIGA · alta rápida con Idioma y Versión (opción A)', () =>
     typePrice('100', 'TOTAL invoice cost, VAT included (MXN)');
     fireEvent.click(screen.getByRole('button', { name: 'Add to inventory' }));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('Piece added · Spanish · Regular · INV-000501.')).toBeInTheDocument();
+    expect((await screen.findByRole('status')).textContent).toMatch(/^Piece added · Spanish · Regular · INV-000501\. /);
   });
 
   it('sellado: nunca pide versiones (D-IDS-K: la versión es solo de raw)', async () => {
@@ -583,6 +585,74 @@ describe('A2 · acabado del alta desde la casilla (IDS-F11 a/b/c) y compra sin p
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     expect(spy.mock.calls[0][0].items[0]).toMatchObject({ finish: 'holofoil', cardProductId: 651002 });
     expect(spy.mock.calls[0][0].items[0]).not.toHaveProperty('listPriceCents');
+  });
+
+  const NOTE_ES = es.admin.m1.batchPublishNote;
+  const NOTE_EN = en.admin.m1.batchPublishNote;
+
+  it('A2b (i)(ii) alta de liga en otro acabado ⇒ banner `role="status"` con el sufijo «(Holo)» del acabado y, como segunda frase, la nota «Listas para publicar»', async () => {
+    renderSlot(LEAGUE_HOLO_ONLY);
+    const version = await screen.findByRole('radiogroup', { name: 'Versión' });
+    fireEvent.click(within(version).getByRole('radio', { name: 'De liga · Promo de Liga (Holo)' }));
+    fireEvent.change(buyInput(), { target: { value: '100' } });
+    fireEvent.click(cta());
+    const status = await screen.findByRole('status');
+    expect(status.textContent).toBe(`Pieza dada de alta · Inglés · De liga · Promo de Liga (Holo) · INV-000600. ${NOTE_ES}`);
+  });
+
+  it('A2b (ii) acabado ELEGIDO en la fila Acabado ⇒ el resumen lo nombra; con el acabado de la casilla no hay sufijo (la nota sí va)', async () => {
+    renderSlot(PP_TWO_FINISHES);
+    const version = await screen.findByRole('radiogroup', { name: 'Versión' });
+    fireEvent.click(within(version).getByRole('radio', { name: 'De liga · Prize Pack' }));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Acabado' })).getByRole('radio', { name: 'Reverse Holo' }));
+    fireEvent.change(buyInput(), { target: { value: '100' } });
+    fireEvent.click(cta());
+    expect((await screen.findByRole('status')).textContent).toBe(`Pieza dada de alta · Inglés · De liga · Prize Pack (Reverse Holo) · INV-000600. ${NOTE_ES}`);
+  });
+
+  it('A2b (ii) la liga existe en el acabado de la casilla ⇒ sin sufijo; inglés sin liga ⇒ el texto de hoy + la nota', async () => {
+    renderSlot(LEAGUE_HOLO_ONLY, { ...slotNormal, finish: 'holofoil' });
+    const version = await screen.findByRole('radiogroup', { name: 'Versión' });
+    fireEvent.click(within(version).getByRole('radio', { name: 'De liga · Promo de Liga' }));
+    fireEvent.change(buyInput(), { target: { value: '100' } });
+    fireEvent.click(cta());
+    expect((await screen.findByRole('status')).textContent).toBe(`Pieza dada de alta · Inglés · De liga · Promo de Liga · INV-000600. ${NOTE_ES}`);
+  });
+
+  it('A2b (i) sin versión: el banner es el de hoy + la nota', async () => {
+    renderSlot(LEAGUE_HOLO_ONLY);
+    await screen.findByRole('radiogroup', { name: 'Versión' });
+    fireEvent.change(buyInput(), { target: { value: '100' } });
+    fireEvent.click(cta());
+    expect((await screen.findByRole('status')).textContent).toBe(`Pieza dada de alta · INV-000600. ${NOTE_ES}`);
+  });
+
+  it('A2b EN: sufijo y nota en inglés', async () => {
+    vi.spyOn(api, 'getCardVersions').mockResolvedValue(LEAGUE_HOLO_ONLY);
+    vi.spyOn(api, 'batchCreateItems').mockResolvedValue(okBatch(['INV-000600']));
+    renderWithProviders(<QuickAddSection target={slotNormal} buyEffectiveCents={87_500} buySource="market" marketRefCents={125_000} />, 'en');
+    const version = await screen.findByRole('radiogroup', { name: 'Version' });
+    fireEvent.click(within(version).getByRole('radio', { name: /^League · .*\(Holo\)$/ }));
+    fireEvent.change(screen.getByLabelText('TOTAL invoice cost, VAT included (MXN)'), { target: { value: '100' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add to inventory' }));
+    const text = (await screen.findByRole('status')).textContent!;
+    expect(text).toMatch(/^Piece added · English · League · .*\(Holo\) · INV-000600\. /);
+    expect(text.endsWith(NOTE_EN)).toBe(true);
+  });
+
+  it('TL-A2-1 · liga con varios acabados sin elegir y SIN precio ⇒ el CTA es `aria-disabled`, no `disabled`: sigue enfocable y su ayuda se lee', async () => {
+    const spy = renderSlot(PP_TWO_FINISHES);
+    const version = await screen.findByRole('radiogroup', { name: 'Versión' });
+    fireEvent.click(within(version).getByRole('radio', { name: 'De liga · Prize Pack' }));
+    expect(buyInput().value).toBe('');
+    expect(cta()).toHaveAttribute('aria-disabled', 'true');
+    expect(cta()).not.toBeDisabled();
+    cta().focus();
+    expect(document.activeElement).toBe(cta());
+    expect(cta()).toHaveAccessibleDescription('Esta versión viene en más de un acabado: elige el tuyo.');
+    fireEvent.click(cta());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('(b) al volver a «Sin liga» la fila Acabado desaparece y el acabado vuelve a ser el de la casilla', async () => {

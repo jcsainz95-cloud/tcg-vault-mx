@@ -199,7 +199,8 @@ export function VariantDrawer(props: VariantDrawerProps) {
 
   // Conteo VISIBLE de piezas ajustables para la baja rápida (P-29): SOLO la primera lectura (la casilla), como hoy;
   // las piezas de liga sin casilla no se dan de baja desde aquí (I-6). Sumo solo las que el backend deja ajustar.
-  const removableCount = slotRows.filter(matchesFilters).filter((r) => r.status === 'in_stock' || r.status === 'listed').length;
+  // TL-A2-5: SIN los filtros Idioma/Liga (son de vista): `bulk-remove` opera sobre la casilla entera, así que el conteo también.
+  const removableCount = slotRows.filter((r) => r.status === 'in_stock' || r.status === 'listed').length;
   const refetchPieces = () => {
     void pieces.refetch();
     if (leagueEnabled) void leaguePieces.refetch();

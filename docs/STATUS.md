@@ -48,16 +48,20 @@ Resto del backlog con dueño y fecha: índice de `PENDIENTES.md`.
 | DT-FIXTURES | `fixtures.ts` / mocks grandes en `frontend/src/lib/mock/` | frontend | NO MEDIDO | — |
 | TL-CTA-* | Fichas abiertas del techlead sobre «cuenta con solo el correo» (16, 17, 19, 20, 22, 23) | backend + frontend | 2026-11-04 | ver `docs/archive/TECH_DEBT.md` §CTA |
 | TL-MKT2-3…8, TL-MKT3-3/4, TL-MKT4-1…5 | Deuda del stream de marketing (edad del dato servidor→cliente, sellos de OPS) | varios | 2026-10-31 | ver archivo |
+| TL-A2-2 | Cajón: la segunda lectura (`stamped=true`) se trunca (`VariantDrawer.tsx` ~L178, ~L426) y no se avisa al admin | frontend | 2026-11-06 | aviso «Mostrando las primeras n» + prueba |
+| TL-ALTA-1 | Sin foco/aviso de error en la captura de idioma/versión: `useIdsCapture.ts:73,79`, `ids-capture.ts:145,161` (y ficha original) | frontend | 2026-11-06 | ver `docs/archive/TECH_DEBT.md` TL-ALTA-1 |
 | Registro histórico | 172 filas en `docs/archive/TECH_DEBT.md` (sin re-medir): se migran aquí **solo** al tocar su módulo | dueño del módulo | 2026-11-06 | — |
 
 ## Backend (backend) — 2026-11-06
 27 módulos en `backend/src/modules/`; 86 modelos Prisma, 83 migraciones. Sin cambios de código en esta limpieza.
+- `GET /admin/inventory/cards/:cardId/versions` añade `buySuggestedCents: number | null` por combo (IDS-B33…B37; `inventory-versions.service.ts`). Curva = `composeVariantPricing().buy.effectiveCents`; override/bounty solo en (en, sin liga). Unit 8/8 (rojo 18/18 con 6 mutaciones ×3) + integración ids-v1168 2/2 (mutación R_en 3/3 rojo). Tipo para frontend: `buySuggestedCents: number | null` en `VersionCombo`. TL-A2-4 cerrado.
 
-## Frontend (frontend) — 2026-11-06
+## Frontend (frontend) — 2026-11-06 (cierre A2b)
 Next 15.5 App Router; admin M1–M12.
 - Nav: `nav.buylist` = «Vende tus cartas» / «Sell your cards». Header medido (Chromium): 390 px el nav vive en el drawer (header 77 px, sin desborde); 1024/1280 px, 4 entradas (público) caben en una línea; con sesión (6) a 1024 px «Vende tus cartas» se parte en 2 líneas (sin desborde, header 84 px igual que antes) y a 1280 px caben sin solaparse.
 - Fotos paso 1 (sin `/_next/image`): `eager` en las primeras tejas (catálogo 8, binder del cotizador 6, líneas del carrito de venta 4, bounties 4), resto `lazy`; sin `fetchpriority`. `TopBountiesShelf` pasa de `<img>` crudo a `CardImage` (arreglo de hidratación #120). Interruptor y `remotePatterns` intactos.
 - Medición con fixtures (N=3, CPU×6 y red 300 ms): 0 tejas beige a los 5 s antes y después (el arreglo #120 ya cubría catálogo y buylist); sin diferencia de tiempo medible en el fixture (pocas tejas). Paso 2 (optimizador) pendiente de decisión del dueño.
+- Alta rápida del cajón (A2b): el banner `role="status"` lleva la nota `admin.m1.batchPublishNote` como segunda frase (sin toast; con `onToast` sigue en el toast); el resumen añade el sufijo del acabado «De liga · Promo de Liga (Holo)» solo si difiere del de la casilla, con la misma función que la burbuja y el desglose (`stampWithFinishLabel`, `IdsCaptureFields.tsx`). TL-A2-1 (CTA `aria-disabled` y enfocable sin precio en modo `choose`), TL-A2-3 y TL-A2-5 (`removableCount` sin filtros de vista) cerrados con prueba y mutación.
 
 ## Cierre de stream / release (devops)
 Último publicado: `production` = `5db6984e` (PR #121, 2026-11-05). `main` va **587 commits detrás** de `production`

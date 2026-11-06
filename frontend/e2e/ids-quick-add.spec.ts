@@ -218,7 +218,9 @@ for (const width of [390, 1280] as const) {
       await buyInput(panel).fill('95');
       await panel.getByRole('button', { name: t('es', 'admin.quickAdd.cta') }).click();
       const status = panel.getByRole('status').filter({ hasText: 'Pieza dada de alta' });
-      await expect(status).toContainText(/^Pieza dada de alta · Inglés · De liga · Promo de Liga · INV-\d{6}\./);
+      await expect(status).toContainText(/^Pieza dada de alta · Inglés · De liga · Promo de Liga \(Holo\) · INV-\d{6}\. Las que tienen precio quedan a la venta/);
+      await status.scrollIntoViewIfNeeded();
+      await shot(page, `pawmi-league-holo-ok-${width}`);
       const req = await lastBatch(page);
       expect(req!.items).toHaveLength(1);
       expect(req!.items[0]).toMatchObject({ cardId: 'c-pawmi-sv08', productType: 'raw', finish: 'holofoil', cardProductId: PAWMI_LEAGUE_PRODUCT_ID, qty: 1, acquisitionCostCents: 9_500 });
@@ -274,7 +276,11 @@ for (const width of [390, 1280] as const) {
       await shot(page, `pawmi-finish-row-${width}`);
       // Un clic en el CTA apagado no crea nada.
       await buyInput(panel).fill('120');
-      await cta.click({ force: true });
+      // TL-A2-1: el CTA es `aria-disabled` (no `disabled`) ⇒ enfocable; Playwright no hace clic en un `aria-disabled`, así que se
+      // prueba con foco + Enter, sin `force`.
+      await cta.focus();
+      await expect(cta).toBeFocused();
+      await page.keyboard.press('Enter');
       await page.waitForTimeout(300);
       expect(await lastBatch(page)).toBeUndefined();
 
@@ -284,7 +290,9 @@ for (const width of [390, 1280] as const) {
       await expect(panel.getByTestId('ids-breakdown')).toHaveText('Base: De liga · Prize Pack (Holo) en inglés · MX$150.00 (mercado de TCGplayer)');
       await expect(cta).not.toHaveAttribute('aria-disabled', 'true');
       await cta.click();
-      await expect(panel.getByRole('status').filter({ hasText: 'Pieza dada de alta' })).toContainText(/^Pieza dada de alta · Inglés · De liga · Prize Pack · INV-\d{6}\./);
+      await expect(panel.getByRole('status').filter({ hasText: 'Pieza dada de alta' })).toContainText(/^Pieza dada de alta · Inglés · De liga · Prize Pack \(Holo\) · INV-\d{6}\. Las que tienen precio/);
+      await panel.getByRole('status').filter({ hasText: 'Pieza dada de alta' }).scrollIntoViewIfNeeded();
+      await shot(page, `pawmi-choose-holo-ok-${width}`);
       const req = await lastBatch(page);
       expect(req!.items[0]).toMatchObject({ cardId: 'c-pawmi-sv08', finish: 'holofoil', cardProductId: PAWMI_PRIZE_PACK_PRODUCT_ID, acquisitionCostCents: 12_000 });
       // Y la fila desaparece al volver a «Sin liga».

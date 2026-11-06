@@ -21,7 +21,7 @@ import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { localUid } from '@/components/master-set/capture';
-import { IdsCaptureFields, stampButtonLabel } from './IdsCaptureFields';
+import { IdsCaptureFields, stampWithFinishLabel } from './IdsCaptureFields';
 import { versionContributionReferenceCents } from './ids-capture';
 import { useIdsCapture } from './useIdsCapture';
 
@@ -133,12 +133,20 @@ export function QuickAddSection({
   const finishHintId = useId();
   // El acabado que viaja: el resuelto (IDS-F11 a/b/c); sin modelo (sellado), el del target.
   const altaFinish: Finish = ids.enabled ? ids.model.altaFinish ?? target.finish : target.finish;
-  // «Español · De liga · Prize Pack» para el resumen; `null` en inglés sin liga (el texto de hoy).
+  // «Español · De liga · Promo de Liga (Holo)» para el resumen (misma función de rótulo que la burbuja, TL-A2-3); el
+  // sufijo del acabado solo si la liga va en uno distinto al de la casilla. `null` en inglés sin liga (el texto de hoy).
   const versionLabel: string | null =
     ids.enabled && (ids.language !== 'en' || ids.model.stampProductId != null)
       ? [
           tv(`language.${ids.language}`),
-          stampButtonLabel(tIds, ids.model.versionOptions.find((o) => (o.stamp?.productId ?? null) === ids.model.stampProductId)?.stamp ?? null),
+          stampWithFinishLabel(
+            tIds,
+            tv,
+            ids.model.versionOptions.find((o) => (o.stamp?.productId ?? null) === ids.model.stampProductId)?.stamp ?? null,
+            ids.model.stampProductId != null && ids.model.altaFinish != null && ids.model.altaFinish !== target.finish
+              ? ids.model.combo?.finishLabel ?? null
+              : null,
+          ),
         ].join(' · ')
       : null;
 
@@ -235,7 +243,7 @@ export function QuickAddSection({
         ids.reset();
         // §SU-UX.6 (e): el alta puede dejar piezas en «Listas para publicar» → se refresca la cola.
         void queryClient.invalidateQueries({ queryKey: ['pending-publish'] });
-        // §SU-UX.6 (d): la nota va solo en el toast, DETRÁS del texto de hoy (el resultado del panel no cambia).
+        // §SU-UX.6 (d): la nota va en el toast (si hay) DETRÁS del texto de hoy; sin toast (cajón) va en el banner.
         onToast?.(`${summaryOf(data, vars.versionLabel)} ${tRoot('admin.m1.batchPublishNote')}`);
       } else {
         // Fallo por-línea (p. ej. PRICE_PENDING): el banner anclado lo pinta el render.
@@ -300,6 +308,8 @@ export function QuickAddSection({
         <Banner variant="success" role="status">
           {summaryOf(submit.data, submit.variables?.versionLabel ?? null)}
           {submit.data.idempotentReplay ? ` · ${t('replay')}` : ''}
+          {/* §16.5 (b): sin toast (cajón) la nota «Listas para publicar» es la segunda frase del banner. */}
+          {!onToast && ` ${tRoot('admin.m1.batchPublishNote')}`}
         </Banner>
       )}
 
@@ -447,7 +457,7 @@ export function QuickAddSection({
           submit.mutate({ versionLabel });
         }}
         // A2 (b): sin acabado elegido el botón queda `aria-disabled` (sigue enfocable) con la ayuda de la fila como
-        // descripción; el clic no hace nada.
+        // descripción; el clic no hace nada. TL-A2-1: en ese estado NADA lo vuelve `disabled` real (ni el precio vacío).
         aria-disabled={finishPending || undefined}
         aria-describedby={finishPending ? finishHintId : undefined}
         // IDS-UX.2: una versión no default sin precio no se crea.
@@ -456,7 +466,7 @@ export function QuickAddSection({
         // (aviso con «Reintentar» arriba; el camino de siempre sigue abierto).
         disabled={
           submit.isPending ||
-          (path === 'compra' && priceInvalid) ||
+          (path === 'compra' && priceInvalid && !finishPending) ||
           (ids.enabled && !finishPending && (ids.isLoading || !ids.model.canCreate))
         }
         loading={submit.isPending}
