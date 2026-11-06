@@ -907,6 +907,14 @@ jobs:
       - name: Y el candado sabe morder (workflow con ubuntu-latest ⇒ rojo)
         if: ${{ !cancelled() }}
         run: ./scripts/check-runner-pin-canary.sh
+      # CI-APT-LOCK (2026-11-06, runs 42270439578/42293757193): Chromium se instala solo
+      # vía scripts/ci-install-chromium.sh, que espera el candado de apt del runner.
+      - name: Chromium se instala esperando el candado de apt (CI-APT-LOCK)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-chromium-install.sh
+      - name: Y ese candado sabe morder (inline, sin Lock::Timeout, sin backoff ⇒ rojo)
+        if: ${{ !cancelled() }}
+        run: ./scripts/check-chromium-install-canary.sh
 
   # ---------------------------------------------------------------------------
   # 🔒 LIMPIEZA DE RAMAS — el script que borra ramas remotas (limpieza-ramas.yml,

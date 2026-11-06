@@ -15,6 +15,8 @@
   `cd frontend && npm test` (vitest) · `npm run test:e2e` (Playwright).
 - **CI** (`.github/workflows/ci.yml`): backend, frontend, E2E, SAST (semgrep, gitleaks, trivy, npm audit), DAST (ZAP) y
   ~30 candados en `scripts/check-*.sh`, cada uno con su canario. `doc-size` excluye `docs/archive/`.
+- **Chromium en CI** (CI-APT-LOCK, 2026-11-06): los 5 pasos que lo instalan llaman a `scripts/ci-install-chromium.sh`
+  (espera el candado de apt del runner, `DPkg::Lock::Timeout` 300 s, backoff 30/60 s); candado `check-chromium-install.sh`.
 
 ## Seguridad — hallazgos ABIERTOS (seguridad-lead) — último veredicto 2026-11-06 (sha ead1753a, UX-ALTA-LIGA + buySuggestedCents: seguridad APROBADO 0 crít/alt; calidad CON CONDICIONES: TL-DOC-1 rojo en CI)
 | ID | Sev | Qué | Dueño | Medido |

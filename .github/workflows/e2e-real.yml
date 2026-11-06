@@ -503,27 +503,9 @@ jobs:
         timeout-minutes: 25
         run: |
           set -uo pipefail
-          liberar_apt() {
-            sudo pkill -x apt-get 2>/dev/null || true
-            sudo pkill -x dpkg 2>/dev/null || true
-            for _ in $(seq 1 30); do
-              sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break
-              sleep 2
-            done
-            sudo dpkg --configure -a >/dev/null 2>&1 || true
-          }
-          for intento in 1 2 3; do
-            if timeout 420 npx playwright install --with-deps chromium; then
-              break
-            fi
-            if [ "$intento" = "3" ]; then
-              echo "::error title=No se pudo instalar Chromium::3 intentos agotados."
-              exit 1
-            fi
-            echo "::warning title=Instalacion de Chromium fallida::Intento $intento agotado o fallido; liberando lock de apt y reintentando."
-            liberar_apt
-            sleep 10
-          done
+          # CI-APT-LOCK (2026-11-06): espera el candado de apt del runner y reintenta con backoff;
+          # todo vive en scripts/ci-install-chromium.sh (candado: check-chromium-install.sh).
+          CHROMIUM_INSTALL_BUDGET_S=1440 bash "${{ github.workspace }}/scripts/ci-install-chromium.sh" || exit 1
           CHROMIUM_BIN="$(node -e "console.log(require('@playwright/test').chromium.executablePath())")"
           if [ ! -x "$CHROMIUM_BIN" ]; then
             echo "::error title=Chromium no quedó instalado::No existe/ejecutable: $CHROMIUM_BIN"
