@@ -16,7 +16,7 @@
 - **CI** (`.github/workflows/ci.yml`): backend, frontend, E2E, SAST (semgrep, gitleaks, trivy, npm audit), DAST (ZAP) y
   ~30 candados en `scripts/check-*.sh`, cada uno con su canario. `doc-size` excluye `docs/archive/`.
 
-## Seguridad — hallazgos ABIERTOS (seguridad-lead) — último veredicto 2026-11-06 (sha 6e05f3f3, fotos paso 1 + etiqueta nav, APROBADO, 0 crít/alt/med nuevos)
+## Seguridad — hallazgos ABIERTOS (seguridad-lead) — último veredicto 2026-11-06 (sha ead1753a, UX-ALTA-LIGA + buySuggestedCents: seguridad APROBADO 0 crít/alt; calidad CON CONDICIONES: TL-DOC-1 rojo en CI)
 | ID | Sev | Qué | Dueño | Medido |
 |---|---|---|---|---|
 | P-RL-1 | Media | Tope por IP esquivable rotando `X-Forwarded-For` si el edge de Railway lo deja pasar (el tope por cuenta sí protege el login) | devops + backend | 2026-10-05 |
@@ -26,8 +26,12 @@
 | LIVE5-STRIPE | Media | Reembolso SPEI (`chargeState`, `to-manual`) solo probado contra doble de Stripe | backend | 2026-10-05 |
 | BL-42 | Media | INE sin ancla de purga en dos caminos ⇒ retención indefinida | backend + dueño | 2026-10-05 |
 | S-M4P-A | Media | `RolesGuard` falla abierto y `admin-shipments` (PII densa) sin candado de regresión — **vencido** | backend | 2026-09-22 |
+| TL-DOC-1 | Media | `./scripts/check-doc-size.sh` ROJO en ead1753a: `docs/API_CONTRACT.md` 439 líneas > umbral 426 (+13 por la sección «2. Reglas vigentes: alta rápida…», L427-439); en ad08fea2 eran 426. Compactar contrato vigente antes de añadir | arquitecto | 2026-11-06 |
+| TL-IDS-1 | Baja | `ids-capture.ts:216-221` `versionContributionReferenceCents` repite `scaleByPct` en el front (aritmética de dinero; espejo declarado de `versionReferenceForAlta`, riesgo de deriva si cambia el redondeo). No afecta al sugerido (viene del servidor). Cierre: exponer la cifra en `VersionComboDTO` | frontend + backend | 2026-11-06 |
+| TL-IDS-2 | Baja | `removableCount` (`VariantDrawer.tsx:203`) cuenta sobre las filas leídas (tope 100, TL-A2-2): con >100 piezas en la casilla subestima lo que `bulk-remove` baja. Atado a TL-A2-2 | frontend | 2026-11-06 |
 | PT-CTA-5 | Baja | Residual de «cuenta con solo el correo» (aceptado) | backend | 2026-11-04 |
 | FE-EAGER-1 | Baja | Umbrales eager sueltos (8 `CatalogView.tsx:495`, 6 `MasterSetBinder.tsx:~583`, 4 `SellCartContents.tsx:206`, 4 `TopBountiesShelf.tsx:66`) sin constante nombrada, a diferencia de `FEATURED_EAGER_TILES` (`FeaturedCarousel.tsx:124`); además la regla de uso de `eager` en `CardImage.tsx:~92` solo cita Destacadas. Sin riesgo de seguridad | frontend | 2026-11-06 |
+NO MEDIDO (sha ead1753a): ataque HTTP en vivo con token no-admin/cardId ajeno (sin Postgres levantado; carga 4,5). Cubierto por lectura: `inventory.controller.ts:94-95` `@Roles(vault_operator, super_admin)` de clase + `RolesGuard` global (`app.module.ts:104`) ⇒ cliente 403 / anónimo 401; el endpoint toma `cardId` solo como clave (404 si no existe), sin dato de otro usuario; `buySuggestedFor` (`inventory-versions.service.ts:141-166`) sin consultas por combo (usa el lote), override solo (en, sin liga). Ablación: truncar en vez de `scaleByPct` ⇒ 1/8 rojo; restaurado. Unit 8/8 verde.
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
