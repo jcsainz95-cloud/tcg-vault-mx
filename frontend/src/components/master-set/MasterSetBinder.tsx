@@ -560,7 +560,7 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
           ) : (
             /* v1.33 (P-27): un master combinado se pinta como bloques (principal primero, luego cada
                subset etiquetado); un set de una sola parte es UNA sección sin encabezado (idéntico a hoy). */
-            sections.map((section) => (
+            sections.map((section, sectionIdx) => (
               <div key={section.part?.setId ?? '__single__'} className="flex flex-col gap-4">
                 {section.part && (
                   <PartSeparator part={section.part} tileCount={section.tiles.length} />
@@ -573,13 +573,14 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
                       : t('binderGridLabel')
                   }
                 >
-                  {section.tiles.map((tile) =>
+                  {section.tiles.map((tile, tileIdx) =>
                     tile.kind === 'product' ? (
                       <li
                         key={`${tile.cell.cardId}:sp:${tile.product.productId}:${tile.finish}`}
                         className="min-w-0"
                       >
                         <SeparateProductTile
+                          eager={sectionIdx === 0 && tileIdx < 6}
                           cell={tile.cell}
                           product={tile.product}
                           finish={tile.finish}
@@ -603,6 +604,7 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
                       <li key={`${tile.cell.cardId}:${tile.variant.finish}`} className="min-w-0">
                         {isQuoter ? (
                           <QuoterTile
+                            eager={sectionIdx === 0 && tileIdx < 6}
                             cell={tile.cell}
                             variant={tile.variant}
                             imageLargeUrl={binder.data?.imageLargeByCardId?.[tile.cell.cardId]}
@@ -678,6 +680,7 @@ function TileHeader({
   onImageClick,
   imageAriaLabel,
   setCode,
+  eager,
 }: {
   cell: MasterSetCardCellDTO;
   /**
@@ -701,6 +704,8 @@ function TileHeader({
    */
   onImageClick?: () => void;
   imageAriaLabel?: string;
+  /** Paso 1 de fotos (2026-11-06): teja del primer viewport ⇒ la foto se pide ya (`loading="eager"`). */
+  eager?: boolean;
   /** v1.80 (P-71): código del set de la celda; `null` ⇒ se queda `#130`. */
   setCode: string | null;
 }) {
@@ -720,6 +725,7 @@ function TileHeader({
     <CardImage
       src={cell.imageSmallUrl}
       alt={`${cell.name} · ${finishLabel}`}
+      eager={eager}
       className={`${dashed ? 'border border-dashed border-border-strong' : ''} ${dimmed ? 'opacity-40' : ''}`}
     />
   );
@@ -940,9 +946,11 @@ function QuoterTile({
   imageLargeUrl,
   inCart,
   setCode,
+  eager,
 }: {
   cell: MasterSetCardCellDTO;
   variant: MasterSetVariantDTO;
+  eager?: boolean;
   onAdd: () => void;
   /** P-43: imagen grande (client-only del cotizador) para el pop-up de detalle; fallback a la chica. */
   imageLargeUrl?: string;
@@ -988,6 +996,7 @@ function QuoterTile({
         cell={cell}
         finishLabel={finishLabel}
         setCode={setCode}
+        eager={eager}
         onImageClick={() => setDetailOpen(true)}
         imageAriaLabel={t('quoterDetailAria', { name: cell.name, finish: finishLabel })}
       />
@@ -1072,9 +1081,11 @@ function SeparateProductTile({
   inCart,
   onAdd,
   setCode,
+  eager,
 }: {
   cell: MasterSetCardCellDTO;
   product: CardProductDTO;
+  eager?: boolean;
   finish: Finish;
   priceCents: number | null;
   isQuoter?: boolean;
@@ -1145,7 +1156,7 @@ function SeparateProductTile({
       {/* FinishBand (§16.6): banda superior de 3px — canal de color; el texto lo porta la etiqueta. */}
       <FinishBand finish={finish} />
       <span className="relative block">
-        <CardImage src={cell.imageSmallUrl} alt={`${product.name} · ${finishLabel}`} />
+        <CardImage src={cell.imageSmallUrl} alt={`${product.name} · ${finishLabel}`} eager={eager} />
         {/* Distintivo de PRODUCTO APARTE con scrim de tinta (§7.2b): separa visualmente del set base. */}
         <span className="absolute left-1 top-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[color:var(--color-on-ink)]">
           {kindLabel}

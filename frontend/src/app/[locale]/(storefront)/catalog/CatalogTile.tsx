@@ -30,6 +30,11 @@ export interface CatalogTileProps {
    * (§22.6), foto 5:7 en todos los anchos (su boundary no corta: la excepción del dueño es solo del catálogo).
    */
   surface?: 'catalog' | 'shelf';
+  /**
+   * Paso 1 de fotos (dueño 2026-11-06, sin `/_next/image`): la teja del primer viewport pide su foto YA
+   * (`loading="eager"`, sin `fetchpriority`); el resto queda `lazy`. El padre decide por posición.
+   */
+  eagerImage?: boolean;
 }
 
 /**
@@ -48,7 +53,7 @@ export interface CatalogTileProps {
  * Vive aquí (no en ListingCard) porque `frontend/src/components/` es zona
  * compartida de otros streams; la teja del makeover es propiedad de esta vista.
  */
-export function CatalogTile({ listing, inCart, onAdd, surface = 'catalog' }: CatalogTileProps) {
+export function CatalogTile({ listing, inCart, onAdd, surface = 'catalog', eagerImage = false }: CatalogTileProps) {
   const catalog = surface === 'catalog';
   const t = useTranslations('catalog');
   const tv = useTranslations('version');
@@ -88,6 +93,7 @@ export function CatalogTile({ listing, inCart, onAdd, surface = 'catalog' }: Cat
         <CardImage
           src={card.imageSmallUrl}
           alt={card.name}
+          eager={eagerImage}
           className={catalog ? 'aspect-[5/6] sm:aspect-[5/7]' : undefined}
         />
       </Link>

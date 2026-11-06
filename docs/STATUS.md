@@ -53,7 +53,10 @@ Resto del backlog con dueño y fecha: índice de `PENDIENTES.md`.
 27 módulos en `backend/src/modules/`; 86 modelos Prisma, 83 migraciones. Sin cambios de código en esta limpieza.
 
 ## Frontend (frontend) — 2026-11-06
-Next 15.5 App Router; admin M1–M12. Sin cambios de código en esta limpieza.
+Next 15.5 App Router; admin M1–M12.
+- Nav: `nav.buylist` = «Vende tus cartas» / «Sell your cards». Header medido (Chromium): 390 px el nav vive en el drawer (header 77 px, sin desborde); 1024/1280 px, 4 entradas (público) y 6 (sesión) caben sin solaparse (hueco ≥ 40 px, desborde de documento 0).
+- Fotos paso 1 (sin `/_next/image`): `eager` en las primeras tejas (catálogo 8, binder del cotizador 6, líneas del carrito de venta 4, bounties 4), resto `lazy`; sin `fetchpriority`. `TopBountiesShelf` pasa de `<img>` crudo a `CardImage` (arreglo de hidratación #120). Interruptor y `remotePatterns` intactos.
+- Medición con fixtures (N=3, CPU×6 y red 300 ms): 0 tejas beige a los 5 s antes y después (el arreglo #120 ya cubría catálogo y buylist); sin diferencia de tiempo medible en el fixture (pocas tejas). Paso 2 (optimizador) pendiente de decisión del dueño.
 
 ## Cierre de stream / release (devops)
 Último publicado: `production` = `5db6984e` (PR #121, 2026-11-05). `main` va **587 commits detrás** de `production`

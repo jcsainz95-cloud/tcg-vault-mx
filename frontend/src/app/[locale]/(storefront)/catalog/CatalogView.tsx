@@ -492,10 +492,12 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
               <>
                 {/* MKT-CONV.8: `pt-3` en < lg (antes `pt-8`): con la regla de arriba, 13 px. */}
                 <div className="gutter grid grid-cols-2 gap-x-4 gap-y-8 pb-10 pt-3 sm:grid-cols-3 lg:gap-x-7 lg:pt-8 xl:grid-cols-4">
-                  {catalogQuery.data!.data.map((listing) => (
+                  {catalogQuery.data!.data.map((listing, idx) => (
                     <CatalogTile
                       key={listing.representativeInventoryItemId}
                       listing={listing}
+                      // Paso 1 de fotos: las 8 primeras (2 filas de 4 en 1280; 4 filas de 2 en 390) piden la foto ya.
+                      eagerImage={idx < 8}
                       onAdd={onAdd}
                       // N-17: estado «en carrito» DERIVADO del store (useCart), sin duplicarlo. El grupo
                       // se refleja «en carrito» cuando su pieza representativa (la más barata) ya está.

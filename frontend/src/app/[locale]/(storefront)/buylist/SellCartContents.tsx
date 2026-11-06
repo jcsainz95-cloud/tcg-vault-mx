@@ -177,7 +177,7 @@ export function SellCartContents({
               mueve la geometría). Una línea `precio_pendiente` conserva su versalita. Un solo anuncio
               a11y: el `aria-label` vive en el total; aquí solo `aria-busy` mientras dura la recotización. */}
           <ul className="mt-4" aria-busy={requoting || undefined} data-testid="sell-cart-lines">
-            {cart.map((l) => {
+            {cart.map((l, idx) => {
               const pending = l.quote.quote.status === 'precio_pendiente';
               const unitCents = l.quote.quote.quotedPriceCents ?? 0;
               const detailOpen = !!expandedLines[l.id];
@@ -203,7 +203,7 @@ export function SellCartContents({
                       según un dato que el usuario no controla. */}
                   <div className="flex gap-3">
                     <div className="w-12 shrink-0">
-                      <CardImage src={l.card.imageSmallUrl} alt={l.card.name} className="p-1" />
+                      <CardImage src={l.card.imageSmallUrl} alt={l.card.name} className="p-1" eager={idx < 4} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-3">

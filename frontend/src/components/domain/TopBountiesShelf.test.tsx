@@ -67,4 +67,20 @@ describe('TopBountiesShelf (P-22, §16.7c) · vitrina pública de /buylist', () 
     await waitFor(() => expect(spy).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByText('Top Bounties')).toBeNull());
   });
+  it('paso 1 de fotos: las 4 primeras fotos son eager (sin fetchpriority) y el resto lazy, ambas por `CardImage` sin /_next/image', async () => {
+    const many = Array.from({ length: 6 }, (_, n) => ({
+      ...BOUNTY,
+      cardId: `c${n}`,
+      imageSmallUrl: `https://img.example/${n}.png`,
+    }));
+    vi.spyOn(api, 'getPublicBounties').mockResolvedValue({ data: many });
+    const { container } = renderWithProviders(<TopBountiesShelf />, 'es');
+    await waitFor(() => expect(container.querySelectorAll('li img')).toHaveLength(6));
+    const loading = [...container.querySelectorAll('li img')].map((i) => i.getAttribute('loading'));
+    expect(loading).toEqual(['eager', 'eager', 'eager', 'eager', 'lazy', 'lazy']);
+    for (const i of container.querySelectorAll('li img')) {
+      expect(i).not.toHaveAttribute('fetchpriority');
+      expect(i.getAttribute('src')).toMatch(/^https:\/\/img\.example\//);
+    }
+  });
 });
