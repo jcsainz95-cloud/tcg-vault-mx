@@ -13,12 +13,24 @@ import type { AppLocale } from '@/i18n/routing';
 import type { CardDTO, CardLanguage, CardVersionsResponse, Finish, StampDTO, VersionComboDTO } from '@/types/contract';
 import type { CaptureModel } from './ids-capture';
 
+/** Texto del botón de versión (`admin.m1.ids.stampButton.*` + `label` del producto, o «Sin liga»). Lo reusa el resumen del alta rápida. */
+export function stampButtonLabel(t: (key: string) => string, s: StampDTO | null): string {
+  return s ? `${t(`stampButton.${s.type}`)}${s.label ? ` ${s.label}` : ''}` : t('noStamp');
+}
+
 /**
  * §IDS-UX.2 / IDS-UX.8 (captura, `01-captura-v6`; opción A del dueño): tras el Acabado, **Idioma** (`Inglés | Español`,
  * «Inglés» de fábrica) y **Versión** (`Sin liga | De liga · Prize Pack | …`, solo si la carta tiene versiones), en
  * burbujas de 44 px; la versión sin precio va apagada con su motivo. Después, «Precio de venta (auto)» con el desglose
  * en una línea. Sin campo de precio: una versión no default no admite precio tecleado (I-4). Las candidatas ambiguas
- * se ligan aquí (`attach`, identidad, no precio).
+ * se ligan aquí (`attach`, identidad, no precio) — solo en la captura por lote (`showCandidates`); el alta rápida del
+ * cajón no las dibuja (vIDS-10 §16.5 (a).0).
+ *
+ * **Modo casilla (`slot`, A2 v1.116.8):** el acabado del alta lo resuelve el modelo (`model.altaFinish`): la burbuja de
+ * una liga que solo existe en otro acabado lo nombra («De liga · Promo de Liga (Holo)», `finishLabel` del combo, solo si
+ * difiere del de la casilla; igual en el desglose); con varios acabados y ninguno el de la casilla aparece la fila
+ * **Acabado** entre Versión y el precio (`admin.quickAdd.finish`), solo con los de la liga en el orden del servidor, sin
+ * preselección, con la ayuda `finishHint` como descripción; sin elección el precio dice `finishPricePending`.
  */
 export function IdsCaptureFields({
   card,
@@ -33,6 +45,8 @@ export function IdsCaptureFields({
   onLanguage,
   onStamp,
   onAttached,
+  slot,
+  showCandidates = true,
 }: {
   card: Pick<CardDTO, 'id' | 'availableFinishes'>;
   model: CaptureModel;
@@ -48,9 +62,14 @@ export function IdsCaptureFields({
   onLanguage: (l: CardLanguage) => void;
   onStamp: (productId: number | null) => void;
   onAttached: (res: CardVersionsResponse) => void;
+  /** A2 modo casilla: elección de la fila «Acabado» y el `id` de su ayuda (también descripción del CTA apagado). */
+  slot?: { onChosenFinish: (f: Finish) => void; finishHintId: string };
+  /** Caja de candidatas («Hay versiones de liga que no supimos ligar solas…»): solo en Alta por lote. */
+  showCandidates?: boolean;
 }) {
   const t = useTranslations('admin.m1.ids');
   const tm1 = useTranslations('admin.m1');
+  const tq = useTranslations('admin.quickAdd');
   const tv = useTranslations('version');
   const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
@@ -75,13 +94,24 @@ export function IdsCaptureFields({
     if (attach.isError) reloadRef.current?.focus();
   }, [attach.isError]);
 
-  const stampLabel = (s: StampDTO | null) =>
-    s ? `${t(`stampButton.${s.type}`)}${s.label ? ` ${s.label}` : ''}` : t('noStamp');
+  const stampLabel = (s: StampDTO | null) => stampButtonLabel(t, s);
   const reasonText = (r: string | null) => (r ? t(`reason.${r}`) : null);
+  /** Nombre de cliente del acabado `f` de la liga `stampId` (el `finishLabel` de cualquier combo de esa liga con ese acabado). */
+  const finishText = (f: Finish, stampId: number | null): string => {
+    const fl = data?.combos.find((c) => c.finish === f && (c.stamp?.productId ?? null) === stampId)?.finishLabel;
+    return fl ? tv(`finishLabel.${fl}`) : tFinish(f);
+  };
+  /** A2: «De liga · Promo de Liga (Holo)» cuando la liga solo existe en un acabado distinto al de la casilla. */
+  const versionText = (o: { stamp: StampDTO | null; altaFinish: Finish | null; implicitFinish: boolean }): string => {
+    const base = stampLabel(o.stamp);
+    return slot && o.implicitFinish && o.altaFinish && o.altaFinish !== finish ? `${base} (${finishText(o.altaFinish, o.stamp?.productId ?? null)})` : base;
+  };
 
   const combo = model.combo;
   const breakdown = (c: VersionComboDTO): string => {
-    const version = stampLabel(c.stamp);
+    // A2: el desglose nombra el acabado cuando el alta va en uno distinto al de la casilla (implícito o elegido).
+    const version =
+      slot && c.stamp && model.altaFinish && model.altaFinish !== finish ? `${stampLabel(c.stamp)} (${tv(`finishLabel.${c.finishLabel}`)})` : stampLabel(c.stamp);
     const base = c.baseReferenceMxnCents != null ? formatMoneyCents(c.baseReferenceMxnCents, locale) : null;
     if (c.language === 'es' && c.appliedMarketPct != null) {
       return base
@@ -90,6 +120,8 @@ export function IdsCaptureFields({
     }
     return base ? t('breakdownEn', { version, base }) : t('breakdownEnNoBase', { version });
   };
+
+  const finishPending = !!slot && model.altaFinishMode === 'choose' && model.altaFinish == null;
 
   return (
     <div className="flex flex-col gap-4" data-testid="ids-capture">
@@ -149,7 +181,7 @@ export function IdsCaptureFields({
           onChange={(k) => onStamp(k === 'none' ? null : Number(k))}
           options={model.versionOptions.map((o) => ({
             value: o.key,
-            label: stampLabel(o.stamp),
+            label: versionText(o),
             // Inglés sin liga se crea como hoy aunque no tenga precio (cola de pendientes, I-1): nunca se apaga.
             disabledReason:
               o.stamp == null && language === 'en' && o.disabledReason !== 'combo_missing' ? null : reasonText(o.disabledReason),
@@ -157,7 +189,26 @@ export function IdsCaptureFields({
         />
       )}
 
-      {(data?.candidates.length ?? 0) > 0 && (
+      {/* A2: fila «Acabado» solo con los acabados de la liga elegida, sin preselección (`value` que no casa con ninguna). */}
+      {slot && model.altaFinishMode === 'choose' && (
+        <div className="flex flex-col gap-1.5" data-testid="ids-alta-finish">
+          <PillToggleGroup
+            label={tq('finish')}
+            value={model.altaFinish ?? ''}
+            onChange={(f) => slot.onChosenFinish(f as Finish)}
+            describedBy={slot.finishHintId}
+            options={model.altaFinishOptions.map((f) => {
+              const c = data?.combos.find((x) => x.finish === f && x.language === language && (x.stamp?.productId ?? null) === model.stampProductId);
+              return { value: f, label: finishText(f, model.stampProductId), disabledReason: reasonText(c ? c.unavailableReason : 'combo_missing') };
+            })}
+          />
+          <p id={slot.finishHintId} className="text-xs text-muted">
+            {tq('finishHint')}
+          </p>
+        </div>
+      )}
+
+      {showCandidates && (data?.candidates.length ?? 0) > 0 && (
         <div className="flex flex-col gap-2 border border-border-strong p-3" data-testid="ids-candidates">
           <p className="text-sm text-text">{t('candidatesTitle')}</p>
           {data!.candidates.map((c) => (
@@ -190,6 +241,11 @@ export function IdsCaptureFields({
 
       {isLoading ? (
         <p className="text-sm text-muted">{t('loadingVersions')}</p>
+      ) : finishPending ? (
+        <div data-testid="ids-price">
+          <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">{t('priceLabel')}</p>
+          <p className="mt-1 text-sm text-muted">{tq('finishPricePending')}</p>
+        </div>
       ) : (
         combo && (
           <div data-testid="ids-price">
@@ -199,9 +255,12 @@ export function IdsCaptureFields({
                 <p className="tabular mt-1 text-[24px] font-medium leading-none text-text">
                   {formatMoneyCents(combo.previewPriceCents, locale)}
                 </p>
-                {/* Desglose en UNA línea (a 1280 no envuelve), con los campos DEL COMBO (v1.116.2): la base antes de X y
-                    el X aplicado. ⛔ Sin aritmética: `previewPriceCents` ya trae curva, piso e IVA; sin base, sin cifra. */}
-                <p className="mt-1 whitespace-nowrap text-[12px] text-muted" data-testid="ids-breakdown">
+                {/* Desglose en UNA línea desde `sm` (a 1280 no envuelve), con los campos DEL COMBO (v1.116.2): la base antes
+                    de X y el X aplicado. Bajo 640 px (cajón del binder a 390) envuelve: medido 2026-11-05, `nowrap` a 12 px
+                    mide ≈373 px y, por `min-width:auto` del flex item, ensanchaba el cajón entero a ≈405 px (desborde
+                    horizontal, burbujas fuera del viewport). ⛔ Sin aritmética: `previewPriceCents` ya trae curva, piso e
+                    IVA; sin base, sin cifra. */}
+                <p className="mt-1 text-[12px] text-muted sm:whitespace-nowrap" data-testid="ids-breakdown">
                   {breakdown(combo)}
                 </p>
               </>

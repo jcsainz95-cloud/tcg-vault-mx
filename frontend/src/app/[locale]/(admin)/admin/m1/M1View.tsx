@@ -81,6 +81,8 @@ interface DrawerState {
   imageSmallUrl?: string;
   finish: Finish;
   productType: ProductType;
+  /** A2 (I-6): acabados de la carta en el binder; el cajón suma las piezas de liga cuyo acabado no tiene casilla. */
+  cardFinishes?: Finish[];
   pricing?: VariantPricingDTO;
   marketRefCents?: number | null;
   marketCapturedDate?: string | null;
@@ -197,6 +199,7 @@ export function M1View() {
       imageSmallUrl: item.card.imageSmallUrl,
       finish: (item.finish ?? 'normal') as Finish,
       productType: item.productType,
+      ...(item.productType === 'raw' ? { cardFinishes: item.card.availableFinishes } : {}),
       marketRefCents: item.referenceValue?.referenceMxnCents ?? null,
       ...(item.productType === 'sealed'
         ? { sealedSubtype: item.sealedSubtype ?? null, sealedCondition: item.sealedCondition ?? 'mint' }
@@ -216,6 +219,8 @@ export function M1View() {
       imageSmallUrl: cell.imageSmallUrl,
       finish: variant.finish,
       productType: 'raw',
+      // A2 (I-6): la casilla sabe los acabados de su carta; el cajón suma las piezas de liga sin casilla.
+      cardFinishes: cell.availableFinishes,
       pricing: variant.pricing,
       marketRefCents:
         variant.marketReferenceMxnCents !== undefined

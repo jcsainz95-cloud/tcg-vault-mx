@@ -119,6 +119,13 @@ export function mockCardVersions(cardId: string, cardFinishes: Finish[], basePri
     stamps.push({ stamp: { type: 'prize_pack', label: null, productId: 648703 }, finishes: ['holofoil'], price: 48000 });
     stamps.push({ stamp: { type: 'staff', label: null, productId: 610001 }, finishes: ['holofoil'], price: null });
   }
+  // A2 (IDS-F11 a/b): carta de casilla SOLO `normal` (`CARD_FINISHES`): «Promo de Liga» solo en Holo (un acabado ≠
+  // casilla ⇒ implícito, la burbuja lo nombra) y «Prize Pack» en Reverse Holo + Holo (dos ⇒ fila «Acabado», sin
+  // preselección). Es la «E2E League Bird» del stack real (`finishes={holofoil}`), en el simulador.
+  if (cardId === 'c-pawmi-sv08') {
+    stamps.push({ stamp: { type: 'league', label: null, productId: 651001 }, finishes: ['holofoil'], price: 12000 });
+    stamps.push({ stamp: { type: 'prize_pack', label: null, productId: 651002 }, finishes: ['reverse_holo', 'holofoil'], price: 15000 });
+  }
   for (const s of MOCK_ATTACHED.get(cardId) ?? []) stamps.push({ stamp: s, finishes: ['normal'], price: 9000 });
   for (const { stamp, finishes, price } of stamps) {
     for (const finish of finishes) {
