@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ENCENDER_BLOCKERS } from './measurement-gate';
 
-const CONTRACT = readFileSync(join(__dirname, '..', '..', '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
+const CONTRACT = readFileSync(join(__dirname, '..', '..', '..', '..', 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
 
 function contractMetaVersion(): string | undefined {
   const block = CONTRACT.split('<!-- META-GRAPH-VERSION:start -->')[1]?.split('<!-- META-GRAPH-VERSION:end -->')[0] ?? '';

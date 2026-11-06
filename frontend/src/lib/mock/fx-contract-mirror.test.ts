@@ -35,7 +35,7 @@ import { buildMockFxState, mockFxWorld } from './fixtures';
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-const CONTRACT_PATH = join(__dirname, '..', '..', '..', '..', 'docs', 'API_CONTRACT.md');
+const CONTRACT_PATH = join(__dirname, '..', '..', '..', '..', 'docs', 'archive', 'API_CONTRACT.md');
 
 function section(openId: string, closeId: string): string {
   const doc = readFileSync(CONTRACT_PATH, 'utf8');

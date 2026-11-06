@@ -22,7 +22,7 @@ import en from '../../messages/en.json';
  */
 
 /**
- * Valores del contrato `docs/API_CONTRACT.md` §Enums:
+ * Valores del contrato `docs/archive/API_CONTRACT.md` §Enums:
  * `SealedSubtype = box | etb | bundle | tin | blister | upc | collection`.
  * Se escriben a mano A PROPÓSITO: es el espejo del documento contra el que se compara el código.
  * Si el arquitecto agrega un subtipo al contrato, este test es el que obliga a propagarlo.

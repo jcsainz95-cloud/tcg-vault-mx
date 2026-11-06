@@ -35,7 +35,7 @@ import en from '../../messages/en.json';
  */
 
 /**
- * Valores del contrato `docs/API_CONTRACT.md` §Enums, línea `SellRequestStatus = …`, en el orden
+ * Valores del contrato `docs/archive/API_CONTRACT.md` §Enums, línea `SellRequestStatus = …`, en el orden
  * del pipeline feliz. Se escriben a mano A PROPÓSITO: son el espejo del DOCUMENTO contra el que
  * se compara el código. Si el arquitecto agrega un estado, este test es el que obliga a
  * propagarlo.

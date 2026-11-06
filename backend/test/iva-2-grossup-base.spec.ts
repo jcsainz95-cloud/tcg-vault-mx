@@ -30,7 +30,7 @@ import { stripComments } from './helpers/strip-comments';
  * *«rojo si `totalCents > 12469`»*, y eso se asierta tal cual. El `14164` es la **ilustración del
  * daño**, no el umbral. Se asierta el valor **medido** —y se dice por qué— en vez de copiar una
  * cifra que este árbol no produce: *un test que asierta un número que el código no puede dar no
- * mide el código, mide el documento.* Enrutado en `docs/BACKEND_NOTES.md` (regla 9).
+ * mide el código, mide el documento.* Enrutado en `docs/archive/BACKEND_NOTES.md` (regla 9).
  *
  * ### Las DOS mitades, y hacen falta las dos
  *  - **En pesos:** `totalCents` nunca supera `12469` con ese carrito.

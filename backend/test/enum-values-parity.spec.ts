@@ -124,7 +124,7 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   // porque entrar aquí **es** lo que les da la tercera banda: la que ya falló dos veces
   // (`PriceSource` sin `tcgcsv_singles`, `SealedSubtype` sin `upc`) fue siempre schema ↔ CONTRATO, y
   // nadie comparaba esas dos. `PendingPriceContext` ni siquiera TENÍA línea canónica en el contrato
-  // hasta v1.73 (`rg PendingPriceContext docs/API_CONTRACT.md` ⇒ 0), así que su paridad a tres
+  // hasta v1.73 (`rg PendingPriceContext docs/archive/API_CONTRACT.md` ⇒ 0), así que su paridad a tres
   // bandas **no podía correr** — no es que pasara: es que no existía.
   PendingPriceReason: ['no_market', 'premium_at_floor'],
   PendingPriceContext: ['buylist', 'catalog', 'inventory', 'portfolio'],
@@ -275,7 +275,7 @@ describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts �
    * la comparaba con nada. El contrato manda sobre el código (CLAUDE.md), así que una discrepancia
    * ahí no es cosmética: es la especificación diciendo una cosa y el sistema haciendo otra.
    */
-  const CONTRACT = readFileSync(join(__dirname, '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
+  const CONTRACT = readFileSync(join(__dirname, '..', '..', 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
 
   /** Lee la línea canónica `Nombre = a | b | c` del bloque «Enums (fuente de verdad)» del contrato. */
   function contractValues(name: string): string[] {
@@ -348,7 +348,7 @@ describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canó
     'MetaMatchStatus',
   ];
   const SCHEMA = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
-  const CONTRACT = readFileSync(join(__dirname, '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
+  const CONTRACT = readFileSync(join(__dirname, '..', '..', 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
   const LINES = CONTRACT.split('\n');
 
   /** Todos los `enum X { … }` del schema EN DISCO, con sus valores (sin comentarios ni `@@`). */

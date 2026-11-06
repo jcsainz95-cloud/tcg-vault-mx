@@ -81,9 +81,9 @@ function graphVersionProblems(i: Inputs): string[] {
 
 describe('C-B15 · versión de Graph de Meta = bloque del contrato, con caducidad', () => {
   const real: Inputs = {
-    contract: read('docs/API_CONTRACT.md'),
-    notes: read('docs/BACKEND_NOTES.md'),
-    techDebt: read('docs/TECH_DEBT.md'),
+    contract: read('docs/archive/API_CONTRACT.md'),
+    notes: read('docs/archive/BACKEND_NOTES.md'),
+    techDebt: read('docs/archive/TECH_DEBT.md'),
     constant: META_GRAPH_API_VERSION,
     blockerIds: BACKEND_ENCENDER_BLOCKERS.map((b) => b.id),
     today: new Date().toISOString().slice(0, 10),

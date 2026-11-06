@@ -7,13 +7,13 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { measurementItemOf, parseMeasurementItemId } from '../src/modules/measurement/measurement-item';
 
-const CONTRACT = join(__dirname, '..', '..', 'docs', 'API_CONTRACT.md');
+const CONTRACT = join(__dirname, '..', '..', 'docs', 'archive', 'API_CONTRACT.md');
 
 function contractRows(): { facts: Record<string, unknown>; item_id: string; item_name: string; item_category: string }[] {
   const text = readFileSync(CONTRACT, 'utf8');
   const start = text.indexOf('<!-- MKT-ITEM-ID:start -->');
   const end = text.indexOf('<!-- MKT-ITEM-ID:end -->');
-  if (start < 0 || end < start) throw new Error('marcadores MKT-ITEM-ID ausentes en docs/API_CONTRACT.md');
+  if (start < 0 || end < start) throw new Error('marcadores MKT-ITEM-ID ausentes en docs/archive/API_CONTRACT.md');
   const lines = text.slice(start, end).split('\n').filter((l) => l.startsWith('| `{'));
   return lines.map((l) => {
     const cells = l.split(' | ').map((c) => c.replace(/^\|?\s*`?|`?\s*\|?$/g, ''));

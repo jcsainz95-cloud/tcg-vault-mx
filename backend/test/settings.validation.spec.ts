@@ -39,7 +39,7 @@ import { join } from 'node:path';
  * **Y no caduca**: no hay ningún nombre de proveedor escrito en este archivo para este hecho.
  */
 function primaryPriceProviderPerContract(): string {
-  const contract = readFileSync(join(__dirname, '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
+  const contract = readFileSync(join(__dirname, '..', '..', 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
   const from = contract.indexOf('<!-- CANON: proveedor-de-precio');
   const to = contract.indexOf('<!-- /CANON: proveedor-de-precio -->', from);
   if (from < 0 || to <= from) {

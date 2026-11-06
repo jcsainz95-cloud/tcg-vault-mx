@@ -6,7 +6,7 @@
  * e2e de mocks enseñaban textos que la pantalla real nunca pinta.
  *
  * Fuentes (una por hecho):
- * - ids y ORDEN de tablas por pantalla: el catálogo normativo `docs/API_CONTRACT.md §MKT.G.4`;
+ * - ids y ORDEN de tablas por pantalla: el catálogo normativo `docs/archive/API_CONTRACT.md §MKT.G.4`;
  * - títulos, fuente, etiquetas de columna, motivos «NO MEDIDO — …», nota de cobertura, leyenda y rótulos de fila:
  *   `backend/src/modules/marketing/marketing-analytics.service.ts` (el contrato no fija esos literales; el servidor sí)
  *   y `small-cells.ts` (`OTROS_LABEL`). Se LEEN como texto: el frontend no importa código del backend.
@@ -27,7 +27,7 @@ const ROOT = resolve(__dirname, '../../../..');
 const read = (rel: string) => readFileSync(resolve(ROOT, rel), 'utf8');
 const SERVICE = read('backend/src/modules/marketing/marketing-analytics.service.ts');
 const SMALL_CELLS = read('backend/src/modules/marketing/small-cells.ts');
-const CONTRACT = read('docs/API_CONTRACT.md');
+const CONTRACT = read('docs/archive/API_CONTRACT.md');
 
 // ── Lo que dice el servidor ────────────────────────────────────────────────────────────────────────────────────
 const CONSTS = new Map([...SERVICE.matchAll(/^const (\w+)\s*=\s*'([^']*)';/gm)].map((m) => [m[1], m[2]]));

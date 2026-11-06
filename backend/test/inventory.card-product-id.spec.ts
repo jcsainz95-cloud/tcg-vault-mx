@@ -221,10 +221,10 @@ describe('§4.39d — los TRES comentarios que mentían quedan corregidos', () =
     expect(dto).toMatch(/CORREGIDO en v1\.51 \(M-46/);
   });
 
-  it('la deuda documental queda REGISTRADA en `docs/TECH_DEBT.md` con cierre = M-46', () => {
+  it('la deuda documental queda REGISTRADA en `docs/archive/TECH_DEBT.md` con cierre = M-46', () => {
     // ARCHITECTURE §4.39d lo exige explícitamente («Backend registra la corrección en
-    // docs/TECH_DEBT.md»), y §11 M-32 se contradecía a sí misma sin que hubiera entrada alguna.
-    const debt = readFileSync(join(ROOT, 'docs', 'TECH_DEBT.md'), 'utf8');
+    // docs/archive/TECH_DEBT.md»), y §11 M-32 se contradecía a sí misma sin que hubiera entrada alguna.
+    const debt = readFileSync(join(ROOT, 'docs', 'archive', 'TECH_DEBT.md'), 'utf8');
     expect(debt).toMatch(/INV-D7/);
     expect(debt).toMatch(/M-46/);
   });

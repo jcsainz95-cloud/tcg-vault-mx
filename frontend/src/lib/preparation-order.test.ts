@@ -17,7 +17,7 @@ import type { LocationView, PreparationItemDTO, PreparationOrderDTO } from '@/ty
  * entrada y la salida de cada caso.
  */
 
-const CONTRACT = join(process.cwd(), '..', 'docs', 'API_CONTRACT.md');
+const CONTRACT = join(process.cwd(), '..', 'docs', 'archive', 'API_CONTRACT.md');
 
 interface Caso {
   n: number;

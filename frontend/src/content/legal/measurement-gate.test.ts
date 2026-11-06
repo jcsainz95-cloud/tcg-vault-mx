@@ -228,7 +228,7 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
 });
 
 /*
- * SEC-MKT-2 (seguridad, info, 2026-10-22) — paridad ENCENDER_BLOCKERS ↔ docs/TECH_DEBT.md. Antes, quitar una entrada
+ * SEC-MKT-2 (seguridad, info, 2026-10-22) — paridad ENCENDER_BLOCKERS ↔ docs/archive/TECH_DEBT.md. Antes, quitar una entrada
  * (y su línea de la prueba de arriba) desbloqueaba `on` con la ficha ABIERTA. Ahora:
  *  1. toda entrada de la lista tiene su fila en el índice de TECH_DEBT y esa fila está ABIERTA (cerrada ⇒ la entrada sale);
  *  2. toda ficha del REGISTRO que siga ABIERTA está en la lista (quitar la entrada con la ficha abierta ⇒ rojo);
@@ -241,7 +241,7 @@ describe('C-D1 · ENCENDER_BLOCKERS', () => {
  * celda ID o «Qué» que empieza por «CERRADA»; si no, abierta.
  */
 const ENCENDER_REGISTRY = ['MKT-F2-3', 'MKT-F2-4', 'MKT-TL2', 'SEC-MED-1'] as const;
-const TECH_DEBT_PATH = join(__dirname, '..', '..', '..', '..', 'docs', 'TECH_DEBT.md');
+const TECH_DEBT_PATH = join(__dirname, '..', '..', '..', '..', 'docs', 'archive', 'TECH_DEBT.md');
 
 type FichaState = 'open' | 'closed' | 'missing' | 'duplicated';
 
@@ -286,7 +286,7 @@ describe('SEC-MKT-2 · paridad ENCENDER_BLOCKERS ↔ TECH_DEBT', () => {
     expect(encenderParityProblems(ENCENDER_BLOCKERS, md, ENCENDER_REGISTRY)).toEqual([]);
   });
 
-  // MKT-F2-3 la cierra backend (2026-10-27) en docs/TECH_DEBT.md: esta prueba fija el estado final (cerrada).
+  // MKT-F2-3 la cierra backend (2026-10-27) en docs/archive/TECH_DEBT.md: esta prueba fija el estado final (cerrada).
   it('el parser lee el índice real: MKT-F2-3, MKT-F2-4, MKT-TL2 y MKT-TD1 cerradas, TL-MKT2b-f y SEC-MED-1 cerradas («CERRADA ·»)', () => {
     expect(fichaState(md, 'MKT-F2-3')).toBe('closed');
     expect(fichaState(md, 'SEC-MED-1')).toBe('closed');

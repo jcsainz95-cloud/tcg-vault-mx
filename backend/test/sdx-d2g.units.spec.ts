@@ -32,7 +32,7 @@ import { staffControlSeverity } from '../src/modules/spend-alerts/staff-control.
 import { hourStartOf } from '../src/modules/spend-alerts/spend-mail.service';
 
 const SRC = join(__dirname, '..', 'src');
-const CONTRACT = readFileSync(join(__dirname, '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8');
+const CONTRACT = readFileSync(join(__dirname, '..', '..', 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {

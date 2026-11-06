@@ -10,9 +10,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GATE="scripts/check-stripe-webhook-events.sh"
 F=0; ok(){ printf '  ok  %s\n' "$*"; }; bad(){ printf '  MAL %s\n' "$*"; F=$((F+1)); }
 B="$(mktemp -d -t whevents-canario-XXXXXX)"; trap 'rm -rf "$B"' EXIT
-mk() { rm -rf "$B/t"; mkdir -p "$B/t/scripts" "$B/t/security" "$B/t/docs" "$B/t/backend/src/modules/payments"
+mk() { rm -rf "$B/t"; mkdir -p "$B/t/scripts" "$B/t/security" "$B/t/docs/archive" "$B/t/backend/src/modules/payments"
   cp "$ROOT/$GATE" "$B/t/scripts/"; cp "$ROOT/security/stripe-webhook-events.txt" "$B/t/security/"
-  cp "$ROOT/docs/DEVOPS_NOTES.md" "$B/t/docs/"
+  cp "$ROOT/docs/archive/DEVOPS_NOTES.md" "$B/t/docs/archive/"
   # backend sintetico: los eventos del manifiesto MENOS los dos de M4-SHIP (aun no aterrizados)
   { echo "switch (t) {"; grep -vE '^\s*(#|$)' "$ROOT/security/stripe-webhook-events.txt" | grep -vE 'refund\.updated' | sed -E "s/(.*)/case '\1': break;/"; echo "}"; } > "$B/t/backend/src/modules/payments/p.service.ts"; }
 run() { (cd "$B/t" && ./$GATE "$B/t" >/dev/null 2>&1); }

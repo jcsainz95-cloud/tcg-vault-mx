@@ -30,7 +30,7 @@ function serverItems(cases: unknown[]): unknown[] {
   return JSON.parse(r.stdout);
 }
 
-const CONTRACT = readFileSync(resolve(__dirname, '../../../../docs/API_CONTRACT.md'), 'utf8');
+const CONTRACT = readFileSync(resolve(__dirname, '../../../../docs/archive/API_CONTRACT.md'), 'utf8');
 
 function contractFacts(): MeasurementItemFacts[] {
   const m = CONTRACT.match(/<!-- MKT-ITEM-ID:start -->([\s\S]*?)<!-- MKT-ITEM-ID:end -->/);

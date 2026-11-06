@@ -139,7 +139,7 @@ async function allPayloads(svc: MarketingAnalyticsService): Promise<ScreenPayloa
 
 /** Los `id` de la tabla de §MKT.G.4, en orden, leídos del contrato (la fuente; no una copia). */
 function catalogIds(): string[] {
-  const doc = readFileSync(resolve(__dirname, '../../docs/API_CONTRACT.md'), 'utf8');
+  const doc = readFileSync(resolve(__dirname, '../../docs/archive/API_CONTRACT.md'), 'utf8');
   const from = doc.indexOf('#### MKT.G.4 ');
   const to = doc.indexOf('#### MKT.G.5 ', from);
   expect([from > 0, to > from]).toEqual([true, true]);

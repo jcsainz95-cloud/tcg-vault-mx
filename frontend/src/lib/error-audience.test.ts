@@ -159,7 +159,7 @@ describe('§26.6 · SIGNIFICADO: al operador no se le habla como si fuera el suj
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-const DESIGN_SYSTEM_PATH = join(__dirname, '..', '..', '..', 'docs', 'DESIGN_SYSTEM.md');
+const DESIGN_SYSTEM_PATH = join(__dirname, '..', '..', '..', 'docs', 'archive', 'DESIGN_SYSTEM.md');
 
 /**
  * Una sección de primer nivel del sistema de diseño, entera. **§27 es la continuación directa de
@@ -456,7 +456,7 @@ describe('§26.2 · el SELECTOR: `code` + discriminador → destinatario', () =>
 describe('§26.3 · el HUECO DECLARADO de `APPROVED_PRICE_CAP_EXCEEDED` (petición 2 al arquitecto)', () => {
   it('la cadena del ciclo EXISTE en los dos catálogos, aunque hoy no se pueda elegir', () => {
     // Se cablea el texto porque es normativo; lo que no se cablea es el SELECTOR. Ver el trip-wire
-    // de abajo y `docs/FRONTEND_NOTES.md` §50.
+    // de abajo y `docs/archive/FRONTEND_NOTES.md` §50.
     for (const [locale, catalog] of CATALOGS) {
       expect(
         value(catalog, 'error.APPROVED_PRICE_CAP_EXCEEDED_OFFER_CYCLE'),

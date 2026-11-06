@@ -20,7 +20,7 @@ describe('breakpoints · paridad DESIGN_SYSTEM §4.4 ↔ tailwind.config ↔ có
   });
 
   it('coinciden con la tabla de §4.4 del DESIGN_SYSTEM', () => {
-    const doc = readFileSync(resolve(__dirname, '../../../docs/DESIGN_SYSTEM.md'), 'utf8');
+    const doc = readFileSync(resolve(__dirname, '../../../docs/archive/DESIGN_SYSTEM.md'), 'utf8');
     for (const [bp, px] of Object.entries(BREAKPOINTS)) {
       expect(doc, `§4.4 ${bp}`).toMatch(new RegExp(`^${bp}\\s+≥ ${px}px`, 'm'));
     }
