@@ -424,3 +424,9 @@
 - POST `/wishlist/mail-actions` · público
 - GET `/admin/reports/wishlist-demand` · admin
 - GET `/admin/reports/wishlist-demand/export.csv` · admin
+
+## 2. Reglas vigentes: alta rápida y cajón del binder (UX-ALTA-LIGA, opción A + A2; HECHOS 2026-11-05)
+- **Acabado del alta:** al elegir «De liga», `POST /admin/inventory/items/batch` (campos opcionales `language`, `cardProductId`) lleva el `finish` de la versión de liga, nunca el de la casilla. Un solo acabado de liga ⇒ implícito (nombrado «De liga · Promo de Liga (Holo)»); varios ⇒ el staff elige, sin preselección y sin enviar hasta elegir. Idioma aplica a toda carta raw; Versión solo si la carta tiene liga. Candado: IDS-F11 (a)–(c) con mutación «finish de la casilla en el POST» ⇒ rojo; IDS-B32 (backend, solo prueba).
+- **Cajón (piezas):** dos lecturas fijas de `GET /admin/inventory/items`, tope 100 cada una: (1) la casilla (`cardId`+`finish`); (2) `stamped=true` sin `finish`, descartando acabados que la carta ya tiene como casilla. Filtros Idioma/Liga solo en cliente (no cambian la petición); «Piezas (n)» es fijo y se muestra «Mostrando n de N». Si una casilla pasa de 100 piezas, hay que mover los filtros al servidor (consulta O-24 pendiente). Candado: IDS-F11 (e).
+- **Compra sugerida:** con español o liga el campo «Pagamos por pieza» abre vacío; en inglés sin liga conserva la sugerencia. **P-ARQ-IDS-3 (abierta, dueño):** A) vacío (rige hoy) o B) sugerencia por versión (requiere backend).
+- **TL-A2-5 (decidido):** `removableCount` cuenta SIN filtros de Idioma/Liga, porque `POST /admin/inventory/items/bulk-remove` opera sobre toda la casilla e ignora la versión; el contrato de `bulk-remove` no cambia. Cierre: prueba con 1 ES + 2 EN y filtro «Español» activo ⇒ `removableCount` = 3 y la baja de 3 deja la casilla en 0 (nunca 1 de 3 con «Español» a la vista).
