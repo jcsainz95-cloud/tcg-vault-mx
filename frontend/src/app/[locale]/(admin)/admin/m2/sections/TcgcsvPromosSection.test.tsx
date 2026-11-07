@@ -32,8 +32,8 @@ describe('QA-PRM-UX · meta del grupo', () => {
   it('productCount y cardCount por separado; null ⇒ «—»; no importado no dice «0 productos»', async () => {
     renderWithProviders(<TcgcsvPromosSection />);
     await screen.findByRole('button', { name: /Importar ME: Mega Evolution Promo/ });
-    expect(screen.getByText(/Grupo 24451 · 148 productos · 0 importadas/)).toBeInTheDocument();
-    expect(screen.getByText(/Grupo 24500 · — productos · 0 importadas/)).toBeInTheDocument();
+    expect(screen.getByText(/Grupo 24451 · 148 productos en la fuente \(varios son versiones de una misma carta\) · 0 cartas importadas/)).toBeInTheDocument();
+    expect(screen.getByText(/Grupo 24500 · — productos en la fuente \(varios son versiones de una misma carta\) · 0 cartas importadas/)).toBeInTheDocument();
     expect(screen.queryByText(/· 0 productos/)).toBeNull();
   });
 });

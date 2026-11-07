@@ -6010,6 +6010,8 @@ export interface CatalogSyncResponse {
   /** cartas escritas por ESTA corrida (≠ cartas que existen en los sets). */
   cardsUpserted: number;
   mode: 'single' | 'from_date';
+  /** ids de sets omitidos por estar ya importados desde TCGCSV (no se pisan). Ausente en backends previos. */
+  shadowed?: string[];
 }
 
 // POST /admin/catalog/backfill — ⛔ **RETIRADO de la UI** (`DESIGN_SYSTEM §32.1`, «backfill

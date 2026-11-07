@@ -4157,7 +4157,7 @@
         "title": "Importar promos de TCGCSV",
         "subtitle": "Grupos de promos que no están en pokemontcg.io (p. ej. las del 30 aniversario). Se crean con el nombre de la fuente; las que no traen precio quedan como «precio pendiente» y no se pueden vender. Importar dos veces no duplica.",
         "empty": "No hay grupos de promos pendientes.",
-        "meta": "Grupo {id} · {products} productos · {count} importadas",
+        "meta": "Grupo {id} · {products} productos en la fuente (varios son versiones de una misma carta) · {count} cartas importadas",
         "imported": "ya importado",
         "import": "Importar {name}",
         "reimport": "Volver a importar {name}",

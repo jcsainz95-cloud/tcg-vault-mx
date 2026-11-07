@@ -15,7 +15,12 @@ import type { CaptureModel } from './ids-capture';
 
 /** Texto del botón de versión (`admin.m1.ids.stampButton.*` + `label` del producto, o «Sin liga»). Lo reusa el resumen del alta rápida. */
 export function stampButtonLabel(t: (key: string) => string, s: StampDTO | null): string {
-  return s ? `${t(`stampButton.${s.type}`)}${s.label ? ` ${s.label}` : ''}` : t('noStamp');
+  if (!s) return t('noStamp');
+  const type = t(`stampButton.${s.type}`);
+  // QA-PRM-UX: si la etiqueta repite el nombre del tipo («Staff» + «Staff») se muestra uno solo.
+  const norm = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+  const label = s.label?.trim();
+  return label && norm(label) !== norm(type) ? `${type} ${label}` : type;
 }
 
 /**
@@ -270,12 +275,12 @@ export function IdsCaptureFields({
                 <p className="tabular mt-1 text-[24px] font-medium leading-none text-text">
                   {formatMoneyCents(combo.previewPriceCents, locale)}
                 </p>
-                {/* Desglose en UNA línea desde `sm` (a 1280 no envuelve), con los campos DEL COMBO (v1.116.2): la base antes
+                {/* Desglose: envuelve siempre (QA-PRM-UX: a 1280 en una línea se cortaba por la derecha del cajón), con los campos DEL COMBO (v1.116.2): la base antes
                     de X y el X aplicado. Bajo 640 px (cajón del binder a 390) envuelve: medido 2026-11-05, `nowrap` a 12 px
                     mide ≈373 px y, por `min-width:auto` del flex item, ensanchaba el cajón entero a ≈405 px (desborde
                     horizontal, burbujas fuera del viewport). ⛔ Sin aritmética: `previewPriceCents` ya trae curva, piso e
                     IVA; sin base, sin cifra. */}
-                <p className="mt-1 text-[12px] text-muted sm:whitespace-nowrap" data-testid="ids-breakdown">
+                <p className="mt-1 min-w-0 break-words text-[12px] text-muted" data-testid="ids-breakdown">
                   {breakdown(combo)}
                 </p>
               </>
