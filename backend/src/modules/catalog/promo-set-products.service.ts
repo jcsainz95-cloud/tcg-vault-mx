@@ -7,6 +7,7 @@ import { PricingService } from '../pricing/pricing.service';
 import { FxService } from '../pricing/fx.service';
 import { FinishReconciler } from './finish-reconciler.service';
 import { PromoSkipped, planPromoSet } from './promo-set-plan';
+import { exceedsFieldLimits } from './tcgcsv-card-name';
 
 /** Mismo tope de cordura que el barrido diario y el import de P-PROMOS: un `market` mayor es dato corrupto. */
 const MAX_SANE_MARKET_USD = 50_000;
@@ -21,6 +22,8 @@ export interface PromoSetProductsResult {
   pricesPending: number;
   unjoined: number;
   cardsTouched: number;
+  /** QA-PV-PEND: cartas del set SIN producto set_base vendible tras el plan (≠ `pricesPending`, que cuenta filas de precio). */
+  pendingCards: number;
   promoSkipped: PromoSkipped[];
 }
 
@@ -58,10 +61,16 @@ export class PromoSetProductsService {
       const localCards = await tx.card.findMany({ where: { setId: localSetId }, select: { id: true, number: true } });
       const plan = planPromoSet(localCards, products, numberPrefix);
       const touched = new Set<string>();
+      const skipped: PromoSkipped[] = [...plan.skipped];
+      const numberOf = new Map(localCards.map((c) => [c.id, c.number]));
       let joined = 0;
       let pricesWritten = 0;
       let pricesPending = 0;
       let unjoined = 0;
+
+      // 1) Plan efectivo: solo lo colgable (con acabado mapeable y campos dentro de tope).
+      type Eff = { it: (typeof plan.items)[number]; finishes: Finish[]; priceRows: TcgcsvPriceRow[] };
+      const eff = new Map<number, Eff>();
       for (const it of plan.items) {
         const priceRows = pricesByProduct.get(it.product.productId) ?? [];
         const finishes = deriveStructuralFinishes(priceRows.map((r) => r.subTypeName));
@@ -69,6 +78,55 @@ export class PromoSetProductsService {
           unjoined += 1; // sin ningún acabado mapeable no hay nada que colgar: la carta queda «Precio pendiente»
           continue;
         }
+        if (exceedsFieldLimits({ name: it.product.name, number: numberOf.get(it.cardId) ?? '', rarity: null, stampLabel: it.stamp?.label ?? null })) {
+          skipped.push({ number: numberOf.get(it.cardId) ?? `#${it.product.productId}`, reason: 'field_too_long' });
+          continue;
+        }
+        eff.set(it.product.productId, { it, finishes, priceRows });
+      }
+
+      // 2) Reconciliación (PV-1): lo que ya existe del set y no coincide con el plan se retira o se re-cuelga.
+      const cardIds = localCards.map((c) => c.id);
+      const existing = await tx.cardProduct.findMany({
+        where: { OR: [{ sourceGroupId: groupId }, { cardId: { in: cardIds }, kind: 'set_base' }] },
+        select: { id: true, tcgplayerProductId: true, cardId: true },
+      });
+      const pids = existing.map((e) => e.tcgplayerProductId);
+      const uuids = existing.map((e) => e.id);
+      const inUsePids = new Set<number>();
+      if (existing.length > 0) {
+        for (const r of await tx.inventoryItem.findMany({ where: { cardProductId: { in: pids } }, distinct: ['cardProductId'], select: { cardProductId: true } }))
+          if (r.cardProductId != null) inUsePids.add(r.cardProductId);
+        for (const r of await tx.sellRequestItem.findMany({ where: { cardProductId: { in: pids } }, distinct: ['cardProductId'], select: { cardProductId: true } }))
+          if (r.cardProductId != null) inUsePids.add(r.cardProductId);
+        for (const r of await tx.pendingPriceEntry.findMany({ where: { cardProductId: { in: pids } }, distinct: ['cardProductId'], select: { cardProductId: true } }))
+          if (r.cardProductId != null) inUsePids.add(r.cardProductId);
+        const byUuid = new Map(existing.map((e) => [e.id, e.tcgplayerProductId]));
+        for (const r of await tx.priceReviewCase.findMany({ where: { cardProductId: { in: uuids } }, select: { cardProductId: true } }))
+          if (r.cardProductId != null && byUuid.has(r.cardProductId)) inUsePids.add(byUuid.get(r.cardProductId)!);
+      }
+      const reconcileIds = new Set<string>();
+      const staleIds: string[] = [];
+      for (const e of existing) {
+        const want = eff.get(e.tcgplayerProductId);
+        const label = numberOf.get(e.cardId) ?? `#${e.tcgplayerProductId}`;
+        if (want && want.it.cardId === e.cardId) continue; // sigue en el plan en su misma carta
+        if (inUsePids.has(e.tcgplayerProductId)) {
+          // Hay piezas/solicitudes que lo usan: NO se borra ni se mueve (no existe bandera «inactivo»); se reporta.
+          if (want) eff.delete(e.tcgplayerProductId); // y no se re-cuelga de otra carta
+          skipped.push({ number: label, reason: 'stale_in_use' });
+          continue;
+        }
+        if (want) continue; // re-colgado a otra carta sin uso: el upsert lo mueve y abajo se mueven sus precios
+        staleIds.push(e.id);
+        reconcileIds.add(e.cardId);
+      }
+      if (staleIds.length > 0) {
+        await tx.priceReference.deleteMany({ where: { cardProductId: { in: staleIds } } });
+        await tx.cardProduct.deleteMany({ where: { id: { in: staleIds } } });
+      }
+
+      for (const { it, finishes, priceRows } of eff.values()) {
         const data = {
           cardId: it.cardId,
           kind: it.kind,
@@ -84,6 +142,8 @@ export class PromoSetProductsService {
           update: data,
           select: { id: true },
         });
+        // PV-1(c): el precio de un producto re-colgado de carta no puede quedar atado al cardId anterior.
+        await tx.priceReference.updateMany({ where: { cardProductId: cp.id, cardId: { not: it.cardId } }, data: { cardId: it.cardId } });
         joined += 1;
         touched.add(it.cardId);
         const seen = new Set<Finish>();
@@ -108,13 +168,17 @@ export class PromoSetProductsService {
           pricesWritten += 1;
         }
       }
-      await this.finishReconciler.reconcile([...touched], tx);
-      return { plan, touched: touched.size, joined, pricesWritten, pricesPending, unjoined };
+      await this.finishReconciler.reconcile([...new Set([...touched, ...reconcileIds])], tx);
+      const baseCards = new Set<string>();
+      for (const { it } of eff.values()) if (it.kind === 'set_base') baseCards.add(it.cardId);
+      for (const e of existing) if (inUsePids.has(e.tcgplayerProductId)) baseCards.add(e.cardId);
+      const pendingCards = localCards.filter((c) => !baseCards.has(c.id)).length;
+      return { plan, skipped, pendingCards, touched: touched.size, joined, pricesWritten, pricesPending, unjoined };
     }, TX_OPTS);
 
     this.logger.log(
       `promo-set: grupo ${groupId} — joined=${res.joined} cardsTouched=${res.touched} pricesWritten=${res.pricesWritten} ` +
-        `pricesPending=${res.pricesPending} unjoined=${res.unjoined} skipped=${res.plan.skipped.length}.`,
+        `pricesPending=${res.pricesPending} unjoined=${res.unjoined} skipped=${res.skipped.length}.`,
     );
     return {
       groupId,
@@ -124,7 +188,8 @@ export class PromoSetProductsService {
       pricesPending: res.pricesPending,
       unjoined: res.unjoined,
       cardsTouched: res.touched,
-      promoSkipped: res.plan.skipped,
+      pendingCards: res.pendingCards,
+      promoSkipped: res.skipped,
     };
   }
 }

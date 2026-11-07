@@ -76,6 +76,8 @@ export class CardProductResolverService {
     cardsTouched: number;
     /** P-PROMOS-VIEJAS: productos omitidos de un set de `PTCG_PROMO_GROUPS` (solo en esos sets). */
     promoSkipped?: PromoSkipped[];
+    /** QA-PV-PEND: solo rutas de promos viejas. */
+    pendingCards?: number;
   } | null> {
     const set = await this.prisma.cardSet.findUnique({
       where: { id: localSetId },

@@ -15,7 +15,7 @@ import { TcgcsvCardProductRef } from '../pricing/pricing.types';
 import { parseTcgcsvCardName } from './tcgcsv-card-name';
 import { promoNumberKey } from './promo-set-groups';
 
-export type PromoSkipReason = 'no_card' | 'unknown_stamp' | 'ambiguous_base' | 'ambiguous_number';
+export type PromoSkipReason = 'no_card' | 'unknown_stamp' | 'ambiguous_base' | 'ambiguous_number' | 'field_too_long' | 'stale_in_use';
 export interface PromoSkipped {
   number: string;
   reason: PromoSkipReason;

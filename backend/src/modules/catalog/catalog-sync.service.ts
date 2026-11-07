@@ -51,7 +51,7 @@ export type SetImportOutcome = {
   /** P-PROMOS (§5.12): el set de pokemontcg.io está SOMBREADO por el set local `tcgcsv:<groupId>`; no se escribió nada. */
   shadowedBy?: { ptcgSetId: string; groupId: number };
   /** P-PROMOS-VIEJAS (§5.13): productos omitidos de un set de `PTCG_PROMO_GROUPS` (solo si hubo). */
-  promoSkipped?: { number: string; reason: 'no_card' | 'unknown_stamp' | 'ambiguous_base' | 'ambiguous_number' }[];
+  promoSkipped?: { number: string; reason: 'no_card' | 'unknown_stamp' | 'ambiguous_base' | 'ambiguous_number' | 'field_too_long' | 'stale_in_use' }[];
 };
 
 /** Conteo agregado de una corrida de import sobre N sets (D1). Sin literales: todo se cuenta. */
@@ -568,8 +568,10 @@ export class CatalogSyncService {
     pricesUpserted: number;
     pending: number;
     tcgcsvReachable: boolean;
+    /** QA-PV-PEND: cartas del set sin set_base vendible (solo sets de `PTCG_PROMO_GROUPS`); `pending` sigue contando filas de precio. */
+    pendingCards?: number;
     /** P-PROMOS-VIEJAS (§5.13): solo en sets de `PTCG_PROMO_GROUPS`. */
-    promoSkipped?: { number: string; reason: 'no_card' | 'unknown_stamp' | 'ambiguous_base' | 'ambiguous_number' }[];
+    promoSkipped?: { number: string; reason: 'no_card' | 'unknown_stamp' | 'ambiguous_base' | 'ambiguous_number' | 'field_too_long' | 'stale_in_use' }[];
   }> {
     void force; // aceptado por simetría con /sync; este camino siempre re-resuelve (ver doc arriba)
     if (!SET_ID_PATTERN.test(setId)) {
@@ -641,6 +643,7 @@ export class CatalogSyncService {
       pricesUpserted: result.pricesWritten,
       pending: result.pricesPending,
       tcgcsvReachable: true,
+      ...(typeof result.pendingCards === 'number' ? { pendingCards: result.pendingCards } : {}),
       ...(result.promoSkipped ? { promoSkipped: result.promoSkipped } : {}),
     };
   }
