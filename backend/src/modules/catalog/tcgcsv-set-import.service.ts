@@ -247,9 +247,17 @@ export class TcgcsvSetImportService {
     const touched = new Set<string>();
     const stampedQueue: { p: TcgcsvCardProductRef; name: string; number: string; stamp: { type: StampType; label: string } }[] = [];
 
-    // 1) Cartas base (sin sello).
-    for (const p of products) {
-      const parsed = parseTcgcsvCardName(p.name, p.number);
+    // 1) Cartas base (sin sello). PROMO-B8: un sello que NO es [Staff] y cuya carta plana (mismo nombre y número) no existe en el
+    // grupo se crea como CARTA PROPIA con la etiqueta en el nombre («Miraidon (Pitch Black Stamped)»); su [Staff] cuelga de ella.
+    const parsedAll = products.map((p) => ({ p, parsed: parseTcgcsvCardName(p.name, p.number) }));
+    const plainKeys = new Set<string>();
+    for (const { parsed } of parsedAll) {
+      if (parsed.ok && !parsed.stamp) plainKeys.add(`${normalizeMatchText(parsed.name)}|${normalizeCardNumber(parsed.number)}`);
+    }
+    /** clave plana (nombre+número) → cartas propias promovidas en esta corrida. */
+    const promotedByKey = new Map<string, string[]>();
+    for (const { p, parsed: parsed0 } of parsedAll) {
+      let parsed = parsed0;
       if (!parsed.ok) {
         skip(p, parsed.reason);
         continue;
@@ -258,9 +266,20 @@ export class TcgcsvSetImportService {
         skip(p, 'field_too_long');
         continue;
       }
+      let promotedKey: string | null = null;
       if (parsed.stamp) {
-        stampedQueue.push({ p, name: parsed.name, number: parsed.number, stamp: parsed.stamp });
-        continue;
+        const key = `${normalizeMatchText(parsed.name)}|${normalizeCardNumber(parsed.number)}`;
+        if (parsed.stamp.type === 'staff' || plainKeys.has(key)) {
+          stampedQueue.push({ p, name: parsed.name, number: parsed.number, stamp: parsed.stamp });
+          continue;
+        }
+        const ownName = `${parsed.name} (${parsed.stamp.label})`;
+        if (exceedsFieldLimits({ name: ownName, number: parsed.number, rarity: p.rarity, stampLabel: null })) {
+          skip(p, 'field_too_long');
+          continue;
+        }
+        promotedKey = key;
+        parsed = { ok: true, name: ownName, number: parsed.number, stamp: null };
       }
       const externalId = tcgcsvCardExternalId(p.productId);
       const own = await tx.card.findUnique({ where: { externalId }, select: { id: true } });
@@ -314,6 +333,7 @@ export class TcgcsvSetImportService {
       if (own) res.updated += 1;
       else res.created += 1;
       touched.add(card.id);
+      if (promotedKey) promotedByKey.set(promotedKey, [...(promotedByKey.get(promotedKey) ?? []), card.id]);
       const cp = await tx.cardProduct.upsert({
         where: { tcgplayerProductId: p.productId },
         create: { cardId: card.id, tcgplayerProductId: p.productId, kind: 'set_base', name: p.name, finishes, sourceGroupId: groupId },
@@ -337,7 +357,8 @@ export class TcgcsvSetImportService {
         else byKey.set(key, [c.id]);
       }
       for (const q of stampedQueue) {
-        const bases = byKey.get(`${normalizeMatchText(q.name)}|${normalizeCardNumber(q.number)}`) ?? [];
+        const baseKey = `${normalizeMatchText(q.name)}|${normalizeCardNumber(q.number)}`;
+        const bases = byKey.get(baseKey) ?? promotedByKey.get(baseKey) ?? [];
         if (bases.length === 0) {
           skip(q.p, 'no_base');
           continue;
