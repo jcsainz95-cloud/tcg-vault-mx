@@ -42,6 +42,7 @@ describe('CatalogSyncService.upsertCards — tcgplayerId + seed de structuralFin
         findMany: jest.fn(async () => []),
       },
       card: {
+        findMany: jest.fn(async () => []), // P-PROMOS: lectura de sombras `tcgcsv:` (ninguna)
         upsert: jest.fn(async ({ where }: any) => ({
           id: where.externalId,
           availableFinishes: existingCards[where.externalId]?.availableFinishes ?? ['normal'],
@@ -146,6 +147,7 @@ describe('CatalogSyncService.sync single — resolver estructural con force (P-1
         findMany: jest.fn(async () => []),
       },
       card: {
+        findMany: jest.fn(async () => []), // P-PROMOS: lectura de sombras `tcgcsv:` (ninguna)
         upsert: jest.fn(async ({ where }: any) => ({ id: where.externalId })),
         count: jest.fn(async () => existingCardCount),
       },

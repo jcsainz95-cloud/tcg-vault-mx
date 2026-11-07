@@ -99,7 +99,7 @@ describe('SealedCatalogAdminService — listado de productos sellados del set (P
 
     const etb = res.data.find((d) => d.tcgplayerProductId === 111)!;
     expect(etb.sealedSubtype).toBe('etb');
-    expect(etb.imageUrl).toBe('https://tcgplayer-cdn.tcgplayer.com/product/111_200w.jpg');
+    expect(etb.imageUrl).toBe('https://tcgplayer-cdn.tcgplayer.com/product/111_in_1000x1000.jpg');
     // 25000 USD cents × 20 (rate) × (1 + 0%) = 500000 MXN cents.
     expect(etb.marketRef).toEqual({ status: 'priced', referenceMxnCents: 500000 });
     expect(etb.cleanName).toBe('PRE ETB');

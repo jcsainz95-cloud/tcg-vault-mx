@@ -133,6 +133,8 @@ function buildHarness(opts: { sourceOn?: boolean } = {}) {
 }
 
 const IMG_OK = 'https://tcgplayer-cdn.tcgplayer.com/product/777_200w.jpg';
+/** Lo que se PERSISTE: la miniatura se sube a `_in_1000x1000` (upgradeSealedImageUrl). */
+const IMG_STORED = 'https://tcgplayer-cdn.tcgplayer.com/product/777_in_1000x1000.jpg';
 
 const sealedLine = (over: any = {}) => ({
   cardId: 'card-anchor',
@@ -174,7 +176,7 @@ describe('alta de SELLADO nace MAPEADA (P-35, §4.32c)', () => {
       productType: 'sealed',
       tcgplayerProductId: 777,
       tcgplayerGroupId: 900,
-      sealedImageUrl: IMG_OK,
+      sealedImageUrl: IMG_STORED,
       sealedProductName: 'Prismatic Evolutions ETB',
     });
   });
@@ -223,7 +225,7 @@ describe('host allowlist de la imagen del sellado (anti stored-XSS, §4.32c)', (
     const h = buildHarness({ sourceOn: true });
     seedMarket(h);
     await h.svc.createItem(sealedLine() as any, 'op-1');
-    expect(h.created[0].sealedImageUrl).toBe(IMG_OK);
+    expect(h.created[0].sealedImageUrl).toBe(IMG_STORED);
   });
 
   it.each([
@@ -289,7 +291,7 @@ describe('alta por LOTE de sellado (batch) — mapeo + idempotencia + tolerancia
     expect(res.summary).toMatchObject({ requested: 2, createdItems: 1, failedLines: 1 });
     expect(res.results[0]).toMatchObject({ index: 0, ok: true });
     expect(res.results[1]).toMatchObject({ index: 1, ok: false, error: { code: 'VALIDATION_ERROR' } });
-    expect(h.created[0]).toMatchObject({ tcgplayerProductId: 777, tcgplayerGroupId: 900, sealedImageUrl: IMG_OK });
+    expect(h.created[0]).toMatchObject({ tcgplayerProductId: 777, tcgplayerGroupId: 900, sealedImageUrl: IMG_STORED });
   });
 
   it('replay por el MISMO batchKey devuelve el resultado guardado sin re-crear (idempotencia)', async () => {

@@ -86,6 +86,10 @@ export const ErrorCode = {
   // SET_NOT_IMPORTED real con 404 se confundiría con eso. Lo emite POST /admin/catalog/refresh-variants;
   // en el batch se captura por-set y va a summary.failures[].code. 409.
   SET_NOT_IMPORTED: 'SET_NOT_IMPORTED',
+  // P-PROMOS (§5.12): import de cartas desde un grupo TCGCSV. 409 si el grupo ya empata con un set de pokemontcg.io
+  // (esa vía es `sync`); 404 si el groupId no está en la lista de grupos de TCGCSV.
+  TCGCSV_GROUP_COVERED: 'TCGCSV_GROUP_COVERED',
+  TCGCSV_GROUP_UNKNOWN: 'TCGCSV_GROUP_UNKNOWN',
   // v1.6-finish: el `finish` enviado no está en Card.availableFinishes (SEC-A1). 422.
   // Afecta POST /buylist/quote, POST /buylist/requests, POST /admin/inventory/items.
   FINISH_NOT_AVAILABLE: 'FINISH_NOT_AVAILABLE',

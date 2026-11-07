@@ -539,6 +539,18 @@ export interface TcgcsvSingleProductRef {
 }
 
 /**
+ * P-PROMOS (ARCHITECTURE §5.12) — producto de un grupo TCGCSV con lo necesario para CREAR la carta (nombre crudo,
+ * `Number`, `Rarity`, `imageUrl`). `number`/`rarity`/`imageUrl` son `null` cuando la fuente no los trae.
+ */
+export interface TcgcsvCardProductRef {
+  productId: number;
+  name: string;
+  number: string | null;
+  rarity: string | null;
+  imageUrl: string | null;
+}
+
+/**
  * v1.26 (§4.24a) — Fila de PRECIO cruda de TCGCSV que aporta ESTRUCTURA vía su `subTypeName`. El
  * `marketPrice` puede ser `null` (estructura ≠ precio); el resolver NO lo usa para decidir estructura.
  */

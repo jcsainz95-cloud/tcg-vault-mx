@@ -12,6 +12,7 @@ import {
 // escalera NO se reimplementa aquí ni «se adapta»; se llama. La copia local es lo que dejó a la ruta
 // de ESTRUCTURA sin el arreglo del prefijo (P-46) que la de PRECIO sí tenía.
 import { matchTcgcsvGroupByName } from '../pricing/providers/tcgcsv-group-match';
+import { isTcgcsvOrigin } from './tcgcsv-card-name';
 
 /**
  * CardProductResolverService (v1.29, ARCHITECTURE §4.27d) — REEMPLAZA a `StructuralFinishResolverService`.
@@ -71,9 +72,12 @@ export class CardProductResolverService {
   } | null> {
     const set = await this.prisma.cardSet.findUnique({
       where: { id: localSetId },
-      select: { id: true, name: true, pptSetId: true },
+      select: { id: true, name: true, pptSetId: true, externalId: true },
     });
     if (!set) return null;
+    // P-PROMOS (§5.12): los sets `tcgcsv:` los puebla SU importador (cartas, sellos y precios por productId). Este
+    // resolver uniría por número y pisaría un `CardProduct stamped` como `promo` ⇒ NO los recorre (refresh-variants).
+    if (isTcgcsvOrigin(set.externalId)) return null;
 
     const groupId = await this.resolveGroupId(set);
     if (groupId == null) return null;

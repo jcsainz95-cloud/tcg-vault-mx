@@ -5,6 +5,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CatalogSyncService } from './catalog-sync.service';
 import { AuditService } from '../audit/audit.service';
+import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 
 class SyncDto {
   @IsOptional() @IsString() setId?: string;
@@ -44,6 +45,11 @@ class RefreshVariantsAllDto {
   @IsOptional() @IsBoolean() force?: boolean;
 }
 
+/** P-PROMOS (§5.12) — body de `POST /admin/catalog/import-tcgcsv-set`: el `groupId` entero de TCGCSV. */
+class ImportTcgcsvSetDto {
+  @IsInt() @Min(1) groupId!: number;
+}
+
 /** Normaliza `force` desde body ({force:true}) o query (?force=true) → boolean. */
 function parseForce(bodyForce: boolean | undefined, queryForce: string | undefined): boolean {
   if (bodyForce != null) return bodyForce;
@@ -60,6 +66,7 @@ export class AdminCatalogController {
   constructor(
     private readonly sync: CatalogSyncService,
     private readonly audit: AuditService,
+    private readonly tcgcsvImport: TcgcsvSetImportService,
   ) {}
 
   @Get('remote-sets')
@@ -243,6 +250,35 @@ export class AdminCatalogController {
         newBoundary: res.newBoundary,
         remaining: res.remaining,
         force,
+      },
+    });
+    return res;
+  }
+
+  /** GET /admin/catalog/tcgcsv-groups — grupos de TCGCSV sin set de pokemontcg.io (P-PROMOS, ARCHITECTURE §5.12). */
+  @Get('tcgcsv-groups')
+  tcgcsvGroups() {
+    return this.tcgcsvImport.listGroups();
+  }
+
+  /** POST /admin/catalog/import-tcgcsv-set — crea/actualiza el set y sus cartas desde un grupo de TCGCSV. Idempotente. */
+  @Post('import-tcgcsv-set')
+  @HttpCode(200)
+  async importTcgcsvSet(@Body() dto: ImportTcgcsvSetDto, @CurrentUser() user: { id: string; role: Role }) {
+    const res = await this.tcgcsvImport.importGroup(dto.groupId);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'catalog.tcgcsv_import',
+      entityType: 'CardSet',
+      entityId: res.setId,
+      after: {
+        groupId: dto.groupId,
+        created: res.created,
+        updated: res.updated,
+        stamped: res.stamped,
+        noPrice: res.noPrice,
+        skipped: res.skipped.length,
       },
     });
     return res;
