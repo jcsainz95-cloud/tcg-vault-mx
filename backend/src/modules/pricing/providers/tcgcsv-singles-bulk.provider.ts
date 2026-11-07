@@ -4,7 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { BulkFetchInput, BulkPriceProvider, BulkPriceResult, BulkPriceRow } from '../pricing.types';
 import { TcgcsvCatalogClient, deriveCardProductsFromTcgcsv } from './tcgcsv-singles.provider';
 import { SetUnresolvedSignal } from '../pricing.types';
-import { TcgcsvGroupMatchFailure, matchTcgcsvGroupByName } from './tcgcsv-group-match';
+import { TcgcsvGroupMatchFailure, resolveTcgcsvGroupForSet } from './tcgcsv-group-match';
 
 /**
  * TcgcsvSinglesBulkPriceProvider (v1.44, P-47, ARCHITECTURE §4.35) — PROVEEDOR PRIMARIO del barrido
@@ -210,14 +210,8 @@ export class TcgcsvSinglesBulkPriceProvider implements BulkPriceProvider {
     const cached = this.groupIdCache.get(set.id);
     if (cached != null) return { groupId: cached };
 
-    if (set.pptSetId && /^\d+$/.test(set.pptSetId)) {
-      const groupId = parseInt(set.pptSetId, 10);
-      this.groupIdCache.set(set.id, groupId);
-      return { groupId };
-    }
-
-    const groups = await this.tcgcsv.listGroups();
-    const match = matchTcgcsvGroupByName(set.name, groups);
+    // P-PROMOS-VIEJAS: tabla fija > pptSetId numérico > nombre, en la función compartida con la ruta de estructura.
+    const match = await resolveTcgcsvGroupForSet(set, () => this.tcgcsv.listGroups());
     if (match.groupId != null) {
       this.groupIdCache.set(set.id, match.groupId);
       return { groupId: match.groupId };

@@ -1,5 +1,6 @@
 import { TcgcsvGroupRef } from '../pricing.types';
 import { normalizeSetName, setNameCandidates } from '../ppt-set-mapper.service';
+import { promoGroupFor } from '../../catalog/promo-set-groups';
 
 /**
  * Match `CardSet` local ↔ **grupo de TCGCSV** por NOMBRE (paso 2 de S-D3 / ARCHITECTURE §4.27d).
@@ -205,4 +206,23 @@ function debasedGroupMatchesFullLocal(localFull: string, groupName: string): boo
  */
 function normalizeGroupName(raw: string | null | undefined): string {
   return normalizeSetName(raw);
+}
+
+/**
+ * P-PROMOS-VIEJAS (ARCHITECTURE §5.13) — ÚNICA función que decide el grupo TCGCSV de un set local, compartida por
+ * `CardProductResolverService.resolveGroupId` (estructura) y `TcgcsvSinglesBulkPriceProvider.resolveGroupId` (precio).
+ * PRECEDENCIA: (1) tabla fija `PTCG_PROMO_GROUPS` por `externalId`; (2) `pptSetId` numérico; (3) nombre
+ * (`matchTcgcsvGroupByName`, último recurso). La tabla gana incluso si PPT escribió otro id (1400/1430 son sets base).
+ * `listGroups` solo se llama si se llega al peldaño 3.
+ */
+export async function resolveTcgcsvGroupForSet(
+  set: { name: string; pptSetId: string | null; externalId?: string | null },
+  listGroups: () => Promise<readonly TcgcsvGroupRef[]>,
+): Promise<{ groupId: number; via: 'promo_table' | 'ppt_set_id' | 'name' } | Extract<TcgcsvGroupMatch, { groupId: null }>> {
+  const promo = promoGroupFor(set.externalId);
+  if (promo) return { groupId: promo.groupId, via: 'promo_table' };
+  if (set.pptSetId && /^\d+$/.test(set.pptSetId)) return { groupId: parseInt(set.pptSetId, 10), via: 'ppt_set_id' };
+  const match = matchTcgcsvGroupByName(set.name, await listGroups());
+  if (match.groupId != null) return { groupId: match.groupId, via: 'name' };
+  return match;
 }

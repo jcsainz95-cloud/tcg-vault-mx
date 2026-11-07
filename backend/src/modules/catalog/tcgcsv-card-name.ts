@@ -75,6 +75,8 @@ export function stampTypeFromLabel(label: string): StampType | null {
   if (/\bstaff\b/.test(s)) return 'staff';
   if (/\bpre-?release\b/.test(s)) return 'prerelease';
   if (/\b(championship|campeonato)\b/.test(s)) return 'championship';
+  // P-PROMOS-VIEJAS (§5.13): puestos de campeonato en corchete (lista cerrada exacta; «[Top 16]», «[Champion]»… ⇒ desconocido).
+  if (/^(?:[1-4](?:st|nd|rd|th) place|participation|winner)$/.test(s.trim().replace(/\s+/g, ' '))) return 'championship';
   return null;
 }
 
@@ -87,6 +89,8 @@ export function parenStampTypeFromLabel(label: string): StampType | null {
   const s = label.trim().toLowerCase().replace(/\s+/g, ' ');
   if (/^pre-?release$/.test(s)) return 'prerelease';
   if (/^(winner|championship|campeonato)$/.test(s)) return 'championship';
+  // P-PROMOS-VIEJAS (§5.13): «(Worlds 11)»/«(Worlds 2011)» y «(Battle Road Autumn 2011)» (temporada + año) son campeonato.
+  if (/^worlds (?:\d{2}|\d{4})$/.test(s) || /^battle road [a-z]+ \d{4}$/.test(s)) return 'championship';
   if (/^world championships \d{4}$/.test(s) || /^asia championship series(?: [\w -]+)?$/.test(s)) return 'championship';
   if (/^(pitch black stamped|pokemon center exclusive|cosmos holo|ace trainer)$/.test(s)) return 'event_promo';
   return null;
@@ -97,18 +101,24 @@ export function parenStampTypeFromLabel(label: string): StampType | null {
  * «Pikachu ex (30th Celebration)», #107. «Paradise Resort - 092 (…) [Staff]» ⇒ sello `staff`, label «Staff».
  * Sin `Number` ⇒ no es carta (sellado u otro) ⇒ `no_number`. Número del nombre ≠ `Number` ⇒ `number_mismatch`.
  */
-export function parseTcgcsvCardName(rawName: string, extNumber: string | null | undefined): ParsedTcgcsvName {
+export function parseTcgcsvCardName(
+  rawName: string,
+  extNumber: string | null | undefined,
+  // P-PROMOS-VIEJAS (§5.13): «(Prerelease) [Staff]» es la versión Staff de la Prerelease (125 productos en las 6 familias):
+  // con esta opción `[Staff]` gana también sobre `(Prerelease)`. Sin ella (import de 24451, §5.12) sigue siendo `unknown_stamp`.
+  opts: { staffOverPrerelease?: boolean } = {},
+): ParsedTcgcsvName {
   const ext = (extNumber ?? '').split('/')[0].trim();
   if (ext === '') return { ok: false, reason: 'no_number' };
 
   let s = (rawName ?? '').trim();
-  const stamps: { type: StampType; label: string }[] = [];
+  const stamps: { type: StampType; label: string; bracket?: boolean }[] = [];
   for (const m of s.matchAll(BRACKET)) {
     const label = m[1].trim();
     if (label === '') continue;
     const type = stampTypeFromLabel(label);
     if (type == null) return { ok: false, reason: 'unknown_stamp' };
-    stamps.push({ type, label });
+    stamps.push({ type, label, bracket: true });
   }
   s = s.replace(BRACKET, ' ');
   // Paréntesis: solo `(30th Celebration)` se queda en el nombre; Prerelease/Winner/Campeonato son sello; el resto, desconocido.
@@ -122,12 +132,19 @@ export function parseTcgcsvCardName(rawName: string, extNumber: string | null | 
   }
   // Combinación evento + `[Staff]` («Paradise Resort 092 (World Championships 2026) [Staff]»): es la versión Staff de ese evento
   // (producto propio de TCGCSV, distinto del que lleva solo el paréntesis); gana `staff`. Cualquier otra combinación ⇒ desconocida.
-  let stamp: { type: StampType; label: string } | null = stamps[0] ?? null;
+  let stamp: { type: StampType; label: string } | null = stamps[0] ? { type: stamps[0].type, label: stamps[0].label } : null;
   if (stamps.length === 2) {
     const staff = stamps.find((x) => x.type === 'staff');
     const other = stamps.find((x) => x !== staff);
-    if (!staff || !other || (other.type !== 'championship' && other.type !== 'event_promo')) return { ok: false, reason: 'unknown_stamp' };
-    stamp = staff;
+    const paren = stamps.find((x) => !x.bracket);
+    const bracket = stamps.find((x) => x.bracket);
+    if (!staff && paren?.type === 'championship' && bracket?.type === 'championship') {
+      // «(Battle Road Autumn 2011) [3rd Place]» sin Staff = UN solo sello: «Battle Road Autumn 2011 · 3rd Place» (≤ 64).
+      stamp = { type: 'championship', label: `${paren.label} · ${bracket.label}`.slice(0, TCGCSV_MAX_STAMP_LABEL) };
+    } else {
+      if (!staff || !other || (other.type !== 'championship' && other.type !== 'event_promo' && !(opts.staffOverPrerelease && other.type === 'prerelease'))) return { ok: false, reason: 'unknown_stamp' };
+      stamp = { type: staff.type, label: staff.label };
+    }
   } else if (stamps.length > 2) return { ok: false, reason: 'unknown_stamp' };
   s = s.replace(/\s+/g, ' ').trim();
 

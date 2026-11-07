@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Finish, PriceRefKind, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FinishReconciler } from './finish-reconciler.service';
@@ -11,8 +11,11 @@ import {
 // FUENTE ÚNICA del match set local ↔ grupo TCGCSV (S-D3 / §4.27d). Ver `resolveGroupId`: esta
 // escalera NO se reimplementa aquí ni «se adapta»; se llama. La copia local es lo que dejó a la ruta
 // de ESTRUCTURA sin el arreglo del prefijo (P-46) que la de PRECIO sí tenía.
-import { matchTcgcsvGroupByName } from '../pricing/providers/tcgcsv-group-match';
+import { resolveTcgcsvGroupForSet } from '../pricing/providers/tcgcsv-group-match';
 import { isTcgcsvOrigin } from './tcgcsv-card-name';
+import { promoGroupFor } from './promo-set-groups';
+import { PromoSetProductsService } from './promo-set-products.service';
+import type { PromoSkipped } from './promo-set-plan';
 
 /**
  * CardProductResolverService (v1.29, ARCHITECTURE §4.27d) — REEMPLAZA a `StructuralFinishResolverService`.
@@ -40,6 +43,8 @@ export class CardProductResolverService {
     private readonly tcgcsv: TcgcsvCatalogClient,
     private readonly finishReconciler: FinishReconciler,
     private readonly fx: FxService,
+    // P-PROMOS-VIEJAS (§5.13): sets de `PTCG_PROMO_GROUPS` ⇒ no pasan por `deriveCardProductsFromTcgcsv`.
+    @Optional() private readonly promoProducts?: PromoSetProductsService,
   ) {}
 
   /**
@@ -69,6 +74,8 @@ export class CardProductResolverService {
      * `cardsTouched: 0` — que es el hecho que el operador necesita ver, no un 191 tranquilizador.
      */
     cardsTouched: number;
+    /** P-PROMOS-VIEJAS: productos omitidos de un set de `PTCG_PROMO_GROUPS` (solo en esos sets). */
+    promoSkipped?: PromoSkipped[];
   } | null> {
     const set = await this.prisma.cardSet.findUnique({
       where: { id: localSetId },
@@ -81,6 +88,12 @@ export class CardProductResolverService {
 
     const groupId = await this.resolveGroupId(set);
     if (groupId == null) return null;
+
+    const promo = promoGroupFor(set.externalId);
+    if (promo) {
+      if (!this.promoProducts) return null;
+      return this.promoProducts.run(set.id, groupId, promo.numberPrefix);
+    }
 
     const [products, prices] = await Promise.all([
       this.tcgcsv.getProducts(groupId),
@@ -271,18 +284,13 @@ export class CardProductResolverService {
     id: string;
     name: string;
     pptSetId: string | null;
+    externalId: string;
   }): Promise<number | null> {
     const cached = this.groupIdCache.get(set.id);
     if (cached != null) return cached;
 
-    if (set.pptSetId && /^\d+$/.test(set.pptSetId)) {
-      const groupId = parseInt(set.pptSetId, 10);
-      this.groupIdCache.set(set.id, groupId);
-      return groupId;
-    }
-
-    const groups = await this.tcgcsv.listGroups();
-    const match = matchTcgcsvGroupByName(set.name, groups);
+    // P-PROMOS-VIEJAS: tabla fija > pptSetId numérico > nombre, en la función compartida con la ruta de estructura.
+    const match = await resolveTcgcsvGroupForSet(set, () => this.tcgcsv.listGroups());
     if (match.groupId != null) {
       this.groupIdCache.set(set.id, match.groupId);
       return match.groupId;

@@ -50,6 +50,8 @@ export type SetImportOutcome = {
   cardsBefore: number | null;
   /** P-PROMOS (§5.12): el set de pokemontcg.io está SOMBREADO por el set local `tcgcsv:<groupId>`; no se escribió nada. */
   shadowedBy?: { ptcgSetId: string; groupId: number };
+  /** P-PROMOS-VIEJAS (§5.13): productos omitidos de un set de `PTCG_PROMO_GROUPS` (solo si hubo). */
+  promoSkipped?: { number: string; reason: 'no_card' | 'unknown_stamp' | 'ambiguous_base' | 'ambiguous_number' }[];
 };
 
 /** Conteo agregado de una corrida de import sobre N sets (D1). Sin literales: todo se cuenta. */
@@ -491,6 +493,7 @@ export class CatalogSyncService {
         // con `imported` literal `true` ⇒ SIEMPRE 1. Ahora sale de lo que se contó (D1).
         setsQueued: tally.setsWritten,
         mode: 'single' as const,
+        ...(res.promoSkipped ? { promoSkipped: res.promoSkipped } : {}),
         // Desglose HONESTO (aditivo): «importé» y «ya estaba» son hechos distintos y viajan
         // separados. La UI de M2 lee hoy `setsQueued` y lo rotula «set(s) importado(s)»: con un
         // re-sync eso es falso, y sólo se puede arreglar leyendo `setsImported`.
@@ -565,6 +568,8 @@ export class CatalogSyncService {
     pricesUpserted: number;
     pending: number;
     tcgcsvReachable: boolean;
+    /** P-PROMOS-VIEJAS (§5.13): solo en sets de `PTCG_PROMO_GROUPS`. */
+    promoSkipped?: { number: string; reason: 'no_card' | 'unknown_stamp' | 'ambiguous_base' | 'ambiguous_number' }[];
   }> {
     void force; // aceptado por simetría con /sync; este camino siempre re-resuelve (ver doc arriba)
     if (!SET_ID_PATTERN.test(setId)) {
@@ -636,6 +641,7 @@ export class CatalogSyncService {
       pricesUpserted: result.pricesWritten,
       pending: result.pricesPending,
       tcgcsvReachable: true,
+      ...(result.promoSkipped ? { promoSkipped: result.promoSkipped } : {}),
     };
   }
 
@@ -1157,10 +1163,11 @@ export class CatalogSyncService {
     const cardsBefore = await this.countLocalCardsInSet(localSet.id);
     const firstImport = cardsBefore === 0;
     const cardsUpserted = await this.importCardsForSet(rs.id, localSet.id);
+    let promoSkipped: SetImportOutcome['promoSkipped'];
     if (firstImport || opts.force === true) {
-      await this.runCardProductResolver(localSet.id, rs.id);
+      promoSkipped = await this.runCardProductResolver(localSet.id, rs.id);
     }
-    return CatalogSyncService.outcomeOf(cardsBefore, cardsUpserted);
+    return { ...CatalogSyncService.outcomeOf(cardsBefore, cardsUpserted), ...(promoSkipped ? { promoSkipped } : {}) };
   }
 
   /**
@@ -1205,10 +1212,11 @@ export class CatalogSyncService {
     cardsUpserted += await this.withUpstreamGuard(() =>
       this.importRemainingPages(setId, localSet.id, first),
     );
+    let promoSkipped: SetImportOutcome['promoSkipped'];
     if (firstImport || opts.force === true) {
-      await this.runCardProductResolver(localSet.id, setId);
+      promoSkipped = await this.runCardProductResolver(localSet.id, setId);
     }
-    return CatalogSyncService.outcomeOf(cardsBefore, cardsUpserted);
+    return { ...CatalogSyncService.outcomeOf(cardsBefore, cardsUpserted), ...(promoSkipped ? { promoSkipped } : {}) };
   }
 
   /**
@@ -1238,15 +1246,20 @@ export class CatalogSyncService {
     }
   }
 
-  private async runCardProductResolver(localSetId: string, setExternalId: string): Promise<void> {
-    if (this.cardProductResolver == null) return;
+  private async runCardProductResolver(
+    localSetId: string,
+    setExternalId: string,
+  ): Promise<SetImportOutcome['promoSkipped']> {
+    if (this.cardProductResolver == null) return undefined;
     try {
-      await this.cardProductResolver.resolveCardProductsForSet(localSetId);
+      const r = await this.cardProductResolver.resolveCardProductsForSet(localSetId);
+      return r?.promoSkipped;
     } catch (e) {
       this.logger.warn(
         `importSet: resolver estructural TCGCSV falló para ${setExternalId} (${(e as Error).message}); ` +
           `se conserva structuralFinishes seed/previo (money-safe). NO aborta el import.`,
       );
+      return undefined;
     }
   }
 
