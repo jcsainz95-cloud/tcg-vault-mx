@@ -119,7 +119,7 @@ export class TcgcsvSetImportService {
     let timer: NodeJS.Timeout | undefined;
     try {
       const sets = await Promise.race([
-        this.ptcg.getSets(),
+        this.ptcg.getSetsBounded(),
         new Promise<never>((_, rej) => {
           timer = setTimeout(() => rej(new Error('timeout')), PTCG_TIMEOUT_MS);
         }),

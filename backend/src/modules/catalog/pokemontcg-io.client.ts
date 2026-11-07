@@ -72,7 +72,16 @@ export class PokemonTcgIoClient {
   private readonly baseUrl = 'https://api.pokemontcg.io/v2';
   /** Reintentos ante 429/5xx transitorios (free tier rate-limitea a media importación). */
   private readonly maxRetries = 4;
-  private readonly baseBackoffMs = 500;
+  protected readonly baseBackoffMs: number = 500;
+  /** Tope por petición del camino general (sync): evita un fetch colgado sin fin. */
+  protected readonly requestTimeoutMs: number = 60_000;
+  /** Camino ACOTADO (import de promos): 3 intentos, ≤2 s entre intentos, presupuesto total 10 s. */
+  protected readonly boundedAttempts: number = 3;
+  protected readonly boundedMaxWaitMs: number = 2_000;
+  protected readonly boundedBudgetMs: number = 10_000;
+  /** Caché en memoria del último resultado BUENO de la lista de sets (24 h). */
+  protected readonly setsCacheTtlMs: number = 24 * 60 * 60 * 1000;
+  private setsCache: { at: number; sets: RemoteCardSet[] } | null = null;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -92,7 +101,7 @@ export class PokemonTcgIoClient {
    * set: el barrido de cartas continúa tras esperar.
    */
   private async getJson<T>(path: string, attempt = 0): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers() });
+    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers(), signal: AbortSignal.timeout(this.requestTimeoutMs) });
     if ((res.status === 429 || res.status >= 500) && attempt < this.maxRetries) {
       const retryAfterHeader = Number(res.headers.get('retry-after'));
       const waitMs =
@@ -114,7 +123,76 @@ export class PokemonTcgIoClient {
   /** GET /v2/sets — todos los sets del catálogo remoto. */
   async getSets(): Promise<RemoteCardSet[]> {
     const body = await this.getJson<RemotePage<RemoteCardSet>>('/sets?pageSize=250');
-    return body.data ?? [];
+    return this.nonEmptySets(body);
+  }
+
+  /** QA-PRM-EMPTY: un 200 con `data` ausente, no-array o vacío NO es una respuesta (fail-closed), jamás `[]`. */
+  private nonEmptySets(body: { data?: unknown } | null | undefined): RemoteCardSet[] {
+    const data = body?.data;
+    if (!Array.isArray(data) || data.length === 0) throw new Error('pokemontcg.io /sets -> 200 sin datos');
+    return data as RemoteCardSet[];
+  }
+
+  /**
+   * QA-PRM-FLAKY — lista de sets para el IMPORT: hasta 3 intentos, ≤2 s entre ellos, presupuesto total 10 s (un `Retry-After`
+   * mayor que lo que queda del presupuesto corta). Una sola señal `AbortController` cancela fetch y esperas al agotarse el
+   * presupuesto o al terminar: nada sigue en segundo plano tras responder. Éxito ⇒ caché 24 h; fallo ⇒ caché vigente si la hay;
+   * sin caché ⇒ lanza (el servicio responde 503 POKEMONTCG_UNAVAILABLE).
+   */
+  async getSetsBounded(): Promise<RemoteCardSet[]> {
+    const ctl = new AbortController();
+    const started = Date.now();
+    const budgetTimer = setTimeout(() => ctl.abort(), this.boundedBudgetMs);
+    try {
+      let lastErr: Error = new Error('sin intentos');
+      for (let attempt = 0; attempt < this.boundedAttempts; attempt++) {
+        let waitMs = Math.min(this.baseBackoffMs * 2 ** attempt, this.boundedMaxWaitMs);
+        try {
+          const res = await fetch(`${this.baseUrl}/sets?pageSize=250`, { headers: this.headers(), signal: ctl.signal });
+          if (res.ok) {
+            const sets = this.nonEmptySets((await res.json()) as { data?: unknown });
+            this.setsCache = { at: Date.now(), sets };
+            return sets;
+          }
+          lastErr = new Error(`pokemontcg.io /sets -> HTTP ${res.status}`);
+          if (res.status !== 429 && res.status < 500) break; // 4xx no transitorio: no se reintenta
+          const ra = Number(res.headers.get('retry-after'));
+          if (Number.isFinite(ra) && ra > 0) {
+            if (ra * 1000 > this.boundedBudgetMs - (Date.now() - started)) break; // Retry-After > lo que queda ⇒ se corta
+            waitMs = Math.min(ra * 1000, this.boundedMaxWaitMs);
+          }
+        } catch (e) {
+          lastErr = e as Error;
+          if (ctl.signal.aborted) break;
+        }
+        if (attempt === this.boundedAttempts - 1) break;
+        if (Date.now() - started + waitMs >= this.boundedBudgetMs) break;
+        this.logger.warn(`pokemontcg.io /sets: ${lastErr.message}; intento ${attempt + 2}/${this.boundedAttempts} en ${waitMs}ms`);
+        await this.sleepAbortable(waitMs, ctl.signal);
+        if (ctl.signal.aborted) break;
+      }
+      const cached = this.setsCache;
+      if (cached && Date.now() - cached.at < this.setsCacheTtlMs) {
+        this.logger.warn(`pokemontcg.io /sets caído (${lastErr.message}); se usa la caché de ${Math.round((Date.now() - cached.at) / 60000)} min.`);
+        return cached.sets;
+      }
+      throw lastErr;
+    } finally {
+      clearTimeout(budgetTimer);
+      ctl.abort(); // nada vivo tras responder
+    }
+  }
+
+  private sleepAbortable(ms: number, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+      const t = setTimeout(done, ms);
+      function done() {
+        clearTimeout(t);
+        signal.removeEventListener('abort', done);
+        resolve();
+      }
+      signal.addEventListener('abort', done);
+    });
   }
 
   /** GET /v2/cards?q=set.id:{setId} — cartas de un set (paginado). setId ya validado. */

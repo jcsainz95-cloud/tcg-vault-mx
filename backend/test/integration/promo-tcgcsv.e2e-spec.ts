@@ -142,6 +142,10 @@ class FakePtcg {
     if (this.down) throw new Error('pokemontcg.io down');
     return this.sets;
   }
+  /** El import usa la lista acotada (reintentos/caché viven en el cliente real). */
+  async getSetsBounded() {
+    return this.getSets();
+  }
   async getCardsBySet(setId: string) {
     const data = this.cards[setId] ?? [];
     return { data, page: 1, pageSize: 250, count: data.length, totalCount: data.length };
@@ -209,6 +213,13 @@ describe('E2E — P-PROMOS opción C (2.ª ronda): import de cartas desde un gru
     expect((await h.api('GET', '/admin/catalog/tcgcsv-groups')).status).toBe(401);
     expect((await h.api('GET', '/admin/catalog/tcgcsv-groups', { token: customer })).status).toBe(403);
     expect((await h.api('POST', '/admin/catalog/import-tcgcsv-set', { token: customer, json: { groupId: G } })).status).toBe(403);
+    expect(await setRow()).toBeNull();
+  });
+
+  it('PRM2-3: `vault_operator` recibe 403 en los dos endpoints de import (y 0 filas)', async () => {
+    const operator = await h.login(E2E_USERS.operator.email, E2E_USERS.operator.password);
+    expect((await h.api('GET', '/admin/catalog/tcgcsv-groups', { token: operator })).status).toBe(403);
+    expect((await h.api('POST', '/admin/catalog/import-tcgcsv-set', { token: operator, json: { groupId: G } })).status).toBe(403);
     expect(await setRow()).toBeNull();
   });
 
@@ -424,6 +435,32 @@ describe('E2E — P-PROMOS opción C (2.ª ronda): import de cartas desde un gru
     const enamorus = await h.prisma.card.findUniqueOrThrow({ where: { externalId: `tcgcsv:${P.enamorus}` } });
     expect(await h.prisma.priceReference.count({ where: { cardId: enamorus.id } })).toBe(0);
     expect(enamorus.availableFinishes).toEqual(['normal']);
+  });
+
+  it('QA-PRM-PEND: carta importada sin precio CON pieza en stock (sin publicar) ⇒ ficha pricePending:true; con precio ⇒ false', async () => {
+    const mk = async (productId: number, finish: 'normal' | 'holofoil') => {
+      const card = await h.prisma.card.findUniqueOrThrow({ where: { externalId: `tcgcsv:${productId}` } });
+      await h.prisma.inventoryItem.create({
+        data: {
+          folio: `PEND-${run}-${productId}`, cardId: card.id, productType: 'raw', rawCondition: 'NM', finish,
+          ownerType: 'platform', status: 'in_stock', acquisitionType: 'compra', acquisitionCostCents: 1000,
+        },
+      });
+      return card.id;
+    };
+    try {
+      const noPriceId = await mk(P.enamorus, 'normal');
+      const ficha = await h.api<any>('GET', `/catalog/cards/${noPriceId}`);
+      expect(ficha.status).toBe(200);
+      expect(ficha.body.listings).toEqual([]);
+      expect(ficha.body.pricePending).toBe(true);
+      expect(JSON.stringify(ficha.body)).not.toMatch(/acquisition|costCents|"cost|margin/i);
+      const pricedId = await mk(P.pikachu, 'holofoil');
+      const priced = await h.api<any>('GET', `/catalog/cards/${pricedId}`);
+      expect(priced.body.pricePending).toBe(false);
+    } finally {
+      await h.prisma.inventoryItem.deleteMany({ where: { folio: { startsWith: `PEND-${run}-` } } });
+    }
   });
 
   it('PROMO-B5: remote-sets (remoto y degradado) no lista `tcgcsv:`; sync-all no toca estos sets', async () => {

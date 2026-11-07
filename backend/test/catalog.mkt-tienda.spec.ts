@@ -292,8 +292,16 @@ describe('QA-PRM-UX — ficha de CARTA: `pricePending` (misma decisión de venta
     expect(d.pricePending).toBe(false);
   });
 
-  it('agotada (sin piezas publicadas) ⇒ pricePending:false', async () => {
+  it('QA-PRM-PEND: sin listing publicado (pieza en stock sin publicar) y base sin precio ⇒ pricePending:true', async () => {
     const d = await build([], true).getCard('c1');
+    expect(d.listings).toHaveLength(0);
+    expect(d.pricePending).toBe(true);
+    expect(JSON.stringify(d)).not.toMatch(/acquisition|cost|margin/i);
+  });
+
+  it('agotada de verdad (sin piezas publicadas, base CON precio) ⇒ pricePending:false', async () => {
+    const d = await build([], false).getCard('c1');
+    expect(d.listings).toHaveLength(0);
     expect(d.pricePending).toBe(false);
   });
 
