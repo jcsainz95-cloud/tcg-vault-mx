@@ -18,7 +18,7 @@
 - **Chromium en CI** (CI-APT-LOCK, 2026-11-06): los 5 pasos que lo instalan llaman a `scripts/ci-install-chromium.sh`
   (espera el candado de apt del runner, `DPkg::Lock::Timeout` 300 s, backoff 30/60 s); candado `check-chromium-install.sh`.
 
-## Seguridad — hallazgos ABIERTOS (seguridad-lead) — último veredicto 2026-11-07 (sha f9200a23, P-PROMOS opción C 2.ª ronda: seguridad APROBADO 0 crít/alt; calidad APROBADO; PRM-1/2/3 y QA-PRM-FAILOPEN/COVER/SHADOW CERRADOS: integración promo-tcgcsv 15/15 ×2, ablación `tx`→`this.prisma` rompe atomicidad 1/1 y sin candado entra N=30 (rojo), restaurado; tsc backend limpio, 214 unit OK, migración m98 aplica e idempotente)
+## Seguridad — hallazgos ABIERTOS (seguridad-lead) — último veredicto 2026-11-07 (sha fbccc2b3, P-PROMOS C 3.ª ronda delta: APROBADO 0 crít/alt; `pricePending` solo booleano sin stock privado; caché de sets solo como respaldo si falla la red; jest bounded+mkt-tienda 26/26, vitest tcgplayerImage 2/2)
 | ID | Sev | Qué | Dueño | Medido |
 |---|---|---|---|---|
 | P-RL-1 | Media | Tope por IP esquivable rotando `X-Forwarded-For` si el edge de Railway lo deja pasar (el tope por cuenta sí protege el login) | devops + backend | 2026-10-05 |
@@ -30,7 +30,8 @@
 | S-M4P-A | Media | `RolesGuard` falla abierto y `admin-shipments` (PII densa) sin candado de regresión — **vencido** | backend | 2026-09-22 |
 | PRM2-1 | Baja | Docs: `ARCHITECTURE.md` §5.12 aún dice «id de pokemontcg.io NO MEDIDO» pero `tcgcsv-importable-groups.ts:17-21` ya lo midió (176 sets, `mep` ausente). Cierre: corregir la línea | arquitecto | 2026-11-07 |
 | PRM2-2 | Baja | Reversa tras importar: un backend VIEJO con filas `event_promo` falla al leer `CardProduct.stampType` (el cliente Prisma no conoce el valor; Postgres no quita valores de enum). El despliegue normal es seguro (no hay filas hasta que el admin importa). Cierre: nota en la PR de publicación «si se revierte código, antes borrar filas `tcgcsv:`» (ARCHITECTURE §5.12 ya lo dice) | orquestador (PR) | 2026-11-07 |
-| PRM2-3 | Baja | Prueba faltante: `promo-tcgcsv.e2e-spec.ts:208` cubre 401/cliente 403 pero no `vault_operator` en los dos endpoints (el guard de clase `@Roles(super_admin)` en `admin-catalog.controller.ts` lo cubre por lectura; NO MEDIDO en vivo) | backend | 2026-11-07 |
+| PRM3-1 | Baja | `pokemontcg-io.client.ts` caché `setsCache` por proceso (varias réplicas ⇒ caché distinta; tras reinicio se pierde): aceptable porque solo se usa si la red falla; un 200 válido recorta/desactualiza el listado solo hasta el siguiente éxito. Sin acción salvo que se quiera Redis | backend | 2026-11-07 |
+| TL-PRM3-2 | Baja | `frontend/src/lib/tcgplayerImage.ts` duplica la regex de `upgradeSealedImageUrl` (`inventory/sealed-image-host`); riesgo de deriva. Cierre: `MasterSetCardCellDTO.imageLargeUrl` desde el servidor y borrar el espejo | backend + frontend | 2026-11-07 |
 | TL-IDS-1 | Baja | `ids-capture.ts:216-221` `versionContributionReferenceCents` repite `scaleByPct` en el front (aritmética de dinero; espejo declarado de `versionReferenceForAlta`, riesgo de deriva si cambia el redondeo). No afecta al sugerido (viene del servidor). Cierre: exponer la cifra en `VersionComboDTO` | frontend + backend | 2026-11-06 |
 | TL-IDS-2 | Baja | `removableCount` (`VariantDrawer.tsx:203`) cuenta sobre las filas leídas (tope 100, TL-A2-2): con >100 piezas en la casilla subestima lo que `bulk-remove` baja. Atado a TL-A2-2 | frontend | 2026-11-06 |
 | PT-CTA-5 | Baja | Residual de «cuenta con solo el correo» (aceptado) | backend | 2026-11-04 |
