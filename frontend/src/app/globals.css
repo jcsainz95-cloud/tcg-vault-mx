@@ -16,6 +16,8 @@
   --color-bg: #f4f1ea;
   --color-surface: #f4f1ea;
   --color-surface-2: #efebe2;
+  /* Tarjeta de foto de producto (sellado): las fotos traen fondo blanco; el blanco evita el halo sobre el papel. */
+  --color-photo-mat: #ffffff;
 
   /* Reglas: el único separador del sistema. Nada de cajas ni sombras. */
   --color-border: rgba(26, 26, 24, 0.16);

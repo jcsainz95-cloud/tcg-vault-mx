@@ -12,7 +12,7 @@ import { IvaLabel } from '@/components/ui/IvaLabel';
 import { useCart } from '@/lib/cart';
 import { Link, useRouter } from '@/i18n/navigation';
 import { CartAddedToast } from '../../catalog/CartAddedToast';
-import { CardImage } from '@/components/ui/CardImage';
+import { SealedPhoto } from '@/components/domain/SealedPhoto';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
@@ -186,11 +186,7 @@ function Detail({
 
       <div className="grid lg:grid-cols-2">
         <div className="flex items-center justify-center border-b border-border bg-surface-2 px-6 py-10 lg:border-b-0 lg:border-r lg:px-11 lg:py-14">
-          <CardImage
-            src={group.imageUrl ?? undefined}
-            alt={group.productName}
-            className="w-full max-w-[420px] bg-transparent p-0"
-          />
+          <SealedPhoto src={group.imageUrl} alt={group.productName} />
         </div>
 
         <div className="gutter py-10 lg:py-14">

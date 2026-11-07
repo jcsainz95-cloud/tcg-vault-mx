@@ -37,6 +37,7 @@ Precio: lleva el IVA dentro y **no se rotula** «IVA incluido» al lado (dueño,
 | `--color-success` (`success`) | `#4a7345` | Éxito (fondo transparente) |
 | `--color-warning`, `--color-danger` | `#b31217` | Aviso y error usan el bermellón (fondo transparente) |
 | `--color-info` | `#6e695e` | Información |
+| `--color-photo-mat` (`photo-mat`) | `#ffffff` | Tarjeta de foto de sellado (`SealedPhoto`: marco fino, p-8, se ajusta a la foto, sin 5:7, sin agrandar) |
 | `--color-neutral-warm` | `#9a6c57` | Neutro cálido (sellado, notas) |
 | `--color-finish-reverse` / `--color-finish-holo` | bermellón / `#1f5c8f` | Badges de acabado (holo pendiente de ratificar) |
 | `--color-focus-ring` | `#b31217` | Anillo de foco (`shadow-focus`: 2 px) |
