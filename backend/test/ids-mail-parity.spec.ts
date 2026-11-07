@@ -22,7 +22,7 @@ type Catalog = {
 const LOCALES = ['es', 'en'] as const;
 const catalogOf = (l: (typeof LOCALES)[number]): Catalog =>
   JSON.parse(readFileSync(join(__dirname, '..', '..', 'frontend', 'messages', `${l}.json`), 'utf8')) as Catalog;
-const STAMPS: StampType[] = ['prize_pack', 'league', 'championship', 'prerelease', 'staff'];
+const STAMPS: StampType[] = ['prize_pack', 'league', 'championship', 'prerelease', 'staff', 'event_promo'];
 
 /** Una línea congelada que produce `label` (`cosmos_holo` sale del rótulo del producto, D-IDS-N). */
 function lineFor(stampType: StampType | null, label: FinishLabel, language: 'en' | 'es') {
@@ -48,10 +48,10 @@ function storeText(cat: Catalog, stampType: StampType | null, label: FinishLabel
 describe('TL-IDS-1 · el correo dice EXACTAMENTE lo que la tienda (frontend/messages/{es,en}.json)', () => {
   const cases = LOCALES.flatMap((l) => STAMPS.flatMap((s) => FINISH_LABEL_VALUES.map((f) => [l, s, f] as const)));
 
-  it('las combinaciones son 5 × 5 × 2', () => {
-    expect(STAMPS).toHaveLength(5);
+  it('las combinaciones son 6 × 5 × 2', () => {
+    expect(STAMPS).toHaveLength(6);
     expect(FINISH_LABEL_VALUES).toHaveLength(5);
-    expect(cases).toHaveLength(50);
+    expect(cases).toHaveLength(60);
   });
 
   it.each(cases)('%s · %s · %s (español de liga)', (l, s, f) => {

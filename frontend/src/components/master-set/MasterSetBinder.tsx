@@ -1,5 +1,6 @@
 'use client';
 
+import { upgradeTcgplayerThumb } from '@/lib/tcgplayerImage';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -723,7 +724,7 @@ function TileHeader({
   const hasCount = !!showFinishCount && finishCount > 0;
   const art = (
     <CardImage
-      src={cell.imageSmallUrl}
+      src={upgradeTcgplayerThumb(cell.imageSmallUrl)}
       alt={`${cell.name} · ${finishLabel}`}
       eager={eager}
       className={`${dashed ? 'border border-dashed border-border-strong' : ''} ${dimmed ? 'opacity-40' : ''}`}
@@ -1156,7 +1157,7 @@ function SeparateProductTile({
       {/* FinishBand (§16.6): banda superior de 3px — canal de color; el texto lo porta la etiqueta. */}
       <FinishBand finish={finish} />
       <span className="relative block">
-        <CardImage src={cell.imageSmallUrl} alt={`${product.name} · ${finishLabel}`} eager={eager} />
+        <CardImage src={upgradeTcgplayerThumb(cell.imageSmallUrl)} alt={`${product.name} · ${finishLabel}`} eager={eager} />
         {/* Distintivo de PRODUCTO APARTE con scrim de tinta (§7.2b): separa visualmente del set base. */}
         <span className="absolute left-1 top-1 bg-[color:var(--color-ink)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-[color:var(--color-on-ink)]">
           {kindLabel}

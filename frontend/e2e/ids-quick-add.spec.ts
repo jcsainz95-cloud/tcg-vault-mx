@@ -232,7 +232,8 @@ for (const width of [390, 1280] as const) {
       const pieces = drawer.getByRole('region', { name: /^Piezas \(\d+\)$/ });
       const row = pieces.locator('li', { hasText: folio }).first();
       await expect(row).toBeVisible();
-      await expect(row.getByTestId('piece-version')).toHaveText('ENDe liga');
+      // 503742d1: la fila de pieza lleva el acabado cuando la liga va en uno distinto al de la casilla («(Holo)»).
+      await expect(row.getByTestId('piece-version')).toHaveText('ENDe liga(Holo)');
       await expect(pieces.getByRole('heading', { level: 3 })).toHaveText(/^Piezas \([1-9]\d*\)$/);
       const note = pieces.getByText(t('es', 'admin.drawer.slotCountNote'));
       await expect(note).toBeVisible();

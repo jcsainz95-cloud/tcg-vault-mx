@@ -164,6 +164,7 @@ describe('§IDS.5 — versionInternalLine (hoja de preparación, texto de backen
     championship: 'TORNEO · Campeonato — sello de Campeonato',
     prerelease: 'EVENTO · Promo de Prerelease — sello Prerelease',
     staff: 'EVENTO · Promo Staff — sello Staff',
+    event_promo: 'EVENTO · PROMO DE EVENTO',
   };
   it.each(Object.keys(IDS_UX3) as StampType[])('IDS-UX.3 · %s: ES/EN, con y sin detalle', (t) => {
     expect(versionInternalLineOf({ language: 'es', stampType: t, stampLabel: null })).toBe(`ES · ${IDS_UX3[t]}`);

@@ -387,6 +387,8 @@ const CARD_FINISHES: Record<string, Finish[]> = {
 export const mockCards: CardDTO[] = ([
   // Base Set clásicas (raw/graded).
   card('c-charizard', 'Charizard', '4', 'Rare Holo', 'base1', 'Base Set', 'Pokémon', ['Stage 2']),
+  // MOCK QA-PRM-UX: promo tcgcsv SIN precio (PRICE_PENDING) y sin stock ⇒ la ficha dice «Precio pendiente», no «Agotada».
+  card('c-promo-pending', 'Pikachu ex', '107', 'Promo', 'svp', 'Promos de evento', 'Pokémon', ['Basic', 'ex']),
   card('c-blastoise', 'Blastoise', '2', 'Rare Holo', 'base1', 'Base Set', 'Pokémon', ['Stage 2']),
   card('c-pikachu', 'Pikachu', '58', 'Common', 'base1', 'Base Set'),
   card('c-zapdos', 'Zapdos', '16', 'Rare Holo', 'base1', 'Base Set'),
@@ -1168,6 +1170,8 @@ export function mockGroupedDetail(cardId: string): GroupedListingDetailResponse 
     : undefined;
   return {
     card,
+    // MOCK QA-PRM-UX: sin producto en PRICE_PENDING en los mocks de ficha ⇒ agotada/normal.
+    pricePending: cardId === 'c-promo-pending' && cardUnits.length === 0,
     listings,
     units,
     // MOCK §IDS.5: `versions[]` con el orden y la omisión de agotadas del servidor.

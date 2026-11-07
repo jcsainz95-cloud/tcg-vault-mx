@@ -98,6 +98,7 @@ function mockDetail(
 ) {
   vi.spyOn(api, 'getCardDetail').mockResolvedValue({
     card,
+    pricePending: false,
     listings,
     units,
     ...(gradedEstimates ? { gradedEstimates } : {}),
@@ -287,6 +288,19 @@ describe('CardDetailView · una acción, una etiqueta; pila de avisos; franja; a
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Charizard');
     expect(screen.queryAllByTestId('instance-cta')).toHaveLength(0);
     expect(screen.queryByTestId('mobile-buy-bar')).toBeNull();
+  });
+
+  it('QA-PRM-UX · `pricePending:true` sin stock ⇒ «Precio pendiente» (no «Agotada»), sin CTA ni $0', async () => {
+    mockDetail([], []);
+    vi.spyOn(api, 'getCardDetail').mockResolvedValue({ card, pricePending: true, listings: [], units: [] });
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+
+    expect(await screen.findByTestId('price-pending')).toHaveTextContent('Precio pendiente');
+    expect(screen.queryByText('Agotada')).toBeNull();
+    expect(screen.queryByTestId('sold-out')).toBeNull();
+    expect(screen.queryAllByTestId('instance-cta')).toHaveLength(0);
+    expect(screen.queryByTestId('mobile-buy-bar')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\$\s?0(\.00)?\b/);
   });
 });
 
@@ -500,6 +514,7 @@ describe('CardDetailView · P-71 código corto del set en la línea del set', ()
     const withCode = { ...card, setName: 'Twilight Masquerade', setPtcgoCode: 'TWM', number: '130' };
     vi.spyOn(api, 'getCardDetail').mockResolvedValue({
       card: withCode,
+      pricePending: false,
       listings: listings.map((l) => ({ ...l, card: withCode })),
       units: units.map((u) => ({ ...u, card: withCode })),
     });

@@ -3,6 +3,7 @@ import { CardProductKind, Finish } from '@prisma/client';
 import {
   TcgcsvGroupRef,
   TcgcsvSingleProductRef,
+  TcgcsvCardProductRef,
   TcgcsvPriceRow,
   deriveStructuralFinishes,
   tcgcsvSubTypeToFinish,
@@ -19,6 +20,7 @@ interface TcgcsvRawGroup {
 interface TcgcsvRawProduct {
   productId?: number;
   name?: string;
+  imageUrl?: string | null;
   extendedData?: { name?: string; displayName?: string; value?: unknown }[] | null;
 }
 
@@ -41,6 +43,10 @@ interface TcgcsvRawPrice {
  *    la estructura previa intacta (una carta no resuelta conserva su valor; falta-una-casilla nunca
  *    sobra-una-falsa). El egress a tcgcsv.com está BLOQUEADO en dev/CI: se testea contra fixtures.
  */
+/** P-PROMOS (PRM-3): topes del import de cartas — respuesta upstream ≤ 5 MB y ≤ 2000 productos (si no ⇒ 502). */
+export const TCGCSV_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+export const TCGCSV_IMPORT_MAX_PRODUCTS = 2000;
+
 @Injectable()
 export class TcgcsvCatalogClient extends TcgcsvHttpClient {
   /** Grupos de la categoría Pokémon (para resolver el groupId por nombre; S-D3). Lanza ante fallo. */
@@ -78,6 +84,30 @@ export class TcgcsvCatalogClient extends TcgcsvHttpClient {
   }
 
   /**
+   * P-PROMOS (§5.12) — TODOS los productos del grupo con `Number`/`Rarity`/`imageUrl` para crear cartas. El filtro
+   * «es carta» (tiene `Number`) lo decide el importador, que además REPORTA lo omitido. Lanza ante fallo remoto.
+   */
+  async getCardProducts(groupId: number): Promise<TcgcsvCardProductRef[]> {
+    this.assertValidGroupId(groupId);
+    const body = await this.getJson<TcgcsvRawProduct>(`/${this.pokemonCategoryId}/${groupId}/products`, TCGCSV_IMPORT_MAX_BYTES);
+    if ((body.results ?? []).length > TCGCSV_IMPORT_MAX_PRODUCTS) {
+      throw new Error(`tcgcsv: grupo ${groupId} trae ${(body.results ?? []).length} productos (> ${TCGCSV_IMPORT_MAX_PRODUCTS})`);
+    }
+    const out: TcgcsvCardProductRef[] = [];
+    for (const p of body.results ?? []) {
+      if (typeof p?.productId !== 'number' || !Number.isInteger(p.productId) || !p?.name) continue;
+      out.push({
+        productId: p.productId,
+        name: p.name,
+        number: extractNumber(p.extendedData),
+        rarity: extractExtended(p.extendedData, 'Rarity'),
+        imageUrl: typeof p.imageUrl === 'string' && p.imageUrl.trim() !== '' ? p.imageUrl.trim() : null,
+      });
+    }
+    return out;
+  }
+
+  /**
    * Filas de precio del grupo, reducidas a `{ productId, subTypeName, marketPrice }` — lo único que
    * el resolver necesita. Una fila con `marketPrice: null` SE CONSERVA (estructura ≠ precio). Lanza
    * ante fallo remoto.
@@ -86,6 +116,7 @@ export class TcgcsvCatalogClient extends TcgcsvHttpClient {
     this.assertValidGroupId(groupId);
     const body = await this.getJson<TcgcsvRawPrice>(
       `/${this.pokemonCategoryId}/${groupId}/prices`,
+      TCGCSV_IMPORT_MAX_BYTES,
     );
     const out: TcgcsvPriceRow[] = [];
     for (const r of body.results ?? []) {
@@ -98,6 +129,16 @@ export class TcgcsvCatalogClient extends TcgcsvHttpClient {
     }
     return out;
   }
+}
+
+/** Valor de texto de una entrada de `extendedData` por nombre, o `null`. */
+function extractExtended(
+  ext: { name?: string; value?: unknown }[] | null | undefined,
+  key: string,
+): string | null {
+  if (!Array.isArray(ext)) return null;
+  const v = ext.find((e) => e?.name === key)?.value;
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
 }
 
 /** Lee `extendedData` y devuelve el valor de la entrada `Number` como string, o `null`. */

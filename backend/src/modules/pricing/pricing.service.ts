@@ -2700,6 +2700,8 @@ export class PricingService {
     // v1.29 (M-31, §4.27f): el fallback PPT de singles y las gradeadas escriben con `cardProductId=null`
     // (el PRIMARIO tcgcsv_singles por producto lo escribe el CardProductResolver con su cardProductId).
     cardProductId: string | null = null,
+    // P-PROMOS (§5.12): el import de cartas escribe el precio DENTRO de su transacción (todo-o-nada).
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
   ): Promise<void> {
     const productType: ProductType = 'raw';
     const gradeKey = 'raw:NM';
@@ -2741,7 +2743,7 @@ export class PricingService {
     // una fila de árbitro de otra fuente (`tcgdex`/`cardmarket`, misma cubeta `cardProductId=null`) ni
     // chocar P2002. Sin (2), al añadir `source` a la `@@unique`, el `findFirst`+update cruzaría fuentes.
     // MONEY-REF-EXEMPT: comprobación de override manual del ESCRITOR (suprime escritura), no candidata.
-    const manualPresent = await this.prisma.priceReference.findFirst({
+    const manualPresent = await db.priceReference.findFirst({
       where: { cardId, productType, gradeKey, finish, cardProductId, isManualOverride: true },
       select: { id: true },
     });
@@ -2749,7 +2751,7 @@ export class PricingService {
     if (manualPresent) return;
     // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE POR FUENTE de un ESCRITOR (mercado raw), no de
     // candidatas de precio. `source` en el `where` ⇒ cada fuente su serie (igual que `persistArbiterReference`).
-    const current = await this.prisma.priceReference.findFirst({
+    const current = await db.priceReference.findFirst({
       where: { cardId, productType, gradeKey, finish, cardProductId, source: market.source as PriceSource },
       orderBy: { capturedDate: 'desc' },
       select: {
@@ -2780,7 +2782,7 @@ export class PricingService {
       // lectura viva recompone MXN desde el USD vigente; el único lector del MXN congelado —la rama
       // `asOf` de `computeSetValue`— se corrige en el job del snapshot, §4.1).
       if (current!.evidenceDate == null || current!.evidenceDate < capturedDate) {
-        await this.prisma.priceReference.update({
+        await db.priceReference.update({
           where: { id: current!.id },
           data: { evidenceDate: capturedDate },
         });
@@ -2807,9 +2809,9 @@ export class PricingService {
     // Idempotencia intra-día: si la vigente ES la fila de HOY (re-run del mismo día con valor nuevo), se
     // corrige en su sitio (sin colisión con la @@unique de 6 campos). Si no, fila NUEVA del día.
     if (current != null && current.capturedDate.getTime() === capturedDate.getTime()) {
-      await this.prisma.priceReference.update({ where: { id: current.id }, data });
+      await db.priceReference.update({ where: { id: current.id }, data });
     } else {
-      await this.prisma.priceReference.create({
+      await db.priceReference.create({
         data: {
           cardId,
           productType,

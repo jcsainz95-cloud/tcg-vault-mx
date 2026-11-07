@@ -137,7 +137,7 @@ beforeEach(() => {
 
 describe.each(['es', 'en'] as const)('B4 · «ventas finales» una sola vez antes de pagar, con T8 al lado (%s)', (locale) => {
   it('ficha de CARTA: 0 veces «ventas finales» y T8 visible', async () => {
-    vi.spyOn(api, 'getCardDetail').mockResolvedValue({ card, listings: [group], units: [unit] });
+    vi.spyOn(api, 'getCardDetail').mockResolvedValue({ card, pricePending: false, listings: [group], units: [unit] });
     renderWithProviders(<CardDetailView cardId="c-test" />, locale);
     expect(await screen.findByText(T8[locale])).toBeInTheDocument();
     expect(finalCount(locale)).toBe(0);

@@ -69,6 +69,12 @@ describe('VersionChip · textos D-6 v3 (IDS-UX.1)', () => {
     expect(screen.queryByText('De liga')).toBeNull();
   });
 
+  it('ES/EN: event_promo dice «Promo de evento» / «Event promo», nunca «De liga»', () => {
+    renderWithIntl(<StampChip type="event_promo" />);
+    expect(screen.getByText('Promo de evento')).toBeInTheDocument();
+    expect(screen.queryByText('De liga')).toBeNull();
+  });
+
   it('(7b) ninguna insignia lleva `uppercase` ni `font-mono`; rectas (sin rounded-*); nunca aria-hidden', () => {
     const { container } = renderWithIntl(
       <>

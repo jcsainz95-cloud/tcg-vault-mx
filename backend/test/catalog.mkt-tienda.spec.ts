@@ -265,3 +265,48 @@ describe('§MKT.B — GET /catalog/sitemap (E/SEO)', () => {
     expect(sealed.lastmod).toBe(new Date('2026-10-12T00:00:00Z').toISOString());
   });
 });
+
+describe('QA-PRM-UX — ficha de CARTA: `pricePending` (misma decisión de venta que PRICE_PENDING)', () => {
+  function build(items: Array<Record<string, unknown>>, referencePending: boolean) {
+    const prisma = {
+      inventoryItem: { findMany: jest.fn(async () => items), count: jest.fn(async () => items.length) },
+      card: { findUnique: jest.fn(async () => CARD()) },
+    } as unknown as PrismaService;
+    const pricing = pricingMock() as unknown as Record<string, jest.Mock>;
+    if (referencePending) {
+      pricing.getReference = jest.fn(async () => ({ status: 'pending' }));
+      pricing.getReferencesBatch = jest.fn(async () => new Map());
+    }
+    return new CatalogService(prisma, pricing as unknown as PricingService, ivaDialsStub() as never);
+  }
+
+  it('piezas publicadas sin precio publicable ⇒ pricePending:true', async () => {
+    const d = await build([ITEM()], true).getCard('c1');
+    expect(d.listings).toHaveLength(0);
+    expect(d.pricePending).toBe(true);
+  });
+
+  it('piezas con precio ⇒ pricePending:false', async () => {
+    const d = await build([ITEM()], false).getCard('c1');
+    expect(d.listings.length).toBeGreaterThan(0);
+    expect(d.pricePending).toBe(false);
+  });
+
+  it('QA-PRM-PEND: sin listing publicado (pieza en stock sin publicar) y base sin precio ⇒ pricePending:true', async () => {
+    const d = await build([], true).getCard('c1');
+    expect(d.listings).toHaveLength(0);
+    expect(d.pricePending).toBe(true);
+    expect(JSON.stringify(d)).not.toMatch(/acquisition|cost|margin/i);
+  });
+
+  it('agotada de verdad (sin piezas publicadas, base CON precio) ⇒ pricePending:false', async () => {
+    const d = await build([], false).getCard('c1');
+    expect(d.listings).toHaveLength(0);
+    expect(d.pricePending).toBe(false);
+  });
+
+  it('una pieza con precio y otra pendiente ⇒ la carta se vende: pricePending:false', async () => {
+    const d = await build([ITEM({ id: 'i1', listPriceCents: 11500 }), ITEM({ id: 'i2', listPriceCents: null })], true).getCard('c1');
+    expect(d.pricePending).toBe(false);
+  });
+});

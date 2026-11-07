@@ -34,6 +34,11 @@ describe('PieceVersion (lista de inventario admin)', () => {
     );
     expect(screen.getByTestId('piece-version').textContent).toBe('EspañolDe ligaCosmos Holo');
   });
+  it('QA-IDS-ROW: pieza de liga con acabado distinto al de la casilla suma «(Holo)»; sin finishLabel no cambia', () => {
+    const v = { key: 'es.703819', language: 'es' as const, stamp: { type: 'prize_pack' as const, label: null, productId: 703819 } };
+    renderWithIntl(<PieceVersion version={v} finishLabel="holo" />);
+    expect(screen.getByTestId('piece-version').textContent).toBe('EspañolDe liga(Holo)');
+  });
   it('sin `version` (servidor anterior) ⇒ inglés sin liga', () => {
     renderWithIntl(<PieceVersion />);
     expect(screen.getByTestId('piece-version').textContent).toBe('EN—');

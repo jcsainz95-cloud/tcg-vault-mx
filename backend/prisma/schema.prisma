@@ -442,6 +442,7 @@ enum StampType {
   championship
   prerelease
   staff
+  event_promo
 }
 
 enum KycStatus {

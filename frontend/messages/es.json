@@ -401,7 +401,8 @@
     },
     "sealedRedirect": "Te estamos llevando a Producto sellado…",
     "vaultNote": "Con cuenta, junta cartas en tu bóveda y pide un solo envío. Sin cuenta, te la enviamos a casa.",
-    "soldOutCard": "Agotada"
+    "soldOutCard": "Agotada",
+    "pricePendingCard": "Precio pendiente"
   },
   "shop": {
     "filtersTitle": "Filtros",
@@ -1821,6 +1822,7 @@
           "league": "De liga · Promo de Liga",
           "championship": "De torneo",
           "prerelease": "Prerelease",
+          "event_promo": "Promo de evento",
           "staff": "Staff"
         },
         "priceLabel": "Precio de venta (auto)",
@@ -4148,6 +4150,29 @@
           "BUY_ABOVE_SALE": "En {market} pagarías {pct}% y venderías a {mult}×: la compra alcanza a la venta. Baja el pago de ese tramo.",
           "BIN_ABOVE_FLOOR": "El mínimo de compra ({bin}) no puede alcanzar al piso de venta ({floor}).",
           "ROUNDING_LADDER_INVALID": "La escalera de redondeo no es válida: cada frontera debe ser múltiplo exacto del escalón de la banda anterior (con escalón de MX$5, la frontera puede ser MX$200, no MX$203)."
+        }
+      },
+      "tcgcsvPromos": {
+        "eyebrow": "Promos",
+        "title": "Importar promos de TCGCSV",
+        "subtitle": "Grupos de promos que no están en pokemontcg.io (p. ej. las del 30 aniversario). Se crean con el nombre de la fuente; las que no traen precio quedan como «precio pendiente» y no se pueden vender. Importar dos veces no duplica.",
+        "empty": "No hay grupos de promos pendientes.",
+        "meta": "Grupo {id} · {products} productos en la fuente (varios son versiones de una misma carta) · {count} cartas importadas",
+        "imported": "ya importado",
+        "import": "Importar {name}",
+        "reimport": "Volver a importar {name}",
+        "summary": "{group}: {created} cartas creadas, {updated} actualizadas, {stamped} versiones de liga.",
+        "noPrice": "{count, plural, one {# carta sin precio: queda como «precio pendiente».} other {# cartas sin precio: quedan como «precio pendiente».}}",
+        "skippedTitle": "{count, plural, one {# producto omitido} other {# productos omitidos}}",
+        "reason": {
+          "no_number": "no tiene número (no es carta)",
+          "number_mismatch": "el número no coincide con el nombre",
+          "unknown_stamp": "sello desconocido",
+          "empty_name": "nombre vacío",
+          "no_base": "no hay carta base para el sello",
+          "ambiguous_base": "hay más de una carta base posible para el sello",
+          "product_already_linked": "el producto ya está ligado a otra carta",
+          "card_exists_in_pokemontcg": "la carta ya existe en pokemontcg.io"
         }
       },
       "rarityHealth": {
@@ -7893,6 +7918,8 @@
     "BOUNTY_PRICE_REQUIRED": "El bounty necesita un precio explícito. No se guardó nada.",
     "BOUNTY_BELOW_RULE": "Un bounty tiene que pagar más que la tarifa vigente ({suggested}). Con el mismo importe no sería una oferta.",
     "SET_NOT_IMPORTED": "Ese set aún no está importado; impórtalo antes de refrescar sus variantes.",
+    "TCGCSV_GROUP_UNKNOWN": "Ese grupo de TCGCSV no existe. Actualiza la lista.",
+    "TCGCSV_GROUP_COVERED": "Ese grupo ya está cubierto por un set de pokemontcg.io: usa la importación normal.",
     "UPSTREAM_ERROR": "TCGCSV no está disponible en este momento. Inténtalo de nuevo en unos minutos.",
     "SEALED_PRODUCT_NOT_FOUND": "Ese producto sellado ya no existe o está inactivo; vuelve a sincronizar el catálogo.",
     "MANUAL_MARKET_NOT_ALLOWED": "Esta presentación ya tiene precio de mercado; el precio manual solo aplica cuando no hay mercado.",
@@ -8567,6 +8594,7 @@
       "league": "De liga",
       "championship": "De torneo",
       "prerelease": "Prerelease",
+      "event_promo": "Promo de evento",
       "staff": "Staff"
     },
     "finishLabel": {
@@ -8590,6 +8618,7 @@
       "league": "De liga (promo de la Liga)",
       "championship": "De torneo (promo de campeonato)",
       "prerelease": "Prerelease (promo de prerelease)",
+      "event_promo": "Promo de evento",
       "staff": "Staff (promo Staff)"
     },
     "row": {
@@ -8598,6 +8627,7 @@
       "league": "De liga · Promo de la Liga",
       "championship": "De torneo",
       "prerelease": "Prerelease",
+      "event_promo": "Promo de evento",
       "staff": "Staff"
     },
     "picker": {
@@ -8608,6 +8638,7 @@
       "league": "Carta de liga: promo de la Liga Pokémon",
       "championship": "Promo de campeonato",
       "prerelease": "Promo de prerelease",
+      "event_promo": "Promo de evento",
       "staff": "Promo Staff"
     },
     "imageNote": {

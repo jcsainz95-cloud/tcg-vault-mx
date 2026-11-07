@@ -18,6 +18,9 @@ import { deriveNumberParts } from '../../common/card-order';
 import { normalizeRarity, isRarityMapped } from '../../common/rarity-catalog';
 import { FinishReconciler } from './finish-reconciler.service';
 import { CardProductResolverService } from './card-product-resolver.service';
+import { AuditService } from '../audit/audit.service';
+import { isTcgcsvOrigin, tcgcsvSetExternalId } from './tcgcsv-card-name';
+import { importableGroupForPtcgSet } from './tcgcsv-importable-groups';
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -45,6 +48,8 @@ export type SetImportOutcome = {
   outcome: 'imported' | 'refreshed' | 'noop';
   cardsUpserted: number;
   cardsBefore: number | null;
+  /** P-PROMOS (§5.12): el set de pokemontcg.io está SOMBREADO por el set local `tcgcsv:<groupId>`; no se escribió nada. */
+  shadowedBy?: { ptcgSetId: string; groupId: number };
 };
 
 /** Conteo agregado de una corrida de import sobre N sets (D1). Sin literales: todo se cuenta. */
@@ -63,6 +68,8 @@ export type SetImportTally = {
   setsNoop: number;
   /** cartas escritas por ESTA corrida (≠ cartas que existen en los sets). */
   cardsUpserted: number;
+  /** P-PROMOS (§5.12): aviso — ids de pokemontcg.io omitidos por sombra de un set `tcgcsv:` (solo si hubo). */
+  shadowed?: string[];
 };
 
 /**
@@ -218,6 +225,7 @@ export function tallyImports(results: SetImportOutcome[]): SetImportTally {
     // una suma repetida en cada llamador. `I-CS5`: setsImported + setsRefreshed === setsWritten.
     if (r.outcome !== 'noop') tally.setsWritten += 1;
     tally.cardsUpserted += r.cardsUpserted;
+    if (r.shadowedBy) (tally.shadowed ??= []).push(r.shadowedBy.ptcgSetId);
   }
   return tally;
 }
@@ -323,6 +331,9 @@ export class CatalogSyncService {
     // `importSet` (first-import/`--force`). @Optional: los tests unitarios que ejercitan solo el
     // sync single/metadata pueden construir el servicio sin él (no se invoca en esa ruta).
     @Optional() private readonly cardProductResolver?: CardProductResolverService,
+    // P-PROMOS (§5.12): deja `catalog.tcgcsv_shadowed` cuando pokemontcg.io trae una carta cuyo producto ya es de una
+    // carta `tcgcsv:`. @Optional: los tests unitarios que no ejercitan esa rama no lo inyectan (se queda en `warn`).
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   /**
@@ -425,7 +436,8 @@ export class CatalogSyncService {
       this.logger.warn(
         `remote-sets: pokemontcg.io no disponible (${(e as Error).message}); fallback a sets locales.`,
       );
-      const localSets = await this.prisma.cardSet.findMany();
+      // P-PROMOS (§5.12): los sets `tcgcsv:` NO son remotos de pokemontcg.io; no entran a esta lista.
+      const localSets = (await this.prisma.cardSet.findMany()).filter((s) => !isTcgcsvOrigin(s.externalId));
       const data = localSets
         .map((s) => ({
           id: s.externalId,
@@ -1134,6 +1146,8 @@ export class CatalogSyncService {
     rs: RemoteCardSet,
     opts: { force?: boolean } = {},
   ): Promise<SetImportOutcome> {
+    const shadow = await this.tcgcsvShadowOfPtcgSet(rs.id);
+    if (shadow) return shadow;
     const localSet = await this.upsertSet(rs);
     // Universo PREVIO del set (predicado «cartas locales de un set», fuente ÚNICA
     // `countLocalCardsInSet`). Se calcula SIEMPRE porque de él salen DOS hechos distintos: el gate
@@ -1174,6 +1188,8 @@ export class CatalogSyncService {
     setId: string,
     opts: { force?: boolean } = {},
   ): Promise<SetImportOutcome> {
+    const shadow = await this.tcgcsvShadowOfPtcgSet(setId);
+    if (shadow) return shadow;
     const first = await this.withUpstreamGuard(() => this.client.getCardsBySet(setId, 1));
     if (!first.data || first.data.length === 0) {
       // El remoto no trae cartas ⇒ no se escribió NADA. `cardsBefore: null` porque ni siquiera se
@@ -1437,6 +1453,10 @@ export class CatalogSyncService {
     // señal de acabado. No se rellena nada; la carencia se hace VISIBLE en el log del sync.
     let noFinishSignal = 0;
     const touchedCardIds: string[] = [];
+    // P-PROMOS (§5.12): defensa en profundidad — si el set destino está sombreado por un set `tcgcsv:`, no crea ni mueve nada.
+    // El id del set sale del propio lote (sin lectura extra a BD para los sets normales).
+    const ptcgSetId = cards.find((x) => x?.set?.id)?.set?.id;
+    if (ptcgSetId && (await this.tcgcsvShadowOfPtcgSet(ptcgSetId))) return 0;
     for (const c of cards) {
       if (!c?.id || !c?.name) {
         this.logger.warn(
@@ -1524,6 +1544,36 @@ export class CatalogSyncService {
     return count;
   }
 
+  /**
+   * P-PROMOS (§5.12) — SOMBRA POR SET (no por URL de carta): si `ptcgSetId` es el set de pokemontcg.io de un grupo de la
+   * lista explícita Y existe el set local `tcgcsv:<groupId>`, el sync de ese set NO crea ni mueve nada. Devuelve el
+   * resultado `noop` con `shadowedBy` (la respuesta del sync lo avisa) tras `warn` + `AuditLog catalog.tcgcsv_shadowed`.
+   * Fusionar es decisión del arquitecto, no del sync. `null` si no hay sombra.
+   */
+  private async tcgcsvShadowOfPtcgSet(ptcgSetId: string): Promise<SetImportOutcome | null> {
+    const group = importableGroupForPtcgSet(ptcgSetId);
+    if (!group) return null;
+    const local = await this.prisma.cardSet.findUnique({
+      where: { externalId: tcgcsvSetExternalId(group.groupId) },
+      select: { id: true },
+    });
+    if (!local) return null;
+    this.logger.warn(
+      `sync: el set ${ptcgSetId} de pokemontcg.io está sombreado por ${tcgcsvSetExternalId(group.groupId)}; NO se crea ni se mueve nada.`,
+    );
+    try {
+      await this.audit?.log({
+        action: 'catalog.tcgcsv_shadowed',
+        entityType: 'CardSet',
+        entityId: local.id,
+        after: { pokemontcgIoSetId: ptcgSetId, tcgcsvGroupId: group.groupId },
+      });
+    } catch (e) {
+      this.logger.warn(`sync: no se pudo auditar tcgcsv_shadowed (${(e as Error).message}).`);
+    }
+    return { outcome: 'noop', cardsUpserted: 0, cardsBefore: null, shadowedBy: { ptcgSetId, groupId: group.groupId } };
+  }
+
   /** Conteo de cartas locales agrupado por externalId del set (para remote-sets). */
   /**
    * ⭐ RESOLVER ÚNICO DEL CORTE DE FECHA — «¿desde qué fecha importa este catálogo?».
@@ -1591,7 +1641,11 @@ export class CatalogSyncService {
     const sets = await this.prisma.cardSet.findMany({
       select: { externalId: true, _count: { select: { cards: true } } },
     });
-    return sets.filter((s) => s._count.cards > 0).map((s) => s.externalId);
+    // P-PROMOS (§5.12): `refresh-variants-all` y compañía recorren solo sets de pokemontcg.io; los `tcgcsv:` se
+    // reimportan con su propio endpoint (su resolver los omite) y su precio lo lleva el barrido diario.
+    return sets
+      .filter((s) => s._count.cards > 0 && !isTcgcsvOrigin(s.externalId))
+      .map((s) => s.externalId);
   }
 
   private async localSetExternalIds(): Promise<Set<string>> {

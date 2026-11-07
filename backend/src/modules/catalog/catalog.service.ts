@@ -13,7 +13,7 @@ import {
 } from '../pricing/pricing.service';
 // ⭐ D56 (§4.44.b): los DOS diales que derivan `P`. `SettingsModule` es `@Global`.
 import { SettingsService } from '../settings/settings.service';
-import { SaleDecisionService } from '../pricing/sale-decision.service';
+import { hypotheticalRawSaleItem, SaleDecisionService } from '../pricing/sale-decision.service';
 import { liveSalesFor, ListingPriceService, PieceSale } from '../pricing/listing-price.service';
 // v2.0 (P-48, §4.36): la CURVA sustituye a las reglas por rareza/acabado. `sealedPriceBasisOf` deriva
 // el `priceBasis` del SELLADO (cuya matemática NO cambia) para que el front tenga UNA sola regla de
@@ -534,6 +534,12 @@ export interface GroupedListingDetailResponse {
    * el tamaño ≥1200×630 (backend no descarga la imagen; ver `docs/BACKEND_NOTES.md` Q1).
    */
   ogImageUrl: string | null;
+  /**
+   * QA-PRM-UX: `true` ⇔ la carta tiene piezas publicadas y NINGUNA es vendible porque su decisión de venta es
+   * `pending` (`PRICE_PENDING`, la de sale-decision/`salesFor`). `false` en cualquier otro caso; «agotada» =
+   * `pricePending:false` sin stock. Informativo: no entra en ninguna cuenta.
+   */
+  pricePending: boolean;
 }
 
 /**
@@ -781,7 +787,7 @@ export class CatalogService {
    * de mercado» (`referenceValue`, con su `capturedDate`) también es el de la fila — la comparación «mercado con IVA ·
    * nuestro precio» sale de la misma foto. Las formas de respuesta no cambian.
    */
-  private async fetchSellable(where: Prisma.InventoryItemWhereInput): Promise<SellableRow[]> {
+  private async fetchSellable(where: Prisma.InventoryItemWhereInput, pending?: { count: number }): Promise<SellableRow[]> {
     const items = await this.prisma.inventoryItem.findMany({
       where,
       include: { card: { include: { set: true } }, ...SEALED_SALE_PRICE_INCLUDE },
@@ -801,8 +807,11 @@ export class CatalogService {
     const out: SellableRow[] = [];
     for (const item of items) {
       const version = pieceVersionOf(item, stamps);
+      const sale = sales.get(item.id) ?? { kind: 'pending' as const, reference: { status: 'pending' as const } };
+      // QA-PRM-UX: cuenta las piezas en PRICE_PENDING (misma decisión de venta) para `pricePending` de la ficha.
+      if (pending && sale.kind === 'pending') pending.count += 1;
       const { dto, listPriceCents } = this.toListingRow(item, {
-        sale: sales.get(item.id) ?? { kind: 'pending', reference: { status: 'pending' } },
+        sale,
         pricedFinishes: pricedByCard.get(item.cardId),
         ivaDials,
         version,
@@ -1535,6 +1544,22 @@ export class CatalogService {
     };
   }
 
+  /**
+   * QA-PRM-PEND — ¿la versión BASE (inglés, sin sello, raw NM) de la carta está en `PRICE_PENDING` en TODOS sus acabados?
+   * Pieza HIPOTÉTICA (no se persiste) por la misma decisión de venta que `salesFor`: con o sin stock, publicada o no.
+   * Un acabado con precio ⇒ la carta se puede vender ⇒ `false` (agotada). Solo un booleano: ningún precio ni costo sale.
+   */
+  private async baseVersionPending(card: Card & { set?: CardSet | null }): Promise<boolean> {
+    const finishes = card.availableFinishes?.length ? card.availableFinishes : (['normal'] as Finish[]);
+    const hypos = finishes.map((finish) =>
+      hypotheticalRawSaleItem({ id: `pending-probe:${finish}`, folio: 'PROBE', card, finish, language: 'en', cardProductId: null }),
+    );
+    const dials = await this.ivaDialsOf();
+    const batch = await this.decider.loadBatch(hypos);
+    const sales = await liveSalesFor(this.decider, hypos, dials, batch);
+    return hypos.every((h) => sales.get(h.id)?.kind === 'pending');
+  }
+
   async getCard(cardId: string): Promise<GroupedListingDetailResponse> {
     const card = await this.prisma.card.findUnique({
       where: { id: cardId },
@@ -1542,7 +1567,8 @@ export class CatalogService {
     });
     if (!card) throw BusinessException.notFound();
     // H9 / SB-D5: la ficha del single excluye el sellado (P-35 lo ancla a esta carta) — guardarraíl interino.
-    const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId }));
+    const pending = { count: 0 };
+    const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId }), pending);
     // v1.22-2 / N-15 (§4.22a-6): displayFinishes de la ficha usa los acabados priceados de la carta.
     const pricedByCard = await this.pricing.getPricedRawFinishesBatch([cardId]);
     // v1.44-graded-estimate (§4.38c): +1 query constante (batch de UN cardId; 0 si el dial está off).
@@ -1595,6 +1621,7 @@ export class CatalogService {
       // absoluta para og. La grande (`imageLargeUrl`) antes que la pequeña; `null` ⇒ front omite og:image.
       pricedAsOf: toMexicoCityDateKey(new Date()),
       ogImageUrl: absoluteOgImageUrl(card.imageLargeUrl, card.imageSmallUrl),
+      pricePending: rows.length === 0 && (pending.count > 0 || (await this.baseVersionPending(card))),
       // Sin ningún grado que exponer ⇒ el campo se OMITE (nunca `[]`): el front no pinta NADA — ni
       // contenedor, ni skeleton, ni «—», ni $0, ni «pendiente» (criterio 102).
       ...(gradedEstimates.length > 0 ? { gradedEstimates } : {}),
