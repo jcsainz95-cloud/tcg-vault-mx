@@ -63,9 +63,8 @@ Resto del backlog con dueño y fecha: índice de `PENDIENTES.md`.
 | TL-ALTA-1 | Sin foco/aviso de error en la captura de idioma/versión: `useIdsCapture.ts:73,79`, `ids-capture.ts:145,161` (y ficha original) | frontend | 2026-11-06 | ver `docs/archive/TECH_DEBT.md` TL-ALTA-1 |
 | Registro histórico | 172 filas en `docs/archive/TECH_DEBT.md` (sin re-medir): se migran aquí **solo** al tocar su módulo | dueño del módulo | 2026-11-06 | — |
 
-## Backend (backend) — 2026-11-06
-27 módulos en `backend/src/modules/`; 86 modelos Prisma, 83 migraciones. Sin cambios de código en esta limpieza.
-- `GET /admin/inventory/cards/:cardId/versions` añade `buySuggestedCents: number | null` por combo (IDS-B33…B37; `inventory-versions.service.ts`). Curva = `composeVariantPricing().buy.effectiveCents`; override/bounty solo en (en, sin liga). Unit 8/8 (rojo 18/18 con 6 mutaciones ×3) + integración ids-v1168 2/2 (mutación R_en 3/3 rojo). Tipo para frontend: `buySuggestedCents: number | null` en `VersionCombo`. TL-A2-4 cerrado.
+## Backend (backend) — 2026-11-07
+SELLADO-IMG: `upgradeSealedImageUrl` (`inventory/sealed-image-host.ts`) pura/idempotente: tcgplayer-cdn `_NNNw` -> `_in_1000x1000` (HEAD 200 3/3 en vivo); otros hosts/sin sufijo intactos. Aplicada al escribir (alta `inventory.service`, sync `sealed-product.service`) y al leer (`sealed-catalog.service` imageUrl+ogImageUrl, hoja `sealed-price.service`, `sealed-catalog-admin`, resumen `sealed-product`). Sin migración. Unit 3/3 + serializer 1/1 (`test/catalog.mkt-tienda.spec.ts`); mutación 3/3 roja; suite catalog/sealed 407/407; tsc y eslint limpios. Contrato: no describe imageUrl de sellado (0 coincidencias).
 
 ## Frontend (frontend) — 2026-11-06 (cierre A2b)
 Next 15.5 App Router; admin M1–M12.

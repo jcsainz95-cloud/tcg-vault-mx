@@ -1,3 +1,4 @@
+import { upgradeSealedImageUrl } from './sealed-image-host';
 import { ListingPriceService } from '../pricing/listing-price.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, Role, SealedSubtype } from '@prisma/client';
@@ -267,7 +268,7 @@ export class SealedPriceService {
         sealedProductId: p.id,
         name: p.name,
         subtype: p.subtype,
-        imageUrl: p.imageUrl,
+        imageUrl: upgradeSealedImageUrl(p.imageUrl),
         active: p.active,
         set: {
           id: p.set.id,

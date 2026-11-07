@@ -202,6 +202,16 @@ describe('§MKT.A — ficha de SELLADO: pricedAsOf + ogImageUrl', () => {
     expect(group.ogImageUrl).toBe('https://images.pokemontcg.io/sealed/surging-sparks-box.png');
   });
 
+  it('SELLADO-IMG: la imagen guardada en 200w se SIRVE en 1000x1000 (imageUrl y ogImageUrl, sin migración)', async () => {
+    const old = 'https://tcgplayer-cdn.tcgplayer.com/product/555_200w.jpg';
+    const up = 'https://tcgplayer-cdn.tcgplayer.com/product/555_in_1000x1000.jpg';
+    const { group } = await buildSealed([SEALED({ sealedImageUrl: old })]).sealedDetail('s1');
+    expect(group.imageUrl).toBe(up);
+    expect(group.ogImageUrl).toBe(up);
+    const res = await buildSealed([SEALED({ sealedImageUrl: old })]).listSealed({ page: 1, pageSize: 20 } as never);
+    expect(res.data[0].imageUrl).toBe(up);
+  });
+
   it('⛔ los dos campos NO viajan en la REJILLA de sellado (`listSealed`)', async () => {
     const res = await buildSealed([SEALED()]).listSealed({ page: 1, pageSize: 20 } as never);
     expect(res.data[0]).not.toHaveProperty('pricedAsOf');

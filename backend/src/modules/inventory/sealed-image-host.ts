@@ -47,3 +47,25 @@ export function sanitizeSealedImageUrl(raw: string | null | undefined): string |
   const ok = SEALED_IMAGE_HOST_ALLOWLIST.some((d) => hostMatchesDomain(host, d));
   return ok ? value : null;
 }
+
+/** Sufijos de tamaño de la CDN de TCGplayer (`<id>_200w.jpg`, `_400w`, `_in_1000x1000`…). */
+const TCGPLAYER_SIZE_SUFFIX = /^(\/product\/\d+)_(?:\d+w|in_\d+x\d+)(\.[A-Za-z0-9]+)$/;
+
+/**
+ * Pura e idempotente: sube la miniatura (`_200w`, `_400w`…) de tcgplayer-cdn a `_in_1000x1000` (200 OK medido
+ * 2026-11-07). Otros hosts, o sin sufijo reconocible, quedan intactos. Display-only; jamás toca precio.
+ */
+export function upgradeSealedImageUrl<T extends string | null | undefined>(url: T): T {
+  if (typeof url !== 'string' || url === '') return url;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return url;
+  }
+  if (u.protocol !== 'https:' || u.hostname.toLowerCase() !== 'tcgplayer-cdn.tcgplayer.com') return url;
+  const m = TCGPLAYER_SIZE_SUFFIX.exec(u.pathname);
+  if (!m) return url;
+  u.pathname = `${m[1]}_in_1000x1000${m[2]}`;
+  return u.toString() as T;
+}
