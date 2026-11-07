@@ -4157,7 +4157,7 @@
         "title": "Import TCGCSV promos",
         "subtitle": "Promo groups that are not in pokemontcg.io (e.g. the 30th Celebration ones). Cards are created with the source name; those without a price stay as \"price pending\" and cannot be sold. Importing twice does not duplicate.",
         "empty": "No pending promo groups.",
-        "meta": "Group {id} · {count} products",
+        "meta": "Group {id} · {products} products · {count} imported",
         "imported": "already imported",
         "import": "Import {name}",
         "reimport": "Re-import {name}",

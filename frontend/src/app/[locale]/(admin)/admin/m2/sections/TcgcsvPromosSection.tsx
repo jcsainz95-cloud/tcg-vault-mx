@@ -116,7 +116,7 @@ export function TcgcsvPromosSection() {
                   <div className="flex min-w-0 flex-col">
                     <span className="font-medium">{g.name}</span>
                     <span className="font-mono text-xs text-muted">
-                      {t('meta', { id: g.groupId, count: g.cardCount })}
+                      {t('meta', { id: g.groupId, products: g.productCount == null ? '—' : g.productCount, count: g.cardCount })}
                       {g.imported ? ` · ${t('imported')}` : ''}
                     </span>
                   </div>

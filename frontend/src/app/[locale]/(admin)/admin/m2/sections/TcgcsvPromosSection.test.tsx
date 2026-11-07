@@ -11,7 +11,8 @@ vi.mock('@/lib/api/tcgcsv-promos', async (orig) => {
 });
 
 const GROUPS: promos.TcgcsvGroupDTO[] = [
-  { groupId: 24451, name: 'ME: Mega Evolution Promo', publishedOn: null, imported: false, cardCount: 148 },
+  { groupId: 24451, name: 'ME: Mega Evolution Promo', publishedOn: null, imported: false, cardCount: 0, productCount: 148 },
+  { groupId: 24500, name: 'Trick or Trade 2025', publishedOn: null, imported: false, cardCount: 0, productCount: null },
 ];
 const RESULT: promos.TcgcsvImportResult = {
   setId: 's1',
@@ -25,6 +26,16 @@ const RESULT: promos.TcgcsvImportResult = {
 beforeEach(() => {
   vi.mocked(promos.getTcgcsvGroups).mockResolvedValue(GROUPS);
   vi.mocked(promos.importTcgcsvSet).mockResolvedValue(RESULT);
+});
+
+describe('QA-PRM-UX · meta del grupo', () => {
+  it('productCount y cardCount por separado; null ⇒ «—»; no importado no dice «0 productos»', async () => {
+    renderWithProviders(<TcgcsvPromosSection />);
+    await screen.findByRole('button', { name: /Importar ME: Mega Evolution Promo/ });
+    expect(screen.getByText(/Grupo 24451 · 148 productos · 0 importadas/)).toBeInTheDocument();
+    expect(screen.getByText(/Grupo 24500 · — productos · 0 importadas/)).toBeInTheDocument();
+    expect(screen.queryByText(/· 0 productos/)).toBeNull();
+  });
 });
 
 describe('PROMO-F1 · importar un grupo de promos TCGCSV', () => {

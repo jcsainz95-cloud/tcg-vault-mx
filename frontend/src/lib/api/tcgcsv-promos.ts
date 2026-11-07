@@ -14,7 +14,10 @@ export interface TcgcsvGroupDTO {
   name: string;
   publishedOn: string | null;
   imported: boolean;
+  /** Cartas locales ya importadas del grupo. */
   cardCount: number;
+  /** Productos con número en TCGCSV; null si TCGCSV no responde. */
+  productCount: number | null;
 }
 
 export interface TcgcsvSkippedDTO {
@@ -41,8 +44,8 @@ export interface TcgcsvImportResult {
 const mockImported = new Set<number>();
 function mockGroups(): TcgcsvGroupDTO[] {
   return [
-    { groupId: 24451, name: 'ME: Mega Evolution Promo', publishedOn: '2025-09-26T00:00:00', imported: mockImported.has(24451), cardCount: 148 },
-    { groupId: 24500, name: 'Trick or Trade 2025', publishedOn: '2025-10-01T00:00:00', imported: mockImported.has(24500), cardCount: 40 },
+    { groupId: 24451, name: 'ME: Mega Evolution Promo', publishedOn: '2025-09-26T00:00:00', imported: mockImported.has(24451), cardCount: mockImported.has(24451) ? 148 : 0, productCount: 148 },
+    { groupId: 24500, name: 'Trick or Trade 2025', publishedOn: '2025-10-01T00:00:00', imported: mockImported.has(24500), cardCount: mockImported.has(24500) ? 40 : 0, productCount: 40 },
   ];
 }
 function mockImport(groupId: number): TcgcsvImportResult {
