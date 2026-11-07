@@ -146,8 +146,8 @@
 - POST `/admin/catalog/refresh-variants-all` · admin
 - POST `/admin/catalog/sync-all` · admin
 - POST `/admin/catalog/backfill` · admin
-- GET `/admin/catalog/tcgcsv-groups` · admin — grupos TCGCSV sin set de pokemontcg.io: `[{groupId,name,publishedOn:string|null,imported,cardCount}]` (sin grupos ya cubiertos por pokemontcg.io); solo `super_admin`
-- POST `/admin/catalog/import-tcgcsv-set` · solo `super_admin` — `{groupId:int}` ⇒ `{setId,created,updated,stamped,noPrice,skipped:[{productId,name,reason}]}`, `reason` ∈ `no_number|number_mismatch|unknown_stamp|empty_name|no_base|ambiguous_base|product_already_linked|card_exists_in_pokemontcg`; errores 400, 404 `TCGCSV_GROUP_UNKNOWN`, 409 `TCGCSV_GROUP_COVERED` (empata con un set de pokemontcg.io), 502 `UPSTREAM_ERROR`; idempotente; `AuditLog catalog.tcgcsv_import`
+- GET `/admin/catalog/tcgcsv-groups` · admin — SOLO los grupos de la lista explícita `TCGCSV_IMPORTABLE_GROUPS` (hoy 24451): `[{groupId,name,publishedOn:string|null,imported,productCount:int|null,cardCount}]`; `productCount` = productos con número en TCGCSV (null si TCGCSV no responde), `cardCount` = cartas ya creadas localmente (0 si no importado); orden `publishedOn` desc, nulos al final; solo `super_admin`
+- POST `/admin/catalog/import-tcgcsv-set` · solo `super_admin` — `{groupId:int}` ⇒ `{setId,created,updated,stamped,noPrice,skipped:[{productId,name,reason}]}`, `reason` ∈ `no_number|number_mismatch|unknown_stamp|empty_name|no_base|ambiguous_base|product_already_linked|field_too_long`; errores 400, 404 `TCGCSV_GROUP_UNKNOWN` (fuera de la lista), 409 `TCGCSV_GROUP_COVERED` (pokemontcg.io ya publica el set), 409 `TCGCSV_IMPORT_IN_PROGRESS` (mismo grupo en curso; sin espera), 502 `UPSTREAM_ERROR` (TCGCSV caído o respuesta > 5 MB), 503 `POKEMONTCG_UNAVAILABLE` (fail-closed, 0 filas), 503 `TCGCSV_IMPORT_FAILED` (rollback total); todo-o-nada e idempotente; `AuditLog catalog.tcgcsv_import`
 - GET `/catalog/featured` · público
 - GET `/catalog/cards` · cuenta
 - GET `/catalog/facets` · cuenta
