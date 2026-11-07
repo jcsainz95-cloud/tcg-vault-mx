@@ -176,9 +176,10 @@ export class PromoSetProductsService {
       return { plan, skipped, pendingCards, touched: touched.size, joined, pricesWritten, pricesPending, unjoined };
     }, TX_OPTS);
 
+    const { joined: uni, touched: tocadas, pricesWritten: escritos, pricesPending: sinPrecio, unjoined: sinUnir } = res;
     this.logger.log(
-      `promo-set: grupo ${groupId} — joined=${res.joined} cardsTouched=${res.touched} pricesWritten=${res.pricesWritten} ` +
-        `pricesPending=${res.pricesPending} unjoined=${res.unjoined} skipped=${res.skipped.length}.`,
+      `promo-set: grupo ${groupId} — unidos=${uni} cartasTocadas=${tocadas} preciosEscritos=${escritos} ` +
+        `preciosPendientes=${sinPrecio} sinUnir=${sinUnir} omitidos=${res.skipped.length}.`,
     );
     return {
       groupId,
