@@ -33,19 +33,15 @@ export function promoGroupFor(externalId: string | null | undefined): PtcgPromoG
  * Clave de unión de un número de promo: mayúsculas, SIN `numberPrefix`, ceros a la izquierda colapsados y letra final
  * CONSERVADA (BW004 = BW04 = «4»; XY67a = «67A» ≠ «67»). Sin prefijo (svp: «002» = «2»).
  *
- * Un número con `/` es ajeno a la tabla si lo que sigue es un total numérico («134/142», «12/99» = carta de OTRO set que
- * TCGCSV metió en el grupo de promos, p. ej. una Prerelease): devuelve `null` para que NUNCA case con la promo «134»/«12».
- * Un `/` con código de promo («226/S-P», «381/SM-P») sí es de la tabla: se usa lo de antes de `/`. Vacío ⇒ `null`.
+ * Un número con `/` NUNCA casa (⇒ `null`): o es una carta de OTRO set metida en el grupo («134/142», «12/99») o una promo
+ * japonesa con otro número impreso («37/SM-P» = Poncho-wearing Pikachu, mientras SM37 es Decidueye-GX; medido 2026-11-07 con
+ * 18 productos «N/XX-P» cuyo homónimo local es otra carta). Vacío o ilegible ⇒ `null`.
  */
 export function promoNumberKey(raw: string | null | undefined, numberPrefix: string): string | null {
   const s = (raw ?? '').trim().toUpperCase();
   if (s === '') return null;
-  const slash = s.indexOf('/');
+  if (s.includes('/')) return null;
   let head = s;
-  if (slash >= 0) {
-    if (/^\d+$/.test(s.slice(slash + 1).trim())) return null;
-    head = s.slice(0, slash).trim();
-  }
   const prefix = numberPrefix.toUpperCase();
   if (prefix !== '' && head.startsWith(prefix)) head = head.slice(prefix.length).trim();
   const m = /^0*(\d+)([A-Z]?)$/.exec(head);

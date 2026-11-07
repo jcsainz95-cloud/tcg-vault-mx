@@ -35,11 +35,11 @@ const BY_GROUP = new Map(Object.values(FIX).map((f) => [f.groupId, f]));
 
 /** Medido con los JSON reales (2026-11-07): cartas CON precio / PENDIENTES por set. */
 const EXPECTED: Record<string, { cards: number; priced: number; pending: number }> = {
-  svp: { cards: 200, priced: 185, pending: 15 },
-  swshp: { cards: 304, priced: 289, pending: 15 },
-  smp: { cards: 251, priced: 242, pending: 9 },
-  xyp: { cards: 216, priced: 174, pending: 42 },
-  bwp: { cards: 101, priced: 78, pending: 23 },
+  svp: { cards: 200, priced: 188, pending: 12 },
+  swshp: { cards: 304, priced: 293, pending: 11 },
+  smp: { cards: 251, priced: 243, pending: 8 },
+  xyp: { cards: 216, priced: 182, pending: 34 },
+  bwp: { cards: 101, priced: 88, pending: 13 },
   dpp: { cards: 56, priced: 50, pending: 6 },
 };
 

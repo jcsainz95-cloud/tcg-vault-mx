@@ -69,10 +69,11 @@ describe('PV-B2 — BW004 = BW04 (ceros colapsados, un solo producto por carta)'
     expect(plan.items).toHaveLength(0);
     expect(plan.skipped).toEqual([{ number: 'BW04', reason: 'ambiguous_number' }]);
   });
-  it('un número de OTRO set («134/142», «12/99») jamás casa con la promo 134/12; «226/S-P» sí es de la tabla', () => {
+  it('un número con «/» jamás casa: «134/142», «12/99» (otro set) ni «226/S-P»/«37/SM-P» (promo japonesa, otra carta que SWSH226/SM37)', () => {
     expect(promoNumberKey('134/142', 'SVP')).toBeNull();
     expect(promoNumberKey('12/99', 'BW')).toBeNull();
-    expect(promoNumberKey('226/S-P', 'SWSH')).toBe('226');
+    expect(promoNumberKey('226/S-P', 'SWSH')).toBeNull();
+    expect(promoNumberKey('37/SM-P', 'SM')).toBeNull();
     const plan = planPromoSet([card('c', 'BW12')], [prod(1, 'Arcanine - 12/99 (Prerelease)', '12/99')], 'BW');
     expect(plan.items).toHaveLength(0);
     expect(plan.skipped).toEqual([{ number: '12/99', reason: 'no_card' }]);
@@ -112,9 +113,34 @@ describe('PV-B4 — sellos de campeonato nuevos', () => {
     expect(parseTcgcsvCardName('Quaquaval - 005 (Prerelease) [Staff]', '005')).toEqual({ ok: false, reason: 'unknown_stamp' });
   });
   it('puestos fuera de la lista cerrada siguen siendo desconocidos', () => {
-    for (const n of ['Foo - BW01 [Top 16]', 'Foo - BW01 [Champion]', 'Foo - BW01 (Worlds)', 'Foo - BW01 (Battle Road 2011)']) {
+    for (const n of ['Foo - BW01 [Top 8]', 'Foo - BW01 [Finalist]', 'Foo - BW01 (Worlds)', 'Foo - BW01 (Battle Road 2011)']) {
       expect(parseTcgcsvCardName(n, 'BW01')).toEqual({ ok: false, reason: 'unknown_stamp' });
     }
+  });
+});
+
+describe('PV-B4b — sellos ampliados por el orquestador («sello = versión aparte»)', () => {
+  it.each([
+    ['Foo - BW01 (Staff)', 'staff', 'Staff'],
+    ['Foo - BW01 (Cosmo Holo)', 'event_promo', 'Cosmo Holo'],
+    ['Foo - BW01 (Shiny)', 'event_promo', 'Shiny'],
+    ['Foo - BW01 (Team Plasma)', 'event_promo', 'Team Plasma'],
+    ['Foo - BW01 [Top 16]', 'championship', 'Top 16'],
+    ['Foo - BW01 [Champion]', 'championship', 'Champion'],
+  ])('«%s» ⇒ %s', (name, type, label) => {
+    expect(parseTcgcsvCardName(name, 'BW01', { staffOverPrerelease: true })).toMatchObject({ ok: true, name: 'Foo', stamp: { type, label } });
+  });
+  it('«(Team Plasma)» junto a otro sello solo suma su etiqueta (no es el sello)', () => {
+    expect(parseTcgcsvCardName('Crobat - BW51 (Team Plasma) (Prerelease) [Staff]', 'BW51', { staffOverPrerelease: true })).toMatchObject({
+      ok: true, name: 'Crobat', stamp: { type: 'staff', label: 'Staff · Team Plasma' },
+    });
+    expect(parseTcgcsvCardName('Metagross - BW75 (Team Plasma) (Prerelease)', 'BW75')).toMatchObject({
+      ok: true, stamp: { type: 'prerelease', label: 'Prerelease · Team Plasma' },
+    });
+  });
+  it('«(Shiny)» como ÚNICA impresión del número ⇒ set_base de la carta de pokemontcg.io (solo con sello)', () => {
+    const plan = planPromoSet([card('x150', 'XY150')], [prod(121953, 'Yveltal EX - XY150 (Shiny)', 'XY150')], 'XY');
+    expect(plan.items).toEqual([expect.objectContaining({ cardId: 'x150', kind: 'set_base', stamp: null })]);
   });
 });
 

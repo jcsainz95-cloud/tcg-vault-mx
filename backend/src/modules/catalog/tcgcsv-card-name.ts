@@ -76,7 +76,7 @@ export function stampTypeFromLabel(label: string): StampType | null {
   if (/\bpre-?release\b/.test(s)) return 'prerelease';
   if (/\b(championship|campeonato)\b/.test(s)) return 'championship';
   // P-PROMOS-VIEJAS (§5.13): puestos de campeonato en corchete (lista cerrada exacta; «[Top 16]», «[Champion]»… ⇒ desconocido).
-  if (/^(?:[1-4](?:st|nd|rd|th) place|participation|winner)$/.test(s.trim().replace(/\s+/g, ' '))) return 'championship';
+  if (/^(?:[1-4](?:st|nd|rd|th) place|participation|winner|top 16|champion)$/.test(s.trim().replace(/\s+/g, ' '))) return 'championship';
   return null;
 }
 
@@ -93,6 +93,10 @@ export function parenStampTypeFromLabel(label: string): StampType | null {
   if (/^worlds (?:\d{2}|\d{4})$/.test(s) || /^battle road [a-z]+ \d{4}$/.test(s)) return 'championship';
   if (/^world championships \d{4}$/.test(s) || /^asia championship series(?: [\w -]+)?$/.test(s)) return 'championship';
   if (/^(pitch black stamped|pokemon center exclusive|cosmos holo|ace trainer)$/.test(s)) return 'event_promo';
+  // P-PROMOS-VIEJAS (decisión del orquestador, «sello = versión aparte»): «(Staff)» = [Staff]; «(Cosmo Holo)», «(Shiny)» y
+  // «(Team Plasma)» (en pokemontcg.io el nombre de la carta NO lo lleva, medido) = promo de evento con su etiqueta.
+  if (s === 'staff') return 'staff';
+  if (/^(cosmo holo|shiny|team plasma)$/.test(s)) return 'event_promo';
   return null;
 }
 
@@ -132,6 +136,9 @@ export function parseTcgcsvCardName(
   }
   // Combinación evento + `[Staff]` («Paradise Resort 092 (World Championships 2026) [Staff]»): es la versión Staff de ese evento
   // (producto propio de TCGCSV, distinto del que lleva solo el paréntesis); gana `staff`. Cualquier otra combinación ⇒ desconocida.
+  // «(Team Plasma)» junto a otro sello (Prerelease, Staff…) no es el sello: solo suma su etiqueta al del evento.
+  const tpIdx = stamps.findIndex((x) => !x.bracket && x.label.toLowerCase() === 'team plasma');
+  const teamPlasma = tpIdx >= 0 && stamps.length > 1 ? stamps.splice(tpIdx, 1)[0] : null;
   let stamp: { type: StampType; label: string } | null = stamps[0] ? { type: stamps[0].type, label: stamps[0].label } : null;
   if (stamps.length === 2) {
     const staff = stamps.find((x) => x.type === 'staff');
@@ -146,6 +153,7 @@ export function parseTcgcsvCardName(
       stamp = { type: staff.type, label: staff.label };
     }
   } else if (stamps.length > 2) return { ok: false, reason: 'unknown_stamp' };
+  if (teamPlasma && stamp) stamp = { type: stamp.type, label: `${stamp.label} · ${teamPlasma.label}`.slice(0, TCGCSV_MAX_STAMP_LABEL) };
   s = s.replace(/\s+/g, ' ').trim();
 
   const dash = DASH_NUMBER.exec(s);
