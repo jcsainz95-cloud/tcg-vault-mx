@@ -12,6 +12,7 @@ import { GradedEstimatesSection } from './sections/GradedEstimatesSection';
 import { GradedEstimateCaptureSection } from './sections/GradedEstimateCaptureSection';
 import { GradedEstimateReviewSection } from './sections/GradedEstimateReviewSection';
 import { CatalogSyncSection } from './sections/CatalogSyncSection';
+import { TcgcsvPromosSection } from './sections/TcgcsvPromosSection';
 
 /**
  * M2 · Catálogo y precios (panel admin). TD-1: este orquestador solo compone las secciones y
@@ -83,6 +84,9 @@ export function M2View() {
 
       {/* §19 · los TRES grupos de sync de catálogo (Datos/Catálogo/Avanzado) + tabla de sets + modales */}
       <CatalogSyncSection catalog={catalog} />
+
+      {/* P-PROMOS opción C: grupos de promos de TCGCSV sin set en pokemontcg.io. */}
+      <TcgcsvPromosSection />
     </div>
   );
 }

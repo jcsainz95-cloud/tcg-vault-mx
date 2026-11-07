@@ -4150,6 +4150,26 @@
           "ROUNDING_LADDER_INVALID": "The rounding ladder is invalid: each boundary must be an exact multiple of the previous band's step (with a MX$5 step, the boundary can be MX$200, not MX$203)."
         }
       },
+      "tcgcsvPromos": {
+        "eyebrow": "Promos",
+        "title": "Import TCGCSV promos",
+        "subtitle": "Promo groups that are not in pokemontcg.io (e.g. the 30th Celebration ones). Cards are created with the source name; those without a price stay as \"price pending\" and cannot be sold. Importing twice does not duplicate.",
+        "empty": "No pending promo groups.",
+        "meta": "Group {id} · {count} products",
+        "imported": "already imported",
+        "import": "Import {name}",
+        "reimport": "Re-import {name}",
+        "summary": "{group}: {created} cards created, {updated} updated, {stamped} stamped versions.",
+        "noPrice": "{count, plural, one {# card without a price: kept as \"price pending\".} other {# cards without a price: kept as \"price pending\".}}",
+        "skippedTitle": "{count, plural, one {# product skipped} other {# products skipped}}",
+        "reason": {
+          "NO_NUMBER": "has no number (not a card)",
+          "STAMP_BASE_NOT_UNIQUE": "no single base card for the stamp",
+          "NUMBER_MISMATCH": "number does not match the name",
+          "STAMP_UNKNOWN": "unknown stamp",
+          "PRODUCT_LINKED": "product already linked to another card"
+        }
+      },
       "rarityHealth": {
         "title": "Rarity catalog health",
         "subtitle": "Rarities no longer set prices. They remain for filters, presentation and for the guardrail that holds a premium card when its price falls to the floor.",

@@ -4150,6 +4150,26 @@
           "ROUNDING_LADDER_INVALID": "La escalera de redondeo no es válida: cada frontera debe ser múltiplo exacto del escalón de la banda anterior (con escalón de MX$5, la frontera puede ser MX$200, no MX$203)."
         }
       },
+      "tcgcsvPromos": {
+        "eyebrow": "Promos",
+        "title": "Importar promos de TCGCSV",
+        "subtitle": "Grupos de promos que no están en pokemontcg.io (p. ej. las del 30 aniversario). Se crean con el nombre de la fuente; las que no traen precio quedan como «precio pendiente» y no se pueden vender. Importar dos veces no duplica.",
+        "empty": "No hay grupos de promos pendientes.",
+        "meta": "Grupo {id} · {count} productos",
+        "imported": "ya importado",
+        "import": "Importar {name}",
+        "reimport": "Volver a importar {name}",
+        "summary": "{group}: {created} cartas creadas, {updated} actualizadas, {stamped} versiones con sello.",
+        "noPrice": "{count, plural, one {# carta sin precio: queda como «precio pendiente».} other {# cartas sin precio: quedan como «precio pendiente».}}",
+        "skippedTitle": "{count, plural, one {# producto omitido} other {# productos omitidos}}",
+        "reason": {
+          "NO_NUMBER": "no tiene número (no es carta)",
+          "STAMP_BASE_NOT_UNIQUE": "no hay una carta base única para el sello",
+          "NUMBER_MISMATCH": "el número no coincide con el nombre",
+          "STAMP_UNKNOWN": "sello desconocido",
+          "PRODUCT_LINKED": "el producto ya está ligado a otra carta"
+        }
+      },
       "rarityHealth": {
         "title": "Salud del catálogo de rarezas",
         "subtitle": "Las rarezas ya no fijan precios. Se conservan para filtros, presentación y para el guardarraíl que retiene una carta premium cuando su precio cae al piso.",
