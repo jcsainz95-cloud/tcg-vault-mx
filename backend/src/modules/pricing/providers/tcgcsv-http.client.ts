@@ -30,7 +30,7 @@ export abstract class TcgcsvHttpClient {
   protected readonly timeoutMs = 15_000;
 
   /** GET al host fijo con timeout + sin redirects + Accept JSON. */
-  protected async getJson<T>(path: string): Promise<TcgcsvEnvelope<T>> {
+  protected async getJson<T>(path: string, maxBytes?: number): Promise<TcgcsvEnvelope<T>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -46,7 +46,8 @@ export abstract class TcgcsvHttpClient {
         signal: controller.signal,
       });
       if (!res.ok) throw new Error(`tcgcsv.com ${path} -> HTTP ${res.status}`);
-      const body = (await res.json()) as TcgcsvEnvelope<T>;
+      // P-PROMOS (PRM-3): con `maxBytes` la lectura se corta al pasar el tope (respuesta hostil/enorme ⇒ lanza ⇒ 502).
+      const body = (maxBytes != null ? JSON.parse(await this.readCapped(res, maxBytes, path)) : await res.json()) as TcgcsvEnvelope<T>;
       if (!body || !Array.isArray(body.results)) {
         throw new Error(`tcgcsv.com ${path} -> payload inesperado (sin results[])`);
       }
@@ -54,6 +55,34 @@ export abstract class TcgcsvHttpClient {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** Lee el cuerpo como texto contando bytes; al exceder `maxBytes` cancela el stream y lanza. */
+  private async readCapped(res: Response, maxBytes: number, path: string): Promise<string> {
+    const declared = Number(res.headers?.get?.('content-length'));
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      throw new Error(`tcgcsv.com ${path} -> respuesta de ${declared} bytes excede el tope de ${maxBytes}`);
+    }
+    if (!res.body) {
+      // Sin stream (respuesta simulada/mínima): se lee entera y se mide.
+      const whole = typeof res.text === 'function' ? await res.text() : JSON.stringify(await res.json());
+      if (whole.length > maxBytes) throw new Error(`tcgcsv.com ${path} -> respuesta excede el tope de ${maxBytes} bytes`);
+      return whole;
+    }
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error(`tcgcsv.com ${path} -> respuesta excede el tope de ${maxBytes} bytes`);
+      }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString('utf8');
   }
 
   /** Valida el groupId como entero positivo ANTES de interpolarlo en el path remoto. */

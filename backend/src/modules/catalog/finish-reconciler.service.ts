@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CardProductKind, Finish } from '@prisma/client';
+import { CardProductKind, Finish, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { deriveAvailableFinishesFromProducts } from '../../common/card-order';
 
@@ -30,11 +30,11 @@ export class FinishReconciler {
    * Recomputa y persiste `availableFinishes` de las cartas indicadas desde sus `CardProduct`. Devuelve
    * cuántas filas CAMBIARON (observabilidad). Deduplica los ids de entrada.
    */
-  async reconcile(cardIds: string[]): Promise<number> {
+  async reconcile(cardIds: string[], db: Prisma.TransactionClient | PrismaService = this.prisma): Promise<number> {
     const ids = [...new Set(cardIds)];
     if (ids.length === 0) return 0;
 
-    const cards = await this.prisma.card.findMany({
+    const cards = await db.card.findMany({
       where: { id: { in: ids } },
       select: {
         id: true,
@@ -54,7 +54,7 @@ export class FinishReconciler {
       }
       const next = deriveAvailableFinishesFromProducts(products);
       if (sameFinishes(next, c.availableFinishes as Finish[])) continue; // idempotente
-      await this.prisma.card.update({ where: { id: c.id }, data: { availableFinishes: next } });
+      await db.card.update({ where: { id: c.id }, data: { availableFinishes: next } });
       changed += 1;
     }
 

@@ -24,7 +24,26 @@ export type TcgcsvSkipReason =
   | 'no_base'
   | 'ambiguous_base'
   | 'product_already_linked'
-  | 'card_exists_in_pokemontcg';
+  | 'field_too_long';
+
+/** Topes de campo (PRM-3): una fila que los excede se omite como `field_too_long`. */
+export const TCGCSV_MAX_NAME = 200;
+export const TCGCSV_MAX_NUMBER = 16;
+export const TCGCSV_MAX_RARITY = 64;
+export const TCGCSV_MAX_STAMP_LABEL = 64;
+
+/** ÚNICO paréntesis que se conserva en `Card.name` (comparación sin mayúsculas). */
+export const KEEP_PARENS: readonly string[] = ['30th celebration'];
+
+/** true si algún campo escribible excede su tope. */
+export function exceedsFieldLimits(f: { name: string; number: string; rarity?: string | null; stampLabel?: string | null }): boolean {
+  return (
+    f.name.length > TCGCSV_MAX_NAME ||
+    f.number.length > TCGCSV_MAX_NUMBER ||
+    (f.rarity ?? '').length > TCGCSV_MAX_RARITY ||
+    (f.stampLabel ?? '').length > TCGCSV_MAX_STAMP_LABEL
+  );
+}
 
 export type ParsedTcgcsvName =
   | {
@@ -43,6 +62,7 @@ const DASH_NUMBER = new RegExp(String.raw`(?:^|\s+)-\s*(${NUM})(?:\s*/\s*${NUM})
 /** « 107 » suelto justo antes de un paréntesis o del final. */
 const BARE_NUMBER = new RegExp(String.raw`\s+(${NUM})(?:\s*/\s*${NUM})?(?=\s*\(|\s*$)`);
 const BRACKET = /\[([^[\]]*)\]/g;
+const PAREN = /\(([^()]*)\)/g;
 
 const normNum = (raw: string): string => {
   const t = raw.split('/')[0].trim();
@@ -58,6 +78,14 @@ export function stampTypeFromLabel(label: string): StampType | null {
   return null;
 }
 
+/** Sello en paréntesis: SOLO el texto exacto `(Prerelease)`, `(Winner)`, `(Championship)`/`(Campeonato)`. Otro ⇒ `null`. */
+export function parenStampTypeFromLabel(label: string): StampType | null {
+  const s = label.trim().toLowerCase();
+  if (/^pre-?release$/.test(s)) return 'prerelease';
+  if (/^(winner|championship|campeonato)$/.test(s)) return 'championship';
+  return null;
+}
+
 /**
  * `parseTcgcsvCardName(name, extNumber)`: «Pikachu ex - 107 (30th Celebration)» + Number «107» ⇒ name
  * «Pikachu ex (30th Celebration)», #107. «Paradise Resort - 092 (…) [Staff]» ⇒ sello `staff`, label «Staff».
@@ -68,15 +96,26 @@ export function parseTcgcsvCardName(rawName: string, extNumber: string | null | 
   if (ext === '') return { ok: false, reason: 'no_number' };
 
   let s = (rawName ?? '').trim();
-  let stamp: { type: StampType; label: string } | null = null;
-  const brackets = [...s.matchAll(BRACKET)].map((m) => m[1].trim()).filter((x) => x !== '');
-  if (brackets.length > 0) {
-    const label = brackets[brackets.length - 1];
+  const stamps: { type: StampType; label: string }[] = [];
+  for (const m of s.matchAll(BRACKET)) {
+    const label = m[1].trim();
+    if (label === '') continue;
     const type = stampTypeFromLabel(label);
     if (type == null) return { ok: false, reason: 'unknown_stamp' };
-    stamp = { type, label };
-    s = s.replace(BRACKET, ' ');
+    stamps.push({ type, label });
   }
+  s = s.replace(BRACKET, ' ');
+  // Paréntesis: solo `(30th Celebration)` se queda en el nombre; Prerelease/Winner/Campeonato son sello; el resto, desconocido.
+  for (const m of [...s.matchAll(PAREN)]) {
+    const label = m[1].trim();
+    if (KEEP_PARENS.includes(label.toLowerCase())) continue;
+    const type = parenStampTypeFromLabel(label);
+    if (type == null) return { ok: false, reason: 'unknown_stamp' };
+    stamps.push({ type, label });
+    s = s.replace(m[0], ' ');
+  }
+  if (stamps.length > 1) return { ok: false, reason: 'unknown_stamp' };
+  const stamp = stamps[0] ?? null;
   s = s.replace(/\s+/g, ' ').trim();
 
   const dash = DASH_NUMBER.exec(s);

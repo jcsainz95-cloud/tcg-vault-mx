@@ -43,6 +43,10 @@ interface TcgcsvRawPrice {
  *    la estructura previa intacta (una carta no resuelta conserva su valor; falta-una-casilla nunca
  *    sobra-una-falsa). El egress a tcgcsv.com está BLOQUEADO en dev/CI: se testea contra fixtures.
  */
+/** P-PROMOS (PRM-3): topes del import de cartas — respuesta upstream ≤ 5 MB y ≤ 2000 productos (si no ⇒ 502). */
+export const TCGCSV_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+export const TCGCSV_IMPORT_MAX_PRODUCTS = 2000;
+
 @Injectable()
 export class TcgcsvCatalogClient extends TcgcsvHttpClient {
   /** Grupos de la categoría Pokémon (para resolver el groupId por nombre; S-D3). Lanza ante fallo. */
@@ -85,7 +89,10 @@ export class TcgcsvCatalogClient extends TcgcsvHttpClient {
    */
   async getCardProducts(groupId: number): Promise<TcgcsvCardProductRef[]> {
     this.assertValidGroupId(groupId);
-    const body = await this.getJson<TcgcsvRawProduct>(`/${this.pokemonCategoryId}/${groupId}/products`);
+    const body = await this.getJson<TcgcsvRawProduct>(`/${this.pokemonCategoryId}/${groupId}/products`, TCGCSV_IMPORT_MAX_BYTES);
+    if ((body.results ?? []).length > TCGCSV_IMPORT_MAX_PRODUCTS) {
+      throw new Error(`tcgcsv: grupo ${groupId} trae ${(body.results ?? []).length} productos (> ${TCGCSV_IMPORT_MAX_PRODUCTS})`);
+    }
     const out: TcgcsvCardProductRef[] = [];
     for (const p of body.results ?? []) {
       if (typeof p?.productId !== 'number' || !Number.isInteger(p.productId) || !p?.name) continue;
@@ -109,6 +116,7 @@ export class TcgcsvCatalogClient extends TcgcsvHttpClient {
     this.assertValidGroupId(groupId);
     const body = await this.getJson<TcgcsvRawPrice>(
       `/${this.pokemonCategoryId}/${groupId}/prices`,
+      TCGCSV_IMPORT_MAX_BYTES,
     );
     const out: TcgcsvPriceRow[] = [];
     for (const r of body.results ?? []) {

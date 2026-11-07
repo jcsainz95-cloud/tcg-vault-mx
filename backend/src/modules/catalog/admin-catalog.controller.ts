@@ -255,7 +255,7 @@ export class AdminCatalogController {
     return res;
   }
 
-  /** GET /admin/catalog/tcgcsv-groups — grupos de TCGCSV sin set de pokemontcg.io (P-PROMOS, ARCHITECTURE §5.12). */
+  /** GET /admin/catalog/tcgcsv-groups — SOLO los grupos de la lista explícita `TCGCSV_IMPORTABLE_GROUPS` (P-PROMOS, ARCHITECTURE §5.12). */
   @Get('tcgcsv-groups')
   tcgcsvGroups() {
     return this.tcgcsvImport.listGroups();
@@ -265,22 +265,8 @@ export class AdminCatalogController {
   @Post('import-tcgcsv-set')
   @HttpCode(200)
   async importTcgcsvSet(@Body() dto: ImportTcgcsvSetDto, @CurrentUser() user: { id: string; role: Role }) {
-    const res = await this.tcgcsvImport.importGroup(dto.groupId);
-    await this.audit.log({
-      actorUserId: user.id,
-      actorRole: user.role,
-      action: 'catalog.tcgcsv_import',
-      entityType: 'CardSet',
-      entityId: res.setId,
-      after: {
-        groupId: dto.groupId,
-        created: res.created,
-        updated: res.updated,
-        stamped: res.stamped,
-        noPrice: res.noPrice,
-        skipped: res.skipped.length,
-      },
-    });
+    // La bitácora `catalog.tcgcsv_import` la escribe el servicio DENTRO de la transacción del import.
+    const res = await this.tcgcsvImport.importGroup(dto.groupId, user);
     return res;
   }
 }

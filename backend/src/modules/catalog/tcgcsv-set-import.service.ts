@@ -1,5 +1,6 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { Finish, StampType } from '@prisma/client';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
+import { Finish, Role, StampType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
@@ -7,7 +8,6 @@ import { normalizeMatchText } from '../../common/card-version';
 import { deriveNumberParts } from '../../common/card-order';
 import { normalizeRarity } from '../../common/rarity-catalog';
 import { TcgcsvCatalogClient } from '../pricing/providers/tcgcsv-singles.provider';
-import { matchTcgcsvGroupByName } from '../pricing/providers/tcgcsv-group-match';
 import {
   TcgcsvCardProductRef,
   TcgcsvGroupRef,
@@ -21,9 +21,11 @@ import { sanitizeSealedImageUrl, upgradeSealedImageUrl } from '../inventory/seal
 import { FinishReconciler } from './finish-reconciler.service';
 import { PokemonTcgIoClient } from './pokemontcg-io.client';
 import { normalizeCardNumber } from './card-product-resolver.service';
+import { AuditService } from '../audit/audit.service';
+import { findImportableGroup, TCGCSV_IMPORTABLE_GROUPS } from './tcgcsv-importable-groups';
 import {
   TcgcsvSkipReason,
-  isTcgcsvOrigin,
+  exceedsFieldLimits,
   parseTcgcsvCardName,
   tcgcsvCardExternalId,
   tcgcsvSetExternalId,
@@ -31,14 +33,22 @@ import {
 
 /** Mismo tope de cordura que el barrido diario (tcgcsv-singles-bulk.provider.ts): un `market` mayor es dato corrupto. */
 const MAX_SANE_MARKET_USD = 50_000;
-/** Espacio del candado consultivo por grupo (`pg_advisory_xact_lock(ns, groupId)`): 2 clics ⇒ se serializan. */
-const TCGCSV_IMPORT_LOCK_NAMESPACE = 5120;
+/** Candado consultivo por grupo: `pg_try_advisory_xact_lock(hashtext(KEY), groupId)`; sin espera (2.º clic ⇒ 409). */
+const TCGCSV_IMPORT_LOCK_KEY = 'tcgcsv-import';
+/** La lista viva de pokemontcg.io no puede colgar la petición (fail-closed ⇒ 503). */
+const PTCG_TIMEOUT_MS = 10_000;
+/** `$transaction` interactiva: 1 sola conexión por petición; espera máx. 5 s por conexión y 60 s de trabajo. */
+const TX_OPTS = { maxWait: 5_000, timeout: 60_000 } as const;
+
+type Db = Prisma.TransactionClient;
 
 export interface TcgcsvGroupRow {
   groupId: number;
   name: string;
   publishedOn: string | null;
   imported: boolean;
+  /** Productos con número en TCGCSV (candidatos a carta); `null` si TCGCSV no respondió. */
+  productCount: number | null;
   cardCount: number;
 }
 
@@ -53,10 +63,10 @@ export interface TcgcsvImportResult {
 }
 
 /**
- * TcgcsvSetImportService (P-PROMOS opción C · ARCHITECTURE §5.12) — crea el set y sus cartas desde un grupo de TCGCSV
- * que pokemontcg.io NO tiene (p. ej. 24451 «ME: Mega Evolution Promo»). Sin migración: el origen se marca con el
- * prefijo `tcgcsv:` del `externalId` (`isTcgcsvOrigin`). Money-safe: el precio sale solo de TCGCSV (`tcgcsv_singles`,
- * misma escritura y regla que el barrido diario); sin precio ⇒ la carta se crea sin `PriceReference` (PRICE_PENDING).
+ * TcgcsvSetImportService (P-PROMOS opción C · ARCHITECTURE §5.12) — crea el set y sus cartas desde un grupo de la LISTA
+ * EXPLÍCITA `TCGCSV_IMPORTABLE_GROUPS` (hoy 24451 «ME: Mega Evolution Promo»). Sin migración: el origen se marca con el
+ * prefijo `tcgcsv:` del `externalId`. Money-safe: el precio sale solo de TCGCSV (`tcgcsv_singles`); sin precio ⇒ sin
+ * `PriceReference` (PRICE_PENDING). Atomicidad: red ANTES; luego UNA `$transaction` con `pg_try_advisory_xact_lock` primero.
  */
 @Injectable()
 export class TcgcsvSetImportService {
@@ -69,93 +79,141 @@ export class TcgcsvSetImportService {
     private readonly finishReconciler: FinishReconciler,
     private readonly pricing: PricingService,
     private readonly fx: FxService,
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
-  /** GET /admin/catalog/tcgcsv-groups — grupos de TCGCSV SIN set de pokemontcg.io. */
+  /** GET /admin/catalog/tcgcsv-groups — SOLO los grupos de la lista explícita, `publishedOn` desc. */
   async listGroups(): Promise<TcgcsvGroupRow[]> {
     const groups = await this.guard(() => this.tcgcsv.listGroups());
-    const covered = await this.coveredGroupIds(groups);
     const local = await this.prisma.cardSet.findMany({
+      where: { externalId: { in: TCGCSV_IMPORTABLE_GROUPS.map((g) => tcgcsvSetExternalId(g.groupId)) } },
       select: { externalId: true, _count: { select: { cards: true } } },
     });
     const own = new Map<string, number>();
-    for (const s of local) if (isTcgcsvOrigin(s.externalId)) own.set(s.externalId, s._count.cards);
-    return groups
-      .filter((g) => !covered.has(g.groupId))
-      .map((g) => ({
+    for (const sRow of local) own.set(sRow.externalId, sRow._count.cards);
+    const rows: TcgcsvGroupRow[] = [];
+    for (const imp of TCGCSV_IMPORTABLE_GROUPS) {
+      const g = groups.find((x) => x.groupId === imp.groupId);
+      if (!g) continue;
+      let productCount: number | null = null;
+      try {
+        productCount = (await this.tcgcsv.getCardProducts(g.groupId)).filter((p) => (p.number ?? '').trim() !== '').length;
+      } catch (e) {
+        this.logger.warn(`tcgcsv-groups: productCount de ${g.groupId} no disponible (${(e as Error).message}).`);
+      }
+      const ext = tcgcsvSetExternalId(g.groupId);
+      rows.push({
         groupId: g.groupId,
         name: g.name,
         publishedOn: g.publishedOn ?? null,
-        imported: own.has(tcgcsvSetExternalId(g.groupId)),
-        cardCount: own.get(tcgcsvSetExternalId(g.groupId)) ?? 0,
-      }))
-      .sort((a, b) => (b.publishedOn ?? '').localeCompare(a.publishedOn ?? '') || a.groupId - b.groupId);
+        imported: own.has(ext),
+        productCount,
+        cardCount: own.get(ext) ?? 0,
+      });
+    }
+    return rows.sort((a, b) => (b.publishedOn ?? '').localeCompare(a.publishedOn ?? '') || a.groupId - b.groupId);
   }
 
-  /**
-   * Grupos que YA empatan con un set de pokemontcg.io: `pptSetId`/`tcgcsvGroupId` del set local o match por nombre
-   * (`matchTcgcsvGroupByName`, la escalera única) con los sets locales de pokemontcg.io y, si responde, los remotos.
-   * Los sets `tcgcsv:` NO cuentan como «cubiertos» (son nuestro propio origen).
-   */
-  private async coveredGroupIds(groups: readonly TcgcsvGroupRef[]): Promise<Set<number>> {
-    const covered = new Set<number>();
-    const local = await this.prisma.cardSet.findMany({
-      select: { externalId: true, name: true, pptSetId: true, tcgcsvGroupId: true },
-    });
-    const names = new Set<string>();
-    for (const s of local) {
-      if (isTcgcsvOrigin(s.externalId)) continue;
-      if (s.pptSetId && /^\d+$/.test(s.pptSetId)) covered.add(parseInt(s.pptSetId, 10));
-      if (s.tcgcsvGroupId != null) covered.add(s.tcgcsvGroupId);
-      names.add(s.name);
-    }
+  /** Lista VIVA de pokemontcg.io (no los sets locales). Sin respuesta/timeout ⇒ 503 `POKEMONTCG_UNAVAILABLE` (fail-closed). */
+  private async liveSetsOrFail(): Promise<{ id: string; name: string }[]> {
+    let timer: NodeJS.Timeout | undefined;
     try {
-      for (const r of await this.ptcg.getSets()) if (r?.name) names.add(r.name);
+      const sets = await Promise.race([
+        this.ptcg.getSets(),
+        new Promise<never>((_, rej) => {
+          timer = setTimeout(() => rej(new Error('timeout')), PTCG_TIMEOUT_MS);
+        }),
+      ]);
+      if (!Array.isArray(sets)) throw new Error('payload inválido');
+      return sets;
     } catch (e) {
-      this.logger.warn(`tcgcsv-groups: pokemontcg.io no respondió (${(e as Error).message}); se usan solo los sets locales.`);
+      this.logger.warn(`tcgcsv-import: pokemontcg.io no respondió (${(e as Error).message}); el import NO procede.`);
+      throw BusinessException.retriable(
+        ErrorCode.POKEMONTCG_UNAVAILABLE,
+        'No se pudo consultar pokemontcg.io para comprobar que el set no existe ahí; no se escribió nada. Reintenta en unos minutos.',
+      );
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-    for (const name of names) {
-      const m = matchTcgcsvGroupByName(name, groups);
-      if (m.groupId != null) covered.add(m.groupId);
-    }
-    return covered;
   }
 
-  /** POST /admin/catalog/import-tcgcsv-set — idempotente; 2 llamadas simultáneas se serializan por `groupId`. */
-  async importGroup(groupId: number): Promise<TcgcsvImportResult> {
-    const groups = await this.guard(() => this.tcgcsv.listGroups());
-    const group = groups.find((g) => g.groupId === groupId);
-    if (!group) {
+  /** POST /admin/catalog/import-tcgcsv-set — todo-o-nada, idempotente; un segundo import simultáneo ⇒ 409 inmediato. */
+  async importGroup(groupId: number, actor?: { id: string; role: Role }): Promise<TcgcsvImportResult> {
+    const entry = findImportableGroup(groupId);
+    if (!entry) {
       throw new BusinessException(
         ErrorCode.TCGCSV_GROUP_UNKNOWN,
         HttpStatus.NOT_FOUND,
-        `El grupo ${groupId} no existe en TCGCSV.`,
+        `El grupo ${groupId} no está en la lista de grupos importables.`,
       );
     }
-    if ((await this.coveredGroupIds(groups)).has(groupId)) {
+    // Fail-closed: lista VIVA de pokemontcg.io ANTES de cualquier escritura.
+    const live = await this.liveSetsOrFail();
+    const groups = await this.guard(() => this.tcgcsv.listGroups());
+    const group = groups.find((g) => g.groupId === groupId);
+    if (!group) {
+      throw new BusinessException(ErrorCode.TCGCSV_GROUP_UNKNOWN, HttpStatus.NOT_FOUND, `El grupo ${groupId} no existe en TCGCSV.`);
+    }
+    const groupName = normalizeMatchText(group.name);
+    const covering = live.find((r) => entry.ptcgSetIds.includes(r?.id) || (r?.name != null && normalizeMatchText(r.name) === groupName));
+    if (covering) {
       throw BusinessException.conflict(
         ErrorCode.TCGCSV_GROUP_COVERED,
-        `El grupo ${groupId} ("${group.name}") ya corresponde a un set de pokemontcg.io; se importa con POST /admin/catalog/sync.`,
-        { groupId },
+        `El grupo ${groupId} ("${group.name}") ya corresponde al set "${covering.id}" de pokemontcg.io; se importa con POST /admin/catalog/sync.`,
+        { groupId, ptcgSetId: covering.id },
       );
     }
-    // Todo el fetch remoto ANTES de escribir (fallo ⇒ 502 y nada escrito).
+    // Todo el fetch remoto ANTES de abrir la transacción (fallo ⇒ 502 y nada escrito; la conexión no espera a la red).
     const [products, prices] = await this.guard(() =>
       Promise.all([this.tcgcsv.getCardProducts(groupId), this.tcgcsv.getPrices(groupId)]),
     );
     const fxSnap = await this.fx.getCurrent();
 
-    // Candado por grupo: la transacción SOLO sostiene el `pg_advisory_xact_lock`; el trabajo corre por `this.prisma`.
-    return this.prisma.$transaction(
-      async (lockTx) => {
-        await lockTx.$executeRaw`SELECT pg_advisory_xact_lock(${TCGCSV_IMPORT_LOCK_NAMESPACE}::int, ${groupId}::int)`;
-        return this.runImport(group, products, prices, fxSnap);
-      },
-      { timeout: 300_000, maxWait: 60_000 },
-    );
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const got = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtext(${TCGCSV_IMPORT_LOCK_KEY}), ${groupId}::int) AS ok`;
+        if (got[0]?.ok !== true) {
+          throw BusinessException.conflict(
+            ErrorCode.TCGCSV_IMPORT_IN_PROGRESS,
+            `Ya hay un import del grupo ${groupId} en curso; espera a que termine.`,
+            { groupId },
+          );
+        }
+        const res = await this.runImport(tx, group, products, prices, fxSnap);
+        // La bitácora participa del MISMO commit/rollback que el import.
+        await this.audit?.log(
+          {
+            actorUserId: actor?.id,
+            actorRole: actor?.role,
+            action: 'catalog.tcgcsv_import',
+            entityType: 'CardSet',
+            entityId: res.setId,
+            after: {
+              groupId,
+              created: res.created,
+              updated: res.updated,
+              stamped: res.stamped,
+              noPrice: res.noPrice,
+              skipped: res.skipped.length,
+            },
+          },
+          tx,
+        );
+        return res;
+      }, TX_OPTS);
+    } catch (e) {
+      if (e instanceof BusinessException) throw e;
+      this.logger.error(`tcgcsv-import: grupo ${groupId} falló y se revirtió por completo: ${(e as Error).message}`);
+      throw BusinessException.retriable(
+        ErrorCode.TCGCSV_IMPORT_FAILED,
+        'El import falló y se revirtió por completo (0 filas escritas). Reintenta en unos minutos.',
+        { groupId },
+      );
+    }
   }
 
   private async runImport(
+    tx: Db,
     group: TcgcsvGroupRef,
     products: TcgcsvCardProductRef[],
     prices: TcgcsvPriceRow[],
@@ -170,7 +228,7 @@ export class TcgcsvSetImportService {
     }
 
     const releaseDate = group.publishedOn ? group.publishedOn.slice(0, 10).replace(/-/g, '/') : null;
-    const set = await this.prisma.cardSet.upsert({
+    const set = await tx.cardSet.upsert({
       where: { externalId: tcgcsvSetExternalId(groupId) },
       create: {
         externalId: tcgcsvSetExternalId(groupId),
@@ -196,15 +254,19 @@ export class TcgcsvSetImportService {
         skip(p, parsed.reason);
         continue;
       }
+      if (exceedsFieldLimits({ name: parsed.name, number: parsed.number, rarity: p.rarity, stampLabel: parsed.stamp?.label })) {
+        skip(p, 'field_too_long');
+        continue;
+      }
       if (parsed.stamp) {
         stampedQueue.push({ p, name: parsed.name, number: parsed.number, stamp: parsed.stamp });
         continue;
       }
       const externalId = tcgcsvCardExternalId(p.productId);
-      const own = await this.prisma.card.findUnique({ where: { externalId }, select: { id: true } });
+      const own = await tx.card.findUnique({ where: { externalId }, select: { id: true } });
       if (!own) {
         // No duplicar: el producto ya es de otra carta (CardProduct) o una carta de pokemontcg.io ya lo ancla.
-        const linked = await this.prisma.cardProduct.findUnique({
+        const linked = await tx.cardProduct.findUnique({
           where: { tcgplayerProductId: p.productId },
           select: { id: true },
         });
@@ -212,12 +274,12 @@ export class TcgcsvSetImportService {
           skip(p, 'product_already_linked');
           continue;
         }
-        const foreign = await this.prisma.card.findFirst({
-          where: { tcgplayerId: String(p.productId) },
+        const foreign = await tx.card.findFirst({
+          where: { tcgplayerId: String(p.productId), externalId: { not: externalId } },
           select: { id: true },
         });
         if (foreign) {
-          skip(p, 'card_exists_in_pokemontcg');
+          skip(p, 'product_already_linked');
           continue;
         }
       }
@@ -238,7 +300,7 @@ export class TcgcsvSetImportService {
         // No-degradación: una imagen ausente no borra la que ya hay.
         ...(small ? { imageSmallUrl: small, imageLargeUrl: large } : {}),
       };
-      const card = await this.prisma.card.upsert({
+      const card = await tx.card.upsert({
         where: { externalId },
         create: {
           externalId,
@@ -252,18 +314,18 @@ export class TcgcsvSetImportService {
       if (own) res.updated += 1;
       else res.created += 1;
       touched.add(card.id);
-      const cp = await this.prisma.cardProduct.upsert({
+      const cp = await tx.cardProduct.upsert({
         where: { tcgplayerProductId: p.productId },
         create: { cardId: card.id, tcgplayerProductId: p.productId, kind: 'set_base', name: p.name, finishes, sourceGroupId: groupId },
         update: { name: p.name, finishes, sourceGroupId: groupId },
         select: { id: true },
       });
-      if (!(await this.writePrices(card.id, cp.id, priceRows, fx))) res.noPrice += 1;
+      if (!(await this.writePrices(tx, card.id, cp.id, priceRows, fx))) res.noPrice += 1;
     }
 
     // 2) Versiones con sello: producto aparte colgado de la base ÚNICA del MISMO set.
     if (stampedQueue.length > 0) {
-      const cards = await this.prisma.card.findMany({
+      const cards = await tx.card.findMany({
         where: { setId: set.id },
         select: { id: true, name: true, number: true },
       });
@@ -284,7 +346,7 @@ export class TcgcsvSetImportService {
           skip(q.p, 'ambiguous_base');
           continue;
         }
-        const prev = await this.prisma.cardProduct.findUnique({
+        const prev = await tx.cardProduct.findUnique({
           where: { tcgplayerProductId: q.p.productId },
           select: { id: true, kind: true, cardId: true },
         });
@@ -294,7 +356,7 @@ export class TcgcsvSetImportService {
         }
         const priceRows = pricesByProduct.get(q.p.productId) ?? [];
         const finishes = deriveStructuralFinishes(priceRows.map((r) => r.subTypeName));
-        const cp = await this.prisma.cardProduct.upsert({
+        const cp = await tx.cardProduct.upsert({
           where: { tcgplayerProductId: q.p.productId },
           create: {
             cardId: bases[0],
@@ -310,11 +372,11 @@ export class TcgcsvSetImportService {
           select: { id: true },
         });
         res.stamped += 1;
-        if (!(await this.writePrices(bases[0], cp.id, priceRows, fx))) res.noPrice += 1;
+        if (!(await this.writePrices(tx, bases[0], cp.id, priceRows, fx))) res.noPrice += 1;
       }
     }
 
-    await this.finishReconciler.reconcile([...touched]);
+    await this.finishReconciler.reconcile([...touched], tx);
     this.logger.log(
       `tcgcsv-import: grupo ${groupId} ("${group.name}") — created=${res.created} updated=${res.updated} ` +
         `stamped=${res.stamped} noPrice=${res.noPrice} skipped=${res.skipped.length}.`,
@@ -324,6 +386,7 @@ export class TcgcsvSetImportService {
 
   /** Escribe el precio de mercado por acabado (`tcgcsv_singles`, write-on-change). `true` si escribió alguno. */
   private async writePrices(
+    tx: Db,
     cardId: string,
     cardProductId: string,
     rows: TcgcsvPriceRow[],
@@ -346,10 +409,13 @@ export class TcgcsvSetImportService {
           { marketCents: cents, currency: 'USD', source: 'tcgcsv_singles' },
           fx,
           cardProductId,
+          tx,
         );
         wrote = true;
       } catch (e) {
-        this.logger.warn(`tcgcsv-import: precio de ${cardProductId}/${finish} falló (${(e as Error).message}); queda pendiente.`);
+        // Dentro de la transacción un error de BD la deja abortada: se propaga ⇒ rollback total (503 FAILED).
+        this.logger.warn(`tcgcsv-import: precio de ${cardProductId}/${finish} falló (${(e as Error).message}).`);
+        throw e;
       }
     }
     return wrote;
