@@ -78,11 +78,17 @@ export function stampTypeFromLabel(label: string): StampType | null {
   return null;
 }
 
-/** Sello en paréntesis: SOLO el texto exacto `(Prerelease)`, `(Winner)`, `(Championship)`/`(Campeonato)`. Otro ⇒ `null`. */
+/**
+ * Sello en paréntesis: LISTA CERRADA exacta (sin mayúsculas). `(Prerelease)` ⇒ prerelease; `(Winner)`/`(Championship)`/`(Campeonato)`/
+ * `(World Championships <año>)`/`(Asia Championship Series…)` ⇒ championship; `(Pitch Black Stamped)`/`(Pokemon Center Exclusive)`/
+ * `(Cosmos Holo)`/`(Ace Trainer)` ⇒ event_promo. Otro ⇒ `null` (se reporta `unknown_stamp`). No se usa `\bchampionship\b`: no casa el plural.
+ */
 export function parenStampTypeFromLabel(label: string): StampType | null {
-  const s = label.trim().toLowerCase();
+  const s = label.trim().toLowerCase().replace(/\s+/g, ' ');
   if (/^pre-?release$/.test(s)) return 'prerelease';
   if (/^(winner|championship|campeonato)$/.test(s)) return 'championship';
+  if (/^world championships \d{4}$/.test(s) || /^asia championship series(?: [\w -]+)?$/.test(s)) return 'championship';
+  if (/^(pitch black stamped|pokemon center exclusive|cosmos holo|ace trainer)$/.test(s)) return 'event_promo';
   return null;
 }
 
@@ -114,8 +120,15 @@ export function parseTcgcsvCardName(rawName: string, extNumber: string | null | 
     stamps.push({ type, label });
     s = s.replace(m[0], ' ');
   }
-  if (stamps.length > 1) return { ok: false, reason: 'unknown_stamp' };
-  const stamp = stamps[0] ?? null;
+  // Combinación evento + `[Staff]` («Paradise Resort 092 (World Championships 2026) [Staff]»): es la versión Staff de ese evento
+  // (producto propio de TCGCSV, distinto del que lleva solo el paréntesis); gana `staff`. Cualquier otra combinación ⇒ desconocida.
+  let stamp: { type: StampType; label: string } | null = stamps[0] ?? null;
+  if (stamps.length === 2) {
+    const staff = stamps.find((x) => x.type === 'staff');
+    const other = stamps.find((x) => x !== staff);
+    if (!staff || !other || (other.type !== 'championship' && other.type !== 'event_promo')) return { ok: false, reason: 'unknown_stamp' };
+    stamp = staff;
+  } else if (stamps.length > 2) return { ok: false, reason: 'unknown_stamp' };
   s = s.replace(/\s+/g, ' ').trim();
 
   const dash = DASH_NUMBER.exec(s);

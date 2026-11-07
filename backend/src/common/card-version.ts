@@ -297,6 +297,7 @@ const INTERNAL_STAMP_TEXT: Record<StampType, string> = {
   championship: 'TORNEO · Campeonato — sello de Campeonato',
   prerelease: 'EVENTO · Promo de Prerelease — sello Prerelease',
   staff: 'EVENTO · Promo Staff — sello Staff',
+  event_promo: 'EVENTO · PROMO DE EVENTO',
 };
 
 /**

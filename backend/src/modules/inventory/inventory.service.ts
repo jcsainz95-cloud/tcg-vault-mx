@@ -683,6 +683,7 @@ const EXPORT_STAMP_TEXT: Record<StampType, string> = {
   championship: 'Campeonato',
   prerelease: 'Prerelease',
   staff: 'Staff',
+  event_promo: 'Promo de evento',
 };
 
 /**

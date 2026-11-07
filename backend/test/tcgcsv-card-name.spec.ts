@@ -36,10 +36,6 @@ describe('P-PROMOS — parseTcgcsvCardName', () => {
     });
   });
 
-  it('otro paréntesis junto a (30th Celebration) ⇒ unknown_stamp (solo (30th Celebration) se conserva)', () => {
-    expect(parseTcgcsvCardName('Nidorina - 101 (30th Celebration) (Pokemon Center Exclusive)', '101')).toEqual({ ok: false, reason: 'unknown_stamp' });
-  });
-
   it('PROMO-B2: «Paradise Resort - 092 [Staff]» ⇒ sello staff y nombre base sin «[Staff]» (conserva ceros del número)', () => {
     expect(parseTcgcsvCardName('Paradise Resort - 092 [Staff]', '092')).toEqual({
       ok: true,
@@ -66,15 +62,44 @@ describe('P-PROMOS — parseTcgcsvCardName', () => {
     });
   });
 
-  it('paréntesis/corchete desconocido ⇒ unknown_stamp (Pitch Black Stamped, Pokemon Center Exclusive, World Championships 2026, Cosmos Holo, Asia Championship Series)', () => {
+  it('PROMO-C: lista cerrada de evento ⇒ event_promo con label = texto del paréntesis (Pitch Black, PC Exclusive, Cosmos Holo, Ace Trainer)', () => {
+    for (const [n, num, name, label] of [
+      ['Slowbro - 083 (Pitch Black Stamped)', '083', 'Slowbro', 'Pitch Black Stamped'],
+      ['Alakazam - 009 (Pokemon Center Exclusive)', '009', 'Alakazam', 'Pokemon Center Exclusive'],
+      ['Drifloon - 005 (Cosmos Holo)', '005', 'Drifloon', 'Cosmos Holo'],
+      ['Celebratory Fanfare (Ace Trainer)', '028', 'Celebratory Fanfare', 'Ace Trainer'],
+    ] as const) {
+      expect(parseTcgcsvCardName(n, num)).toEqual({ ok: true, name, number: num, stamp: { type: 'event_promo', label } });
+    }
+  });
+
+  it('PROMO-C: World Championships <año> y Asia Championship Series… ⇒ championship (plural incluido)', () => {
+    expect(parseTcgcsvCardName('Paradise Resort - 092 (World Championships 2026)', '092')).toEqual({
+      ok: true, name: 'Paradise Resort', number: '092', stamp: { type: 'championship', label: 'World Championships 2026' },
+    });
+    expect(parseTcgcsvCardName('Celebratory Fanfare (Asia Championship Series 24-25)', '028')).toEqual({
+      ok: true, name: 'Celebratory Fanfare', number: '028', stamp: { type: 'championship', label: 'Asia Championship Series 24-25' },
+    });
+  });
+
+  it('PROMO-C: 092 Worlds + [Staff] ⇒ versión staff (producto propio), nombre base sin sufijos', () => {
+    expect(parseTcgcsvCardName('Paradise Resort - 092 (World Championships 2026) [Staff]', '092')).toEqual({
+      ok: true, name: 'Paradise Resort', number: '092', stamp: { type: 'staff', label: 'Staff' },
+    });
+  });
+
+  it('PROMO-C: «(30th Celebration) (Pokemon Center Exclusive)» conserva solo el 30th en el nombre', () => {
+    expect(parseTcgcsvCardName('Nidorina - 101 (30th Celebration) (Pokemon Center Exclusive)', '101')).toEqual({
+      ok: true, name: 'Nidorina (30th Celebration)', number: '101', stamp: { type: 'event_promo', label: 'Pokemon Center Exclusive' },
+    });
+  });
+
+  it('paréntesis/corchete fuera de la lista ⇒ unknown_stamp', () => {
     for (const [n, num] of [
-      ['Slowbro - 083 (Pitch Black Stamped)', '083'],
-      ['Alakazam - 009 (Pokemon Center Exclusive)', '009'],
-      ['Paradise Resort - 092 (World Championships 2026)', '092'],
-      ['Paradise Resort - 092 (World Championships 2026) [Staff]', '092'],
-      ['Drifloon - 005 (Cosmos Holo)', '005'],
-      ['Celebratory Fanfare (Asia Championship Series 24-25)', '028'],
       ['Foo - 200 [Mystery Stamp]', '200'],
+      ['Foo - 200 (Mystery Stamp)', '200'],
+      ['Foo - 200 (World Championships)', '200'],
+      ['Foo - 200 (Cosmos Holo Extra)', '200'],
     ] as const) {
       expect(parseTcgcsvCardName(n, num)).toEqual({ ok: false, reason: 'unknown_stamp' });
     }

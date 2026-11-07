@@ -43,6 +43,8 @@ const P = {
   pika93: 716741,
   pika93Win: 716740, // «(Winner)»
   longy: 731003, // rareza de 65 caracteres
+  pitch: 731004, // «Meganium - 001 (Pitch Black Stamped)» ⇒ event_promo
+  worlds: 731005, // «Paradise Resort - 092 (World Championships 2026)» ⇒ championship
 };
 const img = (id: number) => `https://tcgplayer-cdn.tcgplayer.com/product/${id}_200w.jpg`;
 const prod = (productId: number, name: string, number: string | null, rarity = 'Promo') => ({
@@ -58,11 +60,13 @@ const PRODUCTS = [
   prod(P.meganiumStaff, 'Meganium - 001 [Staff]', '001'),
   prod(P.pikachu, 'Pikachu ex - 107 (30th Celebration)', '107'),
   prod(P.paradise, 'Paradise Resort - 092', '092'),
-  prod(P.paradiseStaff, 'Paradise Resort - 092 [Staff]', '092'),
+  prod(P.paradiseStaff, 'Paradise Resort - 092 (World Championships 2026) [Staff]', '092'),
+  prod(P.worlds, 'Paradise Resort - 092 (World Championships 2026)', '092'),
+  prod(P.pitch, 'Meganium - 001 (Pitch Black Stamped)', '001'),
   prod(P.enamorus, 'Enamorus - 113', '113', 'Uncommon'),
   prod(P.orphanStaff, 'Orphan - 300 [Staff]', '300'),
   prod(P.mystery, 'Foo - 200 [Mystery Stamp]', '200'),
-  prod(P.pcenter, 'Alakazam - 009 (Pokemon Center Exclusive)', '009'),
+  prod(P.pcenter, 'Alakazam - 009 (Mystery Paren)', '009'),
   prod(P.sealed, 'Mega Evolution Promo Pack', null),
   prod(P.tox, 'Toxtricity - 017', '017'),
   prod(P.toxPre, 'Toxtricity - 017 (Prerelease)', '017'),
@@ -85,6 +89,8 @@ const PRICES_BY_GROUP: Record<number, ReturnType<typeof price>[]> = {
     price(P.pika93, 'Holofoil', 3),
     price(P.pika93Win, 'Holofoil', 8),
     price(P.longy, 'Normal', 1),
+    price(P.worlds, 'Normal', 5),
+    price(P.pitch, 'Holofoil', 12),
   ],
 };
 
@@ -198,7 +204,7 @@ describe('E2E — P-PROMOS opción C (2.ª ronda): import de cartas desde un gru
     const list = await h.api<any[]>('GET', '/admin/catalog/tcgcsv-groups', { token: admin });
     expect(list.status).toBe(200);
     expect(list.body).toEqual([
-      { groupId: G, name: 'ME: Mega Evolution Promo', publishedOn: '2025-09-26T00:00:00', imported: false, productCount: 14, cardCount: 0 },
+      { groupId: G, name: 'ME: Mega Evolution Promo', publishedOn: '2025-09-26T00:00:00', imported: false, productCount: 16, cardCount: 0 },
     ]);
     tcgcsv.failProducts = true;
     try {
@@ -307,12 +313,12 @@ describe('E2E — P-PROMOS opción C (2.ª ronda): import de cartas desde un gru
     expect(r.status).toBe(200);
     expect(Object.keys(r.body).sort()).toEqual(['created', 'noPrice', 'setId', 'skipped', 'stamped', 'updated']);
     const set = (await setRow())!;
-    expect(r.body).toMatchObject({ setId: set.id, created: 6, updated: 0, stamped: 4, noPrice: 1 });
+    expect(r.body).toMatchObject({ setId: set.id, created: 6, updated: 0, stamped: 6, noPrice: 1 });
     expect([...r.body.skipped].sort((a: any, b: any) => a.productId - b.productId)).toEqual(
       [
         { productId: P.orphanStaff, name: 'Orphan - 300 [Staff]', reason: 'no_base' },
         { productId: P.mystery, name: 'Foo - 200 [Mystery Stamp]', reason: 'unknown_stamp' },
-        { productId: P.pcenter, name: 'Alakazam - 009 (Pokemon Center Exclusive)', reason: 'unknown_stamp' },
+        { productId: P.pcenter, name: 'Alakazam - 009 (Mystery Paren)', reason: 'unknown_stamp' },
         { productId: P.sealed, name: 'Mega Evolution Promo Pack', reason: 'no_number' },
         { productId: P.longy, name: 'Longy - 300', reason: 'field_too_long' },
       ].sort((a, b) => a.productId - b.productId),
@@ -335,6 +341,8 @@ describe('E2E — P-PROMOS opción C (2.ª ronda): import de cartas desde un gru
     const stampOf = async (pid: number) => h.prisma.cardProduct.findUniqueOrThrow({ where: { tcgplayerProductId: pid } });
     const byNum = (n: string) => cards.find((c) => c.number === n)!;
     expect(await stampOf(P.paradiseStaff)).toMatchObject({ cardId: byNum('092').id, kind: 'stamped', stampType: 'staff', stampLabel: 'Staff', sourceGroupId: G });
+    expect(await stampOf(P.worlds)).toMatchObject({ cardId: byNum('092').id, kind: 'stamped', stampType: 'championship', stampLabel: 'World Championships 2026' });
+    expect(await stampOf(P.pitch)).toMatchObject({ cardId: byNum('001').id, kind: 'stamped', stampType: 'event_promo', stampLabel: 'Pitch Black Stamped' });
     expect(await stampOf(P.toxPre)).toMatchObject({ cardId: byNum('017').id, kind: 'stamped', stampType: 'prerelease', stampLabel: 'Prerelease' });
     expect(await stampOf(P.pika93Win)).toMatchObject({ cardId: byNum('093').id, kind: 'stamped', stampType: 'championship', stampLabel: 'Winner' });
     const staff = await stampOf(P.paradiseStaff);
@@ -342,24 +350,24 @@ describe('E2E — P-PROMOS opción C (2.ª ronda): import de cartas desde un gru
     expect(byNum('092').availableFinishes).toEqual(['normal']);
     const prods = await productsOfSet();
     expect(prods.filter((p) => p.kind === 'set_base')).toHaveLength(6);
-    expect(prods.filter((p) => p.kind === 'stamped')).toHaveLength(4);
+    expect(prods.filter((p) => p.kind === 'stamped')).toHaveLength(6);
     // Lo omitido NO existe.
     const omitted = [P.orphanStaff, P.mystery, P.pcenter, P.sealed, P.longy];
     expect(await h.prisma.cardProduct.count({ where: { tcgplayerProductId: { in: omitted } } })).toBe(0);
     expect(await h.prisma.card.count({ where: { externalId: { in: omitted.map((x) => `tcgcsv:${x}`) } } })).toBe(0);
     // Bitácora DENTRO de la transacción, con actor.
     const audit = await h.prisma.auditLog.findFirst({ where: { action: 'catalog.tcgcsv_import', entityId: set.id } });
-    expect(audit?.after).toMatchObject({ groupId: G, created: 6, stamped: 4, noPrice: 1, skipped: 5 });
+    expect(audit?.after).toMatchObject({ groupId: G, created: 6, stamped: 6, noPrice: 1, skipped: 5 });
     expect(audit?.actorUserId).toBeTruthy();
     const list = await h.api<any[]>('GET', '/admin/catalog/tcgcsv-groups', { token: admin });
-    expect(list.body.find((g) => g.groupId === G)).toMatchObject({ imported: true, cardCount: 6, productCount: 14 });
+    expect(list.body.find((g) => g.groupId === G)).toMatchObject({ imported: true, cardCount: 6, productCount: 16 });
   });
 
   it('PROMO-B3: reimportar ⇒ 0 duplicados, 0 filas de precio nuevas', async () => {
     const before = { cards: await cardsOfSet(), prods: await productsOfSet(), refs: await h.prisma.priceReference.count({ where: { card: { set: { externalId: SET_EXT } } } }) };
     const again = await importG();
     expect(again.status).toBe(200);
-    expect(again.body).toMatchObject({ created: 0, updated: 6, stamped: 4, noPrice: 1 });
+    expect(again.body).toMatchObject({ created: 0, updated: 6, stamped: 6, noPrice: 1 });
     expect((await cardsOfSet()).map((c) => c.id)).toEqual(before.cards.map((c) => c.id));
     expect((await productsOfSet()).map((p) => p.id)).toEqual(before.prods.map((p) => p.id));
     expect(await h.prisma.priceReference.count({ where: { card: { set: { externalId: SET_EXT } } } })).toBe(before.refs);
@@ -382,7 +390,7 @@ describe('E2E — P-PROMOS opción C (2.ª ronda): import de cartas desde un gru
       tcgcsv.delayMs = 0;
     }
     expect((await cardsOfSet()).length).toBe(6);
-    expect((await productsOfSet()).length).toBe(10);
+    expect((await productsOfSet()).length).toBe(12);
     expect(await h.prisma.cardSet.count({ where: { externalId: SET_EXT } })).toBe(1);
   });
 
