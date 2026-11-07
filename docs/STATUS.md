@@ -40,14 +40,18 @@ Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de toolin
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
 
-## Bugs abiertos (qa) — gate P-PROMOS C sobre 3b3715dd (2026-11-07): RECHAZADO
+## Bugs abiertos (qa) — re-gate P-PROMOS C sobre f9200a23 (2026-11-07): RECHAZADO
 | ID | Qué | Dueño |
 |---|---|---|
-| QA-PRM-UX | (backend CERRADO: `productCount`, orden `publishedOn` desc, large `_in_1000x1000`) front CERRADO parcial (ficha pricePending ⇒ «Precio pendiente», 2026-11-07); falta: «0 productos» en grupos sin importar → usar `productCount`; celda del binder usa `imageSmallUrl` (_200w) | frontend |
-| QA-SCRIPTS | `scripts/doc-size.baseline` editado por frontend/orquestador | orquestador |
-| FE-HOMEQUOTER-TEARDOWN | setState tras desmontar (1/1 con carga ~8; 0/5 aislado) | frontend |
-Medido en 3b3715dd: tsc back/front 0; jest backend completo 9911/9911 (567 suites); integración promo-tcgcsv 11/11 ×2 (Postgres desechable); mutación sin candado ⇒ 1/11 rojo. Front m2+i18n 333/333; suite completa 1 rojo/5879 (determinista). e2e mocks promos 3/3. Censo rojo; doc-size verde.
-Real (tcgcsv alcanzable): 24451 ⇒ 124 creadas, 19 sello, 10 sin precio, 5 no_base; reimport ×2 simultáneo 0 dup; Pikachu ex (30th Celebration) #107 en Master Set; [Staff] 092 versión aparte; sin precio ⇒ no publica (PRICE_PENDING, 422 en aportación); 24722 importado con pokemontcg.io caído (QA-PRM-FAILOPEN); 22872 listado.
+| **QA-PRM-PEND** | Carta importada sin precio con pieza en stock ⇒ ficha «AGOTADA» (no «Precio pendiente»): `pricePending` solo cuenta piezas publicadas (`catalog.service.ts:1554-1555,1608`) y `bulk-publish` rechaza PRICE_PENDING ⇒ nunca true desde el import (real: Celebratory Fanfare (Asia…) #028, 390/1280). Viola HECHOS:255 y API_CONTRACT:417 | backend (+arquitecto) |
+| QA-PRM-FLAKY | pokemontcg.io inestable hoy: 25/39 imports reales ⇒ 503 (fail-closed correcto, pero el botón falla >50 %); `Retry-After` 60 s > tope 10 s y el reintento sigue en segundo plano | backend + arquitecto |
+| QA-PRM-UX | resto: binder usa `imageSmallUrl` (_200w); «Staff Staff» en el chip del cajón; «Base: … (mercado d» desborda a 1280 | frontend |
+| QA-PRM-EMPTY | `pokemontcg-io.client.ts:117` `body.data ?? []`: 200 vacío pasa la guardia (fail-open de borde) | backend |
+| QA-ROUTES | frontend editó la tabla de qa (503742d1, e074e790) y `scripts/e2e-skip-census.baseline` (devops); `doc-size.baseline` (anterior) | orquestador |
+| FE-HOMEQUOTER-TEARDOWN | setState tras desmontar (0/1 en esta corrida, carga ~3) | frontend |
+Cerrados (re-medidos): FAILOPEN (real 503, 0 filas), COVER (22872/24722/99999 ⇒ 404), I18N, CENSUS, SHADOW (sync mep ⇒ noop + shadowed + AuditLog), POOL (N=30 pool 5 ⇒ 1×200/29×409; real 1×409, 0×5xx/39), PAREN (0 no_base, 0 unknown_stamp), IDS-ROW (unit; real NO MEDIDO).
+Medido en f9200a23: tsc back/front 0; jest backend 9946/9946 (568); vitest 5884/5884 (13 skip); integración promo-tcgcsv 15/15 ×2 (Postgres desechable); m98 sobre BD con datos 1/1 (466 cartas intactas); e2e mocks promos 3/3; censo y doc-size verdes.
+Real: 24451 ⇒ 115 cartas (96+19 propias), 33 versiones (24 staff, 8 event_promo, 1 championship), 10 sin precio, 0 omitidas; reimport 0 dup; Pikachu ex (30th Celebration) #107 y Miraidon (Pitch Black Stamped) #082 en Master Set; [Staff] y «Promo de evento» como versión aparte.
 Resto del backlog con dueño y fecha: índice de `PENDIENTES.md`.
 
 ## Deuda técnica activa (todas las secciones)
