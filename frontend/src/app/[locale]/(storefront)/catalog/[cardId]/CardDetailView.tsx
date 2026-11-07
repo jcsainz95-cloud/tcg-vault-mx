@@ -509,10 +509,10 @@ function Detail({
               lo sabemos. */}
           {!primary && (
             <p
-              data-testid="sold-out"
+              data-testid={detail.pricePending === true ? 'price-pending' : 'sold-out'}
               className="mt-9 lg:order-2 border-t border-border pt-5 font-mono text-[13px] uppercase tracking-[0.12em] text-muted"
             >
-              {tcat('soldOutCard')}
+              {detail.pricePending === true ? tcat('pricePendingCard') : tcat('soldOutCard')}
             </p>
           )}
 

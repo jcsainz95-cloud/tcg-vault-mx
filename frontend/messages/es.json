@@ -401,7 +401,8 @@
     },
     "sealedRedirect": "Te estamos llevando a Producto sellado…",
     "vaultNote": "Con cuenta, junta cartas en tu bóveda y pide un solo envío. Sin cuenta, te la enviamos a casa.",
-    "soldOutCard": "Agotada"
+    "soldOutCard": "Agotada",
+    "pricePendingCard": "Precio pendiente"
   },
   "shop": {
     "filtersTitle": "Filtros",
@@ -1821,6 +1822,7 @@
           "league": "De liga · Promo de Liga",
           "championship": "De torneo",
           "prerelease": "Prerelease",
+          "event_promo": "Promo de evento",
           "staff": "Staff"
         },
         "priceLabel": "Precio de venta (auto)",
@@ -8592,6 +8594,7 @@
       "league": "De liga",
       "championship": "De torneo",
       "prerelease": "Prerelease",
+      "event_promo": "Promo de evento",
       "staff": "Staff"
     },
     "finishLabel": {
@@ -8615,6 +8618,7 @@
       "league": "De liga (promo de la Liga)",
       "championship": "De torneo (promo de campeonato)",
       "prerelease": "Prerelease (promo de prerelease)",
+      "event_promo": "Promo de evento",
       "staff": "Staff (promo Staff)"
     },
     "row": {
@@ -8623,6 +8627,7 @@
       "league": "De liga · Promo de la Liga",
       "championship": "De torneo",
       "prerelease": "Prerelease",
+      "event_promo": "Promo de evento",
       "staff": "Staff"
     },
     "picker": {
@@ -8633,6 +8638,7 @@
       "league": "Carta de liga: promo de la Liga Pokémon",
       "championship": "Promo de campeonato",
       "prerelease": "Promo de prerelease",
+      "event_promo": "Promo de evento",
       "staff": "Promo Staff"
     },
     "imageNote": {

@@ -87,7 +87,7 @@ function grp(over: Partial<GroupedListingDTO> = {}): GroupedListingDTO {
 }
 
 function mockDetail(listings: GroupedListingDTO[], units: ListingDTO[]) {
-  vi.spyOn(api, 'getCardDetail').mockResolvedValue({ card, listings, units });
+  vi.spyOn(api, 'getCardDetail').mockResolvedValue({ card, pricePending: false, listings, units });
   vi.spyOn(api, 'getPublicShippingRule').mockResolvedValue({
     cardsOnlyFeeCents: 10000,
     sealedFeeCents: 20000,

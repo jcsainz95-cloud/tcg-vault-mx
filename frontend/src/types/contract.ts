@@ -19,7 +19,7 @@ export type Finish = 'normal' | 'reverse_holo' | 'holofoil' | 'first_edition_hol
 export const CARD_LANGUAGES = ['en', 'es'] as const;
 export type CardLanguage = (typeof CARD_LANGUAGES)[number];
 /** §0 (M-95). Tipo de versión de liga de un `CardProduct` `stamped`. */
-export const STAMP_TYPES = ['prize_pack', 'league', 'championship', 'prerelease', 'staff'] as const;
+export const STAMP_TYPES = ['prize_pack', 'league', 'championship', 'prerelease', 'staff', 'event_promo'] as const;
 export type StampType = (typeof STAMP_TYPES)[number];
 /**
  * §IDS.5 — el acabado **como lo nombra el cliente** (clave cerrada, derivada por backend con
@@ -1108,6 +1108,8 @@ export interface GroupedListingListResponse {
 // (carrito por-pieza) y exponer el `certNumber` de cada slab en graded. `units` NO es la grilla.
 export interface GroupedListingDetailResponse {
   card: CardDTO;
+  /** QA-PRM-UX (contrato v1.x P-PROMOS): true ⇔ el producto está en `PRICE_PENDING`; agotada = false y sin stock. El servidor lo calcula. */
+  pricePending: boolean;
   listings: GroupedListingDTO[];
   units: ListingDTO[];
   /**

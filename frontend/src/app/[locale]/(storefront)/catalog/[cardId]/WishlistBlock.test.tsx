@@ -127,6 +127,7 @@ function item(over: Partial<WishlistItemDTO> = {}): WishlistItemDTO {
 function mockDetail(opts: { wishlistEnabled?: boolean; listings?: GroupedListingDTO[] } = {}) {
   vi.spyOn(api, 'getCardDetail').mockResolvedValue({
     card,
+    pricePending: false,
     listings: opts.listings ?? [],
     units: [],
     ...(opts.wishlistEnabled === undefined ? {} : { wishlistEnabled: opts.wishlistEnabled }),

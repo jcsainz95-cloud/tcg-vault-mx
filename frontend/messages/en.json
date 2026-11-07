@@ -401,7 +401,8 @@
     },
     "sealedRedirect": "Taking you to Sealed product…",
     "vaultNote": "With an account, keep cards in your vault and ship them together. Without one, we ship this to you.",
-    "soldOutCard": "Sold out"
+    "soldOutCard": "Sold out",
+    "pricePendingCard": "Price pending"
   },
   "shop": {
     "filtersTitle": "Filters",
@@ -1821,6 +1822,7 @@
           "league": "League · League promo",
           "championship": "Tournament",
           "prerelease": "Prerelease",
+          "event_promo": "Event promo",
           "staff": "Staff"
         },
         "priceLabel": "Selling price (auto)",
@@ -8592,6 +8594,7 @@
       "league": "League",
       "championship": "Tournament",
       "prerelease": "Prerelease",
+      "event_promo": "Event promo",
       "staff": "Staff"
     },
     "finishLabel": {
@@ -8615,6 +8618,7 @@
       "league": "League (League promo)",
       "championship": "Tournament (championship promo)",
       "prerelease": "Prerelease (prerelease promo)",
+      "event_promo": "Event promo",
       "staff": "Staff (Staff promo)"
     },
     "row": {
@@ -8623,6 +8627,7 @@
       "league": "League promo",
       "championship": "Tournament",
       "prerelease": "Prerelease",
+      "event_promo": "Event promo",
       "staff": "Staff"
     },
     "picker": {
@@ -8633,6 +8638,7 @@
       "league": "League card: Pokémon League promo",
       "championship": "Championship promo",
       "prerelease": "Prerelease promo",
+      "event_promo": "Event promo",
       "staff": "Staff promo"
     },
     "imageNote": {
