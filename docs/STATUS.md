@@ -45,16 +45,20 @@ Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de toolin
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
 
-## Bugs abiertos (qa) — re-gate P-PROMOS C sobre fbccc2b3 (2026-11-07): APROBADO
+## Bugs abiertos (qa) — gate P-PROMOS-VIEJAS sobre 3839b010 (2026-11-07): APROBADO
 | ID | Qué | Dueño |
 |---|---|---|
-| QA-PRM-TIMERS | `tcgcsv-set-import.service.ts:39` `PTCG_TIMEOUT_MS` 10 s = `boundedBudgetMs` 10 s (`pokemontcg-io.client.ts:82`): con upstream colgado, caché vs 503 depende de qué temporizador gane (real 2/2 caché, 11.7 s). Timeout externo > presupuesto | backend |
-| QA-PRM-COPY | Ficha con «Precio pendiente» y pieza en stock sigue diciendo «Hoy no tenemos esta carta.» (`CardDetailView.tsx:528`) | frontend |
-| QA-PRM-IMGW | Binder 24451 con `_in_1000x1000`: 12.95 MB con scroll completo (×6.1 vs `_200w`); 1.ª vista 1.9 MB@1280 / 0.64 MB@390, visibles <0.9 s, lazy. Aceptable en admin; vigilar si se reutiliza en público | frontend |
-| QA-ROUTES | (anterior) frontend editó la tabla de qa (503742d1, e074e790) y `e2e-skip-census.baseline`; en este rango, rutas limpias | orquestador |
-Cerrados (re-medidos en fbccc2b3): PEND (Asia #028 en stock ⇒ «Precio pendiente» 390/1280, sin $0 ni carrito; Pikachu #107 con precio sin stock ⇒ «Agotada»), FLAKY (con caché 20/20 ×200; fresco tras reinicio 5/6 ×200, el 503 = CF 502 `Retry-After` 60; bloqueado tras éxito 3/3 ×200 por caché; sin caché ni red 2/2 ×503, 0 escrituras), EMPTY (código; real NO MEDIDO), UX (chip «Staff»; desglose 1 línea sin corte 1280/390; meta de grupos nueva sin desborde; binder 115/115 `_in_1000x1000`), FE-HOMEQUOTER-TEARDOWN (0 avisos en vitest completo). Siguen cerrados: FAILOPEN, COVER, I18N, CENSUS, SHADOW, POOL, PAREN.
-Medido en fbccc2b3: tsc back/front 0; jest backend 9959/9959 (569); vitest 5888/5888 (13 skip); integración promo-tcgcsv 17/17 ×2 (Postgres desechable); e2e mocks promos 3/3; censo y doc-size verdes (+canarios).
-Real: 24451 ⇒ 115 cartas, 33 versiones, 10 sin precio, 0 omitidas; pokemontcg.io directo 1/12 ×200 hoy.
+| QA-PV-TREE | Seguridad-lead mutó `promo-set-groups.ts` en el árbol compartido durante la suite de QA (2 rojos falsos, mtime 22:20:33). Mutación solo en worktree aparte | orquestador |
+| QA-PV-SKIP-UI | `promoSkipped` solo en la respuesta de la API: ni M2 ni la auditoría lo muestran (`admin-catalog.controller.ts:131,160`); el dueño no ve 31 (svp) / 20 (bwp) omitidas | arquitecto → frontend + backend |
+| QA-PV-PLASMA | BW80 Druddigon pendiente aunque su versión normal cotiza 18.50: «(Team Plasma)» + «(Cosmos Holo)» = 2 candidatos ⇒ `ambiguous_base` (`promo-set-plan.ts:352-358`); 1 carta medida | arquitecto + backend |
+| QA-PV-PEND | `refresh-variants.pending` cuenta filas de precio, no cartas (svp 1 vs 12 cartas pendientes; `catalog-sync.service.ts:641`) | backend |
+| QA-PV-STALE | `promo-set-products.service.ts:82` solo upsert: un producto que sale del plan conserva tipo/precio anteriores (lectura, NO MEDIDO real) | backend |
+| QA-PRM-TIMERS | `tcgcsv-set-import.service.ts:39` 10 s = presupuesto 10 s (`pokemontcg-io.client.ts:82`): caché vs 503 según qué temporizador gane | backend |
+| QA-PRM-COPY | Ficha «Precio pendiente» con pieza en stock dice «Hoy no tenemos esta carta.» (`CardDetailView.tsx:528`); visto otra vez en svp #107 | frontend |
+| QA-PRM-IMGW | Binder 24451 `_in_1000x1000` 12.95 MB con scroll completo; aceptable en admin | frontend |
+| QA-HYD | Aviso de hidratación en la ficha (`next dev`), también en `e2e-base`: anterior a este stream | frontend |
+Medido en 3839b010: tsc 0/0; jest 9998/9998 (570; 1.ª corrida 9996 por QA-PV-TREE); vitest 5888/5888 (13 skip); integración promo-viejas+promo-tcgcsv 28/28 ×2 (Postgres desechable); e2e mocks completo 450/450 (44 skip); doc-size y censo verdes (+canarios); rutas limpias.
+Real (stack nativo, pokemontcg.io intermitente): svp 200 cartas / 188 con precio / 12 pendientes / 53 sellos, promoSkipped 31; bwp 101/88/13/23, promoSkipped 20; TCGCSV a mano 12/12 por productId; re-sync + refresh ×2 en paralelo ⇒ 0 duplicados; me55 sin cambios (md5); 24451 ×2 estable; ficha 390/1280: solo-Prerelease vendible con nombre de pokemontcg.io y Staff aparte, pendiente sin carrito ni $0. Barrido diario real NO MEDIDO.
 Resto del backlog con dueño y fecha: índice de `PENDIENTES.md`.
 
 ## Deuda técnica activa (todas las secciones)
