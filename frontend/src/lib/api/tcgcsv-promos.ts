@@ -20,7 +20,7 @@ export interface TcgcsvGroupDTO {
 export interface TcgcsvSkippedDTO {
   productId: number;
   name: string;
-  /** Motivo crudo del servidor (el contrato no enumera los códigos: se muestra tal cual si no hay traducción). */
+  /** Código del servidor (minúsculas): no_number, number_mismatch, unknown_stamp, empty_name, no_base, ambiguous_base, product_already_linked, card_exists_in_pokemontcg. Desconocido ⇒ se muestra crudo. */
   reason: string;
 }
 
@@ -58,8 +58,8 @@ function mockImport(groupId: number): TcgcsvImportResult {
     stamped: 6,
     noPrice: 10,
     skipped: [
-      { productId: 900001, name: 'Paradise Resort 092 [Staff]', reason: 'STAMP_BASE_NOT_UNIQUE' },
-      { productId: 900002, name: 'Booster Box Promo', reason: 'NO_NUMBER' },
+      { productId: 900001, name: 'Paradise Resort 092 [Staff]', reason: 'ambiguous_base' },
+      { productId: 900002, name: 'Booster Box Promo', reason: 'no_number' },
     ],
   };
 }

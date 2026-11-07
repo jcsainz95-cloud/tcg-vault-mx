@@ -4163,11 +4163,14 @@
         "noPrice": "{count, plural, one {# card without a price: kept as \"price pending\".} other {# cards without a price: kept as \"price pending\".}}",
         "skippedTitle": "{count, plural, one {# product skipped} other {# products skipped}}",
         "reason": {
-          "NO_NUMBER": "has no number (not a card)",
-          "STAMP_BASE_NOT_UNIQUE": "no single base card for the stamp",
-          "NUMBER_MISMATCH": "number does not match the name",
-          "STAMP_UNKNOWN": "unknown stamp",
-          "PRODUCT_LINKED": "product already linked to another card"
+          "no_number": "has no number (not a card)",
+          "number_mismatch": "number does not match the name",
+          "unknown_stamp": "unknown stamp",
+          "empty_name": "empty name",
+          "no_base": "no base card for the stamp",
+          "ambiguous_base": "more than one possible base card for the stamp",
+          "product_already_linked": "product already linked to another card",
+          "card_exists_in_pokemontcg": "card already exists in pokemontcg.io"
         }
       },
       "rarityHealth": {
@@ -7913,6 +7916,8 @@
     "BOUNTY_PRICE_REQUIRED": "A bounty needs an explicit price. Nothing was saved.",
     "BOUNTY_BELOW_RULE": "A bounty must pay more than the current rate ({suggested}). At the same amount it would not be an offer.",
     "SET_NOT_IMPORTED": "That set is not imported yet; import it before refreshing its variants.",
+    "TCGCSV_GROUP_UNKNOWN": "That TCGCSV group does not exist. Refresh the list.",
+    "TCGCSV_GROUP_COVERED": "That group is already covered by a pokemontcg.io set: use the normal import.",
     "UPSTREAM_ERROR": "TCGCSV is unavailable right now. Please try again in a few minutes.",
     "SEALED_PRODUCT_NOT_FOUND": "That sealed product no longer exists or is inactive; sync the catalog again.",
     "MANUAL_MARKET_NOT_ALLOWED": "This presentation already has a market price; the manual price only applies when there is no market.",

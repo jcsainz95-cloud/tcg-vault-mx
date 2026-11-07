@@ -4163,11 +4163,14 @@
         "noPrice": "{count, plural, one {# carta sin precio: queda como «precio pendiente».} other {# cartas sin precio: quedan como «precio pendiente».}}",
         "skippedTitle": "{count, plural, one {# producto omitido} other {# productos omitidos}}",
         "reason": {
-          "NO_NUMBER": "no tiene número (no es carta)",
-          "STAMP_BASE_NOT_UNIQUE": "no hay una carta base única para el sello",
-          "NUMBER_MISMATCH": "el número no coincide con el nombre",
-          "STAMP_UNKNOWN": "sello desconocido",
-          "PRODUCT_LINKED": "el producto ya está ligado a otra carta"
+          "no_number": "no tiene número (no es carta)",
+          "number_mismatch": "el número no coincide con el nombre",
+          "unknown_stamp": "sello desconocido",
+          "empty_name": "nombre vacío",
+          "no_base": "no hay carta base para el sello",
+          "ambiguous_base": "hay más de una carta base posible para el sello",
+          "product_already_linked": "el producto ya está ligado a otra carta",
+          "card_exists_in_pokemontcg": "la carta ya existe en pokemontcg.io"
         }
       },
       "rarityHealth": {
@@ -7913,6 +7916,8 @@
     "BOUNTY_PRICE_REQUIRED": "El bounty necesita un precio explícito. No se guardó nada.",
     "BOUNTY_BELOW_RULE": "Un bounty tiene que pagar más que la tarifa vigente ({suggested}). Con el mismo importe no sería una oferta.",
     "SET_NOT_IMPORTED": "Ese set aún no está importado; impórtalo antes de refrescar sus variantes.",
+    "TCGCSV_GROUP_UNKNOWN": "Ese grupo de TCGCSV no existe. Actualiza la lista.",
+    "TCGCSV_GROUP_COVERED": "Ese grupo ya está cubierto por un set de pokemontcg.io: usa la importación normal.",
     "UPSTREAM_ERROR": "TCGCSV no está disponible en este momento. Inténtalo de nuevo en unos minutos.",
     "SEALED_PRODUCT_NOT_FOUND": "Ese producto sellado ya no existe o está inactivo; vuelve a sincronizar el catálogo.",
     "MANUAL_MARKET_NOT_ALLOWED": "Esta presentación ya tiene precio de mercado; el precio manual solo aplica cuando no hay mercado.",
