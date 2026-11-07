@@ -146,8 +146,8 @@
 - POST `/admin/catalog/refresh-variants-all` · admin
 - POST `/admin/catalog/sync-all` · admin
 - POST `/admin/catalog/backfill` · admin
-- GET `/admin/catalog/tcgcsv-groups` · admin — grupos TCGCSV sin set de pokemontcg.io: `[{groupId,name,publishedOn,imported,cardCount}]`
-- POST `/admin/catalog/import-tcgcsv-set` · admin — `{groupId:int}` ⇒ `{setId,created,updated,stamped,noPrice,skipped:[{productId,name,reason}]}`; 409 `TCGCSV_GROUP_COVERED` si empata con un set de pokemontcg.io; 404 `TCGCSV_GROUP_UNKNOWN`; idempotente; `AuditLog catalog.tcgcsv_import`
+- GET `/admin/catalog/tcgcsv-groups` · admin — grupos TCGCSV sin set de pokemontcg.io: `[{groupId,name,publishedOn:string|null,imported,cardCount}]` (sin grupos ya cubiertos por pokemontcg.io); solo `super_admin`
+- POST `/admin/catalog/import-tcgcsv-set` · solo `super_admin` — `{groupId:int}` ⇒ `{setId,created,updated,stamped,noPrice,skipped:[{productId,name,reason}]}`, `reason` ∈ `no_number|number_mismatch|unknown_stamp|empty_name|no_base|ambiguous_base|product_already_linked|card_exists_in_pokemontcg`; errores 400, 404 `TCGCSV_GROUP_UNKNOWN`, 409 `TCGCSV_GROUP_COVERED` (empata con un set de pokemontcg.io), 502 `UPSTREAM_ERROR`; idempotente; `AuditLog catalog.tcgcsv_import`
 - GET `/catalog/featured` · público
 - GET `/catalog/cards` · cuenta
 - GET `/catalog/facets` · cuenta
