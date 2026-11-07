@@ -7382,7 +7382,7 @@ ListingPriceStatus  = priced | pending                      // v1.113⟨portada�
 ListingPriceRunTrigger = daily | manual_ingest | publish_all | publish | dial_change | manual_price | bootstrap | missing_row | review_open // v1.113⟨portada⟩ (M-94, §DYN.5.3); `review_open` v1.114 (§DYN.5.9). Clase E. Por qué corrió un cálculo del precio del día.
 ListingPriceRunStatus = running | ok | failed               // v1.113⟨portada⟩ (M-94, §DYN.5.3). Clase E.
 CardLanguage        = en | es                                // v1.116⟨ids⟩ (M-95, §IDS.1). Clase E. Idioma de la pieza (y del `OrderItem`). Sin `ja` (§IDS.6 de PROJECT).
-StampType           = prize_pack | league | championship | prerelease | staff // v1.116⟨ids⟩ (M-95, §IDS.1/.3). Clase E. Tipo de versión de liga de un `CardProduct` `stamped`.
+StampType           = prize_pack | league | championship | prerelease | staff | event_promo // v1.116⟨ids⟩ (M-95, §IDS.1/.3). Clase E. Tipo de versión de liga de un `CardProduct` `stamped`.
 ```
 
 ### DTOs base (compartidos)
