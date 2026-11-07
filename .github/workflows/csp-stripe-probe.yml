@@ -56,14 +56,10 @@ jobs:
         working-directory: frontend
         timeout-minutes: 15
         run: |
-          set +e -uo pipefail
-          for intento in 1 2 3; do
-            timeout 420 npx playwright install --with-deps chromium && exit 0
-            echo "::warning::instalación de Chromium fallida (intento $intento); reintento."
-            sudo pkill -x apt-get 2>/dev/null || true; sudo pkill -x dpkg 2>/dev/null || true
-            sudo dpkg --configure -a >/dev/null 2>&1 || true
-          done
-          echo "::error::no se pudo instalar Chromium (3 intentos)."; exit 1
+          set -uo pipefail
+          # CI-APT-LOCK (2026-11-06): espera el candado de apt del runner y reintenta con backoff;
+          # todo vive en scripts/ci-install-chromium.sh (candado: check-chromium-install.sh).
+          CHROMIUM_INSTALL_BUDGET_S=840 bash "${{ github.workspace }}/scripts/ci-install-chromium.sh" || exit 1
       - name: Sonda (3 tiradas; cada una con su autoprueba)
         env:
           # Publicable de PRUEBA (no es secreta; viene del almacén por comodidad). Vacía ⇒ «ready» no medido.

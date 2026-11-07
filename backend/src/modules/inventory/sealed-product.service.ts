@@ -1,3 +1,4 @@
+import { upgradeSealedImageUrl } from './sealed-image-host';
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, Role, SealedGroupKind, SealedProduct, SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -366,7 +367,7 @@ export class SealedProductService {
       subtypeInferred: p.subtypeInferred,
       isPrincipal: p.isPrincipal,
       origin: p.origin,
-      imageUrl: p.imageUrl ?? null,
+      imageUrl: upgradeSealedImageUrl(p.imageUrl ?? null),
       marketRef,
       // v1.41 (IMP-1): mercado gateado por el dial (null cuando el backend valuaría PRICE_PENDING).
       effectiveMarketCents: effectiveByProductId.get(p.tcgplayerProductId) ?? null,
@@ -499,7 +500,7 @@ export class SealedProductService {
           tcgplayerGroupId: groupId,
           name: p.name,
           cleanName: p.cleanName ?? null,
-          imageUrl: p.imageUrl ?? null,
+          imageUrl: upgradeSealedImageUrl(p.imageUrl ?? null),
           origin: kind,
           marketUsdCents: usdCents,
         });
@@ -565,7 +566,7 @@ export class SealedProductService {
           name: input.name,
           cleanName: input.cleanName,
           origin: input.origin,
-          imageUrl: input.imageUrl,
+          imageUrl: upgradeSealedImageUrl(input.imageUrl),
           ...(row.subtypeInferred && inferred ? { subtype: inferred } : {}),
           marketUsdCents: input.marketUsdCents,
           ...(input.marketUsdCents != null ? { marketUpdatedAt: now } : {}),
@@ -599,7 +600,7 @@ export class SealedProductService {
           subtypeInferred: true,
           isPrincipal: meta?.isPrincipal ?? false,
           origin: input.origin,
-          imageUrl: input.imageUrl,
+          imageUrl: upgradeSealedImageUrl(input.imageUrl),
           marketUsdCents: input.marketUsdCents,
           marketUpdatedAt: input.marketUsdCents != null ? now : null,
           active: true,
@@ -1101,7 +1102,7 @@ export class SealedProductService {
             subtypeInferred: sample.sealedSubtype == null,
             isPrincipal: meta?.isPrincipal ?? false,
             origin: 'set_main',
-            imageUrl: sample.sealedImageUrl ?? null,
+            imageUrl: upgradeSealedImageUrl(sample.sealedImageUrl ?? null),
             // Money-safe: JAMÁS se fabrica precio en el backfill (el ingest lo poblará).
             marketUsdCents: null,
             active: true,

@@ -70,10 +70,10 @@ Resuelve: precios opacos, envíos repetidos, dudas de autenticidad/condición y 
 - Reembolsos manuales SPEI: se marcan «pagado + quién»; topes contra errores de dedo; dueño los ve en el panel.
 
 **Control de gasto y legal**
-- Avisos al dueño y topes sobre lo que cuesta dinero (p. ej. MX$2,500 en guías por persona en 24 h).
-- Procesos **lo más automáticos posible**; lo manual es último recurso.
-- Aviso de privacidad y términos mínimos; salida en vivo sin datos fiscales (se regulariza).
-- PII (INE, CLABE, RFC) cifrada y enmascarada; INE con retención acotada.
+- Avisos al dueño y topes sobre lo que cuesta dinero (p. ej. MX$2,500 en guías por persona en 24 h). Procesos **lo más automáticos posible**; lo manual es último recurso.
+- Aviso de privacidad y términos mínimos; salida en vivo sin datos fiscales (se regulariza). PII (INE, CLABE, RFC) cifrada y enmascarada; INE con retención acotada.
+
+**P-PROMOS (opción C; HECHOS 2026-11-06):** el admin importa, grupo a grupo, las cartas de promos de TCGCSV que NO están en pokemontcg.io (primero «ME: Mega Evolution Promo», 24451: 148 productos, 138 con precio; las del 30 aniversario llevan «(30th Celebration)»); sin alta manual; las promos que sí están allí (`svp` ↔ 22872) siguen por la importación normal. Solo productos con número (el sellado va por su módulo); sin precio ⇒ se crea igual en PRICE_PENDING, no vendible; precio = mercado TCGCSV con la regla vigente. Sello (Prerelease/Staff/Campeonato) = producto aparte como la liga, fuera del binder y del valor del set; sin carta base única ⇒ se reporta, no se crea. Si pokemontcg.io trae luego la carta, no se duplica ni se pisa (fusión = decisión aparte). Criterios: (1) importar 24451 dos veces o a la vez ⇒ 0 duplicados; (2) «Pikachu ex 107 (30th Celebration)» ⇒ carta 107 con imagen y precio; (3) «Paradise Resort 092 [Staff]» ⇒ versión de sello de la 092; (4) grupo que empata con set de pokemontcg.io ⇒ rechazado; (5) `sync-all` no toca estos sets; (6) gates qa + seguridad-lead.
 
 ## 4. Fuera de alcance hoy
 Envío internacional · japonés (después) · fotos propias de cartas · pentest externo (riesgo aceptado por el dueño) ·

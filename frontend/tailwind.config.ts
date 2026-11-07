@@ -8,6 +8,7 @@ const config: Config = {
         bg: 'var(--color-bg)',
         surface: 'var(--color-surface)',
         'surface-2': 'var(--color-surface-2)',
+        'photo-mat': 'var(--color-photo-mat)',
         border: 'var(--color-border)',
         'border-strong': 'var(--color-border-strong)',
         // §IDS-UX.8: SOLO el borde de las burbujas del selector de versión (`VersionPills`).

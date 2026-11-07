@@ -1,3 +1,4 @@
+import { upgradeSealedImageUrl } from './sealed-image-host';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { SealedSubtype } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -156,7 +157,7 @@ export class SealedCatalogAdminService {
           name: p.name,
           ...(p.cleanName ? { cleanName: p.cleanName } : {}),
           sealedSubtype: inferSealedSubtype(p.name),
-          imageUrl: p.imageUrl ?? null,
+          imageUrl: upgradeSealedImageUrl(p.imageUrl ?? null),
           marketRef,
         };
       });

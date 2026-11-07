@@ -69,7 +69,7 @@ import {
 import { toCardDTO } from '../catalog/catalog.service';
 // v1.51.18 (BL-25, §4.39m.5): `inventory` DECLARA y PROVEE el puerto de disparo de publicación.
 import { PublishReevaluationResult, VariantPublishRef } from './inventory-publish.port';
-import { sanitizeSealedImageUrl } from './sealed-image-host';
+import { sanitizeSealedImageUrl, upgradeSealedImageUrl } from './sealed-image-host';
 import { sealedProductPiecesOf } from './sealed-product-pieces';
 import { assertSealedPriceWriters, SealedPriceWriteLine } from './sealed-price.policy';
 
@@ -1399,7 +1399,7 @@ export class InventoryService {
     return {
       tcgplayerProductId: productId,
       tcgplayerGroupId: groupId,
-      sealedImageUrl: sanitizeSealedImageUrl(dto.sealedImageUrl),
+      sealedImageUrl: upgradeSealedImageUrl(sanitizeSealedImageUrl(dto.sealedImageUrl)),
       sealedProductName: name != null && name !== '' ? name : null,
     };
   }

@@ -27,6 +27,7 @@ import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 // v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3): `pricedAsOf` (fecha CDMX) + `ogImageUrl` (absoluta) de la FICHA.
 import { toMexicoCityDateKey } from '../../common/business-days';
 import { absoluteOgImageUrl } from '../../common/og-image';
+import { upgradeSealedImageUrl } from '../inventory/sealed-image-host';
 
 // v2.1.8: DERIVADOS del schema (`common/enum-values.ts`) — ver por qué ahí. CLASE E (§0-Q punto 3).
 // P-89: `readonly <Enum>[]` en vez de `Set<string>`, para que el genérico de `parseEnumFilter`
@@ -212,14 +213,15 @@ function sealedIdentityFieldsOf(item: ItemWithCardOnly) {
     sealedProductName: item.sealedProductName,
     sealedImageUrl: item.sealedImageUrl,
   });
+  const sealedImg = upgradeSealedImageUrl(display.imageSmallUrl);
   return {
     sealedProductId: item.sealedProductId ?? null,
     card: toCardDTO(item.card),
     productName: display.name,
-    imageUrl: display.imageSmallUrl,
+    imageUrl: sealedImg,
     sealedSubtype: (item.sealedSubtype ?? null) as SealedSubtype | null,
     sealedCondition: (item.sealedCondition ?? 'mint') as SealedCondition,
-    ogImageUrl: absoluteOgImageUrl(display.imageSmallUrl),
+    ogImageUrl: absoluteOgImageUrl(sealedImg),
   };
 }
 

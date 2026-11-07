@@ -15,6 +15,8 @@
   `cd frontend && npm test` (vitest) · `npm run test:e2e` (Playwright).
 - **CI** (`.github/workflows/ci.yml`): backend, frontend, E2E, SAST (semgrep, gitleaks, trivy, npm audit), DAST (ZAP) y
   ~30 candados en `scripts/check-*.sh`, cada uno con su canario. `doc-size` excluye `docs/archive/`.
+- **Chromium en CI** (CI-APT-LOCK, 2026-11-06): los 5 pasos que lo instalan llaman a `scripts/ci-install-chromium.sh`
+  (espera el candado de apt del runner, `DPkg::Lock::Timeout` 300 s, backoff 30/60 s); candado `check-chromium-install.sh`.
 
 ## Seguridad — hallazgos ABIERTOS (seguridad-lead) — último veredicto 2026-11-06 (sha ead1753a, UX-ALTA-LIGA + buySuggestedCents: seguridad APROBADO 0 crít/alt; calidad CON CONDICIONES: TL-DOC-1 rojo en CI)
 | ID | Sev | Qué | Dueño | Medido |
@@ -61,12 +63,12 @@ Resto del backlog con dueño y fecha: índice de `PENDIENTES.md`.
 | TL-ALTA-1 | Sin foco/aviso de error en la captura de idioma/versión: `useIdsCapture.ts:73,79`, `ids-capture.ts:145,161` (y ficha original) | frontend | 2026-11-06 | ver `docs/archive/TECH_DEBT.md` TL-ALTA-1 |
 | Registro histórico | 172 filas en `docs/archive/TECH_DEBT.md` (sin re-medir): se migran aquí **solo** al tocar su módulo | dueño del módulo | 2026-11-06 | — |
 
-## Backend (backend) — 2026-11-06
-27 módulos en `backend/src/modules/`; 86 modelos Prisma, 83 migraciones. Sin cambios de código en esta limpieza.
-- `GET /admin/inventory/cards/:cardId/versions` añade `buySuggestedCents: number | null` por combo (IDS-B33…B37; `inventory-versions.service.ts`). Curva = `composeVariantPricing().buy.effectiveCents`; override/bounty solo en (en, sin liga). Unit 8/8 (rojo 18/18 con 6 mutaciones ×3) + integración ids-v1168 2/2 (mutación R_en 3/3 rojo). Tipo para frontend: `buySuggestedCents: number | null` en `VersionCombo`. TL-A2-4 cerrado.
+## Backend (backend) — 2026-11-07
+SELLADO-IMG: `upgradeSealedImageUrl` (`inventory/sealed-image-host.ts`) pura/idempotente: tcgplayer-cdn `_NNNw` -> `_in_1000x1000` (HEAD 200 3/3 en vivo); otros hosts/sin sufijo intactos. Aplicada al escribir (alta `inventory.service`, sync `sealed-product.service`) y al leer (`sealed-catalog.service` imageUrl+ogImageUrl, hoja `sealed-price.service`, `sealed-catalog-admin`, resumen `sealed-product`). Sin migración. Unit 3/3 + serializer 1/1 (`test/catalog.mkt-tienda.spec.ts`); mutación 3/3 roja; suite catalog/sealed 407/407; tsc y eslint limpios. Contrato: no describe imageUrl de sellado (0 coincidencias).
 
 ## Frontend (frontend) — 2026-11-06 (cierre A2b)
 Next 15.5 App Router; admin M1–M12.
+- Foto de la ficha de sellado (opción A del dueño, 2026-11-06): `components/domain/SealedPhoto.tsx` (tarjeta blanca `photo-mat`, marco fino, p-8, ajustada a la foto, sin caja 5:7, sin agrandar sobre su tamaño natural, tope 560 px de alto, `<img>` cruda: sin costo nuevo en el optimizador). Teja del listado `/sellado`: NO usa la caja 5:7 (miniatura 88×88 `aspect-auto`, `SealedShopView.tsx:247`), sin cambio. Candado: `SealedPhoto.test.tsx` (mutación N=3: 3/3 rojo).
 - Nav: `nav.buylist` = «Vende tus cartas» / «Sell your cards». Header medido (Chromium): 390 px el nav vive en el drawer (header 77 px, sin desborde); 1024/1280 px, 4 entradas (público) caben en una línea; con sesión (6) a 1024 px «Vende tus cartas» se parte en 2 líneas (sin desborde, header 84 px igual que antes) y a 1280 px caben sin solaparse.
 - Fotos paso 1 (sin `/_next/image`): `eager` en las primeras tejas (catálogo 8, binder del cotizador 6, líneas del carrito de venta 4, bounties 4), resto `lazy`; sin `fetchpriority`. `TopBountiesShelf` pasa de `<img>` crudo a `CardImage` (arreglo de hidratación #120). Interruptor y `remotePatterns` intactos.
 - Medición con fixtures (N=3, CPU×6 y red 300 ms): 0 tejas beige a los 5 s antes y después (el arreglo #120 ya cubría catálogo y buylist); sin diferencia de tiempo medible en el fixture (pocas tejas). Paso 2 (optimizador) pendiente de decisión del dueño.
