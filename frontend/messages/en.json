@@ -4159,7 +4159,7 @@
         "imported": "already imported",
         "import": "Import {name}",
         "reimport": "Re-import {name}",
-        "summary": "{group}: {created} cards created, {updated} updated, {stamped} stamped versions.",
+        "summary": "{group}: {created} cards created, {updated} updated, {stamped} league versions.",
         "noPrice": "{count, plural, one {# card without a price: kept as \"price pending\".} other {# cards without a price: kept as \"price pending\".}}",
         "skippedTitle": "{count, plural, one {# product skipped} other {# products skipped}}",
         "reason": {

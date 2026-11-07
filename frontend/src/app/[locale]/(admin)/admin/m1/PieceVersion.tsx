@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/cn';
 import { LanguageChip, StampChip } from '@/components/domain/VersionChip';
 import { PillToggleGroup } from '@/components/domain/VersionPills';
-import type { VersionDTO } from '@/types/contract';
+import type { FinishLabel, VersionDTO } from '@/types/contract';
 
 /**
  * §IDS-UX.3 (lista de inventario admin, `02-inventario-admin-v3`): las dos columnas internas de una pieza.
@@ -13,8 +13,9 @@ import type { VersionDTO } from '@/types/contract';
  *    exacto del proveedor en texto muted (`stamp.label`, solo admin), o «—».
  * Sin `version` (servidor anterior a §IDS) ⇒ inglés sin liga.
  */
-export function PieceVersion({ version, className }: { version?: VersionDTO | null; className?: string }) {
+export function PieceVersion({ version, className, finishLabel }: { version?: VersionDTO | null; className?: string; finishLabel?: FinishLabel | null }) {
   const t = useTranslations('admin.m1.ids');
+  const tv = useTranslations('version');
   const v = version ?? { key: 'en', language: 'en' as const, stamp: null };
   return (
     <span className={cn('inline-flex items-center gap-2', className)} data-testid="piece-version">
@@ -30,6 +31,7 @@ export function PieceVersion({ version, className }: { version?: VersionDTO | nu
           <>
             <StampChip type={v.stamp.type} />
             {v.stamp.label && <span className="text-[12px] text-muted">{v.stamp.label}</span>}
+            {finishLabel && <span className="text-[12px] text-muted">({tv(`finishLabel.${finishLabel}`)})</span>}
           </>
         ) : (
           <span className="text-[12px] text-muted">—</span>

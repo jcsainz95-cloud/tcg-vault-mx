@@ -12,6 +12,7 @@ import {
 } from '@/lib/api';
 import type {
   Finish,
+  FinishLabel,
   InventoryItemDTO,
   ProductType,
   VariantPricingDTO,
@@ -89,6 +90,14 @@ export interface VariantDrawerProps {
   /** Acción secundaria «Agregar gradeada…» (raw → abre el modal corto P-20). */
   onAddGraded?: () => void;
 }
+
+/** QA-IDS-ROW: `Finish` de la pieza ⇒ rótulo del catálogo `version.finishLabel` (el mismo que `stampWithFinishLabel`). */
+const PIECE_FINISH_LABEL: Record<Finish, FinishLabel> = {
+  normal: 'non_holo',
+  reverse_holo: 'reverse_holo',
+  holofoil: 'holo',
+  first_edition_holofoil: 'first_edition_holo',
+};
 
 export function VariantDrawer(props: VariantDrawerProps) {
   const {
@@ -417,6 +426,7 @@ export function VariantDrawer(props: VariantDrawerProps) {
                 setStampFilter('all');
               }}
               showSlotNote={productType === 'raw' && anyNonDefault}
+              slotFinish={finish}
               query={{
                 isLoading: pieces.isLoading || (leagueEnabled && leaguePieces.isLoading),
                 isError: pieces.isError || (leagueEnabled && leaguePieces.isError),
@@ -456,6 +466,7 @@ function PiecesSection({
   filtered = false,
   onClearFilters,
   showSlotNote = false,
+  slotFinish,
   query,
   fetchedCount,
   totalCount,
@@ -479,6 +490,8 @@ function PiecesSection({
   onClearFilters?: () => void;
   /** Pista del cajón (IDS-UX.3): alguna fila no es inglés sin liga ⇒ «La casilla cuenta solo inglés sin liga…». */
   showSlotNote?: boolean;
+  /** Acabado de la casilla: una pieza de liga con otro acabado lo nombra en su fila (QA-IDS-ROW). */
+  slotFinish?: Finish;
   query: { isLoading: boolean; isError: boolean; error: unknown; refetch: () => unknown; data: unknown };
   /** Piezas que el servidor devolvió vs. total real — honestidad del truncado (M-2). */
   fetchedCount: number;
@@ -701,7 +714,7 @@ function PiecesSection({
                     )}
                     <StatusBadge domain="inventory" value={piece.status} />
                     {/* §IDS-UX.3: Idioma (EN gris / «Español») y Liga (insignia + tipo exacto, o —); solo raw. */}
-                    {piece.productType === 'raw' && <PieceVersion version={piece.version} />}
+                    {piece.productType === 'raw' && <PieceVersion version={piece.version} finishLabel={piece.version?.stamp && piece.finish && piece.finish !== slotFinish ? PIECE_FINISH_LABEL[piece.finish] : null} />}
                     {sealedPieceLinkOf(piece) === 'linked' ? (
                       /* §70.3 (a): pieza LIGADA ⇒ solo lectura; el precio es del producto (bloque de arriba). */
                       <span className="ml-auto">

@@ -32,7 +32,7 @@ describe('PROMO-F1 · importar un grupo de promos TCGCSV', () => {
     renderWithProviders(<TcgcsvPromosSection />);
     fireEvent.click(await screen.findByRole('button', { name: /Importar ME: Mega Evolution Promo/ }));
     await waitFor(() => expect(promos.importTcgcsvSet).toHaveBeenCalledWith(24451));
-    expect((await screen.findByTestId('promo-summary')).textContent).toMatch(/130 cartas creadas.*6 versiones con sello/);
+    expect((await screen.findByTestId('promo-summary')).textContent).toMatch(/130 cartas creadas.*6 versiones de liga/);
     expect(screen.getByTestId('promo-nopricing').textContent).toMatch(/10 cartas sin precio.*precio pendiente/);
     const skipped = screen.getByTestId('promo-skipped');
     expect(skipped.textContent).toMatch(/Paradise Resort 092 \[Staff\]/);

@@ -4159,7 +4159,7 @@
         "imported": "ya importado",
         "import": "Importar {name}",
         "reimport": "Volver a importar {name}",
-        "summary": "{group}: {created} cartas creadas, {updated} actualizadas, {stamped} versiones con sello.",
+        "summary": "{group}: {created} cartas creadas, {updated} actualizadas, {stamped} versiones de liga.",
         "noPrice": "{count, plural, one {# carta sin precio: queda como «precio pendiente».} other {# cartas sin precio: quedan como «precio pendiente».}}",
         "skippedTitle": "{count, plural, one {# producto omitido} other {# productos omitidos}}",
         "reason": {
