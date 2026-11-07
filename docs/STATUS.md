@@ -40,16 +40,22 @@ Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de toolin
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
 
-## Bugs abiertos (qa) — gate UX-ALTA-LIGA sobre ead1753a (2026-11-06): APROBADO código/dinero; publicar exige TL-DOC-1
+## Bugs abiertos (qa) — gate P-PROMOS C sobre 3b3715dd (2026-11-07): RECHAZADO
 | ID | Qué | Dueño |
 |---|---|---|
-| QA-IDS-OVR | Español con override/bounty en la inglesa: el sugerido usa la curva pura (`inventory-versions.service.ts:155,165`; prueba `…buy-suggested.spec.ts:100`: override 9999 ⇒ es 4500, no 7499). HECHOS 2026-11-06 dice «% × lo que la tienda paga por la inglesa». Decidir y fijar en contrato | arquitecto (+dueño) |
-| QA-IDS-ROW | Fila de pieza en el cajón no muestra el acabado: pieza Holo de liga en casilla NORMAL sale «Español · De liga» sin «Holo» (captura 390-3) | frontend |
-| QA-SCRIPTS | `scripts/doc-size.baseline` (ruta devops) editado por frontend (fdce7701, 2faf249f) y orquestador (9fa42a98) | orquestador |
-| FE-HOMEQUOTER-TEARDOWN | `HomeQuoter.tsx` setState tras desmontar (1/1 con carga ~8; 0/5 aislado) — no reapareció hoy (suite completa verde) | frontend |
-| MKT-953-FOTO | Foto de sellado < 1000 px para `Product` (og) | backend |
-Medido en ead1753a: tsc back/front 0 errores; jest pricing+inventory+common 320/320; buy-suggested 8/8; integración IDS-B32/B33-B37 (Postgres desechable) 2/2 ×2; mutación «liga usa R_en» ⇒ unit 8/8 rojo + integración 1/2 rojo; mutación «truncar» ⇒ 1/8 rojo. Front m1+master-set+i18n+mock+pricing 1621/1621 (90 ficheros); suite completa 5872 verdes, 13 saltadas (468+2 ficheros), 0 rojos. e2e mocks `ids-quick-add` 21/21 (7×3). `.skip/.only` nuevos en el rango: 0. DOC-SIZE rojo (TL-DOC-1).
-Navegador, stack real con semilla (dev), 390 y 1280: League Bird: compra en la casilla MX$85.00 ⇒ Español MX$63.75 (=0.75×85), inglés de liga MX$48.60 (=40.5 %×120, curva), español de liga MX$36.45 (=0.75×48.60); tras teclear 99 y cambiar de versión se vuelve a prellenar; alta Español+De liga ⇒ POST finish holofoil, cardProductId 620000001, cost 3645; «Piezas» 4→5→6 con la pista; la casilla sigue en «1 pieza»; sin toast (solo indicador de Next dev); scrollWidth = viewport; 0 errores de página. Sin referencia (No Price): campo vacío + «Sin sugerido»; Español apagado. NO MEDIDO en navegador: combo disponible con sugerido null (la semilla no tiene ninguno; cubierto por unit). Capturas: scratchpad de la sesión `qa-alta/`.
+| QA-PRM-FAILOPEN | pokemontcg.io caído ⇒ el 409 se salta (`tcgcsv-set-import.service.ts:112-116`): 24722 importó 161 cartas; `sync me55` duplicó | backend (+arquitecto) |
+| QA-PRM-COVER | Empate por nombre falla con 33/176 sets reales: 22872 (svp), SWSH/SM/XY/BW/DP promos salen importables | backend (+arquitecto) |
+| QA-PRM-I18N | `PieceVersion.test.tsx:115` rojo por «versiones con sello» en `admin.m2.tcgcsvPromos.summary` (es.json) | frontend |
+| QA-PRM-CENSUS | censo e2e rojo: mockOnly 161→163 (spec nuevo sin --motivo) | frontend (+devops baseline) |
+| QA-PRM-SHADOW | `tcgcsv_shadowed` no salta con datos reales (`parseTcgplayerProductId` exige /product/<id>; me55 sin tcgplayerId): 0 avisos, 161 duplicados | backend (+arquitecto) |
+| QA-PRM-POOL | el candado retiene 1 conexión todo el import; ≥5 a la vez con pool 5 ⇒ cuelga (NO MEDIDO) | backend |
+| QA-PRM-UX | «0 productos» en grupos sin importar; orden por publishedOn; ficha sin precio dice «Agotada»; binder usa _200w | frontend/backend |
+| QA-PRM-PAREN | «(Prerelease)/(Pitch Black Stamped)/(PC Exclusive)» se crean como carta del binder (#009 ×2…); 5 [Staff] no_base | arquitecto |
+| QA-IDS-ROW | Fila de pieza en el cajón sin acabado (captura 390-3 del gate anterior) | frontend |
+| QA-SCRIPTS | `scripts/doc-size.baseline` editado por frontend/orquestador | orquestador |
+| FE-HOMEQUOTER-TEARDOWN | setState tras desmontar (1/1 con carga ~8; 0/5 aislado) | frontend |
+Medido en 3b3715dd: tsc back/front 0; jest backend completo 9911/9911 (567 suites); integración promo-tcgcsv 11/11 ×2 (Postgres desechable); mutación sin candado ⇒ 1/11 rojo. Front m2+i18n 333/333; suite completa 1 rojo/5879 (determinista). e2e mocks promos 3/3. Censo rojo; doc-size verde.
+Real (tcgcsv alcanzable): 24451 ⇒ 124 creadas, 19 sello, 10 sin precio, 5 no_base; reimport ×2 simultáneo 0 dup; Pikachu ex (30th Celebration) #107 en Master Set; [Staff] 092 versión aparte; sin precio ⇒ no publica (PRICE_PENDING, 422 en aportación); 24722 importado con pokemontcg.io caído (QA-PRM-FAILOPEN); 22872 listado.
 Resto del backlog con dueño y fecha: índice de `PENDIENTES.md`.
 
 ## Deuda técnica activa (todas las secciones)
