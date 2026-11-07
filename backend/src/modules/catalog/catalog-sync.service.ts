@@ -18,6 +18,8 @@ import { deriveNumberParts } from '../../common/card-order';
 import { normalizeRarity, isRarityMapped } from '../../common/rarity-catalog';
 import { FinishReconciler } from './finish-reconciler.service';
 import { CardProductResolverService } from './card-product-resolver.service';
+import { AuditService } from '../audit/audit.service';
+import { isTcgcsvOrigin } from './tcgcsv-card-name';
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -323,6 +325,9 @@ export class CatalogSyncService {
     // `importSet` (first-import/`--force`). @Optional: los tests unitarios que ejercitan solo el
     // sync single/metadata pueden construir el servicio sin él (no se invoca en esa ruta).
     @Optional() private readonly cardProductResolver?: CardProductResolverService,
+    // P-PROMOS (§5.12): deja `catalog.tcgcsv_shadowed` cuando pokemontcg.io trae una carta cuyo producto ya es de una
+    // carta `tcgcsv:`. @Optional: los tests unitarios que no ejercitan esa rama no lo inyectan (se queda en `warn`).
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   /**
@@ -425,7 +430,8 @@ export class CatalogSyncService {
       this.logger.warn(
         `remote-sets: pokemontcg.io no disponible (${(e as Error).message}); fallback a sets locales.`,
       );
-      const localSets = await this.prisma.cardSet.findMany();
+      // P-PROMOS (§5.12): los sets `tcgcsv:` NO son remotos de pokemontcg.io; no entran a esta lista.
+      const localSets = (await this.prisma.cardSet.findMany()).filter((s) => !isTcgcsvOrigin(s.externalId));
       const data = localSets
         .map((s) => ({
           id: s.externalId,
@@ -1437,7 +1443,9 @@ export class CatalogSyncService {
     // señal de acabado. No se rellena nada; la carencia se hace VISIBLE en el log del sync.
     let noFinishSignal = 0;
     const touchedCardIds: string[] = [];
+    const shadowed = await this.tcgcsvShadowedIds(cards);
     for (const c of cards) {
+      if (c?.id && shadowed.has(c.id)) continue; // P-PROMOS: NO crea ni mueve (ya avisado en `tcgcsvShadowedIds`)
       if (!c?.id || !c?.name) {
         this.logger.warn(
           `sync: carta inválida omitida (id=${c?.id ?? '?'}, name=${c?.name ?? '?'}) — no aborta el set.`,
@@ -1524,6 +1532,54 @@ export class CatalogSyncService {
     return count;
   }
 
+  /**
+   * P-PROMOS (§5.12) — ids de pokemontcg.io que `upsertCards` NO debe crear porque su producto TCGplayer (el
+   * `productId` de `tcgplayer.url`) ya es de una carta `tcgcsv:`. Fusionar es decisión del arquitecto, no del sync:
+   * aquí solo `warn` + `AuditLog catalog.tcgcsv_shadowed`. Una carta de pokemontcg.io que ya existe se actualiza igual.
+   */
+  private async tcgcsvShadowedIds(cards: RemoteCard[]): Promise<Set<string>> {
+    const out = new Set<string>();
+    const byProduct = new Map<string, string>();
+    for (const c of cards) {
+      const pid = c?.id ? parseTcgplayerProductId(c.tcgplayer?.url) : null;
+      if (pid) byProduct.set(c.id, pid);
+    }
+    if (byProduct.size === 0) return out;
+    const ours = (
+      await this.prisma.card.findMany({
+        where: { tcgplayerId: { in: [...new Set(byProduct.values())] } },
+        select: { externalId: true, tcgplayerId: true },
+      })
+    ).filter((x) => isTcgcsvOrigin(x.externalId));
+    if (ours.length === 0) return out;
+    const owner = new Map(ours.map((x) => [x.tcgplayerId as string, x.externalId]));
+    const existing = new Set(
+      (
+        await this.prisma.card.findMany({
+          where: { externalId: { in: [...byProduct.keys()] } },
+          select: { externalId: true },
+        })
+      ).map((x) => x.externalId),
+    );
+    for (const [id, pid] of byProduct) {
+      const tcgcsvCard = owner.get(pid);
+      if (!tcgcsvCard || existing.has(id)) continue;
+      out.add(id);
+      this.logger.warn(`sync: la carta ${id} (producto ${pid}) ya existe como ${tcgcsvCard}; NO se crea ni se mueve.`);
+      try {
+        await this.audit?.log({
+          action: 'catalog.tcgcsv_shadowed',
+          entityType: 'Card',
+          entityId: tcgcsvCard,
+          after: { pokemontcgIoCardId: id, tcgplayerProductId: pid },
+        });
+      } catch (e) {
+        this.logger.warn(`sync: no se pudo auditar tcgcsv_shadowed (${(e as Error).message}).`);
+      }
+    }
+    return out;
+  }
+
   /** Conteo de cartas locales agrupado por externalId del set (para remote-sets). */
   /**
    * ⭐ RESOLVER ÚNICO DEL CORTE DE FECHA — «¿desde qué fecha importa este catálogo?».
@@ -1591,7 +1647,11 @@ export class CatalogSyncService {
     const sets = await this.prisma.cardSet.findMany({
       select: { externalId: true, _count: { select: { cards: true } } },
     });
-    return sets.filter((s) => s._count.cards > 0).map((s) => s.externalId);
+    // P-PROMOS (§5.12): `refresh-variants-all` y compañía recorren solo sets de pokemontcg.io; los `tcgcsv:` se
+    // reimportan con su propio endpoint (su resolver los omite) y su precio lo lleva el barrido diario.
+    return sets
+      .filter((s) => s._count.cards > 0 && !isTcgcsvOrigin(s.externalId))
+      .map((s) => s.externalId);
   }
 
   private async localSetExternalIds(): Promise<Set<string>> {

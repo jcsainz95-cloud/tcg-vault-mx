@@ -21,6 +21,7 @@ import { FinishReconcilerModule } from './finish-reconciler.module';
 // v1.29 (§4.27d): resolver de «1 carta ↔ N productos» desde TCGCSV + su cliente HTTP (hermano del
 // provider sellado). Vive en el módulo catalog porque el paso corre dentro de `importSet`.
 import { CardProductResolverService } from './card-product-resolver.service';
+import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 import { TcgcsvCatalogClient } from '../pricing/providers/tcgcsv-singles.provider';
 import { SetPriceSyncJobService } from '../../jobs/set-price-sync.service';
 import { SetValueSnapshotJobService } from '../../jobs/set-value-snapshot.service';
@@ -42,6 +43,8 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     // v1.29 (§4.27d): TCGCSV card-product resolver + su cliente HTTP (stateless).
     CardProductResolverService,
     TcgcsvCatalogClient,
+    // P-PROMOS (§5.12): import de cartas desde un grupo TCGCSV que pokemontcg.io no tiene.
+    TcgcsvSetImportService,
     SetValueService,
     SealedCatalogService,
     SealedRestockNotifyService,

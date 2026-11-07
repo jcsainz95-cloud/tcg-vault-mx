@@ -3,6 +3,7 @@ import { CardProductKind, Finish } from '@prisma/client';
 import {
   TcgcsvGroupRef,
   TcgcsvSingleProductRef,
+  TcgcsvCardProductRef,
   TcgcsvPriceRow,
   deriveStructuralFinishes,
   tcgcsvSubTypeToFinish,
@@ -19,6 +20,7 @@ interface TcgcsvRawGroup {
 interface TcgcsvRawProduct {
   productId?: number;
   name?: string;
+  imageUrl?: string | null;
   extendedData?: { name?: string; displayName?: string; value?: unknown }[] | null;
 }
 
@@ -78,6 +80,27 @@ export class TcgcsvCatalogClient extends TcgcsvHttpClient {
   }
 
   /**
+   * P-PROMOS (§5.12) — TODOS los productos del grupo con `Number`/`Rarity`/`imageUrl` para crear cartas. El filtro
+   * «es carta» (tiene `Number`) lo decide el importador, que además REPORTA lo omitido. Lanza ante fallo remoto.
+   */
+  async getCardProducts(groupId: number): Promise<TcgcsvCardProductRef[]> {
+    this.assertValidGroupId(groupId);
+    const body = await this.getJson<TcgcsvRawProduct>(`/${this.pokemonCategoryId}/${groupId}/products`);
+    const out: TcgcsvCardProductRef[] = [];
+    for (const p of body.results ?? []) {
+      if (typeof p?.productId !== 'number' || !Number.isInteger(p.productId) || !p?.name) continue;
+      out.push({
+        productId: p.productId,
+        name: p.name,
+        number: extractNumber(p.extendedData),
+        rarity: extractExtended(p.extendedData, 'Rarity'),
+        imageUrl: typeof p.imageUrl === 'string' && p.imageUrl.trim() !== '' ? p.imageUrl.trim() : null,
+      });
+    }
+    return out;
+  }
+
+  /**
    * Filas de precio del grupo, reducidas a `{ productId, subTypeName, marketPrice }` — lo único que
    * el resolver necesita. Una fila con `marketPrice: null` SE CONSERVA (estructura ≠ precio). Lanza
    * ante fallo remoto.
@@ -98,6 +121,16 @@ export class TcgcsvCatalogClient extends TcgcsvHttpClient {
     }
     return out;
   }
+}
+
+/** Valor de texto de una entrada de `extendedData` por nombre, o `null`. */
+function extractExtended(
+  ext: { name?: string; value?: unknown }[] | null | undefined,
+  key: string,
+): string | null {
+  if (!Array.isArray(ext)) return null;
+  const v = ext.find((e) => e?.name === key)?.value;
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
 }
 
 /** Lee `extendedData` y devuelve el valor de la entrada `Number` como string, o `null`. */
