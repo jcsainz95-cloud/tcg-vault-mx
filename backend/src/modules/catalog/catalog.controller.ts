@@ -1,6 +1,4 @@
 import { Body, Controller, Get, Header, HttpCode, Optional, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { SettingsService } from '../settings/settings.service';
-import { SettingKey } from '../settings/settings.constants';
 import { OptionalSessionGuard } from './optional-session.guard';
 import { Throttle } from '@nestjs/throttler';
 import { IsString, IsUUID } from 'class-validator';
@@ -33,9 +31,6 @@ export class CatalogController {
     private readonly catalog: CatalogService,
     private readonly setValue: SetValueService,
     private readonly sealed: SealedCatalogService,
-    // rev v1.87⟨wishlist⟩ (§WSH.4): el dial de la lista de deseos para la ficha. `@Optional()` por los tests que construyen el
-    // controlador a mano; sin él ⇒ `false` (fail-closed).
-    @Optional() private readonly settings?: SettingsService,
     // v1.113⟨portada⟩ (§DYN.2): `@Optional` solo por los dobles posicionales; en la app siempre se inyecta.
     @Optional() private readonly featuredSvc?: FeaturedService,
   ) {}
@@ -182,11 +177,8 @@ export class CatalogController {
   @Public()
   @Get('cards/:cardId')
   async getCard(@Param('cardId') cardId: string) {
-    const detail = await this.catalog.getCard(cardId);
-    // rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.4, campo ADITIVO en la raíz): ¿se ofrece «Agregar a mi lista»? = dial
-    // `wishlist_enabled`. ⛔ Solo el booleano: los pesos de cada % viven en `GET /wishlist/preview` (con sesión).
-    const wishlistEnabled = this.settings ? (await this.settings.getString(SettingKey.WISHLIST_ENABLED)) === 'on' : false;
-    return { ...detail, wishlistEnabled };
+    // §WSH «Siempre activa»: la ficha ya no lleva `wishlistEnabled`.
+    return this.catalog.getCard(cardId);
   }
 
   @Public()

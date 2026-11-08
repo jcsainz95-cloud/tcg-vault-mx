@@ -1,5 +1,5 @@
 /**
- * wishlist.settings.spec.ts — rev v1.87⟨wishlist⟩ WSH-T30 (API_CONTRACT §WSH.2): las OCHO claves de §WSH.2 en
+ * wishlist.settings.spec.ts — rev v1.87⟨wishlist⟩ WSH-T30 (API_CONTRACT §WSH.2): las SIETE claves de §WSH.2 en
  * `SETTING_DTO_MAP` (nombre del DTO ⇒ clave de BD), su seed (`SETTING_DEFAULTS`, idéntico al `INSERT` de M-74), su dominio
  * (fuera ⇒ el validador devuelve mensaje ⇒ `422 VALIDATION_ERROR` por clave) y la paridad del enum interno
  * `WishlistNoticeStatus` (schema en disco ⇄ línea canónica de §0 del contrato).
@@ -10,7 +10,6 @@ import { join } from 'node:path';
 import { SETTING_DEFAULTS, SETTING_DTO_MAP, SETTING_VALIDATORS, SettingKeyType } from '../src/modules/settings/settings.constants';
 
 const TABLE: { dto: string; db: string; seed: unknown; ok: unknown[]; bad: unknown[] }[] = [
-  { dto: 'wishlistEnabled', db: 'wishlist_enabled', seed: 'off', ok: ['on', 'off'], bad: ['ON', true, 1, ''] },
   { dto: 'wishlistMaxPerAccount', db: 'wishlist_max_per_account', seed: 20, ok: [1, 20, 200], bad: [0, 201, 1.5, '20'] },
   { dto: 'wishlistMaxIvaMode', db: 'wishlist_max_iva_mode', seed: 'with_iva', ok: ['with_iva', 'without_iva'], bad: ['con', '', null] },
   { dto: 'wishlistDailyMailCap', db: 'wishlist_daily_mail_cap', seed: 3, ok: [1, 20], bad: [0, 21, -1] },
@@ -20,7 +19,7 @@ const TABLE: { dto: string; db: string; seed: unknown; ok: unknown[]; bad: unkno
   { dto: 'sealedRestockMaxPendingPerEmail', db: 'sealed_restock_max_pending_per_email', seed: 5, ok: [1, 50], bad: [0, 51] },
 ];
 
-describe('WSH-T30 — las ocho claves de §WSH.2', () => {
+describe('WSH-T30 — las siete claves de §WSH.2', () => {
   it.each(TABLE)('$dto ⇒ $db en SETTING_DTO_MAP', ({ dto, db }) => {
     expect(SETTING_DTO_MAP[dto]).toBe(db);
   });
@@ -36,13 +35,26 @@ describe('WSH-T30 — las ocho claves de §WSH.2', () => {
     for (const x of bad) expect(typeof v(x)).toBe('string');
   });
 
-  it('el INSERT de M-74 siembra EXACTAMENTE `SETTING_DEFAULTS` (ni una clave más, ni un valor distinto)', () => {
+  it('WSH-ON-3 · `wishlist_enabled` ya no existe: ni en SETTING_DTO_MAP/DEFAULTS/VALIDATORS ni como clave DTO', () => {
+    expect(SETTING_DTO_MAP['wishlistEnabled']).toBeUndefined();
+    expect(Object.values(SETTING_DTO_MAP)).not.toContain('wishlist_enabled');
+    expect((SETTING_DEFAULTS as Record<string, unknown>)['wishlist_enabled']).toBeUndefined();
+    expect((SETTING_VALIDATORS as Record<string, unknown>)['wishlist_enabled']).toBeUndefined();
+  });
+
+  it('WSH-ON-5 · la migración wsh_always_on solo borra la fila `wishlist_enabled` (no toca WishlistItem/WishlistNotice)', () => {
+    const sql = readFileSync(join(__dirname, '..', 'prisma', 'migrations', '20261116120000_wsh_always_on', 'migration.sql'), 'utf8')
+      .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+    expect(sql.trim()).toBe(`DELETE FROM "ConfigSetting" WHERE key = 'wishlist_enabled';`);
+  });
+
+  it('el INSERT de M-74 siembra `SETTING_DEFAULTS` (+ la fila histórica `wishlist_enabled`, borrada después por wsh_always_on)', () => {
     const sql = readFileSync(
       join(__dirname, '..', 'prisma', 'migrations', '20261027120000_m74_wishlist', 'migration.sql'),
       'utf8',
     );
     const rows = [...sql.matchAll(/\('([a-z_]+)', '([^']+)'::jsonb, 'migration:m74-wishlist'/g)].map((m) => [m[1], JSON.parse(m[2])]);
-    expect(Object.fromEntries(rows)).toEqual(Object.fromEntries(TABLE.map((t) => [t.db, t.seed])));
+    expect(Object.fromEntries(rows)).toEqual({ wishlist_enabled: 'off', ...Object.fromEntries(TABLE.map((t) => [t.db, t.seed])) });
   });
 });
 

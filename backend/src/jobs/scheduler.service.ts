@@ -289,8 +289,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     }
 
     // rev v1.87⟨wishlist⟩ (§WSH.5, §WSH.7 (a), D-WSH-1): los dos avisos al cliente, cada 5 min por defecto (crons por env,
-    // sufijo `-cron`). Single-flight entre instancias: el candado consultivo de cada servicio (D-WSH-7). Con su dial `off`
-    // (`wishlist_enabled` / `sealed_restock_alerts`) cada corrida es un no-op logueado.
+    // sufijo `-cron`). Single-flight entre instancias: el candado consultivo de cada servicio (D-WSH-7). El aviso de sellados
+    // con su dial `sealed_restock_alerts` `off` es un no-op logueado; la lista de deseos siempre corre.
     const wishlistCron = this.config.get<string>('WISHLIST_NOTIFY_CRON') ?? '*/5 * * * *';
     const restockCron = this.config.get<string>('SEALED_RESTOCK_NOTIFY_CRON') ?? '*/5 * * * *';
     if (this.wishlistNotify && this.sealedRestockNotify) {
@@ -357,7 +357,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         '+ catalog-metadata-sync diario (import de sets nuevos, force:false) ' +
         '+ shipment-tracking-poll / shipment-label-processing / shipment-extra-charges (Skydropx, dial shipping_provider) ' +
         '+ spend-watch (cada 5 min) / spend-digest (08:00 America/Mexico_City) ' +
-        '+ wishlist-notify / sealed-restock-notify (cada 5 min; diales wishlist_enabled / sealed_restock_alerts) ' +
+        '+ wishlist-notify / sealed-restock-notify (cada 5 min; dial sealed_restock_alerts) ' +
         '+ measurement-drain (cada minuto; MEASUREMENT_MODE, off por defecto) / marketing-access-log-retention (diario).',
     );
 

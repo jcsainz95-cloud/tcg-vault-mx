@@ -29,7 +29,6 @@ export const SEALED_RESTOCK_NOTIFY_LOCK_KEY = 87_740_102;
 export type WishlistSkipReason = 'paused' | 'unverified' | 'inactive' | 'unavailable';
 
 export interface WishlistDials {
-  enabled: boolean;
   maxPerAccount: number;
   ivaMode: WishlistIvaMode;
   dailyMailCap: number;
@@ -40,7 +39,6 @@ export interface WishlistDials {
 }
 
 export const WISHLIST_DIAL_KEYS = [
-  SettingKey.WISHLIST_ENABLED,
   SettingKey.WISHLIST_MAX_PER_ACCOUNT,
   SettingKey.WISHLIST_MAX_IVA_MODE,
   SettingKey.WISHLIST_DAILY_MAIL_CAP,

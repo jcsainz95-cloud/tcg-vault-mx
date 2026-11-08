@@ -33,7 +33,7 @@ describe('GET /catalog/featured (§DYN.2.1)', () => {
   });
   it('delega en `FeaturedService.read()`', async () => {
     const featured = { read: jest.fn(async () => ({ businessDate: null, data: [] })) };
-    const ctrl = new CatalogController({} as never, {} as never, {} as never, undefined, featured as never);
+    const ctrl = new CatalogController({} as never, {} as never, {} as never, featured as never);
     expect(await ctrl.featured()).toEqual({ businessDate: null, data: [] });
     expect(featured.read).toHaveBeenCalledWith();
   });
