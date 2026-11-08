@@ -89,6 +89,7 @@
 | E2E-CAT-URL | Búsqueda y filtros del catálogo no viajan en la URL; al recargar se pierden. | frontend | 2026-10-29 (tester-e2e) | recargar `/es/catalog?q=…` conserva el filtro |
 | E2E-GUEST-GUION | Checkout invitado con correo vacío muestra «Confirmo que — es correcto». | frontend | 2026-10-29 (tester-e2e) | captura sin el guion |
 | E2E-404-CUENTA | 404 en consola de `GET /wishlist` y `/users/me/billing-profile` en Mi cuenta. | frontend | 2026-10-29 (tester-e2e) | 0 errores de consola en Mi cuenta |
+| ARQ-TOPES-DOCS | `wc -c` 2026-11-08 tras §WSH siempre activa: PROJECT.md 12401 (tope 12288), API_CONTRACT.md 25729 (25600), ARCHITECTURE.md 15482 (15360). Ya venían pasados en HEAD (12214/25506/15314). | arquitecto | 2026-11-08 (orquestador) | los tres bajo su tope |
 | DEVOPS-GATE-MEDICION | `stack-native.sh up --gate` hornea el frontend sin `NEXT_PUBLIC_MEASUREMENT_MODE` ⇒ el banner de cookies no existe en gates locales. | devops | 2026-10-29 (tester-e2e) | modo/variable documentado que lo hornee |
 | PEN-VEL-2 | La ruta nativa del gate compila con `npx next build` y salta el `postbuild` (`check-home-bundle.mjs`) (`stack-native.sh:988`); si Vercel lo corre: NO MEDIDO. | devops | 2026-10-29 (pentester) | `HOME_BUNDLE_OK` en el log de un despliegue de Vercel y en el gate nativo |
 | DEVOPS-VERIFY-SHORT | `stack-native.sh verify:head <sha corto>` sobre copia sin `.git` da «COMMIT DISTINTO». | devops | 2026-10-29 (QA) | `verify:head 5aeda006` verifica en copia |
