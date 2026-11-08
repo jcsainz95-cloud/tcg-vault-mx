@@ -64,10 +64,9 @@ export class WishlistService {
 
   // ───────────────────────────────────────────── guardas ─────────────────────────────────────────────
 
-  /** `404 FEATURE_DISABLED` con el dial apagado; `403 FORBIDDEN` a una cuenta de staff sin correo. Devuelve los diales. */
+  /** `403 FORBIDDEN` a una cuenta de staff sin correo. Devuelve los diales. */
   private async gate(actor: WishlistActor): Promise<WishlistDials> {
     const dials = await readWishlistDials(this.settings);
-    if (!dials.enabled) throw BusinessException.notFound('FEATURE_DISABLED', 'wishlist is disabled');
     if (actor.hasEmail === false) throw BusinessException.forbidden('FORBIDDEN', 'an account with email is required');
     return dials;
   }

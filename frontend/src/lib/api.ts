@@ -661,8 +661,7 @@ export async function getCardDetail(cardId: string, server?: ServerReadOptions):
     return apiRequest<GroupedListingDetailResponse>(`/catalog/cards/${cardId}`, serverInit(server));
   }
   try {
-    // ⭐ v1.87⟨wishlist⟩ (§WSH.4): el servidor añade en la raíz `wishlistEnabled` (dial vigente).
-    return await delay({ ...fx.mockGroupedDetail(cardId), wishlistEnabled: wishlistMock.mockWishlistEnabled() });
+    return await delay(fx.mockGroupedDetail(cardId));
   } catch (e) {
     throw translateFixtureError(e);
   }
@@ -8305,7 +8304,7 @@ export async function refundAccessoryLineDelivered(
 // Rama mock: `mock/wishlist.ts` (servidor falso con las cifras del contrato). ⛔ El front no calcula pesos.
 // ============================================================================
 
-/** `GET /wishlist` — `401`; `404 FEATURE_DISABLED` con el dial apagado (la UI lo trata como «no existe»). */
+/** `GET /wishlist` — `401`. */
 export async function getWishlist(): Promise<WishlistResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<WishlistResponse>('/wishlist');
   return delay(null).then(() => wishlistMock.mockGetWishlist());

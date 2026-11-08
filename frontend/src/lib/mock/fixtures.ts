@@ -570,9 +570,7 @@ export let mockSettings: SettingsDTO = {
     { coverageCents: 1000000, costCents: 17000, measuredAt: '2026-10-04' },
   ],
   shippingLabelFormat: 'standard',
-  // ⭐ v1.87⟨wishlist⟩ (§WSH.2). ⚠️ El seed REAL de `wishlist_enabled` es `off`; el DEMO la arranca `on` para poder
-  // recorrerla sin backend. El apagado se simula con `localStorage['tcg.mock.wishlistOff']='1'` (`mock/wishlist.ts`).
-  wishlistEnabled: 'on',
+  // ⭐ v1.87⟨wishlist⟩ (§WSH.2). Sin interruptor: la lista de deseos siempre está activa (WSH-ON-F1).
   wishlistMaxPerAccount: 20,
   // v1.113⟨portada⟩ (§DYN.3, MOCK con los seeds de M-93): Destacadas 60/8/2/7/06:00 y tope PSA 3 000 créditos/día.
   featuredPoolSize: 60,

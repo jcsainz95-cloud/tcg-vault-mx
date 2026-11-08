@@ -11,7 +11,6 @@
  * - Estado en `localStorage` (sobrevive a navegar entre páginas, que es lo que recorren los E2E):
  *     `tcg.mock.wishlist`        deseos guardados (JSON)
  *     `tcg.mock.wishlistPaused`  '1' ⇒ avisos pausados
- *     `tcg.mock.wishlistOff`     '1' ⇒ dial `wishlist_enabled = off` (rutas con sesión ⇒ 404 FEATURE_DISABLED)
  *     `tcg.mock.wishlistLimit`   entero ⇒ tope por cuenta (por defecto el dial, 20)
  *     `tcg.mock.wishlistUnverified` '1' ⇒ `emailVerified: false`
  * - Enlaces del correo (`POST /wishlist/mail-actions`): el token válido del simulador es `mock-token`.
@@ -35,7 +34,6 @@ import type {
 
 const STORE_KEY = 'tcg.mock.wishlist';
 const PAUSED_KEY = 'tcg.mock.wishlistPaused';
-const OFF_KEY = 'tcg.mock.wishlistOff';
 const LIMIT_KEY = 'tcg.mock.wishlistLimit';
 const UNVERIFIED_KEY = 'tcg.mock.wishlistUnverified';
 export const MOCK_WISHLIST_TOKEN = 'mock-token';
@@ -77,10 +75,6 @@ function write(items: StoredItem[]): void {
   else s.setItem(STORE_KEY, JSON.stringify(items));
 }
 
-export function mockWishlistEnabled(): boolean {
-  if (ls()?.getItem(OFF_KEY) === '1') return false;
-  return fx.mockSettings.wishlistEnabled !== 'off';
-}
 function ivaMode(): WishlistIvaMode {
   return fx.mockSettings.wishlistMaxIvaMode ?? 'with_iva';
 }
@@ -94,12 +88,6 @@ function limit(): number {
 }
 function paused(): boolean {
   return ls()?.getItem(PAUSED_KEY) === '1';
-}
-
-function guard(): void {
-  if (!mockWishlistEnabled()) {
-    throw new ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'Wishlist disabled' });
-  }
 }
 
 function hasMarket(cardId: string, finish: Finish): boolean {
@@ -146,7 +134,6 @@ function toDTO(it: StoredItem): WishlistItemDTO {
 }
 
 export function mockGetWishlist(): WishlistResponse {
-  guard();
   const items = [...read()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(toDTO);
   return {
     items,
@@ -160,7 +147,6 @@ export function mockGetWishlist(): WishlistResponse {
 }
 
 export function mockGetWishlistPreview(cardId: string): WishlistPreviewResponse {
-  guard();
   if (!cardId) throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'cardId', details: { field: 'cardId' } });
   const c = cardOf(cardId);
   const mode = ivaMode();
@@ -182,7 +168,6 @@ export function mockGetWishlistPreview(cardId: string): WishlistPreviewResponse 
 }
 
 export function mockAddWishlistItem(body: WishlistCreateRequest): WishlistItemDTO {
-  guard();
   const c = cardOf(body.cardId);
   if (![5, 10, 16].includes(body.maxPct)) {
     throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'maxPct', details: { field: 'maxPct' } });
@@ -219,7 +204,6 @@ export function mockAddWishlistItem(body: WishlistCreateRequest): WishlistItemDT
 }
 
 export function mockUpdateWishlistItem(id: string, maxPct: WishlistMaxPct): WishlistItemDTO {
-  guard();
   const items = read();
   const it = items.find((i) => i.id === id);
   if (!it) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'not found' });
@@ -229,14 +213,12 @@ export function mockUpdateWishlistItem(id: string, maxPct: WishlistMaxPct): Wish
 }
 
 export function mockRemoveWishlistItem(id: string): void {
-  guard();
   const items = read();
   if (!items.some((i) => i.id === id)) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'not found' });
   write(items.filter((i) => i.id !== id));
 }
 
 export function mockSetWishlistAlerts(next: boolean): { alertsPaused: boolean } {
-  guard();
   ls()?.setItem(PAUSED_KEY, next ? '1' : '0');
   return { alertsPaused: next };
 }

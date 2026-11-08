@@ -40,7 +40,7 @@ type PendingNotice = Prisma.WishlistNoticeGetPayload<{ include: typeof PENDING_I
 const MAY_COME_BACK = new Set(['reserved', 'listed']);
 
 export type WishlistNotifyResult =
-  | { job: 'wishlist-notify'; enqueued: false; reason: 'WISHLIST_DISABLED' | 'ALREADY_RUNNING' }
+  | { job: 'wishlist-notify'; enqueued: false; reason: 'ALREADY_RUNNING' }
   | { job: 'wishlist-notify'; enqueued: true; detected: number; sent: number; skipped: number; waiting: number };
 
 @Injectable()
@@ -59,10 +59,6 @@ export class WishlistNotifyService {
 
   async run(): Promise<WishlistNotifyResult> {
     const dials = await readWishlistDials(this.settings);
-    if (!dials.enabled) {
-      this.logger.log(JSON.stringify({ job: JOB, enqueued: false, reason: 'WISHLIST_DISABLED' }));
-      return { job: JOB, enqueued: false, reason: 'WISHLIST_DISABLED' };
-    }
     const result = await this.prisma.$transaction(
       async (lockTx) => {
         const [{ locked }] = await lockTx.$queryRaw<{ locked: boolean }[]>`SELECT pg_try_advisory_xact_lock(${WISHLIST_NOTIFY_LOCK_KEY}) AS locked`;

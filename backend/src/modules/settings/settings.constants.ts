@@ -407,10 +407,9 @@ export const SettingKey = {
   DISCOUNT_CODE_FAILURE_WINDOW_MIN: 'discount_code_failure_window_min',
   DISCOUNT_CODE_BLOCK_MIN: 'discount_code_block_min',
 
-  // ===== rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.2) — los OCHO diales de la lista de deseos =====
+  // ===== rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.2) — los SIETE diales de la lista de deseos (siempre activa: sin interruptor) =====
   // `GET/PUT /admin/settings` (`super_admin`; operador ⇒ 403 MONEY_OUT_FORBIDDEN). Mover un dial no reescribe nada guardado:
   // los máximos se calculan al leer (criterio 808). Seeds: la tabla de §WSH.2 (y el INSERT de M-74, mismo valor).
-  WISHLIST_ENABLED: 'wishlist_enabled', // seed off: se enciende DESPUÉS del aviso de privacidad (824)
   WISHLIST_MAX_PER_ACCOUNT: 'wishlist_max_per_account', // HECHOS 2026-10-07 «…P-WSH-4 cerrada»: «20 por cuenta»
   WISHLIST_MAX_IVA_MODE: 'wishlist_max_iva_mode', // HECHOS 2026-10-07 «Respuestas…»: «Con IVA pero déjame flexible»
   WISHLIST_DAILY_MAIL_CAP: 'wishlist_daily_mail_cap',
@@ -660,7 +659,6 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN]: 15,
   [SettingKey.DISCOUNT_CODE_BLOCK_MIN]: 15,
   // rev v1.87⟨wishlist⟩ (§WSH.2). ⚠️ Idénticos al INSERT de M-74 (candado: test/wishlist.settings.spec.ts).
-  [SettingKey.WISHLIST_ENABLED]: 'off',
   [SettingKey.WISHLIST_MAX_PER_ACCOUNT]: 20,
   [SettingKey.WISHLIST_MAX_IVA_MODE]: 'with_iva',
   [SettingKey.WISHLIST_DAILY_MAIL_CAP]: 3,
@@ -1361,8 +1359,6 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN]: validatePositiveIntDial('minutes'),
   [SettingKey.DISCOUNT_CODE_BLOCK_MIN]: validatePositiveIntDial('minutes'),
   // rev v1.87⟨wishlist⟩ (§WSH.2): dominios de la tabla; `on|off` estricto (un `true` o `'ON'` no queda «pareciendo encendido»).
-  [SettingKey.WISHLIST_ENABLED]: (v) =>
-    typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
   [SettingKey.WISHLIST_MAX_PER_ACCOUNT]: validateIntRange(1, 200),
   [SettingKey.WISHLIST_MAX_IVA_MODE]: (v) =>
     v === 'with_iva' || v === 'without_iva' ? null : 'must be one of with_iva|without_iva',
@@ -1486,7 +1482,6 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   discountCodeFailureWindowMin: SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN,
   discountCodeBlockMin: SettingKey.DISCOUNT_CODE_BLOCK_MIN,
   // rev v1.87⟨wishlist⟩ (§WSH.2): los ocho de la lista de deseos (incluido el tope anti-abuso del «avísame» de sellados).
-  wishlistEnabled: SettingKey.WISHLIST_ENABLED,
   wishlistMaxPerAccount: SettingKey.WISHLIST_MAX_PER_ACCOUNT,
   wishlistMaxIvaMode: SettingKey.WISHLIST_MAX_IVA_MODE,
   wishlistDailyMailCap: SettingKey.WISHLIST_DAILY_MAIL_CAP,

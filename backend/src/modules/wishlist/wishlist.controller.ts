@@ -1,9 +1,9 @@
 /**
  * wishlist.controller.ts — rev v1.87⟨wishlist⟩ (API_CONTRACT §WSH.4 / §WSH.6 / §WSH.8).
  *
- * - `WishlistController` (`/wishlist`): sesión obligatoria; cualquier rol con correo (como `checkout`, Q-WSH-UX-6). Dial
- *   `wishlist_enabled = off` ⇒ `404 FEATURE_DISABLED` en las SEIS rutas. Cuerpos ESTRICTOS por parámetro (D-WSH-6).
- * - `WishlistMailActionsController` (`/wishlist/mail-actions`): `@Public`, 10/min por IP, ⛔ NO depende del dial (Q-WSH-UX-5).
+ * - `WishlistController` (`/wishlist`): sesión obligatoria; cualquier rol con correo (como `checkout`, Q-WSH-UX-6). Siempre activa
+ *   (sin dial; HECHOS 2026-11-08). Cuerpos ESTRICTOS por parámetro (D-WSH-6).
+ * - `WishlistMailActionsController` (`/wishlist/mail-actions`): `@Public`, 10/min por IP, ⛔ sin dial (Q-WSH-UX-5).
  *   Va en su propio controlador porque el `@Roles` de clase de arriba exigiría sesión (RolesGuard ⇒ 401).
  * - `WishlistDemandController` (`/admin/reports/wishlist-demand`): `super_admin` (operador y cliente ⇒ 403, 818/826).
  */

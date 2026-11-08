@@ -579,17 +579,15 @@ function Detail({
             </div>
           )}
 
-          {/* §WSH-UX.2 · «Lista de deseos»: después de «Ejemplares disponibles» (comprar va primero). Solo con el dial
-              encendido (`wishlistEnabled`, campo aditivo de la ficha, §WSH.4); ⛔ el sellado no lo lleva (823). */}
-          {detail.wishlistEnabled === true && (
-            <div className="lg:order-6">
+          {/* §WSH-UX.2 · «Lista de deseos»: después de «Ejemplares disponibles» (comprar va primero). Siempre
+              presente (WSH-ON-F2; sin interruptor); ⛔ el sellado no lo lleva (823). */}
+          <div className="lg:order-6">
             <WishlistBlock
               cardId={card.id}
               availableFinishes={card.availableFinishes}
               preferredFinish={groups[0]?.finish}
             />
-            </div>
-          )}
+          </div>
         </div>
       </div>
 

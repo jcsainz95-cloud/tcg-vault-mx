@@ -124,26 +124,13 @@ function item(over: Partial<WishlistItemDTO> = {}): WishlistItemDTO {
   };
 }
 
-function mockDetail(opts: { wishlistEnabled?: boolean; listings?: GroupedListingDTO[] } = {}) {
+function mockDetail(opts: { listings?: GroupedListingDTO[] } = {}) {
   vi.spyOn(api, 'getCardDetail').mockResolvedValue({
     card,
     pricePending: false,
     listings: opts.listings ?? [],
     units: [],
-    ...(opts.wishlistEnabled === undefined ? {} : { wishlistEnabled: opts.wishlistEnabled }),
   });
-}
-
-/** Toda cadena SIN placeholders de `wishlist.*` (para afirmar ausencia total, WSH-5). */
-function plainWishlistStrings(): string[] {
-  const out: string[] = [];
-  const walk = (o: unknown) => {
-    if (typeof o === 'string') {
-      if (!o.includes('{')) out.push(o);
-    } else if (o && typeof o === 'object') Object.values(o).forEach(walk);
-  };
-  walk(W);
-  return out;
 }
 
 async function block() {
@@ -155,36 +142,19 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH-5 · WSH-UX-1)', () => {
-  it('WSH-UX-1 · `wishlistEnabled:false` ⇒ ningún texto `wishlist.*` y ninguna llamada a la lista', async () => {
-    setStoredUser(customer);
-    mockDetail({ wishlistEnabled: false });
-    const getList = vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
-    const getPreview = vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
-    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
-    await screen.findByRole('heading', { level: 1, name: /^Charizard ex · / });
-    const text = document.body.textContent ?? '';
-    for (const s of plainWishlistStrings()) {
-      if (s === W.card.notHere) continue; // la línea de la ficha sin piezas no es del bloque (WSH-UX.2 g)
-      expect(text, `apareció «${s}» con el dial apagado`).not.toContain(s);
-    }
-    expect(screen.queryByTestId('wishlist-block')).toBeNull();
-    expect(getList).not.toHaveBeenCalled();
-    expect(getPreview).not.toHaveBeenCalled();
-  });
-
-  it('WSH-UX-1 · campo ausente (servidor anterior) ⇒ apagado', async () => {
+describe('§WSH-UX.2 · la ficha monta el bloque siempre (WSH-ON-F2)', () => {
+  it('WSH-ON-F2 · sin ningún campo de interruptor en la ficha ⇒ el bloque se monta', async () => {
     setStoredUser(customer);
     mockDetail({});
     vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
+    vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
-    await screen.findByRole('heading', { level: 1, name: /^Charizard ex · / });
-    expect(screen.queryByTestId('wishlist-block')).toBeNull();
+    expect(await block()).toBeInTheDocument();
   });
 
   it('WSH-UX-1 / WSH-F1 · con sesión: acabados = `availableFinishes` EXACTOS; % = {5,10,16} con 10 marcado; sin condición', async () => {
     setStoredUser(customer);
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
     vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
@@ -210,7 +180,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
 
   it('WSH-UX-2 · el botón lleva el acabado elegido y cambia con él', async () => {
     setStoredUser(customer);
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
     vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
@@ -225,7 +195,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
 
   it('WSH-F7 · bajo cada % van los pesos del PREVIEW, y son la misma cifra que aparece al guardar; IVA de `ivaRatePct`', async () => {
     setStoredUser(customer);
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
     // Tasa 8 a propósito: si el rótulo dijera 16, vendría de una constante y no del DTO.
     vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview({ ivaRatePct: 8 }));
@@ -246,7 +216,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
 
   it('WSH-F7 · acabado sin mercado ⇒ ninguna cifra bajo los %', async () => {
     setStoredUser(customer);
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
     vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
@@ -260,7 +230,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
 
   it('WSH-UX-3 · `409 WISHLIST_DUPLICATE` ⇒ «ya en tu lista» con el % del `details`', async () => {
     setStoredUser(customer);
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
     vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
     vi.spyOn(api, 'addWishlistItem').mockRejectedValue(
@@ -276,7 +246,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
 
   it('WSH-UX-3 · `422 WISHLIST_LIMIT_REACHED` ⇒ «{count} de {limit}» + enlace a /account/wishlist, sin «Agregar»', async () => {
     setStoredUser(customer);
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
     vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
     vi.spyOn(api, 'addWishlistItem').mockRejectedValue(
@@ -292,7 +262,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
 
   it('WSH-F1 · lista llena al cargar (count ≥ limit y la variante no está) ⇒ estado (c) sin chips de %', async () => {
     setStoredUser(customer);
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     const others = Array.from({ length: 3 }, (_, i) =>
       item({ id: `o-${i}`, card: { ...item().card, id: `c-o${i}` } }),
     );
@@ -305,7 +275,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
   });
 
   it('WSH-UX-4 · invitado ⇒ enlace con `next=/catalog/{cardId}` y ningún radio', async () => {
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     const getList = vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
     const b = await block();
@@ -317,7 +287,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
 
   it('WSH-UX-5 · `maxToday.no_market` ⇒ «Sin precio de mercado por ahora» y ningún MX$ (ni MX$0.00)', async () => {
     setStoredUser(customer);
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse([item({ maxToday: { status: 'no_market' } })]));
     vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
@@ -329,7 +299,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
 
   it('estado (b) al arrancar: la variante ya está ⇒ cambiar el % hace UN `PATCH` con «Guardar cambio»', async () => {
     setStoredUser(customer);
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse([item()]));
     vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
     const patch = vi
@@ -351,7 +321,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
 
   it('Q-WSH-UX-6 · el staff no ve el bloque (ni la invitación)', async () => {
     setStoredUser({ ...customer, role: 'vault_operator' });
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     const getList = vi.spyOn(api, 'getWishlist').mockResolvedValue(listResponse());
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
     await screen.findByRole('heading', { level: 1, name: /^Charizard ex · / });
@@ -359,21 +329,11 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
     expect(getList).not.toHaveBeenCalled();
   });
 
-  it('`404 FEATURE_DISABLED` de la lista (carrera con el dial) ⇒ el bloque se desmonta', async () => {
-    setStoredUser(customer);
-    mockDetail({ wishlistEnabled: true });
-    vi.spyOn(api, 'getWishlist').mockRejectedValue(new ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'off' }));
-    vi.spyOn(api, 'getWishlistPreview').mockResolvedValue(preview());
-    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
-    await screen.findByRole('heading', { level: 1, name: /^Charizard ex · / });
-    await waitFor(() => expect(screen.queryByTestId('wishlist-block')).toBeNull());
-  });
-
   // MKT-CONV.2 / L-4 (criterio 948): la lista de deseos es SEGUNDA — 0 botones `primary` en su región, con y sin sesión.
   it('L-4 · invitado: dos enlaces de texto (sin caja); con sesión: «Agregar» secundario; 0 primary en la región', async () => {
     const primaryIn = (el: HTMLElement) =>
       [...el.querySelectorAll<HTMLElement>('button, a')].filter((b) => /(^|\s)bg-primary(\s|$)/.test(b.className));
-    mockDetail({ wishlistEnabled: true });
+    mockDetail();
     const { unmount } = renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
     let b = await block();
     expect(within(b).getByRole('heading', { name: W.guest.title }).className).toContain('text-[18px]');
@@ -396,7 +356,7 @@ describe('§WSH-UX.2 · la ficha monta el bloque solo con el dial encendido (WSH
   });
 
   it('WSH-UX.2 (g) · ficha sin piezas ⇒ «Hoy no tenemos esta carta.»', async () => {
-    mockDetail({ wishlistEnabled: false });
+    mockDetail();
     renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
     expect(await screen.findByText(W.card.notHere)).toBeInTheDocument();
   });

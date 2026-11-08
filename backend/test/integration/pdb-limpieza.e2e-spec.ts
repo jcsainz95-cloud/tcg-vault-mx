@@ -1423,12 +1423,11 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
       expect(r.stderr).not.toMatch(/G-10/);
       expect(seccion(r.stdout, '2.8')).toMatch(/\n\s*on\s*\|\s*0\s*\|\s*1\s*\|/);
     });
-    it('T-W10d · `wishlist_enabled = on` con deseos ⇒ pasa; 2.8 dice on y el número de deseos y de correos', async () => {
+    it('T-W10d · con deseos ⇒ pasa; 2.8 dice el número de deseos y de correos', async () => {
       const e = await fresh();
-      await setDial(e, 'wishlist_enabled', 'on');
       const r = commit(e);
       expect(r.stderr).not.toMatch(/G-10/);
-      expect(seccion(r.stdout, '2.8')).toMatch(/\n\s*off\s*\|\s*0\s*\|\s*0\s*\|\s*on\s*\|\s*1\s*\|\s*1\s*$/m);
+      expect(seccion(r.stdout, '2.8')).toMatch(/\n\s*off\s*\|\s*0\s*\|\s*0\s*\|\s*1\s*\|\s*1\s*$/m);
       expect(await e.db.wishlistItem.count()).toBe(1);
     });
     it('T-W10e · SIN ambas: dial on + 1 suscripción pendiente ⇒ pasa (conducta de a7232d7a: `armedAt` no existe)', async () => {

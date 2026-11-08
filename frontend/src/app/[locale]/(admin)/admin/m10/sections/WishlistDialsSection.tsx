@@ -11,11 +11,9 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
-import { Modal } from '@/components/ui/Modal';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 
 type WishlistDialKey =
-  | 'wishlistEnabled'
   | 'wishlistMaxPerAccount'
   | 'wishlistMaxIvaMode'
   | 'wishlistTargetMarginPct'
@@ -28,12 +26,11 @@ type Dial =
   | { key: WishlistDialKey; kind: 'int' | 'pct' };
 
 /**
- * Los siete diales del grupo (API_CONTRACT §WSH.2, DESIGN_SYSTEM §WSH-UX.9 a), en el orden del diseño. El octavo
+ * Los seis diales del grupo (API_CONTRACT §WSH.2, DESIGN_SYSTEM §WSH-UX.9 a), en el orden del diseño. El octavo
  * (`sealedRestockMaxPendingPerEmail`) vive en M11, junto al interruptor del «avísame» de sellados (WSH-UX.9 c).
- * `fallback` = el seed del contrato cuando un servidor anterior no trae la clave (`wishlist_enabled` seed `off`).
+ * `fallback` = el seed del contrato cuando un servidor anterior no trae la clave.
  */
 const DIALS: Dial[] = [
-  { key: 'wishlistEnabled', kind: 'enum', options: ['off', 'on'], fallback: 'off' },
   { key: 'wishlistMaxPerAccount', kind: 'int' },
   { key: 'wishlistMaxIvaMode', kind: 'enum', options: ['with_iva', 'without_iva'], fallback: 'with_iva' },
   { key: 'wishlistTargetMarginPct', kind: 'pct' },
@@ -56,9 +53,8 @@ function savedText(dial: Dial, s: SettingsDTO | undefined): string {
 /**
  * Grupo «Lista de deseos» de M10 (`id="wishlist"`: ancla del enlace «Cambiar en Configuración» de la lista de compra).
  * Mismo patrón que los demás grupos: borrador propio y `PUT` parcial con SOLO las claves tocadas.
- *
- * ⭐ **Encender pide confirmación** (criterio 824: el aviso de privacidad va antes; WSH-UX-14): pasar
- * `wishlistEnabled` de `off` a `on` abre el diálogo y ⛔ no hay `PUT` hasta «Sí, encender». Apagar no pregunta.
+
+ * La lista de deseos ya no tiene interruptor (siempre activa, WSH-ON-F1): aquí solo van los números.
  */
 export function WishlistDialsSection() {
   const t = useTranslations('admin.m10.wishlist');
@@ -69,7 +65,6 @@ export function WishlistDialsSection() {
   const [draft, setDraft] = useState<Partial<Record<WishlistDialKey, string>>>({});
   const [fieldErrors, setFieldErrors] = useState<Set<WishlistDialKey>>(new Set());
   const [banner, setBanner] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
 
   const s = settings.data;
   const dirty = (Object.keys(draft) as WishlistDialKey[]).filter((k) => {
@@ -97,10 +92,8 @@ export function WishlistDialsSection() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin-settings'] });
       setDraft({});
-      setConfirming(false);
     },
     onError: (e) => {
-      setConfirming(false);
       const err = asApiError(e);
       const errors = err?.details?.errors;
       if (err?.status === 422 && err.code === 'VALIDATION_ERROR' && errors && typeof errors === 'object') {
@@ -114,16 +107,6 @@ export function WishlistDialsSection() {
       setBanner(getError(e));
     },
   });
-
-  const turningOn = dirty.includes('wishlistEnabled') && draft.wishlistEnabled === 'on';
-
-  function onSave() {
-    if (turningOn) {
-      setConfirming(true);
-      return;
-    }
-    save.mutate(patch());
-  }
 
   return (
     <section id="wishlist" className="flex scroll-mt-24 flex-col gap-3" data-testid="m10-wishlist">
@@ -181,7 +164,7 @@ export function WishlistDialsSection() {
               })}
             </div>
             <div className="flex items-center gap-3">
-              <Button disabled={dirty.length === 0} loading={save.isPending} onClick={onSave} data-testid="m10-wishlist-save">
+              <Button disabled={dirty.length === 0} loading={save.isPending} onClick={() => save.mutate(patch())} data-testid="m10-wishlist-save">
                 <Save size={18} /> {t('save', { count: dirty.length })}
               </Button>
               {dirty.length > 0 && (
@@ -205,24 +188,6 @@ export function WishlistDialsSection() {
           </div>
         )}
       </QueryState>
-
-      <Modal
-        open={confirming}
-        onClose={() => setConfirming(false)}
-        title={t('confirm.title')}
-        footer={
-          <>
-            <Button variant="secondary" autoFocus onClick={() => setConfirming(false)}>
-              {t('confirm.cancel')}
-            </Button>
-            <Button loading={save.isPending} onClick={() => save.mutate(patch())}>
-              {t('confirm.yes')}
-            </Button>
-          </>
-        }
-      >
-        <p>{t('confirm.body')}</p>
-      </Modal>
     </section>
   );
 }

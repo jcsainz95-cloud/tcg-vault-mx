@@ -8,8 +8,8 @@ import { SectionError, SectionShell } from './SectionShell';
 
 /**
  * «Lista de deseos» en «Mi cuenta» (`#wishlist`, DESIGN_SYSTEM §WSH-UX.3 a): resumen y enlace a `/account/wishlist`.
- * La consulta vive en `AccountView` (decide si la sección EXISTE: con `404 FEATURE_DISABLED` no existe, WSH-5); aquí
- * solo se pintan sus estados.
+ * La consulta vive en `AccountView` (la sección existe siempre para el cliente con cuenta); aquí solo se pintan sus
+ * estados.
  */
 export function WishlistSection({
   data,

@@ -62,9 +62,8 @@ export interface WshWorld {
   close(): Promise<void>;
 }
 
-/** Diales de §WSH en su valor de prueba: la lista ENCENDIDA (seed `off`), lo demás = seed. */
+/** Diales de §WSH en su valor de prueba: lo demás = seed (la lista está siempre activa). */
 export const WSH_TEST_DIALS: Record<string, unknown> = {
-  wishlist_enabled: 'on',
   wishlist_max_per_account: 20,
   wishlist_max_iva_mode: 'with_iva',
   wishlist_daily_mail_cap: 3,
@@ -193,7 +192,6 @@ export async function createWshWorld(): Promise<WshWorld> {
       return mail.sent.filter((m) => m.to === email).map((m) => ({ subject: m.subject, text: m.text ?? '', html: m.html ?? '' }));
     },
     async close() {
-      await setDial('wishlist_enabled', 'off');
       await h.close();
     },
   };

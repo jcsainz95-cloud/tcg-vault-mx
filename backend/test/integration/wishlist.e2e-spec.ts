@@ -236,7 +236,7 @@ describe('WSH-T8 — el IVA del máximo es un dial (808)', () => {
     const bad = await w.h.api('PUT', '/admin/settings', { token: w.adminToken, json: { wishlistMaxIvaMode: 'con_iva' } });
     expect(bad.status).toBe(422);
     const get = await w.h.api('GET', '/admin/settings', { token: w.adminToken });
-    for (const k of ['wishlistEnabled', 'wishlistMaxPerAccount', 'wishlistMaxIvaMode', 'wishlistDailyMailCap', 'wishlistMailWindowMin', 'wishlistTargetMarginPct', 'wishlistMarginBasis', 'sealedRestockMaxPendingPerEmail'])
+    for (const k of ['wishlistMaxPerAccount', 'wishlistMaxIvaMode', 'wishlistDailyMailCap', 'wishlistMailWindowMin', 'wishlistTargetMarginPct', 'wishlistMarginBasis', 'sealedRestockMaxPendingPerEmail'])
       expect(get.body).toHaveProperty(k);
   });
 });
@@ -258,7 +258,7 @@ describe('WSH-T12 — deseo de algo que ya está a la venta (812)', () => {
   });
 });
 
-describe('WSH-T14 / T34 — enlaces del correo sin sesión (814), también con el dial apagado', () => {
+describe('WSH-T14 / T34 — enlaces del correo sin sesión (814), sin sesión ni dial', () => {
   async function mailedWorld() {
     const a = await w.customer();
     const c = await w.card();
@@ -322,13 +322,11 @@ describe('WSH-T14 / T34 — enlaces del correo sin sesión (814), también con e
     expect((await list(a)).body.alertsPaused).toBe(false);
   });
 
-  it('T34: con `wishlistEnabled = off`, remove y pause siguen funcionando; GET /wishlist ⇒ 404 FEATURE_DISABLED; 0 correos', async () => {
+  it('T34: remove y pause siguen funcionando y GET /wishlist ⇒ 200 (sin dial); 0 correos nuevos', async () => {
     const { a, wishId, remove, pause } = await mailedWorld();
     w.mail.reset();
-    await w.setDial('wishlist_enabled', 'off');
     const g = await list(a);
-    expect(g.status).toBe(404);
-    expect(g.body.error.code).toBe('FEATURE_DISABLED');
+    expect(g.status).toBe(200);
     const r = await w.h.api('POST', '/wishlist/mail-actions', { json: { action: 'remove', id: remove.id, token: remove.t } });
     expect(r.status).toBe(200);
     expect(r.body.result).toBe('removed');
@@ -340,29 +338,64 @@ describe('WSH-T14 / T34 — enlaces del correo sin sesión (814), también con e
   });
 });
 
-describe('WSH-T29 — `wishlistEnabled = off` (seed)', () => {
-  it('las seis rutas con sesión ⇒ 404 FEATURE_DISABLED; el job es no-op', async () => {
+describe('WSH-ON — la lista de deseos siempre activa (HECHOS 2026-11-08)', () => {
+  it('WSH-ON-1 · las seis rutas con sesión responden sin ningún dial y sin FEATURE_DISABLED', async () => {
+    await w.h.prisma.configSetting.deleteMany({ where: { key: 'wishlist_enabled' } });
     const a = await w.customer();
     const c = await w.card();
-    await w.setDial('wishlist_enabled', 'off');
+    const g = await list(a);
+    expect(g.status).toBe(200);
     const rs = await Promise.all([
-      list(a),
       w.h.api('GET', `/wishlist/preview?cardId=${c.id}`, { token: a.token }),
       post(a, { cardId: c.id, finish: 'normal', maxPct: 10 }),
-      w.h.api('PATCH', '/wishlist/x', { token: a.token, json: { maxPct: 10 } }),
-      w.h.api('DELETE', '/wishlist/x', { token: a.token }),
       w.h.api('PUT', '/wishlist/alerts', { token: a.token, json: { paused: true } }),
     ]);
-    for (const r of rs) {
-      expect(r.status).toBe(404);
-      expect(r.body.error.code).toBe('FEATURE_DISABLED');
+    for (const r of rs) expect(r.body?.error?.code).not.toBe('FEATURE_DISABLED');
+    expect(rs.map((r) => r.status)).toEqual([200, 201, 200]);
+  });
+
+  it('WSH-ON-2 · la ficha de carta no trae `wishlistEnabled`', async () => {
+    const c = await w.card();
+    const f = await w.h.api('GET', `/catalog/cards/${c.id}`);
+    expect(f.status).toBe(200);
+    expect(f.body).not.toHaveProperty('wishlistEnabled');
+  });
+
+  it('WSH-ON-3 · GET /admin/settings sin la clave y PUT con ella ⇒ 422 unknown setting key (convención del PUT genérico; el contrato dice 400)', async () => {
+    const get = await w.h.api('GET', '/admin/settings', { token: w.adminToken });
+    expect(get.body).not.toHaveProperty('wishlistEnabled');
+    const put = await w.h.api('PUT', '/admin/settings', { token: w.adminToken, json: { wishlistEnabled: 'on' } });
+    expect(put.status).toBe(422);
+    expect(put.body.error.details?.errors?.wishlistEnabled ?? JSON.stringify(put.body)).toMatch(/unknown setting key/);
+  });
+
+  it('WSH-ON-4 · wishlist-notify envía sin dial y respeta el tope diario', async () => {
+    await w.setDial('wishlist_daily_mail_cap', 1);
+    const a = await w.customer();
+    for (let n = 0; n < 2; n++) {
+      const c = await w.card();
+      await w.market(c.id, 'normal', 100000);
+      await post(a, { cardId: c.id, finish: 'normal', maxPct: 10 });
+      await w.piece(c.id, { listCents: 90000 });
     }
-    const job = await w.runNotify();
-    expect(job.status).toBe(200);
-    expect(job.body).toEqual({ job: 'wishlist-notify', enqueued: false, reason: 'WISHLIST_DISABLED' });
-    // la ficha lo dice
-    const card = await w.h.api('GET', `/catalog/cards/${c.id}`);
-    expect(card.body.wishlistEnabled).toBe(false);
+    w.clock.advance(3600_000);
+    const first = await w.runNotify();
+    expect(first.body.reason).toBeUndefined();
+    w.clock.advance(3600_000);
+    await w.runNotify();
+    expect(w.mailsTo(a.email).length).toBeGreaterThanOrEqual(1);
+    expect(w.mailsTo(a.email).length).toBeLessThanOrEqual(1);
+  });
+
+  it('WSH-ON-5 · tras borrar la fila del dial (la migración) los deseos y avisos siguen intactos', async () => {
+    const a = await w.customer();
+    const c = await w.card();
+    const r = await post(a, { cardId: c.id, finish: 'normal', maxPct: 10 });
+    const before = [await w.h.prisma.wishlistItem.count(), await w.h.prisma.wishlistNotice.count()];
+    await w.h.prisma.$executeRawUnsafe(`DELETE FROM "ConfigSetting" WHERE key = 'wishlist_enabled'`);
+    expect([await w.h.prisma.wishlistItem.count(), await w.h.prisma.wishlistNotice.count()]).toEqual(before);
+    expect((await list(a)).body.items?.length ?? (await list(a)).body.data?.length).toBeGreaterThanOrEqual(1);
+    expect(r.status).toBe(201);
   });
 });
 
@@ -451,7 +484,7 @@ describe('WSH-T33 — `availableNow.fits` del servidor (Q-WSH-UX-3)', () => {
 });
 
 describe('WSH-T37 — una carta que no tenemos (Q-WSH-UX-4)', () => {
-  it('GET /buylist/cards?q= la encuentra con availableFinishes; la ficha responde 200 con listings [] y wishlistEnabled', async () => {
+  it('GET /buylist/cards?q= la encuentra con availableFinishes; la ficha responde 200 con listings []', async () => {
     const c = await w.card({ finishes: ['normal', 'holofoil'] });
     const s = await w.h.api('GET', `/buylist/cards?q=${encodeURIComponent(c.name)}`);
     expect(s.status).toBe(200);
@@ -460,6 +493,5 @@ describe('WSH-T37 — una carta que no tenemos (Q-WSH-UX-4)', () => {
     const f = await w.h.api('GET', `/catalog/cards/${c.id}`);
     expect(f.status).toBe(200);
     expect(f.body.listings).toEqual([]);
-    expect(f.body.wishlistEnabled).toBe(true);
   });
 });

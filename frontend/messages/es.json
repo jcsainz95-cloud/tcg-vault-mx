@@ -5462,7 +5462,6 @@
         "title": "Lista de deseos",
         "subtitle": "Cómo funciona la lista de deseos de los clientes y la lista de compra de Reportes.",
         "labels": {
-          "wishlistEnabled": "Lista de deseos",
           "wishlistMaxPerAccount": "Cartas por cuenta",
           "wishlistMaxIvaMode": "Cómo se lee el máximo del cliente",
           "wishlistTargetMarginPct": "Margen que buscas",
@@ -5471,7 +5470,6 @@
           "wishlistMailWindowMin": "Minutos para juntar avisos"
         },
         "help": {
-          "wishlistEnabled": "Encendida, los clientes pueden guardar cartas y reciben avisos por correo. Apagada, todo se oculta; las listas se conservan.",
           "wishlistMaxPerAccount": "Bajarlo no borra cartas guardadas; solo impide agregar.",
           "wishlistMaxIvaMode": "<b>Con IVA:</b> el % ya incluye el IVA (mercado $1,000 al 10 % = $1,100 en total). <b>Sin IVA:</b> el % va antes del IVA ($1,100 + IVA = $1,276).",
           "wishlistTargetMarginPct": "Con él se calcula «Paga hasta» en la lista de compra.",
@@ -5484,18 +5482,10 @@
           "int": "número entero"
         },
         "options": {
-          "on": "Encendida",
-          "off": "Apagada",
           "with_iva": "Con IVA",
           "without_iva": "Sin IVA",
           "cost": "Sobre lo que pagas",
           "sale": "Sobre la venta"
-        },
-        "confirm": {
-          "title": "¿Encender la lista de deseos?",
-          "body": "Antes de encenderla, tu aviso de privacidad tiene que decir que usamos las listas de deseos, sin nombres, para decidir qué cartas conseguir. Al encenderla, los clientes verán el botón en las fichas y empezarán a recibir avisos por correo.",
-          "yes": "Sí, encender",
-          "cancel": "Cancelar"
         },
         "save": "Guardar lista de deseos ({count, plural, =0 {sin cambios} one {# cambio} other {# cambios}})",
         "saved": "Guardado.",
@@ -8450,8 +8440,7 @@
       "searchCount": "{n, plural, one {# resultado} other {# resultados}}",
       "full": "Tu lista está llena ({count} de {limit}). Quita una carta para agregar otra.",
       "emptyTitle": "Tu lista está vacía",
-      "emptyBody": "Busca una carta arriba o pulsa «Agregar a mi lista» en la ficha de cualquier carta. Te avisamos cuando la consigamos.",
-      "disabled": "La lista de deseos aún no está disponible."
+      "emptyBody": "Busca una carta arriba o pulsa «Agregar a mi lista» en la ficha de cualquier carta. Te avisamos cuando la consigamos."
     },
     "row": {
       "maxPct": "Tu máximo: hasta {pct} % sobre mercado sin IVA",

@@ -439,11 +439,10 @@ SELECT name AS accesorio, category AS categoria, CASE WHEN active THEN 'sí' ELS
 FROM lz_acc ORDER BY name, id;
 \endif
 \if :lz_m74
-\echo '=== 2.8 · AVISOS (diales; «Avísame cuando vuelva» de sellado y lista de deseos). Al re-subir una carta que alguien desea, si la lista está en on, le llega UN «ya la tenemos» ==='
+\echo '=== 2.8 · AVISOS (diales; «Avísame cuando vuelva» de sellado y lista de deseos). Al re-subir una carta que alguien desea, (la lista siempre está activa) le llega UN «ya la tenemos» ==='
 SELECT coalesce((SELECT s."valueJson" #>> '{}' FROM "ConfigSetting" s WHERE s.key = 'sealed_restock_alerts'), 'off') AS aviso_sellado,
        (SELECT count(*) FROM "SealedRestockSubscription" x WHERE x."notifiedAt" IS NULL AND x."armedAt" IS NULL) AS sellado_pendientes_sin_armar,
        (SELECT count(*) FROM "SealedRestockSubscription" x WHERE x."notifiedAt" IS NULL AND x."armedAt" IS NOT NULL) AS sellado_pendientes_armadas,
-       coalesce((SELECT s."valueJson" #>> '{}' FROM "ConfigSetting" s WHERE s.key = 'wishlist_enabled'), 'off') AS lista_de_deseos,
        (SELECT count(*) FROM "WishlistItem") AS deseos,
        (SELECT count(*) FROM "WishlistMail") AS correos_de_deseos;
 \endif

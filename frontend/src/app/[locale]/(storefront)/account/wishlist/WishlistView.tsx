@@ -19,15 +19,9 @@ import { WishlistSearch } from './WishlistSearch';
 
 const KEY = ['wishlist'] as const;
 
-const isFeatureOff = (e: unknown) => {
-  const err = asApiError(e);
-  return err?.status === 404 && err.code === 'FEATURE_DISABLED';
-};
-
 /**
  * «Mi lista de deseos» (`/account/wishlist`, DESIGN_SYSTEM §WSH-UX.3 · API_CONTRACT §WSH.4). Misma columna editorial que
  * «Mi cuenta». Orden de renglones = el del servidor (`createdAt` desc); sin paginación (≤ `limit`).
- * `404 FEATURE_DISABLED` ⇒ «aún no está disponible» (alguien entró por URL con el dial apagado, WSH-5).
  */
 export function WishlistView() {
   const t = useTranslations('wishlist');
@@ -94,7 +88,7 @@ export function WishlistView() {
     },
     onError: (e, it) => {
       const err = asApiError(e);
-      if (err?.status === 404 && err.code !== 'FEATURE_DISABLED') {
+      if (err?.status === 404) {
         focusAfter(it.id);
         dropLocally(it.id);
         setStatus(t('row.gone'));
@@ -117,20 +111,6 @@ export function WishlistView() {
   }
 
   if (list.isError) {
-    if (isFeatureOff(list.error)) {
-      return (
-        <Column>
-          <EmptyState
-            title={t('page.disabled')}
-            action={
-              <Link href="/account" className="border-b border-text pb-0.5 text-sm text-text hover:text-accent">
-                {t('page.back')}
-              </Link>
-            }
-          />
-        </Column>
-      );
-    }
     return (
       <Column>
         <Banner

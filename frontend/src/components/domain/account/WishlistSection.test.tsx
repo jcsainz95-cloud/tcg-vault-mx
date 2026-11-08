@@ -9,7 +9,6 @@ import { AccountView } from './AccountView';
 
 /**
  * §WSH-UX.3 (a) · resumen «Lista de deseos» en «Mi cuenta» (`#wishlist`, después de `#addresses`, solo `customer`).
- * `404 FEATURE_DISABLED` ⇒ la sección y su entrada del índice NO existen (WSH-5).
  */
 
 vi.mock('@/i18n/navigation', () => ({
@@ -104,17 +103,6 @@ describe('§WSH-UX.3 (a) · resumen de la lista en «Mi cuenta»', () => {
     getWishlist.mockResolvedValue(list({ alertsPaused: true, count: 2 }));
     renderWithProviders(<AccountView surface="storefront" />, 'es');
     expect(await screen.findByText('2 de 20 cartas. Los avisos están pausados.')).toBeInTheDocument();
-  });
-
-  it('`404 FEATURE_DISABLED` ⇒ ni sección ni entrada del índice', async () => {
-    setStoredUser(customer);
-    getMe.mockResolvedValue(customer);
-    getWishlist.mockRejectedValue(new ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'off' }));
-    renderWithProviders(<AccountView surface="storefront" />, 'es');
-    await screen.findByRole('heading', { level: 1 });
-    await waitFor(() => expect(getWishlist).toHaveBeenCalled());
-    await waitFor(() => expect(document.getElementById('wishlist')).toBeNull());
-    expect(screen.getByRole('navigation', { name: es.account.index.label })).not.toHaveTextContent(W.title);
   });
 
   it('staff (Q-WSH-UX-6): ni sección ni consulta', async () => {

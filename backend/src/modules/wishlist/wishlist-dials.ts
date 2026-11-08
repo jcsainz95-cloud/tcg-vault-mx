@@ -15,7 +15,6 @@ export async function readWishlistDials(settings: SettingsService): Promise<Wish
     return (SETTING_VALIDATORS[k](v) === null ? v : SETTING_DEFAULTS[k]) as T;
   };
   return {
-    enabled: get<string>(SettingKey.WISHLIST_ENABLED) === 'on',
     maxPerAccount: get<number>(SettingKey.WISHLIST_MAX_PER_ACCOUNT),
     ivaMode: get<WishlistIvaMode>(SettingKey.WISHLIST_MAX_IVA_MODE),
     dailyMailCap: get<number>(SettingKey.WISHLIST_DAILY_MAIL_CAP),

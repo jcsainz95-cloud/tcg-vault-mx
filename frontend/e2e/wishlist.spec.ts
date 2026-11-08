@@ -58,7 +58,6 @@ const NEVER_FINISH = IS_REAL ? 'normal' : 'holofoil';
 
 // ── Preparación REAL (solo con IS_REAL) ─────────────────────────────────────────────────────────────────
 interface Dials {
-  wishlistEnabled: 'on' | 'off';
   wishlistMaxPerAccount: number;
   /** Dial del «avísame» de sellados (seed `off`); lo encienden solo los casos del «avísame». */
   sealedRestockAlerts: 'on' | 'off';
@@ -80,13 +79,13 @@ interface Wish {
 }
 
 /**
- * Deja el servidor (falso o real) con `items` en la lista de `ROLE`, el tope `limit` y el dial `off`.
+ * Deja el servidor (falso o real) con `items` en la lista de `ROLE`, el tope `limit`.
  * DEBE llamarse antes del primer `page.goto` (en mock usa `addInitScript`).
  */
-async function arrange(page: Page, o: { items?: Wish[]; limit?: number; off?: boolean } = {}): Promise<void> {
+async function arrange(page: Page, o: { items?: Wish[]; limit?: number } = {}): Promise<void> {
   if (!IS_REAL) {
     const items = (o.items ?? []).map((w, i) => stored(`w-${i}`, CARDS[w.card].id, w.finish, w.maxPct));
-    await seedWishlist(page, { items, limit: o.limit, off: o.off });
+    await seedWishlist(page, { items, limit: o.limit });
     return;
   }
   await clearRealList();
@@ -94,17 +93,15 @@ async function arrange(page: Page, o: { items?: Wish[]; limit?: number; off?: bo
     await apiAsOk(ROLE, 'POST', '/wishlist', { cardId: CARDS[w.card].id, finish: w.finish, maxPct: w.maxPct });
   }
   if (o.limit !== undefined) await putDials({ wishlistMaxPerAccount: o.limit });
-  if (o.off) await putDials({ wishlistEnabled: 'off' });
 }
 
 // ── Servidor FALSO (solo en mock) ───────────────────────────────────────────────────────────────────────
 /** Estado inicial del servidor falso, aplicado UNA vez (las navegaciones siguientes no lo pisan). */
-async function seedWishlist(page: Page, opts: { items?: unknown[]; off?: boolean; limit?: number; paused?: boolean } = {}) {
+async function seedWishlist(page: Page, opts: { items?: unknown[]; limit?: number; paused?: boolean } = {}) {
   await page.addInitScript((o) => {
     if (window.localStorage.getItem('tcg.mock.wishlistSeeded') === '1') return;
     window.localStorage.setItem('tcg.mock.wishlistSeeded', '1');
     window.localStorage.setItem('tcg.mock.wishlist', JSON.stringify(o.items ?? []));
-    if (o.off) window.localStorage.setItem('tcg.mock.wishlistOff', '1');
     if (o.limit) window.localStorage.setItem('tcg.mock.wishlistLimit', String(o.limit));
     if (o.paused) window.localStorage.setItem('tcg.mock.wishlistPaused', '1');
   }, opts);
@@ -159,7 +156,7 @@ async function sealedSeedGroup(): Promise<{ tileId: string; representativeItemId
  * v1.87.2 «nombre del sellado en la demanda»): una fila `p:<tcgplayerProductId>:<cond>` sale con el `sealedProductName`
  * de una pieza de ese producto («E2E Surging Sparks Booster Box», el seed solo tiene ese producto con ese nombre ⇒
  * `p:610000001:mint`); una fila `c:<cardId>:<subtipo>:<cond>` —el defecto B-1— sale con el nombre de la CARTA ancla
- * («E2E Third Bird»). La demanda exige `wishlistEnabled = on` (lo pone el `beforeEach`).
+ * («E2E Third Bird»).
  */
 async function sealedWaiting(productName: string): Promise<number> {
   const d = await apiAsOk<{
@@ -175,7 +172,7 @@ const freshEmail = (tag: string) =>
   `e2e-wsh-restock-${tag}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}@e2e.local`;
 
 test.describe('§WSH · lista de deseos', () => {
-  // En real los casos comparten diales globales (`wishlist_enabled`, tope): en orden, en un worker. ⚠️ Por lo mismo,
+  // En real los casos comparten diales globales (tope): en orden, en un worker. ⚠️ Por lo mismo,
   // `--repeat-each` necesita `--workers=1` (cada repetición es otra copia del fichero y correría en paralelo).
   test.describe.configure({ mode: 'default' });
 
@@ -190,7 +187,6 @@ test.describe('§WSH · lista de deseos', () => {
     }
     const s = await apiAsOk<Dials>('admin', 'GET', '/admin/settings');
     originalDials = {
-      wishlistEnabled: s.wishlistEnabled,
       wishlistMaxPerAccount: s.wishlistMaxPerAccount,
       sealedRestockAlerts: s.sealedRestockAlerts,
     };
@@ -198,9 +194,8 @@ test.describe('§WSH · lista de deseos', () => {
 
   test.beforeEach(async () => {
     if (!IS_REAL) return;
-    // Encendido y tope de fábrica antes de CADA caso: uno que falla a mitad no contagia al siguiente.
+    // Tope de fábrica antes de CADA caso: uno que falla a mitad no contagia al siguiente.
     await putDials({
-      wishlistEnabled: 'on',
       wishlistMaxPerAccount: originalDials?.wishlistMaxPerAccount ?? 20,
       sealedRestockAlerts: originalDials?.sealedRestockAlerts ?? 'off',
     });
@@ -209,8 +204,7 @@ test.describe('§WSH · lista de deseos', () => {
 
   test.afterAll(async () => {
     if (!IS_REAL || !originalDials) return;
-    // Con el dial apagado `GET /wishlist` es 404: se enciende, se vacía la lista y se reponen los diales de antes.
-    await putDials({ wishlistEnabled: 'on' });
+    // Se vacía la lista y se reponen los diales de antes.
     await clearRealList();
     await putDials(originalDials);
   });
@@ -373,23 +367,40 @@ test.describe('§WSH · lista de deseos', () => {
     await expect(page.getByRole('button', { name: W('mailAction.removeCta') })).toHaveCount(0);
   });
 
-  test('@real WSH-F9 · con el dial apagado: el enlace del correo sigue pidiendo el clic; la lista y el bloque de la ficha no existen', async ({ page }) => {
-    await arrange(page, { off: true });
-    await page.goto(`/es/lista-de-deseos/aviso?a=pause&id=${BOGUS_ID}&t=${BOGUS_TOKEN}`);
-    await expect(page.getByRole('heading', { level: 1, name: W('mailAction.pauseTitle') })).toBeVisible();
-    await expect(page.getByRole('button', { name: W('mailAction.pauseCta') })).toBeEnabled();
-    // Y en el mismo estado la lista con sesión no existe (WSH-5), ni el bloque de la ficha.
+  test('@real WSH-ON-F1 · Mi cuenta: la lista de deseos siempre está, y la consulta no da 404 en consola', async ({ page }) => {
+    await arrange(page);
     await loginAs(page, ROLE);
+    const notFound: string[] = [];
+    page.on('response', (res) => {
+      if (res.status() === 404 && res.url().includes('/wishlist')) notFound.push(res.url());
+    });
+    await page.goto('/es/account');
+    await expect(page.locator('#wishlist')).toBeVisible();
     await page.goto('/es/account/wishlist');
-    await expect(page.getByText(W('page.disabled'))).toBeVisible();
-    await page.goto(`/es/catalog/${CARDS.two.id}`);
-    await expect(page.getByRole('heading', { level: 1, name: CARDS.two.name })).toBeVisible();
-    await expect(block(page)).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    expect(notFound).toEqual([]);
   });
 
-  test('WSH-F9 · confirmar con el dial apagado: «quitada» / «pausada»', async ({ page }) => {
+  test('@real WSH-ON-F2 · ficha: el bloque aparece con sesión sin depender de ningún campo del servidor', async ({ page }) => {
+    await arrange(page);
+    await loginAs(page, ROLE);
+    await page.goto(`/es/catalog/${CARDS.two.id}`);
+    await expect(page.getByRole('heading', { level: 1, name: CARDS.two.name })).toBeVisible();
+    await expect(block(page)).toBeVisible();
+  });
+
+  test('@real WSH-ON-F3 · M10: el grupo «Lista de deseos» ya no tiene interruptor ni diálogo de encendido', async ({ page }) => {
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m10');
+    const section = page.getByTestId('m10-wishlist');
+    await expect(section).toBeVisible();
+    await expect(section.getByLabel(t('es', 'admin.m10.wishlist.labels.wishlistMaxPerAccount'))).toBeVisible();
+    await expect(section.getByLabel('Lista de deseos', { exact: true })).toHaveCount(0);
+  });
+
+  test('WSH-F9 · confirmar el enlace del correo: «quitada» / «pausada»', async ({ page }) => {
     mockOnly('token firmado por el servidor (HMAC): solo existe dentro del correo y el arnés no lee el buzón');
-    await seedWishlist(page, { items: [stored('w-off', 'c-pikachu', 'normal', 10)], off: true });
+    await seedWishlist(page, { items: [stored('w-off', 'c-pikachu', 'normal', 10)] });
     await page.goto('/es/lista-de-deseos/aviso?a=remove&id=w-off&t=mock-token');
     await page.getByRole('button', { name: W('mailAction.removeCta') }).click();
     await expect(page.getByText(W('mailAction.removed'))).toBeVisible();
