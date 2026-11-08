@@ -57,7 +57,7 @@ export const WishlistRow = forwardRef<
     },
     onError: (e) => {
       const err = asApiError(e);
-      if (err?.status === 404 && err.code !== 'FEATURE_DISABLED') onGone(item.id);
+      if (err?.status === 404) onGone(item.id);
       else setFailed(true);
     },
   });

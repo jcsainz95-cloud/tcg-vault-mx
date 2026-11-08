@@ -21,11 +21,9 @@ vi.mock('@/i18n/navigation', () => ({
 const getMe = vi.fn();
 const updateMe = vi.fn();
 vi.mock('@/lib/api', async () => ({
-  // §WSH-UX.3 (a): la sección de la lista de deseos tiene su propio test (`WishlistSection.test.tsx`); aquí el dial
-  // va apagado (`404 FEATURE_DISABLED`) para que las secciones de §33.6 se midan sin ella.
-  getWishlist: vi.fn().mockRejectedValue(
-    new (await import('@/lib/api-client')).ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'off' }),
-  ),
+  // §WSH-UX.3 (a): la sección de la lista de deseos tiene su propio test (`WishlistSection.test.tsx`); aquí la
+  // consulta queda pendiente para que las secciones de §33.6 se midan sin ella.
+  getWishlist: vi.fn(() => new Promise(() => {})),
   getMe: () => getMe(),
   updateMe: (...a: unknown[]) => updateMe(...a),
   logout: vi.fn().mockResolvedValue(undefined),
@@ -99,17 +97,17 @@ describe('AccountView · un componente, dos puertas (DESIGN_SYSTEM §33.5/§33.6
     expect(screen.queryByRole('button', { name: /Reenviar correo/ })).not.toBeInTheDocument();
   });
 
-  it('customer ve las siete secciones en orden y el correo (no el nombre) bajo el título', async () => {
+  it('customer ve las ocho secciones en orden (la lista de deseos siempre, WSH-ON-F1) y el correo (no el nombre) bajo el título', async () => {
     setStoredUser(customer);
     getMe.mockResolvedValue(customer);
     renderWithProviders(<AccountView surface="storefront" />, 'es');
     await screen.findByRole('heading', { level: 1, name: 'Mi cuenta' });
-    await waitFor(() => expect(sectionIds()).toEqual(['profile', 'email', 'addresses', 'billing', 'kyc', 'password', 'session']));
+    await waitFor(() => expect(sectionIds()).toEqual(['profile', 'email', 'addresses', 'wishlist', 'billing', 'kyc', 'password', 'session']));
     // El índice pegajoso es un <nav aria-label="Secciones"> con un enlace por sección.
     const index = screen.getByRole('navigation', { name: 'Secciones' });
-    expect(within(index).getAllByRole('link')).toHaveLength(7);
+    expect(within(index).getAllByRole('link')).toHaveLength(8);
     // h1 → h2 sin saltos.
-    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(7);
+    expect(screen.getAllByRole('heading', { level: 2 })).toHaveLength(8);
     // El correo se pinta como subtítulo (regla 2: no el nombre).
     expect(screen.getAllByText('jcsainz95@gmail.com').length).toBeGreaterThan(0);
   });

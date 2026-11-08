@@ -5462,7 +5462,6 @@
         "title": "Wishlist",
         "subtitle": "How customers' wishlists and the Reports buy list work.",
         "labels": {
-          "wishlistEnabled": "Wishlist",
           "wishlistMaxPerAccount": "Cards per account",
           "wishlistMaxIvaMode": "How the customer's max is read",
           "wishlistTargetMarginPct": "Target margin",
@@ -5471,7 +5470,6 @@
           "wishlistMailWindowMin": "Minutes to batch alerts"
         },
         "help": {
-          "wishlistEnabled": "On, customers can save cards and get email alerts. Off, everything is hidden; lists are kept.",
           "wishlistMaxPerAccount": "Lowering it doesn't delete saved cards; it only blocks adding.",
           "wishlistMaxIvaMode": "<b>VAT included:</b> the % already includes VAT (market $1,000 at 10% = $1,100 total). <b>Before VAT:</b> the % goes before VAT ($1,100 + VAT = $1,276).",
           "wishlistTargetMarginPct": "Used to work out “Pay up to” in the buy list.",
@@ -5484,18 +5482,10 @@
           "int": "whole number"
         },
         "options": {
-          "on": "On",
-          "off": "Off",
           "with_iva": "VAT included",
           "without_iva": "Before VAT",
           "cost": "On what you pay",
           "sale": "On the sale"
-        },
-        "confirm": {
-          "title": "Turn on the wishlist?",
-          "body": "Before you turn it on, your privacy notice must say that we use wishlists, without names, to decide which cards to get. Once it's on, customers will see the button on card pages and start getting email alerts.",
-          "yes": "Yes, turn on",
-          "cancel": "Cancel"
         },
         "save": "Save wishlist ({count, plural, =0 {no changes} one {# change} other {# changes}})",
         "saved": "Saved.",
@@ -8450,8 +8440,7 @@
       "searchCount": "{n, plural, one {# result} other {# results}}",
       "full": "Your wishlist is full ({count} of {limit}). Remove a card to add another.",
       "emptyTitle": "Your wishlist is empty",
-      "emptyBody": "Search for a card above or press “Add to my wishlist” on any card page. We'll let you know when we get it.",
-      "disabled": "The wishlist isn't available yet."
+      "emptyBody": "Search for a card above or press “Add to my wishlist” on any card page. We'll let you know when we get it."
     },
     "row": {
       "maxPct": "Your max: up to {pct}% above market before VAT",

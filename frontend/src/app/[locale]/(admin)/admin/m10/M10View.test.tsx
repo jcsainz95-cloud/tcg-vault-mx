@@ -329,7 +329,7 @@ describe('M10View · Config y bitácora', () => {
    * listado de diales de arriba; los de accesorios (§AC.11) se editan en el panel «Accesorios», no en M10.
    */
   it('REL-S7 · el listado genérico de M10 no edita ningún dial de la lista de deseos ni de accesorios', () => {
-    expect(WISHLIST_DIAL_KEYS).toHaveLength(7);
+    expect(WISHLIST_DIAL_KEYS).toHaveLength(6);
     for (const k of WISHLIST_DIAL_KEYS) expect(M10_LIST_DIAL_KEYS).not.toContain(k);
     expect(M10_LIST_DIAL_KEYS.filter((k) => /^wishlist/.test(k))).toEqual([]);
     // v1.109 (§4-G.12): los tres diales del envío directo solo en «Envío a domicilio».
@@ -349,7 +349,7 @@ describe('M10View · Config y bitácora', () => {
     renderWithProviders(<M10View />, 'es');
     const section = await screen.findByTestId('m10-wishlist');
     const labels = es.admin.m10.wishlist.labels;
-    await within(section).findByLabelText(labels.wishlistEnabled);
+    await within(section).findByLabelText(labels.wishlistMaxPerAccount);
     for (const label of Object.values(labels)) {
       expect(screen.getAllByLabelText(label)).toHaveLength(1);
       expect(section).toContainElement(screen.getByLabelText(label));

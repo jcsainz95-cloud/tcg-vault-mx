@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { getMe, getWishlist } from '@/lib/api';
-import { asApiError } from '@/lib/api-client';
 import { useSession } from '@/lib/session';
 import { isStaffRole } from '@/lib/account-routes';
 import { cn } from '@/lib/cn';
@@ -51,20 +50,15 @@ export function AccountView({ surface }: { surface: AccountSurface }) {
   const user: UserDTO | null = meQuery.data ?? sessionUser;
   const staff = isStaffRole(user?.role);
   const hasEmail = user?.email != null;
-  // ⭐ §WSH-UX.3 (a): la sección de la lista de deseos EXISTE solo para el cliente y con el dial encendido. La consulta
-  // decide su existencia (`404 FEATURE_DISABLED` ⇒ ni sección ni entrada del índice, WSH-5). Staff: ni se consulta
-  // (Q-WSH-UX-6). Misma clave que la ficha y «Mi lista»: una sola lectura cacheada.
+  // ⭐ §WSH-UX.3 (a): la sección de la lista de deseos EXISTE siempre para el cliente con cuenta (WSH-ON-F1; ya no hay
+  // interruptor). Staff: ni se consulta (Q-WSH-UX-6). Misma clave que la ficha y «Mi lista»: una sola lectura cacheada.
   const wishlist = useQuery({
     queryKey: ['wishlist'],
     queryFn: getWishlist,
     enabled: ready && !!user && !staff,
     retry: false,
   });
-  const wishlistOff = (() => {
-    const err = asApiError(wishlist.error);
-    return err?.status === 404 && err.code === 'FEATURE_DISABLED';
-  })();
-  const showWishlist = !!user && !staff && !wishlistOff;
+  const showWishlist = !!user && !staff;
   const sections = useMemo(() => {
     const base = sectionsForRole(staff, hasEmail);
     if (!showWishlist) return base;

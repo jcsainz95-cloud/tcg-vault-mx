@@ -1128,12 +1128,6 @@ export interface GroupedListingDetailResponse {
   //     rejilla). La ficha se sirve SOLO de este campo.
   gradedEstimates?: GradedEstimateDTO[];
   /**
-   * ⭐ v1.87⟨wishlist⟩ (§WSH.4, ADITIVO): dial `wishlist_enabled` vigente. El bloque «Lista de deseos» de la ficha
-   * se monta SOLO con `true` (WSH-5: lo apagado no existe). Opcional en el TIPO porque un servidor anterior no lo
-   * trae; la ausencia se lee como apagado.
-   */
-  wishlistEnabled?: boolean;
-  /**
    * ⭐ v1.96⟨mkt-tienda⟩ (ADITIVO, `API_CONTRACT §MKT.A`, RAÍZ de la ficha de carta) — fecha `YYYY-MM-DD`
    * (America/Mexico_City) en la que el servidor resolvió el precio de ESTA respuesta. Misma semántica que
    * `SealedGroupDTO.pricedAsOf`: alimenta «precio al <fecha>» (SSR/ISR) y `priceValidUntil` del JSON-LD. Opcional en
@@ -6612,9 +6606,7 @@ export interface SettingsDTO {
   spendAlertExtraChargeImmediateCents?: number;
   spendAlertCancelRefundDays?: number;
   spendAlertLabelNotShippedDays?: number;
-  // ---- ⭐ v1.87⟨wishlist⟩ (§WSH.2): ocho diales de la lista de deseos. Opcionales: un servidor anterior no los trae;
-  // la UI trata la ausencia de `wishlistEnabled` como `off` (seed). ----
-  wishlistEnabled?: OnOff;
+  // ---- ⭐ v1.87⟨wishlist⟩ (§WSH.2): seis diales de la lista de deseos (sin interruptor: siempre activa, WSH-ON-F1). Opcionales. ----
   wishlistMaxPerAccount?: number;
   wishlistMaxIvaMode?: WishlistIvaMode;
   wishlistDailyMailCap?: number;

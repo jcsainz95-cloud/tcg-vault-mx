@@ -208,13 +208,6 @@ describe('§WSH-UX.3 · la página', () => {
     expect(screen.getByLabelText(W.page.searchLabel)).toBeInTheDocument();
   });
 
-  it('`404 FEATURE_DISABLED` ⇒ «La lista de deseos aún no está disponible.» y nada más', async () => {
-    vi.spyOn(api, 'getWishlist').mockRejectedValue(new ApiClientError(404, { code: 'FEATURE_DISABLED', message: 'off' }));
-    renderWithProviders(<WishlistView />, 'es');
-    expect(await screen.findByText(W.page.disabled)).toBeInTheDocument();
-    expect(screen.queryByLabelText(W.page.searchLabel)).toBeNull();
-  });
-
   it('pausados ⇒ banner con la segunda línea, y «Reanudar avisos» hace `PUT {paused:false}`', async () => {
     vi.spyOn(api, 'getWishlist').mockResolvedValue(list([item('a')], { alertsPaused: true }));
     const put = vi.spyOn(api, 'setWishlistAlertsPaused').mockResolvedValue({ alertsPaused: false });

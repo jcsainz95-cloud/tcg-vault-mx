@@ -35,16 +35,12 @@ interface Entry {
 
 type Notice = { kind: 'status' | 'alert'; text: string } | null;
 
-const isFeatureOff = (e: unknown) => {
-  const err = asApiError(e);
-  return err?.status === 404 && err.code === 'FEATURE_DISABLED';
-};
 const isUnauthenticated = (e: unknown) => asApiError(e)?.status === 401;
 
 /**
  * Bloque «Lista de deseos» de la ficha (DESIGN_SYSTEM §WSH-UX.2 · API_CONTRACT §WSH.4 + errata v1.87.1).
  *
- * Se monta solo con `detail.wishlistEnabled === true` (lo decide `CardDetailView`). Aquí:
+ * Se monta siempre en la ficha de carta (WSH-ON-F2; ya no hay interruptor). Aquí:
  * - **staff** ⇒ nada (Q-WSH-UX-6: el servidor no cambia por rol; la pantalla no ofrece la lista al equipo);
  * - **invitado** ⇒ la invitación (d), sin chips: elegir y perderlo al entrar es peor que elegir después;
  * - **cliente** ⇒ (a) agregar, (b) ya en tu lista, (c) lista llena.
@@ -210,7 +206,6 @@ function CustomerBlock({
         void qc.invalidateQueries({ queryKey: ['card', cardId] });
         return;
       }
-      if (isFeatureOff(e)) return;
       setNotice({ kind: 'alert', text: t('error.generic') });
     },
   });
@@ -229,7 +224,7 @@ function CustomerBlock({
     },
     onError: (e) => {
       if (handleCommonError(e)) return;
-      if (asApiError(e)?.status === 404 && !isFeatureOff(e)) {
+      if (asApiError(e)?.status === 404) {
         setOverrides((o) => ({ ...o, [finish]: null }));
         setNotice({ kind: 'status', text: t('row.gone') });
         return;
@@ -252,7 +247,7 @@ function CustomerBlock({
     },
     onError: (e) => {
       if (handleCommonError(e)) return;
-      if (asApiError(e)?.status === 404 && !isFeatureOff(e)) {
+      if (asApiError(e)?.status === 404) {
         setOverrides((o) => ({ ...o, [finish]: null }));
         setNotice({ kind: 'status', text: t('block.removed') });
         return;
@@ -261,16 +256,6 @@ function CustomerBlock({
     },
   });
 
-  // WSH-5: el dial se apagó entre la ficha y la lista ⇒ el bloque no existe.
-  if (
-    isFeatureOff(list.error) ||
-    isFeatureOff(preview.error) ||
-    isFeatureOff(add.error) ||
-    isFeatureOff(patch.error) ||
-    isFeatureOff(remove.error)
-  ) {
-    return null;
-  }
   if (guest || isUnauthenticated(list.error)) {
     return <GuestInvite cardId={cardId} />;
   }
