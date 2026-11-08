@@ -255,12 +255,12 @@ describe('resolveGroupId — FUENTE ÚNICA del match set↔grupo (P-47 en la rut
     }).resolveGroupId({ id: `set-${seq++}`, name, pptSetId: null });
   }
 
-  it('NO hay una segunda implementación: el resolver DELEGA en `matchTcgcsvGroupByName`', async () => {
-    const spy = jest.spyOn(groupMatch, 'matchTcgcsvGroupByName');
+  it('NO hay una segunda implementación: el resolver DELEGA en `resolveTcgcsvGroupForSet` (tabla > pptSetId > `matchTcgcsvGroupByName`)', async () => {
+    const spy = jest.spyOn(groupMatch, 'resolveTcgcsvGroupForSet');
     const groups = [{ groupId: 24688, name: 'SV08: Pitch Black' }, { groupId: 999, name: 'Pitch Black Promos' }];
     try {
       expect(await resolve('Pitch Black', groups)).toBe(24688);
-      expect(spy).toHaveBeenCalledWith('Pitch Black', groups);
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ name: 'Pitch Black' }), expect.any(Function));
     } finally {
       spy.mockRestore();
     }

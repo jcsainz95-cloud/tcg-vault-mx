@@ -1865,3 +1865,6 @@ Diseño ya en ARCHITECTURE §13.4 / API_CONTRACT §MKT.D/.E (m82). Buildable aho
 
 ### Hito 2026-11-06 — #122 y #123 publicados (orquestador)
 #122: nav «Vende tus cartas», fotos paso 1, equipo 14→6 agentes y docs destilados. #123: stream UX-ALTA-LIGA completo (opción A + A2 + A2b) y compra sugerida por versión (español = spanish_market_pct × compra inglesa; liga = curva sobre mercado de la liga; override/bounty solo inglés sin liga). Gates QA + seguridad-lead APROBADOS sobre ead1753a; CI verde tras reintentar 1 vez jobs caídos por candado de apt del runner (2 veces hoy: candidato a robustecer por devops).
+
+### Hito 2026-11-07 — #124 y #125 publicados (orquestador)
+#124: fotos de sellado 1000 px sobre tarjeta blanca y CI-APT-LOCK. #125: P-PROMOS opción C (30 aniversario): 3 rondas de QA (rechazos FAILOPEN/COVER/I18N y luego PEND) y 3 de seguridad-lead (PRM-1/2/3), todas cerradas; 24451 real = 115 cartas + 33 versiones, 0 omitidas; migración m98 event_promo.
