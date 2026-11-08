@@ -1868,3 +1868,6 @@ Diseño ya en ARCHITECTURE §13.4 / API_CONTRACT §MKT.D/.E (m82). Buildable aho
 
 ### Hito 2026-11-07 — #124 y #125 publicados (orquestador)
 #124: fotos de sellado 1000 px sobre tarjeta blanca y CI-APT-LOCK. #125: P-PROMOS opción C (30 aniversario): 3 rondas de QA (rechazos FAILOPEN/COVER/I18N y luego PEND) y 3 de seguridad-lead (PRM-1/2/3), todas cerradas; 24451 real = 115 cartas + 33 versiones, 0 omitidas; migración m98 event_promo.
+
+### Hito 2026-11-08 — #126 publicado (orquestador)
+P-PROMOS-VIEJAS: 6 familias por tabla fija (el empate por nombre fallaba 20/20); medido con datos reales 1 044 cartas con precio y 84 «Precio pendiente». QA APROBADO (12/12 precios a mano), seguridad-lead APROBADO tras PV-1. Abiertos menores: PV-4, PV-5, QA-PV-SKIP-UI, QA-PV-PLASMA, sellos sin lista (Full Art Promo, Cracked Ice, Finalist…), McDonalds.
