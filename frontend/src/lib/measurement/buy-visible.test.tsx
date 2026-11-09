@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
-import { useBuyButtonVisible } from './buy-visible';
+import { BUY_CTA_SCAN_MS, useBuyButtonVisible } from './buy-visible';
 
 const trackMock = vi.hoisted(() => vi.fn());
 vi.mock('./track', () => ({ track: trackMock }));
@@ -67,5 +67,32 @@ describe('buy_button_visible (§MKT-V2 6.3)', () => {
     vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_MODE', 'off');
     render(<Probe id="xy1-1" />);
     expect(observed).toHaveLength(0);
+  });
+
+  it('ficha agotada (sin COMPRAR): el observador del DOM se desconecta tras el tope y al desmontar', () => {
+    vi.useFakeTimers();
+    try {
+      const disconnects: number[] = [];
+      let n = 0;
+      vi.stubGlobal(
+        'MutationObserver',
+        class {
+          observe() {}
+          disconnect() {
+            disconnects.push(++n);
+          }
+        },
+      );
+      const { unmount } = render(<Late id="xy1-1" show={false} />);
+      expect(disconnects).toHaveLength(0);
+      vi.advanceTimersByTime(BUY_CTA_SCAN_MS - 1);
+      expect(disconnects).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(disconnects).toHaveLength(1);
+      unmount();
+      expect(disconnects.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

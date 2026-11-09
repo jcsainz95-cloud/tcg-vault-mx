@@ -171,3 +171,14 @@ export function pathOnlyUrl(raw: string | null | undefined): string {
   const url = parseHttpUrl(raw);
   return url ? `${url.origin}${url.pathname}` : '';
 }
+
+/**
+ * `page_referrer` del `page_view` de checkout (§MKT-V2 6.8), lo más conservador: referente de NUESTRO origen ⇒ solo
+ * la ruta (`/es/catalog`, sin query ni hash); de OTRO origen ⇒ solo ese origen (`https://www.google.com`), nunca su
+ * ruta ni query, y nunca una ruta suelta que parezca interna; vacío o roto ⇒ `''`.
+ */
+export function checkoutReferrer(raw: string | null | undefined, ownOrigin: string): string {
+  const url = parseHttpUrl(raw);
+  if (!url) return '';
+  return url.origin === ownOrigin ? url.pathname : url.origin;
+}

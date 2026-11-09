@@ -437,6 +437,28 @@ test.describe('C-F9 · /card-show: solo page_view a GA4, sin Meta', () => {
   });
 });
 
+test.describe('MKT-V2 6.8 · page_referrer del checkout', () => {
+  test('al llegar a /es/checkout desde el catálogo con query, page_location = origen+ruta y page_referrer = solo ruta', async ({ page, context }) => {
+    await setup(context);
+    await page.goto('/es/catalog?utm_source=ig&q=pikachu');
+    await banner(page).getByRole('button', { name: t('es', 'consent.accept') }).click();
+    const pv = () =>
+      page.evaluate(() =>
+        ((window as unknown as { dataLayer?: ArrayLike<unknown>[] }).dataLayer ?? [])
+          .map((a) => Array.from(a as ArrayLike<unknown>))
+          .filter((a) => a[0] === 'event' && a[1] === 'page_view')
+          .map((a) => a[2] as { page_location?: string; page_referrer?: string }),
+      );
+    await expect.poll(async () => (await pv()).length).toBeGreaterThan(0);
+    await page.evaluate(() => (window as unknown as { next: { router: { push: (x: string) => void } } }).next.router.push('/es/checkout?session_id=cs_secreto#pago'));
+    await page.waitForURL((u) => u.pathname === '/es/checkout');
+    await expect.poll(async () => (await pv()).some((e) => /\/es\/checkout$/.test(e.page_location ?? ''))).toBe(true);
+    const co = (await pv()).find((e) => /\/es\/checkout$/.test(e.page_location ?? ''))!;
+    expect(co.page_location).not.toMatch(/[?#]/);
+    expect(co.page_referrer).toBe('/es/catalog');
+  });
+});
+
 test.describe('C-F10 · sin muro', () => {
   test('con el banner abierto se navega, se agrega al carrito y se llega al checkout; sin scrim ni bloqueo', async ({ page, context }) => {
     await setup(context);

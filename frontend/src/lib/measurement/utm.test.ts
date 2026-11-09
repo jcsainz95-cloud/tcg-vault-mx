@@ -134,3 +134,24 @@ describe('pathOnlyUrl (§MKT-V2 6.8, page_view de checkout)', () => {
     expect(pathOnlyUrl('')).toBe('');
   });
 });
+
+describe('checkoutReferrer (§MKT-V2 6.8, page_referrer del checkout)', () => {
+  const own = 'https://tcghunt.mx';
+  it('propio ⇒ solo ruta, sin origen, query ni hash', async () => {
+    const { checkoutReferrer } = await import('./utm');
+    expect(checkoutReferrer('https://tcghunt.mx/es/catalog?q=pikachu&utm_source=ig#x', own)).toBe('/es/catalog');
+    expect(checkoutReferrer('https://tcghunt.mx/es/catalog?q=pikachu', own)).not.toMatch(/https?:|\?|#/);
+  });
+  it('de otro dominio ⇒ solo ese origen (nunca ruta que parezca interna, ni query)', async () => {
+    const { checkoutReferrer } = await import('./utm');
+    expect(checkoutReferrer('https://www.google.com/search?q=secreto#h', own)).toBe('https://www.google.com');
+    expect(checkoutReferrer('https://evil.example/es/checkout?token=t', own)).toBe('https://evil.example');
+    expect(checkoutReferrer('https://tcghunt.mx.evil.example/es', own)).toBe('https://tcghunt.mx.evil.example');
+  });
+  it('vacío, roto u otro esquema ⇒ vacío', async () => {
+    const { checkoutReferrer } = await import('./utm');
+    expect(checkoutReferrer('', own)).toBe('');
+    expect(checkoutReferrer('ftp://x/y', own)).toBe('');
+    expect(checkoutReferrer(null, own)).toBe('');
+  });
+});

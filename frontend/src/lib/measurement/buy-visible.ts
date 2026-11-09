@@ -6,6 +6,9 @@ import { track } from './track';
 /** Atributo que marca el botón de COMPRAR (agregar al carrito) cuya visibilidad se mide. */
 export const BUY_CTA_ATTR = 'data-buy-cta';
 
+/** Tope de vida del `MutationObserver`: pasado este tiempo ya no se re-escanea la página (ficha agotada, sin COMPRAR). */
+export const BUY_CTA_SCAN_MS = 10_000;
+
 /**
  * §MKT.H.4 `buy_button_visible` (§MKT-V2 6.3): UNA vez por vista de ficha, la primera vez que algún botón marcado con
  * `data-buy-cta` entra en pantalla (≥ 50 %), con los segundos desde que se montó la ficha. Con el modo `off` o sin
@@ -41,7 +44,10 @@ export function useBuyButtonVisible(cardId: string): void {
     const mo = typeof MutationObserver === 'undefined' ? null : new MutationObserver(scan);
     scan();
     mo?.observe(document.body, { childList: true, subtree: true });
+    // Acotado: el IntersectionObserver sigue vivo con lo ya hallado, pero deja de vigilarse el DOM entero.
+    const stop = window.setTimeout(() => mo?.disconnect(), BUY_CTA_SCAN_MS);
     return () => {
+      window.clearTimeout(stop);
       io.disconnect();
       mo?.disconnect();
     };

@@ -22,7 +22,7 @@ import {
   writeFirstUtmOnce,
   type ConsentChoice,
 } from '@/lib/measurement/consent';
-import { hasAnyUtm, pathOnlyUrl, utmFromSearch, type FirstUtmValues } from '@/lib/measurement/utm';
+import { checkoutReferrer, hasAnyUtm, pathOnlyUrl, utmFromSearch, type FirstUtmValues } from '@/lib/measurement/utm';
 import { callVendorSafely, flushPendingEvents, setRuntimeConsent, track } from '@/lib/measurement/track';
 import { sendBannerResponse, type BannerResponse } from '@/lib/measurement/request';
 import { ConsentPreferencesDialog } from './ConsentPreferencesDialog';
@@ -160,10 +160,9 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
           // un cambio solo de query en esa ruta no repite el `page_view`.
           const pathOnly = pageViewPathOnly(window.location.pathname);
           const referrer = lastHref.current || document.referrer;
-          const refPath = (u: string) => pathOnlyUrl(u).replace(/^https?:\/\/[^/]+/, '');
           const location = pathOnly ? pathOnlyUrl(href) : href;
           const repeated = pathOnly && lastHref.current !== '' && pathOnlyUrl(lastHref.current) === location;
-          if (!repeated) track('page_view', { page_location: location, page_referrer: pathOnly ? refPath(referrer) : referrer });
+          if (!repeated) track('page_view', { page_location: location, page_referrer: pathOnly ? checkoutReferrer(referrer, window.location.origin) : referrer });
           lastHref.current = href;
         }
       });
