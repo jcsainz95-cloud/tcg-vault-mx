@@ -34,7 +34,7 @@ describe('MKT-V2 · m99 + search-miss + digest contra Postgres', () => {
     await h.prisma.marketingWeeklyDigest.deleteMany({});
     await h.prisma.card.deleteMany({ where: { setId: CARD_SET } });
     await h.prisma.cardSet.deleteMany({ where: { id: CARD_SET } });
-    await h.prisma.configSetting.deleteMany({ where: { OR: [{ key: { in: ['marketing_search_log', 'marketing_weekly_digest'] } }, { key: { startsWith: 'search_salt_' } }] } });
+    await h.prisma.configSetting.deleteMany({ where: { OR: [{ key: { in: ['marketing_search_log', 'marketing_weekly_digest'] } }, { key: { startsWith: 'search_salt_' } }, { key: 'search_closed_through' }] } });
     await h.close();
   });
 
@@ -161,5 +161,31 @@ describe('MKT-V2 · m99 + search-miss + digest contra Postgres', () => {
     expect(rows[0].recipientKey).not.toContain('@');
     expect(sent).toHaveLength(1);
     expect((await svc.run(new Date(monday.getTime() + 3600_000))).outcome).toBe('noop');
+  });
+
+  it('topes bajo CONCURRENCIA: 260 personas a la vez en un término ⇒ exactamente 200; 330 términos a la vez ⇒ exactamente 300', async () => {
+    const svc = h.app.get(MarketingSearchMissService);
+    await h.prisma.configSetting.deleteMany({ where: { key: 'search_closed_through' } }); // las pruebas con reloj inyectado dejan la marca en el futuro
+    await h.prisma.searchNoResultSeen.deleteMany({});
+    await Promise.all(Array.from({ length: 260 }, (_, i) => svc.record(`${WORD} 7`, { ip: `192.0.2.${i}`, userAgent: `c${i}` })));
+    expect(await h.prisma.searchNoResultSeen.count({ where: { termNormalized: `${WORD} 7` } })).toBe(200);
+    await h.prisma.searchNoResultSeen.deleteMany({});
+    await Promise.all(Array.from({ length: 330 }, (_, i) => svc.record(`${WORD} ${2000 + i}`, { ip: '203.0.113.9', userAgent: 'u' })));
+    expect((await h.prisma.searchNoResultSeen.groupBy({ by: ['termNormalized'] })).length).toBe(300);
+    await h.prisma.searchNoResultSeen.deleteMany({});
+  });
+
+  it('carrera de medianoche: tras el cierre, una petición con el día de ANTES no recrea la sal ni escribe hashes de ese día', async () => {
+    const svc = h.app.get(MarketingSearchMissService);
+    await h.prisma.searchNoResultSeen.deleteMany({});
+    const before = new Date('2031-03-10T18:00:00.000Z');
+    await svc.record(`${WORD} 8`, { ip: '10.9.0.1', userAgent: 'u' }, before); // día 10: crea su sal
+    await svc.closePastDays(new Date('2031-03-11T06:10:00.000Z')); // cierre del 10
+    await svc.record(`${WORD} 8`, { ip: '10.9.0.2', userAgent: 'u' }, before); // rezagada con el día 10 ya cerrado
+    expect(await h.prisma.configSetting.count({ where: { key: 'search_salt_2031-03-10' } })).toBe(0);
+    expect(await h.prisma.searchNoResultSeen.count({ where: { day: new Date('2031-03-10T00:00:00.000Z') } })).toBe(0);
+    await h.prisma.searchNoResultSeen.deleteMany({});
+    await h.prisma.searchNoResultDaily.deleteMany({});
+    await h.prisma.configSetting.deleteMany({ where: { key: 'search_closed_through' } });
   });
 });

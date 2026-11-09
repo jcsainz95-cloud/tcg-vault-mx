@@ -8,6 +8,7 @@
  * ⛔ Solo lectura. ⛔ Ninguna fila por pedido/solicitud (ni con id opaco). ⛔ No toca `sales-analytics`.
  */
 import { Injectable, Optional } from '@nestjs/common';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { OrderStatus, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SalesAnalyticsService } from '../sales-analytics/sales-analytics.service';
@@ -234,6 +235,8 @@ interface FamilyDims {
   parts: Partial<Record<PartsTable, ComponentRow[]>>;
   one: Partial<Record<OneTable, DimensionRow[]>>;
   unmeasured: string[];
+  /** Tablas de la familia leídas de GA4 SIN el filtro de tráfico propio (llevan GA4_UNFILTERED_NOTE). */
+  unfiltered?: string[];
   /**
    * Tablas cuyo estado fija otro periodo (v1.109: b5 en un MES; cada fila es idéntica a la de su semana, R4 entre periodos):
    * sin R3a local y nunca candidatas de R3b (`FamilyCell.fixed`). Lo oculto les llega por R2 (`forced`).
@@ -351,8 +354,47 @@ export class MarketingAnalyticsService {
   /** Lee un `runReport`; `null` ⇒ la tabla sale «sin conectar» (una consulta que falla no tumba la pantalla). */
   private async ga4(spec: Ga4ReportSpec, p: DayRange, now: Date): Promise<Ga4Row[] | null> {
     if (!this.ga4Live() || !this.external) return null;
-    const r = await this.external.ga4Report(spec, p.from, p.to, now);
+    const r = await this.ga4Raw(spec, p, now);
     return r.ok ? r.rows : null;
+  }
+
+  /** Lectura cruda de GA4 que anota en el ámbito vigente si salió SIN el filtro de tráfico propio (MKT-V2 §4). */
+  private async ga4Raw(spec: Ga4ReportSpec, p: DayRange, now: Date): ReturnType<MarketingExternalSources['ga4Report']> {
+    const r = await (this.external as MarketingExternalSources).ga4Report(spec, p.from, p.to, now);
+    const m = this.unfStore.getStore();
+    if (m && r.ok) m.set(spec, (m.get(spec) ?? false) || r.unfiltered === true);
+    return r;
+  }
+
+  private readonly unfStore = new AsyncLocalStorage<Map<Ga4ReportSpec, boolean>>();
+
+  /** Ejecuta `fn` en un ámbito propio y dice qué consultas de GA4 hizo sin el filtro. */
+  private async tracked<T>(fn: () => Promise<T>): Promise<[T, Map<Ga4ReportSpec, boolean>]> {
+    const m = new Map<Ga4ReportSpec, boolean>();
+    const v = await this.unfStore.run(m, fn);
+    return [v, m];
+  }
+
+  private anyUnf(m: Map<Ga4ReportSpec, boolean>): boolean {
+    return [...m.values()].some(Boolean);
+  }
+
+  /** Añade la nota fija (una vez) a una tabla medida si alguna lectura salió sin filtro. */
+  private noted(t: AggTable, unf: boolean): AggTable {
+    if (!unf || !t.measured || t.notes?.includes(GA4_UNFILTERED_NOTE)) return t;
+    return { ...t, notes: [...(t.notes ?? []), GA4_UNFILTERED_NOTE] };
+  }
+
+  /** Tabla de la familia `sessions`: lleva la nota si su lectura de GA4 salió sin filtro. */
+  private async famNoted(fam: Fam, id: string, build: () => Promise<AggTable>): Promise<AggTable> {
+    const t = await build();
+    return this.noted(t, (await fam('sessions')).dims.unfiltered?.includes(id) === true);
+  }
+
+  /** Construye una tabla de GA4 y le pone la nota si cualquiera de sus lecturas salió sin filtro. */
+  private async scoped(fn: () => Promise<AggTable>): Promise<AggTable> {
+    const [t, m] = await this.tracked(fn);
+    return this.noted(t, this.anyUnf(m));
   }
 
   /**
@@ -498,7 +540,7 @@ export class MarketingAnalyticsService {
 
     const a3 = await this.a3Buylist(period, privacy);
 
-    return [a1, a2, a3, await this.a4Visits(privacy, fam), await this.a5Funnel(period, now), await this.a6Payments(period)];
+    return [a1, a2, a3, await this.famNoted(fam, 'a4', () => this.a4Visits(privacy, fam)), await this.scoped(() => this.a5Funnel(period, now)), await this.a6Payments(period)];
   }
 
   /**
@@ -720,12 +762,17 @@ export class MarketingAnalyticsService {
       d.unmeasured.push('a4', 'b4', 'c5', 'e3');
       return d;
     }
-    const sources = await this.ga4(GA4_SPECS.sources, p, now);
+    const read = async (spec: Ga4ReportSpec, ids: string[]): Promise<Ga4Row[] | null> => {
+      const [rows, m] = await this.tracked(() => this.ga4(spec, p, now));
+      if (rows && this.anyUnf(m)) d.unfiltered = [...(d.unfiltered ?? []), ...ids];
+      return rows;
+    };
+    const sources = await read(GA4_SPECS.sources, ['a4', 'b4']);
     put('a4', sources && a4Rows(sources));
     put('b4', sources && b4Rows(sources));
-    const devices = await this.ga4(GA4_SPECS.devices, p, now);
+    const devices = await read(GA4_SPECS.devices, ['c5']);
     put('c5', devices && c5Rows(devices));
-    const ai = await this.ga4(GA4_SPECS.aiReferrals, p, now);
+    const ai = await read(GA4_SPECS.aiReferrals, ['e3']);
     put('e3', ai && e3Rows(ai));
     return d;
   }
@@ -734,7 +781,7 @@ export class MarketingAnalyticsService {
 
   private async screenD(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable[]> {
     // d1 (vistas) y d2 comparten la MISMA consulta de GA4 por `itemId` (§MKT.H.9).
-    const res = this.ga4Live() && this.external ? await this.external.ga4Report(GA4_SPECS.items, period.from, period.to, now) : null;
+    const res = this.ga4Live() && this.external ? await this.ga4Raw(GA4_SPECS.items, period, now) : null;
     const views = res?.ok ? itemViews(res.rows) : null;
     const d1 = await this.d1Cards(period, privacy, views);
     const d2 = await this.d2ViewsNoSale(period, privacy, views);
@@ -1066,15 +1113,15 @@ export class MarketingAnalyticsService {
 
   private async screenC(period: MarketingPeriod, now: Date, privacy: CellPrivacy, fam: Fam): Promise<AggTable[]> {
     return [
-      await this.c1Pages(period, now, privacy),
+      await this.scoped(() => this.c1Pages(period, now, privacy)),
       // Diferidas (§MKT.H.9): su motivo literal, en cualquier modo.
-      await this.c2PageTypes(period, now, privacy),
-      await this.landingTable('c3', 'Dónde abandonan', GA4_SPECS.landing, period, now, privacy),
-      await this.c4BuyButton(period, now),
-      await this.c5Devices(privacy, fam),
+      await this.scoped(() => this.c2PageTypes(period, now, privacy)),
+      await this.scoped(() => this.landingTable('c3', 'Dónde abandonan', GA4_SPECS.landing, period, now, privacy)),
+      await this.scoped(() => this.c4BuyButton(period, now)),
+      await this.famNoted(fam, 'c5', () => this.c5Devices(privacy, fam)),
       await this.c6SearchMiss(period),
       await this.c7ByState(period, privacy, fam),
-      await this.landingTable('c8', 'Página de aterrizaje de Instagram', GA4_SPECS.landingInstagram, period, now, privacy),
+      await this.scoped(() => this.landingTable('c8', 'Página de aterrizaje de Instagram', GA4_SPECS.landingInstagram, period, now, privacy)),
       await this.c9Regions(period, now, privacy),
     ];
   }
@@ -1343,7 +1390,7 @@ export class MarketingAnalyticsService {
     const cs = await fam('cardshow');
     return [
       ...b,
-      await this.b4Channels(privacy, fam),
+      await this.famNoted(fam, 'b4', () => this.b4Channels(privacy, fam)),
       this.csTable('b5', privacy, cs),
       this.csTable('b6', privacy, cs),
     ];
@@ -1524,7 +1571,7 @@ export class MarketingAnalyticsService {
 
   /** (e) Buscadores e IA — e1 de Search Console (no depende del aviso), e3 de GA4. */
   private async screenE(period: MarketingPeriod, now: Date, privacy: CellPrivacy, fam: Fam): Promise<AggTable[]> {
-    return [await this.e1SearchConsole(period, now, privacy), await this.e2Pages(period, now, privacy), await this.e3Ai(privacy, fam)];
+    return [await this.e1SearchConsole(period, now, privacy), await this.e2Pages(period, now, privacy), await this.famNoted(fam, 'e3', () => this.e3Ai(privacy, fam))];
   }
 
   /** e3 (§MKT.H.9) — sesiones desde asistentes de IA (lista fija en código) por página de aterrizaje. */
@@ -1646,8 +1693,13 @@ export class MarketingAnalyticsService {
     const live = this.ga4Live();
     const reason = this.ga4Reason();
     const report = await this.sales.report({ preset: 'custom', from: period.from, to: period.to, groupBy: 'day' }, now);
-    const pair = async (spec: Ga4ReportSpec): Promise<[Ga4Row[] | null, Ga4Row[] | null]> =>
-      live ? [await this.ga4(spec, period, now), await this.ga4(spec, prevP, now)] : [null, null];
+    let r1Unf = false;
+    const pair = async (spec: Ga4ReportSpec): Promise<[Ga4Row[] | null, Ga4Row[] | null]> => {
+      if (!live) return [null, null];
+      const [out, m] = await this.tracked(async () => [await this.ga4(spec, period, now), await this.ga4(spec, prevP, now)] as [Ga4Row[] | null, Ga4Row[] | null]);
+      if (this.anyUnf(m)) r1Unf = true;
+      return out;
+    };
     const [totC, totP] = await pair(GA4_SPECS.funnelSessions);
     const [nvrC, nvrP] = await pair(GA4_SPECS.nvr);
     const [evC, evP] = await pair(GA4_SPECS.events);
@@ -1722,7 +1774,9 @@ export class MarketingAnalyticsService {
     };
 
     // r2 — avisos.
-    const alerts = await this.r2Alerts(period, prevP, now, exact, { live, reason, scOn, checkout: evC ? Number(ev(evC, 'begin_checkout')) : null, srcC, srcP, paid: t.orders });
+    const [alerts, r2m] = await this.tracked(() => this.r2Alerts(period, prevP, now, exact, { live, reason, scOn, checkout: evC ? Number(ev(evC, 'begin_checkout')) : null, srcC, srcP, paid: t.orders }));
+    // Los avisos que se apoyan en lecturas sin filtro (AV3 aquí; AV2/AV1 con las fuentes de r1) llevan la nota igual.
+    const r2Unf = this.anyUnf(r2m) || r1Unf;
     const r2: AggTable = {
       id: 'r2',
       title: 'Qué hacer esta semana',
@@ -1739,8 +1793,8 @@ export class MarketingAnalyticsService {
       notes: ['Avisos por reglas fijas con umbral; sin IA. Cada uno cita sus números.'],
     };
 
-    const out = [r1, r2];
-    if (exact && period.kind === 'week') out.push(await this.r3Daily(period, now));
+    const out = [this.noted(r1, r1Unf), this.noted(r2, r2Unf)];
+    if (exact && period.kind === 'week') out.push(await this.scoped(() => this.r3Daily(period, now)));
     return out;
   }
 
@@ -1837,7 +1891,7 @@ export class MarketingAnalyticsService {
     const title = 'Día por día';
     const ext = this.external;
     if (!this.ga4Live() || !ext) return this.notMeasured('r3', title, 'GA4', this.ga4Reason());
-    const [nvr, src] = [await ext.ga4Report(GA4_SPECS.dailyNvr, period.from, period.to, now), await ext.ga4Report(GA4_SPECS.dailySrc, period.from, period.to, now)];
+    const [nvr, src] = [await this.ga4Raw(GA4_SPECS.dailyNvr, period, now), await this.ga4Raw(GA4_SPECS.dailySrc, period, now)];
     if (!nvr.ok || !src.ok) return this.notMeasured('r3', title, 'GA4', GA4_UNCONNECTED);
     if (nvr.timeZone !== 'America/Mexico_City' || src.timeZone !== 'America/Mexico_City') {
       return this.notMeasured('r3', title, 'GA4', 'NO MEDIDO — la zona horaria de GA4 no es CDMX');
@@ -1990,6 +2044,17 @@ export class MarketingAnalyticsService {
 
   /** c9 (§5) — usuarios por estado (sin ciudad). */
   private async c9Regions(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable> {
+    const [t, m] = await this.tracked(() => this.c9Build(period, now, privacy));
+    if (!t.measured) return t;
+    // El pliegue complementario mezcla `region` con `funnelSessions`: deben haber salido con el MISMO estado de filtro.
+    const u = (spec: Ga4ReportSpec): boolean | undefined => m.get(spec);
+    if (privacy !== 'exact' && u(GA4_SPECS.region) !== u(GA4_SPECS.funnelSessions)) {
+      return this.notMeasured('c9', t.title, 'GA4', 'NO MEDIDO — las consultas de GA4 no salieron con el mismo filtro de tráfico propio');
+    }
+    return this.noted(t, this.anyUnf(m));
+  }
+
+  private async c9Build(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable> {
     const title = 'Estados de quienes visitan';
     const safe = await this.ga4SafeRows(GA4_SPECS.region, period, now, privacy, (rows) => regionRows(rows));
     if (!safe) return this.notMeasured('c9', title, 'GA4', this.ga4Reason());

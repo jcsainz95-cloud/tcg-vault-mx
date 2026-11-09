@@ -324,6 +324,7 @@ describe('c6 sin datos personales (§7)', () => {
       },
       $executeRaw: jest.fn(async () => opts.exec ?? 1),
       $queryRaw: jest.fn(async () => []),
+      $transaction: jest.fn(async (qs: Promise<unknown>[]) => Promise.all(qs)),
     };
     const vocab = { allows: jest.fn(async () => opts.allow ?? true) };
     return { prisma, svc: new MarketingSearchMissService(prisma as never, vocab as never) };
@@ -429,7 +430,7 @@ describe('correo del lunes (§3)', () => {
         updateMany: jest.fn(async ({ where, data }: { where: { recipientKey: string; status: string; OR: { claimedAt: unknown }[] }; data: { claimedAt: Date } }) => {
           const r = rows.get(where.recipientKey);
           const staleBefore = (where.OR[1].claimedAt as { lt: Date }).lt;
-          if (!r || r.status !== where.status || (r.claimedAt !== null && r.claimedAt >= staleBefore)) return { count: 0 };
+          if (!r || r.status !== where.status || (('sentAt' in where) && r.sentAt !== null) || (r.claimedAt !== null && r.claimedAt >= staleBefore)) return { count: 0 };
           r.claimedAt = data.claimedAt;
           return { count: 1 };
         }),
@@ -437,7 +438,7 @@ describe('correo del lunes (§3)', () => {
           const r = rows.get(where.weekStart_recipientKey.recipientKey)!;
           if (data.status) r.status = data.status as string;
           if ('claimedAt' in data) r.claimedAt = data.claimedAt as Date | null;
-          if (data.sentAt) r.sentAt = data.sentAt as Date;
+          if ('sentAt' in data) r.sentAt = data.sentAt as Date | null;
           if (data.attempts) r.attempts += 1;
           return { ...r };
         }),
@@ -490,6 +491,22 @@ describe('correo del lunes (§3)', () => {
     expect((await d.svc.run(new Date(MONDAY.getTime() + 3600_000))).outcome).toBe('sent');
     expect(d.sent.map((m) => m.to)).toEqual(['a@tcghunt.mx', 'b@tcghunt.mx']); // a una sola vez
     expect([...d.rows.values()].map((r) => r.status)).toEqual(['sent', 'sent']);
+  });
+  it('enviado pero el update a «sent» falla ⇒ NO se reenvía en el siguiente tick (marca intermedia sentAt)', async () => {
+    const d = digest();
+    const orig = d.prisma.marketingWeeklyDigest.update.getMockImplementation()!;
+    d.prisma.marketingWeeklyDigest.update.mockImplementation(async (a: { data: Record<string, unknown> }) => {
+      if (a.data.status === 'sent') throw new Error('db caída');
+      return orig(a as never);
+    });
+    const spy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    await d.svc.run(MONDAY);
+    expect(d.sent).toHaveLength(1);
+    d.prisma.marketingWeeklyDigest.update.mockImplementation(orig);
+    await d.svc.run(new Date(MONDAY.getTime() + 3600_000));
+    await d.svc.run(new Date(MONDAY.getTime() + 9 * 3600_000)); // incluso con el reclamo vencido
+    spy.mockRestore();
+    expect(d.sent).toHaveLength(1);
   });
   it('5 fallos ⇒ failed y ya no se reintenta; el registro no lleva el correo ni el mensaje del proveedor', async () => {
     const d = digest({ failFor: { 'dueno@tcghunt.mx': 99 } });
@@ -612,6 +629,50 @@ describe('tabla servida sin filtro lleva la nota fija (§4)', () => {
       const d = (await svc.screen('d', WEEK, NOW, ownerExact())).tables;
       for (const id of ['d1', 'd2']) expect(by(d, id).notes?.includes(GA4_UNFILTERED_NOTE)).toBe(unfiltered);
     }
+  });
+});
+
+describe('nota sin filtro en TODA tabla/aviso leído sin filtro (§4, I-1)', () => {
+  const NOTE_TEXT = 'Puede incluir tráfico propio de antes de que se excluyera';
+  function withUnfiltered(pred: (spec: { dimensions: string[]; metrics?: string[] }) => boolean) {
+    const b = build();
+    const ext = (b.svc as unknown as { external: { ga4Report: (...a: unknown[]) => Promise<unknown> } }).external;
+    const orig = ext.ga4Report.bind(ext);
+    ext.ga4Report = async (spec: unknown, ...rest: unknown[]) => {
+      const r = (await orig(spec, ...rest)) as Record<string, unknown>;
+      return r.ok && pred(spec as { dimensions: string[] }) ? { ...r, unfiltered: true } : r;
+    };
+    return b.svc;
+  }
+  const has = (t: { notes?: string[]; measured: boolean }) => t.notes?.includes(NOTE_TEXT) === true;
+  it('el texto es exactamente el del spec, sin fecha', () => {
+    expect(GA4_UNFILTERED_NOTE).toBe(NOTE_TEXT);
+  });
+  it('todo sin filtro ⇒ cada tabla medida de GA4 (c1-c5,c8,c9,r1,r2; a4/a5/b4/e3 usan los mismos ayudantes) lleva la nota', async () => {
+    const svc = withUnfiltered(() => true);
+    const tables = [
+      ...(await svc.screen('c', WEEK, NOW, ownerExact())).tables,
+      ...(await svc.screen('r', WEEK, NOW, ownerExact())).tables,
+    ];
+    const ga4 = tables.filter((t) => t.measured && ['a4', 'a5', 'b4', 'c1', 'c2', 'c3', 'c4', 'c5', 'c8', 'c9', 'e3', 'r1', 'r2', 'r3'].includes(t.id));
+    expect(ga4.map((t) => t.id).sort()).toEqual(expect.arrayContaining(['c1', 'c2', 'c3', 'c5', 'c8', 'c9', 'r1', 'r2']));
+    for (const t of ga4) expect([t.id, has(t)]).toEqual([t.id, true]);
+  });
+  it('solo la consulta de ítems sin filtro ⇒ r2 (AV3) lleva la nota y r1 no (mata «quitar la nota en AV3»)', async () => {
+    const svc = withUnfiltered((s) => s.dimensions[0] === 'itemId');
+    const r = (await svc.screen('r', WEEK, NOW, ownerExact())).tables;
+    expect(has(by(r, 'r2'))).toBe(true);
+    expect(has(by(r, 'r1'))).toBe(false);
+  });
+  it('c9: region y funnelSessions con distinto estado de filtro ⇒ c9 NO MEDIDO (small_cells)', async () => {
+    const svc = withUnfiltered((s) => s.dimensions[0] === 'region');
+    const c9 = by((await svc.screen('c', WEEK, NOW, 'small_cells')).tables, 'c9');
+    expect(c9.measured).toBe(false);
+  });
+  it('sin ninguna lectura sin filtro ⇒ ninguna nota', async () => {
+    const svc = withUnfiltered(() => false);
+    const r = (await svc.screen('r', WEEK, NOW, ownerExact())).tables;
+    for (const t of r) expect(has(t)).toBe(false);
   });
 });
 

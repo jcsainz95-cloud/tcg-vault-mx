@@ -61,7 +61,7 @@ export class MarketingWeeklyDigestService {
     const claimed: typeof keyed = [];
     for (const r of keyed) {
       const c = await this.prisma.marketingWeeklyDigest.updateMany({
-        where: { weekStart: day, recipientKey: r.key, status: 'pending', OR: [{ claimedAt: null }, { claimedAt: { lt: staleBefore } }] },
+        where: { weekStart: day, recipientKey: r.key, status: 'pending', sentAt: null, OR: [{ claimedAt: null }, { claimedAt: { lt: staleBefore } }] },
         data: { claimedAt: now },
       });
       if (c.count > 0) claimed.push(r);
@@ -71,7 +71,7 @@ export class MarketingWeeklyDigestService {
     const fail = async (r: { key: string }, idx: number, e: unknown) => {
       const row = await this.prisma.marketingWeeklyDigest.update({
         where: { weekStart_recipientKey: { weekStart: day, recipientKey: r.key } },
-        data: { attempts: { increment: 1 }, claimedAt: null },
+        data: { attempts: { increment: 1 }, claimedAt: null, sentAt: null },
       });
       if (row.attempts >= WEEKLY_DIGEST_MAX_ATTEMPTS) {
         await this.prisma.marketingWeeklyDigest.update({ where: { weekStart_recipientKey: { weekStart: day, recipientKey: r.key } }, data: { status: 'failed' } });
@@ -99,12 +99,27 @@ export class MarketingWeeklyDigestService {
     let failed = 0;
     for (const r of claimed) {
       try {
-        await this.mail!.send({ to: keyed.find((k) => k.key === r.key)!.email, ...msg });
-        await this.prisma.marketingWeeklyDigest.update({ where: { weekStart_recipientKey: { weekStart: day, recipientKey: r.key } }, data: { status: 'sent', sentAt: now, claimedAt: null } });
-        sent += 1;
+        // Marca intermedia ANTES de enviar (`sentAt`): si el envío sale y luego falla el `update` a `sent`, la fila sigue
+        // con `sentAt` y ningún reclamo posterior (exige `sentAt: null`) la reenvía. Si el envío falla, `fail` la libera.
+        await this.prisma.marketingWeeklyDigest.update({ where: { weekStart_recipientKey: { weekStart: day, recipientKey: r.key } }, data: { sentAt: now } });
       } catch (e) {
         failed += 1;
         await fail(r, keyed.indexOf(r), e);
+        continue;
+      }
+      try {
+        await this.mail!.send({ to: keyed.find((k) => k.key === r.key)!.email, ...msg });
+      } catch (e) {
+        failed += 1;
+        await fail(r, keyed.indexOf(r), e);
+        continue;
+      }
+      sent += 1;
+      try {
+        await this.prisma.marketingWeeklyDigest.update({ where: { weekStart_recipientKey: { weekStart: day, recipientKey: r.key } }, data: { status: 'sent', sentAt: now, claimedAt: null } });
+      } catch (e) {
+        // Ya salió: no es un fallo de envío ni se reenvía (la marca `sentAt` lo impide).
+        this.logger.error(`marketing-weekly-digest ${weekStart} destinatario ${keyed.indexOf(r) + 1}/${keyed.length}: enviado pero no se pudo marcar 'sent' (${e instanceof Error ? e.constructor.name : 'error'})`);
       }
     }
     return done(failed > 0 ? 'failed' : sent > 0 ? 'sent' : 'noop');

@@ -27,6 +27,10 @@ export const SEARCH_MISS_MIN_PEOPLE_PER_DAY = 2;
 export const SEARCH_MISS_MAX_TERMS_PER_DAY = 300;
 export const SEARCH_MISS_MAX_HASHES_PER_TERM = 200;
 export const SEARCH_SALT_PREFIX = 'search_salt_';
+/** Marca monótona «días anteriores a este ya están cerrados»: ninguna escritura (sal ni hash) puede resucitar un día cerrado. */
+/** Espacio del candado consultivo por día de c6 (`pg_advisory_xact_lock(ns, hashtext(día))`); distinto de todos los demás. */
+export const SEARCH_MISS_DAY_NAMESPACE = 98_130_201;
+export const SEARCH_CLOSED_THROUGH_KEY = 'search_closed_through';
 const LAZY_CLOSE_EVERY_MS = 60_000;
 
 /** Término listo para evaluar contra el vocabulario (`[a-z0-9ñ ]`, ≤ 40, ≤ 4 palabras) o `null`. PURO (sin vocabulario). */
@@ -89,7 +93,11 @@ export class MarketingSearchMissService {
     if (hit) return hit;
     const key = `${SEARCH_SALT_PREFIX}${day}`;
     const fresh = randomBytes(32).toString('hex');
-    await this.prisma.$executeRaw`INSERT INTO "ConfigSetting" ("key", "valueJson", "updatedAt") VALUES (${key}, to_jsonb(${fresh}::text), now()) ON CONFLICT ("key") DO NOTHING`;
+    // La comprobación «día cerrado» va DENTRO de la escritura: una petición que calculó su día antes del cierre no recrea la sal.
+    await this.prisma.$executeRaw`INSERT INTO "ConfigSetting" ("key", "valueJson", "updatedAt")
+      SELECT ${key}, to_jsonb(${fresh}::text), now()
+       WHERE ${day}::text >= COALESCE((SELECT "valueJson"#>>'{}' FROM "ConfigSetting" WHERE "key" = ${SEARCH_CLOSED_THROUGH_KEY}), '0000-00-00')
+      ON CONFLICT ("key") DO NOTHING`;
     const row = await this.prisma.configSetting.findUniqueOrThrow({ where: { key }, select: { valueJson: true } });
     const salt = String(row.valueJson);
     this.salts.set(day, salt);
@@ -107,13 +115,18 @@ export class MarketingSearchMissService {
       const salt = await this.saltOf(day);
       const h = createHmac('sha256', salt).update(`${client.ip ?? ''}|${client.userAgent ?? ''}`).digest('hex').slice(0, 16);
       // Topes en la MISMA sentencia: ≤ 200 hashes por (término, día) y ≤ 300 términos distintos por día. Pasado el tope no escribe.
-      const n = await this.prisma.$executeRaw`
+      // El candado de aviso por día serializa las escrituras del día (los `count` no son atómicos bajo READ COMMITTED).
+      const [, n] = await this.prisma.$transaction([
+        this.prisma.$executeRaw`SELECT pg_advisory_xact_lock(${SEARCH_MISS_DAY_NAMESPACE}::int, hashtext(${day}))`,
+        this.prisma.$executeRaw`
         INSERT INTO "SearchNoResultSeen" ("termNormalized", "day", "h")
         SELECT ${term}::text, ${day}::date, ${h}::text
-         WHERE (SELECT count(*) FROM "SearchNoResultSeen" WHERE "termNormalized" = ${term}::text AND "day" = ${day}::date) < ${SEARCH_MISS_MAX_HASHES_PER_TERM}::int
+         WHERE ${day}::text >= COALESCE((SELECT "valueJson"#>>'{}' FROM "ConfigSetting" WHERE "key" = ${SEARCH_CLOSED_THROUGH_KEY}), '0000-00-00')
+           AND (SELECT count(*) FROM "SearchNoResultSeen" WHERE "termNormalized" = ${term}::text AND "day" = ${day}::date) < ${SEARCH_MISS_MAX_HASHES_PER_TERM}::int
            AND (EXISTS (SELECT 1 FROM "SearchNoResultSeen" WHERE "termNormalized" = ${term}::text AND "day" = ${day}::date)
                 OR (SELECT count(DISTINCT "termNormalized") FROM "SearchNoResultSeen" WHERE "day" = ${day}::date) < ${SEARCH_MISS_MAX_TERMS_PER_DAY}::int)
-        ON CONFLICT DO NOTHING`;
+        ON CONFLICT DO NOTHING`,
+      ]);
       return n > 0;
     } catch (e) {
       this.logger.warn(`search-miss no registrado (${e instanceof Error ? e.constructor.name : 'error'})`);
@@ -139,6 +152,9 @@ export class MarketingSearchMissService {
    */
   async closePastDays(now = new Date()): Promise<number> {
     const today = toMexicoCityDateKey(now);
+    // Primero la marca de cierre (monótona): desde aquí ninguna petición rezagada puede escribir en un día anterior a hoy.
+    await this.prisma.$executeRaw`INSERT INTO "ConfigSetting" ("key", "valueJson", "updatedAt") VALUES (${SEARCH_CLOSED_THROUGH_KEY}, to_jsonb(${today}::text), now())
+      ON CONFLICT ("key") DO UPDATE SET "valueJson" = to_jsonb(GREATEST("ConfigSetting"."valueJson"#>>'{}', EXCLUDED."valueJson"#>>'{}')), "updatedAt" = now()`;
     const open = await this.prisma.$queryRaw<{ d: string }[]>`SELECT DISTINCT to_char("day", 'YYYY-MM-DD') AS d FROM "SearchNoResultSeen" WHERE "day" < ${today}::date ORDER BY 1`;
     for (const { d } of open) {
       await this.prisma.$transaction([

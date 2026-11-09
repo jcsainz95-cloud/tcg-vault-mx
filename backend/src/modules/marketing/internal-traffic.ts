@@ -32,4 +32,4 @@ export function withInternalExclusion(existing?: Record<string, unknown>): Recor
 }
 
 /** Nota fija de toda tabla servida SIN el filtro (GA4 lo rechazó por incompatibilidad de la consulta). */
-export const GA4_UNFILTERED_NOTE = 'Incluye tráfico propio anterior al 2026-11-09: GA4 no permitió excluirlo en esta consulta.';
+export const GA4_UNFILTERED_NOTE = 'Puede incluir tráfico propio de antes de que se excluyera';
