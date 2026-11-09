@@ -15,6 +15,7 @@ import { getMarketingPanel, getMarketingPeriods, type MarketingPeriodQuery } fro
 import type { AppLocale } from '@/i18n/routing';
 import type { MarketingPeriodsResponse, MarketingPrivacy, MarketingScreen, MarketingScreenPayload } from '@/types/contract';
 import { MarketingTable } from './MarketingTable';
+import { ResumenScreen } from './ResumenScreen';
 import { AnnotationsScreen } from './AnnotationsScreen';
 import { AnalystAccessPanel } from './AnalystAccessPanel';
 import { DownloadBar } from './DownloadBar';
@@ -31,6 +32,8 @@ import { MKT_SCREENS, mktSearch, type MktPeriodKind, type MktUrlState, type MktV
  * - Mientras carga un periodo nuevo se ven el rótulo y las cifras VIEJOS, atenuados (AN-4, UX-MKT-9): el rótulo sale
  *   del payload (`period.from/to`), nunca de lo elegido.
  * - Un `403` de cualquier pieza sustituye TODO bajo el `h1` y apaga las consultas (UX-MKT-10).
+ * - §MKT-V2 6.10: «Resumen» (`r`) abre SIEMPRE en la última semana cerrada (ignora un `?week=` viejo de favoritos); `periods` se
+ *   revalida al volver a la pestaña y cada 30 min, y si la elegida ya no es la más reciente se ofrece un clic para saltar.
  * - El `h1` es `admin.modules.marketing`, la misma cadena del menú (candado P66-2, `AdminPageTitles.test.tsx`).
  */
 
@@ -103,12 +106,24 @@ function Panel({ initial, isSuperAdmin }: { initial: MktUrlState; isSuperAdmin: 
   const locale = useLocale() as AppLocale;
   const report = useReportForbidden();
   const views: MktView[] = useMemo(() => (isSuperAdmin ? [...MKT_SCREENS, 'acceso'] : [...MKT_SCREENS]), [isSuperAdmin]);
-  const [view, setView] = useState<MktView>(initial.view === 'acceso' && !isSuperAdmin ? 'a' : initial.view);
-  const [sel, setSel] = useState<Selected>({ kind: initial.kind, week: initial.week, month: initial.month });
+  const [view, setView] = useState<MktView>(initial.view === 'acceso' && !isSuperAdmin ? 'r' : initial.view);
+  // §MKT-V2 6.10: en «Resumen» el `week`/`month` que venga en la URL (favorito, enlace viejo) no cuenta: solo una elección
+  // explícita hecha en esta sesión. Las demás pantallas respetan la URL como siempre.
+  const [sel, setSel] = useState<Selected>(
+    initial.view === 'r' ? { kind: 'week', week: null, month: null } : { kind: initial.kind, week: initial.week, month: initial.month },
+  );
   const [periodError, setPeriodError] = useState(false);
   const tabRefs = useRef<Partial<Record<MktView, HTMLButtonElement | null>>>({});
 
-  const periods = useQuery({ queryKey: ['mkt', 'periods'], queryFn: getMarketingPeriods, retry: false, staleTime: 60_000 });
+  // §MKT-V2 6.10: el lunes la semana recién cerrada debe aparecer sin recargar: se revalida al volver a la pestaña y cada 30 min.
+  const periods = useQuery({
+    queryKey: ['mkt', 'periods'],
+    queryFn: getMarketingPeriods,
+    retry: false,
+    staleTime: 60_000,
+    refetchOnWindowFocus: 'always',
+    refetchInterval: 30 * 60_000,
+  });
   useEffect(() => {
     if (periods.error) report(periods.error);
   }, [periods.error, report]);
@@ -135,12 +150,14 @@ function Panel({ initial, isSuperAdmin }: { initial: MktUrlState; isSuperAdmin: 
   // La URL recuerda lo que se ve (§MKT-UX.1). Solo con valores ya validados contra el servidor.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const search = mktSearch({ view, kind: sel.kind, week: resolved?.week ?? null, month: resolved?.month ?? null });
+    // En «Resumen» la semana solo se escribe si fue una elección explícita: el valor por defecto no se fija en la URL.
+    const week = view === 'r' && sel.kind === 'week' && sel.week === null ? null : (resolved?.week ?? null);
+    const search = mktSearch({ view, kind: sel.kind, week, month: resolved?.month ?? null });
     const url = window.location.pathname + search + window.location.hash;
     if (url !== window.location.pathname + window.location.search + window.location.hash) {
       window.history.replaceState(window.history.state, '', url);
     }
-  }, [view, sel.kind, resolved?.week, resolved?.month]);
+  }, [view, sel.kind, sel.week, resolved?.week, resolved?.month]);
 
   function selectView(next: MktView) {
     setView(next);
@@ -234,6 +251,23 @@ function Panel({ initial, isSuperAdmin }: { initial: MktUrlState; isSuperAdmin: 
                 privacy={isScreen ? (data ? privacy : null) : lastPrivacy}
               />
             </div>
+            {view === 'r' && sel.kind === 'week' && sel.week !== null && periods.data && periods.data.closedWeeks[0] && resolved?.week !== isoWeekOf(periods.data.closedWeeks[0].weekStart) && (
+              <Banner
+                variant="info"
+                action={
+                  <Button variant="secondary" size="sm" onClick={() => setSel({ kind: 'week', week: null, month: null })}>
+                    {t('period.newerGo')}
+                  </Button>
+                }
+              >
+                <span data-testid="mkt-newer-week">
+                  {t('period.newer', {
+                    from: shortDate(periods.data.closedWeeks[0].from, locale),
+                    to: shortDate(periods.data.closedWeeks[0].to, locale),
+                  })}
+                </span>
+              </Banner>
+            )}
             {periodError && (
               <Banner variant="danger" role="alert">
                 {t('period.invalid')}
@@ -413,7 +447,7 @@ function ScreenBody({
   const shownScreen = data.screen;
   const measured = data.tables.filter((tb) => tb.measured);
   const allEmpty = measured.length > 0 && measured.every((tb) => tb.rows.length === 0);
-  const showStrip = (shownScreen === 'a' || shownScreen === 'b' || shownScreen === 'c') && data.annotations.length > 0;
+  const showStrip = (shownScreen === 'r' || shownScreen === 'a' || shownScreen === 'b' || shownScreen === 'c') && data.annotations.length > 0;
   const serverLang = locale === 'es' ? undefined : 'es';
 
   return (
@@ -432,7 +466,6 @@ function ScreenBody({
           </ul>
         </Banner>
       )}
-      {screen === 'e' && shownScreen === 'e' && <p className="text-sm text-text">{t('screen.e.pending')}</p>}
       {allEmpty && <p className="text-sm text-text" data-testid="mkt-screen-empty">{t('screen.empty')}</p>}
       {showStrip && (
         <details data-testid="mkt-ann-strip">
@@ -463,9 +496,11 @@ function ScreenBody({
           </ul>
         </details>
       )}
-      {data.tables.map((tb) => (
-        <MarketingTable key={tb.id} table={tb} />
-      ))}
+      {shownScreen === 'r' ? (
+        <ResumenScreen data={data} />
+      ) : (
+        data.tables.map((tb) => <MarketingTable key={tb.id} table={tb} />)
+      )}
       <details>
         <summary className="min-h-[44px] cursor-pointer py-2 text-sm text-text">{t('help.title')}</summary>
         <ul className="flex flex-col gap-1 pl-4 text-sm text-text">

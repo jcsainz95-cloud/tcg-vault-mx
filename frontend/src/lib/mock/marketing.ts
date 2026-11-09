@@ -96,11 +96,8 @@ const SC_UNCONNECTED = 'NO MEDIDO — Search Console sin conectar';
 const ORIGIN_OFF = 'NO MEDIDO — el origen de los pedidos aún no se registra (requiere el aviso de cookies con consentimiento)';
 const BANNER_OFF = 'NO MEDIDO — el aviso de cookies todavía no está publicado';
 /* v1.105 (§MKT.H.9): tablas diferidas, con su motivo literal (en cualquier modo). */
-const PAGE_TYPE_DEFERRED = 'NO MEDIDO — la clasificación por tipo de página no está definida todavía';
-const ABANDON_DEFERRED = 'NO MEDIDO — la consulta de abandono no está definida todavía';
 const BUY_BUTTON_DEFERRED = 'NO MEDIDO — el evento del botón COMPRAR todavía no se envía';
-const SEARCH_LOG_OFF =
-  'NO MEDIDO — pendiente de la revisión de seguridad; el registro de búsquedas sin resultado no existe todavía';
+const SEARCH_LOG_OFF = 'NO MEDIDO — el registro de búsquedas sin resultado está apagado';
 const C7_MIN_PERIOD = 'NO MEDIDO — esta tabla necesita un periodo de al menos 4 semanas; elige un mes cerrado';
 /**
  * Línea de cobertura por modo (§MKT.H.9 v1.105). El mock sirve el modo `off` (`COVERAGE_NOTE`); el de `on` se exporta
@@ -182,6 +179,102 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
   const orders = 10 + (s % 25);
   const small = (n: number) => (exact || n >= 5 ? n : ('< 5' as const));
   switch (screen) {
+    case 'r': {
+      // §MKT-V2 §1 (forma tomada del contrato: r1 cifra/actual/anterior/delta_abs/delta_pct; r2 avisos; r3 solo `exact`).
+      const v = 20 + (s % 40);
+      const row = (cifra: string, actual: number, anterior: number) => ({
+        cifra,
+        actual,
+        anterior,
+        delta_abs: actual - anterior,
+        delta_pct: anterior === 0 ? null : ((actual - anterior) / anterior) * 100,
+      });
+      const r1: MarketingAggTable = {
+        id: 'r1',
+        title: 'Cifras de la semana',
+        source: 'mixed',
+        columns: [
+          { key: 'cifra', labelEs: 'Cifra', kind: 'text' },
+          { key: 'actual', labelEs: 'Esta semana', kind: 'number' },
+          { key: 'anterior', labelEs: 'Semana anterior', kind: 'number' },
+          { key: 'delta_abs', labelEs: 'Cambio', kind: 'number' },
+          { key: 'delta_pct', labelEs: 'Cambio %', kind: 'pct' },
+        ],
+        rows: [
+          row('Visitantes reales (que aceptaron cookies)', v, v - 6),
+          row('· Nuevos', v - 8, v - 12),
+          row('· Recurrentes', 8, 12),
+          row('Sesiones desde Instagram', 14, 3),
+          row('Fichas vistas', v * 3, v * 2),
+          row('Agregados al carrito', 6, 6),
+          row('Inicios de pago', 3, 4),
+          row('Pedidos pagados', orders, orders - 3),
+          row('Clics en Google', 9, 0),
+          row('Aceptación de cookies (%)', 61, 58),
+        ],
+        measured: true,
+      };
+      const r2: MarketingAggTable = {
+        id: 'r2',
+        title: 'Qué hacer esta semana',
+        source: 'mixed',
+        columns: [
+          { key: 'regla', labelEs: 'Regla', kind: 'text' },
+          { key: 'gravedad', labelEs: 'Gravedad', kind: 'text' },
+          { key: 'titulo', labelEs: 'Aviso', kind: 'text' },
+          { key: 'evidencia', labelEs: 'Evidencia', kind: 'text' },
+          { key: 'accion', labelEs: 'Qué hacer', kind: 'text' },
+        ],
+        rows: [
+          {
+            regla: 'AV2',
+            gravedad: 'alta',
+            titulo: 'Instagram orgánico bajó',
+            evidencia: 'de 11 a 1 sesiones (−91 %)',
+            accion: 'Revisa que la historia lleve el enlace.',
+          },
+          {
+            regla: 'AV6',
+            gravedad: 'info',
+            titulo: 'Búsquedas sin resultado',
+            evidencia: '«charizard vmax»: 6 búsquedas en 3 días',
+            accion: '¿Falta en el catálogo?',
+          },
+        ],
+        measured: true,
+      };
+      const out = [r1, r2];
+      if (exact && kind === 'week') {
+        const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
+        out.push({
+          id: 'r3',
+          title: 'Día por día',
+          source: 'GA4',
+          columns: [
+            { key: 'dia', labelEs: 'Día', kind: 'text' },
+            { key: 'nuevos', labelEs: 'Nuevos', kind: 'count' },
+            { key: 'recurrentes', labelEs: 'Recurrentes', kind: 'count' },
+            { key: 'ses_instagram_organico', labelEs: 'Instagram orgánico', kind: 'count' },
+            { key: 'ses_instagram_pagado', labelEs: 'Instagram pagado', kind: 'count' },
+            { key: 'ses_google', labelEs: 'Google', kind: 'count' },
+            { key: 'ses_ia', labelEs: 'Asistentes de IA', kind: 'count' },
+            { key: 'ses_directo_otros', labelEs: 'Directo y otros', kind: 'count' },
+          ],
+          rows: days.map((dia, i) => ({
+            dia,
+            nuevos: 2 + ((s + i) % 5),
+            recurrentes: (s + i * 3) % 4,
+            ses_instagram_organico: (s + i) % 6,
+            ses_instagram_pagado: 0,
+            ses_google: (s + i * 2) % 3,
+            ses_ia: i % 2,
+            ses_directo_otros: 1 + (i % 3),
+          })),
+          measured: true,
+        });
+      }
+      return out;
+    }
     case 'a':
       return [
         {
@@ -291,13 +384,13 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
           : { id: 'c7', title: c7Title, source: 'BD', columns: c7Columns, rows: [], measured: false, notMeasuredReason: C7_MIN_PERIOD };
       return [
         notMeasured('c1', 'Páginas y fichas más vistas', 'GA4', GA4_OFF),
-        notMeasured('c2', 'Dónde pasan más tiempo', 'GA4', PAGE_TYPE_DEFERRED),
-        notMeasured('c3', 'Dónde abandonan', 'GA4', ABANDON_DEFERRED),
+        notMeasured('c2', 'Dónde pasan más tiempo', 'GA4', GA4_OFF),
+        notMeasured('c3', 'Dónde abandonan', 'GA4', GA4_OFF),
         notMeasured('c4', '% de fichas donde el botón COMPRAR se ve', 'GA4', BUY_BUTTON_DEFERRED),
         notMeasured('c5', 'Dispositivo y navegador de Instagram', 'GA4', GA4_OFF),
         notMeasured('c6', 'Búsquedas sin resultado', 'Srv', SEARCH_LOG_OFF),
         c7,
-        notMeasured('c8', 'Página de aterrizaje de Instagram', 'GA4', PAGE_TYPE_DEFERRED),
+        notMeasured('c8', 'Página de aterrizaje de Instagram', 'GA4', GA4_OFF),
       ];
     }
     case 'd':

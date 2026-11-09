@@ -7211,7 +7211,8 @@
       "tabs": {
         "label": "Panel screens",
         "select": "Screen",
-        "a": "Summary",
+        "r": "Summary",
+        "a": "Sales",
         "b": "Sources",
         "c": "Behavior",
         "d": "Catalog",
@@ -7229,7 +7230,9 @@
         "range": "{from} to {to} · Mexico City time",
         "compare": "Compared with: {from} to {to}",
         "updating": "Updating…",
-        "invalid": "That period is not valid or has not closed yet. Pick another."
+        "invalid": "That period is not valid or has not closed yet. Pick another.",
+        "newer": "There is a more recent week: {from} to {to}.",
+        "newerGo": "See the latest"
       },
       "source": {
         "BD": "store database",
@@ -7263,9 +7266,40 @@
         "seeAll": "See all"
       },
       "screen": {
-        "empty": "There was no activity in this period. Try another week.",
-        "e": {
-          "pending": "This screen will fill in once Google Search Console is switched on."
+        "empty": "There was no activity in this period. Try another week."
+      },
+      "resumen": {
+        "figures": "This week's numbers",
+        "before": "Before:",
+        "notMeasured": "Not measured.",
+        "lag": "Google delivers its data 2 to 3 days late: the weekend may be incomplete. Google Analytics numbers only count people who accepted cookies.",
+        "alerts": "What to do this week",
+        "noAlerts": "No alerts this week.",
+        "severity": {
+          "alta": "High priority",
+          "media": "Medium priority",
+          "info": "For your information"
+        },
+        "delta": {
+          "up": "Up",
+          "down": "Down",
+          "same": "Same as last week",
+          "new": "New: last week was 0",
+          "noise": "≈ Too little data to compare"
+        },
+        "daily": {
+          "title": "Day by day",
+          "private": "Only visible to you",
+          "newVsReturning": "New and returning visitors per day",
+          "bySource": "Sessions by source, per day",
+          "new": "New",
+          "returning": "Returning",
+          "igOrganic": "Instagram organic",
+          "igPaid": "Instagram paid",
+          "google": "Google",
+          "ai": "AI assistants",
+          "other": "Direct and other",
+          "table": "See the day-by-day table"
         }
       },
       "help": {

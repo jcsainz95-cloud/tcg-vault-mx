@@ -162,3 +162,12 @@ export function sanitizePath(raw: string | null | undefined): string {
   const path = raw.split(/[?#]/)[0] ?? '';
   return path.startsWith('/') ? path : '';
 }
+
+/**
+ * §MKT-V2 6.8 — origen + ruta, SIN query ni fragmento (ni siquiera `utm_*`). Para el `page_view` de checkout: esa
+ * ruta puede llevar `session_id`/`token`; GA4 solo ve de dónde vino la página. Otro esquema o URL rota ⇒ `''`.
+ */
+export function pathOnlyUrl(raw: string | null | undefined): string {
+  const url = parseHttpUrl(raw);
+  return url ? `${url.origin}${url.pathname}` : '';
+}

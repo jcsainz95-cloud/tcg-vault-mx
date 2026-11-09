@@ -16,6 +16,7 @@ import { MEASUREMENT_DISCLOSURE } from '@/content/legal/measurement-disclosure';
 import { config } from '@/lib/config';
 import { documentCookieJar, parseCookies, readFirstUtm, type ConsentChoice, type CookieJar } from './consent';
 import { getRuntimeConsent } from './track';
+import { isInternalTraffic } from './internal';
 
 export interface MeasurementInput {
   consent: { analytics: boolean; ads: boolean };
@@ -70,6 +71,7 @@ export function buildMeasurementInput(
 export function measurementForRequest(): MeasurementInput | undefined {
   if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE !== 'on') return undefined;
   if (typeof document === 'undefined') return undefined;
+  if (isInternalTraffic()) return undefined; // §MKT-V2 §4: tráfico propio, sin atribución
   // Viaja en el cuerpo de las peticiones de dinero: si algo de aquí lanza, la petición sale sin él (R1).
   try {
     return buildMeasurementInput(getRuntimeConsent(), MEASUREMENT_DISCLOSURE?.version ?? null, documentCookieJar());
@@ -93,6 +95,7 @@ export function sendBannerResponse(response: BannerResponse, utmMedium?: string)
   if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE !== 'on') return;
   // También en modo mocks: los E2E con `on` interceptan esta ruta y cuentan las llamadas (C-F13).
   if (typeof fetch === 'undefined') return;
+  if (isInternalTraffic()) return; // §MKT-V2 §4: tráfico propio, sin contador de banner
   try {
     void fetch(`${config.apiBaseUrl.replace(/\/+$/, '')}/measurement/banner-response`, {
       method: 'POST',

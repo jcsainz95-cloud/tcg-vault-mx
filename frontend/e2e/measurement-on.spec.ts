@@ -956,3 +956,33 @@ test.describe('L-9 · ficha en lg: el renglón de compra fuera del alcance del b
 function testInfo() {
   return test.info();
 }
+
+/**
+ * §MKT-V2 6.5 (N-1) y §4: la ficha abierta SIN elección no pierde su `view_item` al aceptar el banner; y un navegador
+ * marcado como propio (`?tcg_int=1`) no ve banner ni carga etiquetas.
+ */
+test.describe('MKT-V2 · view_item al aceptar y tráfico propio', () => {
+  const events = (page: Page) =>
+    page.evaluate(() =>
+      ((window as unknown as { dataLayer?: ArrayLike<unknown>[] }).dataLayer ?? []).filter((a) => a[0] === 'event').map((a) => String(a[1])),
+    );
+
+  test('ficha → aceptar ⇒ llega 1 view_item a GA4', async ({ page, context }) => {
+    const log = await setup(context);
+    await page.goto(await firstCardHref(page));
+    await expect(banner(page)).toBeVisible();
+    expect(log.measurement.some((m) => /gtag\/js/.test(m.url))).toBe(false); // nada antes de elegir
+    await banner(page).getByRole('button', { name: t('es', 'consent.accept') }).click();
+    await expect.poll(async () => (await events(page)).filter((e) => e === 'view_item').length).toBe(1);
+  });
+
+  test('?tcg_int=1 ⇒ sin banner y sin etiquetas, ni en la visita siguiente', async ({ page, context }) => {
+    const log = await setup(context);
+    await page.goto('/es/catalog?tcg_int=1');
+    await page.waitForLoadState('networkidle');
+    await expect(banner(page)).toHaveCount(0);
+    await page.goto('/es/catalog');
+    await expect(banner(page)).toHaveCount(0);
+    expect(log.measurement).toHaveLength(0);
+  });
+});

@@ -125,3 +125,12 @@ describe('C-F4 · isPixelSafeUrl / isPixelSafeDocument', () => {
     expect(isPixelSafeDocument('https://tcghunt.mx/es/catalog?q=pikachu', '')).toBe(false);
   });
 });
+
+describe('pathOnlyUrl (§MKT-V2 6.8, page_view de checkout)', () => {
+  it('deja origen + ruta: sin query (ni utm_*), sin hash', async () => {
+    const { pathOnlyUrl } = await import('./utm');
+    expect(pathOnlyUrl('https://tcghunt.mx/es/checkout?session_id=cs_1&utm_source=ig#pago')).toBe('https://tcghunt.mx/es/checkout');
+    expect(pathOnlyUrl('ftp://x/y')).toBe('');
+    expect(pathOnlyUrl('')).toBe('');
+  });
+});

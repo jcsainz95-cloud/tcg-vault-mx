@@ -27,6 +27,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { cn } from '@/lib/cn';
+import { track } from '@/lib/measurement/track';
+import { sendSearchMiss } from '@/lib/search-miss';
 import { CartAddedToast } from './CartAddedToast';
 import { CatalogTile } from './CatalogTile';
 import { CATALOG_EAGER_TILES } from '@/components/ui/CardImage';
@@ -260,6 +262,23 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
   );
   const hasFilters = activeChips.length > 0;
   const total = catalogQuery.data?.total ?? 0;
+  // §MKT-V2 6.4: búsqueda interna terminada (no la copia vieja que se muestra mientras llega la nueva). GA4/Meta solo
+  // reciben `results_count` (el término nunca sale); sin resultados, además se anota en c6 (`search-miss`, sin PII).
+  const searchedRef = useRef('');
+  const settledTotal = !catalogQuery.isPlaceholderData && !catalogQuery.isFetching && catalogQuery.data ? catalogQuery.data.total : null;
+  useEffect(() => {
+    const q = filters.q?.trim();
+    if (!q || settledTotal === null || sealedIntent) return;
+    const key = `${q.toLowerCase()}|${settledTotal}`;
+    if (searchedRef.current === key) return;
+    searchedRef.current = key;
+    track('search', { results_count: settledTotal });
+    // Solo es «falta en el catálogo» si la búsqueda iba sola: con otros filtros, 0 puede ser por el filtro.
+    const onlyTerm = !Object.entries(filters).some(
+      ([k, v]) => !['q', 'sort', 'page', 'pageSize'].includes(k) && v != null && v !== '' && !(Array.isArray(v) && v.length === 0),
+    );
+    if (settledTotal === 0 && onlyTerm) sendSearchMiss(q, 'card');
+  }, [filters, settledTotal, sealedIntent]);
   const page = filters.page ?? 1;
   const totalPages = Math.max(
     1,

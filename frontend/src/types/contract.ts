@@ -8689,8 +8689,8 @@ export interface WishlistDemandResponse {
 // Forma tomada SOLO de `API_CONTRACT §MKT.G.3/.5/.6` y `§MKT.E` (anotaciones). Aditivo.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** Lista blanca de pantallas (§MKT.E `pantalla`). */
-export type MarketingScreen = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h';
+/** Lista blanca de pantallas (§MKT.E `pantalla`; §MKT-V2: `r` = Resumen). */
+export type MarketingScreen = 'r' | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h';
 export type MarketingAnnotationKind = 'promocion' | 'despliegue' | 'evento';
 export type MarketingTableSource = 'BD' | 'GA4' | 'SC' | 'Srv' | 'mixed';
 export type MarketingColumnKind = 'text' | 'count' | 'money' | 'pct' | 'number';
