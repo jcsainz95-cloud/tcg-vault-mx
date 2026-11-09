@@ -139,7 +139,14 @@ export class TcgcsvSetImportService {
   }
 
   /** POST /admin/catalog/import-tcgcsv-set — todo-o-nada, idempotente; un segundo import simultáneo ⇒ 409 inmediato. */
-  async importGroup(groupId: number, actor?: { id: string; role: Role }): Promise<TcgcsvImportResult> {
+  async importGroup(
+    groupId: number,
+    actor?: { id: string; role: Role } | { kind: 'system'; job: string; jobId?: string; attempt?: number },
+  ): Promise<TcgcsvImportResult> {
+    // AUTO (docs/specs/AUTO_CATALOGO.md §A): el actor `system` solo lo construye el job; sin rol, SOLO sobre la lista explicita
+    // (la guardia de arriba ya rechaza grupos fuera de ella). La auditoria no lleva usuario y marca `metadata.actor='system'`.
+    const sys = actor && 'kind' in actor ? actor : null;
+    const human = actor && !('kind' in actor) ? actor : undefined;
     const entry = findImportableGroup(groupId);
     if (!entry) {
       throw new BusinessException(
@@ -184,8 +191,8 @@ export class TcgcsvSetImportService {
         // La bitácora participa del MISMO commit/rollback que el import.
         await this.audit?.log(
           {
-            actorUserId: actor?.id,
-            actorRole: actor?.role,
+            actorUserId: human?.id,
+            actorRole: human?.role,
             action: 'catalog.tcgcsv_import',
             entityType: 'CardSet',
             entityId: res.setId,
@@ -196,6 +203,9 @@ export class TcgcsvSetImportService {
               stamped: res.stamped,
               noPrice: res.noPrice,
               skipped: res.skipped.length,
+              ...(sys
+                ? { metadata: { actor: 'system', job: sys.job, jobId: sys.jobId ?? null, attempt: sys.attempt ?? null, groupId, status: res.created > 0 ? 'imported' : 'updated', created: res.created, updated: res.updated } }
+                : {}),
             },
           },
           tx,

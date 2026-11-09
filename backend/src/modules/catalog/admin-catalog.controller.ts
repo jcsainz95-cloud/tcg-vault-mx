@@ -220,7 +220,7 @@ export class AdminCatalogController {
     @CurrentUser() user: { id: string; role: Role },
   ) {
     const force = parseForce(dto.force, queryForce);
-    const res = await this.sync.syncAll({ force });
+    const res = await this.sync.syncAll({ force, actor: { kind: 'user', id: user.id, role: user.role } });
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
