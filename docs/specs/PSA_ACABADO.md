@@ -41,3 +41,6 @@ PSA-B1 Gengar #50 con `per_finish` ⇒ dos filas con cifras distintas; B2 `card_
 
 ## 7. Riesgos
 Si el proveedor es `card_level` (probable por el diagnóstico), la mayoría de cartas multi-acabado quedará «sin estimado» hasta captura manual: el volumen de «Joyas para gradear» baja. Es el costo de no inventar cifras (decisión del dueño). Créditos del barrido: no suben (la misma llamada por carta). Concurrencia: el barrido ya es de un solo vuelo; el borrado de filas viejas y la escritura nueva van en la misma transacción `Serializable` con reintento.
+
+## 8. Regla de PROJECT.md §PSA-ACABADO (texto movido tal cual)
+§PSA-ACABADO (HECHOS 2026-11-09, «B precios PSA»; dinero): el estimado «si se gradea» es por carta, grado y ACABADO; un acabado nunca hereda la cifra de otro. Proveedor sin separación por acabado ⇒ solo cartas de acabado único; las demás «sin estimado». Cifras viejas automáticas no se leen. Se recalcula solo en el siguiente `price-ingest`. Criterios: Gengar Perfect Order #50 holo y reverse no repiten cifra; tope ×raw contra el raw del MISMO acabado; 0 precios de venta movidos; gates qa + seguridad-lead.

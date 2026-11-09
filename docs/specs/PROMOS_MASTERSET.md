@@ -42,3 +42,6 @@ Apartado: PMS-B11 agregar promos a la expansión NO cambia `completedCount`, `to
 
 ## 6. Riesgos
 Re-sync de 6 sets en cada «Importar sets nuevos» alarga el barrido (NO MEDIDO: segundos por set). Sello nuevo sigue omitiéndose y reportándose (`unknown_stamp`). F1 queda desactualizada si sale una expansión sin que se agregue su fila (efecto: apartado incompleto, nunca precio mal puesto). Riesgo de dinero bajo: el apartado no altera valor ni precios.
+
+## 7. Regla de PROJECT.md §PROMOS-MASTERSET (texto movido tal cual)
+§PROMOS-MASTERSET (HECHOS 2026-11-09): (a) «Importar sets nuevos»/«Sincronizar todo» (y el job diario) incluyen siempre las 6 promos viejas y los grupos TCGCSV (semilla + descubiertos); pokemontcg.io caído ⇒ nada se escribe. (b) Bajo el Master Set de cada expansión, un apartado «Promos de la colección» (tienda, M1, bóveda) con su propio «x de y» (dueño 2026-11-09: sí), aparte y nunca sumado al Master Set (conteo, %, valor intactos). La liga promo→expansión se INFIERE sola (§AUTO); sin tabla manual. Criterios: promo fuera del corte entra; 2.ª corrida ⇒ 0 duplicados; grupo cubierto ⇒ no es error; gates qa + seguridad-lead.
