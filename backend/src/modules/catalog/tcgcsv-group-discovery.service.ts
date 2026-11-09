@@ -7,7 +7,9 @@ import { AuditService } from '../audit/audit.service';
 import { normalizeCardNumber } from './card-product-resolver.service';
 import { tcgcsvSetExternalId } from './tcgcsv-card-name';
 import { TCGCSV_IMPORTABLE_GROUPS } from './tcgcsv-importable-groups';
-import { evaluateDiscoveryGroup, isRenewedPublishedOn, MAX_NEW_GROUPS_PER_RUN, PROMO_NAME_PATTERN } from './tcgcsv-group-discovery';
+import { PokemonTcgIoClient } from './pokemontcg-io.client';
+import { parseTcgcsvCardName } from './tcgcsv-card-name';
+import { evaluateDiscoveryGroup, isLivePromoSet, isRenewedPublishedOn, MAX_NEW_GROUPS_PER_RUN, PROMO_NAME_PATTERN } from './tcgcsv-group-discovery';
 
 export interface DiscoveryRun {
   /** grupos elegibles a importar en ESTA corrida (tope de nuevos ya aplicado), sin la semilla. */
@@ -30,10 +32,51 @@ export class TcgcsvGroupDiscoveryService {
     private readonly tcgcsv: TcgcsvCatalogClient,
     @Optional() private readonly audit?: AuditService,
     @Optional() private readonly autoState?: CatalogAutoStateService,
+    @Optional() private readonly ptcg?: PokemonTcgIoClient,
   ) {}
 
+  /** Tope por set promo vivo: 6 paginas de 250 (1500 cartas); mas => ilegible (fail-closed). Cache: una corrida (se vacia en `discover`/`evaluate`). */
+  private static readonly LIVE_MAX_PAGES = 6;
+  private liveCache = new Map<string, Promise<Set<string> | null>>();
+
+  private static numKey(raw: string | null | undefined): string {
+    const n = normalizeCardNumber(raw ?? '');
+    return n.replace(/^[A-Z]+(?=\d)/, '').replace(/^0+(?=\d)/, '');
+  }
+  private static cardKey(name: string, number: string | null | undefined): string {
+    return `${normalizeMatchText(name)}|${TcgcsvGroupDiscoveryService.numKey(number)}`;
+  }
+
+  /** (nombre+numero) de las cartas VIVAS de un set de pokemontcg.io; `null` = ilegible (error, tope, vacio, sin cliente). */
+  private liveKeys(setId: string): Promise<Set<string> | null> {
+    let p = this.liveCache.get(setId);
+    if (!p) {
+      p = (async () => {
+        if (!this.ptcg) return null;
+        try {
+          const keys = new Set<string>();
+          const first = await this.ptcg.getCardsBySet(setId, 1, 250);
+          if (!first.data || first.data.length === 0) return null;
+          const size = first.pageSize || 250;
+          const pages = Math.max(1, Math.ceil(first.totalCount / size));
+          if (pages > TcgcsvGroupDiscoveryService.LIVE_MAX_PAGES) return null;
+          const all = [...first.data];
+          for (let page = 2; page <= pages; page++) all.push(...((await this.ptcg.getCardsBySet(setId, page, size)).data ?? []));
+          for (const c of all) keys.add(TcgcsvGroupDiscoveryService.cardKey(c.name, c.number));
+          return keys;
+        } catch (e) {
+          this.logger.warn(`discovery: cartas vivas de ${setId} ilegibles (${(e as Error).message}).`);
+          return null;
+        }
+      })();
+      this.liveCache.set(setId, p);
+    }
+    return p;
+  }
+
   /** `evaluate(groupId)` del contrato: veredicto de UN grupo contra la lista viva. */
-  async evaluate(groupId: number, liveSets: { id: string; name: string }[], now = new Date()) {
+  async evaluate(groupId: number, liveSets: { id: string; name: string; series?: string }[], now = new Date()) {
+    this.liveCache = new Map();
     const groups = await this.tcgcsv.listGroups();
     const firstSeen = await this.seen(groups, now);
     const group = groups.find((g) => g.groupId === groupId);
@@ -41,13 +84,15 @@ export class TcgcsvGroupDiscoveryService {
     return this.evaluateGroup(group, liveSets, now, firstSeen);
   }
 
-  private async evaluateGroup(group: { groupId: number; name: string; publishedOn?: string }, liveSets: { id: string; name: string }[], now: Date, firstSeen?: Record<string, string>) {
+  private async evaluateGroup(group: { groupId: number; name: string; publishedOn?: string }, liveSets: { id: string; name: string; series?: string }[], now: Date, firstSeen?: Record<string, string>) {
     const products = await this.tcgcsv.getCardProducts(group.groupId);
+    const live = await this.maxContentMatch(products, liveSets);
     return evaluateDiscoveryGroup({
       group,
       products: products.map((p) => ({ name: p.name, number: p.number })),
       liveSets,
-      maxContentMatch: await this.maxContentMatch(products),
+      maxContentMatch: live.best,
+      liveUnverifiable: live.unverifiable,
       now,
       firstSeenAt: firstSeen?.[String(group.groupId)] ?? null,
     });
@@ -64,32 +109,34 @@ export class TcgcsvGroupDiscoveryService {
     }
   }
 
-  /** Mayor fraccion de productos que coincide (nombre+numero) con las cartas de UN mismo set local no-TCGCSV. */
-  private async maxContentMatch(products: { name: string; number: string | null }[]): Promise<number> {
+  /**
+   * Mayor fraccion de productos con numero cuyo (nombre+numero) coincide con las cartas VIVAS de UN set promo de pokemontcg.io
+   * (NO con lo importado en local). Algun set promo ilegible => `unverifiable` (fail-closed, nunca se infiere «sin equivalente»).
+   */
+  private async maxContentMatch(products: { name: string; number: string | null }[], liveSets: { id: string; name: string; series?: string }[]): Promise<{ best: number; unverifiable: boolean }> {
     const numbered = products.filter((p) => (p.number ?? '').trim() !== '');
-    if (numbered.length === 0) return 0;
-    const cards = await this.prisma.card.findMany({
-      where: { name: { in: [...new Set(numbered.map((p) => p.name))].slice(0, 800) }, NOT: { set: { externalId: { startsWith: 'tcgcsv:' } } } },
-      select: { name: true, number: true, setId: true },
+    if (numbered.length === 0) return { best: 0, unverifiable: false };
+    const keys = numbered.map((p) => {
+      const parsed = parseTcgcsvCardName(p.name, p.number);
+      return TcgcsvGroupDiscoveryService.cardKey(parsed.ok ? parsed.name : p.name, p.number);
     });
-    const bySet = new Map<string, Set<string>>();
-    for (const c of cards) {
-      const k = `${normalizeMatchText(c.name)}|${normalizeCardNumber(c.number)}`;
-      const s = bySet.get(c.setId) ?? new Set<string>();
-      s.add(k);
-      bySet.set(c.setId, s);
-    }
     let best = 0;
-    for (const keys of bySet.values()) {
-      const hit = numbered.filter((p) => keys.has(`${normalizeMatchText(p.name)}|${normalizeCardNumber(p.number ?? '')}`)).length;
-      best = Math.max(best, hit / numbered.length);
+    let unverifiable = false;
+    for (const set of liveSets.filter(isLivePromoSet)) {
+      const live = await this.liveKeys(set.id);
+      if (!live) {
+        unverifiable = true;
+        continue;
+      }
+      best = Math.max(best, keys.filter((k) => live.has(k)).length / numbered.length);
     }
-    return best;
+    return { best, unverifiable };
   }
 
-  async discover(liveSets: { id: string; name: string }[], now = new Date()): Promise<DiscoveryRun> {
+  async discover(liveSets: { id: string; name: string; series?: string }[], now = new Date()): Promise<DiscoveryRun> {
     const run: DiscoveryRun = { eligible: [], quarantined: [], summary: { scanned: 0, eligible: 0, quarantined: 0, ignored: 0 } };
     if (!Array.isArray(liveSets) || liveSets.length === 0) return run; // fail-closed
+    this.liveCache = new Map();
     const groups = await this.tcgcsv.listGroups();
     run.summary.scanned = groups.length;
     const firstSeen = await this.seen(groups, now);
@@ -103,6 +150,7 @@ export class TcgcsvGroupDiscoveryService {
         if (r.verdict === 'eligible') eligibleAll.push({ groupId: g.groupId, name: g.name });
         else if (r.verdict === 'quarantine') {
           run.quarantined.push({ groupId: g.groupId, name: g.name, reasons: r.reasons });
+          if (r.reasons.length === 1 && r.reasons[0] === 'live_unverifiable') continue; // transitorio: se reporta, no se audita
           await this.auditQuarantine(g.groupId, g.name, r.reasons);
         } else run.summary.ignored += 1;
       } catch (e) {

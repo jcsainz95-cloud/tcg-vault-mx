@@ -29,6 +29,8 @@ export interface DiscoveryInput {
   liveSets: { id: string; name: string }[];
   /** Mayor fraccion (0..1) de productos del grupo cuyo (nombre+numero) coincide con UN mismo set ya conocido. */
   maxContentMatch: number;
+  /** Cartas de algun set promo VIVO ilegibles (error/tope/sin cliente): fail-closed, el grupo no es elegible esa corrida. */
+  liveUnverifiable?: boolean;
   now: Date;
   /** Primera vez que NOSOTROS vimos el grupo (persistida). Solo se usa si `publishedOn` es una marca renovada (no estable). */
   firstSeenAt?: string | null;
@@ -42,6 +44,16 @@ export interface DiscoveryInput {
  */
 export function isRenewedPublishedOn(publishedOn: string | null | undefined): boolean {
   return !!publishedOn && !/T00:00:00(\.0+)?Z?$/.test(publishedOn);
+}
+
+/** Tokens que NO distinguen un set promo (spec §F.4): «Nintendo Promos» ≡ «Nintendo Black Star Promos». */
+const PROMO_NOISE = /\b(?:black star|promos|promo|set|tcg|pokemon)\b/g;
+export function normalizePromoName(name: string | null | undefined): string {
+  return normalizeMatchText(name ?? '').replace(PROMO_NOISE, ' ').replace(/\s+/g, ' ').trim();
+}
+/** Set VIVO de pokemontcg.io que es de promos (nombre/serie promo o fila de la tabla de promos viejas). */
+export function isLivePromoSet(s: { id: string; name: string; series?: string }): boolean {
+  return PROMO_NAME_PATTERN.test(s.name ?? '') || /promo/i.test(s.series ?? '') || PTCG_PROMO_GROUPS.some((g) => g.ptcgSetId === s.id);
 }
 
 const SEALED_NAME = /booster|\bbox\b|\bpack\b|\btin\b|bundle|collection|deck|case|display|blister|elite trainer/i;
@@ -62,10 +74,11 @@ export function evaluateDiscoveryGroup(i: DiscoveryInput): DiscoveryResult {
   if (ratio < NUMBER_RATIO_GRAY) return { verdict: 'ignore', reasons: ['numbered_ratio_low'] };
   if (ratio < NUMBER_RATIO_ELIGIBLE) reasons.push('numbered_ratio_gray');
   // 4. sin equivalente vivo.
-  const norm = normalizeMatchText(name);
+  const norm = normalizePromoName(name);
   const oldPromoIds = new Set(PTCG_PROMO_GROUPS.map((g) => g.groupId));
   if (oldPromoIds.has(i.group.groupId)) return { verdict: 'ignore', reasons: ['covered_by_old_promo_group'] };
-  if (i.liveSets.some((s) => s.name != null && normalizeMatchText(s.name) === norm)) return { verdict: 'ignore', reasons: ['live_equivalent_by_name'] };
+  if (norm !== '' && i.liveSets.some((s) => s.name != null && normalizePromoName(s.name) === norm)) return { verdict: 'ignore', reasons: ['live_equivalent_by_name'] };
+  if (i.liveUnverifiable) return { verdict: 'quarantine', reasons: ['live_unverifiable'] };
   if (i.maxContentMatch >= CONTENT_MATCH_EQUIVALENT) return { verdict: 'ignore', reasons: ['live_equivalent_by_content'] };
   if (i.maxContentMatch >= CONTENT_MATCH_ELIGIBLE_MAX) reasons.push('content_match_gray');
   // 5. estable: publishedOn con >= 7 dias.

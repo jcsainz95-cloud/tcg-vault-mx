@@ -5,7 +5,7 @@ import { normalizeMatchText } from '../../common/card-version';
  * AUTO-B (docs/specs/AUTO_CATALOGO.md §B) - liga INFERIDA promo -> expansion. Funciones PURAS y deterministas.
  *  Senal 1 (misma carta): clave exacta de contenido = nombre + HP + conjunto de ataques/habilidades (entrenador/energia: nombre + hash del texto).
  *  Senal 2 (ventana): [min productId de la expansion X, min de la siguiente) - hipotesis NO MEDIDA; sola NUNCA da `high`.
- * `high` = senal 1 con UN candidato, o varios y exactamente uno dentro de la ventana. `low` = solo ventana, o varios sin desempate.
+ * `high` = contenido Y ventana coinciden en la MISMA expansion (unica con ventana coincidente). `low` = contenido solo, ventana sola o contradiccion (evidence registra ambas).
  */
 export interface ContentKeyInput {
   name: string;
@@ -49,7 +49,7 @@ export interface LinkResult {
   promoCardId: string;
   expansionSetId: string;
   confidence: 'high' | 'low';
-  evidence: { signal: 'content' | 'window'; candidates?: number; windowOk?: boolean };
+  evidence: { signal: 'content' | 'window'; candidates?: number; windowOk?: boolean; contentSets?: string[]; windowSets?: string[] };
 }
 
 /** Ventanas [min, siguiente min) por expansion, a partir del minimo productId de cada una. */
@@ -80,20 +80,31 @@ export function inferPromoLinks(input: {
   for (const p of [...input.promos].sort((a, b) => a.cardId.localeCompare(b.cardId))) {
     const cands = p.contentKey ? [...(setsByKey.get(p.contentKey) ?? [])].sort() : [];
     const winSets = p.productId != null ? [...windows.keys()].filter((id) => inWindow(p.productId!, windows.get(id))).sort() : [];
-    if (cands.length === 1) {
-      out.push({ promoCardId: p.cardId, expansionSetId: cands[0], confidence: 'high', evidence: { signal: 'content', candidates: 1, windowOk: winSets.includes(cands[0]) } });
-    } else if (cands.length > 1) {
+    const evidence = (signal: 'content' | 'window') => ({ signal, candidates: cands.length, contentSets: cands, windowSets: winSets, windowOk: cands.some((id) => winSets.includes(id)) });
+    if (cands.length > 0) {
+      // `high` SOLO si contenido Y ventana coinciden en la MISMA expansion y es la unica con ventana coincidente.
       const inside = cands.filter((id) => winSets.includes(id));
-      if (inside.length === 1) {
-        out.push({ promoCardId: p.cardId, expansionSetId: inside[0], confidence: 'high', evidence: { signal: 'content', candidates: cands.length, windowOk: true } });
-      } else {
-        // sin desempate: la candidata mas reciente por ventana NO se adivina; se deja en `low` con la primera en orden estable.
-        out.push({ promoCardId: p.cardId, expansionSetId: cands[0], confidence: 'low', evidence: { signal: 'content', candidates: cands.length, windowOk: false } });
-      }
+      if (inside.length === 1) out.push({ promoCardId: p.cardId, expansionSetId: inside[0], confidence: 'high', evidence: evidence('content') });
+      else out.push({ promoCardId: p.cardId, expansionSetId: cands[0], confidence: 'low', evidence: evidence('content') });
     } else if (winSets.length === 1) {
-      out.push({ promoCardId: p.cardId, expansionSetId: winSets[0], confidence: 'low', evidence: { signal: 'window', windowOk: true } });
+      out.push({ promoCardId: p.cardId, expansionSetId: winSets[0], confidence: 'low', evidence: evidence('window') });
     }
     // sin senal => sin fila
   }
   return out;
+}
+
+/**
+ * Compuerta del apartado «Promos de la colección» (spec AUTO_CATALOGO §B/§F): el apartado Black Star NO se publica hasta que haya
+ * medicion con >=30 promos y >=2 expansiones, cada una al 100 % de precision en sus `high`. Los sellos (Prerelease/Staff...) no dependen de ella.
+ */
+export const BLACK_STAR_GATE_MIN_PROMOS = 30;
+export const BLACK_STAR_GATE_MIN_EXPANSIONS = 2;
+/** Medicion vigente: NO alcanzada (solo fixture parcial N=7, 1 expansion). Subirla a `true` exige que `evaluateBlackStarGate` lo confirme con fixtures reales (prueba la vigila). */
+export const BLACK_STAR_GATE_PASSED = false;
+export interface GateMeasurement { expansion: string; promos: number; high: number; highWrong: number }
+export function evaluateBlackStarGate(ms: readonly GateMeasurement[]): boolean {
+  const perfect = ms.filter((m) => m.high > 0 && m.highWrong === 0);
+  const total = ms.reduce((a, m) => a + m.promos, 0);
+  return ms.every((m) => m.highWrong === 0) && perfect.length >= BLACK_STAR_GATE_MIN_EXPANSIONS && total >= BLACK_STAR_GATE_MIN_PROMOS;
 }

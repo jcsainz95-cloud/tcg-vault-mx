@@ -346,6 +346,7 @@ describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canó
     'MetaDeckSource',
     'MetaCardGroup',
     'MetaMatchStatus',
+    'PromoLinkConfidence', // enum aditivo v2, documentado en AUTO_CATALOGO §B
   ];
   const SCHEMA = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
   const CONTRACT = readFileSync(join(__dirname, '..', '..', 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');

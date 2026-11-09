@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { buildWindows, contentKeyOf, inferPromoLinks } from '../src/modules/catalog/promo-collection-link';
+import { BLACK_STAR_GATE_PASSED, buildWindows, contentKeyOf, evaluateBlackStarGate, inferPromoLinks } from '../src/modules/catalog/promo-collection-link';
 
 /** AUTO-B (docs/specs/AUTO_CATALOGO.md §B): B1-B5, B8 y el criterio medible contra la lista humana (si existe el fixture). */
 const mins = (o: Record<string, number>) => new Map(Object.entries(o));
@@ -31,9 +31,29 @@ describe('contentKeyOf', () => {
 
 describe('inferPromoLinks', () => {
   const windows = mins({ pe: 1000, ssp: 2000 }); // pe: [1000,2000), ssp: [2000,∞)
-  it('B1 coincidencia unica ⇒ high', () => {
-    const r = inferPromoLinks({ promos: [promo('p1', 'K1')], expansionCards: [{ setId: 'pe', contentKey: 'K1' }], minProductIdBySet: windows });
+  it('B1 contenido en E y productId en la ventana de E ⇒ high', () => {
+    const r = inferPromoLinks({ promos: [promo('p1', 'K1', 1500)], expansionCards: [{ setId: 'pe', contentKey: 'K1' }], minProductIdBySet: windows });
     expect(r).toEqual([expect.objectContaining({ promoCardId: 'p1', expansionSetId: 'pe', confidence: 'high' })]);
+  });
+  it('B1b candidato unico en E pero productId en la ventana de OTRA expansion ⇒ low (regresion Sylveon)', () => {
+    const r = inferPromoLinks({ promos: [promo('p1', 'K1', 1500)], expansionCards: [{ setId: 'ssp', contentKey: 'K1' }], minProductIdBySet: windows });
+    expect(r[0]).toMatchObject({ expansionSetId: 'ssp', confidence: 'low', evidence: { contentSets: ['ssp'], windowSets: ['pe'], windowOk: false } });
+  });
+  it('B4b contenido sin productId (o expansion sin ventana) ⇒ low', () => {
+    expect(inferPromoLinks({ promos: [promo('p1', 'K1', null)], expansionCards: [{ setId: 'pe', contentKey: 'K1' }], minProductIdBySet: windows })[0].confidence).toBe('low');
+    expect(inferPromoLinks({ promos: [promo('p1', 'K1', 1500)], expansionCards: [{ setId: 'pe', contentKey: 'K1' }], minProductIdBySet: new Map() })[0].confidence).toBe('low');
+  });
+  it('B4c ventana de E sin productId de la promo ⇒ low o sin fila, nunca high', () => {
+    const r = inferPromoLinks({ promos: [promo('p1', null, null)], expansionCards: [], minProductIdBySet: windows });
+    expect(r).toEqual([]);
+  });
+  it('compuerta Black Star: >=30 promos y >=2 expansiones al 100 %; hoy cerrada', () => {
+    const m = (expansion: string, promos: number, highWrong = 0) => ({ expansion, promos, high: 5, highWrong });
+    expect(evaluateBlackStarGate([m('pe', 7)])).toBe(false);
+    expect(evaluateBlackStarGate([m('pe', 40)])).toBe(false);
+    expect(evaluateBlackStarGate([m('pe', 20), m('ssp', 15, 1)])).toBe(false);
+    expect(evaluateBlackStarGate([m('pe', 20), m('ssp', 15)])).toBe(true);
+    expect(BLACK_STAR_GATE_PASSED).toBe(false);
   });
   it('B2 coincidencia en 2 expansiones y la ventana desempata ⇒ high', () => {
     const r = inferPromoLinks({
@@ -59,15 +79,16 @@ describe('inferPromoLinks', () => {
     expect(inferPromoLinks({ promos: [promo('p1', 'KX')], expansionCards: [{ setId: 'pe', contentKey: 'K1' }], minProductIdBySet: windows })).toEqual([]);
   });
   it('B6 determinista: mismo input, mismo resultado, sin importar el orden', () => {
-    const input = { promos: [promo('b', 'K1'), promo('a', 'K2')], expansionCards: [{ setId: 'pe', contentKey: 'K1' }, { setId: 'ssp', contentKey: 'K2' }], minProductIdBySet: windows };
+    const input = { promos: [promo('b', 'K1', 1500), promo('a', 'K2', 2500)], expansionCards: [{ setId: 'pe', contentKey: 'K1' }, { setId: 'ssp', contentKey: 'K2' }], minProductIdBySet: windows };
     const rev = { ...input, promos: [...input.promos].reverse() };
     expect(inferPromoLinks(rev)).toEqual(inferPromoLinks(input));
   });
   it('B8 aparece la expansion que faltaba ⇒ un low sube a high sin intervencion', () => {
-    const before = inferPromoLinks({ promos: [promo('p1', 'K1', 5)], expansionCards: [{ setId: 'a', contentKey: 'K1' }, { setId: 'b', contentKey: 'K1' }], minProductIdBySet: windows });
+    const w = mins({ a: 1, b: 2, pe: 1000 });
+    const before = inferPromoLinks({ promos: [promo('p1', 'K1', 1500)], expansionCards: [{ setId: 'a', contentKey: 'K1' }, { setId: 'b', contentKey: 'K1' }], minProductIdBySet: w });
     expect(before[0].confidence).toBe('low');
-    const after = inferPromoLinks({ promos: [promo('p1', 'K1', 5)], expansionCards: [{ setId: 'a', contentKey: 'K1' }], minProductIdBySet: windows });
-    expect(after[0].confidence).toBe('high');
+    const after = inferPromoLinks({ promos: [promo('p1', 'K1', 1500)], expansionCards: [{ setId: 'a', contentKey: 'K1' }, { setId: 'pe', contentKey: 'K1' }], minProductIdBySet: w });
+    expect(after[0]).toMatchObject({ expansionSetId: 'pe', confidence: 'high' });
   });
   it('buildWindows: [min X, min siguiente)', () => {
     expect(buildWindows(mins({ b: 20, a: 10 }))).toEqual(new Map([['a', { from: 10, to: 20 }], ['b', { from: 20, to: null }]]));
@@ -90,9 +111,8 @@ const FIX = path.join(__dirname, 'fixtures', 'promo-links', 'prismatic-evolution
     const inWin = f.promos.filter((p: { productId: number }) => win && p.productId >= win.from && (win.to == null || p.productId < win.to)).length;
     // eslint-disable-next-line no-console
     console.log(`PE (${f.provenance ? 'parcial N=' + f.promos.length : 'completa'}): precision high=${high.length - wrong.length}/${high.length}, cobertura=${high.length - wrong.length}/${f.promos.length}, ventana productId=${inWin}/${f.promos.length}`);
-    // HALLAZGO MEDIDO 2026-11-09 (referencia parcial N=7): svp-172 Sylveon tiene UN solo candidato por contenido (sv6pt5, misma carta
-    // impresa alli) => `high` en sv6pt5, y la referencia del orquestador dice PE. Precision real 5/6. NO se cambia la regla (spec AUTO_CATALOGO
-    // §B es del arquitecto): se fija aqui la divergencia conocida para que cualquier OTRO error siga en rojo.
-    expect(wrong.map((w) => w.promoCardId)).toEqual(f.provenance ? ['svp-172'] : []);
+    // Regla v2 (contenido Y ventana): svp-172 Sylveon (contenido sv6pt5, productId en ventana PE) pasa a low; 0 falsas `high`.
+    expect(wrong).toEqual([]);
+    expect(out.find((l) => l.promoCardId === 'svp-172')?.confidence).toBe('low');
   });
 });

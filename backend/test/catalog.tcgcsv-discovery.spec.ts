@@ -1,4 +1,4 @@
-import { evaluateDiscoveryGroup, MAX_NEW_GROUPS_PER_RUN } from '../src/modules/catalog/tcgcsv-group-discovery';
+import { evaluateDiscoveryGroup, MAX_NEW_GROUPS_PER_RUN, normalizePromoName } from '../src/modules/catalog/tcgcsv-group-discovery';
 import { TcgcsvGroupDiscoveryService } from '../src/modules/catalog/tcgcsv-group-discovery.service';
 
 /** AUTO-F (docs/specs/AUTO_CATALOGO.md §F). Casos tomados de la medicion real de la categoria 3 (2026-11-09). */
@@ -120,5 +120,54 @@ describe('TcgcsvGroupDiscoveryService.discover', () => {
     const b = svc({ groups, products, audited: true });
     await b.s.discover(LIVE, NOW);
     expect(b.audit.log).not.toHaveBeenCalled();
+  });
+});
+
+describe('AUTO-F cond. 4: contra cartas VIVAS de pokemontcg.io (F11-F13)', () => {
+  const NP = { id: 'np', name: 'Nintendo Black Star Promos' };
+  const live = (data: Record<string, any>) => ({
+    getCardsBySet: jest.fn(async (id: string) => {
+      const d = data[id];
+      if (d instanceof Error) throw d;
+      return { data: d, page: 1, pageSize: 250, count: d.length, totalCount: d.length };
+    }),
+  });
+  const npCards = Array.from({ length: 30 }, (_, i) => ({ name: `Card ${i}`, number: String(i + 1) }));
+  const mk = (ptcg: unknown) => {
+    const tcgcsv = { listGroups: jest.fn(async () => [grp(1423, 'Nintendo Promos')]), getCardProducts: jest.fn(async () => prods(30)) };
+    const prisma: any = { card: { findMany: jest.fn(async () => []) }, cardSet: { findMany: jest.fn(async () => []) }, auditLog: { findFirst: jest.fn(async () => null) } };
+    return { s: new TcgcsvGroupDiscoveryService(prisma, tcgcsv as any, { log: jest.fn() } as any, undefined, ptcg as any), prisma };
+  };
+  it('F12 «Nintendo Promos» ≡ «Nintendo Black Star Promos»', () => {
+    expect(normalizePromoName('Nintendo Promos')).toBe('nintendo');
+    expect(normalizePromoName('Nintendo Black Star Promos')).toBe('nintendo');
+    expect(evaluateDiscoveryGroup(base('Nintendo Promos', { liveSets: [NP] }))).toEqual({ verdict: 'ignore', reasons: ['live_equivalent_by_name'] });
+  });
+  it('F11 np vivo en pokemontcg.io y NO importado local ⇒ covered por contenido, 0 elegibles (regresion del duplicado)', async () => {
+    const { s, prisma } = mk(live({ np: npCards }));
+    const r = await s.discover([{ id: 'np', name: 'NP Black Star Promos' }], NOW);
+    expect(r.eligible).toEqual([]);
+    expect(r.quarantined).toEqual([]);
+    expect(prisma.card.findMany).not.toHaveBeenCalled(); // NO usa lo local
+  });
+  it('sin coincidencia con el set vivo legible ⇒ elegible', async () => {
+    const { s } = mk(live({ np: [{ name: 'Otra', number: '999' }] }));
+    const r = await s.discover([{ id: 'np', name: 'NP Black Star Promos' }], NOW);
+    expect(r.eligible.map((g) => g.groupId)).toEqual([1423]);
+  });
+  it('F13 cartas de un set promo vivo ilegibles (error / vacio / sin cliente) ⇒ 0 elegibles, live_unverifiable', async () => {
+    for (const ptcg of [live({ np: new Error('429') }), live({ np: [] }), undefined]) {
+      const { s } = mk(ptcg);
+      const r = await s.discover([{ id: 'np', name: 'NP Black Star Promos' }], NOW);
+      expect(r.eligible).toEqual([]);
+      expect(r.quarantined[0].reasons).toEqual(['live_unverifiable']);
+    }
+  });
+  it('un set vivo que no es de promos no se lee', async () => {
+    const p = live({});
+    const { s } = mk(p);
+    const r = await s.discover(LIVE, NOW);
+    expect(p.getCardsBySet).not.toHaveBeenCalled();
+    expect(r.eligible.map((g) => g.groupId)).toEqual([1423]);
   });
 });

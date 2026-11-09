@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { inferPromoLinks } from './promo-collection-link';
+import { BLACK_STAR_GATE_PASSED, inferPromoLinks } from './promo-collection-link';
 import { PTCG_PROMO_GROUPS } from './promo-set-groups';
 
 /** Candado consultivo del recalculo de la liga (un solo escritor; sin espera). Valor propio en el censo de claves. */
@@ -85,7 +85,9 @@ export class PromoCollectionLinkService {
   async collectionPromos(
     expansionSetIds: string[],
     ownedCardIds?: ReadonlySet<string>,
+    opts?: { gateOpen?: boolean },
   ): Promise<{ items: { cardId: string; number: string; name: string; rarity?: string; imageSmallUrl?: string }[]; total: number; owned?: number } | null> {
+    if (!(opts?.gateOpen ?? BLACK_STAR_GATE_PASSED)) return null; // compuerta Black Star (spec §B): sin medicion >=30 promos y >=2 expansiones al 100 % no se publica
     const rows = await this.prisma.promoCollectionLink.findMany({
       where: { expansionSetId: { in: expansionSetIds }, confidence: 'high' },
       select: { promoCard: { select: { id: true, number: true, name: true, rarity: true, imageSmallUrl: true, numberSort: true } } },
