@@ -980,6 +980,11 @@ export interface GradedEstimateDTO {
   /** "10" | "9" hoy; STRING abierto en el tipo (dial del servidor, no del cliente). */
   gradeValue: string;
   gradeKey: string;
+  /**
+   * §PSA-ACABADO (contrato §4): el estimado es POR ACABADO. Un acabado sin estimado no trae entrada;
+   * jamás se muestra la cifra de otro acabado.
+   */
+  finish: Finish;
   estimate: PriceInfo;
 }
 
@@ -6213,6 +6218,34 @@ export interface CatalogSyncSummary {
   setsSkippedUnknownDate: number;
   /** un renglón por set fallido; `code: null` si el fallo no traía código (§M2-CS.0). */
   failures: RefreshVariantsAllFailure[];
+  /** §PROMOS-MASTERSET (contrato §5): promos que el barrido trae siempre. Ausente en backends previos. */
+  promos?: CatalogSyncPromos;
+}
+
+export type PromoSetStatus = 'created' | 'updated' | 'unchanged' | 'missing_remote' | 'error';
+export type PromoTcgcsvStatus =
+  | 'imported'
+  | 'updated'
+  | 'covered'
+  | 'busy'
+  | 'skipped_needs_super_admin'
+  | 'error';
+export interface CatalogSyncPromos {
+  sets: { setId: string; status: PromoSetStatus }[];
+  tcgcsv: {
+    groupId: number | string;
+    status: PromoTcgcsvStatus;
+    created: number;
+    updated: number;
+    errorCode?: string;
+  }[];
+}
+
+/** `GET /admin/catalog/remote-sets`: `degraded:true` = pokemontcg.io no respondió ⇒ solo sets locales. */
+export interface RemoteSetsResponse {
+  data: RemoteSetDTO[];
+  degraded?: boolean;
+  source?: 'remote' | 'local';
 }
 
 // GET /admin/pricing/sync-status — progreso del barrido MASIVO de precios (price-ingest) en curso
@@ -6931,7 +6964,11 @@ export type GradedEstimatePreviewReason =
   | 'SLAB_PUBLISHED'
   | 'NOT_ABOVE_RAW'
   | 'ABOVE_MAX_MULTIPLE'
-  | 'GRADE_ORDER_INVERTED';
+  | 'GRADE_ORDER_INVERTED'
+  // §PSA-ACABADO: sin raw vigente de ESE acabado (no hay contra qué validar el tope) y cifra manual
+  // heredada de la clave vieja por carta (vale solo para el acabado principal hasta recapturarla).
+  | 'NO_RAW'
+  | 'LEGACY_MANUAL';
 
 /**
  * Un grupo raw publicado de la carta, con **los insumos del gate**. Es el ÚNICO sitio donde esos
@@ -7028,6 +7065,8 @@ export interface GradedEstimateReviewResponse {
   enabled: boolean;
   scannedCards: number;
   truncated: boolean;
+  /** §PSA-ACABADO: cartas de 2+ acabados sin estimado porque el proveedor no separa por acabado. */
+  noFinishSplit?: number;
 }
 
 /**
@@ -7044,6 +7083,7 @@ export interface GradedEstimateReviewResponse {
 export interface GradedEstimateDeleteResponse {
   cardId: string;
   gradeValue: string;
+  finish?: Finish;
   deletedCount: number;
 }
 

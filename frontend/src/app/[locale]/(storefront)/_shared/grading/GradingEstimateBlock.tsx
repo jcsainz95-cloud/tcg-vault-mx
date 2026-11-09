@@ -2,7 +2,7 @@
 
 import { useId } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import type { GroupedListingDetailResponse } from '@/types/contract';
+import type { Finish, GroupedListingDetailResponse } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { formatMoneyCents } from '@/lib/format';
 import { cn } from '@/lib/cn';
@@ -34,9 +34,12 @@ import { HypotheticalGradeChip } from './HypotheticalGradeChip';
  */
 export function GradingEstimateBlock({
   detail,
+  finish,
   className,
 }: {
   detail: Pick<GroupedListingDetailResponse, 'listings' | 'gradedEstimates'> | undefined;
+  /** §PSA-ACABADO: acabado elegido en la ficha; solo se pinta la cifra de ese acabado. */
+  finish?: Finish | null;
   className?: string;
 }) {
   const t = useTranslations('catalog.gradingEstimate');
@@ -44,7 +47,7 @@ export function GradingEstimateBlock({
   const anchors = useGradingFootnote();
   const eyebrowId = useId();
 
-  const items = blockEstimatesOf(detail);
+  const items = blockEstimatesOf(detail, finish);
   // R3.(3) + R4: sin nota que hospede la cifra, o sin cifra, no se renderiza NADA.
   if (!anchors || !items) return null;
 

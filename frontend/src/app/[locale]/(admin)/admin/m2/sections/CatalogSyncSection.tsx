@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { RefreshCw, Layers } from 'lucide-react';
 import type {
   CatalogSyncAllResponse,
+  CatalogSyncPromos,
   CatalogSyncStatusResponse,
   RefreshVariantsAllFailure,
   RefreshVariantsStatusResponse,
@@ -152,6 +153,49 @@ function FailureList({
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * §PROMOS-MASTERSET (contrato §5): qué promos entraron/omitidas en la corrida. Es una lista de HECHOS
+ * (incluye `skipped_needs_super_admin`): una promo omitida jamás se calla. Sin `promos` (backend previo)
+ * no se pinta nada, ni un cero.
+ */
+export function PromosSummary({ promos }: { promos: CatalogSyncPromos | undefined }) {
+  const t = useTranslations('admin.m2.catalog');
+  if (!promos || (promos.sets.length === 0 && promos.tcgcsv.length === 0)) return null;
+  const count = (st: string) => promos.sets.filter((x) => x.status === st).length;
+  const problems = promos.sets.filter((x) => x.status === 'missing_remote' || x.status === 'error');
+  return (
+    <div className="mt-2 flex flex-col gap-1" data-testid="promos-summary">
+      <p className="font-medium">{t('promosTitle')}</p>
+      <p className="text-xs text-muted">{t('promosLead')}</p>
+      {promos.sets.length > 0 && (
+        <p className="tabular">
+          {t('promosSets', { created: count('created'), updated: count('updated'), unchanged: count('unchanged') })}
+        </p>
+      )}
+      {(problems.length > 0 || promos.tcgcsv.length > 0) && (
+        <ul className="list-disc pl-5">
+          {problems.map((x) => (
+            <li key={x.setId}>
+              <span className="tabular">{x.setId}</span> — {t(`promosSetStatus.${x.status}`)}
+            </li>
+          ))}
+          {promos.tcgcsv.map((g) => (
+            <li key={String(g.groupId)}>
+              {t('promosTcgcsvRow', {
+                groupId: String(g.groupId),
+                status: t(`promosTcgcsvStatus.${g.status}`),
+                created: g.created,
+                updated: g.updated,
+              })}
+              {g.errorCode ? <span className="tabular text-muted"> ({g.errorCode})</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -499,6 +543,7 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
 
   const {
     remoteSets,
+    remoteSetsDegraded,
     syncStatus,
     refreshVariantsStatus,
     phase2Status,
@@ -738,6 +783,7 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
                 })}
               />
             ) : null}
+            {importView.state === 'result' && <PromosSummary promos={syncStatus.data?.summary?.promos} />}
           </>,
         )}
       {importNewMutation.isError && (
@@ -751,6 +797,7 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
           forceView,
           forceView.state === 'result' && phase2Status?.summary ? (
             <>
+              <PromosSummary promos={syncStatus.data?.summary?.promos} />
               {phase2Status.summary.pending > 0 && (
                 <p className="mt-1">
                   {t('refreshVariantsAllPending', { pending: phase2Status.summary.pending })}
@@ -779,6 +826,23 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
 
       {/* ── La tabla, y su acción de reparación por fila ── */}
       <p className="text-sm text-muted">{t('section.repairLead')}</p>
+      {/* pokemontcg.io caído ⇒ el servidor responde SOLO los sets locales con `degraded:true`. Una lista
+          incompleta presentada como completa miente: se avisa, y «Reintentar» es solo un atajo (se
+          vuelve a pedir sola al refrescar la pantalla). */}
+      {remoteSetsDegraded.data === true && (
+        <Banner
+          variant="warning"
+          role="status"
+          title={t('degradedTitle')}
+          action={
+            <Button size="sm" variant="secondary" onClick={() => remoteSets.refetch()}>
+              {t('degradedRetry')}
+            </Button>
+          }
+        >
+          {t('degradedBody')}
+        </Banner>
+      )}
       <QueryState
         isLoading={remoteSets.isLoading}
         isError={remoteSets.isError}

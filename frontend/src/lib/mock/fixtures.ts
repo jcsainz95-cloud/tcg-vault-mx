@@ -926,10 +926,12 @@ const gradedEstimate = (
   gradeValue: string,
   referenceMxnCents: number,
   capturedDate = '2026-08-22',
+  finish: Finish = 'normal',
 ): GradedEstimateDTO => ({
   gradingCompany: 'PSA',
   gradeValue,
   gradeKey: `graded:PSA:${gradeValue}`,
+  finish,
   // `source` se OMITE SIEMPRE (contrato): es lo que hace INDISTINGUIBLE la fase manual de la
   // automática para el cliente. `status` siempre "priced" — un `pending` está prohibido aquí.
   estimate: { status: 'priced', referenceMxnCents, capturedDate },
@@ -1001,9 +1003,17 @@ export function setMockGradedEstimateConfig(patch: Partial<GradedEstimateConfigD
  * desde `market` haría que «Fijar valor» de M1 publicara un estimado en cartas con slab publicado
  * — justo el caso que INV-D obliga a OMITIR en el storefront y que este fixture no modela.
  */
-export function setMockGradedEstimate(cardId: string, gradeValue: string, cents: number): void {
-  const list = (mockGradedEstimatesByCardId[cardId] ?? []).filter((e) => e.gradeValue !== gradeValue);
-  list.push(gradedEstimate(gradeValue, cents, new Date().toISOString().slice(0, 10)));
+export function setMockGradedEstimate(
+  cardId: string,
+  gradeValue: string,
+  cents: number,
+  finish: Finish = 'normal',
+): void {
+  // §PSA-ACABADO: upsert por (carta, grado, ACABADO); otro acabado no se toca.
+  const list = (mockGradedEstimatesByCardId[cardId] ?? []).filter(
+    (e) => !(e.gradeValue === gradeValue && e.finish === finish),
+  );
+  list.push(gradedEstimate(gradeValue, cents, new Date().toISOString().slice(0, 10), finish));
   list.sort((a, b) => Number(b.gradeValue) - Number(a.gradeValue));
   mockGradedEstimatesByCardId[cardId] = list;
 }
@@ -6735,6 +6745,7 @@ export function mockGradedEstimateReview(filters: {
     enabled: mockSettings.gradingHookEnabled === 'on',
     scannedCards: new Set(Object.keys(mockGradedEstimatesByCardId).concat(mockReviewRows.map((r) => r.cardId))).size,
     truncated: false,
+    noFinishSplit: 2,
   };
 }
 
@@ -6760,6 +6771,7 @@ export function mockGradedEstimateReview(filters: {
 export function deleteMockGradedEstimate(
   cardId: string,
   gradeValue: string,
+  finish: Finish = 'normal',
 ): import('@/types/contract').GradedEstimateDeleteResponse {
   if (!mockGradedEstimateConfig.grades.includes(gradeValue)) {
     throw new ApiFixtureError(
@@ -6790,29 +6802,31 @@ export function deleteMockGradedEstimate(
   // por grupo raw. Por eso el conteo NO se acumula por proyección ni por fila pintada.
   const field = gradeValue === '10' ? 'psa10MxnCents' : gradeValue === '9' ? 'psa9MxnCents' : null;
   const storefront = mockGradedEstimatesByCardId[cardId] ?? [];
-  const inStorefront = storefront.some((e) => e.gradeValue === gradeValue);
+  const inStorefront = storefront.some((e) => e.gradeValue === gradeValue && e.finish === finish);
   const inReview =
-    field !== null && mockReviewRows.some((r) => r.cardId === cardId && r[field] !== null);
+    field !== null && mockReviewRows.some((r) => r.cardId === cardId && r.finish === finish && r[field] !== null);
   if (!inStorefront && !inReview) {
     throw new ApiFixtureNotFound(`no hay estimado PSA ${gradeValue} para ${cardId}`);
   }
 
   if (inStorefront) {
-    mockGradedEstimatesByCardId[cardId] = storefront.filter((e) => e.gradeValue !== gradeValue);
+    mockGradedEstimatesByCardId[cardId] = storefront.filter(
+      (e) => !(e.gradeValue === gradeValue && e.finish === finish),
+    );
   }
   if (field !== null) {
-    for (const r of mockReviewRows) if (r.cardId === cardId) r[field] = null;
+    for (const r of mockReviewRows) if (r.cardId === cardId && r.finish === finish) r[field] = null;
     // Sin la cifra, el motivo de esas filas pasa a ser `NO_PSA10`/`NO_PSA9` — AUSENCIA de dato, que
     // esta lista no enumera (⇒ `400` si se pidiera). Así que la fila desaparece del listado, que es
     // exactamente lo que el operador debe ver tras retirar el dato.
     for (let i = mockReviewRows.length - 1; i >= 0; i--) {
       const r = mockReviewRows[i];
-      if (r.cardId === cardId && (r.psa10MxnCents === null || r.psa9MxnCents === null)) {
+      if (r.cardId === cardId && r.finish === finish && (r.psa10MxnCents === null || r.psa9MxnCents === null)) {
         mockReviewRows.splice(i, 1);
       }
     }
   }
-  return { cardId, gradeValue, deletedCount: 1 };
+  return { cardId, gradeValue, finish, deletedCount: 1 };
 }
 
 /**

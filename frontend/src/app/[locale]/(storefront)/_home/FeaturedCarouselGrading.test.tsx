@@ -37,6 +37,7 @@ const psa10: GradedEstimateDTO = {
   gradingCompany: 'PSA',
   gradeValue: '10',
   gradeKey: 'graded:PSA:10',
+  finish: 'normal',
   estimate: { status: 'priced', referenceMxnCents: 2_900_000, capturedDate: '2026-08-22' },
 };
 

@@ -10,12 +10,13 @@ import {
   overridePrice,
   searchBuylistCards,
 } from '@/lib/api';
-import type { CardDTO, GradedEstimatePreviewDTO } from '@/types/contract';
+import type { CardDTO, Finish, GradedEstimatePreviewDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
 import { buildGradedKey } from '@/lib/gradeKey';
 import { formatMoneyCents, formatDate } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
 import { Banner } from '@/components/ui/Banner';
 import { Badge } from '@/components/ui/Badge';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
@@ -49,8 +50,11 @@ import { pesosToCentsOrNull } from '@/lib/money-input';
  *  3. **Money-safe:** un campo vacío o mal formado **no se guarda como 0** ni se toca; cada grado se
  *     escribe por separado, así que un grado bloqueado **no impide** guardar el otro.
  */
+const ALL_FINISHES: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
+
 export function GradedEstimateCaptureSection() {
   const t = useTranslations('admin.m2.gradedEstimateCapture');
+  const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const getError = useErrorMessage('operator');
@@ -60,6 +64,8 @@ export function GradedEstimateCaptureSection() {
   /** Borrador por grado, en PESOS como texto (`''` = intacto ⇒ no se manda). */
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [results, setResults] = useState<{ gradeValue: string; error?: unknown }[] | null>(null);
+  /** §PSA-ACABADO: el estimado se captura POR ACABADO; el servidor exige `finish` (400 sin él). */
+  const [finishChoice, setFinishChoice] = useState<Finish | null>(null);
 
   // Misma queryKey que la sección de config: el editor de escalones ya la trae en caché, así que
   // abrir esta sección NO dispara una segunda lectura del mismo recurso.
@@ -83,6 +89,9 @@ export function GradedEstimateCaptureSection() {
     preview.data?.groups.flatMap((g: GradedEstimatePreviewDTO) => g.publishedSlabGrades) ?? [],
   );
   const grades = cfg.data?.grades ?? [];
+  const groupFinishes = [...new Set((preview.data?.groups ?? []).map((g) => g.finish))];
+  const finishOptions: Finish[] = groupFinishes.length > 0 ? groupFinishes : ALL_FINISHES;
+  const finish: Finish = finishChoice && finishOptions.includes(finishChoice) ? finishChoice : finishOptions[0];
 
   const capture = useMutation({
     mutationFn: async (entries: { gradeValue: string; cents: number }[]) => {
@@ -96,6 +105,7 @@ export function GradedEstimateCaptureSection() {
             productType: 'graded',
             gradeKey: buildGradedKey('PSA', entry.gradeValue),
             priceMxnCents: entry.cents,
+            finish,
             // La razón de ser de esta sección. `market` fijaría el precio de venta de una pieza.
             intent: 'graded_estimate',
           });
@@ -137,6 +147,7 @@ export function GradedEstimateCaptureSection() {
     setCard(next);
     setDrafts({});
     setResults(null);
+    setFinishChoice(null);
     setQuery('');
   }
 
@@ -282,7 +293,19 @@ export function GradedEstimateCaptureSection() {
               )}
             </QueryState>
 
-            {/* --- Captura por grado --- */}
+            {/* --- Captura por acabado y grado (§PSA-ACABADO) --- */}
+            <Select
+              label={t('finishLabel')}
+              hint={t('finishHint')}
+              className="max-w-xs"
+              value={finish}
+              onChange={(e) => {
+                setFinishChoice(e.target.value as Finish);
+                setDrafts({});
+                setResults(null);
+              }}
+              options={finishOptions.map((f) => ({ value: f, label: tFinish(f) }))}
+            />
             <div className="grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
               {grades.map((gradeValue) => {
                 const blocked = blockedGrades.has(gradeValue);

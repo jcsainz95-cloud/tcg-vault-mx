@@ -309,6 +309,7 @@ const est = (gradeValue: string, cents: number): GradedEstimateDTO => ({
   gradingCompany: 'PSA',
   gradeValue,
   gradeKey: `graded:PSA:${gradeValue}`,
+  finish: 'normal',
   // El contrato OMITE `source` siempre: fase manual y fase automática son indistinguibles.
   estimate: { status: 'priced', referenceMxnCents: cents, capturedDate: '2026-08-22' },
 });

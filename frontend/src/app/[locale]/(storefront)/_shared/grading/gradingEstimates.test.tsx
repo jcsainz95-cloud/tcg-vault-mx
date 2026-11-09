@@ -35,6 +35,7 @@ function est(gradeValue: string, cents: number | undefined, over: Partial<Graded
     gradingCompany: 'PSA',
     gradeValue,
     gradeKey: `graded:PSA:${gradeValue}`,
+    finish: 'normal',
     estimate: { status: 'priced', referenceMxnCents: cents, capturedDate: '2026-08-22' },
     ...over,
   };

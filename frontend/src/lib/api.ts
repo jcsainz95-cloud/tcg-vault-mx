@@ -108,7 +108,6 @@ import type {
   SupportContactResponse,
   ClientDisputeDTO,
   ProductType,
-  PricingOverrideIntent,
   RawCondition,
   SealedSubtype,
   SealedCondition,
@@ -197,6 +196,7 @@ import type {
   PriceHistoryEntryDTO,
   CatalogSyncResponse,
   CatalogSyncAllResponse,
+  RemoteSetsResponse,
   RefreshVariantsResponse,
   RefreshVariantsAllResponse,
   RefreshVariantsStatusResponse,
@@ -1136,13 +1136,15 @@ export async function getGradedEstimateReview(
 export async function deleteGradedEstimate(
   cardId: string,
   gradeValue: string,
+  finish: Finish,
 ): Promise<GradedEstimateDeleteResponse> {
   const path = `/admin/pricing/graded-estimates/${encodeURIComponent(cardId)}/${encodeURIComponent(gradeValue)}`;
+  // §PSA-ACABADO (contrato §4, cambio rompiente): `finish` es OBLIGATORIO en query; borra solo ese acabado.
   if (!(MOCKS_BUILD && config.useMocks)) {
-    return apiRequest<GradedEstimateDeleteResponse>(path, { method: 'DELETE' });
+    return apiRequest<GradedEstimateDeleteResponse>(path, { method: 'DELETE', query: { finish } });
   }
   try {
-    return await delay(fx.deleteMockGradedEstimate(cardId, gradeValue));
+    return await delay(fx.deleteMockGradedEstimate(cardId, gradeValue, finish));
   } catch (e) {
     throw translateFixtureError(e);
   }
@@ -6531,7 +6533,9 @@ interface PricingOverrideBase {
  */
 export type PricingOverrideInput = PricingOverrideBase &
   (
-    | { productType: 'graded'; intent: PricingOverrideIntent }
+    // §PSA-ACABADO (contrato §4, cambio rompiente): `graded_estimate` exige `finish` (sin él ⇒ 400).
+    | { productType: 'graded'; intent: 'market' }
+    | { productType: 'graded'; intent: 'graded_estimate'; finish: Finish }
     | { productType: 'raw' | 'sealed'; intent?: never }
   );
 
@@ -6593,7 +6597,7 @@ export async function overridePrice(input: PricingOverrideInput): Promise<{ ok: 
       // v1.50.2 (§O.6): con `graded_estimate` esta misma llamada escribe la fila que el storefront
       // lee para el gancho — «no se construye ningún mecanismo de captura nuevo».
       if (input.intent === 'graded_estimate') {
-        fx.setMockGradedEstimate(input.cardId, m[2], input.priceMxnCents);
+        fx.setMockGradedEstimate(input.cardId, m[2], input.priceMxnCents, finish);
       }
     }
   }
@@ -6822,12 +6826,12 @@ export async function getRarityHealth(): Promise<RarityHealthResponse> {
 }
 
 /** Sets remotos de pokemontcg.io con estado local (contrato GET /admin/catalog/remote-sets). */
-export async function getRemoteSets(): Promise<RemoteSetDTO[]> {
+export async function getRemoteSets(): Promise<RemoteSetsResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) {
-    const res = await apiRequest<{ data: RemoteSetDTO[] }>('/admin/catalog/remote-sets');
-    return res.data;
+    // `degraded:true` (pokemontcg.io caído ⇒ solo sets locales) se CONSERVA: la pantalla lo avisa.
+    return apiRequest<RemoteSetsResponse>('/admin/catalog/remote-sets');
   }
-  return delay(fx.mockRemoteSets);
+  return delay({ data: fx.mockRemoteSets, degraded: false, source: 'remote' as const });
 }
 
 /**

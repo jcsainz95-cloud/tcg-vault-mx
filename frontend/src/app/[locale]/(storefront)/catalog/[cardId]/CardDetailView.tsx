@@ -7,6 +7,7 @@ import { Check } from 'lucide-react';
 import { getCardDetail } from '@/lib/api';
 import type {
   CardDTO,
+  Finish,
   GroupedListingDetailResponse,
   GroupedListingDTO,
   ListingDTO,
@@ -96,6 +97,7 @@ export function CardDetailView({
   // Señal del toast de confirmación: timestamp del último add (0 = oculto);
   // usar timestamp reinicia el timer de auto-cierre en adds seguidos.
   const [addedSignal, setAddedSignal] = useState(0);
+  const [hookFinish, setHookFinish] = useState<Finish | null>(null);
   const dismissToast = useCallback(() => setAddedSignal(0), []);
 
   const query = useQuery({ queryKey: ['card', cardId], queryFn: () => getCardDetail(cardId), initialData });
@@ -127,12 +129,13 @@ export function CardDetailView({
       {query.data && (
         // §22 R3.(3): UN solo booleano gobierna la nota al pie y toda cifra estimada de esta página.
         // La ficha NO está gateada por el ROI (contrato v1.44): se pinta lo que haya dato.
-        <GradingFootnoteBoundary active={blockEstimatesOf(query.data) !== null}>
+        <GradingFootnoteBoundary active={blockEstimatesOf(query.data, hookFinish) !== null}>
           <Detail
             card={query.data.card}
             groups={query.data.listings}
             units={query.data.units}
             detail={query.data}
+            onHookFinish={setHookFinish}
             versionParam={versionParam ?? null}
             tab={tab}
             setTab={setTab}
@@ -236,6 +239,7 @@ function Detail({
   groups,
   units,
   detail,
+  onHookFinish,
   versionParam,
   tab,
   setTab,
@@ -247,6 +251,8 @@ function Detail({
   units: ListingDTO[];
   /** v1.44: respuesta completa — `gradedEstimates` vive en la RAÍZ, no en los grupos. */
   detail: GroupedListingDetailResponse;
+  /** §PSA-ACABADO: el acabado elegido sube al contenedor para que la nota al pie siga la MISMA condición que la cifra. */
+  onHookFinish: (finish: Finish | null) => void;
   versionParam: string | null;
   tab: 'description' | 'condition';
   setTab: (v: 'description' | 'condition') => void;
@@ -278,6 +284,8 @@ function Detail({
   const selectedVersion = selected?.version ?? primary?.version ?? null;
   // §IDS-UX.0 / 959: una versión española o de liga no muestra valor de mercado ni estimado PSA.
   const showGradingHook = isDefaultVersion(selectedVersion);
+  const hookFinish = primary?.finish ?? null;
+  useEffect(() => onHookFinish(hookFinish), [hookFinish, onHookFinish]);
   const imageNoteKey = (() => {
     if (!selectedVersion || isDefaultVersion(selectedVersion)) return null;
     const es = selectedVersion.language === 'es';
@@ -519,7 +527,7 @@ function Detail({
           {/* MKT-CONV.2 (B6b, D-B = A): ya no hay frase de sistema entre el precio y la compra (se retiró
               «El precio de venta es el precio publicado de esta carta»). «Gancho de grading» (§22.3): junto al
               precio y ANTES de «Ejemplares disponibles»; nunca dentro de la retícula de precio (R2). */}
-          {showGradingHook && <GradingEstimateBlock detail={detail} className="mt-7 lg:order-2" />}
+          {showGradingHook && <GradingEstimateBlock detail={detail} finish={hookFinish} className="mt-7 lg:order-2" />}
 
           {/* Ejemplares disponibles: renglones de catálogo (grupos), no tarjetas. MKT-CONV.2: `mt-8` (antes 10). */}
           <h2 className="mt-8 font-serif lg:order-3 lg:mt-5 text-[22px] leading-tight text-text">{t('instances')}</h2>
