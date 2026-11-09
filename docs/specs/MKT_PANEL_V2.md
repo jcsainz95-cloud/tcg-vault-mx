@@ -15,7 +15,9 @@ Fuente: `HECHOS.md` (2026-11-09, «Dale diseñalo y lo pasamos al equipo de desa
 
 ## 1. Pantalla `r` (Resumen)
 Periodo: semana cerrada (misma resolución que `a`; por defecto `lastClosedWeek`). Mes: solo `r1`/`r2` (el diario no aplica).
-- **r1 «Cifras de la semana»** (8 filas, columnas `cifra, actual, anterior, delta_abs, delta_pct`; totales sin dimensión ⇒ exactos como a1/a2/a5):
+- **Catálogo construido** (fuente: test de registro): `r1` (12 filas = 8 cifras + sublíneas «· Nuevos», «· Recurrentes», «· Ventas (MX$)», «· Google: impresiones»; la fila se identifica por su etiqueta), `r2`, `r3`, `c9` estados, `e2` páginas de Google. Delta: neutro (≈) ⇒ `delta_abs` y `delta_pct` null; nuevo (`prev=0`) ⇒ `delta_abs` con `delta_pct` null.
+- **Desviaciones aceptadas (arquitecto 2026-11-09):** (1) sin familia `r` en `marketing-populations.ts`: supresión local en r1 aceptada SI aplica la misma regla N<5 y, cuando Nuevos o Recurrentes sale «< 5», oculta también su complemento (el total es visible); seguridad-lead lo mide. (2) AV4 por filas de SC por página (sin `(query,page)`): aceptada y mejor, la regla solo necesita impresiones/clics/posición por página y nunca toca consultas.
+- **r1 «Cifras de la semana»** (8 cifras; 12 filas con sublíneas, columnas `cifra, actual, anterior, delta_abs, delta_pct`; totales sin dimensión ⇒ exactos como a1/a2/a5):
   1 Visitantes reales (GA4 `totalUsers`, sin tráfico propio; «que aceptaron cookies») con sublíneas Nuevos / Recurrentes (`newVsReturning`; 2 filas por `safeRows`, familia nueva `r` en `marketing-populations.ts`, complemento si una sale «< 5»);
   2 Sesiones desde Instagram (a4: «Instagram orgánico» + «Instagram pagado»);
   3 Fichas vistas (`view_item` eventCount);
@@ -63,7 +65,7 @@ Consumo HOY (medido en código): 7 consultas por semana cerrada (`marketing-ga4.
 | Ciudad | **No** | celdas de 1–2 personas con 55 usuarios: reidentifica; el estado basta. |
 | Búsqueda interna (`search_term` de GA4) | **No** | el término nunca va a GA4 (§MKT.H.4). Se cubre con c6 propio + evento `search` (`results_count`) para el conteo. |
 | Scroll | **No** | la medición mejorada está apagada por diseño (§MKT.H.10); con ~55 usuarios no cambia una decisión; `buy_button_visible` (c4) es mejor señal. |
-| Search Console por página | **Entra** | totales para r1; `(query,page)` solo para AV4 (nunca sale la consulta); tabla `e2` «Páginas en Google» (página, clics, impresiones, CTR, posición; celdas pequeñas sobre clics). |
+| Search Console por página | **Entra** | totales para r1; AV4 usa filas por página (sin consulta); tabla `e2` «Páginas en Google» (página, clics, impresiones, CTR, posición; celdas pequeñas sobre clics). |
 | `engagedSessions` por aterrizaje | **Entra** | c3 y c8. |
 Consultas nuevas por semana: `nvr`, `dailyNvr`, `dailySrc`, `landing`, `region` (GA4) y 2 de SC (`page`, `query+page`); `funnelEvents` pasa a `events` (misma consulta con más eventos en su lista: `buy_button_visible`, `search`; a5 sigue leyendo `FUNNEL_EVENTS`), `funnelSessions` suma `totalUsers`. Resumen en frío ≈ 12 consultas GA4 + 4 de la semana previa + 3 SC ≈ 19; el correo reutiliza caché. Mes ≈ +5 consultas por semana tocada. Backend: pide `returnPropertyQuota: true` y avisa en el log (sin datos) si `tokensPerHour.remaining` < 20 %; los `ga4Report` concurrentes de una pantalla se limitan a 4 a la vez. Presupuesto objetivo: ≤ 30 consultas por vista fría.
 
