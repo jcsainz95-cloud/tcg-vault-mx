@@ -385,6 +385,10 @@ COMMIT;
 export function revertM95(schema: string): void {
   revertFromHeader(schema, '_m95b_ids_versions', 'revertM95');
 }
+/** T-AC3 — quita M-99 (Panel de Marketing v2: c6 y el correo semanal) para el B congelado, que no clasifica sus dos tablas. Va ANTES que M-95. */
+export function revertM99(schema: string): void {
+  revertFromHeader(schema, '_m99_marketing_v2', 'revertM99');
+}
 /** T-AC3 — quita M-94 (precio del día). Va ANTES que M-93 (orden inverso de despliegue). */
 export function revertM94(schema: string): void {
   revertFromHeader(schema, '_m94_listing_price', 'revertM94');

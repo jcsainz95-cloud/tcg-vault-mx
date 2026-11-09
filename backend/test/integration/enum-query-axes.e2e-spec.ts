@@ -2244,6 +2244,11 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
         // Una tabla Markdown escapa la barra (`\|`): el escape es sintaxis de la tabla, no parte del token.
         .map((v) => v.replace(/\\/g, '').trim())
         .filter((v) => v.length > 0);
+      // MKT-V2: el archivo congelado dice `a|…|h`; la `r` (Resumen) la declara la sección §MKT-V2 del contrato vivo.
+      if (l.param === 'pantalla') {
+        expect(readFileSync(join(__dirname, '..', '..', '..', 'docs', 'API_CONTRACT.md'), 'utf8')).toContain('`pantalla` pasa a `r|a|b|c|d|e|f|g|h`');
+        delContrato.push('r');
+      }
       expect([...l.literal].sort()).toEqual(delContrato.sort());
     });
 

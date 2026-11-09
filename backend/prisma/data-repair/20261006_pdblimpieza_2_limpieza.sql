@@ -276,6 +276,8 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   -- del dueño. Los dos contadores sin PII van arriba, en `borrar`. Ninguna referencia a una tabla que se borra (FK solo a
   -- `User` y entre ellas, ambas conservadas) ⇒ nada que ajustar.
   'UserPermission','MarketingApiToken','MarketingAccessLog','MarketingDateAnnotation',
+  -- MKT-V2 (m99): c6 (términos ya filtrados de PII, sin usuario) y el estado del correo semanal: no son datos de prueba de cliente ⇒ conservar.
+  'SearchNoResultDaily','MarketingWeeklyDigest',
   -- v1.110.1⟨descuentos⟩ (M-92, G-8; ratificado en API_CONTRACT §DSC.1 «Limpieza PDB»): los códigos y sus lotes son
   -- CONFIGURACIÓN del dueño (como `ConfigSetting`) ⇒ conservar, con `firstReservedAt` a NULL (paso 13): sin usos no hay bloqueo.
   'DiscountCode','DiscountCodeBatch',
