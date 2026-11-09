@@ -76,3 +76,10 @@ Estado: **PENDIENTE DEL DUEÑO** (preguntas P1–P8). Nada de esto se construye 
 - El 4.4 % es hoy una estimación de dials; si Stripe cambia tarifa, el precio del día sigue siendo el que se vio hasta el siguiente cálculo diario.
 - Rebanadas de reembolso: el cálculo `itemFeeShareCents` se simplifica, pero pedidos viejos conservan el cálculo previo (dos convenciones coexisten).
 - Depende de publicar §DYN (HECHOS:201).
+
+## 5. Contrato por endpoint (movido desde API_CONTRACT §3, 2026-11-09)
+- **Precio:** `displayPriceCents` (catálogo, ficha, carrito, JSON-LD/feeds) = precio ya con comisión, fijado por `ListingPrice` una vez al día. El cliente nunca calcula. Redondeo: PENDIENTE (P2).
+- **`POST /checkout/quote`, `/checkout/guest/quote`, `/checkout/session`, `/checkout/guest/session`, `GET /orders/:orderId`:** filas nuevas `totalCents = subtotalCents + shippingFeeCents` (sin gross-up); `processingFeeCents` deja de ser renglón de cliente (valor interno PENDIENTE P3). Pedidos previos conservan desglose y marca de convención (patrón IVA-3, `NOT NULL` sin `DEFAULT`; forma en `schema.prisma` PENDIENTE P3, la define el arquitecto).
+- **`GET /checkout/shipping-rule`:** `freeFromCents` se compara con el subtotal exhibido (con comisión) — PENDIENTE (P6). `POST /shipments/quote` y `POST /shipments`: monto exhibido vs comisión absorbida — PENDIENTE (P5).
+- **Reembolsos:** carta = `P` pagado (sin `itemFeeShareCents` en filas nuevas); Stripe no devuelve su comisión. Total congelado en la sesión (`frozen-breakdown`); cambio de dial no altera sesiones abiertas.
+- **Pruebas (mutar ⇒ rojo):** D9-1 `total = ΣP + envío` al centavo; D9-2 quote y session dan igual total; D9-3 pedido previo se reembolsa como antes; D9-4 ninguna cadena de UI/correo con «comisión de plataforma»; D9-5 feed/JSON-LD = `P`.

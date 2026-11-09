@@ -419,8 +419,14 @@
 
 ## 3. D9 — comisión de plataforma dentro del precio (HECHOS:201; PENDIENTE DEL DUEÑO; no construir hasta decidir y publicar §DYN)
 Sin rutas nuevas. Cambia el significado de campos existentes; detalle y opciones A/B en `docs/specs/D9_COMISION.md`.
-- **Precio:** `displayPriceCents` (catálogo, ficha, carrito, JSON-LD/feeds) = precio ya con comisión, fijado por `ListingPrice` una vez al día. El cliente nunca calcula. Redondeo: **PENDIENTE (P2)**.
-- **`POST /checkout/quote`, `/checkout/guest/quote`, `/checkout/session`, `/checkout/guest/session`, `GET /orders/:orderId`:** filas nuevas `totalCents = subtotalCents + shippingFeeCents` (sin gross-up); `processingFeeCents` deja de ser un renglón de cliente (no se expone; valor interno **PENDIENTE (P3)**). Pedidos previos conservan su desglose y su marca de convención (patrón IVA-3, `NOT NULL` sin `DEFAULT`; forma en `schema.prisma` **PENDIENTE (P3)**, la define el arquitecto).
-- **`GET /checkout/shipping-rule`:** el umbral `freeFromCents` se compara con el subtotal exhibido (con comisión) — **PENDIENTE (P6)**. `POST /shipments/quote` y `POST /shipments` (envío de retiro): monto exhibido vs comisión absorbida — **PENDIENTE (P5)**.
-- **Reembolsos:** carta = `P` pagado (sin `itemFeeShareCents` en filas nuevas); Stripe no devuelve su comisión. Concurrencia/idempotencia: total congelado en la sesión (`frozen-breakdown`); cambio de dial no altera sesiones abiertas.
-- **Pruebas (mutar ⇒ rojo):** D9-1 `total = ΣP + envío` al centavo; D9-2 quote y session dan igual total; D9-3 pedido previo se reembolsa como antes; D9-4 ninguna cadena de UI/correo con «comisión de plataforma»; D9-5 feed/JSON-LD = `P`.
+Campos afectados: `displayPriceCents` (con comisión), `totalCents = subtotalCents + shippingFeeCents` en quote/session/`GET /orders/:orderId`, `processingFeeCents` (interno), `freeFromCents`. Detalle por endpoint y pruebas D9-1…5: `docs/specs/D9_COMISION.md` §5.
+
+## 4. PSA-ACABADO — estimado «si se gradea» por acabado (HECHOS 2026-11-09; dinero; `docs/specs/PSA_ACABADO.md`)
+Sin rutas nuevas; cambios aditivos salvo los dos marcados:
+- `GradedEstimateDTO` (`gradedEstimates`, `gradingHighlight`) suma `finish: Finish`; un acabado sin estimado no trae entrada (nunca la de otro acabado).
+- `GET /admin/pricing/graded-estimates/review`: `psa10MxnCents/psa9MxnCents` son los del `finish` de la fila; el tope ×raw usa el raw de ese acabado; `reason` suma `NO_RAW` y `LEGACY_MANUAL`; el resumen suma `noFinishSplit:int`.
+- **Cambio rompiente:** `POST /admin/pricing/override` con `intent:'graded_estimate'` exige `finish` (sin él ⇒ 400 `VALIDATION_ERROR`, `details.field='finish'`); `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue` exige query `finish` (igual 400) y borra solo ese acabado.
+- Barrido graded: resultado de carta nuevo `no_finish_split` (proveedor sin separación y carta de 2+ acabados ⇒ sin estimado). Esquema: `PriceReference.estimateFinishScoped` (ver ARCHITECTURE §5.15). Pruebas PSA-B1…B10, F1…F3.
+
+## 5. PROMOS-MASTERSET — descarga automática (HECHOS 2026-11-09; `docs/specs/PROMOS_MASTERSET.md`)
+Sin rutas nuevas. `POST /admin/catalog/sync-all` (ambos botones) incluye siempre las 6 promos de `PTCG_PROMO_GROUPS` (sin corte de fecha; ya importadas se re-sincronizan) y los grupos de `TCGCSV_IMPORTABLE_GROUPS` (solo `super_admin`; si no, `skipped_needs_super_admin`). `202` y `sync-status.summary` suman `promos:{sets:[{setId,status}],tcgcsv:[{groupId,status,created,updated,errorCode?}]}`. pokemontcg.io sin respuesta ⇒ ni promos ni TCGCSV (fail-closed). Pruebas PMS-B1…B10, F1/F2. Apartado «Promos de la colección» (decidido; fuente promo→expansión PENDIENTE DEL DUEÑO): las respuestas de Master Set (tienda, `/vault/master-sets/:setId`, `/admin/vaults/:userId/master-sets/:setId`, M1) suman `collectionPromos?:{items,owned?,total?}` aditivo; `completedCount/totalCount/valor` no cambian. Detalle y pruebas B11…B15 en la spec §4–5.

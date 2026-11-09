@@ -7,6 +7,9 @@
 ## Sellos (movido desde ARCHITECTURE §5.13)
 `(Worlds <2 o 4 dígitos>)`, `(Battle Road <temporada> <año>)`, `[1st|2nd|3rd|4th Place]`, `[Participation]`, `[Winner]`, `[Top 16]`, `[Champion]`→championship; `(Staff)`→staff; `(Cosmo Holo)`, `(Shiny)`→`event_promo`; `(Team Plasma)`→nombre si pokemontcg.io la tiene así, si no `event_promo`; sin Staff, paréntesis + corchete = UN sello con `stampLabel` (≤64); con `[Staff]` gana staff; «(Prerelease) [Staff]»→staff solo con `staffOverPrerelease`. Nintendo Power, e-League y demás ⇒ `unknown_stamp`.
 
+## Parseo, topes e imagen (movido desde ARCHITECTURE §5.12, 2026-11-09)
+**Parseo** (`parseTcgcsvCardName`, puro): número = `ExtendedData.Number` (antes de `/`); discrepancia con el nombre ⇒ omitida; sin `Number` ⇒ `no_number` (incluye sellado). Sello = sufijo `[…]`/`(…)` de lista cerrada exacta ⇒ `stampType` (Staff→staff, Prerelease→prerelease, Winner/Championship/Campeonato/World Championships <año>/Asia Championship Series…→championship, Pitch Black Stamped/Pokemon Center Exclusive/Cosmos Holo/Ace Trainer→`event_promo`) y `stampLabel` crudo; producto aparte, fuera del binder. Solo `(30th Celebration)` se queda en `Card.name` (`KEEP_PARENS`); otro `(…)`/`[…]` ⇒ `unknown_stamp`, omitido. **Topes (PRM-3):** upstream ≤ 5 MB y ≤ 2000 productos (si no 502 `UPSTREAM_ERROR`); `name` ≤ 200, `number` ≤ 16, `rarity`/`stampLabel` ≤ 64 (si no `field_too_long`); rareza = `ExtendedData.Rarity`. **Imagen:** `imageUrl` `_200w` → `_in_1000x1000` (large; small `_200w` en miniaturas); en cartas NO MEDIDO.
+
 ## Texto de PROJECT.md
 
 Resumen vigente en `PROJECT.md` §3. Este archivo conserva el texto completo (HECHOS 2026-11-06 y 2026-11-07).
