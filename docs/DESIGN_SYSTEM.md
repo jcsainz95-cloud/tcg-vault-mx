@@ -1,10 +1,6 @@
 # DESIGN_SYSTEM.md — TCG HUNT (dirección «5a»: papel, tinta y bermellón)
 
-> **Estado vigente.** Destilado el 2026-11-06 de los tokens reales (`frontend/tailwind.config.ts`,
-> `frontend/src/app/globals.css`, `frontend/src/lib/breakpoints.ts`). La versión anterior (33 858 líneas, §0…§60+ con
-> cada pantalla y su copy) está congelada en `docs/archive/DESIGN_SYSTEM.md`: buscar ahí con `grep -n "§NN"` cuando un
-> comentario la cite. **Si este documento y `globals.css` discrepan, manda `globals.css`** y se corrige aquí.
-> Propiedad: **frontend** (fusiona el antiguo rol ux-ui).
+> **Estado vigente.** Destilado el 2026-11-06 de los tokens reales (`frontend/tailwind.config.ts`, `frontend/src/app/globals.css`, `frontend/src/lib/breakpoints.ts`). La versión anterior (33 858 líneas, §0…§60+ con cada pantalla y su copy) está congelada en `docs/archive/DESIGN_SYSTEM.md`: buscar ahí con `grep -n "§NN"` cuando un comentario la cite. **Si este documento y `globals.css` discrepan, manda `globals.css`** y se corrige aquí. Propiedad: **frontend** (fusiona el antiguo rol ux-ui).
 
 ## 1. Principios
 1. **Confianza visible**: todo estado de propiedad o dinero lleva badge claro (titularidad `pending/settled`, condición
@@ -16,8 +12,7 @@
 4. **Operable con una mano**: «Pedidos por preparar» funciona en celular (quien prepara está en el estante); el resto
    del panel es de computadora. Objetivos táctiles grandes, acción primaria siempre visible.
 5. **Bilingüe sin costuras**: ES por defecto, EN a un clic; el layout aguanta ES ~30 % más largo.
-Tono: claro, directo, tranquilizador. Se explica el porqué de un cobro sin contar nuestra contabilidad.
-Precio: lleva el IVA dentro y **no se rotula** «IVA incluido» al lado (dueño, 2026-11-03).
+Tono: claro, directo, tranquilizador. Se explica el porqué de un cobro sin contar nuestra contabilidad. Precio: lleva el IVA dentro y **no se rotula** «IVA incluido» al lado (dueño, 2026-11-03).
 
 ## 2. Color (tokens en `:root` de `globals.css`; clases Tailwind entre paréntesis)
 | Token | Valor | Uso |

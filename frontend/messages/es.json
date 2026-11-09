@@ -4201,7 +4201,7 @@
       "tcgcsvPromos": {
         "eyebrow": "Promos",
         "title": "Importar promos de TCGCSV",
-        "subtitle": "Grupos de promos que no están en pokemontcg.io (p. ej. las del 30 aniversario). Se crean con el nombre de la fuente; las que no traen precio quedan como «precio pendiente» y no se pueden vender. Importar dos veces no duplica. Estos grupos se descargan solos con «Importar sets nuevos» y «Sincronizar todo»; el botón de aquí es un atajo opcional para un grupo concreto.",
+        "subtitle": "Grupos de promos que no están en pokemontcg.io (p. ej. las del 30 aniversario). Se crean con el nombre de la fuente; las que no traen precio quedan como «precio pendiente» y no se pueden vender. Importar dos veces no duplica. Estos grupos se descargan solos con «Importar sets nuevos» y «Sincronizar todo»; este panel es solo de lectura.",
         "empty": "No hay grupos de promos pendientes.",
         "meta": "Grupo {id} · {products} productos en la fuente (varios son versiones de una misma carta) · {count} cartas importadas",
         "imported": "ya importado",

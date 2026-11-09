@@ -940,9 +940,11 @@ const gradedEstimate = (
 export const mockGradedEstimatesByCardId: Record<string, GradedEstimateDTO[]> = {
   // Orden: grado descendente (el servidor lo garantiza). El cliente NO debe depender de él.
   'c-blastoise': [gradedEstimate('10', 2_900_000), gradedEstimate('9', 1_450_000)],
-  'c-pikachu-ir': [gradedEstimate('10', 1_250_000), gradedEstimate('9', 620_000)],
-  'c-milotic-fa': [gradedEstimate('10', 980_000), gradedEstimate('9', 300_000)],
-  'c-eevee': [gradedEstimate('10', 145_000)],
+  // §PSA-ACABADO: el estimado lleva el acabado PRINCIPAL de lo que la carta vende (primaryFinishOf de sus
+  // listings): holofoil-only para Pikachu IR / Milotic FA; el único ejemplar de Eevee es Reverse Holo.
+  'c-pikachu-ir': [gradedEstimate('10', 1_250_000, undefined, 'holofoil'), gradedEstimate('9', 620_000, undefined, 'holofoil')],
+  'c-milotic-fa': [gradedEstimate('10', 980_000, undefined, 'holofoil'), gradedEstimate('9', 300_000, undefined, 'holofoil')],
+  'c-eevee': [gradedEstimate('10', 145_000, undefined, 'reverse_holo')],
 };
 
 /** Dial `highlightGrades` del servidor: qué grados pinta el badge (hoy, una sola cifra). */
