@@ -4003,7 +4003,14 @@
           "ABOVE_MAX_MULTIPLE": "Múltiplo excesivo",
           "GRADE_ORDER_INVERTED": "Grados cruzados",
           "SLAB_PUBLISHED": "Slab publicado",
-          "STALE": "Caducada"
+          "STALE": "Caducada",
+          "FEATURE_OFF": "Función apagada",
+          "NOT_RAW": "No es raw",
+          "NOT_PUBLISHED": "Sin publicar",
+          "NO_PSA10": "Sin PSA 10",
+          "NO_PSA9": "Sin PSA 9",
+          "NO_COST_TIER": "Sin escalón de costo",
+          "BELOW_MIN_UPSIDE": "Margen insuficiente"
         }
       },
       "curve": {

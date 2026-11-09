@@ -736,3 +736,28 @@ describe('§32.6 · ninguna clave `*Hint` sin consumidor (CS-8)', () => {
     expect(all.filter(([, value]) => /v\d+\.\d+/.test(value)).map(([path]) => path)).toEqual([]);
   });
 });
+
+describe('motivos de revisión de estimados graduados ↔ etiqueta corta (candado de EXISTENCIA)', () => {
+  const src = readFileSync(
+    join(__dirname, '../../../backend/src/common/graded-estimate.ts'),
+    'utf8',
+  );
+  const union = /export type HighlightReason\s*=([\s\S]*?);/.exec(src)?.[1] ?? '';
+  const reasons = [...union.matchAll(/'([A-Z0-9_]+)'/g)].map((m) => m[1]);
+
+  it('la extracción encuentra la unión HighlightReason del backend', () => {
+    expect(reasons).toContain('NO_PSA9');
+    expect(reasons.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it.each([
+    ['es', es],
+    ['en', en],
+  ] as const)('%s: todo HighlightReason tiene reasonShort y reason largo', (_l, cat) => {
+    const m2 = (cat as any).admin.m2;
+    const short = Object.keys(m2.gradedEstimateReview.reasonShort);
+    const long = Object.keys(m2.gradedEstimateCapture.diagnosis.reason);
+    expect(reasons.filter((r) => !short.includes(r))).toEqual([]);
+    expect(reasons.filter((r) => !long.includes(r))).toEqual([]);
+  });
+});

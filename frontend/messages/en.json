@@ -4003,7 +4003,14 @@
           "ABOVE_MAX_MULTIPLE": "Excessive multiple",
           "GRADE_ORDER_INVERTED": "Grades swapped",
           "SLAB_PUBLISHED": "Published slab",
-          "STALE": "Expired"
+          "STALE": "Expired",
+          "FEATURE_OFF": "Feature off",
+          "NOT_RAW": "Not raw",
+          "NOT_PUBLISHED": "Unpublished",
+          "NO_PSA10": "No PSA 10",
+          "NO_PSA9": "No PSA 9",
+          "NO_COST_TIER": "No cost tier",
+          "BELOW_MIN_UPSIDE": "Upside too low"
         }
       },
       "curve": {
