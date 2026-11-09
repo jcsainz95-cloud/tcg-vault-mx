@@ -153,6 +153,19 @@ describe('track() público', () => {
     expect(gtag).toHaveBeenCalledWith('event', 'view_item', expect.objectContaining({ value: 1 }));
   });
 
+  it('N-1: track(view_item) → setRuntimeConsent(null) → aceptar ⇒ el evento sale (null no vacía la cola)', () => {
+    vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_MODE', 'on');
+    setRuntimeConsent(null);
+    track('view_item', { value: 1 });
+    setRuntimeConsent(null); // la cookie se vuelve a leer sin elección DESPUÉS de encolar
+    const gtag = vi.fn();
+    (window as unknown as { gtag: unknown }).gtag = gtag;
+    setRuntimeConsent({ analytics: true, ads: false });
+    flushPendingEvents();
+    expect(gtag).toHaveBeenCalledTimes(1);
+    expect(gtag).toHaveBeenCalledWith('event', 'view_item', expect.objectContaining({ value: 1 }));
+  });
+
   it('un rechazo explícito vacía la cola', () => {
     vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_MODE', 'on');
     setRuntimeConsent(null);

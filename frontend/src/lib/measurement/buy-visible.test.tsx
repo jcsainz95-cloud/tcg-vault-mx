@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { useBuyButtonVisible } from './buy-visible';
 
 const trackMock = vi.hoisted(() => vi.fn());
@@ -11,6 +11,11 @@ const observed: Element[] = [];
 function Probe({ id }: { id: string }) {
   useBuyButtonVisible(id);
   return <button data-buy-cta="">COMPRAR</button>;
+}
+
+function Late({ id, show }: { id: string; show: boolean }) {
+  useBuyButtonVisible(id);
+  return show ? <button data-buy-cta="">COMPRAR</button> : null;
 }
 
 describe('buy_button_visible (§MKT-V2 6.3)', () => {
@@ -47,6 +52,15 @@ describe('buy_button_visible (§MKT-V2 6.3)', () => {
     fire(true);
     expect(trackMock).toHaveBeenCalledTimes(1);
     expect(trackMock).toHaveBeenCalledWith('buy_button_visible', { card_id: 'xy1-1', seconds_to_visible: expect.any(Number) });
+  });
+
+  it('el botón que aparece DESPUÉS de montar también se observa', async () => {
+    const { rerender } = render(<Late id="xy1-1" show={false} />);
+    expect(observed).toHaveLength(0);
+    rerender(<Late id="xy1-1" show />);
+    await waitFor(() => expect(observed).toHaveLength(1));
+    fire(true);
+    expect(trackMock).toHaveBeenCalledTimes(1);
   });
 
   it('con el modo off no observa nada', () => {

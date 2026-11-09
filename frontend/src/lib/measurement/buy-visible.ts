@@ -16,20 +16,34 @@ export function useBuyButtonVisible(cardId: string): void {
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE !== 'on') return;
     if (typeof IntersectionObserver === 'undefined') return;
-    const targets = document.querySelectorAll(`[${BUY_CTA_ATTR}]`);
-    if (targets.length === 0) return;
     const t0 = Date.now();
     let sent = false;
+    const seen = new WeakSet<Element>();
     const io = new IntersectionObserver(
       (entries) => {
         if (sent || !entries.some((e) => e.isIntersecting)) return;
         sent = true;
         io.disconnect();
+        mo?.disconnect();
         track('buy_button_visible', { card_id: cardId, seconds_to_visible: Math.round((Date.now() - t0) / 1000) });
       },
       { threshold: 0.5 },
     );
-    targets.forEach((el) => io.observe(el));
-    return () => io.disconnect();
+    // El botón puede aparecer DESPUÉS de montar (datos que llegan, variante cargada): se re-escanea al cambiar el DOM.
+    const scan = () => {
+      if (sent) return;
+      document.querySelectorAll(`[${BUY_CTA_ATTR}]`).forEach((el) => {
+        if (seen.has(el)) return;
+        seen.add(el);
+        io.observe(el);
+      });
+    };
+    const mo = typeof MutationObserver === 'undefined' ? null : new MutationObserver(scan);
+    scan();
+    mo?.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      io.disconnect();
+      mo?.disconnect();
+    };
   }, [cardId]);
 }

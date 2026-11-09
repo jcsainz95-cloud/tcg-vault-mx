@@ -110,7 +110,9 @@ export function filterParams(event: BrowserEvent, params: TrackParams): Record<s
       const items = cleanItems(v);
       if (items) out.items = items;
     } else if (key === 'page_location' || key === 'page_referrer') {
-      const s = sanitizeMeasurementUrl(typeof v === 'string' ? v : '', 'ga4');
+      // §MKT-V2 6.8: el referrer de checkout viaja como SOLO ruta («/es/cart»); lo demás, URL saneada.
+      const raw = typeof v === 'string' ? v : '';
+      const s = key === 'page_referrer' && raw.startsWith('/') ? sanitizePath(raw) : sanitizeMeasurementUrl(raw, 'ga4');
       if (s) out[key] = s;
     } else if (key === 'page_path') {
       const s = sanitizePath(typeof v === 'string' ? v : '');

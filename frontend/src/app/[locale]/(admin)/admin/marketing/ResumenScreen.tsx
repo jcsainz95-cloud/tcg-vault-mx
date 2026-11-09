@@ -30,7 +30,9 @@ export function deltaKindOf(row: Row): DeltaKind {
   if (actual === null || anterior === null) return 'none';
   if (actual < NOISE_BELOW && anterior < NOISE_BELOW) return 'noise';
   if (anterior === 0 && actual > 0) return 'new';
-  const abs = num(row.delta_abs) ?? actual - anterior;
+  // Nunca se recalcula: delta_abs null = neutro (el servidor decidió que no hay cambio que afirmar).
+  const abs = num(row.delta_abs);
+  if (abs === null) return 'noise';
   if (abs === 0) return 'same';
   return abs > 0 ? 'up' : 'down';
 }

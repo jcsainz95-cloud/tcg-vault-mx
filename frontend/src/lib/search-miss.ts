@@ -8,7 +8,7 @@
  * - Tráfico propio (`isInternalTraffic`) y modo mocks: no se manda. Best-effort: no espera ni avisa.
  */
 import { config } from '@/lib/config';
-import { isInternalTraffic } from './measurement/internal';
+import { isInternalTraffic, syncInternalFlag } from './measurement/internal';
 
 export type SearchMissKind = 'card' | 'sealed';
 
@@ -37,7 +37,8 @@ function seen(term: string, kind: SearchMissKind): boolean {
 export function sendSearchMiss(raw: string, kind: SearchMissKind): void {
   if (typeof window === 'undefined' || typeof fetch === 'undefined') return;
   try {
-    if (config.useMocks || isInternalTraffic()) return;
+    // Tráfico propio: se lee la marca directo (y la URL de llegada), aunque la medición esté apagada y el proveedor no sincronice.
+    if (config.useMocks || syncInternalFlag() || isInternalTraffic()) return;
     const term = searchMissTerm(raw);
     if (!term || seen(term, kind)) return;
     void fetch(`${config.apiBaseUrl.replace(/\/+$/, '')}/marketing/search-miss`, {

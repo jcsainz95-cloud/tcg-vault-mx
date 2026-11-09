@@ -114,6 +114,12 @@ describe('deltaKindOf', () => {
     expect(k(4)).toBe('none'); // NO MEDIDO
     expect(k(5)).toBe('none'); // '< 5'
   });
+
+  it('delta_abs null con números (neutro del servidor) ⇒ «≈», nunca se recalcula', () => {
+    expect(deltaKindOf({ cifra: 'Ventas', actual: 1200, anterior: 600, delta_abs: null, delta_pct: null })).toBe('noise');
+    expect(deltaKindOf({ cifra: 'Ventas', actual: 600, anterior: 1200, delta_abs: null, delta_pct: null })).toBe('noise');
+    expect(deltaKindOf({ cifra: 'Ventas', actual: 1200, anterior: 600, delta_abs: 600, delta_pct: 100 })).toBe('up');
+  });
 });
 
 describe('ResumenScreen', () => {

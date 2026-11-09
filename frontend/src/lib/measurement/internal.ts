@@ -2,18 +2,18 @@
  * Tráfico propio (docs/specs/MKT_PANEL_V2.md §4, D5). Copia en el navegador de
  * `backend/src/modules/marketing/internal-traffic.ts` (el patrón es el mismo, ver `internal.test.ts`).
  *
- * Una visita es PROPIA si `utm_source` o `utm_medium` cumple `INTERNAL_RE` (nuestras herramientas se nombran
+ * Una visita es PROPIA si `utm_source` (nunca `utm_medium`) cumple `INTERNAL_RE` (nuestras herramientas se nombran
  * `diag-*`, `qa-*`, `e2e-*`…) o si la URL trae `?tcg_int=1`. Entonces el navegador guarda `localStorage.tcg_int`
  * (señal LOCAL, 90 días; nada sale al servidor; `?tcg_int=0` la quita) y corta en origen: ni GA4, ni Meta, ni banner,
  * ni contador de banner, ni cookie de primer UTM.
  */
 
-export const INTERNAL_RE = /^(diag|qa|e2e|smoke|test|probe|internal)([-_.].*)?$/i;
+export const INTERNAL_RE = /^(diag|qa|e2e|smoke|test|probe|internal)-.+/i;
 export const INTERNAL_KEY = 'tcg_int';
 const INTERNAL_UNTIL_KEY = 'tcg_int_until';
 export const INTERNAL_DAYS = 90;
 
-/** ¿Este `utm_source`/`utm_medium` es de una herramienta nuestra? */
+/** ¿Este `utm_source` es de una herramienta nuestra? */
 export function isInternalUtm(value: string | null | undefined): boolean {
   return typeof value === 'string' && INTERNAL_RE.test(value.trim());
 }
@@ -29,7 +29,7 @@ export function internalFromSearch(search: string): 'on' | 'off' | null {
   const flag = p.get(INTERNAL_KEY);
   if (flag === '0') return 'off';
   if (flag === '1') return 'on';
-  if (isInternalUtm(p.get('utm_source')) || isInternalUtm(p.get('utm_medium'))) return 'on';
+  if (isInternalUtm(p.get('utm_source'))) return 'on';
   return null;
 }
 

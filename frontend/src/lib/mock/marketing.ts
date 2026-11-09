@@ -237,7 +237,7 @@ function tablesFor(screen: MarketingScreen, kind: 'week' | 'month', from: string
             regla: 'AV6',
             gravedad: 'info',
             titulo: 'Búsquedas sin resultado',
-            evidencia: '«charizard vmax»: 6 búsquedas en 3 días',
+            evidencia: '«charizard vmax»: 6 personas en 3 días',
             accion: '¿Falta en el catálogo?',
           },
         ],
