@@ -14,7 +14,7 @@
  */
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { classifySourceError } from './marketing-source-error';
+import { classifySourceError, isGa4IncompatibleQueryError } from './marketing-source-error';
 import { withInternalExclusion } from './internal-traffic';
 
 export const GA4_READ_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
@@ -83,8 +83,6 @@ export interface Ga4ReportSpec {
   inList?: { dimension: string; values: readonly string[] };
   /** Orden descendente por una métrica (c1: por vistas). */
   orderByMetricDesc?: string;
-  /** Si GA4 rechaza el filtro de tráfico propio con esta consulta, reintenta sin él (NO VERIFICADO para `items`). */
-  fallbackUnfiltered?: boolean;
 }
 export interface Ga4Row {
   dimensions: string[];
@@ -229,7 +227,9 @@ export class MarketingExternalSources {
       try {
         raw = await run(true);
       } catch (err) {
-        if (!spec.fallbackUnfiltered) throw err;
+        // MKT-V2 §4: SOLO un 400 INVALID_ARGUMENT de compatibilidad (dimensión/métrica) reintenta sin filtro; 403/429/5xx/red y
+        // cualquier otro 400 lanzan (la fila sale NO MEDIDO) para no mezclar tráfico propio sin avisar.
+        if (!isGa4IncompatibleQueryError(err)) throw err;
         raw = await run(false);
         unfiltered = true;
       }
@@ -255,13 +255,15 @@ export class MarketingExternalSources {
 
   /** Semáforo: como mucho `GA4_MAX_CONCURRENT` lecturas de GA4 a la vez. */
   private async limited<T>(fn: () => Promise<T>): Promise<T> {
+    // El cupo se TRASPASA al que espera (no se libera y se vuelve a tomar): así nadie se cuela entre medias y nunca hay 5.
     if (this.inFlight >= GA4_MAX_CONCURRENT) await new Promise<void>((res) => this.waiting.push(res));
-    this.inFlight++;
+    else this.inFlight++;
     try {
       return await fn();
     } finally {
-      this.inFlight--;
-      this.waiting.shift()?.();
+      const next = this.waiting.shift();
+      if (next) next();
+      else this.inFlight--;
     }
   }
 

@@ -1,9 +1,13 @@
 /**
  * marketing-weekly-digest.service.ts — job `marketing-weekly-digest` (MKT_PANEL_V2 §3): el correo del lunes (CDMX) con r1 + r2.
- * Idempotente por restricción de BD: `INSERT … ON CONFLICT DO NOTHING` sobre `MarketingWeeklyDigest(weekStart)`; solo quien
- * RECLAMA la fila (`pending` y `claimedAt` nulo o > 15 min) envía. `sent`/`skipped` ⇒ no-op. Un fallo suma `attempts` y deja la fila
- * `pending` para el siguiente tick (cada hora hasta las 20:00). Destinatarios: `ownerRecipients`. Régimen SIEMPRE `small_cells`.
+ * Idempotente POR DESTINATARIO por restricción de BD: `INSERT … ON CONFLICT DO NOTHING` sobre `MarketingWeeklyDigest(weekStart,
+ * recipientKey)` (`recipientKey` = 16 hex de SHA-256 del correo en minúsculas; el correo no se guarda). Solo quien RECLAMA su fila
+ * (`pending` y `claimedAt` nulo o > 15 min) envía a ese destinatario; `sent`/`skipped`/`failed` ⇒ no-op. Un fallo suma `attempts` y
+ * deja la fila `pending` para el siguiente tick (cada hora hasta las 20:00); a `attempts ≥ 5` ⇒ `failed`, sin más reintentos. Un
+ * fallo de A NO reenvía a B. Sin destinatarios ⇒ una fila `none/skipped`. Régimen SIEMPRE `small_cells`.
+ * ⛔ El registro nunca lleva el correo ni el mensaje del proveedor (puede citar al destinatario): solo la clase del error.
  */
+import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -16,6 +20,9 @@ import { weeklyDigestMail } from './marketing-weekly-digest.mail';
 
 export const WEEKLY_DIGEST_FLAG = 'marketing_weekly_digest';
 export const WEEKLY_DIGEST_CLAIM_STALE_MS = 15 * 60 * 1000;
+export const WEEKLY_DIGEST_MAX_ATTEMPTS = 5;
+/** 16 hex de SHA-256 del correo en minúsculas: identifica al destinatario sin guardar su correo. */
+export const recipientKeyOf = (email: string): string => createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 16);
 export type WeeklyDigestOutcome = 'sent' | 'skipped' | 'noop' | 'failed' | 'off';
 
 @Injectable()
@@ -40,21 +47,41 @@ export class MarketingWeeklyDigestService {
     const flag = await this.prisma.configSetting.findUnique({ where: { key: WEEKLY_DIGEST_FLAG }, select: { valueJson: true } });
     if (flag?.valueJson === 'off') return done('off');
 
-    await this.prisma.$executeRaw`INSERT INTO "MarketingWeeklyDigest" ("weekStart", "status", "attempts") VALUES (${weekStart}::date, 'pending', 0) ON CONFLICT ("weekStart") DO NOTHING`;
     const day = new Date(`${weekStart}T00:00:00.000Z`);
-    const claim = await this.prisma.marketingWeeklyDigest.updateMany({
-      where: { weekStart: day, status: 'pending', OR: [{ claimedAt: null }, { claimedAt: { lt: new Date(now.getTime() - WEEKLY_DIGEST_CLAIM_STALE_MS) } }] },
-      data: { claimedAt: now },
-    });
-    if (claim.count === 0) return done('noop');
+    const recipients = await ownerRecipients(this.prisma);
+    if (recipients.length === 0) {
+      const n = await this.insertRow(weekStart, 'none', 'skipped');
+      if (n > 0) this.logger.warn(`marketing-weekly-digest ${weekStart}: sin cuenta de dueño con correo ⇒ skipped`);
+      return done(n > 0 ? 'skipped' : 'noop');
+    }
+    const keyed = recipients.map((r) => ({ email: r.email, key: recipientKeyOf(r.email) }));
+    for (const r of keyed) await this.insertRow(weekStart, r.key, 'pending');
 
-    try {
-      const recipients = await ownerRecipients(this.prisma);
-      if (recipients.length === 0) {
-        await this.prisma.marketingWeeklyDigest.update({ where: { weekStart: day }, data: { status: 'skipped', claimedAt: null } });
-        this.logger.warn(`marketing-weekly-digest ${weekStart}: sin cuenta de dueño con correo ⇒ skipped`);
-        return done('skipped');
+    const staleBefore = new Date(now.getTime() - WEEKLY_DIGEST_CLAIM_STALE_MS);
+    const claimed: typeof keyed = [];
+    for (const r of keyed) {
+      const c = await this.prisma.marketingWeeklyDigest.updateMany({
+        where: { weekStart: day, recipientKey: r.key, status: 'pending', OR: [{ claimedAt: null }, { claimedAt: { lt: staleBefore } }] },
+        data: { claimedAt: now },
+      });
+      if (c.count > 0) claimed.push(r);
+    }
+    if (claimed.length === 0) return done('noop');
+
+    const fail = async (r: { key: string }, idx: number, e: unknown) => {
+      const row = await this.prisma.marketingWeeklyDigest.update({
+        where: { weekStart_recipientKey: { weekStart: day, recipientKey: r.key } },
+        data: { attempts: { increment: 1 }, claimedAt: null },
+      });
+      if (row.attempts >= WEEKLY_DIGEST_MAX_ATTEMPTS) {
+        await this.prisma.marketingWeeklyDigest.update({ where: { weekStart_recipientKey: { weekStart: day, recipientKey: r.key } }, data: { status: 'failed' } });
       }
+      // ⛔ sin correo ni `e.message` del proveedor: solo la clase y el número de intento.
+      this.logger.error(`marketing-weekly-digest ${weekStart} destinatario ${idx + 1}/${keyed.length} falló (${e instanceof Error ? e.constructor.name : 'error'}), intento ${row.attempts}${row.attempts >= WEEKLY_DIGEST_MAX_ATTEMPTS ? ' ⇒ failed' : ''}`);
+    };
+
+    let msg: ReturnType<typeof weeklyDigestMail>;
+    try {
       if (!this.mail) throw new Error('MAIL_PORT no disponible');
       const period = resolveMarketingPeriod({ weekStart }, now);
       // ⛔ SIEMPRE small_cells: el correo sale a un proveedor externo; `r3` (diario) no existe en este régimen.
@@ -62,14 +89,28 @@ export class MarketingWeeklyDigestService {
       const r1 = payload.tables.find((t) => t.id === 'r1');
       const r2 = payload.tables.find((t) => t.id === 'r2');
       if (!r1 || !r2) throw new Error('r1/r2 ausentes');
-      const msg = weeklyDigestMail(r1, r2, period.from, addDays(period.from, 6), this.panelUrl());
-      for (const r of recipients) await this.mail.send({ to: r.email, ...msg });
-      await this.prisma.marketingWeeklyDigest.update({ where: { weekStart: day }, data: { status: 'sent', sentAt: now, claimedAt: null } });
-      return done('sent');
+      msg = weeklyDigestMail(r1, r2, period.from, addDays(period.from, 6), this.panelUrl());
     } catch (e) {
-      await this.prisma.marketingWeeklyDigest.update({ where: { weekStart: day }, data: { attempts: { increment: 1 }, claimedAt: null } });
-      this.logger.error(`marketing-weekly-digest ${weekStart} falló: ${e instanceof Error ? e.message : String(e)}`);
+      for (const r of claimed) await fail(r, keyed.indexOf(r), e);
       return done('failed');
     }
+
+    let sent = 0;
+    let failed = 0;
+    for (const r of claimed) {
+      try {
+        await this.mail!.send({ to: keyed.find((k) => k.key === r.key)!.email, ...msg });
+        await this.prisma.marketingWeeklyDigest.update({ where: { weekStart_recipientKey: { weekStart: day, recipientKey: r.key } }, data: { status: 'sent', sentAt: now, claimedAt: null } });
+        sent += 1;
+      } catch (e) {
+        failed += 1;
+        await fail(r, keyed.indexOf(r), e);
+      }
+    }
+    return done(failed > 0 ? 'failed' : sent > 0 ? 'sent' : 'noop');
+  }
+
+  private async insertRow(weekStart: string, recipientKey: string, status: 'pending' | 'skipped'): Promise<number> {
+    return this.prisma.$executeRaw`INSERT INTO "MarketingWeeklyDigest" ("weekStart", "recipientKey", "status", "attempts") VALUES (${weekStart}::date, ${recipientKey}, ${status}, 0) ON CONFLICT ("weekStart", "recipientKey") DO NOTHING`;
   }
 }

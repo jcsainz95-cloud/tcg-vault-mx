@@ -44,8 +44,8 @@ export const GA4_SPECS = {
   },
   region: { dimensions: ['region'], metrics: ['totalUsers'], limit: 100 },
   devices: { dimensions: ['deviceCategory', 'browser'], metrics: ['sessions'], limit: 100 },
-  // `sessionSource` puede no ser compatible con las métricas por ítem (NO VERIFICADO): si falla con el filtro, se reintenta sin él.
-  items: { dimensions: ['itemId'], metrics: ['itemsViewed', 'itemsAddedToCart'], limit: 1000, fallbackUnfiltered: true },
+  // `sessionSource` puede no ser compatible con las métricas por ítem (NO VERIFICADO): solo un 400 de compatibilidad reintenta sin él.
+  items: { dimensions: ['itemId'], metrics: ['itemsViewed', 'itemsAddedToCart'], limit: 1000 },
   aiReferrals: {
     dimensions: ['sessionSource', 'landingPage'],
     metrics: ['sessions'],

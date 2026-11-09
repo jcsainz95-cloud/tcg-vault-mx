@@ -31,12 +31,19 @@ export const AV_TEXT = {
     evidencia: `${name}: ${nf(quotes)} cotizaciones de buylist en la semana y 0 unidades a la venta.`,
     accion: `Te la cotizan ${nf(quotes)} veces y no tienes a la venta: súbela de oferta o consíguela.`,
   }),
-  AV6: (term: string, count: number, days: number) => ({
+  AV6: (term: string, people: number, days: number) => ({
     titulo: `Buscan «${term}» y no hay resultado`,
-    evidencia: `«${term}»: ${nf(count)} búsquedas sin resultado en ${nf(days)} días distintos.`,
-    accion: `Buscan "${term}" ${nf(count)} veces y no hay resultado: ¿falta en el catálogo?`,
+    evidencia: `«${term}»: ${nf(people)} personas distintas sin resultado, en ${nf(days)} días con al menos 2 personas.`,
+    accion: `Buscan "${term}" ${nf(people)} personas y no hay resultado: ¿falta en el catálogo?`,
   }),
 } as const;
 
 export const NO_ALERTS = { titulo: 'Sin avisos esta semana', evidencia: 'Ninguna regla pasó su umbral.', accion: '' } as const;
 export const NOT_EVALUATED = (what: string) => ({ titulo: `No se evaluó: ${what}`, evidencia: '', accion: '' });
+
+/** Cuando hay fuentes sin medir, «Sin avisos» sería engañoso: se dice que no se pudo evaluar. */
+export const NOT_FULLY_EVALUATED = {
+  titulo: 'No se pudo evaluar esta semana por completo',
+  evidencia: 'Faltan fuentes de datos (abajo): no se puede asegurar que no haya avisos.',
+  accion: '',
+} as const;

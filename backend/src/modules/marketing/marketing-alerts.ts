@@ -4,7 +4,7 @@
  * Orden fijo AV1…AV6; ≤ 3 elementos por regla (cifra desc, clave asc). Todo umbral de conteo es ≥ 5 EXCEPTO el de la caída
  * de AV2 (la cifra actual puede ser < 5): en `small_cells` esa cifra se cita como «menos de 5», nunca exacta.
  */
-import { AV_TEXT, NOT_EVALUATED, NO_ALERTS } from './marketing-alerts.text';
+import { AV_TEXT, NOT_EVALUATED, NOT_FULLY_EVALUATED, NO_ALERTS } from './marketing-alerts.text';
 
 export const AV1_MIN_CHECKOUTS = 5;
 export const AV2_MIN_PREVIOUS = 10;
@@ -85,4 +85,16 @@ export function evaluateAlerts(i: AlertInputs): Alert[] {
 /** Filas «No se evaluó: …» de las fuentes sin medir (se añaden DESPUÉS de los avisos). */
 export function notEvaluatedRows(sources: string[]): Alert[] {
   return sources.map((s) => ({ regla: '—', gravedad: 'info' as const, ...NOT_EVALUATED(s) }));
+}
+
+/**
+ * Avisos + filas «No se evaluó». Si NO hay avisos y faltan fuentes, la fila «Sin avisos esta semana» se sustituye por
+ * «No se pudo evaluar…» (no afirmar que todo está bien sin haberlo medido).
+ */
+export function alertsWithSources(alerts: Alert[], missing: string[]): Alert[] {
+  const sources = [...new Set(missing)];
+  if (sources.length === 0) return alerts;
+  const onlyNone = alerts.length === 1 && alerts[0].titulo === NO_ALERTS.titulo;
+  const head = onlyNone ? [{ regla: '—', gravedad: 'info' as const, ...NOT_FULLY_EVALUATED }] : alerts;
+  return [...head, ...notEvaluatedRows(sources)];
 }

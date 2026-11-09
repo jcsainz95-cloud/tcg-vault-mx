@@ -338,6 +338,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     if (this.marketingWeeklyDigest && this.marketingSearchMiss) {
       await this.queue.add('marketing-weekly-digest', {}, { repeat: { pattern: '30 8-20 * * 1', tz: SPEND_DIGEST_TZ }, jobId: 'marketing-weekly-digest-cron', removeOnComplete: true, removeOnFail: 100 });
       await this.queue.add('marketing-search-miss-retention', {}, this.repeat('marketing-search-miss-retention', '50 8 * * *'));
+      // c6 (§7): cierre del día a las 00:10 CDMX (hashes → `people`, borra hashes y sal). Reintenta solo (6 veces, espera creciente);
+      // además se cierra perezosamente al escribir si el job no corrió. Idempotente.
+      await this.queue.add('marketing-search-close', {}, { ...this.repeatTz('marketing-search-close', '10 0 * * *', SPEND_DIGEST_TZ), attempts: 6, backoff: { type: 'exponential', delay: 60_000 } });
     } else {
       this.logger.error('Scheduler: los jobs de marketing v2 NO están inyectados; marketing-weekly-digest y marketing-search-miss-retention no quedan programados.');
     }
@@ -481,6 +484,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.marketingAccessLog?.purgeExpired() ?? null;
       case 'marketing-weekly-digest':
         return this.marketingWeeklyDigest?.run() ?? null;
+      case 'marketing-search-close':
+        return this.marketingSearchMiss?.closePastDays() ?? null;
       case 'marketing-search-miss-retention':
         return this.marketingSearchMiss?.purgeExpired() ?? null;
       case 'featured-rotation':

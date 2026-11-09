@@ -18,8 +18,9 @@ import { BANNER_RESPONSES } from '../measurement/banner-response.service';
 import { measurementItemOf, parseMeasurementItemId } from '../measurement/measurement-item';
 import { UNIDENTIFIED_SEALED_NAME } from '../../common/piece-display-identity';
 import { MarketingExternalSources, type Ga4ReportSpec, type Ga4Row } from './marketing-external-sources';
-import { isInternalUtm } from './internal-traffic';
-import { AV3_MAX_CARTS, AV3_MIN_VIEWS, AV5_MIN_QUOTES, evaluateAlerts, notEvaluatedRows, type Alert } from './marketing-alerts';
+import { MarketingSearchMissService, SEARCH_MISS_MIN_DAYS, SEARCH_MISS_MIN_PEOPLE } from './marketing-search-miss.service';
+import { GA4_UNFILTERED_NOTE, isInternalUtm } from './internal-traffic';
+import { AV3_MAX_CARTS, AV3_MIN_VIEWS, AV5_MIN_QUOTES, alertsWithSources, evaluateAlerts, type Alert } from './marketing-alerts';
 import { deltaCells, nvrCells, sumIfVisible } from './marketing-summary';
 import {
   AI_ASSISTANT_SOURCES,
@@ -54,6 +55,8 @@ import { PRODUCT_TYPE_VALUES } from '../../common/enum-values';
 import {
   applySmallCells,
   applySmallCellsByComponent,
+  foldRegionRest,
+  REGION_REST_LABEL,
   hiddenCellIds,
   hiddenKeys,
   cellId,
@@ -125,8 +128,6 @@ const G1_KEY = 'Pedidos con primer origen utm_medium=paid';
 const mondayOf = (day: Ymd): Ymd => addDays(day, 1 - isoWeekday(day));
 const SEARCH_LOG_OFF = 'NO MEDIDO — el registro de búsquedas sin resultado está apagado';
 const SEARCH_LOG_FLAG = 'marketing_search_log';
-export const SEARCH_MISS_MIN_COUNT = 5;
-export const SEARCH_MISS_MIN_DAYS = 2;
 const SEARCH_LOG_UNREADABLE = 'NO MEDIDO — no se pudo leer el registro de búsquedas sin resultado';
 const R3_LABELS: Record<string, string> = {
   nuevos: 'Nuevos',
@@ -334,6 +335,7 @@ export class MarketingAnalyticsService {
     // fuentes externas sin conectar).
     @Optional() private readonly measurement?: MeasurementService,
     @Optional() private readonly external?: MarketingExternalSources,
+    @Optional() private readonly searchMiss?: MarketingSearchMissService,
   ) {}
 
   /** Motivo de una tabla GA4 sin datos: apagado ⇒ «sin encender»; encendido sin credenciales o con fallo ⇒ «sin conectar». */
@@ -732,15 +734,13 @@ export class MarketingAnalyticsService {
 
   private async screenD(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable[]> {
     // d1 (vistas) y d2 comparten la MISMA consulta de GA4 por `itemId` (§MKT.H.9).
-    const items = await this.ga4(GA4_SPECS.items, period, now);
-    const views = items ? itemViews(items) : null;
-    return [
-      await this.d1Cards(period, privacy, views),
-      await this.d2ViewsNoSale(period, privacy, views),
-      await this.d3SoldOut(period, privacy),
-      await this.d4QuoteCounts(period),
-      await this.d4bRequested(period, privacy),
-    ];
+    const res = this.ga4Live() && this.external ? await this.external.ga4Report(GA4_SPECS.items, period.from, period.to, now) : null;
+    const views = res?.ok ? itemViews(res.rows) : null;
+    const d1 = await this.d1Cards(period, privacy, views);
+    const d2 = await this.d2ViewsNoSale(period, privacy, views);
+    // MKT-V2 §4: si GA4 rechazó el filtro de tráfico propio por incompatibilidad y se leyó sin él, la tabla lo dice.
+    if (res?.ok && res.unfiltered) for (const t of [d1, d2]) if (t.measured) t.notes = [...(t.notes ?? []), GA4_UNFILTERED_NOTE];
+    return [d1, d2, await this.d3SoldOut(period, privacy), await this.d4QuoteCounts(period), await this.d4bRequested(period, privacy)];
   }
 
   /** d1 — por carta: unidades vendidas / MX$ (celdas pequeñas) / unidades a la venta hoy. Vistas=GA4. */
@@ -1787,7 +1787,7 @@ export class MarketingAnalyticsService {
     // AV6 (búsquedas sin resultado)
     const misses = await this.searchMisses(period);
     const alerts = evaluateAlerts({ checkoutStarts: c.checkout, paidOrders: c.paid, groups, items, scPages, buylist, searchMisses: misses, exact });
-    return [...alerts, ...notEvaluatedRows([...new Set(missing)])];
+    return alertsWithSources(alerts, missing);
   }
 
   /** AV5: cartas con ≥ 5 cotizaciones del cotizador en la semana y 0 unidades `listed` de plataforma. */
@@ -1957,28 +1957,22 @@ export class MarketingAnalyticsService {
       source: 'Srv',
       columns: [
         { key: 'termino', labelEs: 'Lo que buscaron', kind: 'text' },
-        { key: 'busquedas', labelEs: 'Búsquedas sin resultado', kind: 'count' },
-        { key: 'dias', labelEs: 'Días distintos', kind: 'count' },
+        { key: 'busquedas', labelEs: 'Personas que lo buscaron', kind: 'count' },
+        { key: 'dias', labelEs: 'Días con 2 personas o más', kind: 'count' },
       ],
       rows: [...terms].sort((a, b) => b.count - a.count || a.term.localeCompare(b.term)).map((x) => ({ termino: x.term, busquedas: x.count, dias: x.days })),
       measured: true,
-      notes: [`Solo términos con al menos ${SEARCH_MISS_MIN_COUNT} búsquedas en ${SEARCH_MISS_MIN_DAYS} días distintos o más. Conteo anónimo: sin usuario, sin IP, sin cookie; el texto pasa un filtro de datos personales.`],
+      notes: [`Solo términos que buscaron al menos ${SEARCH_MISS_MIN_PEOPLE} personas distintas, en ${SEARCH_MISS_MIN_DAYS} días o más con 2 personas cada uno. Cuenta personas, no búsquedas; no se guarda usuario, IP ni cookie (un código del día se borra al cerrar). Solo salen palabras del catálogo.`],
     };
   }
 
-  /** Términos de c6 que pasan el umbral en el periodo; `null` si el registro no se pudo leer. Con el flag apagado ⇒ `[]`. */
+  /** Términos de c6 (PERSONAS) que pasan el umbral y el vocabulario en el periodo; `null` ⇒ no se pudo leer. Flag apagado ⇒ `[]`. */
   private async searchMisses(p: DayRange): Promise<{ term: string; count: number; days: number }[] | null> {
     try {
       if (!(await this.flagOn(SEARCH_LOG_FLAG))) return [];
-      const g = await this.prisma.searchNoResultDaily.groupBy({
-        by: ['termNormalized'],
-        where: { day: { gte: new Date(`${p.from}T00:00:00.000Z`), lte: new Date(`${p.to}T00:00:00.000Z`) } },
-        _sum: { count: true },
-        _count: { _all: true },
-      });
-      return g
-        .map((x) => ({ term: x.termNormalized, count: x._sum.count ?? 0, days: x._count._all }))
-        .filter((x) => x.count >= SEARCH_MISS_MIN_COUNT && x.days >= SEARCH_MISS_MIN_DAYS);
+      if (!this.searchMiss) return [];
+      const rows = await this.searchMiss.readQualifying(p.from, p.to);
+      return rows ? rows.map((x) => ({ term: x.term, count: x.people, days: x.days })) : null;
     } catch {
       return null;
     }
@@ -1999,6 +1993,17 @@ export class MarketingAnalyticsService {
     const title = 'Estados de quienes visitan';
     const safe = await this.ga4SafeRows(GA4_SPECS.region, period, now, privacy, (rows) => regionRows(rows));
     if (!safe) return this.notMeasured('c9', title, 'GA4', this.ga4Reason());
+    let shown: { estado: string; usuarios: Cell }[];
+    if (privacy === 'exact') {
+      shown = safe.map((r) => ({ estado: r.key, usuarios: r.count as Cell }));
+    } else {
+      // Supresión complementaria contra r1 (Visitantes = `totalUsers` de la misma semana): el resto nunca sale < 5.
+      const totals = await this.ga4(GA4_SPECS.funnelSessions, period, now);
+      if (!totals) return this.notMeasured('c9', title, 'GA4', this.ga4Reason());
+      const visible = safe.filter((r) => typeof r.count === 'number' && !r.otros && r.key !== 'Sin dato').map((r) => ({ key: r.key, count: r.count as number }));
+      const { rows, rest } = foldRegionRest(visible, totals[0]?.metrics[1] ?? 0);
+      shown = [...rows.map((r) => ({ estado: r.key, usuarios: r.count as Cell })), ...(rest === null ? [] : [{ estado: REGION_REST_LABEL, usuarios: rest as Cell }])];
+    }
     return {
       id: 'c9',
       title,
@@ -2007,9 +2012,9 @@ export class MarketingAnalyticsService {
         { key: 'estado', labelEs: 'Estado', tech: 'region', kind: 'text' },
         { key: 'usuarios', labelEs: 'Usuarios', tech: 'totalUsers', kind: 'count' },
       ],
-      rows: safe.map((r) => ({ estado: r.key, usuarios: r.count as Cell })),
+      rows: shown,
       measured: true,
-      notes: ['Solo quien aceptó la analítica; sin ciudad (con tan pocas personas identificaría).', cellsNote(privacy, `Menos de ${SMALL_CELL_THRESHOLD} usuarios ⇒ «< 5».`)],
+      notes: ['Solo quien aceptó la analítica; sin ciudad (con tan pocas personas identificaría).', cellsNote(privacy, `Estados con menos de ${SMALL_CELL_THRESHOLD} usuarios van en «${REGION_REST_LABEL}», que nunca baja de ${SMALL_CELL_THRESHOLD}.`)],
     };
   }
 

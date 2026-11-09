@@ -9,7 +9,7 @@
  *
  * Descarta si el texto:
  *  - contiene `@` (arroba de usuario) o un correo;
- *  - tras quitar separadores (espacios/`.`/`-`/`/`) deja una **racha de ≥7 dígitos** o **≥10 dígitos en total**
+ *  - tras quitar separadores (espacios/`.`/`-`/`_`/`/`) deja una **racha de ≥7 dígitos** o **≥10 dígitos en total**
  *    (teléfonos, CLABE, tarjetas…);
  *  - encaja con **CURP** `[a-z]{4}\d{6}[hm][a-z]{5}[a-z0-9]\d` o **RFC** `[a-z&ñ]{3,4}\d{6}[a-z0-9]{3}`.
  *
@@ -26,14 +26,14 @@ const EMAIL = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
 
 /**
  * Normaliza para detectar dígitos/CURP/RFC: minúsculas, sin acentos, SIN separadores
- * (espacio, `.`, `-`, `/`, `\`). Igual que c6 «quitar espacios/guiones/puntos/`/` antes de filtrar».
+ * (espacio, `.`, `-`, `_`, `/`, `\`). Igual que c6 «quitar espacios/guiones/puntos/`/` antes de filtrar».
  */
 function normalizeForPii(value: string): string {
   return value
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
-    .replace(/[\s./\\-]/g, '');
+    .replace(/[\s./\\_-]/g, '');
 }
 
 /** ¿El texto contiene PII según el filtro c6/h1? `true` ⇒ el llamador NO lo guarda. */

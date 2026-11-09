@@ -1,9 +1,10 @@
 /**
  * `POST /api/v1/marketing/search-miss` — público (API_CONTRACT §MKT-V2; MKT_PANEL_V2 §7). `{ term ≤ 80, kind: 'card'|'sealed' }`.
- * `204` SIEMPRE (también con cuerpo inválido o si el filtro PII descarta el término): sin eco, sin identificador. El límite por IP
+ * `204` SIEMPRE (también con cuerpo inválido, si el filtro descarta el término, se topa un límite o la BD falla; cuerpo > 1 KB ⇒ 413 en el parser): sin eco, sin identificador. El límite por IP
  * lo pone el throttler en memoria (la IP no se guarda).
  */
-import { Body, Controller, HttpCode, Post, ValidationPipe } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, Req, ValidationPipe } from '@nestjs/common';
+import type { Request } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { IsIn, IsString, MaxLength } from 'class-validator';
 import { Public } from '../../common/decorators/public.decorator';
@@ -25,11 +26,12 @@ export class MarketingSearchMissController {
   @Throttle(SEARCH_MISS_THROTTLE)
   @Post('search-miss')
   @HttpCode(204)
-  async searchMiss(@Body() body: Record<string, unknown>): Promise<void> {
+  async searchMiss(@Body() body: Record<string, unknown>, @Req() req: Request): Promise<void> {
     try {
       if (body === null || typeof body !== 'object' || Array.isArray(body)) return;
       const dto = (await STRICT_BODY.transform(body, { type: 'body', metatype: SearchMissDto, data: '' })) as SearchMissDto;
-      await this.svc.record(dto.term);
+      // IP y user-agent solo alimentan el hash del día (sal aleatoria, borrada al cierre); ⛔ no se guardan ni se registran.
+      await this.svc.record(dto.term, { ip: req.ip, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 300) });
     } catch {
       /* 204 siempre: un cuerpo inválido no se explica */
     }

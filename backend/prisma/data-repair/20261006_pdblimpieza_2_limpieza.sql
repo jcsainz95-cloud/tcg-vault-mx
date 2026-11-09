@@ -113,6 +113,8 @@ SELECT to_regclass(format('%I', 'Accessory')) IS NOT NULL AS lz_m73,
        to_regclass(format('%I', 'BuylistQuoteDailyCount')) IS NOT NULL AS lz_mkt,
        -- v1.102⟨mkt-fase2⟩ (M-86): ¿tiene tu base la cola de medición (GA4/Meta)? Mismo patrón condicional.
        to_regclass(format('%I', 'MeasurementOutbox')) IS NOT NULL AS lz_m86,
+       -- MKT-V2 (m99): ¿tiene tu base los hashes diarios de c6 (`SearchNoResultSeen`)? Mismo patrón condicional.
+       to_regclass(format('%I', 'SearchNoResultSeen')) IS NOT NULL AS lz_m99,
        -- v1.110⟨descuentos⟩ (M-92): ¿tiene tu base los códigos de descuento? Mismo patrón condicional.
        to_regclass(format('%I', 'DiscountRedemption')) IS NOT NULL AS lz_m92,
        -- v1.114.5⟨portada⟩ (API_CONTRACT §DYN.1 «Limpieza PDB»): ¿tiene tu base Destacadas (M-93) y el precio del día (M-94)?
@@ -145,6 +147,10 @@ LOCK TABLE "CardShowClick" IN SHARE ROW EXCLUSIVE MODE;
 -- tumbar la cotización.
 \if :lz_mkt
 LOCK TABLE "BuylistQuoteDailyCount", "MarketingBannerConsentCounter" IN SHARE ROW EXCLUSIVE MODE;
+\endif
+-- MKT-V2 (m99): `POST /marketing/search-miss` (público) escribe `SearchNoResultSeen` en vivo ⇒ mismo candado.
+\if :lz_m99
+LOCK TABLE "SearchNoResultSeen" IN SHARE ROW EXCLUSIVE MODE;
 \endif
 -- v1.102⟨mkt-fase2⟩ (M-86): la cola de medición y su contexto los escriben el webhook de pago y el drenador en vivo.
 \if :lz_m86
@@ -235,6 +241,9 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   -- v2.3 (LIMPIEZA_DB §14.2.1, G-8): contadores del Panel de Marketing sin PII que mezclan tráfico de prueba con real
   -- (cotizaciones por día y respuestas al banner) ⇒ borrar, como `CardShowClick`.
   'BuylistQuoteDailyCount','MarketingBannerConsentCounter',
+  -- MKT-V2 (m99, G-8): `SearchNoResultSeen` = hashes HMAC (sal diaria) de quien buscó HOY, transitorios (se borran al cerrar el día) y sin
+  -- valor tras la limpieza ⇒ borrar. (`SearchNoResultDaily` y `MarketingWeeklyDigest` se CONSERVAN: más abajo.)
+  'SearchNoResultSeen',
   -- v1.102⟨mkt-fase2⟩ (M-86, G-8; BORRAR ratificado por el arquitecto en ARCHITECTURE §14.2.1, v2.4): cola de
   -- eventos de servidor (sin cuerpo) y los identificadores de navegador de pedidos/solicitudes que esta limpieza borra.
   -- Telemetría de vida corta (7 días) que mezcla prueba con real y solo tiene sentido junto a filas que se borran ⇒ borrar.
@@ -542,6 +551,10 @@ WITH x AS (DELETE FROM "CardShowClick" RETURNING 1) INSERT INTO lz_cambio SELECT
 \if :lz_mkt
 WITH x AS (DELETE FROM "BuylistQuoteDailyCount" RETURNING 1) INSERT INTO lz_cambio SELECT '13 BuylistQuoteDailyCount', count(*) FROM x;
 WITH x AS (DELETE FROM "MarketingBannerConsentCounter" RETURNING 1) INSERT INTO lz_cambio SELECT '13 MarketingBannerConsentCounter', count(*) FROM x;
+\endif
+-- MKT-V2 (m99): los hashes del día de c6 (sin FK; G-5 los cuenta en `borrar`, 0 tras borrar).
+\if :lz_m99
+WITH x AS (DELETE FROM "SearchNoResultSeen" RETURNING 1) INSERT INTO lz_cambio SELECT '13 SearchNoResultSeen', count(*) FROM x;
 \endif
 -- v1.102⟨mkt-fase2⟩ (M-86): la cola de medición y su contexto (sin FK; G-5 los cuenta en `borrar`).
 \if :lz_m86

@@ -17,6 +17,7 @@ import { MarketingAccessLogService } from './marketing-access-log.service';
 import { MarketingQuoteCounterService } from './marketing-quote-counter.service';
 import { MarketingSearchMissController } from './marketing-search-miss.controller';
 import { MarketingSearchMissService } from './marketing-search-miss.service';
+import { MarketingSearchVocabulary } from './marketing-search-vocabulary';
 import { MarketingWeeklyDigestService } from './marketing-weekly-digest.service';
 import { MarketingExportService } from './export/marketing-export.service';
 // v1.102⟨mkt-fase2⟩ (§MKT.H.9): lectura de GA4 Data API / Search Console (fail-closed sin credenciales).
@@ -33,6 +34,7 @@ import { GOOGLE_READ_PORT, MarketingExternalSources, googleAuthReadPort } from '
     MarketingAccessLogService,
     MarketingQuoteCounterService,
     MarketingSearchMissService,
+    MarketingSearchVocabulary,
     MarketingWeeklyDigestService,
     MarketingExportService,
     MarketingExternalSources,

@@ -4,18 +4,20 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { INTERNAL_UTM_RE, ga4InternalExclusion, isInternalUtm, withInternalExclusion } from '../src/modules/marketing/internal-traffic';
+import { GA4_UNFILTERED_NOTE, INTERNAL_UTM_RE, ga4InternalExclusion, isInternalUtm, withInternalExclusion } from '../src/modules/marketing/internal-traffic';
 import { AV1_MIN_CHECKOUTS, evaluateAlerts, type AlertInputs } from '../src/modules/marketing/marketing-alerts';
 import { deltaCells, nvrCells, sumIfVisible } from '../src/modules/marketing/marketing-summary';
 import { PAGE_TYPE_LABEL, landingRows, pageTypeOf } from '../src/modules/marketing/marketing-ga4';
-import { MarketingSearchMissService, normalizeSearchTerm } from '../src/modules/marketing/marketing-search-miss.service';
-import { MarketingWeeklyDigestService } from '../src/modules/marketing/marketing-weekly-digest.service';
+import { MarketingSearchMissService, normalizeSearchTerm, qualifyingSearchMisses } from '../src/modules/marketing/marketing-search-miss.service';
+import { termInVocabulary } from '../src/modules/marketing/marketing-search-vocabulary';
+import { Logger } from '@nestjs/common';
+import { MarketingWeeklyDigestService, recipientKeyOf } from '../src/modules/marketing/marketing-weekly-digest.service';
 import { weekRangeLabel, weeklyDigestMail } from '../src/modules/marketing/marketing-weekly-digest.mail';
 import { MarketingAnalyticsService } from '../src/modules/marketing/marketing-analytics.service';
 import { MarketingExternalSources, type GoogleReadPort } from '../src/modules/marketing/marketing-external-sources';
 import { MeasurementService } from '../src/modules/measurement/measurement.service';
 import { marketingPeriodOptions, resolveMarketingPeriod, type MarketingPeriod } from '../src/modules/marketing/marketing-period';
-import type { CellPrivacy } from '../src/modules/marketing/small-cells';
+import { REGION_REST_LABEL, foldRegionRest, type CellPrivacy } from '../src/modules/marketing/small-cells';
 import type { AggTable } from '../src/modules/marketing/marketing-aggregates.types';
 import { fakeConfig, fullEnv } from './helpers/measurement-fixtures';
 
@@ -24,20 +26,29 @@ const WEEK: MarketingPeriod = { kind: 'week', from: '2027-02-08', to: '2027-02-1
 const MONTH: MarketingPeriod = { kind: 'month', from: '2027-02-01', to: '2027-02-28', prev: { from: '2027-01-01', to: '2027-01-31' }, label: '2027-02' };
 const NOW = new Date('2027-03-10T12:00:00.000Z');
 const SA = JSON.stringify({ client_email: 'panel@tienda.iam.gserviceaccount.com', private_key: '-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----\n' });
+/** Vocabulario del doble: solo estas palabras son del catálogo. */
+const VOCAB_WORDS = new Set(['umbreon', 'vmax', 'charizard', 'ex', '151', 'pikachu', 'raro']);
+const VOCAB = { allows: jest.fn(async (t: string) => termInVocabulary(t, VOCAB_WORDS)) };
 const by = (ts: AggTable[], id: string) => ts.find((t) => t.id === id)!;
 
 describe('tráfico propio (§4)', () => {
-  it.each(['diag', 'diag-lighthouse', 'QA_playwright', 'e2e.run', 'smoke', 'Test-1', 'probe-x', 'internal'])('%s ⇒ propio', (v) => {
+  it.each(['diag-lighthouse', 'QA-playwright', 'e2e-run', 'smoke-1', 'Test-1', 'probe-x', 'internal-a'])('utm_source %s ⇒ propio', (v) => {
     expect(INTERNAL_UTM_RE.test(v)).toBe(true);
     expect(isInternalUtm(v, null)).toBe(true);
-    expect(isInternalUtm('instagram', v)).toBe(true);
   });
-  it.each(['instagram', 'diagnostico', 'qa2', 'testing', 'attest', 'google', '', null])('%s ⇒ NO es propio', (v) => {
+  it.each(['diag', 'qa', 'test', 'e2e', 'smoke', 'probe', 'internal', 'QA_playwright', 'e2e.run', 'diag-', 'instagram', 'diagnostico', 'qa2', 'testing', 'attest', 'google', '', null])('utm_source %s ⇒ NO es propio', (v) => {
     expect(isInternalUtm(v as string | null, null)).toBe(false);
   });
-  it('el filtro de GA4 es NOT(source OR medium) y se combina con inList en un andGroup', () => {
-    const nx = ga4InternalExclusion() as { notExpression: { orGroup: { expressions: { filter: { fieldName: string } }[] } } };
-    expect(nx.notExpression.orGroup.expressions.map((e) => e.filter.fieldName)).toEqual(['sessionSource', 'sessionMedium']);
+  it('utm_medium NUNCA cuenta como tráfico propio (criterio 10)', () => {
+    expect(isInternalUtm('instagram', 'test-x')).toBe(false);
+    expect(isInternalUtm('qa', 'test-x')).toBe(false);
+    expect(isInternalUtm('qa-x', 'paid')).toBe(true);
+  });
+  it('el filtro de GA4 es NOT(sessionSource FULL_REGEXP) sin sessionMedium y se combina con inList en un andGroup', () => {
+    const nx = ga4InternalExclusion() as { notExpression: { filter: { fieldName: string; stringFilter: { matchType: string; value: string } } } };
+    expect(nx.notExpression.filter.fieldName).toBe('sessionSource');
+    expect(nx.notExpression.filter.stringFilter).toEqual({ matchType: 'FULL_REGEXP', value: '(?i)(diag|qa|e2e|smoke|test|probe|internal)-.+' });
+    expect(JSON.stringify(nx)).not.toContain('sessionMedium');
     const inList = { filter: { fieldName: 'eventName', inListFilter: { values: ['a'] } } };
     expect(withInternalExclusion(inList)).toEqual({ andGroup: { expressions: [inList, ga4InternalExclusion()] } });
     expect(withInternalExclusion()).toEqual(ga4InternalExclusion());
@@ -96,7 +107,7 @@ describe('avisos (§2)', () => {
     ]);
     expect(a.find((x) => x.regla === 'AV4')!.accion).toBe('Charizard · 151 4 salió 25 veces en Google sin clics (posición 8.3): mejora título y descripción de esa ficha.');
     expect(a.find((x) => x.regla === 'AV5')!.accion).toBe('Te la cotizan 6 veces y no tienes a la venta: súbela de oferta o consíguela.');
-    expect(a.filter((x) => x.regla === 'AV6').map((x) => x.accion)).toEqual(['Buscan "umbreon vmax" 7 veces y no hay resultado: ¿falta en el catálogo?']);
+    expect(a.filter((x) => x.regla === 'AV6').map((x) => x.accion)).toEqual(['Buscan "umbreon vmax" 7 personas y no hay resultado: ¿falta en el catálogo?']);
   });
 });
 
@@ -178,11 +189,11 @@ function build(opts: { tz?: string; nvrNew?: number } = {}) {
     wishlistItem: { groupBy: jest.fn(async () => []) },
     sellRequestItem: { findMany: jest.fn(async () => []), groupBy: jest.fn(async () => []) },
     configSetting: { findUnique: jest.fn(async () => null) },
-    searchNoResultDaily: { groupBy: jest.fn(async () => [{ termNormalized: 'umbreon vmax', _sum: { count: 7 }, _count: { _all: 3 } }, { termNormalized: 'raro', _sum: { count: 2 }, _count: { _all: 2 } }]) },
+    searchNoResultDaily: { findMany: jest.fn(async () => [{ termNormalized: 'umbreon vmax', people: 3 }, { termNormalized: 'umbreon vmax', people: 2 }, { termNormalized: 'umbreon vmax', people: 2 }, { termNormalized: 'raro', people: 2 }, { termNormalized: 'raro', people: 2 }, { termNormalized: 'maria lopez', people: 4 }, { termNormalized: 'maria lopez', people: 4 }]) },
   };
   const env = fullEnv({ MEASUREMENT_MODE: 'on', MKT_GOOGLE_SA_JSON: SA, MKT_GA4_PROPERTY_ID: '123456789', MKT_SEARCH_CONSOLE_SITE: 'sc-domain:tcghunt.mx' });
   const sales = { report: jest.fn(async () => ({ totals: { orders: 0, chargedCents: 0, avgTicketCents: null, piecesPerOrder: null }, previousTotals: { orders: 7, chargedCents: 700000, avgTicketCents: 100000, piecesPerOrder: 1 }, comparison: { orders: { diff: 0, pct: 0 }, chargedCents: { diff: 0, pct: 0 } } })) };
-  const svc = new MarketingAnalyticsService(prisma as never, sales as never, { forPeriod: jest.fn(async () => []) } as never, new MeasurementService(prisma as never, fakeConfig(env)), new MarketingExternalSources(fakeConfig(env), port));
+  const svc = new MarketingAnalyticsService(prisma as never, sales as never, { forPeriod: jest.fn(async () => []) } as never, new MeasurementService(prisma as never, fakeConfig(env)), new MarketingExternalSources(fakeConfig(env), port), new MarketingSearchMissService(prisma as never, VOCAB as never));
   return { svc, prisma, calls, port };
 }
 
@@ -241,14 +252,15 @@ describe("screen('r')", () => {
     expect((port.postJson as jest.Mock).mock.calls.length).toBeLessThanOrEqual(30);
   });
   it('sin GA4 ni Search Console: las filas GA4 llevan el motivo NO MEDIDO y r2 dice «No se evaluó»', async () => {
-    const prisma = { marketingBannerConsentCounter: { count: jest.fn(async () => 0), groupBy: jest.fn(async () => []) }, order: { count: jest.fn(async () => 0), findMany: jest.fn(async () => []) }, buylistQuoteDailyCount: { groupBy: jest.fn(async () => []) }, configSetting: { findUnique: jest.fn(async () => null) }, searchNoResultDaily: { groupBy: jest.fn(async () => []) } };
+    const prisma = { marketingBannerConsentCounter: { count: jest.fn(async () => 0), groupBy: jest.fn(async () => []) }, order: { count: jest.fn(async () => 0), findMany: jest.fn(async () => []) }, buylistQuoteDailyCount: { groupBy: jest.fn(async () => []) }, configSetting: { findUnique: jest.fn(async () => null) }, searchNoResultDaily: { findMany: jest.fn(async () => []) } };
     const sales = { report: jest.fn(async () => ({ totals: { orders: 0, chargedCents: 0 }, previousTotals: { orders: 0, chargedCents: 0 } })) };
     const svc = new MarketingAnalyticsService(prisma as never, sales as never, { forPeriod: jest.fn(async () => []) } as never);
     const p = await svc.screen('r', WEEK, NOW, 'small_cells');
     const r1 = by(p.tables, 'r1');
     expect(r1.rows.find((x) => x.cifra === 'Fichas vistas')).toMatchObject({ actual: 'NO MEDIDO — GA4 sin encender', delta_abs: null });
     const r2 = by(p.tables, 'r2');
-    expect(r2.rows.map((x) => x.titulo)).toEqual(['Sin avisos esta semana', 'No se evaluó: GA4 sin encender', 'No se evaluó: Search Console sin conectar']);
+    // Con fuentes sin medir NO se afirma «Sin avisos»: se dice que no se pudo evaluar.
+    expect(r2.rows.map((x) => x.titulo)).toEqual(['No se pudo evaluar esta semana por completo', 'No se evaluó: GA4 sin encender', 'No se evaluó: Search Console sin conectar']);
   });
 });
 
@@ -259,7 +271,8 @@ describe('c2/c3/c4/c8/c9/e2/c6/d1', () => {
     expect(['c2', 'c3', 'c8', 'c9'].map((id) => by(c, id).measured)).toEqual([true, true, true, true]);
     expect(by(c, 'c4').notMeasuredReason).toBe('NO MEDIDO — el evento del botón COMPRAR todavía no se envía');
     expect(by(c, 'c2').rows[0]).toMatchObject({ tipo: PAGE_TYPE_LABEL['ficha-carta'] });
-    // 'raro' (2 búsquedas) no llega al umbral aunque el doble lo devuelva: el filtro es del servicio.
+    // 'raro' (4 personas) no llega al umbral aunque el doble lo devuelva: el filtro es del servicio.
+    // 'maria lopez' (8 personas, 2 días) tiene volumen pero NO es vocabulario del catálogo ⇒ se descarta AL LEER.
     expect(by(c, 'c6').rows).toEqual([{ termino: 'umbreon vmax', busquedas: 7, dias: 3 }]);
   });
   it('d1: aparecen las cartas más vistas aunque no se hayan vendido (vendidas = 0 exacto)', async () => {
@@ -276,31 +289,108 @@ describe('c2/c3/c4/c8/c9/e2/c6/d1', () => {
 });
 
 describe('c6 sin datos personales (§7)', () => {
-  it.each(['juan@correo.com', '@usuario', 'GOMC800101HDFRRR09', 'ABCD800101AB1', '5512345678', '55 1234 5678', '4111-1111-1111-1111', 'a'.repeat(81), '', 'x', 123, null])('%p ⇒ no se guarda', (t) => {
+  it.each([
+    'juan@correo.com', '@usuario', 'GOMC800101HDFRRR09', 'ABCD800101AB1', '5512345678', '55 1234 5678', '4111-1111-1111-1111',
+    // MKV2 bloqueante: el guion bajo también es separador (si no, evadía el filtro)
+    'gomc_800101_hdfrrr09', 'gome_800101_ab1', '5512_3456', '1234_567', 'gomc 800101 hdfrrr09',
+    'a'.repeat(81), '', 'x', 123, null,
+    'uno dos tres cuatro cinco', // > 4 palabras
+  ])('%p ⇒ no se guarda', (t) => {
     expect(normalizeSearchTerm(t)).toBeNull();
   });
-  it.each([['Umbreon VMAX', 'umbreon vmax'], ['  Pikachú   ex  ', 'pikachu ex'], ['Año Nuevo', 'año nuevo'], ['charizard 151', 'charizard 151']])('%p ⇒ %p', (t, out) => {
+  it.each([['Umbreon VMAX', 'umbreon vmax'], ['  Pikachú   ex  ', 'pikachu ex'], ['Año Nuevo', 'año nuevo'], ['charizard 151', 'charizard 151'], ['charizard 4/102', 'charizard 4 102']])('%p ⇒ %p', (t, out) => {
     expect(normalizeSearchTerm(t)).toBe(out);
   });
-  it('record: PII ⇒ ninguna escritura; término válido ⇒ un INSERT … ON CONFLICT; flag apagado ⇒ nada; el SQL no lleva IP ni usuario', async () => {
-    const prisma = { configSetting: { findUnique: jest.fn(async () => null) }, $executeRaw: jest.fn(async () => 1) };
-    const svc = new MarketingSearchMissService(prisma as never);
-    expect(await svc.record('mi correo es a@b.mx')).toBe(false);
-    expect(await svc.record('GOMC800101HDFRRR09')).toBe(false);
-    expect(prisma.$executeRaw).not.toHaveBeenCalled();
-    expect(await svc.record('Umbreon VMAX', NOW)).toBe(true);
-    const [strings, ...vals] = prisma.$executeRaw.mock.calls[0] as unknown as [string[], ...unknown[]];
-    expect(strings.join('?')).toContain('ON CONFLICT ("termNormalized", "day") DO UPDATE');
-    expect(vals).toEqual(['umbreon vmax', '2027-03-10']);
-    prisma.configSetting.findUnique.mockResolvedValueOnce({ valueJson: 'off' } as never);
-    prisma.$executeRaw.mockClear();
-    expect(await svc.record('umbreon vmax')).toBe(false);
-    expect(prisma.$executeRaw).not.toHaveBeenCalled();
+  it('vocabulario: solo palabras del catálogo o números de carta', () => {
+    expect(termInVocabulary('charizard ex 151', VOCAB_WORDS)).toBe(true);
+    expect(termInVocabulary('maria lopez', VOCAB_WORDS)).toBe(false);
+    expect(termInVocabulary('calle reforma 12', VOCAB_WORDS)).toBe(false);
+    expect(termInVocabulary('tcghunt mx', VOCAB_WORDS)).toBe(false);
+    expect(termInVocabulary('', VOCAB_WORDS)).toBe(false);
   });
-  it('estático: el modelo no guarda IP, usuario ni cookie', () => {
+  it('umbral por PERSONAS: ≥ 5 en total y ≥ 2 días con ≥ 2 personas; un solo cliente (1/día) nunca califica', () => {
+    const rows = (...p: number[]) => p.map((people) => ({ termNormalized: 't', people }));
+    expect(qualifyingSearchMisses(rows(1, 1, 1, 1, 1, 1, 1, 1))).toEqual([]); // 8 días de 1 persona
+    expect(qualifyingSearchMisses(rows(5))).toEqual([]); // un solo día
+    expect(qualifyingSearchMisses(rows(4, 1))).toEqual([]); // solo 1 día con ≥ 2
+    expect(qualifyingSearchMisses(rows(3, 2))).toEqual([{ term: 't', people: 5, days: 2 }]);
+    expect(qualifyingSearchMisses(rows(2, 2))).toEqual([]); // 4 personas
+  });
+  function recorder(opts: { allow?: boolean; flagOff?: boolean; exec?: number } = {}) {
+    const prisma = {
+      configSetting: {
+        findUnique: jest.fn(async () => (opts.flagOff ? { valueJson: 'off' } : null)),
+        findUniqueOrThrow: jest.fn(async () => ({ valueJson: 'sal-del-dia' })),
+      },
+      $executeRaw: jest.fn(async () => opts.exec ?? 1),
+      $queryRaw: jest.fn(async () => []),
+    };
+    const vocab = { allows: jest.fn(async () => opts.allow ?? true) };
+    return { prisma, svc: new MarketingSearchMissService(prisma as never, vocab as never) };
+  }
+  it('record: PII o fuera de vocabulario ⇒ ninguna escritura; válido ⇒ un INSERT en SearchNoResultSeen con hash de 16 hex (sin IP/UA en claro)', async () => {
+    const r = recorder();
+    expect(await r.svc.record('mi correo es a@b.mx')).toBe(false);
+    expect(await r.svc.record('gomc_800101_hdfrrr09')).toBe(false);
+    expect(r.prisma.$executeRaw).not.toHaveBeenCalled();
+    const off = recorder({ allow: false });
+    expect(await off.svc.record('maria lopez', { ip: '1.2.3.4' })).toBe(false);
+    expect(off.prisma.$executeRaw).not.toHaveBeenCalled();
+    expect(await r.svc.record('Umbreon VMAX', { ip: '203.0.113.7', userAgent: 'UA-secreto' }, NOW)).toBe(true);
+    const calls = r.prisma.$executeRaw.mock.calls as unknown as [string[], ...unknown[]][];
+    const ins = calls.find((c) => c[0].join('?').includes('INSERT INTO "SearchNoResultSeen"'))!;
+    expect(ins[0].join('?')).toContain('ON CONFLICT DO NOTHING');
+    const [term, day, h] = [ins[1], ins[2], ins[3]];
+    expect([term, day]).toEqual(['umbreon vmax', '2027-03-10']);
+    expect(String(h)).toMatch(/^[0-9a-f]{16}$/);
+    expect(JSON.stringify(calls)).not.toMatch(/203\.0\.113\.7|UA-secreto/);
+  });
+  it('el mismo IP+UA da el mismo hash en el día (1 persona); otro IP, otro hash', async () => {
+    const hashes: string[] = [];
+    const r = recorder();
+    r.prisma.$executeRaw.mockImplementation(async (...a: unknown[]) => {
+      if ((a[0] as string[]).join('?').includes('SearchNoResultSeen')) hashes.push(String(a[3]));
+      return 1;
+    });
+    for (let i = 0; i < 50; i++) await r.svc.record('umbreon vmax', { ip: '1.1.1.1', userAgent: 'ua' }, NOW);
+    await r.svc.record('umbreon vmax', { ip: '2.2.2.2', userAgent: 'ua' }, NOW);
+    expect(new Set(hashes.slice(0, 50)).size).toBe(1);
+    expect(hashes[50]).not.toBe(hashes[0]);
+  });
+  it('topes: el INSERT lleva ≤ 200 hashes por término y ≤ 300 términos por día en la misma sentencia; sin escribir ⇒ false (204)', async () => {
+    const r = recorder({ exec: 0 });
+    expect(await r.svc.record('umbreon vmax', { ip: 'x' }, NOW)).toBe(false);
+    const ins = (r.prisma.$executeRaw.mock.calls as unknown as [string[], ...unknown[]][]).find((c) => c[0].join('?').includes('INSERT INTO "SearchNoResultSeen"'))!;
+    expect(ins.slice(1)).toEqual(expect.arrayContaining([200, 300]));
+  });
+  it('flag apagado ⇒ nada; BD caída ⇒ false sin lanzar', async () => {
+    const off = recorder({ flagOff: true });
+    expect(await off.svc.record('umbreon vmax', {}, NOW)).toBe(false);
+    expect(off.prisma.$executeRaw).not.toHaveBeenCalled();
+    const down = recorder();
+    down.prisma.configSetting.findUnique.mockRejectedValueOnce(new Error('db down'));
+    await expect(down.svc.record('umbreon vmax', {}, NOW)).resolves.toBe(false);
+  });
+  it('cierre: vuelca COUNT(h) a SearchNoResultDaily, borra hashes y la sal de días pasados, y es idempotente', async () => {
+    const r = recorder();
+    r.prisma.$queryRaw.mockResolvedValueOnce([{ d: '2027-03-09' }] as never);
+    const tx: string[] = [];
+    (r.prisma as Record<string, unknown>).$transaction = jest.fn(async (qs: unknown[]) => qs);
+    r.prisma.$executeRaw.mockImplementation(async (...a: unknown[]) => { tx.push((a[0] as string[]).join('?')); return 1; });
+    expect(await r.svc.closePastDays(NOW)).toBe(1);
+    const all = tx.join('\n');
+    expect(all).toContain('INSERT INTO "SearchNoResultDaily"');
+    expect(all).toContain('count(*)');
+    expect(all).toContain('DELETE FROM "SearchNoResultSeen"');
+    expect(all).toContain('DELETE FROM "ConfigSetting"');
+    expect(await r.svc.closePastDays(NOW)).toBe(0); // sin hashes abiertos no hay nada que volcar
+  });
+  it('estático: ningún modelo de c6 guarda IP, usuario ni cookie', () => {
     const schema = fs.readFileSync(path.join(__dirname, '../prisma/schema.prisma'), 'utf8');
-    const m = /model SearchNoResultDaily \{([\s\S]*?)\n\}/.exec(schema)![1];
-    expect(m).not.toMatch(/ip|user|cookie|session|device/i);
+    for (const model of ['SearchNoResultDaily', 'SearchNoResultSeen']) {
+      const m = new RegExp(`model ${model} \\{([\\s\\S]*?)\\n\\}`).exec(schema)![1];
+      expect(m.replace(/\/\/.*$/gm, '')).not.toMatch(/\bip\b|user|cookie|session|device|agent/i);
+    }
   });
 });
 
@@ -320,32 +410,36 @@ describe('correo del lunes (§3)', () => {
     expect(m.text).toContain('https://tcghunt.mx/es/admin/marketing');
   });
 
-  function digest(opts: { recipients?: boolean; sendFails?: number } = {}) {
-    const state: { row: { weekStart: Date; status: string; attempts: number; claimedAt: Date | null; sentAt: Date | null } | null } = { row: null };
+  type Row = { weekStart: Date; recipientKey: string; status: string; attempts: number; claimedAt: Date | null; sentAt: Date | null };
+  function digest(opts: { emails?: string[]; failFor?: Record<string, number> } = {}) {
+    const emails = opts.emails ?? ['dueno@tcghunt.mx'];
+    const rows = new Map<string, Row>();
     const sent: { to: string; subject: string; text: string; html: string }[] = [];
-    let fails = opts.sendFails ?? 0;
+    const fails: Record<string, number> = { ...(opts.failFor ?? {}) };
+    const owner = (email: string, i: number) => ({ id: `o${i}`, isOwner: true, email, name: 'JC', nameSource: 'user', locale: 'es', role: 'super_admin', status: 'active', deletedAt: null, emailVerifiedAt: new Date() });
     const prisma = {
       configSetting: { findUnique: jest.fn(async () => null) },
-      user: { findMany: jest.fn(async () => (opts.recipients === false ? [] : [{ id: 'o', isOwner: true, email: 'dueno@tcghunt.mx', name: 'JC', nameSource: 'user', locale: 'es', role: 'super_admin', status: 'active', deletedAt: null, emailVerifiedAt: new Date() }])) },
-      $executeRaw: jest.fn(async (_s: unknown, wk: string) => {
-        if (!state.row) state.row = { weekStart: new Date(`${wk}T00:00:00.000Z`), status: 'pending', attempts: 0, claimedAt: null, sentAt: null };
+      user: { findMany: jest.fn(async () => emails.map(owner)) },
+      $executeRaw: jest.fn(async (_s: unknown, wk: string, key: string, status: string) => {
+        if (rows.has(key)) return 0;
+        rows.set(key, { weekStart: new Date(`${wk}T00:00:00.000Z`), recipientKey: key, status, attempts: 0, claimedAt: null, sentAt: null });
         return 1;
       }),
       marketingWeeklyDigest: {
-        updateMany: jest.fn(async ({ where, data }: { where: { status: string; OR: { claimedAt: unknown }[] }; data: { claimedAt: Date } }) => {
-          const r = state.row;
+        updateMany: jest.fn(async ({ where, data }: { where: { recipientKey: string; status: string; OR: { claimedAt: unknown }[] }; data: { claimedAt: Date } }) => {
+          const r = rows.get(where.recipientKey);
           const staleBefore = (where.OR[1].claimedAt as { lt: Date }).lt;
           if (!r || r.status !== where.status || (r.claimedAt !== null && r.claimedAt >= staleBefore)) return { count: 0 };
           r.claimedAt = data.claimedAt;
           return { count: 1 };
         }),
-        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
-          const r = state.row!;
+        update: jest.fn(async ({ where, data }: { where: { weekStart_recipientKey: { recipientKey: string } }; data: Record<string, unknown> }) => {
+          const r = rows.get(where.weekStart_recipientKey.recipientKey)!;
           if (data.status) r.status = data.status as string;
           if ('claimedAt' in data) r.claimedAt = data.claimedAt as Date | null;
           if (data.sentAt) r.sentAt = data.sentAt as Date;
           if (data.attempts) r.attempts += 1;
-          return r;
+          return { ...r };
         }),
       },
     };
@@ -357,35 +451,65 @@ describe('correo del lunes (§3)', () => {
         ],
       })),
     };
-    const mail = { send: jest.fn(async (m: { to: string; subject: string; text: string; html: string }) => { if (fails > 0) { fails--; throw new Error('resend 500'); } sent.push(m); return {}; }) };
+    const mail = {
+      send: jest.fn(async (m: { to: string; subject: string; text: string; html: string }) => {
+        if ((fails[m.to] ?? 0) > 0) { fails[m.to]--; throw new Error(`resend 500 para ${m.to}`); }
+        sent.push(m);
+        return {};
+      }),
+    };
     const svc = new MarketingWeeklyDigestService(prisma as never, analytics as never, undefined, mail as never);
-    return { svc, state, sent, analytics, prisma };
+    return { svc, rows, sent, analytics, prisma, mail };
   }
+  const only = (d: ReturnType<typeof digest>) => [...d.rows.values()][0];
   const MONDAY = new Date('2026-11-09T15:00:00.000Z'); // lunes 9 nov, 09:00 CDMX ⇒ semana 2–8 nov
 
-  it('2 ejecuciones la misma semana ⇒ 1 envío; la 2ª es no-op', async () => {
+  it('2 ejecuciones la misma semana ⇒ 1 envío; la 2ª es no-op; la clave es un hash (sin el correo)', async () => {
     const d = digest();
     expect((await d.svc.run(MONDAY)).outcome).toBe('sent');
     expect((await d.svc.run(new Date(MONDAY.getTime() + 3600_000))).outcome).toBe('noop');
     expect(d.sent).toHaveLength(1);
     expect(d.sent[0].subject).toBe('Tu semana en TCG HUNT: 2–8 nov');
-    expect(d.state.row).toMatchObject({ status: 'sent' });
+    expect(only(d)).toMatchObject({ status: 'sent', recipientKey: recipientKeyOf('DUENO@tcghunt.mx') });
+    expect(only(d).recipientKey).toMatch(/^[0-9a-f]{16}$/);
     // ⛔ siempre small_cells
     const args = (d.analytics.screen as jest.Mock).mock.calls[0];
     expect([args[0], args[3]]).toEqual(['r', 'small_cells']);
   });
   it('fallo de correo ⇒ attempts+1, sigue pending y el siguiente tick reintenta sin duplicar', async () => {
-    const d = digest({ sendFails: 1 });
+    const d = digest({ failFor: { 'dueno@tcghunt.mx': 1 } });
     expect((await d.svc.run(MONDAY)).outcome).toBe('failed');
-    expect(d.state.row).toMatchObject({ status: 'pending', attempts: 1, claimedAt: null });
+    expect(only(d)).toMatchObject({ status: 'pending', attempts: 1, claimedAt: null });
     expect((await d.svc.run(new Date(MONDAY.getTime() + 3600_000))).outcome).toBe('sent');
     expect(d.sent).toHaveLength(1);
   });
-  it('sin cuenta de dueño ⇒ skipped (sin reintento infinito)', async () => {
-    const d = digest({ recipients: false });
+  it('2 destinatarios, fallo de uno ⇒ el otro NO se reenvía (criterio 9)', async () => {
+    const d = digest({ emails: ['a@tcghunt.mx', 'b@tcghunt.mx'], failFor: { 'b@tcghunt.mx': 1 } });
+    expect((await d.svc.run(MONDAY)).outcome).toBe('failed');
+    expect(d.sent.map((m) => m.to)).toEqual(['a@tcghunt.mx']);
+    expect((await d.svc.run(new Date(MONDAY.getTime() + 3600_000))).outcome).toBe('sent');
+    expect(d.sent.map((m) => m.to)).toEqual(['a@tcghunt.mx', 'b@tcghunt.mx']); // a una sola vez
+    expect([...d.rows.values()].map((r) => r.status)).toEqual(['sent', 'sent']);
+  });
+  it('5 fallos ⇒ failed y ya no se reintenta; el registro no lleva el correo ni el mensaje del proveedor', async () => {
+    const d = digest({ failFor: { 'dueno@tcghunt.mx': 99 } });
+    const logged: string[] = [];
+    const spy = jest.spyOn(Logger.prototype, 'error').mockImplementation((m: unknown) => { logged.push(String(m)); });
+    for (let i = 0; i < 5; i++) await d.svc.run(new Date(MONDAY.getTime() + i * 3600_000));
+    expect(only(d)).toMatchObject({ status: 'failed', attempts: 5 });
+    const calls = d.mail.send.mock.calls.length;
+    expect((await d.svc.run(new Date(MONDAY.getTime() + 6 * 3600_000))).outcome).toBe('noop');
+    expect(d.mail.send.mock.calls.length).toBe(calls);
+    spy.mockRestore();
+    expect(logged.length).toBeGreaterThan(0);
+    expect(logged.join('\n')).not.toMatch(/dueno@|tcghunt\.mx|resend 500/);
+  });
+  it('sin cuenta de dueño ⇒ una fila none/skipped (sin reintento infinito)', async () => {
+    const d = digest({ emails: [] });
     expect((await d.svc.run(MONDAY)).outcome).toBe('skipped');
     expect((await d.svc.run(new Date(MONDAY.getTime() + 3600_000))).outcome).toBe('noop');
     expect(d.sent).toHaveLength(0);
+    expect(only(d)).toMatchObject({ recipientKey: 'none', status: 'skipped' });
   });
   it('flag marketing_weekly_digest=off ⇒ no hace nada', async () => {
     const d = digest();
@@ -413,5 +537,113 @@ describe('r3 nunca sale por exports, tokens ni correo (estático)', () => {
     expect(dig[0]).toContain("'small_cells'");
     const mailCode = read('marketing-weekly-digest.mail.ts').split('\n').filter((l) => !/^\s*(\/\*\*|\*|\/\/)/.test(l)).join('\n');
     expect(mailCode).not.toMatch(/r3|ses_instagram|Día por día/);
+  });
+});
+
+// ───────────────────────── MKV2: filtro GA4, semáforo, nota sin filtro, c9 ─────────────────────────
+
+describe('GA4: reintento sin filtro SOLO ante 400 de compatibilidad (§4, criterio 10)', () => {
+  const gaxios = (status: number, gstatus: string, message: string) => Object.assign(new Error(message), { response: { status, data: { error: { code: status, status: gstatus, message } } } });
+  const src = (port: GoogleReadPort) => new MarketingExternalSources(fakeConfig(fullEnv({ MEASUREMENT_MODE: 'on', MKT_GOOGLE_SA_JSON: SA, MKT_GA4_PROPERTY_ID: '123456789' })), port);
+  const spec = { dimensions: ['itemId'], metrics: ['itemsViewed'] } as const;
+  const ok = { rows: [{ dimensionValues: [{ value: 'c_1' }], metricValues: [{ value: '5' }] }] };
+
+  it('400 INVALID_ARGUMENT "incompatible" ⇒ reintenta SIN filtro y marca unfiltered', async () => {
+    const bodies: { dimensionFilter?: unknown }[] = [];
+    const port: GoogleReadPort = { postJson: jest.fn(async (_k, _s, _u, b) => { bodies.push(b as never); if (bodies.length === 1) throw gaxios(400, 'INVALID_ARGUMENT', 'Dimensions: sessionSource is incompatible with metrics: itemsViewed'); return ok; }) };
+    const r = await src(port).ga4Report(spec, '2027-02-08', '2027-02-14', NOW);
+    expect(r).toMatchObject({ ok: true, unfiltered: true });
+    expect(bodies[0].dimensionFilter).toEqual(ga4InternalExclusion());
+    expect(bodies[1].dimensionFilter).toBeUndefined();
+  });
+  it.each([
+    ['403', gaxios(403, 'PERMISSION_DENIED', 'no permission')],
+    ['429', gaxios(429, 'RESOURCE_EXHAUSTED', 'quota')],
+    ['500', gaxios(500, 'INTERNAL', 'boom')],
+    ['400 que no es de compatibilidad', gaxios(400, 'INVALID_ARGUMENT', 'Field foo is not a valid dimension')],
+    ['400 con otro estado', gaxios(400, 'FAILED_PRECONDITION', 'incompatible')],
+    ['red', Object.assign(new Error('x'), { code: 'ECONNRESET' })],
+  ])('%s ⇒ NO MEDIDO, sin segundo intento', async (_n, err) => {
+    const port: GoogleReadPort = { postJson: jest.fn(async () => { throw err; }) };
+    const r = await src(port).ga4Report(spec, '2027-02-08', '2027-02-14', NOW);
+    expect(r).toEqual({ ok: false });
+    expect((port.postJson as jest.Mock).mock.calls).toHaveLength(1);
+  });
+  it.each(Array.from({ length: 14 }, (_, i) => i))('semáforo: al liberarse un cupo, una llegada %i microtareas después NO se cuela (nunca 5 a la vez)', async (ticks) => {
+    let live = 0;
+    let peak = 0;
+    const gates: (() => void)[] = [];
+    const port: GoogleReadPort = {
+      postJson: jest.fn(async () => {
+        live++;
+        peak = Math.max(peak, live);
+        await new Promise<void>((res) => gates.push(res));
+        live--;
+        return ok;
+      }),
+    };
+    const s = src(port);
+    const day = (n: number) => `2026-02-${String(n + 1).padStart(2, '0')}`;
+    const runs = Array.from({ length: 5 }, (_, i) => s.ga4Report(spec, day(i), '2026-03-01', NOW)); // 4 corren, 1 espera
+    await new Promise((res) => setImmediate(res));
+    expect(gates).toHaveLength(4);
+    gates.shift()!(); // se libera un cupo: pasa al que espera
+    for (let t = 0; t < ticks; t++) await Promise.resolve();
+    runs.push(s.ga4Report(spec, day(9), '2026-03-01', NOW)); // llegada nueva justo en ese momento
+    for (let i = 0; i < 40 && runs.length > 0; i++) {
+      await new Promise((res) => setImmediate(res));
+      while (gates.length) gates.shift()!();
+    }
+    await Promise.all(runs);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+});
+
+describe('tabla servida sin filtro lleva la nota fija (§4)', () => {
+  it('d1 y d2 llevan GA4_UNFILTERED_NOTE cuando la lectura de ítems salió sin filtro; con filtro no', async () => {
+    for (const unfiltered of [true, false]) {
+      const { svc } = build();
+      const ext = (svc as unknown as { external: { ga4Report: (...a: unknown[]) => Promise<unknown> } }).external;
+      const orig = ext.ga4Report.bind(ext);
+      ext.ga4Report = async (spec: unknown, ...rest: unknown[]) => {
+        const r = (await orig(spec, ...rest)) as Record<string, unknown>;
+        return (spec as { dimensions: string[] }).dimensions[0] === 'itemId' && unfiltered ? { ...r, unfiltered: true } : r;
+      };
+      const d = (await svc.screen('d', WEEK, NOW, ownerExact())).tables;
+      for (const id of ['d1', 'd2']) expect(by(d, id).notes?.includes(GA4_UNFILTERED_NOTE)).toBe(unfiltered);
+    }
+  });
+});
+
+describe('c9: supresión complementaria contra r1 (§5, criterio 8)', () => {
+  it('el resto nunca sale < 5: se pliega el estado visible más pequeño hasta que sea ≥ 5', () => {
+    // 100 visitantes; visibles 60 + 37 = 97 ⇒ resto 3 (< 5) ⇒ se pliega el menor (37) ⇒ resto 40
+    const r = foldRegionRest([{ key: 'Jalisco', count: 60 }, { key: 'Nuevo León', count: 37 }], 100);
+    expect(r).toEqual({ rows: [{ key: 'Jalisco', count: 60 }], rest: 40 });
+  });
+  it('resto ya ≥ 5 ⇒ no se pliega nada; resto 0 ⇒ sin fila de resto; total < 5 ⇒ centinela, nunca la cifra', () => {
+    expect(foldRegionRest([{ key: 'A', count: 10 }], 20)).toEqual({ rows: [{ key: 'A', count: 10 }], rest: 10 });
+    expect(foldRegionRest([{ key: 'A', count: 10 }], 10)).toEqual({ rows: [{ key: 'A', count: 10 }], rest: null });
+    expect(foldRegionRest([{ key: 'A', count: 5 }], 8)).toEqual({ rows: [], rest: 8 });
+    expect(foldRegionRest([], 3)).toEqual({ rows: [], rest: '< 5' });
+  });
+  it('nunca se puede despejar: para toda combinación, total − visibles = el resto publicado (≥ 5) o el resto es el centinela', () => {
+    for (let total = 0; total <= 40; total++) {
+      for (const a of [0, 5, 6, 9, 20]) {
+        for (const b of [0, 5, 7, 12]) {
+          const visible = [a, b].map((count, i) => ({ key: `E${i}`, count })).filter((x) => x.count >= 5 && x.count <= total);
+          const { rows, rest } = foldRegionRest(visible, total);
+          const shown = rows.reduce((s, x) => s + x.count, 0);
+          if (typeof rest === 'number') expect(rest).toBeGreaterThanOrEqual(5);
+          if (rest === null) expect(total - shown).toBeLessThanOrEqual(0);
+        }
+      }
+    }
+  });
+  it('c9 en small_cells publica «Otros estados y sin dato» y en exact no pliega', async () => {
+    const { svc } = build();
+    const cells = by((await svc.screen('c', WEEK, NOW, 'small_cells')).tables, 'c9');
+    expect(cells.rows[cells.rows.length - 1]).toMatchObject({ estado: REGION_REST_LABEL });
+    for (const r of cells.rows) if (typeof r.usuarios === 'number') expect(r.usuarios).toBeGreaterThanOrEqual(5);
   });
 });

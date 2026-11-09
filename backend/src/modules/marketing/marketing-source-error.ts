@@ -119,3 +119,19 @@ export function classifySourceError(err: unknown): string {
     return 'otro';
   }
 }
+
+/**
+ * ¿Es un 400 `INVALID_ARGUMENT` de GA4 cuyo mensaje dice que la dimensión/métrica no es compatible? (MKT_PANEL_V2 §4). Es lo ÚNICO
+ * que autoriza reintentar sin el filtro de tráfico propio. El mensaje se LEE aquí pero nunca se registra. Nunca lanza.
+ */
+export function isGa4IncompatibleQueryError(err: unknown): boolean {
+  try {
+    if (!isObj(err) || httpOf(err) !== 400) return false;
+    const body = bodyOf(err);
+    const e = body && isObj(body.error) ? body.error : null;
+    if (!e || e.status !== 'INVALID_ARGUMENT') return false;
+    return typeof e.message === 'string' && /incompatib|not compatible/i.test(e.message);
+  } catch {
+    return false;
+  }
+}
