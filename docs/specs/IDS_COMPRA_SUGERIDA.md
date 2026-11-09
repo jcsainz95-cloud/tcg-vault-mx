@@ -1,4 +1,10 @@
-# Compra sugerida por versión (P-ARQ-IDS-3 cerrada, HECHOS 2026-11-06) — detalle movido desde API_CONTRACT §2
+# Alta rápida, cajón y compra sugerida (UX-ALTA-LIGA, HECHOS 2026-11-05/06) — detalle movido desde API_CONTRACT §2
+
+**Acabado del alta:** al elegir «De liga», `POST /admin/inventory/items/batch` (campos opcionales `language`, `cardProductId`) lleva el `finish` de la versión de liga, nunca el de la casilla. Un solo acabado de liga ⇒ implícito; varios ⇒ el staff elige, sin preselección ni envío hasta elegir. Idioma aplica a toda carta raw; Versión solo si hay liga. Candado: IDS-F11 (a)–(c) (mutar: `finish` de la casilla en el POST); IDS-B32 (backend).
+
+**Cajón (piezas):** dos lecturas de `GET /admin/inventory/items`, tope 100: (1) la casilla (`cardId`+`finish`); (2) `stamped=true` sin `finish`, sin los acabados que ya son casilla. Idioma/Liga solo en cliente; «Piezas (n)» fijo y «Mostrando n de N». Casilla > 100 piezas ⇒ filtros en servidor (O-24). Candado: IDS-F11 (e).
+
+## Compra sugerida por versión (P-ARQ-IDS-3 cerrada)
 
 «Pagamos por pieza» abre con un SUGERIDO editable según la versión elegida; sin migración ni endpoint nuevo. **Fuente:** `GET /admin/inventory/cards/:cardId/versions` añade a cada combo `buySuggestedCents: number | null` (centavos MXN), calculado SOLO en backend. **Regla** (`B(R)` = curva de compra vigente, `pricing.buy.effectiveCents`, sobre la referencia de mercado `R` de `versionReferences`): `(en, sin liga)` = `B(R_en)` (con override manual/bounty de la carta; el resto usa la curva PURA: dueño 2026-11-06 «A) Del precio normal») · `(en, liga P)` = `B(R_P)` · `(es, sin liga)` = `scaleByPct(B(R_en), spanish_market_pct)` · `(es, liga P)` = `scaleByPct(B(R_P), spanish_market_pct)`. Orden fijo: curva y luego porcentaje (inglesa $60.00 ⇒ español $45.00 con pct 75). **Redondeo:** `scaleByPct` (`common/card-version.ts:255`, mitad hacia arriba); `pct` de `PricingService.loadSpanishMarketPct` (admin, 1–200, default 75). **`null`** (sin error) si no hay referencia (`R` sin precio/pending), la curva no da compra o `pct` es inválido; graduada o sellado ⇒ `null` en versiones ≠ (en, sin liga). **Escritura:** `items/batch` sin cambio; `acquisitionCostCents` = lo que el staff acepte; el sugerido no se guarda solo.
 
