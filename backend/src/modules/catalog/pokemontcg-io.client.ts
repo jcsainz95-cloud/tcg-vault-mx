@@ -75,10 +75,10 @@ export class PokemonTcgIoClient {
   protected readonly baseBackoffMs: number = 500;
   /** Tope por petición del camino general (sync): evita un fetch colgado sin fin. */
   protected readonly requestTimeoutMs: number = 60_000;
-  /** Camino ACOTADO (import de promos): 3 intentos, ≤2 s entre intentos, presupuesto total 10 s. */
-  protected readonly boundedAttempts: number = 3;
+  /** Camino ACOTADO (import de promos): 4 intentos, ≤2 s entre intentos, presupuesto total 20 s. */
+  protected readonly boundedAttempts: number = 4;
   protected readonly boundedMaxWaitMs: number = 2_000;
-  protected readonly boundedBudgetMs: number = 10_000;
+  protected readonly boundedBudgetMs: number = 20_000;
   /** Caché en memoria del último resultado BUENO de la lista de sets (24 h). */
   protected readonly setsCacheTtlMs: number = 24 * 60 * 60 * 1000;
   private setsCache: { at: number; sets: RemoteCardSet[] } | null = null;
@@ -123,7 +123,10 @@ export class PokemonTcgIoClient {
   /** GET /v2/sets — todos los sets del catálogo remoto. */
   async getSets(): Promise<RemoteCardSet[]> {
     const body = await this.getJson<RemotePage<RemoteCardSet>>('/sets?pageSize=250');
-    return this.nonEmptySets(body);
+    const sets = this.nonEmptySets(body);
+    // Calienta la caché del import de promos: M2 lista los sets al abrirse, así la caché ya existe (y sobrevive a un 503 puntual).
+    this.setsCache = { at: Date.now(), sets };
+    return sets;
   }
 
   /** QA-PRM-EMPTY: un 200 con `data` ausente, no-array o vacío NO es una respuesta (fail-closed), jamás `[]`. */
@@ -134,7 +137,7 @@ export class PokemonTcgIoClient {
   }
 
   /**
-   * QA-PRM-FLAKY — lista de sets para el IMPORT: hasta 3 intentos, ≤2 s entre ellos, presupuesto total 10 s (un `Retry-After`
+   * QA-PRM-FLAKY — lista de sets para el IMPORT: hasta 4 intentos, ≤2 s entre ellos, presupuesto total 20 s (un `Retry-After`
    * mayor que lo que queda del presupuesto corta). Una sola señal `AbortController` cancela fetch y esperas al agotarse el
    * presupuesto o al terminar: nada sigue en segundo plano tras responder. Éxito ⇒ caché 24 h; fallo ⇒ caché vigente si la hay;
    * sin caché ⇒ lanza (el servicio responde 503 POKEMONTCG_UNAVAILABLE).

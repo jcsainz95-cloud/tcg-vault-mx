@@ -36,7 +36,8 @@ const MAX_SANE_MARKET_USD = 50_000;
 /** Candado consultivo por grupo: `pg_try_advisory_xact_lock(hashtext(KEY), groupId)`; sin espera (2.º clic ⇒ 409). */
 const TCGCSV_IMPORT_LOCK_KEY = 'tcgcsv-import';
 /** La lista viva de pokemontcg.io no puede colgar la petición (fail-closed ⇒ 503). */
-const PTCG_TIMEOUT_MS = 10_000;
+// Debe ser MAYOR que el presupuesto del cliente (20 s): si no, el timer gana la carrera y la caché de respaldo nunca llega a usarse.
+const PTCG_TIMEOUT_MS = 22_000;
 /** `$transaction` interactiva: 1 sola conexión por petición; espera máx. 5 s por conexión y 60 s de trabajo. */
 const TX_OPTS = { maxWait: 5_000, timeout: 60_000 } as const;
 
