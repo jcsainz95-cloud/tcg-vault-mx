@@ -204,6 +204,9 @@ describe('E2E — P-PROMOS opción C (2.ª ronda): import de cartas desde un gru
 
   afterAll(async () => {
     if (h) {
+      // `POST sync-all` (PROMO-B5) es fire-and-forget y termina con el recalculo de la liga (tx sobre PromoCollectionLink):
+      // sin esperarlo, el `wipe` choca con el (FK `PriceReference_cardId_fkey` o `deadlock detected`). Preexistente a 44d0d609.
+      await (h.app.get(CatalogSyncService) as CatalogSyncService).awaitSyncAll(60_000).catch(() => undefined);
       await wipe();
       await h.close();
     }

@@ -123,6 +123,12 @@ describe('AUTO-S4: tope de reintentos del backfill por set', () => {
     expect(callsA()).toBe(5); // ya no se reintenta
     expect(r).toMatchObject({ setsPending: 0, setsAbandoned: 1 });
     expect(cards.find((c) => c.setId === 'B')!.contentKey).not.toBeNull();
+    // ...pero NO es para siempre: pasadas 24 h se reintenta UNA vez (una caida larga del proveedor no lo condena).
+    const later = Date.now() + 25 * 3_600_000;
+    await svc.run({ now: () => later });
+    expect(callsA()).toBe(6);
+    await svc.run({ now: () => later + 1000 });
+    expect(callsA()).toBe(6); // y otra vez fallo: de nuevo en espera 24 h
   });
 });
 
