@@ -13,14 +13,16 @@ const card = (id: string, setId: string, number: string, over: Record<string, un
   rarityCanonical: 'Common', imageSmallUrl: null, availableFinishes: ['normal', 'holofoil'], ...over,
 });
 
-function world(opts: { gate: boolean; stamps?: boolean; linked?: boolean; owned?: { cardId: string; finish: string }[]; ownedStamp?: number }) {
+function world(opts: { gate: boolean; stamps?: boolean; linked?: boolean; owned?: { cardId: string; finish: string }[]; ownedStamp?: number; twoOnSameCard?: boolean }) {
   const store = new Map<string, unknown>();
-  if (opts.gate) store.set(PROMO_GATE_KEY, { open: true, n: 30, k: 30, expansions: 2 });
+  if (opts.gate) store.set(PROMO_GATE_KEY, { open: true, n: 30, k: 30, f: 0, expansions: 2 });
   const main = [card('x1', 's1', '1'), card('x2', 's1', '2')];
   const promoCard = card('bs1', 'svp', '10', { name: 'Black Star 10' });
   const stampedProducts = opts.stamps === false ? [] : [
-    { tcgplayerProductId: 777, cardId: 'x1', finishes: ['holofoil'], card: main[0] },
-    { tcgplayerProductId: 778, cardId: 'x2', finishes: [], card: main[1] },
+    { tcgplayerProductId: 777, cardId: 'x1', finishes: ['holofoil'], stampType: 'prerelease', stampLabel: 'Prerelease', card: main[0] },
+    { tcgplayerProductId: 778, cardId: 'x2', finishes: [], stampType: 'staff', stampLabel: null, card: main[1] },
+    // misma carta lisa x1 con OTRO sello (Staff): choca por cardId con el 777 (ID-1)
+    ...(opts.twoOnSameCard ? [{ tcgplayerProductId: 779, cardId: 'x1', finishes: ['holofoil'], stampType: 'staff', stampLabel: 'Staff', card: main[0] }] : []),
   ];
   const prisma: any = {
     cardSet: { findUnique: jest.fn(async () => ({ id: 's1', name: 'Set 1', series: 'SV', releaseDate: '2025/01/01', printedTotal: 2 })), findMany: jest.fn(async () => []) },
@@ -138,5 +140,35 @@ describe('collectionPromos - apartado «Promos de la colección»', () => {
     await svc.index({ page: 1, pageSize: 20, sort: 'release_desc' });
     expect(prisma.promoCollectionLink.findMany).not.toHaveBeenCalled();
     expect(prisma.cardProduct.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('collectionPromos - identidad de la celda de sello (PROMOS_MASTERSET §4, ID-1..6 lado servidor)', () => {
+  it('ID-1/ID-2 Prerelease y Staff de la MISMA carta lisa: 2 celdas con cardProductId distintos y stampType propio; cardId se repite', async () => {
+    const { svc } = world({ gate: false, twoOnSameCard: true });
+    const items = (await svc.binder('s1')).collectionPromos!.items;
+    const ofX1 = items.filter((c) => c.cardId === 'x1');
+    expect(ofX1.map((c) => [c.cardProductId, c.stampType, c.stampLabel])).toEqual([[777, 'prerelease', 'Prerelease'], [779, 'staff', 'Staff']]);
+    // la clave de identidad (cardProductId) no colisiona; la de cardId SI (por eso no sirve)
+    expect(new Set(items.map((c) => c.cardProductId)).size).toBe(items.length);
+    expect(new Set(items.map((c) => c.cardId)).size).toBeLessThan(items.length);
+    // stampLabel ausente (no null) cuando el proveedor no trae detalle
+    const staff2 = items.find((c) => c.cardProductId === 778)!;
+    expect(staff2.stampType).toBe('staff');
+    expect('stampLabel' in staff2).toBe(false);
+  });
+
+  it('ID-5 la celda Black Star NO trae cardProductId/stampType (identidad = cardId)', async () => {
+    const { svc } = world({ gate: true });
+    const bs = (await svc.binder('s1')).collectionPromos!.items.find((c) => c.cardId === 'bs1')!;
+    expect('cardProductId' in bs).toBe(false);
+    expect('stampType' in bs).toBe(false);
+  });
+
+  it('ID-6 countsByFinish de cada celda es del producto SELLO, no de la carta lisa', async () => {
+    const { svc } = world({ gate: false, ownedStamp: 777, twoOnSameCard: true, owned: [{ cardId: 'x1', finish: 'normal' }] });
+    const items = (await svc.binder('s1', { kind: 'user_vault', userId: 'u1' })).collectionPromos!.items;
+    expect(items.find((c) => c.cardProductId === 777)!.countsByFinish).toEqual([{ finish: 'holofoil', count: 2 }]);
+    expect(items.find((c) => c.cardProductId === 779)!.countsByFinish).toEqual([]);
   });
 });

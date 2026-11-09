@@ -28,7 +28,7 @@ function world(n: number, opts: { breakWindow?: boolean } = {}) {
 
 function harness(w: ReturnType<typeof world>, gateBefore?: { open: boolean }) {
   const store = new Map<string, unknown>();
-  if (gateBefore) store.set(PROMO_GATE_KEY, { open: gateBefore.open, n: 0, k: 0, expansions: 0 });
+  if (gateBefore) store.set(PROMO_GATE_KEY, { open: gateBefore.open, n: 0, k: 0, f: 0, expansions: 0 });
   const audits: unknown[] = [];
   const prisma: any = {
     cardSet: { findMany: jest.fn(async () => [{ id: 'pe', externalId: 'pe' }, { id: 'ssp', externalId: 'ssp' }]) },
@@ -56,8 +56,8 @@ describe('compuerta Black Star automatica (recompute)', () => {
   it('con 30 sellos en 2 expansiones y 0 falsos high ABRE sola, persiste n/k/expansions y audita el cambio una vez', async () => {
     const h = harness(world(30));
     const r = await h.svc.recompute();
-    expect(r?.gate).toEqual({ open: true, n: 30, k: 30, expansions: 2 });
-    expect(await readPromoGate(h.prisma as never)).toEqual({ open: true, n: 30, k: 30, expansions: 2 });
+    expect(r?.gate).toEqual({ open: true, n: 30, k: 30, f: 0, expansions: 2 });
+    expect(await readPromoGate(h.prisma as never)).toEqual({ open: true, n: 30, k: 30, f: 0, expansions: 2 });
     expect(h.audits).toEqual([expect.objectContaining({ action: 'catalog.promo_gate_changed', before: { open: false }, after: expect.objectContaining({ open: true }) })]);
     // 2.a corrida: no cambia => NO audita otra vez
     await h.svc.recompute();
@@ -75,18 +75,61 @@ describe('compuerta Black Star automatica (recompute)', () => {
     const r = await h.svc.recompute();
     expect(r?.gate?.open).toBe(false);
     expect(h.audits).toEqual([expect.objectContaining({ action: 'catalog.promo_gate_changed', before: { open: true }, after: expect.objectContaining({ open: false }) })]);
+    // GATE-7: cerrada => los high Black Star dejan de leerse sin tocar BD
+    h.prisma.promoCollectionLink.findMany.mockResolvedValue([{ promoCardId: 'p1' }] as never);
+    expect(await h.svc.publishableLinkedCardIds(['pe'])).toEqual([]);
+    expect(r?.gate?.f).toBe(1);
+  });
+
+  it('GATE-8: gate.k del resumen coincide con el conteo real de high correctos', async () => {
+    const h = harness(world(30));
+    const r = await h.svc.recompute();
+    expect(r?.gate).toMatchObject({ k: 30, f: 0, n: 30 });
+  });
+
+  it('GATE-1 (servicio): 30 sellos con ventana rota (todos low) => CERRADA y no audita', async () => {
+    const w = world(30);
+    w.stamped = w.stamped.map((x) => ({ ...x, tcgplayerProductId: 5 }));
+    const h = harness(w);
+    expect((await h.svc.recompute())?.gate).toMatchObject({ open: false, n: 30, k: 0 });
+    expect(h.audits).toHaveLength(0);
+  });
+
+  it('AUTO-G2: estado y auditoria van en la MISMA transaccion y bajo el candado (auditar con tx; el candado va antes)', async () => {
+    const h = harness(world(30));
+    const order: string[] = [];
+    h.prisma.$queryRaw.mockImplementation(async () => (order.push('lock'), [{ ok: true }]));
+    h.prisma.configSetting.upsert.mockImplementation(async ({ create }: { create: { valueJson: unknown } }) => (order.push('write'), h.store.set(PROMO_GATE_KEY, create.valueJson), {}));
+    const audit = (h.svc as any).audit;
+    audit.log.mockImplementation(async (_e: unknown, tx: unknown) => void order.push(tx === h.prisma ? 'audit-tx' : 'audit-NOTX'));
+    await h.svc.recompute();
+    expect(order).toEqual(['lock', 'write', 'audit-tx']);
+  });
+
+  it('AUTO-G2: si la auditoria falla, el recalculo falla (la transaccion revierte el estado) en vez de tragarse el error', async () => {
+    const h = harness(world(30));
+    (h.svc as any).audit.log.mockRejectedValue(new Error('audit down'));
+    await expect(h.svc.recompute()).rejects.toThrow('audit down');
+  });
+
+  it('candado ocupado => no escribe ni audita la compuerta', async () => {
+    const h = harness(world(30));
+    h.prisma.$queryRaw.mockResolvedValue([{ ok: false }]);
+    expect(await h.svc.recompute()).toBeNull();
+    expect(h.prisma.configSetting.upsert).not.toHaveBeenCalled();
+    expect(h.audits).toHaveLength(0);
   });
 
   it('sin fila persistida la compuerta esta CERRADA (falla cerrado)', async () => {
     const h = harness(world(0));
-    expect(await readPromoGate(h.prisma as never)).toEqual({ open: false, n: 0, k: 0, expansions: 0 });
+    expect(await readPromoGate(h.prisma as never)).toEqual({ open: false, n: 0, k: 0, f: 0, expansions: 0 });
   });
 
   it('publishableLinkedCardIds: cerrada => []; abierta => solo los `high` de esas expansiones', async () => {
     const h = harness(world(0));
     h.prisma.promoCollectionLink.findMany.mockResolvedValue([{ promoCardId: 'p1' }] as never);
     expect(await h.svc.publishableLinkedCardIds(['pe'])).toEqual([]);
-    h.store.set(PROMO_GATE_KEY, { open: true, n: 30, k: 30, expansions: 2 });
+    h.store.set(PROMO_GATE_KEY, { open: true, n: 30, k: 30, f: 0, expansions: 2 });
     expect(await h.svc.publishableLinkedCardIds(['pe'])).toEqual(['p1']);
     expect(h.prisma.promoCollectionLink.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { expansionSetId: { in: ['pe'] }, confidence: 'high' } }));
   });

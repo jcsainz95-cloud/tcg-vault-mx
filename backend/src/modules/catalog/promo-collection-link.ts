@@ -98,7 +98,7 @@ export function inferPromoLinks(input: {
  * Compuerta Black Star AUTOMATICA (spec AUTO_CATALOGO §B, decidido 2026-11-09): BACKTEST CIEGO sobre verdad que no depende de un
  * humano. Los SELLOS (CardProduct kind=stamped) ya colgados de una carta lisa conocen su expansion POR CONSTRUCCION. Se corre
  * `inferPromoLinks` sobre ellos IGNORANDO esa relacion (solo el contenido de su carta y la ventana de su `productId`) y se compara
- * con la expansion real. ABIERTA <=> N >= 30 sellos evaluables, >= 2 expansiones y 0 falsos `high` (precision 100 %); si no, CERRADA.
+ * con la expansion real. ABIERTA <=> k >= 30 `high` CORRECTOS en >= 2 expansiones y f = 0 falsos `high` (n solo se reporta); si no, CERRADA.
  * Constantes de umbral en codigo (no lista). Limite honesto: mide sobre todo la hipotesis de ventana; NO prueba que las Black Star se
  * listen con el mismo patron que los sellos.
  */
@@ -106,11 +106,11 @@ export const BLACK_STAR_GATE_MIN_PROMOS = 30;
 export const BLACK_STAR_GATE_MIN_EXPANSIONS = 2;
 export interface PromoGate {
   open: boolean;
-  /** Sellos evaluables (con contenido y productId) que entraron al backtest. */
+  /** Sellos evaluables (con contenido y productId) que entraron al backtest. SOLO se reporta: no abre la compuerta. */
   n: number;
   /** De ellos, los que la inferencia dio `high` en SU expansion real. */
   k: number;
-  /** Expansiones reales distintas entre los evaluables. */
+  /** Expansiones reales distintas entre los `high` CORRECTOS (las que el backtest realmente acerto). */
   expansions: number;
   /** Falsos `high` (high en otra expansion). Cualquiera > 0 cierra la compuerta. */
   falseHigh: number;
@@ -139,15 +139,18 @@ export function backtestBlackStarGate(input: {
   const real = new Map(evaluable.map((st) => [st.id, st.realSetId]));
   let k = 0;
   let falseHigh = 0;
+  const okSets = new Set<string>();
   for (const l of links) {
     if (l.confidence !== 'high') continue;
-    if (real.get(l.promoCardId) === l.expansionSetId) k += 1;
-    else falseHigh += 1;
+    if (real.get(l.promoCardId) === l.expansionSetId) {
+      k += 1;
+      okSets.add(l.expansionSetId);
+    } else falseHigh += 1;
   }
   const n = evaluable.length;
-  const expansions = new Set(evaluable.map((st) => st.realSetId)).size;
+  const expansions = okSets.size;
   return {
-    open: n >= BLACK_STAR_GATE_MIN_PROMOS && expansions >= BLACK_STAR_GATE_MIN_EXPANSIONS && falseHigh === 0,
+    open: k >= BLACK_STAR_GATE_MIN_PROMOS && expansions >= BLACK_STAR_GATE_MIN_EXPANSIONS && falseHigh === 0,
     n,
     k,
     expansions,

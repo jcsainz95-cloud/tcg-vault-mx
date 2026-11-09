@@ -126,23 +126,32 @@ describe('compuerta Black Star - backtest ciego', () => {
     }
     return { stamps, expansionCards, minProductIdBySet: W };
   };
-  it('N>=30, >=2 expansiones y 0 falsos high => ABIERTA (y reporta n/k/expansiones)', () => {
+  it('GATE-1: 30 sellos TODOS low (k=0) => CERRADA (n no abre)', () => {
+    const g = backtestBlackStarGate(mk(30, REAL, () => 5));
+    expect(g).toMatchObject({ open: false, n: 30, k: 0, falseHigh: 0 });
+  });
+  it('GATE-6: n=200 con k=30, f=0 en >=2 expansiones => ABIERTA y n no cuenta', () => {
+    const g = backtestBlackStarGate(mk(200, REAL, (i, set) => (i < 30 ? (W.get(set) as number) + 10 + i : 5)));
+    expect(g).toMatchObject({ open: true, n: 200, k: 30, falseHigh: 0 });
+  });
+  it('GATE-5: k=30, >=2 expansiones y 0 falsos high => ABIERTA (y reporta n/k/expansiones)', () => {
     const g = backtestBlackStarGate(mk(30));
     expect(g).toMatchObject({ open: true, n: 30, k: 30, expansions: 3, falseHigh: 0 });
   });
-  it('N=29 => CERRADA (umbral de evaluables)', () => {
+  it('GATE-2: k=29 correctos en 2+ expansiones, f=0 => CERRADA', () => {
     expect(backtestBlackStarGate(mk(29))).toMatchObject({ open: false, n: 29 });
   });
-  it('una sola expansion => CERRADA aunque N sea grande', () => {
+  it('GATE-3: k=30 en UNA sola expansion => CERRADA', () => {
     expect(backtestBlackStarGate(mk(40, ['pe']))).toMatchObject({ open: false, n: 40, expansions: 1 });
   });
-  it('UN falso high (productId en la ventana de OTRA expansion que tambien tiene el contenido) => CERRADA', () => {
+  it('GATE-4: k>=30 en 2+ expansiones con f=1 (productId en la ventana de OTRA expansion que tambien tiene el contenido) => CERRADA', () => {
     const base = mk(40);
     // el sello s0 (real pe) tambien existe en ssp por contenido y su productId cae en la ventana de ssp => high en ssp (falso).
     base.expansionCards.push({ setId: 'ssp', contentKey: 'K0' });
     base.expansionCards = base.expansionCards.filter((c) => !(c.setId === 'pe' && c.contentKey === 'K0'));
     const g = backtestBlackStarGate({ ...base, stamps: base.stamps.map((st) => (st.id === 's0' ? { ...st, productId: 2500 } : st)) });
-    expect(g.falseHigh).toBeGreaterThan(0);
+    expect(g.k).toBeGreaterThanOrEqual(30);
+    expect(g.falseHigh).toBe(1);
     expect(g.open).toBe(false);
   });
   it('sellos sin contenido o sin productId no son evaluables (no cuentan en N)', () => {

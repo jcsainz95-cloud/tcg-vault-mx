@@ -325,6 +325,23 @@ export interface GradedEstimateDTO {
   estimate: { status: 'priced'; referenceMxnCents: number; capturedDate: string };
 }
 
+/**
+ * Cota ×raw del estimado gradeado (PSA_ACABADO): el raw NM, INGLES, del MISMO acabado, sin sello ni liga. UN solo helper para la
+ * ficha y la lista de revision: nunca el grupo mas barato si es espanol, de liga, de otro estado o de otro acabado. Varios grupos
+ * candidatos => el mas barato (la ficha ordena cheapest-first y toma el primero). Sin ese grupo => `listPriceCents: null`.
+ */
+export function rawNmDefaultGroupFor<G extends { listPriceCents: number; dto: { productType: string; finish: Finish; rawCondition?: string | null; version: Parameters<typeof isDefaultVersion>[0] } }>(
+  groups: readonly G[],
+  finish: Finish,
+): { listPriceCents: number | null } {
+  let best: G | null = null;
+  for (const g of groups) {
+    if (g.dto.productType !== 'raw' || g.dto.finish !== finish || g.dto.rawCondition !== 'NM' || !isDefaultVersion(g.dto.version)) continue;
+    if (best == null || g.listPriceCents < best.listPriceCents) best = g;
+  }
+  return best ?? { listPriceCents: null };
+}
+
 function toGradedEstimateDTO(e: GradedEstimateRef): GradedEstimateDTO {
   return {
     gradingCompany: GRADED_ESTIMATE_COMPANY,
@@ -1624,14 +1641,7 @@ export class CatalogService {
                 const ofFinish = cardEstimates.filter((e) => e.finish === fin);
                 // Cota contra el raw NM, INGLES, del MISMO acabado, sin sello ni liga (PSA_ACABADO): nunca el grupo mas barato si es
                 // espanol, de liga o de otro acabado. Sin ese grupo ⇒ sin raw ⇒ no se evalua la cota ×raw.
-                const rawG =
-                  built.find(
-                    (g) =>
-                      g.dto.productType === 'raw' &&
-                      g.dto.finish === fin &&
-                      g.dto.rawCondition === 'NM' &&
-                      isDefaultVersion(g.dto.version),
-                  ) ?? { listPriceCents: null };
+                const rawG = rawNmDefaultGroupFor(built, fin);
                 const q = quarantinedGrades({
                   estimates: ofFinish,
                   rawSalePriceCents: rawG.listPriceCents,
@@ -1964,7 +1974,11 @@ export class CatalogService {
     // bloqueante, tal como lo declara el contrato.
     const matched: { key: string; item: GradedEstimateReviewItemDTO }[] = [];
     let quarantinedCount = 0;
-    for (const g of this.buildGroups(rows)) {
+    const builtGroups = this.buildGroups(rows);
+    const groupsByCard = new Map<string, typeof builtGroups>();
+    for (const bg of builtGroups) groupsByCard.set(bg.dto.card.id, [...(groupsByCard.get(bg.dto.card.id) ?? []), bg]);
+    const countedQuarantine = new Set<string>();
+    for (const g of builtGroups) {
       if (g.dto.productType !== 'raw') continue;
       const card = g.dto.card;
       // PSA-ACABADO: estimado y raw del MISMO acabado del grupo (el tope ×raw usa el raw de ese acabado).
@@ -1993,14 +2007,21 @@ export class CatalogService {
         ? [...r.reasons, 'LEGACY_MANUAL']
         : r.reasons;
       // AUTO-D: cuarentena = informativa en la lista (`quarantined`); la cuenta es sobre TODOS los grupos evaluados.
+      // MISMA cota que la ficha: raw NM ingles del mismo acabado, sin sello ni liga (no el precio de ESTE grupo).
+      const rawG = rawNmDefaultGroupFor(groupsByCard.get(card.id) ?? [], g.dto.finish);
       const quarantined =
         quarantinedGrades({
           estimates,
-          rawSalePriceCents: g.listPriceCents,
+          rawSalePriceCents: rawG.listPriceCents,
           maxRawMultiple: cfg.maxRawMultiple,
           maxRawMultipleInvalid: cfg.maxRawMultipleInvalid,
         }).size > 0;
-      if (quarantined) quarantinedCount += 1;
+      // La ficha oculta por (carta, acabado) una sola vez: la cuenta tambien (no una por grupo LP/es/liga).
+      const qKey = `${card.id}|${g.dto.finish}`;
+      if (quarantined && !countedQuarantine.has(qKey)) {
+        countedQuarantine.add(qKey);
+        quarantinedCount += 1;
+      }
       const primary = allReasons.find((x) => reasons.includes(x));
       if (primary == null) continue;
       const item: GradedEstimateReviewItemDTO = {

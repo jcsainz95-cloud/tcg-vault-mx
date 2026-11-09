@@ -2140,17 +2140,15 @@ export class PricingService {
     const effFinish = (r: (typeof rows)[number]): Finish =>
       isLegacy(r) ? (primaryByCard.get(r.cardId) ?? 'normal') : r.finish;
     const readableAll = rows.filter((r) => isGradedEstimateReadable(r, primaryByCard.get(r.cardId) ?? 'normal'));
-    // Una fila POR ACABADO (scoped) del mismo (carta, grado, acabado) gana siempre sobre la heredada.
-    const scopedKeys = new Set(
-      readableAll.filter((r) => !isLegacy(r)).map((r) => `${r.cardId}|${r.gradeKey}|${r.finish}`),
-    );
-    const readable = readableAll.filter(
-      (r) => !isLegacy(r) || !scopedKeys.has(`${r.cardId}|${r.gradeKey}|${effFinish(r)}`),
-    );
+    // La precedencia scoped > heredada se decide DESPUES de mirar frescura (abajo): una scoped RANCIA no debe tapar a una heredada
+    // FRESCA del mismo (carta, grado, acabado). Aqui solo se toman las legibles.
+    const readable = readableAll;
     if (readable.length === 0) return map;
     // FX izada UNA vez por request (no por fila), igual que en `getReferencesBatch`.
     const fx = await this.fxSnapshotSafe();
     const bestFreshByKey = new Map<string, (typeof rows)[number]>();
+    const legacyFreshByKey = new Map<string, (typeof rows)[number]>();
+    const legacyStaleByKey = new Map<string, (typeof rows)[number]>();
     // v1.50.3-c: la MEJOR de las DESCARTADAS por frescura, por clave. Solo la consumen `preview` y
     // `review` (`includeStaleForDiagnostics`); en la ruta pública se calcula y se tira.
     const bestStaleByKey = new Map<string, (typeof rows)[number]>();
@@ -2174,12 +2172,20 @@ export class PricingService {
         cfg,
         evidenceDate,
       )
-        ? bestStaleByKey
-        : bestFreshByKey;
+        ? isLegacy(r)
+          ? legacyStaleByKey
+          : bestStaleByKey
+        : isLegacy(r)
+          ? legacyFreshByKey
+          : bestFreshByKey;
       // PASO 2: dentro de CADA cubeta gana el mejor con el comparador de siempre (§4.27f-2 intacto).
       const cur = target.get(k);
       if (cur == null || isBetterRef(r, cur)) target.set(k, r);
     }
+    // Precedencia POR ACABADO tras la frescura: la scoped FRESCA gana a la heredada; la heredada solo entra donde la scoped no tiene
+    // fila fresca (una scoped rancia no la tapa). Lo mismo, aparte, para el fallback rancio del diagnostico.
+    for (const [k, r] of legacyFreshByKey) if (!bestFreshByKey.has(k)) bestFreshByKey.set(k, r);
+    for (const [k, r] of legacyStaleByKey) if (!bestStaleByKey.has(k)) bestStaleByKey.set(k, r);
     // ⚠️ FALLBACK DE DIAGNÓSTICO (v1.50.3-c) — **solo** si el caller lo pide, y **solo** para las claves
     // que NO tienen ninguna fila fresca. Ver el bloque «El diagnóstico ve...» del docblock.
     if (opts?.includeStaleForDiagnostics === true) {

@@ -649,6 +649,28 @@ describe('PSA-ACABADO — predicado de lectura (B5/B6)', () => {
     expect(got.map((e) => [e.finish, e.mxnCents, e.legacyManual])).toEqual([['holofoil', 700_000, false]]);
   });
 
+  it('B6c2 — una scoped RANCIA no tapa a una heredada FRESCA del mismo acabado (la precedencia va despues de la frescura)', async () => {
+    const mk = () =>
+      wire(
+        [
+          legacy({ finish: 'normal', priceMxnCents: 100_000, capturedDate: D('2026-08-20') }), // fresca
+          refRow({ finish: 'holofoil', priceMxnCents: 700_000, isManualOverride: true, estimateFinishScoped: true, capturedDate: D('2026-01-01') }), // rancia
+        ],
+        {},
+        { cardFinishes: [{ id: 'c1', availableFinishes: ['reverse_holo', 'holofoil'] }] },
+      ).pricing;
+    const got = (await mk().getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
+    expect(got.map((e) => [e.finish, e.mxnCents, e.legacyManual])).toEqual([['holofoil', 100_000, true]]);
+    // con ambas frescas la scoped sigue ganando (B6c) y con ambas rancias el diagnostico ve la scoped
+    const stale = wire(
+      [legacy({ finish: 'normal', priceMxnCents: 100_000, capturedDate: D('2026-01-02') }), refRow({ finish: 'holofoil', priceMxnCents: 700_000, estimateFinishScoped: true, capturedDate: D('2026-01-01') })],
+      {},
+      { cardFinishes: [{ id: 'c1', availableFinishes: ['reverse_holo', 'holofoil'] }] },
+    ).pricing;
+    const diag = (await stale.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY, { includeStaleForDiagnostics: true })).get('c1')!;
+    expect(diag.map((e) => e.mxnCents)).toEqual([700_000]);
+  });
+
   it('B6d — sin datos de acabados ⇒ principal `normal`', async () => {
     const { pricing } = wire([legacy({ finish: 'normal' })], {}, { cardFinishes: [{ id: 'c1', availableFinishes: [] }] });
     const got = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;

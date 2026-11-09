@@ -1,7 +1,7 @@
 import { PromoCollectionLinkService } from '../catalog/promo-collection-link.service';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
-import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType } from '@prisma/client';
+import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType, StampType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -254,6 +254,12 @@ export interface MasterSetCardCellDTO {
   // un set normal se OMITEN. NO cambian la identidad: `cardId` sigue llaveado a su set real (money-safe).
   partSetId?: string;
   partLabel?: string;
+  // ID-1..6 (PROMOS_MASTERSET §4): SOLO en celdas de SELLO. `cardId` es el de la carta lisa (no identifica la celda: Prerelease y
+  // Staff de la misma carta chocan); la identidad es `cardProductId` (= `CardProduct.tcgplayerProductId` del producto con sello).
+  // Celdas lisas/Black Star: ausentes (identidad `cardId`).
+  cardProductId?: number;
+  stampType?: StampType;
+  stampLabel?: string;
 }
 
 /** v1.29 (§4.27i) — un producto TCGplayer vendible/cotizable aparte bajo la carta. */
@@ -738,14 +744,14 @@ export class MasterSetService implements OnModuleInit {
   }
 
   /**
-   * Celdas de los SELLOS (Prerelease/Staff/liga/evento) colgados de una carta lisa de estos sets: una celda por sello, con la
-   * identidad de la carta lisa (`cardId`), las variantes = acabados del PRODUCTO sellado, el conteo de las piezas de ESE producto
+   * Celdas de los SELLOS (Prerelease/Staff/liga/evento) colgados de una carta lisa de estos sets: una celda por sello. `cardId` es
+   * el de la carta lisa pero la IDENTIDAD es `cardProductId`/`stampType`/`stampLabel` (ID-1..6), las variantes = acabados del PRODUCTO sellado, el conteo de las piezas de ESE producto
    * en el scope y su precio propio (`separateProducts[0]`, kind `stamped`). Sin consola de precios (no es el eje del Master Set).
    */
   private async buildStampCells(partSetIds: string[], scope: MasterSetQueryScope): Promise<MasterSetCardCellDTO[]> {
     const products = await this.prisma.cardProduct.findMany({
       where: { kind: 'stamped', card: { setId: { in: partSetIds } } },
-      select: { tcgplayerProductId: true, cardId: true, finishes: true, card: { select: BINDER_CARD_SELECT } },
+      select: { tcgplayerProductId: true, cardId: true, finishes: true, stampType: true, stampLabel: true, card: { select: BINDER_CARD_SELECT } },
     });
     if (products.length === 0) return [];
     const productIds = products.map((p) => p.tcgplayerProductId);
@@ -782,6 +788,10 @@ export class MasterSetService implements OnModuleInit {
       const c = p.card;
       cells.push({
         cardId: c.id,
+        // Identidad de la celda de sello (ID-2): el producto con sello, no la carta lisa.
+        cardProductId: p.tcgplayerProductId,
+        ...(p.stampType != null ? { stampType: p.stampType } : {}),
+        ...(p.stampLabel != null ? { stampLabel: p.stampLabel } : {}),
         number: c.number,
         numberSort: c.numberSort,
         numberPrefix: c.numberPrefix,

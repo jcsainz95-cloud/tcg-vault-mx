@@ -1,5 +1,17 @@
 -- promo_collection_link (AUTO-B, docs/specs/AUTO_CATALOGO.md §B). ADITIVA e idempotente: columna nullable + tabla derivada nueva.
 -- Ninguna fila existente cambia; reversa = revertir el codigo (la tabla/columna quedan inertes).
+--
+-- REVERSA (opcional; solo si se quiere limpiar el esquema DESPUES de revertir el codigo; documentada, NO automatica). Ningun codigo
+-- anterior lee estos objetos, asi que no es necesaria para volver atras. `ConfigSetting catalog.auto.promoGate` es estado derivado:
+-- se puede borrar sin perdida (la compuerta falla CERRADA sin fila).
+-- REVERSA:BEGIN
+--   DROP TABLE IF EXISTS "PromoCollectionLink";
+--   DROP TYPE IF EXISTS "PromoLinkConfidence";
+--   DROP INDEX IF EXISTS "Card_contentKey_idx";
+--   ALTER TABLE "Card" DROP COLUMN IF EXISTS "contentKey";
+--   DELETE FROM "ConfigSetting" WHERE "key" = 'catalog.auto.promoGate';
+--   DELETE FROM "_prisma_migrations" WHERE migration_name = '20261118120000_promo_collection_link';
+-- REVERSA:END
 ALTER TABLE "Card" ADD COLUMN IF NOT EXISTS "contentKey" TEXT;
 CREATE INDEX IF NOT EXISTS "Card_contentKey_idx" ON "Card"("contentKey") WHERE "contentKey" IS NOT NULL;
 

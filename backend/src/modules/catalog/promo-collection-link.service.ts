@@ -12,7 +12,10 @@ export const PROMO_LINK_LOCK_KEY = 91_130_104;
 export interface PromoGateState {
   open: boolean;
   n: number;
+  /** Sellos `high` con su expansion real correcta (abren con k >= 30). */
   k: number;
+  /** Falsos `high` (cualquiera > 0 cierra). */
+  f: number;
   expansions: number;
 }
 /** `ConfigSetting` con la ultima compuerta calculada (estado derivado; sin migracion). Un solo escritor: `recompute`. */
@@ -22,8 +25,8 @@ export const PROMO_GATE_KEY = CATALOG_AUTO_KEYS.promoGate;
 export async function readPromoGate(prisma: Pick<PrismaService, 'configSetting'>): Promise<PromoGateState> {
   const row = await prisma.configSetting.findUnique({ where: { key: PROMO_GATE_KEY } });
   const v = row?.valueJson as Partial<PromoGateState> | null | undefined;
-  if (!v || typeof v !== 'object') return { open: false, n: 0, k: 0, expansions: 0 };
-  return { open: v.open === true, n: Number(v.n) || 0, k: Number(v.k) || 0, expansions: Number(v.expansions) || 0 };
+  if (!v || typeof v !== 'object') return { open: false, n: 0, k: 0, f: 0, expansions: 0 };
+  return { open: v.open === true, n: Number(v.n) || 0, k: Number(v.k) || 0, f: Number(v.f) || 0, expansions: Number(v.expansions) || 0 };
 }
 
 export interface PromoLinksSummary {
@@ -80,11 +83,12 @@ export class PromoCollectionLinkService {
     const links = inferPromoLinks({ promos, expansionCards, minProductIdBySet: minBySet });
     const summary: PromoLinksSummary = { high: 0, low: 0, none: promos.length - links.length, changed: 0 };
     for (const l of links) summary[l.confidence] += 1;
-    // Compuerta Black Star AUTOMATICA: backtest ciego con los sellos (verdad por construccion), cada recalculo.
-    summary.gate = await this.refreshGate(expansionCards, minBySet, promoSetIds);
     return this.prisma.$transaction(async (tx) => {
       const got = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(${PROMO_LINK_LOCK_KEY}) AS ok`;
       if (got[0]?.ok !== true) return null;
+      // Compuerta Black Star AUTOMATICA: backtest ciego con los sellos (verdad por construccion), cada recalculo. Va DENTRO del
+      // candado (un solo escritor/auditor) y estado + AuditLog comparten transaccion (AUTO-G2): o quedan los dos o ninguno.
+      summary.gate = await this.refreshGate(tx as unknown as PrismaService, expansionCards, minBySet, promoSetIds);
       const existing = await tx.promoCollectionLink.findMany();
       const byPromo = new Map(existing.map((e) => [e.promoCardId, e]));
       const keep = new Set(links.map((l) => l.promoCardId));
@@ -112,11 +116,12 @@ export class PromoCollectionLinkService {
    * ignorando esa relacion y se comparan. Persiste el estado y deja `AuditLog catalog.promo_gate_changed` SOLO si `open` cambia.
    */
   private async refreshGate(
+    db: PrismaService,
     expansionCards: { setId: string; contentKey: string | null }[],
     minBySet: Map<string, number>,
     promoSetIds: Set<string>,
   ): Promise<PromoGateState> {
-    const stamped = await this.prisma.cardProduct.findMany({
+    const stamped = await db.cardProduct.findMany({
       where: { kind: 'stamped' },
       select: { tcgplayerProductId: true, card: { select: { setId: true, contentKey: true } } },
     });
@@ -127,13 +132,15 @@ export class PromoCollectionLinkService {
       expansionCards,
       minProductIdBySet: minBySet,
     });
-    const next: PromoGateState = { open: gate.open, n: gate.n, k: gate.k, expansions: gate.expansions };
-    const before = await readPromoGate(this.prisma);
-    await new CatalogAutoStateService(this.prisma).set(PROMO_GATE_KEY, next);
-    if (before.open !== next.open) {
-      await this.audit
-        ?.log({ action: 'catalog.promo_gate_changed', entityType: 'ConfigSetting', entityId: PROMO_GATE_KEY, before: { open: before.open }, after: next })
-        .catch((e: Error) => this.logger.warn(`promo gate: no se pudo auditar el cambio (${e.message}).`));
+    const next: PromoGateState = { open: gate.open, n: gate.n, k: gate.k, f: gate.falseHigh, expansions: gate.expansions };
+    const before = await readPromoGate(db);
+    await new CatalogAutoStateService(db).set(PROMO_GATE_KEY, next);
+    if (before.open !== next.open && this.audit) {
+      // Sin `.catch`: si la auditoria falla se revierte tambien el estado y la proxima corrida vuelve a ver el cambio.
+      await this.audit.log(
+        { action: 'catalog.promo_gate_changed', entityType: 'ConfigSetting', entityId: PROMO_GATE_KEY, before: { open: before.open }, after: next },
+        db as never,
+      );
     }
     return next;
   }

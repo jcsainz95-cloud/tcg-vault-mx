@@ -795,3 +795,38 @@ describe('AUTO-D / PSA-ACABADO — la FICHA aplica la cuarentena y la cota usa e
     expect('gradedEstimates' in f).toBe(false);
   });
 });
+
+describe('AUTO-D — la LISTA DE REVISION usa la MISMA cota que la ficha (raw NM ingles, mismo acabado, sin sello ni liga)', () => {
+  const auto = { source: 'pokemonpricetracker', isManualOverride: false };
+  const review = (w: ReturnType<typeof wire>) => {
+    (w.prisma as any).gradedEstimateCardScan = { count: jest.fn(async () => 0) };
+    return w.catalog.gradedEstimateReview({ page: 1, pageSize: 50 });
+  };
+
+  it('un raw ESPANOL barato NO fija la cota de la lista: quarantinedCount coincide con lo que la ficha oculta (0)', async () => {
+    // en: MX$1,000 (tope 10_000_000); es: MX$10 (tope 100_000). PSA 10 auto = 5_000_000: pasa contra el ingles.
+    const items = [item('ien', 'ca'), item('ies', 'ca', { language: 'es', listPriceCents: 1_000 })];
+    const refs = [psaRef('ca', '10', 5_000_000, RECENT, auto)];
+    const ficha: any = await wire(items, refs, ON).catalog.getCard('ca');
+    expect(ficha.gradedEstimates?.map((e: any) => e.gradeValue)).toEqual(['10']); // la ficha NO oculta nada
+    const r: any = await review(wire(items, refs, ON));
+    expect(r.quarantinedCount).toBe(0);
+    expect(r.data.every((x: any) => x.quarantined === false)).toBe(true);
+  });
+
+  it('sin raw NM ingles (solo espanol): la ficha oculta ⇒ la lista cuenta 1 (no 1 por grupo) y coincide', async () => {
+    const items = [item('ies', 'ca', { language: 'es', listPriceCents: 1_000 }), item('ies2', 'ca', { language: 'es', rawCondition: 'LP', listPriceCents: 1_100 })];
+    const refs = [psaRef('ca', '10', 5_000_000, RECENT, auto)];
+    const ficha: any = await wire(items, refs, ON).catalog.getCard('ca');
+    expect('gradedEstimates' in ficha).toBe(false); // oculta (cuarentena NO_RAW)
+    const r: any = await review(wire(items, refs, ON));
+    expect(r.quarantinedCount).toBe(1);
+  });
+
+  it('una automatica que rebasa la cota del raw NM ingles: oculta en la ficha y contada una vez en la lista', async () => {
+    const refs = [psaRef('ca', '10', 10_100_000, RECENT, auto)];
+    const ficha: any = await wire(A_ITEMS, refs, ON).catalog.getCard('ca');
+    expect('gradedEstimates' in ficha).toBe(false);
+    expect(((await review(wire(A_ITEMS, refs, ON))) as any).quarantinedCount).toBe(1);
+  });
+});

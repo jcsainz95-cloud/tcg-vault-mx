@@ -9,6 +9,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { promoNumberKey } from '../../src/modules/catalog/promo-set-groups';
+import { planPromoSet } from '../../src/modules/catalog/promo-set-plan';
+import { parseTcgcsvCardName } from '../../src/modules/catalog/tcgcsv-card-name';
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { TcgcsvCatalogClient } from '../../src/modules/pricing/providers/tcgcsv-singles.provider';
@@ -84,7 +86,21 @@ describe('E2E — P-PROMOS-VIEJAS PV-1/PV-2: el re-sync reconcilia (datos reales
     });
     return rows.filter((r) => r._count._all !== 1);
   }
-  const setBase = (id: string) => h.prisma.cardProduct.findMany({ where: { kind: 'set_base', card: { set: { externalId: id } } }, include: { card: { select: { number: true } } } });
+  // Orden FIJO por productId: antes, sin orderBy, `[0]` era la base que Postgres devolviera (otra por corrida) y 2 tests dependian del azar.
+const setBase = (id: string) =>
+  h.prisma.cardProduct.findMany({ where: { kind: 'set_base', card: { set: { externalId: id } } }, include: { card: { select: { number: true } } }, orderBy: { tcgplayerProductId: 'asc' } });
+/** Clase de una base: `plain` = producto SIN sello en el nombre; `promoted` = la unica con sello (no Staff) que se vende como base. */
+const baseClass = (f: Fixture, productId: number): 'plain' | 'promoted' => {
+  const p = f.products.find((x) => x.productId === productId)!;
+  return parseTcgcsvCardName(p.name, (p.number ?? '').trim(), { staffOverPrerelease: true }).ok && (parseTcgcsvCardName(p.name, (p.number ?? '').trim(), { staffOverPrerelease: true }) as { stamp: unknown }).stamp == null
+    ? 'plain'
+    : 'promoted';
+};
+/** Productos del fixture con el mismo numero que `productId` (la carta tiene mas candidatos que la base). */
+const siblingsOf = (f: Fixture, prefix: string, productId: number) => {
+  const num = promoNumberKey(f.products.find((x) => x.productId === productId)!.number ?? '', prefix);
+  return f.products.filter((x) => x.productId !== productId && promoNumberKey(x.number ?? '', prefix) === num);
+};
 
   beforeAll(async () => {
     h = await E2EHarness.create((b) =>
@@ -127,11 +143,40 @@ describe('E2E — P-PROMOS-VIEJAS PV-1/PV-2: el re-sync reconcilia (datos reales
     expect(await h.prisma.cardProduct.count({ where: { tcgplayerProductId: 98_000_001 } })).toBe(0);
   });
 
-  it('base A pasa a ambiguous_base ⇒ la carta queda sin set_base (el producto viejo y su precio se retiran) y se reporta', async () => {
+  /**
+   * EXHAUSTIVO sobre CADA base candidata (189 en svp), barato porque es el plan puro: al duplicar la base A con un clon el plan
+   * dice `ambiguous_base`, la carta se queda SIN `set_base`, y la base vieja o desaparece (era plana: 2 planas ⇒ ninguna es base)
+   * o QUEDA COMO `stamped` (era la unica con sello promovida a base: 2 candidatas ⇒ todas `stamped`). Antes el test elegia UNA base
+   * al azar y asumia siempre «desaparece»: en las promovidas la base se conserva como sello (correcto) y el test fallaba 3/21.
+   */
+  it('plan puro: para CADA base candidata, duplicarla ⇒ ambiguous_base, carta sin set_base y la base vieja plana desaparece / la promovida queda stamped', async () => {
+    const f = FIX.svp;
+    const local = f.cards.map((c, i) => ({ id: `c${i}`, number: c.number }));
+    const base = planPromoSet(local, f.products, PREFIX.svp);
+    const bases = base.items.filter((i) => i.kind === 'set_base');
+    expect(bases.length).toBeGreaterThan(100);
+    const classes = { plain: 0, promoted: 0 };
+    for (const b of bases) {
+      const cls = baseClass(f, b.product.productId);
+      classes[cls] += 1;
+      const clone = { ...b.product, productId: b.product.productId + 9_000_000, name: `${b.product.name} B` };
+      const plan = planPromoSet(local, [...f.products, clone], PREFIX.svp);
+      expect(plan.skipped).toEqual(expect.arrayContaining([{ number: (b.product.number ?? '').trim(), reason: 'ambiguous_base' }]));
+      expect(plan.items.filter((i) => i.cardId === b.cardId && i.kind === 'set_base')).toEqual([]);
+      const kept = plan.items.find((i) => i.product.productId === b.product.productId);
+      if (cls === 'plain') expect(kept).toBeUndefined();
+      else expect(kept?.kind).toBe('stamped');
+    }
+    expect(classes.plain).toBeGreaterThan(0);
+    expect(classes.promoted).toBeGreaterThan(0);
+  });
+
+  it.each(['plain', 'promoted'] as const)('base A (%s) pasa a ambiguous_base ⇒ la carta queda sin set_base y se reporta; la plana se retira con su precio, la promovida queda como sello', async (cls) => {
     await seedSet('svp');
     expect((await refresh('svp')).status).toBe(200);
-    const base = (await setBase('svp'))[0];
     const f = FIX.svp;
+    const base = (await setBase('svp')).find((b) => baseClass(f, b.tcgplayerProductId) === cls && f.prices.some((r) => r.productId === b.tcgplayerProductId))!;
+    expect(base).toBeDefined();
     const p = f.products.find((x) => x.productId === base.tcgplayerProductId)!;
     const clone = { ...p, productId: p.productId + 9_000_000, name: `${p.name} B` };
     tcgcsv.products.set(f.groupId, [...f.products, clone]);
@@ -140,8 +185,12 @@ describe('E2E — P-PROMOS-VIEJAS PV-1/PV-2: el re-sync reconcilia (datos reales
     expect(r.status).toBe(200);
     expect(r.body.promoSkipped).toEqual(expect.arrayContaining([{ number: p.number, reason: 'ambiguous_base' }]));
     expect(await h.prisma.cardProduct.count({ where: { cardId: base.cardId, kind: 'set_base' } })).toBe(0);
-    expect(await h.prisma.cardProduct.count({ where: { tcgplayerProductId: p.productId } })).toBe(0);
-    expect(await h.prisma.priceReference.count({ where: { cardId: base.cardId, cardProduct: { kind: 'set_base' } } })).toBe(0);
+    if (cls === 'plain') {
+      expect(await h.prisma.cardProduct.count({ where: { tcgplayerProductId: p.productId } })).toBe(0);
+      expect(await h.prisma.priceReference.count({ where: { cardId: base.cardId, cardProduct: { kind: 'set_base' } } })).toBe(0);
+    } else {
+      expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { tcgplayerProductId: p.productId } })).kind).toBe('stamped');
+    }
     expect(await cardsWithManySetBase('svp')).toEqual([]);
   });
 
@@ -153,7 +202,9 @@ describe('E2E — P-PROMOS-VIEJAS PV-1/PV-2: el re-sync reconcilia (datos reales
     const cards = await h.prisma.card.findMany({ where: { set: { externalId: 'svp' } }, select: { id: true, number: true } });
     const y = cards.find((c) => !usedKeys.has(promoNumberKey(c.number, PREFIX.svp)))!;
     expect(y).toBeDefined();
-    const base = (await setBase('svp')).find((b) => f.prices.some((r) => r.productId === b.tcgplayerProductId && (r.marketPrice ?? 0) > 0))!;
+    // Base SIN otros productos del mismo numero: al irse, la carta X queda sin candidatos (con un hermano con sello, ese pasaria a base).
+    const base = (await setBase('svp')).find((b) => siblingsOf(f, PREFIX.svp, b.tcgplayerProductId).length === 0 && f.prices.some((r) => r.productId === b.tcgplayerProductId && (r.marketPrice ?? 0) > 0))!;
+    expect(base).toBeDefined();
     expect(await h.prisma.priceReference.count({ where: { cardProductId: base.id } })).toBeGreaterThan(0);
     const moved = f.products.map((p) => (p.productId === base.tcgplayerProductId ? { ...p, number: y.number, name: p.name.replace(/\s-\s.*$/, ` - ${y.number}`) } : p));
     tcgcsv.products.set(f.groupId, moved);
