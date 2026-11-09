@@ -64,6 +64,32 @@ function svc(opts: { groups: any[]; products: Record<number, any[]>; existing?: 
 }
 const grp = (groupId: number, name: string, publishedOn = '2026-01-01T00:00:00') => ({ groupId, name, publishedOn });
 
+describe('AUTO-F: publishedOn renovado a diario (medido 2026-11-09, 5/5 grupos)', () => {
+  const RENEWED = '2026-11-08T20:00:05.7186154Z';
+  const g = (firstSeenAt: string | null) => base('Burger King Promos', { group: { groupId: 2175, name: 'Burger King Promos', publishedOn: RENEWED }, firstSeenAt });
+  it('marca renovada sin firstSeen o con firstSeen <7 dias ⇒ cuarentena', () => {
+    expect(evaluateDiscoveryGroup(g(null)).reasons).toEqual(['published_too_recent']);
+    expect(evaluateDiscoveryGroup(g('2026-11-05T00:00:00Z')).reasons).toEqual(['published_too_recent']);
+  });
+  it('marca renovada pero NOSOTROS la vimos hace >=7 dias ⇒ elegible aunque la fecha de TCGCSV sea de ayer', () => {
+    expect(evaluateDiscoveryGroup(g('2026-11-01T00:00:00Z'))).toEqual({ verdict: 'eligible', reasons: [] });
+  });
+  it('fecha real (T00:00:00) no usa firstSeen', () => {
+    expect(evaluateDiscoveryGroup(base('Alternate Art Promos', { firstSeenAt: '2026-11-09T00:00:00Z' })).verdict).toBe('eligible');
+  });
+  it('el servicio persiste firstSeen una vez y no lo pisa (idempotente)', async () => {
+    const store: Record<string, any> = {};
+    const state: any = { recordFirstSeen: jest.fn(async (ids: number[], now: Date) => { const c = (store.fs ??= {}); for (const id of ids) c[id] ??= now.toISOString(); return c; }) };
+    const tcgcsv = { listGroups: jest.fn(async () => [{ groupId: 2175, name: 'Burger King Promos', publishedOn: RENEWED }]), getCardProducts: jest.fn(async () => prods(30)) };
+    const prisma: any = { card: { findMany: jest.fn(async () => []) }, cardSet: { findMany: jest.fn(async () => []) }, auditLog: { findFirst: jest.fn(async () => null) } };
+    const s = new TcgcsvGroupDiscoveryService(prisma, tcgcsv as any, undefined, state);
+    const r1 = await s.discover(LIVE, new Date('2026-11-01T00:00:00Z'));
+    expect(r1.eligible).toEqual([]);
+    const r2 = await s.discover(LIVE, new Date('2026-11-09T00:00:00Z'));
+    expect(r2.eligible.map((x) => x.groupId)).toEqual([2175]);
+  });
+});
+
 describe('TcgcsvGroupDiscoveryService.discover', () => {
   const groups = [grp(1, 'A Promos'), grp(2, 'B Promos'), grp(3, 'C Promos'), grp(4, 'Recent Promos', '2026-11-08T00:00:00'), grp(5, 'ME06: Delta Reign'), grp(24451, 'ME: Mega Evolution Promo')];
   const products = { 1: prods(30), 2: prods(30), 3: prods(30), 4: prods(30) };

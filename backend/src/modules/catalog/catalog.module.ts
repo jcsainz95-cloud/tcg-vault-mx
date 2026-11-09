@@ -23,6 +23,10 @@ import { FinishReconcilerModule } from './finish-reconciler.module';
 import { CardProductResolverService } from './card-product-resolver.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 import { TcgcsvGroupDiscoveryService } from './tcgcsv-group-discovery.service';
+import { CatalogAutoStateService } from './catalog-auto-state.service';
+import { CatalogContentKeyBackfillService } from './catalog-content-key-backfill.service';
+import { CatalogStaleAlertService } from './catalog-stale-alert.service';
+import { CatalogAutoWatchService } from './catalog-auto-watch.service';
 import { PromoCollectionLinkService } from './promo-collection-link.service';
 import { PromoSetProductsService } from './promo-set-products.service';
 import { TcgcsvCatalogClient } from '../pricing/providers/tcgcsv-singles.provider';
@@ -50,6 +54,10 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     TcgcsvSetImportService,
     TcgcsvGroupDiscoveryService,
     PromoCollectionLinkService,
+    CatalogAutoStateService,
+    CatalogContentKeyBackfillService,
+    CatalogStaleAlertService,
+    CatalogAutoWatchService,
     // P-PROMOS-VIEJAS (§5.13): productos/precios de svp/swshp/smp/xyp/bwp/dpp por tabla fija.
     PromoSetProductsService,
     SetValueService,
@@ -73,6 +81,7 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     SetPriceSyncJobService,
     SetValueSnapshotJobService,
     CatalogPriceSyncJobService,
+    CatalogAutoWatchService,
   ],
 })
 export class CatalogModule {}

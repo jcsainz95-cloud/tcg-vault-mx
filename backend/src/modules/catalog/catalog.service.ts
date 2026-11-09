@@ -1622,10 +1622,10 @@ export class CatalogService {
               // AUTO-D: las AUTOMATICAS fuera de cota dura (contra el raw de ESTE acabado) quedan en cuarentena.
               estimates: (() => {
                 const ofFinish = cardEstimates.filter((e) => e.finish === fin);
-                const rawL = built.find((g) => g.dto.productType === 'raw' && g.dto.finish === fin)?.listPriceCents ?? null;
+                const rawG = built.find((g) => g.dto.productType === 'raw' && g.dto.finish === fin) ?? { listPriceCents: null };
                 const q = quarantinedGrades({
                   estimates: ofFinish,
-                  rawSalePriceCents: rawL,
+                  rawSalePriceCents: rawG.listPriceCents,
                   maxRawMultiple: grading.cfg.maxRawMultiple,
                   maxRawMultipleInvalid: grading.cfg.maxRawMultipleInvalid,
                 });

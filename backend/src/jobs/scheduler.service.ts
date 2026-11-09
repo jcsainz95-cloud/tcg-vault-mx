@@ -27,6 +27,7 @@ import { isSchedulerDisabled } from '../config/test-env';
 import { ShipmentTrackingPollJob } from '../modules/shipments/tracking-poll.job';
 import { ShipmentLabelProcessingJob } from '../modules/shipments/label-processing.job';
 import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job';
+import { CatalogAutoWatchService } from '../modules/catalog/catalog-auto-watch.service';
 import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
@@ -145,6 +146,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly marketingAccessLog?: MarketingAccessLogService,
     // v1.113⟨portada⟩ (§DYN.2.3): el tic de Destacadas del día.
     @Optional() private readonly featuredRotation?: FeaturedService,
+    // AUTO: backfill de contentKey + alerta >48 h (al final: los specs construyen el planificador con la lista posicional).
+    @Optional() private readonly catalogAutoWatch?: CatalogAutoWatchService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -270,6 +273,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       attempts: CATALOG_METADATA_ATTEMPTS,
       backoff: { type: 'exponential', delay: CATALOG_METADATA_BACKOFF_MS },
     });
+
+    // AUTO: backfill de contentKey (reanudable) + alerta > 48 h sin exito del catalogo; cada 15 min (el paso es barato cuando no hay nada).
+    const autoWatchCron = this.config.get<string>('CATALOG_AUTO_WATCH_CRON') ?? '*/15 * * * *';
+    if (this.catalogAutoWatch) await this.queue.add('catalog-auto-watch', {}, this.repeatEvery('catalog-auto-watch', autoWatchCron));
 
     // ⭐💰 D2d (§M4-SHIP.19.10): Skydropx. Crons por env (devops ajusta sin redeploy); los tres son no-op con el dial
     // `shipping_provider='off'` (seed) y con el adaptador `noop`. El sondeo y la guía en proceso son de alta frecuencia: su
@@ -442,6 +449,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       case 'shipment-extra-charges':
         return this.shipmentExtraCharges?.run() ?? null;
       // 💰 C1 (§M4-SHIP.19.33.9): avisos al dueño. `run()` toma `now` del reloj del módulo; `run({})` = ayer en México.
+      case 'catalog-auto-watch':
+        return this.catalogAutoWatch?.run() ?? null;
       case 'spend-watch':
         return this.spendWatch?.run() ?? null;
       case 'spend-digest':

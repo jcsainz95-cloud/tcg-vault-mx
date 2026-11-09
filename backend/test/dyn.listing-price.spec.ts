@@ -32,6 +32,7 @@ import { portadaServedDay } from '../src/common/portada-day';
 import { SaleDecisionService } from '../src/modules/pricing/sale-decision.service';
 import { PRICE_AFFECTING_SETTING_KEYS, SettingKey } from '../src/modules/settings/settings.constants';
 import { marketBracketOf, DEFAULT_PRICING_CURVE, DEFAULT_SALE_PREMIUM_FLOOR_POLICY } from '../src/common/pricing-curve';
+import { CATALOG_AUTO_KEYS } from '../src/modules/catalog/catalog-auto-state.service';
 import { stripComments } from './helpers/strip-comments';
 import { DIAL_AUTOFETCH, DIAL_AUTOPUBLISH } from '../src/modules/decks-meta/limitless.config';
 import { ivaDialsStub, IVA_DIALS_NEUTRAL } from './helpers/iva-dials';
@@ -371,6 +372,10 @@ describe('Puertas de `ConfigSetting`: todas avisan o escriben solo claves que no
     'modules/decks-meta/decks-meta.service.ts': {
       keys: [DIAL_AUTOFETCH, DIAL_AUTOPUBLISH],
       why: 'Diales de decks meta (autofetch/autopublish): no son `SettingKey` y no entran al precio.',
+    },
+    'modules/catalog/catalog-auto-state.service.ts': {
+      keys: Object.values(CATALOG_AUTO_KEYS),
+      why: 'AUTO catalogo: bookkeeping del job (ultimo exito, avance del backfill, primera vez vista de un grupo); no son `SettingKey` y no mueven ningun precio.',
     },
   };
   const WRITE = /\bconfigSetting\.(upsert|update|updateMany|create|createMany)\(/;

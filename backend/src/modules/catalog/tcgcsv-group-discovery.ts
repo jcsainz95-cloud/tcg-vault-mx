@@ -30,6 +30,18 @@ export interface DiscoveryInput {
   /** Mayor fraccion (0..1) de productos del grupo cuyo (nombre+numero) coincide con UN mismo set ya conocido. */
   maxContentMatch: number;
   now: Date;
+  /** Primera vez que NOSOTROS vimos el grupo (persistida). Solo se usa si `publishedOn` es una marca renovada (no estable). */
+  firstSeenAt?: string | null;
+}
+
+/**
+ * Medido 2026-11-09 (tcgcsv.com, 221 grupos): 216 traen `publishedOn` con hora `T00:00:00` (fecha real de lanzamiento), pero 5
+ * (Nintendo, Alternate Art, Burger King, Pikachu World, Professor Program) traen la MISMA marca con hora y 7 decimales
+ * (`2026-11-08T20:00:05.7186154Z`, = el ultimo `last-updated.txt` 20:05) y `modifiedOn` mucho mas viejo: TCGCSV la reescribe en cada
+ * corrida diaria. Con esa fecha «>= 7 dias» nunca se cumple. Senal estable = cuando NOSOTROS vimos el grupo por primera vez.
+ */
+export function isRenewedPublishedOn(publishedOn: string | null | undefined): boolean {
+  return !!publishedOn && !/T00:00:00(\.0+)?Z?$/.test(publishedOn);
 }
 
 const SEALED_NAME = /booster|\bbox\b|\bpack\b|\btin\b|bundle|collection|deck|case|display|blister|elite trainer/i;
@@ -57,8 +69,11 @@ export function evaluateDiscoveryGroup(i: DiscoveryInput): DiscoveryResult {
   if (i.maxContentMatch >= CONTENT_MATCH_EQUIVALENT) return { verdict: 'ignore', reasons: ['live_equivalent_by_content'] };
   if (i.maxContentMatch >= CONTENT_MATCH_ELIGIBLE_MAX) reasons.push('content_match_gray');
   // 5. estable: publishedOn con >= 7 dias.
-  const pub = i.group.publishedOn ? Date.parse(i.group.publishedOn) : NaN;
-  if (!Number.isFinite(pub)) {
+  const renewed = isRenewedPublishedOn(i.group.publishedOn);
+  const pub = Date.parse((renewed ? i.firstSeenAt : i.group.publishedOn) ?? '');
+  if (!Number.isFinite(pub) && renewed) {
+    reasons.push('published_too_recent'); // marca renovada y aun sin primera vez persistida: no hay senal estable
+  } else if (!Number.isFinite(pub)) {
     reasons.push('published_on_missing');
   } else if (i.now.getTime() - pub < MIN_PUBLISHED_AGE_DAYS * 86_400_000) {
     reasons.push('published_too_recent');

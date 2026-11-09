@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
@@ -25,6 +25,7 @@ import { PTCG_PROMO_GROUPS } from './promo-set-groups';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 import { TcgcsvGroupDiscoveryService } from './tcgcsv-group-discovery.service';
 import { PromoCollectionLinkService, PromoLinksSummary } from './promo-collection-link.service';
+import { CatalogAutoStateService } from './catalog-auto-state.service';
 import { contentKeyOf } from './promo-collection-link';
 import type { Role } from '@prisma/client';
 
@@ -368,7 +369,7 @@ const SET_IMAGE_HOSTS_LABEL = [...SET_IMAGE_HOSTS].map((h) => `https://${h}`).jo
  * DEROGADA). También escribe las claves de orden natural `numberSort`/`numberPrefix` (M-26).
  */
 @Injectable()
-export class CatalogSyncService {
+export class CatalogSyncService implements OnModuleInit {
   private readonly logger = new Logger(CatalogSyncService.name);
 
   constructor(
@@ -391,7 +392,19 @@ export class CatalogSyncService {
     @Optional() private readonly discovery?: TcgcsvGroupDiscoveryService,
     // AUTO-B: recalculo de la liga promo -> coleccion al final de cada barrido.
     @Optional() private readonly promoLinks?: PromoCollectionLinkService,
+    // AUTO: `lastSuccessAt` persistido (sobrevive a un reinicio).
+    @Optional() private readonly autoState?: CatalogAutoStateService,
   ) {}
+
+  /** Rehidrata `lastSuccessAt` desde la base al arrancar (best-effort: sin base no se inventa nada). */
+  async onModuleInit(): Promise<void> {
+    try {
+      const at = await this.autoState?.getLastSuccessAt();
+      if (at && !this.syncAllStatus.lastSuccessAt) this.syncAllStatus.lastSuccessAt = at;
+    } catch (e) {
+      this.logger.warn(`sync-all: no se pudo leer lastSuccessAt persistido (${(e as Error).message}).`);
+    }
+  }
 
   /**
    * POST /admin/catalog/unify-rarities — backfill LOCAL de `Card.rarityCanonical` (§4.28c). Re-deriva
@@ -808,7 +821,7 @@ export class CatalogSyncService {
      * «Listo — 0/0» falso).
      */
     summary: SyncAllSummary | null;
-    /** AUTO: ultimo barrido TERMINADO sin sets fallidos (en memoria; sobrevive entre barridos, no a un reinicio). */
+    /** AUTO: ultimo barrido TERMINADO sin sets fallidos (persistido en ConfigSetting `catalog.auto.lastSuccessAt`; se rehidrata al arrancar). */
     lastSuccessAt: string | null;
     lastTrigger: 'job' | 'admin' | null;
     /** AUTO: intento del job (1..6) que lanzo/aguarda este barrido; `null` si lo lanzo un admin. */
@@ -1039,7 +1052,11 @@ export class CatalogSyncService {
     const run = this.runSyncAll(batch, force, { actor, jobId, liveSets: remote }).finally(() => {
       this.syncAllStatus.running = false;
       this.syncAllStatus.finishedAt = new Date().toISOString();
-      if ((this.syncAllStatus.summary?.setsFailed ?? 1) === 0) this.syncAllStatus.lastSuccessAt = this.syncAllStatus.finishedAt;
+      if ((this.syncAllStatus.summary?.setsFailed ?? 1) === 0) {
+        this.syncAllStatus.lastSuccessAt = this.syncAllStatus.finishedAt;
+        const at = this.syncAllStatus.finishedAt;
+        return this.autoState?.setLastSuccessAt(at).catch((e: Error) => this.logger.warn(`sync-all: no se pudo persistir lastSuccessAt (${e.message}).`));
+      }
     });
     this.syncAllDone = run.catch(() => undefined);
     this.logger.log(

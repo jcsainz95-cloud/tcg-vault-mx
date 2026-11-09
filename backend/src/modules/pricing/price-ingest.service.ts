@@ -1777,6 +1777,7 @@ export class PriceIngestService {
     // para que la cobertura se complete sola, sin que nadie pulse nada. Los sets nunca consultados ya salen primero por si mismos.
     const legacyOnly = new Set(
       (
+        // MONEY-REF-EXEMPT: solo PRIORIZA el orden del escaner PSA (que set se consulta antes); no produce ningun monto cobrado, ofrecido ni valuado.
         await this.prisma.priceReference.findMany({
           where: {
             cardId: { in: cardIds },

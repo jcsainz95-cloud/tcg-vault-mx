@@ -2,11 +2,12 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizeMatchText } from '../../common/card-version';
 import { TcgcsvCatalogClient } from '../pricing/providers/tcgcsv-singles.provider';
+import { CatalogAutoStateService } from './catalog-auto-state.service';
 import { AuditService } from '../audit/audit.service';
 import { normalizeCardNumber } from './card-product-resolver.service';
 import { tcgcsvSetExternalId } from './tcgcsv-card-name';
 import { TCGCSV_IMPORTABLE_GROUPS } from './tcgcsv-importable-groups';
-import { evaluateDiscoveryGroup, MAX_NEW_GROUPS_PER_RUN, PROMO_NAME_PATTERN } from './tcgcsv-group-discovery';
+import { evaluateDiscoveryGroup, isRenewedPublishedOn, MAX_NEW_GROUPS_PER_RUN, PROMO_NAME_PATTERN } from './tcgcsv-group-discovery';
 
 export interface DiscoveryRun {
   /** grupos elegibles a importar en ESTA corrida (tope de nuevos ya aplicado), sin la semilla. */
@@ -28,17 +29,19 @@ export class TcgcsvGroupDiscoveryService {
     private readonly prisma: PrismaService,
     private readonly tcgcsv: TcgcsvCatalogClient,
     @Optional() private readonly audit?: AuditService,
+    @Optional() private readonly autoState?: CatalogAutoStateService,
   ) {}
 
   /** `evaluate(groupId)` del contrato: veredicto de UN grupo contra la lista viva. */
   async evaluate(groupId: number, liveSets: { id: string; name: string }[], now = new Date()) {
     const groups = await this.tcgcsv.listGroups();
+    const firstSeen = await this.seen(groups, now);
     const group = groups.find((g) => g.groupId === groupId);
     if (!group) return { verdict: 'ignore' as const, reasons: ['group_unknown'] };
-    return this.evaluateGroup(group, liveSets, now);
+    return this.evaluateGroup(group, liveSets, now, firstSeen);
   }
 
-  private async evaluateGroup(group: { groupId: number; name: string; publishedOn?: string }, liveSets: { id: string; name: string }[], now: Date) {
+  private async evaluateGroup(group: { groupId: number; name: string; publishedOn?: string }, liveSets: { id: string; name: string }[], now: Date, firstSeen?: Record<string, string>) {
     const products = await this.tcgcsv.getCardProducts(group.groupId);
     return evaluateDiscoveryGroup({
       group,
@@ -46,7 +49,19 @@ export class TcgcsvGroupDiscoveryService {
       liveSets,
       maxContentMatch: await this.maxContentMatch(products),
       now,
+      firstSeenAt: firstSeen?.[String(group.groupId)] ?? null,
     });
+  }
+
+  /** Persiste (best-effort) la primera vez que vimos cada grupo con `publishedOn` renovado; sin estado inyectado => sin senal. */
+  private async seen(groups: { groupId: number; publishedOn?: string }[], now: Date): Promise<Record<string, string> | undefined> {
+    if (!this.autoState) return undefined;
+    try {
+      return await this.autoState.recordFirstSeen(groups.filter((g) => isRenewedPublishedOn(g.publishedOn)).map((g) => g.groupId), now);
+    } catch (e) {
+      this.logger.warn(`discovery: no se pudo persistir firstSeen (${(e as Error).message}).`);
+      return undefined;
+    }
   }
 
   /** Mayor fraccion de productos que coincide (nombre+numero) con las cartas de UN mismo set local no-TCGCSV. */
@@ -77,13 +92,14 @@ export class TcgcsvGroupDiscoveryService {
     if (!Array.isArray(liveSets) || liveSets.length === 0) return run; // fail-closed
     const groups = await this.tcgcsv.listGroups();
     run.summary.scanned = groups.length;
+    const firstSeen = await this.seen(groups, now);
     const seedIds = new Set(TCGCSV_IMPORTABLE_GROUPS.map((g) => g.groupId));
     const candidates = groups.filter((g) => !seedIds.has(g.groupId) && PROMO_NAME_PATTERN.test(g.name));
     run.summary.ignored = groups.length - candidates.length - seedIds.size;
     const eligibleAll: { groupId: number; name: string }[] = [];
     for (const g of candidates) {
       try {
-        const r = await this.evaluateGroup(g, liveSets, now);
+        const r = await this.evaluateGroup(g, liveSets, now, firstSeen);
         if (r.verdict === 'eligible') eligibleAll.push({ groupId: g.groupId, name: g.name });
         else if (r.verdict === 'quarantine') {
           run.quarantined.push({ groupId: g.groupId, name: g.name, reasons: r.reasons });

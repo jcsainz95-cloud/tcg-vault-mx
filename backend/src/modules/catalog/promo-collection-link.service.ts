@@ -3,6 +3,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { inferPromoLinks } from './promo-collection-link';
 import { PTCG_PROMO_GROUPS } from './promo-set-groups';
 
+/** Candado consultivo del recalculo de la liga (un solo escritor; sin espera). Valor propio en el censo de claves. */
+export const PROMO_LINK_LOCK_KEY = 91_130_104;
+
 export interface PromoLinksSummary {
   high: number;
   low: number;
@@ -54,7 +57,7 @@ export class PromoCollectionLinkService {
     const summary: PromoLinksSummary = { high: 0, low: 0, none: promos.length - links.length, changed: 0 };
     for (const l of links) summary[l.confidence] += 1;
     return this.prisma.$transaction(async (tx) => {
-      const got = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtext('promo-link')) AS ok`;
+      const got = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(${PROMO_LINK_LOCK_KEY}) AS ok`;
       if (got[0]?.ok !== true) return null;
       const existing = await tx.promoCollectionLink.findMany();
       const byPromo = new Map(existing.map((e) => [e.promoCardId, e]));

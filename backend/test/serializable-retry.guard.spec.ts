@@ -120,6 +120,8 @@ describe('⭐⭐ Candado — ninguna transacción `SERIALIZABLE` fuera del helpe
     // L0-SEG-02): la reserva atómica del cupo del torneo (cuenta CONFIRMED del día + asigna confirmed/waitlist).
     // Auditado: su cuerpo SOLO toca la BD; el correo del torneo se manda al REGISTRAR (createPlayer), ⛔ no al
     // confirmar, así que un reintento del 40001 no duplica ningún envío.
-    expect(sitios).toHaveLength(8);
+    // PSA-ACABADO · NUEVE — `PricingService.persistGradedEstimateReference` (`persistGradedEstimateReference`): escribe la fila por
+    // acabado y barre las automaticas previas en la MISMA tx. Auditado: su cuerpo solo toca la BD (+ `logger.warn`), sin correo ni red.
+    expect(sitios).toHaveLength(9);
   });
 });

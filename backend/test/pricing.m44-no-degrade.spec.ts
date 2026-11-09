@@ -350,6 +350,8 @@ const body = (over: Record<string, unknown> = {}) => ({
   productType: 'graded',
   gradeKey: 'graded:PSA:10',
   priceMxnCents: ESTIMADO_CENTS,
+  // PSA-ACABADO: el estimado PSA es por acabado => `finish` obligatorio con intent:"graded_estimate".
+  ...(over.intent === 'graded_estimate' ? { finish: 'normal' } : {}),
   ...over,
 });
 
