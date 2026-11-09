@@ -5,6 +5,28 @@ import { PromosSummary } from './CatalogSyncSection';
 import { blockEstimatesOf, badgeEstimatesOf } from '../../../../(storefront)/_shared/grading/estimates';
 import type { GradedEstimateDTO, GroupedListingSummaryDTO } from '@/types/contract';
 
+describe('AUTO · compuerta Black Star, descubrimiento y ligas (solo lectura)', () => {
+  it('cerrada: «k de 30», con n/f/expansiones; sin sets ni grupos también se pinta', () => {
+    renderWithIntl(
+      <PromosSummary
+        promos={{
+          sets: [], tcgcsv: [],
+          gate: { open: false, n: 200, k: 12, f: 0, expansions: 3 },
+          discovery: { scanned: 40, eligible: 5, quarantined: 2, ignored: 33 },
+          links: { high: 12, low: 80, none: 9, changed: 1 },
+        }}
+      />,
+    );
+    expect(screen.getByTestId('promo-gate').textContent).toContain('Black Star ocultas: 12 de 30 aciertos necesarios');
+    expect(screen.getByTestId('promo-discovery').textContent).toContain('40 grupos revisados');
+    expect(screen.getByTestId('promo-links').textContent).toContain('12 seguras');
+  });
+  it('abierta: lo dice', () => {
+    renderWithIntl(<PromosSummary promos={{ sets: [], tcgcsv: [], gate: { open: true, n: 90, k: 31, f: 0, expansions: 2 } }} />);
+    expect(screen.getByTestId('promo-gate').textContent).toContain('compuerta abierta (31 aciertos');
+  });
+});
+
 describe('PMS-F1 · el resumen de la corrida muestra las promos', () => {
   it('lista omitidas, TCGCSV y skipped_needs_super_admin; sin promos no pinta nada', () => {
     const empty = renderWithIntl(<PromosSummary promos={undefined} />, 'es');

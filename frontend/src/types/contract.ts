@@ -4006,6 +4006,14 @@ export interface MasterSetCardCellDTO {
   expectedVariantCount: number;
   coveredVariantCount: number;
   variants: MasterSetVariantDTO[];
+  /**
+   * §PROMOS-MASTERSET §4 (ID): SOLO en celdas de SELLO de `collectionPromos`. Identidad de la celda =
+   * `cardProductId` (producto con sello), NO `cardId` (es el de la carta lisa y Prerelease/Staff chocan).
+   * Ausente en celdas normales y Black Star (identidad `cardId`).
+   */
+  cardProductId?: number;
+  stampType?: StampType;
+  stampLabel?: string | null;
   // v1.26 (P-2, §M1): precio de MERCADO de la carta (PriceReference CRUDA del acabado base, ya
   // FX-recomputada a MXN cents server-side). NO es el precio de venta (referencia × markup); es el
   // input de mercado que alimenta las reglas. `null`/ausente = referencia pending o inexistente:
@@ -6250,6 +6258,14 @@ export type PromoTcgcsvStatus =
   | 'skipped_needs_super_admin'
   | 'quarantined'
   | 'error';
+/** §AUTO_CATALOGO §B: `k` = `high` correctos del backtest (abre con k>=30 en >=2 expansiones y f=0), `f` = falsos `high`, `n` = evaluables (no abre). */
+export interface PromoGateDTO {
+  open: boolean;
+  n: number;
+  k: number;
+  f: number;
+  expansions: number;
+}
 export interface CatalogSyncPromos {
   sets: { setId: string; status: PromoSetStatus }[];
   tcgcsv: {
@@ -6266,7 +6282,7 @@ export interface CatalogSyncPromos {
   /** §AUTO: liga promo→expansión inferida. Ausente en backends previos. */
   links?: { high: number; low: number; none: number; changed: number };
   /** §AUTO: compuerta Black Star automática (backtest ciego). */
-  gate?: { open: boolean; n: number; k: number; expansions: number };
+  gate?: PromoGateDTO;
 }
 
 /** `GET /admin/catalog/remote-sets`: `degraded:true` = pokemontcg.io no respondió ⇒ solo sets locales. */

@@ -198,15 +198,47 @@ export function AutoStatusLine({ status, now }: { status: CatalogSyncStatusRespo
   );
 }
 
+/** Umbral de aciertos de la compuerta Black Star (AUTO_CATALOGO §B); solo para el rótulo «k de 30». */
+export const PROMO_GATE_NEEDED = 30;
+
+/** Solo lectura: compuerta Black Star + descubrimiento + ligas (los llena el servidor; nada se calcula aquí). */
+export function PromoAutoFacts({ promos }: { promos: CatalogSyncPromos | undefined }) {
+  const t = useTranslations('admin.m2.catalog');
+  if (!promos || (!promos.gate && !promos.discovery && !promos.links)) return null;
+  const { gate, discovery, links } = promos;
+  return (
+    <div className="flex flex-col gap-1 text-xs" data-testid="promo-auto-facts">
+      {gate && (
+        <p className="tabular" data-testid="promo-gate">
+          {t(gate.open ? 'promosGateOpen' : 'promosGate', {
+            k: gate.k, need: PROMO_GATE_NEEDED, n: gate.n, f: gate.f, expansions: gate.expansions,
+          })}
+        </p>
+      )}
+      {discovery && <p className="tabular text-muted" data-testid="promo-discovery">{t('promosDiscovery', discovery)}</p>}
+      {links && <p className="tabular text-muted" data-testid="promo-links">{t('promosLinks', links)}</p>}
+    </div>
+  );
+}
+
 export function PromosSummary({ promos }: { promos: CatalogSyncPromos | undefined }) {
   const t = useTranslations('admin.m2.catalog');
-  if (!promos || (promos.sets.length === 0 && promos.tcgcsv.length === 0)) return null;
+  if (!promos) return null;
+  if (promos.sets.length === 0 && promos.tcgcsv.length === 0) {
+    return promos.gate || promos.discovery || promos.links ? (
+      <div className="mt-2 flex flex-col gap-1" data-testid="promos-summary">
+        <p className="font-medium">{t('promosTitle')}</p>
+        <PromoAutoFacts promos={promos} />
+      </div>
+    ) : null;
+  }
   const count = (st: string) => promos.sets.filter((x) => x.status === st).length;
   const problems = promos.sets.filter((x) => x.status === 'missing_remote' || x.status === 'error');
   return (
     <div className="mt-2 flex flex-col gap-1" data-testid="promos-summary">
       <p className="font-medium">{t('promosTitle')}</p>
       <p className="text-xs text-muted">{t('promosLead')}</p>
+      <PromoAutoFacts promos={promos} />
       {promos.sets.length > 0 && (
         <p className="tabular">
           {t('promosSets', { created: count('created'), updated: count('updated'), unchanged: count('unchanged') })}

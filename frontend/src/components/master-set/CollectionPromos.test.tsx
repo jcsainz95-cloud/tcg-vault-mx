@@ -107,4 +107,62 @@ describe('PMS-F3/F4 · apartado «Promos de la colección»', () => {
     expect(within(box).getAllByText('Eevee sello').length).toBeGreaterThan(0);
     expect(within(box).getByTestId('collection-promos-progress').textContent).toBe('2 promos');
   });
+
+  // ===== §4 ID (identidad de la celda de sello) =====
+  const stamp = (productId: number, type: 'prerelease' | 'staff'): MasterSetCardCellDTO => ({
+    ...cell('sv08-025', 'Pikachu', '025', false),
+    cardProductId: productId,
+    stampType: type,
+  });
+
+  it('ID-1/ID-2 · Prerelease y Staff de la MISMA carta ⇒ 2 celdas, claves distintas, sin warning de React; rótulo de sello', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(getMasterSetBinder).mockResolvedValue({
+      ...base,
+      collectionPromos: { items: [stamp(900001, 'prerelease'), stamp(900002, 'staff')], total: 2 },
+    });
+    show();
+    const box = await screen.findByTestId('collection-promos');
+    const cells = within(box).getAllByTestId('stamp-cell');
+    expect(cells.map((c) => c.getAttribute('data-card-product-id'))).toEqual(['900001', '900002']);
+    expect(within(box).getAllByTestId('stamp-type').map((e) => e.textContent)).toEqual(['Prerelease', 'Staff']);
+    expect(err.mock.calls.some((c) => String(c[0]).includes('same key'))).toBe(false);
+    err.mockRestore();
+  });
+
+  it('ID-3/ID-4 · tocar un sello (M1 o tienda) NO abre drawer ni alta de la carta lisa; es solo lectura', async () => {
+    vi.mocked(getMasterSetBinder).mockResolvedValue({
+      ...base,
+      collectionPromos: { items: [stamp(900001, 'prerelease')], total: 1 },
+    });
+    const onOpenCell = vi.fn();
+    const onOpenVariant = vi.fn();
+    const onAddVariant = vi.fn();
+    renderWithProviders(
+      <MasterSetBinder mode="platform" set={set} onBack={() => {}} onOpenCell={onOpenCell} onOpenVariant={onOpenVariant} onAddVariant={onAddVariant} />,
+      'es',
+    );
+    const tile = await screen.findByTestId('stamp-cell');
+    expect(tile.tagName).not.toBe('BUTTON');
+    tile.click();
+    expect(onOpenCell).not.toHaveBeenCalled();
+    expect(onOpenVariant).not.toHaveBeenCalled();
+    expect(onAddVariant).not.toHaveBeenCalled();
+  });
+
+  it('ID-5 · celda Black Star (sin cardProductId) sigue abriendo como antes', async () => {
+    vi.mocked(getMasterSetBinder).mockResolvedValue({
+      ...base,
+      collectionPromos: { items: [cell('svp-001', 'Black Star Pika', 'SVP 001', true)], total: 1 },
+    });
+    const onOpenVariant = vi.fn();
+    renderWithProviders(
+      <MasterSetBinder mode="platform" set={set} onBack={() => {}} onOpenCell={() => {}} onOpenVariant={onOpenVariant} />,
+      'es',
+    );
+    const box = await screen.findByTestId('collection-promos');
+    expect(within(box).queryByTestId('stamp-cell')).toBeNull();
+    within(box).getAllByRole('button')[0].click();
+    expect(onOpenVariant).toHaveBeenCalledTimes(1);
+  });
 });

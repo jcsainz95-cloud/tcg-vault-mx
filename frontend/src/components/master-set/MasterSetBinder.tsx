@@ -671,11 +671,14 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
             aria-label={t('collectionPromosGridLabel')}
           >
             {promoTiles.map(({ cell, variant }) => (
-              <li key={`promo:${cell.cardId}:${variant.finish}`} className="min-w-0">
+              <li key={`promo:${cell.cardProductId ?? cell.cardId}:${variant.finish}`} className="min-w-0">
                 <BinderTile
                   cell={cell}
                   variant={variant}
                   setCode={null}
+                  // Celda de SELLO (§4 ID): ni el drawer de M1 ni la bóveda reciben `cardProductId`, así que es
+                  // SOLO LECTURA (precio del sello) y jamás cae a la ficha/alta de la carta lisa.
+                  readOnly={cell.cardProductId != null}
                   onOpen={() => (onOpenVariant ? onOpenVariant(cell, variant) : onOpenCell(cell))}
                 />
               </li>
@@ -841,13 +844,16 @@ function BinderTile({
   variant,
   onOpen,
   setCode,
+  readOnly = false,
 }: {
   cell: MasterSetCardCellDTO;
   variant: MasterSetVariantDTO;
   onOpen: () => void;
   setCode: string | null;
+  readOnly?: boolean;
 }) {
   const t = useTranslations('masterSet');
+  const tStamp = useTranslations('version.chip');
   const tFinish = useTranslations('finish');
   const tStatus = useTranslations('status.bounty');
   const locale = useLocale() as AppLocale;
@@ -872,11 +878,13 @@ function BinderTile({
   // La ausencia del glifo de mira es el refuerzo, no el canal: un bounty rebasado ya no es una caza
   // activa. `effective === false` ⇔ la tarifa vigente paga más que la oferta.
   const bountyOutbid = bountyOn && pricing?.bounty?.effective === false;
+  const Wrapper = readOnly ? 'div' : 'button';
+  const stampText = cell.stampType ? tStamp(cell.stampType) : null;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-haspopup="dialog"
+    <Wrapper
+      {...(readOnly
+        ? { 'data-testid': 'stamp-cell', 'data-card-product-id': cell.cardProductId }
+        : { type: 'button' as const, onClick: onOpen, 'aria-haspopup': 'dialog' as const })}
       className="flex h-full w-full flex-col text-left transition-colors focus-visible:shadow-focus focus-visible:outline-none"
     >
       {/* FinishMark (§16.6): banda superior de 3px — canal de color; el texto lo porta la
@@ -891,6 +899,12 @@ function BinderTile({
         showFinishCount
         setCode={setCode}
       />
+      {stampText && (
+        <span className="mt-1 font-mono text-[10px] uppercase tracking-wide text-muted" data-testid="stamp-type">
+          {stampText}
+          {cell.stampLabel ? <span lang="en"> · {cell.stampLabel}</span> : null}
+        </span>
+      )}
       {pricing ? (
         <VariantPricingCompact pricing={pricing} marketRefCents={marketRef} />
       ) : (
@@ -927,7 +941,7 @@ function BinderTile({
           </span>
         )}
       </span>
-    </button>
+    </Wrapper>
   );
 }
 

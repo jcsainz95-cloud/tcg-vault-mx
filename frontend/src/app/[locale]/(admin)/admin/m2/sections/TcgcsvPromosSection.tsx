@@ -8,6 +8,8 @@ import {
 } from '@/lib/api/tcgcsv-promos';
 import { QueryState } from '@/components/ui/QueryState';
 import { computeVerdict, type Verdict } from '@/lib/verdict';
+import type { CatalogSyncPromos } from '@/types/contract';
+import { PromoAutoFacts } from './CatalogSyncSection';
 
 /**
  * Veredicto de «Importar promos de TCGCSV» (PROMO-F1). Misma norma que §32.4: sale de las cifras,
@@ -23,7 +25,7 @@ export function promoImportVerdict(r: TcgcsvImportResult): Verdict {
   });
 }
 
-export function TcgcsvPromosSection() {
+export function TcgcsvPromosSection({ promos }: { promos?: CatalogSyncPromos } = {}) {
   const t = useTranslations('admin.m2.tcgcsvPromos');
 
   const groups = useQuery({ queryKey: ['tcgcsv-groups'], queryFn: getTcgcsvGroups });
@@ -38,6 +40,7 @@ export function TcgcsvPromosSection() {
         <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted">{t('eyebrow')}</p>
         <h2 id="m2-tcgcsv-promos" className="text-h2 font-semibold">{t('title')}</h2>
         <p className="max-w-3xl text-sm text-muted">{t('subtitle')}</p>
+        <PromoAutoFacts promos={promos} />
       </div>
 
       <QueryState

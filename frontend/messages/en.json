@@ -3793,6 +3793,10 @@
         "promosSetStatus": { "created": "new", "updated": "updated", "unchanged": "unchanged", "missing_remote": "not on pokemontcg.io", "error": "failed" },
         "promosTcgcsvStatus": { "imported": "imported", "updated": "updated", "covered": "already covered", "busy": "busy, retried automatically on the next run", "skipped_needs_super_admin": "skipped: only a super-admin imports it", "quarantined": "quarantined: not imported, re-evaluated automatically", "error": "failed" },
         "promosTcgcsvRow": "Group {groupId}: {status} ({created} new, {updated} updated)",
+        "promosGate": "Black Star hidden: {k} of {need} required hits (evaluated {n}; false hits {f}; {expansions} expansions)",
+        "promosGateOpen": "Black Star published: gate open ({k} hits, {expansions} expansions, {f} false hits)",
+        "promosDiscovery": "Discovery: {scanned} groups scanned · {eligible} eligible · {quarantined} quarantined · {ignored} ignored",
+        "promosLinks": "Promo→expansion links: {high} confident · {low} doubtful · {none} unlinked · {changed} changed",
         "autoStatus": {
           "auto": "Last automatic update: {when}",
           "manual": "Last update (manual): {when}",
