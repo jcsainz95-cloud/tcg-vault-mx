@@ -1,9 +1,6 @@
 # API_CONTRACT.md — TCG HUNT · API v1
-
 > **Estado vigente.** Índice del código (2026-11-06, 349 endpoints). Versión normativa anterior (DTOs, enums, reglas) en
-> `docs/archive/API_CONTRACT.md`: `grep -n` del endpoint ahí antes de cambiarlo (los candados de paridad leen esa copia).
-> Manda `PROJECT.md` > este contrato > el código.
-
+> `docs/archive/API_CONTRACT.md`: `grep -n` del endpoint ahí antes de cambiarlo (los candados de paridad leen esa copia). Manda `PROJECT.md` > este contrato > el código.
 ## 0. Convenciones
 - **Base**: `/api/v1`, REST/JSON. Fechas ISO-8601 UTC.
 - **Auth**: `Authorization: Bearer <access>`. `JwtAuthGuard` es global: todo endpoint exige sesión salvo `@Public()`.
@@ -18,12 +15,9 @@
   `details.field` y `details.allowed`. Nunca llega crudo a Prisma.
 - **Errores**: `{ "error": { "code": "…", "message": "…", "details": {} } }`. Códigos en `backend/src/common/error-codes.ts`.
   Fallo transitorio de BD ⇒ `503 BUSY_TRY_AGAIN` (reintentable). Throttle ⇒ `429`.
-- **Webhooks Stripe**: `POST /webhooks/stripe` (público, firma obligatoria, idempotente por id de evento; eventos
-  suscritos en `security/stripe-webhook-events.txt`).
+- **Webhooks Stripe**: `POST /webhooks/stripe` (público, firma obligatoria, idempotente por id de evento; eventos suscritos en `security/stripe-webhook-events.txt`).
 - **Enums/DTOs**: `backend/prisma/schema.prisma`, `backend/src/common/enum-values.ts` y `backend/src/modules/<módulo>/dto/`.
-
 ## 1. Endpoints por módulo
-
 ### accessories
 - GET `/accessories` · público
 - GET `/accessories/suggestions` · público

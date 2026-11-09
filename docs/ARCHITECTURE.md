@@ -1,7 +1,6 @@
 # ARCHITECTURE.md — TCG HUNT
 
-> **Estado vigente** (medido 2026-11-06). Versión anterior congelada en `docs/archive/ARCHITECTURE.md`
-> (`grep -n "§4.NN"` cuando un comentario del código cite una sección). Endpoints: `docs/API_CONTRACT.md`; negocio: `PROJECT.md`.
+> **Estado vigente** (medido 2026-11-06). Versión anterior congelada en `docs/archive/ARCHITECTURE.md` (`grep -n "§4.NN"` cuando un comentario cite una sección). Endpoints: `docs/API_CONTRACT.md`; negocio: `PROJECT.md`.
 
 ## 1. Stack (medido 2026-11-06)
 | Capa | Elección |

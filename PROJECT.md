@@ -2,8 +2,7 @@
 
 > **Estado vigente, no bitácora.** Versión anterior (19 155 líneas) congelada en `docs/archive/PROJECT.md`. Las
 > **decisiones literales del dueño** viven en `HECHOS.md` (no se re-preguntan); historia en `docs/DECISIONES.md`. Si
-> este resumen y `HECHOS.md` discrepan, **manda HECHOS**.
-> Marca: **TCG HUNT** (`common.brand.name`; dominio `tcghunt.mx`). Razón social (`common.footer.legalEntity`) pendiente de carga.
+> este resumen y `HECHOS.md` discrepan, **manda HECHOS**. Marca: **TCG HUNT** (`common.brand.name`; dominio `tcghunt.mx`). Razón social (`common.footer.legalEntity`) pendiente de carga.
 
 ## 1. Idea y problema
 TCG HUNT vende **cartas individuales y producto sellado de Pokémon** en México con **precio derivado del mercado** y
@@ -80,8 +79,7 @@ Resuelve: precios opacos, envíos repetidos, dudas de autenticidad/condición y 
 **§WSH · lista de deseos SIEMPRE activa (HECHOS 2026-11-08, «Quita el interruptor déjala prendida siempre»):** sin interruptor `wishlist_enabled`; lista y avisos siempre activos (staff sin correo: 403); siguen los demás diales. La migración no toca listas ni avisos; gates qa + seguridad-lead.
 
 ## 4. Fuera de alcance hoy
-Envío internacional · japonés (después) · fotos propias de cartas · pentest externo (riesgo aceptado por el dueño) ·
-Meta Ads / bots en redes · disputas dentro de la tienda.
+Envío internacional · japonés (después) · fotos propias de cartas · pentest externo (riesgo aceptado por el dueño) · Meta Ads / bots en redes · disputas dentro de la tienda.
 
 ## 5. Restricciones técnicas
 Repo **público**: ningún secreto en el árbol. Solo producción (no hay staging); blanco de seguridad = local.
