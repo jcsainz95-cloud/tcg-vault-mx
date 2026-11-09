@@ -11,6 +11,7 @@
 
 | # | Qué | Dueño | Medido | Comprobación |
 |---|---|---|---|---|
+| ENVIO-MKT-1109 | **Al terminar (gate qa del lote 093b17b7 + diseño MKT-V2): mandar a marketing TODO lo hecho hoy** (dueño 2026-11-09: «ahora les mandamos todo lo que hicimos cuando acabes»): historias automáticas sin sticker de enlace ⇒ casi 0 tráfico (story 11→1 usuarios), tráfico `diag` 17/55 a excluir, panel MKT-V2 en diseño (resumen, avisos, correo lunes), promos en Master Set + descubrimiento automático, PSA por acabado con cuarentena, regla AUTO. Brief en el repo de marketing (`briefs/`) + fila en su PENDIENTES. | orquestador | 2026-11-09 | brief commiteado en tcg-hunt-marketing |
 | CI-APT-LOCK | **CERRADO 2026-11-07: publicado en jcsainz95-cloud/tcg-vault-mx#124** (`scripts/ci-install-chromium.sh` espera el candado de apt; candado `check-chromium-install`). |  |  |  |
 
 ## 2026-10-31 — Stream «Conversión de marketing» (rama `claude/mkt-conversion`)
