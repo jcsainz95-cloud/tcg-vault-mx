@@ -37,6 +37,11 @@ export interface RemoteCard {
   rarity?: string;
   supertype?: string;
   subtypes?: string[];
+  // AUTO-B: SOLO TIPADO (el endpoint no usa `select=`, ya venian en el JSON); alimentan `Card.contentKey`.
+  hp?: string | null;
+  attacks?: { name?: string | null }[] | null;
+  abilities?: { name?: string | null }[] | null;
+  rules?: string[] | null;
   images?: { small?: string; large?: string };
   // v1.6-finish: se DEJA de descartar `prices` — las llaves presentes derivan availableFinishes
   // (mapeo ARCHITECTURE §3.7) y el precio por acabado (`prices[llave].market`). Ver upsertCards.

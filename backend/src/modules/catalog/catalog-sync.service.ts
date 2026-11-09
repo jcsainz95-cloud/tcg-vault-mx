@@ -24,6 +24,8 @@ import { importableGroupForPtcgSet, TCGCSV_IMPORTABLE_GROUPS } from './tcgcsv-im
 import { PTCG_PROMO_GROUPS } from './promo-set-groups';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 import { TcgcsvGroupDiscoveryService } from './tcgcsv-group-discovery.service';
+import { PromoCollectionLinkService, PromoLinksSummary } from './promo-collection-link.service';
+import { contentKeyOf } from './promo-collection-link';
 import type { Role } from '@prisma/client';
 
 /**
@@ -52,6 +54,8 @@ export interface PromosSummary {
   }[];
   /** AUTO-F: conteo del descubrimiento (sin estado, reevaluado cada corrida). */
   discovery: { scanned: number; eligible: number; quarantined: number; ignored: number };
+  /** AUTO-B: recuento de la liga promo -> coleccion recalculada al final del barrido. */
+  links?: PromoLinksSummary;
 }
 
 
@@ -385,6 +389,8 @@ export class CatalogSyncService {
     @Optional() private readonly tcgcsvImport?: TcgcsvSetImportService,
     // AUTO-F: descubrimiento de grupos de promos de TCGCSV (sin estado).
     @Optional() private readonly discovery?: TcgcsvGroupDiscoveryService,
+    // AUTO-B: recalculo de la liga promo -> coleccion al final de cada barrido.
+    @Optional() private readonly promoLinks?: PromoCollectionLinkService,
   ) {}
 
   /**
@@ -1094,6 +1100,13 @@ export class CatalogSyncService {
       }
     }
     await this.runTcgcsvGroups(summary, ctx);
+    // AUTO-B: la liga se recalcula SIEMPRE al final (determinista); un fallo aqui no tumba el barrido.
+    try {
+      const links = await this.promoLinks?.recompute();
+      if (links) summary.promos.links = links;
+    } catch (e) {
+      this.logger.warn(`sync-all: no se pudo recalcular la liga promo->coleccion (${(e as Error).message}).`);
+    }
     this.logger.log(
       `sync-all: barrido de ${sets.length} sets completado (escritos=${summary.setsWritten} ` +
         `[importados=${summary.setsImported}, re-sync=${summary.setsRefreshed}], ` +
@@ -1674,6 +1687,8 @@ export class CatalogSyncService {
       // ⇒ no legal, conservador §2.3). Coste de red = CERO (M3: ya venían en el payload).
       const regulationMark = c.regulationMark?.trim() || null;
       const legalStandardRaw = c.legalities?.standard?.trim() || null;
+      // AUTO-B: clave de contenido; NO-DEGRADACION (si el payload no la permite, no viaja y no clobbea).
+      const contentKey = contentKeyOf({ name: c.name, supertype: c.supertype, hp: c.hp, attacks: c.attacks, abilities: c.abilities, rules: c.rules });
       const data = {
         setId: localSetId,
         name: c.name,
@@ -1690,6 +1705,7 @@ export class CatalogSyncService {
         imageSmallUrl: c.images?.small ?? null,
         imageLargeUrl: c.images?.large ?? null,
         ...(tcgplayerId !== null ? { tcgplayerId } : {}),
+        ...(contentKey !== null ? { contentKey } : {}),
         // DECKS-META §2.2: NO-DEGRADACIÓN — la clave NI SIQUIERA VIAJA cuando no hay valor bueno.
         ...(regulationMark !== null ? { regulationMark } : {}),
         ...(legalStandardRaw !== null ? { legalStandardRaw } : {}),

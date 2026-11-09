@@ -23,6 +23,7 @@ import { FinishReconcilerModule } from './finish-reconciler.module';
 import { CardProductResolverService } from './card-product-resolver.service';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 import { TcgcsvGroupDiscoveryService } from './tcgcsv-group-discovery.service';
+import { PromoCollectionLinkService } from './promo-collection-link.service';
 import { PromoSetProductsService } from './promo-set-products.service';
 import { TcgcsvCatalogClient } from '../pricing/providers/tcgcsv-singles.provider';
 import { SetPriceSyncJobService } from '../../jobs/set-price-sync.service';
@@ -48,6 +49,7 @@ import { CatalogPriceSyncJobService } from '../../jobs/catalog-price-sync.servic
     // P-PROMOS (§5.12): import de cartas desde un grupo TCGCSV que pokemontcg.io no tiene.
     TcgcsvSetImportService,
     TcgcsvGroupDiscoveryService,
+    PromoCollectionLinkService,
     // P-PROMOS-VIEJAS (§5.13): productos/precios de svp/swshp/smp/xyp/bwp/dpp por tabla fija.
     PromoSetProductsService,
     SetValueService,

@@ -1,3 +1,4 @@
+import { PromoCollectionLinkService } from '../catalog/promo-collection-link.service';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
 import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType } from '@prisma/client';
@@ -281,6 +282,8 @@ export interface MasterSetBinderResponse {
   // omite ambos. Money-safe: cada celda/pieza conserva su set-id real.
   parts?: SetPartDTO[];
   canonicalSetId?: string;
+  /** AUTO-B: promos ligadas a la coleccion con confianza alta + avance propio. Ausente = sin apartado. */
+  collectionPromos?: { items: { cardId: string; number: string; name: string; rarity?: string; imageSmallUrl?: string }[]; total: number; owned: number };
 }
 
 /** Deriva el año del set desde `releaseDate` (`yyyy/MM/dd` de pokemontcg.io). */
@@ -688,6 +691,26 @@ export class MasterSetService implements OnModuleInit {
     };
   }
 
+  /**
+   * AUTO-B - `collectionPromos` del binder. Aditivo y AISLADO: no toca `completedCount`/`totalCount`/valor. `owned` = promos ligadas
+   * que el scope tiene en existencia (plataforma o bóveda del cliente). Un fallo aqui jamas rompe el binder (se omite el campo).
+   */
+  private async loadCollectionPromos(partSetIds: string[], scope: MasterSetQueryScope) {
+    try {
+      const svc = new PromoCollectionLinkService(this.prisma);
+      const base = await svc.collectionPromos(partSetIds);
+      if (!base) return undefined;
+      const held = await this.prisma.inventoryItem.findMany({
+        where: { cardId: { in: base.items.map((i) => i.cardId) }, ...this.scopeWhere(scope) },
+        select: { cardId: true },
+        distinct: ['cardId'],
+      });
+      return { ...base, owned: held.length };
+    } catch {
+      return undefined;
+    }
+  }
+
   /** WHERE Prisma del scope (mismo filtro de status "en bóveda"/on-hand en ambos). */
   private scopeWhere(scope: MasterSetQueryScope): Prisma.InventoryItemWhereInput {
     return scope.kind === 'platform'
@@ -1023,6 +1046,7 @@ export class MasterSetService implements OnModuleInit {
     // v1.33 (P-27, §4.31b, D4): en un master combinado `set` = el PRINCIPAL (nombre del master); en un
     // set normal = el propio set (v1.20 intacto). `catalogCardCount` = cards.length ya es Σ de partes.
     const setRef = combined ? combined.primary : set;
+    const collectionPromos = await this.loadCollectionPromos(partSetIds, scope);
     const partsDTO: SetPartDTO[] | undefined = combined
       ? combined.parts.map((p) => ({
           setId: p.setId,
@@ -1053,6 +1077,8 @@ export class MasterSetService implements OnModuleInit {
       // v1.33 (P-27, §4.31b): master set combinado — desglose de partes + normalización del subset.
       ...(partsDTO ? { parts: partsDTO } : {}),
       ...(combined?.canonicalSetId ? { canonicalSetId: combined.canonicalSetId } : {}),
+      // AUTO-B: apartado «Promos de la colección» (solo liga `high`; «x de y» propio, jamas sumado al Master Set).
+      ...(collectionPromos ? { collectionPromos } : {}),
     };
   }
 
