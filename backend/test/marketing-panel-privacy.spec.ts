@@ -234,8 +234,10 @@ describe('§MKT.G.9 (8) — el dueño ve el número real; la sesión delegada ve
     for (const s of MARKETING_SCREENS) {
       const owner = await ctrl.panel(SUPER, ...screenArgs({ pantalla: s, week: '2026-W41' }));
       const deleg = await ctrl.panel(DELEGADA, ...screenArgs({ pantalla: s, week: '2026-W41' }));
-      expect(owner.tables.map((t) => t.id)).toEqual(deleg.tables.map((t) => t.id));
-      for (const t of owner.tables) {
+      // MKT-V2 D2: `r3` (día por día) existe SOLO en la vista del dueño; todo lo demás es idéntico.
+      expect(owner.tables.map((t) => t.id).filter((id) => id !== 'r3')).toEqual(deleg.tables.map((t) => t.id));
+      expect(deleg.tables.some((t) => t.id === 'r3')).toBe(false);
+      for (const t of owner.tables.filter((x) => x.id !== 'r3')) {
         const d = tbl(deleg, t.id);
         expect(t.columns).toEqual(d.columns);
         const firstKey = t.columns[0]?.key;

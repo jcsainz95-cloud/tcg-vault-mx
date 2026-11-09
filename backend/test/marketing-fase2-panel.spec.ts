@@ -41,7 +41,12 @@ function build(opts: { mode?: string; sc?: boolean; ga4?: boolean; port?: Google
   const prisma = {
     marketingBannerConsentCounter: { groupBy: jest.fn(async () => counters), count: jest.fn(async () => 0) },
     // `findMany`: g1 se calcula con su familia (b1-b3, §MKT.H.14), también en la pantalla (g).
-    order: { count: orderCount, aggregate: jest.fn(async () => ({ _count: { _all: 3 }, _sum: { totalCents: 300000 } })), findMany: jest.fn(async () => []) },
+    order: { count: orderCount, aggregate: jest.fn(async () => ({ _count: { _all: 3 }, _sum: { totalCents: 300000 } })), findMany: jest.fn(async ({ where, select }: { where: Record<string, unknown>; select: Record<string, unknown> }) => {
+      // MKT-V2 §4: g1 y f3 leen filas (para excluir tráfico propio) en vez de `aggregate`/`count`.
+      if (where.firstUtmMedium === 'paid') return Array.from({ length: 3 }, () => ({ firstUtmSource: 'instagram', firstUtmMedium: 'paid', totalCents: 100000 }));
+      if (!('totalCents' in select) && 'firstUtmSource' in where) return Array.from({ length: 3 }, () => ({ firstUtmSource: 'instagram', firstUtmMedium: 'bio' }));
+      return [];
+    }) },
     sellRequest: { findMany: jest.fn(async () => []) },
   };
   const env = fullEnv({
@@ -129,13 +134,14 @@ describe('e1 · Search Console, fail-closed', () => {
       { consulta: 'Otros (< 5 c/u)', clics: SMALL_CELL_SENTINEL, impresiones: 'oculta', ctr: 'oculta', posicion: 'oculta' },
     ]);
     expect(JSON.stringify(e1.rows)).not.toContain('juan perez');
-    expect(port.postJson).toHaveBeenCalledTimes(1);
+    // MKT-V2: la pantalla e trae también e2 (páginas) ⇒ 2 lecturas de Search Console, la de e1 primero.
+    expect(port.postJson).toHaveBeenCalledTimes(2);
     const [, scope, url, body] = port.postJson.mock.calls[0];
     expect(scope).toBe('https://www.googleapis.com/auth/webmasters.readonly');
     expect(url).toBe('https://searchconsole.googleapis.com/webmasters/v3/sites/sc-domain%3Atcghunt.mx/searchAnalytics/query');
     expect(body).toEqual({ startDate: '2026-10-05', endDate: '2026-10-11', dimensions: ['query'], rowLimit: 50 });
     await svc.screen('e', week, NOW, 'small_cells');
-    expect(port.postJson).toHaveBeenCalledTimes(1);
+    expect(port.postJson).toHaveBeenCalledTimes(2);
   });
 });
 

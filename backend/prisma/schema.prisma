@@ -3391,6 +3391,28 @@ model BuylistQuoteDailyCount {
   @@index([cardId])
 }
 
+// MKT-V2 (m99, docs/specs/MKT_PANEL_V2.md §7) — c6: búsquedas SIN resultado por (término normalizado × día CDMX). ⛔ SIN usuario,
+// SIN IP, SIN cookie. El término ya pasó el filtro PII (`marketing-pii-filter.ts`). Visible solo con ≥ 5 en ≥ 2 días; retención 30/90.
+model SearchNoResultDaily {
+  id             String   @id @default(uuid())
+  termNormalized String
+  // Día CDMX (solo fecha).
+  day            DateTime @db.Date
+  count          Int      @default(0)
+
+  @@unique([termNormalized, day])
+  @@index([termNormalized])
+}
+
+// MKT-V2 (m99, §3) — idempotencia del correo semanal del lunes: UNA fila por semana (lunes CDMX). `pending` → `sent` | `skipped`.
+model MarketingWeeklyDigest {
+  weekStart DateTime  @id @db.Date
+  status    String
+  attempts  Int       @default(0)
+  claimedAt DateTime?
+  sentAt    DateTime?
+}
+
 // §13.4.4 — registro de accesos del panel (PM-M3). Cada export/descarga/llamada del endpoint deja
 // una fila. SIN contenido (ni filas, ni datos personales). Retención 12 meses (job futuro).
 // Un modelo dedicado (no `AuditLog`) porque el endpoint lo usa un principal de servicio SIN usuario.

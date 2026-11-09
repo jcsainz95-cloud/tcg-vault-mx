@@ -18,6 +18,9 @@ import { BANNER_RESPONSES } from '../measurement/banner-response.service';
 import { measurementItemOf, parseMeasurementItemId } from '../measurement/measurement-item';
 import { UNIDENTIFIED_SEALED_NAME } from '../../common/piece-display-identity';
 import { MarketingExternalSources, type Ga4ReportSpec, type Ga4Row } from './marketing-external-sources';
+import { isInternalUtm } from './internal-traffic';
+import { AV3_MAX_CARTS, AV3_MIN_VIEWS, AV5_MIN_QUOTES, evaluateAlerts, notEvaluatedRows, type Alert } from './marketing-alerts';
+import { deltaCells, nvrCells, sumIfVisible } from './marketing-summary';
 import {
   AI_ASSISTANT_SOURCES,
   D2_MIN_VIEWS,
@@ -26,8 +29,13 @@ import {
   a4Rows,
   b4Rows,
   c1Rows,
+  c2Rows,
   c5Rows,
   e3Rows,
+  landingRows,
+  nvrOf,
+  regionRows,
+  a4Group,
   fichaOf,
   itemViews,
 } from './marketing-ga4';
@@ -73,8 +81,6 @@ const BANNER_OFF = 'NO MEDIDO — el aviso de cookies todavía no está publicad
 /* v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H.9): con la medición encendida, el motivo de las tablas externas dice qué falta. */
 const GA4_UNCONNECTED = 'NO MEDIDO — GA4 sin conectar';
 /* v1.105⟨mkt-fase2-cierre⟩ (§MKT.H.9): tablas diferidas, con su motivo literal. */
-const PAGE_TYPE_DEFERRED = 'NO MEDIDO — la clasificación por tipo de página no está definida todavía';
-const ABANDON_DEFERRED = 'NO MEDIDO — la consulta de abandono no está definida todavía';
 const BUY_BUTTON_DEFERRED = 'NO MEDIDO — el evento del botón COMPRAR todavía no se envía';
 const B_SESSIONS_NOTE =
   'Sesiones por primer origen no entran: exigirían dimensiones de evento propias en la consola de GA4. Pedidos y solicitudes de quien aceptó la analítica.';
@@ -117,8 +123,26 @@ const BANNER_LABEL: Record<(typeof BANNER_RESPONSES)[number], string> = {
 const G1_KEY = 'Pedidos con primer origen utm_medium=paid';
 /** Lunes de la semana del día dado (f1 cuenta semanas por su `weekStart`). */
 const mondayOf = (day: Ymd): Ymd => addDays(day, 1 - isoWeekday(day));
-const SEARCH_LOG_OFF =
-  'NO MEDIDO — pendiente de la revisión de seguridad; el registro de búsquedas sin resultado no existe todavía';
+const SEARCH_LOG_OFF = 'NO MEDIDO — el registro de búsquedas sin resultado está apagado';
+const SEARCH_LOG_FLAG = 'marketing_search_log';
+export const SEARCH_MISS_MIN_COUNT = 5;
+export const SEARCH_MISS_MIN_DAYS = 2;
+const SEARCH_LOG_UNREADABLE = 'NO MEDIDO — no se pudo leer el registro de búsquedas sin resultado';
+const R3_LABELS: Record<string, string> = {
+  nuevos: 'Nuevos',
+  recurrentes: 'Recurrentes',
+  ses_instagram_organico: 'Sesiones Instagram orgánico',
+  ses_instagram_pagado: 'Sesiones Instagram pagado',
+  ses_google: 'Sesiones Google',
+  ses_ia: 'Sesiones asistentes de IA',
+  ses_directo_otros: 'Sesiones directo y otros',
+};
+/** AV2: los grupos de a4 con sesiones de las dos semanas. */
+function A4_GROUPS_OF(cur: Ga4Row[], prev: Ga4Row[]): { name: string; cur: number; prev: number }[] {
+  const c = a4Rows(cur);
+  const p = a4Rows(prev);
+  return c.map((g) => ({ name: g.key, cur: g.count, prev: p.find((x) => x.key === g.key)?.count ?? 0 }));
+}
 const C7_MIN_PERIOD = 'NO MEDIDO — esta tabla necesita un periodo de al menos 4 semanas; elige un mes cerrado';
 /** c7: mínimo de días del periodo (4 semanas, Brief 2 c7). */
 const C7_MIN_DAYS = 28;
@@ -404,6 +428,8 @@ export class MarketingAnalyticsService {
     };
     // Catálogo y ORDEN de tablas: API_CONTRACT §MKT.G.4 (candado `marketing-panel.spec.ts`, §MKT.G.9 (6)).
     switch (screen) {
+      case 'r':
+        return { ...base, previousPeriod: period.prev, tables: await this.screenR(period, now, privacy, fam) };
       case 'a':
         return { ...base, previousPeriod: period.prev, tables: await this.screenA(period, now, privacy, fam) };
       case 'b':
@@ -530,7 +556,7 @@ export class MarketingAnalyticsService {
    */
   private async a5Funnel(period: MarketingPeriod, now: Date): Promise<AggTable> {
     const title = 'Embudo sesiones → compra';
-    const events = await this.ga4(GA4_SPECS.funnelEvents, period, now);
+    const events = await this.ga4(GA4_SPECS.events, period, now);
     const sessions = events ? await this.ga4(GA4_SPECS.funnelSessions, period, now) : null;
     if (!events || !sessions) return this.notMeasured('a5', title, 'GA4', this.ga4Reason());
     const byEvent = new Map(events.map((r) => [r.dimensions[0], r.metrics[0] ?? 0]));
@@ -739,6 +765,13 @@ export class MarketingAnalyticsService {
 
     const safe = await this.safeRows(period, privacy, async (p) => d1Dims(await this.d1Sold(p)), d1Dims(byCard));
 
+    // MKT-V2 §6.7: filas = unión de las 10 cartas con más vistas (GA4) y las vendidas. Las que solo se vieron: vendidas = 0 exacto.
+    const viewedOnly = await this.d1ViewedOnly(views, byCard, privacy);
+    const otrosAt = safe.findIndex((r) => r.otros);
+    const extraSafe: SafeRow[] = viewedOnly.map((v) => ({ key: v.key, count: 0, money: { mxn: 0 } }));
+    const merged = otrosAt < 0 ? [...safe, ...extraSafe] : [...safe.slice(0, otrosAt), ...extraSafe, ...safe.slice(otrosAt)];
+    const viewedBy = new Map(viewedOnly.map((v) => [v.key, v]));
+
     return {
       id: 'd1',
       title: 'Cartas más vistas vs más vendidas',
@@ -750,14 +783,14 @@ export class MarketingAnalyticsService {
         { key: 'mxn', labelEs: 'MX$ vendido (IVA incluido)', kind: 'money' },
         { key: 'aLaVentaHoy', labelEs: 'Unidades a la venta hoy', kind: 'count' },
       ],
-      rows: safe.map((r) => ({
+      rows: merged.map((r) => ({
         carta: r.key,
         // GA4 (§MKT.H.9): vistas por el `itemId` canónico (§MKT.H.4, `c_<cardId>`); sin GA4 ⇒ el motivo; fila oculta ⇒ 'oculta'.
-        vistas: !views ? this.ga4Reason() : typeof r.count !== 'number' || r.otros ? SMALL_CELL_HIDDEN : (views.get(itemIdOfKey.get(r.key) ?? '')?.views ?? 0),
+        vistas: viewedBy.has(r.key) ? viewedBy.get(r.key)!.views : !views ? this.ga4Reason() : typeof r.count !== 'number' || r.otros ? SMALL_CELL_HIDDEN : (views.get(itemIdOfKey.get(r.key) ?? '')?.views ?? 0),
         unidadesVendidas: r.count as Cell,
         mxn: (r.money.mxn ?? null) as Cell,
         // La fila agrupada «Otros» no mapea a una carta ⇒ su stock se oculta (C-P1: ⛔ null en fila oculta).
-        aLaVentaHoy: r.otros ? SMALL_CELL_HIDDEN : (stockByKey.get(r.key) ?? 0),
+        aLaVentaHoy: r.otros ? SMALL_CELL_HIDDEN : (viewedBy.get(r.key)?.stock ?? stockByKey.get(r.key) ?? 0),
       })),
       measured: true,
       notes: [
@@ -767,14 +800,63 @@ export class MarketingAnalyticsService {
     };
   }
 
+  /** d1: las cartas entre las 10 más vistas que NO se vendieron en el periodo (nombre desde `Card`, stock de hoy). Vistas < 5 ⇒ «< 5» en `small_cells`. */
+  private async d1ViewedOnly(
+    views: Map<string, { views: number; carts: number }> | null,
+    sold: SoldByCard,
+    privacy: CellPrivacy,
+  ): Promise<{ key: string; views: Cell; stock: number }[]> {
+    if (!views) return [];
+    const ranked = [...views.entries()]
+      .map(([id, v]) => ({ p: parseMeasurementItemId(id), v: v.views, id }))
+      .filter((x) => x.p?.table === 'card')
+      .sort((a, b) => b.v - a.v || a.id.localeCompare(b.id))
+      .slice(0, 10)
+      .filter((x) => !sold.has(x.p!.id));
+    if (ranked.length === 0) return [];
+    const ids = ranked.map((x) => x.p!.id);
+    const [cards, onSale] = await Promise.all([
+      this.prisma.card.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, number: true, set: { select: { name: true } } } }),
+      this.prisma.inventoryItem.groupBy({ by: ['cardId'], where: { cardId: { in: ids }, ownerType: 'platform', status: 'listed' }, _count: { _all: true } }),
+    ]);
+    const cardBy = new Map(cards.map((c) => [c.id, `${c.name} · ${c.set.name} ${c.number}`]));
+    const stockBy = new Map(onSale.map((r) => [r.cardId, r._count._all]));
+    return ranked.map((x) => ({
+      key: cardBy.get(x.p!.id) ?? x.id,
+      views: privacy === 'small_cells' && x.v > 0 && x.v < SMALL_CELL_THRESHOLD ? SMALL_CELL_SENTINEL : x.v,
+      stock: stockBy.get(x.p!.id) ?? 0,
+    }));
+  }
+
   /** d2 (§MKT.H.9) — productos con ≥ 20 vistas en GA4 y 0 ventas en BD en el periodo, con % carrito/vista. */
   private async d2ViewsNoSale(period: MarketingPeriod, privacy: CellPrivacy, views: Map<string, { views: number; carts: number }> | null): Promise<AggTable> {
     const title = 'Vistas sin venta';
     if (!views) return this.notMeasured('d2', title, 'mixed', this.ga4Reason());
     const sold = await this.soldIdsOf(period);
     const candidates = [...views.entries()].filter(([id, v]) => v.views >= D2_MIN_VIEWS && !sold.has(id));
-    // `itemId` canónico (§MKT.H.4): el prefijo dice la tabla. Lo no canónico se queda con su id crudo como etiqueta.
-    const parsed = candidates.map(([id]) => [id, parseMeasurementItemId(id)] as const);
+    const nameOf = await this.itemNames(candidates.map(([id]) => id));
+    const dims: DimensionRow[] = candidates
+      .map(([id, v]) => ({ key: nameOf.get(id) ?? id, count: v.views, subjects: v.views, money: { carritoPct: v.views > 0 ? Math.round((v.carts / v.views) * 1000) / 10 : null } }))
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+    const safe = applySmallCells(dims, privacy);
+    return {
+      id: 'd2',
+      title,
+      source: 'mixed',
+      columns: [
+        { key: 'producto', labelEs: 'Producto', kind: 'text' },
+        { key: 'vistas', labelEs: 'Fichas vistas', tech: 'itemsViewed (GA4)', kind: 'count' },
+        { key: 'carritoPct', labelEs: '% carrito / vista', tech: 'itemsAddedToCart / itemsViewed', kind: 'pct' },
+      ],
+      rows: safe.map((r) => ({ producto: r.key, vistas: r.count as Cell, carritoPct: r.money.carritoPct ?? null })),
+      measured: true,
+      notes: [`Productos con al menos ${D2_MIN_VIEWS} vistas (GA4) y ninguna venta en el periodo (BD).`],
+    };
+  }
+
+  /** `itemId` canónico (§MKT.H.4) ⇒ nombre legible. El prefijo dice la tabla; lo no canónico no tiene nombre (el llamador usa el id). */
+  private async itemNames(ids: string[]): Promise<Map<string, string>> {
+    const parsed = ids.map((id) => [id, parseMeasurementItemId(id)] as const);
     const idsOf = (table: 'card' | 'sealedProduct' | 'sealedAnchor') => parsed.filter(([, p]) => p?.table === table).map(([, p]) => p!.id);
     const [cardIds, sealedIds, anchorIds] = [idsOf('card'), idsOf('sealedProduct'), idsOf('sealedAnchor')];
     const [cards, sealed, anchors] = await Promise.all([
@@ -798,23 +880,7 @@ export class MarketingAnalyticsService {
         p?.table === 'card' ? cardName.get(p.id) : p?.table === 'sealedProduct' ? sealedName.get(p.id) : p?.table === 'sealedAnchor' ? anchorName.get(p.id) || `${UNIDENTIFIED_SEALED_NAME} (${p.id})` : undefined;
       if (n) nameOf.set(id, n);
     }
-    const dims: DimensionRow[] = candidates
-      .map(([id, v]) => ({ key: nameOf.get(id) ?? id, count: v.views, subjects: v.views, money: { carritoPct: v.views > 0 ? Math.round((v.carts / v.views) * 1000) / 10 : null } }))
-      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
-    const safe = applySmallCells(dims, privacy);
-    return {
-      id: 'd2',
-      title,
-      source: 'mixed',
-      columns: [
-        { key: 'producto', labelEs: 'Producto', kind: 'text' },
-        { key: 'vistas', labelEs: 'Fichas vistas', tech: 'itemsViewed (GA4)', kind: 'count' },
-        { key: 'carritoPct', labelEs: '% carrito / vista', tech: 'itemsAddedToCart / itemsViewed', kind: 'pct' },
-      ],
-      rows: safe.map((r) => ({ producto: r.key, vistas: r.count as Cell, carritoPct: r.money.carritoPct ?? null })),
-      measured: true,
-      notes: [`Productos con al menos ${D2_MIN_VIEWS} vistas (GA4) y ninguna venta en el periodo (BD).`],
-    };
+    return nameOf;
   }
 
   /** `itemId` canónicos vendidos en el periodo (§MKT.H.4, `measurementItemOf` del snapshot congelado) — para d2. */
@@ -1002,13 +1068,14 @@ export class MarketingAnalyticsService {
     return [
       await this.c1Pages(period, now, privacy),
       // Diferidas (§MKT.H.9): su motivo literal, en cualquier modo.
-      this.notMeasured('c2', 'Dónde pasan más tiempo', 'GA4', PAGE_TYPE_DEFERRED),
-      this.notMeasured('c3', 'Dónde abandonan', 'GA4', ABANDON_DEFERRED),
-      this.notMeasured('c4', '% de fichas donde el botón COMPRAR se ve', 'GA4', BUY_BUTTON_DEFERRED),
+      await this.c2PageTypes(period, now, privacy),
+      await this.landingTable('c3', 'Dónde abandonan', GA4_SPECS.landing, period, now, privacy),
+      await this.c4BuyButton(period, now),
       await this.c5Devices(privacy, fam),
-      this.notMeasured('c6', 'Búsquedas sin resultado', 'Srv', SEARCH_LOG_OFF),
+      await this.c6SearchMiss(period),
       await this.c7ByState(period, privacy, fam),
-      this.notMeasured('c8', 'Página de aterrizaje de Instagram', 'GA4', PAGE_TYPE_DEFERRED),
+      await this.landingTable('c8', 'Página de aterrizaje de Instagram', GA4_SPECS.landingInstagram, period, now, privacy),
+      await this.c9Regions(period, now, privacy),
     ];
   }
 
@@ -1204,7 +1271,9 @@ export class MarketingAnalyticsService {
     if (!(await this.originMeasured(period))) return this.notMeasured('f3', 'Cobertura: % de pedidos con origen', 'BD', ORIGIN_OFF);
     const where = { settledAt: mxRange(period.from, period.to), status: { in: SOLD_STATUSES } };
     const paid = await this.prisma.order.count({ where });
-    const withOrigin = await this.prisma.order.count({ where: { ...where, firstUtmSource: { not: null } } });
+    // «Con origen» = la base de b1 (E2): sin tráfico propio (MKT-V2 §4).
+    const originRows = await this.prisma.order.findMany({ where: { ...where, firstUtmSource: { not: null } }, select: { firstUtmSource: true, firstUtmMedium: true } });
+    const withOrigin = originRows.filter((o) => !isInternalUtm(o.firstUtmSource, o.firstUtmMedium)).length;
     const consented = await this.prisma.order.count({ where: { ...where, measurementConsentAnalytics: true } });
     const refused = await this.prisma.order.count({ where: { ...where, measurementConsentAnalytics: false } });
     const before = await this.prisma.order.count({ where: { ...where, measurementConsentAnalytics: null } });
@@ -1340,6 +1409,7 @@ export class MarketingAnalyticsService {
     for (const [part, xs] of [['avisame', leads], ['torneo', signups]] as const) {
       for (const x of xs) {
         if (!x.confirmedAt) continue;
+        if (isInternalUtm(x.utmSource, x.utmMedium)) continue; // MKT-V2 §4 (b5 y b6 cuadran entre sí: E8/E9)
         const day = toMexicoCityDateKey(x.confirmedAt);
         if (days.has(day)) bump(days, day, part, x.mailboxHmac);
         bump(utms, csUtmKey(x), part, x.mailboxHmac);
@@ -1395,7 +1465,7 @@ export class MarketingAnalyticsService {
    */
   private async bDims(p: DayRange): Promise<Record<'b1' | 'b2' | 'b3', ComponentRow[]>> {
     const range = mxRange(p.from, p.to);
-    const [orders, requests] = await Promise.all([
+    const [allOrders, allRequests] = await Promise.all([
       this.prisma.order.findMany({
         where: { settledAt: range, status: { in: SOLD_STATUSES }, firstUtmSource: { not: null } },
         select: { firstUtmSource: true, firstUtmMedium: true, firstUtmContent: true, totalCents: true },
@@ -1405,6 +1475,9 @@ export class MarketingAnalyticsService {
         select: { firstUtmSource: true, firstUtmMedium: true, firstUtmContent: true, quotedTotalCents: true },
       }),
     ]);
+    // MKT-V2 §4: el tráfico propio (diag-*, qa-*…) no cuenta, ANTES de calcular totales de familia.
+    const orders = allOrders.filter((o) => !isInternalUtm(o.firstUtmSource, o.firstUtmMedium));
+    const requests = allRequests.filter((r) => !isInternalUtm(r.firstUtmSource, r.firstUtmMedium));
     const rowsOf = (keyOf: BKey): ComponentRow[] => {
       const acc = new Map<string, { o: number; oc: number; s: number; sc: number }>();
       const bump = (k: string | null, f: 'o' | 's', cents: number) => {
@@ -1451,7 +1524,7 @@ export class MarketingAnalyticsService {
 
   /** (e) Buscadores e IA — e1 de Search Console (no depende del aviso), e3 de GA4. */
   private async screenE(period: MarketingPeriod, now: Date, privacy: CellPrivacy, fam: Fam): Promise<AggTable[]> {
-    return [await this.e1SearchConsole(period, now, privacy), await this.e3Ai(privacy, fam)];
+    return [await this.e1SearchConsole(period, now, privacy), await this.e2Pages(period, now, privacy), await this.e3Ai(privacy, fam)];
   }
 
   /** e3 (§MKT.H.9) — sesiones desde asistentes de IA (lista fija en código) por página de aterrizaje. */
@@ -1549,13 +1622,441 @@ export class MarketingAnalyticsService {
 
   /** g1 (dimensión única): pedidos cobrados en el rango con primer origen `paid`, y su MX$ con IVA. */
   private async g1Dims(p: DayRange): Promise<DimensionRow[]> {
-    const agg = await this.prisma.order.aggregate({
-      // Base de b1-b3 (`PAID_ORIGIN`, §MKT.H.14): sin `firstUtmSource` no entra, para que g1 ≡ b2[Promoción] sea identidad exacta.
+    // Base de b1-b3 (`PAID_ORIGIN`, §MKT.H.14): sin `firstUtmSource` no entra, para que g1 ≡ b2[Promoción] sea identidad exacta.
+    // MKT-V2 §4: igual que b1-b3, sin tráfico propio (por eso `findMany` y no `aggregate`: el patrón no se expresa en SQL).
+    const rows = await this.prisma.order.findMany({
       where: { settledAt: mxRange(p.from, p.to), status: { in: SOLD_STATUSES }, firstUtmSource: { not: null }, firstUtmMedium: 'paid' },
-      _count: { _all: true },
-      _sum: { totalCents: true },
+      select: { firstUtmSource: true, firstUtmMedium: true, totalCents: true },
     });
-    return [{ key: G1_KEY, count: agg._count._all, subjects: agg._count._all, money: { mxn: centsToPesos(agg._sum.totalCents ?? 0) } }];
+    const own = rows.filter((o) => !isInternalUtm(o.firstUtmSource, o.firstUtmMedium));
+    const cents = own.reduce((n, o) => n + o.totalCents, 0);
+    return [{ key: G1_KEY, count: own.length, subjects: own.length, money: { mxn: centsToPesos(cents) } }];
+  }
+
+  // ──────────────────────────────── Pantalla (r) Resumen (MKT_PANEL_V2 §1-§2) ────────────────────────────────
+
+  /**
+   * r1 cifras con delta, r2 avisos y, SOLO con `privacy='exact'` (vista del dueño) y semana, r3 día por día. ⛔ `r3` no existe en
+   * `small_cells` (exports, tokens, weekly-excel, correo): la regla de `marketing-period.ts` (sin detalle por día) sigue en pie
+   * para todo lo demás.
+   */
+  private async screenR(period: MarketingPeriod, now: Date, privacy: CellPrivacy, fam: Fam): Promise<AggTable[]> {
+    const exact = privacy === 'exact';
+    const prevP: MarketingPeriod = { ...period, from: period.prev.from, to: period.prev.to, label: `${period.label}~prev` };
+    const live = this.ga4Live();
+    const reason = this.ga4Reason();
+    const report = await this.sales.report({ preset: 'custom', from: period.from, to: period.to, groupBy: 'day' }, now);
+    const pair = async (spec: Ga4ReportSpec): Promise<[Ga4Row[] | null, Ga4Row[] | null]> =>
+      live ? [await this.ga4(spec, period, now), await this.ga4(spec, prevP, now)] : [null, null];
+    const [totC, totP] = await pair(GA4_SPECS.funnelSessions);
+    const [nvrC, nvrP] = await pair(GA4_SPECS.nvr);
+    const [evC, evP] = await pair(GA4_SPECS.events);
+    const [srcC, srcP] = await pair(GA4_SPECS.sources);
+
+    const ev = (rows: Ga4Row[] | null, name: string): number | string => (rows ? (rows.find((r) => r.dimensions[0] === name)?.metrics[0] ?? 0) : reason);
+    const users = (rows: Ga4Row[] | null): number | string => (rows ? (rows[0]?.metrics[1] ?? 0) : reason);
+
+    // Sesiones de Instagram (a4): solo se suman celdas VISIBLES de la familia (la suma no despeja una celda oculta de a4).
+    const igOf = async (p: MarketingPeriod, isCur: boolean): Promise<Cell> => {
+      if (!live) return reason;
+      try {
+        const f = isCur ? await fam('sessions') : await this.family('sessions', p, now, privacy);
+        const rows = familyRows(f, 'a4', privacy);
+        if (!rows) return reason;
+        return sumIfVisible(rows.filter((r) => r.key === 'Instagram orgánico' || r.key === 'Instagram pagado').map((r) => r.count as Cell));
+      } catch {
+        return reason;
+      }
+    };
+    const [igC, igP] = [await igOf(period, true), await igOf(prevP, false)];
+
+    // Google (Search Console, totales sin dimensión): ~2-3 días de retraso.
+    const ext = this.external;
+    const scOn = ext?.searchConsoleConfigured() === true;
+    const sc = async (p: DayRange) => (scOn && ext ? await ext.searchConsoleTotals(p.from, p.to, now) : ({ ok: false } as const));
+    const [scC, scP] = [await sc(period), await sc(prevP)];
+    const scv = (r: Awaited<ReturnType<typeof sc>>, k: 'clicks' | 'impressions'): Cell => (r.ok ? (r.rows[0]?.[k] ?? 0) : SC_UNCONNECTED);
+
+    const [accC, accP] = [await this.acceptPct(period), await this.acceptPct(prevP)];
+
+    const t = report.totals;
+    const pr = report.previousTotals;
+    const nv = nvrC ? nvrCells(nvrOf(nvrC), exact) : [reason, reason];
+    const nvP = nvrP ? nvrCells(nvrOf(nvrP), exact) : [reason, reason];
+    const line = (cifra: string, cur: Cell, prev: Cell, basis?: [number, number]): Record<string, Cell> => ({ cifra, actual: cur, anterior: prev, ...deltaCells(cur, prev, basis) });
+    const ordersBasis: [number, number] = [t.orders, pr.orders];
+    const r1Rows = [
+      line('Visitantes reales (que aceptaron cookies)', users(totC), users(totP)),
+      line('· Nuevos', nv[0], nvP[0]),
+      line('· Recurrentes', nv[1], nvP[1]),
+      line('Sesiones desde Instagram', igC, igP),
+      line('Fichas vistas', ev(evC, 'view_item'), ev(evP, 'view_item')),
+      line('Agregados al carrito', ev(evC, 'add_to_cart'), ev(evP, 'add_to_cart')),
+      line('Inicios de pago', ev(evC, 'begin_checkout'), ev(evP, 'begin_checkout')),
+      line('Pedidos pagados', t.orders, pr.orders),
+      line('· Ventas (MX$, IVA incluido)', centsToPesos(t.chargedCents), centsToPesos(pr.chargedCents), ordersBasis),
+      line('Google: clics', scv(scC, 'clicks'), scv(scP, 'clicks')),
+      line('· Google: impresiones', scv(scC, 'impressions'), scv(scP, 'impressions')),
+      line('Aceptación de cookies (%)', accC, accP),
+    ];
+    const r1: AggTable = {
+      id: 'r1',
+      title: 'Cifras de la semana',
+      source: 'mixed',
+      columns: [
+        { key: 'cifra', labelEs: 'Cifra', kind: 'text' },
+        { key: 'actual', labelEs: 'Esta semana', kind: 'number' },
+        { key: 'anterior', labelEs: 'Semana anterior', kind: 'number' },
+        { key: 'delta_abs', labelEs: 'Cambio', kind: 'number' },
+        { key: 'delta_pct', labelEs: 'Cambio (%)', kind: 'pct' },
+      ],
+      rows: r1Rows,
+      measured: true,
+      notes: [
+        'Las cifras de visitantes, fichas, carritos y pagos son de GA4 y solo cuentan a quien aceptó cookies (ver «Aceptación de cookies»); pedidos y ventas vienen de la base y cuentan a todos.',
+        'Sin cambio (≈): esta semana y la anterior tienen menos de 5. «Cambio (%)» vacío con cambio absoluto = antes era 0 (nuevo).',
+        'Google tiene 2–3 días de retraso: el fin de semana puede estar incompleto.',
+        'Nuevos y recurrentes: si una sale «< 5», la otra se oculta (el total de visitantes es exacto).',
+        ...(exact ? [EXACT_CELLS_NOTE] : []),
+      ],
+    };
+
+    // r2 — avisos.
+    const alerts = await this.r2Alerts(period, prevP, now, exact, { live, reason, scOn, checkout: evC ? Number(ev(evC, 'begin_checkout')) : null, srcC, srcP, paid: t.orders });
+    const r2: AggTable = {
+      id: 'r2',
+      title: 'Qué hacer esta semana',
+      source: 'mixed',
+      columns: [
+        { key: 'regla', labelEs: 'Regla', kind: 'text' },
+        { key: 'gravedad', labelEs: 'Gravedad', kind: 'text' },
+        { key: 'titulo', labelEs: 'Aviso', kind: 'text' },
+        { key: 'evidencia', labelEs: 'Evidencia', kind: 'text' },
+        { key: 'accion', labelEs: 'Qué hacer', kind: 'text' },
+      ],
+      rows: alerts.map((a) => ({ regla: a.regla, gravedad: a.gravedad, titulo: a.titulo, evidencia: a.evidencia, accion: a.accion })),
+      measured: true,
+      notes: ['Avisos por reglas fijas con umbral; sin IA. Cada uno cita sus números.'],
+    };
+
+    const out = [r1, r2];
+    if (exact && period.kind === 'week') out.push(await this.r3Daily(period, now));
+    return out;
+  }
+
+  /** % de respuestas «aceptar» del banner en el periodo (f1). `string` = motivo; `null` = sin respuestas. */
+  private async acceptPct(p: MarketingPeriod): Promise<Cell> {
+    if (!(await this.bannerMeasured(p))) return BANNER_OFF;
+    const grouped = await this.prisma.marketingBannerConsentCounter.groupBy({ by: ['response'], where: { weekStart: this.bannerWeeks(p) }, _sum: { count: true } });
+    const all = grouped.reduce((n, g) => n + (g._sum.count ?? 0), 0);
+    const acc = grouped.filter((g) => g.response === 'accept').reduce((n, g) => n + (g._sum.count ?? 0), 0);
+    return all === 0 ? null : Math.round((acc / all) * 1000) / 10;
+  }
+
+  private async r2Alerts(
+    period: MarketingPeriod,
+    prevP: MarketingPeriod,
+    now: Date,
+    exact: boolean,
+    c: { live: boolean; reason: string; scOn: boolean; checkout: number | null; srcC: Ga4Row[] | null; srcP: Ga4Row[] | null; paid: number },
+  ): Promise<Alert[]> {
+    const missing: string[] = [];
+    if (!c.live) missing.push(c.reason.replace('NO MEDIDO — ', ''));
+    if (!c.scOn) missing.push('Search Console sin conectar');
+    // AV2
+    const groups = c.srcC && c.srcP ? A4_GROUPS_OF(c.srcC, c.srcP) : null;
+    // AV3 (GA4 `items` + vendidas en BD)
+    let items: { name: string; views: number; carts: number; sold: boolean }[] | null = null;
+    const itemRows = await this.ga4(GA4_SPECS.items, period, now);
+    if (itemRows) {
+      const views = itemViews(itemRows);
+      const sold = await this.soldIdsOf(period);
+      const cand = [...views.entries()].filter(([id, v]) => v.views >= AV3_MIN_VIEWS && v.carts <= AV3_MAX_CARTS && !sold.has(id)).sort((a, b) => b[1].views - a[1].views || a[0].localeCompare(b[0])).slice(0, 10);
+      const names = await this.itemNames(cand.map(([id]) => id));
+      items = cand.map(([id, v]) => ({ name: names.get(id) ?? id, views: v.views, carts: v.carts, sold: false }));
+    }
+    // AV4 (páginas de Google; nunca consultas)
+    let scPages: { label: string; impressions: number; clicks: number; position: number }[] | null = null;
+    if (c.scOn && this.external) {
+      const r = await this.external.searchConsolePages(period.from, period.to, now);
+      if (r.ok) scPages = await this.scPageLabels(r.rows);
+      else missing.push('Search Console sin conectar');
+    }
+    // AV5 (buylist sin stock)
+    const buylist = await this.buylistWithoutStock(period);
+    // AV6 (búsquedas sin resultado)
+    const misses = await this.searchMisses(period);
+    const alerts = evaluateAlerts({ checkoutStarts: c.checkout, paidOrders: c.paid, groups, items, scPages, buylist, searchMisses: misses, exact });
+    return [...alerts, ...notEvaluatedRows([...new Set(missing)])];
+  }
+
+  /** AV5: cartas con ≥ 5 cotizaciones del cotizador en la semana y 0 unidades `listed` de plataforma. */
+  private async buylistWithoutStock(p: DayRange): Promise<{ name: string; quotes: number; listed: number }[]> {
+    const grouped = await this.prisma.buylistQuoteDailyCount.groupBy({
+      by: ['cardId'],
+      where: { day: { gte: new Date(`${p.from}T00:00:00.000Z`), lte: new Date(`${p.to}T00:00:00.000Z`) } },
+      _sum: { count: true },
+    });
+    const hot = grouped.filter((g) => (g._sum.count ?? 0) >= AV5_MIN_QUOTES);
+    if (hot.length === 0) return [];
+    const ids = hot.map((g) => g.cardId);
+    const [listed, cards] = await Promise.all([
+      this.prisma.inventoryItem.groupBy({ by: ['cardId'], where: { cardId: { in: ids }, ownerType: 'platform', status: 'listed' }, _count: { _all: true } }),
+      this.prisma.card.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, number: true, set: { select: { name: true } } } }),
+    ]);
+    const listedBy = new Map(listed.map((l) => [l.cardId, l._count._all]));
+    const cardBy = new Map(cards.map((c) => [c.id, `${c.name} · ${c.set.name} ${c.number}`]));
+    return hot.map((g) => ({ name: cardBy.get(g.cardId) ?? g.cardId, quotes: g._sum.count ?? 0, listed: listedBy.get(g.cardId) ?? 0 }));
+  }
+
+  /** URL de página de Google ⇒ etiqueta (ficha por nombre desde BD) agregada por etiqueta. Clics e impresiones suman; posición ponderada. */
+  private async scPageLabels(rows: { page: string; clicks: number; impressions: number; position: number }[]): Promise<{ label: string; impressions: number; clicks: number; position: number }[]> {
+    const pathOf = (u: string): string => {
+      try {
+        return new URL(u).pathname;
+      } catch {
+        return u.split(/[?#]/)[0];
+      }
+    };
+    const labels = await this.fichaLabels(rows.map((r) => pathOf(r.page)));
+    const acc = new Map<string, { clicks: number; impressions: number; posW: number }>();
+    for (const r of rows) {
+      const path = pathOf(r.page);
+      const key = labels.get(path) ?? path;
+      const e = acc.get(key) ?? { clicks: 0, impressions: 0, posW: 0 };
+      e.clicks += r.clicks;
+      e.impressions += r.impressions;
+      e.posW += r.position * r.impressions;
+      acc.set(key, e);
+    }
+    return [...acc.entries()].map(([label, e]) => ({ label, clicks: e.clicks, impressions: e.impressions, position: e.impressions > 0 ? e.posW / e.impressions : 0 }));
+  }
+
+  /** r3 (solo `exact`, 7 filas CDMX): nuevos/recurrentes y sesiones por origen, por día. NO MEDIDO si GA4 no reporta en CDMX. */
+  private async r3Daily(period: MarketingPeriod, now: Date): Promise<AggTable> {
+    const title = 'Día por día';
+    const ext = this.external;
+    if (!this.ga4Live() || !ext) return this.notMeasured('r3', title, 'GA4', this.ga4Reason());
+    const [nvr, src] = [await ext.ga4Report(GA4_SPECS.dailyNvr, period.from, period.to, now), await ext.ga4Report(GA4_SPECS.dailySrc, period.from, period.to, now)];
+    if (!nvr.ok || !src.ok) return this.notMeasured('r3', title, 'GA4', GA4_UNCONNECTED);
+    if (nvr.timeZone !== 'America/Mexico_City' || src.timeZone !== 'America/Mexico_City') {
+      return this.notMeasured('r3', title, 'GA4', 'NO MEDIDO — la zona horaria de GA4 no es CDMX');
+    }
+    const ymd = (d: string): string => (/^\d{8}$/.test(d) ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : d);
+    const days: Ymd[] = [];
+    for (let d = period.from; d <= period.to; d = addDays(d, 1)) days.push(d);
+    const blank = (): Record<string, number> => ({ nuevos: 0, recurrentes: 0, ses_instagram_organico: 0, ses_instagram_pagado: 0, ses_google: 0, ses_ia: 0, ses_directo_otros: 0 });
+    const byDay = new Map(days.map((d) => [d, blank()]));
+    for (const r of nvr.rows) {
+      const e = byDay.get(ymd(r.dimensions[0]));
+      if (!e) continue;
+      if (r.dimensions[1] === 'new') e.nuevos += r.metrics[0] ?? 0;
+      else if (r.dimensions[1] === 'returning') e.recurrentes += r.metrics[0] ?? 0;
+    }
+    const col: Record<string, string> = {
+      'Instagram orgánico': 'ses_instagram_organico',
+      'Instagram pagado': 'ses_instagram_pagado',
+      'Google orgánico': 'ses_google',
+      'Asistentes de IA': 'ses_ia',
+      'Directo/otros': 'ses_directo_otros',
+    };
+    for (const r of src.rows) {
+      const e = byDay.get(ymd(r.dimensions[0]));
+      if (e) e[col[a4Group(r.dimensions[1], r.dimensions[2], r.dimensions[3])]] += r.metrics[0] ?? 0;
+    }
+    const keys = Object.keys(blank());
+    return {
+      id: 'r3',
+      title,
+      source: 'GA4',
+      columns: [{ key: 'dia', labelEs: 'Día (CDMX)', kind: 'text' }, ...keys.map((k) => ({ key: k, labelEs: R3_LABELS[k], kind: 'count' as const }))],
+      rows: days.map((d) => ({ dia: d, ...(byDay.get(d) as Record<string, number>) })),
+      measured: true,
+      notes: ['Solo visible para ti.', 'Solo quien aceptó cookies. Cifras exactas de la vista del dueño; nunca sale en exports, tokens ni correo.'],
+    };
+  }
+
+  // ──────────────────────────────── Tablas nuevas de c, e (MKT-V2 §5-§6) ────────────────────────────────
+
+  /** c2 (§6.1) — tiempo medio por TIPO de página. */
+  private async c2PageTypes(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable> {
+    const title = 'Dónde pasan más tiempo';
+    const safe = await this.ga4SafeRows(GA4_SPECS.pages, period, now, privacy, (rows) => c2Rows(rows));
+    if (!safe) return this.notMeasured('c2', title, 'GA4', this.ga4Reason());
+    return {
+      id: 'c2',
+      title,
+      source: 'GA4',
+      columns: [
+        { key: 'tipo', labelEs: 'Tipo de página', tech: 'pagePath', kind: 'text' },
+        { key: 'vistas', labelEs: 'Vistas', tech: 'screenPageViews', kind: 'count' },
+        { key: 'usuarios', labelEs: 'Usuarios', tech: 'totalUsers', kind: 'count' },
+        { key: 'tiempoMedio', labelEs: 'Tiempo medio por vista (s)', tech: 'userEngagementDuration / screenPageViews', kind: 'number' },
+      ],
+      rows: safe.map((r) => ({ tipo: r.key, vistas: r.money.vistas ?? null, usuarios: r.count as Cell, tiempoMedio: r.money.tiempoMedio ?? null })),
+      measured: true,
+      notes: ['Solo quien aceptó la analítica.', c1UsersNote(privacy), cellsNote(privacy, `Menos de ${SMALL_CELL_THRESHOLD} usuarios ⇒ «< 5» sin el resto de cifras.`)],
+    };
+  }
+
+  /** c3 / c8 (§6.2) — por tipo de página de aterrizaje: sesiones y abandono = 1 − sesiones con interacción / sesiones. */
+  private async landingTable(id: 'c3' | 'c8', title: string, spec: Ga4ReportSpec, period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable> {
+    const safe = await this.ga4SafeRows(spec, period, now, privacy, (rows) => landingRows(rows));
+    if (!safe) return this.notMeasured(id, title, 'GA4', this.ga4Reason());
+    return {
+      id,
+      title,
+      source: 'GA4',
+      columns: [
+        { key: 'tipo', labelEs: 'Tipo de página de aterrizaje', tech: 'landingPage', kind: 'text' },
+        { key: 'sesiones', labelEs: 'Sesiones', tech: 'sessions', kind: 'count' },
+        { key: 'abandono', labelEs: '% que se va sin interactuar', tech: '1 − engagedSessions / sessions', kind: 'pct' },
+      ],
+      rows: safe.map((r) => ({ tipo: r.key, sesiones: r.count as Cell, abandono: r.money.abandono ?? null })),
+      measured: true,
+      notes: [id === 'c8' ? 'Solo sesiones que llegaron desde Instagram.' : 'Todas las fuentes.', 'Solo quien aceptó la analítica.', cellsNote(privacy, `Menos de ${SMALL_CELL_THRESHOLD} sesiones ⇒ «< 5» sin el resto de cifras.`)],
+    };
+  }
+
+  /** c4 (§6.3) — % de fichas vistas donde el botón COMPRAR se vio. Totales sin dimensión ⇒ exactos (como a5). */
+  private async c4BuyButton(period: MarketingPeriod, now: Date): Promise<AggTable> {
+    const title = '% de fichas donde el botón COMPRAR se ve';
+    const events = await this.ga4(GA4_SPECS.events, period, now);
+    if (!events) return this.notMeasured('c4', title, 'GA4', this.ga4Reason());
+    const by = new Map(events.map((r) => [r.dimensions[0], r.metrics[0] ?? 0]));
+    if (!by.has('buy_button_visible')) return this.notMeasured('c4', title, 'GA4', BUY_BUTTON_DEFERRED);
+    const views = by.get('view_item') ?? 0;
+    const seen = by.get('buy_button_visible') as number;
+    return {
+      id: 'c4',
+      title,
+      source: 'GA4',
+      columns: [
+        { key: 'concepto', labelEs: 'Concepto', kind: 'text' },
+        { key: 'n', labelEs: 'Nº', tech: 'eventCount', kind: 'count' },
+        { key: 'pct', labelEs: '% de las fichas vistas', kind: 'pct' },
+      ],
+      rows: [
+        { concepto: 'Fichas vistas (view_item)', n: views, pct: null },
+        { concepto: 'Con el botón COMPRAR visible (buy_button_visible)', n: seen, pct: views > 0 ? Math.round((seen / views) * 1000) / 10 : null },
+      ],
+      measured: true,
+      notes: ['Totales sin dimensión: cifras exactas de quien aceptó la analítica.'],
+    };
+  }
+
+  /** c6 (§6.4, §7) — búsquedas sin resultado (registro propio, sin identificador): término con ≥ 5 en ≥ 2 días. */
+  private async c6SearchMiss(period: MarketingPeriod): Promise<AggTable> {
+    const title = 'Búsquedas sin resultado';
+    if (!(await this.flagOn(SEARCH_LOG_FLAG))) return this.notMeasured('c6', title, 'Srv', SEARCH_LOG_OFF);
+    const terms = await this.searchMisses(period);
+    if (!terms) return this.notMeasured('c6', title, 'Srv', SEARCH_LOG_UNREADABLE);
+    return {
+      id: 'c6',
+      title,
+      source: 'Srv',
+      columns: [
+        { key: 'termino', labelEs: 'Lo que buscaron', kind: 'text' },
+        { key: 'busquedas', labelEs: 'Búsquedas sin resultado', kind: 'count' },
+        { key: 'dias', labelEs: 'Días distintos', kind: 'count' },
+      ],
+      rows: [...terms].sort((a, b) => b.count - a.count || a.term.localeCompare(b.term)).map((x) => ({ termino: x.term, busquedas: x.count, dias: x.days })),
+      measured: true,
+      notes: [`Solo términos con al menos ${SEARCH_MISS_MIN_COUNT} búsquedas en ${SEARCH_MISS_MIN_DAYS} días distintos o más. Conteo anónimo: sin usuario, sin IP, sin cookie; el texto pasa un filtro de datos personales.`],
+    };
+  }
+
+  /** Términos de c6 que pasan el umbral en el periodo; `null` si el registro no se pudo leer. Con el flag apagado ⇒ `[]`. */
+  private async searchMisses(p: DayRange): Promise<{ term: string; count: number; days: number }[] | null> {
+    try {
+      if (!(await this.flagOn(SEARCH_LOG_FLAG))) return [];
+      const g = await this.prisma.searchNoResultDaily.groupBy({
+        by: ['termNormalized'],
+        where: { day: { gte: new Date(`${p.from}T00:00:00.000Z`), lte: new Date(`${p.to}T00:00:00.000Z`) } },
+        _sum: { count: true },
+        _count: { _all: true },
+      });
+      return g
+        .map((x) => ({ term: x.termNormalized, count: x._sum.count ?? 0, days: x._count._all }))
+        .filter((x) => x.count >= SEARCH_MISS_MIN_COUNT && x.days >= SEARCH_MISS_MIN_DAYS);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Interruptor de `ConfigSetting` (`"on"`/`"off"`): ausente ⇒ encendido. */
+  private async flagOn(key: string): Promise<boolean> {
+    try {
+      const row = await this.prisma.configSetting.findUnique({ where: { key }, select: { valueJson: true } });
+      return row?.valueJson !== 'off';
+    } catch {
+      return true;
+    }
+  }
+
+  /** c9 (§5) — usuarios por estado (sin ciudad). */
+  private async c9Regions(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable> {
+    const title = 'Estados de quienes visitan';
+    const safe = await this.ga4SafeRows(GA4_SPECS.region, period, now, privacy, (rows) => regionRows(rows));
+    if (!safe) return this.notMeasured('c9', title, 'GA4', this.ga4Reason());
+    return {
+      id: 'c9',
+      title,
+      source: 'GA4',
+      columns: [
+        { key: 'estado', labelEs: 'Estado', tech: 'region', kind: 'text' },
+        { key: 'usuarios', labelEs: 'Usuarios', tech: 'totalUsers', kind: 'count' },
+      ],
+      rows: safe.map((r) => ({ estado: r.key, usuarios: r.count as Cell })),
+      measured: true,
+      notes: ['Solo quien aceptó la analítica; sin ciudad (con tan pocas personas identificaría).', cellsNote(privacy, `Menos de ${SMALL_CELL_THRESHOLD} usuarios ⇒ «< 5».`)],
+    };
+  }
+
+  /** e2 (§5) — páginas en Google (Search Console): clics, impresiones, CTR y posición por página. */
+  private async e2Pages(period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<AggTable> {
+    const title = 'Páginas en Google';
+    const ext = this.external;
+    if (!ext?.searchConsoleConfigured()) return this.notMeasured('e2', title, 'SC', SC_UNCONNECTED);
+    const dimsOf = async (p: DayRange): Promise<DimensionRow[]> => {
+      const r = await ext.searchConsolePages(p.from, p.to, now);
+      if (!r.ok) throw new Error('search console unavailable');
+      const labelled = await this.scPageLabels(r.rows);
+      return labelled.map((x) => ({
+        key: x.label,
+        count: x.clicks,
+        subjects: x.clicks,
+        money: { impresiones: x.impressions, ctr: x.impressions > 0 ? x.clicks / x.impressions : 0, posicion: x.position },
+      }));
+    };
+    let safe: SafeRow[];
+    try {
+      safe = await this.safeRows(period, privacy, dimsOf);
+    } catch {
+      return this.notMeasured('e2', title, 'SC', SC_UNCONNECTED);
+    }
+    const round = (v: number | null | undefined | typeof SMALL_CELL_HIDDEN, f: number): Cell => (typeof v === 'number' ? Math.round(v * f) / f : (v ?? null));
+    return {
+      id: 'e2',
+      title,
+      source: 'SC',
+      columns: [
+        { key: 'pagina', labelEs: 'Página', tech: 'page', kind: 'text' },
+        { key: 'clics', labelEs: 'Clics', tech: 'clicks', kind: 'count' },
+        { key: 'impresiones', labelEs: 'Impresiones', tech: 'impressions', kind: 'count' },
+        { key: 'ctr', labelEs: 'CTR (%)', tech: 'ctr', kind: 'pct' },
+        { key: 'posicion', labelEs: 'Posición media', tech: 'position', kind: 'number' },
+      ],
+      rows: safe.map((r) => ({
+        pagina: r.key,
+        clics: r.count as Cell,
+        impresiones: r.money.impresiones ?? null,
+        ctr: typeof r.money.ctr === 'number' ? round(r.money.ctr * 100, 10) : (r.money.ctr ?? null),
+        posicion: round(r.money.posicion, 10),
+      })),
+      measured: true,
+      notes: ['Search Console, por página (nunca la consulta). No recoge nada del visitante.', cellsNote(privacy, `Páginas con menos de ${SMALL_CELL_THRESHOLD} clics ⇒ «< 5» sin el resto de cifras.`)],
+    };
   }
 
   private notMeasured(id: string, title: string, source: AggTable['source'], reason: string): AggTable {

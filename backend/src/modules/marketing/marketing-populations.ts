@@ -39,6 +39,10 @@ export const MARKETING_POPULATIONS = {
   'GA4:devices': { subject: 'sesión', source: 'GA4' },
   'GA4:items': { subject: 'vista', source: 'GA4' },
   'GA4:aiReferrals': { subject: 'sesión', source: 'GA4' },
+  /** MKT-V2 (c3, c8): sesiones por página de aterrizaje. */
+  'GA4:landing': { subject: 'sesión', source: 'GA4' },
+  /** MKT-V2 (c9): usuarios por estado (`region`). */
+  'GA4:region': { subject: 'usuario', source: 'GA4' },
   SC: { subject: 'clic', source: 'SC' },
   /**
    * v1.109 (MKT-MEDIR-CS): `CardShowLead` (todo `type`) con `confirmedAt` en el periodo (CDMX), sea cual sea su `status` después;
@@ -82,6 +86,12 @@ const c = (count: string | null, derived: readonly string[], population: Populat
 
 /** Una entrada por `tables[].id` de MKT.G.4. Orden: el del catálogo. */
 export const MARKETING_TABLES: Readonly<Record<string, TableRegistration>> = {
+  // MKT-V2 (docs/specs/MKT_PANEL_V2.md §1): r1 son totales sin dimensión (exactos como a1/a5); las sublíneas nuevos/recurrentes
+  // y «Sesiones desde Instagram» se suprimen en el servicio (`nvrCells`, `sumIfVisible`) con el total de visitantes exacto a la vista.
+  r1: { class: 'accepted_total', components: [], exact: ['actual', 'anterior', 'delta_abs', 'delta_pct'] },
+  r2: { class: 'text', components: [], exact: [] },
+  // r3 solo existe con `privacy='exact'` (vista del dueño): toda cifra es exacta por diseño del régimen.
+  r3: { class: 'single_row', components: [], exact: ['nuevos', 'recurrentes', 'ses_instagram_organico', 'ses_instagram_pagado', 'ses_google', 'ses_ia', 'ses_directo_otros'] },
   a1: { class: 'accepted_total', components: [c('pedidos', ['mxn'], 'PAID')], exact: [] },
   a2: { class: 'accepted_total', components: [c(null, ['ticket', 'piezasPorPedido'], 'PAID')], exact: [] },
   a3: {
@@ -112,13 +122,15 @@ export const MARKETING_TABLES: Readonly<Record<string, TableRegistration>> = {
   b5: { class: 'dimension', components: [c('avisame', [], 'CS_LEAD', { filter: 'por día CDMX de confirmedAt; sujeto = buzón distinto' }), c('torneo', [], 'CS_SIGNUP', { filter: 'por día CDMX de confirmedAt; sujeto = buzón distinto' })], exact: [] },
   b6: { class: 'dimension', components: [c('avisame', [], 'CS_LEAD', { filter: 'por UTM (parseFirstUtm); sujeto = buzón distinto' }), c('torneo', [], 'CS_SIGNUP', { filter: 'por UTM (parseFirstUtm); sujeto = buzón distinto' })], exact: [] },
   c1: { class: 'dimension', components: [c('usuarios', ['vistas', 'tiempoMedio'], 'GA4:pages')], exact: [] },
-  c2: { class: 'deferred', components: [], exact: [] },
-  c3: { class: 'deferred', components: [], exact: [] },
-  c4: { class: 'deferred', components: [], exact: [] },
+  c2: { class: 'dimension', components: [c('usuarios', ['vistas', 'tiempoMedio'], 'GA4:pages')], exact: [] },
+  c3: { class: 'dimension', components: [c('sesiones', ['abandono'], 'GA4:landing')], exact: [] },
+  c4: { class: 'accepted_total', components: [c('n', [], 'GA4:funnel')], exact: ['pct'] },
   c5: { class: 'dimension', components: [c('sesiones', [], 'GA4:devices')], exact: [] },
-  c6: { class: 'deferred', components: [], exact: [] },
+  // c6 tiene su propio umbral (≥ 5 en ≥ 2 días) y es un conteo anónimo (sin usuario/IP/cookie): lo que sale ya pasó el umbral.
+  c6: { class: 'anonymous', components: [], exact: ['busquedas', 'dias'] },
   c7: { class: 'dimension', components: [c('pedidos', [], 'PAID')], exact: [] },
-  c8: { class: 'deferred', components: [], exact: [] },
+  c8: { class: 'dimension', components: [c('sesiones', ['abandono'], 'GA4:landing')], exact: [] },
+  c9: { class: 'dimension', components: [c('usuarios', [], 'GA4:region')], exact: [] },
   d1: {
     class: 'dimension',
     components: [c('unidadesVendidas', ['mxn', 'vistas'], 'PAID', { filter: 'carta suelta; sujeto = pedido distinto' })],
@@ -129,6 +141,7 @@ export const MARKETING_TABLES: Readonly<Record<string, TableRegistration>> = {
   d4: { class: 'anonymous', components: [], exact: ['calculos'] },
   d4b: { class: 'dimension', components: [c('solicitudes', [], 'REQ', { filter: 'por carta; sujeto = solicitud distinta' })], exact: [] },
   e1: { class: 'dimension', components: [c('clics', ['impresiones', 'ctr', 'posicion'], 'SC')], exact: [] },
+  e2: { class: 'dimension', components: [c('clics', ['impresiones', 'ctr', 'posicion'], 'SC')], exact: [] },
   e3: { class: 'dimension', components: [c('sesiones', [], 'GA4:aiReferrals')], exact: [] },
   f1: { class: 'anonymous', components: [], exact: ['total', 'movil', 'escritorio', 'tableta', 'sinDato'] },
   f3: {
@@ -153,7 +166,7 @@ export const MARKETING_TABLES: Readonly<Record<string, TableRegistration>> = {
  * Totales sin dimensión que el dueño acepta exactos (Brief 2 §5.2; §MKT.H.14 «Total aceptado»): `<tabla>` entera o
  * `<tabla>:<fila>`. En las ecuaciones son CONSTANTES (se publican siempre) y R3b nunca los oculta (`isAcceptedTotal`).
  */
-export const ACCEPTED_TOTALS: readonly string[] = ['a1', 'a2', 'a3:Solicitudes enviadas (generate_lead)', 'a5', 'a6', 'f3'];
+export const ACCEPTED_TOTALS: readonly string[] = ['a1', 'a2', 'a3:Solicitudes enviadas (generate_lead)', 'a5', 'a6', 'f3', 'c4', 'r1'];
 
 /** ¿Es (tabla, fila) un total aceptado? */
 export const isAcceptedTotal = (table: string, key: string): boolean => ACCEPTED_TOTALS.includes(table) || ACCEPTED_TOTALS.includes(`${table}:${key}`);

@@ -170,7 +170,7 @@ export function lastClosedWeekStart(now: Date): Ymd {
 }
 
 /** Lista blanca de pantallas (Brief 2 §7.2, API_CONTRACT §MKT.E). `codigos` es Fase 3 (aún no). */
-export const MARKETING_SCREENS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] as const;
+export const MARKETING_SCREENS = ['r', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] as const;
 export type MarketingScreen = (typeof MARKETING_SCREENS)[number];
 
 /** Dominio de `?format=` de `GET /admin/marketing/export` (API_CONTRACT §MKT.E, clase L, SELECTOR; v1.104). */
@@ -190,7 +190,7 @@ function parseSelector<T extends string>(field: string, raw: unknown, allowed: r
   return assertEnumFilter(field, raw, allowed);
 }
 
-/** `?pantalla=` (SELECTOR, §MKT.E): `a|…|h`, obligatorio ⇒ si no, `400 {field:'pantalla', allowed}`. */
+/** `?pantalla=` (SELECTOR, §MKT.E): `r|a|…|h`, obligatorio ⇒ si no, `400 {field:'pantalla', allowed}`. */
 export function parseScreen(raw: unknown): MarketingScreen {
   return parseSelector('pantalla', raw, MARKETING_SCREENS);
 }

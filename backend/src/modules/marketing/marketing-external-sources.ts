@@ -15,6 +15,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { classifySourceError } from './marketing-source-error';
+import { withInternalExclusion } from './internal-traffic';
 
 export const GA4_READ_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
 export const SC_READ_SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
@@ -46,7 +47,13 @@ export const googleAuthReadPort: GoogleReadPort = {
   },
 };
 
-export type SourceResult<T> = { ok: true; rows: T[] } | { ok: false };
+/** `unfiltered`: GA4 rechazó el filtro de tráfico propio para esa consulta y se leyó sin él (MKT-V2 §4). */
+export type SourceResult<T> = { ok: true; rows: T[]; unfiltered?: true; timeZone?: string } | { ok: false };
+
+/** Consultas simultáneas a GA4 por pantalla (MKT-V2 §5). */
+export const GA4_MAX_CONCURRENT = 4;
+/** Aviso en el log cuando queda menos de este % de la cuota por hora. */
+export const GA4_QUOTA_WARN_FRACTION = 0.2;
 
 export interface SearchConsoleRow {
   query: string;
@@ -54,6 +61,18 @@ export interface SearchConsoleRow {
   impressions: number;
   ctr: number;
   position: number;
+}
+
+export interface SearchConsolePageRow {
+  page: string;
+  clicks: number;
+  impressions: number;
+  ctr: number;
+  position: number;
+}
+export interface SearchConsoleTotals {
+  clicks: number;
+  impressions: number;
 }
 
 export interface Ga4ReportSpec {
@@ -64,6 +83,8 @@ export interface Ga4ReportSpec {
   inList?: { dimension: string; values: readonly string[] };
   /** Orden descendente por una métrica (c1: por vistas). */
   orderByMetricDesc?: string;
+  /** Si GA4 rechaza el filtro de tráfico propio con esta consulta, reintenta sin él (NO VERIFICADO para `items`). */
+  fallbackUnfiltered?: boolean;
 }
 export interface Ga4Row {
   dimensions: string[];
@@ -91,6 +112,8 @@ export class MarketingExternalSources {
   private readonly scSite: string | null;
   private readonly port: GoogleReadPort;
   private readonly cache = new Map<string, { at: number; value: SourceResult<unknown> }>();
+  private inFlight = 0;
+  private readonly waiting: (() => void)[] = [];
 
   constructor(
     @Optional() config?: ConfigService,
@@ -137,28 +160,117 @@ export class MarketingExternalSources {
     });
   }
 
+  /** Totales de Search Console del rango, SIN dimensión (r1). */
+  async searchConsoleTotals(from: string, to: string, now = new Date()): Promise<SourceResult<SearchConsoleTotals>> {
+    return this.scQuery<SearchConsoleTotals>(`sc-total|${from}|${to}`, from, to, [], 1, now, (r) => ({ clicks: Number(r.clicks) || 0, impressions: Number(r.impressions) || 0 }));
+  }
+
+  /** e2 — páginas de Google del rango (hasta 250). */
+  async searchConsolePages(from: string, to: string, now = new Date()): Promise<SourceResult<SearchConsolePageRow>> {
+    return this.scQuery<SearchConsolePageRow>(`sc-page|${from}|${to}`, from, to, ['page'], 250, now, (r) => ({
+      page: typeof r.keys?.[0] === 'string' ? (r.keys[0] as string) : '',
+      clicks: Number(r.clicks) || 0,
+      impressions: Number(r.impressions) || 0,
+      ctr: Number(r.ctr) || 0,
+      position: Number(r.position) || 0,
+    }));
+  }
+
+  private async scQuery<T>(
+    cacheKey: string,
+    from: string,
+    to: string,
+    dimensions: string[],
+    rowLimit: number,
+    now: Date,
+    map: (r: { keys?: unknown[]; clicks?: unknown; impressions?: unknown; ctr?: unknown; position?: unknown }) => T,
+  ): Promise<SourceResult<T>> {
+    if (!this.key || !this.scSite) return { ok: false };
+    const key = this.key;
+    const site = this.scSite;
+    return this.cached(cacheKey, now, async () => {
+      const url = `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(site)}/searchAnalytics/query`;
+      const data = (await this.port.postJson(key, SC_READ_SCOPE, url, {
+        startDate: from,
+        endDate: to,
+        ...(dimensions.length ? { dimensions } : {}),
+        rowLimit,
+      })) as { rows?: { keys?: unknown[]; clicks?: unknown; impressions?: unknown; ctr?: unknown; position?: unknown }[] };
+      return (data?.rows ?? []).map(map);
+    });
+  }
+
   /** GA4 Data API `runReport`. Las consultas de cada tabla viven en `marketing-ga4.ts` (API_CONTRACT v1.105 §MKT.H.9). */
   async ga4Report(spec: Ga4ReportSpec, from: string, to: string, now = new Date()): Promise<SourceResult<Ga4Row>> {
     if (!this.key || !this.ga4Property) return { ok: false };
     const key = this.key;
     const prop = this.ga4Property;
-    return this.cached(`ga4|${JSON.stringify(spec)}|${from}|${to}`, now, async () => {
+    // MKT-V2 §4: TODA consulta excluye el tráfico propio (`diag-*`, `qa-*`…). El filtro entra en la llave de caché.
+    return this.cached(`ga4|nx1|${JSON.stringify(spec)}|${from}|${to}`, now, async (): Promise<Ga4Row[] & { __unfiltered?: true; __tz?: string }> => {
       const url = `https://analyticsdata.googleapis.com/v1beta/properties/${prop}:runReport`;
-      const data = (await this.port.postJson(key, GA4_READ_SCOPE, url, {
-        dateRanges: [{ startDate: from, endDate: to }],
-        dimensions: spec.dimensions.map((name) => ({ name })),
-        metrics: spec.metrics.map((name) => ({ name })),
-        limit: spec.limit ?? 50,
-        ...(spec.inList
-          ? { dimensionFilter: { filter: { fieldName: spec.inList.dimension, inListFilter: { values: [...spec.inList.values] } } } }
-          : {}),
-        ...(spec.orderByMetricDesc ? { orderBys: [{ metric: { metricName: spec.orderByMetricDesc }, desc: true }] } : {}),
-      })) as { rows?: { dimensionValues?: { value?: unknown }[]; metricValues?: { value?: unknown }[] }[] };
-      return (data?.rows ?? []).map((r) => ({
+      const run = async (filtered: boolean) => {
+        const own = spec.inList ? { filter: { fieldName: spec.inList.dimension, inListFilter: { values: [...spec.inList.values] } } } : undefined;
+        const dimensionFilter = filtered ? withInternalExclusion(own) : own;
+        return this.limited(
+          () =>
+            this.port.postJson(key, GA4_READ_SCOPE, url, {
+              dateRanges: [{ startDate: from, endDate: to }],
+              dimensions: spec.dimensions.map((name) => ({ name })),
+              metrics: spec.metrics.map((name) => ({ name })),
+              limit: spec.limit ?? 50,
+              returnPropertyQuota: true,
+              ...(dimensionFilter ? { dimensionFilter } : {}),
+              ...(spec.orderByMetricDesc ? { orderBys: [{ metric: { metricName: spec.orderByMetricDesc }, desc: true }] } : {}),
+            }),
+        );
+      };
+      let unfiltered = false;
+      let raw: unknown;
+      try {
+        raw = await run(true);
+      } catch (err) {
+        if (!spec.fallbackUnfiltered) throw err;
+        raw = await run(false);
+        unfiltered = true;
+      }
+      const data = raw as {
+        rows?: { dimensionValues?: { value?: unknown }[]; metricValues?: { value?: unknown }[] }[];
+        propertyQuota?: { tokensPerHour?: { consumed?: unknown; remaining?: unknown } };
+        metadata?: { timeZone?: unknown };
+      };
+      this.warnQuota(data?.propertyQuota);
+      const rows: Ga4Row[] & { __unfiltered?: true; __tz?: string } = (data?.rows ?? []).map((r) => ({
         dimensions: (r.dimensionValues ?? []).map((d) => (typeof d.value === 'string' ? d.value : '')),
         metrics: (r.metricValues ?? []).map((m) => Number(m.value) || 0),
       }));
+      if (unfiltered) rows.__unfiltered = true;
+      if (typeof data?.metadata?.timeZone === 'string') rows.__tz = data.metadata.timeZone;
+      return rows;
+    }).then((r) => {
+      if (!r.ok) return r;
+      const x = r.rows as { __unfiltered?: true; __tz?: string };
+      return { ...r, ...(x.__unfiltered ? { unfiltered: true as const } : {}), ...(x.__tz ? { timeZone: x.__tz } : {}) };
     });
+  }
+
+  /** Semáforo: como mucho `GA4_MAX_CONCURRENT` lecturas de GA4 a la vez. */
+  private async limited<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.inFlight >= GA4_MAX_CONCURRENT) await new Promise<void>((res) => this.waiting.push(res));
+    this.inFlight++;
+    try {
+      return await fn();
+    } finally {
+      this.inFlight--;
+      this.waiting.shift()?.();
+    }
+  }
+
+  /** Aviso (sin datos) cuando queda poca cuota por hora. */
+  private warnQuota(q: { tokensPerHour?: { consumed?: unknown; remaining?: unknown } } | undefined): void {
+    const consumed = Number(q?.tokensPerHour?.consumed);
+    const remaining = Number(q?.tokensPerHour?.remaining);
+    if (!Number.isFinite(consumed) || !Number.isFinite(remaining) || consumed + remaining <= 0) return;
+    if (remaining / (consumed + remaining) < GA4_QUOTA_WARN_FRACTION) this.logger.warn('marketing: cuota por hora de GA4 por debajo del 20 %');
   }
 
   private async cached<T>(k: string, now: Date, load: () => Promise<T[]>): Promise<SourceResult<T>> {
