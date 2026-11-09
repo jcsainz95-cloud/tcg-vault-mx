@@ -398,6 +398,19 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
     return { expected, covered, pct };
   }, [binder.data]);
 
+  // §AUTO/PROMOS: apartado «Promos de la colección» (después del Master Set, solo organización). Se arma
+  // APARTE de `tiles` y de `variantTotals`: no entra en el conteo, el % ni el valor del set. En el
+  // cotizador no aplica (no hay fuente de promos en `GET /buylist/cards`; no se inventa).
+  const promos = isQuoter ? undefined : binder.data?.collectionPromos;
+  const promoTiles = useMemo(() => {
+    const out: { cell: MasterSetCardCellDTO; variant: MasterSetVariantDTO }[] = [];
+    for (const cell of [...(promos?.items ?? [])].sort(compareCardNumber)) {
+      for (const variant of displayedVariants(cell)) out.push({ cell, variant });
+    }
+    return out;
+  }, [promos]);
+  const showPromos = !!promos && (promoTiles.length > 0 || (promos.total ?? 0) > 0);
+
   const owner = binder.data?.owner;
 
   // v1.33 (P-27, §4.31b.6): si el binder se pidió por un subset, el backend normaliza al principal y
@@ -633,6 +646,43 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
             ))
           ))}
       </QueryState>
+
+      {showPromos && promos && (
+        <section
+          className="flex flex-col gap-3 border-t border-border pt-4"
+          aria-labelledby="collection-promos-title"
+          data-testid="collection-promos"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 id="collection-promos-title" className="text-h3">
+              {t('collectionPromosTitle')}
+            </h3>
+            {typeof promos.total === 'number' && (
+              <span className="font-mono tabular-nums text-xs text-muted" data-testid="collection-promos-progress">
+                {typeof promos.owned === 'number'
+                  ? t('collectionPromosProgress', { owned: promos.owned, total: promos.total })
+                  : t('collectionPromosTotalOnly', { total: promos.total })}
+              </span>
+            )}
+          </div>
+          <p className="max-w-prose text-xs leading-relaxed text-muted">{t('collectionPromosLead')}</p>
+          <ul
+            className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+            aria-label={t('collectionPromosGridLabel')}
+          >
+            {promoTiles.map(({ cell, variant }) => (
+              <li key={`promo:${cell.cardId}:${variant.finish}`} className="min-w-0">
+                <BinderTile
+                  cell={cell}
+                  variant={variant}
+                  setCode={null}
+                  onOpen={() => (onOpenVariant ? onOpenVariant(cell, variant) : onOpenCell(cell))}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

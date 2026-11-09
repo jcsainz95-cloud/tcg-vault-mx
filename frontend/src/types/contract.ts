@@ -4071,6 +4071,19 @@ export interface MasterSetBinderResponse {
   // Un set normal omite ambos. Ver ARCHITECTURE §4.31b.
   parts?: SetPartDTO[];
   canonicalSetId?: string;
+  /**
+   * §AUTO/PROMOS-MASTERSET (contrato §5, aditivo): apartado «Promos de la colección», solo promos de
+   * confianza `high`. `owned/total` son su avance PROPIO («x de y»); NUNCA se suman a
+   * `completedCount/totalCount/%/valor` del Master Set. Sin sesión (tienda) llega solo `total`.
+   * Ausente o vacío ⇒ no hay apartado.
+   */
+  collectionPromos?: MasterSetCollectionPromosDTO;
+}
+
+export interface MasterSetCollectionPromosDTO {
+  items: MasterSetCardCellDTO[];
+  owned?: number;
+  total?: number;
 }
 
 // ===== v1.28 Stream B (P-19): POST /admin/inventory/publish-all =====
@@ -6179,6 +6192,12 @@ export interface CatalogSyncStatusResponse {
    * summary en ceros de relleno: un objeto lleno de `0` afirma que se contó.
    */
   summary: CatalogSyncSummary | null;
+  /** §AUTO (contrato §6, aditivo): último éxito del catálogo (ISO) o `null` si no hay registro. Ausente en backends previos. */
+  lastSuccessAt?: string | null;
+  /** §AUTO: quién disparó ese éxito: el job diario o un admin. */
+  lastTrigger?: 'job' | 'admin' | null;
+  /** §AUTO: intento del job (1..6, backoff exponencial); >1 = reintento. */
+  attempt?: number | null;
 }
 
 /**
@@ -7043,6 +7062,8 @@ export const GRADED_REVIEW_DEFAULT_REASONS: GradedEstimateReviewReason[] = [
 
 /** Mismo contenido que el preview + identidad de la carta, para leer la lista sin un fetch por fila. */
 export interface GradedEstimateReviewItemDTO extends GradedEstimatePreviewDTO {
+  /** §AUTO: `true` ⇒ en cuarentena (cota dura rota): la cifra NO se muestra al cliente; solo se informa al operador. */
+  quarantined?: boolean;
   cardId: string;
   cardName: string;
   setName: string;
@@ -7067,6 +7088,8 @@ export interface GradedEstimateReviewResponse {
   truncated: boolean;
   /** §PSA-ACABADO: cartas de 2+ acabados sin estimado porque el proveedor no separa por acabado. */
   noFinishSplit?: number;
+  /** §AUTO regla D (contrato §6): estimados fuera de cota dura retenidos (no se publican; se re-chequean solos). */
+  quarantinedCount?: number;
 }
 
 /**

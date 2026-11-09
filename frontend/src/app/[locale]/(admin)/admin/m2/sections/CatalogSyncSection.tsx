@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
+import type { AppLocale } from '@/i18n/routing';
+import { formatDateTimeMx, formatTimeMx } from '@/lib/format';
 import { RefreshCw, Layers } from 'lucide-react';
 import type {
   CatalogSyncAllResponse,
@@ -162,6 +164,40 @@ function FailureList({
  * (incluye `skipped_needs_super_admin`): una promo omitida jamás se calla. Sin `promos` (backend previo)
  * no se pinta nada, ni un cero.
  */
+/** Tope de intentos del job diario (AUTO_CATALOGO §A(b): `attempts: 6`). */
+export const CATALOG_JOB_MAX_ATTEMPTS = 6;
+
+/**
+ * §AUTO: «Última actualización automática: hoy 01:12 · reintento 2 de 6». Solo informa (no es tarea del
+ * dueño). Campos ausentes (backend previo) ⇒ nada; `lastSuccessAt: null` ⇒ «sin registro» (no «nunca»).
+ */
+export function AutoStatusLine({ status, now }: { status: CatalogSyncStatusResponse | undefined; now?: Date }) {
+  const t = useTranslations('admin.m2.catalog');
+  const locale = useLocale() as AppLocale;
+  if (!status || status.lastSuccessAt === undefined) return null;
+  if (status.lastSuccessAt === null) {
+    return <p className="text-xs text-muted" data-testid="auto-status">{t('autoStatus.none')}</p>;
+  }
+  const at = new Date(status.lastSuccessAt);
+  if (Number.isNaN(at.getTime())) return null;
+  const day = (d: Date) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(d);
+  const today = day(now ?? new Date()) === day(at);
+  const time = formatTimeMx(status.lastSuccessAt, locale);
+  const when = today ? t('autoStatus.today', { time }) : formatDateTimeMx(status.lastSuccessAt, locale);
+  const retry =
+    typeof status.attempt === 'number' && status.attempt > 1
+      ? t('autoStatus.retry', { attempt: status.attempt, max: CATALOG_JOB_MAX_ATTEMPTS })
+      : '';
+  const key = status.lastTrigger === 'admin' ? 'autoStatus.manual' : 'autoStatus.auto';
+  return (
+    <p className="text-xs text-muted" data-testid="auto-status">
+      {t(key, { when })}
+      {retry}
+    </p>
+  );
+}
+
 export function PromosSummary({ promos }: { promos: CatalogSyncPromos | undefined }) {
   const t = useTranslations('admin.m2.catalog');
   if (!promos || (promos.sets.length === 0 && promos.tcgcsv.length === 0)) return null;
@@ -825,6 +861,7 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
       )}
 
       {/* ── La tabla, y su acción de reparación por fila ── */}
+      <AutoStatusLine status={syncStatus.data} />
       <p className="text-sm text-muted">{t('section.repairLead')}</p>
       {/* pokemontcg.io caído ⇒ el servidor responde SOLO los sets locales con `degraded:true`. Una lista
           incompleta presentada como completa miente: se avisa, y «Reintentar» es solo un atajo (se

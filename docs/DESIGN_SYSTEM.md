@@ -77,3 +77,6 @@ optimizada; hosts permitidos en `lib/image-optimizer-hosts.mjs`) · `GradedCertC
 - Formularios: etiqueta siempre visible, error bajo el campo, teléfono MX `+52`, colonia sugerida por CP (no bloquea).
 - Panel: filtros en la URL; tablas con orden y paginación del servidor; folios copiables.
 - Textos: todos en `frontend/messages/{es,en}.json` (paridad vigilada); sin cadenas sueltas en componentes.
+- Apartado «Promos de la colección» (binder del Master Set; `MasterSetBinder.tsx`, `data-testid=collection-promos`): sección aparte DESPUÉS del Master Set, separada por regla `border-t`, `h3` + avance propio mono «x de y promos» (sin sesión solo «y promos») + nota «no cuentan en tu Master Set». Nunca suma al conteo, % ni valor del Master Set; reutiliza las tejas del binder. Ausente o vacío ⇒ no se pinta. No aplica en el cotizador.
+- Estado del catálogo (M2): línea `text-xs text-muted` «Última actualización automática: hoy 01:12 · reintento 2 de 6» (hora en `America/Mexico_City`); solo informa. Cuarentena PSA (M2 revisión): aviso informativo + insignia «En cuarentena» por fila; la cifra no se muestra al cliente.
+

@@ -210,6 +210,11 @@ export function GradedEstimateReviewSection() {
           <Badge tone="warning" shape="outline">
             {r.reason ? t(`reasonShort.${r.reason}`) : '—'}
           </Badge>
+          {r.quarantined === true && (
+            <Badge tone="neutral" shape="outline" data-testid="quarantined-badge">
+              {t('quarantinedBadge')}
+            </Badge>
+          )}
           {/* El motivo largo dice QUÉ ERROR suele haber detrás: es lo que convierte la fila en una
               acción («esto huele a dólares capturados como pesos») y no en una etiqueta. */}
           <span className="text-xs text-muted">{r.reason ? tReason(r.reason) : ''}</span>
@@ -392,6 +397,11 @@ export function GradedEstimateReviewSection() {
               <p className="text-xs text-muted">
                 {t('summary', { total: query.data.total, scanned: query.data.scannedCards })}
               </p>
+              {(query.data.quarantinedCount ?? 0) > 0 && (
+                <Banner variant="info" title={t('quarantinedTitle')}>
+                  {t('quarantinedBody', { count: query.data.quarantinedCount ?? 0 })}
+                </Banner>
+              )}
               {(query.data.noFinishSplit ?? 0) > 0 && (
                 <Banner variant="info" title={t('noFinishSplitTitle')}>
                   {t('noFinishSplitBody', { count: query.data.noFinishSplit ?? 0 })}
