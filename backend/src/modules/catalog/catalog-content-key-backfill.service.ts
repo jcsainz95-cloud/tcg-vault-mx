@@ -12,11 +12,17 @@ export interface ContentKeyBackfillResult {
   setsPending: number;
   cardsUpdated: number;
   linksRecomputed: boolean;
+  /** AUTO-S4: sets dados por perdidos (superaron `BACKFILL_MAX_ATTEMPTS_PER_SET` fallos); ya no se reintentan. */
+  setsAbandoned?: number;
 }
 
 /** Presupuesto por corrida (el job corre cada 15 min; reanuda donde quedo). */
 export const BACKFILL_MAX_SETS_PER_RUN = 25;
 export const BACKFILL_BUDGET_MS = 10 * 60 * 1000;
+/** AUTO-S4: fallos de un set antes de darlo por perdido (el job corre cada 15 min: sin tope reintentaria para siempre). */
+export const BACKFILL_MAX_ATTEMPTS_PER_SET = 5;
+/** AUTO-S4: paginas de 250 por set (10 000 cartas); un set que lo rebasa es dato corrupto y cuenta como fallo. */
+export const BACKFILL_MAX_PAGES_PER_SET = 40;
 
 /**
  * AUTO-B backfill - calcula `Card.contentKey` de las cartas YA importadas (los datos de contenido no se guardan: se traen de
@@ -45,14 +51,17 @@ export class CatalogContentKeyBackfillService {
       const started = now();
       const maxSets = opts.maxSets ?? BACKFILL_MAX_SETS_PER_RUN;
       const budget = opts.budgetMs ?? BACKFILL_BUDGET_MS;
-      const st = (await this.state.get<{ doneSetIds?: string[] }>(CATALOG_AUTO_KEYS.contentKeyBackfill)) ?? {};
+      const st = (await this.state.get<{ doneSetIds?: string[]; failures?: Record<string, number>; abandonedSetIds?: string[] }>(CATALOG_AUTO_KEYS.contentKeyBackfill)) ?? {};
       const done = new Set(st.doneSetIds ?? []);
+      const failures: Record<string, number> = { ...(st.failures ?? {}) };
+      const abandoned = new Set(st.abandonedSetIds ?? []);
+      const persist = () => this.state.set(CATALOG_AUTO_KEYS.contentKeyBackfill, { doneSetIds: [...done], failures, abandonedSetIds: [...abandoned] });
       const sets = await this.prisma.cardSet.findMany({
         where: { NOT: { externalId: { startsWith: 'tcgcsv:' } } },
         select: { id: true, externalId: true },
         orderBy: { externalId: 'asc' },
       });
-      const todo = sets.filter((s) => !done.has(s.id));
+      const todo = sets.filter((s) => !done.has(s.id) && !abandoned.has(s.id));
       let processed = 0;
       for (const s of todo) {
         if (processed >= maxSets || now() - started > budget) break;
@@ -62,16 +71,25 @@ export class CatalogContentKeyBackfillService {
           try {
             out.cardsUpdated += await this.backfillSet(s.id, s.externalId);
           } catch (e) {
-            this.logger.warn(`contentKey backfill: set ${s.externalId} fallo (${(e as Error).message}); se reintenta luego.`);
-            continue; // queda pendiente, sigue con el siguiente
+            failures[s.id] = (failures[s.id] ?? 0) + 1;
+            if (failures[s.id] >= BACKFILL_MAX_ATTEMPTS_PER_SET) {
+              abandoned.add(s.id);
+              this.logger.warn(`contentKey backfill: set ${s.externalId} fallo ${failures[s.id]} veces (${(e as Error).message}); se da por perdido y NO se reintenta.`);
+            } else {
+              this.logger.warn(`contentKey backfill: set ${s.externalId} fallo (${(e as Error).message}); intento ${failures[s.id]}/${BACKFILL_MAX_ATTEMPTS_PER_SET}, se reintenta luego.`);
+            }
+            await persist();
+            continue; // queda pendiente (o abandonado), sigue con el siguiente
           }
           processed += 1;
         }
         done.add(s.id);
         out.setsDone += 1;
-        await this.state.set(CATALOG_AUTO_KEYS.contentKeyBackfill, { doneSetIds: [...done] });
+        delete failures[s.id];
+        await persist();
       }
-      out.setsPending = sets.filter((s) => !done.has(s.id)).length;
+      out.setsPending = sets.filter((s) => !done.has(s.id) && !abandoned.has(s.id)).length;
+      out.setsAbandoned = abandoned.size;
       if (processed > 0 && this.links) {
         try {
           await this.links.recompute();
@@ -92,6 +110,7 @@ export class CatalogContentKeyBackfillService {
     let updated = 0;
     let page = 1;
     for (;;) {
+      if (page > BACKFILL_MAX_PAGES_PER_SET) throw new Error(`mas de ${BACKFILL_MAX_PAGES_PER_SET} paginas`);
       const res = await this.client.getCardsBySet(externalId, page);
       const data = Array.isArray(res.data) ? res.data : [];
       for (const c of data) {

@@ -95,16 +95,62 @@ export function inferPromoLinks(input: {
 }
 
 /**
- * Compuerta del apartado «Promos de la colección» (spec AUTO_CATALOGO §B/§F): el apartado Black Star NO se publica hasta que haya
- * medicion con >=30 promos y >=2 expansiones, cada una al 100 % de precision en sus `high`. Los sellos (Prerelease/Staff...) no dependen de ella.
+ * Compuerta Black Star AUTOMATICA (spec AUTO_CATALOGO §B, decidido 2026-11-09): BACKTEST CIEGO sobre verdad que no depende de un
+ * humano. Los SELLOS (CardProduct kind=stamped) ya colgados de una carta lisa conocen su expansion POR CONSTRUCCION. Se corre
+ * `inferPromoLinks` sobre ellos IGNORANDO esa relacion (solo el contenido de su carta y la ventana de su `productId`) y se compara
+ * con la expansion real. ABIERTA <=> N >= 30 sellos evaluables, >= 2 expansiones y 0 falsos `high` (precision 100 %); si no, CERRADA.
+ * Constantes de umbral en codigo (no lista). Limite honesto: mide sobre todo la hipotesis de ventana; NO prueba que las Black Star se
+ * listen con el mismo patron que los sellos.
  */
 export const BLACK_STAR_GATE_MIN_PROMOS = 30;
 export const BLACK_STAR_GATE_MIN_EXPANSIONS = 2;
-/** Medicion vigente: NO alcanzada (solo fixture parcial N=7, 1 expansion). Subirla a `true` exige que `evaluateBlackStarGate` lo confirme con fixtures reales (prueba la vigila). */
-export const BLACK_STAR_GATE_PASSED = false;
-export interface GateMeasurement { expansion: string; promos: number; high: number; highWrong: number }
-export function evaluateBlackStarGate(ms: readonly GateMeasurement[]): boolean {
-  const perfect = ms.filter((m) => m.high > 0 && m.highWrong === 0);
-  const total = ms.reduce((a, m) => a + m.promos, 0);
-  return ms.every((m) => m.highWrong === 0) && perfect.length >= BLACK_STAR_GATE_MIN_EXPANSIONS && total >= BLACK_STAR_GATE_MIN_PROMOS;
+export interface PromoGate {
+  open: boolean;
+  /** Sellos evaluables (con contenido y productId) que entraron al backtest. */
+  n: number;
+  /** De ellos, los que la inferencia dio `high` en SU expansion real. */
+  k: number;
+  /** Expansiones reales distintas entre los evaluables. */
+  expansions: number;
+  /** Falsos `high` (high en otra expansion). Cualquiera > 0 cierra la compuerta. */
+  falseHigh: number;
+}
+export interface GateStamp {
+  /** Id estable del sello (p. ej. su tcgplayerProductId). */
+  id: string;
+  /** contentKey de SU carta lisa. */
+  contentKey: string | null;
+  /** tcgplayerProductId del sello. */
+  productId: number | null;
+  /** Expansion REAL (la del set de su carta lisa). */
+  realSetId: string;
+}
+export function backtestBlackStarGate(input: {
+  stamps: readonly GateStamp[];
+  expansionCards: readonly ExpansionCardForLink[];
+  minProductIdBySet: ReadonlyMap<string, number>;
+}): PromoGate {
+  const evaluable = input.stamps.filter((st) => st.contentKey != null && st.productId != null);
+  const links = inferPromoLinks({
+    promos: evaluable.map((st) => ({ cardId: st.id, contentKey: st.contentKey, productId: st.productId })),
+    expansionCards: input.expansionCards,
+    minProductIdBySet: input.minProductIdBySet,
+  });
+  const real = new Map(evaluable.map((st) => [st.id, st.realSetId]));
+  let k = 0;
+  let falseHigh = 0;
+  for (const l of links) {
+    if (l.confidence !== 'high') continue;
+    if (real.get(l.promoCardId) === l.expansionSetId) k += 1;
+    else falseHigh += 1;
+  }
+  const n = evaluable.length;
+  const expansions = new Set(evaluable.map((st) => st.realSetId)).size;
+  return {
+    open: n >= BLACK_STAR_GATE_MIN_PROMOS && expansions >= BLACK_STAR_GATE_MIN_EXPANSIONS && falseHigh === 0,
+    n,
+    k,
+    expansions,
+    falseHigh,
+  };
 }

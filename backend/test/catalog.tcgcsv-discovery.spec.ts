@@ -22,28 +22,28 @@ describe('evaluateDiscoveryGroup', () => {
   it('nombre que no es de promos ⇒ ignora (sin leer productos)', () => {
     expect(evaluateDiscoveryGroup(base('ME06: Delta Reign')).verdict).toBe('ignore');
   });
-  it('F2 menos de 20 numerados (McDonalds 12-16) ⇒ ignora; Player Placement (0) ⇒ ignora', () => {
+  it('menos de 20 numerados (McDonalds 12-16) ⇒ ignora; Player Placement (0) ⇒ ignora', () => {
     expect(evaluateDiscoveryGroup(base("McDonald's Promos 2019", { products: prods(12) })).verdict).toBe('ignore');
     expect(evaluateDiscoveryGroup(base('Player Placement Trainer Promos', { products: prods(4, 0) })).verdict).toBe('ignore');
   });
-  it('F3 nombre en el patron Y en la exclusion (Japan, Jumbo, Deck) ⇒ cuarentena', () => {
+  it('nombre en el patron Y en la exclusion (Japan, Jumbo, Deck) ⇒ cuarentena', () => {
     expect(evaluateDiscoveryGroup(base('Japan Promos')).verdict).toBe('quarantine');
     expect(evaluateDiscoveryGroup(base('Jumbo Promos')).verdict).toBe('quarantine');
   });
-  it('F4 equivalente vivo por nombre o por contenido (>=30 %) ⇒ ignora; 10-30 % ⇒ cuarentena', () => {
+  it('F4 set vivo con el mismo nombre / contenido >=30 % ⇒ ignora (covered); F5 coincidencia 10-30 % ⇒ cuarentena', () => {
     expect(evaluateDiscoveryGroup(base('Surging Sparks Promos', { liveSets: [{ id: 'x', name: 'Surging Sparks Promos' }] })).verdict).toBe('ignore');
     expect(evaluateDiscoveryGroup(base('Alternate Art Promos', { maxContentMatch: 0.3 })).verdict).toBe('ignore');
     expect(evaluateDiscoveryGroup(base('Alternate Art Promos', { maxContentMatch: 0.2 }))).toEqual({ verdict: 'quarantine', reasons: ['content_match_gray'] });
   });
-  it('F5 las 6 promos viejas (22872 SVP) ya estan cubiertas ⇒ ignora', () => {
+  it('las 6 promos viejas (22872 SVP) ya estan cubiertas ⇒ ignora', () => {
     expect(evaluateDiscoveryGroup(base('SV: Scarlet & Violet Promo Cards', { group: { groupId: 22872, name: 'SV: Scarlet & Violet Promo Cards', publishedOn: '2023-03-31T00:00:00' } })).verdict).toBe('ignore');
   });
-  it('F6 publishedOn reciente (<7 dias) o ausente ⇒ cuarentena (caso real: Burger King Promos 2026-11-08)', () => {
+  it('publishedOn reciente (<7 dias) o ausente ⇒ cuarentena (caso real: Burger King Promos 2026-11-08)', () => {
     const recent = base('Burger King Promos', { group: { groupId: 2175, name: 'Burger King Promos', publishedOn: '2026-11-08T20:00:05Z' } });
     expect(evaluateDiscoveryGroup(recent)).toEqual({ verdict: 'quarantine', reasons: ['published_too_recent'] });
     expect(evaluateDiscoveryGroup(base('X Promos', { group: { groupId: 1, name: 'X Promos' } })).reasons).toContain('published_on_missing');
   });
-  it('F7 numerados entre 50 % y 80 % ⇒ cuarentena; <50 % ⇒ ignora', () => {
+  it('numerados entre 50 % y 80 % ⇒ cuarentena; <50 % ⇒ ignora', () => {
     expect(evaluateDiscoveryGroup(base('Z Promos', { products: prods(100, 65) })).reasons).toEqual(['numbered_ratio_gray']);
     expect(evaluateDiscoveryGroup(base('Z Promos', { products: prods(100, 30).concat(prods(0)) })).verdict).toBe('ignore');
   });
@@ -94,13 +94,13 @@ describe('TcgcsvGroupDiscoveryService.discover', () => {
   const groups = [grp(1, 'A Promos'), grp(2, 'B Promos'), grp(3, 'C Promos'), grp(4, 'Recent Promos', '2026-11-08T00:00:00'), grp(5, 'ME06: Delta Reign'), grp(24451, 'ME: Mega Evolution Promo')];
   const products = { 1: prods(30), 2: prods(30), 3: prods(30), 4: prods(30) };
 
-  it('F8 fail-closed: sin lista viva ⇒ 0 descubrimientos y ni siquiera lee TCGCSV', async () => {
+  it('F3 fail-closed: sin lista viva ⇒ 0 descubrimientos y ni siquiera lee TCGCSV', async () => {
     const { s, tcgcsv } = svc({ groups, products });
     const r = await s.discover([]);
     expect(r.eligible).toEqual([]);
     expect(tcgcsv.listGroups).not.toHaveBeenCalled();
   });
-  it('F9 tope: maximo 2 grupos NUEVOS por corrida; la semilla no se re-evalua', async () => {
+  it('F7 tope: maximo 2 grupos NUEVOS por corrida; F9 la semilla no se re-evalua', async () => {
     const { s } = svc({ groups, products });
     const r = await s.discover(LIVE, NOW);
     expect(MAX_NEW_GROUPS_PER_RUN).toBe(2);
@@ -113,7 +113,7 @@ describe('TcgcsvGroupDiscoveryService.discover', () => {
     const r = await s.discover(LIVE, NOW);
     expect(r.eligible.map((g) => g.groupId).sort()).toEqual([1, 2, 3]);
   });
-  it('F10 la cuarentena se audita UNA vez por (grupo, motivos)', async () => {
+  it('F5 la cuarentena se audita UNA vez por (grupo, motivos)', async () => {
     const a = svc({ groups, products });
     await a.s.discover(LIVE, NOW);
     expect(a.audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'catalog.tcgcsv_group_quarantined' }));

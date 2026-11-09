@@ -101,6 +101,31 @@ describe('AUTO-B: backfill de contentKey', () => {
   });
 });
 
+describe('AUTO-S4: tope de reintentos del backfill por set', () => {
+  it('un set que falla siempre se da por perdido tras 5 intentos y deja de pedirse; los demas siguen', async () => {
+    const cards = [
+      { externalId: 'a-1', setId: 'A', contentKey: null as string | null },
+      { externalId: 'b-1', setId: 'B', contentKey: null as string | null },
+    ];
+    const db = fakeDb(cards, [{ id: 'A', externalId: 'a' }, { id: 'B', externalId: 'b' }]);
+    const client: any = {
+      getCardsBySet: jest.fn(async (ext: string) => {
+        if (ext === 'a') throw new Error('HTTP 500');
+        return { data: [remote('b-1', 'Gamma')], page: 1, pageSize: 250, count: 1, totalCount: 1 };
+      }),
+    };
+    const state = new CatalogAutoStateService(db.prisma);
+    const svc = new CatalogContentKeyBackfillService(db.prisma, client, state, undefined);
+    for (let i = 0; i < 5; i++) await svc.run(); // literal: el tope documentado (AUTO-S4) son 5 intentos
+    const callsA = () => client.getCardsBySet.mock.calls.filter((c: unknown[]) => c[0] === 'a').length;
+    expect(callsA()).toBe(5);
+    const r = await svc.run();
+    expect(callsA()).toBe(5); // ya no se reintenta
+    expect(r).toMatchObject({ setsPending: 0, setsAbandoned: 1 });
+    expect(cards.find((c) => c.setId === 'B')!.contentKey).not.toBeNull();
+  });
+});
+
 describe('AUTO: alerta > 48 h sin exito del catalogo', () => {
   const H = 3_600_000;
   const mk = () => {
@@ -151,5 +176,20 @@ describe('AUTO: alerta > 48 h sin exito del catalogo', () => {
     db.owners.length = 0;
     await state.setLastSuccessAt(late.toISOString());
     expect(await svc.check(new Date(late.getTime() + 49 * H))).toBe('no_recipient');
+  });
+
+  it('AUTO-S5 con 2 duenos y fallo a mitad del bucle, el reintento NO repite el correo al primero', async () => {
+    const { mail, state, svc, db } = mk();
+    db.owners.push({ ...db.owners[0], id: 'o2', email: 'socio@example.com' });
+    await state.setLastSuccessAt(t0.toISOString());
+    const late = new Date(t0.getTime() + 49 * H);
+    mail.send.mockImplementationOnce(async () => ({})).mockRejectedValueOnce(new Error('resend down'));
+    expect(await svc.check(late)).toBe('mail_failed');
+    expect(await svc.check(late)).toBe('sent');
+    const to = (mail.send.mock.calls as unknown as { to: string }[][]).map((c) => c[0].to);
+    expect(to).toHaveLength(3); // 1.o (ok) + 2.o (falla) + 2.o (reintento): el 1.o NO se repite
+    expect(to.filter((t) => t === 'dueno@example.com')).toHaveLength(1);
+    expect(to.filter((t) => t === 'socio@example.com')).toHaveLength(2);
+    expect(await svc.check(late)).toBe('already_alerted');
   });
 });

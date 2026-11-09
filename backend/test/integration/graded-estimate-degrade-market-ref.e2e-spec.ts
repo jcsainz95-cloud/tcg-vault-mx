@@ -72,6 +72,7 @@ describe('E2E — SEC-M43-1 / M-44: un ESTIMADO no puede destruir la referencia 
         productType: 'graded',
         gradeKey: GRADE_KEY,
         priceMxnCents: ESTIMADO_CENTS,
+        finish: 'normal',
         intent: 'graded_estimate',
       },
     });

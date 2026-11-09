@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { PricingService } from '../../src/modules/pricing/pricing.service';
-import { PromoCollectionLinkService } from '../../src/modules/catalog/promo-collection-link.service';
+import { PromoCollectionLinkService, PROMO_GATE_KEY } from '../../src/modules/catalog/promo-collection-link.service';
 
 jest.setTimeout(60_000);
 const RUN = `psa${Date.now().toString(36)}`;
@@ -99,8 +99,16 @@ describe('AUTO-B - recalculo de la liga contra Postgres real', () => {
     expect(first).toMatchObject({ high: 1 });
     const second = await svc.recompute();
     expect(second).toMatchObject({ high: 1, changed: 0 });
-    const apartado = await svc.collectionPromos([setId], new Set([promo.id]), { gateOpen: true });
-    expect(apartado).toMatchObject({ total: 1, owned: 1 });
+    // Compuerta AUTOMATICA: el estado lo escribe `recompute` (backtest ciego); aqui se fija para medir las dos ramas del lector.
+    const gateBefore = await prisma.configSetting.findUnique({ where: { key: PROMO_GATE_KEY } });
+    const setGate = (open: boolean) =>
+      prisma.configSetting.upsert({ where: { key: PROMO_GATE_KEY }, create: { key: PROMO_GATE_KEY, valueJson: { open, n: 0, k: 0, expansions: 0 }, updatedBy: 'test' }, update: { valueJson: { open, n: 0, k: 0, expansions: 0 } } });
+    await setGate(false);
+    expect(await svc.publishableLinkedCardIds([setId])).toEqual([]);
+    await setGate(true);
+    expect(await svc.publishableLinkedCardIds([setId])).toEqual([promo.id]);
+    if (gateBefore) await prisma.configSetting.update({ where: { key: PROMO_GATE_KEY }, data: { valueJson: gateBefore.valueJson as never } });
+    else await prisma.configSetting.delete({ where: { key: PROMO_GATE_KEY } });
     await prisma.promoCollectionLink.deleteMany({});
     await prisma.cardProduct.deleteMany({ where: { id: { in: [pX.id, pP.id] } } });
     await prisma.card.deleteMany({ where: { id: { in: [promo.id, expansion.id] } } });

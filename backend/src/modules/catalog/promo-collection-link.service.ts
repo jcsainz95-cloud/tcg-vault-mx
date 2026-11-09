@@ -1,16 +1,38 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { BLACK_STAR_GATE_PASSED, inferPromoLinks } from './promo-collection-link';
+import { AuditService } from '../audit/audit.service';
+import { CATALOG_AUTO_KEYS, CatalogAutoStateService } from './catalog-auto-state.service';
+import { backtestBlackStarGate, inferPromoLinks } from './promo-collection-link';
 import { PTCG_PROMO_GROUPS } from './promo-set-groups';
 
 /** Candado consultivo del recalculo de la liga (un solo escritor; sin espera). Valor propio en el censo de claves. */
 export const PROMO_LINK_LOCK_KEY = 91_130_104;
+
+/** Estado de la compuerta Black Star (backtest ciego) tal como se persiste y se reporta: `promos.gate`. */
+export interface PromoGateState {
+  open: boolean;
+  n: number;
+  k: number;
+  expansions: number;
+}
+/** `ConfigSetting` con la ultima compuerta calculada (estado derivado; sin migracion). Un solo escritor: `recompute`. */
+export const PROMO_GATE_KEY = CATALOG_AUTO_KEYS.promoGate;
+
+/** Lee la compuerta persistida. Sin fila (nunca se calculo) o ilegible => CERRADA (falla cerrado). */
+export async function readPromoGate(prisma: Pick<PrismaService, 'configSetting'>): Promise<PromoGateState> {
+  const row = await prisma.configSetting.findUnique({ where: { key: PROMO_GATE_KEY } });
+  const v = row?.valueJson as Partial<PromoGateState> | null | undefined;
+  if (!v || typeof v !== 'object') return { open: false, n: 0, k: 0, expansions: 0 };
+  return { open: v.open === true, n: Number(v.n) || 0, k: Number(v.k) || 0, expansions: Number(v.expansions) || 0 };
+}
 
 export interface PromoLinksSummary {
   high: number;
   low: number;
   none: number;
   changed: number;
+  /** Compuerta Black Star recalculada en esta corrida (backtest ciego). */
+  gate?: PromoGateState;
 }
 
 /**
@@ -20,14 +42,16 @@ export interface PromoLinksSummary {
 @Injectable()
 export class PromoCollectionLinkService {
   private readonly logger = new Logger(PromoCollectionLinkService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly audit?: AuditService,
+  ) {}
 
   async recompute(): Promise<PromoLinksSummary | null> {
     const promoExternal = PTCG_PROMO_GROUPS.map((g) => g.ptcgSetId);
     const sets = await this.prisma.cardSet.findMany({ select: { id: true, externalId: true } });
     const isPromoSet = (ext: string) => promoExternal.includes(ext) || ext.startsWith('tcgcsv:');
     const promoSetIds = new Set(sets.filter((s) => isPromoSet(s.externalId)).map((s) => s.id));
-    if (promoSetIds.size === 0) return { high: 0, low: 0, none: 0, changed: 0 };
     const cards = await this.prisma.card.findMany({
       where: { OR: [{ setId: { in: [...promoSetIds] } }, { contentKey: { not: null } }] },
       select: { id: true, setId: true, contentKey: true },
@@ -56,6 +80,8 @@ export class PromoCollectionLinkService {
     const links = inferPromoLinks({ promos, expansionCards, minProductIdBySet: minBySet });
     const summary: PromoLinksSummary = { high: 0, low: 0, none: promos.length - links.length, changed: 0 };
     for (const l of links) summary[l.confidence] += 1;
+    // Compuerta Black Star AUTOMATICA: backtest ciego con los sellos (verdad por construccion), cada recalculo.
+    summary.gate = await this.refreshGate(expansionCards, minBySet, promoSetIds);
     return this.prisma.$transaction(async (tx) => {
       const got = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(${PROMO_LINK_LOCK_KEY}) AS ok`;
       if (got[0]?.ok !== true) return null;
@@ -81,26 +107,47 @@ export class PromoCollectionLinkService {
     });
   }
 
-  /** Apartado «Promos de la colección»: SOLO confianza `high`. `owned` solo si se pasan los ids que el visitante tiene. */
-  async collectionPromos(
-    expansionSetIds: string[],
-    ownedCardIds?: ReadonlySet<string>,
-    opts?: { gateOpen?: boolean },
-  ): Promise<{ items: { cardId: string; number: string; name: string; rarity?: string; imageSmallUrl?: string }[]; total: number; owned?: number } | null> {
-    if (!(opts?.gateOpen ?? BLACK_STAR_GATE_PASSED)) return null; // compuerta Black Star (spec §B): sin medicion >=30 promos y >=2 expansiones al 100 % no se publica
+  /**
+   * Backtest ciego (spec AUTO_CATALOGO §B): sellos colgados de una carta lisa de una EXPANSION (no de un set de promos) se infieren
+   * ignorando esa relacion y se comparan. Persiste el estado y deja `AuditLog catalog.promo_gate_changed` SOLO si `open` cambia.
+   */
+  private async refreshGate(
+    expansionCards: { setId: string; contentKey: string | null }[],
+    minBySet: Map<string, number>,
+    promoSetIds: Set<string>,
+  ): Promise<PromoGateState> {
+    const stamped = await this.prisma.cardProduct.findMany({
+      where: { kind: 'stamped' },
+      select: { tcgplayerProductId: true, card: { select: { setId: true, contentKey: true } } },
+    });
+    const gate = backtestBlackStarGate({
+      stamps: stamped
+        .filter((p) => !promoSetIds.has(p.card.setId))
+        .map((p) => ({ id: String(p.tcgplayerProductId), contentKey: p.card.contentKey, productId: p.tcgplayerProductId, realSetId: p.card.setId })),
+      expansionCards,
+      minProductIdBySet: minBySet,
+    });
+    const next: PromoGateState = { open: gate.open, n: gate.n, k: gate.k, expansions: gate.expansions };
+    const before = await readPromoGate(this.prisma);
+    await new CatalogAutoStateService(this.prisma).set(PROMO_GATE_KEY, next);
+    if (before.open !== next.open) {
+      await this.audit
+        ?.log({ action: 'catalog.promo_gate_changed', entityType: 'ConfigSetting', entityId: PROMO_GATE_KEY, before: { open: before.open }, after: next })
+        .catch((e: Error) => this.logger.warn(`promo gate: no se pudo auditar el cambio (${e.message}).`));
+    }
+    return next;
+  }
+
+  /**
+   * Ids de las Black Star/ETB ligadas (confianza `high`) a estas expansiones, SOLO con la compuerta ABIERTA. Los sellos no pasan por
+   * aqui (se muestran siempre). Compuerta cerrada => [].
+   */
+  async publishableLinkedCardIds(expansionSetIds: string[]): Promise<string[]> {
+    if (!(await readPromoGate(this.prisma)).open) return [];
     const rows = await this.prisma.promoCollectionLink.findMany({
       where: { expansionSetId: { in: expansionSetIds }, confidence: 'high' },
-      select: { promoCard: { select: { id: true, number: true, name: true, rarity: true, imageSmallUrl: true, numberSort: true } } },
+      select: { promoCardId: true },
     });
-    if (rows.length === 0) return null; // sin promos ligadas => sin apartado
-    const items = rows
-      .map((r) => r.promoCard)
-      .sort((a, b) => a.numberSort - b.numberSort || a.number.localeCompare(b.number))
-      .map((c) => ({ cardId: c.id, number: c.number, name: c.name, ...(c.rarity ? { rarity: c.rarity } : {}), ...(c.imageSmallUrl ? { imageSmallUrl: c.imageSmallUrl } : {}) }));
-    return {
-      items,
-      total: items.length,
-      ...(ownedCardIds ? { owned: items.filter((i) => ownedCardIds.has(i.cardId)).length } : {}),
-    };
+    return rows.map((r) => r.promoCardId);
   }
 }

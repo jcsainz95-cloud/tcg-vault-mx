@@ -1,4 +1,4 @@
-import { orderFinishes } from '../../common/card-order';
+import { primaryFinishOf } from '../../common/card-order';
 import { runSerializable } from '../../common/serializable-retry';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Card, CardProduct, CardProductKind, Finish, GradingCompany, PriceReference, PriceRefKind, PriceSource, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
@@ -229,20 +229,23 @@ export const GRADED_ESTIMATE_READ_WHERE: Prisma.PriceReferenceWhereInput = {
   OR: [{ refKind: 'market' }, { estimateFinishScoped: true }, { isManualOverride: true }],
 };
 
-/** Acabado principal de la carta = el primero de `availableFinishes` en orden canonico (`normal` si no hay datos). */
-export function primaryFinishOf(availableFinishes: readonly Finish[] | null | undefined): Finish {
-  const ordered = orderFinishes(availableFinishes ?? []);
-  return ordered[0] ?? 'normal';
-}
+/** Acabado principal de la carta (`normal › holofoil › first_edition_holofoil › reverse_holo`): helper compartido. */
+export { primaryFinishOf };
 
+/**
+ * Predicado fino de lectura. La manual HEREDADA (`finish='normal'` es relleno de la migracion, no un acabado real) se lee
+ * en el acabado PRINCIPAL de su carta SIN comparar `row.finish`: con `requestedFinish` dado, solo si coincide con el
+ * principal; sin el (lectura por lote), siempre legible y el llamador la reasigna al principal.
+ */
 export function isGradedEstimateReadable(
-  row: { refKind: PriceRefKind | string; estimateFinishScoped: boolean; isManualOverride: boolean; source?: string; finish: Finish },
+  row: { refKind: PriceRefKind | string; estimateFinishScoped: boolean; isManualOverride: boolean; source?: string },
   primaryFinish: Finish,
+  requestedFinish?: Finish,
 ): boolean {
   if (row.refKind === 'market') return true;
   if (row.estimateFinishScoped === true) return true;
   const manual = row.isManualOverride === true || row.source === 'manual';
-  return manual && row.finish === primaryFinish;
+  return manual && (requestedFinish === undefined || requestedFinish === primaryFinish);
 }
 
 /** Entrada de `applyManualOverride` (objeto, no 8 posicionales: el 9.º parámetro ya no cabía). */
@@ -1482,13 +1485,16 @@ export class PricingService {
    * `MasterSetCardCellDTO.separateProducts` (CardProductDTO). Un acabado sin precio ⇒
    * `marketReferenceMxnCents: null` («—», nunca 0). Cartas sin productos separados NO aparecen en el Map.
    */
-  async getSeparateProductsByCard(cardIds: string[]): Promise<Map<string, CardProductInfo[]>> {
+  async getSeparateProductsByCard(
+    cardIds: string[],
+    kinds: readonly CardProductKind[] = ['deck_exclusive', 'promo'],
+  ): Promise<Map<string, CardProductInfo[]>> {
     const out = new Map<string, CardProductInfo[]>();
     const ids = [...new Set(cardIds)];
     if (ids.length === 0) return out;
 
     const products = await this.prisma.cardProduct.findMany({
-      where: { cardId: { in: ids }, kind: { in: ['deck_exclusive', 'promo'] } },
+      where: { cardId: { in: ids }, kind: { in: [...kinds] } },
       select: { id: true, cardId: true, tcgplayerProductId: true, kind: true, name: true, finishes: true },
       orderBy: { tcgplayerProductId: 'asc' },
     });
@@ -2116,22 +2122,30 @@ export class PricingService {
       select: PRICE_REF_SELECT,
     });
     if (rows.length === 0) return map;
-    // PSA-ACABADO: acabado principal por carta SOLO si hay manuales heredadas que decidir (cero queries si no).
-    const needsPrimary = rows.some((r) => r.refKind !== 'market' && !r.estimateFinishScoped);
+    // PSA-ACABADO: acabado principal + acabados reales por carta SOLO si hay manuales heredadas que decidir (cero queries si no).
+    const isLegacy = (r: (typeof rows)[number]) => r.refKind !== 'market' && !r.estimateFinishScoped;
     const primaryByCard = new Map<string, Finish>();
-    if (needsPrimary) {
+    const multiFinishCards = new Set<string>();
+    if (rows.some(isLegacy)) {
       const cards = await this.prisma.card.findMany({
         where: { id: { in: [...new Set(rows.map((r) => r.cardId))] } },
         select: { id: true, availableFinishes: true },
       });
-      for (const c of cards) primaryByCard.set(c.id, primaryFinishOf(c.availableFinishes));
+      for (const c of cards) {
+        primaryByCard.set(c.id, primaryFinishOf(c.availableFinishes));
+        if (new Set(c.availableFinishes ?? []).size >= 2) multiFinishCards.add(c.id);
+      }
     }
-    const legacyIds = new Set<(typeof rows)[number]>();
-    for (const r of rows) {
-      if (r.refKind !== 'market' && !r.estimateFinishScoped) legacyIds.add(r);
-    }
-    const readable = rows.filter((r) =>
-      isGradedEstimateReadable(r, primaryByCard.get(r.cardId) ?? 'normal'),
+    // Manual heredada legible: se REASIGNA al acabado principal de SU carta (no se compara `row.finish`, que es relleno).
+    const effFinish = (r: (typeof rows)[number]): Finish =>
+      isLegacy(r) ? (primaryByCard.get(r.cardId) ?? 'normal') : r.finish;
+    const readableAll = rows.filter((r) => isGradedEstimateReadable(r, primaryByCard.get(r.cardId) ?? 'normal'));
+    // Una fila POR ACABADO (scoped) del mismo (carta, grado, acabado) gana siempre sobre la heredada.
+    const scopedKeys = new Set(
+      readableAll.filter((r) => !isLegacy(r)).map((r) => `${r.cardId}|${r.gradeKey}|${r.finish}`),
+    );
+    const readable = readableAll.filter(
+      (r) => !isLegacy(r) || !scopedKeys.has(`${r.cardId}|${r.gradeKey}|${effFinish(r)}`),
     );
     if (readable.length === 0) return map;
     // FX izada UNA vez por request (no por fila), igual que en `getReferencesBatch`.
@@ -2145,7 +2159,7 @@ export class PricingService {
       // método): las dos señales son SEPARADAS —una fila puede venir marcada manual con un `source`
       // distinto de `manual`—, así que la regla vive en un solo sitio.
       const isManual = r.isManualOverride === true || r.source === 'manual';
-      const k = `${r.cardId}|${r.gradeKey}|${r.finish}`;
+      const k = `${r.cardId}|${r.gradeKey}|${effFinish(r)}`;
       // ⚠️ v1.50.3 (§4.38m) — PASO 1: se descarta lo RANCIO **antes** de comparar. `isStaleByOrigin` es
       // el MISMO predicado que aplican las puras (`usable()`/`isStaleRef`), así que no hay dos verdades
       // sobre qué es fresco; lo único que cambia es CUÁNDO se aplica.
@@ -2189,8 +2203,9 @@ export class PricingService {
         // de admin; ninguna rama de composición del storefront la lee (la indistinguibilidad de fases
         // de (g) sigue intacta) y ninguna decisión de esta ruta depende de ella.
         refKind: r.refKind,
-        finish: r.finish,
-        legacyManual: legacyIds.has(r),
+        finish: effFinish(r),
+        // Manual heredada en una carta de 2+ acabados: aun no confirmada por acabado (1 solo acabado real ⇒ sin etiqueta).
+        legacyManual: isLegacy(r) && multiFinishCards.has(r.cardId),
       };
       if (list) list.push(ref);
       else map.set(r.cardId, [ref]);

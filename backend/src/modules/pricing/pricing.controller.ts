@@ -461,10 +461,22 @@ export class PricingController {
     }
     const card = await this.prisma.card.findUnique({
       where: { id: dto.cardId },
-      select: { id: true },
+      select: { id: true, availableFinishes: true },
     });
     if (!card) {
       throw BusinessException.notFound('NOT_FOUND', `La carta ${dto.cardId} no existe.`);
+    }
+    // PSA-ACABADO: el `finish` de un estimado debe ser un acabado REAL de la carta (sin datos de acabados ⇒ solo `normal`).
+    // Una fila para un acabado que la carta no tiene seria dinero que ninguna lectura vera.
+    if (dto.productType === 'graded' && dto.intent === 'graded_estimate' && dto.finish !== undefined) {
+      const real = card.availableFinishes?.length ? card.availableFinishes : (['normal'] as Finish[]);
+      if (!real.includes(dto.finish)) {
+        throw BusinessException.badRequest(
+          'VALIDATION_ERROR',
+          `La carta no tiene el acabado "${dto.finish}". Acabados reales: ${real.join(', ')}.`,
+          { field: 'finish', allowed: [...real] },
+        );
+      }
     }
     // ===== v1.50.2 (INV-D, §4.38l.1) — guarda de ESCRITURA, ANTES de tocar la tabla de dinero =====
     //

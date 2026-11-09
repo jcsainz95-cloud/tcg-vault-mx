@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { BLACK_STAR_GATE_PASSED, buildWindows, contentKeyOf, evaluateBlackStarGate, inferPromoLinks } from '../src/modules/catalog/promo-collection-link';
+import { backtestBlackStarGate, buildWindows, contentKeyOf, GateStamp, inferPromoLinks } from '../src/modules/catalog/promo-collection-link';
 
 /** AUTO-B (docs/specs/AUTO_CATALOGO.md §B): B1-B5, B8 y el criterio medible contra la lista humana (si existe el fixture). */
 const mins = (o: Record<string, number>) => new Map(Object.entries(o));
@@ -47,14 +47,7 @@ describe('inferPromoLinks', () => {
     const r = inferPromoLinks({ promos: [promo('p1', null, null)], expansionCards: [], minProductIdBySet: windows });
     expect(r).toEqual([]);
   });
-  it('compuerta Black Star: >=30 promos y >=2 expansiones al 100 %; hoy cerrada', () => {
-    const m = (expansion: string, promos: number, highWrong = 0) => ({ expansion, promos, high: 5, highWrong });
-    expect(evaluateBlackStarGate([m('pe', 7)])).toBe(false);
-    expect(evaluateBlackStarGate([m('pe', 40)])).toBe(false);
-    expect(evaluateBlackStarGate([m('pe', 20), m('ssp', 15, 1)])).toBe(false);
-    expect(evaluateBlackStarGate([m('pe', 20), m('ssp', 15)])).toBe(true);
-    expect(BLACK_STAR_GATE_PASSED).toBe(false);
-  });
+  // Compuerta Black Star AUTOMATICA (spec AUTO_CATALOGO §B): backtest ciego contra sellos (ver `describe` al final).
   it('B2 coincidencia en 2 expansiones y la ventana desempata ⇒ high', () => {
     const r = inferPromoLinks({
       promos: [promo('p1', 'K1', 1500)],
@@ -114,5 +107,55 @@ const FIX = path.join(__dirname, 'fixtures', 'promo-links', 'prismatic-evolution
     // Regla v2 (contenido Y ventana): svp-172 Sylveon (contenido sv6pt5, productId en ventana PE) pasa a low; 0 falsas `high`.
     expect(wrong).toEqual([]);
     expect(out.find((l) => l.promoCardId === 'svp-172')?.confidence).toBe('low');
+  });
+});
+
+/** Compuerta Black Star automatica: sellos colgados de una carta lisa conocen su expansion; se infiere IGNORANDO esa relacion. */
+describe('compuerta Black Star - backtest ciego', () => {
+  const W = mins({ pe: 1000, ssp: 2000, tef: 3000 });
+  const REAL = ['pe', 'ssp', 'tef'] as const;
+  /** n sellos repartidos en `sets` expansiones; cada uno con su carta lisa de contenido unico y productId dentro de SU ventana. */
+  const mk = (n: number, sets: readonly string[] = REAL, productFor?: (i: number, set: string) => number) => {
+    const stamps: GateStamp[] = [];
+    const expansionCards: { setId: string; contentKey: string | null }[] = [];
+    for (let i = 0; i < n; i++) {
+      const set = sets[i % sets.length];
+      const ck = `K${i}`;
+      expansionCards.push({ setId: set, contentKey: ck });
+      stamps.push({ id: `s${i}`, contentKey: ck, productId: productFor ? productFor(i, set) : (W.get(set) as number) + 10 + i, realSetId: set });
+    }
+    return { stamps, expansionCards, minProductIdBySet: W };
+  };
+  it('N>=30, >=2 expansiones y 0 falsos high => ABIERTA (y reporta n/k/expansiones)', () => {
+    const g = backtestBlackStarGate(mk(30));
+    expect(g).toMatchObject({ open: true, n: 30, k: 30, expansions: 3, falseHigh: 0 });
+  });
+  it('N=29 => CERRADA (umbral de evaluables)', () => {
+    expect(backtestBlackStarGate(mk(29))).toMatchObject({ open: false, n: 29 });
+  });
+  it('una sola expansion => CERRADA aunque N sea grande', () => {
+    expect(backtestBlackStarGate(mk(40, ['pe']))).toMatchObject({ open: false, n: 40, expansions: 1 });
+  });
+  it('UN falso high (productId en la ventana de OTRA expansion que tambien tiene el contenido) => CERRADA', () => {
+    const base = mk(40);
+    // el sello s0 (real pe) tambien existe en ssp por contenido y su productId cae en la ventana de ssp => high en ssp (falso).
+    base.expansionCards.push({ setId: 'ssp', contentKey: 'K0' });
+    base.expansionCards = base.expansionCards.filter((c) => !(c.setId === 'pe' && c.contentKey === 'K0'));
+    const g = backtestBlackStarGate({ ...base, stamps: base.stamps.map((st) => (st.id === 's0' ? { ...st, productId: 2500 } : st)) });
+    expect(g.falseHigh).toBeGreaterThan(0);
+    expect(g.open).toBe(false);
+  });
+  it('sellos sin contenido o sin productId no son evaluables (no cuentan en N)', () => {
+    const base = mk(30);
+    const stamps = [...base.stamps, { id: 'x1', contentKey: null, productId: 1010, realSetId: 'pe' }, { id: 'x2', contentKey: 'K1', productId: null, realSetId: 'pe' }];
+    expect(backtestBlackStarGate({ ...base, stamps }).n).toBe(30);
+  });
+  it('sin sellos => CERRADA (sin intervencion)', () => {
+    expect(backtestBlackStarGate({ stamps: [], expansionCards: [], minProductIdBySet: W })).toMatchObject({ open: false, n: 0, k: 0, expansions: 0 });
+  });
+  it('el contenido por si solo no abre: ventana fuera de la expansion real => low, no suma a k', () => {
+    const g = backtestBlackStarGate(mk(40, REAL, () => 999_999));
+    expect(g.k).toBeLessThan(g.n);
+    expect(g.falseHigh).toBe(0); // low no es un falso high: la compuerta mide precision de `high`, no cobertura
   });
 });

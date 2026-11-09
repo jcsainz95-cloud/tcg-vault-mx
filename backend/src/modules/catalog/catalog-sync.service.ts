@@ -24,7 +24,7 @@ import { importableGroupForPtcgSet, TCGCSV_IMPORTABLE_GROUPS } from './tcgcsv-im
 import { PTCG_PROMO_GROUPS } from './promo-set-groups';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 import { TcgcsvGroupDiscoveryService } from './tcgcsv-group-discovery.service';
-import { PromoCollectionLinkService, PromoLinksSummary } from './promo-collection-link.service';
+import { PromoCollectionLinkService, PromoGateState, PromoLinksSummary } from './promo-collection-link.service';
 import { CatalogAutoStateService } from './catalog-auto-state.service';
 import { contentKeyOf } from './promo-collection-link';
 import type { Role } from '@prisma/client';
@@ -57,8 +57,22 @@ export interface PromosSummary {
   discovery: { scanned: number; eligible: number; quarantined: number; ignored: number };
   /** AUTO-B: recuento de la liga promo -> coleccion recalculada al final del barrido. */
   links?: PromoLinksSummary;
+  /** AUTO-B: compuerta Black Star (backtest ciego contra sellos) tras este barrido: `open` solo con N>=30, >=2 expansiones y 0 falsos high. */
+  gate?: PromoGateState;
 }
 
+
+/** Promos viejas / grupos TCGCSV del barrido que terminaron en `error` (`quarantined`/`covered`/`skipped_*` NO son errores). */
+export function syncAllPromoErrors(summary: SyncAllSummary): number {
+  return summary.promos.sets.filter((x) => x.status === 'error').length + summary.promos.tcgcsv.filter((x) => x.status === 'error').length;
+}
+/**
+ * UN solo criterio de «el barrido salio mal» (AUTO-S1): `lastSuccessAt` y `awaitSyncAll` (reintento del job) lo comparten, asi que la
+ * alerta de >48 h salta aunque TCGCSV falle SIEMPRE mientras `setsFailed` sea 0.
+ */
+export function syncAllErrorCount(summary: SyncAllSummary): number {
+  return summary.setsFailed + syncAllPromoErrors(summary);
+}
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -1052,7 +1066,8 @@ export class CatalogSyncService implements OnModuleInit {
     const run = this.runSyncAll(batch, force, { actor, jobId, liveSets: remote }).finally(() => {
       this.syncAllStatus.running = false;
       this.syncAllStatus.finishedAt = new Date().toISOString();
-      if ((this.syncAllStatus.summary?.setsFailed ?? 1) === 0) {
+      // MISMO criterio de exito que `awaitSyncAll` (AUTO-S1): sin sets fallidos Y sin promos/grupos en `error`.
+      if (this.syncAllStatus.summary && syncAllErrorCount(this.syncAllStatus.summary) === 0) {
         this.syncAllStatus.lastSuccessAt = this.syncAllStatus.finishedAt;
         const at = this.syncAllStatus.finishedAt;
         return this.autoState?.setLastSuccessAt(at).catch((e: Error) => this.logger.warn(`sync-all: no se pudo persistir lastSuccessAt (${e.message}).`));
@@ -1120,7 +1135,10 @@ export class CatalogSyncService implements OnModuleInit {
     // AUTO-B: la liga se recalcula SIEMPRE al final (determinista); un fallo aqui no tumba el barrido.
     try {
       const links = await this.promoLinks?.recompute();
-      if (links) summary.promos.links = links;
+      if (links) {
+        summary.promos.links = links;
+        if (links.gate) summary.promos.gate = links.gate;
+      }
     } catch (e) {
       this.logger.warn(`sync-all: no se pudo recalcular la liga promo->coleccion (${(e as Error).message}).`);
     }
@@ -1213,9 +1231,8 @@ export class CatalogSyncService implements OnModuleInit {
     }
     const summary = this.syncAllStatus.summary;
     if (!summary) throw new Error('sync-all sin resumen');
-    const promoErrors = summary.promos.sets.filter((x) => x.status === 'error').length + summary.promos.tcgcsv.filter((x) => x.status === 'error').length;
-    if (summary.setsFailed > 0 || promoErrors > 0) {
-      throw new Error(`sync-all termino con errores (sets fallidos=${summary.setsFailed}, promos/grupos en error=${promoErrors})`);
+    if (syncAllErrorCount(summary) > 0) {
+      throw new Error(`sync-all termino con errores (sets fallidos=${summary.setsFailed}, promos/grupos en error=${syncAllPromoErrors(summary)})`);
     }
     return summary;
   }

@@ -115,6 +115,22 @@ describe('PMS — TCGCSV y permisos (B5-B9, AUTO A3/A5)', () => {
   });
 });
 
+describe('AUTO-S1 — `lastSuccessAt` usa el MISMO criterio de exito que awaitSyncAll', () => {
+  it('un grupo TCGCSV que falla SIEMPRE (setsFailed=0) NO marca exito: la alerta de 48 h puede saltar', async () => {
+    const boom = jest.fn(async () => { throw BusinessException.retriable(ErrorCode.TCGCSV_IMPORT_FAILED, 'x'); });
+    const { svc } = build({ remote: REMOTE(), importGroup: boom });
+    const { summary } = await run(svc, SYSTEM);
+    expect(summary.setsFailed).toBe(0);
+    expect(summary.promos.tcgcsv.some((g) => g.status === 'error')).toBe(true);
+    expect(svc.getSyncStatus().lastSuccessAt).toBeNull();
+  });
+  it('barrido limpio SI marca exito', async () => {
+    const { svc } = build({ remote: REMOTE() });
+    await run(svc, SYSTEM);
+    expect(svc.getSyncStatus().lastSuccessAt).not.toBeNull();
+  });
+});
+
 describe('AUTO-A — el job aguarda el barrido y lanza si termino mal; 6 intentos', () => {
   it('A1 job: fallo de pokemontcg.io ⇒ lanza (BullMQ reintenta); luego responde ⇒ termina OK', async () => {
     let calls = 0;

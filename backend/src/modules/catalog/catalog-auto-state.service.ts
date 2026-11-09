@@ -8,6 +8,8 @@ export const CATALOG_AUTO_KEYS = {
   staleAlert: 'catalog.auto.staleAlert',
   contentKeyBackfill: 'catalog.auto.contentKeyBackfill',
   tcgcsvFirstSeen: 'catalog.auto.tcgcsvFirstSeen',
+  /** Compuerta Black Star (backtest ciego): `{open,n,k,expansions}`. Escribe SOLO `PromoCollectionLinkService.recompute`. */
+  promoGate: 'catalog.auto.promoGate',
 } as const;
 
 /** Lectura/escritura minima del estado AUTO en `ConfigSetting` (tabla existente: sin migracion). */

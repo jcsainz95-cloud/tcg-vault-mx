@@ -51,6 +51,7 @@ import {
   revertM93,
   revertM94,
   revertM95,
+  revertPromoLink,
   cloneSchema,
   FROZEN_B_SHA256,
   readFrozenB,
@@ -1228,6 +1229,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     // en su G-8. Ambos gemelos se revierten a esa era (M-75/M-76 fuera) para comparar como iguales.
     const a = await fresh({ m73: false, m74: false, m75: false });
     // v1.114.5⟨portada⟩: M-94 y luego M-93 (orden inverso de despliegue) — el B congelado no conoce sus seis tablas.
+    revertPromoLink(a.schema); // AUTO-B: el B congelado no conoce `PromoCollectionLink` (G-8 abortaría).
     revertM95(a.schema); // v1.116⟨ids⟩: el B congelado no conoce `StampedProductCandidate` (G-8 abortaría).
     revertM94(a.schema);
     revertM93(a.schema);
@@ -1245,6 +1247,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     n += 1;
     const twin = `${RUN}_${n}`;
     migrateSchema(twin);
+    revertPromoLink(twin); // AUTO-B (ídem).
     revertM95(twin); // v1.116⟨ids⟩: antes que M-94 (orden inverso de despliegue).
     revertM94(twin); // v1.114.5⟨portada⟩: primero M-94, luego M-93 (orden inverso de despliegue).
     revertM93(twin);

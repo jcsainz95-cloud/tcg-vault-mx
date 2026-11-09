@@ -621,15 +621,38 @@ describe('PSA-ACABADO — predicado de lectura (B5/B6)', () => {
     expect((await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')).toBeUndefined();
   });
 
-  it('B6 — manual heredada vale SOLO para el acabado principal (y se marca `legacyManual`)', async () => {
-    const cardFinishes = [{ id: 'c1', availableFinishes: ['reverse_holo', 'holofoil'] }]; // principal = reverse_holo
+  // La migracion PSA-ACABADO dejo `finish='normal'` en TODA manual previa (relleno, no un acabado real): se reasigna al
+  // acabado PRINCIPAL de su carta (`normal › holofoil › first_edition_holofoil › reverse_holo`), sin comparar `row.finish`.
+  it('B6a — carta SOLO-holo con manual heredada (fila finish=normal): se lee en `holofoil`, SIN `legacyManual`', async () => {
+    const { pricing } = wire([legacy({ finish: 'normal' })], {}, { cardFinishes: [{ id: 'c1', availableFinishes: ['holofoil'] }] });
+    const got = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
+    expect(got.map((e) => [e.finish, e.legacyManual])).toEqual([['holofoil', false]]);
+  });
+
+  it('B6b — holo + reverse: la heredada va a `holofoil` (no a reverse_holo, aunque FINISH_ORDER lo ponga antes) con `legacyManual`', async () => {
     const { pricing } = wire(
-      [legacy({ finish: 'reverse_holo' }), legacy({ finish: 'holofoil', priceMxnCents: 100_000 })],
+      [legacy({ finish: 'normal' })],
       {},
-      { cardFinishes },
+      { cardFinishes: [{ id: 'c1', availableFinishes: ['reverse_holo', 'holofoil'] }] },
     );
     const got = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
-    expect(got.map((e) => [e.finish, e.legacyManual])).toEqual([['reverse_holo', true]]);
+    expect(got.map((e) => [e.finish, e.legacyManual])).toEqual([['holofoil', true]]);
+  });
+
+  it('B6c — una manual POR ACABADO (scoped) del mismo acabado gana a la heredada', async () => {
+    const { pricing } = wire(
+      [legacy({ finish: 'normal', priceMxnCents: 100_000 }), refRow({ finish: 'holofoil', priceMxnCents: 700_000, isManualOverride: true, estimateFinishScoped: true })],
+      {},
+      { cardFinishes: [{ id: 'c1', availableFinishes: ['reverse_holo', 'holofoil'] }] },
+    );
+    const got = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
+    expect(got.map((e) => [e.finish, e.mxnCents, e.legacyManual])).toEqual([['holofoil', 700_000, false]]);
+  });
+
+  it('B6d — sin datos de acabados ⇒ principal `normal`', async () => {
+    const { pricing } = wire([legacy({ finish: 'normal' })], {}, { cardFinishes: [{ id: 'c1', availableFinishes: [] }] });
+    const got = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
+    expect(got.map((e) => e.finish)).toEqual(['normal']);
   });
 
   it('un acabado NUNCA lee la cifra de otro: filas scoped de dos acabados salen separadas', async () => {

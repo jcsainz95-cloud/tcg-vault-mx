@@ -1622,7 +1622,16 @@ export class CatalogService {
               // AUTO-D: las AUTOMATICAS fuera de cota dura (contra el raw de ESTE acabado) quedan en cuarentena.
               estimates: (() => {
                 const ofFinish = cardEstimates.filter((e) => e.finish === fin);
-                const rawG = built.find((g) => g.dto.productType === 'raw' && g.dto.finish === fin) ?? { listPriceCents: null };
+                // Cota contra el raw NM, INGLES, del MISMO acabado, sin sello ni liga (PSA_ACABADO): nunca el grupo mas barato si es
+                // espanol, de liga o de otro acabado. Sin ese grupo ⇒ sin raw ⇒ no se evalua la cota ×raw.
+                const rawG =
+                  built.find(
+                    (g) =>
+                      g.dto.productType === 'raw' &&
+                      g.dto.finish === fin &&
+                      g.dto.rawCondition === 'NM' &&
+                      isDefaultVersion(g.dto.version),
+                  ) ?? { listPriceCents: null };
                 const q = quarantinedGrades({
                   estimates: ofFinish,
                   rawSalePriceCents: rawG.listPriceCents,

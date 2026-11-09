@@ -38,8 +38,10 @@ export class CatalogStaleAlertService {
     }
     const refMs = Date.parse(ref);
     if (!Number.isFinite(refMs) || now.getTime() - refMs <= CATALOG_STALE_AFTER_MS) return 'fresh';
-    const sent = await this.state.get<{ since?: string }>(CATALOG_AUTO_KEYS.staleAlert);
-    if (sent?.since === ref) return 'already_alerted';
+    // `sentAt` = el incidente ya se aviso a TODOS; sin el, `sentTo` lleva los que ya recibieron (AUTO-S5: el reintento no repite).
+    const sent = await this.state.get<{ since?: string; sentAt?: string; sentTo?: string[] }>(CATALOG_AUTO_KEYS.staleAlert);
+    if (sent?.since === ref && sent.sentAt) return 'already_alerted';
+    const alreadySent = new Set(sent?.since === ref ? (sent.sentTo ?? []) : []);
     const owners = await ownerRecipients(this.prisma);
     if (owners.length === 0) {
       this.logger.warn('catalog stale: > 48 h sin exito y no hay dueno con correo; se reintenta.');
@@ -57,13 +59,19 @@ export class CatalogStaleAlertService {
       blocks: [headingRow(subject, 22), spacerRow(24), ...text.split('\n').flatMap((t) => [proseRow(t), spacerRow(16)])],
       footerWhy: 'Recibes este aviso porque eres el dueno de la tienda.',
     });
-    try {
-      for (const o of owners) await this.mail.send({ to: o.email, subject, html, text });
-    } catch (e) {
-      this.logger.warn(`catalog stale: no se pudo enviar el correo (${(e as Error).message}); se reintenta.`);
-      return 'mail_failed';
+    for (const o of owners) {
+      if (alreadySent.has(o.email)) continue;
+      try {
+        await this.mail.send({ to: o.email, subject, html, text });
+      } catch (e) {
+        this.logger.warn(`catalog stale: no se pudo enviar el correo (${(e as Error).message}); se reintenta solo a los pendientes.`);
+        await this.state.set(CATALOG_AUTO_KEYS.staleAlert, { since: ref, sentTo: [...alreadySent] });
+        return 'mail_failed';
+      }
+      alreadySent.add(o.email);
+      await this.state.set(CATALOG_AUTO_KEYS.staleAlert, { since: ref, sentTo: [...alreadySent] });
     }
-    await this.state.set(CATALOG_AUTO_KEYS.staleAlert, { since: ref, sentAt: now.toISOString() });
+    await this.state.set(CATALOG_AUTO_KEYS.staleAlert, { since: ref, sentTo: [...alreadySent], sentAt: now.toISOString() });
     await this.audit?.log({ action: 'catalog.stale_alert', entityType: 'CardSet', after: { since: ref, hours } }).catch(() => undefined);
     return 'sent';
   }
