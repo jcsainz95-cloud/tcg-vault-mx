@@ -129,6 +129,7 @@ function psaRef(cardId: string, gradeValue: '10' | '9', mxnCents: number, captur
     // superficies PÚBLICAS, y la ruta del gancho es INCLUSIVA (lee las dos naturalezas), así que
     // ninguna aserción de aquí cambia — pero el fixture deja de mentir sobre lo que la fila ES.
     refKind: 'graded_estimate',
+    estimateFinishScoped: true,
     ...over,
   };
 }
@@ -221,7 +222,7 @@ describe('Ficha vs teja — la partición INFORMAR ≠ PROMOVER (§4.38-0)', () 
       gradingCompany: 'PSA',
       gradeValue: '10',
       gradeKey: 'graded:PSA:10',
-      estimate: { status: 'priced', referenceMxnCents: 900_000, capturedDate: isoDay(RECENT) },
+      finish: 'normal', estimate: { status: 'priced', referenceMxnCents: 900_000, capturedDate: isoDay(RECENT) },
     });
     // ⚠️ v1.50.2 — `gradingHighlight` YA NO vive en los `listings[]` de la FICHA: se MOVIÓ al
     // `GroupedListingSummaryDTO` de la REJILLA (§4.38e). La ficha INFORMA con `gradedEstimates` (más

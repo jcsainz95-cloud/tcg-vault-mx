@@ -41,8 +41,10 @@ function wirePricing(existing: Record<string, unknown> | null = null) {
         updated.push(data);
         return { id: 'pr-1', ...data };
       }),
+      deleteMany: jest.fn(async () => ({ count: 0 })),
     },
-  } as unknown as PrismaService;
+  } as any;
+  prisma.$transaction = async (fn: (tx: unknown) => unknown) => fn(prisma);
   const pricing = new PricingService(
     prisma,
     {} as unknown as SettingsService,
@@ -60,6 +62,7 @@ describe('INV-FX (§4.38a) — el ingest escribe USD + fxRate, JAMÁS el numeral
     const wrote = await pricing.persistGradedEstimateReference(
       'c1',
       '10',
+      'normal',
       { amountCents: 6_000, currency: 'USD', source: 'pokemonpricetracker' },
       FX,
     );
@@ -68,7 +71,7 @@ describe('INV-FX (§4.38a) — el ingest escribe USD + fxRate, JAMÁS el numeral
       cardId: 'c1',
       productType: 'graded',
       gradeKey: 'graded:PSA:10',
-      finish: 'normal', // §4.38a: el grado NO se cruza con el acabado, SIEMPRE `normal`
+      finish: 'normal', // el acabado lo decide el ingest (PSA-ACABADO)
       source: 'pokemonpricetracker',
       priceUsdCents: 6_000,
       fxRate: 19,
@@ -85,6 +88,7 @@ describe('INV-FX (§4.38a) — el ingest escribe USD + fxRate, JAMÁS el numeral
     await pricing.persistGradedEstimateReference(
       'c1',
       '10',
+      'normal',
       { amountCents: 6_000, currency: 'USD', source: 'pokemonpricetracker' },
       FX,
     );
@@ -97,6 +101,7 @@ describe('INV-FX (§4.38a) — el ingest escribe USD + fxRate, JAMÁS el numeral
     await pricing.persistGradedEstimateReference(
       'c1',
       '9',
+      'normal',
       { amountCents: 500_000, currency: 'MXN', source: 'manual' },
       FX,
     );
@@ -108,11 +113,33 @@ describe('INV-FX (§4.38a) — el ingest escribe USD + fxRate, JAMÁS el numeral
     });
   });
 
+  it('PSA-ACABADO B5 — escribe `estimateFinishScoped=true` en el acabado dado y barre las automáticas previas en la MISMA tx', async () => {
+    const { pricing, created, prisma } = wirePricing();
+    await pricing.persistGradedEstimateReference(
+      'c1',
+      '10',
+      'holofoil',
+      { amountCents: 500_000, currency: 'MXN', source: 'pokemonpricetracker' },
+      FX,
+    );
+    expect(created[0]).toMatchObject({ finish: 'holofoil', estimateFinishScoped: true, refKind: 'graded_estimate' });
+    expect((prisma as any).priceReference.deleteMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        cardId: 'c1',
+        gradeKey: 'graded:PSA:10',
+        refKind: 'graded_estimate',
+        estimateFinishScoped: false,
+        isManualOverride: false,
+      }),
+    });
+  });
+
   it('respeta el override MANUAL del día (§O.6: el manual gana; el ingest no lo pisa)', async () => {
     const { pricing, prisma } = wirePricing({ id: 'pr-1', isManualOverride: true });
     const wrote = await pricing.persistGradedEstimateReference(
       'c1',
       '10',
+      'normal',
       { amountCents: 6_000, currency: 'USD', source: 'pokemonpricetracker' },
       FX,
     );
@@ -128,6 +155,7 @@ describe('INV-FX (§4.38a) — el ingest escribe USD + fxRate, JAMÁS el numeral
         await pricing.persistGradedEstimateReference(
           'c1',
           '10',
+          'normal',
           { amountCents, currency: 'USD', source: 'pokemonpricetracker' },
           FX,
         ),
@@ -190,6 +218,8 @@ function wireIngest(opts: {
   shapeCounts?: { s1: number; s2: number };
   /** v1.50.3-c: qué le PEDIMOS mirar al proveedor. `auto` = autodetección (default). */
   forcedFormat?: 'auto' | 'sales_by_grade' | 'graded_prices';
+  /** PSA-ACABADO: raw NM vigente `cardId|finish` (para filas `per_finish`). */
+  raws?: { cardId: string; finish: string }[];
 }) {
   const store = new Map<string, unknown>(Object.entries(opts.config ?? {}));
   const prisma = {
@@ -200,6 +230,7 @@ function wireIngest(opts: {
     },
     inventoryItem: { findMany: jest.fn(async () => opts.published ?? [{ cardId: 'c1' }]) },
     card: { findMany: jest.fn(async () => opts.cards ?? [CARD]), findUnique: jest.fn(async () => ({ id: 'c1' })) },
+    priceReference: { findMany: jest.fn(async () => opts.raws ?? []) },
   } as unknown as PrismaService;
   withGradedTurns(prisma); // v1.113⟨portada⟩ (§DYN.4): turno PSA en memoria
   const settings = new SettingsService(prisma);
@@ -330,6 +361,7 @@ describe('§4.38h — el job del ingest: diales, alcance e INV-D', () => {
     expect(persist).toHaveBeenCalledWith(
       'c1',
       '10',
+      'normal', // PSA-ACABADO: carta de un solo acabado + proveedor `card_level` ⇒ ese acabado
       { amountCents: 6_000, currency: 'USD', source: 'pokemonpricetracker' },
       FX,
     );
@@ -676,5 +708,67 @@ describe('§4.38h.1-bis — shape S2: contador propio y escalada de corrida', ()
     expect((await ingest.ingestGradedEstimates(FX)).escalation).toMatchObject({
       reason: 'ebay_not_supported_with_set_sweep',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// PSA-ACABADO (docs/specs/PSA_ACABADO.md §2, §6): B1 per_finish, B2 card_level+2 acabados, B3 card_level+1 acabado, NO_RAW.
+describe('PSA-ACABADO — a qué acabado se atribuye la cifra del proveedor', () => {
+  const two = [{ ...CARD, availableFinishes: ['holofoil', 'reverse_holo'] }];
+  const one = [{ ...CARD, availableFinishes: ['holofoil'] }];
+
+  it('B1 per_finish: dos filas con cifras DISTINTAS, cada una en su acabado (nunca la misma copiada)', async () => {
+    const { ingest, persist } = wireIngest({
+      config: ON,
+      cards: two,
+      raws: [{ cardId: 'c1', finish: 'holofoil' }, { cardId: 'c1', finish: 'reverse_holo' }],
+      providerRows: [
+        { ...ROW, amountCents: 9_000, finishScope: 'per_finish', finish: 'holofoil' },
+        { ...ROW, amountCents: 2_000, finishScope: 'per_finish', finish: 'reverse_holo' },
+      ],
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.written).toBe(2);
+    expect(persist.mock.calls.map((c) => [c[2], (c[3] as any).amountCents])).toEqual([
+      ['holofoil', 9_000],
+      ['reverse_holo', 2_000],
+    ]);
+  });
+
+  it('B2 card_level + 2 acabados: 0 filas, `noFinishSplit` y el escaneo de la carta queda `no_finish_split`', async () => {
+    const { ingest, persist, prisma } = wireIngest({
+      config: ON,
+      cards: two,
+      providerRows: [{ ...ROW, finishScope: 'card_level' }],
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(persist).not.toHaveBeenCalled();
+    expect(res.written).toBe(0);
+    expect(res.noFinishSplit).toBe(1);
+    const up = (prisma as any).gradedEstimateCardScan.upsert.mock.calls.map((c: any) => c[0].create.lastOutcome);
+    expect(up).toContain('no_finish_split');
+  });
+
+  it('B3 card_level + 1 acabado: UNA fila en ese acabado', async () => {
+    const { ingest, persist } = wireIngest({ config: ON, cards: one, providerRows: [{ ...ROW, finishScope: 'card_level' }] });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.written).toBe(1);
+    expect(persist.mock.calls[0][2]).toBe('holofoil');
+  });
+
+  it('per_finish sin raw vigente de ESE acabado ⇒ no se escribe (NO_RAW)', async () => {
+    const { ingest, persist } = wireIngest({
+      config: ON,
+      cards: two,
+      raws: [{ cardId: 'c1', finish: 'holofoil' }],
+      providerRows: [
+        { ...ROW, amountCents: 9_000, finishScope: 'per_finish', finish: 'holofoil' },
+        { ...ROW, amountCents: 2_000, finishScope: 'per_finish', finish: 'reverse_holo' },
+      ],
+    });
+    const res = await ingest.ingestGradedEstimates(FX);
+    expect(res.skippedNoRaw).toBe(1);
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(persist.mock.calls[0][2]).toBe('holofoil');
   });
 });

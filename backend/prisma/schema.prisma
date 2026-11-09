@@ -1410,6 +1410,10 @@ model PriceReference {
   // `@default(market)` hace la migración segura por construcción: ninguna fila existente cambia de
   // significado ⇒ **migrar no puede mover ningún precio publicado**.
   refKind          PriceRefKind @default(market)
+  // PSA-ACABADO (HECHOS 2026-11-09; docs/specs/PSA_ACABADO.md §1): `true` ⇒ el estimado `graded_estimate` se escribió por
+  // ACABADO (el escritor nuevo lo fija en create Y update). `false` ⇒ fila previa a PSA-ACABADO (todas con finish='normal'):
+  // las automáticas dejan de leerse y el barrido las borra; las manuales valen solo para el acabado principal. Aditivo.
+  estimateFinishScoped Boolean    @default(false)
   // v1.50.3-f (M-43, §4.38m.2) — fecha de la EVIDENCIA de mercado (la última venta observada por el
   // proveedor), distinta de `capturedDate` (el día en que jalamos el archivo). `null` en la vía MANUAL:
   // ahí la afirmación ES del humano y su fecha de captura es la evidencia.
@@ -3678,6 +3682,7 @@ enum FeaturedSlotKind {
 enum GradedCardScanOutcome {
   written
   no_data
+  no_finish_split // PSA-ACABADO: proveedor sin separación por acabado y carta de 2+ acabados ⇒ sin estimado
 }
 
 // Clase E. Bitácora por set; solo `ok` mueve relojes. Admin-only, no viaja.

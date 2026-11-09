@@ -491,6 +491,14 @@ export class PricingController {
         );
       }
       if (dto.intent === 'graded_estimate') {
+        // PSA-ACABADO (contrato §4, rompiente): el estimado se captura POR ACABADO ⇒ `finish` obligatorio.
+        if (dto.finish === undefined) {
+          throw BusinessException.badRequest(
+            'VALIDATION_ERROR',
+            'Para intent:"graded_estimate" debes indicar `finish`: el estimado PSA es por acabado.',
+            { field: 'finish' },
+          );
+        }
         const slabs = await this.pricing.publishedSlabsForGradeKey(dto.cardId, dto.gradeKey);
         if (slabs.length > 0) {
           const grade = dto.gradeKey.split(':')[2] ?? '';

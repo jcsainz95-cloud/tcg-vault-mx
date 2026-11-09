@@ -270,7 +270,12 @@ export type HighlightReason =
   /** Cota SUPERIOR: `psa10 > salePriceCents × maxRawMultiple`. Caza el cero de más / typo al alza. */
   | 'ABOVE_MAX_MULTIPLE'
   /** Cota de ORDEN: `psa10 < psa9`. Caza el grado INTERCAMBIADO (las dos filas capturadas cruzadas). */
-  | 'GRADE_ORDER_INVERTED';
+  | 'GRADE_ORDER_INVERTED'
+  // ---- PSA-ACABADO (solo lista de revision; el evaluador puro NO los emite) ----
+  /** Manual heredada (previa a PSA-ACABADO): vale solo para el acabado principal; recapturar por acabado. */
+  | 'LEGACY_MANUAL'
+  /** Sin raw vigente del MISMO acabado: no hay contra que validar el tope. */
+  | 'NO_RAW';
 
 export interface GradingHighlightResult<T extends GradedEstimateInput = GradedEstimateInput> {
   eligible: boolean;
