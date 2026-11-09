@@ -23,6 +23,7 @@ import { isTcgcsvOrigin, tcgcsvSetExternalId } from './tcgcsv-card-name';
 import { importableGroupForPtcgSet, TCGCSV_IMPORTABLE_GROUPS } from './tcgcsv-importable-groups';
 import { PTCG_PROMO_GROUPS } from './promo-set-groups';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
+import { TcgcsvGroupDiscoveryService } from './tcgcsv-group-discovery.service';
 import type { Role } from '@prisma/client';
 
 /**
@@ -37,10 +38,20 @@ export type SyncActor =
 export const ALWAYS_SYNCED_PROMO_SETS: readonly string[] = PTCG_PROMO_GROUPS.map((g) => g.ptcgSetId);
 
 export type PromoSetStatus = 'created' | 'updated' | 'unchanged' | 'missing_remote' | 'error';
-export type PromoTcgcsvStatus = 'imported' | 'updated' | 'covered' | 'busy' | 'skipped_needs_super_admin' | 'error';
+export type PromoTcgcsvStatus = 'imported' | 'updated' | 'covered' | 'busy' | 'skipped_needs_super_admin' | 'quarantined' | 'error';
 export interface PromosSummary {
   sets: { setId: string; status: PromoSetStatus }[];
-  tcgcsv: { groupId: number; status: PromoTcgcsvStatus; created: number; updated: number; errorCode?: string }[];
+  tcgcsv: {
+    groupId: number;
+    status: PromoTcgcsvStatus;
+    created: number;
+    updated: number;
+    errorCode?: string;
+    /** AUTO-F: `seed` = `TCGCSV_IMPORTABLE_GROUPS`; `discovered` = elegible por el descubrimiento de esta corrida. */
+    source: 'seed' | 'discovered';
+  }[];
+  /** AUTO-F: conteo del descubrimiento (sin estado, reevaluado cada corrida). */
+  discovery: { scanned: number; eligible: number; quarantined: number; ignored: number };
 }
 
 
@@ -372,6 +383,8 @@ export class CatalogSyncService {
     @Optional() private readonly audit?: AuditService,
     // PROMOS-MASTERSET / AUTO: paso TCGCSV del barrido (misma guardia, lock y todo-o-nada que el import manual).
     @Optional() private readonly tcgcsvImport?: TcgcsvSetImportService,
+    // AUTO-F: descubrimiento de grupos de promos de TCGCSV (sin estado).
+    @Optional() private readonly discovery?: TcgcsvGroupDiscoveryService,
   ) {}
 
   /**
@@ -832,7 +845,7 @@ export class CatalogSyncService {
       fromReleaseDate: selection?.fromReleaseDate ?? '',
       setsSkippedOutOfRange: selection?.setsSkippedOutOfRange ?? 0,
       setsSkippedUnknownDate: selection?.setsSkippedUnknownDate ?? 0,
-      promos: { sets: [], tcgcsv: [] },
+      promos: { sets: [], tcgcsv: [], discovery: { scanned: 0, eligible: 0, quarantined: 0, ignored: 0 } },
     };
   }
 
@@ -1017,7 +1030,7 @@ export class CatalogSyncService {
     };
     for (const id of missingPromos) this.syncAllStatus.summary!.promos.sets.push({ setId: id, status: 'missing_remote' });
     // Fire-and-forget: el request NO espera a que se importen todos los sets (el job AGUARDA `awaitSyncAll`).
-    const run = this.runSyncAll(batch, force, { actor, jobId }).finally(() => {
+    const run = this.runSyncAll(batch, force, { actor, jobId, liveSets: remote }).finally(() => {
       this.syncAllStatus.running = false;
       this.syncAllStatus.finishedAt = new Date().toISOString();
       if ((this.syncAllStatus.summary?.setsFailed ?? 1) === 0) this.syncAllStatus.lastSuccessAt = this.syncAllStatus.finishedAt;
@@ -1045,7 +1058,7 @@ export class CatalogSyncService {
   async runSyncAll(
     sets: RemoteCardSet[],
     force = false,
-    ctx: { actor?: SyncActor; jobId?: string } = {},
+    ctx: { actor?: SyncActor; jobId?: string; liveSets?: { id: string; name: string }[] } = {},
   ): Promise<void> {
     // Normalmente lo arranca `syncAll`; si se invoca el barrido directamente (tests, job interno)
     // se inicializa en ceros para no operar sobre null.
@@ -1095,24 +1108,34 @@ export class CatalogSyncService {
    * `user` solo `super_admin` (si no, `skipped_needs_super_admin`: el permiso humano no se amplia); con `system` (solo el job) corre
    * sin rol y SOLO sobre esa lista. Sin actor (llamada interna sin identidad) se trata como no autorizado.
    */
-  private async runTcgcsvGroups(summary: SyncAllSummary, ctx: { actor?: SyncActor; jobId?: string }): Promise<void> {
+  private async runTcgcsvGroups(
+    summary: SyncAllSummary,
+    ctx: { actor?: SyncActor; jobId?: string; liveSets?: { id: string; name: string }[] },
+  ): Promise<void> {
     const actor = ctx.actor;
     const allowed = actor?.kind === 'system' || (actor?.kind === 'user' && actor.role === 'super_admin');
-    for (const g of TCGCSV_IMPORTABLE_GROUPS) {
-      const row: PromosSummary['tcgcsv'][number] = { groupId: g.groupId, status: 'error', created: 0, updated: 0 };
+    const importOne = async (
+      groupId: number,
+      source: 'seed' | 'discovered',
+      discovered?: { name: string },
+    ): Promise<void> => {
+      const row: PromosSummary['tcgcsv'][number] = { groupId, status: 'error', created: 0, updated: 0, source };
       summary.promos.tcgcsv.push(row);
-      if (!allowed) {
+      if (!allowed || !actor) {
         row.status = 'skipped_needs_super_admin';
-        continue;
+        return;
       }
       if (!this.tcgcsvImport) {
         row.errorCode = 'TCGCSV_IMPORT_UNAVAILABLE';
-        continue;
+        return;
       }
       try {
         const res = await this.tcgcsvImport.importGroup(
-          g.groupId,
-          actor.kind === 'system' ? { kind: 'system', job: actor.job, jobId: ctx.jobId ?? actor.jobId, attempt: actor.attempt } : { id: actor.id, role: actor.role },
+          groupId,
+          actor.kind === 'system'
+            ? { kind: 'system', job: actor.job, jobId: ctx.jobId ?? actor.jobId, attempt: actor.attempt }
+            : { id: actor.id, role: actor.role },
+          discovered ? { discovered } : undefined,
         );
         row.created = res.created;
         row.updated = res.updated;
@@ -1124,9 +1147,22 @@ export class CatalogSyncService {
         else {
           row.status = 'error';
           row.errorCode = code;
-          this.logger.warn(`sync-all: grupo TCGCSV ${g.groupId} fallo (${code}): ${(e as Error).message}`);
+          this.logger.warn(`sync-all: grupo TCGCSV ${groupId} fallo (${code}): ${(e as Error).message}`);
         }
       }
+    };
+    for (const g of TCGCSV_IMPORTABLE_GROUPS) await importOne(g.groupId, 'seed');
+    // AUTO-F: grupos descubiertos (solo si el actor puede importar; fail-closed sin lista viva). Un fallo aqui NO aborta el barrido.
+    if (!allowed || !this.discovery) return;
+    try {
+      const found = await this.discovery.discover(ctx.liveSets ?? []);
+      summary.promos.discovery = found.summary;
+      for (const q of found.quarantined) {
+        summary.promos.tcgcsv.push({ groupId: q.groupId, status: 'quarantined', created: 0, updated: 0, source: 'discovered' });
+      }
+      for (const g of found.eligible) await importOne(g.groupId, 'discovered', { name: g.name });
+    } catch (e) {
+      this.logger.warn(`sync-all: el descubrimiento de grupos TCGCSV fallo (${(e as Error).message}); se sigue con la semilla.`);
     }
   }
 

@@ -104,7 +104,7 @@ describe('PMS — TCGCSV y permisos (B5-B9, AUTO A3/A5)', () => {
   it('A3 actor system ⇒ importa SIN rol humano y pasa el actor system al import', async () => {
     const { svc, tcgcsv } = build({ remote: REMOTE() });
     const { summary } = await run(svc, SYSTEM);
-    expect(tcgcsv.importGroup).toHaveBeenCalledWith(TCGCSV_IMPORTABLE_GROUPS[0].groupId, expect.objectContaining({ kind: 'system', job: 'catalog-metadata-sync' }));
+    expect(tcgcsv.importGroup).toHaveBeenCalledWith(TCGCSV_IMPORTABLE_GROUPS[0].groupId, expect.objectContaining({ kind: 'system', job: 'catalog-metadata-sync' }), undefined);
     expect(summary.promos.tcgcsv[0]).toMatchObject({ status: 'imported', created: 3 });
     expect(svc.getSyncStatus()).toMatchObject({ lastTrigger: 'job', attempt: 1 });
   });

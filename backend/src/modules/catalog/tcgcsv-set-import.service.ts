@@ -142,12 +142,14 @@ export class TcgcsvSetImportService {
   async importGroup(
     groupId: number,
     actor?: { id: string; role: Role } | { kind: 'system'; job: string; jobId?: string; attempt?: number },
+    // AUTO-F: SOLO el barrido (tras reevaluar elegibilidad) lo pasa; la ruta HTTP no, asi que fuera de la semilla sigue 404.
+    opts?: { discovered?: { name: string } },
   ): Promise<TcgcsvImportResult> {
     // AUTO (docs/specs/AUTO_CATALOGO.md §A): el actor `system` solo lo construye el job; sin rol, SOLO sobre la lista explicita
     // (la guardia de arriba ya rechaza grupos fuera de ella). La auditoria no lleva usuario y marca `metadata.actor='system'`.
     const sys = actor && 'kind' in actor ? actor : null;
     const human = actor && !('kind' in actor) ? actor : undefined;
-    const entry = findImportableGroup(groupId);
+    const entry = findImportableGroup(groupId) ?? (opts?.discovered ? { groupId, ptcgSetIds: [] as readonly string[] } : undefined);
     if (!entry) {
       throw new BusinessException(
         ErrorCode.TCGCSV_GROUP_UNKNOWN,
@@ -204,7 +206,7 @@ export class TcgcsvSetImportService {
               noPrice: res.noPrice,
               skipped: res.skipped.length,
               ...(sys
-                ? { metadata: { actor: 'system', job: sys.job, jobId: sys.jobId ?? null, attempt: sys.attempt ?? null, groupId, status: res.created > 0 ? 'imported' : 'updated', created: res.created, updated: res.updated } }
+                ? { metadata: { ...(opts?.discovered ? { discovered: true, groupName: opts.discovered.name } : {}), actor: 'system', job: sys.job, jobId: sys.jobId ?? null, attempt: sys.attempt ?? null, groupId, status: res.created > 0 ? 'imported' : 'updated', created: res.created, updated: res.updated } }
                 : {}),
             },
           },
