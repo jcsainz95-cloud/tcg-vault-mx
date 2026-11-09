@@ -315,6 +315,21 @@ const est = (gradeValue: string, cents: number): GradedEstimateDTO => ({
 });
 
 describe('CardDetailView · §22.3 «valor estimado si se gradea»', () => {
+  it('PSA-F1 · el estimado es el del acabado PRINCIPAL (normal), no el del grupo más barato (reverse_holo)', async () => {
+    const listings = [
+      grp({ representativeInventoryItemId: 'inv-b', finish: 'reverse_holo', displayPriceCents: 50_000 }),
+      grp({ representativeInventoryItemId: 'inv-a', finish: 'normal', displayPriceCents: 140_800 }),
+    ];
+    const units = [unit('inv-a', { finish: 'normal' }), unit('inv-b', { finish: 'reverse_holo' })];
+    mockDetail(listings, units, [
+      { ...est('10', 2_900_000), finish: 'normal' },
+      { ...est('10', 777_700), finish: 'reverse_holo' },
+    ]);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    expect(await screen.findByText('MX$29,000.00')).toBeInTheDocument();
+    expect(screen.queryByText('MX$7,777.00')).not.toBeInTheDocument();
+  });
+
   it('con `gradedEstimates` pinta el bloque junto al precio, SIN fecha y con su llamada', async () => {
     const { listings, units } = twoVariants();
     mockDetail(listings, units, [est('10', 2_900_000), est('9', 1_450_000)]);

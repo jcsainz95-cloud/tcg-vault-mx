@@ -36,7 +36,7 @@ import { CardImage, QUOTER_EAGER_TILES } from '@/components/ui/CardImage';
 import { CardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
-import { FINISH_ORDER, displayFinishesOf, displayedVariants } from '@/lib/finish';
+import { FINISH_ORDER, displayFinishesOf, displayedVariants, normalizePromoCell } from '@/lib/finish';
 import { FinishBand } from '@/components/domain/FinishMark';
 import { RarityLabel } from '@/components/domain/RarityLabel';
 import { CardDetailModal } from '@/components/domain/CardDetailModal';
@@ -404,7 +404,7 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
   const promos = isQuoter ? undefined : binder.data?.collectionPromos;
   const promoTiles = useMemo(() => {
     const out: { cell: MasterSetCardCellDTO; variant: MasterSetVariantDTO }[] = [];
-    for (const cell of [...(promos?.items ?? [])].sort(compareCardNumber)) {
+    for (const cell of [...(promos?.items ?? [])].map(normalizePromoCell).sort(compareCardNumber)) {
       for (const variant of displayedVariants(cell)) out.push({ cell, variant });
     }
     return out;
@@ -769,7 +769,7 @@ function TileHeader({
   // acabado propio de la teja; si es 0 la teja no lleva badge (ya se muestra como «HUECO»). Se conserva
   // la caída a 0 en vivo de IMP-2 (misma fuente `countsByFinish` de la respuesta), pero por acabado.
   const finishCount = finish
-    ? cell.countsByFinish.find((c) => c.finish === finish)?.count ?? 0
+    ? (cell.countsByFinish ?? []).find((c) => c.finish === finish)?.count ?? 0
     : 0;
   const hasCount = !!showFinishCount && finishCount > 0;
   const art = (

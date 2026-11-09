@@ -296,7 +296,7 @@ function QuickAddSection({
   const tp = useTranslations('admin.m1');
   const tFinish = useTranslations('finish');
 
-  const availableFinishes = FINISH_ORDER.filter((f) => cell.availableFinishes.includes(f));
+  const availableFinishes = FINISH_ORDER.filter((f) => (cell.availableFinishes ?? []).includes(f));
   const [productType, setProductType] = useState<ProductType>('raw');
   const [finish, setFinish] = useState<Finish>(availableFinishes[0] ?? 'normal');
   const [acq, setAcq] = useState<AcquisitionType>('aportacion_en_especie');
@@ -508,7 +508,7 @@ function PlatformPiecesSection({
 
   // ---- Ajuste por levantamiento físico (contrato §M1 v1.20.1) ----
   const ta = useTranslations('masterSet.adjust');
-  const availableFinishes = FINISH_ORDER.filter((f) => cell.availableFinishes.includes(f));
+  const availableFinishes = FINISH_ORDER.filter((f) => (cell.availableFinishes ?? []).includes(f));
   const [reason, setReason] = useState<AdjustmentReason>('encontrada');
   const [adjustItemId, setAdjustItemId] = useState('');
   const [adjustFinish, setAdjustFinish] = useState<Finish>(availableFinishes[0] ?? 'normal');

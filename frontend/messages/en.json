@@ -3791,7 +3791,7 @@
         "promosLead": "These promos always travel with the catalog update; there is no need to import them separately.",
         "promosSets": "{created} new · {updated} updated · {unchanged} unchanged",
         "promosSetStatus": { "created": "new", "updated": "updated", "unchanged": "unchanged", "missing_remote": "not on pokemontcg.io", "error": "failed" },
-        "promosTcgcsvStatus": { "imported": "imported", "updated": "updated", "covered": "already covered", "busy": "busy, retried automatically on the next run", "skipped_needs_super_admin": "skipped: only a super-admin imports it", "error": "failed" },
+        "promosTcgcsvStatus": { "imported": "imported", "updated": "updated", "covered": "already covered", "busy": "busy, retried automatically on the next run", "skipped_needs_super_admin": "skipped: only a super-admin imports it", "quarantined": "quarantined: not imported, re-evaluated automatically", "error": "failed" },
         "promosTcgcsvRow": "Group {groupId}: {status} ({created} new, {updated} updated)",
         "autoStatus": {
           "auto": "Last automatic update: {when}",

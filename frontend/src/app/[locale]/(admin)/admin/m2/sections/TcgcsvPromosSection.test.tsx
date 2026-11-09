@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { renderWithProviders, renderWithIntl } from '@/test/render';
 import * as promos from '@/lib/api/tcgcsv-promos';
 import { PriceTag } from '@/components/ui/PriceTag';
@@ -28,31 +28,17 @@ beforeEach(() => {
   vi.mocked(promos.importTcgcsvSet).mockResolvedValue(RESULT);
 });
 
-describe('QA-PRM-UX · meta del grupo', () => {
-  it('productCount y cardCount por separado; null ⇒ «—»; no importado no dice «0 productos»', async () => {
+describe('PMS-F2 · solo lectura', () => {
+  it('lista los grupos (productCount y cardCount por separado; null ⇒ «—») y NO ofrece importar', async () => {
     renderWithProviders(<TcgcsvPromosSection />);
-    await screen.findByRole('button', { name: /Importar ME: Mega Evolution Promo/ });
+    await screen.findByText('ME: Mega Evolution Promo');
     expect(screen.getByText(/Grupo 24451 · 148 productos en la fuente \(varios son versiones de una misma carta\) · 0 cartas importadas/)).toBeInTheDocument();
-    expect(screen.getByText(/Grupo 24500 · — productos en la fuente \(varios son versiones de una misma carta\) · 0 cartas importadas/)).toBeInTheDocument();
-    expect(screen.queryByText(/· 0 productos/)).toBeNull();
-  });
-});
-
-describe('PROMO-F1 · importar un grupo de promos TCGCSV', () => {
-  it('lista el grupo, importa por groupId y muestra resumen, sin precio y omitidos con motivo', async () => {
-    renderWithProviders(<TcgcsvPromosSection />);
-    fireEvent.click(await screen.findByRole('button', { name: /Importar ME: Mega Evolution Promo/ }));
-    await waitFor(() => expect(promos.importTcgcsvSet).toHaveBeenCalledWith(24451));
-    expect((await screen.findByTestId('promo-summary')).textContent).toMatch(/130 cartas creadas.*6 versiones de liga/);
-    expect(screen.getByTestId('promo-nopricing').textContent).toMatch(/10 cartas sin precio.*precio pendiente/);
-    const skipped = screen.getByTestId('promo-skipped');
-    expect(skipped.textContent).toMatch(/Paradise Resort 092 \[Staff\]/);
-    expect(skipped.textContent).toMatch(/más de una carta base/);
-    expect(skipped.textContent).toMatch(/ya existe en pokemontcg\.io/);
-    expect(skipped.textContent).toMatch(/motivo_nuevo/); // desconocido ⇒ crudo
+    expect(screen.getByText(/Grupo 24500 · — productos en la fuente/)).toBeInTheDocument();
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(promos.importTcgcsvSet).not.toHaveBeenCalled();
   });
 
-  it('con omitidas el veredicto NO es verde (parcial); sin omitidas y con escritura sí', () => {
+  it('el veredicto de un resultado con omitidas NO es verde; sin omitidas y con escritura sí', () => {
     expect(promoImportVerdict(RESULT)).toBe('partial');
     expect(promoImportVerdict({ ...RESULT, skipped: [] })).toBe('done');
     expect(promoImportVerdict({ ...RESULT, created: 0, updated: 0, skipped: [] })).not.toBe('done');

@@ -1,5 +1,6 @@
 'use client';
 
+import { FINISH_ORDER, primaryFinishOf } from '@/lib/finish';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
@@ -50,7 +51,6 @@ import { pesosToCentsOrNull } from '@/lib/money-input';
  *  3. **Money-safe:** un campo vacío o mal formado **no se guarda como 0** ni se toca; cada grado se
  *     escribe por separado, así que un grado bloqueado **no impide** guardar el otro.
  */
-const ALL_FINISHES: Finish[] = ['normal', 'reverse_holo', 'holofoil', 'first_edition_holofoil'];
 
 export function GradedEstimateCaptureSection() {
   const t = useTranslations('admin.m2.gradedEstimateCapture');
@@ -90,7 +90,10 @@ export function GradedEstimateCaptureSection() {
   );
   const grades = cfg.data?.grades ?? [];
   const groupFinishes = [...new Set((preview.data?.groups ?? []).map((g) => g.finish))];
-  const finishOptions: Finish[] = groupFinishes.length > 0 ? groupFinishes : ALL_FINISHES;
+  // Solo los acabados REALES de la carta (grupos publicados, o `availableFinishes` del catálogo); nunca los 4 por defecto.
+  const cardFinishes = FINISH_ORDER.filter((f) => (card?.availableFinishes ?? []).includes(f));
+  const finishOptions: Finish[] =
+    groupFinishes.length > 0 ? groupFinishes : cardFinishes.length > 0 ? cardFinishes : [primaryFinishOf(null)];
   const finish: Finish = finishChoice && finishOptions.includes(finishChoice) ? finishChoice : finishOptions[0];
 
   const capture = useMutation({

@@ -94,4 +94,17 @@ describe('PMS-F3/F4 · apartado «Promos de la colección»', () => {
     expect(within(box).getByRole('heading', { name: 'Collection promos' })).toBeInTheDocument();
     expect(within(box).getByTestId('collection-promos-progress').textContent).toBe('1 of 1 promos');
   });
+
+  it('forma MÍNIMA del backend {cardId, number, name, rarity?, imageSmallUrl?} ⇒ sin TypeError; sellos visibles; sin sesión solo «y»', async () => {
+    const minimal = [
+      { cardId: 'svp-001', number: 'SVP 001', name: 'Pikachu sello', rarity: 'Promo', imageSmallUrl: 'https://img/x.png' },
+      { cardId: 'svp-002', number: 'SVP 002', name: 'Eevee sello' },
+    ] as unknown as MasterSetCardCellDTO[];
+    vi.mocked(getMasterSetBinder).mockResolvedValue({ ...base, collectionPromos: { items: minimal, total: 2 } });
+    show();
+    const box = await screen.findByTestId('collection-promos');
+    expect(within(box).getAllByText('Pikachu sello').length).toBeGreaterThan(0);
+    expect(within(box).getAllByText('Eevee sello').length).toBeGreaterThan(0);
+    expect(within(box).getByTestId('collection-promos-progress').textContent).toBe('2 promos');
+  });
 });

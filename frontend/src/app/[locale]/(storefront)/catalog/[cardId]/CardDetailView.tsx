@@ -35,6 +35,7 @@ import { centsToValue, track } from '@/lib/measurement/track';
 import { measurementItemOf } from '@/lib/measurement/item';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
+import { primaryFinishOf } from '@/lib/finish';
 import { CardCode } from '@/components/domain/CardCode';
 import { WishlistBlock } from './WishlistBlock';
 import { RefundPromiseLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
@@ -284,7 +285,9 @@ function Detail({
   const selectedVersion = selected?.version ?? primary?.version ?? null;
   // §IDS-UX.0 / 959: una versión española o de liga no muestra valor de mercado ni estimado PSA.
   const showGradingHook = isDefaultVersion(selectedVersion);
-  const hookFinish = primary?.finish ?? null;
+  // PSA_ACABADO: acabado principal ÚNICO (normal › holofoil › 1st ed › reverse), no el del grupo más barato.
+  const visibleFinishes = visibleGroups.map((g) => g.finish).filter((f): f is Finish => f != null);
+  const hookFinish = primary ? primaryFinishOf(visibleFinishes) : null;
   useEffect(() => onHookFinish(hookFinish), [hookFinish, onHookFinish]);
   const imageNoteKey = (() => {
     if (!selectedVersion || isDefaultVersion(selectedVersion)) return null;
@@ -593,7 +596,7 @@ function Detail({
             <WishlistBlock
               cardId={card.id}
               availableFinishes={card.availableFinishes}
-              preferredFinish={groups[0]?.finish}
+              preferredFinish={primaryFinishOf(groups.map((g) => g.finish))}
             />
           </div>
         </div>

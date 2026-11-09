@@ -6248,6 +6248,7 @@ export type PromoTcgcsvStatus =
   | 'covered'
   | 'busy'
   | 'skipped_needs_super_admin'
+  | 'quarantined'
   | 'error';
 export interface CatalogSyncPromos {
   sets: { setId: string; status: PromoSetStatus }[];
@@ -6257,7 +6258,15 @@ export interface CatalogSyncPromos {
     created: number;
     updated: number;
     errorCode?: string;
+    /** §AUTO: `seed` = semilla `TCGCSV_IMPORTABLE_GROUPS`; `discovered` = descubierto por evaluación. */
+    source?: 'seed' | 'discovered';
   }[];
+  /** §AUTO: resumen del descubrimiento de grupos TCGCSV. Ausente en backends previos. */
+  discovery?: { scanned: number; eligible: number; quarantined: number; ignored: number };
+  /** §AUTO: liga promo→expansión inferida. Ausente en backends previos. */
+  links?: { high: number; low: number; none: number; changed: number };
+  /** §AUTO: compuerta Black Star automática (backtest ciego). */
+  gate?: { open: boolean; n: number; k: number; expansions: number };
 }
 
 /** `GET /admin/catalog/remote-sets`: `degraded:true` = pokemontcg.io no respondió ⇒ solo sets locales. */

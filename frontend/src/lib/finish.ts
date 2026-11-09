@@ -25,14 +25,15 @@ export const FINISH_ORDER: Finish[] = [
  */
 export function displayFinishesOf(source: {
   displayFinishes?: Finish[] | null;
-  availableFinishes: Finish[];
+  availableFinishes?: Finish[] | null;
 }): Finish[] {
-  const preferred = source.displayFinishes ?? source.availableFinishes;
+  const available = source.availableFinishes ?? [];
+  const preferred = source.displayFinishes ?? available;
   const ordered = FINISH_ORDER.filter((f) => preferred.includes(f));
   if (ordered.length > 0) return ordered;
   // `displayFinishes` nunca debería ser vacío (garantía del contrato); si por drift llegara vacío,
   // se degrada a availableFinishes para NO dejar una carta sin ninguna tarjeta que pintar.
-  return FINISH_ORDER.filter((f) => source.availableFinishes.includes(f));
+  return FINISH_ORDER.filter((f) => available.includes(f));
 }
 
 /**
@@ -61,6 +62,42 @@ export function isVariantDisplayed(
 export function displayedVariants(cell: MasterSetCardCellDTO): MasterSetVariantDTO[] {
   const display = displayFinishesOf(cell);
   return display
-    .map((f) => cell.variants.find((v) => v.finish === f))
+    .map((f) => (cell.variants ?? []).find((v) => v.finish === f))
     .filter((v): v is MasterSetVariantDTO => v != null && isVariantDisplayed(cell, v));
+}
+
+/**
+ * Acabado PRINCIPAL único de una carta (arquitecto 44d0d609, PSA_ACABADO): `normal › holofoil ›
+ * first_edition_holofoil › reverse_holo`; `normal` si no hay datos. Es el acabado por omisión de la
+ * ficha, la rejilla y el borrado graded (no «el grupo visible más barato»).
+ */
+export const PRIMARY_FINISH_ORDER: Finish[] = ['normal', 'holofoil', 'first_edition_holofoil', 'reverse_holo'];
+export function primaryFinishOf(available?: readonly Finish[] | null): Finish {
+  const list = available ?? [];
+  return PRIMARY_FINISH_ORDER.find((f) => list.includes(f)) ?? 'normal';
+}
+
+/**
+ * Tolera la forma MÍNIMA que manda el backend en `collectionPromos.items`
+ * (`{cardId, number, name, rarity?, imageSmallUrl?}`): rellena acabados/variantes/conteos ausentes
+ * para que el binder nunca lance TypeError. Sin datos de acabado ⇒ una variante `normal` sin cubrir.
+ */
+export function normalizePromoCell(raw: Partial<MasterSetCardCellDTO> & { cardId: string }): MasterSetCardCellDTO {
+  const available = raw.availableFinishes?.length ? raw.availableFinishes : (['normal'] as Finish[]);
+  const variants =
+    raw.variants && raw.variants.length > 0
+      ? raw.variants
+      : available.map((finish) => ({ finish, count: 0, covered: false }));
+  return {
+    ...raw,
+    number: raw.number ?? '',
+    name: raw.name ?? '',
+    availableFinishes: available,
+    countsByFinish: raw.countsByFinish ?? [],
+    totalCount: raw.totalCount ?? 0,
+    isSecretRare: raw.isSecretRare ?? false,
+    expectedVariantCount: raw.expectedVariantCount ?? available.length,
+    coveredVariantCount: raw.coveredVariantCount ?? variants.filter((v) => v.covered).length,
+    variants,
+  } as MasterSetCardCellDTO;
 }
