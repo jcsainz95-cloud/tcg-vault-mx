@@ -258,6 +258,9 @@
 - GET `/admin/marketing/export` · cuenta
 - GET `/admin/marketing/export/todo` · cuenta
 - GET `/admin/marketing/weekly-excel` · cuenta
+- **§MKT-V2** (`docs/specs/MKT_PANEL_V2.md`): `pantalla` pasa a `r|a|b|c|d|e|f|g|h` (`r` = Resumen: tablas `r1` cifras, `r2` avisos, `r3` diario solo con régimen exacto/sesión; `c9` estados, `e2` páginas de Google). `periods` no cambia (la primera semana es la última cerrada).
+- POST `/marketing/search-miss` · público · `{term≤80, kind:'card'|'sealed'}` ⇒ `204` siempre; sin eco, sin identificador (c6).
+- Sin endpoint para el correo del lunes (job interno `marketing-weekly-digest`, idempotente por semana).
 
 ### measurement
 - POST `/admin/measurement/meta-test-event` · admin
@@ -412,8 +415,8 @@
 - **P-PROMOS (ARCH §5.12/§5.13):** `StampType` suma `event_promo`; `GroupedListingDetailResponse.pricePending:boolean`; `sync`/`refresh-variants` suman `promoSkipped?`, `pendingCards?`. Pruebas y detalle: `docs/specs/P_PROMOS.md`.
 - **TL-A2-5 (decidido):** `removableCount` cuenta SIN filtros de Idioma/Liga (`bulk-remove` opera sobre toda la casilla). Prueba: 1 ES + 2 EN con filtro «Español» ⇒ 3 y la baja deja la casilla en 0.
 
-## 3. D9 — comisión de plataforma dentro del precio (HECHOS:201; PENDIENTE DEL DUEÑO; no construir hasta decidir y publicar §DYN)
-Sin rutas nuevas; cambia el significado de `displayPriceCents`, `totalCents`, `processingFeeCents`, `freeFromCents`. Detalle, opciones y pruebas D9-1…5: `docs/specs/D9_COMISION.md`.
+## 3. D9 — comisión de plataforma dentro del precio (HECHOS:201 y :272 «A en todo»; DECIDIDO; se construye tras publicar §DYN)
+Sin rutas nuevas. `displayPriceCents` = `P = ceilPeso(M/(1−pct×(1+IVA)))` por unidad (carta 10000 → 10500); filas nuevas `totalCents = subtotalCents + shippingFeeCents`, `processingFeeCents = 0`, `feeConvention = FEE_INCLUDED` (`OrderDTO` la expone; `NOT NULL` sin default, filas viejas `FEE_ON_TOP`); `freeFromCents` se compara con el subtotal exhibido; retiro de bóveda = monto del dial sin gross-up. Esquema, textos es/en, criterios C1–C12 y pruebas D9-1…5: `docs/specs/D9_COMISION.md`.
 
 ## 4. PSA-ACABADO — estimado «si se gradea» por acabado (HECHOS 2026-11-09; dinero; `docs/specs/PSA_ACABADO.md`)
 Sin rutas nuevas; aditivo salvo lo marcado:

@@ -1,85 +1,84 @@
 # D9 — Comisión de plataforma DENTRO del precio de la carta
 
-Decisión: HECHOS.md:201 (2026-10-30) «La comision de plataforma vamos a metela en el precio»; 2026-11-09 «lo de comisión de plataforma arréglalo».
-Estado: **PENDIENTE DEL DUEÑO** (preguntas P1–P8). Nada de esto se construye hasta responderlas y publicar §DYN.
+Decisión: HECHOS.md:201 (2026-10-30) «La comision de plataforma vamos a metela en el precio»; HECHOS.md:272 (2026-11-09) **«A en todo»** (P1–P8). Estado: **DECIDIDO**. Se construye tras el veredicto de qa del lote 093b17b7 y la publicación de §DYN. Cadena: arquitecto (este documento) → ux-ui → backend + frontend → qa + seguridad-lead (zona de dinero).
 
-## 1. Cómo es hoy (medido con grep, 2026-11-09)
-- La «comisión de plataforma» es `processingFeeCents` = gross-up de Stripe sobre `G = S + E` (S = Σ precio exhibido de cartas, E = envío):
-  `total = ceil((G + fijo×(1+IVA)) / (1 − pct×(1+IVA)))` — `backend/src/common/money.ts:1019-1035`, cuerpo único `money.ts:789-814`.
-  Dials: `stripe_fee_pct` 0.036 y `stripe_fee_fixed_cents` 300; el IVA 16 % de la comisión de Stripe sale de `iva_pct`
-  (`settings.constants.ts:449-451`). Tasa efectiva 4.176 %, fijo efectivo MX$3.48.
-- Se rotula y se muestra en: ficha/sellado `frontend/messages/es.json:664-665` («· comisión de plataforma al pagar»), checkout
-  `es.json:672-674` y `:709`, desglose `AmountBreakdown.tsx`, `es.json:490-491`; reembolso parcial = carta + su parte de comisión
-  (`itemFeeShareCents`, `money.ts:1072-1075`; `es.json:2089,2128,2676,2711-2716`).
-- P&L: `pnl-core.ts:354,388` suma `processingFeeCents` como `stripeFeesCents`; fórmula `es.json:5559` ya resta «comisiones Stripe»
-  y «comisión de plataforma devuelta». Si el ingreso hoy excluye la comisión cobrada: **NO MEDIDO** (leer `pnl-core.ts:340-395` antes de construir).
-- Envío gratis: `shipping-rule.ts:108` compara `S >= freeFromCents`; `es.json:4980` dice «subtotal que ve el cliente, antes del envío y de la comisión».
-- Retiro de bóveda: el desglose de envío también lleva gross-up (`money.ts:846-856`); con código de envío gratis = MX$0.00 sin comisión (HECHOS:188).
-- Códigos de descuento: `discount-pricing.ts` descuenta sobre S y luego se recalcula el gross-up.
-- Buylist: pago SPEI al vendedor, sin gross-up (`processingFee` no aparece en buylist; los hits de `buylist.service.ts` son guía/envío). No cambia.
-- Feeds/JSON-LD: `frontend/src/lib/seo.ts:139` (`priceCurrency: 'MXN'`) usa el precio exhibido de la carta, sin comisión. No hay feed Google/Meta propio en backend: **NO MEDIDO** si marketing genera uno aparte.
+## 1. Cómo es hoy (medido con grep/lectura, 2026-11-09)
+- La «comisión de plataforma» es `processingFeeCents` = gross-up de Stripe sobre `G = S + E`: `total = ceil((G + fijo×(1+IVA)) / (1 − pct×(1+IVA)))` (`backend/src/common/money.ts:1019-1035`, cuerpo `:789-814`). Dials `stripe_fee_pct` 0.036 y `stripe_fee_fixed_cents` 300; IVA de `iva_pct` (`settings.constants.ts:449-451`). Efectivo: 4.176 % + MX$3.48.
+- **P&L (medido, antes NO MEDIDO):** `pnl-core.ts:353` el ingreso es `netRevenueCents(o)` sobre `subtotalCents` (sin la comisión); `:354` y `:388` suman `processingFeeCents` a `stripeFeesCents`; `:433` la ganancia resta `stripeFeesCents`. O sea: hoy la comisión que paga el cliente **no entra como ingreso y sí se resta como costo** ⇒ la ganancia histórica sale subestimada ≈ la comisión cobrada. Hallazgo previo a D9; por P3-A los meses viejos NO se reescriben. No hay captura del costo real de Stripe: `stripe.service.ts:260,313` expande `latest_charge` pero no `balance_transaction` (grep `balance_transaction` = 0 usos).
+- **Métodos de pago (medido, antes NO MEDIDO):** `stripe.service.ts:193` usa `automatic_payment_methods: { enabled: true }` y no hay lista blanca en código ⇒ los métodos activos los decide el Dashboard de Stripe: **NO MEDIBLE desde el repo** (devops/dueño en el Dashboard). P8-A cubre cualquiera: un solo precio con tarifa de tarjeta; la diferencia de otro método la absorbe la tienda.
+- **Feeds de Google/Meta (medido, antes NO MEDIDO):** `grep` de `merchant|g:price|product_feed` en `backend/src` y `frontend/src/app` = solo «merchant» de patrocinadores del Card Show y `sitemap.ts`; **no hay feed de producto en este repo**. El único precio hacia afuera es JSON-LD/og (`frontend/src/lib/seo.ts:60`, `Offer.price`) = precio exhibido. Cualquier feed del repo de marketing queda fuera: se avisa como sugerencia a marketing (precio = `displayPriceCents` nuevo).
+- Rótulos de la comisión: `es.json`/`en.json` líneas 490-491, 664-665, 672-674, 709, 5022, 7113, 7195 y reembolsos 2094, 2133, 2681, 2716-2721, 3006 (lista cerrada en §5).
+- Envío gratis: `shipping-rule.ts:108` compara `S >= freeFromCents`; se aplica a pedidos con sellado o accesorios (`es.json:5022`). Retiro de bóveda: gross-up propio (`money.ts:846-856`); `ShipmentRequest` tiene su **propio** `stripePaymentIntentId` (`schema.prisma:1831`) ⇒ cada retiro es un cobro aparte con su propio fijo de Stripe. Buylist: SPEI sin gross-up, no cambia.
 
-## 2. Regla propuesta (no depende de las respuestas)
-1. El precio exhibido `P` de cada carta/sellado ya incluye la comisión. Todo lo que el cliente ve (catálogo, ficha, carrito, JSON-LD, feeds, correos) usa el mismo `P`. Sin renglón de comisión.
-2. Se calcula en el servidor, **una vez al día** junto con `ListingPrice` (§DYN), redondeado una vez POR UNIDAD (regla R1). `Σ P` es suma exacta de enteros.
-3. `total = Σ P + envío` (sin gross-up encima). Se cobra el precio que el cliente vio. Ya no hay recálculo por pedido.
-4. Reembolso de carta = lo que el cliente pagó por esa carta (`P`); Stripe no devuelve su comisión (ya es costo nuestro, sin cambio).
-5. Pedidos ya cobrados no se reinterpretan: la fila nueva lleva marca de convención (patrón IVA-3: `NOT NULL` sin `DEFAULT`). Forma exacta del cambio en `schema.prisma`: PENDIENTE (depende de P3).
-6. Idempotencia/concurrencia: el total se congela en la sesión de checkout (ya ocurre con `frozen-breakdown.ts`); un cambio de dial no altera sesiones abiertas.
+## 2. Regla vigente (con las respuestas)
+1. **P1-A porcentaje plano.** Para cada carta/sellado automático con precio base `M` (el actual con IVA dentro), el precio exhibido es `P = ceilPeso( M / (1 − stripe_fee_pct × (1 + iva_pct)) )`. Con los dials de hoy el divisor es `1 − 0.04176 = 0.95824` (≈ +4.4 %). El fijo (MX$3.48 por cobro) **no** entra al precio: lo absorbe la tienda.
+2. **P2-A redondeo al peso hacia arriba**, una vez POR UNIDAD (`ceilPeso(x) = ceil(x/100)×100` en centavos; regla R1): `ΣP` es suma exacta de enteros. `P` lo fija el servidor una vez al día junto con `ListingPrice` (§DYN).
+3. **Se cobra el precio que el cliente vio:** `total = ΣP + envío`, sin gross-up encima ni recálculo por pedido. Total congelado en la sesión (`frozen-breakdown.ts`).
+4. **P3-A** la venta cuenta completa en el P&L (`incomeCents` = base gravable de `ΣP`, IVA dentro) y el costo real de Stripe aparece solo como gasto.
+5. **P4-A** ticket, correo y desglose del cliente: cartas + envío = total; **ninguna mención de comisión** (ni frase al pie).
+6. **P5-A** compra a bóveda = igual que domicilio (la carta cuesta `P`); la valuación de bóveda sigue en valor de mercado `M`. Envío del retiro: se muestra y cobra el monto del dial (ej. 10000), sin gross-up; la tienda absorbe la comisión de ese cobro. Con código de envío gratis: MX$0.00 sin cobro (HECHOS:188).
+7. **P6-A** envío gratis desde el dial `free_from` (MX$4,000 = 400000) comparado con el subtotal exhibido `S = ΣP` (con comisión; las partidas de precio final del dueño valen lo que escribió).
+8. **P7** el % del código se aplica sobre el precio exhibido (redondeo vigente de `discount-pricing.ts`, no cambia). Sin recálculo de comisión.
+9. **P8-A** un solo precio con la tarifa de tarjeta para todos los métodos. Accesorios y sellado con **precio final del dueño** no se tocan (no se les suma nada).
+10. Reembolso de carta = `P` pagado (sin parte de comisión en filas nuevas); Stripe no devuelve su comisión (costo nuestro, igual que hoy). Pedidos viejos se reembolsan como antes (dos convenciones coexisten).
 
-## 3. Preguntas al dueño (A/B con pesos; base: tarjeta 3.6 % + MX$3.00, ambos +16 % IVA ⇒ 4.176 % + MX$3.48)
+## 3. Marca de convención — forma exacta en `schema.prisma` (P3 = A)
+Patrón IVA-3 (`PriceConvention`, `schema.prisma:246`): `NOT NULL`, **sin `@default`** (un camino de escritura que la olvide revienta, no archiva en silencio). Migración aditiva `m100` (o la siguiente libre; `m99` es de MKT-V2): crea el enum y las columnas nullable, **rellena** TODA fila existente con `FEE_ON_TOP`, y luego `SET NOT NULL` sin default. Reversa: `DROP COLUMN` ×4 y `DROP TYPE` (nada más depende).
+```
+enum FeeConvention {
+  FEE_ON_TOP     // total = subtotal + envío + processingFeeCents (toda fila anterior al deploy)
+  FEE_INCLUDED   // total = subtotal + envío; subtotal ya trae la comisión dentro de P; processingFeeCents = 0
+}
+model Order {            // y model ShipmentRequest, mismas dos columnas
+  feeConvention  FeeConvention        // ⛔ NOT NULL ⛔ SIN @default (como priceConvention)
+  stripeFeeCents Int?                 // costo REAL de Stripe (balance_transaction.fee); NULL = aún no leído
+}
+```
+- Todo camino que crea `Order`/`ShipmentRequest` escribe `feeConvention: FEE_INCLUDED` (filas nuevas) y `processingFeeCents: 0`. `FEE_ON_TOP` solo existe en filas migradas.
+- `stripeFeeCents`: al liquidar, `stripe.service.ts` pasa a `expand: ['latest_charge.balance_transaction']` (líneas 260 y 313) y guarda `balance_transaction.fee`. Si Stripe no lo devuelve ⇒ `NULL` y el P&L usa el estimado del dial `estimateStripeFeeCents(total) = round(round(total×pct) + fijo) × (1+iva)` con la marca «estimado»; nunca 0 silencioso.
+- **P&L** (`pnl-core.ts:354,388`): `stripeFeesCents += feeConvention === 'FEE_INCLUDED' ? (stripeFeeCents ?? estimate(totalCents)) : processingFeeCents`. `:353` no cambia (el subtotal ya incluye la comisión). `refundedFeesCents` de filas `FEE_INCLUDED` = 0.
+- Reembolso (`itemFeeShareCents`, `money.ts:1072-1075`): para `FEE_INCLUDED` la parte de comisión es 0 y el reembolso de una carta es su `P` prorrateado sin tocar.
+- API: `OrderDTO`/`GET /orders/:orderId` exponen `feeConvention`; el cliente nunca muestra `processingFeeCents` (siempre 0 en filas nuevas) ni `stripeFeeCents` (interno, solo P&L).
 
-**P1. ¿Cómo meter la comisión al precio? (el fijo de MX$3.48 se cobra por pedido, no por carta)**
-- A · Un porcentaje igual en cada carta (≈4.4 %); el fijo lo absorbe la tienda. Carta MX$100 ⇒ MX$104.36. Hoy un pedido de 1 carta de MX$100 se cobra MX$108.00 y no pierdes nada; con A cobras MX$104.36, Stripe te quita ≈MX$7.84 y te quedan ≈MX$96.5: pierdes los MX$3.48 fijos por pedido. Un pedido de MX$1,000 en cartas queda igual que hoy.
-- B · Un porcentaje más alto (≈8 %) que cubre también el fijo en pedidos chicos. Carta MX$100 ⇒ MX$108 (igual que hoy). Pedido de MX$1,000: cobras MX$1,080, Stripe ≈MX$48.6: ganas ≈MX$31 extra, y tus precios se ven ≈3.5 % más altos que con A.
-- Recomiendo **A**: precios más competitivos, la pérdida en pedidos de una sola carta barata es de unos pesos y se compensa con pedidos grandes. Si tu pedido típico es de 1 carta de menos de MX$150, elige B.
+## 4. Contrato por endpoint
+- **Precio:** `displayPriceCents` (catálogo, ficha, carrito, JSON-LD/og, correos) = `P`. El cliente nunca calcula (candado `frontend-never-multiplies`).
+- **`POST /checkout/quote`, `/checkout/guest/quote`, `/checkout/session`, `/checkout/guest/session`, `GET /orders/:orderId`:** filas nuevas `totalCents = subtotalCents + shippingFeeCents`; el desglose del cliente no trae renglón de comisión; pedidos previos conservan su desglose.
+- **`GET /checkout/shipping-rule`:** `freeFromCents` vs `subtotalCents` exhibido (con comisión). **`POST /shipments/quote`, `POST /shipments`:** monto mostrado = cobrado = dial (sin gross-up).
+- **Reembolsos:** §2.10. **Pruebas D9-1…5** (mutar ⇒ rojo): D9-1 `total = ΣP + envío` al centavo; D9-2 quote y session dan igual total; D9-3 pedido previo se reembolsa como antes; D9-4 ninguna cadena de UI/correo contiene «comisión de plataforma»/«platform fee»; D9-5 JSON-LD = `P`.
 
-**P2. Redondeo del precio con comisión**
-- A · Peso entero hacia arriba: MX$104.36 ⇒ MX$105 (tu ejemplo). Precios limpios; ganas unos centavos extra.
-- B · Al centavo: MX$104.36. Exacto, pero precios «feos».
-- Recomiendo **A**.
+## 5. Textos que se quitan o cambian (es/en; frontend y ux-ui)
+Se borran las claves y su uso; paridad es/en y pruebas de i18n verdes:
+- `es.json`/`en.json:490-491` `platformFee`, `platformFeeHint` (renglón del desglose `AmountBreakdown.tsx`): se elimina el renglón para filas `FEE_INCLUDED`; para pedidos viejos (`FEE_ON_TOP`) se conserva el texto histórico (el desglose de un pedido viejo sigue mostrando su comisión).
+- `:664-665` `feeHint.cardsOnly`/`sealed`: quedan «+ envío {shipping}, gratis desde {freeFrom}» / «Envío {shipping}, gratis desde {freeFrom}» (EN: «+ shipping {shipping}, free from {freeFrom}» / «Shipping {shipping}, free from {freeFrom}»).
+- `:672-674` `bar.includesShipping`/`includesShippingFree`/`includesFee`: «Incluye envío {shipping}» / «Incluye envío gratis»; `includesFee` se elimina (EN: «Includes shipping {shipping}» / «Includes free shipping»).
+- `:709` `discount.barVault`: «Descuento −{amount}» (EN: «Discount −{amount}»); se elimina `{fee}`.
+- `:5022` `directShipFreeFromCents`: «se compara con el subtotal que ve el cliente, antes del envío» (sin «y de la comisión»).
+- `:7113` `priceHelp` y `:7195` `bundlePriceHelp` (admin accesorios/energías): el precio del dueño «es lo que ve y paga el cliente»; se quita «La comisión de plataforma se suma aparte/va aparte» (el precio final del dueño no lleva nada encima).
+- Reembolsos (`:2094, 2133, 2681, 2716-2721, 3006`): para filas nuevas «la carta, sin envío» / «se devuelve todo lo cobrado —cartas y envío—»; se conservan las variantes con «su parte de la comisión» solo para pedidos `FEE_ON_TOP` (el texto depende de la marca).
+- P&L `:5601` fórmula: «comisiones Stripe» se queda; «comisión de plataforma devuelta» (`:5612` `refundedFees`) se conserva para meses viejos. Nota nueva en Finanzas: «Desde el 2026-xx-xx la venta incluye la comisión y Stripe aparece solo como gasto; los meses anteriores no se reescriben.»
+- `:5663,5667,5748` (analítica de ventas): quitar «comisión» de «con IVA, comisión y envío» ⇒ «con IVA y envío».
+- Correos transaccionales y ticket (`backend/src/**/*.mail*`, plantillas): grep de «comisión»/«processing fee» ⇒ 0 en pedidos nuevos (D9-4).
 
-**P3. ¿Cómo se ve en el P&L (Finanzas)?**
-- A · La venta cuenta completa (MX$105) y la comisión de Stripe real aparece solo como gasto. Más simple; la ganancia refleja lo real, incluido el fijo que absorbes.
-- B · Se aparta la parte estimada de comisión como «ingreso por comisión» para comparar contra el gasto de Stripe. Más detalle, más cálculo, más riesgo de que no cuadre al centavo.
-- Recomiendo **A**. Los meses viejos no se reescriben.
+## 6. Criterios de aceptación (centavos; dials de hoy: pct 0.036, fijo 300, IVA 16 %, envío ejemplo 10000, gratis desde 400000)
+| # | Caso | Entrada | Resultado esperado |
+|---|---|---|---|
+| C1 | Carta | `M = 10000` | `P = ceilPeso(10000/0.95824) = ceilPeso(10436) = 10500` (`displayPriceCents` en catálogo, ficha, carrito, JSON-LD) |
+| C2 | Pedido de 1 carta a domicilio | `P = 10500`, envío `10000` | `subtotalCents 10500`, `processingFeeCents 0`, `totalCents 20500`, `feeConvention FEE_INCLUDED`; Stripe cobra 20500; sin renglón de comisión en pantalla, ticket ni correo. Costo Stripe estimado ≈ `round(738+300)×1.16 = 1204` ⇒ P&L: ingreso = base de 10500 (= 9052), gasto Stripe = `stripeFeeCents` (real) o 1204 (estimado) |
+| C3 | Pedido de 100000 | 10 cartas de `M=10000` | `ΣP = 105000` (por unidad, no 104358→104400), con envío 10000 `total 115000`; costo Stripe ≈ `round(4140+300)×1.16 = 5150`; la tienda absorbe el fijo (348) |
+| C4 | Umbral 400000 | sellado de precio final 389600 + 1 carta `M=10000` | `S = 389600+10500 = 400100 ≥ 400000` ⇒ envío 0. Con `S = 399999` ⇒ cobra envío; con `S = 400000` exacto ⇒ gratis (`>=`) |
+| C5 | Código 10 % | carta `P = 10500` | descuento 1050, subtotal 9450; `total = 9450 + envío`; sin recálculo de comisión |
+| C6 | Retiro de bóveda | envío dial `10000` | se muestra 10000 y se cobra 10000 (`totalCents 10000`, `processingFeeCents 0`, `FEE_INCLUDED`); con código de envío gratis ⇒ 0 sin cobro. Costo Stripe del retiro ≈ `round(360+300)×1.16 = 766` (variable ≈418 + fijo 348: el retiro es un cobro aparte, `schema.prisma:1831`) |
+| C7 | Reembolso carta | pedido C2, se reembolsa la carta | se devuelven `10500` (sin parte de comisión); Stripe no devuelve su costo |
+| C8 | Pedido previo | fila `FEE_ON_TOP` migrada | desglose, reembolso y P&L idénticos a antes (D9-3) |
+| C9 | Sellado/accesorio con precio final del dueño 25000 | precio escrito 25000 | `P = 25000` (no se le suma nada) |
+| C10 | Migración | todas las filas existentes | `feeConvention = FEE_ON_TOP`, 0 filas NULL; crear una fila sin `feeConvention` falla (NOT NULL) |
+| C11 | Bóveda valuación | carta `M=10000` en bóveda | valuada 10000 (mercado), no 10500 |
+| C12 | Textos | grep de §5 | 0 ocurrencias de «comisión de plataforma»/«platform fee» en pantallas y correos de pedidos nuevos; paridad es/en |
 
-**P4. Ticket, correo y desglose del cliente**
-- A · Cartas MX$105 + envío = total; nada de comisión. Es tu decisión literal.
-- B · Igual, pero una frase fija al pie «El precio incluye costos de procesamiento de pago» (sin monto).
-- Recomiendo **A**. Quitaría los textos «comisión de plataforma al pagar» de ficha, sellado (T1a/T1b) y checkout (HECHOS:177,183,185) y «Incluye comisión de plataforma {fee}».
-
-**P5. Compra a bóveda y retiro**
-- Compra a bóveda: igual que domicilio (la carta cuesta `P`). La valuación de bóveda sigue siendo valor de mercado (MX$100), no `P`.
-- Envío del retiro (dial, ej. MX$100): A · el cliente ve MX$100 y la tienda absorbe la comisión de ese cobro (≈MX$4.2 sobre un envío de MX$100; el fijo ya lo paga el pedido). B · se sube a MX$108 mostrado para cubrirla.
-- Con código de envío gratis: MX$0.00, sin cobro (se mantiene HECHOS:188).
-- Recomiendo **A** (el monto que escribes en M10 es el que ve el cliente).
-
-**P6. Envío gratis desde MX$4,000**
-- A · Se compara con el subtotal que ya ve el cliente (con comisión incluida). Un pedido de MX$3,830 en cartas «de antes» ahora marca ≈MX$4,000 y obtiene envío gratis: el umbral baja en la práctica ≈4.4 % (≈MX$170 menos de compra).
-- B · Subes el umbral a MX$4,200 para conservar el equivalente de hoy.
-- Recomiendo **A**: el cliente lee «gratis desde MX$4,000» y compara contra lo que ve en pantalla; el costo es de unos pocos pedidos.
-
-**P7. Códigos de descuento** (casi sin impacto; se propone sin preguntar salvo que objetes)
-- Propuesta: el % se aplica sobre el precio que ve el cliente. Código 10 % en una carta de MX$105 ⇒ MX$94.50. Hacerlo «sin comisión y volver a sumarla» da prácticamente lo mismo (≈MX$94.5); no vale la complejidad.
-- Efecto real: Stripe cobra menos sobre un total menor, así que la comisión incluida sobra o falta por centavos. No se recalcula nada por pedido.
-
-**P8. Tarjeta vs OXXO/SPEI (si la comisión de Stripe es distinta por método)**
-- A · Un solo precio con la tarifa de tarjeta para todos los métodos. Se cobra el precio visto.
-- B · Precio distinto según método de pago: rompe «se cobra el precio que el cliente vio».
-- Recomiendo **A**. NO MEDIDO: qué métodos están activos hoy y su tarifa; si OXXO cuesta más, esa diferencia la absorbe la tienda.
-- Aparte (sellado y accesorios con precio final escrito por el dueño): **el precio que escribes ya es final y no se le suma nada** (si quieres incluir comisión, súbelo tú). El sellado automático (mercado + margen) sí incluye comisión.
-
-## 4. Riesgos
-- Zona de dinero: `orders`, `payments`, `pricing`, P&L, IVA ⇒ veredictos de qa y seguridad-lead; ux-ui antes de backend/frontend.
-- Cambio de `schema.prisma` (marca de convención) y de textos es-/en-: pasa por arquitecto.
-- El 4.4 % es hoy una estimación de dials; si Stripe cambia tarifa, el precio del día sigue siendo el que se vio hasta el siguiente cálculo diario.
-- Rebanadas de reembolso: el cálculo `itemFeeShareCents` se simplifica, pero pedidos viejos conservan el cálculo previo (dos convenciones coexisten).
+## 7. Riesgos
+- Zona de dinero (`orders`, `payments`, `pricing`, P&L, IVA): veredictos de qa y seguridad-lead; ux-ui antes de backend/frontend.
+- Retiros: el dueño supuso que «el fijo ya lo paga el pedido»; medido, cada retiro es un cobro aparte, así que la tienda absorbe ≈MX$7.66 por retiro de MX$100 (no ≈4.2). Informativo; la decisión «A» se mantiene.
+- El 4.4 % sale de los dials; si Stripe cambia tarifa, `P` sigue siendo lo que se vio hasta el siguiente cálculo diario.
+- Dos convenciones coexisten (reembolsos, P&L, textos dependen de la marca); P&L histórico seguirá subestimado (§1).
+- IVA: `P` lleva IVA dentro, así que la comisión incluida tributa IVA (consecuencia de P3-A; contador).
 - Depende de publicar §DYN (HECHOS:201).
-
-## 5. Contrato por endpoint (movido desde API_CONTRACT §3, 2026-11-09)
-- **Precio:** `displayPriceCents` (catálogo, ficha, carrito, JSON-LD/feeds) = precio ya con comisión, fijado por `ListingPrice` una vez al día. El cliente nunca calcula. Redondeo: PENDIENTE (P2).
-- **`POST /checkout/quote`, `/checkout/guest/quote`, `/checkout/session`, `/checkout/guest/session`, `GET /orders/:orderId`:** filas nuevas `totalCents = subtotalCents + shippingFeeCents` (sin gross-up); `processingFeeCents` deja de ser renglón de cliente (valor interno PENDIENTE P3). Pedidos previos conservan desglose y marca de convención (patrón IVA-3, `NOT NULL` sin `DEFAULT`; forma en `schema.prisma` PENDIENTE P3, la define el arquitecto).
-- **`GET /checkout/shipping-rule`:** `freeFromCents` se compara con el subtotal exhibido (con comisión) — PENDIENTE (P6). `POST /shipments/quote` y `POST /shipments`: monto exhibido vs comisión absorbida — PENDIENTE (P5).
-- **Reembolsos:** carta = `P` pagado (sin `itemFeeShareCents` en filas nuevas); Stripe no devuelve su comisión. Total congelado en la sesión (`frozen-breakdown`); cambio de dial no altera sesiones abiertas.
-- **Pruebas (mutar ⇒ rojo):** D9-1 `total = ΣP + envío` al centavo; D9-2 quote y session dan igual total; D9-3 pedido previo se reembolsa como antes; D9-4 ninguna cadena de UI/correo con «comisión de plataforma»; D9-5 feed/JSON-LD = `P`.
