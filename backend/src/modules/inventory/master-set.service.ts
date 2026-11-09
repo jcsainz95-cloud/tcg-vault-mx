@@ -1,6 +1,7 @@
+import { PromoCollectionLinkService } from '../catalog/promo-collection-link.service';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { customerEmailOrBlank } from '../../common/customer-email';
-import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType } from '@prisma/client';
+import { CardProductKind, Finish, InventoryStatus, Prisma, ProductType, StampType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { PricingService } from '../pricing/pricing.service';
@@ -253,6 +254,12 @@ export interface MasterSetCardCellDTO {
   // un set normal se OMITEN. NO cambian la identidad: `cardId` sigue llaveado a su set real (money-safe).
   partSetId?: string;
   partLabel?: string;
+  // ID-1..6 (PROMOS_MASTERSET §4): SOLO en celdas de SELLO. `cardId` es el de la carta lisa (no identifica la celda: Prerelease y
+  // Staff de la misma carta chocan); la identidad es `cardProductId` (= `CardProduct.tcgplayerProductId` del producto con sello).
+  // Celdas lisas/Black Star: ausentes (identidad `cardId`).
+  cardProductId?: number;
+  stampType?: StampType;
+  stampLabel?: string;
 }
 
 /** v1.29 (§4.27i) — un producto TCGplayer vendible/cotizable aparte bajo la carta. */
@@ -263,6 +270,24 @@ export interface CardProductDTO {
   finishes: Finish[];
   prices: { finish: Finish; marketReferenceMxnCents: number | null; capturedDate?: string | null }[];
 }
+
+/** Columnas de `Card` que lee el binder y el apartado de promos (una sola fuente para `buildCells`). */
+const BINDER_CARD_SELECT = {
+    id: true,
+    setId: true,
+    number: true,
+    name: true,
+    rarity: true,
+    // v2.0 (§4.36.5): la rareza CANÓNICA alimenta el veredicto del guardarraíl (`premiumAtFloor`
+    // del binder). No entra al monto — solo decide publicar/no publicar (criterio 84).
+    rarityCanonical: true,
+    imageSmallUrl: true,
+    availableFinishes: true,
+    // v1.22 (M-26): se LEEN de la columna; ya no se derivan en memoria (ARCHITECTURE 4.22b).
+    numberSort: true,
+    numberPrefix: true,
+  } satisfies Prisma.CardSelect;
+type BinderCardRow = Prisma.CardGetPayload<{ select: typeof BINDER_CARD_SELECT }>;
 
 export interface MasterSetBinderResponse {
   /** v1.80 (P-71): `MasterSetRefDTO` (= `SetRefDTO` + `ptcgoCode`). */
@@ -281,6 +306,8 @@ export interface MasterSetBinderResponse {
   // omite ambos. Money-safe: cada celda/pieza conserva su set-id real.
   parts?: SetPartDTO[];
   canonicalSetId?: string;
+  /** AUTO-B: promos ligadas a la coleccion con confianza alta + avance propio. Ausente = sin apartado. */
+  collectionPromos?: { items: MasterSetCardCellDTO[]; total: number; owned: number };
 }
 
 /** Deriva el año del set desde `releaseDate` (`yyyy/MM/dd` de pokemontcg.io). */
@@ -688,6 +715,104 @@ export class MasterSetService implements OnModuleInit {
     };
   }
 
+  /**
+   * `collectionPromos` del binder (PROMOS_MASTERSET §4, AUTO_CATALOGO §B). Aditivo y AISLADO: no toca `completedCount`/`totalCount`/valor.
+   *  - Los SELLOS (CardProduct `stamped` colgados de una carta lisa del set) se muestran SIEMPRE.
+   *  - Las Black Star/ETB ligadas por `PromoCollectionLink` (confianza `high`) solo con la compuerta automatica ABIERTA.
+   * `items` son `MasterSetCardCellDTO` (mismo DTO del binder; Black Star por `buildCells`, sellos por `buildStampCells`).
+   * `total` = lo mostrado; `owned` = celdas con al menos una pieza en el scope. `undefined` solo si no hay nada. Un fallo aqui jamas
+   * rompe el binder (se omite el campo, con `warn`).
+   */
+  private async loadCollectionPromos(partSetIds: string[], scope: MasterSetQueryScope) {
+    try {
+      const links = new PromoCollectionLinkService(this.prisma);
+      const linkedIds = await links.publishableLinkedCardIds(partSetIds);
+      const linkedCards = linkedIds.length
+        ? await this.prisma.card.findMany({ where: { id: { in: linkedIds } }, select: BINDER_CARD_SELECT, orderBy: CARD_ORDER_BY_IN_SET })
+        : [];
+      const blackStar = linkedCards.length
+        ? await this.buildCells(linkedCards, scope, { printedTotal: null, combined: false, partInfo: new Map() })
+        : [];
+      const stamps = await this.buildStampCells(partSetIds, scope);
+      const items = [...blackStar, ...stamps];
+      if (items.length === 0) return undefined;
+      return { items, total: items.length, owned: items.filter((c) => c.totalCount > 0).length };
+    } catch (e) {
+      this.logger.warn(`binder: no se pudo armar «Promos de la colección» (${(e as Error).message}); se omite el apartado.`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Celdas de los SELLOS (Prerelease/Staff/liga/evento) colgados de una carta lisa de estos sets: una celda por sello. `cardId` es
+   * el de la carta lisa pero la IDENTIDAD es `cardProductId`/`stampType`/`stampLabel` (ID-1..6), las variantes = acabados del PRODUCTO sellado, el conteo de las piezas de ESE producto
+   * en el scope y su precio propio (`separateProducts[0]`, kind `stamped`). Sin consola de precios (no es el eje del Master Set).
+   */
+  private async buildStampCells(partSetIds: string[], scope: MasterSetQueryScope): Promise<MasterSetCardCellDTO[]> {
+    const products = await this.prisma.cardProduct.findMany({
+      where: { kind: 'stamped', card: { setId: { in: partSetIds } } },
+      select: { tcgplayerProductId: true, cardId: true, finishes: true, stampType: true, stampLabel: true, card: { select: BINDER_CARD_SELECT } },
+    });
+    if (products.length === 0) return [];
+    const productIds = products.map((p) => p.tcgplayerProductId);
+    const grouped = await this.prisma.inventoryItem.groupBy({
+      by: ['cardProductId', 'finish'],
+      where: { cardProductId: { in: productIds }, productType: { not: 'sealed' }, ...this.scopeWhere(scope) },
+      _count: { _all: true },
+    });
+    const countsByProduct = new Map<number, { finish: Finish; count: number }[]>();
+    for (const g of grouped) {
+      if (g.cardProductId == null) continue;
+      const list = countsByProduct.get(g.cardProductId) ?? [];
+      list.push({ finish: g.finish, count: g._count._all });
+      countsByProduct.set(g.cardProductId, list);
+    }
+    const priced = await this.pricing.getSeparateProductsByCard([...new Set(products.map((p) => p.cardId))], ['stamped']);
+    const cells: MasterSetCardCellDTO[] = [];
+    for (const p of [...products].sort((a, b) => a.card.numberSort - b.card.numberSort || a.card.number.localeCompare(b.card.number) || a.tcgplayerProductId - b.tcgplayerProductId)) {
+      const info = (priced.get(p.cardId) ?? []).find((i) => i.productId === p.tcgplayerProductId);
+      const universe: Finish[] = p.finishes.length > 0 ? FINISH_ORDER.filter((f) => p.finishes.includes(f)) : ['normal'];
+      const byFinish = (countsByProduct.get(p.tcgplayerProductId) ?? []).sort((a, b) => (a.finish < b.finish ? -1 : a.finish > b.finish ? 1 : 0));
+      const variants: MasterSetVariantDTO[] = universe.map((finish) => {
+        const count = byFinish.find((x) => x.finish === finish)?.count ?? 0;
+        const price = info?.prices.find((pr) => pr.finish === finish);
+        return {
+          finish,
+          count,
+          covered: count > 0,
+          displayed: true,
+          marketReferenceMxnCents: price?.marketReferenceMxnCents ?? null,
+          ...(price?.capturedDate != null ? { capturedDate: price.capturedDate } : {}),
+        };
+      });
+      const c = p.card;
+      cells.push({
+        cardId: c.id,
+        // Identidad de la celda de sello (ID-2): el producto con sello, no la carta lisa.
+        cardProductId: p.tcgplayerProductId,
+        ...(p.stampType != null ? { stampType: p.stampType } : {}),
+        ...(p.stampLabel != null ? { stampLabel: p.stampLabel } : {}),
+        number: c.number,
+        numberSort: c.numberSort,
+        numberPrefix: c.numberPrefix,
+        name: c.name,
+        rarity: c.rarity ?? undefined,
+        imageSmallUrl: c.imageSmallUrl ?? undefined,
+        availableFinishes: universe,
+        displayFinishes: universe,
+        countsByFinish: byFinish,
+        totalCount: byFinish.reduce((sum, x) => sum + x.count, 0),
+        isSecretRare: false,
+        expectedVariantCount: universe.length,
+        coveredVariantCount: variants.filter((v) => v.covered).length,
+        variants,
+        marketReferenceMxnCents: variants[0]?.marketReferenceMxnCents ?? null,
+        ...(info ? { separateProducts: [{ productId: info.productId, kind: info.kind, name: info.name, finishes: info.finishes, prices: info.prices }] } : {}),
+      });
+    }
+    return cells;
+  }
+
   /** WHERE Prisma del scope (mismo filtro de status "en bóveda"/on-hand en ambos). */
   private scopeWhere(scope: MasterSetQueryScope): Prisma.InventoryItemWhereInput {
     return scope.kind === 'platform'
@@ -804,21 +929,7 @@ export class MasterSetService implements OnModuleInit {
     const cards = await this.prisma.card.findMany({
       // v1.33 (P-27): `setId IN partSetIds` (una sola parte para un set normal → idéntico a v1.20).
       where: { setId: { in: partSetIds } },
-      select: {
-        id: true,
-        setId: true,
-        number: true,
-        name: true,
-        rarity: true,
-        // v2.0 (§4.36.5): la rareza CANÓNICA alimenta el veredicto del guardarraíl (`premiumAtFloor`
-        // del binder). No entra al monto — solo decide publicar/no publicar (criterio 84).
-        rarityCanonical: true,
-        imageSmallUrl: true,
-        availableFinishes: true,
-        // v1.22 (M-26): se LEEN de la columna; ya no se derivan en memoria (ARCHITECTURE 4.22b).
-        numberSort: true,
-        numberPrefix: true,
-      },
+      select: BINDER_CARD_SELECT,
       // v1.22: el ORDEN NATURAL lo aplica la BASE DE DATOS con el mismo `orderBy` normativo de
       // `GET /buylist/cards?setId=` (indice `(setId, numberPrefix, numberSort)`), en vez del
       // `.sort(compareByNumber)` en memoria. UN solo algoritmo, una sola fuente del orden.
@@ -833,6 +944,81 @@ export class MasterSetService implements OnModuleInit {
         (a, b) => (partInfo.get(a.setId)?.order ?? 0) - (partInfo.get(b.setId)?.order ?? 0),
       );
     }
+    const printedTotal = combined
+      ? combined.parts.reduce<number | null>(
+          (acc, p) => (p.printedTotal == null ? acc : (acc ?? 0) + p.printedTotal),
+          null,
+        )
+      : (set.printedTotal ?? null);
+    const cells = await this.buildCells(cards, scope, { printedTotal, combined: combined != null, partInfo });
+
+    // v1.20 §4.20d — faltantes comprables, SOLO vista (iii) del cliente: para cada variante
+    // covered=false, la pieza `listed` de plataforma MÁS BARATA de ese (cardId, finish), o null.
+    if (opts.includeBuyable) {
+      const missing: { cardId: string; finish: Finish }[] = [];
+      for (const cell of cells) {
+        for (const v of cell.variants) {
+          if (!v.covered) missing.push({ cardId: cell.cardId, finish: v.finish });
+        }
+      }
+      const buyables = await this.resolveBuyables(missing);
+      for (const cell of cells) {
+        cell.variants = cell.variants.map((v) =>
+          v.covered ? v : { ...v, buyable: buyables.get(`${cell.cardId}|${v.finish}`) ?? null },
+        );
+      }
+    }
+
+    // v1.33 (P-27, §4.31b, D4): en un master combinado `set` = el PRINCIPAL (nombre del master); en un
+    // set normal = el propio set (v1.20 intacto). `catalogCardCount` = cards.length ya es Σ de partes.
+    const setRef = combined ? combined.primary : set;
+    const collectionPromos = await this.loadCollectionPromos(partSetIds, scope);
+    const partsDTO: SetPartDTO[] | undefined = combined
+      ? combined.parts.map((p) => ({
+          setId: p.setId,
+          name: p.name,
+          label: p.label,
+          isPrimary: p.isPrimary,
+          order: p.order,
+          catalogCardCount: cards.filter((c) => c.setId === p.setId).length,
+          // v1.80 (P-71): el código DE ESTA PARTE (⛔ no el del principal).
+          ptcgoCode: publicPtcgoCode(p.ptcgoCode),
+        }))
+      : undefined;
+
+    return {
+      set: {
+        id: setRef.id,
+        name: setRef.name,
+        series: setRef.series ?? undefined,
+        releaseDate: setRef.releaseDate ?? undefined,
+        // v1.80 (P-71): `MasterSetRefDTO` — en un combinado, el del PRINCIPAL.
+        ptcgoCode: publicPtcgoCode(setRef.ptcgoCode),
+      },
+      printedTotal,
+      catalogCardCount: cards.length,
+      cells,
+      scope: scope.kind,
+      ...(owner ? { owner } : {}),
+      // v1.33 (P-27, §4.31b): master set combinado — desglose de partes + normalización del subset.
+      ...(partsDTO ? { parts: partsDTO } : {}),
+      ...(combined?.canonicalSetId ? { canonicalSetId: combined.canonicalSetId } : {}),
+      // AUTO-B: apartado «Promos de la colección» (solo liga `high`; «x de y» propio, jamas sumado al Master Set).
+      ...(collectionPromos ? { collectionPromos } : {}),
+    };
+  }
+
+  /**
+   * Constructor ÚNICO de celdas del binder (refactor sin cambio de conducta: era el cuerpo de `binder()`). Lo usan el Master
+   * Set y el apartado «Promos de la colección» (Black Star ligadas): mismo DTO, mismas variantes, `countsByFinish` y precio.
+   * `printedTotal` solo decide `isSecretRare` (null en el apartado: una promo no es secret rare del set).
+   */
+  private async buildCells(
+    cards: BinderCardRow[],
+    scope: MasterSetQueryScope,
+    ctx: { printedTotal: number | null; combined: boolean; partInfo: Map<string, { order: number; label: string }> },
+  ): Promise<MasterSetCardCellDTO[]> {
+    const { printedTotal, combined, partInfo } = ctx;
     const cardIds = cards.map((c) => c.id);
 
     const grouped = cardIds.length
@@ -888,14 +1074,6 @@ export class MasterSetService implements OnModuleInit {
       ? await this.pricing.getVariantOverridesBatch(universeKeys)
       : new Map<string, never>();
 
-    // v1.33 (P-27, §4.31b, D5/CA-67): `printedTotal` = Σ de las partes en un master combinado
-    // (Celebrations 25 + 25 = 50); en un set normal = su propio `printedTotal` (v1.20 intacto).
-    const printedTotal = combined
-      ? combined.parts.reduce<number | null>(
-          (acc, p) => (p.printedTotal == null ? acc : (acc ?? 0) + p.printedTotal),
-          null,
-        )
-      : (set.printedTotal ?? null);
     const cells: MasterSetCardCellDTO[] = cards
       .map((c) => {
         const byFinish = (countsByCard.get(c.id) ?? []).sort((a, b) =>
@@ -1002,58 +1180,7 @@ export class MasterSetService implements OnModuleInit {
             : {}),
         };
       });
-
-    // v1.20 §4.20d — faltantes comprables, SOLO vista (iii) del cliente: para cada variante
-    // covered=false, la pieza `listed` de plataforma MÁS BARATA de ese (cardId, finish), o null.
-    if (opts.includeBuyable) {
-      const missing: { cardId: string; finish: Finish }[] = [];
-      for (const cell of cells) {
-        for (const v of cell.variants) {
-          if (!v.covered) missing.push({ cardId: cell.cardId, finish: v.finish });
-        }
-      }
-      const buyables = await this.resolveBuyables(missing);
-      for (const cell of cells) {
-        cell.variants = cell.variants.map((v) =>
-          v.covered ? v : { ...v, buyable: buyables.get(`${cell.cardId}|${v.finish}`) ?? null },
-        );
-      }
-    }
-
-    // v1.33 (P-27, §4.31b, D4): en un master combinado `set` = el PRINCIPAL (nombre del master); en un
-    // set normal = el propio set (v1.20 intacto). `catalogCardCount` = cards.length ya es Σ de partes.
-    const setRef = combined ? combined.primary : set;
-    const partsDTO: SetPartDTO[] | undefined = combined
-      ? combined.parts.map((p) => ({
-          setId: p.setId,
-          name: p.name,
-          label: p.label,
-          isPrimary: p.isPrimary,
-          order: p.order,
-          catalogCardCount: cards.filter((c) => c.setId === p.setId).length,
-          // v1.80 (P-71): el código DE ESTA PARTE (⛔ no el del principal).
-          ptcgoCode: publicPtcgoCode(p.ptcgoCode),
-        }))
-      : undefined;
-
-    return {
-      set: {
-        id: setRef.id,
-        name: setRef.name,
-        series: setRef.series ?? undefined,
-        releaseDate: setRef.releaseDate ?? undefined,
-        // v1.80 (P-71): `MasterSetRefDTO` — en un combinado, el del PRINCIPAL.
-        ptcgoCode: publicPtcgoCode(setRef.ptcgoCode),
-      },
-      printedTotal,
-      catalogCardCount: cards.length,
-      cells,
-      scope: scope.kind,
-      ...(owner ? { owner } : {}),
-      // v1.33 (P-27, §4.31b): master set combinado — desglose de partes + normalización del subset.
-      ...(partsDTO ? { parts: partsDTO } : {}),
-      ...(combined?.canonicalSetId ? { canonicalSetId: combined.canonicalSetId } : {}),
-    };
+    return cells;
   }
 
   /**

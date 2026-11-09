@@ -798,7 +798,8 @@ test.describe('Gancho de grading · BACK-OFFICE: la lista de revisión y el RETI
     //    (El prefijo se deriva de la propia clave: su cola es un plural ICU que el helper no expande.)
     const okPrefix = t('es', 'admin.m2.gradedEstimateReview.deleteOk', {
       grade: '10',
-      card: 'Zapdos',
+      // §PSA-ACABADO: la fila es por (carta, grado, ACABADO) y el aviso nombra el acabado (Zapdos · Holofoil).
+      card: `Zapdos · ${t('es', 'finish.holofoil')}`,
     }).split('{')[0];
     await expect(section.getByText(okPrefix, { exact: false })).toBeVisible();
     // La fila se fue de la LISTA (se asserta sobre su acción, no sobre el nombre de la carta: el

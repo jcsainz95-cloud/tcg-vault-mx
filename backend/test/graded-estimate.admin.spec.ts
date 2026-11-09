@@ -124,6 +124,7 @@ const psaRef = (
   capturedDate,
   cardProductId: null,
   refKind,
+  estimateFinishScoped: true,
 });
 
 function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknown> = {}) {
@@ -162,6 +163,7 @@ function wire(items: any[] = [], refs: any[] = [], config: Record<string, unknow
     },
     // v1.114 (§DYN.5.9): la retención del candado lee los casos de revisión vigentes; aquí no hay ninguno.
     priceReviewCase: { findMany: jest.fn(async () => []) },
+    gradedEstimateCardScan: { count: jest.fn(async () => 0) },
     priceReference: {
       // v1.50.3: la LISTA DE REVISIÓN pide `distinct: ['cardId']` + `take`, así que el mock los honra.
       // Sin `distinct`, una carta con PSA 10 **y** PSA 9 entraría dos veces al conjunto motor y el
@@ -888,7 +890,7 @@ describe('GET /admin/pricing/graded-estimates/review — la lista de revisión (
     const { ctrl, prisma } = incoherente();
     await ctrl.review();
     const where = (prisma as any).priceReference.findMany.mock.calls[0][0].where;
-    expect(where).toMatchObject({ productType: 'graded', finish: 'normal', cardProductId: null });
+    expect(where).toMatchObject({ productType: 'graded', cardProductId: null });
     // Sin este recorte el endpoint sería un barrido de catálogo y no debería existir (§4.38n.1).
     expect((prisma as any).priceReference.findMany.mock.calls[0][0].distinct).toEqual(['cardId']);
   });
@@ -1026,7 +1028,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
     // ayer y el estimado volvería a la ficha — una resurrección silenciosa en superficie comercial.
     const refs = [ref('10', 900_000, new Date(), 'r-hoy'), ref('10', 800_000, AYER, 'r-ayer')];
     const { ctrl } = wire([rawItem()], refs, ON);
-    expect(await ctrl.remove('ca', '10', 'admin')).toEqual({
+    expect(await ctrl.remove('ca', '10', 'admin', 'normal')).toEqual({
       cardId: 'ca',
       gradeValue: '10',
       // `deletedCount` va en la respuesta para que el operador vea CUÁNTO historial se llevó y no lo
@@ -1047,7 +1049,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
     };
     const refs = [ref('10', 900_000, new Date(), 'r-10'), otroGrado, otraCarta, rawRow];
     const { ctrl } = wire([rawItem()], refs, ON);
-    expect((await ctrl.remove('ca', '10', 'admin')).deletedCount).toBe(1);
+    expect((await ctrl.remove('ca', '10', 'admin', 'normal')).deletedCount).toBe(1);
     // §4.38(q.3): este endpoint NO borra `raw` ni `sealed` — ahí un borrado movería precios de venta
     // publicados y necesita su propio diseño (hueco declarado en §9, no capacidad prometida).
     expect(refs).toEqual([otroGrado, otraCarta, rawRow]);
@@ -1068,7 +1070,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
     const dinero = { ...psaRef('10', 8_000_00, AYER, 'market'), id: 'r-mkt' };
     const refs = [estimado, dinero];
     const { ctrl } = wire([rawItem()], refs, ON);
-    expect((await ctrl.remove('ca', '10', 'admin')).deletedCount).toBe(1);
+    expect((await ctrl.remove('ca', '10', 'admin', 'normal')).deletedCount).toBe(1);
     expect(refs).toEqual([dinero]);
   });
 
@@ -1078,16 +1080,36 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
     const dinero = { ...psaRef('10', 8_000_00, new Date(), 'market'), id: 'r-mkt' };
     const refs = [dinero];
     const { ctrl, audit } = wire([rawItem()], refs, ON);
-    await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(ctrl.remove('ca', '10', 'admin', 'normal')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(refs).toEqual([dinero]);
     expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('PSA-ACABADO B9 — DELETE sin `finish` ⇒ 400 `VALIDATION_ERROR` (field finish) y no toca la tabla', async () => {
+    const refs = [ref('10', 900_000, new Date(), 'r-10')];
+    const { ctrl } = wire([rawItem()], refs, ON);
+    await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({
+      status: 400,
+      code: 'VALIDATION_ERROR',
+      details: expect.objectContaining({ field: 'finish' }),
+    });
+    expect(refs).toHaveLength(1);
+  });
+
+  it('PSA-ACABADO B9 — DELETE con `finish` borra SOLO ese acabado, no el otro', async () => {
+    const holo = { ...ref('10', 900_000, new Date(), 'r-holo'), finish: 'holofoil' };
+    const rev = { ...ref('10', 300_000, new Date(), 'r-rev'), finish: 'reverse_holo' };
+    const refs = [holo, rev];
+    const { ctrl } = wire([rawItem()], refs, ON);
+    expect((await ctrl.remove('ca', '10', 'admin', 'holofoil')).deletedCount).toBe(1);
+    expect(refs.map((r) => r.id)).toEqual(['r-rev']);
   });
 
   it('nada que borrar ⇒ 404, JAMÁS un `200` con `deletedCount: 0`', async () => {
     // Mismo precedente que el `PUT` con body vacío ⇒ 422 (GU-A10b): responder éxito cuando no pasó
     // nada le haría creer al operador que limpió algo que no limpió.
     const { ctrl, audit } = wire([rawItem()], [ref('9', 500_000, new Date(), 'r-9')], ON);
-    await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(ctrl.remove('ca', '10', 'admin', 'normal')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     // Un borrado que no borró nada tampoco deja bitácora de borrado (no hubo `before` que registrar).
     expect(audit.log).not.toHaveBeenCalled();
   });
@@ -1096,7 +1118,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
     const refs = [ref('10', 900_000, new Date(), 'r-10')];
     const { ctrl, prisma } = wire([rawItem()], refs, ON);
     for (const malo of ['8', 'graded:PSA:10', '', ' ', '10.0']) {
-      await expect(ctrl.remove('ca', malo, 'admin')).rejects.toMatchObject({
+      await expect(ctrl.remove('ca', malo, 'admin', 'normal')).rejects.toMatchObject({
         code: 'VALIDATION_ERROR',
         details: { field: 'gradeValue' },
       });
@@ -1107,7 +1129,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
 
   it('el grado se deriva a la clave CANÓNICA (`graded:PSA:N`, `normal`, `cardProductId: null`)', async () => {
     const { ctrl, prisma } = wire([rawItem()], [ref('10', 900_000, new Date(), 'r-10')], ON);
-    await ctrl.remove('ca', '10', 'admin');
+    await ctrl.remove('ca', '10', 'admin', 'normal');
     // La MISMA clave con la que se leyó: borrar por una clave más ancha que la leída sería un borrado
     // a ciegas (y el `before` de la bitácora no describiría lo que se fue).
     expect((prisma as any).priceReference.deleteMany.mock.calls[0][0].where).toEqual({
@@ -1129,7 +1151,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
       [ref('10', 900_000, new Date(), 'r-hoy'), ref('10', 800_000, ANTIER, 'r-antier')],
       ON,
     );
-    await ctrl.remove('ca', '10', 'admin');
+    await ctrl.remove('ca', '10', 'admin', 'normal');
     const entry = (audit.log as jest.Mock).mock.calls[0][0];
     expect(entry).toMatchObject({
       actorUserId: 'admin',
@@ -1160,7 +1182,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
       auditDuranteTx = (audit.log as jest.Mock).mock.calls.length > antes;
       return out;
     });
-    await ctrl.remove('ca', '10', 'admin');
+    await ctrl.remove('ca', '10', 'admin', 'normal');
     expect(auditDuranteTx).toBe(true);
     // Con el `tx` como 2º argumento: con `this.prisma` la fila se auto-commitearía fuera del rollback
     // y el todo-o-nada sería mentira.
@@ -1170,7 +1192,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
   it('funciona con la feature APAGADA (hay que poder limpiar ANTES de encender)', async () => {
     const refs = [ref('10', 900_000, new Date(), 'r-10')];
     const { ctrl } = wire([rawItem()], refs, {}); // dial `off` (el seed fail-closed)
-    expect((await ctrl.remove('ca', '10', 'admin')).deletedCount).toBe(1);
+    expect((await ctrl.remove('ca', '10', 'admin', 'normal')).deletedCount).toBe(1);
     expect(refs).toHaveLength(0);
   });
 
@@ -1183,7 +1205,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
     it('con slab publicado del grado ⇒ 409 y la fila SIGUE AHÍ (no se borró «casi»)', async () => {
       const refs = [ref('10', 900_000, new Date(), 'r-10')];
       const { ctrl, prisma } = wire([rawItem(), slabItem('10')], refs, ON);
-      await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({
+      await expect(ctrl.remove('ca', '10', 'admin', 'normal')).rejects.toMatchObject({
         code: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
         details: { publishedSlabCount: 1, inventoryItemIds: ['slab1'] },
       });
@@ -1207,7 +1229,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
         items.push(slabItem('10'));
         return cb(prisma);
       });
-      await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({
+      await expect(ctrl.remove('ca', '10', 'admin', 'normal')).rejects.toMatchObject({
         code: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
         details: { publishedSlabCount: 1, inventoryItemIds: ['slab1'] },
       });
@@ -1228,7 +1250,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
      */
     it('el intento BLOQUEADO deja rastro propio (si no, la guarda es muda por esta vía)', async () => {
       const { ctrl, audit } = wire([rawItem(), slabItem('10')], [ref('10', 900_000, new Date(), 'r')], ON);
-      await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({
+      await expect(ctrl.remove('ca', '10', 'admin', 'normal')).rejects.toMatchObject({
         code: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
       });
       const entry = (audit.log as jest.Mock).mock.calls[0][0];
@@ -1248,7 +1270,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
       // él), así que bloquearlo sería extender la guarda a dinero que no existe.
       const refs = [ref('10', 900_000, new Date(), 'r-10'), ref('9', 500_000, new Date(), 'r-9')];
       const { ctrl } = wire([rawItem(), slabItem('10')], refs, ON);
-      expect((await ctrl.remove('ca', '9', 'admin')).deletedCount).toBe(1);
+      expect((await ctrl.remove('ca', '9', 'admin', 'normal')).deletedCount).toBe(1);
       expect(refs.map((r) => r.id)).toEqual(['r-10']);
     });
 
@@ -1256,7 +1278,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
       // Es una precondición sobre el ESTADO DEL MUNDO, no sobre el contenido de la tabla: un `404` ahí
       // invitaría a reintentar el borrado después de capturar la fila.
       const { ctrl } = wire([rawItem(), slabItem('10')], [], ON);
-      await expect(ctrl.remove('ca', '10', 'admin')).rejects.toMatchObject({
+      await expect(ctrl.remove('ca', '10', 'admin', 'normal')).rejects.toMatchObject({
         code: 'GRADED_ESTIMATE_SLAB_PUBLISHED',
       });
     });
@@ -1265,7 +1287,7 @@ describe('DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue — descart
       const refs = [ref('10', 900_000, new Date(), 'r-10')];
       const enCustodia = { ...slabItem('10'), ownerType: 'customer', status: 'in_custody' };
       const { ctrl } = wire([rawItem(), enCustodia], refs, ON);
-      expect((await ctrl.remove('ca', '10', 'admin')).deletedCount).toBe(1);
+      expect((await ctrl.remove('ca', '10', 'admin', 'normal')).deletedCount).toBe(1);
     });
   });
 });

@@ -30,9 +30,9 @@ describe('PokemonTcgIoClient.getSetsBounded', () => {
     global.fetch = realFetch;
   });
 
-  it('parámetros de producción: 3 intentos, ≤2 s entre ellos, presupuesto 10 s, caché 24 h', () => {
+  it('parámetros de producción: 4 intentos, ≤2 s entre ellos, presupuesto 20 s, caché 24 h', () => {
     const c = new PokemonTcgIoClient({ get: () => undefined } as unknown as ConfigService) as unknown as Record<string, number>;
-    expect([c.boundedAttempts, c.boundedMaxWaitMs, c.boundedBudgetMs, c.setsCacheTtlMs]).toEqual([3, 2000, 10000, 86_400_000]);
+    expect([c.boundedAttempts, c.boundedMaxWaitMs, c.boundedBudgetMs, c.setsCacheTtlMs]).toEqual([4, 2000, 20000, 86_400_000]);
   });
 
   it('503, 503, 200 ⇒ 3 intentos y devuelve la lista', async () => {
@@ -41,12 +41,12 @@ describe('PokemonTcgIoClient.getSetsBounded', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it('siempre 503 sin caché ⇒ lanza tras EXACTAMENTE 3 intentos y no hay más llamadas después', async () => {
+  it('siempre 503 sin caché ⇒ lanza tras EXACTAMENTE 4 intentos y no hay más llamadas después', async () => {
     fetchMock.mockResolvedValue(bad(503));
     await expect(new FastClient().getSetsBounded()).rejects.toThrow(/503/);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     await new Promise((r) => setTimeout(r, 50));
-    expect(fetchMock).toHaveBeenCalledTimes(3); // nada en segundo plano
+    expect(fetchMock).toHaveBeenCalledTimes(4); // nada en segundo plano
   });
 
   it('Retry-After 60 s > presupuesto restante ⇒ se corta en el 1.er intento', async () => {
@@ -99,5 +99,13 @@ describe('PokemonTcgIoClient.getSetsBounded', () => {
     await c.getSetsBounded();
     fetchMock.mockResolvedValue(ok([]));
     await expect(c.getSetsBounded()).resolves.toEqual([{ id: 'a', name: 'A' }]);
+  });
+
+  it('getSets() (lista de M2) calienta la caché: un 503 posterior del import usa esa lista', async () => {
+    const c = new FastClient();
+    fetchMock.mockResolvedValueOnce(ok([{ id: 'mep', name: 'ME' }]));
+    await c.getSets();
+    fetchMock.mockResolvedValue(bad(503));
+    await expect(c.getSetsBounded()).resolves.toEqual([{ id: 'mep', name: 'ME' }]);
   });
 });

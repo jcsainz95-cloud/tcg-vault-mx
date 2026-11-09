@@ -7,6 +7,7 @@ import { deleteGradedEstimate, getGradedEstimateReview } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import {
   GRADED_REVIEW_DEFAULT_REASONS,
+  type Finish,
   type GradedEstimateReviewItemDTO,
   type GradedEstimateReviewReason,
 } from '@/types/contract';
@@ -37,6 +38,7 @@ interface PendingDelete {
   cardId: string;
   cardName: string;
   gradeValue: string;
+  finish: Finish;
   amountCents: number | null;
   capturedDate: string | null;
   isManual: boolean;
@@ -95,6 +97,7 @@ type DeleteOutcome =
 export function GradedEstimateReviewSection() {
   const t = useTranslations('admin.m2.gradedEstimateReview');
   const tReason = useTranslations('admin.m2.gradedEstimateCapture.diagnosis.reason');
+  const tFinish = useTranslations('finish');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
   const getError = useErrorMessage('operator');
@@ -120,7 +123,7 @@ export function GradedEstimateReviewSection() {
 
   const remove = useMutation({
     mutationFn: (target: PendingDelete) =>
-      deleteGradedEstimate(target.cardId, target.gradeValue),
+      deleteGradedEstimate(target.cardId, target.gradeValue, target.finish),
     onSuccess: (res, target) => {
       setOutcome({
         kind: 'deleted',
@@ -163,8 +166,10 @@ export function GradedEstimateReviewSection() {
     setOutcome(null);
     setPending({
       cardId: row.cardId,
-      cardName: row.cardName,
+      // El acabado viaja en el nombre mostrado: el borrado es por (carta, grado, ACABADO).
+      cardName: `${row.cardName} · ${tFinish(row.finish)}`,
       gradeValue,
+      finish: row.finish,
       amountCents: amount,
       capturedDate: row.capturedDate,
       isManual: row.isManual,
@@ -192,7 +197,7 @@ export function GradedEstimateReviewSection() {
           </span>
           <span className="font-mono text-xs text-muted">
             <span lang="en">{r.setName}</span> · <span className="tabular">#{r.number}</span> ·{' '}
-            {r.finish}
+            {tFinish(r.finish)}
           </span>
         </span>
       ),
@@ -205,6 +210,11 @@ export function GradedEstimateReviewSection() {
           <Badge tone="warning" shape="outline">
             {r.reason ? t(`reasonShort.${r.reason}`) : '—'}
           </Badge>
+          {r.quarantined === true && (
+            <Badge tone="neutral" shape="outline" data-testid="quarantined-badge">
+              {t('quarantinedBadge')}
+            </Badge>
+          )}
           {/* El motivo largo dice QUÉ ERROR suele haber detrás: es lo que convierte la fila en una
               acción («esto huele a dólares capturados como pesos») y no en una etiqueta. */}
           <span className="text-xs text-muted">{r.reason ? tReason(r.reason) : ''}</span>
@@ -387,6 +397,16 @@ export function GradedEstimateReviewSection() {
               <p className="text-xs text-muted">
                 {t('summary', { total: query.data.total, scanned: query.data.scannedCards })}
               </p>
+              {(query.data.quarantinedCount ?? 0) > 0 && (
+                <Banner variant="info" title={t('quarantinedTitle')}>
+                  {t('quarantinedBody', { count: query.data.quarantinedCount ?? 0 })}
+                </Banner>
+              )}
+              {(query.data.noFinishSplit ?? 0) > 0 && (
+                <Banner variant="info" title={t('noFinishSplitTitle')}>
+                  {t('noFinishSplitBody', { count: query.data.noFinishSplit ?? 0 })}
+                </Banner>
+              )}
 
               {/* `data: []` NO es un logro que celebrar con un placeholder: es una lista vacía. */}
               <div className="rounded-lg border border-border p-2">
@@ -406,6 +426,7 @@ export function GradedEstimateReviewSection() {
               )}
 
               <p className="text-xs text-muted">{t('howToFix')}</p>
+              <p className="text-xs text-muted">{t('republishHint')}</p>
 
               {totalPages > 1 && (
                 <div className="flex items-center gap-3">

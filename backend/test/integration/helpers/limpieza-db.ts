@@ -364,6 +364,23 @@ function revertFromHeader(schema: string, suffix: string, what: string): void {
   if (!block.some((l) => /_prisma_migrations/.test(l))) throw new Error(`${what}: la Reversa de ${file} no borra su fila de _prisma_migrations`);
   psqlOk(schema, `BEGIN;\n${block.join('\n')}\nCOMMIT;\n`, what);
 }
+/**
+ * T-AC3 — quita `PromoCollectionLink` (AUTO-B, migración `20261118120000_promo_collection_link`) para comparar con el B
+ * CONGELADO de a7232d7a, que PRECEDE a esa tabla y abortaría en su G-8. La migración no trae bloque «Reversa»: se escribe aquí
+ * su reversa literal (tabla, tipo y la fila de `_prisma_migrations`). La columna `Card.contentKey` queda (el B congelado no la mira).
+ */
+export function revertPromoLink(schema: string): void {
+  psqlOk(
+    schema,
+    `BEGIN;
+DROP TABLE IF EXISTS "PromoCollectionLink";
+DROP TYPE IF EXISTS "PromoLinkConfidence";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261118120000_promo_collection_link';
+COMMIT;
+`,
+    'revertPromoLink',
+  );
+}
 /** T-AC3 — quita M-95b (idioma y versiones de liga, v1.116⟨ids⟩). Va ANTES que M-94 (orden inverso de despliegue). */
 export function revertM95(schema: string): void {
   revertFromHeader(schema, '_m95b_ids_versions', 'revertM95');

@@ -1,19 +1,15 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { Download } from 'lucide-react';
 import {
   getTcgcsvGroups,
-  importTcgcsvSet,
-  type TcgcsvGroupDTO,
   type TcgcsvImportResult,
 } from '@/lib/api/tcgcsv-promos';
-import { Button } from '@/components/ui/Button';
-import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
-import { VerdictBanner } from '@/components/ui/VerdictNotice';
+import { QueryState } from '@/components/ui/QueryState';
 import { computeVerdict, type Verdict } from '@/lib/verdict';
+import type { CatalogSyncPromos } from '@/types/contract';
+import { PromoAutoFacts } from './CatalogSyncSection';
 
 /**
  * Veredicto de «Importar promos de TCGCSV» (PROMO-F1). Misma norma que §32.4: sale de las cifras,
@@ -29,23 +25,10 @@ export function promoImportVerdict(r: TcgcsvImportResult): Verdict {
   });
 }
 
-export function TcgcsvPromosSection() {
+export function TcgcsvPromosSection({ promos }: { promos?: CatalogSyncPromos } = {}) {
   const t = useTranslations('admin.m2.tcgcsvPromos');
-  const tv = useTranslations('common.verdict');
-  const tc = useTranslations('common');
-  const qc = useQueryClient();
-  const getError = useErrorMessage('operator');
-  const [lastGroup, setLastGroup] = useState<TcgcsvGroupDTO | null>(null);
 
   const groups = useQuery({ queryKey: ['tcgcsv-groups'], queryFn: getTcgcsvGroups });
-  const importMutation = useMutation({
-    mutationFn: (g: TcgcsvGroupDTO) => importTcgcsvSet(g.groupId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tcgcsv-groups'] });
-    },
-  });
-  const result = importMutation.data;
-  const verdict = result ? promoImportVerdict(result) : null;
 
   return (
     <section
@@ -57,43 +40,8 @@ export function TcgcsvPromosSection() {
         <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted">{t('eyebrow')}</p>
         <h2 id="m2-tcgcsv-promos" className="text-h2 font-semibold">{t('title')}</h2>
         <p className="max-w-3xl text-sm text-muted">{t('subtitle')}</p>
+        <PromoAutoFacts promos={promos} />
       </div>
-
-      {verdict != null && result != null && (
-        <VerdictBanner verdict={verdict} label={tv(verdict)}>
-          <p data-testid="promo-summary">
-            {t('summary', {
-              group: lastGroup?.name ?? '',
-              created: result.created,
-              updated: result.updated,
-              stamped: result.stamped,
-            })}
-          </p>
-          {result.noPrice > 0 && (
-            <p data-testid="promo-nopricing">{t('noPrice', { count: result.noPrice })}</p>
-          )}
-          {result.skipped.length > 0 && (
-            <div className="mt-2 flex flex-col gap-1">
-              <p className="font-medium">{t('skippedTitle', { count: result.skipped.length })}</p>
-              <ul className="list-disc pl-5" data-testid="promo-skipped">
-                {result.skipped.map((s) => (
-                  <li key={s.productId}>
-                    <span className="font-medium">{s.name}</span>{' '}
-                    <span className="text-muted">
-                      {t.has(`reason.${s.reason}`) ? t(`reason.${s.reason}`) : s.reason}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </VerdictBanner>
-      )}
-      {importMutation.isError && (
-        <VerdictBanner verdict="failed" label={tv('failed')}>
-          <span className="font-medium">{tc('errorTitle')}</span> {getError(importMutation.error)}
-        </VerdictBanner>
-      )}
 
       <QueryState
         isLoading={groups.isLoading}
@@ -107,7 +55,6 @@ export function TcgcsvPromosSection() {
         {groups.data && groups.data.length > 0 && (
           <ul className="flex flex-col divide-y divide-border border border-border">
             {groups.data.map((g) => {
-              const mine = importMutation.isPending && importMutation.variables?.groupId === g.groupId;
               return (
                 <li
                   key={g.groupId}
@@ -120,20 +67,6 @@ export function TcgcsvPromosSection() {
                       {g.imported ? ` · ${t('imported')}` : ''}
                     </span>
                   </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="w-full sm:w-auto"
-                    loading={mine}
-                    disabled={importMutation.isPending}
-                    onClick={() => {
-                      setLastGroup(g);
-                      importMutation.mutate(g);
-                    }}
-                  >
-                    <Download size={14} aria-hidden />{' '}
-                    {g.imported ? t('reimport', { name: g.name }) : t('import', { name: g.name })}
-                  </Button>
                 </li>
               );
             })}

@@ -167,6 +167,10 @@ interface AxisRow {
   readonly route: string;
   /** Nombre del query param **tal como lo manda el cliente**. */
   readonly param: string;
+  /** Verbo HTTP con que se ejercita la fila (default `GET`; `DELETE` en el SELECTOR de borrado de estimados PSA). */
+  readonly method?: 'GET' | 'DELETE';
+  /** Re-siembra el estado ANTES de cada petición (una fila destructiva tiene que ser estable entre llamadas idénticas). */
+  readonly prepare?: (h: E2EHarness, ctx: Ctx) => Promise<void>;
   /** `details.field` esperado. Por defecto `param` (⚠️ `zone`, no `location.zone` — §0-Q punto 2). */
   readonly field?: string;
   /**
@@ -455,6 +459,27 @@ const OBS_MKT_FORMAT: Obs = {
   hayDatos: (res) => res.text.length > 0,
 };
 /**
+ * PSA-ACABADO: el DELETE de estimados borra SOLO el acabado indicado ⇒ `deletedCount` es la huella (normal=1, holofoil=2).
+ * `prepare` re-siembra las filas antes de cada llamada para que dos llamadas idénticas den lo mismo.
+ */
+const OBS_GE_DELETE: Obs = {
+  huella: (res) => `${res.status}|${String((res.body as unknown as { deletedCount?: number }).deletedCount)}`,
+  hayDatos: (res) => ((res.body as unknown as { deletedCount?: number }).deletedCount ?? 0) > 0,
+};
+const sembrarEstimadosGe = async (h: E2EHarness, ctx: Ctx): Promise<void> => {
+  const day = (n: number) => new Date(Date.UTC(2026, 9, n));
+  const base = { cardId: ctx.geCardId, productType: 'graded' as const, gradeKey: 'graded:PSA:10', source: 'pokemonpricetracker' as const, refKind: 'graded_estimate' as const, priceMxnCents: 250_000, isManualOverride: false, estimateFinishScoped: true };
+  await h.prisma.priceReference.deleteMany({ where: { cardId: ctx.geCardId } });
+  await h.prisma.priceReference.createMany({
+    data: [
+      { ...base, finish: 'normal', capturedDate: day(1) },
+      { ...base, finish: 'holofoil', capturedDate: day(1) },
+      { ...base, finish: 'holofoil', capturedDate: day(2) },
+    ],
+  });
+};
+
+/**
  * Periodo FIJO de las filas de marketing: la última semana cerrada según el reloj del servidor (el mismo cálculo que
  * `GET …/periods`), para que `pantalla`/`format` se midan con un periodo válido y el `400` sea SOLO del selector.
  */
@@ -467,6 +492,8 @@ interface Ctx {
   setId: string;
   /** `:userId` de las rutas admin de bóveda — el CLIENTE del fixture, no el admin. */
   userId: string;
+  /** Carta del fixture con estimados PSA (`DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue`). */
+  geCardId: string;
 }
 
 /**
@@ -899,6 +926,9 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/marketing/aggregates', param: 'pantalla', clazz: 'SELECTOR', allowed: MARKETING_SCREENS, valid: 'a', alterno: 'b', obs: OBS_MKT_SCREEN, extra: MKT_PERIOD, auth: 'marketing', echoValue: false },
   { route: 'GET /admin/marketing/panel', param: 'pantalla', clazz: 'SELECTOR', allowed: MARKETING_SCREENS, valid: 'a', alterno: 'b', obs: OBS_MKT_SCREEN, extra: MKT_PERIOD, auth: 'admin', echoValue: false },
   { route: 'GET /admin/marketing/export', param: 'pantalla', clazz: 'SELECTOR', allowed: MARKETING_SCREENS, valid: 'a', alterno: 'b', obs: OBS_MKT_CSV, extra: () => `format=csv&${MKT_PERIOD()}`, auth: 'admin', echoValue: false },
+  // PSA-ACABADO (contrato §4, C-EQ-1): `finish` del DELETE de estimados = SELECTOR (sin «todos» ni default), dominio `Finish`.
+  // Fila del contrato todavía no está en la tabla de §0-Q punto 4 del archivo congelado ⇒ PENDIENTE-ARQUITECTO.
+  { route: 'DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue', method: 'DELETE', path: (c) => `/admin/pricing/graded-estimates/${c.geCardId}/10`, prepare: sembrarEstimadosGe, param: 'finish', clazz: 'SELECTOR', allowed: Object.values(Finish), valid: 'normal', alterno: 'holofoil', obs: OBS_GE_DELETE, auth: 'admin', echoValue: false, filaEn0Q: 'PENDIENTE-ARQUITECTO' },
   { route: 'GET /admin/marketing/export', param: 'format', clazz: 'SELECTOR', allowed: MARKETING_EXPORT_FORMATS, valid: 'csv', alterno: 'xlsx', obs: OBS_MKT_FORMAT, extra: () => `pantalla=a&${MKT_PERIOD()}`, auth: 'admin', echoValue: false },
   { route: 'GET /admin/card-show/players', param: 'game', clazz: 'E', allowed: Object.values(CardShowGame), valid: 'shardbugs', alterno: 'pokemon', auth: 'admin', echoValue: false },
   { route: 'GET /admin/card-show/players/export.csv', param: 'game', clazz: 'E', allowed: Object.values(CardShowGame), valid: 'shardbugs', alterno: 'pokemon', obs: OBS_CARDSHOW_CSV, auth: 'admin', echoValue: false },
@@ -1012,6 +1042,7 @@ async function limpiarFixture(h: E2EHarness): Promise<void> {
   //    tres cuentas propias después (sus deseos caen en cascada).
   await h.prisma.wishlistItem.deleteMany({ where: { card: { externalId: { startsWith: 'CEQ1-WSH-' } } } });
   await h.prisma.priceReference.deleteMany({ where: { card: { externalId: { startsWith: 'CEQ1-WSH-' } } } });
+  await h.prisma.priceReference.deleteMany({ where: { card: { externalId: { startsWith: 'CEQ1-GE-' } } } });
   await h.prisma.card.deleteMany({ where: { externalId: { startsWith: 'CEQ1-' } } });
   await h.prisma.user.deleteMany({ where: { email: { startsWith: 'ceq1-wsh-' } } });
   // ⭐ `EQ-D1` LOTE 2 — los dos clientes propios de `?sort=` de `/admin/vaults`: sus piezas ya cayeron
@@ -1460,7 +1491,11 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
     ],
   });
 
-  return { setId: set.id, userId: cliente.id };
+  // (s) PSA-ACABADO · `DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue?finish=` — carta propia; las filas las
+  //     re-siembra `prepare` antes de CADA petición (el verbo borra).
+  const geCard = await h.prisma.card.create({ data: { externalId: 'CEQ1-GE-DEL', setId: set.id, name: 'CEQ1 estimado PSA', number: 'GE1', rarity: 'Common', rarityCanonical: 'Common' } });
+
+  return { setId: set.id, userId: cliente.id, geCardId: geCard.id };
 }
 
 describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
@@ -1509,8 +1544,10 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
           ? { token: marketingToken }
           : {};
 
-  const get = (row: AxisRow, value: string): Promise<ApiRes> =>
-    h.api<ErrorBody>('GET', url(row, ctx, value), tokenDe(row)) as Promise<ApiRes>;
+  const get = async (row: AxisRow, value: string): Promise<ApiRes> => {
+    if (row.prepare) await row.prepare(h, ctx);
+    return h.api<ErrorBody>(row.method ?? 'GET', url(row, ctx, value), tokenDe(row)) as Promise<ApiRes>;
+  };
 
   /**
    * ⭐ v1.104 — la fila 1 del SELECTOR (§0-Q punto 6-bis): `400 VALIDATION_ERROR` con la forma del punto 2 —
@@ -1702,6 +1739,8 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
   it('⭐ las filas SIN fila en §0-Q punto 4 están NOMBRADAS (⇒ arquitecto, regla 9)', () => {
     const pendientes = REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO').map(idOf).sort();
     expect(pendientes).toEqual([
+      // PSA-ACABADO (C-EQ-1, contrato §4): `finish` del DELETE de estimados PSA = SELECTOR; fila de §0-Q aún no escrita.
+      'DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue?finish=',
       // ⛔ `GET /accessories?category=` y `GET /admin/accessories?category=` estuvieron aquí en §83.ceq1 y **SALIERON en
       // v1.86.5** (`179d8163`): el arquitecto escribió sus filas en §0-Q punto 4.
       // ⭐ `EQ-D1` lote 2 (este pase): 5 ejes de ORDEN/RANGO cuya CONDUCTA ya conforma pero cuya fila
@@ -1785,11 +1824,12 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
       'GET /admin/marketing/export?format=',
       'GET /admin/marketing/export?pantalla=',
       'GET /admin/marketing/panel?pantalla=',
-    ]);
+    ].concat(['DELETE /admin/pricing/graded-estimates/:cardId/:gradeValue?finish=']).sort());
   });
   it.each(selectores.map((r) => [idOf(r), r] as const))('%s AUSENTE ⇒ 400 {field, allowed} (SELECTOR sin default)', async (_id, row) => {
     const extra = row.extra ? row.extra(ctx) : '';
-    const res = (await h.api<ErrorBody>('GET', `${pathOf(row, ctx)}${extra ? `?${extra}` : ''}`, tokenDe(row))) as ApiRes;
+    if (row.prepare) await row.prepare(h, ctx);
+    const res = (await h.api<ErrorBody>(row.method ?? 'GET', `${pathOf(row, ctx)}${extra ? `?${extra}` : ''}`, tokenDe(row))) as ApiRes;
     selector400(row, res);
   });
 
@@ -1927,8 +1967,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // 💰 v1.116⟨ids⟩ (§IDS.4/.5) — 91 → **95** y 18 → **22**: `?language=`/`?stamped=` de `GET /catalog/cards` y de
     // `GET /admin/inventory/items`, clase decidida en §IDS (E y L) y SIN fila en §0-Q punto 4 ⇒ PENDIENTE-ARQUITECTO.
     // ⭐ v1.116.3⟨ids⟩ — 95 fijo y 22 → **18**: el arquitecto escribió las cuatro filas en §0-Q punto 4. Se pagó una deuda.
-    expect(REGISTRO.length).toBe(95);
-    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(18);
+    expect(REGISTRO.length).toBe(96);
+    expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(19);
+    // PSA-ACABADO: 95 → 96 y 18 → 19 — `?finish=` del DELETE de estimados (SELECTOR, dominio `Finish`; contrato §4 vigente, fila de §0-Q aún no escrita).
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
     // `@Query()` sin nombre. Estos números son el techo, y el techo solo baja.
     // ⭐ 22 → **16**: `EQ-D0` (la bóveda) paga SEIS. *Un número que solo puede bajar es una deuda que

@@ -353,9 +353,9 @@ describe('M2 › captura manual de estimados · la ÚNICA vía de `graded_estima
       gradeKey: 'graded:PSA:10',
       priceMxnCents: 2900000,
       intent: 'graded_estimate',
+      // §PSA-ACABADO (contrato §4): `finish` es OBLIGATORIO en el estimado (sin él ⇒ 400).
+      finish: 'normal',
     });
-    // `finish` se OMITE a propósito: el contrato defaultea `normal`, que es el único válido en graded.
-    expect('finish' in overrideBodies[0]).toBe(false);
   });
 
   it('escribe UNA petición POR GRADO (un grado bloqueado no debe arrastrar al otro)', async () => {

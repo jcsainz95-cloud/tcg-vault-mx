@@ -111,6 +111,7 @@ describe('§4.38h.1 — S1 `ebay.salesByGrade.psaN` (objeto): se escribe SOLO co
         // YA pasó el gate de evidencia, así que su presencia ES la prueba de que se midió.
         evidenceDate: EVIDENCIA_FRESCA,
         source: 'pokemonpricetracker',
+        finishScope: 'card_level', // PSA-ACABADO: el proveedor no separa por acabado (NO MEDIDO ⇒ valor seguro)
       },
     ]);
   });

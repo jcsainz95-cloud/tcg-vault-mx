@@ -129,6 +129,7 @@ function psaRef(cardId: string, gradeValue: '10' | '9', mxnCents: number, captur
     // superficies PÚBLICAS, y la ruta del gancho es INCLUSIVA (lee las dos naturalezas), así que
     // ninguna aserción de aquí cambia — pero el fixture deja de mentir sobre lo que la fila ES.
     refKind: 'graded_estimate',
+    estimateFinishScoped: true,
     ...over,
   };
 }
@@ -221,7 +222,7 @@ describe('Ficha vs teja — la partición INFORMAR ≠ PROMOVER (§4.38-0)', () 
       gradingCompany: 'PSA',
       gradeValue: '10',
       gradeKey: 'graded:PSA:10',
-      estimate: { status: 'priced', referenceMxnCents: 900_000, capturedDate: isoDay(RECENT) },
+      finish: 'normal', estimate: { status: 'priced', referenceMxnCents: 900_000, capturedDate: isoDay(RECENT) },
     });
     // ⚠️ v1.50.2 — `gradingHighlight` YA NO vive en los `listings[]` de la FICHA: se MOVIÓ al
     // `GroupedListingSummaryDTO` de la REJILLA (§4.38e). La ficha INFORMA con `gradedEstimates` (más
@@ -761,5 +762,71 @@ describe('Vitrina «Joyas para gradear» — `GET /catalog/cards` filtrado (§4.
       // depende de la superficie ni del nº de grupos.
       expect(on.queryLog.length - off.queryLog.length).toBe(2);
     });
+  });
+});
+
+describe('AUTO-D / PSA-ACABADO — la FICHA aplica la cuarentena y la cota usa el raw NM inglés del mismo acabado', () => {
+  const auto = { source: 'pokemonpricetracker', isManualOverride: false };
+
+  it('M2 cuarentena: una AUTOMÁTICA > raw × maxRawMultiple NO sale en la ficha (la MANUAL del mismo monto sí)', async () => {
+    // raw MX$1,000 = 100_000 ¢; tope = 100 × raw = 10_000_000 ¢. 10_100_000 lo rebasa.
+    const rebasa = 10_100_000;
+    const a = await wire(A_ITEMS, [psaRef('ca', '10', rebasa, RECENT, auto)], ON).catalog.getCard('ca');
+    expect('gradedEstimates' in a).toBe(false);
+    const m = await wire(A_ITEMS, [psaRef('ca', '10', rebasa)], ON).catalog.getCard('ca');
+    expect((m as any).gradedEstimates.map((e: any) => e.gradeValue)).toEqual(['10']);
+  });
+
+  it('dentro de la cota la automática SÍ sale (la cuarentena no apaga la ficha)', async () => {
+    const f: any = await wire(A_ITEMS, [psaRef('ca', '10', 900_000, RECENT, auto)], ON).catalog.getCard('ca');
+    expect(f.gradedEstimates.map((e: any) => e.gradeValue)).toEqual(['10']);
+  });
+
+  it('la cota se mide contra el raw NM INGLÉS: un raw ESPAÑOL más barato del mismo acabado NO la fija', async () => {
+    // en: MX$1,000 (tope 10_000_000). es: MX$10 (tope 100_000). PSA 10 auto = 5_000_000: pasa contra el inglés, rebasaría contra el español.
+    const items = [item('ien', 'ca'), item('ies', 'ca', { language: 'es', listPriceCents: 1_000 })];
+    const f: any = await wire(items, [psaRef('ca', '10', 5_000_000, RECENT, auto)], ON).catalog.getCard('ca');
+    expect(f.gradedEstimates?.map((e: any) => e.gradeValue)).toEqual(['10']);
+  });
+
+  it('sin raw NM inglés publicado (solo español) la automática no tiene cota válida ⇒ cuarentena (NO_RAW)', async () => {
+    const items = [item('ies', 'ca', { language: 'es', listPriceCents: 1_000 })];
+    const f: any = await wire(items, [psaRef('ca', '10', 5_000_000, RECENT, auto)], ON).catalog.getCard('ca');
+    expect('gradedEstimates' in f).toBe(false);
+  });
+});
+
+describe('AUTO-D — la LISTA DE REVISION usa la MISMA cota que la ficha (raw NM ingles, mismo acabado, sin sello ni liga)', () => {
+  const auto = { source: 'pokemonpricetracker', isManualOverride: false };
+  const review = (w: ReturnType<typeof wire>) => {
+    (w.prisma as any).gradedEstimateCardScan = { count: jest.fn(async () => 0) };
+    return w.catalog.gradedEstimateReview({ page: 1, pageSize: 50 });
+  };
+
+  it('un raw ESPANOL barato NO fija la cota de la lista: quarantinedCount coincide con lo que la ficha oculta (0)', async () => {
+    // en: MX$1,000 (tope 10_000_000); es: MX$10 (tope 100_000). PSA 10 auto = 5_000_000: pasa contra el ingles.
+    const items = [item('ien', 'ca'), item('ies', 'ca', { language: 'es', listPriceCents: 1_000 })];
+    const refs = [psaRef('ca', '10', 5_000_000, RECENT, auto)];
+    const ficha: any = await wire(items, refs, ON).catalog.getCard('ca');
+    expect(ficha.gradedEstimates?.map((e: any) => e.gradeValue)).toEqual(['10']); // la ficha NO oculta nada
+    const r: any = await review(wire(items, refs, ON));
+    expect(r.quarantinedCount).toBe(0);
+    expect(r.data.every((x: any) => x.quarantined === false)).toBe(true);
+  });
+
+  it('sin raw NM ingles (solo espanol): la ficha oculta ⇒ la lista cuenta 1 (no 1 por grupo) y coincide', async () => {
+    const items = [item('ies', 'ca', { language: 'es', listPriceCents: 1_000 }), item('ies2', 'ca', { language: 'es', rawCondition: 'LP', listPriceCents: 1_100 })];
+    const refs = [psaRef('ca', '10', 5_000_000, RECENT, auto)];
+    const ficha: any = await wire(items, refs, ON).catalog.getCard('ca');
+    expect('gradedEstimates' in ficha).toBe(false); // oculta (cuarentena NO_RAW)
+    const r: any = await review(wire(items, refs, ON));
+    expect(r.quarantinedCount).toBe(1);
+  });
+
+  it('una automatica que rebasa la cota del raw NM ingles: oculta en la ficha y contada una vez en la lista', async () => {
+    const refs = [psaRef('ca', '10', 10_100_000, RECENT, auto)];
+    const ficha: any = await wire(A_ITEMS, refs, ON).catalog.getCard('ca');
+    expect('gradedEstimates' in ficha).toBe(false);
+    expect(((await review(wire(A_ITEMS, refs, ON))) as any).quarantinedCount).toBe(1);
   });
 });

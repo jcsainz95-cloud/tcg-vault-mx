@@ -345,6 +345,31 @@ const ALLOWLIST: Allow[] = [
     lines: [400],
     reason: 'Rama `else` (productType !== "sealed"): el `if` de arriba desvía TODO sellado al resolutor (:389). Aquí solo raw/graded (anotado `as "raw" | "graded"`).',
   },
+  // ───────────────────────── Master Set / apartado «Promos de la colección»: celdas de SINGLES ─────────────────────────
+  {
+    file: 'src/modules/inventory/master-set.service.ts',
+    snippet: 'for (const p of [...products].sort((a, b) => a.card.numberSort - b.card.numberSort || a.card.number.localeCompare(b.card.number) || a.tcgplayerProductId - b.tcgplayerProductId)) {',
+    lines: [766],
+    reason: 'Apartado de promos: ORDEN de los sellos (CardProduct `stamped` de una carta lisa); jamas una pieza sellada.',
+  },
+  {
+    file: 'src/modules/inventory/master-set.service.ts',
+    snippet: 'number: c.number,',
+    lines: [785, 1128],
+    reason: 'Celda del binder / de un sello: el binder cuenta SOLO singles (`productType != sealed`, v1.42 BLOQ-3); `c` es la carta de set, no el ancla de un sellado.',
+  },
+  {
+    file: 'src/modules/inventory/master-set.service.ts',
+    snippet: 'name: c.name,',
+    lines: [788, 1131],
+    reason: 'Celda del binder / de un sello: nombre de la CARTA (single); el sellado se excluye del binder (v1.42).',
+  },
+  {
+    file: 'src/modules/inventory/master-set.service.ts',
+    snippet: 'imageSmallUrl: c.imageSmallUrl ?? undefined,',
+    lines: [790, 1133],
+    reason: 'Celda del binder / de un sello: imagen de la CARTA (single).',
+  },
   // ───────────────────────── accesorios: no es una pieza sellada ─────────────────────────
   {
     file: 'src/modules/accessories/accessory-dto.ts',

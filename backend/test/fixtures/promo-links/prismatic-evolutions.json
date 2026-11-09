@@ -1,0 +1,1042 @@
+{
+ "provenance": "orquestador, parcial, N=7, no es la lista de 65. Conocimiento de dominio cruzado con nombres reales de TCGCSV grupo 22872 (2026-11-09): SVP 167-173 (Eeveeluciones Cosmos Holo + Eevee Pokemon Center Exclusive). Contenido de cartas de pokemontcg.io (2026-11-09).",
+ "source": "orquestador (parcial) + pokemontcg.io + tcgcsv.com",
+ "expansion": "sv8pt5",
+ "promos": [
+  {
+   "cardId": "svp-167",
+   "contentKey": "pokemon|flareon|130|destructive flame~fighting blaze",
+   "productId": 611826,
+   "humanExpansion": "sv8pt5"
+  },
+  {
+   "cardId": "svp-168",
+   "contentKey": "pokemon|vaporeon|130|fighting whirlpool~spiral drain",
+   "productId": 611827,
+   "humanExpansion": "sv8pt5"
+  },
+  {
+   "cardId": "svp-169",
+   "contentKey": "pokemon|jolteon|110|fighting lightning~linear attack",
+   "productId": 653353,
+   "humanExpansion": "sv8pt5"
+  },
+  {
+   "cardId": "svp-170",
+   "contentKey": "pokemon|leafeon|120|leaflet blessings~solar beam",
+   "productId": 611829,
+   "humanExpansion": "sv8pt5"
+  },
+  {
+   "cardId": "svp-171",
+   "contentKey": "pokemon|glaceon|120|icicle missile~permeating chill",
+   "productId": 611830,
+   "humanExpansion": "sv8pt5"
+  },
+  {
+   "cardId": "svp-172",
+   "contentKey": "pokemon|sylveon|120|disarming voice~mystical return",
+   "productId": 611831,
+   "humanExpansion": "sv8pt5"
+  },
+  {
+   "cardId": "svp-173",
+   "contentKey": "pokemon|eevee|50|boosted evolution~reckless charge",
+   "productId": 610757,
+   "humanExpansion": "sv8pt5"
+  }
+ ],
+ "expansionCards": [
+  {
+   "setId": "pop3",
+   "contentKey": "pokemon|flareon|70|fire spin~quick attack"
+  },
+  {
+   "setId": "ex11",
+   "contentKey": "pokemon|flareon|70|delta search~return burn"
+  },
+  {
+   "setId": "ex10",
+   "contentKey": "pokemon|flareon|70|fire dance~multi burn"
+  },
+  {
+   "setId": "base6",
+   "contentKey": "pokemon|flareon|70|flamethrower~quick attack"
+  },
+  {
+   "setId": "ex2",
+   "contentKey": "pokemon|flareon|80|flamethrower~super singe"
+  },
+  {
+   "setId": "base2",
+   "contentKey": "pokemon|flareon|70|flamethrower~quick attack"
+  },
+  {
+   "setId": "ecard3",
+   "contentKey": "pokemon|flareon|70|burn booster~self healing~singe"
+  },
+  {
+   "setId": "xy7",
+   "contentKey": "pokemon|flareon|90|flare effect~heat breath"
+  },
+  {
+   "setId": "bw9",
+   "contentKey": "pokemon|flareon|100|heat tackle~vengeance"
+  },
+  {
+   "setId": "bw5",
+   "contentKey": "pokemon|flareon|90|fire slash~sand attack"
+  },
+  {
+   "setId": "pl2",
+   "contentKey": "pokemon|flareon|80|evolving flare~tail slap~undevelop"
+  },
+  {
+   "setId": "sm12",
+   "contentKey": "pokemon|flareon|110|flamethrower~power cheer"
+  },
+  {
+   "setId": "dp5",
+   "contentKey": "pokemon|flareon|90|fire fang~kindle"
+  },
+  {
+   "setId": "base2",
+   "contentKey": "pokemon|flareon|70|flamethrower~quick attack"
+  },
+  {
+   "setId": "swsh4",
+   "contentKey": "pokemon|flareon|110|fire mane~incandescent awakening"
+  },
+  {
+   "setId": "hgss3",
+   "contentKey": "pokemon|flareon|90|flame tail~flamethrower"
+  },
+  {
+   "setId": "base5",
+   "contentKey": "pokemon|dark flareon|50|playing with fire~rage"
+  },
+  {
+   "setId": "ecard3",
+   "contentKey": "pokemon|flareon|70|burn booster~self healing~singe"
+  },
+  {
+   "setId": "col1",
+   "contentKey": "pokemon|flareon|90|flame tail~flamethrower"
+  },
+  {
+   "setId": "neo4",
+   "contentKey": "pokemon|light flareon|80|burning flame~warm up"
+  },
+  {
+   "setId": "pl2",
+   "contentKey": "pokemon|flareon e4|70|fire tail slap~tackle"
+  },
+  {
+   "setId": "g1",
+   "contentKey": "pokemon|flareon ex|170|blaze ball~flash fire"
+  },
+  {
+   "setId": "ex16",
+   "contentKey": "pokemon|flareon|70|crimson ray~flamethrower"
+  },
+  {
+   "setId": "ex11",
+   "contentKey": "pokemon|flareon ex|110|evolutionary flame~flame screen~heat tackle"
+  },
+  {
+   "setId": "g1",
+   "contentKey": "pokemon|flareon ex|170|blaze ball~flash fire"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|flareon vmax|320|max detonate"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|flareon v|210|flaming breath~scorching column"
+  },
+  {
+   "setId": "swsh9tg",
+   "contentKey": "pokemon|flareon|110|fire mane~incandescent awakening"
+  },
+  {
+   "setId": "sv3pt5",
+   "contentKey": "pokemon|flareon|130|destructive flame~fighting blaze"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|flareon|130|destructive flame~fighting blaze"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|flareon ex|270|burning charge~carnelian"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|flareon ex|270|burning charge~carnelian"
+  },
+  {
+   "setId": "pop3",
+   "contentKey": "pokemon|vaporeon|70|bite~water gun"
+  },
+  {
+   "setId": "base6",
+   "contentKey": "pokemon|dark vaporeon|60|bite~whirlpool"
+  },
+  {
+   "setId": "ex11",
+   "contentKey": "pokemon|vaporeon|70|delta search~return wave"
+  },
+  {
+   "setId": "sm115",
+   "contentKey": "pokemon|vaporeon|120|bubble drain~water gun"
+  },
+  {
+   "setId": "ex10",
+   "contentKey": "pokemon|vaporeon|70|aqua supply~multi bubble"
+  },
+  {
+   "setId": "base2",
+   "contentKey": "pokemon|vaporeon|80|quick attack~water gun"
+  },
+  {
+   "setId": "xy7",
+   "contentKey": "pokemon|vaporeon|90|aqua effect~hydro splash"
+  },
+  {
+   "setId": "bw9",
+   "contentKey": "pokemon|vaporeon|110|gold breaker~refreshing rain"
+  },
+  {
+   "setId": "bw5",
+   "contentKey": "pokemon|vaporeon|110|muddy water~spiral drain"
+  },
+  {
+   "setId": "ex2",
+   "contentKey": "pokemon|vaporeon|70|aqua sonic~aurora beam"
+  },
+  {
+   "setId": "swsh4",
+   "contentKey": "pokemon|vaporeon|110|aurora beam~torrential awakening"
+  },
+  {
+   "setId": "ecard3",
+   "contentKey": "pokemon|vaporeon|70|aqua trick~hypnosplash~self healing"
+  },
+  {
+   "setId": "g1",
+   "contentKey": "pokemon|vaporeon ex|180|bubble drain~deep squall"
+  },
+  {
+   "setId": "base2",
+   "contentKey": "pokemon|vaporeon|80|quick attack~water gun"
+  },
+  {
+   "setId": "pl2",
+   "contentKey": "pokemon|vaporeon|90|evolving aqua~muddy water~undevelop"
+  },
+  {
+   "setId": "sm12",
+   "contentKey": "pokemon|vaporeon|110|refreshing rain~vitality cheer"
+  },
+  {
+   "setId": "dp5",
+   "contentKey": "pokemon|vaporeon|90|cleanse away~hyper whirlpool"
+  },
+  {
+   "setId": "hgss3",
+   "contentKey": "pokemon|vaporeon|90|dual splash~spiral drain"
+  },
+  {
+   "setId": "base5",
+   "contentKey": "pokemon|dark vaporeon|60|bite~whirlpool"
+  },
+  {
+   "setId": "col1",
+   "contentKey": "pokemon|vaporeon|90|dual splash~spiral drain"
+  },
+  {
+   "setId": "neo4",
+   "contentKey": "pokemon|light vaporeon|80|hypnoshower~wash away"
+  },
+  {
+   "setId": "ecard3",
+   "contentKey": "pokemon|vaporeon|70|aqua trick~hypnosplash~self healing"
+  },
+  {
+   "setId": "ex16",
+   "contentKey": "pokemon|vaporeon|70|blue ray~whirlpool"
+  },
+  {
+   "setId": "ex11",
+   "contentKey": "pokemon|vaporeon ex|120|evolutionary swirl~fastwave~hydrosplash"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|vaporeon vmax|320|bubble pod~max torrent"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|vaporeon v|210|splash jump~triple draw"
+  },
+  {
+   "setId": "swsh9tg",
+   "contentKey": "pokemon|vaporeon|110|aurora beam~torrential awakening"
+  },
+  {
+   "setId": "sv3pt5",
+   "contentKey": "pokemon|vaporeon|130|fighting whirlpool~spiral drain"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|vaporeon|130|fighting whirlpool~spiral drain"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|vaporeon ex|280|aquamarine~severe squall"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|vaporeon ex|280|aquamarine~severe squall"
+  },
+  {
+   "setId": "pop3",
+   "contentKey": "pokemon|jolteon|70|pin missile~thundershock"
+  },
+  {
+   "setId": "ex11",
+   "contentKey": "pokemon|jolteon|70|delta search~return spark"
+  },
+  {
+   "setId": "ex10",
+   "contentKey": "pokemon|jolteon|70|attract current~multi pulse"
+  },
+  {
+   "setId": "base2",
+   "contentKey": "pokemon|jolteon|70|pin missile~quick attack"
+  },
+  {
+   "setId": "ex2",
+   "contentKey": "pokemon|jolteon|70|double kick~lightning strike"
+  },
+  {
+   "setId": "base6",
+   "contentKey": "pokemon|jolteon|70|pin missle~quick attack"
+  },
+  {
+   "setId": "ecard3",
+   "contentKey": "pokemon|jolteon|70|self healing~thundershock~thunderspark"
+  },
+  {
+   "setId": "sm115",
+   "contentKey": "pokemon|jolteon|90|electromagnetic wall~thunderbolt"
+  },
+  {
+   "setId": "xy7",
+   "contentKey": "pokemon|jolteon|90|electric effect~thunder blast"
+  },
+  {
+   "setId": "gym2",
+   "contentKey": "pokemon|lt surge s jolteon|70|high voltage~thunder flare"
+  },
+  {
+   "setId": "base2",
+   "contentKey": "pokemon|jolteon|70|pin missile~quick attack"
+  },
+  {
+   "setId": "dp5",
+   "contentKey": "pokemon|jolteon|80|lightning strike~thunder fang"
+  },
+  {
+   "setId": "pl2",
+   "contentKey": "pokemon|jolteon|80|evolving thunder~quick attack~undevelop"
+  },
+  {
+   "setId": "hgss3",
+   "contentKey": "pokemon|jolteon|80|agility~mach bolt"
+  },
+  {
+   "setId": "bw9",
+   "contentKey": "pokemon|jolteon|90|electri defuse~pin missile"
+  },
+  {
+   "setId": "g1",
+   "contentKey": "pokemon|jolteon ex|160|flash ray~swift"
+  },
+  {
+   "setId": "g1",
+   "contentKey": "pokemon|jolteon ex|160|flash ray~swift"
+  },
+  {
+   "setId": "base5",
+   "contentKey": "pokemon|dark jolteon|50|lightning flash~thunder attack"
+  },
+  {
+   "setId": "bw5",
+   "contentKey": "pokemon|jolteon|90|electrigun~pin missile"
+  },
+  {
+   "setId": "col1",
+   "contentKey": "pokemon|jolteon|80|agility~mach bolt"
+  },
+  {
+   "setId": "ecard3",
+   "contentKey": "pokemon|jolteon|70|self healing~thundershock~thunderspark"
+  },
+  {
+   "setId": "neo4",
+   "contentKey": "pokemon|light jolteon|70|pulse guard~thunder needle"
+  },
+  {
+   "setId": "swsh4",
+   "contentKey": "pokemon|jolteon|100|electric ball~thunderous awakening"
+  },
+  {
+   "setId": "sm12",
+   "contentKey": "pokemon|jolteon|100|head bolt~speed cheer"
+  },
+  {
+   "setId": "ex16",
+   "contentKey": "pokemon|jolteon|70|agility~yellow ray"
+  },
+  {
+   "setId": "ex11",
+   "contentKey": "pokemon|jolteon ex|100|evolutionary thunder~second bite~thunder blast"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|jolteon vmax|300|max thunder rumble"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|jolteon v|190|pin missile~thunder spear"
+  },
+  {
+   "setId": "swsh9tg",
+   "contentKey": "pokemon|jolteon|100|electric ball~thunderous awakening"
+  },
+  {
+   "setId": "sv3pt5",
+   "contentKey": "pokemon|jolteon|110|fighting lightning~linear attack"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|jolteon ex|260|dravite~flashing spear"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|jolteon|110|fighting lightning~linear attack"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|jolteon ex|260|dravite~flashing spear"
+  },
+  {
+   "setId": "me6",
+   "contentKey": "pokemon|jolteon|110|tackle~thunderbolt"
+  },
+  {
+   "setId": "bw5",
+   "contentKey": "pokemon|leafeon|90|energy assist~quick attack"
+  },
+  {
+   "setId": "sm5",
+   "contentKey": "pokemon|leafeon gx|200|breath of the leaves~grand bloom gx~solar beam"
+  },
+  {
+   "setId": "bw9",
+   "contentKey": "pokemon|leafeon|100|energy crush~leaf blade"
+  },
+  {
+   "setId": "col1",
+   "contentKey": "pokemon|leafeon|90|miasma wind~sooting scent"
+  },
+  {
+   "setId": "dp5",
+   "contentKey": "pokemon|leafeon|90|bind down~leaf guard"
+  },
+  {
+   "setId": "xy3",
+   "contentKey": "pokemon|leafeon|90|magical leaf~soothing scent"
+  },
+  {
+   "setId": "hgss3",
+   "contentKey": "pokemon|leafeon|90|miasma wind~soothing scent"
+  },
+  {
+   "setId": "g1",
+   "contentKey": "pokemon|leafeon ex|170|leaf blade~nature s breath"
+  },
+  {
+   "setId": "dp5",
+   "contentKey": "pokemon|leafeon|90|leaf blade~sprial drain"
+  },
+  {
+   "setId": "pl2",
+   "contentKey": "pokemon|leafeon|90|energy refresh~plus energy~soothing scent"
+  },
+  {
+   "setId": "sma",
+   "contentKey": "pokemon|leafeon gx|200|breath of the leaves~grand bloom gx~solar beam"
+  },
+  {
+   "setId": "dp5",
+   "contentKey": "pokemon|leafeon lv x|110|energy forcing~verdant dance"
+  },
+  {
+   "setId": "sm5",
+   "contentKey": "pokemon|leafeon gx|200|breath of the leaves~grand bloom gx~solar beam"
+  },
+  {
+   "setId": "sm5",
+   "contentKey": "pokemon|leafeon gx|200|breath of the leaves~grand bloom gx~solar beam"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|leafeon vmax|310|grass knot~max leaf"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|leafeon v|200|greening cells~leaf blade"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|leafeon v|200|greening cells~leaf blade"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|leafeon v|200|greening cells~leaf blade"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|leafeon vmax|310|grass knot~max leaf"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|leafeon vmax|310|grass knot~max leaf"
+  },
+  {
+   "setId": "swsh10",
+   "contentKey": "pokemon|leafeon|110|energy garden~leafy cyclone"
+  },
+  {
+   "setId": "swsh12pt5",
+   "contentKey": "pokemon|leafeon v|210|leaf guard~slashing strike"
+  },
+  {
+   "setId": "swsh12pt5",
+   "contentKey": "pokemon|leafeon vstar|260|ivy star~leaf guard"
+  },
+  {
+   "setId": "swsh12pt5gg",
+   "contentKey": "pokemon|leafeon vstar|260|ivy star~leaf guard"
+  },
+  {
+   "setId": "sv6",
+   "contentKey": "pokemon|leafeon|120|leaflet blessings~solar beam"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|leafeon ex|270|moss agate~verdant storm"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|leafeon|120|leaflet blessings~solar beam"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|leafeon ex|270|moss agate~verdant storm"
+  },
+  {
+   "setId": "dp5",
+   "contentKey": "pokemon|glaceon|80|snow cloak~speed slide"
+  },
+  {
+   "setId": "xy10",
+   "contentKey": "pokemon|glaceon ex|170|crystal ray~second bite"
+  },
+  {
+   "setId": "bw9",
+   "contentKey": "pokemon|glaceon|90|freeze zone~icy wind"
+  },
+  {
+   "setId": "dp5",
+   "contentKey": "pokemon|glaceon|90|ice shot~icy wind"
+  },
+  {
+   "setId": "xy3",
+   "contentKey": "pokemon|glaceon|90|blizzard~ice edge"
+  },
+  {
+   "setId": "bw5",
+   "contentKey": "pokemon|glaceon|90|quick attack~reflect energy"
+  },
+  {
+   "setId": "sm5",
+   "contentKey": "pokemon|glaceon gx|200|freezing gaze~frost bullet~polar spear gx"
+  },
+  {
+   "setId": "pl2",
+   "contentKey": "pokemon|glaceon|80|frost wind~ice bind~ice blade"
+  },
+  {
+   "setId": "sma",
+   "contentKey": "pokemon|glaceon gx|200|freezing gaze~frost bullet~polar spear gx"
+  },
+  {
+   "setId": "dp5",
+   "contentKey": "pokemon|glaceon lv x|100|avalanche~chilly breath"
+  },
+  {
+   "setId": "xy10",
+   "contentKey": "pokemon|glaceon ex|170|crystal ray~second bite"
+  },
+  {
+   "setId": "sm5",
+   "contentKey": "pokemon|glaceon gx|200|freezing gaze~frost bullet~polar spear gx"
+  },
+  {
+   "setId": "sm5",
+   "contentKey": "pokemon|glaceon gx|200|freezing gaze~frost bullet~polar spear gx"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|glaceon vmax|310|crystal veil~max icicle"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|glaceon v|210|frozen awakening~heavy snow"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|glaceon v|210|frozen awakening~heavy snow"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|glaceon v|210|frozen awakening~heavy snow"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|glaceon vmax|310|crystal veil~max icicle"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|glaceon vmax|310|crystal veil~max icicle"
+  },
+  {
+   "setId": "swsh10",
+   "contentKey": "pokemon|glaceon|110|frost wall~ice blast"
+  },
+  {
+   "setId": "swsh12pt5",
+   "contentKey": "pokemon|glaceon v|210|freezing wind~frost charge"
+  },
+  {
+   "setId": "swsh12pt5gg",
+   "contentKey": "pokemon|glaceon vstar|260|crystal star~icicle shot"
+  },
+  {
+   "setId": "sv6",
+   "contentKey": "pokemon|glaceon|120|icicle missile~permeating chill"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|glaceon|120|icicle missile~permeating chill"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|glaceon ex|270|euclase~frost bullet"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|glaceon ex|270|euclase~frost bullet"
+  },
+  {
+   "setId": "sma",
+   "contentKey": "pokemon|sylveon gx|200|fairy wind~magical ribbon~plea gx"
+  },
+  {
+   "setId": "xy3",
+   "contentKey": "pokemon|sylveon|90|curly ribbon~echoed voice"
+  },
+  {
+   "setId": "sm2",
+   "contentKey": "pokemon|sylveon gx|200|fairy wind~magical ribbon~plea gx"
+  },
+  {
+   "setId": "sm6",
+   "contentKey": "pokemon|sylveon|90|magical shot~wink wink"
+  },
+  {
+   "setId": "sm2",
+   "contentKey": "pokemon|sylveon gx|200|fairy wind~magical ribbon~plea gx"
+  },
+  {
+   "setId": "g1",
+   "contentKey": "pokemon|sylveon ex|170|dress up~precious ribbon"
+  },
+  {
+   "setId": "g1",
+   "contentKey": "pokemon|sylveon ex|170|dress up~precious ribbon"
+  },
+  {
+   "setId": "sm10",
+   "contentKey": "pokemon|gardevoir sylveon gx|260|fairy song~kaleidostorm~magical miracle gx"
+  },
+  {
+   "setId": "sm2",
+   "contentKey": "pokemon|sylveon gx|200|fairy wind~magical ribbon~plea gx"
+  },
+  {
+   "setId": "sm12",
+   "contentKey": "pokemon|sylveon|110|beloved pulse~moonblast"
+  },
+  {
+   "setId": "sm2",
+   "contentKey": "pokemon|sylveon gx|200|fairy wind~magical ribbon~plea gx"
+  },
+  {
+   "setId": "sm10",
+   "contentKey": "pokemon|gardevoir sylveon gx|260|fairy song~kaleidostorm~magical miracle gx"
+  },
+  {
+   "setId": "sm10",
+   "contentKey": "pokemon|gardevoir sylveon gx|260|fairy song~kaleidostorm~magical miracle gx"
+  },
+  {
+   "setId": "sm10",
+   "contentKey": "pokemon|gardevoir sylveon gx|260|fairy song~kaleidostorm~magical miracle gx"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|sylveon v|200|dream gift~magical shot"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|sylveon vmax|310|max harmony~precious touch"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|sylveon v|200|dream gift~magical shot"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|sylveon v|200|dream gift~magical shot"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|sylveon vmax|310|max harmony~precious touch"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|sylveon vmax|310|max harmony~precious touch"
+  },
+  {
+   "setId": "swsh9tg",
+   "contentKey": "pokemon|sylveon v|200|dream gift~magical shot"
+  },
+  {
+   "setId": "swsh9tg",
+   "contentKey": "pokemon|sylveon vmax|310|max harmony~precious touch"
+  },
+  {
+   "setId": "pgo",
+   "contentKey": "pokemon|sylveon|120|souvenir~wonder flash"
+  },
+  {
+   "setId": "sv6pt5",
+   "contentKey": "pokemon|sylveon|120|disarming voice~mystical return"
+  },
+  {
+   "setId": "sv8",
+   "contentKey": "pokemon|sylveon ex|270|angelite~magical charm"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|sylveon ex|270|angelite~magical charm"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|sylveon|120|magical shot~safeguard"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|sylveon ex|270|angelite~magical charm"
+  },
+  {
+   "setId": "me55",
+   "contentKey": "pokemon|sylveon ex|270|colorful harmony"
+  },
+  {
+   "setId": "me55",
+   "contentKey": "pokemon|sylveon ex|270|colorful harmony"
+  },
+  {
+   "setId": "mcd19",
+   "contentKey": "pokemon|eevee|60|gnaw"
+  },
+  {
+   "setId": "pop3",
+   "contentKey": "pokemon|eevee|50|tackle~take down"
+  },
+  {
+   "setId": "mcd16",
+   "contentKey": "pokemon|eevee|60|lunge~tackle"
+  },
+  {
+   "setId": "neo2",
+   "contentKey": "pokemon|eevee|50|energy evolution~smash kick"
+  },
+  {
+   "setId": "sm115",
+   "contentKey": "pokemon|eevee|60|curiosity~spin tackle"
+  },
+  {
+   "setId": "gym2",
+   "contentKey": "pokemon|lt surge s eevee|40|scratch~surprise"
+  },
+  {
+   "setId": "sma",
+   "contentKey": "pokemon|eevee|60|energy evolution~quick draw"
+  },
+  {
+   "setId": "sm115",
+   "contentKey": "pokemon|eevee|60|gnaw"
+  },
+  {
+   "setId": "hgss3",
+   "contentKey": "pokemon|eevee|50|bite~tackle"
+  },
+  {
+   "setId": "hgss3",
+   "contentKey": "pokemon|eevee|50|call for family~tickle"
+  },
+  {
+   "setId": "col1",
+   "contentKey": "pokemon|eevee|50|bite~tackle"
+  },
+  {
+   "setId": "ex10",
+   "contentKey": "pokemon|eevee|50|energy evolution~tail whap"
+  },
+  {
+   "setId": "base2",
+   "contentKey": "pokemon|eevee|50|quick attack~tail wag"
+  },
+  {
+   "setId": "base5",
+   "contentKey": "pokemon|eevee|40|sand attack~tackle"
+  },
+  {
+   "setId": "xy7",
+   "contentKey": "pokemon|eevee|60|lunge~tackle"
+  },
+  {
+   "setId": "pl2",
+   "contentKey": "pokemon|eevee|50|bounce~signs of evolution"
+  },
+  {
+   "setId": "dp5",
+   "contentKey": "pokemon|eevee|60|call for family~lunge"
+  },
+  {
+   "setId": "dp5",
+   "contentKey": "pokemon|eevee|60|gnaw~sand attack"
+  },
+  {
+   "setId": "ex11",
+   "contentKey": "pokemon|eevee|50|metal scoop"
+  },
+  {
+   "setId": "ex2",
+   "contentKey": "pokemon|eevee|50|quick attack~signs of evolution"
+  },
+  {
+   "setId": "ex11",
+   "contentKey": "pokemon|eevee|50|call for family~rear kick"
+  },
+  {
+   "setId": "base6",
+   "contentKey": "pokemon|eevee|50|quick attack~tail wag"
+  },
+  {
+   "setId": "ecard3",
+   "contentKey": "pokemon|eevee|50|smash kick~take down"
+  },
+  {
+   "setId": "bw9",
+   "contentKey": "pokemon|eevee|60|growl~quick attack"
+  },
+  {
+   "setId": "bw9",
+   "contentKey": "pokemon|eevee|60|bite~signs of evolution"
+  },
+  {
+   "setId": "bw5",
+   "contentKey": "pokemon|eevee|60|surprise attack"
+  },
+  {
+   "setId": "bw5",
+   "contentKey": "pokemon|eevee|50|smash kick~tail whap"
+  },
+  {
+   "setId": "xy3",
+   "contentKey": "pokemon|eevee|50|energy evolution~gnaw"
+  },
+  {
+   "setId": "ecard2",
+   "contentKey": "pokemon|eevee|50|charge up~lunge"
+  },
+  {
+   "setId": "sm1",
+   "contentKey": "pokemon|eevee|60|energy evolution~quick draw"
+  },
+  {
+   "setId": "sm1",
+   "contentKey": "pokemon|eevee|60|energy evolution~quick draw"
+  },
+  {
+   "setId": "sm5",
+   "contentKey": "pokemon|eevee|60|gnaw"
+  },
+  {
+   "setId": "sm5",
+   "contentKey": "pokemon|eevee|60|palette of friends"
+  },
+  {
+   "setId": "sm9",
+   "contentKey": "pokemon|eevee snorlax gx|270|cheer up~dump truck press~megaton friends gx"
+  },
+  {
+   "setId": "bw11",
+   "contentKey": "pokemon|eevee|60|surprise attack"
+  },
+  {
+   "setId": "swsh4",
+   "contentKey": "pokemon|eevee|70|gnaw~tail whap"
+  },
+  {
+   "setId": "sm8",
+   "contentKey": "pokemon|eevee|60|gnaw"
+  },
+  {
+   "setId": "sm9",
+   "contentKey": "pokemon|eevee snorlax gx|270|cheer up~dump truck press~megaton friends gx"
+  },
+  {
+   "setId": "sm12",
+   "contentKey": "pokemon|eevee|60|bite~lead"
+  },
+  {
+   "setId": "sm12",
+   "contentKey": "pokemon|eevee|60|follow my tail~tackle"
+  },
+  {
+   "setId": "sm9",
+   "contentKey": "pokemon|eevee snorlax gx|270|cheer up~dump truck press~megaton friends gx"
+  },
+  {
+   "setId": "swsh45",
+   "contentKey": "pokemon|eevee|60|signs of evolution~wild kick"
+  },
+  {
+   "setId": "swsh7",
+   "contentKey": "pokemon|eevee|70|stampede~vee search"
+  },
+  {
+   "setId": "mcd18",
+   "contentKey": "pokemon|eevee|60|energy evolution~quick draw"
+  },
+  {
+   "setId": "swsh8",
+   "contentKey": "pokemon|eevee|50|continuous steps"
+  },
+  {
+   "setId": "fut20",
+   "contentKey": "pokemon|eevee on the ball|60|make the assist~tackle"
+  },
+  {
+   "setId": "swsh9tg",
+   "contentKey": "pokemon|eevee|70|stampede~vee search"
+  },
+  {
+   "setId": "swsh10",
+   "contentKey": "pokemon|eevee|50|resonant evolution~tackle"
+  },
+  {
+   "setId": "pgo",
+   "contentKey": "pokemon|eevee|60|tackle~whiny voice"
+  },
+  {
+   "setId": "swsh12pt5",
+   "contentKey": "pokemon|eevee v|200|tackle~vee brave"
+  },
+  {
+   "setId": "sv3",
+   "contentKey": "pokemon|eevee|70|cheer up~kick"
+  },
+  {
+   "setId": "sv3pt5",
+   "contentKey": "pokemon|eevee|70|colorful friends~skip"
+  },
+  {
+   "setId": "sv6",
+   "contentKey": "pokemon|eevee|50|ascension~quick attack"
+  },
+  {
+   "setId": "sv6",
+   "contentKey": "pokemon|eevee|50|ascension~quick attack"
+  },
+  {
+   "setId": "sv6pt5",
+   "contentKey": "pokemon|eevee|70|colorful catch~headbutt"
+  },
+  {
+   "setId": "sv7",
+   "contentKey": "pokemon|eevee|60|call for family~gnaw"
+  },
+  {
+   "setId": "sv8",
+   "contentKey": "pokemon|eevee|50|boosted evolution~reckless charge"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|eevee|50|boosted evolution~reckless charge"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|eevee ex|200|coruscating quartz~rainbow dna"
+  },
+  {
+   "setId": "sv8pt5",
+   "contentKey": "pokemon|eevee ex|200|coruscating quartz~rainbow dna"
+  },
+  {
+   "setId": "me55",
+   "contentKey": "pokemon|eevee|70|quick attack"
+  },
+  {
+   "setId": "me55",
+   "contentKey": "pokemon|eevee|70|quick attack"
+  },
+  {
+   "setId": "me55",
+   "contentKey": "pokemon|eevee|70|fetch and hide~tackle"
+  },
+  {
+   "setId": "me6",
+   "contentKey": "pokemon|eevee|70|headbutt~nap"
+  },
+  {
+   "setId": "me6",
+   "contentKey": "pokemon|eevee|70|headbutt~nap"
+  }
+ ],
+ "minProductIdBySet": {
+  "sv7": 567227,
+  "sv8": 589855,
+  "sv8pt5": 610356,
+  "sv9": 623428,
+  "sv10": 630803
+ }
+}

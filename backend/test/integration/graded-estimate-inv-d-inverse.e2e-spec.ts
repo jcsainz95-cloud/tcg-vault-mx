@@ -91,6 +91,7 @@ describe('E2E — GE-1 / INV-D inverso: un estimado JAMÁS precia un slab public
         productType: 'graded',
         gradeKey: GRADE_KEY,
         priceMxnCents: ESTIMADO_MALO_CENTS,
+        finish: 'normal',
         intent: 'graded_estimate',
       },
     });
@@ -266,6 +267,7 @@ describe('E2E — GE-1 / INV-D inverso: un estimado JAMÁS precia un slab public
         productType: 'graded',
         gradeKey: GRADE_KEY,
         priceMxnCents: ESTIMADO_MALO_CENTS,
+        finish: 'normal',
         intent: 'graded_estimate',
       },
     });

@@ -65,8 +65,12 @@ export function withGradedTurns<T extends object>(
   });
   p.gradedEstimateCardScan ??= {};
   Object.assign(p.gradedEstimateCardScan, {
-    findMany: jest.fn(async ({ where }: { where?: { cardId?: { in: string[] } } } = {}) =>
-      [...world.cardScans.values()].filter((r) => !where?.cardId || where.cardId.in.includes(r.cardId)),
+    findMany: jest.fn(async ({ where }: { where?: { cardId?: { in: string[] }; lastOutcome?: { in: string[] } } } = {}) =>
+      [...world.cardScans.values()].filter(
+        (r) =>
+          (!where?.cardId || where.cardId.in.includes(r.cardId)) &&
+          (!where?.lastOutcome || where.lastOutcome.in.includes(r.lastOutcome)),
+      ),
     ),
     upsert: jest.fn(
       async ({ where, create }: { where: { cardId: string }; create: { lastScannedAt: Date; lastOutcome: string; lastSetScanId: string } }) => {
@@ -74,6 +78,9 @@ export function withGradedTurns<T extends object>(
       },
     ),
   });
+  // AUTO-C (d): el escaner lee las cartas con fila de estimado por acabado; el doble no tiene ninguna.
+  p.priceReference ??= {};
+  if (!p.priceReference.findMany) p.priceReference.findMany = jest.fn(async () => []);
   p.card ??= {};
   if (!p.card.groupBy) {
     p.card.groupBy = jest.fn(async ({ where }: { where: { setId: { in: string[] } } }) =>

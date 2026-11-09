@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Logger, Optional, Param, Put, Query } from '@nestjs/common';
-import { Prisma, PriceRefKind, Role } from '@prisma/client';
+import { Finish, Prisma, PriceRefKind, Role } from '@prisma/client';
 import { Allow } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -409,7 +409,17 @@ export class GradedEstimatesController {
     @Param('cardId') cardId: string,
     @Param('gradeValue') gradeValue: string,
     @CurrentUser('id') userId: string,
+    @Query('finish') finishQ?: string,
   ) {
+    // PSA-ACABADO (contrato §4, rompiente): `finish` OBLIGATORIO; borra solo las filas de ese acabado.
+    if (!finishQ || !(Object.values(Finish) as string[]).includes(finishQ)) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        'El query `finish` es obligatorio: el estimado PSA es por acabado y el borrado solo toca el acabado indicado.',
+        { field: 'finish', allowed: Object.values(Finish) },
+      );
+    }
+    const finish = finishQ as Finish;
     // Config COMPLETA (aunque el dial esté `off`): hay que poder limpiar ANTES de encender, igual que
     // `/review` (§4.38n.3). Una limpieza que exigiera la feature encendida obligaría a **publicar** la
     // cifra mala para poder retirarla.
@@ -465,7 +475,7 @@ export class GradedEstimatesController {
       cardId,
       productType: 'graded' as const,
       gradeKey,
-      finish: 'normal' as const,
+      finish,
       cardProductId: null,
       refKind: PriceRefKind.graded_estimate,
     };

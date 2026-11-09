@@ -161,7 +161,14 @@ export function useCatalogSync() {
   const remoteSets = useQuery({
     queryKey: ['remote-sets'],
     queryFn: getRemoteSets,
+    select: (r) => r.data,
     refetchInterval: isSweeping || batchRunning ? 5000 : false,
+  });
+  // Misma clave y misma lectura: solo cambia la parte que se proyecta (cero llamadas extra).
+  const remoteSetsDegraded = useQuery({
+    queryKey: ['remote-sets'],
+    queryFn: getRemoteSets,
+    select: (r) => r.degraded === true,
   });
 
   const onSweepLaunched = useCallback(() => {
@@ -344,6 +351,7 @@ export function useCatalogSync() {
     priceSyncStatus,
     // §32 · sincronización del catálogo
     remoteSets,
+    remoteSetsDegraded,
     syncStatus,
     isSweeping,
     refreshVariantsStatus,

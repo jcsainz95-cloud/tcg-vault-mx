@@ -832,6 +832,7 @@ model PostalCode {
 // ============================= CATALOG =============================
 
 model CardSet {
+  promoLinks             PromoCollectionLink[] @relation("PromoLinkExpansion")
   id            String   @id @default(uuid())
   externalId    String   @unique
   name          String
@@ -938,6 +939,7 @@ model SealedProduct {
 }
 
 model Card {
+  promoLink              PromoCollectionLink? @relation("PromoLinkPromo")
   id                     String   @id @default(uuid())
   externalId             String   @unique
   setId                  String
@@ -995,6 +997,8 @@ model Card {
   // (promos/subsets al final). El default 1_000_000 deja cualquier fila no backfilleada AL FINAL.
   numberSort             Int      @default(1000000)
   numberPrefix           String   @default("")
+  // AUTO-B (docs/specs/AUTO_CATALOGO.md §B): clave exacta normalizada de CONTENIDO (nombre+HP+ataques/habilidades; entrenador/energia: nombre+hash del texto) para ligar promos a su expansion. NULL si el proveedor no la trae. Derivada: la escribe solo el sync.
+  contentKey             String?
   // DECKS-META §2 (Fase 0, ARCHITECTURE §12.1) — CRUDO del proveedor, PROCEDENCIA. Se conserva como
   // hecho crudo del proveedor por si se usa a futuro; Meta Battle Decks YA NO lo usa para GATEAR
   // legalidad (confía-en-la-fuente, SUP-LEG, ver ARCHITECTURE §12.1). Nullable: promos/sets viejos sin
@@ -1410,6 +1414,10 @@ model PriceReference {
   // `@default(market)` hace la migración segura por construcción: ninguna fila existente cambia de
   // significado ⇒ **migrar no puede mover ningún precio publicado**.
   refKind          PriceRefKind @default(market)
+  // PSA-ACABADO (HECHOS 2026-11-09; docs/specs/PSA_ACABADO.md §1): `true` ⇒ el estimado `graded_estimate` se escribió por
+  // ACABADO (el escritor nuevo lo fija en create Y update). `false` ⇒ fila previa a PSA-ACABADO (todas con finish='normal'):
+  // las automáticas dejan de leerse y el barrido las borra; las manuales valen solo para el acabado principal. Aditivo.
+  estimateFinishScoped Boolean    @default(false)
   // v1.50.3-f (M-43, §4.38m.2) — fecha de la EVIDENCIA de mercado (la última venta observada por el
   // proveedor), distinta de `capturedDate` (el día en que jalamos el archivo). `null` en la vía MANUAL:
   // ahí la afirmación ES del humano y su fecha de captura es la evidencia.
@@ -3678,6 +3686,7 @@ enum FeaturedSlotKind {
 enum GradedCardScanOutcome {
   written
   no_data
+  no_finish_split // PSA-ACABADO: proveedor sin separación por acabado y carta de 2+ acabados ⇒ sin estimado
 }
 
 // Clase E. Bitácora por set; solo `ok` mueve relojes. Admin-only, no viaja.
@@ -3816,4 +3825,24 @@ model ListingPriceRun {
   prices         ListingPrice[]
 
   @@index([trigger, businessDate, status])
+}
+
+// AUTO-B (docs/specs/AUTO_CATALOGO.md §B) - confianza de la liga promo -> expansion. Clase E (admin-only/derivada, no viaja como enum).
+enum PromoLinkConfidence {
+  high
+  low
+}
+
+/// CACHE DERIVADA (nadie la edita): a que expansion pertenece una promo, inferido por misma carta exacta + ventana cronologica de productId.
+/// Se recalcula completa en cada sync (determinista, idempotente). El apartado publico lee SOLO `high`.
+model PromoCollectionLink {
+  promoCardId    String              @id
+  promoCard      Card                @relation("PromoLinkPromo", fields: [promoCardId], references: [id], onDelete: Cascade)
+  expansionSetId String
+  expansionSet   CardSet             @relation("PromoLinkExpansion", fields: [expansionSetId], references: [id], onDelete: Cascade)
+  confidence     PromoLinkConfidence
+  evidence       Json
+  computedAt     DateTime            @default(now())
+
+  @@index([expansionSetId, confidence])
 }

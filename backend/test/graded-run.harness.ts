@@ -274,7 +274,7 @@ export function wireJob(
     },
     inventoryItem: { findMany: jest.fn(async () => inventario) },
     card: { findMany: jest.fn(async () => cartas) },
-    priceReference: { findFirst: jest.fn(async () => null), create, update },
+    priceReference: { findFirst: jest.fn(async () => null), create, update, deleteMany: jest.fn(async () => ({ count: 0 })) },
     cardSet: { update: cardSetUpdate },
   } as unknown as PrismaService;
   // v1.113⟨portada⟩ (§DYN.4): tablas del turno PSA en memoria (nunca consultado, tope seed ⇒ se pide como antes).

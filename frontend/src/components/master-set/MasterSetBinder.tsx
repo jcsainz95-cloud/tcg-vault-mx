@@ -36,7 +36,7 @@ import { CardImage, QUOTER_EAGER_TILES } from '@/components/ui/CardImage';
 import { CardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { QueryState } from '@/components/ui/QueryState';
-import { FINISH_ORDER, displayFinishesOf, displayedVariants } from '@/lib/finish';
+import { FINISH_ORDER, displayFinishesOf, displayedVariants, normalizePromoCell } from '@/lib/finish';
 import { FinishBand } from '@/components/domain/FinishMark';
 import { RarityLabel } from '@/components/domain/RarityLabel';
 import { CardDetailModal } from '@/components/domain/CardDetailModal';
@@ -398,6 +398,19 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
     return { expected, covered, pct };
   }, [binder.data]);
 
+  // §AUTO/PROMOS: apartado «Promos de la colección» (después del Master Set, solo organización). Se arma
+  // APARTE de `tiles` y de `variantTotals`: no entra en el conteo, el % ni el valor del set. En el
+  // cotizador no aplica (no hay fuente de promos en `GET /buylist/cards`; no se inventa).
+  const promos = isQuoter ? undefined : binder.data?.collectionPromos;
+  const promoTiles = useMemo(() => {
+    const out: { cell: MasterSetCardCellDTO; variant: MasterSetVariantDTO }[] = [];
+    for (const cell of [...(promos?.items ?? [])].map(normalizePromoCell).sort(compareCardNumber)) {
+      for (const variant of displayedVariants(cell)) out.push({ cell, variant });
+    }
+    return out;
+  }, [promos]);
+  const showPromos = !!promos && (promoTiles.length > 0 || (promos.total ?? 0) > 0);
+
   const owner = binder.data?.owner;
 
   // v1.33 (P-27, §4.31b.6): si el binder se pidió por un subset, el backend normaliza al principal y
@@ -633,6 +646,46 @@ export function MasterSetBinder({ mode, userId, set, onBack, onOpenCell, onAddVa
             ))
           ))}
       </QueryState>
+
+      {showPromos && promos && (
+        <section
+          className="flex flex-col gap-3 border-t border-border pt-4"
+          aria-labelledby="collection-promos-title"
+          data-testid="collection-promos"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 id="collection-promos-title" className="text-h3">
+              {t('collectionPromosTitle')}
+            </h3>
+            {typeof promos.total === 'number' && (
+              <span className="font-mono tabular-nums text-xs text-muted" data-testid="collection-promos-progress">
+                {typeof promos.owned === 'number'
+                  ? t('collectionPromosProgress', { owned: promos.owned, total: promos.total })
+                  : t('collectionPromosTotalOnly', { total: promos.total })}
+              </span>
+            )}
+          </div>
+          <p className="max-w-prose text-xs leading-relaxed text-muted">{t('collectionPromosLead')}</p>
+          <ul
+            className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+            aria-label={t('collectionPromosGridLabel')}
+          >
+            {promoTiles.map(({ cell, variant }) => (
+              <li key={`promo:${cell.cardProductId ?? cell.cardId}:${variant.finish}`} className="min-w-0">
+                <BinderTile
+                  cell={cell}
+                  variant={variant}
+                  setCode={null}
+                  // Celda de SELLO (§4 ID): ni el drawer de M1 ni la bóveda reciben `cardProductId`, así que es
+                  // SOLO LECTURA (precio del sello) y jamás cae a la ficha/alta de la carta lisa.
+                  readOnly={cell.cardProductId != null}
+                  onOpen={() => (onOpenVariant ? onOpenVariant(cell, variant) : onOpenCell(cell))}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }
@@ -719,7 +772,7 @@ function TileHeader({
   // acabado propio de la teja; si es 0 la teja no lleva badge (ya se muestra como «HUECO»). Se conserva
   // la caída a 0 en vivo de IMP-2 (misma fuente `countsByFinish` de la respuesta), pero por acabado.
   const finishCount = finish
-    ? cell.countsByFinish.find((c) => c.finish === finish)?.count ?? 0
+    ? (cell.countsByFinish ?? []).find((c) => c.finish === finish)?.count ?? 0
     : 0;
   const hasCount = !!showFinishCount && finishCount > 0;
   const art = (
@@ -791,13 +844,16 @@ function BinderTile({
   variant,
   onOpen,
   setCode,
+  readOnly = false,
 }: {
   cell: MasterSetCardCellDTO;
   variant: MasterSetVariantDTO;
   onOpen: () => void;
   setCode: string | null;
+  readOnly?: boolean;
 }) {
   const t = useTranslations('masterSet');
+  const tStamp = useTranslations('version.chip');
   const tFinish = useTranslations('finish');
   const tStatus = useTranslations('status.bounty');
   const locale = useLocale() as AppLocale;
@@ -822,11 +878,13 @@ function BinderTile({
   // La ausencia del glifo de mira es el refuerzo, no el canal: un bounty rebasado ya no es una caza
   // activa. `effective === false` ⇔ la tarifa vigente paga más que la oferta.
   const bountyOutbid = bountyOn && pricing?.bounty?.effective === false;
+  const Wrapper = readOnly ? 'div' : 'button';
+  const stampText = cell.stampType ? tStamp(cell.stampType) : null;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-haspopup="dialog"
+    <Wrapper
+      {...(readOnly
+        ? { 'data-testid': 'stamp-cell', 'data-card-product-id': cell.cardProductId }
+        : { type: 'button' as const, onClick: onOpen, 'aria-haspopup': 'dialog' as const })}
       className="flex h-full w-full flex-col text-left transition-colors focus-visible:shadow-focus focus-visible:outline-none"
     >
       {/* FinishMark (§16.6): banda superior de 3px — canal de color; el texto lo porta la
@@ -841,6 +899,12 @@ function BinderTile({
         showFinishCount
         setCode={setCode}
       />
+      {stampText && (
+        <span className="mt-1 font-mono text-[10px] uppercase tracking-wide text-muted" data-testid="stamp-type">
+          {stampText}
+          {cell.stampLabel ? <span lang="en"> · {cell.stampLabel}</span> : null}
+        </span>
+      )}
       {pricing ? (
         <VariantPricingCompact pricing={pricing} marketRefCents={marketRef} />
       ) : (
@@ -877,7 +941,7 @@ function BinderTile({
           </span>
         )}
       </span>
-    </button>
+    </Wrapper>
   );
 }
 

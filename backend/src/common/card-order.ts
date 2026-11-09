@@ -36,6 +36,23 @@ export const FINISH_ORDER: Finish[] = [
   'first_edition_holofoil',
 ];
 
+/**
+ * Acabado PRINCIPAL de una carta (PSA_ACABADO, arquitecto 44d0d609): el que la ficha selecciona por omisión =
+ * el primero presente de `normal › holofoil › first_edition_holofoil › reverse_holo` (⚠️ NO `FINISH_ORDER`, que pone
+ * `reverse_holo` antes que `holofoil`); `normal` si no hay datos. UN helper: la ficha, la rejilla, el borrado graded y la
+ * lectura de manuales heredadas usan este mismo orden (el frontend lo espeja en `lib/finish.ts`).
+ */
+export const PRIMARY_FINISH_ORDER: Finish[] = [
+  'normal',
+  'holofoil',
+  'first_edition_holofoil',
+  'reverse_holo',
+];
+export function primaryFinishOf(availableFinishes: readonly Finish[] | null | undefined): Finish {
+  const list = availableFinishes ?? [];
+  return PRIMARY_FINISH_ORDER.find((f) => list.includes(f)) ?? 'normal';
+}
+
 /** Deduplica y ordena una lista de acabados por `FINISH_ORDER` (nunca inventa acabados). */
 export function orderFinishes(finishes: Iterable<Finish>): Finish[] {
   const set = new Set<Finish>(finishes);

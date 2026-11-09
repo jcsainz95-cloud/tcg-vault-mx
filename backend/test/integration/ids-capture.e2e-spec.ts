@@ -214,4 +214,27 @@ describe('E2E — §IDS.4 captura por versión', () => {
     expect(matched).toContain(enListed.id);
     expect(matched).not.toContain(esListed.id);
   });
+
+  it('ID-3 (PROMOS_MASTERSET §4): el alta desde la CELDA DE SELLO del binder crea la pieza del SELLO (cardProductId), no la lisa', async () => {
+    const b = await h.api<{ collectionPromos?: { items: { cardId: string; cardProductId?: number; stampType?: string; stampLabel?: string; variants: { finish: string }[] }[] } }>(
+      'GET',
+      `/admin/inventory/master-sets/${setId}`,
+      { token: admin },
+    );
+    expect(b.status).toBe(200);
+    const cell = b.body.collectionPromos?.items.find((c) => c.cardProductId === pid);
+    expect(cell).toMatchObject({ cardId: cardA, cardProductId: pid, stampType: 'prize_pack', stampLabel: 'Cosmos Holo' });
+    const totalAntes = await h.prisma.inventoryItem.count({ where: { cardProductId: pid } });
+    // exactamente lo que enviaria el CellDrawer con la celda de sello
+    const made = await alta({ cardId: cell!.cardId, cardProductId: cell!.cardProductId, finish: cell!.variants[0].finish });
+    expect(made.status).toBe(201);
+    const row = await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: made.body.id } });
+    expect([row.cardId, row.cardProductId, row.finish]).toEqual([cardA, pid, 'holofoil']);
+    // contraste: omitir cardProductId (el defecto que se evita) crea la LISA
+    const plain = await alta({ cardId: cell!.cardId });
+    expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: plain.body.id } })).cardProductId).toBeNull();
+    // y el conteo de la celda de sello cuenta SOLO la pieza del sello
+    const after = await h.api<{ collectionPromos: { items: { cardProductId?: number; totalCount: number }[] } }>('GET', `/admin/inventory/master-sets/${setId}`, { token: admin });
+    expect(after.body.collectionPromos.items.find((c) => c.cardProductId === pid)?.totalCount).toBe(totalAntes + 1); // la lisa creada arriba NO suma aqui
+  });
 });

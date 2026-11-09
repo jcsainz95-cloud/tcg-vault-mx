@@ -1,11 +1,8 @@
 # PROJECT.md — TCG HUNT (marketplace Pokémon TCG con bóveda, México)
 
-> **Estado vigente, no bitácora.** Destilado el 2026-11-06 de la versión de 19 155 líneas, que queda congelada en
-> `docs/archive/PROJECT.md` (numeración de criterios 1…~1000 y secciones §A…§IDS). Las **decisiones literales del
-> dueño** viven en `HECHOS.md` (no se re-preguntan); su historia, en `docs/DECISIONES.md`. Si este resumen y una fila
-> de `HECHOS.md` discrepan, **manda HECHOS** y se corrige aquí.
-> Marca: **TCG HUNT** (clave i18n `common.brand.name`; dominio `common.brand.domain` = `tcghunt.mx`). «TCG Vault MX»
-> fue un nombre interno retirado. La razón social (`common.footer.legalEntity`) está pendiente de carga.
+> **Estado vigente, no bitácora.** Versión anterior (19 155 líneas) congelada en `docs/archive/PROJECT.md`. Las
+> **decisiones literales del dueño** viven en `HECHOS.md` (no se re-preguntan); historia en `docs/DECISIONES.md`. Si
+> este resumen y `HECHOS.md` discrepan, **manda HECHOS**. Marca: **TCG HUNT** (`common.brand.name`; dominio `tcghunt.mx`). Razón social (`common.footer.legalEntity`) pendiente de carga.
 
 ## 1. Idea y problema
 TCG HUNT vende **cartas individuales y producto sellado de Pokémon** en México con **precio derivado del mercado** y
@@ -26,7 +23,7 @@ Resuelve: precios opacos, envíos repetidos, dudas de autenticidad/condición y 
 **Condición e identidad**
 - Raw solo **Near Mint (NM)**. Gradeadas (PSA/CGC): el slab es la garantía (empresa + grado + `certNumber` verificable).
   Sellado: condición propia (Mint / «Detalle menor en caja»).
-- Sin fotos propias de cartas: imagen de catálogo (pokemontcg.io). Accesorios sí llevan foto.
+- Cartas: imagen de catálogo (pokemontcg.io), sin fotos propias. Accesorios sí llevan foto.
 - **Acabado/versión** (Normal, Reverse Holo, Holofoil, 1st Edition) se captura y se valúa por separado.
 - **Master Set / sets multi-parte**: subsets con set-id propio (p. ej. `cel25` + `cel25c`) se **agrupan solo en
   presentación** (tienda, M1 Master Set, bóveda); no cambian identidad ni precio de la carta.
@@ -59,26 +56,30 @@ Resuelve: precios opacos, envíos repetidos, dudas de autenticidad/condición y 
   verificación → pago **SPEI** (solo súper-admin) → publicar.
 - Sin oferta en 7 días hábiles ⇒ correo «no procederemos». Aceptada sin guía en 7 días ⇒ se cancela sola.
   Aceptada no se cancela: se rechazan las cartas en mala condición con motivo. El operador puede declinar (auditado).
-- **Bounties**: nunca pagan arriba del mercado (`min(bounty, mercado)`; sin mercado ⇒ bounty completo); se pueden eliminar.
-- Topes AML/mensuales de compra por vendedor según dial; KYC lo verifica **solo el dueño**.
+- **Bounties**: nunca pagan arriba del mercado (`min(bounty, mercado)`); se pueden eliminar.
+- Topes AML/mensuales por vendedor según dial; KYC lo verifica **solo el dueño**.
 
 **Disputas y reembolsos**
 - **No hay disputas en la tienda.** Tras la entrega el cliente escribe a soporte («Escríbenos») o reclama a su banco
   vía Stripe (contracargo). Sin plazo escrito en términos.
 - Reembolso de **solo la carta** que llegó mal (desde Ventas, con motivo). Retiro de bóveda entregado: devolución por SPEI.
 - Faltante/dañada al preparar: se reembolsa esa carta (carta + su parte de comisión); el pedido sigue.
-- Reembolsos manuales SPEI: se marcan «pagado + quién»; topes contra errores de dedo; dueño los ve en el panel.
+- Reembolsos manuales SPEI: «pagado + quién»; topes contra errores de dedo; el dueño los ve en el panel.
 
 **Control de gasto y legal**
-- Avisos al dueño y topes sobre lo que cuesta dinero (p. ej. MX$2,500 en guías por persona en 24 h). Procesos **lo más automáticos posible**; lo manual es último recurso.
-- Aviso de privacidad y términos mínimos; salida en vivo sin datos fiscales (se regulariza). PII (INE, CLABE, RFC) cifrada y enmascarada; INE con retención acotada.
+- Avisos al dueño y topes sobre lo que cuesta dinero (p. ej. MX$2,500 en guías por persona en 24 h). Todo es automático (AUTO); lo manual es excepción con costo.
+- Aviso de privacidad y términos mínimos; en vivo sin datos fiscales (se regulariza). PII (INE, CLABE, RFC) cifrada y enmascarada; INE con retención acotada.
 
-**P-PROMOS (opción C; HECHOS 2026-11-06):** el admin importa, grupo a grupo, SOLO los grupos de una LISTA EXPLÍCITA en código (hoy solo 24451 «ME: Mega Evolution Promo»: 148 productos, 138 con precio; las del 30 aniversario llevan «(30th Celebration)»); cualquier otro grupo ⇒ 404 (añadir uno = cambio revisado); sin alta manual. Solo productos con número (el sellado va por su módulo); sin precio ⇒ se crea en PRICE_PENDING, no vendible. Sello = producto aparte como la liga, fuera del binder y del valor del set (lista cerrada en ARCHITECTURE §5.12; los de evento ⇒ tipo «Promo de evento», `event_promo`); sello no listado ⇒ `unknown_stamp` (se omite y se reporta, nunca carta normal); SIN BASE PLANA (el dueño quiere venderlas): el producto con sello se crea como CARTA PROPIA vendible (`set_base`, etiqueta en el nombre: «Miraidon (Pitch Black Stamped)», #082) y su [Staff] cuelga de ella; `no_base` solo si no hay carta a la que colgar (~0). pokemontcg.io caído ⇒ import 503. Si ya publica el set equivalente ⇒ import 409 y su sync bloqueado con aviso. Import todo-o-nada; otro simultáneo del mismo grupo ⇒ 409. Criterios: importar 24451 dos veces o a la vez ⇒ 0 duplicados y 0 errores 500; «Pikachu ex 107 (30th Celebration)» ⇒ carta 107 con imagen y precio; «Paradise Resort 092 [Staff]» ⇒ versión de la 092; pokemontcg.io caído o fallo a mitad ⇒ 0 filas; `sync`/`sync-all` no crean cartas en sets `tcgcsv:`; gates qa + seguridad-lead. **P-PROMOS-VIEJAS (opción A, HECHOS 2026-11-07):** las cartas y fotos de `svp`, `swshp`, `smp`, `xyp`, `bwp`, `dpp` siguen viniendo de pokemontcg.io (sync normal); precio y productos salen de TCGCSV por TABLA FIJA en código (svp→22872, swshp→2545, smp→1861, xyp→1451, bwp→1407, dpp→1421), sin teclear precio ni migración. Unión por número: BW004 = BW04; «67a» es otra carta que «67». Sin producto o sin precio ⇒ «Precio pendiente». Versiones con sello (Prerelease, Staff, Worlds, Battle Road…) = producto aparte colgado de la carta del mismo número; si TCGCSV solo trae la versión con sello (p. ej. SM10 Prerelease), esa versión se vende como la carta, a su precio de mercado y con el nombre de pokemontcg.io, sin etiqueta. Sello no listado (ARCHITECTURE §5.13) o Number con total («134/142») ⇒ se omite y se reporta; XY67a, XY150a, SM30a, XY177a sin producto propio ⇒ «Precio pendiente»; nunca se mezcla con la plana. Criterios: (1) xyp ⇒ grupo 1451 aunque PPT escriba otro id; (2) SM10 (solo Prerelease) ⇒ vendible al precio de esa versión; (3) el sello nunca hereda el precio de la plana; (4) segunda corrida ⇒ 0 duplicados; (5) gates qa + seguridad-lead.
-**§WSH · lista de deseos SIEMPRE activa (HECHOS 2026-11-08, «Quita el interruptor déjala prendida siempre»):** sin interruptor `wishlist_enabled`; lista y avisos por correo siempre activos (staff sin correo: 403). Siguen los demás diales (tope 20, IVA, tope de correos, ventana, margen 15 %, base) y `sealed_restock_alerts`. Criterios: Mi cuenta de cliente muestra su lista con 0 respuestas 404 de `/wishlist` en consola; M10 sin el interruptor y con los demás diales; la ficha siempre ofrece guardar; la migración no toca listas ni avisos; gates qa + seguridad-lead.
+**P-PROMOS (HECHOS 2026-11-06/07; `docs/specs/P_PROMOS.md`):** import de grupos TCGCSV: semilla 24451 + descubrimiento automático (§AUTO-F); todo-o-nada; sin precio ⇒ PRICE_PENDING; sello = versión aparte que no hereda el precio de la plana; promos viejas: cartas de pokemontcg.io, precio de TCGCSV. 2.ª corrida ⇒ 0 duplicados.
+**§PSA-ACABADO (HECHOS 2026-11-09; spec `PSA_ACABADO.md`; dinero):** estimado «si se gradea» por carta, grado y ACABADO; nunca hereda la cifra de otro; sin separación del proveedor ⇒ «sin estimado». Manual heredada ⇒ acabado principal de su carta. 0 precios de venta movidos; gates qa + seguridad-lead.
+**§PROMOS-MASTERSET (HECHOS 2026-11-09; spec `PROMOS_MASTERSET.md`):** el sync incluye siempre promos viejas y grupos TCGCSV; bajo cada Master Set, apartado «Promos de la colección» con su «x de y» (dueño: sí), nunca sumado al set. Sellos siempre; Black Star solo con la compuerta automática abierta (§AUTO). Gates qa + seguridad-lead.
+**§AUTO (HECHOS 2026-11-09; spec `AUTO_CATALOGO.md`):** nada depende del dueño. El sync diario reintenta y descubre grupos de promos solo (duda ⇒ cuarentena); solo confianza alta se publica; la compuerta Black Star se abre/cierra sola por backtest contra sellos; estimado PSA con cota dura fallida ⇒ cuarentena; 0 precios de venta cambian. Excepciones manuales: KYC, SPEI, empaque.
+**§MKT-V2 · panel de Marketing v2 (HECHOS 2026-11-09, «Dale diseñalo…»; detalle, umbrales y pruebas en `docs/specs/MKT_PANEL_V2.md`; gates qa + seguridad-lead):** (1) Primera pestaña «Resumen» (`pantalla=r`): 8 cifras de la semana cerrada con flecha contra la anterior; gráfica diaria solo en la vista del dueño (nunca en exports, tokens ni correo). (2) Avisos de qué hacer por reglas fijas con umbral (pago sin cobro, caída de fuente, vistas sin venta, Google sin clics, buylist sin stock, búsquedas sin resultado); cada uno cita sus números; sin IA. (3) Correo cada lunes (CDMX) con resumen y avisos, una vez por semana, sin datos personales. (4) El tráfico propio (`diag-*`, `qa-*`, `e2e-*`, `?tcg_int=1`) no se mide ni en la tienda ni en panel/GA4, y la lista crece sola por prefijo. (5) Datos nuevos de GA4/Search Console y los 10 arreglos (incl. Consent Mode con modelado: NO se activa): spec §5–6. Criterios: 8 cifras con delta; 0 filas diarias fuera de la sesión del dueño; 2 ejecuciones del job ⇒ 1 correo; `diag` fuera del conteo.
+**§D9 · comisión de plataforma DENTRO del precio (HECHOS:201 y :272 «A en todo», 2026-11-09; `docs/specs/D9_COMISION.md`; se construye tras publicar §DYN):** el precio exhibido ya incluye la comisión (≈4.4 %, al peso hacia arriba por unidad: carta 10000 → 10500 centavos); ninguna pantalla, ticket ni correo dice «comisión». Se cobra el precio visto, igual para todos los métodos; envío de retiro mostrado = cobrado; envío gratis desde 400000 sobre el subtotal visto; en Finanzas Stripe es solo gasto (pedidos nuevos `FEE_INCLUDED`). Precio final del dueño en accesorios/sellado no se toca. Gates qa + seguridad-lead.
+**§WSH · lista de deseos SIEMPRE activa (HECHOS 2026-11-08, «Quita el interruptor déjala prendida siempre»):** sin interruptor `wishlist_enabled`; lista y avisos siempre activos (staff sin correo: 403); siguen los demás diales. La migración no toca listas ni avisos; gates qa + seguridad-lead.
 
 ## 4. Fuera de alcance hoy
-Envío internacional · japonés (después) · fotos propias de cartas · pentest externo (riesgo aceptado por el dueño) ·
-Meta Ads / bots en redes · disputas dentro de la tienda.
+Envío internacional · japonés (después) · fotos propias de cartas · pentest externo (riesgo aceptado por el dueño) · Meta Ads / bots en redes · disputas dentro de la tienda.
 
 ## 5. Restricciones técnicas
 Repo **público**: ningún secreto en el árbol. Solo producción (no hay staging); blanco de seguridad = local.
@@ -86,8 +87,7 @@ Publica **solo la rama `production`** (Vercel + Railway despliegan al recibir pu
 Stack y estructura en `docs/ARCHITECTURE.md`; endpoints en `docs/API_CONTRACT.md`.
 
 ## 6. Criterios de aceptación vigentes (resumen por área)
-La lista numerada completa (criterios 1…~1000, con su texto literal) está congelada en `docs/archive/PROJECT.md`;
-buscar con `grep -n "criterio NNN"` antes de abrir contexto. Un criterio nuevo se escribe aquí, corto.
+Lista completa (criterios 1…~1000) congelada en `docs/archive/PROJECT.md` (`grep -n "criterio NNN"`). Criterio nuevo: aquí, corto.
 1. **Tienda**: catálogo con filtros/facetas, ficha con precio con IVA dentro, sellado y accesorios; portada < 1 s
    (Destacadas del día, Joyas para gradear por turnos).
 2. **Checkout**: invitado y con cuenta; destino bóveda/domicilio; desglose de importe; Stripe real; correo de confirmación.

@@ -285,7 +285,11 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   'ListingPriceRun','GradedEstimateSetScan','GradedEstimateCardScan',
   -- v1.116⟨ids⟩ (M-95, G-8; API_CONTRACT §IDS.1 «Limpieza PDB»): candidatas de liga con empate ambiguo = CATÁLOGO (como
   -- `CardProduct`); borrarlas quitaría a quien captura la elección de identidad hasta el siguiente barrido ⇒ conservar.
-  'StampedProductCandidate']) AS t;
+  'StampedProductCandidate',
+  -- PROMOS-MASTERSET (AUTO_CATALOGO «Clase de PromoCollectionLink en la limpieza (G-8)»): liga promo→expansión INFERIDA
+  -- sola = CATÁLOGO derivado de catálogo (sin PII, sin datos de prueba) ⇒ conservar. Sus FK a `Card`/`CardSet` son
+  -- ON DELETE CASCADE: si alguna vez se borrara una Card/CardSet referenciada, el link cae con ella (nada que ordenar aquí).
+  'PromoCollectionLink']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.

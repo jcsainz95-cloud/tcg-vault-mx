@@ -233,6 +233,13 @@ export interface GradedEstimateSourceRow {
    */
   evidenceDate: string;
   source: PriceSource;
+  /**
+   * PSA-ACABADO (docs/specs/PSA_ACABADO.md §2) — alcance de la cifra. `card_level` (valor por omision hasta medir, spec §3)
+   * = el proveedor da UNA cifra por carta, sin separar acabados; `per_finish` = la muestra es de `finish`.
+   */
+  finishScope: 'per_finish' | 'card_level';
+  /** Solo con `finishScope='per_finish'`: el acabado al que pertenece la muestra. */
+  finish?: Finish;
 }
 
 /** Por qué se DESCARTÓ una entrada (traza obligatoria del job, §4.38h.4). */
@@ -1297,6 +1304,8 @@ export class PokemonPriceTrackerBulkProvider implements BulkPriceProvider, Fresh
         count,
         evidenceDate,
         source: this.source,
+        // PSA-ACABADO: `ebay.salesByGrade.psaN` es por CARTA (NO MEDIDO que el proveedor lo separe por acabado).
+        finishScope: 'card_level',
       });
     }
     return out;

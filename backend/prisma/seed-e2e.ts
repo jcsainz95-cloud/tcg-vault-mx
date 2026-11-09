@@ -474,6 +474,8 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       // solo recalcula cuando hay USD). El fixture promete un número, no una conversión del día.
       capturedDate: daysAgoUtc(e.daysAgo),
       isManualOverride: e.isManual,
+      // PSA-ACABADO: una fila AUTOMÁTICA solo se lee si lleva el sello por acabado (las previas no).
+      estimateFinishScoped: !e.isManual,
       cardProductId: null,
     });
   }

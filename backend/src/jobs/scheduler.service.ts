@@ -13,7 +13,11 @@ import { AuthTokenSweepJobService } from './auth-token-sweep.service';
 import { OrderReservationSweepJobService } from './order-reservation-sweep.service';
 import { SetPriceSyncJobService } from './set-price-sync.service';
 import { SetValueSnapshotJobService } from './set-value-snapshot.service';
-import { CatalogPriceSyncJobService } from './catalog-price-sync.service';
+import {
+  CATALOG_METADATA_ATTEMPTS,
+  CATALOG_METADATA_BACKOFF_MS,
+  CatalogPriceSyncJobService,
+} from './catalog-price-sync.service';
 import { PriceIngestJobService, PRICE_INGEST_SET_JOB } from './price-ingest.service';
 import { SealedPriceIngestJobService } from './sealed-price-ingest.service';
 import { DecksMetaRefreshService } from '../modules/decks-meta/decks-meta-refresh.service';
@@ -23,6 +27,7 @@ import { isSchedulerDisabled } from '../config/test-env';
 import { ShipmentTrackingPollJob } from '../modules/shipments/tracking-poll.job';
 import { ShipmentLabelProcessingJob } from '../modules/shipments/label-processing.job';
 import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job';
+import { CatalogAutoWatchService } from '../modules/catalog/catalog-auto-watch.service';
 import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
@@ -141,6 +146,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly marketingAccessLog?: MarketingAccessLogService,
     // v1.113⟨portada⟩ (§DYN.2.3): el tic de Destacadas del día.
     @Optional() private readonly featuredRotation?: FeaturedService,
+    // AUTO: backfill de contentKey + alerta >48 h (al final: los specs construyen el planificador con la lista posicional).
+    @Optional() private readonly catalogAutoWatch?: CatalogAutoWatchService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -259,7 +266,17 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     // salta sets ya poblados), cadencia LIGERA (diaria), NO el barrido redundante 2×/día `force:true`.
     // El disparo manual `POST /admin/jobs/catalog-price-sync` (force:true, ops) se conserva intacto.
     const metadataCron = this.config.get<string>('CATALOG_METADATA_SYNC_CRON') ?? '0 1 * * *';
-    await this.queue.add('catalog-metadata-sync', {}, this.repeat('catalog-metadata-sync', metadataCron));
+    // AUTO-A (b): 6 intentos con backoff exponencial desde 10 min (10, 20, 40, 80, 160 min): pokemontcg.io falla a ratos y
+    // `runMetadataImport` ahora AGUARDA el barrido y lanza si termino mal, asi que nadie tiene que reintentar a mano.
+    await this.queue.add('catalog-metadata-sync', {}, {
+      ...this.repeat('catalog-metadata-sync', metadataCron),
+      attempts: CATALOG_METADATA_ATTEMPTS,
+      backoff: { type: 'exponential', delay: CATALOG_METADATA_BACKOFF_MS },
+    });
+
+    // AUTO: backfill de contentKey (reanudable) + alerta > 48 h sin exito del catalogo; cada 15 min (el paso es barato cuando no hay nada).
+    const autoWatchCron = this.config.get<string>('CATALOG_AUTO_WATCH_CRON') ?? '*/15 * * * *';
+    if (this.catalogAutoWatch) await this.queue.add('catalog-auto-watch', {}, this.repeatEvery('catalog-auto-watch', autoWatchCron));
 
     // ⭐💰 D2d (§M4-SHIP.19.10): Skydropx. Crons por env (devops ajusta sin redeploy); los tres son no-op con el dial
     // `shipping_provider='off'` (seed) y con el adaptador `noop`. El sondeo y la guía en proceso son de alta frecuencia: su
@@ -379,7 +396,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
    * integración de C1 (`sdx-c1-jobs.e2e-spec.ts`, PS-172 (c)) recorra el MISMO camino que el cron con el AppModule real, sin
    * Redis: un `case` que falte se ve allí, no solo en la unitaria con BullMQ mockeado.
    */
-  async process(job: { name: string; data?: unknown }): Promise<unknown> {
+  async process(job: { name: string; data?: unknown; id?: string; attemptsMade?: number }): Promise<unknown> {
     switch (job.name) {
       case 'fx-refresh':
         return this.fxRefresh.run();
@@ -406,7 +423,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.orderReservationSweep.run();
       // WS-A: metadata del catálogo (sets nuevos, force:false) — cadencia ligera diaria.
       case 'catalog-metadata-sync':
-        return this.catalogPriceSync.runMetadataImport();
+        return this.catalogPriceSync.runMetadataImport({ attempt: (job.attemptsMade ?? 0) + 1, jobId: job.id });
       // v1.14-price-ingest (WS-A): parent (fan-out por set) y child (ingesta de UN set).
       case 'price-ingest':
       case 'price-ingest-1':
@@ -432,6 +449,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       case 'shipment-extra-charges':
         return this.shipmentExtraCharges?.run() ?? null;
       // 💰 C1 (§M4-SHIP.19.33.9): avisos al dueño. `run()` toma `now` del reloj del módulo; `run({})` = ayer en México.
+      case 'catalog-auto-watch':
+        return this.catalogAutoWatch?.run() ?? null;
       case 'spend-watch':
         return this.spendWatch?.run() ?? null;
       case 'spend-digest':

@@ -1,10 +1,13 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
+import type { AppLocale } from '@/i18n/routing';
+import { formatDateTimeMx, formatTimeMx } from '@/lib/format';
 import { RefreshCw, Layers } from 'lucide-react';
 import type {
   CatalogSyncAllResponse,
+  CatalogSyncPromos,
   CatalogSyncStatusResponse,
   RefreshVariantsAllFailure,
   RefreshVariantsStatusResponse,
@@ -152,6 +155,115 @@ function FailureList({
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * §PROMOS-MASTERSET (contrato §5): qué promos entraron/omitidas en la corrida. Es una lista de HECHOS
+ * (incluye `skipped_needs_super_admin`): una promo omitida jamás se calla. Sin `promos` (backend previo)
+ * no se pinta nada, ni un cero.
+ */
+/** Tope de intentos del job diario (AUTO_CATALOGO §A(b): `attempts: 6`). */
+export const CATALOG_JOB_MAX_ATTEMPTS = 6;
+
+/**
+ * §AUTO: «Última actualización automática: hoy 01:12 · reintento 2 de 6». Solo informa (no es tarea del
+ * dueño). Campos ausentes (backend previo) ⇒ nada; `lastSuccessAt: null` ⇒ «sin registro» (no «nunca»).
+ */
+export function AutoStatusLine({ status, now }: { status: CatalogSyncStatusResponse | undefined; now?: Date }) {
+  const t = useTranslations('admin.m2.catalog');
+  const locale = useLocale() as AppLocale;
+  if (!status || status.lastSuccessAt === undefined) return null;
+  if (status.lastSuccessAt === null) {
+    return <p className="text-xs text-muted" data-testid="auto-status">{t('autoStatus.none')}</p>;
+  }
+  const at = new Date(status.lastSuccessAt);
+  if (Number.isNaN(at.getTime())) return null;
+  const day = (d: Date) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(d);
+  const today = day(now ?? new Date()) === day(at);
+  const time = formatTimeMx(status.lastSuccessAt, locale);
+  const when = today ? t('autoStatus.today', { time }) : formatDateTimeMx(status.lastSuccessAt, locale);
+  const retry =
+    typeof status.attempt === 'number' && status.attempt > 1
+      ? t('autoStatus.retry', { attempt: status.attempt, max: CATALOG_JOB_MAX_ATTEMPTS })
+      : '';
+  const key = status.lastTrigger === 'admin' ? 'autoStatus.manual' : 'autoStatus.auto';
+  return (
+    <p className="text-xs text-muted" data-testid="auto-status">
+      {t(key, { when })}
+      {retry}
+    </p>
+  );
+}
+
+/** Umbral de aciertos de la compuerta Black Star (AUTO_CATALOGO §B); solo para el rótulo «k de 30». */
+export const PROMO_GATE_NEEDED = 30;
+
+/** Solo lectura: compuerta Black Star + descubrimiento + ligas (los llena el servidor; nada se calcula aquí). */
+export function PromoAutoFacts({ promos }: { promos: CatalogSyncPromos | undefined }) {
+  const t = useTranslations('admin.m2.catalog');
+  if (!promos || (!promos.gate && !promos.discovery && !promos.links)) return null;
+  const { gate, discovery, links } = promos;
+  return (
+    <div className="flex flex-col gap-1 text-xs" data-testid="promo-auto-facts">
+      {gate && (
+        <p className="tabular" data-testid="promo-gate">
+          {t(gate.open ? 'promosGateOpen' : 'promosGate', {
+            k: gate.k, need: PROMO_GATE_NEEDED, n: gate.n, f: gate.f, expansions: gate.expansions,
+          })}
+        </p>
+      )}
+      {discovery && <p className="tabular text-muted" data-testid="promo-discovery">{t('promosDiscovery', discovery)}</p>}
+      {links && <p className="tabular text-muted" data-testid="promo-links">{t('promosLinks', links)}</p>}
+    </div>
+  );
+}
+
+export function PromosSummary({ promos }: { promos: CatalogSyncPromos | undefined }) {
+  const t = useTranslations('admin.m2.catalog');
+  if (!promos) return null;
+  if (promos.sets.length === 0 && promos.tcgcsv.length === 0) {
+    return promos.gate || promos.discovery || promos.links ? (
+      <div className="mt-2 flex flex-col gap-1" data-testid="promos-summary">
+        <p className="font-medium">{t('promosTitle')}</p>
+        <PromoAutoFacts promos={promos} />
+      </div>
+    ) : null;
+  }
+  const count = (st: string) => promos.sets.filter((x) => x.status === st).length;
+  const problems = promos.sets.filter((x) => x.status === 'missing_remote' || x.status === 'error');
+  return (
+    <div className="mt-2 flex flex-col gap-1" data-testid="promos-summary">
+      <p className="font-medium">{t('promosTitle')}</p>
+      <p className="text-xs text-muted">{t('promosLead')}</p>
+      <PromoAutoFacts promos={promos} />
+      {promos.sets.length > 0 && (
+        <p className="tabular">
+          {t('promosSets', { created: count('created'), updated: count('updated'), unchanged: count('unchanged') })}
+        </p>
+      )}
+      {(problems.length > 0 || promos.tcgcsv.length > 0) && (
+        <ul className="list-disc pl-5">
+          {problems.map((x) => (
+            <li key={x.setId}>
+              <span className="tabular">{x.setId}</span> — {t(`promosSetStatus.${x.status}`)}
+            </li>
+          ))}
+          {promos.tcgcsv.map((g) => (
+            <li key={String(g.groupId)}>
+              {t('promosTcgcsvRow', {
+                groupId: String(g.groupId),
+                status: t(`promosTcgcsvStatus.${g.status}`),
+                created: g.created,
+                updated: g.updated,
+              })}
+              {g.errorCode ? <span className="tabular text-muted"> ({g.errorCode})</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -499,6 +611,7 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
 
   const {
     remoteSets,
+    remoteSetsDegraded,
     syncStatus,
     refreshVariantsStatus,
     phase2Status,
@@ -738,6 +851,7 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
                 })}
               />
             ) : null}
+            {importView.state === 'result' && <PromosSummary promos={syncStatus.data?.summary?.promos} />}
           </>,
         )}
       {importNewMutation.isError && (
@@ -751,6 +865,7 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
           forceView,
           forceView.state === 'result' && phase2Status?.summary ? (
             <>
+              <PromosSummary promos={syncStatus.data?.summary?.promos} />
               {phase2Status.summary.pending > 0 && (
                 <p className="mt-1">
                   {t('refreshVariantsAllPending', { pending: phase2Status.summary.pending })}
@@ -778,7 +893,25 @@ export function CatalogSyncSection({ catalog }: { catalog: CatalogSync }) {
       )}
 
       {/* ── La tabla, y su acción de reparación por fila ── */}
+      <AutoStatusLine status={syncStatus.data} />
       <p className="text-sm text-muted">{t('section.repairLead')}</p>
+      {/* pokemontcg.io caído ⇒ el servidor responde SOLO los sets locales con `degraded:true`. Una lista
+          incompleta presentada como completa miente: se avisa, y «Reintentar» es solo un atajo (se
+          vuelve a pedir sola al refrescar la pantalla). */}
+      {remoteSetsDegraded.data === true && (
+        <Banner
+          variant="warning"
+          role="status"
+          title={t('degradedTitle')}
+          action={
+            <Button size="sm" variant="secondary" onClick={() => remoteSets.refetch()}>
+              {t('degradedRetry')}
+            </Button>
+          }
+        >
+          {t('degradedBody')}
+        </Banner>
+      )}
       <QueryState
         isLoading={remoteSets.isLoading}
         isError={remoteSets.isError}

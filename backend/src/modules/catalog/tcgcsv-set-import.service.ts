@@ -36,7 +36,8 @@ const MAX_SANE_MARKET_USD = 50_000;
 /** Candado consultivo por grupo: `pg_try_advisory_xact_lock(hashtext(KEY), groupId)`; sin espera (2.º clic ⇒ 409). */
 const TCGCSV_IMPORT_LOCK_KEY = 'tcgcsv-import';
 /** La lista viva de pokemontcg.io no puede colgar la petición (fail-closed ⇒ 503). */
-const PTCG_TIMEOUT_MS = 10_000;
+// Debe ser MAYOR que el presupuesto del cliente (20 s): si no, el timer gana la carrera y la caché de respaldo nunca llega a usarse.
+const PTCG_TIMEOUT_MS = 22_000;
 /** `$transaction` interactiva: 1 sola conexión por petición; espera máx. 5 s por conexión y 60 s de trabajo. */
 const TX_OPTS = { maxWait: 5_000, timeout: 60_000 } as const;
 
@@ -138,8 +139,17 @@ export class TcgcsvSetImportService {
   }
 
   /** POST /admin/catalog/import-tcgcsv-set — todo-o-nada, idempotente; un segundo import simultáneo ⇒ 409 inmediato. */
-  async importGroup(groupId: number, actor?: { id: string; role: Role }): Promise<TcgcsvImportResult> {
-    const entry = findImportableGroup(groupId);
+  async importGroup(
+    groupId: number,
+    actor?: { id: string; role: Role } | { kind: 'system'; job: string; jobId?: string; attempt?: number },
+    // AUTO-F: SOLO el barrido (tras reevaluar elegibilidad) lo pasa; la ruta HTTP no, asi que fuera de la semilla sigue 404.
+    opts?: { discovered?: { name: string } },
+  ): Promise<TcgcsvImportResult> {
+    // AUTO (docs/specs/AUTO_CATALOGO.md §A): el actor `system` solo lo construye el job; sin rol, SOLO sobre la lista explicita
+    // (la guardia de arriba ya rechaza grupos fuera de ella). La auditoria no lleva usuario y marca `metadata.actor='system'`.
+    const sys = actor && 'kind' in actor ? actor : null;
+    const human = actor && !('kind' in actor) ? actor : undefined;
+    const entry = findImportableGroup(groupId) ?? (opts?.discovered ? { groupId, ptcgSetIds: [] as readonly string[] } : undefined);
     if (!entry) {
       throw new BusinessException(
         ErrorCode.TCGCSV_GROUP_UNKNOWN,
@@ -183,8 +193,8 @@ export class TcgcsvSetImportService {
         // La bitácora participa del MISMO commit/rollback que el import.
         await this.audit?.log(
           {
-            actorUserId: actor?.id,
-            actorRole: actor?.role,
+            actorUserId: human?.id,
+            actorRole: human?.role,
             action: 'catalog.tcgcsv_import',
             entityType: 'CardSet',
             entityId: res.setId,
@@ -195,6 +205,9 @@ export class TcgcsvSetImportService {
               stamped: res.stamped,
               noPrice: res.noPrice,
               skipped: res.skipped.length,
+              ...(sys
+                ? { metadata: { ...(opts?.discovered ? { discovered: true, groupName: opts.discovered.name } : {}), actor: 'system', job: sys.job, jobId: sys.jobId ?? null, attempt: sys.attempt ?? null, groupId, status: res.created > 0 ? 'imported' : 'updated', created: res.created, updated: res.updated } }
+                : {}),
             },
           },
           tx,

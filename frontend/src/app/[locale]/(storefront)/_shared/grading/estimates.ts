@@ -1,4 +1,5 @@
 import type {
+  Finish,
   GradedEstimateDTO,
   GroupedListingDetailResponse,
   GroupedListingSummaryDTO,
@@ -56,10 +57,18 @@ export function renderableEstimates(
  */
 export function blockEstimatesOf(
   detail: Pick<GroupedListingDetailResponse, 'listings' | 'gradedEstimates'> | undefined | null,
+  /**
+   * §PSA-ACABADO: el estimado es POR ACABADO. Con `finish` solo cuenta la cifra de ESE acabado —jamás
+   * la de otro—; sin entrada de ese acabado ⇒ `null` (sin bloque, sin «—»). Sin `finish` (primer
+   * render, antes de saber qué acabado eligió la ficha) responde «¿hay cifra de algún acabado?».
+   */
+  finish?: Finish | null,
 ): GradedEstimateDTO[] | null {
   if (!detail) return null;
   if (!detail.listings?.some((l) => l.productType === 'raw')) return null;
-  return renderableEstimates(detail.gradedEstimates);
+  const all = renderableEstimates(detail.gradedEstimates);
+  if (!all || !finish) return all;
+  return renderableEstimates(all.filter((e) => e.finish === finish));
 }
 
 /**
@@ -76,7 +85,8 @@ export function badgeEstimatesOf(
   listing: GroupedListingSummaryDTO | undefined | null,
 ): GradedEstimateDTO[] | null {
   if (!listing || listing.productType !== 'raw') return null;
-  return renderableEstimates(listing.gradingHighlight);
+  // §PSA-ACABADO: la cifra del badge es la del acabado de ESTE grupo, nunca la de otro.
+  return renderableEstimates(listing.gradingHighlight?.filter((e) => e.finish === listing.finish));
 }
 
 /**

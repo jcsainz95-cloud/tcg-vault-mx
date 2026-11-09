@@ -1,3 +1,5 @@
+import { primaryFinishOf } from '../../common/card-order';
+import { runSerializable } from '../../common/serializable-retry';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Card, CardProduct, CardProductKind, Finish, GradingCompany, PriceReference, PriceRefKind, PriceSource, Prisma, ProductType, VariantPriceOverride } from '@prisma/client';
 // v1.50.2 (§4.38l): la lista blanca de graduadoras — la guarda INV-D no puede consultar por un valor
@@ -216,6 +218,36 @@ export const BASE_CARD_REF_WHERE: Prisma.PriceReferenceWhereInput = {
  */
 export const MONEY_REF_WHERE: Prisma.PriceReferenceWhereInput = { refKind: 'market' };
 
+/**
+ * PSA-ACABADO (docs/specs/PSA_ACABADO.md §1) — predicado UNICO de LECTURA del estimado «si se gradea» por acabado.
+ * Una fila `graded` es legible si: (a) es de MERCADO (`refKind='market'`, comportamiento de siempre), o (b) se escribio
+ * por acabado (`estimateFinishScoped=true`), o (c) es una afirmacion MANUAL previa (heredada) Y su acabado es el acabado
+ * PRINCIPAL de la carta. Las automaticas previas (`scoped=false`, no manuales) NUNCA se leen: sin cifra antes que cifra
+ * copiada entre acabados. `GRADED_ESTIMATE_READ_WHERE` es el filtro grueso de BD; `isGradedEstimateReadable` el fino.
+ */
+export const GRADED_ESTIMATE_READ_WHERE: Prisma.PriceReferenceWhereInput = {
+  OR: [{ refKind: 'market' }, { estimateFinishScoped: true }, { isManualOverride: true }],
+};
+
+/** Acabado principal de la carta (`normal › holofoil › first_edition_holofoil › reverse_holo`): helper compartido. */
+export { primaryFinishOf };
+
+/**
+ * Predicado fino de lectura. La manual HEREDADA (`finish='normal'` es relleno de la migracion, no un acabado real) se lee
+ * en el acabado PRINCIPAL de su carta SIN comparar `row.finish`: con `requestedFinish` dado, solo si coincide con el
+ * principal; sin el (lectura por lote), siempre legible y el llamador la reasigna al principal.
+ */
+export function isGradedEstimateReadable(
+  row: { refKind: PriceRefKind | string; estimateFinishScoped: boolean; isManualOverride: boolean; source?: string },
+  primaryFinish: Finish,
+  requestedFinish?: Finish,
+): boolean {
+  if (row.refKind === 'market') return true;
+  if (row.estimateFinishScoped === true) return true;
+  const manual = row.isManualOverride === true || row.source === 'manual';
+  return manual && (requestedFinish === undefined || requestedFinish === primaryFinish);
+}
+
 /** Entrada de `applyManualOverride` (objeto, no 8 posicionales: el 9.º parámetro ya no cabía). */
 export interface ManualOverrideInput {
   cardId: string;
@@ -304,6 +336,7 @@ const PRICE_REF_SELECT = {
   capturedDate: true,
   cardProductId: true,
   refKind: true,
+  estimateFinishScoped: true,
   // P-53 §3: fecha de última confirmación del barrido. Se lee para medir la frescura contra
   // `evidenceDate ?? capturedDate`; `null` (filas graded/legadas) cae a `capturedDate` ⇒ sin cambio.
   evidenceDate: true,
@@ -510,6 +543,10 @@ export interface PriceInfo {
 export interface GradedEstimateRef extends GradedEstimateInput {
   /** Clave canónica `graded:PSA:<grado>` — lo ÚNICO que este tipo añade sobre `GradedEstimateInput`. */
   gradeKey: string;
+  /** PSA-ACABADO: el acabado al que pertenece la cifra. Un acabado nunca lee la de otro. */
+  finish: Finish;
+  /** PSA-ACABADO: manual HEREDADA (escrita antes de PSA-ACABADO, `scoped=false`) que solo vale para el acabado principal. */
+  legacyManual: boolean;
 }
 
 /**
@@ -1448,13 +1485,16 @@ export class PricingService {
    * `MasterSetCardCellDTO.separateProducts` (CardProductDTO). Un acabado sin precio ⇒
    * `marketReferenceMxnCents: null` («—», nunca 0). Cartas sin productos separados NO aparecen en el Map.
    */
-  async getSeparateProductsByCard(cardIds: string[]): Promise<Map<string, CardProductInfo[]>> {
+  async getSeparateProductsByCard(
+    cardIds: string[],
+    kinds: readonly CardProductKind[] = ['deck_exclusive', 'promo'],
+  ): Promise<Map<string, CardProductInfo[]>> {
     const out = new Map<string, CardProductInfo[]>();
     const ids = [...new Set(cardIds)];
     if (ids.length === 0) return out;
 
     const products = await this.prisma.cardProduct.findMany({
-      where: { cardId: { in: ids }, kind: { in: ['deck_exclusive', 'promo'] } },
+      where: { cardId: { in: ids }, kind: { in: [...kinds] } },
       select: { id: true, cardId: true, tcgplayerProductId: true, kind: true, name: true, finishes: true },
       orderBy: { tcgplayerProductId: 'asc' },
     });
@@ -2065,7 +2105,8 @@ export class PricingService {
         productType: 'graded',
         gradeKey: { in: [...GRADED_ESTIMATE_GRADE_KEYS] },
         // §4.38a: el estimado es de la CARTA, no de un CardProduct (§4.27) — se filtra explícitamente.
-        finish: 'normal',
+        // PSA-ACABADO: ya NO se fija `finish:'normal'`; cada acabado lee SOLO su fila (ver `isGradedEstimateReadable`).
+        ...GRADED_ESTIMATE_READ_WHERE,
         cardProductId: null,
         // ⚠️ v1.50.3-f (M-43, §4.38l.4.4B) — **AQUÍ NO VA `MONEY_REF_WHERE`, Y ES DELIBERADO.** Ésta es
         // la ruta del GANCHO (ficha, rejilla, vitrina, `preview`, `review`), no la del dinero: lee las
@@ -2081,18 +2122,42 @@ export class PricingService {
       select: PRICE_REF_SELECT,
     });
     if (rows.length === 0) return map;
+    // PSA-ACABADO: acabado principal + acabados reales por carta SOLO si hay manuales heredadas que decidir (cero queries si no).
+    const isLegacy = (r: (typeof rows)[number]) => r.refKind !== 'market' && !r.estimateFinishScoped;
+    const primaryByCard = new Map<string, Finish>();
+    const multiFinishCards = new Set<string>();
+    if (rows.some(isLegacy)) {
+      const cards = await this.prisma.card.findMany({
+        where: { id: { in: [...new Set(rows.map((r) => r.cardId))] } },
+        select: { id: true, availableFinishes: true },
+      });
+      for (const c of cards) {
+        primaryByCard.set(c.id, primaryFinishOf(c.availableFinishes));
+        if (new Set(c.availableFinishes ?? []).size >= 2) multiFinishCards.add(c.id);
+      }
+    }
+    // Manual heredada legible: se REASIGNA al acabado principal de SU carta (no se compara `row.finish`, que es relleno).
+    const effFinish = (r: (typeof rows)[number]): Finish =>
+      isLegacy(r) ? (primaryByCard.get(r.cardId) ?? 'normal') : r.finish;
+    const readableAll = rows.filter((r) => isGradedEstimateReadable(r, primaryByCard.get(r.cardId) ?? 'normal'));
+    // La precedencia scoped > heredada se decide DESPUES de mirar frescura (abajo): una scoped RANCIA no debe tapar a una heredada
+    // FRESCA del mismo (carta, grado, acabado). Aqui solo se toman las legibles.
+    const readable = readableAll;
+    if (readable.length === 0) return map;
     // FX izada UNA vez por request (no por fila), igual que en `getReferencesBatch`.
     const fx = await this.fxSnapshotSafe();
     const bestFreshByKey = new Map<string, (typeof rows)[number]>();
+    const legacyFreshByKey = new Map<string, (typeof rows)[number]>();
+    const legacyStaleByKey = new Map<string, (typeof rows)[number]>();
     // v1.50.3-c: la MEJOR de las DESCARTADAS por frescura, por clave. Solo la consumen `preview` y
     // `review` (`includeStaleForDiagnostics`); en la ruta pública se calcula y se tira.
     const bestStaleByKey = new Map<string, (typeof rows)[number]>();
-    for (const r of rows) {
+    for (const r of readable) {
       // `isManual` se deriva UNA vez por fila y se reusa (antes se calculaba dos veces en este mismo
       // método): las dos señales son SEPARADAS —una fila puede venir marcada manual con un `source`
       // distinto de `manual`—, así que la regla vive en un solo sitio.
       const isManual = r.isManualOverride === true || r.source === 'manual';
-      const k = `${r.cardId}|${r.gradeKey}`;
+      const k = `${r.cardId}|${r.gradeKey}|${effFinish(r)}`;
       // ⚠️ v1.50.3 (§4.38m) — PASO 1: se descarta lo RANCIO **antes** de comparar. `isStaleByOrigin` es
       // el MISMO predicado que aplican las puras (`usable()`/`isStaleRef`), así que no hay dos verdades
       // sobre qué es fresco; lo único que cambia es CUÁNDO se aplica.
@@ -2107,12 +2172,20 @@ export class PricingService {
         cfg,
         evidenceDate,
       )
-        ? bestStaleByKey
-        : bestFreshByKey;
+        ? isLegacy(r)
+          ? legacyStaleByKey
+          : bestStaleByKey
+        : isLegacy(r)
+          ? legacyFreshByKey
+          : bestFreshByKey;
       // PASO 2: dentro de CADA cubeta gana el mejor con el comparador de siempre (§4.27f-2 intacto).
       const cur = target.get(k);
       if (cur == null || isBetterRef(r, cur)) target.set(k, r);
     }
+    // Precedencia POR ACABADO tras la frescura: la scoped FRESCA gana a la heredada; la heredada solo entra donde la scoped no tiene
+    // fila fresca (una scoped rancia no la tapa). Lo mismo, aparte, para el fallback rancio del diagnostico.
+    for (const [k, r] of legacyFreshByKey) if (!bestFreshByKey.has(k)) bestFreshByKey.set(k, r);
+    for (const [k, r] of legacyStaleByKey) if (!bestStaleByKey.has(k)) bestStaleByKey.set(k, r);
     // ⚠️ FALLBACK DE DIAGNÓSTICO (v1.50.3-c) — **solo** si el caller lo pide, y **solo** para las claves
     // que NO tienen ninguna fila fresca. Ver el bloque «El diagnóstico ve...» del docblock.
     if (opts?.includeStaleForDiagnostics === true) {
@@ -2136,6 +2209,9 @@ export class PricingService {
         // de admin; ninguna rama de composición del storefront la lee (la indistinguibilidad de fases
         // de (g) sigue intacta) y ninguna decisión de esta ruta depende de ella.
         refKind: r.refKind,
+        finish: effFinish(r),
+        // Manual heredada en una carta de 2+ acabados: aun no confirmada por acabado (1 solo acabado real ⇒ sin etiqueta).
+        legacyManual: isLegacy(r) && multiFinishCards.has(r.cardId),
       };
       if (list) list.push(ref);
       else map.set(r.cardId, [ref]);
@@ -2993,6 +3069,7 @@ export class PricingService {
   async persistGradedEstimateReference(
     cardId: string,
     gradeValue: string,
+    finish: Finish,
     market: { amountCents: number; currency: 'USD' | 'MXN'; source: PriceSourceStr },
     fx: { rate: number; bufferPct: number },
   ): Promise<boolean> {
@@ -3000,55 +3077,68 @@ export class PricingService {
     if (!Number.isInteger(market.amountCents) || market.amountCents <= 0) return false;
     const productType: ProductType = 'graded';
     const gradeKey = gradedEstimateGradeKey(gradeValue);
-    const finish: Finish = 'normal'; // §4.38a: el grado NO se cruza con el acabado, SIEMPRE `normal`.
+    // PSA-ACABADO (docs/specs/PSA_ACABADO.md §1): el estimado es POR ACABADO; `finish` lo decide el ingest.
     const capturedDate = today();
-    // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA del ESCRITOR del ingest de estimados — y es la
-    // que sostiene la regla 2 de (l.4.3): necesita VER la fila `market` para hacer skip en vez de
-    // degradarla. Con el predicado puesto no la vería y la pisaría, que es el fallo exacto.
-    const existing = await this.prisma.priceReference.findFirst({
-      where: { cardId, productType, gradeKey, finish, capturedDate, cardProductId: null },
-    });
-    if (existing?.isManualOverride) return false; // el override manual gana (§O.6).
-    // ⚠️ v1.50.3-f (M-43, §4.38l.4.3 regla 2) — **EL INGEST NUNCA DEGRADA UNA FILA `market`.**
-    // Si la fila del día ya es una referencia de MERCADO (el precio real de un slab publicado, fijado
-    // por un humano con `intent:"market"`), escribir el estimado encima la reclasificaría como
-    // `graded_estimate` y **dejaría al slab sin precio** — un fallo silencioso en dirección segura,
-    // pero fallo. Skip + traza, exactamente igual que ante `isManualOverride` (misma doctrina (h.4)).
-    // Regla general: *la naturaleza solo la SUBE un humano con `intent:"market"`; la automática nunca
-    // la baja.* El `return false` es el mismo canal de traza que ya consume el job.
-    if (existing != null && existing.refKind === PriceRefKind.market) {
-      this.logger.warn(
-        `graded-estimate-ingest: SALTADA card=${cardId} PSA ${gradeValue} — la fila de hoy es ` +
-          "refKind='market' (referencia de MERCADO de una pieza real): el ingest NO la degrada a " +
-          'estimado (M-43, §4.38l.4.3 regla 2).',
-      );
-      return false;
-    }
     const isUsd = market.currency === 'USD';
-    const data = {
-      source: market.source,
-      // INV-FX: el numeral USD va a `priceUsdCents`, JAMÁS a `priceMxnCents`.
-      priceUsdCents: isUsd ? market.amountCents : null,
-      fxRate: isUsd ? fx.rate : null,
-      fxBufferPct: isUsd ? fx.bufferPct : null,
-      priceMxnCents: isUsd
-        ? usdToMxnCents(market.amountCents, fx.rate, fx.bufferPct)
-        : market.amountCents,
-      isManualOverride: false,
-      // M-43 (§4.38l.4.3): el ingest de fase 2 escribe SIEMPRE `graded_estimate`, en el `create` **Y**
-      // en el `update`. El `update` sin esta línea sería el trampolín de la migración por el otro lado:
-      // dejaría una fila del gancho clasificada como dinero. (La degradación inversa ya la cortó el
-      // `return false` de arriba, así que aquí el `update` solo puede caer sobre otra fila de estimado.)
-      refKind: PriceRefKind.graded_estimate,
-    };
-    if (existing) {
-      await this.prisma.priceReference.update({ where: { id: existing.id }, data });
-    } else {
-      await this.prisma.priceReference.create({
-        data: { cardId, productType, gradeKey, finish, capturedDate, ...data },
-      });
-    }
-    return true;
+    // Barrido + escritura en la MISMA transaccion Serializable con reintento (spec §7): las filas automaticas previas a
+    // PSA-ACABADO (`estimateFinishScoped=false`, no manuales, `graded_estimate`) de esta carta+grado se borran al escribir
+    // la nueva. Los manuales y las filas `market` (dinero) NO se tocan.
+    return runSerializable(
+      this.prisma,
+      async (db) => {
+        // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA del ESCRITOR del ingest de estimados — y es la
+        // que sostiene la regla 2 de (l.4.3): necesita VER la fila `market` para hacer skip en vez de
+        // degradarla. Con el predicado puesto no la vería y la pisaría, que es el fallo exacto.
+        const existing = await db.priceReference.findFirst({
+          where: { cardId, productType, gradeKey, finish, capturedDate, cardProductId: null },
+        });
+        if (existing?.isManualOverride) return false; // el override manual gana (§O.6).
+        // ⚠️ v1.50.3-f (M-43, §4.38l.4.3 regla 2) — **EL INGEST NUNCA DEGRADA UNA FILA `market`.**
+        // Skip + traza, igual que ante `isManualOverride` (misma doctrina (h.4)). Regla general: *la naturaleza
+        // solo la SUBE un humano con `intent:"market"`; la automática nunca la baja.*
+        if (existing != null && existing.refKind === PriceRefKind.market) {
+          this.logger.warn(
+            `graded-estimate-ingest: SALTADA card=${cardId} PSA ${gradeValue} finish=${finish} — la fila de hoy es ` +
+              "refKind='market' (referencia de MERCADO de una pieza real): el ingest NO la degrada a " +
+              'estimado (M-43, §4.38l.4.3 regla 2).',
+          );
+          return false;
+        }
+        const data = {
+          source: market.source,
+          // INV-FX: el numeral USD va a `priceUsdCents`, JAMÁS a `priceMxnCents`.
+          priceUsdCents: isUsd ? market.amountCents : null,
+          fxRate: isUsd ? fx.rate : null,
+          fxBufferPct: isUsd ? fx.bufferPct : null,
+          priceMxnCents: isUsd ? usdToMxnCents(market.amountCents, fx.rate, fx.bufferPct) : market.amountCents,
+          isManualOverride: false,
+          // M-43 (§4.38l.4.3): el ingest de fase 2 escribe SIEMPRE `graded_estimate`, en el `create` **Y** en el `update`.
+          refKind: PriceRefKind.graded_estimate,
+          // PSA-ACABADO: idem — `create` Y `update` (regla de `refKind`).
+          estimateFinishScoped: true,
+        };
+        if (existing) {
+          await db.priceReference.update({ where: { id: existing.id }, data });
+        } else {
+          await db.priceReference.create({
+            data: { cardId, productType, gradeKey, finish, capturedDate, ...data },
+          });
+        }
+        await db.priceReference.deleteMany({
+          where: {
+            cardId,
+            productType,
+            gradeKey,
+            cardProductId: null,
+            refKind: PriceRefKind.graded_estimate,
+            estimateFinishScoped: false,
+            isManualOverride: false,
+          },
+        });
+        return true;
+      },
+      { label: 'persistGradedEstimateReference', logger: this.logger },
+    );
   }
 
   /**
@@ -3297,7 +3387,9 @@ export class PricingService {
     // precio** — fallo silencioso, en dirección segura, pero fallo. Es además el gesto exacto que exige
     // el paso 3 del cut-over («re-afirmar cada slab con `intent:"market"` ANTES de migrar»), así que sin
     // esta línea el cut-over no funciona.
-    const data = { source: 'manual' as const, priceMxnCents, isManualOverride: true, refKind };
+    // PSA-ACABADO: un estimado manual SIEMPRE se captura por acabado ⇒ `estimateFinishScoped=true` (create Y update).
+    const scoped = refKind === PriceRefKind.graded_estimate ? { estimateFinishScoped: true } : {};
+    const data = { source: 'manual' as const, priceMxnCents, isManualOverride: true, refKind, ...scoped };
     const createData = {
       cardId,
       productType,
@@ -3308,6 +3400,7 @@ export class PricingService {
       capturedDate: cap,
       isManualOverride: true,
       refKind,
+      ...scoped,
     };
     let ref: PriceReference;
     if (!prior) {

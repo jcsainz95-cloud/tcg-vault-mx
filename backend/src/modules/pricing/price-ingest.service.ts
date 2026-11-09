@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { MONEY_REF_WHERE, PricingService } from './pricing.service';
+import { resolveEstimateFinish } from './graded-finish-scope';
 import { BulkFetchInput, BulkPriceProvider, BulkPriceRow, cardNumberVariants } from './pricing.types';
 import {
   GradedFormat,
@@ -218,6 +219,10 @@ export interface GradedIngestResult {
    * justo cuando hay que decidir. No es un descarte de rutina: es la **señal de escalada**.
    */
   skippedShapeS2: number;
+  /** PSA-ACABADO: cartas de 2+ acabados cuya cifra del proveedor es de carta (sin separar) ⇒ sin estimado (`no_finish_split`). */
+  noFinishSplit: number;
+  /** PSA-ACABADO: filas por acabado NO escritas por no haber raw VIGENTE de ese acabado (motivo `NO_RAW`). */
+  skippedNoRaw: number;
   dailyLimited: boolean;
   /**
    * v1.50.3-g (§4.38h.1-quater) — la corrida fue **SONDA de solo lectura** (sin formato de moneda, o
@@ -256,6 +261,8 @@ function newGradedIngestResult(): GradedIngestResult {
     skippedNoGradedBlock: 0,
     skippedEvidence: 0,
     skippedShapeS2: 0,
+    noFinishSplit: 0,
+    skippedNoRaw: 0,
     dailyLimited: false,
     probe: false,
     verdict: 'INDETERMINADO',
@@ -1683,12 +1690,15 @@ export class PriceIngestService {
       where: { id: { in: cardIds } },
       // `externalId`/`number` se traen AQUÍ para poder resolver carta↔fila del proveedor EN MEMORIA
       // (BE-GE3): son los dos identificadores que usa `resolveCardId`, y el conjunto ya está acotado.
-      select: { id: true, setId: true, set: true, externalId: true, number: true },
+      select: { id: true, setId: true, set: true, externalId: true, number: true, availableFinishes: true },
     });
+    // PSA-ACABADO: acabados reales de cada carta (los `set_base` vendibles = `availableFinishes`).
+    const finishesByCard = new Map<string, Finish[]>();
     const bySet = new Map<string, { set: CardSet; allowed: Set<string> }>();
     const cardsById = new Map<string, { id: string; externalId: string | null; number: string | null }>();
     for (const c of cards) {
       cardsById.set(c.id, { id: c.id, externalId: c.externalId, number: c.number });
+      finishesByCard.set(c.id, orderFinishes(c.availableFinishes?.length ? c.availableFinishes : ['normal']));
       if (!c.set) continue;
       const entry = bySet.get(c.setId) ?? { set: c.set, allowed: new Set<string>() };
       entry.allowed.add(c.id);
@@ -1762,13 +1772,42 @@ export class PriceIngestService {
     // `GradedEstimateSetScan` (append-only), que es la única fuente de «cuánto se gastó hoy».
     const dailyCreditCap = await this.settings.getNumber(SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP);
     const turnState = await this.loadGradedTurnState([...bySet.keys()], today);
+    // AUTO-C (d): PENDIENTES = cartas con estimado automatico PREVIO a PSA-ACABADO (`estimateFinishScoped=false`, hoy no se lee) y
+    // sin fila por acabado, cuyo ultimo escaneo no cerro la pregunta (`no_data`/`no_finish_split`). El escaner las prioriza
+    // para que la cobertura se complete sola, sin que nadie pulse nada. Los sets nunca consultados ya salen primero por si mismos.
+    const legacyOnly = new Set(
+      (
+        // MONEY-REF-EXEMPT: solo PRIORIZA el orden del escaner PSA (que set se consulta antes); no produce ningun monto cobrado, ofrecido ni valuado.
+        await this.prisma.priceReference.findMany({
+          where: {
+            cardId: { in: cardIds },
+            productType: 'graded',
+            refKind: 'graded_estimate',
+            estimateFinishScoped: false,
+            isManualOverride: false,
+          },
+          select: { cardId: true },
+          distinct: ['cardId'],
+        })
+      ).map((r) => r.cardId),
+    );
+    const closedScan = new Set(
+      (
+        await this.prisma.gradedEstimateCardScan.findMany({
+          where: { cardId: { in: cardIds }, lastOutcome: { in: ['no_data', 'no_finish_split'] } },
+          select: { cardId: true },
+        })
+      ).map((r) => r.cardId),
+    );
     const setStates = [...bySet.entries()].map(([setId, e]) => {
       let minFirstListedAt: Date | null = null;
       for (const cid of e.allowed) {
         const at = firstListedByCard.get(cid) ?? null;
         if (at && (!minFirstListedAt || at < minFirstListedAt)) minFirstListedAt = at;
       }
-      return { setId, lastOkDate: turnState.lastOk.get(setId)?.date ?? null, minFirstListedAt, entry: e };
+      let pendingScoped = 0;
+      for (const cid of e.allowed) if (legacyOnly.has(cid) && !closedScan.has(cid)) pendingScoped += 1;
+      return { setId, lastOkDate: turnState.lastOk.get(setId)?.date ?? null, minFirstListedAt, pendingScoped, entry: e };
     });
     const dueOrder = orderDueSets(setStates, today);
     const turns: GradedTurnsRunSummary = {
@@ -2006,6 +2045,27 @@ export class PriceIngestService {
           : await this.recordGradedSetScan(turnSetId, today, turnOutcome, est, measured, charged, allowed.size, res.fetchedRaw);
       if (turnOutcome === 'ok') turnState.lastOk.set(turnSetId, { date: today, measured });
       const writtenCards = new Set<string>();
+      const noSplitCards = new Set<string>();
+      // PSA-ACABADO: raw VIGENTE por (carta, acabado) del set, UNA query; sin ella el estimado de ese acabado no se escribe.
+      let rawFinishKeys: Set<string> | null = null;
+      const rawVigente = async (): Promise<Set<string>> => {
+        if (rawFinishKeys) return rawFinishKeys;
+        const since = new Date(`${today}T00:00:00.000Z`);
+        since.setUTCDate(since.getUTCDate() - cfg.freshnessDays);
+        const raws = await this.prisma.priceReference.findMany({
+          where: {
+            cardId: { in: [...allowed] },
+            productType: 'raw',
+            gradeKey: 'raw:NM',
+            capturedDate: { gte: since },
+            priceMxnCents: { gt: 0 },
+            ...MONEY_REF_WHERE,
+          },
+          select: { cardId: true, finish: true },
+        });
+        rawFinishKeys = new Set(raws.map((r) => `${r.cardId}|${r.finish}`));
+        return rawFinishKeys;
+      };
 
       // ⚠️ AMBIGÜEDAD SILENCIOSA — se evalúa a escala de CORRIDA, no de set (v1.50.2, techlead).
       //
@@ -2106,10 +2166,26 @@ export class PriceIngestService {
           });
           continue;
         }
+        // PSA-ACABADO (spec §2): a QUE acabado pertenece la cifra. Nunca se reparte una cifra de carta entre acabados.
+        const decision = resolveEstimateFinish(row, finishesByCard.get(cardId) ?? ['normal']);
+        if (decision.kind === 'no_split') {
+          if (!noSplitCards.has(cardId)) {
+            noSplitCards.add(cardId);
+            result.noFinishSplit += 1;
+          }
+          continue;
+        }
+        if (decision.kind === 'skip') continue;
+        // Solo `per_finish`: el raw del MISMO acabado es contra lo que se valida su cifra (en `card_level` la valida el gate de lectura).
+        if (row.finishScope === 'per_finish' && !(await rawVigente()).has(`${cardId}|${decision.finish}`)) {
+          result.skippedNoRaw += 1;
+          continue;
+        }
         // INV-FX: `currency` viaja tal cual del proveedor; el escritor decide dónde cae el numeral.
         const wrote = await this.pricing.persistGradedEstimateReference(
           cardId,
           row.gradeValue,
+          decision.finish,
           { amountCents: row.amountCents, currency: row.currency, source: 'pokemonpricetracker' },
           fx,
         );
@@ -2128,7 +2204,7 @@ export class PriceIngestService {
       }
 
       // v1.113 (§DYN.4.4): cada carta del set EN ALCANCE queda consultada (`written` si se escribió ≥ 1 grado, `no_data` si no).
-      if (turnOutcome === 'ok' && setScanId) await this.markGradedCardsScanned(allowed, writtenCards, setScanId);
+      if (turnOutcome === 'ok' && setScanId) await this.markGradedCardsScanned(allowed, writtenCards, setScanId, noSplitCards);
 
       if (res.dailyLimited) {
         result.dailyLimited = true;
@@ -2437,10 +2513,15 @@ export class PriceIngestService {
   }
 
   /** §DYN.4.4 — al responder `ok`, cada carta del set EN ALCANCE queda consultada: `written` si se escribió ≥ 1 grado. */
-  private async markGradedCardsScanned(allowed: Set<string>, written: Set<string>, setScanId: string): Promise<void> {
+  private async markGradedCardsScanned(
+    allowed: Set<string>,
+    written: Set<string>,
+    setScanId: string,
+    noSplit: Set<string> = new Set(),
+  ): Promise<void> {
     const now = new Date();
     for (const cardId of allowed) {
-      const lastOutcome = written.has(cardId) ? 'written' : 'no_data';
+      const lastOutcome = written.has(cardId) ? 'written' : noSplit.has(cardId) ? 'no_finish_split' : 'no_data';
       await this.prisma.gradedEstimateCardScan.upsert({
         where: { cardId },
         create: { cardId, lastScannedAt: now, lastOutcome, lastSetScanId: setScanId },

@@ -46,18 +46,21 @@ interface TcgcsvRawPrice {
 /** P-PROMOS (PRM-3): topes del import de cartas — respuesta upstream ≤ 5 MB y ≤ 2000 productos (si no ⇒ 502). */
 export const TCGCSV_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
 export const TCGCSV_IMPORT_MAX_PRODUCTS = 2000;
+/** AUTO-S3: tope de longitud del nombre de un grupo (va a `CardSet.name`/AuditLog) y de las listas externas (grupos/productos). */
+export const TCGCSV_GROUP_NAME_MAX_LENGTH = 120;
 
 @Injectable()
 export class TcgcsvCatalogClient extends TcgcsvHttpClient {
   /** Grupos de la categoría Pokémon (para resolver el groupId por nombre; S-D3). Lanza ante fallo. */
   async listGroups(): Promise<TcgcsvGroupRef[]> {
-    const body = await this.getJson<TcgcsvRawGroup>(`/${this.pokemonCategoryId}/groups`);
+    const body = await this.getJson<TcgcsvRawGroup>(`/${this.pokemonCategoryId}/groups`, TCGCSV_IMPORT_MAX_BYTES);
     const groups: TcgcsvGroupRef[] = [];
     for (const g of body.results ?? []) {
-      if (typeof g?.groupId !== 'number' || !Number.isInteger(g.groupId) || !g?.name) continue;
+      // AUTO-S3: entrada externa NO confiable ⇒ `name` debe ser string no vacio (un numero/objeto se descarta) y se acota.
+      if (typeof g?.groupId !== 'number' || !Number.isInteger(g.groupId) || typeof g?.name !== 'string' || g.name.trim() === '') continue;
       groups.push({
         groupId: g.groupId,
-        name: g.name,
+        name: g.name.trim().slice(0, TCGCSV_GROUP_NAME_MAX_LENGTH),
         ...(g.abbreviation ? { abbreviation: g.abbreviation } : {}),
         ...(g.publishedOn ? { publishedOn: g.publishedOn } : {}),
       });
@@ -74,6 +77,7 @@ export class TcgcsvCatalogClient extends TcgcsvHttpClient {
     this.assertValidGroupId(groupId);
     const body = await this.getJson<TcgcsvRawProduct>(
       `/${this.pokemonCategoryId}/${groupId}/products`,
+      TCGCSV_IMPORT_MAX_BYTES,
     );
     const out: TcgcsvSingleProductRef[] = [];
     for (const p of body.results ?? []) {

@@ -38,12 +38,14 @@ function refRow(over: Partial<Record<string, unknown>> = {}) {
     source: 'manual',
     capturedDate: D('2026-08-20'),
     cardProductId: null,
+    refKind: 'graded_estimate',
+    estimateFinishScoped: true,
     ...over,
   };
 }
 
 /** Prisma mock con store de ConfigSetting + filas de PriceReference controladas por el test. */
-function wire(rows: unknown[] = [], config: Record<string, unknown> = {}) {
+function wire(rows: unknown[] = [], config: Record<string, unknown> = {}, opts: { cardFinishes?: unknown[] } = {}) {
   const configStore = new Map<string, unknown>(Object.entries(config));
   const findMany = jest.fn(async (_args: any) => rows);
   const prisma = {
@@ -64,6 +66,7 @@ function wire(rows: unknown[] = [], config: Record<string, unknown> = {}) {
       }),
     },
     priceReference: { findMany },
+    card: { findMany: jest.fn(async () => opts.cardFinishes ?? []) },
   } as unknown as PrismaService;
   const settings = new SettingsService(prisma);
   // FX que no resuelve ⇒ `fxSnapshotSafe()` = null ⇒ se usa el `priceMxnCents` almacenado.
@@ -82,8 +85,9 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.38a/
     expect(where.cardId).toEqual({ in: ['c1', 'c2'] }); // cardIds DISTINTOS
     expect(where.productType).toBe('graded');
     expect(where.gradeKey).toEqual({ in: ['graded:PSA:10', 'graded:PSA:9'] });
-    // El grado NO se cruza con el acabado: el estimado es por CARTA (§4.38a).
-    expect(where.finish).toBe('normal');
+    // PSA-ACABADO: ya no se fija `finish` (cada acabado lee la suya) y rige el predicado de lectura.
+    expect(where.finish).toBeUndefined();
+    expect(where.OR).toBeDefined();
     // El estimado es de la CARTA, no de un CardProduct separado (§4.27).
     expect(where.cardProductId).toBeNull();
 
@@ -110,6 +114,9 @@ describe('getGradedEstimatesBatch — UNA query con la clave canónica (§4.38a/
       // no dice de QUÉ proveedor vino, solo si un humano lo fijó, y **no viaja al DTO público** (eso
       // lo prueba `SEC-A1` en `graded-estimate.composition.spec.ts` sobre el JSON serializado).
       isManual: true,
+      refKind: 'graded_estimate',
+      finish: 'normal',
+      legacyManual: false,
     });
     expect(Object.keys(ref)).not.toContain('source');
     expect(Object.keys(ref)).not.toContain('isManualOverride');
@@ -602,5 +609,83 @@ describe('GU-A8 — AUSENTE ≠ INVÁLIDA: los tres estados de cada clave (§4.3
         true,
       );
     });
+  });
+});
+
+describe('PSA-ACABADO — predicado de lectura (B5/B6)', () => {
+  const legacy = (over: Record<string, unknown> = {}) =>
+    refRow({ estimateFinishScoped: false, refKind: 'graded_estimate', ...over });
+
+  it('B5 — fila AUTOMÁTICA previa (scoped=false) NO se lee: sin cifra antes que cifra repetida', async () => {
+    const { pricing } = wire([legacy({ isManualOverride: false, source: 'pokemonpricetracker' })]);
+    expect((await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')).toBeUndefined();
+  });
+
+  // La migracion PSA-ACABADO dejo `finish='normal'` en TODA manual previa (relleno, no un acabado real): se reasigna al
+  // acabado PRINCIPAL de su carta (`normal › holofoil › first_edition_holofoil › reverse_holo`), sin comparar `row.finish`.
+  it('B6a — carta SOLO-holo con manual heredada (fila finish=normal): se lee en `holofoil`, SIN `legacyManual`', async () => {
+    const { pricing } = wire([legacy({ finish: 'normal' })], {}, { cardFinishes: [{ id: 'c1', availableFinishes: ['holofoil'] }] });
+    const got = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
+    expect(got.map((e) => [e.finish, e.legacyManual])).toEqual([['holofoil', false]]);
+  });
+
+  it('B6b — holo + reverse: la heredada va a `holofoil` (no a reverse_holo, aunque FINISH_ORDER lo ponga antes) con `legacyManual`', async () => {
+    const { pricing } = wire(
+      [legacy({ finish: 'normal' })],
+      {},
+      { cardFinishes: [{ id: 'c1', availableFinishes: ['reverse_holo', 'holofoil'] }] },
+    );
+    const got = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
+    expect(got.map((e) => [e.finish, e.legacyManual])).toEqual([['holofoil', true]]);
+  });
+
+  it('B6c — una manual POR ACABADO (scoped) del mismo acabado gana a la heredada', async () => {
+    const { pricing } = wire(
+      [legacy({ finish: 'normal', priceMxnCents: 100_000 }), refRow({ finish: 'holofoil', priceMxnCents: 700_000, isManualOverride: true, estimateFinishScoped: true })],
+      {},
+      { cardFinishes: [{ id: 'c1', availableFinishes: ['reverse_holo', 'holofoil'] }] },
+    );
+    const got = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
+    expect(got.map((e) => [e.finish, e.mxnCents, e.legacyManual])).toEqual([['holofoil', 700_000, false]]);
+  });
+
+  it('B6c2 — una scoped RANCIA no tapa a una heredada FRESCA del mismo acabado (la precedencia va despues de la frescura)', async () => {
+    const mk = () =>
+      wire(
+        [
+          legacy({ finish: 'normal', priceMxnCents: 100_000, capturedDate: D('2026-08-20') }), // fresca
+          refRow({ finish: 'holofoil', priceMxnCents: 700_000, isManualOverride: true, estimateFinishScoped: true, capturedDate: D('2026-01-01') }), // rancia
+        ],
+        {},
+        { cardFinishes: [{ id: 'c1', availableFinishes: ['reverse_holo', 'holofoil'] }] },
+      ).pricing;
+    const got = (await mk().getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
+    expect(got.map((e) => [e.finish, e.mxnCents, e.legacyManual])).toEqual([['holofoil', 100_000, true]]);
+    // con ambas frescas la scoped sigue ganando (B6c) y con ambas rancias el diagnostico ve la scoped
+    const stale = wire(
+      [legacy({ finish: 'normal', priceMxnCents: 100_000, capturedDate: D('2026-01-02') }), refRow({ finish: 'holofoil', priceMxnCents: 700_000, estimateFinishScoped: true, capturedDate: D('2026-01-01') })],
+      {},
+      { cardFinishes: [{ id: 'c1', availableFinishes: ['reverse_holo', 'holofoil'] }] },
+    ).pricing;
+    const diag = (await stale.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY, { includeStaleForDiagnostics: true })).get('c1')!;
+    expect(diag.map((e) => e.mxnCents)).toEqual([700_000]);
+  });
+
+  it('B6d — sin datos de acabados ⇒ principal `normal`', async () => {
+    const { pricing } = wire([legacy({ finish: 'normal' })], {}, { cardFinishes: [{ id: 'c1', availableFinishes: [] }] });
+    const got = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
+    expect(got.map((e) => e.finish)).toEqual(['normal']);
+  });
+
+  it('un acabado NUNCA lee la cifra de otro: filas scoped de dos acabados salen separadas', async () => {
+    const { pricing } = wire([
+      refRow({ finish: 'holofoil', priceMxnCents: 900_000, estimateFinishScoped: true }),
+      refRow({ finish: 'reverse_holo', priceMxnCents: 200_000, estimateFinishScoped: true }),
+    ]);
+    const got = (await pricing.getGradedEstimatesBatch(['c1'], FRESH_CFG, TODAY)).get('c1')!;
+    expect(got.map((e) => [e.finish, e.mxnCents]).sort()).toEqual([
+      ['holofoil', 900_000],
+      ['reverse_holo', 200_000],
+    ]);
   });
 });

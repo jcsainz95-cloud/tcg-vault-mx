@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
@@ -20,7 +20,59 @@ import { FinishReconciler } from './finish-reconciler.service';
 import { CardProductResolverService } from './card-product-resolver.service';
 import { AuditService } from '../audit/audit.service';
 import { isTcgcsvOrigin, tcgcsvSetExternalId } from './tcgcsv-card-name';
-import { importableGroupForPtcgSet } from './tcgcsv-importable-groups';
+import { importableGroupForPtcgSet, TCGCSV_IMPORTABLE_GROUPS } from './tcgcsv-importable-groups';
+import { PTCG_PROMO_GROUPS } from './promo-set-groups';
+import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
+import { TcgcsvGroupDiscoveryService } from './tcgcsv-group-discovery.service';
+import { PromoCollectionLinkService, PromoGateState, PromoLinksSummary } from './promo-collection-link.service';
+import { CatalogAutoStateService } from './catalog-auto-state.service';
+import { contentKeyOf } from './promo-collection-link';
+import type { Role } from '@prisma/client';
+
+/**
+ * AUTO (docs/specs/AUTO_CATALOGO.md §A) - QUIEN dispara el barrido. `system` solo lo construye el job (nunca un DTO/HTTP);
+ * con `user` rige PMS-B8 (solo `super_admin` corre el paso TCGCSV). La decision vive en la capa de servicio.
+ */
+export type SyncActor =
+  | { kind: 'user'; id: string; role: Role }
+  | { kind: 'system'; job: string; jobId?: string; attempt?: number };
+
+/** PROMOS-MASTERSET: ids de pokemontcg.io de las 6 promos viejas; FUENTE UNICA = `PTCG_PROMO_GROUPS` (PMS-B10). */
+export const ALWAYS_SYNCED_PROMO_SETS: readonly string[] = PTCG_PROMO_GROUPS.map((g) => g.ptcgSetId);
+
+export type PromoSetStatus = 'created' | 'updated' | 'unchanged' | 'missing_remote' | 'error';
+export type PromoTcgcsvStatus = 'imported' | 'updated' | 'covered' | 'busy' | 'skipped_needs_super_admin' | 'quarantined' | 'error';
+export interface PromosSummary {
+  sets: { setId: string; status: PromoSetStatus }[];
+  tcgcsv: {
+    groupId: number;
+    status: PromoTcgcsvStatus;
+    created: number;
+    updated: number;
+    errorCode?: string;
+    /** AUTO-F: `seed` = `TCGCSV_IMPORTABLE_GROUPS`; `discovered` = elegible por el descubrimiento de esta corrida. */
+    source: 'seed' | 'discovered';
+  }[];
+  /** AUTO-F: conteo del descubrimiento (sin estado, reevaluado cada corrida). */
+  discovery: { scanned: number; eligible: number; quarantined: number; ignored: number };
+  /** AUTO-B: recuento de la liga promo -> coleccion recalculada al final del barrido. */
+  links?: PromoLinksSummary;
+  /** AUTO-B: compuerta Black Star (backtest ciego contra sellos) tras este barrido: `open` solo con N>=30, >=2 expansiones y 0 falsos high. */
+  gate?: PromoGateState;
+}
+
+
+/** Promos viejas / grupos TCGCSV del barrido que terminaron en `error` (`quarantined`/`covered`/`skipped_*` NO son errores). */
+export function syncAllPromoErrors(summary: SyncAllSummary): number {
+  return summary.promos.sets.filter((x) => x.status === 'error').length + summary.promos.tcgcsv.filter((x) => x.status === 'error').length;
+}
+/**
+ * UN solo criterio de «el barrido salio mal» (AUTO-S1): `lastSuccessAt` y `awaitSyncAll` (reintento del job) lo comparten, asi que la
+ * alerta de >48 h salta aunque TCGCSV falle SIEMPRE mientras `setsFailed` sea 0.
+ */
+export function syncAllErrorCount(summary: SyncAllSummary): number {
+  return summary.setsFailed + syncAllPromoErrors(summary);
+}
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -116,12 +168,22 @@ export function isWithinCatalogFromDate(
  */
 export function selectSyncAllCandidates(
   remote: RemoteCardSet[],
-  opts: { importedWithCards: ReadonlySet<string>; force: boolean; fromReleaseDate: string },
+  opts: {
+    importedWithCards: ReadonlySet<string>;
+    force: boolean;
+    fromReleaseDate: string;
+    /** PROMOS-MASTERSET: sets que entran SIEMPRE (saltan el corte, el cubo `unknownDate` y el `no force`). */
+    alwaysSynced?: ReadonlySet<string>;
+  },
 ): { queue: RemoteCardSet[]; outOfRange: RemoteCardSet[]; unknownDate: RemoteCardSet[] } {
   const queue: RemoteCardSet[] = [];
   const outOfRange: RemoteCardSet[] = [];
   const unknownDate: RemoteCardSet[] = [];
   for (const s of remote) {
+    if (opts.alwaysSynced?.has(s.id)) {
+      queue.push(s);
+      continue;
+    }
     const alreadyImported = opts.importedWithCards.has(s.id);
     if (alreadyImported) {
       if (opts.force) queue.push(s); // reparación de lo que YA tenemos: el corte no aplica
@@ -171,6 +233,8 @@ export type SyncAllSummary = SetSweepTally & {
   setsSkippedOutOfRange: number;
   /** SELECCIÓN — remotos SIN `releaseDate`: no entran, pero **se cuentan** (§M2-CS.4). */
   setsSkippedUnknownDate: number;
+  /** PROMOS-MASTERSET: resultado por promo vieja y por grupo TCGCSV de la lista. */
+  promos: PromosSummary;
 };
 
 /**
@@ -319,7 +383,7 @@ const SET_IMAGE_HOSTS_LABEL = [...SET_IMAGE_HOSTS].map((h) => `https://${h}`).jo
  * DEROGADA). También escribe las claves de orden natural `numberSort`/`numberPrefix` (M-26).
  */
 @Injectable()
-export class CatalogSyncService {
+export class CatalogSyncService implements OnModuleInit {
   private readonly logger = new Logger(CatalogSyncService.name);
 
   constructor(
@@ -336,7 +400,25 @@ export class CatalogSyncService {
     // P-PROMOS (§5.12): deja `catalog.tcgcsv_shadowed` cuando pokemontcg.io trae una carta cuyo producto ya es de una
     // carta `tcgcsv:`. @Optional: los tests unitarios que no ejercitan esa rama no lo inyectan (se queda en `warn`).
     @Optional() private readonly audit?: AuditService,
+    // PROMOS-MASTERSET / AUTO: paso TCGCSV del barrido (misma guardia, lock y todo-o-nada que el import manual).
+    @Optional() private readonly tcgcsvImport?: TcgcsvSetImportService,
+    // AUTO-F: descubrimiento de grupos de promos de TCGCSV (sin estado).
+    @Optional() private readonly discovery?: TcgcsvGroupDiscoveryService,
+    // AUTO-B: recalculo de la liga promo -> coleccion al final de cada barrido.
+    @Optional() private readonly promoLinks?: PromoCollectionLinkService,
+    // AUTO: `lastSuccessAt` persistido (sobrevive a un reinicio).
+    @Optional() private readonly autoState?: CatalogAutoStateService,
   ) {}
+
+  /** Rehidrata `lastSuccessAt` desde la base al arrancar (best-effort: sin base no se inventa nada). */
+  async onModuleInit(): Promise<void> {
+    try {
+      const at = await this.autoState?.getLastSuccessAt();
+      if (at && !this.syncAllStatus.lastSuccessAt) this.syncAllStatus.lastSuccessAt = at;
+    } catch (e) {
+      this.logger.warn(`sync-all: no se pudo leer lastSuccessAt persistido (${(e as Error).message}).`);
+    }
+  }
 
   /**
    * POST /admin/catalog/unify-rarities — backfill LOCAL de `Card.rarityCanonical` (§4.28c). Re-deriva
@@ -753,6 +835,11 @@ export class CatalogSyncService {
      * «Listo — 0/0» falso).
      */
     summary: SyncAllSummary | null;
+    /** AUTO: ultimo barrido TERMINADO sin sets fallidos (persistido en ConfigSetting `catalog.auto.lastSuccessAt`; se rehidrata al arrancar). */
+    lastSuccessAt: string | null;
+    lastTrigger: 'job' | 'admin' | null;
+    /** AUTO: intento del job (1..6) que lanzo/aguarda este barrido; `null` si lo lanzo un admin. */
+    attempt: number | null;
   } = {
     running: false,
     jobId: null,
@@ -761,7 +848,13 @@ export class CatalogSyncService {
     startedAt: null,
     finishedAt: null,
     summary: null,
+    lastSuccessAt: null,
+    lastTrigger: null,
+    attempt: null,
   };
+
+  /** Promesa del barrido en curso (o del ultimo): el job la AGUARDA para saber si termino bien (AUTO-A). */
+  private syncAllDone: Promise<void> | null = null;
 
   /** Resumen agregado en ceros (arranque de un barrido `sync-all`). */
   /**
@@ -785,6 +878,7 @@ export class CatalogSyncService {
       fromReleaseDate: selection?.fromReleaseDate ?? '',
       setsSkippedOutOfRange: selection?.setsSkippedOutOfRange ?? 0,
       setsSkippedUnknownDate: selection?.setsSkippedUnknownDate ?? 0,
+      promos: { sets: [], tcgcsv: [], discovery: { scanned: 0, eligible: 0, quarantined: 0, ignored: 0 } },
     };
   }
 
@@ -901,9 +995,10 @@ export class CatalogSyncService {
    * importados quedan pendientes y se reanudan re-llamando `sync-all`.
    */
   async syncAll(
-    options: { force?: boolean } = {},
+    options: { force?: boolean; actor?: SyncActor } = {},
   ): Promise<{ jobId: string; setsQueued: number; remaining: number } & SyncAllSelection> {
     const force = options.force ?? false;
+    const actor = options.actor;
     // D3 — CORTE DE FECHA: el barrido honra el dial `catalog_sync_from_date` (el mismo que ya
     // honraba `sync()` en modo from_date), a través del predicado ÚNICO `selectSyncAllCandidates`.
     // El dial es la manija «movible» del dueño: se edita en M10 sin redeploy.
@@ -915,7 +1010,12 @@ export class CatalogSyncService {
       queue: pending,
       outOfRange,
       unknownDate,
-    } = selectSyncAllCandidates(remote, { importedWithCards, force, fromReleaseDate });
+    } = selectSyncAllCandidates(remote, {
+      importedWithCards,
+      force,
+      fromReleaseDate,
+      alwaysSynced: new Set(ALWAYS_SYNCED_PROMO_SETS),
+    });
     // ⭐ UN SOLO CÁLCULO de la selección, DOS momentos (§M2-CS.1): el `202` la hace eco al
     // arrancar y `summary` la guarda al terminar. Se arma aquí, una vez, y ambos la copian: es lo
     // que impide que el eco y el registro canónico se desincronicen (§0-B.3 regla 8).
@@ -941,6 +1041,8 @@ export class CatalogSyncService {
     }
 
     const batch = [...pending];
+    const remoteIds = new Set(remote.map((r) => r.id));
+    const missingPromos = ALWAYS_SYNCED_PROMO_SETS.filter((id) => !remoteIds.has(id));
     // Publica el estado observable del barrido ANTES de lanzarlo: jobId/total/startedAt se
     // fijan aquí; `done` avanza por set en runSyncAll; `running`/`finishedAt` se cierran en el
     // finally. Así el front puede pintar una barra honesta done/total y saber cuándo terminó.
@@ -955,12 +1057,23 @@ export class CatalogSyncService {
       // (se conocen ya); el resto lo suma `runSyncAll` con lo que cada import REALMENTE hizo. El
       // 202 de abajo no anticipa ninguno de esos números.
       summary: { ...CatalogSyncService.emptySyncAllSummary(selection), setsTotal: batch.length },
+      lastSuccessAt: this.syncAllStatus.lastSuccessAt,
+      lastTrigger: actor?.kind === 'system' ? 'job' : 'admin',
+      attempt: actor?.kind === 'system' ? (actor.attempt ?? 1) : null,
     };
-    // Fire-and-forget: el request NO espera a que se importen todos los sets.
-    void this.runSyncAll(batch, force).finally(() => {
+    for (const id of missingPromos) this.syncAllStatus.summary!.promos.sets.push({ setId: id, status: 'missing_remote' });
+    // Fire-and-forget: el request NO espera a que se importen todos los sets (el job AGUARDA `awaitSyncAll`).
+    const run = this.runSyncAll(batch, force, { actor, jobId, liveSets: remote }).finally(() => {
       this.syncAllStatus.running = false;
       this.syncAllStatus.finishedAt = new Date().toISOString();
+      // MISMO criterio de exito que `awaitSyncAll` (AUTO-S1): sin sets fallidos Y sin promos/grupos en `error`.
+      if (this.syncAllStatus.summary && syncAllErrorCount(this.syncAllStatus.summary) === 0) {
+        this.syncAllStatus.lastSuccessAt = this.syncAllStatus.finishedAt;
+        const at = this.syncAllStatus.finishedAt;
+        return this.autoState?.setLastSuccessAt(at).catch((e: Error) => this.logger.warn(`sync-all: no se pudo persistir lastSuccessAt (${e.message}).`));
+      }
     });
+    this.syncAllDone = run.catch(() => undefined);
     this.logger.log(
       `sync-all: ${batch.length} sets encolados (corte ${fromReleaseDate}, force=${force}); ` +
         `${outOfRange.length} sets remotos NO importados quedan fuera por ser anteriores al corte ` +
@@ -980,13 +1093,25 @@ export class CatalogSyncService {
   }
 
   /** Barrido en segundo plano de `sync-all`: importa cada set secuencialmente (rate-limit). */
-  async runSyncAll(sets: RemoteCardSet[], force = false): Promise<void> {
+  async runSyncAll(
+    sets: RemoteCardSet[],
+    force = false,
+    ctx: { actor?: SyncActor; jobId?: string; liveSets?: { id: string; name: string }[] } = {},
+  ): Promise<void> {
     // Normalmente lo arranca `syncAll`; si se invoca el barrido directamente (tests, job interno)
     // se inicializa en ceros para no operar sobre null.
     const summary = (this.syncAllStatus.summary ??= CatalogSyncService.emptySyncAllSummary());
     for (const s of sets) {
       try {
-        const res = await this.importSet(s, { force });
+        // PROMOS-MASTERSET: las 6 promos viejas se re-sincronizan SIEMPRE (idempotente, PV-1), aunque force=false.
+        const isPromo = ALWAYS_SYNCED_PROMO_SETS.includes(s.id);
+        const res = await this.importSet(s, { force: force || isPromo });
+        if (isPromo) {
+          summary.promos.sets.push({
+            setId: s.id,
+            status: res.outcome === 'imported' ? 'created' : res.outcome === 'refreshed' ? 'updated' : 'unchanged',
+          });
+        }
         // D1: lo que el import devuelve YA NO se descarta — es la única forma de saber cuántos
         // sets se importaron de verdad y cuántos sólo se re-sincronizaron.
         //
@@ -999,11 +1124,23 @@ export class CatalogSyncService {
         summary.cardsUpserted += res.cardsUpserted;
       } catch (e) {
         recordSweepFailure(summary, s.id, e);
+        if (ALWAYS_SYNCED_PROMO_SETS.includes(s.id)) summary.promos.sets.push({ setId: s.id, status: 'error' });
         this.logger.warn(`sync-all: set ${s.id} falló: ${(e as Error).message}`);
       } finally {
         // Avanza el progreso por set intentado (éxito o fallo) → barra honesta done/total.
         this.syncAllStatus.done += 1;
       }
+    }
+    await this.runTcgcsvGroups(summary, ctx);
+    // AUTO-B: la liga se recalcula SIEMPRE al final (determinista); un fallo aqui no tumba el barrido.
+    try {
+      const links = await this.promoLinks?.recompute();
+      if (links) {
+        summary.promos.links = links;
+        if (links.gate) summary.promos.gate = links.gate;
+      }
+    } catch (e) {
+      this.logger.warn(`sync-all: no se pudo recalcular la liga promo->coleccion (${(e as Error).message}).`);
     }
     this.logger.log(
       `sync-all: barrido de ${sets.length} sets completado (escritos=${summary.setsWritten} ` +
@@ -1011,6 +1148,93 @@ export class CatalogSyncService {
         `sin escribir=${summary.setsNoop}, fallidos=${summary.setsFailed}, ` +
         `cartas escritas=${summary.cardsUpserted}).`,
     );
+  }
+
+  /**
+   * AUTO-A / PROMOS-MASTERSET - paso TCGCSV del barrido: cada grupo de la LISTA EXPLICITA `TCGCSV_IMPORTABLE_GROUPS` va por el
+   * MISMO `TcgcsvSetImportService` (guardia, advisory lock, todo-o-nada, fail-closed). Un fallo por grupo NO aborta. Con actor
+   * `user` solo `super_admin` (si no, `skipped_needs_super_admin`: el permiso humano no se amplia); con `system` (solo el job) corre
+   * sin rol y SOLO sobre esa lista. Sin actor (llamada interna sin identidad) se trata como no autorizado.
+   */
+  private async runTcgcsvGroups(
+    summary: SyncAllSummary,
+    ctx: { actor?: SyncActor; jobId?: string; liveSets?: { id: string; name: string }[] },
+  ): Promise<void> {
+    const actor = ctx.actor;
+    const allowed = actor?.kind === 'system' || (actor?.kind === 'user' && actor.role === 'super_admin');
+    const importOne = async (
+      groupId: number,
+      source: 'seed' | 'discovered',
+      discovered?: { name: string },
+    ): Promise<void> => {
+      const row: PromosSummary['tcgcsv'][number] = { groupId, status: 'error', created: 0, updated: 0, source };
+      summary.promos.tcgcsv.push(row);
+      if (!allowed || !actor) {
+        row.status = 'skipped_needs_super_admin';
+        return;
+      }
+      if (!this.tcgcsvImport) {
+        row.errorCode = 'TCGCSV_IMPORT_UNAVAILABLE';
+        return;
+      }
+      try {
+        const res = await this.tcgcsvImport.importGroup(
+          groupId,
+          actor.kind === 'system'
+            ? { kind: 'system', job: actor.job, jobId: ctx.jobId ?? actor.jobId, attempt: actor.attempt }
+            : { id: actor.id, role: actor.role },
+          discovered ? { discovered } : undefined,
+        );
+        row.created = res.created;
+        row.updated = res.updated;
+        row.status = res.created > 0 ? 'imported' : 'updated';
+      } catch (e) {
+        const code = e instanceof BusinessException ? String(e.code) : 'UNKNOWN';
+        if (code === ErrorCode.TCGCSV_GROUP_COVERED) row.status = 'covered';
+        else if (code === ErrorCode.TCGCSV_IMPORT_IN_PROGRESS) row.status = 'busy';
+        else {
+          row.status = 'error';
+          row.errorCode = code;
+          this.logger.warn(`sync-all: grupo TCGCSV ${groupId} fallo (${code}): ${(e as Error).message}`);
+        }
+      }
+    };
+    for (const g of TCGCSV_IMPORTABLE_GROUPS) await importOne(g.groupId, 'seed');
+    // AUTO-F: grupos descubiertos (solo si el actor puede importar; fail-closed sin lista viva). Un fallo aqui NO aborta el barrido.
+    if (!allowed || !this.discovery) return;
+    try {
+      const found = await this.discovery.discover(ctx.liveSets ?? []);
+      summary.promos.discovery = found.summary;
+      for (const q of found.quarantined) {
+        summary.promos.tcgcsv.push({ groupId: q.groupId, status: 'quarantined', created: 0, updated: 0, source: 'discovered' });
+      }
+      for (const g of found.eligible) await importOne(g.groupId, 'discovered', { name: g.name });
+    } catch (e) {
+      this.logger.warn(`sync-all: el descubrimiento de grupos TCGCSV fallo (${(e as Error).message}); se sigue con la semilla.`);
+    }
+  }
+
+  /**
+   * AUTO-A - el job AGUARDA el fin del barrido (el en curso, lanzado por el o por un admin) y LANZA si termino mal, para que
+   * BullMQ reintente con backoff. Mal = sets fallidos o algun grupo/promo en `error`. `timeoutMs` acota el uso del worker.
+   */
+  async awaitSyncAll(timeoutMs: number): Promise<SyncAllSummary> {
+    const done = this.syncAllDone;
+    if (done) {
+      let timer: NodeJS.Timeout | undefined;
+      const timeout = new Promise<'timeout'>((r) => {
+        timer = setTimeout(() => r('timeout'), timeoutMs);
+      });
+      const out = await Promise.race([done.then(() => 'done' as const), timeout]);
+      if (timer) clearTimeout(timer);
+      if (out === 'timeout') throw new Error(`sync-all no termino en ${Math.round(timeoutMs / 60000)} min`);
+    }
+    const summary = this.syncAllStatus.summary;
+    if (!summary) throw new Error('sync-all sin resumen');
+    if (syncAllErrorCount(summary) > 0) {
+      throw new Error(`sync-all termino con errores (sets fallidos=${summary.setsFailed}, promos/grupos en error=${syncAllPromoErrors(summary)})`);
+    }
+    return summary;
   }
 
   /**
@@ -1497,6 +1721,8 @@ export class CatalogSyncService {
       // ⇒ no legal, conservador §2.3). Coste de red = CERO (M3: ya venían en el payload).
       const regulationMark = c.regulationMark?.trim() || null;
       const legalStandardRaw = c.legalities?.standard?.trim() || null;
+      // AUTO-B: clave de contenido; NO-DEGRADACION (si el payload no la permite, no viaja y no clobbea).
+      const contentKey = contentKeyOf({ name: c.name, supertype: c.supertype, hp: c.hp, attacks: c.attacks, abilities: c.abilities, rules: c.rules });
       const data = {
         setId: localSetId,
         name: c.name,
@@ -1513,6 +1739,7 @@ export class CatalogSyncService {
         imageSmallUrl: c.images?.small ?? null,
         imageLargeUrl: c.images?.large ?? null,
         ...(tcgplayerId !== null ? { tcgplayerId } : {}),
+        ...(contentKey !== null ? { contentKey } : {}),
         // DECKS-META §2.2: NO-DEGRADACIÓN — la clave NI SIQUIERA VIAJA cuando no hay valor bueno.
         ...(regulationMark !== null ? { regulationMark } : {}),
         ...(legalStandardRaw !== null ? { legalStandardRaw } : {}),

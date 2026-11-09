@@ -94,10 +94,10 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     ] as const) {
       const res = await h.api('POST', '/admin/pricing/override', {
         token: adminToken,
-        // `finish` OMITIDO ⇒ `normal`: el grado NO se cruza con el acabado (§4.38a).
+        // PSA-ACABADO: `finish` es OBLIGATORIO con intent:'graded_estimate' (sin él ⇒ 400).
         // v1.50.2 (BREAKING, INV-D §4.38l.1): con `productType:'graded'` el `intent` es OBLIGATORIO.
         // Aquí es `graded_estimate` porque esto ES la captura del gancho; sin él la ruta responde 422.
-        json: { cardId, productType: 'graded', gradeKey, priceMxnCents, intent: 'graded_estimate' },
+        json: { cardId, productType: 'graded', gradeKey, priceMxnCents, finish: 'normal', intent: 'graded_estimate' },
       });
       // v1.50.3-c (QA MENOR-1): `200`, no `201`. API_CONTRACT norma `200` para este endpoint y el
       // código respondía el `201` por default de `@Post` de Nest. Manda el contrato sobre el código.
@@ -173,6 +173,21 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
    * el precio de venta REAL de un slab publicado: la fila es la misma, así que la única defensa es
    * **exigir que se declare la intención** y bloquear la combinación imposible.
    */
+  it('3a) PSA-ACABADO — `finish` obligatorio (400) y debe ser un acabado REAL de la carta (400 con `allowed`)', async () => {
+    const base = { cardId, productType: 'graded', gradeKey: 'graded:PSA:10', priceMxnCents: PSA10_CENTS, intent: 'graded_estimate' };
+    const sin = await h.api('POST', '/admin/pricing/override', { token: adminToken, json: base });
+    expect(sin.status).toBe(400);
+    expect(sin.body.error.details.field).toBe('finish');
+    // La carta del fixture (`e2e-common`) NO es holofoil: la fila seria dinero que ninguna lectura ve.
+    const card = await h.prisma.card.findUniqueOrThrow({ where: { id: cardId }, select: { availableFinishes: true } });
+    expect(card.availableFinishes).not.toContain('holofoil');
+    const falso = await h.api('POST', '/admin/pricing/override', { token: adminToken, json: { ...base, finish: 'holofoil' } });
+    expect(falso.status).toBe(400);
+    expect(falso.body.error).toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'finish' } });
+    expect(falso.body.error.details.allowed).toEqual(card.availableFinishes);
+    expect(await h.prisma.priceReference.count({ where: { cardId, finish: 'holofoil', productType: 'graded' } })).toBe(0);
+  });
+
   it('3b) INV-D — `intent` OBLIGATORIO en graded: 422 sin él, 409 sobre una carta con slab publicado', async () => {
     // §O.8 / criterio 112(b): «todo intento bloqueado queda REGISTRADO». Se mide contra el stack vivo,
     // porque es lo que QA midió cuando la guarda resultó ser MUDA: 421 filas antes, 421 después.
@@ -195,6 +210,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
         productType: 'graded',
         gradeKey: 'graded:PSA:10',
         priceMxnCents: 123_456,
+        finish: 'normal',
         intent: 'graded_estimate',
       },
     });
@@ -387,6 +403,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
         productType: 'graded',
         gradeKey: 'graded:PSA:10',
         priceMxnCents: Math.floor(E2E_LIST_OVERRIDE_CENTS / 2),
+        finish: 'normal',
         intent: 'graded_estimate',
       },
     });
@@ -422,7 +439,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     // Se restaura el PSA 10 sano para no ensuciar los tests siguientes (la BD es compartida).
     await h.api('POST', '/admin/pricing/override', {
       token: adminToken,
-      json: { cardId, productType: 'graded', gradeKey: 'graded:PSA:10', priceMxnCents: PSA10_CENTS, intent: 'graded_estimate' },
+      json: { cardId, productType: 'graded', gradeKey: 'graded:PSA:10', priceMxnCents: PSA10_CENTS, finish: 'normal', intent: 'graded_estimate' },
     });
   });
 
@@ -520,7 +537,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     ] as const) {
       await h.api('POST', '/admin/pricing/override', {
         token: adminToken,
-        json: { cardId, productType: 'graded', gradeKey, priceMxnCents, intent: 'graded_estimate' },
+        json: { cardId, productType: 'graded', gradeKey, priceMxnCents, finish: 'normal', intent: 'graded_estimate' },
       });
     }
     const revive = await h.api('GET', `/catalog/cards/${cardId}`);
@@ -555,7 +572,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
   it('8e) criterio 8 — la incoherente se BORRA y desaparece; sobre el slab el mismo DELETE es 409', async () => {
     await setDial('on');
     const delEstimate = (card: string, grade: string) =>
-      h.api('DELETE', `/admin/pricing/graded-estimates/${card}/${grade}`, { token: adminToken });
+      h.api('DELETE', `/admin/pricing/graded-estimates/${card}/${grade}?finish=normal`, { token: adminToken });
     const gradedRows = (card: string, gradeKey: string) =>
       h.prisma.priceReference.findMany({
         where: { cardId: card, productType: 'graded', gradeKey, finish: 'normal', cardProductId: null },
@@ -571,6 +588,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
         productType: 'graded',
         gradeKey: 'graded:PSA:10',
         priceMxnCents: Math.floor(E2E_LIST_OVERRIDE_CENTS / 2),
+        finish: 'normal',
         intent: 'graded_estimate',
       },
     });
@@ -689,6 +707,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
             productType: 'graded',
             gradeKey: 'graded:PSA:9',
             priceMxnCents: 600_000,
+            finish: 'normal',
             intent: 'graded_estimate',
           },
         })
@@ -753,7 +772,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     ] as const) {
       await h.api('POST', '/admin/pricing/override', {
         token: adminToken,
-        json: { cardId, productType: 'graded', gradeKey, priceMxnCents, intent: 'graded_estimate' },
+        json: { cardId, productType: 'graded', gradeKey, priceMxnCents, finish: 'normal', intent: 'graded_estimate' },
       });
     }
   });
@@ -771,7 +790,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     const operador = await h.login(E2E_USERS.operator.email, E2E_USERS.operator.password);
     const cliente = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
     for (const token of [operador, cliente, undefined]) {
-      const res = await h.api('DELETE', `/admin/pricing/graded-estimates/${cardId}/10`, { token });
+      const res = await h.api('DELETE', `/admin/pricing/graded-estimates/${cardId}/10?finish=normal`, { token });
       expect([401, 403]).toContain(res.status);
     }
     expect(
@@ -834,6 +853,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
         productType: 'graded',
         gradeKey: 'graded:PSA:10',
         priceMxnCents: Math.floor(precioRaw / 2),
+        finish: 'normal',
         intent: 'graded_estimate',
       },
     });
@@ -884,7 +904,7 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
 
     // (5) El bucle se cierra con el remedio de §4.38(q) y la carta queda LIBRE otra vez (el fixture no
     //     se degrada corrida a corrida, que es justo por lo que esta carta existe).
-    const borrado = await h.api('DELETE', `/admin/pricing/graded-estimates/${cuarta.id}/10`, {
+    const borrado = await h.api('DELETE', `/admin/pricing/graded-estimates/${cuarta.id}/10?finish=normal`, {
       token: adminToken,
     });
     expect(borrado.status).toBe(200);

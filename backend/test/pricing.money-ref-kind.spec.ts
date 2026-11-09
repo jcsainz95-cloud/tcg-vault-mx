@@ -142,8 +142,11 @@ function build(rows: Row[]) {
         updated.push({ where, data });
         return { id: 'upd', ...data };
       }),
+      deleteMany: jest.fn(async () => ({ count: 0 })),
     },
+    card: { findMany: jest.fn(async () => []) },
     pendingPriceEntry: { updateMany: jest.fn(async () => ({ count: 0 })) },
+    $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
     // H-PERF-1: getReferencesBatch poda el histórico vía $queryRaw; el emulador aplica el mismo filtro
     // (refKind='market' + base-card) sobre `rows` que antes aplicaba el findMany mockeado.
     $queryRaw: makeRefsRawQuery(rows),
@@ -305,6 +308,7 @@ describe('M-43 — reglas de ESCRITURA: la naturaleza la fija el escritor (§4.3
     const wrote = await svc.persistGradedEstimateReference(
       'card-fourth-raw',
       '10',
+      'normal',
       { amountCents: ESTIMADO_MALO_CENTS, currency: 'MXN', source: 'pokemonpricetracker' },
       { rate: 17.5, bufferPct: 3 },
     );
@@ -318,6 +322,7 @@ describe('M-43 — reglas de ESCRITURA: la naturaleza la fija el escritor (§4.3
     const wrote = await svc.persistGradedEstimateReference(
       'card-fourth-raw',
       '10',
+      'normal',
       { amountCents: 250_000, currency: 'MXN', source: 'pokemonpricetracker' },
       { rate: 17.5, bufferPct: 3 },
     );

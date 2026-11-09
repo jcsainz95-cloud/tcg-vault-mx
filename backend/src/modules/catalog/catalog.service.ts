@@ -27,7 +27,7 @@ import {
 } from '../../common/money';
 import type { IvaDials, SealedProductSaleRef } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
-import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes, FINISH_ORDER } from '../../common/card-order';
+import { CARD_ORDER_BY_GLOBAL, CARD_ORDER_BY_IN_SET, computeDisplayFinishes, FINISH_ORDER, orderFinishes } from '../../common/card-order';
 import {
   DEFAULT_VERSION,
   FinishLabel,
@@ -72,6 +72,7 @@ import {
   GradingHighlightResult,
   HighlightReason,
   selectGradedEstimates,
+  quarantinedGrades,
 } from '../../common/graded-estimate';
 
 // Dominios aceptados por los filtros de enum del endpoint PÚBLICO (§0-Q punto 3).
@@ -318,8 +319,27 @@ export interface GradedEstimateDTO {
   gradingCompany: typeof GRADED_ESTIMATE_COMPANY;
   gradeValue: string;
   gradeKey: string;
+  /** PSA-ACABADO: el acabado de la cifra. Un acabado sin estimado no trae entrada (nunca la de otro acabado). */
+  finish: Finish;
   /** `PriceInfo` con `status` SIEMPRE `"priced"`, `referenceMxnCents`/`capturedDate` siempre, y `source` NUNCA. */
   estimate: { status: 'priced'; referenceMxnCents: number; capturedDate: string };
+}
+
+/**
+ * Cota ×raw del estimado gradeado (PSA_ACABADO): el raw NM, INGLES, del MISMO acabado, sin sello ni liga. UN solo helper para la
+ * ficha y la lista de revision: nunca el grupo mas barato si es espanol, de liga, de otro estado o de otro acabado. Varios grupos
+ * candidatos => el mas barato (la ficha ordena cheapest-first y toma el primero). Sin ese grupo => `listPriceCents: null`.
+ */
+export function rawNmDefaultGroupFor<G extends { listPriceCents: number; dto: { productType: string; finish: Finish; rawCondition?: string | null; version: Parameters<typeof isDefaultVersion>[0] } }>(
+  groups: readonly G[],
+  finish: Finish,
+): { listPriceCents: number | null } {
+  let best: G | null = null;
+  for (const g of groups) {
+    if (g.dto.productType !== 'raw' || g.dto.finish !== finish || g.dto.rawCondition !== 'NM' || !isDefaultVersion(g.dto.version)) continue;
+    if (best == null || g.listPriceCents < best.listPriceCents) best = g;
+  }
+  return best ?? { listPriceCents: null };
 }
 
 function toGradedEstimateDTO(e: GradedEstimateRef): GradedEstimateDTO {
@@ -327,6 +347,7 @@ function toGradedEstimateDTO(e: GradedEstimateRef): GradedEstimateDTO {
     gradingCompany: GRADED_ESTIMATE_COMPANY,
     gradeValue: e.gradeValue,
     gradeKey: e.gradeKey,
+    finish: e.finish,
     estimate: {
       status: 'priced' as const,
       referenceMxnCents: e.mxnCents,
@@ -611,6 +632,8 @@ export interface GradedEstimateReviewItemDTO {
    * `NOT_ABOVE_RAW`, que es lo que el operador puede ver y corregir.
    */
   reasons: HighlightReason[];
+  /** AUTO-D: estimado AUTOMATICO fuera de cota dura (no se muestra al publico); informativo. */
+  quarantined: boolean;
 }
 
 /**
@@ -650,6 +673,9 @@ export const GRADED_REVIEW_ALLOWED_REASONS: readonly HighlightReason[] = [
   ...GRADED_REVIEW_DEFAULT_REASONS,
   'SLAB_PUBLISHED',
   'STALE',
+  // PSA-ACABADO: opt-in. `LEGACY_MANUAL` = manual heredada por recapturar por acabado; `NO_RAW` = sin raw vigente del acabado.
+  'LEGACY_MANUAL',
+  'NO_RAW',
 ];
 
 /**
@@ -666,6 +692,10 @@ export const REVIEW_PAGE_SIZE_DEFAULT = 25;
 export const REVIEW_PAGE_SIZE_MAX = 100;
 
 export interface GradedEstimateReviewResponse {
+  /** PSA-ACABADO: cartas sin estimado porque el proveedor no separa por acabado y la carta tiene 2+ acabados. */
+  noFinishSplit: number;
+  /** AUTO-D: grupos evaluados con al menos una cifra automatica en cuarentena. */
+  quarantinedCount: number;
   data: GradedEstimateReviewItemDTO[];
   page: number;
   pageSize: number;
@@ -1124,7 +1154,8 @@ export class CatalogService {
             // que son cifras **sin IVA**. Meterle el precio con impuesto dentro movería el umbral
             // `salePrice × maxRawMultiple` un `t·r` hacia arriba **sin que nadie decida moverlo**.
             rawSalePriceCents: listPriceCents,
-            estimates: grading.byCard.get(item.cardId) ?? [],
+            // PSA-ACABADO: solo el estimado del MISMO acabado de la pieza; jamas el de otro.
+            estimates: (grading.byCard.get(item.cardId) ?? []).filter((e) => e.finish === item.finish),
             // v1.50.2 (§4.38l, INV-D): si la carta tiene un SLAB PUBLICADO de ese grado, esa fila no es
             // un estimado — es el precio de mercado REAL de la pieza. La guarda de LECTURA la omite.
             publishedSlabGrades: grading.slabsByCard.get(item.cardId) ?? [],
@@ -1598,18 +1629,35 @@ export class CatalogService {
     // publicados no es «graded», y en una función cuyo criterio es «graded y sealed NUNCA» ese atajo es
     // justo el que el siguiente lector «arregla» y rompe.
     const hasPublishedRawGroup = listings.some((l) => l.productType === 'raw');
+    // PSA-ACABADO: se selecciona POR ACABADO (cada acabado lee solo su cifra) y cada entrada lleva su `finish`.
+    const cardEstimates = grading?.byCard.get(cardId) ?? [];
     const gradedEstimates =
       grading && hasPublishedRawGroup
-        ? selectGradedEstimates<GradedEstimateRef>({
-            productType: 'raw',
-            estimates: grading.byCard.get(cardId) ?? [],
-            // v1.50.2 (INV-D): un grado con slab PUBLICADO se OMITE también en la ficha — ahí esa fila
-            // no es un estimado, es el precio real de una pieza que ya se lista con su propio precio.
-            // (Es lo ÚNICO que la ficha suprime; la coherencia de MAGNITUD sí la informa, §4.38k.3.)
-            publishedSlabGrades: grading.slabsByCard.get(cardId) ?? [],
-            today: grading.today,
-            cfg: grading.cfg,
-          }).map(toGradedEstimateDTO)
+        ? orderFinishes(cardEstimates.map((e) => e.finish)).flatMap((fin) =>
+            selectGradedEstimates<GradedEstimateRef>({
+              productType: 'raw',
+              // AUTO-D: las AUTOMATICAS fuera de cota dura (contra el raw de ESTE acabado) quedan en cuarentena.
+              estimates: (() => {
+                const ofFinish = cardEstimates.filter((e) => e.finish === fin);
+                // Cota contra el raw NM, INGLES, del MISMO acabado, sin sello ni liga (PSA_ACABADO): nunca el grupo mas barato si es
+                // espanol, de liga o de otro acabado. Sin ese grupo ⇒ sin raw ⇒ no se evalua la cota ×raw.
+                const rawG = rawNmDefaultGroupFor(built, fin);
+                const q = quarantinedGrades({
+                  estimates: ofFinish,
+                  rawSalePriceCents: rawG.listPriceCents,
+                  maxRawMultiple: grading.cfg.maxRawMultiple,
+                  maxRawMultipleInvalid: grading.cfg.maxRawMultipleInvalid,
+                });
+                return ofFinish.filter((e) => !q.has(e.gradeValue));
+              })(),
+              // v1.50.2 (INV-D): un grado con slab PUBLICADO se OMITE también en la ficha — ahí esa fila
+              // no es un estimado, es el precio real de una pieza que ya se lista con su propio precio.
+              // (Es lo ÚNICO que la ficha suprime; la coherencia de MAGNITUD sí la informa, §4.38k.3.)
+              publishedSlabGrades: grading.slabsByCard.get(cardId) ?? [],
+              today: grading.today,
+              cfg: grading.cfg,
+            }).map(toGradedEstimateDTO),
+          )
         : [];
 
     return {
@@ -1747,7 +1795,8 @@ export class CatalogService {
           productType: 'raw',
           // ⚠️ `L`, ⛔ no `P`: el gate compara contra estimados de MERCADO (sin IVA). Ver `buildGroups`.
           rawSalePriceCents: g.listPriceCents,
-          estimates,
+          // PSA-ACABADO: estimado y raw del MISMO acabado.
+          estimates: estimates.filter((e) => e.finish === g.dto.finish),
           publishedSlabGrades,
           today,
           cfg,
@@ -1871,7 +1920,7 @@ export class CatalogService {
       where: {
         productType: 'graded',
         gradeKey: { in: [...GRADED_ESTIMATE_GRADE_KEYS] },
-        finish: 'normal',
+        // PSA-ACABADO: cualquier acabado (el estimado es por acabado).
         cardProductId: null,
       },
       select: { cardId: true },
@@ -1881,7 +1930,11 @@ export class CatalogService {
     });
     const truncated = withEstimates.length > GRADED_REVIEW_MAX_SCAN;
     const cardIds = withEstimates.slice(0, GRADED_REVIEW_MAX_SCAN).map((r) => r.cardId);
+    // PSA-ACABADO: resumen — cartas cuyo ultimo escaneo termino `no_finish_split` (sin estimado por falta de separacion).
+    const noFinishSplit = await this.prisma.gradedEstimateCardScan.count({ where: { lastOutcome: 'no_finish_split' } });
     const empty: GradedEstimateReviewResponse = {
+      noFinishSplit,
+      quarantinedCount: 0,
       data: [],
       page: params.page,
       pageSize: params.pageSize,
@@ -1920,10 +1973,16 @@ export class CatalogService {
     // lista por un criterio invisible desde la respuesta. El DTO sigue emitiendo `reason` = el primer
     // bloqueante, tal como lo declara el contrato.
     const matched: { key: string; item: GradedEstimateReviewItemDTO }[] = [];
-    for (const g of this.buildGroups(rows)) {
+    let quarantinedCount = 0;
+    const builtGroups = this.buildGroups(rows);
+    const groupsByCard = new Map<string, typeof builtGroups>();
+    for (const bg of builtGroups) groupsByCard.set(bg.dto.card.id, [...(groupsByCard.get(bg.dto.card.id) ?? []), bg]);
+    const countedQuarantine = new Set<string>();
+    for (const g of builtGroups) {
       if (g.dto.productType !== 'raw') continue;
       const card = g.dto.card;
-      const estimates = estimatesByCard.get(card.id) ?? [];
+      // PSA-ACABADO: estimado y raw del MISMO acabado del grupo (el tope ×raw usa el raw de ese acabado).
+      const estimates = (estimatesByCard.get(card.id) ?? []).filter((e) => e.finish === g.dto.finish);
       const publishedSlabGrades = slabsByCard.get(card.id) ?? [];
       const r = evaluateGradingHighlight<GradedEstimateRef>({
         productType: 'raw',
@@ -1942,7 +2001,28 @@ export class CatalogService {
       // pero SÍ se muestra en la ficha** (§4.38k.3) ⇒ visible al comprador, inencontrable para el
       // operador. Justo «publicamos la cifra mala y nadie se entera», que es el fallo que esta lista
       // existe para impedir.
-      const primary = r.reasons.find((x) => reasons.includes(x));
+      // PSA-ACABADO: `LEGACY_MANUAL` = manual heredada (valida solo para el acabado principal); es informativa y NO
+      // altera `eligible` ni `reason` (la promocion no cambia). Se anexa al final de `reasons`.
+      const allReasons: HighlightReason[] = estimates.some((e) => e.legacyManual)
+        ? [...r.reasons, 'LEGACY_MANUAL']
+        : r.reasons;
+      // AUTO-D: cuarentena = informativa en la lista (`quarantined`); la cuenta es sobre TODOS los grupos evaluados.
+      // MISMA cota que la ficha: raw NM ingles del mismo acabado, sin sello ni liga (no el precio de ESTE grupo).
+      const rawG = rawNmDefaultGroupFor(groupsByCard.get(card.id) ?? [], g.dto.finish);
+      const quarantined =
+        quarantinedGrades({
+          estimates,
+          rawSalePriceCents: rawG.listPriceCents,
+          maxRawMultiple: cfg.maxRawMultiple,
+          maxRawMultipleInvalid: cfg.maxRawMultipleInvalid,
+        }).size > 0;
+      // La ficha oculta por (carta, acabado) una sola vez: la cuenta tambien (no una por grupo LP/es/liga).
+      const qKey = `${card.id}|${g.dto.finish}`;
+      if (quarantined && !countedQuarantine.has(qKey)) {
+        countedQuarantine.add(qKey);
+        quarantinedCount += 1;
+      }
+      const primary = allReasons.find((x) => reasons.includes(x));
       if (primary == null) continue;
       const item: GradedEstimateReviewItemDTO = {
         cardId: card.id,
@@ -1969,7 +2049,8 @@ export class CatalogService {
         publishedSlabGrades,
         eligible: r.eligible,
         reason: r.reason,
-        reasons: r.reasons,
+        reasons: allReasons,
+        quarantined,
       };
       matched.push({ key: primary, item });
     }
@@ -2004,6 +2085,7 @@ export class CatalogService {
       ...empty,
       data: matched.slice(start, start + params.pageSize).map((m) => m.item),
       total: matched.length,
+      quarantinedCount,
     };
   }
 

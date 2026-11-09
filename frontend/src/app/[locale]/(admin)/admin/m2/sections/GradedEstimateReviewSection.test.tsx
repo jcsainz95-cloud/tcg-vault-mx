@@ -366,4 +366,22 @@ describe('GradedEstimateReviewSection · RETIRAR el estimado (§M2 v1.50.3-d)', 
     expect(await screen.findAllByRole('button', { name: /Retirar el estimado PSA 10 de/ })).not.toHaveLength(0);
     expect(screen.queryByRole('button', { name: /Retirar el estimado PSA 9 de/ })).toBeNull();
   });
+
+  it('AUTO: quarantinedCount > 0 ⇒ aviso informativo y marca por fila; sin cuarentena ⇒ nada', async () => {
+    response = () => ({
+      status: 200,
+      body: body({ quarantinedCount: 2, data: [row({ quarantined: true }), row({ cardId: 'c2', representativeInventoryItemId: 'i2' })] }),
+    });
+    renderWithProviders(<GradedEstimateReviewSection />, 'es');
+    expect(await screen.findByText('Estimados en cuarentena')).toBeInTheDocument();
+    expect(screen.getByText(/2 estimados automáticos quedaron en cuarentena/)).toBeInTheDocument();
+    expect(screen.getByText(/se vuelven a chequear solos en la siguiente actualización/)).toBeInTheDocument();
+    expect(screen.getAllByTestId('quarantined-badge').length).toBeGreaterThan(0);
+  });
+  it('AUTO: sin quarantinedCount ⇒ sin aviso (backend previo)', async () => {
+    renderWithProviders(<GradedEstimateReviewSection />, 'en');
+    await screen.findAllByText('Latias ex');
+    expect(screen.queryByText('Quarantined estimates')).toBeNull();
+    expect(screen.queryByTestId('quarantined-badge')).toBeNull();
+  });
 });

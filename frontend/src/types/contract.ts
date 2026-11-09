@@ -980,6 +980,11 @@ export interface GradedEstimateDTO {
   /** "10" | "9" hoy; STRING abierto en el tipo (dial del servidor, no del cliente). */
   gradeValue: string;
   gradeKey: string;
+  /**
+   * §PSA-ACABADO (contrato §4): el estimado es POR ACABADO. Un acabado sin estimado no trae entrada;
+   * jamás se muestra la cifra de otro acabado.
+   */
+  finish: Finish;
   estimate: PriceInfo;
 }
 
@@ -4001,6 +4006,14 @@ export interface MasterSetCardCellDTO {
   expectedVariantCount: number;
   coveredVariantCount: number;
   variants: MasterSetVariantDTO[];
+  /**
+   * §PROMOS-MASTERSET §4 (ID): SOLO en celdas de SELLO de `collectionPromos`. Identidad de la celda =
+   * `cardProductId` (producto con sello), NO `cardId` (es el de la carta lisa y Prerelease/Staff chocan).
+   * Ausente en celdas normales y Black Star (identidad `cardId`).
+   */
+  cardProductId?: number;
+  stampType?: StampType;
+  stampLabel?: string | null;
   // v1.26 (P-2, §M1): precio de MERCADO de la carta (PriceReference CRUDA del acabado base, ya
   // FX-recomputada a MXN cents server-side). NO es el precio de venta (referencia × markup); es el
   // input de mercado que alimenta las reglas. `null`/ausente = referencia pending o inexistente:
@@ -4066,6 +4079,19 @@ export interface MasterSetBinderResponse {
   // Un set normal omite ambos. Ver ARCHITECTURE §4.31b.
   parts?: SetPartDTO[];
   canonicalSetId?: string;
+  /**
+   * §AUTO/PROMOS-MASTERSET (contrato §5, aditivo): apartado «Promos de la colección», solo promos de
+   * confianza `high`. `owned/total` son su avance PROPIO («x de y»); NUNCA se suman a
+   * `completedCount/totalCount/%/valor` del Master Set. Sin sesión (tienda) llega solo `total`.
+   * Ausente o vacío ⇒ no hay apartado.
+   */
+  collectionPromos?: MasterSetCollectionPromosDTO;
+}
+
+export interface MasterSetCollectionPromosDTO {
+  items: MasterSetCardCellDTO[];
+  owned?: number;
+  total?: number;
 }
 
 // ===== v1.28 Stream B (P-19): POST /admin/inventory/publish-all =====
@@ -6174,6 +6200,12 @@ export interface CatalogSyncStatusResponse {
    * summary en ceros de relleno: un objeto lleno de `0` afirma que se contó.
    */
   summary: CatalogSyncSummary | null;
+  /** §AUTO (contrato §6, aditivo): último éxito del catálogo (ISO) o `null` si no hay registro. Ausente en backends previos. */
+  lastSuccessAt?: string | null;
+  /** §AUTO: quién disparó ese éxito: el job diario o un admin. */
+  lastTrigger?: 'job' | 'admin' | null;
+  /** §AUTO: intento del job (1..6, backoff exponencial); >1 = reintento. */
+  attempt?: number | null;
 }
 
 /**
@@ -6213,6 +6245,51 @@ export interface CatalogSyncSummary {
   setsSkippedUnknownDate: number;
   /** un renglón por set fallido; `code: null` si el fallo no traía código (§M2-CS.0). */
   failures: RefreshVariantsAllFailure[];
+  /** §PROMOS-MASTERSET (contrato §5): promos que el barrido trae siempre. Ausente en backends previos. */
+  promos?: CatalogSyncPromos;
+}
+
+export type PromoSetStatus = 'created' | 'updated' | 'unchanged' | 'missing_remote' | 'error';
+export type PromoTcgcsvStatus =
+  | 'imported'
+  | 'updated'
+  | 'covered'
+  | 'busy'
+  | 'skipped_needs_super_admin'
+  | 'quarantined'
+  | 'error';
+/** §AUTO_CATALOGO §B: `k` = `high` correctos del backtest (abre con k>=30 en >=2 expansiones y f=0), `f` = falsos `high`, `n` = evaluables (no abre). */
+export interface PromoGateDTO {
+  open: boolean;
+  n: number;
+  k: number;
+  f: number;
+  expansions: number;
+}
+export interface CatalogSyncPromos {
+  sets: { setId: string; status: PromoSetStatus }[];
+  tcgcsv: {
+    groupId: number | string;
+    status: PromoTcgcsvStatus;
+    created: number;
+    updated: number;
+    errorCode?: string;
+    /** §AUTO: `seed` = semilla `TCGCSV_IMPORTABLE_GROUPS`; `discovered` = descubierto por evaluación. */
+    source?: 'seed' | 'discovered';
+  }[];
+  /** §AUTO: resumen del descubrimiento de grupos TCGCSV. Ausente en backends previos. */
+  discovery?: { scanned: number; eligible: number; quarantined: number; ignored: number };
+  /** §AUTO: liga promo→expansión inferida. Ausente en backends previos. */
+  links?: { high: number; low: number; none: number; changed: number };
+  /** §AUTO: compuerta Black Star automática (backtest ciego). */
+  gate?: PromoGateDTO;
+}
+
+/** `GET /admin/catalog/remote-sets`: `degraded:true` = pokemontcg.io no respondió ⇒ solo sets locales. */
+export interface RemoteSetsResponse {
+  data: RemoteSetDTO[];
+  degraded?: boolean;
+  source?: 'remote' | 'local';
 }
 
 // GET /admin/pricing/sync-status — progreso del barrido MASIVO de precios (price-ingest) en curso
@@ -6931,7 +7008,11 @@ export type GradedEstimatePreviewReason =
   | 'SLAB_PUBLISHED'
   | 'NOT_ABOVE_RAW'
   | 'ABOVE_MAX_MULTIPLE'
-  | 'GRADE_ORDER_INVERTED';
+  | 'GRADE_ORDER_INVERTED'
+  // §PSA-ACABADO: sin raw vigente de ESE acabado (no hay contra qué validar el tope) y cifra manual
+  // heredada de la clave vieja por carta (vale solo para el acabado principal hasta recapturarla).
+  | 'NO_RAW'
+  | 'LEGACY_MANUAL';
 
 /**
  * Un grupo raw publicado de la carta, con **los insumos del gate**. Es el ÚNICO sitio donde esos
@@ -7006,6 +7087,8 @@ export const GRADED_REVIEW_DEFAULT_REASONS: GradedEstimateReviewReason[] = [
 
 /** Mismo contenido que el preview + identidad de la carta, para leer la lista sin un fetch por fila. */
 export interface GradedEstimateReviewItemDTO extends GradedEstimatePreviewDTO {
+  /** §AUTO: `true` ⇒ en cuarentena (cota dura rota): la cifra NO se muestra al cliente; solo se informa al operador. */
+  quarantined?: boolean;
   cardId: string;
   cardName: string;
   setName: string;
@@ -7028,6 +7111,10 @@ export interface GradedEstimateReviewResponse {
   enabled: boolean;
   scannedCards: number;
   truncated: boolean;
+  /** §PSA-ACABADO: cartas de 2+ acabados sin estimado porque el proveedor no separa por acabado. */
+  noFinishSplit?: number;
+  /** §AUTO regla D (contrato §6): estimados fuera de cota dura retenidos (no se publican; se re-chequean solos). */
+  quarantinedCount?: number;
 }
 
 /**
@@ -7044,6 +7131,7 @@ export interface GradedEstimateReviewResponse {
 export interface GradedEstimateDeleteResponse {
   cardId: string;
   gradeValue: string;
+  finish?: Finish;
   deletedCount: number;
 }
 

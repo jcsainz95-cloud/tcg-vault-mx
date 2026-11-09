@@ -101,7 +101,7 @@ function wireJob(config: Record<string, unknown>) {
     },
     inventoryItem: { findMany: jest.fn(async () => [{ cardId: 'c1' }]) },
     card: { findMany: jest.fn(async () => [CARD]) },
-    priceReference: { findFirst: jest.fn(async () => null), create, update },
+    priceReference: { findFirst: jest.fn(async () => null), create, update, deleteMany: jest.fn(async () => ({ count: 0 })) },
   } as unknown as PrismaService;
   withGradedTurns(prisma); // v1.113⟨portada⟩ (§DYN.4): turno PSA en memoria
   const settings = new SettingsService(prisma);

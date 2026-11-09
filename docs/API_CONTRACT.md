@@ -1,10 +1,6 @@
 # API_CONTRACT.md — TCG HUNT · API v1
-
-> **Estado vigente.** Índice generado del código el 2026-11-06 (`backend/src/modules/**/*.controller.ts`; 349 endpoints).
-> La versión normativa anterior (v1.117.3: DTOs, enums y reglas) está en `docs/archive/API_CONTRACT.md`: **`grep -n`
-> del endpoint ahí** antes de cambiarlo; los candados de paridad leen esa copia. Propiedad: **arquitecto**.
-> Manda `PROJECT.md` sobre este contrato y este contrato sobre el código.
-
+> **Estado vigente.** Índice del código (2026-11-06, 349 endpoints). Versión normativa anterior (DTOs, enums, reglas) en
+> `docs/archive/API_CONTRACT.md`: `grep -n` del endpoint ahí antes de cambiarlo (los candados de paridad leen esa copia). Manda `PROJECT.md` > este contrato > el código.
 ## 0. Convenciones
 - **Base**: `/api/v1`, REST/JSON. Fechas ISO-8601 UTC.
 - **Auth**: `Authorization: Bearer <access>`. `JwtAuthGuard` es global: todo endpoint exige sesión salvo `@Public()`.
@@ -19,14 +15,9 @@
   `details.field` y `details.allowed`. Nunca llega crudo a Prisma.
 - **Errores**: `{ "error": { "code": "…", "message": "…", "details": {} } }`. Códigos en `backend/src/common/error-codes.ts`.
   Fallo transitorio de BD ⇒ `503 BUSY_TRY_AGAIN` (reintentable). Throttle ⇒ `429`.
-- **Webhooks Stripe**: `POST /webhooks/stripe` (público, firma obligatoria, idempotente por id de evento; eventos
-  suscritos en `security/stripe-webhook-events.txt`).
-- **Enums**: fuente de verdad `backend/prisma/schema.prisma` + `backend/src/common/enum-values.ts`.
-- **DTOs**: en `backend/src/modules/<módulo>/dto/` (class-validator). Request/response resumidos en el nombre de la ruta;
-  el detalle normativo de cada uno está en el archivo.
-
+- **Webhooks Stripe**: `POST /webhooks/stripe` (público, firma obligatoria, idempotente por id de evento; eventos suscritos en `security/stripe-webhook-events.txt`).
+- **Enums/DTOs**: `backend/prisma/schema.prisma`, `backend/src/common/enum-values.ts` y `backend/src/modules/<módulo>/dto/`.
 ## 1. Endpoints por módulo
-
 ### accessories
 - GET `/accessories` · público
 - GET `/accessories/suggestions` · público
@@ -261,6 +252,9 @@
 - GET `/admin/marketing/export` · cuenta
 - GET `/admin/marketing/export/todo` · cuenta
 - GET `/admin/marketing/weekly-excel` · cuenta
+- **§MKT-V2** (`docs/specs/MKT_PANEL_V2.md`): `pantalla` pasa a `r|a|b|c|d|e|f|g|h` (`r` = Resumen: tablas `r1` cifras, `r2` avisos, `r3` diario solo con régimen exacto/sesión; `c9` estados, `e2` páginas de Google). `periods` no cambia (la primera semana es la última cerrada).
+- POST `/marketing/search-miss` · público · `{term≤80, kind:'card'|'sealed'}` ⇒ `204` siempre; sin eco, sin identificador (c6).
+- Sin endpoint para el correo del lunes (job interno `marketing-weekly-digest`, idempotente por semana).
 
 ### measurement
 - POST `/admin/measurement/meta-test-event` · admin
@@ -407,13 +401,26 @@
 - GET `/wishlist` · GET `/wishlist/preview` · POST `/wishlist` · PATCH `/wishlist/:id` · DELETE `/wishlist/:id` · PUT `/wishlist/alerts` — todos cuenta
 - POST `/wishlist/mail-actions` · público
 - GET `/admin/reports/wishlist-demand` · GET `/admin/reports/wishlist-demand/export.csv` — admin
-- **Siempre activa (HECHOS 2026-11-08; ARCHITECTURE §5.14).** Desaparecen: la clave `wishlistEnabled` de `GET/PUT /admin/settings` (PUT con ella ⇒ 422, clave desconocida), el `404 FEATURE_DISABLED` de las seis rutas de cuenta y el campo `wishlistEnabled` de `GET /catalog/cards/:cardId` (eliminado, no fijo `true`). Quedan `401`, `403` (staff sin correo), `404 NOT_FOUND` por `:id` ajeno y `400`. Los demás diales no cambian. Pruebas (mutar ⇒ rojo): WSH-ON-1 `GET /wishlist` con cuenta ⇒ 200 sin ningún dial; WSH-ON-2 ficha sin `wishlistEnabled`; WSH-ON-3 settings sin la clave y PUT ⇒ 422; WSH-ON-4 `wishlist-notify` envía respetando el tope diario; WSH-ON-5 la migración deja intactas `WishlistItem`/`WishlistNotice`. F1 Mi cuenta sin 404 en consola; F2 ficha con bloque sin leer campo del servidor; F3 M10 sin interruptor.
+- **Siempre activa (HECHOS 2026-11-08; ARCHITECTURE §5.14).** Desaparecen: `wishlistEnabled` de `GET/PUT /admin/settings` (PUT con ella ⇒ 422), el `404 FEATURE_DISABLED` de las seis rutas de cuenta y `wishlistEnabled` de `GET /catalog/cards/:cardId`. Quedan `401`, `403` (staff sin correo), `404` por `:id` ajeno y `400`. Pruebas WSH-ON-1…5 (sin dial ⇒ 200; ficha y settings sin la clave; `wishlist-notify` con tope diario; migración no toca `WishlistItem`/`WishlistNotice`), F1…F3.
 
 ## 2. Reglas vigentes: alta rápida y cajón del binder (UX-ALTA-LIGA, opción A + A2; HECHOS 2026-11-05)
-- **Acabado del alta:** al elegir «De liga», `POST /admin/inventory/items/batch` (campos opcionales `language`, `cardProductId`) lleva el `finish` de la versión de liga, nunca el de la casilla. Un solo acabado de liga ⇒ implícito; varios ⇒ el staff elige, sin preselección ni envío hasta elegir. Idioma aplica a toda carta raw; Versión solo si hay liga. Candado: IDS-F11 (a)–(c) (mutar: `finish` de la casilla en el POST); IDS-B32 (backend).
-- **Cajón (piezas):** dos lecturas de `GET /admin/inventory/items`, tope 100: (1) la casilla (`cardId`+`finish`); (2) `stamped=true` sin `finish`, sin los acabados que ya son casilla. Idioma/Liga solo en cliente; «Piezas (n)» fijo y «Mostrando n de N». Casilla > 100 piezas ⇒ filtros en servidor (O-24). Candado: IDS-F11 (e).
-- **Compra sugerida por versión (P-ARQ-IDS-3 cerrada, HECHOS 2026-11-06):** «Pagamos por pieza» abre con un SUGERIDO editable según la versión elegida; sin migración ni endpoint nuevo. **Fuente:** `GET /admin/inventory/cards/:cardId/versions` añade a cada combo `buySuggestedCents: number | null` (centavos MXN), calculado SOLO en backend. **Regla** (`B(R)` = curva de compra vigente, `pricing.buy.effectiveCents`, sobre la referencia de mercado `R` de `versionReferences`): `(en, sin liga)` = `B(R_en)` (con override manual/bounty de la carta; el resto usa la curva PURA: dueño 2026-11-06 «A) Del precio normal») · `(en, liga P)` = `B(R_P)` · `(es, sin liga)` = `scaleByPct(B(R_en), spanish_market_pct)` · `(es, liga P)` = `scaleByPct(B(R_P), spanish_market_pct)`. Orden fijo: curva y luego porcentaje (inglesa $60.00 ⇒ español $45.00 con pct 75). **Redondeo:** `scaleByPct` (`common/card-version.ts:255`, mitad hacia arriba); `pct` de `PricingService.loadSpanishMarketPct` (admin, 1–200, default 75). **`null`** (sin error) si no hay referencia (`R` sin precio/pending), la curva no da compra o `pct` es inválido; graduada o sellado ⇒ `null` en versiones ≠ (en, sin liga). **Escritura:** `items/batch` sin cambio; `acquisitionCostCents` = lo que el staff acepte; el sugerido no se guarda solo.
-- **Pruebas de la compra sugerida (mutación ⇒ rojo):** IDS-B33 compra 6000 ⇒ es 4500; B34 pct 50 ⇒ 3000; B35 liga ⇒ `B(R_P)`; B36 sin referencia ⇒ `null`; B37 es+liga = `scaleByPct(B(R_P), pct)`. IDS-F12: el campo se prellena con `buySuggestedCents`, se re-prellena al cambiar de versión, `null` ⇒ vacío, y el POST envía lo que muestra.
-- **P-PROMOS (ARCHITECTURE §5.12; migración aditiva):** `StampType` suma `event_promo` (`StampDTO.type`, `STAMP_TYPES`). Pruebas (mutación ⇒ rojo): PROMO-B1 «Pikachu ex 107 (30th Celebration)» ⇒ #107 con paréntesis en name; B2 «Paradise Resort 092 [Staff]» ⇒ stamped bajo la base única; B3 doble importación y concurrente ⇒ 0 duplicados; B4 grupo que empata con set de pokemontcg.io ⇒ 409; B5 sync-all sobre set sombreado ⇒ 0 escrituras + `tcgcsv_shadowed`; B6 sin precio ⇒ `PRICE_PENDING` 422; B7 sin `Number` ⇒ omitida; B8 sello sin plana ⇒ carta propia `set_base` con su [Staff] colgada. PROMO-F1 botón admin por grupo con resumen; F2 sin precio ⇒ «precio pendiente», sin carrito (mutar: $0). QA-PRM-PEND: `GroupedListingDetailResponse.pricePending:boolean` (backend) = true si no hay listing publicado y la versión base está en PRICE_PENDING (`sale.kind==='pending'`), con o sin stock. PEND-1: PRICE_PENDING con stock y sin listing ⇒ true (mutar: exigir piezas publicadas). QA-PRM-FLAKY/EMPTY (reintentos ≤3, caché 24 h, `data` vacío = no responde: ARCHITECTURE §5.12). FLAKY-1: 2 fallos + éxito ⇒ 200 (mutar: 0 reintentos); FLAKY-2: caído con caché ⇒ no 503 (mutar: ignorar caché); EMPTY-1: `data:[]` ⇒ 503 (mutar: tratarlo como lista válida).
-- **P-PROMOS-VIEJAS (ARCHITECTURE §5.13; sin endpoint nuevo, sin migración):** `sync`/`refresh-variants` (admin) suman `promoSkipped?: {number,reason}[]` (`no_card|unknown_stamp|ambiguous_base|ambiguous_number|field_too_long|stale_in_use`) en sets de `PTCG_PROMO_GROUPS`; `refresh-variants` suma `pendingCards?` (cartas sin `set_base`, solo sets de promos; `pending` sigue contando filas de precio). Re-sync: ver §5.13. Pruebas (mutar ⇒ rojo): PV-B1 xyp con `pptSetId='sv-promos'` ⇒ grupo 1451; B2 BW004↔BW04 ⇒ una carta; B3 XY67a ≠ XY67; B4 «(Battle Road Autumn 2011) [3rd Place]» y «(Worlds 11)» ⇒ championship; B5 solo Prerelease ⇒ `set_base`, con plana ⇒ `stamped` sin su precio; B6 2 candidatos ⇒ todos `stamped`, carta pendiente; B7 segunda corrida ⇒ 0 duplicados; B8 «(Nintendo Power Magazine)» ⇒ `unknown_stamp`; B9 «134/142» ⇒ omitido, nombre≠número ⇒ `ambiguous_number`. PV-F1 sin producto ⇒ «Precio pendiente», sin carrito (mutar: $0); F2 versión con sello fuera del binder base.
+- **Acabado del alta y cajón:** `items/batch` suma `language?`, `cardProductId?` y lleva el `finish` de la liga elegida, nunca el de la casilla; el cajón lee `GET /admin/inventory/items` (tope 100). Regla y candados IDS-F11/B32: `docs/specs/IDS_COMPRA_SUGERIDA.md`.
+- **Compra sugerida por versión (HECHOS 2026-11-06):** `GET /admin/inventory/cards/:cardId/versions` suma por combo `buySuggestedCents: number | null` (centavos, solo backend; el sugerido no se guarda solo). Regla, redondeo, `null` y pruebas IDS-B33…B37/F12: `docs/specs/IDS_COMPRA_SUGERIDA.md`.
+- **P-PROMOS (ARCH §5.12/§5.13):** `StampType` suma `event_promo`; `GroupedListingDetailResponse.pricePending:boolean`; `sync`/`refresh-variants` suman `promoSkipped?`, `pendingCards?`. Pruebas y detalle: `docs/specs/P_PROMOS.md`.
 - **TL-A2-5 (decidido):** `removableCount` cuenta SIN filtros de Idioma/Liga (`bulk-remove` opera sobre toda la casilla). Prueba: 1 ES + 2 EN con filtro «Español» ⇒ 3 y la baja deja la casilla en 0.
+
+## 3. D9 — comisión de plataforma dentro del precio (HECHOS:201 y :272 «A en todo»; DECIDIDO; se construye tras publicar §DYN)
+Sin rutas nuevas. `displayPriceCents` = `P = ceilPeso(M/(1−pct×(1+IVA)))` por unidad (carta 10000 → 10500); filas nuevas `totalCents = subtotalCents + shippingFeeCents`, `processingFeeCents = 0`, `feeConvention = FEE_INCLUDED` (`OrderDTO` la expone; `NOT NULL` sin default, filas viejas `FEE_ON_TOP`); `freeFromCents` se compara con el subtotal exhibido; retiro de bóveda = monto del dial sin gross-up. Esquema, textos es/en, criterios C1–C12 y pruebas D9-1…5: `docs/specs/D9_COMISION.md`.
+
+## 4. PSA-ACABADO — estimado «si se gradea» por acabado (HECHOS 2026-11-09; dinero; `docs/specs/PSA_ACABADO.md`)
+Sin rutas nuevas; aditivo salvo lo marcado:
+- `GradedEstimateDTO` suma `finish: Finish`; acabado sin estimado ⇒ sin entrada (nunca la de otro).
+- `GET /admin/pricing/graded-estimates/review`: cifras y tope ×raw del `finish` de la fila; `reason` suma `NO_RAW`, `LEGACY_MANUAL`; resumen suma `noFinishSplit:int`.
+- **Cambio rompiente:** `POST /admin/pricing/override` con `intent:'graded_estimate'` exige `finish` (sin él ⇒ 400 `VALIDATION_ERROR`, `details.field='finish'`); `DELETE …/graded-estimates/:cardId/:gradeValue` exige query `finish` (igual 400; C-EQ-1: clase SELECTOR, dominio `Finish`) y borra solo ese acabado.
+- Barrido graded: resultado de carta nuevo `no_finish_split` (proveedor sin separación y carta de 2+ acabados ⇒ sin estimado). Esquema: `PriceReference.estimateFinishScoped` (ver ARCHITECTURE §5.15). Pruebas PSA-B1…B10, F1…F3.
+
+## 5. PROMOS-MASTERSET — descarga automática (HECHOS 2026-11-09; `docs/specs/PROMOS_MASTERSET.md`)
+Sin rutas nuevas. `POST /admin/catalog/sync-all` (ambos botones) incluye siempre las 6 promos de `PTCG_PROMO_GROUPS` (sin corte de fecha; ya importadas se re-sincronizan) y los grupos TCGCSV (semilla `TCGCSV_IMPORTABLE_GROUPS` + descubiertos, §6; HTTP: solo `super_admin`, si no `skipped_needs_super_admin`; el job usa actor de sistema). `202` y `sync-status.summary` suman `promos:{sets:[{setId,status}],tcgcsv:[{groupId,status,created,updated,errorCode?}]}`. pokemontcg.io sin respuesta ⇒ ni promos ni TCGCSV (fail-closed). Pruebas PMS-B1…B10, F1/F2. Apartado «Promos de la colección» (decidido; liga INFERIDA, AUTO): las respuestas de Master Set (tienda, `/vault/master-sets/:setId`, `/admin/vaults/:userId/master-sets/:setId`, M1) suman `collectionPromos?:{items:MasterSetCardCellDTO[],owned,total}` aditivo (sellos siempre; Black Star solo `high` y con compuerta automática abierta; «x de y» propio, aprobado 2026-11-09; sin sesión solo `total`; celda de sello suma `cardProductId`,`stampType`,`stampLabel?`; `promos.gate:{open,n,k,f,expansions}`); `completedCount/totalCount/valor` no cambian. Detalle y pruebas B11…B17 en la spec §4–5.
+
+## 6. AUTO — catálogo, promos, PSA y cuarentena sin dueño (HECHOS 2026-11-09; `docs/specs/AUTO_CATALOGO.md`)
+Sin rutas nuevas. **ADITIVO:** `sync-status` suma `lastSuccessAt`, `lastTrigger`, `attempt`; `sync-all`/`summary.promos` suma `links` y `promos.discovery`; `promos.tcgcsv[]` suma `source:'seed'|'discovered'` y `status:'quarantined'`; `graded-estimates/review` suma `quarantined` y `quarantinedCount`; esquema `PromoCollectionLink` (ARCHITECTURE §5.17). **CAMBIO (sin ruta):** el job reintenta con backoff; `syncAll` actor `user|system` (`system` solo el job); estimado PSA automático que falle una cota dura (`ABOVE_MAX_MULTIPLE`, `NOT_ABOVE_RAW`, `GRADE_ORDER_INVERTED`, `NO_RAW`) no se devuelve (cuarentena); `TCGCSV_IMPORTABLE_GROUPS` es solo semilla y se aceptan los grupos elegibles (dudoso ⇒ `quarantined`; desconocido ⇒ 404 `TCGCSV_GROUP_UNKNOWN`). Texto completo y pruebas AUTO-A…F: `docs/specs/AUTO_CATALOGO.md` («Contrato por endpoint»).

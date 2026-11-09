@@ -86,7 +86,7 @@ export function M2View() {
       <CatalogSyncSection catalog={catalog} />
 
       {/* P-PROMOS opción C: grupos de promos de TCGCSV sin set en pokemontcg.io. */}
-      <TcgcsvPromosSection />
+      <TcgcsvPromosSection promos={catalog.syncStatus.data?.summary?.promos} />
     </div>
   );
 }
