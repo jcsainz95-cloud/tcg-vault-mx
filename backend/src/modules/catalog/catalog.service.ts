@@ -72,6 +72,7 @@ import {
   GradingHighlightResult,
   HighlightReason,
   selectGradedEstimates,
+  quarantinedGrades,
 } from '../../common/graded-estimate';
 
 // Dominios aceptados por los filtros de enum del endpoint PÚBLICO (§0-Q punto 3).
@@ -614,6 +615,8 @@ export interface GradedEstimateReviewItemDTO {
    * `NOT_ABOVE_RAW`, que es lo que el operador puede ver y corregir.
    */
   reasons: HighlightReason[];
+  /** AUTO-D: estimado AUTOMATICO fuera de cota dura (no se muestra al publico); informativo. */
+  quarantined: boolean;
 }
 
 /**
@@ -674,6 +677,8 @@ export const REVIEW_PAGE_SIZE_MAX = 100;
 export interface GradedEstimateReviewResponse {
   /** PSA-ACABADO: cartas sin estimado porque el proveedor no separa por acabado y la carta tiene 2+ acabados. */
   noFinishSplit: number;
+  /** AUTO-D: grupos evaluados con al menos una cifra automatica en cuarentena. */
+  quarantinedCount: number;
   data: GradedEstimateReviewItemDTO[];
   page: number;
   pageSize: number;
@@ -1614,7 +1619,18 @@ export class CatalogService {
         ? orderFinishes(cardEstimates.map((e) => e.finish)).flatMap((fin) =>
             selectGradedEstimates<GradedEstimateRef>({
               productType: 'raw',
-              estimates: cardEstimates.filter((e) => e.finish === fin),
+              // AUTO-D: las AUTOMATICAS fuera de cota dura (contra el raw de ESTE acabado) quedan en cuarentena.
+              estimates: (() => {
+                const ofFinish = cardEstimates.filter((e) => e.finish === fin);
+                const rawL = built.find((g) => g.dto.productType === 'raw' && g.dto.finish === fin)?.listPriceCents ?? null;
+                const q = quarantinedGrades({
+                  estimates: ofFinish,
+                  rawSalePriceCents: rawL,
+                  maxRawMultiple: grading.cfg.maxRawMultiple,
+                  maxRawMultipleInvalid: grading.cfg.maxRawMultipleInvalid,
+                });
+                return ofFinish.filter((e) => !q.has(e.gradeValue));
+              })(),
               // v1.50.2 (INV-D): un grado con slab PUBLICADO se OMITE también en la ficha — ahí esa fila
               // no es un estimado, es el precio real de una pieza que ya se lista con su propio precio.
               // (Es lo ÚNICO que la ficha suprime; la coherencia de MAGNITUD sí la informa, §4.38k.3.)
@@ -1899,6 +1915,7 @@ export class CatalogService {
     const noFinishSplit = await this.prisma.gradedEstimateCardScan.count({ where: { lastOutcome: 'no_finish_split' } });
     const empty: GradedEstimateReviewResponse = {
       noFinishSplit,
+      quarantinedCount: 0,
       data: [],
       page: params.page,
       pageSize: params.pageSize,
@@ -1937,6 +1954,7 @@ export class CatalogService {
     // lista por un criterio invisible desde la respuesta. El DTO sigue emitiendo `reason` = el primer
     // bloqueante, tal como lo declara el contrato.
     const matched: { key: string; item: GradedEstimateReviewItemDTO }[] = [];
+    let quarantinedCount = 0;
     for (const g of this.buildGroups(rows)) {
       if (g.dto.productType !== 'raw') continue;
       const card = g.dto.card;
@@ -1965,6 +1983,15 @@ export class CatalogService {
       const allReasons: HighlightReason[] = estimates.some((e) => e.legacyManual)
         ? [...r.reasons, 'LEGACY_MANUAL']
         : r.reasons;
+      // AUTO-D: cuarentena = informativa en la lista (`quarantined`); la cuenta es sobre TODOS los grupos evaluados.
+      const quarantined =
+        quarantinedGrades({
+          estimates,
+          rawSalePriceCents: g.listPriceCents,
+          maxRawMultiple: cfg.maxRawMultiple,
+          maxRawMultipleInvalid: cfg.maxRawMultipleInvalid,
+        }).size > 0;
+      if (quarantined) quarantinedCount += 1;
       const primary = allReasons.find((x) => reasons.includes(x));
       if (primary == null) continue;
       const item: GradedEstimateReviewItemDTO = {
@@ -1993,6 +2020,7 @@ export class CatalogService {
         eligible: r.eligible,
         reason: r.reason,
         reasons: allReasons,
+        quarantined,
       };
       matched.push({ key: primary, item });
     }
@@ -2027,6 +2055,7 @@ export class CatalogService {
       ...empty,
       data: matched.slice(start, start + params.pageSize).map((m) => m.item),
       total: matched.length,
+      quarantinedCount,
     };
   }
 

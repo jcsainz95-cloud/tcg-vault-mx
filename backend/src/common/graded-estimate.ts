@@ -898,6 +898,46 @@ function usable<T extends GradedEstimateInput>(
 }
 
 /**
+ * AUTO-D (docs/specs/AUTO_CATALOGO.md §D) - CUARENTENA AUTOMATICA de cifras dudosas. UN helper, evaluado AL LEER (sin estado
+ * guardado): el re-chequeo es la siguiente ingesta (raw y estimado se reescriben; si la condicion desaparece, la cifra reaparece).
+ *
+ * `estimates` = los de UN mismo acabado; `rawSalePriceCents` = el precio raw (L) de ESE acabado, o `null` si no hay (NO_RAW).
+ * Solo se ponen en cuarentena las AUTOMATICAS (`isManual=false`); las manuales (afirmacion humana ya validada al capturar) no cambian.
+ * Cotas DURAS: ABOVE_MAX_MULTIPLE (psa10 > floor(raw x maxRawMultiple)), NOT_ABOVE_RAW (psa10 <= raw), GRADE_ORDER_INVERTED
+ * (psa10 < psa9) y NO_RAW. Informativo: ningun precio de venta cambia. Devuelve el conjunto de `gradeValue` en cuarentena.
+ */
+export function quarantinedGrades(input: {
+  estimates: readonly GradedEstimateInput[];
+  rawSalePriceCents: number | null;
+  maxRawMultiple: number;
+  maxRawMultipleInvalid?: boolean;
+}): Set<string> {
+  const out = new Set<string>();
+  const { estimates } = input;
+  const raw = input.rawSalePriceCents != null && isInt(input.rawSalePriceCents) && input.rawSalePriceCents > 0 ? input.rawSalePriceCents : null;
+  const e10 = estimates.find((e) => e.gradeValue === '10');
+  const e9 = estimates.find((e) => e.gradeValue === '9');
+  const amount = (e: GradedEstimateInput | undefined): number | null => (e != null && isInt(e.mxnCents) && e.mxnCents > 0 ? e.mxnCents : null);
+  const auto = (e: GradedEstimateInput | undefined): boolean => e != null && e.isManual !== true;
+  if (raw == null) {
+    for (const e of estimates) if (auto(e)) out.add(e.gradeValue); // NO_RAW
+    return out;
+  }
+  const a10 = amount(e10);
+  const a9 = amount(e9);
+  if (auto(e10) && a10 != null) {
+    if (a10 <= raw) out.add('10'); // NOT_ABOVE_RAW
+    if (!input.maxRawMultipleInvalid && a10 > Math.floor(raw * input.maxRawMultiple)) out.add('10'); // ABOVE_MAX_MULTIPLE
+  }
+  if (a10 != null && a9 != null && a10 < a9) {
+    // GRADE_ORDER_INVERTED: la pareja es incoherente; se retiran las AUTOMATICAS de la pareja.
+    if (auto(e10)) out.add('10');
+    if (auto(e9)) out.add('9');
+  }
+  return out;
+}
+
+/**
  * FICHA (`gradedEstimates`) — SIN gate de ROI (§4.38c). Devuelve los grados de `cfg.grades` con dato
  * FRESCO y > 0, en orden descendente. Los grados son INDEPENDIENTES: tener PSA 10 y no PSA 9 emite un
  * arreglo de UN elemento.

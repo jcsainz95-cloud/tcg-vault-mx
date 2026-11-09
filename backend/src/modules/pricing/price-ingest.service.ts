@@ -1772,13 +1772,41 @@ export class PriceIngestService {
     // `GradedEstimateSetScan` (append-only), que es la única fuente de «cuánto se gastó hoy».
     const dailyCreditCap = await this.settings.getNumber(SettingKey.GRADED_ESTIMATE_DAILY_CREDIT_CAP);
     const turnState = await this.loadGradedTurnState([...bySet.keys()], today);
+    // AUTO-C (d): PENDIENTES = cartas con estimado automatico PREVIO a PSA-ACABADO (`estimateFinishScoped=false`, hoy no se lee) y
+    // sin fila por acabado, cuyo ultimo escaneo no cerro la pregunta (`no_data`/`no_finish_split`). El escaner las prioriza
+    // para que la cobertura se complete sola, sin que nadie pulse nada. Los sets nunca consultados ya salen primero por si mismos.
+    const legacyOnly = new Set(
+      (
+        await this.prisma.priceReference.findMany({
+          where: {
+            cardId: { in: cardIds },
+            productType: 'graded',
+            refKind: 'graded_estimate',
+            estimateFinishScoped: false,
+            isManualOverride: false,
+          },
+          select: { cardId: true },
+          distinct: ['cardId'],
+        })
+      ).map((r) => r.cardId),
+    );
+    const closedScan = new Set(
+      (
+        await this.prisma.gradedEstimateCardScan.findMany({
+          where: { cardId: { in: cardIds }, lastOutcome: { in: ['no_data', 'no_finish_split'] } },
+          select: { cardId: true },
+        })
+      ).map((r) => r.cardId),
+    );
     const setStates = [...bySet.entries()].map(([setId, e]) => {
       let minFirstListedAt: Date | null = null;
       for (const cid of e.allowed) {
         const at = firstListedByCard.get(cid) ?? null;
         if (at && (!minFirstListedAt || at < minFirstListedAt)) minFirstListedAt = at;
       }
-      return { setId, lastOkDate: turnState.lastOk.get(setId)?.date ?? null, minFirstListedAt, entry: e };
+      let pendingScoped = 0;
+      for (const cid of e.allowed) if (legacyOnly.has(cid) && !closedScan.has(cid)) pendingScoped += 1;
+      return { setId, lastOkDate: turnState.lastOk.get(setId)?.date ?? null, minFirstListedAt, pendingScoped, entry: e };
     });
     const dueOrder = orderDueSets(setStates, today);
     const turns: GradedTurnsRunSummary = {

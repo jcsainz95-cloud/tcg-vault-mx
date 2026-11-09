@@ -39,6 +39,11 @@ export interface SetTurnState {
   lastOkDate: string | null;
   /** MIN(firstListedAt) de sus cartas raw publicadas (null ⇒ al final de los nunca consultados). */
   minFirstListedAt: Date | null;
+  /**
+   * AUTO-C (d): cartas del set SIN fila de estimado por acabado (`estimateFinishScoped=true`) cuyo ultimo escaneo no fue
+   * `no_data`/`no_finish_split`. Un set con pendientes es VENCIDO aunque se consultara hace < 7 dias, y va primero.
+   */
+  pendingScoped?: number;
 }
 
 /**
@@ -46,8 +51,12 @@ export interface SetTurnState {
  * fecha de su última ok asc; desempate `setId` asc. Los no vencidos no aparecen.
  */
 export function orderDueSets<T extends SetTurnState>(sets: readonly T[], todayCdmx: string): T[] {
-  const due = sets.filter((s) => isSetDue(s.lastOkDate, todayCdmx));
+  const due = sets.filter((s) => (s.pendingScoped ?? 0) > 0 || isSetDue(s.lastOkDate, todayCdmx));
   return [...due].sort((a, b) => {
+    // AUTO-C (d): primero los sets con cartas SIN fila por acabado (mas pendientes antes); despues el orden de siempre.
+    const ap = a.pendingScoped ?? 0;
+    const bp = b.pendingScoped ?? 0;
+    if (ap !== bp) return bp - ap;
     const an = a.lastOkDate == null;
     const bn = b.lastOkDate == null;
     if (an !== bn) return an ? -1 : 1;
