@@ -103,9 +103,9 @@ export const PUBLIC_FAQS: readonly PublicFaq[] = [
     id: 'P5',
     core: false,
     group: "Comprar",
-    question: "¿El precio ya incluye IVA? ¿Qué me cobran al final?",
+    question: "¿Qué me cobran al final?",
     answer:
-      "El precio que ves en cada carta ya lleva el IVA incluido. En el checkout ves el desglose completo —envío, si aplica, y la comisión de plataforma— antes de pagar. Nada se suma después sin que lo hayas visto.",
+      "El precio que ves en cada carta es el que pagas por ella. En el checkout ves el total con el envío, si aplica, antes de pagar. Nada se suma después.",
     validThrough: '2026-12-11',
   },
   {
