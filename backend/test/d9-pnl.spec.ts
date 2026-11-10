@@ -75,4 +75,17 @@ describe('D9 · P&L: venta completa y Stripe como gasto, por convención de la f
     const { d } = db([{ ...base, feeConvention: 'FEE_INCLUDED', subtotalCents: 10500, shippingFeeCents: 10000, processingFeeCents: 0, totalCents: 20500, stripeFeeCents: null }], [ship]);
     expect((await all(d)).stripeFeesCents).toBe(1204);
   });
+  // §8.1 (I2): el estimado se marca a nivel de periodo; real, sin cobro y FEE_ON_TOP no cuentan.
+  it('8.1: solo el gasto ESTIMADO cuenta en stripeFeeEstimated*; real, sin cobro y FEE_ON_TOP no', async () => {
+    const { d } = db([
+      { ...base, feeConvention: 'FEE_INCLUDED', subtotalCents: 10500, shippingFeeCents: 10000, processingFeeCents: 0, totalCents: 20500, stripeFeeCents: null }, // estimado 1204
+      { ...base, feeConvention: 'FEE_INCLUDED', subtotalCents: 10500, processingFeeCents: 0, totalCents: 10500, stripeFeeCents: 900 }, // real
+      { ...base, feeConvention: 'FEE_INCLUDED', subtotalCents: 0, processingFeeCents: 0, totalCents: 0, stripeFeeCents: null }, // sin cobro
+      { ...base, feeConvention: 'FEE_ON_TOP', subtotalCents: 10000, processingFeeCents: 400, totalCents: 10400, stripeFeeCents: null },
+    ]);
+    const est = { orders: 0, cents: 0 };
+    const p = (await pnlBuckets(d as never, undefined, () => 'all', est)).get('all')!;
+    expect(p.stripeFeesCents).toBe(1204 + 900 + 400);
+    expect(est).toEqual({ orders: 1, cents: 1204 });
+  });
 });

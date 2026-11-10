@@ -308,6 +308,8 @@ export async function pnlBuckets(
   db: Db,
   range: Prisma.DateTimeFilter | undefined,
   keyOf: (d: Date | null) => string,
+  // §D9 8.1 (I2): marca a nivel de PERIODO (no dentro de `PnlComponents`, congelado AN-B-13): cuánto de `stripeFeesCents` es ESTIMADO.
+  estimate?: { orders: number; cents: number },
 ): Promise<Map<string, PnlComponents>> {
   const out = new Map<string, PnlComponents>();
   // §D9 — el costo de Stripe de una fila `FEE_INCLUDED`: el REAL (`stripeFeeCents`) o, si Stripe aún no lo devolvió, el
@@ -320,12 +322,20 @@ export async function pnlBuckets(
     // §D9 B1 — SIN COBRO de Stripe (sin PaymentIntent, o total 0) el gasto de Stripe es 0: ni real ni estimado.
     // (Antes `estimateStripeFeeCents(0)` daba la fija 300 + IVA = 348 y se sumaba en retiros gratis y pedidos de total 0.)
     if (!r.stripePaymentIntentId || r.totalCents <= 0) return 0;
+    // Estimado SOLO aquí: FEE_INCLUDED ∧ stripeFeeCents NULL ∧ hubo cobro (PaymentIntent ∧ total > 0).
+    const markEstimated = (cents: number) => {
+      if (estimate) {
+        estimate.orders += 1;
+        estimate.cents += cents;
+      }
+      return cents;
+    };
     if (!feeCfg) {
       const rows = await db.configSetting.findMany({ where: { key: { in: ['stripe_fee_pct', 'stripe_fee_fixed_cents', 'iva_pct'] } } });
       const v = (k: string, d: number) => Number(rows.find((x) => x.key === k)?.valueJson ?? d);
       feeCfg = { stripePct: v('stripe_fee_pct', 0.036), stripeFixedCents: v('stripe_fee_fixed_cents', 300), stripeFeeIvaPct: v('iva_pct', 16) / 100 };
     }
-    return estimateStripeFeeCents(r.totalCents, feeCfg);
+    return markEstimated(estimateStripeFeeCents(r.totalCents, feeCfg));
   };
   const at = (d: Date | null | undefined): PnlComponents => {
     const k = keyOf(d ?? null);

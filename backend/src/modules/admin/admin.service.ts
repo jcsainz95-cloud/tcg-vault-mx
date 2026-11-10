@@ -1715,13 +1715,13 @@ export class AdminService {
    * mal por la otra vía (`ARCHITECTURE §9 · D-IVA-5`: *«va con el helper desde el primer commit»*).
    * ⚠️ **Esta cifra del reporte SÍ cambia con este pase, y debe cambiar**: hoy falta un sumando.
    */
-  async pnl(from?: string, to?: string) {
+  async pnl(from?: string, to?: string, estimate?: { orders: number; cents: number }) {
     // 💰 §AN fase B (API_CONTRACT §15.8, ARCHITECTURE §4.64.4): el cuerpo vive en `pnl-core.ts` (`pnlBuckets`), partido en
     // cubos para la analítica de ventas. M7 = UN cubo con el MISMO `range()` de hoy (`{gte, lte}`, D-AN-2 sin cambio,
     // criterio 613). La paridad bit a bit la fija AN-B-13 (`sales-analytics-pnl-parity.e2e-spec.ts`, instantánea tomada
     // antes del refactor). 💰 Desde la fusión con #78 el cubo trae además las cuatro filas del buylist (§BSD.16, B-4) al final
     // del objeto: la instantánea de AN-B-13 se re-tomó con el `pnl()` de #78 (sin partir) — sigue siendo «antes = después».
-    const buckets = await pnlBuckets(this.prisma, range(from, to), () => 'all');
+    const buckets = await pnlBuckets(this.prisma, range(from, to), () => 'all', estimate);
     return buckets.get('all') ?? zeroPnl();
   }
 
@@ -1733,8 +1733,10 @@ export class AdminService {
    * segunda cuenta. ⛔ `statement` es solo-JSON: no toca `exportCsv`.
    */
   async pnlReport(from?: string, to?: string) {
-    const [p, iva] = await Promise.all([this.pnl(from, to), this.ivaReport(from, to)]);
-    return { ...p, statement: buildStatement(p, iva) };
+    // §D9 8.1 (I2): cuánto del gasto de Stripe es ESTIMADO (0 ⇒ sin marca). Aditivo, junto a los componentes.
+    const est = { orders: 0, cents: 0 };
+    const [p, iva] = await Promise.all([this.pnl(from, to, est), this.ivaReport(from, to)]);
+    return { ...p, stripeFeeEstimatedOrders: est.orders, stripeFeeEstimatedCents: est.cents, statement: buildStatement(p, iva) };
   }
 
   /**
