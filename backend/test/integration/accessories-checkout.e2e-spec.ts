@@ -15,7 +15,6 @@ import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { AccDb, FUNDA_DIMS, HUGE_DIMS, PLAYMAT_DIMS } from './helpers/accessories-b-db';
 import { computeDirectShipBreakdown, taxBaseCentsOf } from '../../src/common/money';
-import { SettingsService } from '../../src/modules/settings/settings.service';
 import { OrdersService } from '../../src/modules/orders/orders.service';
 import { releaseAccessoryReservations } from '../../src/modules/orders/accessory-stock';
 import { photoDTO } from '../../src/modules/accessories/accessory-dto';
@@ -26,7 +25,6 @@ const N = Number(process.env.ACB_RACE_N ?? 10);
 describe('💰 Accesorios (B) — compra de invitado (§AC.4–§AC.8, Postgres real)', () => {
   let h: E2EHarness;
   let db: AccDb;
-  let fee: Awaited<ReturnType<SettingsService['getStripeFee']>>;
   const bd = (subtotal: number, shipping: number) => computeDirectShipBreakdown(subtotal, shipping, 16);
   const code = (r: { status: number; body: any }) => `${r.status}:${r.body?.error?.code ?? ''}`;
   const report = (id: string, outcomes: string[], ok: (o: string) => boolean) => {
@@ -41,7 +39,6 @@ describe('💰 Accesorios (B) — compra de invitado (§AC.4–§AC.8, Postgres 
     await seedE2E(h.prisma);
     db = new AccDb(h, RUN);
     await db.init();
-    fee = await h.app.get(SettingsService).getStripeFee();
   });
 
   afterAll(async () => {

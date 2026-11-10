@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  StripeFeeConfig,
   computeCartBreakdown,
   computeDirectShipBreakdown,
   computeShipmentBreakdown,
@@ -40,7 +39,6 @@ import { stripComments } from './helpers/strip-comments';
  *    tres… y esta prueba es la que garantiza que sigan derivando de uno solo.
  */
 
-const FEE: StripeFeeConfig = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const R = 16;
 
 describe('⭐⭐ `IVA-2` — el IVA NO se suma a la base del gross-up (o se cobra dos veces)', () => {

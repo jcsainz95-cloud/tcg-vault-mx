@@ -56,7 +56,7 @@ const refundRow = {
 
 function servicio() {
   const prisma = {
-    order: { findMany: jest.fn(async () => [settledOrder]) },
+    order: { findMany: jest.fn(async () => [settledOrder]), aggregate: jest.fn(async () => ({ _min: { createdAt: null } })) },
     shipmentRequest: { findMany: jest.fn().mockResolvedValue([]) },
     paymentRefund: { findMany: jest.fn(async () => [refundRow]) },
   };

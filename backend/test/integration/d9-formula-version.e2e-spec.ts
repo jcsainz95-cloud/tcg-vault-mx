@@ -66,4 +66,44 @@ describe('D9 §8.2 · recálculo de ListingPrice por versión de fórmula (Postg
     expect((await svc.formulaTick()).status).toBe('current');
     expect((await h.prisma.listingPrice.findUniqueOrThrow({ where: { inventoryItemId: itemId } })).unitPriceCents).toBe(10_000); // no se tocó
   });
+  const versionRow = () => h.prisma.configSetting.findUnique({ where: { key: LISTING_PRICE_FORMULA_VERSION_KEY } });
+
+  it('D9-6: una corrida FALLIDA no escribe la versión (el siguiente tic reintenta)', async () => {
+    await h.prisma.configSetting.deleteMany({ where: { key: LISTING_PRICE_FORMULA_VERSION_KEY } });
+    const spy = jest
+      .spyOn(svc, 'run')
+      .mockResolvedValueOnce({ runId: 'x', trigger: 'dial_change', status: 'failed', scopeItemCount: 1, pricedCount: 0, pendingCount: 0, skippedCount: 0 });
+    try {
+      expect((await svc.formulaTick()).status).toBe('failed');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await versionRow()).toBeNull();
+    expect((await svc.formulaTick()).status).toBe('ran'); // sin el doble, el tic completa y ahora sí escribe
+    expect(await versionRow()).not.toBeNull();
+  });
+
+  it('D9-6: una pieza SALTADA por SKIP LOCKED (otra transacción la tiene) no deja escribir la versión; al soltarla, el tic repite y la escribe', async () => {
+    await h.prisma.configSetting.deleteMany({ where: { key: LISTING_PRICE_FORMULA_VERSION_KEY } });
+    await h.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "InventoryItem" WHERE id = ${itemId} FOR UPDATE`;
+      expect((await svc.formulaTick()).status).toBe('partial');
+      expect(await versionRow()).toBeNull();
+    });
+    expect((await svc.formulaTick()).status).toBe('ran');
+    expect(await versionRow()).not.toBeNull();
+  });
+  it('isFormulaStale falla CERRADO: si no puede leer la versión, difiere (se calcula P en vivo) y no se queda cacheado', async () => {
+    expect((await svc.formulaTick()).status).toMatch(/ran|current/);
+    svc.resetFormulaStaleCache();
+    expect(await svc.isFormulaStale()).toBe(false); // vigente
+    svc.resetFormulaStaleCache();
+    const spy = jest.spyOn(h.app.get(SettingsService), 'getIvaDials').mockRejectedValueOnce(new Error('lectura caída'));
+    try {
+      expect(await svc.isFormulaStale()).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await svc.isFormulaStale()).toBe(false); // la lectura volvió: no quedó el veredicto del fallo
+  });
 });

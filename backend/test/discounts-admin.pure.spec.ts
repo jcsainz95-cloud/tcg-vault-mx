@@ -44,7 +44,6 @@ import type { PrismaService } from '../src/prisma/prisma.service';
 import type { PricingService } from '../src/modules/pricing/pricing.service';
 import type { UploadsService } from '../src/modules/uploads/uploads.service';
 
-const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const DIALS = { cardsFeeCents: 10000, sealedFeeCents: 17500, freeFromCents: 400000 };
 const NOW = new Date('2026-10-25T18:00:00Z');
 const FREE: DiscountTerms = { kind: 'free_shipping', percentPct: null, amountCents: null, maxDiscountCents: null, minSubtotalCents: null, productScopes: [], destinations: [] };
@@ -62,16 +61,16 @@ function fieldOf(fn: () => unknown): string | undefined {
 
 describe('DCO-B4 (puro, v1.110.1) — envío gratis con el dial de la clase en 0 no aplica', () => {
   it('cartas con `direct_ship_cards_fee_cents` = 0 ⇒ ALREADY_FREE_SHIPPING (nunca se gasta un uso sin beneficio)', () => {
-    const p = priceDirectShipCartWithCode([raw('a', 50000)], FREE, { kind: 'cards_only', dials: { ...DIALS, cardsFeeCents: 0 }, choice: null }, 16, FEE);
+    const p = priceDirectShipCartWithCode([raw('a', 50000)], FREE, { kind: 'cards_only', dials: { ...DIALS, cardsFeeCents: 0 }, choice: null }, 16);
     expect(p).toEqual({ outcome: 'not_applicable', reason: 'ALREADY_FREE_SHIPPING', details: {} });
   });
 
   it('sellado con su dial en 0 ⇒ ALREADY_FREE_SHIPPING; el de cartas en 0 no afecta al sellado', () => {
     const sealed = { id: 's', group: 'piece' as const, type: 'sealed' as const, unitPriceCents: 50000, quantity: 1 };
-    expect(priceDirectShipCartWithCode([sealed], FREE, { kind: 'sealed', dials: { ...DIALS, sealedFeeCents: 0 }, choice: null }, 16, FEE)).toMatchObject({
+    expect(priceDirectShipCartWithCode([sealed], FREE, { kind: 'sealed', dials: { ...DIALS, sealedFeeCents: 0 }, choice: null }, 16)).toMatchObject({
       reason: 'ALREADY_FREE_SHIPPING',
     });
-    expect(priceDirectShipCartWithCode([sealed], FREE, { kind: 'sealed', dials: { ...DIALS, cardsFeeCents: 0 }, choice: null }, 16, FEE)).toMatchObject({
+    expect(priceDirectShipCartWithCode([sealed], FREE, { kind: 'sealed', dials: { ...DIALS, cardsFeeCents: 0 }, choice: null }, 16)).toMatchObject({
       outcome: 'applied',
       shippingWaivedCents: 17500,
     });
@@ -80,7 +79,7 @@ describe('DCO-B4 (puro, v1.110.1) — envío gratis con el dial de la clase en 0
   it('orden de motivos: caja grande gana sobre el dial en 0 (LARGE_BOX); bóveda ⇒ NO_SHIPPING', () => {
     const choice = { box: { code: 'XL', label: 'XL', customerFeeCents: 35000 }, review: false } as unknown as BoxChoice;
     const acc = { id: 'x', group: 'accessory' as const, type: 'accessory' as const, unitPriceCents: 5000, quantity: 1 };
-    expect(priceDirectShipCartWithCode([acc], FREE, { kind: 'sealed', dials: { ...DIALS, sealedFeeCents: 0 }, choice }, 16, FEE)).toMatchObject({ reason: 'LARGE_BOX' });
+    expect(priceDirectShipCartWithCode([acc], FREE, { kind: 'sealed', dials: { ...DIALS, sealedFeeCents: 0 }, choice }, 16)).toMatchObject({ reason: 'LARGE_BOX' });
     expect(priceVaultCartWithCode([raw('a', 50000)], FREE, 16)).toMatchObject({ reason: 'NO_SHIPPING' });
   });
 

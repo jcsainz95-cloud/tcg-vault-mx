@@ -9,6 +9,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
+import { AdminService } from '../../src/modules/admin/admin.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { E2E_FOLIOS } from '../../prisma/e2e-fixtures';
 
@@ -224,5 +225,27 @@ describe('D9 · comisión de plataforma dentro del precio (Postgres real)', () =
       }),
     ).rejects.toBe(ROLLBACK);
     void randomUUID;
+  });
+  it('spec §5: `pnlReport.feeIncludedSince` = MIN(createdAt) de los pedidos FEE_INCLUDED (ISO), null si no hay; con periodo ajeno no cambia', async () => {
+    const admin = h.app.get(AdminService);
+    const min = await h.prisma.order.aggregate({ where: { feeConvention: 'FEE_INCLUDED' }, _min: { createdAt: true } });
+    expect(min._min.createdAt).not.toBeNull(); // este spec creó pedidos FEE_INCLUDED
+    const r = await admin.pnlReport();
+    expect(r.feeIncludedSince).toBe(min._min.createdAt!.toISOString());
+    expect((await admin.pnlReport('2001-01-01', '2001-01-31')).feeIncludedSince).toBe(r.feeIncludedSince);
+    // sin pedidos FEE_INCLUDED ⇒ null (se simula pasando todos a FEE_ON_TOP dentro de una transacción que se revierte)
+    const ROLL = new Error('rollback');
+    await expect(
+      h.prisma.$transaction(async (tx) => {
+        await tx.order.updateMany({ where: { feeConvention: 'FEE_INCLUDED' }, data: { feeConvention: 'FEE_ON_TOP' } });
+        const spy = jest.spyOn(h.prisma.order, 'aggregate').mockImplementation(((a: never) => tx.order.aggregate(a)) as never);
+        try {
+          expect((await admin.pnlReport()).feeIncludedSince).toBeNull();
+        } finally {
+          spy.mockRestore();
+        }
+        throw ROLL;
+      }),
+    ).rejects.toBe(ROLL);
   });
 });

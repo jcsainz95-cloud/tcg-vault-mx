@@ -368,11 +368,12 @@ export class SettingsService implements OnModuleInit {
     samplePriceCents: number = IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT,
     db: SettingRowReader = this.prisma,
   ): Promise<IvaTransferPreviewDTO> {
-    const [currentPct, ivaRatePct] = await Promise.all([
+    const [currentPct, ivaRatePct, stripeFeePct] = await Promise.all([
       this.getIvaTransferPct(db),
       this.getNumber(SettingKey.IVA_PCT, db),
+      this.getNumber(SettingKey.STRIPE_FEE_PCT, db),
     ]);
-    return ivaTransferPreview({ currentPct, proposedPct, ivaRatePct, samplePriceCents });
+    return ivaTransferPreview({ currentPct, proposedPct, ivaRatePct, samplePriceCents, stripeFeePct });
   }
 
   /**
@@ -427,8 +428,6 @@ export class SettingsService implements OnModuleInit {
     // produciría un `409` que miente sobre la causa.
     const ack = this.parseIvaTransferAck(input.acknowledgement);
 
-    const fee = await this.getStripeFee();
-
     return this.prisma.$transaction(async (tx) => {
       // (3) LA PUERTA. Se toma ANTES de leer el vigente: leer fuera es validar el estado de antes
       // del candado, que es el defecto entero de `S-FX-1`.
@@ -443,11 +442,13 @@ export class SettingsService implements OnModuleInit {
       // la misma petición que lo confirma no es un control, es una casilla.* El campo del cuerpo
       // sobrevive para dejar constancia auditada de sobre qué `L` se firmó, ⛔ no para decidirlo.
       const samplePriceCents = IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT;
+      const stripeFeePct = await this.getNumber(SettingKey.STRIPE_FEE_PCT, tx);
       const preview = ivaTransferPreview({
         currentPct,
         proposedPct,
         ivaRatePct,
         samplePriceCents,
+        stripeFeePct,
       });
 
       // (4) Idempotente: el valor no se mueve ⇒ ni acuse, ni escritura, ni bitácora.
@@ -851,6 +852,53 @@ export class SettingsService implements OnModuleInit {
   }
 
   /**
+   * §D9 8.4 (i) — `stripe_fee_pct × (1 + iva_pct/100) ≤ 0.25`, sobre `{...vigente, ...body}`, al guardar el pct O el IVA.
+   * ⇒ `422 VALIDATION_ERROR` con `details.rule = stripe_fee_pct_times_iva`.
+   */
+  private async assertStripeFeeCombination(
+    validated: { settingKey: SettingKeyType; value: unknown }[],
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const incoming = new Map(validated.filter((v) => v.settingKey === SettingKey.STRIPE_FEE_PCT || v.settingKey === SettingKey.IVA_PCT).map((v) => [v.settingKey, v.value]));
+    if (incoming.size === 0) return;
+    const rows = await this.getRawMany([SettingKey.STRIPE_FEE_PCT, SettingKey.IVA_PCT], tx);
+    const resolve = (key: SettingKeyType): number => Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
+    const problem = validateStripeFeeCombination({ stripePct: resolve(SettingKey.STRIPE_FEE_PCT), ivaPct: resolve(SettingKey.IVA_PCT) });
+    if (problem) throw BusinessException.validation('VALIDATION_ERROR', problem.message, { rule: 'stripe_fee_pct_times_iva' });
+  }
+
+  /**
+   * v1.113⟨portada⟩ (API_CONTRACT §DYN.3) — `featuredRandomSlots + featuredNewArrivalSlots ∈ [1, 20]` y `featuredPoolSize ≥
+   * featuredRandomSlots`, evaluadas sobre `{...vigente, ...body}` (mismo patrón que `assertBuylistCrossDials`: validar solo
+   * el body dejaría romper la regla mandando UNA clave). Sin ninguna de las tres en el body ⇒ no lee nada.
+   * ⇒ `422 VALIDATION_ERROR` con `details.rule` ∈ {`featured_slots_total`, `featured_pool_lt_random`}.
+   */
+  private async assertFeaturedCombination(
+    validated: { settingKey: SettingKeyType; value: unknown }[],
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const KEYS = [
+      SettingKey.FEATURED_POOL_SIZE,
+      SettingKey.FEATURED_RANDOM_SLOTS,
+      SettingKey.FEATURED_NEW_ARRIVAL_SLOTS,
+    ] as const;
+    const incoming = new Map<SettingKeyType, unknown>();
+    for (const { settingKey, value } of validated) {
+      if ((KEYS as readonly SettingKeyType[]).includes(settingKey)) incoming.set(settingKey, value);
+    }
+    if (incoming.size === 0) return;
+    const rows = await this.getRawMany(KEYS, tx);
+    const resolve = (key: SettingKeyType): number =>
+      Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
+    const problem = validateFeaturedCombination({
+      poolSize: resolve(SettingKey.FEATURED_POOL_SIZE),
+      randomSlots: resolve(SettingKey.FEATURED_RANDOM_SLOTS),
+      newArrivalSlots: resolve(SettingKey.FEATURED_NEW_ARRIVAL_SLOTS),
+    });
+    if (problem) throw BusinessException.validation('VALIDATION_ERROR', problem.message, { rule: problem.rule });
+  }
+
+  /**
    * v1.51 (M-46, §4.39l / API_CONTRACT §M10, criterio 127) — **la validación CRUZADA de TRES
    * términos, evaluada sobre el ESTADO RESULTANTE.**
    *
@@ -878,49 +926,6 @@ export class SettingsService implements OnModuleInit {
    * paga tres queries por una regla que no puede haber roto. (El estado vigente ya cumplía el
    * invariante: es la postcondición de todo `PUT` anterior.)
    */
-  /**
-   * v1.113⟨portada⟩ (API_CONTRACT §DYN.3) — `featuredRandomSlots + featuredNewArrivalSlots ∈ [1, 20]` y `featuredPoolSize ≥
-   * featuredRandomSlots`, evaluadas sobre `{...vigente, ...body}` (mismo patrón que `assertBuylistCrossDials`: validar solo
-   * el body dejaría romper la regla mandando UNA clave). Sin ninguna de las tres en el body ⇒ no lee nada.
-   * ⇒ `422 VALIDATION_ERROR` con `details.rule` ∈ {`featured_slots_total`, `featured_pool_lt_random`}.
-   */
-  private async assertStripeFeeCombination(
-    validated: { settingKey: SettingKeyType; value: unknown }[],
-    tx: Prisma.TransactionClient,
-  ): Promise<void> {
-    const incoming = new Map(validated.filter((v) => v.settingKey === SettingKey.STRIPE_FEE_PCT || v.settingKey === SettingKey.IVA_PCT).map((v) => [v.settingKey, v.value]));
-    if (incoming.size === 0) return;
-    const rows = await this.getRawMany([SettingKey.STRIPE_FEE_PCT, SettingKey.IVA_PCT], tx);
-    const resolve = (key: SettingKeyType): number => Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
-    const problem = validateStripeFeeCombination({ stripePct: resolve(SettingKey.STRIPE_FEE_PCT), ivaPct: resolve(SettingKey.IVA_PCT) });
-    if (problem) throw BusinessException.validation('VALIDATION_ERROR', problem.message, { rule: 'stripe_fee_pct_times_iva' });
-  }
-
-  private async assertFeaturedCombination(
-    validated: { settingKey: SettingKeyType; value: unknown }[],
-    tx: Prisma.TransactionClient,
-  ): Promise<void> {
-    const KEYS = [
-      SettingKey.FEATURED_POOL_SIZE,
-      SettingKey.FEATURED_RANDOM_SLOTS,
-      SettingKey.FEATURED_NEW_ARRIVAL_SLOTS,
-    ] as const;
-    const incoming = new Map<SettingKeyType, unknown>();
-    for (const { settingKey, value } of validated) {
-      if ((KEYS as readonly SettingKeyType[]).includes(settingKey)) incoming.set(settingKey, value);
-    }
-    if (incoming.size === 0) return;
-    const rows = await this.getRawMany(KEYS, tx);
-    const resolve = (key: SettingKeyType): number =>
-      Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
-    const problem = validateFeaturedCombination({
-      poolSize: resolve(SettingKey.FEATURED_POOL_SIZE),
-      randomSlots: resolve(SettingKey.FEATURED_RANDOM_SLOTS),
-      newArrivalSlots: resolve(SettingKey.FEATURED_NEW_ARRIVAL_SLOTS),
-    });
-    if (problem) throw BusinessException.validation('VALIDATION_ERROR', problem.message, { rule: problem.rule });
-  }
-
   private async assertBuylistCrossDials(
     validated: { settingKey: SettingKeyType; value: unknown }[],
     tx: Prisma.TransactionClient,

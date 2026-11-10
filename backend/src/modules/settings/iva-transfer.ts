@@ -26,8 +26,8 @@
  * `Number.MAX_SAFE_INTEGER` (`9.0e15`) ⇒ el producto intermedio es **exacto**, no aproximado.
  */
 import {
-  StripeFeeConfig,
   displayPriceCentsOf,
+  feeIncludedPriceCentsOf,
   MAX_CENTS,
   taxBaseCentsOf,
 } from '../../common/money';
@@ -135,6 +135,7 @@ export function ivaTransferPosition(
   listPriceCents: number,
   ivaTransferPct: number,
   ivaRatePct: number,
+  stripeFeePct = 0,
 ): IvaTransferPositionDTO {
   const displayPriceCents = displayPriceCentsOf(listPriceCents, ivaTransferPct, ivaRatePct);
   const taxBaseCents = taxBaseCentsOf(displayPriceCents, ivaRatePct);
@@ -147,8 +148,9 @@ export function ivaTransferPosition(
     // `netRevenueCents == taxBaseCents` bajo `IVA_INCLUSIVE` (criterio 191). Es la MISMA decisión
     // que `money.netRevenueCents()` toma sobre una fila persistida; aquí es sobre una hipótesis.
     netRevenueCents: taxBaseCents,
-    // §D9: la comisión va DENTRO del precio ⇒ lo cobrado ES el exhibido (sin gross-up viejo). Misma cota que `grossUpTotal`.
-    totalChargedCents: assertRepresentable(displayPriceCents),
+    // §D9 (§8.4 iii): lo que SE COBRA es `P = feeIncludedPriceCentsOf(exhibido, pct, r)` (la comisión de plataforma dentro, al peso
+    // hacia arriba): 11600 con 3.6 % / 16 % ⇒ 12200. Informativo: no entra en el delta del acuse. Misma cota que `grossUpTotal`.
+    totalChargedCents: assertRepresentable(feeIncludedPriceCentsOf(displayPriceCents, stripeFeePct, ivaRatePct)),
   };
 }
 
@@ -168,10 +170,12 @@ export function ivaTransferPreview(params: {
   proposedPct: number;
   ivaRatePct: number;
   samplePriceCents: number;
+  /** `stripe_fee_pct` (fracción) para el total realmente cobrado; sin él ⇒ 0 (total = exhibido). */
+  stripeFeePct?: number;
 }): IvaTransferPreviewDTO {
-  const { currentPct, proposedPct, ivaRatePct, samplePriceCents } = params;
-  const current = ivaTransferPosition(samplePriceCents, currentPct, ivaRatePct);
-  const proposed = ivaTransferPosition(samplePriceCents, proposedPct, ivaRatePct);
+  const { currentPct, proposedPct, ivaRatePct, samplePriceCents, stripeFeePct = 0 } = params;
+  const current = ivaTransferPosition(samplePriceCents, currentPct, ivaRatePct, stripeFeePct);
+  const proposed = ivaTransferPosition(samplePriceCents, proposedPct, ivaRatePct, stripeFeePct);
   return {
     ivaRatePct,
     samplePriceCents,

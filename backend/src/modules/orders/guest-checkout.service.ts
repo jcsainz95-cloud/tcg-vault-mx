@@ -322,13 +322,12 @@ export class GuestCheckoutService {
       };
     }
     const dials = await this.directShipDials();
-    const fee = await this.settings.getStripeFee();
     const { discount, applied } = await this.discounts.quoteOutcome({
       code: q.code,
       throttle: { ip: q.ip, email: q.email },
       customer: { email: q.email },
       excludeOrderIds: q.claimedOrderId ? [q.claimedOrderId] : [],
-      price: (terms) => priceDirectShipCartWithCode(q.cart, terms, { kind: q.ship.kind, dials, choice: q.ship.choice }, q.ivaRatePct, fee),
+      price: (terms) => priceDirectShipCartWithCode(q.cart, terms, { kind: q.ship.kind, dials, choice: q.ship.choice }, q.ivaRatePct),
     });
     return { discount, applied, frozenUnit: null, dials: applied ? dials : null };
   }
@@ -437,12 +436,11 @@ export class GuestCheckoutService {
     const kindOf = (part: SessionAccessoryPart | null) =>
       shippingRuleKindOf({ productTypes: itemTypes, accessoryLineCount: part?.loose.length ?? 0, energyBundleCount: part?.bundles.length ?? 0 });
     const shipDials = await this.directShipDials();
-    const stripeFee = await this.settings.getStripeFee();
     const ivaRatePct = ivaDials.ivaRatePct;
     // Sin accesorios, el desglose de hoy se arma FUERA de la tx (un `AMOUNT_TOO_LARGE` sale antes de tocar nada).
     const breakdownPre = withAccessories
       ? null
-      : directShipBreakdownOf({ kind: kindOf(null), subtotalCents, dials: shipDials, choice: null, ivaRatePct, fee: stripeFee }).breakdown;
+      : directShipBreakdownOf({ kind: kindOf(null), subtotalCents, dials: shipDials, choice: null, ivaRatePct }).breakdown;
     // 💰 v1.110⟨descuentos⟩ (§DSC.6): el código y el bloqueo por intentos (`429` antes de tocar nada). Sin código ⇒ nada.
     const code = normalizeDiscountCode(dto.discountCode);
     const throttleKeys = code !== null ? await this.discounts.openAttempt({ ip: requestIp ?? null, email: guestEmail }) : [];
@@ -503,7 +501,7 @@ export class GuestCheckoutService {
         let breakdown: DirectShipBreakdownDTO;
         let baseFeeCents = 0;
         if (part) {
-          const today = directShipBreakdownOf({ kind, subtotalCents: subtotalCents + part.subtotalCents, dials: shipDials, choice, ivaRatePct, fee: stripeFee });
+          const today = directShipBreakdownOf({ kind, subtotalCents: subtotalCents + part.subtotalCents, dials: shipDials, choice, ivaRatePct });
           baseFeeCents = today.ship.baseFeeCents;
           breakdown = today.breakdown;
         } else {
@@ -523,7 +521,7 @@ export class GuestCheckoutService {
             code,
             customer: { email: guestEmail },
             now,
-            price: (terms) => priceDirectShipCartWithCode(cart, terms, { kind, dials: shipDials, choice }, ivaRatePct, stripeFee),
+            price: (terms) => priceDirectShipCartWithCode(cart, terms, { kind, dials: shipDials, choice }, ivaRatePct),
           });
           const unit = applied.priced.unitDiscountCents;
           breakdown = applied.priced.breakdown;
@@ -998,7 +996,6 @@ export class GuestCheckoutService {
     frozenShippingRule: (order: Order, freeShippingByCode: boolean) => GuestShippingRuleDTO;
   }> {
     const ivaPct = ivaDials.ivaRatePct;
-    const fee = await this.settings.getStripeFee();
     const dials = await this.directShipDials();
     if (empty) {
       const zero = this.orders.zeroCartBreakdown(ivaPct);
@@ -1007,7 +1004,7 @@ export class GuestCheckoutService {
       return { breakdown: { ...zero, shippingFeeCents: 0 }, vaultBreakdown: zero, choice: null, shippingRule: rule, frozenShippingRule: (o, byCode) => frozenShippingRuleOf(null, o, dials, byCode) };
     }
     // TL-ENV-1/TL-ENV-4: la cadena única (`S + E` no representable en Int32 ⇒ 422 AMOUNT_TOO_LARGE, ⛔ nunca un 500 crudo).
-    const { ship, breakdown } = directShipBreakdownOf({ kind, subtotalCents, dials, choice, ivaRatePct: ivaPct, fee });
+    const { ship, breakdown } = directShipBreakdownOf({ kind, subtotalCents, dials, choice, ivaRatePct: ivaPct });
     return {
       breakdown,
       vaultBreakdown: itemsEmpty ? this.orders.zeroCartBreakdown(ivaPct) : computeCartBreakdown(itemsSubtotalCents, ivaPct),

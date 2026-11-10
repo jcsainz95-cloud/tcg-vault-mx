@@ -1,5 +1,4 @@
 import {
-  StripeFeeConfig,
   computeDirectShipBreakdown,
   computeShipmentBreakdown,
   displayPriceCentsOf,
@@ -24,7 +23,6 @@ import {
  * `17500 + round(17500 × 0.16) = 17500 + 2800`. **Ni un centavo.**
  */
 
-const FEE: StripeFeeConfig = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const R = 16;
 /** `F` — el dial, NETO. ⛔ No cambia de valor con el corte. */
 const F = 17_500;

@@ -580,8 +580,8 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
 
   /**
    * §D9 8.2 (c) — ¿la versión de la fórmula guardada difiere de la vigente? Bandera en memoria con TTL 60 s. Sin fila guardada
-   * ⇒ difiere (es el despliegue de D9). Si la lectura falla NO se inventa un veredicto: se conserva el último conocido (o «no
-   * difiere» al arrancar) y se avisa, para no tumbar la tienda por una lectura de configuración.
+   * ⇒ difiere (es el despliegue de D9). Si la lectura falla se falla CERRADO: «difiere» (se calcula P en vivo, que es siempre
+   * correcto) y se avisa; la bandera no se guarda, así que la siguiente consulta reintenta la lectura.
    */
   async isFormulaStale(now: number = Date.now()): Promise<boolean> {
     if (this.formulaStale && now - this.formulaStale.at < FORMULA_STALE_TTL_MS) return this.formulaStale.stale;
@@ -594,7 +594,8 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
       this.formulaStale = { at: now, stale: stored !== formulaVersionOf(dials) };
     } catch (e) {
       this.logger.warn(`listing-price: no se pudo comprobar la versión de la fórmula: ${(e as Error).message}`);
-      this.formulaStale = { at: now, stale: this.formulaStale?.stale ?? false };
+      this.formulaStale = null;
+      return true;
     }
     return this.formulaStale.stale;
   }
@@ -605,7 +606,7 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
    * `FORMULA_RECALC_LOCK_KEY` (una sola instancia); la versión se escribe SOLO al terminar todo bien. Fallo o caída ⇒ el
    * siguiente tic lo retoma. Nunca lanza.
    */
-  async formulaTick(): Promise<{ status: 'current' | 'busy' | 'ran' | 'failed' }> {
+  async formulaTick(): Promise<{ status: 'current' | 'busy' | 'ran' | 'partial' | 'failed' }> {
     try {
       const dials = await this.settings.getIvaDials();
       const version = formulaVersionOf(dials);
@@ -620,6 +621,9 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
           if (!ok) return { status: 'busy' as const };
           const res = await this.run('dial_change');
           if (res.status !== 'ok') return { status: 'failed' as const };
+          // D9-6: piezas saltadas por SKIP LOCKED conservan su fila VIEJA: con la versión escrita se cobrarían con la fórmula
+          // anterior. Sin versión nueva, el siguiente tic repite (idempotente) hasta que ninguna se salte.
+          if (res.skippedCount > 0) return { status: 'partial' as const };
           // La versión es la de los diales con que SE LEYÓ la corrida: si se movieron en medio, el siguiente tic vuelve a correr.
           await tx.configSetting.upsert({
             where: { key: LISTING_PRICE_FORMULA_VERSION_KEY },

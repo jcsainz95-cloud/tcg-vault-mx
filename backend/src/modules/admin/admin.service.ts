@@ -1736,7 +1736,15 @@ export class AdminService {
     // §D9 8.1 (I2): cuánto del gasto de Stripe es ESTIMADO (0 ⇒ sin marca). Aditivo, junto a los componentes.
     const est = { orders: 0, cents: 0 };
     const [p, iva] = await Promise.all([this.pnl(from, to, est), this.ivaReport(from, to)]);
-    return { ...p, stripeFeeEstimatedOrders: est.orders, stripeFeeEstimatedCents: est.cents, statement: buildStatement(p, iva) };
+    // §D9 spec §5: desde cuándo la comisión va DENTRO del precio = el primer pedido `FEE_INCLUDED` (toda la historia, no el periodo); null si aún no hay.
+    const first = await this.prisma.order.aggregate({ where: { feeConvention: 'FEE_INCLUDED' }, _min: { createdAt: true } });
+    return {
+      ...p,
+      stripeFeeEstimatedOrders: est.orders,
+      stripeFeeEstimatedCents: est.cents,
+      feeIncludedSince: first._min.createdAt ? first._min.createdAt.toISOString() : null,
+      statement: buildStatement(p, iva),
+    };
   }
 
   /**

@@ -31,7 +31,6 @@ import { OWNER_ONLY_SETTING_KEYS, SETTING_DEFAULTS, SETTING_DTO_MAP, SETTING_VAL
 const DIALS: DirectShipDials = { cardsFeeCents: 10000, sealedFeeCents: 17500, freeFromCents: 400000 };
 const E_CARDS = 10000;
 const E_SEALED = 17500;
-const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 
 const box = (customerFeeCents: number): BoxChoice => ({
   box: { code: `b${customerFeeCents}`, label: 'Caja', lengthCm: 30, widthCm: 20, heightCm: 10, customerFeeCents, sortOrder: 0 } as FitBox,

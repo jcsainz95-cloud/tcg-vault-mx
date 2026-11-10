@@ -38,7 +38,6 @@ import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_FOLIOS, E2E_GUEST_ORDER, E2E_SPEI_FIXTURE, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { computeCartBreakdown, computeDirectShipBreakdown, computeShipmentBreakdown } from '../../src/common/money';
 
-const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
 /** `F` — el dial `shipping_fee_cents`, que sigue siendo **NETO** y ⛔ no cambia de valor (§4.44.f). */
 const SHIPPING = 17500;
@@ -817,7 +816,7 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
         taxBaseCents: 10000,
         ivaCents: 1600,
         netRevenueCents: 10000,
-        totalChargedCents: 11600,
+        totalChargedCents: 12200, // D9 §8.4(iii): 11600 exhibido con la comisión dentro (3.6 %, IVA 16) ⇒ 12200
       });
     });
 

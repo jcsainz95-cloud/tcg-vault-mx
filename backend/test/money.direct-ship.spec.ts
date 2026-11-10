@@ -4,7 +4,6 @@ import {
   computeShipmentBreakdown,
 } from '../src/common/money';
 
-const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
 
 /**

@@ -1,5 +1,4 @@
 import {
-  StripeFeeConfig,
   computeCartBreakdown,
   displayPriceCentsOf,
   taxBaseCentsOf,
@@ -30,7 +29,6 @@ import {
  * permiso.* Aquí se implementa **`⌊(n+1)/2⌋` sobre la BASE**, que es el canon vigente.
  */
 
-const FEE: StripeFeeConfig = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const R = 16;
 /** El carrito de 7 piezas que publica el contrato. */
 const CARRITO = [103, 999, 1, 12345, 7, 250, 8888];

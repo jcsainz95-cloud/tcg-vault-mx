@@ -15,7 +15,6 @@ import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { computeDirectShipBreakdown } from '../../src/common/money';
 
-const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
 /**
  * 💰 v1.109.1 (API_CONTRACT §4-G.12): los carritos de esta suite son SOLO de cartas (`raw`) ⇒ el envío directo es el dial

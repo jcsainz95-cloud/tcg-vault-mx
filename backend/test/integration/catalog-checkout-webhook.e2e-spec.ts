@@ -21,7 +21,6 @@ import { P } from './helpers/iva-display';
 /** Precio de venta que la curva del seed produce para un mercado dado. */
 const salePrice = (marketCents: number) => resolveSaleFromCurve(marketCents, DEFAULT_PRICING_CURVE).cents as number;
 
-const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
 
 describe('E2E — Catálogo, checkout y webhooks Stripe', () => {

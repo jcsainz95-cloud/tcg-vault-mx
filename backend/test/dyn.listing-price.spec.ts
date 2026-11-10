@@ -244,6 +244,8 @@ describe('DYN-B19 — `ListingPriceService.salesFor`', () => {
     const prisma = { listingPrice: { findMany: jest.fn(async () => rows) } } as unknown as PrismaService;
     const svc = new ListingPriceService(prisma, new SaleDecisionService(pricing), {} as SettingsService);
     const enqueue = jest.spyOn(svc, 'enqueue').mockResolvedValue(undefined);
+    // D9-6: sin poder leer la versión `isFormulaStale` falla CERRADO; estas pruebas miden «fila o vivo» con la versión vigente.
+    jest.spyOn(svc, 'isFormulaStale').mockResolvedValue(false);
     return { svc, enqueue, pricing };
   }
 

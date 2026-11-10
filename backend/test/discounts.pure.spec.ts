@@ -27,7 +27,6 @@ import { StripeService } from '../src/modules/payments/stripe.service';
 import { normalizeDiscountCode } from '../src/modules/discounts/discounts.service';
 import type { BoxChoice } from '../src/modules/orders/box-fit';
 
-const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const DIALS = { cardsFeeCents: 10000, sealedFeeCents: 17500, freeFromCents: 400000 };
 
 const terms = (t: Partial<DiscountTerms> & Pick<DiscountTerms, 'kind'>): DiscountTerms => ({
@@ -178,7 +177,6 @@ describe('DCO-B2 — discountOf y el monto (§DSC.2)', () => {
       terms({ kind: 'percent', percentPct: 10 }),
       { kind: 'sealed', dials: DIALS, choice: null },
       16,
-      FEE,
     );
     if (p.outcome !== 'applied') throw new Error(JSON.stringify(p));
     expect(p.discountCents).toBe(5000);
@@ -214,7 +212,7 @@ describe('DCO-B4 (puro) — umbral sobre S′ y envío gratis (§DSC.4)', () => 
   const ship = (kind: 'cards_only' | 'sealed', choice: BoxChoice | null = null) => ({ kind, dials: DIALS, choice });
 
   it('895: 420000 con 10 % ⇒ S′ = 378000 ⇒ E = 10000 (sale del umbral)', () => {
-    const p = priceDirectShipCartWithCode([piece('a', 420000)], terms({ kind: 'percent', percentPct: 10 }), ship('cards_only'), 16, FEE);
+    const p = priceDirectShipCartWithCode([piece('a', 420000)], terms({ kind: 'percent', percentPct: 10 }), ship('cards_only'), 16);
     if (p.outcome !== 'applied') throw new Error(JSON.stringify(p));
     expect(p.breakdown.subtotalCents).toBe(378000);
     expect(p.breakdown.shippingFeeCents).toBe(10000);
@@ -223,13 +221,13 @@ describe('DCO-B4 (puro) — umbral sobre S′ y envío gratis (§DSC.4)', () => 
   });
 
   it('895: 450000 con 10 % ⇒ S′ = 405000 ⇒ E = 0', () => {
-    const p = priceDirectShipCartWithCode([piece('a', 450000)], terms({ kind: 'percent', percentPct: 10 }), ship('cards_only'), 16, FEE);
+    const p = priceDirectShipCartWithCode([piece('a', 450000)], terms({ kind: 'percent', percentPct: 10 }), ship('cards_only'), 16);
     if (p.outcome !== 'applied') throw new Error(JSON.stringify(p));
     expect(p.breakdown).toEqual(computeDirectShipBreakdown(405000, 0, 16));
   });
 
   it('envío gratis en cartas a domicilio ⇒ E = 0 y shippingWaivedCents = 10000; desglose = la llamada de hoy con E = 0', () => {
-    const p = priceDirectShipCartWithCode([piece('a', 50000)], terms({ kind: 'free_shipping' }), ship('cards_only'), 16, FEE);
+    const p = priceDirectShipCartWithCode([piece('a', 50000)], terms({ kind: 'free_shipping' }), ship('cards_only'), 16);
     if (p.outcome !== 'applied') throw new Error(JSON.stringify(p));
     expect(p.discountCents).toBe(0);
     expect(p.shippingWaivedCents).toBe(10000);
@@ -238,7 +236,7 @@ describe('DCO-B4 (puro) — umbral sobre S′ y envío gratis (§DSC.4)', () => 
   });
 
   it('envío gratis en sellado ⇒ shippingWaivedCents = 17500', () => {
-    const p = priceDirectShipCartWithCode([piece('a', 50000, 'sealed')], terms({ kind: 'free_shipping' }), ship('sealed'), 16, FEE);
+    const p = priceDirectShipCartWithCode([piece('a', 50000, 'sealed')], terms({ kind: 'free_shipping' }), ship('sealed'), 16);
     expect(p).toMatchObject({ outcome: 'applied', shippingWaivedCents: 17500 });
   });
 
@@ -248,7 +246,7 @@ describe('DCO-B4 (puro) — umbral sobre S′ y envío gratis (§DSC.4)', () => 
 
   it('caja grande de 35000 ⇒ LARGE_BOX (la caja se cobra completa)', () => {
     const choice = { box: { code: 'XL', label: 'XL', customerFeeCents: 35000 }, review: false } as unknown as BoxChoice;
-    expect(priceDirectShipCartWithCode([accessory('x', 5000, 1)], terms({ kind: 'free_shipping' }), ship('sealed', choice), 16, FEE)).toEqual({
+    expect(priceDirectShipCartWithCode([accessory('x', 5000, 1)], terms({ kind: 'free_shipping' }), ship('sealed', choice), 16)).toEqual({
       outcome: 'not_applicable',
       reason: 'LARGE_BOX',
       details: {},
@@ -256,7 +254,7 @@ describe('DCO-B4 (puro) — umbral sobre S′ y envío gratis (§DSC.4)', () => 
   });
 
   it('S ≥ T ya ⇒ ALREADY_FREE_SHIPPING', () => {
-    expect(priceDirectShipCartWithCode([piece('a', 400000)], terms({ kind: 'free_shipping' }), ship('cards_only'), 16, FEE)).toEqual({
+    expect(priceDirectShipCartWithCode([piece('a', 400000)], terms({ kind: 'free_shipping' }), ship('cards_only'), 16)).toEqual({
       outcome: 'not_applicable',
       reason: 'ALREADY_FREE_SHIPPING',
       details: {},

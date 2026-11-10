@@ -9,7 +9,6 @@ import {
   ivaTransferPreview,
   taxBaseCentsOf,
 } from '../src/modules/settings/iva-transfer';
-import { StripeFeeConfig, grossUpTotal } from '../src/common/money';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -38,7 +37,6 @@ import { join } from 'node:path';
  */
 
 /** Los diales vigentes del fixture canónico de `IVA-1`: `r = 16`, `0.036` / `300`, dial en `100`. */
-const FEE: StripeFeeConfig = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 
 function harness(seed: Partial<Record<string, unknown>> = {}) {
   const rows = new Map<string, unknown>([

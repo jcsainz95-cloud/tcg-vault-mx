@@ -28,7 +28,6 @@ import { E2EHarness, ApiResponse } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { AccDb } from './helpers/accessories-b-db';
 import { ShipPrepDb } from './helpers/ship-prep-db';
-import { SettingsService } from '../../src/modules/settings/settings.service';
 import { DiscountsService } from '../../src/modules/discounts/discounts.service';
 import { OrdersService } from '../../src/modules/orders/orders.service';
 import {
@@ -53,7 +52,6 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
   let acc: AccDb;
   let prep: ShipPrepDb;
   let discounts: DiscountsService;
-  let fee: Awaited<ReturnType<SettingsService['getStripeFee']>>;
   let adminId: string;
   const codeIds: string[] = [];
   let seq = 0;
@@ -102,7 +100,6 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
     prep = new ShipPrepDb(h, `${RUN}p`);
     await prep.init();
     discounts = h.app.get(DiscountsService);
-    fee = await h.app.get(SettingsService).getStripeFee();
     adminId = (await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.admin.email } })).id;
   });
 

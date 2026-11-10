@@ -172,7 +172,6 @@ describe('iva_pct — el dial no puede aceptar lo que `Order.ivaRatePct` (Int) n
     // agujero**: el residual se calcula con el float vivo igual que antes, así que la divergencia
     // entre lo cobrado y la tasa archivada **sigue ahí**. Las cifras cambian; el defecto no. *Por eso
     // el candado sigue siendo el VALIDADOR y no la fórmula.*
-    const fee = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
     const cobradoConElFloat = computeCartBreakdown(10850, 8.5);
     const loQueDiriaLaFilaTruncada = computeCartBreakdown(10850, Math.trunc(8.5));
 
