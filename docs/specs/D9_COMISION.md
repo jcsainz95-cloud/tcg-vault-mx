@@ -82,3 +82,25 @@ Se borran las claves y su uso; paridad es/en y pruebas de i18n verdes:
 - Dos convenciones coexisten (reembolsos, P&L, textos dependen de la marca); P&L histórico seguirá subestimado (§1).
 - IVA: `P` lleva IVA dentro, así que la comisión incluida tributa IVA (consecuencia de P3-A; contador).
 - Depende de publicar §DYN (HECHOS:201).
+
+## 8. Decisiones del gate GATE-D9-303aa13f (2026-11-10; cierran D9-1..5 e I1/I2)
+Regla AUTO: ningún punto exige acción del dueño.
+
+**8.1 Gasto Stripe «estimado» (I2).** `PnlComponents` NO cambia (congelado AN-B-13; `sumPnl` itera sus claves).
+- Aditivo a NIVEL DE PERIODO en la respuesta del P&L (junto, no dentro, de los componentes): `stripeFeeEstimatedOrders: number` (pedidos y retiros) y `stripeFeeEstimatedCents: number` (parte de `stripeFeesCents` que es estimada). Se calculan en el mismo recorrido que `stripeCostOf`, por mes y total. 0 ⇒ sin marca.
+- Frontend (Finanzas): si `stripeFeeEstimatedOrders > 0`, el renglón «comisiones Stripe» lleva «~» y nota «Incluye N pedidos con costo estimado (MX$X); se corrige solo cuando Stripe lo confirma». Textos es/en, paridad.
+- `stripeCostOf` devuelve `{cents, estimated}`. Estimado SOLO si `FEE_INCLUDED` ∧ `stripeFeeCents` NULL ∧ hubo cobro (`paymentIntentId` no nulo ∧ `totalCents > 0`). Sin PaymentIntent o `totalCents = 0` (retiro gratis por código, pedido 100 % descontado) ⇒ gasto 0, ni real ni estimado, ni cuenta en `stripeFeeEstimatedOrders`. `FEE_ON_TOP` no cambia. Prueba: retiro gratis ⇒ gasto 0 (cierra D9-2).
+
+**8.2 Recálculo automático de `ListingPrice` (D9-1/I1).**
+- (a) Disparador: clave `ConfigSetting` `listing_price_formula_version` = `{ v: sha1("d9|"+stripe_fee_pct+"|"+iva_pct), doneAt }`. Al arrancar (`OnApplicationBootstrap`) y en el cron diario de precios y cada 10 min mientras difiera: si `v` guardada ≠ `v` actual (cubre el despliegue de D9 y cualquier cambio futuro de los dials) ⇒ recálculo COMPLETO una vez.
+- (b) Candado: `pg_try_advisory_lock` (una sola instancia); por lotes; idempotente (upsert por clave de `ListingPrice`); la versión se escribe SOLO al terminar todo el lote. Fallo o caída ⇒ el siguiente tick (10 min) lo retoma; no se pierde nada.
+- (c) Mientras difiera: catálogo, ficha, carrito, quote y session NO leen el `displayPriceCents` de la fila vieja; calculan `P` en vivo desde la base `M` de la fila con la fórmula nueva (misma función única de `money.ts`). Un solo helper de lectura lo hace; bandera en memoria con TTL 60 s. Prueba: con versión forzada distinta, quote == P nuevo.
+- (d) Crece sin trabajo: la versión deriva de los dials; sets/cartas nuevas entran por el cron diario normal.
+
+**8.3 `captureStripeFee` — ACEPTADO.** Reintento en línea 3 veces (0 s, 2 s, 10 s), sin bloquear ni revertir la liquidación. Conciliación: cron cada 30 min rellena `stripeFeeCents IS NULL` de `Order`/`ShipmentRequest` pagados con PaymentIntent y `totalCents > 0`, de los últimos 30 días, lotes de 100, `retrieve(expand latest_charge.balance_transaction)`; `updateMany ... WHERE stripeFeeCents IS NULL` (idempotente, carrera segura); error de Stripe ⇒ queda NULL y se reintenta; pasados 30 días queda estimado y marcado (8.1). Un `fee` real de 0 se guarda como 0.
+
+**8.4 Validación del dial (D9-3).** (i) `stripe_fee_pct` ∈ [0, 0.10] y condición cruzada `stripe_fee_pct × (1 + iva_pct) ≤ 0.25` (divisor ≥ 0.75; margen ante cero/negativo); se valida al guardar `stripe_fee_pct` Y `iva_pct` (cambiar el IVA no puede romper la condición) ⇒ 400 con mensaje en lenguaje llano, valor anterior intacto. (ii) `IvaDials.stripeFeePct` pasa a REQUERIDO (tipo) y la fórmula lanza error tipado si falta, no es finito o el divisor < 0.75 (falla cerrado): el job de precios aborta conservando las filas previas y deja el evento en log/alerta; checkout usa filas guardadas. (iii) La vista previa del dial lo pasa y deja de usar `grossUpTotal` (D9-5). Borrar `_legacyFee` y el parámetro `fee`/`getStripeFee()`.
+
+**8.5 Lista de deseos.** Hecho medido: lo guardado NO son pesos sino un nivel `maxPct` ∈ {5,10,16} sobre el mercado `M` (`wishlist-math.ts:14,42-60`); `fits` compara `P` exhibido con `half(M×(100+p)/100)`. Con `P ≈ M×1.044` el nivel 5 casi no dispara. Por eso «subir los topes guardados» no aplica: no hay peso guardado; la opción B es un cambio de comparación, sin migración. Se recomienda B (pregunta al dueño abajo; HECHOS, no contradice nada). Si B: `maxDisplay` ⇒ `ceilPeso(maxDisplay / (1 − stripe_fee_pct×(1+iva_pct)))` solo en `fits` y en el «hasta $X» que ve el cliente; el techo de compra y margen del admin (`ceiling`, `marginAtMarket`) siguen usando el tope SIN comisión (igual que hoy). Si A: sin cambio; el techo del admin debe multiplicar el tope exhibido por el divisor (la comisión no es ingreso neto).
+
+**CAMBIO backend:** 8.1 DTO + `stripeCostOf`; 8.2 job/versión/lectura en vivo; 8.3 reintento + cron; 8.4 validaciones, requerido, borrar muertos (D9-5); D9-4 prueba e2e afirma `P == ceilPeso(M/0.95824)` con M conocido (qa+backend); 8.5 según respuesta. **CAMBIO frontend:** nota «~ estimado» en Finanzas (es/en); si B, nada visible salvo el «hasta $X» que llega ya calculado.
