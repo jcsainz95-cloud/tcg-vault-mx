@@ -141,7 +141,7 @@
 - GET `/catalog/featured` · público
 - GET `/catalog/cards` · cuenta
 - GET `/catalog/facets` · cuenta
-- GET `/catalog/sitemap` · público
+- GET `/catalog/sitemap` · `/catalog/merchant-feed` (§GSHOP, spec `GOOGLE_SHOPPING_E_INDEXACION`) · público
 - GET `/catalog/sealed` · cuenta
 - GET `/catalog/sealed/:inventoryItemId` · público
 - GET `/catalog/sealed/:inventoryItemId/value-history` · público
@@ -252,7 +252,7 @@
 - GET `/admin/marketing/export` · cuenta
 - GET `/admin/marketing/export/todo` · cuenta
 - GET `/admin/marketing/weekly-excel` · cuenta
-- **§MKT-V2** (`docs/specs/MKT_PANEL_V2.md`): `pantalla` pasa a `r|a|b|c|d|e|f|g|h` (`r` = Resumen: `r1` cifras, `r2` avisos, `r3` diario solo exact/sesión; `c9`, `e2`; columnas, filas y deltas en spec §1). `periods` no cambia.
+- **§MKT-V2** (`docs/specs/MKT_PANEL_V2.md`): `pantalla` pasa a `r|a|b|c|d|e|f|g|h` (`r` = Resumen: `r1` cifras, `r2` avisos, `r3` diario solo exact/sesión; `c9`, `e2`; detalle spec §1). `r2` suma AV7 (§GSHOP).
 - POST `/marketing/search-miss` · público · `{term≤80, kind:'card'|'sealed'}` ⇒ `204`; `413` si cuerpo >1 KB; `429` por throttle; sin eco, sin identificador (c6).
 - Sin endpoint para el correo del lunes (job interno `marketing-weekly-digest`, idempotente por semana).
 
