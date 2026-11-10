@@ -28,7 +28,7 @@ import {
  * no suma al censo de salvaguardas (`scripts/check-e2e-skip-census.sh`): ningún caso se salta.
  */
 
-/** Carrito de solo cartas de MX$4,210.80 (S ≥ T = MX$4,000): con 10 % baja a MX$3,789.72 y paga envío (895 / DL4). */
+/** Carrito de solo cartas de MX$4,395.00 (S ≥ T = MX$4,000): con 10 % baja a MX$3,955.50 y paga envío (895 / DL4). */
 const CARDS_OVER_THRESHOLD = ['inv-1002', 'inv-1005', 'inv-1004'];
 
 async function openCheckoutWith(page: Page, ids: string[]) {
@@ -72,7 +72,7 @@ test.describe('DSC · cliente con código (invitado, envío a domicilio)', () =>
     expect(order).toEqual({ destBeforeRow: true, rowBeforeEmail: true });
   });
 
-  test('DL4: aplicar 10 % a MX$4,210.80 hace aparecer «Te faltan…» y la fila «Descuento (SEPT10)»; quitarlo los borra', async ({ page }) => {
+  test('DL4: aplicar 10 % a MX$4,395.00 hace aparecer «Te faltan…» y la fila «Descuento (SEPT10)»; quitarlo los borra', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await openCheckoutWith(page, CARDS_OVER_THRESHOLD);
     await expect(page.getByTestId('free-shipping-remaining')).toHaveCount(0);
@@ -80,8 +80,8 @@ test.describe('DSC · cliente con código (invitado, envío a domicilio)', () =>
     await applyCode(page, 'sept10');
     await expect(page.getByTestId('code-row-applied')).toContainText('SEPT10');
     await expect(summary.getByTestId('amount-breakdown-discount')).toContainText('Descuento (SEPT10)');
-    // El número lo da el servidor (T − S′ = 400000 − 378972): ⛔ ninguna cuenta del front (DCO-F2).
-    await expect(page.getByTestId('free-shipping-remaining')).toHaveText(t('es', 'checkout.freeShippingRemaining', { remaining: 'MX$210.28' }));
+    // El número lo da el servidor (T − S′ = 400000 − 395550): ⛔ ninguna cuenta del front (DCO-F2).
+    await expect(page.getByTestId('free-shipping-remaining')).toHaveText(t('es', 'checkout.freeShippingRemaining', { remaining: 'MX$44.50' }));
     await page.getByTestId('code-row').getByRole('button', { name: t('es', 'checkout.discount.remove') }).click();
     await expect(page.getByTestId('free-shipping-remaining')).toHaveCount(0);
     await expect(summary.getByTestId('amount-breakdown-discount')).toHaveCount(0);

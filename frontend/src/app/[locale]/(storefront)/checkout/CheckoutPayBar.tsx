@@ -179,8 +179,12 @@ export function CheckoutPayBar({
           onKeyDown={onToggleKeyDown}
           className="block min-h-[44px] w-full text-left font-mono text-[11px] leading-[1.5] text-muted"
         >
-          <span data-testid="checkout-pay-bar-summary">{summaryLine}</span>
-          {' · '}
+          {summaryLine && (
+            <>
+              <span data-testid="checkout-pay-bar-summary">{summaryLine}</span>
+              {' · '}
+            </>
+          )}
           <span className="text-text underline underline-offset-4">{open ? t('bar.hideBreakdown') : t('bar.showBreakdown')}</span>
         </button>
       )}

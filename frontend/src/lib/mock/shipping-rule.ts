@@ -18,7 +18,7 @@
  *     (dueño 2026-10-25, `HECHOS.md` «Envío gratis desde MX$4,000 para CUALQUIER pedido (opción A)»; contrato v1.109.3).
  *  3. caja: `cajaGrande ⇔ box ≠ null ∧ box.customerFeeCents > E_sellado` ⇒ `E = box.customerFeeCents` y
  *     `freeShippingRemainingCents = null` (v1.109.5: sin T9 bajo ni sobre T);
- *  4. el desglose (comisión sobre `S + E`) lo hace `computeBreakdown` de `lib/api.ts`, sin cambio.
+ *  4. el desglose (D9: `total = S + E`, la comisión ya va dentro de `S`) lo hace `computeBreakdown` de `lib/api.ts`, sin cambio.
  *
  * `S` = subtotal exhibido (IVA dentro, antes del envío y de la comisión). ⛔ El umbral NUNCA se compara
  * con el total: el total lleva la comisión y la comisión depende de `E` (circular, §4-G.12 punto 2).

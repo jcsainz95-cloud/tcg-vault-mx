@@ -70,7 +70,7 @@ export function breakdownOf(subtotalCents: number, shippingFeeCents: number | un
     ...(shippingFeeCents !== undefined ? { shippingFeeCents } : {}),
     ivaCents: 1228,
     ivaRatePct: 16,
-    processingFeeCents: 400,
+    processingFeeCents: 0, // D9: la comisión va dentro del precio; total = subtotal + envío
     totalCents,
     currency: 'MXN' as const,
     priceConvention: 'IVA_INCLUSIVE' as const,

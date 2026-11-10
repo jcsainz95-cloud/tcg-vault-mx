@@ -462,6 +462,13 @@ export interface SealedValueHistoryResponse {
 export type PriceConvention = 'IVA_EXCLUSIVE' | 'IVA_INCLUSIVE';
 
 /**
+ * D9 (`docs/specs/D9_COMISION.md` §3, API_CONTRACT §3): `FEE_ON_TOP` = pedido anterior al deploy (`total = subtotal + envío +
+ * processingFeeCents`); `FEE_INCLUDED` = pedido nuevo (la comisión ya va dentro de cada precio; `processingFeeCents = 0`,
+ * `total = subtotal + envío`). El desglose pinta el renglón de comisión SOLO si el servidor manda `processingFeeCents > 0`.
+ */
+export type FeeConvention = 'FEE_ON_TOP' | 'FEE_INCLUDED';
+
+/**
  * §M10-IVA.4 — ⚠️⚠️ **LA FORMA NO CAMBIA; EL SIGNIFICADO SÍ, Y POR ESO GANA DOS CAMPOS.**
  *
  * **Las tres identidades normativas que el cliente puede comprobar:**
@@ -488,7 +495,7 @@ export interface BreakdownDTO {
    */
   ivaCents: number;
   ivaRatePct: number;
-  /** Comisión de plataforma (§29). **Sigue SUMANDO** bajo las dos convenciones. */
+  /** Comisión de plataforma (§29). Solo pedidos `FEE_ON_TOP` (> 0); desde D9 los pedidos nuevos mandan 0 y no hay renglón. */
   processingFeeCents: number;
   totalCents: number;
   currency: 'MXN';
@@ -1485,6 +1492,8 @@ export interface OrderSummaryDTO {
 
 export interface OrderDetailDTO {
   id: string;
+  /** D9: marca de convención de la comisión (ver `FeeConvention`). Opcional en el tipo mientras el servidor la publica. */
+  feeConvention?: FeeConvention;
   /** v1.68 (§4-R.5): `string | null`, misma semántica que en `OrderSummaryDTO`. */
   orderNumber?: string | null;
   status: OrderStatus;

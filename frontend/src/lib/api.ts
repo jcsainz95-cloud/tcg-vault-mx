@@ -1177,22 +1177,6 @@ function mockIvaRatePct(): number {
 }
 
 /**
- * Réplica local del gross-up del servidor (`backend/src/common/money.ts` `grossUpTotal`,
- * `ARCHITECTURE §5.1`). **Copiada de la fórmula, no aproximada**: la comisión de Stripe **lleva su
- * propio IVA**, así que el porcentaje y el fijo se escalan por `(1 + r)` ANTES de despejar.
- *
- * Verificado contra las tres filas publicadas del contrato (§M10-IVA.2 / criterio **188**), con
- * `ivaPct = 16` y Stripe `3.6 %` / `300`:
- * `11600 → 12469` · `10800 → 11634` · `10000 → 10799`.
- */
-function mockGrossUpTotal(grossUpBaseCents: number): number {
-  const ivaMul = 1 + mockIvaRatePct() / 100;
-  const effectivePct = (fx.mockSettings.stripeFeePct / 100) * ivaMul;
-  const effectiveFixed = fx.mockSettings.stripeFeeFixedCents * ivaMul;
-  return Math.ceil((grossUpBaseCents + effectiveFixed) / (1 - effectivePct));
-}
-
-/**
  * ⭐⭐ **EL DESGLOSE DEL MOCK, BAJO `IVA_INCLUSIVE`** (§M10-IVA.4).
  *
  * `subtotalCents` llega como **`Σ displayPriceCents`** ⇒ **ya lleva el IVA dentro**. De ahí salen
@@ -1212,8 +1196,10 @@ export function computeBreakdown(subtotalCents: number, shippingFeeCents?: numbe
   const ivaRatePct = mockIvaRatePct();
   const grossCents = subtotalCents + (shippingFeeCents ?? 0);
   const ivaCents = grossCents - Math.round(grossCents / (1 + ivaRatePct / 100));
-  const totalCents = mockGrossUpTotal(grossCents);
-  const processingFeeCents = totalCents - grossCents;
+  // D9 (2026-11-09): la comisión ya va DENTRO de cada precio exhibido ⇒ `total = subtotal + envío`, sin gross-up
+  // ni renglón (`processingFeeCents = 0`, `feeConvention = FEE_INCLUDED`).
+  const totalCents = grossCents;
+  const processingFeeCents = 0;
   return {
     subtotalCents,
     ...(shippingFeeCents != null ? { shippingFeeCents } : {}),

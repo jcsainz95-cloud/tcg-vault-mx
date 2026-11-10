@@ -562,10 +562,9 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     ? t('discount.barShort', { amount: formatMoneyCents(shownDiscount.discountCents, locale) })
     : activeBreakdown
     ? activeBreakdown.shippingFeeCents === 0
-      ? t('bar.includesShippingFree', { fee: formatMoneyCents(activeBreakdown.processingFeeCents, locale) })
+      ? t('bar.includesShippingFree')
       : t('bar.includesShipping', {
           shipping: formatMoneyCents(activeBreakdown.shippingFeeCents ?? 0, locale),
-          fee: formatMoneyCents(activeBreakdown.processingFeeCents, locale),
         })
     : '';
   // T9: con CUALQUIER clase (dueño 2026-10-25, `HECHOS.md` «Envío gratis desde MX$4,000 para CUALQUIER pedido») y

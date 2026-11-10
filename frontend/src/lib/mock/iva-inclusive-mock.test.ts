@@ -47,16 +47,17 @@ describe('criterio 196 · el dial mueve los precios del catálogo simulado', () 
     expect(L).toBe(140800);
 
     const a100 = fx.mockListings.find((l) => l.inventoryItemId === pieza)!.displayPriceCents!;
-    expect(a100).toBe(Math.round(140800 * 1.16)); // 163328
+    // D9: P = ceilPeso(M / 0.95824) por unidad; M = round(L × 1.16) = 163328
+    expect(a100).toBe(170500);
 
     setDial(0);
     const a0 = fx.mockListings.find((l) => l.inventoryItemId === pieza)!.displayPriceCents!;
-    expect(a0).toBe(140800); // dial 0 % ⇒ el exhibido ES el precio de lista
+    expect(a0).toBe(147000); // dial 0 % ⇒ M = L = 140800; P = ceilPeso(146931) (la comisión va dentro, D9)
     expect(fx.mockListPriceCents(pieza)).toBe(140800); // ⛔ `L` NO se mueve: es la semilla
 
     setDial(50);
     const a50 = fx.mockListings.find((l) => l.inventoryItemId === pieza)!.displayPriceCents!;
-    expect(a50).toBe(Math.round(140800 * 1.08)); // 152064
+    expect(a50).toBe(158700); // M = 152064; P = ceilPeso(158692)
     expect(a0).toBeLessThan(a50);
     expect(a50).toBeLessThan(a100);
   });
@@ -117,30 +118,18 @@ describe('criterio 196 · el desglose del mock reproduce la aritmética del serv
    * Medido contra `backend/src/common/money.ts` `grossUpTotal`:
    * `ceil((base + fixed×1.16) / (1 − pct×1.16))`.
    */
-  it('el total del carrito coincide con `grossUpTotal` del servidor (las tres filas)', () => {
-    for (const [P, total] of [
-      [11600, 12469],
-      [10800, 11634],
-      [10000, 10799],
-    ] as const) {
+  it('D9: el total del carrito es subtotal + envío, sin gross-up ni comisión (las tres filas)', () => {
+    for (const P of [11600, 10800, 10000] as const) {
       const b = computeBreakdown(P);
-      expect(b.totalCents).toBe(total);
-      expect(b.processingFeeCents).toBe(total - P);
+      expect(b.totalCents).toBe(P);
+      expect(b.processingFeeCents).toBe(0);
     }
   });
 
-  /**
-   * ⭐⭐ **`IVA-2` EN EL MOCK, y es la línea de mayor riesgo del cambio.** La mutación es
-   * `grossUpBase = subtotal + iva` sobre un subtotal que **ya** lleva el IVA dentro: produce
-   * **+13.6 % a todos los clientes, en silencio**. Con `P = 11600` daría `14164` en vez de `12469`.
-   *
-   * ⛔ **Rojo si `totalCents > 12469`.**
-   */
-  it('⛔ el gross-up NO parte de `subtotal + iva` (candado IVA-2)', () => {
-    const b = computeBreakdown(11600);
-    expect(b.totalCents).toBe(12469);
-    expect(b.totalCents).toBeLessThan(14164);
-    // La identidad (b) del contrato, que es lo que lo hace estructural y no una constante copiada.
+  /** D9-1: con envío, `total = ΣP + envío` al centavo (ya no existe el candado `IVA-2`: no hay gross-up que mutar). */
+  it('⛔ D9-1: total = subtotal + envío al centavo; ninguna comisión encima', () => {
+    const b = computeBreakdown(10500, 10000);
+    expect(b.totalCents).toBe(20500);
     expect(b.subtotalCents + (b.shippingFeeCents ?? 0) + b.processingFeeCents).toBe(b.totalCents);
   });
 

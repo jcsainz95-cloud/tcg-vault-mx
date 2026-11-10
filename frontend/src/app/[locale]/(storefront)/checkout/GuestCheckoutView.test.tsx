@@ -91,8 +91,8 @@ describe('GuestCheckoutView · checkout de invitado (criterios 45–48b)', () =>
     expect(breakdown.getAttribute('data-price-convention')).toBe('IVA_INCLUSIVE');
     // ⛔ El renglón va marcado como informativo: es lo que impide que alguien lo vuelva un sumando.
     expect(breakdown.querySelector('[data-informative="true"]')).not.toBeNull();
-    // §29 (v3.6): «Comisión de plataforma» — la línea ya no nombra al procesador de pago.
-    expect(screen.getByText('Comisión de plataforma')).toBeInTheDocument();
+    // D9: la comisión va dentro del precio ⇒ ningún renglón «Comisión de plataforma» en un pedido nuevo.
+    expect(screen.queryByText('Comisión de plataforma')).toBeNull();
     // Aviso de ventas finales con enlace a términos: lo lleva la casilla de términos (B4: una sola mención), con T8.
     const terms = screen.getByTestId('privacy-site-guestCheckout');
     expect(terms).toHaveTextContent(/todas las ventas son finales/);

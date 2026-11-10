@@ -661,17 +661,16 @@
       "bundleNoName": "Un paquete de energías ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck."
     },
     "feeHint": {
-      "cardsOnly": "+ envío {shipping}, gratis desde {freeFrom} · comisión de plataforma al pagar",
-      "sealed": "Envío {shipping}, gratis desde {freeFrom} · comisión de plataforma al pagar"
+      "cardsOnly": "+ envío {shipping}, gratis desde {freeFrom}",
+      "sealed": "Envío {shipping}, gratis desde {freeFrom}"
     },
     "refundPromise": "Si tu carta llega dañada o equivocada, te reembolsamos.",
     "freeShippingRemaining": "Te faltan {remaining} para envío gratis",
     "entryLine": "¿Ya tienes cuenta? <login>Inicia sesión</login> · o <register>crea una cuenta</register>",
     "showMoreLines": "Ver {n} más",
     "bar": {
-      "includesShipping": "Incluye envío {shipping} y comisión de plataforma {fee}",
-      "includesShippingFree": "Incluye envío gratis y comisión de plataforma {fee}",
-      "includesFee": "Incluye comisión de plataforma {fee}",
+      "includesShipping": "Incluye envío {shipping}",
+      "includesShippingFree": "Incluye envío gratis",
       "showBreakdown": "Ver desglose",
       "hideBreakdown": "Ocultar desglose",
       "total": "Total"
@@ -706,7 +705,7 @@
       "rateLimited": "Demasiados intentos; espera unos minutos.",
       "network": "No pudimos revisar el código. Inténtalo de nuevo.",
       "barShort": "Con descuento −{amount}",
-      "barVault": "Descuento −{amount} · comisión de plataforma {fee}",
+      "barVault": "Descuento −{amount}",
       "removedNotice": "{code} ya no aplica a tu carrito y lo quitamos. Revisa el total antes de pagar.",
       "noShipping": "Este código cubre el envío y tu pedido a bóveda no lleva envío.",
       "withdrawalOnlyFreeShipping": "En el retiro de bóveda solo aplican los códigos de envío gratis.",
@@ -2091,7 +2090,7 @@
         },
         "title": "Reembolsar una carta entregada",
         "amount": "Se devuelven {amount}",
-        "amountHint": "La carta más su parte de la comisión de cobro, sin envío. La calcula el sistema y no se edita.",
+        "amountHint": "Lo que pagó el cliente por la carta, sin envío. La calcula el sistema y no se edita.",
         "legend": "¿Qué pasó con esta carta? (obligatorio)",
         "noteLabel": "Qué pasó",
         "noteHint": "Obligatoria, de 3 a 500 caracteres. Queda en bitácora; el cliente no la ve.",
@@ -2130,7 +2129,7 @@
         "bundleRequiresDeck": "El paquete se reembolsa entero y solo cuando todas las cartas de su deck ya se reembolsaron. No se hizo nada.",
         "reasonMissing": "Elige un motivo.",
         "noteHelp": "De 3 a 500 caracteres. Queda en la bitácora; el cliente no la ve.",
-        "amount": "Se devolverán {amount} (con su parte de la comisión).",
+        "amount": "Se devolverán {amount} (lo que pagó).",
         "stale": "El importe cambió a {amount}. No se hizo nada. Revísalo y vuelve a confirmar."
       }
     },
@@ -2678,7 +2677,7 @@
               "refunded": "reembolsada",
               "voided": "anulado"
             },
-            "refundPreview": "Se le devolverán {amount} al dar el pedido por preparado (la carta más su parte de la comisión).",
+            "refundPreview": "Se le devolverán {amount} al dar el pedido por preparado (lo que pagó).",
             "refundRequested": "Reembolso de {amount} pedido por {name} · {date}. Esperando a Stripe.",
             "refundDone": "Reembolsada · {amount} · {date}.",
             "refundFailed": "Stripe rechazó el reembolso de {amount}. Lo atiende el súper-admin en Ventas.",
@@ -2713,12 +2712,12 @@
               "not_found": "no la encontraron",
               "damaged": "llegó dañada"
             },
-            "body": "El importe lo calculó el servidor con lo que el cliente pagó por cada carta más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
-            "bodyAccessories": "El importe lo calculó el servidor con lo que el cliente pagó por cada accesorio más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
-            "bodyMixed": "El importe lo calculó el servidor con lo que el cliente pagó por cada carta y cada accesorio más su parte de la comisión de cobro. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
-            "bodyNothingShips": "No sale ninguna carta: se devuelve todo lo cobrado —cartas, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo.",
-            "bodyNothingShipsAccessories": "No sale ningún accesorio: se devuelve todo lo cobrado —accesorios, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo.",
-            "bodyNothingShipsMixed": "No sale nada: se devuelve todo lo cobrado —cartas, accesorios, envío y comisión— y el envío se cierra solo. No hace falta cancelarlo.",
+            "body": "El importe lo calculó el servidor con lo que el cliente pagó por cada carta. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
+            "bodyAccessories": "El importe lo calculó el servidor con lo que el cliente pagó por cada accesorio. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
+            "bodyMixed": "El importe lo calculó el servidor con lo que el cliente pagó por cada carta y cada accesorio. No se puede editar. El resto del pedido sigue su curso y el cliente recibe un correo cuando Stripe acepte la devolución.",
+            "bodyNothingShips": "No sale ninguna carta: se devuelve todo lo cobrado —cartas y envío— y el envío se cierra solo. No hace falta cancelarlo.",
+            "bodyNothingShipsAccessories": "No sale ningún accesorio: se devuelve todo lo cobrado —accesorios y envío— y el envío se cierra solo. No hace falta cancelarlo.",
+            "bodyNothingShipsMixed": "No sale nada: se devuelve todo lo cobrado —cartas, accesorios y envío— y el envío se cierra solo. No hace falta cancelarlo.",
             "signature": "Este reembolso queda a tu nombre y la carta pasa a merma con tu firma.",
             "signatureAccessories": "Este reembolso queda a tu nombre.",
             "signatureMixed": "Este reembolso queda a tu nombre y cada carta faltante pasa a merma con tu firma.",
@@ -3003,7 +3002,7 @@
         "refund": {
           "title": "Reembolsar sin reposición",
           "paidRef": "Pagó {amount} por esta carta",
-          "paidRefHint": "(la carta más su parte de la comisión de cobro, según la compra {orderNumber})",
+          "paidRefHint": "(lo que pagó por la carta, según la compra {orderNumber})",
           "marketRef": "Mercado hoy: {amount}",
           "marketRefDate": "referencia del {date}",
           "marketNone": "Sin referencia de mercado",
@@ -5023,7 +5022,7 @@
         "help": {
           "directShipCardsFeeCents": "<b>IVA incluido:</b> es lo que paga el cliente. Pedidos con solo cartas sueltas o gradeadas; a ellos siempre se les cobra el envío.",
           "directShipSealedFeeCents": "<b>IVA incluido:</b> es lo que paga el cliente. Pedidos con sellado, accesorios o energías, aunque también lleven cartas. Una caja grande cobra su propia tarifa.",
-          "directShipFreeFromCents": "<b>IVA incluido:</b> se compara con el subtotal que ve el cliente, antes del envío y de la comisión. Solo aplica a pedidos con sellado o accesorios."
+          "directShipFreeFromCents": "<b>IVA incluido:</b> se compara con el subtotal que ve el cliente, antes del envío. Solo aplica a pedidos con sellado o accesorios."
         },
         "withdrawalNote": "El envío de un retiro desde la bóveda es otro dial («Envío de un retiro», arriba) y ese va antes de IVA.",
         "unavailable": "El servidor todavía no tiene estos diales.",
@@ -5664,11 +5663,11 @@
       },
       "volume": {
         "title": "Volumen y ticket",
-        "subtitle": "Mismo rango que el P&L. Son cifras de lo PAGADO por el cliente (IVA, comisión y envío dentro).",
+        "subtitle": "Mismo rango que el P&L. Son cifras de lo PAGADO por el cliente (IVA y envío dentro).",
         "needsRange": "Elige un rango de fechas para ver el volumen y el ticket promedio.",
         "orders": "Pedidos",
         "avgTicket": "Ticket promedio",
-        "avgTicketHelp": "Cobrado ÷ pedidos: lo que paga un cliente por compra, con IVA, comisión y envío.",
+        "avgTicketHelp": "Cobrado ÷ pedidos: lo que paga un cliente por compra, con IVA y envío.",
         "piecesPerOrder": "Piezas por pedido",
         "pieces": "Piezas vendidas",
         "boundaryNote": "En los bordes de día el total puede diferir del P&L por una orden."
@@ -5749,7 +5748,7 @@
         "card": {
           "orders": "Pedidos",
           "charged": "Cobrado (con IVA)",
-          "chargedHelp": "Lo que pagaron los clientes: con IVA, envío y comisión.",
+          "chargedHelp": "Lo que pagaron los clientes: con IVA y envío.",
           "netSales": "Venta sin IVA",
           "netSalesHelp": "La misma cifra de ingresos que Finanzas.",
           "refunds": "Reembolsos",
@@ -7114,7 +7113,7 @@
       "price": {
         "title": "Precio y costo",
         "price": "Precio de venta (con IVA)",
-        "priceHelp": "Es lo que ve y paga el cliente. La comisión de plataforma se suma aparte.",
+        "priceHelp": "Es lo que ve y paga el cliente.",
         "cost": "Costo por unidad",
         "costHelp": "Lo que te costó a ti. Solo lo ves tú; sirve para el margen en Finanzas.",
         "save": "Guardar precio",
@@ -7196,7 +7195,7 @@
       "settings": {
         "title": "Precios fijos y sugerencias",
         "bundlePrice": "Precio del paquete de energías (con IVA)",
-        "bundlePriceHelp": "Lo que paga el cliente por todas las energías de un deck del meta. La comisión de plataforma va aparte.",
+        "bundlePriceHelp": "Lo que paga el cliente por todas las energías de un deck del meta.",
         "suggestionCount": "Accesorios sugeridos en el carrito",
         "suggestionCountHelp": "0 apaga «¿Te falta algo?».",
         "save": "Guardar",
@@ -7568,7 +7567,7 @@
         "maxDiscountHint": "El descuento no pasa de esta cifra.",
         "sectionConditions": "Condiciones",
         "minSubtotal": "Mínimo de compra (opcional)",
-        "minSubtotalHint": "Se mide sobre las cartas que aplican, antes del descuento, sin envío ni comisión.",
+        "minSubtotalHint": "Se mide sobre las cartas que aplican, antes del descuento, sin envío.",
         "startsAt": "Empieza",
         "endsAt": "Termina (opcional)",
         "timeHint": "Hora del centro de México. Sin fecha de fin, vale hasta que lo pauses.",

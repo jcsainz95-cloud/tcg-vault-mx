@@ -73,7 +73,7 @@ describe('checkout con cuenta · códigos de descuento', () => {
       new RegExp(`Total a pagar\\s*MX\\$${(served.breakdown.totalCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`),
     );
     // La línea del carrito sigue en el precio exhibido (`unitPriceCents + unitDiscountCents`, I-3), igual que «Subtotal».
-    expect(screen.getAllByText('MX$1,633.28').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('MX$1,705.00').length).toBeGreaterThanOrEqual(2);
     await user.click(within(aside()).getByRole('button', { name: /Pagar/ }));
     await waitFor(() => expect(session).toHaveBeenCalledWith(['inv-1002'], undefined, 'SEPT10'));
   });

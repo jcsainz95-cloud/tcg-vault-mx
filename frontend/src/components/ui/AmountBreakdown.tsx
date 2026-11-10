@@ -136,8 +136,8 @@ function Line({
 }
 
 /**
- * AmountBreakdown (DESIGN_SYSTEM §7.12): subtotal + IVA desglosado + comisión de
- * plataforma + total, en el orden del contrato. El total nunca sin su desglose.
+ * AmountBreakdown (DESIGN_SYSTEM §7.12): subtotal + IVA desglosado + (solo pedidos
+ * viejos) comisión de plataforma + total, en el orden del contrato. El total nunca sin su desglose.
  *
  * Dirección 5a: los renglones se separan con aire, no con reglas, y solo el total
  * lleva regla encima; la cifra final es la pieza tipográfica más grande del bloque.
@@ -261,12 +261,16 @@ export function AmountBreakdown({ breakdown, variant = 'purchase', productsSubto
         locale={locale}
         informative={ivaIncluded}
       />
-      <Line
-        label={t('platformFee')}
-        amount={breakdown.processingFeeCents}
-        hint={t('platformFeeHint')}
-        locale={locale}
-      />
+      {/* D9: en filas nuevas (`FEE_INCLUDED`) el servidor manda `processingFeeCents = 0` y la comisión ya va dentro de
+          cada precio ⇒ NO hay renglón. Solo un pedido viejo (`FEE_ON_TOP`, fee > 0) conserva su renglón histórico. */}
+      {breakdown.processingFeeCents > 0 && (
+        <Line
+          label={t('platformFee')}
+          amount={breakdown.processingFeeCents}
+          hint={t('platformFeeHint')}
+          locale={locale}
+        />
+      )}
       <div className="mt-2 flex items-baseline justify-between border-t border-border-strong pt-5">
         <span className="text-[15px] font-medium text-text">{t('total')}</span>
         <span className="tabular text-[28px] font-medium leading-none text-text">

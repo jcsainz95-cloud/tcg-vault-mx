@@ -64,7 +64,8 @@ test.describe('guest checkout · identidad y desglose', () => {
     // «IVA 16 % incluido». La prueba era la equivocada; el producto hace lo que se le pidió.
     await expect(breakdown.getByText(ivaLabelRe('es', 'checkout.ivaIncluded'))).toBeVisible();
     await expect(breakdown).toHaveAttribute('data-price-convention', 'IVA_INCLUSIVE');
-    await expect(breakdown.getByText(t('es', 'checkout.platformFee'))).toBeVisible();
+    // D9: la comisión va dentro del precio ⇒ ningún renglón de comisión en un pedido nuevo.
+    await expect(breakdown.getByText(t('es', 'checkout.platformFee'))).toHaveCount(0);
     await expect(breakdown.getByText(MONEY_RE).first()).toBeVisible();
 
     // B4 (BRIEF_MKT §4): «ventas finales» UNA vez antes de pagar — en la casilla de términos, que enlaza a

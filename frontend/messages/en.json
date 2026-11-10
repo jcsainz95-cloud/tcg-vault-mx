@@ -661,17 +661,16 @@
       "bundleNoName": "An energy bundle can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck."
     },
     "feeHint": {
-      "cardsOnly": "+ shipping {shipping}, free from {freeFrom} · platform fee at checkout",
-      "sealed": "Shipping {shipping}, free from {freeFrom} · platform fee at checkout"
+      "cardsOnly": "+ shipping {shipping}, free from {freeFrom}",
+      "sealed": "Shipping {shipping}, free from {freeFrom}"
     },
     "refundPromise": "If your card arrives damaged or wrong, we refund you.",
     "freeShippingRemaining": "{remaining} more for free shipping",
     "entryLine": "Already have an account? <login>Sign in</login> · or <register>create one</register>",
     "showMoreLines": "Show {n} more",
     "bar": {
-      "includesShipping": "Includes shipping {shipping} and platform fee {fee}",
-      "includesShippingFree": "Includes free shipping and platform fee {fee}",
-      "includesFee": "Includes platform fee {fee}",
+      "includesShipping": "Includes shipping {shipping}",
+      "includesShippingFree": "Includes free shipping",
       "showBreakdown": "Show breakdown",
       "hideBreakdown": "Hide breakdown",
       "total": "Total"
@@ -706,7 +705,7 @@
       "rateLimited": "Too many attempts; wait a few minutes.",
       "network": "We couldn't check the code. Try again.",
       "barShort": "With discount −{amount}",
-      "barVault": "Discount −{amount} · platform fee {fee}",
+      "barVault": "Discount −{amount}",
       "removedNotice": "{code} no longer applies to your cart and we removed it. Check the total before paying.",
       "noShipping": "This code covers shipping and your vault order has no shipping.",
       "withdrawalOnlyFreeShipping": "Only free-shipping codes apply to vault withdrawals.",
@@ -2091,7 +2090,7 @@
         },
         "title": "Refund a delivered card",
         "amount": "{amount} will be refunded",
-        "amountHint": "The card plus its share of the processing fee, no shipping. The system calculates it and it can't be edited.",
+        "amountHint": "What the customer paid for the card, no shipping. The system calculates it and it can't be edited.",
         "legend": "What happened to this card? (required)",
         "noteLabel": "What happened",
         "noteHint": "Required, 3 to 500 characters. Saved in the audit log; the customer doesn't see it.",
@@ -2130,7 +2129,7 @@
         "bundleRequiresDeck": "The bundle is refunded whole, and only once all the cards of its deck have been refunded. Nothing was done.",
         "reasonMissing": "Choose a reason.",
         "noteHelp": "3 to 500 characters. It stays in the log; the customer doesn't see it.",
-        "amount": "{amount} will be refunded (with its share of the fee).",
+        "amount": "{amount} will be refunded (what they paid).",
         "stale": "The amount changed to {amount}. Nothing was done. Review it and confirm again."
       }
     },
@@ -2678,7 +2677,7 @@
               "refunded": "refunded",
               "voided": "voided"
             },
-            "refundPreview": "{amount} will be refunded when you mark the order as prepared (the card plus its share of the fee).",
+            "refundPreview": "{amount} will be refunded when you mark the order as prepared (what they paid for the card).",
             "refundRequested": "Refund of {amount} requested by {name} · {date}. Waiting for Stripe.",
             "refundDone": "Refunded · {amount} · {date}.",
             "refundFailed": "Stripe rejected the {amount} refund. The super-admin handles it in Sales.",
@@ -2713,12 +2712,12 @@
               "not_found": "not found",
               "damaged": "arrived damaged"
             },
-            "body": "The server calculated the amount from what the customer paid for each card plus its share of the processing fee. It can't be edited. The rest of the order carries on, and the customer gets an email once Stripe accepts the refund.",
-            "bodyAccessories": "The server calculated the amount from what the customer paid for each accessory plus its share of the processing fee. It can't be edited. The rest of the order carries on, and the customer gets an email once Stripe accepts the refund.",
-            "bodyMixed": "The server calculated the amount from what the customer paid for each card and each accessory plus its share of the processing fee. It can't be edited. The rest of the order carries on, and the customer gets an email once Stripe accepts the refund.",
-            "bodyNothingShips": "No card is shipping: everything charged —cards, shipping and fee— is refunded and the shipment closes by itself. There's no need to cancel it.",
-            "bodyNothingShipsAccessories": "No accessory is shipping: everything charged —accessories, shipping and fee— is refunded and the shipment closes by itself. There's no need to cancel it.",
-            "bodyNothingShipsMixed": "Nothing is shipping: everything charged —cards, accessories, shipping and fee— is refunded and the shipment closes by itself. There's no need to cancel it.",
+            "body": "The server calculated the amount from what the customer paid for each card. It can't be edited. The rest of the order carries on, and the customer gets an email once Stripe accepts the refund.",
+            "bodyAccessories": "The server calculated the amount from what the customer paid for each accessory. It can't be edited. The rest of the order carries on, and the customer gets an email once Stripe accepts the refund.",
+            "bodyMixed": "The server calculated the amount from what the customer paid for each card and each accessory. It can't be edited. The rest of the order carries on, and the customer gets an email once Stripe accepts the refund.",
+            "bodyNothingShips": "No card is shipping: everything charged —cards and shipping— is refunded and the shipment closes by itself. There's no need to cancel it.",
+            "bodyNothingShipsAccessories": "No accessory is shipping: everything charged —accessories and shipping— is refunded and the shipment closes by itself. There's no need to cancel it.",
+            "bodyNothingShipsMixed": "Nothing is shipping: everything charged —cards, accessories and shipping— is refunded and the shipment closes by itself. There's no need to cancel it.",
             "signature": "This refund is recorded in your name and the card goes to shrinkage signed by you.",
             "signatureAccessories": "This refund is recorded in your name.",
             "signatureMixed": "This refund is recorded in your name and each missing card goes to shrinkage signed by you.",
@@ -3003,7 +3002,7 @@
         "refund": {
           "title": "Refund without a replacement",
           "paidRef": "They paid {amount} for this card",
-          "paidRefHint": "(the card plus its share of the processing fee, per purchase {orderNumber})",
+          "paidRefHint": "(what they paid for the card, per purchase {orderNumber})",
           "marketRef": "Market today: {amount}",
           "marketRefDate": "reference from {date}",
           "marketNone": "No market reference",
@@ -5023,7 +5022,7 @@
         "help": {
           "directShipCardsFeeCents": "<b>VAT included:</b> this is what the customer pays. Orders with only single or graded cards; shipping is always charged on them.",
           "directShipSealedFeeCents": "<b>VAT included:</b> this is what the customer pays. Orders with sealed product, accessories or energy, even if they also include cards. A large box charges its own rate.",
-          "directShipFreeFromCents": "<b>VAT included:</b> compared with the subtotal the customer sees, before shipping and the fee. Only applies to orders with sealed product or accessories."
+          "directShipFreeFromCents": "<b>VAT included:</b> compared with the subtotal the customer sees, before shipping. Only applies to orders with sealed product or accessories."
         },
         "withdrawalNote": "Shipping for a vault withdrawal is a different setting (“Withdrawal shipping”, above), and that one is before VAT.",
         "unavailable": "The server doesn't have these settings yet.",
@@ -5664,11 +5663,11 @@
       },
       "volume": {
         "title": "Volume and ticket",
-        "subtitle": "Same range as the P&L. Figures are what the customer PAID (VAT, fees and shipping included).",
+        "subtitle": "Same range as the P&L. Figures are what the customer PAID (VAT and shipping included).",
         "needsRange": "Pick a date range to see volume and average order.",
         "orders": "Orders",
         "avgTicket": "Average order",
-        "avgTicketHelp": "Collected ÷ orders: what a customer pays per purchase, with VAT, fees and shipping.",
+        "avgTicketHelp": "Collected ÷ orders: what a customer pays per purchase, with VAT and shipping.",
         "piecesPerOrder": "Pieces per order",
         "pieces": "Pieces sold",
         "boundaryNote": "On day boundaries the total may differ from the P&L by one order."
@@ -5749,7 +5748,7 @@
         "card": {
           "orders": "Orders",
           "charged": "Collected (incl. VAT)",
-          "chargedHelp": "What customers paid: VAT, shipping and fee included.",
+          "chargedHelp": "What customers paid: VAT and shipping included.",
           "netSales": "Sales excl. VAT",
           "netSalesHelp": "The same income figure as Finance.",
           "refunds": "Refunds",
@@ -7114,7 +7113,7 @@
       "price": {
         "title": "Price and cost",
         "price": "Sale price (VAT included)",
-        "priceHelp": "What the customer sees and pays. The platform fee is added on top.",
+        "priceHelp": "What the customer sees and pays.",
         "cost": "Unit cost",
         "costHelp": "What it cost you. Only you can see it; it's used for the margin in Finance.",
         "save": "Save price",
@@ -7196,7 +7195,7 @@
       "settings": {
         "title": "Fixed prices and suggestions",
         "bundlePrice": "Energy bundle price (VAT included)",
-        "bundlePriceHelp": "What the customer pays for all of a meta deck's energy cards. The platform fee is added on top.",
+        "bundlePriceHelp": "What the customer pays for all of a meta deck's energy cards.",
         "suggestionCount": "Accessories suggested in the cart",
         "suggestionCountHelp": "0 turns off “Anything else?”.",
         "save": "Save",
@@ -7568,7 +7567,7 @@
         "maxDiscountHint": "The discount never goes above this amount.",
         "sectionConditions": "Conditions",
         "minSubtotal": "Minimum purchase (optional)",
-        "minSubtotalHint": "Measured on eligible items, before the discount, excluding shipping and fee.",
+        "minSubtotalHint": "Measured on eligible items, before the discount, excluding shipping.",
         "startsAt": "Starts",
         "endsAt": "Ends (optional)",
         "timeHint": "Mexico City time. With no end date it stays valid until you pause it.",
