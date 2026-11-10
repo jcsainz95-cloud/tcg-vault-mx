@@ -109,6 +109,7 @@ function lpDouble(rows: ListingPrice[]) {
   return {
     rowsFor: jest.fn(async (ids: string[]) => new Map(rows.filter((r) => ids.includes(r.inventoryItemId)).map((r) => [r.inventoryItemId, r]))),
     enqueue: jest.fn(async () => undefined),
+    isFormulaStale: jest.fn(async () => false),
   };
 }
 
@@ -373,6 +374,10 @@ describe('Puertas de `ConfigSetting`: todas avisan o escriben solo claves que no
       keys: [DIAL_AUTOFETCH, DIAL_AUTOPUBLISH],
       why: 'Diales de decks meta (autofetch/autopublish): no son `SettingKey` y no entran al precio.',
     },
+    'modules/pricing/listing-price.service.ts': {
+      keys: ['listing_price_formula_version'],
+      why: '§D9 8.2: bookkeeping del recálculo (la versión de la fórmula con que se escribieron las filas); lo escribe DESPUÉS de recalcular, ⛔ no mueve ningún precio.',
+    },
     'modules/catalog/catalog-auto-state.service.ts': {
       keys: Object.values(CATALOG_AUTO_KEYS),
       why: 'AUTO catalogo: bookkeeping del job (ultimo exito, avance del backfill, primera vez vista de un grupo); no son `SettingKey` y no mueven ningun precio.',
@@ -432,7 +437,8 @@ describe('Puertas de `ConfigSetting`: todas avisan o escriben solo claves que no
       'modules/settings/settings.service.ts#update',
     ]);
     expect([...new Set(mudos)].map((m) => m.split('#')[0]).sort()).toEqual(Object.keys(SIN_AVISO).sort());
-    expect(mudos.some((m) => m.startsWith('modules/pricing/'))).toBe(false);
+    // (§D9 8.2: la única escritura muda de `pricing/` es el bookkeeping de la versión de la fórmula, listada arriba con su razón.)
+    expect(mudos.some((m) => m.startsWith('modules/pricing/') && !m.startsWith('modules/pricing/listing-price.service.ts#formulaTick'))).toBe(false);
   });
 
   it('🐤 canario del método: una puerta muda junto a otra que avisa en el MISMO fichero se ve', () => {
