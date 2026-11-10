@@ -817,7 +817,7 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
         taxBaseCents: 10000,
         ivaCents: 1600,
         netRevenueCents: 10000,
-        totalChargedCents: 12469,
+        totalChargedCents: 11600,
       });
     });
 
