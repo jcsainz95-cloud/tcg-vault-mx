@@ -62,6 +62,9 @@ function harness(seed: Partial<Record<string, unknown>> = {}) {
         traza.push(`read:${where.key}`);
         return rows.has(where.key) ? { key: where.key, valueJson: rows.get(where.key) } : null;
       }),
+      findMany: jest.fn(async ({ where }: { where: { key: { in: string[] } } }) =>
+        where.key.in.filter((k) => rows.has(k)).map((k) => ({ key: k, valueJson: rows.get(k) })),
+      ),
       upsert: jest.fn(async ({ where, create }: { where: { key: string }; create: { valueJson: unknown } }) => {
         traza.push(`write:${where.key}`);
         rows.set(where.key, create.valueJson);

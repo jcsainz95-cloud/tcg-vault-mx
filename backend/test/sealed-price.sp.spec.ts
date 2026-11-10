@@ -36,8 +36,8 @@ import { ivaDialsStub } from './helpers/iva-dials';
  * - D-8 (techlead): la relectura del `PUT` sin producto ⇒ `404 NOT_FOUND`, nunca `data: undefined`.
  */
 
-const D_100_16 = { ivaTransferPct: 100, ivaRatePct: 16 };
-const D_50_16 = { ivaTransferPct: 50, ivaRatePct: 16 };
+const D_100_16 = { ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0 };
+const D_50_16 = { ivaTransferPct: 50, ivaRatePct: 16, stripeFeePct: 0 };
 const SPREADS = { box: 18 } as Record<string, number>;
 const SRC = join(__dirname, '..', 'src');
 
@@ -133,7 +133,7 @@ describe('💰 SP-15 — ida y vuelta `L → P → L` exacta; `P → L → P` NO
     let primero: unknown = null;
     for (const t of ts) {
       for (const r of rs) {
-        const d = { ivaTransferPct: t, ivaRatePct: r };
+        const d = { ivaTransferPct: t, ivaRatePct: r, stripeFeePct: 0 };
         for (let L = 1; L <= 200_000; L++) {
           if (listEquivalentCentsOf(displayPriceCentsOf(L, t, r), d) !== L) {
             fallos++;
@@ -156,7 +156,7 @@ describe('💰 SP-15 — ida y vuelta `L → P → L` exacta; `P → L → P` NO
       const L = 1 + Math.floor(rnd() * 100_000_000);
       const t = ts[i % ts.length];
       const r = rs[i % rs.length];
-      if (listEquivalentCentsOf(displayPriceCentsOf(L, t, r), { ivaTransferPct: t, ivaRatePct: r }) !== L) fallos++;
+      if (listEquivalentCentsOf(displayPriceCentsOf(L, t, r), { ivaTransferPct: t, ivaRatePct: r, stripeFeePct: 0 }) !== L) fallos++;
     }
     expect(fallos).toBe(0);
   });
@@ -164,11 +164,11 @@ describe('💰 SP-15 — ida y vuelta `L → P → L` exacta; `P → L → P` NO
   it('extremos: L = 1, L = 10⁸ y `t·r = 10⁴` (100, 100)', () => {
     for (const [t, r] of [[100, 100], [100, 16], [0, 16], [37, 8]]) {
       for (const L of [1, 2, 99_999_999, 100_000_000]) {
-        expect(listEquivalentCentsOf(displayPriceCentsOf(L, t, r), { ivaTransferPct: t, ivaRatePct: r })).toBe(L);
+        expect(listEquivalentCentsOf(displayPriceCentsOf(L, t, r), { ivaTransferPct: t, ivaRatePct: r, stripeFeePct: 0 })).toBe(L);
       }
     }
     // P ≥ 1 ⇒ L equivalente ≥ 1 (t·r ≤ 10⁴).
-    expect(listEquivalentCentsOf(1, { ivaTransferPct: 100, ivaRatePct: 100 })).toBeGreaterThanOrEqual(1);
+    expect(listEquivalentCentsOf(1, { ivaTransferPct: 100, ivaRatePct: 100, stripeFeePct: 0 })).toBeGreaterThanOrEqual(1);
   });
 
   it('(e3) con (100,16) NINGÚN `L` da `P = 700` ni `P = 1200` ⇒ guardar `L` no podría cobrar lo que el dueño tecleó', () => {

@@ -30,7 +30,9 @@ function harness(opts: { failOnKey?: string } = {}) {
         written.push({ key, value: (create as { valueJson: unknown }).valueJson });
         return {};
       }),
+      findMany: jest.fn(async () => []),
     },
+    $executeRaw: jest.fn(async () => 1),
     auditLog: { create: jest.fn(async ({ data }: never) => audited.push(data as never)) },
   };
 

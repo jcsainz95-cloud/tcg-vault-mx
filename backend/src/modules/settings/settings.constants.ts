@@ -1210,8 +1210,9 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   // MISMO defecto que cerraron `validateIvaPct` y `validateAportacionPct`. Ver `validateIvaTransferPct`.
   [SettingKey.IVA_TRANSFER_PCT]: validateIvaTransferPct,
   [SettingKey.SALES_MARKUP_PCT]: (v) => (isNum(v) && v >= 0 ? null : 'must be a number >= 0'),
-  // stripe_fee_pct es una FRACCIÓN en [0,1); si fuera >= 1 el gross-up dividiría por <= 0.
-  [SettingKey.STRIPE_FEE_PCT]: (v) => (isNum(v) && v >= 0 && v < 1 ? null : 'must be a fraction in [0, 1)'),
+  // §D9 8.4: stripe_fee_pct es una FRACCIÓN en [0, 0.10] (Stripe MX cobra ~3.6 %); la condición cruzada con el IVA
+  // (`pct × (1+IVA) ≤ 0.25`) se valida al guardar `stripe_fee_pct` o `iva_pct` (`validateStripeFeeCombination`).
+  [SettingKey.STRIPE_FEE_PCT]: (v) => (isNum(v) && v >= 0 && v <= 0.1 ? null : 'must be a fraction in [0, 0.10]'),
   [SettingKey.STRIPE_FEE_FIXED_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
   // v1.40 (P-37): STRIPE_FEE_IVA_PCT retirado (deriva de IVA_PCT); ya no hay validador para esa key.
   [SettingKey.BUYLIST_CAP_PER_REQUEST_CENTS]: (v) => (isInt(v) && v >= 0 ? null : 'must be an integer >= 0 (cents)'),
@@ -1508,6 +1509,9 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
  * familias (los `PUT` de diales son raros: serializarlos no cuesta nada medible).
  */
 export const CROSS_RULE_KEYS = [
+  // §D9 8.4: comisión × (1+IVA) ≤ 0.25 (el divisor de `P` no baja de 0.75): se evalúa al guardar CUALQUIERA de las dos.
+  SettingKey.STRIPE_FEE_PCT,
+  SettingKey.IVA_PCT,
   SettingKey.BUYLIST_SHIPPING_FEE_CENTS,
   SettingKey.BUYLIST_MINIMUM_OFFER_NET_CENTS,
   SettingKey.BUYLIST_MINIMUM_REQUEST_CENTS,
@@ -1517,6 +1521,20 @@ export const CROSS_RULE_KEYS = [
 ] as const;
 /** Candado consultivo de las reglas cruzadas de diales (PEN-DYN-2). Clave propia (censo: `test/lock-keys.census.spec.ts`). */
 export const SETTINGS_CROSS_RULES_LOCK_KEY = 64_440_960;
+
+/**
+ * §D9 8.4 (i) — `stripe_fee_pct × (1 + iva_pct/100) ≤ 0.25` sobre el valor RESULTANTE del `PUT`. `null` = cumple.
+ * Mensaje en lenguaje llano; el valor anterior queda intacto (la transacción revierte).
+ */
+export function validateStripeFeeCombination(v: { stripePct: number; ivaPct: number }): { message: string } | null {
+  const eff = v.stripePct * (1 + v.ivaPct / 100);
+  if (eff <= 0.25 + 1e-12) return null;
+  return {
+    message:
+      'La comisión de Stripe más su IVA no puede pasar de 25 % del precio: con estos valores el precio se dispararía. ' +
+      'Baja la comisión o revisa el IVA.',
+  };
+}
 
 /**
  * v1.113⟨portada⟩ (API_CONTRACT §DYN.3) — las DOS reglas de combinación de Destacadas, sobre el valor RESULTANTE del `PUT`

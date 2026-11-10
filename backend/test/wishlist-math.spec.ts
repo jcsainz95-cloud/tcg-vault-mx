@@ -10,7 +10,7 @@
  */
 import { ceiling, demandRowMath, fits, halfDiv, marginAtMarket, maxDisplay } from '../src/common/wishlist-math';
 
-const DIALS = { ivaRatePct: 16, ivaTransferPct: 100 };
+const DIALS = { ivaRatePct: 16, ivaTransferPct: 100, stripeFeePct: 0 };
 const M = 100000; // mercado $1,000
 const NORMAL = 133400; // precio normal $1,150 sin IVA ⇒ $1,334 con IVA (criterio 827)
 

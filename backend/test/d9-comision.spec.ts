@@ -3,6 +3,7 @@
  * Dials de hoy: pct 0.036, fijo 300, IVA 16 %, envío ejemplo 10000, gratis desde 400000. Aritmética pura (N=1 por caso, determinista).
  */
 import {
+  FeeFormulaError,
   computeCartBreakdown,
   computeDirectShipBreakdown,
   computeShipmentBreakdown,
@@ -38,8 +39,17 @@ describe('D9 C1 — el precio exhibido lleva la comisión dentro (por unidad, al
     expect(saleDisplayCentsOf({ listPriceCents: L_FOR_M_10000, fixedDisplayCents: null }, DIALS)).toBe(10500);
     expect(saleDisplayCentsOf({ listPriceCents: 1, fixedDisplayCents: 25000 }, DIALS)).toBe(25000);
   });
-  it('sin `stripeFeePct` en los diales ⇒ sin comisión (nunca un default silencioso en getIvaDials, que SIEMPRE lo trae)', () => {
-    expect(saleDisplayCentsOf({ listPriceCents: L_FOR_M_10000, fixedDisplayCents: null }, { ivaTransferPct: 100, ivaRatePct: 16 })).toBe(10000);
+  it('comisión 0 ⇒ nada que absorber: P es el exhibido con IVA tal cual (sin redondeo al peso)', () => {
+    expect(feeIncludedPriceCentsOf(13340, 0, 16)).toBe(13340);
+    expect(feeIncludedPriceCentsOf(13340, 0.036, 16)).toBe(14000); // con comisión sí sube al peso: ceil(133.40/0.95824) = 140
+  });
+  it('8.4 (ii): sin `stripeFeePct`, no finito o con divisor < 0.75 ⇒ FeeFormulaError (falla cerrado, nunca un precio sin comisión)', () => {
+    const calc = (d: object) => () => saleDisplayCentsOf({ listPriceCents: L_FOR_M_10000, fixedDisplayCents: null }, d as never);
+    expect(calc({ ivaTransferPct: 100, ivaRatePct: 16 })).toThrow(FeeFormulaError);
+    expect(calc({ ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: NaN })).toThrow(FeeFormulaError);
+    expect(calc({ ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: -0.01 })).toThrow(FeeFormulaError);
+    expect(calc({ ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0.22 })).toThrow(FeeFormulaError); // 0.22×1.16 = 0.2552 > 0.25
+    expect(calc({ ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0.21 })).not.toThrow(); // 0.2436 ≤ 0.25
   });
 });
 

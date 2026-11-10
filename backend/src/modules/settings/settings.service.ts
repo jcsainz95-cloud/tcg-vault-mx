@@ -5,6 +5,7 @@ import { StripeFeeConfig } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 import {
   CROSS_RULE_KEYS,
+  validateStripeFeeCombination,
   RETIRED_SETTING_KEYS,
   SETTINGS_CROSS_RULES_LOCK_KEY,
   SETTING_DEFAULTS,
@@ -704,6 +705,8 @@ export class SettingsService implements OnModuleInit {
         await this.assertBuylistCrossDials(validated, tx);
         // v1.113⟨portada⟩ (§DYN.3) — las dos reglas de Destacadas, sobre el valor RESULTANTE del `PUT` parcial.
         await this.assertFeaturedCombination(validated, tx);
+        // §D9 8.4 (i) — comisión × (1+IVA) ≤ 0.25, al guardar `stripe_fee_pct` O `iva_pct`.
+        await this.assertStripeFeeCombination(validated, tx);
       }
 
       // ⭐ El pin va DENTRO de la misma transacción que el valor: es imposible que quede el número
@@ -881,6 +884,18 @@ export class SettingsService implements OnModuleInit {
    * el body dejaría romper la regla mandando UNA clave). Sin ninguna de las tres en el body ⇒ no lee nada.
    * ⇒ `422 VALIDATION_ERROR` con `details.rule` ∈ {`featured_slots_total`, `featured_pool_lt_random`}.
    */
+  private async assertStripeFeeCombination(
+    validated: { settingKey: SettingKeyType; value: unknown }[],
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const incoming = new Map(validated.filter((v) => v.settingKey === SettingKey.STRIPE_FEE_PCT || v.settingKey === SettingKey.IVA_PCT).map((v) => [v.settingKey, v.value]));
+    if (incoming.size === 0) return;
+    const rows = await this.getRawMany([SettingKey.STRIPE_FEE_PCT, SettingKey.IVA_PCT], tx);
+    const resolve = (key: SettingKeyType): number => Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
+    const problem = validateStripeFeeCombination({ stripePct: resolve(SettingKey.STRIPE_FEE_PCT), ivaPct: resolve(SettingKey.IVA_PCT) });
+    if (problem) throw BusinessException.validation('VALIDATION_ERROR', problem.message, { rule: 'stripe_fee_pct_times_iva' });
+  }
+
   private async assertFeaturedCombination(
     validated: { settingKey: SettingKeyType; value: unknown }[],
     tx: Prisma.TransactionClient,

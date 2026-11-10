@@ -665,8 +665,31 @@ export function saleDisplayCentsOf(
 ): number {
   // §D9: SOLO el precio calculado lleva la comisión dentro; el precio final del dueño (`fixedDisplayCents`) vale lo que escribió.
   if (s.fixedDisplayCents != null) return s.fixedDisplayCents;
+  // §D9 8.4 (ii): FALLA CERRADO. Sin `stripeFeePct` (o no finito, o con divisor < 0.75) no se inventa un precio sin comisión.
+  assertFeeFormulaDials(d);
   const withIva = displayPriceCentsOf(s.listPriceCents, d.ivaTransferPct, d.ivaRatePct);
-  return d.stripeFeePct == null ? withIva : feeIncludedPriceCentsOf(withIva, d.stripeFeePct, d.ivaRatePct);
+  return feeIncludedPriceCentsOf(withIva, d.stripeFeePct, d.ivaRatePct);
+}
+
+/** Divisor mínimo de la fórmula de `P` (1 − pct×(1+IVA)): por debajo, el precio se dispararía ⇒ no se calcula. */
+export const FEE_FORMULA_MIN_DIVISOR = 0.75;
+
+/** Error tipado de la fórmula de `P` con la comisión dentro (§D9 8.4). El job de precios aborta y conserva las filas previas. */
+export class FeeFormulaError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FeeFormulaError';
+  }
+}
+
+export function assertFeeFormulaDials(d: { stripeFeePct?: number | null; ivaRatePct: number }): void {
+  const pct = d.stripeFeePct;
+  if (pct == null || typeof pct !== 'number' || !Number.isFinite(pct) || pct < 0) {
+    throw new FeeFormulaError('stripeFeePct falta, no es finito o es negativo: no se calcula P (falla cerrado)');
+  }
+  if (1 - pct * (1 + d.ivaRatePct / 100) < FEE_FORMULA_MIN_DIVISOR) {
+    throw new FeeFormulaError('el divisor de la comisión (1 − pct×(1+IVA)) es < 0.75: no se calcula P (falla cerrado)');
+  }
 }
 
 /**
@@ -686,7 +709,7 @@ export interface IvaDials {
    * §D9 — `stripe_fee_pct` (fracción, 0.036): la comisión de plataforma que `saleDisplayCentsOf` mete DENTRO del precio calculado.
    * `getIvaDials()` SIEMPRE lo trae; `undefined` ⇒ sin comisión (solo fixtures de prueba y la vista previa del dial de IVA).
    */
-  stripeFeePct?: number;
+  stripeFeePct: number;
 }
 
 /**
@@ -795,6 +818,8 @@ export function feeIncludedPriceCentsOf(displayCents: number, stripePct: number,
   if (!Number.isFinite(stripePct) || stripePct < 0) throw new Error('stripePct must be a finite number >= 0');
   if (displayCents <= 0) return displayCents;
   const pctMicro = Math.round(stripePct * 1_000_000);
+  // Comisión 0 ⇒ nada que absorber: P es el exhibido con IVA tal cual (sin el redondeo al peso que existe para cubrir la comisión).
+  if (pctMicro === 0) return displayCents;
   const divisor = 100_000_000 - pctMicro * (100 + ivaRatePct);
   if (divisor <= 0) throw new Error('effective stripe pct (stripePct × (1 + iva)) must be in [0, 1)');
   const num = displayCents * 1_000_000;

@@ -331,20 +331,20 @@ describe('DYN.5.3/.4 — `dial_change` desde las puertas de los diales', () => {
 
   it('`PUT /admin/settings`: el aviso llega DESPUÉS del commit, con las claves escritas; si la tx falla, no hay aviso', async () => {
     const seen: string[][] = [];
-    const ok = settingsWith({ configSetting: { upsert: jest.fn(async () => undefined), findUnique: jest.fn(async () => null) } });
+    const ok = settingsWith({ configSetting: { upsert: jest.fn(async () => undefined), findUnique: jest.fn(async () => null), findMany: jest.fn(async () => []) }, $executeRaw: jest.fn(async () => 0) });
     ok.onKeysWritten((k) => seen.push([...k]));
     await ok.update({ ivaPct: 16 });
     expect(seen).toEqual([[SettingKey.IVA_PCT]]);
 
     const seen2: string[][] = [];
-    const ko = settingsWith({ configSetting: { upsert: jest.fn(async () => { throw new Error('tx abortada'); }), findUnique: jest.fn(async () => null) } });
+    const ko = settingsWith({ configSetting: { upsert: jest.fn(async () => { throw new Error('tx abortada'); }), findUnique: jest.fn(async () => null), findMany: jest.fn(async () => []) }, $executeRaw: jest.fn(async () => 0) });
     ko.onKeysWritten((k) => seen2.push([...k]));
     await expect(ko.update({ ivaPct: 16 })).rejects.toThrow('tx abortada');
     expect(seen2).toEqual([]);
   });
 
   it('un oyente que lanza ⛔ no tumba la escritura ya confirmada', async () => {
-    const s = settingsWith({ configSetting: { upsert: jest.fn(async () => undefined), findUnique: jest.fn(async () => null) } });
+    const s = settingsWith({ configSetting: { upsert: jest.fn(async () => undefined), findUnique: jest.fn(async () => null), findMany: jest.fn(async () => []) }, $executeRaw: jest.fn(async () => 0) });
     s.onKeysWritten(() => {
       throw new Error('oyente roto');
     });

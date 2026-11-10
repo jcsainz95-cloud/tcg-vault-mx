@@ -45,8 +45,8 @@ const feeOf = (types: ProductType[], S: number, o: { acc?: number; bundles?: num
 describe('ENV-1 💰 regla de envío v2 (pura, §4-G.12 pasos 1–3)', () => {
   it('E = dial exacto (10000 / 17500 / 400000); canario: por `shippingFeeDisplayCentsOf` saldría 11600 (IVA apilado)', () => {
     expect(DIALS).toEqual({ cardsFeeCents: E_CARDS, sealedFeeCents: E_SEALED, freeFromCents: 400000 });
-    expect(feeOf(['raw'], 50000).feeCents).not.toBe(shippingFeeDisplayCentsOf(10000, { ivaTransferPct: 100, ivaRatePct: 16 }));
-    expect(shippingFeeDisplayCentsOf(10000, { ivaTransferPct: 100, ivaRatePct: 16 })).toBe(11600);
+    expect(feeOf(['raw'], 50000).feeCents).not.toBe(shippingFeeDisplayCentsOf(10000, { ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0 }));
+    expect(shippingFeeDisplayCentsOf(10000, { ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0 })).toBe(11600);
   });
 
   it('desglose del envío (R2, IVA por resta): 10000 ⇒ 8621 + 1379; 17500 ⇒ 15086 + 2414; r=8 ⇒ 9259 + 741; ida y vuelta = dial', () => {
@@ -58,8 +58,8 @@ describe('ENV-1 💰 regla de envío v2 (pura, §4-G.12 pasos 1–3)', () => {
       expect(sp.baseCents + sp.ivaCents).toBe(g);
     }
     // con t = 100, la base re-exhibida da el dial (el requisito del dueño: el cliente ve 10000 y 17500 exactos).
-    expect(shippingFeeDisplayCentsOf(8621, { ivaTransferPct: 100, ivaRatePct: 16 })).toBe(10000);
-    expect(shippingFeeDisplayCentsOf(15086, { ivaTransferPct: 100, ivaRatePct: 16 })).toBe(17500);
+    expect(shippingFeeDisplayCentsOf(8621, { ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0 })).toBe(10000);
+    expect(shippingFeeDisplayCentsOf(15086, { ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0 })).toBe(17500);
   });
 
   it('IVA-6 (desglose agregado): con E = 10000 el IVA del pedido = (S+E) − base(S+E) y el total = gross-up de S + E, sin sumando extra', () => {

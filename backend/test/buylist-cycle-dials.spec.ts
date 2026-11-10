@@ -397,7 +397,7 @@ describe('M-46 §4.39l — la cruzada se evalúa sobre el ESTADO RESULTANTE, no 
 
   it('un PUT que no toca ninguna de las tres NO paga la lectura (corto circuito)', async () => {
     boot(DEFAULTS_VIGENTES);
-    await service.update({ ivaPct: 16 });
+    await service.update({ buylistOfferReissueAlertCount: 3 });
     expect(prisma.configSetting.findMany).not.toHaveBeenCalled();
   });
 

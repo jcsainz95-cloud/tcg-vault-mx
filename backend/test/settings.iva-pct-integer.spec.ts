@@ -117,7 +117,7 @@ describe('iva_pct — el dial no puede aceptar lo que `Order.ivaRatePct` (Int) n
 
     beforeEach(() => {
       prisma = {
-        configSetting: { upsert: jest.fn().mockResolvedValue({}), findUnique: jest.fn().mockResolvedValue(null) },
+        configSetting: { upsert: jest.fn().mockResolvedValue({}), findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
         fxRate: { findFirst: jest.fn().mockResolvedValue(null) },
         $executeRaw: jest.fn().mockResolvedValue(1),
       };

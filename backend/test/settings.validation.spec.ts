@@ -83,7 +83,7 @@ describe('SettingsService.update — validación de diales (fix #2)', () => {
     // handle. El mock lo acepta como un no-op: aquí no hay concurrencia que serializar — la carrera
     // se mide, con exclusión mutua de verdad, en `test/fx.mode-switch.spec.ts` (FX-20).
     prisma = {
-      configSetting: { upsert: jest.fn().mockResolvedValue({}), findUnique: jest.fn().mockResolvedValue(null) },
+      configSetting: { upsert: jest.fn().mockResolvedValue({}), findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       fxRate: { findFirst: jest.fn().mockResolvedValue(null) },
       $executeRaw: jest.fn().mockResolvedValue(1),
     };

@@ -21,7 +21,7 @@
 import type { IvaDials } from '../../src/common/money';
 
 /** El neutro: dial de traslación al 100 %, tasa 16 %. */
-export const IVA_DIALS_NEUTRAL: IvaDials = { ivaTransferPct: 100, ivaRatePct: 16 };
+export const IVA_DIALS_NEUTRAL: IvaDials = { ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0 };
 
 /**
  * Devuelve un `getIvaDials` listo para pegar en un doble de `SettingsService`.
