@@ -3391,6 +3391,44 @@ model BuylistQuoteDailyCount {
   @@index([cardId])
 }
 
+// MKT-V2 (m99, docs/specs/MKT_PANEL_V2.md §7) — c6: búsquedas SIN resultado por (término normalizado × día CDMX), contadas en PERSONAS
+// (`people`, volcado al cierre del día). ⛔ SIN usuario, SIN IP, SIN cookie. El término pasó el filtro PII y la lista permitida de
+// vocabulario del catálogo. Visible solo con ≥ 5 personas en total y ≥ 2 días con ≥ 2 personas; retención 30/90.
+model SearchNoResultDaily {
+  id             String   @id @default(uuid())
+  termNormalized String
+  // Día CDMX (solo fecha).
+  day            DateTime @db.Date
+  // Personas distintas ese día (COUNT de hashes al cierre).
+  people         Int      @default(0)
+
+  @@unique([termNormalized, day])
+  @@index([termNormalized])
+}
+
+// MKT-V2 (m99, §7 MKV2-1) — hashes del día para contar PERSONAS: `h` = 16 hex de HMAC-SHA256(sal aleatoria del día, ip|user-agent). Se
+// BORRA al cerrar el día (job `marketing-search-close`, 00:10 CDMX) junto con la sal; nunca sale de la BD. Tope: 200 por (término, día).
+model SearchNoResultSeen {
+  termNormalized String
+  day            DateTime @db.Date
+  h              String
+
+  @@id([termNormalized, day, h])
+}
+
+// MKT-V2 (m99, §3) — idempotencia del correo semanal del lunes POR DESTINATARIO: `recipientKey` = 16 hex de SHA-256(correo en
+// minúsculas) ('none' si no hay destinatarios). El correo no se guarda. `pending` → `sent` | `skipped` | `failed` (≥ 5 intentos).
+model MarketingWeeklyDigest {
+  weekStart    DateTime  @db.Date
+  recipientKey String
+  status       String
+  attempts     Int       @default(0)
+  claimedAt    DateTime?
+  sentAt       DateTime?
+
+  @@id([weekStart, recipientKey])
+}
+
 // §13.4.4 — registro de accesos del panel (PM-M3). Cada export/descarga/llamada del endpoint deja
 // una fila. SIN contenido (ni filas, ni datos personales). Retención 12 meses (job futuro).
 // Un modelo dedicado (no `AuditLog`) porque el endpoint lo usa un principal de servicio SIN usuario.

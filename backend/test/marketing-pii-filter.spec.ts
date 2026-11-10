@@ -49,3 +49,12 @@ describe('containsPii — deja pasar texto legítimo de marketing (casos NEGATIV
     expect(containsPii(undefined)).toBe(false);
   });
 });
+
+describe('MKV2: el guion bajo es separador (evadía el filtro)', () => {
+  it.each(['gomc_800101_hdfrrr09', 'gome_800101_ab1', '5512_3456', '1234_567', 'GOMC_800101_HDFRRR09'])('%s ⇒ PII', (t) => {
+    expect(containsPii(t)).toBe(true);
+  });
+  it.each(['pikachu_ex', 'charizard_151', 'umbreon_vmax_215'])('%s ⇒ no es PII', (t) => {
+    expect(containsPii(t)).toBe(false);
+  });
+});

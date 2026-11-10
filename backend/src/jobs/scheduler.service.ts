@@ -29,6 +29,8 @@ import { ShipmentLabelProcessingJob } from '../modules/shipments/label-processin
 import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job';
 import { CatalogAutoWatchService } from '../modules/catalog/catalog-auto-watch.service';
 import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
+import { MarketingSearchMissService } from '../modules/marketing/marketing-search-miss.service';
+import { MarketingWeeklyDigestService } from '../modules/marketing/marketing-weekly-digest.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
@@ -148,6 +150,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly featuredRotation?: FeaturedService,
     // AUTO: backfill de contentKey + alerta >48 h (al final: los specs construyen el planificador con la lista posicional).
     @Optional() private readonly catalogAutoWatch?: CatalogAutoWatchService,
+    // MKT-V2 (m99): correo semanal del lunes y retención de c6. Al final por la misma razón (listas posicionales de los specs).
+    @Optional() private readonly marketingWeeklyDigest?: MarketingWeeklyDigestService,
+    @Optional() private readonly marketingSearchMiss?: MarketingSearchMissService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -328,6 +333,18 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: los jobs de marketing NO están inyectados; measurement-drain y marketing-access-log-retention no quedan programados.');
     }
 
+    // MKT-V2 (§3, §7): correo semanal del lunes (cada hora de 08:30 a 20:30 CDMX; idempotente por `MarketingWeeklyDigest`) y la
+    // retención diaria de c6. Patrones fijos en código (cero variables nuevas); el interruptor es `ConfigSetting`.
+    if (this.marketingWeeklyDigest && this.marketingSearchMiss) {
+      await this.queue.add('marketing-weekly-digest', {}, { repeat: { pattern: '30 8-20 * * 1', tz: SPEND_DIGEST_TZ }, jobId: 'marketing-weekly-digest-cron', removeOnComplete: true, removeOnFail: 100 });
+      await this.queue.add('marketing-search-miss-retention', {}, this.repeat('marketing-search-miss-retention', '50 8 * * *'));
+      // c6 (§7): cierre del día a las 00:10 CDMX (hashes → `people`, borra hashes y sal). Reintenta solo (6 veces, espera creciente);
+      // además se cierra perezosamente al escribir si el job no corrió. Idempotente.
+      await this.queue.add('marketing-search-close', {}, { ...this.repeatTz('marketing-search-close', '10 0 * * *', SPEND_DIGEST_TZ), attempts: 6, backoff: { type: 'exponential', delay: 60_000 } });
+    } else {
+      this.logger.error('Scheduler: los jobs de marketing v2 NO están inyectados; marketing-weekly-digest y marketing-search-miss-retention no quedan programados.');
+    }
+
     // v1.113⟨portada⟩ (API_CONTRACT §DYN.2.3): Destacadas del día. Un TIC cada 15 min (no un cron fijo): el cambio diario
     // cuelga del dial `featured_rotation_hour` (mover la hora no re-registra nada), un fallo se reintenta solo y un
     // arranque tras caída se pone al día solo (ARCHITECTURE §4.DYN (b)).
@@ -465,6 +482,12 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.measurementDrain?.run() ?? null;
       case 'marketing-access-log-retention':
         return this.marketingAccessLog?.purgeExpired() ?? null;
+      case 'marketing-weekly-digest':
+        return this.marketingWeeklyDigest?.run() ?? null;
+      case 'marketing-search-close':
+        return this.marketingSearchMiss?.closePastDays() ?? null;
+      case 'marketing-search-miss-retention':
+        return this.marketingSearchMiss?.purgeExpired() ?? null;
       case 'featured-rotation':
         return this.featuredRotation?.tick() ?? null;
       default:

@@ -31,6 +31,7 @@ import { CertNumberField } from '@/components/ui/CertNumberField';
 import { Button } from '@/components/ui/Button';
 import { QueryState } from '@/components/ui/QueryState';
 import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
+import { useBuyButtonVisible } from '@/lib/measurement/buy-visible';
 import { centsToValue, track } from '@/lib/measurement/track';
 import { measurementItemOf } from '@/lib/measurement/item';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -312,6 +313,8 @@ function Detail({
       market_value_shown: false,
     });
   }, [card.id, card.name, card.setName, primaryPriceCents]);
+  // §MKT.H.4 `buy_button_visible` (§MKT-V2 6.3): una vez por vista, cuando COMPRAR entra en pantalla.
+  useBuyButtonVisible(card.id);
 
   // Índice de piezas por id (para leer el slab/cert de la pieza representativa de un grupo).
   const unitById = useMemo(() => new Map(units.map((u) => [u.inventoryItemId, u])), [units]);
@@ -716,7 +719,7 @@ function MobileBuyBar({
           {tcat('viewCart')}
         </Button>
       ) : (
-        <Button variant="primary" size="sm" onClick={() => onAdd(nextUnit!)}>
+        <Button variant="primary" size="sm" data-buy-cta="" onClick={() => onAdd(nextUnit!)}>
           {tcat('addToCart')}
         </Button>
       )}
@@ -781,7 +784,7 @@ function InstanceCta({
   }
 
   return (
-    <Button variant="primary" size="md" data-testid="instance-cta" className={ROW_CTA_LG} onClick={() => onAdd(nextUnit!)}>
+    <Button variant="primary" size="md" data-testid="instance-cta" data-buy-cta="" className={ROW_CTA_LG} onClick={() => onAdd(nextUnit!)}>
       {tcat('addToCart')}
     </Button>
   );

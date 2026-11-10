@@ -1,5 +1,5 @@
 /**
- * Estado de `/admin/marketing` en la URL (`DESIGN_SYSTEM §MKT-UX.1`): `?pantalla=a…h|acceso`, `&periodo=semana|mes`,
+ * Estado de `/admin/marketing` en la URL (`DESIGN_SYSTEM §MKT-UX.1`): `?pantalla=r|a…h|acceso` (sin `pantalla` ⇒ `r`, Resumen, §MKT-V2), `&periodo=semana|mes`,
  * `&week=2026-W42` o `&month=2026-10`.
  *
  * ⚠️ Sin `'use client'` a propósito (lección de `m4/tabs.ts`): lo llama `page.tsx`, que es de servidor.
@@ -9,7 +9,7 @@
  */
 import type { MarketingScreen } from '@/types/contract';
 
-export const MKT_SCREENS: readonly MarketingScreen[] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+export const MKT_SCREENS: readonly MarketingScreen[] = ['r', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 export type MktView = MarketingScreen | 'acceso';
 export type MktPeriodKind = 'week' | 'month';
 
@@ -29,7 +29,7 @@ const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export function parseMktUrl(sp: Record<string, Raw>): MktUrlState {
   const p = first(sp.pantalla);
-  const view: MktView = p === 'acceso' || (MKT_SCREENS as readonly string[]).includes(p ?? '') ? (p as MktView) : 'a';
+  const view: MktView = p === 'acceso' || (MKT_SCREENS as readonly string[]).includes(p ?? '') ? (p as MktView) : 'r';
   const w = first(sp.week);
   const m = first(sp.month);
   const week = w && WEEK_RE.test(w) ? w : null;
@@ -42,7 +42,7 @@ export function parseMktUrl(sp: Record<string, Raw>): MktUrlState {
 /** Query string canónica (sin los valores por defecto). */
 export function mktSearch(s: { view: MktView; kind: MktPeriodKind; week: string | null; month: string | null }): string {
   const q = new URLSearchParams();
-  if (s.view !== 'a') q.set('pantalla', s.view);
+  if (s.view !== 'r') q.set('pantalla', s.view);
   if (s.kind === 'month') q.set('periodo', 'mes');
   if (s.kind === 'week' && s.week) q.set('week', s.week);
   if (s.kind === 'month' && s.month) q.set('month', s.month);

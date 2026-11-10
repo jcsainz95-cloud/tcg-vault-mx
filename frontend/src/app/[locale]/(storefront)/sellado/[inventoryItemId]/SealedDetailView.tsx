@@ -21,6 +21,7 @@ import { SealedValueTrend } from './SealedValueTrend';
 import { SealedRestockForm } from './SealedRestockForm';
 import { StockBadge, stockVariantFromCount } from '../../_shared/StockBadge';
 import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
+import { useBuyButtonVisible } from '@/lib/measurement/buy-visible';
 import { centsToValue, track } from '@/lib/measurement/track';
 import { measurementItemOf } from '@/lib/measurement/item';
 import { RefundPromiseLine, ShippingFeeHint } from '../../_shared/ShippingFeeHint';
@@ -145,6 +146,8 @@ function Detail({
       market_value_shown: false,
     });
   }, [cardId, sealedProductId, productName, fromPriceCents]);
+  // §MKT.H.4 `buy_button_visible` (§MKT-V2 6.3): una vez por vista, cuando COMPRAR entra en pantalla.
+  useBuyButtonVisible(cardId);
 
   const available = soldOut ? 0 : group.availableCount;
   const [qty, setQty] = useState(1);
@@ -285,7 +288,7 @@ function Detail({
                     {t('detail.goToCart')}
                   </Button>
                 ) : (
-                  <Button variant="accent" onClick={() => onAdd(idsToAdd)}>
+                  <Button variant="accent" data-buy-cta="" onClick={() => onAdd(idsToAdd)}>
                     {t('detail.addToCart', { count: clampedQty })}
                   </Button>
                 )}
@@ -348,7 +351,7 @@ function Detail({
               {tcat('viewCart')}
             </Button>
           ) : (
-            <Button variant="accent" onClick={() => onAdd(idsToAdd)}>
+            <Button variant="accent" data-buy-cta="" onClick={() => onAdd(idsToAdd)}>
               {tcat('addToCart')}
             </Button>
           )}

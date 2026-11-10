@@ -439,3 +439,52 @@ describe('D4 · sin parche del router no se cargan las etiquetas', () => {
     expect(screen.getByText('contenido')).toBeInTheDocument();
   });
 });
+
+describe('§MKT-V2 · tráfico propio y page_view de checkout', () => {
+  afterEach(() => window.localStorage.clear());
+  const scripts = () => document.querySelectorAll('script[data-th-measurement]').length;
+
+  it('?tcg_int=1: sin banner, sin cookie, sin contador, sin etiquetas; la marca queda para la siguiente visita', async () => {
+    window.history.replaceState(null, '', '/es/catalog?tcg_int=1');
+    setup();
+    await act(async () => {});
+    expect(screen.queryByTestId('consent-banner')).toBeNull();
+    expect(document.cookie).not.toContain('th_consent');
+    expect(scripts()).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem('tcg_int')).toBe('1');
+  });
+
+  it('utm_source=diag-lighthouse marca igual; una visita posterior sin parámetros sigue sin banner', async () => {
+    window.history.replaceState(null, '', '/es/catalog?utm_source=diag-lighthouse');
+    const first = setup();
+    await act(async () => {});
+    first.unmount();
+    window.history.replaceState(null, '', '/es/catalog');
+    setup();
+    await act(async () => {});
+    expect(screen.queryByTestId('consent-banner')).toBeNull();
+    expect(scripts()).toBe(0);
+  });
+
+  it('visita normal (utm_source=instagram): el banner sale como siempre', async () => {
+    window.history.replaceState(null, '', '/es/catalog?utm_source=instagram');
+    setup();
+    expect(await screen.findByTestId('consent-banner')).toBeInTheDocument();
+    expect(window.localStorage.getItem('tcg_int')).toBeNull();
+  });
+
+  it('checkout: al aceptar sale un page_view con origen + ruta, sin query ni hash', async () => {
+    mockPath = '/es/checkout';
+    window.history.replaceState(null, '', '/es/checkout?session_id=cs_live_1&utm_source=instagram#pago');
+    const user = userEvent.setup();
+    setup();
+    await user.click(await screen.findByRole('button', { name: 'Aceptar' }));
+    await waitFor(() => {
+      const layer = (window as unknown as { dataLayer?: ArrayLike<unknown>[] }).dataLayer ?? [];
+      const pv = layer.map((e) => Array.from(e)).find((e) => e[0] === 'event' && e[1] === 'page_view');
+      expect(pv).toBeDefined();
+      expect((pv![2] as Record<string, string>).page_location).toBe('https://www.tcghunt.mx/es/checkout');
+    });
+  });
+});

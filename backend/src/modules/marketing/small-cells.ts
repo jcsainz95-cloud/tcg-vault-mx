@@ -274,3 +274,21 @@ export function hiddenCellIds(rows: ComponentRow[], forced: ReadonlySet<CellId> 
   rows.forEach((r, i) => comps.forEach((c, j) => state[i][j] !== 'visible' && out.add(cellId(r.key, c))));
   return out;
 }
+
+export const REGION_REST_LABEL = 'Otros estados y sin dato';
+
+/**
+ * c9 (MKT_PANEL_V2 §5, supresión complementaria contra r1). `visible` = estados con cifra publicada (≥ 5); `total` = Visitantes de
+ * r1. El resto = total − estados visibles. Un resto < 5 re-identificaría una celda suprimida al restar contra r1 ⇒ se pliega al
+ * resto el estado visible más pequeño (desempate por clave) hasta que el resto sea ≥ 5 o no quede ninguno visible. Si aun así el
+ * resto es < 5 (el total es < 5), se publica el centinela «< 5», nunca la cifra. PURO.
+ */
+export function foldRegionRest(visible: { key: string; count: number }[], total: number): { rows: { key: string; count: number }[]; rest: number | SuppressedCount | null } {
+  const shown = [...visible].sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  const restOf = () => Math.max(0, total - shown.reduce((s, r) => s + r.count, 0));
+  // Resto exactamente 0: no hay celda suprimida ni «sin dato» que despejar ⇒ no hay fila de resto (no se pliega nada).
+  if (restOf() === 0) return { rows: shown, rest: null };
+  while (restOf() < SMALL_CELL_THRESHOLD && shown.length > 0) shown.pop();
+  const rest = restOf();
+  return { rows: shown, rest: rest < SMALL_CELL_THRESHOLD ? SMALL_CELL_SENTINEL : rest };
+}

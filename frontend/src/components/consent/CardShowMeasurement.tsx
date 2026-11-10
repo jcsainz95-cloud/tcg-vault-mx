@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { measurementActive, measurementIdsFromEnv } from '@/lib/measurement/mode';
 import { consentForRoute, isMeasuredPath, sendsPageView } from '@/lib/measurement/routes';
+import { syncInternalFlag } from '@/lib/measurement/internal';
 import { documentCookieJar, readConsent } from '@/lib/measurement/consent';
 import { flushPendingEvents, setRuntimeConsent, track } from '@/lib/measurement/track';
 import { measurementLoadedInDocument, useHardNavigationGuard } from './hard-navigation';
@@ -39,6 +40,7 @@ function ActiveCardShowMeasurement() {
 
   useEffect(() => {
     if (!active || !noticeVersion || !measured || !routerGuarded) return;
+    if (syncInternalFlag()) return; // §MKT-V2 §4: tráfico propio, nada se carga
     const stored = readConsent(documentCookieJar(), noticeVersion);
     if (!stored) {
       setRuntimeConsent(null);

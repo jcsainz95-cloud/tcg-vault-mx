@@ -252,8 +252,8 @@
 - GET `/admin/marketing/export` · cuenta
 - GET `/admin/marketing/export/todo` · cuenta
 - GET `/admin/marketing/weekly-excel` · cuenta
-- **§MKT-V2** (`docs/specs/MKT_PANEL_V2.md`): `pantalla` pasa a `r|a|b|c|d|e|f|g|h` (`r` = Resumen: tablas `r1` cifras, `r2` avisos, `r3` diario solo con régimen exacto/sesión; `c9` estados, `e2` páginas de Google). `periods` no cambia (la primera semana es la última cerrada).
-- POST `/marketing/search-miss` · público · `{term≤80, kind:'card'|'sealed'}` ⇒ `204` siempre; sin eco, sin identificador (c6).
+- **§MKT-V2** (`docs/specs/MKT_PANEL_V2.md`): `pantalla` pasa a `r|a|b|c|d|e|f|g|h` (`r` = Resumen: `r1` cifras, `r2` avisos, `r3` diario solo exact/sesión; `c9`, `e2`; columnas, filas y deltas en spec §1). `periods` no cambia.
+- POST `/marketing/search-miss` · público · `{term≤80, kind:'card'|'sealed'}` ⇒ `204`; `413` si cuerpo >1 KB; `429` por throttle; sin eco, sin identificador (c6).
 - Sin endpoint para el correo del lunes (job interno `marketing-weekly-digest`, idempotente por semana).
 
 ### measurement

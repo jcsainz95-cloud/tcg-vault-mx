@@ -17,6 +17,7 @@ import { IDS_ATTACH_NAMESPACE } from '../src/modules/inventory/inventory-version
 import { OPERATOR_REFUND_GATE_NAMESPACE } from '../src/modules/payments/refunds/refund-ledger.service';
 import { BANNER_COUNTER_LOCK_NAMESPACE } from '../src/modules/measurement/banner-response.service';
 import { META_TEST_EVENT_LOCK_NAMESPACE } from '../src/modules/measurement/meta-test-event.service';
+import { SEARCH_MISS_DAY_NAMESPACE } from '../src/modules/marketing/marketing-search-miss.service';
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -110,6 +111,7 @@ describe('censo de namespaces de candado consultivo de dos claves', () => {
     OPERATOR_REFUND_GATE_NAMESPACE,
     BANNER_COUNTER_LOCK_NAMESPACE,
     META_TEST_EVENT_LOCK_NAMESPACE,
+    SEARCH_MISS_DAY_NAMESPACE, // c6: serializa por día los topes 200/300 (MKT-V2)
   };
 
   it('el censo leído del código es exactamente el importado (un namespace nuevo se añade aquí a mano, y se mira)', () => {

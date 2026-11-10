@@ -58,6 +58,13 @@ for (const m of SERVICE.matchAll(/id: '(\w+)',\s*title: '([^']*)',\s*source: '(\
   e.titles.add(m[2]);
   e.sources.add(m[3]);
 }
+// §MKT-V2: c3/c8 salen de un método común que recibe id y título (`this.landingTable('c3', 'Título', …)`).
+for (const m of SERVICE.matchAll(/this\.landingTable\('(\w+)',\s*'([^']*)'/g)) {
+  const e = entry(m[1]);
+  e.titles.add(m[2]);
+  e.sources.add('GA4');
+  e.reasons.add(constOf('GA4_OFF')); // `landingTable` devuelve `this.ga4Reason()` ⇒ en modo off, GA4_OFF
+}
 // c7 por semana: tabla literal con `notMeasuredReason: <CONST>`.
 for (const m of SERVICE.matchAll(/id: '(\w+)',[^}]*?notMeasuredReason: (\w+)/gs)) entry(m[1]).reasons.add(constOf(m[2]));
 

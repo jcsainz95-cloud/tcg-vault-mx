@@ -10,26 +10,41 @@ import type { Ga4ReportSpec, Ga4Row } from './marketing-external-sources';
 
 /** e3 / a4 / b4 — asistentes de IA: lista fija en código (§MKT.H.9). */
 export const AI_ASSISTANT_SOURCES = ['chatgpt.com', 'perplexity.ai', 'gemini.google.com', 'copilot.microsoft.com', 'claude.ai'] as const;
-const INSTAGRAM_SOURCES = ['instagram', 'ig', 'l.instagram.com'];
+export const INSTAGRAM_SOURCES = ['instagram', 'ig', 'l.instagram.com'];
 
 /** a5 — pasos del embudo, en orden. */
 export const FUNNEL_EVENTS = ['view_item', 'add_to_cart', 'begin_checkout', 'add_payment_info', 'purchase'] as const;
 
 export const GA4_SPECS = {
   sources: { dimensions: ['sessionSource', 'sessionMedium', 'sessionDefaultChannelGroup'], metrics: ['sessions'], limit: 1000 },
-  funnelEvents: {
+  // MKT-V2 §5: la misma consulta de eventos con dos más (`buy_button_visible` para c4, `search`); a5 sigue leyendo FUNNEL_EVENTS.
+  events: {
     dimensions: ['eventName'],
     metrics: ['eventCount'],
-    inList: { dimension: 'eventName', values: [...FUNNEL_EVENTS] },
+    inList: { dimension: 'eventName', values: [...FUNNEL_EVENTS, 'buy_button_visible', 'search'] },
   },
-  funnelSessions: { dimensions: [], metrics: ['sessions'] },
+  // `sessions` primero (a5); `totalUsers` = «visitantes reales» de r1.
+  funnelSessions: { dimensions: [], metrics: ['sessions', 'totalUsers'] },
+  // limit 250: se clasifica por tipo de página (c2); c1 sigue mostrando las 50 primeras tras agregar.
   pages: {
     dimensions: ['pagePath'],
     metrics: ['screenPageViews', 'totalUsers', 'userEngagementDuration'],
     orderByMetricDesc: 'screenPageViews',
-    limit: 50,
+    limit: 250,
   },
+  nvr: { dimensions: ['newVsReturning'], metrics: ['totalUsers'], limit: 10 },
+  dailyNvr: { dimensions: ['date', 'newVsReturning'], metrics: ['totalUsers'], limit: 100 },
+  dailySrc: { dimensions: ['date', 'sessionSource', 'sessionMedium', 'sessionDefaultChannelGroup'], metrics: ['sessions'], limit: 2000 },
+  landing: { dimensions: ['landingPage'], metrics: ['sessions', 'engagedSessions'], limit: 250 },
+  landingInstagram: {
+    dimensions: ['landingPage'],
+    metrics: ['sessions', 'engagedSessions'],
+    inList: { dimension: 'sessionSource', values: [...INSTAGRAM_SOURCES] },
+    limit: 250,
+  },
+  region: { dimensions: ['region'], metrics: ['totalUsers'], limit: 100 },
   devices: { dimensions: ['deviceCategory', 'browser'], metrics: ['sessions'], limit: 100 },
+  // `sessionSource` puede no ser compatible con las métricas por ítem (NO VERIFICADO): solo un 400 de compatibilidad reintenta sin él.
   items: { dimensions: ['itemId'], metrics: ['itemsViewed', 'itemsAddedToCart'], limit: 1000 },
   aiReferrals: {
     dimensions: ['sessionSource', 'landingPage'],
@@ -138,4 +153,80 @@ export function fichaOf(path: string): { kind: 'card' | 'sealed'; id: string } |
   const m = /^\/(?:es|en)\/(catalog|sellado)\/([A-Za-z0-9_-]{1,64})\/?$/.exec(path.split(/[?#]/)[0]);
   if (!m) return null;
   return { kind: m[1] === 'catalog' ? 'card' : 'sealed', id: m[2] };
+}
+
+// ───────────────────────── MKT-V2: tipo de página (c2, c3, c8) y filas nuevas ─────────────────────────
+
+export const PAGE_TYPES = ['home', 'catalogo', 'ficha-carta', 'sellado', 'ficha-sellado', 'checkout', 'buylist', 'cuenta', 'card-show', 'otras'] as const;
+export type PageType = (typeof PAGE_TYPES)[number];
+export const PAGE_TYPE_LABEL: Record<PageType, string> = {
+  home: 'Inicio',
+  catalogo: 'Catálogo (lista)',
+  'ficha-carta': 'Ficha de carta',
+  sellado: 'Sellado (lista)',
+  'ficha-sellado': 'Ficha de sellado',
+  checkout: 'Carrito y pago',
+  buylist: 'Buylist (vender cartas)',
+  cuenta: 'Cuenta y bóveda',
+  'card-show': 'Card Show',
+  otras: 'Otras páginas',
+};
+
+/** Tipo de página de una ruta; ignora query/hash y el idioma (`es|en`). PURO. */
+export function pageTypeOf(path: string): PageType {
+  const clean = (path.split(/[?#]/)[0] ?? '').replace(/\/+$/, '');
+  if (clean === '/card-show') return 'card-show';
+  const parts = clean.split('/').filter(Boolean);
+  if (parts.length === 0) return 'otras';
+  if (parts[0] === 'es' || parts[0] === 'en') parts.shift();
+  const a = parts[0];
+  if (a === undefined) return 'home';
+  const n = parts.length;
+  if ((a === 'catalog' || a === 'compra') && n === 1) return 'catalogo';
+  if (a === 'catalog' && n === 2) return 'ficha-carta';
+  if (a === 'sellado' && n === 1) return 'sellado';
+  if (a === 'sellado' && n === 2) return 'ficha-sellado';
+  if (a === 'checkout' || a === 'cart' || a === 'carrito') return 'checkout';
+  if (a === 'buylist') return 'buylist';
+  if (a === 'account' || a === 'vault' || a === 'orders' || a === 'cuenta' || a === 'boveda') return 'cuenta';
+  return 'otras';
+}
+
+/** c2 — misma agregación de c1 (usuarios con cota, vistas, tiempo medio) pero por TIPO de página. */
+export function c2Rows(rows: Ga4Row[]): DimensionRow[] {
+  return c1Rows(rows, (p) => PAGE_TYPE_LABEL[pageTypeOf(p)]);
+}
+
+/**
+ * c3 / c8 — por tipo de página de aterrizaje: sesiones y abandono = 1 − engagedSessions/sessions (en %, 1 decimal).
+ * `count` = sesiones (la unidad de la fuente); sin sesiones ⇒ abandono `null`.
+ */
+export function landingRows(rows: Ga4Row[]): DimensionRow[] {
+  const acc = new Map<string, { s: number; e: number }>();
+  for (const r of rows) {
+    const k = PAGE_TYPE_LABEL[pageTypeOf(r.dimensions[0])];
+    const e = acc.get(k) ?? { s: 0, e: 0 };
+    e.s += r.metrics[0] ?? 0;
+    e.e += r.metrics[1] ?? 0;
+    acc.set(k, e);
+  }
+  return [...acc.entries()]
+    .sort(([ka, a], [kb, b]) => b.s - a.s || ka.localeCompare(kb))
+    .map(([key, e]) => ({ key, count: e.s, subjects: e.s, money: { abandono: e.s > 0 ? Math.round((1 - Math.min(e.e, e.s) / e.s) * 1000) / 10 : null } }));
+}
+
+/** c9 — usuarios por estado (`region` de GA4); sin ciudad. «(not set)» se rotula. */
+export function regionRows(rows: Ga4Row[]): DimensionRow[] {
+  return sumBy(rows, (r) => (r.dimensions[0] === '' || r.dimensions[0] === '(not set)' ? 'Sin dato' : r.dimensions[0])).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+}
+
+/** Nuevos / recurrentes (`newVsReturning`: `new` | `returning`; `(not set)` no entra). */
+export function nvrOf(rows: Ga4Row[]): { nuevos: number; recurrentes: number } {
+  let nuevos = 0;
+  let recurrentes = 0;
+  for (const r of rows) {
+    if (r.dimensions[0] === 'new') nuevos += r.metrics[0] ?? 0;
+    else if (r.dimensions[0] === 'returning') recurrentes += r.metrics[0] ?? 0;
+  }
+  return { nuevos, recurrentes };
 }

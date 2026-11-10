@@ -70,7 +70,7 @@ export interface AuditWorld {
   wishes: AuditWish[];
   /** Cartas con piezas `listed` de plataforma HOY (las de WISH son las que NO están aquí). */
   listedCardIds: Set<string>;
-  ga4: Partial<Record<'sources' | 'funnel' | 'pages' | 'devices' | 'items' | 'aiReferrals', AuditExternalRow[]>>;
+  ga4: Partial<Record<'sources' | 'funnel' | 'pages' | 'devices' | 'items' | 'aiReferrals' | 'landing' | 'region', AuditExternalRow[]>>;
   sc: AuditExternalRow[];
   /** Sesiones de GA4 por día (prueba 3): el fixture declara a qué fila de a4/b4 va cada una (la fuente de verdad del caso). */
   sessions?: AuditSession[];
@@ -141,6 +141,8 @@ export const POPULATION_ORACLES: Record<PopulationId | 'CS_LEAD' | 'CS_SIGNUP', 
   'GA4:devices': (w) => ext(w.ga4.devices),
   'GA4:items': (w) => ext(w.ga4.items),
   'GA4:aiReferrals': (w) => ext(w.ga4.aiReferrals),
+  'GA4:landing': (w) => ext(w.ga4.landing),
+  'GA4:region': (w) => ext(w.ga4.region),
   SC: (w) => ext(w.sc),
   CS_LEAD: (w, r) => boxes(csIn(w.leads, r)),
   CS_SIGNUP: (w, r) => boxes(csIn(w.signups, r)),

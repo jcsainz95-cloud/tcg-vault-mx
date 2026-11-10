@@ -113,12 +113,12 @@ const view = (q: Record<string, string> = {}, locale: 'es' | 'en' = 'es') =>
 
 describe('UX-MKT-7 · la URL inválida no viaja al servidor', () => {
   it('pantalla/semana/mes fuera de dominio se ignoran al parsear', () => {
-    expect(parseMktUrl({ pantalla: 'zz', week: 'banana', month: '2026-13' })).toEqual({ view: 'a', kind: 'week', week: null, month: null });
+    expect(parseMktUrl({ pantalla: 'zz', week: 'banana', month: '2026-13' })).toEqual({ view: 'r', kind: 'week', week: null, month: null });
     expect(parseMktUrl({ pantalla: 'acceso', periodo: 'mes', month: '2026-09' })).toEqual({ view: 'acceso', kind: 'month', week: null, month: '2026-09' });
   });
 
   it('una semana bien formada pero no cerrada (no está en la lista del servidor) ⇒ se pide la última cerrada', async () => {
-    view({ week: '2030-W01', pantalla: 'q' });
+    view({ week: '2030-W01', pantalla: 'a' });
     await screen.findByText('Periodo actual', { selector: '[data-cell]' }).catch(() => null);
     await waitFor(() => expect(api.getMarketingPanel).toHaveBeenCalled());
     for (const call of api.getMarketingPanel.mock.calls) expect(call).toEqual(['a', { weekStart: '2026-10-05' }]);
@@ -126,7 +126,7 @@ describe('UX-MKT-7 · la URL inválida no viaja al servidor', () => {
   });
 
   it('una semana de la lista (por su semana ISO) se respeta', async () => {
-    view({ week: '2026-W40' });
+    view({ week: '2026-W40', pantalla: 'a' });
     await waitFor(() => expect(api.getMarketingPanel).toHaveBeenCalledWith('a', { weekStart: '2026-09-28' }));
   });
 });
@@ -204,11 +204,13 @@ describe('UX-MKT-11 · pestañas APG y Select en móvil', () => {
     const list = screen.getByTestId('mkt-tablist');
     const tabs = within(list).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent)).toEqual([
-      'Resumen', 'Origen', 'Comportamiento', 'Catálogo', 'Buscadores e IA', 'Cookies', 'Promociones', 'Anotaciones', 'Acceso del analista',
+      'Resumen', 'Ventas', 'Origen', 'Comportamiento', 'Catálogo', 'Buscadores e IA', 'Cookies', 'Promociones', 'Anotaciones', 'Acceso del analista',
     ]);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
     expect(tabs[1]).toHaveAttribute('aria-selected', 'false');
     fireEvent.keyDown(tabs[0], { key: 'ArrowRight' });
+    expect(within(list).getByRole('tab', { name: 'Ventas' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.keyDown(document.activeElement as Element, { key: 'ArrowRight' });
     expect(within(list).getByRole('tab', { name: 'Origen' })).toHaveAttribute('aria-selected', 'true');
     expect(document.activeElement).toBe(within(list).getByRole('tab', { name: 'Origen' }));
     fireEvent.keyDown(document.activeElement as Element, { key: 'End' });
@@ -225,7 +227,7 @@ describe('UX-MKT-11 · pestañas APG y Select en móvil', () => {
     const wrap = screen.getByTestId('mkt-screen-select');
     expect(wrap.className).toMatch(/md:hidden/);
     const sel = within(wrap).getByLabelText('Pantalla') as HTMLSelectElement;
-    expect(sel.options).toHaveLength(9);
+    expect(sel.options).toHaveLength(10);
     fireEvent.change(sel, { target: { value: 'h' } });
     expect(within(screen.getByTestId('mkt-tablist')).getByRole('tab', { name: 'Anotaciones' })).toHaveAttribute('aria-selected', 'true');
   });
@@ -261,7 +263,7 @@ describe('UX-MKT-15 · descarga con fetch + blob', () => {
   });
 
   it('con Mes el botón dice «Descargar Excel del mes» y exporta la pantalla con su formato', async () => {
-    view({ periodo: 'mes' });
+    view({ periodo: 'mes', pantalla: 'a' });
     await waitFor(() => expect(screen.getByTestId('mkt-download-weekly')).toHaveTextContent('Descargar Excel del mes'));
     await waitFor(() => expect(screen.getByTestId('mkt-export-csv')).toBeEnabled());
     await userEvent.setup().click(screen.getByTestId('mkt-export-csv'));

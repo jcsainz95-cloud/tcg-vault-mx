@@ -5,6 +5,9 @@ import { json, text } from 'express';
 /** v1.84 (LIVE-7, API_CONTRACT §14.7): tope del cuerpo de `POST /telemetry/csp` (si no ⇒ `413`). */
 export const CSP_REPORT_MAX_BYTES = 16 * 1024;
 export const CSP_REPORT_PATH = '/api/v1/telemetry/csp';
+/** MKT-V2 (MKV2-2): tope del cuerpo de `POST /marketing/search-miss` (≤ 1 KB; si no ⇒ `413` limpio, nunca 500). */
+export const SEARCH_MISS_MAX_BYTES = 1024;
+export const SEARCH_MISS_PATH = '/api/v1/marketing/search-miss';
 
 /**
  * Parsers de cuerpo de la app. UNA fuente para `main.ts` y para el arnés de integración
@@ -43,6 +46,21 @@ export function applyBodyParsers(app: INestApplication): void {
   const cspText = text({ type: () => true, limit: CSP_REPORT_MAX_BYTES });
   app.use(CSP_REPORT_PATH, (req: Request, res: Response, next: NextFunction) => {
     cspText(req, res, (err?: unknown) => {
+      if (!err) return next();
+      const e = err as { type?: string; status?: number };
+      if (e.type === 'entity.too.large' || e.status === 413) {
+        res.status(413).end();
+        return;
+      }
+      req.body = undefined;
+      next();
+    });
+  });
+
+  // MKT-V2: `search-miss` (público) lee ≤ 1 KB. Más ⇒ `413` sin cuerpo; un JSON roto ⇒ cuerpo vacío ⇒ el controlador responde 204.
+  const missJson = json({ limit: SEARCH_MISS_MAX_BYTES });
+  app.use(SEARCH_MISS_PATH, (req: Request, res: Response, next: NextFunction) => {
+    missJson(req, res, (err?: unknown) => {
       if (!err) return next();
       const e = err as { type?: string; status?: number };
       if (e.type === 'entity.too.large' || e.status === 413) {

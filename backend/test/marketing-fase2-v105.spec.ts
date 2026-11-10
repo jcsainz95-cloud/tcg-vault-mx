@@ -17,6 +17,7 @@ import { SMALL_CELL_HIDDEN, SMALL_CELL_SENTINEL, type CellPrivacy } from '../src
 import { a4Group, b4Group, c1Rows, fichaOf } from '../src/modules/marketing/marketing-ga4';
 import type { MarketingPeriod, MarketingScreen } from '../src/modules/marketing/marketing-period';
 import type { AggTable } from '../src/modules/marketing/marketing-aggregates.types';
+import { ga4InternalExclusion } from '../src/modules/marketing/internal-traffic';
 import { fakeConfig, fullEnv } from './helpers/measurement-fixtures';
 
 const week: MarketingPeriod = { kind: 'week', from: '2026-10-05', to: '2026-10-11', prev: { from: '2026-09-28', to: '2026-10-04' }, label: '2026-W41' };
@@ -66,6 +67,10 @@ function ga4Answer(body: Body): unknown {
       return { rows: [r(['c_card-1'], [400, 40]), r(['c_card-2'], [25, 5]), r(['s_sp-9'], [10, 1])] };
     case 'sessionSource,landingPage':
       return { rows: [r(['claude.ai', '/es/como-funciona'], [9]), r(['chatgpt.com', '/es/guias/que-es-nm'], [6]), r(['perplexity.ai', '/es'], [2])] };
+    case 'landingPage':
+      return { rows: [r(['/es/catalog/card-1'], [30, 24]), r(['/es'], [20, 10])] };
+    case 'region':
+      return { rows: [r(['Jalisco'], [30]), r(['Nuevo León'], [12])] };
     default:
       throw new Error(`consulta inesperada ${dimsOf(body)}`);
   }
@@ -98,10 +103,15 @@ function build(opts: { mode?: string; ga4?: boolean; failDims?: string; consentR
     order: {
       count: orderCount,
       aggregate: jest.fn(async () => ({ _count: { _all: 6 }, _sum: { totalCents: 600000 } })),
-      findMany: jest.fn(async () => [
-        ...Array.from({ length: 5 }, () => ({ firstUtmSource: 'instagram', firstUtmMedium: 'bio', firstUtmContent: 'reel-1', totalCents: 10000 })),
-        ...Array.from({ length: 5 }, () => ({ firstUtmSource: 'instagram', firstUtmMedium: 'dm', firstUtmContent: 'chat-7', totalCents: 5000 })),
-      ]),
+      findMany: jest.fn(async ({ select }: { select: Record<string, unknown> }) =>
+        // MKT-V2 §4: f3 lee solo (origen, medio) para excluir tráfico propio ⇒ 3 pedidos con origen.
+        !('totalCents' in select)
+          ? Array.from({ length: 3 }, () => ({ firstUtmSource: 'instagram', firstUtmMedium: 'bio' }))
+          : [
+              ...Array.from({ length: 5 }, () => ({ firstUtmSource: 'instagram', firstUtmMedium: 'bio', firstUtmContent: 'reel-1', totalCents: 10000 })),
+              ...Array.from({ length: 5 }, () => ({ firstUtmSource: 'instagram', firstUtmMedium: 'dm', firstUtmContent: 'chat-7', totalCents: 5000 })),
+            ],
+      ),
     },
     sellRequest: {
       // a3 «pagadas» con 2 (1..4 ⇒ «< 5»): con 0 sale 0 visible desde MKT-TL9 (R1 «N = 0 ⇒ 0»).
@@ -227,12 +237,18 @@ describe('(4) GA4 con credenciales (doble): forma de cada runReport y cálculo',
       expect.arrayContaining([
         ['sessionSource,sessionMedium,sessionDefaultChannelGroup', 'sessions'],
         ['eventName', 'eventCount'],
-        ['', 'sessions'],
+        ['', 'sessions,totalUsers'],
       ]),
     );
     const ev = w.calls.find((c) => dimsOf(c) === 'eventName')!;
+    // MKT-V2 §4/§5: la consulta trae `buy_button_visible` y `search`, y TODA consulta excluye el tráfico propio.
     expect(ev.dimensionFilter).toEqual({
-      filter: { fieldName: 'eventName', inListFilter: { values: ['view_item', 'add_to_cart', 'begin_checkout', 'add_payment_info', 'purchase'] } },
+      andGroup: {
+        expressions: [
+          { filter: { fieldName: 'eventName', inListFilter: { values: ['view_item', 'add_to_cart', 'begin_checkout', 'add_payment_info', 'purchase', 'buy_button_visible', 'search'] } } },
+          ga4InternalExclusion(),
+        ],
+      },
     });
   });
 
@@ -267,7 +283,12 @@ describe('(4) GA4 con credenciales (doble): forma de cada runReport y cálculo',
     ]);
     const ai = w.calls.find((x) => dimsOf(x) === 'sessionSource,landingPage')!;
     expect(ai.dimensionFilter).toEqual({
-      filter: { fieldName: 'sessionSource', inListFilter: { values: ['chatgpt.com', 'perplexity.ai', 'gemini.google.com', 'copilot.microsoft.com', 'claude.ai'] } },
+      andGroup: {
+        expressions: [
+          { filter: { fieldName: 'sessionSource', inListFilter: { values: ['chatgpt.com', 'perplexity.ai', 'gemini.google.com', 'copilot.microsoft.com', 'claude.ai'] } } },
+          ga4InternalExclusion(),
+        ],
+      },
     });
     expect(w.calls.find((x) => dimsOf(x) === 'itemId')!.metrics.map((m) => m.name)).toEqual(['itemsViewed', 'itemsAddedToCart']);
     expect(w.calls.find((x) => dimsOf(x) === 'deviceCategory,browser')!.metrics.map((m) => m.name)).toEqual(['sessions']);
@@ -394,14 +415,10 @@ describe('C-P1 (v1.106 §MKT.G.5) · null = «sin dato»; en una fila oculta tod
 });
 
 describe('(5) diferidas con su motivo literal y b1-b3 solo de BD', () => {
-  it('c2, c3, c4, c8 ⇒ measured:false con el motivo de §MKT.H.9 (también con credenciales)', async () => {
+  it('c4 sin el evento `buy_button_visible` ⇒ NO MEDIDO con su motivo; c2/c3/c8 ya se miden (MKT-V2 §6)', async () => {
     const c = (await build({ mode: 'on', ga4: true }).screen('c')).tables;
-    expect(['c2', 'c3', 'c4', 'c8'].map((id) => [id, by(c, id).measured, by(c, id).notMeasuredReason])).toEqual([
-      ['c2', false, 'NO MEDIDO — la clasificación por tipo de página no está definida todavía'],
-      ['c3', false, 'NO MEDIDO — la consulta de abandono no está definida todavía'],
-      ['c4', false, 'NO MEDIDO — el evento del botón COMPRAR todavía no se envía'],
-      ['c8', false, 'NO MEDIDO — la clasificación por tipo de página no está definida todavía'],
-    ]);
+    expect([by(c, 'c4').measured, by(c, 'c4').notMeasuredReason]).toEqual([false, 'NO MEDIDO — el evento del botón COMPRAR todavía no se envía']);
+    expect(['c2', 'c3', 'c8'].map((id) => by(c, id).measured)).toEqual([true, true, true]);
   });
   it('b1/b2/b3 de pedidos y solicitudes por first_utm_*; dm en una sola fila; sin GA4', async () => {
     const w = build({ mode: 'on', ga4: true });

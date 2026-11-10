@@ -41,8 +41,19 @@ export const MEASURED_ROUTE_PATTERNS: readonly string[] = [
  */
 export const MEASURED_UNLOCALIZED_PATHS: readonly string[] = ['/card-show'];
 
-/** Rutas medidas donde NO se manda `page_view` (§MKT.H.4: «⛔ no en checkout»). */
-const NO_PAGE_VIEW: readonly string[] = ['/checkout'];
+/** Rutas medidas donde NO se manda `page_view`. Vacía desde §MKT-V2 6.8: checkout SÍ lo manda, sin query ni hash. */
+const NO_PAGE_VIEW: readonly string[] = [];
+
+/** Rutas cuyo `page_view` va solo con origen + ruta (nunca query ni hash): el checkout lleva `session_id`/`token`. */
+const PATH_ONLY_PAGE_VIEW: readonly string[] = ['/checkout'];
+
+/** ¿El `page_view` de esta ruta (con idioma) debe salir sin query ni hash? */
+export function pageViewPathOnly(pathname: string): boolean {
+  const path = stripLocale(pathname);
+  if (path === null) return false;
+  const normalized = path.length > 1 ? path.replace(/\/+$/, '') : path;
+  return PATH_ONLY_PAGE_VIEW.some((pat) => matches(pat, normalized || '/'));
+}
 
 /** Qué se permite en una ruta medida. */
 export interface MeasurementRoutePolicy {

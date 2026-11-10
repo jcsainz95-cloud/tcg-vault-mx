@@ -23,7 +23,7 @@ import type { ScreenPayload } from '../src/modules/marketing/marketing-aggregate
 import { POPULATION_ORACLES, type AuditWorld } from './support/disclosure-audit';
 import { fakeConfig, fullEnv } from './helpers/measurement-fixtures';
 
-const SCREENS: MarketingScreen[] = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+const SCREENS: MarketingScreen[] = ['r', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const WEEK: MarketingPeriod = { kind: 'week', from: '2027-02-08', to: '2027-02-14', prev: { from: '2027-02-01', to: '2027-02-07' }, label: '2027-W06' };
 const MONTH: MarketingPeriod = { kind: 'month', from: '2027-02-01', to: '2027-02-28', prev: { from: '2027-01-01', to: '2027-01-31' }, label: '2027-02' };
 const NOW = new Date('2027-03-10T12:00:00.000Z');
@@ -48,6 +48,12 @@ function googleAnswer(url: string, body: Body): unknown {
       return { rows: [r(['mobile', 'Instagram'], [70]), r(['desktop', 'Chrome'], [2])] };
     case 'itemId':
       return { rows: [r(['c_card-1'], [400, 40]), r(['c_card-2'], [25, 5])] };
+    case 'newVsReturning':
+      return { rows: [r(['new'], [30]), r(['returning'], [10])] };
+    case 'landingPage':
+      return { rows: [r(['/es/catalog/card-1'], [30, 24]), r(['/es'], [20, 10])] };
+    case 'region':
+      return { rows: [r(['Jalisco'], [30]), r(['Nuevo León'], [12])] };
     case 'sessionSource,landingPage':
       return { rows: [r(['claude.ai', '/es/como-funciona'], [9]), r(['perplexity.ai', '/es'], [2])] };
     default:
@@ -137,8 +143,22 @@ async function allPayloads(svc: MarketingAnalyticsService): Promise<ScreenPayloa
   return out;
 }
 
-/** Los `id` de la tabla de §MKT.G.4, en orden, leídos del contrato (la fuente; no una copia). */
+/**
+ * Los `id` de la tabla de §MKT.G.4, en orden, leídos del contrato (la fuente; no una copia) + las tablas de MKT-V2
+ * (docs/specs/MKT_PANEL_V2.md §1, §5, §6: r1-r3 al frente, c9 tras c8, e2 tras e1). `r3` solo se emite con `privacy='exact'`.
+ */
 function catalogIds(): string[] {
+  const legacy = legacyCatalogIds();
+  const out: string[] = ['r1', 'r2', 'r3'];
+  for (const id of legacy) {
+    out.push(id);
+    if (id === 'c8') out.push('c9');
+    if (id === 'e1') out.push('e2');
+  }
+  return out;
+}
+
+function legacyCatalogIds(): string[] {
   const doc = readFileSync(resolve(__dirname, '../../docs/archive/API_CONTRACT.md'), 'utf8');
   const from = doc.indexOf('#### MKT.G.4 ');
   const to = doc.indexOf('#### MKT.G.5 ', from);
@@ -149,14 +169,14 @@ function catalogIds(): string[] {
 describe('MKT-TL2 (a) · registro de poblaciones (§MKT.H.14, prueba 1)', () => {
   it.each(['off', 'on'] as const)('medición %s: 8 pantallas × semana/mes ⇒ toda tabla y toda columna no texto registradas', async (mode) => {
     const payloads = await allPayloads(build(mode));
-    expect(payloads).toHaveLength(16);
+    expect(payloads).toHaveLength(18);
     expect(payloads.flatMap(violations)).toEqual([]);
     // El fixture mide de verdad lo que el modo enciende (si no, la prueba no prueba nada).
     const measured = new Set(payloads.flatMap((p) => p.tables.filter((t) => t.measured).map((t) => t.id)));
     const mustMeasure =
       mode === 'on'
-        ? ['a1', 'a3', 'a4', 'a5', 'a6', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'c1', 'c5', 'c7', 'd1', 'd2', 'd3', 'd4b', 'e1', 'e3', 'f3', 'g1']
-        : ['a1', 'a3', 'a6', 'b5', 'b6', 'c7', 'd1', 'd3', 'd4', 'd4b', 'e1'];
+        ? ['r1', 'r2', 'a1', 'a3', 'a4', 'a5', 'a6', 'b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'c1', 'c2', 'c3', 'c5', 'c7', 'c8', 'c9', 'd1', 'd2', 'd3', 'd4b', 'e1', 'e2', 'e3', 'f3', 'g1']
+        : ['r1', 'r2', 'a1', 'a3', 'a6', 'b5', 'b6', 'c7', 'd1', 'd3', 'd4', 'd4b', 'e1'];
     expect(mustMeasure.filter((id) => !measured.has(id))).toEqual([]);
   });
 
@@ -164,8 +184,9 @@ describe('MKT-TL2 (a) · registro de poblaciones (§MKT.H.14, prueba 1)', () => 
     const catalog = catalogIds();
     expect(catalog.length).toBeGreaterThanOrEqual(28);
     expect(Object.keys(MARKETING_TABLES)).toEqual(catalog);
+    // `build()` emite en small_cells: sin `r3` (D2 de MKT-V2).
     const emitted = new Set((await allPayloads(build('on'))).flatMap((p) => p.tables.map((t) => t.id)));
-    expect([...emitted].sort()).toEqual([...catalog].sort());
+    expect([...emitted].sort()).toEqual(catalog.filter((id) => id !== 'r3').sort());
   });
 
   it('toda población usada por un componente existe en MARKETING_POPULATIONS y tiene oráculo; y no sobra ningún oráculo', () => {

@@ -162,3 +162,23 @@ export function sanitizePath(raw: string | null | undefined): string {
   const path = raw.split(/[?#]/)[0] ?? '';
   return path.startsWith('/') ? path : '';
 }
+
+/**
+ * §MKT-V2 6.8 — origen + ruta, SIN query ni fragmento (ni siquiera `utm_*`). Para el `page_view` de checkout: esa
+ * ruta puede llevar `session_id`/`token`; GA4 solo ve de dónde vino la página. Otro esquema o URL rota ⇒ `''`.
+ */
+export function pathOnlyUrl(raw: string | null | undefined): string {
+  const url = parseHttpUrl(raw);
+  return url ? `${url.origin}${url.pathname}` : '';
+}
+
+/**
+ * `page_referrer` del `page_view` de checkout (§MKT-V2 6.8), lo más conservador: referente de NUESTRO origen ⇒ solo
+ * la ruta (`/es/catalog`, sin query ni hash); de OTRO origen ⇒ solo ese origen (`https://www.google.com`), nunca su
+ * ruta ni query, y nunca una ruta suelta que parezca interna; vacío o roto ⇒ `''`.
+ */
+export function checkoutReferrer(raw: string | null | undefined, ownOrigin: string): string {
+  const url = parseHttpUrl(raw);
+  if (!url) return '';
+  return url.origin === ownOrigin ? url.pathname : url.origin;
+}

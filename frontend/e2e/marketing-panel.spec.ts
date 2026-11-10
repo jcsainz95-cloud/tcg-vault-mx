@@ -30,8 +30,13 @@ test.describe('admin · Marketing', () => {
     await expect(menuLink(page, '/admin/marketing')).toContainText(t('es', 'admin.modules.marketing'));
 
     const tabs = page.getByRole('tablist', { name: t('es', 'admin.marketing.tabs.label') });
-    await expect(tabs.getByRole('tab', { name: t('es', 'admin.marketing.tabs.a') })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('mkt-screen-a')).toBeVisible();
+    await expect(tabs.getByRole('tab', { name: t('es', 'admin.marketing.tabs.r') })).toHaveAttribute('aria-selected', 'true');
+    // §MKT-V2: «Resumen» es la primera pestaña; cifras con flecha, avisos y (sesión del dueño = exact) el día por día.
+    await expect(page.getByTestId('mkt-screen-r')).toBeVisible();
+    await expect(page.getByTestId('mkt-r1')).toBeVisible();
+    await expect(page.getByTestId('mkt-r2')).toBeVisible();
+    await expect(page.getByTestId('mkt-r3-private')).toHaveText(t('es', 'admin.marketing.resumen.daily.private'));
+    await expect(page.getByTestId('mkt-figure').first()).toBeVisible();
     await expect(page.getByTestId('mkt-period-label')).toContainText('hora del centro de México');
 
     // Cambiar de pantalla: Catálogo.

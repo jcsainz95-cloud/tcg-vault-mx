@@ -437,6 +437,28 @@ test.describe('C-F9 · /card-show: solo page_view a GA4, sin Meta', () => {
   });
 });
 
+test.describe('MKT-V2 6.8 · page_referrer del checkout', () => {
+  test('al llegar a /es/checkout desde el catálogo con query, page_location = origen+ruta y page_referrer = solo ruta', async ({ page, context }) => {
+    await setup(context);
+    await page.goto('/es/catalog?utm_source=ig&q=pikachu');
+    await banner(page).getByRole('button', { name: t('es', 'consent.accept') }).click();
+    const pv = () =>
+      page.evaluate(() =>
+        ((window as unknown as { dataLayer?: ArrayLike<unknown>[] }).dataLayer ?? [])
+          .map((a) => Array.from(a as ArrayLike<unknown>))
+          .filter((a) => a[0] === 'event' && a[1] === 'page_view')
+          .map((a) => a[2] as { page_location?: string; page_referrer?: string }),
+      );
+    await expect.poll(async () => (await pv()).length).toBeGreaterThan(0);
+    await page.evaluate(() => (window as unknown as { next: { router: { push: (x: string) => void } } }).next.router.push('/es/checkout?session_id=cs_secreto#pago'));
+    await page.waitForURL((u) => u.pathname === '/es/checkout');
+    await expect.poll(async () => (await pv()).some((e) => /\/es\/checkout$/.test(e.page_location ?? ''))).toBe(true);
+    const co = (await pv()).find((e) => /\/es\/checkout$/.test(e.page_location ?? ''))!;
+    expect(co.page_location).not.toMatch(/[?#]/);
+    expect(co.page_referrer).toBe('/es/catalog');
+  });
+});
+
 test.describe('C-F10 · sin muro', () => {
   test('con el banner abierto se navega, se agrega al carrito y se llega al checkout; sin scrim ni bloqueo', async ({ page, context }) => {
     await setup(context);
@@ -956,3 +978,33 @@ test.describe('L-9 · ficha en lg: el renglón de compra fuera del alcance del b
 function testInfo() {
   return test.info();
 }
+
+/**
+ * §MKT-V2 6.5 (N-1) y §4: la ficha abierta SIN elección no pierde su `view_item` al aceptar el banner; y un navegador
+ * marcado como propio (`?tcg_int=1`) no ve banner ni carga etiquetas.
+ */
+test.describe('MKT-V2 · view_item al aceptar y tráfico propio', () => {
+  const events = (page: Page) =>
+    page.evaluate(() =>
+      ((window as unknown as { dataLayer?: ArrayLike<unknown>[] }).dataLayer ?? []).filter((a) => a[0] === 'event').map((a) => String(a[1])),
+    );
+
+  test('ficha → aceptar ⇒ llega 1 view_item a GA4', async ({ page, context }) => {
+    const log = await setup(context);
+    await page.goto(await firstCardHref(page));
+    await expect(banner(page)).toBeVisible();
+    expect(log.measurement.some((m) => /gtag\/js/.test(m.url))).toBe(false); // nada antes de elegir
+    await banner(page).getByRole('button', { name: t('es', 'consent.accept') }).click();
+    await expect.poll(async () => (await events(page)).filter((e) => e === 'view_item').length).toBe(1);
+  });
+
+  test('?tcg_int=1 ⇒ sin banner y sin etiquetas, ni en la visita siguiente', async ({ page, context }) => {
+    const log = await setup(context);
+    await page.goto('/es/catalog?tcg_int=1');
+    await page.waitForLoadState('networkidle');
+    await expect(banner(page)).toHaveCount(0);
+    await page.goto('/es/catalog');
+    await expect(banner(page)).toHaveCount(0);
+    expect(log.measurement).toHaveLength(0);
+  });
+});

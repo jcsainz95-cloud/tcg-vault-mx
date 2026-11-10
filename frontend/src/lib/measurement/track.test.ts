@@ -116,7 +116,9 @@ describe('track() público', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     delete (window as unknown as { gtag?: unknown }).gtag;
+    setRuntimeConsent({ analytics: false, ads: false }); // vacía la cola
     setRuntimeConsent(null);
+    window.localStorage.removeItem('tcg_int');
   });
 
   it('con el modo off (sin variable) no llama a nada', () => {
@@ -137,13 +139,65 @@ describe('track() público', () => {
     expect(gtag).toHaveBeenCalledWith('event', 'view_item', { value: 1, currency: 'MXN', page_location: `${window.location.origin}/es/catalog/xy1-1` });
   });
 
-  it('con on y sin elección (null) lo que esperaba se tira', () => {
+  it('§MKT-V2 6.5: ficha abierta SIN elección ⇒ el view_item espera y sale al aceptar (1 sola vez, misma ruta)', () => {
     vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_MODE', 'on');
-    setRuntimeConsent({ analytics: true, ads: false });
+    setRuntimeConsent(null); // cookie leída, sin elección
     track('view_item', { value: 1 });
-    setRuntimeConsent(null);
     const gtag = vi.fn();
     (window as unknown as { gtag: unknown }).gtag = gtag;
+    expect(gtag).not.toHaveBeenCalled(); // nada sale antes de aceptar
+    setRuntimeConsent({ analytics: true, ads: false }); // acepta
+    flushPendingEvents();
+    flushPendingEvents();
+    expect(gtag).toHaveBeenCalledTimes(1);
+    expect(gtag).toHaveBeenCalledWith('event', 'view_item', expect.objectContaining({ value: 1 }));
+  });
+
+  it('N-1: track(view_item) → setRuntimeConsent(null) → aceptar ⇒ el evento sale (null no vacía la cola)', () => {
+    vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_MODE', 'on');
+    setRuntimeConsent(null);
+    track('view_item', { value: 1 });
+    setRuntimeConsent(null); // la cookie se vuelve a leer sin elección DESPUÉS de encolar
+    const gtag = vi.fn();
+    (window as unknown as { gtag: unknown }).gtag = gtag;
+    setRuntimeConsent({ analytics: true, ads: false });
+    flushPendingEvents();
+    expect(gtag).toHaveBeenCalledTimes(1);
+    expect(gtag).toHaveBeenCalledWith('event', 'view_item', expect.objectContaining({ value: 1 }));
+  });
+
+  it('un rechazo explícito vacía la cola', () => {
+    vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_MODE', 'on');
+    setRuntimeConsent(null);
+    track('view_item', { value: 1 });
+    setRuntimeConsent({ analytics: false, ads: false });
+    const gtag = vi.fn();
+    (window as unknown as { gtag: unknown }).gtag = gtag;
+    setRuntimeConsent({ analytics: true, ads: false });
+    flushPendingEvents();
+    expect(gtag).not.toHaveBeenCalled();
+  });
+
+  it('lo encolado en otra ruta no se manda al aceptar en esta', () => {
+    vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_MODE', 'on');
+    setRuntimeConsent(null);
+    track('view_item', { value: 1 });
+    window.history.replaceState(null, '', '/es/catalog');
+    setRuntimeConsent({ analytics: true, ads: false });
+    const gtag = vi.fn();
+    (window as unknown as { gtag: unknown }).gtag = gtag;
+    flushPendingEvents();
+    expect(gtag).not.toHaveBeenCalled();
+  });
+
+  it('§MKT-V2 §4: navegador marcado como propio ⇒ track no manda ni encola', () => {
+    vi.stubEnv('NEXT_PUBLIC_MEASUREMENT_MODE', 'on');
+    window.localStorage.setItem('tcg_int', '1');
+    setRuntimeConsent({ analytics: true, ads: true });
+    const gtag = vi.fn();
+    (window as unknown as { gtag: unknown }).gtag = gtag;
+    track('view_item', { value: 1 });
+    window.localStorage.removeItem('tcg_int');
     flushPendingEvents();
     expect(gtag).not.toHaveBeenCalled();
   });
@@ -160,6 +214,7 @@ describe('barrera: la medición nunca lanza', () => {
     delete (window as unknown as W).gtag;
     delete (window as unknown as W).fbq;
     delete (window as unknown as W).dataLayer;
+    setRuntimeConsent({ analytics: false, ads: false });
     setRuntimeConsent(null);
   });
 

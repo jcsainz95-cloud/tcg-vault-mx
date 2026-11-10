@@ -6,7 +6,8 @@ import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Toaster, useToasts } from '@/components/ui/Toast';
 import { measurementActive, measurementIdsFromEnv } from '@/lib/measurement/mode';
-import { consentForRoute, isMeasuredPath, sendsPageView } from '@/lib/measurement/routes';
+import { consentForRoute, isMeasuredPath, pageViewPathOnly, sendsPageView } from '@/lib/measurement/routes';
+import { syncInternalFlag } from '@/lib/measurement/internal';
 import { measurementLoadedInDocument, useHardNavigationGuard } from './hard-navigation';
 import { noticeVersionForBuild } from './notice-version';
 import {
@@ -21,7 +22,7 @@ import {
   writeFirstUtmOnce,
   type ConsentChoice,
 } from '@/lib/measurement/consent';
-import { hasAnyUtm, utmFromSearch, type FirstUtmValues } from '@/lib/measurement/utm';
+import { checkoutReferrer, hasAnyUtm, pathOnlyUrl, utmFromSearch, type FirstUtmValues } from '@/lib/measurement/utm';
 import { callVendorSafely, flushPendingEvents, setRuntimeConsent, track } from '@/lib/measurement/track';
 import { sendBannerResponse, type BannerResponse } from '@/lib/measurement/request';
 import { ConsentPreferencesDialog } from './ConsentPreferencesDialog';
@@ -77,7 +78,10 @@ export function MeasurementProvider({ children }: { children: ReactNode }) {
 function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
   const ids = useMemo(measurementIdsFromEnv, []);
   const noticeVersion = useMemo(noticeVersionForBuild, []);
-  const active = measurementActive('on', ids) && noticeVersion !== null;
+  // §MKT-V2 §4: navegador propio (`?tcg_int=1`, `utm_source=diag-*`…) ⇒ como si la medición estuviera apagada: sin
+  // banner, sin contador de banner, sin cookie de primer UTM, sin cargador. Se decide en la hidratación.
+  const [internal, setInternal] = useState(false);
+  const active = measurementActive('on', ids) && noticeVersion !== null && !internal;
   const pathname = usePathname() ?? '';
   const measured = isMeasuredPath(pathname);
   const t = useTranslations('consent');
@@ -101,6 +105,10 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
   // Lectura inicial: la cookie solo existe en el cliente (MKT2-UX.2 «hidratación sin parpadeo»).
   useEffect(() => {
     if (!active || !noticeVersion) return;
+    if (syncInternalFlag()) {
+      setInternal(true);
+      return;
+    }
     const jar = documentCookieJar();
     const stored = readConsent(jar, noticeVersion);
     const utm = utmFromSearch(window.location.search);
@@ -148,7 +156,13 @@ function ActiveMeasurementProvider({ children }: { children: ReactNode }) {
         flushPendingEvents();
         const href = window.location.href;
         if (sendsPageView(window.location.pathname) && href !== lastHref.current) {
-          track('page_view', { page_location: href, page_referrer: lastHref.current || document.referrer });
+          // §MKT-V2 6.8: en checkout `page_location` = origen + ruta y `page_referrer` solo ruta (sin query ni hash);
+          // un cambio solo de query en esa ruta no repite el `page_view`.
+          const pathOnly = pageViewPathOnly(window.location.pathname);
+          const referrer = lastHref.current || document.referrer;
+          const location = pathOnly ? pathOnlyUrl(href) : href;
+          const repeated = pathOnly && lastHref.current !== '' && pathOnlyUrl(lastHref.current) === location;
+          if (!repeated) track('page_view', { page_location: location, page_referrer: pathOnly ? checkoutReferrer(referrer, window.location.origin) : referrer });
           lastHref.current = href;
         }
       });

@@ -14,6 +14,7 @@
 import { isMeasuredPath, measurementPolicyFor } from './routes';
 import { readFirstUtm, documentCookieJar, type ConsentChoice, type CookieJar } from './consent';
 import { isPixelSafeDocument, sanitizeMeasurementUrl, sanitizePath } from './utm';
+import { isInternalTraffic } from './internal';
 
 export type BrowserEvent =
   | 'page_view'
@@ -109,7 +110,9 @@ export function filterParams(event: BrowserEvent, params: TrackParams): Record<s
       const items = cleanItems(v);
       if (items) out.items = items;
     } else if (key === 'page_location' || key === 'page_referrer') {
-      const s = sanitizeMeasurementUrl(typeof v === 'string' ? v : '', 'ga4');
+      // §MKT-V2 6.8: el referrer de checkout viaja como SOLO ruta («/es/cart»); lo demás, URL saneada.
+      const raw = typeof v === 'string' ? v : '';
+      const s = key === 'page_referrer' && raw.startsWith('/') ? sanitizePath(raw) : sanitizeMeasurementUrl(raw, 'ga4');
       if (s) out[key] = s;
     } else if (key === 'page_path') {
       const s = sanitizePath(typeof v === 'string' ? v : '');
@@ -225,9 +228,14 @@ function trackWithUnguarded(rt: TrackRuntime, event: BrowserEvent, params: Track
 // elección: lo que esperaba se tira (nada se manda por una elección posterior).
 let runtimeConsent: ConsentChoice | null | undefined = undefined;
 
+/**
+ * §MKT-V2 6.5 (N-1): `null` (leída la cookie, sin elección) YA NO vacía la cola: el `view_item` de una ficha llega
+ * antes de que el visitante acepte el banner y se envía al aceptar (`flushPendingEvents`, misma ruta). Solo un
+ * rechazo EXPLÍCITO `{analytics:false, ads:false}` la vacía. La cola vive solo en RAM y nada sale antes de aceptar.
+ */
 export function setRuntimeConsent(c: ConsentChoice | null): void {
   runtimeConsent = c;
-  if (c === null || (!c.analytics && !c.ads)) pending.length = 0;
+  if (c !== null && !c.analytics && !c.ads) pending.length = 0;
 }
 
 export function getRuntimeConsent(): ConsentChoice | null {
@@ -272,6 +280,8 @@ function trackAndRemember(rt: TrackRuntime, event: BrowserEvent, params: TrackPa
 export function track(event: BrowserEvent, params: TrackParams = {}): void {
   if (process.env.NEXT_PUBLIC_MEASUREMENT_MODE !== 'on') return;
   if (typeof window === 'undefined') return;
+  // §MKT-V2 §4: tráfico propio (`?tcg_int=1`, `utm_source=diag-*`…) ⇒ no se manda ni se encola nada.
+  if (isInternalTraffic()) return;
   neverThrow(undefined, () => trackUnguarded(event, params));
 }
 
@@ -281,9 +291,14 @@ function trackUnguarded(event: BrowserEvent, params: TrackParams): void {
   // `loadMeasurement` define los dos stubs en la misma llamada síncrona: o no hay ninguno (aún
   // cargando) o están los que la elección permite. Se guarda en ese caso y mientras el proveedor no
   // haya leído la cookie.
-  const waiting = runtimeConsent === undefined || (!!c && (c.analytics || c.ads) && !rt.gtag && !rt.fbq);
+  // `null` (sin elección todavía) también espera: al aceptar, `flushPendingEvents` lo manda (§MKT-V2 6.5).
+  const waiting = runtimeConsent === undefined || runtimeConsent === null || (!!c && (c.analytics || c.ads) && !rt.gtag && !rt.fbq);
   if (waiting) {
-    if (isMeasuredPath(rt.pathname) && pending.length < PENDING_MAX) pending.push({ event, params, pathname: rt.pathname });
+    if (isMeasuredPath(rt.pathname)) {
+      // Lo de otra ruta ya no se mandará (el vaciado solo envía la misma ruta): se descarta para no llenar el tope.
+      for (let i = pending.length - 1; i >= 0; i--) if (pending[i].pathname !== rt.pathname) pending.splice(i, 1);
+      if (pending.length < PENDING_MAX) pending.push({ event, params, pathname: rt.pathname });
+    }
     return;
   }
   trackAndRemember(rt, event, params);

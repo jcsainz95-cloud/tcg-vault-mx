@@ -6,6 +6,7 @@ import {
   isMeasuredPath,
   measurementPolicyFor,
   sendsPageView,
+  pageViewPathOnly,
 } from './routes';
 import { trackWith, type TrackRuntime } from './track';
 
@@ -72,8 +73,11 @@ describe('lista blanca de medición', () => {
     expect(isMeasuredPath(p)).toBe(false);
   });
 
-  it('page_view: no en checkout (§MKT.H.4), sí en el resto de lo medido', () => {
-    expect(sendsPageView('/es/checkout')).toBe(false);
+  it('page_view: también en checkout (§MKT-V2 6.8, sin query ni hash), y en el resto de lo medido', () => {
+    expect(sendsPageView('/es/checkout')).toBe(true);
+    expect(pageViewPathOnly('/es/checkout')).toBe(true);
+    expect(pageViewPathOnly('/en/checkout/')).toBe(true);
+    expect(pageViewPathOnly('/es/catalog')).toBe(false);
     expect(sendsPageView('/es/catalog')).toBe(true);
     expect(sendsPageView('/es')).toBe(true);
     expect(sendsPageView('/es/buylist')).toBe(true);

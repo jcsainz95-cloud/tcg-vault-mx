@@ -7211,7 +7211,8 @@
       "tabs": {
         "label": "Pantallas del panel",
         "select": "Pantalla",
-        "a": "Resumen",
+        "r": "Resumen",
+        "a": "Ventas",
         "b": "Origen",
         "c": "Comportamiento",
         "d": "Catálogo",
@@ -7229,7 +7230,9 @@
         "range": "Del {from} al {to} · hora del centro de México",
         "compare": "Se compara con: del {from} al {to}",
         "updating": "Actualizando…",
-        "invalid": "Ese periodo no es válido o todavía no cerró. Elige otro."
+        "invalid": "Ese periodo no es válido o todavía no cerró. Elige otro.",
+        "newer": "Hay una semana más reciente: del {from} al {to}.",
+        "newerGo": "Ver la más reciente"
       },
       "source": {
         "BD": "base de datos de la tienda",
@@ -7263,9 +7266,40 @@
         "seeAll": "Ver todo"
       },
       "screen": {
-        "empty": "No hubo actividad en este periodo. Prueba con otra semana.",
-        "e": {
-          "pending": "Esta pantalla se llenará cuando se encienda Google Search Console."
+        "empty": "No hubo actividad en este periodo. Prueba con otra semana."
+      },
+      "resumen": {
+        "figures": "Cifras de la semana",
+        "before": "Antes:",
+        "notMeasured": "No medido.",
+        "lag": "Google entrega sus datos con 2 o 3 días de retraso: el fin de semana puede estar incompleto. Las cifras de Google Analytics solo cuentan a quien aceptó las cookies.",
+        "alerts": "Qué hacer esta semana",
+        "noAlerts": "Sin avisos esta semana.",
+        "severity": {
+          "alta": "Prioridad alta",
+          "media": "Prioridad media",
+          "info": "Para tu información"
+        },
+        "delta": {
+          "up": "Sube",
+          "down": "Baja",
+          "same": "Igual que la semana anterior",
+          "new": "Nuevo: la semana anterior fue 0",
+          "noise": "≈ Muy pocos datos para comparar"
+        },
+        "daily": {
+          "title": "Día por día",
+          "private": "Solo visible para ti",
+          "newVsReturning": "Visitantes nuevos y recurrentes por día",
+          "bySource": "Sesiones por fuente, por día",
+          "new": "Nuevos",
+          "returning": "Recurrentes",
+          "igOrganic": "Instagram orgánico",
+          "igPaid": "Instagram pagado",
+          "google": "Google",
+          "ai": "Asistentes de IA",
+          "other": "Directo y otros",
+          "table": "Ver la tabla del día por día"
         }
       },
       "help": {

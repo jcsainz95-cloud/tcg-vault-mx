@@ -28,11 +28,12 @@ const NOW = new Date('2026-10-14T12:00:00.000Z');
 
 /** MKT.G.4 — CATÁLOGO NORMATIVO, copiado a mano del contrato (oráculo independiente del código). */
 const CATALOGO: Record<MarketingScreen, string[]> = {
+  r: ['r1', 'r2', 'r3'], // MKT-V2: Resumen; este test usa la sesión SUPER (exact) ⇒ trae r3; en small_cells no (marketing-v2.spec.ts)
   a: ['a1', 'a2', 'a3', 'a4', 'a5', 'a6'], // v1.116: a6 «Pagos iniciados → pagados» (BD), tras a5
   b: ['b1', 'b2', 'b3', 'b4', 'b5', 'b6'], // v1.109 (MKT-MEDIR-CS): b5/b6 del Card Show
-  c: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8'],
+  c: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9'], // MKT-V2: c9 estados
   d: ['d1', 'd2', 'd3', 'd4', 'd4b'],
-  e: ['e1', 'e3'],
+  e: ['e1', 'e2', 'e3'], // MKT-V2: e2 páginas de Google
   f: ['f1', 'f3'],
   g: ['g1'],
   h: ['h1'],
