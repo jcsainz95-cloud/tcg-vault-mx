@@ -7166,6 +7166,10 @@ export interface PnlDTO {
   shippingRevenueCents: number;
   cogsCents: number;
   stripeFeesCents: number;
+  /** D9 §8.1 — pedidos/retiros del periodo cuya comisión Stripe es ESTIMADA (0 ⇒ sin marca). Opcional: servidores viejos no lo mandan. */
+  stripeFeeEstimatedOrders?: number;
+  /** D9 §8.1 — parte de `stripeFeesCents` que es estimada. */
+  stripeFeeEstimatedCents?: number;
   /**
    * §M10-IVA.8 — ⚠️ **NETO**: `Σ (shippingCostCents − shippingCostIvaCents)`. La columna se captura
    * **BRUTA** (el importe TOTAL de la factura de la paquetería, IVA incluido) y se netea **al

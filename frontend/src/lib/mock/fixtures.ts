@@ -4854,16 +4854,15 @@ function mockIvaTransferPosition(ivaTransferPct: number, samplePriceCents: numbe
   const taxBaseCents = Math.round(displayPriceCents / (1 + r));
   // RESIDUAL, nunca 0 (candado `IVA-8(a)`): mover el dial reduce el NETO, no el IVA registrado.
   const ivaCents = displayPriceCents - taxBaseCents;
-  const varRate = (mockSettings.stripeFeePct / 100) * (1 + r);
-  const fixed = mockSettings.stripeFeeFixedCents * (1 + r);
-  const feeCents = Math.round((displayPriceCents + fixed) / (1 - varRate) - displayPriceCents);
+  // D9: el total cobrado incluye la comisión (misma función que el precio exhibido). 11600 ⇒ 12200.
+  const totalChargedCents = mockCardDisplayPriceCents(displayPriceCents);
   return {
     ivaTransferPct,
     displayPriceCents,
     taxBaseCents,
     ivaCents,
     netRevenueCents: taxBaseCents,
-    totalChargedCents: displayPriceCents + feeCents,
+    totalChargedCents,
   };
 }
 

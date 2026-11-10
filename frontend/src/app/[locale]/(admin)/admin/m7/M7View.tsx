@@ -203,7 +203,21 @@ export function M7View() {
                     cual (⛔ la pantalla no niega, suma ni compara). */}
                 <PnlLine sign="+" srSign={adds} label={t('pnl.buylistFeeRetained')} value={formatMoneyCents(pnl.data.buylistShippingFeeRetainedCents, locale)} />
                 <PnlLine sign="−" srSign={subtracts} label={t('pnl.buylistGuideCost')} value={formatMoneyCents(pnl.data.buylistGuideCostCents, locale)} />
-                <PnlLine sign="−" srSign={subtracts} label={t('pnl.stripeFees')} value={formatMoneyCents(pnl.data.stripeFeesCents, locale)} />
+                {(() => {
+                  const est = pnl.data.stripeFeeEstimatedOrders ?? 0;
+                  const money = formatMoneyCents(pnl.data.stripeFeesCents, locale);
+                  return (
+                    <div>
+                      <PnlLine sign="−" srSign={subtracts} label={t('pnl.stripeFees')} value={est > 0 ? `~${money}` : money} />
+                      {est > 0 && (
+                        <PnlIncluded
+                          label={t('pnl.stripeFeesEstimated', { count: est, amount: formatMoneyCents(pnl.data.stripeFeeEstimatedCents ?? 0, locale) })}
+                          value=""
+                        />
+                      )}
+                    </div>
+                  );
+                })()}
                 <div>
                   <PnlLine sign="−" srSign={subtracts} label={t('pnl.shippingCost')} value={formatMoneyCents(pnl.data.shippingCostCents, locale)} />
                   {pnl.data.shippingAdjustmentsCents > 0 && (

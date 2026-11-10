@@ -5606,6 +5606,7 @@
         "shippingRevenue": "Ingreso por envío (cobrado)",
         "cogs": "Costo de lo vendido",
         "stripeFees": "Comisiones Stripe",
+        "stripeFeesEstimated": "{count, plural, one {Incluye # pedido con costo estimado ({amount})} other {Incluye # pedidos con costo estimado ({amount})}}",
         "shippingCost": "Costo de envío (paquetería, neto)",
         "shippingCostMissing": "{count, plural, one {# envío liquidado no tiene costo de paquetería capturado. Revísalo: su ingreso cuenta completo como ganancia.} other {# envíos liquidados no tienen costo de paquetería capturado. Revísalos: su ingreso cuenta completo como ganancia.}}",
         "profit": "Ganancia del periodo",
