@@ -12,6 +12,7 @@ import { ACCESSORY_LINE_READ_INCLUDE, accessoryMailLinesOf } from '../orders/acc
 import { PRICE_CONVENTION_OF_NEW_ROWS, FEE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
 import { consumeOrderRedemption, orderDiscountOf } from '../discounts/redemption';
 import { CHARGE_REFUNDED_SOURCE_STATUSES, SETTLEABLE_ORDER_STATUSES, isSettleableOrderStatus } from './settleable-order-statuses';
+import { OUTBOUND_ONLY } from '../shipments/label-subject';
 // v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
 // LOCALES a `orders` (dueño del hecho); el puerto se inyecta `@Optional()` y el envío es best-effort.
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
@@ -451,25 +452,82 @@ export class PaymentsService {
     }
   }
 
-  /**
-   * §D9 (docs/specs/D9_COMISION.md §3) — guarda el costo REAL de Stripe (`stripeFeeCents`) de un cobro ya liquidado.
-   * POST-COMMIT y BEST-EFFORT (un fallo jamás revierte ni falla un pago ya cobrado). IDEMPOTENTE y de una sola escritura:
-   * el `WHERE` exige `feeConvention = FEE_INCLUDED` y `stripeFeeCents IS NULL` ⇒ un reintento del webhook no pisa el valor
-   * ni toca filas viejas (`FEE_ON_TOP` siguen con su `processingFeeCents`). Si Stripe no lo devuelve queda NULL (estimado).
-   */
-  private async captureStripeFee(kind: 'order' | 'shipment', id: string, paymentIntentId: string | null): Promise<void> {
-    if (!paymentIntentId) return;
+  /** §D9 8.3 — esperas de los reintentos en segundo plano tras el intento en línea (0 s ya hecho; luego 2 s y 10 s). Pruebas lo acortan. */
+  feeRetryDelaysMs: number[] = [2_000, 10_000];
+  /** Reintentos pendientes (para que las pruebas los esperen); los temporizadores no mantienen vivo el proceso (`unref`). */
+  readonly feeRetries = new Set<Promise<void>>();
+
+  /** Un intento: lee el costo REAL y lo escribe UNA vez. `true` ⇔ Stripe devolvió el dato (se escribió o ya estaba). Nunca lanza. */
+  private async tryCaptureStripeFee(kind: 'order' | 'shipment', id: string, paymentIntentId: string): Promise<boolean> {
     try {
       const fee = await this.stripe.getStripeFeeCents(paymentIntentId);
-      if (fee === null) return;
+      if (fee === null) return false;
       if (kind === 'order') {
         await this.prisma.order.updateMany({ where: { id, feeConvention: 'FEE_INCLUDED', stripeFeeCents: null }, data: { stripeFeeCents: fee } });
       } else {
         await this.prisma.shipmentRequest.updateMany({ where: { id, feeConvention: 'FEE_INCLUDED', stripeFeeCents: null }, data: { stripeFeeCents: fee } });
       }
+      return true;
     } catch (e) {
       this.logger.warn(`No se pudo guardar el costo de Stripe de ${kind} ${id}: ${(e as Error).message}`);
+      return false;
     }
+  }
+
+  /**
+   * §D9 (docs/specs/D9_COMISION.md §3 y §8.3) — guarda el costo REAL de Stripe (`stripeFeeCents`) de un cobro ya liquidado.
+   * POST-COMMIT y BEST-EFFORT (un fallo jamás revierte ni falla un pago ya cobrado). IDEMPOTENTE y de una sola escritura:
+   * el `WHERE` exige `feeConvention = FEE_INCLUDED` y `stripeFeeCents IS NULL` ⇒ un reintento del webhook no pisa el valor
+   * ni toca filas viejas (`FEE_ON_TOP` siguen con su `processingFeeCents`). Intento en línea (0 s) y, si Stripe aún no lo
+   * tiene, 2 reintentos en SEGUNDO PLANO (2 s y 10 s) sin bloquear la liquidación; lo que falte lo concilia el cron de 30 min
+   * (`reconcileStripeFees`); pasados 30 días queda estimado y marcado (8.1).
+   */
+  private async captureStripeFee(kind: 'order' | 'shipment', id: string, paymentIntentId: string | null): Promise<void> {
+    if (!paymentIntentId) return;
+    if (await this.tryCaptureStripeFee(kind, id, paymentIntentId)) return;
+    const delays = [...this.feeRetryDelaysMs];
+    if (delays.length === 0) return;
+    const run = (async () => {
+      for (const ms of delays) {
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, ms);
+          t.unref?.();
+        });
+        if (await this.tryCaptureStripeFee(kind, id, paymentIntentId)) return;
+      }
+    })().finally(() => this.feeRetries.delete(run));
+    this.feeRetries.add(run);
+  }
+
+  /**
+   * §D9 8.3 — conciliación (cron cada 30 min): rellena `stripeFeeCents IS NULL` de `Order`/`ShipmentRequest` FEE_INCLUDED
+   * cobrados con PaymentIntent (`totalCents > 0`) de los últimos 30 días, en lotes de 100. Idempotente y a prueba de carrera
+   * (`updateMany … WHERE stripeFeeCents IS NULL`); un error de Stripe deja NULL y se reintenta en la siguiente vuelta. Un
+   * `fee` real de 0 se guarda como 0. Devuelve cuántas filas rellenó y cuántas siguen sin dato.
+   */
+  async reconcileStripeFees(now: Date = new Date()): Promise<{ filled: number; missing: number }> {
+    const since = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+    let filled = 0;
+    let missing = 0;
+    for (const kind of ['order', 'shipment'] as const) {
+      let cursor: string | undefined;
+      for (;;) {
+        const base = { feeConvention: 'FEE_INCLUDED' as const, stripeFeeCents: null, stripePaymentIntentId: { not: null }, totalCents: { gt: 0 }, ...(cursor ? { id: { gt: cursor } } : {}) };
+        const rows: { id: string; stripePaymentIntentId: string | null }[] =
+          kind === 'order'
+            ? await this.prisma.order.findMany({ where: { ...base, createdAt: { gte: since }, status: { in: ['settled', 'refunded', 'chargeback'] } }, orderBy: { id: 'asc' }, take: 100, select: { id: true, stripePaymentIntentId: true } })
+            : await this.prisma.shipmentRequest.findMany({ where: { ...base, ...OUTBOUND_ONLY, requestedAt: { gte: since }, status: { in: ['picking', 'guia', 'enviado', 'entregado'] } }, orderBy: { id: 'asc' }, take: 100, select: { id: true, stripePaymentIntentId: true } });
+        if (rows.length === 0) break;
+        for (const r of rows) {
+          if (await this.tryCaptureStripeFee(kind, r.id, r.stripePaymentIntentId as string)) filled += 1;
+          else missing += 1;
+        }
+        cursor = rows[rows.length - 1].id;
+        if (rows.length < 100) break;
+      }
+    }
+    if (filled + missing > 0) this.logger.log(`stripe-fee-reconcile: ${filled} rellenadas, ${missing} sin dato aún.`);
+    return { filled, missing };
   }
 
   /**

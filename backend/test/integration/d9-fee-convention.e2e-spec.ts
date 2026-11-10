@@ -32,6 +32,7 @@ describe('D9 · comisión de plataforma dentro del precio (Postgres real)', () =
 
   beforeAll(async () => {
     h = await E2EHarness.create();
+    (h.app.get(PaymentsService) as unknown as { feeRetryDelaysMs: number[] }).feeRetryDelaysMs = [5, 5]; // reintentos de 8.3 acelerados
     await seedE2E(h.prisma);
     const tpl = await h.prisma.inventoryItem.findUnique({ where: { folio: E2E_FOLIOS.listedCharizard } });
     const { id: _id, createdAt: _c, updatedAt: _u, ...rest } = tpl as never as Record<string, unknown>;
@@ -127,6 +128,55 @@ describe('D9 · comisión de plataforma dentro del precio (Postgres real)', () =
     h.stripe.stripeFeeCentsToReturn = null;
     await svc.captureStripeFee('order', orderId, fresh.stripePaymentIntentId);
     expect((await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stripeFeeCents).toBeNull();
+    await h.prisma.order.update({ where: { id: orderId }, data: { stripeFeeCents: 1204 } });
+  });
+
+  it('8.3: si Stripe aún no lo tiene, 2 reintentos en segundo plano lo guardan sin bloquear (el primero devuelve null)', async () => {
+    const svc = h.app.get(PaymentsService) as unknown as { captureStripeFee: (k: 'order' | 'shipment', id: string, pi: string | null) => Promise<void>; feeRetryDelaysMs: number[]; feeRetries: Set<Promise<void>> };
+    const fresh = await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    await h.prisma.order.update({ where: { id: orderId }, data: { stripeFeeCents: null } });
+    await Promise.all([...svc.feeRetries]); // los reintentos de pruebas anteriores (null) ya terminaron
+    svc.feeRetryDelaysMs = [5, 5];
+    h.stripe.stripeFeeCentsToReturn = null;
+    await svc.captureStripeFee('order', orderId, fresh.stripePaymentIntentId); // vuelve YA, sin esperar los reintentos
+    expect((await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stripeFeeCents).toBeNull();
+    expect(svc.feeRetries.size).toBe(1);
+    h.stripe.stripeFeeCentsToReturn = 321; // Stripe ya lo tiene
+    await Promise.all([...svc.feeRetries]);
+    expect((await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stripeFeeCents).toBe(321);
+    h.stripe.stripeFeeCentsToReturn = null;
+  });
+
+  it('8.3: la conciliación rellena solo FEE_INCLUDED con cobro de los últimos 30 días; un fee real de 0 se guarda; sin dato queda NULL', async () => {
+    const svc = h.app.get(PaymentsService);
+    const base = await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    // (a) elegible, Stripe devuelve 0 ⇒ se guarda 0 (no se confunde con «sin dato»)
+    await h.prisma.order.update({ where: { id: orderId }, data: { stripeFeeCents: null } });
+    h.stripe.stripeFeeCentsToReturn = 0;
+    const r1 = await svc.reconcileStripeFees();
+    expect(r1.filled).toBeGreaterThanOrEqual(1);
+    expect((await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stripeFeeCents).toBe(0);
+    // (b) sin dato ⇒ queda NULL y se cuenta como faltante
+    await h.prisma.order.update({ where: { id: orderId }, data: { stripeFeeCents: null } });
+    h.stripe.stripeFeeCentsToReturn = null;
+    const r2 = await svc.reconcileStripeFees();
+    expect(r2.missing).toBeGreaterThanOrEqual(1);
+    expect((await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stripeFeeCents).toBeNull();
+    // (c) más de 30 días, FEE_ON_TOP y total 0 ⇒ ni se leen
+    h.stripe.stripeFeeCentsToReturn = 555;
+    await h.prisma.order.update({ where: { id: orderId }, data: { createdAt: new Date(Date.now() - 40 * 24 * 3600 * 1000) } });
+    await svc.reconcileStripeFees();
+    expect((await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stripeFeeCents).toBeNull();
+    await h.prisma.order.update({ where: { id: orderId }, data: { createdAt: base.createdAt, feeConvention: 'FEE_ON_TOP' } });
+    await svc.reconcileStripeFees();
+    expect((await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stripeFeeCents).toBeNull();
+    // (d) vuelve a elegible ⇒ se rellena (idempotente: una segunda vuelta no la pisa)
+    await h.prisma.order.update({ where: { id: orderId }, data: { feeConvention: 'FEE_INCLUDED' } });
+    await svc.reconcileStripeFees();
+    h.stripe.stripeFeeCentsToReturn = 999;
+    await svc.reconcileStripeFees();
+    expect((await h.prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stripeFeeCents).toBe(555);
+    h.stripe.stripeFeeCentsToReturn = null;
     await h.prisma.order.update({ where: { id: orderId }, data: { stripeFeeCents: 1204 } });
   });
 
