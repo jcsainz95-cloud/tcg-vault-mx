@@ -7170,6 +7170,8 @@ export interface PnlDTO {
   stripeFeeEstimatedOrders?: number;
   /** D9 §8.1 — parte de `stripeFeesCents` que es estimada. */
   stripeFeeEstimatedCents?: number;
+  /** D9 §5 — ISO del primer pedido FEE_INCLUDED de toda la historia (solo-JSON); null/ausente ⇒ sin nota. */
+  feeIncludedSince?: string | null;
   /**
    * §M10-IVA.8 — ⚠️ **NETO**: `Σ (shippingCostCents − shippingCostIvaCents)`. La columna se captura
    * **BRUTA** (el importe TOTAL de la factura de la paquetería, IVA incluido) y se netea **al

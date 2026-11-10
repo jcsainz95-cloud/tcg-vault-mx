@@ -51,4 +51,38 @@ describe('D9 · comisión Stripe estimada en Finanzas', () => {
       expect(screen.getByText(/Includes 2 orders with an estimated cost/)).toBeTruthy();
     });
   });
+
+  it('feeIncludedSince con fecha: nota larga es-MX en zona de México (es y en)', async () => {
+    await withPnl({ feeIncludedSince: '2026-11-11T03:00:00.000Z' }, async () => {
+      renderWithProviders(<M7View />, 'es');
+      await screen.findByTestId('pnl-profit');
+      expect(screen.getByTestId('pnl-fee-included-since').textContent).toBe(
+        'Desde el 10 de noviembre de 2026 la comisión de plataforma va incluida en el precio de cada carta; antes de esa fecha se cobraba aparte.',
+      );
+    });
+  });
+
+  it('feeIncludedSince con fecha, en inglés', async () => {
+    await withPnl({ feeIncludedSince: '2026-11-11T03:00:00.000Z' }, async () => {
+      renderWithProviders(<M7View />, 'en');
+      await screen.findByTestId('pnl-profit');
+      expect(screen.getByTestId('pnl-fee-included-since').textContent).toContain('Since November 10, 2026');
+    });
+  });
+
+  it('feeIncludedSince null o ausente: sin nota', async () => {
+    await withPnl({ feeIncludedSince: null }, async () => {
+      renderWithProviders(<M7View />, 'es');
+      await screen.findByTestId('pnl-profit');
+      expect(screen.queryByTestId('pnl-fee-included-since')).toBeNull();
+    });
+  });
+
+  it('feeIncludedSince ausente: sin nota', async () => {
+    await withPnl({}, async () => {
+      renderWithProviders(<M7View />, 'es');
+      await screen.findByTestId('pnl-profit');
+      expect(screen.queryByTestId('pnl-fee-included-since')).toBeNull();
+    });
+  });
 });

@@ -5607,6 +5607,7 @@
         "cogs": "Cost of goods sold",
         "stripeFees": "Stripe fees",
         "stripeFeesEstimated": "{count, plural, one {Includes # order with an estimated cost ({amount})} other {Includes # orders with an estimated cost ({amount})}}",
+        "feeIncludedSince": "Since {date} the platform fee is included in the price of each card; before that date it was charged separately.",
         "shippingCost": "Shipping cost (carrier, net)",
         "shippingCostMissing": "{count, plural, one {# settled shipment has no carrier cost captured. Review it: its revenue counts in full as profit.} other {# settled shipments have no carrier cost captured. Review them: their revenue counts in full as profit.}}",
         "profit": "Profit for the period",

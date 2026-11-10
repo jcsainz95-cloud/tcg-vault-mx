@@ -16,7 +16,7 @@ import {
 } from '@/lib/api';
 import type { IvaByOrderEntryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
-import { formatMoneyCents, formatDate, formatCount } from '@/lib/format';
+import { formatMoneyCents, formatDate, formatDateLongMx, formatCount } from '@/lib/format';
 import { downloadTextFile } from '@/lib/download';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -350,6 +350,11 @@ export function M7View() {
                   {formatMoneyCents(pnl.data.profitCents, locale)}
                 </span>
               </div>
+              {pnl.data.feeIncludedSince && formatDateLongMx(pnl.data.feeIncludedSince, locale) && (
+                <p data-testid="pnl-fee-included-since" className="text-xs text-muted">
+                  {t('pnl.feeIncludedSince', { date: formatDateLongMx(pnl.data.feeIncludedSince, locale) })}
+                </p>
+              )}
               <div>
                 <Button
                   variant="secondary"
