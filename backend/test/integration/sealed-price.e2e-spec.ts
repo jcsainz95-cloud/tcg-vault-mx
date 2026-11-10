@@ -36,7 +36,8 @@ import { diferida, esperarBloqueoDeFila } from './helpers/row-lock-barrier';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { InventoryService } from '../../src/modules/inventory/inventory.service';
 import { PriceSyncJobService } from '../../src/jobs/price-sync.service';
-import { displayPriceCentsOf, taxBaseCentsOf } from '../../src/common/money';
+import { taxBaseCentsOf } from '../../src/common/money';
+import { D9_DIALS, pOfL } from '../helpers/d9-price';
 
 jest.setTimeout(240_000);
 
@@ -811,7 +812,7 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
       const row = (r.body.data as any[]).find((x) => x.sealedProductId === X.id);
       const li = await h.api('GET', `/admin/inventory/items?cardId=${ANCHOR}&productType=sealed&status=in_stock&pageSize=100`, { token: admin });
       const auto = (li.body.data as any[]).find((x) => x.id === s1.id).resolvedSalePriceCents;
-      const P = displayPriceCentsOf(auto, 100, 16);
+      const P = pOfL(auto); // D9: el automático lleva la comisión dentro
       const N0 = taxBaseCentsOf(P, 16);
       expect(row).toMatchObject({
         pieces: { inStock: 1, listed: 1, reserved: 1 },
@@ -827,7 +828,7 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
         margin: { cents: N0 - 1100, bps: Math.round(((N0 - 1100) * 10_000) / N0) },
       });
       expect(row.market).toMatchObject({ status: 'priced' });
-      expect(N0).toBe(auto); // con el dial neutro, N ≡ L (12.3)
+      expect(N0).toBeGreaterThanOrEqual(auto); // D9: con el dial neutro N ya no es L: P lleva la comisión dentro (la venta cuenta completa, P3-A)
       const p = await put(X.id, { displayPriceCents: 1500, expectedDisplayPriceCents: null });
       expect(p.body.data).toMatchObject({ ownerDisplayPriceCents: 1500, effectiveOrigin: 'product', displayPriceCents: 1500, netPriceCents: 1293, margin: { cents: 193, bps: 1493 }, automaticListPriceCents: auto });
       expect((await sheet(admin)).body.canEdit).toBe(true);
@@ -857,11 +858,12 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
       try {
         const row = (await sheet()).body.data.find((x: any) => x.sealedProductId === X.id);
         const L = row.automaticListPriceCents as number;
-        const N0 = taxBaseCentsOf(displayPriceCentsOf(L, 50, 16), 16);
+        const D50 = { ...D9_DIALS, ivaTransferPct: 50 };
+        const N0 = taxBaseCentsOf(pOfL(L, D50), 16);
         expect(row.netPriceCents).toBe(N0);
         expect(N0).not.toBe(L);
         expect(row.margin.cents).toBe(N0 - 1000);
-        expect(row.legacyPiecePrices).toEqual({ count: 1, minDisplayCents: displayPriceCentsOf(2000, 50, 16), maxDisplayCents: displayPriceCentsOf(2000, 50, 16), shadowed: false });
+        expect(row.legacyPiecePrices).toEqual({ count: 1, minDisplayCents: pOfL(2000, D50), maxDisplayCents: pOfL(2000, D50), shadowed: false });
         expect(s1.id).toBeDefined();
       } finally {
         await setTransfer(100);
@@ -957,7 +959,7 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
     it('sin precio del dueño, el legado por pieza cobra EXACTAMENTE lo de antes (peldaño 2)', async () => {
       const X = await product({ owner: null, market: 100_000 });
       const l = await piece(X, { listPriceCents: 1300 });
-      expect((await h.api('GET', `/catalog/listings/${l.id}`)).body.displayPriceCents).toBe(displayPriceCentsOf(1300, 100, 16));
+      expect((await h.api('GET', `/catalog/listings/${l.id}`)).body.displayPriceCents).toBe(pOfL(1300));
     });
   });
 

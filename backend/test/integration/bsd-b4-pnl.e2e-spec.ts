@@ -74,6 +74,7 @@ describe('💰 BSD-B32…B36 — guía y tarifa del buylist en el P&L (Postgres 
         addressSnapshot: SNAPSHOT,
         shippingFeeCents: 0,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         labelSource: 'skydropx',
         providerShipmentId: `prov-${RUN}-${seq}`,
         providerRateId: `rate-${RUN}-${seq}`,

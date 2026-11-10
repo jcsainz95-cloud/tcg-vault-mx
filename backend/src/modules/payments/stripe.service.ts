@@ -270,6 +270,27 @@ export class StripeService implements OnModuleInit {
   }
 
   /**
+   * §D9 (docs/specs/D9_COMISION.md §3) — el costo REAL que Stripe cobró por el PaymentIntent (`balance_transaction.fee`,
+   * centavos MXN, con su IVA). Best-effort: `null` si Stripe no lo devuelve todavía, si no está en MXN o si la lectura
+   * falla. ⛔ Jamás 0 silencioso: `null` le dice al P&L «usa el estimado del dial, marcado como estimado».
+   * Solo lectura (`retrieve` con `expand`): no cambia nada en Stripe.
+   */
+  async getStripeFeeCents(paymentIntentId: string): Promise<number | null> {
+    try {
+      const pi = await this.stripe.paymentIntents.retrieve(paymentIntentId, {
+        expand: ['latest_charge.balance_transaction'],
+      });
+      const charge = pi.latest_charge && typeof pi.latest_charge === 'object' ? pi.latest_charge : null;
+      const bt = charge?.balance_transaction && typeof charge.balance_transaction === 'object' ? charge.balance_transaction : null;
+      if (!bt || bt.currency !== 'mxn' || !Number.isInteger(bt.fee) || bt.fee < 0) return null;
+      return bt.fee;
+    } catch (e) {
+      this.logger.warn(`No se pudo leer el costo de Stripe de ${paymentIntentId}: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
    * ⭐⭐ v1.80 (§M4-SHIP.7) — el reembolso SIEMPRE lleva `amount` y la llave del LIBRO. ⛔ Ya no existe el
    * reembolso «sin monto» (H3): con reembolsos por carta ya hechos, pedir «todo» sin `amount` era pedirle a
    * Stripe el remanente sin que nuestro registro lo supiera. `metadata.paymentRefundId` es lo que permite

@@ -51,6 +51,7 @@ import {
   computeCartBreakdown,
   BreakdownDTO,
   PRICE_CONVENTION_OF_NEW_ROWS,
+  FEE_CONVENTION_OF_NEW_ROWS,
   PriceBasis,
   SEALED_SALE_PRICE_INCLUDE,
   ivaIsIncluded,
@@ -1600,6 +1601,8 @@ export class OrdersService {
           // justamente para que un camino que olvide esta línea REVIENTE en vez de heredar un
           // significado equivocado en silencio (§4.44.e, candado `IVA-3(e)`).
           priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+          // §D9 — la comisión de plataforma va DENTRO de `P`: fila nueva = FEE_INCLUDED (`processingFeeCents` = 0). Sin default de BD.
+          feeConvention: FEE_CONVENTION_OF_NEW_ROWS,
           // ⭐ La posición del dial que produjo estos precios, archivada con la fila. Es
           // **INFORMATIVA/AUDITORA**: el dinero se reproduce desde
           // `subtotal/shipping/iva/fee/total/ivaRatePct/priceConvention`, ⛔ jamás desde aquí.
@@ -1815,6 +1818,8 @@ export class OrdersService {
             // montos-en-cero**: *la convención es ABSOLUTA, no depende de que los importes sean 0*
             // (`IVA-12(a)`). Un cero también tiene convención, y una fila sin ella no se puede leer.
             priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+            // §D9 — la comisión de plataforma va DENTRO de `P`: fila nueva = FEE_INCLUDED (`processingFeeCents` = 0). Sin default de BD.
+            feeConvention: FEE_CONVENTION_OF_NEW_ROWS,
             items: { create: frozen.map((i) => ({ inventoryItemId: i.id })) },
           },
         });
@@ -2137,6 +2142,8 @@ export class OrdersService {
       orderNumber: order.orderNumber,
       ...(reservedUntil ? { reservedUntil } : {}),
       breakdown,
+      // §D9: la convención de comisión de ESTA fila (`FEE_ON_TOP` pedidos viejos / `FEE_INCLUDED` nuevos). ⛔ `stripeFeeCents` no sale.
+      feeConvention: order.feeConvention,
       // ⭐ v1.80.2 (§M4-SHIP.16): el cliente REGISTRADO ve su envío y titula con `publicStatus` (el MISMO cuerpo que
       // el invitado). `shipment: null` ⇔ `vault`, o `direct_ship` aún sin envío (ventana webhook→creación).
       fulfillmentMode: order.fulfillmentMode,

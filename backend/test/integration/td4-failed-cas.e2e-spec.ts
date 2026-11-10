@@ -101,6 +101,7 @@ describe('💰 LIVE-4 · TD-4 — CAS en los tres escritores de `failed` (Postgr
         ivaCents: 0,
         totalCents,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         stripePaymentIntentId: pi,
         shippingAddressSnapshot: mode === 'direct_ship' ? { line1: 'x' } : undefined,
       },

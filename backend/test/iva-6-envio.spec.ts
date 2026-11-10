@@ -3,7 +3,6 @@ import {
   computeDirectShipBreakdown,
   computeShipmentBreakdown,
   displayPriceCentsOf,
-  grossUpTotal,
   shippingFeeDisplayCentsOf,
 } from '../src/common/money';
 
@@ -49,12 +48,12 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
     }
   });
 
-  it('⭐⭐ (a) `direct_ship`: `total == grossUpTotal(S + E)` y `shippingFeeCents == 20300`', () => {
+  it('⭐⭐ (a) `direct_ship`: `total == S + E` (D9, sin gross-up) y `shippingFeeCents == 20300`', () => {
     const S = displayPriceCentsOf(10_000, 100, R); // 11600
     const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R }); // 20300
     const b = computeDirectShipBreakdown(S, E, R, FEE);
     expect(b.shippingFeeCents).toBe(20_300);
-    expect(b.totalCents).toBe(grossUpTotal(S + E, FEE));
+    expect(b.totalCents).toBe(S + E);
     // ⛔ Y ⛔ NO aparece ningún CUARTO sumando: cartas + envío + comisión, y nada más.
     expect(b.totalCents).toBe(b.subtotalCents + b.shippingFeeCents + b.processingFeeCents);
   });
@@ -63,7 +62,7 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
     const S = displayPriceCentsOf(10_000, 100, R);
     const bueno = computeDirectShipBreakdown(S, 20_300, R, FEE);
     const mutado = computeDirectShipBreakdown(S, F, R, FEE);
-    expect(bueno.totalCents - mutado.totalCents).toBeGreaterThan(2_800);
+    expect(bueno.totalCents - mutado.totalCents).toBe(2_800); // D9: sin gross-up, la diferencia es exactamente el IVA del envío
     expect(mutado.shippingFeeCents).toBe(17_500);
   });
 
@@ -71,7 +70,7 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
     // El camino viejo, reconstruido literal: `iva = round((S_neto + F) × r)`, `base = S+F+iva`.
     const Sneto = 10_000;
     const ivaViejo = Math.round(((Sneto + F) * R) / 100);
-    const totalViejo = grossUpTotal(Sneto + F + ivaViejo, FEE);
+    const totalViejo = Sneto + F + ivaViejo; // D9: la BASE del camino viejo (sin la comisión que antes se le apilaba)
 
     const S = displayPriceCentsOf(Sneto, 100, R);
     const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R });
@@ -85,10 +84,10 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
     const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R });
     const b = computeShipmentBreakdown(E, R, FEE);
     expect(b.subtotalCents).toBe(20_300);
-    expect(b.totalCents).toBe(grossUpTotal(20_300, FEE));
+    expect(b.totalCents).toBe(20_300); // D9: se cobra la tarifa exhibida, sin gross-up
     expect(b.totalCents).toBe(b.subtotalCents + b.processingFeeCents);
-    // Money-neutral contra el pasado: `base = 17500 + 2800 = 20300` ⇒ el mismo total.
-    expect(b.totalCents).toBe(grossUpTotal(F + Math.round((F * R) / 100), FEE));
+    // Money-neutral contra el pasado: `base = 17500 + 2800 = 20300` ⇒ la misma base.
+    expect(b.totalCents).toBe(F + Math.round((F * R) / 100));
   });
 
   it('⭐⭐ (d) POR AUSENCIA, sobre el JSON serializado: ningún campo de IVA SUMA al total', () => {
@@ -125,17 +124,17 @@ describe('⭐ canario de `IVA-6`: apilar el IVA detrás del envío se ve, y se m
     const S = 11_600;
     const E = 20_300;
     const bueno = computeDirectShipBreakdown(S, E, R, FEE);
-    const mutado = grossUpTotal(S + E + bueno.ivaCents, FEE);
+    const mutado = S + E + bueno.ivaCents;
     expect(mutado).toBeGreaterThan(bueno.totalCents);
-    // El sobrecosto es el gross-up del IVA entero del agregado: ≈ 4400 centavos + su comisión.
-    expect(mutado - bueno.totalCents).toBeGreaterThan(4_400);
+    // D9: el sobrecosto es el IVA entero del agregado: 4400 centavos.
+    expect(mutado - bueno.totalCents).toBe(4_400);
   });
 
   it('m2 — dejar la tarifa NETA y apilar su IVA aparte da el MISMO total pero rompe (d)', () => {
     // Es la mutación sutil: los pesos cuadran y lo que se rompe es la FORMA — el recibo vuelve a
     // tener un sumando de IVA después del precio exhibido, que es lo que el criterio 189 prohíbe.
     const S = 11_600;
-    const mutadoTotal = grossUpTotal(S + F + Math.round((F * R) / 100), FEE);
+    const mutadoTotal = S + F + Math.round((F * R) / 100);
     const bueno = computeDirectShipBreakdown(S, 20_300, R, FEE);
     // ⚠️ Iguales en pesos…
     expect(mutadoTotal).toBe(bueno.totalCents);

@@ -94,6 +94,7 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
         ivaCents: 0,
         totalCents: 10000,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
       },
     });
@@ -105,6 +106,7 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
           status: 'picking',
           shippingFeeCents: 0,
           priceConvention: 'IVA_INCLUSIVE',
+          feeConvention: 'FEE_ON_TOP',
           // Los tres campos de la corrección van juntos o ninguno (CHECK `shipment_address_corrected_paired` y
           // `shipment_address_version_iff_corrected`, migración 20261006120000_m64_sdx_c_address).
           ...(opts.correctedByUserId

@@ -226,7 +226,7 @@ describe('§AN fase A — cifras por día (Postgres real)', () => {
     const orderId = 'a1e5a1e5-0000-4000-8000-000000000710';
     try {
       await w.h.prisma.order.create({
-        data: { id: orderId, userId: SID.userA, status: 'settled', settledAt: mx('2021-04-22', 12), priceConvention: 'IVA_EXCLUSIVE', subtotalCents: 5000, ivaCents: 800, processingFeeCents: 0, totalCents: 5800, ivaRatePct: 16 },
+        data: { id: orderId, userId: SID.userA, status: 'settled', settledAt: mx('2021-04-22', 12), priceConvention: 'IVA_EXCLUSIVE', feeConvention: 'FEE_ON_TOP', subtotalCents: 5000, ivaCents: 800, processingFeeCents: 0, totalCents: 5800, ivaRatePct: 16 },
       });
       const inv = await w.h.prisma.inventoryItem.create({
         data: { folio: 'AN-FIX-SNP-1', cardId: SID.cardS, productType: 'sealed', sealedSubtype: 'box', sealedProductId: null, sealedProductName: 'Caja Suelta AN', acquisitionType: 'compra', status: 'in_custody' } as never,
@@ -363,7 +363,7 @@ describe('§AN fase B — ganancia, envíos, buylist, mejores días, mezcla (Pos
     const orderId = id(700);
     try {
       await w.h.prisma.order.create({
-        data: { id: orderId, userId: SID.userA, status: 'settled', settledAt: mx('2021-04-20', 12), priceConvention: 'IVA_INCLUSIVE', subtotalCents: 30000, ivaCents: 4138, processingFeeCents: 0, totalCents: 30000, ivaRatePct: 16 },
+        data: { id: orderId, userId: SID.userA, status: 'settled', settledAt: mx('2021-04-20', 12), priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP', subtotalCents: 30000, ivaCents: 4138, processingFeeCents: 0, totalCents: 30000, ivaRatePct: 16 },
       });
       const items: Array<['raw' | 'graded' | 'sealed', string]> = [['raw', id(701)], ['graded', id(702)], ['sealed', id(703)]];
       for (const [pt, oiId] of items) {

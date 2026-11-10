@@ -716,6 +716,8 @@ export const PRICE_AFFECTING_SETTING_KEYS: readonly SettingKeyType[] = [
   // Los dos diales que derivan `P` desde `L` (§M10-IVA.3).
   SettingKey.IVA_PCT,
   SettingKey.IVA_TRANSFER_PCT,
+  // §D9: la comisión de plataforma (3.6 % de Stripe) va DENTRO de `P`. ⛔ `stripe_fee_fixed_cents` NO: el fijo lo absorbe la tienda y no entra al precio.
+  SettingKey.STRIPE_FEE_PCT,
   // La curva y el guardarraíl de venta (§4.36).
   SettingKey.PRICING_CURVE,
   SettingKey.PREMIUM_FLOOR_SALE_PUBLISH,

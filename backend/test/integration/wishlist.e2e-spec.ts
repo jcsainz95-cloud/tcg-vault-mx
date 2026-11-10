@@ -459,19 +459,19 @@ describe('WSH-T31 / T32 — preview y `ivaRatePct` (Q-WSH-UX-1/2)', () => {
 });
 
 describe('WSH-T33 — `availableNow.fits` del servidor (Q-WSH-UX-3)', () => {
-  it('P 133400 al 16 %: with_iva ⇒ false; without_iva ⇒ true; P = máximo exacto ⇒ true; pendiente ⇒ null; sin piezas ⇒ null', async () => {
+  it('P 129600 al 16 % (D9: con la comisión dentro; antes 133400): with_iva ⇒ false; without_iva ⇒ true; P = máximo exacto ⇒ true; pendiente ⇒ null; sin piezas ⇒ null', async () => {
     const a = await w.customer();
     const c = await w.card();
     await w.market(c.id, 'normal', 100000);
     await post(a, { cardId: c.id, finish: 'normal', maxPct: 16 });
     expect((await list(a)).body.items[0].availableNow).toBeNull();
-    await w.piece(c.id, { listCents: 115000 }); // P = 133400
+    await w.piece(c.id, { listCents: 107000 }); // P = 129600 (116000 < P ≤ 134560 ⇒ no cabe con IVA, sí sin IVA)
     const l1 = await list(a);
-    expect(l1.body.items[0].availableNow).toEqual({ count: 1, fromDisplayCents: 133400, fits: false });
+    expect(l1.body.items[0].availableNow).toEqual({ count: 1, fromDisplayCents: 129600, fits: false });
     await w.setDial('wishlist_max_iva_mode', 'without_iva');
     expect((await list(a)).body.items[0].availableNow.fits).toBe(true);
     await w.setDial('wishlist_max_iva_mode', 'with_iva');
-    await w.piece(c.id, { listCents: 100000 }); // P = 116000 = máximo exacto al 16 %
+    await w.piece(c.id, { listCents: 95800 }); // P = 116000 = máximo exacto al 16 % (D9: L=95800 con la comisión dentro)
     const l2 = await list(a);
     expect(l2.body.items[0].availableNow).toEqual({ count: 2, fromDisplayCents: 116000, fits: true });
 
@@ -479,7 +479,7 @@ describe('WSH-T33 — `availableNow.fits` del servidor (Q-WSH-UX-3)', () => {
     await post(a, { cardId: c2.id, finish: 'normal', maxPct: 16 });
     await w.piece(c2.id, { listCents: 50000 }); // sin mercado pero con precio manual ⇒ vendible
     const row = (await list(a)).body.items.find((i: any) => i.card.id === c2.id);
-    expect(row.availableNow).toEqual({ count: 1, fromDisplayCents: 58000, fits: null });
+    expect(row.availableNow).toEqual({ count: 1, fromDisplayCents: 60600, fits: null });
   });
 });
 

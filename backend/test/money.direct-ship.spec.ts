@@ -2,7 +2,6 @@ import {
   computeCartBreakdown,
   computeDirectShipBreakdown,
   computeShipmentBreakdown,
-  grossUpTotal,
 } from '../src/common/money';
 
 const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
@@ -28,22 +27,22 @@ describe('computeDirectShipBreakdown — envío dentro de la misma orden', () =>
     expect(b.currency).toBe('MXN');
   });
 
-  it('⭐⭐ `IVA-2`: el total es `grossUpTotal(S + E)` — ⛔ el IVA NO es un cuarto sumando', () => {
+  it('⭐⭐ `IVA-2`: el total es `S + E` (D9, sin gross-up) — ⛔ el IVA NO es un cuarto sumando', () => {
     const b = computeDirectShipBreakdown(29000, 20300, IVA, FEE);
     const grossUpBase = 29000 + 20300;
-    expect(b.totalCents).toBe(grossUpTotal(grossUpBase, FEE));
-    expect(b.processingFeeCents).toBe(b.totalCents - grossUpBase);
+    expect(b.totalCents).toBe(grossUpBase);
+    expect(b.processingFeeCents).toBe(0);
     // ⭐ La identidad (b) de §M10-IVA.4: cartas + envío + comisión. **Sin línea de IVA.**
     expect(b.totalCents).toBe(b.subtotalCents + b.shippingFeeCents + b.processingFeeCents);
-    // ⛔ Y la mutación de `IVA-2`, nombrada: sumar el IVA a la base cobra 13.6 % de más.
-    expect(b.totalCents).not.toBe(grossUpTotal(grossUpBase + b.ivaCents, FEE));
+    // ⛔ Y la mutación de `IVA-2`, nombrada: sumar el IVA a la base cobra de más.
+    expect(b.totalCents).not.toBe(grossUpBase + b.ivaCents);
   });
 
   it('⛔ money-neutral: el total es EXACTAMENTE el de antes del corte con el dial en 100 %', () => {
     // Antes: base = 25000 + 17500 + round(42500×0.16) = 42500 + 6800 = 49300.
     // Ahora: G = round(25000×1.16) + round(17500×1.16) = 29000 + 20300 = 49300. **Idéntico.**
     const b = computeDirectShipBreakdown(29000, 20300, IVA, FEE);
-    expect(b.totalCents).toBe(grossUpTotal(25000 + 17500 + 6800, FEE));
+    expect(b.totalCents).toBe(25000 + 17500 + 6800); // la MISMA base de antes; D9 ya no le apila la comisión
   });
 
   it('con envío 0 reproduce EXACTAMENTE el desglose de carrito de bóveda (no hay divergencia)', () => {

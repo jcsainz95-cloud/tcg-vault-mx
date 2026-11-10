@@ -153,6 +153,7 @@ describe('💰 AC-B47…B51 — formas de PaymentRefund para accesorios (M-73, �
         ivaCents: 13000,
         totalCents: 50000 + 3 * 8900 + 17500 + 3000,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         shippingAddressSnapshot: { line1: 'Calle 1' },
       },
     });
@@ -165,6 +166,7 @@ describe('💰 AC-B47…B51 — formas de PaymentRefund para accesorios (M-73, �
         pickingAt: new Date(),
         shippingFeeCents: 0,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         items: { create: [{ inventoryItemId: piece.id }] },
       },
       include: { items: true },

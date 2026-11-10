@@ -135,6 +135,7 @@ describe('E2E — «Pedidos a preparar» (§M4-PREP) contra Postgres real', () =
         status: 'picking',
         shippingFeeCents: 9_900,
         priceConvention: 'IVA_EXCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         carrier: `${MARCA}${opts.carrier}`,
         ...(opts.requestedAt ? { requestedAt: opts.requestedAt } : {}),
         items: { create: opts.itemIds.map((id) => ({ inventoryItemId: id })) },
@@ -437,7 +438,8 @@ describe('E2E — «Pedidos a preparar» (§M4-PREP) contra Postgres real', () =
           processingFeeCents: 0,
           ivaCents: 0,
           totalCents: 1,
-          priceConvention: 'IVA_EXCLUSIVE', // sin dial ⇔ EXCLUSIVE (censo de iva-price-convention)
+          priceConvention: 'IVA_EXCLUSIVE', // sin dial ⇔ EXCLUSIVE (censo de iva-price-convention),
+          feeConvention: 'FEE_ON_TOP',
         },
       });
       const vp = await h.prisma.vaultPlacement.create({ data: { orderId: order.id, createdAt: new Date() } });

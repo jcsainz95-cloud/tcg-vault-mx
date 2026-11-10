@@ -22,7 +22,7 @@ describe('MS-2 — OrdersService.representableOrThrow', () => {
     try {
       // D56: `G = S` (el IVA va dentro) ⇒ el umbral de no-representable subió. Ver la nota en
       // `common/be27-aggregate-overflow.spec.ts`.
-      s.representableOrThrow(() => computeCartBreakdown(2_100_000_000, 16, fee));
+      s.representableOrThrow(() => computeCartBreakdown(MAX_CENTS + 1, 16, fee));
     } catch (e) {
       caught = e;
     }
@@ -40,9 +40,9 @@ describe('MS-2 — OrdersService.representableOrThrow', () => {
 
   it('NO enmascara otros Error (mala config de fee se propaga como 500 crudo, no AMOUNT_TOO_LARGE)', () => {
     const s = svc();
-    const badFee: StripeFeeConfig = { stripePct: 2, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
-    // effectivePct >= 1 → grossUpTotal lanza un Error de config (sin 'MAX_CENTS' en el mensaje).
-    expect(() => s.representableOrThrow(() => computeCartBreakdown(100000, 16, badFee))).toThrow(
+    // D9: el desglose ya no usa el gross-up (no hay config de fee que pueda fallar ahí); el contrato de `representableOrThrow`
+    // es el mismo: solo traduce el desborde de Int32, cualquier otro Error se propaga crudo.
+    expect(() => s.representableOrThrow(() => { throw new Error('effective stripe pct (config mala)'); })).toThrow(
       /effective stripe pct/,
     );
   });
@@ -75,6 +75,6 @@ describe('TL-ENV-4 — GuestCheckoutService.quoteBreakdowns pasa por representab
   it('el mismo quote con el dial sellado (17500) sigue cotizando', async () => {
     const r = await quoteBreakdowns(guest())(50000, 50000, false, false, { ivaRatePct: 16 }, null, 'sealed');
     expect(r.breakdown.shippingFeeCents).toBe(17500);
-    expect(r.breakdown.totalCents).toBeGreaterThan(67500);
+    expect(r.breakdown.totalCents).toBe(67500); // D9: ΣP + envío, sin gross-up encima
   });
 });

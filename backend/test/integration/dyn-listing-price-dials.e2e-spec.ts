@@ -284,7 +284,7 @@ describe('E2E — DYN-B17: completitud de PRICE_AFFECTING_SETTING_KEYS (§DYN.5.
     expect(sinCandidato.sort()).toEqual(Object.keys(SIN_PERTURBACION).sort());
     expect(Object.keys(SIN_PERTURBACION)).toEqual([]);
     // Control: el método VE las claves que mueven (si no, el candado sería verde por ceguera).
-    expect(mueven).toEqual(expect.arrayContaining([SettingKey.IVA_PCT, SettingKey.IVA_TRANSFER_PCT, SettingKey.PRICING_CURVE]));
+    expect(mueven).toEqual(expect.arrayContaining([SettingKey.IVA_PCT, SettingKey.IVA_TRANSFER_PCT, SettingKey.STRIPE_FEE_PCT, SettingKey.PRICING_CURVE]));
     // …y las claves que el fixture de v1.113.3 vino a cubrir (árbitro con dos fuentes que discrepan; FX en `manual`).
     expect(mueven).toEqual(
       expect.arrayContaining([

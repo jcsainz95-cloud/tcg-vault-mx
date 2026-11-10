@@ -117,6 +117,7 @@ describe('💰 §M4-SHIP.18.12 — reembolso TOTAL «depende de si ya salió» (
         ivaCents: 0,
         totalCents,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         stripePaymentIntentId: pi,
         ...(mode === 'direct_ship'
           ? { shippingAddressSnapshot: { recipientName: 'Destinatario SRF', line1: 'Calle 1', city: 'CDMX', state: 'CDMX', postalCode: '01000', country: 'MX', phone: '55' } }

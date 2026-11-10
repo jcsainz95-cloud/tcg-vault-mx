@@ -53,7 +53,7 @@ describe('WSH-T6 — el máximo sale del mercado del DÍA DEL AVISO (806)', () =
     expect(n.status).toBe('sent');
     expect(n.marketCents).toBe(120000);
     expect(n.maxDisplayCents).toBe(132000);
-    expect(n.priceDisplayCents).toBe(116000);
+    expect(n.priceDisplayCents).toBe(121100); // D9: P de L=100000 lleva la comisión dentro (antes 116000)
     expect(n.fits).toBe(true);
     const m = w.mailsTo(a.email);
     expect(m).toHaveLength(1);
@@ -299,10 +299,10 @@ describe('WSH-T23 — el correo dice si cabe y la pieza sale a precio normal (82
     await w.market(c.id, 'normal', 100000);
     await want(at5, c.id, 5);
     await want(at16, c.id, 16);
-    const pieceId = await w.piece(c.id, { listCents: 95000 }); // P = 110200
+    const pieceId = await w.piece(c.id, { listCents: 95000 }); // P = 115100 (D9: con la comisión dentro; antes 110200)
     const pub = await w.h.api('GET', `/catalog/listings/${pieceId}`);
     expect(pub.status).toBe(200);
-    expect(pub.body.displayPriceCents).toBe(110200);
+    expect(pub.body.displayPriceCents).toBe(115100);
     await tick();
     const n5 = await w.h.prisma.wishlistNotice.findUniqueOrThrow({ where: { userId_inventoryItemId: { userId: at5.id, inventoryItemId: pieceId } } });
     const n16 = await w.h.prisma.wishlistNotice.findUniqueOrThrow({ where: { userId_inventoryItemId: { userId: at16.id, inventoryItemId: pieceId } } });
@@ -311,7 +311,7 @@ describe('WSH-T23 — el correo dice si cabe y la pieza sale a precio normal (82
     expect(w.mailsTo(at5.email)[0].text).toContain('Está arriba de tu máximo.');
     expect(w.mailsTo(at16.email)[0].text).toContain('Cabe en tu máximo.');
     // la pieza sigue a su precio normal para todos
-    expect((await w.h.api('GET', `/catalog/listings/${pieceId}`, { token: at16.token })).body.displayPriceCents).toBe(110200);
+    expect((await w.h.api('GET', `/catalog/listings/${pieceId}`, { token: at16.token })).body.displayPriceCents).toBe(115100);
   });
 });
 
@@ -404,6 +404,7 @@ describe('WSH-T16 — se quita sola al pagar, por las DOS liquidaciones (816)', 
         ivaTransferPct: 100,
         totalCents: 104400,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         stripePaymentIntentId: pi,
       },
     });

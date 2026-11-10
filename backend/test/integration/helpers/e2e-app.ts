@@ -200,6 +200,15 @@ export class TestStripeService extends StripeService {
   }
 
   /**
+   * §D9 — el costo REAL de Stripe (`balance_transaction.fee`) que el doble devuelve al liquidar. `null` (por defecto) = Stripe
+   * aún no lo trae ⇒ la fila queda con `stripeFeeCents` NULL y el P&L usa el estimado.
+   */
+  public stripeFeeCentsToReturn: number | null = null;
+  async getStripeFeeCents(_paymentIntentId: string): Promise<number | null> {
+    return this.stripeFeeCentsToReturn;
+  }
+
+  /**
    * B3 — el barrido solo libera si el PI queda CANCELADO. El doble por defecto cancela SIEMPRE, así
    * que por sí solo **nunca ejercita la rama peligrosa** (lo señaló QA). `cancelOutcome` permite
    * guionizar el comportamiento del Stripe REAL sin parchear la instancia a mano:

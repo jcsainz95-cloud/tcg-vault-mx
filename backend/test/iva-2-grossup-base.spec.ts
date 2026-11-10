@@ -5,7 +5,6 @@ import {
   computeCartBreakdown,
   computeDirectShipBreakdown,
   computeShipmentBreakdown,
-  grossUpTotal,
 } from '../src/common/money';
 import { stripComments } from './helpers/strip-comments';
 
@@ -45,38 +44,37 @@ const FEE: StripeFeeConfig = { stripePct: 0.036, stripeFixedCents: 300, stripeFe
 const R = 16;
 
 describe('⭐⭐ `IVA-2` — el IVA NO se suma a la base del gross-up (o se cobra dos veces)', () => {
-  it('⭐⭐ en PESOS: con el fixture de `IVA-1`, `totalCents` es 12469 y ⛔ nunca más', () => {
+  // ⭐ D9: la comisión ya va DENTRO de `P` ⇒ el desglose no hace gross-up; el umbral de `IVA-2` pasa de `12469` (con gross-up)
+  // a `11600` (= `S`): «rojo si `totalCents > S + E`». El IVA sigue sin ser sumando de nada.
+  it('⭐⭐ en PESOS: con el fixture de `IVA-1`, `totalCents` es 11600 y ⛔ nunca más', () => {
     const b = computeCartBreakdown(11_600, R, FEE);
-    expect(b.totalCents).toBe(12_469);
-    // ⛔ El umbral del contrato, literal: «rojo si `totalCents > 12469`».
-    expect(b.totalCents).toBeLessThanOrEqual(12_469);
-    // Y la cifra exacta de la mutación, nombrada para que se reconozca en un informe.
-    expect(b.totalCents).not.toBe(14_139);
+    expect(b.totalCents).toBe(11_600);
+    // ⛔ El umbral, literal: «rojo si `totalCents > S + E`».
+    expect(b.totalCents).toBeLessThanOrEqual(11_600);
+    // Y la cifra exacta de la mutación (`G = S + iva`), nombrada para que se reconozca en un informe.
+    expect(b.totalCents).not.toBe(13_200);
   });
 
-  it('⭐ la mutación, reintroducida: `G = S + iva` produce EXACTAMENTE 14139 (+13.4 %)', () => {
+  it('⭐ la mutación, reintroducida: `G = S + iva` produce EXACTAMENTE 13200 (+13.8 %)', () => {
     const b = computeCartBreakdown(11_600, R, FEE);
-    const mutado = grossUpTotal(b.subtotalCents + b.ivaCents, FEE);
-    // ⚠️ MEDIDO: 14139, no el 14164 que publica el contrato (ver la nota de cabecera).
-    expect(mutado).toBe(14_139);
+    const mutado = b.subtotalCents + b.ivaCents; // cobrar el IVA otra vez, encima del precio con IVA dentro
+    expect(mutado).toBe(13_200);
     expect(mutado / b.totalCents).toBeGreaterThan(1.13);
     expect(mutado).not.toBe(b.totalCents);
-    // Y lo NORMATIVO —el umbral— se cumple con cualquiera de las dos cifras: la mutación excede.
-    expect(mutado).toBeGreaterThan(12_469);
+    // Y lo NORMATIVO —el umbral— se cumple: la mutación excede.
+    expect(mutado).toBeGreaterThan(11_600);
   });
 
   it('⭐⭐ la IDENTIDAD estructural, en los TRES desgloses', () => {
     const cart = computeCartBreakdown(11_600, R, FEE);
-    expect(cart.totalCents).toBe(grossUpTotal(cart.subtotalCents, FEE));
+    expect(cart.totalCents).toBe(cart.subtotalCents); // D9: sin gross-up
 
     const shipment = computeShipmentBreakdown(20_300, R, FEE);
     // En el retiro de bóveda el «subtotal» del DTO ES la tarifa ⇒ el agregado es esa cifra sola.
-    expect(shipment.totalCents).toBe(grossUpTotal(shipment.subtotalCents, FEE));
+    expect(shipment.totalCents).toBe(shipment.subtotalCents);
 
     const direct = computeDirectShipBreakdown(11_600, 20_300, R, FEE);
-    expect(direct.totalCents).toBe(
-      grossUpTotal(direct.subtotalCents + direct.shippingFeeCents, FEE),
-    );
+    expect(direct.totalCents).toBe(direct.subtotalCents + direct.shippingFeeCents);
   });
 
   it('⭐ y la identidad se sostiene sobre 500 carritos generados, no solo sobre el fixture', () => {
@@ -91,7 +89,7 @@ describe('⭐⭐ `IVA-2` — el IVA NO se suma a la base del gross-up (o se cobr
       const S = rnd(5_000_000) + 1;
       const E = rnd(3) === 0 ? 0 : rnd(100_000);
       const d = computeDirectShipBreakdown(S, E, R, FEE);
-      expect(d.totalCents).toBe(grossUpTotal(S + E, FEE));
+      expect(d.totalCents).toBe(S + E);
       // ⛔ El IVA NO es un sumando del total (identidad (b) de §M10-IVA.4).
       expect(d.totalCents).toBe(d.subtotalCents + d.shippingFeeCents + d.processingFeeCents);
     }

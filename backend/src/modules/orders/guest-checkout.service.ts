@@ -6,7 +6,7 @@ import { Locale, Order, OrderStatus, Prisma, ProductType, ShipmentRequest, Shipm
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
-import { PRICE_CONVENTION_OF_NEW_ROWS, BreakdownDTO, computeCartBreakdown, DirectShipBreakdownDTO } from '../../common/money';
+import { PRICE_CONVENTION_OF_NEW_ROWS, FEE_CONVENTION_OF_NEW_ROWS, BreakdownDTO, computeCartBreakdown, DirectShipBreakdownDTO } from '../../common/money';
 import type { IvaDials } from '../../common/money';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
@@ -556,6 +556,8 @@ export class GuestCheckoutService {
             // `IVA_INCLUSIVE` (`subtotalCents` y `shippingFeeCents` llevan el IVA dentro). Sin
             // default de BD detrás: si esta línea se cae, el `INSERT` revienta (candado `IVA-3(e)`).
             priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+            // §D9 — la comisión de plataforma va DENTRO de `P`: fila nueva = FEE_INCLUDED (`processingFeeCents` = 0). Sin default de BD.
+            feeConvention: FEE_CONVENTION_OF_NEW_ROWS,
             // ⭐ La posición del dial que produjo estos precios (informativa/auditora, `/admin/*`).
             ivaTransferPct: ivaDials.ivaTransferPct,
             cfdiStatus: 'registrado',

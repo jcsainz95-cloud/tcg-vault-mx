@@ -54,6 +54,7 @@ describe('C-B16 · a6 «Pagos iniciados → pagados» contra Postgres', () => {
           ivaCents: 0,
           totalCents: 10000,
           priceConvention: 'IVA_INCLUSIVE',
+          feeConvention: 'FEE_ON_TOP',
         },
       });
       ids.push(o.id);

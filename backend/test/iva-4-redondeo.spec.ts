@@ -2,7 +2,6 @@ import {
   StripeFeeConfig,
   computeCartBreakdown,
   displayPriceCentsOf,
-  grossUpTotal,
   taxBaseCentsOf,
 } from '../src/common/money';
 
@@ -117,7 +116,8 @@ describe('⭐ `IVA-4` — R1/R2/R3: el redondeo vive en `P`, y el residual absor
     // total viene de la base y de nada más. Por eso el canon se enuncia sobre la BASE: enunciarlo
     // sobre el total arrastraría el `ceil` del gross-up, que no tiene que ver con el redondeo.
     const c = carrito(CARRITO, 100);
-    expect(c.totalCents).toBe(grossUpTotal(c.subtotalCents, FEE));
+    // D9: la comisión va dentro de cada `P` ⇒ no hay gross-up y el total ES la base.
+    expect(c.totalCents).toBe(c.subtotalCents);
   });
 
   it('⭐ la cota se sostiene sobre 300 carritos generados, con n variable', () => {

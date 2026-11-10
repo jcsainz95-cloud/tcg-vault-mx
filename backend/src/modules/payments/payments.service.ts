@@ -9,7 +9,7 @@ import { readFrozenCardFacts } from '../orders/order-item-card';
 import { clearReservation, failPendingOrder, releaseReservationData, reservationGuard } from '../orders/reservation';
 import { AccessorySettleAnomaly, releaseAccessoryReservations, settleAccessories } from '../orders/accessory-stock';
 import { ACCESSORY_LINE_READ_INCLUDE, accessoryMailLinesOf } from '../orders/accessory-lines-view';
-import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
+import { PRICE_CONVENTION_OF_NEW_ROWS, FEE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
 import { consumeOrderRedemption, orderDiscountOf } from '../discounts/redemption';
 import { CHARGE_REFUNDED_SOURCE_STATUSES, SETTLEABLE_ORDER_STATUSES, isSettleableOrderStatus } from './settleable-order-statuses';
 // v1.74 (§R.3) — `AV-2` (pedido liquidado, al REGISTRADO) y `AV-3` (reembolso total). Plantillas
@@ -405,6 +405,7 @@ export class PaymentsService {
       // v1.79.4 — el perdedor de la carrera ⛔ no avisa: ni AV-2 ni auditoría de anomalías (su bucle no
       // corrió). Su marcador `ProcessedStripeEvent` queda: el 200 es correcto (el settle ya está hecho).
       if (!settled) return;
+      await this.captureStripeFee('order', order.id, order.stripePaymentIntentId);
       if (lateDiscount) await this.auditLateDiscount(order.id);
       if (anomalies.length > 0) {
         await this.audit
@@ -446,6 +447,28 @@ export class PaymentsService {
         where: { id: shipment.id, status: 'solicitado' },
         data: { status: 'picking', pickingAt: new Date() },
       });
+      await this.captureStripeFee('shipment', shipment.id, shipment.stripePaymentIntentId);
+    }
+  }
+
+  /**
+   * §D9 (docs/specs/D9_COMISION.md §3) — guarda el costo REAL de Stripe (`stripeFeeCents`) de un cobro ya liquidado.
+   * POST-COMMIT y BEST-EFFORT (un fallo jamás revierte ni falla un pago ya cobrado). IDEMPOTENTE y de una sola escritura:
+   * el `WHERE` exige `feeConvention = FEE_INCLUDED` y `stripeFeeCents IS NULL` ⇒ un reintento del webhook no pisa el valor
+   * ni toca filas viejas (`FEE_ON_TOP` siguen con su `processingFeeCents`). Si Stripe no lo devuelve queda NULL (estimado).
+   */
+  private async captureStripeFee(kind: 'order' | 'shipment', id: string, paymentIntentId: string | null): Promise<void> {
+    if (!paymentIntentId) return;
+    try {
+      const fee = await this.stripe.getStripeFeeCents(paymentIntentId);
+      if (fee === null) return;
+      if (kind === 'order') {
+        await this.prisma.order.updateMany({ where: { id, feeConvention: 'FEE_INCLUDED', stripeFeeCents: null }, data: { stripeFeeCents: fee } });
+      } else {
+        await this.prisma.shipmentRequest.updateMany({ where: { id, feeConvention: 'FEE_INCLUDED', stripeFeeCents: null }, data: { stripeFeeCents: fee } });
+      }
+    } catch (e) {
+      this.logger.warn(`No se pudo guardar el costo de Stripe de ${kind} ${id}: ${(e as Error).message}`);
     }
   }
 
@@ -621,6 +644,8 @@ export class PaymentsService {
             // `Order.shippingFeeCents`). *La convención es ABSOLUTA: no depende de que los importes
             // sean 0.* Una fila sin convención no se puede leer, valga lo que valga.
             priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+            // §D9 — la comisión de plataforma va DENTRO de `P`: fila nueva = FEE_INCLUDED (`processingFeeCents` = 0). Sin default de BD.
+            feeConvention: FEE_CONVENTION_OF_NEW_ROWS,
             items: { create: order.items.map((oi) => ({ inventoryItemId: oi.inventoryItemId })) },
           },
         });
@@ -637,6 +662,7 @@ export class PaymentsService {
     });
     // v1.79.4 — el perdedor ⛔ no avisa: ni confirmación de invitado, ni AV-2, ni auditoría.
     if (!settled) return;
+    await this.captureStripeFee('order', order.id, order.stripePaymentIntentId);
     if (lateDiscount) await this.auditLateDiscount(order.id);
     // 💰 §AC.6 (4) + ⭐ v1.86.6 (§AC.21.3): ruidoso, FUERA de la tx, best-effort (`.catch` como B3) — nunca tumba el webhook.
     //  - `recovered` ⇒ `order.settle_accessory_anomaly` (renglón `reserved` que el contador no respaldaba; salió de libres).

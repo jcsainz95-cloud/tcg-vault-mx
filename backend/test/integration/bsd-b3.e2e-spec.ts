@@ -182,6 +182,7 @@ async function inbound(sellRequestId: string, over: Over = {}) {
       addressSnapshot: SNAPSHOT,
       shippingFeeCents: 0,
       priceConvention: 'IVA_INCLUSIVE',
+      feeConvention: 'FEE_ON_TOP',
       ...over,
     },
   });

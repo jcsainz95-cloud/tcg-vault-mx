@@ -56,9 +56,9 @@ describe('WSH-T19 / T8 / T22 por HTTP — contenido, orden y cifras (819, 820, 8
   it('criterio 827 de punta a punta: mercado $1,000, normal $1,150 sin IVA, una cuenta por nivel', async () => {
     const c = await w.card();
     await w.market(c.id, 'normal', 100000);
-    // precio normal $1,150: override de VENTA de la variante (M-30), la misma fuente que publicaría la pieza
+    // precio normal $1,100 sin IVA (D9: antes $1,150, que con la comisión dentro ya pasaba el máximo sin IVA del 16 %): override de VENTA de la variante (M-30), la misma fuente que publicaría la pieza
     await w.h.prisma.variantPriceOverride.create({
-      data: { cardId: c.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', sellOverrideCents: 115000 },
+      data: { cardId: c.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', sellOverrideCents: 110000 },
     });
     for (const p of [5, 10, 16] as const) await want(await w.customer(), c.id, p);
     const r = await demand();
@@ -73,13 +73,13 @@ describe('WSH-T19 / T8 / T22 por HTTP — contenido, orden y cifras (819, 820, 8
     ]);
     expect(row.mainCeilingCents).toBe(86957);
     expect(row.marketCents).toBe(100000);
-    expect(row.normalPrice).toEqual({ listCents: 115000, displayCents: 133400 });
+    expect(row.normalPrice).toEqual({ listCents: 110000, displayCents: 133200 });
     expect(row.buyersAtNormalPrice).toBe(0);
     expect(r.body.dials).toEqual({ ivaMode: 'with_iva', ivaRatePct: 16, ivaTransferPct: 100, targetMarginPct: 15, marginBasis: 'cost' });
 
     await w.setDial('wishlist_max_iva_mode', 'without_iva');
     const r2 = rowOf((await demand()).body, c);
-    expect(r2.tiers.map((t: any) => t.ceilingCents)).toEqual([100000, 95652, 91304]);
+    expect(r2.tiers.map((t: any) => t.ceilingCents)).toEqual([99850, 95652, 91304]); // 16 %: tope = el precio normal 133200 (con la comisión dentro)
     expect(r2.tiers.map((t: any) => t.maxDisplayCents)).toEqual([134560, 127600, 121800]);
     expect(r2.buyersAtNormalPrice).toBe(1);
 
@@ -249,6 +249,7 @@ describe('WSH-T17 — borrar la cuenta borra la lista (817)', () => {
         ivaTransferPct: 100,
         totalCents: 100,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
       },
     });
     const del = await w.h.api('DELETE', `/admin/users/${a.id}`, { token: w.adminToken });

@@ -111,7 +111,7 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
   const P11 = await piece('K', { ...owned, status: 'in_custody', locationId: C1 });
 
   // ---- O1: bóveda, liquidado y colocado
-  const money = { subtotalCents: 3000, processingFeeCents: 100, ivaCents: 0, totalCents: 3100, priceConvention: 'IVA_INCLUSIVE' as const };
+  const money = { subtotalCents: 3000, processingFeeCents: 100, ivaCents: 0, totalCents: 3100, priceConvention: 'IVA_INCLUSIVE' as const, feeConvention: 'FEE_ON_TOP' as const };
   const snap = { name: 'x' };
   const O1 = await db.order.create({
     data: { userId: buyer.id, orderNumber: await nextOrder(), fulfillmentMode: 'vault', status: 'settled', createdAt: d(0), settledAt: d(0), paymentMethodLast4: '4242', ...money },
@@ -153,7 +153,7 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
   // ---- Envíos: ENV-000001 (retiro de P4), ENV-000002 (entrada del buylist / relleno), ENV-000003 (directo de O2)
   const addr = { recipientName: 'Comprador', line1: 'Calle 1', city: 'CDMX', state: 'CDMX', postalCode: '01000', country: 'MX', phone: '5500000000' };
   const SR1 = await db.shipmentRequest.create({
-    data: { userId: buyer.id, addressSnapshot: addr, status: 'enviado', shippingFeeCents: 15000, priceConvention: 'IVA_INCLUSIVE', requestedAt: d(3) },
+    data: { userId: buyer.id, addressSnapshot: addr, status: 'enviado', shippingFeeCents: 15000, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP', requestedAt: d(3) },
   });
   const SI4 = await db.shipmentItem.create({
     data: { shipmentRequestId: SR1.id, inventoryItemId: P4.id, prepStatus: 'missing', missingReason: 'damaged', prepMarkedAt: d(3), prepMarkedByUserId: staff.id },
@@ -205,11 +205,11 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
     await db.shipmentRequest.create({
       data: {
         kind: 'buylist_inbound', sellRequestId: accReq.id, userId: null, orderId: null, addressSnapshot: addr, status: 'guia', shippingFeeCents: 0,
-        priceConvention: 'IVA_INCLUSIVE', labelSource: 'manual', carrier: 'DHL', trackingNumber: `IN-${run}`, requestedAt: d(4),
+        priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP', labelSource: 'manual', carrier: 'DHL', trackingNumber: `IN-${run}`, requestedAt: d(4),
       } as any,
     });
   } else {
-    await db.shipmentRequest.create({ data: { userId: buyer.id, addressSnapshot: addr, status: 'cancelado', shippingFeeCents: 0, priceConvention: 'IVA_INCLUSIVE', requestedAt: d(4) } });
+    await db.shipmentRequest.create({ data: { userId: buyer.id, addressSnapshot: addr, status: 'cancelado', shippingFeeCents: 0, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP', requestedAt: d(4) } });
   }
 
   // ---- O2: directo, enviado con guía Skydropx, P7 dañada al preparar con reembolso parcial
@@ -225,7 +225,7 @@ export async function seedFixture(db: PrismaClient, opts: { m72: boolean }): Pro
   await mv(P7.id, { reason: 'damaged', fromStatus: 'picking', toStatus: 'damaged', note: `${O2.orderNumber} · no salió al preparar (damaged) · reembolso`, createdAt: d(2) });
   const SR3 = await db.shipmentRequest.create({
     data: {
-      userId: buyer.id, orderId: O2.id, addressSnapshot: addr, status: 'enviado', shippingFeeCents: 9900, shippingCostCents: 12000, priceConvention: 'IVA_INCLUSIVE',
+      userId: buyer.id, orderId: O2.id, addressSnapshot: addr, status: 'enviado', shippingFeeCents: 9900, shippingCostCents: 12000, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP',
       requestedAt: d(1), shippedAt: d(2), labelSource: 'skydropx', providerShipmentId: `sdx-old-${run}`, providerRateId: 'rate-1', chosenRateJson: { priceCents: 12000 },
       rateChosenByUserId: staff.id, rateChosenAt: d(2), labelPurchasedAt: d(2), packageCode: 'box', declaredValueCents: 1000, insuredValueCents: 1000,
       carrier: 'fedex', trackingNumber: `TRK-${run}`, addressVersion: 1, addressCorrectedAt: d(1), addressCorrectedByUserId: staff.id,

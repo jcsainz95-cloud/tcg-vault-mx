@@ -15,6 +15,7 @@
  *
  * Deterministas (N=1 dicho como tal). Los diales se restauran a sus defaults en `beforeEach`/`afterAll`.
  */
+import { lForAtLeastP, pOfL } from '../helpers/d9-price';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Prisma } from '@prisma/client';
@@ -24,7 +25,7 @@ import { AccDb, FUNDA_DIMS } from './helpers/accessories-b-db';
 import { ShipPrepDb } from './helpers/ship-prep-db';
 import { SettingKey, SettingKeyType } from '../../src/modules/settings/settings.constants';
 import { SettingsService } from '../../src/modules/settings/settings.service';
-import { computeDirectShipBreakdown, computeShipmentBreakdown, displayPriceCentsOf, itemMissingRefundComponents } from '../../src/common/money';
+import { computeDirectShipBreakdown, computeShipmentBreakdown, grossUpTotal, itemMissingRefundComponents } from '../../src/common/money';
 import { E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
 
 const RUN = `env2${Date.now().toString(36)}`;
@@ -72,9 +73,8 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
    * el primero por encima y se devuelve el `P` real. Se COMPRUEBA contra el quote: sin eso, un `S` del contrato no es ese `S`.
    */
   const piece = async (productType: 'raw' | 'graded' | 'sealed', cents: number, exact = true) => {
-    let L = Math.floor(cents / 1.16) - 2;
-    while (displayPriceCentsOf(L, 100, 16) < cents) L += 1;
-    const P = displayPriceCentsOf(L, 100, 16);
+    const L = lForAtLeastP(cents); // D9: `P` lleva la comisión dentro (múltiplo de MX$1)
+    const P = pOfL(L);
     if (exact && P !== cents) throw new Error(`fixture: ningún L exhibe exactamente ${cents}`);
     const it = await acc.mkItem({ productType, listPriceCents: L });
     const q = await acc.quote({ inventoryItemIds: [it.id] });
@@ -178,7 +178,9 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
       },
       {
         name: 'sellado S=399999 ⇒ 17500, falta 1',
-        build: async () => ({ cart: { inventoryItemIds: [(await piece('sealed', 399999)).id] }, S: 399999 }),
+        // D9: el precio calculado de una carta/sellado es de pesos enteros (comisión dentro, techo al peso); el centavo que falta para
+        // el umbral lo pone un accesorio de precio final del dueño (que vale lo que escribió): 399900 + 99 = 399999.
+        build: async () => ({ cart: { inventoryItemIds: [(await piece('sealed', 399900)).id], accessoryLines: [{ accessoryId: await accessory(99), quantity: 1 }] }, S: 399999 }),
         fee: E_SEALED,
         rule: { kind: 'sealed', freeFromCents: T, freeShippingRemainingCents: 1, freeShippingApplied: false, boxFeeApplies: false },
       },
@@ -520,10 +522,12 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
       return { order, shipmentId: paid.shipmentId };
     };
 
-    it('contrato: dos de 208906 cobrados por la regla real (E = 0, IVA 57629 vs 57630 por pieza) ⇒ Σ = total; canario 23514', async () => {
-      const { order, shipmentId } = await paidSealed([208906, 208906]);
-      expect(order.ivaCents).toBe(57629);
-      const { residual } = await allMissing(shipmentId, order, [208906, 208906]);
+    it('contrato: dos de 200300 cobrados por la regla real (E = 0, IVA 55255 vs 55256 por pieza; D9: antes 208906) ⇒ Σ = total; canario 23514', async () => {
+      // D9: el precio exhibido lleva la comisión dentro y es de pesos enteros ⇒ 208906 ya no es alcanzable; 200300 reproduce la MISMA
+      // anomalía de redondeo (IVA agregado 55255 vs 27628 + 27628 = 55256 por pieza ⇒ residuo −1).
+      const { order, shipmentId } = await paidSealed([200300, 200300]);
+      expect(order.ivaCents).toBe(55255);
+      const { residual } = await allMissing(shipmentId, order, [200300, 200300]);
       expect(residual).toBe(-1);
 
       // Canario: una fila con el residuo de IVA al envío (−1), como la escribía la fórmula de antes ⇒ la BD dice 23514.
@@ -557,18 +561,20 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
       expect(String((caught as Error | null)?.message ?? caught)).toMatch(/23514|PaymentRefund_amount_identity_chk|violates check constraint/);
     });
 
-    it('208906 + 191094 (S = T exacto, E = 0): remanente 1 ⇒ UNA fila con IVA/envío en 0 (antes: −1 ⇒ 23514)', async () => {
-      const { order, shipmentId } = await paidSealed([208906, 191094]);
-      const { remainder, residual } = await allMissing(shipmentId, order, [208906, 191094]);
-      expect({ remainder, residual }).toEqual({ remainder: 1, residual: -1 });
+    it('190000 + 210000 (S = T exacto, E = 0; D9: antes 208906 + 191094): sin comisión el remanente es 0 ⇒ NINGUNA fila (el residuo −1 de IVA no se escribe)', async () => {
+      const { order, shipmentId } = await paidSealed([190000, 210000]);
+      const { remainder, residual } = await allMissing(shipmentId, order, [190000, 210000]);
+      expect({ remainder, residual }).toEqual({ remainder: 0, residual: -1 });
     });
 
-    it('la misma orden por fixture (sin pasar por la regla): el reembolso por sí solo cuadra', async () => {
+    it('PEDIDO PREVIO (FEE_ON_TOP, con la comisión apilada de antes de D9): el reembolso por sí solo cuadra y el remanente 1 va en UNA fila con IVA/envío en 0', async () => {
       const S = 400000;
-      const b = computeDirectShipBreakdown(S, 0, 16, fee);
+      // El total de antes de D9 (gross-up de Stripe sobre S + E): una fila migrada conserva su cálculo (C8).
+      const total = grossUpTotal(S, fee);
+      const taxBase = Math.round(S / 1.16);
       const d = await prep.mkDirect({
         prices: [208906, 191094],
-        money: { subtotalCents: S, shippingFeeCents: 0, processingFeeCents: b.processingFeeCents, ivaCents: b.ivaCents, totalCents: b.totalCents },
+        money: { subtotalCents: S, shippingFeeCents: 0, processingFeeCents: total - S, ivaCents: S - taxBase, totalCents: total },
       });
       const order = await h.prisma.order.findUniqueOrThrow({ where: { id: d.order.id } });
       const { remainder, residual } = await allMissing(d.shipment.id, order, [208906, 191094]);

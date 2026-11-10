@@ -35,6 +35,8 @@
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
+  StripeFeeConfig,
+  estimateStripeFeeCents,
   netRevenueCents,
   netShippingCostCents,
   netShippingRevenueCents,
@@ -195,7 +197,7 @@ export function buildStatement(
   };
 }
 
-type Db = Pick<PrismaService, 'order' | 'shipmentRequest' | 'shipmentCostAdjustment' | 'paymentRefund' | 'manualRefund' | 'sellRequest'>;
+type Db = Pick<PrismaService, 'order' | 'configSetting' | 'shipmentRequest' | 'shipmentCostAdjustment' | 'paymentRefund' | 'manualRefund' | 'sellRequest'>;
 
 /**
  * 💰 v1.86⟨accesorios⟩ (§AC.12) — costo de venta de los renglones `sold` de una orden: `Σ unitCostCents × (quantity −
@@ -308,6 +310,20 @@ export async function pnlBuckets(
   keyOf: (d: Date | null) => string,
 ): Promise<Map<string, PnlComponents>> {
   const out = new Map<string, PnlComponents>();
+  // §D9 — el costo de Stripe de una fila `FEE_INCLUDED`: el REAL (`stripeFeeCents`) o, si Stripe aún no lo devolvió, el
+  // ESTIMADO con los diales (nunca 0 silencioso). Filas `FEE_ON_TOP` (migradas): `processingFeeCents` como siempre (los
+  // meses viejos no se reescriben). Los diales se leen UNA vez y solo si algún renglón necesita el estimado.
+  let feeCfg: StripeFeeConfig | null = null;
+  const stripeCostOf = async (r: { feeConvention?: string; stripeFeeCents?: number | null; processingFeeCents: number; totalCents: number }): Promise<number> => {
+    if (r.feeConvention !== 'FEE_INCLUDED') return r.processingFeeCents;
+    if (r.stripeFeeCents != null) return r.stripeFeeCents;
+    if (!feeCfg) {
+      const rows = await db.configSetting.findMany({ where: { key: { in: ['stripe_fee_pct', 'stripe_fee_fixed_cents', 'iva_pct'] } } });
+      const v = (k: string, d: number) => Number(rows.find((x) => x.key === k)?.valueJson ?? d);
+      feeCfg = { stripePct: v('stripe_fee_pct', 0.036), stripeFixedCents: v('stripe_fee_fixed_cents', 300), stripeFeeIvaPct: v('iva_pct', 16) / 100 };
+    }
+    return estimateStripeFeeCents(r.totalCents, feeCfg);
+  };
   const at = (d: Date | null | undefined): PnlComponents => {
     const k = keyOf(d ?? null);
     let b = out.get(k);
@@ -351,7 +367,7 @@ export async function pnlBuckets(
     const b = at(o.settledAt);
     // El ingreso NO cambia de fórmula: `subtotalCents` ya incluye accesorios y paquetes (I-AC-1).
     b.incomeCents += netRevenueCents(o);
-    b.stripeFeesCents += o.processingFeeCents;
+    b.stripeFeesCents += await stripeCostOf(o);
     if (o.fulfillmentMode === 'direct_ship') {
       b.shippingRevenueCents += netShippingRevenueCents(o);
     }
@@ -385,7 +401,7 @@ export async function pnlBuckets(
     if (s.shippingCostCents === 0 && s.labelSource !== 'skydropx') b.shippingCostMissingCount += 1;
     // 💰 D2f (§19.11): el seguro es INFORMATIVO (ya va DENTRO de `shippingCostCents`).
     b.shippingInsuranceCents += s.insuranceCostCents ?? 0;
-    b.stripeFeesCents += s.processingFeeCents;
+    b.stripeFeesCents += await stripeCostOf(s);
   }
 
   // 💰 D2f (§19.11, pregunta 89, `HECHOS.md:41`): los AJUSTES de costo cuentan en el periodo de su CARGO (`chargedAt`),

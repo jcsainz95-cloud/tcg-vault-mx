@@ -323,8 +323,8 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
     it('⭐ y el default se aplica de verdad: un INSERT que la omite deja `0`, no `NULL`', async () => {
       const id = `iva-e2e-${RUN}-costiva`;
       await h.prisma.$executeRawUnsafe(
-        `INSERT INTO "ShipmentRequest" (id, "addressSnapshot", status, "shippingFeeCents", "priceConvention", "shippingCostCents")
-         VALUES ('${id}', '{}'::jsonb, 'solicitado', 17500, 'IVA_EXCLUSIVE', 20300)`,
+        `INSERT INTO "ShipmentRequest" (id, "addressSnapshot", status, "shippingFeeCents", "priceConvention", "feeConvention", "shippingCostCents")
+         VALUES ('${id}', '{}'::jsonb, 'solicitado', 17500, 'IVA_EXCLUSIVE', 'FEE_ON_TOP', 20300)`,
       );
       aLimpiar.shipmentIds.push(id);
       const [fila] = await h.prisma.$queryRawUnsafe<
@@ -352,8 +352,8 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
     it('INSERT en `Order` omitiendo `priceConvention` ⇒ NOT NULL violation (SQLSTATE 23502)', async () => {
       const err = await h.prisma
         .$executeRawUnsafe(
-          `INSERT INTO "Order" (id, "userId", status, "subtotalCents", "processingFeeCents", "ivaCents", "totalCents")
-           VALUES ('iva-e2e-${RUN}-noconv', '${customerId}', 'pending', 10000, 869, 1600, 12469)`,
+          `INSERT INTO "Order" (id, "userId", status, "subtotalCents", "processingFeeCents", "ivaCents", "totalCents", "feeConvention")
+           VALUES ('iva-e2e-${RUN}-noconv', '${customerId}', 'pending', 10000, 869, 1600, 12469, 'FEE_ON_TOP')`,
         )
         .then(() => null)
         .catch((e: Error) => e);
@@ -365,8 +365,8 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
     it('INSERT en `ShipmentRequest` omitiendo `priceConvention` ⇒ NOT NULL violation (SQLSTATE 23502)', async () => {
       const err = await h.prisma
         .$executeRawUnsafe(
-          `INSERT INTO "ShipmentRequest" (id, "addressSnapshot", status, "shippingFeeCents")
-           VALUES ('iva-e2e-${RUN}-noconv-s', '{}'::jsonb, 'solicitado', 17500)`,
+          `INSERT INTO "ShipmentRequest" (id, "addressSnapshot", status, "shippingFeeCents", "feeConvention")
+           VALUES ('iva-e2e-${RUN}-noconv-s', '{}'::jsonb, 'solicitado', 17500, 'FEE_ON_TOP')`,
         )
         .then(() => null)
         .catch((e: Error) => e);
@@ -403,8 +403,8 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       // NOT NULL de otra columna o por un typo del SQL — y estaría verde sin haber probado nada.
       const id = `iva-e2e-${RUN}-conv-ok`;
       await h.prisma.$executeRawUnsafe(
-        `INSERT INTO "Order" (id, "userId", status, "subtotalCents", "processingFeeCents", "ivaCents", "totalCents", "priceConvention")
-         VALUES ('${id}', '${customerId}', 'pending', 10000, 869, 1600, 12469, 'IVA_EXCLUSIVE')`,
+        `INSERT INTO "Order" (id, "userId", status, "subtotalCents", "processingFeeCents", "ivaCents", "totalCents", "priceConvention", "feeConvention")
+         VALUES ('${id}', '${customerId}', 'pending', 10000, 869, 1600, 12469, 'IVA_EXCLUSIVE', 'FEE_ON_TOP')`,
       );
       const fila = await h.prisma.order.findUnique({ where: { id } });
       expect(fila!.priceConvention).toBe('IVA_EXCLUSIVE');

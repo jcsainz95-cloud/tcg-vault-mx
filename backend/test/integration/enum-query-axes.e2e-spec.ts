@@ -1121,9 +1121,9 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
   const direccion = { line1: 'CEQ1 1', city: 'CDMX', state: 'CDMX', postalCode: '01000', country: 'MX' };
   await h.prisma.shipmentRequest.createMany({
     data: [
-      { userId: cliente.id, addressSnapshot: direccion, status: 'solicitado', shippingFeeCents: 9_900, priceConvention: 'IVA_EXCLUSIVE', carrier: 'CEQ1-fixture-a' },
+      { userId: cliente.id, addressSnapshot: direccion, status: 'solicitado', shippingFeeCents: 9_900, priceConvention: 'IVA_EXCLUSIVE', feeConvention: 'FEE_ON_TOP', carrier: 'CEQ1-fixture-a' },
       // ⭐ v1.80.12.12: con número y sin `labelSource` ⇒ guía MANUAL heredada (`labelSourceOf`) — munición de `?labelSource=manual`.
-      { userId: cliente.id, addressSnapshot: direccion, status: 'entregado', shippingFeeCents: 9_900, priceConvention: 'IVA_EXCLUSIVE', carrier: 'CEQ1-fixture-b', trackingNumber: 'CEQ1-TN-B' },
+      { userId: cliente.id, addressSnapshot: direccion, status: 'entregado', shippingFeeCents: 9_900, priceConvention: 'IVA_EXCLUSIVE', feeConvention: 'FEE_ON_TOP', carrier: 'CEQ1-fixture-b', trackingNumber: 'CEQ1-TN-B' },
     ],
   });
   // (e-bis) ⭐💰 v1.80.12.12 · `?labelSource=skydropx` y `?alert=true` — UNA guía de Skydropx en `enviado` cuyo transportista
@@ -1135,6 +1135,7 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       status: 'enviado',
       shippingFeeCents: 9_900,
       priceConvention: 'IVA_EXCLUSIVE',
+      feeConvention: 'FEE_ON_TOP',
       carrier: 'CEQ1-fixture-sky',
       trackingNumber: 'CEQ1-TN-SKY',
       labelSource: 'skydropx',
@@ -1180,6 +1181,7 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       ivaCents: 16_000,
       totalCents: 116_000,
       priceConvention: 'IVA_EXCLUSIVE',
+      feeConvention: 'FEE_ON_TOP',
     },
   });
   await h.prisma.shipmentRequest.create({
@@ -1190,6 +1192,7 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       status: 'solicitado',
       shippingFeeCents: 9_900,
       priceConvention: 'IVA_EXCLUSIVE',
+      feeConvention: 'FEE_ON_TOP',
       carrier: 'CEQ1-fixture-c',
     },
   });
@@ -1207,6 +1210,7 @@ async function sembrarFixture(h: E2EHarness): Promise<Ctx> {
       status: 'picking',
       shippingFeeCents: 9_900,
       priceConvention: 'IVA_EXCLUSIVE',
+      feeConvention: 'FEE_ON_TOP',
       carrier: 'CEQ1-fixture-picking',
     },
   });

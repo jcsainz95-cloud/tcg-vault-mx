@@ -338,12 +338,15 @@ export class SettingsService implements OnModuleInit {
     // cada cotización. `getRawMany` trae las dos filas en un `findMany`; el fallback a
     // `SETTING_DEFAULTS` es el mismo que hace `get()`, escrito aquí porque `getRawMany` —a propósito—
     // distingue «la fila no existe» de «existe con el valor del seed».
-    const filas = await this.getRawMany([SettingKey.IVA_TRANSFER_PCT, SettingKey.IVA_PCT]);
+    const filas = await this.getRawMany([SettingKey.IVA_TRANSFER_PCT, SettingKey.IVA_PCT, SettingKey.STRIPE_FEE_PCT]);
     const leer = (k: SettingKeyType) =>
       Number(filas.has(k) ? filas.get(k) : SETTING_DEFAULTS[k]);
     return {
       ivaTransferPct: leer(SettingKey.IVA_TRANSFER_PCT),
       ivaRatePct: leer(SettingKey.IVA_PCT),
+      // §D9: la comisión de plataforma va DENTRO de `P` (`saleDisplayCentsOf`). Se lee junto con los otros dos para que una
+      // misma petición derive todos sus precios con el mismo instante del dial. ⛔ El dial de traslación NO entra aquí (IVA-7).
+      stripeFeePct: leer(SettingKey.STRIPE_FEE_PCT),
     };
   }
 

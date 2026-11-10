@@ -159,7 +159,7 @@ describe('TL-ENV-1 — una sola cadena clase → importe → desglose, con `repr
     }
   });
   it('S + E no representable ⇒ 422 AMOUNT_TOO_LARGE (no un Error crudo) — sin código, con % directo y con % en bóveda', () => {
-    const huge = 2_147_000_000;
+    const huge = 2_200_000_000; // D9: sin gross-up, el agregado desborda solo si S + E > MAX_CENTS (incluso con 1 % de descuento)
     const asCode = (fn: () => unknown) => {
       try {
         fn();

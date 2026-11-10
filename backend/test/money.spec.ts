@@ -70,19 +70,15 @@ describe('money — checkout formulas (ARCHITECTURE §5.1, C1: IVA sobre comisi�
       expect(b.ivaRatePct).toBe(16);
       expect(b.priceConvention).toBe('IVA_INCLUSIVE');
       expect(b.ivaIncluded).toBe(true);
-      // ⭐ `G = S` (⛔ no `S + iva`): total = ceil((116000 + 1.16·300)/0.95824) = 121419
-      expect(b.totalCents).toBe(121419);
-      expect(b.processingFeeCents).toBe(b.totalCents - 116000);
+      // ⭐ D9: la comisión de plataforma ya va dentro de cada `P` ⇒ `total = S` (⛔ ni gross-up ni `S + iva`).
+      expect(b.totalCents).toBe(116000);
+      expect(b.processingFeeCents).toBe(0);
       // ⭐ La identidad (b) de §M10-IVA.4: el IVA **NO es un sumando** del total.
       expect(b.totalCents).toBe(b.subtotalCents + b.processingFeeCents);
       expect(b.currency).toBe('MXN');
-      // Netea exactamente `G = subtotal`.
-      const net = b.totalCents - stripeDeduction(b.totalCents);
-      expect(net).toBeGreaterThanOrEqual(116000);
-      expect(net).toBeLessThan(116000 + 1);
     });
 
-    it('la comisión se calcula sobre `G`, y `taxBase + iva ≡ subtotal` es una IDENTIDAD', () => {
+    it('sin comisión aparte (D9), y `taxBase + iva ≡ subtotal` es una IDENTIDAD', () => {
       const b = computeCartBreakdown(50000, 16, fee);
       expect(b.processingFeeCents).toBe(b.totalCents - b.subtotalCents);
       // R2: el residual hace que la identidad sea exacta, no aproximada.
@@ -97,13 +93,10 @@ describe('money — checkout formulas (ARCHITECTURE §5.1, C1: IVA sobre comisi�
       expect(b.subtotalCents).toBe(20300); // en retiros subtotal = tarifa de envío EXHIBIDA
       expect(b.ivaCents).toBe(2800); // 20300 − round(20300/1.16) = 20300 − 17500
       expect(b.priceConvention).toBe('IVA_INCLUSIVE');
-      // `G = 20300`; total = ceil((20300 + 1.16·300)/0.95824) = 21548 — **el MISMO de antes**
-      expect(b.totalCents).toBe(21548);
+      // `G = 20300`; D9: se cobra la tarifa exhibida tal cual (la tienda absorbe la comisión de este cobro).
+      expect(b.totalCents).toBe(20300);
       // ⛔ El IVA ya no suma: `total = subtotal + fee`.
       expect(b.totalCents).toBe(b.subtotalCents + b.processingFeeCents);
-      const net = b.totalCents - stripeDeduction(b.totalCents);
-      expect(net).toBeGreaterThanOrEqual(20300);
-      expect(net).toBeLessThan(20300 + 1);
     });
   });
 });

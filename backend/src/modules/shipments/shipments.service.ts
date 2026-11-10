@@ -32,6 +32,7 @@ import { SettingKey } from '../settings/settings.constants';
 import { StripeService } from '../payments/stripe.service';
 import {
   PRICE_CONVENTION_OF_NEW_ROWS,
+  FEE_CONVENTION_OF_NEW_ROWS,
   computeShipmentBreakdown,
   netShippingRevenueCents,
   shipmentNetRevenueCents,
@@ -671,6 +672,8 @@ export class ShipmentsService {
             // (§4.44.f, criterio 189): `shippingFeeCents` ES `E` y **lleva su IVA dentro**, así que
             // la fila nace `IVA_INCLUSIVE`. ⛔ Ya no se apila `round(envío × r)` detrás.
             priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+            // §D9 — la comisión de plataforma va DENTRO de `P`: fila nueva = FEE_INCLUDED (`processingFeeCents` = 0). Sin default de BD.
+            feeConvention: FEE_CONVENTION_OF_NEW_ROWS,
             items: { create: inventoryItemIds.map((id) => ({ inventoryItemId: id })) },
           },
         });
@@ -753,6 +756,8 @@ export class ShipmentsService {
         totalCents: 0,
         shippingWaivedCents: applied.priced.shippingWaivedCents,
         priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+        // §D9 — la comisión de plataforma va DENTRO de `P`: fila nueva = FEE_INCLUDED (`processingFeeCents` = 0). Sin default de BD.
+        feeConvention: FEE_CONVENTION_OF_NEW_ROWS,
         items: { create: w.inventoryItemIds.map((id) => ({ inventoryItemId: id })) },
       },
       select: { id: true },

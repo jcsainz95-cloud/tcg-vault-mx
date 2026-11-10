@@ -698,7 +698,7 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
     const s = await staff('del');
     // La transacción se siembra a mano (por API es inalcanzable: el guard la para, I-STF-1). Tras el borrado la cuenta
     // ya tiene correo anonimizado ⇒ la consulta I-STF-1 de STF-28 sigue en 0.
-    await h.prisma.shipmentRequest.create({ data: { userId: s.id, addressSnapshot: {}, shippingFeeCents: 0, priceConvention: 'IVA_EXCLUSIVE' } });
+    await h.prisma.shipmentRequest.create({ data: { userId: s.id, addressSnapshot: {}, shippingFeeCents: 0, priceConvention: 'IVA_EXCLUSIVE', feeConvention: 'FEE_ON_TOP' } });
     await h.prisma.user.update({ where: { id: s.id }, data: { lockNoticeAt: new Date() } });
     const r = await h.api('DELETE', `/admin/users/${s.id}`, { token: adminTok });
     expect([r.status, r.text]).toEqual([200, r.text]);

@@ -39,7 +39,8 @@ describe('MS-2 — los breakdowns propagan el rechazo del agregado', () => {
    * rechazando exactamente lo que no cabe en `Int32`, que es lo que tiene que medir. Lo que cambió
    * es el importe a partir del cual un total deja de ser representable — porque el total cambió.
    */
-  const DESBORDA = 2_100_000_000;
+  // D9: sin gross-up, `total = S + E` ⇒ el umbral es EXACTAMENTE `S + E > MAX_CENTS`.
+  const DESBORDA = MAX_CENTS + 1;
 
   it('computeCartBreakdown con subtotal gigante lanza (no produce overflow persistible)', () => {
     expect(() => computeCartBreakdown(DESBORDA, 16, fee)).toThrow(/MAX_CENTS/);
@@ -55,8 +56,8 @@ describe('MS-2 — los breakdowns propagan el rechazo del agregado', () => {
 
   it('⭐ el umbral sigue siendo EXACTAMENTE «el total no cabe», ni un centavo más laxo', () => {
     // Justo debajo del techo: pasa y el total cabe. Justo encima: lanza. Sin zona gris.
-    const cabe = computeCartBreakdown(2_000_000_000, 16, fee);
-    expect(cabe.totalCents).toBeLessThanOrEqual(MAX_CENTS);
+    const cabe = computeCartBreakdown(MAX_CENTS, 16, fee);
+    expect(cabe.totalCents).toBe(MAX_CENTS);
     expect(() => computeCartBreakdown(DESBORDA, 16, fee)).toThrow(/MAX_CENTS/);
   });
 
@@ -66,8 +67,8 @@ describe('MS-2 — los breakdowns propagan el rechazo del agregado', () => {
     expect(b.ivaCents).toBe(16000); // residual de 116000
     expect(b.totalCents).toBeLessThanOrEqual(MAX_CENTS);
     // ⭐ El total supera al subtotal SOLO por la comisión: el IVA ya está dentro.
-    expect(b.totalCents).toBeGreaterThan(b.subtotalCents);
-    expect(b.totalCents).toBe(b.subtotalCents + b.processingFeeCents);
+    expect(b.totalCents).toBe(b.subtotalCents); // D9: la comisión va dentro de P, no encima
+    expect(b.processingFeeCents).toBe(0);
     // direct-ship normal también intacto
     const d = computeDirectShipBreakdown(116000, 20300, 16, fee);
     expect(d.shippingFeeCents).toBe(20300);
