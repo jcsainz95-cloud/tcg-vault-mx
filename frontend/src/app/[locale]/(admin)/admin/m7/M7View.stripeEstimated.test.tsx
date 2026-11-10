@@ -31,7 +31,7 @@ describe('D9 · comisión Stripe estimada en Finanzas', () => {
     await withPnl({ stripeFeeEstimatedOrders: 1, stripeFeeEstimatedCents: 1200 }, async () => {
       renderWithProviders(<M7View />, 'es');
       await screen.findByTestId('pnl-profit');
-      expect(screen.getByText('Incluye 1 pedido con costo estimado (MX$12.00)')).toBeTruthy();
+      expect(screen.getByText('Incluye 1 pedido con costo estimado (MX$12.00); se corrige solo cuando Stripe lo confirma')).toBeTruthy();
       expect(screen.getByText(/^~MX\$/)).toBeTruthy();
     });
   });
@@ -40,7 +40,7 @@ describe('D9 · comisión Stripe estimada en Finanzas', () => {
     await withPnl({ stripeFeeEstimatedOrders: 3, stripeFeeEstimatedCents: 3600 }, async () => {
       renderWithProviders(<M7View />, 'es');
       await screen.findByTestId('pnl-profit');
-      expect(screen.getByText('Incluye 3 pedidos con costo estimado (MX$36.00)')).toBeTruthy();
+      expect(screen.getByText('Incluye 3 pedidos con costo estimado (MX$36.00); se corrige solo cuando Stripe lo confirma')).toBeTruthy();
     });
   });
 
@@ -57,7 +57,7 @@ describe('D9 · comisión Stripe estimada en Finanzas', () => {
       renderWithProviders(<M7View />, 'es');
       await screen.findByTestId('pnl-profit');
       expect(screen.getByTestId('pnl-fee-included-since').textContent).toBe(
-        'Desde el 10 de noviembre de 2026 la comisión de plataforma va incluida en el precio de cada carta; antes de esa fecha se cobraba aparte.',
+        'Desde el 10 de noviembre de 2026 la venta incluye la comisión y Stripe aparece solo como gasto; los meses anteriores no se reescriben.',
       );
     });
   });
