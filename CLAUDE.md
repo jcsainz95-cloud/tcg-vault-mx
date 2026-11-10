@@ -22,6 +22,8 @@ a los 6 agentes de `.claude/agents/`; tú decides, coordinas, verificas y commit
 3. Tras cada informe: `git status` y `git log --oneline -3` (un informe no es un commit). Lo de `arquitecto` lo commiteas tú.
 4. Publicar: tú **no publicas**. Fusionas a `main` y abres la PR `main → production` con, en lenguaje llano: qué entra,
    qué pasa con la base de datos, cómo se revierte y qué debe revisar el dueño en su tienda. El botón es del dueño.
+   Al abrirla, **vigílala** (eventos de la PR): si una revisión de CI falla, diagnostícala y arréglala por el rol dueño sin
+   esperar a que el dueño avise; avísale cuando esté en verde (dueño 2026-11-10).
 
 ## Eficiencia (obligatorio)
 - **Cero lecturas completas:** prohibido `Read` completo de archivos de más de 120 líneas; siempre `Grep` primero y
