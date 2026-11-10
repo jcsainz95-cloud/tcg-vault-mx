@@ -314,9 +314,12 @@ export async function pnlBuckets(
   // ESTIMADO con los diales (nunca 0 silencioso). Filas `FEE_ON_TOP` (migradas): `processingFeeCents` como siempre (los
   // meses viejos no se reescriben). Los diales se leen UNA vez y solo si algún renglón necesita el estimado.
   let feeCfg: StripeFeeConfig | null = null;
-  const stripeCostOf = async (r: { feeConvention?: string; stripeFeeCents?: number | null; processingFeeCents: number; totalCents: number }): Promise<number> => {
+  const stripeCostOf = async (r: { feeConvention?: string; stripeFeeCents?: number | null; processingFeeCents: number; totalCents: number; stripePaymentIntentId?: string | null }): Promise<number> => {
     if (r.feeConvention !== 'FEE_INCLUDED') return r.processingFeeCents;
     if (r.stripeFeeCents != null) return r.stripeFeeCents;
+    // §D9 B1 — SIN COBRO de Stripe (sin PaymentIntent, o total 0) el gasto de Stripe es 0: ni real ni estimado.
+    // (Antes `estimateStripeFeeCents(0)` daba la fija 300 + IVA = 348 y se sumaba en retiros gratis y pedidos de total 0.)
+    if (!r.stripePaymentIntentId || r.totalCents <= 0) return 0;
     if (!feeCfg) {
       const rows = await db.configSetting.findMany({ where: { key: { in: ['stripe_fee_pct', 'stripe_fee_fixed_cents', 'iva_pct'] } } });
       const v = (k: string, d: number) => Number(rows.find((x) => x.key === k)?.valueJson ?? d);

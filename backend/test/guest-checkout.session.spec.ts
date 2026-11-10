@@ -244,7 +244,7 @@ describe('GuestCheckoutService.createSession', () => {
   it('INVARIANTE 2: UN SOLO PaymentIntent por el total (cartas + envío + IVA + fee)', async () => {
     const { svc, stripe } = buildService();
     const res = await svc.createSession(validDto() as never);
-    const expected = computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA, FEE);
+    const expected = computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA);
     expect(stripe.createPaymentIntent).toHaveBeenCalledTimes(1);
     expect(stripe.createPaymentIntent.mock.calls[0][0].amountCents).toBe(expected.totalCents);
     expect(res.breakdown).toEqual(expected);
@@ -321,7 +321,7 @@ describe('GuestCheckoutService.quote', () => {
     const { svc } = buildService();
     const res = await svc.quote({ inventoryItemIds: ['item-1'] } as never);
     expect(res.fulfillmentMode).toBe('direct_ship');
-    expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA, FEE));
+    expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA));
     expect(res.notices).toEqual({ finalSale: true, invoiceByEmail: true, termsRequired: true });
   });
 
@@ -329,7 +329,7 @@ describe('GuestCheckoutService.quote', () => {
     it('carrito con cartas ⇒ `vaultBreakdown` presente, SIN shippingFeeCents y = computeCartBreakdown', async () => {
       const { svc } = buildService();
       const res = await svc.quote({ inventoryItemIds: ['item-1'] } as never);
-      const expectedVault = computeCartBreakdown(25000, IVA, FEE);
+      const expectedVault = computeCartBreakdown(25000, IVA);
       // Es EXACTAMENTE el cart breakdown (solo cartas): IVA solo sobre subtotal y total = grossUp(subtotal+iva).
       expect(res.vaultBreakdown).toEqual(expectedVault);
       // La señal de shape "destino bóveda" es la AUSENCIA de la línea de envío (ni 0 ni presente).
@@ -344,7 +344,7 @@ describe('GuestCheckoutService.quote', () => {
     it('el `breakdown` direct_ship SIGUE con envío y sus fórmulas (no cambia); vaultBreakdown < breakdown', async () => {
       const { svc } = buildService();
       const res = await svc.quote({ inventoryItemIds: ['item-1'] } as never);
-      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA, FEE));
+      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA));
       expect(res.breakdown.shippingFeeCents).toBe(SHIPPING_DISPLAY);
       // El destino bóveda ahorra el envío: su total es estrictamente menor.
       expect(res.vaultBreakdown.totalCents).toBeLessThan(res.breakdown.totalCents);
@@ -405,7 +405,7 @@ describe('GuestCheckoutService.quote', () => {
       const { svc } = buildService();
       const res = await svc.quote({ inventoryItemIds: ['item-1'] } as never);
       expect(res.unavailableItems).toEqual([]);
-      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA, FEE));
+      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA));
     });
 
     it('mezcla: cotiza SOLO los válidos y devuelve los muertos en `unavailableItems`', async () => {
@@ -431,7 +431,7 @@ describe('GuestCheckoutService.quote', () => {
       } as never);
       expect(res.items.map((i) => i.inventoryItemId)).toEqual(['viva']);
       // El breakdown se calcula SOLO con los válidos (con envío: sí hay algo que mandar).
-      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA, FEE));
+      expect(res.breakdown).toEqual(computeDirectShipBreakdown(25000, SHIPPING_DISPLAY, IVA));
       expect(res.unavailableItems).toEqual([
         { inventoryItemId: 'vendida', cardName: 'Antique Skull Fossil' },
         { inventoryItemId: 'borrada', cardName: null },

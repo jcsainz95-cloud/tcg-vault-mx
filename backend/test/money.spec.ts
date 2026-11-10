@@ -63,7 +63,7 @@ describe('money — checkout formulas (ARCHITECTURE §5.1, C1: IVA sobre comisi�
    */
   describe('computeCartBreakdown (bajo `IVA_INCLUSIVE`, §M10-IVA.4)', () => {
     it('el IVA es RESIDUAL del subtotal y la base del gross-up es el subtotal, NO subtotal+iva', () => {
-      const b = computeCartBreakdown(116000, 16, fee);
+      const b = computeCartBreakdown(116000, 16);
       expect(b.subtotalCents).toBe(116000);
       // residual: 116000 − round(116000/1.16) = 116000 − 100000
       expect(b.ivaCents).toBe(16000);
@@ -79,7 +79,7 @@ describe('money — checkout formulas (ARCHITECTURE §5.1, C1: IVA sobre comisi�
     });
 
     it('sin comisión aparte (D9), y `taxBase + iva ≡ subtotal` es una IDENTIDAD', () => {
-      const b = computeCartBreakdown(50000, 16, fee);
+      const b = computeCartBreakdown(50000, 16);
       expect(b.processingFeeCents).toBe(b.totalCents - b.subtotalCents);
       // R2: el residual hace que la identidad sea exacta, no aproximada.
       expect(b.subtotalCents - b.ivaCents + b.ivaCents).toBe(b.subtotalCents);
@@ -89,7 +89,7 @@ describe('money — checkout formulas (ARCHITECTURE §5.1, C1: IVA sobre comisi�
   describe('computeShipmentBreakdown (bajo `IVA_INCLUSIVE`)', () => {
     it('la tarifa exhibida ya lleva su IVA dentro; el residual sale por resta', () => {
       // `E = round(17500 × 1.16) = 20300` lo deriva `shippingFeeDisplayCentsOf` aguas arriba.
-      const b = computeShipmentBreakdown(20300, 16, fee);
+      const b = computeShipmentBreakdown(20300, 16);
       expect(b.subtotalCents).toBe(20300); // en retiros subtotal = tarifa de envío EXHIBIDA
       expect(b.ivaCents).toBe(2800); // 20300 − round(20300/1.16) = 20300 − 17500
       expect(b.priceConvention).toBe('IVA_INCLUSIVE');

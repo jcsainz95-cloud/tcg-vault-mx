@@ -137,7 +137,7 @@ export function directShipBreakdownOf(input: {
 }): { ship: DirectShipFee; breakdown: DirectShipBreakdownDTO } {
   const today = directShipFeeOf(input.kind, input.subtotalCents, input.dials, input.choice);
   const ship = input.waiveRuleFee && !today.boxFeeApplies ? { ...today, feeCents: 0, freeShippingApplied: true } : today;
-  const breakdown = representableOrThrow(() => computeDirectShipBreakdown(input.subtotalCents, ship.feeCents, input.ivaRatePct, input.fee));
+  const breakdown = representableOrThrow(() => computeDirectShipBreakdown(input.subtotalCents, ship.feeCents, input.ivaRatePct));
   return { ship, breakdown };
 }
 

@@ -124,13 +124,13 @@ describe('⭐⭐ La ARITMÉTICA del dial — las cifras de `PROJECT §Q.4`, al c
   // `§M10-IVA.5` candado `IVA-1` («el viaje completo, que es lo que lo hace un candado y no una
   // constante copiada»). Con `L = MX$100.00` y `r = 16`.
   it.each([
-    [100, 11600, 10000, 1600, 12469],
-    [50, 10800, 9310, 1490, 11634],
-    [0, 10000, 8621, 1379, 10799],
+    [100, 11600, 10000, 1600, 11600],
+    [50, 10800, 9310, 1490, 10800],
+    [0, 10000, 8621, 1379, 10000],
   ])(
     'dial %i %% ⇒ exhibido %i · base %i · IVA %i · cobrado %i',
     (t, display, base, iva, total) => {
-      const p = ivaTransferPosition(10_000, t, 16, FEE);
+      const p = ivaTransferPosition(10_000, t, 16);
       expect(p.displayPriceCents).toBe(display);
       expect(p.taxBaseCents).toBe(base);
       expect(p.ivaCents).toBe(iva);
@@ -141,9 +141,9 @@ describe('⭐⭐ La ARITMÉTICA del dial — las cifras de `PROJECT §Q.4`, al c
 
   it('⭐⭐ `IVA-1` — el arranque es NEUTRO: con el dial en 100 el margen no se movió (neto 10000)', () => {
     // El candado de la feature y del criterio 185: es una IGUALDAD CONTRA EL PASADO. Hoy, sobre
-    // MX$100.00, el cliente paga 12469 y la plataforma se queda 10000. **Rojo con 12468 o 12470.**
-    const p = ivaTransferPosition(10_000, 100, 16, FEE);
-    expect(p.totalChargedCents).toBe(12_469);
+    // MX$100.00, el cliente paga 11600 (D9: sin gross-up) y la plataforma se queda 10000. **Rojo con 12469.**
+    const p = ivaTransferPosition(10_000, 100, 16);
+    expect(p.totalChargedCents).toBe(11_600);
     expect(p.netRevenueCents).toBe(10_000);
   });
 
@@ -153,7 +153,7 @@ describe('⭐⭐ La ARITMÉTICA del dial — las cifras de `PROJECT §Q.4`, al c
       proposedPct: 50,
       ivaRatePct: 16,
       samplePriceCents: 10_000,
-      fee: FEE,
+
     });
     expect(pv.netDeltaPerUnitCents).toBe(-690);
     // Y el signo IMPORTA: negativo = margen cedido. Un delta positivo al BAJAR el dial significaría
@@ -167,11 +167,11 @@ describe('⭐⭐ La ARITMÉTICA del dial — las cifras de `PROJECT §Q.4`, al c
     // *Mover el dial reduce el NETO, nunca el IVA registrado.* Con el dial en 0 el exhibido es
     // 10000 y el IVA sigue siendo 1379: el impuesto no bajó, bajó el precio.
     for (const t of [0, 1, 37, 50, 99, 100]) {
-      const p = ivaTransferPosition(10_000, t, 16, FEE);
+      const p = ivaTransferPosition(10_000, t, 16);
       expect(p.ivaCents).toBeGreaterThan(0);
       expect(p.ivaCents).toBeLessThan(p.displayPriceCents);
     }
-    expect(ivaTransferPosition(10_000, 0, 16, FEE).ivaCents).toBe(1_379);
+    expect(ivaTransferPosition(10_000, 0, 16).ivaCents).toBe(1_379);
   });
 
   it('⭐ `base + IVA == exhibido` es una IDENTIDAD, no una coincidencia (el IVA sale por RESTA)', () => {
@@ -179,7 +179,7 @@ describe('⭐⭐ La ARITMÉTICA del dial — las cifras de `PROJECT §Q.4`, al c
     // descuadra un centavo en cuanto el redondeo cae del otro lado.
     for (const L of [1, 7, 103, 250, 999, 7_777, 12_345, 8_888, 1_000_000]) {
       for (const t of [0, 1, 37, 50, 99, 100]) {
-        const p = ivaTransferPosition(L, t, 16, FEE);
+        const p = ivaTransferPosition(L, t, 16);
         expect(p.taxBaseCents + p.ivaCents).toBe(p.displayPriceCents);
         expect(p.netRevenueCents).toBe(p.taxBaseCents);
       }
@@ -199,10 +199,10 @@ describe('⭐⭐ La ARITMÉTICA del dial — las cifras de `PROJECT §Q.4`, al c
     expect(taxBaseCentsOf(119, 16)).toBe(103);
   });
 
-  it('el total cobrado es el MISMO gross-up de siempre sobre el exhibido (⛔ ningún cuarto sumando)', () => {
+  it('D9: el total mostrado ES el exhibido (la comisión va dentro; sin gross-up viejo)', () => {
     for (const t of [0, 50, 100]) {
-      const p = ivaTransferPosition(10_000, t, 16, FEE);
-      expect(p.totalChargedCents).toBe(grossUpTotal(p.displayPriceCents, FEE));
+      const p = ivaTransferPosition(10_000, t, 16);
+      expect(p.totalChargedCents).toBe(p.displayPriceCents);
     }
   });
 });
@@ -297,7 +297,7 @@ describe('⭐⭐ `PUT /admin/settings/iva-transfer` — el ACUSE es la puerta (`
       proposedPct: 50,
       ivaRatePct: 16,
       samplePriceCents: 50_000,
-      fee: FEE,
+
     }).netDeltaPerUnitCents;
     expect(esperado).toBe(-3_448);
     const err = await h.svc
@@ -391,7 +391,7 @@ describe('⭐ `IVA-8(d)` — la validación del valor, y el `message` nombra LOS
       proposedPct: v,
       ivaRatePct: 16,
       samplePriceCents: 10_000,
-      fee: FEE,
+
     });
     const res = await h.svc.setIvaTransferPct(
       {

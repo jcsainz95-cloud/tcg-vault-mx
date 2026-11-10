@@ -133,7 +133,7 @@ describe('DCO-B1 — allocateDiscount: reparto por unidad al centavo (§DSC.3)',
 
 describe('DCO-B2 — discountOf y el monto (§DSC.2)', () => {
   it('891: 10 % de 100000 ⇒ 10000', () => {
-    const p = priceVaultCartWithCode([piece('a', 100000)], terms({ kind: 'percent', percentPct: 10 }), 16, FEE);
+    const p = priceVaultCartWithCode([piece('a', 100000)], terms({ kind: 'percent', percentPct: 10 }), 16);
     expect(p.outcome).toBe('applied');
     if (p.outcome !== 'applied') return;
     expect(p.discountCents).toBe(10000);
@@ -141,7 +141,7 @@ describe('DCO-B2 — discountOf y el monto (§DSC.2)', () => {
   });
 
   it('893: monto fijo 15000 sobre 100000 ⇒ 85000 de mercancía', () => {
-    const p = priceVaultCartWithCode([piece('a', 100000)], terms({ kind: 'fixed_amount', amountCents: 15000 }), 16, FEE);
+    const p = priceVaultCartWithCode([piece('a', 100000)], terms({ kind: 'fixed_amount', amountCents: 15000 }), 16);
     if (p.outcome !== 'applied') throw new Error(JSON.stringify(p));
     expect(p.breakdown.subtotalCents).toBe(85000);
   });
@@ -199,7 +199,7 @@ describe('DCO-B2 — discountOf y el monto (§DSC.2)', () => {
 
   it('TOTAL_BELOW_MINIMUM: el total con descuento bajo MX$10.00 no acepta el código (no se recorta)', () => {
     expect(DISCOUNT_MIN_TOTAL_CENTS).toBe(StripeService.MIN_CHARGE_CENTS);
-    const p = priceVaultCartWithCode([piece('a', 2000)], terms({ kind: 'fixed_amount', amountCents: 1500 }), 16, FEE);
+    const p = priceVaultCartWithCode([piece('a', 2000)], terms({ kind: 'fixed_amount', amountCents: 1500 }), 16);
     expect(p).toEqual({ outcome: 'not_applicable', reason: 'TOTAL_BELOW_MINIMUM', details: { minTotalCents: 1000 } });
   });
 
@@ -219,13 +219,13 @@ describe('DCO-B4 (puro) — umbral sobre S′ y envío gratis (§DSC.4)', () => 
     expect(p.breakdown.subtotalCents).toBe(378000);
     expect(p.breakdown.shippingFeeCents).toBe(10000);
     // I-2: la MISMA llamada de hoy con S′ y la E resultante.
-    expect(p.breakdown).toEqual(computeDirectShipBreakdown(378000, 10000, 16, FEE));
+    expect(p.breakdown).toEqual(computeDirectShipBreakdown(378000, 10000, 16));
   });
 
   it('895: 450000 con 10 % ⇒ S′ = 405000 ⇒ E = 0', () => {
     const p = priceDirectShipCartWithCode([piece('a', 450000)], terms({ kind: 'percent', percentPct: 10 }), ship('cards_only'), 16, FEE);
     if (p.outcome !== 'applied') throw new Error(JSON.stringify(p));
-    expect(p.breakdown).toEqual(computeDirectShipBreakdown(405000, 0, 16, FEE));
+    expect(p.breakdown).toEqual(computeDirectShipBreakdown(405000, 0, 16));
   });
 
   it('envío gratis en cartas a domicilio ⇒ E = 0 y shippingWaivedCents = 10000; desglose = la llamada de hoy con E = 0', () => {
@@ -234,7 +234,7 @@ describe('DCO-B4 (puro) — umbral sobre S′ y envío gratis (§DSC.4)', () => 
     expect(p.discountCents).toBe(0);
     expect(p.shippingWaivedCents).toBe(10000);
     expect(p.freeShippingByCode).toBe(true);
-    expect(p.breakdown).toEqual(computeDirectShipBreakdown(50000, 0, 16, FEE));
+    expect(p.breakdown).toEqual(computeDirectShipBreakdown(50000, 0, 16));
   });
 
   it('envío gratis en sellado ⇒ shippingWaivedCents = 17500', () => {
@@ -243,7 +243,7 @@ describe('DCO-B4 (puro) — umbral sobre S′ y envío gratis (§DSC.4)', () => 
   });
 
   it('envío gratis a bóveda ⇒ NO_SHIPPING', () => {
-    expect(priceVaultCartWithCode([piece('a', 50000)], terms({ kind: 'free_shipping' }), 16, FEE)).toEqual({ outcome: 'not_applicable', reason: 'NO_SHIPPING', details: {} });
+    expect(priceVaultCartWithCode([piece('a', 50000)], terms({ kind: 'free_shipping' }), 16)).toEqual({ outcome: 'not_applicable', reason: 'NO_SHIPPING', details: {} });
   });
 
   it('caja grande de 35000 ⇒ LARGE_BOX (la caja se cobra completa)', () => {
@@ -264,9 +264,9 @@ describe('DCO-B4 (puro) — umbral sobre S′ y envío gratis (§DSC.4)', () => 
   });
 
   it('I-2 en bóveda: el desglose con descuento ES computeCartBreakdown(S′)', () => {
-    const p = priceVaultCartWithCode([piece('a', 100000), piece('b', 50000)], terms({ kind: 'percent', percentPct: 10 }), 16, FEE);
+    const p = priceVaultCartWithCode([piece('a', 100000), piece('b', 50000)], terms({ kind: 'percent', percentPct: 10 }), 16);
     if (p.outcome !== 'applied') throw new Error(JSON.stringify(p));
-    expect(p.breakdown).toEqual(computeCartBreakdown(135000, 16, FEE));
+    expect(p.breakdown).toEqual(computeCartBreakdown(135000, 16));
     // 902: cobrados 90000 y 45000.
     expect(p.unitDiscountCents.get('a')).toBe(10000);
     expect(p.unitDiscountCents.get('b')).toBe(5000);

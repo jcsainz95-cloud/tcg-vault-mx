@@ -455,8 +455,7 @@ export class ShipmentsService {
       await this.settings.getNumber(SettingKey.SHIPPING_FEE_CENTS),
       dials,
     );
-    const fee = await this.settings.getStripeFee();
-    return computeShipmentBreakdown(shippingFeeCents, dials.ivaRatePct, fee);
+    return computeShipmentBreakdown(shippingFeeCents, dials.ivaRatePct);
   }
 
   private async validateAddress(userId: string, addressId: string) {

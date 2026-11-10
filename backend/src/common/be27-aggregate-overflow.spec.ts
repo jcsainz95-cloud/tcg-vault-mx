@@ -43,26 +43,26 @@ describe('MS-2 — los breakdowns propagan el rechazo del agregado', () => {
   const DESBORDA = MAX_CENTS + 1;
 
   it('computeCartBreakdown con subtotal gigante lanza (no produce overflow persistible)', () => {
-    expect(() => computeCartBreakdown(DESBORDA, 16, fee)).toThrow(/MAX_CENTS/);
+    expect(() => computeCartBreakdown(DESBORDA, 16)).toThrow(/MAX_CENTS/);
   });
 
   it('computeDirectShipBreakdown con subtotal gigante lanza', () => {
-    expect(() => computeDirectShipBreakdown(DESBORDA, 20300, 16, fee)).toThrow(/MAX_CENTS/);
+    expect(() => computeDirectShipBreakdown(DESBORDA, 20300, 16)).toThrow(/MAX_CENTS/);
   });
 
   it('computeShipmentBreakdown con tarifa gigante lanza', () => {
-    expect(() => computeShipmentBreakdown(DESBORDA, 16, fee)).toThrow(/MAX_CENTS/);
+    expect(() => computeShipmentBreakdown(DESBORDA, 16)).toThrow(/MAX_CENTS/);
   });
 
   it('⭐ el umbral sigue siendo EXACTAMENTE «el total no cabe», ni un centavo más laxo', () => {
     // Justo debajo del techo: pasa y el total cabe. Justo encima: lanza. Sin zona gris.
-    const cabe = computeCartBreakdown(MAX_CENTS, 16, fee);
+    const cabe = computeCartBreakdown(MAX_CENTS, 16);
     expect(cabe.totalCents).toBe(MAX_CENTS);
-    expect(() => computeCartBreakdown(DESBORDA, 16, fee)).toThrow(/MAX_CENTS/);
+    expect(() => computeCartBreakdown(DESBORDA, 16)).toThrow(/MAX_CENTS/);
   });
 
   it('importes normales siguen intactos (sin throw, todos los campos <= MAX_CENTS)', () => {
-    const b = computeCartBreakdown(116000, 16, fee);
+    const b = computeCartBreakdown(116000, 16);
     expect(b.subtotalCents).toBe(116000);
     expect(b.ivaCents).toBe(16000); // residual de 116000
     expect(b.totalCents).toBeLessThanOrEqual(MAX_CENTS);
@@ -70,7 +70,7 @@ describe('MS-2 — los breakdowns propagan el rechazo del agregado', () => {
     expect(b.totalCents).toBe(b.subtotalCents); // D9: la comisión va dentro de P, no encima
     expect(b.processingFeeCents).toBe(0);
     // direct-ship normal también intacto
-    const d = computeDirectShipBreakdown(116000, 20300, 16, fee);
+    const d = computeDirectShipBreakdown(116000, 20300, 16);
     expect(d.shippingFeeCents).toBe(20300);
     expect(d.totalCents).toBeLessThanOrEqual(MAX_CENTS);
   });

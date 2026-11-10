@@ -51,7 +51,7 @@ describe('DCO-B22 (pura, v1.112.1) — ningún uso sin beneficio: `kind ≠ free
   });
 
   it('bóveda: 1 % solo a `graded` sobre una graded de 50 + carta de 50000 ⇒ ZERO_DISCOUNT (floor a 0)', () => {
-    const r = priceVaultCartWithCode([card('g', 50, 'graded'), card('c', 50000)], terms({ kind: 'percent', percentPct: 1, productScopes: ['graded'] }), 16, FEE);
+    const r = priceVaultCartWithCode([card('g', 50, 'graded'), card('c', 50000)], terms({ kind: 'percent', percentPct: 1, productScopes: ['graded'] }), 16);
     expect(r).toEqual(ZERO);
   });
 
@@ -61,7 +61,7 @@ describe('DCO-B22 (pura, v1.112.1) — ningún uso sin beneficio: `kind ≠ free
   });
 
   it('precedencia: TOTAL_BELOW_MINIMUM (7) gana a ZERO_DISCOUNT (8) — bóveda, carta 99 con 1 %', () => {
-    const r = priceVaultCartWithCode([card('c', 99)], terms({ kind: 'percent', percentPct: 1 }), 16, FEE);
+    const r = priceVaultCartWithCode([card('c', 99)], terms({ kind: 'percent', percentPct: 1 }), 16);
     expect(r).toEqual({ outcome: 'not_applicable', reason: 'TOTAL_BELOW_MINIMUM', details: { minTotalCents: 1000 } });
   });
 

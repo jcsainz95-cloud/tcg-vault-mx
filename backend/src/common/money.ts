@@ -830,7 +830,6 @@ function inclusiveBreakdown(
   subtotalCents: number,
   shippingFeeCents: number,
   ivaRatePct: number,
-  _legacyFee?: StripeFeeConfig,
 ): {
   ivaCents: number;
   processingFeeCents: number;
@@ -868,13 +867,12 @@ function inclusiveBreakdown(
 export function computeCartBreakdown(
   subtotalCents: number,
   ivaPct: number,
-  fee: StripeFeeConfig,
 ): BreakdownDTO {
   return {
     subtotalCents,
     ivaRatePct: ivaPct,
     currency: 'MXN',
-    ...inclusiveBreakdown(subtotalCents, 0, ivaPct, fee),
+    ...inclusiveBreakdown(subtotalCents, 0, ivaPct),
   };
 }
 
@@ -889,7 +887,6 @@ export function computeCartBreakdown(
 export function computeShipmentBreakdown(
   shippingFeeCents: number,
   ivaPct: number,
-  fee: StripeFeeConfig,
 ): BreakdownDTO {
   return {
     subtotalCents: shippingFeeCents,
@@ -897,7 +894,7 @@ export function computeShipmentBreakdown(
     currency: 'MXN',
     // El «subtotal» de esta fila ES la tarifa ⇒ el agregado `G` es la tarifa sola. Se pasa por el
     // primer parámetro (y `0` de envío) para que `G` sea `E` y no `2E`.
-    ...inclusiveBreakdown(shippingFeeCents, 0, ivaPct, fee),
+    ...inclusiveBreakdown(shippingFeeCents, 0, ivaPct),
   };
 }
 
@@ -914,14 +911,13 @@ export function computeDirectShipBreakdown(
   subtotalCents: number,
   shippingFeeCents: number,
   ivaPct: number,
-  fee: StripeFeeConfig,
 ): DirectShipBreakdownDTO {
   return {
     subtotalCents,
     shippingFeeCents,
     ivaRatePct: ivaPct,
     currency: 'MXN',
-    ...inclusiveBreakdown(subtotalCents, shippingFeeCents, ivaPct, fee),
+    ...inclusiveBreakdown(subtotalCents, shippingFeeCents, ivaPct),
   };
 }
 

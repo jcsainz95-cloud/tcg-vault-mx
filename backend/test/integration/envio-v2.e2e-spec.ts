@@ -55,7 +55,7 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
   let fee: Awaited<ReturnType<SettingsService['getStripeFee']>>;
   let customerToken: string;
   let capBefore: unknown;
-  const bd = (S: number, E: number) => computeDirectShipBreakdown(S, E, 16, fee);
+  const bd = (S: number, E: number) => computeDirectShipBreakdown(S, E, 16);
 
   const setDial = (key: SettingKeyType, value: unknown) =>
     h.prisma.configSetting.upsert({
@@ -377,7 +377,7 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
       await setDial(K_FREE, 1);
       const r1 = await withdrawalQuote();
       expect(r1.body.breakdown).toEqual(r0.body.breakdown);
-      expect(r1.body.breakdown).toMatchObject({ subtotalCents: E_WITHDRAWAL, totalCents: computeShipmentBreakdown(E_WITHDRAWAL, 16, fee).totalCents });
+      expect(r1.body.breakdown).toMatchObject({ subtotalCents: E_WITHDRAWAL, totalCents: computeShipmentBreakdown(E_WITHDRAWAL, 16).totalCents });
     });
 
     it('mover `shipping_fee_cents` ⇒ el retiro se mueve y el directo NO (cartas 10000, sellado 17500)', async () => {

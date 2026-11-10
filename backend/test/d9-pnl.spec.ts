@@ -8,7 +8,7 @@
 import { pnlBuckets } from '../src/modules/admin/pnl-core';
 
 const AT = new Date('2026-11-12T12:00:00Z');
-const base = { fulfillmentMode: 'vault', settledAt: AT, ivaRatePct: 16, priceConvention: 'IVA_INCLUSIVE', shippingFeeCents: 0, ivaCents: 1448, items: [], accessoryLines: [] };
+const base = { stripePaymentIntentId: 'pi_x', fulfillmentMode: 'vault', settledAt: AT, ivaRatePct: 16, priceConvention: 'IVA_INCLUSIVE', shippingFeeCents: 0, ivaCents: 1448, items: [], accessoryLines: [] };
 
 function db(orders: Record<string, unknown>[], shipments: Record<string, unknown>[] = []) {
   const cfg = jest.fn(async () => [
@@ -49,7 +49,7 @@ describe('D9 · P&L: venta completa y Stripe como gasto, por convención de la f
     expect(cfg).not.toHaveBeenCalled();
   });
   it('retiro de bóveda FEE_INCLUDED sin costo real ⇒ estimado de su propio cobro: 10000 ⇒ 766 (el fijo también lo absorbe la tienda)', async () => {
-    const { d } = db([], [{ pickingAt: AT, feeConvention: 'FEE_INCLUDED', shippingFeeCents: 10000, ivaCents: 1379, processingFeeCents: 0, totalCents: 10000, stripeFeeCents: null, priceConvention: 'IVA_INCLUSIVE', shippingCostCents: 0, shippingCostIvaCents: 0, labelSource: 'skydropx', insuranceCostCents: 0 }]);
+    const { d } = db([], [{ pickingAt: AT, stripePaymentIntentId: 'pi_s', feeConvention: 'FEE_INCLUDED', shippingFeeCents: 10000, ivaCents: 1379, processingFeeCents: 0, totalCents: 10000, stripeFeeCents: null, priceConvention: 'IVA_INCLUSIVE', shippingCostCents: 0, shippingCostIvaCents: 0, labelSource: 'skydropx', insuranceCostCents: 0 }]);
     const p = await all(d);
     expect(p.stripeFeesCents).toBe(766);
     expect(p.shippingRevenueCents).toBe(10000 - 1379);
@@ -60,5 +60,19 @@ describe('D9 · P&L: venta completa y Stripe como gasto, por convención de la f
       { ...base, feeConvention: 'FEE_INCLUDED', subtotalCents: 10500, processingFeeCents: 0, totalCents: 10500, stripeFeeCents: 900 },
     ]);
     expect((await all(d)).stripeFeesCents).toBe(1300);
+  });
+  // B1 (qa M10): sin cobro de Stripe el gasto es 0, ni real ni estimado.
+  it('B1: pedido FEE_INCLUDED con total 0 ⇒ gasto de Stripe 0 (no 348)', async () => {
+    const { d } = db([{ ...base, feeConvention: 'FEE_INCLUDED', subtotalCents: 0, processingFeeCents: 0, totalCents: 0, stripeFeeCents: null }]);
+    expect((await all(d)).stripeFeesCents).toBe(0);
+  });
+  it('B1: pedido FEE_INCLUDED sin PaymentIntent ⇒ gasto de Stripe 0', async () => {
+    const { d } = db([{ ...base, stripePaymentIntentId: null, feeConvention: 'FEE_INCLUDED', subtotalCents: 10500, processingFeeCents: 0, totalCents: 10500, stripeFeeCents: null }]);
+    expect((await all(d)).stripeFeesCents).toBe(0);
+  });
+  it('B1: retiro gratis (total 0, sin PaymentIntent) suma 0 y C2 con envío a domicilio sigue en 1204', async () => {
+    const ship = { pickingAt: AT, feeConvention: 'FEE_INCLUDED', shippingFeeCents: 0, ivaCents: 0, processingFeeCents: 0, totalCents: 0, stripeFeeCents: null, stripePaymentIntentId: null, priceConvention: 'IVA_INCLUSIVE', shippingCostCents: 0, shippingCostIvaCents: 0, labelSource: 'skydropx', insuranceCostCents: 0 };
+    const { d } = db([{ ...base, feeConvention: 'FEE_INCLUDED', subtotalCents: 10500, shippingFeeCents: 10000, processingFeeCents: 0, totalCents: 20500, stripeFeeCents: null }], [ship]);
+    expect((await all(d)).stripeFeesCents).toBe(1204);
   });
 });

@@ -27,7 +27,7 @@ describe('💰 Accesorios (B) — compra de invitado (§AC.4–§AC.8, Postgres 
   let h: E2EHarness;
   let db: AccDb;
   let fee: Awaited<ReturnType<SettingsService['getStripeFee']>>;
-  const bd = (subtotal: number, shipping: number) => computeDirectShipBreakdown(subtotal, shipping, 16, fee);
+  const bd = (subtotal: number, shipping: number) => computeDirectShipBreakdown(subtotal, shipping, 16);
   const code = (r: { status: number; body: any }) => `${r.status}:${r.body?.error?.code ?? ''}`;
   const report = (id: string, outcomes: string[], ok: (o: string) => boolean) => {
     const k = outcomes.filter(ok).length;

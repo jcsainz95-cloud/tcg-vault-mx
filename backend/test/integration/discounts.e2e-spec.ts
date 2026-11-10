@@ -202,7 +202,7 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       const b = await piece('raw', 50000);
       const S = a.P + b.P;
       const D = Math.floor((S * 10) / 100);
-      const expected = computeCartBreakdown(S - D, 16, fee);
+      const expected = computeCartBreakdown(S - D, 16);
       const q = await vaultQuote(c.token, { inventoryItemIds: [a.id, b.id], discountCode: code.code.toLowerCase() });
       expect(q.status).toBe(200);
       expect(q.body.discount).toEqual({ outcome: 'applied', code: code.code, kind: 'percent', merchandiseBeforeDiscountCents: S, discountCents: D, shippingWaivedCents: 0 });
@@ -235,7 +235,7 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       const a = await piece('raw', 120000);
       const S = a.P;
       const D = dOf(S);
-      const expected = computeDirectShipBreakdown(S - D, E, 16, fee);
+      const expected = computeDirectShipBreakdown(S - D, E, 16);
       const q = await acc.quote({ inventoryItemIds: [a.id], discountCode: code.code });
       expect(q.body.discount).toMatchObject({ outcome: 'applied', discountCents: D, shippingWaivedCents: def.kind === 'free_shipping' ? E_CARDS : 0 });
       expect(q.body.breakdown).toEqual(expected);
@@ -263,7 +263,7 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
         const a = await piece('raw', cents, true);
         const q = await acc.quote({ inventoryItemIds: [a.id], discountCode: code.code });
         const Sp = a.P - Math.floor(a.P / 10);
-        expect(q.body.breakdown).toEqual(computeDirectShipBreakdown(Sp, E, 16, fee));
+        expect(q.body.breakdown).toEqual(computeDirectShipBreakdown(Sp, E, 16));
         expect(q.body.shippingRule.freeShippingRemainingCents).toBe(Math.max(0, T - Sp));
       }
     });
@@ -841,7 +841,7 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       expect(s.status).toBe(201);
       const q0 = await vaultQuote(c.token, { inventoryItemIds: [a.id] });
       expect(q0.body.items[0].unitPriceCents).toBe(100000);
-      expect(q0.body.breakdown).toEqual(computeCartBreakdown(100000, 16, fee));
+      expect(q0.body.breakdown).toEqual(computeCartBreakdown(100000, 16));
       expect(keysDeep(q0.body).has('discount')).toBe(false);
       const other = await mkCode({ kind: 'percent', percentPct: 20 });
       const q2 = await vaultQuote(c.token, { inventoryItemIds: [a.id], discountCode: other.code });
@@ -903,7 +903,7 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       const card300 = await piece('raw', 300000, true);
       const ok = await acc.quote({ inventoryItemIds: [card300.id], discountCode: free.code });
       expect(ok.body.discount).toMatchObject({ outcome: 'applied', shippingWaivedCents: E_CARDS, discountCents: 0 });
-      expect(ok.body.breakdown).toEqual(computeDirectShipBreakdown(300000, 0, 16, fee));
+      expect(ok.body.breakdown).toEqual(computeDirectShipBreakdown(300000, 0, 16));
     });
   });
 

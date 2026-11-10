@@ -443,7 +443,7 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       // ⭐ El desglose persistido es EXACTAMENTE el de la aritmética nueva, sobre el subtotal que la
       // orden trae (que ya es `Σ P`). Se mide como identidad contra el helper, ⛔ no contra una
       // constante: así sigue midiendo aunque cambie el precio de la pieza del seed.
-      const esperado = computeCartBreakdown(order!.subtotalCents, IVA, FEE);
+      const esperado = computeCartBreakdown(order!.subtotalCents, IVA);
       expect({
         ivaCents: order!.ivaCents,
         processingFeeCents: order!.processingFeeCents,
@@ -479,7 +479,7 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       const E_CARDS = 10000;
       expect(order!.shippingFeeCents).toBe(E_CARDS);
 
-      const esperado = computeDirectShipBreakdown(order!.subtotalCents, E_CARDS, IVA, FEE);
+      const esperado = computeDirectShipBreakdown(order!.subtotalCents, E_CARDS, IVA);
       expect(order!.ivaCents).toBe(esperado.ivaCents);
       expect(order!.processingFeeCents).toBe(esperado.processingFeeCents);
       expect(order!.totalCents).toBe(esperado.totalCents);
@@ -544,7 +544,7 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
 
       // ⭐⭐ Y EL ENVÍO SIGUE COSTANDO LO MISMO — money-neutral, `IVA-6(b)`: `E = 20300` con su IVA
       // dentro es el mismo total que `17500` con `2800` apilado detrás. **Ni un centavo.**
-      const esperado = computeShipmentBreakdown(SHIPPING_DISPLAY, IVA, FEE);
+      const esperado = computeShipmentBreakdown(SHIPPING_DISPLAY, IVA);
       expect(envio!.shippingFeeCents).toBe(SHIPPING_DISPLAY);
       expect(envio!.ivaCents).toBe(esperado.ivaCents);
       expect(envio!.ivaCents).toBe(Math.round((SHIPPING * IVA) / 100));

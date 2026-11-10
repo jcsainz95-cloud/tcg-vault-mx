@@ -141,7 +141,7 @@ function delta(desde: number, hasta: number, ivaRatePct: number, samplePriceCent
     proposedPct: hasta,
     ivaRatePct,
     samplePriceCents,
-    fee: FEE,
+
   }).netDeltaPerUnitCents;
 }
 

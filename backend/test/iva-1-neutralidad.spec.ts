@@ -39,7 +39,7 @@ const L = 10_000;
 /** Una posición del dial, calculada por el camino REAL del checkout (derivar `P` → desglosar). */
 function posicion(t: number) {
   const displayPriceCents = displayPriceCentsOf(L, t, R);
-  const b = computeCartBreakdown(displayPriceCents, R, FEE);
+  const b = computeCartBreakdown(displayPriceCents, R);
   return {
     displayPriceCents,
     subtotalCents: b.subtotalCents,

@@ -47,7 +47,7 @@ describe('⭐⭐ `IVA-2` — el IVA NO se suma a la base del gross-up (o se cobr
   // ⭐ D9: la comisión ya va DENTRO de `P` ⇒ el desglose no hace gross-up; el umbral de `IVA-2` pasa de `12469` (con gross-up)
   // a `11600` (= `S`): «rojo si `totalCents > S + E`». El IVA sigue sin ser sumando de nada.
   it('⭐⭐ en PESOS: con el fixture de `IVA-1`, `totalCents` es 11600 y ⛔ nunca más', () => {
-    const b = computeCartBreakdown(11_600, R, FEE);
+    const b = computeCartBreakdown(11_600, R);
     expect(b.totalCents).toBe(11_600);
     // ⛔ El umbral, literal: «rojo si `totalCents > S + E`».
     expect(b.totalCents).toBeLessThanOrEqual(11_600);
@@ -56,7 +56,7 @@ describe('⭐⭐ `IVA-2` — el IVA NO se suma a la base del gross-up (o se cobr
   });
 
   it('⭐ la mutación, reintroducida: `G = S + iva` produce EXACTAMENTE 13200 (+13.8 %)', () => {
-    const b = computeCartBreakdown(11_600, R, FEE);
+    const b = computeCartBreakdown(11_600, R);
     const mutado = b.subtotalCents + b.ivaCents; // cobrar el IVA otra vez, encima del precio con IVA dentro
     expect(mutado).toBe(13_200);
     expect(mutado / b.totalCents).toBeGreaterThan(1.13);
@@ -66,14 +66,14 @@ describe('⭐⭐ `IVA-2` — el IVA NO se suma a la base del gross-up (o se cobr
   });
 
   it('⭐⭐ la IDENTIDAD estructural, en los TRES desgloses', () => {
-    const cart = computeCartBreakdown(11_600, R, FEE);
+    const cart = computeCartBreakdown(11_600, R);
     expect(cart.totalCents).toBe(cart.subtotalCents); // D9: sin gross-up
 
-    const shipment = computeShipmentBreakdown(20_300, R, FEE);
+    const shipment = computeShipmentBreakdown(20_300, R);
     // En el retiro de bóveda el «subtotal» del DTO ES la tarifa ⇒ el agregado es esa cifra sola.
     expect(shipment.totalCents).toBe(shipment.subtotalCents);
 
-    const direct = computeDirectShipBreakdown(11_600, 20_300, R, FEE);
+    const direct = computeDirectShipBreakdown(11_600, 20_300, R);
     expect(direct.totalCents).toBe(direct.subtotalCents + direct.shippingFeeCents);
   });
 
@@ -88,7 +88,7 @@ describe('⭐⭐ `IVA-2` — el IVA NO se suma a la base del gross-up (o se cobr
     for (let caso = 0; caso < 500; caso += 1) {
       const S = rnd(5_000_000) + 1;
       const E = rnd(3) === 0 ? 0 : rnd(100_000);
-      const d = computeDirectShipBreakdown(S, E, R, FEE);
+      const d = computeDirectShipBreakdown(S, E, R);
       expect(d.totalCents).toBe(S + E);
       // ⛔ El IVA NO es un sumando del total (identidad (b) de §M10-IVA.4).
       expect(d.totalCents).toBe(d.subtotalCents + d.shippingFeeCents + d.processingFeeCents);

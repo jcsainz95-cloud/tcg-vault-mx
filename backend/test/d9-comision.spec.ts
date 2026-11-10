@@ -45,21 +45,21 @@ describe('D9 C1 — el precio exhibido lleva la comisión dentro (por unidad, al
 
 describe('D9 C2/C3 — total = ΣP + envío, sin gross-up encima', () => {
   it('C2: 1 carta P=10500 + envío 10000 ⇒ total 20500, comisión 0', () => {
-    const b = computeDirectShipBreakdown(10500, 10000, 16, FEE);
+    const b = computeDirectShipBreakdown(10500, 10000, 16);
     expect(b).toMatchObject({ subtotalCents: 10500, shippingFeeCents: 10000, processingFeeCents: 0, totalCents: 20500 });
   });
   it('C3: 10 cartas de M=10000 ⇒ ΣP = 105000 (por unidad, no 104400); con envío 115000', () => {
     const sigma = Array.from({ length: 10 }, () => feeIncludedPriceCentsOf(10000, 0.036, 16)).reduce((a, b) => a + b, 0);
     expect(sigma).toBe(105000);
-    expect(computeCartBreakdown(sigma, 16, FEE)).toMatchObject({ processingFeeCents: 0, totalCents: 105000 });
-    expect(computeDirectShipBreakdown(sigma, 10000, 16, FEE).totalCents).toBe(115000);
+    expect(computeCartBreakdown(sigma, 16)).toMatchObject({ processingFeeCents: 0, totalCents: 105000 });
+    expect(computeDirectShipBreakdown(sigma, 10000, 16).totalCents).toBe(115000);
   });
   it('costo de Stripe estimado: C2 1204, C3 5150', () => {
     expect(estimateStripeFeeCents(20500, FEE)).toBe(1204);
     expect(estimateStripeFeeCents(115000, FEE)).toBe(5150);
   });
   it('un agregado > Int32 se rechaza (no se clampa)', () => {
-    expect(() => computeCartBreakdown(2_147_483_648, 16, FEE)).toThrow(/MAX_CENTS/);
+    expect(() => computeCartBreakdown(2_147_483_648, 16)).toThrow(/MAX_CENTS/);
   });
   it('las filas nuevas nacen FEE_INCLUDED', () => {
     expect(FEE_CONVENTION_OF_NEW_ROWS).toBe('FEE_INCLUDED');
@@ -81,7 +81,7 @@ describe('D9 C4 — envío gratis desde 400000 sobre el subtotal exhibido (con c
 describe('D9 C5 — código 10 % sobre el precio exhibido', () => {
   const terms: DiscountTerms = { kind: 'percent', percentPct: 10, amountCents: null, maxDiscountCents: null, minSubtotalCents: null, productScopes: [], destinations: [] };
   it('P=10500 ⇒ descuento 1050, subtotal 9450, total 9450 (sin recálculo de comisión)', () => {
-    const p = priceVaultCartWithCode([{ id: 'a', group: 'piece', type: 'raw', unitPriceCents: 10500, quantity: 1 }], terms, 16, FEE);
+    const p = priceVaultCartWithCode([{ id: 'a', group: 'piece', type: 'raw', unitPriceCents: 10500, quantity: 1 }], terms, 16);
     expect(p).toMatchObject({ outcome: 'applied', discountCents: 1050 });
     if (p.outcome !== 'applied') throw new Error('no aplicó');
     expect(p.breakdown).toMatchObject({ subtotalCents: 9450, processingFeeCents: 0, totalCents: 9450 });
@@ -90,7 +90,7 @@ describe('D9 C5 — código 10 % sobre el precio exhibido', () => {
 
 describe('D9 C6 — retiro de bóveda: se muestra y se cobra el dial, sin comisión', () => {
   it('10000 ⇒ total 10000, comisión 0; costo Stripe estimado 766', () => {
-    expect(computeShipmentBreakdown(10000, 16, FEE)).toMatchObject({ subtotalCents: 10000, processingFeeCents: 0, totalCents: 10000 });
+    expect(computeShipmentBreakdown(10000, 16)).toMatchObject({ subtotalCents: 10000, processingFeeCents: 0, totalCents: 10000 });
     expect(estimateStripeFeeCents(10000, FEE)).toBe(766);
   });
 });

@@ -102,7 +102,7 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
     expect(res.items.map((i: any) => i.unitPriceCents)).toEqual([11600, 17400]);
     // El breakdown se calcula SOLO con los válidos (los podados no suman al total).
     // `Σ P = 29000` — **suma exacta de enteros** (regla R1 ⇒ criterio 194 por construcción).
-    expect(res.breakdown).toEqual(computeCartBreakdown(29000, IVA, FEE));
+    expect(res.breakdown).toEqual(computeCartBreakdown(29000, IVA));
     expect(res.unavailableItems).toEqual([
       { inventoryItemId: 'b', cardName: 'Card b' },
       { inventoryItemId: 'no-existe', cardName: null },
@@ -145,7 +145,7 @@ describe('OrdersService — quote con poda por ítem (v1.21.3-quote-prune)', () 
   it('compatibilidad: si todo el carrito resuelve, la forma previa NO cambia (solo se suma `[]`)', async () => {
     const { svc } = build([piece('a'), piece('d', { listPriceCents: 15000 })]);
     const res = await svc.quote(['a', 'd']);
-    expect(res.breakdown).toEqual(computeCartBreakdown(29000, IVA, FEE));
+    expect(res.breakdown).toEqual(computeCartBreakdown(29000, IVA));
     expect(res.items).toHaveLength(2);
     expect(res.unavailableItems).toEqual([]); // SIEMPRE presente, [] cuando todo resuelve
   });

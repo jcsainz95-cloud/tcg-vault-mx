@@ -28,7 +28,7 @@
 import {
   StripeFeeConfig,
   displayPriceCentsOf,
-  grossUpTotal,
+  MAX_CENTS,
   taxBaseCentsOf,
 } from '../../common/money';
 import type { IvaDials } from '../../common/money';
@@ -121,6 +121,11 @@ export const IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT = 10_000;
  */
 export const IVA_TRANSFER_SAMPLE_PRICE_CENTS_MAX = 100_000_000;
 
+function assertRepresentable(totalCents: number): number {
+  if (totalCents > MAX_CENTS) throw new Error('total exceeds MAX_CENTS (Int32) — order amount not representable');
+  return totalCents;
+}
+
 /**
  * Una posición del dial, entera. **El servidor la calcula; ⛔ el frontend no multiplica nada**
  * (`ARCHITECTURE §4.44.i`): si el front computara el delta, el acuse probaría que el front sabe
@@ -130,7 +135,6 @@ export function ivaTransferPosition(
   listPriceCents: number,
   ivaTransferPct: number,
   ivaRatePct: number,
-  fee: StripeFeeConfig,
 ): IvaTransferPositionDTO {
   const displayPriceCents = displayPriceCentsOf(listPriceCents, ivaTransferPct, ivaRatePct);
   const taxBaseCents = taxBaseCentsOf(displayPriceCents, ivaRatePct);
@@ -143,7 +147,8 @@ export function ivaTransferPosition(
     // `netRevenueCents == taxBaseCents` bajo `IVA_INCLUSIVE` (criterio 191). Es la MISMA decisión
     // que `money.netRevenueCents()` toma sobre una fila persistida; aquí es sobre una hipótesis.
     netRevenueCents: taxBaseCents,
-    totalChargedCents: grossUpTotal(displayPriceCents, fee),
+    // §D9: la comisión va DENTRO del precio ⇒ lo cobrado ES el exhibido (sin gross-up viejo). Misma cota que `grossUpTotal`.
+    totalChargedCents: assertRepresentable(displayPriceCents),
   };
 }
 
@@ -163,11 +168,10 @@ export function ivaTransferPreview(params: {
   proposedPct: number;
   ivaRatePct: number;
   samplePriceCents: number;
-  fee: StripeFeeConfig;
 }): IvaTransferPreviewDTO {
-  const { currentPct, proposedPct, ivaRatePct, samplePriceCents, fee } = params;
-  const current = ivaTransferPosition(samplePriceCents, currentPct, ivaRatePct, fee);
-  const proposed = ivaTransferPosition(samplePriceCents, proposedPct, ivaRatePct, fee);
+  const { currentPct, proposedPct, ivaRatePct, samplePriceCents } = params;
+  const current = ivaTransferPosition(samplePriceCents, currentPct, ivaRatePct);
+  const proposed = ivaTransferPosition(samplePriceCents, proposedPct, ivaRatePct);
   return {
     ivaRatePct,
     samplePriceCents,

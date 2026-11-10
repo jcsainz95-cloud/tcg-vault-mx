@@ -22,7 +22,7 @@ describe('MS-2 — OrdersService.representableOrThrow', () => {
     try {
       // D56: `G = S` (el IVA va dentro) ⇒ el umbral de no-representable subió. Ver la nota en
       // `common/be27-aggregate-overflow.spec.ts`.
-      s.representableOrThrow(() => computeCartBreakdown(MAX_CENTS + 1, 16, fee));
+      s.representableOrThrow(() => computeCartBreakdown(MAX_CENTS + 1, 16));
     } catch (e) {
       caught = e;
     }
@@ -33,7 +33,7 @@ describe('MS-2 — OrdersService.representableOrThrow', () => {
 
   it('deja pasar un breakdown normal sin tocarlo', () => {
     const s = svc();
-    const b = s.representableOrThrow(() => computeCartBreakdown(100000, 16, fee));
+    const b = s.representableOrThrow(() => computeCartBreakdown(100000, 16));
     expect(b.subtotalCents).toBe(100000);
     expect(b.totalCents).toBeGreaterThan(0);
   });

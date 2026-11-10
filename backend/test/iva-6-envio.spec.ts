@@ -51,7 +51,7 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
   it('⭐⭐ (a) `direct_ship`: `total == S + E` (D9, sin gross-up) y `shippingFeeCents == 20300`', () => {
     const S = displayPriceCentsOf(10_000, 100, R); // 11600
     const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R }); // 20300
-    const b = computeDirectShipBreakdown(S, E, R, FEE);
+    const b = computeDirectShipBreakdown(S, E, R);
     expect(b.shippingFeeCents).toBe(20_300);
     expect(b.totalCents).toBe(S + E);
     // ⛔ Y ⛔ NO aparece ningún CUARTO sumando: cartas + envío + comisión, y nada más.
@@ -60,8 +60,8 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
 
   it('⛔ (a-mutación) exhibir la tarifa NETA cobra 2800 menos y mezcla dos convenciones', () => {
     const S = displayPriceCentsOf(10_000, 100, R);
-    const bueno = computeDirectShipBreakdown(S, 20_300, R, FEE);
-    const mutado = computeDirectShipBreakdown(S, F, R, FEE);
+    const bueno = computeDirectShipBreakdown(S, 20_300, R);
+    const mutado = computeDirectShipBreakdown(S, F, R);
     expect(bueno.totalCents - mutado.totalCents).toBe(2_800); // D9: sin gross-up, la diferencia es exactamente el IVA del envío
     expect(mutado.shippingFeeCents).toBe(17_500);
   });
@@ -74,7 +74,7 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
 
     const S = displayPriceCentsOf(Sneto, 100, R);
     const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R });
-    const b = computeDirectShipBreakdown(S, E, R, FEE);
+    const b = computeDirectShipBreakdown(S, E, R);
     expect(b.totalCents).toBe(totalViejo);
     // Y el IVA registrado también coincide al centavo.
     expect(b.ivaCents).toBe(ivaViejo);
@@ -82,7 +82,7 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
 
   it('⭐ (c) el retiro de bóveda (`POST /shipments/quote`) cumple la misma identidad', () => {
     const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R });
-    const b = computeShipmentBreakdown(E, R, FEE);
+    const b = computeShipmentBreakdown(E, R);
     expect(b.subtotalCents).toBe(20_300);
     expect(b.totalCents).toBe(20_300); // D9: se cobra la tarifa exhibida, sin gross-up
     expect(b.totalCents).toBe(b.subtotalCents + b.processingFeeCents);
@@ -95,8 +95,8 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
     // rutas serializan, que es donde el importe existe: para cada uno, restar del total todos los
     // campos numéricos **excepto** el propio total deja **exactamente** el IVA fuera de la cuenta.
     const casos = [
-      computeDirectShipBreakdown(11_600, 20_300, R, FEE),
-      computeShipmentBreakdown(20_300, R, FEE),
+      computeDirectShipBreakdown(11_600, 20_300, R),
+      computeShipmentBreakdown(20_300, R),
     ];
     for (const b of casos) {
       const shipping = 'shippingFeeCents' in b ? (b as { shippingFeeCents: number }).shippingFeeCents : 0;
@@ -123,7 +123,7 @@ describe('⭐ canario de `IVA-6`: apilar el IVA detrás del envío se ve, y se m
   it('⭐⭐ m1 — `total = grossUp(S + E + iva)` cobra el IVA del envío DOS veces', () => {
     const S = 11_600;
     const E = 20_300;
-    const bueno = computeDirectShipBreakdown(S, E, R, FEE);
+    const bueno = computeDirectShipBreakdown(S, E, R);
     const mutado = S + E + bueno.ivaCents;
     expect(mutado).toBeGreaterThan(bueno.totalCents);
     // D9: el sobrecosto es el IVA entero del agregado: 4400 centavos.
@@ -135,7 +135,7 @@ describe('⭐ canario de `IVA-6`: apilar el IVA detrás del envío se ve, y se m
     // tener un sumando de IVA después del precio exhibido, que es lo que el criterio 189 prohíbe.
     const S = 11_600;
     const mutadoTotal = S + F + Math.round((F * R) / 100);
-    const bueno = computeDirectShipBreakdown(S, 20_300, R, FEE);
+    const bueno = computeDirectShipBreakdown(S, 20_300, R);
     // ⚠️ Iguales en pesos…
     expect(mutadoTotal).toBe(bueno.totalCents);
     // …y por eso el candado (d) es estructural y no aritmético: la mutación que solo cambia la

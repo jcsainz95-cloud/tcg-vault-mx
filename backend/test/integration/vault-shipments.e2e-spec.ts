@@ -142,7 +142,7 @@ describe('E2E — Bóveda/portafolio y retiros', () => {
       const notSettled = (res.body.ineligible as any[]).find((i) => i.inventoryItemId === itemId.custPending);
       expect(notSettled.reason).toBe('ITEM_NOT_SETTLED');
 
-      const expected = computeShipmentBreakdown(SHIPPING_DISPLAY, IVA, FEE);
+      const expected = computeShipmentBreakdown(SHIPPING_DISPLAY, IVA);
       expect(res.body.breakdown).toMatchObject({
         // ⭐ D56: el «subtotal» del retiro ES `E`. Money-neutral: `20300` es lo que antes aportaban
         // `17500 + 2800`, así que `totalCents` ⛔ no se movió (`IVA-6(b)`).

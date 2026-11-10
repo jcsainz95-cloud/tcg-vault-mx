@@ -81,7 +81,7 @@ describe('DCO-B4 (puro, v1.110.1) — envío gratis con el dial de la clase en 0
     const choice = { box: { code: 'XL', label: 'XL', customerFeeCents: 35000 }, review: false } as unknown as BoxChoice;
     const acc = { id: 'x', group: 'accessory' as const, type: 'accessory' as const, unitPriceCents: 5000, quantity: 1 };
     expect(priceDirectShipCartWithCode([acc], FREE, { kind: 'sealed', dials: { ...DIALS, sealedFeeCents: 0 }, choice }, 16, FEE)).toMatchObject({ reason: 'LARGE_BOX' });
-    expect(priceVaultCartWithCode([raw('a', 50000)], FREE, 16, FEE)).toMatchObject({ reason: 'NO_SHIPPING' });
+    expect(priceVaultCartWithCode([raw('a', 50000)], FREE, 16)).toMatchObject({ reason: 'NO_SHIPPING' });
   });
 
   it('retiro con el dial en 0 ⇒ ALREADY_FREE_SHIPPING; con dial > 0 ⇒ applied', () => {

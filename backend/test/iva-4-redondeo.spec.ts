@@ -39,7 +39,7 @@ const CARRITO = [103, 999, 1, 12345, 7, 250, 8888];
 function carrito(Ls: readonly number[], t: number) {
   const unidades = Ls.map((L) => displayPriceCentsOf(L, t, R));
   const subtotalCents = unidades.reduce((a, b) => a + b, 0);
-  return { unidades, ...computeCartBreakdown(subtotalCents, R, FEE) };
+  return { unidades, ...computeCartBreakdown(subtotalCents, R) };
 }
 
 describe('⭐ `IVA-4` — R1/R2/R3: el redondeo vive en `P`, y el residual absorbe el resto', () => {

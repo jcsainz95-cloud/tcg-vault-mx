@@ -103,7 +103,7 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
       expect(res.status).toBe(200);
       // ⭐ D56: el subtotal del quote es `Σ P`, no `Σ L` (§M10-IVA.3, regla R1).
       const subtotal = P(salePrice(E2E_CARDS.charizard.refNmCents));
-      const expected = computeCartBreakdown(subtotal, IVA, FEE);
+      const expected = computeCartBreakdown(subtotal, IVA);
       expect(res.body.breakdown).toMatchObject({
         subtotalCents: expected.subtotalCents,
         ivaCents: expected.ivaCents,
@@ -178,7 +178,7 @@ describe('E2E — Catálogo, checkout y webhooks Stripe', () => {
       // eso el caso de :105 no lo distinguía); con `n = 2` sólo la primera respeta `IVA-4(a)`
       // (`Σ items[].unitPriceCents == subtotalCents` **exacto**). `salePrice(...)` sigue siendo el `L`.
       const unit = P(salePrice(E2E_CARDS.charizard.refNmCents));
-      expect(res.body.breakdown).toEqual(computeCartBreakdown(unit * 2, IVA, FEE));
+      expect(res.body.breakdown).toEqual(computeCartBreakdown(unit * 2, IVA));
       expect(res.body.unavailableItems).toEqual([
         { inventoryItemId: vendida.id, cardName: E2E_CARDS.charizard.name },
         { inventoryItemId: borrada, cardName: null },

@@ -121,7 +121,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       unitPriceCents = res.body.items[0].unitPriceCents;
       // ⭐ `unitPriceCents` YA es `P` (lo devuelve el servidor derivado, §M10-IVA.3).
       expect(res.body.breakdown).toEqual(
-        computeDirectShipBreakdown(unitPriceCents, SHIPPING_DISPLAY, IVA, FEE),
+        computeDirectShipBreakdown(unitPriceCents, SHIPPING_DISPLAY, IVA),
       );
       // ⭐⭐ `IVA-6`: la tarifa exhibida lleva su IVA dentro, y es money-neutral (`17500 + 2800`).
       expect(res.body.breakdown.shippingFeeCents).toBe(SHIPPING_DISPLAY);
@@ -156,7 +156,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       );
       // Breakdown SOLO con las vivas (2 × unitPrice) — la poda no suma al total.
       expect(res.body.breakdown).toEqual(
-        computeDirectShipBreakdown(unitPriceCents * 2, SHIPPING_DISPLAY, IVA, FEE),
+        computeDirectShipBreakdown(unitPriceCents * 2, SHIPPING_DISPLAY, IVA),
       );
       expect(res.body.unavailableItems).toEqual([
         { inventoryItemId: vendida.id, cardName: 'E2E Charizard' },
@@ -271,7 +271,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
       expect(ttlMin).toBeGreaterThan(110);
       expect(ttlMin).toBeLessThanOrEqual(120);
       expect(res.body.breakdown).toEqual(
-        computeDirectShipBreakdown(unitPriceCents, SHIPPING_DISPLAY, IVA, FEE),
+        computeDirectShipBreakdown(unitPriceCents, SHIPPING_DISPLAY, IVA),
       );
       // UN solo PaymentIntent por el total (cartas + envío + IVA + fee).
       const intents = h.stripe.createdIntents.filter((i) => i.metadata.orderId === orderId);

@@ -828,7 +828,8 @@ describe('E2E — §M11-SP: el precio del sellado es del producto, lo pone el du
         margin: { cents: N0 - 1100, bps: Math.round(((N0 - 1100) * 10_000) / N0) },
       });
       expect(row.market).toMatchObject({ status: 'priced' });
-      expect(N0).toBeGreaterThanOrEqual(auto); // D9: con el dial neutro N ya no es L: P lleva la comisión dentro (la venta cuenta completa, P3-A)
+      // D9: con el dial neutro N ya NO es L (la comisión va dentro de P): valores exactos medidos, calculados aparte de la fórmula del código.
+      expect([auto, P, N0]).toEqual([122_000, 147_700, 127_328]); // P = ceilPeso(122000×1.16/0.95824) = 1477 pesos; N = round(P/1.16)
       const p = await put(X.id, { displayPriceCents: 1500, expectedDisplayPriceCents: null });
       expect(p.body.data).toMatchObject({ ownerDisplayPriceCents: 1500, effectiveOrigin: 'product', displayPriceCents: 1500, netPriceCents: 1293, margin: { cents: 193, bps: 1493 }, automaticListPriceCents: auto });
       expect((await sheet(admin)).body.canEdit).toBe(true);

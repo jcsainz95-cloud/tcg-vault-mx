@@ -93,7 +93,6 @@ export function priceVaultCartWithCode(
   lines: readonly DiscountCartLine[],
   terms: DiscountTerms,
   ivaRatePct: number,
-  fee: StripeFeeConfig,
 ): AppliedCartDiscount<BreakdownDTO> | NotApplicable {
   // Precedencia 1: el envío gratis a la bóveda no tiene envío que perdonar — gana a destino, filtros y mínimo (DCO-B20 a/b).
   if (terms.kind === 'free_shipping') return notApplicable('NO_SHIPPING');
@@ -101,7 +100,7 @@ export function priceVaultCartWithCode(
   const d = discountOf(lines, terms, { destination: 'vault' });
   if (!d.ok) return notApplicable(d.reason, d.details);
   const alloc = allocateDiscount(d.eligible, d.nominalCents);
-  const breakdown = representableOrThrow(() => computeCartBreakdown(S - alloc.discountCents, ivaRatePct, fee));
+  const breakdown = representableOrThrow(() => computeCartBreakdown(S - alloc.discountCents, ivaRatePct));
   if (breakdown.totalCents < DISCOUNT_MIN_TOTAL_CENTS) return totalBelowMinimum();
   if (alloc.discountCents === 0) return zeroDiscount();
   return {

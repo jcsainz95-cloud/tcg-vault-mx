@@ -367,12 +367,11 @@ export class SettingsService implements OnModuleInit {
     samplePriceCents: number = IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT,
     db: SettingRowReader = this.prisma,
   ): Promise<IvaTransferPreviewDTO> {
-    const [currentPct, ivaRatePct, fee] = await Promise.all([
+    const [currentPct, ivaRatePct] = await Promise.all([
       this.getIvaTransferPct(db),
       this.getNumber(SettingKey.IVA_PCT, db),
-      this.getStripeFee(),
     ]);
-    return ivaTransferPreview({ currentPct, proposedPct, ivaRatePct, samplePriceCents, fee });
+    return ivaTransferPreview({ currentPct, proposedPct, ivaRatePct, samplePriceCents });
   }
 
   /**
@@ -448,7 +447,6 @@ export class SettingsService implements OnModuleInit {
         proposedPct,
         ivaRatePct,
         samplePriceCents,
-        fee,
       });
 
       // (4) Idempotente: el valor no se mueve ⇒ ni acuse, ni escritura, ni bitácora.

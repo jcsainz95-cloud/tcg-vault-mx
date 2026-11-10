@@ -53,6 +53,13 @@ describe('D9 · comisión de plataforma dentro del precio (Postgres real)', () =
     });
     expect(s.status).toBe(201);
     orderId = s.body.orderId;
+    // D9-4: valor exacto de P, con la fórmula escrita aparte (no la del código): P = ceilPeso(M / 0.95824), M = L × 1.16 (dial 100 %), con 0.95824 = 1 − 0.036 × 1.16.
+    const oi = await h.prisma.orderItem.findFirstOrThrow({ where: { orderId } });
+    // mercado 100000 (fixture) × margen del tramo gte_300 (+15 %) = L; M = L × 1.16 (traslación 100 %).
+    expect(oi.marketMxnCents).toBe(100_000);
+    const M = Math.round(oi.marketMxnCents! * 1.15 * 1.16);
+    expect(unitPrice).toBe(Math.ceil(M / 100 / 0.95824 - 1e-9) * 100);
+    expect(unitPrice).toBeGreaterThan(M);
     piId = s.body.stripe.paymentIntentId;
     total = s.body.breakdown.totalCents;
     expect(s.body.breakdown).toMatchObject({ subtotalCents: unitPrice, shippingFeeCents: SHIPPING_DISPLAY, processingFeeCents: 0, totalCents: unitPrice + SHIPPING_DISPLAY });

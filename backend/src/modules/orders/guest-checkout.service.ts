@@ -1010,7 +1010,7 @@ export class GuestCheckoutService {
     const { ship, breakdown } = directShipBreakdownOf({ kind, subtotalCents, dials, choice, ivaRatePct: ivaPct, fee });
     return {
       breakdown,
-      vaultBreakdown: itemsEmpty ? this.orders.zeroCartBreakdown(ivaPct) : computeCartBreakdown(itemsSubtotalCents, ivaPct, fee),
+      vaultBreakdown: itemsEmpty ? this.orders.zeroCartBreakdown(ivaPct) : computeCartBreakdown(itemsSubtotalCents, ivaPct),
       choice,
       shippingRule: (s) => shippingRuleDtoOf(kind, s, dials, ship),
       frozenShippingRule: (o, byCode) => frozenShippingRuleOf(kind, o, dials, byCode),
