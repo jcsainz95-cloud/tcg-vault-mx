@@ -178,6 +178,9 @@ export async function liveSalesFor(
   return out;
 }
 
+/** D9-7: a cuántos `partial` consecutivos de `formulaTick` se alerta. */
+const FORMULA_PARTIAL_ALERT_AT = 3;
+
 @Injectable()
 export class ListingPriceService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(ListingPriceService.name);
@@ -572,6 +575,8 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
   // ───────────────────────────────────────────── versión de la fórmula (D9 8.2) ─────────────────────────────────────────────
 
   private formulaStale: { at: number; stale: boolean } | null = null;
+  /** D9-7: tics `partial` seguidos (se pone a 0 con cualquier otro resultado); al 3.º seguido ⇒ `logger.error`. */
+  private formulaPartialStreak = 0;
 
   /** Olvida la bandera en memoria (tras escribir la versión, o en pruebas). */
   resetFormulaStaleCache(): void {
@@ -607,6 +612,21 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
    * siguiente tic lo retoma. Nunca lanza.
    */
   async formulaTick(): Promise<{ status: 'current' | 'busy' | 'ran' | 'partial' | 'failed' }> {
+    const out = await this.formulaTickOnce();
+    if (out.status === 'partial') {
+      this.formulaPartialStreak++;
+      if (this.formulaPartialStreak === FORMULA_PARTIAL_ALERT_AT) {
+        this.logger.error(
+          `listing-price: ${this.formulaPartialStreak} recálculos de fórmula seguidos quedaron PARCIALES (piezas saltadas por candado): hay precios con la fórmula vieja y la versión no se escribe`,
+        );
+      }
+    } else if (out.status !== 'busy') {
+      this.formulaPartialStreak = 0;
+    }
+    return out;
+  }
+
+  private async formulaTickOnce(): Promise<{ status: 'current' | 'busy' | 'ran' | 'partial' | 'failed' }> {
     try {
       const dials = await this.settings.getIvaDials();
       const version = formulaVersionOf(dials);

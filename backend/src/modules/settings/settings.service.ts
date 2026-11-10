@@ -1,7 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { StripeFeeConfig } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 import {
   CROSS_RULE_KEYS,
@@ -293,19 +292,6 @@ export class SettingsService implements OnModuleInit {
       where: { key: { in: [...new Set(keys)] } },
     });
     return new Map(rows.map((r) => [r.key as SettingKeyType, r.valueJson as unknown]));
-  }
-
-  /** Config de comisión Stripe para el gross-up (ARCHITECTURE §5.1). */
-  async getStripeFee(): Promise<StripeFeeConfig> {
-    return {
-      stripePct: await this.getNumber(SettingKey.STRIPE_FEE_PCT),
-      stripeFixedCents: await this.getNumber(SettingKey.STRIPE_FEE_FIXED_CENTS),
-      // v1.40 (Enmienda A, P-37): el IVA que Stripe MX cobra SOBRE su comisión deja de tener dial
-      // propio (`stripe_fee_iva_pct`, retirado) y se DERIVA de la fuente única `IVA_PCT` (porcentaje
-      // [0,100] → fracción). Matemáticamente idéntico al centavo (16/100 = 0.16); el neteo NO cambia.
-      // La clave de BD `stripe_fee_iva_pct` queda inerte: NUNCA se lee (jamás cae a la fila vieja ni a 0).
-      stripeFeeIvaPct: (await this.getNumber(SettingKey.IVA_PCT)) / 100,
-    };
   }
 
   // ────────────────────────────────────────────────────────────────────────────────────────────

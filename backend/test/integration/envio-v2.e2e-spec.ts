@@ -24,8 +24,7 @@ import { seedE2E } from '../../prisma/seed-e2e';
 import { AccDb, FUNDA_DIMS } from './helpers/accessories-b-db';
 import { ShipPrepDb } from './helpers/ship-prep-db';
 import { SettingKey, SettingKeyType } from '../../src/modules/settings/settings.constants';
-import { SettingsService } from '../../src/modules/settings/settings.service';
-import { computeDirectShipBreakdown, computeShipmentBreakdown, grossUpTotal, itemMissingRefundComponents } from '../../src/common/money';
+import { StripeFeeConfig, computeDirectShipBreakdown, computeShipmentBreakdown, grossUpTotal, itemMissingRefundComponents } from '../../src/common/money';
 import { E2E_FOLIOS, E2E_USERS } from '../../prisma/e2e-fixtures';
 
 const RUN = `env2${Date.now().toString(36)}`;
@@ -52,7 +51,7 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
   let h: E2EHarness;
   let acc: AccDb;
   let prep: ShipPrepDb;
-  let fee: Awaited<ReturnType<SettingsService['getStripeFee']>>;
+  const fee: StripeFeeConfig = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
   let customerToken: string;
   let capBefore: unknown;
   const bd = (S: number, E: number) => computeDirectShipBreakdown(S, E, 16);
@@ -91,7 +90,6 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
     await acc.init();
     prep = new ShipPrepDb(h, `${RUN}p`);
     await prep.init();
-    fee = await h.app.get(SettingsService).getStripeFee();
     customerToken = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
     capBefore = (await h.prisma.configSetting.findUnique({ where: { key: SettingKey.OPERATOR_REFUND_CAP_24H_CENTS } }))?.valueJson ?? null;
   });

@@ -445,19 +445,6 @@ describe('⭐ `IVA-8(d)` — la validación del valor, y el `message` nombra LOS
 });
 
 describe('⛔⛔ `IVA-7` — mover un PRECIO no mueve una COMISIÓN, y D56 no lo roza', () => {
-  it('⭐ mover `iva_transfer_pct` de 100 a 0 deja `getStripeFee()` IDÉNTICA', async () => {
-    const h = harness();
-    const antes = await h.svc.getStripeFee();
-    await h.svc.setIvaTransferPct(
-      { ivaTransferPct: 0, acknowledgement: { samplePriceCents: 10_000, previewedNetDeltaCents: -1_379 } },
-      'u1',
-      auditWithin,
-    );
-    expect(h.dial()).toBe(0);
-    expect(await h.svc.getStripeFee()).toEqual(antes);
-    expect((await h.svc.getStripeFee()).stripeFeeIvaPct).toBe(0.16);
-  });
-
   it('⭐ el espejo: mover la TASA `iva_pct` ⛔ no toca la fila `iva_transfer_pct`', async () => {
     const h = harness();
     await h.svc.update({ ivaPct: 8 }, 'u1');
@@ -465,15 +452,9 @@ describe('⛔⛔ `IVA-7` — mover un PRECIO no mueve una COMISIÓN, y D56 no lo
     expect(h.dial()).toBe(100);
   });
 
-  it('⭐⭐ POR AUSENCIA, sobre el CÓDIGO: `getStripeFee()` no contiene ninguna referencia al dial', () => {
-    // *Rojo en cuanto aparezca, aunque los números cuadren ese día.* Se recorta el cuerpo de la
-    // función y se mira dentro: si el dial de traslación entrara ahí, mover un precio movería una
-    // comisión para TODO el catálogo, y los números del día del cambio no lo delatarían.
+  it('⭐⭐ POR AUSENCIA, sobre el CÓDIGO: `getStripeFee()` ya no existe (nada que acople la comisión al dial)', () => {
     const src = readFileSync(join(__dirname, '../src/modules/settings/settings.service.ts'), 'utf8');
-    const i = src.indexOf('async getStripeFee(');
-    expect(i).toBeGreaterThan(-1);
-    const cuerpo = src.slice(i, src.indexOf('\n  }', i));
-    expect(cuerpo).not.toMatch(/IVA_TRANSFER_PCT|iva_transfer_pct|ivaTransferPct/);
+    expect(src).not.toContain('async getStripeFee(');
   });
 });
 

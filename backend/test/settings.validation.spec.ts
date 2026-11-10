@@ -1,7 +1,6 @@
 import { SettingsService } from '../src/modules/settings/settings.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { BusinessException } from '../src/common/business.exception';
-import { grossUpTotal } from '../src/common/money';
 import {
   PRICE_PROVIDER_VALUES,
   SETTING_DEFAULTS,
@@ -318,39 +317,4 @@ describe('SettingsService — stripeFeeIvaPct retirado del DTO (v1.40 P-37)', ()
     expect(prisma.configSetting.upsert).not.toHaveBeenCalled();
   });
 
-  it('getStripeFee deriva stripeFeeIvaPct de ivaPct (16 ⇒ 0.16), NUNCA de la fila vieja ni 0', async () => {
-    // Solo hay fila para iva_pct=16; stripe_fee_iva_pct NO se lee (aunque existiera, es inerte).
-    const prisma = {
-      configSetting: {
-        findUnique: jest.fn().mockImplementation(({ where }: { where: { key: string } }) =>
-          where.key === 'iva_pct'
-            ? Promise.resolve({ key: where.key, valueJson: 16 })
-            : Promise.resolve(null),
-        ),
-      },
-    };
-    const service = new SettingsService(prisma as unknown as PrismaService);
-    const fee = await service.getStripeFee();
-    expect(fee.stripeFeeIvaPct).toBe(0.16);
-    // La key deprecada nunca se consulta en el gross-up.
-    const consultedKeys = (prisma.configSetting.findUnique as jest.Mock).mock.calls.map(
-      (c) => c[0].where.key,
-    );
-    expect(consultedKeys).not.toContain('stripe_fee_iva_pct');
-  });
-
-  it('smoke gross-up: con ivaPct=16 el neteo es IDÉNTICO al del antiguo 0.16', async () => {
-    const prisma = { configSetting: { findUnique: jest.fn().mockResolvedValue(null) } };
-    const service = new SettingsService(prisma as unknown as PrismaService);
-    const fee = await service.getStripeFee(); // deriva stripeFeeIvaPct = 16/100 = 0.16
-    const baseCents = 116000; // subtotal 100000 + IVA 16000
-    const derived = grossUpTotal(baseCents, fee);
-    // Referencia: exactamente el gross-up con el 0.16 hardcodeado de antes (misma matemática).
-    const legacy = grossUpTotal(baseCents, {
-      stripePct: fee.stripePct,
-      stripeFixedCents: fee.stripeFixedCents,
-      stripeFeeIvaPct: 0.16,
-    });
-    expect(derived).toBe(legacy);
-  });
 });

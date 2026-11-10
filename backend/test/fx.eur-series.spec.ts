@@ -54,9 +54,7 @@ describe('BANXICO_FX_WHERE — el lector USD gana `base:USD` (la fila EUR no lo 
 describe('FxService.refreshFromBanxico — la serie EUR es best-effort e independiente del USD', () => {
   const USD_OK = { bmx: { series: [{ datos: [{ dato: '18.50' }] }] } };
   function buildFetch(eurResponse: { status: number; body?: unknown }) {
-    let call = 0;
     return jest.fn(async (url: string) => {
-      call++;
       // 1ª llamada = USD (SF63528); 2ª = EUR (la serie configurada).
       if (url.includes('SF63528')) {
         return { ok: true, json: async () => USD_OK } as unknown as Response;
