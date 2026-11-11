@@ -531,12 +531,13 @@ export class SealedCatalogService {
       if (arr) arr.push(p);
       else groups.set(k, [p]);
     }
-    return [...groups.values()].map((members) => {
+    return [...groups.entries()].map(([gk, members]) => {
       const g = this.toGroupDTO(members, dials);
       const setName = g.card.setName ?? '';
       return {
         kind: 'sealed' as const,
         refId: g.representativeItemId,
+        groupKey: gk,
         title: [g.productName, setName && !g.productName.includes(setName) ? setName : '', 'Pokémon TCG'].filter((x) => x).join(' · '),
         description: `${g.productName}${setName ? ` (${setName})` : ''}. Producto sellado de fábrica de Pokémon TCG. Venta en TCG HUNT con envío a todo México.`,
         imageUrl: g.ogImageUrl,

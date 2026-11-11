@@ -9,6 +9,7 @@ import {
   type InspectionFields,
   type NoticeRow,
 } from '../src/modules/marketing/index-inspection';
+import { KEY_PAGE_FALLBACK } from '../src/modules/marketing/index-inspection.service';
 import { evaluateAlerts, alertsWithSources, type AlertInputs } from '../src/modules/marketing/marketing-alerts';
 import { AV_TEXT } from '../src/modules/marketing/marketing-alerts.text';
 
@@ -86,9 +87,15 @@ describe('isNoticeable: cuándo se avisa', () => {
     expect(isNoticeable(row({ flag: 'CRAWLED_NOT_INDEXED', flagStreak: 1 }), now)).toBe(false);
   });
   it('no se repite en 28 días (salvo el mismo día del reenvío); pasados 28 días vuelve', () => {
-    expect(isNoticeable(row({ notifiedAt: d(-7) }), now)).toBe(false);
-    expect(isNoticeable(row({ notifiedAt: new Date(now.getTime() - 3600_000) }), now)).toBe(true);
-    expect(isNoticeable(row({ notifiedAt: new Date(now.getTime() - RENOTIFY_AFTER_MS) }), now)).toBe(true);
+    const e = { forEmail: true };
+    expect(isNoticeable(row({ notifiedAt: d(-7) }), now, e)).toBe(false);
+    expect(isNoticeable(row({ notifiedAt: new Date(now.getTime() - 3600_000) }), now, e)).toBe(true);
+    expect(isNoticeable(row({ notifiedAt: new Date(now.getTime() - RENOTIFY_AFTER_MS) }), now, e)).toBe(true);
+  });
+  it('el PANEL sigue mostrando mientras el problema persista: notifiedAt solo filtra el correo', () => {
+    expect(isNoticeable(row({ notifiedAt: d(-7) }), now)).toBe(true);
+    expect(isNoticeable(row({ notifiedAt: d(-7) }), now, { forEmail: false })).toBe(true);
+    expect(isNoticeable(row({ notifiedAt: d(-7) }), now, { forEmail: true })).toBe(false);
   });
   it('sin flag o flag desconocido ⇒ no', () => {
     expect(isNoticeable(row({ flag: null }), now)).toBe(false);
@@ -122,6 +129,16 @@ describe('AV7: resumen, texto, gravedad, y «sin elementos ⇒ sin aviso»', () 
     expect(none.map((a) => a.regla)).toEqual(['—']);
     expect(none[0].titulo).toBe('Sin avisos esta semana');
     const out = alertsWithSources(none, ['la indexación: sin permiso de Search Console']);
-    expect(out.map((a) => a.titulo)).toEqual(['No se pudo evaluar esta semana por completo', 'No se evaluó: la indexación: sin permiso de Search Console']);
+    expect(out.map((a) => a.titulo)).toEqual(['No se pudo evaluar esta semana por completo', 'No se evaluó la indexación: sin permiso de Search Console']);
+  });
+});
+
+describe('páginas clave de respaldo vs fuente (sitemap.ts del front)', () => {
+  it('KEY_PAGE_FALLBACK = STATIC_PATHS del front (locale es) + /card-show', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const src = require('fs').readFileSync(require('path').join(__dirname, '../../frontend/src/app/sitemap.ts'), 'utf8') as string;
+    const block = /const STATIC_PATHS = \[([\s\S]*?)\] as const/.exec(src)![1];
+    const paths = [...block.matchAll(/'([^']*)'/g)].map((m) => `/es${m[1]}`);
+    expect([...KEY_PAGE_FALLBACK].sort()).toEqual([...paths, '/card-show'].sort());
   });
 });

@@ -7,6 +7,8 @@ import {
   buildMerchantFeed,
   clipText,
   merchantShippingCents,
+  merchantPathOf,
+  sealedMerchantId,
   plainText,
   type MerchantFeedRaw,
 } from '../src/modules/catalog/merchant-feed';
@@ -220,7 +222,9 @@ describe('§GSHOP.B — piezas puras', () => {
   });
 
   it('texto: sin HTML ni controles XML, título ≤ 150 y descripción ≤ 5000 por puntos de código', () => {
-    expect(plainText('<b>Hola</b>\u0000 \u0008mundo\n\n  x')).toBe('Hola mundo x');
+    expect(plainText('Hola\u0000 \u0008mundo\n\n  x')).toBe('Hola mundo x');
+    // GS-5: el nombre se conserva íntegro (lo escapa el front al armar el XML)
+    expect(plainText(`Farfetch'd & <Mr. "Mime">`)).toBe(`Farfetch'd & <Mr. "Mime">`);
     expect(Array.from(clipText('😀'.repeat(200), 150))).toHaveLength(150);
     const i = buildMerchantFeed([raw({ title: 'T'.repeat(400), description: 'D'.repeat(9000) })], SHIP).items[0];
     expect(i.title.length).toBeLessThanOrEqual(150);
@@ -257,7 +261,7 @@ describe('§GSHOP.B — paridad con la ficha (k/N) y nada privado', () => {
     for (const id of ['s1', 's2']) {
       const d = await sealed.sealedDetail(id);
       total += 1;
-      if (out.items.find((i) => i.id === `sealed:${id}`)?.priceCents === d.group.fromPriceCents) ok += 1;
+      if (out.items.find((i) => i.path === `/sellado/${id}`)?.priceCents === d.group.fromPriceCents) ok += 1;
     }
     // eslint-disable-next-line no-console
     console.log(`PARIDAD feed↔ficha: ${ok}/${total}`);
@@ -273,8 +277,8 @@ describe('§GSHOP.B — paridad con la ficha (k/N) y nada privado', () => {
     expect(out.items.filter((i) => i.kind === 'card').every((i) => i.condition === 'used' && i.shippingCents === 10000)).toBe(true);
     const boxes = out.items.filter((i) => i.kind === 'sealed');
     expect(boxes.every((b) => b.condition === 'new')).toBe(true);
-    expect(boxes.find((b) => b.id === 'sealed:s1')!.shippingCents).toBe(0 + (boxes.find((b) => b.id === 'sealed:s1')!.priceCents >= SHIP.freeFromCents ? 0 : 17500));
-    expect(boxes.find((b) => b.id === 'sealed:s2')!.shippingCents).toBe(0); // 4,500 ≥ umbral ⇒ gratis
+    expect(boxes.find((b) => b.path === '/sellado/s1')!.shippingCents).toBe(0 + (boxes.find((b) => b.path === '/sellado/s1')!.priceCents >= SHIP.freeFromCents ? 0 : 17500));
+    expect(boxes.find((b) => b.path === '/sellado/s2')!.shippingCents).toBe(0); // 4,500 ≥ umbral ⇒ gratis
   });
 
   it('el umbral de envío gratis sigue al dial vivo (no un importe a mano)', async () => {
@@ -328,5 +332,60 @@ describe('§GSHOP.B — controlador: cabeceras, caché y 503', () => {
     await controller.merchantFeedGet(r.r as never);
     expect(r.status).toBe(503);
     expect(r.headers['X-Feed-Skipped']).toBe('1');
+  });
+});
+
+describe('§GSHOP — g:id de sellado estable, caché de servidor, guarda de ruta', () => {
+  it('g:id sellado = s:+base64url(16 B de SHA-256 del groupKey), ≤ 50; no depende del representante', () => {
+    const id = sealedMerchantId('p:555:mint');
+    expect(id).toMatch(/^s:[A-Za-z0-9_-]{22}$/);
+    expect(id.length).toBeLessThanOrEqual(50);
+    const a = buildMerchantFeed([{ kind: 'sealed', refId: 'rep-1', groupKey: 'p:555:mint', title: 'T', description: null, imageUrl: 'https://x/y.png', priceCents: 100 }], SHIP).items[0];
+    const b = buildMerchantFeed([{ kind: 'sealed', refId: 'rep-2', groupKey: 'p:555:mint', title: 'T', description: null, imageUrl: 'https://x/y.png', priceCents: 50 }], SHIP).items[0];
+    expect(a.id).toBe(id);
+    expect(b.id).toBe(id); // se vendió/abarató la representante: mismo id
+    expect(a.path).toBe('/sellado/rep-1');
+    expect(b.path).toBe('/sellado/rep-2');
+  });
+
+  it('sellado: vender la representante (más barata) no cambia el g:id del grupo (servicio real)', async () => {
+    const before = await stack([SEALED({ id: 's1', listPriceCents: 150000 }), SEALED({ id: 's1b', listPriceCents: 120000 })]).feed.build();
+    const after = await stack([SEALED({ id: 's1', listPriceCents: 150000 })]).feed.build();
+    expect(before.items).toHaveLength(1);
+    expect(before.items[0].path).toBe('/sellado/s1b');
+    expect(after.items[0].path).toBe('/sellado/s1');
+    expect(after.items[0].id).toBe(before.items[0].id);
+  });
+
+  it('merchantPathOf: sustituto suelto (URIError) no revienta el feed; el ítem se omite', () => {
+    expect(merchantPathOf('card', '\uD800')).toBe('');
+    const r = buildMerchantFeed([{ kind: 'card', refId: '\uD800', title: 'T', description: null, imageUrl: 'https://x/y.png', priceCents: 100 }], SHIP);
+    expect(r.items).toHaveLength(0);
+    expect(r.skipped).toBe(1);
+  });
+
+  it('caché de servidor 5 min: una sola consulta por ventana; 0 ítems no se cachea; cabecera 60/300/300', async () => {
+    const items = [ITEM({ listPriceCents: 10000 })];
+    const { feed, catalog, controller } = stack(items);
+    const spy = jest.spyOn(catalog, 'merchantFeedCardRows');
+    await feed.build();
+    await feed.build();
+    expect(spy).toHaveBeenCalledTimes(1);
+    const r = res();
+    await controller.merchantFeedGet(r.r as never);
+    expect(r.headers['Cache-Control']).toBe('public, max-age=60, s-maxage=300, stale-while-revalidate=300');
+    const empty = stack([]);
+    const spy2 = jest.spyOn(empty.catalog, 'merchantFeedCardRows');
+    await empty.feed.build();
+    await empty.feed.build();
+    expect(spy2).toHaveBeenCalledTimes(2);
+  });
+
+  it('caché del sitemap: segunda llamada no vuelve a consultar', async () => {
+    const { controller, catalog } = stack([ITEM({ listPriceCents: 10000 })]);
+    const spy = jest.spyOn(catalog, 'sitemapCardEntries');
+    await controller.sitemap();
+    await controller.sitemap();
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

@@ -11,7 +11,7 @@ import { SealedCatalogService } from './sealed-catalog.service';
 import { StrictBodyPipe } from '../wishlist/dto/wishlist.dto';
 import { FeaturedService } from './featured.service';
 import { MerchantFeedService } from './merchant-feed.service';
-import { MERCHANT_FEED_CACHE_CONTROL } from './merchant-feed';
+import { MERCHANT_FEED_CACHE_CONTROL, MERCHANT_SERVER_CACHE_MS } from './merchant-feed';
 
 /**
  * v1.23-sealed-sales (§2-S): «avísame cuando vuelva». ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, API_CONTRACT §WSH.7 (f)): el cliente
@@ -30,6 +30,8 @@ export const CATALOG_LIST_CACHE_CONTROL = 'public, max-age=30, stale-while-reval
 
 @Controller('catalog')
 export class CatalogController {
+  private sitemapCache: { at: number; value: { items: Array<{ type: 'card' | 'sealed'; id: string; lastmod: string }>; generatedAt: string } } | null = null;
+
   constructor(
     private readonly catalog: CatalogService,
     private readonly setValue: SetValueService,
@@ -113,14 +115,19 @@ export class CatalogController {
   // (1 h): no es dato personal. ⛔ Ruta ESTÁTICA (`sitemap`), no colisiona con `cards/:cardId` ni
   // `sealed/:inventoryItemId` (prefijos distintos). Las rutas estáticas del sitio las añade el frontend.
   @Public()
-  @Header('Cache-Control', 'public, max-age=3600')
+  @Header('Cache-Control', MERCHANT_FEED_CACHE_CONTROL)
   @Get('sitemap')
   async sitemap() {
+    const c = this.sitemapCache;
+    if (c && Date.now() - c.at < MERCHANT_SERVER_CACHE_MS) return c.value;
     const [cards, sealed] = await Promise.all([
       this.catalog.sitemapCardEntries(),
       this.sealed.sitemapSealedEntries(),
     ]);
-    return { items: [...cards, ...sealed], generatedAt: new Date().toISOString() };
+    const value = { items: [...cards, ...sealed], generatedAt: new Date().toISOString() };
+    // GS-2: caché de servidor de 5 min (misma ventana que el feed); 0 ítems no se cachea.
+    if (value.items.length > 0) this.sitemapCache = { at: Date.now(), value };
+    return value;
   }
 
   // §GSHOP.B (docs/specs/GOOGLE_SHOPPING_E_INDEXACION.md) — feed para Google Merchant Center: público, SOLO LECTURA, una fila por

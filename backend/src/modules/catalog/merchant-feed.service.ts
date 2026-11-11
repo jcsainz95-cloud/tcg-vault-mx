@@ -3,7 +3,7 @@ import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { CatalogService } from './catalog.service';
 import { SealedCatalogService } from './sealed-catalog.service';
-import { MerchantFeedResponse, MerchantShippingRule, buildMerchantFeed } from './merchant-feed';
+import { MERCHANT_SERVER_CACHE_MS, MerchantFeedResponse, MerchantShippingRule, buildMerchantFeed } from './merchant-feed';
 
 /**
  * §GSHOP.B — feed de Google Merchant Center (`GET /catalog/merchant-feed`). Solo lectura: compone los insumos de singles y
@@ -19,7 +19,26 @@ export class MerchantFeedService {
     private readonly settings: SettingsService,
   ) {}
 
+  private cache: { at: number; value: MerchantFeedResponse & { skipped: number } } | null = null;
+  private inflight: Promise<MerchantFeedResponse & { skipped: number }> | null = null;
+
+  /** Caché de servidor de 5 min (un solo cómputo por ventana, GS-2); un resultado con 0 ítems no se cachea. */
   async build(): Promise<MerchantFeedResponse & { skipped: number }> {
+    const c = this.cache;
+    if (c && Date.now() - c.at < MERCHANT_SERVER_CACHE_MS) return c.value;
+    if (this.inflight) return this.inflight;
+    this.inflight = this.compute()
+      .then((v) => {
+        if (v.items.length > 0) this.cache = { at: Date.now(), value: v };
+        return v;
+      })
+      .finally(() => {
+        this.inflight = null;
+      });
+    return this.inflight;
+  }
+
+  private async compute(): Promise<MerchantFeedResponse & { skipped: number }> {
     const [cards, sealed, rule] = await Promise.all([
       this.catalog.merchantFeedCardRows(),
       this.sealed.merchantFeedSealedRows(),

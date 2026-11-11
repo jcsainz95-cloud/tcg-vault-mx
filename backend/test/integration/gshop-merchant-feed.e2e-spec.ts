@@ -76,7 +76,7 @@ describe('E2E — §GSHOP.B feed de Merchant', () => {
         const d = await h.api<{ listings: { displayPriceCents: number }[] }>('GET', `/catalog/cards/${it.id.slice('card:'.length)}`);
         if (d.status === 200 && it.priceCents === Math.min(...d.body.listings.map((l) => l.displayPriceCents)) && it.condition === 'used') ok += 1;
       } else {
-        const d = await h.api<{ group: { fromPriceCents: number } }>('GET', `/catalog/sealed/${it.id.slice('sealed:'.length)}`);
+        const d = await h.api<{ group: { fromPriceCents: number } }>('GET', `/catalog/sealed/${decodeURIComponent(it.path.slice('/sellado/'.length))}`);
         if (d.status === 200 && it.priceCents === d.body.group.fromPriceCents && it.condition === 'new') ok += 1;
       }
     }
@@ -87,8 +87,8 @@ describe('E2E — §GSHOP.B feed de Merchant', () => {
 
     // misma regla que el sitemap: todo ítem del feed está en el sitemap
     const sm = await h.api<{ items: { type: string; id: string }[] }>('GET', '/catalog/sitemap');
-    const smIds = new Set(sm.body.items.map((i) => `${i.type}:${i.id}`));
-    expect(r.body.items.every((i) => smIds.has(i.id))).toBe(true);
+    const smPaths = new Set(sm.body.items.map((i) => `${i.type === 'card' ? '/catalog/' : '/sellado/'}${encodeURIComponent(i.id)}`));
+    expect(r.body.items.every((i) => smPaths.has(i.path))).toBe(true);
 
     // nada privado
     expect(r.text).not.toMatch(/GS-[a-z0-9]+-\d/); // folios de mis piezas (mayúsculas; la imagen usa minúsculas)

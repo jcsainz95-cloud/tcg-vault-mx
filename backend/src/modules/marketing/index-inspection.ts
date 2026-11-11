@@ -99,8 +99,19 @@ export interface NoticeRow {
   notifiedAt: Date | null;
 }
 
+/** Host canónico del sitemap (= `SITE_URL` del front, `https://tcghunt.mx`): de él salen TODAS las URLs inspeccionadas. */
+export const SITEMAP_ORIGIN = 'https://tcghunt.mx';
+
+/** Pausa mínima entre consultas a Google: ≤ 2 por segundo. */
+export const GSC_INSPECT_MIN_GAP_MS = 500;
+
 /** ¿Esta fila entra al aviso AV7 ahora? (spec §A «Se avisa» + supresión de ruido 1 y 3). */
-export function isNoticeable(r: NoticeRow, now: Date): boolean {
+export interface NoticeOpts {
+  /** `true` ⇒ es para el CORREO: respeta `notifiedAt` (28 días). El panel (`false`/ausente) muestra mientras el problema persista. */
+  forEmail?: boolean;
+}
+
+export function isNoticeable(r: NoticeRow, now: Date, opts: NoticeOpts = {}): boolean {
   const flag = r.flag as IndexFlag | null;
   if (!flag || !(INDEX_FLAGS as readonly string[]).includes(flag)) return false;
   if (flag === 'NOT_FOUND' || flag === 'BLOCKED') {
@@ -109,7 +120,7 @@ export function isNoticeable(r: NoticeRow, now: Date): boolean {
     if (r.flagStreak < 2) return false;
     if (flag === 'CRAWLED_NOT_INDEXED' && now.getTime() - r.firstSeenAt.getTime() < CRAWLED_MIN_AGE_MS) return false;
   }
-  if (r.notifiedAt) {
+  if (opts.forEmail && r.notifiedAt) {
     const age = now.getTime() - r.notifiedAt.getTime();
     if (age > RESEND_GRACE_MS && age < RENOTIFY_AFTER_MS) return false;
   }
@@ -138,10 +149,10 @@ const pathOf = (url: string): string => {
 };
 
 /** Agrupa las filas avisables por flag (orden fijo de `INDEX_FLAGS`); `null` si no hay ninguna (⇒ sin aviso). */
-export function summarizeAv7(rows: readonly NoticeRow[], now: Date): Av7Summary | null {
+export function summarizeAv7(rows: readonly NoticeRow[], now: Date, opts: NoticeOpts = {}): Av7Summary | null {
   const groups: Av7Group[] = [];
   for (const flag of INDEX_FLAGS) {
-    const urls = rows.filter((r) => r.flag === flag && isNoticeable(r, now)).map((r) => r.url).sort();
+    const urls = rows.filter((r) => r.flag === flag && isNoticeable(r, now, opts)).map((r) => r.url).sort();
     if (urls.length > 0) groups.push({ flag, count: urls.length, examples: urls.slice(0, AV7_EXAMPLES_PER_FLAG).map(pathOf) });
   }
   const total = groups.reduce((n, g) => n + g.count, 0);
@@ -149,6 +160,6 @@ export function summarizeAv7(rows: readonly NoticeRow[], now: Date): Av7Summary 
 }
 
 /** Las URLs que `summarizeAv7` contaría (para marcarlas como avisadas). */
-export function noticeableUrls(rows: readonly NoticeRow[], now: Date): string[] {
-  return rows.filter((r) => isNoticeable(r, now)).map((r) => r.url);
+export function noticeableUrls(rows: readonly NoticeRow[], now: Date, opts: NoticeOpts = {}): string[] {
+  return rows.filter((r) => isNoticeable(r, now, opts)).map((r) => r.url);
 }

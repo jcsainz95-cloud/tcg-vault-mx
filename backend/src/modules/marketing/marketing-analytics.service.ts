@@ -452,12 +452,12 @@ export class MarketingAnalyticsService {
    * valor por defecto** (API_CONTRACT v1.103 §MKT.G.2 / ARCHITECTURE §13.7 D-MKT-PANEL-2): una salida nueva no
    * puede nacer exacta por olvido. Es un parámetro del MISMO cálculo, no un segundo camino.
    */
-  async screen(screen: MarketingScreen, period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<ScreenPayload> {
-    const payload = await this.screenRaw(screen, period, now, privacy);
+  async screen(screen: MarketingScreen, period: MarketingPeriod, now: Date, privacy: CellPrivacy, opts: { forEmail?: boolean } = {}): Promise<ScreenPayload> {
+    const payload = await this.screenRaw(screen, period, now, privacy, opts);
     return { ...payload, tables: payload.tables.map(sealHiddenRows) };
   }
 
-  private async screenRaw(screen: MarketingScreen, period: MarketingPeriod, now: Date, privacy: CellPrivacy): Promise<ScreenPayload> {
+  private async screenRaw(screen: MarketingScreen, period: MarketingPeriod, now: Date, privacy: CellPrivacy, opts: { forEmail?: boolean } = {}): Promise<ScreenPayload> {
     // Anotaciones del periodo: EMBEBIDAS en toda pantalla (pintan a/b/c y la hoja «Info»), h1/§13.4.6.
     const annotations = await this.annotations.forPeriod(period.from, period.to);
     const base = {
@@ -477,7 +477,7 @@ export class MarketingAnalyticsService {
     // Catálogo y ORDEN de tablas: API_CONTRACT §MKT.G.4 (candado `marketing-panel.spec.ts`, §MKT.G.9 (6)).
     switch (screen) {
       case 'r':
-        return { ...base, previousPeriod: period.prev, tables: await this.screenR(period, now, privacy, fam) };
+        return { ...base, previousPeriod: period.prev, tables: await this.screenR(period, now, privacy, fam, opts) };
       case 'a':
         return { ...base, previousPeriod: period.prev, tables: await this.screenA(period, now, privacy, fam) };
       case 'b':
@@ -1691,7 +1691,7 @@ export class MarketingAnalyticsService {
    * `small_cells` (exports, tokens, weekly-excel, correo): la regla de `marketing-period.ts` (sin detalle por día) sigue en pie
    * para todo lo demás.
    */
-  private async screenR(period: MarketingPeriod, now: Date, privacy: CellPrivacy, fam: Fam): Promise<AggTable[]> {
+  private async screenR(period: MarketingPeriod, now: Date, privacy: CellPrivacy, fam: Fam, opts: { forEmail?: boolean } = {}): Promise<AggTable[]> {
     const exact = privacy === 'exact';
     const prevP: MarketingPeriod = { ...period, from: period.prev.from, to: period.prev.to, label: `${period.label}~prev` };
     const live = this.ga4Live();
@@ -1778,7 +1778,7 @@ export class MarketingAnalyticsService {
     };
 
     // r2 — avisos.
-    const [alerts, r2m] = await this.tracked(() => this.r2Alerts(period, prevP, now, exact, { live, reason, scOn, checkout: evC ? Number(ev(evC, 'begin_checkout')) : null, srcC, srcP, paid: t.orders }));
+    const [alerts, r2m] = await this.tracked(() => this.r2Alerts(period, prevP, now, exact, { live, reason, scOn, checkout: evC ? Number(ev(evC, 'begin_checkout')) : null, srcC, srcP, paid: t.orders }, opts.forEmail === true));
     // Los avisos que se apoyan en lecturas sin filtro (AV3 aquí; AV2/AV1 con las fuentes de r1) llevan la nota igual.
     const r2Unf = this.anyUnf(r2m) || r1Unf;
     const r2: AggTable = {
@@ -1817,6 +1817,7 @@ export class MarketingAnalyticsService {
     now: Date,
     exact: boolean,
     c: { live: boolean; reason: string; scOn: boolean; checkout: number | null; srcC: Ga4Row[] | null; srcP: Ga4Row[] | null; paid: number },
+    forEmail = false,
   ): Promise<Alert[]> {
     const missing: string[] = [];
     if (!c.live) missing.push(c.reason.replace('NO MEDIDO — ', ''));
@@ -1848,7 +1849,7 @@ export class MarketingAnalyticsService {
     let indexIssues: Av7Summary | null = null;
     if (c.scOn && this.indexInspection) {
       try {
-        const v = await this.indexInspection.av7Input(now);
+        const v = await this.indexInspection.av7Input(now, { forEmail });
         if (v.missing) missing.push(v.missing);
         else indexIssues = v.summary;
       } catch {

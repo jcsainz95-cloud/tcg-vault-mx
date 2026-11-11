@@ -24,6 +24,8 @@ import {
   GSC_INSPECT_FLAG,
   GSC_INSPECT_STATE_KEY,
   MIN_COVERAGE,
+  GSC_INSPECT_MIN_GAP_MS,
+  SITEMAP_ORIGIN,
   classifyInspection,
   nextFlagState,
   noticeableUrls,
@@ -31,10 +33,14 @@ import {
   type Av7Summary,
   type FlagState,
   type IndexFlag,
+  type NoticeRow,
 } from './index-inspection';
 
-/** Rutas estáticas del sitemap del frontend (`frontend/src/app/sitemap.ts` STATIC_PATHS, locale por defecto `es`) + la landing del Card Show. */
-export const KEY_PAGE_PATHS = ['/es', '/es/catalog', '/es/sellado', '/es/accesorios', '/es/decks-meta', '/es/buylist', '/es/terminos', '/es/privacidad', '/es/nosotros', '/card-show'] as const;
+/**
+ * Conjunto de respaldo de páginas clave si no se puede descargar `sitemap.xml` (spec §A «Limitaciones» 1). La fuente normal es el
+ * `sitemap.xml` publicado; una prueba compara este respaldo con el `STATIC_PATHS` real del front.
+ */
+export const KEY_PAGE_FALLBACK = ['/es', '/es/catalog', '/es/sellado', '/es/accesorios', '/es/decks-meta', '/es/buylist', '/es/terminos', '/es/privacidad', '/es/nosotros', '/card-show'] as const;
 const AV7_CACHE_MS = 10 * 60 * 1000;
 
 export type TickOutcome = 'off' | 'not_configured' | 'no_origin' | 'no_universe' | 'denied_today' | 'budget' | 'forbidden' | 'rate_limited' | 'transient' | 'done';
@@ -54,6 +60,8 @@ interface JobState {
 }
 
 export interface Av7Input {
+  /** URLs que este resultado incluye (para marcarlas como avisadas tras el envío del correo). */
+  urls?: string[];
   /** Texto para «No se evaluó: …»; `null` si se evaluó. */
   missing: string | null;
   summary: Av7Summary | null;
@@ -62,9 +70,21 @@ export interface Av7Input {
 @Injectable()
 export class IndexInspectionService {
   private readonly logger = new Logger(IndexInspectionService.name);
-  private av7Cache: { at: number; value: Av7Input } | null = null;
+  private av7Cache: { at: number; forEmail: boolean; value: Av7Input } | null = null;
+  private lastCall = 0;
   /** Espera del backoff; reemplazable en pruebas. */
   sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms));
+  /** Pausa de ritmo (≤ 2 consultas/s); separada de `sleep` (backoff) para poder medirlas por separado. */
+  pause: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms));
+  /** Descarga de texto (el `sitemap.xml` publicado); reemplazable en pruebas. `null` si falla. */
+  fetchText: (url: string) => Promise<string | null> = async (url) => {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(10_000), redirect: 'error' });
+      return r.ok ? await r.text() : null;
+    } catch {
+      return null;
+    }
+  };
 
   constructor(
     private readonly prisma: PrismaService,
@@ -76,20 +96,49 @@ export class IndexInspectionService {
 
   // ───────── universo ─────────
 
-  /** Origen público de las URLs: el de la propiedad si es de prefijo de URL; si no, el primer origen de `APP_BASE_URL` (sin variable nueva). */
+  /**
+   * Origen de las URLs inspeccionadas = host canónico del sitemap (`https://tcghunt.mx`), NUNCA `APP_PUBLIC_URL`/`APP_BASE_URL` (un
+   * `www` respondería 308 ⇒ falso «sin problemas»). Con propiedad de prefijo de URL de OTRO host no se consulta (`null`); con
+   * `sc-domain:` vale el mismo origen.
+   */
   origin(): string | null {
-    const fromProperty = this.external.searchConsoleOrigin();
-    if (fromProperty) return fromProperty;
-    const raw = this.config?.get<string>('APP_PUBLIC_URL') ?? this.config?.get<string>('APP_BASE_URL') ?? process.env.APP_PUBLIC_URL ?? process.env.APP_BASE_URL ?? '';
-    const first = raw.split(',')[0].trim().replace(/\/+$/, '');
-    return /^https:\/\/[^\s/]+$/i.test(first) ? first : null;
+    const prop = this.external.searchConsoleOrigin();
+    return prop && prop !== SITEMAP_ORIGIN ? null : SITEMAP_ORIGIN;
+  }
+
+  /**
+   * Páginas clave = las `<loc>` del `sitemap.xml` publicado, menos `/<locale>/catalog/…` y `/<locale>/sellado/…` (esas vienen de
+   * `GET /catalog/sitemap`). Sin lista a mano: guías y preguntas nuevas entran solas. Descarga fallida ⇒ conjunto de respaldo.
+   */
+  async keyPagePaths(origin: string): Promise<string[]> {
+    const xml = await this.fetchText(`${origin}/sitemap.xml`);
+    const paths = new Set<string>();
+    if (xml) {
+      for (const m of xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g)) {
+        let u: URL;
+        try {
+          u = new URL(m[1].replace(/&amp;/g, '&'));
+        } catch {
+          continue;
+        }
+        if (u.origin !== origin) continue;
+        const path = u.pathname.replace(/\/+$/, '') || '/';
+        if (/^\/(?:[a-z]{2}\/)?(?:catalog|sellado)\//.test(path)) continue;
+        paths.add(path);
+      }
+    }
+    if (paths.size === 0) {
+      this.logger.warn('gsc-index-inspect: no se pudo leer sitemap.xml; se usa el conjunto de páginas clave de respaldo');
+      return [...KEY_PAGE_FALLBACK];
+    }
+    return [...paths].sort();
   }
 
   /** Universo ACTUAL: páginas clave + una URL por carta y por grupo de sellado a la venta (la misma regla que `GET /catalog/sitemap`). */
   async universe(origin: string): Promise<{ url: string; kind: 'card' | 'sealed' | 'key' }[]> {
-    const [cards, sealed] = await Promise.all([this.catalog.sitemapCardEntries(), this.sealed.sitemapSealedEntries()]);
+    const [cards, sealed, keyPaths] = await Promise.all([this.catalog.sitemapCardEntries(), this.sealed.sitemapSealedEntries(), this.keyPagePaths(origin)]);
     return [
-      ...KEY_PAGE_PATHS.map((p) => ({ url: `${origin}${p}`, kind: 'key' as const })),
+      ...keyPaths.map((p) => ({ url: `${origin}${p}`, kind: 'key' as const })),
       ...cards.map((c) => ({ url: `${origin}/es/catalog/${encodeURIComponent(c.id)}`, kind: 'card' as const })),
       ...sealed.map((c) => ({ url: `${origin}/es/sellado/${encodeURIComponent(c.id)}`, kind: 'sealed' as const })),
     ];
@@ -160,7 +209,8 @@ export class IndexInspectionService {
             select: { url: true },
           })
         : [];
-    const queue = [...keyPending, ...others].map((r) => r.url);
+    // Nunca se consulta una URL fuera del host canónico (una fila vieja de otro origen se ignora; `sync` la borra).
+    const queue = [...keyPending, ...others].map((r) => r.url).filter((u) => u.startsWith(`${origin}/`));
 
     let inspected = 0;
     let invalid = 0;
@@ -210,11 +260,21 @@ export class IndexInspectionService {
     return res(stop ?? 'done', inspected, doneToday + inspected);
   }
 
+  /** Pausa explícita: ≤ 2 consultas/s a Google en total (las dos tareas en paralelo comparten el reloj). */
+  private async pace(): Promise<void> {
+    const slot = Math.max(Date.now(), this.lastCall + GSC_INSPECT_MIN_GAP_MS);
+    this.lastCall = slot;
+    const wait = slot - Date.now();
+    if (wait > 0) await this.pause(wait);
+  }
+
   private async inspectWithBackoff(url: string): Promise<UrlInspectOutcome> {
+    await this.pace();
     let out = await this.external.urlInspect(url);
     for (const wait of GSC_INSPECT_BACKOFF_MS) {
       if (out.kind !== 'rate_limited' && out.kind !== 'transient') return out;
       await this.sleep(wait);
+      await this.pace();
       out = await this.external.urlInspect(url);
     }
     return out;
@@ -252,46 +312,46 @@ export class IndexInspectionService {
    * revisado en 7 días; si no, el resumen (o `null` ⇒ sin aviso). Relee el sitemap ANTES de avisar y descarta lo que ya no está a la
    * venta. Caché de 10 min en memoria (el panel no repite la lectura del sitemap en cada vista).
    */
-  async av7Input(now = new Date()): Promise<Av7Input> {
-    if (this.av7Cache && now.getTime() - this.av7Cache.at < AV7_CACHE_MS && now.getTime() >= this.av7Cache.at) return this.av7Cache.value;
-    const value = await this.computeAv7(now);
-    this.av7Cache = { at: now.getTime(), value };
+  async av7Input(now = new Date(), opts: { forEmail?: boolean } = {}): Promise<Av7Input> {
+    const forEmail = opts.forEmail === true;
+    const c = this.av7Cache;
+    if (c && c.forEmail === forEmail && now.getTime() - c.at < AV7_CACHE_MS && now.getTime() >= c.at) return c.value;
+    const value = await this.computeAv7(now, forEmail);
+    this.av7Cache = { at: now.getTime(), forEmail, value };
     return value;
   }
 
-  private async computeAv7(now: Date): Promise<Av7Input> {
+  private async computeAv7(now: Date, forEmail: boolean): Promise<Av7Input> {
     if (!(await this.enabled())) return { missing: 'la indexación: revisión apagada', summary: null };
     const state = await this.readState();
     if (state.deniedDay) return { missing: 'la indexación: sin permiso de Search Console', summary: null };
     const total = await this.prisma.indexInspection.count();
     const recent = await this.prisma.indexInspection.count({ where: { lastCheckedAt: { gte: new Date(now.getTime() - COVERAGE_WINDOW_MS) } } });
     if (total === 0 || recent / total < MIN_COVERAGE) return { missing: 'la indexación: aún se revisó menos de la mitad de las páginas', summary: null };
-    const rows = await this.prisma.indexInspection.findMany({
+    const rows: NoticeRow[] = await this.prisma.indexInspection.findMany({
       where: { flag: { not: null } },
       select: { url: true, kind: true, flag: true, flagStreak: true, firstSeenAt: true, notifiedAt: true },
     });
-    const candidates = rows.filter((r) => noticeableUrls([r], now).length > 0);
+    const candidates = rows.filter((r) => noticeableUrls([r], now, { forEmail }).length > 0);
     if (candidates.length === 0) return { missing: null, summary: null };
     const origin = this.origin();
     if (!origin) return { missing: 'la indexación: sin dirección pública del sitio', summary: null };
     const live = new Set((await this.universe(origin)).map((u) => u.url));
     if (live.size === 0) return { missing: 'la indexación: no se pudo leer el catálogo', summary: null };
-    return { missing: null, summary: summarizeAv7(candidates.filter((r) => live.has(r.url)), now) };
+    const included = candidates.filter((r) => live.has(r.url));
+    return { missing: null, summary: summarizeAv7(included, now, { forEmail }), urls: noticeableUrls(included, now, { forEmail }) };
   }
 
-  /** Marca como avisadas las URLs que el correo del lunes acaba de incluir (las mismas que `av7Input` devolvería). */
+  /**
+   * Marca como avisadas SOLO las URLs que el correo incluyó (GS-3): las del último `av7Input({forEmail:true})` (misma lectura que armó
+   * el correo, ya filtradas por el sitemap vivo y la supresión de 28 días), no todas las filas con flag.
+   */
   async markNotified(now = new Date()): Promise<number> {
+    const input = await this.av7Input(now, { forEmail: true });
     this.av7Cache = null;
-    const input = await this.av7Input(now);
-    if (!input.summary) return 0;
-    const rows = await this.prisma.indexInspection.findMany({
-      where: { flag: { not: null } },
-      select: { url: true, kind: true, flag: true, flagStreak: true, firstSeenAt: true, notifiedAt: true },
-    });
-    const urls = noticeableUrls(rows, now);
-    if (urls.length === 0) return 0;
+    const urls = input.urls ?? [];
+    if (!input.summary || urls.length === 0) return 0;
     const r = await this.prisma.indexInspection.updateMany({ where: { url: { in: urls } }, data: { notifiedAt: now } });
-    this.av7Cache = null;
     return r.count;
   }
 }

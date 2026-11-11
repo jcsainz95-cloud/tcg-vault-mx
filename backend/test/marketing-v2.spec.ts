@@ -412,7 +412,7 @@ describe('correo del lunes (§3)', () => {
   });
 
   type Row = { weekStart: Date; recipientKey: string; status: string; attempts: number; claimedAt: Date | null; sentAt: Date | null };
-  function digest(opts: { emails?: string[]; failFor?: Record<string, number> } = {}) {
+  function digest(opts: { emails?: string[]; failFor?: Record<string, number>; inspection?: { markNotified: jest.Mock } } = {}) {
     const emails = opts.emails ?? ['dueno@tcghunt.mx'];
     const rows = new Map<string, Row>();
     const sent: { to: string; subject: string; text: string; html: string }[] = [];
@@ -459,7 +459,7 @@ describe('correo del lunes (§3)', () => {
         return {};
       }),
     };
-    const svc = new MarketingWeeklyDigestService(prisma as never, analytics as never, undefined, mail as never);
+    const svc = new MarketingWeeklyDigestService(prisma as never, analytics as never, undefined, mail as never, opts.inspection as never);
     return { svc, rows, sent, analytics, prisma, mail };
   }
   const only = (d: ReturnType<typeof digest>) => [...d.rows.values()][0];
@@ -476,6 +476,18 @@ describe('correo del lunes (§3)', () => {
     // ⛔ siempre small_cells
     const args = (d.analytics.screen as jest.Mock).mock.calls[0];
     expect([args[0], args[3]]).toEqual(['r', 'small_cells']);
+  });
+  it('AV7 (§GSHOP.A): el correo pide el aviso en modo correo y, tras enviar, marca las URLs avisadas; si no envía, no marca', async () => {
+    const inspection = { markNotified: jest.fn(async () => 1) };
+    const d = digest({ inspection });
+    await d.svc.run(MONDAY);
+    expect((d.analytics.screen as jest.Mock).mock.calls[0][4]).toEqual({ forEmail: true });
+    expect(inspection.markNotified).toHaveBeenCalledTimes(1);
+    expect(inspection.markNotified).toHaveBeenCalledWith(MONDAY);
+    const failing = { markNotified: jest.fn(async () => 1) };
+    const f = digest({ inspection: failing, failFor: { 'dueno@tcghunt.mx': 1 } });
+    await f.svc.run(MONDAY);
+    expect(failing.markNotified).not.toHaveBeenCalled();
   });
   it('fallo de correo ⇒ attempts+1, sigue pending y el siguiente tick reintenta sin duplicar', async () => {
     const d = digest({ failFor: { 'dueno@tcghunt.mx': 1 } });

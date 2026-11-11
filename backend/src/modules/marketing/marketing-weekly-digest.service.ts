@@ -88,7 +88,7 @@ export class MarketingWeeklyDigestService {
       if (!this.mail) throw new Error('MAIL_PORT no disponible');
       const period = resolveMarketingPeriod({ weekStart }, now);
       // ⛔ SIEMPRE small_cells: el correo sale a un proveedor externo; `r3` (diario) no existe en este régimen.
-      const payload = await this.analytics.screen('r', period, now, 'small_cells');
+      const payload = await this.analytics.screen('r', period, now, 'small_cells', { forEmail: true });
       const r1 = payload.tables.find((t) => t.id === 'r1');
       const r2 = payload.tables.find((t) => t.id === 'r2');
       if (!r1 || !r2) throw new Error('r1/r2 ausentes');

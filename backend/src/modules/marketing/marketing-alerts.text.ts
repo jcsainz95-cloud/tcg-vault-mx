@@ -66,7 +66,7 @@ export const AV_TEXT = {
 } as const;
 
 export const NO_ALERTS = { titulo: 'Sin avisos esta semana', evidencia: 'Ninguna regla pasó su umbral.', accion: '' } as const;
-export const NOT_EVALUATED = (what: string) => ({ titulo: `No se evaluó: ${what}`, evidencia: '', accion: '' });
+export const NOT_EVALUATED = (what: string) => ({ titulo: what.startsWith('la indexación:') ? `No se evaluó ${what}` : `No se evaluó: ${what}`, evidencia: '', accion: '' });
 
 /** Cuando hay fuentes sin medir, «Sin avisos» sería engañoso: se dice que no se pudo evaluar. */
 export const NOT_FULLY_EVALUATED = {

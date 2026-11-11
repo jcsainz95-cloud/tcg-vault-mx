@@ -7,9 +7,9 @@
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { IndexInspectionService } from '../../src/modules/marketing/index-inspection.service';
 import type { UrlInspectOutcome } from '../../src/modules/marketing/marketing-external-sources';
-import { GSC_INSPECT_DAILY_BUDGET, GSC_INSPECT_FLAG, GSC_INSPECT_STATE_KEY, DAY_MS } from '../../src/modules/marketing/index-inspection';
+import { GSC_INSPECT_DAILY_BUDGET, GSC_INSPECT_FLAG, GSC_INSPECT_STATE_KEY, DAY_MS, SITEMAP_ORIGIN } from '../../src/modules/marketing/index-inspection';
 
-const ORIGIN = 'https://gshop.test';
+const ORIGIN = SITEMAP_ORIGIN; // host canónico del sitemap
 const okFields = { verdict: 'PASS', coverageState: 'Submitted and indexed', pageFetchState: 'SUCCESSFUL', robotsTxtState: 'ALLOWED', indexingState: 'INDEXING_ALLOWED', googleCanonical: null, userCanonical: null, lastCrawlTime: null };
 const ok = (over: Record<string, string | null> = {}): UrlInspectOutcome => ({ kind: 'ok', fields: { ...okFields, ...over } as never });
 
@@ -20,10 +20,13 @@ describe('§GSHOP.A · IndexInspectionService contra Postgres', () => {
   let script: (url: string, n: number) => UrlInspectOutcome = () => ok();
   let configured = true;
   const waits: number[] = [];
+  const pauses: number[] = [];
+  let sitemapXml: string | null = null;
+  let propertyOrigin: string | null = ORIGIN;
 
   const external = {
     searchConsoleConfigured: () => configured,
-    searchConsoleOrigin: () => ORIGIN,
+    searchConsoleOrigin: () => propertyOrigin,
     urlInspect: async (url: string) => {
       calls.push(url);
       return script(url, calls.length);
@@ -33,6 +36,8 @@ describe('§GSHOP.A · IndexInspectionService contra Postgres', () => {
   const sealed = { sitemapSealedEntries: async () => [] };
   const svc = new IndexInspectionService(prisma, external as never, catalog as never, sealed as never);
   svc.sleep = async (ms) => void waits.push(ms);
+  svc.pause = async (ms) => void pauses.push(ms);
+  svc.fetchText = async () => sitemapXml;
 
   // Lunes 2026-11-02 09:00 UTC = 03:00 CDMX (día CDMX 2026-11-02, inicio 06:00Z).
   const t0 = new Date('2026-11-02T09:00:00Z');
@@ -44,6 +49,10 @@ describe('§GSHOP.A · IndexInspectionService contra Postgres', () => {
     await prisma.configSetting.deleteMany({ where: { key: { in: [GSC_INSPECT_FLAG, GSC_INSPECT_STATE_KEY] } } });
     calls = [];
     waits.length = 0;
+    pauses.length = 0;
+    sitemapXml = null;
+    propertyOrigin = ORIGIN;
+    delete process.env.APP_PUBLIC_URL;
     script = () => ok();
     configured = true;
     svc['av7Cache'] = null;
@@ -203,13 +212,15 @@ describe('§GSHOP.A · IndexInspectionService contra Postgres', () => {
     // el correo lo marca; ni 7 ni 27 días después se repite; a los 28 vuelve
     expect(await svc.markNotified(at(5, 3))).toBe(1);
     for (const days of [12, 32]) {
-      await prisma.indexInspection.updateMany({ data: { lastCheckedAt: at(5) } }); // mantiene la cobertura
+      await prisma.indexInspection.updateMany({ data: { lastCheckedAt: at(days) } }); // mantiene la cobertura
       svc['av7Cache'] = null;
-      expect((await svc.av7Input(at(days))).summary).toBeNull();
+      expect((await svc.av7Input(at(days), { forEmail: true })).summary).toBeNull(); // el correo no repite
+      svc['av7Cache'] = null;
+      expect((await svc.av7Input(at(days))).summary?.total).toBe(1); // el panel sigue mostrando mientras el problema persista
     }
     await prisma.indexInspection.updateMany({ data: { lastCheckedAt: at(5 + 28) } });
     svc['av7Cache'] = null;
-    expect((await svc.av7Input(at(5 + 28, 3))).summary?.total).toBe(1);
+    expect((await svc.av7Input(at(5 + 28, 3), { forEmail: true })).summary?.total).toBe(1);
     // si Google lo limpia (PASS), la racha y el aviso se olvidan
     script = () => ok();
     await prisma.indexInspection.updateMany({ data: { lastCheckedAt: at(10) } });
@@ -236,5 +247,61 @@ describe('§GSHOP.A · IndexInspectionService contra Postgres', () => {
     cards = ['b']; // salió del sitemap antes de armar el aviso
     svc['av7Cache'] = null;
     expect((await svc.av7Input(at(0, 3))).summary).toBeNull();
+  });
+
+  it('origen = host canónico del sitemap aunque APP_PUBLIC_URL sea www; con sc-domain: también; otro host de propiedad ⇒ no consulta', async () => {
+    process.env.APP_PUBLIC_URL = 'https://www.tcghunt.mx';
+    cards = ['a'];
+    propertyOrigin = null; // sc-domain:
+    await svc.tick(at(0));
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((u) => u.startsWith('https://tcghunt.mx/'))).toBe(true);
+    expect(calls.some((u) => u.includes('www.'))).toBe(false);
+    calls = [];
+    propertyOrigin = 'https://www.tcghunt.mx'; // propiedad de otro host: la URL canónica no le pertenece
+    expect((await svc.tick(at(1))).outcome).toBe('no_origin');
+    expect(calls).toHaveLength(0);
+    // una fila vieja de otro host no se consulta
+    propertyOrigin = ORIGIN;
+    await prisma.indexInspection.create({ data: { url: 'https://www.tcghunt.mx/es/catalog/z', kind: 'card', firstSeenAt: at(0) } });
+    await svc.tick(at(2));
+    expect(calls.some((u) => u.includes('www.'))).toBe(false);
+  });
+
+  it('páginas clave = <loc> del sitemap.xml menos /catalog/ y /sellado/ (guías y preguntas entran solas); descarga fallida ⇒ respaldo', async () => {
+    cards = ['a'];
+    sitemapXml = `<?xml version="1.0"?><urlset>${[
+      '/es', '/es/catalog', '/es/sellado', '/es/guias', '/es/guias/mi-guia', '/es/preguntas', '/card-show', '/es/catalog/a', '/es/sellado/x',
+    ].map((p) => `<url><loc>${ORIGIN}${p}</loc></url>`).join('')}<url><loc>https://otro.example/es/x</loc></url></urlset>`;
+    await svc.tick(at(0));
+    const keys = (await prisma.indexInspection.findMany({ where: { kind: 'key' } })).map((r) => r.url.slice(ORIGIN.length)).sort();
+    expect(keys).toEqual(['/card-show', '/es', '/es/catalog', '/es/guias', '/es/guias/mi-guia', '/es/preguntas', '/es/sellado']);
+    sitemapXml = null; // la descarga falla ⇒ conjunto de respaldo (9 + /card-show)
+    await svc.tick(at(1));
+    expect(await prisma.indexInspection.count({ where: { kind: 'key' } })).toBe(KEY_PAGES);
+  });
+
+  it('ritmo: pausa explícita de ≥ 500 ms entre consultas (≤ 2/s)', async () => {
+    cards = ['a', 'b', 'c'];
+    await svc.tick(at(0));
+    expect(calls).toHaveLength(13);
+    // La pausa se pide con el reloj reservado (la prueba no espera de verdad): 13 consultas ⇒ la última queda ≥ 12 × 500 ms después
+    // de la primera (≤ 2/s) y las esperas nunca decrecen.
+    expect(pauses.length).toBeGreaterThanOrEqual(10);
+    expect(Math.max(...pauses)).toBeGreaterThanOrEqual(12 * 500 - 1000);
+    expect(pauses).toEqual([...pauses].sort((a, b) => a - b));
+  });
+
+  it('GS-3: markNotified marca SOLO las filas que el correo incluyó (no las que el sitemap ya no lista)', async () => {
+    cards = ['dup', 'gone'];
+    script = (u) => (/\/(dup|gone)$/.test(u) ? ok({ verdict: 'FAIL', coverageState: 'Not found (404)', pageFetchState: 'NOT_FOUND' }) : ok());
+    await svc.tick(at(0));
+    cards = ['dup']; // 'gone' sale del sitemap pero su fila aún no se ha purgado (no hubo tick)
+    svc['av7Cache'] = null;
+    expect(await svc.markNotified(at(0, 3))).toBe(1);
+    const gone = await prisma.indexInspection.findUniqueOrThrow({ where: { url: `${ORIGIN}/es/catalog/gone` } });
+    const dup = await prisma.indexInspection.findUniqueOrThrow({ where: { url: `${ORIGIN}/es/catalog/dup` } });
+    expect(gone.notifiedAt).toBeNull();
+    expect(dup.notifiedAt).not.toBeNull();
   });
 });
