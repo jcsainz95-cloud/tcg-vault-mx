@@ -10,8 +10,10 @@ Cadena: arquitecto (esto) → backend + frontend + devops → qa + seguridad-lea
 **Universo (derivado, sin lista a mano).** `GET /catalog/sitemap` (~1,018 URLs el 2026-11-10, dato del dueño; **NO MEDIDO** por el arquitecto) + «páginas clave» = las rutas estáticas que ya emite `frontend/src/app/sitemap.ts` (home, catálogo, sellado, legales). Rutas privadas, `/&`, `/$` y todo lo bloqueado a propósito **nunca entran** porque no están en el sitemap: el ruido conocido se evita por construcción, no con una lista de excepciones. Al arrancar cada corrida se re-lee el sitemap: URL que ya no está ⇒ su fila se borra (una carta vendida no genera «404»).
 
 **API.** `POST https://searchconsole.googleapis.com/v1/urlInspection/index:inspect` con `{inspectionUrl, siteUrl}`; `siteUrl` = el mismo valor de propiedad que ya usa `marketing-external-sources.ts:117`; credencial = la cuenta de servicio `panel-lectura@…` existente (no hay secreto nuevo). Campos usados de `inspectionResult.indexStatusResult`: `verdict`, `coverageState`, `pageFetchState`, `robotsTxtState`, `indexingState`, `googleCanonical`, `userCanonical`, `lastCrawlTime`. Refleja el índice de Google, no una prueba en vivo.
-- **Cuota.** Doc oficial «Search Console API – Usage limits»: **2,000 consultas/día y 600/min por propiedad** para URL Inspection. Cifra recordada de la doc; **NO MEDIDA** (no pude abrirla desde aquí). Diseño robusto a un tope 10× menor: presupuesto propio `GSC_INSPECT_DAILY_BUDGET` = **250/día** (constante con nombre) ≈ 12 % del tope, ritmo ≤ 2 req/s con concurrencia 2. 250/día cubre ~1,030 URLs en ≤ 5 días (cada URL se revisa al menos 1 vez por semana; las páginas clave, a diario). Backend confirma el tope real en la primera corrida (un 429 con `RESOURCE_EXHAUSTED` baja el presupuesto del día a lo ya hecho).
-- **Permiso.** Debe bastar el alcance de lectura que ya usa la cuenta; **NO MEDIDO**. Si responde 403 ⇒ el job se detiene sin reintentos ese día, `r2` dice «No se evaluó la indexación: sin permiso de Search Console» (patrón de «fuente sin medir», MKT_PANEL_V2 §2) y no hay aviso falso.
+- **Cuota.** Doc oficial «Search Console API – Usage limits»: **2,000 consultas/día y 600/min por sitio** para URL Inspection (MEDIDO en esa doc, 2026-11-11). Diseño robusto a un tope 10× menor: presupuesto propio `GSC_INSPECT_DAILY_BUDGET` = **250/día** (constante con nombre) ≈ 12 % del tope, ritmo ≤ 2 req/s con concurrencia 2. 250/día cubre ~1,030 URLs en ≤ 5 días (cada URL se revisa al menos 1 vez por semana; las páginas clave, a diario). Backend confirma el tope real en la primera corrida (un 429 con `RESOURCE_EXHAUSTED` baja el presupuesto del día a lo ya hecho).
+- **Permiso.** Basta el alcance `webmasters.readonly` que ya usa la cuenta (MEDIDO en la doc de `urlInspection.index.inspect`). Si responde 403 ⇒ el job se detiene sin reintentos ese día, `r2` dice «No se evaluó la indexación: sin permiso de Search Console» (patrón de «fuente sin medir», MKT_PANEL_V2 §2) y no hay aviso falso.
+
+**Limitaciones (A).** (1) *Páginas clave hoy* = 9 rutas estáticas de `sitemap.ts` + `/card-show`; las de contenido (`/guias`, `/guias/<slug>`, `/preguntas`, `/como-funciona`, que `sitemap.ts` sí emite vía `contentSitemapPaths()`) no entran: **A CORREGIR** (backend, sin lista a mano): las páginas clave se derivan del `<loc>` del `sitemap.xml` publicado del front (`<origen>/sitemap.xml`, locale `es`), quitando las que empiezan por `/catalog/` o `/sellado/` (esas ya vienen de `GET /catalog/sitemap`); así guías y preguntas nuevas entran solas. Si la descarga falla, se usa el conjunto actual (9 + `/card-show`) y se registra. (2) *Sin candado entre ticks*: **ACEPTADA**: la selección por antigüedad es idempotente y un doble worker solo podría pasar de 250 por unas decenas, muy por debajo del tope de 2,000; no se añade candado. Se reabre si se observan >300 consultas/día.
 
 **Job (A: cuándo).** `gsc-index-inspect`, patrón `0 3-8 * * *` America/Mexico_City (6 ticks/día). Cada tick: lee el sitemap, calcula `hechas hoy`, toma las filas con `lastCheckedAt` más viejo (NULL primero; páginas clave si no se revisaron hoy) hasta completar el presupuesto, lotes de 40, y sale. **Reintento (B):** un tick que muera deja las filas sin tocar y el siguiente tick retoma (selección por antigüedad = idempotente, sin estado de «corrida»); 429/5xx de Google ⇒ backoff exponencial 2-4-8 s ×3 por URL, luego se corta el tick; la URL sigue vieja y se retoma. Flag `ConfigSetting` `gsc_index_inspect` (default `on`).
 
@@ -49,7 +51,7 @@ Reversa: `DROP TABLE` y el flag; nada más depende. Filas ≈ 1,030.
 | CRAWLED_NOT_INDEXED | `coverageState` empieza por «Crawled - currently not indexed» o «Discovered - currently not indexed» | racha ≥ 2 **y** `firstSeenAt` ≥ 21 días |
 `verdict=PASS` o «Submitted and indexed» ⇒ flag NULL (racha a 0). Cadena desconocida con `verdict=FAIL` ⇒ `FETCH_ERROR` (nunca se descarta en silencio). Esto reproduce los dos casos de HECHOS:276 (Centiskorch «duplicada» = DUP_NO_CANON; se limpia solo cuando Google lo rastrea de nuevo).
 
-**Supresión de ruido (C: datos dudosos sin humano).** (1) Rachas: «racha ≥ 2» exige dos revisiones separadas ≥ 5 días (no dos ticks seguidos). (2) Al armar el aviso se vuelve a leer el sitemap y se descartan URLs que ya salieron. (3) Una URL no se repite en correos mientras `notifiedAt` < 28 días y su flag no cambie. (4) Máx. 3 URLs por categoría + «y N más» (mismo formato que AV1–AV6). (5) Tras un deploy grande, un 5xx transitorio queda cubierto por la racha. Lo dudoso se **suprime y se mide**, no entra en lista de pendientes.
+**Supresión de ruido (C: datos dudosos sin humano).** (1) Rachas: «racha ≥ 2» exige dos revisiones separadas ≥ 5 días (no dos ticks seguidos). (2) Al armar el aviso se vuelve a leer el sitemap y se descartan URLs que ya salieron. (3) Una URL no se repite **en el correo** mientras `notifiedAt` < 28 días y su flag no cambie; el **panel** (`r2`) sigue mostrándola mientras el problema persista (`isNoticeable` recibe `{forEmail}`; `notifiedAt` solo filtra el correo). (3b) Origen de las URLs inspeccionadas = host canónico del sitemap (`SITE_URL`, `https://tcghunt.mx`), nunca `APP_PUBLIC_URL`/`APP_BASE_URL`; con propiedad `sc-domain:` también; si la URL no coincide con ese host el job no consulta (evita 308 = falso «sin problemas»). (4) Máx. 3 URLs por categoría + «y N más» (mismo formato que AV1–AV6). (5) Tras un deploy grande, un 5xx transitorio queda cubierto por la racha. Lo dudoso se **suprime y se mide**, no entra en lista de pendientes.
 
 **Aviso AV7 (se suma a MKT_PANEL_V2 §2; `marketing-alerts.ts` puro).** Prioridad media (BLOCKED y NOT_FOUND: alta). Texto: «Google tiene problemas con N fichas: 2 no existen (404), 1 duplicada sin canónica, 3 rastreadas sin indexar. Ejemplos: …». Evidencia = conteos y URLs. Entra en `r2`, por tanto también en el correo del lunes, sin cambiar el contrato de `pantalla=r`. Sin problemas ⇒ no aparece (regla «sin elementos ⇒ sin aviso»). Sin dato (job apagado, 403, <50 % del universo revisado en 7 días) ⇒ «No se evaluó…».
 
@@ -69,17 +71,34 @@ Reversa: `DROP TABLE` y el flag; nada más depende. Filas ≈ 1,030.
 | Pasos del dueño | los mismos (§C) | los mismos menos la URL del feed | + dar permiso a una cuenta de servicio |
 **Decisión: feed XML por «archivo programado».** Razón: es lo único con cobertura completa y sin credencial ni cola nueva (nada que expire ni reintentar: Merchant reintenta solo y conserva los datos anteriores si un día falla). Merchant API queda como **fase 2 opcional** solo si se quiere leer los rechazos de Google en el correo del lunes (requiere añadir la cuenta de servicio como usuario de Merchant Center: 1 paso extra del dueño; no se construye ahora). Formato XML (RSS 2.0, espacio `g:`) y no TSV: las descripciones llevan saltos y comillas.
 
-**URL.** `https://www.tcghunt.mx/feeds/google-merchant.xml` (ruta de Next, `revalidate` 3600 s, `Cache-Control: s-maxage=3600, stale-while-revalidate=86400`); **no** va en el sitemap ni se bloquea en `robots.txt`. Se regenera sola porque se calcula del catálogo vivo: no hay job, ni archivo guardado, ni nada que «recordar».
+**URL.** `https://tcghunt.mx/feeds/google-merchant.xml` (dominio canónico sin www: `www` responde 308 → sin www; `SITE_URL` en `frontend/src/lib/seo.ts:24`). Ruta de Next con `force-dynamic` + caché de datos de 3600 s (desviación aceptada: no `revalidate=3600`, para que un 503 nunca quede cacheado), `Cache-Control: public, s-maxage=900, stale-while-revalidate=900`. **Objetivo de frescura: ≤ 1 h** (Merchant baja 1 vez/día; peor caso ≈ 15 min + 15 min). Backend: caché en memoria de 5 min para `/catalog/merchant-feed` y `/catalog/sitemap` (misma consulta, un solo cómputo por ventana; 0 ítems no se cachea). `X-Feed-Skipped` del front cuenta solo lo omitido por el front. **No** va en el sitemap ni se bloquea en `robots.txt`. Se regenera sola porque se calcula del catálogo vivo: no hay job, ni archivo guardado, ni nada que «recordar».
 
 **Fuente de datos.** Endpoint nuevo `GET /catalog/merchant-feed` · público · `{ items: MerchantFeedItem[], generatedAt }`; reutiliza la misma consulta y la misma regla de «vendible» del sitemap (`catalog.service.ts:1690`, `sealed-catalog.service.ts:497`: `status: listed`, `ownerType: platform`, cantidad > 0). Nada de inventario de clientes, bóveda ni buylist. El frontend arma el XML (links y envío con las mismas funciones que `sitemap.ts` y `seo.ts`).
-`MerchantFeedItem` = `{ id, kind:'card'|'sealed', path, title, description, imageUrl, priceCents, condition:'new'|'used', brand:'Pokémon', gtin:string|null, groupId? }`.
+**DTO vigente** (`backend/src/modules/catalog/merchant-feed.ts`; público, 20/min/IP): respuesta `{ items: MerchantFeedItem[], generatedAt: ISO }`, ordenada por `id`; cabeceras `X-Feed-Items`, `X-Feed-Skipped`, `Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=300`. 0 ítems ⇒ **503** `{ok:false}` + `no-store` (+ `X-Feed-Items: 0`).
+| Campo | Tipo / valor |
+|---|---|
+| `id` | `card:<cardId>` \| `s:<hash22(groupKey)>` (estable ≤ 50: base64url de los primeros 16 bytes de SHA-256 del `groupKey`, 22 car.; nunca el `representativeItemId`, que cambia al venderse; `path` sigue usando el representativo vigente; colisión/duplicado ⇒ gana el primero) |
+| `kind` | `'card'` \| `'sealed'` |
+| `path` | `/catalog/<id>` \| `/sellado/<id>`, id con `encodeURIComponent`, **SIN locale** (el front antepone `/es` y el origen) |
+| `title` | texto plano ≤ 150 puntos de código (sin HTML ni controles XML) |
+| `description` | texto plano ≤ 5000; vacía ⇒ el título |
+| `imageUrl` | `https://…` absoluta (si no, el ítem se omite) |
+| `priceCents` | entero MXN > 0, = `displayPriceCents` de la ficha (= `Offer.price`, con D9); sin transformar |
+| `availability` | siempre `'in_stock'` |
+| `condition` | carta ⇒ `'used'`; sellado ⇒ `'new'` |
+| `brand` | `'Pokémon'` |
+| `gtin` / `identifierExists` | `null` / `false` (no hay origen de GTIN) |
+| `googleProductCategory` | texto de la taxonomía (§ tabla de campos) |
+| `shippingCents` | dial vivo: cartas 10000, sellado 17500 (hoy), 0 si `priceCents ≥ freeFromCents` |
+| `returns` | `'not_permitted'` |
+Omitidos (cuentan en `X-Feed-Skipped`): precio no entero o ≤ 0, sin título, sin imagen https. Sin costos, SKUs internos ni inventario de clientes.
 Regla central: **una fila por ficha (URL), con el MISMO precio y condición que el JSON-LD de esa ficha** (si la ficha publica `AggregateOffer`/oferta destacada, el feed toma esa oferta). Merchant suspende por «precio no coincide»; por eso hay candado de prueba: para N fichas, `priceCents` del feed = `Offer.price` de la ficha (k/N). Cómo elige la ficha su oferta destacada: **NO MEDIDO**, lo lee backend.
 
 **Campos del XML (por ítem).**
 | Atributo | Valor |
 |---|---|
-| `g:id` | `card:<cardId>` / `sealed:<groupKey>` (estable) |
-| `g:title` | ≤ 150: nombre + número + set + «Carta Pokémon» (carta incluye NM/condición de la ficha) |
+| `g:id` | = `id` del DTO: `card:<cardId>` / `s:<hash22(groupKey)>` (estable, ≤ 50) |
+| `g:title` | ≤ 150: nombre + número + set + «Carta Pokémon». **Sin condición en el título** (decisión: la ficha agrupa condiciones y el precio es el de la oferta destacada; la condición va en `g:condition=used`) |
 | `g:description` | texto plano ≤ 5,000 (sin HTML, sin controles XML); el de la ficha |
 | `g:link` | URL canónica absoluta, **igual** a la del sitemap |
 | `g:image_link` | imagen absoluta https (la de `og:image` de la ficha); sin imagen ⇒ el ítem se omite |
@@ -98,10 +117,10 @@ Regla central: **una fila por ficha (URL), con el MISMO precio y condición que 
 **Crecimiento (D).** Todo set/carta que se vuelve vendible aparece solo; no hay tabla de productos de Google.
 
 ## C. Pasos ÚNICOS del dueño (≈15 min, una vez; excepción AUTO: cuenta y términos de Google)
-1. Entrar a merchants.google.com **con la misma cuenta de Google que ya administra Search Console**, crear la cuenta (país México, nombre TCG HUNT, sitio `www.tcghunt.mx`) y **aceptar los términos**.
+1. Entrar a merchants.google.com **con la misma cuenta de Google que ya administra Search Console**, crear la cuenta (país México, nombre TCG HUNT, sitio `https://tcghunt.mx`, ya creado por el dueño) y **aceptar los términos**.
 2. Cuando pida verificar y reclamar el sitio, elegir **Search Console** (con la misma cuenta es automático, un clic).
 3. En el asistente de envíos y devoluciones: devolución = «No se aceptan devoluciones» (así lo dice la política de la tienda); el envío ya viene en el feed.
-4. Productos → Fuentes de datos → Añadir → **Archivo programado**: país México, idioma español, URL `https://www.tcghunt.mx/feeds/google-merchant.xml`, frecuencia diaria. Activar «Fichas gratuitas» para México.
+4. Productos → Fuentes de datos → Añadir → **Archivo programado**: país México, idioma español, URL `https://tcghunt.mx/feeds/google-merchant.xml`, frecuencia diaria. Activar «Fichas gratuitas» para México.
 Después no hace nada: Merchant tarda días en revisar la primera vez. Plan de medición (orquestador, a +7 y +28 días): conteo de «elegibles» en el correo de Search Console o en Diagnóstico, contra `X-Feed-Items`.
 
 ## D. Reparto
@@ -113,4 +132,4 @@ Después no hace nada: Merchant tarda días en revisar la primera vez. Plan de m
 - **seguridad-lead:** endpoint sin datos personales; el feed no filtra costos, SKUs internos ni inventario de clientes; la cuenta de servicio sigue de solo lectura.
 
 ## E. NO MEDIDO (resumen)
-Cuota real de URL Inspection (2,000/día, 600/min por propiedad: recordada); si el alcance de lectura de la cuenta basta para `inspect`; tamaño exacto del sitemap (~1,018 dato del dueño); cómo elige la ficha su oferta destacada y si hay origen de UPC/GTIN; id numérico de la categoría de Google; cuántos de los ~1,000 aprobará Merchant; que «No se aceptan devoluciones» exista como opción en Merchant México (si no, el asistente pedirá una política y el dueño elige la más cercana; el JSON-LD ya declara lo cierto).
+Tamaño exacto del sitemap (~1,018 dato del dueño); cómo elige la ficha su oferta destacada y si hay origen de UPC/GTIN; id numérico de la categoría de Google; cuántos de los ~1,000 aprobará Merchant; que «No se aceptan devoluciones» exista como opción en Merchant México (si no, el asistente pedirá una política y el dueño elige la más cercana; el JSON-LD ya declara lo cierto).

@@ -300,7 +300,9 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   -- PROMOS-MASTERSET (AUTO_CATALOGO «Clase de PromoCollectionLink en la limpieza (G-8)»): liga promo→expansión INFERIDA
   -- sola = CATÁLOGO derivado de catálogo (sin PII, sin datos de prueba) ⇒ conservar. Sus FK a `Card`/`CardSet` son
   -- ON DELETE CASCADE: si alguna vez se borrara una Card/CardSet referenciada, el link cae con ella (nada que ordenar aquí).
-  'PromoCollectionLink']) AS t;
+  'PromoCollectionLink',
+  -- §GSHOP.A (m101): veredicto de Google (Search Console) de las URLs públicas = reflejo del índice, sin PII ni datos de prueba ⇒ conservar.
+  'IndexInspection']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.

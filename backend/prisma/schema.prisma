@@ -3446,6 +3446,30 @@ model MarketingWeeklyDigest {
   @@id([weekStart, recipientKey])
 }
 
+// §GSHOP.A (m101, docs/specs/GOOGLE_SHOPPING_E_INDEXACION.md) — veredicto de Google (Search Console URL Inspection) de cada URL que SÍ
+// debe indexarse (sitemap + páginas clave). Sin datos personales. `flag`: NOT_FOUND | DUP_NO_CANON | CRAWLED_NOT_INDEXED | BLOCKED |
+// FETCH_ERROR | null; `flagStreak` cuenta revisiones consecutivas con el mismo flag separadas ≥ 5 días; `notifiedAt` = último correo que lo incluyó.
+model IndexInspection {
+  url             String    @id
+  kind            String
+  firstSeenAt     DateTime
+  lastCheckedAt   DateTime?
+  verdict         String?
+  coverageState   String?
+  pageFetchState  String?
+  robotsTxtState  String?
+  indexingState   String?
+  googleCanonical String?
+  userCanonical   String?
+  lastCrawlTime   DateTime?
+  flag            String?
+  flagSince       DateTime?
+  flagStreak      Int       @default(0)
+  notifiedAt      DateTime?
+
+  @@index([lastCheckedAt])
+}
+
 // §13.4.4 — registro de accesos del panel (PM-M3). Cada export/descarga/llamada del endpoint deja
 // una fila. SIN contenido (ni filas, ni datos personales). Retención 12 meses (job futuro).
 // Un modelo dedicado (no `AuditLog`) porque el endpoint lo usa un principal de servicio SIN usuario.

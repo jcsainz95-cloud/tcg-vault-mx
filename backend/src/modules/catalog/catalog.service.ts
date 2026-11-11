@@ -53,6 +53,7 @@ import { CARD_LANGUAGE_VALUES, FINISH_VALUES, PRODUCT_TYPE_VALUES, SEALED_SUBTYP
 // v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3): `pricedAsOf` (fecha CDMX honesta bajo ISR) y `ogImageUrl` (absoluta).
 import { toMexicoCityDateKey } from '../../common/business-days';
 import { absoluteOgImageUrl } from '../../common/og-image';
+import type { MerchantFeedRaw } from './merchant-feed';
 // v1.33 (P-27, §4.31d): master set combinado en el STOREFRONT. `GET /catalog/sets`+`/facets` PLIEGAN
 // el subset en su principal; `GET /catalog/cards?setId=<principal>` EXPANDE a las partes. SOLO
 // presentación/lectura (money-safe): el mapa nunca publica cartas sin precio ni re-llavea nada.
@@ -1700,6 +1701,40 @@ export class CatalogService {
       id,
       lastmod: new Date(ts).toISOString(),
     }));
+  }
+
+  /**
+   * §GSHOP.B — insumos del feed de Google Merchant Center para SINGLES: **una fila por CARTA a la venta**, con la MISMA
+   * consulta y regla de «vendible» que el sitemap (`fetchSellable(singlesPublishedWhere)`). Precio = el de la oferta
+   * destacada de la ficha (`cheapestListing`: la publicación agrupada más barata ⇒ `displayPriceCents` del `ListingDTO`,
+   * el que ve el cliente, con comisión; ⛔ no se deriva nada aquí). Una pieza `graded` sin identidad de slab no forma
+   * publicación en la ficha (`buildGroups`/`lookupKeysOf`) ⇒ tampoco entra al feed. Solo display: nada de `L`, folios,
+   * dueños ni inventario de clientes sale de aquí.
+   */
+  async merchantFeedCardRows(): Promise<MerchantFeedRaw[]> {
+    const rows = await this.fetchSellable(this.singlesPublishedWhere({}));
+    const best = new Map<string, SellableRow>();
+    for (const r of rows) {
+      if (this.lookupKeysOf(r.item) == null) continue;
+      if (r.dto.displayPriceCents == null) continue;
+      const prev = best.get(r.item.cardId);
+      if (!prev || r.dto.displayPriceCents < (prev.dto.displayPriceCents as number)) best.set(r.item.cardId, r);
+    }
+    return [...best.entries()].map(([cardId, r]) => {
+      // `CardDTO` (la proyección pública de la ficha, `toCardDTO`): es una CARTA single (`singlesPublishedWhere` excluye el sellado).
+      const dto = toCardDTO(r.item.card);
+      const setName = dto.setName ?? '';
+      return {
+        kind: 'card' as const,
+        refId: cardId,
+        title: [dto.name, dto.number, setName, 'Carta Pokémon'].filter((x) => x).join(' · '),
+        description:
+          `Carta Pokémon TCG ${dto.name}${setName ? ` de ${setName}` : ''}, número ${dto.number}` +
+          `${dto.rarity ? `, rareza ${dto.rarity}` : ''}. Venta en TCG HUNT con envío a todo México.`,
+        imageUrl: absoluteOgImageUrl(dto.imageLargeUrl, dto.imageSmallUrl),
+        priceCents: r.dto.displayPriceCents ?? null,
+      };
+    });
   }
 
   /**

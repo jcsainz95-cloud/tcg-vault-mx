@@ -112,7 +112,7 @@ interface Mocks {
   forPeriod: jest.Mock;
 }
 
-function build(): { svc: MarketingAnalyticsService; m: Mocks } {
+function build(extra: { external?: unknown; indexInspection?: unknown } = {}): { svc: MarketingAnalyticsService; m: Mocks } {
   const m: Mocks = {
     report: jest.fn(),
     sellRequestAggregate: jest.fn().mockResolvedValue({ _count: { _all: 0 }, _sum: { quotedTotalCents: 0, payoutNetCents: 0 } }),
@@ -142,7 +142,7 @@ function build(): { svc: MarketingAnalyticsService; m: Mocks } {
   } as never;
   const sales = { report: m.report } as never;
   const annotations = { forPeriod: m.forPeriod } as never;
-  const svc = new MarketingAnalyticsService(prisma, sales, annotations);
+  const svc = new MarketingAnalyticsService(prisma, sales, annotations, undefined, extra.external as never, undefined, extra.indexInspection as never);
   return { svc, m };
 }
 
@@ -462,5 +462,51 @@ describe('MarketingAnalyticsService — columnas sin fuente salen «NO MEDIDO»,
     // El motivo explica POR QUÉ no se mide; jamás es el string «0».
     expect(t.notMeasuredReason).not.toBe('0');
     expect(t.rows).toEqual([]);
+  });
+});
+
+// ──────────────────────────────── §GSHOP.A · AV7 en r2 ────────────────────────────────
+
+describe('MarketingAnalyticsService — r2 · AV7 (indexación de Google)', () => {
+  const external = {
+    ga4Configured: () => false,
+    searchConsoleConfigured: () => true,
+    searchConsoleTotals: jest.fn(async () => ({ ok: false })),
+    searchConsolePages: jest.fn(async () => ({ ok: false })),
+    searchConsoleQueries: jest.fn(async () => ({ ok: false })),
+  };
+  const summary = { total: 2, groups: [{ flag: 'NOT_FOUND', count: 2, examples: ['/es/catalog/a', '/es/catalog/b'] }] };
+  const r2Titles = async (svc: MarketingAnalyticsService, opts?: { forEmail?: boolean }) => {
+    m0.report.mockResolvedValue(reportDto({ totals: figures({ orders: 1 }), previousTotals: figures({ orders: 1 }), comparison: { orders: delta(0, 0), chargedCents: delta(0, 0) } }));
+    const payload = await svc.screen('r', weekPeriod, NOW, 'small_cells', opts);
+    return tableById(payload.tables, 'r2').rows.map((r) => String(r.titulo) + ' ' + String(r.evidencia));
+  };
+  let m0: Mocks;
+
+  it('el aviso AV7 llega a r2 (panel) con el resumen de la lectura; el panel NO pide el modo correo', async () => {
+    const av7Input = jest.fn(async () => ({ missing: null, summary }));
+    const { svc, m } = build({ external, indexInspection: { av7Input } });
+    m0 = m;
+    const rows = await r2Titles(svc);
+    expect(rows.join('|')).toContain('Google tiene problemas con 2 fichas');
+    expect(av7Input).toHaveBeenCalledWith(NOW, { forEmail: false });
+  });
+
+  it('el correo (forEmail) pide la lectura en modo correo y su resultado vacío no pinta AV7', async () => {
+    const av7Input = jest.fn(async (_n: Date, o: { forEmail: boolean }) => ({ missing: null, summary: o.forEmail ? null : summary }));
+    const { svc, m } = build({ external, indexInspection: { av7Input } });
+    m0 = m;
+    expect((await r2Titles(svc, { forEmail: true })).join('|')).not.toContain('Google tiene problemas');
+    expect(av7Input).toHaveBeenCalledWith(NOW, { forEmail: true });
+    expect((await r2Titles(svc)).join('|')).toContain('Google tiene problemas'); // el panel sigue mostrando
+  });
+
+  it('«No se evaluó la indexación: …» sin dos puntos dobles', async () => {
+    const av7Input = jest.fn(async () => ({ missing: 'la indexación: sin permiso de Search Console', summary: null }));
+    const { svc, m } = build({ external, indexInspection: { av7Input } });
+    m0 = m;
+    const rows = (await r2Titles(svc)).join('|');
+    expect(rows).toContain('No se evaluó la indexación: sin permiso de Search Console');
+    expect(rows).not.toContain('No se evaluó: la indexación');
   });
 });

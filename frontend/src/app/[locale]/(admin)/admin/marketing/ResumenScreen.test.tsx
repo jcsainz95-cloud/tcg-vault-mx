@@ -146,6 +146,26 @@ describe('ResumenScreen', () => {
     expect(screen.getByTestId('mkt-r3-charts')).toBeInTheDocument();
   });
 
+  it('AV7 (§GSHOP): el aviso de indexación llega como texto del servidor y se pinta sin claves nuevas, también en inglés', () => {
+    const av7 = {
+      regla: 'AV7',
+      gravedad: 'info',
+      titulo: 'No se evaluó la indexación: sin permiso de Search Console',
+      evidencia: '',
+      accion: 'Da permiso de lectura a la cuenta en Search Console.',
+    };
+    for (const loc of ['es', 'en'] as const) {
+      const { unmount } = renderWithProviders(
+        <ResumenScreen data={payload('small_cells', [R1, { ...R2, rows: [av7] }])} />,
+        loc,
+      );
+      const box = screen.getByTestId('mkt-r2');
+      expect(box).toHaveTextContent('No se evaluó la indexación: sin permiso de Search Console');
+      expect(box.querySelector('ul')?.getAttribute('lang')).toBe(loc === 'es' ? null : 'es');
+      unmount();
+    }
+  });
+
   it('sin avisos: «Sin avisos esta semana»', () => {
     renderWithProviders(<ResumenScreen data={payload('small_cells', [R1, { ...R2, rows: [] }])} />);
     expect(screen.getByTestId('mkt-r2')).toHaveTextContent('Sin avisos esta semana');

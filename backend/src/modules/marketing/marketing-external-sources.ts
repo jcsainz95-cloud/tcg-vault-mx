@@ -26,6 +26,22 @@ const SC_SITE_RE = /^(sc-domain:[a-z0-9.-]{1,253}|https:\/\/[^\s?#]{1,253}\/)$/;
 
 export const GOOGLE_READ_PORT = Symbol('GOOGLE_READ_PORT');
 
+/** Campos usados de `inspectionResult.indexStatusResult` (§GSHOP.A). */
+export interface UrlInspectionFields {
+  verdict: string | null;
+  coverageState: string | null;
+  pageFetchState: string | null;
+  robotsTxtState: string | null;
+  indexingState: string | null;
+  googleCanonical: string | null;
+  userCanonical: string | null;
+  lastCrawlTime: Date | null;
+}
+/** Resultado de UNA inspección: `forbidden` = 403 (sin permiso), `rate_limited` = 429, `transient` = 5xx/red, `invalid` = 400 u otra forma. */
+export type UrlInspectOutcome =
+  | { kind: 'ok'; fields: UrlInspectionFields }
+  | { kind: 'not_configured' | 'forbidden' | 'rate_limited' | 'transient' | 'invalid'; errClass?: string };
+
 /** Credencial de cuenta de servicio ya leída (solo los dos campos que hacen falta). */
 export interface ServiceAccountKey {
   client_email: string;
@@ -156,6 +172,51 @@ export class MarketingExternalSources {
       }));
       return rows.filter((r) => r.query !== '');
     });
+  }
+
+  /** Origen (`https://host`) de la propiedad Search Console si es de prefijo de URL; `null` si es de dominio (`sc-domain:`) o sin conectar. */
+  searchConsoleOrigin(): string | null {
+    return this.scSite && this.scSite.startsWith('https://') ? this.scSite.replace(/\/+$/, '') : null;
+  }
+
+  /**
+   * §GSHOP.A — URL Inspection de UNA url (`POST …/v1/urlInspection/index:inspect`). Misma cuenta de servicio y misma propiedad que el
+   * resto de lecturas (alcance de solo lectura). Sin caché ni semáforo (el llamador marca el ritmo). Nunca lanza ni registra el
+   * mensaje del error: solo su clase de lista cerrada (`classifySourceError`).
+   */
+  async urlInspect(inspectionUrl: string): Promise<UrlInspectOutcome> {
+    if (!this.key || !this.scSite) return { kind: 'not_configured' };
+    try {
+      const data = (await this.port.postJson(this.key, SC_READ_SCOPE, 'https://searchconsole.googleapis.com/v1/urlInspection/index:inspect', {
+        inspectionUrl,
+        siteUrl: this.scSite,
+        languageCode: 'es',
+      })) as { inspectionResult?: { indexStatusResult?: Record<string, unknown> } };
+      const r = data?.inspectionResult?.indexStatusResult;
+      if (!r || typeof r !== 'object') return { kind: 'invalid', errClass: 'sin-indexStatusResult' };
+      const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v : null);
+      const crawl = str(r.lastCrawlTime) ? new Date(r.lastCrawlTime as string) : null;
+      return {
+        kind: 'ok',
+        fields: {
+          verdict: str(r.verdict),
+          coverageState: str(r.coverageState),
+          pageFetchState: str(r.pageFetchState),
+          robotsTxtState: str(r.robotsTxtState),
+          indexingState: str(r.indexingState),
+          googleCanonical: str(r.googleCanonical),
+          userCanonical: str(r.userCanonical),
+          lastCrawlTime: crawl && !Number.isNaN(crawl.getTime()) ? crawl : null,
+        },
+      };
+    } catch (err) {
+      const errClass = classifySourceError(err);
+      const http = /http=(\d{3})/.exec(errClass)?.[1];
+      if (http === '403' || errClass.includes('reason=PERMISSION_DENIED')) return { kind: 'forbidden', errClass };
+      if (http === '429' || errClass.includes('RESOURCE_EXHAUSTED')) return { kind: 'rate_limited', errClass };
+      if (http === '400') return { kind: 'invalid', errClass };
+      return { kind: 'transient', errClass };
+    }
   }
 
   /** Totales de Search Console del rango, SIN dimensión (r1). */

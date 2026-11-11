@@ -385,6 +385,10 @@ COMMIT;
 export function revertM95(schema: string): void {
   revertFromHeader(schema, '_m95b_ids_versions', 'revertM95');
 }
+/** T-AC3 — quita M-101 (`IndexInspection`, §GSHOP.A) para el B congelado, que no clasifica su tabla. Va ANTES que M-99 (orden inverso de despliegue). */
+export function revertM101(schema: string): void {
+  revertFromHeader(schema, '_m101_index_inspection', 'revertM101');
+}
 /** T-AC3 — quita M-99 (Panel de Marketing v2: c6 y el correo semanal) para el B congelado, que no clasifica sus dos tablas. Va ANTES que M-95. */
 export function revertM99(schema: string): void {
   revertFromHeader(schema, '_m99_marketing_v2', 'revertM99');

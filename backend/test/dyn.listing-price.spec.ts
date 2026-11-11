@@ -380,6 +380,10 @@ describe('Puertas de `ConfigSetting`: todas avisan o escriben solo claves que no
       keys: ['listing_price_formula_version'],
       why: '§D9 8.2: bookkeeping del recálculo (la versión de la fórmula con que se escribieron las filas); lo escribe DESPUÉS de recalcular, ⛔ no mueve ningún precio.',
     },
+    'modules/marketing/index-inspection.service.ts': {
+      keys: ['gsc_index_inspect_state'],
+      why: '§GSHOP.A: bookkeeping del job de indexación (día del último 403 y tope del día por 429); no es `SettingKey` y no mueve ningún precio.',
+    },
     'modules/catalog/catalog-auto-state.service.ts': {
       keys: Object.values(CATALOG_AUTO_KEYS),
       why: 'AUTO catalogo: bookkeeping del job (ultimo exito, avance del backfill, primera vez vista de un grupo); no son `SettingKey` y no mueven ningun precio.',

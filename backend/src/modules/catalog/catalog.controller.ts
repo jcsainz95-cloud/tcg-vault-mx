@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Header, HttpCode, Optional, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, HttpStatus, Optional, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { OptionalSessionGuard } from './optional-session.guard';
 import { Throttle } from '@nestjs/throttler';
 import { IsString, IsUUID } from 'class-validator';
@@ -9,6 +10,8 @@ import { SetValueService } from './set-value.service';
 import { SealedCatalogService } from './sealed-catalog.service';
 import { StrictBodyPipe } from '../wishlist/dto/wishlist.dto';
 import { FeaturedService } from './featured.service';
+import { MerchantFeedService } from './merchant-feed.service';
+import { MERCHANT_FEED_CACHE_CONTROL, MERCHANT_SERVER_CACHE_MS } from './merchant-feed';
 
 /**
  * v1.23-sealed-sales (§2-S): «avísame cuando vuelva». ⭐ v1.87.3⟨wishlist⟩ (B-1 de QA, API_CONTRACT §WSH.7 (f)): el cliente
@@ -27,12 +30,16 @@ export const CATALOG_LIST_CACHE_CONTROL = 'public, max-age=30, stale-while-reval
 
 @Controller('catalog')
 export class CatalogController {
+  private sitemapCache: { at: number; value: { items: Array<{ type: 'card' | 'sealed'; id: string; lastmod: string }>; generatedAt: string } } | null = null;
+
   constructor(
     private readonly catalog: CatalogService,
     private readonly setValue: SetValueService,
     private readonly sealed: SealedCatalogService,
     // v1.113⟨portada⟩ (§DYN.2): `@Optional` solo por los dobles posicionales; en la app siempre se inyecta.
     @Optional() private readonly featuredSvc?: FeaturedService,
+    // §GSHOP.B: feed de Merchant (`@Optional` solo por los dobles posicionales; en la app siempre se inyecta).
+    @Optional() private readonly merchantFeed?: MerchantFeedService,
   ) {}
 
   /**
@@ -108,14 +115,41 @@ export class CatalogController {
   // (1 h): no es dato personal. ⛔ Ruta ESTÁTICA (`sitemap`), no colisiona con `cards/:cardId` ni
   // `sealed/:inventoryItemId` (prefijos distintos). Las rutas estáticas del sitio las añade el frontend.
   @Public()
-  @Header('Cache-Control', 'public, max-age=3600')
+  @Header('Cache-Control', MERCHANT_FEED_CACHE_CONTROL)
   @Get('sitemap')
   async sitemap() {
+    const c = this.sitemapCache;
+    if (c && Date.now() - c.at < MERCHANT_SERVER_CACHE_MS) return c.value;
     const [cards, sealed] = await Promise.all([
       this.catalog.sitemapCardEntries(),
       this.sealed.sitemapSealedEntries(),
     ]);
-    return { items: [...cards, ...sealed], generatedAt: new Date().toISOString() };
+    const value = { items: [...cards, ...sealed], generatedAt: new Date().toISOString() };
+    // GS-2: caché de servidor de 5 min (misma ventana que el feed); 0 ítems no se cachea.
+    if (value.items.length > 0) this.sitemapCache = { at: Date.now(), value };
+    return value;
+  }
+
+  // §GSHOP.B (docs/specs/GOOGLE_SHOPPING_E_INDEXACION.md) — feed para Google Merchant Center: público, SOLO LECTURA, una fila por
+  // ficha a la venta (misma regla de «vendible» que `sitemap`), precio = `Offer.price` de la ficha (`displayPriceCents`).
+  // Cabeceras `X-Feed-Items`/`X-Feed-Skipped`. Sin ítems ⇒ `503` (nunca un 200 vacío: Merchant conservaría lo anterior), sin
+  // caché. Ruta estática, no colisiona con `cards/:cardId`. 20/min por IP (Merchant lo baja 1 vez al día).
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  @Get('merchant-feed')
+  async merchantFeedGet(@Res({ passthrough: true }) res: Response) {
+    const feed = await this.merchantFeed!.build();
+    if (feed.items.length === 0) {
+      res.status(HttpStatus.SERVICE_UNAVAILABLE);
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Feed-Items', '0');
+      res.setHeader('X-Feed-Skipped', String(feed.skipped));
+      return { ok: false };
+    }
+    res.setHeader('Cache-Control', MERCHANT_FEED_CACHE_CONTROL);
+    res.setHeader('X-Feed-Items', String(feed.items.length));
+    res.setHeader('X-Feed-Skipped', String(feed.skipped));
+    return { items: feed.items, generatedAt: feed.generatedAt };
   }
 
   // ===== v1.23-sealed-sales (§2-S) — ventana de tienda del PRODUCTO CERRADO =====
