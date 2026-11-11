@@ -141,7 +141,7 @@
 - GET `/catalog/featured` · público
 - GET `/catalog/cards` · cuenta
 - GET `/catalog/facets` · cuenta
-- GET `/catalog/sitemap` · `/catalog/merchant-feed` (§GSHOP, spec `GOOGLE_SHOPPING_E_INDEXACION`) · público
+- GET `/catalog/sitemap` · `/catalog/merchant-feed` (DTO: spec `GOOGLE_SHOPPING_E_INDEXACION` §B) · público
 - GET `/catalog/sealed` · cuenta
 - GET `/catalog/sealed/:inventoryItemId` · público
 - GET `/catalog/sealed/:inventoryItemId/value-history` · público
