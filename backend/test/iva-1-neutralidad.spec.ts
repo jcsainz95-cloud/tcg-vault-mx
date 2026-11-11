@@ -39,7 +39,7 @@ const L = 10_000;
 /** Una posición del dial, calculada por el camino REAL del checkout (derivar `P` → desglosar). */
 function posicion(t: number) {
   const displayPriceCents = displayPriceCentsOf(L, t, R);
-  const b = computeCartBreakdown(displayPriceCents, R, FEE);
+  const b = computeCartBreakdown(displayPriceCents, R);
   return {
     displayPriceCents,
     subtotalCents: b.subtotalCents,
@@ -56,22 +56,22 @@ function posicion(t: number) {
 }
 
 describe('⭐⭐ `IVA-1` — el arranque es NEUTRO: nadie paga distinto el día del despliegue', () => {
-  it('⭐⭐ con el dial en su valor INICIAL (100 %), las cinco cifras son las de hoy', () => {
+  it('⭐⭐ con el dial en su valor INICIAL (100 %), las cinco cifras son las de hoy (D9: total = P, sin gross-up)', () => {
     expect(posicion(100)).toEqual({
       displayPriceCents: 11_600,
       subtotalCents: 11_600,
       ivaCents: 1_600,
-      processingFeeCents: 869,
-      totalCents: 12_469,
+      processingFeeCents: 0, // D9: la comisión de plataforma va DENTRO de `P` (no encima)
+      totalCents: 11_600,
       // ⭐ La mitad que importa: **el margen no se movió**.
       netRevenueCents: 10_000,
     });
   });
 
-  it('⛔ rojo con 12468 o 12470 — el total es una IGUALDAD, no una cota', () => {
+  it('⛔ rojo con 11599 o 11601 — el total es una IGUALDAD, no una cota', () => {
     const { totalCents } = posicion(100);
-    expect(totalCents).not.toBe(12_468);
-    expect(totalCents).not.toBe(12_470);
+    expect(totalCents).not.toBe(11_599);
+    expect(totalCents).not.toBe(11_601);
   });
 
   it('⭐⭐ el VIAJE del dial: las TRES posiciones de `PROJECT §Q.4`, enteras', () => {
@@ -79,8 +79,8 @@ describe('⭐⭐ `IVA-1` — el arranque es NEUTRO: nadie paga distinto el día 
       displayPriceCents: 10_800,
       subtotalCents: 10_800,
       ivaCents: 1_490,
-      processingFeeCents: 834,
-      totalCents: 11_634,
+      processingFeeCents: 0,
+      totalCents: 10_800,
       netRevenueCents: 9_310,
     });
     expect(posicion(0)).toEqual({
@@ -88,8 +88,8 @@ describe('⭐⭐ `IVA-1` — el arranque es NEUTRO: nadie paga distinto el día 
       subtotalCents: 10_000,
       // ⛔ **JAMÁS 0**: mover el dial reduce el NETO, nunca el impuesto registrado (crit. 192).
       ivaCents: 1_379,
-      processingFeeCents: 799,
-      totalCents: 10_799,
+      processingFeeCents: 0,
+      totalCents: 10_000,
       netRevenueCents: 8_621,
     });
   });
@@ -161,11 +161,12 @@ describe('⭐ canario de `IVA-1`: las mutaciones producen OTRO dinero, y se nomb
     expect(clavado()).not.toBe(posicion(0).displayPriceCents);
   });
 
-  it('m5 — apagar el gross-up (cobrar `G` a secas) deja a la plataforma pagando la comisión', () => {
+  it('m5 — D9: reintroducir el gross-up cobraría la comisión DOS veces (dentro de `P` y encima)', () => {
     const G = posicion(100).subtotalCents;
-    expect(grossUpTotal(G, FEE)).toBe(12_469);
     expect(G).toBe(11_600);
-    // Cobrar `G` deja 869 centavos sin cubrir: la plataforma no netearía su base.
-    expect(grossUpTotal(G, FEE) - G).toBe(869);
+    expect(posicion(100).totalCents).toBe(G);
+    // El gross-up viejo daría 12469: +869 que el cliente ya pagó dentro de `P`.
+    expect(grossUpTotal(G, FEE)).toBe(12_469);
+    expect(grossUpTotal(G, FEE)).not.toBe(posicion(100).totalCents);
   });
 });

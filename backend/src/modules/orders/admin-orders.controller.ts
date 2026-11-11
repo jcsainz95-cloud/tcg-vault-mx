@@ -133,7 +133,7 @@ export class AdminOrdersController {
       // 💰 v1.80.8.6: las columnas del motivo «tras envío» ⛔ no viajan crudas — NINGUNA de las cinco (QA MENOR-1,
       // 2026-10-04: tampoco `fullRefundAfterShipment` ni `shippedRefundReason`). La fila lleva SOLO `refundReviewPending`
       // (§M3); el detalle trae `fullRefundReview`. Lo fija `test/admin-orders.list-review-columns.spec.ts`.
-      data: data.map(({ user, refunds, fullRefundAfterShipment, shippedRefundReason, shippedRefundNote: _n, shippedRefundReasonAt: _a, shippedRefundReasonByUserId: _b, ...o }) => ({
+      data: data.map(({ user, refunds, stripeFeeCents: _sf, feeConvention: _fc, fullRefundAfterShipment, shippedRefundReason, shippedRefundNote: _n, shippedRefundReasonAt: _a, shippedRefundReasonByUserId: _b, ...o }) => ({
         ...o,
         refundReviewPending: isRefundReviewPending({ fullRefundAfterShipment, shippedRefundReason }),
         isGuestOrder: o.guestEmail != null,

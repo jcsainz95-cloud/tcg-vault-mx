@@ -172,6 +172,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
         ivaCents: 0,
         totalCents: 10000,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
       },
     });
     return o.id;

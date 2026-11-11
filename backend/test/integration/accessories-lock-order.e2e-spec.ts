@@ -71,6 +71,7 @@ describe('💰 C-1 · orden de candados de Accessory (settle / recuperación / r
         ivaCents: 0,
         totalCents: 200,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         shippingAddressSnapshot: { line1: 'x' },
       } as never,
     });
@@ -109,7 +110,7 @@ describe('💰 C-1 · orden de candados de Accessory (settle / recuperación / r
       );
     }
     const sr = await db.shipmentRequest.create({
-      data: { orderId: order1, addressSnapshot: { line1: 'x' }, status: 'picking', pickingAt: new Date(), shippingFeeCents: 0, priceConvention: 'IVA_INCLUSIVE' } as never,
+      data: { orderId: order1, addressSnapshot: { line1: 'x' }, status: 'picking', pickingAt: new Date(), shippingFeeCents: 0, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP' } as never,
     });
 
     // Tercera conexión: retiene B.

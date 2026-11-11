@@ -16,7 +16,7 @@ import {
 } from '@/lib/api';
 import type { IvaByOrderEntryDTO } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
-import { formatMoneyCents, formatDate, formatCount } from '@/lib/format';
+import { formatMoneyCents, formatDate, formatDateLongMx, formatCount } from '@/lib/format';
 import { downloadTextFile } from '@/lib/download';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -203,7 +203,21 @@ export function M7View() {
                     cual (⛔ la pantalla no niega, suma ni compara). */}
                 <PnlLine sign="+" srSign={adds} label={t('pnl.buylistFeeRetained')} value={formatMoneyCents(pnl.data.buylistShippingFeeRetainedCents, locale)} />
                 <PnlLine sign="−" srSign={subtracts} label={t('pnl.buylistGuideCost')} value={formatMoneyCents(pnl.data.buylistGuideCostCents, locale)} />
-                <PnlLine sign="−" srSign={subtracts} label={t('pnl.stripeFees')} value={formatMoneyCents(pnl.data.stripeFeesCents, locale)} />
+                {(() => {
+                  const est = pnl.data.stripeFeeEstimatedOrders ?? 0;
+                  const money = formatMoneyCents(pnl.data.stripeFeesCents, locale);
+                  return (
+                    <div>
+                      <PnlLine sign="−" srSign={subtracts} label={t('pnl.stripeFees')} value={est > 0 ? `~${money}` : money} />
+                      {est > 0 && (
+                        <PnlIncluded
+                          label={t('pnl.stripeFeesEstimated', { count: est, amount: formatMoneyCents(pnl.data.stripeFeeEstimatedCents ?? 0, locale) })}
+                          value=""
+                        />
+                      )}
+                    </div>
+                  );
+                })()}
                 <div>
                   <PnlLine sign="−" srSign={subtracts} label={t('pnl.shippingCost')} value={formatMoneyCents(pnl.data.shippingCostCents, locale)} />
                   {pnl.data.shippingAdjustmentsCents > 0 && (
@@ -336,6 +350,11 @@ export function M7View() {
                   {formatMoneyCents(pnl.data.profitCents, locale)}
                 </span>
               </div>
+              {pnl.data.feeIncludedSince && formatDateLongMx(pnl.data.feeIncludedSince, locale) && (
+                <p data-testid="pnl-fee-included-since" className="text-xs text-muted">
+                  {t('pnl.feeIncludedSince', { date: formatDateLongMx(pnl.data.feeIncludedSince, locale) })}
+                </p>
+              )}
               <div>
                 <Button
                   variant="secondary"

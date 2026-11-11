@@ -15,11 +15,15 @@ const DS = readFileSync(resolve(__dirname, '../../../docs/archive/DESIGN_SYSTEM.
 const START = DS.indexOf('### AN-UX.14');
 const END = DS.indexOf('### AN-UX.15');
 const section = DS.slice(START, END);
-const ROWS = [...section.matchAll(/^\| `([^`]+)` \| (.*) \| (.*) \|$/gm)].map((m) => ({
-  key: m[1].startsWith('sales.') ? `admin.m9.${m[1]}` : m[1],
-  es: m[2],
-  en: m[3],
-}));
+// D9 (2026-11-09, `docs/specs/D9_COMISION.md` §5): la comisión va dentro del precio. `docs/archive` es historia
+// congelada, así que el texto vigente de estas filas vive aquí y no se edita el archivo.
+const D9_TEXT: Record<string, { es: string; en: string }> = {
+  'admin.m9.sales.card.chargedHelp': { es: 'Lo que pagaron los clientes: con IVA y envío.', en: 'What customers paid: VAT and shipping included.' },
+};
+const ROWS = [...section.matchAll(/^\| `([^`]+)` \| (.*) \| (.*) \|$/gm)].map((m) => {
+  const key = m[1].startsWith('sales.') ? `admin.m9.${m[1]}` : m[1];
+  return { key, es: D9_TEXT[key]?.es ?? m[2], en: D9_TEXT[key]?.en ?? m[3] };
+});
 const ES = flatten(es);
 const EN = flatten(en);
 

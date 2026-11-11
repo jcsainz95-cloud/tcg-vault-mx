@@ -167,6 +167,7 @@ describe('v1.86⟨accesorios⟩ stream (A) — panel, tienda y fotos', () => {
         ivaCents: 1228,
         totalCents: 9200,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         guestEmail: `${RUN.toLowerCase()}.${oseq}@e2e.local`,
         fulfillmentMode: 'direct_ship',
         shippingAddressSnapshot: { line1: 'Calle 1' },

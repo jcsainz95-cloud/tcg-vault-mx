@@ -31,7 +31,7 @@ const marketDisplayCentsOf = (m: number, r: number): number => {
   return (fn as (m: number, r: number) => number)(m, r);
 };
 
-const NEUTRAL: IvaDials = { ivaTransferPct: 100, ivaRatePct: 16 };
+const NEUTRAL: IvaDials = { ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0 };
 
 // ------------------------------------------------------------------------------------------------ fixtures de carta
 const CARD = (over: Record<string, unknown> = {}) => ({
@@ -235,7 +235,7 @@ describe('MIV-B2 — ficha de carta, mercado MX$1,000 con basis `market`', () =>
   });
 
   it('la tasa es la del dial de la petición, ⛔ no un 16 fijo: `iva_pct` 8 ⇒ 108000', async () => {
-    const dials = dialsBox({ ivaTransferPct: 100, ivaRatePct: 8 });
+    const dials = dialsBox({ ivaTransferPct: 100, ivaRatePct: 8, stripeFeePct: 0 });
     const { listings } = await cardService([ITEM()], { dials }).getCard('c1');
     expect(onWire(listings[0]).referenceDisplayCents).toBe(108000);
     expect(onWire(listings[0]).ivaRatePct).toBe(8);
@@ -290,7 +290,7 @@ describe('MIV-B3 — `iff` en el JSON: la clave viaja ⇔ `priceBasis === "marke
 // ================================================================================================ MIV-B4
 describe('MIV-B4 — P-MIV-5: el mercado lleva el IVA COMPLETO, ⛔ nunca el dial de traslación', () => {
   it('diales {t: 50, r: 16}, mercado 100000 ⇒ 116000; el precio sí refleja el 50 %', async () => {
-    const dials = dialsBox({ ivaTransferPct: 50, ivaRatePct: 16 });
+    const dials = dialsBox({ ivaTransferPct: 50, ivaRatePct: 16, stripeFeePct: 0 });
     const { listings } = await cardService([ITEM()], { dials }).getCard('c1');
     const g = onWire(listings[0]);
     expect(g.referenceDisplayCents).toBe(116000);
@@ -299,7 +299,7 @@ describe('MIV-B4 — P-MIV-5: el mercado lleva el IVA COMPLETO, ⛔ nunca el dia
   });
 
   it('sellado con {t: 50, r: 16}, mercado 200000 ⇒ 232000', async () => {
-    const dials = dialsBox({ ivaTransferPct: 50, ivaRatePct: 16 });
+    const dials = dialsBox({ ivaTransferPct: 50, ivaRatePct: 16, stripeFeePct: 0 });
     const { group } = await sealedService([SEALED()], { dials }).svc.sealedDetail('s1');
     expect(onWire(group).referenceDisplayCents).toBe(232000);
   });
@@ -308,18 +308,18 @@ describe('MIV-B4 — P-MIV-5: el mercado lleva el IVA COMPLETO, ⛔ nunca el dia
 // ================================================================================================ MIV-B5
 describe('MIV-B5 — criterio 862: cambiar `iva_pct` cambia la cifra en la siguiente lectura, sin publicar de nuevo', () => {
   it('carta: misma pieza, 16 ⇒ 116000 y luego 8 ⇒ 108000', async () => {
-    const dials = dialsBox({ ivaTransferPct: 100, ivaRatePct: 16 });
+    const dials = dialsBox({ ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0 });
     const svc = cardService([ITEM()], { dials });
     expect(onWire((await svc.getCard('c1')).listings[0]).referenceDisplayCents).toBe(116000);
-    dials.box.dials = { ivaTransferPct: 100, ivaRatePct: 8 };
+    dials.box.dials = { ivaTransferPct: 100, ivaRatePct: 8, stripeFeePct: 0 };
     expect(onWire((await svc.getCard('c1')).listings[0]).referenceDisplayCents).toBe(108000);
   });
 
   it('sellado: misma pieza, 16 ⇒ 232000 y luego 8 ⇒ 216000', async () => {
-    const dials = dialsBox({ ivaTransferPct: 100, ivaRatePct: 16 });
+    const dials = dialsBox({ ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0 });
     const { svc } = sealedService([SEALED()], { dials });
     expect(onWire((await svc.sealedDetail('s1')).group).referenceDisplayCents).toBe(232000);
-    dials.box.dials = { ivaTransferPct: 100, ivaRatePct: 8 };
+    dials.box.dials = { ivaTransferPct: 100, ivaRatePct: 8, stripeFeePct: 0 };
     expect(onWire((await svc.sealedDetail('s1')).group).referenceDisplayCents).toBe(216000);
   });
 });
@@ -367,7 +367,7 @@ describe('MIV-B7 — tendencia de sellado: `displayValueMxnCents` y `displayAbsM
   });
 
   it('la tasa es la del dial: `iva_pct` 8 con [190000, 200000] ⇒ [205200, 216000], abs 10800', async () => {
-    const dials = dialsBox({ ivaTransferPct: 50, ivaRatePct: 8 });
+    const dials = dialsBox({ ivaTransferPct: 50, ivaRatePct: 8, stripeFeePct: 0 });
     const { svc } = sealedService([SEALED()], { trend: 'on', history: serie([190000, 200000]), dials });
     const res = onWire(await svc.sealedValueHistory('s1', '1m')) as Record<string, any>;
     expect(res.points.map((p: any) => p.displayValueMxnCents)).toEqual([205200, 216000]);

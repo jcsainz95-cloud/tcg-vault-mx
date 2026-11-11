@@ -53,17 +53,15 @@ describe('CHK-MOVIL.2.4 · barra fija (invitado)', () => {
   it('una sola copia de PAGAR y del desglose; sin `aside`; T3a con los importes del quote', async () => {
     // Importes deliberadamente raros (12345 / 678): si la barra los inventara, no casarían.
     vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(
-      guestQuote({ items: [CARD_ITEM], breakdown: { ...breakdownOf(100_000, 12_345, 113_023), processingFeeCents: 678 } }),
+      guestQuote({ items: [CARD_ITEM], breakdown: breakdownOf(100_000, 12_345, 112_345) }),
     );
     renderGuest();
     const bar = await screen.findByTestId('checkout-pay-bar');
     expect(screen.queryByRole('complementary')).toBeNull();
     expect(screen.getAllByRole('button', { name: /^Pagar/ })).toHaveLength(1);
     expect(within(bar).getByRole('button', { name: 'Pagar' })).toBeInTheDocument();
-    expect(within(bar).getByTestId('checkout-pay-bar-summary')).toHaveTextContent(
-      'Incluye envío MX$123.45 y comisión de plataforma MX$6.78',
-    );
-    expect(within(bar).getByTestId('checkout-pay-bar-total')).toHaveTextContent('MX$1,130.23');
+    expect(within(bar).getByTestId('checkout-pay-bar-summary')).toHaveTextContent('Incluye envío MX$123.45');
+    expect(within(bar).getByTestId('checkout-pay-bar-total')).toHaveTextContent('MX$1,123.45');
     // Desglose plegado: no hay copia del desglose en el DOM hasta abrirlo.
     expect(screen.queryByTestId('amount-breakdown')).toBeNull();
   });
@@ -156,17 +154,17 @@ describe('CHK-MOVIL.2.4 · barra fija (invitado)', () => {
     expect(within(bar).getByRole('button', { name: /Ver desglose/ })).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('T3a con envío 0: «Incluye envío gratis y comisión…»; T9 con cualquier clase y falta > 0', async () => {
+  it('T3a con envío 0: «Incluye envío gratis»; T9 con cualquier clase y falta > 0', async () => {
     const spy = vi.spyOn(api, 'getGuestCheckoutQuote').mockResolvedValue(
       guestQuote({
         items: [CARD_ITEM],
-        breakdown: breakdownOf(100_000, 0, 100_400),
+        breakdown: breakdownOf(100_000, 0, 100_000),
         shippingRule: { kind: 'sealed', freeFromCents: 400_000, freeShippingRemainingCents: 0, freeShippingApplied: true, boxFeeApplies: false },
       }),
     );
     const { unmount } = renderGuest();
     const bar = await screen.findByTestId('checkout-pay-bar');
-    expect(within(bar).getByTestId('checkout-pay-bar-summary')).toHaveTextContent('Incluye envío gratis y comisión de plataforma MX$4.00');
+    expect(within(bar).getByTestId('checkout-pay-bar-summary')).toHaveTextContent('Incluye envío gratis');
     expect(screen.queryByTestId('free-shipping-remaining')).toBeNull();
     unmount();
 
@@ -264,18 +262,18 @@ describe('CHK-MOVIL.2.4 · barra fija (invitado)', () => {
 describe('CHK-MOVIL.2.4/2.6 · barra fija (con cuenta)', () => {
   const user: UserDTO = { id: 'u-1', email: 'cliente@example.com', name: 'Cliente', role: 'customer', locale: 'es', emailVerified: true };
 
-  it('T3b con la comisión del quote, sin envío; sin el bloque de 3 beneficios; T8 junto a «ventas finales»', async () => {
+  it('T3b sin envío (sin línea de resumen); sin el bloque de 3 beneficios; T8 junto a «ventas finales»', async () => {
     setStoredUser(user);
     vi.spyOn(api, 'getCheckoutQuote').mockResolvedValue({
       items: [CARD_ITEM],
-      breakdown: { ...breakdownOf(100_000, undefined, 100_987), processingFeeCents: 987 },
+      breakdown: breakdownOf(100_000, undefined, 100_000),
       unavailableItems: [],
       ownReservation: null,
     });
     renderWithProviders(<CheckoutView />, 'es');
     const bar = await screen.findByTestId('checkout-pay-bar');
-    expect(within(bar).getByTestId('checkout-pay-bar-summary')).toHaveTextContent('Incluye comisión de plataforma MX$9.87');
-    expect(within(bar).getByTestId('checkout-pay-bar-summary')).not.toHaveTextContent(/envío/i);
+    // D9: bóveda sin código ⇒ la barra no lleva línea de resumen (la comisión ya va dentro del precio).
+    expect(within(bar).queryByTestId('checkout-pay-bar-summary')).toBeNull();
     expect(screen.queryByText('Custodia con condición verificada y garantizada.')).toBeNull();
     expect(screen.getByText('Si tu carta llega dañada o equivocada, te reembolsamos.')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^Pagar/ })).toHaveLength(1);

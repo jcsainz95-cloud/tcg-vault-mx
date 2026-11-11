@@ -86,11 +86,11 @@ function sembrar(sfx) {
   const it = (n, owner, kindPid, status, finish) =>
     `('q1c-${sfx}-i${n}', 'Q1C-${sfx}-${n}', ${c}, ${kindPid}, 'raw', 'compra', '${owner}', ` +
     `${owner === 'customer' ? u : 'NULL'}, ${owner === 'customer' ? `'settled'` : 'NULL'}, '${status}', '${finish}', now())`;
-  const ord = (n, settled, precio) => `INSERT INTO "Order"(id, "userId", "fulfillmentMode", status, "settledAt", "priceConvention", "subtotalCents", "ivaCents", "processingFeeCents", "totalCents")
-  VALUES ('q1c-${sfx}-o${n}', ${u}, 'vault', 'settled', '${settled}', 'IVA_INCLUSIVE', ${precio}, 0, 0, ${precio});
+  const ord = (n, settled, precio) => `INSERT INTO "Order"(id, "userId", "fulfillmentMode", status, "settledAt", "priceConvention", "feeConvention", "subtotalCents", "ivaCents", "processingFeeCents", "totalCents")
+  VALUES ('q1c-${sfx}-o${n}', ${u}, 'vault', 'settled', '${settled}', 'IVA_INCLUSIVE', 'FEE_ON_TOP', ${precio}, 0, 0, ${precio});
 INSERT INTO "OrderItem"(id, "orderId", "inventoryItemId", "cardSnapshot", "unitPriceCents") VALUES ('q1c-${sfx}-oi${n}', 'q1c-${sfx}-o${n}', 'q1c-${sfx}-i1', '{}', ${precio});`;
-  const envio = (n, status) => `INSERT INTO "ShipmentRequest"(id, "userId", status, "addressSnapshot", "shippingFeeCents", "priceConvention")
-  VALUES ('q1c-${sfx}-sr${n}', ${u}, '${status}', '{}', 0, 'IVA_INCLUSIVE');`;
+  const envio = (n, status) => `INSERT INTO "ShipmentRequest"(id, "userId", status, "addressSnapshot", "shippingFeeCents", "priceConvention", "feeConvention")
+  VALUES ('q1c-${sfx}-sr${n}', ${u}, '${status}', '{}', 0, 'IVA_INCLUSIVE', 'FEE_ON_TOP');`;
   const sql = `BEGIN;
 INSERT INTO "User"(id, name, email, "updatedAt") VALUES (${u}, 'Prueba Q1c', 'q1c-${sfx}@example.invalid', now());
 INSERT INTO "CardSet"(id, "externalId", name) VALUES ('q1c-${sfx}-s', 'set-q1c-${sfx}', 'Set Q1c');
@@ -255,8 +255,8 @@ function sembrarK(sfx) {
   const pieza = (n, prod, u, q) => {
     piezas.push(`(${id(`i${n}`)}, 'K3-${sfx}-${n}', ${id('c')}, ${pid + prod}, 'raw', 'compra', 'customer', ${id(`u${u}`)}, 'settled', 'in_custody', 'normal', now())`);
     if (q != null) {
-      ordenes.push(`INSERT INTO "Order"(id, "userId", "fulfillmentMode", status, "settledAt", "priceConvention", "subtotalCents", "ivaCents", "processingFeeCents", "totalCents")
-  VALUES (${id(`o${n}`)}, ${id(`u${u}`)}, 'vault', 'settled', '2026-05-01', 'IVA_INCLUSIVE', ${q}, 0, 0, ${q});
+      ordenes.push(`INSERT INTO "Order"(id, "userId", "fulfillmentMode", status, "settledAt", "priceConvention", "feeConvention", "subtotalCents", "ivaCents", "processingFeeCents", "totalCents")
+  VALUES (${id(`o${n}`)}, ${id(`u${u}`)}, 'vault', 'settled', '2026-05-01', 'IVA_INCLUSIVE', 'FEE_ON_TOP', ${q}, 0, 0, ${q});
 INSERT INTO "OrderItem"(id, "orderId", "inventoryItemId", "cardSnapshot", "unitPriceCents") VALUES (${id(`oi${n}`)}, ${id(`o${n}`)}, ${id(`i${n}`)}, '{}', ${q});`);
     }
   };

@@ -171,6 +171,7 @@ export class VaultPlacementDb {
         // Pareja coherente para el censo de `iva-price-convention.e2e-spec.ts` (sin dial ⇔ EXCLUSIVE):
         // estas órdenes no tienen importes que leer; solo existen para colgar la colocación.
         priceConvention: 'IVA_EXCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         // `Order_direct_ship_has_address_chk`: solo para sembrar la fila CORRUPTA de la invariante.
         ...(opts.fulfillmentMode === 'direct_ship' ? { shippingAddressSnapshot: { line1: 'x' } } : {}),
       },
@@ -227,6 +228,7 @@ export class VaultPlacementDb {
         status,
         shippingFeeCents: 0,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         items: { create: [{ inventoryItemId: pieceId }] },
       },
     });

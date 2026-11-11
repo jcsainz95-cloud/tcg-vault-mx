@@ -250,6 +250,15 @@ enum PriceConvention {
   IVA_INCLUSIVE
 }
 
+// §D9 (docs/specs/D9_COMISION.md §3) — LA CONVENCIÓN DE LA COMISIÓN DE PLATAFORMA CON LA QUE SE COBRÓ UNA FILA.
+// Mismo patrón que `PriceConvention`: la columna es NOT NULL y SIN @default (un camino de escritura que la olvide revienta).
+enum FeeConvention {
+  // total = subtotal + envío + processingFeeCents (la comisión se sumaba aparte). Toda fila anterior al deploy de D9.
+  FEE_ON_TOP
+  // total = subtotal + envío; el subtotal ya trae la comisión dentro de `P`; processingFeeCents = 0.
+  FEE_INCLUDED
+}
+
 enum ShipmentStatus {
   solicitado
   picking
@@ -1598,6 +1607,10 @@ model Order {
   // (misma doctrina del hueco honesto de §5.2). Es INFORMATIVO/AUDITOR: el dinero se reproduce
   // desde subtotal/shipping/iva/fee/total/ivaRatePct/priceConvention, jamás desde aquí.
   ivaTransferPct              Int?
+  // §D9 — ⛔ NOT NULL y ⛔ SIN @default (como `priceConvention`). Filas migradas = FEE_ON_TOP; filas nuevas = FEE_INCLUDED.
+  feeConvention               FeeConvention
+  // §D9 — costo REAL de Stripe (`balance_transaction.fee`, centavos). NULL = aún no leído (el P&L usa el estimado del dial).
+  stripeFeeCents              Int?
   stripePaymentIntentId       String?              @unique
   stripeChargeId              String?
   billingSnapshot             Json?
@@ -1828,6 +1841,10 @@ model ShipmentRequest {
   // El envío entra en la convención porque el criterio 189 lo obliga (§4.44.f).
   priceConvention          PriceConvention
   ivaTransferPct           Int?
+  // §D9 — ⛔ NOT NULL y ⛔ SIN @default (como `priceConvention`). Filas migradas = FEE_ON_TOP; filas nuevas = FEE_INCLUDED.
+  feeConvention            FeeConvention
+  // §D9 — costo REAL de Stripe (`balance_transaction.fee`, centavos). NULL = aún no leído (el P&L usa el estimado del dial).
+  stripeFeeCents              Int?
   stripePaymentIntentId    String?                   @unique
   carrier                  String?
   trackingNumber           String?

@@ -30,7 +30,8 @@ test.describe('checkout · desglose y CFDI', () => {
     // El atributo es el DATO; el texto solo su consecuencia. Sin él, un rótulo pegado a mano
     // pasaría igual.
     await expect(breakdown).toHaveAttribute('data-price-convention', 'IVA_INCLUSIVE');
-    await expect(breakdown.getByText(t('es', 'checkout.platformFee'))).toBeVisible();
+    // D9: la comisión va dentro del precio ⇒ ningún renglón de comisión en un pedido nuevo.
+    await expect(breakdown.getByText(t('es', 'checkout.platformFee'))).toHaveCount(0);
     await expect(breakdown.getByText(t('es', 'checkout.total'))).toBeVisible();
 
     // Mensaje CFDI: solicitar factura por correo con datos fiscales.

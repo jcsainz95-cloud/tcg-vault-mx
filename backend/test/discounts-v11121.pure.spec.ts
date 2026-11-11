@@ -21,7 +21,6 @@ import { GuestOrderMailService } from '../src/modules/orders/guest-order-mail.se
 import { AuditService } from '../src/modules/audit/audit.service';
 import { MailPort } from '../src/modules/mail/mail.port';
 
-const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const DIALS = { cardsFeeCents: 10000, sealedFeeCents: 17500, freeFromCents: 400000 };
 const terms = (t: Partial<DiscountTerms> & Pick<DiscountTerms, 'kind'>): DiscountTerms => ({
   percentPct: null,
@@ -41,34 +40,34 @@ describe('DCO-B22 (pura, v1.112.1) — ningún uso sin beneficio: `kind ≠ free
   const cardsShip = { kind: 'cards_only' as const, dials: DIALS, choice: null };
 
   it('1 % con productScopes = [accessory], invitado directo, carta 50000 + accesorio 99 ⇒ ZERO_DISCOUNT (antes: applied 0 0)', () => {
-    const r = priceDirectShipCartWithCode([card('c', 50000), accessory('acc:x:0', 99)], terms({ kind: 'percent', percentPct: 1, productScopes: ['accessory'] }), sealedShip, 16, FEE);
+    const r = priceDirectShipCartWithCode([card('c', 50000), accessory('acc:x:0', 99)], terms({ kind: 'percent', percentPct: 1, productScopes: ['accessory'] }), sealedShip, 16);
     expect(r).toEqual(ZERO);
   });
 
   it('fijo 2 sobre 3 energías de 1000 ⇒ ZERO_DISCOUNT (D0 = 2, el residuo no cabe en q = 3 ⇒ D = 0)', () => {
-    const r = priceDirectShipCartWithCode([accessory('acc:e:0', 1000, 3)], terms({ kind: 'fixed_amount', amountCents: 2 }), sealedShip, 16, FEE);
+    const r = priceDirectShipCartWithCode([accessory('acc:e:0', 1000, 3)], terms({ kind: 'fixed_amount', amountCents: 2 }), sealedShip, 16);
     expect(r).toEqual(ZERO);
   });
 
   it('bóveda: 1 % solo a `graded` sobre una graded de 50 + carta de 50000 ⇒ ZERO_DISCOUNT (floor a 0)', () => {
-    const r = priceVaultCartWithCode([card('g', 50, 'graded'), card('c', 50000)], terms({ kind: 'percent', percentPct: 1, productScopes: ['graded'] }), 16, FEE);
+    const r = priceVaultCartWithCode([card('g', 50, 'graded'), card('c', 50000)], terms({ kind: 'percent', percentPct: 1, productScopes: ['graded'] }), 16);
     expect(r).toEqual(ZERO);
   });
 
   it('B = U (toda unidad elegible vale 1 centavo) ⇒ ZERO_DISCOUNT', () => {
-    const r = priceDirectShipCartWithCode([card('c', 50000), accessory('acc:x:0', 1, 2)], terms({ kind: 'percent', percentPct: 50, productScopes: ['accessory'] }), sealedShip, 16, FEE);
+    const r = priceDirectShipCartWithCode([card('c', 50000), accessory('acc:x:0', 1, 2)], terms({ kind: 'percent', percentPct: 50, productScopes: ['accessory'] }), sealedShip, 16);
     expect(r).toEqual(ZERO);
   });
 
   it('precedencia: TOTAL_BELOW_MINIMUM (7) gana a ZERO_DISCOUNT (8) — bóveda, carta 99 con 1 %', () => {
-    const r = priceVaultCartWithCode([card('c', 99)], terms({ kind: 'percent', percentPct: 1 }), 16, FEE);
+    const r = priceVaultCartWithCode([card('c', 99)], terms({ kind: 'percent', percentPct: 1 }), 16);
     expect(r).toEqual({ outcome: 'not_applicable', reason: 'TOTAL_BELOW_MINIMUM', details: { minTotalCents: 1000 } });
   });
 
   it('D = 1 sigue aplicando (la regla es D = 0, no «poco»); envío gratis con D = 0 sigue aplicando (disjunto)', () => {
-    const one = priceDirectShipCartWithCode([card('c', 50000), accessory('acc:x:0', 100)], terms({ kind: 'percent', percentPct: 1, productScopes: ['accessory'] }), sealedShip, 16, FEE);
+    const one = priceDirectShipCartWithCode([card('c', 50000), accessory('acc:x:0', 100)], terms({ kind: 'percent', percentPct: 1, productScopes: ['accessory'] }), sealedShip, 16);
     expect(one).toMatchObject({ outcome: 'applied', discountCents: 1 });
-    const free = priceDirectShipCartWithCode([card('c', 50000)], terms({ kind: 'free_shipping' }), cardsShip, 16, FEE);
+    const free = priceDirectShipCartWithCode([card('c', 50000)], terms({ kind: 'free_shipping' }), cardsShip, 16);
     expect(free).toMatchObject({ outcome: 'applied', discountCents: 0, shippingWaivedCents: 10000 });
   });
 

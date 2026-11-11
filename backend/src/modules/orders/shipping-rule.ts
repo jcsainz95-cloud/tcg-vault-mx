@@ -22,7 +22,7 @@
  * Pedidos ya cobrados: NADA aquí se relee para una orden existente (`Order.shippingFeeCents` congelado en `session`).
  */
 import { ProductType } from '@prisma/client';
-import { DirectShipBreakdownDTO, StripeFeeConfig, computeDirectShipBreakdown, taxBaseCentsOf } from '../../common/money';
+import { DirectShipBreakdownDTO, computeDirectShipBreakdown, taxBaseCentsOf } from '../../common/money';
 import type { BoxChoice } from './box-fit';
 import { representableOrThrow } from './representable';
 
@@ -132,12 +132,11 @@ export function directShipBreakdownOf(input: {
   dials: DirectShipDials;
   choice: BoxChoice | null;
   ivaRatePct: number;
-  fee: StripeFeeConfig;
   waiveRuleFee?: boolean;
 }): { ship: DirectShipFee; breakdown: DirectShipBreakdownDTO } {
   const today = directShipFeeOf(input.kind, input.subtotalCents, input.dials, input.choice);
   const ship = input.waiveRuleFee && !today.boxFeeApplies ? { ...today, feeCents: 0, freeShippingApplied: true } : today;
-  const breakdown = representableOrThrow(() => computeDirectShipBreakdown(input.subtotalCents, ship.feeCents, input.ivaRatePct, input.fee));
+  const breakdown = representableOrThrow(() => computeDirectShipBreakdown(input.subtotalCents, ship.feeCents, input.ivaRatePct));
   return { ship, breakdown };
 }
 

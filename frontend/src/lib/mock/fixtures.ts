@@ -626,6 +626,15 @@ type MockListingSeed = Omit<ListingDTO, 'displayPriceCents' | 'ivaIncluded' | 'i
 };
 
 /**
+ * D9 (`docs/specs/D9_COMISION.md` §2.1-2.2): `P = ceilPeso(M / (1 − pct × (1 + IVA)))` por unidad. Réplica del servidor
+ * SOLO para el mock; el front real nunca la calcula (`frontend-never-multiplies`). Carta 10000 ⇒ 10500.
+ */
+export function mockCardDisplayPriceCents(marketCents: number): number {
+  const divisor = 1 - (mockSettings.stripeFeePct / 100) * (1 + mockSettings.ivaPct / 100);
+  return Math.ceil(marketCents / divisor / 100) * 100;
+}
+
+/**
  * `P = round(L × (1 + t·r))`, **la misma expresión que `backend/src/common/money.ts`**, con el dial
  * de traslación (`t`) y la tasa (`r`) vivos.
  *
@@ -644,7 +653,7 @@ function deriveMockListing(seed: MockListingSeed): ListingDTO {
     version,
     finishLabel: mockFinishLabelOf(rest.finish, version.stamp?.label),
     ...(listPriceCents != null
-      ? { displayPriceCents: Math.round(listPriceCents * (1 + t * r)) }
+      ? { displayPriceCents: mockCardDisplayPriceCents(Math.round(listPriceCents * (1 + t * r))) }
       : {}),
     ivaIncluded: true,
     ivaRatePct: mockSettings.ivaPct,
@@ -4845,16 +4854,15 @@ function mockIvaTransferPosition(ivaTransferPct: number, samplePriceCents: numbe
   const taxBaseCents = Math.round(displayPriceCents / (1 + r));
   // RESIDUAL, nunca 0 (candado `IVA-8(a)`): mover el dial reduce el NETO, no el IVA registrado.
   const ivaCents = displayPriceCents - taxBaseCents;
-  const varRate = (mockSettings.stripeFeePct / 100) * (1 + r);
-  const fixed = mockSettings.stripeFeeFixedCents * (1 + r);
-  const feeCents = Math.round((displayPriceCents + fixed) / (1 - varRate) - displayPriceCents);
+  // D9: el total cobrado incluye la comisión (misma función que el precio exhibido). 11600 ⇒ 12200.
+  const totalChargedCents = mockCardDisplayPriceCents(displayPriceCents);
   return {
     ivaTransferPct,
     displayPriceCents,
     taxBaseCents,
     ivaCents,
     netRevenueCents: taxBaseCents,
-    totalChargedCents: displayPriceCents + feeCents,
+    totalChargedCents,
   };
 }
 

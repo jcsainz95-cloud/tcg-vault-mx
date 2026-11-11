@@ -309,7 +309,7 @@ describe('QA §AC.gates · el diálogo de preparado habla del tipo de renglón q
   it('un solo accesorio faltante (el resto sale): ningún texto del diálogo dice «carta»', async () => {
     const { dialog } = await openPrepared(order([missingDeckBox, pickedSleeves], { refundPreviewCents: 12000 }));
     expect(dialog.textContent ?? '').not.toMatch(/carta/i);
-    expect(dialog).toHaveTextContent('lo que el cliente pagó por cada accesorio más su parte de la comisión');
+    expect(dialog).toHaveTextContent('lo que el cliente pagó por cada accesorio.');
     expect(dialog).toHaveTextContent('Este reembolso queda a tu nombre.');
   });
 
@@ -329,7 +329,7 @@ describe('QA §AC.gates · el diálogo de preparado habla del tipo de renglón q
     const { c, dialog } = await openPrepared(order([missingDeckBox], { refundPreviewCents: 12000 }));
     expect(within(c).getByTestId('ship-footer-shp-1').textContent ?? '').not.toMatch(/carta/i);
     expect(dialog.textContent ?? '').not.toMatch(/carta/i);
-    expect(dialog).toHaveTextContent('No sale ningún accesorio: se devuelve todo lo cobrado —accesorios, envío y comisión—');
+    expect(dialog).toHaveTextContent('No sale ningún accesorio: se devuelve todo lo cobrado —accesorios y envío—');
   });
 
   it('mixto (carta y accesorio faltantes): el cuerpo nombra ambos', async () => {
@@ -346,7 +346,7 @@ describe('QA §AC.gates · el diálogo de preparado habla del tipo de renglón q
     o.items = [cardItem('1', { prepStatus: 'missing', missingReason: 'not_found' }), cardItem('2', { prepStatus: 'picked' })];
     o.preparation = { status: 'in_progress', refundPreviewCents: 31458, total: 2, pending: 0, picked: 1, missing: 1, blocked: 0 };
     const { dialog } = await openPrepared(o);
-    expect(dialog).toHaveTextContent('lo que el cliente pagó por cada carta más su parte de la comisión');
+    expect(dialog).toHaveTextContent('lo que el cliente pagó por cada carta.');
     expect(dialog).toHaveTextContent('Este reembolso queda a tu nombre y la carta pasa a merma con tu firma.');
   });
 });

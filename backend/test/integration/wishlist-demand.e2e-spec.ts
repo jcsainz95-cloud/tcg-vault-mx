@@ -56,9 +56,9 @@ describe('WSH-T19 / T8 / T22 por HTTP — contenido, orden y cifras (819, 820, 8
   it('criterio 827 de punta a punta: mercado $1,000, normal $1,150 sin IVA, una cuenta por nivel', async () => {
     const c = await w.card();
     await w.market(c.id, 'normal', 100000);
-    // precio normal $1,150: override de VENTA de la variante (M-30), la misma fuente que publicaría la pieza
+    // precio normal $1,100 sin IVA (D9: antes $1,150, que con la comisión dentro ya pasaba el máximo sin IVA del 16 %): override de VENTA de la variante (M-30), la misma fuente que publicaría la pieza
     await w.h.prisma.variantPriceOverride.create({
-      data: { cardId: c.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', sellOverrideCents: 115000 },
+      data: { cardId: c.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', sellOverrideCents: 110000 },
     });
     for (const p of [5, 10, 16] as const) await want(await w.customer(), c.id, p);
     const r = await demand();
@@ -67,25 +67,25 @@ describe('WSH-T19 / T8 / T22 por HTTP — contenido, orden y cifras (819, 820, 8
     const row = rowOf(r.body, c);
     expect(row.wantedCount).toBe(3);
     expect(row.tiers).toEqual([
-      { maxPct: 16, accounts: 1, maxDisplayCents: 116000, ceilingCents: 86957 },
-      { maxPct: 10, accounts: 1, maxDisplayCents: 110000, ceilingCents: 82459 },
-      { maxPct: 5, accounts: 1, maxDisplayCents: 105000, ceilingCents: 78711 },
+      { maxPct: 16, accounts: 1, maxDisplayCents: 116000, ceilingCents: 83325 },
+      { maxPct: 10, accounts: 1, maxDisplayCents: 110000, ceilingCents: 79015 },
+      { maxPct: 5, accounts: 1, maxDisplayCents: 105000, ceilingCents: 75424 },
     ]);
-    expect(row.mainCeilingCents).toBe(86957);
+    expect(row.mainCeilingCents).toBe(83325);
     expect(row.marketCents).toBe(100000);
-    expect(row.normalPrice).toEqual({ listCents: 115000, displayCents: 133400 });
+    expect(row.normalPrice).toEqual({ listCents: 110000, displayCents: 133200 });
     expect(row.buyersAtNormalPrice).toBe(0);
     expect(r.body.dials).toEqual({ ivaMode: 'with_iva', ivaRatePct: 16, ivaTransferPct: 100, targetMarginPct: 15, marginBasis: 'cost' });
 
     await w.setDial('wishlist_max_iva_mode', 'without_iva');
     const r2 = rowOf((await demand()).body, c);
-    expect(r2.tiers.map((t: any) => t.ceilingCents)).toEqual([100000, 95652, 91304]);
+    expect(r2.tiers.map((t: any) => t.ceilingCents)).toEqual([95680, 91658, 87491]); // 16 %: tope = el precio normal 133200 (con la comisión dentro) y el techo del dueño la quita (§D9 8.5)
     expect(r2.tiers.map((t: any) => t.maxDisplayCents)).toEqual([134560, 127600, 121800]);
     expect(r2.buyersAtNormalPrice).toBe(1);
 
     await w.setDial('wishlist_max_iva_mode', 'with_iva');
     await w.setDial('wishlist_target_margin_pct', 20);
-    expect(rowOf((await demand()).body, c).tiers[0].ceilingCents).toBe(83333);
+    expect(rowOf((await demand()).body, c).tiers[0].ceilingCents).toBe(79853);
   });
 
   it('solo cartas SIN piezas vendibles; orden por defecto; sin mercado al final con `null` (ni 0)', async () => {
@@ -184,7 +184,7 @@ describe('WSH-T20 / T21 / T35 — sin datos personales, CSV = JSON, `pct` en pun
     expect(f.text).not.toContain(a.id);
   });
 
-  it('T35: una cuenta al 5 % ⇒ {-9483, -9.5}; el CSV escribe -94.83 y -9.5; una al 16 % ⇒ {0, 0}', async () => {
+  it('T35 (§D9 8.5, sin la comisión): una cuenta al 5 % ⇒ {-13263, -13.3}; el CSV escribe -132.63 y -13.3; una al 16 % ⇒ {-4176, -4.2}', async () => {
     const a = await w.customer();
     const c5 = await w.card();
     await w.market(c5.id, 'normal', 100000);
@@ -193,10 +193,10 @@ describe('WSH-T20 / T21 / T35 — sin datos personales, CSV = JSON, `pct` en pun
     await w.market(c16.id, 'normal', 100000);
     await want(a, c16.id, 16);
     const r = await demand();
-    expect(rowOf(r.body, c5).marginAtMarket).toEqual({ cents: -9483, pct: -9.5 });
-    expect(rowOf(r.body, c16).marginAtMarket).toEqual({ cents: 0, pct: 0 });
+    expect(rowOf(r.body, c5).marginAtMarket).toEqual({ cents: -13263, pct: -13.3 });
+    expect(rowOf(r.body, c16).marginAtMarket).toEqual({ cents: -4176, pct: -4.2 });
     const line = (await csv()).text.split('\n').find((l) => l.startsWith(`"${c5.name}"`) || l.startsWith(c5.name))!;
-    expect(line).toContain(',-94.83,-9.5,');
+    expect(line).toContain(',-132.63,-13.3,');
   });
 
   it('T21: el CSV trae las mismas filas y el mismo orden que el JSON con el `sort` activo; pesos con 2 decimales', async () => {
@@ -249,6 +249,7 @@ describe('WSH-T17 — borrar la cuenta borra la lista (817)', () => {
         ivaTransferPct: 100,
         totalCents: 100,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
       },
     });
     const del = await w.h.api('DELETE', `/admin/users/${a.id}`, { token: w.adminToken });

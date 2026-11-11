@@ -6,7 +6,8 @@
 1. **Confianza visible**: todo estado de propiedad o dinero lleva badge claro (titularidad `pending/settled`, condición
    NM o empresa+grado+certificado, fecha y fuente del precio). Nunca se esconde un cargo.
 2. **Claridad sobre decoración**: jerarquía tipográfica fuerte, aire, cifras siempre etiquetadas; el dinero desglosado
-   (subtotal + comisión de plataforma + envío + descuento). Cada línea se nombra por lo que es para quien paga.
+   (subtotal + envío + descuento; D9: la comisión va DENTRO del precio, sin renglón ni frase; solo un pedido viejo con
+   `processingFeeCents > 0` conserva el suyo). Cada línea se nombra por lo que es para quien paga.
 3. **Coleccionismo serio**: la **carta es el héroe** (imagen grande de catálogo) sobre base editorial de papel; un solo
    acento bermellón usado con avaricia. ⛔ Sin degradados arcoíris, tipografías de juguete ni emojis en la UI.
 4. **Operable con una mano**: «Pedidos por preparar» funciona en celular (quien prepara está en el estante); el resto

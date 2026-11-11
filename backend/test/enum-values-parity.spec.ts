@@ -340,6 +340,7 @@ describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canó
   const SIN_LINEA_CANONICA: readonly string[] = [
     'NameSource',
     'PriceConvention',
+    'FeeConvention', // §D9 (M-100): convención de comisión por fila, espejo de PriceConvention; contrato en §3 D9, no en §0
     'PriceRefKind',
     'CardProductKind',
     'PendingPriceStatus',

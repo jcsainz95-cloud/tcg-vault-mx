@@ -19,7 +19,7 @@ import type { PriceBasis } from './pricing-curve';
 // runtime ⇒ `money.ts` sigue siendo funciones puras sin dependencias de infra. Se importa en vez de
 // re-declarar la unión de strings A PROPÓSITO: así, el día que el enum del esquema cambie, esto no
 // compila en vez de aceptar en silencio un valor que la columna ya no admite.
-import type { PriceConvention } from '@prisma/client';
+import type { FeeConvention, PriceConvention } from '@prisma/client';
 
 /**
  * §4.36.7a — los CINCO valores LOCKED de PROJECT §N.7. Se DEFINE en `pricing-curve.ts` (que no importa
@@ -663,7 +663,33 @@ export function saleDisplayCentsOf(
   s: { listPriceCents: number; fixedDisplayCents: number | null },
   d: IvaDials,
 ): number {
-  return s.fixedDisplayCents ?? displayPriceCentsOf(s.listPriceCents, d.ivaTransferPct, d.ivaRatePct);
+  // §D9: SOLO el precio calculado lleva la comisión dentro; el precio final del dueño (`fixedDisplayCents`) vale lo que escribió.
+  if (s.fixedDisplayCents != null) return s.fixedDisplayCents;
+  // §D9 8.4 (ii): FALLA CERRADO. Sin `stripeFeePct` (o no finito, o con divisor < 0.75) no se inventa un precio sin comisión.
+  assertFeeFormulaDials(d);
+  const withIva = displayPriceCentsOf(s.listPriceCents, d.ivaTransferPct, d.ivaRatePct);
+  return feeIncludedPriceCentsOf(withIva, d.stripeFeePct, d.ivaRatePct);
+}
+
+/** Divisor mínimo de la fórmula de `P` (1 − pct×(1+IVA)): por debajo, el precio se dispararía ⇒ no se calcula. */
+export const FEE_FORMULA_MIN_DIVISOR = 0.75;
+
+/** Error tipado de la fórmula de `P` con la comisión dentro (§D9 8.4). El job de precios aborta y conserva las filas previas. */
+export class FeeFormulaError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FeeFormulaError';
+  }
+}
+
+export function assertFeeFormulaDials(d: { stripeFeePct?: number | null; ivaRatePct: number }): void {
+  const pct = d.stripeFeePct;
+  if (pct == null || typeof pct !== 'number' || !Number.isFinite(pct) || pct < 0) {
+    throw new FeeFormulaError('stripeFeePct falta, no es finito o es negativo: no se calcula P (falla cerrado)');
+  }
+  if (1 - pct * (1 + d.ivaRatePct / 100) < FEE_FORMULA_MIN_DIVISOR) {
+    throw new FeeFormulaError('el divisor de la comisión (1 − pct×(1+IVA)) es < 0.75: no se calcula P (falla cerrado)');
+  }
 }
 
 /**
@@ -679,6 +705,11 @@ export interface IvaDials {
   ivaTransferPct: number;
   /** `r` — la **TASA** del impuesto, entero `[0,100]`. ⛔ **No es el dial.** */
   ivaRatePct: number;
+  /**
+   * §D9 — `stripe_fee_pct` (fracción, 0.036): la comisión de plataforma que `saleDisplayCentsOf` mete DENTRO del precio calculado.
+   * `getIvaDials()` SIEMPRE lo trae; `undefined` ⇒ sin comisión (solo fixtures de prueba y la vista previa del dial de IVA).
+   */
+  stripeFeePct: number;
 }
 
 /**
@@ -766,6 +797,40 @@ export function ivaIsIncluded(priceConvention: PriceConvention): boolean {
 export const PRICE_CONVENTION_OF_NEW_ROWS: PriceConvention = 'IVA_INCLUSIVE';
 
 /**
+ * ⭐⭐ §D9 — **LA CONVENCIÓN DE COMISIÓN CON LA QUE NACE TODA FILA DE DINERO NUEVA** (`Order`, `ShipmentRequest`).
+ * `FEE_INCLUDED`: la comisión de plataforma va DENTRO de `P`, `processingFeeCents = 0`, `total = subtotal + envío`.
+ * `FEE_ON_TOP` solo existe en filas migradas (m100). La columna es NOT NULL SIN default de BD (como `priceConvention`):
+ * esta constante es la fuente única de los escritores, no un default.
+ */
+export const FEE_CONVENTION_OF_NEW_ROWS: FeeConvention = 'FEE_INCLUDED';
+
+/**
+ * ⭐⭐ §D9 (P1-A, P2-A) — **EL PRECIO EXHIBIDO CON LA COMISIÓN DE PLATAFORMA DENTRO.**
+ * `P = ceilPeso( M / (1 − pct × (1 + r)) )` con `M` el precio con IVA de siempre (`displayPriceCentsOf`) y `pct` la tarifa
+ * porcentual de Stripe (`stripe_fee_pct`, fracción). El fijo de Stripe NO entra: lo absorbe la tienda. Redondeo AL PESO hacia
+ * arriba, una vez POR UNIDAD (`ΣP` es suma exacta de enteros).
+ *
+ * Aritmética entera (sin `1.16` ni `0.036` en binario sobre dinero): `pct` se lleva a millonésimas, `r` es entero
+ * ⇒ divisor `D = 10⁸ − pctμ·(100 + r)` y `P = ceil(M·10⁶ / D) × 100`. Cota: `M·10⁶ ≤ 2.2·10¹⁵ < 2⁵³`.
+ * `10000` con 3.6 % / 16 % ⇒ `D = 95 824 000` ⇒ `ceil(104.36) = 105` ⇒ `10500` (criterio C1).
+ */
+export function feeIncludedPriceCentsOf(displayCents: number, stripePct: number, ivaRatePct: number): number {
+  if (!Number.isFinite(stripePct) || stripePct < 0) throw new Error('stripePct must be a finite number >= 0');
+  if (displayCents <= 0) return displayCents;
+  const pctMicro = Math.round(stripePct * 1_000_000);
+  // Comisión 0 ⇒ nada que absorber: P es el exhibido con IVA tal cual (sin el redondeo al peso que existe para cubrir la comisión).
+  if (pctMicro === 0) return displayCents;
+  const divisor = 100_000_000 - pctMicro * (100 + ivaRatePct);
+  if (divisor <= 0) throw new Error('effective stripe pct (stripePct × (1 + iva)) must be in [0, 1)');
+  const num = displayCents * 1_000_000;
+  // techo entero exacto: el cociente flotante se corrige con productos enteros (exactos bajo 2^53).
+  let pesos = Math.floor(num / divisor);
+  while (pesos * divisor < num) pesos++;
+  while (pesos > 0 && (pesos - 1) * divisor >= num) pesos--;
+  return clampCents(pesos * 100);
+}
+
+/**
  * ⭐⭐ **EL CUERPO ÚNICO DE LOS TRES DESGLOSES** (`ARCHITECTURE §4.44.c`, `API_CONTRACT §M10-IVA.4`).
  *
  * ```
@@ -790,7 +855,6 @@ function inclusiveBreakdown(
   subtotalCents: number,
   shippingFeeCents: number,
   ivaRatePct: number,
-  fee: StripeFeeConfig,
 ): {
   ivaCents: number;
   processingFeeCents: number;
@@ -800,19 +864,23 @@ function inclusiveBreakdown(
 } {
   const grossUpBaseCents = subtotalCents + shippingFeeCents;
   const taxBaseCents = taxBaseCentsOf(grossUpBaseCents, ivaRatePct);
-  const totalCents = grossUpTotal(grossUpBaseCents, fee);
+  // §D9 (docs/specs/D9_COMISION.md §2.3): la comisión de plataforma YA VA DENTRO de cada `P`. Se cobra lo que el cliente vio:
+  // `total = ΣP + envío`, sin gross-up encima (`processingFeeCents` siempre 0 en filas nuevas, `FEE_INCLUDED`).
+  // MS-2 (BE-27): agregado no representable en Int32 ⇒ se RECHAZA (nunca se clampa: recortar = subcobro).
+  if (grossUpBaseCents > MAX_CENTS) {
+    throw new Error('total exceeds MAX_CENTS (Int32) — order amount not representable');
+  }
   return {
     // RESIDUAL (R2/R3): el redondeo lo absorbe el IVA, jamás el precio exhibido.
     ivaCents: grossUpBaseCents - taxBaseCents,
-    processingFeeCents: totalCents - grossUpBaseCents,
-    totalCents,
+    processingFeeCents: 0,
+    totalCents: grossUpBaseCents,
     // ⭐⭐ D56 / criterio **214**: toda fila NUEVA nace bajo la convención nueva. Es la MISMA
     // decisión que toman los cinco escritores, tomada una vez y en el sitio donde se hace el dinero.
     priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
     ivaIncluded: ivaIsIncluded(PRICE_CONVENTION_OF_NEW_ROWS),
   };
 }
-
 
 /**
  * Desglose de compra de cartas (bóveda). `ARCHITECTURE §4.44.c`, `API_CONTRACT §M10-IVA.4`.
@@ -824,13 +892,12 @@ function inclusiveBreakdown(
 export function computeCartBreakdown(
   subtotalCents: number,
   ivaPct: number,
-  fee: StripeFeeConfig,
 ): BreakdownDTO {
   return {
     subtotalCents,
     ivaRatePct: ivaPct,
     currency: 'MXN',
-    ...inclusiveBreakdown(subtotalCents, 0, ivaPct, fee),
+    ...inclusiveBreakdown(subtotalCents, 0, ivaPct),
   };
 }
 
@@ -845,7 +912,6 @@ export function computeCartBreakdown(
 export function computeShipmentBreakdown(
   shippingFeeCents: number,
   ivaPct: number,
-  fee: StripeFeeConfig,
 ): BreakdownDTO {
   return {
     subtotalCents: shippingFeeCents,
@@ -853,7 +919,7 @@ export function computeShipmentBreakdown(
     currency: 'MXN',
     // El «subtotal» de esta fila ES la tarifa ⇒ el agregado `G` es la tarifa sola. Se pasa por el
     // primer parámetro (y `0` de envío) para que `G` sea `E` y no `2E`.
-    ...inclusiveBreakdown(shippingFeeCents, 0, ivaPct, fee),
+    ...inclusiveBreakdown(shippingFeeCents, 0, ivaPct),
   };
 }
 
@@ -870,14 +936,13 @@ export function computeDirectShipBreakdown(
   subtotalCents: number,
   shippingFeeCents: number,
   ivaPct: number,
-  fee: StripeFeeConfig,
 ): DirectShipBreakdownDTO {
   return {
     subtotalCents,
     shippingFeeCents,
     ivaRatePct: ivaPct,
     currency: 'MXN',
-    ...inclusiveBreakdown(subtotalCents, shippingFeeCents, ivaPct, fee),
+    ...inclusiveBreakdown(subtotalCents, shippingFeeCents, ivaPct),
   };
 }
 
@@ -1055,6 +1120,15 @@ export interface RefundComponents {
   shippingIvaCents: number;
   processingFeeCents: number;
   compensationCents: number;
+}
+
+/**
+ * §D9 (docs/specs/D9_COMISION.md §3) — el costo de Stripe ESTIMADO con los diales, para una fila `FEE_INCLUDED` cuyo costo real
+ * (`stripeFeeCents`) aún no se leyó: `round( round(total × pct) + fijo ) × (1 + IVA)`. Solo el P&L la usa, y solo de respaldo.
+ * `total = 20500` ⇒ `round(738 + 300) × 1.16 = 1204` (C2).
+ */
+export function estimateStripeFeeCents(totalCents: number, fee: StripeFeeConfig): number {
+  return Math.round((Math.round(totalCents * fee.stripePct) + fee.stripeFixedCents) * (1 + fee.stripeFeeIvaPct));
 }
 
 /** Las columnas de `Order` que la fórmula lee. `S`, `E`, `F`, `r`, `total`, `ivaCents`. */

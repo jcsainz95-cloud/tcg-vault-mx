@@ -96,7 +96,7 @@ describe('§M4-SHIP.16 — publicStatus y shipment del cliente registrado (Postg
     expect(o.body.publicStatus).toBe('en_revision');
     // PO-5: re-expedición — A cancelado (más viejo) + B picking ⇒ B; todos cancelados ⇒ el más reciente
     const b = await h.prisma.shipmentRequest.create({
-      data: { orderId: f.order.id, userId: null, addressSnapshot: f.shipment.addressSnapshot as object, status: 'picking', pickingAt: new Date(), shippingFeeCents: 0, ivaCents: 0, processingFeeCents: 0, totalCents: 0, priceConvention: 'IVA_INCLUSIVE', requestedAt: new Date(Date.now() + 1000) },
+      data: { orderId: f.order.id, userId: null, addressSnapshot: f.shipment.addressSnapshot as object, status: 'picking', pickingAt: new Date(), shippingFeeCents: 0, ivaCents: 0, processingFeeCents: 0, totalCents: 0, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP', requestedAt: new Date(Date.now() + 1000) },
     });
     db.shipments.push(b.id);
     o = await db.clientOrder(f.order.id, tok);
@@ -134,7 +134,7 @@ describe('§M4-SHIP.16 — publicStatus y shipment del cliente registrado (Postg
     for (const c of combos) {
       await h.prisma.order.update({ where: { id: d.order.id }, data: { status: c.order as never } });
       if (c.shipment === null) await h.prisma.shipmentRequest.deleteMany({ where: { id: d.shipment.id } });
-      else await h.prisma.shipmentRequest.upsert({ where: { id: d.shipment.id }, create: { id: d.shipment.id, orderId: d.order.id, addressSnapshot: d.shipment.addressSnapshot as object, status: c.shipment as never, shippingFeeCents: 0, ivaCents: 0, processingFeeCents: 0, totalCents: 0, priceConvention: 'IVA_INCLUSIVE' }, update: { status: c.shipment as never } });
+      else await h.prisma.shipmentRequest.upsert({ where: { id: d.shipment.id }, create: { id: d.shipment.id, orderId: d.order.id, addressSnapshot: d.shipment.addressSnapshot as object, status: c.shipment as never, shippingFeeCents: 0, ivaCents: 0, processingFeeCents: 0, totalCents: 0, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP' }, update: { status: c.shipment as never } });
       await h.prisma.paymentRefund.deleteMany({ where: { orderId: d.order.id } });
       if (c.refundAll) {
         await h.prisma.paymentRefund.create({ data: { idempotencyKey: `po3:${d.order.id}`, kind: 'order_remaining', orderId: d.order.id, amountCents: d.order.totalCents, merchandiseCents: d.order.totalCents, merchandiseIvaCents: 0, shippingCents: 0, shippingIvaCents: 0, processingFeeCents: 0, status: 'submitted', stripeRefundId: `re_po3_${d.order.id}`, requestedByUserId: db.adminId, requestedByRole: 'super_admin', submittedAt: new Date() } });

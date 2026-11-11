@@ -74,6 +74,7 @@ describe('💰 BSD-B32…B36 — guía y tarifa del buylist en el P&L (Postgres 
         addressSnapshot: SNAPSHOT,
         shippingFeeCents: 0,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         labelSource: 'skydropx',
         providerShipmentId: `prov-${RUN}-${seq}`,
         providerRateId: `rate-${RUN}-${seq}`,
@@ -211,9 +212,11 @@ describe('💰 BSD-B32…B36 — guía y tarifa del buylist en el P&L (Postgres 
     expect(cols.slice(-4)).toEqual([...NEW_KEYS]);
     // v1.95⟨pnl-finanzas⟩ (§M10-IVA.8-bis C): el JSON gana `statement` (solo-JSON); el CSV NO cambia (sigue plano).
     // Por eso la paridad columna⇄DTO se mide sobre los campos PLANOS, excluyendo `statement`.
-    const flatKeys = (o: Record<string, unknown>) => Object.keys(o).filter((k) => k !== 'statement');
+    // D9 (§8.4): `stripeFeeEstimatedOrders`/`stripeFeeEstimatedCents` (comisión estimada de Stripe, informativas) son también solo-JSON.
+    const JSON_ONLY = new Set(['statement', 'stripeFeeEstimatedOrders', 'stripeFeeEstimatedCents', 'feeIncludedSince']);
+    const flatKeys = (o: Record<string, unknown>) => Object.keys(o).filter((k) => !JSON_ONLY.has(k));
     const flatVals = (o: Record<string, unknown>) =>
-      Object.entries(o).filter(([k]) => k !== 'statement').map(([, v]) => String(v));
+      Object.entries(o).filter(([k]) => !JSON_ONLY.has(k)).map(([, v]) => String(v));
     expect(cols.slice(1)).toEqual(flatKeys(after));
     const now = await pnl();
     expect(row.split(',')).toEqual(['pnl', ...flatVals(now)]);

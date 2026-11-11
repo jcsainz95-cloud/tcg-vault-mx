@@ -161,6 +161,7 @@ export async function mkSkydropxShipment(
       status: over.status ?? 'guia',
       shippingFeeCents: 0,
       priceConvention: 'IVA_EXCLUSIVE',
+      feeConvention: 'FEE_ON_TOP',
       carrier: 'DHL',
       labelSource: 'skydropx',
       providerShipmentId,

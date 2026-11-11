@@ -1,8 +1,6 @@
 import {
-  StripeFeeConfig,
   computeCartBreakdown,
   displayPriceCentsOf,
-  grossUpTotal,
   taxBaseCentsOf,
 } from '../src/common/money';
 
@@ -31,7 +29,6 @@ import {
  * permiso.* Aquí se implementa **`⌊(n+1)/2⌋` sobre la BASE**, que es el canon vigente.
  */
 
-const FEE: StripeFeeConfig = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const R = 16;
 /** El carrito de 7 piezas que publica el contrato. */
 const CARRITO = [103, 999, 1, 12345, 7, 250, 8888];
@@ -40,7 +37,7 @@ const CARRITO = [103, 999, 1, 12345, 7, 250, 8888];
 function carrito(Ls: readonly number[], t: number) {
   const unidades = Ls.map((L) => displayPriceCentsOf(L, t, R));
   const subtotalCents = unidades.reduce((a, b) => a + b, 0);
-  return { unidades, ...computeCartBreakdown(subtotalCents, R, FEE) };
+  return { unidades, ...computeCartBreakdown(subtotalCents, R) };
 }
 
 describe('⭐ `IVA-4` — R1/R2/R3: el redondeo vive en `P`, y el residual absorbe el resto', () => {
@@ -117,7 +114,8 @@ describe('⭐ `IVA-4` — R1/R2/R3: el redondeo vive en `P`, y el residual absor
     // total viene de la base y de nada más. Por eso el canon se enuncia sobre la BASE: enunciarlo
     // sobre el total arrastraría el `ceil` del gross-up, que no tiene que ver con el redondeo.
     const c = carrito(CARRITO, 100);
-    expect(c.totalCents).toBe(grossUpTotal(c.subtotalCents, FEE));
+    // D9: la comisión va dentro de cada `P` ⇒ no hay gross-up y el total ES la base.
+    expect(c.totalCents).toBe(c.subtotalCents);
   });
 
   it('⭐ la cota se sostiene sobre 300 carritos generados, con n variable', () => {

@@ -90,7 +90,7 @@ describe('💰 AC-B1 — M-73 (accesorios) contra Postgres real', () => {
   /** Un `Order` mínimo válido. `direct_ship` ⇒ de invitado; `vault` ⇒ con cuenta. */
   async function order(tx: any, mode: 'direct_ship' | 'vault'): Promise<string> {
     seq += 1;
-    const base = { subtotalCents: 8900, processingFeeCents: 300, ivaCents: 1228, totalCents: 9200, priceConvention: 'IVA_INCLUSIVE' };
+    const base = { subtotalCents: 8900, processingFeeCents: 300, ivaCents: 1228, totalCents: 9200, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP' };
     if (mode === 'direct_ship') {
       const o = await tx.order.create({
         data: { ...base, guestEmail: `m73.${RUN}.${seq}@e2e.local`, fulfillmentMode: 'direct_ship', shippingAddressSnapshot: { line1: 'Calle 1' } },
@@ -517,7 +517,7 @@ describe('💰 AC-B1 — M-73 (accesorios) contra Postgres real', () => {
   describe('ShipmentAccessoryLine, Order, ShippingPackage, PaymentRefund', () => {
     async function shipment(tx: any, orderId: string): Promise<string> {
       const s = await tx.shipmentRequest.create({
-        data: { orderId, addressSnapshot: { line1: 'Calle 1' }, shippingFeeCents: 17500, priceConvention: 'IVA_INCLUSIVE' },
+        data: { orderId, addressSnapshot: { line1: 'Calle 1' }, shippingFeeCents: 17500, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP' },
       });
       return s.id;
     }

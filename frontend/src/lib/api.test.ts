@@ -310,8 +310,9 @@ describe('api (rama mock) · WS-F checkout + shipments + direcciones', () => {
     expect(res.orderId).toMatch(/^ord-/);
     expect(res.stripe.clientSecret).toBeTruthy();
     expect(res.stripe.paymentIntentId).toBeTruthy();
-    // El total = subtotal + IVA + fee (BreakdownDTO); mayor que el subtotal de la carta.
-    expect(res.breakdown.totalCents).toBeGreaterThan(group.displayPriceCents);
+    // D9: la comisión va dentro del precio ⇒ compra a bóveda: total = subtotal = precio exhibido, sin comisión encima.
+    expect(res.breakdown.processingFeeCents).toBe(0);
+    expect(res.breakdown.totalCents).toBe(group.displayPriceCents);
   });
 
   it('createShipment cobra el envío settled y devuelve clientSecret; MX-only y ITEM_NOT_SETTLED', async () => {

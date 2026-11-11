@@ -36,7 +36,7 @@ describe('E2E — el SEED resiembra tras usos de códigos de descuento (FK Restr
     processingFeeCents: 0,
     ivaCents: 0,
     totalCents: 10000,
-    priceConvention: 'IVA_INCLUSIVE' as const,
+    priceConvention: 'IVA_INCLUSIVE' as const, feeConvention: 'FEE_ON_TOP' as const,
     ivaTransferPct: 100,
     locale: 'es' as const,
   };
@@ -83,6 +83,7 @@ describe('E2E — el SEED resiembra tras usos de códigos de descuento (FK Restr
         processingFeeCents: 0,
         totalCents: 0,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
       },
     });
     // Uso sobre un pedido de INVITADO (`@example.com`, el dominio que el paso 3-pre del seed purga).

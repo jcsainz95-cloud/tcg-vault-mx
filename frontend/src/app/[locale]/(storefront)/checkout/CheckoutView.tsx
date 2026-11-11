@@ -465,13 +465,10 @@ export function CheckoutView() {
       {data && !isDesktop && (
         <CheckoutPayBar
           summaryLine={
-            // C11 sin envío (compra a bóveda): «Descuento −MX$X · comisión de plataforma MX$Y»; sin código, T3b de hoy.
+            // C11 sin envío (compra a bóveda): «Descuento −MX$X»; sin código, la barra no lleva línea (D9: la comisión va dentro del precio).
             dsc.applied && dsc.applied.kind !== 'free_shipping'
-              ? t('discount.barVault', {
-                  amount: formatMoneyCents(dsc.applied.discountCents, locale),
-                  fee: formatMoneyCents(data.breakdown.processingFeeCents, locale),
-                })
-              : t('bar.includesFee', { fee: formatMoneyCents(data.breakdown.processingFeeCents, locale) })
+              ? t('discount.barVault', { amount: formatMoneyCents(dsc.applied.discountCents, locale) })
+              : ''
           }
           totalLabel={formatMoneyCents(data.breakdown.totalCents, locale)}
           payLabel={creating ? t('preparing') : t('payNoAmount')}

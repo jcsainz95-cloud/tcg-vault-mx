@@ -26,9 +26,9 @@
  * `Number.MAX_SAFE_INTEGER` (`9.0e15`) ⇒ el producto intermedio es **exacto**, no aproximado.
  */
 import {
-  StripeFeeConfig,
   displayPriceCentsOf,
-  grossUpTotal,
+  feeIncludedPriceCentsOf,
+  MAX_CENTS,
   taxBaseCentsOf,
 } from '../../common/money';
 import type { IvaDials } from '../../common/money';
@@ -121,6 +121,11 @@ export const IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT = 10_000;
  */
 export const IVA_TRANSFER_SAMPLE_PRICE_CENTS_MAX = 100_000_000;
 
+function assertRepresentable(totalCents: number): number {
+  if (totalCents > MAX_CENTS) throw new Error('total exceeds MAX_CENTS (Int32) — order amount not representable');
+  return totalCents;
+}
+
 /**
  * Una posición del dial, entera. **El servidor la calcula; ⛔ el frontend no multiplica nada**
  * (`ARCHITECTURE §4.44.i`): si el front computara el delta, el acuse probaría que el front sabe
@@ -130,7 +135,7 @@ export function ivaTransferPosition(
   listPriceCents: number,
   ivaTransferPct: number,
   ivaRatePct: number,
-  fee: StripeFeeConfig,
+  stripeFeePct = 0,
 ): IvaTransferPositionDTO {
   const displayPriceCents = displayPriceCentsOf(listPriceCents, ivaTransferPct, ivaRatePct);
   const taxBaseCents = taxBaseCentsOf(displayPriceCents, ivaRatePct);
@@ -143,7 +148,9 @@ export function ivaTransferPosition(
     // `netRevenueCents == taxBaseCents` bajo `IVA_INCLUSIVE` (criterio 191). Es la MISMA decisión
     // que `money.netRevenueCents()` toma sobre una fila persistida; aquí es sobre una hipótesis.
     netRevenueCents: taxBaseCents,
-    totalChargedCents: grossUpTotal(displayPriceCents, fee),
+    // §D9 (§8.4 iii): lo que SE COBRA es `P = feeIncludedPriceCentsOf(exhibido, pct, r)` (la comisión de plataforma dentro, al peso
+    // hacia arriba): 11600 con 3.6 % / 16 % ⇒ 12200. Informativo: no entra en el delta del acuse. Misma cota que `grossUpTotal`.
+    totalChargedCents: assertRepresentable(feeIncludedPriceCentsOf(displayPriceCents, stripeFeePct, ivaRatePct)),
   };
 }
 
@@ -163,11 +170,12 @@ export function ivaTransferPreview(params: {
   proposedPct: number;
   ivaRatePct: number;
   samplePriceCents: number;
-  fee: StripeFeeConfig;
+  /** `stripe_fee_pct` (fracción) para el total realmente cobrado; sin él ⇒ 0 (total = exhibido). */
+  stripeFeePct?: number;
 }): IvaTransferPreviewDTO {
-  const { currentPct, proposedPct, ivaRatePct, samplePriceCents, fee } = params;
-  const current = ivaTransferPosition(samplePriceCents, currentPct, ivaRatePct, fee);
-  const proposed = ivaTransferPosition(samplePriceCents, proposedPct, ivaRatePct, fee);
+  const { currentPct, proposedPct, ivaRatePct, samplePriceCents, stripeFeePct = 0 } = params;
+  const current = ivaTransferPosition(samplePriceCents, currentPct, ivaRatePct, stripeFeePct);
+  const proposed = ivaTransferPosition(samplePriceCents, proposedPct, ivaRatePct, stripeFeePct);
   return {
     ivaRatePct,
     samplePriceCents,

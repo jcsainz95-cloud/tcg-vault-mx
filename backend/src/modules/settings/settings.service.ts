@@ -1,10 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { StripeFeeConfig } from '../../common/money';
 import { BusinessException } from '../../common/business.exception';
 import {
   CROSS_RULE_KEYS,
+  validateStripeFeeCombination,
   RETIRED_SETTING_KEYS,
   SETTINGS_CROSS_RULES_LOCK_KEY,
   SETTING_DEFAULTS,
@@ -294,19 +294,6 @@ export class SettingsService implements OnModuleInit {
     return new Map(rows.map((r) => [r.key as SettingKeyType, r.valueJson as unknown]));
   }
 
-  /** Config de comisión Stripe para el gross-up (ARCHITECTURE §5.1). */
-  async getStripeFee(): Promise<StripeFeeConfig> {
-    return {
-      stripePct: await this.getNumber(SettingKey.STRIPE_FEE_PCT),
-      stripeFixedCents: await this.getNumber(SettingKey.STRIPE_FEE_FIXED_CENTS),
-      // v1.40 (Enmienda A, P-37): el IVA que Stripe MX cobra SOBRE su comisión deja de tener dial
-      // propio (`stripe_fee_iva_pct`, retirado) y se DERIVA de la fuente única `IVA_PCT` (porcentaje
-      // [0,100] → fracción). Matemáticamente idéntico al centavo (16/100 = 0.16); el neteo NO cambia.
-      // La clave de BD `stripe_fee_iva_pct` queda inerte: NUNCA se lee (jamás cae a la fila vieja ni a 0).
-      stripeFeeIvaPct: (await this.getNumber(SettingKey.IVA_PCT)) / 100,
-    };
-  }
-
   // ────────────────────────────────────────────────────────────────────────────────────────────
   // ⭐⭐ LA PUERTA ÚNICA DEL DIAL DE TRASLACIÓN DEL IVA (§M10-IVA.1/.2/.9, §4.55, criterio 213)
   // ────────────────────────────────────────────────────────────────────────────────────────────
@@ -338,12 +325,15 @@ export class SettingsService implements OnModuleInit {
     // cada cotización. `getRawMany` trae las dos filas en un `findMany`; el fallback a
     // `SETTING_DEFAULTS` es el mismo que hace `get()`, escrito aquí porque `getRawMany` —a propósito—
     // distingue «la fila no existe» de «existe con el valor del seed».
-    const filas = await this.getRawMany([SettingKey.IVA_TRANSFER_PCT, SettingKey.IVA_PCT]);
+    const filas = await this.getRawMany([SettingKey.IVA_TRANSFER_PCT, SettingKey.IVA_PCT, SettingKey.STRIPE_FEE_PCT]);
     const leer = (k: SettingKeyType) =>
       Number(filas.has(k) ? filas.get(k) : SETTING_DEFAULTS[k]);
     return {
       ivaTransferPct: leer(SettingKey.IVA_TRANSFER_PCT),
       ivaRatePct: leer(SettingKey.IVA_PCT),
+      // §D9: la comisión de plataforma va DENTRO de `P` (`saleDisplayCentsOf`). Se lee junto con los otros dos para que una
+      // misma petición derive todos sus precios con el mismo instante del dial. ⛔ El dial de traslación NO entra aquí (IVA-7).
+      stripeFeePct: leer(SettingKey.STRIPE_FEE_PCT),
     };
   }
 
@@ -364,12 +354,12 @@ export class SettingsService implements OnModuleInit {
     samplePriceCents: number = IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT,
     db: SettingRowReader = this.prisma,
   ): Promise<IvaTransferPreviewDTO> {
-    const [currentPct, ivaRatePct, fee] = await Promise.all([
+    const [currentPct, ivaRatePct, stripeFeePct] = await Promise.all([
       this.getIvaTransferPct(db),
       this.getNumber(SettingKey.IVA_PCT, db),
-      this.getStripeFee(),
+      this.getNumber(SettingKey.STRIPE_FEE_PCT, db),
     ]);
-    return ivaTransferPreview({ currentPct, proposedPct, ivaRatePct, samplePriceCents, fee });
+    return ivaTransferPreview({ currentPct, proposedPct, ivaRatePct, samplePriceCents, stripeFeePct });
   }
 
   /**
@@ -424,8 +414,6 @@ export class SettingsService implements OnModuleInit {
     // produciría un `409` que miente sobre la causa.
     const ack = this.parseIvaTransferAck(input.acknowledgement);
 
-    const fee = await this.getStripeFee();
-
     return this.prisma.$transaction(async (tx) => {
       // (3) LA PUERTA. Se toma ANTES de leer el vigente: leer fuera es validar el estado de antes
       // del candado, que es el defecto entero de `S-FX-1`.
@@ -440,12 +428,13 @@ export class SettingsService implements OnModuleInit {
       // la misma petición que lo confirma no es un control, es una casilla.* El campo del cuerpo
       // sobrevive para dejar constancia auditada de sobre qué `L` se firmó, ⛔ no para decidirlo.
       const samplePriceCents = IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT;
+      const stripeFeePct = await this.getNumber(SettingKey.STRIPE_FEE_PCT, tx);
       const preview = ivaTransferPreview({
         currentPct,
         proposedPct,
         ivaRatePct,
         samplePriceCents,
-        fee,
+        stripeFeePct,
       });
 
       // (4) Idempotente: el valor no se mueve ⇒ ni acuse, ni escritura, ni bitácora.
@@ -703,6 +692,8 @@ export class SettingsService implements OnModuleInit {
         await this.assertBuylistCrossDials(validated, tx);
         // v1.113⟨portada⟩ (§DYN.3) — las dos reglas de Destacadas, sobre el valor RESULTANTE del `PUT` parcial.
         await this.assertFeaturedCombination(validated, tx);
+        // §D9 8.4 (i) — comisión × (1+IVA) ≤ 0.25, al guardar `stripe_fee_pct` O `iva_pct`.
+        await this.assertStripeFeeCombination(validated, tx);
       }
 
       // ⭐ El pin va DENTRO de la misma transacción que el valor: es imposible que quede el número
@@ -847,33 +838,21 @@ export class SettingsService implements OnModuleInit {
   }
 
   /**
-   * v1.51 (M-46, §4.39l / API_CONTRACT §M10, criterio 127) — **la validación CRUZADA de TRES
-   * términos, evaluada sobre el ESTADO RESULTANTE.**
-   *
-   * ```
-   * buylistShippingFeeCents + buylistMinimumOfferNetCents  <=  buylistMinimumRequestCents
-   * ```
-   *
-   * ### ⚠️ Por qué NO puede vivir en `SETTING_VALIDATORS`
-   * Aquel mapa es **un validador por clave**, y un validador por clave **solo ve su propio valor**.
-   * Esta regla relaciona **tres** claves, así que necesita el único punto del sistema que conoce el
-   * resultado completo: este método.
-   *
-   * ### ⚠️ SE EVALÚA SOBRE `{...vigente, ...body}`, NO SOBRE EL BODY — y con TRES claves importa MÁS
-   * `PUT /admin/settings` es **PARCIAL**. Validar solo lo que viene permitiría **romper el invariante
-   * mandando UNA de las TRES** (subir la tarifa a secas, o bajar el mínimo a secas) — exactamente el
-   * agujero que esta validación existe para tapar, ahora con una puerta más. Por eso se leen los
-   * valores **vigentes** de las tres claves y se superponen las que trae el `body`.
-   *
-   * ### Es BLOQUEANTE y aplica en LOS TRES SENTIDOS
-   * Subir la tarifa, **subir el piso** o **bajar el mínimo de compra** se rechazan **igual**. *Eran
-   * dos sentidos; con tres términos son tres.*
-   *
-   * ### Corto circuito deliberado
-   * Si el `body` no toca **ninguna** de las tres claves, no se lee nada: un `PUT` de `ivaPct` no
-   * paga tres queries por una regla que no puede haber roto. (El estado vigente ya cumplía el
-   * invariante: es la postcondición de todo `PUT` anterior.)
+   * §D9 8.4 (i) — `stripe_fee_pct × (1 + iva_pct/100) ≤ 0.25`, sobre `{...vigente, ...body}`, al guardar el pct O el IVA.
+   * ⇒ `422 VALIDATION_ERROR` con `details.rule = stripe_fee_pct_times_iva`.
    */
+  private async assertStripeFeeCombination(
+    validated: { settingKey: SettingKeyType; value: unknown }[],
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const incoming = new Map(validated.filter((v) => v.settingKey === SettingKey.STRIPE_FEE_PCT || v.settingKey === SettingKey.IVA_PCT).map((v) => [v.settingKey, v.value]));
+    if (incoming.size === 0) return;
+    const rows = await this.getRawMany([SettingKey.STRIPE_FEE_PCT, SettingKey.IVA_PCT], tx);
+    const resolve = (key: SettingKeyType): number => Number(incoming.has(key) ? incoming.get(key) : (rows.get(key) ?? SETTING_DEFAULTS[key]));
+    const problem = validateStripeFeeCombination({ stripePct: resolve(SettingKey.STRIPE_FEE_PCT), ivaPct: resolve(SettingKey.IVA_PCT) });
+    if (problem) throw BusinessException.validation('VALIDATION_ERROR', problem.message, { rule: 'stripe_fee_pct_times_iva' });
+  }
+
   /**
    * v1.113⟨portada⟩ (API_CONTRACT §DYN.3) — `featuredRandomSlots + featuredNewArrivalSlots ∈ [1, 20]` y `featuredPoolSize ≥
    * featuredRandomSlots`, evaluadas sobre `{...vigente, ...body}` (mismo patrón que `assertBuylistCrossDials`: validar solo
@@ -905,6 +884,34 @@ export class SettingsService implements OnModuleInit {
     if (problem) throw BusinessException.validation('VALIDATION_ERROR', problem.message, { rule: problem.rule });
   }
 
+  /**
+   * v1.51 (M-46, §4.39l / API_CONTRACT §M10, criterio 127) — **la validación CRUZADA de TRES
+   * términos, evaluada sobre el ESTADO RESULTANTE.**
+   *
+   * ```
+   * buylistShippingFeeCents + buylistMinimumOfferNetCents  <=  buylistMinimumRequestCents
+   * ```
+   *
+   * ### ⚠️ Por qué NO puede vivir en `SETTING_VALIDATORS`
+   * Aquel mapa es **un validador por clave**, y un validador por clave **solo ve su propio valor**.
+   * Esta regla relaciona **tres** claves, así que necesita el único punto del sistema que conoce el
+   * resultado completo: este método.
+   *
+   * ### ⚠️ SE EVALÚA SOBRE `{...vigente, ...body}`, NO SOBRE EL BODY — y con TRES claves importa MÁS
+   * `PUT /admin/settings` es **PARCIAL**. Validar solo lo que viene permitiría **romper el invariante
+   * mandando UNA de las TRES** (subir la tarifa a secas, o bajar el mínimo a secas) — exactamente el
+   * agujero que esta validación existe para tapar, ahora con una puerta más. Por eso se leen los
+   * valores **vigentes** de las tres claves y se superponen las que trae el `body`.
+   *
+   * ### Es BLOQUEANTE y aplica en LOS TRES SENTIDOS
+   * Subir la tarifa, **subir el piso** o **bajar el mínimo de compra** se rechazan **igual**. *Eran
+   * dos sentidos; con tres términos son tres.*
+   *
+   * ### Corto circuito deliberado
+   * Si el `body` no toca **ninguna** de las tres claves, no se lee nada: un `PUT` de `ivaPct` no
+   * paga tres queries por una regla que no puede haber roto. (El estado vigente ya cumplía el
+   * invariante: es la postcondición de todo `PUT` anterior.)
+   */
   private async assertBuylistCrossDials(
     validated: { settingKey: SettingKeyType; value: unknown }[],
     tx: Prisma.TransactionClient,

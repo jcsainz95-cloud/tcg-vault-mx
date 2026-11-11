@@ -14,6 +14,7 @@
  *
  * ⛔ Las corridas AUTOMÁTICAS de `price-ingest` no disparan nada aquí (el dueño pidió «una vez al día», §X.1 / DYN-B18).
  */
+import { createHash } from 'crypto';
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ListingPrice, ListingPriceRunTrigger, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -42,6 +43,18 @@ import {
 
 /** Candado consultivo de las escrituras de `ListingPrice` (una transacción de lote a la vez entre instancias). */
 export const LISTING_PRICE_LOCK_KEY = 91_130_102;
+/** §D9 8.2: candado de una sola instancia para el recálculo por versión de fórmula (censo: `lock-keys.census.spec.ts`). */
+export const FORMULA_RECALC_LOCK_KEY = 91_130_190;
+/** §D9 8.2: la fila de `ConfigSetting` con la versión de la fórmula con que se escribieron las `ListingPrice` vigentes. */
+export const LISTING_PRICE_FORMULA_VERSION_KEY = 'listing_price_formula_version';
+/** §D9 8.2 (c): TTL de la bandera en memoria «la versión difiere». */
+export const FORMULA_STALE_TTL_MS = 60_000;
+
+/** §D9 8.2 (a) — `sha1("d9|"+stripe_fee_pct+"|"+iva_pct)`: cambia al desplegar D9 y con cualquier cambio futuro de los diales. */
+export function formulaVersionOf(d: { stripeFeePct: number; ivaRatePct: number }): string {
+  return createHash('sha1').update(`d9|${d.stripeFeePct}|${d.ivaRatePct}`).digest('hex');
+}
+
 /** §DYN.5.3: lotes de 500 piezas por transacción. */
 export const LISTING_PRICE_BATCH_SIZE = 500;
 /** §DYN.5.10 (v1.114.4): una `ListingPriceRun` sin fila que la cite se poda pasados estos días (constante, no dial). */
@@ -165,6 +178,9 @@ export async function liveSalesFor(
   return out;
 }
 
+/** D9-7: a cuántos `partial` consecutivos de `formulaTick` se alerta. */
+const FORMULA_PARTIAL_ALERT_AT = 3;
+
 @Injectable()
 export class ListingPriceService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(ListingPriceService.name);
@@ -191,6 +207,8 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     try {
       const done = await this.prisma.listingPriceRun.findFirst({ where: { trigger: 'bootstrap', status: 'ok' }, select: { id: true } });
       if (!done) this.enqueue('bootstrap');
+      // §D9 8.2 (a): al arrancar, si la versión de la fórmula difiere (despliegue de D9), recálculo completo en segundo plano.
+      void this.formulaTick();
     } catch (e) {
       this.logger.error(`listing-price: no se pudo comprobar el bootstrap: ${(e as Error).message}`);
     }
@@ -466,6 +484,8 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
    * Lecturas: las filas (1) y, solo si alguna pieza CON fila trae `cardProductId`, los productos de liga (≤ 1, `stampsOf`).
    */
   async currentRowsFor(items: readonly SaleItem[]): Promise<Map<string, ListingPrice>> {
+    // §D9 8.2 (c): mientras la versión de la fórmula difiera NINGUNA fila vieja se exhibe ni se cobra: todo se calcula en vivo.
+    if (await this.isFormulaStale()) return new Map();
     const rows = await this.rowsFor(items.map((i) => i.id));
     if (rows.size === 0) return rows;
     const withRow = items.filter((i) => rows.has(i.id));
@@ -501,7 +521,7 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
       // Las entradas del cuerpo, izadas SOLO para las piezas sin fila (con fila no se lee curva, política ni override).
       const b = await this.decider.loadBatch(missing);
       for (const [id, s] of await liveSalesFor(this.decider, missing, dials, b)) out.set(id, s);
-      void this.enqueue('missing_row', missing.map((m) => m.id));
+      if (!(await this.isFormulaStale())) void this.enqueue('missing_row', missing.map((m) => m.id));
     }
     return out;
   }
@@ -548,8 +568,96 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
         missing.push(item.id);
       }
     }
-    if (missing.length > 0) void this.enqueue('missing_row', missing);
+    if (missing.length > 0 && !(await this.isFormulaStale())) void this.enqueue('missing_row', missing);
     return out;
+  }
+
+  // ───────────────────────────────────────────── versión de la fórmula (D9 8.2) ─────────────────────────────────────────────
+
+  private formulaStale: { at: number; stale: boolean } | null = null;
+  /** D9-7: tics `partial` seguidos (se pone a 0 con cualquier otro resultado); al 3.º seguido ⇒ `logger.error`. */
+  private formulaPartialStreak = 0;
+
+  /** Olvida la bandera en memoria (tras escribir la versión, o en pruebas). */
+  resetFormulaStaleCache(): void {
+    this.formulaStale = null;
+  }
+
+  /**
+   * §D9 8.2 (c) — ¿la versión de la fórmula guardada difiere de la vigente? Bandera en memoria con TTL 60 s. Sin fila guardada
+   * ⇒ difiere (es el despliegue de D9). Si la lectura falla se falla CERRADO: «difiere» (se calcula P en vivo, que es siempre
+   * correcto) y se avisa; la bandera no se guarda, así que la siguiente consulta reintenta la lectura.
+   */
+  async isFormulaStale(now: number = Date.now()): Promise<boolean> {
+    if (this.formulaStale && now - this.formulaStale.at < FORMULA_STALE_TTL_MS) return this.formulaStale.stale;
+    try {
+      const [dials, row] = await Promise.all([
+        this.settings.getIvaDials(),
+        this.prisma.configSetting.findUnique({ where: { key: LISTING_PRICE_FORMULA_VERSION_KEY } }),
+      ]);
+      const stored = (row?.valueJson as { v?: string } | null | undefined)?.v;
+      this.formulaStale = { at: now, stale: stored !== formulaVersionOf(dials) };
+    } catch (e) {
+      this.logger.warn(`listing-price: no se pudo comprobar la versión de la fórmula: ${(e as Error).message}`);
+      this.formulaStale = null;
+      return true;
+    }
+    return this.formulaStale.stale;
+  }
+
+  /**
+   * §D9 8.2 (a)(b) — el disparador: al arrancar, cada 10 min (cron `listing-price-formula`) y tras el `daily`: si la versión
+   * guardada ≠ la vigente ⇒ recálculo COMPLETO una vez (por lotes, idempotente por clave de `ListingPrice`) bajo
+   * `FORMULA_RECALC_LOCK_KEY` (una sola instancia); la versión se escribe SOLO al terminar todo bien. Fallo o caída ⇒ el
+   * siguiente tic lo retoma. Nunca lanza.
+   */
+  async formulaTick(): Promise<{ status: 'current' | 'busy' | 'ran' | 'partial' | 'failed' }> {
+    const out = await this.formulaTickOnce();
+    if (out.status === 'partial') {
+      this.formulaPartialStreak++;
+      if (this.formulaPartialStreak === FORMULA_PARTIAL_ALERT_AT) {
+        this.logger.error(
+          `listing-price: ${this.formulaPartialStreak} recálculos de fórmula seguidos quedaron PARCIALES (piezas saltadas por candado): hay precios con la fórmula vieja y la versión no se escribe`,
+        );
+      }
+    } else if (out.status !== 'busy') {
+      this.formulaPartialStreak = 0;
+    }
+    return out;
+  }
+
+  private async formulaTickOnce(): Promise<{ status: 'current' | 'busy' | 'ran' | 'partial' | 'failed' }> {
+    try {
+      const dials = await this.settings.getIvaDials();
+      const version = formulaVersionOf(dials);
+      const row = await this.prisma.configSetting.findUnique({ where: { key: LISTING_PRICE_FORMULA_VERSION_KEY } });
+      if ((row?.valueJson as { v?: string } | null | undefined)?.v === version) {
+        this.resetFormulaStaleCache();
+        return { status: 'current' };
+      }
+      return await this.prisma.$transaction(
+        async (tx) => {
+          const [{ ok }] = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(${FORMULA_RECALC_LOCK_KEY}) AS ok`;
+          if (!ok) return { status: 'busy' as const };
+          const res = await this.run('dial_change');
+          if (res.status !== 'ok') return { status: 'failed' as const };
+          // D9-6: piezas saltadas por SKIP LOCKED conservan su fila VIEJA: con la versión escrita se cobrarían con la fórmula
+          // anterior. Sin versión nueva, el siguiente tic repite (idempotente) hasta que ninguna se salte.
+          if (res.skippedCount > 0) return { status: 'partial' as const };
+          // La versión es la de los diales con que SE LEYÓ la corrida: si se movieron en medio, el siguiente tic vuelve a correr.
+          await tx.configSetting.upsert({
+            where: { key: LISTING_PRICE_FORMULA_VERSION_KEY },
+            create: { key: LISTING_PRICE_FORMULA_VERSION_KEY, valueJson: { v: version, doneAt: new Date().toISOString() } },
+            update: { valueJson: { v: version, doneAt: new Date().toISOString() } },
+          });
+          return { status: 'ran' as const };
+        },
+        { timeout: 30 * 60_000, maxWait: 5_000 },
+      ).finally(() => this.resetFormulaStaleCache());
+    } catch (e) {
+      this.logger.error(`listing-price: recálculo por versión de fórmula falló (se reintenta en el siguiente tic): ${(e as Error).message}`);
+      return { status: 'failed' };
+    }
   }
 
   // ───────────────────────────────────────────── diaria y salud ─────────────────────────────────────────────
@@ -579,6 +687,7 @@ export class ListingPriceService implements OnApplicationBootstrap, OnModuleDest
     if (await this.hasDailyOk(day)) return { status: 'exists', businessDate: day };
     const res = await this.run('daily', undefined, { businessDate: day });
     // §DYN.5.10 — una vez por día de portada, tras su `daily` ok: la poda de corridas viejas sin fila. Su fallo no tumba el tic.
+    if (res.status === 'ok') void this.formulaTick();
     if (res.status === 'ok') await this.pruneRuns().catch((e: Error) => this.logger.error(`listing-price: poda falló: ${e.message}`));
     return { status: res.status === 'ok' ? 'ran' : 'failed', businessDate: day };
   }

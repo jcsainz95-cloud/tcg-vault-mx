@@ -167,6 +167,16 @@ describe('AmountBreakdown', () => {
     ).toBeInTheDocument();
   });
 
+  it('D9: pedido nuevo (comisión 0) ⇒ NO hay renglón de comisión; el total es subtotal + envío; pedido viejo conserva el suyo', () => {
+    const fresh: BreakdownDTO = { ...inclusiveBreakdown, shippingFeeCents: 10000, subtotalCents: 10500, ivaCents: 2828, processingFeeCents: 0, totalCents: 20500 };
+    const { unmount } = renderWithIntl(<AmountBreakdown breakdown={fresh} />, 'es');
+    expect(screen.queryByText('Comisión de plataforma')).toBeNull();
+    expect(screen.getByText('MX$205.00')).toBeInTheDocument();
+    unmount();
+    renderWithIntl(<AmountBreakdown breakdown={inclusiveBreakdown} />, 'es');
+    expect(screen.getByText('Comisión de plataforma')).toBeInTheDocument();
+  });
+
   it('labels the subtotal line as shipping in shipment variant (EN)', () => {
     renderWithIntl(<AmountBreakdown breakdown={breakdown} variant="shipment" />, 'en');
     expect(screen.getByText('Shipping')).toBeInTheDocument();

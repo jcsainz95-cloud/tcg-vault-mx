@@ -15,7 +15,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
-import { PRICE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
+import { PRICE_CONVENTION_OF_NEW_ROWS, FEE_CONVENTION_OF_NEW_ROWS } from '../../common/money';
 import { SHIPPING_PROVIDER_SELECTION } from '../shipping-provider/shipping-provider.module';
 import { ShippingProviderSelection } from '../shipping-provider/shipping-provider.factory';
 import { ShipmentQuoteService } from './label-quote.service';
@@ -113,6 +113,8 @@ export class InboundShipmentService {
             processingFeeCents: 0,
             totalCents: 0,
             priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+            // §D9 — la comisión de plataforma va DENTRO de `P`: fila nueva = FEE_INCLUDED (`processingFeeCents` = 0). Sin default de BD.
+            feeConvention: FEE_CONVENTION_OF_NEW_ROWS,
             addressSnapshot: inboundAddressSnapshotOf(sr.pickupAddressSnapshot) as Prisma.InputJsonValue,
           },
           select: { id: true },

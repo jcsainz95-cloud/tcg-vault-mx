@@ -48,7 +48,7 @@
 - PATCH `/admin/users/:id/status` · admin
 - DELETE `/admin/users/:id` · admin
 - GET `/admin/finance/shrinkage` · admin
-- GET `/admin/finance/pnl` · admin
+- GET `/admin/finance/pnl` · admin · +`stripeFeeEstimatedOrders`, `stripeFeeEstimatedCents`, `feeIncludedSince` (solo-JSON; D9 §8.1)
 - GET `/admin/finance/inventory-value` · admin
 - GET `/admin/finance/custody-value` · admin
 - GET `/admin/finance/iva` · admin
@@ -141,7 +141,7 @@
 - GET `/catalog/featured` · público
 - GET `/catalog/cards` · cuenta
 - GET `/catalog/facets` · cuenta
-- GET `/catalog/sitemap` · público
+- GET `/catalog/sitemap` · `/catalog/merchant-feed` (§GSHOP, spec `GOOGLE_SHOPPING_E_INDEXACION`) · público
 - GET `/catalog/sealed` · cuenta
 - GET `/catalog/sealed/:inventoryItemId` · público
 - GET `/catalog/sealed/:inventoryItemId/value-history` · público
@@ -252,7 +252,7 @@
 - GET `/admin/marketing/export` · cuenta
 - GET `/admin/marketing/export/todo` · cuenta
 - GET `/admin/marketing/weekly-excel` · cuenta
-- **§MKT-V2** (`docs/specs/MKT_PANEL_V2.md`): `pantalla` pasa a `r|a|b|c|d|e|f|g|h` (`r` = Resumen: `r1` cifras, `r2` avisos, `r3` diario solo exact/sesión; `c9`, `e2`; columnas, filas y deltas en spec §1). `periods` no cambia.
+- **§MKT-V2** (`docs/specs/MKT_PANEL_V2.md`): `pantalla` pasa a `r|a|b|c|d|e|f|g|h` (`r` = Resumen: `r1` cifras, `r2` avisos, `r3` diario solo exact/sesión; `c9`, `e2`; detalle spec §1). `r2` suma AV7 (§GSHOP).
 - POST `/marketing/search-miss` · público · `{term≤80, kind:'card'|'sealed'}` ⇒ `204`; `413` si cuerpo >1 KB; `429` por throttle; sin eco, sin identificador (c6).
 - Sin endpoint para el correo del lunes (job interno `marketing-weekly-digest`, idempotente por semana).
 
@@ -423,4 +423,4 @@ Sin rutas nuevas; aditivo salvo lo marcado:
 Sin rutas nuevas. `POST /admin/catalog/sync-all` (ambos botones) incluye siempre las 6 promos de `PTCG_PROMO_GROUPS` (sin corte de fecha; ya importadas se re-sincronizan) y los grupos TCGCSV (semilla `TCGCSV_IMPORTABLE_GROUPS` + descubiertos, §6; HTTP: solo `super_admin`, si no `skipped_needs_super_admin`; el job usa actor de sistema). `202` y `sync-status.summary` suman `promos:{sets:[{setId,status}],tcgcsv:[{groupId,status,created,updated,errorCode?}]}`. pokemontcg.io sin respuesta ⇒ ni promos ni TCGCSV (fail-closed). Pruebas PMS-B1…B10, F1/F2. Apartado «Promos de la colección» (decidido; liga INFERIDA, AUTO): las respuestas de Master Set (tienda, `/vault/master-sets/:setId`, `/admin/vaults/:userId/master-sets/:setId`, M1) suman `collectionPromos?:{items:MasterSetCardCellDTO[],owned,total}` aditivo (sellos siempre; Black Star solo `high` y con compuerta automática abierta; «x de y» propio, aprobado 2026-11-09; sin sesión solo `total`; celda de sello suma `cardProductId`,`stampType`,`stampLabel?`; `promos.gate:{open,n,k,f,expansions}`); `completedCount/totalCount/valor` no cambian. Detalle y pruebas B11…B17 en la spec §4–5.
 
 ## 6. AUTO — catálogo, promos, PSA y cuarentena sin dueño (HECHOS 2026-11-09; `docs/specs/AUTO_CATALOGO.md`)
-Sin rutas nuevas. **ADITIVO:** `sync-status` suma `lastSuccessAt`, `lastTrigger`, `attempt`; `sync-all`/`summary.promos` suma `links` y `promos.discovery`; `promos.tcgcsv[]` suma `source:'seed'|'discovered'` y `status:'quarantined'`; `graded-estimates/review` suma `quarantined` y `quarantinedCount`; esquema `PromoCollectionLink` (ARCHITECTURE §5.17). **CAMBIO (sin ruta):** el job reintenta con backoff; `syncAll` actor `user|system` (`system` solo el job); estimado PSA automático que falle una cota dura (`ABOVE_MAX_MULTIPLE`, `NOT_ABOVE_RAW`, `GRADE_ORDER_INVERTED`, `NO_RAW`) no se devuelve (cuarentena); `TCGCSV_IMPORTABLE_GROUPS` es solo semilla y se aceptan los grupos elegibles (dudoso ⇒ `quarantined`; desconocido ⇒ 404 `TCGCSV_GROUP_UNKNOWN`). Texto completo y pruebas AUTO-A…F: `docs/specs/AUTO_CATALOGO.md` («Contrato por endpoint»).
+Sin rutas nuevas. **ADITIVO:** `sync-status` suma `lastSuccessAt`, `lastTrigger`, `attempt`; `sync-all`/`summary.promos` suma `links` y `promos.discovery`; `promos.tcgcsv[]` suma `source:'seed'|'discovered'` y `status:'quarantined'`; `graded-estimates/review` suma `quarantined` y `quarantinedCount`; esquema `PromoCollectionLink` (ARCHITECTURE §5.17). **CAMBIO (sin ruta):** job con backoff; `syncAll` actor `user|system`; estimado PSA que falle cota dura ⇒ cuarentena; grupos TCGCSV elegibles aceptados (dudoso ⇒ `quarantined`; desconocido ⇒ 404 `TCGCSV_GROUP_UNKNOWN`). Detalle y pruebas AUTO-A…F: `docs/specs/AUTO_CATALOGO.md` («Contrato por endpoint»).

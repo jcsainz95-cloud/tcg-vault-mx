@@ -28,7 +28,7 @@ function realPricing(): PricingService {
 }
 
 // v1.83.1 (§M11-SP.12.3): `dials` es obligatorio en el resolvedor (aquí sin precio del dueño: no influyen).
-const DIALS_100_16 = { ivaTransferPct: 100, ivaRatePct: 16 };
+const DIALS_100_16 = { ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0 };
 const CTX_ON = { spreadPctBySubtype: { box: 18 }, fallbackPct: 25, sourceOn: true };
 const CTX_OFF = { spreadPctBySubtype: { box: 18 }, fallbackPct: 25, sourceOn: false };
 const PRICED = { status: 'priced' as const, referenceMxnCents: 100000 };

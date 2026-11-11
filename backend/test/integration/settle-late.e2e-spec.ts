@@ -53,6 +53,7 @@ function mkOrderFactory(h: E2EHarness, ctx: { userId: string; template: { cardId
         ivaCents: 0,
         totalCents,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         stripePaymentIntentId: pi,
         shippingAddressSnapshot: mode === 'direct_ship' ? { line1: 'x' } : undefined,
       },
@@ -101,6 +102,7 @@ function mkOrderFactory(h: E2EHarness, ctx: { userId: string; template: { cardId
         ivaCents: 0,
         totalCents,
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         stripePaymentIntentId: pi,
       },
     });

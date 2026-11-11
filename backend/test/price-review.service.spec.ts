@@ -128,7 +128,7 @@ describe('resolve — guardas (§PRE.F)', () => {
   });
 
   it('keep sobre caso open ⇒ status kept, audita, no toca precio', async () => {
-    const { svc, prisma, audit, pricing } = makeService({
+    const { svc, audit, pricing } = makeService({
       priceReviewCase: {
         findUnique: jest.fn().mockResolvedValue({ id: 'id1', status: 'open', cardId: 'c1', productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', proposedMxnCents: 10221, baselineMxnCents: 184 }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),

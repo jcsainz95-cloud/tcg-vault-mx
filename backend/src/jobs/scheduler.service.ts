@@ -37,6 +37,8 @@ import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-no
 import { MeasurementDrainService } from '../modules/measurement/measurement-drain.service';
 import { MarketingAccessLogService } from '../modules/marketing/marketing-access-log.service';
 import { FeaturedService } from '../modules/catalog/featured.service';
+import { PaymentsService } from '../modules/payments/payments.service';
+import { ListingPriceService } from '../modules/pricing/listing-price.service';
 
 const QUEUE_NAME = 'tcg-daily';
 
@@ -153,6 +155,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     // MKT-V2 (m99): correo semanal del lunes y retención de c6. Al final por la misma razón (listas posicionales de los specs).
     @Optional() private readonly marketingWeeklyDigest?: MarketingWeeklyDigestService,
     @Optional() private readonly marketingSearchMiss?: MarketingSearchMissService,
+    // §D9 8.3 (conciliación del costo real de Stripe, cada 30 min) y 8.2 (recálculo de `ListingPrice` por versión de fórmula, cada
+    // 10 min). Al final y `@Optional()` por la misma razón (listas posicionales de los specs).
+    @Optional() private readonly payments?: PaymentsService,
+    @Optional() private readonly listingPrices?: ListingPriceService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -355,6 +361,19 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: FeaturedService NO está inyectado; featured-rotation no queda programado.');
     }
 
+    // §D9 8.3: conciliación idempotente del costo REAL de Stripe (filas FEE_INCLUDED sin dato, últimos 30 días), cada 30 min.
+    if (this.payments) {
+      await this.queue.add('stripe-fee-reconcile', {}, this.repeatEvery('stripe-fee-reconcile', '*/30 * * * *'));
+    } else {
+      this.logger.error('Scheduler: PaymentsService NO está inyectado; stripe-fee-reconcile no queda programado.');
+    }
+    // §D9 8.2: si la versión de la fórmula de `P` cambió (despliegue o dial), recálculo COMPLETO una vez; cada 10 min mientras difiera.
+    if (this.listingPrices) {
+      await this.queue.add('listing-price-formula', {}, this.repeatEvery('listing-price-formula', '*/10 * * * *'));
+    } else {
+      this.logger.error('Scheduler: ListingPriceService NO está inyectado; listing-price-formula no queda programado.');
+    }
+
     // El wiring corre en background: si mientras tanto empezó el shutdown, NO se crea el worker
     // (se quedaría vivo tras el destroy: handle abierto + jobs procesándose en un proceso que
     // se está apagando). La cola/conexión ya creadas las cierra `onModuleDestroy`, que espera
@@ -490,6 +509,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.marketingSearchMiss?.purgeExpired() ?? null;
       case 'featured-rotation':
         return this.featuredRotation?.tick() ?? null;
+      case 'stripe-fee-reconcile':
+        return this.payments?.reconcileStripeFees() ?? null;
+      case 'listing-price-formula':
+        return this.listingPrices?.formulaTick() ?? null;
       default:
         this.logger.warn(`Job desconocido en la cola: ${job.name}`);
         return null;

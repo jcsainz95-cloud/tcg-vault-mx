@@ -310,12 +310,9 @@ test.describe('CHK-MOVIL · L5 · textos T1/T3 con paridad ES/EN y el importe de
       await bar(page).getByRole('button', { name: new RegExp(t(locale, 'checkout.bar.showBreakdown')) }).click();
       const region = page.getByTestId('checkout-pay-bar-breakdown');
       await expect(region).toBeVisible();
-      // T3 contiene EXACTAMENTE el importe de `processingFeeCents` que pinta el desglose del quote.
-      const regionText = (await region.innerText()).replace(/\s+/g, ' ');
-      const fee = new RegExp(`${t(locale, 'checkout.platformFee')}[\\s\\S]*?(MX\\$[\\d,]+\\.\\d{2})`).exec(regionText)?.[1];
-      expect(fee, `importe de comisión en el desglose: «${regionText}»`).toBeTruthy();
-      const summaryText = await summary.innerText();
-      expect(summaryText.endsWith(fee!), `«${summaryText}» debe terminar con ${fee}`).toBe(true);
+      // D9: el desglose no trae renglón de comisión y T3a no la nombra (va dentro del precio).
+      await expect(region.getByText(t(locale, 'checkout.platformFee'))).toHaveCount(0);
+      expect(await summary.innerText()).not.toMatch(/comisi[óo]n|platform fee/i);
     });
   }
 });

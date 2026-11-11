@@ -26,6 +26,8 @@ import { E2E_USERS } from '../../../prisma/e2e-fixtures';
 import { AllExceptionsFilter } from '../../../src/common/filters/all-exceptions.filter';
 import { ChargeState, StripeService } from '../../../src/modules/payments/stripe.service';
 import { BusinessException } from '../../../src/common/business.exception';
+import { ListingPriceService, LISTING_PRICE_FORMULA_VERSION_KEY, formulaVersionOf } from '../../../src/modules/pricing/listing-price.service';
+import { SettingsService } from '../../../src/modules/settings/settings.service';
 import { PrismaService } from '../../../src/prisma/prisma.service';
 import { applyTrustProxy } from '../../../src/trust-proxy';
 import { applyBodyParsers } from '../../../src/body-parsers';
@@ -200,6 +202,15 @@ export class TestStripeService extends StripeService {
   }
 
   /**
+   * §D9 — el costo REAL de Stripe (`balance_transaction.fee`) que el doble devuelve al liquidar. `null` (por defecto) = Stripe
+   * aún no lo trae ⇒ la fila queda con `stripeFeeCents` NULL y el P&L usa el estimado.
+   */
+  public stripeFeeCentsToReturn: number | null = null;
+  async getStripeFeeCents(_paymentIntentId: string): Promise<number | null> {
+    return this.stripeFeeCentsToReturn;
+  }
+
+  /**
    * B3 — el barrido solo libera si el PI queda CANCELADO. El doble por defecto cancela SIEMPRE, así
    * que por sí solo **nunca ejercita la rama peligrosa** (lo señaló QA). `cancelOutcome` permite
    * guionizar el comportamiento del Stripe REAL sin parchear la instancia a mano:
@@ -361,6 +372,17 @@ export class E2EHarness {
     // no dispara cálculo) no es estado de ESTA suite. Sin fila, lo exhibido y lo cobrado salen del cuerpo único en vivo
     // (§DYN.5.6), que es lo que las suites anteriores a M-94 dan por supuesto; las que miden la fila la escriben ellas.
     await prisma.listingPrice.deleteMany({});
+    // 💰 D9 (§8.2): sin `listing_price_formula_version` vigente `isFormulaStale()` es true y `currentRowsFor` IGNORA las filas
+    // (en BD nueva el scheduler está apagado y nadie la escribe). Cada suite arranca con la versión de los diales de AHORA, como
+    // en producción tras el recálculo; la suite que mide el arranque sin versión la borra ella (d9-formula-version).
+    const lps = app.get(ListingPriceService);
+    const ver = formulaVersionOf(await app.get(SettingsService).getIvaDials());
+    await prisma.configSetting.upsert({
+      where: { key: LISTING_PRICE_FORMULA_VERSION_KEY },
+      create: { key: LISTING_PRICE_FORMULA_VERSION_KEY, valueJson: { v: ver, doneAt: new Date().toISOString() } },
+      update: { valueJson: { v: ver, doneAt: new Date().toISOString() } },
+    });
+    lps.resetFormulaStaleCache();
     return new E2EHarness(app, baseUrl, prisma, stripe);
   }
 

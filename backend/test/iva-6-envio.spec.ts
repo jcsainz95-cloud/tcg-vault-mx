@@ -1,9 +1,7 @@
 import {
-  StripeFeeConfig,
   computeDirectShipBreakdown,
   computeShipmentBreakdown,
   displayPriceCentsOf,
-  grossUpTotal,
   shippingFeeDisplayCentsOf,
 } from '../src/common/money';
 
@@ -25,14 +23,13 @@ import {
  * `17500 + round(17500 × 0.16) = 17500 + 2800`. **Ni un centavo.**
  */
 
-const FEE: StripeFeeConfig = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const R = 16;
 /** `F` — el dial, NETO. ⛔ No cambia de valor con el corte. */
 const F = 17_500;
 
 describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no gana un sumando', () => {
   it('⭐⭐ `E = round(F × (1+t·r))` y con el dial en 100 % vale 20300 — money-neutral', () => {
-    const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R });
+    const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R, stripeFeePct: 0 });
     expect(E).toBe(20_300);
     // Lo que aportaba el camino viejo: tarifa + su IVA apilado detrás. **Idéntico.**
     expect(E).toBe(F + Math.round((F * R) / 100));
@@ -43,27 +40,27 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
 
   it('⭐ el envío entra en la regla madre como un `L` más: MISMA función que una carta', () => {
     for (const t of [0, 37, 50, 100]) {
-      expect(shippingFeeDisplayCentsOf(F, { ivaTransferPct: t, ivaRatePct: R })).toBe(
+      expect(shippingFeeDisplayCentsOf(F, { ivaTransferPct: t, ivaRatePct: R, stripeFeePct: 0 })).toBe(
         displayPriceCentsOf(F, t, R),
       );
     }
   });
 
-  it('⭐⭐ (a) `direct_ship`: `total == grossUpTotal(S + E)` y `shippingFeeCents == 20300`', () => {
+  it('⭐⭐ (a) `direct_ship`: `total == S + E` (D9, sin gross-up) y `shippingFeeCents == 20300`', () => {
     const S = displayPriceCentsOf(10_000, 100, R); // 11600
-    const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R }); // 20300
-    const b = computeDirectShipBreakdown(S, E, R, FEE);
+    const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R, stripeFeePct: 0 }); // 20300
+    const b = computeDirectShipBreakdown(S, E, R);
     expect(b.shippingFeeCents).toBe(20_300);
-    expect(b.totalCents).toBe(grossUpTotal(S + E, FEE));
+    expect(b.totalCents).toBe(S + E);
     // ⛔ Y ⛔ NO aparece ningún CUARTO sumando: cartas + envío + comisión, y nada más.
     expect(b.totalCents).toBe(b.subtotalCents + b.shippingFeeCents + b.processingFeeCents);
   });
 
   it('⛔ (a-mutación) exhibir la tarifa NETA cobra 2800 menos y mezcla dos convenciones', () => {
     const S = displayPriceCentsOf(10_000, 100, R);
-    const bueno = computeDirectShipBreakdown(S, 20_300, R, FEE);
-    const mutado = computeDirectShipBreakdown(S, F, R, FEE);
-    expect(bueno.totalCents - mutado.totalCents).toBeGreaterThan(2_800);
+    const bueno = computeDirectShipBreakdown(S, 20_300, R);
+    const mutado = computeDirectShipBreakdown(S, F, R);
+    expect(bueno.totalCents - mutado.totalCents).toBe(2_800); // D9: sin gross-up, la diferencia es exactamente el IVA del envío
     expect(mutado.shippingFeeCents).toBe(17_500);
   });
 
@@ -71,24 +68,24 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
     // El camino viejo, reconstruido literal: `iva = round((S_neto + F) × r)`, `base = S+F+iva`.
     const Sneto = 10_000;
     const ivaViejo = Math.round(((Sneto + F) * R) / 100);
-    const totalViejo = grossUpTotal(Sneto + F + ivaViejo, FEE);
+    const totalViejo = Sneto + F + ivaViejo; // D9: la BASE del camino viejo (sin la comisión que antes se le apilaba)
 
     const S = displayPriceCentsOf(Sneto, 100, R);
-    const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R });
-    const b = computeDirectShipBreakdown(S, E, R, FEE);
+    const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R, stripeFeePct: 0 });
+    const b = computeDirectShipBreakdown(S, E, R);
     expect(b.totalCents).toBe(totalViejo);
     // Y el IVA registrado también coincide al centavo.
     expect(b.ivaCents).toBe(ivaViejo);
   });
 
   it('⭐ (c) el retiro de bóveda (`POST /shipments/quote`) cumple la misma identidad', () => {
-    const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R });
-    const b = computeShipmentBreakdown(E, R, FEE);
+    const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 100, ivaRatePct: R, stripeFeePct: 0 });
+    const b = computeShipmentBreakdown(E, R);
     expect(b.subtotalCents).toBe(20_300);
-    expect(b.totalCents).toBe(grossUpTotal(20_300, FEE));
+    expect(b.totalCents).toBe(20_300); // D9: se cobra la tarifa exhibida, sin gross-up
     expect(b.totalCents).toBe(b.subtotalCents + b.processingFeeCents);
-    // Money-neutral contra el pasado: `base = 17500 + 2800 = 20300` ⇒ el mismo total.
-    expect(b.totalCents).toBe(grossUpTotal(F + Math.round((F * R) / 100), FEE));
+    // Money-neutral contra el pasado: `base = 17500 + 2800 = 20300` ⇒ la misma base.
+    expect(b.totalCents).toBe(F + Math.round((F * R) / 100));
   });
 
   it('⭐⭐ (d) POR AUSENCIA, sobre el JSON serializado: ningún campo de IVA SUMA al total', () => {
@@ -96,8 +93,8 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
     // rutas serializan, que es donde el importe existe: para cada uno, restar del total todos los
     // campos numéricos **excepto** el propio total deja **exactamente** el IVA fuera de la cuenta.
     const casos = [
-      computeDirectShipBreakdown(11_600, 20_300, R, FEE),
-      computeShipmentBreakdown(20_300, R, FEE),
+      computeDirectShipBreakdown(11_600, 20_300, R),
+      computeShipmentBreakdown(20_300, R),
     ];
     for (const b of casos) {
       const shipping = 'shippingFeeCents' in b ? (b as { shippingFeeCents: number }).shippingFeeCents : 0;
@@ -112,7 +109,7 @@ describe('⭐ `IVA-6` — la tarifa de envío lleva su IVA DENTRO, y el total no
     // *«`L` no cambia nunca. `P` se deriva.»* El envío es un `L` más, así que mover el dial mueve
     // `E` y ⛔ jamás `F`. Se afirma sobre la función: `F` entra como argumento y sale intacto.
     for (const t of [0, 50, 100]) {
-      const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: t, ivaRatePct: R });
+      const E = shippingFeeDisplayCentsOf(F, { ivaTransferPct: t, ivaRatePct: R, stripeFeePct: 0 });
       expect(F).toBe(17_500);
       expect(E).toBeGreaterThanOrEqual(F);
     }
@@ -124,19 +121,19 @@ describe('⭐ canario de `IVA-6`: apilar el IVA detrás del envío se ve, y se m
   it('⭐⭐ m1 — `total = grossUp(S + E + iva)` cobra el IVA del envío DOS veces', () => {
     const S = 11_600;
     const E = 20_300;
-    const bueno = computeDirectShipBreakdown(S, E, R, FEE);
-    const mutado = grossUpTotal(S + E + bueno.ivaCents, FEE);
+    const bueno = computeDirectShipBreakdown(S, E, R);
+    const mutado = S + E + bueno.ivaCents;
     expect(mutado).toBeGreaterThan(bueno.totalCents);
-    // El sobrecosto es el gross-up del IVA entero del agregado: ≈ 4400 centavos + su comisión.
-    expect(mutado - bueno.totalCents).toBeGreaterThan(4_400);
+    // D9: el sobrecosto es el IVA entero del agregado: 4400 centavos.
+    expect(mutado - bueno.totalCents).toBe(4_400);
   });
 
   it('m2 — dejar la tarifa NETA y apilar su IVA aparte da el MISMO total pero rompe (d)', () => {
     // Es la mutación sutil: los pesos cuadran y lo que se rompe es la FORMA — el recibo vuelve a
     // tener un sumando de IVA después del precio exhibido, que es lo que el criterio 189 prohíbe.
     const S = 11_600;
-    const mutadoTotal = grossUpTotal(S + F + Math.round((F * R) / 100), FEE);
-    const bueno = computeDirectShipBreakdown(S, 20_300, R, FEE);
+    const mutadoTotal = S + F + Math.round((F * R) / 100);
+    const bueno = computeDirectShipBreakdown(S, 20_300, R);
     // ⚠️ Iguales en pesos…
     expect(mutadoTotal).toBe(bueno.totalCents);
     // …y por eso el candado (d) es estructural y no aritmético: la mutación que solo cambia la
@@ -147,7 +144,7 @@ describe('⭐ canario de `IVA-6`: apilar el IVA detrás del envío se ve, y se m
   it('m3 — derivar `E` con el dial del IVA de STRIPE en vez del de traslación (`IVA-7` cruzado)', () => {
     // `stripeFeeIvaPct` es la TASA, ⛔ no el dial. Usarla como `t` daría una tarifa distinta en
     // cuanto el dueño mueva el dial de traslación.
-    const conDial = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 50, ivaRatePct: R });
+    const conDial = shippingFeeDisplayCentsOf(F, { ivaTransferPct: 50, ivaRatePct: R, stripeFeePct: 0 });
     const conTasa = displayPriceCentsOf(F, 100, R);
     expect(conDial).toBe(18_900);
     expect(conTasa).toBe(20_300);

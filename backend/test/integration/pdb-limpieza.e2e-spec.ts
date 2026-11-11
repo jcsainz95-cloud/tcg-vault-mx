@@ -400,7 +400,7 @@ describe('💰 P-DB-LIMPIEZA · guion B (limpieza, v2: también el inventario)',
       const e = await fresh();
       commit(e);
       await e.db.order.create({
-        data: { userId: e.fx.buyer, orderNumber: 'TCG-000001', fulfillmentMode: 'vault', status: 'settled', subtotalCents: 1, processingFeeCents: 0, ivaCents: 0, totalCents: 1, priceConvention: 'IVA_INCLUSIVE' },
+        data: { userId: e.fx.buyer, orderNumber: 'TCG-000001', fulfillmentMode: 'vault', status: 'settled', subtotalCents: 1, processingFeeCents: 0, ivaCents: 0, totalCents: 1, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP' },
       });
       await aborts(e, commitSql(e), /G-7/);
     });
@@ -657,7 +657,7 @@ describe('💰 P-DB-LIMPIEZA · C v2 (folios TCG- e INV-, guardas independientes
     const e = await fresh();
     commit(e);
     await e.db.order.create({
-      data: { userId: e.fx.buyer, orderNumber: 'TCG-000099', fulfillmentMode: 'vault', status: 'settled', subtotalCents: 1, processingFeeCents: 0, ivaCents: 0, totalCents: 1, priceConvention: 'IVA_INCLUSIVE' },
+      data: { userId: e.fx.buyer, orderNumber: 'TCG-000099', fulfillmentMode: 'vault', status: 'settled', subtotalCents: 1, processingFeeCents: 0, ivaCents: 0, totalCents: 1, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP' },
     });
     const before = await snapshot(admin, e.schema);
     const r = ok(psql(e.schema, readRepair('folio')));
@@ -673,7 +673,7 @@ describe('💰 P-DB-LIMPIEZA · C v2 (folios TCG- e INV-, guardas independientes
     commit(e);
     ok(psql(e.schema, readRepair('folio')));
     await e.db.order.create({
-      data: { userId: e.fx.buyer, orderNumber: 'TCG-000001', fulfillmentMode: 'vault', status: 'settled', subtotalCents: 1, processingFeeCents: 0, ivaCents: 0, totalCents: 1, priceConvention: 'IVA_INCLUSIVE' },
+      data: { userId: e.fx.buyer, orderNumber: 'TCG-000001', fulfillmentMode: 'vault', status: 'settled', subtotalCents: 1, processingFeeCents: 0, ivaCents: 0, totalCents: 1, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP' },
     });
     await altaPorApp(e, 1);
     const before = await snapshot(admin, e.schema);
@@ -849,7 +849,7 @@ describe('💰🔒 §9.7 · ENV- no se reinicia: la guía vieja ENV-000003-01 no
       const since = new Date(Date.now() - (4 - i) * 1000);
       const sr = await e.db.shipmentRequest.create({
         data: {
-          userId: e.fx.buyer, addressSnapshot: addr, status: 'guia', shippingFeeCents: 0, priceConvention: 'IVA_INCLUSIVE', labelSource: 'skydropx',
+          userId: e.fx.buyer, addressSnapshot: addr, status: 'guia', shippingFeeCents: 0, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP', labelSource: 'skydropx',
           providerShipmentId: `sdx-nueva-${i}`, providerRateId: 'r', chosenRateJson: {}, rateChosenByUserId: e.fx.staff, rateChosenAt: since,
           labelPurchasedAt: since, packageCode: 'box', declaredValueCents: 1, insuredValueCents: 1, trackingNumber: `NUEVA-${i}`,
         },

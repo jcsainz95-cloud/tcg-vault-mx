@@ -657,7 +657,7 @@ describe('§M4-SHIP.18 — reembolso total de bóveda, guardas de inventario, vi
     // O2: el mismo cliente compra YB de nuevo (contracargo de O1 la devolvió a plataforma… aquí lo simulamos con una
     // orden liquidada MÁS RECIENTE que el caso cuya línea apunta a YB)
     const o2 = await h.prisma.order.create({
-      data: { userId: b.u.id, orderNumber: `SPO2-${RUN}`, fulfillmentMode: 'vault', status: 'settled', settledAt: new Date(Date.now() + 1000), subtotalCents: 50000, shippingFeeCents: 0, processingFeeCents: 0, ivaCents: 6897, ivaRatePct: 16, totalCents: 50000, priceConvention: 'IVA_INCLUSIVE', stripePaymentIntentId: `pi_o2_${RUN}`, items: { create: [{ inventoryItemId: yb.id, cardSnapshot: {}, unitPriceCents: 50000 }] } },
+      data: { userId: b.u.id, orderNumber: `SPO2-${RUN}`, fulfillmentMode: 'vault', status: 'settled', settledAt: new Date(Date.now() + 1000), subtotalCents: 50000, shippingFeeCents: 0, processingFeeCents: 0, ivaCents: 6897, ivaRatePct: 16, totalCents: 50000, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP', stripePaymentIntentId: `pi_o2_${RUN}`, items: { create: [{ inventoryItemId: yb.id, cardSnapshot: {}, unitPriceCents: 50000 }] } },
     });
     db.orders.push(o2.id);
     h.stripe.chargedByIntent.set(`pi_o2_${RUN}`, 50000);

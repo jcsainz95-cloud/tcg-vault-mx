@@ -27,7 +27,6 @@ import type { BoxChoice } from '../src/modules/orders/box-fit';
 import { AccessoryLineReadRow, accessoryMailLinesOf } from '../src/modules/orders/accessory-lines-view';
 import { accessoryMailTextLines } from '../src/modules/orders/mail/accessory-mail-lines';
 
-const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const DIALS = { cardsFeeCents: 10000, sealedFeeCents: 17500, freeFromCents: 400000 };
 const BIG_BOX = { box: { code: 'XL', label: 'XL', customerFeeCents: 35000 }, review: false } as unknown as BoxChoice;
 
@@ -48,42 +47,42 @@ const reasonOf = (r: { outcome: string; reason?: string }) => (r.outcome === 'ap
 
 describe('DCO-B20 (pura, v1.110.3) — precedencia de §DSC.4: NO_SHIPPING → DESTINATION → NO_ELIGIBLE_ITEMS → LARGE_BOX → ALREADY_FREE_SHIPPING → MIN_SUBTOTAL → TOTAL_BELOW_MINIMUM', () => {
   it('(a) bóveda, carta 100000, envío gratis con mínimo 300000 ⇒ NO_SHIPPING (en c421de13: MIN_SUBTOTAL)', () => {
-    expect(priceVaultCartWithCode([card('a', 100000)], FREE_MIN, 16, FEE)).toEqual({ outcome: 'not_applicable', reason: 'NO_SHIPPING', details: {} });
+    expect(priceVaultCartWithCode([card('a', 100000)], FREE_MIN, 16)).toEqual({ outcome: 'not_applicable', reason: 'NO_SHIPPING', details: {} });
   });
   it('(b) igual con destinations = [direct_ship] ⇒ NO_SHIPPING (gana a DESTINATION)', () => {
-    expect(reasonOf(priceVaultCartWithCode([card('a', 100000)], { ...FREE_MIN, destinations: ['direct_ship'] }, 16, FEE))).toBe('NO_SHIPPING');
+    expect(reasonOf(priceVaultCartWithCode([card('a', 100000)], { ...FREE_MIN, destinations: ['direct_ship'] }, 16))).toBe('NO_SHIPPING');
   });
   it('(c) mínimo 500000, invitado, cartas 450000 ⇒ ALREADY_FREE_SHIPPING (gana a MIN_SUBTOTAL)', () => {
-    const r = priceDirectShipCartWithCode([card('a', 450000)], terms({ kind: 'free_shipping', minSubtotalCents: 500000 }), { kind: 'cards_only', dials: DIALS, choice: null }, 16, FEE);
+    const r = priceDirectShipCartWithCode([card('a', 450000)], terms({ kind: 'free_shipping', minSubtotalCents: 500000 }), { kind: 'cards_only', dials: DIALS, choice: null }, 16);
     expect(r).toEqual({ outcome: 'not_applicable', reason: 'ALREADY_FREE_SHIPPING', details: {} });
   });
   it('(d) invitado, sellado 100000 + accesorio 20000 en caja de 35000 ⇒ LARGE_BOX (gana a MIN_SUBTOTAL)', () => {
-    const r = priceDirectShipCartWithCode([sealed('s', 100000), accessory('x', 20000)], FREE_MIN, { kind: 'sealed', dials: DIALS, choice: BIG_BOX }, 16, FEE);
+    const r = priceDirectShipCartWithCode([sealed('s', 100000), accessory('x', 20000)], FREE_MIN, { kind: 'sealed', dials: DIALS, choice: BIG_BOX }, 16);
     expect(r).toEqual({ outcome: 'not_applicable', reason: 'LARGE_BOX', details: {} });
   });
   it('(e) cartas 250000 ⇒ MIN_SUBTOTAL { missingCents: 50000 }; con 300000 ⇒ applied, shippingWaivedCents = 10000', () => {
     const ship = { kind: 'cards_only' as const, dials: DIALS, choice: null };
-    expect(priceDirectShipCartWithCode([card('a', 250000)], FREE_MIN, ship, 16, FEE)).toEqual({ outcome: 'not_applicable', reason: 'MIN_SUBTOTAL', details: { missingCents: 50000 } });
-    const ok = priceDirectShipCartWithCode([card('a', 300000)], FREE_MIN, ship, 16, FEE);
+    expect(priceDirectShipCartWithCode([card('a', 250000)], FREE_MIN, ship, 16)).toEqual({ outcome: 'not_applicable', reason: 'MIN_SUBTOTAL', details: { missingCents: 50000 } });
+    const ok = priceDirectShipCartWithCode([card('a', 300000)], FREE_MIN, ship, 16);
     if (ok.outcome !== 'applied') throw new Error(JSON.stringify(ok));
     expect(ok.shippingWaivedCents).toBe(10000);
-    expect(ok.breakdown).toEqual(computeDirectShipBreakdown(300000, 0, 16, FEE));
+    expect(ok.breakdown).toEqual(computeDirectShipBreakdown(300000, 0, 16));
   });
   it('(f) 10 % con destinations = [direct_ship] y mínimo 300000, bóveda 100000 ⇒ DESTINATION (no es envío gratis: NO_SHIPPING no aplica)', () => {
-    const r = priceVaultCartWithCode([card('a', 100000)], terms({ kind: 'percent', percentPct: 10, destinations: ['direct_ship'], minSubtotalCents: 300000 }), 16, FEE);
+    const r = priceVaultCartWithCode([card('a', 100000)], terms({ kind: 'percent', percentPct: 10, destinations: ['direct_ship'], minSubtotalCents: 300000 }), 16);
     expect(r).toEqual({ outcome: 'not_applicable', reason: 'DESTINATION', details: {} });
   });
   it('NO_ELIGIBLE_ITEMS gana a LARGE_BOX y a MIN_SUBTOTAL; DESTINATION gana a NO_ELIGIBLE_ITEMS (envío gratis directo)', () => {
     const ship = { kind: 'sealed' as const, dials: DIALS, choice: BIG_BOX };
-    expect(reasonOf(priceDirectShipCartWithCode([sealed('s', 1000)], { ...FREE_MIN, productScopes: ['raw'] }, ship, 16, FEE))).toBe('NO_ELIGIBLE_ITEMS');
-    expect(reasonOf(priceDirectShipCartWithCode([sealed('s', 1000)], { ...FREE_MIN, productScopes: ['raw'], destinations: ['vault'] }, ship, 16, FEE))).toBe('DESTINATION');
+    expect(reasonOf(priceDirectShipCartWithCode([sealed('s', 1000)], { ...FREE_MIN, productScopes: ['raw'] }, ship, 16))).toBe('NO_ELIGIBLE_ITEMS');
+    expect(reasonOf(priceDirectShipCartWithCode([sealed('s', 1000)], { ...FREE_MIN, productScopes: ['raw'], destinations: ['vault'] }, ship, 16))).toBe('DESTINATION');
   });
   it('% y monto: DESTINATION → NO_ELIGIBLE_ITEMS → MIN_SUBTOTAL → TOTAL_BELOW_MINIMUM (los de envío gratis no aplican)', () => {
     const ship = { kind: 'sealed' as const, dials: DIALS, choice: BIG_BOX };
     const t = terms({ kind: 'fixed_amount', amountCents: 1500, minSubtotalCents: 2000 });
-    expect(reasonOf(priceDirectShipCartWithCode([sealed('s', 1000)], t, ship, 16, FEE))).toBe('MIN_SUBTOTAL');
-    expect(reasonOf(priceVaultCartWithCode([card('a', 2000)], t, 16, FEE))).toBe('TOTAL_BELOW_MINIMUM');
-    expect(reasonOf(priceVaultCartWithCode([card('a', 1999)], t, 16, FEE))).toBe('MIN_SUBTOTAL');
+    expect(reasonOf(priceDirectShipCartWithCode([sealed('s', 1000)], t, ship, 16))).toBe('MIN_SUBTOTAL');
+    expect(reasonOf(priceVaultCartWithCode([card('a', 2000)], t, 16))).toBe('TOTAL_BELOW_MINIMUM');
+    expect(reasonOf(priceVaultCartWithCode([card('a', 1999)], t, 16))).toBe('MIN_SUBTOTAL');
   });
   it('retiro: WITHDRAWAL_ONLY_FREE_SHIPPING → WITHDRAWAL_FILTERED → DESTINATION → ALREADY_FREE_SHIPPING', () => {
     expect(withdrawalCodeOutcome(terms({ kind: 'percent', percentPct: 10, minSubtotalCents: 1, destinations: ['vault'] }), 0)).toMatchObject({ reason: 'WITHDRAWAL_ONLY_FREE_SHIPPING' });
@@ -95,7 +94,7 @@ describe('DCO-B20 (pura, v1.110.3) — precedencia de §DSC.4: NO_SHIPPING → D
 
 describe('§DSC.6 `details` mínimos (v1.110.3, pentest DSC-1)', () => {
   it('MIN_SUBTOTAL {missingCents} · NO_ELIGIBLE_ITEMS {productScopes} · TOTAL_BELOW_MINIMUM {minTotalCents} · el resto {}', () => {
-    const v = (t: DiscountTerms, lines: DiscountCartLine[]) => priceVaultCartWithCode(lines, t, 16, FEE);
+    const v = (t: DiscountTerms, lines: DiscountCartLine[]) => priceVaultCartWithCode(lines, t, 16);
     expect(v(terms({ kind: 'percent', percentPct: 10, minSubtotalCents: 5000 }), [card('a', 4000)])).toMatchObject({ details: { missingCents: 1000 } });
     expect(Object.keys((v(terms({ kind: 'percent', percentPct: 10, minSubtotalCents: 5000 }), [card('a', 4000)]) as { details: object }).details)).toEqual(['missingCents']);
     expect(v(terms({ kind: 'percent', percentPct: 10, productScopes: ['sealed'] }), [card('a', 4000)])).toMatchObject({ details: { productScopes: ['sealed'] } });
@@ -155,11 +154,11 @@ describe('TL-ENV-1 — una sola cadena clase → importe → desglose, con `repr
   it('directShipBreakdownOf = directShipFeeOf + computeDirectShipBreakdown (cartas, sellado, umbral, caja)', () => {
     for (const [kind, S, choice] of [['cards_only', 50000, null], ['sealed', 50000, null], ['cards_only', 400000, null], ['sealed', 100000, BIG_BOX]] as const) {
       const fee = directShipFeeOf(kind, S, DIALS, choice);
-      expect(directShipBreakdownOf({ kind, subtotalCents: S, dials: DIALS, choice, ivaRatePct: 16, fee: FEE })).toEqual({ ship: fee, breakdown: computeDirectShipBreakdown(S, fee.feeCents, 16, FEE) });
+      expect(directShipBreakdownOf({ kind, subtotalCents: S, dials: DIALS, choice, ivaRatePct: 16 })).toEqual({ ship: fee, breakdown: computeDirectShipBreakdown(S, fee.feeCents, 16) });
     }
   });
   it('S + E no representable ⇒ 422 AMOUNT_TOO_LARGE (no un Error crudo) — sin código, con % directo y con % en bóveda', () => {
-    const huge = 2_147_000_000;
+    const huge = 2_200_000_000; // D9: sin gross-up, el agregado desborda solo si S + E > MAX_CENTS (incluso con 1 % de descuento)
     const asCode = (fn: () => unknown) => {
       try {
         fn();
@@ -168,9 +167,9 @@ describe('TL-ENV-1 — una sola cadena clase → importe → desglose, con `repr
       }
       return 'no lanzó';
     };
-    expect(asCode(() => directShipBreakdownOf({ kind: 'cards_only', subtotalCents: huge, dials: DIALS, choice: null, ivaRatePct: 16, fee: FEE }))).toBe('AMOUNT_TOO_LARGE');
-    expect(asCode(() => priceDirectShipCartWithCode([card('a', huge)], terms({ kind: 'percent', percentPct: 1 }), { kind: 'cards_only', dials: DIALS, choice: null }, 16, FEE))).toBe('AMOUNT_TOO_LARGE');
-    expect(asCode(() => priceVaultCartWithCode([card('a', huge)], terms({ kind: 'percent', percentPct: 1 }), 16, FEE))).toBe('AMOUNT_TOO_LARGE');
+    expect(asCode(() => directShipBreakdownOf({ kind: 'cards_only', subtotalCents: huge, dials: DIALS, choice: null, ivaRatePct: 16 }))).toBe('AMOUNT_TOO_LARGE');
+    expect(asCode(() => priceDirectShipCartWithCode([card('a', huge)], terms({ kind: 'percent', percentPct: 1 }), { kind: 'cards_only', dials: DIALS, choice: null }, 16))).toBe('AMOUNT_TOO_LARGE');
+    expect(asCode(() => priceVaultCartWithCode([card('a', huge)], terms({ kind: 'percent', percentPct: 1 }), 16))).toBe('AMOUNT_TOO_LARGE');
   });
   it('candado de fuente: ni `guest-checkout.service.ts` ni `discount-pricing.ts` llaman a computeDirectShipBreakdown( (TL-ENV-1)', () => {
     for (const f of ['src/modules/orders/guest-checkout.service.ts', 'src/modules/discounts/discount-pricing.ts']) {

@@ -65,29 +65,59 @@ export function tope(maxDisplayCents: number, normalDisplayCents: number | null)
   return normalDisplayCents == null ? maxDisplayCents : Math.min(maxDisplayCents, normalDisplayCents);
 }
 
-/**
- * `ceiling(p)` — «puedes pagar hasta», SIN IVA:
- *  - `cost`: `half(tope·10000 / ((100+r)·(100+m)))` — margen `m` % sobre lo que pagas.
- *  - `sale`: `half(tope·(100−m) / (100+r))` — margen `m` % sobre la venta.
- */
-export function ceiling(topeCents: number, basis: WishlistMarginBasis, marginPct: number, ivaRatePct: number): number {
-  return basis === 'cost'
-    ? halfDiv(topeCents * 10000, (100 + ivaRatePct) * (100 + marginPct))
-    : halfDiv(topeCents * (100 - marginPct), 100 + ivaRatePct);
+/** `half(num/den)` con `BigInt` de punta a punta (numeradores > 2⁵³ por el factor de comisión). `num ≥ 0`, `den > 0`. */
+function halfDivBig(num: bigint, den: bigint): number {
+  return Number((2n * num + den) / (2n * den));
 }
 
 /**
- * `marginAtMarket` — cuánto ganas (o pierdes) si la compras a mercado y la vendes al tope del nivel más alto:
- * `cents = half(tope·100/(100+r)) − M`; `pct` en PUNTOS porcentuales con un decimal (Q-WSH-UX-8):
+ * §D9 8.5 (opción A) — el divisor de la comisión metida en `P`, ENTERO: `Dn = 10⁸ − pctμ·(100+r)` sobre `10⁸` (mismo `pctμ` que
+ * `feeIncludedPriceCentsOf`). Sin comisión (`undefined`/0) ⇒ `Dn = 10⁸` (identidad). Fuera de la fórmula de `P` (`Dn ≤ 0`) ⇒ error.
+ * El «puedes pagar hasta» y el margen del DUEÑO quitan la comisión del tope; el AVISO al cliente (`fits`) ⛔ no.
+ */
+function feeDivisorMicro(stripeFeePct: number | undefined, ivaRatePct: number): bigint {
+  if (stripeFeePct == null) return 100_000_000n;
+  if (!Number.isFinite(stripeFeePct) || stripeFeePct < 0) throw new RangeError('stripeFeePct debe ser finito y ≥ 0');
+  const dn = 100_000_000 - Math.round(stripeFeePct * 1_000_000) * (100 + ivaRatePct);
+  if (dn <= 0) throw new RangeError('divisor de comisión ≤ 0');
+  return BigInt(dn);
+}
+
+/**
+ * `ceiling(p)` — «puedes pagar hasta», SIN IVA y SIN la comisión metida en el tope (`tope × D`, `D = Dn/10⁸`):
+ *  - `cost`: `half(tope·D·10000 / ((100+r)·(100+m)))` — margen `m` % sobre lo que pagas.
+ *  - `sale`: `half(tope·D·(100−m) / (100+r))` — margen `m` % sobre la venta.
+ * Un solo redondeo (cociente exacto en `BigInt`).
+ */
+export function ceiling(
+  topeCents: number,
+  basis: WishlistMarginBasis,
+  marginPct: number,
+  ivaRatePct: number,
+  stripeFeePct?: number,
+): number {
+  const dn = feeDivisorMicro(stripeFeePct, ivaRatePct);
+  const t = BigInt(topeCents) * dn;
+  const e8 = 100_000_000n;
+  return basis === 'cost'
+    ? halfDivBig(t * 10000n, e8 * BigInt((100 + ivaRatePct) * (100 + marginPct)))
+    : halfDivBig(t * BigInt(100 - marginPct), e8 * BigInt(100 + ivaRatePct));
+}
+
+/**
+ * `marginAtMarket` — cuánto ganas (o pierdes) si la compras a mercado y la vendes al tope del nivel más alto, sin la comisión
+ * metida en el tope: `cents = half(tope·D·100/(100+r)) − M`; `pct` en PUNTOS porcentuales con un decimal (Q-WSH-UX-8):
  * `sign(cents) · half(|cents|·1000/M) / 10` (redondeo simétrico, un solo redondeo). `M ≤ 0` ⇒ `null`.
  */
 export function marginAtMarket(
   topeTopCents: number,
   marketCents: number,
   ivaRatePct: number,
+  stripeFeePct?: number,
 ): { cents: number; pct: number } | null {
   if (!(marketCents > 0)) return null;
-  const cents = halfDiv(topeTopCents * 100, 100 + ivaRatePct) - marketCents;
+  const dn = feeDivisorMicro(stripeFeePct, ivaRatePct);
+  const cents = halfDivBig(BigInt(topeTopCents) * dn * 100n, 100_000_000n * BigInt(100 + ivaRatePct)) - marketCents;
   const tenths = halfDiv(Math.abs(cents) * 1000, marketCents);
   const pct = cents < 0 ? -tenths / 10 : tenths / 10;
   return { cents, pct: pct === 0 ? 0 : pct };
@@ -143,7 +173,7 @@ export function demandRowMath(input: DemandRowMathInput): DemandRowMathOut {
       maxPct: t.maxPct,
       accounts: t.accounts,
       maxDisplayCents: max,
-      ceilingCents: ceiling(tp, input.marginBasis, input.targetMarginPct, input.dials.ivaRatePct),
+      ceilingCents: ceiling(tp, input.marginBasis, input.targetMarginPct, input.dials.ivaRatePct, input.dials.stripeFeePct),
     };
   });
   const top = tiers[0];
@@ -151,7 +181,7 @@ export function demandRowMath(input: DemandRowMathInput): DemandRowMathOut {
   return {
     tiers,
     mainCeilingCents: top ? top.ceilingCents : null,
-    marginAtMarket: topTope == null ? null : marginAtMarket(topTope, M, input.dials.ivaRatePct),
+    marginAtMarket: topTope == null ? null : marginAtMarket(topTope, M, input.dials.ivaRatePct, input.dials.stripeFeePct),
     buyersAtNormalPrice:
       input.normalDisplayCents == null
         ? null

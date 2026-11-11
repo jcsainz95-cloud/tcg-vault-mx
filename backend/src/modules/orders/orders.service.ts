@@ -51,6 +51,7 @@ import {
   computeCartBreakdown,
   BreakdownDTO,
   PRICE_CONVENTION_OF_NEW_ROWS,
+  FEE_CONVENTION_OF_NEW_ROWS,
   PriceBasis,
   SEALED_SALE_PRICE_INCLUDE,
   ivaIsIncluded,
@@ -730,7 +731,7 @@ export class OrdersService {
       ? this.breakdownOf(frozen)
       : lines.length === 0
         ? this.zeroCartBreakdown(ivaPct)
-        : computeCartBreakdown(subtotalCents, ivaPct, await this.settings.getStripeFee());
+        : computeCartBreakdown(subtotalCents, ivaPct);
     return { items: previews, breakdown, unavailableItems, ownReservation };
   }
 
@@ -754,7 +755,6 @@ export class OrdersService {
     frozenOrder: Order | null;
   }) {
     const ivaPct = q.ivaDials.ivaRatePct;
-    const fee = await this.settings.getStripeFee();
     const tail = { unavailableItems: q.unavailableItems, ownReservation: q.ownReservation };
     if (q.frozenOrder) {
       // La orden propia con ESTE código: lo que su PI cobra, sin recalcular (§4-R.5 + §DSC.5). `q.lines` ya son lo cobrado.
@@ -767,10 +767,10 @@ export class OrdersService {
       throttle: q.userId ? { ip: q.ip, userId: q.userId } : { ip: q.ip },
       customer: q.userId ? await this.accountCustomer(q.userId) : {},
       excludeOrderIds: q.ownReservation ? [q.ownReservation.orderId] : [],
-      price: (terms) => priceVaultCartWithCode(pieceDiscountLines(q.items, q.lines), terms, ivaPct, fee),
+      price: (terms) => priceVaultCartWithCode(pieceDiscountLines(q.items, q.lines), terms, ivaPct),
     });
     if (!applied) {
-      const breakdown = q.lines.length === 0 ? this.zeroCartBreakdown(ivaPct) : computeCartBreakdown(q.subtotalCents, ivaPct, fee);
+      const breakdown = q.lines.length === 0 ? this.zeroCartBreakdown(ivaPct) : computeCartBreakdown(q.subtotalCents, ivaPct);
       return { items: this.toOrderItemPreviews(q.items, q.lines, q.reservedByYou), breakdown, ...tail, discount };
     }
     const charged = q.lines.map((l) => chargedPieceLine(l, applied.unitDiscountCents));
@@ -1518,7 +1518,6 @@ export class OrdersService {
     // 💰 v1.110⟨descuentos⟩ (§DSC.6): el código (opcional) y la IP del límite de intentos. Sin código ⇒ la conducta de hoy.
     opts: { discountCode?: unknown; ip?: string | null } = {},
   ): Promise<CheckoutSessionResult & { discount?: DiscountQuoteDTO }> {
-    const fee = await this.settings.getStripeFee();
     const code = normalizeDiscountCode(opts.discountCode);
     // §DSC.6: durante el bloqueo TODO código —válido incluido— da `429`, antes de tocar nada.
     const throttleKeys = code !== null ? await this.requireDiscounts().openAttempt({ ip: opts.ip ?? null, userId }) : [];
@@ -1555,7 +1554,7 @@ export class OrdersService {
       // desglose calculado con una tasa distinta de la que produjo el subtotal **no cuadra con su
       // propia fila**.
       let breakdown = this.representableOrThrow(() =>
-        computeCartBreakdown(subtotal, ivaDials.ivaRatePct, fee),
+        computeCartBreakdown(subtotal, ivaDials.ivaRatePct),
       );
       // 💰 v1.110⟨descuentos⟩ (§DSC.5 «Apartar»): DESPUÉS de la puerta del cliente y de sustituir — candado de la fila del
       // código, validez con el `now` de esta tx, cálculo (§DSC.2–4). Cualquier fallo ⇒ `422` y rollback: ni orden, ni uso, ni PI.
@@ -1566,7 +1565,7 @@ export class OrdersService {
           code,
           customer,
           now,
-          price: (terms) => priceVaultCartWithCode(pieceDiscountLines(items, orderItemsData), terms, ivaDials.ivaRatePct, fee),
+          price: (terms) => priceVaultCartWithCode(pieceDiscountLines(items, orderItemsData), terms, ivaDials.ivaRatePct),
         });
         const unit = applied.priced.unitDiscountCents;
         breakdown = applied.priced.breakdown;
@@ -1600,6 +1599,8 @@ export class OrdersService {
           // justamente para que un camino que olvide esta línea REVIENTE en vez de heredar un
           // significado equivocado en silencio (§4.44.e, candado `IVA-3(e)`).
           priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+          // §D9 — la comisión de plataforma va DENTRO de `P`: fila nueva = FEE_INCLUDED (`processingFeeCents` = 0). Sin default de BD.
+          feeConvention: FEE_CONVENTION_OF_NEW_ROWS,
           // ⭐ La posición del dial que produjo estos precios, archivada con la fila. Es
           // **INFORMATIVA/AUDITORA**: el dinero se reproduce desde
           // `subtotal/shipping/iva/fee/total/ivaRatePct/priceConvention`, ⛔ jamás desde aquí.
@@ -1815,6 +1816,8 @@ export class OrdersService {
             // montos-en-cero**: *la convención es ABSOLUTA, no depende de que los importes sean 0*
             // (`IVA-12(a)`). Un cero también tiene convención, y una fila sin ella no se puede leer.
             priceConvention: PRICE_CONVENTION_OF_NEW_ROWS,
+            // §D9 — la comisión de plataforma va DENTRO de `P`: fila nueva = FEE_INCLUDED (`processingFeeCents` = 0). Sin default de BD.
+            feeConvention: FEE_CONVENTION_OF_NEW_ROWS,
             items: { create: frozen.map((i) => ({ inventoryItemId: i.id })) },
           },
         });
@@ -2137,6 +2140,8 @@ export class OrdersService {
       orderNumber: order.orderNumber,
       ...(reservedUntil ? { reservedUntil } : {}),
       breakdown,
+      // §D9: la convención de comisión de ESTA fila (`FEE_ON_TOP` pedidos viejos / `FEE_INCLUDED` nuevos). ⛔ `stripeFeeCents` no sale.
+      feeConvention: order.feeConvention,
       // ⭐ v1.80.2 (§M4-SHIP.16): el cliente REGISTRADO ve su envío y titula con `publicStatus` (el MISMO cuerpo que
       // el invitado). `shipment: null` ⇔ `vault`, o `direct_ship` aún sin envío (ventana webhook→creación).
       fulfillmentMode: order.fulfillmentMode,

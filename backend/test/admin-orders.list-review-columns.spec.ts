@@ -19,6 +19,8 @@ describe('GET /admin/orders — columnas del motivo «tras envío» fuera de la 
     'shippedRefundNote',
     'shippedRefundReasonAt',
     'shippedRefundReasonByUserId',
+    'stripeFeeCents', // D9: fuera del contrato de la lista
+    'feeConvention',
   ];
 
   function build() {
@@ -27,6 +29,8 @@ describe('GET /admin/orders — columnas del motivo «tras envío» fuera de la 
       {
         id: 'pend',
         guestEmail: null,
+        stripeFeeCents: 1204,
+        feeConvention: 'FEE_INCLUDED',
         fullRefundClosedAt: at,
         fullRefundAfterShipment: true,
         shippedRefundReason: null,

@@ -77,6 +77,14 @@ export function formatDate(iso: string | undefined, locale: AppLocale = 'es'): s
   }).format(date);
 }
 
+/** Fecha larga («10 de noviembre de 2026») en `America/Mexico_City`; inválida ⇒ `''`. */
+export function formatDateLongMx(iso: string | null | undefined, locale: AppLocale = 'es'): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(localeTag[locale], { dateStyle: 'long', timeZone: 'America/Mexico_City' }).format(date);
+}
+
 /**
  * **Antigüedad legible** de un instante pasado: «hace 3 días» / «3 days ago» (CA #9 de «Pedidos a
  * preparar» — el operador atiende lo más viejo primero y necesita leer la espera **de un vistazo**,

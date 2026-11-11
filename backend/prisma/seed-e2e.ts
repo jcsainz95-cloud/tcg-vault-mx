@@ -1227,6 +1227,7 @@ export async function seedE2E(prisma: PrismaClient): Promise<void> {
       totalCents: E2E_GUEST_ORDER.totalCents,
       ivaRatePct: 16,
       priceConvention: 'IVA_EXCLUSIVE',
+      feeConvention: 'FEE_ON_TOP',
       cfdiStatus: 'registrado',
       paymentMethodBrand: 'visa',
       paymentMethodLast4: '4242',
@@ -1543,7 +1544,7 @@ async function seedSpeiBucket(
     ivaCents: F.order.ivaCents,
     ivaRatePct: 16,
     totalCents: F.order.totalCents,
-    priceConvention: 'IVA_INCLUSIVE' as const,
+    priceConvention: 'IVA_INCLUSIVE' as const, feeConvention: 'FEE_ON_TOP' as const,
     // M-50: toda orden `IVA_INCLUSIVE` archiva el dial con el que se derivaron sus precios (y viceversa;
     // candado `iva-price-convention.e2e-spec.ts`). 100 = el default de `IVA_TRANSFER_PCT`.
     ivaTransferPct: 100,

@@ -10,7 +10,6 @@ import {
   ivaTransferPreview,
   validateAckSamplePriceCents,
 } from '../src/modules/settings/iva-transfer';
-import { StripeFeeConfig } from '../src/common/money';
 import { codigoDeFichero } from './helpers/codigo-de-fichero';
 
 /**
@@ -65,7 +64,6 @@ import { codigoDeFichero } from './helpers/codigo-de-fichero';
  */
 
 /** Los diales vigentes del fixture canónico: `r = 16`, `0.036` / `300`. */
-const FEE: StripeFeeConfig = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 
 /** El `L` canónico, por su nombre. Todo este fichero se escribe contra la CONSTANTE, no contra `10000`. */
 const L = IVA_TRANSFER_SAMPLE_PRICE_CENTS_DEFAULT;
@@ -141,7 +139,7 @@ function delta(desde: number, hasta: number, ivaRatePct: number, samplePriceCent
     proposedPct: hasta,
     ivaRatePct,
     samplePriceCents,
-    fee: FEE,
+
   }).netDeltaPerUnitCents;
 }
 

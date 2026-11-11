@@ -17,7 +17,7 @@ import { E2EHarness, ApiResponse } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { AccDb } from './helpers/accessories-b-db';
 import { ShipPrepDb } from './helpers/ship-prep-db';
-import { displayPriceCentsOf } from '../../src/common/money';
+import { lForAtLeastP, pOfL } from '../helpers/d9-price';
 import { MAIL_PORT, MailMessage, MailPort } from '../../src/modules/mail/mail.port';
 import { centsToPesosCell } from '../../src/modules/sales-analytics/sales-figures';
 
@@ -53,10 +53,9 @@ describe('💰 §DSC.7 — códigos de descuento, fase 2: rutas del dueño (Post
     return r;
   };
   const piece = async (cents: number) => {
-    let L = Math.floor(cents / 1.16) - 2;
-    while (displayPriceCentsOf(L, 100, 16) < cents) L += 1;
+    const L = lForAtLeastP(cents); // D9: `P` lleva la comisión dentro
     const it = await acc.mkItem({ productType: 'raw', listPriceCents: L });
-    return { id: it.id, P: displayPriceCentsOf(L, 100, 16) };
+    return { id: it.id, P: pOfL(L) };
   };
   const paid = async (code: string, email: string) => {
     const a = await piece(50000);

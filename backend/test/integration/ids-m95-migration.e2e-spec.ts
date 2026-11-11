@@ -116,7 +116,7 @@ describe('IDS-B1 — M-95 es aditiva: lo existente no cambia (criterio 512, I-1)
             pieces.push(p);
           }
           const order = await tx.order.create({
-            data: { orderNumber: `M95-${run}`, status: 'settled', priceConvention: 'IVA_INCLUSIVE', guestEmail: `m95-${run}@example.test`, fulfillmentMode: 'direct_ship', shippingAddressSnapshot: { street: 'Calle 1', city: 'CDMX', postalCode: '01000' }, subtotalCents: 24_601, processingFeeCents: 100, ivaCents: 0, totalCents: 24_701 },
+            data: { orderNumber: `M95-${run}`, status: 'settled', priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP', guestEmail: `m95-${run}@example.test`, fulfillmentMode: 'direct_ship', shippingAddressSnapshot: { street: 'Calle 1', city: 'CDMX', postalCode: '01000' }, subtotalCents: 24_601, processingFeeCents: 100, ivaCents: 0, totalCents: 24_701 },
           });
           for (const [i, p] of pieces.entries()) {
             await tx.orderItem.create({

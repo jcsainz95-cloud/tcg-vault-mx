@@ -190,6 +190,7 @@ export async function mkOrder(
       settledAt: o.settledAt,
       createdAt: o.settledAt ?? mx('2021-03-03', 9),
       priceConvention: o.conv,
+      feeConvention: 'FEE_ON_TOP',
       fulfillmentMode: o.mode ?? 'vault',
       shippingAddressSnapshot: o.mode === 'direct_ship' ? { street: 'Calle Fixture 1', city: 'CDMX', postalCode: '01000' } : undefined,
       subtotalCents: o.subtotal,
@@ -285,15 +286,15 @@ export async function seedSales(db: PrismaClient): Promise<Record<string, string
   // El envío del directo O2: tarifa dentro de la orden (`shippingFeeCents = 0` aquí, D-IVA-5), costo de guía capturado.
   // TD-AN-5: con seguro de 5.80 (informativo, YA va dentro de `shippingCostCents`) para que AN-B-13 lo cubra.
   await db.shipmentRequest.create({
-    data: { id: SID.s2, orderId: SID.o2, addressSnapshot: addr, status: 'picking', pickingAt: mx('2021-03-02', 9), shippingFeeCents: 0, ivaCents: 0, processingFeeCents: 0, shippingCostCents: 9280, shippingCostIvaCents: 1280, insuranceCostCents: 580, priceConvention: 'IVA_INCLUSIVE' } as never,
+    data: { id: SID.s2, orderId: SID.o2, addressSnapshot: addr, status: 'picking', pickingAt: mx('2021-03-02', 9), shippingFeeCents: 0, ivaCents: 0, processingFeeCents: 0, shippingCostCents: 9280, shippingCostIvaCents: 1280, insuranceCostCents: 580, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP' } as never,
   });
   // Un retiro de bóveda de A (cobro propio), sin costo capturado ⇒ cuenta en `shippingCostMissingCount`.
   await db.shipmentRequest.create({
-    data: { id: SID.s9, userId: SID.userA, addressSnapshot: addr, status: 'enviado', pickingAt: mx('2021-03-04', 11), shippingFeeCents: 15000, ivaCents: 2400, processingFeeCents: 700, totalCents: 18100, priceConvention: 'IVA_EXCLUSIVE' } as never,
+    data: { id: SID.s9, userId: SID.userA, addressSnapshot: addr, status: 'enviado', pickingAt: mx('2021-03-04', 11), shippingFeeCents: 15000, ivaCents: 2400, processingFeeCents: 700, totalCents: 18100, priceConvention: 'IVA_EXCLUSIVE', feeConvention: 'FEE_ON_TOP' } as never,
   });
   // Un retiro sin pagar: no cuenta.
   await db.shipmentRequest.create({
-    data: { id: SID.sPending, userId: SID.userA, addressSnapshot: addr, status: 'solicitado', shippingFeeCents: 15000, priceConvention: 'IVA_EXCLUSIVE' } as never,
+    data: { id: SID.sPending, userId: SID.userA, addressSnapshot: addr, status: 'solicitado', shippingFeeCents: 15000, priceConvention: 'IVA_EXCLUSIVE', feeConvention: 'FEE_ON_TOP' } as never,
   });
   await db.shipmentCostAdjustment.create({
     data: { id: SID.adj, shipmentRequestId: SID.s2, kind: 'overweight', providerChargeId: 'an-fix-charge-1', providerChargeType: 'overweight', amountCents: 2320, ivaCents: 320, ivaSource: 'provider', chargedAt: mx('2021-03-06', 10) },
@@ -341,6 +342,7 @@ export async function seedSales(db: PrismaClient): Promise<Record<string, string
       addressSnapshot: addr,
       shippingFeeCents: 0,
       priceConvention: 'IVA_INCLUSIVE',
+      feeConvention: 'FEE_ON_TOP',
       labelSource: 'skydropx',
       providerShipmentId: 'an-fix-prov-in',
       providerRateId: 'an-fix-rate-in',

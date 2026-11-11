@@ -162,7 +162,7 @@ describe('catálogo — toListingDTO (ruta single, sin ctx)', () => {
     const pricing = buildPricing({ referenceMxnCents: 10000, override: overrideRow(8800) });
     const decider = new SaleDecisionService(pricing);
     const batch = await decider.loadBatch([rawItem()] as never);
-    const d = await decider.decide(rawItem() as never, { ivaTransferPct: 100, ivaRatePct: 16 }, batch);
+    const d = await decider.decide(rawItem() as never, { ivaTransferPct: 100, ivaRatePct: 16, stripeFeePct: 0 }, batch);
     expect(d.unitPriceCents).toBe(10208); // `P` de `L = 8800`
     expect(d.priceBasis).toBe('override');
     expect(pricing.getVariantOverride).not.toHaveBeenCalled();

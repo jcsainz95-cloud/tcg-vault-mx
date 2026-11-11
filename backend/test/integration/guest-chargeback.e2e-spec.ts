@@ -427,6 +427,7 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
           // v1.64 (M-50): la columna es NOT NULL y SIN default de BD, así que hasta un fixture tiene
           // que decir con qué convención se cobró. Es el candado funcionando (§4.44.e).
           priceConvention: 'IVA_EXCLUSIVE',
+          feeConvention: 'FEE_ON_TOP',
         },
       });
       corruptos.orderIds.push(order.id);
@@ -441,6 +442,7 @@ describe('E2E — Contracargo de un pedido con envío directo (T1/T1-b)', () => 
           processingFeeCents: 0,
           totalCents: 0,
           priceConvention: 'IVA_EXCLUSIVE',
+          feeConvention: 'FEE_ON_TOP',
         },
       });
       // ⭐ Se registra ANTES de asertar: si una aserción falla, la escoba del `afterAll` tiene que

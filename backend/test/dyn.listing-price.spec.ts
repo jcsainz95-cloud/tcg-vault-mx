@@ -109,6 +109,7 @@ function lpDouble(rows: ListingPrice[]) {
   return {
     rowsFor: jest.fn(async (ids: string[]) => new Map(rows.filter((r) => ids.includes(r.inventoryItemId)).map((r) => [r.inventoryItemId, r]))),
     enqueue: jest.fn(async () => undefined),
+    isFormulaStale: jest.fn(async () => false),
   };
 }
 
@@ -243,6 +244,8 @@ describe('DYN-B19 — `ListingPriceService.salesFor`', () => {
     const prisma = { listingPrice: { findMany: jest.fn(async () => rows) } } as unknown as PrismaService;
     const svc = new ListingPriceService(prisma, new SaleDecisionService(pricing), {} as SettingsService);
     const enqueue = jest.spyOn(svc, 'enqueue').mockResolvedValue(undefined);
+    // D9-6: sin poder leer la versión `isFormulaStale` falla CERRADO; estas pruebas miden «fila o vivo» con la versión vigente.
+    jest.spyOn(svc, 'isFormulaStale').mockResolvedValue(false);
     return { svc, enqueue, pricing };
   }
 
@@ -331,20 +334,20 @@ describe('DYN.5.3/.4 — `dial_change` desde las puertas de los diales', () => {
 
   it('`PUT /admin/settings`: el aviso llega DESPUÉS del commit, con las claves escritas; si la tx falla, no hay aviso', async () => {
     const seen: string[][] = [];
-    const ok = settingsWith({ configSetting: { upsert: jest.fn(async () => undefined), findUnique: jest.fn(async () => null) } });
+    const ok = settingsWith({ configSetting: { upsert: jest.fn(async () => undefined), findUnique: jest.fn(async () => null), findMany: jest.fn(async () => []) }, $executeRaw: jest.fn(async () => 0) });
     ok.onKeysWritten((k) => seen.push([...k]));
     await ok.update({ ivaPct: 16 });
     expect(seen).toEqual([[SettingKey.IVA_PCT]]);
 
     const seen2: string[][] = [];
-    const ko = settingsWith({ configSetting: { upsert: jest.fn(async () => { throw new Error('tx abortada'); }), findUnique: jest.fn(async () => null) } });
+    const ko = settingsWith({ configSetting: { upsert: jest.fn(async () => { throw new Error('tx abortada'); }), findUnique: jest.fn(async () => null), findMany: jest.fn(async () => []) }, $executeRaw: jest.fn(async () => 0) });
     ko.onKeysWritten((k) => seen2.push([...k]));
     await expect(ko.update({ ivaPct: 16 })).rejects.toThrow('tx abortada');
     expect(seen2).toEqual([]);
   });
 
   it('un oyente que lanza ⛔ no tumba la escritura ya confirmada', async () => {
-    const s = settingsWith({ configSetting: { upsert: jest.fn(async () => undefined), findUnique: jest.fn(async () => null) } });
+    const s = settingsWith({ configSetting: { upsert: jest.fn(async () => undefined), findUnique: jest.fn(async () => null), findMany: jest.fn(async () => []) }, $executeRaw: jest.fn(async () => 0) });
     s.onKeysWritten(() => {
       throw new Error('oyente roto');
     });
@@ -372,6 +375,10 @@ describe('Puertas de `ConfigSetting`: todas avisan o escriben solo claves que no
     'modules/decks-meta/decks-meta.service.ts': {
       keys: [DIAL_AUTOFETCH, DIAL_AUTOPUBLISH],
       why: 'Diales de decks meta (autofetch/autopublish): no son `SettingKey` y no entran al precio.',
+    },
+    'modules/pricing/listing-price.service.ts': {
+      keys: ['listing_price_formula_version'],
+      why: '§D9 8.2: bookkeeping del recálculo (la versión de la fórmula con que se escribieron las filas); lo escribe DESPUÉS de recalcular, ⛔ no mueve ningún precio.',
     },
     'modules/catalog/catalog-auto-state.service.ts': {
       keys: Object.values(CATALOG_AUTO_KEYS),
@@ -432,7 +439,8 @@ describe('Puertas de `ConfigSetting`: todas avisan o escriben solo claves que no
       'modules/settings/settings.service.ts#update',
     ]);
     expect([...new Set(mudos)].map((m) => m.split('#')[0]).sort()).toEqual(Object.keys(SIN_AVISO).sort());
-    expect(mudos.some((m) => m.startsWith('modules/pricing/'))).toBe(false);
+    // (§D9 8.2: la única escritura muda de `pricing/` es el bookkeeping de la versión de la fórmula, listada arriba con su razón.)
+    expect(mudos.some((m) => m.startsWith('modules/pricing/') && !m.startsWith('modules/pricing/listing-price.service.ts#formulaTick'))).toBe(false);
   });
 
   it('🐤 canario del método: una puerta muda junto a otra que avisa en el MISMO fichero se ve', () => {

@@ -20,12 +20,12 @@ describe('ShippingFeeHint (T1a/T1b) y RefundPromiseLine (T8)', () => {
     vi.spyOn(api, 'getPublicShippingRule').mockResolvedValue(RULE);
     const { unmount } = renderWithProviders(<ShippingFeeHint kind="cards" />, 'es');
     expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent(
-      '+ envío MX$101.01, gratis desde MX$4,123.00 · comisión de plataforma al pagar',
+      '+ envío MX$101.01, gratis desde MX$4,123.00',
     );
     unmount();
     renderWithProviders(<ShippingFeeHint kind="cards" />, 'en');
     expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent(
-      '+ shipping MX$101.01, free from MX$4,123.00 · platform fee at checkout',
+      '+ shipping MX$101.01, free from MX$4,123.00',
     );
   });
 
@@ -33,12 +33,12 @@ describe('ShippingFeeHint (T1a/T1b) y RefundPromiseLine (T8)', () => {
     vi.spyOn(api, 'getPublicShippingRule').mockResolvedValue(RULE);
     const { unmount } = renderWithProviders(<ShippingFeeHint kind="sealed" />, 'es');
     expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent(
-      'Envío MX$177.77, gratis desde MX$4,123.00 · comisión de plataforma al pagar',
+      'Envío MX$177.77, gratis desde MX$4,123.00',
     );
     unmount();
     renderWithProviders(<ShippingFeeHint kind="sealed" />, 'en');
     expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent(
-      'Shipping MX$177.77, free from MX$4,123.00 · platform fee at checkout',
+      'Shipping MX$177.77, free from MX$4,123.00',
     );
   });
 

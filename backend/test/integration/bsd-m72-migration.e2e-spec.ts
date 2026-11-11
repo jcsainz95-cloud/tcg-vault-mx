@@ -73,6 +73,7 @@ describe('💰 M-72 (rev BSD-1) contra Postgres real', () => {
     addressSnapshot: SNAPSHOT,
     shippingFeeCents: 0,
     priceConvention: 'IVA_INCLUSIVE' as const,
+    feeConvention: 'FEE_ON_TOP' as const,
     ...over,
   });
 
@@ -95,7 +96,7 @@ describe('💰 M-72 (rev BSD-1) contra Postgres real', () => {
       await rolledBack(async (tx) => {
         const u = await seller(tx);
         const row = await tx.shipmentRequest.create({
-          data: { userId: u.id, addressSnapshot: SNAPSHOT, shippingFeeCents: 100, priceConvention: 'IVA_INCLUSIVE' },
+          data: { userId: u.id, addressSnapshot: SNAPSHOT, shippingFeeCents: 100, priceConvention: 'IVA_INCLUSIVE', feeConvention: 'FEE_ON_TOP' },
         });
         expect(row.kind).toBe('outbound');
         expect(row.sellRequestId).toBeNull();

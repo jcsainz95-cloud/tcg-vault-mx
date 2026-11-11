@@ -21,19 +21,18 @@
  * Deterministas (N=1 dicho como tal) salvo DCO-B6. La tabla `DiscountCodeThrottle` se vacía antes de cada prueba: todas
  * las peticiones salen de la misma IP.
  */
+import { lForAtLeastP, pOfL } from '../helpers/d9-price';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { E2EHarness, ApiResponse } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { AccDb } from './helpers/accessories-b-db';
 import { ShipPrepDb } from './helpers/ship-prep-db';
-import { SettingsService } from '../../src/modules/settings/settings.service';
 import { DiscountsService } from '../../src/modules/discounts/discounts.service';
 import { OrdersService } from '../../src/modules/orders/orders.service';
 import {
   computeCartBreakdown,
   computeDirectShipBreakdown,
-  displayPriceCentsOf,
   itemMissingRefundComponents,
   itemRefundComponents,
 } from '../../src/common/money';
@@ -53,7 +52,6 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
   let acc: AccDb;
   let prep: ShipPrepDb;
   let discounts: DiscountsService;
-  let fee: Awaited<ReturnType<SettingsService['getStripeFee']>>;
   let adminId: string;
   const codeIds: string[] = [];
   let seq = 0;
@@ -67,9 +65,8 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
 
   /** Pieza vendible cuyo `P` cotizado es `cents` (o el primero por encima, si `exact` es falso). Mismo fixture que ENV-*. */
   const piece = async (productType: 'raw' | 'graded' | 'sealed', cents: number, exact = false) => {
-    let L = Math.floor(cents / 1.16) - 2;
-    while (displayPriceCentsOf(L, 100, 16) < cents) L += 1;
-    const P = displayPriceCentsOf(L, 100, 16);
+    const L = lForAtLeastP(cents); // D9: `P` lleva la comisión dentro (múltiplo de MX$1)
+    const P = pOfL(L);
     if (exact && P !== cents) throw new Error(`fixture: ningún L exhibe exactamente ${cents}`);
     const it = await acc.mkItem({ productType, listPriceCents: L });
     return { id: it.id, P };
@@ -103,7 +100,6 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
     prep = new ShipPrepDb(h, `${RUN}p`);
     await prep.init();
     discounts = h.app.get(DiscountsService);
-    fee = await h.app.get(SettingsService).getStripeFee();
     adminId = (await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.admin.email } })).id;
   });
 
@@ -203,7 +199,7 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       const b = await piece('raw', 50000);
       const S = a.P + b.P;
       const D = Math.floor((S * 10) / 100);
-      const expected = computeCartBreakdown(S - D, 16, fee);
+      const expected = computeCartBreakdown(S - D, 16);
       const q = await vaultQuote(c.token, { inventoryItemIds: [a.id, b.id], discountCode: code.code.toLowerCase() });
       expect(q.status).toBe(200);
       expect(q.body.discount).toEqual({ outcome: 'applied', code: code.code, kind: 'percent', merchandiseBeforeDiscountCents: S, discountCents: D, shippingWaivedCents: 0 });
@@ -236,7 +232,7 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       const a = await piece('raw', 120000);
       const S = a.P;
       const D = dOf(S);
-      const expected = computeDirectShipBreakdown(S - D, E, 16, fee);
+      const expected = computeDirectShipBreakdown(S - D, E, 16);
       const q = await acc.quote({ inventoryItemIds: [a.id], discountCode: code.code });
       expect(q.body.discount).toMatchObject({ outcome: 'applied', discountCents: D, shippingWaivedCents: def.kind === 'free_shipping' ? E_CARDS : 0 });
       expect(q.body.breakdown).toEqual(expected);
@@ -264,7 +260,7 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
         const a = await piece('raw', cents, true);
         const q = await acc.quote({ inventoryItemIds: [a.id], discountCode: code.code });
         const Sp = a.P - Math.floor(a.P / 10);
-        expect(q.body.breakdown).toEqual(computeDirectShipBreakdown(Sp, E, 16, fee));
+        expect(q.body.breakdown).toEqual(computeDirectShipBreakdown(Sp, E, 16));
         expect(q.body.shippingRule.freeShippingRemainingCents).toBe(Math.max(0, T - Sp));
       }
     });
@@ -842,7 +838,7 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       expect(s.status).toBe(201);
       const q0 = await vaultQuote(c.token, { inventoryItemIds: [a.id] });
       expect(q0.body.items[0].unitPriceCents).toBe(100000);
-      expect(q0.body.breakdown).toEqual(computeCartBreakdown(100000, 16, fee));
+      expect(q0.body.breakdown).toEqual(computeCartBreakdown(100000, 16));
       expect(keysDeep(q0.body).has('discount')).toBe(false);
       const other = await mkCode({ kind: 'percent', percentPct: 20 });
       const q2 = await vaultQuote(c.token, { inventoryItemIds: [a.id], discountCode: other.code });
@@ -904,7 +900,7 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       const card300 = await piece('raw', 300000, true);
       const ok = await acc.quote({ inventoryItemIds: [card300.id], discountCode: free.code });
       expect(ok.body.discount).toMatchObject({ outcome: 'applied', shippingWaivedCents: E_CARDS, discountCents: 0 });
-      expect(ok.body.breakdown).toEqual(computeDirectShipBreakdown(300000, 0, 16, fee));
+      expect(ok.body.breakdown).toEqual(computeDirectShipBreakdown(300000, 0, 16));
     });
   });
 
@@ -1015,18 +1011,17 @@ describe('💰 §DSC — códigos de descuento, fase 1 (Postgres real)', () => {
       expect((await h.prisma.discountCode.findUniqueOrThrow({ where: { id: code.id } })).firstReservedAt).toBeNull();
     });
 
-    it('cuenta (bóveda): 1 % solo a graded sobre graded de 50 + carta ⇒ ZERO_DISCOUNT; session 422 sin uso', async () => {
+    it('cuenta (bóveda), D9: el mínimo exhibido de una pieza es MX$1 ⇒ 1 % de una graded APLICA 1 centavo (ya no hay ZERO por «P < 100»; el ZERO de bóveda lo cubre `discounts.pure.spec`)', async () => {
+      // Antes de D9 una graded de 50 centavos daba «1 % de P < 100 ⇒ floor a 0». El precio calculado ahora es de pesos enteros
+      // (comisión dentro + techo al peso): 100 es el mínimo, y 1 % de 100 = 1.
       const code = await mkCode({ kind: 'percent', percentPct: 1, productScopes: ['graded'], maxUsesPerCustomer: null });
       const c = await customer();
-      const g = await piece('graded', 50);
+      const g = await piece('graded', 100);
       const a = await piece('raw', 50000);
-      const json = { inventoryItemIds: [g.id, a.id], discountCode: code.code };
-      expect(g.P).toBeLessThan(100); // 1 % de P < 100 ⇒ floor a 0
-      expect((await vaultQuote(c.token, json)).body.discount).toEqual(ZERO(code.code));
-      const s = await vaultSession(c.token, json);
-      expect(s.status).toBe(422);
-      expect(s.body.error.details).toEqual({ reason: 'ZERO_DISCOUNT' });
-      expect(await h.prisma.discountRedemption.count({ where: { codeId: code.id } })).toBe(0);
+      expect(g.P).toBe(100);
+      const q = await vaultQuote(c.token, { inventoryItemIds: [g.id, a.id], discountCode: code.code });
+      expect(q.status).toBe(200);
+      expect(q.body.discount).toMatchObject({ outcome: 'applied', discountCents: 1 });
     });
 
     it('preview por HTTP ⇒ { 0, 0, false } (antes: { 0, 2, false })', async () => {

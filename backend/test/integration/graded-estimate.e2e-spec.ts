@@ -20,7 +20,8 @@ import {
   E2E_STALE_ESTIMATES,
   E2E_USERS,
 } from '../../prisma/e2e-fixtures';
-import { L, P } from './helpers/iva-display';
+import { P } from './helpers/iva-display';
+import { DEFAULT_PRICING_CURVE, resolveSaleFromCurve } from '../../src/common/pricing-curve';
 
 describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
   let h: E2EHarness;
@@ -840,7 +841,10 @@ describe('E2E — Gancho de grading (valor estimado si se gradea)', () => {
     const precioExhibido = grupoRaw.displayPriceCents;
     expect(precioExhibido).toBeGreaterThan(0);
     expect(grupoRaw.ivaIncluded).toBe(true);
-    const precioRaw = L(precioExhibido);
+    // ⭐ D9: `P` lleva la comisión DENTRO y se redondea al peso ⇒ ya NO se invierte (`L(P)` no es exacto). `L` sale de la CURVA,
+    // como en `catalog-checkout-webhook`, y se COMPRUEBA contra lo exhibido: si la curva del seed cambiara, esta línea lo dice.
+    const precioRaw = resolveSaleFromCurve(E2E_CARDS.fourthraw.refNmCents, DEFAULT_PRICING_CURVE).cents as number;
+    expect(P(precioRaw)).toBe(precioExhibido);
     expect(precioRaw).toBeGreaterThan(0);
     // La carta parte LIMPIA: sin esto, un residuo de otra corrida haría verde este caso por accidente.
     expect(antes.body.gradedEstimates).toBeUndefined();

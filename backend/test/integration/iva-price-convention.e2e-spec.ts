@@ -38,7 +38,6 @@ import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_FOLIOS, E2E_GUEST_ORDER, E2E_SPEI_FIXTURE, E2E_USERS } from '../../prisma/e2e-fixtures';
 import { computeCartBreakdown, computeDirectShipBreakdown, computeShipmentBreakdown } from '../../src/common/money';
 
-const FEE = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
 const IVA = 16;
 /** `F` — el dial `shipping_fee_cents`, que sigue siendo **NETO** y ⛔ no cambia de valor (§4.44.f). */
 const SHIPPING = 17500;
@@ -323,8 +322,8 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
     it('⭐ y el default se aplica de verdad: un INSERT que la omite deja `0`, no `NULL`', async () => {
       const id = `iva-e2e-${RUN}-costiva`;
       await h.prisma.$executeRawUnsafe(
-        `INSERT INTO "ShipmentRequest" (id, "addressSnapshot", status, "shippingFeeCents", "priceConvention", "shippingCostCents")
-         VALUES ('${id}', '{}'::jsonb, 'solicitado', 17500, 'IVA_EXCLUSIVE', 20300)`,
+        `INSERT INTO "ShipmentRequest" (id, "addressSnapshot", status, "shippingFeeCents", "priceConvention", "feeConvention", "shippingCostCents")
+         VALUES ('${id}', '{}'::jsonb, 'solicitado', 17500, 'IVA_EXCLUSIVE', 'FEE_ON_TOP', 20300)`,
       );
       aLimpiar.shipmentIds.push(id);
       const [fila] = await h.prisma.$queryRawUnsafe<
@@ -352,8 +351,8 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
     it('INSERT en `Order` omitiendo `priceConvention` ⇒ NOT NULL violation (SQLSTATE 23502)', async () => {
       const err = await h.prisma
         .$executeRawUnsafe(
-          `INSERT INTO "Order" (id, "userId", status, "subtotalCents", "processingFeeCents", "ivaCents", "totalCents")
-           VALUES ('iva-e2e-${RUN}-noconv', '${customerId}', 'pending', 10000, 869, 1600, 12469)`,
+          `INSERT INTO "Order" (id, "userId", status, "subtotalCents", "processingFeeCents", "ivaCents", "totalCents", "feeConvention")
+           VALUES ('iva-e2e-${RUN}-noconv', '${customerId}', 'pending', 10000, 869, 1600, 12469, 'FEE_ON_TOP')`,
         )
         .then(() => null)
         .catch((e: Error) => e);
@@ -365,8 +364,8 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
     it('INSERT en `ShipmentRequest` omitiendo `priceConvention` ⇒ NOT NULL violation (SQLSTATE 23502)', async () => {
       const err = await h.prisma
         .$executeRawUnsafe(
-          `INSERT INTO "ShipmentRequest" (id, "addressSnapshot", status, "shippingFeeCents")
-           VALUES ('iva-e2e-${RUN}-noconv-s', '{}'::jsonb, 'solicitado', 17500)`,
+          `INSERT INTO "ShipmentRequest" (id, "addressSnapshot", status, "shippingFeeCents", "feeConvention")
+           VALUES ('iva-e2e-${RUN}-noconv-s', '{}'::jsonb, 'solicitado', 17500, 'FEE_ON_TOP')`,
         )
         .then(() => null)
         .catch((e: Error) => e);
@@ -403,8 +402,8 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       // NOT NULL de otra columna o por un typo del SQL — y estaría verde sin haber probado nada.
       const id = `iva-e2e-${RUN}-conv-ok`;
       await h.prisma.$executeRawUnsafe(
-        `INSERT INTO "Order" (id, "userId", status, "subtotalCents", "processingFeeCents", "ivaCents", "totalCents", "priceConvention")
-         VALUES ('${id}', '${customerId}', 'pending', 10000, 869, 1600, 12469, 'IVA_EXCLUSIVE')`,
+        `INSERT INTO "Order" (id, "userId", status, "subtotalCents", "processingFeeCents", "ivaCents", "totalCents", "priceConvention", "feeConvention")
+         VALUES ('${id}', '${customerId}', 'pending', 10000, 869, 1600, 12469, 'IVA_EXCLUSIVE', 'FEE_ON_TOP')`,
       );
       const fila = await h.prisma.order.findUnique({ where: { id } });
       expect(fila!.priceConvention).toBe('IVA_EXCLUSIVE');
@@ -443,7 +442,7 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       // ⭐ El desglose persistido es EXACTAMENTE el de la aritmética nueva, sobre el subtotal que la
       // orden trae (que ya es `Σ P`). Se mide como identidad contra el helper, ⛔ no contra una
       // constante: así sigue midiendo aunque cambie el precio de la pieza del seed.
-      const esperado = computeCartBreakdown(order!.subtotalCents, IVA, FEE);
+      const esperado = computeCartBreakdown(order!.subtotalCents, IVA);
       expect({
         ivaCents: order!.ivaCents,
         processingFeeCents: order!.processingFeeCents,
@@ -479,7 +478,7 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
       const E_CARDS = 10000;
       expect(order!.shippingFeeCents).toBe(E_CARDS);
 
-      const esperado = computeDirectShipBreakdown(order!.subtotalCents, E_CARDS, IVA, FEE);
+      const esperado = computeDirectShipBreakdown(order!.subtotalCents, E_CARDS, IVA);
       expect(order!.ivaCents).toBe(esperado.ivaCents);
       expect(order!.processingFeeCents).toBe(esperado.processingFeeCents);
       expect(order!.totalCents).toBe(esperado.totalCents);
@@ -544,7 +543,7 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
 
       // ⭐⭐ Y EL ENVÍO SIGUE COSTANDO LO MISMO — money-neutral, `IVA-6(b)`: `E = 20300` con su IVA
       // dentro es el mismo total que `17500` con `2800` apilado detrás. **Ni un centavo.**
-      const esperado = computeShipmentBreakdown(SHIPPING_DISPLAY, IVA, FEE);
+      const esperado = computeShipmentBreakdown(SHIPPING_DISPLAY, IVA);
       expect(envio!.shippingFeeCents).toBe(SHIPPING_DISPLAY);
       expect(envio!.ivaCents).toBe(esperado.ivaCents);
       expect(envio!.ivaCents).toBe(Math.round((SHIPPING * IVA) / 100));
@@ -817,7 +816,7 @@ describe('E2E — M-50 / DEPLOY 1: la convención de precio se congela por fila 
         taxBaseCents: 10000,
         ivaCents: 1600,
         netRevenueCents: 10000,
-        totalChargedCents: 12469,
+        totalChargedCents: 12200, // D9 §8.4(iii): 11600 exhibido con la comisión dentro (3.6 %, IVA 16) ⇒ 12200
       });
     });
 

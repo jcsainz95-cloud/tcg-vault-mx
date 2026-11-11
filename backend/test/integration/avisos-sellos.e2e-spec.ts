@@ -134,6 +134,7 @@ describe('§R / M-57 — los sellos `trackingNoticeSentAt` y `guideNoticeSentAt`
         totalCents: 20300,
         // ⛔ NOT NULL y sin DEFAULT desde D56 (`IVA-3(e)`): omitirla revienta, y debe reventar.
         priceConvention: 'IVA_INCLUSIVE',
+        feeConvention: 'FEE_ON_TOP',
         pickingAt: new Date(),
         preparedAt: new Date(),
         preparedByUserId: customer2Id,

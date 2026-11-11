@@ -117,7 +117,7 @@ describe('iva_pct — el dial no puede aceptar lo que `Order.ivaRatePct` (Int) n
 
     beforeEach(() => {
       prisma = {
-        configSetting: { upsert: jest.fn().mockResolvedValue({}), findUnique: jest.fn().mockResolvedValue(null) },
+        configSetting: { upsert: jest.fn().mockResolvedValue({}), findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
         fxRate: { findFirst: jest.fn().mockResolvedValue(null) },
         $executeRaw: jest.fn().mockResolvedValue(1),
       };
@@ -172,9 +172,8 @@ describe('iva_pct — el dial no puede aceptar lo que `Order.ivaRatePct` (Int) n
     // agujero**: el residual se calcula con el float vivo igual que antes, así que la divergencia
     // entre lo cobrado y la tasa archivada **sigue ahí**. Las cifras cambian; el defecto no. *Por eso
     // el candado sigue siendo el VALIDADOR y no la fórmula.*
-    const fee = { stripePct: 0.036, stripeFixedCents: 300, stripeFeeIvaPct: 0.16 };
-    const cobradoConElFloat = computeCartBreakdown(10850, 8.5, fee);
-    const loQueDiriaLaFilaTruncada = computeCartBreakdown(10850, Math.trunc(8.5), fee);
+    const cobradoConElFloat = computeCartBreakdown(10850, 8.5);
+    const loQueDiriaLaFilaTruncada = computeCartBreakdown(10850, Math.trunc(8.5));
 
     // `10850 − round(10850/1.085) = 10850 − 10000 = 850`.
     expect(cobradoConElFloat.ivaCents).toBe(850);

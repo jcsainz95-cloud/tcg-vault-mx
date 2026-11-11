@@ -22,7 +22,6 @@ import {
   DirectShipBreakdownDTO,
   DiscountCartLine,
   DiscountTerms,
-  StripeFeeConfig,
   allocateDiscount,
   computeCartBreakdown,
   discountOf,
@@ -93,7 +92,6 @@ export function priceVaultCartWithCode(
   lines: readonly DiscountCartLine[],
   terms: DiscountTerms,
   ivaRatePct: number,
-  fee: StripeFeeConfig,
 ): AppliedCartDiscount<BreakdownDTO> | NotApplicable {
   // Precedencia 1: el envío gratis a la bóveda no tiene envío que perdonar — gana a destino, filtros y mínimo (DCO-B20 a/b).
   if (terms.kind === 'free_shipping') return notApplicable('NO_SHIPPING');
@@ -101,7 +99,7 @@ export function priceVaultCartWithCode(
   const d = discountOf(lines, terms, { destination: 'vault' });
   if (!d.ok) return notApplicable(d.reason, d.details);
   const alloc = allocateDiscount(d.eligible, d.nominalCents);
-  const breakdown = representableOrThrow(() => computeCartBreakdown(S - alloc.discountCents, ivaRatePct, fee));
+  const breakdown = representableOrThrow(() => computeCartBreakdown(S - alloc.discountCents, ivaRatePct));
   if (breakdown.totalCents < DISCOUNT_MIN_TOTAL_CENTS) return totalBelowMinimum();
   if (alloc.discountCents === 0) return zeroDiscount();
   return {
@@ -122,7 +120,6 @@ export function priceDirectShipCartWithCode(
   terms: DiscountTerms,
   ship: DirectShipContext,
   ivaRatePct: number,
-  fee: StripeFeeConfig,
 ): AppliedCartDiscount<DirectShipBreakdownDTO> | NotApplicable {
   const S = merchandiseOf(lines);
   const d = discountOf(lines, terms, { destination: 'direct_ship' });
@@ -137,7 +134,7 @@ export function priceDirectShipCartWithCode(
     const classFeeCents = ship.kind === 'cards_only' ? ship.dials.cardsFeeCents : ship.dials.sealedFeeCents;
     if (S >= ship.dials.freeFromCents || classFeeCents <= 0) return notApplicable('ALREADY_FREE_SHIPPING');
     if (!d.ok) return notApplicable(d.reason, d.details);
-    const { ship: shipFee, breakdown } = directShipBreakdownOf({ ...ship, subtotalCents: S, ivaRatePct, fee, waiveRuleFee: true });
+    const { ship: shipFee, breakdown } = directShipBreakdownOf({ ...ship, subtotalCents: S, ivaRatePct, waiveRuleFee: true });
     if (breakdown.totalCents < DISCOUNT_MIN_TOTAL_CENTS) return totalBelowMinimum();
     return {
       outcome: 'applied',
@@ -153,7 +150,7 @@ export function priceDirectShipCartWithCode(
   if (!d.ok) return notApplicable(d.reason, d.details); // (inalcanzable: ya devuelto arriba; lo pide el tipo)
   const alloc = allocateDiscount(d.eligible, d.nominalCents);
   // [D2]: el umbral y la caja se miden sobre `S'` con la MISMA cadena de hoy.
-  const { ship: shipFee, breakdown } = directShipBreakdownOf({ ...ship, subtotalCents: S - alloc.discountCents, ivaRatePct, fee });
+  const { ship: shipFee, breakdown } = directShipBreakdownOf({ ...ship, subtotalCents: S - alloc.discountCents, ivaRatePct });
   if (breakdown.totalCents < DISCOUNT_MIN_TOTAL_CENTS) return totalBelowMinimum();
   if (alloc.discountCents === 0) return zeroDiscount();
   return {

@@ -10,7 +10,7 @@
  */
 import { ceiling, demandRowMath, fits, halfDiv, marginAtMarket, maxDisplay } from '../src/common/wishlist-math';
 
-const DIALS = { ivaRatePct: 16, ivaTransferPct: 100 };
+const DIALS = { ivaRatePct: 16, ivaTransferPct: 100, stripeFeePct: 0 };
 const M = 100000; // mercado $1,000
 const NORMAL = 133400; // precio normal $1,150 sin IVA ⇒ $1,334 con IVA (criterio 827)
 
@@ -178,5 +178,35 @@ describe('WSH-T35 (unit) — `marginAtMarket` en PUNTOS porcentuales con un deci
       marginBasis: 'cost',
     });
     expect(r.marginAtMarket).toEqual({ cents: -9483, pct: -9.5 });
+  });
+});
+
+describe('§D9 8.5 (opción A) — techo y margen del DUEÑO quitan la comisión; el aviso al cliente NO', () => {
+  const F16 = { ...DIALS, stripeFeePct: 0.036 };
+  const base = {
+    marketCents: 10000,
+    normalDisplayCents: 10500,
+    tiers: [{ maxPct: 16 as const, accounts: 1 }],
+    ivaMode: 'with_iva' as const,
+    targetMarginPct: 20,
+    marginBasis: 'sale' as const,
+  };
+  it('caso qa B3: M=10000, P=10500, 16 %, 20 % sobre venta ⇒ techo 6939 y margen −1326', () => {
+    const r = demandRowMath({ ...base, dials: F16 });
+    expect(r.mainCeilingCents).toBe(6939);
+    expect(r.marginAtMarket).toEqual({ cents: -1326, pct: -13.3 });
+  });
+  it('sin comisión (0 o ausente) ⇒ las cifras de siempre (7241 / −948)', () => {
+    const r = demandRowMath({ ...base, dials: DIALS });
+    expect(r.mainCeilingCents).toBe(7241);
+    expect(r.marginAtMarket?.cents).toBe(-948);
+  });
+  it('base `cost` también divide: 10500·D/(1.16·1.2)', () => {
+    expect(ceiling(10500, 'cost', 20, 16, 0.036)).toBe(Math.round((10500 * 0.95824) / (1.16 * 1.2)));
+  });
+  it('`fits()` NO cambia con la comisión: precio visto ≤ tope', () => {
+    expect(fits(11600, 10000, 16, 'with_iva', F16)).toBe(true);
+    expect(fits(11601, 10000, 16, 'with_iva', F16)).toBe(false);
+    expect(maxDisplay(10000, 16, 'with_iva', F16)).toBe(maxDisplay(10000, 16, 'with_iva', DIALS));
   });
 });
