@@ -4,8 +4,8 @@ import { buildMerchantFeedXml } from '@/lib/merchant-feed-xml';
 
 /**
  * §GSHOP — `GET /feeds/google-merchant.xml` (spec §B). Fuera del i18n y del middleware (el matcher excluye rutas con
- * punto) y sin regla en `robots.ts`. Dinámica: la frescura la dan la caché de datos de Next (3600 s) y la CDN
- * (`s-maxage=3600, stale-while-revalidate=86400`); así un 503 nunca queda cacheado. Backend caído o 0 ítems ⇒ 503
+ * punto) y sin regla en `robots.ts`. Dinámica: la frescura la dan la caché de datos de Next (900 s) y la CDN
+ * (`s-maxage=900, stale-while-revalidate=900`); así un 503 nunca queda cacheado. Backend caído o 0 ítems ⇒ 503
  * (nunca un 200 vacío: Merchant conservaría lo anterior en vez de borrar el catálogo).
  */
 export const dynamic = 'force-dynamic';
@@ -22,7 +22,7 @@ function unavailable(): Response {
 export async function GET(): Promise<Response> {
   let feed;
   try {
-    feed = await getMerchantFeed({ next: { revalidate: 3600, tags: ['merchant-feed'] } });
+    feed = await getMerchantFeed({ next: { revalidate: 900, tags: ['merchant-feed'] } });
   } catch (e) {
     if (!(e instanceof ApiClientError)) console.error('[merchant-feed] backend no disponible');
     return unavailable();
@@ -35,9 +35,9 @@ export async function GET(): Promise<Response> {
     status: 200,
     headers: {
       'Content-Type': XML,
-      'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+      'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=900',
       'X-Feed-Items': String(items),
-      'X-Feed-Skipped': String(skipped + (feed.skipped ?? 0)),
+      'X-Feed-Skipped': String(skipped),
     },
   });
 }

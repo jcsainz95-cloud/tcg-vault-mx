@@ -18,7 +18,7 @@ export interface MerchantFeedItem {
   imageUrl: string | null;
   /** Centavos MXN enteros, IVA y comisión incluidos (= `Offer.price` de la ficha). */
   priceCents: number;
-  availability?: 'in_stock';
+  availability?: 'in_stock' | 'out_of_stock' | 'preorder' | 'backorder';
   condition: 'new' | 'used';
   brand: 'Pokémon';
   gtin: string | null;
@@ -33,8 +33,6 @@ export interface MerchantFeedItem {
 export interface MerchantFeedResponse {
   items: MerchantFeedItem[];
   generatedAt: string;
-  /** Cuántas fichas omitió el backend por datos dudosos (si lo informa). */
-  skipped?: number;
 }
 
 export interface ServerFeedOptions {
@@ -75,7 +73,7 @@ export async function getMerchantFeed(server?: ServerFeedOptions): Promise<Merch
         brand: 'Pokémon',
         gtin: null,
         identifierExists: false,
-        shippingCents: 10000,
+        shippingCents: 17500,
       },
     ],
   };

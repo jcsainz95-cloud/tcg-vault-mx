@@ -36,7 +36,7 @@ function clip(s: string, max: number): string {
 
 /** Texto plano: sin etiquetas HTML y con los blancos colapsados. */
 function plain(s: string): string {
-  return stripXmlInvalid(s).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return stripXmlInvalid(s).replace(/<\/?[a-zA-Z][a-zA-Z0-9]*(?:\s[^<>]*)?\/?>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 export function formatMxn(cents: number): string {
@@ -57,6 +57,8 @@ function localizedPath(p: string): string {
   const path = p.startsWith('/') ? p : `/${p}`;
   return path.startsWith(`/${routing.defaultLocale}/`) ? path : `/${routing.defaultLocale}${path}`;
 }
+
+const AVAILABILITY = new Set(['in_stock', 'out_of_stock', 'preorder', 'backorder']);
 
 function tag(name: string, value: string): string {
   return `      <g:${name}>${escapeXml(value)}</g:${name}>`;
@@ -79,7 +81,7 @@ export function buildItemXml(item: MerchantFeedItem): string | null {
     tag('link', link),
     tag('image_link', image),
     tag('price', formatMxn(item.priceCents)),
-    tag('availability', 'in_stock'),
+    tag('availability', item.availability && AVAILABILITY.has(item.availability) ? item.availability : 'in_stock'),
     tag('condition', item.condition === 'new' ? 'new' : 'used'),
     tag('brand', 'Pokémon'),
   ];

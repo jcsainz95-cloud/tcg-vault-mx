@@ -22,7 +22,7 @@ describe('§GSHOP ruta /feeds/google-merchant.xml', () => {
     const res = await GET();
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('application/xml; charset=utf-8');
-    expect(res.headers.get('Cache-Control')).toContain('s-maxage=3600');
+    expect(res.headers.get('Cache-Control')).toContain('s-maxage=900');
     expect(res.headers.get('X-Feed-Items')).toBe('1');
     expect(res.headers.get('X-Feed-Skipped')).toBe('1');
     const xml = await res.text();
@@ -57,6 +57,17 @@ describe('§GSHOP ruta /feeds/google-merchant.xml', () => {
 });
 
 describe('merchant-feed-xml', () => {
+  it("escapa nombres con < > & comillas en título y descripción (Farfetch'd & <Mr. \"Mime\">)", () => {
+    const n = `Farfetch'd & <Mr. "Mime">`;
+    const { xml } = buildMerchantFeedXml([item({ title: n, description: n })]);
+    const esc = 'Farfetch&apos;d &amp; &lt;Mr. &quot;Mime&quot;&gt;';
+    expect(xml).toContain(`<g:title>${esc}</g:title>`);
+    expect(xml).toContain(`<g:description>${esc}</g:description>`);
+  });
+  it('availability sale del DTO; desconocido ⇒ in_stock', () => {
+    expect(buildMerchantFeedXml([item({ availability: 'out_of_stock' })]).xml).toContain('<g:availability>out_of_stock<');
+    expect(buildMerchantFeedXml([item()]).xml).toContain('<g:availability>in_stock<');
+  });
   it('escapeXml y caracteres de control', () => {
     expect(escapeXml(`a&b<c>"d"'e'`)).toBe('a&amp;b&lt;c&gt;&quot;d&quot;&apos;e&apos;');
     expect(stripXmlInvalid('a\u0000b\u0008c\ud800d')).toBe('abcd');
