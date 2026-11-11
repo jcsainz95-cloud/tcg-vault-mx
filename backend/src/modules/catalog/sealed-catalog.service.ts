@@ -27,6 +27,7 @@ import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 // v1.96⟨mkt-tienda⟩ (§MKT.A / §13.2.3): `pricedAsOf` (fecha CDMX) + `ogImageUrl` (absoluta) de la FICHA.
 import { toMexicoCityDateKey } from '../../common/business-days';
 import { absoluteOgImageUrl } from '../../common/og-image';
+import type { MerchantFeedRaw } from './merchant-feed';
 import { upgradeSealedImageUrl } from '../inventory/sealed-image-host';
 
 // v2.1.8: DERIVADOS del schema (`common/enum-values.ts`) — ver por qué ahí. CLASE E (§0-Q punto 3).
@@ -512,6 +513,35 @@ export class SealedCatalogService {
       const rep = [...members].sort((a, b) => this.displayOf(a, dials) - this.displayOf(b, dials))[0];
       const lastmod = Math.max(...members.map((m) => m.item.updatedAt.getTime()));
       return { type: 'sealed' as const, id: rep.item.id, lastmod: new Date(lastmod).toISOString() };
+    });
+  }
+
+  /**
+   * §GSHOP.B — insumos del feed de Merchant para SELLADO: una fila por GRUPO a la venta (misma consulta, agrupación y regla de
+   * «vendible» que `sitemapSealedEntries`/la ficha). Precio = `fromPriceCents` del grupo (el `Offer.price` de la ficha). Solo
+   * identidad y precio públicos (`toGroupDTO`); ⛔ nada de estado, dueño ni `L`.
+   */
+  async merchantFeedSealedRows(): Promise<MerchantFeedRaw[]> {
+    const dials = await this.settings.getIvaDials();
+    const priced = await this.loadPricedSealed({ productType: 'sealed', status: 'listed', ownerType: 'platform' }, dials);
+    const groups = new Map<string, PricedSealed[]>();
+    for (const p of priced) {
+      const k = this.groupKey(p.item);
+      const arr = groups.get(k);
+      if (arr) arr.push(p);
+      else groups.set(k, [p]);
+    }
+    return [...groups.values()].map((members) => {
+      const g = this.toGroupDTO(members, dials);
+      const setName = g.card.setName ?? '';
+      return {
+        kind: 'sealed' as const,
+        refId: g.representativeItemId,
+        title: [g.productName, setName && !g.productName.includes(setName) ? setName : '', 'Pokémon TCG'].filter((x) => x).join(' · '),
+        description: `${g.productName}${setName ? ` (${setName})` : ''}. Producto sellado de fábrica de Pokémon TCG. Venta en TCG HUNT con envío a todo México.`,
+        imageUrl: g.ogImageUrl,
+        priceCents: g.fromPriceCents,
+      };
     });
   }
 

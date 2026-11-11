@@ -14,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MAIL_PORT, type MailPort } from '../mail/mail.port';
 import { ownerRecipients } from '../spend-alerts/spend-mail.service';
 import { addDays } from '../sales-analytics/sales-period';
+import { IndexInspectionService } from './index-inspection.service';
 import { MarketingAnalyticsService } from './marketing-analytics.service';
 import { lastClosedWeekStart, resolveMarketingPeriod } from './marketing-period';
 import { weeklyDigestMail } from './marketing-weekly-digest.mail';
@@ -34,6 +35,8 @@ export class MarketingWeeklyDigestService {
     private readonly analytics: MarketingAnalyticsService,
     @Optional() private readonly config?: ConfigService,
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    // §GSHOP.A: tras un envío correcto, las URLs de AV7 que el correo incluyó quedan marcadas (no se repiten en 28 días).
+    @Optional() private readonly indexInspection?: IndexInspectionService,
   ) {}
 
   private panelUrl(): string {
@@ -120,6 +123,14 @@ export class MarketingWeeklyDigestService {
       } catch (e) {
         // Ya salió: no es un fallo de envío ni se reenvía (la marca `sentAt` lo impide).
         this.logger.error(`marketing-weekly-digest ${weekStart} destinatario ${keyed.indexOf(r) + 1}/${keyed.length}: enviado pero no se pudo marcar 'sent' (${e instanceof Error ? e.constructor.name : 'error'})`);
+      }
+    }
+    if (sent > 0 && this.indexInspection) {
+      try {
+        await this.indexInspection.markNotified(now);
+      } catch (e) {
+        // El correo ya salió: un fallo aquí solo repetiría el aviso en el próximo correo (nunca lo oculta).
+        this.logger.error(`marketing-weekly-digest ${weekStart}: no se pudo marcar AV7 como avisado (${e instanceof Error ? e.constructor.name : 'error'})`);
       }
     }
     return done(failed > 0 ? 'failed' : sent > 0 ? 'sent' : 'noop');

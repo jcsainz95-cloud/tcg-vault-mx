@@ -21,6 +21,8 @@ import { UNIDENTIFIED_SEALED_NAME } from '../../common/piece-display-identity';
 import { MarketingExternalSources, type Ga4ReportSpec, type Ga4Row } from './marketing-external-sources';
 import { MarketingSearchMissService, SEARCH_MISS_MIN_DAYS, SEARCH_MISS_MIN_PEOPLE } from './marketing-search-miss.service';
 import { GA4_UNFILTERED_NOTE, isInternalUtm } from './internal-traffic';
+import type { Av7Summary } from './index-inspection';
+import { IndexInspectionService } from './index-inspection.service';
 import { AV3_MAX_CARTS, AV3_MIN_VIEWS, AV5_MIN_QUOTES, alertsWithSources, evaluateAlerts, type Alert } from './marketing-alerts';
 import { deltaCells, nvrCells, sumIfVisible } from './marketing-summary';
 import {
@@ -339,6 +341,8 @@ export class MarketingAnalyticsService {
     @Optional() private readonly measurement?: MeasurementService,
     @Optional() private readonly external?: MarketingExternalSources,
     @Optional() private readonly searchMiss?: MarketingSearchMissService,
+    // §GSHOP.A: AV7 (indexación). `@Optional()` por la misma razón (pruebas que construyen el servicio a mano ⇒ sin AV7).
+    @Optional() private readonly indexInspection?: IndexInspectionService,
   ) {}
 
   /** Motivo de una tabla GA4 sin datos: apagado ⇒ «sin encender»; encendido sin credenciales o con fallo ⇒ «sin conectar». */
@@ -1840,7 +1844,18 @@ export class MarketingAnalyticsService {
     const buylist = await this.buylistWithoutStock(period);
     // AV6 (búsquedas sin resultado)
     const misses = await this.searchMisses(period);
-    const alerts = evaluateAlerts({ checkoutStarts: c.checkout, paidOrders: c.paid, groups, items, scPages, buylist, searchMisses: misses, exact });
+    // AV7 (indexación de Google; §GSHOP.A). Solo con Search Console conectado (si no, ya consta «sin conectar»).
+    let indexIssues: Av7Summary | null = null;
+    if (c.scOn && this.indexInspection) {
+      try {
+        const v = await this.indexInspection.av7Input(now);
+        if (v.missing) missing.push(v.missing);
+        else indexIssues = v.summary;
+      } catch {
+        missing.push('la indexación: lectura fallida');
+      }
+    }
+    const alerts = evaluateAlerts({ checkoutStarts: c.checkout, paidOrders: c.paid, groups, items, scPages, buylist, searchMisses: misses, indexIssues, exact });
     return alertsWithSources(alerts, missing);
   }
 

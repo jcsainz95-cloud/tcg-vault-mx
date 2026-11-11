@@ -1,9 +1,10 @@
 /**
- * marketing-alerts.ts — los 6 avisos deterministas del Resumen (MKT_PANEL_V2 §2). PURO: entradas ya medidas ⇒ filas de `r2`.
+ * marketing-alerts.ts — los 7 avisos deterministas del Resumen (MKT_PANEL_V2 §2). PURO: entradas ya medidas ⇒ filas de `r2`.
  * Sin IA, sin red, sin BD. Umbrales en constantes con nombre (backend y qa los revisan a las 4 semanas, sin preguntar al dueño).
- * Orden fijo AV1…AV6; ≤ 3 elementos por regla (cifra desc, clave asc). Todo umbral de conteo es ≥ 5 EXCEPTO el de la caída
+ * Orden fijo AV1…AV7; ≤ 3 elementos por regla (cifra desc, clave asc). Todo umbral de conteo es ≥ 5 EXCEPTO el de la caída
  * de AV2 (la cifra actual puede ser < 5): en `small_cells` esa cifra se cita como «menos de 5», nunca exacta.
  */
+import type { Av7Summary } from './index-inspection';
 import { AV_TEXT, NOT_EVALUATED, NOT_FULLY_EVALUATED, NO_ALERTS } from './marketing-alerts.text';
 
 export const AV1_MIN_CHECKOUTS = 5;
@@ -38,6 +39,8 @@ export interface AlertInputs {
   scPages: { label: string; impressions: number; clicks: number; position: number }[] | null;
   buylist: { name: string; quotes: number; listed: number }[];
   searchMisses: { term: string; count: number; days: number }[] | null;
+  /** AV7 (§GSHOP.A): problemas de indexación ya filtrados por rachas y supresión; `null`/ausente ⇒ sin aviso. */
+  indexIssues?: Av7Summary | null;
   /** `true` = vista del dueño (cifras exactas); `false` = correo/exports/tokens. */
   exact: boolean;
 }
@@ -76,6 +79,12 @@ export function evaluateAlerts(i: AlertInputs): Alert[] {
   if (i.searchMisses) {
     const hit = i.searchMisses.filter((s) => s.count >= AV6_MIN_COUNT && s.days >= AV6_MIN_DAYS);
     for (const s of top(hit, (y) => y.count, (y) => y.term)) add('AV6', 'info', AV_TEXT.AV6(s.term, s.count, s.days));
+  }
+
+  // AV7 (§GSHOP.A): BLOCKED y NOT_FOUND ⇒ alta; el resto, media. Sin elementos ⇒ sin aviso.
+  if (i.indexIssues && i.indexIssues.total > 0) {
+    const urgent = i.indexIssues.groups.some((g) => g.flag === 'NOT_FOUND' || g.flag === 'BLOCKED');
+    add('AV7', urgent ? 'alta' : 'media', AV_TEXT.AV7(i.indexIssues.total, i.indexIssues.groups));
   }
 
   if (out.length === 0) out.push({ regla: '—', gravedad: 'info', ...NO_ALERTS });

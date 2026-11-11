@@ -36,6 +36,33 @@ export const AV_TEXT = {
     evidencia: `«${term}»: ${nf(people)} personas distintas sin resultado, en ${nf(days)} días con al menos 2 personas.`,
     accion: `Buscan "${term}" ${nf(people)} personas y no hay resultado: ¿falta en el catálogo?`,
   }),
+  // §GSHOP.A: una sola fila con los conteos por problema y ≤ 3 rutas por categoría («y N más» si hay más).
+  AV7: (total: number, groups: { flag: string; count: number; examples: string[] }[]) => {
+    const label = (g: { flag: string; count: number }): string => {
+      const n = nf(g.count);
+      switch (g.flag) {
+        case 'NOT_FOUND':
+          return `${n} no ${g.count === 1 ? 'existe' : 'existen'} (404)`;
+        case 'BLOCKED':
+          return `${n} bloqueada${g.count === 1 ? '' : 's'} para Google`;
+        case 'FETCH_ERROR':
+          return `${n} con error al rastrear`;
+        case 'DUP_NO_CANON':
+          return `${n} duplicada${g.count === 1 ? '' : 's'} sin canónica`;
+        default:
+          return `${n} rastreada${g.count === 1 ? '' : 's'} sin indexar`;
+      }
+    };
+    const resumen = groups.map(label).join(', ');
+    const ejemplos = groups
+      .flatMap((g) => [...g.examples, ...(g.count > g.examples.length ? [`y ${nf(g.count - g.examples.length)} más`] : [])])
+      .join(', ');
+    return {
+      titulo: `Google tiene problemas con ${nf(total)} ${total === 1 ? 'ficha' : 'fichas'}`,
+      evidencia: `Google tiene problemas con ${nf(total)} ${total === 1 ? 'ficha' : 'fichas'}: ${resumen}. Ejemplos: ${ejemplos}.`,
+      accion: 'Revisa esas páginas en Search Console (Inspección de URL): si ya no existen, quítalas; si es una duplicada, confirma su canónica.',
+    };
+  },
 } as const;
 
 export const NO_ALERTS = { titulo: 'Sin avisos esta semana', evidencia: 'Ninguna regla pasó su umbral.', accion: '' } as const;

@@ -31,6 +31,7 @@ import { CatalogAutoWatchService } from '../modules/catalog/catalog-auto-watch.s
 import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
 import { MarketingSearchMissService } from '../modules/marketing/marketing-search-miss.service';
 import { MarketingWeeklyDigestService } from '../modules/marketing/marketing-weekly-digest.service';
+import { IndexInspectionService } from '../modules/marketing/index-inspection.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
@@ -159,6 +160,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     // 10 min). Al final y `@Optional()` por la misma razón (listas posicionales de los specs).
     @Optional() private readonly payments?: PaymentsService,
     @Optional() private readonly listingPrices?: ListingPriceService,
+    // §GSHOP.A: revisión de indexación (6 ticks diarios 03:00-08:00 CDMX). Al final y `@Optional()` por la misma razón.
+    @Optional() private readonly indexInspection?: IndexInspectionService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -351,6 +354,14 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: los jobs de marketing v2 NO están inyectados; marketing-weekly-digest y marketing-search-miss-retention no quedan programados.');
     }
 
+    // §GSHOP.A: `gsc-index-inspect`, 6 ticks al día (03:00-08:00 CDMX; patrón fijo en código, cero variables nuevas). Idempotente por
+    // selección (filas más viejas primero): un tick que muera lo retoma el siguiente. El interruptor es `ConfigSetting` `gsc_index_inspect`.
+    if (this.indexInspection) {
+      await this.queue.add('gsc-index-inspect', {}, { repeat: { pattern: '0 3-8 * * *', tz: SPEND_DIGEST_TZ }, jobId: 'gsc-index-inspect-cron', removeOnComplete: true, removeOnFail: 100 });
+    } else {
+      this.logger.error('Scheduler: IndexInspectionService NO está inyectado; gsc-index-inspect no queda programado.');
+    }
+
     // v1.113⟨portada⟩ (API_CONTRACT §DYN.2.3): Destacadas del día. Un TIC cada 15 min (no un cron fijo): el cambio diario
     // cuelga del dial `featured_rotation_hour` (mover la hora no re-registra nada), un fallo se reintenta solo y un
     // arranque tras caída se pone al día solo (ARCHITECTURE §4.DYN (b)).
@@ -503,6 +514,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.marketingAccessLog?.purgeExpired() ?? null;
       case 'marketing-weekly-digest':
         return this.marketingWeeklyDigest?.run() ?? null;
+      case 'gsc-index-inspect':
+        return this.indexInspection?.tick() ?? null;
       case 'marketing-search-close':
         return this.marketingSearchMiss?.closePastDays() ?? null;
       case 'marketing-search-miss-retention':
