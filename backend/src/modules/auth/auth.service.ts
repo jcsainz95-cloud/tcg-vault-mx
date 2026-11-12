@@ -842,10 +842,19 @@ export class AuthService {
     if (user.status === UserStatus.blocked || user.status === UserStatus.deleted) {
       throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
     }
+    // §PROV F1: tienda aliada suspendida ⇒ 403 SUPPLIER_SUSPENDED; el nombre del negocio viaja en `user.supplierName`.
+    let supplierName: string | undefined;
+    if (user.role === Role.supplier) {
+      const sup = await this.prisma.supplier.findUnique({ where: { userId: user.id }, select: { status: true, businessName: true } });
+      if (!sup || sup.status !== 'active') {
+        throw BusinessException.forbidden('SUPPLIER_SUSPENDED', 'Supplier account is suspended');
+      }
+      supplierName = sup.businessName;
+    }
     // v1.80.1: UNA identidad por sesión (§4.57.4): el `sid` viaja en el refresh y es el `jti` del dispositivo.
     const sid = randomUUID();
     const tokens = await this.issueTokens(user, sid);
-    return { user: this.publicUser(user), ...tokens, deviceToken: await this.devices.issue(user.id, sid) };
+    return { user: { ...this.publicUser(user), ...(supplierName !== undefined ? { supplierName } : {}) }, ...tokens, deviceToken: await this.devices.issue(user.id, sid) };
   }
 
   /**

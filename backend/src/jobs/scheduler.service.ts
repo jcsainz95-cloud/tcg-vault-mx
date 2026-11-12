@@ -33,6 +33,7 @@ import { MarketingSearchMissService } from '../modules/marketing/marketing-searc
 import { MarketingWeeklyDigestService } from '../modules/marketing/marketing-weekly-digest.service';
 import { IndexInspectionService } from '../modules/marketing/index-inspection.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
+import { SupplyExpiryService } from '../modules/supply/supply-expiry.service';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
 import { MeasurementDrainService } from '../modules/measurement/measurement-drain.service';
@@ -162,6 +163,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly listingPrices?: ListingPriceService,
     // §GSHOP.A: revisión de indexación (6 ticks diarios 03:00-08:00 CDMX). Al final y `@Optional()` por la misma razón.
     @Optional() private readonly indexInspection?: IndexInspectionService,
+    // §PROV F1: caducidad horaria de solicitudes, ofertas y acuerdos sin recoger.
+    @Optional() private readonly supplyExpiry?: SupplyExpiryService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -385,6 +388,13 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: ListingPriceService NO está inyectado; listing-price-formula no queda programado.');
     }
 
+    // §PROV F1: `supply-expiry` cada hora (idempotente: UPDATE condicionados).
+    if (this.supplyExpiry) {
+      await this.queue.add('supply-expiry', {}, this.repeat('supply-expiry', '15 * * * *'));
+    } else {
+      this.logger.error('Scheduler: SupplyExpiryService NO está inyectado; supply-expiry no queda programado.');
+    }
+
     // El wiring corre en background: si mientras tanto empezó el shutdown, NO se crea el worker
     // (se quedaría vivo tras el destroy: handle abierto + jobs procesándose en un proceso que
     // se está apagando). La cola/conexión ya creadas las cierra `onModuleDestroy`, que espera
@@ -524,6 +534,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.featuredRotation?.tick() ?? null;
       case 'stripe-fee-reconcile':
         return this.payments?.reconcileStripeFees() ?? null;
+      case 'supply-expiry':
+        return this.supplyExpiry?.run() ?? null;
       case 'listing-price-formula':
         return this.listingPrices?.formulaTick() ?? null;
       default:

@@ -122,6 +122,9 @@ describe('⭐⭐ Candado — ninguna transacción `SERIALIZABLE` fuera del helpe
     // confirmar, así que un reintento del 40001 no duplica ningún envío.
     // PSA-ACABADO · NUEVE — `PricingService.persistGradedEstimateReference` (`persistGradedEstimateReference`): escribe la fila por
     // acabado y barre las automaticas previas en la MISMA tx. Auditado: su cuerpo solo toca la BD (+ `logger.warn`), sin correo ni red.
-    expect(sitios).toHaveLength(9);
+    // §PROV F1 · TRES — `SupplyOfferService.adminRespond` (aceptar: reserva atómica de cantidad), `SupplyPurchaseService.verify`
+    // (verificar: alta a inventario + libera reserva) y su rama «nada recibido». Cuerpos solo `tx.*`/`$executeRaw`; el publish
+    // post-commit y el audit quedan FUERA de la tx.
+    expect(sitios).toHaveLength(12);
   });
 });

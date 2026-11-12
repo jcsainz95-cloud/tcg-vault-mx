@@ -6,6 +6,7 @@ import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './prisma/prisma.module';
 import { CryptoModule } from './common/crypto/crypto.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { SupplyModule } from './modules/supply/supply.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -60,6 +61,7 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     PrismaModule,
     CryptoModule,
     AuditModule,
+    SupplyModule,
     SettingsModule,
     PaymentsModule,
     AuthModule,
