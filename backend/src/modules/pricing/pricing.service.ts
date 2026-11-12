@@ -1172,7 +1172,7 @@ export class PricingService {
     // PROJECTION-EXEMPT: lectura interna de resolución de versión; se proyecta a `StampRef`.
     const rows = await this.prisma.cardProduct.findMany({
       where: { tcgplayerProductId: { in: ids }, kind: 'stamped' },
-      select: { id: true, tcgplayerProductId: true, stampType: true, stampLabel: true, finishes: true },
+      select: { id: true, tcgplayerProductId: true, stampType: true, stampLabel: true, finishes: true, inheritsBase: true },
     });
     const out = new Map<number, StampRef>();
     for (const r of rows) {
@@ -1183,6 +1183,7 @@ export class PricingService {
         type: r.stampType,
         label: r.stampLabel,
         finishes: r.finishes,
+        inheritsBase: r.inheritsBase,
       });
     }
     return out;
@@ -2642,6 +2643,19 @@ export class PricingService {
             }
           : {}),
       },
+      data: { status: 'resolved', resolvedAt: new Date() },
+    });
+    return res.count;
+  }
+
+  /**
+   * §ALTA-LIGA-2 — la OCTAVA escritura de la cola: al FUSIONAR una versión de liga manual con el producto real, las entradas abiertas
+   * del id manual (que deja de existir) se cierran dentro de la `tx` de la fusión; si el real aún no tiene precio, el siguiente
+   * barrido las reabre con la clave del real. Solo cierra `open`; devuelve cuántas.
+   */
+  async closePendingOfProduct(tx: Prisma.TransactionClient, tcgplayerProductId: number): Promise<number> {
+    const res = await tx.pendingPriceEntry.updateMany({
+      where: { cardProductId: tcgplayerProductId, status: 'open' },
       data: { status: 'resolved', resolvedAt: new Date() },
     });
     return res.count;

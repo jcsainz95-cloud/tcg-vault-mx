@@ -1768,6 +1768,7 @@
       "batchToastAllOk": "{created} cartas dadas de alta.",
       "batchToastPartial": "{created} creadas, {failed} con error. Revisa el detalle.",
       "batchPublishNote": "Las que tienen precio quedan a la venta; si a alguna le falta, la encuentras en «Listas para publicar».",
+      "versionRefreshed": "Esta versión se actualizó mientras la dabas de alta. Revisa la versión elegida y vuelve a dar de alta.",
       "batchReplay": "Reintento idempotente (no se duplicó).",
       "batchLine": "Carta {index}",
       "productType": "Tipo de producto",
@@ -1958,6 +1959,35 @@
         "language": "Idioma",
         "version": "Versión",
         "noStamp": "Sin liga",
+        "priceInherited": "Precio de la carta normal hasta que llegue el precio real.",
+        "manual": {
+          "add": "+ Versión de liga",
+          "title": "Nueva versión de liga",
+          "type": "Tipo de sello",
+          "label": "Etiqueta (opcional)",
+          "labelHint": "Por ejemplo «Temporada 7». Máximo 40 caracteres.",
+          "labelTooLong": "Máximo 40 caracteres.",
+          "labelInvalid": "La etiqueta tiene caracteres no permitidos. Usa solo letras, números y signos normales.",
+          "finish": "Acabado",
+          "submit": "Crear versión",
+          "retry": "Reintentar",
+          "cancel": "Cancelar",
+          "errors": {
+            "CARD_NOT_FOUND": "No encontramos esa carta.",
+            "VALIDATION_ERROR": "Revisa el tipo, la etiqueta y el acabado.",
+            "FINISH_NOT_AVAILABLE": "Esa carta no existe en ese acabado.",
+            "RATE_LIMITED": "Creaste muchas versiones en poco tiempo. Intenta de nuevo en una hora.",
+            "VERSION_BUSY": "Se está actualizando esta carta. Intenta de nuevo en unos segundos.",
+            "FORBIDDEN": "Tu cuenta no puede crear versiones de liga.",
+            "generic": "No pudimos crear la versión. Intenta de nuevo."
+          },
+          "existing": {
+            "title": "Esta carta ya tiene una versión de ese tipo",
+            "attach": "Ligar la existente: {name}",
+            "use": "Usar la existente: {name}",
+            "attachFailed": "No pudimos ligarla. Recarga las versiones e intenta de nuevo."
+          }
+        },
         "stampButton": {
           "prize_pack": "De liga · Prize Pack",
           "league": "De liga · Promo de Liga",
@@ -6349,6 +6379,7 @@
       "successOneVersion": "Pieza dada de alta · {version} · {folio}.",
       "successSummaryVersion": "{count} piezas dadas de alta · {version} · {first} a {last}.",
       "pricePendingError": "No se registró la aportación: esta variante no tiene valor de mercado. Fija el precio y vuelve a intentar.",
+      "versionRefreshed": "Esta versión se actualizó mientras la dabas de alta. Revisa la versión elegida y vuelve a dar de alta.",
       "partialSummary": "{created} creadas · {failed} rechazadas.",
       "replay": "Reintento idempotente (no se duplicó).",
       "finish": "Acabado",

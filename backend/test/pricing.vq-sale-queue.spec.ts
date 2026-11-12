@@ -231,7 +231,7 @@ describe('VQ-5 — candado: lista CERRADA de escritores de la cola y `syncCardPr
         SRC,
         /\bpendingPriceEntry\s*\.\s*(?:create|createMany|createManyAndReturn|update|updateMany|updateManyAndReturn|upsert|delete|deleteMany)\b/g,
       ),
-    ).toEqual({ 'modules/pricing/pricing.service.ts': 7 });
+    ).toEqual({ 'modules/pricing/pricing.service.ts': 8 }); // §ALTA-LIGA-2: la 8.ª es `closePendingOfProduct` (fusión de versión manual)
     // 💰 v1.83 (§M11-SP.2 paso 5): la SÉPTIMA escritura es `closeSealedProductSaleQueue` — el `PUT` del precio del
     // dueño cierra la cola de SU producto con el handle `tx` del verbo; vive aquí (VQ-5), no en `inventory`.
     expect(identCensus(SRC, /\bcloseSealedProductSaleQueue\b/g)).toEqual({

@@ -1,6 +1,7 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { Finish, Role, StampType } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import { ManualVersionMergeService } from '../pricing/manual-version-merge.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
@@ -81,6 +82,8 @@ export class TcgcsvSetImportService {
     private readonly pricing: PricingService,
     private readonly fx: FxService,
     @Optional() private readonly audit?: AuditService,
+    // §ALTA-LIGA-2: tras importar sellos reales, fusiona las versiones manuales que ya tienen producto real (best-effort).
+    @Optional() private readonly manualMerge?: ManualVersionMergeService,
   ) {}
 
   /** GET /admin/catalog/tcgcsv-groups — SOLO los grupos de la lista explícita, `publishedOn` desc. */
@@ -180,7 +183,7 @@ export class TcgcsvSetImportService {
     const fxSnap = await this.fx.getCurrent();
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const imported = await this.prisma.$transaction(async (tx) => {
         const got = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtext(${TCGCSV_IMPORT_LOCK_KEY}), ${groupId}::int) AS ok`;
         if (got[0]?.ok !== true) {
           throw BusinessException.conflict(
@@ -214,6 +217,8 @@ export class TcgcsvSetImportService {
         );
         return res;
       }, TX_OPTS);
+      await this.manualMerge?.runAllSafe();
+      return imported;
     } catch (e) {
       if (e instanceof BusinessException) throw e;
       this.logger.error(`tcgcsv-import: grupo ${groupId} falló y se revirtió por completo: ${(e as Error).message}`);

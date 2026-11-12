@@ -13,7 +13,7 @@ import { ACCOUNT_AUTH_GATE_NAMESPACE } from '../src/modules/auth/account-gate';
 import { ADDRESS_BOOK_GATE_NAMESPACE } from '../src/modules/users/users.service';
 import { RESERVATION_GATE_NAMESPACE } from '../src/modules/orders/reservation';
 import { VAULT_GATE_NAMESPACE } from '../src/modules/vault/vault-placement.rules';
-import { IDS_ATTACH_NAMESPACE } from '../src/modules/inventory/inventory-versions.service';
+import { ALTA_LIGA_NAMESPACE, IDS_ATTACH_NAMESPACE } from '../src/modules/inventory/inventory-versions.service';
 import { OPERATOR_REFUND_GATE_NAMESPACE } from '../src/modules/payments/refunds/refund-ledger.service';
 import { BANNER_COUNTER_LOCK_NAMESPACE } from '../src/modules/measurement/banner-response.service';
 import { META_TEST_EVENT_LOCK_NAMESPACE } from '../src/modules/measurement/meta-test-event.service';
@@ -108,6 +108,7 @@ describe('censo de namespaces de candado consultivo de dos claves', () => {
     RESERVATION_GATE_NAMESPACE,
     VAULT_GATE_NAMESPACE,
     IDS_ATTACH_NAMESPACE,
+    ALTA_LIGA_NAMESPACE, // §ALTA-LIGA-2: serializa el alta manual por (carta, tipo, etiqueta)
     OPERATOR_REFUND_GATE_NAMESPACE,
     BANNER_COUNTER_LOCK_NAMESPACE,
     META_TEST_EVENT_LOCK_NAMESPACE,

@@ -6,6 +6,8 @@ import { useLocale, useTranslations } from 'next-intl';
 import { attachStampedCandidate } from '@/lib/api';
 import { formatMoneyCents } from '@/lib/format';
 import { PillToggleGroup } from '@/components/domain/VersionPills';
+import { ManualVersionForm } from './ManualVersionForm';
+import type { ManualVersionResponse } from '@/lib/api/manual-version';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { asApiError } from '@/lib/api-client';
@@ -64,6 +66,7 @@ export function IdsCaptureFields({
   onLanguage,
   onStamp,
   onAttached,
+  onManualCreated,
   slot,
   showCandidates = true,
 }: {
@@ -81,6 +84,8 @@ export function IdsCaptureFields({
   onLanguage: (l: CardLanguage) => void;
   onStamp: (productId: number | null) => void;
   onAttached: (res: CardVersionsResponse) => void;
+  /** §ALTA-LIGA-2: tras crear la versión a mano (el padre re-pide `GET …/versions` y la deja elegida). Sin él, sin botón. */
+  onManualCreated?: (res: ManualVersionResponse, finish: Finish) => Promise<void>;
   /** A2 modo casilla: elección de la fila «Acabado» y el `id` de su ayuda (también descripción del CTA apagado). */
   slot?: { onChosenFinish: (f: Finish) => void; finishHintId: string };
   /** Caja de candidatas («Hay versiones de liga que no supimos ligar solas…»): solo en Alta por lote. */
@@ -209,6 +214,22 @@ export function IdsCaptureFields({
         />
       )}
 
+      {model.showVersionRow && data?.canAddManual && onManualCreated && (
+        <ManualVersionForm
+          card={card}
+          stampTypes={data.stampTypes}
+          defaultFinish={finish}
+          versions={data}
+          onFinish={onFinish}
+          onCreated={async (res, f) => {
+            await onManualCreated(res, f);
+            onFinish(f);
+          }}
+          onAttached={onAttached}
+          onStamp={onStamp}
+        />
+      )}
+
       {/* A2: fila «Acabado» solo con los acabados de la liga elegida, sin preselección (`value` que no casa con ninguna). */}
       {slot && model.altaFinishMode === 'choose' && (
         <div className="flex flex-col gap-1.5" data-testid="ids-alta-finish">
@@ -283,6 +304,11 @@ export function IdsCaptureFields({
                 <p className="mt-1 min-w-0 break-words text-[12px] text-muted" data-testid="ids-breakdown">
                   {breakdown(combo)}
                 </p>
+                {combo.priceSource === 'inherited_base' && (
+                  <p className="mt-1 text-[12px] text-muted" data-testid="ids-price-source">
+                    {t('priceInherited')}
+                  </p>
+                )}
               </>
             ) : (
               <p className="mt-1 text-sm text-muted">

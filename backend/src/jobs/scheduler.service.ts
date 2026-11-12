@@ -33,6 +33,7 @@ import { MarketingSearchMissService } from '../modules/marketing/marketing-searc
 import { MarketingWeeklyDigestService } from '../modules/marketing/marketing-weekly-digest.service';
 import { IndexInspectionService } from '../modules/marketing/index-inspection.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
+import { ManualVersionMergeService } from '../modules/pricing/manual-version-merge.service';
 import { SupplyExpiryService } from '../modules/supply/supply-expiry.service';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
@@ -165,6 +166,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly indexInspection?: IndexInspectionService,
     // §PROV F1: caducidad horaria de solicitudes, ofertas y acuerdos sin recoger.
     @Optional() private readonly supplyExpiry?: SupplyExpiryService,
+    // §ALTA-LIGA-2: fusión diaria de versiones de liga manuales con el producto real.
+    @Optional() private readonly manualVersionMerge?: ManualVersionMergeService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -395,6 +398,13 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: SupplyExpiryService NO está inyectado; supply-expiry no queda programado.');
     }
 
+    // §ALTA-LIGA-2: `manual-version-merge` diario 05:40 UTC (idempotente; también dispara el sync/import/attach).
+    if (this.manualVersionMerge) {
+      await this.queue.add('manual-version-merge', {}, this.repeat('manual-version-merge', '40 5 * * *'));
+    } else {
+      this.logger.error('Scheduler: ManualVersionMergeService NO está inyectado; manual-version-merge no queda programado.');
+    }
+
     // El wiring corre en background: si mientras tanto empezó el shutdown, NO se crea el worker
     // (se quedaría vivo tras el destroy: handle abierto + jobs procesándose en un proceso que
     // se está apagando). La cola/conexión ya creadas las cierra `onModuleDestroy`, que espera
@@ -534,6 +544,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.featuredRotation?.tick() ?? null;
       case 'stripe-fee-reconcile':
         return this.payments?.reconcileStripeFees() ?? null;
+      case 'manual-version-merge':
+        return this.manualVersionMerge?.runAll() ?? null;
       case 'supply-expiry':
         return this.supplyExpiry?.run() ?? null;
       case 'listing-price-formula':

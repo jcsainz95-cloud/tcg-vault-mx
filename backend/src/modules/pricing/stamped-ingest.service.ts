@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Finish } from '@prisma/client';
+import { ManualVersionMergeService } from './manual-version-merge.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { baseMatchKey, catalogMatchKey, STAMPED_SOURCE_GROUPS, stampTypeOf } from '../../common/card-version';
 import { deriveStructuralFinishes, tcgcsvSubTypeToFinish, TcgcsvPriceRow, TcgcsvSingleProductRef } from './pricing.types';
@@ -51,6 +52,8 @@ export class StampedIngestService {
     private readonly prisma: PrismaService,
     private readonly tcgcsv: TcgcsvCatalogClient,
     private readonly pricing: PricingService,
+    // §ALTA-LIGA-2: tras colgar sellos reales, fusiona las versiones manuales equivalentes (best-effort).
+    @Optional() private readonly manualMerge?: ManualVersionMergeService,
   ) {}
 
   /** El paso entero (todos los grupos). Devuelve los logs y lo escrito (para el disparo de publicación). */
@@ -73,6 +76,7 @@ export class StampedIngestService {
         this.logger.error(`stamped-ingest grupo ${groupId} FALLÓ (se conserva lo previo): ${msg}`);
       }
     }
+    await this.manualMerge?.runAllSafe();
     return { logs, written };
   }
 

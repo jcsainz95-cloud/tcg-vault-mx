@@ -1768,6 +1768,7 @@
       "batchToastAllOk": "{created} cards added.",
       "batchToastPartial": "{created} added, {failed} failed. Check the details.",
       "batchPublishNote": "Those with a price go on sale; if any is missing one, you'll find it in “Ready to publish”.",
+      "versionRefreshed": "This version was updated while you were adding it. Check the selected version and add it again.",
       "batchReplay": "Idempotent retry (no duplicates).",
       "batchLine": "Card {index}",
       "productType": "Product type",
@@ -1958,6 +1959,35 @@
         "language": "Language",
         "version": "Version",
         "noStamp": "Regular",
+        "priceInherited": "Price of the regular card until the real price arrives.",
+        "manual": {
+          "add": "+ League version",
+          "title": "New league version",
+          "type": "Stamp type",
+          "label": "Label (optional)",
+          "labelHint": "For example “Season 7”. 40 characters at most.",
+          "labelTooLong": "40 characters at most.",
+          "labelInvalid": "The label has characters that are not allowed. Use only letters, numbers and plain punctuation.",
+          "finish": "Finish",
+          "submit": "Create version",
+          "retry": "Retry",
+          "cancel": "Cancel",
+          "errors": {
+            "CARD_NOT_FOUND": "We could not find that card.",
+            "VALIDATION_ERROR": "Check the type, the label and the finish.",
+            "FINISH_NOT_AVAILABLE": "That card does not exist in that finish.",
+            "RATE_LIMITED": "You created too many versions in a short time. Try again in an hour.",
+            "VERSION_BUSY": "This card is being updated. Try again in a few seconds.",
+            "FORBIDDEN": "Your account cannot create league versions.",
+            "generic": "We could not create the version. Try again."
+          },
+          "existing": {
+            "title": "This card already has a version of that type",
+            "attach": "Link the existing one: {name}",
+            "use": "Use the existing one: {name}",
+            "attachFailed": "We could not link it. Reload the versions and try again."
+          }
+        },
         "stampButton": {
           "prize_pack": "League · Prize Pack",
           "league": "League · League promo",
@@ -6349,6 +6379,7 @@
       "successOneVersion": "Piece added · {version} · {folio}.",
       "successSummaryVersion": "{count} pieces added · {version} · {first} to {last}.",
       "pricePendingError": "The contribution was not recorded: this variant has no market value. Set the price and try again.",
+      "versionRefreshed": "This version was updated while you were adding it. Check the selected version and add it again.",
       "partialSummary": "{created} created · {failed} rejected.",
       "replay": "Idempotent retry (nothing duplicated).",
       "finish": "Finish",

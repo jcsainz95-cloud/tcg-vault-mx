@@ -125,6 +125,8 @@ describe('⭐⭐ Candado — ninguna transacción `SERIALIZABLE` fuera del helpe
     // §PROV F1 · TRES — `SupplyOfferService.adminRespond` (aceptar: reserva atómica de cantidad), `SupplyPurchaseService.verify`
     // (verificar: alta a inventario + libera reserva) y su rama «nada recibido». Cuerpos solo `tx.*`/`$executeRaw`; el publish
     // post-commit y el audit quedan FUERA de la tx.
+    // §ALTA-LIGA-2: la fusión (`ManualVersionMergeService.mergeForCard`) NO es serializable a propósito: corre en READ COMMITTED bajo el
+    // candado consultivo (cardId, stampType) + `FOR UPDATE` del manual (AL2-3), porque en serializable la foto se toma antes de esperar el candado.
     expect(sitios).toHaveLength(12);
   });
 });

@@ -33,6 +33,8 @@ export interface StampDTO {
   type: StampType;
   label: string | null;
   productId: number;
+  /** §ALTA-LIGA-2: versión creada a mano desde el alta rápida (`productId < 0`). */
+  manual?: boolean;
 }
 /** §IDS.5. `key` = `en` | `es` | `en.<productId>` | `es.<productId>` (la compone el SERVIDOR). */
 export interface VersionDTO {
@@ -76,6 +78,8 @@ export interface VersionComboDTO {
    */
   buySuggestedCents: number | null;
   unavailableReason: VersionUnavailableReason | null;
+  /** §ALTA-LIGA-2: `inherited_base` ⇒ precio de la carta normal hasta que llegue el real; `null` sin precio. */
+  priceSource?: 'own_market' | 'inherited_base' | null;
 }
 export interface StampedCandidateDTO {
   tcgplayerProductId: number;
@@ -87,6 +91,10 @@ export interface StampedCandidateDTO {
 export interface CardVersionsResponse {
   combos: VersionComboDTO[];
   candidates: StampedCandidateDTO[];
+  /** §ALTA-LIGA-2: staff puede crear una versión de liga a mano; muestra siempre la fila «Versión». */
+  canAddManual?: boolean;
+  /** §ALTA-LIGA-2: tipos de sello que ofrece el selector (los pone el servidor). */
+  stampTypes?: StampType[];
 }
 /** §IDS.6 — tramo de una línea de Meta deck: partición de `unitInventoryItemIds` por versión, en su orden. */
 export interface MetaDeckUnitDTO {

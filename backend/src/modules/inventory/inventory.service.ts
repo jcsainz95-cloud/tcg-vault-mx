@@ -848,9 +848,7 @@ export class InventoryService {
     // persiste AQUÍ, tras crear la pieza y dentro de la misma tx → sin override sin pieza, ni pieza
     // sin su override; un fallo revierte AMBOS (no queda `PriceReference isManualOverride` huérfano).
     const item = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.inventoryItem.create({
-        data: this.buildItemData(dto, r, folio),
-      });
+      const created = await this.createItemRow(tx, this.buildItemData(dto, r, folio));
       await tx.inventoryMovement.create({
         data: {
           itemId: created.id,
@@ -1532,6 +1530,23 @@ export class InventoryService {
    *  - versión no default con `productType ≠ raw` ⇒ `VALIDATION_ERROR` `rule=version_raw_only` (D-IDS-K);
    *  - versión no default con `listPriceCents` ⇒ `VALIDATION_ERROR` `field=listPriceCents` (I-4).
    */
+  /**
+   * §ALTA-LIGA-2 (AL2-3): el alta de una pieza con `cardProductId` NEGATIVO puede chocar con la FUSIÓN de esa versión manual (la fusión borra
+   * el manual y reapunta las piezas ya confirmadas). Si el producto desapareció entre la validación y el INSERT, la FK da `P2003`: se responde
+   * lo mismo que si la validación hubiera corrido un instante después (`PRODUCT_NOT_FOUND`, 422), nunca un 500. La pieza no se crea.
+   */
+  private async createItemRow(tx: Prisma.TransactionClient, data: Prisma.InventoryItemUncheckedCreateInput) {
+    try {
+      const created = await tx.inventoryItem.create({ data });
+      return created;
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003' && data.cardProductId != null && String(e.meta?.field_name ?? e.meta?.constraint ?? '').includes('cardProductId')) {
+        throw BusinessException.validation('PRODUCT_NOT_FOUND', 'Product not found (it may have just been merged with its official product)', { productId: data.cardProductId });
+      }
+      throw e;
+    }
+  }
+
   private async resolveVersionForAlta(dto: CreateItemDto | BatchInventoryItemInput, cardId: string): Promise<PieceVersion> {
     const language: CardLanguage = dto.language ?? 'en';
     let stamp: StampRef | null = null;
@@ -1546,7 +1561,7 @@ export class InventoryService {
           field: 'cardProductId',
         });
       }
-      stamp = { productId: cp.tcgplayerProductId, internalId: cp.id, type: cp.stampType, label: cp.stampLabel, finishes: cp.finishes };
+      stamp = { productId: cp.tcgplayerProductId, internalId: cp.id, type: cp.stampType, label: cp.stampLabel, finishes: cp.finishes, inheritsBase: cp.inheritsBase };
     }
     const version: PieceVersion = { language, stamp };
     if (!isDefaultVersion(version)) {
@@ -1642,9 +1657,7 @@ export class InventoryService {
             const folios = await this.prisma.nextFolios(qty);
             const inventoryItemIds: string[] = [];
             for (const folio of folios) {
-              const item = await tx.inventoryItem.create({
-                data: this.buildItemData(line, r, folio),
-              });
+              const item = await this.createItemRow(tx, this.buildItemData(line, r, folio));
               await tx.inventoryMovement.create({
                 data: {
                   itemId: item.id,
@@ -3851,7 +3864,7 @@ export class InventoryService {
         const inventoryItemIds: string[] = [];
         const adjustmentIds: string[] = [];
         for (const folio of folios) {
-          const item = await tx.inventoryItem.create({ data: this.buildItemData(line, r, folio) });
+          const item = await this.createItemRow(tx, this.buildItemData(line, r, folio));
           await tx.inventoryMovement.create({
             data: {
               itemId: item.id,

@@ -122,7 +122,8 @@ export class PromoCollectionLinkService {
     promoSetIds: Set<string>,
   ): Promise<PromoGateState> {
     const stamped = await db.cardProduct.findMany({
-      where: { kind: 'stamped' },
+      // §ALTA-LIGA-2: las versiones MANUALES (productId < 0) no son evidencia de TCGCSV: fuera del backtest.
+      where: { kind: 'stamped', tcgplayerProductId: { gt: 0 } },
       select: { tcgplayerProductId: true, card: { select: { setId: true, contentKey: true } } },
     });
     const gate = backtestBlackStarGate({

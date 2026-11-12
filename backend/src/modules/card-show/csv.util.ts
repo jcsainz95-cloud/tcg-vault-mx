@@ -39,7 +39,7 @@ export function csvDocument(header: string[], rows: unknown[][]): string {
  * detecten UTF-8 y los rendericen bien. Se añade SOLO al servir el export (§CARDSHOW.15), no en
  * `csvDocument`, para no contaminar el contenido que afirman las pruebas de celda/documento.
  */
-export const CSV_BOM = '﻿';
+export const CSV_BOM = '\ufeff';
 
 /** Prefija el BOM de UTF-8 a un CSV ya armado (idempotente: no duplica si ya lo trae). */
 export function withBom(csv: string): string {

@@ -42,6 +42,7 @@ import {
   UpdateItemDto,
   SetSealedSalePriceDto,
   AttachStampedCandidateDto,
+  CreateManualVersionDto,
 } from './dto/inventory.dto';
 import { SEALED_PRICE_STATE_VALUES } from './sealed-product.service';
 import { SEALED_PRICE_SHEET_SCOPE_VALUES, SealedPriceService } from './sealed-price.service';
@@ -699,6 +700,28 @@ export class InventoryController {
   @Get('inventory/cards/:cardId/versions')
   cardVersions(@Param('cardId') cardId: string) {
     return this.versionsOrThrow().versionsFor(cardId);
+  }
+
+  /**
+   * §ALTA-LIGA-2 (API_CONTRACT_ALTA_LIGA §2): versión de liga MANUAL desde el alta rápida. 201 nueva / 200 ya existía o se amplió el
+   * acabado · 404 `CARD_NOT_FOUND` · 409 `USE_EXISTING` · 422 `FINISH_NOT_AVAILABLE` · 429 (20/h/usuario). Staff (clase `@Roles`).
+   */
+  @Post('inventory/cards/:cardId/versions')
+  async createManualVersion(
+    @Param('cardId') cardId: string,
+    @Body() dto: CreateManualVersionDto,
+    @CurrentUser() user: { id: string; role: Role },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    try {
+      const r = await this.versionsOrThrow().createManual(cardId, dto, user);
+      res.status(r.status);
+      return r.body;
+    } catch (e) {
+      // §ALTA-LIGA-2 (§2.5): el alta chocó con una fusión en curso ⇒ 409 reintentable con `Retry-After: 2` (nunca 500).
+      if (e instanceof BusinessException && e.code === 'VERSION_BUSY') res.setHeader('Retry-After', '2');
+      throw e;
+    }
   }
 
   /** v1.116⟨ids⟩ (§IDS.4): elección de IDENTIDAD de un producto de liga ambiguo (404 sin candidata · 409 ya colgado). */

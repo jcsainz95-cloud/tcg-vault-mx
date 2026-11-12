@@ -22,7 +22,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { localUid } from '@/components/master-set/capture';
 import { IdsCaptureFields, stampWithFinishLabel } from './IdsCaptureFields';
-import { versionContributionReferenceCents } from './ids-capture';
+import { STALE_PRODUCT_CODES, versionContributionReferenceCents } from './ids-capture';
 import { useIdsCapture } from './useIdsCapture';
 
 /**
@@ -265,6 +265,17 @@ export function QuickAddSection({
 
   // P-4: el desenlace negativo se ancla arriba, con foco (jamás silencio ni éxito fingido).
   const failedLine = submit.data?.results.find((r) => !r.ok);
+  // §ALTA-LIGA-2 §3: 422 PRODUCT_NOT_FOUND/CARD_MISMATCH ⇒ la versión manual ya se fusionó: se re-piden las versiones y se
+  // re-selecciona la equivalente; el aviso pide revisar y volver a dar de alta. Una sola vez por intento (`submittedAt`).
+  const staleCode = submit.error instanceof ApiClientError ? submit.error.code : failedLine && !failedLine.ok ? failedLine.error.code : null;
+  const staleHandledAt = useRef(0);
+  useEffect(() => {
+    if (staleCode && STALE_PRODUCT_CODES.includes(staleCode) && staleHandledAt.current !== submit.submittedAt) {
+      staleHandledAt.current = submit.submittedAt;
+      void ids.onStaleProduct();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleCode, submit.submittedAt]);
   useEffect(() => {
     if ((submit.isError || failedLine) && errorRef.current) {
       errorRef.current.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
@@ -284,6 +295,7 @@ export function QuickAddSection({
 
   function lineErrorMessage(code: string, message: string): string {
     if (code === 'PRICE_PENDING') return t('pricePendingError');
+    if (STALE_PRODUCT_CODES.includes(code)) return t('versionRefreshed');
     if (tRoot.has(`error.${code}`)) return tRoot(`error.${code}`);
     return message;
   }
@@ -339,6 +351,7 @@ export function QuickAddSection({
           onLanguage={ids.setLanguage}
           onStamp={ids.setStampProductId}
           onAttached={ids.onAttached}
+          onManualCreated={ids.onManualCreated}
           slot={{ onChosenFinish: ids.setChosenFinish, finishHintId }}
           showCandidates={false}
         />

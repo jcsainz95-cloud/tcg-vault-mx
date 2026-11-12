@@ -189,7 +189,8 @@ export function captureModel(
       ? combos.find((c) => c.finish === resolved.finish && c.language === language && stampIdOf(c) === effective) ?? null
       : null;
   return {
-    showVersionRow: stamps.length > 0 || candidates.length > 0,
+    // §ALTA-LIGA-2: con `canAddManual` la fila sale siempre (trae el botón «+ Versión de liga»).
+    showVersionRow: stamps.length > 0 || candidates.length > 0 || data.canAddManual === true,
     finishOptions,
     languageOptions: CARD_LANGUAGES.map((l) => ({ language: l, disabledReason: reason(l, effective, resolved) })),
     versionOptions: options(language),
@@ -222,3 +223,6 @@ export function versionContributionReferenceCents(combo: VersionComboDTO | null)
   if (combo.appliedMarketPct == null) return null;
   return Math.floor((combo.baseReferenceMxnCents * combo.appliedMarketPct + 50) / 100);
 }
+
+/** Códigos del alta cuyo `cardProductId` ya no vale (la versión manual se fusionó): obligan a re-pedir `versions` (§ALTA-LIGA-2 §3). */
+export const STALE_PRODUCT_CODES: readonly string[] = ['PRODUCT_NOT_FOUND', 'PRODUCT_CARD_MISMATCH'];

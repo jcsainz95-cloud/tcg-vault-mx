@@ -2,7 +2,7 @@ import { Finish, ProductType } from '@prisma/client';
 
 /**
  * variant-key.ts (P-30 H2, TECH_DEBT) — ÚNICA definición de la clave compuesta de VARIANTE
- * `K = (cardId, productType, gradeKey, finish)` que agrupa/llave­a piezas equivalentes en pricing,
+ * `K = (cardId, productType, gradeKey, finish)` que agrupa/llavea piezas equivalentes en pricing,
  * catálogo (agrupado de Compra §4.9a) y los mapas batch de `PriceReference`/`VariantPriceOverride`.
  *
  * Antes se interpolaba a mano (`${cardId}|${productType}|${gradeKey}|${finish}`) en varios sitios: un
