@@ -7,6 +7,13 @@
 > `feat/mkt-tienda` del 2026-10-16 movidas a `HISTORIAL.md` verbatim; antes 2026-09-29). Las secciones anteriores conservan
 > sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+
+## 2026-11-12 — Abiertos de la sesión §PROV
+
+| ID | Qué | Medido | Dueño | Comprobación |
+|---|---|---|---|---|
+| UX-ALTA-LIGA-2 | Dueño (2026-11-12, captura Erika's Victreebel ASC #6): «para dar de alta todavía no puedo en la vista master set subir las que son de liga». Hipótesis del orquestador (NO MEDIDO en datos): la fila «Versión» solo sale con liga ya ligada y el alta rápida oculta las candidatas (`QuickAdd.tsx:343` `showCandidates={false}`; `IdsCaptureFields.tsx:231`). Arreglo propuesto: ligar candidatas desde el alta rápida. Atajo dado al dueño: «Alta por lote». Encargar a frontend al terminar §PROV F1 (mismo árbol). | 2026-11-12 (código) | frontend | `grep -n showCandidates frontend/src/app/*/\(admin\)/admin/m1/QuickAdd.tsx` |
+
 ## 2026-11-06 — Tras publicar #122 y #123
 
 | # | Qué | Dueño | Medido | Comprobación |
