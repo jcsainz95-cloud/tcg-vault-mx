@@ -5,6 +5,7 @@ import { BusinessException } from '../../common/business.exception';
 import { runSerializable } from '../../common/serializable-retry';
 import { AuditService } from '../audit/audit.service';
 import { INVENTORY_PUBLISH_PORT, InventoryPublishPort } from '../inventory/inventory-publish.port';
+import { SupplierAccessService } from './supplier-access.service';
 import { adjustedUnitCents } from './supply.constants';
 import { PayDto, ReceiveDto, VerifyDto, pageOf } from './supply.dto';
 import { purchaseView } from './supply-views';
@@ -22,6 +23,7 @@ export class SupplyPurchaseService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly access: SupplierAccessService,
     @Optional() @Inject(INVENTORY_PUBLISH_PORT) private readonly publish?: InventoryPublishPort,
   ) {}
 
@@ -49,10 +51,8 @@ export class SupplyPurchaseService {
     return { data: await Promise.all(rows.map((r) => this.view(r.id, 'admin'))), page, pageSize, total };
   }
 
-  private async supplierIdOf(userId: string): Promise<string> {
-    const s = await this.prisma.supplier.findUnique({ where: { userId }, select: { id: true, status: true } });
-    if (!s || s.status !== 'active') throw BusinessException.notFound();
-    return s.id;
+  private supplierIdOf(userId: string): Promise<string> {
+    return this.access.supplierIdOfUser(userId);
   }
 
   async listSupplier(userId: string, q: { page?: string; pageSize?: string }) {
@@ -86,7 +86,7 @@ export class SupplyPurchaseService {
       WHERE "id" = ${requestId}`;
   }
 
-  async receive(id: string, dto: ReceiveDto, key: string | undefined, actorId: string) {
+  async receive(id: string, dto: ReceiveDto, key: string | undefined, actorId: string, actorRole: Role = Role.vault_operator) {
     const p = await this.prisma.supplyPurchase.findUnique({ where: { id } });
     if (!p) throw BusinessException.notFound();
     if (p.status !== 'agreed') {
@@ -108,11 +108,11 @@ export class SupplyPurchaseService {
         await tx.supplyPurchaseUnit.createMany({ data: dto.units.map((u) => ({ purchaseId: id, n: u.n, condition: u.condition, note: u.note ?? null })) });
       }
     });
-    await this.audit.log({ actorUserId: actorId, actorRole: Role.vault_operator, action: 'supply.purchase.receive', entityType: 'SupplyPurchase', entityId: id, after: { units: dto.units.length } });
+    await this.audit.log({ actorUserId: actorId, actorRole, action: 'supply.purchase.receive', entityType: 'SupplyPurchase', entityId: id, after: { units: dto.units.length } });
     return this.view(id, 'admin');
   }
 
-  async verify(id: string, dto: VerifyDto, key: string | undefined, actorId: string) {
+  async verify(id: string, dto: VerifyDto, key: string | undefined, actorId: string, actorRole: Role = Role.vault_operator) {
     const p = await this.prisma.supplyPurchase.findUnique({ where: { id }, include: { units: true } });
     if (!p) throw BusinessException.notFound();
     if (p.status !== 'collected') {
@@ -131,18 +131,30 @@ export class SupplyPurchaseService {
         throw BusinessException.validation('ADJUST_REQUIRED', 'adjustBps (1..9999) is required to adjust', { n: v.n });
       }
       const unitPayable = v.result === 'ok' ? p.agreedUnitCents : v.result === 'adjusted' ? adjustedUnitCents(p.agreedUnitCents, v.adjustBps!) : 0;
+      // Un ajuste que dejaría la pieza en MX$0 no es un ajuste: se devuelve (`returned`). Piso > 0 centavos.
+      if (v.result === 'adjusted' && unitPayable <= 0) {
+        throw BusinessException.badRequest('VALIDATION_ERROR', 'adjustBps would pay MX$0 for the unit; use "returned"', { n: v.n });
+      }
       return { unit: u, result: v.result, adjustBps: v.result === 'adjusted' ? v.adjustBps! : null, unitPayable, note: v.note ?? u.note };
     });
     const accepted = plan.filter((x) => x.result !== 'returned');
     const payable = plan.reduce((s, x) => s + x.unitPayable, 0);
 
-    // Nada recibido: se cancela y se libera la reserva completa.
-    if (plan.length === 0) {
+    // Nada recibido o TODO devuelto: se cancela (con motivo), no se paga, no entra nada y se libera la reserva completa.
+    if (accepted.length === 0) {
+      const reason = plan.length === 0 ? 'none_received' : 'all_returned';
       await runSerializable(this.prisma, async (tx) => {
-        const c = await tx.supplyPurchase.updateMany({ where: { id, status: 'collected' }, data: { status: 'cancelled', payableCents: 0, verifiedAt: new Date(), verifiedById: actorId, verifyKey: key ?? null } });
+        const c = await tx.supplyPurchase.updateMany({
+          where: { id, status: 'collected' },
+          data: { status: 'cancelled', cancelReason: reason, payableCents: 0, verifiedAt: new Date(), verifiedById: actorId, verifyKey: key ?? null },
+        });
         if (c.count !== 1) throw BusinessException.conflict('INVALID_STATE', 'Purchase changed concurrently');
+        for (const x of plan) {
+          await tx.supplyPurchaseUnit.update({ where: { id: x.unit.id }, data: { result: 'returned', adjustBps: null, unitPayableCents: 0, note: x.note } });
+        }
         await this.release(tx, p.requestId, p.qty, 0);
-      }, { label: 'supply-verify-empty' });
+      }, { label: 'supply-verify-none' });
+      await this.audit.log({ actorUserId: actorId, actorRole, action: 'supply.purchase.verify', entityType: 'SupplyPurchase', entityId: id, after: { payableCents: 0, cancelled: reason } });
       return this.view(id, 'admin');
     }
 
@@ -182,7 +194,7 @@ export class SupplyPurchaseService {
       await this.release(tx, p.requestId, p.qty - accepted.length, accepted.length);
     }, { label: 'supply-verify' });
 
-    await this.audit.log({ actorUserId: actorId, actorRole: Role.vault_operator, action: 'supply.purchase.verify', entityType: 'SupplyPurchase', entityId: id, after: { payableCents: payable, accepted: accepted.length } });
+    await this.audit.log({ actorUserId: actorId, actorRole, action: 'supply.purchase.verify', entityType: 'SupplyPurchase', entityId: id, after: { payableCents: payable, accepted: accepted.length } });
     await this.triggerPublish(itemIds);
     return this.view(id, 'admin');
   }
@@ -200,10 +212,14 @@ export class SupplyPurchaseService {
   async pay(id: string, dto: PayDto, key: string | undefined, actorId: string) {
     const p = await this.prisma.supplyPurchase.findUnique({ where: { id } });
     if (!p) throw BusinessException.notFound();
+    const sameAs = (q: { method: string | null; reference: string | null; idempotencyKey: string | null }) =>
+      (!!key && q.idempotencyKey === key) || (q.method === dto.method && (q.reference ?? null) === (dto.reference ?? null));
     if (p.status === 'paid') {
-      if ((key && p.idempotencyKey === key) || p.method === dto.method) return this.view(id, 'admin');
-      throw BusinessException.conflict('ALREADY_PAID_DIFFERENT', 'Already paid with a different method');
+      if (sameAs(p)) return this.view(id, 'admin');
+      throw BusinessException.conflict('ALREADY_PAID_DIFFERENT', 'Already paid with a different method or reference');
     }
+    // Acuerdo todo devuelto / nada recibido: quedó `cancelled` con payable 0 ⇒ no hay nada que pagar (422, no 409).
+    if (p.status === 'cancelled' && p.payableCents === 0) throw BusinessException.validation('NOTHING_TO_PAY', 'Nothing to pay');
     if (p.status !== 'verified') throw BusinessException.conflict('INVALID_STATE', `Purchase is ${p.status}`);
     if (!p.payableCents) throw BusinessException.validation('NOTHING_TO_PAY', 'Nothing to pay');
     try {
@@ -213,12 +229,12 @@ export class SupplyPurchaseService {
       });
       if (c.count !== 1) {
         const fresh = await this.prisma.supplyPurchase.findUnique({ where: { id } });
-        if (fresh?.status === 'paid' && (fresh.method === dto.method || (key && fresh.idempotencyKey === key))) return this.view(id, 'admin');
-        if (fresh?.status === 'paid') throw BusinessException.conflict('ALREADY_PAID_DIFFERENT', 'Already paid with a different method');
+        if (fresh?.status === 'paid' && sameAs(fresh)) return this.view(id, 'admin');
+        if (fresh?.status === 'paid') throw BusinessException.conflict('ALREADY_PAID_DIFFERENT', 'Already paid with a different method or reference');
         throw BusinessException.conflict('INVALID_STATE', 'Purchase changed concurrently');
       }
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') throw BusinessException.conflict('CONFLICT', 'Idempotency-Key already used');
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') throw BusinessException.conflict('INVALID_STATE', 'Idempotency-Key already used on another purchase');
       throw e;
     }
     await this.audit.log({ actorUserId: actorId, actorRole: Role.super_admin, action: 'supply.purchase.pay', entityType: 'SupplyPurchase', entityId: id, after: { method: dto.method, payableCents: p.payableCents } });

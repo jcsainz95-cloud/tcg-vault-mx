@@ -136,6 +136,7 @@ export function purchaseView(p: PurchaseRow, card: CardWithSet, audience: 'admin
     pickupDueAt: p.pickupDueAt,
     units,
     payableCents: p.payableCents,
+    reason: p.status === 'cancelled' ? p.cancelReason : null,
     method: p.method,
     reference: p.reference,
     paidAt: p.paidAt,

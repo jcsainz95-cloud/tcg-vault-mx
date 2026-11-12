@@ -960,7 +960,8 @@ export class AdminService {
       );
     }
 
-    const where: Prisma.UserWhereInput = and.length > 0 ? { AND: and } : {};
+    // §PROV: las tiendas aliadas viven solo en /admin/suppliers; el panel general de usuarios no las lista (cláusula aparte del AND).
+    const where: Prisma.UserWhereInput = { ...(and.length > 0 ? { AND: and } : {}), role: { not: Role.supplier } };
 
     const [rows, total] = await Promise.all([
       this.prisma.user.findMany({

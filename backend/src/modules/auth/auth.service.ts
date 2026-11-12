@@ -89,6 +89,14 @@ export class AuthService {
     this.logger,
   );
 
+  /** §PROV: una tienda no activa (suspendida) no obtiene sesión por NINGUNA vía (login, refresh, reset). 403 SUPPLIER_SUSPENDED. */
+  private async assertSupplierActive(user: { id: string; role: Role }): Promise<{ businessName: string } | null> {
+    if (user.role !== Role.supplier) return null;
+    const sup = await this.prisma.supplier.findUnique({ where: { userId: user.id }, select: { status: true, businessName: true } });
+    if (!sup || sup.status !== 'active') throw BusinessException.forbidden('SUPPLIER_SUSPENDED', 'Supplier account is suspended');
+    return { businessName: sup.businessName };
+  }
+
   private publicUser(u: User) {
     // v1.5: el `user` de register|login|google incluye `emailVerified` (para el banner del front).
     // v1.67 (D-CTA-1, contrato §1): gana `mustChangePassword` y NADA más. Con `true`, login/google
@@ -605,6 +613,11 @@ export class AuthService {
     const wanted = email.toLowerCase();
     const found = await this.prisma.user.findUnique({ where: { email: wanted } });
     if (!found || found.status !== UserStatus.active) return;
+    // §PROV: a una tienda suspendida no se le envía correo de restablecimiento.
+    if (found.role === Role.supplier) {
+      const sup = await this.prisma.supplier.findUnique({ where: { userId: found.id }, select: { status: true } });
+      if (!sup || sup.status !== 'active') return;
+    }
     const issued = await withAccountGate(this.prisma, found.id, async (tx) => {
       const u = await tx.user.findUnique({ where: { id: found.id } });
       // El correo pudo cambiar entre la búsqueda y el candado: entonces este correo ya no es de esta cuenta.
@@ -650,6 +663,11 @@ export class AuthService {
     const user = await withAccountGate(this.prisma, ownerId, async (tx) => {
       const u = await tx.user.findUnique({ where: { id: ownerId } });
       if (!u) throw invalid();
+      // §PROV: antes de consumir el token (que seguiría vivo): una tienda suspendida no canjea restablecimientos.
+      if (u.role === Role.supplier) {
+        const sup = await tx.supplier.findUnique({ where: { userId: u.id }, select: { status: true } });
+        if (!sup || sup.status !== 'active') throw BusinessException.forbidden('SUPPLIER_SUSPENDED', 'Supplier account is suspended');
+      }
       const userId = await this.tokens.consume(tx, token, AuthTokenType.password_reset, u.email);
       if (userId !== u.id) throw invalid();
       // S15-B4 (defensa en profundidad): un token emitido ANTES de bloquear la cuenta no fija contraseña en ella.
@@ -843,14 +861,7 @@ export class AuthService {
       throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
     }
     // §PROV F1: tienda aliada suspendida ⇒ 403 SUPPLIER_SUSPENDED; el nombre del negocio viaja en `user.supplierName`.
-    let supplierName: string | undefined;
-    if (user.role === Role.supplier) {
-      const sup = await this.prisma.supplier.findUnique({ where: { userId: user.id }, select: { status: true, businessName: true } });
-      if (!sup || sup.status !== 'active') {
-        throw BusinessException.forbidden('SUPPLIER_SUSPENDED', 'Supplier account is suspended');
-      }
-      supplierName = sup.businessName;
-    }
+    const supplierName = (await this.assertSupplierActive(user))?.businessName;
     // v1.80.1: UNA identidad por sesión (§4.57.4): el `sid` viaja en el refresh y es el `jti` del dispositivo.
     const sid = randomUUID();
     const tokens = await this.issueTokens(user, sid);
@@ -878,6 +889,8 @@ export class AuthService {
     if (!user) {
       const byEmail = await this.prisma.user.findUnique({ where: { email } });
       if (byEmail) {
+        // §PROV: el rol `supplier` no admite Google (ni se enlaza ni se emite sesión).
+        if (byEmail.role === Role.supplier) throw BusinessException.forbidden('FORBIDDEN_ROLE', 'Suppliers cannot sign in with Google');
         if (byEmail.status === UserStatus.blocked || byEmail.status === UserStatus.deleted) {
           throw BusinessException.forbidden('USER_BLOCKED', 'User is blocked');
         }
@@ -984,6 +997,8 @@ export class AuthService {
         throw new BusinessException('UNAUTHENTICATED', 401, 'Invalid refresh token');
       }
       const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+      // §PROV: suspendida ⇒ 403 SUPPLIER_SUSPENDED (antes de la comparación de `tv`, que la suspensión ya subió).
+      if (user && user.status === UserStatus.active) await this.assertSupplierActive(user);
       if (
         !user ||
         user.status === UserStatus.blocked ||

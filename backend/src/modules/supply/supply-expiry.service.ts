@@ -42,7 +42,7 @@ export class SupplyExpiryService {
     let purchases = 0;
     for (const p of purs) {
       purchases += await this.prisma.$transaction(async (tx) => {
-        const c = await tx.supplyPurchase.updateMany({ where: { id: p.id, status: 'agreed', pickupDueAt: { lte: now } }, data: { status: 'cancelled' } });
+        const c = await tx.supplyPurchase.updateMany({ where: { id: p.id, status: 'agreed', pickupDueAt: { lte: now } }, data: { status: 'cancelled', cancelReason: 'pickup_expired' } });
         if (c.count !== 1) return 0;
         await tx.$executeRaw`
           UPDATE "SupplyRequest"

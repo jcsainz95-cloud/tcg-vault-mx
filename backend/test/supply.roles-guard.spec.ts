@@ -35,10 +35,10 @@ describe('RolesGuard — rol supplier (default-deny)', () => {
   });
 
   it('lista blanca exacta de /auth y sin trampas de prefijo', () => {
-    for (const ok of ['login', 'refresh', 'logout', 'change-password', 'forgot-password', 'reset-password']) {
+    for (const ok of ['login', 'refresh', 'logout', 'forgot-password', 'reset-password']) {
       expect(supplierMayCall(`/api/v1/auth/${ok}`)).toBe(true);
     }
-    for (const no of ['/api/v1/auth/google', '/api/v1/auth/register', '/api/v1/auth/set-password', '/api/v1/auth/login/x',
+    for (const no of ['/api/v1/auth/change-password', '/api/v1/auth/google', '/api/v1/auth/register', '/api/v1/auth/set-password', '/api/v1/auth/login/x',
       '/api/v1/suppliers', '/api/v1/supplierx/a', '/api/v1/admin/supplier/a', '/api/v1/auth/../admin/x', '/', '']) {
       expect(supplierMayCall(no)).toBe(false);
     }

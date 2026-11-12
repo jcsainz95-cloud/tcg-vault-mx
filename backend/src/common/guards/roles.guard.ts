@@ -12,7 +12,7 @@ import { BusinessException } from '../business.exception';
  * §PROV F1: default-deny del rol `supplier`. Solo `/supplier/*` y los `/auth/*` básicos (API_CONTRACT_PROVEEDORES §0).
  * Se evalúa ANTES del chequeo por @Roles: una ruta sin @Roles (abierta a "cualquier autenticado") queda cerrada al proveedor.
  */
-const SUPPLIER_AUTH_ALLOWED = new Set(['login', 'refresh', 'logout', 'change-password', 'forgot-password', 'reset-password']);
+const SUPPLIER_AUTH_ALLOWED = new Set(['login', 'refresh', 'logout', 'forgot-password', 'reset-password']);
 export function supplierMayCall(rawUrl: string): boolean {
   const path = (rawUrl ?? '').split('?')[0].replace(/^\/api\/v1(?=\/)/, '').replace(/\/+$/, '');
   if (/^\/supplier(\/|$)/.test(path)) return true;

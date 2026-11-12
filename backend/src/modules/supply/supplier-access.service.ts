@@ -80,13 +80,17 @@ export class SupplierAccessService {
   async acceptInvite(dto: AcceptInviteDto) {
     if (dto.password.length < MIN_PASSWORD_LENGTH) throw BusinessException.badRequest('WEAK_PASSWORD', 'Password too short');
     const invite = await this.prisma.supplierInvite.findUnique({ where: { tokenHash: hashAuthToken(dto.token) }, include: { supplier: true } });
-    if (!invite || invite.usedAt) throw BusinessException.badRequest('INVITE_INVALID', 'Invalid invite');
-    if (invite.expiresAt.getTime() <= Date.now()) throw new BusinessException('INVITE_EXPIRED', 410, 'Invite expired');
-    const passwordHash = await argon2.hash(dto.password);
+    if (!invite) throw BusinessException.badRequest('INVITE_INVALID', 'Invalid invite');
     const sup = invite.supplier;
+    // La suspensión manda sobre «usado/vencido»: al suspender se invalidan las invitaciones abiertas y el aviso correcto es 403.
+    if (sup.status === 'suspended') throw BusinessException.forbidden('SUPPLIER_SUSPENDED', 'Supplier account is suspended');
+    if (invite.usedAt) throw BusinessException.badRequest('INVITE_INVALID', 'Invalid invite');
+    if (invite.expiresAt.getTime() <= Date.now()) throw new BusinessException('INVITE_EXPIRED', 410, 'Invite expired');
     const user = await this.prisma.$transaction(async (tx) => {
       const claim = await tx.supplierInvite.updateMany({ where: { id: invite.id, usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() } });
       if (claim.count !== 1) throw BusinessException.badRequest('INVITE_INVALID', 'Invalid invite');
+      // PROV-5: el hash (caro) corre SOLO tras ganar el reclamo atómico: N canjes simultáneos ⇒ 1 hash.
+      const passwordHash = await argon2.hash(dto.password);
       if (sup.userId) {
         // Restablecimiento de contraseña de una cuenta ya existente: revoca sesiones vivas.
         const reset = await tx.user.update({ where: { id: sup.userId }, data: { passwordHash, tokenVersion: { increment: 1 }, mustChangePassword: false } });
@@ -111,7 +115,34 @@ export class SupplierAccessService {
     };
   }
 
+  /** UN solo sitio para «¿qué tienda es esta sesión?»: inexistente/sin activar ⇒ 404; suspendida ⇒ 403 SUPPLIER_SUSPENDED. */
+  async supplierIdOfUser(userId: string): Promise<string> {
+    const s = await this.prisma.supplier.findUnique({ where: { userId }, select: { id: true, status: true } });
+    if (!s || s.status === 'invited') throw BusinessException.notFound();
+    if (s.status === 'suspended') throw BusinessException.forbidden('SUPPLIER_SUSPENDED', 'Supplier account is suspended');
+    return s.id;
+  }
+
+  /** POST /supplier/me/password: prueba la actual, fija la nueva, limpia `mustChangePassword` y revoca las demás sesiones. */
+  async changePassword(userId: string, dto: { currentPassword: string; newPassword: string }): Promise<void> {
+    await this.supplierIdOfUser(userId);
+    if (dto.newPassword.length < MIN_PASSWORD_LENGTH) throw BusinessException.badRequest('WEAK_PASSWORD', 'Password too short');
+    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
+    let ok = false;
+    try {
+      ok = !!u?.passwordHash && (await argon2.verify(u.passwordHash, dto.currentPassword));
+    } catch {
+      ok = false;
+    }
+    if (!ok) throw new BusinessException('INVALID_CREDENTIALS', 401, 'Invalid credentials');
+    const passwordHash = await argon2.hash(dto.newPassword);
+    // `tokenVersion + 1` revoca TODAS las sesiones (también la actual): el front vuelve a /login tras el 204.
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash, mustChangePassword: false, tokenVersion: { increment: 1 } } });
+    await this.audit.log({ actorUserId: userId, actorRole: Role.supplier, action: 'supplier.password_changed', entityType: 'User', entityId: userId });
+  }
+
   async me(userId: string) {
+    await this.supplierIdOfUser(userId);
     const s = await this.prisma.supplier.findUnique({ where: { userId } });
     if (!s) throw BusinessException.notFound();
     return { id: s.id, businessName: s.businessName, email: s.email, phone: s.phone, status: s.status };
@@ -141,6 +172,10 @@ export class SupplierAccessService {
     if (dto.status === 'active' && s.status === 'invited') throw BusinessException.conflict('INVALID_STATE', 'Invited suppliers activate by accepting the invite');
     if (dto.status === 'suspended' && s.status === 'invited') throw BusinessException.conflict('INVALID_STATE', 'Supplier has not activated yet');
     if (dto.resetPassword && !s.userId) throw BusinessException.conflict('INVALID_STATE', 'Supplier has not activated yet');
+    // Suspendida (o suspendiéndose) no se le manda un enlace: reactivar y, después, reinvitar.
+    if (dto.resetPassword && (dto.status === 'suspended' || (s.status === 'suspended' && dto.status !== 'active'))) {
+      throw BusinessException.conflict('INVALID_STATE', 'Reactivate the supplier before resetting the password');
+    }
     const data: Prisma.SupplierUpdateInput = {};
     if (dto.businessName !== undefined) data.businessName = dto.businessName;
     if (dto.phone !== undefined) data.phone = dto.phone;
@@ -150,6 +185,15 @@ export class SupplierAccessService {
       const u = await tx.supplier.update({ where: { id }, data });
       // Suspender revoca sesiones (access y refresh) por la palanca de siempre: tokenVersion + 1.
       if (dto.status === 'suspended' && s.userId) await tx.user.update({ where: { id: s.userId }, data: { tokenVersion: { increment: 1 } } });
+      if (dto.status === 'suspended') {
+        // Se invalidan sus invitaciones abiertas y sus ofertas `open` (no reservan cantidad: nada que liberar).
+        await tx.supplierInvite.updateMany({ where: { supplierId: id, usedAt: null }, data: { usedAt: new Date() } });
+        const live = await tx.supplyOffer.findMany({ where: { supplierId: id, status: { in: ['open', 'countered'] } }, select: { id: true } });
+        if (live.length) {
+          await tx.supplyOffer.updateMany({ where: { id: { in: live.map((o) => o.id) }, status: { in: ['open', 'countered'] } }, data: { status: 'expired' } });
+          await tx.supplyOfferEvent.createMany({ data: live.map((o) => ({ offerId: o.id, actor: 'system', action: 'supplier_suspended' })) });
+        }
+      }
       if (dto.resetPassword) clear = (await this.issueInvite(tx, id, actorId)).clear;
       return u;
     });

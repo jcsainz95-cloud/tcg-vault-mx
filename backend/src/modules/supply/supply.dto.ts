@@ -20,6 +20,11 @@ export class AcceptInviteDto {
   @IsString() @MaxLength(200) password!: string;
 }
 
+export class ChangeSupplierPasswordDto {
+  @IsString() @MaxLength(200) currentPassword!: string;
+  @IsString() @MaxLength(200) newPassword!: string;
+}
+
 export class PatchSupplierDto {
   @IsOptional() @IsIn(['active', 'suspended']) status?: 'active' | 'suspended';
   @IsOptional() @IsString() @MinLength(1) @MaxLength(120) businessName?: string;

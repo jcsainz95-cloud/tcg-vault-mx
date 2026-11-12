@@ -66,7 +66,7 @@ export class SupplyRequestService {
     }
     const r = await this.prisma.supplyRequest.findUnique({ where: { id }, include: WITH_CARD });
     if (!r) throw BusinessException.notFound();
-    if (r.status === 'closed' || r.status === 'expired') throw BusinessException.conflict('INVALID_STATE', `Request is ${r.status}`);
+    if (r.status !== 'open') throw BusinessException.conflict('INVALID_STATE', `Request is ${r.status}`);
     const market = await this.pricing.marketCents(r.cardId, r.finish);
 
     let pctBps = r.pctBps;
@@ -75,9 +75,12 @@ export class SupplyRequestService {
       if (market == null) throw BusinessException.validation('NO_MARKET', 'No market price: percentage cannot be set');
       if (dto.pctBps > 10000) throw BusinessException.validation('ABOVE_MARKET_CAP', 'Percentage above 100% of market');
       pctBps = dto.pctBps;
-      fixedCents = null; // el % pasa a mandar
+      if (dto.fixedUnitCents === undefined) fixedCents = null; // solo %: vuelve del precio fijo al %
     }
-    if (dto.fixedUnitCents !== undefined) fixedCents = dto.fixedUnitCents;
+    if (dto.fixedUnitCents !== undefined) {
+      fixedCents = dto.fixedUnitCents;
+      if (dto.pctBps === undefined) pctBps = null; // solo fijo: el % deja de aplicar (un solo modo de precio a la vez)
+    }
     const priceTouched = dto.pctBps !== undefined || dto.fixedUnitCents !== undefined;
     const unit = effectiveUnitCents({ pctBps, fixedCents }, market);
     if (priceTouched) {
@@ -95,7 +98,7 @@ export class SupplyRequestService {
       let status: SupplyRequestStatus = dto.status === 'closed' ? 'closed' : qtyWanted === r.qtyReserved ? 'filled' : 'open';
       const upd = await tx.supplyRequest.updateMany({
         // CAS: la fila no cambió de estado ni de reservado bajo nuestros pies.
-        where: { id, status: { in: ['open', 'filled'] }, qtyReserved: dto.qtyWanted !== undefined ? { lte: qtyWanted } : undefined },
+        where: { id, status: 'open', qtyReserved: dto.qtyWanted !== undefined ? { lte: qtyWanted } : undefined },
         data: { qtyWanted, status, pctBps, fixedCents, ...(expiresAt ? { expiresAt } : {}) },
       });
       if (upd.count !== 1) throw BusinessException.conflict('INVALID_STATE', 'Request changed concurrently');

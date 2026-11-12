@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { runSerializable } from '../../common/serializable-retry';
 import { AuditService } from '../audit/audit.service';
+import { SupplierAccessService } from './supplier-access.service';
 import { SupplyPricingService } from './supply-pricing.service';
 import { SupplyRequestService } from './supply-request.service';
 import { OFFER_TTL_MS, PICKUP_TTL_MS, conditionAtLeast, effectiveUnitCents } from './supply.constants';
@@ -21,12 +22,11 @@ export class SupplyOfferService {
     private readonly pricing: SupplyPricingService,
     private readonly requests: SupplyRequestService,
     private readonly audit: AuditService,
+    private readonly access: SupplierAccessService,
   ) {}
 
-  private async supplierIdOf(userId: string): Promise<string> {
-    const s = await this.prisma.supplier.findUnique({ where: { userId }, select: { id: true, status: true } });
-    if (!s || s.status !== 'active') throw BusinessException.notFound();
-    return s.id;
+  private supplierIdOf(userId: string): Promise<string> {
+    return this.access.supplierIdOfUser(userId);
   }
 
   async create(userId: string, requestId: string, dto: CreateSupplyOfferDto, key?: string) {
@@ -87,7 +87,7 @@ export class SupplyOfferService {
     if (!o) throw BusinessException.notFound();
     return {
       ...offerSupplierView(o),
-      events: o.events.map((e) => ({ at: e.createdAt, actor: e.actor === 'supplier' ? 'supplier' : 'owner', action: e.action, unitCents: e.unitCents, qty: e.qty })),
+      events: o.events.map((e) => ({ at: e.createdAt, actor: e.actor === 'supplier' ? 'supplier' : e.actor === 'system' ? 'system' : 'owner', action: e.action, unitCents: e.unitCents, qty: e.qty })),
     };
   }
 

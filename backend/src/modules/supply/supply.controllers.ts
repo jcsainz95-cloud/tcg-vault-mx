@@ -8,8 +8,9 @@ import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { BusinessException } from '../../common/business.exception';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AllowPasswordChangeRequired } from '../../common/decorators/allow-password-change-required.decorator';
 import {
-  AcceptInviteDto, AdminRespondDto, CreateSupplyOfferDto, CreateSupplyRequestDto, InviteSupplierDto, PatchSupplierDto,
+  AcceptInviteDto, AdminRespondDto, ChangeSupplierPasswordDto, CreateSupplyOfferDto, CreateSupplyRequestDto, InviteSupplierDto, PatchSupplierDto,
   PatchSupplyRequestDto, PatchSupplySettingsDto, PayDto, ReceiveDto, SupplierRespondDto, VerifyDto,
 } from './supply.dto';
 import { SUPPLY_SETTINGS_ID } from './supply.constants';
@@ -44,16 +45,22 @@ export class SupplierPortalController {
     private readonly requests: SupplyRequestService,
     private readonly offers: SupplyOfferService,
     private readonly purchases: SupplyPurchaseService,
-    private readonly prisma: PrismaService,
   ) {}
 
-  private async sid(userId: string): Promise<string> {
-    const s = await this.prisma.supplier.findUnique({ where: { userId }, select: { id: true, status: true } });
-    if (!s || s.status !== 'active') throw BusinessException.notFound();
-    return s.id;
+  private sid(userId: string): Promise<string> {
+    return this.access.supplierIdOfUser(userId);
   }
 
   @Get('me') me(@CurrentUser('id') uid: string) { return this.access.me(uid); }
+
+  // Única ruta permitida con `mustChangePassword` (sesión restringida): por eso lleva AllowPasswordChangeRequired.
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @AllowPasswordChangeRequired()
+  @Post('me/password')
+  @HttpCode(204)
+  async password(@CurrentUser('id') uid: string, @Body() dto: ChangeSupplierPasswordDto): Promise<void> {
+    await this.access.changePassword(uid, dto);
+  }
 
   @Get('requests') async listRequests(@CurrentUser('id') uid: string, @Query() q: Q) { return this.requests.listForSupplier(await this.sid(uid), q); }
   @Get('requests/:id') async getRequest(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.requests.getForSupplier(await this.sid(uid), id); }
@@ -118,9 +125,9 @@ export class AdminSupplyController {
   @Roles(...STAFF) @Get('supply-purchases') listPurchases(@Query() q: Q) { return this.purchases.listAdmin(q); }
   @Roles(...STAFF) @Get('supply-purchases/:id') getPurchase(@Param('id') id: string) { return this.purchases.getAdmin(id); }
   @Roles(...STAFF) @Post('supply-purchases/:id/receive') @HttpCode(200)
-  receive(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: ReceiveDto, @Headers('idempotency-key') key?: string) { return this.purchases.receive(id, dto, idemKey(key), uid); }
+  receive(@CurrentUser() u: { id: string; role: Role }, @Param('id') id: string, @Body() dto: ReceiveDto, @Headers('idempotency-key') key?: string) { return this.purchases.receive(id, dto, idemKey(key), u.id, u.role); }
   @Roles(...STAFF) @Post('supply-purchases/:id/verify') @HttpCode(200)
-  verify(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: VerifyDto, @Headers('idempotency-key') key?: string) { return this.purchases.verify(id, dto, idemKey(key), uid); }
+  verify(@CurrentUser() u: { id: string; role: Role }, @Param('id') id: string, @Body() dto: VerifyDto, @Headers('idempotency-key') key?: string) { return this.purchases.verify(id, dto, idemKey(key), u.id, u.role); }
   @MoneyOut() @Roles(Role.super_admin) @Post('supply-purchases/:id/pay') @HttpCode(200)
   pay(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PayDto, @Headers('idempotency-key') key?: string) { return this.purchases.pay(id, dto, idemKey(key), uid); }
 

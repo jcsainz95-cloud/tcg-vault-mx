@@ -274,7 +274,8 @@ describe('E2E §PROV F1 — portal de proveedores', () => {
     const pay = await A('POST', `/admin/supply-purchases/${verified}/pay`, admin, { method: 'transfer', reference: 'SPEI-1' }, { 'idempotency-key': 'p1' });
     expect(pay.status).toBe(200);
     expect(pay.body).toMatchObject({ status: 'paid', method: 'transfer', reference: 'SPEI-1', payableCents: 7000 });
-    expect((await A('POST', `/admin/supply-purchases/${verified}/pay`, admin, { method: 'transfer' })).status).toBe(200);
+    expect((await A('POST', `/admin/supply-purchases/${verified}/pay`, admin, { method: 'transfer', reference: 'SPEI-1' })).status).toBe(200);
+    expect(code(await A('POST', `/admin/supply-purchases/${verified}/pay`, admin, { method: 'transfer', reference: 'OTRA' }))).toBe('ALREADY_PAID_DIFFERENT');
     expect(code(await A('POST', `/admin/supply-purchases/${verified}/pay`, admin, { method: 'cash' }))).toBe('ALREADY_PAID_DIFFERENT');
     // el proveedor ve el pago, en pesos, sin ajustes internos
     const sp = await A('GET', `/supplier/purchases/${verified}`, s1);

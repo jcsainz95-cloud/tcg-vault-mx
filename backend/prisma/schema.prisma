@@ -4100,6 +4100,8 @@ model SupplyPurchase {
   verifiedById    String?
   verifyKey       String?
   payableCents    Int?
+  // m103: por qué quedó `cancelled` (all_returned | none_received | pickup_expired).
+  cancelReason    String?
   method          String?
   reference       String?
   paidAt          DateTime?
