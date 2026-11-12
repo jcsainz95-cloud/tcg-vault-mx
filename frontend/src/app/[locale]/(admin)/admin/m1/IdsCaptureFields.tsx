@@ -219,6 +219,8 @@ export function IdsCaptureFields({
           card={card}
           stampTypes={data.stampTypes}
           defaultFinish={finish}
+          versions={data}
+          onFinish={onFinish}
           onCreated={async (res, f) => {
             await onManualCreated(res, f);
             onFinish(f);

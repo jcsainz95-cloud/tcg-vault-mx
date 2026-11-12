@@ -22,6 +22,8 @@ export function ManualVersionForm({
   card,
   stampTypes,
   defaultFinish,
+  versions,
+  onFinish,
   onCreated,
   onAttached,
   onStamp,
@@ -29,6 +31,10 @@ export function ManualVersionForm({
   card: Pick<CardDTO, 'id' | 'availableFinishes'>;
   stampTypes?: StampType[];
   defaultFinish: Finish;
+  /** Respuesta actual de `GET …/versions`: de ahí salen los acabados de un producto existente. */
+  versions?: CardVersionsResponse;
+  /** Acabado vigente del panel (el que se corrige si el producto existente no lo tiene). */
+  onFinish?: (f: Finish) => void;
   onCreated: (res: ManualVersionResponse, finish: Finish) => Promise<void>;
   onAttached: (res: CardVersionsResponse) => void;
   onStamp: (productId: number | null) => void;
@@ -56,14 +62,25 @@ export function ManualVersionForm({
     onSuccess: (res, productId) => {
       onAttached(res);
       onStamp(productId);
+      settleFinish(res, productId);
       create.reset();
       setOpen(false);
     },
   });
 
+  /**
+   * Al usar/ligar un producto EXISTENTE el acabado vigente debe ser uno que ese producto tenga: si no, se pasa a su
+   * primer acabado (en el alta rápida con casilla fija lo resuelve el modelo: acabado único ⇒ implícito, varios ⇒ «Acabado» a elegir).
+   */
+  function settleFinish(res: CardVersionsResponse | undefined, productId: number) {
+    const own = (res ?? versions)?.combos.filter((c) => c.stamp?.productId === productId).map((c) => c.finish) ?? [];
+    if (own.length > 0 && !own.includes(defaultFinish)) onFinish?.(own[0]);
+  }
+
   const err = asApiError(create.error);
   const existing = err?.code === 'USE_EXISTING' ? existingOf(err.details) : null;
-  const errText = !err || existing ? null : t(`errors.${errorKey(err.code, err.status)}`);
+  const labelRejected = err?.code === 'VALIDATION_ERROR' && err.details?.field === 'stampLabel';
+  const errText = !err || existing || labelRejected ? null : t(`errors.${errorKey(err.code, err.status)}`);
   const labelTooLong = label.trim().length > 40;
 
   if (!open) {
@@ -85,9 +102,23 @@ export function ManualVersionForm({
     >
       <p className="text-sm text-text">{t('title')}</p>
       <Select label={t('type')} value={type} onChange={(e) => setType(e.target.value as StampType)} options={types.map((s) => ({ value: s, label: ts(s) }))} />
-      <Input label={t('label')} hint={t('labelHint')} maxLength={60} value={label} onChange={(e) => setLabel(e.target.value)} error={labelTooLong ? t('labelTooLong') : undefined} />
+      <Input label={t('label')} hint={t('labelHint')} maxLength={60} value={label} onChange={(e) => setLabel(stripInvisible(e.target.value))} error={labelTooLong ? t('labelTooLong') : labelRejected ? t('labelInvalid') : undefined} />
       <Select label={t('finish')} value={finish} onChange={(e) => setFinish(e.target.value as Finish)} options={finishes.map((f) => ({ value: f, label: tFinish(f) }))} />
-      {errText && <Banner variant="danger" role="alert">{errText}</Banner>}
+      {errText && (
+        <Banner
+          variant="danger"
+          role="alert"
+          action={
+            err?.code === 'VERSION_BUSY' ? (
+              <Button type="button" size="sm" variant="secondary" loading={create.isPending} onClick={() => create.mutate()}>
+                {t('retry')}
+              </Button>
+            ) : undefined
+          }
+        >
+          {errText}
+        </Banner>
+      )}
       {existing && (
         <Banner variant="warning" role="alert" title={t('existing.title')}>
           <div className="flex flex-col gap-2">
@@ -104,6 +135,7 @@ export function ManualVersionForm({
                 variant="secondary"
                 onClick={() => {
                   onStamp(s.id);
+                  settleFinish(undefined, s.id);
                   create.reset();
                   setOpen(false);
                 }}
@@ -123,8 +155,13 @@ export function ManualVersionForm({
   );
 }
 
-function errorKey(code: string, status: number): 'CARD_NOT_FOUND' | 'VALIDATION_ERROR' | 'FINISH_NOT_AVAILABLE' | 'RATE_LIMITED' | 'FORBIDDEN' | 'generic' {
-  if (code === 'CARD_NOT_FOUND' || code === 'VALIDATION_ERROR' || code === 'FINISH_NOT_AVAILABLE' || code === 'RATE_LIMITED') return code;
+/** El servidor rechaza (400) etiquetas con caracteres de control, invisibles o de dirección: no se dejan teclear ni pegar. */
+export function stripInvisible(v: string): string {
+  return v.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '');
+}
+
+function errorKey(code: string, status: number): 'CARD_NOT_FOUND' | 'VALIDATION_ERROR' | 'FINISH_NOT_AVAILABLE' | 'RATE_LIMITED' | 'VERSION_BUSY' | 'FORBIDDEN' | 'generic' {
+  if (code === 'CARD_NOT_FOUND' || code === 'VALIDATION_ERROR' || code === 'FINISH_NOT_AVAILABLE' || code === 'RATE_LIMITED' || code === 'VERSION_BUSY') return code;
   if (status === 429) return 'RATE_LIMITED';
   if (status === 403) return 'FORBIDDEN';
   return 'generic';

@@ -1966,14 +1966,17 @@
           "label": "Label (optional)",
           "labelHint": "For example “Season 7”. 40 characters at most.",
           "labelTooLong": "40 characters at most.",
+          "labelInvalid": "The label has characters that are not allowed. Use only letters, numbers and plain punctuation.",
           "finish": "Finish",
           "submit": "Create version",
+          "retry": "Retry",
           "cancel": "Cancel",
           "errors": {
             "CARD_NOT_FOUND": "We could not find that card.",
             "VALIDATION_ERROR": "Check the type, the label and the finish.",
             "FINISH_NOT_AVAILABLE": "That card does not exist in that finish.",
             "RATE_LIMITED": "You created too many versions in a short time. Try again in an hour.",
+            "VERSION_BUSY": "This card is being updated. Try again in a few seconds.",
             "FORBIDDEN": "Your account cannot create league versions.",
             "generic": "We could not create the version. Try again."
           },
