@@ -18,12 +18,13 @@ Aislamiento: en rutas `/supplier/*` el `supplierId` sale SIEMPRE del token, nunc
 - GET `/admin/suppliers` · staff; PATCH `/admin/suppliers/:id` · admin (activar/suspender, reset de contraseña)
 - POST `/admin/supply-requests` · admin — `{cardId, finish, minCondition, qty, pctBps, expiresAt?}`; PATCH `/:id` (ajustar % o cantidad, cerrar)
 - GET `/admin/supply-requests` · staff (incluye ofertas por solicitud, mejor oferta resaltada)
-- POST `/admin/supply-offers/:id/respond` · admin — `{action: accept|reject|counter, unitCents? | pctBps?}`; aceptar sobre 100 % del mercado exige `confirmAboveMarket:true`
+- POST `/admin/supply-offers/:id/respond` · admin — `{action: accept|reject|counter, unitCents? | pctBps?}`; TOPE DURO: `unitCents` > 100 % del mercado ⇒ 422 `ABOVE_MARKET_CAP` para todos los roles; sin mercado ⇒ solo el precio fijo de la solicitud (contraofertas 422 `NO_MARKET`)
 - POST `/admin/supply-purchases/:id/receive` · staff — registra recogida en persona y estado real por carta
 - POST `/admin/supply-purchases/:id/verify` · staff — confirma estado, calcula `payableCents`, crea `InventoryItem`
 - POST `/admin/supply-purchases/:id/pay` · admin 💰 — `{method: cash|transfer, reference?}`, idempotente; solo tras `verify`
 - GET `/admin/supply-purchases` · staff
-- GET `/admin/supply-suggestions` · staff — lista «qué comprar» convertida en borradores de solicitud (HECHOS.md:57)
+- GET `/admin/supply-suggestions` · staff — borradores generados por el job `supply-suggest` desde «qué comprar» (HECHOS.md:57), % por defecto 70 %; POST `/admin/supply-suggestions/:id/publish` · admin
+- GET/PATCH `/admin/supply-settings` · admin — `{autoPublish:false, autoAccept:false, defaultPctBps:7000, weeklyBudgetCents}`; interruptores APAGADOS al arrancar
 
 ## Tienda privada de mayoreo (sentido B)
 - GET `/supplier/shop` · supplier — listings activos con `unitCents` (su precio), `minQty`, stock asignado
