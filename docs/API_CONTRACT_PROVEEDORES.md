@@ -1,40 +1,77 @@
 # API_CONTRACT_PROVEEDORES.md — anexo de API_CONTRACT.md (portal de proveedores, §PROV)
 
-Convenciones de `API_CONTRACT.md` §0 (prefijo `/api/v1`, centavos enteros, `Idempotency-Key` en POST de dinero). ESTADO: PROPUESTO (no construido).
-Aislamiento: en rutas `/supplier/*` el `supplierId` sale SIEMPRE del token, nunca de la ruta ni del cuerpo; ajeno ⇒ 404. El rol `supplier` recibe 403 en cualquier ruta que no sea `/supplier/*` y `/auth/*`.
+Convenciones de `API_CONTRACT.md` §0 (`/api/v1`, centavos MXN enteros, errores `{error:{code,message,details}}`, paginación `{data,page,pageSize,total}`, `Idempotency-Key` en POST de dinero). ESTADO: **F1 completo (sentido A)**; sentido B y F3+ propuestos.
+Nombres de ruta F1 ya fijados con backend: no renombrar.
 
-## Proveedor (rol `supplier`)
-- POST `/auth/supplier/accept-invite` · público con token de invitación (fija contraseña; no hay registro abierto)
-- GET `/supplier/requests` · supplier — solicitudes abiertas: carta, acabado, estado mínimo, cantidad restante, `unitCents` que se le paga (sin % ni mercado), vence
-- GET `/supplier/requests/:id` · supplier
-- POST `/supplier/requests/:id/offers` · supplier — `{qty, condition, unitCents?}` (omitido ⇒ precio de la solicitud; distinto ⇒ contraoferta)
-- GET `/supplier/offers` · supplier — solo las suyas
-- GET `/supplier/offers/:id` · supplier — con historial de negociación
-- POST `/supplier/offers/:id/respond` · supplier — `{action: accept|counter|withdraw, unitCents?}` sobre contraoferta del dueño
-- GET `/supplier/purchases` · supplier — acuerdos, recogida, pago (solo lectura)
+## 0. Reglas transversales
+- **Rol** `supplier` se añade a `enum Role` (migración aditiva). Auth/JWT idénticos al resto (`Authorization: Bearer`).
+- **Login**: el mismo `POST /auth/login` `{email,password}` ⇒ respuesta de siempre con `user.role:"supplier"` (+ `user.supplierName`, `mustChangePassword`). Front redirige `supplier` a `/proveedores` (admin/staff nunca). Refresh/logout/`/auth/change-password`/`/auth/forgot-password` funcionan igual; sin Google ni registro. Cuenta suspendida ⇒ 403 `SUPPLIER_SUSPENDED`; tras suspender se invalidan sus refresh tokens.
+- **Prohibido al rol `supplier`** (403 `FORBIDDEN_ROLE`, default-deny): todo lo que no sea `/supplier/*`, `/auth/login|refresh|logout|change-password|forgot-password|reset-password`. En particular catálogo con sesión (`/catalog/cards`), carrito, checkout, pedidos, bóveda, wishlist, buylist, `/users/*`, `/admin/*`.
+- **Aislamiento**: `supplierId` sale del token; ajeno o inexistente ⇒ 404 `NOT_FOUND` (nunca 403, no revela existencia). El proveedor nunca recibe `pctBps`, `marketCents`, mercado, otras tiendas ni clientes.
+- **Carta embebida** (`card`, igual en todos los GET): `{cardId, name, nameEs|null, number, setId, setName, imageUrl|null, rarity|null, finish}`. `imageUrl` = la del catálogo (pokemontcg.io); null ⇒ placeholder.
+- **Estados de carta** (`condition`, lo que declara la tienda): `NM|LP|MP|HP|DMG`. Inventario hoy solo admite NM (`RawCondition`): lo que se verifica como `ok` entra como NM.
 
-## Dueño / staff
-- POST `/admin/suppliers/invite` · admin — `{businessName, email}` ⇒ correo con enlace de un solo uso (72 h)
-- GET `/admin/suppliers` · staff; PATCH `/admin/suppliers/:id` · admin (activar/suspender, reset de contraseña)
-- POST `/admin/supply-requests` · admin — `{cardId, finish, minCondition, qty, pctBps, expiresAt?}`; PATCH `/:id` (ajustar % o cantidad, cerrar)
-- GET `/admin/supply-requests` · staff (incluye ofertas por solicitud, mejor oferta resaltada)
-- POST `/admin/supply-offers/:id/respond` · admin — `{action: accept|reject|counter, unitCents? | pctBps?}`; TOPE DURO: `unitCents` > 100 % del mercado ⇒ 422 `ABOVE_MARKET_CAP` para todos los roles; sin mercado ⇒ solo el precio fijo de la solicitud (contraofertas 422 `NO_MARKET`)
-- POST `/admin/supply-purchases/:id/receive` · staff — registra recogida en persona y estado real por carta
-- POST `/admin/supply-purchases/:id/verify` · staff — confirma estado, calcula `payableCents`, crea `InventoryItem`
-- POST `/admin/supply-purchases/:id/pay` · admin 💰 — `{method: cash|transfer, reference?}`, idempotente; solo tras `verify`
-- GET `/admin/supply-purchases` · staff
-- GET `/admin/supply-suggestions` · staff — borradores generados por el job `supply-suggest` desde «qué comprar» (HECHOS.md:57), % por defecto 70 %; POST `/admin/supply-suggestions/:id/publish` · admin
-- GET/PATCH `/admin/supply-settings` · admin — `{autoPublish:false, autoAccept:false, defaultPctBps:7000, weeklyBudgetCents}`; interruptores APAGADOS al arrancar
+## 1. Alta, sesión y perfil
+- POST `/admin/suppliers/invite` · admin — `{businessName, email, phone?}` ⇒ 201 `{supplier:{id,businessName,email,status:"invited"}, inviteExpiresAt}`. Correo con enlace `/proveedores/activar?token=…` (token aleatorio, solo se guarda hash, un uso, 72 h). Reinvitar mismo correo antes de activar: rota token (200). Errores: 409 `EMAIL_TAKEN` (correo de otro usuario), 400 `VALIDATION_ERROR`.
+- POST `/auth/supplier/accept-invite` · público, throttle — `{token, password}` (política de contraseña del sitio) ⇒ 200 `{user:{…role:"supplier"}, accessToken, refreshToken}` (queda con sesión; `status` pasa a `active`). Errores: 400 `INVITE_INVALID` (no existe/usado), 410 `INVITE_EXPIRED`, 400 `WEAK_PASSWORD`.
+- GET `/supplier/me` · supplier — `{id, businessName, email, phone|null, status}`.
+- GET `/admin/suppliers` · staff — `?q&status=invited|active|suspended&page` ⇒ `{data:[{id,businessName,email,phone,status,createdAt,activatedAt|null,openOffers:int}],…}`.
+- PATCH `/admin/suppliers/:id` · admin — `{status?: "active"|"suspended", businessName?, phone?, resetPassword?: true}` ⇒ el proveedor. `resetPassword` envía enlace nuevo (misma mecánica de token 72 h). Errores: 404, 409 `INVALID_STATE` (p. ej. activar uno `invited`: se activa solo al aceptar).
 
-## Tienda privada de mayoreo (sentido B)
-- GET `/supplier/shop` · supplier — listings activos con `unitCents` (su precio), `minQty`, stock asignado
+## 2. Solicitudes (dueño)
+- GET `/admin/catalog-search/cards`: **no existe**; usar `GET /catalog/cards?q=&page=` (cuenta; `super_admin` entra) para buscar cartas, y para saber si hay mercado: **GET `/admin/supply-requests/market-check?cardId=&finish=`** · staff (NUEVO) ⇒ `{cardId,finish,marketCents:int|null,hasMarket:bool,capCents:int|null,defaultPctBps:7000,suggestedUnitCents:int|null}`. `hasMarket:false` ⇒ el formulario exige `fixedUnitCents`.
+- POST `/admin/supply-requests` · admin — `{cardId, finish, minCondition:"NM"|…, qty:int≥1, pctBps?:1..10000 (omitido ⇒ defaultPctBps), fixedUnitCents?:int, expiresAt? (default +14 d)}`. Con mercado: precio = `pctBps` × mercado, redondeo al peso hacia abajo; `fixedUnitCents` opcional lo reemplaza. Sin mercado: `fixedUnitCents` obligatorio y `pctBps` se ignora. ⇒ 201 solicitud (ver abajo). Errores: 404 `CARD_NOT_FOUND`, 400 `FINISH_NOT_AVAILABLE`, 422 `ABOVE_MARKET_CAP` (precio efectivo > mercado), 422 `FIXED_PRICE_REQUIRED` (sin mercado y sin `fixedUnitCents`), 400 `VALIDATION_ERROR`.
+- PATCH `/admin/supply-requests/:id` · admin — `{status?:"closed", qtyWanted?:int, pctBps?, fixedUnitCents?, expiresAt?}` (al menos uno). Cerrar: ofertas `open|countered` pasan a `expired` (el proveedor las ve «solicitud cerrada»); acuerdos ya hechos no cambian. `qtyWanted` ≥ `qtyReserved`. Cambiar precio no toca acuerdos ni ofertas ya aceptadas; ofertas abiertas al precio viejo se recalculan al responder. Errores: 404, 409 `INVALID_STATE` (cerrada/vencida/llena), 422 `QTY_BELOW_RESERVED`, 422 `ABOVE_MARKET_CAP`, 422 `NO_MARKET` (cambiar `pctBps` sin mercado).
+- GET `/admin/supply-requests` · staff — `?status=open|filled|closed|expired&q&page` ⇒ `data:[SupplyRequestAdmin]`; GET `/admin/supply-requests/:id` ⇒ lo mismo + `offers:[SupplyOfferAdmin]` (mejor oferta primero).
+- **SupplyRequestAdmin** `{id, card, minCondition, qtyWanted, qtyReserved, qtyReceived, qtyOpen, pctBps|null, unitCents, fixedPrice:bool, marketCents|null, capCents|null, aboveCap:bool, status, source:"manual"|"suggested", expiresAt, createdAt, offersCount, bestOfferUnitCents|null}`. `aboveCap:true` cuando el mercado bajó y `unitCents` > mercado hoy: la UI muestra aviso rojo y el servidor rechaza aceptar ofertas hasta bajar el precio (422 `ABOVE_MARKET_CAP`).
+
+## 3. Ofertas
+- GET `/supplier/requests` · supplier — `?q&page` solo `open` con `qtyOpen>0` y no vencidas ⇒ `data:[{id, card, minCondition, qtyOpen, unitCents, expiresAt, myOfferStatus|null}]` (**solo pesos por pieza**; sin %, sin mercado). GET `/supplier/requests/:id` ⇒ el mismo objeto. 404 si cerrada/vencida y sin oferta suya.
+- POST `/supplier/requests/:id/offers` · supplier · Idempotency-Key — `{qty:int≥1, condition, unitCents?}`. Omitido o igual a `unitCents` de la solicitud ⇒ oferta a precio fijo (se acepta sola solo si `supply_auto_accept` encendido; si no, queda `open`). Distinto ⇒ contraoferta (F3: en F1 `unitCents` distinto ⇒ 422 `COUNTER_NOT_ENABLED`). ⇒ 201 `SupplyOfferSupplier`. Errores: 404, 409 `REQUEST_NOT_OPEN`, 410 `REQUEST_EXPIRED`, 409 `ALREADY_OFFERED` (una oferta abierta por solicitud y tienda), 422 `QTY_EXCEEDS_OPEN` (`details.qtyOpen`), 422 `CONDITION_BELOW_MIN`, 409 `COVERED` (ya se cubrió).
+- GET `/supplier/offers` · supplier — `?status&page` ⇒ `data:[SupplyOfferSupplier]`; GET `/supplier/offers/:id` ⇒ + `events:[{at,actor:"supplier"|"owner",action,unitCents,qty}]`.
+- **SupplyOfferSupplier** `{id, requestId, card, qty, condition, unitCents, totalCents, status:"open"|"countered"|"accepted"|"rejected"|"withdrawn"|"expired", counterUnitCents|null, expiresAt, purchaseId|null, createdAt}`.
+- POST `/supplier/offers/:id/respond` · supplier — `{action:"withdraw"}` en F1 (`accept|counter` sobre contraoferta del dueño: F3). Errores: 404, 409 `INVALID_STATE` (ya aceptada/cerrada), 410 `OFFER_EXPIRED`.
+- GET `/admin/supply-offers?status&requestId&supplierId&page` · staff ⇒ `data:[SupplyOfferAdmin]`.
+- **SupplyOfferAdmin** `{id, requestId, supplier:{id,businessName}, card, qty, condition, unitCents, totalCents, pctOfMarketBps|null, marketCents|null, aboveCap:bool, status, expiresAt, createdAt, isBest:bool}`.
+- POST `/admin/supply-offers/:id/respond` · admin — F1: `{action:"accept"|"reject"}`; F3 añade `counter` con `unitCents|pctBps`. TOPE DURO: precio efectivo > 100 % del mercado ⇒ 422 `ABOVE_MARKET_CAP` para todos los roles, sin bandera de excepción; sin mercado solo vale `fixedUnitCents` de la solicitud (contraoferta ⇒ 422 `NO_MARKET`). Aceptar: transacción que reserva cantidad ⇒ 200 `{offer, purchase:SupplyPurchase}`. Errores: 404, 409 `INVALID_STATE`, 410 `OFFER_EXPIRED`, 409 `COVERED` (`details.qtyOpen`), 422 `ABOVE_MARKET_CAP`, 422 `NO_MARKET`.
+
+## 4. Acuerdos, recogida, revisión y pago
+- **SupplyPurchase** (admin) `{id, offerId, supplier:{id,businessName}, card, qty, agreedUnitCents, totalCents, status:"agreed"|"collected"|"verified"|"paid"|"cancelled", pickupDueAt, units:[{n,condition,result:"pending"|"ok"|"adjusted"|"returned",adjustBps|null,unitPayableCents|null,note|null}], payableCents|null, method|null, reference|null, paidAt|null, createdAt}`. Versión proveedor (`GET /supplier/purchases[/:id]`) idéntica sin `units.adjustBps`, con `units.result` y `unitPayableCents`: solo pesos, solo lectura.
+- GET `/admin/supply-purchases?status&supplierId&page` · staff; GET `/admin/supply-purchases/:id` · staff.
+- POST `/admin/supply-purchases/:id/receive` · staff · Idempotency-Key — `{units:[{n:int, condition:"NM"|"LP"|"MP"|"HP"|"DMG", note?}]}` (una fila por pieza entregada; `units.length` ≤ `qty`; faltantes ⇒ quedan sin fila y no se pagan). Solo registra lo observado; no mueve dinero ni inventario. ⇒ 200 purchase (`status:"collected"`, `units[].result:"pending"`). Errores: 404, 409 `INVALID_STATE` (solo desde `agreed`), 422 `UNITS_EXCEED_QTY`, 410 `PURCHASE_EXPIRED` (pasó `pickupDueAt` y el job ya canceló).
+- POST `/admin/supply-purchases/:id/verify` · staff · Idempotency-Key — `{units:[{n, result:"ok"|"adjusted"|"returned", adjustBps?:1..9999, note?}]}` debe cubrir todas las piezas recibidas. Servidor: `ok` ⇒ paga `agreedUnitCents` y la pieza entra a inventario como NM con costo; `adjusted` (solo si recibida NM con detalle menor; `adjustBps` obligatorio, nunca sube) ⇒ paga `floor(agreed × adjustBps/10000)` y entra como NM con ese costo; `returned` (LP o peor, o el dueño no la quiere) ⇒ no se paga ni entra, se devuelve a la tienda. Si `units` recibidas es 0 ⇒ `payableCents=0`, status `cancelled`. **`payableCents` = suma calculada por el servidor** (el cliente no lo envía). ⇒ 200 purchase (`status:"verified"`, `payableCents`, `units[].unitPayableCents`, `inventoryItemIds:[…]`). Reparte `qtyReceived` de la solicitud. Errores: 404, 409 `INVALID_STATE` (solo desde `collected`), 422 `UNITS_MISMATCH`, 422 `ADJUST_REQUIRED`, 422 `OK_NOT_NM` (pieza recibida LP+ no puede ser `ok`).
+- POST `/admin/supply-purchases/:id/pay` · admin 💰 · Idempotency-Key — `{method:"cash"|"transfer", reference?:string≤80}` ⇒ 200 purchase (`status:"paid"`, `paidAt`). Mismo key o ya pagado con mismo método ⇒ 200 igual (idempotente); otro método ⇒ 409. Errores: 404, 409 `INVALID_STATE` (solo desde `verified`), 409 `ALREADY_PAID_DIFFERENT`, 422 `NOTHING_TO_PAY`.
+
+## 5. Sugeridas y ajustes
+- GET `/admin/supply-suggestions` · staff ⇒ `data:[{id, card, finish, suggestedQty, pctBps:7000, unitCents, marketCents, reason:"rotation", createdAt}]`; POST `/admin/supply-suggestions/:id/publish` · admin `{qty?, pctBps?}` ⇒ SupplyRequestAdmin (mismos errores que crear). Job `supply-suggest` diario las genera siempre como borrador; con `autoPublish` encendido se publican solas con `weeklyBudgetCents`.
+- GET/PATCH `/admin/supply-settings` · admin — `{autoPublish:false, autoAccept:false, defaultPctBps:7000, weeklyBudgetCents}`. Interruptores APAGADOS al arrancar.
+
+## 6. Jobs (sin endpoint)
+`supply-expiry` (horario, idempotente): vence solicitudes (14 d), ofertas sin respuesta (72 h), cancela acuerdos sin recoger (7 d) y libera `qtyReserved`. `supply-digest` (diario 09:00 CDMX): resumen a proveedores y dueño.
+
+## 7. Tabla de errores por endpoint (códigos nuevos; el resto: 400 `VALIDATION_ERROR`, 401, 403 `FORBIDDEN_ROLE`, 429)
+| Endpoint | Códigos |
+|---|---|
+| invite | 409 EMAIL_TAKEN |
+| accept-invite | 400 INVITE_INVALID, 410 INVITE_EXPIRED, 400 WEAK_PASSWORD |
+| login supplier | 403 SUPPLIER_SUSPENDED, 401 de siempre |
+| PATCH supplier | 404 NOT_FOUND, 409 INVALID_STATE |
+| POST request | 404 CARD_NOT_FOUND, 400 FINISH_NOT_AVAILABLE, 422 ABOVE_MARKET_CAP, 422 FIXED_PRICE_REQUIRED |
+| PATCH request | 404, 409 INVALID_STATE, 422 QTY_BELOW_RESERVED / ABOVE_MARKET_CAP / NO_MARKET |
+| POST offer | 404, 409 REQUEST_NOT_OPEN / ALREADY_OFFERED / COVERED, 410 REQUEST_EXPIRED, 422 QTY_EXCEEDS_OPEN / CONDITION_BELOW_MIN / COUNTER_NOT_ENABLED |
+| supplier respond | 404, 409 INVALID_STATE, 410 OFFER_EXPIRED |
+| admin respond | 404, 409 INVALID_STATE / COVERED, 410 OFFER_EXPIRED, 422 ABOVE_MARKET_CAP / NO_MARKET |
+| receive | 404, 409 INVALID_STATE, 410 PURCHASE_EXPIRED, 422 UNITS_EXCEED_QTY |
+| verify | 404, 409 INVALID_STATE, 422 UNITS_MISMATCH / ADJUST_REQUIRED / OK_NOT_NM |
+| pay | 404, 409 INVALID_STATE / ALREADY_PAID_DIFFERENT, 422 NOTHING_TO_PAY |
+Todos los `GET /supplier/*` de un recurso ajeno ⇒ 404 `NOT_FOUND`.
+
+## 8. Tienda privada de mayoreo (sentido B, F2; PROPUESTO)
+- GET `/supplier/shop` · supplier — listings activos con `unitCents` (su precio), `minQty` (sellado: 1 case), stock asignado
 - POST `/supplier/shop/orders` · supplier · Idempotency-Key — `{items:[{listingId,qty}], delivery: pickup|owner_delivery}`; reserva stock en la misma transacción; plazo de pago 72 h
 - GET `/supplier/shop/orders` · GET `/supplier/shop/orders/:id` · supplier — solo los suyos
 - POST `/supplier/shop/orders/:id/cancel` · supplier — solo antes de pagado
-- GET `/supplier/notifications` · POST `/supplier/notifications/read` · supplier — campana en su cuenta
+- GET `/supplier/notifications` · POST `/supplier/notifications/read` · supplier — campana
 - POST/PATCH `/admin/wholesale/listings` · admin — `{productRef, wholesaleCents, minQty, qtyAllocated, urgent?}`; asigna stock fuera del público
 - PUT `/admin/wholesale/listings/:id/prices/:supplierId` · admin — precio especial por tienda
-- GET `/admin/wholesale/orders` · staff; POST `/admin/wholesale/orders/:id/mark-paid` · admin 💰 (idempotente) ; POST `/admin/wholesale/orders/:id/deliver` · admin (baja inventario)
-
-## Jobs (sin endpoint)
-`supply-expiry` (cada hora): vence solicitudes, ofertas sin respuesta y acuerdos sin recoger, y libera cantidad. `supply-digest` (diario 09:00 CDMX): resumen a proveedores y al dueño.
+- GET `/admin/wholesale/orders` · staff; POST `/admin/wholesale/orders/:id/mark-paid` · admin 💰 (idempotente); POST `/admin/wholesale/orders/:id/deliver` · admin (baja inventario)
