@@ -71,9 +71,9 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       router.replace({ pathname: '/login', query: { next: pathname } });
     } else if (!hasAdminRole) {
       // Sesión válida pero rol de cliente: fuera del back-office → al storefront.
-      router.replace('/');
+      router.replace(user?.role === 'supplier' ? '/proveedores' : '/');
     }
-  }, [requireAuth, ready, isAuthenticated, hasAdminRole, router, pathname]);
+  }, [requireAuth, ready, isAuthenticated, hasAdminRole, router, pathname, user?.role]);
 
   // Mientras no sepamos si hay sesión (o si falta el rol) mostramos carga, NUNCA el
   // contenido del back-office (evita el super_admin falso + 401/403 confuso).

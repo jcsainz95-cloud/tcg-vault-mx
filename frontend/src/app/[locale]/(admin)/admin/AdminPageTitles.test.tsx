@@ -78,6 +78,7 @@ import { parseRefundsTab } from './refunds/tabs';
 import { SpendAlertsView } from './spend-alerts/SpendAlertsView';
 // eslint-disable-next-line import/first
 import { CardShowAdminView } from './card-show/CardShowAdminView';
+import { SuppliersAdminView } from './proveedores/SuppliersAdminView';
 // eslint-disable-next-line import/first
 import { MarketingView } from './marketing/MarketingView';
 // eslint-disable-next-line import/first
@@ -152,6 +153,7 @@ const PAGES: Record<string, ComponentType> = {
   '/admin/refunds': RefundsPage,
   '/admin/spend-alerts': SpendAlertsPage,
   '/admin/card-show': CardShowPage,
+  '/admin/proveedores': SuppliersAdminView,
   '/admin/marketing': MarketingPage,
   '/admin/codes': DiscountCodesPage,
 };
@@ -213,6 +215,7 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     ['Administración', '/admin/m10', 'Configuración', 'Settings', true],
     // §CARDSHOW.15: «Card Show», súper-admin, al final de «Administración» (captura de leads/preinscritos, PII).
     ['Administración', '/admin/card-show', 'Card Show', 'Card Show', true],
+    ['Administración', '/admin/proveedores', 'Proveedores', 'Suppliers', false],
     // §MKT-UX.1 / §MKT.G.7: «Marketing», súper-admin, tras «Card Show».
     ['Administración', '/admin/marketing', 'Marketing', 'Marketing', true],
   ];
@@ -247,7 +250,7 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     // 17 entradas antes de §37.20 (dos de reembolsos) ⇒ 16; F-26 retira «Disputas» ⇒ 15; v4.20 añade «Avisos de gasto» ⇒ 16
     // (merge panel+skydropx: ambas intenciones). §AC-UX.9 añade «Accesorios» ⇒ 17. §CARDSHOW.15 añade «Card Show» ⇒ 18.
     // §MKT-UX.1 añade «Marketing» ⇒ 19. §DSC-UX.5 añade «Códigos de descuento» ⇒ 20.
-    expect(hrefs).toHaveLength(20);
+    expect(hrefs).toHaveLength(21);
     expect(hrefs.filter((h) => h.startsWith('/admin/manual-refunds'))).toEqual([]);
     const refunds = screen.getAllByRole('link').filter((a) => /Reembolsos/.test(a.textContent ?? ''));
     expect(refunds.map((a) => a.getAttribute('href'))).toEqual(['/admin/refunds']);

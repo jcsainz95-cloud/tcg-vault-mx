@@ -1452,6 +1452,134 @@
     "backToLogin": "Volver a iniciar sesión"
   },
   "admin": {
+    "suppliers": {
+      "lead": "Compra a tiendas aliadas: solicitudes, ofertas, recogida, revisión y pago. Nunca se paga más del precio de mercado del día.",
+      "tabsLabel": "Secciones de proveedores",
+      "tabs": {
+        "requests": "Solicitudes",
+        "offers": "Ofertas",
+        "purchases": "Acuerdos",
+        "stores": "Tiendas"
+      },
+      "supplierStatus": {
+        "invited": "Invitada",
+        "active": "Activa",
+        "suspended": "Desactivada"
+      },
+      "requestStatus": {
+        "open": "Abierta",
+        "filled": "Cubierta",
+        "closed": "Cerrada",
+        "expired": "Vencida"
+      },
+      "stores": {
+        "inviteTitle": "Invitar una tienda",
+        "businessName": "Nombre de la tienda",
+        "email": "Correo",
+        "phone": "Teléfono (opcional)",
+        "invite": "Enviar invitación",
+        "invited": "Invitación enviada. El enlace vale 72 horas.",
+        "emptyTitle": "Aún no hay tiendas aliadas",
+        "emptyBody": "Invita a la primera con el formulario de arriba.",
+        "openOffers": "{count} oferta(s) abierta(s)",
+        "activatedAt": "activa desde {date}",
+        "deactivate": "Desactivar",
+        "reactivate": "Reactivar",
+        "resend": "Reenviar invitación",
+        "resetPassword": "Enviar enlace de contraseña"
+      },
+      "requests": {
+        "status": "Estado",
+        "allStatuses": "Todos",
+        "new": "Nueva solicitud",
+        "emptyTitle": "No hay solicitudes",
+        "emptyBody": "Crea una para empezar a recibir ofertas de tus tiendas aliadas.",
+        "price": "Pagamos {price} c/u",
+        "fixedLabel": "precio fijo",
+        "pctLabel": "{pct} % del mercado",
+        "marketLabel": "mercado {market}",
+        "noMarketLabel": "sin precio de mercado",
+        "qtys": "Buscas {wanted} · apartadas {reserved} · recibidas {received} · faltan {open}",
+        "offersCount": "{count} oferta(s)",
+        "best": "mejor {price}",
+        "aboveCapWarn": "El mercado bajó: este precio rebasa el mercado de hoy ({cap}). No se pueden aceptar ofertas hasta que lo bajes.",
+        "edit": "Editar",
+        "close": "Cerrar solicitud",
+        "qtyWanted": "Cantidad buscada",
+        "pct": "Porcentaje del mercado",
+        "fixedOptional": "Precio fijo en pesos (opcional)",
+        "fixedInvalid": "Escribe un importe válido, por ejemplo 150 o 150.50.",
+        "aboveCap": "No puede pasar del mercado de hoy ({cap}).",
+        "save": "Guardar",
+        "cancel": "Cancelar"
+      },
+      "create": {
+        "title": "Nueva solicitud",
+        "searchCard": "Buscar carta",
+        "searchHint": "Escribe al menos 2 letras del nombre.",
+        "noHits": "Sin resultados.",
+        "change": "Cambiar carta",
+        "finish": "Acabado",
+        "minCondition": "Estado mínimo",
+        "qty": "Cantidad",
+        "market": "Mercado hoy {market} · tope {cap}",
+        "noMarket": "Esta carta no tiene precio de mercado: solo se puede publicar con un precio fijo en pesos.",
+        "priceMode": "Cómo fijar el precio",
+        "modePct": "Porcentaje del mercado (normal {pct} %)",
+        "modeFixed": "Precio fijo en pesos",
+        "pct": "Porcentaje del mercado",
+        "suggested": "Con el porcentaje normal: {price} por pieza",
+        "fixed": "Precio por pieza en pesos",
+        "fixedInvalid": "Escribe un importe válido, por ejemplo 150 o 150.50.",
+        "aboveCap": "No puede pasar del mercado de hoy ({cap}). Es un tope que nadie puede saltar.",
+        "capNote": "La solicitud dura 14 días. Las tiendas solo ven el precio en pesos.",
+        "publish": "Publicar solicitud",
+        "cancel": "Cancelar"
+      },
+      "offers": {
+        "status": "Estado",
+        "allStatuses": "Todas",
+        "emptyTitle": "No hay ofertas",
+        "emptyBody": "Cuando una tienda responda «La tengo», aparecerá aquí.",
+        "best": "Mejor oferta",
+        "line": "{qty} pieza(s) · {condition} · {unit} c/u",
+        "total": "Total {total}",
+        "pctOfMarket": "{pct} % del mercado",
+        "aboveCapWarn": "Rebasa el mercado de hoy: no se puede aceptar.",
+        "accept": "Aceptar",
+        "reject": "Rechazar"
+      },
+      "purchases": {
+        "status": "Estado",
+        "allStatuses": "Todos",
+        "emptyTitle": "No hay acuerdos",
+        "emptyBody": "Al aceptar una oferta se crea el acuerdo de recogida.",
+        "agreed": "{qty} pieza(s) a {unit} c/u",
+        "total": "Acordado {total}",
+        "payable": "A pagar: {amount}",
+        "receiveTitle": "Registrar recogida",
+        "receivedCount": "Piezas recibidas",
+        "receivedHint": "Acordadas: {qty}. Las que falten no se pagan.",
+        "pieceCondition": "Estado real de la pieza {n}",
+        "receive": "Registrar recibido",
+        "verifyTitle": "Verificar estado",
+        "verifyNote": "Una pieza que llegó peor que NM se devuelve a la tienda. Si es NM pero con detalle, ajusta el pago (nunca sube); el servidor calcula el total.",
+        "pieceResult": "Pieza {n} (llegó {condition})",
+        "adjustPct": "Pagar este porcentaje del precio acordado",
+        "adjustHint": "Entre 0.01 y 99.99",
+        "verify": "Confirmar revisión",
+        "unit": "Pieza {n} · {condition}",
+        "payTitle": "Registrar pago",
+        "method": "Método",
+        "methods": {
+          "cash": "Efectivo",
+          "transfer": "Transferencia"
+        },
+        "reference": "Referencia (opcional)",
+        "pay": "Registrar pago de {amount}",
+        "paid": "Pagado · {method}"
+      }
+    },
     "shellTitle": "Back-office",
     "lockNotice": {
       "title": "Hubo varios intentos fallidos de entrar a tu cuenta",
@@ -1475,6 +1603,7 @@
       "administration": "Administración"
     },
     "modules": {
+      "suppliers": "Proveedores",
       "dashboard": "Resumen",
       "m1": "Inventario",
       "m2": "Catálogo y precios",
@@ -7914,6 +8043,140 @@
       "delivered": "Entregado",
       "line": "{label} · {datetime}",
       "newTab": "(se abre en otra pestaña)"
+    }
+  },
+  "supplier": {
+    "errors": {
+      "FORBIDDEN_ROLE": "Tu cuenta no tiene acceso a esta sección.",
+      "SUPPLIER_SUSPENDED": "Tu cuenta de proveedor está desactivada. Contacta a TCG HUNT.",
+      "INVITE_INVALID": "La invitación no es válida o ya se usó. Pide una nueva.",
+      "INVITE_EXPIRED": "La invitación venció. Pide una nueva.",
+      "WEAK_PASSWORD": "La contraseña es muy débil. Usa al menos 8 caracteres combinando letras y números.",
+      "INVALID_STATE": "Esto ya cambió de estado; actualiza la pantalla.",
+      "CARD_NOT_FOUND": "No encontramos esa carta.",
+      "ABOVE_MARKET_CAP": "Ese precio rebasa el precio de mercado de hoy. No se permite pagar más que el mercado.",
+      "FIXED_PRICE_REQUIRED": "Esta carta no tiene precio de mercado: escribe un precio fijo en pesos.",
+      "NO_MARKET": "Esta carta no tiene precio de mercado; solo vale el precio fijo.",
+      "QTY_BELOW_RESERVED": "La cantidad no puede ser menor a la ya apartada por acuerdos.",
+      "COUNTER_NOT_ENABLED": "Por ahora solo puedes ofrecer al precio de la solicitud.",
+      "REQUEST_NOT_OPEN": "Esta solicitud ya no está abierta.",
+      "REQUEST_EXPIRED": "Esta solicitud venció.",
+      "ALREADY_OFFERED": "Ya tienes una oferta abierta para esta solicitud.",
+      "QTY_EXCEEDS_OPEN": "Ofreciste más piezas de las que aún buscamos.",
+      "CONDITION_BELOW_MIN": "El estado está por debajo del mínimo que pedimos.",
+      "COVERED": "Esta solicitud ya se cubrió con otras ofertas.",
+      "PURCHASE_EXPIRED": "El plazo de recogida de este acuerdo ya venció.",
+      "UNITS_EXCEED_QTY": "Registraste más piezas de las acordadas.",
+      "UNITS_MISMATCH": "La revisión debe cubrir todas las piezas recibidas.",
+      "ADJUST_REQUIRED": "Indica el porcentaje de ajuste de cada pieza ajustada.",
+      "OK_NOT_NM": "Una pieza que no llegó en NM no puede aceptarse sin devolver o ajustar.",
+      "ALREADY_PAID_DIFFERENT": "Este acuerdo ya se pagó con otro método.",
+      "NOTHING_TO_PAY": "No hay nada que pagar en este acuerdo."
+    },
+    "brand": "Portal de proveedores",
+    "loading": "Verificando sesión…",
+    "conditions": {
+      "NM": "NM",
+      "LP": "LP",
+      "MP": "MP",
+      "HP": "HP",
+      "DMG": "DMG"
+    },
+    "nav": {
+      "label": "Secciones del portal",
+      "requests": "Lo que buscamos",
+      "offers": "Mis ofertas",
+      "purchases": "Acuerdos y pagos",
+      "logout": "Salir"
+    },
+    "offerStatus": {
+      "open": "Esperando respuesta",
+      "countered": "Contraoferta",
+      "accepted": "Aceptada",
+      "rejected": "Rechazada",
+      "withdrawn": "Retirada",
+      "expired": "Vencida"
+    },
+    "purchaseStatus": {
+      "agreed": "Acordado: por entregar",
+      "collected": "Recibido: en revisión",
+      "verified": "Revisado: pago pendiente",
+      "paid": "Pagado",
+      "cancelled": "Cancelado"
+    },
+    "unitResult": {
+      "pending": "Pendiente",
+      "ok": "Aceptada",
+      "adjusted": "Aceptada con ajuste",
+      "returned": "Devuelta"
+    },
+    "expiry": {
+      "until": "Vence {date} ({rel})",
+      "past": "Venció {date}"
+    },
+    "login": {
+      "title": "Entrar al portal",
+      "body": "Acceso exclusivo para tiendas aliadas con invitación.",
+      "email": "Correo",
+      "password": "Contraseña",
+      "submit": "Entrar",
+      "noSignup": "No hay registro abierto: si necesitas acceso, pídele una invitación a TCG HUNT.",
+      "failed": "No pudimos iniciar tu sesión. Revisa tus datos.",
+      "notSupplier": "Esta cuenta no es de una tienda aliada."
+    },
+    "activate": {
+      "title": "Activa tu cuenta",
+      "body": "Crea tu contraseña para entrar al portal. El enlace de invitación vale 72 horas y se usa una sola vez.",
+      "password": "Contraseña nueva",
+      "again": "Repite la contraseña",
+      "mismatch": "Las contraseñas no coinciden.",
+      "submit": "Activar cuenta",
+      "noToken": "Este enlace no es válido. Pide una invitación nueva.",
+      "failed": "No pudimos activar tu cuenta. Pide una invitación nueva."
+    },
+    "requests": {
+      "title": "Lo que buscamos",
+      "lead": "Te pagamos el precio en pesos que ves por cada pieza. Las solicitudes duran {days} días.",
+      "search": "Buscar carta",
+      "emptyTitle": "No hay solicitudes abiertas",
+      "emptyBody": "Cuando busquemos cartas nuevas las verás aquí.",
+      "pay": "Te pagamos",
+      "perPiece": "por pieza",
+      "wanted": "Buscamos",
+      "minCondition": "Estado mínimo: {condition}",
+      "myOffer": "Tu oferta: {status}",
+      "haveIt": "La tengo",
+      "qty": "Cantidad que tienes",
+      "qtyHint": "Máximo {max}",
+      "condition": "Estado de tus cartas",
+      "offerNote": "Tu oferta vale {hours} horas. Si la aceptamos, te avisamos y tienes 7 días para llevarlas; las revisamos en persona antes de pagar.",
+      "send": "Enviar oferta",
+      "cancel": "Cancelar"
+    },
+    "offers": {
+      "title": "Mis ofertas",
+      "lead": "Cada oferta espera respuesta hasta {hours} horas.",
+      "emptyTitle": "Aún no has ofrecido nada",
+      "emptyBody": "Responde «La tengo» en una solicitud y aparecerá aquí.",
+      "line": "{qty} pieza(s) · {condition} · {unit} c/u",
+      "total": "Total {total}",
+      "withdraw": "Retirar oferta"
+    },
+    "purchases": {
+      "title": "Acuerdos y pagos",
+      "lead": "Después de aceptar, tienes {days} días para llevar las cartas. Pagamos tras revisar su estado en persona.",
+      "emptyTitle": "Sin acuerdos todavía",
+      "emptyBody": "Cuando aceptemos una oferta, el acuerdo aparecerá aquí.",
+      "agreed": "{qty} pieza(s) a {unit} c/u",
+      "total": "Acordado {total}",
+      "bringIt": "Lleva las cartas a TCG HUNT antes de la fecha límite.",
+      "unit": "Pieza {n} · {condition}",
+      "payable": "Total a pagar: {amount}",
+      "paidOn": "Pagado el {date} · {method}",
+      "method": {
+        "cash": "Efectivo",
+        "transfer": "Transferencia"
+      }
     }
   },
   "error": {

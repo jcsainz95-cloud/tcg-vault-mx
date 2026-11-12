@@ -17,8 +17,9 @@ export function isStaffRole(role?: Role | null): boolean {
   return !!role && STAFF_ROLES.includes(role);
 }
 
-/** Destino tras un login exitoso: staff → back-office, el resto → tienda. */
-export function homeForRole(role?: Role | null): '/admin' | '/' {
+/** Destino tras un login exitoso: staff → back-office, proveedor (§PROV) → su portal, el resto → tienda. */
+export function homeForRole(role?: Role | null): '/admin' | '/proveedores' | '/' {
+  if (role === 'supplier') return '/proveedores';
   return isStaffRole(role) ? '/admin' : '/';
 }
 

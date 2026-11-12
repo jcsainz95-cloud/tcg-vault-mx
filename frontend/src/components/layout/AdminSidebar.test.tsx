@@ -174,6 +174,7 @@ describe('§40 · SR-UI-11 — el menú no cambia con «por revisar»', () => {
       '/admin/m10',
       // §CARDSHOW.15: «Card Show», súper-admin, al final de «Administración».
       '/admin/card-show',
+      '/admin/proveedores',
       // §MKT-UX.1 / §MKT.G.7: «Marketing», súper-admin, tras «Card Show».
       '/admin/marketing',
     ]);

@@ -77,3 +77,12 @@ optimizada; hosts permitidos en `lib/image-optimizer-hosts.mjs`) · `GradedCertC
 - Estado del catálogo (M2): línea `text-xs text-muted` «Última actualización automática: hoy 01:12 · reintento 2 de 6» (hora en `America/Mexico_City`); solo informa. Cuarentena PSA (M2 revisión): aviso informativo + insignia «En cuarentena» por fila; la cifra no se muestra al cliente.
 
 - Panel de Marketing, pestaña «Resumen» (`ResumenScreen.tsx`, primera y por defecto): rejilla de cifras (borde fino; sublínea con borde discontinuo) con flecha lucide + texto (sube/baja/igual/nuevo/«≈» si ambas < 5; nunca solo color), avisos como lista con regla izquierda (bermellón = alta), gráfica diaria (`ResumenCharts.tsx`, barras apiladas tinta/bermellón/grises, tabla alternativa en `<details>`) SOLO con `privacy: 'exact'` y rotulada «Solo visible para ti». Abre siempre en la última semana cerrada; aviso con botón si la elegida ya no lo es.
+
+## Portal de proveedores (§PROV F1)
+Rutas `/{locale}/proveedores/*` (grupo `(supplier)`), privadas: `noindex` por layout, `/*/proveedores` en `robots.ts`, fuera de sitemap y `llms.txt`. Móvil primero, una columna `max-w-3xl`.
+- Cabecera de tinta (`SupplierBrandBar`: marca 28 px + «Portal de proveedores» mono + `LocaleToggle tone="ink"`), pestañas de 48 px con regla bermellón en la activa (`SupplierShell`). Sin sidebar.
+- Filas en lista con `divide-y`, sin tarjetas ni sombras; `CardLine` = miniatura 5:7 de 56 px + nombre mincho + set/número/acabado mono.
+- Acciones en línea (formulario con regla bermellón a la izquierda `border-l-2 border-accent pl-4`), mismo patrón en el panel `/admin/proveedores`.
+- Caducidad siempre visible (`Expiry`, mono versalitas): solicitud 14 d, oferta 72 h, acuerdo 7 d.
+- ⛔ El portal solo pinta pesos por pieza; nunca mercado, % ni margen. El panel del dueño sí muestra mercado, tope y aviso rojo `aboveCap`; el tope del 100 % deshabilita el botón (el servidor también rechaza).
+

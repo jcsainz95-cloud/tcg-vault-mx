@@ -29,6 +29,7 @@ export default function robots(): MetadataRoute.Robots {
         '/*/reset-password',
         '/*/verify-email',
         '/*/account-setup', // «Termina tu cuenta» (con token, §CTA.6); ya lo cubría el prefijo de /*/account
+        '/*/proveedores', // §PROV portal privado de tiendas aliadas (también noindex por página)
         '/*/admin', // panel admin (incluye /admin/marketing)
         '/api/', // API
       ],
