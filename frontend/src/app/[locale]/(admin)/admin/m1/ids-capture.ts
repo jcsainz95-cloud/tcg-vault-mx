@@ -189,7 +189,8 @@ export function captureModel(
       ? combos.find((c) => c.finish === resolved.finish && c.language === language && stampIdOf(c) === effective) ?? null
       : null;
   return {
-    showVersionRow: stamps.length > 0 || candidates.length > 0,
+    // §ALTA-LIGA-2: con `canAddManual` la fila sale siempre (trae el botón «+ Versión de liga»).
+    showVersionRow: stamps.length > 0 || candidates.length > 0 || data.canAddManual === true,
     finishOptions,
     languageOptions: CARD_LANGUAGES.map((l) => ({ language: l, disabledReason: reason(l, effective, resolved) })),
     versionOptions: options(language),

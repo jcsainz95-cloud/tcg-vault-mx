@@ -614,6 +614,7 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
             onLanguage={ids.setLanguage}
             onStamp={ids.setStampProductId}
             onAttached={ids.onAttached}
+          onManualCreated={ids.onManualCreated}
           />
         )}
         {productType === 'graded' && (

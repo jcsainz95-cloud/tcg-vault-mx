@@ -1958,6 +1958,32 @@
         "language": "Language",
         "version": "Version",
         "noStamp": "Regular",
+        "priceInherited": "Price of the regular card until the real price arrives.",
+        "manual": {
+          "add": "+ League version",
+          "title": "New league version",
+          "type": "Stamp type",
+          "label": "Label (optional)",
+          "labelHint": "For example “Season 7”. 40 characters at most.",
+          "labelTooLong": "40 characters at most.",
+          "finish": "Finish",
+          "submit": "Create version",
+          "cancel": "Cancel",
+          "errors": {
+            "CARD_NOT_FOUND": "We could not find that card.",
+            "VALIDATION_ERROR": "Check the type, the label and the finish.",
+            "FINISH_NOT_AVAILABLE": "That card does not exist in that finish.",
+            "RATE_LIMITED": "You created too many versions in a short time. Try again in an hour.",
+            "FORBIDDEN": "Your account cannot create league versions.",
+            "generic": "We could not create the version. Try again."
+          },
+          "existing": {
+            "title": "This card already has a version of that type",
+            "attach": "Link the existing one: {name}",
+            "use": "Use the existing one: {name}",
+            "attachFailed": "We could not link it. Reload the versions and try again."
+          }
+        },
         "stampButton": {
           "prize_pack": "League · Prize Pack",
           "league": "League · League promo",

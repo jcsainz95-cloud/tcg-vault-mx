@@ -339,6 +339,7 @@ export function QuickAddSection({
           onLanguage={ids.setLanguage}
           onStamp={ids.setStampProductId}
           onAttached={ids.onAttached}
+          onManualCreated={ids.onManualCreated}
           slot={{ onChosenFinish: ids.setChosenFinish, finishHintId }}
           showCandidates={false}
         />

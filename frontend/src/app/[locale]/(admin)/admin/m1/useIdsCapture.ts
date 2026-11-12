@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCardVersions } from '@/lib/api';
+import type { ManualVersionResponse } from '@/lib/api/manual-version';
 import type { CardDTO, CardLanguage, CardVersionsResponse, Finish } from '@/types/contract';
 import { captureModel, type CaptureModel } from './ids-capture';
 
@@ -34,6 +35,8 @@ export interface IdsCapture {
   refetch: () => void;
   /** El `GET …/versions` nuevo que devuelve `attach`: sustituye la respuesta en caché sin volver a pedirla. */
   onAttached: (res: CardVersionsResponse) => void;
+  /** §ALTA-LIGA-2: tras crear la versión a mano, vuelve a pedir `GET …/versions` y deja elegida la nueva (sello + acabado). */
+  onManualCreated: (res: ManualVersionResponse, finish: Finish) => Promise<void>;
   /** ¿La carta tiene algo que elegir? (español con precio, liga o candidatas). Solo inglés sin liga ⇒ `false`. Es `model.hasVersions` (TL-ALTA-5). */
   hasVersions: boolean;
   /** Campos del alta con lo elegido (cuerpo de hoy si inglés sin liga). */
@@ -102,6 +105,17 @@ export function useIdsCapture(
     [card, queryClient],
   );
 
+  const onManualCreated = useCallback(
+    async (res: ManualVersionResponse, finish: Finish) => {
+      if (!card) return;
+      // El GET manda: combos, candidatas y precios de la versión nueva salen de ahí (no se reconstruyen en el cliente).
+      await queryClient.refetchQueries({ queryKey: ['card-versions', card.id] });
+      setStampProductIdState(res.stamp.productId);
+      setChosenFinish(finish);
+    },
+    [card, queryClient],
+  );
+
   return {
     enabled: active,
     language,
@@ -116,6 +130,7 @@ export function useIdsCapture(
     isError: active && query.isError,
     refetch: () => void query.refetch(),
     onAttached,
+    onManualCreated,
     hasVersions: model.hasVersions,
     payload,
     reset,
