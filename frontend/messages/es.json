@@ -1568,6 +1568,7 @@
         "pieceResult": "Pieza {n} (llegó {condition})",
         "adjustPct": "Pagar este porcentaje del precio acordado",
         "adjustHint": "Entre 0.01 y 99.99",
+        "adjustZero": "Este porcentaje pagaría MX$0.00 por la pieza: usa «Devuelta» en lugar de ajustar.",
         "verify": "Confirmar revisión",
         "unit": "Pieza {n} · {condition}",
         "payTitle": "Registrar pago",
@@ -8131,6 +8132,7 @@
       "past": "Venció {date}"
     },
     "login": {
+      "passwordChanged": "Contraseña cambiada. Por seguridad cerramos todas tus sesiones: entra de nuevo con la contraseña nueva.",
       "title": "Entrar al portal",
       "body": "Acceso exclusivo para tiendas aliadas con invitación.",
       "email": "Correo",

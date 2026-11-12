@@ -5,7 +5,8 @@ import { useTranslations } from 'next-intl';
 import { useMutation } from '@tanstack/react-query';
 import { useRouter } from '@/i18n/navigation';
 import { changeSupplierPassword } from '@/lib/api/suppliers';
-import { patchStoredUser, getStoredUser } from '@/lib/session';
+import { clearClientSession } from '@/lib/api-client';
+import { getStoredUser, markIntentionalLogout } from '@/lib/session';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -23,9 +24,12 @@ export function SupplierPasswordForm() {
 
   const m = useMutation({
     mutationFn: () => changeSupplierPassword({ currentPassword: current, newPassword: next }),
+    // El 204 revoca TODAS las sesiones, la actual incluida: se limpia aquí (sin llamar a /auth/logout, que ya no
+    // autentica) y se va al login con el aviso. `markIntentionalLogout` evita que el guard del portal ponga otro destino.
     onSuccess: () => {
-      patchStoredUser({ mustChangePassword: false });
-      router.replace('/proveedores');
+      markIntentionalLogout();
+      clearClientSession();
+      router.replace('/proveedores/entrar?changed=1');
     },
   });
 

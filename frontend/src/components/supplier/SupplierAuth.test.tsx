@@ -55,6 +55,30 @@ describe('§PROV · acceso del proveedor', () => {
     await userEvent.type(screen.getByLabelText('Repite la contraseña nueva'), 'nueva12345');
     await userEvent.click(screen.getByRole('button', { name: /guardar contraseña/i }));
     await waitFor(() => expect(change).toHaveBeenCalledWith({ currentPassword: 'vieja1234', newPassword: 'nueva12345' }));
-    await waitFor(() => expect(replace).toHaveBeenCalledWith('/proveedores'));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/proveedores/entrar?changed=1'));
+  });
+});
+
+describe('§PROV · tras cambiar la contraseña', () => {
+  it('204 revoca todas las sesiones: se limpia la sesión local y se va al login con aviso (sin llamar a /auth/logout)', async () => {
+    const { setToken, setRefreshToken, getToken } = await import('@/lib/api-client');
+    const { setStoredUser, getStoredUser } = await import('@/lib/session');
+    setToken('t');
+    setRefreshToken('r');
+    setStoredUser({ id: 'u', role: 'supplier', mustChangePassword: true } as never);
+    vi.spyOn(api, 'changeSupplierPassword').mockResolvedValue(undefined);
+    renderWithProviders(<SupplierPasswordForm />);
+    await userEvent.type(screen.getByLabelText('Contraseña actual'), 'vieja1234');
+    await userEvent.type(screen.getByLabelText('Contraseña nueva'), 'nueva12345');
+    await userEvent.type(screen.getByLabelText('Repite la contraseña nueva'), 'nueva12345');
+    await userEvent.click(screen.getByRole('button', { name: /guardar contraseña/i }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/proveedores/entrar?changed=1'));
+    expect(getToken()).toBeNull();
+    expect(getStoredUser()).toBeNull();
+  });
+
+  it('el login muestra «contraseña cambiada, entra de nuevo»', () => {
+    renderWithProviders(<SupplierLoginForm passwordChanged />);
+    expect(screen.getByRole('status').textContent).toMatch(/Contraseña cambiada.*entra de nuevo/);
   });
 });

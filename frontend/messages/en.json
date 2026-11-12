@@ -1568,6 +1568,7 @@
         "pieceResult": "Piece {n} (arrived {condition})",
         "adjustPct": "Pay this percent of the agreed price",
         "adjustHint": "Between 0.01 and 99.99",
+        "adjustZero": "This percent would pay MX$0.00 for the piece: use “Returned” instead of adjusting.",
         "verify": "Confirm review",
         "unit": "Piece {n} · {condition}",
         "payTitle": "Record payment",
@@ -8131,6 +8132,7 @@
       "past": "Expired {date}"
     },
     "login": {
+      "passwordChanged": "Password changed. For security we signed you out everywhere: sign in again with your new password.",
       "title": "Sign in to the portal",
       "body": "Access for partner stores with an invitation only.",
       "email": "Email",

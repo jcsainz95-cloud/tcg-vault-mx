@@ -64,3 +64,18 @@ describe('§PROV · panel: acuerdos', () => {
     expect(pay.mock.calls[1][2]).toBe(pay.mock.calls[0][2]);
   });
 });
+
+describe('§PROV · ajuste que pagaría MX$0', () => {
+  it('lo bloquea y sugiere devolver; un ajuste que sí paga se permite', async () => {
+    list([purchase({ agreedUnitCents: 50, units: [unit(1, 'NM')], qty: 1 })]);
+    renderWithProviders(<PurchasesTab />);
+    await userEvent.selectOptions(await screen.findByLabelText(/pieza 1 \(llegó NM\)/i), 'adjusted');
+    const pct = screen.getByLabelText(/pagar este porcentaje/i);
+    await userEvent.type(pct, '1');
+    expect(screen.getByText(/pagaría MX\$0\.00/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: /confirmar revisión/i }) as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.clear(pct);
+    await userEvent.type(pct, '50');
+    expect((screen.getByRole('button', { name: /confirmar revisión/i }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});

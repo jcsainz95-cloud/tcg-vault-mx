@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+vi.mock('@/i18n/navigation', () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }), usePathname: () => '/', Link: 'a' }));
+
 import { renderWithProviders } from '@/test/render';
 import { SupplierRequestsView } from './SupplierRequestsView';
 import { SupplierPurchasesView } from './SupplierPurchasesView';
@@ -62,5 +64,14 @@ describe('§PROV · portal del proveedor', () => {
     const alert = screen.getByRole('alert');
     expect(within(alert).getByText(/suspendida/i)).toBeTruthy();
     expect(screen.queryByRole('button')).toBeNull();
+  });
+});
+
+describe('§PROV · activación (PROV-4)', () => {
+  it('quita el token de la URL al montar', async () => {
+    const { SupplierActivateForm } = await import('./SupplierActivateForm');
+    window.history.replaceState(null, '', '/es/proveedores/activar?token=abc123');
+    renderWithProviders(<SupplierActivateForm token="abc123" />);
+    expect(window.location.search).not.toContain('token');
   });
 });

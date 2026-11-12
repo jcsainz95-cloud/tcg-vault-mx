@@ -12,7 +12,7 @@ import { useEffect, useLayoutEffect } from 'react';
  *
  * El token ya lo leyó el componente de servidor (`searchParams`) y llega por props: quitarlo de la barra no lo pierde.
  */
-export const TOKEN_PAGES = ['account-setup', 'reset-password', 'verify-email'] as const;
+export const TOKEN_PAGES = ['account-setup', 'reset-password', 'verify-email', 'proveedores/activar'] as const;
 
 export function stripTokenFromUrl(): void {
   if (typeof window === 'undefined') return;

@@ -9,9 +9,12 @@ import { asApiError } from '@/lib/api-client';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { useStripTokenFromUrl } from '@/lib/token-url';
 
 /** Activación por invitación (`POST /auth/supplier/accept-invite`): token de un solo uso, 72 h. */
 export function SupplierActivateForm({ token }: { token: string }) {
+  // D-CTA-10 / PROV-4: el token sale de la URL e historial antes de cualquier petición (llega por props).
+  useStripTokenFromUrl();
   const t = useTranslations('supplier.activate');
   const te = useTranslations('supplier.errors');
   const router = useRouter();

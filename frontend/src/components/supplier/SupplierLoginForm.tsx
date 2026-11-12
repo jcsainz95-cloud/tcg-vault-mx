@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 
 /** Login propio del portal. Mismo `POST /auth/login`; solo entra el rol `supplier` (§0 del anexo). */
-export function SupplierLoginForm() {
+export function SupplierLoginForm({ passwordChanged = false }: { passwordChanged?: boolean }) {
   const t = useTranslations('supplier.login');
   const te = useTranslations('supplier.errors');
   const router = useRouter();
@@ -54,6 +54,7 @@ export function SupplierLoginForm() {
     >
       <h1 className="font-serif text-3xl text-text">{t('title')}</h1>
       <p className="text-sm text-muted">{t('body')}</p>
+      {passwordChanged && !errText && <Banner variant="success" role="status">{t('passwordChanged')}</Banner>}
       {errText && <Banner variant="danger">{errText}</Banner>}
       <Input label={t('email')} type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
       <Input label={t('password')} type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />

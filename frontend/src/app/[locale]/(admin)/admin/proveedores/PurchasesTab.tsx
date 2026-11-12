@@ -88,12 +88,15 @@ function PurchaseRow({ p }: { p: SupplyPurchase }) {
   // B1: una pieza que no llegó en NM arranca en «devolver» (con `ok` el servidor da 422 OK_NOT_NM y el acuerdo se atora).
   const conditionOf = (n: number) => p.units.find((u) => u.n === n)?.condition;
   const choiceOf = (n: number): VerifyChoice => choices[n] ?? { result: conditionOf(n) === 'NM' ? 'ok' : 'returned', adjust: '' };
-  const adjustBad = p.units.some((u) => {
-    const c = choiceOf(u.n);
-    if (c.result !== 'adjusted') return false;
+  /** `invalid` fuera de 0.01–99.99 %; `zero` si el servidor pagaría MX$0 (piso de centavos) ⇒ 400: se sugiere «devolver». */
+  const adjustProblem = (n: number): 'invalid' | 'zero' | null => {
+    const c = choiceOf(n);
+    if (c.result !== 'adjusted') return null;
     const bps = Math.round(Number(c.adjust) * 100);
-    return !(bps >= 1 && bps <= 9999);
-  });
+    if (!(bps >= 1 && bps <= 9999)) return 'invalid';
+    return p.agreedUnitCents * bps < 10_000 ? 'zero' : null;
+  };
+  const adjustBad = p.units.some((u) => adjustProblem(u.n) !== null);
   const ver = useMutation({
     mutationFn: () =>
       verifySupplyPurchase(
@@ -170,7 +173,7 @@ function PurchaseRow({ p }: { p: SupplyPurchase }) {
                   ]}
                 />
                 {c.result === 'adjusted' && (
-                  <Input label={t('adjustPct')} type="number" min={0.01} max={99.99} step="0.01" suffix="%" value={c.adjust} onChange={(e) => setChoices((prev) => ({ ...prev, [u.n]: { ...c, adjust: e.target.value } }))} hint={t('adjustHint')} />
+                  <Input label={t('adjustPct')} type="number" min={0.01} max={99.99} step="0.01" suffix="%" value={c.adjust} onChange={(e) => setChoices((prev) => ({ ...prev, [u.n]: { ...c, adjust: e.target.value } }))} hint={t('adjustHint')} error={adjustProblem(u.n) === 'zero' ? t('adjustZero') : undefined} />
                 )}
               </div>
             );
