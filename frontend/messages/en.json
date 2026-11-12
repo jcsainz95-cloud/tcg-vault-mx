@@ -1575,7 +1575,8 @@
         "cancelled": "Deal cancelled: nothing to pay.",
         "cancelledReason": {
           "all_returned": "Every piece was returned to the store: no payment, no inventory.",
-          "none_received": "No piece arrived: no payment, no inventory."
+          "none_received": "No piece arrived: no payment, no inventory.",
+          "pickup_expired": "The store did not deliver the pieces within 7 days: the deal expired and was cancelled. No payment."
         },
         "method": "Method",
         "methods": {
@@ -8192,7 +8193,8 @@
       "cancelled": "Deal cancelled.",
       "cancelledReason": {
         "all_returned": "We reviewed the pieces and all were returned: no payment.",
-        "none_received": "No piece arrived: no payment."
+        "none_received": "No piece arrived: no payment.",
+        "pickup_expired": "You did not bring the pieces within 7 days: the deal expired and was cancelled. No payment."
       },
       "unit": "Piece {n} · {condition}",
       "payable": "Total to pay: {amount}",

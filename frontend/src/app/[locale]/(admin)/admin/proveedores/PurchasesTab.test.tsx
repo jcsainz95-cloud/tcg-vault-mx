@@ -79,3 +79,13 @@ describe('§PROV · ajuste que pagaría MX$0', () => {
     expect((screen.getByRole('button', { name: /confirmar revisión/i }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+describe('§PROV · acuerdo vencido sin recoger (B3)', () => {
+  it('pickup_expired y un reason desconocido no pintan claves crudas', async () => {
+    list([purchase({ id: 'a', status: 'cancelled', reason: 'pickup_expired', units: [] }), purchase({ id: 'b', status: 'cancelled', reason: 'raro' as never, units: [] })]);
+    renderWithProviders(<PurchasesTab />);
+    expect(await screen.findByText(/la tienda no entregó las piezas en 7 días/i)).toBeTruthy();
+    expect(screen.getByText(/nada que pagar/i)).toBeTruthy();
+    expect(document.body.textContent).not.toContain('cancelledReason');
+  });
+});

@@ -59,7 +59,7 @@ function PurchaseRow({ p }: { p: SupplyPurchase }) {
           <Expiry iso={p.pickupDueAt} />
         </>
       )}
-      {p.status === 'cancelled' && <p className="text-sm text-muted">{p.reason ? t(`cancelledReason.${p.reason}`) : t('cancelled')}</p>}
+      {p.status === 'cancelled' && <p className="text-sm text-muted">{p.reason && t.has(`cancelledReason.${p.reason}`) ? t(`cancelledReason.${p.reason}`) : t('cancelled')}</p>}
       {p.units.length > 0 && (
         <ul className="flex flex-col gap-1 text-sm">
           {p.units.map((u) => (

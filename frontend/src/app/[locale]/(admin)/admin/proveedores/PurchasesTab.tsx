@@ -203,7 +203,7 @@ function PurchaseRow({ p }: { p: SupplyPurchase }) {
           <Button type="submit" size="sm" className="self-start" loading={pay.isPending}>{t('pay', { amount: formatMoneyCents(p.payableCents ?? 0, locale) })}</Button>
         </form>
       )}
-      {p.status === 'cancelled' && <p className="text-sm text-muted">{p.reason ? t(`cancelledReason.${p.reason}`) : t('cancelled')}</p>}
+      {p.status === 'cancelled' && <p className="text-sm text-muted">{p.reason && t.has(`cancelledReason.${p.reason}`) ? t(`cancelledReason.${p.reason}`) : t('cancelled')}</p>}
       {p.status === 'paid' && <p className="text-sm text-muted">{t('paid', { method: p.method ? t(`methods.${p.method}`) : '' })}{p.reference ? ` · ${p.reference}` : ''}</p>}
     </div>
   );

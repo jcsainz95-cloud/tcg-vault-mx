@@ -75,3 +75,19 @@ describe('§PROV · activación (PROV-4)', () => {
     expect(window.location.search).not.toContain('token');
   });
 });
+
+describe('§PROV · acuerdo vencido sin recoger (B3)', () => {
+  const base = { id: 'p1', offerId: 'o', card, qty: 2, agreedUnitCents: 1000, totalCents: 2000, status: 'cancelled', pickupDueAt: '2026-11-01T00:00:00Z', units: [], payableCents: null, method: null, reference: null, paidAt: null, createdAt: '2026-10-20T00:00:00Z' };
+  it('pickup_expired se explica con texto propio, no con la clave cruda', async () => {
+    vi.spyOn(api, 'listSupplierPurchases').mockResolvedValue(page([{ ...base, reason: 'pickup_expired' } as api.SupplyPurchase]));
+    renderWithProviders(<SupplierPurchasesView />);
+    expect(await screen.findByText(/no llevaste las piezas en 7 días/i)).toBeTruthy();
+    expect(document.body.textContent).not.toContain('cancelledReason');
+  });
+  it('un reason desconocido cae al texto genérico', async () => {
+    vi.spyOn(api, 'listSupplierPurchases').mockResolvedValue(page([{ ...base, reason: 'otro_futuro' } as api.SupplyPurchase]));
+    renderWithProviders(<SupplierPurchasesView />);
+    expect(await screen.findByText('Acuerdo cancelado.')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('otro_futuro');
+  });
+});

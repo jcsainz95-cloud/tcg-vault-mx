@@ -1575,7 +1575,8 @@
         "cancelled": "Acuerdo cancelado: no hay nada que pagar.",
         "cancelledReason": {
           "all_returned": "Todas las piezas se devolvieron a la tienda: no hay pago ni inventario.",
-          "none_received": "No llegó ninguna pieza: no hay pago ni inventario."
+          "none_received": "No llegó ninguna pieza: no hay pago ni inventario.",
+          "pickup_expired": "La tienda no entregó las piezas en 7 días: el acuerdo venció y se canceló. No hay pago."
         },
         "method": "Método",
         "methods": {
@@ -8192,7 +8193,8 @@
       "cancelled": "Acuerdo cancelado.",
       "cancelledReason": {
         "all_returned": "Revisamos las piezas y todas se devolvieron: no hay pago.",
-        "none_received": "No llegó ninguna pieza: no hay pago."
+        "none_received": "No llegó ninguna pieza: no hay pago.",
+        "pickup_expired": "No llevaste las piezas en 7 días: el acuerdo venció y se canceló. No hay pago."
       },
       "unit": "Pieza {n} · {condition}",
       "payable": "Total a pagar: {amount}",

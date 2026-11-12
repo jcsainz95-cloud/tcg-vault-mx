@@ -116,7 +116,8 @@ export interface SupplyPurchase {
   reference: string | null;
   paidAt: string | null;
   /** Solo con `status:'cancelled'` tras la revisión: nada que pagar. */
-  reason?: 'all_returned' | 'none_received' | null;
+  /** Valores nuevos del servidor caen al texto genérico de la UI (`t.has`). */
+  reason?: 'all_returned' | 'none_received' | 'pickup_expired' | (string & {}) | null;
   createdAt: string;
 }
 
