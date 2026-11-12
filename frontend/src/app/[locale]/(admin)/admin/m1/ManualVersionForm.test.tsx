@@ -49,11 +49,11 @@ describe('§ALTA-LIGA-2 · ManualVersionForm', () => {
   });
 
   it('la etiqueta no deja teclear caracteres invisibles, de control ni de dirección', async () => {
-    expect(stripInvisible('Temp​orada‮ 7\u0007')).toBe('Temporada 7');
+    expect(stripInvisible('Temp\u200Borada\u202E 7\u0007')).toBe('Temporada 7');
     setup();
     await userEvent.click(screen.getByRole('button', { name: '+ Versión de liga' }));
     const input = screen.getByLabelText(/Etiqueta/) as HTMLInputElement;
-    await userEvent.type(input, 'A‎B');
+    await userEvent.type(input, 'A\u200EB');
     expect(input.value).toBe('AB');
   });
 
