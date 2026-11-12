@@ -5,7 +5,7 @@
  */
 
 // ---- Enums (contrato §0) ----
-export type Role = 'customer' | 'vault_operator' | 'super_admin';
+export type Role = 'customer' | 'vault_operator' | 'super_admin' | 'supplier';
 export type Locale = 'es' | 'en';
 export type ProductType = 'graded' | 'sealed' | 'raw';
 // v1.1: RawCondition reducido a NM (único valor; se eliminan LP|MP|HP|DMG).
@@ -563,6 +563,8 @@ export interface UserDTO {
    * anterior a v1.67; `GET /users/me` lo trae SIEMPRE.
    */
   mustChangePassword?: boolean;
+  /** §PROV: nombre de la tienda aliada (solo rol `supplier`). */
+  supplierName?: string | null;
   /**
    * v1.67: `passwordHash IS NOT NULL`. **Es lo único que decide la sección de contraseña**
    * (⛔ retira la heurística por `authProvider`): `true` ⇒ «Cambiar contraseña»

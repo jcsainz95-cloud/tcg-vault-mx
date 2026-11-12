@@ -54,7 +54,7 @@ describe('CTA-F8 · páginas con token: sin Referer y sin medición', () => {
 
   it('la lista de páginas de next.config es la de lib/token-url (una sola lista)', () => {
     for (const p of TOKEN_PAGES) expect(TOKEN_PAGE_SOURCES.join(' ')).toContain(p);
-    expect([...TOKEN_PAGES]).toEqual(['account-setup', 'reset-password', 'verify-email']);
+    expect([...TOKEN_PAGES]).toEqual(['account-setup', 'reset-password', 'verify-email', 'proveedores/activar']);
   });
 
   it.each(TOKEN_PATHS)('%s ⇒ Referrer-Policy: no-referrer (y conserva el resto de cabeceras)', async (p) => {

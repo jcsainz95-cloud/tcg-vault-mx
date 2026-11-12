@@ -15,6 +15,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { NotSupplierTargetGuard } from '../../common/guards/not-supplier-target.guard';
 import { AdminDeniedAttempt, AuditedSuperAdmin, AuditedSuperAdminGuard } from './audited-super-admin.guard';
 import { StaffControlAlertsService } from '../spend-alerts/staff-control.service';
 import { Throttle } from '@nestjs/throttler';
@@ -120,6 +121,7 @@ export const PRICING_BRACKETS_AXIS_VALUES = ['sale', 'buy'] as const;
 /** M6 Usuarios: lista/ficha para vault_operator (limitado) + super_admin. */
 @Controller('admin/users')
 @Roles(Role.vault_operator, Role.super_admin)
+@UseGuards(NotSupplierTargetGuard)
 export class AdminUsersController {
   /** v1.69 (P-78): deja rastro del `AUDIT_WRITE_FAILED` en los logs del servidor — el que se come
    * el 500 tiene que poder saber POR QUÉ no escribió la bitácora. ⛔ Nunca URLs ni keys. */

@@ -91,6 +91,7 @@ export function hypotheticalRawSaleItem(p: {
     acquisitionCostIvaCents: 0,
     acquisitionPct: null,
     sourceSellRequestItemId: null,
+    supplyPurchaseId: null,
     cardProductId: p.cardProductId,
     tcgplayerProductId: null,
     tcgplayerGroupId: null,

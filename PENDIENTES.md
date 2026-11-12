@@ -7,6 +7,16 @@
 > `feat/mkt-tienda` del 2026-10-16 movidas a `HISTORIAL.md` verbatim; antes 2026-09-29). Las secciones anteriores conservan
 > sus cuerpos **verbatim**; la de abajo manda sobre ellas.
 
+
+## 2026-11-12 — Abiertos de la sesión §PROV
+
+| ID | Qué | Medido | Dueño | Comprobación |
+|---|---|---|---|---|
+| PROV-F1-GATE | Gates §PROV F1 sobre ffa244b9 (2026-11-12). **qa RECHAZADO** (qa no tiene escritura; su texto, transcrito por el orquestador): B1 frontend `PurchasesTab.tsx:81/141-154` pieza no-NM ⇒ 422 OK_NOT_NM, acuerdo atorado; B2 arquitecto→backend+frontend: buscar carta vía `/catalog/cards` solo trae cartas con stock (no se pueden pedir agotadas); IMP: contraseña temporal del proveedor → `/account/password` prohibida (arquitecto ruta, frontend); `acceptInvite`/`me()` sin revisar suspensión (backend); no re-oferta tras retirar/rechazo/vencimiento (frontend); MENOR 1-12 en el informe (todo devuelto queda `verified`, PATCH en `filled`, `CONFLICT` fuera de §7, actorRole fijo, eventos system como owner, adjustBps→0, front 1 test). Medido: jest 10388/10388, supply-f1 13/13, vitest 5968/5968. **seguridad-lead APROBADO CON CONDICIONES** (6e133afb): PROV-1 media (mercado/% inferibles del catálogo público, decide dueño), PROV-2 baja (suspensión no aplica en Google/reset/`me`). | 2026-11-12 | arquitecto→backend+frontend | `git log --oneline -1 -- docs/STATUS.md` |
+| PROV-F1-REGATE | Re-gate §PROV F1 sobre 6c49c4c4 (2026-11-12). **qa RECHAZADO (1)** (texto transcrito por el orquestador; qa sin escritura): B3 `reason:"pickup_expired"` fuera del contrato §4 y clave i18n cruda en PurchasesTab/SupplierPurchasesView. Cerrados B1, B2, IMP1-3, PATCH %/fijo (400). Medido: supply-* 19/19 (Postgres propio, m103), jest 10391/10391, vitest 5999/5999. Menor: `passwordRouteForRole('supplier')`. **seguridad-lead APROBADO CON CONDICIONES** (c99a0349); PROV-1 ya decidido por el dueño (HECHOS 2026-11-12). Bajas abiertas: PROV-6e, PROV-10. | 2026-11-12 | arquitecto+frontend | `git log --oneline -3` |
+| PROV-F1-OK | **Gates §PROV F1 cerrados (2026-11-12): qa APROBADO sobre e9cc5e1f** (texto transcrito por el orquestador: B3 cerrado; vitest 6002/6002; backend sin cambios desde 6c49c4c4 con jest 10391/10391 y supply-* 19/19) y **seguridad-lead APROBADO CON CONDICIONES** (c99a0349; PROV-1 decidido por el dueño). Menores abiertos no bloqueantes: deriva previa schema↔migraciones fuera de §PROV, notas de pieza en API del proveedor, autoAccept inerte en F1, `changePassword` sin `withAccountGate`, PROV-6e, PROV-10. NO MEDIDO: punta a punta en navegador. | 2026-11-12 | orquestador (PR a production) | `git log --oneline -1` |
+| UX-ALTA-LIGA-2 | Dueño (2026-11-12, captura Erika's Victreebel ASC #6): «para dar de alta todavía no puedo en la vista master set subir las que son de liga». Hipótesis del orquestador (NO MEDIDO en datos): la fila «Versión» solo sale con liga ya ligada y el alta rápida oculta las candidatas (`QuickAdd.tsx:343` `showCandidates={false}`; `IdsCaptureFields.tsx:231`). Arreglo propuesto: ligar candidatas desde el alta rápida. Atajo dado al dueño: «Alta por lote». Encargar a frontend al terminar §PROV F1 (mismo árbol). | 2026-11-12 (código) | frontend | `grep -n showCandidates frontend/src/app/*/\(admin\)/admin/m1/QuickAdd.tsx` |
+
 ## 2026-11-06 — Tras publicar #122 y #123
 
 | # | Qué | Dueño | Medido | Comprobación |

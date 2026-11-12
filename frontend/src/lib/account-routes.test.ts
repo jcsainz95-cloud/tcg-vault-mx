@@ -23,6 +23,7 @@ describe('account-routes', () => {
     expect(accountRouteForRole('customer')).toBe('/account');
     expect(passwordRouteForRole('super_admin')).toBe('/admin/account/password');
     expect(passwordRouteForRole('customer')).toBe('/account/password');
+    expect(passwordRouteForRole('supplier')).toBe('/proveedores/cambiar-contrasena');
     expect(passwordRouteForRole(undefined)).toBe('/account/password');
   });
 

@@ -17,8 +17,9 @@ export function isStaffRole(role?: Role | null): boolean {
   return !!role && STAFF_ROLES.includes(role);
 }
 
-/** Destino tras un login exitoso: staff → back-office, el resto → tienda. */
-export function homeForRole(role?: Role | null): '/admin' | '/' {
+/** Destino tras un login exitoso: staff → back-office, proveedor (§PROV) → su portal, el resto → tienda. */
+export function homeForRole(role?: Role | null): '/admin' | '/proveedores' | '/' {
+  if (role === 'supplier') return '/proveedores';
   return isStaffRole(role) ? '/admin' : '/';
 }
 
@@ -30,7 +31,8 @@ export function accountRouteForRole(role?: Role | null): '/admin/account' | '/ac
 /** Página de contraseña del rol — la MISMA sirve de bloqueo con temporal (§33.8). */
 export function passwordRouteForRole(
   role?: Role | null,
-): '/admin/account/password' | '/account/password' {
+): '/admin/account/password' | '/account/password' | '/proveedores/cambiar-contrasena' {
+  if (role === 'supplier') return '/proveedores/cambiar-contrasena';
   return isStaffRole(role) ? '/admin/account/password' : '/account/password';
 }
 
@@ -39,7 +41,7 @@ export function passwordRouteForRole(
  * El bloqueo por temporal no rebota desde aquí: es la única pantalla operable.
  */
 export function isPasswordRoute(pathname: string): boolean {
-  return pathname === '/account/password' || pathname === '/admin/account/password';
+  return pathname === '/account/password' || pathname === '/admin/account/password' || pathname === '/proveedores/cambiar-contrasena';
 }
 
 /**

@@ -389,6 +389,25 @@ export function revertM95(schema: string): void {
 export function revertM101(schema: string): void {
   revertFromHeader(schema, '_m101_index_inspection', 'revertM101');
 }
+/**
+ * T-AC3 — quita M-102/M-103 (portal de proveedores, §PROV F1) para el B congelado, que no clasifica sus ocho tablas (G-8 abortaría).
+ * La reversa es LITERAL aquí (la migración no trae bloque «Reversa»): la columna de `InventoryItem`, las tablas, los tipos y las
+ * dos filas de `_prisma_migrations`. `Role.supplier` queda (Postgres no quita valores de un enum; el B congelado no mira roles).
+ * Va ANTES que M-101 (orden inverso de despliegue).
+ */
+export function revertM102(schema: string): void {
+  psqlOk(
+    schema,
+    `BEGIN;
+ALTER TABLE "InventoryItem" DROP COLUMN IF EXISTS "supplyPurchaseId";
+DROP TABLE IF EXISTS "SupplyPurchaseUnit", "SupplyPurchase", "SupplyOfferEvent", "SupplyOffer", "SupplyRequest", "SupplierInvite", "Supplier", "SupplySettings";
+DROP TYPE IF EXISTS "SupplyUnitResult", "SupplyPurchaseStatus", "SupplyOfferStatus", "SupplyRequestStatus", "SupplyCondition", "SupplierStatus";
+DELETE FROM "_prisma_migrations" WHERE migration_name IN ('20261122120000_m102_supplier_portal_f1', '20261123120000_m103_supply_cancel_reason');
+COMMIT;
+`,
+    'revertM102',
+  );
+}
 /** T-AC3 — quita M-99 (Panel de Marketing v2: c6 y el correo semanal) para el B congelado, que no clasifica sus dos tablas. Va ANTES que M-95. */
 export function revertM99(schema: string): void {
   revertFromHeader(schema, '_m99_marketing_v2', 'revertM99');

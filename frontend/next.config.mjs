@@ -226,6 +226,9 @@ const TOKEN_PAGE_ALTERNATION = 'account-setup|reset-password|verify-email';
 export const TOKEN_PAGE_SOURCES = [
   `/:locale(es|en)/:page(${TOKEN_PAGE_ALTERNATION})`,
   `/:page(${TOKEN_PAGE_ALTERNATION})`,
+  // §PROV (PROV-4): activación del portal de proveedores (`/proveedores/activar?token=`), ruta anidada.
+  '/:locale(es|en)/proveedores/activar',
+  '/proveedores/activar',
 ];
 
 /** @type {import('next').NextConfig} */

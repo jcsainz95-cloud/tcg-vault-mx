@@ -348,6 +348,15 @@ describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canó
     'MetaCardGroup',
     'MetaMatchStatus',
     'PromoLinkConfidence', // enum aditivo v2, documentado en AUTO_CATALOGO §B
+    // §PROV F1 (M-102, docs/API_CONTRACT_PROVEEDORES.md): los siete enums del portal de proveedores viven en el ANEXO (el
+    // archivo congelado no los conoce). Decidido al añadirlos (las tres preguntas): (1) el dominio entero ES la regla;
+    // (2) sin lista de negocio que recorte; (3) sin calibración de precio por valor.
+    'SupplierStatus',
+    'SupplyCondition',
+    'SupplyOfferStatus',
+    'SupplyPurchaseStatus',
+    'SupplyRequestStatus',
+    'SupplyUnitResult',
   ];
   const SCHEMA = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
   const CONTRACT = readFileSync(join(__dirname, '..', '..', 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');
@@ -394,7 +403,14 @@ describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canó
   it.each(NAMES.filter((n) => !SIN_LINEA_CANONICA.includes(n)))('%s · la línea canónica de §0 == el enum del schema en disco', (name) => {
     const fromContract = contractLine(name);
     if (!fromContract) throw new Error(`El contrato no declara ${name} y no está en SIN_LINEA_CANONICA`);
-    expect(fromContract.sort()).toEqual([...ENUMS[name]].sort());
+    // `supplier` (M-102) es un valor ADITIVO de `Role` declarado en el anexo vivo (el archivo de arriba está congelado).
+    const additive = name === 'Role' ? ['supplier'] : [];
+    expect([...fromContract, ...additive].sort()).toEqual([...ENUMS[name]].sort());
+  });
+
+  it('§PROV F1: el valor aditivo `Role.supplier` está declarado en el anexo vivo del contrato', () => {
+    const annex = readFileSync(join(__dirname, '..', '..', 'docs', 'API_CONTRACT_PROVEEDORES.md'), 'utf8');
+    expect(annex).toMatch(/`supplier`[^\n]*enum Role/);
   });
 });
 

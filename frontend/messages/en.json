@@ -1452,6 +1452,142 @@
     "backToLogin": "Back to sign in"
   },
   "admin": {
+    "suppliers": {
+      "lead": "Buying from partner stores: requests, offers, pickup, review and payment. We never pay more than the market price of the day.",
+      "tabsLabel": "Supplier sections",
+      "tabs": {
+        "requests": "Requests",
+        "offers": "Offers",
+        "purchases": "Deals",
+        "stores": "Stores"
+      },
+      "supplierStatus": {
+        "invited": "Invited",
+        "active": "Active",
+        "suspended": "Deactivated"
+      },
+      "requestStatus": {
+        "open": "Open",
+        "filled": "Filled",
+        "closed": "Closed",
+        "expired": "Expired"
+      },
+      "stores": {
+        "inviteTitle": "Invite a store",
+        "businessName": "Store name",
+        "email": "Email",
+        "phone": "Phone (optional)",
+        "invite": "Send invitation",
+        "invited": "Invitation sent. The link lasts 72 hours.",
+        "emptyTitle": "No partner stores yet",
+        "emptyBody": "Invite the first one with the form above.",
+        "openOffers": "{count} open offer(s)",
+        "activatedAt": "active since {date}",
+        "deactivate": "Deactivate",
+        "reactivate": "Reactivate",
+        "resend": "Resend invitation",
+        "resetPassword": "Send password link"
+      },
+      "requests": {
+        "status": "Status",
+        "allStatuses": "All",
+        "new": "New request",
+        "emptyTitle": "No requests",
+        "emptyBody": "Create one to start receiving offers from your partner stores.",
+        "price": "We pay {price} each",
+        "fixedLabel": "fixed price",
+        "pctLabel": "{pct}% of market",
+        "marketLabel": "market {market}",
+        "noMarketLabel": "no market price",
+        "qtys": "Wanted {wanted} · reserved {reserved} · received {received} · open {open}",
+        "offersCount": "{count} offer(s)",
+        "best": "best {price}",
+        "aboveCapWarn": "The market dropped: this price is above today market ({cap}). Offers cannot be accepted until you lower it.",
+        "edit": "Edit",
+        "close": "Close request",
+        "qtyWanted": "Quantity wanted",
+        "pct": "Percent of market",
+        "fixedOptional": "Fixed price in pesos (optional)",
+        "backToPct": "If you enter a percent, the request is priced on the market again instead of the fixed price.",
+        "fixedInvalid": "Enter a valid amount, for example 150 or 150.50.",
+        "aboveCap": "It cannot exceed today market ({cap}).",
+        "save": "Save",
+        "cancel": "Cancel"
+      },
+      "create": {
+        "title": "New request",
+        "searchCard": "Search card",
+        "searchHint": "Type at least 2 letters of the name.",
+        "noHits": "No results.",
+        "change": "Change card",
+        "finish": "Finish",
+        "minCondition": "Minimum condition",
+        "qty": "Quantity",
+        "market": "Market today {market} · cap {cap}",
+        "noMarket": "This card has no market price: it can only be published with a fixed peso price.",
+        "priceMode": "How to set the price",
+        "modePct": "Percent of market (default {pct}%)",
+        "modeFixed": "Fixed price in pesos",
+        "pct": "Percent of market",
+        "suggested": "At the default percent: {price} per piece",
+        "fixed": "Price per piece in pesos",
+        "fixedInvalid": "Enter a valid amount, for example 150 or 150.50.",
+        "aboveCap": "It cannot exceed today market ({cap}). This cap cannot be overridden.",
+        "capNote": "The request lasts 14 days. Stores only see the peso price.",
+        "publish": "Publish request",
+        "cancel": "Cancel"
+      },
+      "offers": {
+        "status": "Status",
+        "allStatuses": "All",
+        "emptyTitle": "No offers",
+        "emptyBody": "When a store answers «I have it», it will appear here.",
+        "best": "Best offer",
+        "line": "{qty} piece(s) · {condition} · {unit} each",
+        "total": "Total {total}",
+        "pctOfMarket": "{pct}% of market",
+        "aboveCapWarn": "Above today market: it cannot be accepted.",
+        "accept": "Accept",
+        "reject": "Reject"
+      },
+      "purchases": {
+        "status": "Status",
+        "allStatuses": "All",
+        "emptyTitle": "No deals",
+        "emptyBody": "Accepting an offer creates the pickup deal.",
+        "agreed": "{qty} piece(s) at {unit} each",
+        "total": "Agreed {total}",
+        "payable": "To pay: {amount}",
+        "receiveTitle": "Record pickup",
+        "receivedCount": "Pieces received",
+        "receivedHint": "Agreed: {qty}. Missing ones are not paid.",
+        "pieceCondition": "Actual condition of piece {n}",
+        "receive": "Record received",
+        "verifyTitle": "Verify condition",
+        "verifyNote": "A piece that arrived worse than NM is returned to the store. If it is NM with minor wear, adjust the payment (it never goes up); the server computes the total.",
+        "pieceResult": "Piece {n} (arrived {condition})",
+        "adjustPct": "Pay this percent of the agreed price",
+        "adjustHint": "Between 0.01 and 99.99",
+        "adjustZero": "This percent would pay MX$0.00 for the piece: use “Returned” instead of adjusting.",
+        "verify": "Confirm review",
+        "unit": "Piece {n} · {condition}",
+        "payTitle": "Record payment",
+        "cancelled": "Deal cancelled: nothing to pay.",
+        "cancelledReason": {
+          "all_returned": "Every piece was returned to the store: no payment, no inventory.",
+          "none_received": "No piece arrived: no payment, no inventory.",
+          "pickup_expired": "The store did not deliver the pieces within 7 days: the deal expired and was cancelled. No payment."
+        },
+        "method": "Method",
+        "methods": {
+          "cash": "Cash",
+          "transfer": "Bank transfer"
+        },
+        "reference": "Reference (optional)",
+        "pay": "Record payment of {amount}",
+        "paid": "Paid · {method}"
+      }
+    },
     "shellTitle": "Back-office",
     "lockNotice": {
       "title": "There were several failed attempts to sign in to your account",
@@ -1475,6 +1611,7 @@
       "administration": "Administration"
     },
     "modules": {
+      "suppliers": "Suppliers",
       "dashboard": "Overview",
       "m1": "Inventory",
       "m2": "Catalog & pricing",
@@ -7914,6 +8051,158 @@
       "delivered": "Delivered",
       "line": "{label} · {datetime}",
       "newTab": "(opens in a new tab)"
+    }
+  },
+  "supplier": {
+    "password": {
+      "title": "Change your password",
+      "forced": "Your password is temporary. Choose a new one to keep using the portal.",
+      "current": "Current password",
+      "next": "New password",
+      "again": "Repeat the new password",
+      "mismatch": "The passwords do not match.",
+      "submit": "Save password"
+    },
+    "errors": {
+      "FORBIDDEN_ROLE": "Your account has no access to this section.",
+      "SUPPLIER_SUSPENDED": "Your supplier account is suspended and you cannot use the portal. Contact TCG HUNT to reactivate it.",
+      "INVALID_CREDENTIALS": "Wrong email or password.",
+      "INVITE_INVALID": "The invitation is not valid or was already used. Ask for a new one.",
+      "INVITE_EXPIRED": "The invitation expired. Ask for a new one.",
+      "WEAK_PASSWORD": "The password is too weak. Use at least 8 characters mixing letters and numbers.",
+      "INVALID_STATE": "This has already changed state; refresh the screen.",
+      "CARD_NOT_FOUND": "We could not find that card.",
+      "ABOVE_MARKET_CAP": "That price is above today market price. Paying more than market is not allowed.",
+      "FIXED_PRICE_REQUIRED": "This card has no market price: enter a fixed peso price.",
+      "NO_MARKET": "This card has no market price; only the fixed price applies.",
+      "QTY_BELOW_RESERVED": "The quantity cannot be lower than what deals already reserved.",
+      "COUNTER_NOT_ENABLED": "For now you can only offer at the request price.",
+      "REQUEST_NOT_OPEN": "This request is no longer open.",
+      "REQUEST_EXPIRED": "This request expired.",
+      "ALREADY_OFFERED": "You already have an open offer on this request.",
+      "QTY_EXCEEDS_OPEN": "You offered more pieces than we still want.",
+      "CONDITION_BELOW_MIN": "The condition is below the minimum we asked for.",
+      "COVERED": "This request was already covered by other offers.",
+      "PURCHASE_EXPIRED": "The pickup deadline for this deal has passed.",
+      "UNITS_EXCEED_QTY": "You recorded more pieces than agreed.",
+      "UNITS_MISMATCH": "The review must cover every received piece.",
+      "ADJUST_REQUIRED": "Enter the adjustment percent for each adjusted piece.",
+      "OK_NOT_NM": "A piece that did not arrive as NM cannot be accepted as is.",
+      "ALREADY_PAID_DIFFERENT": "This deal was already paid with a different method.",
+      "NOTHING_TO_PAY": "There is nothing to pay on this deal."
+    },
+    "brand": "Supplier portal",
+    "loading": "Checking session…",
+    "conditions": {
+      "NM": "NM",
+      "LP": "LP",
+      "MP": "MP",
+      "HP": "HP",
+      "DMG": "DMG"
+    },
+    "nav": {
+      "label": "Portal sections",
+      "requests": "What we want",
+      "offers": "My offers",
+      "purchases": "Deals and payments",
+      "logout": "Sign out"
+    },
+    "offerStatus": {
+      "open": "Awaiting reply",
+      "countered": "Counteroffer",
+      "accepted": "Accepted",
+      "rejected": "Rejected",
+      "withdrawn": "Withdrawn",
+      "expired": "Expired"
+    },
+    "purchaseStatus": {
+      "agreed": "Agreed: to deliver",
+      "collected": "Received: under review",
+      "verified": "Reviewed: payment pending",
+      "paid": "Paid",
+      "cancelled": "Cancelled"
+    },
+    "unitResult": {
+      "pending": "Pending",
+      "ok": "Accepted",
+      "adjusted": "Accepted with adjustment",
+      "returned": "Returned"
+    },
+    "expiry": {
+      "until": "Expires {date} ({rel})",
+      "past": "Expired {date}"
+    },
+    "login": {
+      "passwordChanged": "Password changed. For security we signed you out everywhere: sign in again with your new password.",
+      "title": "Sign in to the portal",
+      "body": "Access for partner stores with an invitation only.",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Sign in",
+      "noSignup": "There is no open sign-up: ask TCG HUNT for an invitation.",
+      "failed": "We could not sign you in. Check your details.",
+      "notSupplier": "This account is not a partner store account."
+    },
+    "activate": {
+      "title": "Activate your account",
+      "body": "Create your password to enter the portal. The invitation link lasts 72 hours and works once.",
+      "password": "New password",
+      "again": "Repeat the password",
+      "mismatch": "The passwords do not match.",
+      "submit": "Activate account",
+      "noToken": "This link is not valid. Ask for a new invitation.",
+      "failed": "We could not activate your account. Ask for a new invitation."
+    },
+    "requests": {
+      "title": "What we want",
+      "lead": "We pay the peso price shown for each piece. Requests last {days} days.",
+      "search": "Search card",
+      "emptyTitle": "No open requests",
+      "emptyBody": "New wanted cards will appear here.",
+      "pay": "We pay",
+      "perPiece": "per piece",
+      "wanted": "We want",
+      "minCondition": "Minimum condition: {condition}",
+      "myOffer": "Your offer: {status}",
+      "haveIt": "I have it",
+      "haveItAgain": "Offer again",
+      "qty": "Quantity you have",
+      "qtyHint": "Up to {max}",
+      "condition": "Condition of your cards",
+      "offerNote": "Your offer is valid for {hours} hours. If we accept, you will have 7 days to bring the cards; we check them in person before paying.",
+      "send": "Send offer",
+      "cancel": "Cancel"
+    },
+    "offers": {
+      "title": "My offers",
+      "lead": "Each offer waits for a reply for up to {hours} hours.",
+      "emptyTitle": "You have not offered anything yet",
+      "emptyBody": "Answer «I have it» on a request and it will show up here.",
+      "line": "{qty} piece(s) · {condition} · {unit} each",
+      "total": "Total {total}",
+      "withdraw": "Withdraw offer"
+    },
+    "purchases": {
+      "title": "Deals and payments",
+      "lead": "After we accept, you have {days} days to bring the cards. We pay after checking their condition in person.",
+      "emptyTitle": "No deals yet",
+      "emptyBody": "When we accept an offer, the deal will appear here.",
+      "agreed": "{qty} piece(s) at {unit} each",
+      "total": "Agreed {total}",
+      "bringIt": "Bring the cards to TCG HUNT before the deadline.",
+      "cancelled": "Deal cancelled.",
+      "cancelledReason": {
+        "all_returned": "We reviewed the pieces and all were returned: no payment.",
+        "none_received": "No piece arrived: no payment.",
+        "pickup_expired": "You did not bring the pieces within 7 days: the deal expired and was cancelled. No payment."
+      },
+      "unit": "Piece {n} · {condition}",
+      "payable": "Total to pay: {amount}",
+      "paidOn": "Paid on {date} · {method}",
+      "method": {
+        "cash": "Cash",
+        "transfer": "Bank transfer"
+      }
     }
   },
   "error": {

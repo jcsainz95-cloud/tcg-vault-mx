@@ -152,16 +152,16 @@ describe('§M6-L.3 — el `where` se arma como `AND: [...]` (candado `L-3`)', ()
     expect(count.mock.calls[0][0].where).toEqual(whereOf(findMany));
   });
 
-  it('sin filtros el `where` queda VACÍO (el padrón entero, conducta de siempre)', async () => {
+  it('sin filtros el `where` solo excluye las tiendas aliadas (el padrón entero de personas, conducta de siempre; §PROV)', async () => {
     const { ctrl, findMany } = build();
     await ctrl.list({});
-    expect(whereOf(findMany)).toEqual({});
+    expect(whereOf(findMany)).toEqual({ role: { not: 'supplier' } }); // §PROV: único término, aparte del AND
   });
 
   it('cadena vacía ≡ ausente: `?kycStatus=` y `?status=` NO filtran (el `Select` en «Todas»)', async () => {
     const { ctrl, findMany } = build();
     await ctrl.list({ kycStatus: '', status: '', q: '' });
-    expect(whereOf(findMany)).toEqual({});
+    expect(whereOf(findMany)).toEqual({ role: { not: 'supplier' } }); // §PROV: único término, aparte del AND
   });
 
   it('⛔ el orden NO cambia en `A5`: sigue `createdAt desc` (la cola ordenada es `A5-b`/`M-56`)', async () => {

@@ -17,6 +17,8 @@ enum Role {
   customer
   vault_operator
   super_admin
+  // §PROV F1 (m102): tienda aliada; solo por invitación; default-deny fuera de /supplier/* y /auth/*.
+  supplier
 }
 
 enum Locale {
@@ -688,6 +690,7 @@ model User {
   // rev v1.96⟨mkt-tienda⟩ (M-83, §MKT.E, ARCHITECTURE §13.4.6): anotaciones de fecha del Panel que creó
   // esta cuenta (relación inversa; SIN columna nueva en User). `onDelete: SetNull` conserva la anotación.
   marketingAnnotations       MarketingDateAnnotation[]  @relation("marketingAnnotations")
+  supplier                   Supplier?
 
   @@index([role])
   @@index([status])
@@ -948,6 +951,7 @@ model SealedProduct {
 }
 
 model Card {
+  supplyRequests SupplyRequest[]
   promoLink              PromoCollectionLink? @relation("PromoLinkPromo")
   id                     String   @id @default(uuid())
   externalId             String   @unique
@@ -1252,7 +1256,11 @@ model InventoryItem {
   wishlistNotices     WishlistNotice[]
   // v1.113⟨portada⟩ (M-94, API_CONTRACT §DYN.5): el precio del día de la pieza (lo exhibido = lo cobrado).
   listingPrice        ListingPrice?
+  // §PROV F1 (m102): compra a tienda aliada de la que nació esta pieza.
+  supplyPurchaseId    String?
+  supplyPurchase      SupplyPurchase?  @relation(fields: [supplyPurchaseId], references: [id], onDelete: SetNull)
 
+  @@index([supplyPurchaseId])
   @@index([cardId])
   @@index([status])
   @@index([ownerUserId])
@@ -3924,4 +3932,211 @@ model PromoCollectionLink {
   computedAt     DateTime            @default(now())
 
   @@index([expansionSetId, confidence])
+}
+
+
+// ===================== §PROV F1 (m102) · portal de proveedores — compra a tiendas aliadas =====================
+// Dinero en centavos enteros. `supplierId` sale SIEMPRE del token. El proveedor jamás ve mercado ni %.
+enum SupplierStatus {
+  invited
+  active
+  suspended
+}
+
+enum SupplyCondition {
+  NM
+  LP
+  MP
+  HP
+  DMG
+}
+
+enum SupplyRequestStatus {
+  open
+  filled
+  closed
+  expired
+}
+
+enum SupplyOfferStatus {
+  open
+  countered
+  accepted
+  rejected
+  withdrawn
+  expired
+}
+
+enum SupplyPurchaseStatus {
+  agreed
+  collected
+  verified
+  paid
+  cancelled
+}
+
+enum SupplyUnitResult {
+  pending
+  ok
+  adjusted
+  returned
+}
+
+model Supplier {
+  id           String         @id @default(uuid())
+  // NULL mientras esté `invited` (la cuenta de acceso nace al aceptar la invitación).
+  userId       String?        @unique
+  user         User?          @relation(fields: [userId], references: [id])
+  email        String         @unique
+  businessName String
+  phone        String?
+  status       SupplierStatus @default(invited)
+  taxRef       String?
+  activatedAt  DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  invites   SupplierInvite[]
+  offers    SupplyOffer[]
+  purchases SupplyPurchase[]
+}
+
+model SupplierInvite {
+  id          String    @id @default(uuid())
+  supplierId  String
+  supplier    Supplier  @relation(fields: [supplierId], references: [id])
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  invitedById String
+  createdAt   DateTime  @default(now())
+
+  @@index([supplierId])
+}
+
+model SupplyRequest {
+  id           String              @id @default(uuid())
+  cardId       String
+  card         Card                @relation(fields: [cardId], references: [id])
+  finish       Finish              @default(normal)
+  minCondition SupplyCondition     @default(NM)
+  qtyWanted    Int
+  qtyReserved  Int                 @default(0)
+  qtyReceived  Int                 @default(0)
+  // Precio: pct del mercado vivo (bps) y/o pesos fijos del dueño (el fijo, si existe, manda). Al menos uno.
+  pctBps       Int?
+  fixedCents   Int?
+  status       SupplyRequestStatus @default(open)
+  source       String              @default("manual")
+  expiresAt    DateTime
+  createdById  String
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  offers SupplyOffer[]
+
+  @@index([status, expiresAt])
+  @@index([cardId])
+}
+
+model SupplyOffer {
+  id             String            @id @default(uuid())
+  requestId      String
+  request        SupplyRequest     @relation(fields: [requestId], references: [id])
+  supplierId     String
+  supplier       Supplier          @relation(fields: [supplierId], references: [id])
+  qty            Int
+  condition      SupplyCondition
+  // Precio CONGELADO al ofertar (el de la solicitud en ese instante).
+  unitCents      Int
+  status         SupplyOfferStatus @default(open)
+  lastActor      String            @default("supplier")
+  expiresAt      DateTime
+  version        Int               @default(1)
+  idempotencyKey String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  events   SupplyOfferEvent[]
+  purchase SupplyPurchase?
+
+  @@unique([supplierId, idempotencyKey])
+  @@index([requestId, status])
+  @@index([supplierId])
+  @@index([status, expiresAt])
+}
+
+model SupplyOfferEvent {
+  id          String      @id @default(uuid())
+  offerId     String
+  offer       SupplyOffer @relation(fields: [offerId], references: [id])
+  actor       String
+  actorUserId String?
+  action      String
+  qty         Int?
+  unitCents   Int?
+  createdAt   DateTime    @default(now())
+
+  @@index([offerId])
+}
+
+model SupplyPurchase {
+  id              String               @id @default(uuid())
+  offerId         String               @unique
+  offer           SupplyOffer          @relation(fields: [offerId], references: [id])
+  supplierId      String
+  supplier        Supplier             @relation(fields: [supplierId], references: [id])
+  requestId       String
+  cardId          String
+  finish          Finish
+  qty             Int
+  agreedUnitCents Int
+  pickupDueAt     DateTime
+  status          SupplyPurchaseStatus @default(agreed)
+  receivedAt      DateTime?
+  receivedById    String?
+  receiveKey      String?
+  verifiedAt      DateTime?
+  verifiedById    String?
+  verifyKey       String?
+  payableCents    Int?
+  // m103: por qué quedó `cancelled` (all_returned | none_received | pickup_expired).
+  cancelReason    String?
+  method          String?
+  reference       String?
+  paidAt          DateTime?
+  paidById        String?
+  idempotencyKey  String?              @unique
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  units          SupplyPurchaseUnit[]
+  inventoryItems InventoryItem[]
+
+  @@index([supplierId])
+  @@index([status, pickupDueAt])
+}
+
+model SupplyPurchaseUnit {
+  id               String           @id @default(uuid())
+  purchaseId       String
+  purchase         SupplyPurchase   @relation(fields: [purchaseId], references: [id])
+  n                Int
+  condition        SupplyCondition
+  note             String?
+  result           SupplyUnitResult @default(pending)
+  adjustBps        Int?
+  unitPayableCents Int?
+  inventoryItemId  String?
+
+  @@unique([purchaseId, n])
+}
+
+model SupplySettings {
+  id                String   @id
+  autoPublish       Boolean  @default(false)
+  autoAccept        Boolean  @default(false)
+  defaultPctBps     Int      @default(7000)
+  weeklyBudgetCents Int      @default(0)
+  updatedAt         DateTime @updatedAt
 }

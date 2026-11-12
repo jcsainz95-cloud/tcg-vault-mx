@@ -1991,7 +1991,8 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // (`?report=` ×2, `graded-estimates/review?reason=`), `?sealedSubtype=` de `/catalog/cards`
     // (`D-EQ-3`, frontend primero) y los 3 `?range=` de `value-history` (stream `catalog`). El tope
     // baja a mano.
-    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(7);
+    // 💰 §PROV F1: 7 → **13** (seis ejes de dominio cerrado cuya conducta YA cumple §0-Q; esperan su fila del arquitecto).
+    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(13);
     expect(QUERY_SIN_NOMBRE.length).toBeLessThanOrEqual(2);
     // ⭐ `QA-M4`: la lista de exenciones MEDIDAS POR RUTA también tiene techo. Sin él, la salida
     // barata ante el rojo del huérfano sería añadir la llave aquí — un diff de una línea,
@@ -2047,7 +2048,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // 💰 **107 → 116 (v1.110⟨descuentos⟩, §DSC.7; ⚠️ PENDIENTE de ratificar por el arquitecto, como G6/§58.6):** `?batchId=`
     // de `GET /admin/discount-codes` (un id de lote: igualdad exacta, ⛔ no tokens) y los `?from=`/`?to=` (días MX `YYYY-MM-DD`,
     // `parseMxDayFilter`; fuera de forma ⇒ `400 {field}` sin `allowed`) de los cuatro reportes de código y de lote (JSON y CSV).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(116);
+    // 💰 **116 → 119 (§PROV F1; ⚠️ PENDIENTE de ratificar por el arquitecto):** `requestId`/`supplierId` de `GET /admin/supply-offers` y
+    // `supplierId` de `GET /admin/supply-purchases` (uuid, igualdad exacta). ⛔ `QUERY_SIN_NOMBRE` NO sube: los `@Query()` enteros del portal pasaron a llaves con nombre.
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(119);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`
