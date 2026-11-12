@@ -150,6 +150,12 @@ type Allow = { file: string; snippet: string; lines: number[]; reason: string };
 
 const ALLOWLIST: Allow[] = [
   {
+    file: 'src/modules/inventory/inventory-versions.service.ts',
+    snippet: "const name = `${card.name} (${input.stampType}${label.label ? ` ${label.label}` : ''})`;",
+    lines: [262],
+    reason: '§ALTA-LIGA-2: nombre del CardProduct de liga MANUAL de una carta suelta (single); un sellado no tiene versión de liga (D-IDS-K).',
+  },
+  {
     file: 'src/modules/pricing/stamped-ingest.service.ts',
     snippet: 'const k = catalogMatchKey({ name: r.name, cardNumber: r.card.number ?? null, printedTotal: r.card.set?.printedTotal ?? null });',
     lines: [88],

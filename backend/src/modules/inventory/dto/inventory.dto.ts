@@ -10,6 +10,7 @@ import {
   IsOptional,
   IsString,
   Length,
+  NotEquals,
   Max,
   MaxLength,
   Min,
@@ -30,6 +31,7 @@ import {
   SealedCondition,
   SealedGroupKind,
   SealedSubtype,
+  StampType,
 } from '@prisma/client';
 // v2.1.8: las listas de valores se DERIVAN del schema (una sola declaración, `common/enum-values.ts`).
 import {
@@ -132,7 +134,8 @@ export class CreateItemDto {
   // v1.116⟨ids⟩ (API_CONTRACT §IDS.4): idioma de la pieza (default `en`) y versión de liga por su producto (`tcgplayerProductId`
   // de un `CardProduct` `stamped` de la carta). Versión no default: solo raw y sin `listPriceCents` (422).
   @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) language?: CardLanguage;
-  @IsOptional() @IsInt() @Min(1) @Max(2_147_483_647) cardProductId?: number;
+  // §ALTA-LIGA-2: negativo ⇒ versión de liga MANUAL (secuencia `manual_product_id_seq`); 0 nunca existe. El servicio valida que sea de ESTA carta.
+  @IsOptional() @IsInt() @Min(-2_147_483_648) @Max(2_147_483_647) @NotEquals(0) cardProductId?: number;
 }
 
 export class UpdateItemDto {
@@ -230,7 +233,8 @@ export class BatchInventoryItemInput {
   // v1.116⟨ids⟩ (API_CONTRACT §IDS.4): idioma de la pieza (default `en`) y versión de liga por su producto (`tcgplayerProductId`
   // de un `CardProduct` `stamped` de la carta). Versión no default: solo raw y sin `listPriceCents` (422).
   @IsOptional() @IsIn(CARD_LANGUAGE_VALUES) language?: CardLanguage;
-  @IsOptional() @IsInt() @Min(1) @Max(2_147_483_647) cardProductId?: number;
+  // §ALTA-LIGA-2: negativo ⇒ versión de liga MANUAL (secuencia `manual_product_id_seq`); 0 nunca existe. El servicio valida que sea de ESTA carta.
+  @IsOptional() @IsInt() @Min(-2_147_483_648) @Max(2_147_483_647) @NotEquals(0) cardProductId?: number;
 }
 
 export class BatchCreateInventoryRequest {
@@ -434,4 +438,11 @@ export class SetSealedSalePriceDto {
 /** v1.116⟨ids⟩ (API_CONTRACT §IDS.4): `POST /admin/inventory/stamped-candidates/:tcgplayerProductId/attach`. */
 export class AttachStampedCandidateDto {
   @IsString() @IsNotEmpty() @MaxLength(64) cardId!: string;
+}
+
+/** §ALTA-LIGA-2 (API_CONTRACT_ALTA_LIGA §2): `POST /admin/inventory/cards/:cardId/versions`. La etiqueta se valida en el servicio (`details.field`). */
+export class CreateManualVersionDto {
+  @IsIn(Object.values(StampType)) stampType!: StampType;
+  @IsOptional() @IsString() @MaxLength(200) stampLabel?: string | null;
+  @IsIn(FINISH_VALUES) finish!: Finish;
 }

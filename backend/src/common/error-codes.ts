@@ -907,6 +907,8 @@ export const ErrorCode = {
   ALREADY_PAID_DIFFERENT: 'ALREADY_PAID_DIFFERENT',
   NOTHING_TO_PAY: 'NOTHING_TO_PAY',
   INVALID_STATE: 'INVALID_STATE',
+  // §ALTA-LIGA-2: la carta ya tiene un producto/candidata REAL del mismo tipo de sello; se ata con `attach` (409).
+  USE_EXISTING: 'USE_EXISTING',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

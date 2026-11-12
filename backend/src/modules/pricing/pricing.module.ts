@@ -36,6 +36,7 @@ import { GradedBudgetService } from './graded-budget.service';
 import { SaleDecisionService } from './sale-decision.service';
 import { PatrimonyValuationService } from './patrimony-valuation.service';
 import { StampedIngestService } from './stamped-ingest.service';
+import { ManualVersionMergeService } from './manual-version-merge.service';
 import { ListingPriceService } from './listing-price.service';
 import { PriceIngestJobService } from '../../jobs/price-ingest.service';
 // v1.19-sealed-tcgcsv (§4.19): referencia de mercado del SELLADO vía TCGCSV.
@@ -95,6 +96,8 @@ import { SpendAlertsModule } from '../spend-alerts/spend-alerts.module';
     ListingPriceService,
     // v1.116⟨ids⟩ (§IDS.3): paso de productos de liga del barrido diario.
     StampedIngestService,
+    // §ALTA-LIGA-2: fusión de versiones de liga manuales con el producto real (disparadores + job diario).
+    ManualVersionMergeService,
     // v1.19-sealed-tcgcsv (§4.19): adapter + ingest + curación del mapeo + su job (mismo
     // patrón price-ingest: viven aquí para que JobsModule/Scheduler los inyecten sin ciclos).
     TcgcsvSealedBulkProvider,
@@ -123,6 +126,7 @@ import { SpendAlertsModule } from '../spend-alerts/spend-alerts.module';
     PatrimonyValuationService,
     ListingPriceService,
     StampedIngestService,
+    ManualVersionMergeService,
     SealedPriceIngestService,
     SealedPriceIngestJobService,
     // v1.36-sealed-alta (M-37, P-35): el proxy read-only de TCGCSV lo REUSA el alta dedicada de

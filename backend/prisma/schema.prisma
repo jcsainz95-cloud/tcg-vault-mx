@@ -1076,6 +1076,10 @@ model CardProduct {
   stampType          StampType?
   stampLabel         String?
   sourceGroupId      Int?
+  // §ALTA-LIGA-2 (m104): etiqueta NORMALIZADA (minúsculas, sin acentos, espacios colapsados) de una versión de liga MANUAL
+  // (`tcgplayerProductId < 0`, secuencia `manual_product_id_seq`); NULL en los productos reales. Llave de duplicado junto a
+  // (cardId, stampType) por el índice único parcial «CardProduct_manual_stamp_key» (SQL de m104; Prisma no modela parciales).
+  stampLabelNorm     String?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 

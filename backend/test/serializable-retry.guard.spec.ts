@@ -125,6 +125,8 @@ describe('⭐⭐ Candado — ninguna transacción `SERIALIZABLE` fuera del helpe
     // §PROV F1 · TRES — `SupplyOfferService.adminRespond` (aceptar: reserva atómica de cantidad), `SupplyPurchaseService.verify`
     // (verificar: alta a inventario + libera reserva) y su rama «nada recibido». Cuerpos solo `tx.*`/`$executeRaw`; el publish
     // post-commit y el audit quedan FUERA de la tx.
-    expect(sitios).toHaveLength(12);
+    // §ALTA-LIGA-2 · UNO — `ManualVersionMergeService.mergeForCard` (fusión de la versión manual con el producto real: reapunta piezas,
+    // une acabados, borra el manual). Cuerpo solo `tx.*`; la auditoría va dentro de la tx y no hay efectos externos.
+    expect(sitios).toHaveLength(13);
   });
 });

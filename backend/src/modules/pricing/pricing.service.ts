@@ -2648,6 +2648,19 @@ export class PricingService {
   }
 
   /**
+   * §ALTA-LIGA-2 — la OCTAVA escritura de la cola: al FUSIONAR una versión de liga manual con el producto real, las entradas abiertas
+   * del id manual (que deja de existir) se cierran dentro de la `tx` de la fusión; si el real aún no tiene precio, el siguiente
+   * barrido las reabre con la clave del real. Solo cierra `open`; devuelve cuántas.
+   */
+  async closePendingOfProduct(tx: Prisma.TransactionClient, tcgplayerProductId: number): Promise<number> {
+    const res = await tx.pendingPriceEntry.updateMany({
+      where: { cardProductId: tcgplayerProductId, status: 'open' },
+      data: { status: 'resolved', resolvedAt: new Date() },
+    });
+    return res.count;
+  }
+
+  /**
    * v1.80.8.4 — **la ESCRITURA del barrido VQ** (API_CONTRACT §M2 `M2-VQ`, ARCHITECTURE §4.36.5 c-bis
    * punto 5). Techlead D-2 (sobre `8a10153e`): vivía en `PriceSyncJobService`, fuera del dueño de la
    * cola; ahora toda escritura de `pendingPriceEntry` está en este servicio (VQ-5 lo vigila).
