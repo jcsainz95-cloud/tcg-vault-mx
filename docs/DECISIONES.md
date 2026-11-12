@@ -118,6 +118,24 @@
 | 2026-11-12 | §PROV · Portal de proveedores de dos sentidos: compra a tiendas aliadas y venta de mayoreo a ellas | Diseño en la sección «§PROV» al final de este archivo; decisiones literales en HECHOS 2026-11-12 | PROJECT §PROV |
 | 2026-09-01 | D30, D34–D40 · rondas 4ª, 6ª y 7ª del ciclo de buylist (oferta condicional NM, piso de neto MX$200 inclusivo, meta de bounty 2, el reloj reinicia al cancelar, «Declinar ahora», dirección al crear la solicitud) | Literal no conservado en `PROJECT.md`; resúmenes de ronda retirados el 2026-10-25, texto en git `ee8d5c73` | §P, criterios 16–172 |
 
+## §ALTA-LIGA-2 · Dar de alta piezas de liga que el catálogo no tiene (UX-ALTA-LIGA-2; 2026-11-12) — A/B PENDIENTE DEL DUEÑO
+
+**Hecho medido (frontend, `docs/STATUS.md:107`):** Erika's Victreebel ASC #6 no muestra la fila «Versión» porque el catálogo tiene 0 productos de liga y 0 candidatas para esa carta (`inventory-versions.service.ts:73,127`). El problema no es la pantalla: falta el producto. La respuesta real del GET para esa carta es NO MEDIDA. Regla del dueño (HECHOS 2026-11-12): se resuelve en el MISMO panel de alta rápida; «Alta por lote» no vale.
+**Restricciones reutilizadas:** `CardProduct kind=stamped` exige `tcgplayerProductId` único y hoy sale solo de TCGCSV (`attach` de candidatas, `import-tcgcsv-set`); sello = versión aparte que no hereda precio de la plana (P-PROMOS); sin precio ⇒ `PRICE_PENDING`; compra sugerida por versión (HECHOS 2026-11-06); tope de piezas por casilla sin cambio.
+
+**Opción A · «Agregar versión de liga» dentro del mismo panel (manual, ya).**
+- Dueño ve: en el panel de alta rápida de la carta, si la fila Versión no tiene ligas, un botón «+ Versión de liga»; elige tipo de sello (lista existente: liga, prerelease, evento…) y acabado, o escribe la etiqueta; la pieza queda dada de alta ahí mismo, sin salir.
+- Técnico: `POST /admin/inventory/cards/:cardId/versions` · staff `{stampType, stampLabel?, finish}` ⇒ crea `CardProduct stamped` con `tcgplayerProductId` sintético negativo (secuencia `manual`, sin chocar con TCGCSV) y `sourceGroupId` null; idempotente por (carta, stampType, stampLabel, finish) ⇒ 200 el existente. Sin migración de columnas (solo secuencia); marca `source:"manual"`. Si más tarde el sync trae el producto real del mismo sello, un job lo FUSIONA (reapunta piezas, borra el manual) o, si es dudoso, deja el manual y registra aviso. 409 `STAMP_EXISTS`, 422 `INVALID_STAMP`.
+- Precio: sin precio de mercado ⇒ `PRICE_PENDING`; la compra sugerida queda vacía y el precio de venta lo pone el dueño a mano; nunca hereda el de la plana (0 precios de venta existentes cambian). Mientras tanto la pieza no se publica con precio inventado.
+- Riesgo: catálogo con productos manuales duplicando uno real (mitigado por la fusión); error de dedo en etiqueta. Tamaño M. Zona `inventory` ⇒ gates qa + seguridad-lead + tester-e2e.
+
+**Opción B · Importar la liga de la fuente automáticamente (TCGCSV), sin captura manual.**
+- Dueño ve: nada que hacer; al día siguiente (o tras el sync) la fila Versión ya aparece con la liga y su precio de mercado real, y la compra sugerida funciona.
+- Técnico: ampliar el descubrimiento automático de §AUTO (job diario, duda ⇒ cuarentena) para detectar grupos de liga/prerelease de sets nuevos (ASC) y ejecutar `import-tcgcsv-set` + empate/`attach` sin humano; sin cambio de contrato público; sin migración. Depende de que la fuente tenga ese grupo: NO MEDIDO (backend debe consultar TCGCSV para ASC antes de comprometerse).
+- Precio: viene de la fuente (confianza alta ⇒ publica; si no ⇒ `PRICE_PENDING`/cuarentena). Riesgo: empates ambiguos (≥2 cartas) quedan como candidatas y siguen necesitando elegir en el panel (ya soportado); tarda hasta el siguiente sync. Tamaño M (S si el descubrimiento ya cubre grupos de liga; a medir).
+
+**Recomendación del arquitecto:** B como base (cumple AUTO y crece solo con cada set) + A como botón de rescate para lo que la fuente no tenga o tarde. Orden: backend mide primero si TCGCSV trae la liga de ASC; si sí, B resuelve este caso sin tocar pantallas; si no, A (M) es el único camino. Si el dueño debe elegir una sola: A, porque lo destraba hoy. Al decidir el dueño, el contrato (API_CONTRACT §2, ya sobre su tope) se registra en el anexo `docs/API_CONTRACT_PROVEEDORES.md`-estilo nuevo `docs/API_CONTRACT_ALTA_LIGA.md` solo si se elige A.
+
 ## §PROV · Portal de proveedores (tiendas aliadas), de dos sentidos — diseño (2026-11-12; HECHOS 2026-11-12)
 
 **Qué es:** (A) el dueño COMPRA a tiendas aliadas; (B) el dueño VENDE mayoreo a las mismas en una «tienda privada». Sin consignación, sin crédito en tienda, sin paquetería (recoge o lleva el dueño). Un solo rol `supplier`, una sola invitación, un solo login.
