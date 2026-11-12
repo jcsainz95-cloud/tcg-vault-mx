@@ -52,7 +52,7 @@ describe('MarketingExportService — paridad y saneado', () => {
   it('CSV reproduce las cifras del payload (A=B) y neutraliza la fórmula', () => {
     const csv = svc.screenCsv(payload);
     expect(csv.charCodeAt(0)).toBe(0xfeff); // BOM
-    const lines = csv.replace(/^﻿/, '').split('\r\n');
+    const lines = csv.replace(/^\ufeff/, '').split('\r\n');
     // L0 título, L1 labels, L2 tech, L3 fila1, L4 fila2
     expect(lines[1]).toBe('"Carta","Fichas vistas","Unidades vendidas","MX$ vendido"');
     // Fila 1: inyección entre comillas y con apóstrofo; «< 5» como texto; MX$ vacío.

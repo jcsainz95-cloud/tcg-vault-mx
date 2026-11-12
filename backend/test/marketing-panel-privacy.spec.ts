@@ -130,7 +130,7 @@ function csvCells(line: string): string[] {
 async function dataSheetRows(body: unknown, screen: string): Promise<string[][]> {
   if (typeof body === 'string') {
     return body
-      .replace(/^﻿/, '')
+      .replace(/^\ufeff/, '')
       .split('\r\n')
       .map((l) => (l === '' ? [] : csvCells(l)));
   }

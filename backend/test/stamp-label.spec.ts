@@ -11,7 +11,7 @@ describe('stamp-label', () => {
     expect(cleanStampLabel('x'.repeat(41)).ok).toBe(false);
     expect(cleanStampLabel(7).ok).toBe(false);
   });
-  it.each(['a​b', 'a‮b', 'a b', 'a b', 'a\u0007b', '﻿a', 'a⁠b', 'a\u0085b', '<b>x</b>', 'a>b'])('rechaza invisibles, de dirección, de control y HTML: %j', (bad) => {
+  it.each(['a\u200bb', 'a\u202eb', 'a\u2028b', 'a\u2029b', 'a\u0007b', '\ufeffa', 'a\u2060b', 'a\u0085b', '<b>x</b>', 'a>b'])('rechaza invisibles, de dirección, de control y HTML: %j', (bad) => {
     expect(cleanStampLabel(bad)).toEqual({ ok: false });
   });
   it('acepta acentos, ñ, emoji y espacios normales', () => {

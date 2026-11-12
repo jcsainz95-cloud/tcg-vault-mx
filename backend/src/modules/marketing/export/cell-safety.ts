@@ -15,7 +15,7 @@
 const DANGEROUS_LEADING = ['=', '+', '-', '@', '\t', '\r'];
 
 /** BOM UTF-8: Excel en Windows lo necesita para leer acentos. */
-export const CSV_BOM = '﻿';
+export const CSV_BOM = '\ufeff';
 
 /** ¿Esta cadena sería interpretada como fórmula? (empieza por carácter peligroso). */
 export function isFormulaInjection(value: string): boolean {
