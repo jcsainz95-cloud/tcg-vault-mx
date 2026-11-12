@@ -119,4 +119,42 @@ describe('§ALTA-LIGA-2 · alta rápida: «+ Versión de liga»', () => {
     expect((await screen.findByRole('alert')).textContent).toMatch(text);
     expect(screen.getByTestId('manual-version-form')).toBeTruthy();
   });
+
+  it('422 PRODUCT_NOT_FOUND (el manual se fusionó): re-pide versions, re-selecciona el real equivalente, avisa y el reintento ya lleva el productId real', async () => {
+    const REAL = { type: 'prize_pack' as const, label: null, productId: 777001 };
+    const MERGED: CardVersionsResponse = { ...NO_LEAGUE, combos: [combo({}), combo({ stamp: REAL, previewPriceCents: 21000 })] };
+    const { get, batch } = render(WITH_MANUAL, MERGED);
+    batch.mockReset();
+    batch
+      .mockRejectedValueOnce(new ApiClientError(422, { code: 'PRODUCT_NOT_FOUND', message: 'x' }))
+      .mockResolvedValue({ batchKey: 'k', idempotentReplay: false, summary: { requested: 1, createdItems: 1, failedLines: 0 }, results: [{ index: 0, ok: true as const, folios: ['INV-2'], inventoryItemIds: ['id-2'] }] });
+    const version = await screen.findByRole('radiogroup', { name: 'Versión' });
+    fireEvent.click(within(version).getByRole('radio', { name: 'De liga · Prize Pack' }));
+    fireEvent.change(screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)'), { target: { value: '100' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+    await waitFor(() => expect(batch).toHaveBeenCalledTimes(1));
+    expect(JSON.stringify(batch.mock.calls[0])).toContain('"cardProductId":-1');
+    // Aviso claro y versions vuelto a pedir.
+    expect(await screen.findByText(/Esta versión se actualizó mientras la dabas de alta/)).toBeTruthy();
+    await waitFor(() => expect(get.mock.calls.length).toBeGreaterThanOrEqual(2));
+    // Sigue elegida "De liga · Prize Pack", ahora el producto real.
+    await waitFor(() => expect(within(screen.getByRole('radiogroup', { name: 'Versión' })).getByRole('radio', { name: 'De liga · Prize Pack' })).toHaveAttribute('aria-checked', 'true'));
+    fireEvent.change(screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)'), { target: { value: '100' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+    await waitFor(() => expect(batch).toHaveBeenCalledTimes(2));
+    expect(JSON.stringify(batch.mock.calls[1])).toContain('"cardProductId":777001');
+    expect(JSON.stringify(batch.mock.calls[1])).not.toContain('-1,');
+  });
+
+  it('PRODUCT_CARD_MISMATCH sin versión equivalente tras refrescar: vuelve a «Sin liga» y avisa', async () => {
+    const { batch } = render(WITH_MANUAL, NO_LEAGUE);
+    batch.mockReset();
+    batch.mockRejectedValue(new ApiClientError(422, { code: 'PRODUCT_CARD_MISMATCH', message: 'x' }));
+    const version = await screen.findByRole('radiogroup', { name: 'Versión' });
+    fireEvent.click(within(version).getByRole('radio', { name: 'De liga · Prize Pack' }));
+    fireEvent.change(screen.getByLabelText('Costo TOTAL de la factura, IVA incluido (MXN)'), { target: { value: '100' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Dar de alta al inventario' }));
+    expect(await screen.findByText(/Esta versión se actualizó/)).toBeTruthy();
+    await waitFor(() => expect(within(screen.getByRole('radiogroup', { name: 'Versión' })).getByRole('radio', { name: 'Sin liga' })).toHaveAttribute('aria-checked', 'true'));
+  });
 });

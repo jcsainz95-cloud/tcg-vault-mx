@@ -29,6 +29,7 @@ import { Banner } from '@/components/ui/Banner';
 import { ApiClientError } from '@/lib/api-client';
 import { IdsCaptureFields } from './IdsCaptureFields';
 import { useIdsCapture } from './useIdsCapture';
+import { STALE_PRODUCT_CODES } from './ids-capture';
 
 // P-35 (§16.8a): el sellado ya NO se da de alta por el buscador de cartas — vive en el flujo
 // dedicado `SealedAddFlow`. El alta por lote clásica conserva solo raw/graded.
@@ -142,6 +143,7 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
     return message ?? tc('errorGeneric');
   }
   function errorMessage(error: unknown): string {
+    if (error instanceof ApiClientError && STALE_PRODUCT_CODES.includes(error.code)) return t('versionRefreshed');
     if (error instanceof ApiClientError) return messageForCode(error.code, error.message);
     return tc('errorGeneric');
   }
@@ -190,6 +192,10 @@ export function AddItemModal({ onClose, onToast }: AddItemModalProps) {
         // admite precio tecleado (I-4).
         ...ids.payload,
       }),
+    onError: (e) => {
+      // §ALTA-LIGA-2 §3: la versión manual ya se fusionó ⇒ se re-piden las versiones y se re-selecciona la equivalente.
+      if (e instanceof ApiClientError && STALE_PRODUCT_CODES.includes(e.code)) void ids.onStaleProduct();
+    },
     onSuccess: (data) => {
       setSelectedCard(null);
       void queryClient.invalidateQueries({ queryKey: ['admin-inventory'] });

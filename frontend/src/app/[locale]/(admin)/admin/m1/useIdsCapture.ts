@@ -37,6 +37,12 @@ export interface IdsCapture {
   onAttached: (res: CardVersionsResponse) => void;
   /** §ALTA-LIGA-2: tras crear la versión a mano, vuelve a pedir `GET …/versions` y deja elegida la nueva (sello + acabado). */
   onManualCreated: (res: ManualVersionResponse, finish: Finish) => Promise<void>;
+  /**
+   * §ALTA-LIGA-2 (contrato §3): el alta dio 422 `PRODUCT_NOT_FOUND`/`PRODUCT_CARD_MISMATCH` (la versión manual ya se fusionó con
+   * el producto real). Vuelve a pedir `GET …/versions` y re-selecciona la equivalente (mismo tipo y etiqueta compatible) o, sin
+   * ella, «Sin liga». Así el reintento no repite el `productId` muerto.
+   */
+  onStaleProduct: () => Promise<void>;
   /** ¿La carta tiene algo que elegir? (español con precio, liga o candidatas). Solo inglés sin liga ⇒ `false`. Es `model.hasVersions` (TL-ALTA-5). */
   hasVersions: boolean;
   /** Campos del alta con lo elegido (cuerpo de hoy si inglés sin liga). */
@@ -116,6 +122,21 @@ export function useIdsCapture(
     [card, queryClient],
   );
 
+  const onStaleProduct = useCallback(async () => {
+    if (!card) return;
+    const stale = model.stampProductId;
+    const before = data?.combos.find((c) => c.stamp?.productId === stale)?.stamp ?? null;
+    const fresh = await queryClient.fetchQuery({ queryKey: ['card-versions', card.id], queryFn: () => getCardVersions(card), staleTime: 0 });
+    const norm = (x: string | null) => (x ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const equivalent = before
+      ? fresh.combos
+          .map((c) => c.stamp)
+          .find((st) => st && st.productId !== stale && st.type === before.type && (!norm(st.label) || !norm(before.label) || norm(st.label) === norm(before.label)))
+      : null;
+    setStampProductIdState(equivalent?.productId ?? null);
+    setChosenFinish(null);
+  }, [card, data, model.stampProductId, queryClient]);
+
   return {
     enabled: active,
     language,
@@ -131,6 +152,7 @@ export function useIdsCapture(
     refetch: () => void query.refetch(),
     onAttached,
     onManualCreated,
+    onStaleProduct,
     hasVersions: model.hasVersions,
     payload,
     reset,

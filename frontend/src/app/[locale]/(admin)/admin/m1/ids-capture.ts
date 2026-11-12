@@ -223,3 +223,6 @@ export function versionContributionReferenceCents(combo: VersionComboDTO | null)
   if (combo.appliedMarketPct == null) return null;
   return Math.floor((combo.baseReferenceMxnCents * combo.appliedMarketPct + 50) / 100);
 }
+
+/** Códigos del alta cuyo `cardProductId` ya no vale (la versión manual se fusionó): obligan a re-pedir `versions` (§ALTA-LIGA-2 §3). */
+export const STALE_PRODUCT_CODES: readonly string[] = ['PRODUCT_NOT_FOUND', 'PRODUCT_CARD_MISMATCH'];
