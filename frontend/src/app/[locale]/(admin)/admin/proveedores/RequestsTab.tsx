@@ -259,7 +259,7 @@ function RequestRow({ r, canEdit }: { r: SupplyRequestAdmin; canEdit: boolean })
       {editing && (
         <form className="grid gap-4 border-l-2 border-border-strong pl-4 sm:grid-cols-3" onSubmit={(e) => { e.preventDefault(); save(); }}>
           <Input label={t('qtyWanted')} type="number" min={Math.max(1, r.qtyReserved)} value={qty} onChange={(e) => setQty(e.target.value)} />
-          {r.marketCents != null && !r.fixedPrice && <Input label={t('pct')} type="number" min={1} max={100} step="0.01" suffix="%" value={pct} onChange={(e) => setPct(e.target.value)} />}
+          {r.marketCents != null && <Input label={t('pct')} hint={r.fixedPrice ? t('backToPct') : undefined} type="number" min={1} max={100} step="0.01" suffix="%" value={pct} onChange={(e) => setPct(e.target.value)} />}
           <Input label={t('fixedOptional')} inputMode="decimal" prefix="MX$" value={fixed} onChange={(e) => setFixed(e.target.value)} error={fixedBad ? t('fixedInvalid') : aboveCap ? t('aboveCap', { cap: formatMoneyCents(r.capCents ?? 0, locale) }) : undefined} />
           <div className="sm:col-span-3 flex gap-3">
             <Button type="submit" loading={m.isPending} disabled={fixedBad || aboveCap}>{t('save')}</Button>

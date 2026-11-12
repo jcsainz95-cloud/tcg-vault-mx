@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { QueryState } from '@/components/ui/QueryState';
+import { SupplierQueryState as QueryState } from './SupplierQueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';

@@ -4,7 +4,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { QueryState } from '@/components/ui/QueryState';
+import { SupplierQueryState as QueryState } from './SupplierQueryState';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { formatDateTimeMx, formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
@@ -59,6 +59,7 @@ function PurchaseRow({ p }: { p: SupplyPurchase }) {
           <Expiry iso={p.pickupDueAt} />
         </>
       )}
+      {p.status === 'cancelled' && <p className="text-sm text-muted">{p.reason ? t(`cancelledReason.${p.reason}`) : t('cancelled')}</p>}
       {p.units.length > 0 && (
         <ul className="flex flex-col gap-1 text-sm">
           {p.units.map((u) => (

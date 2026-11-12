@@ -7,14 +7,16 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/Input';
-import { QueryState } from '@/components/ui/QueryState';
+import { SupplierQueryState as QueryState } from './SupplierQueryState';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { formatMoneyCents } from '@/lib/format';
+import { useIdemKey } from '@/lib/api/use-idem-key';
 import type { AppLocale } from '@/i18n/routing';
 import {
-  SUPPLY_CONDITIONS,
+  REOFFER_STATUSES,
   SUPPLY_TTL,
+  conditionsAtLeast,
   createSupplierOffer,
   listSupplierRequests,
   type SupplierRequest,
@@ -70,11 +72,13 @@ function RequestRow({ req }: { req: SupplierRequest }) {
   const [qty, setQty] = useState('1');
   const [condition, setCondition] = useState<SupplyCondition>(req.minCondition);
   const qtyN = Number(qty);
+  const idem = useIdemKey();
   const qtyOk = Number.isInteger(qtyN) && qtyN >= 1 && qtyN <= req.qtyOpen;
 
   const m = useMutation({
-    mutationFn: () => createSupplierOffer(req.id, { qty: qtyN, condition }),
+    mutationFn: () => createSupplierOffer(req.id, { qty: qtyN, condition }, idem.get()),
     onSuccess: () => {
+      idem.renew();
       setOpen(false);
       void qc.invalidateQueries({ queryKey: ['supplier'] });
     },
@@ -96,9 +100,10 @@ function RequestRow({ req }: { req: SupplierRequest }) {
         </div>
       </dl>
       <Expiry iso={req.expiresAt} />
-      {req.myOfferStatus ? (
-        <Badge tone={OFFER_TONE[req.myOfferStatus]}>{t('myOffer', { status: to(req.myOfferStatus) })}</Badge>
-      ) : open ? (
+      {req.myOfferStatus && (
+        <Badge tone={OFFER_TONE[req.myOfferStatus]} className="self-start">{t('myOffer', { status: to(req.myOfferStatus) })}</Badge>
+      )}
+      {req.myOfferStatus && !REOFFER_STATUSES.includes(req.myOfferStatus) ? null : open ? (
         <form
           className="flex flex-col gap-4 border-l-2 border-accent pl-4"
           onSubmit={(e) => {
@@ -112,7 +117,7 @@ function RequestRow({ req }: { req: SupplierRequest }) {
             label={t('condition')}
             value={condition}
             onChange={(e) => setCondition(e.target.value as SupplyCondition)}
-            options={SUPPLY_CONDITIONS.map((c) => ({ value: c, label: c }))}
+            options={conditionsAtLeast(req.minCondition).map((c) => ({ value: c, label: c }))}
           />
           <p className="text-xs text-muted">{t('offerNote', { hours: SUPPLY_TTL.offerHours })}</p>
           <div className="flex gap-3">
@@ -121,7 +126,7 @@ function RequestRow({ req }: { req: SupplierRequest }) {
           </div>
         </form>
       ) : (
-        <Button className="self-start" onClick={() => setOpen(true)}>{t('haveIt')}</Button>
+        <Button className="self-start" onClick={() => setOpen(true)}>{req.myOfferStatus ? t('haveItAgain') : t('haveIt')}</Button>
       )}
     </div>
   );

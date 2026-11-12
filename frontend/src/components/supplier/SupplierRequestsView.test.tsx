@@ -19,6 +19,6 @@ describe('§PROV F1 · portal: lo que buscamos', () => {
     expect(document.body.textContent).not.toMatch(/mercado|market|margen|%/i);
     await userEvent.click(screen.getByRole('button', { name: /la tengo/i }));
     await userEvent.click(screen.getByRole('button', { name: /enviar oferta/i }));
-    await waitFor(() => expect(create).toHaveBeenCalledWith('r1', { qty: 1, condition: 'NM' }));
+    await waitFor(() => expect(create).toHaveBeenCalledWith('r1', { qty: 1, condition: 'NM' }, expect.any(String)));
   });
 });

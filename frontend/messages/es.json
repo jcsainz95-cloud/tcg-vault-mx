@@ -1508,6 +1508,7 @@
         "qtyWanted": "Cantidad buscada",
         "pct": "Porcentaje del mercado",
         "fixedOptional": "Precio fijo en pesos (opcional)",
+        "backToPct": "Si escribes un porcentaje, la solicitud vuelve a calcularse sobre el mercado en vez del precio fijo.",
         "fixedInvalid": "Escribe un importe válido, por ejemplo 150 o 150.50.",
         "aboveCap": "No puede pasar del mercado de hoy ({cap}).",
         "save": "Guardar",
@@ -1570,6 +1571,11 @@
         "verify": "Confirmar revisión",
         "unit": "Pieza {n} · {condition}",
         "payTitle": "Registrar pago",
+        "cancelled": "Acuerdo cancelado: no hay nada que pagar.",
+        "cancelledReason": {
+          "all_returned": "Todas las piezas se devolvieron a la tienda: no hay pago ni inventario.",
+          "none_received": "No llegó ninguna pieza: no hay pago ni inventario."
+        },
         "method": "Método",
         "methods": {
           "cash": "Efectivo",
@@ -8046,9 +8052,19 @@
     }
   },
   "supplier": {
+    "password": {
+      "title": "Cambia tu contraseña",
+      "forced": "Tu contraseña es temporal. Elige una nueva para seguir usando el portal.",
+      "current": "Contraseña actual",
+      "next": "Contraseña nueva",
+      "again": "Repite la contraseña nueva",
+      "mismatch": "Las contraseñas no coinciden.",
+      "submit": "Guardar contraseña"
+    },
     "errors": {
       "FORBIDDEN_ROLE": "Tu cuenta no tiene acceso a esta sección.",
-      "SUPPLIER_SUSPENDED": "Tu cuenta de proveedor está desactivada. Contacta a TCG HUNT.",
+      "SUPPLIER_SUSPENDED": "Tu cuenta de proveedor está suspendida y no puedes usar el portal. Escribe a TCG HUNT para reactivarla.",
+      "INVALID_CREDENTIALS": "Correo o contraseña incorrectos.",
       "INVITE_INVALID": "La invitación no es válida o ya se usó. Pide una nueva.",
       "INVITE_EXPIRED": "La invitación venció. Pide una nueva.",
       "WEAK_PASSWORD": "La contraseña es muy débil. Usa al menos 8 caracteres combinando letras y números.",
@@ -8146,6 +8162,7 @@
       "minCondition": "Estado mínimo: {condition}",
       "myOffer": "Tu oferta: {status}",
       "haveIt": "La tengo",
+      "haveItAgain": "Ofrecer de nuevo",
       "qty": "Cantidad que tienes",
       "qtyHint": "Máximo {max}",
       "condition": "Estado de tus cartas",
@@ -8170,6 +8187,11 @@
       "agreed": "{qty} pieza(s) a {unit} c/u",
       "total": "Acordado {total}",
       "bringIt": "Lleva las cartas a TCG HUNT antes de la fecha límite.",
+      "cancelled": "Acuerdo cancelado.",
+      "cancelledReason": {
+        "all_returned": "Revisamos las piezas y todas se devolvieron: no hay pago.",
+        "none_received": "No llegó ninguna pieza: no hay pago."
+      },
       "unit": "Pieza {n} · {condition}",
       "payable": "Total a pagar: {amount}",
       "paidOn": "Pagado el {date} · {method}",

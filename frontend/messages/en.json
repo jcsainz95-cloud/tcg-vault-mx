@@ -1508,6 +1508,7 @@
         "qtyWanted": "Quantity wanted",
         "pct": "Percent of market",
         "fixedOptional": "Fixed price in pesos (optional)",
+        "backToPct": "If you enter a percent, the request is priced on the market again instead of the fixed price.",
         "fixedInvalid": "Enter a valid amount, for example 150 or 150.50.",
         "aboveCap": "It cannot exceed today market ({cap}).",
         "save": "Save",
@@ -1570,6 +1571,11 @@
         "verify": "Confirm review",
         "unit": "Piece {n} · {condition}",
         "payTitle": "Record payment",
+        "cancelled": "Deal cancelled: nothing to pay.",
+        "cancelledReason": {
+          "all_returned": "Every piece was returned to the store: no payment, no inventory.",
+          "none_received": "No piece arrived: no payment, no inventory."
+        },
         "method": "Method",
         "methods": {
           "cash": "Cash",
@@ -8046,9 +8052,19 @@
     }
   },
   "supplier": {
+    "password": {
+      "title": "Change your password",
+      "forced": "Your password is temporary. Choose a new one to keep using the portal.",
+      "current": "Current password",
+      "next": "New password",
+      "again": "Repeat the new password",
+      "mismatch": "The passwords do not match.",
+      "submit": "Save password"
+    },
     "errors": {
       "FORBIDDEN_ROLE": "Your account has no access to this section.",
-      "SUPPLIER_SUSPENDED": "Your supplier account is deactivated. Contact TCG HUNT.",
+      "SUPPLIER_SUSPENDED": "Your supplier account is suspended and you cannot use the portal. Contact TCG HUNT to reactivate it.",
+      "INVALID_CREDENTIALS": "Wrong email or password.",
       "INVITE_INVALID": "The invitation is not valid or was already used. Ask for a new one.",
       "INVITE_EXPIRED": "The invitation expired. Ask for a new one.",
       "WEAK_PASSWORD": "The password is too weak. Use at least 8 characters mixing letters and numbers.",
@@ -8146,6 +8162,7 @@
       "minCondition": "Minimum condition: {condition}",
       "myOffer": "Your offer: {status}",
       "haveIt": "I have it",
+      "haveItAgain": "Offer again",
       "qty": "Quantity you have",
       "qtyHint": "Up to {max}",
       "condition": "Condition of your cards",
@@ -8170,6 +8187,11 @@
       "agreed": "{qty} piece(s) at {unit} each",
       "total": "Agreed {total}",
       "bringIt": "Bring the cards to TCG HUNT before the deadline.",
+      "cancelled": "Deal cancelled.",
+      "cancelledReason": {
+        "all_returned": "We reviewed the pieces and all were returned: no payment.",
+        "none_received": "No piece arrived: no payment."
+      },
       "unit": "Piece {n} · {condition}",
       "payable": "Total to pay: {amount}",
       "paidOn": "Paid on {date} · {method}",

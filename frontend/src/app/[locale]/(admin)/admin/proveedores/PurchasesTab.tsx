@@ -16,6 +16,7 @@ import { Expiry } from '@/components/supplier/Expiry';
 import { PURCHASE_TONE } from '@/components/supplier/supplier-labels';
 import { useRole } from '@/lib/role';
 import { formatMoneyCents } from '@/lib/format';
+import { useIdemKey } from '@/lib/api/use-idem-key';
 import type { AppLocale } from '@/i18n/routing';
 import {
   SUPPLY_CONDITIONS,
@@ -66,19 +67,27 @@ function PurchaseRow({ p }: { p: SupplyPurchase }) {
   const qc = useQueryClient();
   const { isSuperAdmin } = useRole();
   const done = () => qc.invalidateQueries({ queryKey: ['admin', 'supply-purchases'] });
+  const kRecv = useIdemKey();
+  const kVer = useIdemKey();
+  const kPay = useIdemKey();
 
   // Recogida: una condición real por pieza entregada (por defecto, la declarada ⇒ NM; se baja a lo observado).
   const [received, setReceived] = useState<SupplyCondition[]>(() => Array.from({ length: p.qty }, () => 'NM'));
   const [count, setCount] = useState(String(p.qty));
   const countN = Math.min(p.qty, Math.max(0, Number(count) || 0));
   const recv = useMutation({
-    mutationFn: () => receiveSupplyPurchase(p.id, received.slice(0, countN).map((condition, i) => ({ n: i + 1, condition }))),
-    onSuccess: done,
+    mutationFn: () => receiveSupplyPurchase(p.id, received.slice(0, countN).map((condition, i) => ({ n: i + 1, condition })), kRecv.get()),
+    onSuccess: () => {
+      kRecv.renew();
+      return done();
+    },
   });
 
   // Verificación: ok / ajustar (% del precio acordado, lo calcula el servidor) / devolver.
   const [choices, setChoices] = useState<Record<number, VerifyChoice>>({});
-  const choiceOf = (n: number): VerifyChoice => choices[n] ?? { result: 'ok', adjust: '' };
+  // B1: una pieza que no llegó en NM arranca en «devolver» (con `ok` el servidor da 422 OK_NOT_NM y el acuerdo se atora).
+  const conditionOf = (n: number) => p.units.find((u) => u.n === n)?.condition;
+  const choiceOf = (n: number): VerifyChoice => choices[n] ?? { result: conditionOf(n) === 'NM' ? 'ok' : 'returned', adjust: '' };
   const adjustBad = p.units.some((u) => {
     const c = choiceOf(u.n);
     if (c.result !== 'adjusted') return false;
@@ -93,15 +102,22 @@ function PurchaseRow({ p }: { p: SupplyPurchase }) {
           const c = choiceOf(u.n);
           return c.result === 'adjusted' ? { n: u.n, result: c.result, adjustBps: Math.round(Number(c.adjust) * 100) } : { n: u.n, result: c.result };
         }),
+        kVer.get(),
       ),
-    onSuccess: done,
+    onSuccess: () => {
+      kVer.renew();
+      return done();
+    },
   });
 
   const [method, setMethod] = useState<'cash' | 'transfer'>('transfer');
   const [reference, setReference] = useState('');
   const pay = useMutation({
-    mutationFn: () => paySupplyPurchase(p.id, { method, ...(reference.trim() ? { reference: reference.trim() } : {}) }),
-    onSuccess: done,
+    mutationFn: () => paySupplyPurchase(p.id, { method, ...(reference.trim() ? { reference: reference.trim() } : {}) }, kPay.get()),
+    onSuccess: () => {
+      kPay.renew();
+      return done();
+    },
   });
 
   return (
@@ -175,7 +191,7 @@ function PurchaseRow({ p }: { p: SupplyPurchase }) {
         </ul>
       )}
 
-      {p.status === 'verified' && isSuperAdmin && (
+      {p.status === 'verified' && isSuperAdmin && (p.payableCents ?? 0) > 0 && (
         <form className="flex flex-col gap-3 border-l-2 border-accent pl-4" onSubmit={(e) => { e.preventDefault(); pay.mutate(); }}>
           <p className="text-sm font-medium">{t('payTitle')}</p>
           <Select label={t('method')} value={method} onChange={(e) => setMethod(e.target.value as 'cash' | 'transfer')} options={[{ value: 'transfer', label: t('methods.transfer') }, { value: 'cash', label: t('methods.cash') }]} />
@@ -184,6 +200,7 @@ function PurchaseRow({ p }: { p: SupplyPurchase }) {
           <Button type="submit" size="sm" className="self-start" loading={pay.isPending}>{t('pay', { amount: formatMoneyCents(p.payableCents ?? 0, locale) })}</Button>
         </form>
       )}
+      {p.status === 'cancelled' && <p className="text-sm text-muted">{p.reason ? t(`cancelledReason.${p.reason}`) : t('cancelled')}</p>}
       {p.status === 'paid' && <p className="text-sm text-muted">{t('paid', { method: p.method ? t(`methods.${p.method}`) : '' })}{p.reference ? ` · ${p.reference}` : ''}</p>}
     </div>
   );

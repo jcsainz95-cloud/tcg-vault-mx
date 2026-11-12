@@ -22,13 +22,20 @@ export function SupplierShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const ok = isAuthenticated && user?.role === 'supplier';
+  const mustChange = ok && user?.mustChangePassword === true;
+  const onPasswordPage = pathname === '/proveedores/cambiar-contrasena';
 
   useEffect(() => {
     if (!ready || ok || isLogoutInProgress()) return;
     router.replace('/proveedores/entrar');
   }, [ready, ok, router]);
 
-  if (!ready || !ok) {
+  // Contraseña temporal: solo se opera la página de cambio (el backend restringe el resto a `/supplier/me/password`).
+  useEffect(() => {
+    if (ready && mustChange && !onPasswordPage) router.replace('/proveedores/cambiar-contrasena');
+  }, [ready, mustChange, onPasswordPage, router]);
+
+  if (!ready || !ok || (mustChange && !onPasswordPage)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-bg" aria-busy="true">
         <span className="inline-flex items-center gap-2 font-mono text-sm text-muted">

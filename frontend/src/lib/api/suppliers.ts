@@ -115,6 +115,8 @@ export interface SupplyPurchase {
   method: 'cash' | 'transfer' | null;
   reference: string | null;
   paidAt: string | null;
+  /** Solo con `status:'cancelled'` tras la revisión: nada que pagar. */
+  reason?: 'all_returned' | 'none_received' | null;
   createdAt: string;
 }
 
@@ -154,7 +156,7 @@ export interface SupplierOffer {
 }
 
 const EMPTY = <T>(): Paged<T> => ({ data: [], page: 1, pageSize: 20, total: 0 });
-const idem = () => ({ 'Idempotency-Key': globalThis.crypto.randomUUID() });
+const idem = (key?: string) => ({ 'Idempotency-Key': key ?? globalThis.crypto.randomUUID() });
 const mockOff = () => {
   throw new Error('SUPPLIER_API_REQUIRES_BACKEND');
 };
@@ -183,12 +185,12 @@ export const listSupplierOffers = (status?: OfferStatus, page = 1) => paged<Supp
 export const listSupplierPurchases = (page = 1) => paged<SupplyPurchase>('/supplier/purchases', { page });
 
 /** `unitCents` se OMITE a propósito: en F1 un precio distinto es contraoferta (F3, 422 COUNTER_NOT_ENABLED). */
-export function createSupplierOffer(requestId: string, body: { qty: number; condition: SupplyCondition }): Promise<SupplierOffer> {
+export function createSupplierOffer(requestId: string, body: { qty: number; condition: SupplyCondition }, idemKey?: string): Promise<SupplierOffer> {
   if (config.useMocks) return mockOff();
   return apiRequest<SupplierOffer>(`/supplier/requests/${encodeURIComponent(requestId)}/offers`, {
     method: 'POST',
     body,
-    headers: idem(),
+    headers: idem(idemKey),
   });
 }
 
@@ -263,37 +265,38 @@ export function respondSupplyOffer(id: string, action: 'accept' | 'reject') {
 export const listSupplyPurchases = (f: { status?: PurchaseStatus; page?: number } = {}) =>
   paged<SupplyPurchase>('/admin/supply-purchases', f);
 
-export function receiveSupplyPurchase(id: string, units: { n: number; condition: SupplyCondition; note?: string }[]) {
+export function receiveSupplyPurchase(id: string, units: { n: number; condition: SupplyCondition; note?: string }[], idemKey?: string) {
   if (config.useMocks) return mockOff();
   return apiRequest<SupplyPurchase>(`/admin/supply-purchases/${encodeURIComponent(id)}/receive`, {
     method: 'POST',
     body: { units },
-    headers: idem(),
+    headers: idem(idemKey),
   });
 }
 
 export function verifySupplyPurchase(
   id: string,
   units: { n: number; result: 'ok' | 'adjusted' | 'returned'; adjustBps?: number; note?: string }[],
+  idemKey?: string,
 ) {
   if (config.useMocks) return mockOff();
   return apiRequest<SupplyPurchase>(`/admin/supply-purchases/${encodeURIComponent(id)}/verify`, {
     method: 'POST',
     body: { units },
-    headers: idem(),
+    headers: idem(idemKey),
   });
 }
 
-export function paySupplyPurchase(id: string, body: { method: 'cash' | 'transfer'; reference?: string }) {
+export function paySupplyPurchase(id: string, body: { method: 'cash' | 'transfer'; reference?: string }, idemKey?: string) {
   if (config.useMocks) return mockOff();
   return apiRequest<SupplyPurchase>(`/admin/supply-purchases/${encodeURIComponent(id)}/pay`, {
     method: 'POST',
     body,
-    headers: idem(),
+    headers: idem(idemKey),
   });
 }
 
-/** Búsqueda de carta para crear una solicitud: `GET /catalog/cards?q=` (contrato §2). */
+/** Búsqueda de carta para crear una solicitud: `GET /buylist/cards?q=` (contrato §2, B2): TODO el catálogo, con agotadas. */
 export interface SupplyCardHit {
   cardId: string;
   name: string;
@@ -302,25 +305,31 @@ export interface SupplyCardHit {
   imageUrl: string | null;
   finishes: Finish[];
 }
-export async function searchSupplyCards(q: string): Promise<SupplyCardHit[]> {
+export async function searchSupplyCards(q: string, page = 1): Promise<SupplyCardHit[]> {
   if (config.useMocks || q.trim().length < 2) return [];
-  const res = await apiRequest<{ data: { card: { id: string; name: string; number: string; setName?: string; imageSmallUrl?: string | null; availableFinishes?: Finish[] }; finish: Finish }[] }>(
-    '/catalog/cards',
-    { query: { q: q.trim(), pageSize: 12 } },
-  );
-  const seen = new Set<string>();
-  const out: SupplyCardHit[] = [];
-  for (const g of res.data) {
-    if (seen.has(g.card.id)) continue;
-    seen.add(g.card.id);
-    out.push({
-      cardId: g.card.id,
-      name: g.card.name,
-      number: g.card.number,
-      setName: g.card.setName ?? '',
-      imageUrl: g.card.imageSmallUrl ?? null,
-      finishes: g.card.availableFinishes?.length ? g.card.availableFinishes : [g.finish],
-    });
-  }
-  return out;
+  const res = await apiRequest<{
+    data: { id: string; name: string; number: string; setName?: string; imageSmallUrl?: string | null; availableFinishes?: Finish[]; displayFinishes?: Finish[] }[];
+  }>('/buylist/cards', { query: { q: q.trim(), page, pageSize: 12 } });
+  return res.data.map((c) => ({
+    cardId: c.id,
+    name: c.name,
+    number: c.number,
+    setName: c.setName ?? '',
+    imageUrl: c.imageSmallUrl ?? null,
+    finishes: c.displayFinishes?.length ? c.displayFinishes : c.availableFinishes?.length ? c.availableFinishes : ['normal'],
+  }));
 }
+
+/** `POST /supplier/me/password` (204): cambio de contraseña del proveedor (también la temporal). */
+export function changeSupplierPassword(body: { currentPassword: string; newPassword: string }): Promise<void> {
+  if (config.useMocks) return mockOff();
+  return apiRequest<void>('/supplier/me/password', { method: 'POST', body });
+}
+
+/** Orden de calidad: un estado "bajo el mínimo" no se ofrece (contrato: 422 CONDITION_BELOW_MIN). */
+export function conditionsAtLeast(min: SupplyCondition): SupplyCondition[] {
+  return SUPPLY_CONDITIONS.slice(0, SUPPLY_CONDITIONS.indexOf(min) + 1);
+}
+
+/** Estados desde los que el proveedor puede ofrecer de nuevo la misma solicitud (IMP3). */
+export const REOFFER_STATUSES: readonly OfferStatus[] = ['withdrawn', 'rejected', 'expired'];

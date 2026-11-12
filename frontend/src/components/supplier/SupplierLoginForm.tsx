@@ -28,7 +28,7 @@ export function SupplierLoginForm() {
         setNotSupplier(true);
         return;
       }
-      router.replace('/proveedores');
+      router.replace(res.user.mustChangePassword ? '/proveedores/cambiar-contrasena' : '/proveedores');
     },
   });
 
@@ -36,9 +36,11 @@ export function SupplierLoginForm() {
   const errText = notSupplier
     ? t('notSupplier')
     : m.isError
-      ? code && te.has(code)
-        ? te(code)
-        : t('failed')
+      ? code === 'INVALID_CREDENTIALS' || code === 'UNAUTHENTICATED' || code === 'SUPPLIER_SUSPENDED'
+        ? te(code === 'UNAUTHENTICATED' ? 'INVALID_CREDENTIALS' : code)
+        : code && te.has(code)
+          ? te(code)
+          : t('failed')
       : null;
 
   return (
