@@ -64,6 +64,9 @@ export class SupplyRequestService {
     if (dto.status === undefined && dto.qtyWanted === undefined && dto.pctBps === undefined && dto.fixedUnitCents === undefined && dto.expiresAt === undefined) {
       throw BusinessException.badRequest('VALIDATION_ERROR', 'At least one field is required');
     }
+    if (dto.pctBps !== undefined && dto.fixedUnitCents !== undefined) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'pctBps and fixedUnitCents are mutually exclusive');
+    }
     const r = await this.prisma.supplyRequest.findUnique({ where: { id }, include: WITH_CARD });
     if (!r) throw BusinessException.notFound();
     if (r.status !== 'open') throw BusinessException.conflict('INVALID_STATE', `Request is ${r.status}`);

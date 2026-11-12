@@ -120,6 +120,9 @@ describe('E2E §PROV F1 — correcciones de gate', () => {
     expect(patched.body).toMatchObject({ unitCents: 8000, fixedPrice: true, pctBps: null });
     const back = await A('PATCH', `/admin/supply-requests/${r.id}`, admin, { pctBps: 6000 });
     expect(back.body).toMatchObject({ unitCents: 6000, fixedPrice: false, pctBps: 6000 });
+    const both = await A('PATCH', `/admin/supply-requests/${r.id}`, admin, { pctBps: 5000, fixedUnitCents: 6000 });
+    expect([both.status, code(both)]).toEqual([400, 'VALIDATION_ERROR']);
+    expect(await h.prisma.supplyRequest.findUniqueOrThrow({ where: { id: r.id } })).toMatchObject({ pctBps: 6000, fixedCents: null });
     const o = await A('POST', `/supplier/requests/${r.id}/offers`, sA.token, { qty: 1, condition: 'NM' });
     await A('POST', `/admin/supply-offers/${o.body.id}/respond`, admin, { action: 'accept' });
     expect((await h.prisma.supplyRequest.findUniqueOrThrow({ where: { id: r.id } })).status).toBe('filled');
