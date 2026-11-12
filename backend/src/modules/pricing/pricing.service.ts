@@ -1172,7 +1172,7 @@ export class PricingService {
     // PROJECTION-EXEMPT: lectura interna de resolución de versión; se proyecta a `StampRef`.
     const rows = await this.prisma.cardProduct.findMany({
       where: { tcgplayerProductId: { in: ids }, kind: 'stamped' },
-      select: { id: true, tcgplayerProductId: true, stampType: true, stampLabel: true, finishes: true },
+      select: { id: true, tcgplayerProductId: true, stampType: true, stampLabel: true, finishes: true, inheritsBase: true },
     });
     const out = new Map<number, StampRef>();
     for (const r of rows) {
@@ -1183,6 +1183,7 @@ export class PricingService {
         type: r.stampType,
         label: r.stampLabel,
         finishes: r.finishes,
+        inheritsBase: r.inheritsBase,
       });
     }
     return out;

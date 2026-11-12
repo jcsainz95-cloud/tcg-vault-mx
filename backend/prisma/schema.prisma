@@ -1080,6 +1080,9 @@ model CardProduct {
   // (`tcgplayerProductId < 0`, secuencia `manual_product_id_seq`); NULL en los productos reales. Llave de duplicado junto a
   // (cardId, stampType) por el índice único parcial «CardProduct_manual_stamp_key» (SQL de m104; Prisma no modela parciales).
   stampLabelNorm     String?
+  // §ALTA-LIGA-2 (m105): ¿este producto de liga se precia como la carta NORMAL mientras no tenga `PriceReference` propia? true en las versiones
+  // manuales y en el producto real que absorbió una (fusión); false en todo lo demás (ningún precio existente cambia).
+  inheritsBase       Boolean         @default(false)
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 

@@ -909,6 +909,8 @@ export const ErrorCode = {
   INVALID_STATE: 'INVALID_STATE',
   // §ALTA-LIGA-2: la carta ya tiene un producto/candidata REAL del mismo tipo de sello; se ata con `attach` (409).
   USE_EXISTING: 'USE_EXISTING',
+  // §ALTA-LIGA-2: el alta chocó con una fusión en curso y no obtuvo el candado en 3 s ×2 (409, `Retry-After: 2`, reintentable; nunca 500).
+  VERSION_BUSY: 'VERSION_BUSY',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

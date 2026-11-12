@@ -3,8 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PricingService } from './pricing.service';
-import { normalizeStampLabel } from '../../common/stamp-label';
-import { runSerializable } from '../../common/serializable-retry';
+import { ALTA_LIGA_NAMESPACE, manualVersionLockKey, normalizeStampLabel } from '../../common/stamp-label';
 
 export type MergeSkipReason = 'multiple_manual' | 'ambiguous_real' | 'label_mismatch' | 'manual_has_prices';
 export interface MergeResult {
@@ -71,20 +70,26 @@ export class ManualVersionMergeService {
     }
   }
 
+  /**
+   * UNA transacción por carta, en READ COMMITTED a propósito (el contrato dice «serializable»; el efecto es el mismo y esto no tiene
+   * 500s): en serializable la foto se toma al pedir el candado, ANTES de esperarlo, y quedaría vieja (AL2-3). Aquí: (1) candado
+   * consultivo por `(cardId, stampType)` — el MISMO que el alta manual —, (2) `FOR UPDATE` de los productos manuales de la carta
+   * (espera a las piezas que se estén dando de alta contra ellos: su FK toma `KEY SHARE`), y (3) recién entonces se lee y se escribe,
+   * así que `updateMany` ve toda pieza confirmada. Un alta de pieza posterior contra el id borrado da `PRODUCT_NOT_FOUND`, no 500.
+   */
   async mergeForCard(cardId: string): Promise<MergeResult> {
     const out: MergeResult = { merged: 0, skipped: 0, items: 0 };
-    await runSerializable(
-      this.prisma,
+    const types = [...new Set((await this.prisma.cardProduct.findMany({ where: { cardId, kind: 'stamped', tcgplayerProductId: { lt: 0 } }, select: { stampType: true } })).map((p) => p.stampType!))].sort();
+    if (types.length === 0) return out;
+    await this.prisma.$transaction(
       async (tx) => {
-        out.merged = 0;
-        out.skipped = 0;
-        out.items = 0;
+        for (const t of types) await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ALTA_LIGA_NAMESPACE}::int, hashtext(${manualVersionLockKey(cardId, t)}))`;
+        await tx.$queryRaw`SELECT id FROM "CardProduct" WHERE "cardId" = ${cardId} AND "tcgplayerProductId" < 0 ORDER BY id FOR UPDATE`;
         const products = await tx.cardProduct.findMany({ where: { cardId, kind: 'stamped' }, orderBy: { tcgplayerProductId: 'asc' } });
         const manuals = products.filter((p) => p.tcgplayerProductId < 0 && p.stampType != null);
-        if (manuals.length === 0) return;
+        if (manuals.length === 0) return; // otra fusión ganó la carrera: idempotente
         const reals = products.filter((p) => p.tcgplayerProductId > 0 && p.stampType != null);
-        const types = new Set(manuals.map((m) => m.stampType!));
-        for (const type of types) {
+        for (const type of new Set(manuals.map((m) => m.stampType!))) {
           const ms = manuals.filter((m) => m.stampType === type);
           const rs = reals.filter((r) => r.stampType === type);
           if (rs.length === 0) continue; // nada con qué fusionar todavía
@@ -116,7 +121,8 @@ export class ManualVersionMergeService {
           await this.pricing.closePendingOfProduct(tx, m.tcgplayerProductId); // cola derivada: se reabre con la clave del real
           await tx.sellRequestItem.updateMany({ where: { cardProductId: m.tcgplayerProductId }, data: { cardProductId: r.tcgplayerProductId } });
           const finishes = [...new Set([...r.finishes, ...m.finishes])];
-          await tx.cardProduct.update({ where: { id: r.id }, data: { finishes } });
+          // AL2-4: el real SIGUE heredando el precio de la normal hasta que tenga mercado propio (la fusión nunca deja piezas sin precio).
+          await tx.cardProduct.update({ where: { id: r.id }, data: { finishes, inheritsBase: true } });
           await tx.cardProduct.delete({ where: { id: m.id } });
           await this.audit?.log(
             {
@@ -132,7 +138,7 @@ export class ManualVersionMergeService {
           out.items += moved.count;
         }
       },
-      { label: 'manual-version-merge', logger: this.logger },
+      { timeout: 30_000, maxWait: 10_000 },
     );
     return out;
   }

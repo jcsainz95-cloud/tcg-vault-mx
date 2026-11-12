@@ -86,6 +86,10 @@ describe('E2E — §ALTA-LIGA-2 versión de liga manual', () => {
     expect([html.status, err(html).code, err(html).details?.field]).toEqual([400, 'VALIDATION_ERROR', 'stampLabel']);
     const long = await post(A, { stampType: 'league', stampLabel: 'x'.repeat(41), finish: 'normal' });
     expect([long.status, err(long).details?.field]).toEqual([400, 'stampLabel']);
+    for (const bad of ['Pre\u200Brelease', 'x\u202Ey', 'a\u2028b', 'a\u0007b', '\uFEFFx']) {
+      const inv = await post(A, { stampType: 'league', stampLabel: bad, finish: 'normal' });
+      expect([bad, inv.status, err(inv).code, err(inv).details?.field]).toEqual([bad, 400, 'VALIDATION_ERROR', 'stampLabel']);
+    }
     const badType = await post(A, { stampType: 'nope', finish: 'normal' });
     expect(badType.status).toBe(400);
     const fin = await post(A, { stampType: 'league', finish: 'holofoil' });
@@ -261,6 +265,101 @@ describe('E2E — §ALTA-LIGA-2 versión de liga manual', () => {
       const all = await merge.runAll();
       expect(all.merged).toBeGreaterThanOrEqual(1);
       expect(await h.prisma.cardProduct.count({ where: { tcgplayerProductId: m.pid } })).toBe(0);
+    });
+  });
+
+  describe('correcciones de gate (AL2-1…AL2-4)', () => {
+    it('AL2-1: 30 altas paralelas de un mismo usuario ⇒ exactamente 20 pasan (201) y 10 dan 429; la auditoría queda en 20', async () => {
+      const adminId = (await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.admin.email } })).id;
+      await h.prisma.auditLog.deleteMany({ where: { actorUserId: adminId, action: { in: ['inventory.manual_version_created', 'inventory.manual_version_finish_added'] } } });
+      const cs = await Promise.all(['q1', 'q2', 'q3', 'q4', 'q5', 'q6'].map((n) => card(n, ['normal'], { normal: 5_000 })));
+      const rs = await Promise.all(Array.from({ length: 30 }, (_, i) => post(cs[i % 6], { stampType: 'staff', stampLabel: `lbl ${i}`, finish: 'normal' }, admin)));
+      const by = (n: number) => rs.filter((r) => r.status === n).length;
+      expect([by(201), by(429), rs.length - by(201) - by(429)]).toEqual([20, 10, 0]);
+      expect(await h.prisma.auditLog.count({ where: { actorUserId: adminId, action: { in: ['inventory.manual_version_created', 'inventory.manual_version_finish_added'] } } })).toBe(20);
+      await h.prisma.auditLog.deleteMany({ where: { actorUserId: adminId, action: { startsWith: 'inventory.manual_version' } } });
+    });
+
+    it('AL2-3: fusión simultánea con altas de pieza y altas de versión ⇒ NUNCA 500, ninguna pieza queda colgada del manual, la fusión ocurre', async () => {
+      for (let round = 0; round < 4; round++) {
+        const m = await card(`cc${round}`, ['normal', 'reverse_holo'], { normal: 30_000 });
+        const man = await post(m, { stampType: 'championship', finish: 'normal' });
+        const pid = man.body.stamp.productId as number;
+        const real = await h.prisma.cardProduct.create({ data: { cardId: m, tcgplayerProductId: 760_000_000 + round * 1000 + Math.floor(Math.random() * 900), kind: 'stamped', name: `Real cc ${run}`, finishes: ['reverse_holo'], stampType: 'championship', sourceGroupId: 22880 } });
+        const calls: Promise<{ status: number; body: any }>[] = [
+          ...Array.from({ length: 6 }, () => alta({ cardId: m, cardProductId: pid, finish: 'normal' })),
+          post(m, { stampType: 'championship', finish: 'reverse_holo' }, admin),
+          post(m, { stampType: 'championship', stampLabel: 'otra', finish: 'normal' }, operator),
+          merge.mergeForCard(m).then(() => ({ status: 0, body: null })),
+        ];
+        const rs = await Promise.all(calls);
+        for (const r of rs) expect([r.status, r.body?.error?.code]).not.toContainEqual(500);
+        expect(rs.filter((r) => r.status >= 500)).toEqual([]);
+        for (const r of rs.slice(0, 6)) expect([201, 422]).toContain(r.status); // 422 PRODUCT_NOT_FOUND = la fusión ganó
+        for (const r of rs.slice(6, 8)) expect([200, 201, 409]).toContain(r.status);
+        await merge.mergeForCard(m); // la siguiente corrida cierra lo que quedara
+        const dangling = await h.prisma.inventoryItem.count({ where: { cardId: m, cardProductId: { lt: 0 } } });
+        const ok = rs.slice(0, 6).filter((r) => r.status === 201).length;
+        expect(await h.prisma.inventoryItem.count({ where: { cardId: m, cardProductId: real.tcgplayerProductId } })).toBe(ok - dangling);
+        expect(await h.prisma.cardProduct.count({ where: { tcgplayerProductId: pid } })).toBe(dangling > 0 ? 1 : 0);
+      }
+    });
+
+    it('VERSION_BUSY: si el candado de la llave está tomado más de 3 s ×2 ⇒ 409 VERSION_BUSY con Retry-After (nunca 500); suelto, el alta pasa', async () => {
+      const b = await card('busy', ['normal'], { normal: 5_000 });
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((r) => (release = r));
+      const holder = h.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${116_000_217}::int, hashtext(${`${b}|prerelease`}))`;
+          await held;
+        },
+        { timeout: 30_000 },
+      );
+      await new Promise((r) => setTimeout(r, 300));
+      const t0 = Date.now();
+      const r = await post(b, { stampType: 'prerelease', finish: 'normal' });
+      expect([r.status, err(r).code, r.headers['retry-after']]).toEqual([409, 'VERSION_BUSY', '2']);
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(5_800);
+      release();
+      await holder;
+      expect((await post(b, { stampType: 'prerelease', finish: 'normal' })).status).toBe(201);
+    });
+
+    it('AL2-4: tras fusionar con un real SIN mercado propio las piezas siguen con el precio de la normal (nunca pendientes); al llegar el mercado del real, pasan a él', async () => {
+      const m = await card('inh', ['normal', 'reverse_holo'], { normal: 20_000, reverse_holo: 30_000 });
+      const man = await post(m, { stampType: 'prize_pack', finish: 'reverse_holo' });
+      const pid = man.body.stamp.productId as number;
+      const it = await alta({ cardId: m, cardProductId: pid, finish: 'reverse_holo' });
+      const customerId = (await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.customer.email } })).id;
+      // pieza en bóveda de OTRO dueño sobre la misma versión manual: la fusión no toca dueño ni custodia
+      const vault = await h.prisma.inventoryItem.create({
+        data: { folio: `LG-${run}`, cardId: m, productType: 'raw', rawCondition: 'NM', finish: 'reverse_holo', ownerType: 'customer', ownerUserId: customerId, ownershipStatus: 'settled', status: 'in_custody', acquisitionType: 'aportacion_en_especie', cardProductId: pid },
+      });
+      const realId = 770_000_000 + Math.floor(Math.random() * 9_000_000);
+      const real = await h.prisma.cardProduct.create({ data: { cardId: m, tcgplayerProductId: realId, kind: 'stamped', name: `Real inh ${run}`, finishes: ['reverse_holo'], stampType: 'prize_pack', sourceGroupId: 22880 } });
+      expect(await merge.mergeForCard(m)).toMatchObject({ merged: 1, items: 2 });
+      expect(await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: real.id } })).toMatchObject({ inheritsBase: true });
+      const v = await versions(m);
+      const norm = v.combos.find((c) => c.stamp == null && c.finish === 'reverse_holo' && c.language === 'en')!;
+      const c = v.combos.find((x) => x.stamp?.productId === realId && x.finish === 'reverse_holo' && x.language === 'en')!;
+      expect([c.priceSource, c.previewPriceCents, c.unavailableReason]).toEqual(['inherited_base', norm.previewPriceCents, null]);
+      expect(c.buySuggestedCents).toBe(norm.buySuggestedCents);
+      const moved = await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: vault.id } });
+      expect([moved.cardProductId, moved.ownerType, moved.ownerUserId, moved.status]).toEqual([realId, 'customer', customerId, 'in_custody']);
+      expect((await h.prisma.inventoryItem.findUniqueOrThrow({ where: { id: it.body.id } })).cardProductId).toBe(realId);
+      // el real obtiene mercado propio ⇒ ahora vale el suyo
+      await h.prisma.priceReference.create({ data: { cardId: m, productType: 'raw', gradeKey: 'raw:NM', finish: 'reverse_holo', cardProductId: real.id, source: 'manual', priceMxnCents: 90_000, capturedDate: today(), isManualOverride: true, refKind: 'market' } });
+      const v2 = await versions(m);
+      const c2 = v2.combos.find((x) => x.stamp?.productId === realId && x.finish === 'reverse_holo' && x.language === 'en')!;
+      expect(c2.priceSource).toBe('own_market');
+      expect(c2.previewPriceCents).toBeGreaterThan(norm.previewPriceCents!);
+      // un real que NO absorbió ninguna manual sigue sin heredar (ningún precio existente cambia)
+      const solo = await card('inh2', ['normal'], { normal: 20_000 });
+      const sp = 780_000_000 + Math.floor(Math.random() * 9_000_000);
+      await h.prisma.cardProduct.create({ data: { cardId: solo, tcgplayerProductId: sp, kind: 'stamped', name: `Real solo ${run}`, finishes: ['normal'], stampType: 'league', sourceGroupId: 1539 } });
+      const cs = (await versions(solo)).combos.find((x) => x.stamp?.productId === sp && x.language === 'en')!;
+      expect([cs.previewPriceCents, cs.unavailableReason]).toEqual([null, 'no_stamped_market']);
     });
   });
 });

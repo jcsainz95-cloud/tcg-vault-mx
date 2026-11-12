@@ -12,7 +12,7 @@ import { composeVariantPricing } from '../pricing/variant-pricing';
 import { StampedIngestService } from '../pricing/stamped-ingest.service';
 import { SettingsService } from '../settings/settings.service';
 import { ManualVersionMergeService } from '../pricing/manual-version-merge.service';
-import { cleanStampLabel, normalizeStampLabel } from '../../common/stamp-label';
+import { ALTA_LIGA_NAMESPACE, cleanStampLabel, manualQuotaLockKey, manualVersionLockKey, normalizeStampLabel } from '../../common/stamp-label';
 import { ErrorCode } from '../../common/error-codes';
 
 /** `VersionComboDTO` (API_CONTRACT §IDS.4). */
@@ -70,8 +70,14 @@ export interface CreateManualVersionResult {
   combos: CardVersionsResponse['combos'];
 }
 
-/** Candado consultivo del alta manual (clave propia; censo `test/lock-keys.census.spec.ts`). */
-export const ALTA_LIGA_NAMESPACE = 116_000_217;
+/** Candado consultivo del alta manual y de la fusión: el namespace vive en `common/stamp-label.ts` (censo `test/lock-keys.census.spec.ts`). */
+export { ALTA_LIGA_NAMESPACE };
+
+/** `lock_timeout` de Postgres (SQLSTATE 55P03), tal como lo envuelve Prisma en una consulta cruda. */
+export function isLockTimeout(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : '';
+  return /55P03|lock timeout|canceling statement due to lock timeout/i.test(m) || (e as { meta?: { code?: string } } | undefined)?.meta?.code === '55P03';
+}
 /** Tope de altas manuales por usuario y hora (API_CONTRACT_ALTA_LIGA §2.5). */
 export const MANUAL_VERSION_HOURLY_CAP = 20;
 export const MANUAL_VERSION_AUDIT_ACTIONS = ['inventory.manual_version_created', 'inventory.manual_version_finish_added'] as const;
@@ -111,7 +117,7 @@ export class InventoryVersionsService {
     });
     const stamps: StampRef[] = products
       .filter((p) => p.stampType != null)
-      .map((p) => ({ productId: p.tcgplayerProductId, internalId: p.id, type: p.stampType!, label: p.stampLabel, finishes: p.finishes }));
+      .map((p) => ({ productId: p.tcgplayerProductId, internalId: p.id, type: p.stampType!, label: p.stampLabel, finishes: p.finishes, inheritsBase: p.inheritsBase }));
     // Las piezas HIPOTÉTICAS (no se persisten): raw NM, plataforma, sin precio a mano.
     type Hypo = { item: SaleItem; finish: Finish; language: CardLanguage; stamp: StampRef | null };
     const hypos: Hypo[] = [];
@@ -138,7 +144,7 @@ export class InventoryVersionsService {
           : this.decider.versionReferences(h.item, v, batch!).guard;
       const appliedMarketPct = h.language === 'es' ? batch!.spanishPct : null;
       // §ALTA-LIGA-2: ¿esta combinación hereda el precio de la normal? (el MISMO cálculo del decisor: `versionReferences`)
-      const inherited = h.stamp != null && h.stamp.productId < 0 && this.decider.versionReferences(h.item, v, batch!).inherited;
+      const inherited = h.stamp?.inheritsBase === true && this.decider.versionReferences(h.item, v, batch!).inherited;
       // La COMPRA sugerida heredada es la de la combinación NORMAL del mismo idioma y acabado (por confirmar por el dueño).
       const buySuggestedCents = inherited
         ? this.buySuggestedFor(h.item, { language: h.language, stamp: null }, card, batch!, h.language === 'en' ? this.decider.referenceIn(batch!.refs, h.item) : undefined)
@@ -226,10 +232,10 @@ export class InventoryVersionsService {
       throw BusinessException.validation('FINISH_NOT_AVAILABLE', 'Finish not available for this card', { finish: input.finish, available: card.availableFinishes });
     }
     const norm = normalizeStampLabel(label.label);
-    const lockKey = `${cardId}|${input.stampType}|${norm ?? ''}`;
-    const out = await this.prisma.$transaction(async (tx) => {
-      // Serializa la MISMA llave (doble clic / dos operadores): el segundo ve el producto del primero (200), no un 500 por el índice.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ALTA_LIGA_NAMESPACE}::int, hashtext(${lockKey}))`;
+    const out = await this.withKeyLock(cardId, input.stampType, async (tx) => {
+      // AL2-1: el cupo del actor se cuenta y se escribe bajo SU candado (todas las altas de un usuario se serializan): 30 altas
+      // paralelas ⇒ exactamente 20 pasan. Orden de candados SIEMPRE llave → actor (nunca al revés): sin interbloqueo.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ALTA_LIGA_NAMESPACE}::int, hashtext(${manualQuotaLockKey(actor.id)}))`;
       const existing = await tx.cardProduct.findFirst({
         where: { cardId, kind: 'stamped', stampType: input.stampType, tcgplayerProductId: { lt: 0 }, stampLabelNorm: norm },
       });
@@ -245,7 +251,7 @@ export class InventoryVersionsService {
         );
         return { created: false, finishAdded: true, product };
       }
-      // Guardia contra duplicar lo REAL: producto real o candidata del mismo tipo de sello ⇒ el camino es `attach`.
+      // Guardia contra duplicar lo REAL: producto real o candidata del mismo tipo de sello ⇒ el camino es `attach`. Las dos listas SIEMPRE presentes.
       const [reals, cands] = await Promise.all([
         tx.cardProduct.findMany({ where: { cardId, kind: 'stamped', stampType: input.stampType, tcgplayerProductId: { gt: 0 } }, select: { tcgplayerProductId: true, name: true, stampLabel: true } }),
         tx.stampedProductCandidate.findMany({ where: { cardId, stampType: input.stampType }, select: { tcgplayerProductId: true, name: true, stampLabel: true } }),
@@ -261,7 +267,7 @@ export class InventoryVersionsService {
       const productId = seq[0].id;
       const name = `${card.name} (${input.stampType}${label.label ? ` ${label.label}` : ''})`;
       const product = await tx.cardProduct.create({
-        data: { cardId, tcgplayerProductId: productId, kind: 'stamped', name, finishes: [input.finish], stampType: input.stampType, stampLabel: label.label, stampLabelNorm: norm, sourceGroupId: null },
+        data: { cardId, tcgplayerProductId: productId, kind: 'stamped', name, finishes: [input.finish], stampType: input.stampType, stampLabel: label.label, stampLabelNorm: norm, sourceGroupId: null, inheritsBase: true },
       });
       await this.audit?.log(
         { actorUserId: actor.id, actorRole: actor.role, action: 'inventory.manual_version_created', entityType: 'CardProduct', entityId: product.id,
@@ -282,6 +288,28 @@ export class InventoryVersionsService {
         combos: versions.combos.filter((c) => c.stamp?.productId === productId),
       },
     };
+  }
+
+  /**
+   * §ALTA-LIGA-2 (API_CONTRACT_ALTA_LIGA §2.5) — el alta y la FUSIÓN comparten el candado por `(cardId, stampType)`. El alta lo espera hasta
+   * 3 s (`lock_timeout`) y reintenta UNA vez con otra transacción; si aun así no lo obtiene ⇒ 409 `VERSION_BUSY` (reintentable). Tras una
+   * fusión, el reintento ya ve el producto real ⇒ 409 `USE_EXISTING`. Nunca 500.
+   */
+  private async withKeyLock<T>(cardId: string, stampType: StampType, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    const key = manualVersionLockKey(cardId, stampType);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT set_config('lock_timeout', '3000ms', true)`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ALTA_LIGA_NAMESPACE}::int, hashtext(${key}))`;
+          await tx.$executeRaw`SELECT set_config('lock_timeout', '0', true)`;
+          return fn(tx);
+        });
+      } catch (e) {
+        if (!isLockTimeout(e)) throw e;
+        if (attempt >= 2) throw BusinessException.conflict(ErrorCode.VERSION_BUSY, 'Another operation is updating this league version; retry in a moment', { retryAfterSeconds: 2 });
+      }
+    }
   }
 
   /** 20 altas manuales por usuario por hora (429 `RATE_LIMITED`): cuenta SU auditoría, así que un reintento sin escritura no gasta cupo. */

@@ -18,6 +18,8 @@ export interface StampRef {
   type: StampType;
   label: string | null;
   finishes: Finish[];
+  /** §ALTA-LIGA-2: ¿hereda el precio de la carta normal mientras no tenga `PriceReference` propia? (`CardProduct.inheritsBase`). */
+  inheritsBase?: boolean;
 }
 
 export interface PieceVersion {

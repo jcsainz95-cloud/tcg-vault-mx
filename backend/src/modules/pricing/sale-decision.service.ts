@@ -214,7 +214,7 @@ export class SaleDecisionService {
       // v1.116⟨ids⟩: una pieza de liga no lee la referencia de la carta base (I-2).
       // §ALTA-LIGA-2: SALVO la versión de liga MANUAL (productId < 0): mientras no tenga mercado propio hereda el de la normal, y
       // para eso el lote necesita la referencia de la base (`versionReferences`, el único punto).
-      if (i.cardProductId != null && stamps.has(i.cardProductId) && i.cardProductId > 0) return [];
+      if (i.cardProductId != null && stamps.has(i.cardProductId) && stamps.get(i.cardProductId)?.inheritsBase !== true) return [];
       const k = this.refKeyOf(i);
       return k ? [k] : [];
     });
@@ -384,18 +384,18 @@ export class SaleDecisionService {
     /** §ALTA-LIGA-2: `true` ⇒ la referencia es la de la carta NORMAL (versión manual sin mercado propio), no la del producto. */
     inherited: boolean;
   } {
-    const manual = v.stamp != null && v.stamp.productId < 0;
+    const inheritsBase = v.stamp?.inheritsBase === true;
     const motive = v.stamp ? 'no_stamped_market' : 'no_english_market';
     const none = { guard: null, price: null, motive, capturedDate: null, source: null, inherited: false } as const;
     if (item.productType !== 'raw') return none;
     const ref = v.stamp ? this.stampedRefOf(item, v, batch) : this.referenceIn(batch.refs, item);
     const guard = ref?.status === 'priced' ? (ref.referenceMxnCents ?? null) : null;
     if (guard == null) {
-      // ⭐ §ALTA-LIGA-2 (API_CONTRACT_ALTA_LIGA §2.4) — EL ÚNICO PUNTO DE LA HERENCIA: un producto MANUAL (productId < 0) sin
-      // `PriceReference` propia se precia como la carta NORMAL (sin sello) del mismo idioma y acabado: exactamente lo que
-      // `(language, null)` daría (en ⇒ R_en; es ⇒ R_en ×X). Un producto real (> 0) NUNCA hereda; con mercado propio no se llega
+      // ⭐ §ALTA-LIGA-2 (API_CONTRACT_ALTA_LIGA §2.4/§4) — EL ÚNICO PUNTO DE LA HERENCIA: un producto con `inheritsBase` (versión manual, o el
+      // real que la absorbió) sin `PriceReference` propia se precia como la carta NORMAL (sin sello) del mismo idioma y acabado: exactamente lo que
+      // `(language, null)` daría (en ⇒ R_en; es ⇒ R_en ×X). Un producto real que no absorbió una manual NUNCA hereda; con mercado propio no se llega
       // aquí. Sin mercado en la normal tampoco ⇒ `no_market` (PRICE_PENDING como hoy).
-      if (!manual) return none;
+      if (!inheritsBase) return none;
       const base = this.versionReferences(item, { language: v.language, stamp: null }, batch);
       if (base.guard == null) return { ...none, motive: 'no_market' };
       return { ...base, motive: 'no_market', inherited: true };

@@ -713,9 +713,15 @@ export class InventoryController {
     @CurrentUser() user: { id: string; role: Role },
     @Res({ passthrough: true }) res: Response,
   ) {
-    const r = await this.versionsOrThrow().createManual(cardId, dto, user);
-    res.status(r.status);
-    return r.body;
+    try {
+      const r = await this.versionsOrThrow().createManual(cardId, dto, user);
+      res.status(r.status);
+      return r.body;
+    } catch (e) {
+      // §ALTA-LIGA-2 (§2.5): el alta chocó con una fusión en curso ⇒ 409 reintentable con `Retry-After: 2` (nunca 500).
+      if (e instanceof BusinessException && e.code === 'VERSION_BUSY') res.setHeader('Retry-After', '2');
+      throw e;
+    }
   }
 
   /** v1.116⟨ids⟩ (§IDS.4): elección de IDENTIDAD de un producto de liga ambiguo (404 sin candidata · 409 ya colgado). */
