@@ -53,6 +53,7 @@ import {
   revertM95,
   revertM99,
   revertM101,
+  revertM102,
   revertPromoLink,
   cloneSchema,
   FROZEN_B_SHA256,
@@ -1231,6 +1232,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     // en su G-8. Ambos gemelos se revierten a esa era (M-75/M-76 fuera) para comparar como iguales.
     const a = await fresh({ m73: false, m74: false, m75: false });
     // v1.114.5⟨portada⟩: M-94 y luego M-93 (orden inverso de despliegue) — el B congelado no conoce sus seis tablas.
+    revertM102(a.schema); // §PROV F1: el B congelado no conoce las ocho tablas del portal de proveedores (G-8 abortaría).
     revertM101(a.schema); // §GSHOP.A: el B congelado no conoce `IndexInspection` (G-8 abortaría).
     revertM99(a.schema); // MKT-V2: el B congelado no conoce `SearchNoResultDaily` ni `MarketingWeeklyDigest` (G-8 abortaría).
     revertPromoLink(a.schema); // AUTO-B: el B congelado no conoce `PromoCollectionLink` (G-8 abortaría).
@@ -1251,6 +1253,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     n += 1;
     const twin = `${RUN}_${n}`;
     migrateSchema(twin);
+    revertM102(twin); // §PROV F1 (ídem).
     revertM101(twin); // §GSHOP.A (ídem).
     revertM99(twin); // MKT-V2 (ídem).
     revertPromoLink(twin); // AUTO-B (ídem).
@@ -1446,5 +1449,55 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
       const r = commit(e);
       expect(r.stdout).not.toMatch(/G-10|=== 2\.8/);
     });
+  });
+});
+
+/**
+ * §PROV F1 (m102/m103, G-8; clasificación de backend a ratificar por el arquitecto): lo TRANSACCIONAL del portal de proveedores
+ * (solicitudes, ofertas, su historial, acuerdos y sus piezas) se BORRA; las tiendas, sus invitaciones y los interruptores se
+ * CONSERVAN. Las ocho sembradas con n > 0 antes del commit, y una pieza de inventario enlazada al acuerdo (FK SET NULL).
+ */
+const SUP_EMPTIED = ['SupplyRequest', 'SupplyOffer', 'SupplyOfferEvent', 'SupplyPurchase', 'SupplyPurchaseUnit'];
+const SUP_KEPT = ['Supplier', 'SupplierInvite', 'SupplySettings'];
+
+async function seedSupply(e: Env): Promise<void> {
+  const item = await e.db.inventoryItem.findFirstOrThrow({ select: { id: true, cardId: true } });
+  const sup = await e.db.supplier.create({ data: { email: 'tienda@lz.local', businessName: 'Tienda LZ', status: 'invited' } });
+  await e.db.supplierInvite.create({ data: { supplierId: sup.id, tokenHash: 'lz-hash', expiresAt: new Date('2026-12-01T00:00:00Z'), invitedById: 'lz' } });
+  const req = await e.db.supplyRequest.create({
+    data: { cardId: item.cardId, qtyWanted: 2, qtyReserved: 2, pctBps: 7000, expiresAt: new Date('2026-12-01T00:00:00Z'), createdById: 'lz' },
+  });
+  const offer = await e.db.supplyOffer.create({
+    data: { requestId: req.id, supplierId: sup.id, qty: 2, condition: 'NM', unitCents: 7000, status: 'accepted', expiresAt: new Date('2026-12-01T00:00:00Z') },
+  });
+  await e.db.supplyOfferEvent.create({ data: { offerId: offer.id, actor: 'supplier', action: 'offered', qty: 2, unitCents: 7000 } });
+  const pur = await e.db.supplyPurchase.create({
+    data: { offerId: offer.id, supplierId: sup.id, requestId: req.id, cardId: item.cardId, finish: 'normal', qty: 2, agreedUnitCents: 7000, pickupDueAt: new Date('2026-12-01T00:00:00Z') },
+  });
+  await e.db.supplyPurchaseUnit.create({ data: { purchaseId: pur.id, n: 1, condition: 'NM' } });
+  await e.db.inventoryItem.update({ where: { id: item.id }, data: { supplyPurchaseId: pur.id } });
+}
+
+describe('💰 §PROV F1 · Limpieza PDB de m102/m103 (G-8)', () => {
+  it('SUP_EMPTIED ⇒ 0 filas; SUP_KEPT ⇒ contenido IDÉNTICO (las ocho con n > 0 antes del commit); el ensayo no cambia nada', async () => {
+    const e = await fresh();
+    await seedSupply(e);
+    const before = await snapshot(admin, e.schema);
+    for (const t of [...SUP_EMPTIED, ...SUP_KEPT]) expect({ t, n: before.tables[t].n > 0 }).toEqual({ t, n: true });
+    const r = commit(e);
+    const after = await snapshot(admin, e.schema);
+    for (const t of SUP_EMPTIED) expect({ t, n: after.tables[t].n }).toEqual({ t, n: 0 });
+    for (const t of SUP_KEPT) expect({ t, s: after.tables[t] }).toEqual({ t, s: before.tables[t] });
+    expect(r.stdout).toMatch(/10 SupplyPurchase\b/);
+    expect(r.stdout).toMatch(/10 SupplyRequest\b/);
+  });
+
+  it('una 2.ª corrida no cambia nada (idempotente)', async () => {
+    const e = await fresh();
+    await seedSupply(e);
+    commit(e);
+    const mid = await snapshot(admin, e.schema);
+    commit(e);
+    expect(await snapshot(admin, e.schema)).toEqual(mid);
   });
 });

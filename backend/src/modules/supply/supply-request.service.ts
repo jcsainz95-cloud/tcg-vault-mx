@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Finish, Prisma, SupplyRequestStatus } from '@prisma/client';
+import { FINISH_VALUES } from '../../common/enum-values';
+import { parseEnumFilter } from '../../common/enum-filter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { SupplyPricingService } from './supply-pricing.service';
@@ -21,11 +23,13 @@ export class SupplyRequestService {
     return s?.defaultPctBps ?? DEFAULT_PCT_BPS;
   }
 
-  async marketCheck(cardId: string, finish: string) {
+  async marketCheck(cardId: string, rawFinish: string) {
+    const finish = parseEnumFilter('finish', rawFinish, FINISH_VALUES);
+    if (!finish) throw BusinessException.badRequest('VALIDATION_ERROR', 'finish is required', { field: 'finish', allowed: [...FINISH_VALUES] });
     const card = await this.prisma.card.findUnique({ where: { id: cardId } });
     if (!card) throw new BusinessException('CARD_NOT_FOUND', 404, 'Card not found');
     if (!(card.availableFinishes as string[]).includes(finish)) throw BusinessException.badRequest('FINISH_NOT_AVAILABLE', 'Finish not available');
-    const marketCents = await this.pricing.marketCents(cardId, finish as Finish);
+    const marketCents = await this.pricing.marketCents(cardId, finish);
     const defaultPctBps = await this.defaultPctBps();
     return {
       cardId, finish, marketCents, hasMarket: marketCents != null, capCents: marketCents, defaultPctBps,
@@ -138,7 +142,8 @@ export class SupplyRequestService {
   async listAdmin(q: { status?: string; q?: string; page?: string; pageSize?: string }) {
     const { page, pageSize, skip } = pageOf(q);
     const where: Prisma.SupplyRequestWhereInput = {};
-    if (q.status && ['open', 'filled', 'closed', 'expired'].includes(q.status)) where.status = q.status as SupplyRequestStatus;
+    const status = parseEnumFilter('status', q.status, ['open', 'filled', 'closed', 'expired'] as const);
+    if (status) where.status = status;
     if (q.q?.trim()) where.card = { name: { contains: q.q.trim(), mode: 'insensitive' } };
     const [rows, total] = await Promise.all([
       this.prisma.supplyRequest.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: pageSize, include: WITH_CARD }),

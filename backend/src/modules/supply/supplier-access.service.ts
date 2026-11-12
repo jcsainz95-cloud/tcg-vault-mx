@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma, Role } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
+import { parseEnumFilter } from '../../common/enum-filter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { MIN_PASSWORD_LENGTH, normalizeEmail } from '../../common/validation/credentials';
@@ -151,7 +152,8 @@ export class SupplierAccessService {
   async list(q: { q?: string; status?: string; page?: string; pageSize?: string }) {
     const { page, pageSize, skip } = pageOf(q);
     const where: Prisma.SupplierWhereInput = {};
-    if (q.status && ['invited', 'active', 'suspended'].includes(q.status)) where.status = q.status as 'invited';
+    const status = parseEnumFilter('status', q.status, ['invited', 'active', 'suspended'] as const);
+    if (status) where.status = status;
     if (q.q?.trim()) where.OR = [{ businessName: { contains: q.q.trim(), mode: 'insensitive' } }, { email: { contains: q.q.trim(), mode: 'insensitive' } }];
     const [rows, total] = await Promise.all([
       this.prisma.supplier.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: pageSize, include: { _count: { select: { offers: { where: { status: { in: ['open', 'countered'] } } } } } } }),

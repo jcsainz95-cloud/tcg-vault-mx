@@ -19,7 +19,7 @@ import { SupplyRequestService } from './supply-request.service';
 import { SupplyOfferService } from './supply-offer.service';
 import { SupplyPurchaseService } from './supply-purchase.service';
 
-type Q = Record<string, string | undefined>;
+type S = string | undefined;
 const idemKey = (h?: string) => (h && h.trim() ? h.trim().slice(0, 200) : undefined);
 
 /** POST /auth/supplier/accept-invite — público (la invitación es el control de acceso); no hay registro abierto. */
@@ -62,7 +62,7 @@ export class SupplierPortalController {
     await this.access.changePassword(uid, dto);
   }
 
-  @Get('requests') async listRequests(@CurrentUser('id') uid: string, @Query() q: Q) { return this.requests.listForSupplier(await this.sid(uid), q); }
+  @Get('requests') async listRequests(@CurrentUser('id') uid: string, @Query('q') q?: S, @Query('page') page?: S, @Query('pageSize') pageSize?: S) { return this.requests.listForSupplier(await this.sid(uid), { q, page, pageSize }); }
   @Get('requests/:id') async getRequest(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.requests.getForSupplier(await this.sid(uid), id); }
 
   @Post('requests/:id/offers')
@@ -70,12 +70,12 @@ export class SupplierPortalController {
     return this.offers.create(uid, id, dto, idemKey(key));
   }
 
-  @Get('offers') listOffers(@CurrentUser('id') uid: string, @Query() q: Q) { return this.offers.listForSupplier(uid, q); }
+  @Get('offers') listOffers(@CurrentUser('id') uid: string, @Query('status') status?: S, @Query('page') page?: S, @Query('pageSize') pageSize?: S) { return this.offers.listForSupplier(uid, { status, page, pageSize }); }
   @Get('offers/:id') getOffer(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.offers.getForSupplier(uid, id); }
   @Post('offers/:id/respond') @HttpCode(200)
   respond(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: SupplierRespondDto) { return this.offers.supplierRespond(uid, id, dto); }
 
-  @Get('purchases') listPurchases(@CurrentUser('id') uid: string, @Query() q: Q) { return this.purchases.listSupplier(uid, q); }
+  @Get('purchases') listPurchases(@CurrentUser('id') uid: string, @Query('page') page?: S, @Query('pageSize') pageSize?: S) { return this.purchases.listSupplier(uid, { page, pageSize }); }
   @Get('purchases/:id') getPurchase(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.purchases.getSupplier(uid, id); }
 }
 
@@ -98,18 +98,18 @@ export class AdminSupplyController {
     res.status(r.created ? 201 : 200);
     return r.body;
   }
-  @Roles(...STAFF) @Get('suppliers') listSuppliers(@Query() q: Q) { return this.access.list(q); }
+  @Roles(...STAFF) @Get('suppliers') listSuppliers(@Query('q') q?: S, @Query('status') status?: S, @Query('page') page?: S, @Query('pageSize') pageSize?: S) { return this.access.list({ q, status, page, pageSize }); }
   @Roles(Role.super_admin) @Patch('suppliers/:id') patchSupplier(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PatchSupplierDto) { return this.access.patch(id, dto, uid); }
 
   // ---- solicitudes ----
   @Roles(...STAFF) @Get('supply-requests/market-check')
-  marketCheck(@Query('cardId') cardId?: string, @Query('finish') finish?: string) {
+  marketCheck(@Query('cardId') cardId?: S, @Query('finish') finish?: S) {
     if (!cardId || !finish) throw BusinessException.badRequest('VALIDATION_ERROR', 'cardId and finish are required');
     return this.requests.marketCheck(cardId, finish);
   }
   @Roles(Role.super_admin) @Post('supply-requests') create(@CurrentUser('id') uid: string, @Body() dto: CreateSupplyRequestDto) { return this.requests.create(dto, uid); }
   @Roles(Role.super_admin) @Patch('supply-requests/:id') patchRequest(@Param('id') id: string, @Body() dto: PatchSupplyRequestDto) { return this.requests.patch(id, dto); }
-  @Roles(...STAFF) @Get('supply-requests') listRequests(@Query() q: Q) { return this.requests.listAdmin(q); }
+  @Roles(...STAFF) @Get('supply-requests') listRequests(@Query('q') q?: S, @Query('status') status?: S, @Query('page') page?: S, @Query('pageSize') pageSize?: S) { return this.requests.listAdmin({ q, status, page, pageSize }); }
   @Roles(...STAFF) @Get('supply-requests/:id')
   async getRequest(@Param('id') id: string) {
     const r = await this.requests.getAdmin(id);
@@ -117,12 +117,12 @@ export class AdminSupplyController {
   }
 
   // ---- ofertas ----
-  @Roles(...STAFF) @Get('supply-offers') listOffers(@Query() q: Q) { return this.offers.listAdmin(q); }
+  @Roles(...STAFF) @Get('supply-offers') listOffers(@Query('status') status?: S, @Query('requestId') requestId?: S, @Query('supplierId') supplierId?: S, @Query('page') page?: S, @Query('pageSize') pageSize?: S) { return this.offers.listAdmin({ status, requestId, supplierId, page, pageSize }); }
   @Roles(Role.super_admin) @Post('supply-offers/:id/respond') @HttpCode(200)
   respond(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: AdminRespondDto) { return this.offers.adminRespond(id, dto, uid); }
 
   // ---- acuerdos ----
-  @Roles(...STAFF) @Get('supply-purchases') listPurchases(@Query() q: Q) { return this.purchases.listAdmin(q); }
+  @Roles(...STAFF) @Get('supply-purchases') listPurchases(@Query('status') status?: S, @Query('supplierId') supplierId?: S, @Query('page') page?: S, @Query('pageSize') pageSize?: S) { return this.purchases.listAdmin({ status, supplierId, page, pageSize }); }
   @Roles(...STAFF) @Get('supply-purchases/:id') getPurchase(@Param('id') id: string) { return this.purchases.getAdmin(id); }
   @Roles(...STAFF) @Post('supply-purchases/:id/receive') @HttpCode(200)
   receive(@CurrentUser() u: { id: string; role: Role }, @Param('id') id: string, @Body() dto: ReceiveDto, @Headers('idempotency-key') key?: string) { return this.purchases.receive(id, dto, idemKey(key), u.id, u.role); }

@@ -129,6 +129,11 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/inventory/sealed-products::principalOnly',
   'GET /admin/orders::guest',
   'GET /admin/orders::needsManual',
+  // 💰 §PROV F1 (ids de filtro del portal de proveedores; ⚠️ PENDIENTE de ratificar por el arquitecto): igualdad exacta con un uuid,
+  // no un conjunto de tokens. Los `supplierId` del token JAMÁS se leen de aquí: son filtros del PANEL del dueño (staff).
+  'GET /admin/supply-offers::requestId',
+  'GET /admin/supply-offers::supplierId',
+  'GET /admin/supply-purchases::supplierId',
   'GET /buylist/cards::rarity',
   'GET /catalog/cards::gradingHighlight',
   'GET /catalog/cards::rarity',
@@ -336,6 +341,17 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
  * | `/catalog/cards?sealedSubtype=` | sigue vivo y filtrando | **RETIRADO del contrato en v1.73** (§2 y §0-Q punto 7): su cura es **quitar el parámetro**, no arreglarlo ⇒ `D-EQ-3`, **frontend primero** | Catálogo y precios |
  */
 export const SIN_CLASE_DECLARADA: readonly string[] = [
+  // 💰 §PROV F1 (⚠️ PENDIENTE de ratificar por el arquitecto: su fila en §0-Q punto 4 no existe). Dominio cerrado MEDIDO; la conducta YA
+  // cumple §0-Q (`parseEnumFilter`: fuera de dominio ⇒ `400 VALIDATION_ERROR {field, allowed}`, vacío ≡ ausente), así que pasan al
+  // `REGISTRO` cuando el arquitecto escriba las filas. Dominios: estado de proveedor {invited,active,suspended}; de solicitud
+  // {open,filled,closed,expired}; de oferta {open,countered,accepted,rejected,withdrawn,expired}; de acuerdo
+  // {agreed,collected,verified,paid,cancelled}; `finish` = enum `Finish`.
+  'GET /admin/suppliers::status',
+  'GET /admin/supply-offers::status',
+  'GET /admin/supply-purchases::status',
+  'GET /admin/supply-requests::status',
+  'GET /admin/supply-requests/market-check::finish',
+  'GET /supplier/offers::status',
   // DINERO (`?report=` ×2, `?reason=`): 3 gates aparte, NO en este lote.
   'GET /admin/finance/export.csv::report',
   'GET /admin/pricing/graded-estimates/review::reason',

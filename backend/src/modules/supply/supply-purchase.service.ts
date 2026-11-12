@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { MovementReason, Prisma, Role } from '@prisma/client';
+import { parseEnumFilter } from '../../common/enum-filter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { runSerializable } from '../../common/serializable-retry';
@@ -42,7 +43,8 @@ export class SupplyPurchaseService {
   async listAdmin(q: { status?: string; supplierId?: string; page?: string; pageSize?: string }) {
     const { page, pageSize, skip } = pageOf(q);
     const where: Prisma.SupplyPurchaseWhereInput = {};
-    if (q.status && ['agreed', 'collected', 'verified', 'paid', 'cancelled'].includes(q.status)) where.status = q.status as 'agreed';
+    const status = parseEnumFilter('status', q.status, ['agreed', 'collected', 'verified', 'paid', 'cancelled'] as const);
+    if (status) where.status = status;
     if (q.supplierId) where.supplierId = q.supplierId;
     const [rows, total] = await Promise.all([
       this.prisma.supplyPurchase.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: pageSize, select: { id: true } }),

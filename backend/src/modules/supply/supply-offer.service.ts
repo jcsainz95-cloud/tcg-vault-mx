@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
+import { parseEnumFilter } from '../../common/enum-filter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { runSerializable } from '../../common/serializable-retry';
@@ -73,7 +74,8 @@ export class SupplyOfferService {
     const supplierId = await this.supplierIdOf(userId);
     const { page, pageSize, skip } = pageOf(q);
     const where: Prisma.SupplyOfferWhereInput = { supplierId };
-    if (q.status && ['open', 'countered', 'accepted', 'rejected', 'withdrawn', 'expired'].includes(q.status)) where.status = q.status as 'open';
+    const status = parseEnumFilter('status', q.status, ['open', 'countered', 'accepted', 'rejected', 'withdrawn', 'expired'] as const);
+    if (status) where.status = status;
     const [rows, total] = await Promise.all([
       this.prisma.supplyOffer.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: pageSize, include: OFFER_INCLUDE }),
       this.prisma.supplyOffer.count({ where }),
@@ -112,7 +114,8 @@ export class SupplyOfferService {
   async listAdmin(q: { status?: string; requestId?: string; supplierId?: string; page?: string; pageSize?: string }) {
     const { page, pageSize, skip } = pageOf(q);
     const where: Prisma.SupplyOfferWhereInput = {};
-    if (q.status && ['open', 'countered', 'accepted', 'rejected', 'withdrawn', 'expired'].includes(q.status)) where.status = q.status as 'open';
+    const status = parseEnumFilter('status', q.status, ['open', 'countered', 'accepted', 'rejected', 'withdrawn', 'expired'] as const);
+    if (status) where.status = status;
     if (q.requestId) where.requestId = q.requestId;
     if (q.supplierId) where.supplierId = q.supplierId;
     const [rows, total] = await Promise.all([

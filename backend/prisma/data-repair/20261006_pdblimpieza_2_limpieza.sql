@@ -119,7 +119,9 @@ SELECT to_regclass(format('%I', 'Accessory')) IS NOT NULL AS lz_m73,
        to_regclass(format('%I', 'DiscountRedemption')) IS NOT NULL AS lz_m92,
        -- v1.114.5⟨portada⟩ (API_CONTRACT §DYN.1 «Limpieza PDB»): ¿tiene tu base Destacadas (M-93) y el precio del día (M-94)?
        to_regclass(format('%I', 'FeaturedSelection')) IS NOT NULL AS lz_m93,
-       to_regclass(format('%I', 'ListingPrice')) IS NOT NULL AS lz_m94 \gset
+       to_regclass(format('%I', 'ListingPrice')) IS NOT NULL AS lz_m94,
+       -- §PROV F1 (m102, G-8): ¿tiene tu base el portal de proveedores? Mismo patrón condicional.
+       to_regclass(format('%I', 'SupplyPurchase')) IS NOT NULL AS lz_sup \gset
 
 -- C-4: REPEATABLE READ = una sola FOTO de la base para toda la transacción. Un alta de usuario o de precio que entre
 -- MIENTRAS esto corre no cambia los conteos «antes/después» (sin G-5 falso). La foto se toma en la primera consulta,
@@ -159,6 +161,11 @@ LOCK TABLE "MeasurementOutbox", "MeasurementContext" IN SHARE ROW EXCLUSIVE MODE
 -- v1.110⟨descuentos⟩ (M-92): los usos los escribe la sesión de checkout y el webhook; los intentos fallidos, el quote.
 \if :lz_m92
 LOCK TABLE "DiscountRedemption", "DiscountCodeThrottle" IN SHARE ROW EXCLUSIVE MODE;
+\endif
+
+-- §PROV F1 (m102): las ofertas y los acuerdos los escribe el proveedor y el staff en vivo ⇒ mismo candado.
+\if :lz_sup
+LOCK TABLE "SupplyRequest", "SupplyOffer", "SupplyPurchase" IN SHARE ROW EXCLUSIVE MODE;
 \endif
 
 -- G-11 (v1.114.5⟨portada⟩, API_CONTRACT §DYN.1 «Limpieza PDB») · justo después del último LOCK y como PRIMERA consulta (la
@@ -255,7 +262,11 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   -- v1.114.5⟨portada⟩ (M-93/M-94, G-8; API_CONTRACT §DYN.1 «Limpieza PDB»): el precio del día de piezas que dejan de existir
   -- y el sorteo de Destacadas hecho sobre piezas de prueba ⇒ borrar (lo derivado se vacía y lo rehace la app). G-7 no las
   -- vigila: el job escribe la selección (vacía) cada día aunque no haya nada real.
-  'ListingPrice','FeaturedSelectionItem','FeaturedSelection']) AS t
+  'ListingPrice','FeaturedSelectionItem','FeaturedSelection',
+  -- §PROV F1 (m102, G-8; clasificación de backend a ratificar por el arquitecto en LIMPIEZA_DB §14.2): solicitudes, ofertas
+  -- (con su historial), acuerdos y las piezas recibidas de cada acuerdo = TRANSACCIONAL (como pedidos y solicitudes de venta; el
+  -- acuerdo enlaza piezas de inventario que esta limpieza borra) ⇒ borrar. Las tiendas y sus invitaciones se CONSERVAN (abajo).
+  'SupplyPurchaseUnit','SupplyPurchase','SupplyOfferEvent','SupplyOffer','SupplyRequest']) AS t
 UNION ALL
 SELECT t, 'ajustar' FROM unnest(ARRAY['VariantPriceOverride','PendingPriceEntry',
   -- v2.2: el accesorio se queda (catálogo); sus existencias y apartados vuelven a 0
@@ -302,7 +313,12 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   -- ON DELETE CASCADE: si alguna vez se borrara una Card/CardSet referenciada, el link cae con ella (nada que ordenar aquí).
   'PromoCollectionLink',
   -- §GSHOP.A (m101): veredicto de Google (Search Console) de las URLs públicas = reflejo del índice, sin PII ni datos de prueba ⇒ conservar.
-  'IndexInspection']) AS t;
+  'IndexInspection',
+  -- §PROV F1 (m102, G-8; a ratificar por el arquitecto): las TIENDAS aliadas (cuenta, contacto, estado) y sus invitaciones son
+  -- identidad/acceso del dueño (como `User`/`AuthToken`: borrarlas revocaría accesos en silencio) y los interruptores
+  -- (`SupplySettings`, APAGADOS al arrancar) son CONFIGURACIÓN (como `ConfigSetting`) ⇒ conservar. Sus FK solo apuntan a `User`
+  -- (conservada); las filas que SÍ se borran cuelgan de ellas, no al revés.
+  'Supplier','SupplierInvite','SupplySettings']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.
@@ -514,6 +530,16 @@ WITH x AS (DELETE FROM "Order" RETURNING 1) INSERT INTO lz_cambio SELECT '9 Orde
 
 -- 10 · Solicitudes de venta (cascada: sus líneas).
 WITH x AS (DELETE FROM "SellRequest" RETURNING 1) INSERT INTO lz_cambio SELECT '10 SellRequest', count(*) FROM x;
+
+-- 10-bis · §PROV F1 (m102): el portal de proveedores, de las hojas a la raíz (todas las FK entre ellas son RESTRICT). El acuerdo
+--          enlaza piezas con SET NULL (se borran en el paso 11) y cuelga de la tienda, que se conserva.
+\if :lz_sup
+WITH x AS (DELETE FROM "SupplyPurchaseUnit" RETURNING 1) INSERT INTO lz_cambio SELECT '10 SupplyPurchaseUnit', count(*) FROM x;
+WITH x AS (DELETE FROM "SupplyPurchase" RETURNING 1) INSERT INTO lz_cambio SELECT '10 SupplyPurchase', count(*) FROM x;
+WITH x AS (DELETE FROM "SupplyOfferEvent" RETURNING 1) INSERT INTO lz_cambio SELECT '10 SupplyOfferEvent', count(*) FROM x;
+WITH x AS (DELETE FROM "SupplyOffer" RETURNING 1) INSERT INTO lz_cambio SELECT '10 SupplyOffer', count(*) FROM x;
+WITH x AS (DELETE FROM "SupplyRequest" RETURNING 1) INSERT INTO lz_cambio SELECT '10 SupplyRequest', count(*) FROM x;
+\endif
 
 -- 11 (antes) · v1.114.5⟨portada⟩: el precio del día de las piezas que se van. Su FK ya es Cascade, pero explícito para que
 --      `lz_cambio` lo cuente.
