@@ -88,7 +88,7 @@ describe('/preguntas (§E4)', () => {
     const faq = node(jsonLdOf(container), 'FAQPage') as {
       mainEntity: { name: string; acceptedAnswer: { text: string } }[];
     };
-    expect(visibleQ).toHaveLength(24);
+    expect(visibleQ).toHaveLength(23);
     expect(faq.mainEntity.map((q) => q.name)).toEqual(visibleQ);
     expect(faq.mainEntity.map((q) => q.acceptedAnswer.text)).toEqual(visibleA);
   });
