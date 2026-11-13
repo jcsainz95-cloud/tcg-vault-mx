@@ -1,4 +1,5 @@
-import { CatalogSyncService, syncAllErrorCount } from '../src/modules/catalog/catalog-sync.service';
+import { CATALOG_SYNC_BUDGET_MAX_MS, CATALOG_SYNC_PAUSE_MAX_MS, CatalogSyncService, syncAllErrorCount } from '../src/modules/catalog/catalog-sync.service';
+import { CATALOG_METADATA_ATTEMPT_TIMEOUT_MS } from '../src/jobs/catalog-price-sync.service';
 import { PokemonTcgIoClient } from '../src/modules/catalog/pokemontcg-io.client';
 import { CatalogStaleAlertService, sweepDetail } from '../src/modules/catalog/catalog-stale-alert.service';
 import { CATALOG_AUTO_KEYS } from '../src/modules/catalog/catalog-auto-state.service';
@@ -43,6 +44,7 @@ async function sweep(svc: CatalogSyncService) {
 describe('catalog sync-all — segunda pasada paciente', () => {
   afterEach(() => {
     delete process.env.CATALOG_SYNC_BUDGET_MS;
+    delete process.env.CATALOG_SYNC_RETRY_PAUSE_MS;
     jest.restoreAllMocks();
   });
 
@@ -114,6 +116,34 @@ describe('catalog sync-all — segunda pasada paciente', () => {
     expect(s.setsFailed).toBe(1);
   });
 
+  it('CS-1: con un grupo TCGCSV en error por causa propia NO se culpa a pokemontcg.io aunque todos los sets fallen por la fuente', async () => {
+    const tcgcsv = { importGroup: jest.fn(async () => { throw new Error('boom propio'); }) };
+    const { svc, state } = build({ tcgcsv });
+    jest.spyOn(svc as never, 'importSet').mockImplementation((async () => { throw new Error('pokemontcg.io /cards -> HTTP 502'); }) as never);
+    await sweep(svc);
+    expect(state[CATALOG_AUTO_KEYS.lastSweep]).toMatchObject({ setsFailed: 3, sourceDown: false });
+  });
+
+  it('CS-2: las env se acotan (presupuesto ≤ 40 min, pausa ≤ 10 min, nunca 2^31-1 ni negativas ni NaN)', () => {
+    const { svc } = build();
+    const g = (k: 'sweepBudgetMs' | 'retryPauseMs') => (svc as unknown as Record<string, number>)[k];
+    process.env.CATALOG_SYNC_BUDGET_MS = String(2 ** 31 - 1);
+    expect(g('sweepBudgetMs')).toBe(CATALOG_SYNC_BUDGET_MAX_MS);
+    process.env.CATALOG_SYNC_BUDGET_MS = '-5';
+    expect(g('sweepBudgetMs')).toBe(CATALOG_SYNC_BUDGET_MAX_MS);
+    process.env.CATALOG_SYNC_BUDGET_MS = 'abc';
+    expect(g('sweepBudgetMs')).toBe(CATALOG_SYNC_BUDGET_MAX_MS);
+    process.env.CATALOG_SYNC_BUDGET_MS = '5';
+    expect(g('sweepBudgetMs')).toBe(1000);
+    process.env.CATALOG_SYNC_RETRY_PAUSE_MS = String(2 ** 31 - 1);
+    expect(g('retryPauseMs')).toBe(CATALOG_SYNC_PAUSE_MAX_MS);
+    process.env.CATALOG_SYNC_RETRY_PAUSE_MS = '-9';
+    expect(g('retryPauseMs')).toBe(0);
+    expect(CATALOG_SYNC_BUDGET_MAX_MS).toBeLessThan(CATALOG_METADATA_ATTEMPT_TIMEOUT_MS); // margen bajo el tope del job
+    expect(CATALOG_METADATA_ATTEMPT_TIMEOUT_MS - CATALOG_SYNC_BUDGET_MAX_MS).toBeGreaterThanOrEqual(5 * 60 * 1000);
+    delete process.env.CATALOG_SYNC_RETRY_PAUSE_MS;
+  });
+
   it('sin fallos no hay segunda pasada (ni pausa)', async () => {
     const { svc } = build({ sets: SETS.slice(0, 1) });
     jest.spyOn(svc as never, 'importSet').mockImplementation((async () => ({ outcome: 'imported', cardsUpserted: 1, cardsBefore: 0 })) as never);
@@ -147,6 +177,25 @@ describe('cliente pokemontcg.io — modo paciente', () => {
     expect(c.waits).toEqual([5000, 10_000, 20_000, 40_000, 60_000, 60_000]);
   });
 
+  it('QA: timeout/red del cliente salen PREFIJADOS con pokemontcg.io; en modo paciente se reintentan; el Retry-After se acota a 60 s', async () => {
+    const boom = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+    const f = jest.spyOn(globalThis, 'fetch').mockRejectedValue(boom);
+    const c = mkClient();
+    await expect(c.getCardsBySet('sv1', 1)).rejects.toThrow(/^pokemontcg\.io \/cards.* -> timeout: /);
+    expect(f).toHaveBeenCalledTimes(1); // modo normal: sin cambios (una sola vez)
+    f.mockClear();
+    await expect(c.runPatient(() => c.getCardsBySet('sv1', 1))).rejects.toThrow(/^pokemontcg\.io .* -> timeout/);
+    expect(f).toHaveBeenCalledTimes(7);
+    f.mockRejectedValue(new TypeError('fetch failed'));
+    await expect(c.getCardsBySet('sv1', 1)).rejects.toThrow(/^pokemontcg\.io .* -> network: fetch failed/);
+    // Retry-After de 1 hora: normal lo respeta; paciente lo acota a 60 s
+    f.mockReset();
+    f.mockResolvedValue({ ok: false, status: 429, headers: new Headers({ 'retry-after': '3600' }) } as Response);
+    c.waits = [];
+    await expect(c.runPatient(() => c.getCardsBySet('sv1', 1))).rejects.toThrow(/HTTP 429/);
+    expect(Math.max(...c.waits)).toBe(60_000);
+  });
+
   it('el modo paciente NO se filtra a un pedido concurrente fuera de `runPatient`', async () => {
     const f = fetchMock();
     const c = mkClient();
@@ -157,9 +206,22 @@ describe('cliente pokemontcg.io — modo paciente', () => {
 
 describe('alerta de 48 h — texto llano con cuántos sets fallaron y la causa', () => {
   it('clasifica: 5xx/429/timeout/red de pokemontcg.io = fuente; un error nuestro no', () => {
-    for (const m of ['pokemontcg.io /cards -> HTTP 502', 'pokemontcg.io /sets -> HTTP 429', 'The operation was aborted due to timeout', 'fetch failed', 'connect ETIMEDOUT 1.2.3.4']) expect(isSourceOutageMessage(m)).toBe(true);
-    for (const m of ['pokemontcg.io /cards -> HTTP 404', 'Unique constraint failed', 'tcgcsv.com -> HTTP 503 grupo 1']) expect(isSourceOutageMessage(m)).toBe(m.includes('tcgcsv') ? false : false);
-    expect(allFailuresFromSource([{ message: 'pokemontcg.io /cards -> HTTP 502' }, { message: 'fetch failed' }])).toBe(true);
+    for (const m of ['pokemontcg.io /cards -> HTTP 502', 'pokemontcg.io /sets -> HTTP 429', 'pokemontcg.io /cards?q=x -> timeout: The operation was aborted due to timeout', 'pokemontcg.io /cards -> network: fetch failed', 'pokemontcg.io /cards -> HTTP 503 (también en la segunda pasada)']) expect(isSourceOutageMessage(m)).toBe(true);
+    // CS-1: timeouts y abortos PROPIOS (o de TCGCSV) no son de la fuente aunque suenen igual.
+    for (const m of [
+      'pokemontcg.io /cards -> HTTP 404',
+      'Unique constraint failed',
+      'tcgcsv.com -> HTTP 503 grupo 1',
+      'Transaction already closed: A query cannot be executed on an expired transaction. The timeout for this transaction was 5000 ms',
+      'canceling statement due to lock timeout',
+      'Timed out fetching a new connection from the connection pool',
+      'The operation was aborted due to timeout',
+      'fetch failed',
+      'connect ETIMEDOUT 1.2.3.4',
+      'tcgcsv.com /groups -> aborted',
+    ]) expect([m, isSourceOutageMessage(m)]).toEqual([m, false]);
+    expect(allFailuresFromSource([{ message: 'pokemontcg.io /cards -> HTTP 502' }, { message: 'pokemontcg.io /cards -> network: fetch failed' }])).toBe(true);
+    expect(allFailuresFromSource([{ message: 'pokemontcg.io /cards -> HTTP 502' }, { message: 'Timed out fetching a new connection from the connection pool' }])).toBe(false);
     expect(allFailuresFromSource([{ message: 'pokemontcg.io /cards -> HTTP 502' }, { message: 'Unique constraint failed' }])).toBe(false);
     expect(allFailuresFromSource([])).toBe(false);
   });
@@ -172,6 +234,11 @@ describe('alerta de 48 h — texto llano con cuántos sets fallaron y la causa',
     expect(t).toMatch(/pokemontcg\.io/);
     expect(t).toMatch(/No es un problema de tu tienda/);
     expect(sweepDetail({ errors: 1, setsFailed: 1, setsTotal: 5, sourceDown: false })).not.toMatch(/pokemontcg\.io/);
+    // QA: si la segunda pasada se omitió por falta de tiempo, el texto NO dice que ocurrió.
+    const omitted = sweepDetail({ errors: 2, setsFailed: 2, setsTotal: 9, sourceDown: true, retry: { skipped: true } });
+    expect(omitted).toMatch(/no hubo tiempo para una segunda pasada/);
+    expect(omitted).not.toMatch(/incluso despues de una segunda pasada/);
+    expect(sweepDetail({ errors: 2, setsFailed: 2, setsTotal: 9, retry: { skipped: false } })).toMatch(/incluso despues de una segunda pasada/);
   });
 
   it('el correo del dueño lleva el detalle del último barrido; sigue saltando con fuente caída (48 h sin éxito)', async () => {

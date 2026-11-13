@@ -121,15 +121,32 @@ export class PokemonTcgIoClient {
   }
 
   private async getJson<T>(path: string, attempt = 0): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers(), signal: AbortSignal.timeout(this.requestTimeoutMs) });
     const patient = this.patience.getStore() === true;
     const maxRetries = patient ? this.patientMaxRetries : this.maxRetries;
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers(), signal: AbortSignal.timeout(this.requestTimeoutMs) });
+    } catch (e) {
+      // Timeout o fallo de red de ESTE cliente: el error lleva SIEMPRE el prefijo `pokemontcg.io` (lo lee el clasificador de la alerta de 48 h,
+      // que no culpa a la fuente por un timeout nuestro). En modo paciente se reintenta; en el normal sale como siempre (una sola vez).
+      const timedOut = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError');
+      const detail = e instanceof Error ? e.message : String(e);
+      if (patient && attempt < maxRetries) {
+        const waitMs = Math.min(this.patientBaseBackoffMs * 2 ** attempt, this.patientMaxWaitMs);
+        this.logger.warn(`pokemontcg.io ${path} -> ${timedOut ? 'timeout' : 'network'}; retry ${attempt + 1}/${maxRetries} en ${waitMs}ms (paciente)`);
+        await this.sleep(waitMs);
+        return this.getJson<T>(path, attempt + 1);
+      }
+      throw new Error(`pokemontcg.io ${path} -> ${timedOut ? 'timeout' : 'network'}: ${detail}`);
+    }
     if ((res.status === 429 || res.status >= 500) && attempt < maxRetries) {
       const retryAfterHeader = Number(res.headers.get('retry-after'));
       const backoff = patient
         ? Math.min(this.patientBaseBackoffMs * 2 ** attempt, this.patientMaxWaitMs)
         : this.baseBackoffMs * 2 ** attempt;
-      const waitMs = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader * 1000 : backoff;
+      const headerMs = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader * 1000 : null;
+      // En modo paciente un `Retry-After` desmedido se acota (60 s): el presupuesto del barrido manda.
+      const waitMs = headerMs === null ? backoff : patient ? Math.min(headerMs, this.patientMaxWaitMs) : headerMs;
       this.logger.warn(
         `pokemontcg.io ${path} -> HTTP ${res.status}; retry ${attempt + 1}/${maxRetries} en ${waitMs}ms${patient ? ' (paciente)' : ''}`,
       );

@@ -75,6 +75,13 @@ export function syncAllErrorCount(summary: SyncAllSummary): number {
   return summary.setsFailed + syncAllPromoErrors(summary);
 }
 
+/**
+ * Topes de las dos env de la segunda pasada (CS-2). El presupuesto máximo (40 min) deja 5 min de margen bajo el tope de 45 min del job
+ * (`CATALOG_METADATA_ATTEMPT_TIMEOUT_MS`, que una prueba compara); la pausa máxima es 10 min.
+ */
+export const CATALOG_SYNC_BUDGET_MAX_MS = 40 * 60 * 1000;
+export const CATALOG_SYNC_PAUSE_MAX_MS = 10 * 60 * 1000;
+
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -1083,7 +1090,8 @@ export class CatalogSyncService implements OnModuleInit {
               errors: syncAllErrorCount(sum),
               setsFailed: sum.setsFailed,
               setsTotal: sum.setsTotal,
-              sourceDown: allFailuresFromSource(sum.failures),
+              // Culpa a la fuente SOLO si todos los fallos son de SU cliente y no hay grupos TCGCSV en `error` por causa propia.
+              sourceDown: allFailuresFromSource(sum.failures) && !sum.promos.tcgcsv.some((r) => r.status === 'error'),
               retry: sum.retry ?? null,
             })
             .catch((e: Error) => this.logger.warn(`sync-all: no se pudo persistir lastSweep (${e.message}).`))
@@ -1180,14 +1188,16 @@ export class CatalogSyncService implements OnModuleInit {
   /** Pausa antes de la segunda pasada (default 3 min; en pruebas 0 salvo que se fije la env). */
   protected get retryPauseMs(): number {
     const raw = process.env.CATALOG_SYNC_RETRY_PAUSE_MS;
-    if (raw !== undefined && raw !== '') return Math.max(0, Number(raw) || 0);
+    // Acotada a [0, 10 min] (CS-2): jamás negativa, NaN ni cercana al límite de `setTimeout` (2^31-1 ms).
+    if (raw !== undefined && raw !== '') return Math.min(CATALOG_SYNC_PAUSE_MAX_MS, Math.max(0, Number(raw) || 0));
     return process.env.NODE_ENV === 'test' ? 0 : 3 * 60 * 1000;
   }
 
   /** Presupuesto TOTAL del barrido (primera + segunda pasada), por debajo del tope de 45 min del job (`awaitSyncAll`). Default 40 min. */
   protected get sweepBudgetMs(): number {
     const raw = Number(process.env.CATALOG_SYNC_BUDGET_MS);
-    return Number.isFinite(raw) && raw > 0 ? raw : 40 * 60 * 1000;
+    // Acotado a [1 s, 40 min] (CS-2): nunca por encima del tope del job menos margen, ni cerca de 2^31-1.
+    return Number.isFinite(raw) && raw > 0 ? Math.min(CATALOG_SYNC_BUDGET_MAX_MS, Math.max(1_000, raw)) : CATALOG_SYNC_BUDGET_MAX_MS;
   }
 
   /**

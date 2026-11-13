@@ -16,6 +16,8 @@ export interface LastSweep {
   setsFailed?: number;
   setsTotal?: number;
   sourceDown?: boolean;
+  /** Resultado de la segunda pasada del barrido (`skipped` ⇒ no hubo tiempo para ella). */
+  retry?: { skipped?: boolean } | null;
 }
 
 /**
@@ -26,7 +28,9 @@ export function sweepDetail(sweep: LastSweep | null | undefined): string {
   if (!sweep || !(Number(sweep.errors) > 0)) return '';
   const failed = Number(sweep.setsFailed) || 0;
   const total = Number(sweep.setsTotal) || 0;
-  const how = failed > 0 ? `En el ultimo intento fallaron ${failed} de ${total} sets, incluso despues de una segunda pasada con mas paciencia.` : 'En el ultimo intento fallo parte de la actualizacion de promos, incluso despues de una segunda pasada con mas paciencia.';
+  // Solo se dice «incluso después de una segunda pasada» si de verdad hubo segunda pasada (no se omitió por falta de tiempo).
+  const extra = sweep.retry?.skipped ? ', y no hubo tiempo para una segunda pasada' : ', incluso despues de una segunda pasada con mas paciencia';
+  const how = failed > 0 ? `En el ultimo intento fallaron ${failed} de ${total} sets${extra}.` : `En el ultimo intento fallo parte de la actualizacion de promos${extra}.`;
   const why = sweep.sourceDown
     ? ' La causa es el servicio externo pokemontcg.io (de donde bajamos los datos de las cartas): esta respondiendo con errores de su lado. No es un problema de tu tienda ni de tus datos.'
     : ' Revisa el detalle en el panel de catalogo.';
