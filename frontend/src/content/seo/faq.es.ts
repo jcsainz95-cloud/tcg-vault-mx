@@ -12,7 +12,7 @@
  * VIGENCIA (§12.0 regla 3): «una FAQ con revisión vencida se retira de la página hasta que se re-mida».
  * `validThrough` es el ÚLTIMO día (inclusive, hora de CDMX) en que se publica:
  *  - desde v9 cada FAQ trae su propio `validThrough` en la tabla de §12.2 («Esta tabla prevalece sobre el
- *    "Revisión: mensual" de cada ficha»); se copia tal cual (P19: 2026-11-20).
+ *    "Revisión: mensual" de cada ficha»); se copia tal cual (P19, retirada 2026-11-13: ya no está aquí).
  * La página y el sitemap filtran con `publishedFaqs()` (`lib/seo-content.ts`): al vencer, sale SOLA.
  *
  * RETENIDAS (no publicadas) — ver `HELD_FAQS` al final, con su motivo (hoy ninguna: P8 se publica desde v8).
@@ -242,15 +242,6 @@ export const PUBLIC_FAQS: readonly PublicFaq[] = [
     answer:
       "Crea tu cuenta del Club de Entrenadores Pokémon en join.pokemon.com, verifica tu correo y, en tu perfil, entra a «Play! Pokémon Settings», pide que te asignen un Player ID nuevo y acepta los términos: ahí aparece tu número. Si es para un menor, primero crea tu cuenta como madre, padre o tutor y desde ella añade la del menor; su Player ID se genera en su propio perfil. Con ese número completas tu perfil en rk9.gg (una cuenta por jugador) y ya puedes registrarte a Regionales. El Trainer ID de Pokémon GO no es el Player ID.",
     validThrough: '2027-01-22',
-  },
-  {
-    id: 'P19',
-    core: true,
-    group: "Jugar",
-    question: "¿Qué es el prerelease de Delta Reign y cuándo sale el set?",
-    answer:
-      "El prerelease no es un torneo ni un evento: es el primer momento en que se puede conseguir cartas de un set nuevo. Las cajas Build & Battle de Delta Reign se pueden conseguir desde el 24 de octubre de 2026 en tiendas Play! Pokémon seleccionadas, y el set completo tiene fecha de salida el 6 de noviembre de 2026 en inglés. Para México o en español no tenemos fecha oficial confirmada; lo que tengamos en tcghunt.mx lo ves en producto sellado.",
-    validThrough: '2026-11-20',
   },
   {
     id: 'P20',

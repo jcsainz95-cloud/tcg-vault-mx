@@ -430,3 +430,32 @@ describe('SchedulerService — el shutdown nunca se cuelga', () => {
     expect(Worker).not.toHaveBeenCalled();
   });
 });
+
+describe('CS-3 — el barrido de catálogo tiene su propia cola y su propio worker', () => {
+  it('crea `tcg-catalog` + worker (concurrency 1), programa ahí catalog-metadata-sync y retira el repetible viejo de tcg-daily', async () => {
+    const { Queue, Worker } = jest.requireMock('bullmq') as { Queue: jest.Mock; Worker: jest.Mock };
+    Queue.mockClear();
+    Worker.mockClear();
+    const removeByKey = jest.fn().mockResolvedValue(true);
+    const mainAdd = jest.fn().mockResolvedValue(undefined);
+    const catAdd = jest.fn().mockResolvedValue(undefined);
+    Queue.mockImplementationOnce(() => ({
+      add: mainAdd, close: queueCloseMock, on: queueOnMock, removeRepeatable: jest.fn().mockResolvedValue(true),
+      getRepeatableJobs: jest.fn().mockResolvedValue([{ name: 'catalog-metadata-sync', key: 'old-key' }, { name: 'fx-refresh', key: 'fx' }]),
+      removeRepeatableByKey: removeByKey,
+    }));
+    Queue.mockImplementationOnce(() => ({ add: catAdd, close: queueCloseMock, on: queueOnMock }));
+    const svc = build(new ConfigService({ REDIS_URL: 'redis://localhost:6379' }));
+    await svc.onModuleInit();
+    await svc.setupDone;
+    expect(Queue.mock.calls.map((c) => c[0])).toEqual(['tcg-daily', 'tcg-catalog']);
+    expect(Worker.mock.calls.map((c) => c[0])).toEqual(['tcg-daily', 'tcg-catalog']);
+    expect(Worker.mock.calls[1][2]).toMatchObject({ concurrency: 1 });
+    // el catálogo se programa en SU cola y NUNCA en la compartida
+    expect(catAdd.mock.calls.map((c) => c[0])).toEqual(['catalog-metadata-sync']);
+    expect(mainAdd.mock.calls.map((c) => c[0])).not.toContain('catalog-metadata-sync');
+    expect(removeByKey).toHaveBeenCalledTimes(1);
+    expect(removeByKey).toHaveBeenCalledWith('old-key'); // solo el del catálogo, no los demás
+    await svc.onModuleDestroy();
+  });
+});

@@ -44,6 +44,14 @@ import { PaymentsService } from '../modules/payments/payments.service';
 import { ListingPriceService } from '../modules/pricing/listing-price.service';
 
 const QUEUE_NAME = 'tcg-daily';
+/**
+ * Cola PROPIA del barrido de catálogo (CS-3). La cola `tcg-daily` la atiende UN worker con concurrency 1 y comparte ~36 jobs, entre ellos
+ * los de cada minuto (`measurement-drain`, `shipment-label-processing`) y cada 5 min (`spend-watch`, `wishlist-notify`): un barrido de
+ * catálogo de hasta 40 min (pausa + segunda pasada paciente) los dejaba esperando. Con su propia cola y su propio worker (concurrency 1: el
+ * barrido sigue siendo single-flight) el catálogo puede tardar lo que necesite sin frenar a los demás. Elegido sobre `concurrency > 1`
+ * porque varios jobs de `tcg-daily` dependen de correr de uno en uno (p. ej. fan-out de price-ingest, candados por fila).
+ */
+const CATALOG_QUEUE_NAME = 'tcg-catalog';
 
 /** 💰 C1 (§19.29.7): el resumen diario al dueño sale a las 08:00 de la Ciudad de México (no hay horario de verano desde 2022). */
 const SPEND_DIGEST_TZ = 'America/Mexico_City';
@@ -106,6 +114,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SchedulerService.name);
   private connection?: Redis;
   private queue?: Queue;
+  /** Cola/worker propios del barrido de catálogo (CS-3). */
+  private catalogQueue?: Queue;
+  private catalogWorker?: Worker;
   private worker?: Worker;
   /** Promesa del wiring BullMQ en background (expuesta para tests y para el destroy). */
   setupDone?: Promise<void>;
@@ -217,6 +228,10 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     this.queue.on('error', (err: Error) =>
       this.logger.error(`Scheduler: error en la cola ${QUEUE_NAME}: ${err.message}`),
     );
+    this.catalogQueue = new Queue(CATALOG_QUEUE_NAME, { connection: this.connection });
+    this.catalogQueue.on('error', (err: Error) =>
+      this.logger.error(`Scheduler: error en la cola ${CATALOG_QUEUE_NAME}: ${err.message}`),
+    );
 
     // Jobs repetibles diarios (UTC). Escalonados: FX y precios antes del snapshot; los
     // barridos de PII/plazos/housekeeping en su propia franja para no solaparse.
@@ -288,7 +303,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     const metadataCron = this.config.get<string>('CATALOG_METADATA_SYNC_CRON') ?? '0 1 * * *';
     // AUTO-A (b): 6 intentos con backoff exponencial desde 10 min (10, 20, 40, 80, 160 min): pokemontcg.io falla a ratos y
     // `runMetadataImport` ahora AGUARDA el barrido y lanza si termino mal, asi que nadie tiene que reintentar a mano.
-    await this.queue.add('catalog-metadata-sync', {}, {
+    // CS-3: va a SU cola (`tcg-catalog`); el repetible viejo de `tcg-daily` se retira para que no corra dos veces.
+    await this.retireOldCatalogRepeatable();
+    await this.catalogQueue!.add('catalog-metadata-sync', {}, {
       ...this.repeat('catalog-metadata-sync', metadataCron),
       attempts: CATALOG_METADATA_ATTEMPTS,
       backoff: { type: 'exponential', delay: CATALOG_METADATA_BACKOFF_MS },
@@ -433,6 +450,13 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     this.worker.on('completed', (job) =>
       this.logger.log(`Job ${job.name} (id=${job.id}) completado.`),
     );
+    // CS-3: worker PROPIO del catálogo (concurrency 1 ⇒ single-flight). Mismo enrutado (`process`) y mismos registros de fallo.
+    this.catalogWorker = new Worker(CATALOG_QUEUE_NAME, async (job) => this.process(job), { connection: this.connection, concurrency: 1 });
+    this.catalogWorker.on('failed', (job, err) =>
+      this.logger.error(`Job ${job?.name} (id=${job?.id}, intento ${job?.attemptsMade ?? '?'}) falló: ${err.message}`, err.stack),
+    );
+    this.catalogWorker.on('error', (err: Error) => this.logger.error(`Scheduler: error del worker ${CATALOG_QUEUE_NAME}: ${err.message}`));
+    this.catalogWorker.on('completed', (job) => this.logger.log(`Job ${job.name} (id=${job.id}) completado.`));
     this.logger.log(
       'Scheduler activo (BullMQ): fx-refresh, price-sync, set-price-sync, portfolio-snapshot, ' +
         'set-value-snapshot, ine-retention, buylist-sweep, dispute-deadline, auth-token-sweep diarios ' +
@@ -556,6 +580,17 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** Retira (best-effort) el repetible `catalog-metadata-sync` que quedó en `tcg-daily` antes de pasar a su cola propia. Idempotente. */
+  private async retireOldCatalogRepeatable(): Promise<void> {
+    try {
+      const q = this.queue as Queue & { getRepeatableJobs?: () => Promise<{ name: string; key: string }[]>; removeRepeatableByKey?: (k: string) => Promise<unknown> };
+      if (typeof q.getRepeatableJobs !== 'function' || typeof q.removeRepeatableByKey !== 'function') return;
+      for (const r of (await q.getRepeatableJobs()).filter((x) => x.name === 'catalog-metadata-sync')) await q.removeRepeatableByKey(r.key);
+    } catch (e) {
+      this.logger.warn(`Scheduler: no se pudo retirar el repetible viejo de catalog-metadata-sync en ${QUEUE_NAME}: ${(e as Error).message}`);
+    }
+  }
+
   /** Log de errores de conexión con throttle (mismo mensaje: 1 vez/min; mensaje nuevo: siempre). */
   private logConnectionError(err: Error): void {
     const now = Date.now();
@@ -650,7 +685,9 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       }
     };
     if (this.worker) await bounded('worker.close()', () => this.worker!.close());
+    if (this.catalogWorker) await bounded('catalogWorker.close()', () => this.catalogWorker!.close());
     if (this.queue) await bounded('queue.close()', () => this.queue!.close());
+    if (this.catalogQueue) await bounded('catalogQueue.close()', () => this.catalogQueue!.close());
     if (this.connection) {
       // `quit()` manda un comando (se encolaría offline si no hay conexión → colgaría): solo con la conexión `ready`;
       // si no, o si `quit` no contesta en el plazo, corte duro con `disconnect()` (helper común, TD-HND-3).

@@ -10,6 +10,8 @@ export const CATALOG_AUTO_KEYS = {
   tcgcsvFirstSeen: 'catalog.auto.tcgcsvFirstSeen',
   /** Compuerta Black Star (backtest ciego): `{open,n,k,expansions}`. Escribe SOLO `PromoCollectionLinkService.recompute`. */
   promoGate: 'catalog.auto.promoGate',
+  /** Resumen del ÚLTIMO barrido terminado (éxito o no): lo lee la alerta de 48 h para decirle al dueño qué falló y de quién es la causa. */
+  lastSweep: 'catalog.auto.lastSweep',
 } as const;
 
 /** Lectura/escritura minima del estado AUTO en `ConfigSetting` (tabla existente: sin migracion). */

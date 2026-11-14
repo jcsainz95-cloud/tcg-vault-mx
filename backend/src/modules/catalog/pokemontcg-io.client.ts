@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -78,6 +79,15 @@ export class PokemonTcgIoClient {
   /** Reintentos ante 429/5xx transitorios (free tier rate-limitea a media importación). */
   private readonly maxRetries = 4;
   protected readonly baseBackoffMs: number = 500;
+  /**
+   * Modo PACIENTE (segunda pasada del barrido, decisión del dueño 2026-11-13: pokemontcg.io da 5xx en ~60 % de los pedidos): más
+   * intentos y un backoff mucho más largo (5, 10, 20, 40, 60, 60 s ≈ 3 min por pedido). Se activa SOLO dentro de `runPatient(fn)`
+   * (AsyncLocalStorage: no contamina a otro llamador concurrente, p. ej. un import manual del admin).
+   */
+  protected readonly patientMaxRetries: number = 6;
+  protected readonly patientBaseBackoffMs: number = 5_000;
+  protected readonly patientMaxWaitMs: number = 60_000;
+  private readonly patience = new AsyncLocalStorage<boolean>();
   /** Tope por petición del camino general (sync): evita un fetch colgado sin fin. */
   protected readonly requestTimeoutMs: number = 60_000;
   /** Camino ACOTADO (import de promos): 4 intentos, ≤2 s entre intentos, presupuesto total 20 s. */
@@ -105,16 +115,40 @@ export class PokemonTcgIoClient {
    * si viene; si no, backoff exponencial. Así un 429 a media importación NO aborta el sync del
    * set: el barrido de cartas continúa tras esperar.
    */
+  /** Ejecuta `fn` en modo paciente (más intentos y backoff largo) — ver `patientMaxRetries`. */
+  runPatient<T>(fn: () => Promise<T>): Promise<T> {
+    return this.patience.run(true, fn);
+  }
+
   private async getJson<T>(path: string, attempt = 0): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers(), signal: AbortSignal.timeout(this.requestTimeoutMs) });
-    if ((res.status === 429 || res.status >= 500) && attempt < this.maxRetries) {
+    const patient = this.patience.getStore() === true;
+    const maxRetries = patient ? this.patientMaxRetries : this.maxRetries;
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers(), signal: AbortSignal.timeout(this.requestTimeoutMs) });
+    } catch (e) {
+      // Timeout o fallo de red de ESTE cliente: el error lleva SIEMPRE el prefijo `pokemontcg.io` (lo lee el clasificador de la alerta de 48 h,
+      // que no culpa a la fuente por un timeout nuestro). En modo paciente se reintenta; en el normal sale como siempre (una sola vez).
+      const timedOut = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError');
+      const detail = e instanceof Error ? e.message : String(e);
+      if (patient && attempt < maxRetries) {
+        const waitMs = Math.min(this.patientBaseBackoffMs * 2 ** attempt, this.patientMaxWaitMs);
+        this.logger.warn(`pokemontcg.io ${path} -> ${timedOut ? 'timeout' : 'network'}; retry ${attempt + 1}/${maxRetries} en ${waitMs}ms (paciente)`);
+        await this.sleep(waitMs);
+        return this.getJson<T>(path, attempt + 1);
+      }
+      throw new Error(`pokemontcg.io ${path} -> ${timedOut ? 'timeout' : 'network'}: ${detail}`);
+    }
+    if ((res.status === 429 || res.status >= 500) && attempt < maxRetries) {
       const retryAfterHeader = Number(res.headers.get('retry-after'));
-      const waitMs =
-        Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
-          ? retryAfterHeader * 1000
-          : this.baseBackoffMs * 2 ** attempt;
+      const backoff = patient
+        ? Math.min(this.patientBaseBackoffMs * 2 ** attempt, this.patientMaxWaitMs)
+        : this.baseBackoffMs * 2 ** attempt;
+      const headerMs = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader * 1000 : null;
+      // En modo paciente un `Retry-After` desmedido se acota (60 s): el presupuesto del barrido manda.
+      const waitMs = headerMs === null ? backoff : patient ? Math.min(headerMs, this.patientMaxWaitMs) : headerMs;
       this.logger.warn(
-        `pokemontcg.io ${path} -> HTTP ${res.status}; retry ${attempt + 1}/${this.maxRetries} en ${waitMs}ms`,
+        `pokemontcg.io ${path} -> HTTP ${res.status}; retry ${attempt + 1}/${maxRetries} en ${waitMs}ms${patient ? ' (paciente)' : ''}`,
       );
       await this.sleep(waitMs);
       return this.getJson<T>(path, attempt + 1);

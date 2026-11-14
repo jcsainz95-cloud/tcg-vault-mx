@@ -9,6 +9,34 @@ import { CatalogAutoStateService, CATALOG_AUTO_KEYS } from './catalog-auto-state
 /** Spec AUTO_CATALOGO: alerta si pasan > 48 h sin un barrido del catalogo terminado sin fallos. */
 export const CATALOG_STALE_AFTER_MS = 48 * 60 * 60 * 1000;
 
+/** Lo que deja el último barrido terminado (`CatalogSyncService.syncAll`): cuántos sets fallaron y si TODOS los fallos son de la fuente. */
+export interface LastSweep {
+  at?: string;
+  errors?: number;
+  setsFailed?: number;
+  setsTotal?: number;
+  sourceDown?: boolean;
+  /** Resultado de la segunda pasada del barrido (`skipped` ⇒ no hubo tiempo para ella). */
+  retry?: { skipped?: boolean } | null;
+}
+
+/**
+ * Texto llano para el dueño sobre el ÚLTIMO intento (vacío si no hubo fallos que contar). Si todos los fallos son 5xx/timeout de
+ * pokemontcg.io, se dice que la causa es esa fuente externa (y no su tienda). El barrido ya hizo una segunda pasada paciente.
+ */
+export function sweepDetail(sweep: LastSweep | null | undefined): string {
+  if (!sweep || !(Number(sweep.errors) > 0)) return '';
+  const failed = Number(sweep.setsFailed) || 0;
+  const total = Number(sweep.setsTotal) || 0;
+  // Solo se dice «incluso después de una segunda pasada» si de verdad hubo segunda pasada (no se omitió por falta de tiempo).
+  const extra = sweep.retry?.skipped ? ', y no hubo tiempo para una segunda pasada' : ', incluso despues de una segunda pasada con mas paciencia';
+  const how = failed > 0 ? `En el ultimo intento fallaron ${failed} de ${total} sets${extra}.` : `En el ultimo intento fallo parte de la actualizacion de promos${extra}.`;
+  const why = sweep.sourceDown
+    ? ' La causa es el servicio externo pokemontcg.io (de donde bajamos los datos de las cartas): esta respondiendo con errores de su lado. No es un problema de tu tienda ni de tus datos.'
+    : ' Revisa el detalle en el panel de catalogo.';
+  return `${how}${why}\n`;
+}
+
 export type StaleCheck = 'fresh' | 'already_alerted' | 'sent' | 'no_recipient' | 'mail_failed';
 
 /**
@@ -49,8 +77,10 @@ export class CatalogStaleAlertService {
     }
     const hours = Math.floor((now.getTime() - refMs) / 3_600_000);
     const subject = 'TCG HUNT: el catalogo lleva mas de 48 horas sin actualizarse';
+    const sweep = await this.state.get<LastSweep>(CATALOG_AUTO_KEYS.lastSweep).catch(() => null);
     const text =
       `El catalogo automatico no ha terminado una actualizacion sin errores en ${hours} horas (ultimo exito o inicio de vigilancia: ${ref}).\n` +
+      sweepDetail(sweep) +
       'La tienda sigue funcionando con los datos que ya tenia. El sistema sigue reintentando solo cada dia; este aviso no se repite hasta que haya un nuevo exito y otro incidente.';
     const html = mailShell({
       locale: 'es',

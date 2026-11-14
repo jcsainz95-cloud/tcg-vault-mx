@@ -52,17 +52,17 @@ function offenders(texts: readonly string[], patterns: readonly RegExp[]): strin
 }
 
 describe('§E4 FAQ públicas (RESPUESTAS.md §12.2, manual v8)', () => {
-  it('ids únicos, grupos del manual, las 24 publicadas (P8 incluida desde v8) y ninguna retenida', () => {
+  it('ids únicos, grupos del manual, las 23 publicadas (P8 incluida desde v8; P19 retirada por el dueño 2026-11-13) y ninguna retenida', () => {
     const ids = PUBLIC_FAQS.map((f) => f.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(PUBLIC_FAQS).toHaveLength(24); // P1-P24 del manual v8
+    expect(PUBLIC_FAQS).toHaveLength(23); // P1-P24 del manual v8 menos P19 (retirada, no se renueva)
     expect(HELD_FAQS).toEqual([]);
     for (const f of PUBLIC_FAQS) expect(FAQ_GROUP_ORDER).toContain(f.group);
     for (const h of HELD_FAQS) expect(ids).not.toContain(h.id);
   });
 
-  it('hoy (NOW) se publican las 24 FAQ vivas', () => {
-    expect(publishedFaqs(NOW)).toHaveLength(24);
+  it('hoy (NOW) se publican las 23 FAQ vivas', () => {
+    expect(publishedFaqs(NOW)).toHaveLength(23);
   });
 
   // FE-MKT-T1: la regla de vigencia se prueba sobre el fixture (fechas fijas), no sobre las FAQ vivas.
@@ -98,7 +98,7 @@ describe('§E4 FAQ públicas (RESPUESTAS.md §12.2, manual v8)', () => {
   it('agrupa en el orden del manual sin perder ninguna', () => {
     const groups = groupFaqs(publishedFaqs(NOW));
     expect(groups.map((g) => g.group)).toEqual([...FAQ_GROUP_ORDER]);
-    expect(groups.flatMap((g) => g.faqs)).toHaveLength(24);
+    expect(groups.flatMap((g) => g.faqs)).toHaveLength(23);
   });
 });
 

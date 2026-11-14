@@ -25,7 +25,8 @@ import { PTCG_PROMO_GROUPS } from './promo-set-groups';
 import { TcgcsvSetImportService } from './tcgcsv-set-import.service';
 import { TcgcsvGroupDiscoveryService } from './tcgcsv-group-discovery.service';
 import { PromoCollectionLinkService, PromoGateState, PromoLinksSummary } from './promo-collection-link.service';
-import { CatalogAutoStateService } from './catalog-auto-state.service';
+import { CatalogAutoStateService, CATALOG_AUTO_KEYS } from './catalog-auto-state.service';
+import { allFailuresFromSource } from './catalog-source-failure';
 import { contentKeyOf } from './promo-collection-link';
 import type { Role } from '@prisma/client';
 
@@ -73,6 +74,13 @@ export function syncAllPromoErrors(summary: SyncAllSummary): number {
 export function syncAllErrorCount(summary: SyncAllSummary): number {
   return summary.setsFailed + syncAllPromoErrors(summary);
 }
+
+/**
+ * Topes de las dos env de la segunda pasada (CS-2). El presupuesto máximo (40 min) deja 5 min de margen bajo el tope de 45 min del job
+ * (`CATALOG_METADATA_ATTEMPT_TIMEOUT_MS`, que una prueba compara); la pausa máxima es 10 min.
+ */
+export const CATALOG_SYNC_BUDGET_MAX_MS = 40 * 60 * 1000;
+export const CATALOG_SYNC_PAUSE_MAX_MS = 10 * 60 * 1000;
 
 /** Guardarraíl anti-inyección del `setId` antes de interpolarlo en `q=set.id:<setId>`. */
 export const SET_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -235,6 +243,12 @@ export type SyncAllSummary = SetSweepTally & {
   setsSkippedUnknownDate: number;
   /** PROMOS-MASTERSET: resultado por promo vieja y por grupo TCGCSV de la lista. */
   promos: PromosSummary;
+  /**
+   * SEGUNDA PASADA paciente (decisión del dueño 2026-11-13): solo sobre lo que falló en la primera, tras una pausa y con backoff largo.
+   * `setsFailed`/`failures`/promos en `error` ya reflejan SOLO lo que falló también aquí (el criterio de éxito sigue siendo UNO).
+   * `skipped` ⇒ no hubo tiempo en el presupuesto del job para la pausa.
+   */
+  retry?: { attempted: number; recovered: number; stillFailing: number; skipped?: boolean };
 };
 
 /**
@@ -1063,15 +1077,31 @@ export class CatalogSyncService implements OnModuleInit {
     };
     for (const id of missingPromos) this.syncAllStatus.summary!.promos.sets.push({ setId: id, status: 'missing_remote' });
     // Fire-and-forget: el request NO espera a que se importen todos los sets (el job AGUARDA `awaitSyncAll`).
-    const run = this.runSyncAll(batch, force, { actor, jobId, liveSets: remote }).finally(() => {
+    const run = this.runSyncAll(batch, force, { actor, jobId, liveSets: remote, retryFailures: true }).finally(() => {
       this.syncAllStatus.running = false;
       this.syncAllStatus.finishedAt = new Date().toISOString();
       // MISMO criterio de exito que `awaitSyncAll` (AUTO-S1): sin sets fallidos Y sin promos/grupos en `error`.
-      if (this.syncAllStatus.summary && syncAllErrorCount(this.syncAllStatus.summary) === 0) {
+      const sum = this.syncAllStatus.summary;
+      // Resumen del último barrido para la alerta de 48 h (cuántos fallaron y si la causa es la fuente). Best-effort.
+      const sweepNote = sum
+        ? this.autoState
+            ?.set(CATALOG_AUTO_KEYS.lastSweep, {
+              at: this.syncAllStatus.finishedAt,
+              errors: syncAllErrorCount(sum),
+              setsFailed: sum.setsFailed,
+              setsTotal: sum.setsTotal,
+              // Culpa a la fuente SOLO si todos los fallos son de SU cliente y no hay grupos TCGCSV en `error` por causa propia.
+              sourceDown: allFailuresFromSource(sum.failures) && !sum.promos.tcgcsv.some((r) => r.status === 'error'),
+              retry: sum.retry ?? null,
+            })
+            .catch((e: Error) => this.logger.warn(`sync-all: no se pudo persistir lastSweep (${e.message}).`))
+        : undefined;
+      if (sum && syncAllErrorCount(sum) === 0) {
         this.syncAllStatus.lastSuccessAt = this.syncAllStatus.finishedAt;
         const at = this.syncAllStatus.finishedAt;
-        return this.autoState?.setLastSuccessAt(at).catch((e: Error) => this.logger.warn(`sync-all: no se pudo persistir lastSuccessAt (${e.message}).`));
+        return Promise.all([sweepNote, this.autoState?.setLastSuccessAt(at).catch((e: Error) => this.logger.warn(`sync-all: no se pudo persistir lastSuccessAt (${e.message}).`))]).then(() => undefined);
       }
+      return sweepNote;
     });
     this.syncAllDone = run.catch(() => undefined);
     this.logger.log(
@@ -1096,7 +1126,7 @@ export class CatalogSyncService implements OnModuleInit {
   async runSyncAll(
     sets: RemoteCardSet[],
     force = false,
-    ctx: { actor?: SyncActor; jobId?: string; liveSets?: { id: string; name: string }[] } = {},
+    ctx: { actor?: SyncActor; jobId?: string; liveSets?: { id: string; name: string }[]; retryFailures?: boolean } = {},
   ): Promise<void> {
     // Normalmente lo arranca `syncAll`; si se invoca el barrido directamente (tests, job interno)
     // se inicializa en ceros para no operar sobre null.
@@ -1106,22 +1136,7 @@ export class CatalogSyncService implements OnModuleInit {
         // PROMOS-MASTERSET: las 6 promos viejas se re-sincronizan SIEMPRE (idempotente, PV-1), aunque force=false.
         const isPromo = ALWAYS_SYNCED_PROMO_SETS.includes(s.id);
         const res = await this.importSet(s, { force: force || isPromo });
-        if (isPromo) {
-          summary.promos.sets.push({
-            setId: s.id,
-            status: res.outcome === 'imported' ? 'created' : res.outcome === 'refreshed' ? 'updated' : 'unchanged',
-          });
-        }
-        // D1: lo que el import devuelve YA NO se descarta — es la única forma de saber cuántos
-        // sets se importaron de verdad y cuántos sólo se re-sincronizaron.
-        //
-        // El reparto lo hace la fuente única (§M2-CS.0): `imported`/`refreshed` son DESGLOSE de
-        // `setsWritten` (`I-CS5`), no un vocabulario paralelo, así que se suman aparte y el
-        // «¿escribió?» lo decide `recordSweepAttempt` con el mismo criterio que el otro barrido.
-        if (res.outcome === 'imported') summary.setsImported += 1;
-        else if (res.outcome === 'refreshed') summary.setsRefreshed += 1;
-        recordSweepAttempt(summary, res.outcome !== 'noop');
-        summary.cardsUpserted += res.cardsUpserted;
+        this.recordSetSuccess(summary, s.id, res);
       } catch (e) {
         recordSweepFailure(summary, s.id, e);
         if (ALWAYS_SYNCED_PROMO_SETS.includes(s.id)) summary.promos.sets.push({ setId: s.id, status: 'error' });
@@ -1132,6 +1147,8 @@ export class CatalogSyncService implements OnModuleInit {
       }
     }
     await this.runTcgcsvGroups(summary, ctx);
+    // SEGUNDA PASADA paciente solo sobre lo que falló (la dispara `syncAll`; las llamadas directas de pruebas no la usan).
+    if (ctx.retryFailures) await this.retryFailedPass(summary, sets, force, ctx);
     // AUTO-B: la liga se recalcula SIEMPRE al final (determinista); un fallo aqui no tumba el barrido.
     try {
       const links = await this.promoLinks?.recompute();
@@ -1151,6 +1168,150 @@ export class CatalogSyncService implements OnModuleInit {
   }
 
   /**
+   * Éxito de UN set: el reparto (fuente única §M2-CS.0) y, si es una promo vieja, su renglón. Lo usan la primera pasada y la segunda
+   * (en la segunda el set ya estaba contado como fallido: se le quita ese fallo y se cuenta aquí, así I-CS1 se mantiene).
+   */
+  private recordSetSuccess(summary: SyncAllSummary, setId: string, res: { outcome: 'imported' | 'refreshed' | 'noop'; cardsUpserted: number }): void {
+    if (ALWAYS_SYNCED_PROMO_SETS.includes(setId)) {
+      const status: PromoSetStatus = res.outcome === 'imported' ? 'created' : res.outcome === 'refreshed' ? 'updated' : 'unchanged';
+      const prev = summary.promos.sets.find((x) => x.setId === setId && x.status === 'error');
+      if (prev) prev.status = status;
+      else summary.promos.sets.push({ setId, status });
+    }
+    // D1: lo que el import devuelve YA NO se descarta — es la única forma de saber cuántos sets se importaron de verdad.
+    if (res.outcome === 'imported') summary.setsImported += 1;
+    else if (res.outcome === 'refreshed') summary.setsRefreshed += 1;
+    recordSweepAttempt(summary, res.outcome !== 'noop');
+    summary.cardsUpserted += res.cardsUpserted;
+  }
+
+  /** Pausa antes de la segunda pasada (default 3 min; en pruebas 0 salvo que se fije la env). */
+  protected get retryPauseMs(): number {
+    const raw = process.env.CATALOG_SYNC_RETRY_PAUSE_MS;
+    // Acotada a [0, 10 min] (CS-2): jamás negativa, NaN ni cercana al límite de `setTimeout` (2^31-1 ms).
+    if (raw !== undefined && raw !== '') return Math.min(CATALOG_SYNC_PAUSE_MAX_MS, Math.max(0, Number(raw) || 0));
+    return process.env.NODE_ENV === 'test' ? 0 : 3 * 60 * 1000;
+  }
+
+  /** Presupuesto TOTAL del barrido (primera + segunda pasada), por debajo del tope de 45 min del job (`awaitSyncAll`). Default 40 min. */
+  protected get sweepBudgetMs(): number {
+    const raw = Number(process.env.CATALOG_SYNC_BUDGET_MS);
+    // Acotado a [1 s, 40 min] (CS-2): nunca por encima del tope del job menos margen, ni cerca de 2^31-1.
+    return Number.isFinite(raw) && raw > 0 ? Math.min(CATALOG_SYNC_BUDGET_MAX_MS, Math.max(1_000, raw)) : CATALOG_SYNC_BUDGET_MAX_MS;
+  }
+
+  /**
+   * ⭐ SEGUNDA PASADA (decisión del dueño 2026-11-13, opción B «barrido más paciente»): pokemontcg.io devuelve 5xx en ~60 % de los
+   * pedidos y con 4 reintentos cortos siempre fallaba algún set, así que el barrido NUNCA contaba como éxito. Tras una pausa, se
+   * reintentan SOLO los sets (y grupos TCGCSV) que fallaron, en modo paciente (backoff largo). Lo que se recupera deja de contar como
+   * fallo; lo que falla también aquí SIGUE contando: el criterio de éxito es UNO (`syncAllErrorCount`), así que con la fuente caída
+   * de verdad `lastSuccessAt` no se mueve y la alerta de 48 h salta. Todo dentro del presupuesto del barrido; sin tocar precios,
+   * inventario ni dinero (solo `importSet`, el mismo de la primera pasada).
+   */
+  private async retryFailedPass(
+    summary: SyncAllSummary,
+    sets: RemoteCardSet[],
+    force: boolean,
+    ctx: { actor?: SyncActor; jobId?: string },
+  ): Promise<void> {
+    const failedIds = new Set(summary.failures.map((f) => f.setId));
+    // `TCGCSV_IMPORT_UNAVAILABLE` (el servicio no está cableado) no se arregla reintentando.
+    const tcgRows = summary.promos.tcgcsv.filter((r) => r.status === 'error' && r.errorCode !== 'TCGCSV_IMPORT_UNAVAILABLE');
+    if (failedIds.size === 0 && tcgRows.length === 0) return;
+    const startedMs = Date.parse(this.syncAllStatus.startedAt ?? '') || Date.now();
+    const budgetEnd = startedMs + this.sweepBudgetMs;
+    const pause = this.retryPauseMs;
+    const retry: NonNullable<SyncAllSummary['retry']> = { attempted: 0, recovered: 0, stillFailing: 0 };
+    // Sin al menos 1 s útil después de la pausa no vale la pena empezar.
+    if (Date.now() + pause + 1000 >= budgetEnd) {
+      retry.skipped = true;
+      retry.stillFailing = syncAllErrorCount(summary);
+      summary.retry = retry;
+      this.logger.warn(`sync-all: sin tiempo en el presupuesto para la segunda pasada (${failedIds.size} sets y ${tcgRows.length} grupos siguen fallidos).`);
+      return;
+    }
+    this.logger.warn(`sync-all: segunda pasada paciente en ${Math.round(pause / 1000)} s sobre ${failedIds.size} sets y ${tcgRows.length} grupos TCGCSV fallidos.`);
+    await this.sleep(pause);
+    const patiently = <T>(fn: () => Promise<T>): Promise<T> => (this.client.runPatient ? this.client.runPatient(fn) : fn());
+    // Cada intento se corta con lo que quede del presupuesto: el barrido jamás se cuelga (la importación huérfana es idempotente).
+    const withinBudget = <T>(fn: () => Promise<T>): Promise<T> => {
+      const left = budgetEnd - Date.now();
+      if (left <= 0) return Promise.reject(new Error('presupuesto del barrido agotado'));
+      let timer: NodeJS.Timeout | undefined;
+      const cut = new Promise<never>((_, rej) => {
+        timer = setTimeout(() => rej(new Error('presupuesto del barrido agotado')), left);
+      });
+      return Promise.race([patiently(fn), cut]).finally(() => timer && clearTimeout(timer));
+    };
+    let outOfBudget = false;
+    for (const s of sets) {
+      if (!failedIds.has(s.id)) continue;
+      if (outOfBudget || Date.now() >= budgetEnd) break;
+      retry.attempted += 1;
+      try {
+        const isPromo = ALWAYS_SYNCED_PROMO_SETS.includes(s.id);
+        const res = await withinBudget(() => this.importSet(s, { force: force || isPromo }));
+        // Recuperado: sale de `failures` y de `setsFailed`, y se cuenta como lo que hizo (I-CS1 intacto: sigue sumando `done`).
+        summary.failures = summary.failures.filter((f) => f.setId !== s.id);
+        summary.setsFailed -= 1;
+        this.recordSetSuccess(summary, s.id, res);
+        retry.recovered += 1;
+      } catch (e) {
+        const f = summary.failures.find((x) => x.setId === s.id);
+        const msg = (e as Error).message;
+        if (f) f.message = `${msg} (también en la segunda pasada)`;
+        if (/presupuesto del barrido agotado/.test(msg)) outOfBudget = true;
+        this.logger.warn(`sync-all: set ${s.id} volvió a fallar en la segunda pasada: ${msg}`);
+      }
+    }
+    for (const row of tcgRows) {
+      if (outOfBudget || Date.now() >= budgetEnd) break;
+      retry.attempted += 1;
+      try {
+        await withinBudget(() => this.importTcgcsvGroupInto(row, ctx));
+        if (row.status !== 'error') retry.recovered += 1;
+      } catch (e) {
+        if (/presupuesto del barrido agotado/.test((e as Error).message)) outOfBudget = true;
+      }
+    }
+    retry.stillFailing = syncAllErrorCount(summary);
+    summary.retry = retry;
+    this.logger.log(`sync-all: segunda pasada: intentados=${retry.attempted}, recuperados=${retry.recovered}, siguen fallando=${retry.stillFailing}.`);
+  }
+
+  /** Nombre de los grupos TCGCSV descubiertos en ESTE barrido (para que la segunda pasada los reimporte con la misma marca de auditoría). */
+  private readonly discoveredGroupNames = new Map<number, string>();
+
+  /** Importa UN grupo TCGCSV y deja el resultado en su renglón (`error` con `errorCode` si falla; `covered`/`busy` no son error). */
+  private async importTcgcsvGroupInto(row: PromosSummary['tcgcsv'][number], ctx: { actor?: SyncActor; jobId?: string }): Promise<void> {
+    const actor = ctx.actor;
+    if (!actor || !this.tcgcsvImport) return;
+    const name = this.discoveredGroupNames.get(row.groupId);
+    try {
+      const res = await this.tcgcsvImport.importGroup(
+        row.groupId,
+        actor.kind === 'system'
+          ? { kind: 'system', job: actor.job, jobId: ctx.jobId ?? actor.jobId, attempt: actor.attempt }
+          : { id: actor.id, role: actor.role },
+        name ? { discovered: { name } } : undefined,
+      );
+      row.created = res.created;
+      row.updated = res.updated;
+      row.status = res.created > 0 ? 'imported' : 'updated';
+      delete row.errorCode;
+    } catch (e) {
+      const code = e instanceof BusinessException ? String(e.code) : 'UNKNOWN';
+      if (code === ErrorCode.TCGCSV_GROUP_COVERED) row.status = 'covered';
+      else if (code === ErrorCode.TCGCSV_IMPORT_IN_PROGRESS) row.status = 'busy';
+      else {
+        row.status = 'error';
+        row.errorCode = code;
+        this.logger.warn(`sync-all: grupo TCGCSV ${row.groupId} fallo (${code}): ${(e as Error).message}`);
+      }
+    }
+  }
+
+  /**
    * AUTO-A / PROMOS-MASTERSET - paso TCGCSV del barrido: cada grupo de la LISTA EXPLICITA `TCGCSV_IMPORTABLE_GROUPS` va por el
    * MISMO `TcgcsvSetImportService` (guardia, advisory lock, todo-o-nada, fail-closed). Un fallo por grupo NO aborta. Con actor
    * `user` solo `super_admin` (si no, `skipped_needs_super_admin`: el permiso humano no se amplia); con `system` (solo el job) corre
@@ -1162,6 +1323,7 @@ export class CatalogSyncService implements OnModuleInit {
   ): Promise<void> {
     const actor = ctx.actor;
     const allowed = actor?.kind === 'system' || (actor?.kind === 'user' && actor.role === 'super_admin');
+    this.discoveredGroupNames.clear();
     const importOne = async (
       groupId: number,
       source: 'seed' | 'discovered',
@@ -1177,27 +1339,8 @@ export class CatalogSyncService implements OnModuleInit {
         row.errorCode = 'TCGCSV_IMPORT_UNAVAILABLE';
         return;
       }
-      try {
-        const res = await this.tcgcsvImport.importGroup(
-          groupId,
-          actor.kind === 'system'
-            ? { kind: 'system', job: actor.job, jobId: ctx.jobId ?? actor.jobId, attempt: actor.attempt }
-            : { id: actor.id, role: actor.role },
-          discovered ? { discovered } : undefined,
-        );
-        row.created = res.created;
-        row.updated = res.updated;
-        row.status = res.created > 0 ? 'imported' : 'updated';
-      } catch (e) {
-        const code = e instanceof BusinessException ? String(e.code) : 'UNKNOWN';
-        if (code === ErrorCode.TCGCSV_GROUP_COVERED) row.status = 'covered';
-        else if (code === ErrorCode.TCGCSV_IMPORT_IN_PROGRESS) row.status = 'busy';
-        else {
-          row.status = 'error';
-          row.errorCode = code;
-          this.logger.warn(`sync-all: grupo TCGCSV ${groupId} fallo (${code}): ${(e as Error).message}`);
-        }
-      }
+      if (discovered) this.discoveredGroupNames.set(groupId, discovered.name);
+      await this.importTcgcsvGroupInto(row, ctx);
     };
     for (const g of TCGCSV_IMPORTABLE_GROUPS) await importOne(g.groupId, 'seed');
     // AUTO-F: grupos descubiertos (solo si el actor puede importar; fail-closed sin lista viva). Un fallo aqui NO aborta el barrido.
