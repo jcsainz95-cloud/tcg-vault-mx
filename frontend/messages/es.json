@@ -250,9 +250,9 @@
     "soldOut": "Agotado"
   },
   "home": {
-    "heroKicker": "Cartas Pokémon · México",
+    "heroKicker": "Singles de Pokémon · Ciudad de México",
     "heroTitle": "Caza la carta. Nosotros la guardamos.",
-    "heroSubtitle": "Cartas verificadas, con condición garantizada. Viven resguardadas en tu bóveda y salen en un solo envío, cuando tú digas.",
+    "heroSubtitle": "Singles (cartas sueltas) y gradeadas, verificadas y con condición garantizada. Tienda en línea desde Ciudad de México con envíos a todo México. Viven resguardadas en tu bóveda y salen en un solo envío, cuando tú digas.",
     "ctaShop": "Explorar el catálogo",
     "ctaSealed": "Ver producto sellado",
     "ctaBuylist": "Vender mis cartas",
@@ -336,6 +336,7 @@
     }
   },
   "catalog": {
+    "singlesLine": "Singles de Pokémon (cartas sueltas) y gradeadas. Desde Ciudad de México, con envíos a todo México.",
     "title": "Comprar",
     "subtitle": "Nuestro inventario publicado a la venta. Solo listamos lo que tiene precio.",
     "eyebrow": "Catálogo · MXN",
@@ -7888,11 +7889,12 @@
     },
     "pages": {
       "home": {
-        "description": "Compra cartas Pokémon verificadas, con condición garantizada y precio en pesos; guárdalas en tu bóveda o vende las tuyas. TCG HUNT, México."
+      "title": "Singles de Pokémon desde Ciudad de México",
+        "description": "Singles de Pokémon (cartas sueltas) y gradeadas, verificadas y con condición garantizada. Desde Ciudad de México, con envíos a todo México."
       },
       "catalog": {
-        "title": "Catálogo de cartas Pokémon",
-        "description": "Cartas Pokémon sueltas y gradeadas, verificadas y con condición garantizada. Precio en pesos y piezas disponibles al momento."
+        "title": "Singles de Pokémon: catálogo de cartas sueltas",
+        "description": "Catálogo de singles de Pokémon (cartas sueltas) y gradeadas. Tienda en línea desde Ciudad de México con envíos a todo México."
       },
       "sealed": {
         "title": "Producto sellado Pokémon",

@@ -26,7 +26,7 @@ describe('llms.txt (§E7, brief v1 §3.3)', () => {
   it('enlaza sellado y el Card Show con su descripción, y la revisión es la de este cambio', () => {
     expect(txt).toMatch(/^- \[Sellado\]\(https:\/\/tcghunt\.mx\/es\/sellado\): \S.+$/m);
     expect(txt).toMatch(/^- \[Card Show\]\(https:\/\/tcghunt\.mx\/card-show\): \S.+$/m);
-    expect(LLMS_LAST_REVIEW).toBe('2026-10-31');
+    expect(LLMS_LAST_REVIEW).toBe('2026-11-16');
   });
 
   // C8 (criterio 956; MKT-4 (a), HECHOS 2026-10-31): ni «IVA» ni la tasa en el texto para asistentes de IA.

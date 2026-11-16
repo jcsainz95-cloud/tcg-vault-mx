@@ -73,7 +73,7 @@ describe('HomePage · makeover 1a (hero + cotizador + estantes)', () => {
     renderWithProviders(<HomeView />, 'es');
 
     // Hero: kicker mono + H1 + CTA negro al catálogo.
-    expect(screen.getByText('Cartas Pokémon · México')).toBeInTheDocument();
+    expect(screen.getByText('Singles de Pokémon · Ciudad de México')).toBeInTheDocument();
     expect(
       screen.getByRole('heading', {
         name: 'Caza la carta. Nosotros la guardamos.',

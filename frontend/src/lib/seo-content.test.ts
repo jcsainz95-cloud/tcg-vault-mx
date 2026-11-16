@@ -488,10 +488,10 @@ describe('«autenticadas/autenticidad» fuera de la copia de la tienda (messages
   });
 
   it('los tres textos aprobados por el dueño dicen «verificadas» (ES) / «verified» (EN)', () => {
-    expect(es.home.heroSubtitle).toMatch(/^Cartas verificadas, con condición garantizada\./);
+    expect(es.home.heroSubtitle).toContain('verificadas y con condición garantizada.');
     expect(es.checkout.vaultUpsell.benefit.custody).toBe('Custodia con condición verificada y garantizada.');
     expect(es.vault.trustBanner).toMatch(/^Tus cartas están verificadas y resguardadas en bóveda\./);
-    expect(en.home.heroSubtitle).toMatch(/^Verified cards, condition guaranteed\./);
+    expect(en.home.heroSubtitle).toContain('verified with guaranteed condition.');
     expect(en.checkout.vaultUpsell.benefit.custody).toBe('Custody with verified, guaranteed condition.');
     expect(en.vault.trustBanner).toMatch(/^Your cards are verified and kept safe in custody\./);
   });

@@ -8027,7 +8027,8 @@ export async function trackGuestOrder(token: string): Promise<GuestOrderTracking
     payment: { brand: 'visa', last4: '4242' },
     claim: { available: true },
     support: { evidenceContact: 'soporte@tcghunt.mx', disputeWindowDays: 7 },
-    tokenExpiresAt: '2026-11-14T18:20:00.000Z',
+    // Relativo al reloj (enlace de correo = 90 días): una fecha fija caducaba sola y encendía el aviso de enlace temporal.
+    tokenExpiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
   });
 }
 
