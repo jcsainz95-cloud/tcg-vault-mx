@@ -5,7 +5,7 @@ import { HydrationBoundary, QueryClient, dehydrate } from '@tanstack/react-query
 import type { AppLocale } from '@/i18n/routing';
 import { NONCE_HEADER } from '@/security/csp';
 import { JsonLd } from '@/components/seo/JsonLd';
-import { SITE_URL, localeAlternates, organizationJsonLd, webSiteJsonLd } from '@/lib/seo';
+import { organizationJsonLd, routeMetadata, webSiteJsonLd } from '@/lib/seo';
 import { FEATURED_QUERY_KEY, GEMS_QUERY_KEY } from '@/lib/home-queries';
 import { loadHomeForSSR } from '@/lib/home-ssr';
 import { RouteMessages } from '@/components/i18n/RouteMessages';
@@ -22,13 +22,18 @@ export async function generateMetadata({
   params: Promise<{ locale: AppLocale }>;
 }): Promise<Metadata> {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: 'seo.pages.home' });
-  // C4/C6: descripción propia (antes = el lema) y canonical + hreflang; el título sigue siendo el del layout.
-  return {
-    metadataBase: new URL(SITE_URL),
+  const [t, tc] = await Promise.all([
+    getTranslations({ locale, namespace: 'seo.pages.home' }),
+    getTranslations({ locale, namespace: 'common' }),
+  ]);
+  // C4/C6 + GEO (HECHOS 2026-11-16): título y descripción propios con «singles», «cartas sueltas», Ciudad de México y
+  // envíos a todo México (también og:title/og:description, que salen de `routeMetadata`); canonical + hreflang.
+  return routeMetadata({
+    locale,
+    path: '',
+    title: `${tc('appName')} — ${t('title')}`,
     description: t('description'),
-    alternates: localeAlternates(locale, ''),
-  };
+  });
 }
 
 /**

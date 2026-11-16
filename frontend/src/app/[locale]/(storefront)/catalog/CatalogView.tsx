@@ -379,6 +379,11 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
         </p>
       </div>
 
+      {/* GEO (HECHOS 2026-11-16): una línea visible con «singles» y Ciudad de México, bajo «Comprar · N publicaciones». */}
+      <p className="gutter pb-3 text-sm text-muted" data-testid="catalog-singles-line">
+        {t('singlesLine')}
+      </p>
+
       <StoreTabs />
 
       {/* Acciones móviles: filtros (con conteo activo en rojo) y orden. MKT-CONV.8: UNA fila de 56 px (`py-1.5` +

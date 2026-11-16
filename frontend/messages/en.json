@@ -250,9 +250,9 @@
     "soldOut": "Sold out"
   },
   "home": {
-    "heroKicker": "Pokémon cards · Mexico",
+    "heroKicker": "Pokémon singles · Mexico City",
     "heroTitle": "Hunt the card. We keep it safe.",
-    "heroSubtitle": "Verified cards, condition guaranteed. They live safe in your vault and ship in one go, whenever you say.",
+    "heroSubtitle": "Singles (raw cards) and graded, verified with guaranteed condition. Online store from Mexico City, shipping all over Mexico. They stay safe in your vault and ship together in one parcel, whenever you say.",
     "ctaShop": "Explore the catalog",
     "ctaSealed": "Browse sealed product",
     "ctaBuylist": "Sell my cards",
@@ -336,6 +336,7 @@
     }
   },
   "catalog": {
+    "singlesLine": "Pokémon singles (raw cards) and graded. From Mexico City, shipping all over Mexico.",
     "title": "Shop",
     "subtitle": "Our published inventory for sale. We only list what has a price.",
     "eyebrow": "Catalog · MXN",
@@ -7888,11 +7889,12 @@
     },
     "pages": {
       "home": {
-        "description": "Buy verified Pokémon cards, condition guaranteed and priced in pesos; keep them in your vault or sell yours. TCG HUNT, Mexico."
+      "title": "Pokémon singles from Mexico City",
+        "description": "Pokémon singles (raw cards) and graded, verified with guaranteed condition. From Mexico City, shipping all over Mexico."
       },
       "catalog": {
-        "title": "Pokémon card catalog",
-        "description": "Raw and graded Pokémon cards, verified and condition guaranteed. Priced in pesos, with the pieces available right now."
+        "title": "Pokémon singles: raw card catalog",
+        "description": "Catalog of Pokémon singles (raw cards) and graded. Online store from Mexico City, shipping all over Mexico."
       },
       "sealed": {
         "title": "Sealed Pokémon product",

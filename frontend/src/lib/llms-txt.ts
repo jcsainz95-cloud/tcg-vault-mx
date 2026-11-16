@@ -18,7 +18,7 @@ import { ABOUT_PATH, INSTAGRAM_HANDLE, INSTAGRAM_URL } from '@/lib/about';
 import { publishedGuides, contentSitemapPaths, LIVE_CONTENT, type ContentSource } from '@/lib/seo-content';
 
 /** Fecha de la última revisión del texto de `llms.txt`. */
-export const LLMS_LAST_REVIEW = '2026-10-31';
+export const LLMS_LAST_REVIEW = '2026-11-16';
 
 /**
  * Criterio 954 (C6): la ÚNICA mención del Card Show en `llms.txt` es este enlace a su página única. Sin datos del
@@ -53,6 +53,7 @@ export function buildLlmsTxt(opts: { supportContact: string; now?: Date; src?: C
     '',
     `> ${es.common.tagline}.`,
     '',
+    '- Qué somos: tienda en línea de singles de Pokémon (cartas sueltas) y gradeadas, desde Ciudad de México, con envíos a todo México.',
     `- Sitio: ${siteAbsoluteUrl('/')}`,
     '- País: México. Moneda: pesos mexicanos (MXN).',
     '- Precios: precios finales en MXN, actualizados a diario.',
