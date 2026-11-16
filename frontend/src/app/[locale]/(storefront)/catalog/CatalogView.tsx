@@ -379,8 +379,10 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
         </p>
       </div>
 
-      {/* GEO (HECHOS 2026-11-16): una línea visible con «singles» y Ciudad de México, bajo «Comprar · N publicaciones». */}
-      <p className="gutter pb-3 text-sm text-muted" data-testid="catalog-singles-line">
+      {/* GEO (HECHOS 2026-11-16): una línea VISIBLE con «singles» y Ciudad de México. En lg, bajo «Comprar · N publicaciones».
+          En < lg va al pie del catálogo (abajo): arriba empujaba las tejas y rompía L-8 (≥ 2 tejas completas con el banner
+          abierto, MKT-CONV.8 / PROJECT 943). Es el mismo texto en cada ancho, siempre a la vista; no hay texto oculto. */}
+      <p className="gutter hidden pb-3 text-sm text-muted lg:block" data-testid="catalog-singles-line">
         {t('singlesLine')}
       </p>
 
@@ -543,6 +545,10 @@ export function CatalogView({ initialPage }: { initialPage?: CatalogInitialPage 
           </QueryState>
         </div>
       </div>
+
+      <p className="gutter border-t border-border py-4 text-sm text-muted lg:hidden" data-testid="catalog-singles-line-mobile">
+        {t('singlesLine')}
+      </p>
 
       {/* Hoja de filtros (móvil) */}
       <Modal open={sheetOpen} onClose={() => setSheetOpen(false)} title={tShop('filtersTitle')}>
