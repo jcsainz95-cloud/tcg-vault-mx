@@ -187,7 +187,7 @@ export function HomeQuoterPanel({
     >
       <div className="flex items-center justify-between border-b border-border px-5 py-3.5 lg:px-6">
         <span className="eyebrow">{t('quoter.label')}</span>
-        <span className="eyebrow">MXN · {tc('withoutIva')}</span>
+        <span className="eyebrow">MXN</span>
       </div>
 
       <div className="px-5 pb-6 pt-6 lg:px-6 lg:pt-7">
