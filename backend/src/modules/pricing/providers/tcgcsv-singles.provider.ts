@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { CardProductKind, Finish } from '@prisma/client';
+import { isVariantProductName } from '../../../common/variant-product';
 import {
   TcgcsvGroupRef,
   TcgcsvSingleProductRef,
@@ -178,6 +179,7 @@ export interface DerivedCardProduct {
  * rareza), testeable con fixtures:
  *  - contiene «Deck Exclusive(s)» ⇒ `deck_exclusive` (VENDIBLE/COTIZABLE aparte, precio propio);
  *  - contiene «Promo»/«Staff»/«League»/«Prerelease»/«Jumbo» ⇒ `promo`;
+ *  - «X (… Pattern/Ball/Energy Symbol)» (paréntesis FINAL; §PRICE-PATTERN) ⇒ `variant` (versión alterna: precio propio, fuera del precio base);
  *  - nombre vacío/degenerado ⇒ `other` (fail-safe conservador: se compone como set_base en el binder);
  *  - en cualquier otro caso ⇒ `set_base` (el caso común de un single de set; §4.27d).
  */
@@ -186,6 +188,8 @@ export function classifyCardProductKind(name: string | null | undefined): CardPr
   if (s.trim() === '') return 'other';
   if (s.includes('deck exclusive')) return 'deck_exclusive';
   if (/\b(promo|staff|league|prerelease|pre-release|jumbo)\b/.test(s)) return 'promo';
+  // §PRICE-PATTERN: «X (… Pattern|Ball|Energy Symbol)» es una versión alterna con precio propio: NO es el producto base de la carta.
+  if (isVariantProductName(name)) return 'variant';
   return 'set_base';
 }
 

@@ -865,8 +865,8 @@ export class BuylistService implements OnModuleInit {
     productId: number,
   ): Promise<{ id: string; finishes: Finish[] }> {
     const cp = await this.pricing.findCardProductByTcgId(productId);
-    // v1.116⟨ids⟩ (§IDS.0 I-6, IDS-B13): la buylist solo compra inglés sin liga — un producto de liga no existe para ella.
-    if (!cp || cp.kind === 'stamped') {
+    // v1.116⟨ids⟩ (§IDS.0 I-6, IDS-B13): la buylist solo compra inglés sin liga — un producto de liga no existe para ella (§PRICE-PATTERN: tampoco una versión alterna «Pattern/Ball»).
+    if (!cp || cp.kind === 'stamped' || cp.kind === 'variant') {
       throw BusinessException.validation('PRODUCT_NOT_FOUND', 'Product not found', { productId });
     }
     if (cp.cardId !== cardId) {
@@ -891,7 +891,7 @@ export class BuylistService implements OnModuleInit {
     cp: { id: string; cardId: string; finishes: Finish[]; kind?: CardProductKind } | null,
   ): { id: string; finishes: Finish[] } {
     // v1.116⟨ids⟩ (I-6, IDS-B13): un producto de liga no existe para la buylist.
-    if (!cp || cp.kind === 'stamped') {
+    if (!cp || cp.kind === 'stamped' || cp.kind === 'variant') {
       throw BusinessException.validation('PRODUCT_NOT_FOUND', 'Product not found', { productId });
     }
     if (cp.cardId !== cardId) {

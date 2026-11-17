@@ -34,6 +34,7 @@ import { MarketingWeeklyDigestService } from '../modules/marketing/marketing-wee
 import { IndexInspectionService } from '../modules/marketing/index-inspection.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
 import { ManualVersionMergeService } from '../modules/pricing/manual-version-merge.service';
+import { PatternReclassifyService } from '../modules/pricing/pattern-reclassify.service';
 import { SupplyExpiryService } from '../modules/supply/supply-expiry.service';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
@@ -179,6 +180,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly supplyExpiry?: SupplyExpiryService,
     // §ALTA-LIGA-2: fusión diaria de versiones de liga manuales con el producto real.
     @Optional() private readonly manualVersionMerge?: ManualVersionMergeService,
+    // §PRICE-PATTERN: reclasificación idempotente de versiones «Pattern/Ball» (al desplegar y diaria).
+    @Optional() private readonly patternReclassify?: PatternReclassifyService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -422,6 +425,15 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: ManualVersionMergeService NO está inyectado; manual-version-merge no queda programado.');
     }
 
+    // §PRICE-PATTERN: `pattern-reclassify` diario 02:10 UTC (tras el barrido de catálogo) y UNA vez al desplegar (jobId fijo + removeOnComplete ⇒
+    // cada arranque encola una corrida; es idempotente: sin candidatos no cambia nada).
+    if (this.patternReclassify) {
+      await this.queue.add('pattern-reclassify', {}, this.repeat('pattern-reclassify', '10 2 * * *'));
+      await this.queue.add('pattern-reclassify', {}, { jobId: 'pattern-reclassify-boot', removeOnComplete: true, removeOnFail: 20 });
+    } else {
+      this.logger.error('Scheduler: PatternReclassifyService NO está inyectado; pattern-reclassify no queda programado.');
+    }
+
     // El wiring corre en background: si mientras tanto empezó el shutdown, NO se crea el worker
     // (se quedaría vivo tras el destroy: handle abierto + jobs procesándose en un proceso que
     // se está apagando). La cola/conexión ya creadas las cierra `onModuleDestroy`, que espera
@@ -568,6 +580,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.featuredRotation?.tick() ?? null;
       case 'stripe-fee-reconcile':
         return this.payments?.reconcileStripeFees() ?? null;
+      case 'pattern-reclassify':
+        return this.patternReclassify?.run() ?? null;
       case 'manual-version-merge':
         return this.manualVersionMerge?.runAll() ?? null;
       case 'supply-expiry':

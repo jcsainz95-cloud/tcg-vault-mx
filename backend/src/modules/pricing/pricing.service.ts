@@ -92,6 +92,7 @@ import {
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
 // MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
 import { variantKey } from '../../common/variant-key';
+import { ProductPreference, productPreferenceOf } from '../../common/variant-product';
 import { StampRef, validateSpanishMarketPct } from '../../common/card-version';
 import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 // v1.91⟨precios⟩ (M-75, §PRE.B / ARCHITECTURE §4.PRE (a)(b)): árbitro de mediana que ENVUELVE la lectura.
@@ -382,6 +383,13 @@ export type RefRow = {
   // `evidenceDate`, y un fallback de menor precedencia con `capturedDate=hoy` DESCARTABA a la primaria
   // buena con `capturedDate` viejo pero evidencia fresca (inversión de la precedencia §4.27f).
   evidenceDate?: Date | null;
+  /**
+   * §PRICE-PATTERN (punto 3): preferencia del PRODUCTO del que sale esta fila (0 = es el ancla de la carta, 1 = nombre exacto, 2 = el resto;
+   * `productPreferenceOf`) y su id EXTERNO (`CardProduct.tcgplayerProductId`, estable). OPCIONALES: sin ellos (filas sin producto o llamadores
+   * que no los traen) el comportamiento es el de antes, salvo que el último desempate ya no es el uuid cuando sí traen `productExtId`.
+   */
+  productPref?: ProductPreference | null;
+  productExtId?: number | null;
 };
 
 /**
@@ -419,8 +427,9 @@ function sourceRank(source: string, isManualOverride: boolean): number {
  *      residuo fresco (sería money-losing).
  *   4. A igual tier, día y fuente, la fila de la VARIANTE RESUELTA (`cardProductId` no nulo, escrita
  *      por el resolver de singles) gana sobre la genérica `cardProductId=null` del ingest (NULLS LAST).
- *   5. Último criterio: orden lexicográfico del `cardProductId` (cuid), para que la elección sea
- *      ESTABLE y REPRODUCIBLE ante un import forzado (`sync {force:true}`), no «cualquiera de las dos».
+ *   5. Último criterio: `tcgplayerProductId` ascendente (id EXTERNO estable; §PRICE-PATTERN), con el `cardProductId` (cuid) solo de respaldo
+ *      si la fila no lo trae, para que la elección sea ESTABLE y REPRODUCIBLE ante un import forzado (`sync {force:true}`).
+ *   0 (§PRICE-PATTERN). Entre productos distintos manda la PREFERENCIA de producto (ancla ⇒ nombre exacto ⇒ resto) justo después del tier manual.
  */
 export function isBetterRef(a: RefRow, b: RefRow): boolean {
   // §4.27f-2 (P47-2): tier manual ABSOLUTO y durable cross-day. Se compara ANTES que `capturedDate`
@@ -428,6 +437,14 @@ export function isBetterRef(a: RefRow, b: RefRow): boolean {
   const am = a.isManualOverride || a.source === 'manual';
   const bm = b.isManualOverride || b.source === 'manual';
   if (am !== bm) return am;
+  // §PRICE-PATTERN (punto 3, DEFENSA EN PROFUNDIDAD): entre filas de productos DISTINTOS de la misma carta y acabado manda la PREFERENCIA de
+  // producto ANTES que la frescura: el ancla de la carta (0) y el nombre exacto (1) vencen a cualquier producto con otro nombre (2), por muy
+  // fresco o caro que sea. Solo compara filas con `cardProductId` distinto y no nulo.
+  if (a.cardProductId != null && b.cardProductId != null && a.cardProductId !== b.cardProductId) {
+    const ap = a.productPref ?? 2;
+    const bp = b.productPref ?? 2;
+    if (ap !== bp) return ap < bp;
+  }
   // P-53 ALTO-3 (§3): la frescura EFECTIVA es `evidenceDate ?? capturedDate` — el MISMO predicado del
   // escritor diario y del camino graded. Con `evidenceDate = null|undefined` (filas legadas/graded)
   // cae a `capturedDate` ⇒ orden IDÉNTICO a hoy (CA-10). El único cambio de conducta: una fila con
@@ -441,7 +458,33 @@ export function isBetterRef(a: RefRow, b: RefRow): boolean {
   const acp = a.cardProductId;
   const bcp = b.cardProductId;
   if ((acp == null) !== (bcp == null)) return acp != null; // NULLS LAST: la variante resuelta gana.
-  if (acp != null && bcp != null && acp !== bcp) return acp < bcp;
+  if (acp != null && bcp != null && acp !== bcp) {
+    // §PRICE-PATTERN: el último criterio es el id EXTERNO ascendente (estable entre bases), NUNCA el uuid (aleatorio por base). El uuid solo
+    // queda de respaldo para filas que no traen `productExtId` (llamadores viejos).
+    if (a.productExtId != null && b.productExtId != null && a.productExtId !== b.productExtId) return a.productExtId < b.productExtId;
+    return acp < bcp;
+  }
+  return false;
+}
+
+/**
+ * §PRICE-PATTERN (punto 3) — AMBIGÜEDAD REAL de producto: la fila ganadora de una variante NO es el ancla ni lleva el nombre de la carta
+ * (preferencia 2) y hay OTRO producto distinto, también de preferencia 2, con precio que difiere más de 25 %. No hay forma honesta de
+ * elegir ⇒ sin precio automático (`PRICE_PENDING`) y el job deja `pricing.product_ambiguous`. Un tier MANUAL nunca es ambiguo.
+ * `liveMxnOf` da el MXN vigente de una fila (FX viva si aplica). Pura.
+ */
+export const PRODUCT_AMBIGUITY_TOLERANCE = 0.25;
+export function isProductAmbiguous(winner: RefRow, rows: readonly RefRow[], liveMxnOf: (r: RefRow) => number): boolean {
+  if (winner.isManualOverride || winner.source === 'manual' || winner.cardProductId == null) return false;
+  if ((winner.productPref ?? 2) !== 2) return false;
+  const w = liveMxnOf(winner);
+  for (const r of rows) {
+    if (r === winner || r.isManualOverride || r.source === 'manual') continue;
+    if (r.cardProductId == null || r.cardProductId === winner.cardProductId || (r.productPref ?? 2) !== 2) continue;
+    const o = liveMxnOf(r);
+    const lo = Math.min(w, o);
+    if (lo > 0 && Math.abs(w - o) / lo > PRODUCT_AMBIGUITY_TOLERANCE) return true;
+  }
   return false;
 }
 
@@ -968,6 +1011,8 @@ export class PricingService {
         isManualOverride: false,
         source: { in: dials.admittedSources as PriceSource[] },
         ...MONEY_REF_WHERE,
+        // §PRICE-PATTERN: la cotización de una versión alterna («Master Ball Pattern»…) NO es evidencia del precio de la carta base.
+        NOT: { cardProduct: { kind: CardProductKind.variant } },
       },
       orderBy: { capturedDate: 'desc' },
       select: PRICE_REF_SELECT,
@@ -1287,15 +1332,22 @@ export class PricingService {
         capturedDate: Date;
         cardProductId: string | null;
         evidenceDate: Date | null;
+        productExtId: number | null;
+        productName: string | null;
+        cardName: string;
+        cardTcgplayerId: string | null;
       }[]
     >(Prisma.sql`
       WITH filtered AS (
         SELECT pr."cardId", pr."productType", pr."gradeKey", pr."finish",
                pr."priceMxnCents", pr."priceUsdCents", pr."isManualOverride",
                pr."source", pr."capturedDate", pr."cardProductId", pr."evidenceDate",
-               (pr."isManualOverride" OR pr."source" = 'manual') AS is_manual
+               (pr."isManualOverride" OR pr."source" = 'manual') AS is_manual,
+               cp."tcgplayerProductId" AS "productExtId", cp."name" AS "productName",
+               c."name" AS "cardName", c."tcgplayerId" AS "cardTcgplayerId"
         FROM "PriceReference" pr
         LEFT JOIN "CardProduct" cp ON cp."id" = pr."cardProductId"
+        JOIN "Card" c ON c."id" = pr."cardId"
         WHERE pr."cardId" IN (${Prisma.join(cardIds)})
           AND pr."productType"::text IN (${Prisma.join(productTypes)})
           AND pr."gradeKey" IN (${Prisma.join(gradeKeys)})
@@ -1318,10 +1370,17 @@ export class PricingService {
       )
       SELECT "cardId", "productType", "gradeKey", "finish",
              "priceMxnCents", "priceUsdCents", "isManualOverride",
-             "source", "capturedDate", "cardProductId", "evidenceDate"
+             "source", "capturedDate", "cardProductId", "evidenceDate",
+             "productExtId", "productName", "cardName", "cardTcgplayerId"
       FROM ranked
       WHERE is_manual OR COALESCE("evidenceDate", "capturedDate") = max_auto_date
     `);
+    // §PRICE-PATTERN: la preferencia de producto sale de los datos del JOIN (ancla de la carta ⇒ nombre exacto ⇒ resto).
+    for (const r of rows as (typeof rows[number] & RefRow)[]) {
+      if (r.cardProductId != null && r.productExtId != null && r.productName != null) {
+        r.productPref = productPreferenceOf({ tcgplayerProductId: r.productExtId, name: r.productName }, { tcgplayerId: r.cardTcgplayerId, name: r.cardName });
+      }
+    }
     // v1.x-fx-live: FX izada UNA vez por request (no por ítem) para el recomputo al vuelo.
     const fx = await this.fxSnapshotSafe();
     // v1.29: agrupa por clave y elige la MEJOR fila por precedencia (override > tcgcsv_singles > PPT),
@@ -1347,6 +1406,8 @@ export class PricingService {
     for (const [k, r] of bestByKey) {
       const isManual = r.isManualOverride || r.source === 'manual';
       if (isManual) manualKeys.add(k);
+      // §PRICE-PATTERN: dos productos «del montón» con precios muy distintos ⇒ sin precio automático (la clave queda ausente ⇒ `pending`).
+      if (!isManual && isProductAmbiguous(r, rowsByKey.get(k) ?? [r], (x) => this.liveMxnCents(x, fx))) continue;
       const robust = isManual ? null : this.robustMarketForRows(rowsByKey.get(k) ?? [r], arbiterDials, fx, nowIso);
       map.set(
         k,
