@@ -10,6 +10,7 @@ import {
   isBetterRef,
   RefRow,
 } from '../pricing/pricing.service';
+import { productPreferenceOf } from '../../common/variant-product';
 
 /**
  * TD-1 (v1.9-set-chart): REGLA DE VALUACIÓN del set público, fuente única compartida. Fija el
@@ -215,8 +216,19 @@ export class SetValueService {
         capturedDate: true,
         cardProductId: true,
         evidenceDate: true,
+        // §PRICE-PATTERN: insumos de la preferencia de producto del desempate (`isBetterRef`), igual que la lectura de precio.
+        cardProduct: { select: { tcgplayerProductId: true, name: true } },
+        card: { select: { name: true, tcgplayerId: true } },
       },
     });
+    // Solo en cartas con un producto `variant` en ese acabado (mismo alcance que la lectura de precio); el resto decide como SIEMPRE.
+    const withVariant = await this.pricing.cardIdsWithVariant([...new Set(refs.map((r) => r.cardId))], SET_VALUE_RULE.finish);
+    for (const r of refs as (typeof refs[number] & RefRow)[]) {
+      if (r.cardProduct != null && withVariant.has(r.cardId)) {
+        r.productExtId = r.cardProduct.tcgplayerProductId;
+        r.productPref = productPreferenceOf(r.cardProduct, r.card);
+      }
+    }
 
     // v1.x-fx-live: el valor "hoy" (sin `asOf`) es una REFERENCIA DE MERCADO VIVA → recalcula el MXN
     // de referencias en USD con la FX vigente (izada UNA vez). El valor histórico (con `asOf`, que usa

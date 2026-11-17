@@ -2060,6 +2060,8 @@ export class PriceIngestService {
             capturedDate: { gte: since },
             priceMxnCents: { gt: 0 },
             ...MONEY_REF_WHERE,
+            // §PRICE-PATTERN: una versión alterna («Master Ball Pattern») no cuenta como precio vigente de la carta base.
+            NOT: { cardProduct: { kind: 'variant' } },
           },
           select: { cardId: true, finish: true },
         });

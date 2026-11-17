@@ -438,6 +438,8 @@ enum CardProductKind {
   // TCGCSV). Con `stampType` NOT NULL (CHECK de m95b). ⛔ No entra en `Card.availableFinishes`, binder, valor de set ni
   // cotizador (§IDS.3, I-6).
   stamped
+  // §PRICE-PATTERN (m106): versión alterna de la MISMA carta («(Master Ball Pattern)», «(Poke Ball)», «(Energy Symbol Pattern)»): precio propio, fuera del precio base.
+  variant
 }
 
 // v1.116⟨ids⟩ (M-95, §IDS.1). Idioma de la pieza y de la línea de pedido. Sin `ja` (PROJECT §IDS.6).
