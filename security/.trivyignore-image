@@ -17,21 +17,7 @@
 # 2026-10-04: con exp pasada, `trivy rootfs --exit-code 1` → exit 1; en fecha → 0.
 # =============================================================================
 
-# -----------------------------------------------------------------------------
-# braces@3.0.3 · CVE-2026-93687 (= GHSA-vfj7-8cjw-p6xm) · HIGH · alta 2026-10-04
-# -----------------------------------------------------------------------------
-# Sin versión arreglada (3.0.3 es la última publicada; rango afectado <=3.0.3).
-# Ruta medida: /app/node_modules/braces/package.json SOLO en tcg-backend
-# (reconstruido: `npm ci --include=dev` del lockfile de HEAD + `trivy rootfs`).
-# La imagen frontend (standalone de Next) NO lo contiene.
-# Por qué está en la imagen: Dockerfile.backend copia node_modules CON
-# devDependencies a propósito — `prisma` (migrate deploy del CMD) y `ts-node`
-# (seed de una vez) son devDependencies de backend/package.json (DEVOPS_NOTES §6.2).
-# Por qué NO es alcanzable: `npm ls braces --omit=dev` VACÍO; solo lo cargan
-# @nestjs/cli→chokidar y jest→micromatch, y en el contenedor solo corren
-# preflight (sh), `node node_modules/prisma/build/index.js migrate deploy`,
-# `node dist/main.js` y, a mano, `ts-node prisma/seed.ts`: ninguno en su cierre.
-# Ningún código de producción importa braces/micromatch/chokidar (grep src/ prisma/).
-# Salida real: backend mueve prisma/ts-node/typescript a dependencies y devops
-# poda devDeps en la imagen; o upstream publica braces arreglado.
-CVE-2026-93687 exp:2026-11-03
+# ESTADO (2026-11-18): SIN EXCEPCIONES ACTIVAS. La de braces@3.0.3 (CVE-2026-93687 =
+# GHSA-vfj7-8cjw-p6xm, alta 2026-10-04, exp 2026-11-03) venció y se podó junto con su
+# ficha de npm-audit-dev-fichas.tsv. El picomatch CVE-2026-112366 de la imagen backend
+# está cubierto por security/.trivyignore (lo leen fs e image), no aquí.
