@@ -38,14 +38,14 @@ function ref(partial: {
   };
 }
 
-function buildService(prisma: any, config: Partial<ConfigService> = {}) {
+function buildService(prisma: any, config: Partial<ConfigService> = {}, withVariant: string[] = []) {
   const cfg = { get: jest.fn().mockReturnValue(undefined), ...config } as unknown as ConfigService;
   // v1.x-fx-live: SetValueService recalcula el MXN "hoy" con la FX vigente. Stub sin FX (fxSnapshotSafe
   // → null) ⇒ liveMxnCents devuelve el priceMxnCents almacenado (congelado), como en el modelo previo.
   const pricing = {
     fxSnapshotSafe: jest.fn().mockResolvedValue(null),
     liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
-    cardIdsWithVariant: jest.fn().mockResolvedValue(new Set<string>()),
+    cardIdsWithVariant: jest.fn().mockResolvedValue(new Set<string>(withVariant)),
   } as unknown as PricingService;
   return new SetValueService(prisma as PrismaService, cfg, pricing);
 }
@@ -450,5 +450,24 @@ describe('SetValueService.computeSetValue — P-53 ALTO-3: frescura efectiva en 
     const res = await svc.computeSetValue('set1');
     // Sin evidencia, COALESCE = capturedDate ⇒ el fallback (HOY) sigue ganando, como producción hoy.
     expect(res.totalValueMxnCents).toBe(50000);
+  });
+});
+
+describe('SetValueService.computeSetValue — §PRICE-PATTERN: alcance de la preferencia de producto', () => {
+  // Misma carta, dos productos del mismo día/fuente. A (uuid mayor) es el ancla (tcgplayerId == Card.tcgplayerId); B (uuid menor) no.
+  const refs = () => [
+    { ...ref({ cardId: 'c1', priceMxnCents: 9000, capturedDate: new Date('2026-08-15'), cardProductId: 'bbbb-uuid-mayor' }), cardProduct: { tcgplayerProductId: 200, name: 'Noctowl' }, card: { name: 'Noctowl', tcgplayerId: '200' } },
+    { ...ref({ cardId: 'c1', priceMxnCents: 1500, capturedDate: new Date('2026-08-15'), cardProductId: 'aaaa-uuid-menor' }), cardProduct: { tcgplayerProductId: 100, name: 'Noctowl (Otro)' }, card: { name: 'Noctowl', tcgplayerId: '200' } },
+  ];
+  const prismaWith = () => ({ card: { findMany: jest.fn().mockResolvedValue([{ id: 'c1' }]) }, priceReference: { findMany: jest.fn().mockResolvedValue(refs()) } });
+
+  it('carta CON variant en el acabado ⇒ gana el producto ancla (9000), no el uuid más chico', async () => {
+    const res = await buildService(prismaWith(), {}, ['c1']).computeSetValue('set1');
+    expect(res.totalValueMxnCents).toBe(9000);
+  });
+
+  it('carta SIN variant ⇒ decide como SIEMPRE (uuid más chico ⇒ 1500): quitar el alcance cambiaría este valor', async () => {
+    const res = await buildService(prismaWith(), {}, []).computeSetValue('set1');
+    expect(res.totalValueMxnCents).toBe(1500);
   });
 });

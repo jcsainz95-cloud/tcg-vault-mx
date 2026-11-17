@@ -11,6 +11,7 @@ import { ListingPriceService } from '../../src/modules/pricing/listing-price.ser
 import { isVariantProductName, VARIANT_PRODUCT_PREFILTER_LIKE } from '../../src/common/variant-product';
 import * as fixture from '../fixtures/tcgcsv-variant-names.json';
 import { Prisma } from '@prisma/client';
+import { CardProductResolverService } from '../../src/modules/catalog/card-product-resolver.service';
 
 jest.setTimeout(180_000);
 
@@ -301,5 +302,43 @@ describe('E2E — §PRICE-PATTERN', () => {
     } finally {
       await h.prisma.configSetting.deleteMany({ where: { key: { in: ['pattern_correction_cap', 'pattern_classify_enabled'] } } });
     }
+  });
+  it('refresh-variants (resolver) NO reclasifica hacia/desde variant: con el freno parado, 0 reclasificaciones, 0 auditorías y el precio publicado no cambia', async () => {
+    const resolver = h.app.get(CardProductResolverService);
+    const grp = 800_000 + Math.floor(Math.random() * 100_000);
+    const set2 = await h.prisma.cardSet.create({ data: { externalId: `pp2-${run}`, name: `Set PP2 ${run}`, pptSetId: String(grp) } });
+    const mk = async (n: string, tcg: number) => {
+      const c = await h.prisma.card.create({
+        data: { externalId: `pp2-${run}-${n}`, setId: set2.id, name: `Noctowl ${run} r${n}`, number: n, rarity: 'Common', rarityCanonical: 'Common', availableFinishes: ['holofoil'], tcgplayerId: String(tcg) },
+      });
+      cardIds.push(c.id);
+      return c;
+    };
+    const A = await mk('901', (pid += 1_000_000)); // en BD está set_base y el nombre TCGCSV dice «Pattern» ⇒ el derivado diría variant
+    const B = await mk('902', (pid += 1_000_000)); // en BD está variant y el nombre TCGCSV ya no dice «Pattern» ⇒ el derivado diría set_base
+    const pA = await product(A, Number(A.tcgplayerId), `${A.name} (Master Ball Pattern)`, { holofoil: 15663 });
+    const pB = await product(B, Number(B.tcgplayerId), `${B.name} (Master Ball Pattern)`, { holofoil: 15663 }, undefined, 'variant');
+    const products = [
+      { productId: Number(A.tcgplayerId), name: `${A.name} (Master Ball Pattern) - 901`, number: '901' },
+      { productId: Number(B.tcgplayerId), name: `${B.name} - 902`, number: '902' },
+    ];
+    const prices = [
+      { productId: Number(A.tcgplayerId), subTypeName: 'Holofoil', marketPrice: 90 },
+      { productId: Number(B.tcgplayerId), subTypeName: 'Holofoil', marketPrice: 3 },
+    ];
+    const client = (resolver as unknown as { tcgcsv: { getProducts: unknown; getPrices: unknown } }).tcgcsv;
+    const orig = { gp: client.getProducts, gpr: client.getPrices };
+    client.getProducts = async () => products;
+    client.getPrices = async () => prices;
+    const auditsBefore = await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_correction' } });
+    try {
+      await resolver.resolveCardProductsForSet(set2.id); // «refrescar variantes» sin que el job haya corrido
+    } finally {
+      client.getProducts = orig.gp;
+      client.getPrices = orig.gpr;
+    }
+    expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: pA.id } })).kind).toBe('set_base');
+    expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: pB.id } })).kind).toBe('variant');
+    expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_correction' } })).toBe(auditsBefore);
   });
 });

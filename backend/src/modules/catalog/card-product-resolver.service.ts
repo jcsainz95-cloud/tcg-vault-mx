@@ -160,6 +160,9 @@ export class CardProductResolverService {
       joined += 1;
 
       // Upsert de CardProduct por tcgplayerProductId (REEMPLAZO money-safe de finishes/kind/name).
+      // Reclasificar HACIA o DESDE `variant` es del job `pattern-reclassify` (freno + auditoría + recálculo): aquí se conserva el kind actual.
+      const prev = await this.prisma.cardProduct.findUnique({ where: { tcgplayerProductId: dp.productId }, select: { kind: true } });
+      const kind = prev && (prev.kind === 'variant') !== (dp.kind === 'variant') ? prev.kind : dp.kind;
       const cardProduct = await this.prisma.cardProduct.upsert({
         where: { tcgplayerProductId: dp.productId },
         create: {
@@ -169,7 +172,7 @@ export class CardProductResolverService {
           name: dp.name,
           finishes: dp.finishes,
         },
-        update: { cardId: owner.id, kind: dp.kind, name: dp.name, finishes: dp.finishes },
+        update: { cardId: owner.id, kind, name: dp.name, finishes: dp.finishes },
         select: { id: true },
       });
       touched.add(owner.id);

@@ -43,6 +43,7 @@ function clientMock(
 function prismaMock(
   set: { id: string; name: string; pptSetId: string | null },
   localCards: { id: string; number: string; tcgplayerId: string | null }[],
+  prevKinds: Record<string, string> = {},
 ) {
   const cardProductUpserts: any[] = [];
   const priceUpserts: any[] = [];
@@ -51,6 +52,7 @@ function prismaMock(
     cardSet: { findUnique: jest.fn(async () => set) },
     card: { findMany: jest.fn(async () => localCards) },
     cardProduct: {
+      findUnique: jest.fn(async (a: any) => (prevKinds[a.where.tcgplayerProductId] ? { kind: prevKinds[a.where.tcgplayerProductId] } : null)),
       upsert: jest.fn(async (args: any) => {
         cardProductUpserts.push(args);
         return { id: `cp-${args.where.tcgplayerProductId}` };
@@ -71,6 +73,26 @@ const fxMock = () =>
   ({ getCurrent: jest.fn(async () => ({ rate: 18, bufferPct: 3, source: 'banxico', effectiveDate: '2026-08-22' })) } as unknown as FxService);
 
 describe('CardProductResolverService.resolveCardProductsForSet (§4.27d)', () => {
+  it('PRICE-PATTERN: en el UPDATE conserva el kind si el cambio es hacia/desde variant (solo el job reclasifica); el resto cambia como siempre', async () => {
+    const run = async (prev: Record<string, string>) => {
+      const { prisma, cardProductUpserts } = prismaMock(
+        { id: 'local-me05', name: 'Pitch Black', pptSetId: '24688' },
+        [{ id: 'c-energy', number: '084', tcgplayerId: '704841' }],
+        prev,
+      );
+      const svc = new CardProductResolverService(prisma, clientMock(), { reconcile: jest.fn(async () => 0) } as unknown as FinishReconciler, fxMock());
+      await svc.resolveCardProductsForSet('local-me05');
+      return new Map(cardProductUpserts.map((u) => [u.where.tcgplayerProductId, u]));
+    };
+    // Existía como variant y el derivado dice set_base ⇒ se queda variant (en update); create sin tocar.
+    let m = await run({ '704841': 'variant' });
+    expect(m.get(704841).update.kind).toBe('variant');
+    expect(m.get(704841).create.kind).toBe('set_base');
+    // Existía como set_base y el derivado dice deck_exclusive (no variant) ⇒ cambia como siempre.
+    m = await run({ '707029': 'set_base' });
+    expect(m.get(707029).update.kind).toBe('deck_exclusive');
+  });
+
   it('MATA EL FANTASMA: set_base (704841)=[holofoil,reverse_holo]; Deck Exclusive (707029)=deck_exclusive con SU normal', async () => {
     const { prisma, cardProductUpserts } = prismaMock(
       { id: 'local-me05', name: 'Pitch Black', pptSetId: '24688' },
