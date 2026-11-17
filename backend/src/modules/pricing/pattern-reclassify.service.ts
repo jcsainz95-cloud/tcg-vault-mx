@@ -6,15 +6,24 @@ import { MAIL_PORT, MailPort } from '../mail/mail.port';
 import { headingRow, mailShell, proseRow, spacerRow } from '../buylist/mail-shell';
 import { ownerRecipients } from '../spend-alerts/spend-mail.service';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
-import { productPreferenceOf, VARIANT_PRODUCT_SUFFIX_PG } from '../../common/variant-product';
+import { isVariantProductName, productPreferenceOf, VARIANT_PRODUCT_PREFILTER_LIKE } from '../../common/variant-product';
+import { SettingsService } from '../settings/settings.service';
+import { SettingKey } from '../settings/settings.constants';
+import { classifyCardProductKind } from './providers/tcgcsv-singles.provider';
 import { variantKey } from '../../common/variant-key';
 import { MONEY_REF_WHERE, PricingService } from './pricing.service';
 import { ListingPriceService } from './listing-price.service';
 
-/** Freno de anomalía (§PRICE-PATTERN punto 4): una corrida que cambiaría MÁS combinaciones que esto NO se aplica y avisa al dueño. */
+/** Freno de anomalía por DEFECTO (§PRICE-PATTERN punto 4); el dueño lo sube con el dial `pattern_correction_cap`. */
 export const PATTERN_RECLASSIFY_BRAKE = 200;
+/** Candado consultivo del job (single-flight, punto 4b-i): UNA instancia a la vez; la segunda sale sin hacer nada. Censo: `lock-keys.census.spec.ts`. */
+export const PATTERN_RECLASSIFY_LOCK_KEY = 91_170_217;
+/** La transacción que SOSTIENE el candado vive lo que dure la corrida (recalcular precios publicados puede tardar). */
+const PATTERN_RECLASSIFY_TX_TIMEOUT_MS = 25 * 60 * 1000;
 
 export interface PatternReclassifyResult {
+  /** `true` ⇒ otra corrida tenía el candado: esta salió sin hacer nada. */
+  skipped?: boolean;
   /** Productos `set_base|other` cuyo nombre coincide con «(… Pattern/Ball/Energy Symbol)» (candidatos). */
   candidates: number;
   /** Productos reclasificados a `variant` (0 si el freno actuó). */
@@ -58,22 +67,72 @@ export class PatternReclassifyService {
     @Optional() private readonly listingPrices?: ListingPriceService,
     @Optional() private readonly audit?: AuditService,
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
+    @Optional() private readonly settings?: SettingsService,
   ) {}
 
+  /** Los diales (con su default si el servicio de ajustes no está): `pattern_classify_enabled` (on|off) y `pattern_correction_cap` (entero ≥ 1). */
+  private async dials(): Promise<{ enabled: boolean; cap: number }> {
+    let enabled = true;
+    let cap = PATTERN_RECLASSIFY_BRAKE;
+    try {
+      if (this.settings) {
+        enabled = (await this.settings.getString(SettingKey.PATTERN_CLASSIFY_ENABLED)) !== 'off';
+        const n = await this.settings.getNumber(SettingKey.PATTERN_CORRECTION_CAP);
+        if (Number.isInteger(n) && n >= 1) cap = n;
+      }
+    } catch (e) {
+      this.logger.warn(`pattern-reclassify: no se pudieron leer los diales (se usan los defaults): ${(e as Error).message}`);
+    }
+    return { enabled, cap };
+  }
+
+  /**
+   * SINGLE-FLIGHT (punto 4b-i): la corrida entera vive dentro de UNA transacción larga que toma `pg_try_advisory_xact_lock`; una segunda
+   * corrida en paralelo (boot + diario, dos instancias) NO obtiene el candado y sale sin hacer nada (`skipped`). El candado se libera solo al
+   * terminar o si el proceso muere. La transacción solo SOSTIENE el candado: el trabajo usa sus propias conexiones.
+   */
   async run(opts: { brake?: number } = {}): Promise<PatternReclassifyResult> {
-    const brake = opts.brake ?? PATTERN_RECLASSIFY_BRAKE;
+    return this.prisma.$transaction(
+      async (lockTx) => {
+        const got = await lockTx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(${PATTERN_RECLASSIFY_LOCK_KEY}::bigint) AS ok`;
+        if (got[0]?.ok !== true) {
+          this.logger.warn('pattern-reclassify: ya hay una corrida en curso; esta sale sin hacer nada.');
+          return { candidates: 0, reclassified: 0, combosExposed: 0, corrections: 0, halted: false, ambiguous: 0, skipped: true };
+        }
+        return this.runLocked(opts);
+      },
+      { timeout: PATTERN_RECLASSIFY_TX_TIMEOUT_MS, maxWait: 5_000 },
+    );
+  }
+
+  private async runLocked(opts: { brake?: number }): Promise<PatternReclassifyResult> {
+    const dials = await this.dials();
+    const brake = opts.brake ?? dials.cap;
     const out: PatternReclassifyResult = { candidates: 0, reclassified: 0, combosExposed: 0, corrections: 0, halted: false, ambiguous: 0 };
 
-    const cand = await this.prisma.$queryRaw<{ id: string; cardId: string }[]>(Prisma.sql`
-      SELECT "id", "cardId" FROM "CardProduct"
-      WHERE "kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind") AND "name" ~* ${VARIANT_PRODUCT_SUFFIX_PG}
-    `);
+    // REVERSA FUNCIONAL (flag apagado): `variant → set_base` y la lectura vuelve al comportamiento previo. Sin freno: es decisión explícita del dueño.
+    if (!dials.enabled) {
+      const back = await this.prisma.cardProduct.findMany({ where: { kind: 'variant' }, select: { id: true, cardId: true } });
+      out.candidates = back.length;
+      if (back.length > 0) {
+        out.corrections = await this.applyKind(back.map((b) => b.id), [...new Set(back.map((b) => b.cardId))], 'set_base');
+        out.reclassified = back.length;
+      }
+      return out;
+    }
+
+    // Candidatos: pre-filtro SQL barato (superconjunto) y decisión en el CLASIFICADOR ÚNICO (promo/deck_exclusive mandan, normalización de acentos).
+    const pre = await this.prisma.$queryRaw<{ id: string; cardId: string; name: string }[]>(Prisma.sql`
+      SELECT "id", "cardId", "name" FROM "CardProduct"
+      WHERE "kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind")
+        AND "name" ILIKE ANY (${VARIANT_PRODUCT_PREFILTER_LIKE as string[]})`);
+    const cand = pre.filter((p) => classifyCardProductKind(p.name) === 'variant' && isVariantProductName(p.name));
     out.candidates = cand.length;
 
     if (cand.length > 0) {
       const ids = cand.map((c) => c.id);
       const cardIds = [...new Set(cand.map((c) => c.cardId))];
-      const exposed = await this.exposedCombos(cardIds);
+      const exposed = await this.exposedCombos(cardIds, ids);
       out.combosExposed = exposed.length;
       if (exposed.length > brake) {
         out.halted = true;
@@ -82,43 +141,49 @@ export class PatternReclassifyService {
         out.ambiguous = await this.auditAmbiguities();
         return out;
       }
-
-      // Precio PUBLICADO de antes (ListingPrice de las piezas de plataforma de esas cartas), para auditar lo que de verdad cambió.
-      const before = await this.publishedPrices(cardIds);
-      await this.prisma.cardProduct.updateMany({ where: { id: { in: ids } }, data: { kind: 'variant' } });
+      out.corrections = await this.applyKind(ids, cardIds, 'variant');
       out.reclassified = cand.length;
-      await this.finishReconciler.reconcile(cardIds);
-      if (this.listingPrices) {
-        for (const c of await this.combosOf(cardIds)) {
-          void this.listingPrices.enqueueVariant('manual_price', { cardId: c.cardId, productType: 'raw', gradeKey: 'raw:NM', finish: c.finish });
-        }
-        await this.listingPrices.idle();
-      }
-      const after = await this.publishedPrices(cardIds);
-      const changed = new Map<string, Combo & { from: number | null; to: number | null }>();
-      for (const [itemId, b] of before) {
-        const a = after.get(itemId);
-        if (a == null || a.price === b.price) continue;
-        const k = this.key(b);
-        if (!changed.has(k)) changed.set(k, { cardId: b.cardId, finish: b.finish, from: b.price, to: a.price });
-      }
-      const winners = await this.winnerProducts([...changed.values()]);
-      for (const c of changed.values()) {
-        await this.audit
-          ?.log({
-            action: 'pricing.pattern_correction',
-            entityType: 'Card',
-            entityId: c.cardId,
-            after: { cardId: c.cardId, finish: c.finish, fromCents: c.from, toCents: c.to, productId: winners.get(this.key(c)) ?? null },
-          })
-          .catch((e: Error) => this.logger.warn(`pattern-reclassify: no se pudo auditar ${c.cardId}/${c.finish}: ${e.message}`));
-      }
-      out.corrections = changed.size;
-      this.logger.log(`pattern-reclassify: ${cand.length} productos → variant; ${exposed.length} combinaciones expuestas; ${changed.size} con precio publicado distinto.`);
+      this.logger.log(`pattern-reclassify: ${cand.length} productos → variant; ${exposed.length} combinaciones expuestas; ${out.corrections} con precio publicado distinto.`);
     }
 
     out.ambiguous = await this.auditAmbiguities();
     return out;
+  }
+
+  /**
+   * Cambia la clase de esos productos, recomputa `availableFinishes`, reencola el precio del día de las piezas de plataforma de esas cartas y,
+   * ya recalculado, audita `pricing.pattern_correction` por cada combinación cuyo precio PUBLICADO cambió. Devuelve cuántas.
+   */
+  private async applyKind(ids: string[], cardIds: string[], kind: 'variant' | 'set_base'): Promise<number> {
+    const before = await this.publishedPrices(cardIds);
+    await this.prisma.cardProduct.updateMany({ where: { id: { in: ids } }, data: { kind } });
+    await this.finishReconciler.reconcile(cardIds);
+    if (this.listingPrices) {
+      for (const c of await this.combosOf(cardIds)) {
+        void this.listingPrices.enqueueVariant('manual_price', { cardId: c.cardId, productType: 'raw', gradeKey: 'raw:NM', finish: c.finish });
+      }
+      await this.listingPrices.idle();
+    }
+    const after = await this.publishedPrices(cardIds);
+    const changed = new Map<string, Combo & { from: number | null; to: number | null }>();
+    for (const [itemId, b] of before) {
+      const a = after.get(itemId);
+      if (a == null || a.price === b.price) continue;
+      const k = this.key(b);
+      if (!changed.has(k)) changed.set(k, { cardId: b.cardId, finish: b.finish, from: b.price, to: a.price });
+    }
+    const winners = await this.winnerProducts([...changed.values()]);
+    for (const c of changed.values()) {
+      await this.audit
+        ?.log({
+          action: 'pricing.pattern_correction',
+          entityType: 'Card',
+          entityId: c.cardId,
+          after: { cardId: c.cardId, finish: c.finish, fromCents: c.from, toCents: c.to, productId: winners.get(this.key(c)) ?? null },
+        })
+        .catch((e: Error) => this.logger.warn(`pattern-reclassify: no se pudo auditar ${c.cardId}/${c.finish}: ${e.message}`));
+    }
+    return changed.size;
   }
 
   /** `itemId → {precio publicado P, carta, acabado}` de las piezas de plataforma (raw) de esas cartas con fila de `ListingPrice`. */
@@ -134,12 +199,12 @@ export class PatternReclassifyService {
    * Combinaciones carta×acabado EXPUESTAS: algún candidato (versión alterna) cuesta > 1.5× el producto base más barato del mismo acabado, o
    * la carta NO tiene base con precio en ese acabado (el patrón prestaría su precio). Es lo que el freno cuenta.
    */
-  private async exposedCombos(cardIds: string[]): Promise<Combo[]> {
+  private async exposedCombos(cardIds: string[], variantIds: string[]): Promise<Combo[]> {
     if (cardIds.length === 0) return [];
     return this.prisma.$queryRaw<Combo[]>(Prisma.sql`
       WITH rows AS (
         SELECT pr."cardId", pr."finish", pr."priceMxnCents" AS cents,
-               (cp."name" ~* ${VARIANT_PRODUCT_SUFFIX_PG}) AS is_variant
+               (cp."kind" = 'variant'::"CardProductKind" OR cp."id" = ANY (${variantIds}::text[])) AS is_variant
         FROM "PriceReference" pr
         JOIN "CardProduct" cp ON cp."id" = pr."cardProductId"
         WHERE pr."cardId" IN (${Prisma.join(cardIds)})
@@ -201,13 +266,18 @@ export class PatternReclassifyService {
     return out;
   }
 
-  /** Combinaciones con ≥2 productos `set_base|other` con precio que quedaron sin precio automático (ambigüedad real): auditoría semanal. */
+  /**
+   * Combinaciones con ≥ 1 producto `variant` y ≥ 2 productos `set_base|other` con precio que quedaron SIN precio automático (ambigüedad real; la
+   * lectura solo devuelve «pendiente» ahí por la regla de ambigüedad): auditoría semanal. Fuera de ese alcance no se cuenta nada.
+   */
   private async auditAmbiguities(): Promise<number> {
     const multi = await this.prisma.$queryRaw<{ cardId: string; finish: Finish }[]>(Prisma.sql`
       SELECT pr."cardId", pr."finish" FROM "PriceReference" pr
       JOIN "CardProduct" cp ON cp."id" = pr."cardProductId"
       WHERE cp."kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind")
         AND pr."productType" = 'raw'::"ProductType" AND pr."gradeKey" = 'raw:NM' AND pr."refKind" = 'market'::"PriceRefKind"
+        -- SOLO combos con ≥ 1 producto variant en ese acabado: el único alcance de la regla de ambigüedad (gates qa B1 / seguridad PP-1).
+        AND EXISTS (SELECT 1 FROM "CardProduct" v WHERE v."cardId" = pr."cardId" AND v."kind" = 'variant'::"CardProductKind" AND pr."finish" = ANY (v."finishes"))
       GROUP BY pr."cardId", pr."finish" HAVING COUNT(DISTINCT cp."id") > 1
     `);
     if (multi.length === 0) return 0;

@@ -1,5 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Finish, PriceRefKind, ProductType } from '@prisma/client';
+import { SettingsService } from '../settings/settings.service';
+import { patternClassifyEnabled } from '../pricing/pattern-dials';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FinishReconciler } from './finish-reconciler.service';
 import { FxService } from '../pricing/fx.service';
@@ -45,6 +47,8 @@ export class CardProductResolverService {
     private readonly fx: FxService,
     // P-PROMOS-VIEJAS (§5.13): sets de `PTCG_PROMO_GROUPS` ⇒ no pasan por `deriveCardProductsFromTcgcsv`.
     @Optional() private readonly promoProducts?: PromoSetProductsService,
+    // §PRICE-PATTERN: dial `pattern_classify_enabled` (apagado ⇒ no se crea ningún `variant`).
+    @Optional() private readonly settings?: SettingsService,
   ) {}
 
   /**
@@ -101,7 +105,7 @@ export class CardProductResolverService {
       this.tcgcsv.getProducts(groupId),
       this.tcgcsv.getPrices(groupId),
     ]);
-    const derived = deriveCardProductsFromTcgcsv(products, prices);
+    const derived = deriveCardProductsFromTcgcsv(products, prices, { variantEnabled: await patternClassifyEnabled(this.settings) });
     if (derived.length === 0) {
       this.logger.warn(
         `card-product: grupo ${groupId} (set ${set.name}) no produjo ningún producto con acabado ` +

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { CardProductKind, Finish } from '@prisma/client';
-import { isVariantProductName } from '../../../common/variant-product';
+import { isVariantProductName, MAX_PRODUCT_NAME_LENGTH } from '../../../common/variant-product';
 import {
   TcgcsvGroupRef,
   TcgcsvSingleProductRef,
@@ -183,13 +183,15 @@ export interface DerivedCardProduct {
  *  - nombre vacío/degenerado ⇒ `other` (fail-safe conservador: se compone como set_base en el binder);
  *  - en cualquier otro caso ⇒ `set_base` (el caso común de un single de set; §4.27d).
  */
-export function classifyCardProductKind(name: string | null | undefined): CardProductKind {
+export function classifyCardProductKind(name: string | null | undefined, opts: { variantEnabled?: boolean } = {}): CardProductKind {
   const s = (name ?? '').toLowerCase();
   if (s.trim() === '') return 'other';
+  // §PRICE-PATTERN: un nombre desmedido no se analiza (sin ReDoS) ⇒ `other`, que compone como `set_base` en lectura.
+  if (s.length > MAX_PRODUCT_NAME_LENGTH) return 'other';
   if (s.includes('deck exclusive')) return 'deck_exclusive';
   if (/\b(promo|staff|league|prerelease|pre-release|jumbo)\b/.test(s)) return 'promo';
   // §PRICE-PATTERN: «X (… Pattern|Ball|Energy Symbol)» es una versión alterna con precio propio: NO es el producto base de la carta.
-  if (isVariantProductName(name)) return 'variant';
+  if (opts.variantEnabled !== false && isVariantProductName(name)) return 'variant';
   return 'set_base';
 }
 
@@ -209,6 +211,7 @@ export function classifyCardProductKind(name: string | null | undefined): CardPr
 export function deriveCardProductsFromTcgcsv(
   products: TcgcsvSingleProductRef[],
   prices: TcgcsvPriceRow[],
+  opts: { variantEnabled?: boolean } = {},
 ): DerivedCardProduct[] {
   // productId → filas de precio de ESE producto (subTypeName + marketPrice).
   const pricesByProduct = new Map<number, TcgcsvPriceRow[]>();
@@ -238,7 +241,7 @@ export function deriveCardProductsFromTcgcsv(
       productId: p.productId,
       name: p.name,
       number: p.number,
-      kind: classifyCardProductKind(p.name),
+      kind: classifyCardProductKind(p.name, opts),
       finishes,
       pricesByFinish,
     });

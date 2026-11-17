@@ -45,6 +45,7 @@ function buildService(prisma: any, config: Partial<ConfigService> = {}) {
   const pricing = {
     fxSnapshotSafe: jest.fn().mockResolvedValue(null),
     liveMxnCents: (ref: { priceMxnCents: number }) => ref.priceMxnCents,
+    cardIdsWithVariant: jest.fn().mockResolvedValue(new Set<string>()),
   } as unknown as PricingService;
   return new SetValueService(prisma as PrismaService, cfg, pricing);
 }

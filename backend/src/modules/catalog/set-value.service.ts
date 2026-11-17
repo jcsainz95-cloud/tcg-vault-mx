@@ -221,8 +221,10 @@ export class SetValueService {
         card: { select: { name: true, tcgplayerId: true } },
       },
     });
+    // Solo en cartas con un producto `variant` en ese acabado (mismo alcance que la lectura de precio); el resto decide como SIEMPRE.
+    const withVariant = await this.pricing.cardIdsWithVariant([...new Set(refs.map((r) => r.cardId))], SET_VALUE_RULE.finish);
     for (const r of refs as (typeof refs[number] & RefRow)[]) {
-      if (r.cardProduct != null) {
+      if (r.cardProduct != null && withVariant.has(r.cardId)) {
         r.productExtId = r.cardProduct.tcgplayerProductId;
         r.productPref = productPreferenceOf(r.cardProduct, r.card);
       }

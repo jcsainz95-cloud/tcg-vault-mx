@@ -1,5 +1,5 @@
 import { classifyCardProductKind, deriveCardProductsFromTcgcsv } from '../src/modules/pricing/providers/tcgcsv-singles.provider';
-import { isVariantProductName, productPreferenceOf, VARIANT_PRODUCT_SUFFIX } from '../src/common/variant-product';
+import { isVariantProductName, MAX_PRODUCT_NAME_LENGTH, productPreferenceOf, VARIANT_PRODUCT_PREFILTER_LIKE } from '../src/common/variant-product';
 import { isBetterRef, isProductAmbiguous, RefRow } from '../src/modules/pricing/pricing.service';
 import * as fixture from './fixtures/tcgcsv-variant-names.json';
 
@@ -51,7 +51,7 @@ describe('clasificador de versiones alternas («(… Pattern/Ball/Energy Symbol)
     const prices = products.map((p) => ({ productId: p.productId, subTypeName: 'Holofoil', marketPrice: 1 }));
     const derived = deriveCardProductsFromTcgcsv(products as never, prices as never);
     expect(derived.length).toBe(products.length);
-    const offenders = derived.filter((d) => d.kind === 'set_base' && VARIANT_PRODUCT_SUFFIX.test(d.name)).map((d) => d.name);
+    const offenders = derived.filter((d) => d.kind === 'set_base' && isVariantProductName(d.name)).map((d) => d.name);
     expect(offenders).toEqual([]);
     expect(derived.filter((d) => d.kind === 'variant').length).toBeGreaterThanOrEqual(fixture.variant.length - 70); // los demás son promo/deck
   });
@@ -153,7 +153,7 @@ describe('desempate de productos: la base gana SIEMPRE (US$0.16 vs US$8.22), con
 
 describe('ambigüedad real de producto', () => {
   const live = (r: RefRow) => r.priceMxnCents;
-  const mk = (cp: string, ext: number, cents: number, pref: 0 | 1 | 2) => row({ cardProductId: cp, cents, productExtId: ext, productPref: pref });
+  const mk = (cp: string, ext: number, cents: number, pref: 0 | 1 | 2) => row({ cardProductId: cp, cents, productExtId: ext, productPref: pref, variantCombo: true });
   it('≥2 productos pref 2 con precios que difieren > 25 % ⇒ ambigua; ≤ 25 % o con ancla/nombre exacto ⇒ no', () => {
     const a = mk(uuid(1), 1, 1000, 2);
     const b = mk(uuid(2), 2, 1300, 2);
@@ -162,7 +162,63 @@ describe('ambigüedad real de producto', () => {
     const anchor = mk(uuid(3), 3, 50, 0);
     expect(isProductAmbiguous(anchor, [anchor, a, b], live)).toBe(false); // ya hay ancla
     expect(isProductAmbiguous(a, [a], live)).toBe(false); // un solo producto
-    const manual = row({ cents: 9, isManualOverride: true, source: 'manual', cardProductId: uuid(4), productPref: 2 });
+    const manual = row({ cents: 9, isManualOverride: true, source: 'manual', cardProductId: uuid(4), productPref: 2, variantCombo: true });
     expect(isProductAmbiguous(manual, [manual, a, b], live)).toBe(false); // el manual nunca es ambiguo
+    // ⭐ FUERA de un combo con `variant` la ambigüedad NO existe (gates qa B1 / seguridad PP-1): la lectura de siempre
+    const o1 = row({ cardProductId: uuid(1), cents: 1000, productExtId: 1, productPref: 2 });
+    const o2 = row({ cardProductId: uuid(2), cents: 9000, productExtId: 2, productPref: 2 });
+    expect(isProductAmbiguous(o1, [o1, o2], live)).toBe(false);
+  });
+});
+
+describe('normalización y paridad (acentos, ReDoS)', () => {
+  it.each([
+    ['Noctowl (Poké Ball Pattern)', true],
+    ['Noctowl (POKÉ BALL PATTERN)', true],
+    ['Noctowl (Poke Ball Pattern)', true],
+    ['Pikachu (Pokémon Ball)', true],
+    ['Pikachu (Énergie Symbol Pattern)', true],
+    ['Pikachu (Pokéball)', false], // «pokeball» pegado no tiene límite de palabra: igual con y sin acento
+    ['Pikachu (Pokeball)', false],
+    ['Poké Ball', false],
+    ['Pokéball', false],
+    ['Pikachu ex (Master Ball Pattern) ', true], // espacio final
+    ['Pikachu (Master Ball Pattern))', false], // paréntesis desbalanceado
+    ['Pikachu (a) (Master Ball Pattern)', true],
+    ['Pikachu (Master Ball Pattern) (Foo)', false], // solo el ÚLTIMO paréntesis
+    ['(Pattern)', true],
+    ['()', false],
+  ])('«%s» ⇒ %s', (name, expected) => {
+    expect(isVariantProductName(name)).toBe(expected);
+    // y la versión SIN acentos da lo mismo (paridad por normalización)
+    expect(isVariantProductName(name.normalize('NFD').replace(/[̀-ͯ]/g, ''))).toBe(expected);
+  });
+
+  it('el pre-filtro SQL (ILIKE) es un SUPERCONJUNTO del clasificador: toda variante contiene alguna de las tres cadenas (también con acentos)', () => {
+    const likes = VARIANT_PRODUCT_PREFILTER_LIKE.map((l) => l.replace(/%/g, ''));
+    for (const n of [...fixture.variant, 'Noctowl (Poké Ball Pattern)', 'X (Énergie Symbol Pattern)'.replace('Énergie', 'Energy')]) {
+      expect([n, likes.some((l) => n.toLowerCase().includes(l))]).toEqual([n, true]);
+    }
+  });
+
+  it('sin ReDoS: 60 KB de entrada patológica < 50 ms, y los nombres de más de 200 caracteres ⇒ `other`', () => {
+    const evil = ['('.repeat(30_000) + ')'.repeat(30_000), '(' + 'a '.repeat(30_000) + 'pattern', 'x'.repeat(60_000) + '(Master Ball Pattern)', ' '.repeat(60_000) + '(ball'];
+    const t0 = process.hrtime.bigint();
+    for (const e of evil) {
+      expect(isVariantProductName(e)).toBe(false);
+      expect(classifyCardProductKind(e)).toBe('other');
+    }
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    expect(ms).toBeLessThan(50);
+    // 200 de largo SÍ se analiza; 201 no
+    const pad = (n: number) => 'x'.repeat(n - ' (Master Ball Pattern)'.length) + ' (Master Ball Pattern)';
+    expect(pad(MAX_PRODUCT_NAME_LENGTH).length).toBe(200);
+    expect(isVariantProductName(pad(200))).toBe(true);
+    expect(isVariantProductName(pad(201))).toBe(false);
+  });
+
+  it('el clasificador respeta el dial: con `variantEnabled=false` nada es variant', () => {
+    expect(classifyCardProductKind('Noctowl (Master Ball Pattern)', { variantEnabled: false })).toBe('set_base');
+    expect(classifyCardProductKind('Noctowl (Master Ball Pattern)', { variantEnabled: true })).toBe('variant');
   });
 });

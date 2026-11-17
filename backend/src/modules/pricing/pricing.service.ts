@@ -390,6 +390,11 @@ export type RefRow = {
    */
   productPref?: ProductPreference | null;
   productExtId?: number | null;
+  /**
+   * §PRICE-PATTERN (gates qa B1 / seguridad PP-1): `true` ⇔ este combo carta×acabado tiene ≥ 1 producto `variant`. SOLO entonces rigen la
+   * preferencia de producto, el desempate por id externo y la ambigüedad; en cualquier otro combo la lectura es la de SIEMPRE, byte a byte.
+   */
+  variantCombo?: boolean;
 };
 
 /**
@@ -475,6 +480,7 @@ export function isBetterRef(a: RefRow, b: RefRow): boolean {
  */
 export const PRODUCT_AMBIGUITY_TOLERANCE = 0.25;
 export function isProductAmbiguous(winner: RefRow, rows: readonly RefRow[], liveMxnOf: (r: RefRow) => number): boolean {
+  if (winner.variantCombo !== true) return false; // fuera del alcance del cambio: la lectura de siempre
   if (winner.isManualOverride || winner.source === 'manual' || winner.cardProductId == null) return false;
   if ((winner.productPref ?? 2) !== 2) return false;
   const w = liveMxnOf(winner);
@@ -1152,6 +1158,18 @@ export class PricingService {
   }
 
   /**
+   * §PRICE-PATTERN — las cartas (de `cardIds`) que tienen ≥ 1 producto `variant` en ese ACABADO: el ÚNICO alcance del cambio de lectura
+   * (preferencia de producto, desempate por id externo, ambigüedad). Lo usan la lectura del valor de set y el job.
+   */
+  async cardIdsWithVariant(cardIds: readonly string[], finish: Finish): Promise<Set<string>> {
+    if (cardIds.length === 0) return new Set();
+    const rows = await this.prisma.$queryRaw<{ cardId: string }[]>(Prisma.sql`
+      SELECT DISTINCT "cardId" FROM "CardProduct"
+      WHERE "cardId" IN (${Prisma.join([...cardIds])}) AND "kind" = 'variant'::"CardProductKind" AND ${finish}::"Finish" = ANY ("finishes")`);
+    return new Set(rows.map((r) => r.cardId));
+  }
+
+  /**
    * v1.30 (M-32, §4.29) — Resuelve un `CardProduct` por su `tcgplayerProductId` (== el productId que
    * el front recibió en `CardProductDTO.productId`/`separateProducts`, NO el UUID interno). Lectura pura:
    * devuelve la fila o `null` (el caller decide el error PRODUCT_NOT_FOUND / valida que cuelgue del
@@ -1336,6 +1354,7 @@ export class PricingService {
         productName: string | null;
         cardName: string;
         cardTcgplayerId: string | null;
+        variantCombo: boolean;
       }[]
     >(Prisma.sql`
       WITH filtered AS (
@@ -1344,7 +1363,9 @@ export class PricingService {
                pr."source", pr."capturedDate", pr."cardProductId", pr."evidenceDate",
                (pr."isManualOverride" OR pr."source" = 'manual') AS is_manual,
                cp."tcgplayerProductId" AS "productExtId", cp."name" AS "productName",
-               c."name" AS "cardName", c."tcgplayerId" AS "cardTcgplayerId"
+               c."name" AS "cardName", c."tcgplayerId" AS "cardTcgplayerId",
+               EXISTS (SELECT 1 FROM "CardProduct" v
+                        WHERE v."cardId" = pr."cardId" AND v."kind" = 'variant'::"CardProductKind" AND pr."finish" = ANY (v."finishes")) AS "variantCombo"
         FROM "PriceReference" pr
         LEFT JOIN "CardProduct" cp ON cp."id" = pr."cardProductId"
         JOIN "Card" c ON c."id" = pr."cardId"
@@ -1371,12 +1392,18 @@ export class PricingService {
       SELECT "cardId", "productType", "gradeKey", "finish",
              "priceMxnCents", "priceUsdCents", "isManualOverride",
              "source", "capturedDate", "cardProductId", "evidenceDate",
-             "productExtId", "productName", "cardName", "cardTcgplayerId"
+             "productExtId", "productName", "cardName", "cardTcgplayerId", "variantCombo"
       FROM ranked
       WHERE is_manual OR COALESCE("evidenceDate", "capturedDate") = max_auto_date
     `);
     // §PRICE-PATTERN: la preferencia de producto sale de los datos del JOIN (ancla de la carta ⇒ nombre exacto ⇒ resto).
     for (const r of rows as (typeof rows[number] & RefRow)[]) {
+      // Fuera de un combo con `variant` NO se pone ni preferencia ni id externo ⇒ `isBetterRef` decide como siempre (incluido el uuid).
+      if (!r.variantCombo) {
+        r.productExtId = null;
+        r.productPref = undefined;
+        continue;
+      }
       if (r.cardProductId != null && r.productExtId != null && r.productName != null) {
         r.productPref = productPreferenceOf({ tcgplayerProductId: r.productExtId, name: r.productName }, { tcgplayerId: r.cardTcgplayerId, name: r.cardName });
       }

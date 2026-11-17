@@ -2,6 +2,9 @@ import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { Finish, Role, StampType } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { ManualVersionMergeService } from '../pricing/manual-version-merge.service';
+import { SettingsService } from '../settings/settings.service';
+import { patternClassifyEnabled } from '../pricing/pattern-dials';
+import { classifyCardProductKind } from '../pricing/providers/tcgcsv-singles.provider';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
@@ -84,6 +87,8 @@ export class TcgcsvSetImportService {
     @Optional() private readonly audit?: AuditService,
     // §ALTA-LIGA-2: tras importar sellos reales, fusiona las versiones manuales que ya tienen producto real (best-effort).
     @Optional() private readonly manualMerge?: ManualVersionMergeService,
+    // §PRICE-PATTERN: dial `pattern_classify_enabled` para el clasificador único.
+    @Optional() private readonly settings?: SettingsService,
   ) {}
 
   /** GET /admin/catalog/tcgcsv-groups — SOLO los grupos de la lista explícita, `publishedOn` desc. */
@@ -181,6 +186,7 @@ export class TcgcsvSetImportService {
       Promise.all([this.tcgcsv.getCardProducts(groupId), this.tcgcsv.getPrices(groupId)]),
     );
     const fxSnap = await this.fx.getCurrent();
+    const variantEnabled = await patternClassifyEnabled(this.settings);
 
     try {
       const imported = await this.prisma.$transaction(async (tx) => {
@@ -192,7 +198,7 @@ export class TcgcsvSetImportService {
             { groupId },
           );
         }
-        const res = await this.runImport(tx, group, products, prices, fxSnap);
+        const res = await this.runImport(tx, group, products, prices, fxSnap, variantEnabled);
         // La bitácora participa del MISMO commit/rollback que el import.
         await this.audit?.log(
           {
@@ -236,6 +242,7 @@ export class TcgcsvSetImportService {
     products: TcgcsvCardProductRef[],
     prices: TcgcsvPriceRow[],
     fx: { rate: number; bufferPct: number },
+    variantEnabled: boolean,
   ): Promise<TcgcsvImportResult> {
     const groupId = group.groupId;
     const pricesByProduct = new Map<number, TcgcsvPriceRow[]>();
@@ -354,7 +361,8 @@ export class TcgcsvSetImportService {
       if (promotedKey) promotedByKey.set(promotedKey, [...(promotedByKey.get(promotedKey) ?? []), card.id]);
       const cp = await tx.cardProduct.upsert({
         where: { tcgplayerProductId: p.productId },
-        create: { cardId: card.id, tcgplayerProductId: p.productId, kind: 'set_base', name: p.name, finishes, sourceGroupId: groupId },
+        // Solo «variant» sale del clasificador: en este import un «(Prerelease)» sin plana ES la carta (PROMO-B8), no un producto promo aparte.
+        create: { cardId: card.id, tcgplayerProductId: p.productId, kind: classifyCardProductKind(p.name, { variantEnabled }) === 'variant' ? 'variant' : 'set_base', name: p.name, finishes, sourceGroupId: groupId },
         update: { name: p.name, finishes, sourceGroupId: groupId },
         select: { id: true },
       });
