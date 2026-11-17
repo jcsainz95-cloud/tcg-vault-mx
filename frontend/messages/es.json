@@ -8086,6 +8086,12 @@
       "newTab": "(se abre en otra pestaña)"
     }
   },
+  "siteNotice": {
+    "title": "¡Gracias por sus compras!",
+    "body": "Estamos muy emocionados por todos los pedidos que hemos recibido. Debido a la alta demanda, las entregas pueden tardar hasta 10 días hábiles más de lo normal. Gracias por tu paciencia.",
+    "dismiss": "Entendido",
+    "close": "Cerrar aviso"
+  },
   "supplier": {
     "password": {
       "title": "Cambia tu contraseña",

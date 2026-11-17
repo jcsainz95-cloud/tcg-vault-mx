@@ -8086,6 +8086,12 @@
       "newTab": "(opens in a new tab)"
     }
   },
+  "siteNotice": {
+    "title": "Thank you for your orders!",
+    "body": "We are thrilled by all the orders we have received. Due to high demand, deliveries may take up to 10 extra business days. Thank you for your patience.",
+    "dismiss": "Got it",
+    "close": "Close notice"
+  },
   "supplier": {
     "password": {
       "title": "Change your password",
