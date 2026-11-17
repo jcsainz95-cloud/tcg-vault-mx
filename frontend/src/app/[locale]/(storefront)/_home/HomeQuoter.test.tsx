@@ -75,3 +75,12 @@ describe('HomeQuoter · P-41 pageSize + affordance «ver más»', () => {
     expect(more).toHaveAttribute('href', '/buylist');
   });
 });
+
+describe('HomeQuoter · cabecera sin IVA (HECHOS 2026-11-16)', () => {
+  it.each(['es', 'en'] as const)('el rótulo de moneda dice solo «MXN», sin «IVA» (%s)', (locale) => {
+    const { container } = renderWithProviders(<Harness />, locale);
+    const eyebrows = [...container.querySelectorAll('.eyebrow')].map((e) => e.textContent);
+    expect(eyebrows).toContain('MXN');
+    expect(container.textContent).not.toMatch(/\bIVA\b|\bVAT\b/i);
+  });
+});
