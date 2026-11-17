@@ -33,7 +33,6 @@ NO MEDIDO (§PROV): throttle real de accept-invite/login/me-password (apagado en
 |---|---|---|---|---|
 | GS-4 | Sin candado entre ticks (admitido): con 2 instancias del worker se puede pasar de 250 consultas/día; hoy 1 instancia ⇒ NO MEDIDO con réplicas | baja | devops/backend | al escalar réplicas |
 | GS-6 | `fetchText` del `sitemap.xml` propio (host fijo `https://tcghunt.mx`, `redirect:'error'`, timeout 10 s) lee el cuerpo sin tope de bytes (`index-inspection.service.ts:82-83`); solo es el sitio propio ⇒ riesgo bajo. Cierre: tope ~5 MB | backend | sin caducidad |
-NO MEDIDO: `npm audit` (sin cambios de dependencias en el delta), cuota real de URL Inspection, alcance `webmasters.readonly` suficiente para `inspect`, tamaño del feed en producción (DoS por tamaño), CDN real.
 | ID | Sev | Qué | Dueño | Medido |
 |---|---|---|---|---|
 | D9-7 | Baja | `partial` persistente (pieza con candado `FOR UPDATE` colgado de una tx zombi) reintenta el recálculo COMPLETO cada 10 min sin aviso ni tope (`listing-price.service.ts:~626`, log solo `info` por corrida): sin versión nunca vuelve el camino por fila (todo se cobra con P en vivo: correcto pero más lento) y nadie se entera. Cierre: contar `partial` consecutivos y `logger.error`/alerta al 3.º (y opcional limitar el alcance del reintento a las piezas saltadas) + prueba | backend | 2026-11-10, caduca 2026-12-31 |
