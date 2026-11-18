@@ -271,23 +271,15 @@ export class AdminShipmentsController {
   @HttpCode(200)
   async deliveredInPerson(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
     await this.shipments.assertOutboundRoute(id);
-    const { row, won, feeChargedCents, orderId } = await this.shipments.deliverInPerson(id);
+    const { row, won, feeChargedCents, orderId, folio, deliveredAt, isDirectShip } = await this.shipments.deliverInPerson(id, user);
     if (won) {
-      await this.audit.log({
-        actorUserId: user.id,
-        actorRole: user.role,
-        action: 'shipment.delivered_in_person',
-        entityType: 'ShipmentRequest',
-        entityId: id,
-        after: { to: 'entregado', labelSource: 'in_person' },
-      });
       // AG-25 (DECISIONES §PERSONA punto 7): POST-COMMIT, solo el ganador, con flete cobrado > 0; `raise` es no-op si quien marca
       // es el dueño (PERSON_ALERT_KINDS). Best-effort: un fallo se registra y ⛔ no revierte la entrega. ⛔ Sin datos del cliente.
       if (feeChargedCents > 0) {
         try {
           const res = await this.spendAlerts.raise(
             this.prisma,
-            { kind: 'in_person_with_fee', severity: 'immediate', dedupKey: `ag25:${id}`, subjectUserId: user.id, shipmentRequestId: id, orderId, amountCents: feeChargedCents, facts: { shippingFeeChargedCents: feeChargedCents } },
+            { kind: 'in_person_with_fee', severity: 'immediate', dedupKey: `ag25:${id}`, subjectUserId: user.id, shipmentRequestId: id, orderId, amountCents: feeChargedCents, facts: { shippingFeeChargedCents: feeChargedCents, folio, actorUserId: user.id, deliveredAt: deliveredAt ? deliveredAt.toISOString() : null, fulfillment: isDirectShip ? 'direct_ship' : 'vault_withdrawal' } },
             new Date(),
           );
           if (res?.created) await this.spendMail.dispatchImmediate(res.id);

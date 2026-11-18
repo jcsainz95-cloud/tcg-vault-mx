@@ -390,9 +390,10 @@ export function spendAlertSentence(v: SpendAlertMailView, l: MailLocale): string
     }
     case 'AG-25':
       // §PERSONA: ⛔ sin datos del cliente (ni nombre, ni correo, ni dirección): solo quién marcó, qué pedido/envío y cuánto flete.
+      // QA-PER-FACTS: «envío {folio}» (el folio de `facts`; sin él, la referencia de siempre).
       return en
-        ? `${who} marked ${ref} as handed over in person. The customer paid ${m(f.shippingFeeChargedCents ?? v.amountCents)} for shipping; the system does not refund it. If it should be refunded, decide it from Sales.`
-        : `${who} marcó el ${ref} como entregado en persona. El cliente pagó ${m(f.shippingFeeChargedCents ?? v.amountCents)} de envío; el sistema no lo reembolsa. Si hay que devolverlo, decídelo desde Ventas.`;
+        ? `${who} marked ${str(f.folio) ? `shipment ${str(f.folio)}` : ref} as handed over in person. The customer paid ${m(f.shippingFeeChargedCents ?? v.amountCents)} for shipping; the system does not refund it. If it should be refunded, decide it from Sales.`
+        : `${who} marcó el ${str(f.folio) ? `envío ${str(f.folio)}` : ref} como entregado en persona. El cliente pagó ${m(f.shippingFeeChargedCents ?? v.amountCents)} de envío; el sistema no lo reembolsa. Si hay que devolverlo, decídelo desde Ventas.`;
     default:
       return en ? `There is a new spending alert (${code}).` : `Hay un aviso de gasto nuevo (${code}).`;
   }
