@@ -78,20 +78,18 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## Bugs abiertos (qa) — gate P-PROMOS-VIEJAS sobre 3839b010 (2026-11-07): APROBADO
+## Bugs abiertos (qa) — gate §PERSONA sobre 2c4ab079 (2026-11-18): RECHAZADO
 | ID | Qué | Dueño |
 |---|---|---|
-| QA-PV-TREE | Seguridad-lead mutó `promo-set-groups.ts` en el árbol compartido durante la suite de QA (2 rojos falsos, mtime 22:20:33). Mutación solo en worktree aparte | orquestador |
-| QA-PV-SKIP-UI | `promoSkipped` solo en la respuesta de la API: ni M2 ni la auditoría lo muestran (`admin-catalog.controller.ts:131,160`); el dueño no ve 31 (svp) / 20 (bwp) omitidas | arquitecto → frontend + backend |
-| QA-PV-PLASMA | BW80 Druddigon pendiente aunque su versión normal cotiza 18.50: «(Team Plasma)» + «(Cosmos Holo)» = 2 candidatos ⇒ `ambiguous_base` (`promo-set-plan.ts:352-358`); 1 carta medida | arquitecto + backend |
-| QA-PV-PEND | `refresh-variants.pending` cuenta filas de precio, no cartas (svp 1 vs 12 cartas pendientes; `catalog-sync.service.ts:641`) | backend |
-| QA-PV-STALE | `promo-set-products.service.ts:82` solo upsert: un producto que sale del plan conserva tipo/precio anteriores (lectura, NO MEDIDO real) | backend |
-| QA-PRM-TIMERS | `tcgcsv-set-import.service.ts:39` 10 s = presupuesto 10 s (`pokemontcg-io.client.ts:82`): caché vs 503 según qué temporizador gane | backend |
-| QA-PRM-COPY | Ficha «Precio pendiente» con pieza en stock dice «Hoy no tenemos esta carta.» (`CardDetailView.tsx:528`); visto otra vez en svp #107 | frontend |
-| QA-PRM-IMGW | Binder 24451 `_in_1000x1000` 12.95 MB con scroll completo; aceptable en admin | frontend |
-| QA-HYD | Aviso de hidratación en la ficha (`next dev`), también en `e2e-base`: anterior a este stream | frontend |
-Medido en 3839b010: tsc 0/0; jest 9998/9998 (570; 1.ª corrida 9996 por QA-PV-TREE); vitest 5888/5888 (13 skip); integración promo-viejas+promo-tcgcsv 28/28 ×2 (Postgres desechable); e2e mocks completo 450/450 (44 skip); doc-size y censo verdes (+canarios); rutas limpias.
-Real (stack nativo, pokemontcg.io intermitente): svp 200 cartas / 188 con precio / 12 pendientes / 53 sellos, promoSkipped 31; bwp 101/88/13/23, promoSkipped 20; TCGCSV a mano 12/12 por productId; re-sync + refresh ×2 en paralelo ⇒ 0 duplicados; me55 sin cambios (md5); 24451 ×2 estable; ficha 390/1280: solo-Prerelease vendible con nombre de pokemontcg.io y Staff aparte, pendiente sin carrito ni $0. Barrido diario real NO MEDIDO.
+| QA-PER-FILTRO | `?labelSource=in_person` aceptado pero sin rama: devuelve todo (`shipments.service.ts:969-971`); viola DECISIONES §PERSONA «Contrato implementado» | backend |
+| QA-PER-CHECK | m107: `labelSource::text IN (…)` da NULL con labelSource NULL ⇒ CHECK admite aviso sin origen (m66 lo rechazaba); medido 1/1 | backend |
+| QA-PER-GUIA | `status='guia'` ⇒ CONFLICT, no SHIPMENT_HAS_LABEL (DECISIONES §PERSONA.1) | backend |
+| QA-PER-FACTS | AG-25 `facts` solo `{shippingFeeChargedCents}`; DECISIONES §7 pide folio/actor/deliveredAt/fulfillment | backend (arquitecto valida) |
+| QA-PER-E2E | e2e sin filtro in_person, sin sondeo/guías por cancelar, sin total de bandeja ni mailStatus AG-25 | backend |
+| QA-PER-DOWN | m107 sin reversión documentada (con filas in_person el CHECK viejo falla) | backend |
+| QA-PER-AUDIT | auditoría post-commit: si falla, el reintento idempotente no la reescribe | backend |
+Medido en 2c4ab079: jest 38 suites ship/spend/sdx/m4 814/814 + 7 suites tocadas 497/497; e2e shipments-in-person 7/7 ×3 (Postgres 16 y Redis desechables, migraciones hasta m108); vitest m4+spend-alerts+timeline 363/363 (23); tsc front 0 / back 0; eslint 0/0; reversión CHECK 1/1; rutas 6/6 commits.
+Bugs previos (QA-PV-*, QA-PRM-*, QA-HYD) siguen abiertos sin re-medir: filas verbatim en `PENDIENTES.md` §«2026-11-18 — qa previos».
 Resto del backlog con dueño y fecha: índice de `PENDIENTES.md`.
 
 ## Deuda técnica activa (todas las secciones)

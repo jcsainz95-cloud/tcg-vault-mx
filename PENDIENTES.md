@@ -24,6 +24,22 @@
 | PRICE-PATTERN-PROD | **#137 desplegado (Deploy OK 11:56 UTC) pero a las 12:31 UTC el Noctowl PRE 78 sigue en MX$230 (ficha) / MX$220 (catálogo)** y Vaporeon 22 MX$449, Archaludon 70 y Flutter Mane 43 MX$157, Fezandipiti 45 MX$147 (medido por el orquestador en la tienda pública, sondeo cada minuto 11:58-12:31). Hipótesis (backend, solo lectura): freno disparado (`exposedCombos` sin filtro de fecha > cap 200) ⇒ correo «una corrección de precios quedó en pausa» + auditoría `pricing.pattern_reclassify_halted`; o job en cola/no encolado (jobId fijo `pattern-reclassify-boot`). Pendiente del dueño: revisar correo / auditoría. | 2026-11-17 | dueño → orquestador | auditoría admin filtrada por `pricing.pattern_` |
 | UX-ALTA-LIGA-2 | Dueño (2026-11-12, captura Erika's Victreebel ASC #6): «para dar de alta todavía no puedo en la vista master set subir las que son de liga». Hipótesis del orquestador (NO MEDIDO en datos): la fila «Versión» solo sale con liga ya ligada y el alta rápida oculta las candidatas (`QuickAdd.tsx:343` `showCandidates={false}`; `IdsCaptureFields.tsx:231`). Arreglo propuesto: ligar candidatas desde el alta rápida. Atajo dado al dueño: «Alta por lote». Encargar a frontend al terminar §PROV F1 (mismo árbol). | 2026-11-12 (código) | frontend | `grep -n showCandidates frontend/src/app/*/\(admin\)/admin/m1/QuickAdd.tsx` |
 
+## 2026-11-18 — qa previos (movidos verbatim desde docs/STATUS.md al transcribir el gate §PERSONA)
+## Bugs abiertos (qa) — gate P-PROMOS-VIEJAS sobre 3839b010 (2026-11-07): APROBADO
+| ID | Qué | Dueño |
+|---|---|---|
+| QA-PV-TREE | Seguridad-lead mutó `promo-set-groups.ts` en el árbol compartido durante la suite de QA (2 rojos falsos, mtime 22:20:33). Mutación solo en worktree aparte | orquestador |
+| QA-PV-SKIP-UI | `promoSkipped` solo en la respuesta de la API: ni M2 ni la auditoría lo muestran (`admin-catalog.controller.ts:131,160`); el dueño no ve 31 (svp) / 20 (bwp) omitidas | arquitecto → frontend + backend |
+| QA-PV-PLASMA | BW80 Druddigon pendiente aunque su versión normal cotiza 18.50: «(Team Plasma)» + «(Cosmos Holo)» = 2 candidatos ⇒ `ambiguous_base` (`promo-set-plan.ts:352-358`); 1 carta medida | arquitecto + backend |
+| QA-PV-PEND | `refresh-variants.pending` cuenta filas de precio, no cartas (svp 1 vs 12 cartas pendientes; `catalog-sync.service.ts:641`) | backend |
+| QA-PV-STALE | `promo-set-products.service.ts:82` solo upsert: un producto que sale del plan conserva tipo/precio anteriores (lectura, NO MEDIDO real) | backend |
+| QA-PRM-TIMERS | `tcgcsv-set-import.service.ts:39` 10 s = presupuesto 10 s (`pokemontcg-io.client.ts:82`): caché vs 503 según qué temporizador gane | backend |
+| QA-PRM-COPY | Ficha «Precio pendiente» con pieza en stock dice «Hoy no tenemos esta carta.» (`CardDetailView.tsx:528`); visto otra vez en svp #107 | frontend |
+| QA-PRM-IMGW | Binder 24451 `_in_1000x1000` 12.95 MB con scroll completo; aceptable en admin | frontend |
+| QA-HYD | Aviso de hidratación en la ficha (`next dev`), también en `e2e-base`: anterior a este stream | frontend |
+Medido en 3839b010: tsc 0/0; jest 9998/9998 (570; 1.ª corrida 9996 por QA-PV-TREE); vitest 5888/5888 (13 skip); integración promo-viejas+promo-tcgcsv 28/28 ×2 (Postgres desechable); e2e mocks completo 450/450 (44 skip); doc-size y censo verdes (+canarios); rutas limpias.
+Real (stack nativo, pokemontcg.io intermitente): svp 200 cartas / 188 con precio / 12 pendientes / 53 sellos, promoSkipped 31; bwp 101/88/13/23, promoSkipped 20; TCGCSV a mano 12/12 por productId; re-sync + refresh ×2 en paralelo ⇒ 0 duplicados; me55 sin cambios (md5); 24451 ×2 estable; ficha 390/1280: solo-Prerelease vendible con nombre de pokemontcg.io y Staff aparte, pendiente sin carrito ni $0. Barrido diario real NO MEDIDO.
+
 ## 2026-11-18 — Tras publicar #138 (aviso de demoras)
 | ID | Qué | Medido | Dueño | Cómo se cierra |
 |---|---|---|---|---|
