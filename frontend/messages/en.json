@@ -7196,6 +7196,10 @@
           "title": "The PSA credits do not cover the week",
           "projected": "With {cap} credits a day there is not enough to check your {cards} cards every week: checking them all would take {days} days. To cover the week, raise the cap to {capToCover}.",
           "overdue": "Some set has gone more than 8 days without a check. With {cap} credits a day, a full round of your {cards} cards takes {days} days; to cover the week, raise the cap to {capToCover}. Sets that do not fit in one day’s cap: {setsOverCap}."
+        },
+        "AG-25": {
+          "title": "In-person hand-over with shipping charged",
+          "text": "{person} marked {ref} as handed over in person. The customer paid {fee} for shipping; the system does not refund it. If it should be refunded, decide it from Sales."
         }
       },
       "prev": "Previous",

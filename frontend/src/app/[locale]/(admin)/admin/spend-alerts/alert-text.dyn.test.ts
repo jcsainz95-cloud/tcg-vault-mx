@@ -63,3 +63,22 @@ describe('AG-24 · psa_cycle_short (§DYN.4.5)', () => {
     }
   });
 });
+
+describe('AG-25 · in_person_with_fee (§PERSONA)', () => {
+  const ag25: SpendAlertDTO = {
+    id: 'a25', code: 'AG-25', kind: 'in_person_with_fee', severity: 'immediate', subject: { name: 'Ash', role: 'staff' } as never, shipment: { folio: 'ENV-000045' } as never,
+    order: null, amountCents: 9900, facts: { shippingFeeChargedCents: 9900 }, occurrenceCount: 1, firstOccurredAt: '2026-11-18T18:00:00Z',
+    lastOccurredAt: '2026-11-18T18:00:00Z', resolvedAt: null, seen: null, mail: { status: 'sent', at: null },
+  };
+  it('kind ⇔ AG-25, NO se apaga, y se filtra', () => {
+    expect(SPEND_ALERT_CODE_BY_KIND.in_person_with_fee).toBe('AG-25');
+    expect(SPEND_ALERT_SWITCHABLE_CODES).not.toContain('AG-25');
+    expect(FILTER_KINDS).toContain('in_person_with_fee');
+  });
+  it('título y texto es/en con el flete del servidor, sin datos del cliente', () => {
+    expect(alertTitle(tEs, ag25)).toBe('Entrega en persona con envío cobrado');
+    expect(alertTitle(tEn, ag25)).toBe('In-person hand-over with shipping charged');
+    expect(alertText(tEs, ag25, ctx)).toMatch(/Ash marcó .*ENV-000045 como entregado en persona\. El cliente pagó MX\$9900 de envío/);
+    expect(alertText(tEn, ag25, ctx)).toMatch(/Ash marked .*ENV-000045 as handed over in person\. The customer paid MX\$9900/);
+  });
+});

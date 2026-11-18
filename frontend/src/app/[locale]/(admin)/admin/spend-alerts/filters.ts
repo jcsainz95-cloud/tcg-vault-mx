@@ -25,12 +25,17 @@ export const ALWAYS_ON_CODES: readonly SpendAlertCode[] = ['AG-21', 'AG-22'];
  */
 export const PANEL_ONLY_CODES: readonly SpendAlertCode[] = ['AG-24'];
 /**
+ * §PERSONA: AG-25 «Entrega en persona con envío cobrado» — correo inmediato al dueño y ⛔ no se apaga (no está en
+ * `SPEND_ALERT_SWITCHABLE_CODES` ni se lista en los controles de apagado de M10). Solo se ve en lista y filtro.
+ */
+export const UNSILENCEABLE_CODES: readonly SpendAlertCode[] = ['AG-25'];
+/**
  * El filtro «Tipo» (§43.20.5): los que se apagan, AG-21 y AG-22 (OWN-3) y AG-24 (§DYN.4.5), en orden de código.
  * AG-14…AG-20 fuera (sin disparador).
  */
 export const FILTER_KINDS = KINDS.filter((k) => {
   const c = SPEND_ALERT_CODE_BY_KIND[k];
-  return SPEND_ALERT_SWITCHABLE_CODES.includes(c) || ALWAYS_ON_CODES.includes(c) || PANEL_ONLY_CODES.includes(c);
+  return SPEND_ALERT_SWITCHABLE_CODES.includes(c) || ALWAYS_ON_CODES.includes(c) || PANEL_ONLY_CODES.includes(c) || UNSILENCEABLE_CODES.includes(c);
 });
 export const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
