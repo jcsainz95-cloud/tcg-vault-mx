@@ -152,6 +152,9 @@ const LOS_ONCE: Record<string, (locale: string) => Omit<MailMessage, 'to'>[]> = 
       l,
     ),
   ],
+  'AV-20 · entregado en persona (§PERSONA)': (l) => [
+    shipmentTpl.shipmentDeliveredInPersonTemplate({ shipmentId: 'shp-1', orderNumber: 'TCG-1001', orderId: 'ord-1' }, l),
+  ],
   'AV-18 · en sucursal': (l) => [
     shipmentTpl.shipmentAtBranchTemplate(
       { shipmentId: 'shp-1', orderNumber: null, carrier: 'Estafeta', trackingNumber: 'EST-1', trackingUrl: 'https://pro.skydropx.com/t/1', branchName: 'Centro' },
@@ -168,8 +171,8 @@ const LOS_ONCE: Record<string, (locale: string) => Omit<MailMessage, 'to'>[]> = 
 
 // =================================================================================================
 describe('⭐ (1) el conteo es ONCE, y la lista se cierra sola', () => {
-  it('el registro tiene los ONCE avisos de v1.74 + los TRES del transportista de v1.81 (§R.3, §19.12)', () => {
-    expect(Object.keys(LOS_ONCE)).toHaveLength(14);
+  it('el registro tiene los ONCE avisos de v1.74 + los TRES del transportista de v1.81 (§R.3, §19.12) + AV-20 (§PERSONA)', () => {
+    expect(Object.keys(LOS_ONCE)).toHaveLength(15);
   });
 
   it('⚠️ EXHAUSTIVIDAD: toda plantilla de los cinco ficheros de avisos está clasificada', () => {
@@ -187,6 +190,7 @@ describe('⭐ (1) el conteo es ONCE, y la lista se cierra sola', () => {
       'shipmentCancelledTemplate',
       // ⭐ D2e (§19.12): AV-17/18/19.
       'shipmentDeliveredTemplate',
+      'shipmentDeliveredInPersonTemplate', // AV-20 (§PERSONA)
       'shipmentAtBranchTemplate',
       'shipmentDeliveryAttemptTemplate',
       'sellGuideTemplate',
@@ -202,7 +206,8 @@ describe('⭐ (1) el conteo es ONCE, y la lista se cierra sola', () => {
     // Criterio 206, **por exceso**: los mudos no tienen dónde nacer. ⭐ v1.81 (criterio 210 reescrito): `AV-17` es la
     // ÚNICA plantilla de entregado, y la dispara el transportista (⛔ nunca `updateStatus`: `C-AV-3a` lo vigila).
     const nombres = Object.keys({ ...shipmentTpl, ...orderTpl });
-    expect(nombres.filter((n) => /delivered|entregad/i.test(n))).toEqual(['shipmentDeliveredTemplate']);
+    // AV-20 (§PERSONA, 2026-11-18): el aviso de «entregado en persona» es la ÚNICA otra, disparada por el personal (`deliverInPerson`).
+    expect(nombres.filter((n) => /delivered|entregad/i.test(n)).sort()).toEqual(['shipmentDeliveredInPersonTemplate', 'shipmentDeliveredTemplate']);
     expect(nombres.some((n) => /failed|chargeback|contracargo/i.test(n))).toBe(false);
   });
 });

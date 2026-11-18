@@ -404,7 +404,8 @@ describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canó
     const fromContract = contractLine(name);
     if (!fromContract) throw new Error(`El contrato no declara ${name} y no está en SIN_LINEA_CANONICA`);
     // `supplier` (M-102) es un valor ADITIVO de `Role` declarado en el anexo vivo (el archivo de arriba está congelado).
-    const additive = name === 'Role' ? ['supplier'] : [];
+    // `in_person` (§PERSONA, 2026-11-18) igual: aditivo de `ShipmentLabelSource`, pendiente de la línea viva del contrato (arquitecto).
+    const additive = name === 'Role' ? ['supplier'] : name === 'ShipmentLabelSource' ? ['in_person'] : [];
     expect([...fromContract, ...additive].sort()).toEqual([...ENUMS[name]].sort());
   });
 

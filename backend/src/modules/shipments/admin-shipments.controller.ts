@@ -258,6 +258,25 @@ export class AdminShipmentsController {
     return this.labelRecovery.release(id, body, user);
   }
 
+  /** ⭐💰 §PERSONA — «Entregado en persona» (staff): `picking` preparado y sin guía ⇒ `entregado`/`in_person`. Idempotente. */
+  @Post(':id/delivered-in-person')
+  @HttpCode(200)
+  async deliveredInPerson(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    await this.shipments.assertOutboundRoute(id);
+    const { row, won } = await this.shipments.deliverInPerson(id);
+    if (won) {
+      await this.audit.log({
+        actorUserId: user.id,
+        actorRole: user.role,
+        action: 'shipment.delivered_in_person',
+        entityType: 'ShipmentRequest',
+        entityId: id,
+        after: { to: 'entregado', labelSource: 'in_person' },
+      });
+    }
+    return row;
+  }
+
   @Patch(':id/status')
   async status(
     @Param('id') id: string,

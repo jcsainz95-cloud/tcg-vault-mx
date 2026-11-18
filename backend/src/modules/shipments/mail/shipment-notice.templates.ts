@@ -367,6 +367,17 @@ export function shipmentDeliveredTemplate(
 }
 
 /**
+ * **`AV-20` — ENTREGADO EN PERSONA** (§PERSONA, DECISIONES). El personal entregó el pedido en mano: sin paquetería ni guía
+ * (nada que seguir). Un solo correo (sello `deliveredNoticeSentAt` con `labelSource='in_person'`). ⛔ Sin plazo de disputa.
+ */
+export function shipmentDeliveredInPersonTemplate(params: ShipmentNoticeParams, locale?: string | null): Omit<MailMessage, 'to'> {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const prose = en ? 'Your order was handed over to you in person.' : 'Tu pedido fue entregado en persona.';
+  return carrierNotice(params, l, en ? 'Your order was delivered' : 'Tu pedido fue entregado', [prose], '');
+}
+
+/**
  * **`AV-18` — EN SUCURSAL** (§19.12, §19.20.6, DESIGN_SYSTEM §43.12b, ML-25). `delivered_to_branch` (⛔ el envío NO pasa a
  * `entregado`); una vez por envío (sello `branchNoticeSentAt`). `branchName` tal cual lo dio Skydropx (escapado por el shell).
  * ⛔ Sin dirección, horario ni plazo para recoger: el contrato no los da.

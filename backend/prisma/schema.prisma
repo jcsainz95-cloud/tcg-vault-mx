@@ -512,6 +512,7 @@ enum ShippedRefundReason {
 enum ShipmentLabelSource {
   manual
   skydropx
+  in_person // §PERSONA: entregado en persona (sin guía ni paquetería)
 }
 
 // Estado CRUDO que reporta Skydropx (levantamiento R7). El mapeo a nuestra máquina vive en UN cuerpo

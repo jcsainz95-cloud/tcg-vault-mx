@@ -27,7 +27,8 @@ export type CustomerTimelineKind =
   | 'out_for_delivery'
   | 'delivery_attempt'
   | 'at_branch'
-  | 'delivered';
+  | 'delivered'
+  | 'delivered_in_person';
 
 export interface CustomerTimelineEntry {
   kind: CustomerTimelineKind;
@@ -110,7 +111,8 @@ export function toCustomerTimeline(events: readonly TimelineEventRow[], shipment
     push(entry, ev.occurredAt.getTime());
   }
   if (!delivered && shipment.deliveredAt) {
-    push({ kind: 'delivered', at: shipment.deliveredAt.toISOString() }, shipment.deliveredAt.getTime());
+    // §PERSONA: entregado en mano (sin guía, sin `shippedAt`): su propio hito, ⛔ no «Entregado por la paquetería».
+    push({ kind: shipment.labelSource === 'in_person' ? 'delivered_in_person' : 'delivered', at: shipment.deliveredAt.toISOString() }, shipment.deliveredAt.getTime());
   }
   out.sort((a, b) => a.t - b.t || a.i - b.i);
   return out.map((x) => x.e);

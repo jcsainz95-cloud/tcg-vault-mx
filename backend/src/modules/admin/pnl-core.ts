@@ -411,7 +411,8 @@ export async function pnlBuckets(
     // ⭐⭐ §M10-IVA.8 / IVA-11(a) — NETO contra NETO: una RESTA del crédito congelado, ⛔ jamás una división.
     b.shippingCostCents += netShippingCostCents(s);
     // ⭐ IVA-11(b) — que el `0` no signifique dos cosas: un costo `0` sin guía de Skydropx se SEÑALA (D2f §19.11).
-    if (s.shippingCostCents === 0 && s.labelSource !== 'skydropx') b.shippingCostMissingCount += 1;
+    // §PERSONA: `in_person` no tiene paquetería ⇒ costo 0 es verdad, no un hueco.
+    if (s.shippingCostCents === 0 && s.labelSource !== 'skydropx' && s.labelSource !== 'in_person') b.shippingCostMissingCount += 1;
     // 💰 D2f (§19.11): el seguro es INFORMATIVO (ya va DENTRO de `shippingCostCents`).
     b.shippingInsuranceCents += s.insuranceCostCents ?? 0;
     b.stripeFeesCents += await stripeCostOf(s);

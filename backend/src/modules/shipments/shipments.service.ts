@@ -67,6 +67,7 @@ import {
   shipmentAtBranchTemplate,
   shipmentCancelledTemplate,
   shipmentDeliveredTemplate,
+  shipmentDeliveredInPersonTemplate,
   shipmentDeliveryAttemptTemplate,
   shipmentGuideTemplate,
   shipmentShippedTemplate,
@@ -982,7 +983,7 @@ export class ShipmentsService {
         take: pageSize,
         include: {
           items: true,
-          order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true, userId: true } },
+          order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true, userId: true, shippingFeeCents: true } },
         },
       }),
       this.prisma.shipmentRequest.count({ where }),
@@ -1229,7 +1230,7 @@ export class ShipmentsService {
       where: { id },
       include: {
         items: { include: { inventoryItem: { include: { card: true, location: true } } } },
-        order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true, userId: true } },
+        order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true, userId: true, shippingFeeCents: true } },
       },
     });
     if (!shipment) throw BusinessException.notFound();
@@ -1299,6 +1300,7 @@ export class ShipmentsService {
         orderNumber: string | null;
         guestEmail: string | null;
         fulfillmentMode: FulfillmentMode;
+        shippingFeeCents?: number;
       } | null;
     },
   >(s: T) {
@@ -1313,6 +1315,9 @@ export class ShipmentsService {
         s.orderId == null ? ('vault_withdrawal' as const) : this.kindForFulfillment(order?.fulfillmentMode, s.id),
       ),
       orderNumber: order?.orderNumber ?? undefined,
+      // §PERSONA: lo que el cliente PAGÓ de flete (lectura; ⛔ no se reembolsa solo): el pedido directo lo cobra en su `Order`
+      // (la fila del envío lleva 0 a propósito); el retiro de bóveda, en la fila del envío.
+      shippingFeeChargedCents: s.orderId == null ? s.shippingFeeCents : (order?.shippingFeeCents ?? 0),
       guestEmail: order?.guestEmail ?? undefined,
       recipientName: snapshot.recipientName ?? undefined,
       // ⭐ rev BSD-1 (§BSD.5): `null` en las filas de salida (la lista); el detalle lo llena para la guía de entrada.
@@ -1840,6 +1845,65 @@ export class ShipmentsService {
     // v1.74 (§R) — `AV-5`/`AV-6`, POST-COMMIT y best-effort; avisa el GANADOR del CAS y nadie más.
     if (result.gane) await this.notifyStatus(shipment, to);
     return result.row;
+  }
+
+  /**
+   * ⭐💰 §PERSONA (DECISIONES §PERSONA) — «Entregado en persona»: `picking` (preparado, SIN guía) ⇒ `entregado` con
+   * `labelSource='in_person'`. ⛔ `TRANSITIONS` y `PATCH …/status` no cambian: un cuerpo aparte. Candado de la fila primero;
+   * guardas de `assertCanAdvance(…,'enviado')` bajo el candado; CAS con TODA la precondición en el `WHERE`; piezas en la MISMA tx
+   * (directo: `picking→shipped` y `shipped→delivered`, `shippedAt` queda NULL; retiro: `in_custody→withdrawn`).
+   * Repetición sobre un envío ya `entregado`+`in_person` ⇒ 200 idempotente (`won:false`, sin correo). El aviso `AV-20` sale
+   * POST-COMMIT, best-effort, solo al ganador. No reembolsa nada.
+   */
+  async deliverInPerson(id: string): Promise<{ row: ReturnType<typeof toAdminShipmentRow>; won: boolean }> {
+    const shipment = await this.prisma.shipmentRequest.findUnique({ where: { id } });
+    if (!shipment) throw BusinessException.notFound();
+    const isDirectShip = await this.isDirectShipFulfillment(shipment);
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${id} FOR UPDATE`;
+        const cur = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
+        if (cur.status === 'entregado' && cur.labelSource === 'in_person') return { won: false, row: toAdminShipmentRow(cur) };
+        if (cur.status !== 'picking') {
+          throw BusinessException.conflict('CONFLICT', `Invalid transition ${cur.status} -> entregado`);
+        }
+        if (cur.preparedAt === null) throw BusinessException.conflict('SHIPMENT_NOT_PREPARED', 'Shipment is not prepared');
+        if (cur.labelSource !== null || cur.providerShipmentId !== null || cur.trackingNumber !== null || cur.labelProcessingSince !== null) {
+          throw BusinessException.conflict('SHIPMENT_HAS_LABEL', 'Shipment already has a label or a label purchase in progress');
+        }
+        await this.requirePrep().assertCanAdvance(tx, id, 'enviado');
+        const now = new Date();
+        const claimed = await tx.shipmentRequest.updateMany({
+          where: {
+            id,
+            status: 'picking',
+            preparedAt: { not: null },
+            labelSource: null,
+            providerShipmentId: null,
+            trackingNumber: null,
+            labelProcessingSince: null,
+          },
+          data: { status: 'entregado', deliveredAt: now, labelSource: 'in_person' },
+        });
+        if (claimed.count !== 1) throw BusinessException.conflict('CONFLICT', 'Shipment changed; reload and retry');
+        // Directo: la función espera `picking→shipped` y luego `shipped→delivered`; retiro: solo `entregado` mueve piezas.
+        if (isDirectShip) await this.movePiecesOnTransition(tx, id, shipment.userId, 'enviado', true);
+        await this.movePiecesOnTransition(tx, id, shipment.userId, 'entregado', isDirectShip);
+        const updated = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
+        return { won: true, row: toAdminShipmentRow(updated) };
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+    if (result.won) {
+      await this.claimAndNotify(
+        id,
+        { where: { deliveredNoticeSentAt: null, labelSource: 'in_person' }, column: 'deliveredNoticeSentAt', value: new Date() },
+        'AV-20',
+        shipment,
+        (l, p) => shipmentDeliveredInPersonTemplate(p, l),
+      );
+    }
+    return result;
   }
 
   /**

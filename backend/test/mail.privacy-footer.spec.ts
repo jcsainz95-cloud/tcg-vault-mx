@@ -169,6 +169,7 @@ const RENDERS: Record<string, Render> = {
   shipmentShippedTemplate: (l) => shipmentTpl.shipmentShippedTemplate({ shipmentId: 's1', orderNumber: 'TH-1' }, l),
   shipmentCancelledTemplate: (l) => shipmentTpl.shipmentCancelledTemplate({ shipmentId: 's1', orderNumber: 'TH-1' }, l),
   // Skydropx D2 — AV-17/18/19, la palabra del transportista (rama `skydropx-d`; registrados al fusionar).
+  shipmentDeliveredInPersonTemplate: (l) => shipmentTpl.shipmentDeliveredInPersonTemplate({ shipmentId: 's1', orderNumber: 'TH-1' }, l),
   shipmentDeliveredTemplate: (l) =>
     shipmentTpl.shipmentDeliveredTemplate({ shipmentId: 's1', orderNumber: 'TH-1', carrierStatusAt: AT }, l),
   shipmentAtBranchTemplate: (l) =>
