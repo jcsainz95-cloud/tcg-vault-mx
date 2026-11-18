@@ -352,6 +352,7 @@
 - POST `/admin/shipments/:id/label/release` · admin 💰
 - PATCH `/admin/shipments/:id/status` · staff
 - POST `/admin/shipments/:id/tracking` · staff
+- POST `/admin/shipments/:id/delivered-in-person` · staff 💰 · `{}` ⇒ 200 `entregado`/`in_person`; 409 `SHIPMENT_NOT_PREPARED`|`SHIPMENT_HAS_LABEL`|`CONFLICT` (DECISIONES §PERSONA)
 - POST `/admin/buylist/:id/inbound-shipment` · staff
 - GET `/buylist/requests/:id/label.pdf` · cuenta
 - POST `/shipments/quote` · cuenta
