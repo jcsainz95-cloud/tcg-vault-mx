@@ -27,7 +27,7 @@
 ## 2026-11-18 — Tras publicar #138 (aviso de demoras)
 | ID | Qué | Medido | Dueño | Cómo se cierra |
 |---|---|---|---|---|
-| AVISO-PROD | Confirmar en producción que el aviso aparece tras cookies, una sola vez, y no en /checkout ni /compra; primer build real en Vercel con el stub `file:`. | 2026-11-18 (NO MEDIDO aún) | orquestador + dueño | captura en tcghunt.mx |
+| AVISO-PROD | CERRADO 2026-11-18 ~02:10 UTC: Vercel desplegó d07519bd (status success); Playwright en tcghunt.mx, iPhone 13 y 1366×768: aviso visible tras cookies; tras «Entendido» + recarga ya no sale. /checkout y /compra NO MEDIDOS en prod (cubiertos por tests). | 2026-11-18 | — | — |
 | AVISO-FIN | El aviso se apaga solo el 2026-12-01 (`frontend/src/lib/site-notice.ts`), fecha no confirmada por el dueño. | 2026-11-18 | dueño | fecha del dueño → frontend |
 | DEP-PICO-M | Menores qa (5a6cabd7): (1) `parcel-watcher-stub.test.ts:14-18` no detecta volver a `module.exports` (interop vitest) → medir con Node ESM real; (2) regex del candado `extract` no ve clave entre comillas; (3) `.next/standalone` trae `next/dist/compiled/picomatch` sin versión, afectación GHSA-fc5q NO MEDIDA (seguridad-lead). | 2026-11-18 | frontend (1,2), seguridad-lead (3) | test endurecido + medición |
 | DEP-PICO-BACK | Excepción CVE-2026-112366 de backend (`.trivyignore`, ficha dev) vence 2026-12-15: podar o renovar con medición; opcional mover a `.trivyignore-image`. | 2026-11-18 | devops + seguridad-lead | antes del 2026-12-15 |
