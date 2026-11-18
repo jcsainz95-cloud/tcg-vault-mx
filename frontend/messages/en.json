@@ -7199,6 +7199,7 @@
         },
         "AG-25": {
           "title": "In-person hand-over with shipping charged",
+          "shipmentRef": "shipment {folio}",
           "text": "{person} marked {ref} as handed over in person. The customer paid {fee} for shipping; the system does not refund it. If it should be refunded, decide it from Sales."
         }
       },

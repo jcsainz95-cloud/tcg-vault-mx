@@ -170,8 +170,13 @@ export function alertText(t: T, a: SpendAlertDTO, ctx: AlertTextCtx): string {
       return t('kind.AG-23.text', { folio: str(f.sellRequestId) ?? none, closesAt: closesAt ? ctx.dateTime(closesAt) : none, gross: m(f.offerGrossCents) });
     }
     case 'AG-25':
-      // §PERSONA: SOLO `facts = {shippingFeeChargedCents}`; ⛔ datos del cliente. Cifra del servidor tal cual.
-      return t('kind.AG-25.text', { person: who, ref, fee: m(f.shippingFeeChargedCents ?? a.amountCents) });
+      // §PERSONA (QA-PER-FACTS): `facts = {shippingFeeChargedCents, folio, actorUserId, deliveredAt, fulfillment}`; ⛔ datos del
+      // cliente. «envío {folio}» con el folio de `facts`; sin él, la referencia de siempre. Cifra del servidor tal cual.
+      return t('kind.AG-25.text', {
+        person: who,
+        ref: str(f.folio) ? t('kind.AG-25.shipmentRef', { folio: str(f.folio) as string }) : ref,
+        fee: m(f.shippingFeeChargedCents ?? a.amountCents),
+      });
     case 'AG-24': {
       // v1.113⟨portada⟩ (§DYN.4.5): SOLO `facts = {reason, publishedCards, cycleDays, dailyCreditCap, capToCoverWeek,
       // setsOverCap}` (GAS-4: cifras del servidor tal cual, ⛔ ni un cálculo aquí). `reason` decide la frase; otra ⇒ genérica.

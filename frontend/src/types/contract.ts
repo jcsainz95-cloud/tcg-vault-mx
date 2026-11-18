@@ -6786,7 +6786,7 @@ export type SpendAlertKind =
    * `facts` (lista blanca): `{ reason, publishedCards, cycleDays, dailyCreditCap, capToCoverWeek, setsOverCap }`.
    */
   | 'psa_cycle_short'
-  /** §PERSONA (AG-25): personal que no es el dueño entrega en persona con flete cobrado. Correo inmediato; ⛔ no se apaga. `facts`: `{ shippingFeeChargedCents }`. */
+  /** §PERSONA (AG-25): personal que no es el dueño entrega en persona con flete cobrado. Correo inmediato; ⛔ no se apaga. `facts`: `{ shippingFeeChargedCents, folio, actorUserId, deliveredAt, fulfillment: 'direct_ship'|'vault_withdrawal' }`. */
   | 'in_person_with_fee';
 /** Mapa fijo kind ⇔ code (§19.29.2 + §19.30.1 (6) / §19.30.2 (3)). */
 export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = {

@@ -7199,7 +7199,8 @@
         },
         "AG-25": {
           "title": "Entrega en persona con envío cobrado",
-          "text": "{person} marcó {ref} como entregado en persona. El cliente pagó {fee} de envío; el sistema no lo reembolsa. Si hay que devolverlo, decídelo desde Ventas."
+          "shipmentRef": "envío {folio}",
+          "text": "{person} marcó el {ref} como entregado en persona. El cliente pagó {fee} de envío; el sistema no lo reembolsa. Si hay que devolverlo, decídelo desde Ventas."
         }
       },
       "prev": "Anterior",
