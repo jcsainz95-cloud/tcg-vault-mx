@@ -92,7 +92,7 @@ import {
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
 // MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
 import { variantKey } from '../../common/variant-key';
-import { lockPriceWriteShared, withPriceWriteShared } from './price-write-lock';
+import { lockPriceWriteShared, PRICE_WRITE_INGEST_TX_TIMEOUT_MS, withPriceWriteShared } from './price-write-lock';
 import { ProductPreference, productPreferenceOf, effectiveVariantKey, effectiveVariantKeys } from '../../common/variant-product';
 import { StampRef, validateSpanishMarketPct } from '../../common/card-version';
 import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
@@ -3288,7 +3288,7 @@ export class PricingService {
         });
         return true;
       },
-      { label: 'persistGradedEstimateReference', logger: this.logger },
+      { label: 'persistGradedEstimateReference', logger: this.logger, timeout: PRICE_WRITE_INGEST_TX_TIMEOUT_MS, maxWait: 10_000 }, // IMP-1 (qa): espera al lote exclusivo del job (≤ 60 s), no los 5 s por defecto
     );
   }
 

@@ -8,6 +8,7 @@ import { seedE2E } from '../../prisma/seed-e2e';
 import { PATTERN_RECLASSIFY_LOCK_KEY, PatternReclassifyService } from '../../src/modules/pricing/pattern-reclassify.service';
 import { PricingService } from '../../src/modules/pricing/pricing.service';
 import { PRICE_WRITE_LOCK_KEY } from '../../src/modules/pricing/price-write-lock';
+import { PriceReviewService } from '../../src/modules/pricing/price-review.service';
 import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
 import { isVariantProductName, VARIANT_PRODUCT_PREFILTER_LIKE } from '../../src/common/variant-product';
 import * as fixture from '../fixtures/tcgcsv-variant-names.json';
@@ -996,6 +997,79 @@ describe('E2E — §PRICE-PATTERN', () => {
     } finally {
       prov.mockRestore();
       await h.prisma.priceReference.deleteMany({ where: { cardId: c.id } });
+      await clean();
+    }
+  });
+
+  it('qa IMPORTANTE-1 con el candado EXCLUSIVO retenido >5 s (más que el timeout por defecto de Prisma) el estimado PSA y `accept` de revisión ESPERAN y, al soltarse, ESCRIBEN (sin P2028)', async () => {
+    await clean();
+    const c = await card('W2', ['holofoil']);
+    const review = h.app.get(PriceReviewService);
+    const admin = await h.prisma.user.findFirstOrThrow({ where: { role: 'super_admin' }, select: { id: true } });
+    const rc = await h.prisma.priceReviewCase.create({
+      data: { cardId: c.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', axis: 'sell', proposedMxnCents: 203, baselineMxnCents: 184, jumpFactorMilli: 54_000, sourceCount: 2, familyCount: 2, consensus: false, quotesSnapshot: [{ source: 'tcgdex', family: 'tcgplayer', priceMxnCents: 203, capturedDate: '2026-10-11', stale: false }], status: 'open' },
+    });
+    try {
+      const lot = await holdAdvisory(PRICE_WRITE_LOCK_KEY, false); // un lote del job retiene el exclusivo
+      const settled: Record<string, string> = {};
+      const track = <T>(name: string, p: Promise<T>) => p.then((v) => { settled[name] = 'ok'; return v; }, (e: Error) => { settled[name] = `ERR ${e.message.slice(0, 80)}`; throw e; });
+      const psa = track('psa', pricing.persistGradedEstimateReference(c.id, '9', 'holofoil', { amountCents: 4200, currency: 'MXN', source: 'pokemonpricetracker' }, { rate: 17, bufferPct: 0 }));
+      const acc = track('accept', review.resolve(rc.id, 'accept', undefined, admin.id));
+      void psa.catch(() => undefined);
+      void acc.catch(() => undefined);
+      await sleep(7_000);
+      expect(settled).toEqual({}); // 7 s > 5 s: ninguno falló por timeout, siguen esperando el candado
+      await lot.release();
+      expect(await psa).toBe(true);
+      expect((await acc).status).toBe('accepted');
+      expect(await h.prisma.priceReference.count({ where: { cardId: c.id, refKind: 'graded_estimate' } })).toBe(1);
+      expect(await h.prisma.priceReference.count({ where: { cardId: c.id, productType: 'raw', gradeKey: 'raw:NM', priceMxnCents: 203 } })).toBe(1);
+    } finally {
+      await h.prisma.priceReviewCase.deleteMany({ where: { id: rc.id } });
+      await h.prisma.priceReference.deleteMany({ where: { cardId: c.id } });
+    }
+  });
+
+  it('qa MENOR-D la prueba rechaza una BAJA fuera de raw NM (cualquier cambio ahí es violación): raw:LP 5000 → 4000 durante el flip ⇒ cuarentena y `kind` intacto', async () => {
+    await clean();
+    const X = await exposed('LP1');
+    await h.prisma.priceReference.create({
+      data: { cardId: X.c.id, productType: 'raw', gradeKey: 'raw:LP', finish: 'holofoil', cardProductId: X.base.id, source: 'tcgcsv_singles', priceMxnCents: 5000, priceUsdCents: null, capturedDate: today(), evidenceDate: today(), refKind: 'market' },
+    });
+    // La baja se aplica por la MISMA transacción del lote, justo tras el flip y antes de la medición «después».
+    const orig = pricing.getReferencesBatch.bind(pricing);
+    const spy2 = jest.spyOn(pricing, 'getReferencesBatch').mockImplementation(async (items, opts) => {
+      if (opts?.client && (await opts.client.cardProduct.findUniqueOrThrow({ where: { id: X.pat.id } })).kind === 'variant') {
+        await opts.client.priceReference.updateMany({ where: { cardId: X.c.id, gradeKey: 'raw:LP' }, data: { priceMxnCents: 4000 } });
+      }
+      return orig(items, opts);
+    });
+    try {
+      const r = await job.run();
+      expect([r.trialRejected, r.reclassified, r.failedBatches]).toEqual([1, 0, 0]);
+      expect(await kindOf(X.pat.id)).toBe('set_base');
+      const q = await quarantineRow();
+      expect(q[X.c.id]?.reasons.join(' ')).toContain('raw/raw:LP/holofoil: 5000 → 4000');
+    } finally {
+      spy2.mockRestore();
+      await h.prisma.priceReference.deleteMany({ where: { cardId: X.c.id, gradeKey: 'raw:LP' } });
+      await clean();
+    }
+  });
+
+  it('qa MENOR-A en la reversa del dial, si `settle` falla TRAS el commit el lote NO se cuenta como fallido (ya quedó confirmado): el error sale y `kind` ya es set_base', async () => {
+    await clean();
+    const R = await card('R1', ['holofoil']);
+    const v = await product(R, R.baseId + 1, `${R.name} (Master Ball Pattern)`, { holofoil: 1000 }, LO_UUID(), 'variant');
+    await h.prisma.configSetting.upsert({ where: { key: 'pattern_classify_enabled' }, create: { key: 'pattern_classify_enabled', valueJson: 'off' as never, updatedBy: 'test' }, update: { valueJson: 'off' as never, updatedBy: 'test' } });
+    const settleSpy = jest.spyOn(job as unknown as { settle: () => Promise<number> }, 'settle').mockRejectedValue(new Error('settle inyectado'));
+    try {
+      await expect(job.run()).rejects.toThrow('settle inyectado');
+      expect(await kindOf(v.id)).toBe('set_base'); // el commit ya ocurrió
+      expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_reclassify_run' } })).toBe(0); // y no se informó como lote fallido
+    } finally {
+      settleSpy.mockRestore();
+      await h.prisma.configSetting.deleteMany({ where: { key: 'pattern_classify_enabled' } });
       await clean();
     }
   });

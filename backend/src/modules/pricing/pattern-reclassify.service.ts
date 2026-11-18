@@ -183,22 +183,24 @@ export class PatternReclassifyService {
       let lostLock = false;
       for (const chunk of chunksOf([...byCard.keys()].sort(), batchSize)) {
         const ids = chunk.flatMap((c) => byCard.get(c)!);
+        let r: { skipped: true } | { skipped: false; value: Map<string, Combo & { price: number | null }> };
         try {
-          const r = await this.inBatchTx(timeoutMs, async (tx) => {
+          r = await this.inBatchTx(timeoutMs, async (tx) => {
             const listingBefore = await this.publishedPrices(chunk, tx);
             await tx.cardProduct.updateMany({ where: { id: { in: ids } }, data: { kind: 'set_base' } });
             return listingBefore;
           });
-          if (r.skipped) {
-            lostLock = true;
-            break;
-          }
-          out.reclassified += ids.length;
-          out.corrections += await this.settle(chunk, r.value);
         } catch (e) {
           out.failedBatches += 1;
           this.logger.error(`pattern-reclassify: lote de reversa falló (ROLLBACK): ${(e as Error).message}`);
+          continue;
         }
+        if (r.skipped) {
+          lostLock = true;
+          break;
+        }
+        out.reclassified += ids.length;
+        out.corrections += await this.settle(chunk, r.value); // fuera del try: un fallo de settle TRAS el commit no cuenta como lote revertido
       }
       if (out.failedBatches > 0) await this.reporter.report(null, now, [], out); // PP-12: un lote fallido queda en el informe/auditoría, no solo en el log
       return lostLock ? { ...out, skipped: true } : out;
@@ -302,7 +304,7 @@ export class PatternReclassifyService {
       `pattern-reclassify: ${cand.length} candidatos; ${out.reclassified} → variant (confirmados); expuestas ${out.combosExposed} (planeadas ${out.planned}, corregidas medidas ${out.applied}, diferidas ${out.deferred}); ` +
         `cuarentena del plan ${out.held}; prueba rechazó ${out.trialRejected} carta(s) (activas en cuarentena ${out.quarantined}); lotes fallidos ${out.failedBatches}; ${out.corrections} con precio publicado distinto.`,
     );
-    if (plan && (out.applied + out.deferred + out.trialRejected > 0) || out.failedBatches > 0) await this.reporter.report(plan, now, measured, out);
+    if ((plan && out.applied + out.deferred + out.trialRejected > 0) || out.failedBatches > 0) await this.reporter.report(plan, now, measured, out);
     if (lostLock) return { ...out, skipped: true }; // corrida cortada: sin red de seguridad ni auditoría de ambigüedad (la siguiente corrida los hace)
 
     // Red de seguridad (6.1): productos que el import ya creó como `variant` (patrón único) y cuyo precio llegó después: su acabado entra a

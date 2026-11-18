@@ -44,7 +44,8 @@ const TCGCSV_IMPORT_LOCK_KEY = 'tcgcsv-import';
 // Debe ser MAYOR que el presupuesto del cliente (20 s): si no, el timer gana la carrera y la caché de respaldo nunca llega a usarse.
 const PTCG_TIMEOUT_MS = 22_000;
 /** `$transaction` interactiva: 1 sola conexión por petición; espera máx. 5 s por conexión y 60 s de trabajo. */
-const TX_OPTS = { maxWait: 5_000, timeout: 60_000 } as const;
+// IMP-1 (qa): la transacción toma el candado de precios COMPARTIDO y puede esperar al lote exclusivo del job (≤ 60 s) antes de escribir.
+const TX_OPTS = { maxWait: 5_000, timeout: 120_000 } as const;
 
 type Db = Prisma.TransactionClient;
 
