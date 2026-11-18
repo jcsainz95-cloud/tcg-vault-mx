@@ -126,6 +126,7 @@ function build(rows: Row[]) {
   const updated: { where: unknown; data: Row }[] = [];
   const findManyArgs: { where: unknown }[] = [];
   const prisma = {
+    $executeRaw: jest.fn(async () => 0), // §PRICE-PATTERN 6.6: candado compartido de precios (`pg_advisory_xact_lock_shared`)
     priceReference: {
       findMany: jest.fn(async (args: { where?: unknown }) => {
         findManyArgs.push({ where: args.where });
@@ -146,7 +147,8 @@ function build(rows: Row[]) {
     },
     card: { findMany: jest.fn(async () => []) },
     pendingPriceEntry: { updateMany: jest.fn(async () => ({ count: 0 })) },
-    $transaction: async (fn: (tx: unknown) => unknown) => fn(prisma),
+    // el cliente de la transacción real NO tiene `$transaction` (si lo tuviera, el candado compartido de precios recursaría sin fin)
+    $transaction: async (fn: (tx: unknown) => unknown) => fn((({ $transaction: _omit, ...tx }) => tx)(prisma as Record<string, unknown>)),
     // H-PERF-1: getReferencesBatch poda el histórico vía $queryRaw; el emulador aplica el mismo filtro
     // (refKind='market' + base-card) sobre `rows` que antes aplicaba el findMany mockeado.
     $queryRaw: makeRefsRawQuery(rows),

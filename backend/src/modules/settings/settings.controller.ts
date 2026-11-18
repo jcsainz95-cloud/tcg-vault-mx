@@ -298,6 +298,8 @@ export class SettingsController {
           entityType: true,
           entityId: true,
           createdAt: true,
+          // §PRICE-PATTERN 6.3: el informe de la corrida (`items`, sin PII: carta, set, acabado, centavos) solo se expone al filtrar por esa acción.
+          ...(action === 'pricing.pattern_reclassify_run' ? { after: true } : {}),
         },
       }),
       this.prisma.auditLog.count({ where }),

@@ -34,6 +34,7 @@ function buildHarness(opts: {
 }) {
   const upserts: any[] = [];
   const prisma: any = {
+    $executeRaw: jest.fn(async () => 0), // §PRICE-PATTERN 6.6: candado compartido de precios (`pg_advisory_xact_lock_shared`)
     card: {
       findMany: jest.fn(async ({ where }: any) => opts.cards.filter((c) => where.id.in.includes(c.id))),
     },

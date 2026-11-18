@@ -92,7 +92,8 @@ import {
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
 // MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
 import { variantKey } from '../../common/variant-key';
-import { ProductPreference, productPreferenceOf } from '../../common/variant-product';
+import { lockPriceWriteShared, PRICE_WRITE_INGEST_TX_TIMEOUT_MS, withPriceWriteShared } from './price-write-lock';
+import { ProductPreference, productPreferenceOf, effectiveVariantKey, effectiveVariantKeys } from '../../common/variant-product';
 import { StampRef, validateSpanishMarketPct } from '../../common/card-version';
 import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 // v1.91⟨precios⟩ (M-75, §PRE.B / ARCHITECTURE §4.PRE (a)(b)): árbitro de mediana que ENVUELVE la lectura.
@@ -564,6 +565,15 @@ export function arbiterCandidatesBySource(rows: RefRow[], liveMxnOf: (r: RefRow)
  * (eso sí está prohibido para `referenceMxnCents`, que es la CARGA; `source` es **procedencia**).
  * `capturedDate` sí puede viajar en público: la frescura del dato es información legítima de compra.
  */
+/**
+ * §PRICE-PATTERN 6.6 — opciones de la lectura en vivo para la PRUEBA del job: `client` = la transacción del lote (la lectura ve el flip que aún
+ * no está publicado) y `fx` = el snapshot de FX FIJO de la corrida (antes y después miden con el mismo; `null` ⇒ lectura legada). Sin opciones, igual que siempre.
+ */
+export interface ReadOpts {
+  client?: Prisma.TransactionClient;
+  fx?: { rate: number; bufferPct: number } | null;
+}
+
 export interface PriceInfo {
   status: 'priced' | 'pending';
   referenceMxnCents?: number;
@@ -1288,8 +1298,9 @@ export class PricingService {
    */
   async getReferencesBatch(
     items: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+    opts: ReadOpts = {},
   ): Promise<Map<string, PriceInfo>> {
-    return (await this.getReferencesBatchWithTier(items)).refs;
+    return (await this.getReferencesBatchWithTier(items, opts)).refs;
   }
 
   /**
@@ -1300,6 +1311,7 @@ export class PricingService {
    */
   async getReferencesBatchWithTier(
     items: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+    opts: ReadOpts = {},
   ): Promise<{ refs: Map<string, PriceInfo>; manualKeys: Set<string> }> {
     const map = new Map<string, PriceInfo>();
     const manualKeys = new Set<string>();
@@ -1337,7 +1349,7 @@ export class PricingService {
     const productTypes = [...new Set(items.map((i) => i.productType as string))];
     const gradeKeys = [...new Set(items.map((i) => i.gradeKey))];
     const finishes = [...new Set(items.map((i) => i.finish as string))];
-    const rows = await this.prisma.$queryRaw<
+    const rows = await (opts.client ?? this.prisma).$queryRaw<
       {
         cardId: string;
         productType: ProductType;
@@ -1355,6 +1367,7 @@ export class PricingService {
         cardName: string;
         cardTcgplayerId: string | null;
         variantCombo: boolean;
+        productKind: string | null;
       }[]
     >(Prisma.sql`
       WITH filtered AS (
@@ -1362,7 +1375,8 @@ export class PricingService {
                pr."priceMxnCents", pr."priceUsdCents", pr."isManualOverride",
                pr."source", pr."capturedDate", pr."cardProductId", pr."evidenceDate",
                (pr."isManualOverride" OR pr."source" = 'manual') AS is_manual,
-               cp."tcgplayerProductId" AS "productExtId", cp."name" AS "productName",
+               cp."tcgplayerProductId" AS "productExtId", cp."name" AS "productName", cp."kind"::text AS "productKind",
+               COALESCE(cp."kind" = 'variant'::"CardProductKind", false) AS is_variant_row,
                c."name" AS "cardName", c."tcgplayerId" AS "cardTcgplayerId",
                EXISTS (SELECT 1 FROM "CardProduct" v
                         WHERE v."cardId" = pr."cardId" AND v."kind" = 'variant'::"CardProductKind" AND pr."finish" = ANY (v."finishes")) AS "variantCombo"
@@ -1375,7 +1389,10 @@ export class PricingService {
           AND pr."finish"::text IN (${Prisma.join(finishes)})
           AND pr."refKind" = 'market'::"PriceRefKind"
           AND (pr."cardProductId" IS NULL
-               OR cp."kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind"))
+               OR cp."kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind")
+               -- §PRICE-PATTERN v2 (6.1): las filas de productos variant se TRAEN (la más vigente por producto y clave) y la función única
+               -- effectiveVariantKeys decide abajo, en Node, cuáles valen (el patrón único de su acabado). El resto se descarta.
+               OR cp."kind" = 'variant'::"CardProductKind")
       ),
       ranked AS (
         -- P-53 ALTO-3 (§3): la ventana de frescura del TIER AUTOMATICO se mide por FRESCURA EFECTIVA
@@ -1385,17 +1402,30 @@ export class PricingService {
         -- la precedencia 4.27f. Con evidenceDate=null (filas legadas) COALESCE = capturedDate => ventana
         -- IDENTICA a hoy (CA-10).
         SELECT filtered.*,
-               MAX(CASE WHEN NOT is_manual THEN COALESCE("evidenceDate", "capturedDate") END)
-                 OVER (PARTITION BY "cardId", "productType", "gradeKey", "finish") AS max_auto_date
+               MAX(CASE WHEN NOT is_manual AND NOT is_variant_row THEN COALESCE("evidenceDate", "capturedDate") END)
+                 OVER (PARTITION BY "cardId", "productType", "gradeKey", "finish") AS max_auto_date,
+               ROW_NUMBER() OVER (PARTITION BY "cardProductId", "productType", "gradeKey", "finish"
+                                  ORDER BY COALESCE("evidenceDate", "capturedDate") DESC, "capturedDate" DESC) AS variant_rn
         FROM filtered
       )
       SELECT "cardId", "productType", "gradeKey", "finish",
              "priceMxnCents", "priceUsdCents", "isManualOverride",
              "source", "capturedDate", "cardProductId", "evidenceDate",
-             "productExtId", "productName", "cardName", "cardTcgplayerId", "variantCombo"
+             "productExtId", "productName", "cardName", "cardTcgplayerId", "variantCombo", "productKind"
       FROM ranked
-      WHERE is_manual OR COALESCE("evidenceDate", "capturedDate") = max_auto_date
+      WHERE is_manual
+         OR (NOT is_variant_row AND COALESCE("evidenceDate", "capturedDate") = max_auto_date)
+         OR (is_variant_row AND variant_rn = 1)
     `);
+    // §PRICE-PATTERN v2 (6.1): ÚNICA función de «variante efectiva» (la misma del reconciliador y del job). Un `variant` no manual que no valga se descarta.
+    const effVariant = effectiveVariantKeys(
+      rows.map((r) => ({ cardId: r.cardId, productType: r.productType, gradeKey: r.gradeKey, finish: r.finish, cardProductId: r.cardProductId, kind: r.productKind, tcgplayerProductId: r.productExtId, cents: Number(r.priceMxnCents) })),
+    );
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (r.productKind !== 'variant' || r.isManualOverride || r.source === 'manual') continue;
+      if (!effVariant.has(effectiveVariantKey({ cardProductId: r.cardProductId!, productType: r.productType, gradeKey: r.gradeKey, finish: r.finish }))) rows.splice(i, 1);
+    }
     // §PRICE-PATTERN: la preferencia de producto sale de los datos del JOIN (ancla de la carta ⇒ nombre exacto ⇒ resto).
     for (const r of rows as (typeof rows[number] & RefRow)[]) {
       // Fuera de un combo con `variant` NO se pone ni preferencia ni id externo ⇒ `isBetterRef` decide como siempre (incluido el uuid).
@@ -1409,7 +1439,7 @@ export class PricingService {
       }
     }
     // v1.x-fx-live: FX izada UNA vez por request (no por ítem) para el recomputo al vuelo.
-    const fx = await this.fxSnapshotSafe();
+    const fx = opts.fx !== undefined ? opts.fx : await this.fxSnapshotSafe();
     // v1.29: agrupa por clave y elige la MEJOR fila por precedencia (override > tcgcsv_singles > PPT),
     // no simplemente «la primera del orden desc» (que podía mezclar fuentes del mismo día).
     const bestByKey = new Map<string, (typeof rows)[number]>();
@@ -2575,24 +2605,27 @@ export class PricingService {
       );
       return { status: 'pending' };
     }
-    const ref = await this.prisma.priceReference.create({
-      data: {
-        cardId: card.id,
-        productType,
-        gradeKey,
-        finish,
-        source: quote.source,
-        priceUsdCents,
-        fxRate,
-        fxBufferPct,
-        priceMxnCents,
-        capturedDate: today(),
-        isManualOverride: false,
-        // M-43 (§4.38l.4.3): escritor de MERCADO ⇒ `market` EXPLÍCITO. Coincide con el default de la
-        // columna, y se escribe igual: la tabla de escritores de (l.4.3) no admite «lo pone el default».
-        refKind: 'market',
-      },
-    });
+    // §PRICE-PATTERN 6.6 (qa MENOR-4): candado de precios COMPARTIDO (como la ingesta) — un lote de la prueba de `pattern-reclassify` no mide con este `create` a medias.
+    const ref = await withPriceWriteShared(this.prisma, (db) =>
+      db.priceReference.create({
+        data: {
+          cardId: card.id,
+          productType,
+          gradeKey,
+          finish,
+          source: quote.source,
+          priceUsdCents,
+          fxRate,
+          fxBufferPct,
+          priceMxnCents,
+          capturedDate: today(),
+          isManualOverride: false,
+          // M-43 (§4.38l.4.3): escritor de MERCADO ⇒ `market` EXPLÍCITO. Coincide con el default de la
+          // columna, y se escribe igual: la tabla de escritores de (l.4.3) no admite «lo pone el default».
+          refKind: 'market',
+        },
+      }),
+    );
     return {
       status: 'priced',
       referenceMxnCents: ref.priceMxnCents,
@@ -2881,6 +2914,10 @@ export class PricingService {
     // P-PROMOS (§5.12): el import de cartas escribe el precio DENTRO de su transacción (todo-o-nada).
     db: Prisma.TransactionClient | PrismaService = this.prisma,
   ): Promise<void> {
+    // §PRICE-PATTERN 6.6 (IMP-B): toda escritura de mercado toma el candado COMPARTIDO con la prueba del job (`price-write-lock.ts`). Cliente raíz ⇒
+    // transacción corta; ya dentro de una (import, bucle por tandas) ⇒ solo toma el candado y sigue.
+    if ('$transaction' in db) return withPriceWriteShared(db, (tx) => this.persistMarketReference(cardId, finish, market, fx, cardProductId, tx));
+    await lockPriceWriteShared(db);
     const productType: ProductType = 'raw';
     const gradeKey = 'raw:NM';
     const capturedDate = today();
@@ -3037,6 +3074,14 @@ export class PricingService {
     fxRate?: number | null;
     fxBufferPct?: number | null;
   }): Promise<void> {
+    // §PRICE-PATTERN 6.6 (IMP-B): candado compartido con la prueba del job (ver `price-write-lock.ts`).
+    return withPriceWriteShared(this.prisma, (tx) => this.persistArbiterReferenceIn(row, tx));
+  }
+
+  private async persistArbiterReferenceIn(
+    row: Parameters<PricingService['persistArbiterReference']>[0],
+    db: Prisma.TransactionClient,
+  ): Promise<void> {
     const cardProductId = row.cardProductId ?? null;
     if (!(row.priceMxnCents > 0)) return; // money-safe: nunca una fila de mercado en 0/negativo.
     const capturedDate = new Date(`${row.capturedDate}T00:00:00.000Z`);
@@ -3048,7 +3093,7 @@ export class PricingService {
 
     // Serie POR FUENTE (incluye `source` en el where — la diferencia con persistMarketReference).
     // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE de un ESCRITOR (árbitro), no de candidatas.
-    const current = await this.prisma.priceReference.findFirst({
+    const current = await db.priceReference.findFirst({
       where: { cardId: row.cardId, productType: row.productType, gradeKey: row.gradeKey, finish: row.finish, cardProductId, source: row.source },
       orderBy: { capturedDate: 'desc' },
       select: { id: true, capturedDate: true, priceUsdCents: true, priceMxnCents: true, fxBufferPct: true, refKind: true },
@@ -3068,10 +3113,10 @@ export class PricingService {
     // Mismo valor y misma fila de HOY ⇒ nada que hacer (idempotente intra-día). Mismo valor fila vieja
     // ⇒ se escribe la del día (write-on-change avanza la serie). Valor nuevo ⇒ update si es de hoy, si no create.
     if (current != null && current.capturedDate.getTime() === capturedDate.getTime()) {
-      await this.prisma.priceReference.update({ where: { id: current.id }, data });
+      await db.priceReference.update({ where: { id: current.id }, data });
       return;
     }
-    await this.prisma.priceReference.create({
+    await db.priceReference.create({
       data: {
         cardId: row.cardId,
         productType: row.productType,
@@ -3121,10 +3166,12 @@ export class PricingService {
     }
     const capturedDate = today();
     const cardProductId = null;
+    // §PRICE-PATTERN 6.6 (qa MENOR-4): candado de precios COMPARTIDO (con `input.tx` solo lo toma; sin ella abre una transacción corta). Solo toma ESTE candado: no hay inversión de orden con el job.
+    return withPriceWriteShared(db, async (wdb) => {
     // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE de un ESCRITOR (accept promueve la robusta), no
     // de candidatas de precio. Serie POR FUENTE (incluye `source`, como `persistArbiterReference`): no
     // pisa otras fuentes.
-    const existing = await db.priceReference.findFirst({
+    const existing = await wdb.priceReference.findFirst({
       where: { cardId: input.cardId, productType: input.productType, gradeKey: input.gradeKey, finish: input.finish, capturedDate, cardProductId, source: input.source as PriceSource },
       select: { id: true },
     });
@@ -3139,11 +3186,12 @@ export class PricingService {
       evidenceDate: capturedDate,
     };
     const ref = existing
-      ? await db.priceReference.update({ where: { id: existing.id }, data })
-      : await db.priceReference.create({
+      ? await wdb.priceReference.update({ where: { id: existing.id }, data })
+      : await wdb.priceReference.create({
           data: { cardId: input.cardId, productType: input.productType, gradeKey: input.gradeKey, finish: input.finish, capturedDate, ...data },
         });
     return { ref };
+    });
   }
 
   /**
@@ -3188,6 +3236,7 @@ export class PricingService {
     return runSerializable(
       this.prisma,
       async (db) => {
+        await lockPriceWriteShared(db); // §PRICE-PATTERN 6.6 (qa MENOR-4): candado de precios COMPARTIDO, primera sentencia de la transacción (reentrante en el reintento)
         // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA del ESCRITOR del ingest de estimados — y es la
         // que sostiene la regla 2 de (l.4.3): necesita VER la fila `market` para hacer skip en vez de
         // degradarla. Con el predicado puesto no la vería y la pisaría, que es el fallo exacto.
@@ -3239,7 +3288,7 @@ export class PricingService {
         });
         return true;
       },
-      { label: 'persistGradedEstimateReference', logger: this.logger },
+      { label: 'persistGradedEstimateReference', logger: this.logger, timeout: PRICE_WRITE_INGEST_TX_TIMEOUT_MS, maxWait: 10_000 }, // IMP-1 (qa): espera al lote exclusivo del job (≤ 60 s), no los 5 s por defecto
     );
   }
 
@@ -3358,9 +3407,11 @@ export class PricingService {
     const finish: Finish = 'normal';
     const capturedDate = today();
     // v1.29 (M-31): sellado no usa CardProduct ⇒ `cardProductId=null` (findFirst + update/create).
+    // §PRICE-PATTERN 6.6 (qa MENOR-4): candado de precios COMPARTIDO (transacción corta).
     // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA de un ESCRITOR (sellado). No es candidata de
     // precio; filtrar por naturaleza aquí crearía una segunda fila para la misma clave+día.
-    const existing = await this.prisma.priceReference.findFirst({
+    await withPriceWriteShared(this.prisma, async (db) => {
+    const existing = await db.priceReference.findFirst({
       where: { cardId: anchorCardId, productType, gradeKey, finish, capturedDate, cardProductId: null },
     });
     // No clobbea el override manual del admin (paridad con persistMarketReference, §4.1).
@@ -3377,12 +3428,13 @@ export class PricingService {
       refKind: PriceRefKind.market,
     };
     if (existing) {
-      await this.prisma.priceReference.update({ where: { id: existing.id }, data });
+      await db.priceReference.update({ where: { id: existing.id }, data });
     } else {
-      await this.prisma.priceReference.create({
+      await db.priceReference.create({
         data: { cardId: anchorCardId, productType, gradeKey, finish, capturedDate, ...data },
       });
     }
+    });
   }
 
   /**

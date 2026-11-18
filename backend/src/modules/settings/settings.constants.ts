@@ -408,10 +408,8 @@ export const SettingKey = {
   DISCOUNT_CODE_BLOCK_MIN: 'discount_code_block_min',
 
   // ===== §PRICE-PATTERN (docs/DECISIONES.md punto 4/4b) — job `pattern-reclassify` =====
-  // `pattern_correction_cap`: entero ≥ 1 (default 200); el freno del job (combinaciones EXPUESTAS). El dueño lo sube aquí para autorizar una corrida grande;
-  // la siguiente corrida lo aplica sola (no hay botón «aplicar»). `pattern_classify_enabled`: `on|off` (default `on`); `off` = reversa funcional: el job
-  // reclasifica `variant → set_base` y la lectura vuelve al comportamiento previo.
-  PATTERN_CORRECTION_CAP: 'pattern_correction_cap',
+  // `pattern_classify_enabled`: `on|off` (default `on`); `off` = reversa funcional: el job reclasifica `variant → set_base` y la lectura vuelve al
+  // comportamiento previo. (v2, DECISIONES §PRICE-PATTERN 6.2: el dial `pattern_correction_cap` se RETIRÓ; el freno es la constante `PATTERN_RUN_MAX`.)
   PATTERN_CLASSIFY_ENABLED: 'pattern_classify_enabled',
 
   // ===== rev v1.87⟨wishlist⟩ (M-74, API_CONTRACT §WSH.2) — los SIETE diales de la lista de deseos (siempre activa: sin interruptor) =====
@@ -665,7 +663,6 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.DISCOUNT_CODE_MAX_FAILURES]: 10,
   [SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN]: 15,
   [SettingKey.DISCOUNT_CODE_BLOCK_MIN]: 15,
-  [SettingKey.PATTERN_CORRECTION_CAP]: 200,
   [SettingKey.PATTERN_CLASSIFY_ENABLED]: 'on',
   // rev v1.87⟨wishlist⟩ (§WSH.2). ⚠️ Idénticos al INSERT de M-74 (candado: test/wishlist.settings.spec.ts).
   [SettingKey.WISHLIST_MAX_PER_ACCOUNT]: 20,
@@ -709,6 +706,8 @@ export const RETIRED_SETTING_KEYS = [
   'graded_estimate_ingest_enabled',
   // v1.113⟨portada⟩ (M-93, §DYN.3): su nombre AFIRMA un tope de gasto que ya no existe (el tope vivo es por día CDMX).
   'graded_estimate_ingest_max_cards_per_run',
+  // §PRICE-PATTERN v2 (6.2): el freno es una constante de código (`PATTERN_RUN_MAX = 150`); `PUT` con esta clave ⇒ 422 (clave desconocida).
+  'pattern_correction_cap',
 ] as const;
 
 /**
@@ -1370,7 +1369,6 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.DISCOUNT_CODE_MAX_FAILURES]: validatePositiveIntDial('failures'),
   [SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN]: validatePositiveIntDial('minutes'),
   [SettingKey.DISCOUNT_CODE_BLOCK_MIN]: validatePositiveIntDial('minutes'),
-  [SettingKey.PATTERN_CORRECTION_CAP]: (v) => (isInt(v) && v >= 1 && v <= 100_000 ? null : 'must be an integer in [1, 100000] (combinations)'),
   [SettingKey.PATTERN_CLASSIFY_ENABLED]: (v) =>
     typeof v === 'string' && FEATURE_FLAG_VALUES.includes(v) ? null : `must be one of ${FEATURE_FLAG_VALUES.join('|')}`,
   // rev v1.87⟨wishlist⟩ (§WSH.2): dominios de la tabla; `on|off` estricto (un `true` o `'ON'` no queda «pareciendo encendido»).
@@ -1497,7 +1495,6 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   discountCodeFailureWindowMin: SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN,
   discountCodeBlockMin: SettingKey.DISCOUNT_CODE_BLOCK_MIN,
   // §PRICE-PATTERN: `super_admin` (⛔ no son diales del dueño de §Z).
-  patternCorrectionCap: SettingKey.PATTERN_CORRECTION_CAP,
   patternClassifyEnabled: SettingKey.PATTERN_CLASSIFY_ENABLED,
   // rev v1.87⟨wishlist⟩ (§WSH.2): los ocho de la lista de deseos (incluido el tope anti-abuso del «avísame» de sellados).
   wishlistMaxPerAccount: SettingKey.WISHLIST_MAX_PER_ACCOUNT,

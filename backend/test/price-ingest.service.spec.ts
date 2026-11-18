@@ -150,6 +150,7 @@ describe('PriceIngestService.providerFor — el dial PRICE_PROVIDER elige el pro
 describe('PriceIngestService.ingestSet — precios + Señal C (pricedFinishesSnapshot) + reconcile', () => {
   function prismaMock(overrides: Partial<Record<string, unknown>> = {}) {
     return {
+      $executeRaw: jest.fn(async () => 0), // §PRICE-PATTERN 6.6: candado compartido de precios (`pg_advisory_xact_lock_shared`)
       cardSet: { findUnique: jest.fn(async () => SET) },
       card: {
         findUnique: jest.fn(async ({ where }: any) => (where.externalId === 'sv8-1' ? { id: 'db-1' } : null)),
@@ -623,6 +624,7 @@ describe('PricingService.persistMarketReference — generalizado (source + moned
   // create/update (Prisma no tipa null en la clave compuesta). Los tests asertan sobre create.data.
   function pricingSvc(existing: unknown) {
     const prisma: any = {
+      $executeRaw: jest.fn(async () => 0), // §PRICE-PATTERN 6.6: candado compartido de precios
       priceReference: {
         findFirst: jest.fn(async () => existing),
         create: jest.fn(async () => ({})),

@@ -20,6 +20,7 @@ import { BusinessException } from '../../common/business.exception';
 import { ErrorCode } from '../../common/error-codes';
 import { QuoteSnapshot, RobustResult, LockDecision } from '../../common/robust-market';
 import { PricingService } from './pricing.service';
+import { PRICE_WRITE_INGEST_TX_TIMEOUT_MS } from './price-write-lock';
 import { ListingPriceService } from './listing-price.service';
 import { vigenteStatusWhere } from './review-vigente';
 import { variantKey } from '../../common/variant-key';
@@ -311,7 +312,7 @@ export class PriceReviewService {
       if (resolvedPriceRefId != null) {
         await tx.priceReviewCase.update({ where: { id }, data: { resolvedPriceRefId } });
       }
-    });
+    }, { timeout: PRICE_WRITE_INGEST_TX_TIMEOUT_MS, maxWait: 10_000 }); // IMP-1 (qa): `accept` toma el candado de precios COMPARTIDO; espera al lote exclusivo (≤ 60 s)
 
     await this.audit.log({
       actorUserId,

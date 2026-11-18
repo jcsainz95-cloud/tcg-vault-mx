@@ -49,6 +49,7 @@ function prismaMock(
   const priceUpserts: any[] = [];
   let seq = 0;
   const prisma = {
+    $executeRaw: jest.fn(async () => 0), // §PRICE-PATTERN 6.6: candado compartido de precios (`pg_advisory_xact_lock_shared`)
     cardSet: { findUnique: jest.fn(async () => set) },
     card: { findMany: jest.fn(async () => localCards) },
     cardProduct: {
@@ -261,7 +262,7 @@ describe('resolveGroupId — FUENTE ÚNICA del match set↔grupo (P-47 en la rut
   function svcWithGroups(groups: { groupId: number; name: string }[]): CardProductResolverService {
     const client = clientMock({ groups });
     return new CardProductResolverService(
-      { cardSet: { findUnique: jest.fn() } } as unknown as PrismaService,
+      { cardSet: { findUnique: jest.fn() }, $executeRaw: jest.fn(async () => 0) } as unknown as PrismaService,
       client,
       { reconcile: jest.fn() } as unknown as FinishReconciler,
       fxMock(),

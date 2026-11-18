@@ -45,6 +45,7 @@ function wirePricing(existing: Record<string, unknown> | null = null) {
     },
   } as any;
   prisma.$transaction = async (fn: (tx: unknown) => unknown) => fn(prisma);
+  prisma.$executeRaw = jest.fn(async () => 0); // candado de precios compartido (§PRICE-PATTERN 6.6): no-op en memoria
   const pricing = new PricingService(
     prisma,
     {} as unknown as SettingsService,

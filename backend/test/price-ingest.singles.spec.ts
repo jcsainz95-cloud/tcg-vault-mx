@@ -49,6 +49,7 @@ function singlesProvider(
 
 function build(provider: any, prismaOver: Record<string, unknown> = {}) {
   const prisma = {
+    $executeRaw: jest.fn(async () => 0), // §PRICE-PATTERN 6.6: candado compartido de precios (`pg_advisory_xact_lock_shared`)
     cardSet: { findUnique: jest.fn(async () => SET) },
     card: { findMany: jest.fn(async () => []), update: jest.fn(async () => ({})) },
     ...prismaOver,
@@ -91,10 +92,10 @@ describe('PriceIngestService — barrido de singles tcgcsv_singles (§4.35)', ()
 
     expect(pricing.persistMarketReference).toHaveBeenCalledTimes(3);
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
-      'card-A', 'reverse_holo', { marketCents: 250, currency: 'USD', source: 'tcgcsv_singles' }, fx, 'cp-1',
+      'card-A', 'reverse_holo', { marketCents: 250, currency: 'USD', source: 'tcgcsv_singles' }, fx, 'cp-1', expect.anything(),
     );
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
-      'card-A', 'holofoil', { marketCents: 375, currency: 'USD', source: 'tcgcsv_singles' }, fx, 'cp-1',
+      'card-A', 'holofoil', { marketCents: 375, currency: 'USD', source: 'tcgcsv_singles' }, fx, 'cp-1', expect.anything(),
     );
     expect(res).toMatchObject({ provider: 'tcgcsv_singles', cardCount: 1, priced: 3, unresolved: 0 });
   });
@@ -121,10 +122,10 @@ describe('PriceIngestService — barrido de singles tcgcsv_singles (§4.35)', ()
     await svc.ingestSet('local-me05', fx);
 
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
-      'card-A', 'holofoil', expect.objectContaining({ marketCents: 375 }), fx, 'cp-base',
+      'card-A', 'holofoil', expect.objectContaining({ marketCents: 375 }), fx, 'cp-base', expect.anything(),
     );
     expect(pricing.persistMarketReference).toHaveBeenCalledWith(
-      'card-A', 'holofoil', expect.objectContaining({ marketCents: 110 }), fx, 'cp-deck',
+      'card-A', 'holofoil', expect.objectContaining({ marketCents: 110 }), fx, 'cp-deck', expect.anything(),
     );
   });
 
@@ -209,6 +210,7 @@ describe('PriceIngestService — barrido de singles tcgcsv_singles (§4.35)', ()
 describe('PricingService.persistMarketReference — singles keyed por cardProductId (§4.35)', () => {
   function pricingSvc(existing: unknown) {
     const prisma: any = {
+      $executeRaw: jest.fn(async () => 0), // §PRICE-PATTERN 6.6: candado compartido de precios (`pg_advisory_xact_lock_shared`)
       priceReference: {
         findFirst: jest.fn(async () => existing),
         create: jest.fn(async () => ({})),

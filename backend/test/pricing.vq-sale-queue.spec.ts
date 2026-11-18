@@ -35,6 +35,7 @@ function buildPrisma(items: any[], pending: any[] = []) {
       return (row[k] ?? null) === (v ?? null);
     });
   const prisma: any = {
+    $executeRaw: jest.fn(async () => 0), // candado de precios compartido (§PRICE-PATTERN 6.6): no-op en memoria
     inventoryItem: {
       findMany: jest.fn(async ({ where }: any) => {
         const w = { ...where };

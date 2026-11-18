@@ -8,6 +8,7 @@ import { FxService } from '../pricing/fx.service';
 import { FinishReconciler } from './finish-reconciler.service';
 import { PromoSkipped, planPromoSet } from './promo-set-plan';
 import { exceedsFieldLimits } from './tcgcsv-card-name';
+import { lockPriceWriteShared } from '../pricing/price-write-lock';
 
 /** Mismo tope de cordura que el barrido diario y el import de P-PROMOS: un `market` mayor es dato corrupto. */
 const MAX_SANE_MARKET_USD = 50_000;
@@ -57,6 +58,7 @@ export class PromoSetProductsService {
     }
 
     const res = await this.prisma.$transaction(async (tx) => {
+      await lockPriceWriteShared(tx); // §PRICE-PATTERN 6.6: PRIMERA sentencia (sin filas bloqueadas aún ⇒ sin interbloqueo con la prueba del job)
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${PROMO_LOCK_KEY}), ${groupId}::int)`;
       const localCards = await tx.card.findMany({ where: { setId: localSetId }, select: { id: true, number: true } });
       const plan = planPromoSet(localCards, products, numberPrefix);

@@ -6,6 +6,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { MONEY_REF_WHERE, PricingService } from './pricing.service';
+import { withPriceWriteShared } from './price-write-lock';
+
+/** Filas de mercado por transacción de la ingesta de un set (candado compartido de precios, §PRICE-PATTERN 6.6). */
+const PRICE_WRITE_CHUNK = 100;
 import { resolveEstimateFinish } from './graded-finish-scope';
 import { BulkFetchInput, BulkPriceProvider, BulkPriceRow, cardNumberVariants } from './pricing.types';
 import {
@@ -963,27 +967,34 @@ export class PriceIngestService {
     const writtenVariants = new Map<string, VariantPublishRef>();
     let priced = 0;
     let skipped = result.skipped;
-    for (const row of result.rows) {
-      // Defensa en profundidad: el provider de singles SIEMPRE puebla ambos; sin ellos no se escribe
-      // (nunca una `PriceReference` huérfana ni una variante sin su `cardProductId` money-safe).
-      if (!row.cardId || !row.cardProductId) {
-        skipped += 1;
-        continue;
-      }
-      if (!(row.marketCents > 0)) {
-        skipped += 1;
-        continue;
-      }
-      await this.pricing.persistMarketReference(
-        row.cardId,
-        row.finish,
-        { marketCents: row.marketCents, currency: row.currency, source: 'tcgcsv_singles' },
-        fx,
-        row.cardProductId,
-      );
-      touchedCards.add(row.cardId);
-      PriceIngestService.rawVariantWritten(writtenVariants, row.cardId, row.finish);
-      priced += 1;
+    // §PRICE-PATTERN 6.6 (IMP-B): tandas de 100 filas por transacción corta con el candado COMPARTIDO de precios (la prueba del job lo toma EXCLUSIVO por
+    // lote): el barrido diario no paga una transacción por fila y nunca escribe a mitad de un lote de la prueba.
+    for (let i = 0; i < result.rows.length; i += PRICE_WRITE_CHUNK) {
+      await withPriceWriteShared(this.prisma, async (tx) => {
+        for (const row of result.rows.slice(i, i + PRICE_WRITE_CHUNK)) {
+          // Defensa en profundidad: el provider de singles SIEMPRE puebla ambos; sin ellos no se escribe
+          // (nunca una `PriceReference` huérfana ni una variante sin su `cardProductId` money-safe).
+          if (!row.cardId || !row.cardProductId) {
+            skipped += 1;
+            continue;
+          }
+          if (!(row.marketCents > 0)) {
+            skipped += 1;
+            continue;
+          }
+          await this.pricing.persistMarketReference(
+            row.cardId,
+            row.finish,
+            { marketCents: row.marketCents, currency: row.currency, source: 'tcgcsv_singles' },
+            fx,
+            row.cardProductId,
+            tx,
+          );
+          touchedCards.add(row.cardId);
+          PriceIngestService.rawVariantWritten(writtenVariants, row.cardId, row.finish);
+          priced += 1;
+        }
+      });
     }
     this.logger.log(
       `price-ingest-set(${set.externalId}, tcgcsv_singles): ${touchedCards.size} cartas, ${priced} ` +

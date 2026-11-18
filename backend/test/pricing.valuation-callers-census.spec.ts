@@ -212,7 +212,7 @@ describe('SK-5 · VK-6 — censo cerrado de la llave de COLA (`tryGradeKeyFor`/`
     // v1.114 (§DYN.5.9): el cuerpo del productor vive en `getReferencesBatchWithTier` (misma lectura + qué tier ganó);
     // `getReferencesBatch` delega en él y devuelve su `refs`.
     const pricingSrc = stripComments(readFileSync(join(SRC, 'modules/pricing/pricing.service.ts'), 'utf8'));
-    expect(/getReferencesBatchWithTier\(items\)\)\.refs/.test(methodBody(pricingSrc, 'async getReferencesBatch('))).toBe(true);
+    expect(/getReferencesBatchWithTier\(items, opts\)\)\.refs/.test(methodBody(pricingSrc, 'async getReferencesBatch('))).toBe(true);
     const producer = methodBody(pricingSrc, 'async getReferencesBatchWithTier(');
     expect(/\bvariantKey\(/.test(producer)).toBe(true);
     expect(countManualKeys(producer)).toBe(0);

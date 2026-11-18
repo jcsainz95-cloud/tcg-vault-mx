@@ -83,8 +83,10 @@ export function orderFinishes(finishes: Iterable<Finish>): Finish[] {
  */
 export function deriveAvailableFinishesFromProducts(
   products: Iterable<{ kind: CardProductKind; finishes: Finish[] }>,
+  /** §PRICE-PATTERN v2 (6.1): acabados en que un producto `variant` ES la base de su combo (patrón único con precio): entran como los de un `set_base`. */
+  effectiveVariantFinishes: Iterable<Finish> = [],
 ): Finish[] {
-  const union = new Set<Finish>();
+  const union = new Set<Finish>(effectiveVariantFinishes);
   for (const p of products) {
     // set_base y other componen la carta de set; deck_exclusive/promo son productos aparte (§4.27c/e).
     if (p.kind === 'set_base' || p.kind === 'other') {

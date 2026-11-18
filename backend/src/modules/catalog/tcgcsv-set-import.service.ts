@@ -26,6 +26,7 @@ import { FinishReconciler } from './finish-reconciler.service';
 import { PokemonTcgIoClient } from './pokemontcg-io.client';
 import { normalizeCardNumber } from './card-product-resolver.service';
 import { AuditService } from '../audit/audit.service';
+import { lockPriceWriteShared } from '../pricing/price-write-lock';
 import { findImportableGroup, TCGCSV_IMPORTABLE_GROUPS } from './tcgcsv-importable-groups';
 import {
   TcgcsvSkipReason,
@@ -43,7 +44,8 @@ const TCGCSV_IMPORT_LOCK_KEY = 'tcgcsv-import';
 // Debe ser MAYOR que el presupuesto del cliente (20 s): si no, el timer gana la carrera y la caché de respaldo nunca llega a usarse.
 const PTCG_TIMEOUT_MS = 22_000;
 /** `$transaction` interactiva: 1 sola conexión por petición; espera máx. 5 s por conexión y 60 s de trabajo. */
-const TX_OPTS = { maxWait: 5_000, timeout: 60_000 } as const;
+// IMP-1 (qa): la transacción toma el candado de precios COMPARTIDO y puede esperar al lote exclusivo del job (≤ 60 s) antes de escribir.
+const TX_OPTS = { maxWait: 5_000, timeout: 120_000 } as const;
 
 type Db = Prisma.TransactionClient;
 
@@ -190,6 +192,7 @@ export class TcgcsvSetImportService {
 
     try {
       const imported = await this.prisma.$transaction(async (tx) => {
+        await lockPriceWriteShared(tx); // §PRICE-PATTERN 6.6: PRIMERA sentencia (sin filas bloqueadas aún ⇒ sin interbloqueo con la prueba del job)
         const got = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtext(${TCGCSV_IMPORT_LOCK_KEY}), ${groupId}::int) AS ok`;
         if (got[0]?.ok !== true) {
           throw BusinessException.conflict(

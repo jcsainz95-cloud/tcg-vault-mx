@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CardProductKind, Finish, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { deriveAvailableFinishesFromProducts } from '../../common/card-order';
+import { loadEffectiveVariantRows } from '../pricing/effective-variant';
+import { effectiveVariantKeys } from '../../common/variant-product';
 
 /**
  * FinishReconciler (v1.29, ARCHITECTURE §4.27c) — ÚNICO ESCRITOR de `Card.availableFinishes`.
@@ -43,6 +45,18 @@ export class FinishReconciler {
       },
     });
 
+    // §PRICE-PATTERN v2 (6.1): acabados en que un patrón ÚNICO con precio es la base (misma función que la lectura de precio y el job).
+    const withVariant = cards.filter((c) => (c.cardProducts as { kind: CardProductKind }[]).some((p) => p.kind === 'variant')).map((c) => c.id);
+    const effRows = withVariant.length > 0 ? await loadEffectiveVariantRows(db, withVariant, { productTypes: ['raw'], gradeKeys: ['raw:NM'] }) : [];
+    const effByCard = new Map<string, Finish[]>();
+    const cardOfProduct = new Map<string, string>(); // O(n): antes un `find` por clave (O(n²))
+    for (const r of effRows) if (r.cardProductId != null) cardOfProduct.set(r.cardProductId, r.cardId);
+    for (const k of effectiveVariantKeys(effRows)) {
+      const [cpId, , , finish] = k.split('|');
+      const cardId = cardOfProduct.get(cpId);
+      if (cardId) effByCard.set(cardId, [...(effByCard.get(cardId) ?? []), finish as Finish]);
+    }
+
     let changed = 0;
     let conservedNoProducts = 0;
     for (const c of cards) {
@@ -52,7 +66,7 @@ export class FinishReconciler {
         conservedNoProducts += 1;
         continue;
       }
-      const next = deriveAvailableFinishesFromProducts(products);
+      const next = deriveAvailableFinishesFromProducts(products, effByCard.get(c.id) ?? []);
       if (sameFinishes(next, c.availableFinishes as Finish[])) continue; // idempotente
       await db.card.update({ where: { id: c.id }, data: { availableFinishes: next } });
       changed += 1;

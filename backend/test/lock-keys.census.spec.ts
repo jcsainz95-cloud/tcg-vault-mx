@@ -135,3 +135,23 @@ describe('censo de namespaces de candado consultivo de dos claves', () => {
     expect(duplicates(fake)).toEqual(['88120116: A_GATE_NAMESPACE, B_GATE_NAMESPACE']);
   });
 });
+
+/**
+ * §PRICE-PATTERN 6.6 (IMP-B): el candado de precios `PRICE_WRITE_LOCK_KEY` lo toman las DOS partes (si solo una lo toma, el candado no impide nada).
+ * Lee el código: la prueba del job lo toma EXCLUSIVO y cada escritor de mercado de la ingesta lo toma COMPARTIDO.
+ */
+describe('candado compartido de precios (6.6)', () => {
+  const src = join(__dirname, '..', 'src');
+  const read = (rel: string) => readFileSync(join(src, rel), 'utf8');
+  it('la prueba del job lo toma exclusivo y la ingesta compartido; la clave es única en el censo', () => {
+    expect(read('modules/pricing/pattern-reclassify.service.ts')).toMatch(/lockPriceWriteExclusive\(tx\)/);
+    expect(read('modules/pricing/pricing.service.ts')).toMatch(/lockPriceWriteShared\(db\)/); // persistMarketReference
+    expect(read('modules/pricing/pricing.service.ts')).toMatch(/withPriceWriteShared\(this\.prisma, \(tx\) => this\.persistArbiterReferenceIn/);
+    expect(read('modules/catalog/card-product-resolver.service.ts')).toMatch(/withPriceWriteShared\(this\.prisma/);
+    expect(read('modules/catalog/tcgcsv-set-import.service.ts')).toMatch(/lockPriceWriteShared\(tx\)/);
+    expect(read('modules/catalog/promo-set-products.service.ts')).toMatch(/lockPriceWriteShared\(tx\)/);
+    expect(read('modules/pricing/price-ingest.service.ts')).toMatch(/withPriceWriteShared\(this\.prisma/);
+    const keys = lockKeysIn(walk(src).map((file) => ({ file, text: readFileSync(file, 'utf8') })));
+    expect(keys.filter((k) => k.name === 'PRICE_WRITE_LOCK_KEY')).toHaveLength(1);
+  });
+});

@@ -53,3 +53,51 @@ export function productPreferenceOf(
   if (normalizeMatchText(product.name) === normalizeMatchText(card.name)) return 1;
   return 2;
 }
+
+/**
+ * §PRICE-PATTERN v2 (docs/DECISIONES.md punto 6.1) — ⭐ LA ÚNICA FUNCIÓN de «variante efectiva» (guardia CA-9: ningún segundo cálculo).
+ *
+ * Un producto `variant` («… Pattern/Ball/Energy Symbol») cuenta como TAL para un combo carta×acabado solo si la carta tiene en ese combo ≥ 1
+ * producto NO `variant` con precio de mercado > 0 (un precio genérico sin producto —`kind: null`: PPT, manual…— también es «base»). Si no lo
+ * tiene, el patrón ES el producto base de ese combo; con varios patrones únicos gana el de MENOR precio (desempate `tcgplayerProductId` asc):
+ * jamás infla. Pura: el llamador le da las filas (market > 0, la vigente por producto) y recibe las claves de los productos que SÍ valen.
+ * El job la llama con `kind: 'variant'` también para los candidatos aún no reclasificados (simulación), la lectura y el reconciliador con el real.
+ */
+export interface EffectiveVariantRow {
+  cardId: string;
+  productType: string;
+  gradeKey: string;
+  finish: string;
+  /** `null` = precio genérico sin producto (PPT, pokemontcg.io, manual): cuenta como base. */
+  cardProductId: string | null;
+  kind: string | null;
+  tcgplayerProductId: number | null;
+  /** Mercado vigente > 0 (las filas sin precio no se pasan). */
+  cents: number;
+}
+
+/** `cardProductId|productType|gradeKey|finish` — la clave de un producto variante EFECTIVO en un combo. */
+export function effectiveVariantKey(r: { cardProductId: string; productType: string; gradeKey: string; finish: string }): string {
+  return `${r.cardProductId}|${r.productType}|${r.gradeKey}|${r.finish}`;
+}
+
+export function effectiveVariantKeys(rows: readonly EffectiveVariantRow[]): Set<string> {
+  const groups = new Map<string, EffectiveVariantRow[]>();
+  for (const r of rows) {
+    if (!(r.cents > 0)) continue;
+    const k = `${r.cardId}|${r.productType}|${r.gradeKey}|${r.finish}`;
+    const arr = groups.get(k);
+    if (arr) arr.push(r);
+    else groups.set(k, [r]);
+  }
+  const out = new Set<string>();
+  for (const g of groups.values()) {
+    if (g.some((r) => r.kind !== 'variant')) continue; // hay base con precio ⇒ el patrón es versión aparte
+    const vs = g.filter((r) => r.cardProductId != null);
+    if (vs.length === 0) continue;
+    vs.sort((a, b) => a.cents - b.cents || (a.tcgplayerProductId ?? Number.MAX_SAFE_INTEGER) - (b.tcgplayerProductId ?? Number.MAX_SAFE_INTEGER));
+    const w = vs[0];
+    out.add(effectiveVariantKey({ cardProductId: w.cardProductId!, productType: w.productType, gradeKey: w.gradeKey, finish: w.finish }));
+  }
+  return out;
+}
