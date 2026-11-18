@@ -77,18 +77,15 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## Bugs abiertos (qa) — gate §PERSONA sobre 2c4ab079 (2026-11-18): RECHAZADO
+## Bugs abiertos (qa) — re-gate §PERSONA sobre a12ede3f (2026-11-18): APROBADO
 | ID | Qué | Dueño |
 |---|---|---|
-| QA-PER-FILTRO | `?labelSource=in_person` aceptado pero sin rama: devuelve todo (`shipments.service.ts:969-971`); viola DECISIONES §PERSONA «Contrato implementado» | backend |
-| QA-PER-CHECK | m107: `labelSource::text IN (…)` da NULL con labelSource NULL ⇒ CHECK admite aviso sin origen (m66 lo rechazaba); medido 1/1 | backend |
-| QA-PER-GUIA | `status='guia'` ⇒ CONFLICT, no SHIPMENT_HAS_LABEL (DECISIONES §PERSONA.1) | backend |
-| QA-PER-FACTS | AG-25 `facts` solo `{shippingFeeChargedCents}`; DECISIONES §7 pide folio/actor/deliveredAt/fulfillment | backend (arquitecto valida) |
-| QA-PER-E2E | e2e sin filtro in_person, sin sondeo/guías por cancelar, sin total de bandeja ni mailStatus AG-25 | backend |
-| QA-PER-DOWN | m107 sin reversión documentada (con filas in_person el CHECK viejo falla) | backend |
-| QA-PER-AUDIT | auditoría post-commit: si falla, el reintento idempotente no la reescribe | backend |
-Medido en 2c4ab079: jest 38 suites ship/spend/sdx/m4 814/814 + 7 suites tocadas 497/497; e2e shipments-in-person 7/7 ×3 (Postgres 16 y Redis desechables, migraciones hasta m108); vitest m4+spend-alerts+timeline 363/363 (23); tsc front 0 / back 0; eslint 0/0; reversión CHECK 1/1; rutas 6/6 commits.
-Bugs previos (QA-PV-*, QA-PRM-*, QA-HYD) siguen abiertos sin re-medir: filas verbatim en `PENDIENTES.md` §«2026-11-18 — qa previos».
+| QA-PER-FULFILL | `facts.fulfillment` = `direct_ship|vault_withdrawal`; DECISIONES §PERSONA.7 dice `direct|withdrawal` (front=back) | arquitecto (o backend) |
+| QA-PER-PNONE | «persona sin nombre» en: front «an unnamed account» (en.json:7070) ≠ back «an account with no name» (spend-alert-text.ts:53); anterior, todos los AG | frontend/backend |
+| QA-PER-TREE | Ablación de seguridad-lead en el árbol compartido (shipments.service.ts mtime 14:15:18) durante la medición de qa: 1/16 rojo falso (PERS-1) | orquestador |
+Cerrados en 3960e8e4/a12ede3f: QA-PER-FILTRO, -CHECK (m109), -GUIA, -FACTS, -E2E (16), -DOWN, -AUDIT (bitácora en tx; rojo por trigger).
+Medido en a12ede3f (HEAD 631c2bd1 solo docs): jest 599 suites 10511/10511; e2e shipments-in-person 16/16 en 15/15 corridas sobre código intacto (1 roja por QA-PER-TREE), PERS-1 aislado 6/6; vitest m4+spend-alerts+timeline 364/364 (23); tsc 0/0; eslint 0/0; CHECK m109 1/1; reversión m109 1/1. Postgres/Redis desechables propios (55441/56391).
+Bugs previos de qa: en PENDIENTES (movidos en a5681572).
 Resto del backlog con dueño y fecha: índice de `PENDIENTES.md`.
 
 ## Deuda técnica activa (todas las secciones)
