@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EffectiveVariantRow } from '../../common/variant-product';
+import type { ReaderBaseRow } from './pattern-plan';
 
 /**
  * §PRICE-PATTERN v2 (punto 6.1) — lectura de BD de la «variante efectiva»: para las cartas dadas que tengan ≥ 1 producto `variant`, trae la fila
@@ -34,4 +35,57 @@ export async function loadEffectiveVariantRows(
     ORDER BY pr."cardId", pr."productType", pr."gradeKey", pr."finish", pr."cardProductId",
              COALESCE(pr."evidenceDate", pr."capturedDate") DESC, pr."capturedDate" DESC`);
   return rows.map((r) => ({ ...r, cents: Number(r.cents) }));
+}
+
+/**
+ * Filas de mercado raw NM tal como las conserva la lectura REAL (`getReferencesBatch`, mismo SQL de poda): todo override manual y, de las
+ * automáticas de productos `set_base|other` o sin producto, solo las del día MÁS FRESCO del combo (de TODOS los productos y fuentes; sin colapsar
+ * por producto). `candidateIds` = los productos a reclasificar: se devuelven marcados (`isCandidate`) porque ANTES del cambio cuentan en la lectura y DESPUÉS ya no; por eso
+ * se conservan las filas del día más fresco de TODOS y las del día más fresco de los NO candidatos. Para el plan del job (PP-7 / qa).
+ */
+export async function loadReaderBaseRows(
+  db: Pick<PrismaService, '$queryRaw'> | Prisma.TransactionClient,
+  cardIds: readonly string[],
+  candidateIds: readonly string[],
+): Promise<ReaderBaseRow[]> {
+  if (cardIds.length === 0) return [];
+  const ex = [...candidateIds];
+  const rows = await (db as Pick<PrismaService, '$queryRaw'>).$queryRaw<
+    {
+      cardId: string; finish: string; cardProductId: string | null; productExtId: number | null; productName: string | null; cardName: string; cardTcgplayerId: string | null;
+      source: string; isManual: boolean; isCandidate: boolean; priceMxnCents: number; capturedDate: Date; evidenceDate: Date | null;
+    }[]
+  >(Prisma.sql`
+    WITH filtered AS (
+      SELECT pr."cardId", pr."finish"::text AS "finish", pr."cardProductId", cp."tcgplayerProductId" AS "productExtId", cp."name" AS "productName",
+             c."name" AS "cardName", c."tcgplayerId" AS "cardTcgplayerId", pr."source", (pr."isManualOverride" OR pr."source" = 'manual') AS "isManual",
+             (pr."cardProductId" IS NOT NULL AND pr."cardProductId" = ANY (${ex}::text[])) AS "isCandidate",
+             pr."priceMxnCents", pr."capturedDate", pr."evidenceDate"
+      FROM "PriceReference" pr
+      LEFT JOIN "CardProduct" cp ON cp."id" = pr."cardProductId"
+      JOIN "Card" c ON c."id" = pr."cardId"
+      WHERE pr."cardId" IN (${Prisma.join([...cardIds])})
+        AND pr."productType" = 'raw'::"ProductType" AND pr."gradeKey" = 'raw:NM' AND pr."refKind" = 'market'::"PriceRefKind"
+        AND (pr."cardProductId" IS NULL OR cp."kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind"))
+    ), ranked AS (
+      SELECT filtered.*,
+             MAX(CASE WHEN NOT "isManual" THEN COALESCE("evidenceDate", "capturedDate") END) OVER (PARTITION BY "cardId", "finish") AS "maxAutoDate",
+             MAX(CASE WHEN NOT "isManual" AND NOT "isCandidate" THEN COALESCE("evidenceDate", "capturedDate") END) OVER (PARTITION BY "cardId", "finish") AS "maxBaseDate"
+      FROM filtered
+    )
+    SELECT "cardId", "finish", "cardProductId", "productExtId", "productName", "cardName", "cardTcgplayerId", "source", "isManual", "isCandidate", "priceMxnCents", "capturedDate", "evidenceDate"
+    FROM ranked
+    WHERE "isManual" OR COALESCE("evidenceDate", "capturedDate") = "maxAutoDate"
+       OR (NOT "isCandidate" AND COALESCE("evidenceDate", "capturedDate") = "maxBaseDate")`);
+  return rows.map((r) => ({ ...r, priceMxnCents: Number(r.priceMxnCents) }));
+}
+
+/** Candidatos (ids) con alguna fila de mercado FUERA de raw NM (graded u otro tipo): la lectura les aplica la misma «variante efectiva». */
+export async function loadNonRawCandidateIds(db: Pick<PrismaService, '$queryRaw'> | Prisma.TransactionClient, candidateIds: readonly string[]): Promise<Set<string>> {
+  if (candidateIds.length === 0) return new Set();
+  const rows = await (db as Pick<PrismaService, '$queryRaw'>).$queryRaw<{ id: string }[]>(Prisma.sql`
+    SELECT DISTINCT pr."cardProductId" AS id FROM "PriceReference" pr
+    WHERE pr."cardProductId" IN (${Prisma.join([...candidateIds])}) AND pr."refKind" = 'market'::"PriceRefKind"
+      AND NOT (pr."productType" = 'raw'::"ProductType" AND pr."gradeKey" = 'raw:NM')`);
+  return new Set(rows.map((r) => r.id));
 }

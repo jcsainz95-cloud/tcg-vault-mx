@@ -5,7 +5,7 @@
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { EffectiveVariantRow, effectiveVariantKey, effectiveVariantKeys } from '../src/common/variant-product';
-import { PATTERN_RUN_MAX, PlanRow, planPatternRun } from '../src/modules/pricing/pattern-plan';
+import { PATTERN_RUN_MAX, PlanRow, ReaderBaseRow, planPatternRun } from '../src/modules/pricing/pattern-plan';
 
 const NOW = new Date('2026-11-18T12:00:00Z');
 const FRESH = new Date('2026-11-18T00:00:00Z');
@@ -127,6 +127,63 @@ describe('planPatternRun (6.2/6.4): solo baja, cuarentena y freno fijo', () => {
       if (reading.length > 0 && Math.max(...reading.map((r) => r.cents)) <= before) ok += 1;
     }
     expect(`${ok}/${N}`).toBe(`${N}/${N}`);
+  });
+});
+
+describe('planPatternRun — la regla de oro se aplica ANTES (PP-7 / qa IMPORTANTE 2): base = lo que la lectura REAL leería', () => {
+  const noct = (cents: number, id = '000') => row({ cardId: 'noct', finish: 'holofoil', kind: 'variant', cents, cardProductId: id });
+  const rb = (o: Partial<ReaderBaseRow> & Pick<ReaderBaseRow, 'priceMxnCents'>): ReaderBaseRow => ({
+    cardId: 'noct', finish: 'holofoil', cardProductId: `b${seq++}`, productExtId: seq++, productName: 'Otro nombre', cardName: 'Noctowl', cardTcgplayerId: '1',
+    source: 'tcgcsv_singles', isManual: false, capturedDate: FRESH, evidenceDate: null, ...o,
+  });
+  /** `candUuid`: el uuid del candidato (desempata el ganador de la lectura ANTES del flip cuando no hay preferencia). */
+  const run = (v: PlanRow, base: ReaderBaseRow[], extra?: Set<string>) => {
+    const cand = rb({ cardProductId: v.cardProductId, productExtId: v.tcgplayerProductId, productName: 'Noctowl (Master Ball Pattern)', priceMxnCents: v.cents, isCandidate: true });
+    return planPatternRun([row({ cardId: 'noct', finish: 'holofoil', kind: 'set_base', cents: 1000 }), v], new Set([v.cardProductId!]), NOW, PATTERN_RUN_MAX, [...base, cand], extra);
+  };
+
+  it('AMBIGUA tras el flip (2 productos pref. 2 con > 25 % de diferencia) ⇒ cuarentena: no se reclasifica y el precio se conserva', () => {
+    const v = noct(90000);
+    const p = run(v, [rb({ priceMxnCents: 1000 }), rb({ priceMxnCents: 5000 })]);
+    expect([p.applied.length, p.deferred.length, p.flipIds.length, p.held]).toEqual([0, 0, 0, 1]);
+  });
+  it('dos bases pref. 2 con ≤ 25 % de diferencia NO son ambiguas ⇒ expuesto; y el ancla (pref. 0) desambigua aunque haya otra muy distinta', () => {
+    const v = noct(90000);
+    expect(run(v, [rb({ priceMxnCents: 1000 }), rb({ priceMxnCents: 1200 })]).applied).toHaveLength(1);
+    const anchor = rb({ priceMxnCents: 1000, productName: 'Noctowl', productExtId: 1 });
+    expect(run(v, [anchor, rb({ priceMxnCents: 5000 })]).applied).toHaveLength(1);
+  });
+  it('maxBase sale de TODAS las filas que la lectura conserva (varias fuentes sin producto el mismo día), no de una sola colapsada', () => {
+    const v = noct(2500);
+    // PPT 1000 + pokemontcg_io 2000 el mismo día: la lectura podría dejar 2000 ⇒ 2500/2000 = 1.25 ≤ 1.5 ⇒ NO se toca (con maxBase=1000 se habría «corregido» 2500→1000)
+    const base = [rb({ priceMxnCents: 1000, cardProductId: null, productExtId: null, productName: null, source: 'pokemonpricetracker' }), rb({ priceMxnCents: 2000, cardProductId: null, productExtId: null, productName: null, source: 'pokemontcg_io' })];
+    const p = run(v, base);
+    expect([p.applied.length, p.flipIds.length, p.held]).toEqual([0, 0, 1]);
+  });
+  it('solo cuenta el día MÁS FRESCO de la lectura: una base vieja más cara no esconde el precio real', () => {
+    const v = noct(90000);
+    const old = rb({ priceMxnCents: 80000, capturedDate: new Date('2026-11-16T00:00:00Z') });
+    const p = run(v, [rb({ priceMxnCents: 1000 }), old]);
+    expect(p.applied[0]).toMatchObject({ fromCents: 90000, toCents: 1000 });
+  });
+  it('SOLO BAJA (medido): si hoy la lectura devuelve una base MÁS BARATA que la que quedaría tras el flip (el ancla de 305 vs otra de 300 que hoy gana por uuid), no se toca; si es igual ⇒ seguro', () => {
+    const v = noct(90000, 'zzz');
+    const cheaperToday = rb({ priceMxnCents: 300, cardProductId: 'aaa' });
+    const anchor = rb({ priceMxnCents: 305, cardProductId: 'bbb', productName: 'Noctowl', productExtId: 1 });
+    const p = run(v, [cheaperToday, anchor]);
+    expect([p.applied.length, p.flipIds.length, p.held]).toEqual([0, 0, 1]);
+    const same = run(v, [rb({ priceMxnCents: 305, cardProductId: 'aaa', productName: 'Noctowl', productExtId: 1 })]);
+    expect([same.applied.length, same.flipIds.length, same.safe]).toEqual([0, 1, 1]);
+  });
+  it('override MANUAL en el combo ⇒ seguro: el precio no depende del producto, no se informa como corrección (qa IMPORTANTE 1)', () => {
+    const v = noct(15663);
+    const p = run(v, [rb({ priceMxnCents: 305 }), rb({ priceMxnCents: 9900, cardProductId: null, productExtId: null, productName: null, source: 'manual', isManual: true })]);
+    expect([p.applied.length, p.deferred.length, p.safe, p.flipIds.length]).toEqual([0, 0, 1, 1]);
+  });
+  it('un candidato con precio FUERA de raw NM (graded) ⇒ cuarentena (la lectura le aplica la misma regla y este plan no lo mide)', () => {
+    const v = noct(90000);
+    const p = run(v, [rb({ priceMxnCents: 1000 })], new Set([v.cardProductId!]));
+    expect([p.applied.length, p.flipIds.length, p.held]).toEqual([0, 0, 1]);
   });
 });
 

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { Finish, Prisma } from '@prisma/client';
+import { Finish, Prisma, ProductType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
@@ -9,8 +9,8 @@ import { FinishReconciler } from '../catalog/finish-reconciler.service';
 import { isVariantProductName, productPreferenceOf, VARIANT_PRODUCT_PREFILTER_LIKE } from '../../common/variant-product';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
-import { loadEffectiveVariantRows } from './effective-variant';
-import { PATTERN_RUN_MAX, PatternPlan, planPatternRun } from './pattern-plan';
+import { loadEffectiveVariantRows, loadNonRawCandidateIds, loadReaderBaseRows } from './effective-variant';
+import { PATTERN_RUN_MAX, PatternPlan, PlannedCombo, planPatternRun } from './pattern-plan';
 import { classifyCardProductKind } from './providers/tcgcsv-singles.provider';
 import { variantKey } from '../../common/variant-key';
 import { MONEY_REF_WHERE, PricingService } from './pricing.service';
@@ -39,23 +39,32 @@ export interface PatternReclassifyResult {
   reclassified: number;
   /** Combinaciones carta×acabado EXPUESTAS (hay base con precio fresco y la versión vale > 1.5×): aplicadas + diferidas. */
   combosExposed: number;
-  /** Combos expuestos que se corrigen ahora (≤ {@link PATTERN_RUN_MAX}, los de mayor razón). */
+  /** Combos que se corrigieron DE VERDAD (precio de referencia medido antes/después en `applyKind`, no el plan): ≤ {@link PATTERN_RUN_MAX}. */
   applied: number;
+  /** Combos que el plan quería aplicar ahora (≥ `applied`: un override manual o una reversa los deja sin cambio real). */
+  planned: number;
+  /** Cartas cuya reclasificación se REVIRTIÓ porque, medida, habría subido un precio o lo habría dejado sin precio (PP-7). */
+  rolledBack: number;
   /** Combos expuestos que esperan a la siguiente corrida (freno fijo). */
   deferred: number;
   /** Combos en cuarentena (base vencida / sin base fresca / razón ≤ 1.5): el precio se conserva. */
   held: number;
   /** Combinaciones cuyo PRECIO PUBLICADO (`ListingPrice`) cambió y quedaron auditadas `pricing.pattern_correction`. */
   corrections: number;
-  /** Cambios de precio publicado que SUBIERON o dejaron sin precio (debe ser 0; si no, se registra como error). */
+  /** Violaciones de «solo baja, nunca sin precio» que SIGUEN tras la reversa (debe ser 0; si no, se registra como error). */
   violations: number;
   /** Combinaciones (carta×acabado) sin precio automático por ambigüedad real de producto. */
   ambiguous: number;
 }
 
 type Combo = { cardId: string; finish: Finish };
+type RefSnap = { cardId: string; productType: ProductType; gradeKey: string; finish: Finish; cents: number | null };
+type Snapshot = { refs: Map<string, RefSnap>; listing: Map<string, Combo & { price: number | null }> };
+/** Bajada de la referencia raw NM de un combo, MEDIDA antes/después de aplicar. */
+type Measured = { cardId: string; finish: Finish; fromCents: number; toCents: number };
+type ApplyResult = { changed: number; violations: number; rolledBack: { cardId: string; reasons: string[] }[]; refChanges: Measured[] };
 
-const emptyResult = (): PatternReclassifyResult => ({ candidates: 0, reclassified: 0, combosExposed: 0, applied: 0, deferred: 0, held: 0, corrections: 0, violations: 0, ambiguous: 0 });
+const emptyResult = (): PatternReclassifyResult => ({ candidates: 0, reclassified: 0, combosExposed: 0, applied: 0, planned: 0, rolledBack: 0, deferred: 0, held: 0, corrections: 0, violations: 0, ambiguous: 0 });
 
 /**
  * §PRICE-PATTERN v2 (docs/DECISIONES.md punto 6) — job `pattern-reclassify`, IDEMPOTENTE, al desplegar y diario. TODO AUTOMÁTICO (sin dial, sin aprobación).
@@ -64,8 +73,12 @@ const emptyResult = (): PatternReclassifyResult => ({ candidates: 0, reclassifie
  *     base: la lectura lo usa, 6.1) o (b) hay base fresca con precio y el candidato vale > 1.5× ⇒ combo EXPUESTO, se BAJA a la base. Cuarentena: base sin
  *     precio fresco o razón ≤ 1.5 ⇒ no se toca. Freno FIJO {@link PATTERN_RUN_MAX}: aplica los de mayor razón, difiere el resto (se drena solo).
  *  3. Aplica: reclasifica, recomputa `availableFinishes`, reencola el precio de las piezas de plataforma y audita `pricing.pattern_correction` por cada precio
- *     PUBLICADO que cambió. Solo baja; nunca a 0/NULL (se verifica y cuenta en `violations`); precios a mano/override/fijo son el tier manual y no se tocan.
- *  4. Informe (6.3): `pricing.pattern_reclassify_run {applied, deferred, exposed, items≤500, truncated}` + un correo al dueño (solo si hubo ≥ 1 aplicado o diferido).
+ *     PUBLICADO que cambió. REGLA DE ORO HECHA CUMPLIR (PP-7): se MIDE la referencia del catálogo (todos los tipos/grados) y el `ListingPrice` antes y
+ *     después; si algún precio sube, queda en 0/NULL o desaparece, la reclasificación de esa carta se REVIERTE (`pricing.pattern_flip_rolled_back`) y se
+ *     informa. Antes de aplicar, el plan pone en cuarentena el combo cuya base quedaría ambigua (≥ 2 productos pref. 2 con > 25 %) o con candidatos con
+ *     precio fuera de raw NM. Precios a mano/override son el tier manual y no se tocan.
+ *  4. Informe (6.3): `pricing.pattern_reclassify_run {applied (medidos), deferred, exposed, items≤500, truncated, planned, rolledBack}` + un correo al dueño
+ *     (solo si hubo ≥ 1 corregido, diferido o revertido). Los `items` aplicados llevan el before/after MEDIDO; los diferidos, el del plan.
  *  5. Auto-pausa (6.2): {@link PATTERN_PAUSE_STREAK} corridas seguidas con diferidos CRECIENTES ⇒ `pricing.pattern_reclassify_paused` + alerta; reanuda sola tras {@link PATTERN_PAUSE_DAYS} días.
  *  6. Audita `pricing.product_ambiguous` (≥ 2 productos «del montón» con precios que difieren > 25 % junto a un `variant`), una vez por semana y combinación.
  * ⛔ No toca precios, inventario ni dinero directamente: solo la clase de un producto; el precio sale de la lectura de siempre.
@@ -148,20 +161,30 @@ export class PatternReclassifyService {
       const candIds = new Set(cand.map((c) => c.id));
       const cardIds = [...new Set(cand.map((c) => c.cardId))];
       const rows = await loadEffectiveVariantRows(this.prisma, cardIds, { productTypes: ['raw'], gradeKeys: ['raw:NM'], hypotheticalVariantIds: [...candIds] });
-      const plan = planPatternRun(rows, candIds, now, max);
+      // Lo que la lectura REAL conservaría de la base (sin colapsar por producto, con manual) y los candidatos con precio fuera de raw NM.
+      const readerBase = await loadReaderBaseRows(this.prisma, cardIds, [...candIds]);
+      const nonRaw = await loadNonRawCandidateIds(this.prisma, [...candIds]);
+      const plan = planPatternRun(rows, candIds, now, max, readerBase, nonRaw);
       out.combosExposed = plan.applied.length + plan.deferred.length;
-      out.applied = plan.applied.length;
+      out.planned = plan.applied.length;
       out.deferred = plan.deferred.length;
       out.held = plan.held;
+      let measured: Measured[] = [];
+      let rolled: { cardId: string; reasons: string[] }[] = [];
       if (plan.flipIds.length > 0) {
         const flipCards = [...new Set(cand.filter((c) => plan.flipIds.includes(c.id)).map((c) => c.cardId))];
         const r = await this.applyKind(plan.flipIds, flipCards, 'variant');
         out.corrections = r.changed;
         out.violations = r.violations;
-        out.reclassified = plan.flipIds.length;
+        out.rolledBack = r.rolledBack.length;
+        measured = r.refChanges;
+        rolled = r.rolledBack;
+        out.applied = measured.length;
+        const rolledCards = new Set(r.rolledBack.map((x) => x.cardId));
+        out.reclassified = cand.filter((c) => plan.flipIds.includes(c.id) && !rolledCards.has(c.cardId)).length;
       }
-      this.logger.log(`pattern-reclassify: ${cand.length} candidatos; ${out.reclassified} → variant; expuestas ${out.combosExposed} (aplicadas ${out.applied}, diferidas ${out.deferred}); cuarentena ${out.held}; ${out.corrections} con precio publicado distinto.`);
-      if (out.applied + out.deferred > 0) await this.report(plan, now);
+      this.logger.log(`pattern-reclassify: ${cand.length} candidatos; ${out.reclassified} → variant; expuestas ${out.combosExposed} (planeadas ${out.planned}, corregidas medidas ${out.applied}, diferidas ${out.deferred}); cuarentena ${out.held}; revertidas ${out.rolledBack} carta(s); ${out.corrections} con precio publicado distinto.`);
+      if (out.applied + out.deferred + out.rolledBack > 0) await this.report(plan, now, measured, rolled);
     }
 
     // Red de seguridad (6.1): productos que el import ya creó como `variant` (patrón único) y cuyo precio llegó después: su acabado entra a
@@ -174,35 +197,57 @@ export class PatternReclassifyService {
   }
 
   /**
-   * Cambia la clase de esos productos, recomputa `availableFinishes`, reencola el precio del día de las piezas de plataforma de esas cartas y,
-   * ya recalculado, audita `pricing.pattern_correction` por cada combinación cuyo precio PUBLICADO cambió. Devuelve cuántas y cuántas violaron
-   * «solo baja, nunca sin precio» (no deben existir: la construcción del plan lo impide; si pasa se registra como ERROR).
+   * Cambia la clase de esos productos, recomputa `availableFinishes`, reencola el precio del día de las piezas de plataforma de esas cartas y, ya
+   * recalculado, MIDE antes/después (referencia del catálogo de TODOS los tipos/grados + `ListingPrice`). Si la reclasificación a `variant` hizo
+   * SUBIR un precio, lo dejó en 0/NULL o lo hizo desaparecer (PP-7), REVIERTE esa carta al `kind` original, reencola, lo audita
+   * (`pricing.pattern_flip_rolled_back`) y devuelve el motivo. Audita `pricing.pattern_correction` por cada precio PUBLICADO que quedó distinto.
+   * Devuelve los cambios REALES de referencia raw NM (de ahí salen el informe y el correo), no los del plan.
    */
-  private async applyKind(ids: string[], cardIds: string[], kind: 'variant' | 'set_base'): Promise<{ changed: number; violations: number }> {
-    const before = await this.publishedPrices(cardIds);
+  private async applyKind(ids: string[], cardIds: string[], kind: 'variant' | 'set_base'): Promise<ApplyResult> {
+    const prev = await this.prisma.cardProduct.findMany({ where: { id: { in: ids } }, select: { id: true, cardId: true, kind: true } });
+    const before = await this.snapshot(cardIds);
     await this.prisma.cardProduct.updateMany({ where: { id: { in: ids } }, data: { kind } });
     await this.finishReconciler.reconcile(cardIds);
-    if (this.listingPrices) {
-      for (const c of await this.combosOf(cardIds)) {
-        void this.listingPrices.enqueueVariant('manual_price', { cardId: c.cardId, productType: 'raw', gradeKey: 'raw:NM', finish: c.finish });
+    await this.reprice(cardIds);
+    let after = await this.snapshot(cardIds);
+    let violations = 0;
+    const rolledBack: { cardId: string; reasons: string[] }[] = [];
+    if (kind === 'variant') {
+      const bad = this.assess(before, after);
+      if (bad.size > 0) {
+        const back = prev.filter((p) => bad.has(p.cardId));
+        for (const k of new Set(back.map((p) => p.kind))) await this.prisma.cardProduct.updateMany({ where: { id: { in: back.filter((p) => p.kind === k).map((p) => p.id) } }, data: { kind: k } });
+        const rbCards = [...bad.keys()];
+        await this.finishReconciler.reconcile(rbCards);
+        await this.reprice(rbCards);
+        after = await this.snapshot(cardIds);
+        for (const [cardId, reasons] of bad) {
+          rolledBack.push({ cardId, reasons });
+          this.logger.error(`pattern-reclassify: REVERSA en ${cardId} (solo baja / nunca sin precio): ${reasons.join('; ')}`);
+          await this.audit
+            ?.log({ action: 'pricing.pattern_flip_rolled_back', entityType: 'Card', entityId: cardId, after: { cardId, reasons: reasons.slice(0, 20), productIds: back.filter((p) => p.cardId === cardId).map((p) => p.id) } })
+            .catch((e: Error) => this.logger.warn(`pattern-reclassify: no se pudo auditar la reversa de ${cardId}: ${e.message}`));
+        }
+        violations = this.assess(before, after).size; // lo que SIGUE mal tras revertir (no debería existir)
+        if (violations > 0) this.logger.error(`pattern-reclassify: ${violations} carta(s) siguen con violación tras la reversa.`);
       }
-      await this.listingPrices.idle();
     }
-    const after = await this.publishedPrices(cardIds);
+    const refChanges: Measured[] = [];
+    for (const [k, b] of before.refs) {
+      const a = after.refs.get(k);
+      if (b.productType !== 'raw' || b.gradeKey !== 'raw:NM' || b.cents == null || a?.cents == null || a.cents >= b.cents) continue;
+      refChanges.push({ cardId: b.cardId, finish: b.finish, fromCents: b.cents, toCents: a.cents });
+    }
+    refChanges.sort((x, y) => y.fromCents / y.toCents - x.fromCents / x.toCents || x.cardId.localeCompare(y.cardId));
     const changed = new Map<string, Combo & { from: number | null; to: number | null }>();
-    for (const [itemId, b] of before) {
-      const a = after.get(itemId);
-      if (a == null || a.price === b.price) continue;
+    for (const [itemId, b] of before.listing) {
+      const a = after.listing.get(itemId);
+      if (a == null || a.price == null || a.price === b.price) continue;
       const k = this.key(b);
       if (!changed.has(k)) changed.set(k, { cardId: b.cardId, finish: b.finish, from: b.price, to: a.price });
     }
     const winners = await this.winnerProducts([...changed.values()]);
-    let violations = 0;
     for (const c of changed.values()) {
-      if (kind === 'variant' && (c.to == null || c.from == null || c.to > c.from)) {
-        violations += 1;
-        this.logger.error(`pattern-reclassify: VIOLACIÓN de «solo baja» en ${c.cardId}/${c.finish}: ${c.from} → ${c.to}.`);
-      }
       await this.audit
         ?.log({
           action: 'pricing.pattern_correction',
@@ -212,7 +257,59 @@ export class PatternReclassifyService {
         })
         .catch((e: Error) => this.logger.warn(`pattern-reclassify: no se pudo auditar ${c.cardId}/${c.finish}: ${e.message}`));
     }
-    return { changed: changed.size, violations };
+    return { changed: changed.size, violations, rolledBack, refChanges };
+  }
+
+  /** Reencola el precio del día de las piezas de plataforma de esas cartas y espera a que termine. */
+  private async reprice(cardIds: string[]): Promise<void> {
+    if (!this.listingPrices) return;
+    for (const c of await this.combosOf(cardIds)) {
+      void this.listingPrices.enqueueVariant('manual_price', { cardId: c.cardId, productType: 'raw', gradeKey: 'raw:NM', finish: c.finish });
+    }
+    await this.listingPrices.idle();
+  }
+
+  /** Foto de lo que el cliente vería de esas cartas: referencia vigente de CADA combinación con mercado (todos los tipos/grados) y precio publicado. */
+  private async snapshot(cardIds: string[]): Promise<Snapshot> {
+    const refs = new Map<string, RefSnap>();
+    for (let i = 0; i < cardIds.length; i += 200) {
+      const combos = await this.prisma.priceReference.groupBy({
+        by: ['cardId', 'productType', 'gradeKey', 'finish'],
+        where: { cardId: { in: cardIds.slice(i, i + 200) }, ...MONEY_REF_WHERE },
+      });
+      const got = await this.pricing.getReferencesBatch(combos.map((c) => ({ cardId: c.cardId, productType: c.productType, gradeKey: c.gradeKey, finish: c.finish })));
+      for (const c of combos) {
+        const k = variantKey(c);
+        const r = got.get(k);
+        refs.set(k, { cardId: c.cardId, productType: c.productType, gradeKey: c.gradeKey, finish: c.finish, cents: r?.status === 'priced' ? (r.referenceMxnCents ?? null) : null });
+      }
+    }
+    return { refs, listing: this.listingPrices ? await this.publishedPrices(cardIds) : new Map() };
+  }
+
+  /**
+   * «Solo baja, nunca sin precio» MEDIDO: por carta, los motivos de violación entre `before` y `after`. Referencia raw NM: desaparece/0/NULL o SUBE.
+   * Cualquier otro tipo/grado (la lectura aplica la «variante efectiva» a todos): CUALQUIER cambio. `ListingPrice`: desaparece/0/NULL o sube, pero solo
+   * si la referencia de su combinación cambió (si no cambió, un precio publicado distinto es un precio viejo que hoy se recalcula, no efecto del flip).
+   */
+  private assess(before: Snapshot, after: Snapshot): Map<string, string[]> {
+    const bad = new Map<string, string[]>();
+    const add = (cardId: string, why: string) => bad.set(cardId, [...(bad.get(cardId) ?? []), why]);
+    for (const [k, b] of before.refs) {
+      if (b.cents == null) continue;
+      const a = after.refs.get(k)?.cents ?? null;
+      const rawNm = b.productType === 'raw' && b.gradeKey === 'raw:NM';
+      if (a == null || a <= 0) add(b.cardId, `${b.productType}/${b.gradeKey}/${b.finish}: ${b.cents} → sin precio`);
+      else if (rawNm ? a > b.cents : a !== b.cents) add(b.cardId, `${b.productType}/${b.gradeKey}/${b.finish}: ${b.cents} → ${a}`);
+    }
+    for (const [itemId, b] of before.listing) {
+      if (b.price == null) continue;
+      const k = this.key(b);
+      if (before.refs.get(k)?.cents === after.refs.get(k)?.cents) continue; // referencia intacta ⇒ no atribuible al flip
+      const a = after.listing.get(itemId)?.price ?? null;
+      if (a == null || a <= 0 || a > b.price) add(b.cardId, `pieza ${itemId} ${b.finish}: publicado ${b.price} → ${a ?? 'sin precio'}`);
+    }
+    return bad;
   }
 
   /** `itemId → {precio publicado P, carta, acabado}` de las piezas de plataforma (raw) de esas cartas con fila de `ListingPrice`. */
@@ -303,11 +400,12 @@ export class PatternReclassifyService {
 
 
   /**
-   * Informe de la corrida (6.3) y vigilancia de la fuente (6.2). Solo se llama con ≥ 1 combo aplicado o diferido. Best-effort: un fallo de
-   * auditoría o de correo NO cambia lo ya aplicado.
+   * Informe de la corrida (6.3) y vigilancia de la fuente (6.2). Solo se llama con >= 1 combo corregido, diferido o revertido. Best-effort: un fallo
+   * de auditoría o de correo NO cambia lo ya aplicado. NO MIENTE: `applied` y los `items` aplicados son lo MEDIDO en `applyKind` (referencia antes/
+   * después); lo planeado que no cambió (override manual) o se revirtió no aparece como corregido. Los diferidos llevan los valores del plan.
    */
-  private async report(plan: PatternPlan, now: Date): Promise<void> {
-    const ordered = [...plan.applied, ...plan.deferred]; // aplicadas = las de mayor razón ⇒ ya van primero
+  private async report(plan: PatternPlan, now: Date, measured: Measured[], rolled: { cardId: string; reasons: string[] }[]): Promise<void> {
+    const ordered: { cardId: string; finish: string; fromCents: number; toCents: number }[] = [...measured, ...plan.deferred.map((d: PlannedCombo) => ({ cardId: d.cardId, finish: d.finish, fromCents: d.fromCents, toCents: d.toCents }))];
     const shown = ordered.slice(0, PATTERN_ITEMS_MAX);
     const cards = await this.prisma.card.findMany({
       where: { id: { in: [...new Set(shown.map((c) => c.cardId))] } },
@@ -326,10 +424,13 @@ export class PatternReclassifyService {
       ?.log({
         action: 'pricing.pattern_reclassify_run',
         entityType: 'CardProduct',
-        after: { applied: plan.applied.length, deferred: plan.deferred.length, exposed: ordered.length, items, truncated: ordered.length > shown.length },
+        after: {
+          applied: measured.length, planned: plan.applied.length, deferred: plan.deferred.length, exposed: plan.applied.length + plan.deferred.length,
+          rolledBack: rolled.length, rolledBackCards: rolled.slice(0, 50).map((r) => r.cardId), items, truncated: ordered.length > shown.length,
+        },
       })
       .catch((e: Error) => this.logger.warn(`pattern-reclassify: no se pudo auditar la corrida: ${e.message}`));
-    await this.mailRun(plan, items.slice(0, PATTERN_MAIL_TOP));
+    await this.mailRun(measured.length, plan.deferred.length, rolled.length, items.slice(0, PATTERN_MAIL_TOP));
     await this.checkStreak(now);
   }
 
@@ -360,12 +461,13 @@ export class PatternReclassifyService {
     }
   }
 
-  private async mailRun(plan: PatternPlan, top: { name: string | null; set: string | null; finish: string; fromCents: number; toCents: number }[]): Promise<void> {
+  private async mailRun(applied: number, deferred: number, rolledBack: number, top: { name: string | null; set: string | null; finish: string; fromCents: number; toCents: number }[]): Promise<void> {
     const mxn = (c: number) => `$${(c / 100).toFixed(2)}`;
     const lines = top.map((t) => `${t.name ?? '?'} (${t.set ?? '?'}, ${t.finish}): ${mxn(t.fromCents)} → ${mxn(t.toCents)}`);
     const head =
-      `Corrección automática de precios de versiones «Pattern/Ball»: ${plan.applied.length} corregidas hoy` +
-      (plan.deferred.length > 0 ? `, ${plan.deferred.length} pendientes para la siguiente corrida diaria (límite de seguridad por día)` : '') +
+      `Corrección automática de precios de versiones «Pattern/Ball»: ${applied} corregidas hoy` +
+      (deferred > 0 ? `, ${deferred} pendientes para la siguiente corrida diaria (límite de seguridad por día)` : '') +
+      (rolledBack > 0 ? `. ${rolledBack} carta(s) se REVIRTIERON por seguridad: la corrección habría subido su precio o la habría dejado sin precio (quedaron como estaban; detalle en Auditoría, pricing.pattern_flip_rolled_back)` : '') +
       `. Solo bajan precios inflados; no necesitas aprobar nada. Las ${lines.length} de mayor diferencia (lista completa en Auditoría, pricing.pattern_reclassify_run):`;
     await this.sendOwners('TCG HUNT: corrección automática de precios', [head, ...lines]);
   }

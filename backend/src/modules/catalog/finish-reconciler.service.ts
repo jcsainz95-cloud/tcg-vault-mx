@@ -49,9 +49,11 @@ export class FinishReconciler {
     const withVariant = cards.filter((c) => (c.cardProducts as { kind: CardProductKind }[]).some((p) => p.kind === 'variant')).map((c) => c.id);
     const effRows = withVariant.length > 0 ? await loadEffectiveVariantRows(db, withVariant, { productTypes: ['raw'], gradeKeys: ['raw:NM'] }) : [];
     const effByCard = new Map<string, Finish[]>();
+    const cardOfProduct = new Map<string, string>(); // O(n): antes un `find` por clave (O(n²))
+    for (const r of effRows) if (r.cardProductId != null) cardOfProduct.set(r.cardProductId, r.cardId);
     for (const k of effectiveVariantKeys(effRows)) {
       const [cpId, , , finish] = k.split('|');
-      const cardId = effRows.find((r) => r.cardProductId === cpId)?.cardId;
+      const cardId = cardOfProduct.get(cpId);
       if (cardId) effByCard.set(cardId, [...(effByCard.get(cardId) ?? []), finish as Finish]);
     }
 

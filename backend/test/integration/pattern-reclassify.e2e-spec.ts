@@ -49,6 +49,8 @@ describe('E2E — §PRICE-PATTERN', () => {
     }
     return cp;
   }
+  const HI_UUID = () => `ffffffff-${randomUUID().slice(9)}`; // ordena DESPUÉS de cualquier uuid v4 aleatorio
+  const LO_UUID = () => `00000000-${randomUUID().slice(9)}`; // ordena ANTES
   const refOf = async (cardId: string, finish: string) => (await pricing.getReferencesBatch([key(cardId, finish)])).get(`${cardId}|raw|raw:NM|${finish}`);
 
   beforeAll(async () => {
@@ -232,8 +234,9 @@ describe('E2E — §PRICE-PATTERN', () => {
       const mk: { card: Awaited<ReturnType<typeof card>>; v: { id: string }; ratio: number }[] = [];
       for (const [n, vc] of [['D1', 3000], ['D2', 90000], ['D3', 12000]] as const) {
         const c = await card(n, ['holofoil']);
-        await product(c, c.baseId, c.name, { holofoil: 1000 });
-        mk.push({ card: c, v: await product(c, c.baseId + 1, `${c.name} (Master Ball Pattern)`, { holofoil: vc }), ratio: vc / 1000 });
+        // uuids fijos: antes del flip gana el patrón (uuid menor ⇒ sube el precio publicado), tras él la base ⇒ la bajada es MEDIBLE y no depende del azar
+        await product(c, c.baseId, `Otro nombre ${n}`, { holofoil: 1000 }, HI_UUID());
+        mk.push({ card: c, v: await product(c, c.baseId + 1, `${c.name} (Master Ball Pattern)`, { holofoil: vc }, LO_UUID()), ratio: vc / 1000 });
       }
       await h.prisma.auditLog.deleteMany({ where: { action: { in: ['pricing.pattern_reclassify_run', 'pricing.pattern_reclassify_paused'] } } });
       const kind = async (i: number) => (await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: mk[i].v.id } })).kind;
@@ -270,14 +273,128 @@ describe('E2E — §PRICE-PATTERN', () => {
     }
   });
 
+  /** Dueño único + buzón capturado (el correo del informe); devuelve el buzón y la función que lo deja como estaba. */
+  async function captureMail() {
+    const owner = await h.prisma.user.findUniqueOrThrow({ where: { email: E2E_USERS.admin.email }, select: { id: true } });
+    const prevOwners = await h.prisma.user.findMany({ where: { isOwner: true }, select: { id: true } });
+    await h.prisma.$executeRawUnsafe(`UPDATE "User" SET "isOwner" = false WHERE "isOwner"`);
+    await h.prisma.$executeRawUnsafe(`UPDATE "User" SET "isOwner" = true WHERE id = $1`, owner.id);
+    const bandeja: MailMessage[] = [];
+    const spy = jest.spyOn(h.app.get<MailPort>(MAIL_PORT), 'send').mockImplementation(async (m: MailMessage) => { bandeja.push(m); return {}; });
+    return {
+      bandeja,
+      restore: async () => {
+        spy.mockRestore();
+        await h.prisma.$executeRawUnsafe(`UPDATE "User" SET "isOwner" = false WHERE "isOwner"`);
+        for (const o of prevOwners) await h.prisma.$executeRawUnsafe(`UPDATE "User" SET "isOwner" = true WHERE id = $1`, o.id);
+      },
+    };
+  }
+  const runItems = async () => (await h.prisma.auditLog.findMany({ where: { action: 'pricing.pattern_reclassify_run' }, orderBy: { createdAt: 'desc' } })).flatMap((r) => ((r.after as { items?: { cardId: string; fromCents: number; toCents: number }[] }).items ?? []));
+
+  it('PP-7 (a) AMBIGUA tras el flip: base con 2 productos del montón (1000 y 5000) + patrón de 90000 ⇒ cuarentena EN EL PLAN (no se reclasifica, 0 reversas), el precio se conserva y no se informa como corregido', async () => {
+    const H = await card('H', ['holofoil']);
+    await product(H, H.baseId + 20, 'Otro nombre uno', { holofoil: 1000 });
+    await product(H, H.baseId + 21, 'Otro nombre dos', { holofoil: 5000 });
+    const v = await product(H, H.baseId + 22, `${H.name} (Master Ball Pattern)`, { holofoil: 90000 }, LO_UUID());
+    const before = (await refOf(H.id, 'holofoil'))?.referenceMxnCents;
+    expect(before).toBe(90000); // hoy gana el patrón (sin variant no hay preferencia ni ambigüedad)
+    await h.prisma.auditLog.deleteMany({ where: { action: 'pricing.pattern_reclassify_run' } });
+    const r = await job.run();
+    expect(r.rolledBack).toBe(0); // sin plan-guard esto sería una REVERSA tardía: el plan lo detiene ANTES
+    expect(r.held).toBeGreaterThanOrEqual(1);
+    expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: v.id } })).kind).toBe('set_base');
+    expect((await refOf(H.id, 'holofoil'))?.referenceMxnCents).toBe(before); // jamás PRICE_PENDING
+    expect((await runItems()).some((i) => i.cardId === H.id)).toBe(false);
+    expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_flip_rolled_back', entityId: H.id } })).toBe(0);
+  });
+
+  it('PP-7 (b) REVERSA: si tras reclasificar la referencia SE PIERDE (lectura simulada), la carta vuelve a su kind, se audita `pattern_flip_rolled_back`, el informe NO la cuenta como corregida y el correo la avisa', async () => {
+    const mail = await captureMail();
+    const I = await card('I', ['holofoil']);
+    await product(I, I.baseId + 30, 'Otro nombre', { holofoil: 1000 }, HI_UUID());
+    const v = await product(I, I.baseId + 31, `${I.name} (Master Ball Pattern)`, { holofoil: 90000 }, LO_UUID());
+    const orig = pricing.getReferencesBatch.bind(pricing);
+    // defecto simulado: mientras el patrón sea `variant`, la lectura de esta carta no devuelve precio (lo que haría una ambigüedad que el plan no previó)
+    const spy = jest.spyOn(pricing, 'getReferencesBatch').mockImplementation(async (items) => {
+      const m = await orig(items);
+      if ((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: v.id } })).kind === 'variant') for (const k of [...m.keys()]) if (k.startsWith(`${I.id}|`)) m.delete(k);
+      return m;
+    });
+    try {
+      await h.prisma.auditLog.deleteMany({ where: { action: 'pricing.pattern_reclassify_run' } });
+      const r = await job.run();
+      expect(r.rolledBack).toBeGreaterThanOrEqual(1);
+      expect(r.violations).toBe(0); // tras revertir no queda nada mal
+      expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: v.id } })).kind).toBe('set_base');
+      const a = await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'pricing.pattern_flip_rolled_back', entityId: I.id } });
+      expect(JSON.stringify(a.after)).toContain('sin precio');
+      expect((await runItems()).some((i) => i.cardId === I.id)).toBe(false); // no se informa como corregida
+      const run = (await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'pricing.pattern_reclassify_run' } })).after as { applied: number; rolledBack: number };
+      expect(run.rolledBack).toBeGreaterThanOrEqual(1);
+      expect(run.applied).toBe(0);
+      expect(mail.bandeja.some((m) => m.text.includes('REVIRTIERON') && m.text.includes('0 corregidas'))).toBe(true);
+    } finally {
+      spy.mockRestore();
+      await mail.restore();
+    }
+    // y sin el defecto, la misma carta SÍ se corrige (la reversa no era un falso positivo del fixture)
+    const r2 = await job.run();
+    expect(r2.rolledBack).toBe(0);
+    expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: v.id } })).kind).toBe('variant');
+    expect((await refOf(I.id, 'holofoil'))?.referenceMxnCents).toBe(1000);
+  });
+
+  it('qa IMPORTANTE 1: el informe y el correo salen de lo MEDIDO — con el fixture :211 (base 305, patrón 15663, manual 9900) el precio real sigue en 9900 y NO se informa «15663→305»; la que sí bajó se cuenta 1', async () => {
+    const mail = await captureMail();
+    try {
+      const M = await card('M', ['holofoil']);
+      await product(M, M.baseId + 40, 'Otro nombre', { holofoil: 305 }, HI_UUID());
+      await product(M, M.baseId + 41, `${M.name} (Master Ball Pattern)`, { holofoil: 15663 }, LO_UUID());
+      await h.prisma.priceReference.create({
+        data: { cardId: M.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', source: 'manual', isManualOverride: true, priceMxnCents: 9_900, capturedDate: today(), refKind: 'market' },
+      });
+      const N = await card('N', ['holofoil']);
+      await product(N, N.baseId + 40, 'Otro nombre', { holofoil: 1000 }, HI_UUID());
+      await product(N, N.baseId + 41, `${N.name} (Master Ball Pattern)`, { holofoil: 30000 }, LO_UUID());
+      await h.prisma.auditLog.deleteMany({ where: { action: 'pricing.pattern_reclassify_run' } });
+      const r = await job.run();
+      expect((await refOf(M.id, 'holofoil'))?.referenceMxnCents).toBe(9_900);
+      expect((await refOf(N.id, 'holofoil'))?.referenceMxnCents).toBe(1000);
+      const items = await runItems();
+      expect(items.some((i) => i.cardId === M.id)).toBe(false);
+      expect(items.find((i) => i.cardId === N.id)).toMatchObject({ fromCents: 30000, toCents: 1000 });
+      expect(r.applied).toBeGreaterThanOrEqual(1);
+      const mine = mail.bandeja.find((m) => m.text.includes('corregidas hoy'))!;
+      expect(mine.text).toContain(`${r.applied} corregidas`);
+      expect(mine.text).not.toContain('$156.63');
+    } finally {
+      await mail.restore();
+    }
+  });
+
+  it('qa MENOR: un patrón con precio GRADED (fuera de raw NM) queda en cuarentena: el job solo planea raw NM, así que no lo reclasifica (la lectura aplicaría la misma regla a graded sin las comprobaciones del job)', async () => {
+    const J = await card('J', ['holofoil']);
+    await product(J, J.baseId + 50, 'Otro nombre', { holofoil: 1000 }, HI_UUID());
+    const v = await product(J, J.baseId + 51, `${J.name} (Master Ball Pattern)`, { holofoil: 90000 }, LO_UUID());
+    await h.prisma.priceReference.create({
+      data: { cardId: J.id, productType: 'graded', gradeKey: 'psa:10', finish: 'holofoil', cardProductId: v.id, source: 'tcgcsv_singles', priceMxnCents: 500_000, priceUsdCents: null, capturedDate: today(), evidenceDate: today(), refKind: 'market' },
+    });
+    const r = await job.run();
+    expect(r.held).toBeGreaterThanOrEqual(1);
+    expect(r.rolledBack).toBe(0);
+    expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: v.id } })).kind).toBe('set_base');
+    expect((await refOf(J.id, 'holofoil'))?.referenceMxnCents).toBe(90000);
+  });
+
   it('AUTO-PAUSA (6.2): 3 corridas SEGUIDAS con diferidos CRECIENTES ⇒ `pattern_reclassify_paused` + alerta; la siguiente no hace nada; sin dial ni humano', async () => {
     await h.prisma.auditLog.deleteMany({ where: { action: { in: ['pricing.pattern_reclassify_run', 'pricing.pattern_reclassify_paused'] } } });
     let n = 0;
     const expose = async (k: number) => {
       for (let i = 0; i < k; i++) {
         const c = await card(`S${n++}`, ['holofoil']);
-        await product(c, c.baseId, c.name, { holofoil: 1000 });
-        await product(c, c.baseId + 1, `${c.name} (Master Ball Pattern)`, { holofoil: 20000 + n });
+        await product(c, c.baseId, `Otro nombre ${n}`, { holofoil: 1000 }, HI_UUID()); // uuids fijos: hoy lee el patrón (gana el uuid menor), tras el flip la base
+        await product(c, c.baseId + 1, `${c.name} (Master Ball Pattern)`, { holofoil: 20000 + n }, LO_UUID());
       }
     };
     await expose(3);
@@ -360,7 +477,7 @@ describe('E2E — §PRICE-PATTERN', () => {
   it('el job usa el MISMO clasificador (acentos): «(Poké Ball Pattern)» ⇒ variant; «(Pokéball)» pegado no', async () => {
     const X = await card('X', ['holofoil']);
     await product(X, X.baseId, X.name, { holofoil: 305 });
-    const a = await product(X, X.baseId + 1, `${X.name} (Poké Ball Pattern)`, { holofoil: 900 });
+    const a = await product(X, X.baseId + 1, `${X.name} (Poké Ball Pattern)`, { holofoil: 900 }, LO_UUID()); // hoy gana el patrón (uuid menor) ⇒ la bajada a 305 no es una subida
     const b = await product(X, X.baseId + 2, `${X.name} (Pokéball)`, { holofoil: 300 });
     await job.run();
     expect([(await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: a.id } })).kind, (await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: b.id } })).kind]).toEqual(['variant', 'set_base']);
