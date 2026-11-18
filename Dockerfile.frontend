@@ -36,6 +36,12 @@ WORKDIR /app
 # ---- Dependencias ----
 FROM base AS deps
 COPY frontend/package.json frontend/package-lock.json* ./
+# FR-1 (DEP-PICO, 2026-11-18): `@parcel/watcher` es una dependencia `file:` al stub
+# inerte de `vendor/parcel-watcher-stub` (+ override). Sin `vendor/` aquí, `npm ci`
+# deja `node_modules/@parcel/watcher` como symlink COLGANTE en esta capa. Solo
+# `vendor/`, no `frontend/` entero: así la caché de `npm ci` sigue dependiendo
+# únicamente del manifiesto, el lock y el stub.
+COPY frontend/vendor/ ./vendor/
 RUN npm ci
 
 # ---- Build ----

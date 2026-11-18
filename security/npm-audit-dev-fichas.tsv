@@ -43,4 +43,10 @@
 # UN hecho, DOS identificadores: npm audit lo llama GHSA-vfj7-8cjw-p6xm y trivy CVE-2026-93687 (su DB no trae el GHSA
 # en References — medido con trivy sobre backend/package-lock.json). Por eso la 1ª columna lleva los DOS, separados por
 # coma (alias, §76): una ficha, una fecha; cada trinquete casa el ID que ve y ninguno pide podar en falso.
-GHSA-vfj7-8cjw-p6xm,CVE-2026-93687	backend,frontend	braces	backend,frontend	2026-11-03	SIN versión arreglada (rango <=3.0.3; 3.0.3 es la última publicada, npm view 2026-10-04) y micromatch@4.0.8 (la última) exige braces ^3.0.3. Medido 2026-10-04: `npm ls braces --omit=dev` VACÍO en backend y frontend. Solo lo traen herramientas de build/test: backend @nestjs/cli→chokidar (watch de `nest start --watch`) y jest→@jest/core→micromatch (globs de jest.config: collectCoverageFrom `src/**/*.(t|j)s`); frontend tailwindcss→chokidar/micromatch (`content: ['./src/**/*.{ts,tsx}']` de tailwind.config.ts). Todos los patrones son nuestros, fijos en el repo; ninguno viene de un usuario. Revisar: ¿salió braces arreglado, o micromatch/chokidar sin braces?
+# PODA 2026-11-18 (devops, DEP-PICO): GHSA-vfj7-8cjw-p6xm,CVE-2026-93687 (braces) retirada: venció el 2026-11-03.
+# ALTA 2026-11-18 (devops, DEP-PICO aprobada por seguridad-lead): picomatch, sin versión arreglada; ambos IDs.
+# ACOTADA 2026-11-18 (devops, FR/M4 de DEP-PICO): la parte de RUNTIME del frontend ya no existe (7980a686). La
+# columna app sigue con frontend porque el audit de devDependencies del frontend LO SIGUE VIENDO (medido:
+# `audit-npm-dev.sh` lista frontend/picomatch; `npm ls picomatch` en frontend = tailwindcss, vite, vitest). Quitarlo
+# no cambiaría el veredicto (las fichas casan por ID), pero la ficha diría algo falso sobre quién lo trae.
+GHSA-fc5q-39xc-vjpf,CVE-2026-112366	backend,frontend	picomatch	frontend,backend	2026-12-15	sin versión arreglada (npm audit: picomatch *); backend solo dev (npm ls --omit=dev vacío); frontend solo dev desde 7980a686 (stub de @parcel/watcher: npm ls picomatch --omit=dev vacío, npm audit --omit=dev = 0; quedan tailwindcss, vite, vitest); medido 2026-11-18

@@ -1,8 +1,12 @@
 # =============================================================================
 # .trivyignore — Excepciones JUSTIFICADAS del gate Trivy  ·  Propiedad: devops
 # =============================================================================
-# ESTADO (2026-10-04): SIN EXCEPCIONES ACTIVAS AQUÍ. Las excepciones SOLO de imagen viven
-# en security/.trivyignore-image (hoy: braces CVE-2026-93687, exp 2026-11-03 — §76).
+# ESTADO (2026-11-18): UNA EXCEPCIÓN ACTIVA AQUÍ — picomatch CVE-2026-112366, exp 2026-12-15
+# (ficha DEP-PICO de seguridad-lead, aprobada; detalle al final de este archivo).
+# security/.trivyignore-image: SIN excepciones activas (braces CVE-2026-93687 venció el
+# 2026-11-03 y se podó el 2026-11-18).
+# ESTADO (2026-10-04): sin excepciones aquí; braces CVE-2026-93687 solo en
+# security/.trivyignore-image (exp 2026-11-03 — §76).
 # ESTADO (2026-08-17): SIN EXCEPCIONES ACTIVAS. El archivo se conserva y se sigue
 # pasando a los jobs `trivy-fs` / `trivy-image` (security-sast.yml) para que, si
 # algún día hace falta una excepción, viva en un único sitio auditable.
@@ -57,3 +61,28 @@
 # en cada PR, planta `dicer@0.3.0` dentro de `scripts/s3-local/` y EXIGE que el
 # gate se ponga rojo nombrando CVE-2022-24434. Si alguien añadiera aquí ese CVE,
 # o excluyera esa ruta, el self-test falla y lo delata.
+#
+# -----------------------------------------------------------------------------
+# ACTIVA — picomatch · CVE-2026-112366 (= GHSA-fc5q-39xc-vjpf) · HIGH · alta 2026-11-18
+# -----------------------------------------------------------------------------
+# DoS por extglobs repetidos. SIN versión arreglada (medido: `npm audit` marca
+# `picomatch *`, también 4.0.7; un override a ^4.0.7 no limpia el aviso).
+# Aprobada por seguridad-lead como excepción TEMPORAL (docs/STATUS.md, ficha DEP-PICO).
+# Por qué no es alcanzable (medido 2026-11-18):
+#   · backend: `npm ls picomatch --omit=dev` VACÍO (solo @nestjs/cli, jest, ts-jest);
+#     0 usos en src/ ni prisma/. En la imagen backend viaja como fichero inerte con las
+#     devDependencies (4 rutas bajo /app/node_modules/*/node_modules/picomatch; ninguna
+#     en el arranque `migrate deploy` + `node dist/main.js`).
+#   · frontend: YA NO LO NECESITA (7980a686, 2026-11-18). @parcel/watcher es ahora un stub
+#     inerte (frontend/vendor/parcel-watcher-stub): `npm ls picomatch --omit=dev` VACÍO y
+#     `npm audit --omit=dev` = 0. Solo queda en devDependencies (tailwindcss, vite, vitest),
+#     que ni trivy-fs ni el standalone de la imagen frontend llevan.
+# ALCANCE: esta línea es GLOBAL. El formato plano de .trivyignore no admite acotar por
+# app ni por ruta; la única razón viva es trivy-image BACKEND (imagen con devDependencies,
+# Dockerfile.backend `npm ci --include=dev` sin prune). No se mueve a .trivyignore-image
+# ni a formato YAML sin veredicto de seguridad-lead.
+# En devDependencies lo juzga además su ficha en security/npm-audit-dev-fichas.tsv
+# (misma fecha, ambos IDs). Trivy deja de honrar la línea el 2026-12-15 y el gate
+# vuelve a ROJO solo. Cierre: revisar antes de esa fecha si picomatch >4.0.7 lo corrige;
+# si no, renovar SOLO con medición nueva y veredicto de seguridad-lead.
+CVE-2026-112366 exp:2026-12-15

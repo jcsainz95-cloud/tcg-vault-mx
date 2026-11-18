@@ -8,6 +8,7 @@ import { resolveLegalEntity } from './footer';
 import { ConsentBannerSlot } from '@/components/consent/ConsentBanner';
 import { CookiePreferencesLink } from '@/components/consent/CookiePreferencesLink';
 import { ABOUT_PATH, PUBLIC_CONTACT_EMAIL } from '@/lib/about';
+import { SiteNotice } from '@/components/layout/SiteNotice';
 
 /*
  * Dirección 5a: el ancho de lectura es 1280px (max-w-7xl) y el margen crece a 32px
@@ -24,6 +25,7 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
       {/* MKT2-UX.3: el banner va en el DOM justo tras el skip-link (visualmente, abajo). Con el
           modo `off` o fuera de la lista blanca de medición no se monta. */}
       <ConsentBannerSlot />
+      <SiteNoticeSlot />
       <StorefrontHeader />
       {/* Banner persistente "verifica tu correo" (emailVerified=false). No bloquea la
           navegación; el bloqueo real de acciones sensibles lo hace el backend. */}
@@ -41,6 +43,12 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
       </footer>
     </div>
   );
+}
+
+/** Aviso emergente (HECHOS 2026-11-17; retirar: `lib/site-notice.ts`). Los textos van por props: la portada solo trae su ámbito. */
+function SiteNoticeSlot() {
+  const t = useTranslations('siteNotice');
+  return <SiteNotice title={t('title')} body={t('body')} dismiss={t('dismiss')} close={t('close')} />;
 }
 
 function SkipLink() {

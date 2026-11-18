@@ -1,3 +1,4 @@
+import { SITE_NOTICE_STORAGE_KEY } from './src/lib/site-notice';
 import { defineConfig } from '@playwright/test';
 
 /**
@@ -126,6 +127,8 @@ export default defineConfig({
     : [['list'], ['html', { open: 'never' }], ['./e2e/reporters/not-measured.ts']],
   use: {
     baseURL: BASE_URL,
+    // Aviso emergente de la tienda (SiteNotice): ya "cerrado" para que no tape los clics de las pruebas.
+    storageState: { cookies: [], origins: [{ origin: BASE_URL, localStorage: [{ name: SITE_NOTICE_STORAGE_KEY, value: '1' }] }] },
     locale: 'es-MX',
     timezoneId: 'America/Mexico_City',
     trace: 'on-first-retry',

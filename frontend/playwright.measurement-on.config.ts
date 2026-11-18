@@ -1,3 +1,4 @@
+import { SITE_NOTICE_STORAGE_KEY } from './src/lib/site-notice';
 import { defineConfig } from '@playwright/test';
 
 /**
@@ -33,6 +34,8 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   use: {
     baseURL: `http://localhost:${PORT}`,
+    // Aviso emergente de la tienda (SiteNotice): ya "cerrado" para que no tape los clics de las pruebas.
+    storageState: { cookies: [], origins: [{ origin: `http://localhost:${PORT}`, localStorage: [{ name: SITE_NOTICE_STORAGE_KEY, value: '1' }] }] },
     locale: 'es-MX',
     timezoneId: 'America/Mexico_City',
     trace: 'retain-on-failure',
