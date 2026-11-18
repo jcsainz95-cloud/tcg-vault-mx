@@ -329,7 +329,7 @@
 - GET `/admin/settings/iva-transfer` · staff
 - GET `/admin/settings/iva-transfer/preview` · staff
 - PUT `/admin/settings/iva-transfer` · staff
-- GET `/admin/audit-log` · staff
+- GET `/admin/audit-log` · staff (query opcional `action`, p. ej. `pricing.pattern_reclassify_run`; DECISIONES §PRICE-PATTERN 6.3). `PUT /admin/settings` con `pattern_correction_cap` ⇒ 422 (dial retirado).
 
 ### shipments
 - GET `/admin/shipments` · staff
