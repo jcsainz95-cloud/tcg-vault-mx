@@ -1,0 +1,8 @@
+{
+  "name": "@parcel/watcher",
+  "version": "2.6.0-stub.0",
+  "description": "Stub inerte: next-intl solo lo usa en su extractor de mensajes (no usado aqui). Evita picomatch vulnerable (GHSA-fc5q-39xc-vjpf).",
+  "main": "index.js",
+  "license": "MIT",
+  "private": true
+}
