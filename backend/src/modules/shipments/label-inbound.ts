@@ -308,7 +308,7 @@ export function rejectDestinationKeys(raw: unknown): void {
 /** La fila de entrada tal como la ven las guardas del motor (bajo los dos candados). */
 export interface InboundGuardRow {
   readonly status: string;
-  readonly labelSource: 'manual' | 'skydropx' | null;
+  readonly labelSource: 'manual' | 'skydropx' | 'in_person' | null;
   readonly trackingNumber: string | null;
 }
 

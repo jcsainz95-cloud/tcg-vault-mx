@@ -248,6 +248,11 @@ describe('render: cada aviso al cliente enlaza a una ruta que existe', () => {
         ),
       ruta: '/pedido?token=TKN',
     },
+    'AV-20 entregado en persona (pedido)': {
+      tpl: 'shipmentDeliveredInPersonTemplate',
+      render: (l) => shipmentTpl.shipmentDeliveredInPersonTemplate({ shipmentId: 'shp-1', orderNumber: 'TCG-1', orderId: 'ord-1' }, l),
+      ruta: '/orders/ord-1',
+    },
     'AV-18 en sucursal (bóveda)': {
       tpl: 'shipmentAtBranchTemplate',
       render: (l) => shipmentTpl.shipmentAtBranchTemplate({ shipmentId: 'shp-1', orderNumber: null, carrier: 'E', trackingNumber: 'T', branchName: 'Centro' }, l),

@@ -512,6 +512,7 @@ enum ShippedRefundReason {
 enum ShipmentLabelSource {
   manual
   skydropx
+  in_person // §PERSONA: entregado en persona (sin guía ni paquetería)
 }
 
 // Estado CRUDO que reporta Skydropx (levantamiento R7). El mapeo a nuestra máquina vive en UN cuerpo
@@ -2111,6 +2112,7 @@ enum SpendAlertKind {
   staff_control_by_non_owner // AG-22 (v1.80.12.10)
   buylist_guide_due // AG-23 (rev BSD-1, M-72): «esta solicitud aceptada se cierra sola en N días si no tiene guía»
   psa_cycle_short // AG-24 (v1.113⟨portada⟩, M-93, API_CONTRACT §DYN.4.5): «con el tope de créditos PSA la vuelta tarda > 7 días»
+  in_person_with_fee // AG-25 (§PERSONA, DECISIONES): «entregado en persona» por personal que no es el dueño, con flete cobrado > 0
 }
 
 // Clase E. 🔴 inmediato / 🟡 resumen (Z.2).

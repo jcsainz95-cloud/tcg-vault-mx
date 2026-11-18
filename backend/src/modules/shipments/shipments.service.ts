@@ -67,6 +67,7 @@ import {
   shipmentAtBranchTemplate,
   shipmentCancelledTemplate,
   shipmentDeliveredTemplate,
+  shipmentDeliveredInPersonTemplate,
   shipmentDeliveryAttemptTemplate,
   shipmentGuideTemplate,
   shipmentShippedTemplate,
@@ -967,6 +968,7 @@ export class ShipmentsService {
     // anterior a v1.81 tiene número y `labelSource` nulo).
     const labelSourceFilter = parseEnumFilter('labelSource', filters.labelSource, SHIPMENT_LABEL_SOURCE_FILTER_VALUES);
     if (labelSourceFilter === 'skydropx') and.push({ labelSource: 'skydropx' });
+    else if (labelSourceFilter === 'in_person') and.push({ labelSource: 'in_person' });
     else if (labelSourceFilter === 'manual') and.push({ OR: [{ labelSource: 'manual' }, { labelSource: null, trackingNumber: { not: null } }] });
     // `?alert=true` — clase L, dominio `true`: `carrierAlert ≠ null ∨ labelAlert ≠ null`, con las MISMAS funciones del DTO.
     if (parseEnumFilter('alert', filters.alert, SHIPMENT_ALERT_FILTER_VALUES) === 'true') and.push({ id: { in: await this.alertShipmentIds() } });
@@ -982,7 +984,7 @@ export class ShipmentsService {
         take: pageSize,
         include: {
           items: true,
-          order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true, userId: true } },
+          order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true, userId: true, shippingFeeCents: true } },
         },
       }),
       this.prisma.shipmentRequest.count({ where }),
@@ -1229,7 +1231,7 @@ export class ShipmentsService {
       where: { id },
       include: {
         items: { include: { inventoryItem: { include: { card: true, location: true } } } },
-        order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true, userId: true } },
+        order: { select: { orderNumber: true, guestEmail: true, fulfillmentMode: true, userId: true, shippingFeeCents: true } },
       },
     });
     if (!shipment) throw BusinessException.notFound();
@@ -1299,6 +1301,7 @@ export class ShipmentsService {
         orderNumber: string | null;
         guestEmail: string | null;
         fulfillmentMode: FulfillmentMode;
+        shippingFeeCents?: number;
       } | null;
     },
   >(s: T) {
@@ -1313,6 +1316,9 @@ export class ShipmentsService {
         s.orderId == null ? ('vault_withdrawal' as const) : this.kindForFulfillment(order?.fulfillmentMode, s.id),
       ),
       orderNumber: order?.orderNumber ?? undefined,
+      // §PERSONA: lo que el cliente PAGÓ de flete (lectura; ⛔ no se reembolsa solo): el pedido directo lo cobra en su `Order`
+      // (la fila del envío lleva 0 a propósito); el retiro de bóveda, en la fila del envío.
+      shippingFeeChargedCents: s.orderId == null ? s.shippingFeeCents : (order?.shippingFeeCents ?? 0),
       guestEmail: order?.guestEmail ?? undefined,
       recipientName: snapshot.recipientName ?? undefined,
       // ⭐ rev BSD-1 (§BSD.5): `null` en las filas de salida (la lista); el detalle lo llena para la guía de entrada.
@@ -1843,6 +1849,76 @@ export class ShipmentsService {
   }
 
   /**
+   * ⭐💰 §PERSONA (DECISIONES §PERSONA) — «Entregado en persona»: `picking` (preparado, SIN guía) ⇒ `entregado` con
+   * `labelSource='in_person'`. ⛔ `TRANSITIONS` y `PATCH …/status` no cambian: un cuerpo aparte. Candado de la fila primero;
+   * guardas de `assertCanAdvance(…,'enviado')` bajo el candado; CAS con TODA la precondición en el `WHERE`; piezas en la MISMA tx
+   * (directo: `picking→shipped` y `shipped→delivered`, `shippedAt` queda NULL; retiro: `in_custody→withdrawn`).
+   * Repetición sobre un envío ya `entregado`+`in_person` ⇒ 200 idempotente (`won:false`, sin correo). El aviso `AV-20` sale
+   * POST-COMMIT, best-effort, solo al ganador. No reembolsa nada.
+   */
+  async deliverInPerson(id: string, actor: { id: string; role: Role }): Promise<{ row: ReturnType<typeof toAdminShipmentRow>; won: boolean; feeChargedCents: number; folio: string | null; deliveredAt: Date | null; orderId: string | null; isDirectShip: boolean }> {
+    const shipment = await this.prisma.shipmentRequest.findUnique({ where: { id } });
+    if (!shipment) throw BusinessException.notFound();
+    const isDirectShip = await this.isDirectShipFulfillment(shipment);
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${id} FOR UPDATE`;
+        const cur = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
+        if (cur.status === 'entregado' && cur.labelSource === 'in_person') return { won: false, row: toAdminShipmentRow(cur), feeChargedCents: 0, folio: null, deliveredAt: null };
+        // `guia` ya es «tiene guía» (compra o captura a mano): el código con nombre, no un CONFLICT genérico.
+        if (cur.status === 'guia') throw BusinessException.conflict('SHIPMENT_HAS_LABEL', 'Shipment already has a label or a label purchase in progress');
+        if (cur.status !== 'picking') {
+          throw BusinessException.conflict('CONFLICT', `Invalid transition ${cur.status} -> entregado`);
+        }
+        if (cur.preparedAt === null) throw BusinessException.conflict('SHIPMENT_NOT_PREPARED', 'Shipment is not prepared');
+        if (cur.labelSource !== null || cur.providerShipmentId !== null || cur.trackingNumber !== null || cur.labelProcessingSince !== null) {
+          throw BusinessException.conflict('SHIPMENT_HAS_LABEL', 'Shipment already has a label or a label purchase in progress');
+        }
+        await this.requirePrep().assertCanAdvance(tx, id, 'enviado');
+        const now = new Date();
+        const claimed = await tx.shipmentRequest.updateMany({
+          where: {
+            id,
+            status: 'picking',
+            preparedAt: { not: null },
+            labelSource: null,
+            providerShipmentId: null,
+            trackingNumber: null,
+            labelProcessingSince: null,
+          },
+          data: { status: 'entregado', deliveredAt: now, labelSource: 'in_person' },
+        });
+        if (claimed.count !== 1) throw BusinessException.conflict('CONFLICT', 'Shipment changed; reload and retry');
+        // Directo: la función espera `picking→shipped` y luego `shipped→delivered`; retiro: solo `entregado` mueve piezas.
+        if (isDirectShip) await this.movePiecesOnTransition(tx, id, shipment.userId, 'enviado', true);
+        await this.movePiecesOnTransition(tx, id, shipment.userId, 'entregado', isDirectShip);
+        const updated = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
+        // «Quién» (QA-PER-AUDIT): la bitácora va en la MISMA tx; si no se puede escribir, no hay entrega a medias y el reintento la hace.
+        await tx.auditLog.create({
+          data: { actorUserId: actor.id, actorRole: actor.role, action: 'shipment.delivered_in_person', entityType: 'ShipmentRequest', entityId: id, after: { to: 'entregado', labelSource: 'in_person' } },
+        });
+        // Flete COBRADO (lectura para AG-25): retiro ⇒ la fila del envío; directo ⇒ la `Order` (la fila lleva 0 a propósito).
+        const fee =
+          updated.orderId == null
+            ? updated.shippingFeeCents
+            : ((await tx.order.findUnique({ where: { id: updated.orderId }, select: { shippingFeeCents: true } }))?.shippingFeeCents ?? 0);
+        return { won: true, row: toAdminShipmentRow(updated), feeChargedCents: fee, folio: updated.folio ?? null, deliveredAt: now };
+      },
+      { maxWait: 10_000, timeout: 30_000 },
+    );
+    if (result.won) {
+      await this.claimAndNotify(
+        id,
+        { where: { deliveredNoticeSentAt: null, labelSource: 'in_person' }, column: 'deliveredNoticeSentAt', value: new Date() },
+        'AV-20',
+        shipment,
+        (l, p) => shipmentDeliveredInPersonTemplate(p, l),
+      );
+    }
+    return { ...result, orderId: shipment.orderId, isDirectShip };
+  }
+
+  /**
    * El movimiento de las PIEZAS de una transición (§M4, D4 + §M4-SHIP.6 H1 corregida). UN cuerpo: lo usan `updateStatus`
    * (`PATCH …/status`) y `transitionFromProvider` (sondeo de Skydropx y «Salida de hoy»). Directo: `enviado` ⇒
    * `picking → shipped`, `entregado` ⇒ `shipped → delivered`. Retiro: solo `entregado`, `in_custody` del dueño del retiro
@@ -2100,6 +2176,10 @@ export class ShipmentsService {
           SELECT "labelSource"::text AS "labelSource", "labelProcessingSince" FROM "ShipmentRequest" WHERE id = ${id} FOR UPDATE`;
         if (locked?.labelSource === 'skydropx') {
           throw BusinessException.conflict('SHIPMENT_ALREADY_LABELED', 'Shipment already has a Skydropx label', { labelSource: 'skydropx' });
+        }
+        // §PERSONA (PERS-1): bajo el candado, una entrega en persona ya hecha NO se pisa con una guía a mano.
+        if (locked?.labelSource === 'in_person') {
+          throw BusinessException.conflict('CONFLICT', 'Shipment was delivered in person', { labelSource: 'in_person' });
         }
         if ((locked?.labelProcessingSince ?? null) !== null) {
           throw BusinessException.conflict('LABEL_IN_PROGRESS', 'A label purchase is in progress for this shipment');

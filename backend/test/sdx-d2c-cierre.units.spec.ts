@@ -262,7 +262,7 @@ describe('pieza 1 — filtros, alerta del transportista, nombre del PDF, PDF del
   });
 
   it('?labelSource=: el dominio es el enum entero (clase E, derivado)', () => {
-    expect([...SHIPMENT_LABEL_SOURCE_FILTER_VALUES].sort()).toEqual(['manual', 'skydropx']);
+    expect([...SHIPMENT_LABEL_SOURCE_FILTER_VALUES].sort()).toEqual(['in_person', 'manual', 'skydropx']);
   });
 
   it('carrierAlertActive (§19.3): vivo + Skydropx + estado de alerta, o `canceled` sin sello propio', () => {

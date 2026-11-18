@@ -31,7 +31,7 @@ import { DAY_MS, GUEST_TRACKING_MAX_AGE_DAYS } from '../orders/guest-checkout.co
 export const MAIL_ACTOR = 'system:mail';
 
 /** Los avisos con CTA al cliente de un pedido (§19.35.1 «Aplica a»). */
-export type OrderMailNotice = 'AV-4' | 'AV-5' | 'AV-6' | 'AV-12' | 'AV-17' | 'AV-18' | 'AV-19';
+export type OrderMailNotice = 'AV-4' | 'AV-5' | 'AV-6' | 'AV-12' | 'AV-17' | 'AV-18' | 'AV-19' | 'AV-20';
 
 /** Lo que la regla lee del pedido (por id, ⛔ nunca del body ni del snapshot). */
 export interface OrderMailLinkTarget {

@@ -53,6 +53,8 @@ export const SPEND_ALERT_CODE_OF: Readonly<Record<SpendAlertKind, string>> = {
   buylist_guide_due: 'AG-23',
   // v1.113⟨portada⟩ (M-93, API_CONTRACT §DYN.4.5): «con el tope de créditos PSA la vuelta tarda más de 7 días». Solo panel.
   psa_cycle_short: 'AG-24',
+  // §PERSONA (DECISIONES §PERSONA punto 7): entregado en persona por personal que no es el dueño, con flete cobrado > 0.
+  in_person_with_fee: 'AG-25',
 };
 
 /**
@@ -77,6 +79,7 @@ export const PERSON_ALERT_KINDS: ReadonlySet<SpendAlertKind> = new Set<SpendAler
   'label_reissue_loop',
   'label_costly_choice',
   'staff_control_by_non_owner',
+  'in_person_with_fee',
 ]);
 
 /** La vigilancia de la vigilancia no se apaga (§19.30.2 (5)). */

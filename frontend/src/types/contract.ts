@@ -1683,6 +1683,8 @@ export interface AdminShipmentDTO {
   requestedAt?: string;
   createdAt?: string;
   shippingFeeCents?: number;
+  /** §PERSONA: envío que cobró el pedido (centavos, del servidor); alimenta la confirmación de «Entregado en persona». */
+  shippingFeeChargedCents?: number;
   totalCents?: number;
   /** Costo real pagado a la paquetería (interno, v1.4-finance). */
   shippingCostCents?: number;
@@ -1769,7 +1771,8 @@ export const CARRIER_STATUSES: readonly CarrierStatus[] = [
   'destroyed',
   'canceled',
 ];
-export type ShipmentLabelSource = 'manual' | 'skydropx';
+/** §PERSONA: `in_person` ⇔ entregado en persona (sin guía ni paquetería). */
+export type ShipmentLabelSource = 'manual' | 'skydropx' | 'in_person';
 export type ShippingIvaSource = 'provider' | 'computed' | 'manual';
 
 /** §19.19.4 (sustituye la forma de §19.6) + `isPromo` de §19.20.4. */
@@ -2134,7 +2137,8 @@ export type CustomerTimelineKind =
   | 'out_for_delivery'
   | 'delivery_attempt'
   | 'at_branch'
-  | 'delivered';
+  | 'delivered'
+  | 'delivered_in_person';
 export const CUSTOMER_TIMELINE_KINDS: readonly CustomerTimelineKind[] = [
   'label_created',
   'shipped',
@@ -2143,6 +2147,7 @@ export const CUSTOMER_TIMELINE_KINDS: readonly CustomerTimelineKind[] = [
   'delivery_attempt',
   'at_branch',
   'delivered',
+  'delivered_in_person',
 ];
 export interface CustomerTimelineEventDTO {
   kind: CustomerTimelineKind;
@@ -6780,7 +6785,9 @@ export type SpendAlertKind =
    * correo, `mailStatus not_applicable`, fuera del resumen); una sola fila abierta que se actualiza en sitio.
    * `facts` (lista blanca): `{ reason, publishedCards, cycleDays, dailyCreditCap, capToCoverWeek, setsOverCap }`.
    */
-  | 'psa_cycle_short';
+  | 'psa_cycle_short'
+  /** §PERSONA (AG-25): personal que no es el dueño entrega en persona con flete cobrado. Correo inmediato; ⛔ no se apaga. `facts`: `{ shippingFeeChargedCents, folio, actorUserId, deliveredAt, fulfillment: 'direct_ship'|'vault_withdrawal' }`. */
+  | 'in_person_with_fee';
 /** Mapa fijo kind ⇔ code (§19.29.2 + §19.30.1 (6) / §19.30.2 (3)). */
 export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = {
   label_after_address_fix: 'AG-1',
@@ -6807,11 +6814,12 @@ export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = 
   staff_control_by_non_owner: 'AG-22',
   buylist_guide_due: 'AG-23',
   psa_cycle_short: 'AG-24',
+  in_person_with_fee: 'AG-25',
 };
 export type SpendAlertCode =
   | 'AG-1' | 'AG-2' | 'AG-3' | 'AG-4' | 'AG-5' | 'AG-6' | 'AG-7' | 'AG-8' | 'AG-9' | 'AG-10' | 'AG-11'
   | 'AG-12' | 'AG-13' | 'AG-14' | 'AG-15' | 'AG-16' | 'AG-17' | 'AG-18' | 'AG-19' | 'AG-20' | 'AG-21' | 'AG-22'
-  | 'AG-23' | 'AG-24';
+  | 'AG-23' | 'AG-24' | 'AG-25';
 /** Los trece con disparador en D2 (§19.29.8 validador de `spend_alerts_disabled`): los únicos que se apagan. */
 export const SPEND_ALERT_SWITCHABLE_CODES: readonly SpendAlertCode[] = [
   'AG-1', 'AG-2', 'AG-3', 'AG-4', 'AG-5', 'AG-6', 'AG-7', 'AG-8', 'AG-9', 'AG-10', 'AG-11', 'AG-12', 'AG-13',

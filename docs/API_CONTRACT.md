@@ -11,8 +11,7 @@
   Permisos finos (`@RequirePermission`) o correo verificado (`@RequireEmailVerified`): ver el controlador.
 - **Dinero**: enteros en **centavos MXN** (`*Cents`), `currency: "MXN"`. El cliente nunca calcula precios.
 - **Paginación**: `?page=1&pageSize=20` ⇒ `{ data: [...], page, pageSize, total }`. Filtros de lista admin: `q`, `from`, `to`, `minCents`, `maxCents`.
-- **Filtros de enum en query**: vacío ⇒ no filtra; token válido ⇒ filtra; otro valor ⇒ `400 VALIDATION_ERROR` con
-  `details.field` y `details.allowed`. Nunca llega crudo a Prisma.
+- **Filtros de enum en query**: vacío ⇒ no filtra; token válido ⇒ filtra; otro valor ⇒ `400 VALIDATION_ERROR` con `details.field` y `details.allowed`. Nunca llega crudo a Prisma.
 - **Errores**: `{ "error": { "code": "…", "message": "…", "details": {} } }`. Códigos en `backend/src/common/error-codes.ts`.
   Fallo transitorio de BD ⇒ `503 BUSY_TRY_AGAIN` (reintentable). Throttle ⇒ `429`.
 - **Webhooks Stripe**: `POST /webhooks/stripe` (público, firma obligatoria, idempotente por id de evento; eventos suscritos en `security/stripe-webhook-events.txt`).
@@ -352,6 +351,7 @@
 - POST `/admin/shipments/:id/label/release` · admin 💰
 - PATCH `/admin/shipments/:id/status` · staff
 - POST `/admin/shipments/:id/tracking` · staff
+- POST `/admin/shipments/:id/delivered-in-person` · staff 💰 · `{}` ⇒ 200 `entregado`/`in_person`; 409 `SHIPMENT_NOT_PREPARED`|`SHIPMENT_HAS_LABEL`|`CONFLICT` (DECISIONES §PERSONA)
 - POST `/admin/buylist/:id/inbound-shipment` · staff
 - GET `/buylist/requests/:id/label.pdf` · cuenta
 - POST `/shipments/quote` · cuenta

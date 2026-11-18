@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpCode, Logger, Param, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { Role } from '@prisma/client';
@@ -17,6 +17,9 @@ import { ShipmentLabelPdfService } from './label-pdf.service';
 import { MoneyOut } from '../../common/decorators/money-out.decorator';
 import { ShipmentDepartureService } from './departure.service';
 import { ShipmentTrackingPollJob } from './tracking-poll.job';
+import { PrismaService } from '../../prisma/prisma.service';
+import { SpendAlertsService } from '../spend-alerts/spend-alerts.service';
+import { SpendMailService } from '../spend-alerts/spend-mail.service';
 import { ShipmentThrottlerGuard } from './shipment-throttler.guard';
 
 /**
@@ -37,7 +40,12 @@ export class AdminShipmentsController {
     private readonly labelPdfs: ShipmentLabelPdfService,
     private readonly departure: ShipmentDepartureService,
     private readonly trackingPoll: ShipmentTrackingPollJob,
+    private readonly spendAlerts: SpendAlertsService,
+    private readonly spendMail: SpendMailService,
+    private readonly prisma: PrismaService,
   ) {}
+
+  private readonly logger = new Logger(AdminShipmentsController.name);
 
   @Get()
   list(
@@ -256,6 +264,31 @@ export class AdminShipmentsController {
   @Roles(Role.super_admin)
   releaseLabel(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: { id: string; role: Role }) {
     return this.labelRecovery.release(id, body, user);
+  }
+
+  /** ⭐💰 §PERSONA — «Entregado en persona» (staff): `picking` preparado y sin guía ⇒ `entregado`/`in_person`. Idempotente. */
+  @Post(':id/delivered-in-person')
+  @HttpCode(200)
+  async deliveredInPerson(@Param('id') id: string, @CurrentUser() user: { id: string; role: Role }) {
+    await this.shipments.assertOutboundRoute(id);
+    const { row, won, feeChargedCents, orderId, folio, deliveredAt, isDirectShip } = await this.shipments.deliverInPerson(id, user);
+    if (won) {
+      // AG-25 (DECISIONES §PERSONA punto 7): POST-COMMIT, solo el ganador, con flete cobrado > 0; `raise` es no-op si quien marca
+      // es el dueño (PERSON_ALERT_KINDS). Best-effort: un fallo se registra y ⛔ no revierte la entrega. ⛔ Sin datos del cliente.
+      if (feeChargedCents > 0) {
+        try {
+          const res = await this.spendAlerts.raise(
+            this.prisma,
+            { kind: 'in_person_with_fee', severity: 'immediate', dedupKey: `ag25:${id}`, subjectUserId: user.id, shipmentRequestId: id, orderId, amountCents: feeChargedCents, facts: { shippingFeeChargedCents: feeChargedCents, folio, actorUserId: user.id, deliveredAt: deliveredAt ? deliveredAt.toISOString() : null, fulfillment: isDirectShip ? 'direct_ship' : 'vault_withdrawal' } },
+            new Date(),
+          );
+          if (res?.created) await this.spendMail.dispatchImmediate(res.id);
+        } catch (e) {
+          this.logger.error(`AG-25 (${id}) no se pudo registrar: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
+    return row;
   }
 
   @Patch(':id/status')

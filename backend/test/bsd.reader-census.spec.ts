@@ -131,6 +131,8 @@ const CENSUS: Record<string, readonly [Clase, string]> = {
   'src/modules/shipments/shipments.service.ts adminList#count#1': [O, 'lista admin: total'],
   'src/modules/shipments/shipments.service.ts pickingList#findMany#1': [O, 'cola de preparación (picking list)'],
   'src/modules/shipments/shipments.service.ts updateStatus#sql#1': [K, 'FOR UPDATE por id'],
+  'src/modules/shipments/shipments.service.ts deliverInPerson#sql#1': [K, 'FOR UPDATE por id (§PERSONA; el controlador filtra la entrada con assertOutboundRoute)'],
+  'src/modules/shipments/shipments.service.ts deliverInPerson#updateMany#1': [K, 'CAS por id (§PERSONA)'],
   'src/modules/shipments/shipments.service.ts updateStatus#updateMany#1': [K, 'CAS por id'],
   'src/modules/shipments/shipments.service.ts transitionFromProvider#updateMany#1': [K, 'CAS por id'],
   'src/modules/shipments/shipments.service.ts transitionFromProvider#updateMany#2': [K, 'CAS por id'],
