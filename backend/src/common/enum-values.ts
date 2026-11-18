@@ -171,7 +171,7 @@ export const PAYMENT_REFUND_STATUS_VALUES = Object.values(PaymentRefundStatus);
 export const MANUAL_REFUND_STATUS_VALUES = Object.values(ManualRefundStatus);
 
 // 💰 D2g (§M4-SHIP.19.31.1 bandas 1–2, §19.32.1): `?kind=` y `?severity=` de `GET /admin/spend-alerts` — clase **E**. El
-// dominio del filtro es el enum ENTERO (AG-1…AG-22, incluidos los reservados AG-14…AG-20: una fila de esos tipos que exista
+// dominio del filtro es el enum ENTERO (AG-1…AG-25, incluidos los reservados AG-14…AG-20: una fila de esos tipos que exista
 // tiene que poder filtrarse). Tres bandas en `test/enum-values-parity.spec.ts`.
 export const SPEND_ALERT_KIND_VALUES = Object.values(SpendAlertKind);
 export const SPEND_ALERT_SEVERITY_VALUES = Object.values(SpendAlertSeverity);

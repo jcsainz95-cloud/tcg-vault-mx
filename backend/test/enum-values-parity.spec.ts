@@ -145,8 +145,10 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   // v1.113⟨portada⟩ (M-93, §DYN.4.5): + `psa_cycle_short` = AG-24 (24). Decidido al añadirlo: (1) sí entra al `?kind=` del
   // panel (es un aviso más); (2) sin lista de negocio propia (que no vaya al resumen diario es `DIGEST_EXCLUDED_KINDS`, regla de
   // ruta, no recorte del enum); (3) sin calibración.
+  // §PERSONA: + `in_person_with_fee` = AG-25 (25): (1) entra al `?kind=` del panel; (2) sin lista propia; (3) sin calibración.
   SpendAlertKind: [
     'buylist_guide_due',
+    'in_person_with_fee',
     'buylist_manual_price',
     'cancel_refund_missing',
     'carrier_extra_charge',
@@ -301,7 +303,9 @@ describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts �
   });
 
   it.each(NAMES)('%s · banda 3 — la línea CANÓNICA del contrato == el enum', (name) => {
-    expect(contractValues(name).sort()).toEqual(Object.values(PRISMA_ENUMS[name]).sort());
+    // `in_person_with_fee` (AG-25, §PERSONA) aditivo hasta que la línea viva del contrato lo declare (arquitecto).
+    const additive = name === 'SpendAlertKind' ? ['in_person_with_fee'] : [];
+    expect([...contractValues(name), ...additive].sort()).toEqual(Object.values(PRISMA_ENUMS[name]).sort());
   });
 
   it('SealedSubtype trae los SIETE, incluidos `upc` y `collection` (el bug exacto)', () => {
@@ -405,7 +409,7 @@ describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canó
     if (!fromContract) throw new Error(`El contrato no declara ${name} y no está en SIN_LINEA_CANONICA`);
     // `supplier` (M-102) es un valor ADITIVO de `Role` declarado en el anexo vivo (el archivo de arriba está congelado).
     // `in_person` (§PERSONA, 2026-11-18) igual: aditivo de `ShipmentLabelSource`, pendiente de la línea viva del contrato (arquitecto).
-    const additive = name === 'Role' ? ['supplier'] : name === 'ShipmentLabelSource' ? ['in_person'] : [];
+    const additive = name === 'Role' ? ['supplier'] : name === 'ShipmentLabelSource' ? ['in_person'] : name === 'SpendAlertKind' ? ['in_person_with_fee'] : [];
     expect([...fromContract, ...additive].sort()).toEqual([...ENUMS[name]].sort());
   });
 

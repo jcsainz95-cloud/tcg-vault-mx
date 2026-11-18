@@ -1855,7 +1855,7 @@ export class ShipmentsService {
    * Repetición sobre un envío ya `entregado`+`in_person` ⇒ 200 idempotente (`won:false`, sin correo). El aviso `AV-20` sale
    * POST-COMMIT, best-effort, solo al ganador. No reembolsa nada.
    */
-  async deliverInPerson(id: string): Promise<{ row: ReturnType<typeof toAdminShipmentRow>; won: boolean }> {
+  async deliverInPerson(id: string): Promise<{ row: ReturnType<typeof toAdminShipmentRow>; won: boolean; feeChargedCents: number; orderId: string | null }> {
     const shipment = await this.prisma.shipmentRequest.findUnique({ where: { id } });
     if (!shipment) throw BusinessException.notFound();
     const isDirectShip = await this.isDirectShipFulfillment(shipment);
@@ -1863,7 +1863,7 @@ export class ShipmentsService {
       async (tx) => {
         await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${id} FOR UPDATE`;
         const cur = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
-        if (cur.status === 'entregado' && cur.labelSource === 'in_person') return { won: false, row: toAdminShipmentRow(cur) };
+        if (cur.status === 'entregado' && cur.labelSource === 'in_person') return { won: false, row: toAdminShipmentRow(cur), feeChargedCents: 0 };
         if (cur.status !== 'picking') {
           throw BusinessException.conflict('CONFLICT', `Invalid transition ${cur.status} -> entregado`);
         }
@@ -1890,7 +1890,12 @@ export class ShipmentsService {
         if (isDirectShip) await this.movePiecesOnTransition(tx, id, shipment.userId, 'enviado', true);
         await this.movePiecesOnTransition(tx, id, shipment.userId, 'entregado', isDirectShip);
         const updated = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
-        return { won: true, row: toAdminShipmentRow(updated) };
+        // Flete COBRADO (lectura para AG-25): retiro ⇒ la fila del envío; directo ⇒ la `Order` (la fila lleva 0 a propósito).
+        const fee =
+          updated.orderId == null
+            ? updated.shippingFeeCents
+            : ((await tx.order.findUnique({ where: { id: updated.orderId }, select: { shippingFeeCents: true } }))?.shippingFeeCents ?? 0);
+        return { won: true, row: toAdminShipmentRow(updated), feeChargedCents: fee };
       },
       { maxWait: 10_000, timeout: 30_000 },
     );
@@ -1903,7 +1908,7 @@ export class ShipmentsService {
         (l, p) => shipmentDeliveredInPersonTemplate(p, l),
       );
     }
-    return result;
+    return { ...result, orderId: shipment.orderId };
   }
 
   /**

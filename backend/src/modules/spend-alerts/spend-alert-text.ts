@@ -95,6 +95,8 @@ const TITLES: Record<string, [string, string]> = {
   'AG-23': ['Solicitud de venta sin guía', 'Sell request without a label'],
   // v1.113⟨portada⟩ (§DYN.4.5). Texto final de ux-ui: DESIGN_SYSTEM `## DYN-UX.` (SA`.kind.AG-24.title`).
   'AG-24': ['Los créditos PSA no alcanzan para la semana', 'The PSA credits do not cover the week'],
+  // §PERSONA (AG-25).
+  'AG-25': ['Entrega en persona con envío cobrado', 'In-person hand-over with shipping charged'],
 };
 
 /**
@@ -386,6 +388,11 @@ export function spendAlertSentence(v: SpendAlertMailView, l: MailLocale): string
         ? `With ${cap} credits a day there is not enough to check your ${cards} cards every week: checking them all would take ${days} days. To cover the week, raise the cap to ${need}.`
         : `Con ${cap} créditos al día no alcanza para revisar tus ${cards} cartas cada semana: revisarlas todas tardaría ${days} días. Para cubrir la semana, sube el tope a ${need}.`;
     }
+    case 'AG-25':
+      // §PERSONA: ⛔ sin datos del cliente (ni nombre, ni correo, ni dirección): solo quién marcó, qué pedido/envío y cuánto flete.
+      return en
+        ? `${who} marked ${ref} as handed over in person. The customer paid ${m(f.shippingFeeChargedCents ?? v.amountCents)} for shipping; the system does not refund it. If it should be refunded, decide it from Sales.`
+        : `${who} marcó el ${ref} como entregado en persona. El cliente pagó ${m(f.shippingFeeChargedCents ?? v.amountCents)} de envío; el sistema no lo reembolsa. Si hay que devolverlo, decídelo desde Ventas.`;
     default:
       return en ? `There is a new spending alert (${code}).` : `Hay un aviso de gasto nuevo (${code}).`;
   }

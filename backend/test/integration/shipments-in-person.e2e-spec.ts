@@ -66,6 +66,28 @@ describe('§PERSONA — entregado en persona', () => {
     expect(avisos()).toHaveLength(1);
   });
 
+  it('AG-25: flete > 0 y actor no dueño ⇒ 1 aviso immediate ag25:<id> con correo y sin PII; repetir no duplica; dueño ⇒ ninguno', async () => {
+    const d = await db.mkDirect({ userId: (await db.mkUser('Cliente AG25')).id });
+    for (const l of d.lines) await db.mark(d.shipment.id, l.id, { status: 'picked' });
+    expect((await db.prepare(d.shipment.id, 0)).status).toBe(200);
+    expect((await post(d.shipment.id)).status).toBe(200);
+    expect((await post(d.shipment.id)).status).toBe(200);
+    const rows = await h.prisma.spendAlert.findMany({ where: { kind: 'in_person_with_fee', shipmentRequestId: d.shipment.id } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ severity: 'immediate', dedupKey: `ag25:${d.shipment.id}`, amountCents: 15000, subjectUserId: db.operatorId, occurrenceCount: 1 });
+    expect(JSON.stringify(rows[0].facts)).not.toMatch(/@|Cliente|Destinatario/);
+    // dueño (super_admin de la cuenta dueña) ⇒ solo bitácora
+    const d2 = await preparedDirect();
+    const admin = await h.prisma.user.findUniqueOrThrow({ where: { email: 'admin@e2e.local' } });
+    await h.prisma.user.update({ where: { id: admin.id }, data: { isOwner: true } });
+    try {
+      expect((await post(d2.shipment.id, db.adminToken)).status).toBe(200);
+    } finally {
+      await h.prisma.user.update({ where: { id: admin.id }, data: { isOwner: false } });
+    }
+    expect(await h.prisma.spendAlert.count({ where: { kind: 'in_person_with_fee', shipmentRequestId: d2.shipment.id } })).toBe(0);
+  });
+
   it('sin «preparado» ⇒ 409 SHIPMENT_NOT_PREPARED y cero escrituras', async () => {
     const d = await db.mkDirect({ userId: (await db.mkUser('Cliente Persona 2')).id });
     const r = await post(d.shipment.id);
