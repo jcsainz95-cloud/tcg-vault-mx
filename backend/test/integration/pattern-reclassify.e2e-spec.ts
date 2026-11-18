@@ -5,7 +5,7 @@
 import { randomUUID } from 'crypto';
 import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
-import { PatternReclassifyService } from '../../src/modules/pricing/pattern-reclassify.service';
+import { PATTERN_RECLASSIFY_LOCK_KEY, PatternReclassifyService } from '../../src/modules/pricing/pattern-reclassify.service';
 import { PricingService } from '../../src/modules/pricing/pricing.service';
 import { PRICE_WRITE_LOCK_KEY } from '../../src/modules/pricing/price-write-lock';
 import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
@@ -826,6 +826,176 @@ describe('E2E — §PRICE-PATTERN', () => {
       expect((await runItems()).some((i) => i.cardId === c.id)).toBe(false);
     } finally {
       await mail.restore();
+      await clean();
+    }
+  });
+
+  /** Otra conexión sostiene un candado consultivo (`shared` = ingesta en curso; no `shared` = otra instancia del job / lote) hasta `release()`. */
+  async function holdAdvisory(lockKey: number, shared: boolean) {
+    let release!: () => void;
+    let ready!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const readyP = new Promise<void>((r) => (ready = r));
+    const done = h.prisma.$transaction(
+      async (tx) => {
+        if (shared) await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(${lockKey}::bigint)`;
+        else await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockKey}::bigint)`;
+        ready();
+        await gate;
+      },
+      { timeout: 30_000 },
+    );
+    await readyP;
+    return { release: async () => { release(); await done; } };
+  }
+  /** `true` ⇒ la promesa NO terminó en `ms` (sigue esperando un candado). */
+  const stillPending = async (p: Promise<unknown>, ms: number) => {
+    let settled = false;
+    void p.then(() => (settled = true), () => (settled = true));
+    await sleep(ms);
+    return !settled;
+  };
+
+  it('CA-18 (qa IMPORTANTE-1) si «después» de la prueba en vivo la carta queda SIN precio (desaparece o queda en 0 tras el flip) ⇒ cuarentena con `kind` intacto, 0 cambios públicos', async () => {
+    await clean();
+    const mail = await captureMail();
+    try {
+      for (const how of ['todo-borrado', 'todo-en-cero'] as const) {
+        const X = await exposed(`V-${how}`);
+        const before = await liveOf(X.c.id);
+        expect(before).toBe(30000);
+        const spy = afterFlipHook(X.pat.id, async () => {
+          // tras el flip, ANTES de la medición «después»: el precio desaparece (como si la fuente lo retirara)
+          if (how === 'todo-borrado') await h.prisma.priceReference.deleteMany({ where: { cardId: X.c.id } });
+          else await h.prisma.priceReference.updateMany({ where: { cardId: X.c.id }, data: { priceMxnCents: 0 } });
+        });
+        try {
+          const r = await job.run();
+          expect([r.trialRejected, r.applied, r.reclassified, r.failedBatches]).toEqual([1, 0, 0, 0]);
+        } finally {
+          spy.mockRestore();
+        }
+        expect(await kindOf(X.pat.id)).toBe('set_base'); // revertido dentro de la transacción
+        const q = (await quarantineRow())[X.c.id];
+        expect(q).toBeDefined();
+        expect(q.reasons.join(' ')).toContain('sin precio');
+        expect(await trialAudits(X.c.id)).toBe(1);
+        await clean();
+      }
+      expect(mail.bandeja).toHaveLength(0);
+    } finally {
+      await mail.restore();
+      await clean();
+    }
+  });
+
+  it('PP-12 un lote FALLIDO (ROLLBACK) queda en el informe `pattern_reclassify_run.failedBatches` y SUMA a la auto-pausa: 3 corridas con 1, 2 y 3 lotes fallidos ⇒ pausa', async () => {
+    await clean();
+    const spy = jest.spyOn(pricing, 'getReferencesBatch').mockImplementation(async (_items, opts) => {
+      if (opts?.client) throw new Error('boom inyectado PP-12'); // toda lectura DENTRO de un lote revienta ⇒ ROLLBACK de cada lote
+      return new Map();
+    });
+    const fails: number[] = [];
+    try {
+      for (let n = 1; n <= 3; n++) {
+        await exposed(`F${n}`);
+        const r = await job.run({ batchSize: 1 });
+        fails.push(r.failedBatches);
+        const rep = (await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'pricing.pattern_reclassify_run' }, orderBy: { createdAt: 'desc' } })).after as Record<string, unknown>;
+        expect(rep).toMatchObject({ failedBatches: n, applied: 0, trialRejected: 0 }); // en el informe, no solo en el log
+        expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_reclassify_paused' } })).toBe(n === 3 ? 1 : 0);
+        await sleep(15); // createdAt estrictamente creciente entre corridas
+      }
+      expect(fails).toEqual([1, 2, 3]);
+      expect((await job.run()).paused).toBe(true);
+    } finally {
+      spy.mockRestore();
+      await clean();
+    }
+  });
+
+  it('qa MENOR-3 si la corrida se corta por el candado del job a mitad (try-lock perdido en el 2.º lote) ⇒ igual emite el informe parcial y el `pattern_trial_rejected` ya decidido', async () => {
+    await clean();
+    const mail = await captureMail();
+    const fxSpy = jest.spyOn(pricing, 'fxSnapshotSafe').mockResolvedValue(FX);
+    const orig = (job as unknown as { inBatchTx: (...a: unknown[]) => Promise<unknown> }).inBatchTx.bind(job);
+    let calls = 0;
+    const spy = jest.spyOn(job as unknown as { inBatchTx: (...a: unknown[]) => Promise<unknown> }, 'inBatchTx').mockImplementation(async (...args: unknown[]) => {
+      calls += 1;
+      if (calls !== 2) return orig(...args);
+      const other = await holdAdvisory(PATTERN_RECLASSIFY_LOCK_KEY, false); // otra instancia empezó su lote
+      try {
+        return await orig(...args);
+      } finally {
+        await other.release();
+      }
+    });
+    try {
+      const A = await trap('L1');
+      const B = await trap('L2');
+      const r = await job.run({ batchSize: 1 });
+      expect(r.skipped).toBe(true);
+      expect([r.trialRejected, r.quarantined, r.failedBatches]).toEqual([1, 1, 0]);
+      const q = await quarantineRow();
+      expect(Object.keys(q)).toHaveLength(1); // solo la del 1.er lote; la del 2.º ni se probó
+      const rejectedCard = Object.keys(q)[0];
+      expect([A.c.id, B.c.id]).toContain(rejectedCard);
+      expect(await trialAudits(rejectedCard)).toBe(1);
+      const rep = (await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'pricing.pattern_reclassify_run' } })).after as Record<string, unknown>;
+      expect(rep).toMatchObject({ trialRejected: 1, quarantined: 1, applied: 0 });
+      const other = [A, B].find((x) => x.c.id !== rejectedCard)!;
+      expect(await kindOf(other.pat.id)).toBe('set_base');
+      expect(mail.bandeja).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+      fxSpy.mockRestore();
+      await mail.restore();
+      await clean();
+    }
+  });
+
+  it('qa MENOR-2 / PP-13 la poda de la cuarentena corre BAJO el candado de precios: con una ingesta en curso ESPERA y no pisa la fila; al soltarse, poda', async () => {
+    await clean();
+    const ghost = { 'ghost-card-pp13': { sig: 'x', at: new Date().toISOString(), reasons: ['x'] } };
+    await h.prisma.configSetting.upsert({ where: { key: 'pattern_quarantine' }, create: { key: 'pattern_quarantine', valueJson: ghost }, update: { valueJson: ghost } });
+    const ingest = await holdAdvisory(PRICE_WRITE_LOCK_KEY, true); // ingesta de precios en curso (candado compartido)
+    try {
+      const running = job.run();
+      expect(await stillPending(running, 700)).toBe(true); // espera: no podó por su cuenta
+      expect(Object.keys(await quarantineRow())).toEqual(['ghost-card-pp13']);
+      await ingest.release();
+      await running;
+      expect(await quarantineRow()).toEqual({}); // ya sin ingesta: poda
+    } finally {
+      await ingest.release().catch(() => undefined);
+      await clean();
+    }
+  });
+
+  it('qa MENOR-4 / PP-13 los escritores de PriceReference que no pasaban por la ingesta (syncCardPrice, promoteRobustReference, estimado PSA, sellado) ESPERAN al lote de la prueba (candado de precios)', async () => {
+    await clean();
+    const c = await card('W1', ['holofoil']);
+    const cardRow = await h.prisma.card.findUniqueOrThrow({ where: { id: c.id } });
+    const prov = jest.spyOn(pricing as unknown as { providerFor: () => Promise<unknown> }, 'providerFor').mockResolvedValue({ fetchPrice: async () => ({ source: 'tcgcsv', priceUsdCents: 123 }) });
+    const writers: [string, () => Promise<unknown>][] = [
+      ['syncCardPrice', () => pricing.syncCardPrice(cardRow, 'raw', 'raw:LP', 'holofoil')],
+      ['promoteRobustReference', () => pricing.promoteRobustReference({ cardId: c.id, productType: 'raw', gradeKey: 'raw:MP', finish: 'holofoil', priceMxnCents: 777, source: 'tcgcsv' })],
+      ['persistGradedEstimateReference', () => pricing.persistGradedEstimateReference(c.id, '9', 'holofoil', { amountCents: 4200, currency: 'MXN', source: 'pokemonpricetracker' }, { rate: 17, bufferPct: 0 })],
+      ['persistSealedMarketReference', () => pricing.persistSealedMarketReference(c.id, 424242, { marketCents: 999 }, { rate: 17, bufferPct: 0 })],
+    ];
+    try {
+      for (const [name, write] of writers) {
+        const lot = await holdAdvisory(PRICE_WRITE_LOCK_KEY, false); // un lote de la prueba tiene el candado EXCLUSIVO
+        const p = write();
+        const waited = await stillPending(p, 500);
+        await lot.release();
+        await p;
+        expect([name, waited]).toEqual([name, true]);
+      }
+      expect(await h.prisma.priceReference.count({ where: { cardId: c.id } })).toBe(4); // y al soltarse, las 4 escrituras se hicieron
+    } finally {
+      prov.mockRestore();
+      await h.prisma.priceReference.deleteMany({ where: { cardId: c.id } });
       await clean();
     }
   });

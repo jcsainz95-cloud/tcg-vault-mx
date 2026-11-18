@@ -74,3 +74,12 @@ export async function writeQuarantine(db: Pick<PrismaService, 'configSetting'> |
     update: { valueJson, updatedBy: 'pattern-reclassify' },
   });
 }
+
+/** Memoria de cuarentena al cierre (PURA): solo siguen las cartas que aún son candidatas, NO confirmadas y vigentes (< {@link PATTERN_QUARANTINE_DAYS} días); lo demás se poda. */
+export function pruneQuarantine(q: QuarantineMap, candCards: ReadonlySet<string>, confirmedCards: ReadonlySet<string>, now: Date): QuarantineMap {
+  const keep: QuarantineMap = {};
+  for (const [cardId, e] of Object.entries(q)) {
+    if (candCards.has(cardId) && !confirmedCards.has(cardId) && now.getTime() - Date.parse(e.at) < PATTERN_QUARANTINE_DAYS * 86_400_000) keep[cardId] = e;
+  }
+  return keep;
+}

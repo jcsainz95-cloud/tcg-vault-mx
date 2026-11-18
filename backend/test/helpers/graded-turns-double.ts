@@ -94,6 +94,8 @@ export function withGradedTurns<T extends object>(
   if (typeof anyP.$transaction !== 'function') {
     anyP.$transaction = jest.fn(async (fn: (tx: unknown) => unknown) => fn(prismaDouble));
   }
+  // §PRICE-PATTERN 6.6: los escritores de PriceReference toman el candado de precios COMPARTIDO (`pg_advisory_xact_lock_shared`); en memoria es un no-op.
+  if (typeof anyP.$executeRaw !== 'function') anyP.$executeRaw = jest.fn(async () => 0);
   const prevQueryRaw = anyP.$queryRaw as ((...a: unknown[]) => Promise<unknown>) | undefined;
   anyP.$queryRaw = jest.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     if (Array.isArray(strings) && strings.join('?').includes('pg_try_advisory_xact_lock')) return [{ locked: true }];

@@ -2605,24 +2605,27 @@ export class PricingService {
       );
       return { status: 'pending' };
     }
-    const ref = await this.prisma.priceReference.create({
-      data: {
-        cardId: card.id,
-        productType,
-        gradeKey,
-        finish,
-        source: quote.source,
-        priceUsdCents,
-        fxRate,
-        fxBufferPct,
-        priceMxnCents,
-        capturedDate: today(),
-        isManualOverride: false,
-        // M-43 (§4.38l.4.3): escritor de MERCADO ⇒ `market` EXPLÍCITO. Coincide con el default de la
-        // columna, y se escribe igual: la tabla de escritores de (l.4.3) no admite «lo pone el default».
-        refKind: 'market',
-      },
-    });
+    // §PRICE-PATTERN 6.6 (qa MENOR-4): candado de precios COMPARTIDO (como la ingesta) — un lote de la prueba de `pattern-reclassify` no mide con este `create` a medias.
+    const ref = await withPriceWriteShared(this.prisma, (db) =>
+      db.priceReference.create({
+        data: {
+          cardId: card.id,
+          productType,
+          gradeKey,
+          finish,
+          source: quote.source,
+          priceUsdCents,
+          fxRate,
+          fxBufferPct,
+          priceMxnCents,
+          capturedDate: today(),
+          isManualOverride: false,
+          // M-43 (§4.38l.4.3): escritor de MERCADO ⇒ `market` EXPLÍCITO. Coincide con el default de la
+          // columna, y se escribe igual: la tabla de escritores de (l.4.3) no admite «lo pone el default».
+          refKind: 'market',
+        },
+      }),
+    );
     return {
       status: 'priced',
       referenceMxnCents: ref.priceMxnCents,
@@ -3163,10 +3166,12 @@ export class PricingService {
     }
     const capturedDate = today();
     const cardProductId = null;
+    // §PRICE-PATTERN 6.6 (qa MENOR-4): candado de precios COMPARTIDO (con `input.tx` solo lo toma; sin ella abre una transacción corta). Solo toma ESTE candado: no hay inversión de orden con el job.
+    return withPriceWriteShared(db, async (wdb) => {
     // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE de un ESCRITOR (accept promueve la robusta), no
     // de candidatas de precio. Serie POR FUENTE (incluye `source`, como `persistArbiterReference`): no
     // pisa otras fuentes.
-    const existing = await db.priceReference.findFirst({
+    const existing = await wdb.priceReference.findFirst({
       where: { cardId: input.cardId, productType: input.productType, gradeKey: input.gradeKey, finish: input.finish, capturedDate, cardProductId, source: input.source as PriceSource },
       select: { id: true },
     });
@@ -3181,11 +3186,12 @@ export class PricingService {
       evidenceDate: capturedDate,
     };
     const ref = existing
-      ? await db.priceReference.update({ where: { id: existing.id }, data })
-      : await db.priceReference.create({
+      ? await wdb.priceReference.update({ where: { id: existing.id }, data })
+      : await wdb.priceReference.create({
           data: { cardId: input.cardId, productType: input.productType, gradeKey: input.gradeKey, finish: input.finish, capturedDate, ...data },
         });
     return { ref };
+    });
   }
 
   /**
@@ -3230,6 +3236,7 @@ export class PricingService {
     return runSerializable(
       this.prisma,
       async (db) => {
+        await lockPriceWriteShared(db); // §PRICE-PATTERN 6.6 (qa MENOR-4): candado de precios COMPARTIDO, primera sentencia de la transacción (reentrante en el reintento)
         // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA del ESCRITOR del ingest de estimados — y es la
         // que sostiene la regla 2 de (l.4.3): necesita VER la fila `market` para hacer skip en vez de
         // degradarla. Con el predicado puesto no la vería y la pisaría, que es el fallo exacto.
@@ -3400,9 +3407,11 @@ export class PricingService {
     const finish: Finish = 'normal';
     const capturedDate = today();
     // v1.29 (M-31): sellado no usa CardProduct ⇒ `cardProductId=null` (findFirst + update/create).
+    // §PRICE-PATTERN 6.6 (qa MENOR-4): candado de precios COMPARTIDO (transacción corta).
     // MONEY-REF-EXEMPT: lectura de la CLAVE DEL DÍA de un ESCRITOR (sellado). No es candidata de
     // precio; filtrar por naturaleza aquí crearía una segunda fila para la misma clave+día.
-    const existing = await this.prisma.priceReference.findFirst({
+    await withPriceWriteShared(this.prisma, async (db) => {
+    const existing = await db.priceReference.findFirst({
       where: { cardId: anchorCardId, productType, gradeKey, finish, capturedDate, cardProductId: null },
     });
     // No clobbea el override manual del admin (paridad con persistMarketReference, §4.1).
@@ -3419,12 +3428,13 @@ export class PricingService {
       refKind: PriceRefKind.market,
     };
     if (existing) {
-      await this.prisma.priceReference.update({ where: { id: existing.id }, data });
+      await db.priceReference.update({ where: { id: existing.id }, data });
     } else {
-      await this.prisma.priceReference.create({
+      await db.priceReference.create({
         data: { cardId: anchorCardId, productType, gradeKey, finish, capturedDate, ...data },
       });
     }
+    });
   }
 
   /**

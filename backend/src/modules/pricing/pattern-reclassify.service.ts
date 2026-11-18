@@ -1,29 +1,24 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { Finish, Prisma, ProductType } from '@prisma/client';
+import { Finish, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MAIL_PORT, MailPort } from '../mail/mail.port';
-import { headingRow, mailShell, proseRow, spacerRow } from '../buylist/mail-shell';
-import { ownerRecipients } from '../spend-alerts/spend-mail.service';
 import { FinishReconciler } from '../catalog/finish-reconciler.service';
 import { isVariantProductName, productPreferenceOf, VARIANT_PRODUCT_PREFILTER_LIKE } from '../../common/variant-product';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
 import { loadEffectiveVariantRows, loadNonRawCandidateIds, loadPreVariantCombos, loadReaderBaseRows } from './effective-variant';
-import { PATTERN_RUN_MAX, PatternPlan, PlannedCombo, planPatternRun } from './pattern-plan';
+import { PATTERN_RUN_MAX, PatternPlan, planPatternRun } from './pattern-plan';
 import { classifyCardProductKind } from './providers/tcgcsv-singles.provider';
 import { variantKey } from '../../common/variant-key';
 import { MONEY_REF_WHERE, PricingService } from './pricing.service';
 import { ListingPriceService } from './listing-price.service';
 import { lockPriceWriteExclusive } from './price-write-lock';
-import { PATTERN_QUARANTINE_DAYS, PATTERN_QUARANTINE_REASONS_MAX, PATTERN_QUARANTINE_REPORT_MAX, QuarantineEntry, QuarantineMap, cardSig, isQuarantineActive, readQuarantine, writeQuarantine } from './pattern-quarantine';
+import { PATTERN_QUARANTINE_REASONS_MAX, PATTERN_QUARANTINE_REPORT_MAX, QuarantineEntry, QuarantineMap, cardSig, isQuarantineActive, pruneQuarantine, readQuarantine, writeQuarantine } from './pattern-quarantine';
+import { RefSnap, assessTrial } from './pattern-trial';
+import { PATTERN_ITEMS_MAX, PATTERN_MAIL_TOP, PATTERN_PAUSE_DAYS, PATTERN_PAUSE_STREAK, PatternReporter } from './pattern-report';
 
-/** Máximo de ítems del informe `pricing.pattern_reclassify_run` (6.3) y de los «mayores» que lleva el correo. */
-export const PATTERN_ITEMS_MAX = 500;
-export const PATTERN_MAIL_TOP = 20;
-/** Auto-pausa (6.2): este número de corridas SEGUIDAS con diferidos y la lista creciendo; la pausa dura {@link PATTERN_PAUSE_DAYS} y se reanuda sola. */
-export const PATTERN_PAUSE_STREAK = 3;
-export const PATTERN_PAUSE_DAYS = 3;
+export { PATTERN_ITEMS_MAX, PATTERN_MAIL_TOP, PATTERN_PAUSE_STREAK, PATTERN_PAUSE_DAYS };
 export { PATTERN_RUN_MAX };
 /** Candado consultivo del job (single-flight, 4b-i; 6.6: se toma POR LOTE, `pg_try_advisory_xact_lock`): una instancia a la vez. Censo: `lock-keys.census.spec.ts`. */
 export const PATTERN_RECLASSIFY_LOCK_KEY = 91_170_217;
@@ -32,11 +27,11 @@ export const PATTERN_BATCH_CARDS = 50;
 export const PATTERN_BATCH_TX_TIMEOUT_MS = 60_000;
 
 type Combo = { cardId: string; finish: Finish };
-type RefSnap = { cardId: string; productType: ProductType; gradeKey: string; finish: Finish; cents: number | null };
 /** Bajada de la referencia raw NM de un combo, MEDIDA antes/después de la prueba (misma lectura en vivo, dentro de la transacción del lote). */
 type Measured = { cardId: string; finish: Finish; fromCents: number; toCents: number };
 type Rejected = { cardId: string; reasons: string[]; sig: string };
-type BatchOutcome = { skipped: true } | { skipped: false; measured: Measured[]; rejected: Rejected[] };
+/** Resultado de la prueba de un lote ya dentro del candado: lo medido, lo rechazado y los precios PUBLICADOS de antes (leídos bajo el candado, MENOR-5). */
+type BatchOutcome = { measured: Measured[]; rejected: Rejected[]; listingBefore: Map<string, Combo & { price: number | null }> };
 
 export interface PatternRunOpts {
   /** Freno por corrida (por defecto {@link PATTERN_RUN_MAX}). */
@@ -81,8 +76,6 @@ export interface PatternReclassifyResult {
   ambiguous: number;
 }
 
-const PATTERN_QUARANTINE_DAYS_MS = PATTERN_QUARANTINE_DAYS * 86_400_000;
-
 function chunksOf<T>(xs: readonly T[], n: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n));
@@ -108,7 +101,7 @@ const emptyResult = (): PatternReclassifyResult => ({
  *     Sin correo ni `pattern_trial_rejected` repetidos; suma a la racha de auto-pausa.
  *  5. Informe (6.3/6.6): `pricing.pattern_reclassify_run {applied (medidos), deferred, exposed, planned, trialRejected, quarantined, quarantinedCards≤50, items≤500,
  *     truncated}`; correo al dueño solo si `applied ≥ 1` o `deferred ≥ 1`.
- *  6. Auto-pausa (6.2): {@link PATTERN_PAUSE_STREAK} corridas seguidas con (diferidos + cuarentenas activas) CRECIENTES ⇒ `pricing.pattern_reclassify_paused` + alerta;
+ *  6. Auto-pausa (6.2): {@link PATTERN_PAUSE_STREAK} corridas seguidas con (diferidos + cuarentenas activas + lotes fallidos) CRECIENTES ⇒ `pricing.pattern_reclassify_paused` + alerta;
  *     reanuda sola tras {@link PATTERN_PAUSE_DAYS} días.
  *  7. Audita `pricing.product_ambiguous` (≥ 2 productos «del montón» con precios que difieren > 25 % junto a un `variant`), una vez por semana y combinación.
  * ⛔ No toca precios, inventario ni dinero directamente: solo la clase de un producto; el precio sale de la lectura de siempre.
@@ -128,6 +121,11 @@ export class PatternReclassifyService {
     @Optional() @Inject(MAIL_PORT) private readonly mail?: MailPort,
     @Optional() private readonly settings?: SettingsService,
   ) {}
+
+  private reporterOf?: PatternReporter;
+  private get reporter(): PatternReporter {
+    return (this.reporterOf ??= new PatternReporter(this.prisma, this.logger, this.audit, this.mail));
+  }
 
   /** El único dial que queda: `pattern_classify_enabled` (on|off). Sin servicio de ajustes ⇒ encendido. */
   private async enabled(): Promise<boolean> {
@@ -182,21 +180,28 @@ export class PatternReclassifyService {
       out.candidates = back.length;
       const byCard = new Map<string, string[]>();
       for (const b of back) byCard.set(b.cardId, [...(byCard.get(b.cardId) ?? []), b.id]);
+      let lostLock = false;
       for (const chunk of chunksOf([...byCard.keys()].sort(), batchSize)) {
         const ids = chunk.flatMap((c) => byCard.get(c)!);
-        const before = await this.publishedPrices(chunk);
         try {
-          const r = await this.inBatchTx(timeoutMs, (tx) => tx.cardProduct.updateMany({ where: { id: { in: ids } }, data: { kind: 'set_base' } }));
-          if (r.skipped) return { ...out, skipped: true };
+          const r = await this.inBatchTx(timeoutMs, async (tx) => {
+            const listingBefore = await this.publishedPrices(chunk, tx);
+            await tx.cardProduct.updateMany({ where: { id: { in: ids } }, data: { kind: 'set_base' } });
+            return listingBefore;
+          });
+          if (r.skipped) {
+            lostLock = true;
+            break;
+          }
+          out.reclassified += ids.length;
+          out.corrections += await this.settle(chunk, r.value);
         } catch (e) {
           out.failedBatches += 1;
           this.logger.error(`pattern-reclassify: lote de reversa falló (ROLLBACK): ${(e as Error).message}`);
-          continue;
         }
-        out.reclassified += ids.length;
-        out.corrections += await this.settle(chunk, before);
       }
-      return out;
+      if (out.failedBatches > 0) await this.reporter.report(null, now, [], out); // PP-12: un lote fallido queda en el informe/auditoría, no solo en el log
+      return lostLock ? { ...out, skipped: true } : out;
     }
 
     // Auto-pausa vigente (6.2): no hace nada hasta que pase la ventana (se reanuda sola).
@@ -218,6 +223,7 @@ export class PatternReclassifyService {
     const rejectedNow = new Map<string, Rejected>();
     let plan: PatternPlan | null = null;
     let measured: Measured[] = [];
+    let lostLock = false;
     const quarantineBefore = await readQuarantine(this.prisma);
 
     if (cand.length > 0) {
@@ -251,7 +257,6 @@ export class PatternReclassifyService {
         for (const c of cand) if (flipSet.has(c.id)) flipByCard.set(c.cardId, [...(flipByCard.get(c.cardId) ?? []), c.id]);
         for (const chunk of chunksOf([...flipByCard.keys()].sort(), batchSize)) {
           const ids = chunk.flatMap((c) => flipByCard.get(c)!);
-          const listingBefore = await this.publishedPrices(chunk);
           let r: { skipped: true } | { skipped: false; value: BatchOutcome };
           try {
             r = await this.inBatchTx(timeoutMs, (tx) => this.trialBatch(tx, ids, chunk, fx, sigs, now));
@@ -262,30 +267,27 @@ export class PatternReclassifyService {
             continue;
           }
           if (r.skipped) {
-            this.logger.warn('pattern-reclassify: otra instancia tiene el candado del job; esta sale sin hacer nada.');
-            return { ...out, skipped: true };
+            // MENOR-3: no se descarta lo ya decidido en lotes anteriores (rechazos, medidas): se corta el bucle y el cierre emite informe y auditorías parciales.
+            this.logger.warn('pattern-reclassify: otra instancia tiene el candado del job; esta corta la corrida (informe parcial).');
+            lostLock = true;
+            break;
           }
-          const b = r.value as unknown as BatchOutcome & { skipped: false };
+          const b = r.value;
           const bad = new Set(b.rejected.map((x) => x.cardId));
           for (const x of b.rejected) rejectedNow.set(x.cardId, x);
           const ok = chunk.filter((c) => !bad.has(c));
           for (const c of ok) confirmedCards.add(c);
           out.reclassified += ok.reduce((n, c) => n + (flipByCard.get(c)?.length ?? 0), 0);
           measured = measured.concat(b.measured);
-          out.corrections += await this.settle(ok, listingBefore);
+          out.corrections += await this.settle(ok, b.listingBefore);
         }
         measured.sort((x, y) => y.fromCents / y.toCents - x.fromCents / x.toCents || x.cardId.localeCompare(y.cardId));
         out.applied = measured.length;
       }
     }
 
-    // Memoria de cuarentena al cierre: solo siguen las cartas que aún son candidatas (no confirmadas) y vigentes; lo demás se poda.
-    const qFinal = await readQuarantine(this.prisma);
-    const keep: QuarantineMap = {};
-    for (const [cardId, e] of Object.entries(qFinal)) {
-      if (candCards.has(cardId) && !confirmedCards.has(cardId) && now.getTime() - Date.parse(e.at) < PATTERN_QUARANTINE_DAYS_MS) keep[cardId] = e;
-    }
-    if (Object.keys(keep).length !== Object.keys(qFinal).length) await writeQuarantine(this.prisma, keep);
+    // Memoria de cuarentena al cierre (poda) BAJO EL CANDADO: lectura-modificación-escritura de la misma fila que escriben los lotes (PP-13/MENOR-2).
+    const keep = await this.pruneQuarantineLocked(candCards, confirmedCards, now, timeoutMs, lostLock);
     out.trialRejected = rejectedNow.size;
     out.quarantined = Object.keys(keep).length;
     out.quarantinedCards = Object.entries(keep).slice(0, PATTERN_QUARANTINE_REPORT_MAX).map(([cardId, e]) => ({ cardId, reasons: e.reasons }));
@@ -300,7 +302,8 @@ export class PatternReclassifyService {
       `pattern-reclassify: ${cand.length} candidatos; ${out.reclassified} → variant (confirmados); expuestas ${out.combosExposed} (planeadas ${out.planned}, corregidas medidas ${out.applied}, diferidas ${out.deferred}); ` +
         `cuarentena del plan ${out.held}; prueba rechazó ${out.trialRejected} carta(s) (activas en cuarentena ${out.quarantined}); lotes fallidos ${out.failedBatches}; ${out.corrections} con precio publicado distinto.`,
     );
-    if (plan && (out.applied + out.deferred + out.trialRejected > 0)) await this.report(plan, now, measured, out);
+    if (plan && (out.applied + out.deferred + out.trialRejected > 0) || out.failedBatches > 0) await this.reporter.report(plan, now, measured, out);
+    if (lostLock) return { ...out, skipped: true }; // corrida cortada: sin red de seguridad ni auditoría de ambigüedad (la siguiente corrida los hace)
 
     // Red de seguridad (6.1): productos que el import ya creó como `variant` (patrón único) y cuyo precio llegó después: su acabado entra a
     // `availableFinishes` sin esperar un re-sync. Idempotente (el reconciliador solo escribe si cambia).
@@ -309,6 +312,28 @@ export class PatternReclassifyService {
 
     out.ambiguous = await this.auditAmbiguities();
     return out;
+  }
+
+  /**
+   * Poda de la memoria de cuarentena BAJO EL CANDADO del job y el de precios (una transacción corta): leer-podar-escribir la fila `pattern_quarantine` sin él
+   * pisaría la cuarentena que otra instancia escribe en su lote (PP-13). Sin candado (corrida cortada, otra instancia lo tiene o fallo): NO se escribe nada y
+   * el informe usa la vista de solo lectura.
+   */
+  private async pruneQuarantineLocked(candCards: ReadonlySet<string>, confirmedCards: ReadonlySet<string>, now: Date, timeoutMs: number, lostLock: boolean): Promise<QuarantineMap> {
+    if (!lostLock) {
+      try {
+        const r = await this.inBatchTx(timeoutMs, async (tx) => {
+          const q = await readQuarantine(tx);
+          const keep = pruneQuarantine(q, candCards, confirmedCards, now);
+          if (Object.keys(keep).length !== Object.keys(q).length) await writeQuarantine(tx, keep);
+          return keep;
+        });
+        if (!r.skipped) return r.value;
+      } catch (e) {
+        this.logger.warn(`pattern-reclassify: no se pudo podar la cuarentena (se poda la siguiente corrida): ${(e as Error).message}`);
+      }
+    }
+    return pruneQuarantine(await readQuarantine(this.prisma), candCards, confirmedCards, now);
   }
 
   /**
@@ -324,6 +349,7 @@ export class PatternReclassifyService {
     sigs: Map<string, string>,
     now: Date,
   ): Promise<BatchOutcome> {
+    const listingBefore = await this.publishedPrices(cardIds, tx); // MENOR-5: bajo el candado, justo antes del flip (no antes de esperarlo)
     const prev = await tx.cardProduct.findMany({ where: { id: { in: ids } }, select: { id: true, cardId: true, kind: true } });
     const combos = await tx.priceReference.groupBy({
       by: ['cardId', 'productType', 'gradeKey', 'finish'],
@@ -341,7 +367,7 @@ export class PatternReclassifyService {
     const before = await read();
     await tx.cardProduct.updateMany({ where: { id: { in: ids } }, data: { kind: 'variant' } });
     const after = await read();
-    const bad = this.assess(before, after);
+    const bad = assessTrial(before, after);
     if (bad.size > 0) {
       const back = prev.filter((p) => bad.has(p.cardId));
       for (const k of new Set(back.map((p) => p.kind))) await tx.cardProduct.updateMany({ where: { id: { in: back.filter((p) => p.kind === k).map((p) => p.id) } }, data: { kind: k } });
@@ -355,7 +381,7 @@ export class PatternReclassifyService {
       if (bad.has(b.cardId) || b.productType !== 'raw' || b.gradeKey !== 'raw:NM' || b.cents == null || a?.cents == null || a.cents >= b.cents) continue;
       measured.push({ cardId: b.cardId, finish: b.finish, fromCents: b.cents, toCents: a.cents });
     }
-    return { skipped: false, measured, rejected: [...bad].map(([cardId, reasons]) => ({ cardId, reasons: reasons.slice(0, PATTERN_QUARANTINE_REASONS_MAX), sig: sigs.get(cardId) ?? '' })) };
+    return { listingBefore, measured, rejected: [...bad].map(([cardId, reasons]) => ({ cardId, reasons: reasons.slice(0, PATTERN_QUARANTINE_REASONS_MAX), sig: sigs.get(cardId) ?? '' })) };
   }
 
   /**
@@ -402,27 +428,9 @@ export class PatternReclassifyService {
     await this.listingPrices.idle();
   }
 
-  /**
-   * «Solo baja, nunca sin precio» MEDIDO con la lectura en vivo: por carta, los motivos de violación entre `before` y `after`. Referencia raw NM:
-   * desaparece/0/NULL o SUBE. Cualquier otro tipo/grado (la lectura aplica la «variante efectiva» a todos): CUALQUIER cambio. El `ListingPrice` no entra:
-   * se recalcula DESPUÉS del commit desde esta misma lectura (su valor rezagado es el previo, nunca peor).
-   */
-  private assess(before: Map<string, RefSnap>, after: Map<string, RefSnap>): Map<string, string[]> {
-    const bad = new Map<string, string[]>();
-    const add = (cardId: string, why: string) => bad.set(cardId, [...(bad.get(cardId) ?? []), why]);
-    for (const [k, b] of before) {
-      if (b.cents == null) continue;
-      const a = after.get(k)?.cents ?? null;
-      const rawNm = b.productType === 'raw' && b.gradeKey === 'raw:NM';
-      if (a == null || a <= 0) add(b.cardId, `${b.productType}/${b.gradeKey}/${b.finish}: ${b.cents} → sin precio`);
-      else if (rawNm ? a > b.cents : a !== b.cents) add(b.cardId, `${b.productType}/${b.gradeKey}/${b.finish}: ${b.cents} → ${a}`);
-    }
-    return bad;
-  }
-
   /** `itemId → {precio publicado P, carta, acabado}` de las piezas de plataforma (raw) de esas cartas con fila de `ListingPrice`. */
-  private async publishedPrices(cardIds: string[]): Promise<Map<string, Combo & { price: number | null }>> {
-    const rows = await this.prisma.inventoryItem.findMany({
+  private async publishedPrices(cardIds: string[], db: Prisma.TransactionClient | PrismaService = this.prisma): Promise<Map<string, Combo & { price: number | null }>> {
+    const rows = await db.inventoryItem.findMany({
       where: { cardId: { in: cardIds }, ownerType: 'platform', productType: 'raw' },
       select: { id: true, cardId: true, finish: true, listingPrice: { select: { unitPriceCents: true } } },
     });
@@ -504,101 +512,5 @@ export class PatternReclassifyService {
       await this.audit?.log({ action: 'pricing.product_ambiguous', entityType: 'Card', entityId: id, after: { cardId: c.cardId, finish: c.finish } }).catch(() => undefined);
     }
     return n;
-  }
-
-
-  /**
-   * Informe de la corrida (6.3/6.6) y vigilancia de la fuente (6.2). Solo se llama con ≥ 1 combo corregido, diferido o rechazado por la prueba. Best-effort:
-   * un fallo de auditoría o de correo NO cambia lo ya confirmado. NO MIENTE: `applied` y los `items` aplicados son lo MEDIDO en la prueba (referencia en vivo
-   * antes/después); lo planeado que no cambió (override manual) o se rechazó no aparece como corregido. Los diferidos llevan los valores del plan. El correo
-   * va SOLO si `applied ≥ 1` o `deferred ≥ 1` (una cuarentena nueva sin cambios de precio queda en Auditoría).
-   */
-  private async report(plan: PatternPlan, now: Date, measured: Measured[], out: PatternReclassifyResult): Promise<void> {
-    const ordered: { cardId: string; finish: string; fromCents: number; toCents: number }[] = [...measured, ...plan.deferred.map((d: PlannedCombo) => ({ cardId: d.cardId, finish: d.finish, fromCents: d.fromCents, toCents: d.toCents }))];
-    const shown = ordered.slice(0, PATTERN_ITEMS_MAX);
-    const cards = await this.prisma.card.findMany({
-      where: { id: { in: [...new Set(shown.map((c) => c.cardId))] } },
-      select: { id: true, name: true, set: { select: { name: true } } },
-    });
-    const byCard = new Map(cards.map((c) => [c.id, c]));
-    const items = shown.map((c) => ({
-      cardId: c.cardId,
-      name: byCard.get(c.cardId)?.name ?? null,
-      set: byCard.get(c.cardId)?.set?.name ?? null,
-      finish: c.finish,
-      fromCents: c.fromCents,
-      toCents: c.toCents,
-    }));
-    await this.audit
-      ?.log({
-        action: 'pricing.pattern_reclassify_run',
-        entityType: 'CardProduct',
-        after: {
-          applied: measured.length, planned: plan.applied.length, deferred: plan.deferred.length, exposed: plan.applied.length + plan.deferred.length,
-          trialRejected: out.trialRejected, quarantined: out.quarantined, quarantinedCards: out.quarantinedCards, items, truncated: ordered.length > shown.length,
-        },
-      })
-      .catch((e: Error) => this.logger.warn(`pattern-reclassify: no se pudo auditar la corrida: ${e.message}`));
-    if (measured.length + plan.deferred.length > 0) await this.mailRun(measured.length, plan.deferred.length, out.quarantined, items.slice(0, PATTERN_MAIL_TOP));
-    await this.checkStreak(now);
-  }
-
-  /** Auto-pausa: las últimas {@link PATTERN_PAUSE_STREAK} corridas (cada una a ≤ 48 h de la anterior, tras la última pausa) con (diferidos + cuarentenas activas) > 0 y CRECIENTES. */
-  private async checkStreak(now: Date): Promise<void> {
-    try {
-      const lastPause = await this.prisma.auditLog.findFirst({ where: { action: 'pricing.pattern_reclassify_paused' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
-      const runs = await this.prisma.auditLog.findMany({
-        where: { action: 'pricing.pattern_reclassify_run', ...(lastPause ? { createdAt: { gt: lastPause.createdAt } } : {}) },
-        orderBy: { createdAt: 'desc' },
-        take: PATTERN_PAUSE_STREAK,
-        select: { createdAt: true, after: true },
-      });
-      if (runs.length < PATTERN_PAUSE_STREAK) return;
-      const asc = [...runs].reverse();
-      // 6.6 (2): la racha mide lo pendiente de verdad = diferidos + cartas en cuarentena activas (las corridas viejas sin `quarantined` cuentan 0).
-      const pending = asc.map((r) => {
-        const a = r.after as { deferred?: unknown; quarantined?: unknown } | null;
-        return Number(a?.deferred ?? 0) + Number(a?.quarantined ?? 0);
-      });
-      const growing = pending.every((d, i) => d > 0 && (i === 0 || d > pending[i - 1]));
-      const close = asc.every((r, i) => i === 0 || r.createdAt.getTime() - asc[i - 1].createdAt.getTime() <= 48 * 3_600_000);
-      if (!growing || !close) return;
-      await this.audit?.log({ action: 'pricing.pattern_reclassify_paused', entityType: 'CardProduct', after: { deferred: pending, pausedDays: PATTERN_PAUSE_DAYS, at: now.toISOString() } });
-      this.logger.error(`pattern-reclassify: AUTO-PAUSA: ${PATTERN_PAUSE_STREAK} corridas seguidas con pendientes (diferidos + cuarentena) crecientes (${pending.join(' → ')}).`);
-      await this.sendOwners(
-        'TCG HUNT: la corrección de precios se pausó sola',
-        [`La corrección automática de precios de versiones «Pattern/Ball» frenó ${PATTERN_PAUSE_STREAK} corridas seguidas y la lista de pendientes sigue creciendo (${pending.join(' → ')}). Parece una anomalía de la fuente de precios, no una corrección normal: el proceso se pausó ${PATTERN_PAUSE_DAYS} días y se reanuda solo. No tienes que hacer nada; si quieres revisar, está en Auditoría (pricing.pattern_reclassify_run).`],
-      );
-    } catch (e) {
-      this.logger.warn(`pattern-reclassify: no se pudo evaluar la auto-pausa: ${(e as Error).message}`);
-    }
-  }
-
-  private async mailRun(applied: number, deferred: number, quarantined: number, top: { name: string | null; set: string | null; finish: string; fromCents: number; toCents: number }[]): Promise<void> {
-    const mxn = (c: number) => `$${(c / 100).toFixed(2)}`;
-    const lines = top.map((t) => `${t.name ?? '?'} (${t.set ?? '?'}, ${t.finish}): ${mxn(t.fromCents)} → ${mxn(t.toCents)}`);
-    const head =
-      `Corrección automática de precios de versiones «Pattern/Ball»: ${applied} corregidas hoy` +
-      (deferred > 0 ? `, ${deferred} pendientes para la siguiente corrida diaria (límite de seguridad por día)` : '') +
-      (quarantined > 0 ? `. ${quarantined} en cuarentena (detalle en Auditoría): la prueba previa vio que habrían subido de precio o quedado sin precio, así que no se tocaron` : '') +
-      `. Solo bajan precios inflados; no necesitas aprobar nada. Las ${lines.length} de mayor diferencia (lista completa en Auditoría, pricing.pattern_reclassify_run):`;
-    await this.sendOwners('TCG HUNT: corrección automática de precios', [head, ...lines]);
-  }
-
-  /** Correo al dueño: `paragraphs[0]` es el texto principal; el resto, líneas de detalle. Best-effort. */
-  private async sendOwners(subject: string, paragraphs: string[]): Promise<void> {
-    if (!this.mail) return;
-    try {
-      const owners = await ownerRecipients(this.prisma);
-      const text = paragraphs.join('\n');
-      const html = mailShell({
-        locale: 'es', title: subject, preheader: paragraphs[0].slice(0, 90),
-        blocks: [headingRow(subject, 22), spacerRow(24), ...paragraphs.map((l) => proseRow(l)), spacerRow(16)],
-        footerWhy: 'Recibes este aviso porque eres el dueño de la tienda.',
-      });
-      for (const o of owners) await this.mail.send({ to: o.email, subject, html, text });
-    } catch (e) {
-      this.logger.warn(`pattern-reclassify: no se pudo avisar al dueño: ${(e as Error).message}`);
-    }
   }
 }

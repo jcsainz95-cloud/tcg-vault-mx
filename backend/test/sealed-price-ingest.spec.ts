@@ -26,6 +26,7 @@ describe('sealedMarketGradeKey — gradeKey del sellado de MERCADO (§4.19d)', (
 describe('PricingService.persistSealedMarketReference — hermano money-safe (§4.19d)', () => {
   function build(existing: { isManualOverride: boolean } | null) {
     const prisma = {
+      $executeRaw: jest.fn().mockResolvedValue(0), // candado de precios compartido (§PRICE-PATTERN 6.6): no-op en memoria
       priceReference: {
         // v1.29 (M-31): persistSealedMarketReference usa findFirst + create/update (cardProductId=null).
         findFirst: jest.fn().mockResolvedValue(existing),
