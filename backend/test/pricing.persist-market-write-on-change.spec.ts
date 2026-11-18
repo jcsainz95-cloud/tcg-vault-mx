@@ -68,6 +68,7 @@ function build(seed: Row[] = []) {
   };
 
   const prisma = {
+    $executeRaw: jest.fn(async () => 0), // §PRICE-PATTERN 6.6: candado compartido de precios (`pg_advisory_xact_lock_shared`)
     priceReference: {
       findFirst: jest.fn(async (args: { where?: Record<string, unknown>; orderBy?: any }) => {
         let hits = rows.filter((r) => matches(r, args.where ?? {}));

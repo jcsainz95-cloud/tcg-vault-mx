@@ -137,9 +137,9 @@ describe('planPatternRun — la regla de oro se aplica ANTES (PP-7 / qa IMPORTAN
     source: 'tcgcsv_singles', isManual: false, capturedDate: FRESH, evidenceDate: null, ...o,
   });
   /** `candUuid`: el uuid del candidato (desempata el ganador de la lectura ANTES del flip cuando no hay preferencia). */
-  const run = (v: PlanRow, base: ReaderBaseRow[], extra?: Set<string>) => {
+  const run = (v: PlanRow, base: ReaderBaseRow[], extra?: Set<string>, preCombos?: Set<string>) => {
     const cand = rb({ cardProductId: v.cardProductId, productExtId: v.tcgplayerProductId, productName: 'Noctowl (Master Ball Pattern)', priceMxnCents: v.cents, isCandidate: true });
-    return planPatternRun([row({ cardId: 'noct', finish: 'holofoil', kind: 'set_base', cents: 1000 }), v], new Set([v.cardProductId!]), NOW, PATTERN_RUN_MAX, [...base, cand], extra);
+    return planPatternRun([row({ cardId: 'noct', finish: 'holofoil', kind: 'set_base', cents: 1000 }), v], new Set([v.cardProductId!]), NOW, PATTERN_RUN_MAX, [...base, cand], extra, preCombos);
   };
 
   it('AMBIGUA tras el flip (2 productos pref. 2 con > 25 % de diferencia) ⇒ cuarentena: no se reclasifica y el precio se conserva', () => {
@@ -174,6 +174,15 @@ describe('planPatternRun — la regla de oro se aplica ANTES (PP-7 / qa IMPORTAN
     expect([p.applied.length, p.flipIds.length, p.held]).toEqual([0, 0, 1]);
     const same = run(v, [rb({ priceMxnCents: 305, cardProductId: 'aaa', productName: 'Noctowl', productExtId: 1 })]);
     expect([same.applied.length, same.flipIds.length, same.safe]).toEqual([0, 1, 1]);
+  });
+  it('qa MENOR 6.6 (EXISTS de la lectura): `preVariantCombos` fija el `variantCombo` de HOY; si la lectura YA es ambigua (no hay precio publicado) el combo es seguro y NUNCA se informa un «de» inventado', () => {
+    const v = noct(90000);
+    const base = [rb({ priceMxnCents: 1000 })];
+    // sin el conjunto (respaldo de pruebas): sin `variant` previo no hay ambigüedad hoy ⇒ el patrón gana hoy (uuid) y se informa 90000 → 1000
+    expect(run(v, base).applied[0]).toMatchObject({ fromCents: 90000, toCents: 1000 });
+    // con el EXISTS de la lectura (otro `variant` colgado de ese acabado): hoy base 1000 y patrón 90000 son ambiguos ⇒ la lectura devuelve «pendiente»
+    const p = run(v, base, undefined, new Set(['noct|holofoil']));
+    expect([p.applied.length, p.deferred.length, p.safe, p.flipIds.length]).toEqual([0, 0, 1, 1]);
   });
   it('override MANUAL en el combo ⇒ seguro: el precio no depende del producto, no se informa como corrección (qa IMPORTANTE 1)', () => {
     const v = noct(15663);

@@ -13,18 +13,18 @@ export async function loadEffectiveVariantRows(
   db: Pick<PrismaService, '$queryRaw'> | Prisma.TransactionClient,
   cardIds: readonly string[],
   opts: { productTypes?: readonly string[]; gradeKeys?: readonly string[]; hypotheticalVariantIds?: readonly string[] } = {},
-): Promise<(EffectiveVariantRow & { observedAt: Date })[]> {
+): Promise<(EffectiveVariantRow & { observedAt: Date; usdCents: number | null })[]> {
   if (cardIds.length === 0) return [];
   const hyp = [...(opts.hypotheticalVariantIds ?? [])];
   const pt = opts.productTypes?.length ? Prisma.sql`AND pr."productType"::text IN (${Prisma.join([...opts.productTypes])})` : Prisma.empty;
   const gk = opts.gradeKeys?.length ? Prisma.sql`AND pr."gradeKey" IN (${Prisma.join([...opts.gradeKeys])})` : Prisma.empty;
   const rows = await (db as Pick<PrismaService, '$queryRaw'>).$queryRaw<
-    { cardId: string; productType: string; gradeKey: string; finish: string; cardProductId: string | null; kind: string | null; tcgplayerProductId: number | null; cents: number; observedAt: Date }[]
+    { cardId: string; productType: string; gradeKey: string; finish: string; cardProductId: string | null; kind: string | null; tcgplayerProductId: number | null; cents: number; usdCents: number | null; observedAt: Date }[]
   >(Prisma.sql`
     SELECT DISTINCT ON (pr."cardId", pr."productType", pr."gradeKey", pr."finish", pr."cardProductId")
            pr."cardId", pr."productType"::text AS "productType", pr."gradeKey", pr."finish"::text AS "finish", pr."cardProductId",
            CASE WHEN cp."id" = ANY (${hyp}::text[]) THEN 'variant' ELSE cp."kind"::text END AS "kind",
-           cp."tcgplayerProductId", pr."priceMxnCents" AS cents, COALESCE(pr."evidenceDate", pr."capturedDate") AS "observedAt"
+           cp."tcgplayerProductId", pr."priceMxnCents" AS cents, pr."priceUsdCents" AS "usdCents", COALESCE(pr."evidenceDate", pr."capturedDate") AS "observedAt"
     FROM "PriceReference" pr
     LEFT JOIN "CardProduct" cp ON cp."id" = pr."cardProductId"
     WHERE pr."cardId" IN (${Prisma.join([...cardIds])})
@@ -34,7 +34,7 @@ export async function loadEffectiveVariantRows(
       AND EXISTS (SELECT 1 FROM "CardProduct" v WHERE v."cardId" = pr."cardId" AND (v."kind" = 'variant'::"CardProductKind" OR v."id" = ANY (${hyp}::text[])))
     ORDER BY pr."cardId", pr."productType", pr."gradeKey", pr."finish", pr."cardProductId",
              COALESCE(pr."evidenceDate", pr."capturedDate") DESC, pr."capturedDate" DESC`);
-  return rows.map((r) => ({ ...r, cents: Number(r.cents) }));
+  return rows.map((r) => ({ ...r, cents: Number(r.cents), usdCents: r.usdCents == null ? null : Number(r.usdCents) }));
 }
 
 /**
@@ -88,4 +88,21 @@ export async function loadNonRawCandidateIds(db: Pick<PrismaService, '$queryRaw'
     WHERE pr."cardProductId" IN (${Prisma.join([...candidateIds])}) AND pr."refKind" = 'market'::"PriceRefKind"
       AND NOT (pr."productType" = 'raw'::"ProductType" AND pr."gradeKey" = 'raw:NM')`);
   return new Set(rows.map((r) => r.id));
+}
+
+/**
+ * `cardId|finish` con ≥ 1 producto `variant` que NO es candidato y cuyo `finishes` incluye el acabado: lo que la lectura REAL fija como `variantCombo`
+ * HOY (mismo `EXISTS` que `getReferencesBatch`), sin el filtro «con precio» que usaba el plan (qa MENOR 6.6).
+ */
+export async function loadPreVariantCombos(
+  db: Pick<PrismaService, '$queryRaw'> | Prisma.TransactionClient,
+  cardIds: readonly string[],
+  candidateIds: readonly string[],
+): Promise<Set<string>> {
+  if (cardIds.length === 0) return new Set();
+  const rows = await (db as Pick<PrismaService, '$queryRaw'>).$queryRaw<{ cardId: string; finish: string }[]>(Prisma.sql`
+    SELECT DISTINCT v."cardId", f::text AS "finish"
+    FROM "CardProduct" v CROSS JOIN LATERAL unnest(v."finishes") AS f
+    WHERE v."cardId" IN (${Prisma.join([...cardIds])}) AND v."kind" = 'variant'::"CardProductKind" AND NOT (v."id" = ANY (${[...candidateIds]}::text[]))`);
+  return new Set(rows.map((r) => `${r.cardId}|${r.finish}`));
 }

@@ -7,6 +7,7 @@ import { E2EHarness } from './helpers/e2e-app';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { PatternReclassifyService } from '../../src/modules/pricing/pattern-reclassify.service';
 import { PricingService } from '../../src/modules/pricing/pricing.service';
+import { PRICE_WRITE_LOCK_KEY } from '../../src/modules/pricing/price-write-lock';
 import { ListingPriceService } from '../../src/modules/pricing/listing-price.service';
 import { isVariantProductName, VARIANT_PRODUCT_PREFILTER_LIKE } from '../../src/common/variant-product';
 import * as fixture from '../fixtures/tcgcsv-variant-names.json';
@@ -69,7 +70,8 @@ describe('E2E — §PRICE-PATTERN', () => {
       await h.prisma.listingPrice.deleteMany({ where: { inventoryItemId: { in: items } } });
       await h.prisma.inventoryMovement.deleteMany({ where: { itemId: { in: items } } });
       await h.prisma.inventoryItem.deleteMany({ where: { id: { in: items } } });
-      await h.prisma.auditLog.deleteMany({ where: { OR: [{ entityId: { in: cardIds } }, { entityId: { startsWith: 'pp-' } }, { action: { in: ['pricing.pattern_reclassify_run', 'pricing.pattern_reclassify_paused'] } }] } });
+      await h.prisma.auditLog.deleteMany({ where: { OR: [{ entityId: { in: cardIds } }, { entityId: { startsWith: 'pp-' } }, { action: { in: ['pricing.pattern_reclassify_run', 'pricing.pattern_reclassify_paused', 'pricing.pattern_trial_rejected'] } }] } });
+      await h.prisma.configSetting.deleteMany({ where: { key: 'pattern_quarantine' } });
       await h.prisma.priceReference.deleteMany({ where: { cardId: { in: cardIds } } });
       await h.prisma.pendingPriceEntry.deleteMany({ where: { cardId: { in: cardIds } } });
       await h.prisma.cardProduct.deleteMany({ where: { cardId: { in: cardIds } } });
@@ -149,7 +151,7 @@ describe('E2E — §PRICE-PATTERN', () => {
     expect((await h.prisma.card.findUniqueOrThrow({ where: { id: A.id } })).availableFinishes).toEqual(expect.arrayContaining(['normal']));
 
     const r1 = await job.run();
-    expect(r1).toMatchObject({ violations: 0 });
+    expect(r1).toMatchObject({ trialRejected: 0, failedBatches: 0 });
     expect(r1.reclassified).toBeGreaterThanOrEqual(2);
     const kinds = (await h.prisma.cardProduct.findMany({ where: { cardId: A.id }, orderBy: { tcgplayerProductId: 'asc' } })).map((p) => p.kind);
     expect(kinds).toEqual(['set_base', 'variant', 'variant']);
@@ -195,7 +197,7 @@ describe('E2E — §PRICE-PATTERN', () => {
     expect((await refOf(B.id, 'holofoil'))?.referenceMxnCents).toBe(7700);
     expect((await h.prisma.card.findUniqueOrThrow({ where: { id: B.id } })).availableFinishes).toEqual(expect.arrayContaining(['normal', 'reverse_holo', 'holofoil']));
     expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_correction', entityId: B.id } })).toBe(0);
-    expect(r.violations).toBe(0);
+    expect(r.trialRejected).toBe(0);
   });
 
   it("CA-2 Erika's Oddish 001 Ascended Heroes: reversos únicos «(Poke Ball)» y «(Energy Symbol Pattern)» ⇒ el Reverse Holofoil queda con el de MENOR precio (centavos), 0 expuestos", async () => {
@@ -204,7 +206,7 @@ describe('E2E — §PRICE-PATTERN', () => {
     await product(O, O.baseId + 1, `${O.name} (Poke Ball)`, { reverse_holo: 40 }, undefined, 'set_base');
     await product(O, O.baseId + 2, `${O.name} (Energy Symbol Pattern)`, { reverse_holo: 25 }, undefined, 'set_base');
     const r = await job.run();
-    expect(r.violations).toBe(0);
+    expect(r.trialRejected).toBe(0);
     expect((await h.prisma.cardProduct.findMany({ where: { cardId: O.id, kind: 'variant' } })).length).toBe(2);
     expect((await refOf(O.id, 'reverse_holo'))?.referenceMxnCents).toBe(25);
     expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_correction', entityId: O.id } })).toBe(0);
@@ -301,48 +303,11 @@ describe('E2E — §PRICE-PATTERN', () => {
     expect(before).toBe(90000); // hoy gana el patrón (sin variant no hay preferencia ni ambigüedad)
     await h.prisma.auditLog.deleteMany({ where: { action: 'pricing.pattern_reclassify_run' } });
     const r = await job.run();
-    expect(r.rolledBack).toBe(0); // sin plan-guard esto sería una REVERSA tardía: el plan lo detiene ANTES
+    expect(r.trialRejected).toBe(0); // sin plan-guard la PRUEBA lo rechazaría: el plan lo detiene ANTES
     expect(r.held).toBeGreaterThanOrEqual(1);
     expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: v.id } })).kind).toBe('set_base');
     expect((await refOf(H.id, 'holofoil'))?.referenceMxnCents).toBe(before); // jamás PRICE_PENDING
     expect((await runItems()).some((i) => i.cardId === H.id)).toBe(false);
-    expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_flip_rolled_back', entityId: H.id } })).toBe(0);
-  });
-
-  it('PP-7 (b) REVERSA: si tras reclasificar la referencia SE PIERDE (lectura simulada), la carta vuelve a su kind, se audita `pattern_flip_rolled_back`, el informe NO la cuenta como corregida y el correo la avisa', async () => {
-    const mail = await captureMail();
-    const I = await card('I', ['holofoil']);
-    await product(I, I.baseId + 30, 'Otro nombre', { holofoil: 1000 }, HI_UUID());
-    const v = await product(I, I.baseId + 31, `${I.name} (Master Ball Pattern)`, { holofoil: 90000 }, LO_UUID());
-    const orig = pricing.getReferencesBatch.bind(pricing);
-    // defecto simulado: mientras el patrón sea `variant`, la lectura de esta carta no devuelve precio (lo que haría una ambigüedad que el plan no previó)
-    const spy = jest.spyOn(pricing, 'getReferencesBatch').mockImplementation(async (items) => {
-      const m = await orig(items);
-      if ((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: v.id } })).kind === 'variant') for (const k of [...m.keys()]) if (k.startsWith(`${I.id}|`)) m.delete(k);
-      return m;
-    });
-    try {
-      await h.prisma.auditLog.deleteMany({ where: { action: 'pricing.pattern_reclassify_run' } });
-      const r = await job.run();
-      expect(r.rolledBack).toBeGreaterThanOrEqual(1);
-      expect(r.violations).toBe(0); // tras revertir no queda nada mal
-      expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: v.id } })).kind).toBe('set_base');
-      const a = await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'pricing.pattern_flip_rolled_back', entityId: I.id } });
-      expect(JSON.stringify(a.after)).toContain('sin precio');
-      expect((await runItems()).some((i) => i.cardId === I.id)).toBe(false); // no se informa como corregida
-      const run = (await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'pricing.pattern_reclassify_run' } })).after as { applied: number; rolledBack: number };
-      expect(run.rolledBack).toBeGreaterThanOrEqual(1);
-      expect(run.applied).toBe(0);
-      expect(mail.bandeja.some((m) => m.text.includes('REVIRTIERON') && m.text.includes('0 corregidas'))).toBe(true);
-    } finally {
-      spy.mockRestore();
-      await mail.restore();
-    }
-    // y sin el defecto, la misma carta SÍ se corrige (la reversa no era un falso positivo del fixture)
-    const r2 = await job.run();
-    expect(r2.rolledBack).toBe(0);
-    expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: v.id } })).kind).toBe('variant');
-    expect((await refOf(I.id, 'holofoil'))?.referenceMxnCents).toBe(1000);
   });
 
   it('qa IMPORTANTE 1: el informe y el correo salen de lo MEDIDO — con el fixture :211 (base 305, patrón 15663, manual 9900) el precio real sigue en 9900 y NO se informa «15663→305»; la que sí bajó se cuenta 1', async () => {
@@ -382,7 +347,7 @@ describe('E2E — §PRICE-PATTERN', () => {
     });
     const r = await job.run();
     expect(r.held).toBeGreaterThanOrEqual(1);
-    expect(r.rolledBack).toBe(0);
+    expect(r.trialRejected).toBe(0);
     expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: v.id } })).kind).toBe('set_base');
     expect((await refOf(J.id, 'holofoil'))?.referenceMxnCents).toBe(90000);
   });
@@ -565,5 +530,303 @@ describe('E2E — §PRICE-PATTERN', () => {
     expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: pA.id } })).kind).toBe('set_base');
     expect((await h.prisma.cardProduct.findUniqueOrThrow({ where: { id: pB.id } })).kind).toBe('variant');
     expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_correction' } })).toBe(auditsBefore);
+  });
+
+  // ───────────────────────────── §PRICE-PATTERN 6.6 «prueba sin publicar» (CA-10..17) ─────────────────────────────
+  const FX = { rate: 20, bufferPct: 0 };
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  const quarantineRow = async () => ((await h.prisma.configSetting.findUnique({ where: { key: 'pattern_quarantine' } }))?.valueJson ?? {}) as Record<string, { sig: string; at: string; reasons: string[] }>;
+  const trialAudits = (cardId: string) => h.prisma.auditLog.count({ where: { action: 'pricing.pattern_trial_rejected', entityId: cardId } });
+  /** Deja la BD de la prueba sin candidatos ni memoria de cuarentena (cada prueba de 6.6 parte de cero y no contamina a la siguiente). */
+  async function clean() {
+    const pats = (await h.prisma.cardProduct.findMany({ where: { cardId: { in: cardIds }, name: { contains: 'Pattern)' } }, select: { id: true } })).map((p) => p.id);
+    await h.prisma.priceReference.deleteMany({ where: { cardProductId: { in: pats } } });
+    await h.prisma.cardProduct.deleteMany({ where: { id: { in: pats } } });
+    await h.prisma.configSetting.deleteMany({ where: { key: 'pattern_quarantine' } });
+    await h.prisma.auditLog.deleteMany({ where: { action: { in: ['pricing.pattern_reclassify_run', 'pricing.pattern_reclassify_paused', 'pricing.pattern_trial_rejected'] } } });
+  }
+  /**
+   * La carta de B-1 (qa 2/2): con los centavos CONGELADOS el plan ve «patrón 20000 ≫ base 1000» ⇒ expuesta, pero con el FX VIVO la base vale 50 USD ×20 =
+   * 100000 y el patrón 1 USD ×20 = 2000: reclasificar SUBIRÍA el precio publicado. Solo la lectura en vivo lo ve.
+   */
+  async function trap(n: string, baseUsd = 5000) {
+    const c = await card(n, ['holofoil']);
+    const base = await h.prisma.cardProduct.create({ data: { id: HI_UUID(), cardId: c.id, tcgplayerProductId: c.baseId, kind: 'set_base', name: `Otro nombre ${n}`, finishes: ['holofoil'] } });
+    const pat = await h.prisma.cardProduct.create({ data: { id: LO_UUID(), cardId: c.id, tcgplayerProductId: c.baseId + 1, kind: 'set_base', name: `${c.name} (Master Ball Pattern)`, finishes: ['holofoil'] } });
+    const ref = (cp: { id: string }, usd: number, mxn: number) =>
+      h.prisma.priceReference.create({
+        data: { cardId: c.id, productType: 'raw', gradeKey: 'raw:NM', finish: 'holofoil', cardProductId: cp.id, source: 'tcgcsv_singles', priceMxnCents: mxn, priceUsdCents: usd, fxRate: 17, fxBufferPct: 0, capturedDate: today(), evidenceDate: today(), refKind: 'market' },
+      });
+    await ref(base, baseUsd, 1000);
+    await ref(pat, 100, 20000);
+    return { c, base, pat };
+  }
+  /** Una carta normal con exposición real (base 1000, patrón 30000, uuids fijos): la prueba la confirma. */
+  async function exposed(n: string) {
+    const c = await card(n, ['holofoil']);
+    const base = await product(c, c.baseId, `Otro nombre ${n}`, { holofoil: 1000 }, HI_UUID());
+    const pat = await product(c, c.baseId + 1, `${c.name} (Master Ball Pattern)`, { holofoil: 30000 }, LO_UUID());
+    return { c, base, pat };
+  }
+  const kindOf = async (id: string) => (await h.prisma.cardProduct.findUniqueOrThrow({ where: { id } })).kind;
+  /** Lectura en vivo de la carta con el FX de la prueba (la que ve el cliente). */
+  const liveOf = async (cardId: string) => (await pricing.getReferencesBatch([key(cardId, 'holofoil')], { fx: FX })).get(`${cardId}|raw|raw:NM|holofoil`)?.referenceMxnCents ?? null;
+  /** Espía de la lectura en vivo DENTRO de la transacción del lote, justo tras el flip: `hook` corre con el flip ya hecho (pero sin COMMIT). */
+  function afterFlipHook(patId: string, hook: () => Promise<void>) {
+    const orig = pricing.getReferencesBatch.bind(pricing);
+    return jest.spyOn(pricing, 'getReferencesBatch').mockImplementation(async (items, opts) => {
+      if (opts?.client && (await opts.client.cardProduct.findUniqueOrThrow({ where: { id: patId } })).kind === 'variant') await hook();
+      return orig(items, opts);
+    });
+  }
+
+  it('CA-10 (qa B-1) la prueba EN VIVO rechaza la carta que subiría de precio: corrida 1 ⇒ cuarentena, 0 cambios, 0 correos; corrida 2 y 3 ⇒ 0 trabajo, 0 correos, 0 auditorías nuevas (3/3 corridas seguidas)', async () => {
+    await clean();
+    const mail = await captureMail();
+    const fxSpy = jest.spyOn(pricing, 'fxSnapshotSafe').mockResolvedValue(FX);
+    try {
+      const T = await trap('T1');
+      const before = await liveOf(T.c.id);
+      expect(before).toBe(2000); // hoy gana el patrón (uuid menor)
+      const r1 = await job.run();
+      expect([r1.trialRejected, r1.applied, r1.deferred, r1.reclassified, r1.failedBatches]).toEqual([1, 0, 0, 0, 0]);
+      expect(await kindOf(T.pat.id)).toBe('set_base'); // revertido DENTRO de la transacción
+      expect(await liveOf(T.c.id)).toBe(before); // 0 cambios de precio
+      const q = await quarantineRow();
+      expect(Object.keys(q)).toEqual([T.c.id]);
+      expect(q[T.c.id].reasons.join(' ')).toContain('2000 → 100000');
+      expect(await trialAudits(T.c.id)).toBe(1);
+      expect(r1.quarantined).toBe(1);
+      expect(r1.quarantinedCards).toEqual([{ cardId: T.c.id, reasons: q[T.c.id].reasons }]);
+      expect(mail.bandeja).toHaveLength(0); // cuarentena nueva sin cambios de precio ⇒ solo auditoría
+      const run1 = (await h.prisma.auditLog.findFirstOrThrow({ where: { action: 'pricing.pattern_reclassify_run' } })).after as Record<string, unknown>;
+      expect(run1).toMatchObject({ applied: 0, trialRejected: 1, quarantined: 1 });
+      const runsAfter1 = await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_reclassify_run' } });
+      for (let i = 2; i <= 3; i++) {
+        const r = await job.run();
+        expect([r.planned, r.trialRejected, r.applied, r.reclassified, r.quarantined]).toEqual([0, 0, 0, 0, 1]);
+        expect(await kindOf(T.pat.id)).toBe('set_base');
+      }
+      expect(mail.bandeja).toHaveLength(0);
+      expect(await trialAudits(T.c.id)).toBe(1);
+      expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_reclassify_run' } })).toBe(runsAfter1);
+      expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_flip_rolled_back' } })).toBe(0); // acción retirada
+    } finally {
+      fxSpy.mockRestore();
+      await mail.restore();
+      await clean();
+    }
+  });
+
+  it('CA-11 (qa IMP-A) un lector concurrente de la lectura pública durante la prueba JAMÁS ve la subida ni 0/NULL (k/N = 0 violaciones)', async () => {
+    await clean();
+    const fxSpy = jest.spyOn(pricing, 'fxSnapshotSafe').mockResolvedValue(FX);
+    const T = await trap('T2');
+    const baseline = await liveOf(T.c.id);
+    const seen: (number | null)[] = [];
+    let reading = true;
+    const orig = pricing.getReferencesBatch.bind(pricing);
+    const reader = (async () => {
+      while (reading) {
+        seen.push((await orig([key(T.c.id, 'holofoil')], { fx: FX })).get(`${T.c.id}|raw|raw:NM|holofoil`)?.referenceMxnCents ?? null);
+        await sleep(15);
+      }
+    })();
+    const spy = afterFlipHook(T.pat.id, () => sleep(900)); // el lote queda abierto, con el flip hecho, casi 1 s
+    try {
+      const r = await job.run();
+      expect(r.trialRejected).toBe(1);
+    } finally {
+      spy.mockRestore();
+      reading = false;
+      await reader;
+      fxSpy.mockRestore();
+    }
+    const bad = seen.filter((v) => v !== baseline).length;
+    expect(seen.length).toBeGreaterThanOrEqual(20);
+    expect(`${bad}/${seen.length}`).toBe(`0/${seen.length}`);
+    await clean();
+  });
+
+  it('CA-12 (seguridad PP-9) una excepción entre el flip y la medición ⇒ ROLLBACK: `kind` intacto, nada encolado, sin cuarentena; la corrida siguiente lo reintenta y lo confirma', async () => {
+    await clean();
+    const X = await exposed('X1');
+    const enq = jest.spyOn(lp, 'enqueueVariant');
+    const spy = afterFlipHook(X.pat.id, async () => { throw new Error('boom inyectado'); });
+    try {
+      const r = await job.run();
+      expect([r.failedBatches, r.reclassified, r.applied, r.trialRejected]).toEqual([1, 0, 0, 0]);
+      expect(await kindOf(X.pat.id)).toBe('set_base');
+      expect(await liveOf(X.c.id)).toBe(30000); // el precio público no se movió
+      expect(enq).not.toHaveBeenCalled();
+      expect(await quarantineRow()).toEqual({});
+    } finally {
+      spy.mockRestore();
+      enq.mockRestore();
+    }
+    const r2 = await job.run();
+    expect([r2.failedBatches, r2.reclassified, r2.applied]).toEqual([0, 1, 1]);
+    expect(await kindOf(X.pat.id)).toBe('variant');
+    expect(await liveOf(X.c.id)).toBe(1000);
+    await clean();
+  });
+
+  it('CA-13 (qa IMP-B) una ingesta de precios concurrente ESPERA al lote (no escribe a mitad), no provoca falsa reversa y el resultado es el de correr en serie', async () => {
+    await clean();
+    const X = await exposed('X2');
+    let sleeping = false;
+    let sleepEnded = 0;
+    const spy = afterFlipHook(X.pat.id, async () => { sleeping = true; await sleep(1200); sleepEnded = Date.now(); sleeping = false; });
+    let ingestDoneAt = 0;
+    let ingestDuringSleep = false;
+    try {
+      const running = job.run();
+      while (!sleeping) await sleep(20);
+      await sleep(100);
+      ingestDuringSleep = sleeping;
+      const ingest = pricing
+        .persistMarketReference(X.c.id, 'holofoil', { marketCents: 1100, currency: 'MXN', source: 'tcgcsv_singles' }, { rate: 17, bufferPct: 0 }, X.base.id)
+        .then(() => { ingestDoneAt = Date.now(); });
+      const r = await running;
+      await ingest;
+      expect([r.trialRejected, r.failedBatches, r.reclassified, r.applied]).toEqual([0, 0, 1, 1]);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(ingestDuringSleep).toBe(true);
+    expect(ingestDoneAt).toBeGreaterThanOrEqual(sleepEnded); // la ingesta NO terminó mientras el lote tenía el candado
+    // serie: la ingesta se aplicó DESPUÉS del commit y la lectura es la de la base ya con el precio nuevo
+    expect(await kindOf(X.pat.id)).toBe('variant');
+    expect(await liveOf(X.c.id)).toBe(1100);
+    await clean();
+  });
+
+  it('CA-14 (seguridad PP-10) misma firma ⇒ no se reintenta hasta los 7 días (y entonces SIN auditoría nueva); firma distinta ⇒ reintenta y audita', async () => {
+    await clean();
+    const fxSpy = jest.spyOn(pricing, 'fxSnapshotSafe').mockResolvedValue(FX);
+    try {
+      const T = await trap('T3');
+      const t0 = new Date();
+      expect((await job.run({ now: t0 })).trialRejected).toBe(1);
+      const sig0 = (await quarantineRow())[T.c.id].sig;
+      // +6 días, misma firma ⇒ no se toca
+      const t6 = new Date(t0.getTime() + 6 * 86_400_000);
+      expect((await job.run({ now: t6 })).trialRejected).toBe(0);
+      expect(await trialAudits(T.c.id)).toBe(1);
+      // precio nuevo (llega la ingesta) ⇒ firma distinta ⇒ reintenta, vuelve a fallar y audita otra vez
+      await h.prisma.priceReference.updateMany({ where: { cardProductId: T.base.id }, data: { priceUsdCents: 5100 } });
+      const r = await job.run({ now: t6 });
+      expect(r.trialRejected).toBe(1);
+      const sig1 = (await quarantineRow())[T.c.id].sig;
+      expect(sig1).not.toBe(sig0);
+      expect(await trialAudits(T.c.id)).toBe(2);
+      // a los 7 días de ESA cuarentena y misma firma ⇒ reintenta (frescura al día de entonces), falla igual y NO audita de nuevo
+      const t13 = new Date(t6.getTime() + 7 * 86_400_000);
+      await h.prisma.priceReference.updateMany({ where: { cardId: T.c.id }, data: { capturedDate: new Date(t13.toISOString().slice(0, 10)), evidenceDate: new Date(t13.toISOString().slice(0, 10)) } });
+      expect((await job.run({ now: new Date(t13.getTime() - 3_600_000) })).trialRejected).toBe(0); // 7 días menos 1 h
+      const r7 = await job.run({ now: t13 });
+      expect(r7.trialRejected).toBe(1);
+      expect((await quarantineRow())[T.c.id].sig).toBe(sig1);
+      expect(await trialAudits(T.c.id)).toBe(2);
+    } finally {
+      fxSpy.mockRestore();
+      await clean();
+    }
+  });
+
+  it('CA-15 (seguridad PP-11) un lote que excede su tiempo hace ROLLBACK y suelta el candado de precios; sus cartas se reintentan sin cuarentena', async () => {
+    await clean();
+    const X = await exposed('X3');
+    const spy = afterFlipHook(X.pat.id, () => sleep(3500));
+    const lockHeld = async () => Number((await h.prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND objid = ${PRICE_WRITE_LOCK_KEY}::bigint AND granted`)[0].n) > 0;
+    let heldMs = 0;
+    let r;
+    try {
+      const running = job.run({ batchTimeoutMs: 1500 });
+      let on = 0;
+      for (let i = 0; i < 200 && !on; i++) { if (await lockHeld()) on = Date.now(); else await sleep(20); }
+      expect(on).toBeGreaterThan(0); // el lote SÍ tomó el candado de precios
+      while (await lockHeld()) await sleep(20);
+      heldMs = Date.now() - on;
+      r = await running;
+    } finally {
+      spy.mockRestore();
+    }
+    expect(heldMs).toBeLessThan(2300); // 1.5 s de tope + margen; el lote colgado seguía dormido (3.5 s) y NO retuvo el candado
+    expect([r.failedBatches, r.reclassified, r.trialRejected]).toEqual([1, 0, 0]);
+    expect(await kindOf(X.pat.id)).toBe('set_base');
+    expect(await quarantineRow()).toEqual({}); // no fue violación: sin cuarentena
+    const held = await h.prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND objid = ${PRICE_WRITE_LOCK_KEY}::bigint AND granted`;
+    expect(Number(held[0].n)).toBe(0);
+    const r2 = await job.run();
+    expect([r2.failedBatches, r2.reclassified]).toEqual([0, 1]);
+    await clean();
+  });
+
+  it('CA-16 la cuarentena activa SUMA a la racha de auto-pausa: 3 corridas con 1, 2 y 3 cartas en cuarentena ⇒ pausa', async () => {
+    await clean();
+    const fxSpy = jest.spyOn(pricing, 'fxSnapshotSafe').mockResolvedValue(FX);
+    try {
+      await trap('Q1');
+      const a = await job.run();
+      await trap('Q2');
+      const b = await job.run();
+      expect([a.quarantined, b.quarantined, b.trialRejected]).toEqual([1, 2, 1]);
+      expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_reclassify_paused' } })).toBe(0);
+      await trap('Q3');
+      const c = await job.run();
+      expect(c.quarantined).toBe(3);
+      expect(await h.prisma.auditLog.count({ where: { action: 'pricing.pattern_reclassify_paused' } })).toBe(1);
+      expect((await job.run()).paused).toBe(true);
+    } finally {
+      fxSpy.mockRestore();
+      await clean();
+    }
+  });
+
+  it('CA-17 `PUT /admin/settings` con `pattern_quarantine` ⇒ 422, la clave no se lista aunque la fila exista, y el audit-log NO expone el `after` del rechazo (sin PII)', async () => {
+    await clean();
+    const fxSpy = jest.spyOn(pricing, 'fxSnapshotSafe').mockResolvedValue(FX);
+    try {
+      const T = await trap('T4');
+      expect((await job.run()).trialRejected).toBe(1);
+      expect(Object.keys(await quarantineRow())).toEqual([T.c.id]);
+      const tok = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
+      for (const body of [{ patternQuarantine: {} }, { pattern_quarantine: {} }]) {
+        expect((await h.api('PUT', '/admin/settings', { token: tok, json: body })).status).toBe(422);
+      }
+      expect(Object.keys(await quarantineRow())).toEqual([T.c.id]); // el PUT no la tocó
+      const get = await h.api<Record<string, unknown>>('GET', '/admin/settings', { token: tok });
+      expect(get.status).toBe(200);
+      expect(JSON.stringify(get.body)).not.toMatch(/uarantine/);
+      const log = await h.api<{ data: Record<string, unknown>[] }>('GET', '/admin/audit-log?action=pricing.pattern_trial_rejected', { token: tok });
+      expect(log.status).toBe(200);
+      expect(log.body.data.length).toBeGreaterThanOrEqual(1);
+      expect(log.body.data.every((d) => d.after === undefined)).toBe(true);
+    } finally {
+      fxSpy.mockRestore();
+      await clean();
+    }
+  });
+
+  it('qa MENOR 6.6: la base YA gana por uuid ⇒ el flip no cambia el precio: se confirma sin informar corrección (ni correo ni ítem), y `preVariantCombos` usa el EXISTS de la lectura', async () => {
+    await clean();
+    const mail = await captureMail();
+    try {
+      const c = await card('U1', ['holofoil']);
+      await product(c, c.baseId, `Otro nombre U1`, { holofoil: 1000 }, LO_UUID()); // uuid MENOR: ya gana hoy
+      const v = await product(c, c.baseId + 1, `${c.name} (Master Ball Pattern)`, { holofoil: 30000 }, HI_UUID());
+      expect(await liveOf(c.id)).toBe(1000);
+      const r = await job.run();
+      expect(r.reclassified).toBeGreaterThanOrEqual(1);
+      expect(await kindOf(v.id)).toBe('variant');
+      expect(await liveOf(c.id)).toBe(1000);
+      expect([r.applied, r.trialRejected, r.combosExposed]).toEqual([0, 0, 0]);
+      expect(mail.bandeja).toHaveLength(0);
+      expect((await runItems()).some((i) => i.cardId === c.id)).toBe(false);
+    } finally {
+      await mail.restore();
+      await clean();
+    }
   });
 });

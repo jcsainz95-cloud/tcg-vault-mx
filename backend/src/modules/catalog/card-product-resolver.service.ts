@@ -1,5 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { Finish, PriceRefKind, ProductType } from '@prisma/client';
+import { Finish, Prisma, PriceRefKind, ProductType } from '@prisma/client';
+import { lockPriceWriteShared, withPriceWriteShared } from '../pricing/price-write-lock';
 import { SettingsService } from '../settings/settings.service';
 import { patternClassifyEnabled } from '../pricing/pattern-dials';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -221,7 +222,11 @@ export class CardProductResolverService {
     finish: Finish,
     marketUsdCents: number,
     fx: { rate: number; bufferPct: number },
+    db?: Prisma.TransactionClient,
   ): Promise<void> {
+    // §PRICE-PATTERN 6.6 (IMP-B): escritura de mercado ⇒ candado COMPARTIDO con la prueba del job (`pricing/price-write-lock.ts`).
+    if (!db) return withPriceWriteShared(this.prisma, (tx) => this.upsertVariantPrice(cardId, cardProductId, finish, marketUsdCents, fx, tx));
+    await lockPriceWriteShared(db);
     const productType: ProductType = 'raw';
     const gradeKey = 'raw:NM';
     const capturedDate = today();
@@ -242,7 +247,7 @@ export class CardProductResolverService {
     // MONEY-REF-EXEMPT: lectura de la CLAVE del upsert de un ESCRITOR (tcgcsv_singles por producto),
     // no de candidatas de precio. Filtrar por naturaleza dejaría de ver la fila del día y el `create`
     // colisionaría con la `@@unique` (que no incluye `refKind`).
-    const existing = await this.prisma.priceReference.findUnique({ where: key });
+    const existing = await db.priceReference.findUnique({ where: key });
     if (existing?.isManualOverride) return; // §4.27f: el override de MERCADO manda
     const priceMxnCents = usdToMxnCents(marketUsdCents, fx.rate, fx.bufferPct);
     const data = {
@@ -256,7 +261,7 @@ export class CardProductResolverService {
       // el `update` del upsert (aquí `data` sirve a los dos, que es justo lo que la regla pide).
       refKind: PriceRefKind.market,
     };
-    await this.prisma.priceReference.upsert({
+    await db.priceReference.upsert({
       where: key,
       create: { cardId, productType, gradeKey, finish, capturedDate, cardProductId, ...data },
       update: data,

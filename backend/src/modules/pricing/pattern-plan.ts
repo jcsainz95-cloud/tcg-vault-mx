@@ -88,6 +88,11 @@ export function planPatternRun(
   readerBase?: readonly ReaderBaseRow[],
   /** Candidatos con precio de mercado FUERA de raw:NM (graded, etc.): la lectura aplica la «variante efectiva» a todos los tipos ⇒ cuarentena (PP/qa MENOR). */
   nonRawCandidateIds: ReadonlySet<string> = new Set(),
+  /**
+   * `cardId|finish` con ≥ 1 producto `variant` (NO candidato) cuyo `finishes` incluye el acabado: el MISMO `EXISTS` con que la lectura fija `variantCombo`
+   * (qa MENOR 6.6: antes se deducía de las filas con precio y podía divergir). Sin él (pruebas unitarias del plan) se deduce de las filas como antes.
+   */
+  preVariantCombos?: ReadonlySet<string>,
 ): PatternPlan {
   const baseByCombo = new Map<string, ReaderBaseRow[]>();
   for (const b of readerBase ?? readerBaseFromRows(rows, candidateIds)) {
@@ -147,7 +152,7 @@ export function planPatternRun(
     const pick = (rs: RefRow[]): RefRow => rs.reduce((a, b) => (isBetterRef(b, a) ? b : a));
     // DESPUÉS del flip: la base son las filas NO candidatas del día más fresco; la carta tendrá `variant` en este acabado ⇒ rigen preferencia y ambigüedad.
     const post = newestOf(rb.filter((r) => !r.isCandidate));
-    if (post.length === 0 || newestOf(post)[0] == null || observed(post[0]) < cutoff || post.some((r) => !(r.priceMxnCents > 0))) {
+    if (post.length === 0 || observed(post[0]) < cutoff || post.some((r) => !(r.priceMxnCents > 0))) {
       state.set(k, { kind: 'hold' });
       continue;
     }
@@ -158,19 +163,22 @@ export function planPatternRun(
       continue;
     }
     // ANTES del flip: lo que la lectura devuelve HOY (todos los productos, candidatos incluidos). Si el precio de después fuera MAYOR, no se toca (solo baja).
-    const preCombo = g.some((r) => r.kind === 'variant' && r.cardProductId != null && !candidateIds.has(r.cardProductId));
+    const preCombo = preVariantCombos ? preVariantCombos.has(k) : g.some((r) => r.kind === 'variant' && r.cardProductId != null && !candidateIds.has(r.cardProductId));
     const preRefs = newestOf(rb).map((r) => toRef(r, preCombo));
     const preWinner = pick(preRefs);
-    const preAmbiguous = isProductAmbiguous(preWinner, preRefs, (x) => x.priceMxnCents);
-    if (!preAmbiguous) {
-      if (preWinner.priceMxnCents < winner.priceMxnCents) {
-        state.set(k, { kind: 'hold' });
-        continue;
-      }
-      if (preWinner.priceMxnCents === winner.priceMxnCents) {
-        state.set(k, { kind: 'safe' }); // el flip no cambia el precio: nada que corregir ni que informar
-        continue;
-      }
+    if (isProductAmbiguous(preWinner, preRefs, (x) => x.priceMxnCents)) {
+      // HOY la lectura ya es «pendiente» (qa MENOR 6.6): no hay precio publicado que bajar, así que no hay «de» que informar (antes se inventaba el del
+      // patrón). El flip solo le da precio (el de la base); la prueba lo mide igual. Combo «seguro»: nada que corregir ni que contar.
+      state.set(k, { kind: 'safe' });
+      continue;
+    }
+    if (preWinner.priceMxnCents < winner.priceMxnCents) {
+      state.set(k, { kind: 'hold' });
+      continue;
+    }
+    if (preWinner.priceMxnCents === winner.priceMxnCents) {
+      state.set(k, { kind: 'safe' }); // el flip no cambia el precio (p. ej. la base ya ganaba por uuid): nada que corregir ni que informar
+      continue;
     }
     const maxBase = Math.max(...post.map((r) => r.priceMxnCents));
     const top = cands.reduce((a, b) => (b.cents > a.cents ? b : a));
@@ -179,7 +187,7 @@ export function planPatternRun(
       state.set(k, { kind: 'hold' });
       continue;
     }
-    state.set(k, { kind: 'exposed', combo: { cardId: top.cardId, finish: top.finish, fromCents: preAmbiguous ? top.cents : preWinner.priceMxnCents, toCents: winner.priceMxnCents, ratio, baseProductId: winner.productExtId ?? null } });
+    state.set(k, { kind: 'exposed', combo: { cardId: top.cardId, finish: top.finish, fromCents: preWinner.priceMxnCents, toCents: winner.priceMxnCents, ratio, baseProductId: winner.productExtId ?? null } });
   }
 
   // Cierre de un combo por productos compartidos (un producto = un `kind`): todos los combos que se mueven con él.

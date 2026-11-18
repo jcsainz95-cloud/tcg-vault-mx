@@ -9,12 +9,14 @@ import { FinishReconciler } from '../catalog/finish-reconciler.service';
 import { isVariantProductName, productPreferenceOf, VARIANT_PRODUCT_PREFILTER_LIKE } from '../../common/variant-product';
 import { SettingsService } from '../settings/settings.service';
 import { SettingKey } from '../settings/settings.constants';
-import { loadEffectiveVariantRows, loadNonRawCandidateIds, loadReaderBaseRows } from './effective-variant';
+import { loadEffectiveVariantRows, loadNonRawCandidateIds, loadPreVariantCombos, loadReaderBaseRows } from './effective-variant';
 import { PATTERN_RUN_MAX, PatternPlan, PlannedCombo, planPatternRun } from './pattern-plan';
 import { classifyCardProductKind } from './providers/tcgcsv-singles.provider';
 import { variantKey } from '../../common/variant-key';
 import { MONEY_REF_WHERE, PricingService } from './pricing.service';
 import { ListingPriceService } from './listing-price.service';
+import { lockPriceWriteExclusive } from './price-write-lock';
+import { PATTERN_QUARANTINE_DAYS, PATTERN_QUARANTINE_REASONS_MAX, PATTERN_QUARANTINE_REPORT_MAX, QuarantineEntry, QuarantineMap, cardSig, isQuarantineActive, readQuarantine, writeQuarantine } from './pattern-quarantine';
 
 /** Máximo de ítems del informe `pricing.pattern_reclassify_run` (6.3) y de los «mayores» que lleva el correo. */
 export const PATTERN_ITEMS_MAX = 500;
@@ -23,10 +25,28 @@ export const PATTERN_MAIL_TOP = 20;
 export const PATTERN_PAUSE_STREAK = 3;
 export const PATTERN_PAUSE_DAYS = 3;
 export { PATTERN_RUN_MAX };
-/** Candado consultivo del job (single-flight, punto 4b-i): UNA instancia a la vez; la segunda sale sin hacer nada. Censo: `lock-keys.census.spec.ts`. */
+/** Candado consultivo del job (single-flight, 4b-i; 6.6: se toma POR LOTE, `pg_try_advisory_xact_lock`): una instancia a la vez. Censo: `lock-keys.census.spec.ts`. */
 export const PATTERN_RECLASSIFY_LOCK_KEY = 91_170_217;
-/** La transacción que SOSTIENE el candado vive lo que dure la corrida (recalcular precios publicados puede tardar). */
-const PATTERN_RECLASSIFY_TX_TIMEOUT_MS = 25 * 60 * 1000;
+/** 6.6 (1): un lote de la prueba son ≤ 50 cartas en UNA transacción de ≤ 60 s (el candado de precios jamás vive más). */
+export const PATTERN_BATCH_CARDS = 50;
+export const PATTERN_BATCH_TX_TIMEOUT_MS = 60_000;
+
+type Combo = { cardId: string; finish: Finish };
+type RefSnap = { cardId: string; productType: ProductType; gradeKey: string; finish: Finish; cents: number | null };
+/** Bajada de la referencia raw NM de un combo, MEDIDA antes/después de la prueba (misma lectura en vivo, dentro de la transacción del lote). */
+type Measured = { cardId: string; finish: Finish; fromCents: number; toCents: number };
+type Rejected = { cardId: string; reasons: string[]; sig: string };
+type BatchOutcome = { skipped: true } | { skipped: false; measured: Measured[]; rejected: Rejected[] };
+
+export interface PatternRunOpts {
+  /** Freno por corrida (por defecto {@link PATTERN_RUN_MAX}). */
+  max?: number;
+  now?: Date;
+  /** Cartas por lote de la prueba (por defecto {@link PATTERN_BATCH_CARDS}). */
+  batchSize?: number;
+  /** Tiempo máximo de la transacción de un lote (por defecto {@link PATTERN_BATCH_TX_TIMEOUT_MS}); se acorta solo en pruebas. */
+  batchTimeoutMs?: number;
+}
 
 export interface PatternReclassifyResult {
   /** `true` ⇒ otra corrida tenía el candado: esta salió sin hacer nada. */
@@ -35,57 +55,69 @@ export interface PatternReclassifyResult {
   paused?: boolean;
   /** Productos `set_base|other` cuyo nombre coincide con «(… Pattern/Ball/Energy Symbol)» (candidatos). */
   candidates: number;
-  /** Productos reclasificados a `variant` en esta corrida. */
+  /** Productos reclasificados a `variant` y CONFIRMADOS (commit) en esta corrida. */
   reclassified: number;
   /** Combinaciones carta×acabado EXPUESTAS (hay base con precio fresco y la versión vale > 1.5×): aplicadas + diferidas. */
   combosExposed: number;
-  /** Combos que se corrigieron DE VERDAD (precio de referencia medido antes/después en `applyKind`, no el plan): ≤ {@link PATTERN_RUN_MAX}. */
+  /** Combos que se corrigieron DE VERDAD (bajada de la referencia medida en la prueba, no el plan): ≤ {@link PATTERN_RUN_MAX}. */
   applied: number;
-  /** Combos que el plan quería aplicar ahora (≥ `applied`: un override manual o una reversa los deja sin cambio real). */
+  /** Combos que el plan quería aplicar ahora (≥ `applied`: un override manual o un rechazo de la prueba los dejan sin cambio real). */
   planned: number;
-  /** Cartas cuya reclasificación se REVIRTIÓ porque, medida, habría subido un precio o lo habría dejado sin precio (PP-7). */
-  rolledBack: number;
+  /** Cartas cuya prueba falló en ESTA corrida (nueva cuarentena): el lote las revirtió dentro de la transacción, nadie vio nada. */
+  trialRejected: number;
+  /** Cartas en cuarentena ACTIVA al terminar (rechazadas ahora o antes, con la misma firma y < 7 días). */
+  quarantined: number;
+  /** Hasta {@link PATTERN_QUARANTINE_REPORT_MAX} cartas en cuarentena activa con sus motivos. */
+  quarantinedCards: { cardId: string; reasons: string[] }[];
+  /** Lotes que lanzaron una excepción o excedieron su tiempo: ROLLBACK completo, sus cartas se reintentan la siguiente corrida (sin cuarentena). */
+  failedBatches: number;
   /** Combos expuestos que esperan a la siguiente corrida (freno fijo). */
   deferred: number;
-  /** Combos en cuarentena (base vencida / sin base fresca / razón ≤ 1.5): el precio se conserva. */
+  /** Combos en cuarentena del PLAN (base vencida / sin base fresca / razón ≤ 1.5): el precio se conserva. */
   held: number;
-  /** Combinaciones cuyo PRECIO PUBLICADO (`ListingPrice`) cambió y quedaron auditadas `pricing.pattern_correction`. */
+  /** Combinaciones cuyo PRECIO PUBLICADO (`ListingPrice`) cambió tras confirmar y quedaron auditadas `pricing.pattern_correction`. */
   corrections: number;
-  /** Violaciones de «solo baja, nunca sin precio» que SIGUEN tras la reversa (debe ser 0; si no, se registra como error). */
-  violations: number;
   /** Combinaciones (carta×acabado) sin precio automático por ambigüedad real de producto. */
   ambiguous: number;
 }
 
-type Combo = { cardId: string; finish: Finish };
-type RefSnap = { cardId: string; productType: ProductType; gradeKey: string; finish: Finish; cents: number | null };
-type Snapshot = { refs: Map<string, RefSnap>; listing: Map<string, Combo & { price: number | null }> };
-/** Bajada de la referencia raw NM de un combo, MEDIDA antes/después de aplicar. */
-type Measured = { cardId: string; finish: Finish; fromCents: number; toCents: number };
-type ApplyResult = { changed: number; violations: number; rolledBack: { cardId: string; reasons: string[] }[]; refChanges: Measured[] };
+const PATTERN_QUARANTINE_DAYS_MS = PATTERN_QUARANTINE_DAYS * 86_400_000;
 
-const emptyResult = (): PatternReclassifyResult => ({ candidates: 0, reclassified: 0, combosExposed: 0, applied: 0, planned: 0, rolledBack: 0, deferred: 0, held: 0, corrections: 0, violations: 0, ambiguous: 0 });
+function chunksOf<T>(xs: readonly T[], n: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n));
+  return out;
+}
+
+const emptyResult = (): PatternReclassifyResult => ({
+  candidates: 0, reclassified: 0, combosExposed: 0, applied: 0, planned: 0, trialRejected: 0, quarantined: 0, quarantinedCards: [], failedBatches: 0, deferred: 0, held: 0, corrections: 0, ambiguous: 0,
+});
 
 /**
- * §PRICE-PATTERN v2 (docs/DECISIONES.md punto 6) — job `pattern-reclassify`, IDEMPOTENTE, al desplegar y diario. TODO AUTOMÁTICO (sin dial, sin aprobación).
+ * §PRICE-PATTERN v2.1 (docs/DECISIONES.md puntos 6 y 6.6) — job `pattern-reclassify`, IDEMPOTENTE, al desplegar y diario. TODO AUTOMÁTICO (sin dial, sin aprobación).
  *  1. Candidatos: `CardProduct set_base|other` cuyo NOMBRE termina en «(… Pattern|Ball|Energy Symbol)» (clasificador único).
  *  2. Plan puro (`planPatternRun`): por carta×acabado, un candidato solo se reclasifica si (a) es el ÚNICO producto con precio de ese acabado (queda como
- *     base: la lectura lo usa, 6.1) o (b) hay base fresca con precio y el candidato vale > 1.5× ⇒ combo EXPUESTO, se BAJA a la base. Cuarentena: base sin
- *     precio fresco o razón ≤ 1.5 ⇒ no se toca. Freno FIJO {@link PATTERN_RUN_MAX}: aplica los de mayor razón, difiere el resto (se drena solo).
- *  3. Aplica: reclasifica, recomputa `availableFinishes`, reencola el precio de las piezas de plataforma y audita `pricing.pattern_correction` por cada precio
- *     PUBLICADO que cambió. REGLA DE ORO HECHA CUMPLIR (PP-7): se MIDE la referencia del catálogo (todos los tipos/grados) y el `ListingPrice` antes y
- *     después; si algún precio sube, queda en 0/NULL o desaparece, la reclasificación de esa carta se REVIERTE (`pricing.pattern_flip_rolled_back`) y se
- *     informa. Antes de aplicar, el plan pone en cuarentena el combo cuya base quedaría ambigua (≥ 2 productos pref. 2 con > 25 %) o con candidatos con
- *     precio fuera de raw NM. Precios a mano/override son el tier manual y no se tocan.
- *  4. Informe (6.3): `pricing.pattern_reclassify_run {applied (medidos), deferred, exposed, items≤500, truncated, planned, rolledBack}` + un correo al dueño
- *     (solo si hubo ≥ 1 corregido, diferido o revertido). Los `items` aplicados llevan el before/after MEDIDO; los diferidos, el del plan.
- *  5. Auto-pausa (6.2): {@link PATTERN_PAUSE_STREAK} corridas seguidas con diferidos CRECIENTES ⇒ `pricing.pattern_reclassify_paused` + alerta; reanuda sola tras {@link PATTERN_PAUSE_DAYS} días.
- *  6. Audita `pricing.product_ambiguous` (≥ 2 productos «del montón» con precios que difieren > 25 % junto a un `variant`), una vez por semana y combinación.
+ *     base: la lectura lo usa, 6.1) o (b) hay base fresca con precio y el candidato vale > 1.5× ⇒ combo EXPUESTO, se BAJA a la base. Cuarentena del plan: base
+ *     sin precio fresco, razón ≤ 1.5 o base ambigua ⇒ no se toca. Freno FIJO {@link PATTERN_RUN_MAX}: aplica los de mayor razón, difiere el resto.
+ *  3. PRUEBA SIN PUBLICAR (6.6): por lote de ≤ 50 cartas, UNA transacción de ≤ 60 s que (a) toma el candado COMPARTIDO con la ingesta
+ *     (`PRICE_WRITE_LOCK_KEY`, exclusivo), (b) mide «antes» con la lectura EN VIVO (FX y mediana, nunca `priceMxnCents` congelado), (c) hace el flip de `kind`,
+ *     (d) mide «después» con la MISMA lectura y (e) revierte SOLO la carta que viola «solo baja, nunca sin precio» y la manda a cuarentena. Cualquier excepción
+ *     ⇒ ROLLBACK de todo el lote (no existe «flip sin medir»); hasta el COMMIT nadie ve nada. Después del commit: `availableFinishes`, `reprice` (BullMQ) y la
+ *     auditoría `pricing.pattern_correction` por cada precio PUBLICADO que cambió, solo de las cartas confirmadas.
+ *  4. Cuarentena persistente (`pattern-quarantine.ts`, fila `ConfigSetting`): la carta rechazada se reintenta solo si cambia su firma (precios/FX) o a los 7 días.
+ *     Sin correo ni `pattern_trial_rejected` repetidos; suma a la racha de auto-pausa.
+ *  5. Informe (6.3/6.6): `pricing.pattern_reclassify_run {applied (medidos), deferred, exposed, planned, trialRejected, quarantined, quarantinedCards≤50, items≤500,
+ *     truncated}`; correo al dueño solo si `applied ≥ 1` o `deferred ≥ 1`.
+ *  6. Auto-pausa (6.2): {@link PATTERN_PAUSE_STREAK} corridas seguidas con (diferidos + cuarentenas activas) CRECIENTES ⇒ `pricing.pattern_reclassify_paused` + alerta;
+ *     reanuda sola tras {@link PATTERN_PAUSE_DAYS} días.
+ *  7. Audita `pricing.product_ambiguous` (≥ 2 productos «del montón» con precios que difieren > 25 % junto a un `variant`), una vez por semana y combinación.
  * ⛔ No toca precios, inventario ni dinero directamente: solo la clase de un producto; el precio sale de la lectura de siempre.
  */
 @Injectable()
 export class PatternReclassifyService {
   private readonly logger = new Logger(PatternReclassifyService.name);
+  /** Single-flight dentro del proceso (la segunda instancia la ataja el `pg_try_advisory_xact_lock` de cada lote). */
+  private running = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -108,36 +140,61 @@ export class PatternReclassifyService {
   }
 
   /**
-   * SINGLE-FLIGHT (punto 4b-i): la corrida entera vive dentro de UNA transacción larga que toma `pg_try_advisory_xact_lock`; una segunda
-   * corrida en paralelo (boot + diario, dos instancias) NO obtiene el candado y sale sin hacer nada (`skipped`). El candado se libera solo al
-   * terminar o si el proceso muere. La transacción solo SOSTIENE el candado: el trabajo usa sus propias conexiones.
+   * Una corrida a la vez por proceso (`running`) y, entre instancias, por LOTE (`pg_try_advisory_xact_lock` dentro de la transacción del lote): la segunda
+   * instancia no obtiene el candado y sale sin hacer nada (`skipped`). Ya no hay una transacción de 25 minutos sosteniendo el candado (PP-11).
    */
-  async run(opts: { max?: number; now?: Date } = {}): Promise<PatternReclassifyResult> {
+  async run(opts: PatternRunOpts = {}): Promise<PatternReclassifyResult> {
+    if (this.running) {
+      this.logger.warn('pattern-reclassify: ya hay una corrida en curso; esta sale sin hacer nada.');
+      return { ...emptyResult(), skipped: true };
+    }
+    this.running = true;
+    try {
+      return await this.runInner(opts);
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /** Una transacción de lote: candado del job (try) + candado de precios (exclusivo, compartido con la ingesta) y luego `fn`. */
+  private inBatchTx<T>(timeoutMs: number, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<{ skipped: true } | { skipped: false; value: T }> {
     return this.prisma.$transaction(
-      async (lockTx) => {
-        const got = await lockTx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(${PATTERN_RECLASSIFY_LOCK_KEY}::bigint) AS ok`;
-        if (got[0]?.ok !== true) {
-          this.logger.warn('pattern-reclassify: ya hay una corrida en curso; esta sale sin hacer nada.');
-          return { ...emptyResult(), skipped: true };
-        }
-        return this.runLocked(opts);
+      async (tx) => {
+        const got = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(${PATTERN_RECLASSIFY_LOCK_KEY}::bigint) AS ok`;
+        if (got[0]?.ok !== true) return { skipped: true as const };
+        await lockPriceWriteExclusive(tx);
+        return { skipped: false as const, value: await fn(tx) };
       },
-      { timeout: PATTERN_RECLASSIFY_TX_TIMEOUT_MS, maxWait: 5_000 },
+      { timeout: timeoutMs, maxWait: 5_000 },
     );
   }
 
-  private async runLocked(opts: { max?: number; now?: Date }): Promise<PatternReclassifyResult> {
+  private async runInner(opts: PatternRunOpts): Promise<PatternReclassifyResult> {
     const max = opts.max ?? PATTERN_RUN_MAX;
     const now = opts.now ?? new Date();
+    const batchSize = Math.max(1, opts.batchSize ?? PATTERN_BATCH_CARDS);
+    const timeoutMs = opts.batchTimeoutMs ?? PATTERN_BATCH_TX_TIMEOUT_MS;
     const out = emptyResult();
 
     // REVERSA FUNCIONAL (flag apagado): `variant → set_base` y la lectura vuelve al comportamiento previo. Sin freno: es decisión explícita del dueño.
     if (!(await this.enabled())) {
       const back = await this.prisma.cardProduct.findMany({ where: { kind: 'variant' }, select: { id: true, cardId: true } });
       out.candidates = back.length;
-      if (back.length > 0) {
-        out.corrections = (await this.applyKind(back.map((b) => b.id), [...new Set(back.map((b) => b.cardId))], 'set_base')).changed;
-        out.reclassified = back.length;
+      const byCard = new Map<string, string[]>();
+      for (const b of back) byCard.set(b.cardId, [...(byCard.get(b.cardId) ?? []), b.id]);
+      for (const chunk of chunksOf([...byCard.keys()].sort(), batchSize)) {
+        const ids = chunk.flatMap((c) => byCard.get(c)!);
+        const before = await this.publishedPrices(chunk);
+        try {
+          const r = await this.inBatchTx(timeoutMs, (tx) => tx.cardProduct.updateMany({ where: { id: { in: ids } }, data: { kind: 'set_base' } }));
+          if (r.skipped) return { ...out, skipped: true };
+        } catch (e) {
+          out.failedBatches += 1;
+          this.logger.error(`pattern-reclassify: lote de reversa falló (ROLLBACK): ${(e as Error).message}`);
+          continue;
+        }
+        out.reclassified += ids.length;
+        out.corrections += await this.settle(chunk, before);
       }
       return out;
     }
@@ -156,36 +213,94 @@ export class PatternReclassifyService {
         AND "name" ILIKE ANY (${VARIANT_PRODUCT_PREFILTER_LIKE as string[]})`);
     const cand = pre.filter((p) => classifyCardProductKind(p.name) === 'variant' && isVariantProductName(p.name));
     out.candidates = cand.length;
+    const candCards = new Set(cand.map((c) => c.cardId));
+    const confirmedCards = new Set<string>();
+    const rejectedNow = new Map<string, Rejected>();
+    let plan: PatternPlan | null = null;
+    let measured: Measured[] = [];
+    const quarantineBefore = await readQuarantine(this.prisma);
 
     if (cand.length > 0) {
-      const candIds = new Set(cand.map((c) => c.id));
-      const cardIds = [...new Set(cand.map((c) => c.cardId))];
-      const rows = await loadEffectiveVariantRows(this.prisma, cardIds, { productTypes: ['raw'], gradeKeys: ['raw:NM'], hypotheticalVariantIds: [...candIds] });
-      // Lo que la lectura REAL conservaría de la base (sin colapsar por producto, con manual) y los candidatos con precio fuera de raw NM.
-      const readerBase = await loadReaderBaseRows(this.prisma, cardIds, [...candIds]);
-      const nonRaw = await loadNonRawCandidateIds(this.prisma, [...candIds]);
-      const plan = planPatternRun(rows, candIds, now, max, readerBase, nonRaw);
-      out.combosExposed = plan.applied.length + plan.deferred.length;
-      out.planned = plan.applied.length;
-      out.deferred = plan.deferred.length;
-      out.held = plan.held;
-      let measured: Measured[] = [];
-      let rolled: { cardId: string; reasons: string[] }[] = [];
-      if (plan.flipIds.length > 0) {
-        const flipCards = [...new Set(cand.filter((c) => plan.flipIds.includes(c.id)).map((c) => c.cardId))];
-        const r = await this.applyKind(plan.flipIds, flipCards, 'variant');
-        out.corrections = r.changed;
-        out.violations = r.violations;
-        out.rolledBack = r.rolledBack.length;
-        measured = r.refChanges;
-        rolled = r.rolledBack;
+      const allIds = cand.map((c) => c.id);
+      const cardIds = [...candCards];
+      const fx = await this.pricing.fxSnapshotSafe(); // UNA lectura de FX por corrida: la firma y las dos mediciones de cada lote usan la misma
+      const dials = await this.pricing.loadArbiterDialsSafe();
+      const rowsAll = await loadEffectiveVariantRows(this.prisma, cardIds, { productTypes: ['raw'], gradeKeys: ['raw:NM'], hypotheticalVariantIds: allIds });
+      // La firma de cada carta se calcula con TODAS sus filas vigentes (cualquier tipo/grado: la prueba mide todos).
+      const sigRows = await loadEffectiveVariantRows(this.prisma, cardIds, { hypotheticalVariantIds: allIds });
+      const sigRowsByCard = new Map<string, typeof sigRows>();
+      for (const r of sigRows) sigRowsByCard.set(r.cardId, [...(sigRowsByCard.get(r.cardId) ?? []), r]);
+      const sigs = new Map<string, string>(cardIds.map((c) => [c, cardSig(sigRowsByCard.get(c) ?? [], fx, dials)]));
+      // CUARENTENA ACTIVA (6.6 (2)): misma firma y < 7 días ⇒ ni se planea ni se prueba (cero trabajo, cero correo, cero auditoría de rechazo).
+      const skipCards = new Set(cardIds.filter((c) => isQuarantineActive(quarantineBefore[c], sigs.get(c)!, now)));
+      const candIds = new Set(cand.filter((c) => !skipCards.has(c.cardId)).map((c) => c.id));
+      const planCards = cardIds.filter((c) => !skipCards.has(c));
+      if (candIds.size > 0) {
+        const rows = rowsAll.filter((r) => !skipCards.has(r.cardId));
+        // Lo que la lectura REAL conservaría de la base (sin colapsar por producto, con manual) y los candidatos con precio fuera de raw NM.
+        const readerBase = await loadReaderBaseRows(this.prisma, planCards, [...candIds]);
+        const nonRaw = await loadNonRawCandidateIds(this.prisma, [...candIds]);
+        const preVariantCombos = await loadPreVariantCombos(this.prisma, planCards, [...candIds]);
+        plan = planPatternRun(rows, candIds, now, max, readerBase, nonRaw, preVariantCombos);
+        out.combosExposed = plan.applied.length + plan.deferred.length;
+        out.planned = plan.applied.length;
+        out.deferred = plan.deferred.length;
+        out.held = plan.held;
+        const flipSet = new Set(plan.flipIds);
+        const flipByCard = new Map<string, string[]>();
+        for (const c of cand) if (flipSet.has(c.id)) flipByCard.set(c.cardId, [...(flipByCard.get(c.cardId) ?? []), c.id]);
+        for (const chunk of chunksOf([...flipByCard.keys()].sort(), batchSize)) {
+          const ids = chunk.flatMap((c) => flipByCard.get(c)!);
+          const listingBefore = await this.publishedPrices(chunk);
+          let r: { skipped: true } | { skipped: false; value: BatchOutcome };
+          try {
+            r = await this.inBatchTx(timeoutMs, (tx) => this.trialBatch(tx, ids, chunk, fx, sigs, now));
+          } catch (e) {
+            // Excepción o más de 60 s ⇒ ROLLBACK de TODO el lote (no hubo flip visible ni cuarentena): se reintenta la siguiente corrida.
+            out.failedBatches += 1;
+            this.logger.error(`pattern-reclassify: lote de ${chunk.length} carta(s) falló y se REVIRTIÓ entero (ROLLBACK): ${(e as Error).message}`);
+            continue;
+          }
+          if (r.skipped) {
+            this.logger.warn('pattern-reclassify: otra instancia tiene el candado del job; esta sale sin hacer nada.');
+            return { ...out, skipped: true };
+          }
+          const b = r.value as unknown as BatchOutcome & { skipped: false };
+          const bad = new Set(b.rejected.map((x) => x.cardId));
+          for (const x of b.rejected) rejectedNow.set(x.cardId, x);
+          const ok = chunk.filter((c) => !bad.has(c));
+          for (const c of ok) confirmedCards.add(c);
+          out.reclassified += ok.reduce((n, c) => n + (flipByCard.get(c)?.length ?? 0), 0);
+          measured = measured.concat(b.measured);
+          out.corrections += await this.settle(ok, listingBefore);
+        }
+        measured.sort((x, y) => y.fromCents / y.toCents - x.fromCents / x.toCents || x.cardId.localeCompare(y.cardId));
         out.applied = measured.length;
-        const rolledCards = new Set(r.rolledBack.map((x) => x.cardId));
-        out.reclassified = cand.filter((c) => plan.flipIds.includes(c.id) && !rolledCards.has(c.cardId)).length;
       }
-      this.logger.log(`pattern-reclassify: ${cand.length} candidatos; ${out.reclassified} → variant; expuestas ${out.combosExposed} (planeadas ${out.planned}, corregidas medidas ${out.applied}, diferidas ${out.deferred}); cuarentena ${out.held}; revertidas ${out.rolledBack} carta(s); ${out.corrections} con precio publicado distinto.`);
-      if (out.applied + out.deferred + out.rolledBack > 0) await this.report(plan, now, measured, rolled);
     }
+
+    // Memoria de cuarentena al cierre: solo siguen las cartas que aún son candidatas (no confirmadas) y vigentes; lo demás se poda.
+    const qFinal = await readQuarantine(this.prisma);
+    const keep: QuarantineMap = {};
+    for (const [cardId, e] of Object.entries(qFinal)) {
+      if (candCards.has(cardId) && !confirmedCards.has(cardId) && now.getTime() - Date.parse(e.at) < PATTERN_QUARANTINE_DAYS_MS) keep[cardId] = e;
+    }
+    if (Object.keys(keep).length !== Object.keys(qFinal).length) await writeQuarantine(this.prisma, keep);
+    out.trialRejected = rejectedNow.size;
+    out.quarantined = Object.keys(keep).length;
+    out.quarantinedCards = Object.entries(keep).slice(0, PATTERN_QUARANTINE_REPORT_MAX).map(([cardId, e]) => ({ cardId, reasons: e.reasons }));
+    // Auditoría por carta SOLO en la 1.ª cuarentena o cuando la firma cambió y vuelve a fallar (6.6 (4)); jamás repetida con la misma firma.
+    for (const x of rejectedNow.values()) {
+      if (quarantineBefore[x.cardId]?.sig === x.sig) continue;
+      await this.audit
+        ?.log({ action: 'pricing.pattern_trial_rejected', entityType: 'Card', entityId: x.cardId, after: { cardId: x.cardId, reasons: x.reasons, sig: x.sig } })
+        .catch((e: Error) => this.logger.warn(`pattern-reclassify: no se pudo auditar el rechazo de ${x.cardId}: ${e.message}`));
+    }
+    this.logger.log(
+      `pattern-reclassify: ${cand.length} candidatos; ${out.reclassified} → variant (confirmados); expuestas ${out.combosExposed} (planeadas ${out.planned}, corregidas medidas ${out.applied}, diferidas ${out.deferred}); ` +
+        `cuarentena del plan ${out.held}; prueba rechazó ${out.trialRejected} carta(s) (activas en cuarentena ${out.quarantined}); lotes fallidos ${out.failedBatches}; ${out.corrections} con precio publicado distinto.`,
+    );
+    if (plan && (out.applied + out.deferred + out.trialRejected > 0)) await this.report(plan, now, measured, out);
 
     // Red de seguridad (6.1): productos que el import ya creó como `variant` (patrón único) y cuyo precio llegó después: su acabado entra a
     // `availableFinishes` sin esperar un re-sync. Idempotente (el reconciliador solo escribe si cambia).
@@ -197,51 +312,69 @@ export class PatternReclassifyService {
   }
 
   /**
-   * Cambia la clase de esos productos, recomputa `availableFinishes`, reencola el precio del día de las piezas de plataforma de esas cartas y, ya
-   * recalculado, MIDE antes/después (referencia del catálogo de TODOS los tipos/grados + `ListingPrice`). Si la reclasificación a `variant` hizo
-   * SUBIR un precio, lo dejó en 0/NULL o lo hizo desaparecer (PP-7), REVIERTE esa carta al `kind` original, reencola, lo audita
-   * (`pricing.pattern_flip_rolled_back`) y devuelve el motivo. Audita `pricing.pattern_correction` por cada precio PUBLICADO que quedó distinto.
-   * Devuelve los cambios REALES de referencia raw NM (de ahí salen el informe y el correo), no los del plan.
+   * LA PRUEBA de un lote (6.6 (1)), DENTRO de la transacción `tx` (que ya tiene el candado del job y el de precios): mide «antes», hace el flip de `kind`, mide
+   * «después» con la MISMA lectura en vivo (`getReferencesBatch` con el cliente `tx` y el FX fijo de la corrida) y revierte SOLO las cartas que violan «solo
+   * baja, nunca sin precio»; esas pasan a cuarentena (misma transacción). Nada de esto es visible fuera hasta el COMMIT; cualquier excepción ⇒ ROLLBACK.
    */
-  private async applyKind(ids: string[], cardIds: string[], kind: 'variant' | 'set_base'): Promise<ApplyResult> {
-    const prev = await this.prisma.cardProduct.findMany({ where: { id: { in: ids } }, select: { id: true, cardId: true, kind: true } });
-    const before = await this.snapshot(cardIds);
-    await this.prisma.cardProduct.updateMany({ where: { id: { in: ids } }, data: { kind } });
-    await this.finishReconciler.reconcile(cardIds);
-    await this.reprice(cardIds);
-    let after = await this.snapshot(cardIds);
-    let violations = 0;
-    const rolledBack: { cardId: string; reasons: string[] }[] = [];
-    if (kind === 'variant') {
-      const bad = this.assess(before, after);
-      if (bad.size > 0) {
-        const back = prev.filter((p) => bad.has(p.cardId));
-        for (const k of new Set(back.map((p) => p.kind))) await this.prisma.cardProduct.updateMany({ where: { id: { in: back.filter((p) => p.kind === k).map((p) => p.id) } }, data: { kind: k } });
-        const rbCards = [...bad.keys()];
-        await this.finishReconciler.reconcile(rbCards);
-        await this.reprice(rbCards);
-        after = await this.snapshot(cardIds);
-        for (const [cardId, reasons] of bad) {
-          rolledBack.push({ cardId, reasons });
-          this.logger.error(`pattern-reclassify: REVERSA en ${cardId} (solo baja / nunca sin precio): ${reasons.join('; ')}`);
-          await this.audit
-            ?.log({ action: 'pricing.pattern_flip_rolled_back', entityType: 'Card', entityId: cardId, after: { cardId, reasons: reasons.slice(0, 20), productIds: back.filter((p) => p.cardId === cardId).map((p) => p.id) } })
-            .catch((e: Error) => this.logger.warn(`pattern-reclassify: no se pudo auditar la reversa de ${cardId}: ${e.message}`));
-        }
-        violations = this.assess(before, after).size; // lo que SIGUE mal tras revertir (no debería existir)
-        if (violations > 0) this.logger.error(`pattern-reclassify: ${violations} carta(s) siguen con violación tras la reversa.`);
+  private async trialBatch(
+    tx: Prisma.TransactionClient,
+    ids: string[],
+    cardIds: string[],
+    fx: { rate: number; bufferPct: number } | null,
+    sigs: Map<string, string>,
+    now: Date,
+  ): Promise<BatchOutcome> {
+    const prev = await tx.cardProduct.findMany({ where: { id: { in: ids } }, select: { id: true, cardId: true, kind: true } });
+    const combos = await tx.priceReference.groupBy({
+      by: ['cardId', 'productType', 'gradeKey', 'finish'],
+      where: { cardId: { in: cardIds }, ...MONEY_REF_WHERE },
+    });
+    const read = async (): Promise<Map<string, RefSnap>> => {
+      const got = await this.pricing.getReferencesBatch(combos.map((c) => ({ cardId: c.cardId, productType: c.productType, gradeKey: c.gradeKey, finish: c.finish })), { client: tx, fx });
+      const m = new Map<string, RefSnap>();
+      for (const c of combos) {
+        const r = got.get(variantKey(c));
+        m.set(variantKey(c), { cardId: c.cardId, productType: c.productType, gradeKey: c.gradeKey, finish: c.finish, cents: r?.status === 'priced' ? (r.referenceMxnCents ?? null) : null });
       }
+      return m;
+    };
+    const before = await read();
+    await tx.cardProduct.updateMany({ where: { id: { in: ids } }, data: { kind: 'variant' } });
+    const after = await read();
+    const bad = this.assess(before, after);
+    if (bad.size > 0) {
+      const back = prev.filter((p) => bad.has(p.cardId));
+      for (const k of new Set(back.map((p) => p.kind))) await tx.cardProduct.updateMany({ where: { id: { in: back.filter((p) => p.kind === k).map((p) => p.id) } }, data: { kind: k } });
+      const q = await readQuarantine(tx);
+      for (const [cardId, reasons] of bad) q[cardId] = { sig: sigs.get(cardId) ?? '', at: now.toISOString(), reasons: reasons.slice(0, PATTERN_QUARANTINE_REASONS_MAX) } satisfies QuarantineEntry;
+      await writeQuarantine(tx, q);
     }
-    const refChanges: Measured[] = [];
-    for (const [k, b] of before.refs) {
-      const a = after.refs.get(k);
-      if (b.productType !== 'raw' || b.gradeKey !== 'raw:NM' || b.cents == null || a?.cents == null || a.cents >= b.cents) continue;
-      refChanges.push({ cardId: b.cardId, finish: b.finish, fromCents: b.cents, toCents: a.cents });
+    const measured: Measured[] = [];
+    for (const [k, b] of before) {
+      const a = after.get(k);
+      if (bad.has(b.cardId) || b.productType !== 'raw' || b.gradeKey !== 'raw:NM' || b.cents == null || a?.cents == null || a.cents >= b.cents) continue;
+      measured.push({ cardId: b.cardId, finish: b.finish, fromCents: b.cents, toCents: a.cents });
     }
-    refChanges.sort((x, y) => y.fromCents / y.toCents - x.fromCents / x.toCents || x.cardId.localeCompare(y.cardId));
+    return { skipped: false, measured, rejected: [...bad].map(([cardId, reasons]) => ({ cardId, reasons: reasons.slice(0, PATTERN_QUARANTINE_REASONS_MAX), sig: sigs.get(cardId) ?? '' })) };
+  }
+
+  /**
+   * DESPUÉS DEL COMMIT, solo de las cartas confirmadas: `availableFinishes`, reencola el precio del día de las piezas de plataforma (BullMQ; si falla, la
+   * corrida diaria idempotente y el barrido de precios lo rehacen) y audita `pricing.pattern_correction` por cada precio PUBLICADO que cambió.
+   * Devuelve cuántas combinaciones cambiaron de precio publicado.
+   */
+  private async settle(cardIds: string[], listingBefore: Map<string, Combo & { price: number | null }>): Promise<number> {
+    if (cardIds.length === 0) return 0;
+    try {
+      await this.finishReconciler.reconcile(cardIds);
+      await this.reprice(cardIds);
+    } catch (e) {
+      this.logger.warn(`pattern-reclassify: no se pudo reconciliar/reencolar tras el commit (se rehace en la siguiente corrida): ${(e as Error).message}`);
+    }
+    const after = await this.publishedPrices(cardIds);
     const changed = new Map<string, Combo & { from: number | null; to: number | null }>();
-    for (const [itemId, b] of before.listing) {
-      const a = after.listing.get(itemId);
+    for (const [itemId, b] of listingBefore) {
+      const a = after.get(itemId);
       if (a == null || a.price == null || a.price === b.price) continue;
       const k = this.key(b);
       if (!changed.has(k)) changed.set(k, { cardId: b.cardId, finish: b.finish, from: b.price, to: a.price });
@@ -257,7 +390,7 @@ export class PatternReclassifyService {
         })
         .catch((e: Error) => this.logger.warn(`pattern-reclassify: no se pudo auditar ${c.cardId}/${c.finish}: ${e.message}`));
     }
-    return { changed: changed.size, violations, rolledBack, refChanges };
+    return changed.size;
   }
 
   /** Reencola el precio del día de las piezas de plataforma de esas cartas y espera a que termine. */
@@ -269,45 +402,20 @@ export class PatternReclassifyService {
     await this.listingPrices.idle();
   }
 
-  /** Foto de lo que el cliente vería de esas cartas: referencia vigente de CADA combinación con mercado (todos los tipos/grados) y precio publicado. */
-  private async snapshot(cardIds: string[]): Promise<Snapshot> {
-    const refs = new Map<string, RefSnap>();
-    for (let i = 0; i < cardIds.length; i += 200) {
-      const combos = await this.prisma.priceReference.groupBy({
-        by: ['cardId', 'productType', 'gradeKey', 'finish'],
-        where: { cardId: { in: cardIds.slice(i, i + 200) }, ...MONEY_REF_WHERE },
-      });
-      const got = await this.pricing.getReferencesBatch(combos.map((c) => ({ cardId: c.cardId, productType: c.productType, gradeKey: c.gradeKey, finish: c.finish })));
-      for (const c of combos) {
-        const k = variantKey(c);
-        const r = got.get(k);
-        refs.set(k, { cardId: c.cardId, productType: c.productType, gradeKey: c.gradeKey, finish: c.finish, cents: r?.status === 'priced' ? (r.referenceMxnCents ?? null) : null });
-      }
-    }
-    return { refs, listing: this.listingPrices ? await this.publishedPrices(cardIds) : new Map() };
-  }
-
   /**
-   * «Solo baja, nunca sin precio» MEDIDO: por carta, los motivos de violación entre `before` y `after`. Referencia raw NM: desaparece/0/NULL o SUBE.
-   * Cualquier otro tipo/grado (la lectura aplica la «variante efectiva» a todos): CUALQUIER cambio. `ListingPrice`: desaparece/0/NULL o sube, pero solo
-   * si la referencia de su combinación cambió (si no cambió, un precio publicado distinto es un precio viejo que hoy se recalcula, no efecto del flip).
+   * «Solo baja, nunca sin precio» MEDIDO con la lectura en vivo: por carta, los motivos de violación entre `before` y `after`. Referencia raw NM:
+   * desaparece/0/NULL o SUBE. Cualquier otro tipo/grado (la lectura aplica la «variante efectiva» a todos): CUALQUIER cambio. El `ListingPrice` no entra:
+   * se recalcula DESPUÉS del commit desde esta misma lectura (su valor rezagado es el previo, nunca peor).
    */
-  private assess(before: Snapshot, after: Snapshot): Map<string, string[]> {
+  private assess(before: Map<string, RefSnap>, after: Map<string, RefSnap>): Map<string, string[]> {
     const bad = new Map<string, string[]>();
     const add = (cardId: string, why: string) => bad.set(cardId, [...(bad.get(cardId) ?? []), why]);
-    for (const [k, b] of before.refs) {
+    for (const [k, b] of before) {
       if (b.cents == null) continue;
-      const a = after.refs.get(k)?.cents ?? null;
+      const a = after.get(k)?.cents ?? null;
       const rawNm = b.productType === 'raw' && b.gradeKey === 'raw:NM';
       if (a == null || a <= 0) add(b.cardId, `${b.productType}/${b.gradeKey}/${b.finish}: ${b.cents} → sin precio`);
       else if (rawNm ? a > b.cents : a !== b.cents) add(b.cardId, `${b.productType}/${b.gradeKey}/${b.finish}: ${b.cents} → ${a}`);
-    }
-    for (const [itemId, b] of before.listing) {
-      if (b.price == null) continue;
-      const k = this.key(b);
-      if (before.refs.get(k)?.cents === after.refs.get(k)?.cents) continue; // referencia intacta ⇒ no atribuible al flip
-      const a = after.listing.get(itemId)?.price ?? null;
-      if (a == null || a <= 0 || a > b.price) add(b.cardId, `pieza ${itemId} ${b.finish}: publicado ${b.price} → ${a ?? 'sin precio'}`);
     }
     return bad;
   }
@@ -400,11 +508,12 @@ export class PatternReclassifyService {
 
 
   /**
-   * Informe de la corrida (6.3) y vigilancia de la fuente (6.2). Solo se llama con >= 1 combo corregido, diferido o revertido. Best-effort: un fallo
-   * de auditoría o de correo NO cambia lo ya aplicado. NO MIENTE: `applied` y los `items` aplicados son lo MEDIDO en `applyKind` (referencia antes/
-   * después); lo planeado que no cambió (override manual) o se revirtió no aparece como corregido. Los diferidos llevan los valores del plan.
+   * Informe de la corrida (6.3/6.6) y vigilancia de la fuente (6.2). Solo se llama con ≥ 1 combo corregido, diferido o rechazado por la prueba. Best-effort:
+   * un fallo de auditoría o de correo NO cambia lo ya confirmado. NO MIENTE: `applied` y los `items` aplicados son lo MEDIDO en la prueba (referencia en vivo
+   * antes/después); lo planeado que no cambió (override manual) o se rechazó no aparece como corregido. Los diferidos llevan los valores del plan. El correo
+   * va SOLO si `applied ≥ 1` o `deferred ≥ 1` (una cuarentena nueva sin cambios de precio queda en Auditoría).
    */
-  private async report(plan: PatternPlan, now: Date, measured: Measured[], rolled: { cardId: string; reasons: string[] }[]): Promise<void> {
+  private async report(plan: PatternPlan, now: Date, measured: Measured[], out: PatternReclassifyResult): Promise<void> {
     const ordered: { cardId: string; finish: string; fromCents: number; toCents: number }[] = [...measured, ...plan.deferred.map((d: PlannedCombo) => ({ cardId: d.cardId, finish: d.finish, fromCents: d.fromCents, toCents: d.toCents }))];
     const shown = ordered.slice(0, PATTERN_ITEMS_MAX);
     const cards = await this.prisma.card.findMany({
@@ -426,15 +535,15 @@ export class PatternReclassifyService {
         entityType: 'CardProduct',
         after: {
           applied: measured.length, planned: plan.applied.length, deferred: plan.deferred.length, exposed: plan.applied.length + plan.deferred.length,
-          rolledBack: rolled.length, rolledBackCards: rolled.slice(0, 50).map((r) => r.cardId), items, truncated: ordered.length > shown.length,
+          trialRejected: out.trialRejected, quarantined: out.quarantined, quarantinedCards: out.quarantinedCards, items, truncated: ordered.length > shown.length,
         },
       })
       .catch((e: Error) => this.logger.warn(`pattern-reclassify: no se pudo auditar la corrida: ${e.message}`));
-    await this.mailRun(measured.length, plan.deferred.length, rolled.length, items.slice(0, PATTERN_MAIL_TOP));
+    if (measured.length + plan.deferred.length > 0) await this.mailRun(measured.length, plan.deferred.length, out.quarantined, items.slice(0, PATTERN_MAIL_TOP));
     await this.checkStreak(now);
   }
 
-  /** Auto-pausa: las últimas {@link PATTERN_PAUSE_STREAK} corridas (cada una a ≤ 48 h de la anterior, tras la última pausa) con diferidos > 0 y CRECIENTES. */
+  /** Auto-pausa: las últimas {@link PATTERN_PAUSE_STREAK} corridas (cada una a ≤ 48 h de la anterior, tras la última pausa) con (diferidos + cuarentenas activas) > 0 y CRECIENTES. */
   private async checkStreak(now: Date): Promise<void> {
     try {
       const lastPause = await this.prisma.auditLog.findFirst({ where: { action: 'pricing.pattern_reclassify_paused' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
@@ -446,28 +555,32 @@ export class PatternReclassifyService {
       });
       if (runs.length < PATTERN_PAUSE_STREAK) return;
       const asc = [...runs].reverse();
-      const deferred = asc.map((r) => Number((r.after as { deferred?: unknown } | null)?.deferred ?? 0));
-      const growing = deferred.every((d, i) => d > 0 && (i === 0 || d > deferred[i - 1]));
+      // 6.6 (2): la racha mide lo pendiente de verdad = diferidos + cartas en cuarentena activas (las corridas viejas sin `quarantined` cuentan 0).
+      const pending = asc.map((r) => {
+        const a = r.after as { deferred?: unknown; quarantined?: unknown } | null;
+        return Number(a?.deferred ?? 0) + Number(a?.quarantined ?? 0);
+      });
+      const growing = pending.every((d, i) => d > 0 && (i === 0 || d > pending[i - 1]));
       const close = asc.every((r, i) => i === 0 || r.createdAt.getTime() - asc[i - 1].createdAt.getTime() <= 48 * 3_600_000);
       if (!growing || !close) return;
-      await this.audit?.log({ action: 'pricing.pattern_reclassify_paused', entityType: 'CardProduct', after: { deferred, pausedDays: PATTERN_PAUSE_DAYS, at: now.toISOString() } });
-      this.logger.error(`pattern-reclassify: AUTO-PAUSA: ${PATTERN_PAUSE_STREAK} corridas seguidas con diferidos crecientes (${deferred.join(' → ')}).`);
+      await this.audit?.log({ action: 'pricing.pattern_reclassify_paused', entityType: 'CardProduct', after: { deferred: pending, pausedDays: PATTERN_PAUSE_DAYS, at: now.toISOString() } });
+      this.logger.error(`pattern-reclassify: AUTO-PAUSA: ${PATTERN_PAUSE_STREAK} corridas seguidas con pendientes (diferidos + cuarentena) crecientes (${pending.join(' → ')}).`);
       await this.sendOwners(
         'TCG HUNT: la corrección de precios se pausó sola',
-        [`La corrección automática de precios de versiones «Pattern/Ball» frenó ${PATTERN_PAUSE_STREAK} corridas seguidas y la lista de pendientes sigue creciendo (${deferred.join(' → ')}). Parece una anomalía de la fuente de precios, no una corrección normal: el proceso se pausó ${PATTERN_PAUSE_DAYS} días y se reanuda solo. No tienes que hacer nada; si quieres revisar, está en Auditoría (pricing.pattern_reclassify_run).`],
+        [`La corrección automática de precios de versiones «Pattern/Ball» frenó ${PATTERN_PAUSE_STREAK} corridas seguidas y la lista de pendientes sigue creciendo (${pending.join(' → ')}). Parece una anomalía de la fuente de precios, no una corrección normal: el proceso se pausó ${PATTERN_PAUSE_DAYS} días y se reanuda solo. No tienes que hacer nada; si quieres revisar, está en Auditoría (pricing.pattern_reclassify_run).`],
       );
     } catch (e) {
       this.logger.warn(`pattern-reclassify: no se pudo evaluar la auto-pausa: ${(e as Error).message}`);
     }
   }
 
-  private async mailRun(applied: number, deferred: number, rolledBack: number, top: { name: string | null; set: string | null; finish: string; fromCents: number; toCents: number }[]): Promise<void> {
+  private async mailRun(applied: number, deferred: number, quarantined: number, top: { name: string | null; set: string | null; finish: string; fromCents: number; toCents: number }[]): Promise<void> {
     const mxn = (c: number) => `$${(c / 100).toFixed(2)}`;
     const lines = top.map((t) => `${t.name ?? '?'} (${t.set ?? '?'}, ${t.finish}): ${mxn(t.fromCents)} → ${mxn(t.toCents)}`);
     const head =
       `Corrección automática de precios de versiones «Pattern/Ball»: ${applied} corregidas hoy` +
       (deferred > 0 ? `, ${deferred} pendientes para la siguiente corrida diaria (límite de seguridad por día)` : '') +
-      (rolledBack > 0 ? `. ${rolledBack} carta(s) se REVIRTIERON por seguridad: la corrección habría subido su precio o la habría dejado sin precio (quedaron como estaban; detalle en Auditoría, pricing.pattern_flip_rolled_back)` : '') +
+      (quarantined > 0 ? `. ${quarantined} en cuarentena (detalle en Auditoría): la prueba previa vio que habrían subido de precio o quedado sin precio, así que no se tocaron` : '') +
       `. Solo bajan precios inflados; no necesitas aprobar nada. Las ${lines.length} de mayor diferencia (lista completa en Auditoría, pricing.pattern_reclassify_run):`;
     await this.sendOwners('TCG HUNT: corrección automática de precios', [head, ...lines]);
   }

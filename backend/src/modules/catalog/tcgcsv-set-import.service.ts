@@ -26,6 +26,7 @@ import { FinishReconciler } from './finish-reconciler.service';
 import { PokemonTcgIoClient } from './pokemontcg-io.client';
 import { normalizeCardNumber } from './card-product-resolver.service';
 import { AuditService } from '../audit/audit.service';
+import { lockPriceWriteShared } from '../pricing/price-write-lock';
 import { findImportableGroup, TCGCSV_IMPORTABLE_GROUPS } from './tcgcsv-importable-groups';
 import {
   TcgcsvSkipReason,
@@ -190,6 +191,7 @@ export class TcgcsvSetImportService {
 
     try {
       const imported = await this.prisma.$transaction(async (tx) => {
+        await lockPriceWriteShared(tx); // §PRICE-PATTERN 6.6: PRIMERA sentencia (sin filas bloqueadas aún ⇒ sin interbloqueo con la prueba del job)
         const got = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtext(${TCGCSV_IMPORT_LOCK_KEY}), ${groupId}::int) AS ok`;
         if (got[0]?.ok !== true) {
           throw BusinessException.conflict(

@@ -92,6 +92,7 @@ import {
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
 // MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
 import { variantKey } from '../../common/variant-key';
+import { lockPriceWriteShared, withPriceWriteShared } from './price-write-lock';
 import { ProductPreference, productPreferenceOf, effectiveVariantKey, effectiveVariantKeys } from '../../common/variant-product';
 import { StampRef, validateSpanishMarketPct } from '../../common/card-version';
 import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
@@ -564,6 +565,15 @@ export function arbiterCandidatesBySource(rows: RefRow[], liveMxnOf: (r: RefRow)
  * (eso sí está prohibido para `referenceMxnCents`, que es la CARGA; `source` es **procedencia**).
  * `capturedDate` sí puede viajar en público: la frescura del dato es información legítima de compra.
  */
+/**
+ * §PRICE-PATTERN 6.6 — opciones de la lectura en vivo para la PRUEBA del job: `client` = la transacción del lote (la lectura ve el flip que aún
+ * no está publicado) y `fx` = el snapshot de FX FIJO de la corrida (antes y después miden con el mismo; `null` ⇒ lectura legada). Sin opciones, igual que siempre.
+ */
+export interface ReadOpts {
+  client?: Prisma.TransactionClient;
+  fx?: { rate: number; bufferPct: number } | null;
+}
+
 export interface PriceInfo {
   status: 'priced' | 'pending';
   referenceMxnCents?: number;
@@ -1288,8 +1298,9 @@ export class PricingService {
    */
   async getReferencesBatch(
     items: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+    opts: ReadOpts = {},
   ): Promise<Map<string, PriceInfo>> {
-    return (await this.getReferencesBatchWithTier(items)).refs;
+    return (await this.getReferencesBatchWithTier(items, opts)).refs;
   }
 
   /**
@@ -1300,6 +1311,7 @@ export class PricingService {
    */
   async getReferencesBatchWithTier(
     items: { cardId: string; productType: ProductType; gradeKey: string; finish: Finish }[],
+    opts: ReadOpts = {},
   ): Promise<{ refs: Map<string, PriceInfo>; manualKeys: Set<string> }> {
     const map = new Map<string, PriceInfo>();
     const manualKeys = new Set<string>();
@@ -1337,7 +1349,7 @@ export class PricingService {
     const productTypes = [...new Set(items.map((i) => i.productType as string))];
     const gradeKeys = [...new Set(items.map((i) => i.gradeKey))];
     const finishes = [...new Set(items.map((i) => i.finish as string))];
-    const rows = await this.prisma.$queryRaw<
+    const rows = await (opts.client ?? this.prisma).$queryRaw<
       {
         cardId: string;
         productType: ProductType;
@@ -1427,7 +1439,7 @@ export class PricingService {
       }
     }
     // v1.x-fx-live: FX izada UNA vez por request (no por ítem) para el recomputo al vuelo.
-    const fx = await this.fxSnapshotSafe();
+    const fx = opts.fx !== undefined ? opts.fx : await this.fxSnapshotSafe();
     // v1.29: agrupa por clave y elige la MEJOR fila por precedencia (override > tcgcsv_singles > PPT),
     // no simplemente «la primera del orden desc» (que podía mezclar fuentes del mismo día).
     const bestByKey = new Map<string, (typeof rows)[number]>();
@@ -2899,6 +2911,10 @@ export class PricingService {
     // P-PROMOS (§5.12): el import de cartas escribe el precio DENTRO de su transacción (todo-o-nada).
     db: Prisma.TransactionClient | PrismaService = this.prisma,
   ): Promise<void> {
+    // §PRICE-PATTERN 6.6 (IMP-B): toda escritura de mercado toma el candado COMPARTIDO con la prueba del job (`price-write-lock.ts`). Cliente raíz ⇒
+    // transacción corta; ya dentro de una (import, bucle por tandas) ⇒ solo toma el candado y sigue.
+    if ('$transaction' in db) return withPriceWriteShared(db, (tx) => this.persistMarketReference(cardId, finish, market, fx, cardProductId, tx));
+    await lockPriceWriteShared(db);
     const productType: ProductType = 'raw';
     const gradeKey = 'raw:NM';
     const capturedDate = today();
@@ -3055,6 +3071,14 @@ export class PricingService {
     fxRate?: number | null;
     fxBufferPct?: number | null;
   }): Promise<void> {
+    // §PRICE-PATTERN 6.6 (IMP-B): candado compartido con la prueba del job (ver `price-write-lock.ts`).
+    return withPriceWriteShared(this.prisma, (tx) => this.persistArbiterReferenceIn(row, tx));
+  }
+
+  private async persistArbiterReferenceIn(
+    row: Parameters<PricingService['persistArbiterReference']>[0],
+    db: Prisma.TransactionClient,
+  ): Promise<void> {
     const cardProductId = row.cardProductId ?? null;
     if (!(row.priceMxnCents > 0)) return; // money-safe: nunca una fila de mercado en 0/negativo.
     const capturedDate = new Date(`${row.capturedDate}T00:00:00.000Z`);
@@ -3066,7 +3090,7 @@ export class PricingService {
 
     // Serie POR FUENTE (incluye `source` en el where — la diferencia con persistMarketReference).
     // MONEY-REF-EXEMPT: lectura de la CLAVE DE LA SERIE de un ESCRITOR (árbitro), no de candidatas.
-    const current = await this.prisma.priceReference.findFirst({
+    const current = await db.priceReference.findFirst({
       where: { cardId: row.cardId, productType: row.productType, gradeKey: row.gradeKey, finish: row.finish, cardProductId, source: row.source },
       orderBy: { capturedDate: 'desc' },
       select: { id: true, capturedDate: true, priceUsdCents: true, priceMxnCents: true, fxBufferPct: true, refKind: true },
@@ -3086,10 +3110,10 @@ export class PricingService {
     // Mismo valor y misma fila de HOY ⇒ nada que hacer (idempotente intra-día). Mismo valor fila vieja
     // ⇒ se escribe la del día (write-on-change avanza la serie). Valor nuevo ⇒ update si es de hoy, si no create.
     if (current != null && current.capturedDate.getTime() === capturedDate.getTime()) {
-      await this.prisma.priceReference.update({ where: { id: current.id }, data });
+      await db.priceReference.update({ where: { id: current.id }, data });
       return;
     }
-    await this.prisma.priceReference.create({
+    await db.priceReference.create({
       data: {
         cardId: row.cardId,
         productType: row.productType,

@@ -384,6 +384,10 @@ describe('Puertas de `ConfigSetting`: todas avisan o escriben solo claves que no
       keys: ['gsc_index_inspect_state'],
       why: '§GSHOP.A: bookkeeping del job de indexación (día del último 403 y tope del día por 429); no es `SettingKey` y no mueve ningún precio.',
     },
+    'modules/pricing/pattern-quarantine.ts': {
+      keys: ['pattern_quarantine'],
+      why: '§PRICE-PATTERN 6.6 (2): memoria de cuarentena del job (cartas cuya prueba falló); no es `SettingKey`, no se lista ni se edita en `/admin/settings` y no mueve ningún precio (solo decide a quién NO se le reintenta la reclasificación).',
+    },
     'modules/catalog/catalog-auto-state.service.ts': {
       keys: Object.values(CATALOG_AUTO_KEYS),
       why: 'AUTO catalogo: bookkeeping del job (ultimo exito, avance del backfill, primera vez vista de un grupo); no son `SettingKey` y no mueven ningun precio.',
@@ -443,8 +447,8 @@ describe('Puertas de `ConfigSetting`: todas avisan o escriben solo claves que no
       'modules/settings/settings.service.ts#update',
     ]);
     expect([...new Set(mudos)].map((m) => m.split('#')[0]).sort()).toEqual(Object.keys(SIN_AVISO).sort());
-    // (§D9 8.2: la única escritura muda de `pricing/` es el bookkeeping de la versión de la fórmula, listada arriba con su razón.)
-    expect(mudos.some((m) => m.startsWith('modules/pricing/') && !m.startsWith('modules/pricing/listing-price.service.ts#formulaTick'))).toBe(false);
+    // (§D9 8.2: las únicas escrituras mudas de `pricing/` son el bookkeeping de la versión de la fórmula y la memoria de cuarentena del job de patrones (6.6), listadas arriba con su razón.)
+    expect(mudos.some((m) => m.startsWith('modules/pricing/') && !m.startsWith('modules/pricing/listing-price.service.ts#formulaTick') && !m.startsWith('modules/pricing/pattern-quarantine.ts'))).toBe(false);
   });
 
   it('🐤 canario del método: una puerta muda junto a otra que avisa en el MISMO fichero se ve', () => {
