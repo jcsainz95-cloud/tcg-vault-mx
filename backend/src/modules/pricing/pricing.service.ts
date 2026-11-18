@@ -92,7 +92,7 @@ import {
 // Estos son los PRODUCTORES de los mismos mapas que catalog.service consume; deben llavear con la
 // MISMA fuente que el consumidor (mismo `variantKey`), no con una interpolación hand-rolled paralela.
 import { variantKey } from '../../common/variant-key';
-import { ProductPreference, productPreferenceOf } from '../../common/variant-product';
+import { ProductPreference, productPreferenceOf, effectiveVariantKey, effectiveVariantKeys } from '../../common/variant-product';
 import { StampRef, validateSpanishMarketPct } from '../../common/card-version';
 import { pieceDisplayIdentityOf } from '../../common/piece-display-identity';
 // v1.91⟨precios⟩ (M-75, §PRE.B / ARCHITECTURE §4.PRE (a)(b)): árbitro de mediana que ENVUELVE la lectura.
@@ -1355,6 +1355,7 @@ export class PricingService {
         cardName: string;
         cardTcgplayerId: string | null;
         variantCombo: boolean;
+        productKind: string | null;
       }[]
     >(Prisma.sql`
       WITH filtered AS (
@@ -1362,7 +1363,8 @@ export class PricingService {
                pr."priceMxnCents", pr."priceUsdCents", pr."isManualOverride",
                pr."source", pr."capturedDate", pr."cardProductId", pr."evidenceDate",
                (pr."isManualOverride" OR pr."source" = 'manual') AS is_manual,
-               cp."tcgplayerProductId" AS "productExtId", cp."name" AS "productName",
+               cp."tcgplayerProductId" AS "productExtId", cp."name" AS "productName", cp."kind"::text AS "productKind",
+               COALESCE(cp."kind" = 'variant'::"CardProductKind", false) AS is_variant_row,
                c."name" AS "cardName", c."tcgplayerId" AS "cardTcgplayerId",
                EXISTS (SELECT 1 FROM "CardProduct" v
                         WHERE v."cardId" = pr."cardId" AND v."kind" = 'variant'::"CardProductKind" AND pr."finish" = ANY (v."finishes")) AS "variantCombo"
@@ -1375,7 +1377,10 @@ export class PricingService {
           AND pr."finish"::text IN (${Prisma.join(finishes)})
           AND pr."refKind" = 'market'::"PriceRefKind"
           AND (pr."cardProductId" IS NULL
-               OR cp."kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind"))
+               OR cp."kind" IN ('set_base'::"CardProductKind", 'other'::"CardProductKind")
+               -- §PRICE-PATTERN v2 (6.1): las filas de productos variant se TRAEN (la más vigente por producto y clave) y la función única
+               -- effectiveVariantKeys decide abajo, en Node, cuáles valen (el patrón único de su acabado). El resto se descarta.
+               OR cp."kind" = 'variant'::"CardProductKind")
       ),
       ranked AS (
         -- P-53 ALTO-3 (§3): la ventana de frescura del TIER AUTOMATICO se mide por FRESCURA EFECTIVA
@@ -1385,17 +1390,30 @@ export class PricingService {
         -- la precedencia 4.27f. Con evidenceDate=null (filas legadas) COALESCE = capturedDate => ventana
         -- IDENTICA a hoy (CA-10).
         SELECT filtered.*,
-               MAX(CASE WHEN NOT is_manual THEN COALESCE("evidenceDate", "capturedDate") END)
-                 OVER (PARTITION BY "cardId", "productType", "gradeKey", "finish") AS max_auto_date
+               MAX(CASE WHEN NOT is_manual AND NOT is_variant_row THEN COALESCE("evidenceDate", "capturedDate") END)
+                 OVER (PARTITION BY "cardId", "productType", "gradeKey", "finish") AS max_auto_date,
+               ROW_NUMBER() OVER (PARTITION BY "cardProductId", "productType", "gradeKey", "finish"
+                                  ORDER BY COALESCE("evidenceDate", "capturedDate") DESC, "capturedDate" DESC) AS variant_rn
         FROM filtered
       )
       SELECT "cardId", "productType", "gradeKey", "finish",
              "priceMxnCents", "priceUsdCents", "isManualOverride",
              "source", "capturedDate", "cardProductId", "evidenceDate",
-             "productExtId", "productName", "cardName", "cardTcgplayerId", "variantCombo"
+             "productExtId", "productName", "cardName", "cardTcgplayerId", "variantCombo", "productKind"
       FROM ranked
-      WHERE is_manual OR COALESCE("evidenceDate", "capturedDate") = max_auto_date
+      WHERE is_manual
+         OR (NOT is_variant_row AND COALESCE("evidenceDate", "capturedDate") = max_auto_date)
+         OR (is_variant_row AND variant_rn = 1)
     `);
+    // §PRICE-PATTERN v2 (6.1): ÚNICA función de «variante efectiva» (la misma del reconciliador y del job). Un `variant` no manual que no valga se descarta.
+    const effVariant = effectiveVariantKeys(
+      rows.map((r) => ({ cardId: r.cardId, productType: r.productType, gradeKey: r.gradeKey, finish: r.finish, cardProductId: r.cardProductId, kind: r.productKind, tcgplayerProductId: r.productExtId, cents: Number(r.priceMxnCents) })),
+    );
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (r.productKind !== 'variant' || r.isManualOverride || r.source === 'manual') continue;
+      if (!effVariant.has(effectiveVariantKey({ cardProductId: r.cardProductId!, productType: r.productType, gradeKey: r.gradeKey, finish: r.finish }))) rows.splice(i, 1);
+    }
     // §PRICE-PATTERN: la preferencia de producto sale de los datos del JOIN (ancla de la carta ⇒ nombre exacto ⇒ resto).
     for (const r of rows as (typeof rows[number] & RefRow)[]) {
       // Fuera de un combo con `variant` NO se pone ni preferencia ni id externo ⇒ `isBetterRef` decide como siempre (incluido el uuid).
