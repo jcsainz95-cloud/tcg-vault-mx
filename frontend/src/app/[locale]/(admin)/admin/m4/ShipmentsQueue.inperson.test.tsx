@@ -94,7 +94,7 @@ describe('§PERSONA · confirmación y ejecución', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Entregado en persona' }));
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Entregado en persona' }));
-    expect(await screen.findByText(new RegExp(text))).toBeInTheDocument();
+    expect(await screen.findByText(text, { exact: false })).toBeInTheDocument();
   });
 });
 
