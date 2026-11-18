@@ -43,13 +43,8 @@ Resuelve: precios opacos, envíos repetidos, dudas de autenticidad/condición y 
 - Checkout con **Stripe** (modo real desde 2026-10-16, según el dueño). Webhook firmado e idempotente.
 - Destino **bóveda** (requiere cuenta) o **domicilio**. Titularidad `pending` → `settled` al liquidar; solo se retira lo `settled`.
 - Retiro sin mínimo de cartas; envío nacional; tarifa fija configurable (M10); **todo paquete va asegurado** (costo nuestro).
-- Guías con **Skydropx** desde «Capturar guía»: el operador elige paquetería (preferida preseleccionada) y puede
-  corregir toda la dirección (queda auditado). Correo «Entregado» y «en sucursal» automáticos.
-- **§PERSONA (HECHOS 2026-11-18 «Dale A»; `docs/DECISIONES.md` §PERSONA; gates qa + seg.):** botón «Entregado en persona»
-  en el armado, solo con envío preparado y sin guía (directo o retiro): salta guía/enviado, deja `entregado` con los
-  mismos efectos de inventario; queda quién/cuándo y marca «en persona»; costo de paquetería 0; un solo correo «entregado».
-  **No reembolsa envío** (el modal muestra el flete cobrado; decide el dueño). Sin «deshacer». Mismos roles que guía; aviso
-  al dueño solo si cobró flete y lo marcó otra persona. Sin «recoger» en el checkout.
+- Guías con **Skydropx** desde «Capturar guía»: el operador elige paquetería (preferida preseleccionada) y puede corregir toda la dirección (queda auditado). Correo «Entregado» y «en sucursal» automáticos.
+- **§PERSONA (HECHOS 2026-11-18 «Dale A»; `docs/DECISIONES.md` §PERSONA; gates qa + seg.):** botón «Entregado en persona» en el armado, solo con envío preparado y sin guía (directo o retiro): salta guía/enviado, deja `entregado` con los mismos efectos de inventario; queda quién/cuándo y marca «en persona»; costo de paquetería 0; un solo correo «entregado». **No reembolsa envío** (el modal muestra el flete cobrado; decide el dueño). Sin «deshacer». Mismos roles que guía; aviso al dueño solo si cobró flete y lo marcó otra persona. Sin «recoger» en el checkout.
 - Accesorios y energías: solo en compra con envío a domicilio (cross-sell), precio final del dueño con IVA.
 - Códigos de descuento (§DSC, alcance B).
 
@@ -93,8 +88,7 @@ Stack y estructura en `docs/ARCHITECTURE.md`; endpoints en `docs/API_CONTRACT.md
 
 ## 6. Criterios de aceptación vigentes (resumen por área)
 Lista completa (criterios 1…~1000) congelada en `docs/archive/PROJECT.md` (`grep -n "criterio NNN"`). Criterio nuevo: aquí, corto.
-1. **Tienda**: catálogo con filtros/facetas, ficha con precio con IVA dentro, sellado y accesorios; portada < 1 s
-   (Destacadas del día, Joyas para gradear por turnos).
+1. **Tienda**: catálogo con filtros/facetas, ficha con precio con IVA dentro, sellado y accesorios; portada < 1 s (Destacadas del día, Joyas para gradear por turnos).
 2. **Checkout**: invitado y con cuenta; destino bóveda/domicilio; desglose de importe; Stripe real; correo de confirmación.
 3. **Bóveda/portafolio**: cartas en custodia con acabado, pestaña Sellado, valuación a mercado y gráfica 5d…Máx.
 4. **Retiro/envío**: solicitud, cobro de envío, guía Skydropx, rastreo y correos de estado.
@@ -103,12 +97,10 @@ Lista completa (criterios 1…~1000) congelada en `docs/archive/PROJECT.md` (`gr
    preparar (palomeo carta por carta), buylist, usuarios y staff, finanzas/P&L, analítica de ventas, configuración.
 7. **Cuentas**: verificación de correo, recuperación de contraseña, Google, cuenta con solo el correo («termina tu cuenta»).
 8. **Seguridad**: sin críticos/altos abiertos; dinero idempotente y sin carreras; authz por rol sin IDOR.
-9. **§PERSONA**: botón solo con `preparedAt` y sin guía, con confirmación; 2 pulsaciones ⇒ 1 entrega y 1 correo; fuera de
-   sondeo, «Salida de hoy» y guías por cancelar; P&L sin «costo faltante»; línea de tiempo «Entregado en persona».
+9. **§PERSONA**: botón solo con `preparedAt` y sin guía, con confirmación; 2 pulsaciones ⇒ 1 entrega y 1 correo; fuera de sondeo, «Salida de hoy» y guías por cancelar; P&L sin «costo faltante»; línea de tiempo «Entregado en persona».
 
 ## 7. Métrica de «lanzado»
-Tienda en vivo cobrando en real, con los flujos críticos (compra, bóveda, retiro, buylist, reembolso) recorridos de
-punta a punta en producción.
+Tienda en vivo cobrando en real, con los flujos críticos (compra, bóveda, retiro, buylist, reembolso) recorridos de punta a punta en producción.
 
 ## 8. Preguntas abiertas
 Viven en `PENDIENTES.md` (índice con dueño y fecha). Las respondidas pasan a `HECHOS.md`.
