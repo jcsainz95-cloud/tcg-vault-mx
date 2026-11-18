@@ -7,6 +7,7 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { PICKING_SUMMARY_KEY } from '@/hooks/usePickingSummary';
 import { getAdminShipments, updateAdminShipmentStatus } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import { canDeliverInPerson, deliverShipmentInPerson } from '@/lib/api/shipments-in-person';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
@@ -17,7 +18,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Banner } from '@/components/ui/Banner';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useShipmentSteps } from '@/lib/pipelines';
-import { formatDateTimeMx } from '@/lib/format';
+import { formatDateTimeMx, formatMoneyCents } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
 import { Link } from '@/i18n/navigation';
@@ -114,10 +115,11 @@ export function ShipmentsQueue({
   const [statusChanged, setStatusChanged] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ target: AdminShipmentDTO; to: ShipmentStatus } | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, { text: string; links?: { href: string; label: string }[] }>>({});
+  const [personConfirm, setPersonConfirm] = useState<AdminShipmentDTO | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (confirm) cancelRef.current?.focus();
-  }, [confirm]);
+    if (confirm || personConfirm) cancelRef.current?.focus();
+  }, [confirm, personConfirm]);
 
   const statusMutation = useMutation({
     mutationFn: ({ id, to }: { id: string; to: ShipmentStatus }) => updateAdminShipmentStatus(id, to),
@@ -150,6 +152,42 @@ export function ShipmentsQueue({
       void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
     },
   });
+
+  // §PERSONA: «Entregado en persona». El servidor decide; el 409 se nombra.
+  const personMutation = useMutation({
+    mutationFn: (id: string) => deliverShipmentInPerson(id),
+    onSuccess: (_d, id) => {
+      void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
+      void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
+      void qc.invalidateQueries({ queryKey: PICKING_SUMMARY_KEY });
+      setStatusChanged(id);
+      setPersonConfirm(null);
+    },
+    onError: (e, id) => {
+      setPersonConfirm(null);
+      const err = e instanceof ApiClientError ? e : null;
+      const text =
+        err?.status === 409 && err.code === 'SHIPMENT_NOT_PREPARED'
+          ? t('statusActions.inPerson.errNotPrepared')
+          : err?.status === 409 && err.code === 'SHIPMENT_HAS_LABEL'
+            ? t('statusActions.inPerson.errHasLabel')
+            : err?.status === 409 && err.code === 'CONFLICT'
+              ? t('statusActions.inPerson.errConflict')
+              : getError(e);
+      setRowErrors((r) => ({ ...r, [id]: { text } }));
+      void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
+    },
+  });
+
+  function requestInPerson(s: AdminShipmentDTO) {
+    setStatusChanged(null);
+    setRowErrors((r) => {
+      const next = { ...r };
+      delete next[s.id];
+      return next;
+    });
+    setPersonConfirm(s);
+  }
 
   function requestChange(s: AdminShipmentDTO, to: ShipmentStatus) {
     setStatusChanged(null);
@@ -233,6 +271,11 @@ export function ShipmentsQueue({
                         {s.folio ? `${t('prep.shipmentRef')} ${s.folio}` : s.id}
                       </span>
                       <StatusBadge domain="shipment" value={s.status} />
+                      {s.labelSource === 'in_person' && (
+                        <span className={cn(TAG, 'text-text')} data-testid={`in-person-tag-${s.id}`}>
+                          {t('statusActions.inPerson.tag')}
+                        </span>
+                      )}
                       {s.items && <span className="text-xs text-muted">{t('itemCount', { count: s.items.length })}</span>}
                     </div>
                     {s.preparedAt && (
@@ -248,6 +291,11 @@ export function ShipmentsQueue({
                     {s.status !== 'cancelado' && s.status !== 'entregado' && s.status !== 'solicitado' && s.labelSource !== 'skydropx' && (
                       <Button size="sm" variant="secondary" onClick={() => onCaptureGuide(s)}>
                         {t('tracking.capture')}
+                      </Button>
+                    )}
+                    {canDeliverInPerson(s) && (
+                      <Button size="sm" variant="secondary" onClick={() => requestInPerson(s)}>
+                        {t('statusActions.inPerson.button')}
                       </Button>
                     )}
                     {(MANUAL_TRANSITIONS[s.status] ?? []).map((to) =>
@@ -403,6 +451,34 @@ export function ShipmentsQueue({
                 ? t('statusActions.deliveredBody', { recipient: recipientLabel(confirm.target) })
                 : t('statusActions.cancelBody')}
           </p>
+        )}
+      </Modal>
+
+      {/* §PERSONA — confirmación: folio, destinatario y envío cobrado (lo manda el servidor). */}
+      <Modal
+        open={personConfirm !== null}
+        onClose={() => setPersonConfirm(null)}
+        title={personConfirm ? t('statusActions.inPerson.title', { ref: refOf(personConfirm) }) : ''}
+        footer={
+          <>
+            <Button ref={cancelRef} variant="secondary" onClick={() => setPersonConfirm(null)}>
+              {tc('cancel')}
+            </Button>
+            <Button loading={personMutation.isPending} onClick={() => personConfirm && personMutation.mutate(personConfirm.id)}>
+              {t('statusActions.inPerson.confirm')}
+            </Button>
+          </>
+        }
+      >
+        {personConfirm && (
+          <div className="flex flex-col gap-2 text-sm text-text">
+            <p>{t('statusActions.inPerson.body', { recipient: recipientLabel(personConfirm) })}</p>
+            {(personConfirm.shippingFeeChargedCents ?? 0) > 0 && (
+              <p className="font-medium text-accent" data-testid="in-person-fee">
+                {t('statusActions.inPerson.feeCharged', { amount: formatMoneyCents(personConfirm.shippingFeeChargedCents!, locale) })}
+              </p>
+            )}
+          </div>
         )}
       </Modal>
     </section>

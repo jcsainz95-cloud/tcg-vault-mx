@@ -2682,7 +2682,18 @@
         "deliveredConfirm": "Mark delivered",
         "notCancellable": "This shipment is already paid and isn't cancelled by hand ({status}). Nothing was changed. If a card isn't shipping, mark it when preparing; if everything must be refunded, the super-admin does it in Sales.",
         "nothingToShip": "This withdrawal has no card left to ship: they all went back to the platform. It wasn't marked as shipped. Tell the super-admin to close it.",
-        "recipientUnknown": "unregistered recipient"
+        "recipientUnknown": "unregistered recipient",
+        "inPerson": {
+          "button": "Delivered in person",
+          "tag": "Delivered in person",
+          "title": "Deliver {ref} in person?",
+          "confirm": "Delivered in person",
+          "body": "For {recipient}. The customer picked it up: the order becomes \"delivered\", the pieces leave inventory and the customer gets an email. There is no undo from here.",
+          "feeCharged": "This order was charged {amount} for shipping; the system does not refund it.",
+          "errNotPrepared": "SHIPMENT_NOT_PREPARED: the shipment is not prepared. Prepare it first; nothing was changed.",
+          "errHasLabel": "SHIPMENT_HAS_LABEL: the shipment already has a label and cannot be delivered in person. Nothing was changed.",
+          "errConflict": "CONFLICT: the shipment changed while you were reviewing it. Reload the list; nothing was changed."
+        }
       },
       "prep": {
         "title": "Orders to prepare",
@@ -8082,6 +8093,7 @@
       "at_branch": "At the branch",
       "atBranchNamed": "At the branch: {branch}. Please pick it up.",
       "delivered": "Delivered",
+      "delivered_in_person": "Delivered in person",
       "line": "{label} · {datetime}",
       "newTab": "(opens in a new tab)"
     }

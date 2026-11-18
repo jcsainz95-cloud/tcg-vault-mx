@@ -1683,6 +1683,8 @@ export interface AdminShipmentDTO {
   requestedAt?: string;
   createdAt?: string;
   shippingFeeCents?: number;
+  /** §PERSONA: envío que cobró el pedido (centavos, del servidor); alimenta la confirmación de «Entregado en persona». */
+  shippingFeeChargedCents?: number;
   totalCents?: number;
   /** Costo real pagado a la paquetería (interno, v1.4-finance). */
   shippingCostCents?: number;
@@ -1769,7 +1771,8 @@ export const CARRIER_STATUSES: readonly CarrierStatus[] = [
   'destroyed',
   'canceled',
 ];
-export type ShipmentLabelSource = 'manual' | 'skydropx';
+/** §PERSONA: `in_person` ⇔ entregado en persona (sin guía ni paquetería). */
+export type ShipmentLabelSource = 'manual' | 'skydropx' | 'in_person';
 export type ShippingIvaSource = 'provider' | 'computed' | 'manual';
 
 /** §19.19.4 (sustituye la forma de §19.6) + `isPromo` de §19.20.4. */
@@ -2134,7 +2137,8 @@ export type CustomerTimelineKind =
   | 'out_for_delivery'
   | 'delivery_attempt'
   | 'at_branch'
-  | 'delivered';
+  | 'delivered'
+  | 'delivered_in_person';
 export const CUSTOMER_TIMELINE_KINDS: readonly CustomerTimelineKind[] = [
   'label_created',
   'shipped',
@@ -2143,6 +2147,7 @@ export const CUSTOMER_TIMELINE_KINDS: readonly CustomerTimelineKind[] = [
   'delivery_attempt',
   'at_branch',
   'delivered',
+  'delivered_in_person',
 ];
 export interface CustomerTimelineEventDTO {
   kind: CustomerTimelineKind;

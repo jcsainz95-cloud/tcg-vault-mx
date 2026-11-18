@@ -2682,7 +2682,18 @@
         "deliveredConfirm": "Marcar entregado",
         "notCancellable": "Este envío ya está pagado y no se cancela a mano ({status}). No se cambió nada. Si una carta no sale, se marca al preparar; si hay que devolver todo, lo hace el súper-admin en Ventas.",
         "nothingToShip": "Este retiro no tiene ninguna carta que enviar: todas volvieron a la plataforma. No se marcó como enviado. Avisa al súper-admin para cerrarlo.",
-        "recipientUnknown": "destinatario sin registrar"
+        "recipientUnknown": "destinatario sin registrar",
+        "inPerson": {
+          "button": "Entregado en persona",
+          "tag": "Entregado en persona",
+          "title": "¿Entregar {ref} en persona?",
+          "confirm": "Entregado en persona",
+          "body": "Para {recipient}. El cliente lo recogió: el pedido pasa a «entregado», las piezas salen del inventario y el cliente recibe un correo. No hay vuelta atrás desde aquí.",
+          "feeCharged": "Este pedido cobró envío {amount}; el sistema no lo reembolsa.",
+          "errNotPrepared": "SHIPMENT_NOT_PREPARED: el envío no está preparado. Prepáralo primero; no se cambió nada.",
+          "errHasLabel": "SHIPMENT_HAS_LABEL: el envío ya tiene guía y no puede entregarse en persona. No se cambió nada.",
+          "errConflict": "CONFLICT: el envío cambió mientras lo revisabas. Recarga la lista; no se cambió nada."
+        }
       },
       "prep": {
         "title": "Pedidos por preparar",
@@ -8082,6 +8093,7 @@
       "at_branch": "En sucursal",
       "atBranchNamed": "En sucursal: {branch}. Pasa a recogerlo.",
       "delivered": "Entregado",
+      "delivered_in_person": "Entregado en persona",
       "line": "{label} · {datetime}",
       "newTab": "(se abre en otra pestaña)"
     }
