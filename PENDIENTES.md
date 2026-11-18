@@ -24,6 +24,14 @@
 | PRICE-PATTERN-PROD | **#137 desplegado (Deploy OK 11:56 UTC) pero a las 12:31 UTC el Noctowl PRE 78 sigue en MX$230 (ficha) / MX$220 (catálogo)** y Vaporeon 22 MX$449, Archaludon 70 y Flutter Mane 43 MX$157, Fezandipiti 45 MX$147 (medido por el orquestador en la tienda pública, sondeo cada minuto 11:58-12:31). Hipótesis (backend, solo lectura): freno disparado (`exposedCombos` sin filtro de fecha > cap 200) ⇒ correo «una corrección de precios quedó en pausa» + auditoría `pricing.pattern_reclassify_halted`; o job en cola/no encolado (jobId fijo `pattern-reclassify-boot`). Pendiente del dueño: revisar correo / auditoría. | 2026-11-17 | dueño → orquestador | auditoría admin filtrada por `pricing.pattern_` |
 | UX-ALTA-LIGA-2 | Dueño (2026-11-12, captura Erika's Victreebel ASC #6): «para dar de alta todavía no puedo en la vista master set subir las que son de liga». Hipótesis del orquestador (NO MEDIDO en datos): la fila «Versión» solo sale con liga ya ligada y el alta rápida oculta las candidatas (`QuickAdd.tsx:343` `showCandidates={false}`; `IdsCaptureFields.tsx:231`). Arreglo propuesto: ligar candidatas desde el alta rápida. Atajo dado al dueño: «Alta por lote». Encargar a frontend al terminar §PROV F1 (mismo árbol). | 2026-11-12 (código) | frontend | `grep -n showCandidates frontend/src/app/*/\(admin\)/admin/m1/QuickAdd.tsx` |
 
+## 2026-11-18 — Tras publicar #138 (aviso de demoras)
+| ID | Qué | Medido | Dueño | Cómo se cierra |
+|---|---|---|---|---|
+| AVISO-PROD | Confirmar en producción que el aviso aparece tras cookies, una sola vez, y no en /checkout ni /compra; primer build real en Vercel con el stub `file:`. | 2026-11-18 (NO MEDIDO aún) | orquestador + dueño | captura en tcghunt.mx |
+| AVISO-FIN | El aviso se apaga solo el 2026-12-01 (`frontend/src/lib/site-notice.ts`), fecha no confirmada por el dueño. | 2026-11-18 | dueño | fecha del dueño → frontend |
+| DEP-PICO-M | Menores qa (5a6cabd7): (1) `parcel-watcher-stub.test.ts:14-18` no detecta volver a `module.exports` (interop vitest) → medir con Node ESM real; (2) regex del candado `extract` no ve clave entre comillas; (3) `.next/standalone` trae `next/dist/compiled/picomatch` sin versión, afectación GHSA-fc5q NO MEDIDA (seguridad-lead). | 2026-11-18 | frontend (1,2), seguridad-lead (3) | test endurecido + medición |
+| DEP-PICO-BACK | Excepción CVE-2026-112366 de backend (`.trivyignore`, ficha dev) vence 2026-12-15: podar o renovar con medición; opcional mover a `.trivyignore-image`. | 2026-11-18 | devops + seguridad-lead | antes del 2026-12-15 |
+
 ## 2026-11-06 — Tras publicar #122 y #123
 
 | # | Qué | Dueño | Medido | Comprobación |
