@@ -29,16 +29,19 @@ Todo es **automatizable** y está cableado en CI (ver `.github/workflows/`).
 **sin versión arreglada** (medido: `npm audit` marca `picomatch *`, también 4.0.7; un override a
 `^4.0.7` no limpia el aviso). Caduca sola: `exp:2026-12-15` (trivy deja de honrarla y los gates
 vuelven a rojo). En devDependencies la juzga además su ficha de `npm-audit-dev-fichas.tsv`
-(mismos IDs, misma fecha; dueño del cierre: **frontend** y **backend**; de la excepción: devops).
-*Por qué no es alcanzable (medido 2026-11-18):* backend `npm ls picomatch --omit=dev` **vacío**
+(mismos IDs, misma fecha; dueño del cierre: **backend**; de la excepción: devops).
+**Alcance (acotado 2026-11-18): solo la necesita BACKEND.** El frontend la dejó de necesitar con
+7980a686 (stub inerte de `@parcel/watcher`): `npm ls picomatch --omit=dev` **vacío** y
+`npm audit --omit=dev` = 0; picomatch solo queda en sus devDependencies (tailwindcss, vite,
+vitest), donde la juzga la ficha dev, no esta excepción.
+*Por qué no es alcanzable en backend (medido 2026-11-18):* `npm ls picomatch --omit=dev` **vacío**
 (solo `@nestjs/cli`, `jest`, `ts-jest`; 0 usos en `src/`/`prisma/`); en la imagen backend son 4
 copias inertes copiadas con las devDependencies (§6.2), ninguna en el arranque
-`migrate deploy` + `node dist/main.js`. Frontend: una sola ruta de runtime,
-`next-intl → @parcel/watcher → picomatch`, que solo carga el extractor de desarrollo de
-next-intl con globs **fijos**; `next.config.mjs` no lo activa y ningún `src/` importa picomatch.
-Ninguna entrada de usuario llega a un glob. Imagen frontend: NO MEDIDO.
-*Por qué en `.trivyignore` y no en `.trivyignore-image`:* el aviso lo ve también `trivy-fs` en los
-lockfiles; sin la línea ahí el gate de PR seguiría rojo. Efecto conocido: `trivy-dev-fichas.sh`
+`migrate deploy` + `node dist/main.js`. Ninguna entrada de usuario llega a un glob.
+*Por qué la línea sigue siendo global:* el formato plano de `.trivyignore` no admite acotarla por
+app ni por ruta; la línea se queda igual (misma fecha, mismo ID) y su único motivo vivo es
+`trivy-image` backend. Moverla a `.trivyignore-image` o a formato YAML con rutas la acotaría más,
+pero cambia la configuración del gate: requiere veredicto de seguridad-lead. Efecto conocido: `trivy-dev-fichas.sh`
 (que lee `.trivyignore`) deja de verlo y puede avisar de la ficha como «ya no aparece» (aviso, no
 rojo); `audit-npm-dev.sh` lo sigue viendo y casa la ficha.
 *Cierre:* antes del 2026-12-15, comprobar si picomatch >4.0.7 lo corrige; si no, renovar solo con

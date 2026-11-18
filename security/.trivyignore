@@ -73,10 +73,14 @@
 #     0 usos en src/ ni prisma/. En la imagen backend viaja como fichero inerte con las
 #     devDependencies (4 rutas bajo /app/node_modules/*/node_modules/picomatch; ninguna
 #     en el arranque `migrate deploy` + `node dist/main.js`).
-#   · frontend: única ruta de runtime next-intl → @parcel/watcher → picomatch, que solo
-#     carga el extractor de desarrollo de next-intl, con globs FIJOS; next.config.mjs no
-#     lo activa y ningún src/ importa picomatch. Ningún glob lo controla un usuario.
-# Va aquí (y no en .trivyignore-image) porque también lo ve trivy-fs en los lockfiles.
+#   · frontend: YA NO LO NECESITA (7980a686, 2026-11-18). @parcel/watcher es ahora un stub
+#     inerte (frontend/vendor/parcel-watcher-stub): `npm ls picomatch --omit=dev` VACÍO y
+#     `npm audit --omit=dev` = 0. Solo queda en devDependencies (tailwindcss, vite, vitest),
+#     que ni trivy-fs ni el standalone de la imagen frontend llevan.
+# ALCANCE: esta línea es GLOBAL. El formato plano de .trivyignore no admite acotar por
+# app ni por ruta; la única razón viva es trivy-image BACKEND (imagen con devDependencies,
+# Dockerfile.backend `npm ci --include=dev` sin prune). No se mueve a .trivyignore-image
+# ni a formato YAML sin veredicto de seguridad-lead.
 # En devDependencies lo juzga además su ficha en security/npm-audit-dev-fichas.tsv
 # (misma fecha, ambos IDs). Trivy deja de honrar la línea el 2026-12-15 y el gate
 # vuelve a ROJO solo. Cierre: revisar antes de esa fecha si picomatch >4.0.7 lo corrige;

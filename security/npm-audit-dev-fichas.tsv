@@ -45,4 +45,8 @@
 # coma (alias, §76): una ficha, una fecha; cada trinquete casa el ID que ve y ninguno pide podar en falso.
 # PODA 2026-11-18 (devops, DEP-PICO): GHSA-vfj7-8cjw-p6xm,CVE-2026-93687 (braces) retirada: venció el 2026-11-03.
 # ALTA 2026-11-18 (devops, DEP-PICO aprobada por seguridad-lead): picomatch, sin versión arreglada; ambos IDs.
-GHSA-fc5q-39xc-vjpf,CVE-2026-112366	backend,frontend	picomatch	frontend,backend	2026-12-15	sin versión arreglada (npm audit: picomatch *); backend solo dev (npm ls --omit=dev vacío); frontend solo next-intl→@parcel/watcher, extractor de desarrollo con globs fijos; medido 2026-11-18
+# ACOTADA 2026-11-18 (devops, FR/M4 de DEP-PICO): la parte de RUNTIME del frontend ya no existe (7980a686). La
+# columna app sigue con frontend porque el audit de devDependencies del frontend LO SIGUE VIENDO (medido:
+# `audit-npm-dev.sh` lista frontend/picomatch; `npm ls picomatch` en frontend = tailwindcss, vite, vitest). Quitarlo
+# no cambiaría el veredicto (las fichas casan por ID), pero la ficha diría algo falso sobre quién lo trae.
+GHSA-fc5q-39xc-vjpf,CVE-2026-112366	backend,frontend	picomatch	frontend,backend	2026-12-15	sin versión arreglada (npm audit: picomatch *); backend solo dev (npm ls --omit=dev vacío); frontend solo dev desde 7980a686 (stub de @parcel/watcher: npm ls picomatch --omit=dev vacío, npm audit --omit=dev = 0; quedan tailwindcss, vite, vitest); medido 2026-11-18
