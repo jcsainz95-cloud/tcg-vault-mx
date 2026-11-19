@@ -311,6 +311,16 @@ describe('§RETIRO-SALIDA — las piezas de un retiro salen al ENVIARSE', () => 
       const again = await db.createShipment(tok, { inventoryItemIds: [c.pid], addressId: addr.id });
       expect(again.body?.error?.code).not.toBe('ITEM_IN_ANOTHER_SHIPMENT');
     });
+    it('B3 💰 contracargo del origen: tras return-received la pieza vuelve a plataforma; sin devolución se queda con el cliente (gestión manual)', async () => {
+      const c = await custodyOrder();
+      const sinDev = await custodyOrder();
+      expect((await post(`/admin/shipments/${c.shipmentId}/return-received`)).status).toBe(200);
+      const dispute = (pi: string) => h.sendStripeWebhook({ type: 'charge.dispute.created', data: { object: { object: 'dispute', payment_intent: pi } } });
+      expect((await dispute(c.vo.pi)).status).toBeLessThan(300);
+      expect((await dispute(sinDev.vo.pi)).status).toBeLessThan(300);
+      expect((await db.piece(c.pid)).ownerType).toBe('platform');
+      expect((await db.piece(sinDev.pid)).ownerType).toBe('customer');
+    });
     it('DTO del cliente: GET /shipments/:id trae returnedAt null y, tras return-received, la fecha ISO', async () => {
       const c = await custodyOrder();
       const tok = await db.loginCustomer(c.u.email as string);
