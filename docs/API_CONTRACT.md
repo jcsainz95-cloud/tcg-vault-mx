@@ -135,7 +135,7 @@
 - POST `/admin/catalog/refresh-variants-all` · admin
 - POST `/admin/catalog/sync-all` · admin
 - POST `/admin/catalog/backfill` · admin
-- GET `/admin/catalog/tcgcsv-groups` · admin — SOLO los grupos de la lista explícita `TCGCSV_IMPORTABLE_GROUPS` (hoy 24451): `[{groupId,name,publishedOn:string|null,imported,productCount:int|null,cardCount}]`; `productCount` = productos con número en TCGCSV (null si no responde), `cardCount` = cartas locales; orden `publishedOn` desc, nulos al final; solo `super_admin`
+- GET `/admin/catalog/tcgcsv-groups` · admin — solo grupos de `TCGCSV_IMPORTABLE_GROUPS`: `[{groupId,name,publishedOn,imported,productCount,cardCount}]`, orden `publishedOn` desc; solo `super_admin`
 - POST `/admin/catalog/import-tcgcsv-set` · solo `super_admin` — `{groupId:int}` ⇒ `{setId,created,updated,stamped,noPrice,skipped:[{productId,name,reason}]}`, `reason` ∈ `no_number|number_mismatch|unknown_stamp|empty_name|no_base|ambiguous_base|product_already_linked|field_too_long`; errores 400, 404 `TCGCSV_GROUP_UNKNOWN` (fuera de la lista), 409 `TCGCSV_GROUP_COVERED` (pokemontcg.io ya publica el set), 409 `TCGCSV_IMPORT_IN_PROGRESS` (mismo grupo; sin espera), 502 `UPSTREAM_ERROR` (TCGCSV caído o > 5 MB), 503 `POKEMONTCG_UNAVAILABLE` (0 filas), 503 `TCGCSV_IMPORT_FAILED` (rollback total); todo-o-nada e idempotente; `AuditLog catalog.tcgcsv_import`
 - GET `/catalog/featured` · público
 - GET `/catalog/cards` · cuenta
@@ -270,7 +270,7 @@
 - POST `/admin/orders/:id/shipped-refund-reason` · staff 💰
 - POST `/admin/orders/:id/reclaim-vault` · admin
 - POST `/checkout/guest/quote` · público
-- GET `/checkout/shipping-rule` · público
+- GET `/checkout/shipping-rule` · público (solo umbral) · POST `/checkout/shipping-quote` · público · `{cp, items[]}` ⇒ `{quoteId, shippingFeeCents, service, etaDays, expiresAt}`; sessions reciben `shippingQuoteId`, vencido ⇒ 409 `SHIPPING_QUOTE_STALE` (DECISIONES §ENV3)
 - POST `/checkout/guest/session` · público
 - POST `/orders/guest/track` · público
 - POST `/orders/guest/resend-link` · público
@@ -328,7 +328,7 @@
 - GET `/admin/settings/iva-transfer` · staff
 - GET `/admin/settings/iva-transfer/preview` · staff
 - PUT `/admin/settings/iva-transfer` · staff
-- GET `/admin/audit-log` · staff (query opcional `action`, p. ej. `pricing.pattern_reclassify_run`; DECISIONES §PRICE-PATTERN 6.3/6.6; `after` solo de `pattern_reclassify_run`: +`planned,trialRejected,quarantined,quarantinedCards≤50`). `PUT /admin/settings` con `pattern_correction_cap` ⇒ 422 (dial retirado).
+- GET `/admin/audit-log` · staff (query opcional `action`; DECISIONES §PRICE-PATTERN 6.3/6.6). `PUT /admin/settings` con `pattern_correction_cap` ⇒ 422 (dial retirado).
 
 ### shipments
 - GET `/admin/shipments` · staff
@@ -351,7 +351,7 @@
 - POST `/admin/shipments/:id/label/release` · admin 💰
 - PATCH `/admin/shipments/:id/status` · staff
 - POST `/admin/shipments/:id/tracking` · staff
-- POST `/admin/shipments/:id/delivered-in-person` · staff 💰 · `{}` ⇒ 200 `entregado`/`in_person`; 409 `SHIPMENT_NOT_PREPARED`|`SHIPMENT_HAS_LABEL`|`CONFLICT` (DECISIONES §PERSONA)
+- POST `/admin/shipments/:id/delivered-in-person` · staff 💰 · 409 si no preparado o con guía (DECISIONES §PERSONA)
 - POST `/admin/buylist/:id/inbound-shipment` · staff
 - GET `/buylist/requests/:id/label.pdf` · cuenta
 - POST `/shipments/quote` · cuenta
