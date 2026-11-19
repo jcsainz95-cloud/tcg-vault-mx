@@ -669,7 +669,7 @@
       "prompt": "Enter your postal code to calculate shipping.",
       "waiting": "Calculating your FedEx shipping…",
       "waitingSlow": "Still calculating your FedEx shipping; it can take a few more seconds. Please keep this page open.",
-      "line": "FedEx shipping (arrives in {days, plural, one {# day} other {# days}})",
+      "line": "FedEx shipping",
       "free": "Free",
       "freeFrom": "Free from {freeFrom}",
       "error": "We couldn't calculate shipping. Check your connection and try again.",

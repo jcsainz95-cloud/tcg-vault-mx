@@ -55,7 +55,7 @@ export function ShippingQuoteLine({ state, className }: { state: ShippingQuoteSt
   } else if (q) {
     body = (
       <p className="flex flex-wrap items-baseline justify-between gap-x-4">
-        <span>{t('line', { days: q.etaDays })}</span>
+        <span>{t('line')}</span>
         <span className="font-mono" data-testid="shipping-quote-amount">
           {q.shippingFeeCents === 0 ? t('free') : formatMoneyCents(q.shippingFeeCents, locale)}
         </span>

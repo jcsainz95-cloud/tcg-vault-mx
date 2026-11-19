@@ -92,7 +92,7 @@ describe('§ENV3 · envío por CP en el checkout de invitado', () => {
     expect(postShippingQuote).toHaveBeenCalledWith({ cp: '44100', items: [{ inventoryItemId: 'inv-1002' }] }, expect.anything());
     await act(async () => resolve(quote()));
     expect(await screen.findByTestId('shipping-quote-amount')).toHaveTextContent('MX$210.00');
-    expect(screen.getByTestId('shipping-quote-line')).toHaveTextContent('Envío FedEx (llega en 1 día)');
+    expect(screen.getByTestId('shipping-quote-line')).toHaveTextContent('Envío FedEx');
     await waitFor(() => expect(screen.getByTestId('shipping-quote-line')).toHaveTextContent(/Gratis desde MX\$4,000\.00/));
   });
 
@@ -163,7 +163,7 @@ describe('§ENV3 · envío por CP en el checkout de invitado', () => {
     await screen.findByLabelText('Email');
     await usr.type(screen.getByLabelText('Postal code'), '44100');
     expect(await screen.findByTestId('shipping-quote-amount')).toHaveTextContent('Free');
-    expect(screen.getByTestId('shipping-quote-line')).toHaveTextContent('FedEx shipping (arrives in 1 day)');
+    expect(screen.getByTestId('shipping-quote-line')).toHaveTextContent('FedEx shipping');
     await waitFor(() => expect(screen.getByTestId('shipping-quote-line')).toHaveTextContent('Free from MX$4,000.00'));
   });
 });

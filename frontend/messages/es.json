@@ -669,7 +669,7 @@
       "prompt": "Escribe tu código postal para calcular el envío.",
       "waiting": "Calculando tu envío con FedEx…",
       "waitingSlow": "Sigue calculando tu envío con FedEx; puede tardar unos segundos más. No cierres la página.",
-      "line": "Envío FedEx (llega en {days, plural, one {# día} other {# días}})",
+      "line": "Envío FedEx",
       "free": "Gratis",
       "freeFrom": "Gratis desde {freeFrom}",
       "error": "No pudimos calcular el envío. Revisa tu conexión e inténtalo de nuevo.",
