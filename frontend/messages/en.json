@@ -662,8 +662,19 @@
       "bundleNoName": "An energy bundle can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck."
     },
     "feeHint": {
-      "cardsOnly": "+ shipping {shipping}, free from {freeFrom}",
-      "sealed": "Shipping {shipping}, free from {freeFrom}"
+      "cardsOnly": "Shipping calculated from your postal code · free from {freeFrom}",
+      "sealed": "Shipping calculated from your postal code · free from {freeFrom}"
+    },
+    "shippingQuote": {
+      "prompt": "Enter your postal code to calculate shipping.",
+      "waiting": "Calculating your FedEx shipping…",
+      "waitingSlow": "Still calculating your FedEx shipping; it can take a few more seconds. Please keep this page open.",
+      "line": "FedEx shipping (arrives in {days, plural, one {# day} other {# days}})",
+      "free": "Free",
+      "freeFrom": "Free from {freeFrom}",
+      "error": "We couldn't calculate shipping. Check your connection and try again.",
+      "retry": "Try again",
+      "changed": "Your shipping quote expired or changed: it is now {amount}. You were not charged; review the total and pay again."
     },
     "refundPromise": "If your card arrives damaged or wrong, we refund you.",
     "freeShippingRemaining": "{remaining} more for free shipping",
@@ -2319,6 +2330,15 @@
         "goToPrepare": "Go to “Prepare”",
         "goToReplace": "See under “To replace”",
         "sdx": {
+        "customerQuote": {
+          "eyebrow": "Quoted to the customer",
+          "charged": "{service}: the customer paid {charged} for shipping (quoted label cost: {quoted}).",
+          "fallback": "The quoted service is no longer available: {service} is selected. You can change it.",
+          "current": "Current cost of the selected option: {amount}.",
+          "same": "Same as quoted.",
+          "over": "{diff} more than quoted; above the allowed margin the system alerts the owner.",
+          "under": "{diff} less than quoted."
+        },
           "step": "Step {n} of 4 · {name}",
           "stepName": {
             "address": "Address",
@@ -7020,6 +7040,11 @@
         "copied": "Copied"
       },
       "fact": {
+        "quotedService": "Quoted service",
+        "boughtService": "Purchased service",
+        "costQuotedCents": "Cost quoted to the customer",
+        "costRealCents": "Actual label cost",
+        "differenceCents": "Difference",
         "changedKeys": "What changed",
         "carrierName": "Carrier",
         "chargedCents": "Charged",
@@ -7201,6 +7226,10 @@
           "title": "In-person hand-over with shipping charged",
           "shipmentRef": "shipment {folio}",
           "text": "{person} marked {ref} as handed over in person. The customer paid {fee} for shipping; the system does not refund it. If it should be refunded, decide it from Sales."
+        },
+        "AG-26": {
+          "title": "Label costs more than quoted to the customer",
+          "text": "The label for {ref} cost {real} and the customer was quoted {quoted} ({quotedService}); you bought {boughtService}. Difference: {diff}. This is only a notice: nothing was blocked."
         }
       },
       "prev": "Previous",
@@ -8967,7 +8996,7 @@
       "guaranteeTerms": "Terms and policy",
       "invoice": "Invoice",
       "invoiceValue": "For an invoice (CFDI), email {email} after paying, quoting your order.",
-      "shippingValue": "Cards {cards} per order · sealed {sealed} · free from {freeFrom} on any order"
+      "shippingValue": "Shipping calculated from your postal code · free from {freeFrom} on any order"
     },
     "contact": {
       "title": "Contact",

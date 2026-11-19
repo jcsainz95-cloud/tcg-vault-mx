@@ -28,7 +28,9 @@ export const PANEL_ONLY_CODES: readonly SpendAlertCode[] = ['AG-24'];
  * §PERSONA: AG-25 «Entrega en persona con envío cobrado» — correo inmediato al dueño y ⛔ no se apaga (no está en
  * `SPEND_ALERT_SWITCHABLE_CODES` ni se lista en los controles de apagado de M10). Solo se ve en lista y filtro.
  */
-export const UNSILENCEABLE_CODES: readonly SpendAlertCode[] = ['AG-25'];
+export const UNSILENCEABLE_CODES: readonly SpendAlertCode[] = ['AG-25', 'AG-26'];
+// §ENV3.8: AG-26 «Guía más cara que lo cotizado al cliente» — inmediato, informativo y tampoco se apaga (DECISIONES §ENV3.8
+// no lo hace silenciable); se ve en la lista y el filtro igual que AG-25.
 /**
  * El filtro «Tipo» (§43.20.5): los que se apagan, AG-21 y AG-22 (OWN-3) y AG-24 (§DYN.4.5), en orden de código.
  * AG-14…AG-20 fuera (sin disparador).

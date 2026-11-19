@@ -94,8 +94,6 @@ export default async function AboutPage({ params }: { params: Promise<{ locale: 
   };
   const shipping = rule
     ? t('buy.shippingValue', {
-        cards: formatMoneyCents(rule.cardsOnlyFeeCents, locale),
-        sealed: formatMoneyCents(rule.sealedFeeCents, locale),
         freeFrom: formatMoneyCents(rule.freeFromCents, locale),
       })
     : null;

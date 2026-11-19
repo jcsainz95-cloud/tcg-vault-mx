@@ -1818,6 +1818,22 @@ export interface ShipmentQuoteDTO {
   insurance: { insuredValueCents: number; coverageCents: number; costCents: number };
   charged: { grossCents: number; netCents: number };
   recommendedRateId: string | null;
+  /**
+   * §ENV3.8 (PETICIÓN DE CONTRATO al arquitecto: el campo aún no existe en `API_CONTRACT.md`; opcional por tolerancia).
+   * Lo que se le cotizó/cobró al cliente en compra a domicilio; `null`/ausente en envíos sin cotización v3.
+   * `preselectedRateId` = la tarifa de este quote que casa con `serviceCode` (o el siguiente de `ship_service_order`
+   * con `fallback: true`); la decide el servidor, ⛔ la pantalla no empareja servicios.
+   */
+  customerQuote?: {
+    serviceCode: string;
+    serviceName: string;
+    /** `shippingFeeCents` cobrado al cliente. */
+    chargedCents: number;
+    /** `snapshot.costQuotedCents`: costo de la guía cotizado al cliente (sin el margen). */
+    costQuotedCents: number;
+    preselectedRateId: string | null;
+    fallback: boolean;
+  } | null;
   /** Ordenadas por `priceCents` asc (orden del servidor). */
   rates: ShipmentRateDTO[];
   excluded: { unavailable: number; noCoverage: number; notApplicable: number; multipackage: number; breakdownMismatch: number };
@@ -6787,7 +6803,14 @@ export type SpendAlertKind =
    */
   | 'psa_cycle_short'
   /** §PERSONA (AG-25): personal que no es el dueño entrega en persona con flete cobrado. Correo inmediato; ⛔ no se apaga. `facts`: `{ shippingFeeChargedCents, folio, actorUserId, deliveredAt, fulfillment: 'direct_ship'|'vault_withdrawal' }`. */
-  | 'in_person_with_fee';
+  | 'in_person_with_fee'
+  /**
+   * §ENV3.8 (AG-26): la guía comprada costó más que lo cotizado al cliente (`costoReal > costQuotedCents + ship_cost_over_quote_cents`).
+   * Inmediato, informativo (nada se bloquea), ⛔ no se apaga (DECISIONES no lo declara silenciable). dedupKey `ag26:<shipmentId>`.
+   * `facts` sin PII (NOMBRES DE CLAVE: PETICIÓN DE CONTRATO, DECISIONES solo lista el contenido):
+   * `{ costQuotedCents, costRealCents, differenceCents, quotedService, boughtService }`; el folio viaja en `shipment`.
+   */
+  | 'label_over_customer_quote';
 /** Mapa fijo kind ⇔ code (§19.29.2 + §19.30.1 (6) / §19.30.2 (3)). */
 export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = {
   label_after_address_fix: 'AG-1',
@@ -6815,11 +6838,12 @@ export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = 
   buylist_guide_due: 'AG-23',
   psa_cycle_short: 'AG-24',
   in_person_with_fee: 'AG-25',
+  label_over_customer_quote: 'AG-26',
 };
 export type SpendAlertCode =
   | 'AG-1' | 'AG-2' | 'AG-3' | 'AG-4' | 'AG-5' | 'AG-6' | 'AG-7' | 'AG-8' | 'AG-9' | 'AG-10' | 'AG-11'
   | 'AG-12' | 'AG-13' | 'AG-14' | 'AG-15' | 'AG-16' | 'AG-17' | 'AG-18' | 'AG-19' | 'AG-20' | 'AG-21' | 'AG-22'
-  | 'AG-23' | 'AG-24' | 'AG-25';
+  | 'AG-23' | 'AG-24' | 'AG-25' | 'AG-26';
 /** Los trece con disparador en D2 (§19.29.8 validador de `spend_alerts_disabled`): los únicos que se apagan. */
 export const SPEND_ALERT_SWITCHABLE_CODES: readonly SpendAlertCode[] = [
   'AG-1', 'AG-2', 'AG-3', 'AG-4', 'AG-5', 'AG-6', 'AG-7', 'AG-8', 'AG-9', 'AG-10', 'AG-11', 'AG-12', 'AG-13',
@@ -7691,6 +7715,8 @@ export interface GuestCheckoutSessionRequest {
   acceptedTerms: true;
   /** si se envía DEBE ser "direct_ship"; "vault" → 422 VAULT_REQUIRES_ACCOUNT (upsell) */
   fulfillmentMode?: FulfillmentMode;
+  /** §ENV3: `quoteId` de `POST /checkout/shipping-quote`. Caducado o carrito/CP distinto ⇒ `409 SHIPPING_QUOTE_STALE`. */
+  shippingQuoteId?: string;
   /**
    * v1.68 (§4-R.3): el `checkoutToken` que §4-G.2 devolvió en un intento anterior. Es la ÚNICA
    * llave con la que el invitado recupera su propia reserva (`200 reused` / `201` con

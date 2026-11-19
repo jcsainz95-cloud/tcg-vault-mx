@@ -5,6 +5,9 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { useLocale, useTranslations } from 'next-intl';
 import { createGuestCheckoutSession, getGuestCheckoutQuote } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import { newQuoteFromStale, SHIPPING_QUOTE_STALE, type ShippingQuoteItemInput } from '@/lib/api/shipping-quote';
+import { ShippingQuoteLine } from './ShippingQuoteLine';
+import { useShippingQuote } from './use-shipping-quote';
 import { config } from '@/lib/config';
 import { useCart } from '@/lib/cart';
 import { formatMoneyCents } from '@/lib/format';
@@ -116,6 +119,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   const [accessoryPayError, setAccessoryPayError] = useState<string | null>(null);
   const tp = useTranslations('checkout.accessoryPayError');
   const tacc = useTranslations('checkout.accessories');
+  const tsq = useTranslations('checkout.shippingQuote');
   const [paid, setPaid] = useState<GuestCheckoutSessionResponse | null>(null);
   /**
    * v1.80.12.5 (§M4-SHIP.19.25): ⛔ sin `422` geográficos. Lo único que la sesión puede devolver sobre la
@@ -150,10 +154,25 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   // 💰 §DSC.6: el código viaja en quote y sesión. La clave lleva el código: aplicar uno cotiza con
   // `fetchQuery` sobre ESTA misma clave, así que al confirmarlo la query principal ya tiene la respuesta.
   const queryClient = useQueryClient();
+  // §ENV3: cotiza el envío al capturar el CP (debounce 500 ms) y ante cada cambio de carrito. ⛔ Sin importes propios.
+  const shipItems = useMemo<ShippingQuoteItemInput[]>(
+    () => [
+      ...cart.ids.map((inventoryItemId) => ({ inventoryItemId })),
+      ...accessoryLines.map((a) => ({ accessoryId: a.accessoryId, quantity: a.quantity })),
+      ...quotePulls.filter((p) => p.withEnergyBundle).map((p) => ({ pullToken: p.pullToken, withEnergyBundle: true })),
+    ],
+    [cart.ids, accessoryLines, quotePulls],
+  );
+  const shipQuote = useShippingQuote({ cp: form.address.postalCode, items: shipItems, enabled: destination === 'ship' && !cart.isEmpty });
+  const shippingQuoteId = destination === 'ship' ? shipQuote.quote?.quoteId : undefined;
+  const [staleNoticeCents, setStaleNoticeCents] = useState<number | null>(null);
   const quoteKey = (code: string | null) =>
-    ['guest-checkout-quote', cart.ids, accessoryLines, quotePulls, quoteRetry?.retryOfCheckoutToken ?? null, quoteRetry?.email ?? null, code] as const;
+    ['guest-checkout-quote', cart.ids, accessoryLines, quotePulls, quoteRetry?.retryOfCheckoutToken ?? null, quoteRetry?.email ?? null, code, shippingQuoteId ?? null] as const;
   const quoteFor = (code: string | null) => {
-    const extras = accessoryLines.length || quotePulls.length ? { accessoryLines, deckPulls: quotePulls } : undefined;
+    const extras =
+      accessoryLines.length || quotePulls.length || shippingQuoteId
+        ? { ...(accessoryLines.length || quotePulls.length ? { accessoryLines, deckPulls: quotePulls } : {}), ...(shippingQuoteId ? { shippingQuoteId } : {}) }
+        : undefined;
     // I-1 / 915: sin código, la MISMA llamada de hoy (ni un argumento de más).
     return code
       ? getGuestCheckoutQuote(cart.ids, undefined, quoteRetry, extras, code)
@@ -253,6 +272,12 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   useEffect(() => {
     const fee = quoteData?.breakdown.shippingFeeCents;
     if (fee === undefined) return;
+    // §ENV3: con cotización por CP el envío cambia por el CP, no por el tamaño de la caja: la línea de envío ya lo dice.
+    if (shippingQuoteId) {
+      prevShipping.current = fee;
+      setShippingChangedTo(null);
+      return;
+    }
     const codeChanged = prevShippingCode.current !== codeForQuote;
     prevShippingCode.current = codeForQuote;
     if (codeChanged) setShippingChangedTo(null);
@@ -262,6 +287,11 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     // `codeForQuote` se lee junto con la respuesta; no debe re-disparar el efecto por sí solo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quoteData]);
+
+  // §ENV3: el aviso de «cotización cambió» vive hasta que el cliente cambia el CP o el carrito.
+  useEffect(() => {
+    setStaleNoticeCents(null);
+  }, [form.address.postalCode, shipItems]);
 
   // §DSC-UX.2: al aplicar o quitar un código, TOTAL y PAGAR vuelven a la cotización hasta que exista una sesión nueva.
   const lastCode = useRef<string | null>(null);
@@ -400,6 +430,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
         locale,
         acceptedTerms: true,
         fulfillmentMode: 'direct_ship',
+        ...(shippingQuoteId ? { shippingQuoteId } : {}),
         ...(retryOfCheckoutToken ? { retryOfCheckoutToken } : {}),
         // 💰 §AC.4: ⛔ sin importes. Con `withEnergyBundle:false` la sesión no valida nada: solo van los paquetes.
         ...(accessoryLines.length ? { accessoryLines } : {}),
@@ -424,6 +455,19 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
       // aviso, la clave cambia y la cotización nueva pinta el total sin código antes de volver a pulsar.
       if (dsc.handleSessionError(e)) {
         // nada más: el aviso vive en el renglón y la re-cotización es automática.
+      } else if (e instanceof ApiClientError && e.code === SHIPPING_QUOTE_STALE) {
+        // §ENV3.7: 409 sin cobro. El formulario NO se toca; se adopta la cotización nueva (o se pide otra), el desglose
+        // se re-cotiza solo con su `quoteId` y el cliente reconfirma viendo el importe nuevo.
+        const fresh = newQuoteFromStale(e.details);
+        if (fresh) {
+          shipQuote.adopt(fresh);
+          setStaleNoticeCents(fresh.shippingFeeCents);
+        } else {
+          shipQuote.retry();
+          setStaleNoticeCents(null);
+          setPayError(getMessage(e));
+        }
+        setOutcome(null);
       } else if (e instanceof ApiClientError && e.code === 'VAULT_REQUIRES_ACCOUNT') {
         // 422 VAULT_REQUIRES_ACCOUNT (details.upsell) NUNCA se pinta como error: es la
         // señal del upsell de bóveda (contrato §4-G.2, criterio 48).
@@ -550,7 +594,11 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     : outcome
       ? t('pay', { amount: formatMoneyCents(outcome.breakdown.totalCents, locale) })
       : t('payNoAmount');
-  const payDisabled = !!payBlockedReason || paymentInProgress;
+  // §ENV3.3: PAGAR espera la cotización vigente Y el desglose hecho con ella (el total mostrado = el cobrado). Con el
+  // formulario incompleto no se deshabilita: el botón sigue explicando qué falta (N-3).
+  const shipPending =
+    destination === 'ship' && !formHasErrors && (shipQuote.status !== 'ready' || (shippingQuoteId != null && query.isPlaceholderData));
+  const payDisabled = !!payBlockedReason || paymentInProgress || shipPending;
 
   // §DSC-UX.2: el descuento solo se pinta con envío a domicilio (el desglose de bóveda es el de hoy).
   const shownDiscount = destination === 'ship' ? dsc.applied : null;
@@ -574,6 +622,12 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
 
   const breakdownNode = data ? (
     <>
+      {destination === 'ship' && <ShippingQuoteLine state={shipQuote} className="mb-3" />}
+      {destination === 'ship' && staleNoticeCents !== null && (
+        <Banner variant="warning" role="status" className="mb-3">
+          {tsq('changed', { amount: formatMoneyCents(staleNoticeCents, locale) })}
+        </Banner>
+      )}
       <AmountBreakdown
         breakdown={activeBreakdown ?? data.breakdown}
         variant="purchase"

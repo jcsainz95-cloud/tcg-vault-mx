@@ -51,7 +51,7 @@ import {
   type AddressField,
   type AddressFormHandle,
 } from './capture/AddressStep';
-import { BuyView, OptionsView } from './capture/QuoteViews';
+import { BuyView, OptionsView, initialRateId } from './capture/QuoteViews';
 import { isUnknownOutcome, purchaseInFlightText, sdxErrorView, type SdxErrorView } from './capture/sdx-errors';
 import { openLabelPdf } from './capture/label-pdf';
 import { useSellStatusLabel } from './capture/sell-status';
@@ -300,7 +300,7 @@ export function CaptureLabelDialog({
         .then((q) => {
           if (quoteSeq.current !== mine || manualRef.current) return; // respuesta tardía: se descarta (§43.3a)
           setQuote(q);
-          setSelected(q.recommendedRateId);
+          setSelected(initialRateId(q));
           setNotice(null);
         })
         .catch((e) => {
@@ -383,7 +383,7 @@ export function CaptureLabelDialog({
           }
           if (eff.quote) {
             setQuote(eff.quote);
-            setSelected(eff.quote.recommendedRateId);
+            setSelected(initialRateId(eff.quote));
           }
           setForceWarn({ negative: false, branch: false });
           setStep(2);
@@ -857,7 +857,7 @@ export function CaptureLabelDialog({
               const eff = err.effect;
               if (eff.kind === 'toOptions' && eff.quote) {
                 setQuote(eff.quote);
-                setSelected(eff.quote.recommendedRateId);
+                setSelected(initialRateId(eff.quote));
               }
               setErr(null);
               setStep(2);

@@ -662,8 +662,19 @@
       "bundleNoName": "Un paquete de energías ya no se puede pagar. No se cobró nada. Lo quitamos del carrito. Si nos quedan energías sueltas, puedes agregarlas desde el deck."
     },
     "feeHint": {
-      "cardsOnly": "+ envío {shipping}, gratis desde {freeFrom}",
-      "sealed": "Envío {shipping}, gratis desde {freeFrom}"
+      "cardsOnly": "Envío calculado con tu código postal · gratis desde {freeFrom}",
+      "sealed": "Envío calculado con tu código postal · gratis desde {freeFrom}"
+    },
+    "shippingQuote": {
+      "prompt": "Escribe tu código postal para calcular el envío.",
+      "waiting": "Calculando tu envío con FedEx…",
+      "waitingSlow": "Sigue calculando tu envío con FedEx; puede tardar unos segundos más. No cierres la página.",
+      "line": "Envío FedEx (llega en {days, plural, one {# día} other {# días}})",
+      "free": "Gratis",
+      "freeFrom": "Gratis desde {freeFrom}",
+      "error": "No pudimos calcular el envío. Revisa tu conexión e inténtalo de nuevo.",
+      "retry": "Reintentar",
+      "changed": "Tu cotización de envío caducó o cambió: ahora es {amount}. No se cobró nada; revisa el total y vuelve a pagar."
     },
     "refundPromise": "Si tu carta llega dañada o equivocada, te reembolsamos.",
     "freeShippingRemaining": "Te faltan {remaining} para envío gratis",
@@ -2319,6 +2330,15 @@
         "goToPrepare": "Ir a «Preparar»",
         "goToReplace": "Ver en «Por reponer»",
         "sdx": {
+        "customerQuote": {
+          "eyebrow": "Cotizado al cliente",
+          "charged": "{service}: el cliente pagó {charged} de envío (costo de la guía cotizado: {quoted}).",
+          "fallback": "El servicio cotizado ya no está disponible: se marcó {service}. Puedes cambiarlo.",
+          "current": "Costo actual de la opción marcada: {amount}.",
+          "same": "Igual a lo cotizado.",
+          "over": "{diff} más que lo cotizado; si pasa del margen permitido, el sistema avisa al dueño.",
+          "under": "{diff} menos que lo cotizado."
+        },
           "step": "Paso {n} de 4 · {name}",
           "stepName": {
             "address": "Dirección",
@@ -7020,6 +7040,11 @@
         "copied": "Copiado"
       },
       "fact": {
+        "quotedService": "Servicio cotizado",
+        "boughtService": "Servicio comprado",
+        "costQuotedCents": "Costo cotizado al cliente",
+        "costRealCents": "Costo real de la guía",
+        "differenceCents": "Diferencia",
         "changedKeys": "Qué cambió",
         "carrierName": "Paquetería",
         "chargedCents": "Cobrado",
@@ -7201,6 +7226,10 @@
           "title": "Entrega en persona con envío cobrado",
           "shipmentRef": "envío {folio}",
           "text": "{person} marcó el {ref} como entregado en persona. El cliente pagó {fee} de envío; el sistema no lo reembolsa. Si hay que devolverlo, decídelo desde Ventas."
+        },
+        "AG-26": {
+          "title": "Guía más cara que lo cotizado al cliente",
+          "text": "La guía del {ref} costó {real} y al cliente se le cotizó {quoted} ({quotedService}); compraste {boughtService}. Diferencia: {diff}. Es solo un aviso: nada se bloqueó."
         }
       },
       "prev": "Anterior",
@@ -8967,7 +8996,7 @@
       "guaranteeTerms": "Términos y política",
       "invoice": "Factura",
       "invoiceValue": "Para factura (CFDI) escribe a {email} después de pagar, citando tu pedido.",
-      "shippingValue": "Cartas {cards} por pedido · sellado {sealed} · gratis desde {freeFrom} en cualquier pedido"
+      "shippingValue": "Envío calculado con tu código postal · gratis desde {freeFrom} en cualquier pedido"
     },
     "contact": {
       "title": "Contacto",

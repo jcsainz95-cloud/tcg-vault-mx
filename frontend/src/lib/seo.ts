@@ -310,8 +310,11 @@ export function shippingDetailsJsonLd(
   rule: ShippingRuleForJsonLd | null | undefined,
 ): Record<string, unknown> | undefined {
   if (!rule) return undefined;
-  const fee =
-    priceCents >= rule.freeFromCents ? 0 : kind === 'sealed' ? rule.sealedFeeCents : rule.cardsOnlyFeeCents;
+  // §ENV3: bajo el umbral el envío depende del CP y del contenido ⇒ no hay tarifa fija que publicar (declarar una
+  // sería «precio de envío distinto» para Merchant Center); solo el envío gratis desde el umbral es un hecho estable.
+  if (priceCents < rule.freeFromCents) return undefined;
+  const fee = 0;
+  void kind;
   return {
     '@type': 'OfferShippingDetails',
     shippingRate: { '@type': 'MonetaryAmount', value: jsonLdPrice(fee), currency: rule.currency },

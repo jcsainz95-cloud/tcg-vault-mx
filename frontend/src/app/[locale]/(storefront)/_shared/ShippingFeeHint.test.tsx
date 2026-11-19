@@ -15,30 +15,31 @@ beforeEach(() => {
 });
 
 describe('ShippingFeeHint (T1a/T1b) y RefundPromiseLine (T8)', () => {
-  it('T1a: carta suelta o gradeada ⇒ envío de solo cartas y umbral del endpoint + comisión SIN importe (ES y EN)', async () => {
+  it('T1a §ENV3: carta suelta o gradeada ⇒ «calculado con tu CP» + umbral del endpoint, SIN importe de envío (ES y EN)', async () => {
     // Dueño 2026-10-25 (HECHOS «Envío gratis desde MX$4,000 para CUALQUIER pedido»): T1a también dice el umbral.
     vi.spyOn(api, 'getPublicShippingRule').mockResolvedValue(RULE);
     const { unmount } = renderWithProviders(<ShippingFeeHint kind="cards" />, 'es');
     expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent(
-      '+ envío MX$101.01, gratis desde MX$4,123.00',
+      'Envío calculado con tu código postal · gratis desde MX$4,123.00',
     );
+    expect(screen.getByTestId('shipping-fee-hint').textContent).not.toMatch(/101\.01|177\.77/);
     unmount();
     renderWithProviders(<ShippingFeeHint kind="cards" />, 'en');
     expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent(
-      '+ shipping MX$101.01, free from MX$4,123.00',
+      'Shipping calculated from your postal code · free from MX$4,123.00',
     );
   });
 
-  it('T1b: sellado ⇒ envío de sellado y umbral del endpoint (ES y EN)', async () => {
+  it('T1b §ENV3: sellado ⇒ el mismo texto y umbral del endpoint, sin importe de envío (ES y EN)', async () => {
     vi.spyOn(api, 'getPublicShippingRule').mockResolvedValue(RULE);
     const { unmount } = renderWithProviders(<ShippingFeeHint kind="sealed" />, 'es');
     expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent(
-      'Envío MX$177.77, gratis desde MX$4,123.00',
+      'Envío calculado con tu código postal · gratis desde MX$4,123.00',
     );
     unmount();
     renderWithProviders(<ShippingFeeHint kind="sealed" />, 'en');
     expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent(
-      'Shipping MX$177.77, free from MX$4,123.00',
+      'Shipping calculated from your postal code · free from MX$4,123.00',
     );
   });
 

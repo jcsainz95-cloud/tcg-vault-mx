@@ -63,8 +63,9 @@ describe('/nosotros · Quiénes somos y contacto (MKT-CONV.4)', () => {
     expect(text).toContain('4 a 10 días hábiles');
     expect(container.querySelector('a[href="mailto:contacto@tcghunt.mx"]')).not.toBeNull();
     expect(container.querySelector('a[href="https://www.instagram.com/tcghunt.mx/"]')?.textContent).toBe('@tcghunt.mx');
-    // El envío sale de la regla pública viva, no de un literal.
-    expect(text).toContain('MX$100.00');
+    // §ENV3: el envío ya no es una cifra fija; el umbral sale de la regla pública viva, no de un literal.
+    expect(text).toContain('Envío calculado con tu código postal');
+    expect(text).not.toContain('MX$100.00');
     expect(text).toContain('MX$4,000.00');
   });
 

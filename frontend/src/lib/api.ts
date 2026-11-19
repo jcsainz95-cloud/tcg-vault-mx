@@ -7656,7 +7656,7 @@ export async function getGuestCheckoutQuote(
    * 💰 §AC.4 (aditivo): accesorios y decks del carrito v3. ⛔ Sin importes: el servidor pone precio, envío y
    * paquete (I-AC-3). El `pullToken` viaja SOLO aquí, en el cuerpo (§AC.8).
    */
-  extras?: { accessoryLines?: AccessoryLineInput[]; deckPulls?: DeckPullInput[] },
+  extras?: { accessoryLines?: AccessoryLineInput[]; deckPulls?: DeckPullInput[]; shippingQuoteId?: string },
   /** 💰 §DSC.6 (aditivo): el código del renglón «¿Tienes un código?». Sin él, el cuerpo es el de hoy (I-1). */
   discountCode?: string,
 ): Promise<GuestCheckoutQuoteResponse> {
@@ -7669,6 +7669,8 @@ export async function getGuestCheckoutQuote(
         ...(retry ? { retryOfCheckoutToken: retry.retryOfCheckoutToken, email: retry.email } : {}),
         ...(extras?.accessoryLines?.length ? { accessoryLines: extras.accessoryLines } : {}),
         ...(extras?.deckPulls?.length ? { deckPulls: extras.deckPulls } : {}),
+        // §ENV3 (PETICIÓN DE CONTRATO, ver STATUS): con la cotización congelada, el desglose lleva SU envío.
+        ...(extras?.shippingQuoteId ? { shippingQuoteId: extras.shippingQuoteId } : {}),
         ...discountCodeField(discountCode),
       },
     });

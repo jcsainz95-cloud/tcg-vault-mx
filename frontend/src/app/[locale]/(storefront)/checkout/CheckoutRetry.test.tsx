@@ -342,6 +342,8 @@ describe('checkout de invitado · el token es la llave del reintento (§4-R.3)',
     // Intento caído: cierra el modal y vuelve a pagar.
     await usr.click(within(dialog).getByRole('button', { name: /Close|Cerrar/ }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // §ENV3: la clave nueva del quote (token del reintento) re-cotiza; PAGAR vuelve a estar activo al llegar.
+    await waitFor(() => expect(screen.getByRole('button', { name: /Pagar/ })).toBeEnabled());
     await usr.click(await screen.findByRole('button', { name: /Pagar/ }));
 
     await waitFor(() => expect(vi.mocked(createGuestCheckoutSession)).toHaveBeenCalledTimes(2));
