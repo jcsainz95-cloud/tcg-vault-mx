@@ -83,6 +83,7 @@ SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/a
 - Verde: jest 606/606 (10570); integración 31/31 (490; PG/Redis propios); vitest 502 ficheros (6097); tsc/eslint be+fe 0; doc-size VERDE; rutas OK. m111 limpia desde cero (AG-27/AG-28 + labelCapturedAt).
 - Q1/Q2/Q6/Q7/Q9/Q11/Q12 propias 7/7 verdes; 8 ablaciones en copia dan rojo. Medido: B1, concurrencia 1 movimiento/pieza, guardas I2, AG-27 solo retiro y una vez, AG-11 suprimido en retiro, AG-28 sin botón igual be/fe, dry-run en conexión de solo lectura, sin referencias colgantes.
 - Pendiente antes de publicar: I-1 arquitecto (API:354 y DECISIONES §RETIRO-SALIDA aún describen return-received/returnedAt/AG-29); I-2 AG-28 pide «ajusta el inventario» pero ninguna herramienta lleva withdrawn→in_custody (item-location.rules.ts:33).
+- 2026-11-19 · verificación e4f6a9d4 (nothing_to_ship no aplica si ya está enviado/entregado): APROBADO. Retiro en guia con todas las líneas faltantes ⇒ 409 nothing_to_ship y sigue en guia; 10 PATCH enviado concurrentes ⇒ 10×200, 1 movimiento por pieza, 1 correo; Q1/Q2/Q9/Q12 verdes; avisos-sellos + retiro-salida 28/28.
 - Menor: comentarios de contract.ts:176,1222 desactualizados respecto a B1. Previos abiertos: §ENV3 N-1/N-2; §PERSONA QA-PER-*; filas anteriores en PENDIENTES (a5681572).
 
 ## Deuda técnica activa (todas las secciones)
