@@ -1,6 +1,6 @@
 /**
  * §RETIRO-SALIDA.3 — `POST /admin/shipments/:id/return-received` (personal). Solo retiros `enviado|entregado`:
- * `withdrawn → in_custody` (no `missing`, del dueño) y el envío queda `entregado` + `returnedAt`.
+ * `withdrawn → in_custody` (no `missing`, del dueño); el envío CONSERVA su `status` y recibe `returnedAt` (no cambia de estado).
  * ⛔ Aislado a propósito: si el dueño no aprueba la acción, se borra este archivo + `ReturnReceivedControl.tsx` + 1 línea en `ShipmentsQueue`.
  */
 import { apiRequest } from '../api-client';

@@ -23,12 +23,12 @@ export const ALWAYS_ON_CODES: readonly SpendAlertCode[] = ['AG-21', 'AG-22'];
  * v1.113⟨portada⟩ (§DYN.4.5): AG-24 «la vuelta PSA tarda más de 7 días» — solo panel (sin correo) y ⛔ no se apaga
  * (no está en `SPEND_ALERT_CODES` del backend). Se ve en la lista y en el filtro; no es un aviso de la cuenta del dueño.
  */
-export const PANEL_ONLY_CODES: readonly SpendAlertCode[] = ['AG-24'];
+export const PANEL_ONLY_CODES: readonly SpendAlertCode[] = ['AG-24', 'AG-27'];
 /**
  * §PERSONA: AG-25 «Entrega en persona con envío cobrado» — correo inmediato al dueño y ⛔ no se apaga (no está en
  * `SPEND_ALERT_SWITCHABLE_CODES` ni se lista en los controles de apagado de M10). Solo se ve en lista y filtro.
  */
-export const UNSILENCEABLE_CODES: readonly SpendAlertCode[] = ['AG-25', 'AG-26', 'AG-27', 'AG-28'];
+export const UNSILENCEABLE_CODES: readonly SpendAlertCode[] = ['AG-25', 'AG-26', 'AG-28', 'AG-29'];
 // §ENV3.8: AG-26 «Guía más cara que lo cotizado al cliente» — inmediato, informativo y tampoco se apaga (DECISIONES §ENV3.8
 // no lo hace silenciable); se ve en la lista y el filtro igual que AG-25.
 /**

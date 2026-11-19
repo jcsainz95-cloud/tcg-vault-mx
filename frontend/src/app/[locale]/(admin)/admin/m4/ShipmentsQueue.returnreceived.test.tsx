@@ -68,4 +68,23 @@ describe('§RETIRO-SALIDA · return-received', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Sí, recibimos la devolución' }));
     expect(await screen.findByText(new RegExp(text))).toBeInTheDocument();
   });
+
+  it('con returnedAt: etiqueta «Devuelto · fecha» y sin botón', async () => {
+    serve([row('dev', { returnedAt: '2026-11-19T18:00:00Z' })]);
+    renderWithProviders(<ShipmentsQueue onCaptureGuide={() => {}} />, 'es');
+    expect(await screen.findByTestId('returned-tag-dev')).toHaveTextContent('Devuelto');
+    expect(screen.queryByRole('button', { name: 'Recibimos la devolución' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [true, 'las cartas volvieron a la bóveda del cliente'],
+    [false, 'ya estaba registrada'],
+  ])('éxito won=%s ⇒ aviso propio', async (won, text) => {
+    serve([row('ok')]);
+    vi.spyOn(ret, 'markShipmentReturnReceived').mockResolvedValue({ shipment: { id: 'ok' }, restored: won ? 2 : 0, skipped: 0, won } as never);
+    renderWithProviders(<ShipmentsQueue onCaptureGuide={() => {}} />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Recibimos la devolución' }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Sí, recibimos la devolución' }));
+    expect(await screen.findByTestId('return-received-note')).toHaveTextContent(text);
+  });
 });

@@ -1563,6 +1563,8 @@ export interface ShipmentCreateResponse {
  * OPCIONALES para tolerar productores/mocks parciales (p. ej. la respuesta de captura de guía en M4).
  */
 export interface ShipmentDTO {
+  /** §RETIRO-SALIDA (aditivo; NO está aún en el contrato del cliente): ISO de la devolución confirmada; presente ⇒ las cartas volvieron a la bóveda. */
+  returnedAt?: string | null;
   id: string;
   status: ShipmentStatus;
   trackingNumber?: string;
@@ -6836,7 +6838,12 @@ export type SpendAlertKind =
    * §RETIRO-SALIDA (AG-28): el transportista reporta `in_return` sobre un retiro `enviado`. `immediate`, correo al dueño, ⛔ sin interruptor.
    * dedupKey `ag28:<shipmentId>`; se resuelve al confirmar `return-received`. `facts` sin PII: `{ folio, carrierStatus, observedAt, pieceCount }`.
    */
-  | 'retiro_parcel_returned';
+  | 'retiro_parcel_returned'
+  /**
+   * §RETIRO-SALIDA (AG-29): personal que NO es el dueño confirmó `return-received`. `immediate`, correo al dueño, ⛔ sin interruptor.
+   * dedupKey `ag29:<shipmentId>`; `subject` = actor. `facts` sin PII: `{ folio, actorUserId, restored, returnedAt }`.
+   */
+  | 'return_received_by_non_owner';
 /** Mapa fijo kind ⇔ code (§19.29.2 + §19.30.1 (6) / §19.30.2 (3)). */
 export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = {
   label_after_address_fix: 'AG-1',
@@ -6867,11 +6874,12 @@ export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = 
   label_over_customer_quote: 'AG-26',
   manual_label_unshipped: 'AG-27',
   retiro_parcel_returned: 'AG-28',
+  return_received_by_non_owner: 'AG-29',
 };
 export type SpendAlertCode =
   | 'AG-1' | 'AG-2' | 'AG-3' | 'AG-4' | 'AG-5' | 'AG-6' | 'AG-7' | 'AG-8' | 'AG-9' | 'AG-10' | 'AG-11'
   | 'AG-12' | 'AG-13' | 'AG-14' | 'AG-15' | 'AG-16' | 'AG-17' | 'AG-18' | 'AG-19' | 'AG-20' | 'AG-21' | 'AG-22'
-  | 'AG-23' | 'AG-24' | 'AG-25' | 'AG-26' | 'AG-27' | 'AG-28';
+  | 'AG-23' | 'AG-24' | 'AG-25' | 'AG-26' | 'AG-27' | 'AG-28' | 'AG-29';
 /** Los trece con disparador en D2 (§19.29.8 validador de `spend_alerts_disabled`): los únicos que se apagan. */
 export const SPEND_ALERT_SWITCHABLE_CODES: readonly SpendAlertCode[] = [
   'AG-1', 'AG-2', 'AG-3', 'AG-4', 'AG-5', 'AG-6', 'AG-7', 'AG-8', 'AG-9', 'AG-10', 'AG-11', 'AG-12', 'AG-13',

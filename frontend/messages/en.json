@@ -975,6 +975,7 @@
     "noShipments": "You have no withdrawals yet.",
     "backToList": "My withdrawals",
     "detailTitle": "Withdrawal {id}",
+    "returnedNote": "Returned: your cards are back in your vault.",
     "leftVaultNote": "Your cards have left the vault and are on their way. They no longer appear in your vault.",
     "itemsInWithdrawal": "Cards in this withdrawal",
     "shippingAddress": "Shipping address",
@@ -2713,6 +2714,8 @@
           "body": "Confirm only if the package is physically back at the store. The cards go back to the customer's vault (missing ones do not).",
           "confirm": "Yes, we received the return",
           "done": "Return recorded: the cards are back in the customer's vault.",
+          "alreadyDone": "This return was already recorded: nothing was moved.",
+          "returned": "Returned · {date}",
           "errNotApplicable": "This shipment is not a shipped or delivered withdrawal: there is no return to record.",
           "errNothingToRestore": "There are no cards to put back in the vault: they no longer qualify (refunded, missing or another owner's).",
           "errConflict": "This shipment cannot be marked as returned: it was already recorded or it is not a shipped withdrawal."
@@ -7090,6 +7093,8 @@
         "carrierStatus": "Carrier status",
         "observedAt": "Observed at",
         "pieceCount": "Cards",
+        "restored": "Cards returned",
+        "returnedAt": "Returned at",
         "quotedService": "Quoted service",
         "boughtService": "Purchased service",
         "costQuotedCents": "Cost quoted to the customer",
@@ -7285,9 +7290,13 @@
           "title": "Label captured but not marked as shipped",
           "text": "Shipment {folio} has had a hand-entered label for {hours} h and is not marked shipped. If it already left, mark it shipped; until then the cards stay in the customer's vault."
         },
+        "AG-29": {
+          "title": "Staff confirmed a withdrawal return",
+          "text": "{folio}: staff confirmed a returned withdrawal; {restored} cards went back to the customer's vault. Check the parcel is in your hands."
+        },
         "AG-28": {
           "title": "Vault withdrawal parcel returned",
-          "text": "Shipment {folio} is on its way back ({carrierStatus}). When it arrives, press «Return received» to put the {pieceCount} cards back in the customer's vault."
+          "text": "Shipment {folio} is on its way back ({carrierStatus}). When it arrives, press «We received the return» to put the {pieceCount} cards back in the customer's vault."
         }
       },
       "prev": "Previous",

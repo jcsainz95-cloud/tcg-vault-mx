@@ -18,7 +18,7 @@ export function ReturnReceivedControl({
 }: {
   id: string;
   refLabel: string;
-  onDone: (id: string) => void;
+  onDone: (id: string, won: boolean) => void;
   onFail: (id: string, text: string) => void;
 }) {
   const t = useTranslations('admin.m4.statusActions.returnReceived');
@@ -29,10 +29,10 @@ export function ReturnReceivedControl({
 
   const mutation = useMutation({
     mutationFn: () => markShipmentReturnReceived(id),
-    onSuccess: () => {
+    onSuccess: (res) => {
       void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
       setOpen(false);
-      onDone(id);
+      onDone(id, res.won);
     },
     onError: (e) => {
       setOpen(false);
