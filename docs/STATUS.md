@@ -80,16 +80,15 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## Bugs abiertos (qa) — re-gate §PERSONA sobre a12ede3f (2026-11-18): APROBADO
-| ID | Qué | Dueño |
-|---|---|---|
-| QA-PER-FULFILL | `facts.fulfillment` = `direct_ship|vault_withdrawal`; DECISIONES §PERSONA.7 dice `direct|withdrawal` (front=back) | arquitecto (o backend) |
-| QA-PER-PNONE | «persona sin nombre» en: front «an unnamed account» (en.json:7070) ≠ back «an account with no name» (spend-alert-text.ts:53); anterior, todos los AG | frontend/backend |
-| QA-PER-TREE | Ablación de seguridad-lead en el árbol compartido (shipments.service.ts mtime 14:15:18) durante la medición de qa: 1/16 rojo falso (PERS-1) | orquestador |
-Cerrados en 3960e8e4/a12ede3f: QA-PER-FILTRO, -CHECK (m109), -GUIA, -FACTS, -E2E (16), -DOWN, -AUDIT (bitácora en tx; rojo por trigger).
-Medido en a12ede3f (HEAD 631c2bd1 solo docs): jest 599 suites 10511/10511; e2e shipments-in-person 16/16 en 15/15 corridas sobre código intacto (1 roja por QA-PER-TREE), PERS-1 aislado 6/6; vitest m4+spend-alerts+timeline 364/364 (23); tsc 0/0; eslint 0/0; CHECK m109 1/1; reversión m109 1/1. Postgres/Redis desechables propios (55441/56391).
-Bugs previos de qa: en PENDIENTES (movidos en a5681572).
-Resto del backlog con dueño y fecha: índice de `PENDIENTES.md`.
+## QA (qa) — 2026-11-19 · gate §ENV3 (diff cc7ae7a1..9d7f1f69): RECHAZADO
+- Medido: jest unit 10551/10551 (605 suites); integración env3+checkout+discounts+envio-v2+accesorios 249/249 (10 suites, PG16/Redis desechables, m110 aplicada); vitest 6067 pass/13 skip; tsc be/fe 0; eslint be/fe 0; doc-size VERDE vs origin/production.
+- BLOQUEANTE QA-ENV3-OFF (frontend; arquitecto fija la señal): con ship_v3_enabled=off (default y reversa) shipping-quote da 404 y el checkout de invitado deja PAGAR deshabilitado (1/1, prueba propia); ficha/nosotros dejan de mostrar MX$100/175. El front no puede saber el dial: shipping-rule no lo expone.
+- IMPORTANTE QA-ENV3-REF0 (backend): referenceFee devuelve 0 ante cualquier error/tabla vacía ⇒ código que baja de MX$4,000 = envío gratis (debería 409/503).
+- IMPORTANTE QA-ENV3-LOG (backend): la guía comprada se registra con el servicio COTIZADO (y 'free_threshold'); el log en vivo incluye tarifas a sucursal ⇒ tabla de respaldo sesgada a la baja.
+- IMPORTANTE QA-ENV3-SNAP (backend): pedido con código bajo umbral cobra ref pero guarda snapshot free:'threshold'/costo 0 (AG-26 ciego); falta free:'code' (DECISIONES §ENV3.11).
+- MENOR: token caducado ⇒ desglose vuelve a la regla fija mientras la línea muestra lo cotizado (sin cobro distinto); seguro sobre subtotal antes de código vs §2; TTL de caché fijo; campo «Calcula tu envío» de ficha (§3) sin construir ni diferir; comentarios «PETICIÓN DE CONTRATO» obsoletos; origen de la semilla m110 NO MEDIDO.
+- Re-gate: tras corregir B-1 e I-1..I-3, repetir vitest con dial off + integración env3/discounts.
+- Abiertos menores previos (§PERSONA): QA-PER-FULFILL, QA-PER-PNONE, QA-PER-TREE; filas qa anteriores en PENDIENTES (a5681572).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
