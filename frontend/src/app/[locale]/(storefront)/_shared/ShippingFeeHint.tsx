@@ -25,16 +25,25 @@ export interface ShippingFeeHintProps {
  */
 export function ShippingFeeHint({ kind, className }: ShippingFeeHintProps) {
   const t = useTranslations('checkout.feeHint');
+  const tFixed = useTranslations('checkout.feeHintFixed');
   const locale = useLocale() as AppLocale;
   const rule = useQuery({
     queryKey: PUBLIC_SHIPPING_RULE_KEY,
     queryFn: getPublicShippingRule,
-    staleTime: 300_000,
+    staleTime: 60_000,
   });
   if (!rule.data) return null;
   // Umbral para CUALQUIER pedido (dueño 2026-10-25, `HECHOS.md` «Envío gratis desde MX$4,000 para CUALQUIER pedido»):
   // T1a y T1b llevan los dos el `freeFrom` del endpoint.
-  const text = t(kind === 'cards' ? 'cardsOnly' : 'sealed', { freeFrom: formatMoneyCents(rule.data.freeFromCents, locale) });
+  const freeFrom = formatMoneyCents(rule.data.freeFromCents, locale);
+  // §ENV3.17: dial apagado ⇒ la regla fija de hoy, con los importes que manda el endpoint (⛔ nunca escritos a mano).
+  const text =
+    rule.data.v3Enabled === false
+      ? tFixed(kind === 'cards' ? 'cardsOnly' : 'sealed', {
+          shipping: formatMoneyCents(kind === 'cards' ? rule.data.cardsOnlyFeeCents : rule.data.sealedFeeCents, locale),
+          freeFrom,
+        })
+      : t(kind === 'cards' ? 'cardsOnly' : 'sealed', { freeFrom });
   return (
     <p data-testid="shipping-fee-hint" className={cn('font-mono text-[11px] leading-[1.5] text-muted', className)}>
       {text}

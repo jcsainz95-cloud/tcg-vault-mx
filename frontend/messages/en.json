@@ -665,6 +665,10 @@
       "cardsOnly": "Shipping calculated from your postal code · free from {freeFrom}",
       "sealed": "Shipping calculated from your postal code · free from {freeFrom}"
     },
+    "feeHintFixed": {
+      "cardsOnly": "+ shipping {shipping}, free from {freeFrom}",
+      "sealed": "Shipping {shipping}, free from {freeFrom}"
+    },
     "shippingQuote": {
       "prompt": "Enter your postal code to calculate shipping.",
       "waiting": "Calculating your FedEx shipping…",
@@ -8996,6 +9000,7 @@
       "guaranteeTerms": "Terms and policy",
       "invoice": "Invoice",
       "invoiceValue": "For an invoice (CFDI), email {email} after paying, quoting your order.",
+      "shippingValueFixed": "Cards {cards} per order · sealed {sealed} · free from {freeFrom} on any order",
       "shippingValue": "Shipping calculated from your postal code · free from {freeFrom} on any order"
     },
     "contact": {

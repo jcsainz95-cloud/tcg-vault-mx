@@ -35,6 +35,15 @@ describe('C5 · Product completo', () => {
     });
   });
 
+  it('§ENV3 dial apagado (v3Enabled=false): tarifa fija de la regla (carta/sellado) y 0 desde el umbral', () => {
+    const off = { ...RULE, v3Enabled: false };
+    const rate = (kind: 'card' | 'sealed', cents: number) =>
+      (shippingDetailsJsonLd(kind, cents, off)!.shippingRate as { value: string }).value;
+    expect(rate('card', 8_120)).toBe('100.00');
+    expect(rate('sealed', 52_200)).toBe('175.00');
+    expect(rate('card', 400_000)).toBe('0.00');
+  });
+
   it('sin regla (backend sin responder) el campo se omite: ningún importe escrito a mano', () => {
     expect(shippingDetailsJsonLd('card', 8_120, null)).toBeUndefined();
   });

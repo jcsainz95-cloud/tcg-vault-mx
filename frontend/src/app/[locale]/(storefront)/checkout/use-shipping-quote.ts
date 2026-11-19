@@ -17,6 +17,9 @@ export function setShippingQuoteDebounceMs(ms: number) {
 /** §ENV3.7: la cotización dura 30 min en el servidor; se refresca mucho antes de que llegue el 409. */
 const STALE_MS = 10 * 60_000;
 
+/** M-1: se refresca esto antes de `expiresAt`. */
+const EARLY_REFETCH_MS = 60_000;
+
 export type ShippingQuoteStatus = 'idle' | 'waiting' | 'ready' | 'error';
 
 export interface ShippingQuoteState {
@@ -63,6 +66,18 @@ export function useShippingQuote(args: { cp: string; items: ShippingQuoteItemInp
     retry: 1,
     refetchOnWindowFocus: false,
   });
+
+  // M-1: antes de que caduque el token (`expiresAt`) se re-cotiza solo, para que línea y desglose no se contradigan.
+  const expiresAt = q.data?.expiresAt;
+  const { refetch } = q;
+  useEffect(() => {
+    if (!live || !expiresAt) return;
+    const at = Date.parse(expiresAt);
+    if (!Number.isFinite(at)) return;
+    const wait = Math.max(0, at - Date.now() - EARLY_REFETCH_MS);
+    const id = setTimeout(() => void refetch(), Math.min(wait, 2_147_000_000));
+    return () => clearTimeout(id);
+  }, [live, expiresAt, refetch]);
 
   const retry = useCallback(() => {
     void q.refetch();

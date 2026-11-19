@@ -93,9 +93,14 @@ export default async function AboutPage({ params }: { params: Promise<{ locale: 
     ],
   };
   const shipping = rule
-    ? t('buy.shippingValue', {
-        freeFrom: formatMoneyCents(rule.freeFromCents, locale),
-      })
+    ? rule.v3Enabled === false
+      ? // §ENV3.17: dial apagado ⇒ regla fija con los importes del endpoint.
+        t('buy.shippingValueFixed', {
+          cards: formatMoneyCents(rule.cardsOnlyFeeCents, locale),
+          sealed: formatMoneyCents(rule.sealedFeeCents, locale),
+          freeFrom: formatMoneyCents(rule.freeFromCents, locale),
+        })
+      : t('buy.shippingValue', { freeFrom: formatMoneyCents(rule.freeFromCents, locale) })
     : null;
 
   // §DYN.6.7 (c1): el ámbito `storefront` de esta página (`RouteMessages`; la raíz manda solo `SHELL`).

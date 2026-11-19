@@ -7669,7 +7669,7 @@ export async function getGuestCheckoutQuote(
         ...(retry ? { retryOfCheckoutToken: retry.retryOfCheckoutToken, email: retry.email } : {}),
         ...(extras?.accessoryLines?.length ? { accessoryLines: extras.accessoryLines } : {}),
         ...(extras?.deckPulls?.length ? { deckPulls: extras.deckPulls } : {}),
-        // §ENV3 (PETICIÓN DE CONTRATO, ver STATUS): con la cotización congelada, el desglose lleva SU envío.
+        // §ENV3: con la cotización congelada, el desglose lleva SU envío (API_CONTRACT).
         ...(extras?.shippingQuoteId ? { shippingQuoteId: extras.shippingQuoteId } : {}),
         ...discountCodeField(discountCode),
       },

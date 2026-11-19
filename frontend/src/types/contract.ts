@@ -1819,7 +1819,7 @@ export interface ShipmentQuoteDTO {
   charged: { grossCents: number; netCents: number };
   recommendedRateId: string | null;
   /**
-   * §ENV3.8 (PETICIÓN DE CONTRATO al arquitecto: el campo aún no existe en `API_CONTRACT.md`; opcional por tolerancia).
+   * §ENV3.8 (opcional por tolerancia a envíos sin cotización v3).
    * Lo que se le cotizó/cobró al cliente en compra a domicilio; `null`/ausente en envíos sin cotización v3.
    * `preselectedRateId` = la tarifa de este quote que casa con `serviceCode` (o el siguiente de `ship_service_order`
    * con `fallback: true`); la decide el servidor, ⛔ la pantalla no empareja servicios.
@@ -6807,7 +6807,7 @@ export type SpendAlertKind =
   /**
    * §ENV3.8 (AG-26): la guía comprada costó más que lo cotizado al cliente (`costoReal > costQuotedCents + ship_cost_over_quote_cents`).
    * Inmediato, informativo (nada se bloquea), ⛔ no se apaga (DECISIONES no lo declara silenciable). dedupKey `ag26:<shipmentId>`.
-   * `facts` sin PII (NOMBRES DE CLAVE: PETICIÓN DE CONTRATO, DECISIONES solo lista el contenido):
+   * `facts` sin PII:
    * `{ costQuotedCents, costRealCents, differenceCents, quotedService, boughtService }`; el folio viaja en `shipment`.
    */
   | 'label_over_customer_quote';
@@ -7702,6 +7702,11 @@ export interface PublicShippingRuleDTO {
   freeFromCents: number;
   currency: 'MXN';
   ivaIncluded: true;
+  /**
+   * §ENV3.17: dial `ship_v3_enabled`. `false` ⇒ regla fija (`cardsOnlyFeeCents`/`sealedFeeCents`) en ficha, «Nosotros», JSON-LD y
+   * checkout; sin cotización por CP. Ausente (servidor anterior) = encendido.
+   */
+  v3Enabled?: boolean;
 }
 
 /** POST /checkout/guest/session. §4-G.2 */

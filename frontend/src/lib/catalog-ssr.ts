@@ -162,7 +162,7 @@ export const SHIPPING_RULE_SSR_BUDGET_MS = 400;
 export const loadShippingRuleForSSR = cache(
   async (): Promise<PublicShippingRuleDTO | null> =>
     withBudget(
-      getPublicShippingRuleForServer({ next: { revalidate: 300, tags: ['shipping-rule'] } }),
+      getPublicShippingRuleForServer({ next: { revalidate: 60, tags: ['shipping-rule'] } }),
       SHIPPING_RULE_SSR_BUDGET_MS,
     ),
 );

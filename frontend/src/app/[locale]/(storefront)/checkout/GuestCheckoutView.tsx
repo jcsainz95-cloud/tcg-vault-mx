@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import { createGuestCheckoutSession, getGuestCheckoutQuote } from '@/lib/api';
+import { createGuestCheckoutSession, getGuestCheckoutQuote, getPublicShippingRule } from '@/lib/api';
+import { PUBLIC_SHIPPING_RULE_KEY } from '../_shared/ShippingFeeHint';
 import { ApiClientError } from '@/lib/api-client';
 import { newQuoteFromStale, SHIPPING_QUOTE_STALE, type ShippingQuoteItemInput } from '@/lib/api/shipping-quote';
 import { ShippingQuoteLine } from './ShippingQuoteLine';
@@ -163,8 +164,18 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
     ],
     [cart.ids, accessoryLines, quotePulls],
   );
-  const shipQuote = useShippingQuote({ cp: form.address.postalCode, items: shipItems, enabled: destination === 'ship' && !cart.isEmpty });
-  const shippingQuoteId = destination === 'ship' ? shipQuote.quote?.quoteId : undefined;
+  // §ENV3.17: el dial `ship_v3_enabled` viaja en `GET /checkout/shipping-rule`. Apagado ⇒ regla fija de hoy: sin cotización,
+  // sin `shippingQuoteId` y PAGAR habilitado. Mientras la regla no llega no se cotiza ni se paga; si falla, se asume encendido
+  // (el servidor manda: sin `ref` válido responde 409).
+  const ruleQuery = useQuery({ queryKey: PUBLIC_SHIPPING_RULE_KEY, queryFn: getPublicShippingRule, staleTime: 60_000 });
+  const ruleKnown = !ruleQuery.isPending;
+  const v3On = ruleQuery.data?.v3Enabled !== false;
+  const shipQuote = useShippingQuote({
+    cp: form.address.postalCode,
+    items: shipItems,
+    enabled: destination === 'ship' && !cart.isEmpty && ruleKnown && v3On,
+  });
+  const shippingQuoteId = destination === 'ship' && v3On ? shipQuote.quote?.quoteId : undefined;
   const [staleNoticeCents, setStaleNoticeCents] = useState<number | null>(null);
   const quoteKey = (code: string | null) =>
     ['guest-checkout-quote', cart.ids, accessoryLines, quotePulls, quoteRetry?.retryOfCheckoutToken ?? null, quoteRetry?.email ?? null, code, shippingQuoteId ?? null] as const;
@@ -597,7 +608,7 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   // §ENV3.3: PAGAR espera la cotización vigente Y el desglose hecho con ella (el total mostrado = el cobrado). Con el
   // formulario incompleto no se deshabilita: el botón sigue explicando qué falta (N-3).
   const shipPending =
-    destination === 'ship' && !formHasErrors && (shipQuote.status !== 'ready' || (shippingQuoteId != null && query.isPlaceholderData));
+    destination === 'ship' && !formHasErrors && (!ruleKnown || (v3On && shipQuote.status !== 'ready') || (shippingQuoteId != null && query.isPlaceholderData));
   const payDisabled = !!payBlockedReason || paymentInProgress || shipPending;
 
   // §DSC-UX.2: el descuento solo se pinta con envío a domicilio (el desglose de bóveda es el de hoy).
@@ -622,14 +633,14 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
 
   const breakdownNode = data ? (
     <>
-      {destination === 'ship' && <ShippingQuoteLine
+      {destination === 'ship' && v3On && ruleKnown && <ShippingQuoteLine
           state={shipQuote}
           className="mb-3"
           chargedCents={
             shownDiscount && shownDiscount.kind !== 'free_shipping' && !query.isPlaceholderData ? data.breakdown.shippingFeeCents : undefined
           }
         />}
-      {destination === 'ship' && staleNoticeCents !== null && (
+      {destination === 'ship' && v3On && staleNoticeCents !== null && (
         <Banner variant="warning" role="status" className="mb-3">
           {tsq('changed', { amount: formatMoneyCents(staleNoticeCents, locale) })}
         </Banner>

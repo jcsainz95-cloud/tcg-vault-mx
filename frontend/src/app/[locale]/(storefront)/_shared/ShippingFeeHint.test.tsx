@@ -43,6 +43,16 @@ describe('ShippingFeeHint (T1a/T1b) y RefundPromiseLine (T8)', () => {
     );
   });
 
+  it('§ENV3 dial apagado (v3Enabled=false): regla fija de hoy, con los importes del endpoint (ES y EN)', async () => {
+    vi.spyOn(api, 'getPublicShippingRule').mockResolvedValue({ ...RULE, v3Enabled: false });
+    const { unmount } = renderWithProviders(<ShippingFeeHint kind="cards" />, 'es');
+    expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent('+ envío MX$101.01, gratis desde MX$4,123.00');
+    unmount();
+    const r2 = renderWithProviders(<ShippingFeeHint kind="sealed" />, 'en');
+    expect(await screen.findByTestId('shipping-fee-hint')).toHaveTextContent('Shipping MX$177.77, free from MX$4,123.00');
+    r2.unmount();
+  });
+
   it('si el endpoint falla no se pinta nada (nunca un importe escrito a mano)', async () => {
     const spy = vi.spyOn(api, 'getPublicShippingRule').mockRejectedValue(new Error('down'));
     renderWithProviders(<ShippingFeeHint kind="cards" />, 'es');

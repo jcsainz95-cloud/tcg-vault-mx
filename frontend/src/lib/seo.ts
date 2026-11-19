@@ -295,6 +295,8 @@ export interface ShippingRuleForJsonLd {
   sealedFeeCents: number;
   freeFromCents: number;
   currency: 'MXN';
+  /** §ENV3.17: `false` ⇒ tarifa fija de la regla (carta / sellado). */
+  v3Enabled?: boolean;
 }
 
 /**
@@ -312,9 +314,10 @@ export function shippingDetailsJsonLd(
   if (!rule) return undefined;
   // §ENV3: bajo el umbral el envío depende del CP y del contenido ⇒ no hay tarifa fija que publicar (declarar una
   // sería «precio de envío distinto» para Merchant Center); solo el envío gratis desde el umbral es un hecho estable.
-  if (priceCents < rule.freeFromCents) return undefined;
-  const fee = 0;
-  void kind;
+  // Dial apagado (§ENV3.17): la regla fija de hoy, con los importes del endpoint.
+  const off = rule.v3Enabled === false;
+  if (priceCents < rule.freeFromCents && !off) return undefined;
+  const fee = priceCents >= rule.freeFromCents ? 0 : kind === 'sealed' ? rule.sealedFeeCents : rule.cardsOnlyFeeCents;
   return {
     '@type': 'OfferShippingDetails',
     shippingRate: { '@type': 'MonetaryAmount', value: jsonLdPrice(fee), currency: rule.currency },

@@ -665,6 +665,10 @@
       "cardsOnly": "Envío calculado con tu código postal · gratis desde {freeFrom}",
       "sealed": "Envío calculado con tu código postal · gratis desde {freeFrom}"
     },
+    "feeHintFixed": {
+      "cardsOnly": "+ envío {shipping}, gratis desde {freeFrom}",
+      "sealed": "Envío {shipping}, gratis desde {freeFrom}"
+    },
     "shippingQuote": {
       "prompt": "Escribe tu código postal para calcular el envío.",
       "waiting": "Calculando tu envío con FedEx…",
@@ -8996,6 +9000,7 @@
       "guaranteeTerms": "Términos y política",
       "invoice": "Factura",
       "invoiceValue": "Para factura (CFDI) escribe a {email} después de pagar, citando tu pedido.",
+      "shippingValueFixed": "Cartas {cards} por pedido · sellado {sealed} · gratis desde {freeFrom} en cualquier pedido",
       "shippingValue": "Envío calculado con tu código postal · gratis desde {freeFrom} en cualquier pedido"
     },
     "contact": {
