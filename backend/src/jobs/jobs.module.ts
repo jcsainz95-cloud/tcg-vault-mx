@@ -1,3 +1,4 @@
+import { ShippingQuoteModule } from '../modules/shipping-quote/shipping-quote.module';
 import { Module } from '@nestjs/common';
 import { BuylistSweepJobService } from './buylist-sweep.service';
 import { DisputeDeadlineJobService } from './dispute-deadline.service';
@@ -40,7 +41,7 @@ import { MarketingModule } from '../modules/marketing/marketing.module';
   // OrdersModule: `order-reservation-sweep` (v1.68) delega en OrdersService (barrido por
   // `reservedUntil`, dos rutas) y en GuestCheckoutService (rama legada). Sin ciclo: OrdersModule no
   // importa JobsModule.
-  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule, DecksMetaModule, ShipmentsModule, SpendAlertsModule, WishlistModule, MarketingModule, SupplyModule],
+  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule, DecksMetaModule, ShipmentsModule, SpendAlertsModule, WishlistModule, MarketingModule, SupplyModule, ShippingQuoteModule],
   providers: [
     BuylistSweepJobService,
     DisputeDeadlineJobService,

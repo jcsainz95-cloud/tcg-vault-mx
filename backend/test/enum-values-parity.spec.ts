@@ -149,6 +149,7 @@ const EXPECTED_ENUM_VALUES: Record<string, readonly string[]> = {
   SpendAlertKind: [
     'buylist_guide_due',
     'in_person_with_fee',
+    'label_over_customer_quote', // §ENV3 AG-26: entra al `?kind=`; sin lista propia; sin calibración.
     'buylist_manual_price',
     'cancel_refund_missing',
     'carrier_extra_charge',
@@ -304,7 +305,7 @@ describe('CLASE E — paridad a TRES BANDAS: schema.prisma ⇄ enum-values.ts �
 
   it.each(NAMES)('%s · banda 3 — la línea CANÓNICA del contrato == el enum', (name) => {
     // `in_person_with_fee` (AG-25, §PERSONA) aditivo hasta que la línea viva del contrato lo declare (arquitecto).
-    const additive = name === 'SpendAlertKind' ? ['in_person_with_fee'] : [];
+    const additive = name === 'SpendAlertKind' ? ['in_person_with_fee', 'label_over_customer_quote'] : [];
     expect([...contractValues(name), ...additive].sort()).toEqual(Object.values(PRISMA_ENUMS[name]).sort());
   });
 
@@ -409,7 +410,7 @@ describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canó
     if (!fromContract) throw new Error(`El contrato no declara ${name} y no está en SIN_LINEA_CANONICA`);
     // `supplier` (M-102) es un valor ADITIVO de `Role` declarado en el anexo vivo (el archivo de arriba está congelado).
     // `in_person` (§PERSONA, 2026-11-18) igual: aditivo de `ShipmentLabelSource`, pendiente de la línea viva del contrato (arquitecto).
-    const additive = name === 'Role' ? ['supplier'] : name === 'ShipmentLabelSource' ? ['in_person'] : name === 'SpendAlertKind' ? ['in_person_with_fee'] : [];
+    const additive = name === 'Role' ? ['supplier'] : name === 'ShipmentLabelSource' ? ['in_person'] : name === 'SpendAlertKind' ? ['in_person_with_fee', 'label_over_customer_quote'] : [];
     expect([...fromContract, ...additive].sort()).toEqual([...ENUMS[name]].sort());
   });
 

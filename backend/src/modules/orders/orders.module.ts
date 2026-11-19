@@ -1,3 +1,4 @@
+import { ShippingQuoteModule } from '../shipping-quote/shipping-quote.module';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { OrdersService } from './orders.service';
@@ -25,7 +26,7 @@ import { UsersModule } from '../users/users.module';
   // 💰 v1.86⟨accesorios⟩ (§AC.19.4): `DecksMetaModule` exporta el validador de `deckPulls` que llama el checkout de invitado.
   // 💰 v1.110⟨descuentos⟩ (§DSC): `DiscountsModule` — validez, límite de intentos y uso del código en quote y sesión.
   // ⭐ v1.116 (§4-G.9c): `UsersModule` — el reclamo pasa la dirección a la libreta por `UsersService.createAddressFromClaim`.
-  imports: [PricingModule, CatalogModule, GuestOrderTokensModule, JwtModule.register({}), GeoModule, DecksMetaModule, DiscountsModule, UsersModule],
+  imports: [PricingModule, CatalogModule, GuestOrderTokensModule, JwtModule.register({}), GeoModule, DecksMetaModule, DiscountsModule, UsersModule, ShippingQuoteModule],
   providers: [OrdersService, GuestCheckoutService, OrderClaimService, OrderRefundService, RejectAuthenticatedGuard],
   // v1.82 PNL-1: `GET /support/contact` (público, un resolutor del buzón — `mail/support-contact.ts`).
   controllers: [OrdersController, AdminOrdersController, GuestOrdersController, SupportContactController],

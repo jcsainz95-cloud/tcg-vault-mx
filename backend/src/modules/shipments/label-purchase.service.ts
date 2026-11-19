@@ -18,6 +18,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { skydropxComputedIvaCents } from '../../common/money';
 import { SettingsService } from '../settings/settings.service';
+import { ag26Of, labelLogRowOf } from '../shipping-quote/ship-ag26';
 import { SettingKey } from '../settings/settings.constants';
 import {
   PurchaseDeadlineError,
@@ -902,7 +903,7 @@ export class ShipmentLabelService {
           insuranceCents: cost.insuranceCostCents,
         });
         await this.urlRejections(tx, claim.row.id, urls.rejected);
-        await this.afterPaidLabelAlerts(tx, claim, cost.shippingCostCents, now);
+        await this.afterPaidLabelAlerts(tx, claim, cost.shippingCostCents, now, cost.totalCents);
         return 'ok' as const;
       }, TX);
     } catch (e) {
@@ -970,7 +971,7 @@ export class ShipmentLabelService {
             kept: true,
           });
         }
-        await this.afterPaidLabelAlerts(tx, claim, cost.shippingCostCents, now);
+        await this.afterPaidLabelAlerts(tx, claim, cost.shippingCostCents, now, cost.totalCents);
         return 'ok' as const;
       }, TX);
     } catch (e) {
@@ -1194,7 +1195,7 @@ export class ShipmentLabelService {
   }
 
   /** AG-1, AG-5, AG-13 (§19.29.6) cuando un intento obtiene guía (en la tx del hecho). */
-  private async afterPaidLabelAlerts(tx: Tx, claim: PersistClaim, chargedCents: number, now: Date): Promise<void> {
+  private async afterPaidLabelAlerts(tx: Tx, claim: PersistClaim, chargedCents: number, now: Date, transportCents?: number): Promise<void> {
     // AG-1: la MISMA persona que RECLAMÓ corrigió la dirección de este envío (⛔ no quien adopta o libera).
     // ⭐ rev BSD-1 (§BSD.3 «Avisos al obtener guía», PROJECT §BSD.1-bis): ⛔ AG-1 no en la guía de entrada (el destino es fijo).
     const claimer = claim.claimerId;
@@ -1227,6 +1228,7 @@ export class ShipmentLabelService {
         facts: { quotedCents: claim.rate.priceCents, chargedCents, diffCents: diff },
       }, now);
     }
+    await this.overCustomerQuote(tx, claim, chargedCents, now, transportCents);
     // AG-13: margen negativo o más cara que la recomendada (🟡, ⛔ nunca correo inmediato).
     const rec = claim.recommended?.priceCents ?? null;
     if (claim.rate.marginCents < 0 || (rec !== null && claim.rate.priceCents > rec)) {
@@ -1239,6 +1241,37 @@ export class ShipmentLabelService {
         amountCents: claim.rate.priceCents,
         facts: { marginCents: claim.rate.marginCents, priceCents: claim.rate.priceCents, recommendedPriceCents: rec, overRecommendedCents: rec !== null ? Math.max(0, claim.rate.priceCents - rec) : 0 },
       }, now);
+    }
+  }
+
+  /**
+   * §ENV3 (DECISIONES punto 8) — AG-26 y alimentación de la tabla de respaldo. Solo envío directo con `shippingQuoteSnapshot`.
+   * Informativo: ⛔ nunca lanza ni bloquea la compra (un fallo aquí se registra y la guía sigue).
+   */
+  private async overCustomerQuote(tx: Tx, claim: PersistClaim, chargedCents: number, now: Date, transportCents?: number): Promise<void> {
+    const orderId = claim.row.orderId;
+    if (!orderId) return;
+    try {
+      const order = await tx.order.findUnique({ where: { id: orderId }, select: { shippingQuoteSnapshot: true } });
+      if (!order?.shippingQuoteSnapshot) return;
+      const tolerance = await this.settings.getNumber(SettingKey.SHIP_COST_OVER_QUOTE_CENTS, tx);
+      const facts = ag26Of({ snapshot: order.shippingQuoteSnapshot, costRealCents: chargedCents, toleranceCents: tolerance, boughtService: claim.rate.serviceName, folio: claim.row.folio ?? null });
+      if (facts) {
+        await this.alerts.raise(tx, {
+          kind: 'label_over_customer_quote',
+          severity: 'immediate',
+          dedupKey: `ag26:${claim.row.id}`,
+          shipmentRequestId: claim.row.id,
+          orderId,
+          amountCents: facts.differenceCents,
+          facts: { ...facts },
+        }, now);
+      }
+      const snap = order.shippingQuoteSnapshot as { serviceCode?: unknown };
+      const row = labelLogRowOf(order.shippingQuoteSnapshot, (claim.row.addressSnapshot as { postalCode?: unknown } | null)?.postalCode, typeof snap.serviceCode === 'string' ? snap.serviceCode : null, transportCents ?? 0);
+      if (row) await tx.shippingQuoteLog.create({ data: row });
+    } catch (e) {
+      this.logger.error(`AG-26 (${claim.row.id}) no se pudo evaluar: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

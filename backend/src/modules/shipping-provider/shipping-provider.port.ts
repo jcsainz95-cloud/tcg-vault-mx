@@ -56,6 +56,8 @@ export interface ProviderRate {
   serviceCode: string | null;
   amountCents: number;
   extraFeesCents: number;
+  /** §ENV3: la parte de `extraFeesCents` con `code = extended_area_fee` (YA incluida en `totalCents`; informativa). */
+  extendedAreaFeeCents?: number;
   vatCents: number | null;
   serviceFeeCents: number;
   totalCents: number;

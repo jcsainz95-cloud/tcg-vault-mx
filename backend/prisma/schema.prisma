@@ -1663,6 +1663,9 @@ model Order {
   // `null` ⇔ tarifa fija de hoy (sin accesorios con medidas o sin cajas con tarifa). ⛔ Sin relleno: ningún pedido
   // histórico eligió caja.
   shippingBoxSnapshot         Json?
+  // 💰 §ENV3 (DECISIONES punto 7): la cotización de envío CONGELADA al crear la sesión `{serviceCode, carrier, costQuotedCents,
+  // extendedAreaCents, marginCents, source live|table, profile, quotedAt, free?}`. `null` ⇔ regla fija (pedido anterior o `ship_v3_enabled=off`).
+  shippingQuoteSnapshot       Json?
   // «Revisar caja»: no cupo en ninguna. CHECK `order_shipping_box_review`: `true ⇒ shippingBoxSnapshot NOT NULL`.
   shippingBoxReview           Boolean              @default(false)
   // 💰 v1.110⟨descuentos⟩ (M-92, API_CONTRACT §DSC.1): D de mercancía (= Σ unidades × unitDiscountCents) y la E que un
@@ -2113,6 +2116,7 @@ enum SpendAlertKind {
   buylist_guide_due // AG-23 (rev BSD-1, M-72): «esta solicitud aceptada se cierra sola en N días si no tiene guía»
   psa_cycle_short // AG-24 (v1.113⟨portada⟩, M-93, API_CONTRACT §DYN.4.5): «con el tope de créditos PSA la vuelta tarda > 7 días»
   in_person_with_fee // AG-25 (§PERSONA, DECISIONES): «entregado en persona» por personal que no es el dueño, con flete cobrado > 0
+  label_over_customer_quote // AG-26 (§ENV3, DECISIONES punto 8): la guía costó más que lo cotizado al cliente + `ship_cost_over_quote_cents`
 }
 
 // Clase E. 🔴 inmediato / 🟡 resumen (Z.2).
@@ -4150,4 +4154,33 @@ model SupplySettings {
   defaultPctBps     Int      @default(7000)
   weeklyBudgetCents Int      @default(0)
   updatedAt         DateTime @updatedAt
+}
+
+// 💰 §ENV3 (DECISIONES punto 6) — respaldo por tabla cuando Skydropx no contesta. Una fila por (prefijo de 2 dígitos del CP, perfil de UNA
+// caja/sobre, servicio): `costCents` = p75 del TRANSPORTE (el `total` de Skydropx, con IVA y zona extendida, SIN seguro). Se recalibra a diario.
+model ShippingZoneRate {
+  id           String   @id @default(uuid())
+  prefix2      String
+  profileKey   String
+  serviceCode  String
+  costCents    Int
+  samples      Int
+  calibratedAt DateTime
+
+  @@unique([prefix2, profileKey, serviceCode])
+}
+
+// 💰 §ENV3 (DECISIONES puntos 6 y 8) — lo observado: cotizaciones vivas y guías compradas. ⛔ Sin PII: prefijo de CP, nunca el CP entero.
+// Retención 45 días (job diario). `source`: 'live' | 'label'.
+model ShippingQuoteLog {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  prefix2     String
+  profileKey  String
+  serviceCode String
+  costCents   Int
+  source      String
+
+  @@index([prefix2, profileKey, createdAt])
+  @@index([createdAt])
 }

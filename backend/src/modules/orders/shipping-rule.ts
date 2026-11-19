@@ -51,6 +51,15 @@ export interface DirectShipDials {
   freeFromCents: number;
 }
 
+/**
+ * 💰 §ENV3 — con una cotización por CP vigente (`shippingQuoteId` verificado) la tarifa de las DOS clases ES el cobro cotizado: se
+ * reutiliza la cadena única (umbral sobre `S`, código de envío gratis, desglose, IVA) sin una fórmula nueva. ⛔ La caja grande (§AC.7)
+ * no aplica con cotización (el perfil ya está en el costo): quien llama pasa `choice = null` a `directShipFeeOf`.
+ */
+export function dialsWithQuotedFee(dials: DirectShipDials, feeCents: number): DirectShipDials {
+  return { ...dials, cardsFeeCents: feeCents, sealedFeeCents: feeCents };
+}
+
 export interface DirectShipFee {
   /** `E`: lo que entra a `breakdown.shippingFeeCents`. */
   feeCents: number;

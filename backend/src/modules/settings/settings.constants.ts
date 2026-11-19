@@ -8,6 +8,7 @@
 // v1.50-graded-estimate (M-42, §4.38): seeds + validadores del «gancho de grading» viven en la zona
 // compartida `common/graded-estimate.ts` (pura, sin infra), igual que `pricing-curve.ts`. Aquí solo se
 // cablean como diales.
+import { SealedSubtype } from '@prisma/client';
 import { validateSpanishMarketPct } from '../../common/card-version';
 import {
   DEFAULT_GRADED_ESTIMATE_FRESHNESS_DAYS,
@@ -401,6 +402,19 @@ export const SettingKey = {
   DIRECT_SHIP_SEALED_FEE_CENTS: 'direct_ship_sealed_fee_cents',
   DIRECT_SHIP_FREE_FROM_CENTS: 'direct_ship_free_from_cents',
 
+  // ===== 💰 §ENV3 (DECISIONES punto 13) — envío por CP y carrito. `super_admin` (clase `@MoneyOut`), ⛔ no son diales del dueño. =====
+  /** `'on' | 'off'`. `off` (default hasta publicar) ⇒ la regla fija de arriba, bit a bit; `on` ⇒ cotización por CP (`shippingQuoteId` obligatorio bajo el umbral). */
+  SHIP_V3_ENABLED: 'ship_v3_enabled',
+  SHIP_MARGIN_CENTS: 'ship_margin_cents',
+  SHIP_ENVELOPE_MAX_CARDS: 'ship_envelope_max_cards',
+  SHIP_QUOTE_TTL_S: 'ship_quote_ttl_s',
+  SHIP_QUOTE_TIMEOUT_MS: 'ship_quote_timeout_ms',
+  /** Códigos `provider_service_code` en orden de preferencia (el primero que cotice). */
+  SHIP_SERVICE_ORDER: 'ship_service_order',
+  SHIP_COST_OVER_QUOTE_CENTS: 'ship_cost_over_quote_cents',
+  /** Gramos por unidad de sellado, por `SealedSubtype` (sin ficha de peso en el catálogo; NO MEDIDOS físicamente). */
+  SHIP_SEALED_WEIGHTS_G: 'ship_sealed_weights_g',
+
   // ===== 💰 v1.110⟨descuentos⟩ (API_CONTRACT §DSC.1 «Diales», §DSC.6) — límite de intentos FALLIDOS de código =====
   // Sin semilla en BD: el default de código manda hasta el primer PUT. Enteros ≥ 1. Lector: `discounts/discounts.service.ts`.
   DISCOUNT_CODE_MAX_FAILURES: 'discount_code_max_failures',
@@ -659,6 +673,14 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS]: 10000, // MX$100 final (base 8621 + IVA 1379 con r=16)
   [SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS]: 17500, // MX$175 final (base 15086 + IVA 2414)
   [SettingKey.DIRECT_SHIP_FREE_FROM_CENTS]: 400000, // MX$4,000 exhibido, contra `S`
+  [SettingKey.SHIP_V3_ENABLED]: 'off',
+  [SettingKey.SHIP_MARGIN_CENTS]: 2000, // MX$20 (HECHOS 2026-11-19)
+  [SettingKey.SHIP_ENVELOPE_MAX_CARDS]: 200,
+  [SettingKey.SHIP_QUOTE_TTL_S]: 1800, // 30 min
+  [SettingKey.SHIP_QUOTE_TIMEOUT_MS]: 6000, // medido p50 2.5 s / p95 5.8 s (ENVIO-CP)
+  [SettingKey.SHIP_SERVICE_ORDER]: ['standard_overnight', 'fedex_express_saver'],
+  [SettingKey.SHIP_COST_OVER_QUOTE_CENTS]: 1000, // AG-26: MX$10 de tolerancia
+  [SettingKey.SHIP_SEALED_WEIGHTS_G]: { etb: 800, bundle: 400, box: 1200, tin: 450, blister: 150, upc: 3000, collection: 1500 },
   // 💰 v1.110⟨descuentos⟩ (§DSC.1): 10 intentos fallidos en 15 min ⇒ 15 min de bloqueo (supuesto del PO, §DSC.12).
   [SettingKey.DISCOUNT_CODE_MAX_FAILURES]: 10,
   [SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN]: 15,
@@ -1365,6 +1387,25 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS]: validateIntRange(0, MAX_CENTS),
   [SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS]: validateIntRange(0, MAX_CENTS),
   [SettingKey.DIRECT_SHIP_FREE_FROM_CENTS]: validateIntRange(1, MAX_CENTS),
+  [SettingKey.SHIP_V3_ENABLED]: (v) => (v === 'on' || v === 'off' ? null : "must be 'on' or 'off'"),
+  [SettingKey.SHIP_MARGIN_CENTS]: validateIntRange(0, 1_000_000),
+  [SettingKey.SHIP_ENVELOPE_MAX_CARDS]: validateIntRange(1, 1000),
+  [SettingKey.SHIP_QUOTE_TTL_S]: validateIntRange(60, 86_400),
+  [SettingKey.SHIP_QUOTE_TIMEOUT_MS]: validateIntRange(500, 30_000),
+  [SettingKey.SHIP_SERVICE_ORDER]: (v) =>
+    Array.isArray(v) && v.length > 0 && v.length <= 6 && new Set(v).size === v.length && v.every((c) => typeof c === 'string' && /^[a-z0-9_]{2,60}$/.test(c))
+      ? null
+      : 'must be a non-empty array (≤ 6) of distinct provider service codes',
+  [SettingKey.SHIP_COST_OVER_QUOTE_CENTS]: validateIntRange(0, 1_000_000),
+  [SettingKey.SHIP_SEALED_WEIGHTS_G]: (v) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return 'must be an object { subtype: grams }';
+    const o = v as Record<string, unknown>;
+    for (const k of Object.values(SealedSubtype)) {
+      const g = o[k];
+      if (typeof g !== 'number' || !Number.isInteger(g) || g < 1 || g > 30_000) return `${k}: must be an integer 1..30000 (grams)`;
+    }
+    return Object.keys(o).length === Object.values(SealedSubtype).length ? null : 'unknown subtype key';
+  },
   // 💰 v1.110⟨descuentos⟩ (§DSC.1): enteros ≥ 1 o `422 VALIDATION_ERROR`.
   [SettingKey.DISCOUNT_CODE_MAX_FAILURES]: validatePositiveIntDial('failures'),
   [SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN]: validatePositiveIntDial('minutes'),
@@ -1490,6 +1531,15 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   directShipCardsFeeCents: SettingKey.DIRECT_SHIP_CARDS_FEE_CENTS,
   directShipSealedFeeCents: SettingKey.DIRECT_SHIP_SEALED_FEE_CENTS,
   directShipFreeFromCents: SettingKey.DIRECT_SHIP_FREE_FROM_CENTS,
+  // 💰 §ENV3: envío por CP y carrito (`super_admin`; ⛔ no son diales del dueño).
+  shipV3Enabled: SettingKey.SHIP_V3_ENABLED,
+  shipMarginCents: SettingKey.SHIP_MARGIN_CENTS,
+  shipEnvelopeMaxCards: SettingKey.SHIP_ENVELOPE_MAX_CARDS,
+  shipQuoteTtlS: SettingKey.SHIP_QUOTE_TTL_S,
+  shipQuoteTimeoutMs: SettingKey.SHIP_QUOTE_TIMEOUT_MS,
+  shipServiceOrder: SettingKey.SHIP_SERVICE_ORDER,
+  shipCostOverQuoteCents: SettingKey.SHIP_COST_OVER_QUOTE_CENTS,
+  shipSealedWeightsG: SettingKey.SHIP_SEALED_WEIGHTS_G,
   // 💰 v1.110⟨descuentos⟩ (§DSC.1): `super_admin`, auditados (⛔ no son diales del dueño de §Z).
   discountCodeMaxFailures: SettingKey.DISCOUNT_CODE_MAX_FAILURES,
   discountCodeFailureWindowMin: SettingKey.DISCOUNT_CODE_FAILURE_WINDOW_MIN,

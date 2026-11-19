@@ -19,6 +19,10 @@ import { activeShipment, clientRefundOf, customerAddressSnapshotOf, publicStatus
 import { CUSTOMER_TIMELINE_EVENTS_SELECT, TimelineEventRow, providerTrackingUrlOf, toCustomerTimeline } from '../shipments/customer-timeline';
 import { GuestOrderMailService } from './guest-order-mail.service';
 import { PostalCodeService } from '../shipping-provider/geo/postal-code';
+import { ShippingQuoteDTO, ShippingQuoteService } from '../shipping-quote/shipping-quote.service';
+import { shipCartOf } from '../shipping-quote/ship-cart';
+import { ShipCartInput, shipProfileOf } from '../shipping-quote/ship-profile';
+import { ShippingQuoteRequestDto, shippingQuoteCartDtoOf } from './dto/shipping-quote.dto';
 import { blankToNull } from '../users/address-rules';
 import { GuestQuoteDto, GuestResendLinkDto, GuestSessionDto } from './dto/guest-checkout.dto';
 import { maskEmail, maskPostalCode, maskRecipientName, normalizeEmail } from './guest-privacy';
@@ -37,6 +41,7 @@ import { reserveAccessories } from './accessory-stock';
 import { BoxChoice, boxSnapshotOf } from './box-fit';
 import {
   DirectShipDials,
+  dialsWithQuotedFee,
   GuestShippingRuleDTO,
   PublicShippingRuleDTO,
   ShippingRuleKind,
@@ -109,6 +114,27 @@ export interface GuestAddressSnapshot {
  *  5. El único token en claro que devuelve la API es el de `POST /checkout/guest/session`, a
  *     quien acaba de crear el pedido.
  */
+/** §ENV3: el `shippingQuoteId` no rige para este CP/carrito (se lanza DENTRO de la tx; sale como `409 SHIPPING_QUOTE_STALE` con la cotización nueva). */
+class ShipQuoteStale extends Error {
+  constructor(
+    readonly cart: ShipCartInput,
+    readonly subtotalCents: number,
+  ) {
+    super('SHIPPING_QUOTE_STALE');
+  }
+}
+
+/** ¿La orden propia ya congelada se cobró con la MISMA cotización de envío que rige ahora? (reuso §4-R.3) */
+function sameShipQuote(frozen: unknown, now: { snapshot: unknown } | null): boolean {
+  if (frozen === null || frozen === undefined) return now === null;
+  if (now === null) return false;
+  const k = (x: unknown) => {
+    const o = (x ?? {}) as Record<string, unknown>;
+    return JSON.stringify([o.serviceCode, o.costQuotedCents, o.marginCents, o.free ?? null, o.profile]);
+  };
+  return k(frozen) === k(now.snapshot);
+}
+
 @Injectable()
 export class GuestCheckoutService {
   private readonly logger = new Logger(GuestCheckoutService.name);
@@ -129,6 +155,8 @@ export class GuestCheckoutService {
     // 💰 v1.110⟨descuentos⟩ (§DSC.5/§DSC.6). TL-DSC-5: ⛔ sin `@Optional()` — en la app el proveedor es obligatorio. El `?`
     // de TS es para los unitarios a mano: un request CON código y sin él falla ruidoso; las lecturas no lo necesitan.
     private readonly discountsSvc?: DiscountsService,
+    // 💰 §ENV3: el motor de envío por CP. `@Optional()` por los unitarios a mano; con `ship_v3_enabled=off` (default) ni se consulta.
+    @Optional() private readonly shipQuotes?: ShippingQuoteService,
   ) {}
 
   private get discounts(): DiscountsService {
@@ -205,7 +233,10 @@ export class GuestCheckoutService {
       energyBundleCount: acc.energyBundles.length,
     });
     const choice = empty ? null : await boxChoiceOf(this.prisma as unknown as Prisma.TransactionClient, acc.units);
-    const computed = await this.quoteBreakdowns(subtotalCents + acc.subtotalCents, subtotalCents, empty, itemsEmpty, ivaDials, choice, empty ? null : kind);
+    // 💰 §ENV3: con `ship_v3_enabled=on` y un `shippingQuoteId` VIGENTE para este CP/carrito, la tarifa es la cotizada; sin él (o inválido) el
+    // quote es el de siempre (solo informa: lo cobrado lo decide `session`, que exige la cotización).
+    const quoted = empty ? null : await this.quotedShipFee(dto.shippingQuoteId, dto.shippingAddress?.postalCode ?? null, items, acc.units, subtotalCents + acc.subtotalCents);
+    const computed = await this.quoteBreakdowns(subtotalCents + acc.subtotalCents, subtotalCents, empty, itemsEmpty, ivaDials, choice, empty ? null : kind, quoted);
     // Desglose CONGELADO de la orden propia cuando rige (coversCart y no vencida): lo que el PI cobra.
     const breakdownToday: DirectShipBreakdownDTO = frozenOrder
       ? frozenDirectShipBreakdownOf(frozenOrder)
@@ -222,7 +253,8 @@ export class GuestCheckoutService {
             claimedOrderId,
             frozenOrder,
             cart: [...pieceDiscountLines(items, lines), ...accessoryDiscountLines(acc.accessoryLines), ...bundleDiscountLines(acc.energyBundles)],
-            ship: { kind: empty ? null : kind, choice },
+            ship: { kind: empty ? null : kind, choice: quoted !== null ? null : choice },
+            quotedFeeCents: quoted,
             ivaRatePct: ivaDials.ivaRatePct,
           });
     const applied = dq?.applied ?? null;
@@ -297,6 +329,8 @@ export class GuestCheckoutService {
     frozenOrder: Order | null;
     cart: DiscountCartLine[];
     ship: { kind: ShippingRuleKind | null; choice: BoxChoice | null };
+    /** §ENV3: la tarifa cotizada vigente (reemplaza a los dos diales fijos); `null` ⇒ la regla de siempre. */
+    quotedFeeCents?: number | null;
     ivaRatePct: number;
   }): Promise<{
     discount: DiscountQuoteDTO;
@@ -321,7 +355,7 @@ export class GuestCheckoutService {
         dials: null,
       };
     }
-    const dials = await this.directShipDials();
+    const dials = q.quotedFeeCents != null ? dialsWithQuotedFee(await this.directShipDials(), q.quotedFeeCents) : await this.directShipDials();
     const { discount, applied } = await this.discounts.quoteOutcome({
       code: q.code,
       throttle: { ip: q.ip, email: q.email },
@@ -330,6 +364,49 @@ export class GuestCheckoutService {
       price: (terms) => priceDirectShipCartWithCode(q.cart, terms, { kind: q.ship.kind, dials, choice: q.ship.choice }, q.ivaRatePct),
     });
     return { discount, applied, frozenUnit: null, dials: applied ? dials : null };
+  }
+
+  /**
+   * 💰 §ENV3 — `POST /checkout/shipping-quote`: el cobro de envío del carrito para un CP. El carrito se resuelve como en el `quote`
+   * (poda de piezas, accesorios, paquetes: lo cobrable HOY); ⛔ el cliente no manda peso ni costo. `ship_v3_enabled=off` ⇒ la
+   * ruta existe pero responde `404 NOT_FOUND` (no hay cotización que ofrecer: rige la regla fija).
+   */
+  async shippingQuote(dto: ShippingQuoteRequestDto): Promise<ShippingQuoteDTO> {
+    if (!this.shipQuotes || !(await this.shipQuotes.enabled())) throw BusinessException.notFound('NOT_FOUND', 'Shipping quotes are not enabled');
+    const cartDto = shippingQuoteCartDtoOf(dto);
+    const { items, subtotalCents } = await this.orders.priceCartForQuote(cartDto.inventoryItemIds);
+    const accLines = cartDto.accessoryLines ?? [];
+    const pulls = cartDto.deckPulls ?? [];
+    const acc: QuoteAccessoryPart =
+      accLines.length > 0 || pulls.length > 0
+        ? await quoteAccessoryPart(this.prisma as unknown as Prisma.TransactionClient, this.decksMeta, {
+            lines: accLines,
+            pulls,
+            prunedInventoryItemIds: items.map((i) => i.id),
+          })
+        : EMPTY_QUOTE_ACCESSORY_PART;
+    if (items.length === 0 && acc.accessoryLines.length === 0 && acc.energyBundles.length === 0) {
+      throw BusinessException.validation('VALIDATION_ERROR', 'Nothing to ship in this cart', { field: 'items' });
+    }
+    const S = subtotalCents + acc.subtotalCents;
+    return this.shipQuotes.quote({ cp: dto.cp, cart: shipCartOf(items, acc.units, S), subtotalCents: S });
+  }
+
+  /** §ENV3 (solo `quote`): la tarifa de un `shippingQuoteId` vigente para este CP/carrito, o `null` (regla de siempre). */
+  private async quotedShipFee(
+    token: string | undefined,
+    postalCode: string | null,
+    items: ReadonlyArray<{ productType: ProductType; sealedSubtype: string | null }>,
+    accUnits: ReadonlyArray<{ weightG: number }>,
+    subtotalCents: number,
+  ): Promise<number | null> {
+    if (!token || !this.shipQuotes || !(await this.shipQuotes.enabled())) return null;
+    const v = this.shipQuotes.verifyToken(token);
+    const cp = postalCode ?? (v.ok ? v.payload.cp : null);
+    if (!v.ok || cp === null) return null;
+    const view = await this.shipQuotes.view();
+    const g = this.shipQuotes.gate({ token, cp, profile: shipProfileOf(shipCartOf(items, accUnits, subtotalCents), view), subtotalCents, freeFromCents: view.freeFromCents });
+    return g.ok ? g.feeCents : null;
   }
 
   /**
@@ -437,8 +514,10 @@ export class GuestCheckoutService {
       shippingRuleKindOf({ productTypes: itemTypes, accessoryLineCount: part?.loose.length ?? 0, energyBundleCount: part?.bundles.length ?? 0 });
     const shipDials = await this.directShipDials();
     const ivaRatePct = ivaDials.ivaRatePct;
+    // 💰 §ENV3: con `ship_v3_enabled=on` el cobro sale de la cotización firmada (se contrasta DENTRO de la tx con el carrito ya podado/apartado).
+    const shipView = this.shipQuotes && (await this.shipQuotes.enabled()) ? await this.shipQuotes.view() : null;
     // Sin accesorios, el desglose de hoy se arma FUERA de la tx (un `AMOUNT_TOO_LARGE` sale antes de tocar nada).
-    const breakdownPre = withAccessories
+    const breakdownPre = withAccessories || shipView
       ? null
       : directShipBreakdownOf({ kind: kindOf(null), subtotalCents, dials: shipDials, choice: null, ivaRatePct }).breakdown;
     // 💰 v1.110⟨descuentos⟩ (§DSC.6): el código y el bloqueo por intentos (`429` antes de tocar nada). Sin código ⇒ nada.
@@ -478,11 +557,28 @@ export class GuestCheckoutService {
               extra: own.length > 0 ? await ownAccessoryReservedOf(tx, own.map((o) => o.order.id)) : undefined,
             })
           : null;
+        // 💰 §ENV3: ¿rige este `shippingQuoteId` para ESTE CP, ESTE perfil de carrito y ESTE subtotal? Si no ⇒ 409 con cotización nueva.
+        let sq: { feeCents: number; snapshot: object } | null = null;
+        if (shipView && this.shipQuotes) {
+          const S = subtotalCents + (part?.subtotalCents ?? 0);
+          const cart = shipCartOf(items, part?.units ?? [], S);
+          const g = this.shipQuotes.gate({
+            token: dto.shippingQuoteId,
+            cp: dto.shippingAddress.postalCode,
+            profile: shipProfileOf(cart, shipView),
+            subtotalCents: S,
+            freeFromCents: shipView.freeFromCents,
+          });
+          if (!g.ok) throw new ShipQuoteStale(cart, S);
+          sq = { feeCents: g.feeCents, snapshot: g.snapshot };
+        }
+        const dialsT = sq ? dialsWithQuotedFee(shipDials, sq.feeCents) : shipDials;
         if (
           own.length === 1 &&
           this.orders.isReusable(own[0], dto.inventoryItemIds) &&
           (await this.sameAccessoryCart(tx, own[0].order.id, part)) &&
-          (await sameCodeAsOrder(tx, own[0].order.id, code))
+          (await sameCodeAsOrder(tx, own[0].order.id, code)) &&
+          sameShipQuote(own[0].order.shippingQuoteSnapshot, sq)
         ) {
           // `renewReservation` renueva piezas y renglones de accesorio (§AC.6 (3)).
           const reservedUntil = await this.orders.renewReservation(tx, own[0].order.id, now);
@@ -498,12 +594,16 @@ export class GuestCheckoutService {
         // subtotal, I-AC-1) y la caja grande. Sin accesorios ⇒ `breakdownPre` (solo piezas).
         const kind = kindOf(part);
         const choice: BoxChoice | null = part ? await boxChoiceOf(tx, part.units) : null;
+        // 💰 §ENV3: con cotización vigente la caja grande de §AC.7 no cobra (el perfil ya está en el costo): `feeChoice = null`.
+        const feeChoice = sq ? null : choice;
         let breakdown: DirectShipBreakdownDTO;
         let baseFeeCents = 0;
         if (part) {
-          const today = directShipBreakdownOf({ kind, subtotalCents: subtotalCents + part.subtotalCents, dials: shipDials, choice, ivaRatePct });
+          const today = directShipBreakdownOf({ kind, subtotalCents: subtotalCents + part.subtotalCents, dials: dialsT, choice: feeChoice, ivaRatePct });
           baseFeeCents = today.ship.baseFeeCents;
           breakdown = today.breakdown;
+        } else if (sq) {
+          breakdown = directShipBreakdownOf({ kind, subtotalCents, dials: dialsT, choice: null, ivaRatePct }).breakdown;
         } else {
           breakdown = breakdownPre as DirectShipBreakdownDTO;
         }
@@ -521,7 +621,7 @@ export class GuestCheckoutService {
             code,
             customer: { email: guestEmail },
             now,
-            price: (terms) => priceDirectShipCartWithCode(cart, terms, { kind, dials: shipDials, choice }, ivaRatePct),
+            price: (terms) => priceDirectShipCartWithCode(cart, terms, { kind, dials: dialsT, choice: feeChoice }, ivaRatePct),
           });
           const unit = applied.priced.unitDiscountCents;
           breakdown = applied.priced.breakdown;
@@ -563,6 +663,8 @@ export class GuestCheckoutService {
             // 💰 v1.110 (§DSC.1): solo con código aplicado (sin él, el `INSERT` de hoy y el default 0).
             ...(applied ? { discountCents: applied.priced.discountCents, shippingWaivedCents: applied.priced.shippingWaivedCents } : {}),
             // 💰 v1.86⟨accesorios⟩ (§AC.1/§AC.7): la caja congelada (`null` ⇔ tarifa de hoy) y «revisar caja».
+            // 💰 §ENV3 (DECISIONES punto 7): la cotización CONGELADA en el pedido (tras pagar nada se recalcula).
+            ...(sq ? { shippingQuoteSnapshot: sq.snapshot as unknown as Prisma.InputJsonValue } : {}),
             ...(boxSnapshot ? { shippingBoxSnapshot: boxSnapshot as unknown as Prisma.InputJsonValue, shippingBoxReview: choice?.review ?? false } : {}),
             // v1.102⟨mkt-fase2⟩ (§MKT.H.2): consentimiento y primer origen, misma escritura que crea la fila.
             ...measurementColumnsData(measurementColumns),
@@ -595,7 +697,17 @@ export class GuestCheckoutService {
       RESERVATION_TX_OPTIONS,
     );
     // §DSC.6: el genérico y el `not_applicable` cuentan como intento; se anotan FUERA de la tx deshecha.
-    const outcome = code !== null ? await this.discounts.countingAttempts(code, throttleKeys, runTx) : await runTx();
+    let outcome: Awaited<ReturnType<typeof runTx>>;
+    try {
+      outcome = code !== null ? await this.discounts.countingAttempts(code, throttleKeys, runTx) : await runTx();
+    } catch (e) {
+      if (e instanceof ShipQuoteStale && this.shipQuotes) {
+        // La cotización nueva SALE de la tx (puede llamar a Skydropx): el cliente ve el precio nuevo y reconfirma.
+        const newQuote = await this.shipQuotes.quote({ cp: dto.shippingAddress.postalCode, cart: e.cart, subtotalCents: e.subtotalCents });
+        throw BusinessException.conflict('SHIPPING_QUOTE_STALE', 'The shipping quote is no longer valid; confirm the new price', { newQuote });
+      }
+      throw e;
+    }
 
     const order = outcome.order;
     // A2: crear PI + compensar si el proveedor falla + persistir el id, por el helper COMPARTIDO
@@ -983,6 +1095,8 @@ export class GuestCheckoutService {
     choice: BoxChoice | null,
     /** 💰 v1.109 (§4-G.12 paso 1): la clase del carrito podado; `null` ⇔ nada cobrable. */
     kind: ShippingRuleKind | null,
+    /** 💰 §ENV3: la tarifa cotizada vigente; `null` ⇒ los diales fijos de siempre. */
+    quotedFeeCents: number | null = null,
   ): Promise<{
     breakdown: DirectShipBreakdownDTO;
     vaultBreakdown: BreakdownDTO;
@@ -996,7 +1110,8 @@ export class GuestCheckoutService {
     frozenShippingRule: (order: Order, freeShippingByCode: boolean) => GuestShippingRuleDTO;
   }> {
     const ivaPct = ivaDials.ivaRatePct;
-    const dials = await this.directShipDials();
+    const baseDials = await this.directShipDials();
+    const dials = quotedFeeCents !== null ? dialsWithQuotedFee(baseDials, quotedFeeCents) : baseDials;
     if (empty) {
       const zero = this.orders.zeroCartBreakdown(ivaPct);
       const none = directShipFeeOf(null, 0, dials, null);
@@ -1004,7 +1119,7 @@ export class GuestCheckoutService {
       return { breakdown: { ...zero, shippingFeeCents: 0 }, vaultBreakdown: zero, choice: null, shippingRule: rule, frozenShippingRule: (o, byCode) => frozenShippingRuleOf(null, o, dials, byCode) };
     }
     // TL-ENV-1/TL-ENV-4: la cadena única (`S + E` no representable en Int32 ⇒ 422 AMOUNT_TOO_LARGE, ⛔ nunca un 500 crudo).
-    const { ship, breakdown } = directShipBreakdownOf({ kind, subtotalCents, dials, choice, ivaRatePct: ivaPct });
+    const { ship, breakdown } = directShipBreakdownOf({ kind, subtotalCents, dials, choice: quotedFeeCents !== null ? null : choice, ivaRatePct: ivaPct });
     return {
       breakdown,
       vaultBreakdown: itemsEmpty ? this.orders.zeroCartBreakdown(ivaPct) : computeCartBreakdown(itemsSubtotalCents, ivaPct),

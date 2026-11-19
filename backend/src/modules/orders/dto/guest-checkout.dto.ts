@@ -115,6 +115,9 @@ export class GuestQuoteDto {
 
   /** 💰 v1.110⟨descuentos⟩ (§DSC.6): opcional, string ≤ 40; vacío ⇒ como ausente (lo normaliza `discounts/`). */
   @IsOptional() @IsString() @MaxLength(DISCOUNT_CODE_MAX) discountCode?: string;
+
+  /** 💰 §ENV3: el `quoteId` de `POST /checkout/shipping-quote` (token firmado; ≤ 2048). En el quote es opcional y solo informativo. */
+  @IsOptional() @IsString() @MaxLength(2048) shippingQuoteId?: string;
 }
 
 export class GuestSessionDto {
@@ -166,6 +169,9 @@ export class GuestSessionDto {
 
   /** 💰 v1.110⟨descuentos⟩ (§DSC.6): ver `GuestQuoteDto`. */
   @IsOptional() @IsString() @MaxLength(DISCOUNT_CODE_MAX) discountCode?: string;
+
+  /** 💰 §ENV3: con `ship_v3_enabled=on` y pedido bajo el umbral es OBLIGATORIO (ausente/inválido/vencido ⇒ `409 SHIPPING_QUOTE_STALE`). */
+  @IsOptional() @IsString() @MaxLength(2048) shippingQuoteId?: string;
 }
 
 export class GuestTrackDto {

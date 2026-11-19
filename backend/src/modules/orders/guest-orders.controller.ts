@@ -10,6 +10,7 @@ import {
   GuestSessionDto,
   GuestTrackDto,
 } from './dto/guest-checkout.dto';
+import { ShippingQuoteRequestDto } from './dto/shipping-quote.dto';
 import { MeasurementService } from '../measurement/measurement.service';
 import { retryAfterOf } from '../discounts/discounts.service';
 
@@ -55,6 +56,19 @@ export class GuestOrdersController {
   @Header('Cache-Control', 'public, max-age=300')
   shippingRule() {
     return this.guest.publicShippingRule();
+  }
+
+  /**
+   * 💰 §ENV3 — `POST /checkout/shipping-quote`: cobro de envío por CP y carrito (DECISIONES §ENV3). `@Public` y ⛔ SIN
+   * `RejectAuthenticatedGuard` (lo pide también el checkout con cuenta). 20/min por IP (tabulado por el contrato). El cliente
+   * manda `{cp, items[]}`; ⛔ ningún peso ni costo: el servidor deriva el perfil.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  @Post('checkout/shipping-quote')
+  @HttpCode(200)
+  shippingQuote(@Body() dto: ShippingQuoteRequestDto) {
+    return this.guest.shippingQuote(dto);
   }
 
   /**
