@@ -3,6 +3,7 @@ import { MovementReason, Role, ShipmentRequest } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
 import { isBuylistInbound } from './label-subject';
+import { resolveOriginsBatch } from '../payments/refunds/origin';
 import { SpendAlertsService } from '../spend-alerts/spend-alerts.service';
 
 /**
@@ -43,8 +44,25 @@ export class WithdrawalReturnService {
           where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
           select: { inventoryItemId: true },
         });
+        // RS-4 💰: si el reembolso TOTAL del pedido de origen YA se cerró (`fullRefundClosedAt`/`refunded`; p. ej. con
+        // `confirmPiecesWithCustomer`: el cliente cobró y SE QUEDA la carta), la pieza ⛔ vuelve a la bóveda (cobraría y conservaría la
+        // carta). Coherente con B3: sin cierre, la pieza devuelta se recupera a plataforma si luego se reembolsa. El candado de `Order`
+        // (id asc.) serializa con `onFullRefund`, que sella `fullRefundClosedAt` bajo ese mismo `FOR UPDATE`.
+        // Orden de candados de `onFullRefund` (envíos → piezas → Order): piezas FOR UPDATE (id asc.) ANTES que `Order`, o se cruzan (deadlock medido 29/30).
+        const pieceIds = [...new Set(items.map((i) => i.inventoryItemId))].sort();
+        if (pieceIds.length > 0) await tx.$queryRaw`SELECT id FROM "InventoryItem" WHERE id = ANY(${pieceIds}::text[]) ORDER BY id FOR UPDATE`;
+        const origins = await resolveOriginsBatch(tx, cur.userId ?? '', items.map((i) => i.inventoryItemId));
+        const originOrderIds = [...new Set([...origins.values()].flatMap((o) => (o ? [o.orderId] : [])))].sort();
+        const closedOrders = new Set<string>();
+        if (originOrderIds.length > 0) {
+          const rows = await tx.$queryRaw<{ id: string; fullRefundClosedAt: Date | null; status: string }[]>`
+            SELECT id, "fullRefundClosedAt", status::text AS status FROM "Order" WHERE id = ANY(${originOrderIds}::text[]) ORDER BY id FOR UPDATE`;
+          for (const r of rows) if (r.fullRefundClosedAt !== null || r.status === 'refunded') closedOrders.add(r.id);
+        }
         let restored = 0;
         for (const si of items) {
+          const origin = origins.get(si.inventoryItemId) ?? null;
+          if (origin && closedOrders.has(origin.orderId)) continue;
           const moved = await tx.inventoryItem.updateMany({
             where: { id: si.inventoryItemId, status: 'withdrawn', ownerType: 'customer', ownerUserId: cur.userId },
             data: { status: 'in_custody' },

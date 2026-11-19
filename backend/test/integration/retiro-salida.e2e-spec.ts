@@ -321,6 +321,45 @@ describe('§RETIRO-SALIDA — las piezas de un retiro salen al ENVIARSE', () => 
       expect((await db.piece(c.pid)).ownerType).toBe('platform');
       expect((await db.piece(sinDev.pid)).ownerType).toBe('customer');
     });
+    it('RS-4 💰: reembolso total CERRADO con confirmPiecesWithCustomer y DESPUÉS return-received ⇒ la pieza NO vuelve a la bóveda (409 RETURN_NOTHING_TO_RESTORE)', async () => {
+      const c = await custodyOrder();
+      const oi = await h.prisma.orderItem.findFirstOrThrow({ where: { inventoryItemId: c.pid }, select: { orderId: true } });
+      const rf = await db.m3Refund(oi.orderId, { reason: 'x', confirmPiecesWithCustomer: true });
+      expect([200, 201]).toContain(rf.status);
+      expect((await h.prisma.order.findUniqueOrThrow({ where: { id: oi.orderId } })).fullRefundClosedAt).not.toBeNull();
+      const r = await post(`/admin/shipments/${c.shipmentId}/return-received`);
+      expect([r.status, r.body.error?.code]).toEqual([409, 'RETURN_NOTHING_TO_RESTORE']);
+      expect(await db.piece(c.pid)).toMatchObject({ status: 'withdrawn', ownerType: 'customer' });
+      expect((await db.shipment(c.shipmentId)).returnedAt).toBeNull();
+      expect((await moves(c.pid)).filter((x) => x.reason === 'withdrawal_return')).toHaveLength(0);
+    });
+
+    it('RS-4 💰 carrera reembolso total ‖ return-received (N=30): nunca queda cobrado Y con la carta en la bóveda del cliente', async () => {
+      const N = 30;
+      let malos = 0;
+      const resultados: Record<string, number> = {};
+      for (let i = 0; i < N; i++) {
+        const c = await custodyOrder();
+        const oi = await h.prisma.orderItem.findFirstOrThrow({ where: { inventoryItemId: c.pid }, select: { orderId: true } });
+        const [rf, rr] = await Promise.all<any>([
+          db.m3Refund(oi.orderId, { reason: 'carrera', confirmPiecesWithCustomer: true }),
+          // desfase variable: unas veces gana el reembolso, otras la devolución (0, 15, 30, 60 ms)
+          new Promise((r) => setTimeout(r, [0, 15, 30, 60][i % 4])).then(() => post(`/admin/shipments/${c.shipmentId}/return-received`)),
+        ]);
+        expect(rr.status).not.toBe(503); // sin deadlock con onFullRefund
+        const o = await h.prisma.order.findUniqueOrThrow({ where: { id: oi.orderId } });
+        const p = await db.piece(c.pid);
+        const cobrado = o.fullRefundClosedAt !== null || o.status === 'refunded';
+        const conservaLaCarta = p.ownerType === 'customer' && p.status === 'in_custody';
+        if (cobrado && conservaLaCarta) malos++;
+        const k = `refund=${rf.status < 300 ? 'ok' : rf.status} return=${rr.status} pieza=${p.ownerType}/${p.status}`;
+        resultados[k] = (resultados[k] ?? 0) + 1;
+      }
+      // eslint-disable-next-line no-console
+      console.log(`[RS-4 RACE] N=${N} malos=${malos}`, JSON.stringify(resultados));
+      expect(malos).toBe(0);
+    }, 120_000);
+
     it('DTO del cliente: GET /shipments/:id trae returnedAt null y, tras return-received, la fecha ISO', async () => {
       const c = await custodyOrder();
       const tok = await db.loginCustomer(c.u.email as string);

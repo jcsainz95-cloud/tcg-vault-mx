@@ -102,7 +102,7 @@ const TITLES: Record<string, [string, string]> = {
   // §RETIRO-SALIDA (AG-27).
   'AG-27': ['Guía capturada sin marcar enviado', 'Label captured but not marked as shipped'],
   'AG-28': ['Paquete de retiro devuelto', 'Vault withdrawal parcel returned'],
-  'AG-29': ['Devolución de retiro confirmada por personal', 'Withdrawal return confirmed by staff'],
+  'AG-29': ['Personal confirmó la devolución de un retiro', 'Staff confirmed a withdrawal return'],
 };
 
 /**
