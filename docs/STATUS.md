@@ -78,15 +78,13 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-19 · gate §ENV3 (diff cc7ae7a1..9d7f1f69): RECHAZADO
-- Medido: jest unit 10551/10551 (605 suites); integración env3+checkout+discounts+envio-v2+accesorios 249/249 (10 suites, PG16/Redis desechables, m110 aplicada); vitest 6067 pass/13 skip; tsc be/fe 0; eslint be/fe 0; doc-size VERDE vs origin/production.
-- BLOQUEANTE QA-ENV3-OFF (frontend; arquitecto fija la señal): con ship_v3_enabled=off (default y reversa) shipping-quote da 404 y el checkout de invitado deja PAGAR deshabilitado (1/1, prueba propia); ficha/nosotros dejan de mostrar MX$100/175. El front no puede saber el dial: shipping-rule no lo expone.
-- IMPORTANTE QA-ENV3-REF0 (backend): referenceFee devuelve 0 ante cualquier error/tabla vacía ⇒ código que baja de MX$4,000 = envío gratis (debería 409/503).
-- IMPORTANTE QA-ENV3-LOG (backend): la guía comprada se registra con el servicio COTIZADO (y 'free_threshold'); el log en vivo incluye tarifas a sucursal ⇒ tabla de respaldo sesgada a la baja.
-- IMPORTANTE QA-ENV3-SNAP (backend): pedido con código bajo umbral cobra ref pero guarda snapshot free:'threshold'/costo 0 (AG-26 ciego); falta free:'code' (DECISIONES §ENV3.11).
-- MENOR: token caducado ⇒ desglose vuelve a la regla fija mientras la línea muestra lo cotizado (sin cobro distinto); seguro sobre subtotal antes de código vs §2; TTL de caché fijo; campo «Calcula tu envío» de ficha (§3) sin construir ni diferir; comentarios «PETICIÓN DE CONTRATO» obsoletos; origen de la semilla m110 NO MEDIDO.
-- Re-gate: tras corregir B-1 e I-1..I-3, repetir vitest con dial off + integración env3/discounts.
-- Abiertos menores previos (§PERSONA): QA-PER-FULFILL, QA-PER-PNONE, QA-PER-TREE; filas qa anteriores en PENDIENTES (a5681572).
+## QA (qa) — 2026-11-19 · re-gate §ENV3 sobre ca89544d (diff 9d7f1f69..ca89544d): RECHAZADO (solo B-1)
+- Medido: jest unit 10565/10565 (606 suites); vitest 6073 pass/13 skip (499 archivos); tsc/eslint be+fe 0; doc-size VERDE; integración env3+redis-control+checkout+discounts+envio-v2+accesorios+shipments-prep 272/273 (PG16/Redis desechables propios); prueba propia dial apagado real (v3Enabled=false + 404) 1/1 verde.
+- BLOQUEANTE QA-ENV3-ENV6 (backend): test/integration/envio-v2.e2e-spec.ts:468-469 rojo — espera shipping-rule sin `v3Enabled` y max-age=300; el código cumple DECISIONES §17(1) (v3Enabled, 60 s): actualizar el test.
+- CERRADOS: QA-ENV3-OFF, REF0, LOG, SNAP; M-1, M-2, M-4, M-5. M-3 parcial (sondeo cuenta CPs fuera de catálogo). M-6 NO MEDIDO.
+- Seguro por escalones `shipping_insurance_tiers` (cotización = compra, lista antes de código): coherente; DECISIONES §2/§17(5) debe decir «escalón; sin escalón, banda de MX$500» (arquitecto).
+- MENOR: rule caída + dial off ⇒ PAGAR bloqueado (frontend, por lectura); seguro 0 sobre el escalón mayor en tabla/ref (backend, casi inalcanzable); snapshot `free_threshold` en pedido cobrado por código y sin customerQuote en gratis por umbral (arquitecto confirma); timeout puede contar doble en el disyuntor (backend).
+- Con B-1 en verde: APROBADO con menores. Abiertos menores previos (§PERSONA): QA-PER-FULFILL, -PNONE, -TREE; filas qa anteriores en PENDIENTES (a5681572).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
