@@ -111,7 +111,10 @@ export interface LogRow {
  * Recalibración (punto 6a): p75 por (prefijo, perfil, servicio) con ≥ `minSamples` muestras; con menos se CONSERVA la fila previa
  * (no aparece en el resultado). Devuelve solo las filas a escribir.
  */
-export function recalibrate(log: readonly LogRow[], minSamples: number): Array<Omit<ZoneRow, never>> {
+export const MAX_DAILY_DROP = 0.15;
+
+export function recalibrate(log: readonly LogRow[], minSamples: number, previous: readonly ZoneRow[] = []): ZoneRow[] {
+  const prevOf = new Map(previous.map((r) => [`${r.prefix2}|${r.profileKey}|${r.serviceCode}`, r.costCents]));
   const groups = new Map<string, LogRow[]>();
   for (const l of log) {
     const k = `${l.prefix2}|${l.profileKey}|${l.serviceCode}`;
@@ -122,7 +125,10 @@ export function recalibrate(log: readonly LogRow[], minSamples: number): Array<O
   const out: ZoneRow[] = [];
   for (const g of groups.values()) {
     if (g.length < minSamples) continue;
-    out.push({ prefix2: g[0].prefix2, profileKey: g[0].profileKey, serviceCode: g[0].serviceCode, costCents: p75(g.map((x) => x.costCents)) as number, samples: g.length });
+    const key = `${g[0].prefix2}|${g[0].profileKey}|${g[0].serviceCode}`;
+    // ENV3-4: las cotizaciones públicas alimentan el log (CPs baratos elegidos a propósito): la fila no baja más de 15 % por corrida.
+    const floor = prevOf.has(key) ? Math.ceil((prevOf.get(key) as number) * (1 - MAX_DAILY_DROP)) : 0;
+    out.push({ prefix2: g[0].prefix2, profileKey: g[0].profileKey, serviceCode: g[0].serviceCode, costCents: Math.max(p75(g.map((x) => x.costCents)) as number, floor), samples: g.length });
   }
   return out;
 }

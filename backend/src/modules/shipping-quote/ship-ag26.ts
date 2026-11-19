@@ -39,11 +39,26 @@ export function ag26Of(i: Ag26Input): Ag26Facts | null {
   };
 }
 
-/** Fila del `ShippingQuoteLog` de una guía comprada (transporte SIN seguro, como la tabla), o `null` si el pedido no es de §ENV3. */
-export function labelLogRowOf(snapshot: unknown, postalCode: unknown, serviceCode: string | null, transportCents: number) {
-  const s = snapshot as { profile?: { package?: unknown; perBoxKg?: unknown; boxes?: unknown } } | null;
+const snake = (x: string) => x.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').replace(/^fedex_/, '');
+
+/**
+ * Fila del `ShippingQuoteLog` de una guía comprada (transporte SIN seguro, como la tabla). DECISIONES §ENV3 punto 17(3): la muestra lleva el
+ * servicio COMPRADO real (no el cotizado), solo FedEx a DOMICILIO y de `ship_service_order`; ⛔ nunca `free_threshold`, tabla ni sucursal.
+ * Solo pedidos con snapshot de §ENV3 y de UNA caja (perfil de la tabla).
+ */
+export function labelLogRowOf(i: {
+  snapshot: unknown;
+  postalCode: unknown;
+  rate: { carrierName: string; serviceName: string; deliveryKind: string };
+  serviceOrder: readonly string[];
+  transportCents: number;
+}) {
+  const s = i.snapshot as { profile?: { package?: unknown; perBoxKg?: unknown; boxes?: unknown } } | null;
   const p = s?.profile;
-  if (!p || p.boxes !== 1 || typeof p.package !== 'string' || typeof p.perBoxKg !== 'number' || !serviceCode) return null;
-  if (typeof postalCode !== 'string' || !/^\d{5}$/.test(postalCode) || !Number.isSafeInteger(transportCents) || transportCents <= 0) return null;
-  return { prefix2: postalCode.slice(0, 2), profileKey: `${p.package}:${p.perBoxKg}`, serviceCode, costCents: transportCents, source: 'label' as const };
+  if (!p || p.boxes !== 1 || typeof p.package !== 'string' || typeof p.perBoxKg !== 'number') return null;
+  if (i.rate.carrierName !== 'fedex' || i.rate.deliveryKind !== 'home') return null;
+  const serviceCode = i.serviceOrder.find((c) => snake(c) === snake(i.rate.serviceName));
+  if (!serviceCode || serviceCode === 'free_threshold') return null;
+  if (typeof i.postalCode !== 'string' || !/^\d{5}$/.test(i.postalCode) || !Number.isSafeInteger(i.transportCents) || i.transportCents <= 0) return null;
+  return { prefix2: i.postalCode.slice(0, 2), profileKey: `${p.package}:${p.perBoxKg}`, serviceCode, costCents: i.transportCents, source: 'label' as const };
 }

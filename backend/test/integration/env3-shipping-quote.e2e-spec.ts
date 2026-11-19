@@ -83,7 +83,7 @@ describe('E2E §ENV3 — envío por CP y carrito', () => {
     expect(s.body.breakdown.totalCents).toBe(view.body.breakdown.totalCents);
     const order = await h.prisma.order.findUnique({ where: { id: s.body.orderId } });
     expect(order!.shippingFeeCents).toBe(17700);
-    expect(order!.shippingQuoteSnapshot).toMatchObject({ serviceCode: 'standard_overnight', costQuotedCents: 15686, marginCents: 2000, source: 'live', profile: { package: 'envelope', boxes: 1 } });
+    expect(order!.shippingQuoteSnapshot).toMatchObject({ serviceCode: 'standard_overnight', costQuotedCents: 15686, marginCents: 2000, source: 'live', profile: { package: 'envelope', boxes: 1 }, free: null, chargedCents: 17700 });
   });
 
   it('sin quoteId, manipulado o de otro CP ⇒ 409 SHIPPING_QUOTE_STALE con details.newQuote; NO se crea pedido', async () => {
@@ -201,6 +201,7 @@ describe('E2E §ENV3 — envío por CP y carrito', () => {
     const none = await session([a], '64000', q.quoteId);
     expect(none.status).toBe(201);
     expect(none.body.breakdown.shippingFeeCents).toBe(0);
+    expect((await h.prisma.order.findUnique({ where: { id: none.body.orderId } }))!.shippingQuoteSnapshot).toMatchObject({ free: 'threshold', chargedCents: 0, costQuotedCents: null });
     // 10 % deja S' < T ⇒ se cobra una cotización (la de respaldo firmada en el token), no 0
     const b = await mkItem();
     const q2 = (await h.api('POST', '/checkout/shipping-quote', { json: { cp: '64000', items: [{ inventoryItemId: b }] } })).body;
@@ -208,6 +209,10 @@ describe('E2E §ENV3 — envío por CP y carrito', () => {
     const s2 = await session([b], '64000', q2.quoteId, { discountCode: pct.code });
     expect(s2.status).toBe(201);
     expect(s2.body.breakdown.shippingFeeCents).toBeGreaterThan(0);
+    // QA-ENV3-SNAP: lo cobrado y el costo REAL quedan en el pedido (AG-26 lo ve); ⛔ no `threshold` ni costo 0
+    const o2 = await h.prisma.order.findUnique({ where: { id: s2.body.orderId } });
+    expect(o2!.shippingQuoteSnapshot).toMatchObject({ free: null, chargedCents: s2.body.breakdown.shippingFeeCents });
+    expect((o2!.shippingQuoteSnapshot as { costQuotedCents: number }).costQuotedCents).toBeGreaterThan(0);
     // sin token válido y con código ⇒ 409 (no se regala el envío)
     const c = await mkItem();
     const s3 = await session([c], '64000', undefined, { discountCode: (await mk({ kind: 'percent', percentPct: 10 })).code });
@@ -219,7 +224,39 @@ describe('E2E §ENV3 — envío por CP y carrito', () => {
     const free = await session([d], '64000', q4.quoteId, { discountCode: (await mk({ kind: 'free_shipping' })).code });
     expect(free.status).toBe(201);
     expect(free.body.breakdown.shippingFeeCents).toBe(0);
+    expect((await h.prisma.order.findUnique({ where: { id: free.body.orderId } }))!.shippingQuoteSnapshot).toMatchObject({ free: 'code', chargedCents: 0, costQuotedCents: 15686 });
     await set('direct_ship_free_from_cents', 400000);
+  });
+
+  it('GET /checkout/shipping-rule expone v3Enabled (QA-ENV3-OFF) y cambia con el dial', async () => {
+    expect((await h.api('GET', '/checkout/shipping-rule')).body.v3Enabled).toBe(true);
+    await set('ship_v3_enabled', 'off');
+    const off = await h.api('GET', '/checkout/shipping-rule');
+    await set('ship_v3_enabled', 'on');
+    expect(off.body.v3Enabled).toBe(false);
+    expect(off.body.freeFromCents).toBe(400000);
+    expect(String(off.headers['cache-control'])).toMatch(/max-age=(\d+)/);
+    expect(Number(/max-age=(\d+)/.exec(String(off.headers['cache-control']))![1])).toBeLessThanOrEqual(60);
+  });
+
+  it('QA-ENV3-REF0: pedido ≥ umbral con la tabla vacía ⇒ 503 (no se firma ref=0); sin ref válido y con código ⇒ 409; guest/quote usa la regla fija', async () => {
+    await set('direct_ship_free_from_cents', 1000);
+    const a = await mkItem();
+    const saved = await h.prisma.shippingZoneRate.findMany();
+    await h.prisma.shippingZoneRate.deleteMany({});
+    try {
+      const q = await h.api('POST', '/checkout/shipping-quote', { json: { cp: '64000', items: [{ inventoryItemId: a }] } });
+      expect(q.status).toBe(503);
+      expect(q.body.error.code).toBe('SHIPPING_QUOTE_UNAVAILABLE');
+    } finally {
+      await h.prisma.shippingZoneRate.createMany({ data: saved });
+    }
+    const admin = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
+    const code = (await h.api('POST', '/admin/discount-codes', { token: admin, json: { code: `ENV3R${RUN}`.toUpperCase(), kind: 'percent', percentPct: 10 } })).body.code;
+    const none = await session([a], '64000', undefined, { discountCode: code });
+    expect(none.status).toBe(409);
+    const view = await h.api('POST', '/checkout/guest/quote', { json: { inventoryItemIds: [a], shippingAddress: ADDRESS('64000'), shippingQuoteId: 'basura', discountCode: code } });
+    expect(view.status).toBe(200);
   });
 
   it('items inválidos ⇒ 400; CP malo ⇒ 400 (el throttle 20/min se mide en test/env3.shipping-quote-throttle.spec.ts: el guard global se apaga bajo test)', async () => {

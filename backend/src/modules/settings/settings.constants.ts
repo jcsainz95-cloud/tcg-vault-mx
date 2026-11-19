@@ -412,6 +412,10 @@ export const SettingKey = {
   /** Códigos `provider_service_code` en orden de preferencia (el primero que cotice). */
   SHIP_SERVICE_ORDER: 'ship_service_order',
   SHIP_COST_OVER_QUOTE_CENTS: 'ship_cost_over_quote_cents',
+  /** Tope GLOBAL de llamadas vivas a Skydropx por minuto (Redis; DECISIONES §ENV3 punto 17(6)). */
+  SHIP_SKYDROPX_MAX_PER_MIN: 'ship_skydropx_max_per_min',
+  /** TTL (s) de la caché de cotizaciones por (CP, perfil). */
+  SHIP_CACHE_TTL_S: 'ship_cache_ttl_s',
   /** Gramos por unidad de sellado, por `SealedSubtype` (sin ficha de peso en el catálogo; NO MEDIDOS físicamente). */
   SHIP_SEALED_WEIGHTS_G: 'ship_sealed_weights_g',
 
@@ -680,6 +684,8 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.SHIP_QUOTE_TIMEOUT_MS]: 6000, // medido p50 2.5 s / p95 5.8 s (ENVIO-CP)
   [SettingKey.SHIP_SERVICE_ORDER]: ['standard_overnight', 'fedex_express_saver'],
   [SettingKey.SHIP_COST_OVER_QUOTE_CENTS]: 1000, // AG-26: MX$10 de tolerancia
+  [SettingKey.SHIP_SKYDROPX_MAX_PER_MIN]: 60,
+  [SettingKey.SHIP_CACHE_TTL_S]: 21_600, // 6 h
   [SettingKey.SHIP_SEALED_WEIGHTS_G]: { etb: 800, bundle: 400, box: 1200, tin: 450, blister: 150, upc: 3000, collection: 1500 },
   // 💰 v1.110⟨descuentos⟩ (§DSC.1): 10 intentos fallidos en 15 min ⇒ 15 min de bloqueo (supuesto del PO, §DSC.12).
   [SettingKey.DISCOUNT_CODE_MAX_FAILURES]: 10,
@@ -1397,6 +1403,8 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
       ? null
       : 'must be a non-empty array (≤ 6) of distinct provider service codes',
   [SettingKey.SHIP_COST_OVER_QUOTE_CENTS]: validateIntRange(0, 1_000_000),
+  [SettingKey.SHIP_SKYDROPX_MAX_PER_MIN]: validateIntRange(1, 600),
+  [SettingKey.SHIP_CACHE_TTL_S]: validateIntRange(60, 86_400),
   [SettingKey.SHIP_SEALED_WEIGHTS_G]: (v) => {
     if (!v || typeof v !== 'object' || Array.isArray(v)) return 'must be an object { subtype: grams }';
     const o = v as Record<string, unknown>;
@@ -1539,6 +1547,8 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   shipQuoteTimeoutMs: SettingKey.SHIP_QUOTE_TIMEOUT_MS,
   shipServiceOrder: SettingKey.SHIP_SERVICE_ORDER,
   shipCostOverQuoteCents: SettingKey.SHIP_COST_OVER_QUOTE_CENTS,
+  shipSkydropxMaxPerMin: SettingKey.SHIP_SKYDROPX_MAX_PER_MIN,
+  shipCacheTtlS: SettingKey.SHIP_CACHE_TTL_S,
   shipSealedWeightsG: SettingKey.SHIP_SEALED_WEIGHTS_G,
   // 💰 v1.110⟨descuentos⟩ (§DSC.1): `super_admin`, auditados (⛔ no son diales del dueño de §Z).
   discountCodeMaxFailures: SettingKey.DISCOUNT_CODE_MAX_FAILURES,

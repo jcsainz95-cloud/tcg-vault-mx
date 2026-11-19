@@ -22,8 +22,13 @@ export interface ShipQuoteSnapshot {
   marginCents: number;
   source: 'live' | 'table';
   profile: { package: string; boxes: number; perBoxKg: number; perBoxCoverageCents: number };
-  /** `'threshold'` si la cotización se emitió con el pedido ya sobre el umbral (cobro 0). */
-  free?: 'threshold';
+  /**
+   * DECISIONES §ENV3 punto 17(4): `'threshold'` (cobro 0 por umbral), `'code'` (código de envío gratis) o `null` (se cobró la cotización). En el token
+   * solo viaja `'threshold'` (emitido sobre el umbral); la sesión escribe el valor FINAL en el pedido.
+   */
+  free?: 'threshold' | 'code' | null;
+  /** Lo cobrado al cliente por envío (la sesión lo escribe; en el token no viaja). */
+  chargedCents?: number;
 }
 
 export interface ShipQuotePayload {
@@ -37,6 +42,8 @@ export interface ShipQuotePayload {
   exp: number;
   /** §ENV3 (DECISIONES punto 15): cobro de referencia (respaldo por tabla) que rige si un código baja un pedido ≥ umbral por debajo del umbral. Solo en tokens «gratis por umbral». */
   ref?: number;
+  /** Costo de guía de referencia (centavos, tabla) que respalda `ref`; solo en tokens de umbral. */
+  refCost?: number;
   snap: ShipQuoteSnapshot & { quotedAt: string };
 }
 
@@ -54,7 +61,7 @@ const INVALID: ShipQuoteVerdict = { ok: false, reason: 'invalid_token', payload:
 
 export function signShipQuote(signer: ShipQuoteSigner, p: Omit<ShipQuotePayload, 'v'>): string {
   // Orden de llaves FIJO: el texto firmado es determinista.
-  const json = JSON.stringify({ v: 1, cp: p.cp, h: p.h, fee: p.fee, iat: p.iat, exp: p.exp, ...(p.ref !== undefined ? { ref: p.ref } : {}), snap: p.snap });
+  const json = JSON.stringify({ v: 1, cp: p.cp, h: p.h, fee: p.fee, iat: p.iat, exp: p.exp, ...(p.ref !== undefined ? { ref: p.ref } : {}), ...(p.refCost !== undefined ? { refCost: p.refCost } : {}), snap: p.snap });
   const part1 = Buffer.from(json, 'utf8').toString('base64url');
   return `${part1}.${signer.domainHmac(SHIP_QUOTE_DOMAIN, part1)}`;
 }
@@ -83,6 +90,7 @@ export function verifyShipQuote(signer: ShipQuoteSigner, token: unknown, nowSec:
     !isInt(o.iat) ||
     !isInt(o.exp) ||
     (o.ref !== undefined && !isInt(o.ref)) ||
+    (o.refCost !== undefined && !isInt(o.refCost)) ||
     !snap ||
     typeof snap !== 'object' ||
     typeof snap.serviceCode !== 'string' ||

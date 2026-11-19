@@ -128,11 +128,25 @@ class ShipQuoteStale extends Error {
 function sameShipQuote(frozen: unknown, now: { snapshot: unknown } | null): boolean {
   if (frozen === null || frozen === undefined) return now === null;
   if (now === null) return false;
-  const k = (x: unknown) => {
-    const o = (x ?? {}) as Record<string, unknown>;
-    return JSON.stringify([o.serviceCode, o.costQuotedCents, o.marginCents, o.free ?? null, o.profile]);
-  };
-  return k(frozen) === k(now.snapshot);
+  const f = frozen as Record<string, unknown>;
+  const n = now.snapshot as Record<string, unknown>;
+  const profile = (x: Record<string, unknown>) => JSON.stringify(x.profile ?? null);
+  // Sobre el umbral sin cotización: mismo perfil basta (no hay token que comparar).
+  if (f.free === 'threshold' && n.free === 'threshold') return profile(f) === profile(n);
+  return f.serviceCode === n.serviceCode && f.marginCents === n.marginCents && f.quotedAt === n.quotedAt && profile(f) === profile(n);
+}
+
+/**
+ * 💰 §ENV3 (DECISIONES punto 17(4)) — el snapshot es lo COBRADO: `free` = `'code'` (código de envío gratis), `'threshold'` (umbral sobre el
+ * subtotal ya descontado, sin costo que informar) o `null` (se cobró la cotización); `chargedCents` = `shippingFeeCents` del pedido. Con código
+ * el costo real de la cotización se conserva (AG-26 y el P&L ven el costo absorbido); por umbral `costQuotedCents` es `null`.
+ */
+export function finalShipSnapshot(
+  snap: object,
+  o: { chargedCents: number; subtotalAfterDiscountCents: number; freeFromCents: number; freeByCode: boolean },
+): object {
+  const free: 'code' | 'threshold' | null = o.freeByCode ? 'code' : o.chargedCents === 0 && o.subtotalAfterDiscountCents >= o.freeFromCents ? 'threshold' : null;
+  return { ...snap, free, chargedCents: o.chargedCents, ...(free === 'threshold' ? { costQuotedCents: null } : {}) };
 }
 
 @Injectable()
@@ -414,8 +428,8 @@ export class GuestCheckoutService {
    * 💰 v1.109 (§4-G.12 punto 5) — `GET /checkout/shipping-rule`: las `E` ya derivadas con los diales vivos. Informativo
    * (la ficha, sin cotizar): lo cobrado lo decide `session`.
    */
-  async publicShippingRule(): Promise<PublicShippingRuleDTO> {
-    return publicShippingRuleOf(await this.directShipDials());
+  async publicShippingRule(): Promise<PublicShippingRuleDTO & { v3Enabled: boolean }> {
+    return { ...publicShippingRuleOf(await this.directShipDials()), v3Enabled: this.shipQuotes ? await this.shipQuotes.enabled() : false };
   }
 
   /**
@@ -666,7 +680,16 @@ export class GuestCheckoutService {
             ...(applied ? { discountCents: applied.priced.discountCents, shippingWaivedCents: applied.priced.shippingWaivedCents } : {}),
             // 💰 v1.86⟨accesorios⟩ (§AC.1/§AC.7): la caja congelada (`null` ⇔ tarifa de hoy) y «revisar caja».
             // 💰 §ENV3 (DECISIONES punto 7): la cotización CONGELADA en el pedido (tras pagar nada se recalcula).
-            ...(sq ? { shippingQuoteSnapshot: sq.snapshot as unknown as Prisma.InputJsonValue } : {}),
+            ...(sq && shipView
+              ? {
+                  shippingQuoteSnapshot: finalShipSnapshot(sq.snapshot, {
+                    chargedCents: breakdown.shippingFeeCents,
+                    subtotalAfterDiscountCents: breakdown.subtotalCents,
+                    freeFromCents: shipView.freeFromCents,
+                    freeByCode: applied?.priced.freeShippingByCode ?? false,
+                  }) as unknown as Prisma.InputJsonValue,
+                }
+              : {}),
             ...(boxSnapshot ? { shippingBoxSnapshot: boxSnapshot as unknown as Prisma.InputJsonValue, shippingBoxReview: choice?.review ?? false } : {}),
             // v1.102⟨mkt-fase2⟩ (§MKT.H.2): consentimiento y primer origen, misma escritura que crea la fila.
             ...measurementColumnsData(measurementColumns),

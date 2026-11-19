@@ -66,3 +66,14 @@ describe('§ENV3 tabla de respaldo', () => {
     expect(recalibrate([log(1), log(2), log(3), log(4), log(5)], 5)).toEqual([{ prefix2: '64', profileKey: 'envelope:1', serviceCode: 'x', costCents: 4, samples: 5 }]);
   });
 });
+
+describe('ENV3-4: la calibración no se deja sesgar a la baja', () => {
+  const log = (c: number) => ({ prefix2: '64', profileKey: 'envelope:1', serviceCode: 'x', costCents: c });
+  const prev = [{ prefix2: '64', profileKey: 'envelope:1', serviceCode: 'x', costCents: 10000, samples: 2 }];
+  it('un día de muestras baratas NO baja la fila más de 15 %; hacia arriba sí sigue', () => {
+    const cheap = Array.from({ length: 50 }, () => log(3000));
+    expect(recalibrate(cheap, 5, prev)[0].costCents).toBe(8500);
+    expect(recalibrate(Array.from({ length: 6 }, () => log(20000)), 5, prev)[0].costCents).toBe(20000);
+    expect(recalibrate(cheap, 5)[0].costCents).toBe(3000); // sin fila previa (primera vez) se acepta la muestra
+  });
+});

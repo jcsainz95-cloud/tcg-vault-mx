@@ -85,6 +85,8 @@ export interface PublicShippingRuleDTO {
   freeFromCents: number;
   currency: 'MXN';
   ivaIncluded: true;
+  /** §ENV3 punto 17(1): `ship_v3_enabled`. Apagado ⇒ el front usa la regla fija (textos MX$100/175, sin cotización). */
+  v3Enabled?: boolean;
 }
 
 /** D-ENV-2: la gradeada es una carta y viaja igual. Del enum generado (⛔ lista a mano: candado de `enum-values-parity`). */

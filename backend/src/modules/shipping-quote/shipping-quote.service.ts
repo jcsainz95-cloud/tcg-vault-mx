@@ -20,7 +20,7 @@ import { insuranceCoverageFor } from '../shipments/insurance';
 import { PostalCodeService } from '../shipping-provider/geo/postal-code';
 import { SHIPPING_PROVIDER_PORT, ShippingProviderPort } from '../shipping-provider/shipping-provider.port';
 import { SHIP_QUOTE_CACHE, ShipQuoteCache } from './ship-quote-cache';
-import { ShipQuoteBreaker } from './ship-quote-breaker';
+import { SHIP_QUOTE_CONTROL, ShipQuoteControl } from './ship-quote-control';
 import {
   PickedRate,
   ZoneRow,
@@ -64,12 +64,13 @@ export interface ShipSettingsView extends ShipDials {
   serviceOrder: readonly string[];
   freeFromCents: number;
   tiers: readonly InsuranceTier[];
+  maxPerMin: number;
+  cacheTtlS: number;
 }
 
 @Injectable()
 export class ShippingQuoteService {
   private readonly logger = new Logger(ShippingQuoteService.name);
-  private readonly breaker = new ShipQuoteBreaker();
   private readonly inflight = new Map<string, Promise<PerBoxCost | null>>();
 
   constructor(
@@ -79,6 +80,7 @@ export class ShippingQuoteService {
     private readonly postal: PostalCodeService,
     @Inject(SHIPPING_PROVIDER_PORT) private readonly port: ShippingProviderPort,
     @Inject(SHIP_QUOTE_CACHE) private readonly cache: ShipQuoteCache,
+    @Inject(SHIP_QUOTE_CONTROL) private readonly gateCtl: ShipQuoteControl,
   ) {}
 
   async enabled(): Promise<boolean> {
@@ -86,7 +88,7 @@ export class ShippingQuoteService {
   }
 
   async view(): Promise<ShipSettingsView> {
-    const [enabled, marginCents, envelopeMaxCards, ttlS, timeoutMs, serviceOrder, sealedWeightsG, freeFromCents, tiers] = await Promise.all([
+    const [enabled, marginCents, envelopeMaxCards, ttlS, timeoutMs, serviceOrder, sealedWeightsG, freeFromCents, tiers, maxPerMin, cacheTtlS] = await Promise.all([
       this.enabled(),
       this.settings.getNumber(SettingKey.SHIP_MARGIN_CENTS),
       this.settings.getNumber(SettingKey.SHIP_ENVELOPE_MAX_CARDS),
@@ -96,6 +98,8 @@ export class ShippingQuoteService {
       this.settings.get<Record<string, number>>(SettingKey.SHIP_SEALED_WEIGHTS_G),
       this.settings.getNumber(SettingKey.DIRECT_SHIP_FREE_FROM_CENTS),
       this.settings.get<InsuranceTier[]>(SettingKey.SHIPPING_INSURANCE_TIERS),
+      this.settings.getNumber(SettingKey.SHIP_SKYDROPX_MAX_PER_MIN),
+      this.settings.getNumber(SettingKey.SHIP_CACHE_TTL_S),
     ]);
     return {
       enabled,
@@ -107,6 +111,8 @@ export class ShippingQuoteService {
       sealedWeightsG,
       freeFromCents,
       tiers,
+      maxPerMin,
+      cacheTtlS,
       insuranceCoverages: tiers.map((t) => t.coverageCents),
     };
   }
@@ -127,12 +133,13 @@ export class ShippingQuoteService {
   gate(args: { token: unknown; cp: string; profile: ShipProfile; subtotalCents: number; freeFromCents: number; hasCode?: boolean; now?: Date }): ShipQuoteGate {
     const now = args.now ?? new Date();
     if (args.subtotalCents >= args.freeFromCents) {
-      // 💰 DECISIONES punto 15: el umbral se mide DESPUÉS del descuento. Con código, la cotización de referencia (`ref`) debe ir firmada: si el
-      // descuento deja el subtotal bajo el umbral se cobra `ref`; sin token válido ⇒ stale (nunca «gratis» por no tener cifra).
-      if (args.hasCode) {
+      // 💰 DECISIONES punto 15: el umbral se mide DESPUÉS del descuento. Con código (o con un token presentado) la cotización de referencia
+      // (`ref`) debe ir firmada y ser > 0 (§17(2): sin `ref` válido NUNCA hay envío 0 ⇒ stale); sin código ni token ⇒ 0 por umbral.
+      const presented = typeof args.token === 'string' && args.token !== '';
+      if (args.hasCode || presented) {
         const v = this.verifyToken(args.token, now);
-        if (!v.ok || v.payload.cp !== args.cp || v.payload.h !== profileHashOf(args.profile) || v.payload.ref === undefined) return { ok: false };
-        return { ok: true, feeCents: v.payload.ref, snapshot: v.payload.snap };
+        if (!v.ok || v.payload.cp !== args.cp || v.payload.h !== profileHashOf(args.profile) || !Number.isSafeInteger(v.payload.ref) || (v.payload.ref as number) <= 0) return { ok: false };
+        return { ok: true, feeCents: v.payload.ref as number, snapshot: v.payload.snap };
       }
       return {
         ok: true,
@@ -168,12 +175,15 @@ export class ShippingQuoteService {
     const profile = shipProfileOf(input.cart, v);
     let fee: number;
     let ref: number | undefined;
+    let refCost: number | undefined;
     let snap: ShipQuoteSnapshot;
     if (input.subtotalCents >= v.freeFromCents) {
       // Sobre el umbral no se cotiza en vivo (sin esperar 2.5 s): cobro 0; `ref` = respaldo por tabla por si un código baja el subtotal bajo el umbral.
       fee = 0;
-      ref = await this.referenceFee(input.cp, profile, v);
-      snap = { serviceCode: 'free_threshold', serviceName: 'FedEx', carrier: 'fedex', etaDays: 0, costQuotedCents: 0, extendedAreaCents: 0, marginCents: 0, source: 'table', profile: profileSummary(profile), free: 'threshold' };
+      const r = await this.referenceFee(input.cp, profile, v);
+      ref = r.fee;
+      refCost = r.guide;
+      snap = { serviceCode: 'free_threshold', serviceName: 'FedEx', carrier: 'fedex', etaDays: 0, costQuotedCents: refCost ?? 0, extendedAreaCents: 0, marginCents: 0, source: 'table', profile: profileSummary(profile), free: 'threshold' };
     } else {
       const cost = await this.costPerBox(input.cp, profile, v);
       const guide = profile.boxes * guideCostPerBoxCents(cost);
@@ -192,7 +202,7 @@ export class ShippingQuoteService {
     }
     const iat = Math.floor(now.getTime() / 1000);
     const exp = iat + v.ttlS;
-    const payload: Omit<ShipQuotePayload, 'v'> = { cp: input.cp, h: profileHashOf(profile), fee, iat, exp, ...(ref !== undefined ? { ref } : {}), snap: { ...snap, quotedAt: now.toISOString() } };
+    const payload: Omit<ShipQuotePayload, 'v'> = { cp: input.cp, h: profileHashOf(profile), fee, iat, exp, ...(ref !== undefined ? { ref, refCost } : {}), snap: { ...snap, quotedAt: now.toISOString() } };
     return {
       quoteId: signShipQuote(this.pii, payload),
       shippingFeeCents: fee,
@@ -202,14 +212,14 @@ export class ShippingQuoteService {
     };
   }
 
-  /** Cobro de referencia de un pedido ≥ umbral: tabla de respaldo (sin llamada en vivo). Sin tabla ⇒ 0 (no hay cifra que inventar). */
-  private async referenceFee(cp: string, profile: ShipProfile, v: ShipSettingsView): Promise<number> {
-    try {
-      const c = await this.fromTable(cp, profile, v);
-      return customerFeeCents(profile.boxes, guideCostPerBoxCents(c), v.marginCents);
-    } catch {
-      return 0;
-    }
+  /**
+   * Cobro de referencia de un pedido ≥ umbral: respaldo por tabla (sin llamada en vivo). ⛔ NO traga errores (QA-ENV3-REF0): tabla vacía ⇒ 503,
+   * fallo de BD ⇒ el error sale; nunca se firma un `ref` inventado ni 0.
+   */
+  private async referenceFee(cp: string, profile: ShipProfile, v: ShipSettingsView): Promise<{ fee: number; guide: number }> {
+    const c = await this.fromTable(cp, profile, v);
+    const per = guideCostPerBoxCents(c);
+    return { fee: customerFeeCents(profile.boxes, per, v.marginCents), guide: profile.boxes * per };
   }
 
   // ── costo de UNA caja ────────────────────────────────────────────────────────────────────────────────────────
@@ -221,8 +231,7 @@ export class ShippingQuoteService {
       const parsed = parseCached(hit);
       if (parsed) return { ...parsed, source: 'live' };
     }
-    const nowMs = Date.now();
-    if (!this.breaker.isOpen(nowMs)) {
+    if (!(await this.gateCtl.isOpen())) {
       let flight = this.inflight.get(key);
       if (!flight) {
         flight = this.live(cp, profile, v, key).finally(() => this.inflight.delete(key));
@@ -231,13 +240,19 @@ export class ShippingQuoteService {
       // Plazo duro: el vivo sigue en segundo plano (llena la caché) y esta petición se resuelve con la tabla.
       const winner = await raceTimeout(flight.catch(() => null), v.timeoutMs);
       if (winner !== 'timeout' && winner !== null) return winner;
-      if (winner === 'timeout') this.logger.warn(`ship_quote live_timeout prefix=${cp.slice(0, 2)} profile=${tableProfileKey(profile)}`);
+      if (winner === 'timeout') {
+        // ENV3-3: un plazo vencido cuenta como fallo del proveedor (antes no contaba y 30 CPs distintos ⇒ 30 llamadas colgadas).
+        await this.gateCtl.recordFailure();
+        this.logger.warn(`ship_quote live_timeout prefix=${cp.slice(0, 2)} profile=${tableProfileKey(profile)}`);
+      }
     }
     return this.fromTable(cp, profile, v);
   }
 
   /** La llamada a Skydropx. Devuelve `null` si no hay servicio FedEx del orden (⇒ respaldo). Nunca lanza. */
-  private async live(cp: string, profile: ShipProfile, v: ShipSettingsView, key: string): Promise<PerBoxCost | null> {
+  private async live(cp: string, profile: ShipProfile, v: ShipSettingsView, key: string, lowPriority = false): Promise<PerBoxCost | null> {
+    // Tope global (llamadas/min y en vuelo): excedido ⇒ `null` ⇒ respaldo por tabla, sin tocar Skydropx.
+    if (!(await this.gateCtl.acquire(v.maxPerMin, { lowPriority }))) return null;
     try {
       const template = await this.settings.get<string | null>(SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID);
       const rec = await this.postal.resolvePostalCode(cp);
@@ -252,16 +267,20 @@ export class ShippingQuoteService {
       });
       const tierCost = insuranceCoverageFor(profile.perBoxCoverageCents, v.tiers)?.costCents ?? 0;
       const picked = res.completed ? pickRate(res.rates, v.serviceOrder, tierCost) : null;
-      this.breaker.recordSuccess();
+      await this.gateCtl.recordSuccess();
       if (!picked) return null;
       const out: PerBoxCost = { ...picked, source: 'live' };
-      await this.cache.set(key, JSON.stringify(picked), 6 * 3600);
-      void this.logObserved(cp, profile, res.rates.filter((r) => r.carrierName === 'fedex' && r.serviceCode !== null), 'live');
+      await this.cache.set(key, JSON.stringify(picked), v.cacheTtlS);
+      void this.logObserved(cp, profile, res.rates.filter((r) => r.carrierName === 'fedex' && r.deliveryKind === 'home' && r.serviceCode !== null && v.serviceOrder.includes(r.serviceCode)), 'live');
       return out;
     } catch (e) {
-      this.breaker.recordFailure(Date.now());
+      // Cuentan los fallos del proveedor (red/timeout/5xx); un 4xx es nuestro (petición mal formada) y NO abre el disyuntor.
+      const st = (e as { httpStatus?: number }).httpStatus;
+      if (st === undefined || st >= 500) await this.gateCtl.recordFailure();
       this.logger.warn(`ship_quote live_failed prefix=${cp.slice(0, 2)} ${e instanceof Error ? e.name : 'error'}`);
       return null;
+    } finally {
+      await this.gateCtl.release();
     }
   }
 
@@ -299,12 +318,12 @@ export class ShippingQuoteService {
    * disyuntor. Devuelve cuántas llamadas hizo (0 con el disyuntor abierto).
    */
   async probe(cp: string, coverageCents: number): Promise<number> {
-    if (!CP_RE.test(cp) || this.breaker.isOpen(Date.now())) return 0;
+    if (!CP_RE.test(cp) || (await this.gateCtl.isOpen())) return 0;
     const v = await this.view();
     let calls = 0;
     for (const pkg of ['envelope', 'box'] as const) {
       const profile: ShipProfile = { package: pkg, boxes: 1, perBoxKg: dimsOf({ package: pkg }).weightKg, weightG: 0, perBoxCoverageCents: coverageCents };
-      await this.live(cp, profile, v, cacheKeyOf(cp, profile));
+      await this.live(cp, profile, v, cacheKeyOf(cp, profile), true);
       calls += 1;
     }
     return calls;
@@ -331,6 +350,11 @@ function serviceNameOf(code: string): string {
   return code === 'standard_overnight' ? 'FedEx Standard Overnight' : code === 'fedex_express_saver' ? 'FedEx Express Saver' : `FedEx ${code}`;
 }
 
+/** ENV3-4: entero en [0, max] (una caché corrupta o manipulada con negativos o enormes se ignora). */
+function inRange(n: unknown, max: number): boolean {
+  return typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 && n <= max;
+}
+
 function parseCached(s: string): PickedRate | null {
   try {
     const o = JSON.parse(s) as Partial<PickedRate>;
@@ -338,10 +362,11 @@ function parseCached(s: string): PickedRate | null {
       typeof o.serviceCode === 'string' &&
       typeof o.serviceName === 'string' &&
       typeof o.carrier === 'string' &&
-      Number.isSafeInteger(o.etaDays) &&
-      Number.isSafeInteger(o.transportCents) &&
-      Number.isSafeInteger(o.insuranceCents) &&
-      Number.isSafeInteger(o.extendedAreaCents)
+      inRange(o.etaDays, 365) &&
+      inRange(o.transportCents, 100_000_000) &&
+      inRange(o.insuranceCents, 100_000_000) &&
+      inRange(o.extendedAreaCents, 100_000_000) &&
+      (o.transportCents as number) > 0
     ) {
       return o as PickedRate;
     }

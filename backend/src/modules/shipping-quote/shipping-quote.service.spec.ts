@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { SETTING_DEFAULTS } from '../settings/settings.constants';
 import { MTY_ENVELOPE, ONLY_EXPRESS_SAVER } from './fixtures';
 import { MemoryShipQuoteCache } from './ship-quote-cache';
+import { MemoryShipQuoteControl } from './ship-quote-control';
 import { ShipCartInput } from './ship-profile';
 import { ShippingQuoteService } from './shipping-quote.service';
 
@@ -27,7 +28,7 @@ function build(over: { settings?: Record<string, unknown>; quote?: jest.Mock; zo
   const postal = { resolvePostalCode: jest.fn(async () => ({ postalCode: '64000', source: 'local', entries: [{ neighborhood: 'Centro', municipality: 'Monterrey', state: 'Nuevo León' }] })) };
   const quote = over.quote ?? jest.fn(async () => ({ providerQuotationId: 'q', completed: true, rates: MTY_ENVELOPE, excluded: {}, insuranceEcho: { ok: true }, raw: null }));
   const cache = new MemoryShipQuoteCache();
-  const svc = new ShippingQuoteService(prisma as never, settings as never, pii as never, postal as never, { quote } as never, cache);
+  const svc = new ShippingQuoteService(prisma as never, settings as never, pii as never, postal as never, { quote } as never, cache, new MemoryShipQuoteControl());
   return { svc, quote, prisma, cache, settings };
 }
 
@@ -92,6 +93,97 @@ describe('§ENV3 ShippingQuoteService', () => {
     await expect(svc.quote({ cp: '6400', cart: cart(), subtotalCents: 1 })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
+  describe('QA-ENV3-REF0: sin `ref` válido nunca hay envío 0', () => {
+    it('pedido ≥ umbral con tabla vacía ⇒ 503 (no se firma ref=0)', async () => {
+      const { svc } = build({ zone: [] });
+      await expect(svc.quote({ cp: '64000', cart: cart(), subtotalCents: 450000 })).rejects.toMatchObject({ code: 'SHIPPING_QUOTE_UNAVAILABLE' });
+    });
+    it('un fallo de BD al leer la tabla también propaga (no se traga)', async () => {
+      const { svc, prisma } = build();
+      prisma.shippingZoneRate.findMany.mockRejectedValueOnce(new Error('db down'));
+      await expect(svc.quote({ cp: '64000', cart: cart(), subtotalCents: 450000 })).rejects.toThrow('db down');
+    });
+    it('token de umbral SIN ref (o con ref 0) ⇒ stale, con o sin código; sin token y sin código ⇒ 0', async () => {
+      const { svc } = build();
+      const profile = await svc.profileOf(cart());
+      const free = (await svc.quote({ cp: '64000', cart: cart(), subtotalCents: 450000 })).quoteId;
+      const payload = JSON.parse(Buffer.from(free.split('.')[0], 'base64url').toString());
+      const sign = (o: object) => {
+        const p1 = Buffer.from(JSON.stringify(o)).toString('base64url');
+        return `${p1}.${pii.domainHmac('ship-quote:v1:', p1)}`;
+      };
+      const { ref: _r, ...noRef } = payload;
+      const args = { cp: '64000', profile, subtotalCents: 450000, freeFromCents: 400000 };
+      expect(svc.gate({ ...args, token: sign(noRef) })).toEqual({ ok: false });
+      expect(svc.gate({ ...args, token: sign(noRef), hasCode: true })).toEqual({ ok: false });
+      expect(svc.gate({ ...args, token: sign({ ...payload, ref: 0 }), hasCode: true })).toEqual({ ok: false });
+      expect(svc.gate({ ...args, token: '' })).toMatchObject({ ok: true, feeCents: 0 });
+    });
+  });
+
+  describe('ENV3-3: disyuntor con timeouts y 5xx, tope global y semáforo', () => {
+    const hang = () => jest.fn(() => new Promise(() => undefined));
+    const cps = (n: number) => Array.from({ length: n }, (_, i) => `6${String(i).padStart(4, '0')}`);
+    it('5 timeouts (CPs distintos, Skydropx colgado) ⇒ el disyuntor abre y la 6ª no llama', async () => {
+      const q = hang();
+      const { svc } = build({ settings: { ship_quote_timeout_ms: 500 }, quote: q });
+      for (const cp of cps(5)) await svc.quote({ cp, cart: cart(), subtotalCents: 100000 });
+      expect(q).toHaveBeenCalledTimes(5);
+      await svc.quote({ cp: '69999', cart: cart(), subtotalCents: 100000 });
+      expect(q).toHaveBeenCalledTimes(5);
+    });
+    it('error 5xx cuenta; 4xx NO cuenta', async () => {
+      const mk = (status: number) => jest.fn(async () => { throw Object.assign(new Error('x'), { httpStatus: status }); });
+      const q4 = mk(422);
+      const a = build({ quote: q4 });
+      for (const cp of cps(6)) await a.svc.quote({ cp, cart: cart(), subtotalCents: 100000 });
+      expect(q4).toHaveBeenCalledTimes(6);
+      const q5 = mk(503);
+      const b = build({ quote: q5 });
+      for (const cp of cps(6)) await b.svc.quote({ cp, cart: cart(), subtotalCents: 100000 });
+      expect(q5).toHaveBeenCalledTimes(5);
+    });
+    it('tope global ship_skydropx_max_per_min: la llamada 4ª del minuto va a la tabla sin tocar Skydropx', async () => {
+      const q = jest.fn(async () => ({ providerQuotationId: 'q', completed: true, rates: MTY_ENVELOPE, excluded: {}, insuranceEcho: { ok: true }, raw: null }));
+      const { svc } = build({ settings: { ship_skydropx_max_per_min: 3 }, quote: q });
+      const out = [];
+      for (const cp of cps(5)) out.push(await svc.quote({ cp, cart: cart(), subtotalCents: 100000 }));
+      expect(q).toHaveBeenCalledTimes(3);
+      expect(out.every((o) => o.shippingFeeCents > 0)).toBe(true);
+    });
+    it('semáforo: máx. 8 llamadas en vuelo a la vez', async () => {
+      const q = hang();
+      const { svc } = build({ settings: { ship_quote_timeout_ms: 500 }, quote: q });
+      await Promise.all(cps(12).map((cp) => svc.quote({ cp, cart: cart(), subtotalCents: 100000 })));
+      expect(q.mock.calls.length).toBeLessThanOrEqual(8);
+    });
+    it('caché con TTL por dial y rango (negativos se ignoran)', async () => {
+      const { svc, cache } = build({ settings: { ship_cache_ttl_s: 120 } });
+      const setSpy = jest.spyOn(cache, 'set');
+      await svc.quote({ cp: '64000', cart: cart(), subtotalCents: 100000 });
+      expect(setSpy).toHaveBeenCalledWith(expect.any(String), expect.any(String), 120);
+      await cache.set('shipq:v1:64222:envelope:1:2500', JSON.stringify({ serviceCode: 'standard_overnight', serviceName: 'x', carrier: 'fedex', etaDays: 1, transportCents: -5, insuranceCents: 0, extendedAreaCents: 0 }), 60);
+      const dto = await svc.quote({ cp: '64222', cart: cart(), subtotalCents: 100000 });
+      expect(dto.shippingFeeCents).toBeGreaterThan(1000); // el -5 de caché se ignoró y se cotizó de verdad
+    });
+  });
+
+  describe('QA-ENV3-LOG: solo muestras de servicio de ship_service_order a domicilio', () => {
+    it('la cotización viva NO registra sucursal ni servicios fuera del orden', async () => {
+      const rates = [
+        ...MTY_ENVELOPE,
+        { ...MTY_ENVELOPE[0], rateId: 'br', deliveryKind: 'branch' as const, totalCents: 1 },
+        { ...MTY_ENVELOPE[0], rateId: 'ltl', serviceCode: 'ltl_1_day', totalCents: 2 },
+      ];
+      const q = jest.fn(async () => ({ providerQuotationId: 'q', completed: true, rates, excluded: {}, insuranceEcho: { ok: true }, raw: null }));
+      const { svc, prisma } = build({ quote: q });
+      await svc.quote({ cp: '64000', cart: cart(), subtotalCents: 100000 });
+      await new Promise((r) => setTimeout(r, 10));
+      const data = (prisma.shippingQuoteLog.createMany.mock.calls[0] as unknown as [{ data: { serviceCode: string; costCents: number }[] }])[0].data;
+      expect(data.map((d) => d.costCents).sort((a, b) => a - b)).toEqual([5226, 14186]);
+    });
+  });
+
   describe('gate (lo que `session` exige)', () => {
     const gateOf = async (svc: ShippingQuoteService, token: string, o: { cp?: string; c?: ShipCartInput; s?: number } = {}) =>
       svc.gate({ token, cp: o.cp ?? '64000', profile: await svc.profileOf(o.c ?? cart()), subtotalCents: o.s ?? 100000, freeFromCents: 400000 });
@@ -114,7 +206,7 @@ describe('§ENV3 ShippingQuoteService', () => {
       const { svc } = build();
       const free = (await svc.quote({ cp: '64000', cart: cart(), subtotalCents: 450000 })).quoteId;
       expect(await gateOf(svc, free, { s: 100000 })).toEqual({ ok: false });
-      expect(await gateOf(svc, free, { s: 450000 })).toMatchObject({ ok: true, feeCents: 0 });
+      expect(await gateOf(svc, free, { s: 450000 })).toMatchObject({ ok: true, feeCents: 19500 }); // el `ref` firmado; el umbral lo deja en 0 mientras S' ≥ T
     });
     it('umbral DESPUÉS del descuento: con código y S ≥ T el token firmado lleva el cobro de referencia (tabla) y rige si el descuento baja de T', async () => {
       const { svc } = build();

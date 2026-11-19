@@ -1251,9 +1251,14 @@ export class ShipmentLabelService {
   private async overCustomerQuote(tx: Tx, claim: PersistClaim, chargedCents: number, now: Date, transportCents?: number): Promise<void> {
     const orderId = claim.row.orderId;
     if (!orderId) return;
+    // ENV3-4: SAVEPOINT — un fallo SQL aquí NO aborta la tx que acaba de comprar la guía (en Postgres, tras un error toda sentencia falla).
+    await tx.$executeRaw`SAVEPOINT ag26`;
     try {
       const order = await tx.order.findUnique({ where: { id: orderId }, select: { shippingQuoteSnapshot: true } });
-      if (!order?.shippingQuoteSnapshot) return;
+      if (!order?.shippingQuoteSnapshot) {
+        await tx.$executeRaw`RELEASE SAVEPOINT ag26`;
+        return;
+      }
       const tolerance = await this.settings.getNumber(SettingKey.SHIP_COST_OVER_QUOTE_CENTS, tx);
       const facts = ag26Of({ snapshot: order.shippingQuoteSnapshot, costRealCents: chargedCents, toleranceCents: tolerance, boughtService: claim.rate.serviceName, folio: claim.row.folio ?? null });
       if (facts) {
@@ -1267,10 +1272,18 @@ export class ShipmentLabelService {
           facts: { ...facts },
         }, now);
       }
-      const snap = order.shippingQuoteSnapshot as { serviceCode?: unknown };
-      const row = labelLogRowOf(order.shippingQuoteSnapshot, (claim.row.addressSnapshot as { postalCode?: unknown } | null)?.postalCode, typeof snap.serviceCode === 'string' ? snap.serviceCode : null, transportCents ?? 0);
+      const serviceOrder = await this.settings.get<string[]>(SettingKey.SHIP_SERVICE_ORDER, tx);
+      const row = labelLogRowOf({
+        snapshot: order.shippingQuoteSnapshot,
+        postalCode: (claim.row.addressSnapshot as { postalCode?: unknown } | null)?.postalCode,
+        rate: { carrierName: claim.rate.carrierName, serviceName: claim.rate.serviceName, deliveryKind: claim.rate.deliveryKind },
+        serviceOrder,
+        transportCents: transportCents ?? 0,
+      });
       if (row) await tx.shippingQuoteLog.create({ data: row });
+      await tx.$executeRaw`RELEASE SAVEPOINT ag26`;
     } catch (e) {
+      await tx.$executeRaw`ROLLBACK TO SAVEPOINT ag26`.catch(() => undefined);
       this.logger.error(`AG-26 (${claim.row.id}) no se pudo evaluar: ${e instanceof Error ? e.message : String(e)}`);
     }
   }

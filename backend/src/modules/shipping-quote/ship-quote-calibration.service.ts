@@ -58,7 +58,7 @@ export class ShipQuoteCalibrationService {
       where: { createdAt: { gte: since } },
       select: { prefix2: true, profileKey: true, serviceCode: true, costCents: true },
     });
-    const rows = recalibrate(log, MIN_SAMPLES);
+    const rows = recalibrate(log, MIN_SAMPLES, await this.prisma.shippingZoneRate.findMany());
     for (const r of rows) {
       await this.prisma.shippingZoneRate.upsert({
         where: { prefix2_profileKey_serviceCode: { prefix2: r.prefix2, profileKey: r.profileKey, serviceCode: r.serviceCode } },
