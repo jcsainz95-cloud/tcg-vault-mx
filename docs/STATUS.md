@@ -80,14 +80,14 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-19 · re-gate final §ENV3 sobre d49e463d (diff ca89544d..d49e463d): APROBADO
-- Medido: jest unit 10568/10568 (606 suites); vitest 6074 pass/13 skip (499 archivos); tsc/eslint be+fe 0; doc-size VERDE vs origin/production; integración checkout+envíos 500/500 (24 suites, incl. envio-v2, env3-*, discounts*, shipments-*, sdx-d2c-label, refunds; PG16/Redis desechables propios).
-- Pruebas propias: checkout con regla caída + dial off (404) ⇒ 0 llamadas a shipping-rule en 3 s y PAGAR habilitado (1/1); ficha real sin bucle (1 llamada en 3 s, 2/2); ShippingFeeHint aislado sin bucle (≤2 llamadas, 4/4); «Quiénes somos» solo SSR (por lectura).
-- CERRADOS: QA-ENV3-ENV6, M-A, M-B, M-C, M-D, M-E, M-3 (y antes OFF/REF0/LOG/SNAP, M-1/M-2/M-4/M-5). M-6 (origen semilla m110) NO MEDIDO.
-- 2026-11-19 · qa sobre efdd8926 (ShipV3Section m10): APROBADO. Integración propia: GET /admin/settings trae shipV3Enabled/shipSkydropxMaxPerMin/shipCacheTtlS (off/60/21600); 'on'/'off' ⇒ 200 y shipping-rule.v3Enabled true/false; 8/8 valores inválidos ⇒ 422; PUT 403 operador/cliente, 401 anónimo. vitest 6079 pass/13 skip; tsc fe 0.
-- QA 60efec47 (re-gate §PERSONA en Preparar y Capturar guía), 2026-11-19: APROBADO. tsc 0; vitest 6093 pass/13 skip. Cerrados los 4 hallazgos de b2560a35 (labelPending en los 3 lugares, 409 nombrados es/en, diálogo no se cierra en vuelo, foco). MENOR (frontend): QA-PER-ORIGNUM (aviso origen reembolsado muestra id interno: el servidor no manda orderNumber en items) y QA-PER-STATUSLBL (estado sin traducir en errOrderNotSettled).
-- MENOR abiertos: N-1 lookup de CP fuera del try en live() (contenido por los llamadores; backend); N-2 retryOnMount:false solo en checkout, no en ShippingFeeHint (preventivo; frontend).
-- Abiertos menores previos (§PERSONA): QA-PER-FULFILL, -PNONE, -TREE; filas qa anteriores en PENDIENTES (a5681572).
+## QA (qa) — 2026-11-19 · gate §RETIRO-SALIDA (b70195d3): RECHAZADO
+- Verde: jest 606/606 suites (10570); integración 27/27 (424; PG/Redis propios); vitest 503 ficheros (6101); tsc be/fe 0; eslint be/fe 0; doc-size VERDE; rutas OK. Pruebas propias Q1–Q9 + 7 ablaciones en copia: todas rojo; el test `lost` del backend (retiro-salida.e2e-spec.ts:99) no separa guardas.
+- B1 (arquitecto→backend): retiro viejo `enviado` entregado antes del reparo ⇒ pieza `in_custody` retirable; el reparo solo ve `enviado`.
+- B2 (arquitecto→backend): `return-received` deja envío `enviado` ⇒ piezas `in_withdrawal` / ITEM_IN_ANOTHER_SHIPMENT; DECISIONES:200 vs :206 se contradicen.
+- B3 💰 (arquitecto→backend): reembolso total del origen tras devolución ⇒ `already_withdrawn`, la pieza sigue del cliente.
+- I1 backend: AG-27 incluye directos (spend-watch.service.ts:611). I2 backend: test de guardas separadas. I3 frontend: «Devuelto» con fecha.
+- Menores: AG-11+AG-28 doble correo; AG-27 sin re-aviso; textos en; API sin línea de return-received ni `withdrawal_return` en §0.
+- Previos abiertos: §ENV3 N-1/N-2; §PERSONA QA-PER-ORIGNUM/-STATUSLBL/-FULFILL/-PNONE/-TREE; filas anteriores en PENDIENTES (a5681572).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
