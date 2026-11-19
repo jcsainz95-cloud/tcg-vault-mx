@@ -2716,7 +2716,9 @@
           "feeCharged": "Este pedido cobró envío {amount}; el sistema no lo reembolsa.",
           "errNotPrepared": "SHIPMENT_NOT_PREPARED: el envío no está preparado. Prepáralo primero; no se cambió nada.",
           "errHasLabel": "SHIPMENT_HAS_LABEL: el envío ya tiene guía y no puede entregarse en persona. No se cambió nada.",
-          "errConflict": "CONFLICT: el envío cambió mientras lo revisabas. Recarga la lista; no se cambió nada."
+          "errConflict": "CONFLICT: el envío cambió mientras lo revisabas. Recarga la lista; no se cambió nada.",
+          "done": "Entregado en persona: {ref}. Sale de la lista.",
+          "askPickup": "¿El cliente lo recogió?"
         }
       },
       "prep": {

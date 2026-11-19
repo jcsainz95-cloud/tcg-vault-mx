@@ -151,7 +151,9 @@ export function M4View({
         <Banner variant="success" role="status">
           {saved.kind === 'skydropx'
             ? tSdx('label.saved', { ref: saved.ref, carrier: saved.carrier, number: saved.number })
-            : ts('guide.saved', { ref: saved.ref })}
+            : saved.kind === 'in_person'
+              ? t('statusActions.inPerson.done', { ref: saved.ref })
+              : ts('guide.saved', { ref: saved.ref })}
         </Banner>
       )}
 

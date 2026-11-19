@@ -2716,7 +2716,9 @@
           "feeCharged": "This order was charged {amount} for shipping; the system does not refund it.",
           "errNotPrepared": "SHIPMENT_NOT_PREPARED: the shipment is not prepared. Prepare it first; nothing was changed.",
           "errHasLabel": "SHIPMENT_HAS_LABEL: the shipment already has a label and cannot be delivered in person. Nothing was changed.",
-          "errConflict": "CONFLICT: the shipment changed while you were reviewing it. Reload the list; nothing was changed."
+          "errConflict": "CONFLICT: the shipment changed while you were reviewing it. Reload the list; nothing was changed.",
+          "done": "Delivered in person: {ref}. It leaves the list.",
+          "askPickup": "Did the customer pick it up?"
         }
       },
       "prep": {
