@@ -195,9 +195,6 @@ export function alertText(t: T, a: SpendAlertDTO, ctx: AlertTextCtx): string {
     case 'AG-28':
       // §RETIRO-SALIDA: `facts = {folio, carrierStatus, observedAt, pieceCount}` (sin PII).
       return t('kind.AG-28.text', { folio: str(f.folio) ?? ref, carrierStatus: str(f.carrierStatus) ?? none, pieceCount: num(f.pieceCount) ?? none });
-    case 'AG-29':
-      // §RETIRO-SALIDA: `facts = {folio, actorUserId, restored, returnedAt}` (sin PII).
-      return t('kind.AG-29.text', { folio: str(f.folio) ?? ref, restored: num(f.restored) ?? none });
     case 'AG-24': {
       // v1.113⟨portada⟩ (§DYN.4.5): SOLO `facts = {reason, publishedCards, cycleDays, dailyCreditCap, capToCoverWeek,
       // setsOverCap}` (GAS-4: cifras del servidor tal cual, ⛔ ni un cálculo aquí). `reason` decide la frase; otra ⇒ genérica.
@@ -268,7 +265,6 @@ export const FACT_INT = [
   // §RETIRO-SALIDA (AG-27/AG-28).
   'hoursSinceCapture',
   'pieceCount',
-  'restored',
 ] as const;
 export const FACT_WHITELIST = [
   'changedKeys',
@@ -294,5 +290,4 @@ export const FACT_WHITELIST = [
   'capturedAt',
   'observedAt',
   'carrierStatus',
-  'returnedAt',
 ] as const;

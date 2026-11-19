@@ -9,8 +9,6 @@ import { getAdminShipments, updateAdminShipmentStatus } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { canDeliverInPerson } from '@/lib/api/shipments-in-person';
 import { InPersonDialog } from './InPersonDialog';
-import { ReturnReceivedControl } from './ReturnReceivedControl';
-import { canMarkReturnReceived } from '@/lib/api/shipments-return-received';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
@@ -118,7 +116,6 @@ export function ShipmentsQueue({
   const [statusChanged, setStatusChanged] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ target: AdminShipmentDTO; to: ShipmentStatus } | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, { text: string; links?: { href: string; label: string }[] }>>({});
-  const [returnNote, setReturnNote] = useState<boolean | null>(null); // §RETIRO-SALIDA: `won` de la última devolución
   const [personConfirm, setPersonConfirm] = useState<AdminShipmentDTO | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -221,13 +218,6 @@ export function ShipmentsQueue({
           </Button>
         </p>
       )}
-      {returnNote !== null && (
-        <div data-testid="return-received-note">
-          <Banner variant="success" role="status">
-            {t(returnNote ? 'statusActions.returnReceived.done' : 'statusActions.returnReceived.alreadyDone')}
-          </Banner>
-        </div>
-      )}
       {statusChanged && (
         <Banner variant="success" role="status">
           {t('statusActions.changed', { id: statusChanged })}
@@ -261,11 +251,6 @@ export function ShipmentsQueue({
                           {t('statusActions.inPerson.tag')}
                         </span>
                       )}
-                      {isWithdrawal && s.returnedAt && (
-                        <span className={cn(TAG, 'text-text')} data-testid={`returned-tag-${s.id}`}>
-                          {t('statusActions.returnReceived.returned', { date: formatDateTimeMx(s.returnedAt, locale) })}
-                        </span>
-                      )}
                       {s.items && <span className="text-xs text-muted">{t('itemCount', { count: s.items.length })}</span>}
                     </div>
                     {s.preparedAt && (
@@ -282,14 +267,6 @@ export function ShipmentsQueue({
                       <Button size="sm" variant="secondary" onClick={() => onCaptureGuide(s)}>
                         {t('tracking.capture')}
                       </Button>
-                    )}
-                    {canMarkReturnReceived(s) && (
-                      <ReturnReceivedControl
-                        id={s.id}
-                        refLabel={refOf(s)}
-                        onDone={(_id, won) => setReturnNote(won)}
-                        onFail={(id, text) => setRowErrors((r) => ({ ...r, [id]: { text } }))}
-                      />
                     )}
                     {canDeliverInPerson(s) && (
                       <Button size="sm" variant="secondary" onClick={() => requestInPerson(s)}>

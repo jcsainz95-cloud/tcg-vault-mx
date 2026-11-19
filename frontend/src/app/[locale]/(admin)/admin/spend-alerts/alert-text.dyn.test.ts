@@ -131,16 +131,6 @@ describe('AG-27 / AG-28 (§RETIRO-SALIDA)', () => {
     expect(alertText(tEs, ag28, ctx)).toMatch(/ENV-000051 viene de regreso \(in_return\).*las 4 cartas/);
     expect(alertText(tEn, ag28, ctx)).toMatch(/Shipment ENV-000051 is on its way back \(in_return\).*the 4 cards/);
   });
-  it('AG-29: kind, sin interruptor, filtro y texto es/en', () => {
-    const ag29 = { ...base, id: 'a29', code: 'AG-29', kind: 'return_received_by_non_owner', severity: 'immediate', shipment: { folio: 'ENV-000052' }, facts: { folio: 'ENV-000052', actorUserId: 'u1', restored: 3, returnedAt: '2026-11-19T10:00:00Z' } } as unknown as SpendAlertDTO;
-    expect(SPEND_ALERT_CODE_BY_KIND.return_received_by_non_owner).toBe('AG-29');
-    expect(SPEND_ALERT_SWITCHABLE_CODES).not.toContain('AG-29');
-    expect(FILTER_KINDS).toContain('return_received_by_non_owner');
-    expect(alertTitle(tEs, ag29)).toBe('Personal confirmó la devolución de un retiro');
-    expect(alertText(tEs, ag29, ctx)).toMatch(/ENV-000052: personal confirmó la devolución de un retiro y 3 cartas volvieron/);
-    expect(alertText(tEn, ag29, ctx)).toMatch(/ENV-000052: staff confirmed a returned withdrawal; 3 cards went back/);
-    expect(alertText(tEn, ag28, ctx)).toMatch(/press «We received the return»/);
-  });
   it('lista blanca: sin PII', () => {
     for (const k of ['hoursSinceCapture', 'capturedAt', 'carrierStatus', 'observedAt', 'pieceCount']) expect(FACT_WHITELIST as readonly string[]).toContain(k);
   });

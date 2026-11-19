@@ -59,12 +59,4 @@ describe('ShipmentDetailView · «Escríbenos» (§60.1 b)', () => {
     expect(screen.queryByTestId('left-vault-note')).not.toBeInTheDocument();
   });
 
-  it('§RETIRO-SALIDA: enviado con returnedAt ⇒ «Devuelto» y sin nota «ya salieron»', async () => {
-    vi.spyOn(api, 'getSupportContact').mockResolvedValue({ contact: 'otro@x' });
-    vi.spyOn(api, 'getShipment').mockResolvedValue({ ...shipment('enviado'), returnedAt: '2026-11-19T18:00:00Z' } as never);
-    renderWithProviders(<ShipmentDetailView shipmentId="shp-77" />, 'es');
-    await screen.findByText('Dirección de envío');
-    expect(screen.getByTestId('returned-note')).toHaveTextContent('tus cartas volvieron a tu bóveda');
-    expect(screen.queryByTestId('left-vault-note')).not.toBeInTheDocument();
-  });
 });

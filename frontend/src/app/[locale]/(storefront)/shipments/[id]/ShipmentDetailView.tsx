@@ -118,12 +118,7 @@ export function ShipmentDetailView({ shipmentId }: { shipmentId: string }) {
             {/* Etapa legible (tabla §5) + línea de tiempo del rastreo. */}
             <div className="gutter border-t border-border pb-8 pt-6">
               <p className="font-serif text-[18px] leading-tight text-text">{ts(query.data.status)}</p>
-              {query.data.returnedAt && (
-                <p className="mt-2 text-[14px] text-text" data-testid="returned-note">
-                  {t('returnedNote')}
-                </p>
-              )}
-              {query.data.status === 'enviado' && !query.data.returnedAt && (
+              {query.data.status === 'enviado' && (
                 <p className="mt-2 text-[14px] text-muted" data-testid="left-vault-note">
                   {t('leftVaultNote')}
                 </p>
