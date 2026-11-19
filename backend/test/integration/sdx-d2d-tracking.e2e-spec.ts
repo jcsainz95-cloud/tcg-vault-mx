@@ -354,6 +354,32 @@ describe('⭐💰 D2d — rastreo: applyCarrierStatus, sondeo y refresh-tracking
       expect(r2.body.carrierAlert).toBeNull();
     });
 
+    it('§RETIRO-SALIDA AG-28: in_return sobre un RETIRO ya `enviado` ⇒ aviso immediate `ag28:<id>` con correo pendiente y sin PII; sin mover piezas; 2 sondeos ⇒ 1 fila', async () => {
+      const u = await db.mkUser('Cliente AG28');
+      const drawer = await db.mkDrawer();
+      const vo = await db.mkVaultOrder(u.id, { placement: 'placed', locationId: drawer.id });
+      const w = await db.mkWithdrawal(u.id, vo.pieces.map((p) => p.id), 'picking', { picked: true, prepared: true });
+      await ready(db, w.shipment.id);
+      const q = await quote(w.shipment.id);
+      expect(q.status).toBe(200);
+      const b = await buy(w.shipment.id, buyBody(q.body, pickRate(q.body)));
+      expect(errCode(b)).toBe('200');
+      const psid = (await row(w.shipment.id)).providerShipmentId as string;
+      fake.pushEvent(psid, 'in_transit', iso(clock.now().getTime() - 2 * H));
+      await refresh(w.shipment.id);
+      expect((await row(w.shipment.id)).status).toBe('enviado');
+      for (const p of vo.pieces) expect((await db.piece(p.id)).status).toBe('withdrawn');
+      fake.pushEvent(psid, 'in_return', iso(clock.now().getTime() - H));
+      await refresh(w.shipment.id);
+      await refresh(w.shipment.id);
+      const ag28 = await h.prisma.spendAlert.findMany({ where: { shipmentRequestId: w.shipment.id, kind: 'retiro_parcel_returned' } });
+      expect(ag28).toHaveLength(1);
+      expect(ag28[0]).toMatchObject({ severity: 'immediate', dedupKey: `ag28:${w.shipment.id}`, mailStatus: 'pending' });
+      expect(ag28[0].facts).toMatchObject({ carrierStatus: 'in_return', pieceCount: vo.pieces.length });
+      expect(Object.keys(ag28[0].facts as object).sort()).toEqual(['carrierStatus', 'folio', 'observedAt', 'pieceCount']);
+      for (const p of vo.pieces) expect((await db.piece(p.id)).status).toBe('withdrawn'); // nada se mueve solo
+    });
+
     it('canceled SIN providerCanceledAt (lo canceló la paquetería) ⇒ carrierAlert; CON providerCanceledAt ⇒ nada', async () => {
       const s = await labeled();
       fake.pushEvent(s.psid, 'canceled', iso(clock.now().getTime() - H));

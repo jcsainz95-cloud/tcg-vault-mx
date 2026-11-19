@@ -728,6 +728,10 @@ export const ErrorCode = {
   SHIPMENT_NOT_PREPARED: 'SHIPMENT_NOT_PREPARED',
   // 409 — §PERSONA: «Entregado en persona» sobre un envío con guía o compra de guía en curso.
   SHIPMENT_HAS_LABEL: 'SHIPMENT_HAS_LABEL',
+  // 409 — §RETIRO-SALIDA `return-received`: envío directo o estado fuera de `enviado|entregado`. `details: { status }`.
+  RETURN_NOT_APPLICABLE: 'RETURN_NOT_APPLICABLE',
+  // 409 — §RETIRO-SALIDA `return-received`: 0 piezas restaurables y el envío no está marcado como devuelto.
+  RETURN_NOTHING_TO_RESTORE: 'RETURN_NOTHING_TO_RESTORE',
   // 409 — cambiar la marca de una carta de envío que YA se reembolsó. `details: { refundId }`.
   PREP_ITEM_REFUNDED: 'PREP_ITEM_REFUNDED',
   // 409 💰 — el importe confirmado (`expectedRefundCents` / `expected*`) no es el vigente. `details: { refundCents }`.

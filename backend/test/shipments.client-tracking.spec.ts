@@ -161,7 +161,7 @@ describe('ShipmentsService.updateStatus — transición terminal a entregado (v1
     return { svc, prisma };
   }
 
-  it('entregado ⇒ cada item in_custody → withdrawn con InventoryMovement (transacción), conservando owner', async () => {
+  it('enviado ⇒ cada item in_custody → withdrawn con InventoryMovement (transacción), conservando owner', async () => {
     const tx = makeTx(
       [{ inventoryItemId: 'i1' }, { inventoryItemId: 'i2' }],
       {
@@ -169,8 +169,8 @@ describe('ShipmentsService.updateStatus — transición terminal a entregado (v1
         i2: { id: 'i2', status: 'in_custody', ownerType: 'customer', ownerUserId: 'u1' },
       },
     );
-    const { svc, prisma } = makeService({ id: 'shp1', status: 'enviado', userId: 'u1' }, tx);
-    await svc.updateStatus('shp1', 'entregado' as any);
+    const { svc, prisma } = makeService({ id: 'shp1', status: 'guia', userId: 'u1' }, tx);
+    await svc.updateStatus('shp1', 'enviado' as any);
 
     // Todo dentro de UNA transacción.
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
@@ -193,19 +193,19 @@ describe('ShipmentsService.updateStatus — transición terminal a entregado (v1
     const tx = makeTx([{ inventoryItemId: 'i1' }], {
       i1: { id: 'i1', status: 'withdrawn', ownerType: 'customer', ownerUserId: 'u1' },
     });
-    const { svc } = makeService({ id: 'shp1', status: 'enviado', userId: 'u1' }, tx);
-    await svc.updateStatus('shp1', 'entregado' as any);
+    const { svc } = makeService({ id: 'shp1', status: 'guia', userId: 'u1' }, tx);
+    await svc.updateStatus('shp1', 'enviado' as any);
     // El CAS cuenta 0 sobre una pieza ya `withdrawn` ⇒ ⛔ sin movimiento (idempotencia POR EL MOTOR).
     expect(tx.inventoryItem.update).not.toHaveBeenCalled();
     expect(tx.inventoryMovement.create).not.toHaveBeenCalled();
   });
 
-  it('transiciones no terminales (enviado) NO tocan el inventario', async () => {
+  it('§RETIRO-SALIDA: `entregado` (y `guia`) NO tocan el inventario de un retiro', async () => {
     const tx = makeTx([{ inventoryItemId: 'i1' }], {
-      i1: { id: 'i1', status: 'in_custody' },
+      i1: { id: 'i1', status: 'withdrawn' },
     });
-    const { svc } = makeService({ id: 'shp1', status: 'guia' }, tx);
-    await svc.updateStatus('shp1', 'enviado' as any);
+    const { svc } = makeService({ id: 'shp1', status: 'enviado' }, tx);
+    await svc.updateStatus('shp1', 'entregado' as any);
     expect(tx.shipmentItem.findMany).not.toHaveBeenCalled();
     expect(tx.inventoryItem.update).not.toHaveBeenCalled();
     expect(tx.inventoryMovement.create).not.toHaveBeenCalled();

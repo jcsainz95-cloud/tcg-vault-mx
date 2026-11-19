@@ -28,7 +28,9 @@ import { originsBeingRefunded } from '../payments/refunds/origin';
 
 // v1.17: etapas de un envío ACTIVO (subconjunto expuesto en HoldingDTO.shipmentState).
 // `entregado` no aparece (el item ya es `withdrawn` y sale de holdings) y `cancelado`
-// libera el item ⇒ shipmentState=null. ARCHITECTURE §3.3, API_CONTRACT §3.
+// libera el item ⇒ shipmentState=null. §RETIRO-SALIDA: desde `enviado` la pieza YA es `withdrawn` (sale de holdings), así que
+// `enviado` solo alcanza a un retiro VIEJO aún sin reparar (`backfill-retiro-salida.ts`) o a una pieza devuelta y repuesta a mano;
+// se CONSERVA a propósito (defensivo: sin él esa pieza se vería «libre» y movible mientras su envío sigue vivo). ARCHITECTURE §3.3, API_CONTRACT §3.
 const ACTIVE_SHIPMENT_STAGES: ShipmentStatus[] = [
   ShipmentStatus.solicitado,
   ShipmentStatus.picking,

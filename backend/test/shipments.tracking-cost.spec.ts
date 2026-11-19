@@ -121,6 +121,8 @@ describe('ShipmentsService.setTracking — shippingCostCents (v1.4-finance)', ()
       // ⭐ v1.81 (API_CONTRACT §M4-SHIP.19.7, «`POST …/tracking` (guía manual) con Skydropx»): escribe `labelSource:'manual'`.
       labelSource: 'manual',
       shippingCostCents: 9000,
+      // §RETIRO-SALIDA: la hora de captura (la lee el barrido AG-27).
+      labelCapturedAt: expect.any(Date),
     });
     // ⛔ Y no se escribió el resto: con la condicional casando, esa tercera escritura no corre.
     expect(resto).toBeUndefined();

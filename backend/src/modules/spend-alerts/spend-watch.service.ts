@@ -41,6 +41,7 @@ export interface SpendWatchResult {
   balanceCents: number | null;
   ag8: number;
   ag10: { raised: number; resolved: number };
+  ag27: { raised: number; resolved: number };
 }
 
 /** El dueño ACTUAL según la marca: el único marcado que cumple `isOwnerAccount`, o `null`. */
@@ -49,6 +50,9 @@ export async function currentOwner(db: Db): Promise<{ id: string; name: string }
   const ok = rows.filter((u) => isOwnerAccount(u));
   return ok.length === 1 ? { id: ok[0].id, name: ok[0].name } : null;
 }
+
+/** AG-27 — plazo de «guía manual sin marcar enviado» (DECISIONES §RETIRO-SALIDA 1c: > 24 h). */
+export const MANUAL_LABEL_UNSHIPPED_MS = 24 * 3_600_000;
 
 @Injectable()
 export class SpendWatchService implements OnApplicationBootstrap {
@@ -88,6 +92,7 @@ export class SpendWatchService implements OnApplicationBootstrap {
       balanceCents: null,
       ag8: 0,
       ag10: { raised: 0, resolved: 0 },
+      ag27: { raised: 0, resolved: 0 },
     };
     if (!owner) return { ...empty, skipped: 'already_running' };
     if (owner.alertId) await this.mail.dispatchImmediate(owner.alertId);
@@ -106,6 +111,12 @@ export class SpendWatchService implements OnApplicationBootstrap {
       },
       batches,
     };
+    // §RETIRO-SALIDA (AG-27): la guía MANUAL no depende del proveedor; el barrido es idempotente (`dedupKey`) y no mueve piezas.
+    try {
+      result.ag27 = await this.sweepManualNotShipped(now);
+    } catch (e) {
+      this.logger.error(`AG-27 sweep falló: ${e instanceof Error ? e.message : String(e)}`);
+    }
     const provider = await this.settings.get<string>(SettingKey.SHIPPING_PROVIDER);
     if (provider !== 'skydropx') return result;
     result.provider = 'skydropx';
@@ -208,6 +219,51 @@ export class SpendWatchService implements OnApplicationBootstrap {
       if (ok) raised += 1;
     }
     return raised;
+  }
+
+  /**
+   * AG-27 (§RETIRO-SALIDA punto 1c) — guía capturada A MANO que lleva > 24 h en `guia` sin marcarse `enviado` (🟡). Solo avisa:
+   * ⛔ jamás mueve piezas (un dato dudoso sin humano no mueve inventario). Se resuelve sola cuando el envío sale o se cancela.
+   */
+  private async sweepManualNotShipped(now: Date): Promise<{ raised: number; resolved: number }> {
+    const cutoff = new Date(now.getTime() - MANUAL_LABEL_UNSHIPPED_MS);
+    const candidates = await this.prisma.shipmentRequest.findMany({
+      where: {
+        ...OUTBOUND_ONLY,
+        status: 'guia',
+        labelSource: 'manual',
+        trackingNumber: { not: null },
+        providerShipmentId: null,
+        labelCapturedAt: { not: null, lte: cutoff },
+      },
+      select: { id: true, folio: true, orderId: true, carrier: true, labelCapturedAt: true },
+    });
+    let raised = 0;
+    for (const s of candidates) {
+      const dedupKey = `ag27:${s.id}`;
+      if (await this.prisma.spendAlert.findUnique({ where: { dedupKey }, select: { id: true } })) continue;
+      await this.alerts.raise(
+        this.prisma,
+        {
+          kind: 'manual_label_unshipped',
+          severity: 'digest',
+          dedupKey,
+          shipmentRequestId: s.id,
+          orderId: s.orderId,
+          amountCents: null,
+          facts: { folio: s.folio, capturedAt: s.labelCapturedAt!.toISOString(), hoursSinceCapture: Math.floor((now.getTime() - s.labelCapturedAt!.getTime()) / 3_600_000) },
+        },
+        now,
+      );
+      raised += 1;
+    }
+    const open = await this.prisma.spendAlert.findMany({ where: { kind: 'manual_label_unshipped', resolvedAt: null }, select: { dedupKey: true, shipmentRequestId: true } });
+    let resolved = 0;
+    for (const a of open) {
+      const sh = a.shipmentRequestId ? await this.prisma.shipmentRequest.findUnique({ where: { id: a.shipmentRequestId }, select: { status: true } }) : null;
+      if ((!sh || sh.status !== 'guia') && (await this.alerts.resolve(this.prisma, a.dedupKey, now))) resolved += 1;
+    }
+    return { raised, resolved };
   }
 
   /** AG-10 — guía comprada que no sale (🟡) y su resolución automática. */

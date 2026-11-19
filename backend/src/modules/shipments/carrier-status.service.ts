@@ -304,6 +304,24 @@ export class ShipmentCarrierService {
           now,
         );
       }
+      // AG-28 (§RETIRO-SALIDA contrato b): el transportista devuelve un RETIRO ya `enviado` (las cartas ya salieron de la bóveda) ⇒ aviso
+      // inmediato al dueño con correo (outbox); ⛔ no mueve piezas: la devolución la confirma una persona (`return-received`). Sin PII.
+      if (event.status === 'in_return' && row.orderId === null && row.status === 'enviado') {
+        const pieceCount = await tx.shipmentItem.count({ where: { shipmentRequestId: shipmentId, prepStatus: { not: 'missing' } } });
+        await this.alerts.raise(
+          tx,
+          {
+            kind: 'retiro_parcel_returned',
+            severity: 'immediate',
+            dedupKey: `ag28:${shipmentId}`,
+            shipmentRequestId: shipmentId,
+            orderId: null,
+            amountCents: null,
+            facts: { folio: row.folio, carrierStatus: event.status, observedAt: event.observedAt.toISOString(), pieceCount },
+          },
+          now,
+        );
+      }
       // 6. Último sondeo.
       await tx.shipmentRequest.updateMany({ where: { id: shipmentId }, data: { carrierPolledAt: now } });
       // 7. Bitácora.
