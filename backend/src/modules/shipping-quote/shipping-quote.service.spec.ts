@@ -1,4 +1,7 @@
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+
+// Llave de prueba aleatoria por corrida (nunca literal): la real sale de `PII_HMAC_KEY` en `PiiCryptoService`.
+const TEST_KEY = randomBytes(32);
 import { SETTING_DEFAULTS } from '../settings/settings.constants';
 import { MTY_ENVELOPE, ONLY_EXPRESS_SAVER } from './fixtures';
 import { MemoryShipQuoteCache } from './ship-quote-cache';
@@ -7,7 +10,7 @@ import { ShipCartInput } from './ship-profile';
 import { ShippingQuoteService } from './shipping-quote.service';
 
 const pii = {
-  domainHmac: (d: string, v: string) => createHmac('sha256', 'k').update(d + v).digest('hex'),
+  domainHmac: (d: string, v: string) => createHmac('sha256', TEST_KEY).update(d + v).digest('hex'),
   constantTimeEquals: (a?: string | null, b?: string | null) => !!a && !!b && a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b)),
 };
 const ZONE = [

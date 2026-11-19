@@ -1,8 +1,12 @@
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
+
+// Llaves de prueba aleatorias por corrida (nunca literales): la real sale de `PII_HMAC_KEY` en `PiiCryptoService`.
+const KEY_A = randomBytes(32);
+const KEY_B = randomBytes(32);
 import { ShipQuotePayload, signShipQuote, verifyShipQuote } from './ship-quote-token';
 
 const signer = {
-  domainHmac: (d: string, v: string) => createHmac('sha256', 'k1').update(d + v).digest('hex'),
+  domainHmac: (d: string, v: string) => createHmac('sha256', KEY_A).update(d + v).digest('hex'),
   constantTimeEquals: (a?: string | null, b?: string | null) => !!a && !!b && a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b)),
 };
 const payload = (o: Partial<ShipQuotePayload> = {}): Omit<ShipQuotePayload, 'v'> => ({
@@ -23,7 +27,7 @@ describe('§ENV3 quoteId firmado (infalsificable)', () => {
     expect(verifyShipQuote(signer, `${forged}.${sig}`, 1500)).toMatchObject({ ok: false, reason: 'invalid_token' });
   });
   it('firmado con otra llave ⇒ inválido; basura ⇒ inválido', () => {
-    const other = { ...signer, domainHmac: (d: string, v: string) => createHmac('sha256', 'k2').update(d + v).digest('hex') };
+    const other = { ...signer, domainHmac: (d: string, v: string) => createHmac('sha256', KEY_B).update(d + v).digest('hex') };
     expect(verifyShipQuote(signer, signShipQuote(other, payload()), 1500).ok).toBe(false);
     for (const g of ['', 'a.b', 'x'.repeat(5000), 12, null]) expect(verifyShipQuote(signer, g, 1500).ok).toBe(false);
   });
