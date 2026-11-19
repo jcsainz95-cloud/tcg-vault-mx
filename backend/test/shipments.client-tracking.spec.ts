@@ -200,13 +200,13 @@ describe('ShipmentsService.updateStatus — transición terminal a entregado (v1
     expect(tx.inventoryMovement.create).not.toHaveBeenCalled();
   });
 
-  it('§RETIRO-SALIDA: `entregado` (y `guia`) NO tocan el inventario de un retiro', async () => {
+  it('§RETIRO-SALIDA: `entregado` sobre pieza ya withdrawn NO mueve nada', async () => {
     const tx = makeTx([{ inventoryItemId: 'i1' }], {
       i1: { id: 'i1', status: 'withdrawn' },
     });
     const { svc } = makeService({ id: 'shp1', status: 'enviado' }, tx);
     await svc.updateStatus('shp1', 'entregado' as any);
-    expect(tx.shipmentItem.findMany).not.toHaveBeenCalled();
+    // B1: `entregado` solo mueve piezas que SIGAN in_custody; con la pieza ya `withdrawn` el CAS cuenta 0 ⇒ ningún movimiento.
     expect(tx.inventoryItem.update).not.toHaveBeenCalled();
     expect(tx.inventoryMovement.create).not.toHaveBeenCalled();
   });

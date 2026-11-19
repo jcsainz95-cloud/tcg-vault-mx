@@ -61,6 +61,8 @@ export const SPEND_ALERT_CODE_OF: Readonly<Record<SpendAlertKind, string>> = {
   manual_label_unshipped: 'AG-27',
   // §RETIRO-SALIDA (contrato b): el transportista devuelve un retiro `enviado` (🔴, con correo al dueño).
   retiro_parcel_returned: 'AG-28',
+  // §RETIRO-SALIDA RS-2: personal que no es el dueño confirmó una devolución (🔴, con correo; el dueño queda fuera, como AG-25).
+  return_received_by_non_owner: 'AG-29',
 };
 
 /**
@@ -86,6 +88,7 @@ export const PERSON_ALERT_KINDS: ReadonlySet<SpendAlertKind> = new Set<SpendAler
   'label_costly_choice',
   'staff_control_by_non_owner',
   'in_person_with_fee',
+  'return_received_by_non_owner',
 ]);
 
 /** La vigilancia de la vigilancia no se apaga (§19.30.2 (5)). */

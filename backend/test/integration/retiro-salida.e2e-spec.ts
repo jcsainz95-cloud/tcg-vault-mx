@@ -11,6 +11,7 @@ import { ShipPrepDb } from './helpers/ship-prep-db';
 import { ShipmentsService } from '../../src/modules/shipments/shipments.service';
 import { SpendWatchService } from '../../src/modules/spend-alerts/spend-watch.service';
 import { runBackfill } from '../../scripts/backfill-retiro-salida';
+import { E2E_USERS } from '../../prisma/e2e-fixtures';
 
 const RUN = `rs${Date.now().toString(36)}`;
 
@@ -202,6 +203,166 @@ describe('§RETIRO-SALIDA — las piezas de un retiro salen al ENVIARSE', () => 
     });
   });
 
+
+  // ================================================================ gates qa b70195d3 / seguridad 2c4ba1ac
+
+  /** Retiro con 5 piezas: good, lostNotMissing, missingInCustody, foreign, platform (qa Q1). */
+  const mkMatrix = async (status: 'guia' | 'picking' = 'guia') => {
+    const u = await db.mkUser('RS matriz');
+    const other = await db.mkUser('RS otro');
+    const drawer = await db.mkDrawer();
+    const vo = await db.mkVaultOrder(u.id, { prices: Array(5).fill(10000), placement: 'placed', locationId: drawer.id });
+    const w = await db.mkWithdrawal(u.id, vo.pieces.map((p) => p.id), status, { picked: true, prepared: true });
+    if (status === 'guia') {
+      await h.prisma.shipmentRequest.update({ where: { id: w.shipment.id }, data: { carrier: 'DHL', trackingNumber: `T-${RUN}-${w.shipment.id.slice(0, 6)}`, labelSource: 'manual' } });
+    }
+    const [good, lostNotMissing, missingInCustody, foreign, platform] = vo.pieces.map((p) => p.id);
+    await h.prisma.inventoryItem.update({ where: { id: lostNotMissing }, data: { status: 'lost' } });
+    await h.prisma.shipmentItem.updateMany({ where: { shipmentRequestId: w.shipment.id, inventoryItemId: missingInCustody }, data: { prepStatus: 'missing', missingReason: 'not_found' } });
+    await h.prisma.inventoryItem.update({ where: { id: foreign }, data: { ownerUserId: other.id } });
+    await h.prisma.inventoryItem.update({ where: { id: platform }, data: { ownerType: 'platform' } }); // ownerUserId sigue = dueño
+    return { u, shipmentId: w.shipment.id, good, lostNotMissing, missingInCustody, foreign, platform };
+  };
+  const assertMatrix = async (m: Awaited<ReturnType<typeof mkMatrix>>) => {
+    expect((await db.piece(m.good)).status).toBe('withdrawn');
+    expect((await db.piece(m.lostNotMissing)).status).toBe('lost');
+    for (const id of [m.missingInCustody, m.foreign, m.platform]) expect((await db.piece(id)).status).toBe('in_custody');
+    for (const id of [m.lostNotMissing, m.missingInCustody, m.foreign, m.platform]) expect(await moves(id)).toHaveLength(0);
+    expect((await moves(m.good)).filter((x) => x.reason === 'withdrawal')).toHaveLength(1);
+  };
+
+  describe('I2 — matriz de guardas separadas (lost sin missing, missing en custodia, plataforma, otro dueño)', () => {
+    it('PATCH enviado y luego entregado ⇒ solo la buena sale, una vez', async () => {
+      const m = await mkMatrix('guia');
+      expect((await db.status(m.shipmentId, 'enviado')).status).toBe(200);
+      await assertMatrix(m);
+      expect((await db.status(m.shipmentId, 'entregado')).status).toBe(200);
+      await assertMatrix(m);
+    });
+    it('deliverInPerson ⇒ misma matriz', async () => {
+      const m = await mkMatrix('picking');
+      expect((await post(`/admin/shipments/${m.shipmentId}/delivered-in-person`)).status).toBe(200);
+      await assertMatrix(m);
+    });
+    it('retiro VIEJO (enviado con piezas in_custody) que pasa a entregado (B1) ⇒ sale la buena UNA vez; la matriz intacta', async () => {
+      const m = await mkMatrix('guia');
+      await h.prisma.shipmentRequest.update({ where: { id: m.shipmentId }, data: { status: 'enviado', shippedAt: new Date() } }); // regla vieja
+      expect((await db.status(m.shipmentId, 'entregado')).status).toBe(200);
+      await assertMatrix(m);
+      expect((await moves(m.good)).find((x) => x.reason === 'withdrawal')?.note).toBe(`shipment ${m.shipmentId} delivered`);
+    });
+    it('return-received: solo withdrawn del dueño, customer y no missing vuelve; el resto intacto', async () => {
+      const m = await mkMatrix('guia');
+      expect((await db.status(m.shipmentId, 'enviado')).status).toBe(200);
+      for (const id of [m.missingInCustody, m.foreign, m.platform]) await h.prisma.inventoryItem.update({ where: { id }, data: { status: 'withdrawn' } });
+      const r = await post(`/admin/shipments/${m.shipmentId}/return-received`);
+      expect(r.body).toMatchObject({ restored: 1, won: true });
+      expect((await db.piece(m.good)).status).toBe('in_custody');
+      expect((await db.piece(m.lostNotMissing)).status).toBe('lost');
+      for (const id of [m.missingInCustody, m.foreign, m.platform]) {
+        expect((await db.piece(id)).status).toBe('withdrawn');
+        expect((await moves(id)).filter((x) => x.reason === 'withdrawal_return')).toHaveLength(0);
+      }
+    });
+    it('return-received sin token ⇒ 401/403; cliente ⇒ 403; nota > 200 ⇒ 400', async () => {
+      const m = await mkMatrix('guia');
+      expect((await db.status(m.shipmentId, 'enviado')).status).toBe(200);
+      const url = `/admin/shipments/${m.shipmentId}/return-received`;
+      expect([401, 403]).toContain((await h.api('POST', url, { json: {} })).status);
+      const ctok = await h.login(E2E_USERS.customer.email, E2E_USERS.customer.password);
+      expect((await h.api('POST', url, { token: ctok, json: {} })).status).toBe(403);
+      expect((await h.api('POST', url, { token: db.opToken, json: { note: 'x'.repeat(201) } })).status).toBe(400);
+      expect((await db.piece(m.good)).status).toBe('withdrawn');
+    });
+  });
+
+  describe('B1 — entregado mueve las que sigan in_custody, sin doble movimiento', () => {
+    it('retiro nuevo: enviado y entregado ⇒ exactamente 1 movimiento withdrawal por pieza; retiro devuelto que luego se entrega ⇒ NO vuelve a sacar la pieza', async () => {
+      const r = await mkRetiro(2);
+      expect((await db.status(r.shipmentId, 'enviado')).status).toBe(200);
+      expect((await post(`/admin/shipments/${r.shipmentId}/return-received`)).status).toBe(200);
+      expect((await db.status(r.shipmentId, 'entregado')).status).toBe(200);
+      for (const id of r.ids) {
+        expect((await db.piece(id)).status).toBe('in_custody');
+        expect((await moves(id)).filter((x) => x.reason === 'withdrawal')).toHaveLength(1);
+      }
+    });
+  });
+
+  describe('B2/B3 — un retiro devuelto (returnedAt) deja de retener sus piezas', () => {
+    const custodyOrder = async () => {
+      const u = await db.mkUser('RS devuelto');
+      const drawer = await db.mkDrawer();
+      const vo = await db.mkVaultOrder(u.id, { prices: [10000], placement: 'placed', locationId: drawer.id });
+      const w = await db.mkWithdrawal(u.id, [vo.pieces[0].id], 'guia', { picked: true, prepared: true });
+      await h.prisma.shipmentRequest.update({ where: { id: w.shipment.id }, data: { carrier: 'DHL', trackingNumber: `T2-${RUN}-${w.shipment.id.slice(0, 6)}`, labelSource: 'manual' } });
+      expect((await db.status(w.shipment.id, 'enviado')).status).toBe(200);
+      return { u, vo, pid: vo.pieces[0].id, shipmentId: w.shipment.id };
+    };
+    it('B2: tras return-received la pieza queda sin shipmentState y se puede RETIRAR otra vez (sin ITEM_IN_ANOTHER_SHIPMENT)', async () => {
+      const c = await custodyOrder();
+      expect((await post(`/admin/shipments/${c.shipmentId}/return-received`)).status).toBe(200);
+      const tok = await db.loginCustomer(c.u.email as string);
+      const hold = await db.holdings(tok);
+      const row = (hold.body.data as any[]).find((x) => x.inventoryItemId === c.pid);
+      expect(row).toBeDefined();
+      expect(row.shipmentState ?? null).toBeNull();
+      const addr = await db.mkAddress(c.u.id);
+      const again = await db.createShipment(tok, { inventoryItemIds: [c.pid], addressId: addr.id });
+      expect(again.body?.error?.code).not.toBe('ITEM_IN_ANOTHER_SHIPMENT');
+    });
+    it('DTO del cliente: GET /shipments/:id trae returnedAt null y, tras return-received, la fecha ISO', async () => {
+      const c = await custodyOrder();
+      const tok = await db.loginCustomer(c.u.email as string);
+      const antes = await h.api('GET', `/shipments/${c.shipmentId}`, { token: tok });
+      expect(antes.status).toBe(200);
+      expect(antes.body.returnedAt).toBeNull();
+      expect((await post(`/admin/shipments/${c.shipmentId}/return-received`)).status).toBe(200);
+      const despues = await h.api('GET', `/shipments/${c.shipmentId}`, { token: tok });
+      expect(typeof despues.body.returnedAt).toBe('string');
+      expect(new Date(despues.body.returnedAt).toISOString()).toBe(despues.body.returnedAt);
+    });
+    it('B2 control: SIN return-received la pieza sigue sin ser retirable (no es holding)', async () => {
+      const c = await custodyOrder();
+      const tok = await db.loginCustomer(c.u.email as string);
+      expect(((await db.holdings(tok)).body.data as any[]).find((x) => x.inventoryItemId === c.pid)).toBeUndefined();
+    });
+    it('B3 💰: retiro enviado → return-received → reembolso total del origen ⇒ la pieza vuelve a plataforma (refund_return); sin devolución sigue already_withdrawn', async () => {
+      const c = await custodyOrder();
+      expect((await post(`/admin/shipments/${c.shipmentId}/return-received`)).status).toBe(200);
+      const oi = await h.prisma.orderItem.findFirstOrThrow({ where: { inventoryItemId: c.pid }, select: { orderId: true } });
+      const sin = await db.m3Refund(oi.orderId, { reason: 'x' });
+      if (sin.status >= 300) await db.m3Refund(oi.orderId, { reason: 'x', confirmPiecesWithCustomer: true });
+      expect(await db.piece(c.pid)).toMatchObject({ ownerType: 'platform' });
+      expect((await moves(c.pid)).filter((x) => x.reason === 'refund_return')).toHaveLength(1);
+    });
+  });
+
+  describe('RS-2 — AG-29 return_received_by_non_owner', () => {
+    it('operador (no dueño) ⇒ 1 aviso immediate con correo, sin PII, 2.º envío no duplica; el dueño ⇒ ninguno', async () => {
+      const admin = await h.prisma.user.findUniqueOrThrow({ where: { email: 'admin@e2e.local' } });
+      await h.prisma.user.update({ where: { id: admin.id }, data: { isOwner: true } });
+      try {
+        const a = await mkRetiro(2);
+        expect((await db.status(a.shipmentId, 'enviado')).status).toBe(200);
+        await post(`/admin/shipments/${a.shipmentId}/return-received`);
+        await post(`/admin/shipments/${a.shipmentId}/return-received`);
+        const rows = await h.prisma.spendAlert.findMany({ where: { kind: 'return_received_by_non_owner', shipmentRequestId: a.shipmentId } });
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ severity: 'immediate', dedupKey: `ag29:${a.shipmentId}`, subjectUserId: db.operatorId, mailStatus: 'sent' });
+        expect(Object.keys(rows[0].facts as object).sort()).toEqual(['actorUserId', 'folio', 'restored', 'returnedAt']);
+        expect(JSON.stringify(rows[0].facts)).not.toMatch(/@|Cliente/);
+        expect((rows[0].facts as any).restored).toBe(2);
+        const b = await mkRetiro(1);
+        expect((await db.status(b.shipmentId, 'enviado')).status).toBe(200);
+        expect((await post(`/admin/shipments/${b.shipmentId}/return-received`, db.adminToken)).status).toBe(200);
+        expect(await h.prisma.spendAlert.count({ where: { kind: 'return_received_by_non_owner', shipmentRequestId: b.shipmentId } })).toBe(0);
+      } finally {
+        await h.prisma.user.update({ where: { id: admin.id }, data: { isOwner: false } });
+      }
+    });
+  });
+
   describe('AG-27 — guía manual sin marcar enviado (barrido; nunca mueve piezas)', () => {
     it('> 24 h ⇒ 1 aviso (2 corridas ⇒ 1), piezas intactas; < 24 h ⇒ ninguno; al enviarse se resuelve', async () => {
       const viejo = await mkRetiro(1, 25);
@@ -216,6 +377,20 @@ describe('§RETIRO-SALIDA — las piezas de un retiro salen al ENVIARSE', () => 
       expect((await db.status(viejo.shipmentId, 'enviado')).status).toBe(200);
       await watch.run();
       expect((await h.prisma.spendAlert.findUniqueOrThrow({ where: { id: rows[0].id } })).resolvedAt).not.toBeNull();
+    });
+
+    it('I1: solo retiros (un directo con guía manual vieja ⇒ ninguno) y UNA vez por envío (resuelto y reabierto ⇒ no reavisa)', async () => {
+      const d = await db.mkDirect({ userId: (await db.mkUser('Directo AG27')).id });
+      await h.prisma.shipmentRequest.update({ where: { id: d.shipment.id }, data: { status: 'guia', preparedAt: new Date(), preparedByUserId: db.operatorId, carrier: 'DHL', trackingNumber: `TD-${RUN}`, labelSource: 'manual', labelCapturedAt: new Date(Date.now() - 30 * 3_600_000) } });
+      const r = await mkRetiro(1, 30);
+      const watch = h.app.get(SpendWatchService);
+      await watch.run();
+      expect(await h.prisma.spendAlert.count({ where: { kind: 'manual_label_unshipped', shipmentRequestId: d.shipment.id } })).toBe(0);
+      expect(await h.prisma.spendAlert.count({ where: { kind: 'manual_label_unshipped', shipmentRequestId: r.shipmentId } })).toBe(1);
+      await h.prisma.spendAlert.updateMany({ where: { kind: 'manual_label_unshipped', shipmentRequestId: r.shipmentId }, data: { resolvedAt: new Date() } });
+      await watch.run();
+      await watch.run();
+      expect(await h.prisma.spendAlert.count({ where: { kind: 'manual_label_unshipped', shipmentRequestId: r.shipmentId } })).toBe(1);
     });
 
     it('capturar la guía a mano (POST tracking) sella labelCapturedAt', async () => {

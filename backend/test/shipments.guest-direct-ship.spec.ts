@@ -155,11 +155,14 @@ describe('ShipmentsService.updateStatus — retiro de BÓVEDA (orderId == null) 
     expect(movements[0]).toMatchObject({ toStatus: 'withdrawn', reason: 'withdrawal' });
   });
 
-  it('al pasar a `entregado` NO toca el item (ya salió al enviarse)', async () => {
-    const { svc, state, movements } = build(vaultShipment('enviado'), 'in_custody');
-    await svc.updateStatus('shp-vault', 'entregado');
-    expect(state.status).toBe('in_custody');
-    expect(movements).toHaveLength(0);
+  it('al pasar a `entregado` con la pieza YA withdrawn (retiro nuevo) no hay movimiento; si sigue in_custody (retiro viejo, B1) sale una vez', async () => {
+    const nuevo = build(vaultShipment('enviado'), 'withdrawn');
+    await nuevo.svc.updateStatus('shp-vault', 'entregado');
+    expect(nuevo.movements).toHaveLength(0);
+    const viejo = build(vaultShipment('enviado'), 'in_custody');
+    await viejo.svc.updateStatus('shp-vault', 'entregado');
+    expect(viejo.state.status).toBe('withdrawn');
+    expect(viejo.movements).toHaveLength(1);
   });
 
   it('nunca marca `delivered` un retiro de bóveda', async () => {

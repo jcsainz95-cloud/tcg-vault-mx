@@ -2127,6 +2127,7 @@ enum SpendAlertKind {
   label_over_customer_quote // AG-26 (§ENV3, DECISIONES punto 8): la guía costó más que lo cotizado al cliente + `ship_cost_over_quote_cents`
   manual_label_unshipped // AG-27 (§RETIRO-SALIDA punto 1c): guía capturada a mano que lleva > 24 h sin marcarse `enviado`
   retiro_parcel_returned // AG-28 (§RETIRO-SALIDA contrato b): el transportista reporta `in_return` sobre un retiro `enviado`
+  return_received_by_non_owner // AG-29 (§RETIRO-SALIDA RS-2): personal que NO es el dueño confirmó la devolución de un retiro
 }
 
 // Clase E. 🔴 inmediato / 🟡 resumen (Z.2).

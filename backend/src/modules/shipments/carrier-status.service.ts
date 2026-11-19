@@ -283,7 +283,9 @@ export class ShipmentCarrierService {
           break;
       }
       // AG-11 / AG-12 (§19.29.6): avisos al dueño (Sistema), en la tx del hecho (outbox: el correo lo despacha D2g).
-      if (AG11.has(event.status) || AG12.has(event.status)) {
+      // §RETIRO-SALIDA: en un RETIRO `enviado` con `in_return` solo se emite AG-28 (más abajo); el directo conserva su AG-11.
+      const retiroInReturn = event.status === 'in_return' && row.orderId === null && row.status === 'enviado';
+      if (!retiroInReturn && (AG11.has(event.status) || AG12.has(event.status))) {
         const carrierName = row.carrier ?? asRate(row.chosenRateJson)?.carrierName ?? null;
         const immediate = AG11.has(event.status);
         await this.alerts.raise(

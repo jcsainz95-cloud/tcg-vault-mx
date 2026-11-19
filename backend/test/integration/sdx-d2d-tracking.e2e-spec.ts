@@ -378,6 +378,10 @@ describe('⭐💰 D2d — rastreo: applyCarrierStatus, sondeo y refresh-tracking
       expect(ag28[0].facts).toMatchObject({ carrierStatus: 'in_return', pieceCount: vo.pieces.length });
       expect(Object.keys(ag28[0].facts as object).sort()).toEqual(['carrierStatus', 'folio', 'observedAt', 'pieceCount']);
       for (const p of vo.pieces) expect((await db.piece(p.id)).status).toBe('withdrawn'); // nada se mueve solo
+      // AG-11 se suprime en un retiro: UN solo aviso (AG-28) y UN solo correo pendiente.
+      const all = await h.prisma.spendAlert.findMany({ where: { shipmentRequestId: w.shipment.id } });
+      expect(all.map((x) => x.kind)).toEqual(['retiro_parcel_returned']);
+      expect(all.filter((x) => x.mailStatus === 'pending')).toHaveLength(1);
     });
 
     it('canceled SIN providerCanceledAt (lo canceló la paquetería) ⇒ carrierAlert; CON providerCanceledAt ⇒ nada', async () => {

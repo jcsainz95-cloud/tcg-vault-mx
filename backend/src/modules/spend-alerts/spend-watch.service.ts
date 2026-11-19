@@ -230,6 +230,7 @@ export class SpendWatchService implements OnApplicationBootstrap {
     const candidates = await this.prisma.shipmentRequest.findMany({
       where: {
         ...OUTBOUND_ONLY,
+        orderId: null, // solo RETIROS (el directo con guía manual no aplica)
         status: 'guia',
         labelSource: 'manual',
         trackingNumber: { not: null },

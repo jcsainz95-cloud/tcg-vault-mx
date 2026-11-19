@@ -137,7 +137,7 @@ describe('placeability — el predicado P en lectura (§M4-VAULT.3/.5)', () => {
     const { prisma, service } = makeService([vpRow()]);
     await service.pickingList();
     const where = (prisma.shipmentItem.findMany as jest.Mock).mock.calls[0][0].where;
-    expect(where.shipmentRequest).toEqual({ status: { in: ['picking', 'guia', 'enviado'] } });
+    expect(where.shipmentRequest).toEqual({ status: { in: ['picking', 'guia', 'enviado'] }, returnedAt: null }); // §RETIRO-SALIDA B2
     expect(where.inventoryItemId).toEqual({ in: ['inv-1'] });
   });
 

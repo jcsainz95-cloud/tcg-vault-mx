@@ -632,7 +632,8 @@ export class ShipmentsService {
         const active = await tx.shipmentItem.findFirst({
           where: {
             inventoryItemId: { in: inventoryItemIds },
-            shipmentRequest: { status: { notIn: ['cancelado', 'entregado'] } },
+            // §RETIRO-SALIDA (B2): un retiro DEVUELTO (`returnedAt`) ya no retiene sus piezas: vuelven a ser retirables.
+            shipmentRequest: { status: { notIn: ['cancelado', 'entregado'] }, returnedAt: null },
           },
         });
         if (active) {
@@ -827,6 +828,8 @@ export class ShipmentsService {
       pickingAt: s.pickingAt,
       shippedAt: s.shippedAt,
       deliveredAt: s.deliveredAt,
+      // §RETIRO-SALIDA: ISO o null; ⇒ el paquete volvió y las cartas regresaron a la bóveda. Aditivo, sin datos personales.
+      returnedAt: s.returnedAt,
       // ⭐ D2e (§19.12, PS-88/PS-89): la liga de rastreo SOLO si Skydropx la dio (ausente si no) y la línea de tiempo pública.
       ...(trackingUrl ? { trackingUrl } : {}),
       timeline: toCustomerTimeline(s.carrierEvents ?? [], s),
@@ -1812,7 +1815,7 @@ export class ShipmentsService {
 
     // v1.21-guest-checkout (§M4) — RAMIFICACIÓN OBLIGATORIA por RUTA DE FULFILLMENT (D4): el discriminador es
     // `Order.fulfillmentMode`, NO `orderId != null`. Retiro (§RETIRO-SALIDA): solo `enviado` toca el item (`in_custody →
-    // withdrawn`); `entregado` no. Directo: `enviado` ⇒ `picking → shipped`; `entregado` ⇒ `shipped → delivered`.
+    // withdrawn`); `entregado` solo las que SIGAN `in_custody` (B1). Directo: `enviado` ⇒ `picking → shipped`; `entregado` ⇒ `shipped → delivered`.
     const isDirectShip = await this.isDirectShipFulfillment(shipment);
 
     const result = await this.prisma.$transaction(
@@ -1897,7 +1900,7 @@ export class ShipmentsService {
         });
         if (claimed.count !== 1) throw BusinessException.conflict('CONFLICT', 'Shipment changed; reload and retry');
         // Directo: `picking→shipped` y luego `shipped→delivered`; retiro (§RETIRO-SALIDA): `enviado` saca la pieza
-        // (`in_custody→withdrawn`) y `entregado` no mueve nada. Ambos pasos para los dos modos; la guarda `in_custody` lo hace idempotente.
+        // (`in_custody→withdrawn`) y `entregado` solo mueve las que sigan `in_custody` (B1). Ambos pasos para los dos modos; la guarda `in_custody` lo hace idempotente.
         await this.movePiecesOnTransition(tx, id, shipment.userId, 'enviado', isDirectShip);
         await this.movePiecesOnTransition(tx, id, shipment.userId, 'entregado', isDirectShip);
         const updated = await tx.shipmentRequest.findUniqueOrThrow({ where: { id } });
@@ -1929,8 +1932,8 @@ export class ShipmentsService {
   /**
    * El movimiento de las PIEZAS de una transición (§M4, D4 + §M4-SHIP.6 H1 corregida). UN cuerpo: lo usan `updateStatus`
    * (`PATCH …/status`) y `transitionFromProvider` (sondeo de Skydropx y «Salida de hoy»). Directo: `enviado` ⇒
-   * `picking → shipped`, `entregado` ⇒ `shipped → delivered`. Retiro (§RETIRO-SALIDA): solo `enviado`, `in_custody` del dueño
-   * del retiro ⇒ `withdrawn` (⛔ una faltante `lost` jamás); `entregado` no mueve nada de un retiro. Guardas POSITIVAS en el `WHERE` y movimiento solo con `count = 1`.
+   * `picking → shipped`, `entregado` ⇒ `shipped → delivered`. Retiro (§RETIRO-SALIDA): `enviado`, y `entregado` solo si
+   * SIGUEN `in_custody` (B1), del dueño del retiro ⇒ `withdrawn` (⛔ una faltante `lost` jamás). Guardas POSITIVAS en el `WHERE` y movimiento solo con `count = 1`.
    */
   private async movePiecesOnTransition(
     tx: Prisma.TransactionClient,
@@ -1967,13 +1970,15 @@ export class ShipmentsService {
       }
       return;
     }
-    if (!isDirectShip && to === 'enviado') {
-      // ⭐ §RETIRO-SALIDA (2026-11-19): la pieza de un retiro SALE al ENVIARSE (`enviado`), no al entregarse; `entregado` ya no toca
-      // piezas de retiro. Desde `enviado` la máquina solo avanza ⇒ no hay reversa por estado (la devolución física: `returnReceived`).
+    if (!isDirectShip && (to === 'enviado' || to === 'entregado')) {
+      // ⭐ §RETIRO-SALIDA (2026-11-19): la pieza de un retiro SALE al ENVIARSE (`enviado`). B1: `entregado` mueve SOLO las que sigan
+      // `in_custody` (un retiro viejo que llega a `entregado` sin pasar por la regla nueva); en un retiro nuevo ya salieron ⇒ 0 movimientos
+      // (misma guarda en el `WHERE`, movimiento solo con `count = 1`). Desde `enviado` la máquina solo avanza (la devolución física: `returnReceived`).
+      // Un retiro DEVUELTO (`returnedAt`) que luego se marca `entregado` ⛔ no vuelve a sacar las piezas que ya regresaron a la bóveda.
       // 🔴 v1.80 (§M4-SHIP.6, corrige H1): `withdrawn` SOLO desde `in_custody` del dueño del retiro (guarda en el `WHERE`) y
       // movimiento solo si `count = 1`; una faltante (`lost`, del cliente o de plataforma) ⛔ jamás pasa a `withdrawn`.
       const shipmentItems = await tx.shipmentItem.findMany({
-        where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
+        where: { shipmentRequestId: id, prepStatus: { not: 'missing' }, ...(to === 'entregado' ? { shipmentRequest: { returnedAt: null } } : {}) },
         select: { inventoryItemId: true },
       });
       for (const si of shipmentItems) {
@@ -1989,7 +1994,7 @@ export class ShipmentsService {
             fromStatus: 'in_custody',
             toStatus: 'withdrawn',
             reason: MovementReason.withdrawal,
-            note: `shipment ${id} shipped`,
+            note: `shipment ${id} ${to === 'enviado' ? 'shipped' : 'delivered'}`,
           },
         });
       }

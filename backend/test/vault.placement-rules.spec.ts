@@ -37,7 +37,7 @@ describe('P — blockReasonOf (lectura) y placeableWhere (escritura): un predica
       ownerUserId: 'u',
       ownershipStatus: 'settled',
       status: 'in_custody',
-      shipmentItems: { none: { shipmentRequest: { status: { in: ['picking', 'guia', 'enviado'] } } } },
+      shipmentItems: { none: { shipmentRequest: { status: { in: ['picking', 'guia', 'enviado'] }, returnedAt: null } } }, // §RETIRO-SALIDA B2
     });
   });
 });
