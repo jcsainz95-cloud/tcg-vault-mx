@@ -622,7 +622,13 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
 
   const breakdownNode = data ? (
     <>
-      {destination === 'ship' && <ShippingQuoteLine state={shipQuote} className="mb-3" />}
+      {destination === 'ship' && <ShippingQuoteLine
+          state={shipQuote}
+          className="mb-3"
+          chargedCents={
+            shownDiscount && shownDiscount.kind !== 'free_shipping' && !query.isPlaceholderData ? data.breakdown.shippingFeeCents : undefined
+          }
+        />}
       {destination === 'ship' && staleNoticeCents !== null && (
         <Banner variant="warning" role="status" className="mb-3">
           {tsq('changed', { amount: formatMoneyCents(staleNoticeCents, locale) })}

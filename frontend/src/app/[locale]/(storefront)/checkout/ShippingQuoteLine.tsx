@@ -18,7 +18,20 @@ export const SLOW_QUOTE_MS = 4000;
  * §ENV3 — la línea de envío del checkout de invitado: pide el CP, espera (con aviso), muestra el importe del servidor
  * y el umbral de gratis, o el error con «Reintentar». ⛔ Ningún importe se calcula aquí.
  */
-export function ShippingQuoteLine({ state, className }: { state: ShippingQuoteState; className?: string }) {
+export function ShippingQuoteLine({
+  state,
+  className,
+  chargedCents,
+}: {
+  state: ShippingQuoteState;
+  className?: string;
+  /**
+   * §ENV3 (umbral DESPUÉS del descuento, arquitecto 968dc182): `shipping-quote` no conoce el código. Si un descuento de
+   * mercancía deja el subtotal bajo el umbral, el desglose del servidor trae el envío que SÍ se cobra: manda sobre la
+   * cotización (nunca «Gratis» si se va a cobrar). Cifra del servidor, ⛔ sin cálculo propio.
+   */
+  chargedCents?: number;
+}) {
   const t = useTranslations('checkout.shippingQuote');
   const locale = useLocale() as AppLocale;
   const rule = useQuery({ queryKey: PUBLIC_SHIPPING_RULE_KEY, queryFn: getPublicShippingRule, staleTime: 300_000 });
@@ -33,6 +46,7 @@ export function ShippingQuoteLine({ state, className }: { state: ShippingQuoteSt
   }, [state.status]);
   const freeFrom = rule.data ? formatMoneyCents(rule.data.freeFromCents, locale) : null;
   const q = state.quote;
+  const shown = q && chargedCents !== undefined ? chargedCents : q?.shippingFeeCents;
 
   let body: React.ReactNode;
   if (state.status === 'idle') {
@@ -57,7 +71,7 @@ export function ShippingQuoteLine({ state, className }: { state: ShippingQuoteSt
       <p className="flex flex-wrap items-baseline justify-between gap-x-4">
         <span>{t('line')}</span>
         <span className="font-mono" data-testid="shipping-quote-amount">
-          {q.shippingFeeCents === 0 ? t('free') : formatMoneyCents(q.shippingFeeCents, locale)}
+          {shown === 0 ? t('free') : formatMoneyCents(shown ?? 0, locale)}
         </span>
       </p>
     );
