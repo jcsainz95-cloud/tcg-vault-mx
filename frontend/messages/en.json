@@ -7277,7 +7277,7 @@
         },
         "AG-28": {
           "title": "Vault withdrawal parcel returned",
-          "text": "Shipment {folio} is on its way back ({carrierStatus}). When you receive it, adjust the inventory to put the {pieceCount} cards back in the customer's vault."
+          "text": "Shipment {folio} is on its way back ({carrierStatus}). When you receive it, let us know so we can return the {pieceCount} cards to the customer's vault by hand; there is no button for this yet."
         }
       },
       "prev": "Previous",

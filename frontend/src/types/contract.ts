@@ -173,7 +173,7 @@ export type ShipmentStatus =
   | 'cancelado';
 /**
  * v1.17-withdrawal-lifecycle: subconjunto "activo" de ShipmentStatus expuesto en
- * HoldingDTO.shipmentState (etapa del envío activo de un item en bóveda). Retiro: las piezas pasan `in_custody → withdrawn` al pasar el envío a `enviado` (§RETIRO-SALIDA), no al entregarse; `entregado` ya no toca piezas de un retiro. Directo: `enviado` ⇒ `shipped`, `entregado` ⇒ `delivered`. Si el paquete vuelve, el personal ajusta el inventario (no hay `return-received`).
+ * HoldingDTO.shipmentState (etapa del envío activo de un item en bóveda). Retiro: las piezas pasan `in_custody → withdrawn` al pasar el envío a `enviado` (§RETIRO-SALIDA), no al entregarse; `entregado` solo mueve las piezas que sigan `in_custody` (B1, retiros viejos). Directo: `enviado` ⇒ `shipped`, `entregado` ⇒ `delivered`. Si el paquete vuelve, las cartas se regresan a mano (no hay botón).
  * `cancelado` libera el item ⇒ shipmentState=null. Ver contrato §3 / Enums.
  */
 export type ShipmentActiveStage = 'solicitado' | 'picking' | 'guia' | 'enviado';
@@ -1219,7 +1219,7 @@ export interface HoldingDTO {
   // v1.17-withdrawal-lifecycle (contrato §3): etapa del envío ACTIVO del item (derivada del join
   // InventoryItem → ShipmentItem → ShipmentRequest). `null` = sin envío activo. El front pinta el
   // badge "EN RETIRO" cuando `shipmentState !== null`.
-  // Retiro: las piezas pasan `in_custody → withdrawn` al pasar el envío a `enviado` (§RETIRO-SALIDA), no al entregarse; `entregado` ya no toca piezas de un retiro. Directo: `enviado` ⇒ `shipped`, `entregado` ⇒ `delivered`. Si el paquete vuelve, el personal ajusta el inventario (no hay `return-received`).
+  // Retiro: las piezas pasan `in_custody → withdrawn` al pasar el envío a `enviado` (§RETIRO-SALIDA), no al entregarse; `entregado` solo mueve las piezas que sigan `in_custody` (B1, retiros viejos). Directo: `enviado` ⇒ `shipped`, `entregado` ⇒ `delivered`. Si el paquete vuelve, las cartas se regresan a mano (no hay botón).
   shipmentState: ShipmentActiveStage | null;
   // v1.17: id de la ShipmentRequest activa para deep-link al rastreo (GET /shipments/:id); null si no
   // hay envío activo.

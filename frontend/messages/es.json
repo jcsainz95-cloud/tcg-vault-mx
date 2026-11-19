@@ -7277,7 +7277,7 @@
         },
         "AG-28": {
           "title": "Paquete de retiro devuelto",
-          "text": "El envío {folio} viene de regreso ({carrierStatus}). Cuando lo recibas, ajusta el inventario para regresar las {pieceCount} cartas a la bóveda del cliente."
+          "text": "El envío {folio} viene de regreso ({carrierStatus}). Cuando lo recibas, avísanos para regresar a mano las {pieceCount} cartas a la bóveda del cliente; todavía no hay botón para hacerlo."
         }
       },
       "prev": "Anterior",
