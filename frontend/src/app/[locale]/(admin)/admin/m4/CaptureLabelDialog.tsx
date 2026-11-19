@@ -39,6 +39,8 @@ import {
 } from '@/types/contract';
 import { pesosToCentsOrNull as pesosToCents } from '@/lib/money-input';
 import { TAG } from './prep-shared';
+import { InPersonDialog, type InPersonTarget } from './InPersonDialog';
+import { canDeliverInPerson } from '@/lib/api/shipments-in-person';
 import {
   ADDRESS_FIELDS,
   AddressForm,
@@ -75,7 +77,7 @@ export interface CaptureTarget {
 }
 
 /** Lo que la página anuncia al guardar (`M4View.tsx` Banner de éxito, FS-4). */
-export type CaptureSaved = { kind: 'manual'; ref: string } | { kind: 'skydropx'; ref: string; carrier: string; number: string };
+export type CaptureSaved = { kind: 'manual'; ref: string } | { kind: 'in_person'; ref: string } | { kind: 'skydropx'; ref: string; carrier: string; number: string };
 
 type Step = 1 | 2 | 3 | 4;
 type Stage = 'labeled' | 'processing' | 'in_progress' | 'in_flight' | 'notCreated';
@@ -152,6 +154,9 @@ export function CaptureLabelDialog({
   const [notice, setNotice] = useState<string | null>(null);
   const [err, setErr] = useState<ShownError | null>(null);
   const [fatal, setFatal] = useState(false);
+  // §PERSONA: «Entregado en persona» desde esta ventana (misma confirmación y mutación que la fila de «Envíos»).
+  const [personTarget, setPersonTarget] = useState<InPersonTarget | null>(null);
+  const [personError, setPersonError] = useState<string | null>(null);
 
   // --- Paso 1 ---
   const [addrEdit, setAddrEdit] = useState(false);
@@ -1119,9 +1124,33 @@ export function CaptureLabelDialog({
     );
   }
 
+  const showInPerson = !!target && !isInbound && !!shipment && canDeliverInPerson(shipment);
   return (
-    <Modal open={target !== null} onClose={guardedClose} title={isInbound ? t('inbound.title') : tm4('tracking.title')} footer={footer}>
+    <>
+    <Modal open={target !== null && !personTarget} onClose={guardedClose} title={isInbound ? t('inbound.title') : tm4('tracking.title')} footer={footer}>
       <div className="flex flex-col gap-3">
+        {showInPerson && shipment && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border border-border p-3" data-testid="capture-in-person">
+            <p className="text-sm text-text">{tm4('statusActions.inPerson.askPickup')}</p>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                setPersonError(null);
+                setPersonTarget({
+                  id: shipment.id,
+                  ref: target!.ref,
+                  recipient: (shipment.addressSnapshot?.recipientName as string | undefined) ?? shipment.recipientName ?? null,
+                  feeCents: shipment.shippingFeeChargedCents ?? 0,
+                });
+              }}
+            >
+              {tm4('statusActions.inPerson.button')}
+            </Button>
+          </div>
+        )}
+        {personError && <Banner variant="danger" role="alert">{personError}</Banner>}
         {target &&
           (isInbound ? (
             // 💰 §BSD-UX.5: «Solicitud de venta {id} · Envío {folio}».
@@ -1153,6 +1182,16 @@ export function CaptureLabelDialog({
         </div>
       </div>
     </Modal>
+    <InPersonDialog
+      target={personTarget}
+      onClose={() => setPersonTarget(null)}
+      onDone={(tg) => {
+        onSaved({ kind: 'in_person', ref: tg.ref });
+        onClose();
+      }}
+      onFail={(_tg, text) => setPersonError(text)}
+    />
+    </>
   );
 }
 

@@ -30,6 +30,8 @@ import { AgeStamp, CardInfo, DASH, LABEL, TAG } from './prep-shared';
 import type { QueueNotice } from './VaultPlacementCard';
 import { LocateItemControl } from './LocateItemControl';
 import { LabelAlertBlock, useSince } from './LabelActions';
+import { InPersonDialog, type InPersonTarget } from './InPersonDialog';
+import { canDeliverInPersonFromCard } from '@/lib/api/shipments-in-person';
 import { ShipAccessoryRow, ShipBoxBlock, accessoryDialogLine } from './ShipAccessoryLines';
 
 /**
@@ -124,6 +126,7 @@ export function ShipPreparationCard({
   const uid = useId();
 
   const { shipmentId, preparation } = order;
+  const [personTarget, setPersonTarget] = useState<InPersonTarget | null>(null);
   // ⭐ §19.20.2 (FS-19): compra pendiente ⇔ `labelPending ≠ null`; alerta de guía del servidor (⛔ sin umbral propio).
   const labelPending = order.labelPending ?? null;
   const labelAlert = order.labelAlert ?? null;
@@ -852,6 +855,18 @@ export function ShipPreparationCard({
               >
                 {labelPending ? (labelPending.state === 'in_flight' ? ts('guide.viewInFlight') : ts('guide.viewProcessing')) : ts('guide.cta')}
               </Button>
+              {canDeliverInPersonFromCard(order) && (
+                <Button
+                  variant="secondary"
+                  className="min-h-[44px]"
+                  data-testid={`ship-in-person-${shipmentId}`}
+                  onClick={() =>
+                    setPersonTarget({ id: shipmentId, ref, recipient: order.shipTo.recipientName ?? order.customer.fullName })
+                  }
+                >
+                  {tm4('statusActions.inPerson.button')}
+                </Button>
+              )}
               {openReplacements > 0 && (
                 <p id={guideReasonId} className="text-sm text-text sm:text-right">
                   {ts('guide.waiting', { count: openReplacements })}{' '}
@@ -865,6 +880,13 @@ export function ShipPreparationCard({
         )}
         {footerError && <ErrorLine error={footerError} tc={tc} />}
       </div>
+
+      <InPersonDialog
+        target={personTarget}
+        onClose={() => setPersonTarget(null)}
+        onDone={(tg) => onNotice({ role: 'status', folio: ref, lines: [tm4('statusActions.inPerson.done', { ref: tg.ref })] })}
+        onFail={(_tg, text) => onNotice({ role: 'alert', folio: ref, lines: [text] })}
+      />
 
       <PrepareDialog
         open={confirmOpen}

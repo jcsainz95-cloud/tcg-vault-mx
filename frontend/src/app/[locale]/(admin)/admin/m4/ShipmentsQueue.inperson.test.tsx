@@ -48,6 +48,8 @@ describe('§PERSONA · botón y predicado', () => {
       row('sin-prep', { preparedAt: null }),
       row('con-guia', { labelSource: 'manual', trackingNumber: 'MX1' }),
       row('guia-st', { status: 'guia', trackingNumber: 'MX2' }),
+      row('compra-proc', { labelPending: { state: 'processing', since: '2026-09-28T18:00:00Z', carrierLabel: null, serviceName: null, chosenBy: null } }),
+      row('compra-vuelo', { labelPending: { state: 'in_flight', since: '2026-09-28T18:00:00Z', carrierLabel: null, serviceName: null, chosenBy: null } }),
     ]);
     renderWithProviders(<ShipmentsQueue onCaptureGuide={() => {}} />, 'es');
     await screen.findByText('ok');

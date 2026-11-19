@@ -84,6 +84,7 @@ SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/a
 - Pruebas propias: checkout con regla caída + dial off (404) ⇒ 0 llamadas a shipping-rule en 3 s y PAGAR habilitado (1/1); ficha real sin bucle (1 llamada en 3 s, 2/2); ShippingFeeHint aislado sin bucle (≤2 llamadas, 4/4); «Quiénes somos» solo SSR (por lectura).
 - CERRADOS: QA-ENV3-ENV6, M-A, M-B, M-C, M-D, M-E, M-3 (y antes OFF/REF0/LOG/SNAP, M-1/M-2/M-4/M-5). M-6 (origen semilla m110) NO MEDIDO.
 - 2026-11-19 · qa sobre efdd8926 (ShipV3Section m10): APROBADO. Integración propia: GET /admin/settings trae shipV3Enabled/shipSkydropxMaxPerMin/shipCacheTtlS (off/60/21600); 'on'/'off' ⇒ 200 y shipping-rule.v3Enabled true/false; 8/8 valores inválidos ⇒ 422; PUT 403 operador/cliente, 401 anónimo. vitest 6079 pass/13 skip; tsc fe 0.
+- QA 60efec47 (re-gate §PERSONA en Preparar y Capturar guía), 2026-11-19: APROBADO. tsc 0; vitest 6093 pass/13 skip. Cerrados los 4 hallazgos de b2560a35 (labelPending en los 3 lugares, 409 nombrados es/en, diálogo no se cierra en vuelo, foco). MENOR (frontend): QA-PER-ORIGNUM (aviso origen reembolsado muestra id interno: el servidor no manda orderNumber en items) y QA-PER-STATUSLBL (estado sin traducir en errOrderNotSettled).
 - MENOR abiertos: N-1 lookup de CP fuera del try en live() (contenido por los llamadores; backend); N-2 retryOnMount:false solo en checkout, no en ShippingFeeHint (preventivo; frontend).
 - Abiertos menores previos (§PERSONA): QA-PER-FULFILL, -PNONE, -TREE; filas qa anteriores en PENDIENTES (a5681572).
 
