@@ -91,7 +91,7 @@ Lista completa (1…~1000) en `docs/archive/PROJECT.md` (`grep -n "criterio NNN"
 1. **Tienda**: catálogo con filtros/facetas, ficha con precio con IVA dentro, sellado y accesorios; portada < 1 s (Destacadas del día, Joyas para gradear por turnos).
 2. **Checkout**: invitado y con cuenta; destino bóveda/domicilio; desglose de importe; Stripe real; correo de confirmación.
 3. **Bóveda/portafolio**: cartas en custodia con acabado, pestaña Sellado, valuación a mercado y gráfica 5d…Máx.
-4. **Retiro/envío**: solicitud, cobro de envío, guía Skydropx, rastreo y correos de estado. **§ENV3**: cotiza solo con CP; Skydropx caído ⇒ tabla, cobro = mostrado; cotización caducada ⇒ 409; ≥ MX$4,000 y código de envío gratis ⇒ 0; P&L «Envío absorbido».
+4. **Retiro/envío**: solicitud, cobro de envío, guía Skydropx, rastreo y correos de estado. **§ENV3**: cotiza solo con CP; Skydropx caído ⇒ tabla, cobro = mostrado; cotización caducada ⇒ 409; ≥ MX$4,000 (tras descuento) y código de envío gratis ⇒ 0. ENV3-b: DECISIONES §ENV3.16.
 5. **Buylist**: cotizador público con mercado y oferta; ciclo completo hasta SPEI y publicación; KYC con INE.
 6. **Back-office M1–M11**: inventario y Master Set por lote, precios y diales, ventas/reembolsos, pedidos por
    preparar (palomeo carta por carta), buylist, usuarios y staff, finanzas/P&L, analítica de ventas, configuración.

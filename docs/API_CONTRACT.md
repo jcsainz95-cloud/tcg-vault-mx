@@ -270,7 +270,7 @@
 - POST `/admin/orders/:id/shipped-refund-reason` · staff 💰
 - POST `/admin/orders/:id/reclaim-vault` · admin
 - POST `/checkout/guest/quote` · público
-- GET `/checkout/shipping-rule` · público (solo umbral) · POST `/checkout/shipping-quote` · público · `{cp, items[]}` ⇒ `{quoteId, shippingFeeCents, service, etaDays, expiresAt}`; sessions reciben `shippingQuoteId`, vencido ⇒ 409 `SHIPPING_QUOTE_STALE` (DECISIONES §ENV3)
+- GET `/checkout/shipping-rule` · público (solo umbral) · POST `/checkout/shipping-quote` · público · `{cp, items[]}` ⇒ `{quoteId, shippingFeeCents, service, etaDays, expiresAt}`; `guest/quote` y `session` reciben `shippingQuoteId` (vencido ⇒ 409 `SHIPPING_QUOTE_STALE`); 404 con dial apagado; 503 `SHIPPING_QUOTE_UNAVAILABLE` (DECISIONES §ENV3.15)
 - POST `/checkout/guest/session` · público
 - POST `/orders/guest/track` · público
 - POST `/orders/guest/resend-link` · público
