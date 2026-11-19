@@ -29,7 +29,7 @@ function build(over: { settings?: Record<string, unknown>; quote?: jest.Mock; zo
   const quote = over.quote ?? jest.fn(async () => ({ providerQuotationId: 'q', completed: true, rates: MTY_ENVELOPE, excluded: {}, insuranceEcho: { ok: true }, raw: null }));
   const cache = new MemoryShipQuoteCache();
   const svc = new ShippingQuoteService(prisma as never, settings as never, pii as never, postal as never, { quote } as never, cache, new MemoryShipQuoteControl());
-  return { svc, quote, prisma, cache, settings };
+  return { svc, quote, prisma, cache, settings, postal };
 }
 
 describe('§ENV3 ShippingQuoteService', () => {
@@ -165,6 +165,36 @@ describe('§ENV3 ShippingQuoteService', () => {
       await cache.set('shipq:v1:64222:envelope:1:2500', JSON.stringify({ serviceCode: 'standard_overnight', serviceName: 'x', carrier: 'fedex', etaDays: 1, transportCents: -5, insuranceCents: 0, extendedAreaCents: 0 }), 60);
       const dto = await svc.quote({ cp: '64222', cart: cart(), subtotalCents: 100000 });
       expect(dto.shippingFeeCents).toBeGreaterThan(1000); // el -5 de caché se ignoró y se cotizó de verdad
+    });
+  });
+
+  describe('re-gate: M-E / M-C / M-3', () => {
+    const cps = (n: number) => Array.from({ length: n }, (_, i) => `6${String(i).padStart(4, '0')}`);
+    it('M-E: un timeout cuenta UNA vez aunque la llamada termine fallando después (4 timeouts + 4 rechazos tardíos no abren el disyuntor)', async () => {
+      const rejecters: Array<() => void> = [];
+      const q = jest.fn(() => new Promise((_, rej) => { rejecters.push(() => rej(Object.assign(new Error('late'), { httpStatus: 503 }))); }));
+      const { svc } = build({ settings: { ship_quote_timeout_ms: 500 }, quote: q });
+      for (const cp of cps(4)) await svc.quote({ cp, cart: cart(), subtotalCents: 100000 });
+      rejecters.forEach((r) => r());
+      await new Promise((r) => setTimeout(r, 20));
+      await svc.quote({ cp: '69998', cart: cart(), subtotalCents: 100000 });
+      expect(q).toHaveBeenCalledTimes(5); // con doble conteo (4×2 = 8 ≥ 5) la 5ª ya no llamaría
+    });
+    it('M-C: valor sobre el escalón mayor ⇒ el seguro NO es 0 (tarifa del escalón mayor, proporcional)', async () => {
+      const boom = jest.fn(async () => { throw new Error('down'); });
+      const { svc } = build({ quote: boom });
+      const big = await svc.quote({ cp: '64000', cart: cart({ cards: 3, valueCents: 2000000 }), subtotalCents: 399999 });
+      const v = svc.verifyToken(big.quoteId);
+      expect(v.ok && v.payload.snap.source).toBe('table');
+      // tabla 150.00 + seguro proporcional a MX$20,000 (≥ el del escalón mayor MX$170) + MX$20
+      expect(big.shippingFeeCents).toBeGreaterThanOrEqual(Math.ceil((15000 + 17000 + 2000) / 100) * 100);
+    });
+    it('M-3: el sondeo de un CP fuera de catálogo no cuenta como llamada ni gasta tope', async () => {
+      const q = jest.fn(async () => ({ providerQuotationId: 'q', completed: true, rates: MTY_ENVELOPE, excluded: {}, insuranceEcho: { ok: true }, raw: null }));
+      const { svc, postal } = build({ quote: q });
+      postal.resolvePostalCode.mockResolvedValueOnce(null as never);
+      expect(await svc.probe('99999', 250000)).toBe(0);
+      expect(q).not.toHaveBeenCalled();
     });
   });
 

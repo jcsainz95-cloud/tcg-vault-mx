@@ -16,7 +16,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SettingKey } from '../settings/settings.constants';
 import { SettingsService } from '../settings/settings.service';
 import { InsuranceTier } from '../settings/shipping-dials';
-import { insuranceCoverageFor } from '../shipments/insurance';
+import { insuranceCostFor } from './ship-quote-math';
 import { PostalCodeService } from '../shipping-provider/geo/postal-code';
 import { SHIPPING_PROVIDER_PORT, ShippingProviderPort } from '../shipping-provider/shipping-provider.port';
 import { SHIP_QUOTE_CACHE, ShipQuoteCache } from './ship-quote-cache';
@@ -71,7 +71,7 @@ export interface ShipSettingsView extends ShipDials {
 @Injectable()
 export class ShippingQuoteService {
   private readonly logger = new Logger(ShippingQuoteService.name);
-  private readonly inflight = new Map<string, Promise<PerBoxCost | null>>();
+  private readonly inflight = new Map<string, { p: Promise<PerBoxCost | null>; state: { timedOut: boolean } }>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -234,14 +234,16 @@ export class ShippingQuoteService {
     if (!(await this.gateCtl.isOpen())) {
       let flight = this.inflight.get(key);
       if (!flight) {
-        flight = this.live(cp, profile, v, key).finally(() => this.inflight.delete(key));
+        const state = { timedOut: false };
+        flight = { p: this.live(cp, profile, v, key, false, state).finally(() => this.inflight.delete(key)), state };
         this.inflight.set(key, flight);
       }
       // Plazo duro: el vivo sigue en segundo plano (llena la caché) y esta petición se resuelve con la tabla.
-      const winner = await raceTimeout(flight.catch(() => null), v.timeoutMs);
+      const winner = await raceTimeout(flight.p.catch(() => null), v.timeoutMs);
       if (winner !== 'timeout' && winner !== null) return winner;
       if (winner === 'timeout') {
         // ENV3-3: un plazo vencido cuenta como fallo del proveedor (antes no contaba y 30 CPs distintos ⇒ 30 llamadas colgadas).
+        flight.state.timedOut = true; // M-E: `live()` ya no lo cuenta otra vez si después falla
         await this.gateCtl.recordFailure();
         this.logger.warn(`ship_quote live_timeout prefix=${cp.slice(0, 2)} profile=${tableProfileKey(profile)}`);
       }
@@ -250,13 +252,14 @@ export class ShippingQuoteService {
   }
 
   /** La llamada a Skydropx. Devuelve `null` si no hay servicio FedEx del orden (⇒ respaldo). Nunca lanza. */
-  private async live(cp: string, profile: ShipProfile, v: ShipSettingsView, key: string, lowPriority = false): Promise<PerBoxCost | null> {
+  private async live(cp: string, profile: ShipProfile, v: ShipSettingsView, key: string, lowPriority = false, state: { timedOut: boolean } = { timedOut: false }): Promise<PerBoxCost | null> {
+    // Sin origen configurado o CP fuera del catálogo ⇒ tabla; ni cuenta como fallo del proveedor ni gasta tope (M-3).
+    const template = await this.settings.get<string | null>(SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID);
+    const rec = await this.postal.resolvePostalCode(cp);
+    if (!template || !rec) return null;
     // Tope global (llamadas/min y en vuelo): excedido ⇒ `null` ⇒ respaldo por tabla, sin tocar Skydropx.
     if (!(await this.gateCtl.acquire(v.maxPerMin, { lowPriority }))) return null;
     try {
-      const template = await this.settings.get<string | null>(SettingKey.SKYDROPX_ORIGIN_ADDRESS_TEMPLATE_ID);
-      const rec = await this.postal.resolvePostalCode(cp);
-      if (!template || !rec) return null; // sin origen configurado o CP fuera del catálogo ⇒ tabla (no cuenta como fallo del proveedor)
       const first = rec.entries[0];
       const dims = dimsOf(profile);
       const res = await this.port.quote({
@@ -265,7 +268,7 @@ export class ShippingQuoteService {
         to: { countryCode: 'MX', postalCode: cp, state: first.state, city: first.municipality, neighborhood: first.neighborhood },
         parcel: { ...dims, coverageCents: profile.perBoxCoverageCents },
       });
-      const tierCost = insuranceCoverageFor(profile.perBoxCoverageCents, v.tiers)?.costCents ?? 0;
+      const tierCost = insuranceCostFor(profile.perBoxCoverageCents, v.tiers);
       const picked = res.completed ? pickRate(res.rates, v.serviceOrder, tierCost) : null;
       await this.gateCtl.recordSuccess();
       if (!picked) return null;
@@ -276,7 +279,7 @@ export class ShippingQuoteService {
     } catch (e) {
       // Cuentan los fallos del proveedor (red/timeout/5xx); un 4xx es nuestro (petición mal formada) y NO abre el disyuntor.
       const st = (e as { httpStatus?: number }).httpStatus;
-      if (st === undefined || st >= 500) await this.gateCtl.recordFailure();
+      if (!state.timedOut && (st === undefined || st >= 500)) await this.gateCtl.recordFailure();
       this.logger.warn(`ship_quote live_failed prefix=${cp.slice(0, 2)} ${e instanceof Error ? e.name : 'error'}`);
       return null;
     } finally {
@@ -300,7 +303,7 @@ export class ShippingQuoteService {
     if (!picked) {
       throw new BusinessException('SHIPPING_QUOTE_UNAVAILABLE', HttpStatus.SERVICE_UNAVAILABLE, 'Shipping cannot be quoted right now', {});
     }
-    const insurance = insuranceCoverageFor(profile.perBoxCoverageCents, v.tiers)?.costCents ?? 0;
+    const insurance = insuranceCostFor(profile.perBoxCoverageCents, v.tiers);
     return {
       serviceCode: picked.row.serviceCode,
       serviceName: serviceNameOf(picked.row.serviceCode),
@@ -319,6 +322,8 @@ export class ShippingQuoteService {
    */
   async probe(cp: string, coverageCents: number): Promise<number> {
     if (!CP_RE.test(cp) || (await this.gateCtl.isOpen())) return 0;
+    // M-3: un CP fuera del catálogo no se sondea (no hay a dónde cotizar): 0 llamadas, sin gastar tope.
+    if (!(await this.postal.resolvePostalCode(cp))) return 0;
     const v = await this.view();
     let calls = 0;
     for (const pkg of ['envelope', 'box'] as const) {

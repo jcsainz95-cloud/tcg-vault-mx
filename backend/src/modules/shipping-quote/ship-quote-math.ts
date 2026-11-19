@@ -54,6 +54,17 @@ export function guideCostPerBoxCents(r: Pick<PickedRate, 'transportCents' | 'ins
 }
 
 /** Cobro al cliente: costo de TODAS las cajas + margen, redondeado hacia arriba al peso. */
+/**
+ * Costo del seguro de una caja con cobertura `coverageCents`: el del escalón que la cubre; SOBRE el escalón mayor (la compra de guía lo
+ * rechazaría con 409) se estima con la tarifa proporcional del escalón mayor (nunca 0). Sin escalones ⇒ 0.
+ */
+export function insuranceCostFor(coverageCents: number, tiers: ReadonlyArray<{ coverageCents: number; costCents: number }>): number {
+  const fit = tiers.filter((t) => t.coverageCents >= coverageCents).sort((a, b) => a.coverageCents - b.coverageCents)[0];
+  if (fit) return fit.costCents;
+  const top = [...tiers].sort((a, b) => b.coverageCents - a.coverageCents)[0];
+  return top ? Math.ceil((coverageCents * top.costCents) / top.coverageCents) : 0;
+}
+
 export function customerFeeCents(boxes: number, perBoxCostCents: number, marginCents: number): number {
   return ceilPesoCents(boxes * perBoxCostCents + marginCents);
 }

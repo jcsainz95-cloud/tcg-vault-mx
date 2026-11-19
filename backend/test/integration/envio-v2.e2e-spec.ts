@@ -6,7 +6,7 @@
  *  ENV-3 `session` = `quote` en cada caso de ENV-1; mover un dial tras la sesión no mueve lo cobrado.
  *  ENV-4 el retiro sigue en 20300 al mover los tres diales; el directo no se mueve al mover `shipping_fee_cents`.
  *  ENV-5 diales por `GET/PUT /admin/settings`: defaults, validadores, bitácora, operador ⇒ `403`.
- *  ENV-6 `GET /checkout/shipping-rule` sin sesión ⇒ `{10000, 17500, 400000}` + `Cache-Control: public, max-age=300`.
+ *  ENV-6 `GET /checkout/shipping-rule` sin sesión ⇒ `{10000, 17500, 400000, v3Enabled}` + `Cache-Control: public, max-age=60` (§ENV3 punto 17(1)).
  *  ENV-7 dos sellados de 208906 con `E = 0` (cobrados por la regla real): reembolsos por pieza + remanente ⇒
  *        `Σ = totalCents`, sin `23514`; canario: IVA remanente al envío ⇒ `23514`.
  *  ENV-8 M-91 siembra los tres diales con su default y ⛔ NO copia `shipping_fee_cents` (neto vs exhibido); idempotente.
@@ -462,11 +462,11 @@ describe('💰 §4-G.12 — regla de envío v2 (Postgres real)', () => {
   // ================================================================ ENV-6
 
   describe('ENV-6 — `GET /checkout/shipping-rule` (público)', () => {
-    it('sin sesión ⇒ 200 {10000, 17500, 400000, MXN, ivaIncluded} y caché pública de 300 s', async () => {
+    it('sin sesión ⇒ 200 {10000, 17500, 400000, MXN, ivaIncluded} y caché pública de 60 s', async () => {
       const r = await h.api('GET', '/checkout/shipping-rule');
       expect(r.status).toBe(200);
-      expect(r.body).toEqual({ cardsOnlyFeeCents: E_CARDS, sealedFeeCents: E_SEALED, freeFromCents: T, currency: 'MXN', ivaIncluded: true });
-      expect(r.headers['cache-control']).toBe('public, max-age=300');
+      expect(r.body).toEqual({ cardsOnlyFeeCents: E_CARDS, sealedFeeCents: E_SEALED, freeFromCents: T, currency: 'MXN', ivaIncluded: true, v3Enabled: false });
+      expect(r.headers['cache-control']).toBe('public, max-age=60');
     });
 
     it('con sesión válida NO se rechaza (a diferencia de /checkout/guest/*), y sigue a los diales vivos', async () => {
