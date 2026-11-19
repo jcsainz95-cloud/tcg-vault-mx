@@ -5234,6 +5234,31 @@
         "checkFields": "Revisa los campos marcados. No se guardó nada.",
         "invalid": "Ese valor no es válido para este dial."
       },
+      "shipV3": {
+        "title": "Envío por código postal",
+        "switchLabel": "Envío calculado por código postal (FedEx Overnight + MX$20)",
+        "switchHelp": "Apagado: se cobra la tarifa fija de arriba.",
+        "stateOn": "Ahora: encendido. El checkout cotiza el envío con FedEx según el código postal.",
+        "stateOff": "Ahora: apagado. Se cobra la tarifa fija de «Envío a domicilio».",
+        "turnOn": "Encender",
+        "turnOff": "Apagar",
+        "confirmTitle": "Confirmar el encendido",
+        "confirmBody": "¿Encender el envío por código postal? Desde ahora cada compra a domicilio cobra el costo real de la guía FedEx + MX$20, y las tarifas fijas de arriba dejan de usarse (desde el umbral no se cobra envío, como hoy). Los pedidos ya cobrados no cambian.",
+        "confirmYes": "Sí, encender",
+        "labels": {
+          "shipSkydropxMaxPerMin": "Llamadas por minuto a Skydropx (tope global)",
+          "shipCacheTtlS": "Vigencia de las cotizaciones guardadas (segundos)"
+        },
+        "help": {
+          "shipSkydropxMaxPerMin": "Entero de {min} a {max}. Pasado el tope se usa la tabla de respaldo.",
+          "shipCacheTtlS": "Entero de {min} a {max}. Cuánto se reutiliza una cotización del mismo código postal y contenido."
+        },
+        "invalid": "Escribe un entero de {min} a {max}.",
+        "save": "Guardar ({count, plural, =0 {sin cambios} one {# cambio} other {# cambios}})",
+        "saved": "Guardado.",
+        "checkFields": "Revisa los campos marcados. No se guardó nada.",
+        "unavailable": "El servidor todavía no tiene este interruptor."
+      },
       "ingest": {
         "title": "Proveedor de ingesta masiva (barrido diario de precios)",
         "note": "Dial del barrido diario de precios, DISTINTO de los proveedores de referencia por-carta de arriba. Valores: pokemontcg_io (legacy) · pokemonpricetracker · tcgcsv_singles (precio por-acabado diario, P-47). Rollback money-safe: volver a pokemontcg_io.",

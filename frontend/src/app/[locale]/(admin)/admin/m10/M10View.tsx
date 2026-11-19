@@ -36,6 +36,7 @@ import { PriceReviewSection } from './sections/PriceReviewSection';
 import { BuylistCycleSection } from './sections/BuylistCycleSection';
 import { WishlistDialsSection } from './sections/WishlistDialsSection';
 import { DirectShipSection } from './sections/DirectShipSection';
+import { ShipV3Section } from './sections/ShipV3Section';
 import { FeaturedPsaDialsSection } from './sections/FeaturedPsaDialsSection';
 
 type DialKind = 'cents' | 'pct' | 'fraction' | 'int' | 'text' | 'provider' | 'onOff';
@@ -436,6 +437,9 @@ export function M10View() {
       {/* 💰 v1.109 (API_CONTRACT §4-G.12 punto 3) — «Envío a domicilio»: los tres diales del envío directo, en su
           propio grupo porque NO comparten convención (dos antes de IVA, uno con IVA) y la pantalla lo dice por campo. */}
       <DirectShipSection />
+
+      {/* §ENV3: interruptor del envío por código postal + dos diales de Skydropx (mismos permisos que el grupo de arriba). */}
+      <ShipV3Section />
 
       {/* ⭐ §WSH-UX.9 (a) — «Lista de deseos»: sección propia debajo de «Diales de configuración», con su guardado
           parcial y la confirmación de encendido (criterio 824). `id="wishlist"` = destino del enlace de la lista de compra. */}

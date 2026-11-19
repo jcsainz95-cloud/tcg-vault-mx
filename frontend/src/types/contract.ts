@@ -6583,6 +6583,14 @@ export interface SettingsDTO {
   directShipCardsFeeCents?: number;
   directShipSealedFeeCents?: number;
   directShipFreeFromCents?: number;
+  /**
+   * §ENV3 (`super_admin`; `PUT /admin/settings`, validación del servidor): `shipV3Enabled` `'on'|'off'` (apagado ⇒ regla fija
+   * de arriba); `shipSkydropxMaxPerMin` entero 1..600 (tope global de llamadas vivas a Skydropx); `shipCacheTtlS` entero
+   * 60..86400 (vigencia de la caché de cotizaciones). Opcionales por tolerancia a un servidor anterior.
+   */
+  shipV3Enabled?: 'on' | 'off';
+  shipSkydropxMaxPerMin?: number;
+  shipCacheTtlS?: number;
   aportacionPct: number;
   ivaPct: number;
   /*

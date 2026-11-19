@@ -494,6 +494,10 @@ export let mockSettings: SettingsDTO = {
   directShipCardsFeeCents: 10000,
   directShipSealedFeeCents: 17500,
   directShipFreeFromCents: 400000,
+  // §ENV3 (MOCK, defaults del servidor): apagado hasta publicar.
+  shipV3Enabled: 'off',
+  shipSkydropxMaxPerMin: 60,
+  shipCacheTtlS: 21600,
   // §AC.11 (MOCK): diales de accesorios con sus defaults del contrato.
   energyBundlePriceCents: 2000,
   accessorySuggestionCount: 3,

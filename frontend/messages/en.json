@@ -5234,6 +5234,31 @@
         "checkFields": "Check the marked fields. Nothing was saved.",
         "invalid": "That value isn't valid for this setting."
       },
+      "shipV3": {
+        "title": "Shipping by postal code",
+        "switchLabel": "Shipping calculated by postal code (FedEx Overnight + MX$20)",
+        "switchHelp": "Off: the fixed rate above is charged.",
+        "stateOn": "Now: on. Checkout quotes shipping with FedEx by postal code.",
+        "stateOff": "Now: off. The fixed rate from «Home delivery» is charged.",
+        "turnOn": "Turn on",
+        "turnOff": "Turn off",
+        "confirmTitle": "Confirm turning on",
+        "confirmBody": "Turn on shipping by postal code? From now on every home-delivery purchase is charged the real FedEx label cost + MX$20, and the fixed rates above stop being used (orders from the threshold up carry no shipping charge, as today). Orders already charged do not change.",
+        "confirmYes": "Yes, turn on",
+        "labels": {
+          "shipSkydropxMaxPerMin": "Skydropx calls per minute (global cap)",
+          "shipCacheTtlS": "How long saved quotes last (seconds)"
+        },
+        "help": {
+          "shipSkydropxMaxPerMin": "Integer from {min} to {max}. Past the cap the fallback table is used.",
+          "shipCacheTtlS": "Integer from {min} to {max}. How long a quote for the same postal code and contents is reused."
+        },
+        "invalid": "Enter an integer from {min} to {max}.",
+        "save": "Save ({count, plural, =0 {no changes} one {# change} other {# changes}})",
+        "saved": "Saved.",
+        "checkFields": "Check the marked fields. Nothing was saved.",
+        "unavailable": "The server does not have this switch yet."
+      },
       "ingest": {
         "title": "Bulk ingest provider (daily price sweep)",
         "note": "Dial for the daily price sweep, SEPARATE from the per-card reference providers above. Values: pokemontcg_io (legacy) · pokemonpricetracker · tcgcsv_singles (daily per-finish pricing, P-47). Money-safe rollback: switch back to pokemontcg_io.",
