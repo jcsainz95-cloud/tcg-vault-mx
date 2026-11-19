@@ -351,7 +351,7 @@
 - POST `/admin/shipments/:id/label/release` · admin 💰
 - PATCH `/admin/shipments/:id/status` · staff
 - POST `/admin/shipments/:id/tracking` · staff
-- POST `/admin/shipments/:id/delivered-in-person` · staff 💰 · 409 si no preparado o con guía (§PERSONA) · retiro: `withdrawn` en `enviado` (§RETIRO-SALIDA: `return-received`, `returnedAt`)
+- POST `/admin/shipments/:id/delivered-in-person` · staff 💰 · 409 si no preparado o con guía (§PERSONA) · retiro: `withdrawn` en `enviado` (§RETIRO-SALIDA)
 - POST `/admin/buylist/:id/inbound-shipment` · staff
 - GET `/buylist/requests/:id/label.pdf` · cuenta
 - POST `/shipments/quote` · cuenta
