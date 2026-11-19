@@ -975,6 +975,7 @@
     "noShipments": "You have no withdrawals yet.",
     "backToList": "My withdrawals",
     "detailTitle": "Withdrawal {id}",
+    "leftVaultNote": "Your cards have left the vault and are on their way. They no longer appear in your vault.",
     "itemsInWithdrawal": "Cards in this withdrawal",
     "shippingAddress": "Shipping address",
     "addressUnavailable": "Address unavailable",
@@ -2706,6 +2707,14 @@
         "deliveredConfirm": "Mark delivered",
         "notCancellable": "This shipment is already paid and isn't cancelled by hand ({status}). Nothing was changed. If a card isn't shipping, mark it when preparing; if everything must be refunded, the super-admin does it in Sales.",
         "nothingToShip": "This withdrawal has no card left to ship: they all went back to the platform. It wasn't marked as shipped. Tell the super-admin to close it.",
+        "returnReceived": {
+          "button": "We received the return",
+          "title": "Did we receive the return of {ref}?",
+          "body": "Confirm only if the package is physically back at the store. The cards go back to the customer's vault (missing ones do not).",
+          "confirm": "Yes, we received the return",
+          "done": "Return recorded: the cards are back in the customer's vault.",
+          "errConflict": "This shipment cannot be marked as returned: it was already recorded or it is not a shipped withdrawal."
+        },
         "recipientUnknown": "unregistered recipient",
         "inPerson": {
           "button": "Delivered in person",

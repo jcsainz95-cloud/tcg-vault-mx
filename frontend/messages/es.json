@@ -975,6 +975,7 @@
     "noShipments": "Aún no tienes retiros.",
     "backToList": "Mis retiros",
     "detailTitle": "Retiro {id}",
+    "leftVaultNote": "Tus cartas ya salieron de la bóveda y van en camino. Ya no aparecen en tu bóveda.",
     "itemsInWithdrawal": "Cartas en este retiro",
     "shippingAddress": "Dirección de envío",
     "addressUnavailable": "Dirección no disponible",
@@ -2706,6 +2707,14 @@
         "deliveredConfirm": "Marcar entregado",
         "notCancellable": "Este envío ya está pagado y no se cancela a mano ({status}). No se cambió nada. Si una carta no sale, se marca al preparar; si hay que devolver todo, lo hace el súper-admin en Ventas.",
         "nothingToShip": "Este retiro no tiene ninguna carta que enviar: todas volvieron a la plataforma. No se marcó como enviado. Avisa al súper-admin para cerrarlo.",
+        "returnReceived": {
+          "button": "Recibimos la devolución",
+          "title": "¿Recibimos la devolución de {ref}?",
+          "body": "Confirma solo si el paquete ya está físicamente en la tienda. Las cartas vuelven a la bóveda del cliente (las faltantes no).",
+          "confirm": "Sí, recibimos la devolución",
+          "done": "Devolución registrada: las cartas volvieron a la bóveda del cliente.",
+          "errConflict": "Este envío no se puede marcar como devuelto: ya se registró o no es un retiro enviado."
+        },
         "recipientUnknown": "destinatario sin registrar",
         "inPerson": {
           "button": "Entregado en persona",

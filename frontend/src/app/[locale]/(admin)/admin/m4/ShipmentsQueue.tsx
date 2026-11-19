@@ -9,6 +9,8 @@ import { getAdminShipments, updateAdminShipmentStatus } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { canDeliverInPerson } from '@/lib/api/shipments-in-person';
 import { InPersonDialog } from './InPersonDialog';
+import { ReturnReceivedControl } from './ReturnReceivedControl';
+import { canMarkReturnReceived } from '@/lib/api/shipments-return-received';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
@@ -267,6 +269,14 @@ export function ShipmentsQueue({
                       <Button size="sm" variant="secondary" onClick={() => onCaptureGuide(s)}>
                         {t('tracking.capture')}
                       </Button>
+                    )}
+                    {canMarkReturnReceived(s) && (
+                      <ReturnReceivedControl
+                        id={s.id}
+                        refLabel={refOf(s)}
+                        onDone={(id) => setStatusChanged(id)}
+                        onFail={(id, text) => setRowErrors((r) => ({ ...r, [id]: { text } }))}
+                      />
                     )}
                     {canDeliverInPerson(s) && (
                       <Button size="sm" variant="secondary" onClick={() => requestInPerson(s)}>

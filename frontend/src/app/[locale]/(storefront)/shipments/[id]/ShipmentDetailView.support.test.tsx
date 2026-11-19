@@ -44,4 +44,18 @@ describe('ShipmentDetailView · «Escríbenos» (§60.1 b)', () => {
     await screen.findByText('Dirección de envío');
     expect(screen.queryByTestId('support-contact')).not.toBeInTheDocument();
   });
+
+  it('§RETIRO-SALIDA: ENVIADO ⇒ «En camino» y aviso de que salió de la bóveda; ENTREGADO ⇒ sin aviso', async () => {
+    vi.spyOn(api, 'getSupportContact').mockResolvedValue({ contact: 'otro@x' });
+    vi.spyOn(api, 'getShipment').mockResolvedValue(shipment('enviado'));
+    const { unmount } = renderWithProviders(<ShipmentDetailView shipmentId="shp-77" />, 'es');
+    await screen.findByText('Dirección de envío');
+    expect(screen.getAllByText('En camino').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('left-vault-note')).toHaveTextContent('ya salieron de la bóveda');
+    unmount();
+    vi.spyOn(api, 'getShipment').mockResolvedValue(shipment('entregado'));
+    renderWithProviders(<ShipmentDetailView shipmentId="shp-77" />, 'es');
+    await screen.findByText('Dirección de envío');
+    expect(screen.queryByTestId('left-vault-note')).not.toBeInTheDocument();
+  });
 });
