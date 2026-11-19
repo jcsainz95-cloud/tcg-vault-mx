@@ -79,11 +79,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-19 · re-gate §RETIRO-SALIDA (55f62203): APROBADO
-- Verde: jest 606/606 suites (10571); integración 29/29 (464; PG/Redis propios); vitest 503 ficheros (6106); tsc/eslint be+fe 0; doc-size VERDE; rutas OK. Q1–Q11 propias verdes; 10 ablaciones en copia (A1,A2,A4,B1,B1b,B2,B3,E,G27,G29) dan rojo.
-- Cerrados: B1, B2, B3 💰, I1/I2/I3, AG-11+AG-28 (1 correo), AG-27 una vez y solo retiro, textos en; AG-29 solo no-dueño sin PII; ShipmentDTO.returnedAt.
-- Menores: DECISIONES (Regla y punto 4) contradice Rectificación B1; API sin return-received/withdrawal_return/ShipmentDTO.returnedAt (tope); título AG-29 distinto be/fe.
-- Previos abiertos: §ENV3 N-1/N-2; §PERSONA QA-PER-ORIGNUM/-STATUSLBL/-FULFILL/-PNONE/-TREE; filas anteriores en PENDIENTES (a5681572).
+## QA (qa) — 2026-11-19 · re-gate final §RETIRO-SALIDA sin botón (06f90f33): APROBADO
+- Verde: jest 606/606 (10570); integración 31/31 (490; PG/Redis propios); vitest 502 ficheros (6097); tsc/eslint be+fe 0; doc-size VERDE; rutas OK. m111 limpia desde cero (AG-27/AG-28 + labelCapturedAt).
+- Q1/Q2/Q6/Q7/Q9/Q11/Q12 propias 7/7 verdes; 8 ablaciones en copia dan rojo. Medido: B1, concurrencia 1 movimiento/pieza, guardas I2, AG-27 solo retiro y una vez, AG-11 suprimido en retiro, AG-28 sin botón igual be/fe, dry-run en conexión de solo lectura, sin referencias colgantes.
+- Pendiente antes de publicar: I-1 arquitecto (API:354 y DECISIONES §RETIRO-SALIDA aún describen return-received/returnedAt/AG-29); I-2 AG-28 pide «ajusta el inventario» pero ninguna herramienta lleva withdrawn→in_custody (item-location.rules.ts:33).
+- Menor: comentarios de contract.ts:176,1222 desactualizados respecto a B1. Previos abiertos: §ENV3 N-1/N-2; §PERSONA QA-PER-*; filas anteriores en PENDIENTES (a5681572).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
