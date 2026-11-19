@@ -235,7 +235,7 @@ export class GuestCheckoutService {
     const choice = empty ? null : await boxChoiceOf(this.prisma as unknown as Prisma.TransactionClient, acc.units);
     // 💰 §ENV3: con `ship_v3_enabled=on` y un `shippingQuoteId` VIGENTE para este CP/carrito, la tarifa es la cotizada; sin él (o inválido) el
     // quote es el de siempre (solo informa: lo cobrado lo decide `session`, que exige la cotización).
-    const quoted = empty ? null : await this.quotedShipFee(dto.shippingQuoteId, dto.shippingAddress?.postalCode ?? null, items, acc.units, subtotalCents + acc.subtotalCents);
+    const quoted = empty ? null : await this.quotedShipFee(dto.shippingQuoteId, dto.shippingAddress?.postalCode ?? null, items, acc.units, subtotalCents + acc.subtotalCents, code !== null);
     const computed = await this.quoteBreakdowns(subtotalCents + acc.subtotalCents, subtotalCents, empty, itemsEmpty, ivaDials, choice, empty ? null : kind, quoted);
     // Desglose CONGELADO de la orden propia cuando rige (coversCart y no vencida): lo que el PI cobra.
     const breakdownToday: DirectShipBreakdownDTO = frozenOrder
@@ -399,13 +399,14 @@ export class GuestCheckoutService {
     items: ReadonlyArray<{ productType: ProductType; sealedSubtype: string | null }>,
     accUnits: ReadonlyArray<{ weightG: number }>,
     subtotalCents: number,
+    hasCode: boolean,
   ): Promise<number | null> {
     if (!token || !this.shipQuotes || !(await this.shipQuotes.enabled())) return null;
     const v = this.shipQuotes.verifyToken(token);
     const cp = postalCode ?? (v.ok ? v.payload.cp : null);
     if (!v.ok || cp === null) return null;
     const view = await this.shipQuotes.view();
-    const g = this.shipQuotes.gate({ token, cp, profile: shipProfileOf(shipCartOf(items, accUnits, subtotalCents), view), subtotalCents, freeFromCents: view.freeFromCents });
+    const g = this.shipQuotes.gate({ token, cp, profile: shipProfileOf(shipCartOf(items, accUnits, subtotalCents), view), subtotalCents, freeFromCents: view.freeFromCents, hasCode });
     return g.ok ? g.feeCents : null;
   }
 
@@ -568,6 +569,7 @@ export class GuestCheckoutService {
             profile: shipProfileOf(cart, shipView),
             subtotalCents: S,
             freeFromCents: shipView.freeFromCents,
+            hasCode: code !== null,
           });
           if (!g.ok) throw new ShipQuoteStale(cart, S);
           sq = { feeCents: g.feeCents, snapshot: g.snapshot };

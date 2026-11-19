@@ -124,9 +124,16 @@ export class ShippingQuoteService {
    *  - firma/vigencia/CP/hash de perfil; ⛔ un token emitido «gratis por umbral» no sirve si el pedido bajó del umbral.
    *  - sobre el umbral (`S ≥ T`) no hace falta cotización: cobro 0.
    */
-  gate(args: { token: unknown; cp: string; profile: ShipProfile; subtotalCents: number; freeFromCents: number; now?: Date }): ShipQuoteGate {
+  gate(args: { token: unknown; cp: string; profile: ShipProfile; subtotalCents: number; freeFromCents: number; hasCode?: boolean; now?: Date }): ShipQuoteGate {
     const now = args.now ?? new Date();
     if (args.subtotalCents >= args.freeFromCents) {
+      // 💰 DECISIONES punto 15: el umbral se mide DESPUÉS del descuento. Con código, la cotización de referencia (`ref`) debe ir firmada: si el
+      // descuento deja el subtotal bajo el umbral se cobra `ref`; sin token válido ⇒ stale (nunca «gratis» por no tener cifra).
+      if (args.hasCode) {
+        const v = this.verifyToken(args.token, now);
+        if (!v.ok || v.payload.cp !== args.cp || v.payload.h !== profileHashOf(args.profile) || v.payload.ref === undefined) return { ok: false };
+        return { ok: true, feeCents: v.payload.ref, snapshot: v.payload.snap };
+      }
       return {
         ok: true,
         feeCents: 0,
@@ -160,10 +167,12 @@ export class ShippingQuoteService {
     const v = await this.view();
     const profile = shipProfileOf(input.cart, v);
     let fee: number;
+    let ref: number | undefined;
     let snap: ShipQuoteSnapshot;
     if (input.subtotalCents >= v.freeFromCents) {
-      // Sobre el umbral no se cotiza (sin esperar 2.5 s): cobro 0.
+      // Sobre el umbral no se cotiza en vivo (sin esperar 2.5 s): cobro 0; `ref` = respaldo por tabla por si un código baja el subtotal bajo el umbral.
       fee = 0;
+      ref = await this.referenceFee(input.cp, profile, v);
       snap = { serviceCode: 'free_threshold', serviceName: 'FedEx', carrier: 'fedex', etaDays: 0, costQuotedCents: 0, extendedAreaCents: 0, marginCents: 0, source: 'table', profile: profileSummary(profile), free: 'threshold' };
     } else {
       const cost = await this.costPerBox(input.cp, profile, v);
@@ -183,7 +192,7 @@ export class ShippingQuoteService {
     }
     const iat = Math.floor(now.getTime() / 1000);
     const exp = iat + v.ttlS;
-    const payload: Omit<ShipQuotePayload, 'v'> = { cp: input.cp, h: profileHashOf(profile), fee, iat, exp, snap: { ...snap, quotedAt: now.toISOString() } };
+    const payload: Omit<ShipQuotePayload, 'v'> = { cp: input.cp, h: profileHashOf(profile), fee, iat, exp, ...(ref !== undefined ? { ref } : {}), snap: { ...snap, quotedAt: now.toISOString() } };
     return {
       quoteId: signShipQuote(this.pii, payload),
       shippingFeeCents: fee,
@@ -191,6 +200,16 @@ export class ShippingQuoteService {
       etaDays: snap.etaDays,
       expiresAt: new Date(exp * 1000).toISOString(),
     };
+  }
+
+  /** Cobro de referencia de un pedido ≥ umbral: tabla de respaldo (sin llamada en vivo). Sin tabla ⇒ 0 (no hay cifra que inventar). */
+  private async referenceFee(cp: string, profile: ShipProfile, v: ShipSettingsView): Promise<number> {
+    try {
+      const c = await this.fromTable(cp, profile, v);
+      return customerFeeCents(profile.boxes, guideCostPerBoxCents(c), v.marginCents);
+    } catch {
+      return 0;
+    }
   }
 
   // ── costo de UNA caja ────────────────────────────────────────────────────────────────────────────────────────

@@ -116,6 +116,17 @@ describe('§ENV3 ShippingQuoteService', () => {
       expect(await gateOf(svc, free, { s: 100000 })).toEqual({ ok: false });
       expect(await gateOf(svc, free, { s: 450000 })).toMatchObject({ ok: true, feeCents: 0 });
     });
+    it('umbral DESPUÉS del descuento: con código y S ≥ T el token firmado lleva el cobro de referencia (tabla) y rige si el descuento baja de T', async () => {
+      const { svc } = build();
+      const free = (await svc.quote({ cp: '64000', cart: cart(), subtotalCents: 450000 })).quoteId;
+      const withCode = svc.gate({ token: free, cp: '64000', profile: await svc.profileOf(cart()), subtotalCents: 450000, freeFromCents: 400000, hasCode: true });
+      expect(withCode).toMatchObject({ ok: true, feeCents: Math.ceil((15000 + 2500 + 2000) / 100) * 100 });
+      // con código y sin token válido ⇒ stale (nunca «gratis» por no tener cifra); sin código sigue siendo 0
+      expect(svc.gate({ token: '', cp: '64000', profile: await svc.profileOf(cart()), subtotalCents: 450000, freeFromCents: 400000, hasCode: true })).toEqual({ ok: false });
+      expect(svc.gate({ token: '', cp: '64000', profile: await svc.profileOf(cart()), subtotalCents: 450000, freeFromCents: 400000 })).toMatchObject({ ok: true, feeCents: 0 });
+      // un token de umbral NO sirve si el subtotal ya está bajo el umbral (antes de código)
+      expect(svc.gate({ token: free, cp: '64000', profile: await svc.profileOf(cart()), subtotalCents: 399999, freeFromCents: 400000, hasCode: true })).toEqual({ ok: false });
+    });
     it('subtotal ≥ umbral sin token ⇒ cobro 0 (el umbral manda)', async () => {
       const { svc } = build();
       expect(await gateOf(svc, '', { s: 400000 })).toMatchObject({ ok: true, feeCents: 0 });

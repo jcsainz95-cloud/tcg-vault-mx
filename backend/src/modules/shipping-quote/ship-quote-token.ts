@@ -35,6 +35,8 @@ export interface ShipQuotePayload {
   fee: number;
   iat: number;
   exp: number;
+  /** §ENV3 (DECISIONES punto 15): cobro de referencia (respaldo por tabla) que rige si un código baja un pedido ≥ umbral por debajo del umbral. Solo en tokens «gratis por umbral». */
+  ref?: number;
   snap: ShipQuoteSnapshot & { quotedAt: string };
 }
 
@@ -52,7 +54,7 @@ const INVALID: ShipQuoteVerdict = { ok: false, reason: 'invalid_token', payload:
 
 export function signShipQuote(signer: ShipQuoteSigner, p: Omit<ShipQuotePayload, 'v'>): string {
   // Orden de llaves FIJO: el texto firmado es determinista.
-  const json = JSON.stringify({ v: 1, cp: p.cp, h: p.h, fee: p.fee, iat: p.iat, exp: p.exp, snap: p.snap });
+  const json = JSON.stringify({ v: 1, cp: p.cp, h: p.h, fee: p.fee, iat: p.iat, exp: p.exp, ...(p.ref !== undefined ? { ref: p.ref } : {}), snap: p.snap });
   const part1 = Buffer.from(json, 'utf8').toString('base64url');
   return `${part1}.${signer.domainHmac(SHIP_QUOTE_DOMAIN, part1)}`;
 }
@@ -80,6 +82,7 @@ export function verifyShipQuote(signer: ShipQuoteSigner, token: unknown, nowSec:
     !isInt(o.fee) ||
     !isInt(o.iat) ||
     !isInt(o.exp) ||
+    (o.ref !== undefined && !isInt(o.ref)) ||
     !snap ||
     typeof snap !== 'object' ||
     typeof snap.serviceCode !== 'string' ||

@@ -55,7 +55,9 @@ describe('E2E §ENV3 — envío por CP y carrito', () => {
     await set('ship_v3_enabled', 'off');
     await h?.close();
   });
-  beforeEach(() => {
+  // El umbral lo mueven pruebas concretas: cada prueba arranca con el de siempre (aunque la anterior fallara a medias).
+  beforeEach(async () => {
+    await set('direct_ship_free_from_cents', 400000);
     rates = MTY_ENVELOPE;
     calls = 0;
     delayMs = 0;
@@ -185,6 +187,39 @@ describe('E2E §ENV3 — envío por CP y carrito', () => {
     const order = await h.prisma.order.findUnique({ where: { id: s.body.orderId } });
     expect(order!.shippingWaivedCents).toBe(17700);
     expect(order!.shippingQuoteSnapshot).toMatchObject({ costQuotedCents: 15686 });
+  });
+
+  it('umbral DESPUÉS del descuento (DECISIONES punto 15): S ≥ T pero un código de % deja S\' < T ⇒ se cobra la cotización; un código de envío gratis sigue en 0', async () => {
+    const admin = await h.login(E2E_USERS.admin.email, E2E_USERS.admin.password);
+    const mk = async (body: object) => (await h.api('POST', '/admin/discount-codes', { token: admin, json: { code: `ENV3T${Math.random().toString(36).slice(2, 8)}${RUN}`.toUpperCase(), ...body } })).body;
+    const a = await mkItem();
+    const probe = await h.api('POST', '/checkout/guest/quote', { json: { inventoryItemIds: [a] } });
+    const S = probe.body.breakdown.subtotalCents as number;
+    await set('direct_ship_free_from_cents', S); // S ≥ T exacto: sin código ⇒ gratis
+    const q = (await h.api('POST', '/checkout/shipping-quote', { json: { cp: '64000', items: [{ inventoryItemId: a }] } })).body;
+    expect(q.shippingFeeCents).toBe(0);
+    const none = await session([a], '64000', q.quoteId);
+    expect(none.status).toBe(201);
+    expect(none.body.breakdown.shippingFeeCents).toBe(0);
+    // 10 % deja S' < T ⇒ se cobra una cotización (la de respaldo firmada en el token), no 0
+    const b = await mkItem();
+    const q2 = (await h.api('POST', '/checkout/shipping-quote', { json: { cp: '64000', items: [{ inventoryItemId: b }] } })).body;
+    const pct = await mk({ kind: 'percent', percentPct: 10 });
+    const s2 = await session([b], '64000', q2.quoteId, { discountCode: pct.code });
+    expect(s2.status).toBe(201);
+    expect(s2.body.breakdown.shippingFeeCents).toBeGreaterThan(0);
+    // sin token válido y con código ⇒ 409 (no se regala el envío)
+    const c = await mkItem();
+    const s3 = await session([c], '64000', undefined, { discountCode: (await mk({ kind: 'percent', percentPct: 10 })).code });
+    expect(s3.status).toBe(409);
+    // envío gratis por código ⇒ 0 con el pedido bajo el umbral (sobre el umbral no hay nada que exonerar)
+    await set('direct_ship_free_from_cents', 400000);
+    const d = await mkItem();
+    const q4 = (await h.api('POST', '/checkout/shipping-quote', { json: { cp: '64000', items: [{ inventoryItemId: d }] } })).body;
+    const free = await session([d], '64000', q4.quoteId, { discountCode: (await mk({ kind: 'free_shipping' })).code });
+    expect(free.status).toBe(201);
+    expect(free.body.breakdown.shippingFeeCents).toBe(0);
+    await set('direct_ship_free_from_cents', 400000);
   });
 
   it('items inválidos ⇒ 400; CP malo ⇒ 400 (el throttle 20/min se mide en test/env3.shipping-quote-throttle.spec.ts: el guard global se apaga bajo test)', async () => {
