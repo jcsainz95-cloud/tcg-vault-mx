@@ -36,6 +36,7 @@ import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service
 import { ManualVersionMergeService } from '../modules/pricing/manual-version-merge.service';
 import { PatternReclassifyService } from '../modules/pricing/pattern-reclassify.service';
 import { SupplyExpiryService } from '../modules/supply/supply-expiry.service';
+import { ShipQuoteCalibrationService } from '../modules/shipping-quote/ship-quote-calibration.service';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
 import { MeasurementDrainService } from '../modules/measurement/measurement-drain.service';
@@ -178,6 +179,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly indexInspection?: IndexInspectionService,
     // §PROV F1: caducidad horaria de solicitudes, ofertas y acuerdos sin recoger.
     @Optional() private readonly supplyExpiry?: SupplyExpiryService,
+    // §ENV3: recalibración y sondeo diarios de la tabla de respaldo de envío (03:30 UTC).
+    @Optional() private readonly shipQuoteCalibration?: ShipQuoteCalibrationService,
     // §ALTA-LIGA-2: fusión diaria de versiones de liga manuales con el producto real.
     @Optional() private readonly manualVersionMerge?: ManualVersionMergeService,
     // §PRICE-PATTERN: reclasificación idempotente de versiones «Pattern/Ball» (al desplegar y diaria).
@@ -411,6 +414,12 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: ListingPriceService NO está inyectado; listing-price-formula no queda programado.');
     }
 
+    // §ENV3 (DECISIONES punto 6): `ship-quote-calibrate` 03:30 UTC (idempotente; solo cotiza, 0 guías).
+    if (this.shipQuoteCalibration) {
+      await this.queue.add('ship-quote-calibrate', {}, this.repeat('ship-quote-calibrate', '30 3 * * *'));
+    } else {
+      this.logger.error('Scheduler: ShipQuoteCalibrationService NO está inyectado; ship-quote-calibrate no queda programado.');
+    }
     // §PROV F1: `supply-expiry` cada hora (idempotente: UPDATE condicionados).
     if (this.supplyExpiry) {
       await this.queue.add('supply-expiry', {}, this.repeat('supply-expiry', '15 * * * *'));
@@ -584,6 +593,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.patternReclassify?.run() ?? null;
       case 'manual-version-merge':
         return this.manualVersionMerge?.runAll() ?? null;
+      case 'ship-quote-calibrate':
+        return this.shipQuoteCalibration?.run() ?? null;
       case 'supply-expiry':
         return this.supplyExpiry?.run() ?? null;
       case 'listing-price-formula':

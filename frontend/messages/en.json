@@ -662,8 +662,23 @@
       "bundleNoName": "An energy bundle can no longer be paid for. You weren't charged. We removed it from your cart. If we still have some energy cards left, you can add them one by one from the deck."
     },
     "feeHint": {
+      "cardsOnly": "Shipping calculated from your postal code · free from {freeFrom}",
+      "sealed": "Shipping calculated from your postal code · free from {freeFrom}"
+    },
+    "feeHintFixed": {
       "cardsOnly": "+ shipping {shipping}, free from {freeFrom}",
       "sealed": "Shipping {shipping}, free from {freeFrom}"
+    },
+    "shippingQuote": {
+      "prompt": "Enter your postal code to calculate shipping.",
+      "waiting": "Calculating your FedEx shipping…",
+      "waitingSlow": "Still calculating your FedEx shipping; it can take a few more seconds. Please keep this page open.",
+      "line": "FedEx shipping",
+      "free": "Free",
+      "freeFrom": "Free from {freeFrom}",
+      "error": "We couldn't calculate shipping. Check your connection and try again.",
+      "retry": "Try again",
+      "changed": "Your shipping quote expired or changed: it is now {amount}. You were not charged; review the total and pay again."
     },
     "refundPromise": "If your card arrives damaged or wrong, we refund you.",
     "freeShippingRemaining": "{remaining} more for free shipping",
@@ -2319,6 +2334,15 @@
         "goToPrepare": "Go to “Prepare”",
         "goToReplace": "See under “To replace”",
         "sdx": {
+        "customerQuote": {
+          "eyebrow": "Quoted to the customer",
+          "charged": "{service}: the customer paid {charged} for shipping (quoted label cost: {quoted}).",
+          "fallback": "The quoted service is no longer available: {service} is selected. You can change it.",
+          "current": "Current cost of the selected option: {amount}.",
+          "same": "Same as quoted.",
+          "over": "{diff} more than quoted; above the allowed margin the system alerts the owner.",
+          "under": "{diff} less than quoted."
+        },
           "step": "Step {n} of 4 · {name}",
           "stepName": {
             "address": "Address",
@@ -5210,6 +5234,31 @@
         "checkFields": "Check the marked fields. Nothing was saved.",
         "invalid": "That value isn't valid for this setting."
       },
+      "shipV3": {
+        "title": "Shipping by postal code",
+        "switchLabel": "Shipping calculated by postal code (FedEx Overnight + MX$20)",
+        "switchHelp": "Off: the fixed rate above is charged.",
+        "stateOn": "Now: on. Checkout quotes shipping with FedEx by postal code.",
+        "stateOff": "Now: off. The fixed rate from «Home delivery» is charged.",
+        "turnOn": "Turn on",
+        "turnOff": "Turn off",
+        "confirmTitle": "Confirm turning on",
+        "confirmBody": "Turn on shipping by postal code? From now on every home-delivery purchase is charged the real FedEx label cost + MX$20, and the fixed rates above stop being used (orders from the threshold up carry no shipping charge, as today). Orders already charged do not change.",
+        "confirmYes": "Yes, turn on",
+        "labels": {
+          "shipSkydropxMaxPerMin": "Skydropx calls per minute (global cap)",
+          "shipCacheTtlS": "How long saved quotes last (seconds)"
+        },
+        "help": {
+          "shipSkydropxMaxPerMin": "Integer from {min} to {max}. Past the cap the fallback table is used.",
+          "shipCacheTtlS": "Integer from {min} to {max}. How long a quote for the same postal code and contents is reused."
+        },
+        "invalid": "Enter an integer from {min} to {max}.",
+        "save": "Save ({count, plural, =0 {no changes} one {# change} other {# changes}})",
+        "saved": "Saved.",
+        "checkFields": "Check the marked fields. Nothing was saved.",
+        "unavailable": "The server does not have this switch yet."
+      },
       "ingest": {
         "title": "Bulk ingest provider (daily price sweep)",
         "note": "Dial for the daily price sweep, SEPARATE from the per-card reference providers above. Values: pokemontcg_io (legacy) · pokemonpricetracker · tcgcsv_singles (daily per-finish pricing, P-47). Money-safe rollback: switch back to pokemontcg_io.",
@@ -7020,6 +7069,11 @@
         "copied": "Copied"
       },
       "fact": {
+        "quotedService": "Quoted service",
+        "boughtService": "Purchased service",
+        "costQuotedCents": "Cost quoted to the customer",
+        "costRealCents": "Actual label cost",
+        "differenceCents": "Difference",
         "changedKeys": "What changed",
         "carrierName": "Carrier",
         "chargedCents": "Charged",
@@ -7201,6 +7255,10 @@
           "title": "In-person hand-over with shipping charged",
           "shipmentRef": "shipment {folio}",
           "text": "{person} marked {ref} as handed over in person. The customer paid {fee} for shipping; the system does not refund it. If it should be refunded, decide it from Sales."
+        },
+        "AG-26": {
+          "title": "Label costs more than quoted to the customer",
+          "text": "The label for {ref} cost {real} and the customer was quoted {quoted} ({quotedService}); you bought {boughtService}. Difference: {diff}. This is only a notice: nothing was blocked."
         }
       },
       "prev": "Previous",
@@ -8967,7 +9025,8 @@
       "guaranteeTerms": "Terms and policy",
       "invoice": "Invoice",
       "invoiceValue": "For an invoice (CFDI), email {email} after paying, quoting your order.",
-      "shippingValue": "Cards {cards} per order · sealed {sealed} · free from {freeFrom} on any order"
+      "shippingValueFixed": "Cards {cards} per order · sealed {sealed} · free from {freeFrom} on any order",
+      "shippingValue": "Shipping calculated from your postal code · free from {freeFrom} on any order"
     },
     "contact": {
       "title": "Contact",

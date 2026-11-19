@@ -18,26 +18,32 @@ export interface ShippingFeeHintProps {
 
 /**
  * T1a / T1b (DESIGN_SYSTEM §CHK-MOVIL.4, fricción 1a): bajo el precio de la ficha, **fuera** del `PriceTag`
- * (§7.3), mono 11 px muted. El importe del envío sale del endpoint público (diales vivos, IVA dentro); la
- * comisión se nombra SIN importe (no se calcula fuera del carrito: gross-up no invertible, §4-G.1).
+ * (§7.3), mono 11 px muted. §ENV3 (2026-11-19): ya NO lleva importe de envío (depende del CP y del contenido):
+ * «Envío calculado con tu código postal · gratis desde {umbral}»; solo el umbral sale del endpoint público.
+ * ⚠️ Texto de cara al cliente PENDIENTE de aprobación del dueño (DECISIONES §ENV3.10).
  * ⛔ Ningún importe escrito a mano: cargando o con error no se pinta nada (lo cobrado lo decide `session`).
  */
 export function ShippingFeeHint({ kind, className }: ShippingFeeHintProps) {
   const t = useTranslations('checkout.feeHint');
+  const tFixed = useTranslations('checkout.feeHintFixed');
   const locale = useLocale() as AppLocale;
   const rule = useQuery({
     queryKey: PUBLIC_SHIPPING_RULE_KEY,
     queryFn: getPublicShippingRule,
-    staleTime: 300_000,
+    staleTime: 60_000,
   });
   if (!rule.data) return null;
   // Umbral para CUALQUIER pedido (dueño 2026-10-25, `HECHOS.md` «Envío gratis desde MX$4,000 para CUALQUIER pedido»):
   // T1a y T1b llevan los dos el `freeFrom` del endpoint.
   const freeFrom = formatMoneyCents(rule.data.freeFromCents, locale);
+  // §ENV3.17: dial apagado ⇒ la regla fija de hoy, con los importes que manda el endpoint (⛔ nunca escritos a mano).
   const text =
-    kind === 'cards'
-      ? t('cardsOnly', { shipping: formatMoneyCents(rule.data.cardsOnlyFeeCents, locale), freeFrom })
-      : t('sealed', { shipping: formatMoneyCents(rule.data.sealedFeeCents, locale), freeFrom });
+    rule.data.v3Enabled === false
+      ? tFixed(kind === 'cards' ? 'cardsOnly' : 'sealed', {
+          shipping: formatMoneyCents(kind === 'cards' ? rule.data.cardsOnlyFeeCents : rule.data.sealedFeeCents, locale),
+          freeFrom,
+        })
+      : t(kind === 'cards' ? 'cardsOnly' : 'sealed', { freeFrom });
   return (
     <p data-testid="shipping-fee-hint" className={cn('font-mono text-[11px] leading-[1.5] text-muted', className)}>
       {text}

@@ -51,6 +51,15 @@ export interface DirectShipDials {
   freeFromCents: number;
 }
 
+/**
+ * 💰 §ENV3 — con una cotización por CP vigente (`shippingQuoteId` verificado) la tarifa de las DOS clases ES el cobro cotizado: se
+ * reutiliza la cadena única (umbral sobre `S`, código de envío gratis, desglose, IVA) sin una fórmula nueva. ⛔ La caja grande (§AC.7)
+ * no aplica con cotización (el perfil ya está en el costo): quien llama pasa `choice = null` a `directShipFeeOf`.
+ */
+export function dialsWithQuotedFee(dials: DirectShipDials, feeCents: number): DirectShipDials {
+  return { ...dials, cardsFeeCents: feeCents, sealedFeeCents: feeCents };
+}
+
 export interface DirectShipFee {
   /** `E`: lo que entra a `breakdown.shippingFeeCents`. */
   feeCents: number;
@@ -76,6 +85,8 @@ export interface PublicShippingRuleDTO {
   freeFromCents: number;
   currency: 'MXN';
   ivaIncluded: true;
+  /** §ENV3 punto 17(1): `ship_v3_enabled`. Apagado ⇒ el front usa la regla fija (textos MX$100/175, sin cotización). */
+  v3Enabled?: boolean;
 }
 
 /** D-ENV-2: la gradeada es una carta y viaja igual. Del enum generado (⛔ lista a mano: candado de `enum-values-parity`). */

@@ -95,6 +95,7 @@ export function normalizeRates(rawRates: unknown, options: NormalizeOptions): No
       serviceCode: str(r.provider_service_code),
       amountCents,
       extraFeesCents,
+      extendedAreaFeeCents: extendedAreaFeeCents(r.extra_fees),
       vatCents,
       serviceFeeCents,
       totalCents,
@@ -116,6 +117,13 @@ function extraFeesToCents(fees: unknown): number | null {
   if (!Array.isArray(fees)) return null;
   const values = fees.map((f) => (f && typeof f === 'object' ? (f as Record<string, unknown>).value : undefined));
   return sumDecimalsToCents(values);
+}
+
+/** §ENV3: `extra_fees[code = 'extended_area_fee'].value` en centavos (0 si no hay). Medido 2026-11-19: ya va DENTRO de `total`. */
+function extendedAreaFeeCents(fees: unknown): number {
+  if (!Array.isArray(fees)) return 0;
+  const values = fees.map((f) => (f && typeof f === 'object' && (f as Record<string, unknown>).code === 'extended_area_fee' ? (f as Record<string, unknown>).value : undefined));
+  return sumDecimalsToCents(values.filter((v) => v !== undefined)) ?? 0;
 }
 
 function str(v: unknown): string | null {

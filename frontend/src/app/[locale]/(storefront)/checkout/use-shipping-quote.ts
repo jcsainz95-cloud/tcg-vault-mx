@@ -1,0 +1,105 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiClientError } from '@/lib/api-client';
+import {
+  postShippingQuote,
+  type ShippingQuoteDTO,
+  type ShippingQuoteItemInput,
+} from '@/lib/api/shipping-quote';
+
+/** §ENV3.3: se cotiza al completar 5 dígitos, con debounce de 500 ms. En vitest () es 0; una prueba puede fijarlo. */
+let debounceMs = process.env.NODE_ENV === 'test' ? 0 : 500;
+export function setShippingQuoteDebounceMs(ms: number) {
+  debounceMs = ms;
+}
+
+/** §ENV3.7: la cotización dura 30 min en el servidor; se refresca mucho antes de que llegue el 409. */
+const STALE_MS = 10 * 60_000;
+
+/** M-1: se refresca esto antes de `expiresAt`. */
+const EARLY_REFETCH_MS = 60_000;
+
+/** `off` = el servidor responde 404 NOT_FOUND a shipping-quote: dial `ship_v3_enabled` apagado ⇒ regla fija, sin cotizar (M-A). */
+export type ShippingQuoteStatus = 'idle' | 'waiting' | 'ready' | 'error' | 'off';
+
+export interface ShippingQuoteState {
+  status: ShippingQuoteStatus;
+  quote: ShippingQuoteDTO | null;
+  /** Reintenta la cotización (error de red o 5xx). */
+  retry: () => void;
+  /** 409 SHIPPING_QUOTE_STALE: adopta la cotización nueva que trae el error, sin pedirla otra vez. */
+  adopt: (q: ShippingQuoteDTO) => void;
+}
+
+function isDialOff(e: unknown): boolean {
+  return e instanceof ApiClientError && e.status === 404 && e.code === 'NOT_FOUND';
+}
+
+const CP_RE = /^\d{5}$/;
+
+/**
+ * §ENV3 — cotiza el envío del carrito al CP capturado. ⛔ No calcula ni suma nada: lo cobrado lo decide el servidor
+ * (`shippingQuoteId` viaja a quote/session). Sin CP válido (o `enabled=false`) ⇒ `idle` y no se llama a nadie.
+ */
+export function useShippingQuote(args: { cp: string; items: ShippingQuoteItemInput[]; enabled: boolean }): ShippingQuoteState {
+  const { cp, items, enabled } = args;
+  const queryClient = useQueryClient();
+  const validCp = CP_RE.test(cp) ? cp : '';
+  const [debounced, setDebounced] = useState('');
+  useEffect(() => {
+    if (!validCp) {
+      setDebounced('');
+      return;
+    }
+    if (debounceMs <= 0) {
+      setDebounced(validCp);
+      return;
+    }
+    const id = setTimeout(() => setDebounced(validCp), debounceMs);
+    return () => clearTimeout(id);
+  }, [validCp]);
+
+  const itemsKey = useMemo(() => JSON.stringify(items), [items]);
+  const live = enabled && !!validCp && debounced === validCp && items.length > 0;
+  const key = useMemo(() => ['shipping-quote', debounced, itemsKey] as const, [debounced, itemsKey]);
+  const q = useQuery({
+    queryKey: key,
+    queryFn: ({ signal }) => postShippingQuote({ cp: debounced, items }, signal),
+    enabled: live,
+    staleTime: STALE_MS,
+    // 404 NOT_FOUND = dial apagado (M-A): no se reintenta.
+    retry: (n, e) => !isDialOff(e) && n < 1,
+    refetchOnWindowFocus: false,
+  });
+
+  // M-1: antes de que caduque el token (`expiresAt`) se re-cotiza solo, para que línea y desglose no se contradigan.
+  const expiresAt = q.data?.expiresAt;
+  const { refetch } = q;
+  useEffect(() => {
+    if (!live || !expiresAt) return;
+    const at = Date.parse(expiresAt);
+    if (!Number.isFinite(at)) return;
+    const wait = Math.max(0, at - Date.now() - EARLY_REFETCH_MS);
+    const id = setTimeout(() => void refetch(), Math.min(wait, 2_147_000_000));
+    return () => clearTimeout(id);
+  }, [live, expiresAt, refetch]);
+
+  const retry = useCallback(() => {
+    void q.refetch();
+  }, [q]);
+  const adopt = useCallback(
+    (nq: ShippingQuoteDTO) => {
+      queryClient.setQueryData(key, nq);
+    },
+    [queryClient, key],
+  );
+
+  if (!enabled || !validCp || items.length === 0) return { status: 'idle', quote: null, retry, adopt };
+  // CP escrito pero aún en el debounce, o petición en vuelo: «esperando». Nunca se enseña una cifra de otro CP.
+  if (!live || q.isPending) return { status: 'waiting', quote: null, retry, adopt };
+  if (q.isError && isDialOff(q.error)) return { status: 'off', quote: null, retry, adopt };
+  if (q.isError) return { status: 'error', quote: null, retry, adopt };
+  return { status: 'ready', quote: q.data ?? null, retry, adopt };
+}

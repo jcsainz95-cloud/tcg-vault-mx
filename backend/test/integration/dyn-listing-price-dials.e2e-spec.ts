@@ -60,6 +60,9 @@ function specific(key: SettingKeyType, v: unknown): unknown[] {
       return [{ mode: 'all', rarities: [] }, { mode: 'none', rarities: [] }];
     case SettingKey.SEALED_SPREAD_PCT_BY_SUBTYPE:
       return [{ ...(v as object), box: 60, etb: 60 }, {}];
+    // §ENV3: dial de OBJETO con validador estricto (los 7 subtipos): `{}` no vale; esta perturbación válida demuestra que NO mueve el precio de venta.
+    case SettingKey.SHIP_SEALED_WEIGHTS_G:
+      return [{ ...(v as object), etb: 801 }];
     case SettingKey.PRICE_ARBITER_SOURCES:
       return [['tcgcsv_singles'], ['tcgdex'], ['tcgcsv_singles', 'cardmarket']];
     case SettingKey.SPEND_ALERTS_DISABLED:

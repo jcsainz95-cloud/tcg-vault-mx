@@ -10,6 +10,7 @@ import {
   GuestSessionDto,
   GuestTrackDto,
 } from './dto/guest-checkout.dto';
+import { ShippingQuoteRequestDto } from './dto/shipping-quote.dto';
 import { MeasurementService } from '../measurement/measurement.service';
 import { retryAfterOf } from '../discounts/discounts.service';
 
@@ -47,14 +48,27 @@ export class GuestOrdersController {
   /**
    * 💰 v1.109 (§4-G.12 punto 5) — la regla de envío para la ficha, sin cotizar. `@Public` y ⛔ SIN
    * `RejectAuthenticatedGuard` (no rechaza una sesión válida: la ficha la ven todos). Informativo: lo cobrado lo decide
-   * `session`. Caché pública de 300 s (los diales cambian rara vez) y 60/min por IP.
+   * `session`. Caché pública de 60 s (§ENV3 punto 17(1): `v3Enabled` no puede quedar viejo más de un minuto) y 60/min por IP.
    */
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('checkout/shipping-rule')
-  @Header('Cache-Control', 'public, max-age=300')
+  @Header('Cache-Control', 'public, max-age=60')
   shippingRule() {
     return this.guest.publicShippingRule();
+  }
+
+  /**
+   * 💰 §ENV3 — `POST /checkout/shipping-quote`: cobro de envío por CP y carrito (DECISIONES §ENV3). `@Public` y ⛔ SIN
+   * `RejectAuthenticatedGuard` (lo pide también el checkout con cuenta). 20/min por IP (tabulado por el contrato). El cliente
+   * manda `{cp, items[]}`; ⛔ ningún peso ni costo: el servidor deriva el perfil.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  @Post('checkout/shipping-quote')
+  @HttpCode(200)
+  shippingQuote(@Body() dto: ShippingQuoteRequestDto) {
+    return this.guest.shippingQuote(dto);
   }
 
   /**

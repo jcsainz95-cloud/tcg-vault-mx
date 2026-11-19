@@ -42,11 +42,11 @@ Resuelve: precios opacos, envíos repetidos, dudas de autenticidad/condición y 
 **Compra, pago y custodia**
 - Checkout con **Stripe** (modo real desde 2026-10-16, según el dueño). Webhook firmado e idempotente.
 - Destino **bóveda** (requiere cuenta) o **domicilio**. Titularidad `pending` → `settled` al liquidar; solo se retira lo `settled`.
-- Retiro sin mínimo de cartas; envío nacional; tarifa fija configurable (M10); **todo paquete va asegurado** (costo nuestro).
+- Retiro sin mínimo de cartas; envío nacional; retiro con tarifa fija configurable (M10) hasta ENV3-b; **todo paquete va asegurado** (costo nuestro).
+- **§ENV3 · envío por CP y carrito (HECHOS 2026-11-19; `docs/DECISIONES.md` §ENV3; sustituye MX$100/MX$175; gates qa + seguridad-lead):** compra a domicilio cobra **costo real de la guía FedEx con seguro y zona extendida + MX$20**, según CP y contenido; Overnight, sin cobertura ⇒ Express Saver; **gratis desde MX$4,000** (tras descuento). Precio mostrado = cobrado, congelado en el pedido; respaldo en tabla por CP; guía más cara que lo cotizado ⇒ AG-26. Retiro: ENV3-b.
 - Guías con **Skydropx** desde «Capturar guía»: el operador elige paquetería (preferida preseleccionada) y puede corregir toda la dirección (queda auditado). Correo «Entregado» y «en sucursal» automáticos.
-- **§PERSONA (HECHOS 2026-11-18 «Dale A»; `docs/DECISIONES.md` §PERSONA; gates qa + seg.):** botón «Entregado en persona» en el armado, solo con envío preparado y sin guía (directo o retiro): salta guía/enviado, deja `entregado` con los mismos efectos de inventario; queda quién/cuándo y marca «en persona»; costo de paquetería 0; un solo correo «entregado». **No reembolsa envío** (el modal muestra el flete cobrado; decide el dueño). Sin «deshacer». Mismos roles que guía; aviso al dueño solo si cobró flete y lo marcó otra persona. Sin «recoger» en el checkout.
-- Accesorios y energías: solo en compra con envío a domicilio (cross-sell), precio final del dueño con IVA.
-- Códigos de descuento (§DSC, alcance B).
+- **§PERSONA (HECHOS 2026-11-18 «Dale A»; `docs/DECISIONES.md` §PERSONA; gates qa + seg.):** botón «Entregado en persona» en el armado, solo con envío preparado y sin guía: deja `entregado` con los mismos efectos de inventario, quién/cuándo, costo de paquetería 0 y un solo correo. **No reembolsa envío** (decide el dueño; aviso AG-25). Sin «deshacer» ni «recoger» en el checkout.
+- Accesorios y energías: solo en compra con envío a domicilio (cross-sell), precio final del dueño con IVA. Códigos de descuento (§DSC, alcance B).
 
 **Buylist (compramos cartas)**
 - Cotizador público: carta + acabado, NM fija; muestra **valor de mercado junto a «Te pagamos»** (sin frase fija de %).
@@ -70,13 +70,13 @@ Resuelve: precios opacos, envíos repetidos, dudas de autenticidad/condición y 
 - Avisos al dueño y topes sobre lo que cuesta dinero (p. ej. MX$2,500 en guías por persona en 24 h). Todo es automático (AUTO); lo manual es excepción con costo.
 - Aviso de privacidad y términos mínimos; en vivo sin datos fiscales (se regulariza). PII (INE, CLABE, RFC) cifrada y enmascarada; INE con retención acotada.
 
-**P-PROMOS (HECHOS 2026-11-06/07; `docs/specs/P_PROMOS.md`):** import de grupos TCGCSV (semilla + descubrimiento §AUTO-F), todo-o-nada; sin precio ⇒ PRICE_PENDING; el sello no hereda el precio de la plana; 2.ª corrida ⇒ 0 duplicados (resto en DECISIONES §MOVIDOS).
-**§PSA-ACABADO (HECHOS 2026-11-09; spec `PSA_ACABADO.md`; dinero):** estimado «si se gradea» por carta, grado y ACABADO; nunca hereda la cifra de otro; sin separación ⇒ «sin estimado». 0 precios de venta movidos; gates qa + seguridad-lead.
-**§PROMOS-MASTERSET (HECHOS 2026-11-09; spec `PROMOS_MASTERSET.md`):** el sync incluye promos viejas y grupos TCGCSV; bajo cada Master Set, apartado «Promos de la colección» con su «x de y», nunca sumado al set; Black Star solo con la compuerta de §AUTO. Gates qa + seguridad-lead.
+**P-PROMOS (HECHOS 2026-11-06/07; `docs/specs/P_PROMOS.md`):** import de grupos TCGCSV, todo-o-nada; sin precio ⇒ PRICE_PENDING; sello no hereda precio de la plana (DECISIONES §MOVIDOS).
+**§PSA-ACABADO (HECHOS 2026-11-09; spec `PSA_ACABADO.md`; dinero):** estimado «si se gradea» por carta, grado y ACABADO; nunca hereda la cifra de otro; sin separación ⇒ «sin estimado». 0 precios de venta movidos; gates qa + seg.
+**§PROMOS-MASTERSET (HECHOS 2026-11-09; spec `PROMOS_MASTERSET.md`):** el sync incluye promos viejas y grupos TCGCSV; bajo cada Master Set, apartado «Promos de la colección» con su «x de y», nunca sumado al set; Black Star solo con la compuerta de §AUTO. Gates qa + seg.
 **§AUTO (HECHOS 2026-11-09; spec `AUTO_CATALOGO.md`):** nada depende del dueño: sync diario con reintento, duda ⇒ cuarentena (solo confianza alta se publica). Excepciones manuales: KYC, SPEI, empaque.
-**§MKT-V2 · panel de Marketing v2 (HECHOS 2026-11-09, «Dale diseñalo…»; detalle, umbrales y pruebas en `docs/specs/MKT_PANEL_V2.md`; gates qa + seguridad-lead):** pestaña «Resumen» (8 cifras semanales), avisos por reglas fijas sin IA, correo semanal sin datos personales, tráfico propio no se mide, GA4/Search Console y 10 arreglos (lista en DECISIONES §MOVIDOS). **§GSHOP (HECHOS 2026-11-10; `docs/specs/GOOGLE_SHOPPING_E_INDEXACION.md`):** revisión semanal de indexación (AV7) y feed XML automático para Merchant Center; el dueño solo crea la cuenta.
-**§D9 · comisión de plataforma DENTRO del precio (HECHOS:201 y :272 «A en todo», 2026-11-09; `docs/specs/D9_COMISION.md`; se construye tras publicar §DYN):** el precio exhibido ya incluye la comisión (≈4.4 %, al peso hacia arriba por unidad); ninguna pantalla, ticket ni correo dice «comisión»; se cobra el precio visto; envío gratis desde 400000 sobre el subtotal visto; Stripe es solo gasto en Finanzas (`FEE_INCLUDED`); precio final del dueño no se toca. Más detalle: DECISIONES §MOVIDOS. Gates qa + seguridad-lead.
-**§WSH (HECHOS 2026-11-08):** lista de deseos siempre activa, sin interruptor. **§PROV · portal de proveedores (HECHOS 2026-11-12; detalle en `docs/DECISIONES.md` §PROV; API en `docs/API_CONTRACT_PROVEEDORES.md`; gates qa + seguridad-lead):** el dueño COMPRA a tiendas aliadas y les VENDE mayoreo (sellado: mín. 1 case); rol `supplier` aislado; **tope duro 100 % del mercado**; «Tienda privada» invisible; automatismos APAGADOS al arrancar (detalle: DECISIONES §MOVIDOS).
+**§MKT-V2 · panel de Marketing v2 (HECHOS 2026-11-09, «Dale diseñalo…»; `docs/specs/MKT_PANEL_V2.md`; gates qa + seguridad-lead):** pestaña «Resumen» semanal, avisos sin IA, tráfico propio no se mide (resto: DECISIONES §MOVIDOS). **§GSHOP (HECHOS 2026-11-10; `docs/specs/GOOGLE_SHOPPING_E_INDEXACION.md`):** revisión semanal de indexación (AV7) y feed XML automático para Merchant Center; el dueño solo crea la cuenta.
+**§D9 · comisión de plataforma DENTRO del precio (HECHOS:201 y :272 «A en todo», 2026-11-09; `docs/specs/D9_COMISION.md`; se construye tras publicar §DYN):** el precio exhibido ya incluye la comisión (≈4.4 %); ninguna pantalla ni correo dice «comisión»; se cobra el precio visto; Stripe es solo gasto en Finanzas (`FEE_INCLUDED`); precio final del dueño no se toca (resto: DECISIONES §MOVIDOS). Gates qa + seguridad-lead.
+**§WSH (HECHOS 2026-11-08):** lista de deseos siempre activa, sin interruptor. **§PROV · portal de proveedores (HECHOS 2026-11-12; detalle en `docs/DECISIONES.md` §PROV; API en `docs/API_CONTRACT_PROVEEDORES.md`; gates qa + seguridad-lead):** compra y vende mayoreo a tiendas aliadas (mín. 1 case); rol `supplier` aislado; **tope duro 100 % del mercado**; automatismos APAGADOS al arrancar.
 
 ## 4. Fuera de alcance hoy
 Envío internacional · japonés (después) · fotos propias de cartas · pentest externo (riesgo aceptado por el dueño) · Meta Ads / bots en redes · disputas dentro de la tienda.
@@ -87,11 +87,11 @@ Publica **solo la rama `production`** (Vercel + Railway despliegan al recibir pu
 Stack y estructura en `docs/ARCHITECTURE.md`; endpoints en `docs/API_CONTRACT.md`.
 
 ## 6. Criterios de aceptación vigentes (resumen por área)
-Lista completa (criterios 1…~1000) congelada en `docs/archive/PROJECT.md` (`grep -n "criterio NNN"`). Criterio nuevo: aquí, corto.
+Lista completa (1…~1000) en `docs/archive/PROJECT.md` (`grep -n "criterio NNN"`). Criterio nuevo: aquí, corto.
 1. **Tienda**: catálogo con filtros/facetas, ficha con precio con IVA dentro, sellado y accesorios; portada < 1 s (Destacadas del día, Joyas para gradear por turnos).
 2. **Checkout**: invitado y con cuenta; destino bóveda/domicilio; desglose de importe; Stripe real; correo de confirmación.
 3. **Bóveda/portafolio**: cartas en custodia con acabado, pestaña Sellado, valuación a mercado y gráfica 5d…Máx.
-4. **Retiro/envío**: solicitud, cobro de envío, guía Skydropx, rastreo y correos de estado.
+4. **Retiro/envío**: solicitud, cobro de envío, guía Skydropx, rastreo y correos de estado. **§ENV3**: cotiza solo con CP; Skydropx caído ⇒ tabla, cobro = mostrado; cotización caducada ⇒ 409; ≥ MX$4,000 (tras descuento) y código de envío gratis ⇒ 0. ENV3-b: DECISIONES §ENV3.16.
 5. **Buylist**: cotizador público con mercado y oferta; ciclo completo hasta SPEI y publicación; KYC con INE.
 6. **Back-office M1–M11**: inventario y Master Set por lote, precios y diales, ventas/reembolsos, pedidos por
    preparar (palomeo carta por carta), buylist, usuarios y staff, finanzas/P&L, analítica de ventas, configuración.

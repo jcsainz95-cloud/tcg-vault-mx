@@ -821,6 +821,10 @@ export const ErrorCode = {
   SHIPMENT_ADDRESS_INCOMPLETE: 'SHIPMENT_ADDRESS_INCOMPLETE',
   // 422 — `rateId` no está en la cotización indicada.
   RATE_NOT_IN_QUOTE: 'RATE_NOT_IN_QUOTE',
+  // 409 — §ENV3: el `shippingQuoteId` caducó, no es válido o ya no corresponde al CP/carrito: `details: { newQuote: ShippingQuoteDTO }`.
+  SHIPPING_QUOTE_STALE: 'SHIPPING_QUOTE_STALE',
+  // 503 — §ENV3: ni Skydropx ni la tabla de respaldo pueden cotizar este envío (tabla vacía). Nunca se cobra un precio inventado.
+  SHIPPING_QUOTE_UNAVAILABLE: 'SHIPPING_QUOTE_UNAVAILABLE',
   // 409 — cotización vencida o de otra dirección: `details: { quote: ShipmentQuoteDTO, reason: 'expired'|'address_changed' }`.
   QUOTE_EXPIRED: 'QUOTE_EXPIRED',
   // 409 — las cifras que vio el operador ya no son las de la tarifa: `details: { priceCents, marginCents }`.

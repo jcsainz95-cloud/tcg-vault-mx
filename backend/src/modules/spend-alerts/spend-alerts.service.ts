@@ -55,6 +55,8 @@ export const SPEND_ALERT_CODE_OF: Readonly<Record<SpendAlertKind, string>> = {
   psa_cycle_short: 'AG-24',
   // §PERSONA (DECISIONES §PERSONA punto 7): entregado en persona por personal que no es el dueño, con flete cobrado > 0.
   in_person_with_fee: 'AG-25',
+  // §ENV3 (DECISIONES punto 8): la guía costó más que lo cotizado al cliente + tolerancia (informativo; nada se bloquea).
+  label_over_customer_quote: 'AG-26',
 };
 
 /**

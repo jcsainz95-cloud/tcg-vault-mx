@@ -177,6 +177,18 @@ export function alertText(t: T, a: SpendAlertDTO, ctx: AlertTextCtx): string {
         ref: str(f.folio) ? t('kind.AG-25.shipmentRef', { folio: str(f.folio) as string }) : ref,
         fee: m(f.shippingFeeChargedCents ?? a.amountCents),
       });
+    case 'AG-26': {
+      // §ENV3.8: `facts = {costQuotedCents, costRealCents, differenceCents, quotedService, boughtService}` (GAS-4: cifras del
+      // servidor tal cual, ⛔ ni la resta aquí; GAS-2: sin PII). Servicio ausente ⇒ «sin dato».
+      return t('kind.AG-26.text', {
+        ref,
+        quoted: m(f.costQuotedCents),
+        real: m(f.costRealCents),
+        diff: m(f.differenceCents),
+        quotedService: str(f.quotedService) ?? none,
+        boughtService: str(f.boughtService) ?? none,
+      });
+    }
     case 'AG-24': {
       // v1.113⟨portada⟩ (§DYN.4.5): SOLO `facts = {reason, publishedCards, cycleDays, dailyCreditCap, capToCoverWeek,
       // setsOverCap}` (GAS-4: cifras del servidor tal cual, ⛔ ni un cálculo aquí). `reason` decide la frase; otra ⇒ genérica.
@@ -227,6 +239,10 @@ export const FACT_MONEY = [
   'offerGrossCents',
   // §PERSONA (AG-25): el envío cobrado que el sistema no reembolsa.
   'shippingFeeChargedCents',
+  // §ENV3.8 (AG-26): costo cotizado al cliente, costo real de la guía y la diferencia (las tres del servidor).
+  'costQuotedCents',
+  'costRealCents',
+  'differenceCents',
 ] as const;
 export const FACT_INT = [
   'revisionCount',
@@ -258,4 +274,7 @@ export const FACT_WHITELIST = [
   'closesAt',
   // v1.113⟨portada⟩ (AG-24): por qué se abrió (`projected` | `overdue`).
   'reason',
+  // §ENV3.8 (AG-26): servicio cotizado al cliente y servicio comprado.
+  'quotedService',
+  'boughtService',
 ] as const;

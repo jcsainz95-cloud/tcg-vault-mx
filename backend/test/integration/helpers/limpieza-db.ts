@@ -408,6 +408,23 @@ COMMIT;
     'revertM102',
   );
 }
+/**
+ * T-AC3 — quita M-110 (§ENV3: envío por CP): las dos tablas (`ShippingQuoteLog`, `ShippingZoneRate`) que el B congelado no clasifica en su G-8,
+ * la columna `Order.shippingQuoteSnapshot` y su fila de `_prisma_migrations`. `SpendAlertKind.label_over_customer_quote` queda (Postgres no
+ * quita valores de un enum; el B congelado no mira ese enum). Va ANTES que M-102 (orden inverso de despliegue).
+ */
+export function revertM110(schema: string): void {
+  psqlOk(
+    schema,
+    `BEGIN;
+DROP TABLE IF EXISTS "ShippingQuoteLog", "ShippingZoneRate";
+ALTER TABLE "Order" DROP COLUMN IF EXISTS "shippingQuoteSnapshot";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261130120000_m110_env3_shipping_quote';
+COMMIT;
+`,
+    'revertM110',
+  );
+}
 /** T-AC3 — quita M-99 (Panel de Marketing v2: c6 y el correo semanal) para el B congelado, que no clasifica sus dos tablas. Va ANTES que M-95. */
 export function revertM99(schema: string): void {
   revertFromHeader(schema, '_m99_marketing_v2', 'revertM99');

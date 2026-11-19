@@ -31,6 +31,7 @@ import { shipmentAddressMissing } from './shipment-address-missing';
 import { labelSourceOf } from './label-source';
 import { insuranceCoverageFor, maxCoverageCentsOf } from './insurance';
 import { neutralizeOutboundAddress } from './folio-neutralize';
+import { CustomerQuoteDTO, customerQuoteOf } from '../shipping-quote/customer-quote';
 import { ExcludedRatesDTO, ShipmentQuoteDTO, ShipmentRateDTO } from './label-dto';
 import { LabelClock, SHIPMENTS_LABEL_CLOCK } from './label-clock';
 import { PatrimonyValuationService } from '../pricing/patrimony-valuation.service';
@@ -331,7 +332,7 @@ export class ShipmentQuoteService {
         },
       },
     });
-    return this.toDto(saved, packages, g.charged, coverage.costCents, false, result.excluded);
+    return { ...this.toDto(saved, packages, g.charged, coverage.costCents, false, result.excluded), customerQuote: await this.customerQuoteFor(g.row, saved.ratesJson) };
   }
 
   // ================================================================ GET …/quote
@@ -345,7 +346,17 @@ export class ShipmentQuoteService {
     const packages = await this.prisma.shippingPackage.findMany();
     const tiers = await this.settings.get<InsuranceTier[]>(SettingKey.SHIPPING_INSURANCE_TIERS);
     const tierCost = insuranceCoverageFor(last.insuredValueCents, tiers)?.costCents ?? 0;
-    return this.toDto(last, packages, await this.chargedOf(row), tierCost, true);
+    return { ...this.toDto(last, packages, await this.chargedOf(row), tierCost, true), customerQuote: await this.customerQuoteFor(row, last.ratesJson) };
+  }
+
+  /** 💰 §ENV3: la cotización congelada del pedido (si la hay) contra las tarifas de esta cotización. `null` sin snapshot. */
+  private async customerQuoteFor(row: Pick<ShipmentRequest, 'orderId'>, ratesJson: Prisma.JsonValue | null): Promise<CustomerQuoteDTO | null> {
+    if (!row.orderId) return null;
+    const o = await this.prisma.order.findUnique({ where: { id: row.orderId }, select: { shippingQuoteSnapshot: true, shippingFeeCents: true } });
+    if (!o?.shippingQuoteSnapshot) return null;
+    const order = await this.settings.get<string[]>(SettingKey.SHIP_SERVICE_ORDER);
+    const rates = (Array.isArray(ratesJson) ? ratesJson : []) as unknown as ShipmentRateDTO[];
+    return customerQuoteOf(o.shippingQuoteSnapshot, o.shippingFeeCents, rates, order);
   }
 
   /** §19.20.1: vigente ⇔ `expiresAt > now ∧ addressVersion = ShipmentRequest.addressVersion`. */
@@ -388,10 +399,17 @@ export class ShipmentQuoteService {
         const sealedIds = new Set(
           shipRow.items.filter((i) => i.inventoryItem.productType === 'sealed').map((i) => i.inventoryItemId),
         );
+        // 💰 §ENV3 punto 17(5): el seguro de un envío directo va sobre el precio de LISTA antes de códigos (= lo que vio el cotizador del
+        // checkout): lo cobrado + la rebaja por unidad del código. ⛔ Un código nunca cambia el escalón del seguro.
+        const originIds = picked.flatMap((l) => (l.origin ? [l.origin.orderItemId] : []));
+        const discounts =
+          view.kind === 'guest_direct_ship' && originIds.length > 0
+            ? new Map((await tx.orderItem.findMany({ where: { id: { in: originIds } }, select: { id: true, unitDiscountCents: true } })).map((o) => [o.id, o.unitDiscountCents]))
+            : new Map<string, number>();
         const lines: PickedLine[] = picked.map((l) => ({
           inventoryItemId: l.inventoryItemId,
           sealed: sealedIds.has(l.inventoryItemId),
-          paidCents: l.origin?.unitPriceCents ?? null,
+          paidCents: l.origin ? listPriceCents(l.origin.unitPriceCents, discounts.get(l.origin.orderItemId) ?? 0) : null,
         }));
         return {
           row: shipRow,
@@ -633,6 +651,11 @@ export class ShipmentQuoteService {
  *  - `V = ∅` ⇒ generación nueva `now + 24 h`; si había filas (todas vencidas) `reissuedAfter` = la última vencida (el log
  *    `quotation_id_reissued_after_expiry`: ⛔ NO MEDIDO si Skydropx honra la tarifa de un id reutilizado).
  */
+/** Precio de lista de una unidad: lo cobrado + la rebaja por unidad (centavos enteros, nunca negativo). */
+export function listPriceCents(chargedCents: number, unitDiscountCents: number): number {
+  return Math.max(0, chargedCents) + Math.max(0, unitDiscountCents);
+}
+
 export function quoteExpiryFor(rows: readonly { expiresAt: Date }[], now: Date): { expiresAt: Date; reissuedAfter: Date | null } {
   const t = now.getTime();
   let alive: number | null = null;

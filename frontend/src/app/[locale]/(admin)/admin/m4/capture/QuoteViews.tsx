@@ -76,6 +76,39 @@ export function RateLines({ rate, inbound = false }: { rate: ShipmentRateDTO; in
   );
 }
 
+/** §ENV3.8: la tarifa que se marca al abrir las opciones: la cotizada al cliente (si el servidor la emparejó), si no la recomendada. */
+export function initialRateId(q: ShipmentQuoteDTO): string | null {
+  return q.customerQuote?.preselectedRateId ?? q.recommendedRateId;
+}
+
+/** §ENV3.8: lo cobrado de envío contra el costo actual de la tarifa elegida. Solo cifras del servidor, sin recomponer nada. */
+function CustomerQuoteNote({ quote, selected }: { quote: ShipmentQuoteDTO; selected: string | null }) {
+  const t = useTranslations('admin.m4.tracking.sdx.customerQuote');
+  const locale = useLocale() as AppLocale;
+  const money = (c: number) => formatMoneyCents(c, locale);
+  const cq = quote.customerQuote;
+  if (!cq) return null;
+  const rate = quote.rates.find((r) => r.rateId === selected) ?? null;
+  const delta = rate ? rate.priceCents - cq.costQuotedCents : null;
+  return (
+    <div data-testid="sdx-customer-quote" className="flex flex-col gap-1 border border-border p-3 text-sm">
+      <p className="font-mono text-[11px] uppercase tracking-eyebrow text-muted">{t('eyebrow')}</p>
+      <p>{t('charged', { service: cq.serviceName, charged: money(cq.chargedCents), quoted: money(cq.costQuotedCents) })}</p>
+      {cq.fallback && (
+        <p className="text-accent" data-testid="sdx-customer-quote-fallback">
+          {t('fallback', { service: cq.serviceName })}
+        </p>
+      )}
+      {rate && delta !== null && (
+        <p className={delta > 0 ? 'text-accent' : 'text-text'} data-testid="sdx-customer-quote-current">
+          {t('current', { amount: money(rate.priceCents) })}{' '}
+          {delta === 0 ? t('same') : delta > 0 ? t('over', { diff: money(delta) }) : t('under', { diff: money(-delta) })}
+        </p>
+      )}
+    </div>
+  );
+}
+
 interface OptionsProps {
   quote: ShipmentQuoteDTO;
   selected: string | null;
@@ -183,6 +216,7 @@ export function OptionsView(p: OptionsProps) {
           <>
             <p className="text-muted">{t('insuredValue', { value: money(quote.insurance.insuredValueCents) })}</p>
             <p>{t('charged', { gross: money(quote.charged.grossCents), net: money(quote.charged.netCents) })}</p>
+            <CustomerQuoteNote quote={quote} selected={p.selected} />
           </>
         )}
         <p className="text-muted">{t('validUntil', { datetime: formatDateTimeMx(quote.expiresAt, locale) })}</p>

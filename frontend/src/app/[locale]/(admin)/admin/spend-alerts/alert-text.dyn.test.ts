@@ -85,3 +85,28 @@ describe('AG-25 · in_person_with_fee (§PERSONA)', () => {
     expect(alertText(tEs, { ...ag25, facts: { shippingFeeChargedCents: 9900 } }, ctx)).toMatch(/marcó el envío ENV-000045 como/);
   });
 });
+
+describe('AG-26 · label_over_customer_quote (§ENV3.8)', () => {
+  const ag26: SpendAlertDTO = {
+    id: 'a26', code: 'AG-26', kind: 'label_over_customer_quote', severity: 'immediate', subject: null, shipment: { folio: 'ENV-000046' } as never,
+    order: null, amountCents: 3500, facts: { costQuotedCents: 21000, costRealCents: 24500, differenceCents: 3500, quotedService: 'FedEx Standard Overnight', boughtService: 'FedEx Express Saver', recipientName: 'No debe verse' }, occurrenceCount: 1, firstOccurredAt: '2026-11-19T18:00:00Z',
+    lastOccurredAt: '2026-11-19T18:00:00Z', resolvedAt: null, seen: null, mail: { status: 'sent', at: null },
+  };
+  it('kind ⇔ AG-26, NO se apaga, y se filtra', () => {
+    expect(SPEND_ALERT_CODE_BY_KIND.label_over_customer_quote).toBe('AG-26');
+    expect(SPEND_ALERT_SWITCHABLE_CODES).not.toContain('AG-26');
+    expect(FILTER_KINDS).toContain('label_over_customer_quote');
+  });
+  it('título y texto es/en con las cifras del servidor tal cual', () => {
+    expect(alertTitle(tEs, ag26)).toBe('Guía más cara que lo cotizado al cliente');
+    expect(alertTitle(tEn, ag26)).toBe('Label costs more than quoted to the customer');
+    expect(alertText(tEs, ag26, ctx)).toBe('La guía del envío ENV-000046 costó MX$24500 y al cliente se le cotizó MX$21000 (FedEx Standard Overnight); compraste FedEx Express Saver. Diferencia: MX$3500. Es solo un aviso: nada se bloqueó.');
+    expect(alertText(tEn, ag26, ctx)).toMatch(/cost MX\$24500 and the customer was quoted MX\$21000 \(FedEx Standard Overnight\); you bought FedEx Express Saver\. Difference: MX\$3500\./);
+  });
+  it('la lista blanca del detalle gana sus claves y NO la del cliente', () => {
+    for (const k of ['costQuotedCents', 'costRealCents', 'differenceCents', 'quotedService', 'boughtService']) {
+      expect(FACT_WHITELIST as readonly string[]).toContain(k);
+    }
+    expect(FACT_WHITELIST as readonly string[]).not.toContain('recipientName');
+  });
+});

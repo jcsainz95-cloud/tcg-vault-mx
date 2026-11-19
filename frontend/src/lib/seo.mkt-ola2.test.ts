@@ -19,18 +19,29 @@ import { latest, spanishDateToIso } from './sitemap-lastmod';
 const RULE = { cardsOnlyFeeCents: 10_000, sealedFeeCents: 17_500, freeFromCents: 400_000, currency: 'MXN' as const };
 
 describe('C5 · Product completo', () => {
-  it('shippingDetails: carta MX$100, sellado MX$175, gratis DESDE MX$4,000 (>=, como shipping-rule.ts)', () => {
-    const rate = (kind: 'card' | 'sealed', cents: number) =>
-      (shippingDetailsJsonLd(kind, cents, RULE)!.shippingRate as { value: string }).value;
-    expect(rate('card', 8_120)).toBe('100.00');
-    expect(rate('sealed', 52_200)).toBe('175.00');
-    expect(rate('card', 399_999)).toBe('100.00');
+  it('shippingDetails §ENV3: sin tarifa fija bajo el umbral (depende del CP); envío 0 DESDE MX$4,000 (>=)', () => {
+    const rate = (kind: 'card' | 'sealed', cents: number) => {
+      const d = shippingDetailsJsonLd(kind, cents, RULE);
+      return d ? (d.shippingRate as { value: string }).value : undefined;
+    };
+    expect(rate('card', 8_120)).toBeUndefined();
+    expect(rate('sealed', 52_200)).toBeUndefined();
+    expect(rate('card', 399_999)).toBeUndefined();
     expect(rate('card', 400_000)).toBe('0.00');
     expect(rate('sealed', 400_000)).toBe('0.00');
-    expect(shippingDetailsJsonLd('card', 8_120, RULE)!.shippingDestination).toEqual({
+    expect(shippingDetailsJsonLd('card', 400_000, RULE)!.shippingDestination).toEqual({
       '@type': 'DefinedRegion',
       addressCountry: 'MX',
     });
+  });
+
+  it('§ENV3 dial apagado (v3Enabled=false): tarifa fija de la regla (carta/sellado) y 0 desde el umbral', () => {
+    const off = { ...RULE, v3Enabled: false };
+    const rate = (kind: 'card' | 'sealed', cents: number) =>
+      (shippingDetailsJsonLd(kind, cents, off)!.shippingRate as { value: string }).value;
+    expect(rate('card', 8_120)).toBe('100.00');
+    expect(rate('sealed', 52_200)).toBe('175.00');
+    expect(rate('card', 400_000)).toBe('0.00');
   });
 
   it('sin regla (backend sin responder) el campo se omite: ningún importe escrito a mano', () => {

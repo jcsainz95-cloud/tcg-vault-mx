@@ -58,6 +58,12 @@ export class QuoteDto {
   @DeckPullsField() deckPulls?: DeckPullInput[];
   /** 💰 v1.110⟨descuentos⟩ (§DSC.6): opcional, string ≤ 40; vacío ⇒ como ausente (lo normaliza `discounts/`). */
   @IsOptional() @IsString() @MaxLength(DISCOUNT_CODE_MAX) discountCode?: string;
+
+  /**
+   * 💰 §ENV3: el `quoteId` de `POST /checkout/shipping-quote`. Se ACEPTA (el front lo manda igual en las dos sesiones) y se IGNORA: la
+   * compra con cuenta es a bóveda y no cobra envío (el retiro de bóveda con motor propio es ENV3-b).
+   */
+  @IsOptional() @IsString() @MaxLength(2048) shippingQuoteId?: string;
 }
 
 export class SessionDto {
@@ -73,6 +79,8 @@ export class SessionDto {
   @IsOptional() measurement?: unknown;
   /** 💰 v1.110⟨descuentos⟩ (§DSC.6): ver `QuoteDto`. */
   @IsOptional() @IsString() @MaxLength(DISCOUNT_CODE_MAX) discountCode?: string;
+  /** 💰 §ENV3: ver `QuoteDto.shippingQuoteId` (aceptado e ignorado: la compra con cuenta es a bóveda, sin envío). */
+  @IsOptional() @IsString() @MaxLength(2048) shippingQuoteId?: string;
 }
 
 export class RefundDto {

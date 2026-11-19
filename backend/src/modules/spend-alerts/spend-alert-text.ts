@@ -97,6 +97,8 @@ const TITLES: Record<string, [string, string]> = {
   'AG-24': ['Los créditos PSA no alcanzan para la semana', 'The PSA credits do not cover the week'],
   // §PERSONA (AG-25).
   'AG-25': ['Entrega en persona con envío cobrado', 'In-person hand-over with shipping charged'],
+  // §ENV3 (AG-26).
+  'AG-26': ['La guía costó más de lo cobrado al cliente', 'The label cost more than the customer was quoted'],
 };
 
 /**
@@ -394,6 +396,11 @@ export function spendAlertSentence(v: SpendAlertMailView, l: MailLocale): string
       return en
         ? `${who} marked ${str(f.folio) ? `shipment ${str(f.folio)}` : ref} as handed over in person. The customer paid ${m(f.shippingFeeChargedCents ?? v.amountCents)} for shipping; the system does not refund it. If it should be refunded, decide it from Sales.`
         : `${who} marcó el ${str(f.folio) ? `envío ${str(f.folio)}` : ref} como entregado en persona. El cliente pagó ${m(f.shippingFeeChargedCents ?? v.amountCents)} de envío; el sistema no lo reembolsa. Si hay que devolverlo, decídelo desde Ventas.`;
+    case 'AG-26':
+      // §ENV3: ⛔ sin PII — folio, lo cotizado, lo real, la diferencia y el servicio (cotizado/comprado).
+      return en
+        ? `The label for ${str(f.folio) ? `shipment ${str(f.folio)}` : ref} cost ${m(f.costRealCents)} against ${m(f.costQuotedCents)} quoted to the customer (${m(f.differenceCents)} over). Quoted service: ${str(f.quotedService) ?? '—'}; purchased: ${str(f.boughtService) ?? '—'}. Informational: nothing was blocked.`
+        : `La guía del ${str(f.folio) ? `envío ${str(f.folio)}` : ref} costó ${m(f.costRealCents)} contra ${m(f.costQuotedCents)} cotizados al cliente (${m(f.differenceCents)} de más). Servicio cotizado: ${str(f.quotedService) ?? '—'}; comprado: ${str(f.boughtService) ?? '—'}. Es informativo: no se bloqueó nada.`;
     default:
       return en ? `There is a new spending alert (${code}).` : `Hay un aviso de gasto nuevo (${code}).`;
   }

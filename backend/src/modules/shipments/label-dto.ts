@@ -54,6 +54,8 @@ export interface ShipmentQuoteDTO {
   insurance: { insuredValueCents: number; coverageCents: number; costCents: number };
   charged: { grossCents: number; netCents: number };
   recommendedRateId: string | null;
+  /** 💰 §ENV3: lo cotizado/cobrado al cliente (envío directo con cotización v3) y la tarifa a preseleccionar; `null` sin cotización v3. */
+  customerQuote?: import('../shipping-quote/customer-quote').CustomerQuoteDTO | null;
   /** Ordenadas por `priceCents` asc; las `hidden` VAN (la pantalla las pliega). */
   rates: ShipmentRateDTO[];
   excluded: ExcludedRatesDTO;

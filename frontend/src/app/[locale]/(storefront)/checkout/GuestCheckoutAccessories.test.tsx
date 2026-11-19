@@ -492,7 +492,8 @@ describe('AC-F9 · F-SP-5: el importe del botón y del modal sale de la SESIÓN'
     expect(via409.alert).toMatch(/^El paquete de energías de Dragapult ex ya no se puede pagar\. No se cobró nada\./);
     expect(via422.alert).toBe(via409.alert);
     expect({ ...(via422.cart as object), updatedAt: 0 }).toEqual({ ...(via409.cart as object), updatedAt: 0 });
-    expect(via409.requote).toEqual({ accessoryLines: [{ accessoryId: 'acc-1', quantity: 2 }], deckPulls: [] });
+    // §ENV3: el quote además lleva el `shippingQuoteId` del CP capturado.
+    expect(via409.requote).toMatchObject({ accessoryLines: [{ accessoryId: 'acc-1', quantity: 2 }], deckPulls: [] });
     expect(via422.requote).toEqual(via409.requote);
   });
 });
