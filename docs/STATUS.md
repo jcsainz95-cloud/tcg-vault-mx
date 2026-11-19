@@ -79,13 +79,10 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-19 · gate §RETIRO-SALIDA (b70195d3): RECHAZADO
-- Verde: jest 606/606 suites (10570); integración 27/27 (424; PG/Redis propios); vitest 503 ficheros (6101); tsc be/fe 0; eslint be/fe 0; doc-size VERDE; rutas OK. Pruebas propias Q1–Q9 + 7 ablaciones en copia: todas rojo; el test `lost` del backend (retiro-salida.e2e-spec.ts:99) no separa guardas.
-- B1 (arquitecto→backend): retiro viejo `enviado` entregado antes del reparo ⇒ pieza `in_custody` retirable; el reparo solo ve `enviado`.
-- B2 (arquitecto→backend): `return-received` deja envío `enviado` ⇒ piezas `in_withdrawal` / ITEM_IN_ANOTHER_SHIPMENT; DECISIONES:200 vs :206 se contradicen.
-- B3 💰 (arquitecto→backend): reembolso total del origen tras devolución ⇒ `already_withdrawn`, la pieza sigue del cliente.
-- I1 backend: AG-27 incluye directos (spend-watch.service.ts:611). I2 backend: test de guardas separadas. I3 frontend: «Devuelto» con fecha.
-- Menores: AG-11+AG-28 doble correo; AG-27 sin re-aviso; textos en; API sin línea de return-received ni `withdrawal_return` en §0.
+## QA (qa) — 2026-11-19 · re-gate §RETIRO-SALIDA (55f62203): APROBADO
+- Verde: jest 606/606 suites (10571); integración 29/29 (464; PG/Redis propios); vitest 503 ficheros (6106); tsc/eslint be+fe 0; doc-size VERDE; rutas OK. Q1–Q11 propias verdes; 10 ablaciones en copia (A1,A2,A4,B1,B1b,B2,B3,E,G27,G29) dan rojo.
+- Cerrados: B1, B2, B3 💰, I1/I2/I3, AG-11+AG-28 (1 correo), AG-27 una vez y solo retiro, textos en; AG-29 solo no-dueño sin PII; ShipmentDTO.returnedAt.
+- Menores: DECISIONES (Regla y punto 4) contradice Rectificación B1; API sin return-received/withdrawal_return/ShipmentDTO.returnedAt (tope); título AG-29 distinto be/fe.
 - Previos abiertos: §ENV3 N-1/N-2; §PERSONA QA-PER-ORIGNUM/-STATUSLBL/-FULFILL/-PNONE/-TREE; filas anteriores en PENDIENTES (a5681572).
 
 ## Deuda técnica activa (todas las secciones)
