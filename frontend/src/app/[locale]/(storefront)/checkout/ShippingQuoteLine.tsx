@@ -34,7 +34,7 @@ export function ShippingQuoteLine({
 }) {
   const t = useTranslations('checkout.shippingQuote');
   const locale = useLocale() as AppLocale;
-  const rule = useQuery({ queryKey: PUBLIC_SHIPPING_RULE_KEY, queryFn: getPublicShippingRule, staleTime: 60_000 });
+  const rule = useQuery({ queryKey: PUBLIC_SHIPPING_RULE_KEY, queryFn: getPublicShippingRule, staleTime: 60_000, retryOnMount: false });
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     if (state.status !== 'waiting') {

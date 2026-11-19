@@ -167,14 +167,19 @@ export function GuestCheckoutView({ onPaid, onAccountReady }: GuestCheckoutViewP
   // §ENV3.17: el dial `ship_v3_enabled` viaja en `GET /checkout/shipping-rule`. Apagado ⇒ regla fija de hoy: sin cotización,
   // sin `shippingQuoteId` y PAGAR habilitado. Mientras la regla no llega no se cotiza ni se paga; si falla, se asume encendido
   // (el servidor manda: sin `ref` válido responde 409).
-  const ruleQuery = useQuery({ queryKey: PUBLIC_SHIPPING_RULE_KEY, queryFn: getPublicShippingRule, staleTime: 60_000 });
+  const ruleQuery = useQuery({ queryKey: PUBLIC_SHIPPING_RULE_KEY, queryFn: getPublicShippingRule, staleTime: 60_000, retryOnMount: false });
   const ruleKnown = !ruleQuery.isPending;
-  const v3On = ruleQuery.data?.v3Enabled !== false;
+  const [quoteOff, setQuoteOff] = useState(false);
+  const v3On = ruleQuery.data?.v3Enabled !== false && !quoteOff;
   const shipQuote = useShippingQuote({
     cp: form.address.postalCode,
     items: shipItems,
     enabled: destination === 'ship' && !cart.isEmpty && ruleKnown && v3On,
   });
+  // M-A: 404 NOT_FOUND de shipping-quote = dial apagado aunque la regla no haya llegado ⇒ regla fija.
+  useEffect(() => {
+    if (shipQuote.status === 'off') setQuoteOff(true);
+  }, [shipQuote.status]);
   const shippingQuoteId = destination === 'ship' && v3On ? shipQuote.quote?.quoteId : undefined;
   const [staleNoticeCents, setStaleNoticeCents] = useState<number | null>(null);
   const quoteKey = (code: string | null) =>

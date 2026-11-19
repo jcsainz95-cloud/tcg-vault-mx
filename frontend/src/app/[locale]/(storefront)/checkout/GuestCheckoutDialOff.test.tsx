@@ -28,6 +28,7 @@ vi.mock('@/lib/api/shipping-quote', async (importOriginal) => {
 });
 
 import { createGuestCheckoutSession, getPublicShippingRule } from '@/lib/api';
+import { ApiClientError } from '@/lib/api-client';
 import { postShippingQuote, type ShippingQuoteDTO } from '@/lib/api/shipping-quote';
 import { GuestCheckoutView } from './GuestCheckoutView';
 import { setShippingQuoteDebounceMs } from './use-shipping-quote';
@@ -110,5 +111,20 @@ describe('§ENV3 · dial apagado (v3Enabled=false) en el checkout de invitado', 
     await fillForm(usr);
     expect(await screen.findByTestId('shipping-quote-amount')).toHaveTextContent('MX$210.00');
     expect(postShippingQuote).toHaveBeenCalled();
+  });
+
+  it('M-A: la regla falla y shipping-quote da 404 NOT_FOUND (dial apagado) ⇒ sin línea, PAGAR habilitado, session sin shippingQuoteId', async () => {
+    vi.mocked(getPublicShippingRule).mockRejectedValue(new Error('down'));
+    vi.mocked(postShippingQuote).mockRejectedValue(new ApiClientError(404, { code: 'NOT_FOUND', message: 'Shipping quotes are not enabled' }));
+    vi.mocked(createGuestCheckoutSession).mockResolvedValue(session());
+    const usr = userEvent.setup();
+    renderWithProviders(<GuestCheckoutView onPaid={vi.fn()} onAccountReady={vi.fn()} />, 'es');
+    await fillForm(usr);
+    await waitFor(() => expect(postShippingQuote).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /Pagar/ })[0]).toBeEnabled(), { timeout: 4000 });
+    expect(screen.queryByTestId('shipping-quote-line')).toBeNull();
+    await usr.click(screen.getAllByRole('button', { name: /Pagar/ })[0]);
+    await waitFor(() => expect(createGuestCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createGuestCheckoutSession).mock.calls[0][0]).not.toHaveProperty('shippingQuoteId');
   });
 });
