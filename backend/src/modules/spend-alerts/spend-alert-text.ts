@@ -102,7 +102,6 @@ const TITLES: Record<string, [string, string]> = {
   // §RETIRO-SALIDA (AG-27).
   'AG-27': ['Guía capturada sin marcar enviado', 'Label captured but not marked as shipped'],
   'AG-28': ['Paquete de retiro devuelto', 'Vault withdrawal parcel returned'],
-  'AG-29': ['Personal confirmó la devolución de un retiro', 'Staff confirmed a withdrawal return'],
 };
 
 /**
@@ -412,13 +411,8 @@ export function spendAlertSentence(v: SpendAlertMailView, l: MailLocale): string
         : `El envío ${str(f.folio) ?? ref} tiene guía capturada a mano desde hace ${num(f.hoursSinceCapture) ?? 0} h y no se ha marcado enviado. Si ya salió, márcalo enviado; hasta entonces las cartas siguen en la bóveda del cliente.`;
     case 'AG-28':
       return en
-        ? `Shipment ${str(f.folio) ?? ref} is on its way back (${str(f.carrierStatus) ?? 'in_return'}). When it arrives, press «We received the return» to put the ${num(f.pieceCount) ?? 0} cards back in the customer's vault.`
-        : `El envío ${str(f.folio) ?? ref} viene de regreso (${str(f.carrierStatus) ?? 'in_return'}). Cuando llegue, pulsa «Recibimos la devolución» para devolver las ${num(f.pieceCount) ?? 0} cartas a la bóveda del cliente.`;
-    case 'AG-29':
-      // §RETIRO-SALIDA RS-2: ⛔ sin PII — folio, cuántas cartas volvieron y quién (por id, en `facts`).
-      return en
-        ? `${str(f.folio) ?? ref}: staff confirmed a returned withdrawal; ${num(f.restored) ?? 0} cards went back to the customer's vault. Check the parcel is in your hands.`
-        : `${str(f.folio) ?? ref}: personal confirmó la devolución de un retiro y ${num(f.restored) ?? 0} cartas volvieron a la bóveda del cliente. Revisa que el paquete esté en tu poder.`;
+        ? `Shipment ${str(f.folio) ?? ref} is on its way back (${str(f.carrierStatus) ?? 'in_return'}). When you receive it, adjust the inventory to put the ${num(f.pieceCount) ?? 0} cards back in the customer's vault.`
+        : `El envío ${str(f.folio) ?? ref} viene de regreso (${str(f.carrierStatus) ?? 'in_return'}). Cuando lo recibas, ajusta el inventario para regresar las ${num(f.pieceCount) ?? 0} cartas a la bóveda del cliente.`;
     default:
       return en ? `There is a new spending alert (${code}).` : `Hay un aviso de gasto nuevo (${code}).`;
   }

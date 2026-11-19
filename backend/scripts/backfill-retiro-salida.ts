@@ -10,7 +10,7 @@
  * ENVIARSE (`enviado`). Los retiros que ya estaban `enviado` al desplegar conservan sus piezas `in_custody`: este script las
  * pasa a `withdrawn` con su movimiento `withdrawal` (`note='backfill RETIRO-SALIDA shipment <id>'`).
  *
- * **Selección:** envíos de RETIRO (`orderId` nulo, `kind='outbound'`) con `status='enviado'` y sin `returnedAt`; piezas con
+ * **Selección:** envíos de RETIRO (`orderId` nulo, `kind='outbound'`) con `status='enviado'`; piezas con
  * `prepStatus<>'missing'`, `status='in_custody'` y del dueño del retiro (la guarda va en el `WHERE` del UPDATE).
  * Los retiros en `guia` NO se tocan (su salida llegará con la regla nueva). Los `entregado` viejos ya son `withdrawn`.
  *
@@ -51,7 +51,7 @@ async function eligiblePieceIds(db: Pick<Db, 'shipmentItem'>, shipmentId: string
 
 export async function runBackfill(prisma: Db, mode: 'dry-run' | 'apply'): Promise<BackfillResult> {
   const shipments = await prisma.shipmentRequest.findMany({
-    where: { status: 'enviado', orderId: null, kind: 'outbound', returnedAt: null },
+    where: { status: 'enviado', orderId: null, kind: 'outbound' },
     select: { id: true, folio: true, userId: true },
     orderBy: { requestedAt: 'asc' },
   });
@@ -67,7 +67,7 @@ export async function runBackfill(prisma: Db, mode: 'dry-run' | 'apply'): Promis
     const moved = await prisma.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT id FROM "ShipmentRequest" WHERE id = ${s.id} FOR UPDATE`;
-        const still = await tx.shipmentRequest.findFirst({ where: { id: s.id, status: 'enviado', orderId: null, returnedAt: null }, select: { id: true } });
+        const still = await tx.shipmentRequest.findFirst({ where: { id: s.id, status: 'enviado', orderId: null }, select: { id: true } });
         if (!still) return { selected: 0, moved: 0 };
         const ids = await eligiblePieceIds(tx, s.id, s.userId);
         let n = 0;

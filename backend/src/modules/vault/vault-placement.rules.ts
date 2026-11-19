@@ -65,7 +65,7 @@ export function placeableWhere(userId: string): Prisma.InventoryItemWhereInput {
   return {
     ...customerCustodyWhere(userId),
     shipmentItems: {
-      none: { shipmentRequest: { status: { in: [...ACTIVE_WITHDRAWAL_STATUSES] }, returnedAt: null } },
+      none: { shipmentRequest: { status: { in: [...ACTIVE_WITHDRAWAL_STATUSES] } } },
     },
   };
 }
@@ -117,7 +117,7 @@ export async function activeWithdrawalsOf(
   const rows = await db.shipmentItem.findMany({
     where: {
       inventoryItemId: { in: inventoryItemIds },
-      shipmentRequest: { status: { in: [...ACTIVE_WITHDRAWAL_STATUSES] }, returnedAt: null },
+      shipmentRequest: { status: { in: [...ACTIVE_WITHDRAWAL_STATUSES] } },
     },
     select: { inventoryItemId: true, shipmentRequest: { select: { id: true, status: true } } },
   });

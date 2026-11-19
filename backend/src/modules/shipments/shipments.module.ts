@@ -25,8 +25,6 @@ import { ShipmentTrackingPollJob } from './tracking-poll.job';
 import { ShipmentLabelProcessingJob } from './label-processing.job';
 import { ShipmentExtraChargesJob } from './extra-charges.job';
 import { ShipmentDepartureService } from './departure.service';
-import { WithdrawalReturnService } from './withdrawal-return.service';
-import { WithdrawalReturnController } from './withdrawal-return.controller';
 import { GuestOrderTokensModule } from '../orders/guest-order-tokens.module';
 import { ShippingWorkQueueService } from './shipping-work-queue.service';
 import { InboundShipmentService } from './inbound-shipment.service';
@@ -56,8 +54,6 @@ import { AdminInboundShipmentController, SellerInboundLabelController } from './
     ShipmentLabelProcessingJob,
     ShipmentExtraChargesJob,
     ShipmentDepartureService,
-    // §RETIRO-SALIDA punto 3 (aislado): «Recibimos la devolución».
-    WithdrawalReturnService,
     // C-TL-1 (gate techlead sobre 31af0883): `workQueue.shipping` del tablero con el reloj y `tUnknownMs` de ESTE módulo.
     ShippingWorkQueueService,
     // 💰 rev BSD-1 (§BSD.4.1, §BSD.4.4, §BSD.8.2): la guía de ENTRADA del buylist sobre el MISMO motor — abrir la fila,
@@ -80,7 +76,7 @@ import { AdminInboundShipmentController, SellerInboundLabelController } from './
       useFactory: (selection: ShippingProviderSelection) => purchaseKeyFor(selection.kind),
     },
   ],
-  controllers: [ShipmentsController, AdminShipmentsController, WithdrawalReturnController, AdminInboundShipmentController, SellerInboundLabelController],
+  controllers: [ShipmentsController, AdminShipmentsController, AdminInboundShipmentController, SellerInboundLabelController],
   // `ShipmentLabelCancelService` se exporta para el post-commit de los escritores automáticos de `cancelado` (§19.8).
   // ⭐ D2d: los tres jobs se exportan para el planificador y el disparo manual (`jobs/`).
   exports: [

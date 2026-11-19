@@ -149,8 +149,6 @@ const CENSUS: Record<string, readonly [Clase, string]> = {
   'src/modules/spend-alerts/spend-watch.service.ts sweepRefunds#findMany#1': [K, 'ids de los pendientes'],
   'src/modules/spend-alerts/spend-watch.service.ts sweepNotShipped#findMany#1': [O, 'AG-10 (I-BSD-6)'],
   'src/modules/spend-alerts/spend-watch.service.ts sweepManualNotShipped#findMany#1': [O, 'AG-27 (§RETIRO-SALIDA): OUTBOUND_ONLY'],
-  'src/modules/shipments/withdrawal-return.service.ts returnReceived#sql#1': [K, 'FOR UPDATE por id (§RETIRO-SALIDA)'],
-  'src/modules/shipments/withdrawal-return.service.ts returnReceived#updateMany#1': [K, 'CAS por id (§RETIRO-SALIDA)'],
   'src/modules/vault/replacement-case.service.ts lockCase#sql#1': [K, 'FOR UPDATE por id'],
   'src/modules/vault/replacement-case.service.ts closeWithdrawalIfEmpty#updateMany#1': [K, 'CAS por id'],
 };

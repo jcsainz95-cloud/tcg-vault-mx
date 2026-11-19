@@ -695,8 +695,7 @@ export class FullRefundService {
         select: { originalInventoryItemId: true },
       }),
       tx.shipmentItem.findMany({
-        where: { inventoryItemId: { in: pieceIds }, // §RETIRO-SALIDA (B2/B3): un retiro DEVUELTO (`returnedAt`) ya no cuenta como «salido».
-          shipmentRequest: { status: { in: [...SHIPPED_OUT_STATUSES] }, returnedAt: null } },
+        where: { inventoryItemId: { in: pieceIds }, shipmentRequest: { status: { in: [...SHIPPED_OUT_STATUSES] } } },
         select: { inventoryItemId: true },
       }),
       this.reclaimedByBatch(tx, pieceIds, ctx.sealAt),

@@ -307,7 +307,7 @@ export class ShipmentCarrierService {
         );
       }
       // AG-28 (§RETIRO-SALIDA contrato b): el transportista devuelve un RETIRO ya `enviado` (las cartas ya salieron de la bóveda) ⇒ aviso
-      // inmediato al dueño con correo (outbox); ⛔ no mueve piezas: la devolución la confirma una persona (`return-received`). Sin PII.
+      // inmediato al dueño con correo (outbox); ⛔ no mueve piezas: si el paquete vuelve, el dueño ajusta el inventario a mano. Sin PII.
       if (event.status === 'in_return' && row.orderId === null && row.status === 'enviado') {
         const pieceCount = await tx.shipmentItem.count({ where: { shipmentRequestId: shipmentId, prepStatus: { not: 'missing' } } });
         await this.alerts.raise(

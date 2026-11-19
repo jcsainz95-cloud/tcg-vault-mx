@@ -384,8 +384,6 @@ function toAdminShipmentRow(s: ShipmentRequest) {
     pickingAt: s.pickingAt,
     shippedAt: s.shippedAt,
     deliveredAt: s.deliveredAt,
-    // §RETIRO-SALIDA: la devolución física confirmada (`return-received`); null ⇒ no devuelto. Solo lectura.
-    returnedAt: s.returnedAt,
   };
 }
 
@@ -632,8 +630,7 @@ export class ShipmentsService {
         const active = await tx.shipmentItem.findFirst({
           where: {
             inventoryItemId: { in: inventoryItemIds },
-            // §RETIRO-SALIDA (B2): un retiro DEVUELTO (`returnedAt`) ya no retiene sus piezas: vuelven a ser retirables.
-            shipmentRequest: { status: { notIn: ['cancelado', 'entregado'] }, returnedAt: null },
+            shipmentRequest: { status: { notIn: ['cancelado', 'entregado'] } },
           },
         });
         if (active) {
@@ -828,8 +825,6 @@ export class ShipmentsService {
       pickingAt: s.pickingAt,
       shippedAt: s.shippedAt,
       deliveredAt: s.deliveredAt,
-      // §RETIRO-SALIDA: ISO o null; ⇒ el paquete volvió y las cartas regresaron a la bóveda. Aditivo, sin datos personales.
-      returnedAt: s.returnedAt,
       // ⭐ D2e (§19.12, PS-88/PS-89): la liga de rastreo SOLO si Skydropx la dio (ausente si no) y la línea de tiempo pública.
       ...(trackingUrl ? { trackingUrl } : {}),
       timeline: toCustomerTimeline(s.carrierEvents ?? [], s),
@@ -1226,11 +1221,6 @@ export class ShipmentsService {
    * `POST tracking`) responden `404 NOT_FOUND` con el id de una guía de ENTRADA: para ellas no existe. Inexistente ⇒ sigue al
    * verbo (que da su propio `404`).
    */
-  /** §RETIRO-SALIDA: la proyección admin de una fila (para `return-received`, que vive aparte). */
-  toAdminRow(s: ShipmentRequest) {
-    return toAdminShipmentRow(s);
-  }
-
   async assertOutboundRoute(id: string): Promise<void> {
     const head = await this.prisma.shipmentRequest.findUnique({ where: { id }, select: LABEL_SUBJECT_SELECT });
     if (head && isBuylistInbound(head)) throw BusinessException.notFound();
@@ -1973,12 +1963,11 @@ export class ShipmentsService {
     if (!isDirectShip && (to === 'enviado' || to === 'entregado')) {
       // ⭐ §RETIRO-SALIDA (2026-11-19): la pieza de un retiro SALE al ENVIARSE (`enviado`). B1: `entregado` mueve SOLO las que sigan
       // `in_custody` (un retiro viejo que llega a `entregado` sin pasar por la regla nueva); en un retiro nuevo ya salieron ⇒ 0 movimientos
-      // (misma guarda en el `WHERE`, movimiento solo con `count = 1`). Desde `enviado` la máquina solo avanza (la devolución física: `returnReceived`).
-      // Un retiro DEVUELTO (`returnedAt`) que luego se marca `entregado` ⛔ no vuelve a sacar las piezas que ya regresaron a la bóveda.
+      // (misma guarda en el `WHERE`, movimiento solo con `count = 1`). Desde `enviado` la máquina solo avanza (una devolución física se corrige con un ajuste de inventario).
       // 🔴 v1.80 (§M4-SHIP.6, corrige H1): `withdrawn` SOLO desde `in_custody` del dueño del retiro (guarda en el `WHERE`) y
       // movimiento solo si `count = 1`; una faltante (`lost`, del cliente o de plataforma) ⛔ jamás pasa a `withdrawn`.
       const shipmentItems = await tx.shipmentItem.findMany({
-        where: { shipmentRequestId: id, prepStatus: { not: 'missing' }, ...(to === 'entregado' ? { shipmentRequest: { returnedAt: null } } : {}) },
+        where: { shipmentRequestId: id, prepStatus: { not: 'missing' } },
         select: { inventoryItemId: true },
       });
       for (const si of shipmentItems) {

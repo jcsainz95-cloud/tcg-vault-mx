@@ -198,8 +198,7 @@ export class VaultService {
       ? await this.prisma.shipmentItem.findMany({
           where: {
             inventoryItemId: { in: itemIds },
-            // §RETIRO-SALIDA (B2): `returnedAt` ⇒ el envío ya no es activo para el holding.
-            shipmentRequest: { status: { in: ACTIVE_SHIPMENT_STAGES }, returnedAt: null },
+            shipmentRequest: { status: { in: ACTIVE_SHIPMENT_STAGES } },
           },
           select: {
             inventoryItemId: true,
