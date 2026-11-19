@@ -411,8 +411,8 @@ export function spendAlertSentence(v: SpendAlertMailView, l: MailLocale): string
         : `El envío ${str(f.folio) ?? ref} tiene guía capturada a mano desde hace ${num(f.hoursSinceCapture) ?? 0} h y no se ha marcado enviado. Si ya salió, márcalo enviado; hasta entonces las cartas siguen en la bóveda del cliente.`;
     case 'AG-28':
       return en
-        ? `Shipment ${str(f.folio) ?? ref} is on its way back (${str(f.carrierStatus) ?? 'in_return'}). When you receive it, adjust the inventory to put the ${num(f.pieceCount) ?? 0} cards back in the customer's vault.`
-        : `El envío ${str(f.folio) ?? ref} viene de regreso (${str(f.carrierStatus) ?? 'in_return'}). Cuando lo recibas, ajusta el inventario para regresar las ${num(f.pieceCount) ?? 0} cartas a la bóveda del cliente.`;
+        ? `Shipment ${str(f.folio) ?? ref} is on its way back (${str(f.carrierStatus) ?? 'in_return'}). When you receive it, let us know so we can return the ${num(f.pieceCount) ?? 0} cards to the customer's vault by hand; there is no button for this yet.`
+        : `El envío ${str(f.folio) ?? ref} viene de regreso (${str(f.carrierStatus) ?? 'in_return'}). Cuando lo recibas, avísanos para regresar a mano las ${num(f.pieceCount) ?? 0} cartas a la bóveda del cliente; todavía no hay botón para hacerlo.`;
     default:
       return en ? `There is a new spending alert (${code}).` : `Hay un aviso de gasto nuevo (${code}).`;
   }
