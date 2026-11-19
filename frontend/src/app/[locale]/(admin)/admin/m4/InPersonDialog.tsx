@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
+import type { WithdrawalLineOriginRefundedDetails } from '@/types/contract';
 
 /**
  * §PERSONA — «Entregado en persona»: UNA confirmación y UNA mutación para los tres lugares donde el dueño la usa
@@ -47,7 +48,7 @@ export function InPersonDialog({
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (target) cancelRef.current?.focus();
-  }, [target]);
+  }, [target?.id]);
 
   const needsFetch = !!target && target.feeCents === undefined;
   const full = useQuery({
@@ -58,29 +59,40 @@ export function InPersonDialog({
   });
 
   const mutation = useMutation({
-    mutationFn: (id: string) => deliverShipmentInPerson(id),
-    onSuccess: (_d, id) => {
+    mutationFn: (tg: InPersonTarget) => deliverShipmentInPerson(tg.id),
+    // Los avisos viajan en las variables: no dependen de que `target` siga vivo al responder el servidor.
+    onSuccess: (_d, tg) => {
       for (const queryKey of SHIPMENT_QUEUE_KEYS) void qc.invalidateQueries({ queryKey: [...queryKey] });
-      if (target && target.id === id) onDone(target);
+      onDone(tg);
       onClose();
     },
-    onError: (e, id) => {
-      const tg = target;
+    onError: (e, tg) => {
       onClose();
       const err = e instanceof ApiClientError ? e : null;
-      const text =
-        err?.status === 409 && err.code === 'SHIPMENT_NOT_PREPARED'
-          ? t('statusActions.inPerson.errNotPrepared')
-          : err?.status === 409 && err.code === 'SHIPMENT_HAS_LABEL'
-            ? t('statusActions.inPerson.errHasLabel')
-            : err?.status === 409 && err.code === 'CONFLICT'
-              ? t('statusActions.inPerson.errConflict')
-              : getError(e);
-      if (tg && tg.id === id) onFail(tg, text);
+      const d = err?.details as Record<string, unknown> | undefined;
+      let text: string;
+      if (err?.status === 409 && err.code === 'SHIPMENT_NOT_PREPARED') text = t('statusActions.inPerson.errNotPrepared');
+      else if (err?.status === 409 && err.code === 'SHIPMENT_HAS_LABEL') text = t('statusActions.inPerson.errHasLabel');
+      else if (err?.status === 409 && err.code === 'ORDER_NOT_SETTLED')
+        text = t('statusActions.inPerson.errOrderNotSettled', { status: String(d?.orderStatus ?? '—') });
+      else if (err?.status === 409 && err.code === 'WITHDRAWAL_LINE_ORIGIN_REFUNDED') {
+        const items = (d?.items as WithdrawalLineOriginRefundedDetails['items'] | undefined) ?? [];
+        text = t('statusActions.inPerson.errOriginRefunded', {
+          count: Math.max(1, items.length),
+          items: items.map((i) => `${i.folio ?? i.inventoryItemId} · ${i.orderNumber ?? i.orderId ?? '—'}`).join('; '),
+        });
+      } else if (err?.status === 409 && err.code === 'CONFLICT' && d?.reason === 'nothing_to_ship') text = t('statusActions.inPerson.errNothingToShip');
+      else if (err?.status === 409 && err.code === 'CONFLICT') text = t('statusActions.inPerson.errConflict');
+      else text = getError(e);
+      onFail(tg, text);
       void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
       void qc.invalidateQueries({ queryKey: ['admin-preparation-queue'] });
     },
   });
+  // Mientras el servidor responde no se cierra (Cancelar, Esc o fondo): el aviso de éxito/error nunca se pierde.
+  const guardedClose = () => {
+    if (!mutation.isPending) onClose();
+  };
 
   const fee = (target?.feeCents !== undefined ? target.feeCents : full.data?.shippingFeeChargedCents) ?? 0;
   const recipientRaw = target?.recipient ?? (full.data?.addressSnapshot?.recipientName as string | undefined) ?? full.data?.recipientName;
@@ -91,17 +103,17 @@ export function InPersonDialog({
   return (
     <Modal
       open={target !== null}
-      onClose={onClose}
+      onClose={guardedClose}
       title={target ? t('statusActions.inPerson.title', { ref: target.ref }) : ''}
       footer={
         <>
-          <Button ref={cancelRef} variant="secondary" onClick={onClose}>
+          <Button ref={cancelRef} variant="secondary" disabled={mutation.isPending} onClick={guardedClose}>
             {tc('cancel')}
           </Button>
           <Button
             loading={mutation.isPending}
             disabled={loading || loadFailed}
-            onClick={() => target && mutation.mutate(target.id)}
+            onClick={() => target && mutation.mutate(target)}
           >
             {t('statusActions.inPerson.confirm')}
           </Button>

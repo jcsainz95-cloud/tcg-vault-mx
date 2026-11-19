@@ -10,9 +10,9 @@ export function deliverShipmentInPerson(id: string): Promise<AdminShipmentDTO> {
   return apiRequest<AdminShipmentDTO>(`/admin/shipments/${id}/delivered-in-person`, { method: 'POST', body: {} });
 }
 
-/** Mismo predicado que el servidor (DECISIONES §PERSONA.9): `picking` ∧ preparado ∧ sin guía. */
-export function canDeliverInPerson(s: Pick<AdminShipmentDTO, 'status' | 'preparedAt' | 'labelSource' | 'trackingNumber'>): boolean {
-  return s.status === 'picking' && !!s.preparedAt && !s.labelSource && !s.trackingNumber;
+/** Mismo predicado que el servidor (DECISIONES §PERSONA.9): `picking` ∧ preparado ∧ sin guía ∧ sin compra de guía en curso (`labelPending`). */
+export function canDeliverInPerson(s: Pick<AdminShipmentDTO, 'status' | 'preparedAt' | 'labelSource' | 'trackingNumber' | 'labelPending'>): boolean {
+  return s.status === 'picking' && !!s.preparedAt && !s.labelSource && !s.trackingNumber && !s.labelPending;
 }
 
 /**
@@ -24,7 +24,8 @@ export function canDeliverInPersonFromCard(o: Pick<ShipPreparationOrderDTO, 'pre
   return canDeliverInPerson({
     status: 'picking',
     preparedAt: o.preparation.status === 'prepared' ? o.preparation.preparedAt : null,
-    labelSource: o.labelPending ? 'skydropx' : null,
+    labelSource: null,
     trackingNumber: null,
+    labelPending: o.labelPending ?? null,
   });
 }

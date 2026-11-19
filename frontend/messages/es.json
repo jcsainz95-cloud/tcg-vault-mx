@@ -2717,6 +2717,9 @@
           "errNotPrepared": "SHIPMENT_NOT_PREPARED: el envío no está preparado. Prepáralo primero; no se cambió nada.",
           "errHasLabel": "SHIPMENT_HAS_LABEL: el envío ya tiene guía y no puede entregarse en persona. No se cambió nada.",
           "errConflict": "CONFLICT: el envío cambió mientras lo revisabas. Recarga la lista; no se cambió nada.",
+          "errOrderNotSettled": "ORDER_NOT_SETTLED: el pedido de este envío ya no está liquidado ({status}): se reembolsó o está en disputa. No se entregó nada. Lo resuelve el súper-admin en Ventas.",
+          "errOriginRefunded": "WITHDRAWAL_LINE_ORIGIN_REFUNDED: {count, plural, one {Una carta de este retiro viene} other {# cartas de este retiro vienen}} de una compra que se está reembolsando: {items}. No se entregó nada. Deshaz el preparado o pide al súper-admin que la reclame.",
+          "errNothingToShip": "CONFLICT: este retiro no tiene ninguna carta que entregar: todas volvieron a la plataforma. No se entregó nada. Avisa al súper-admin para cerrarlo.",
           "done": "Entregado en persona: {ref}. Sale de la lista.",
           "askPickup": "¿El cliente lo recogió?"
         }

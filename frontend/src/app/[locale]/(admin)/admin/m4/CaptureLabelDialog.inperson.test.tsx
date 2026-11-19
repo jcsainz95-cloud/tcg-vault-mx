@@ -52,6 +52,8 @@ describe('§PERSONA · ventana «Capturar guía»', () => {
     ['sin preparar', { preparedAt: null }],
     ['con guía', { labelSource: 'manual', trackingNumber: 'MX1' }],
     ['ya en guía', { status: 'guia' }],
+    ['con compra en proceso', { labelPending: { state: 'processing', since: '2026-09-28T18:00:00Z', carrierLabel: null, serviceName: null, chosenBy: null } }],
+    ['con compra en vuelo', { labelPending: { state: 'in_flight', since: '2026-09-28T18:00:00Z', carrierLabel: null, serviceName: null, chosenBy: null } }],
   ])('no sale %s', async (_n, over) => {
     open(shipment(over as never));
     await screen.findByRole('dialog');

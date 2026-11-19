@@ -79,6 +79,11 @@ describe('§PERSONA · tarjeta de Preparar', () => {
     expect(btn()).toBeNull();
     a.unmount();
     serve(order({ labelPending: { state: 'processing', since: '2026-09-28T18:00:00Z', carrierLabel: null, serviceName: null, chosenBy: null } }));
+    const b = renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
+    await screen.findByTestId('prep-order-shp-1');
+    expect(btn()).toBeNull();
+    b.unmount();
+    serve(order({ labelPending: { state: 'in_flight', since: '2026-09-28T18:00:00Z', carrierLabel: null, serviceName: null, chosenBy: null } }));
     renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
     await screen.findByTestId('prep-order-shp-1');
     expect(btn()).toBeNull();
@@ -111,5 +116,42 @@ describe('§PERSONA · tarjeta de Preparar', () => {
     await waitFor(() => expect(confirm).toBeEnabled());
     fireEvent.click(confirm);
     expect(await screen.findByText(/SHIPMENT_HAS_LABEL: el envío ya tiene guía/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ['ORDER_NOT_SETTLED', { orderStatus: 'refunded' }, /ORDER_NOT_SETTLED: el pedido de este envío ya no está liquidado \(refunded\)/],
+    ['WITHDRAWAL_LINE_ORIGIN_REFUNDED', { items: [{ inventoryItemId: 'inv-a', folio: 'INV-a', orderNumber: 'TCG-9' }] }, /Una carta de este retiro viene.*INV-a · TCG-9/],
+    ['CONFLICT', { reason: 'nothing_to_ship' }, /no tiene ninguna carta que entregar/],
+  ])('409 %s tiene texto propio', async (code, details, re) => {
+    serve(order());
+    vi.spyOn(api, 'getAdminShipment').mockResolvedValue({ id: 'shp-1', status: 'picking' } as AdminShipmentDTO);
+    vi.spyOn(inPerson, 'deliverShipmentInPerson').mockRejectedValue(new ApiClientError(409, { code, message: 'x', details }));
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
+    await screen.findByTestId('prep-order-shp-1');
+    fireEvent.click(btn()!);
+    const dialog = await screen.findByRole('dialog', { name: /en persona\?/ });
+    const confirm = within(dialog).getByRole('button', { name: 'Entregado en persona' });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    expect(await screen.findByText(re)).toBeInTheDocument();
+  });
+
+  it('no se cierra mientras el servidor responde y el aviso de éxito llega', async () => {
+    serve(order());
+    vi.spyOn(api, 'getAdminShipment').mockResolvedValue({ id: 'shp-1', status: 'picking' } as AdminShipmentDTO);
+    let release!: () => void;
+    vi.spyOn(inPerson, 'deliverShipmentInPerson').mockReturnValue(new Promise((r) => { release = () => r({ id: 'shp-1' } as never); }));
+    renderWithProviders(<PreparationQueue onCaptureGuide={() => {}} />, 'es');
+    await screen.findByTestId('prep-order-shp-1');
+    fireEvent.click(btn()!);
+    const dialog = await screen.findByRole('dialog', { name: /en persona\?/ });
+    const confirm = within(dialog).getByRole('button', { name: 'Entregado en persona' });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Cancelar' })).toBeDisabled());
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: /en persona\?/ })).toBeInTheDocument();
+    release();
+    expect(await screen.findByText(/Entregado en persona: /)).toBeInTheDocument();
   });
 });
