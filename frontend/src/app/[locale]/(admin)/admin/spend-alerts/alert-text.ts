@@ -189,6 +189,12 @@ export function alertText(t: T, a: SpendAlertDTO, ctx: AlertTextCtx): string {
         boughtService: str(f.boughtService) ?? none,
       });
     }
+    case 'AG-27':
+      // §RETIRO-SALIDA: `facts = {folio, capturedAt, hoursSinceCapture}` (sin PII; cifras del servidor tal cual).
+      return t('kind.AG-27.text', { folio: str(f.folio) ?? ref, hours: num(f.hoursSinceCapture) ?? none });
+    case 'AG-28':
+      // §RETIRO-SALIDA: `facts = {folio, carrierStatus, observedAt, pieceCount}` (sin PII).
+      return t('kind.AG-28.text', { folio: str(f.folio) ?? ref, carrierStatus: str(f.carrierStatus) ?? none, pieceCount: num(f.pieceCount) ?? none });
     case 'AG-24': {
       // v1.113⟨portada⟩ (§DYN.4.5): SOLO `facts = {reason, publishedCards, cycleDays, dailyCreditCap, capToCoverWeek,
       // setsOverCap}` (GAS-4: cifras del servidor tal cual, ⛔ ni un cálculo aquí). `reason` decide la frase; otra ⇒ genérica.
@@ -256,6 +262,9 @@ export const FACT_INT = [
   'dailyCreditCap',
   'capToCoverWeek',
   'setsOverCap',
+  // §RETIRO-SALIDA (AG-27/AG-28).
+  'hoursSinceCapture',
+  'pieceCount',
 ] as const;
 export const FACT_WHITELIST = [
   'changedKeys',
@@ -277,4 +286,8 @@ export const FACT_WHITELIST = [
   // §ENV3.8 (AG-26): servicio cotizado al cliente y servicio comprado.
   'quotedService',
   'boughtService',
+  // §RETIRO-SALIDA (AG-27/AG-28): sin PII.
+  'capturedAt',
+  'observedAt',
+  'carrierStatus',
 ] as const;

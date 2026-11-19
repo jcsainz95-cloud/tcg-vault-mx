@@ -36,7 +36,11 @@ export function ReturnReceivedControl({
     },
     onError: (e) => {
       setOpen(false);
-      onFail(id, e instanceof ApiClientError && e.status === 409 ? t('errConflict') : getError(e));
+      const code = e instanceof ApiClientError && e.status === 409 ? e.code : null;
+      onFail(
+        id,
+        code === 'RETURN_NOT_APPLICABLE' ? t('errNotApplicable') : code === 'RETURN_NOTHING_TO_RESTORE' ? t('errNothingToRestore') : code ? t('errConflict') : getError(e),
+      );
       void qc.invalidateQueries({ queryKey: ['admin-shipments'] });
     },
   });

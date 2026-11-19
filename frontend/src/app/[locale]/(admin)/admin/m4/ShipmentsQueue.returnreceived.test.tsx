@@ -4,6 +4,7 @@ import { renderWithProviders } from '@/test/render';
 import { ShipmentsQueue } from './ShipmentsQueue';
 import * as api from '@/lib/api';
 import * as ret from '@/lib/api/shipments-return-received';
+import { ApiClientError } from '@/lib/api-client';
 import type { AdminShipmentDTO } from '@/types/contract';
 
 /** §RETIRO-SALIDA.3 — «Recibimos la devolución» (aislado; borrable si el dueño no lo aprueba). */
@@ -44,7 +45,7 @@ describe('§RETIRO-SALIDA · return-received', () => {
 
   it('botón solo en retiros enviado/entregado sin devolver; pide confirmación y llama una vez', async () => {
     serve([row('ok'), row('picking', { status: 'picking' }), row('devuelto', { returnedAt: '2026-11-19T00:00:00Z' })]);
-    const spy = vi.spyOn(ret, 'markShipmentReturnReceived').mockResolvedValue({ id: 'ok' } as never);
+    const spy = vi.spyOn(ret, 'markShipmentReturnReceived').mockResolvedValue({ shipment: { id: 'ok' }, restored: 1, skipped: 0, won: true } as never);
     renderWithProviders(<ShipmentsQueue onCaptureGuide={() => {}} />, 'es');
     const btn = await screen.findByRole('button', { name: 'Recibimos la devolución' });
     expect(screen.getAllByRole('button', { name: 'Recibimos la devolución' })).toHaveLength(1);
@@ -53,5 +54,18 @@ describe('§RETIRO-SALIDA · return-received', () => {
     expect(spy).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Sí, recibimos la devolución' }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith('ok'));
+  });
+
+  it.each([
+    ['RETURN_NOT_APPLICABLE', 'no hay devolución que registrar'],
+    ['RETURN_NOTHING_TO_RESTORE', 'No hay cartas que devolver'],
+  ])('409 %s ⇒ texto propio', async (code, text) => {
+    serve([row('ok')]);
+    vi.spyOn(ret, 'markShipmentReturnReceived').mockRejectedValue(new ApiClientError(409, { code, message: 'x' } as never));
+    renderWithProviders(<ShipmentsQueue onCaptureGuide={() => {}} />, 'es');
+    fireEvent.click(await screen.findByRole('button', { name: 'Recibimos la devolución' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sí, recibimos la devolución' }));
+    expect(await screen.findByText(new RegExp(text))).toBeInTheDocument();
   });
 });

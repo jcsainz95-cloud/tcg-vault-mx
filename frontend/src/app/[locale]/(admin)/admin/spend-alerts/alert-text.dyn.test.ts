@@ -110,3 +110,28 @@ describe('AG-26 · label_over_customer_quote (§ENV3.8)', () => {
     expect(FACT_WHITELIST as readonly string[]).not.toContain('recipientName');
   });
 });
+
+describe('AG-27 / AG-28 (§RETIRO-SALIDA)', () => {
+  const base = { subject: null, order: null, amountCents: null, occurrenceCount: 1, firstOccurredAt: '2026-11-19T18:00:00Z', lastOccurredAt: '2026-11-19T18:00:00Z', resolvedAt: null, seen: null, mail: { status: 'not_applicable', at: null } } as const;
+  const ag27 = { ...base, id: 'a27', code: 'AG-27', kind: 'manual_label_unshipped', severity: 'digest', shipment: { folio: 'ENV-000050' }, facts: { folio: 'ENV-000050', capturedAt: '2026-11-18T10:00:00Z', hoursSinceCapture: 30, recipientName: 'No debe verse' } } as unknown as SpendAlertDTO;
+  const ag28 = { ...base, id: 'a28', code: 'AG-28', kind: 'retiro_parcel_returned', severity: 'immediate', shipment: { folio: 'ENV-000051' }, facts: { folio: 'ENV-000051', carrierStatus: 'in_return', observedAt: '2026-11-19T10:00:00Z', pieceCount: 4 } } as unknown as SpendAlertDTO;
+  it('kind ⇔ código, sin interruptor y con filtro', () => {
+    expect(SPEND_ALERT_CODE_BY_KIND.manual_label_unshipped).toBe('AG-27');
+    expect(SPEND_ALERT_CODE_BY_KIND.retiro_parcel_returned).toBe('AG-28');
+    expect(SPEND_ALERT_SWITCHABLE_CODES).not.toContain('AG-27');
+    expect(SPEND_ALERT_SWITCHABLE_CODES).not.toContain('AG-28');
+    expect(FILTER_KINDS).toContain('manual_label_unshipped');
+    expect(FILTER_KINDS).toContain('retiro_parcel_returned');
+  });
+  it('título y cuerpo es/en con los facts', () => {
+    expect(alertTitle(tEs, ag27)).toBe('Guía capturada sin marcar enviado');
+    expect(alertTitle(tEn, ag28)).toBe('Vault withdrawal parcel returned');
+    expect(alertText(tEs, ag27, ctx)).toMatch(/ENV-000050 tiene guía capturada a mano desde hace 30 h/);
+    expect(alertText(tEn, ag27, ctx)).toMatch(/Shipment ENV-000050 has had a hand-entered label for 30 h/);
+    expect(alertText(tEs, ag28, ctx)).toMatch(/ENV-000051 viene de regreso \(in_return\).*las 4 cartas/);
+    expect(alertText(tEn, ag28, ctx)).toMatch(/Shipment ENV-000051 is on its way back \(in_return\).*the 4 cards/);
+  });
+  it('lista blanca: sin PII', () => {
+    for (const k of ['hoursSinceCapture', 'capturedAt', 'carrierStatus', 'observedAt', 'pieceCount']) expect(FACT_WHITELIST as readonly string[]).toContain(k);
+  });
+});

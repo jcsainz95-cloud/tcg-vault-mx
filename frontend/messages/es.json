@@ -2713,6 +2713,8 @@
           "body": "Confirma solo si el paquete ya está físicamente en la tienda. Las cartas vuelven a la bóveda del cliente (las faltantes no).",
           "confirm": "Sí, recibimos la devolución",
           "done": "Devolución registrada: las cartas volvieron a la bóveda del cliente.",
+          "errNotApplicable": "Este envío no es un retiro enviado o entregado: no hay devolución que registrar.",
+          "errNothingToRestore": "No hay cartas que devolver a la bóveda: ya no cumplen (reembolsadas, faltantes o de otro dueño).",
           "errConflict": "Este envío no se puede marcar como devuelto: ya se registró o no es un retiro enviado."
         },
         "recipientUnknown": "destinatario sin registrar",
@@ -7083,6 +7085,11 @@
         "copied": "Copiado"
       },
       "fact": {
+        "capturedAt": "Capturada a las",
+        "hoursSinceCapture": "Horas desde la captura",
+        "carrierStatus": "Estado de la paquetería",
+        "observedAt": "Observado a las",
+        "pieceCount": "Cartas",
         "quotedService": "Servicio cotizado",
         "boughtService": "Servicio comprado",
         "costQuotedCents": "Costo cotizado al cliente",
@@ -7273,6 +7280,14 @@
         "AG-26": {
           "title": "Guía más cara que lo cotizado al cliente",
           "text": "La guía del {ref} costó {real} y al cliente se le cotizó {quoted} ({quotedService}); compraste {boughtService}. Diferencia: {diff}. Es solo un aviso: nada se bloqueó."
+        },
+        "AG-27": {
+          "title": "Guía capturada sin marcar enviado",
+          "text": "El envío {folio} tiene guía capturada a mano desde hace {hours} h y no se ha marcado enviado. Si ya salió, márcalo enviado; hasta entonces las cartas siguen en la bóveda del cliente."
+        },
+        "AG-28": {
+          "title": "Paquete de retiro devuelto",
+          "text": "El envío {folio} viene de regreso ({carrierStatus}). Cuando llegue, pulsa «Recibimos la devolución» para devolver las {pieceCount} cartas a la bóveda del cliente."
         }
       },
       "prev": "Anterior",
