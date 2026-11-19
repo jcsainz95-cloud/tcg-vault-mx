@@ -79,13 +79,12 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-19 · re-gate §ENV3 sobre ca89544d (diff 9d7f1f69..ca89544d): RECHAZADO (solo B-1)
-- Medido: jest unit 10565/10565 (606 suites); vitest 6073 pass/13 skip (499 archivos); tsc/eslint be+fe 0; doc-size VERDE; integración env3+redis-control+checkout+discounts+envio-v2+accesorios+shipments-prep 272/273 (PG16/Redis desechables propios); prueba propia dial apagado real (v3Enabled=false + 404) 1/1 verde.
-- BLOQUEANTE QA-ENV3-ENV6 (backend): test/integration/envio-v2.e2e-spec.ts:468-469 rojo — espera shipping-rule sin `v3Enabled` y max-age=300; el código cumple DECISIONES §17(1) (v3Enabled, 60 s): actualizar el test.
-- CERRADOS: QA-ENV3-OFF, REF0, LOG, SNAP; M-1, M-2, M-4, M-5. M-3 parcial (sondeo cuenta CPs fuera de catálogo). M-6 NO MEDIDO.
-- Seguro por escalones `shipping_insurance_tiers` (cotización = compra, lista antes de código): coherente; DECISIONES §2/§17(5) debe decir «escalón; sin escalón, banda de MX$500» (arquitecto).
-- MENOR: rule caída + dial off ⇒ PAGAR bloqueado (frontend, por lectura); seguro 0 sobre el escalón mayor en tabla/ref (backend, casi inalcanzable); snapshot `free_threshold` en pedido cobrado por código y sin customerQuote en gratis por umbral (arquitecto confirma); timeout puede contar doble en el disyuntor (backend).
-- Con B-1 en verde: APROBADO con menores. Abiertos menores previos (§PERSONA): QA-PER-FULFILL, -PNONE, -TREE; filas qa anteriores en PENDIENTES (a5681572).
+## QA (qa) — 2026-11-19 · re-gate final §ENV3 sobre d49e463d (diff ca89544d..d49e463d): APROBADO
+- Medido: jest unit 10568/10568 (606 suites); vitest 6074 pass/13 skip (499 archivos); tsc/eslint be+fe 0; doc-size VERDE vs origin/production; integración checkout+envíos 500/500 (24 suites, incl. envio-v2, env3-*, discounts*, shipments-*, sdx-d2c-label, refunds; PG16/Redis desechables propios).
+- Pruebas propias: checkout con regla caída + dial off (404) ⇒ 0 llamadas a shipping-rule en 3 s y PAGAR habilitado (1/1); ficha real sin bucle (1 llamada en 3 s, 2/2); ShippingFeeHint aislado sin bucle (≤2 llamadas, 4/4); «Quiénes somos» solo SSR (por lectura).
+- CERRADOS: QA-ENV3-ENV6, M-A, M-B, M-C, M-D, M-E, M-3 (y antes OFF/REF0/LOG/SNAP, M-1/M-2/M-4/M-5). M-6 (origen semilla m110) NO MEDIDO.
+- MENOR abiertos: N-1 lookup de CP fuera del try en live() (contenido por los llamadores; backend); N-2 retryOnMount:false solo en checkout, no en ShippingFeeHint (preventivo; frontend).
+- Abiertos menores previos (§PERSONA): QA-PER-FULFILL, -PNONE, -TREE; filas qa anteriores en PENDIENTES (a5681572).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
