@@ -121,7 +121,9 @@ SELECT to_regclass(format('%I', 'Accessory')) IS NOT NULL AS lz_m73,
        to_regclass(format('%I', 'FeaturedSelection')) IS NOT NULL AS lz_m93,
        to_regclass(format('%I', 'ListingPrice')) IS NOT NULL AS lz_m94,
        -- §PROV F1 (m102, G-8): ¿tiene tu base el portal de proveedores? Mismo patrón condicional.
-       to_regclass(format('%I', 'SupplyPurchase')) IS NOT NULL AS lz_sup \gset
+       to_regclass(format('%I', 'SupplyPurchase')) IS NOT NULL AS lz_sup,
+       -- §ENV3 (m110, G-8): ¿tiene tu base el log de cotizaciones de envío? Mismo patrón condicional.
+       to_regclass(format('%I', 'ShippingQuoteLog')) IS NOT NULL AS lz_m110 \gset
 
 -- C-4: REPEATABLE READ = una sola FOTO de la base para toda la transacción. Un alta de usuario o de precio que entre
 -- MIENTRAS esto corre no cambia los conteos «antes/después» (sin G-5 falso). La foto se toma en la primera consulta,
@@ -149,6 +151,10 @@ LOCK TABLE "CardShowClick" IN SHARE ROW EXCLUSIVE MODE;
 -- tumbar la cotización.
 \if :lz_mkt
 LOCK TABLE "BuylistQuoteDailyCount", "MarketingBannerConsentCounter" IN SHARE ROW EXCLUSIVE MODE;
+\endif
+-- §ENV3 (m110): `POST /checkout/shipping-quote` (público) escribe `ShippingQuoteLog` en vivo ⇒ mismo candado.
+\if :lz_m110
+LOCK TABLE "ShippingQuoteLog" IN SHARE ROW EXCLUSIVE MODE;
 \endif
 -- MKT-V2 (m99): `POST /marketing/search-miss` (público) escribe `SearchNoResultSeen` en vivo ⇒ mismo candado.
 \if :lz_m99
@@ -251,6 +257,10 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   -- MKT-V2 (m99, G-8): `SearchNoResultSeen` = hashes HMAC (sal diaria) de quien buscó HOY, transitorios (se borran al cerrar el día) y sin
   -- valor tras la limpieza ⇒ borrar. (`SearchNoResultDaily` y `MarketingWeeklyDigest` se CONSERVAN: más abajo.)
   'SearchNoResultSeen',
+  -- §ENV3 (m110, G-8): `ShippingQuoteLog` = cotizaciones vivas y guías compradas (prefijo de CP, perfil, servicio, costo; ⛔ sin PII) que
+  -- alimentan la recalibración; mezcla prueba con real y se reconstruye sola ⇒ TRANSACCIONAL ⇒ borrar. (`ShippingZoneRate` es
+  -- configuración de respaldo: se CONSERVA, abajo.)
+  'ShippingQuoteLog',
   -- v1.102⟨mkt-fase2⟩ (M-86, G-8; BORRAR ratificado por el arquitecto en ARCHITECTURE §14.2.1, v2.4): cola de
   -- eventos de servidor (sin cuerpo) y los identificadores de navegador de pedidos/solicitudes que esta limpieza borra.
   -- Telemetría de vida corta (7 días) que mezcla prueba con real y solo tiene sentido junto a filas que se borran ⇒ borrar.
@@ -275,7 +285,9 @@ UNION ALL
 SELECT t, 'conservar' FROM unnest(ARRAY[
   'User','KycProfile','KycUploadGrant','BillingProfile','Address','AuthToken','CardSet','SealedSetGroup','SealedProduct','Card',
   'CardProduct','PostalCode','ShippingPackage','PriceReference','FxRate','SetValueSnapshot','ConfigSetting',
-  'VaultLocation','ProcessedStripeEvent','SpendDigestRun','SpendOwnerWatch','SealedRestockSubscription',
+  'VaultLocation','ProcessedStripeEvent',
+  -- §ENV3 (m110, G-8): la tabla de respaldo del envío por CP (p75 por prefijo, sembrada por la migración) = CONFIGURACIÓN ⇒ conservar.
+  'ShippingZoneRate','SpendDigestRun','SpendOwnerWatch','SealedRestockSubscription',
   'MetaDeck','MetaDeckList','MetaDeckCard','MetaFetchRun',
   -- v2.2: la foto del accesorio (catálogo), los deseos y los correos de deseos ya enviados
   'AccessoryPhoto','WishlistItem','WishlistMail',
@@ -583,6 +595,10 @@ WITH x AS (DELETE FROM "MarketingBannerConsentCounter" RETURNING 1) INSERT INTO 
 -- MKT-V2 (m99): los hashes del día de c6 (sin FK; G-5 los cuenta en `borrar`, 0 tras borrar).
 \if :lz_m99
 WITH x AS (DELETE FROM "SearchNoResultSeen" RETURNING 1) INSERT INTO lz_cambio SELECT '13 SearchNoResultSeen', count(*) FROM x;
+\endif
+-- §ENV3 (m110): el log de cotizaciones de envío (sin FK; sin PII; G-5 lo cuenta en `borrar`, 0 tras borrar).
+\if :lz_m110
+WITH x AS (DELETE FROM "ShippingQuoteLog" RETURNING 1) INSERT INTO lz_cambio SELECT '13 ShippingQuoteLog', count(*) FROM x;
 \endif
 -- v1.102⟨mkt-fase2⟩ (M-86): la cola de medición y su contexto (sin FK; G-5 los cuenta en `borrar`).
 \if :lz_m86
