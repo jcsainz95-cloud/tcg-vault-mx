@@ -172,4 +172,13 @@ describe('§PROV-F4 · reglas puras de sugeridas', () => {
     // lunes 2026-11-16 06:00 UTC = lunes 00:00 CDMX ⇒ esa misma semana
     expect(weekStartMx(new Date('2026-11-16T06:00:00Z')).toISOString()).toBe('2026-11-16T06:00:00.000Z');
   });
+
+  it('F4-8: rank 0 y -5 (legado) no cuentan en la necesidad, igual que null', () => {
+    const m = needsFromDecks([
+      { cardId: 'a', quantity: 4, deckSlug: 'd0', rank: 0 },
+      { cardId: 'a', quantity: 4, deckSlug: 'dn', rank: -5 },
+      { cardId: 'a', quantity: 2, deckSlug: 'd9', rank: 9 },
+    ], { topRankMax: 5, topMult: 2, restMult: 1 });
+    expect(m.get('a')?.reasons).toEqual([{ kind: 'metadeck', ref: 'd9', rank: 9, copies: 2, mult: 1 }]);
+  });
 });

@@ -94,7 +94,7 @@ export function needsFromDecks(
   const perDeck = new Map<string, { cardId: string; deckSlug: string; rank: number | null; copies: number }>();
   for (const l of lines) {
     const q = Math.max(0, Math.floor(l.quantity));
-    if (q <= 0 || l.rank == null) continue;
+    if (q <= 0 || l.rank == null || l.rank < 1) continue; // F4-8: puesto <1 (legado) = sin puesto
     const k = `${l.cardId}\u0000${l.deckSlug}`;
     const cur = perDeck.get(k);
     if (cur) cur.copies += q;

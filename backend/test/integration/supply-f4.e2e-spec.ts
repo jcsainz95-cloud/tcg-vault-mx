@@ -569,6 +569,64 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     ]);
   });
 
+  it('F4-5: reasons viejas NO se rellenan si el deck vigente está pausado, sin publicar o con rank<1: los tres null (nunca mezcla)', async () => {
+    await svc.run();
+    const a = (await row(C.A))!;
+    const old = [{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 4 }]; // rank viejo suelto: no debe mezclarse con copies/mult null
+    const read = async () => (await A('GET', '/admin/supply-suggestions?status=draft&pageSize=100', admin)).body.data.find((x: any) => x.id === a.id).reasons;
+    const nulls = [{ kind: 'metadeck', ref: `${SLUG}-2`, rank: null, copies: null, mult: null }];
+    try {
+      await h.prisma.supplySuggestion.update({ where: { id: a.id }, data: { reasons: old } });
+      await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { pausedByOperator: true } });
+      expect(await read()).toEqual(nulls);
+      await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { pausedByOperator: false, published: false } });
+      expect(await read()).toEqual(nulls);
+      for (const bad of [0, -5]) {
+        await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { published: true, rank: bad } });
+        expect(await read()).toEqual(nulls);
+      }
+      await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { rank: 7 } });
+      expect(await read()).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 4, copies: 3, mult: 2 }]); // vigente sano: rellena (rank guardado se respeta; mult por ese rank)
+    } finally {
+      await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { pausedByOperator: false, published: true, rank: 7 } });
+    }
+  });
+
+  it('F4-8: rank 0 y -5 no cuentan como top en la necesidad (ni job ni publish manual)', async () => {
+    try {
+      for (const bad of [0, -5]) {
+        await h.prisma.supplySuggestion.deleteMany({});
+        await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { rank: bad } });
+        await svc.run();
+        expect(await row(C.A)).toMatchObject({ suggestedQty: 2 }); // solo deck-1 (puesto 6, ×1)
+        expect((await row(C.A))?.reasons).toEqual([{ kind: 'metadeck', ref: `${SLUG}-1`, rank: 6, copies: 2, mult: 1 }]);
+        const a = (await row(C.A))!;
+        expect((await P(a.id, {})).status).toBe(201);
+        expect((await reqs(C.A)).find((x) => x.source === 'suggested')?.qtyWanted).toBe(2);
+        await reset();
+      }
+    } finally {
+      await deckRank(2, 7);
+    }
+  });
+
+  it('F4-5: publish manual con mercado que no llega tras los reintentos ⇒ 503 MARKET_UNAVAILABLE reintentable, sin solicitud creada', async () => {
+    await svc.run();
+    const a = (await row(C.A))!;
+    // solicitud abierta a % del mercado de otra carta: la precarga (simulada sin ella) nunca trae su mercado
+    await h.prisma.supplyRequest.create({ data: { cardId: C.B, finish: 'normal', qtyWanted: 1, pctBps: 7000, source: 'manual', expiresAt: new Date(Date.now() + 86400_000), createdById: 'x' } });
+    const spy = jest.spyOn(svc as any, 'prefetchMarkets').mockResolvedValue(new Map([[`${C.A}|normal`, 10000]])); // solo la carta a publicar: falta la de la solicitud abierta
+    try {
+      const r = await P(a.id, {});
+      expect(r.status).toBe(503);
+      expect(code(r)).toBe('MARKET_UNAVAILABLE');
+      expect(spy.mock.calls.length).toBe(5);
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await reqs(C.A)).filter((x) => x.source === 'suggested')).toHaveLength(0);
+  });
+
   it('gate F4.2: decks sin puesto (rank null) no cuentan en la necesidad', async () => {
     await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { rank: null } });
     try {

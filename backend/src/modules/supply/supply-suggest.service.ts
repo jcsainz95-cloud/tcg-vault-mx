@@ -341,14 +341,14 @@ export class SupplySuggestService {
 
   /**
    * Normaliza `reasons` al leer (sin migración): filas viejas sin rank/copies/mult se completan desde el deck VIGENTE (puesto, copias en su lista actual,
-   * mult con los ConfigSetting de hoy); si el deck ya no existe o no tiene puesto/carta, el campo queda `null` (forma estable).
+   * mult con los ConfigSetting de hoy); si el deck no existe, no está publicado, está pausado o su rank<1, los tres quedan `null` (nunca mezcla).
    */
   private async readReasons(rows: { id: string; cardId: string; reasons: unknown }[]): Promise<Map<string, SuggestReasonView[]>> {
     const out = new Map(rows.map((r) => [r.id, normalizeReasons(r.reasons)]));
     const slugs = new Set<string>();
     for (const rs of out.values()) for (const x of rs) if (x.ref && (x.rank == null || x.copies == null || x.mult == null)) slugs.add(x.ref);
     if (!slugs.size) return out;
-    const decks = await this.prisma.metaDeck.findMany({ where: { slug: { in: [...slugs] }, published: true, currentListId: { not: null } }, select: { slug: true, rank: true, currentListId: true } });
+    const decks = await this.prisma.metaDeck.findMany({ where: { slug: { in: [...slugs] }, published: true, pausedByOperator: false, rank: { gte: 1 }, currentListId: { not: null } }, select: { slug: true, rank: true, currentListId: true } });
     const cardIds = [...new Set(rows.map((r) => r.cardId))];
     const lines = await this.prisma.metaDeckCard.findMany({ where: { listId: { in: decks.map((d) => d.currentListId as string) }, matchStatus: 'matched', matchedCardId: { in: cardIds } }, select: { listId: true, matchedCardId: true, quantity: true } });
     const mult = await this.suggestMult(this.prisma);
@@ -361,9 +361,10 @@ export class SupplySuggestService {
       out.set(r.id, (out.get(r.id) ?? []).map((x) => {
         if (x.rank != null && x.copies != null && x.mult != null) return x;
         const d = x.ref ? deckBySlug.get(x.ref) : undefined;
-        if (!d) return x;
-        const rank = x.rank ?? d.rank ?? null;
-        return { ...x, rank, copies: x.copies ?? copiesOf(d.currentListId as string, r.cardId), mult: x.mult ?? (rank != null ? multForRank(rank, mult) : null) };
+        // Sin deck vigente válido (existe, publicado, no pausado, rank≥1) los tres a null: nunca mezcla de datos guardados y vivos.
+        if (!d || d.rank == null || d.rank < 1) return { ...x, rank: null, copies: null, mult: null };
+        const rank = x.rank ?? d.rank;
+        return { ...x, rank, copies: x.copies ?? copiesOf(d.currentListId as string, r.cardId), mult: x.mult ?? multForRank(rank, mult) };
       }));
     }
     return out;
