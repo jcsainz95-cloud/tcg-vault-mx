@@ -37,6 +37,7 @@ import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service
 import { ManualVersionMergeService } from '../modules/pricing/manual-version-merge.service';
 import { PatternReclassifyService } from '../modules/pricing/pattern-reclassify.service';
 import { SupplyExpiryService } from '../modules/supply/supply-expiry.service';
+import { SupplySuggestService } from '../modules/supply/supply-suggest.service';
 import { ShipQuoteCalibrationService } from '../modules/shipping-quote/ship-quote-calibration.service';
 import { WishlistNotifyService } from '../modules/wishlist/wishlist-notify.service';
 import { SealedRestockNotifyService } from '../modules/catalog/sealed-restock-notify.service';
@@ -188,6 +189,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly patternReclassify?: PatternReclassifyService,
     // §DEMANDA: texto de búsqueda → carta (diario 04:30 UTC).
     @Optional() private readonly demandMatch?: DemandMatchService,
+    // §PROV-F4: solicitudes sugeridas diarias (11:00 UTC = 05:00 CDMX) y tras cada refresco de meta decks.
+    @Optional() private readonly supplySuggest?: SupplySuggestService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -444,6 +447,13 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: DemandMatchService NO está inyectado; demand-match no queda programado.');
     }
 
+    // §PROV-F4: `supply-suggest` diario 11:00 UTC = 05:00 CDMX (idempotente y sin estado: recalcula todo). 3 intentos con espera exponencial.
+    if (this.supplySuggest) {
+      await this.queue.add('supply-suggest', {}, { ...this.repeat('supply-suggest', '0 11 * * *'), attempts: 3, backoff: { type: 'exponential', delay: 60_000 } });
+    } else {
+      this.logger.error('Scheduler: SupplySuggestService NO está inyectado; supply-suggest no queda programado.');
+    }
+
     // §PRICE-PATTERN: `pattern-reclassify` diario 02:10 UTC (tras el barrido de catálogo) y UNA vez al desplegar (jobId fijo + removeOnComplete ⇒
     // cada arranque encola una corrida; es idempotente: sin candidatos no cambia nada).
     if (this.patternReclassify) {
@@ -561,8 +571,16 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.sealedPriceIngest.run();
       // DECKS-META Fase 2 (§7): refresh semanal. Idempotente (supersede-based) + single-flight
       // (flag en memoria del servicio). Fail-closed por dial: sin `on` no publica.
-      case 'decks-meta-refresh':
-        return this.decksMetaRefresh.run({});
+      case 'decks-meta-refresh': {
+        const refreshed = await this.decksMetaRefresh.run({});
+        // §PROV-F4: tras cada refresco de meta decks se regeneran las sugeridas (idempotente; si falla, el cron de mañana las rehace).
+        if (this.supplySuggest && this.queue) {
+          await this.queue.add('supply-suggest', {}, { jobId: `supply-suggest-after-refresh-${Date.now()}`, attempts: 3, backoff: { type: 'exponential', delay: 60_000 }, removeOnComplete: true, removeOnFail: 100 }).catch((e: Error) => this.logger.warn(`supply-suggest post-refresh no encolado: ${e.message}`));
+        }
+        return refreshed;
+      }
+      case 'supply-suggest':
+        return this.supplySuggest?.run() ?? null;
       // ⭐💰 D2d (§M4-SHIP.19.10): rastreo (lote), guía en proceso + verificación + huérfanas, cargos extra.
       case 'shipment-tracking-poll':
         return this.shipmentTrackingPoll?.run() ?? null;

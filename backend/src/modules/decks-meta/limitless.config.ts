@@ -38,7 +38,7 @@ export function normalizeAutopublishDial(raw: unknown): boolean {
 // ── Parámetros de fetch (§1), configurables por env con tope duro ────────────────────────────────
 
 export interface LimitlessFetchConfig {
-  /** N arquetipos a traer de la home (default 10, tope duro 12 requests/run, §1). */
+  /** N arquetipos a traer de la home (default 20, tope duro 22 requests/run, §1; §DECKS-TOP: maxRequests = N+2). */
   topN: number;
   /** Espaciado entre requests secuenciales (ms). */
   delayMs: number;
@@ -52,14 +52,14 @@ export interface LimitlessFetchConfig {
   maxRequests: number;
 }
 
-/** Defaults pineados (§1). El tope duro de requests es 12 y NUNCA se supera. */
+/** Defaults pineados (§1). El tope duro de requests es 22 (home + 20 listas + margen, §DECKS-TOP) y NUNCA se supera. */
 export const FETCH_DEFAULTS: LimitlessFetchConfig = {
-  topN: 10,
+  topN: 20,
   delayMs: 1500,
   timeoutMs: 10_000,
   maxBytes: 3 * 1024 * 1024,
   retries: 2,
-  maxRequests: 12,
+  maxRequests: 22,
 };
 
 function envInt(config: ConfigService, key: string, fallback: number): number {

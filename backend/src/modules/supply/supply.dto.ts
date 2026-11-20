@@ -104,3 +104,9 @@ export function pageOf(q: { page?: string; pageSize?: string }): { page: number;
   const pageSize = Math.min(100, Math.max(1, parseInt(q.pageSize ?? '25', 10) || 25));
   return { page, pageSize, skip: (page - 1) * pageSize };
 }
+
+/** `POST /admin/supply-suggestions/:id/publish` — ambos opcionales; el tope 100 % se valida en el servicio. */
+export class PublishSuggestionDto {
+  @IsOptional() @IsInt() @Min(1) @Max(1000) qty?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(10000) pctBps?: number;
+}

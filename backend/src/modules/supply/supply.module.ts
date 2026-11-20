@@ -9,13 +9,14 @@ import { SupplyRequestService } from './supply-request.service';
 import { SupplyOfferService } from './supply-offer.service';
 import { SupplyPurchaseService } from './supply-purchase.service';
 import { SupplyExpiryService } from './supply-expiry.service';
+import { SupplySuggestService } from './supply-suggest.service';
 import { AdminSupplyController, SupplierAuthController, SupplierPortalController } from './supply.controllers';
 
 /** §PROV F1 — portal de proveedores, sentido A (compra a tiendas aliadas). Dueño de Supplier*, Supply*. */
 @Module({
   imports: [AuthModule, MailModule, PricingModule, InventoryPublishModule],
-  providers: [SupplierAccessService, SupplyPricingService, SupplyRequestService, SupplyOfferService, SupplyPurchaseService, SupplyExpiryService],
+  providers: [SupplierAccessService, SupplyPricingService, SupplyRequestService, SupplyOfferService, SupplyPurchaseService, SupplyExpiryService, SupplySuggestService],
   controllers: [SupplierAuthController, SupplierPortalController, AdminSupplyController],
-  exports: [SupplyExpiryService],
+  exports: [SupplyExpiryService, SupplySuggestService],
 })
 export class SupplyModule {}

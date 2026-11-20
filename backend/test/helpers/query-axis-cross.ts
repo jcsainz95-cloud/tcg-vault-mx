@@ -350,6 +350,8 @@ export const SIN_CLASE_DECLARADA: readonly string[] = [
   'GET /admin/supply-offers::status',
   'GET /admin/supply-purchases::status',
   'GET /admin/supply-requests::status',
+  // 💰 §PROV-F4 (ídem; ⚠️ PENDIENTE de ratificar por el arquitecto): estado de sugerida {draft,published,skipped}; `parseEnumFilter` ⇒ fuera de dominio 400 {field, allowed}.
+  'GET /admin/supply-suggestions::status',
   'GET /admin/supply-requests/market-check::finish',
   'GET /supplier/offers::status',
   // DINERO (`?report=` ×2, `?reason=`): 3 gates aparte, NO en este lote.

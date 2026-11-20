@@ -2011,7 +2011,8 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // (`D-EQ-3`, frontend primero) y los 3 `?range=` de `value-history` (stream `catalog`). El tope
     // baja a mano.
     // 💰 §PROV F1: 7 → **13** (seis ejes de dominio cerrado cuya conducta YA cumple §0-Q; esperan su fila del arquitecto).
-    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(13);
+    // 💰 §PROV-F4: 13 → **14** (`GET /admin/supply-suggestions?status=`, dominio cerrado {draft,published,skipped}, conducta ya conforme a §0-Q).
+    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(14);
     expect(QUERY_SIN_NOMBRE.length).toBeLessThanOrEqual(2);
     // ⭐ `QA-M4`: la lista de exenciones MEDIDAS POR RUTA también tiene techo. Sin él, la salida
     // barata ante el rojo del huérfano sería añadir la llave aquí — un diff de una línea,

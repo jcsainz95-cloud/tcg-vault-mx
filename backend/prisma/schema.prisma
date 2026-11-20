@@ -955,6 +955,7 @@ model SealedProduct {
 
 model Card {
   supplyRequests SupplyRequest[]
+  supplySuggestions SupplySuggestion[]
   promoLink              PromoCollectionLink? @relation("PromoLinkPromo")
   id                     String   @id @default(uuid())
   externalId             String   @unique
@@ -2932,7 +2933,7 @@ model MetaDeck {
   name             String
   source           MetaDeckSource @default(manual) // manual = curado (fallback); limitless = auto (Fase 2)
   sourceRef        String? // id/url del arquetipo en Limitless
-  rank             Int? // posición en el meta (1..10)
+  rank             Int? // posición en el meta (1..20, §DECKS-TOP)
   sharePct         Float? // % del meta, si la fuente lo da
   trend            Int? // share_actual − share_anterior (▲▼=)
   published        Boolean        @default(false)
@@ -4187,12 +4188,41 @@ model SupplyPurchaseUnit {
   @@unique([purchaseId, n])
 }
 
+// §PROV-F4 (m114) — solicitudes SUGERIDAS por el job `supply-suggest`. Una fila VIVA por (carta, acabado): único parcial (en la migración)
+// sobre status IN ('draft','skipped'); `published` es historial (enlaza `requestId`, sin FK: la limpieza PDB borra las solicitudes).
+enum SupplySuggestionStatus {
+  draft
+  published
+  skipped
+}
+
+model SupplySuggestion {
+  id           String                 @id @default(uuid())
+  cardId       String
+  card         Card                   @relation(fields: [cardId], references: [id])
+  finish       Finish
+  suggestedQty Int
+  unitCents    Int?
+  marketCents  Int?
+  reasons      Json
+  status       SupplySuggestionStatus @default(draft)
+  skipReason   String? // no_market | budget | covered | null
+  requestId    String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@index([status, createdAt])
+  @@index([cardId])
+}
+
 model SupplySettings {
   id                String   @id
   autoPublish       Boolean  @default(false)
   autoAccept        Boolean  @default(false)
   defaultPctBps     Int      @default(7000)
-  weeklyBudgetCents Int      @default(0)
+  weeklyBudgetCents Int      @default(500000) // §PROV-F4: MX$5,000 por defecto (HECHOS 2026-11-20)
+  // §PROV-F4: marca de la última corrida buena de `supply-suggest` (lectura de la pantalla de ajustes).
+  lastSuggestRunAt  DateTime?
   updatedAt         DateTime @updatedAt
 }
 

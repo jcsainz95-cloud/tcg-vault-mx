@@ -409,6 +409,25 @@ COMMIT;
   );
 }
 /**
+ * T-AC3 — quita M-114 (§PROV-F4: `SupplySuggestion`, su enum y `SupplySettings.lastSuggestRunAt`) para el B congelado, que no clasifica esa tabla
+ * (G-8 abortaría). Reversa LITERAL (= la de la cabecera de m114). Va ANTES que M-112 (orden inverso de despliegue).
+ */
+export function revertM114(schema: string): void {
+  psqlOk(
+    schema,
+    `BEGIN;
+DROP TABLE IF EXISTS "SupplySuggestion";
+DROP TYPE IF EXISTS "SupplySuggestionStatus";
+ALTER TABLE "SupplySettings" DROP COLUMN IF EXISTS "lastSuggestRunAt";
+ALTER TABLE "SupplySettings" ALTER COLUMN "weeklyBudgetCents" SET DEFAULT 0;
+UPDATE "SupplySettings" SET "weeklyBudgetCents" = 0 WHERE "weeklyBudgetCents" = 500000;
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261204120000_m114_supply_suggestions';
+COMMIT;
+`,
+    'revertM114',
+  );
+}
+/**
  * T-AC3 — quita M-112/M-113 (§DEMANDA: `SearchDemandSeen`, `DemandTermMatch`, `SearchDemandDaily` y el índice de tope por persona) para el B
  * congelado, que no clasifica esas tablas (G-8 abortaría). Reversa LITERAL (= la de la cabecera de m112): las tres tablas y las dos filas de
  * `_prisma_migrations`. Va ANTES que M-110 (orden inverso de despliegue).

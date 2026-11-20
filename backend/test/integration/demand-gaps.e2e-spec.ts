@@ -236,7 +236,8 @@ describe('F2 — POST /marketing/search-miss con cardId', () => {
     expect((await post({ term, kind: 'card', cardId: '99999999-9999-4999-8999-999999999999' })).status).toBe(204);
     expect((await post({ term, kind: 'card', cardId: 'no-es-uuid' }, 'ua-e')).status).toBe(204);
     expect(await w.h.prisma.searchDemandSeen.count()).toBe(0);
-    expect(await w.h.prisma.searchNoResultSeen.count({ where: { termNormalized: term } })).toBe(2);
+    // DM-6: la vía de texto hashea SOLO la IP (como la de cardId): dos user-agents desde la misma IP son UNA persona.
+    expect(await w.h.prisma.searchNoResultSeen.count({ where: { termNormalized: term } })).toBe(1);
   });
   it('carta CON stock ⇒ 204 sin escritura alguna (DM-4: con un término que SÍ está en el vocabulario, así que quitar el `return` de `stocked` lo pone rojo)', async () => {
     const c = await w.card();

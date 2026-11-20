@@ -56,6 +56,7 @@ import {
   revertM102,
   revertM110,
   revertM112,
+  revertM114,
   revertPromoLink,
   cloneSchema,
   FROZEN_B_SHA256,
@@ -1234,6 +1235,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     // en su G-8. Ambos gemelos se revierten a esa era (M-75/M-76 fuera) para comparar como iguales.
     const a = await fresh({ m73: false, m74: false, m75: false });
     // v1.114.5⟨portada⟩: M-94 y luego M-93 (orden inverso de despliegue) — el B congelado no conoce sus seis tablas.
+    revertM114(a.schema); // §PROV-F4: el B congelado no conoce `SupplySuggestion` (G-8 abortaría).
     revertM112(a.schema); // §DEMANDA: el B congelado no conoce `SearchDemandSeen`, `DemandTermMatch` ni `SearchDemandDaily` (G-8 abortaría).
     revertM110(a.schema); // §ENV3: el B congelado no conoce `ShippingQuoteLog` ni `ShippingZoneRate` (G-8 abortaría).
     revertM102(a.schema); // §PROV F1: el B congelado no conoce las ocho tablas del portal de proveedores (G-8 abortaría).
@@ -1257,6 +1259,7 @@ describe('💰 §14.13 v2.2 · accesorios (M-73) y lista de deseos (M-74)', () =
     n += 1;
     const twin = `${RUN}_${n}`;
     migrateSchema(twin);
+    revertM114(twin); // §PROV-F4 (ídem).
     revertM112(twin); // §DEMANDA (ídem).
     revertM110(twin); // §ENV3 (ídem).
     revertM102(twin); // §PROV F1 (ídem).
