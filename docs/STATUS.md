@@ -83,16 +83,15 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-20 · gate §PROV-F4 (2d792678+f133ab4c, m114) + §DECKS-TOP + menores §DEMANDA (07fa9a9c), medido en f133ab4c: RECHAZADO (texto de qa, transcrito por el orquestador)
-- Medido (worktree /tmp, PG16/Redis/s3-local propios, borrados): integración COMPLETA en una tanda 204/204 suites, 3668/3668 tests, 27 min, heap 6144 sin OOM (pico 5762 MB = 94 %, margen ~380 MB: aviso devops); jest unit 608/608 (3 sensibles al env re-corridas limpias 3/3); vitest 504/504 archivos (6106 tests); lint y tsc 0/0 back y front; check-doc-size 37/37.
-- Backend REAL (20 decks publicados, job por cola BullMQ, front con USE_MOCKS=false en Chrome): cantidad = máximo de copias − stock − abiertas en 19/19; energía básica, < MX$10 y sin casar fuera; 70 % al peso hacia abajo, tope 100 %; sin mercado ⇒ skipped; manual manda; presupuesto 149600 ≤ 150000 y el resto en draft/budget; segunda corrida sin duplicar; publish 201/409, skip 204, 6 simultáneas ⇒ 1×201 + 5×409; PATCH solo super_admin; Meta Decks 20 en back y front.
-- §DEMANDA 07fa9a9c: limit canónico (005/0200/0 ⇒ 400), hash solo IP, comentario corregido. OK.
-- BLOQUEANTE (backend) supply-suggest.service.ts:158-163/194: no descuenta acuerdos sin pagar de solicitudes cerradas/vencidas (DECISIONES §PROV-F4 p.2). 1/1: closed con reservado 1 ⇒ nueva solicitud de 3 (stock 1 + 1 + 3 = 5 > 4).
-- IMPORTANTE (arquitecto+backend) :61/:247: la subida de una solicitud de otra semana no entra en el presupuesto (1/1: 45500 publicados con 28000 disponibles). [Regla nueva ya decidida: cupo abierto a la vez, c733b34c.]
-- IMPORTANTE (backend) supply.dto.ts:98: @Max 1e10 contra contrato 1e9 y columna Int ⇒ PATCH 3e9 = 500.
-- IMPORTANTE (frontend) SuggestionsTab.tsx:136-139: sin paginación, solo ve 25 filas.
-- MENOR: operador ve error 403 en la pestaña (front); textos «rotación / publica solo» engañosos y «1 pzs» (front); contrato §5 desactualizado (PROPUESTO, único parcial, autoPublish en prod, autoAccept:true aceptado por PATCH; arquitecto); salto > 30 % como no_market, umbrales fijos, sin almacén de Idempotency-Key (CAS es seguro con el dinero).
-- La fuente «rotación» no existe en el código (0 filas): el arquitecto decide si se construye o se quita.
+## QA (qa) — 2026-11-20 · re-gate §PROV-F4 + §DECKS-TOP (c733b34c+02ca6fa9+9707a607+ac338d54, m114 editada): RECHAZADO (texto de qa, transcrito por el orquestador)
+- Medido (worktree /tmp, PG16/Redis/s3-local propios, borrados): integración COMPLETA 203/204 suites, 3678/3679 tests, 32 min, heap 6144 sin OOM (pico 5769 MB = 93 %: aviso devops); jest unit 608/608 (1 suite muerta por SIGTERM externo, re-corrida 4/4); vitest 504/504 archivos (6109 tests); lint y tsc 0/0 back y front; check-doc-size 37/37.
+- m114: RENAME conserva el valor (123400 ⇒ openBudgetCents 123400, 1/1); 0 ⇒ 500000; autoPublish nace false. Backend REAL + front nuevo (USE_MOCKS=false, Chrome): 20 decks, 32 cartas.
+- Cerrados: (1) acuerdo de solicitud CERRADA descuenta (1/1). (2) cupo abierto con manuales y subidas (499100 ≤ 500000). (3) PATCH 1e9 ⇒ 200; 1e9+1 y 3e9 ⇒ 400; autoAccept ⇒ 400. (4) paginación 25 + 11, también en el front. (5) operador sin 403 ni botones. (6) textos market_jump, plural, sin rotación. (7) contrato §5 vigente.
+- Publish manual: sin key ⇒ 400; misma key ⇒ mismo 201; otro cuerpo ⇒ 422; QUARANTINED, ALREADY_COVERED, BUDGET_EXCEEDED; 6 en paralelo con cupo para 2 ⇒ 2×201 + 4×409 y exposición = tope; 6 con la misma key ⇒ 6×201 y una sola solicitud.
+- BLOQUEANTE (backend) test/integration/supply-f4.e2e-spec.ts:448-456: expectativa dependiente del orden; rojo en 10/17 corridas. El invariante exposición ≤ tope pasó 17/17: el defecto está en la prueba (= F4-3 de seguridad-lead).
+- IMPORTANTE (arquitecto+backend) supply-suggest.service.ts:30,189 + DECISIONES §PROV-F4.2: `verified` ya es stock (supply-purchase.service.ts:176-180) y se cuenta dos veces ⇒ compra de menos hasta pagar (1/1).
+- IMPORTANTE (backend+frontend) supply-suggest.service.ts:362-376 + SuggestionsTab.tsx:239-241: «Publicar» de una fila skipped/covered ⇒ 201 y pide de más (6 > 4, 1/1).
+- MENOR: descuento por carta coherente con el resto (arquitecto alinea §PROV-F4.2); fila draft/budget con solicitud abierta muestra «Publicar» que da 409; mock con autoPublish:true; «abierto ahora» repetido; faltan textos VALIDATION_ERROR/ABOVE_MARKET_CAP (front); PATCH con weeklyBudgetCents ⇒ 200 silencioso (back); DECISIONES §10 dice «encendido por migración» contra §8 (arquitecto).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
