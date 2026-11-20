@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
-import { SuggestionsTab } from './SuggestionsTab';
+import { SuggestionsTab, deckLabel } from './SuggestionsTab';
 import { RoleProvider } from '@/lib/role';
 import { ApiClientError } from '@/lib/api-client';
 import * as api from '@/lib/api/supply-suggestions';
@@ -139,5 +139,23 @@ describe('§PROV-F4 · ajustes de sugeridas', () => {
     await userEvent.type(input, '2500.50');
     await userEvent.click(screen.getByRole('button', { name: /guardar tope/i }));
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ openBudgetCents: 250050 }));
+  });
+});
+
+describe('deckLabel y keys de reasons', () => {
+  it('ex en minúscula; VSTAR/VMAX/GX en mayúsculas', () => {
+    expect(deckLabel('charizard-ex')).toBe('Charizard ex');
+    expect(deckLabel('lugia-vstar')).toBe('Lugia VSTAR');
+    expect(deckLabel('Mew_vmax')).toBe('Mew VMAX');
+    expect(deckLabel('lucario-gx')).toBe('Lucario GX');
+  });
+  it('dos reasons con rank null y mismo ref no avisan de key repetida', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
+    const r = { kind: 'metadeck' as const, ref: 'lugia-vstar', rank: null, copies: null, mult: null } as never;
+    vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [sug(2, { reasons: [r, r] })], page: 1, pageSize: 25, total: 1 });
+    view();
+    expect((await screen.findAllByText('Lugia VSTAR')).length).toBe(2);
+    expect(err.mock.calls.some((c) => String(c[0]).includes('same key'))).toBe(false);
   });
 });

@@ -42,7 +42,12 @@ const TONE: Record<SuggestionStatus, BadgeTone> = { draft: 'warning', published:
 /** Slug del backend («charizard-ex») a texto legible («Charizard ex»); «ex» queda en minúscula. */
 export function deckLabel(ref: string): string {
   return ref.trim().split(/[-_\s]+/).filter(Boolean)
-    .map((w) => (w.toLowerCase() === 'ex' ? 'ex' : w.charAt(0).toUpperCase() + w.slice(1)))
+    .map((w) => {
+      const l = w.toLowerCase();
+      if (l === 'ex') return 'ex';
+      if (l === 'vstar' || l === 'vmax' || l === 'gx') return l.toUpperCase();
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    })
     .join(' ');
 }
 
@@ -231,8 +236,8 @@ function SuggestionRow({ r, canAct }: { r: SupplySuggestion; canAct: boolean }) 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <CardLine card={r.card}>
           <ul aria-label={tr('label')} className="mt-1 text-xs text-muted">
-            {shown.map((x) => (
-              <li key={`${x.rank ?? ''}-${x.ref ?? ''}`}>
+            {shown.map((x, i) => (
+              <li key={`${i}-${x.rank ?? ''}-${x.ref ?? ''}`}>
                 {(() => {
                   const named = x.ref && !UUID_RE.test(x.ref) ? deckLabel(x.ref) : null;
                   const { rank, copies, mult } = x;
