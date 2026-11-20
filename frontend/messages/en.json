@@ -1496,7 +1496,7 @@
           "save": "Save cap",
           "defaultPct": "Default % of market",
           "open": "Open now",
-          "openNow": "open now {open} of {cap}",
+          "openNow": "{open} of {cap}",
           "lastRun": "Last run",
           "never": "Has not run yet",
           "autoAccept": "Accept offers automatically",
@@ -1535,7 +1535,9 @@
           "market_jump": "Market price moved more than 30 % since yesterday; reviewed again tomorrow"
         },
         "errors": {
-          "ALREADY_COVERED": "There is already an open request for that card and finish.",
+          "ALREADY_COVERED": "Already covered.",
+          "VALIDATION_ERROR": "Please check the entered data.",
+          "ABOVE_MARKET_CAP": "That price is above today's market price.",
           "ALREADY_PUBLISHED": "This suggestion was already published.",
           "QUARANTINED": "This suggestion is quarantined (no valid price or price jump); it cannot be published today.",
           "BUDGET_EXCEEDED": "It does not fit under the cap on what is open at once.",

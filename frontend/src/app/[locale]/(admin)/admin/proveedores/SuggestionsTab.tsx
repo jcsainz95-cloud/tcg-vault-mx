@@ -238,7 +238,9 @@ function SuggestionRow({ r, canAct }: { r: SupplySuggestion; canAct: boolean }) 
       </div>
       {canAct && r.status !== 'published' && (
         <div className="flex flex-wrap justify-end gap-2">
-          <Button type="button" disabled={pub.isPending || skip.isPending} onClick={() => pub.mutate()}>{t('publish')}</Button>
+          {r.skipReason !== 'covered' && (
+            <Button type="button" disabled={pub.isPending || skip.isPending} onClick={() => pub.mutate()}>{t('publish')}</Button>
+          )}
           {r.status === 'draft' && (
             <Button type="button" variant="ghost" disabled={pub.isPending || skip.isPending} onClick={() => skip.mutate()}>{t('skip')}</Button>
           )}

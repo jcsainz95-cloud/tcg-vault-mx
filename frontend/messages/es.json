@@ -1496,7 +1496,7 @@
           "save": "Guardar tope",
           "defaultPct": "% por defecto del mercado",
           "open": "Abierto ahora",
-          "openNow": "abierto ahora {open} de {cap}",
+          "openNow": "{open} de {cap}",
           "lastRun": "Última corrida",
           "never": "Aún no corre",
           "autoAccept": "Aceptar ofertas solo",
@@ -1535,7 +1535,9 @@
           "market_jump": "El precio de mercado cambió más de 30 % desde ayer; se revisa solo mañana"
         },
         "errors": {
-          "ALREADY_COVERED": "Ya hay una solicitud abierta de esa carta y acabado.",
+          "ALREADY_COVERED": "Ya está cubierta.",
+          "VALIDATION_ERROR": "Revisa los datos ingresados.",
+          "ABOVE_MARKET_CAP": "Ese precio rebasa el precio de mercado de hoy.",
           "ALREADY_PUBLISHED": "Esta sugerida ya se publicó.",
           "QUARANTINED": "Esta sugerida está en cuarentena (sin precio válido o salto de precio); no se puede publicar hoy.",
           "BUDGET_EXCEEDED": "No cabe en el tope de lo abierto a la vez.",

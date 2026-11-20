@@ -45,7 +45,7 @@ export const MAX_OPEN_BUDGET_CENTS = 1_000_000_000;
 export const DEFAULT_OPEN_BUDGET_CENTS = 500_000;
 
 const MOCK_SETTINGS: SupplySettings = {
-  autoPublish: true,
+  autoPublish: false,
   autoAccept: false,
   defaultPctBps: 7000,
   openBudgetCents: DEFAULT_OPEN_BUDGET_CENTS,

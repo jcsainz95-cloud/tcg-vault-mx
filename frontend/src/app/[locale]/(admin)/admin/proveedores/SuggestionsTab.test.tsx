@@ -71,7 +71,7 @@ describe('§PROV-F4 · ajustes de sugeridas', () => {
     expect(sw.getAttribute('aria-checked')).toBe('true');
     expect((screen.getByLabelText(/tope de lo abierto/i) as HTMLInputElement).value).toBe('5000.00');
     expect(screen.getByText(/aceptar ofertas sigue siendo tuyo/i)).toBeTruthy();
-    expect(screen.getByText(/abierto ahora MX\$120\.00 de MX\$5,000\.00/)).toBeTruthy();
+    expect(screen.getByText(/MX\$120\.00 de MX\$5,000\.00/)).toBeTruthy();
     expect(screen.queryByText(/lunes a domingo|esta semana/i)).toBeNull();
   });
 
