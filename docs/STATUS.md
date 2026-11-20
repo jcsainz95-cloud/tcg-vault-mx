@@ -80,14 +80,12 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-20 · gate §PROV-F4.2 decks completos (6accf402+27e02941+5ef324ef): APROBADO (texto de qa, transcrito por el orquestador)
-- Medido (worktree /tmp, PG16/Redis/s3-local propios, borrados): integración COMPLETA 204/204 suites, 3685/3685, 1620 s, heap 6144 sin OOM (pico 5772 MB = 94 %: aviso devops); jest unit 608/608 (10628); vitest 504 archivos (+2 skip), 6115 tests (+13 skip); tsc y lint 0 back y front; check-doc-size 37/37.
-- Prueba propia contra backend real (HTTP+PG), 1/1 verde: Σ min(copias,4)×mult = 10 (4×2+2×1); ConfigSetting cambia la siguiente corrida (14/18; inválido ⇒ defaults); puesto sube/baja la sugerida, la abierta no baja; al topar gana menor puesto sobre mayor valor; publish manual usa la necesidad viva (6, no 10). Pantalla con la respuesta real: «slug (#N) · X copias × M», 3 + «y N más».
-- Pruebas: el fixture a puestos 6-7 (A 3⇒5) sigue la regla nueva, sin debilitarse; cada rol escribió solo en su ruta.
-- IMPORTANTE: filas viejas sin rank/copies/mult (publicadas o skipped/covered que el job no toca) se ven «(#) · NaN copias ×» (service.ts:331 las devuelve tal cual; SuggestionsTab.tsx:226-232 no se defiende) (backend; frontend defensa). En producción: NO MEDIDO.
-- IMPORTANTE: supply-f4.e2e-spec.ts:394 empata en valor (56 000) y desempata por clave; no prueba la prioridad por puesto (backend).
-- MENOR: al publicar a mano se guardan las reasons de la última corrida (backend); la pantalla muestra el slug crudo y el mock no es la forma real (frontend); rank:null posible contra un contrato «int» (backend/arquitecto); descripción del spec desactualizada (backend).
-- NO MEDIDO: UI en navegador contra backend real (no hay Chromium), si producción tiene filas con reasons viejas.
+## QA (qa) — 2026-11-20 · re-gate §PROV-F4.2 (10427f87+37256a6a+9d79b52d+470575f2, HEAD 9d79b52d): APROBADO (texto de qa, transcrito por el orquestador)
+- Medido (worktree /tmp, PG16/Redis/s3-local propios, borrados): integración COMPLETA 204/204 suites, 3686 ok + 2 skip de entorno (stripe-in-tx-pool), 26 min, heap 6144 sin OOM; reevaluate-unlocated con contraseña real 3/3; jest unit 609/609 (10641) 2/3 corridas (1 suite roja sin identificar bajo carga concurrente); vitest 504 (+2 skip), 6117 (+13 skip); tsc/lint 0 back y front; check-doc-size 37/37.
+- Cerrados: filas viejas contra backend real ⇒ rank/copies/mult int|null, pantalla sin NaN/«(#)», nombre legible (4/4 sonda + 2/2 render); prioridad por puesto: mutación «sin puesto» la tumba 1/1; reasons vivas al publicar; decks rank null fuera (A=10); mult 11/1e9/topRankMax 21 ⇒ defaults, 10/10 ⇒ 60; 503 MARKET_UNAVAILABLE tras 5 intentos, fila intacta, misma key ⇒ 201; textos es/en.
+- IMPORTANTE: contrato §5 (API_CONTRACT_PROVEEDORES.md:53) dice reasons viejas «con los tres en null»; backend las rellena con el deck VIGENTE (supply-suggest.service.ts:346-370) y puede dejar mezcla {rank:null, copies:4, mult:null} (arquitecto decide; backend/arquitecto alinea).
+- MENOR: sin prueba backend del 503 (backend); readReasons no filtra pausedByOperator (:351) (backend); key de <li> duplicable con ref y rank null (SuggestionsTab.tsx:235) (frontend).
+- Rutas: cada rol escribió solo en la suya. NO MEDIDO: UI en navegador real (sin Chromium); filas viejas en producción; qué suite unit falló 1/3.
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
