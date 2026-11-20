@@ -49,8 +49,11 @@ Nombres de ruta F1 ya fijados con backend: no renombrar.
 - POST `/admin/supply-purchases/:id/pay` · admin 💰 · Idempotency-Key — `{method:"cash"|"transfer", reference?:string≤80}` ⇒ 200 purchase (`status:"paid"`, `paidAt`). Mismo key o ya pagado con mismo método ⇒ 200 igual (idempotente); otro método ⇒ 409. Errores: 404, 409 `INVALID_STATE` (solo desde `verified`), 409 `ALREADY_PAID_DIFFERENT`, 422 `NOTHING_TO_PAY`.
 
 ## 5. Sugeridas y ajustes
-- GET `/admin/supply-suggestions` · staff ⇒ `data:[{id, card, finish, suggestedQty, pctBps:7000, unitCents, marketCents, reason:"rotation", createdAt}]`; POST `/admin/supply-suggestions/:id/publish` · admin `{qty?, pctBps?}` ⇒ SupplyRequestAdmin (mismos errores que crear). Job `supply-suggest` diario las genera siempre como borrador; con `autoPublish` encendido se publican solas con `weeklyBudgetCents`.
-- GET/PATCH `/admin/supply-settings` · admin — `{autoPublish:false, autoAccept:false, defaultPctBps:7000, weeklyBudgetCents}`. Interruptores APAGADOS al arrancar.
+Diseño y reglas: `DECISIONES.md` §PROV-F4 (2026-11-20). ESTADO: PROPUESTO (F4), sin construir.
+- GET `/admin/supply-suggestions` · staff — `?status=draft|published|skipped&page` ⇒ `data:[{id, card, finish, suggestedQty, pctBps:7000, unitCents|null, marketCents|null, reasons:[{kind:"rotation"|"metadeck", ref:string|null}], status, skipReason:"no_market"|"budget"|"covered"|null, requestId|null, createdAt}]`. `reasons` reemplaza al `reason` simple. Una fila por (carta, acabado) vigente: re-correr el job actualiza, no duplica (único parcial `(cardId, finish)` con `status=draft`).
+- POST `/admin/supply-suggestions/:id/publish` · admin · Idempotency-Key — `{qty?, pctBps?}` ⇒ 201 SupplyRequestAdmin con `source:"suggested"` (mismos errores que crear + 409 `ALREADY_PUBLISHED`). POST `.../:id/skip` · admin ⇒ 204 (atajo opcional).
+- GET/PATCH `/admin/supply-settings` · admin (super_admin al PATCH) — `{autoPublish, autoAccept:false, defaultPctBps:7000, weeklyBudgetCents}`; PATCH parcial; `weeklyBudgetCents` 0..10 000 000 00, entero. Respuesta añade lectura `{weekSpentCents, weekStartsAt, lastRunAt|null}` (solo GET). `autoPublish` ya NO nace apagado en prod: el dueño lo pidió encendido (HECHOS 2026-11-20); `autoAccept` sigue APAGADO.
+- Job `supply-suggest` (diario 11:00 UTC = 05:00 CDMX): ver DECISIONES §PROV-F4. Auditoría: cada publicación automática deja `SupplyOfferEvent`-equivalente en `SupplyRequest.source="suggested"` + `createdById` = id del usuario sistema.
 
 ## 6. Jobs (sin endpoint)
 `supply-expiry` (horario, idempotente): vence solicitudes (14 d), ofertas sin respuesta (72 h), cancela acuerdos sin recoger (7 d) y libera `qtyReserved`. `supply-digest` (diario 09:00 CDMX): resumen a proveedores y dueño.
