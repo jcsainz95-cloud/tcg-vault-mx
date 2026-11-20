@@ -1476,12 +1476,57 @@
         "requests": "Requests",
         "offers": "Offers",
         "purchases": "Deals",
-        "stores": "Stores"
+        "stores": "Stores",
+        "suggestions": "Suggestions"
       },
       "supplierStatus": {
         "invited": "Invited",
         "active": "Active",
         "suspended": "Deactivated"
+      },
+      "suggest": {
+        "settings": {
+          "title": "Automatic suggestions",
+          "autoPublish": "Publish suggestions automatically",
+          "on": "On",
+          "off": "Off",
+          "budget": "Weekly budget (MXN)",
+          "budgetHint": "Cap on what suggested requests can ask for each week (Monday to Sunday). 0 = publishes nothing.",
+          "budgetBad": "Enter an amount in pesos between 0 and 10,000,000.",
+          "save": "Save budget",
+          "defaultPct": "Default % of market",
+          "spent": "Committed this week",
+          "lastRun": "Last run",
+          "never": "Has not run yet",
+          "autoAccept": "Accept offers automatically",
+          "acceptStaysYours": "Accepting offers stays with you: nothing is bought without your acceptance.",
+          "readOnly": "Only the super admin can change these settings."
+        },
+        "list": {
+          "title": "Today's suggestions",
+          "lead": "They come from rotation and meta decks. Read-only: the system publishes them on its own.",
+          "status": "Status",
+          "all": "All",
+          "emptyTitle": "No suggestions",
+          "emptyBody": "The system generates them every day at 5:00 (Mexico City time).",
+          "qty": "{qty} pcs",
+          "noPrice": "No price",
+          "market": "market"
+        },
+        "status": {
+          "draft": "Pending",
+          "published": "Published",
+          "skipped": "Skipped"
+        },
+        "reason": {
+          "rotation": "Rotation",
+          "metadeck": "Meta deck"
+        },
+        "skip": {
+          "no_market": "No market price",
+          "budget": "Over this week's budget",
+          "covered": "Open request already exists"
+        }
       },
       "requestStatus": {
         "open": "Open",
@@ -8034,11 +8079,11 @@
         "description": "{name}: an accessory to protect and play your Pokémon cards, priced in pesos. Shipped to your home."
       },
       "decksMeta": {
-        "title": "Meta Battle Decks: Standard top 10",
-        "description": "The Pokémon TCG Standard-format top 10 decks, matched against our inventory: which cards we have and at what price."
+        "title": "Meta Battle Decks: Standard top 20",
+        "description": "The Pokémon TCG Standard-format top 20 decks, matched against our inventory: which cards we have and at what price."
       },
       "deckDetail": {
-        "description": "The {name} deck list from the Standard top 10, matched against our inventory: which cards we have and at what price."
+        "description": "The {name} deck list from the Standard top 20, matched against our inventory: which cards we have and at what price."
       },
       "buylist": {
         "title": "Sell your Pokémon cards",
@@ -8486,7 +8531,7 @@
     "KYC_REJECTION_REASON_REQUIRED": "You can't reject without a reason: the customer needs to know what to fix.",
     "IVA_TRANSFER_ACK_REQUIRED": "You have to see the peso cost before saving this fraction. Recompute it and save from there.",
     "IVA_TRANSFER_ACK_STALE": "The cost changed while you were deciding. Nothing was saved: check the new figure and save again.",
-    "DECK_NOT_FOUND": "We couldn't find that deck. It may have dropped out of the top 10.",
+    "DECK_NOT_FOUND": "We couldn't find that deck. It may have dropped out of the top 20.",
     "DECK_LIST_UNPARSEABLE": "We couldn't read any cards from your list. Check the format (quantity, set and number) and try again.",
     "ITEM_ORIGIN_REFUNDED": "A card in your withdrawal comes from a purchase being refunded and can't ship. Remove it and try again.",
     "DECLINE_NOT_ALLOWED": "This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved.",
@@ -8733,7 +8778,7 @@
   },
   "decksMeta": {
     "metaTitle": "Meta Battle Decks",
-    "metaSubtitle": "The Standard-format top 10, matched against our inventory: what we have and at what price.",
+    "metaSubtitle": "The Standard-format top 20, matched against our inventory: what we have and at what price.",
     "pasteLink": "Paste my list",
     "list": {
       "sourceLine": "{source} · updated {date}",
@@ -8746,7 +8791,7 @@
       "trendFlat": "No change",
       "view": "View deck",
       "emptyTitle": "No decks published yet",
-      "emptyBody": "As soon as we publish the meta top 10, it'll show up here."
+      "emptyBody": "As soon as we publish the meta top 20, it'll show up here."
     },
     "detail": {
       "back": "Back to Meta Battle Decks",
