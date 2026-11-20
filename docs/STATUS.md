@@ -80,12 +80,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-20 · verificación final §PROV-F4 (2963a25b+1c317942+3336830b, HEAD 3336830b): RECHAZADO (texto de qa, transcrito por el orquestador)
-- Medido (worktree /tmp, PG/Redis/s3-local propios, borrados): integración COMPLETA 204/204 suites, 3689 ok + 2 skip, 27,7 min, heap 6144 sin OOM; supply-f4 38/38; jest unit 609/609 (10642) 1/1; vitest 504 (+2 skip), 6119 (+13 skip); tsc/lint 0 back y front; check-doc-size 37/37.
-- Cerrados: IMPORTANTE contrato/código en los casos pedidos (deck pausado, sin publicar, rank 0 y -5 ⇒ tres null 4/4; deck sano ⇒ relleno 1/1); menores 503 con prueba, filtro pausedByOperator, key por índice; VSTAR/VMAX/GX.
-- BLOQUEANTE (backend): rank<1 GUARDADO en la reason sale tal cual ({rank:0}⇒{0,3,2}; 2/2 sonda); contrato §5:53 exige null al leer. normalizeReasons (supply-suggest.logic.ts:42), atajo service.ts:362 y `x.rank ?? d.rank` :366.
-- IMPORTANTE (arquitecto decide, backend alinea): deck sano sin la carta en su lista vigente ⇒ {rank:7,copies:null,mult:1}, mezcla (copiesOf service.ts:356-358).
-- MENOR (arquitecto): rank guardado distinto del vigente se mezcla con copies/mult vivos ({rank:2}⇒{2,3,2} con deck en puesto 7); fijado por supply-f4.e2e-spec.ts:590.
+## QA (qa) — 2026-11-20 · verificación final §PROV-F4 (07527afe, contrato 517b307c §5:53): APROBADO (texto de qa, transcrito por el orquestador)
+- Medido (worktree /tmp, PG/Redis/s3-local propios, borrados): sonda reasons al leer 17/17 en 07527afe y 1/17 con fuentes de 3336830b (rank 0/-5 guardados ⇒ vigente 7; guardado 2 con deck en 7 ⇒ 7; carta fuera de lista o desmatcheada ⇒ tres null; deck sano ⇒ relleno; deck rank 0/-5/null, pausado o sin publicar ⇒ null; nunca mezcla). Cerrados BLOQUEANTE, IMPORTANTE y MENOR anteriores.
+- Integración COMPLETA heap 6144: 203/204 suites (3691 ok/3692), 1779 s, sin OOM, supply-f4 39/39; jest unit 609/609 (10642) 2/3, la otra corrida con app.module.spec.ts muerto por SIGTERM externo (causa no hallada); vitest 504 (+2 skip) y 6119 (+13 skip); tsc 0 back/front; lint 0 errores; check-doc-size 37/37.
+- IMPORTANTE (backend): sealed-price.e2e-spec.ts:540 SP-6 SUELTA, 1/10 rondas KO en la suite completa (PUT 200 a 2000 pero tras liberar cotiza 1000); sola 3/3 verde. Falló 1/4 corridas; ajeno al diff (solo supply), pero es módulo de dinero.
+- IMPORTANTE (devops/backend): heap de la integración con pico 5799/6144 MB (94 %), +18,1 MB/spec, unos 24 specs de margen. MENOR (backend): isInt sin uso en supply-suggest.logic.ts:33.
 - Rutas: cada rol escribió solo en la suya. NO MEDIDO: UI en navegador real; filas viejas en producción.
 
 ## Deuda técnica activa (todas las secciones)
