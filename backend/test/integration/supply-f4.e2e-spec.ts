@@ -586,10 +586,25 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
         expect(await read()).toEqual(nulls);
       }
       await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { rank: 7 } });
-      expect(await read()).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 4, copies: 3, mult: 2 }]); // vigente sano: rellena (rank guardado se respeta; mult por ese rank)
+      expect(await read()).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 7, copies: 3, mult: 1 }]); // regla única: lo guardado (rank 4) se ignora; deck hoy en puesto 7 ⇒ 7 vigente, mult de ese puesto
     } finally {
       await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { pausedByOperator: false, published: true, rank: 7 } });
     }
+  });
+
+  it('F4-5: regla única al leer: rank 0/-5 guardados no salen; carta fuera de la lista vigente ⇒ los tres null', async () => {
+    await svc.run();
+    const a = (await row(C.A))!;
+    const readOf = async (id: string) => (await A('GET', '/admin/supply-suggestions?status=draft&pageSize=100', admin)).body.data.find((x: any) => x.id === id)?.reasons;
+    for (const bad of [0, -5]) {
+      await h.prisma.supplySuggestion.update({ where: { id: a.id }, data: { reasons: [{ kind: 'metadeck', ref: `${SLUG}-2`, rank: bad, copies: null, mult: 1 }] } });
+      expect(await readOf(a.id)).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 7, copies: 3, mult: 1 }]); // vigente, nunca el guardado
+    }
+    const b = await row(C.B);
+    expect(b).toBeTruthy();
+    // deck-2 solo lista C.A: C.B fuera de la lista vigente ⇒ tres null aunque lo guardado sea completo
+    await h.prisma.supplySuggestion.update({ where: { id: b!.id }, data: { reasons: [{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 2, copies: 3, mult: 2 }] } });
+    expect(await readOf(b!.id)).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2`, rank: null, copies: null, mult: null }]);
   });
 
   it('F4-8: rank 0 y -5 no cuentan como top en la necesidad (ni job ni publish manual)', async () => {

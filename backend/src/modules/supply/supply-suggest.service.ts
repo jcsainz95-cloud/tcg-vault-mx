@@ -346,7 +346,7 @@ export class SupplySuggestService {
   private async readReasons(rows: { id: string; cardId: string; reasons: unknown }[]): Promise<Map<string, SuggestReasonView[]>> {
     const out = new Map(rows.map((r) => [r.id, normalizeReasons(r.reasons)]));
     const slugs = new Set<string>();
-    for (const rs of out.values()) for (const x of rs) if (x.ref && (x.rank == null || x.copies == null || x.mult == null)) slugs.add(x.ref);
+    for (const rs of out.values()) for (const x of rs) if (x.ref) slugs.add(x.ref);
     if (!slugs.size) return out;
     const decks = await this.prisma.metaDeck.findMany({ where: { slug: { in: [...slugs] }, published: true, pausedByOperator: false, rank: { gte: 1 }, currentListId: { not: null } }, select: { slug: true, rank: true, currentListId: true } });
     const cardIds = [...new Set(rows.map((r) => r.cardId))];
@@ -359,12 +359,13 @@ export class SupplySuggestService {
     };
     for (const r of rows) {
       out.set(r.id, (out.get(r.id) ?? []).map((x) => {
-        if (x.rank != null && x.copies != null && x.mult != null) return x;
         const d = x.ref ? deckBySlug.get(x.ref) : undefined;
         // Sin deck vigente válido (existe, publicado, no pausado, rank≥1) los tres a null: nunca mezcla de datos guardados y vivos.
         if (!d || d.rank == null || d.rank < 1) return { ...x, rank: null, copies: null, mult: null };
-        const rank = x.rank ?? d.rank;
-        return { ...x, rank, copies: x.copies ?? copiesOf(d.currentListId as string, r.cardId), mult: x.mult ?? multForRank(rank, mult) };
+        const copies = copiesOf(d.currentListId as string, r.cardId);
+        // Carta fuera de la lista vigente ⇒ los tres null (regla única §5: solo cuenta `ref`).
+        if (copies == null) return { ...x, rank: null, copies: null, mult: null };
+        return { ...x, rank: d.rank, copies, mult: multForRank(d.rank, mult) };
       }));
     }
     return out;

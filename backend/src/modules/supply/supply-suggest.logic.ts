@@ -32,14 +32,14 @@ export type SuggestReasonView = { kind: 'metadeck'; ref: string | null; rank: nu
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 
-/** Normaliza `reasons` leídas de BD (forma estable): campos ausentes o no enteros ⇒ `null`; basura ⇒ se descarta. */
+/** Normaliza `reasons` leídas de BD: solo cuenta `ref` (rank/copies/mult guardados se IGNORAN; el servicio los recalcula vigentes); basura ⇒ se descarta. */
 export function normalizeReasons(raw: unknown): SuggestReasonView[] {
   if (!Array.isArray(raw)) return [];
   const out: SuggestReasonView[] = [];
   for (const r of raw as unknown[]) {
     if (r == null || typeof r !== 'object') continue;
     const o = r as Record<string, unknown>;
-    out.push({ kind: 'metadeck', ref: typeof o.ref === 'string' ? o.ref : null, rank: isInt(o.rank) ? o.rank : null, copies: isInt(o.copies) ? o.copies : null, mult: isInt(o.mult) ? o.mult : null });
+    out.push({ kind: 'metadeck', ref: typeof o.ref === 'string' ? o.ref : null, rank: null, copies: null, mult: null });
   }
   return out;
 }

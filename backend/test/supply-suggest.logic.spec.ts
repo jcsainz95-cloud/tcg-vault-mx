@@ -76,10 +76,10 @@ describe('§PROV-F4 · reglas puras de sugeridas', () => {
     expect(m.get('b')?.need).toBe(3);
   });
 
-  it('normalizeReasons: campos ausentes ⇒ null estable; basura se descarta', () => {
+  it('normalizeReasons: rank/copies/mult guardados se ignoran (null); basura se descarta', () => {
     expect(normalizeReasons([{ kind: 'metadeck', ref: 'x' }, null, 'z', { ref: 'y', rank: 2, copies: 3, mult: 2 }, { ref: 'w', rank: 1.5 }])).toEqual([
       { kind: 'metadeck', ref: 'x', rank: null, copies: null, mult: null },
-      { kind: 'metadeck', ref: 'y', rank: 2, copies: 3, mult: 2 },
+      { kind: 'metadeck', ref: 'y', rank: null, copies: null, mult: null },
       { kind: 'metadeck', ref: 'w', rank: null, copies: null, mult: null },
     ]);
     expect(normalizeReasons(undefined)).toEqual([]);
