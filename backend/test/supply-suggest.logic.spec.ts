@@ -20,10 +20,10 @@ describe('§PROV-F4 · reglas puras de sugeridas', () => {
 
   it('unión de fuentes: max de cantidad y reasons conserva las dos', () => {
     const a = needsFromDecks([{ cardId: 'a', quantity: 2, deckSlug: 'd1' }]);
-    const rot = new Map([['a', { cardId: 'a', need: 3, reasons: [{ kind: 'rotation' as const, ref: null }] }]]);
-    const u = mergeNeeds(a, rot);
+    const b = needsFromDecks([{ cardId: 'a', quantity: 3, deckSlug: 'd2' }]);
+    const u = mergeNeeds(a, b);
     expect(u.get('a')?.need).toBe(3);
-    expect(u.get('a')?.reasons).toEqual([{ kind: 'metadeck', ref: 'd1' }, { kind: 'rotation', ref: null }]);
+    expect(u.get('a')?.reasons).toEqual([{ kind: 'metadeck', ref: 'd1' }, { kind: 'metadeck', ref: 'd2' }]);
   });
 
   it('energía básica se excluye; la especial no', () => {

@@ -136,8 +136,10 @@ export class AdminSupplyController {
   // ---- §PROV-F4: sugeridas (el job `supply-suggest` las genera; publicar/saltar a mano es solo un atajo) ----
   @Roles(...STAFF) @Get('supply-suggestions') listSuggestions(@Query('status') status?: S, @Query('page') page?: S, @Query('pageSize') pageSize?: S) { return this.suggest.list({ status, page, pageSize }); }
   @Roles(Role.super_admin) @Post('supply-suggestions/:id/publish')
-  async publishSuggestion(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PublishSuggestionDto) {
-    const requestId = await this.suggest.publish(id, dto, uid);
+  async publishSuggestion(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PublishSuggestionDto, @Headers('idempotency-key') key?: string) {
+    const k = idemKey(key);
+    if (!k) throw BusinessException.badRequest('VALIDATION_ERROR', 'Idempotency-Key header is required');
+    const requestId = await this.suggest.publish(id, dto, k, uid);
     return this.requests.getAdmin(requestId);
   }
   @Roles(Role.super_admin) @Post('supply-suggestions/:id/skip') @HttpCode(204)
@@ -147,11 +149,12 @@ export class AdminSupplyController {
   @Roles(Role.super_admin) @Get('supply-settings')
   async settings() {
     const s = await this.prisma.supplySettings.findUniqueOrThrow({ where: { id: SUPPLY_SETTINGS_ID } });
-    return { autoPublish: s.autoPublish, autoAccept: s.autoAccept, defaultPctBps: s.defaultPctBps, weeklyBudgetCents: s.weeklyBudgetCents, ...(await this.suggest.settingsReadout()) };
+    return { autoPublish: s.autoPublish, autoAccept: false, defaultPctBps: s.defaultPctBps, openBudgetCents: s.openBudgetCents, ...(await this.suggest.settingsReadout()) };
   }
   @Roles(Role.super_admin) @Patch('supply-settings')
   async patchSettings(@Body() dto: PatchSupplySettingsDto) {
-    const s = await this.prisma.supplySettings.update({ where: { id: SUPPLY_SETTINGS_ID }, data: { ...dto } });
-    return { autoPublish: s.autoPublish, autoAccept: s.autoAccept, defaultPctBps: s.defaultPctBps, weeklyBudgetCents: s.weeklyBudgetCents };
+    const { autoPublish, defaultPctBps, openBudgetCents } = dto;
+    const s = await this.prisma.supplySettings.update({ where: { id: SUPPLY_SETTINGS_ID }, data: { autoPublish, defaultPctBps, openBudgetCents } });
+    return { autoPublish: s.autoPublish, autoAccept: false, defaultPctBps: s.defaultPctBps, openBudgetCents: s.openBudgetCents };
   }
 }

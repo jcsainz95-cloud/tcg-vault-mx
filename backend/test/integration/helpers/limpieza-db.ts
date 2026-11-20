@@ -419,6 +419,7 @@ export function revertM114(schema: string): void {
 DROP TABLE IF EXISTS "SupplySuggestion";
 DROP TYPE IF EXISTS "SupplySuggestionStatus";
 ALTER TABLE "SupplySettings" DROP COLUMN IF EXISTS "lastSuggestRunAt";
+ALTER TABLE "SupplySettings" RENAME COLUMN "openBudgetCents" TO "weeklyBudgetCents";
 ALTER TABLE "SupplySettings" ALTER COLUMN "weeklyBudgetCents" SET DEFAULT 0;
 UPDATE "SupplySettings" SET "weeklyBudgetCents" = 0 WHERE "weeklyBudgetCents" = 500000;
 DELETE FROM "_prisma_migrations" WHERE migration_name = '20261204120000_m114_supply_suggestions';

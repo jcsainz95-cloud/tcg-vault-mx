@@ -21,7 +21,9 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
   let operator: string;
   let customer: string;
   let prevPublished: string[] = [];
-  const A = (m: string, p: string, token: string, json?: unknown) => h.api(m as any, p, { token, json });
+  const A = (m: string, p: string, token: string, json?: unknown, headers?: Record<string, string>) => h.api(m as any, p, { token, json, headers });
+  let kseq = 0;
+  const P = (id: string, body: unknown = {}, key: string | null = `k-${++kseq}-${Date.now()}`, token = admin) => A('POST', `/admin/supply-suggestions/${id}/publish`, token, body, key ? { 'idempotency-key': key } : undefined);
   const code = (r: { body: any }) => r.body?.error?.code;
 
   async function setMarket(cardId: string, cents: number | null, opts: { daysAgo?: number } = {}) {
@@ -33,12 +35,13 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
       data: { cardId, productType: 'raw', gradeKey: 'raw:NM', finish: 'normal', source: 'manual', priceMxnCents: cents, capturedDate: d, isManualOverride: opts.daysAgo == null, refKind: 'market' },
     });
   }
-  async function settings(patch: { autoPublish?: boolean; weeklyBudgetCents?: number; defaultPctBps?: number }) {
+  async function settings(patch: { autoPublish?: boolean; openBudgetCents?: number; defaultPctBps?: number }) {
     await h.prisma.supplySettings.update({ where: { id: 'singleton' }, data: patch });
   }
   async function reset() {
     await h.prisma.supplySuggestion.deleteMany({});
     await h.prisma.supplySettings.update({ where: { id: 'singleton' }, data: { lastSuggestRunAt: null } });
+    await h.prisma.supplyPurchase.deleteMany({});
     await h.prisma.supplyOfferEvent.deleteMany({});
     await h.prisma.supplyOffer.deleteMany({});
     await h.prisma.supplyRequest.deleteMany({});
@@ -96,14 +99,14 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
       await p.priceReference.deleteMany({ where: { cardId: { in: ALL } } });
       await p.card.deleteMany({ where: { setId: SET } });
       await p.cardSet.deleteMany({ where: { id: SET } });
-      await settings({ autoPublish: false, weeklyBudgetCents: 500000, defaultPctBps: 7000 });
+      await settings({ autoPublish: false, openBudgetCents: 500000, defaultPctBps: 7000 });
     }
     await h?.close();
   });
 
   beforeEach(async () => {
     await reset();
-    await settings({ autoPublish: false, weeklyBudgetCents: 500000, defaultPctBps: 7000 });
+    await settings({ autoPublish: false, openBudgetCents: 500000, defaultPctBps: 7000 });
   });
 
   it('el interruptor nace APAGADO (sin la migración de datos de producción) y autoAccept también', async () => {
@@ -113,9 +116,9 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     // el DEFAULT de la columna sigue en false: el encendido en producción es una decisión posterior a los gates, no de la migración
     const def = await h.prisma.$queryRaw<{ c: string }[]>`SELECT column_default AS c FROM information_schema.columns WHERE table_name = 'SupplySettings' AND column_name = 'autoPublish'`;
     expect(def[0].c).toBe('false');
-    const bud = await h.prisma.$queryRaw<{ c: string }[]>`SELECT column_default AS c FROM information_schema.columns WHERE table_name = 'SupplySettings' AND column_name = 'weeklyBudgetCents'`;
+    const bud = await h.prisma.$queryRaw<{ c: string }[]>`SELECT column_default AS c FROM information_schema.columns WHERE table_name = 'SupplySettings' AND column_name = 'openBudgetCents'`;
     expect(bud[0].c).toBe('500000'); // MX$5,000 por defecto (HECHOS 2026-11-20)
-    expect(s.body).toEqual(expect.objectContaining({ weekSpentCents: 0, lastRunAt: null }));
+    expect(s.body).toEqual(expect.objectContaining({ openExposureCents: 0, lastRunAt: null }));
   });
 
   it('autoPublish APAGADO: solo borradores; necesidad = máximo de copias (3, no 5); energía, barata, sin casar y sin mercado se tratan según regla', async () => {
@@ -127,7 +130,7 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     expect(a?.reasons).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2` }]);
     expect(await row(C.B)).toMatchObject({ status: 'draft', suggestedQty: 4, unitCents: 14000 }); // 70 % de 200.50 = 140.35 → 140
     expect(await row(C.N)).toMatchObject({ status: 'skipped', skipReason: 'no_market', unitCents: null });
-    expect(await row(C.J)).toMatchObject({ status: 'skipped', skipReason: 'no_market' }); // salto de mercado ⇒ cuarentena
+    expect(await row(C.J)).toMatchObject({ status: 'skipped', skipReason: 'market_jump' }); // salto de mercado ⇒ cuarentena
     expect(await row(C.CHEAP)).toBeNull(); // < MX$10 no se sugiere
     expect(await row(C.EN)).toBeNull(); // energía básica excluida
     expect(await row(C.U)).toBeNull(); // sin casar: no hay carta que comprar
@@ -206,25 +209,25 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
   });
 
   it('presupuesto semanal: lo que excede queda en borrador/budget y la exposición nunca supera el tope', async () => {
-    await settings({ autoPublish: true, weeklyBudgetCents: 30000 }); // MX$300: prioridad por valor ⇒ B (4×140) se REDUCE a 2 (280) y A (210) no cabe
+    await settings({ autoPublish: true, openBudgetCents: 30000 }); // MX$300: prioridad por valor ⇒ B (4×140) se REDUCE a 2 (280) y A (210) no cabe
     const r = await svc.run();
     expect(r.published).toBe(1);
     expect((await reqs(C.B))[0].qtyWanted).toBe(2);
-    const exposure = await svc.weekExposure(new Date());
+    const exposure = await svc.openExposure(new Date());
     expect(exposure).toBeLessThanOrEqual(30000);
     expect(await row(C.A)).toMatchObject({ status: 'draft', skipReason: 'budget' });
     const st = await A('GET', '/admin/supply-settings', admin);
-    expect(st.body.weekSpentCents).toBe(exposure);
+    expect(st.body.openExposureCents).toBe(exposure);
     // sube el presupuesto ⇒ la siguiente corrida publica lo pendiente
-    await settings({ weeklyBudgetCents: 500000 });
+    await settings({ openBudgetCents: 500000 });
     await svc.run();
     expect(await reqs(C.A)).toHaveLength(1);
     expect((await reqs(C.B))[0].qtyWanted).toBe(4); // la reducida sube sola al liberarse presupuesto
-    expect(await svc.weekExposure(new Date())).toBeLessThanOrEqual(500000);
+    expect(await svc.openExposure(new Date())).toBeLessThanOrEqual(500000);
   });
 
   it('presupuesto 0 ⇒ no publica nada (equivale a apagado)', async () => {
-    await settings({ autoPublish: true, weeklyBudgetCents: 0 });
+    await settings({ autoPublish: true, openBudgetCents: 0 });
     await svc.run();
     expect(await h.prisma.supplyRequest.count()).toBe(0);
     expect(await row(C.A)).toMatchObject({ status: 'draft', skipReason: 'budget' });
@@ -237,7 +240,7 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     expect(await reqs(C.B)).toHaveLength(1);
     const live = await h.prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM (SELECT "cardId","finish" FROM "SupplySuggestion" WHERE status IN ('draft','skipped') GROUP BY 1,2 HAVING count(*)>1) x`;
     expect(Number(live[0].n)).toBe(0);
-    expect(await svc.weekExposure(new Date())).toBeLessThanOrEqual(500000);
+    expect(await svc.openExposure(new Date())).toBeLessThanOrEqual(500000);
   });
 
   it('la BD rechaza dos filas vivas de la misma (carta, acabado)', async () => {
@@ -267,18 +270,19 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     expect((await A('GET', '/admin/supply-suggestions', customer)).status).toBe(403);
     const a = await row(C.A);
     expect((await A('POST', `/admin/supply-suggestions/${a!.id}/publish`, operator, {})).status).toBe(403);
-    const over = await A('POST', `/admin/supply-suggestions/${a!.id}/publish`, admin, { pctBps: 10001 });
+    const over = await P(a!.id, { pctBps: 10001 });
     expect(over.status).toBe(400);
-    const pub = await A('POST', `/admin/supply-suggestions/${a!.id}/publish`, admin, { qty: 2 });
+    const pub = await P(a!.id, { qty: 2 });
     expect(pub.status).toBe(201);
     expect(pub.body).toMatchObject({ source: 'suggested', qtyWanted: 2, unitCents: 7000 });
-    const again = await A('POST', `/admin/supply-suggestions/${a!.id}/publish`, admin, {});
+    const again = await P(a!.id, {});
     expect(again.status).toBe(409);
     expect(code(again)).toBe('ALREADY_PUBLISHED');
     const nomkt = await row(C.N);
-    const noPrice = await A('POST', `/admin/supply-suggestions/${nomkt!.id}/publish`, admin, {});
-    expect(noPrice.status).toBe(422);
-    expect(code(noPrice)).toBe('FIXED_PRICE_REQUIRED');
+    const noPrice = await P(nomkt!.id, {});
+    expect(noPrice.status).toBe(409);
+    expect(code(noPrice)).toBe('QUARANTINED');
+    expect(noPrice.body.error.details).toEqual({ skipReason: 'no_market' });
     const b = await row(C.B);
     expect((await A('POST', `/admin/supply-suggestions/${b!.id}/skip`, admin)).status).toBe(204);
     expect((await row(C.B))?.status).toBe('skipped');
@@ -289,13 +293,165 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     expect((await A('POST', '/admin/supply-suggestions/00000000-0000-0000-0000-000000000000/skip', admin)).status).toBe(404);
   });
 
+  it('PATCH de ajustes: tope entero acotado a 1e9 (3e9 ⇒ 400, no 500), autoAccept NO editable (400) y GET siempre false', async () => {
+    expect((await A('PATCH', '/admin/supply-settings', admin, { openBudgetCents: 3_000_000_000 })).status).toBe(400);
+    expect((await A('PATCH', '/admin/supply-settings', admin, { openBudgetCents: 1_000_000_001 })).status).toBe(400);
+    expect((await A('PATCH', '/admin/supply-settings', admin, { openBudgetCents: 1_000_000_000 })).status).toBe(200);
+    for (const v of [true, false, null, 'x']) {
+      const r = await A('PATCH', '/admin/supply-settings', admin, { autoAccept: v });
+      expect(r.status).toBe(400);
+      expect(code(r)).toBe('VALIDATION_ERROR');
+    }
+    await h.prisma.supplySettings.update({ where: { id: 'singleton' }, data: { autoAccept: true } });
+    expect((await A('GET', '/admin/supply-settings', admin)).body.autoAccept).toBe(false); // el GET no refleja la columna
+    await h.prisma.supplySettings.update({ where: { id: 'singleton' }, data: { autoAccept: false } });
+  });
+
   it('PATCH de ajustes: presupuesto entero acotado y autoAccept sigue en false por defecto', async () => {
-    const ok = await A('PATCH', '/admin/supply-settings', admin, { weeklyBudgetCents: 123400 });
+    const ok = await A('PATCH', '/admin/supply-settings', admin, { openBudgetCents: 123400 });
     expect(ok.status).toBe(200);
-    expect(ok.body.weeklyBudgetCents).toBe(123400);
+    expect(ok.body.openBudgetCents).toBe(123400);
     expect(ok.body.autoAccept).toBe(false);
-    expect((await A('PATCH', '/admin/supply-settings', admin, { weeklyBudgetCents: 1.5 })).status).toBe(400);
-    expect((await A('PATCH', '/admin/supply-settings', admin, { weeklyBudgetCents: -1 })).status).toBe(400);
-    expect((await A('PATCH', '/admin/supply-settings', operator, { weeklyBudgetCents: 1 })).status).toBe(403);
+    expect((await A('PATCH', '/admin/supply-settings', admin, { openBudgetCents: 1.5 })).status).toBe(400);
+    expect((await A('PATCH', '/admin/supply-settings', admin, { openBudgetCents: -1 })).status).toBe(400);
+    expect((await A('PATCH', '/admin/supply-settings', operator, { openBudgetCents: 1 })).status).toBe(403);
+  });
+
+  // ------------------------------------------------------------------ gate F4: hallazgos de qa y seguridad-lead
+  async function agreement(cardId: string, qty: number, reqStatus: 'open' | 'closed', purchaseStatus: 'agreed' | 'collected' | 'verified' | 'paid' | 'cancelled') {
+    const sup = await h.prisma.supplier.upsert({ where: { email: 'f4-sup@example.test' }, update: {}, create: { email: 'f4-sup@example.test', businessName: 'F4 Sup', status: 'active' } });
+    const req = await h.prisma.supplyRequest.create({
+      data: { cardId, finish: 'normal', qtyWanted: qty, qtyReserved: reqStatus === 'open' ? qty : 0, pctBps: 7000, status: reqStatus, source: 'manual', expiresAt: new Date(Date.now() + 86400_000), createdById: 'x' },
+    });
+    const offer = await h.prisma.supplyOffer.create({ data: { requestId: req.id, supplierId: sup.id, qty, condition: 'NM', unitCents: 7000, status: 'accepted', expiresAt: new Date(Date.now() + 86400_000) } });
+    await h.prisma.supplyPurchase.create({ data: { offerId: offer.id, supplierId: sup.id, requestId: req.id, cardId, finish: 'normal', qty, agreedUnitCents: 7000, pickupDueAt: new Date(Date.now() + 86400_000), status: purchaseStatus } });
+    return req;
+  }
+
+  it('BLOQUEANTE qa: acuerdos sin pagar de una solicitud CERRADA descuentan; pagado y cancelado no', async () => {
+    await h.prisma.inventoryItem.create({ data: { folio: 'F4-D1', cardId: C.B, productType: 'raw', rawCondition: 'NM', finish: 'normal', acquisitionType: 'compra', acquisitionCostCents: 1000, status: 'in_stock', ownerType: 'platform' } });
+    await agreement(C.B, 1, 'closed', 'agreed');
+    await svc.run();
+    expect(await row(C.B)).toMatchObject({ status: 'draft', suggestedQty: 2 }); // 4 − stock 1 − acuerdo 1 (antes pedía 3)
+    for (const st of ['collected', 'verified'] as const) {
+      await reset();
+      await h.prisma.inventoryItem.create({ data: { folio: `F4-D${st}`, cardId: C.B, productType: 'raw', rawCondition: 'NM', finish: 'normal', acquisitionType: 'compra', acquisitionCostCents: 1000, status: 'in_stock', ownerType: 'platform' } });
+      await agreement(C.B, 1, 'closed', st);
+      await svc.run();
+      expect(await row(C.B)).toMatchObject({ suggestedQty: 2 });
+    }
+    for (const st of ['paid', 'cancelled'] as const) {
+      await reset();
+      await agreement(C.B, 1, 'closed', st);
+      await svc.run();
+      expect(await row(C.B)).toMatchObject({ suggestedQty: 4 });
+    }
+  });
+
+  it('acuerdo sin pagar de una solicitud ABIERTA no se cuenta dos veces (reservado + acuerdo)', async () => {
+    await agreement(C.B, 1, 'open', 'agreed'); // qtyWanted 1, reservado 1 ⇒ pendiente 0 + acuerdo 1
+    await svc.run();
+    expect(await row(C.B)).toMatchObject({ suggestedQty: 3 });
+  });
+
+  it('cupo ABIERTO a la vez: una solicitud MANUAL grande cuenta y baja el cupo disponible del job', async () => {
+    await settings({ autoPublish: true, openBudgetCents: 30000 });
+    await h.prisma.supplyRequest.create({ data: { cardId: C.CHEAP, finish: 'normal', qtyWanted: 4, pctBps: 10000, fixedCents: 5000, source: 'manual', expiresAt: new Date(Date.now() + 86400_000), createdById: 'x' } }); // 4 × 50 = 200
+    expect(await svc.openExposure(new Date())).toBe(20000);
+    const r = await svc.run();
+    expect(await svc.openExposure(new Date())).toBeLessThanOrEqual(30000);
+    expect(r.published).toBe(1); // solo caben MX$100 más: A reducida a 1 (70) o B (1 × 140 no cabe)
+    expect((await reqs(C.A))[0].qtyWanted).toBe(1);
+    expect(await row(C.B)).toMatchObject({ status: 'draft', skipReason: 'budget' });
+  });
+
+  it('cupo abierto: la SUBIDA de una solicitud sugerida (delta) cuenta y no rebasa el tope; lo vencido o ya recibido sale', async () => {
+    await settings({ autoPublish: true, openBudgetCents: 100000 });
+    await svc.run();
+    const before = await svc.openExposure(new Date());
+    expect(before).toBeLessThanOrEqual(100000);
+    await h.prisma.metaDeckCard.updateMany({ where: { matchedCardId: C.A, quantity: 3 }, data: { quantity: 4 } });
+    await svc.run();
+    expect(await svc.openExposure(new Date())).toBeLessThanOrEqual(100000);
+    await h.prisma.metaDeckCard.updateMany({ where: { matchedCardId: C.A, quantity: 4 }, data: { quantity: 3 } });
+    await h.prisma.supplyRequest.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } }); // vencen
+    expect(await svc.openExposure(new Date())).toBe(0);
+  });
+
+  it('publish manual: Idempotency-Key obligatoria, misma key ⇒ misma respuesta sin segunda solicitud, otro cuerpo ⇒ 422', async () => {
+    await svc.run();
+    const a = (await row(C.A))!;
+    const noKey = await P(a.id, {}, null);
+    expect(noKey.status).toBe(400);
+    expect(code(noKey)).toBe('VALIDATION_ERROR');
+    const first = await P(a.id, { qty: 2 }, 'k-fixed-1');
+    expect(first.status).toBe(201);
+    const again = await P(a.id, { qty: 2 }, 'k-fixed-1');
+    expect(again.status).toBe(201);
+    expect(again.body.id).toBe(first.body.id);
+    expect(await reqs(C.A)).toHaveLength(1);
+    const other = await P(a.id, { qty: 1 }, 'k-fixed-1');
+    expect(other.status).toBe(422);
+    expect(code(other)).toBe('IDEMPOTENCY_KEY_REUSED');
+    const b = (await row(C.B))!;
+    expect(code(await P(b.id, {}, 'k-fixed-1'))).toBe('IDEMPOTENCY_KEY_REUSED'); // misma key, otra sugerida
+  });
+
+  it('publish manual: 8 simultáneas con la MISMA key ⇒ 1 solicitud y la misma respuesta; con keys distintas ⇒ 1×201 y el resto 409', async () => {
+    await svc.run();
+    const a = (await row(C.A))!;
+    const same = await Promise.all(Array.from({ length: 8 }, () => P(a.id, {}, 'k-par')));
+    expect(same.every((r) => r.status === 201 && r.body.id === same[0].body.id)).toBe(true);
+    expect(await reqs(C.A)).toHaveLength(1);
+    const b = (await row(C.B))!;
+    const diff = await Promise.all(Array.from({ length: 6 }, () => P(b.id, {})));
+    expect(diff.filter((r) => r.status === 201)).toHaveLength(1);
+    expect(diff.filter((r) => r.status === 409)).toHaveLength(5);
+    expect(await reqs(C.B)).toHaveLength(1);
+  });
+
+  it('publish manual: dedupe 409 ALREADY_COVERED con solicitud abierta (manual) de la carta, sin crear otra', async () => {
+    await svc.run();
+    const a = (await row(C.A))!;
+    await A('POST', '/admin/supply-requests', admin, { cardId: C.A, finish: 'normal', minCondition: 'NM', qty: 1 });
+    const r = await P(a.id, {});
+    expect(r.status).toBe(409);
+    expect(code(r)).toBe('ALREADY_COVERED');
+    expect(await reqs(C.A)).toHaveLength(1);
+  });
+
+  it('publish manual: cuarentena 409 QUARANTINED (salto > 30 %) y qty > sugerida ⇒ 400', async () => {
+    await svc.run();
+    const j = (await row(C.J))!;
+    const r = await P(j.id, {});
+    expect(r.status).toBe(409);
+    expect(code(r)).toBe('QUARANTINED');
+    expect(r.body.error.details).toEqual({ skipReason: 'market_jump' });
+    expect(await reqs(C.J)).toHaveLength(0);
+    const a = (await row(C.A))!;
+    expect((await P(a.id, { qty: a.suggestedQty + 1 })).status).toBe(400);
+  });
+
+  it('publish manual: cupo 409 BUDGET_EXCEEDED con {openCents, budgetCents}; funciona con autoPublish apagado', async () => {
+    await svc.run(); // autoPublish apagado: borradores
+    const b = (await row(C.B))!;
+    await settings({ openBudgetCents: 10000 }); // 4 × 140 = 560 > 100
+    const r = await P(b.id, {});
+    expect(r.status).toBe(409);
+    expect(code(r)).toBe('BUDGET_EXCEEDED');
+    expect(r.body.error.details).toEqual({ openCents: 0, budgetCents: 10000 });
+    expect(await reqs(C.B)).toHaveLength(0);
+    await settings({ openBudgetCents: 500000 });
+    expect((await P(b.id, {})).status).toBe(201);
+  });
+
+  it('publish manual vs job simultáneos con tope ajustado: la exposición abierta nunca supera el tope', async () => {
+    await svc.run();
+    await settings({ autoPublish: true, openBudgetCents: 30000 });
+    const ids = (await h.prisma.supplySuggestion.findMany({ where: { cardId: { in: [C.A, C.B] } } })).map((x) => x.id);
+    await Promise.all([svc.run(), ...ids.map((id) => P(id, {})), svc.run()]);
+    expect(await svc.openExposure(new Date())).toBeLessThanOrEqual(30000);
+    expect(await reqs(C.A)).toHaveLength(1);
+    expect(await reqs(C.B)).toHaveLength(1);
   });
 });

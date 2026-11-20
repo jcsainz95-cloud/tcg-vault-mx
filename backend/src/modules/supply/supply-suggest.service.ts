@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { Finish, Prisma, SupplySuggestion } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -11,7 +12,7 @@ import { pageOf } from './supply.dto';
 import { CardWithSet, cardView } from './supply-views';
 import {
   SUGGEST_MIN_MARKET_CENTS, SUPPLY_SUGGEST_LOCK_KEY, SUPPLY_SYSTEM_USER_ID, SuggestReason, allocateBudget, isBasicEnergy,
-  isMarketJump, mergeNeeds, needsFromDecks, netTarget, pickFinish, sortByPriority, suggestedUnitCents, weekStartMx, Need,
+  isMarketJump, needsFromDecks, netTarget, pickFinish, sortByPriority, suggestedUnitCents, weekStartMx, Need,
 } from './supply-suggest.logic';
 
 export interface SuggestRunResult {
@@ -26,11 +27,10 @@ export interface SuggestRunResult {
 
 type Tx = Prisma.TransactionClient;
 type Req = { id: string; cardId: string; finish: Finish; source: string; status: string; qtyWanted: number; qtyReserved: number; qtyReceived: number; pctBps: number | null; fixedCents: number | null; createdAt: Date };
-
-/** Fuente «rotación» (lista «qué comprar», HECHOS 2026-10-04): NO existe aún en el código (NO MEDIDO que haya ranking persistido) ⇒ aporta 0 filas. Se cablea aquí. */
-async function rotationNeeds(): Promise<Map<string, Need>> {
-  return new Map();
-}
+/** Cantidad PENDIENTE de una solicitud abierta (lo reservado ya es un acuerdo y lo recibido ya llegó). */
+const pendingOf = (r: { qtyWanted: number; qtyReserved: number; qtyReceived: number }) => Math.max(0, r.qtyWanted - r.qtyReserved - r.qtyReceived);
+/** Acuerdos SIN PAGAR: ocupan necesidad aunque su solicitud ya esté cerrada o vencida (`paid` ya es stock; `cancelled` no cuenta). */
+const UNPAID_PURCHASE = ['agreed', 'collected', 'verified'] as const;
 
 /**
  * §PROV-F4 — job `supply-suggest` (diario 05:00 CDMX + tras cada refresco de meta decks). Idempotente y sin estado: cada corrida recalcula todo
@@ -44,47 +44,82 @@ export class SupplySuggestService {
 
   // ---------------------------------------------------------------- lecturas
 
-  private async settings() {
-    const s = await this.prisma.supplySettings.findUnique({ where: { id: SUPPLY_SETTINGS_ID } });
+  private async settings(db: Tx | PrismaService = this.prisma) {
+    const s = await db.supplySettings.findUnique({ where: { id: SUPPLY_SETTINGS_ID } });
     return {
       autoPublish: s?.autoPublish ?? false,
       defaultPctBps: Math.min(10000, s?.defaultPctBps ?? DEFAULT_PCT_BPS),
-      weeklyBudgetCents: s?.weeklyBudgetCents ?? 0,
+      openBudgetCents: s?.openBudgetCents ?? 0,
       lastRunAt: s?.lastSuggestRunAt ?? null,
     };
   }
 
-  /** Exposición potencial de la semana (centavos): Σ precio × (pedido − recibido) de las sugeridas vivas + lo ya recibido de las cerradas. */
-  async weekExposure(now: Date, db: Tx | PrismaService = this.prisma): Promise<number> {
-    const start = weekStartMx(now);
+  /**
+   * Exposición ABIERTA a la vez (centavos; DECISIONES §PROV-F4.6): Σ precio unitario × cantidad PENDIENTE (pedido − reservado − recibido) de TODAS las
+   * solicitudes `open` no vencidas, de cualquier `source` (las manuales cuentan). Los aumentos de `qtyWanted` ya van dentro al leer tras el cambio.
+   */
+  async openExposure(now: Date, db: Tx | PrismaService = this.prisma, pre?: Map<string, number | null>): Promise<number> {
     const reqs = await db.supplyRequest.findMany({
-      where: { source: 'suggested', createdAt: { gte: start } },
-      select: { id: true, cardId: true, finish: true, status: true, qtyWanted: true, qtyReceived: true, pctBps: true, fixedCents: true },
+      where: { status: 'open', expiresAt: { gt: now } },
+      select: { id: true, cardId: true, finish: true, qtyWanted: true, qtyReserved: true, qtyReceived: true, pctBps: true, fixedCents: true },
     });
-    if (reqs.length === 0) return 0;
-    const markets = await this.pricing.marketCentsBatch(reqs.map((r) => ({ cardId: r.cardId, finish: r.finish })));
-    const snaps = await db.supplySuggestion.findMany({ where: { requestId: { in: reqs.map((r) => r.id) } }, select: { requestId: true, unitCents: true } });
+    const live = reqs.filter((r) => pendingOf(r) > 0);
+    if (live.length === 0) return 0;
+    // Mercado: lo precargado FUERA de la transacción (`prefetchMarkets`); solo lo que falte se lee aquí (raro: solicitud nacida entre la precarga y el candado).
+    const needMarket = live.filter((r) => r.fixedCents == null && !pre?.has(`${r.cardId}|${r.finish}`));
+    const fetched = needMarket.length ? await this.pricing.marketCentsBatch(needMarket.map((r) => ({ cardId: r.cardId, finish: r.finish }))) : new Map<string, number | null>();
+    const markets = new Map<string, number | null>([...(pre ?? []), ...fetched]);
+    const snaps = await db.supplySuggestion.findMany({ where: { requestId: { in: live.map((r) => r.id) } }, select: { requestId: true, unitCents: true } });
     let total = 0;
-    for (const r of reqs) {
-      const unit = effectiveUnitCents(r, markets.get(`${r.cardId}|${r.finish}`) ?? null) ?? snaps.find((s) => s.requestId === r.id)?.unitCents ?? 0;
-      const live = r.status === 'open' || r.status === 'filled';
-      total += unit * (live ? Math.max(0, r.qtyWanted - r.qtyReceived) : r.qtyReceived);
+    for (const r of live) {
+      const unit = effectiveUnitCents(r, markets.get(`${r.cardId}|${r.finish}`) ?? null) ?? snaps.find((x) => x.requestId === r.id)?.unitCents ?? 0;
+      total += unit * pendingOf(r);
     }
     return total;
   }
 
+  /**
+   * Precarga el mercado de las solicitudes abiertas (+ `extra`) ANTES de abrir la transacción con candado: el pricing usa el pool, y una
+   * transacción que espera el candado no debe pedir una segunda conexión (con el pool lleno, el que tiene el candado no podría avanzar).
+   */
+  private async prefetchMarkets(now: Date, extra: { cardId: string; finish: Finish }[] = []): Promise<Map<string, number | null>> {
+    const open = await this.prisma.supplyRequest.findMany({ where: { status: 'open', expiresAt: { gt: now }, fixedCents: null }, select: { cardId: true, finish: true } });
+    const uniq = new Map([...open, ...extra].map((i) => [`${i.cardId}|${i.finish}`, { cardId: i.cardId, finish: i.finish }]));
+    return this.pricing.marketCentsBatch([...uniq.values()]);
+  }
+
   async settingsReadout(now = new Date()) {
     const s = await this.settings();
-    return { weekSpentCents: await this.weekExposure(now), weekStartsAt: weekStartMx(now), lastRunAt: s.lastRunAt };
+    return { openExposureCents: await this.openExposure(now), lastRunAt: s.lastRunAt };
+  }
+
+  /** Cartas/acabados con salto de mercado > 30 % contra la captura anterior (cuarentena; se reevalúa solo cada día). */
+  private async marketJumps(items: { cardId: string; finish: Finish }[], now: Date, db: Tx | PrismaService = this.prisma): Promise<Set<string>> {
+    const out = new Set<string>();
+    if (!items.length) return out;
+    const hist = await db.priceReference.findMany({
+      where: { cardId: { in: [...new Set(items.map((c) => c.cardId))] }, productType: 'raw', gradeKey: 'raw:NM', ...MONEY_REF_WHERE, isManualOverride: false, capturedDate: { gte: new Date(now.getTime() - 14 * 86400_000) } },
+      select: { cardId: true, finish: true, priceMxnCents: true, capturedDate: true },
+      orderBy: { capturedDate: 'desc' },
+    });
+    for (const c of items) {
+      const rows = hist.filter((h) => h.cardId === c.cardId && h.finish === c.finish);
+      const days = [...new Set(rows.map((r) => r.capturedDate.toISOString()))];
+      if (days.length >= 2) {
+        const latest = rows.find((r) => r.capturedDate.toISOString() === days[0])!.priceMxnCents;
+        const prev = rows.find((r) => r.capturedDate.toISOString() === days[1])!.priceMxnCents;
+        if (isMarketJump(prev, latest)) out.add(`${c.cardId}|${c.finish}`);
+      }
+    }
+    return out;
   }
 
   // ---------------------------------------------------------------- el job
 
   async run(now: Date = new Date()): Promise<SuggestRunResult> {
-    const st = await this.settings();
     const weekStart = weekStartMx(now);
 
-    // [1] Necesidades: metadecks vigentes (decks publicados y no pausados; solo líneas casadas) ∪ rotación.
+    // [1] Necesidades: metadecks vigentes (decks publicados y no pausados; solo líneas casadas). La fuente «rotación» no existe.
     const decks = await this.prisma.metaDeck.findMany({ where: { published: true, pausedByOperator: false, currentListId: { not: null } }, select: { slug: true, currentListId: true } });
     const slugByList = new Map(decks.map((d) => [d.currentListId as string, d.slug]));
     const lines = slugByList.size
@@ -94,7 +129,7 @@ export class SupplySuggestService {
         })
       : [];
     const deckNeeds = needsFromDecks(lines.map((l) => ({ cardId: l.matchedCardId as string, quantity: l.quantity, deckSlug: slugByList.get(l.listId) as string })));
-    const needs = mergeNeeds(deckNeeds, await rotationNeeds());
+    const needs = deckNeeds;
 
     // [2] Cartas (sin energías básicas) y mercado del día por acabado.
     const cards = needs.size
@@ -112,30 +147,17 @@ export class SupplySuggestService {
       cands.push({ cardId: c.id, finish: pick.finish as Finish, need: n.need, reasons: n.reasons, marketCents: pick.marketCents, quarantined: false });
     }
     // Dato dudoso: salto de mercado > 30 % contra la captura anterior ⇒ cuarentena (no se publica; mañana se reevalúa).
-    const priced = cands.filter((c) => c.marketCents != null);
-    if (priced.length) {
-      const hist = await this.prisma.priceReference.findMany({
-        where: { cardId: { in: priced.map((c) => c.cardId) }, productType: 'raw', gradeKey: 'raw:NM', ...MONEY_REF_WHERE, isManualOverride: false, capturedDate: { gte: new Date(now.getTime() - 14 * 86400_000) } },
-        select: { cardId: true, finish: true, priceMxnCents: true, capturedDate: true },
-        orderBy: { capturedDate: 'desc' },
-      });
-      for (const c of priced) {
-        const rows = hist.filter((h) => h.cardId === c.cardId && h.finish === c.finish);
-        const days = [...new Set(rows.map((r) => r.capturedDate.toISOString()))];
-        if (days.length >= 2) {
-          const latest = rows.find((r) => r.capturedDate.toISOString() === days[0])!.priceMxnCents;
-          const prev = rows.find((r) => r.capturedDate.toISOString() === days[1])!.priceMxnCents;
-          if (isMarketJump(prev, latest)) c.quarantined = true;
-        }
-      }
-    }
+    const jumps = await this.marketJumps(cands.filter((c) => c.marketCents != null).map((c) => ({ cardId: c.cardId, finish: c.finish })), now);
+    for (const c of cands) if (jumps.has(`${c.cardId}|${c.finish}`)) c.quarantined = true;
 
     // [3] Escritura bajo candado + SERIALIZABLE con reintento.
+    const pre = await this.prefetchMarkets(now);
     const out = await runSerializable(
       this.prisma,
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SUPPLY_SUGGEST_LOCK_KEY})`;
-        return this.apply(tx, cands, st, now, weekStart);
+        // `autoPublish`, tope y exposición se leen AQUÍ, bajo el candado compartido con el publish manual (no antes).
+        return this.apply(tx, cands, await this.settings(tx), now, weekStart, pre);
       },
       { label: 'supply-suggest', timeout: 120_000, maxWait: 30_000 },
     );
@@ -146,9 +168,10 @@ export class SupplySuggestService {
   private async apply(
     tx: Tx,
     cands: { cardId: string; finish: Finish; need: number; reasons: SuggestReason[]; marketCents: number | null; quarantined: boolean }[],
-    st: { autoPublish: boolean; defaultPctBps: number; weeklyBudgetCents: number },
+    st: { autoPublish: boolean; defaultPctBps: number; openBudgetCents: number },
     now: Date,
     weekStart: Date,
+    pre: Map<string, number | null>,
   ): Promise<SuggestRunResult> {
     const cardIds = [...new Set(cands.map((c) => c.cardId))];
     const stockRows = cardIds.length
@@ -161,6 +184,11 @@ export class SupplySuggestService {
           select: { id: true, cardId: true, finish: true, source: true, status: true, qtyWanted: true, qtyReserved: true, qtyReceived: true, pctBps: true, fixedCents: true, createdAt: true },
         })
       : [];
+    // Acuerdos sin pagar de CUALQUIER solicitud (abierta, cerrada o vencida) por carta (DECISIONES §PROV-F4.2).
+    const purRows = cardIds.length
+      ? await tx.supplyPurchase.groupBy({ by: ['cardId'], where: { cardId: { in: cardIds }, status: { in: [...UNPAID_PURCHASE] } }, _sum: { qty: true } })
+      : [];
+    const unpaid = new Map(purRows.map((r) => [r.cardId, r._sum.qty ?? 0]));
     const liveRows = await tx.supplySuggestion.findMany({ where: { status: { in: ['draft', 'skipped'] } } });
     const rowOf = new Map<string, SupplySuggestion>(liveRows.map((r) => [`${r.cardId}|${r.finish}`, r]));
     const touched = new Set<string>();
@@ -191,9 +219,9 @@ export class SupplySuggestService {
       const cardReqs = reqs.filter((r) => r.cardId === c.cardId);
       const manualSame = cardReqs.some((r) => r.finish === c.finish && r.source !== 'suggested');
       const own = cardReqs.find((r) => r.finish === c.finish && r.source === 'suggested') ?? null;
-      const incomingOther = cardReqs.filter((r) => r !== own).reduce((a, r) => a + Math.max(0, r.qtyWanted - r.qtyReceived), 0);
+      const incomingOther = cardReqs.filter((r) => r !== own).reduce((a, r) => a + pendingOf(r), 0) + (unpaid.get(c.cardId) ?? 0);
       const target = netTarget(c.need, stock.get(c.cardId) ?? 0, incomingOther);
-      const ownRemaining = own ? Math.max(0, own.qtyWanted - own.qtyReceived) : 0;
+      const ownRemaining = own ? pendingOf(own) : 0;
       const qty = own ? target - ownRemaining : target;
       const base = { reasons: c.reasons as unknown as Prisma.InputJsonValue, marketCents: c.marketCents };
 
@@ -208,7 +236,7 @@ export class SupplySuggestService {
         continue;
       }
       if (c.marketCents == null || c.quarantined) {
-        await upsertLive(key, c, { ...base, suggestedQty: qty, unitCents: null, status: 'skipped', skipReason: 'no_market' });
+        await upsertLive(key, c, { ...base, suggestedQty: qty, unitCents: null, status: 'skipped', skipReason: c.marketCents != null && c.quarantined ? 'market_jump' : 'no_market' });
         res.skipped++;
         continue;
       }
@@ -226,10 +254,10 @@ export class SupplySuggestService {
       pending.push({ key, c, qty, unit, own, pctBps: st.defaultPctBps });
     }
 
-    // Presupuesto semanal: exposición ya comprometida esta semana; reparto por prioridad.
+    // Cupo ABIERTO a la vez: exposición viva ahora (manuales incluidas, bajo el candado); reparto por prioridad.
     if (pending.length) {
-      const spent = await this.weekExposure(now, tx);
-      const remaining = Math.max(0, st.weeklyBudgetCents - spent);
+      const spent = await this.openExposure(now, tx, pre);
+      const remaining = Math.max(0, st.openBudgetCents - spent);
       const ordered = sortByPriority(pending.map((p) => ({ key: p.key, qty: p.qty, unitCents: p.unit, signals: new Set(p.c.reasons.map((r) => r.kind)).size })));
       const alloc = allocateBudget(ordered, remaining);
       const give = new Map(alloc.publish.map((p) => [p.key, p.qty]));
@@ -293,7 +321,7 @@ export class SupplySuggestService {
         marketCents: r.marketCents,
         reasons: r.reasons as unknown as SuggestReason[],
         status: r.status,
-        skipReason: r.skipReason as 'no_market' | 'budget' | 'covered' | null,
+        skipReason: r.skipReason as 'no_market' | 'budget' | 'covered' | 'market_jump' | null,
         requestId: r.requestId,
         createdAt: r.createdAt,
       })),
@@ -301,29 +329,50 @@ export class SupplySuggestService {
     };
   }
 
-  /** Atajo manual: publica la sugerida YA (sin presupuesto: es decisión del dueño); mismo tope 100 % y mismos errores que crear. */
-  async publish(id: string, dto: { qty?: number; pctBps?: number }, actorId: string, now = new Date()) {
+  /**
+   * Atajo manual (DECISIONES §PROV-F4.6b): MISMAS reglas que el job. Idempotency-Key obligatoria (misma key + mismo cuerpo ⇒ la misma solicitud; otro
+   * cuerpo ⇒ 422), dedupe por (carta, acabado), cuarentena, cupo abierto y tope 100 %; todo en UNA transacción con el candado del job.
+   */
+  async publish(id: string, dto: { qty?: number; pctBps?: number }, key: string, actorId: string, now = new Date()) {
     if (dto.pctBps != null && dto.pctBps > 10000) throw BusinessException.validation('ABOVE_MARKET_CAP', 'Percentage above 100% of market');
-    const requestId = await runSerializable(this.prisma, async (tx) => {
+    const hash = createHash('sha256').update(JSON.stringify({ id, qty: dto.qty ?? null, pctBps: dto.pctBps ?? null })).digest('hex');
+    // Lecturas de mercado FUERA de la transacción (ver `prefetchMarkets`).
+    const pre0 = await this.prisma.supplySuggestion.findUnique({ where: { id }, select: { cardId: true, finish: true } });
+    const pre = await this.prefetchMarkets(now, pre0 ? [pre0] : []);
+    return runSerializable(this.prisma, async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SUPPLY_SUGGEST_LOCK_KEY})`;
+      const prior = await tx.supplySuggestion.findUnique({ where: { publishKey: key } });
+      if (prior) {
+        if (prior.publishHash === hash && prior.requestId) return prior.requestId; // repetición: la MISMA respuesta
+        throw BusinessException.validation('IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key already used with a different request');
+      }
       const row = await tx.supplySuggestion.findUnique({ where: { id } });
       if (!row) throw BusinessException.notFound();
       if (row.status === 'published') throw BusinessException.conflict('ALREADY_PUBLISHED', 'Suggestion already published');
-      const market = (await this.pricing.marketCentsBatch([{ cardId: row.cardId, finish: row.finish }])).get(`${row.cardId}|${row.finish}`) ?? null;
-      if (market == null) throw BusinessException.validation('FIXED_PRICE_REQUIRED', 'No market price: a fixed unit price is required');
-      const pct = dto.pctBps ?? (await this.settings()).defaultPctBps;
+      const market = pre.get(`${row.cardId}|${row.finish}`) ?? null;
+      if (market == null) throw BusinessException.conflict('QUARANTINED', 'No market price today', { skipReason: 'no_market' });
+      if ((await this.marketJumps([{ cardId: row.cardId, finish: row.finish }], now, tx)).has(`${row.cardId}|${row.finish}`)) {
+        throw BusinessException.conflict('QUARANTINED', 'Market moved more than 30% since yesterday', { skipReason: 'market_jump' });
+      }
+      const dup = await tx.supplyRequest.findFirst({ where: { cardId: row.cardId, finish: row.finish, status: 'open', expiresAt: { gt: now } }, select: { id: true } });
+      if (dup) throw BusinessException.conflict('ALREADY_COVERED', 'There is already an open request for this card and finish', { requestId: dup.id });
+      const st = await this.settings(tx);
+      const pct = dto.pctBps ?? st.defaultPctBps;
       const unit = effectiveUnitCents({ pctBps: pct, fixedCents: null }, market);
       if (unit == null) throw BusinessException.validation('FIXED_PRICE_REQUIRED', 'Price resolves to zero: use a fixed unit price');
       this.pricing.assertWithinCap(unit, market);
       const qty = dto.qty ?? row.suggestedQty;
+      if (qty > row.suggestedQty) throw BusinessException.badRequest('VALIDATION_ERROR', 'qty above the suggested quantity');
+      const openCents = await this.openExposure(now, tx, pre);
+      if (openCents + unit * qty > st.openBudgetCents) throw BusinessException.conflict('BUDGET_EXCEEDED', 'Open budget exceeded', { openCents, budgetCents: st.openBudgetCents });
       const cas = await tx.supplySuggestion.updateMany({ where: { id, status: { in: ['draft', 'skipped'] } }, data: { status: 'published', skipReason: null, suggestedQty: qty, unitCents: unit, marketCents: market } });
       if (cas.count !== 1) throw BusinessException.conflict('ALREADY_PUBLISHED', 'Suggestion already published');
       const r = await tx.supplyRequest.create({
         data: { cardId: row.cardId, finish: row.finish, minCondition: 'NM', qtyWanted: qty, pctBps: pct, fixedCents: null, expiresAt: new Date(now.getTime() + REQUEST_TTL_MS), createdById: actorId, source: 'suggested' },
       });
-      await tx.supplySuggestion.update({ where: { id }, data: { requestId: r.id } });
+      await tx.supplySuggestion.update({ where: { id }, data: { requestId: r.id, publishKey: key, publishHash: hash } });
       return r.id;
-    }, { label: 'supply-suggest.publish' });
-    return requestId;
+    }, { label: 'supply-suggest.publish', timeout: 60_000, maxWait: 30_000 });
   }
 
   async skip(id: string): Promise<void> {

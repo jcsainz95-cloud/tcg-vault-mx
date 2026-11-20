@@ -365,6 +365,6 @@ describe('E2E §PROV F1 — portal de proveedores', () => {
     expect((await A('GET', '/admin/supply-settings', operator)).status).toBe(403);
     const st = await A('GET', '/admin/supply-settings', admin);
     // §PROV-F4: el presupuesto semanal nace en MX$5,000 (500000 c) y el GET añade la lectura de la semana.
-    expect(st.body).toEqual(expect.objectContaining({ autoPublish: false, autoAccept: false, defaultPctBps: 7000, weeklyBudgetCents: 500000 }));
+    expect(st.body).toEqual(expect.objectContaining({ autoPublish: false, autoAccept: false, defaultPctBps: 7000, openBudgetCents: 500000 }));
   });
 });

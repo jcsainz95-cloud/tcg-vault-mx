@@ -4,7 +4,7 @@ import { MetaDeckSource, MetaMatchStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CoverMatch, CoverMatchStatus, DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import { imageOf } from './deck-image';
-import { LimitlessFetchClient } from './limitless-fetch.client';
+import { FetchBudgetExhaustedError, FetchBudget, LimitlessFetchClient } from './limitless-fetch.client';
 import { parseHomeIndex, parseDeckListHtml, HomeLeader } from './limitless-html.parser';
 import { evaluateCanary, CanaryResult, DeckCanarySummary } from './canary';
 import {
@@ -98,11 +98,13 @@ export class DecksMetaRefreshService {
     const thresholds = resolveCanaryThresholds(this.config);
     const urlsFetched: string[] = [];
     const errors: string[] = [];
+    // §PROV-F4 F4-2: `maxRequests` cuenta GET FÍSICAS (intentos, reintentos y redirects), no llamadas lógicas.
+    const budget = new FetchBudget(fetchCfg.maxRequests);
 
     // [1] HOME
     let home: ReturnType<typeof parseHomeIndex> | null = null;
     try {
-      const html = await this.client.fetchHome();
+      const html = await this.client.fetchHome(budget);
       urlsFetched.push('home');
       home = parseHomeIndex(html);
     } catch (e) {
@@ -125,14 +127,14 @@ export class DecksMetaRefreshService {
     const parsedDecks: ParsedDeck[] = [];
     let requestsUsed = 1; // la home ya consumió uno
     for (const c of candidates) {
-      if (requestsUsed >= fetchCfg.maxRequests) {
+      if (requestsUsed >= fetchCfg.maxRequests || budget.remaining <= 0) {
         this.logger.warn(`decks-meta-refresh: cota dura de ${fetchCfg.maxRequests} requests alcanzada; se detiene el fetch.`);
         break;
       }
       if (fetchCfg.delayMs > 0) await this.sleep(fetchCfg.delayMs);
       requestsUsed += 1;
       try {
-        const html = await this.client.fetchDeckList(c.listId);
+        const html = await this.client.fetchDeckList(c.listId, budget);
         urlsFetched.push(`list/${c.listId}`);
         const { lines } = parseDeckListHtml(html);
         const matched = await this.matcher.matchLines(lines);
@@ -147,6 +149,7 @@ export class DecksMetaRefreshService {
         const msg = `list/${c.listId} (${c.name ?? '??'}): ${(e as Error).message}`;
         errors.push(msg);
         deckReports.push(errorDeckReport(c, (e as Error).message));
+        if (e instanceof FetchBudgetExhaustedError) break; // refresco parcial: mañana se reintenta
       }
     }
 

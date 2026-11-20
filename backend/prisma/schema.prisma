@@ -4206,8 +4206,10 @@ model SupplySuggestion {
   marketCents  Int?
   reasons      Json
   status       SupplySuggestionStatus @default(draft)
-  skipReason   String? // no_market | budget | covered | null
+  skipReason   String? // no_market | budget | covered | market_jump | null
   requestId    String?
+  publishKey   String?                @unique // Idempotency-Key del publish manual (§PROV-F4.6b)
+  publishHash  String? // SHA-256 del cuerpo (id, qty, pctBps): misma key con otro cuerpo ⇒ 422
   createdAt    DateTime               @default(now())
   updatedAt    DateTime               @updatedAt
 
@@ -4220,7 +4222,7 @@ model SupplySettings {
   autoPublish       Boolean  @default(false)
   autoAccept        Boolean  @default(false)
   defaultPctBps     Int      @default(7000)
-  weeklyBudgetCents Int      @default(500000) // §PROV-F4: MX$5,000 por defecto (HECHOS 2026-11-20)
+  openBudgetCents   Int      @default(500000) // §PROV-F4: tope de lo ABIERTO a la vez, MX$5,000 por defecto (HECHOS 2026-11-20)
   // §PROV-F4: marca de la última corrida buena de `supply-suggest` (lectura de la pantalla de ajustes).
   lastSuggestRunAt  DateTime?
   updatedAt         DateTime @updatedAt

@@ -1,5 +1,5 @@
 import type { ConfigService } from '@nestjs/config';
-import { LimitlessFetchClient } from './limitless-fetch.client';
+import { FetchBudget, FetchBudgetExhaustedError, LimitlessFetchClient } from './limitless-fetch.client';
 
 /**
  * DECKS-META Fase 2 (§9) — el cliente HTTP de Limitless: la superficie de EGRESS a un tercero. El
@@ -98,5 +98,39 @@ describe('LimitlessFetchClient (§9) — redirect manual + validación anti-SSRF
     expect(fetchMock).toHaveBeenCalledTimes(1);
     // El modo de redirect pedido es 'manual' (no 'follow'): el 3xx no se sigue solo.
     expect((fetchMock.mock.calls[0][1] as RequestInit).redirect).toBe('manual');
+  });
+
+  describe('§PROV-F4 F4-2 — Retry-After acotado y presupuesto de GET físicas', () => {
+    const retryWith = async (headers: Record<string, string>) => {
+      const sleep = jest.spyOn(client as unknown as { sleep: (ms: number) => Promise<void> }, 'sleep').mockResolvedValue(undefined);
+      sleep.mockClear();
+      const fetchMock = jest.fn()
+        .mockResolvedValueOnce(fakeRes({ status: 429, headers }))
+        .mockResolvedValueOnce(fakeRes({ status: 200 }));
+      global.fetch = fetchMock as unknown as typeof fetch;
+      await client.fetchHome();
+      return sleep.mock.calls.map((c) => c[0]);
+    };
+
+    it('Retry-After enorme se acota a 30 s', async () => {
+      expect(await retryWith({ 'retry-after': '86400' })).toEqual([30_000]);
+    });
+    it('Retry-After razonable se respeta', async () => {
+      expect(await retryWith({ 'retry-after': '7' })).toEqual([7_000]);
+    });
+    it('Retry-After como fecha HTTP o inválido ⇒ backoff 2 s', async () => {
+      expect(await retryWith({ 'retry-after': 'Wed, 21 Oct 2099 07:28:00 GMT' })).toEqual([2_000]);
+      expect(await retryWith({ 'retry-after': '-5' })).toEqual([2_000]);
+      expect(await retryWith({ 'retry-after': 'abc' })).toEqual([2_000]);
+    });
+    it('los reintentos consumen el presupuesto físico y al agotarse se corta sin más GET', async () => {
+      jest.spyOn(client as unknown as { sleep: (ms: number) => Promise<void> }, 'sleep').mockResolvedValue(undefined);
+      const fetchMock = jest.fn(async () => fakeRes({ status: 503 }));
+      global.fetch = fetchMock as unknown as typeof fetch;
+      const budget = new FetchBudget(2);
+      await expect(client.fetchHome(budget)).rejects.toBeInstanceOf(FetchBudgetExhaustedError);
+      expect(fetchMock).toHaveBeenCalledTimes(2); // 1 intento + 1 reintento; el 3.º no sale
+      expect(budget.remaining).toBe(0);
+    });
   });
 });

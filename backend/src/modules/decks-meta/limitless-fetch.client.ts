@@ -12,6 +12,27 @@ import {
 
 /** Cota dura de saltos de redirect por request (los canónicos de Limitless no redirigen). */
 const MAX_REDIRECT_HOPS = 3;
+/** §PROV-F4 F4-2: tope del `Retry-After` (un 429 con espera enorme no puede dormir la cola entera). */
+export const MAX_RETRY_AFTER_MS = 30_000;
+
+/**
+ * §PROV-F4 F4-2: presupuesto de GET FÍSICAS de un refresco (cada intento, reintento y salto de redirect cuenta). Agotado ⇒ el refresco
+ * termina parcial y reintenta al día siguiente, sin bucle.
+ */
+export class FetchBudget {
+  constructor(public remaining: number) {}
+  take(): boolean {
+    if (this.remaining <= 0) return false;
+    this.remaining -= 1;
+    return true;
+  }
+}
+export class FetchBudgetExhaustedError extends Error {
+  constructor(url: string) {
+    super(`limitless ${url} -> presupuesto de GET físicas agotado (refresco parcial)`);
+    this.name = 'FetchBudgetExhaustedError';
+  }
+}
 
 /**
  * DECKS-META Fase 2 — cliente HTTP de Limitless. Norma: spec §1, §9. Superficie que SEGURIDAD revisa.
@@ -42,18 +63,18 @@ export class LimitlessFetchClient {
   }
 
   /** GET home «Top Decks». */
-  async fetchHome(): Promise<string> {
-    return this.getText(buildHomeUrl());
+  async fetchHome(budget?: FetchBudget): Promise<string> {
+    return this.getText(buildHomeUrl(), 0, 0, budget);
   }
 
   /** GET /decks/list/<listId> (lista completa, las 60). `listId` YA validado por el llamante. */
-  async fetchDeckList(listId: string): Promise<string> {
-    return this.getText(buildDeckListUrl(listId));
+  async fetchDeckList(listId: string, budget?: FetchBudget): Promise<string> {
+    return this.getText(buildDeckListUrl(listId), 0, 0, budget);
   }
 
   /** GET /decks/<archetypeId> (metadata opcional; NUNCA para las 60). `archetypeId` YA validado. */
-  async fetchArchetype(archetypeId: string): Promise<string> {
-    return this.getText(buildArchetypeUrl(archetypeId));
+  async fetchArchetype(archetypeId: string, budget?: FetchBudget): Promise<string> {
+    return this.getText(buildArchetypeUrl(archetypeId), 0, 0, budget);
   }
 
   /** Espera cancelable (aislada para poder mockear timers en test). */
@@ -65,7 +86,8 @@ export class LimitlessFetchClient {
    * GET con timeout + reintentos + cap de bytes. Lanza si agota reintentos, si un redirect apunta
    * fuera del allowlist, o si la respuesta supera el cap. El llamante (orquestador) captura por deck.
    */
-  private async getText(url: string, attempt = 0, hops = 0): Promise<string> {
+  private async getText(url: string, attempt = 0, hops = 0, budget?: FetchBudget): Promise<string> {
+    if (budget && !budget.take()) throw new FetchBudgetExhaustedError(url);
     const { timeoutMs, maxBytes, retries } = this.cfg();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -84,7 +106,7 @@ export class LimitlessFetchClient {
         this.logger.warn(`limitless ${url} -> HTTP ${res.status}; retry ${attempt + 1}/${retries} en ${waitMs}ms`);
         await this.drain(res);
         await this.sleep(waitMs);
-        return this.getText(url, attempt + 1, hops);
+        return this.getText(url, attempt + 1, hops, budget);
       }
 
       // Anti-SSRF: un 3xx NO se sigue a ciegas. Se lee `Location`, se resuelve contra la URL actual y
@@ -102,7 +124,7 @@ export class LimitlessFetchClient {
         if (!next || !this.isAllowlistedUrl(next)) {
           throw new Error(`limitless ${url} -> redirect fuera del allowlist (${location})`);
         }
-        return this.getText(next, 0, hops + 1);
+        return this.getText(next, 0, hops + 1, budget);
       }
 
       if (!res.ok) {
@@ -130,10 +152,11 @@ export class LimitlessFetchClient {
     }
   }
 
-  /** Delay del reintento: `Retry-After` (segundos) si viene y es válido; si no, backoff 2 s → 5 s. */
+  /** Delay del reintento: `Retry-After` en segundos (acotado a 30 s); fecha HTTP o inválido ⇒ backoff 2 s → 5 s. */
   private retryDelayMs(res: Response, attempt: number): number {
-    const retryAfter = Number(res.headers.get('retry-after'));
-    if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter * 1000;
+    const raw = (res.headers.get('retry-after') ?? '').trim();
+    const retryAfter = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN;
+    if (Number.isFinite(retryAfter) && retryAfter > 0) return Math.min(retryAfter * 1000, MAX_RETRY_AFTER_MS);
     return attempt === 0 ? 2000 : 5000;
   }
 

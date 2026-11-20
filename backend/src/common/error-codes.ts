@@ -906,6 +906,10 @@ export const ErrorCode = {
   COUNTER_NOT_ENABLED: 'COUNTER_NOT_ENABLED',
   COVERED: 'COVERED',
   ALREADY_PUBLISHED: 'ALREADY_PUBLISHED', // §PROV-F4: la sugerida ya se publicó
+  ALREADY_COVERED: 'ALREADY_COVERED', // §PROV-F4.6b: ya hay una solicitud abierta de esa carta/acabado
+  QUARANTINED: 'QUARANTINED', // §PROV-F4.6b: sin mercado o salto de mercado > 30 %
+  BUDGET_EXCEEDED: 'BUDGET_EXCEEDED', // §PROV-F4.6b: el cupo abierto a la vez no alcanza
+  IDEMPOTENCY_KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED', // §PROV-F4.6b: misma Idempotency-Key con otro cuerpo
   PURCHASE_EXPIRED: 'PURCHASE_EXPIRED',
   UNITS_EXCEED_QTY: 'UNITS_EXCEED_QTY',
   UNITS_MISMATCH: 'UNITS_MISMATCH',

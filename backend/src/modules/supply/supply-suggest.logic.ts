@@ -16,7 +16,8 @@ export const MAX_COPIES = 4;
 /** Salto de mercado vs la captura anterior que manda la carta a cuarentena (30 %). */
 export const MARKET_JUMP_BPS = 3000;
 
-export type SuggestReason = { kind: 'rotation' | 'metadeck'; ref: string | null };
+/** `kind` solo `metadeck`: la fuente «rotación» no existe (DECISIONES §PROV-F4.1); al construirse se añade por contrato. */
+export type SuggestReason = { kind: 'metadeck'; ref: string | null };
 
 export interface Need {
   cardId: string;

@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min,
-  MinLength, ValidateNested,
+  ArrayMaxSize, Equals, IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min,
+  MinLength, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { FINISH_VALUES } from '../../common/enum-values';
 import { Finish } from '@prisma/client';
@@ -93,9 +93,11 @@ export class PayDto {
 
 export class PatchSupplySettingsDto {
   @IsOptional() @IsBoolean() autoPublish?: boolean;
-  @IsOptional() @IsBoolean() autoAccept?: boolean;
+  /** `autoAccept` es FIJO `false` (HECHOS 2026-11-12): cualquier valor presente ⇒ 400 (campo no editable). */
+  @ValidateIf((o: object) => Object.prototype.hasOwnProperty.call(o, 'autoAccept')) @Equals(undefined, { message: 'autoAccept is not editable' }) autoAccept?: never;
   @IsOptional() @IsInt() @Min(1) @Max(10000) defaultPctBps?: number;
-  @IsOptional() @IsInt() @Min(0) @Max(100_000_000_00) weeklyBudgetCents?: number;
+  /** Tope de lo ABIERTO a la vez (centavos). 1e9 = contrato; la columna es Int (máx. 2 147 483 647). */
+  @IsOptional() @IsInt() @Min(0) @Max(1_000_000_000) openBudgetCents?: number;
 }
 
 /** page/pageSize de query (string) → enteros acotados. */
