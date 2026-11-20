@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import type { Response } from 'express';
@@ -152,7 +152,10 @@ export class AdminSupplyController {
     return { autoPublish: s.autoPublish, autoAccept: false, defaultPctBps: s.defaultPctBps, openBudgetCents: s.openBudgetCents, ...(await this.suggest.settingsReadout()) };
   }
   @Roles(Role.super_admin) @Patch('supply-settings')
-  async patchSettings(@Body() dto: PatchSupplySettingsDto) {
+  async patchSettings(@Body() dto: PatchSupplySettingsDto, @Req() req: { body?: Record<string, unknown> }) {
+    // El whitelist global recorta en silencio; aquí una clave fuera de lista (p. ej. `weeklyBudgetCents`) es 400 VALIDATION_ERROR (DECISIONES §PROV-F4).
+    const extra = Object.keys(req.body ?? {}).filter((k) => !['autoPublish', 'defaultPctBps', 'openBudgetCents'].includes(k));
+    if (extra.length) throw BusinessException.badRequest('VALIDATION_ERROR', `unknown field(s): ${extra.join(', ')}`, { fields: extra });
     const { autoPublish, defaultPctBps, openBudgetCents } = dto;
     const s = await this.prisma.supplySettings.update({ where: { id: SUPPLY_SETTINGS_ID }, data: { autoPublish, defaultPctBps, openBudgetCents } });
     return { autoPublish: s.autoPublish, autoAccept: false, defaultPctBps: s.defaultPctBps, openBudgetCents: s.openBudgetCents };

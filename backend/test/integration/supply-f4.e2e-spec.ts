@@ -333,19 +333,57 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     await agreement(C.B, 1, 'closed', 'agreed');
     await svc.run();
     expect(await row(C.B)).toMatchObject({ status: 'draft', suggestedQty: 2 }); // 4 − stock 1 − acuerdo 1 (antes pedía 3)
-    for (const st of ['collected', 'verified'] as const) {
-      await reset();
-      await h.prisma.inventoryItem.create({ data: { folio: `F4-D${st}`, cardId: C.B, productType: 'raw', rawCondition: 'NM', finish: 'normal', acquisitionType: 'compra', acquisitionCostCents: 1000, status: 'in_stock', ownerType: 'platform' } });
-      await agreement(C.B, 1, 'closed', st);
-      await svc.run();
-      expect(await row(C.B)).toMatchObject({ suggestedQty: 2 });
-    }
+    await reset();
+    await h.prisma.inventoryItem.create({ data: { folio: 'F4-Dcollected', cardId: C.B, productType: 'raw', rawCondition: 'NM', finish: 'normal', acquisitionType: 'compra', acquisitionCostCents: 1000, status: 'in_stock', ownerType: 'platform' } });
+    await agreement(C.B, 1, 'closed', 'collected');
+    await svc.run();
+    expect(await row(C.B)).toMatchObject({ suggestedQty: 2 });
+    // `verified` ya es stock: no se cuenta dos veces (necesidad 4, stock 1 = el verificado ⇒ pide 3)
+    await reset();
+    await h.prisma.inventoryItem.create({ data: { folio: 'F4-Dverified', cardId: C.B, productType: 'raw', rawCondition: 'NM', finish: 'normal', acquisitionType: 'compra', acquisitionCostCents: 1000, status: 'in_stock', ownerType: 'platform' } });
+    await agreement(C.B, 1, 'closed', 'verified');
+    await svc.run();
+    expect(await row(C.B)).toMatchObject({ suggestedQty: 3 });
     for (const st of ['paid', 'cancelled'] as const) {
       await reset();
       await agreement(C.B, 1, 'closed', st);
       await svc.run();
       expect(await row(C.B)).toMatchObject({ suggestedQty: 4 });
     }
+  });
+
+  it('publish manual recalcula la necesidad VIVA: stock 3 + acuerdo 1 con necesidad 4 ⇒ 409 ALREADY_COVERED; con 1 sola cubierta sube qty ≤ viva', async () => {
+    await svc.run();
+    const b = (await row(C.B))!;
+    expect(b.suggestedQty).toBe(4);
+    for (let i = 0; i < 3; i++) await h.prisma.inventoryItem.create({ data: { folio: `F4-L${i}`, cardId: C.B, productType: 'raw', rawCondition: 'NM', finish: 'normal', acquisitionType: 'compra', acquisitionCostCents: 1000, status: 'in_stock', ownerType: 'platform' } });
+    await agreement(C.B, 1, 'closed', 'agreed');
+    const r = await P(b.id, {});
+    expect(r.status).toBe(409);
+    expect(code(r)).toBe('ALREADY_COVERED');
+    expect((await reqs(C.B)).filter((x) => x.source === 'suggested')).toHaveLength(0);
+    // viva 2 (stock 1 + 1 acuerdo): sin qty pide min(4, 2); qty 3 ⇒ 400
+    await h.prisma.inventoryItem.deleteMany({ where: { cardId: C.B } });
+    await h.prisma.inventoryItem.create({ data: { folio: 'F4-L9', cardId: C.B, productType: 'raw', rawCondition: 'NM', finish: 'normal', acquisitionType: 'compra', acquisitionCostCents: 1000, status: 'in_stock', ownerType: 'platform' } });
+    expect((await P(b.id, { qty: 3 })).status).toBe(400);
+    const ok = await P(b.id, {});
+    expect(ok.status).toBe(201);
+    expect((await reqs(C.B)).find((x) => x.source === 'suggested')?.qtyWanted).toBe(2);
+  });
+
+  it('F4-4: 10 publish simultáneos de cartas distintas y repetidas no devuelven ningún 500', async () => {
+    await svc.run();
+    const ids = (await h.prisma.supplySuggestion.findMany({ where: { cardId: { in: [C.A, C.B] } } })).map((x) => x.id);
+    const rs = await Promise.all(Array.from({ length: 10 }, (_, i) => P(ids[i % ids.length], {})));
+    expect(rs.filter((r) => r.status >= 500)).toHaveLength(0);
+    expect(rs.filter((r) => r.status === 201).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('PATCH de ajustes: clave fuera de lista blanca (weeklyBudgetCents) ⇒ 400 VALIDATION_ERROR', async () => {
+    const r = await A('PATCH', '/admin/supply-settings', admin, { weeklyBudgetCents: 5 });
+    expect(r.status).toBe(400);
+    expect(code(r)).toBe('VALIDATION_ERROR');
+    expect((await A('PATCH', '/admin/supply-settings', admin, { autoPublish: false, openBudgetCents: 500000 })).status).toBe(200);
   });
 
   it('acuerdo sin pagar de una solicitud ABIERTA no se cuenta dos veces (reservado + acuerdo)', async () => {
@@ -450,8 +488,9 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     await settings({ autoPublish: true, openBudgetCents: 30000 });
     const ids = (await h.prisma.supplySuggestion.findMany({ where: { cardId: { in: [C.A, C.B] } } })).map((x) => x.id);
     await Promise.all([svc.run(), ...ids.map((id) => P(id, {})), svc.run()]);
+    // Invariante (no el orden de llegada): exposición ≤ tope y nunca más de 1 solicitud por carta.
     expect(await svc.openExposure(new Date())).toBeLessThanOrEqual(30000);
-    expect(await reqs(C.A)).toHaveLength(1);
-    expect(await reqs(C.B)).toHaveLength(1);
+    expect((await reqs(C.A)).length).toBeLessThanOrEqual(1);
+    expect((await reqs(C.B)).length).toBeLessThanOrEqual(1);
   });
 });

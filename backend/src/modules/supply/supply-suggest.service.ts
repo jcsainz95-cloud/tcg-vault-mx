@@ -29,8 +29,10 @@ type Tx = Prisma.TransactionClient;
 type Req = { id: string; cardId: string; finish: Finish; source: string; status: string; qtyWanted: number; qtyReserved: number; qtyReceived: number; pctBps: number | null; fixedCents: number | null; createdAt: Date };
 /** Cantidad PENDIENTE de una solicitud abierta (lo reservado ya es un acuerdo y lo recibido ya llegó). */
 const pendingOf = (r: { qtyWanted: number; qtyReserved: number; qtyReceived: number }) => Math.max(0, r.qtyWanted - r.qtyReserved - r.qtyReceived);
-/** Acuerdos SIN PAGAR: ocupan necesidad aunque su solicitud ya esté cerrada o vencida (`paid` ya es stock; `cancelled` no cuenta). */
-const UNPAID_PURCHASE = ['agreed', 'collected', 'verified'] as const;
+/** Acuerdos SIN PAGAR: ocupan necesidad aunque su solicitud ya esté cerrada o vencida (`verified` ya es stock y `paid` también; `cancelled` no cuenta). */
+const UNPAID_PURCHASE = ['agreed', 'collected'] as const;
+/** Señal interna: el mercado de una solicitud nacida tras la precarga; el publish sale de la tx, lo precarga y reintenta (nunca pide mercado con el candado). */
+class MissingMarket extends Error { constructor(readonly keys: { cardId: string; finish: Finish }[]) { super('missing market'); } }
 
 /**
  * §PROV-F4 — job `supply-suggest` (diario 05:00 CDMX + tras cada refresco de meta decks). Idempotente y sin estado: cada corrida recalcula todo
@@ -58,7 +60,7 @@ export class SupplySuggestService {
    * Exposición ABIERTA a la vez (centavos; DECISIONES §PROV-F4.6): Σ precio unitario × cantidad PENDIENTE (pedido − reservado − recibido) de TODAS las
    * solicitudes `open` no vencidas, de cualquier `source` (las manuales cuentan). Los aumentos de `qtyWanted` ya van dentro al leer tras el cambio.
    */
-  async openExposure(now: Date, db: Tx | PrismaService = this.prisma, pre?: Map<string, number | null>): Promise<number> {
+  async openExposure(now: Date, db: Tx | PrismaService = this.prisma, pre?: Map<string, number | null>, strict = false): Promise<number> {
     const reqs = await db.supplyRequest.findMany({
       where: { status: 'open', expiresAt: { gt: now } },
       select: { id: true, cardId: true, finish: true, qtyWanted: true, qtyReserved: true, qtyReceived: true, pctBps: true, fixedCents: true },
@@ -67,6 +69,7 @@ export class SupplySuggestService {
     if (live.length === 0) return 0;
     // Mercado: lo precargado FUERA de la transacción (`prefetchMarkets`); solo lo que falte se lee aquí (raro: solicitud nacida entre la precarga y el candado).
     const needMarket = live.filter((r) => r.fixedCents == null && !pre?.has(`${r.cardId}|${r.finish}`));
+    if (strict && needMarket.length) throw new MissingMarket(needMarket.map((r) => ({ cardId: r.cardId, finish: r.finish })));
     const fetched = needMarket.length ? await this.pricing.marketCentsBatch(needMarket.map((r) => ({ cardId: r.cardId, finish: r.finish }))) : new Map<string, number | null>();
     const markets = new Map<string, number | null>([...(pre ?? []), ...fetched]);
     const snaps = await db.supplySuggestion.findMany({ where: { requestId: { in: live.map((r) => r.id) } }, select: { requestId: true, unitCents: true } });
@@ -338,7 +341,34 @@ export class SupplySuggestService {
     const hash = createHash('sha256').update(JSON.stringify({ id, qty: dto.qty ?? null, pctBps: dto.pctBps ?? null })).digest('hex');
     // Lecturas de mercado FUERA de la transacción (ver `prefetchMarkets`).
     const pre0 = await this.prisma.supplySuggestion.findUnique({ where: { id }, select: { cardId: true, finish: true } });
-    const pre = await this.prefetchMarkets(now, pre0 ? [pre0] : []);
+    let extra: { cardId: string; finish: Finish }[] = pre0 ? [pre0] : [];
+    for (let attempt = 0; ; attempt++) {
+      const pre = await this.prefetchMarkets(now, extra);
+      try {
+        return await this.publishTx(id, dto, key, actorId, now, hash, pre);
+      } catch (e) {
+        if (e instanceof MissingMarket && attempt < 4) { extra = [...extra, ...e.keys]; continue; }
+        throw e;
+      }
+    }
+  }
+
+  /** Necesidad VIVA de una carta bajo el candado: necesidad de metadecks − stock − lo que ya viene (solicitudes abiertas de otros acabados + acuerdos sin pagar). */
+  private async liveNeed(tx: Tx, cardId: string, now: Date): Promise<number> {
+    const decks = await tx.metaDeck.findMany({ where: { published: true, pausedByOperator: false, currentListId: { not: null } }, select: { slug: true, currentListId: true } });
+    const slugByList = new Map(decks.map((d) => [d.currentListId as string, d.slug]));
+    const lines = slugByList.size
+      ? await tx.metaDeckCard.findMany({ where: { listId: { in: [...slugByList.keys()] }, matchStatus: 'matched', matchedCardId: cardId }, select: { listId: true, matchedCardId: true, quantity: true } })
+      : [];
+    const need = needsFromDecks(lines.map((l) => ({ cardId: l.matchedCardId as string, quantity: l.quantity, deckSlug: slugByList.get(l.listId) as string }))).get(cardId)?.need ?? 0;
+    if (need <= 0) return 0;
+    const stock = await tx.inventoryItem.count({ where: { cardId, productType: 'raw', ownerType: 'platform', status: { in: ['in_stock', 'listed'] } } });
+    const reqs = await tx.supplyRequest.findMany({ where: { cardId, status: { in: ['open', 'filled'] }, expiresAt: { gt: now } }, select: { qtyWanted: true, qtyReserved: true, qtyReceived: true } });
+    const unpaid = (await tx.supplyPurchase.aggregate({ where: { cardId, status: { in: [...UNPAID_PURCHASE] } }, _sum: { qty: true } }))._sum.qty ?? 0;
+    return Math.max(0, netTarget(need, stock, reqs.reduce((a, r) => a + pendingOf(r), 0) + unpaid));
+  }
+
+  private publishTx(id: string, dto: { qty?: number; pctBps?: number }, key: string, actorId: string, now: Date, hash: string, pre: Map<string, number | null>) {
     return runSerializable(this.prisma, async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SUPPLY_SUGGEST_LOCK_KEY})`;
       const prior = await tx.supplySuggestion.findUnique({ where: { publishKey: key } });
@@ -356,14 +386,17 @@ export class SupplySuggestService {
       }
       const dup = await tx.supplyRequest.findFirst({ where: { cardId: row.cardId, finish: row.finish, status: 'open', expiresAt: { gt: now } }, select: { id: true } });
       if (dup) throw BusinessException.conflict('ALREADY_COVERED', 'There is already an open request for this card and finish', { requestId: dup.id });
+      const live = await this.liveNeed(tx, row.cardId, now);
+      if (live <= 0) throw BusinessException.conflict('ALREADY_COVERED', 'The need for this card is already covered', { skipReason: 'covered' });
       const st = await this.settings(tx);
       const pct = dto.pctBps ?? st.defaultPctBps;
       const unit = effectiveUnitCents({ pctBps: pct, fixedCents: null }, market);
       if (unit == null) throw BusinessException.validation('FIXED_PRICE_REQUIRED', 'Price resolves to zero: use a fixed unit price');
       this.pricing.assertWithinCap(unit, market);
-      const qty = dto.qty ?? row.suggestedQty;
-      if (qty > row.suggestedQty) throw BusinessException.badRequest('VALIDATION_ERROR', 'qty above the suggested quantity');
-      const openCents = await this.openExposure(now, tx, pre);
+      const maxQty = Math.min(row.suggestedQty, live);
+      const qty = dto.qty ?? maxQty;
+      if (qty > maxQty) throw BusinessException.badRequest('VALIDATION_ERROR', 'qty above the suggested quantity');
+      const openCents = await this.openExposure(now, tx, pre, true);
       if (openCents + unit * qty > st.openBudgetCents) throw BusinessException.conflict('BUDGET_EXCEEDED', 'Open budget exceeded', { openCents, budgetCents: st.openBudgetCents });
       const cas = await tx.supplySuggestion.updateMany({ where: { id, status: { in: ['draft', 'skipped'] } }, data: { status: 'published', skipReason: null, suggestedQty: qty, unitCents: unit, marketCents: market } });
       if (cas.count !== 1) throw BusinessException.conflict('ALREADY_PUBLISHED', 'Suggestion already published');
