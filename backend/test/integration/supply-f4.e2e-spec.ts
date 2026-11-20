@@ -5,7 +5,7 @@ import { SupplySuggestService } from '../../src/modules/supply/supply-suggest.se
 import { SUPPLY_SYSTEM_USER_ID } from '../../src/modules/supply/supply-suggest.logic';
 
 /**
- * §PROV-F4 contra Postgres real: sugeridas desde Meta Decks (máximo de copias, no suma), stock y solicitudes abiertas descontados,
+ * §PROV-F4 contra Postgres real: sugeridas desde Meta Decks (decks completos: Σ min(copias,4)×mult(puesto); decks sin puesto no cuentan), stock y solicitudes abiertas descontados,
  * tope 100 %, sin mercado ⇒ se salta y se reintenta, dedupe con manuales, presupuesto semanal, dos corridas simultáneas, idempotencia,
  * `autoPublish` apagado ⇒ solo borradores, endpoints y roles.
  */
@@ -395,7 +395,12 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
   it('PROV-F4.2: al topar el cupo gana el menor puesto aunque valga menos; publish manual usa la misma necesidad viva', async () => {
     await deckRank(2, 1); // A: 2 + 3×2 = 8, deck que más pesa = puesto 1; B pesa en el puesto 6
     await settings({ autoPublish: true, openBudgetCents: 30000 });
-    await svc.run();
+    await setMarket(C.B, 25000); // B vale MÁS que A (4×17500 = 70000 > 8×7000 = 56000): si se ignora el puesto, B gana y la prueba falla
+    try {
+      await svc.run();
+    } finally {
+      await setMarket(C.B, 20050);
+    }
     expect((await reqs(C.A))[0].qtyWanted).toBe(4); // floor(300/70)
     expect((await reqs(C.B))).toHaveLength(0);
     expect(await row(C.B)).toMatchObject({ status: 'draft', skipReason: 'budget' });
@@ -548,5 +553,41 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     expect(await svc.openExposure(new Date())).toBeLessThanOrEqual(30000);
     expect((await reqs(C.A)).length).toBeLessThanOrEqual(1);
     expect((await reqs(C.B)).length).toBeLessThanOrEqual(1);
+  });
+  it('gate F4.2: filas viejas sin rank/copies/mult salen normalizadas (rellenas desde el deck vigente, o null estable)', async () => {
+    await deckRank(1, 6); await deckRank(2, 7);
+    await svc.run();
+    const a = (await row(C.A))!;
+    await h.prisma.supplySuggestion.update({ where: { id: a.id }, data: { reasons: [{ kind: 'metadeck', ref: `${SLUG}-2` }, { kind: 'metadeck', ref: 'deck-que-ya-no-existe' }, { kind: 'metadeck', ref: null }] } });
+    const r = await A('GET', '/admin/supply-suggestions?status=draft&pageSize=100', admin);
+    expect(r.status).toBe(200);
+    const got = r.body.data.find((x: any) => x.id === a.id);
+    expect(got.reasons).toEqual([
+      { kind: 'metadeck', ref: `${SLUG}-2`, rank: 7, copies: 3, mult: 1 },
+      { kind: 'metadeck', ref: 'deck-que-ya-no-existe', rank: null, copies: null, mult: null },
+      { kind: 'metadeck', ref: null, rank: null, copies: null, mult: null },
+    ]);
+  });
+
+  it('gate F4.2: decks sin puesto (rank null) no cuentan en la necesidad', async () => {
+    await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { rank: null } });
+    try {
+      await svc.run();
+      expect(await row(C.A)).toMatchObject({ suggestedQty: 2 }); // solo deck-1 (puesto 6): 2×1; deck-2 sin puesto no suma
+      expect((await row(C.A))?.reasons).toEqual([{ kind: 'metadeck', ref: `${SLUG}-1`, rank: 6, copies: 2, mult: 1 }]);
+    } finally {
+      await deckRank(2, 7);
+    }
+  });
+
+  it('gate F4.2: publicar a mano guarda las reasons VIVAS, no las de la última corrida', async () => {
+    await deckRank(1, 6); await deckRank(2, 7);
+    await svc.run();
+    const a = (await row(C.A))!;
+    await deckRank(2, 2); // cambia el puesto después de la corrida: el job no ha vuelto a correr
+    expect((await P(a.id, {})).status).toBe(201);
+    const after = (await row(C.A))!;
+    expect(after.reasons).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 2, copies: 3, mult: 2 }, { kind: 'metadeck', ref: `${SLUG}-1`, rank: 6, copies: 2, mult: 1 }]);
+    await deckRank(2, 7);
   });
 });

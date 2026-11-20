@@ -11,8 +11,8 @@ import { DEFAULT_PCT_BPS, REQUEST_TTL_MS, SUPPLY_SETTINGS_ID, effectiveUnitCents
 import { pageOf } from './supply.dto';
 import { CardWithSet, cardView } from './supply-views';
 import {
-  SUGGEST_MIN_MARKET_CENTS, SUPPLY_SUGGEST_LOCK_KEY, SUPPLY_SYSTEM_USER_ID, SuggestReason, allocateBudget, isBasicEnergy,
-  isMarketJump, needsFromDecks, normalizeSuggestMult, SUGGEST_CFG_KEYS, SuggestMult, netTarget, pickFinish, sortByPriority, suggestedUnitCents, weekStartMx, Need,
+  SUGGEST_MIN_MARKET_CENTS, SUPPLY_SUGGEST_LOCK_KEY, SUPPLY_SYSTEM_USER_ID, SuggestReason, SuggestReasonView, allocateBudget, multForRank, normalizeReasons, isBasicEnergy,
+  isMarketJump, MAX_COPIES, needsFromDecks, normalizeSuggestMult, SUGGEST_CFG_KEYS, SuggestMult, netTarget, pickFinish, sortByPriority, suggestedUnitCents, weekStartMx, Need,
 } from './supply-suggest.logic';
 
 export interface SuggestRunResult {
@@ -319,6 +319,7 @@ export class SupplySuggestService {
       this.prisma.supplySuggestion.count({ where }),
       this.settings(),
     ]);
+    const reasonsOf = await this.readReasons(rows);
     return {
       data: rows.map((r) => ({
         id: r.id,
@@ -328,7 +329,7 @@ export class SupplySuggestService {
         pctBps: st.defaultPctBps,
         unitCents: r.unitCents,
         marketCents: r.marketCents,
-        reasons: r.reasons as unknown as SuggestReason[],
+        reasons: reasonsOf.get(r.id) ?? [],
         status: r.status,
         skipReason: r.skipReason as 'no_market' | 'budget' | 'covered' | 'market_jump' | null,
         requestId: r.requestId,
@@ -336,6 +337,36 @@ export class SupplySuggestService {
       })),
       page, pageSize, total,
     };
+  }
+
+  /**
+   * Normaliza `reasons` al leer (sin migración): filas viejas sin rank/copies/mult se completan desde el deck VIGENTE (puesto, copias en su lista actual,
+   * mult con los ConfigSetting de hoy); si el deck ya no existe o no tiene puesto/carta, el campo queda `null` (forma estable).
+   */
+  private async readReasons(rows: { id: string; cardId: string; reasons: unknown }[]): Promise<Map<string, SuggestReasonView[]>> {
+    const out = new Map(rows.map((r) => [r.id, normalizeReasons(r.reasons)]));
+    const slugs = new Set<string>();
+    for (const rs of out.values()) for (const x of rs) if (x.ref && (x.rank == null || x.copies == null || x.mult == null)) slugs.add(x.ref);
+    if (!slugs.size) return out;
+    const decks = await this.prisma.metaDeck.findMany({ where: { slug: { in: [...slugs] }, published: true, currentListId: { not: null } }, select: { slug: true, rank: true, currentListId: true } });
+    const cardIds = [...new Set(rows.map((r) => r.cardId))];
+    const lines = await this.prisma.metaDeckCard.findMany({ where: { listId: { in: decks.map((d) => d.currentListId as string) }, matchStatus: 'matched', matchedCardId: { in: cardIds } }, select: { listId: true, matchedCardId: true, quantity: true } });
+    const mult = await this.suggestMult(this.prisma);
+    const deckBySlug = new Map(decks.map((d) => [d.slug, d]));
+    const copiesOf = (listId: string, cardId: string) => {
+      const q = lines.filter((l) => l.listId === listId && l.matchedCardId === cardId).reduce((a, l) => a + Math.max(0, l.quantity), 0);
+      return q > 0 ? Math.min(MAX_COPIES, q) : null;
+    };
+    for (const r of rows) {
+      out.set(r.id, (out.get(r.id) ?? []).map((x) => {
+        if (x.rank != null && x.copies != null && x.mult != null) return x;
+        const d = x.ref ? deckBySlug.get(x.ref) : undefined;
+        if (!d) return x;
+        const rank = x.rank ?? d.rank ?? null;
+        return { ...x, rank, copies: x.copies ?? copiesOf(d.currentListId as string, r.cardId), mult: x.mult ?? (rank != null ? multForRank(rank, mult) : null) };
+      }));
+    }
+    return out;
   }
 
   /**
@@ -353,26 +384,31 @@ export class SupplySuggestService {
       try {
         return await this.publishTx(id, dto, key, actorId, now, hash, pre);
       } catch (e) {
-        if (e instanceof MissingMarket && attempt < 4) { extra = [...extra, ...e.keys]; continue; }
+        if (e instanceof MissingMarket) {
+          if (attempt < 4) { extra = [...extra, ...e.keys]; continue; }
+          throw BusinessException.retriable('MARKET_UNAVAILABLE', 'Market prices are not ready; retry shortly');
+        }
         throw e;
       }
     }
   }
 
   /** Necesidad VIVA de una carta bajo el candado: necesidad de metadecks − stock − lo que ya viene (solicitudes abiertas de otros acabados + acuerdos sin pagar). */
-  private async liveNeed(tx: Tx, cardId: string, now: Date): Promise<number> {
+  private async liveNeed(tx: Tx, cardId: string, now: Date): Promise<{ net: number; reasons: SuggestReason[] }> {
     const decks = await tx.metaDeck.findMany({ where: { published: true, pausedByOperator: false, currentListId: { not: null } }, select: { slug: true, rank: true, currentListId: true } });
     const slugByList = new Map(decks.map((d) => [d.currentListId as string, d.slug]));
     const rankByList = new Map(decks.map((d) => [d.currentListId as string, d.rank]));
     const lines = slugByList.size
       ? await tx.metaDeckCard.findMany({ where: { listId: { in: [...slugByList.keys()] }, matchStatus: 'matched', matchedCardId: cardId }, select: { listId: true, matchedCardId: true, quantity: true } })
       : [];
-    const need = needsFromDecks(lines.map((l) => ({ cardId: l.matchedCardId as string, quantity: l.quantity, deckSlug: slugByList.get(l.listId) as string, rank: rankByList.get(l.listId) ?? null })), await this.suggestMult(tx)).get(cardId)?.need ?? 0;
-    if (need <= 0) return 0;
+    const nd = needsFromDecks(lines.map((l) => ({ cardId: l.matchedCardId as string, quantity: l.quantity, deckSlug: slugByList.get(l.listId) as string, rank: rankByList.get(l.listId) ?? null })), await this.suggestMult(tx)).get(cardId);
+    const need = nd?.need ?? 0;
+    const reasons = nd?.reasons ?? [];
+    if (need <= 0) return { net: 0, reasons };
     const stock = await tx.inventoryItem.count({ where: { cardId, productType: 'raw', ownerType: 'platform', status: { in: ['in_stock', 'listed'] } } });
     const reqs = await tx.supplyRequest.findMany({ where: { cardId, status: { in: ['open', 'filled'] }, expiresAt: { gt: now } }, select: { qtyWanted: true, qtyReserved: true, qtyReceived: true } });
     const unpaid = (await tx.supplyPurchase.aggregate({ where: { cardId, status: { in: [...UNPAID_PURCHASE] } }, _sum: { qty: true } }))._sum.qty ?? 0;
-    return Math.max(0, netTarget(need, stock, reqs.reduce((a, r) => a + pendingOf(r), 0) + unpaid));
+    return { net: Math.max(0, netTarget(need, stock, reqs.reduce((a, r) => a + pendingOf(r), 0) + unpaid)), reasons };
   }
 
   private publishTx(id: string, dto: { qty?: number; pctBps?: number }, key: string, actorId: string, now: Date, hash: string, pre: Map<string, number | null>) {
@@ -393,7 +429,7 @@ export class SupplySuggestService {
       }
       const dup = await tx.supplyRequest.findFirst({ where: { cardId: row.cardId, finish: row.finish, status: 'open', expiresAt: { gt: now } }, select: { id: true } });
       if (dup) throw BusinessException.conflict('ALREADY_COVERED', 'There is already an open request for this card and finish', { requestId: dup.id });
-      const live = await this.liveNeed(tx, row.cardId, now);
+      const { net: live, reasons: liveReasons } = await this.liveNeed(tx, row.cardId, now);
       if (live <= 0) throw BusinessException.conflict('ALREADY_COVERED', 'The need for this card is already covered', { skipReason: 'covered' });
       const st = await this.settings(tx);
       const pct = dto.pctBps ?? st.defaultPctBps;
@@ -405,7 +441,7 @@ export class SupplySuggestService {
       if (qty > maxQty) throw BusinessException.badRequest('VALIDATION_ERROR', 'qty above the suggested quantity');
       const openCents = await this.openExposure(now, tx, pre, true);
       if (openCents + unit * qty > st.openBudgetCents) throw BusinessException.conflict('BUDGET_EXCEEDED', 'Open budget exceeded', { openCents, budgetCents: st.openBudgetCents });
-      const cas = await tx.supplySuggestion.updateMany({ where: { id, status: { in: ['draft', 'skipped'] } }, data: { status: 'published', skipReason: null, suggestedQty: qty, unitCents: unit, marketCents: market } });
+      const cas = await tx.supplySuggestion.updateMany({ where: { id, status: { in: ['draft', 'skipped'] } }, data: { status: 'published', skipReason: null, suggestedQty: qty, unitCents: unit, marketCents: market, reasons: liveReasons as unknown as Prisma.InputJsonValue } });
       if (cas.count !== 1) throw BusinessException.conflict('ALREADY_PUBLISHED', 'Suggestion already published');
       const r = await tx.supplyRequest.create({
         data: { cardId: row.cardId, finish: row.finish, minCondition: 'NM', qtyWanted: qty, pctBps: pct, fixedCents: null, expiresAt: new Date(now.getTime() + REQUEST_TTL_MS), createdById: actorId, source: 'suggested' },

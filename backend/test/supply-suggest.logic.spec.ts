@@ -1,5 +1,5 @@
 import {
-  allocateBudget, isBasicEnergy, isMarketJump, multForRank, needsFromDecks, netTarget, normalizeSuggestMult, pickFinish, sortByPriority, suggestedUnitCents, weekStartMx,
+  allocateBudget, isBasicEnergy, isMarketJump, multForRank, needsFromDecks, normalizeReasons, netTarget, normalizeSuggestMult, pickFinish, sortByPriority, suggestedUnitCents, weekStartMx,
 } from '../src/modules/supply/supply-suggest.logic';
 
 describe('§PROV-F4 · reglas puras de sugeridas', () => {
@@ -58,6 +58,31 @@ describe('§PROV-F4 · reglas puras de sugeridas', () => {
     ])).toEqual({ topRankMax: 5, topMult: 2, restMult: 1 });
     expect(normalizeSuggestMult([{ key: 'supply.suggest.topRankMax', valueJson: 0 }]).topRankMax).toBe(0);
     expect(multForRank(null, { topRankMax: 5, topMult: 2, restMult: 1 })).toBe(1);
+  });
+
+  it('F4-6: multiplicadores acotados (≤10); fuera de rango ⇒ default', () => {
+    expect(normalizeSuggestMult([{ key: 'supply.suggest.topMult', valueJson: 10 }, { key: 'supply.suggest.restMult', valueJson: 10 }])).toEqual({ topRankMax: 5, topMult: 10, restMult: 10 });
+    expect(normalizeSuggestMult([{ key: 'supply.suggest.topMult', valueJson: 11 }, { key: 'supply.suggest.restMult', valueJson: 1_000_000_000 }])).toEqual({ topRankMax: 5, topMult: 2, restMult: 1 });
+    expect(normalizeSuggestMult([{ key: 'supply.suggest.topRankMax', valueJson: Number.MAX_SAFE_INTEGER }]).topRankMax).toBe(5);
+  });
+
+  it('deck sin puesto (rank null/ausente) no suma a la necesidad', () => {
+    const m = needsFromDecks([
+      { cardId: 'a', quantity: 4, deckSlug: 'd1', rank: null },
+      { cardId: 'a', quantity: 2, deckSlug: 'd2' },
+      { cardId: 'b', quantity: 3, deckSlug: 'd3', rank: 8 },
+    ]);
+    expect(m.has('a')).toBe(false);
+    expect(m.get('b')?.need).toBe(3);
+  });
+
+  it('normalizeReasons: campos ausentes ⇒ null estable; basura se descarta', () => {
+    expect(normalizeReasons([{ kind: 'metadeck', ref: 'x' }, null, 'z', { ref: 'y', rank: 2, copies: 3, mult: 2 }, { ref: 'w', rank: 1.5 }])).toEqual([
+      { kind: 'metadeck', ref: 'x', rank: null, copies: null, mult: null },
+      { kind: 'metadeck', ref: 'y', rank: 2, copies: 3, mult: 2 },
+      { kind: 'metadeck', ref: 'w', rank: null, copies: null, mult: null },
+    ]);
+    expect(normalizeReasons(undefined)).toEqual([]);
   });
 
   it('energía básica se excluye; la especial no', () => {

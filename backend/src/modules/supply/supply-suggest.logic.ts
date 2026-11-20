@@ -27,12 +27,33 @@ export interface Need {
   priorityRank: number;
 }
 
+/** Vista de una razón al leer: filas viejas (sin rank/copies/mult) salen con `null` explícito si no se pueden reconstruir. */
+export type SuggestReasonView = { kind: 'metadeck'; ref: string | null; rank: number | null; copies: number | null; mult: number | null };
+
+const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+
+/** Normaliza `reasons` leídas de BD (forma estable): campos ausentes o no enteros ⇒ `null`; basura ⇒ se descarta. */
+export function normalizeReasons(raw: unknown): SuggestReasonView[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SuggestReasonView[] = [];
+  for (const r of raw as unknown[]) {
+    if (r == null || typeof r !== 'object') continue;
+    const o = r as Record<string, unknown>;
+    out.push({ kind: 'metadeck', ref: typeof o.ref === 'string' ? o.ref : null, rank: isInt(o.rank) ? o.rank : null, copies: isInt(o.copies) ? o.copies : null, mult: isInt(o.mult) ? o.mult : null });
+  }
+  return out;
+}
+
+/** Cota superior de los multiplicadores (F4-6): un valor mayor es un error de dedo, no una decisión. */
+export const MAX_SUGGEST_MULT = 10;
+export const MAX_TOP_RANK = 20;
+
 /** Claves de `ConfigSetting` de los multiplicadores por puesto (§PROV-F4.2). */
 export const SUGGEST_CFG_KEYS = ['supply.suggest.topRankMax', 'supply.suggest.topMult', 'supply.suggest.restMult'] as const;
 export interface SuggestMult { topRankMax: number; topMult: number; restMult: number }
 export const DEFAULT_SUGGEST_MULT: SuggestMult = { topRankMax: 5, topMult: 2, restMult: 1 };
 
-/** Lee los 3 valores de ConfigSetting; ausente/inválido (no entero, <1 o topRankMax fuera de 0..20) ⇒ default del código. */
+/** Lee los 3 valores de ConfigSetting; ausente/inválido (no entero, mult fuera de 1..10 o topRankMax fuera de 0..20) ⇒ default del código. */
 export function normalizeSuggestMult(rows: { key: string; valueJson: unknown }[]): SuggestMult {
   const get = (key: string): number | null => {
     const v = rows.find((r) => r.key === key)?.valueJson;
@@ -42,9 +63,9 @@ export function normalizeSuggestMult(rows: { key: string; valueJson: unknown }[]
   const tm = get('supply.suggest.topMult');
   const rm = get('supply.suggest.restMult');
   return {
-    topRankMax: tr != null && tr >= 0 && tr <= 20 ? tr : DEFAULT_SUGGEST_MULT.topRankMax,
-    topMult: tm != null && tm >= 1 ? tm : DEFAULT_SUGGEST_MULT.topMult,
-    restMult: rm != null && rm >= 1 ? rm : DEFAULT_SUGGEST_MULT.restMult,
+    topRankMax: tr != null && tr >= 0 && tr <= MAX_TOP_RANK ? tr : DEFAULT_SUGGEST_MULT.topRankMax,
+    topMult: tm != null && tm >= 1 && tm <= MAX_SUGGEST_MULT ? tm : DEFAULT_SUGGEST_MULT.topMult,
+    restMult: rm != null && rm >= 1 && rm <= MAX_SUGGEST_MULT ? rm : DEFAULT_SUGGEST_MULT.restMult,
   };
 }
 
@@ -64,6 +85,7 @@ export function isBasicEnergy(card: { supertype: string | null; name: string; su
 /**
  * Necesidad por carta de los mazos: Σ sobre decks de min(copias en el deck, 4) × mult(rank). Cartas compartidas SUMAN (4×2 + 2×1 = 10).
  * Las líneas de una misma carta dentro de un deck se suman antes de acotar a 4 (saneo por deck).
+ * Deck SIN puesto (`rank` null/undefined) ⇒ se EXCLUYE de la necesidad (el contrato exige `rank` entero y así nunca infla).
  */
 export function needsFromDecks(
   lines: { cardId: string; quantity: number; deckSlug: string; rank?: number | null }[],
@@ -72,7 +94,7 @@ export function needsFromDecks(
   const perDeck = new Map<string, { cardId: string; deckSlug: string; rank: number | null; copies: number }>();
   for (const l of lines) {
     const q = Math.max(0, Math.floor(l.quantity));
-    if (q <= 0) continue;
+    if (q <= 0 || l.rank == null) continue;
     const k = `${l.cardId}\u0000${l.deckSlug}`;
     const cur = perDeck.get(k);
     if (cur) cur.copies += q;

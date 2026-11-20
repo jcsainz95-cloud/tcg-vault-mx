@@ -907,6 +907,7 @@ export const ErrorCode = {
   COVERED: 'COVERED',
   ALREADY_PUBLISHED: 'ALREADY_PUBLISHED', // §PROV-F4: la sugerida ya se publicó
   ALREADY_COVERED: 'ALREADY_COVERED', // §PROV-F4.6b: ya hay una solicitud abierta de esa carta/acabado
+  MARKET_UNAVAILABLE: 'MARKET_UNAVAILABLE', // §PROV-F4 (F4-5): 503 reintentable; el mercado de una solicitud nacida en carrera no se precargó tras 5 intentos
   QUARANTINED: 'QUARANTINED', // §PROV-F4.6b: sin mercado o salto de mercado > 30 %
   BUDGET_EXCEEDED: 'BUDGET_EXCEEDED', // §PROV-F4.6b: el cupo abierto a la vez no alcanza
   IDEMPOTENCY_KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED', // §PROV-F4.6b: misma Idempotency-Key con otro cuerpo
