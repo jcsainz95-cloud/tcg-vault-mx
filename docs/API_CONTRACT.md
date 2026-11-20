@@ -400,7 +400,7 @@
 ### wishlist
 - GET `/wishlist` · GET `/wishlist/preview` · POST `/wishlist` · PATCH `/wishlist/:id` · DELETE `/wishlist/:id` · PUT `/wishlist/alerts` — todos cuenta
 - POST `/wishlist/mail-actions` · público
-- GET `/admin/reports/wishlist-demand` · GET `/admin/reports/wishlist-demand/export.csv` — admin
+- GET `/admin/reports/wishlist-demand` · GET `/admin/reports/wishlist-demand/export.csv` — admin · demand-gaps, search-miss.cardId? ⇒ API_CONTRACT_DEMANDA.md
 - **Siempre activa (HECHOS 2026-11-08; ARCHITECTURE §5.14).** Desaparecen: `wishlistEnabled` de `GET/PUT /admin/settings` (PUT con ella ⇒ 422), el `404 FEATURE_DISABLED` de las seis rutas de cuenta y `wishlistEnabled` de `GET /catalog/cards/:cardId`. Quedan `401`, `403` (staff sin correo), `404` por `:id` ajeno y `400`. Pruebas WSH-ON-1…5 (sin dial ⇒ 200; ficha y settings sin la clave; `wishlist-notify` con tope diario; migración no toca `WishlistItem`/`WishlistNotice`), F1…F3.
 
 ## 2. Reglas vigentes: alta rápida y cajón del binder (UX-ALTA-LIGA, opción A + A2; HECHOS 2026-11-05)
