@@ -9,6 +9,8 @@ export type DemandSort = (typeof DEMAND_SORTS)[number];
 export const DEMAND_DIRS = ['asc', 'desc'] as const;
 export const DEMAND_LIMIT_DEFAULT = 100;
 export const DEMAND_LIMIT_MAX = 200;
+/** Dominio declarado de `limit` (clase ORDEN con cota numérica, C-EQ-1): los enteros 1..200 como tokens; es lo que va en `details.allowed` del 400. */
+export const DEMAND_LIMIT_VALUES: readonly string[] = Array.from({ length: DEMAND_LIMIT_MAX }, (_, i) => String(i + 1));
 export const DEMAND_CSV_MAX_ROWS = 1000;
 /** Clave de `ConfigSetting` con la última corrida BUENA de `demand-match` (ISO). No es un dial: no pasa por `SettingKey`. */
 export const DEMAND_MATCH_LAST_OK_KEY = 'demand_match_last_ok';

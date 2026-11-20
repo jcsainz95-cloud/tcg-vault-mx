@@ -7,6 +7,7 @@
 import { qualifyingCounts, qualifyingSearchMisses, MarketingSearchMissService } from '../src/modules/marketing/marketing-search-miss.service';
 import { MarketingSearchMissController } from '../src/modules/marketing/marketing-search-miss.controller';
 import { csvText, sortRows, DemandGapsService, DemandRowDTO } from '../src/modules/demand/demand-gaps.service';
+import { DemandSearchService, isBotUserAgent, SEARCH_DEMAND_VERIFY_MAX_ENTRIES } from '../src/modules/demand/demand-search.service';
 import { decideMatch } from '../src/modules/demand/demand-match.service';
 import { SETTING_DEFAULTS, SETTING_DTO_MAP, SETTING_VALIDATORS, SettingKeyType } from '../src/modules/settings/settings.constants';
 
@@ -83,6 +84,11 @@ describe('§DEMANDA · query de demand-gaps', () => {
   it.each([{ sort: 'x' }, { dir: 'up' }, { limit: '0' }, { limit: '201' }, { limit: 'abc' }, { limit: '1.5' }, { limit: '-1' }])('%j ⇒ 400', (q) => {
     expect(() => svc.parseQuery(q)).toThrow(expect.objectContaining({ status: 400 }));
   });
+  it('ORDEN: limit vacío o solo espacios ≡ ausente (default); ` 5` es mal formado ⇒ 400', () => {
+    expect(svc.parseQuery({ limit: '' }).limit).toBe(100);
+    expect(svc.parseQuery({ limit: ' ' }).limit).toBe(100);
+    expect(() => svc.parseQuery({ limit: ' 5' })).toThrow(expect.objectContaining({ status: 400 }));
+  });
   it('válidos', () => expect(svc.parseQuery({ sort: 'market', dir: 'asc', limit: '200' })).toEqual({ sort: 'market', dir: 'asc', limit: 200 }));
 });
 
@@ -123,6 +129,7 @@ describe('§DEMANDA F2 · POST /marketing/search-miss con cardId?', () => {
 
 describe('§DEMANDA F2 · servicio: verificación del cardId (fakes)', () => {
   const UUID = '22222222-2222-4222-8222-222222222222';
+  const UA = 'Mozilla/5.0 (X11; Linux x86_64) Firefox/130.0';
   function build(opts: { exists?: boolean; stocked?: boolean; flagOff?: boolean }) {
     const exec: unknown[][] = [];
     const prisma = {
@@ -137,42 +144,79 @@ describe('§DEMANDA F2 · servicio: verificación del cardId (fakes)', () => {
     };
     const catalog = { cardIdsWithSellable: jest.fn(async () => (opts.stocked ? new Set([UUID]) : new Set<string>())) };
     const vocab = { allows: jest.fn(async () => true) };
-    const svc = new MarketingSearchMissService(prisma as never, vocab as never, catalog as never);
+    const demand = new DemandSearchService(prisma as never, catalog as never);
+    const svc = new MarketingSearchMissService(prisma as never, vocab as never, demand);
     const wroteDemand = () => exec.some((a) => String((a[0] as string[]).join('?')).includes('SearchDemandSeen"') && String((a[0] as string[]).join('?')).includes('INSERT'));
     const wroteText = () => exec.some((a) => String((a[0] as string[]).join('?')).includes('INSERT INTO "SearchNoResultSeen"'));
-    return { svc, prisma, catalog, vocab, wroteDemand, wroteText };
+    return { svc, demand, prisma, catalog, vocab, exec, wroteDemand, wroteText };
   }
   it('0 stock ⇒ cuenta en SearchDemandSeen y NO guarda el término', async () => {
     const t = build({ stocked: false });
-    expect(await t.svc.record('pikachu', { ip: 'a' }, new Date(), UUID)).toBe(true);
+    expect(await t.svc.record('pikachu', { ip: 'a', userAgent: UA }, new Date(), UUID)).toBe(true);
     expect(t.wroteDemand()).toBe(true);
     expect(t.wroteText()).toBe(false);
   });
   it('con stock ⇒ no cuenta nada (ni demanda ni texto)', async () => {
     const t = build({ stocked: true });
-    expect(await t.svc.record('pikachu', { ip: 'a' }, new Date(), UUID)).toBe(false);
+    expect(await t.svc.record('pikachu', { ip: 'a', userAgent: UA }, new Date(), UUID)).toBe(false);
     expect(t.wroteDemand()).toBe(false);
     expect(t.wroteText()).toBe(false);
   });
   it('inexistente o no-uuid ⇒ camino de texto idéntico a hoy', async () => {
     const t = build({ exists: false });
-    await t.svc.record('pikachu', { ip: 'a' }, new Date(), UUID);
+    await t.svc.record('pikachu', { ip: 'a', userAgent: UA }, new Date(), UUID);
     expect(t.wroteDemand()).toBe(false);
     expect(t.wroteText()).toBe(true);
     const u = build({});
-    await u.svc.record('pikachu', { ip: 'a' }, new Date(), 'no-es-uuid');
+    await u.svc.record('pikachu', { ip: 'a', userAgent: UA }, new Date(), 'no-es-uuid');
     expect(u.prisma.card.findUnique).not.toHaveBeenCalled();
     expect(u.wroteText()).toBe(true);
   });
   it('interruptor apagado ⇒ nada', async () => {
     const t = build({ flagOff: true });
-    expect(await t.svc.record('pikachu', { ip: 'a' }, new Date(), UUID)).toBe(false);
+    expect(await t.svc.record('pikachu', { ip: 'a', userAgent: UA }, new Date(), UUID)).toBe(false);
     expect(t.wroteDemand()).toBe(false);
   });
   it('caché: 100 peticiones con el mismo cardId ⇒ UNA verificación', async () => {
     const t = build({});
-    for (let i = 0; i < 100; i++) await t.svc.record('pikachu', { ip: `i${i}` }, new Date(), UUID);
+    for (let i = 0; i < 100; i++) await t.svc.record('pikachu', { ip: `i${i}`, userAgent: UA }, new Date(), UUID);
     expect(t.prisma.card.findUnique).toHaveBeenCalledTimes(1);
     expect(t.catalog.cardIdsWithSellable).toHaveBeenCalledTimes(1);
+  });
+  it('DM-1: el hash de la persona es SOLO de la IP — 30 user-agent con la misma IP ⇒ UN mismo h; otra IP ⇒ otro h', async () => {
+    const t = build({});
+    for (let i = 0; i < 30; i++) await t.svc.record('x', { ip: '9.9.9.9', userAgent: `Mozilla/5.0 variante-${i}` }, new Date(), UUID);
+    await t.svc.record('x', { ip: '8.8.8.8', userAgent: UA }, new Date(), UUID);
+    const hs = t.exec
+      .filter((a) => (a[0] as string[]).join('?').includes('INSERT INTO "SearchDemandSeen"'))
+      .map((a) => a.find((v) => typeof v === 'string' && /^[0-9a-f]{16}$/.test(v)) as string);
+    expect(hs).toHaveLength(31);
+    expect(new Set(hs.slice(0, 30)).size).toBe(1);
+    expect(new Set(hs).size).toBe(2);
+  });
+  it('robots: UA vacío o de bot ⇒ no cuenta ni verifica ni cae al texto; un navegador sí', async () => {
+    for (const ua of ['', '   ', undefined, 'Googlebot/2.1', 'Mozilla/5.0 (compatible; bingbot)', 'curl/8.0', 'python-requests/2', 'HeadlessChrome', 'Slackbot-LinkExpanding link preview', 'Wget/1.2', 'Apache-HttpClient/4', 'Yahoo! Slurp', 'SomeSpider']) {
+      const t = build({});
+      expect(await t.svc.record('pikachu', { ip: 'a', userAgent: ua }, new Date(), UUID)).toBe(false);
+      expect(t.prisma.card.findUnique).not.toHaveBeenCalled();
+      expect(t.wroteDemand()).toBe(false);
+      expect(t.wroteText()).toBe(false);
+      expect(isBotUserAgent(ua)).toBe(true);
+    }
+    expect(isBotUserAgent(UA)).toBe(false);
+    const ok = build({});
+    expect(await ok.svc.record('pikachu', { ip: 'a', userAgent: UA }, new Date(), UUID)).toBe(true);
+  });
+  it('caché: tope de entradas con evicción del más antiguo, sin barrer (O(1)); vuelve a verificar solo al evictado', async () => {
+    const t = build({});
+    const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    const now = new Date();
+    for (let i = 0; i < SEARCH_DEMAND_VERIFY_MAX_ENTRIES + 1; i++) await t.demand.classify(id(i), UA, now);
+    expect(t.demand.cacheSize()).toBe(SEARCH_DEMAND_VERIFY_MAX_ENTRIES);
+    const before = t.prisma.card.findUnique.mock.calls.length;
+    await t.demand.classify(id(SEARCH_DEMAND_VERIFY_MAX_ENTRIES), UA, now); // el más reciente sigue en caché
+    expect(t.prisma.card.findUnique.mock.calls.length).toBe(before);
+    await t.demand.classify(id(0), UA, now); // el más antiguo fue evictado
+    expect(t.prisma.card.findUnique.mock.calls.length).toBe(before + 1);
   });
 });

@@ -8,6 +8,7 @@ import { Module } from '@nestjs/common';
 import { SalesAnalyticsModule } from '../sales-analytics/sales-analytics.module';
 // §GSHOP.A: el universo de la revisión de indexación sale del mismo sitemap (`CatalogService`/`SealedCatalogService`).
 import { CatalogModule } from '../catalog/catalog.module';
+import { DemandCoreModule } from '../demand/demand-core.module';
 import { IndexInspectionService } from './index-inspection.service';
 import { MarketingController } from './marketing.controller';
 import { MarketingAnnotationsController } from './marketing-annotations.controller';
@@ -27,7 +28,7 @@ import { MarketingExportService } from './export/marketing-export.service';
 import { GOOGLE_READ_PORT, MarketingExternalSources, googleAuthReadPort } from './marketing-external-sources';
 
 @Module({
-  imports: [SalesAnalyticsModule, CatalogModule],
+  imports: [SalesAnalyticsModule, CatalogModule, DemandCoreModule],
   controllers: [MarketingController, MarketingAnnotationsController, MarketingTokensController, MarketingSearchMissController],
   providers: [
     MarketingAnalyticsService,

@@ -7,12 +7,13 @@ import { Module } from '@nestjs/common';
 import { CatalogModule } from '../catalog/catalog.module';
 import { WishlistModule } from '../wishlist/wishlist.module';
 import { MarketingModule } from '../marketing/marketing.module';
+import { DemandCoreModule } from './demand-core.module';
 import { DemandController } from './demand.controller';
 import { DemandGapsService } from './demand-gaps.service';
 import { DemandMatchService } from './demand-match.service';
 
 @Module({
-  imports: [CatalogModule, WishlistModule, MarketingModule],
+  imports: [CatalogModule, WishlistModule, MarketingModule, DemandCoreModule],
   providers: [DemandGapsService, DemandMatchService],
   controllers: [DemandController],
   exports: [DemandMatchService],

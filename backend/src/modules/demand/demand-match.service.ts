@@ -46,25 +46,36 @@ export class DemandMatchService {
     const existing = new Map((await this.prisma.demandTermMatch.findMany({ select: { termNormalized: true, status: true, matchedAt: true } })).map((m) => [m.termNormalized, m]));
     const reevalBefore = now.getTime() - DEMAND_MATCH_REEVAL_DAYS * 86_400_000;
     let evaluated = 0;
+    let failed = 0;
+    let firstError: unknown;
     for (const { term } of terms) {
       const prev = existing.get(term);
       if (prev && prev.status === 'matched' && prev.matchedAt.getTime() > reevalBefore) continue;
-      const res = await this.catalog.searchAllCards({ q: term, page: 1, pageSize: DEMAND_MATCH_MAX_RESULTS });
-      const { status, cardId } = decideMatch(term, res.data.map((c) => ({ id: c.id, name: c.name })));
-      await this.prisma.demandTermMatch.upsert({
-        where: { termNormalized: term },
-        create: { termNormalized: term, status, cardId, matchedAt: now },
-        update: { status, cardId, matchedAt: now },
-      });
-      evaluated += 1;
+      // DM-5: un término que haga lanzar a `searchAllCards` (o a su upsert) NO aborta el lote: se omite, queda sin match y se reintenta mañana.
+      try {
+        const res = await this.catalog.searchAllCards({ q: term, page: 1, pageSize: DEMAND_MATCH_MAX_RESULTS });
+        const { status, cardId } = decideMatch(term, res.data.map((c) => ({ id: c.id, name: c.name })));
+        await this.prisma.demandTermMatch.upsert({
+          where: { termNormalized: term },
+          create: { termNormalized: term, status, cardId, matchedAt: now },
+          update: { status, cardId, matchedAt: now },
+        });
+        evaluated += 1;
+      } catch (e) {
+        failed += 1;
+        firstError ??= e;
+        this.logger.warn(`demand-match: un término falló (${e instanceof Error ? e.constructor.name : 'error'}); se omite y sigue el lote`);
+      }
     }
+    // Si TODOS los intentos fallaron la falla es sistémica (BD/catálogo caídos): se lanza para que la cola reintente y NO se marca «última corrida buena».
+    if (failed > 0 && evaluated === 0) throw firstError instanceof Error ? firstError : new Error(`demand-match: fallaron los ${failed} término(s) evaluados`);
     // «Última corrida buena»: solo si TODO el lote terminó (el endpoint lo muestra como «dato de hace N días»).
     await this.prisma.configSetting.upsert({
       where: { key: DEMAND_MATCH_LAST_OK_KEY },
       create: { key: DEMAND_MATCH_LAST_OK_KEY, valueJson: now.toISOString() },
       update: { valueJson: now.toISOString() },
     });
-    this.logger.log(`demand-match: ${evaluated} término(s) evaluados de ${terms.length}`);
+    this.logger.log(`demand-match: ${evaluated} término(s) evaluados de ${terms.length}${failed > 0 ? `, ${failed} omitidos por fallo` : ''}`);
     return evaluated;
   }
 }

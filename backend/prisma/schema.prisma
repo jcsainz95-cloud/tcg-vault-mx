@@ -3476,13 +3476,15 @@ model SearchDemandDaily {
 }
 
 // §DEMANDA (m112) — hashes del día (HMAC con la sal del día de c6) para contar PERSONAS por (cardId × día). Se vuelcan a
-// `SearchDemandDaily` y se BORRAN al cierre (`marketing-search-close`). Topes: ≤ 200 por (cardId, día) y ≤ 300 cardId por día.
+// `SearchDemandDaily` y se BORRAN al cierre (`marketing-search-close`). Topes: ≤ 200 por (cardId, día), ≤ 10 cardId por persona y día y ≤ 1000 cardId por día (con exentas).
 model SearchDemandSeen {
   cardId String
   day    DateTime @db.Date
   h      String
 
   @@id([cardId, day, h])
+  // Tope «≤ 10 cardId distintos por persona y día» (m113, DM-1).
+  @@index([day, h])
 }
 
 // §DEMANDA (m112) — texto → carta persistido por el job `demand-match` (solo términos que ya pasaron el filtro PII y el umbral).

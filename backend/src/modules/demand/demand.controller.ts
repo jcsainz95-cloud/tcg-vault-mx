@@ -1,5 +1,5 @@
 /**
- * demand.controller.ts — §DEMANDA F1+F2 (API_CONTRACT_DEMANDA §1-§2). `GET /admin/reports/demand-gaps` (+ `/export.csv`), `super_admin`
+ * demand.controller.ts — §DEMANDA F1+F2 (API_CONTRACT_DEMANDA §1-§2; C-EQ-1: `sort`/`dir`/`limit` = clase ORDEN, filas en `enum-query-axes.e2e-spec.ts`). `GET /admin/reports/demand-gaps` (+ `/export.csv`), `super_admin`
  * (operador y cliente ⇒ 403). Sin Content-Disposition con datos del usuario; `Cache-Control: no-store`.
  */
 import { Controller, Get, Header, Query, Res } from '@nestjs/common';
@@ -21,8 +21,9 @@ export class DemandController {
 
   @Get('demand-gaps/export.csv')
   @Header('Cache-Control', 'no-store')
-  async exportCsv(@Res() res: Response, @Query('sort') sort?: string, @Query('dir') dir?: string, @Query('limit') limit?: string) {
-    const csv = await this.demand.csv({ sort, dir, limit }, new Date());
+  async exportCsv(@Res() res: Response, @Query('sort') sort?: string, @Query('dir') dir?: string) {
+    // El CSV ignora `limit` (contrato §1): no se declara, así que ni se lee ni se valida.
+    const csv = await this.demand.csv({ sort, dir }, new Date());
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${csv.filename}"`);
     res.send(csv.body);

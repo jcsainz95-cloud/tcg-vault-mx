@@ -10,6 +10,7 @@
 import { randomBytes } from 'crypto';
 import { createWshWorld, WshWorld } from './helpers/wishlist-db';
 import { MarketingSearchMissService } from '../../src/modules/marketing/marketing-search-miss.service';
+import { DemandGapsService } from '../../src/modules/demand/demand-gaps.service';
 import { DemandMatchService } from '../../src/modules/demand/demand-match.service';
 import { CatalogService } from '../../src/modules/catalog/catalog.service';
 import { toMexicoCityDateKey } from '../../src/common/business-days';
@@ -79,7 +80,7 @@ const seedTerm = (term: string, perDay: number[]) =>
 describe('m112 y acceso', () => {
   it('m112 creó las tres tablas con su unicidad y su PK', async () => {
     const idx = await w.h.prisma.$queryRaw<{ indexname: string }[]>`SELECT indexname FROM pg_indexes WHERE tablename IN ('SearchDemandDaily','SearchDemandSeen','DemandTermMatch')`;
-    expect(idx.map((i) => i.indexname)).toEqual(expect.arrayContaining(['SearchDemandDaily_cardId_day_key', 'SearchDemandDaily_cardId_idx', 'SearchDemandSeen_pkey', 'DemandTermMatch_pkey']));
+    expect(idx.map((i) => i.indexname)).toEqual(expect.arrayContaining(['SearchDemandDaily_cardId_day_key', 'SearchDemandDaily_cardId_idx', 'SearchDemandSeen_pkey', 'SearchDemandSeen_day_h_idx', 'DemandTermMatch_pkey']));
   });
   it('operador y cliente ⇒ 403; sin sesión ⇒ 401 (JSON y CSV); sort/dir/limit inválidos ⇒ 400', async () => {
     const cust = await w.customer();
@@ -221,6 +222,14 @@ describe('CSV', () => {
   });
 });
 
+describe('CSV · nombre con la fecha de America/Mexico_City', () => {
+  it('a las 03:00 UTC del 11 ya es 10 en CDMX ⇒ demanda-sin-stock-…-10.csv (no el día UTC)', async () => {
+    const csv = await w.h.app.get(DemandGapsService).csv({}, new Date('2027-05-11T03:00:00.000Z'));
+    expect(csv.filename).toBe('demanda-sin-stock-2027-05-10.csv');
+    expect((await w.h.app.get(DemandGapsService).csv({}, new Date('2027-05-11T07:00:00.000Z'))).filename).toBe('demanda-sin-stock-2027-05-11.csv');
+  });
+});
+
 describe('F2 — POST /marketing/search-miss con cardId', () => {
   it('cardId inexistente o no-uuid ⇒ 204 y camino de texto (idéntico a hoy)', async () => {
     const term = `${WORD_UNI} unica`;
@@ -229,14 +238,19 @@ describe('F2 — POST /marketing/search-miss con cardId', () => {
     expect(await w.h.prisma.searchDemandSeen.count()).toBe(0);
     expect(await w.h.prisma.searchNoResultSeen.count({ where: { termNormalized: term } })).toBe(2);
   });
-  it('carta CON stock ⇒ 204 sin escritura alguna', async () => {
+  it('carta CON stock ⇒ 204 sin escritura alguna (DM-4: con un término que SÍ está en el vocabulario, así que quitar el `return` de `stocked` lo pone rojo)', async () => {
     const c = await w.card();
     await w.piece(c.id);
-    expect((await post({ term: 'whatever', kind: 'card', cardId: c.id })).status).toBe(204);
+    // El término ES el nombre de una carta del catálogo ⇒ el vocabulario lo permite: si la ruta de `stocked` cayera al camino de texto, escribiría
+    // en `SearchNoResultSeen`. (`'whatever'` no lo permitía y el test no distinguía.)
+    expect((await post({ term: `${WORD_UNI} unica`, kind: 'card', cardId: c.id })).status).toBe(204);
     expect(await w.h.prisma.searchDemandSeen.count()).toBe(0);
     expect(await w.h.prisma.searchNoResultSeen.count()).toBe(0);
+    // Control: el MISMO término sin cardId SÍ escribe (el vocabulario lo permite) ⇒ el 0 de arriba lo causó el `stocked`, no el filtro.
+    expect((await post({ term: `${WORD_UNI} unica`, kind: 'card' })).status).toBe(204);
+    expect(await w.h.prisma.searchNoResultSeen.count({ where: { termNormalized: `${WORD_UNI} unica` } })).toBe(1);
   });
-  it('0 stock ⇒ UNA persona en SearchDemandSeen (hash 16 hex) y el término NO se guarda; mismo hash dos veces = 1; otro navegador = 2', async () => {
+  it('0 stock ⇒ UNA persona en SearchDemandSeen (hash 16 hex) y el término NO se guarda; mismo hash dos veces = 1; otra IP = 2; otro user-agent NO es otra persona (DM-1)', async () => {
     const term = `${WORD_UNI} unica`;
     for (let i = 0; i < 3; i++) expect((await post({ term, kind: 'card', cardId: cardUni.id })).status).toBe(204);
     let rows = await w.h.prisma.searchDemandSeen.findMany({});
@@ -245,9 +259,11 @@ describe('F2 — POST /marketing/search-miss con cardId', () => {
     expect(rows[0].h).toMatch(/^[0-9a-f]{16}$/);
     expect(await w.h.prisma.searchNoResultSeen.count()).toBe(0);
     await post({ term, kind: 'card', cardId: cardUni.id }, 'ua-otro');
+    expect(await w.h.prisma.searchDemandSeen.count()).toBe(1); // DM-1: el UA no entra al hash
+    expect(await svc.record('x', { ip: '198.51.100.7', userAgent: 'ua-d' }, new Date(), cardUni.id)).toBe(true);
     rows = await w.h.prisma.searchDemandSeen.findMany({});
     expect(rows).toHaveLength(2);
-    expect(JSON.stringify(rows)).not.toMatch(/ua-d|ua-otro|127\.0\.0\.1|::1/);
+    expect(JSON.stringify(rows)).not.toMatch(/ua-d|ua-otro|127\.0\.0\.1|::1|198\.51/);
   });
   it('cuerpo con campo extra ⇒ 204 sin escritura; interruptor apagado ⇒ nada', async () => {
     expect((await post({ term: 'x', kind: 'card', cardId: cardUni.id, extra: 1 })).status).toBe(204);
@@ -256,18 +272,48 @@ describe('F2 — POST /marketing/search-miss con cardId', () => {
     expect((await post({ term: 'x', kind: 'card', cardId: cardUni.id })).status).toBe(204);
     expect(await w.h.prisma.searchDemandSeen.count()).toBe(0);
   });
-  it('topes: la persona 201 y la carta 301 no escriben (bajo concurrencia)', async () => {
-    await Promise.all(Array.from({ length: 230 }, (_, i) => svc.record('x', { ip: `192.0.2.${i}`, userAgent: `c${i}` }, new Date(), cardUni.id)));
-    expect(await w.h.prisma.searchDemandSeen.count({ where: { cardId: cardUni.id } })).toBe(200);
+  const UA_OK = 'Mozilla/5.0 (X11; Linux x86_64) Firefox/130.0';
+  it('robots: UA vacío o de bot ⇒ 204 sin contar NADA (ni demanda ni texto), por HTTP y por servicio', async () => {
+    for (const ua of ['Googlebot/2.1', 'curl/8.0', 'python-requests/2.31', 'HeadlessChrome/120', 'Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots) preview']) {
+      expect((await post({ term: `${WORD_UNI} unica`, kind: 'card', cardId: cardUni.id }, ua)).status).toBe(204);
+    }
+    expect(await svc.record('x', { ip: '203.0.113.1', userAgent: '' }, new Date(), cardUni.id)).toBe(false);
+    expect(await svc.record('x', { ip: '203.0.113.1' }, new Date(), cardUni.id)).toBe(false);
+    expect(await w.h.prisma.searchDemandSeen.count()).toBe(0);
+    expect(await w.h.prisma.searchNoResultSeen.count()).toBe(0);
+    expect(await svc.record('x', { ip: '203.0.113.1', userAgent: UA_OK }, new Date(), cardUni.id)).toBe(true); // un navegador sí
+  });
+  it('DM-1: 30 user-agent distintos desde UNA IP ⇒ UNA persona; y una persona cuenta como mucho 10 cartas distintas por día', async () => {
+    for (let i = 0; i < 30; i++) await svc.record('x', { ip: '192.0.2.50', userAgent: `Mozilla/5.0 variante-${i}` }, new Date(), cardUni.id);
+    expect(await w.h.prisma.searchDemandSeen.count({ where: { cardId: cardUni.id } })).toBe(1);
     await w.h.prisma.searchDemandSeen.deleteMany({});
-    // 330 cartas distintas: se crean 305 cartas vacías y 25 repetidas. Cartas reales (se verifica existencia).
-    const ids: string[] = [];
-    for (let i = 0; i < 305; i++) ids.push(randomUuid());
-    await w.h.prisma.card.createMany({ data: ids.map((id, i) => ({ id, externalId: `dem-${RUN}-b${i}`, setId: w.setId, name: `Bulk ${L(RUN)} ${i}`, number: `B${i}`, rarity: 'Common', rarityCanonical: 'Common', availableFinishes: ['normal'] })) });
-    await Promise.all(ids.map((id) => svc.record('x', { ip: '203.0.113.9', userAgent: 'u' }, new Date(), id)));
-    expect((await w.h.prisma.searchDemandSeen.groupBy({ by: ['cardId'] })).length).toBe(300);
+    const ids = Array.from({ length: 14 }, () => randomUuid());
+    await w.h.prisma.card.createMany({ data: ids.map((id, i) => ({ id, externalId: `dem-${RUN}-p${i}`, setId: w.setId, name: `PerPerson ${L(RUN)} ${i}`, number: `P${i}`, rarity: 'Common', rarityCanonical: 'Common', availableFinishes: ['normal'] })) });
+    for (const id of ids) await svc.record('x', { ip: '192.0.2.51', userAgent: UA_OK }, new Date(), id);
+    expect(await w.h.prisma.searchDemandSeen.count()).toBe(10); // las 4 restantes de la MISMA persona no escriben
+    expect(await svc.record('x', { ip: '192.0.2.52', userAgent: UA_OK }, new Date(), ids[13])).toBe(true); // otra persona sí
     await w.h.prisma.searchDemandSeen.deleteMany({});
     await w.h.prisma.card.deleteMany({ where: { id: { in: ids } } });
+  });
+  it('topes: la persona 201 de una carta no escribe (bajo concurrencia)', async () => {
+    await Promise.all(Array.from({ length: 230 }, (_, i) => svc.record('x', { ip: `192.0.2.${i}`, userAgent: UA_OK }, new Date(), cardUni.id)));
+    expect(await w.h.prisma.searchDemandSeen.count({ where: { cardId: cardUni.id } })).toBe(200);
+  });
+  it('DM-2: con el tope global de 1000 cartas/día lleno, una carta nueva NO entra, pero las EXENTAS (wishlist activa o Daily ≤ 30 d) sí; una Daily de hace 40 d no exime', async () => {
+    const day = today();
+    // 1000 cardId de relleno directos en la tabla (sin FK): el tope global cuenta cardId DISTINTOS del día.
+    await w.h.prisma.searchDemandSeen.createMany({ data: Array.from({ length: 1000 }, (_, i) => ({ cardId: `relleno-${RUN}-${i}`, day: new Date(`${day}T00:00:00.000Z`), h: 'ffffffffffffffff' })) });
+    const [c1, c2, c3] = [await w.card(), await w.card(), await w.card()];
+    const rec = (id: string, n: number) => svc.record('x', { ip: `198.18.0.${n}`, userAgent: UA_OK }, new Date(), id);
+    expect(await rec(c1.id, 1)).toBe(false); // sin exención: el relleno no deja entrar a la 1001
+    await want(await w.customer(), c2.id);
+    expect(await rec(c2.id, 2)).toBe(true); // wishlist activa ⇒ exenta
+    await w.h.prisma.searchDemandDaily.create({ data: { cardId: c3.id, day: dayAgo(10), people: 3 } });
+    expect(await rec(c3.id, 3)).toBe(true); // Daily de hace 10 d ⇒ exenta
+    await w.h.prisma.searchDemandDaily.deleteMany({ where: { cardId: c3.id } });
+    await w.h.prisma.searchDemandDaily.create({ data: { cardId: c3.id, day: dayAgo(40), people: 3 } });
+    await w.h.prisma.searchDemandSeen.deleteMany({ where: { cardId: c3.id } });
+    expect(await rec(c3.id, 4)).toBe(false); // Daily de hace 40 d ⇒ no exenta
   });
   it('cierre: hashes → people (Daily) y hashes borrados; idempotente (2 corridas = mismas people)', async () => {
     const d1 = new Date('2027-05-10T18:00:00.000Z');
@@ -328,6 +374,20 @@ describe('demand-match', () => {
     const r = await api('/admin/reports/demand-gaps');
     expect(r.status).toBe(200);
     expect((r.body as any).sources.matchedAt).toBe(new Date(ok.valueJson as string).toISOString());
+  });
+  it('DM-5: un término que hace lanzar a searchAllCards NO aborta el lote: los demás se evalúan y se marca «última corrida buena»', async () => {
+    await seedAll();
+    const cat = w.h.app.get(CatalogService);
+    const real = cat.searchAllCards.bind(cat);
+    const spy = jest.spyOn(cat, 'searchAllCards').mockImplementation(async (q: any) => {
+      if (q.q === WORD_AMB) throw new Error('término venenoso');
+      return real(q);
+    });
+    const evaluated = await w.h.app.get(DemandMatchService).run();
+    spy.mockRestore();
+    expect(evaluated).toBe(1);
+    expect((await w.h.prisma.demandTermMatch.findMany({})).map((m) => [m.termNormalized, m.status])).toEqual([[WORD_UNI, 'matched']]);
+    expect(await w.h.prisma.configSetting.findUnique({ where: { key: 'demand_match_last_ok' } })).not.toBeNull();
   });
   it('un término ya matched no se re-evalúa antes de 30 días', async () => {
     await seedTerm(WORD_UNI, [3, 2]);

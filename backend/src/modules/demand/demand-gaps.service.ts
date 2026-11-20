@@ -22,6 +22,7 @@ import {
   DEMAND_DIRS,
   DEMAND_LIMIT_DEFAULT,
   DEMAND_LIMIT_MAX,
+  DEMAND_LIMIT_VALUES,
   DEMAND_MATCH_LAST_OK_KEY,
   DEMAND_SORTS,
   DemandDials,
@@ -95,10 +96,11 @@ export class DemandGapsService {
     const sort = parseEnumFilter('sort', q.sort, DEMAND_SORTS) ?? 'score';
     const dir = parseEnumFilter('dir', q.dir, DEMAND_DIRS) ?? 'desc';
     let limit = DEMAND_LIMIT_DEFAULT;
-    if (q.limit !== undefined && q.limit !== null && q.limit !== '') {
+    // Clase ORDEN (§0-Q punto 6): vacío o solo espacios ≡ ausente ⇒ el default; ` 5` (espacio con token) es entrada mal formada ⇒ 400.
+    if (q.limit !== undefined && q.limit !== null && !(typeof q.limit === 'string' && q.limit.trim() === '')) {
       const n = typeof q.limit === 'string' && /^\d{1,6}$/.test(q.limit) ? Number(q.limit) : NaN;
       if (!Number.isInteger(n) || n < 1 || n > maxLimit) {
-        throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid limit', { field: 'limit', min: 1, max: maxLimit });
+        throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid limit', { field: 'limit', allowed: DEMAND_LIMIT_VALUES.slice(0, maxLimit) });
       }
       limit = n;
     }
@@ -109,8 +111,8 @@ export class DemandGapsService {
     return this.build(this.parseQuery(q), now);
   }
 
-  /** CSV: mismos query y orden; TODAS las filas (tope 1000). Se pasa `limit` ignorado: el CSV no acepta `limit` propio. */
-  async csv(q: { sort?: unknown; dir?: unknown; limit?: unknown }, now: Date): Promise<{ filename: string; body: string }> {
+  /** CSV: mismos `sort`/`dir`; TODAS las filas (tope 1000). El CSV IGNORA `limit` (ni siquiera lo lee: el controller no lo declara). */
+  async csv(q: { sort?: unknown; dir?: unknown }, now: Date): Promise<{ filename: string; body: string }> {
     const parsed = this.parseQuery(q);
     const r = await this.build({ ...parsed, limit: DEMAND_CSV_MAX_ROWS }, now);
     const pesos = (c: number | null) => (c == null ? '' : (c / 100).toFixed(2));
@@ -135,7 +137,7 @@ export class DemandGapsService {
         ].join(',');
       }),
     ];
-    return { filename: `demanda-sin-stock-${r.generatedAt.slice(0, 10)}.csv`, body: `${lines.join('\n')}\n` };
+    return { filename: `demanda-sin-stock-${toMexicoCityDateKey(new Date(r.generatedAt))}.csv`, body: `${lines.join('\n')}\n` };
   }
 
   private async build(q: DemandQuery, now: Date): Promise<DemandGapsResponse> {
