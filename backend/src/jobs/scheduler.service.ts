@@ -30,6 +30,7 @@ import { ShipmentExtraChargesJob } from '../modules/shipments/extra-charges.job'
 import { CatalogAutoWatchService } from '../modules/catalog/catalog-auto-watch.service';
 import { SpendWatchService } from '../modules/spend-alerts/spend-watch.service';
 import { MarketingSearchMissService } from '../modules/marketing/marketing-search-miss.service';
+import { DemandMatchService } from '../modules/demand/demand-match.service';
 import { MarketingWeeklyDigestService } from '../modules/marketing/marketing-weekly-digest.service';
 import { IndexInspectionService } from '../modules/marketing/index-inspection.service';
 import { SpendDigestService } from '../modules/spend-alerts/spend-digest.service';
@@ -185,6 +186,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly manualVersionMerge?: ManualVersionMergeService,
     // §PRICE-PATTERN: reclasificación idempotente de versiones «Pattern/Ball» (al desplegar y diaria).
     @Optional() private readonly patternReclassify?: PatternReclassifyService,
+    // §DEMANDA: texto de búsqueda → carta (diario 04:30 UTC).
+    @Optional() private readonly demandMatch?: DemandMatchService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -434,6 +437,13 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.error('Scheduler: ManualVersionMergeService NO está inyectado; manual-version-merge no queda programado.');
     }
 
+    // §DEMANDA: `demand-match` diario 04:30 UTC (idempotente: upsert por término). Reintenta solo: 3 intentos, espera exponencial desde 60 s.
+    if (this.demandMatch) {
+      await this.queue.add('demand-match', {}, { ...this.repeat('demand-match', '30 4 * * *'), attempts: 3, backoff: { type: 'exponential', delay: 60_000 } });
+    } else {
+      this.logger.error('Scheduler: DemandMatchService NO está inyectado; demand-match no queda programado.');
+    }
+
     // §PRICE-PATTERN: `pattern-reclassify` diario 02:10 UTC (tras el barrido de catálogo) y UNA vez al desplegar (jobId fijo + removeOnComplete ⇒
     // cada arranque encola una corrida; es idempotente: sin candidatos no cambia nada).
     if (this.patternReclassify) {
@@ -591,6 +601,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
         return this.payments?.reconcileStripeFees() ?? null;
       case 'pattern-reclassify':
         return this.patternReclassify?.run() ?? null;
+      case 'demand-match':
+        return this.demandMatch?.run() ?? null;
       case 'manual-version-merge':
         return this.manualVersionMerge?.runAll() ?? null;
       case 'ship-quote-calibrate':

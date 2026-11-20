@@ -6,6 +6,10 @@
  * `marketing-search-close` 00:10 CDMX, y perezoso al escribir) `people = COUNT(h)` pasa a `SearchNoResultDaily` y se BORRAN los
  * hashes y la sal: el hash no sirve al día siguiente. Topes (MKV2-2): ≤ 300 términos/día y ≤ 200 hashes por (término, día).
  * Apagable con `marketing_search_log` (ausente = encendido). Retención: bajo el umbral 30 días, sobre él 90.
+ *
+ * §DEMANDA F2 (API_CONTRACT_DEMANDA §3): con `cardId` (uuid de una carta que EXISTE y tiene 0 stock vendible, verificado AQUÍ,
+ * nunca se confía en el cliente) se cuenta UNA persona en `SearchDemandSeen(cardId, día, h)`; el término NO se guarda. Topes
+ * ≤ 200 hashes por (cardId, día) y ≤ 300 cardId por día, bajo el mismo candado consultivo (otro namespace).
  */
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { createHmac, randomBytes } from 'node:crypto';
@@ -14,6 +18,7 @@ import { toMexicoCityDateKey } from '../../common/business-days';
 import { addDays } from '../sales-analytics/sales-period';
 import { containsPii } from './marketing-pii-filter';
 import { MarketingSearchVocabulary, foldSearchText } from './marketing-search-vocabulary';
+import { CatalogService } from '../catalog/catalog.service';
 
 export const SEARCH_MISS_TERM_MAX = 40;
 export const SEARCH_MISS_WORDS_MAX = 4;
@@ -26,6 +31,15 @@ export const SEARCH_MISS_MIN_DAYS = 2;
 export const SEARCH_MISS_MIN_PEOPLE_PER_DAY = 2;
 export const SEARCH_MISS_MAX_TERMS_PER_DAY = 300;
 export const SEARCH_MISS_MAX_HASHES_PER_TERM = 200;
+/** §DEMANDA F2: topes de relleno de `SearchDemandSeen` (por cardId×día y cardId distintos por día) y caché de la verificación. */
+export const SEARCH_DEMAND_MAX_HASHES_PER_CARD = 200;
+export const SEARCH_DEMAND_MAX_CARDS_PER_DAY = 300;
+export const SEARCH_DEMAND_VERIFY_TTL_MS = 60_000;
+export const SEARCH_DEMAND_VERIFY_MAX_ENTRIES = 5000;
+export const SEARCH_DEMAND_DAY_NAMESPACE = 98_130_202;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Resultado de verificar un `cardId` en el servidor: `unknown` (no existe) ⇒ camino de texto; `stocked` ⇒ no es hueco; `empty` ⇒ cuenta. */
+export type CardDemandState = 'unknown' | 'stocked' | 'empty';
 export const SEARCH_SALT_PREFIX = 'search_salt_';
 /** Marca monótona «días anteriores a este ya están cerrados»: ninguna escritura (sal ni hash) puede resucitar un día cerrado. */
 /** Espacio del candado consultivo por día de c6 (`pg_advisory_xact_lock(ns, hashtext(día))`); distinto de todos los demás. */
@@ -57,18 +71,36 @@ export interface SearchMissRow {
   days: number;
 }
 
-/** Agrega filas diarias (término × día × personas) y aplica el umbral de lectura. PURO. */
-export function qualifyingSearchMisses(rows: { termNormalized: string; people: number }[]): SearchMissRow[] {
-  const acc = new Map<string, { people: number; days: number }>();
+/**
+ * Umbral de lectura GENÉRICO (PURO): agrega filas (clave × día × personas) y exige ≥ 5 PERSONAS en total y ≥ 2 días con ≥ 2.
+ * Lo usan c6 (clave = término) y §DEMANDA (clave = cardId o término); una sola regla, no copias. Las filas de una misma
+ * (clave, día) se SUMAN antes de contar días (dos fuentes del mismo día suman personas).
+ */
+export function qualifyingCounts(rows: { key: string; day?: string; people: number }[]): { key: string; people: number; days: number }[] {
+  const perDay = new Map<string, Map<string, number>>();
+  let anon = 0;
   for (const r of rows) {
-    const e = acc.get(r.termNormalized) ?? { people: 0, days: 0 };
-    e.people += r.people;
-    if (r.people >= SEARCH_MISS_MIN_PEOPLE_PER_DAY) e.days += 1;
-    acc.set(r.termNormalized, e);
+    const m = perDay.get(r.key) ?? new Map<string, number>();
+    const d = r.day ?? `#${anon++}`; // sin día ⇒ cada fila cuenta como su propio día (comportamiento histórico de c6)
+    m.set(d, (m.get(d) ?? 0) + r.people);
+    perDay.set(r.key, m);
   }
-  return [...acc.entries()]
-    .filter(([, e]) => e.people >= SEARCH_MISS_MIN_PEOPLE && e.days >= SEARCH_MISS_MIN_DAYS)
-    .map(([term, e]) => ({ term, people: e.people, days: e.days }));
+  const out: { key: string; people: number; days: number }[] = [];
+  for (const [key, days] of perDay) {
+    let people = 0;
+    let n = 0;
+    for (const p of days.values()) {
+      people += p;
+      if (p >= SEARCH_MISS_MIN_PEOPLE_PER_DAY) n += 1;
+    }
+    if (people >= SEARCH_MISS_MIN_PEOPLE && n >= SEARCH_MISS_MIN_DAYS) out.push({ key, people, days: n });
+  }
+  return out;
+}
+
+/** Agrega filas diarias (término × día × personas) y aplica el umbral de lectura. PURO (envoltorio de `qualifyingCounts`). */
+export function qualifyingSearchMisses(rows: { termNormalized: string; day?: string; people: number }[]): SearchMissRow[] {
+  return qualifyingCounts(rows.map((r) => ({ key: r.termNormalized, day: r.day, people: r.people }))).map((r) => ({ term: r.key, people: r.people, days: r.days }));
 }
 
 @Injectable()
@@ -80,7 +112,16 @@ export class MarketingSearchMissService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly vocabulary?: MarketingSearchVocabulary,
+    // §DEMANDA F2: verificación de existencia y stock del `cardId` (el MISMO predicado que `GET /catalog/cards`). Al final por las listas posicionales.
+    @Optional() private readonly catalog?: CatalogService,
   ) {}
+
+  private readonly cardState = new Map<string, { state: CardDemandState; exp: number }>();
+
+  /** ¿Está encendido el registro (`marketing_search_log`)? Público: §DEMANDA lo lee para `sources.search = 'off'`. */
+  async isEnabled(): Promise<boolean> {
+    return this.enabled();
+  }
 
   private async enabled(): Promise<boolean> {
     const row = await this.prisma.configSetting.findUnique({ where: { key: SEARCH_MISS_FLAG }, select: { valueJson: true } });
@@ -105,8 +146,14 @@ export class MarketingSearchMissService {
   }
 
   /** Cuenta UNA persona (hash del día) para el término. ⛔ Nunca lanza hacia fuera (el endpoint responde 204 siempre). */
-  async record(rawTerm: unknown, client: SearchMissClient = {}, now = new Date()): Promise<boolean> {
+  async record(rawTerm: unknown, client: SearchMissClient = {}, now = new Date(), cardId?: unknown): Promise<boolean> {
     try {
+      // §DEMANDA F2: `cardId` solo cuenta si el SERVIDOR lo verifica. Ausente, no-uuid o inexistente ⇒ camino de texto, idéntico a hoy.
+      if (typeof cardId === 'string' && cardId.length <= 36 && UUID_RE.test(cardId)) {
+        const state = await this.verifyCard(cardId.toLowerCase(), now);
+        if (state === 'stocked') return false; // no es hueco: no cuenta nada (frena el relleno)
+        if (state === 'empty') return this.recordCard(cardId.toLowerCase(), client, now);
+      }
       const term = normalizeSearchTerm(rawTerm);
       if (term === null || !(await this.enabled())) return false;
       if (!this.vocabulary || !(await this.vocabulary.allows(term, now.getTime()))) return false;
@@ -134,6 +181,49 @@ export class MarketingSearchMissService {
     }
   }
 
+  /** `cardId` → ¿existe? ¿tiene pieza vendible? Caché en memoria 60 s, ≤ 5000 entradas (un barrido de uuids no cuesta una consulta por petición). */
+  private async verifyCard(cardId: string, now: Date): Promise<CardDemandState> {
+    const t = now.getTime();
+    const hit = this.cardState.get(cardId);
+    if (hit && hit.exp > t) return hit.state;
+    let state: CardDemandState = 'unknown';
+    if (this.catalog) {
+      const exists = await this.prisma.card.findUnique({ where: { id: cardId }, select: { id: true } });
+      if (exists) state = (await this.catalog.cardIdsWithSellable([cardId])).has(cardId) ? 'stocked' : 'empty';
+    }
+    if (this.cardState.size >= SEARCH_DEMAND_VERIFY_MAX_ENTRIES) {
+      for (const [k, v] of this.cardState) if (v.exp <= t) this.cardState.delete(k);
+      while (this.cardState.size >= SEARCH_DEMAND_VERIFY_MAX_ENTRIES) {
+        const first = this.cardState.keys().next();
+        if (first.done) break;
+        this.cardState.delete(first.value);
+      }
+    }
+    this.cardState.set(cardId, { state, exp: t + SEARCH_DEMAND_VERIFY_TTL_MS });
+    return state;
+  }
+
+  /** Cuenta UNA persona (hash del día) para la carta con 0 stock. ⛔ El texto de la búsqueda no entra aquí. */
+  private async recordCard(cardId: string, client: SearchMissClient, now: Date): Promise<boolean> {
+    if (!(await this.enabled())) return false;
+    const day = toMexicoCityDateKey(now);
+    await this.lazyClose(now);
+    const salt = await this.saltOf(day);
+    const h = createHmac('sha256', salt).update(`${client.ip ?? ''}|${client.userAgent ?? ''}`).digest('hex').slice(0, 16);
+    const [, n] = await this.prisma.$transaction([
+      this.prisma.$executeRaw`SELECT pg_advisory_xact_lock(${SEARCH_DEMAND_DAY_NAMESPACE}::int, hashtext(${day}))`,
+      this.prisma.$executeRaw`
+        INSERT INTO "SearchDemandSeen" ("cardId", "day", "h")
+        SELECT ${cardId}::text, ${day}::date, ${h}::text
+         WHERE ${day}::text >= COALESCE((SELECT "valueJson"#>>'{}' FROM "ConfigSetting" WHERE "key" = ${SEARCH_CLOSED_THROUGH_KEY}), '0000-00-00')
+           AND (SELECT count(*) FROM "SearchDemandSeen" WHERE "cardId" = ${cardId}::text AND "day" = ${day}::date) < ${SEARCH_DEMAND_MAX_HASHES_PER_CARD}::int
+           AND (EXISTS (SELECT 1 FROM "SearchDemandSeen" WHERE "cardId" = ${cardId}::text AND "day" = ${day}::date)
+                OR (SELECT count(DISTINCT "cardId") FROM "SearchDemandSeen" WHERE "day" = ${day}::date) < ${SEARCH_DEMAND_MAX_CARDS_PER_DAY}::int)
+        ON CONFLICT DO NOTHING`,
+    ]);
+    return n > 0;
+  }
+
   /** Cierre perezoso: si quedan hashes de días pasados (el job no corrió), se cierran, como mucho una vez por minuto. */
   private async lazyClose(now: Date): Promise<void> {
     if (now.getTime() - this.lastLazyClose < LAZY_CLOSE_EVERY_MS) return;
@@ -155,7 +245,12 @@ export class MarketingSearchMissService {
     // Primero la marca de cierre (monótona): desde aquí ninguna petición rezagada puede escribir en un día anterior a hoy.
     await this.prisma.$executeRaw`INSERT INTO "ConfigSetting" ("key", "valueJson", "updatedAt") VALUES (${SEARCH_CLOSED_THROUGH_KEY}, to_jsonb(${today}::text), now())
       ON CONFLICT ("key") DO UPDATE SET "valueJson" = to_jsonb(GREATEST("ConfigSetting"."valueJson"#>>'{}', EXCLUDED."valueJson"#>>'{}')), "updatedAt" = now()`;
-    const open = await this.prisma.$queryRaw<{ d: string }[]>`SELECT DISTINCT to_char("day", 'YYYY-MM-DD') AS d FROM "SearchNoResultSeen" WHERE "day" < ${today}::date ORDER BY 1`;
+    const open = await this.prisma.$queryRaw<{ d: string }[]>`
+      SELECT d FROM (
+        SELECT DISTINCT to_char("day", 'YYYY-MM-DD') AS d FROM "SearchNoResultSeen" WHERE "day" < ${today}::date
+        UNION
+        SELECT DISTINCT to_char("day", 'YYYY-MM-DD') AS d FROM "SearchDemandSeen" WHERE "day" < ${today}::date
+      ) u ORDER BY 1`;
     for (const { d } of open) {
       await this.prisma.$transaction([
         this.prisma.$executeRaw`
@@ -163,6 +258,12 @@ export class MarketingSearchMissService {
           SELECT gen_random_uuid()::text, "termNormalized", "day", count(*)::int FROM "SearchNoResultSeen" WHERE "day" = ${d}::date GROUP BY "termNormalized", "day"
           ON CONFLICT ("termNormalized", "day") DO UPDATE SET "people" = "SearchNoResultDaily"."people" + EXCLUDED."people"`,
         this.prisma.$executeRaw`DELETE FROM "SearchNoResultSeen" WHERE "day" = ${d}::date`,
+        // §DEMANDA F2: mismo día, misma transacción. Sin hashes no hay nada que volcar (idempotente).
+        this.prisma.$executeRaw`
+          INSERT INTO "SearchDemandDaily" ("id", "cardId", "day", "people")
+          SELECT gen_random_uuid()::text, "cardId", "day", count(*)::int FROM "SearchDemandSeen" WHERE "day" = ${d}::date GROUP BY "cardId", "day"
+          ON CONFLICT ("cardId", "day") DO UPDATE SET "people" = "SearchDemandDaily"."people" + EXCLUDED."people"`,
+        this.prisma.$executeRaw`DELETE FROM "SearchDemandSeen" WHERE "day" = ${d}::date`,
       ]);
     }
     // Sales de días pasados (también las huérfanas): ya no sirven y no se guardan.
@@ -203,7 +304,14 @@ export class MarketingSearchMissService {
     const all = await this.prisma.searchNoResultDaily.findMany({ select: { termNormalized: true, people: true } });
     const keep = qualifyingSearchMisses(all).map((r) => r.term);
     const below = await this.prisma.searchNoResultDaily.deleteMany({ where: { day: { lt: belowCutoff }, termNormalized: { notIn: keep } } });
-    this.logger.log(`marketing-search-miss-retention: ${old.count + below.count} fila(s) borradas`);
-    return old.count + below.count;
+    // §DEMANDA: `SearchDemandDaily` > 90 d y bajo el umbral > 30 d (misma regla, por cardId); y los `DemandTermMatch` cuyo término ya no existe.
+    const oldDemand = await this.prisma.searchDemandDaily.deleteMany({ where: { day: { lt: visibleCutoff } } });
+    const allDemand = await this.prisma.searchDemandDaily.findMany({ select: { cardId: true, day: true, people: true } });
+    const keepCards = qualifyingCounts(allDemand.map((r) => ({ key: r.cardId, day: r.day.toISOString().slice(0, 10), people: r.people }))).map((r) => r.key);
+    const belowDemand = await this.prisma.searchDemandDaily.deleteMany({ where: { day: { lt: belowCutoff }, cardId: { notIn: keepCards } } });
+    const orphanMatches = await this.prisma.$executeRaw`DELETE FROM "DemandTermMatch" m WHERE NOT EXISTS (SELECT 1 FROM "SearchNoResultDaily" d WHERE d."termNormalized" = m."termNormalized")`;
+    const total = old.count + below.count + oldDemand.count + belowDemand.count + orphanMatches;
+    this.logger.log(`marketing-search-miss-retention: ${total} fila(s) borradas`);
+    return total;
   }
 }

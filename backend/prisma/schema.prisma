@@ -3461,6 +3461,39 @@ model SearchNoResultSeen {
   @@id([termNormalized, day, h])
 }
 
+// §DEMANDA (m112, API_CONTRACT_DEMANDA §4) — F2: búsquedas de una carta ÚNICA con 0 stock, contadas en PERSONAS por (cardId × día CDMX).
+// ⛔ SIN usuario, SIN IP, SIN cookie, SIN texto libre (el `term` NO se guarda). `cardId` es dato público del catálogo (sin FK, como
+// `BuylistQuoteDailyCount`). Retención 90 d (30 d bajo el umbral).
+model SearchDemandDaily {
+  id     String   @id @default(uuid())
+  cardId String
+  // Día CDMX (solo fecha).
+  day    DateTime @db.Date
+  people Int      @default(0)
+
+  @@unique([cardId, day])
+  @@index([cardId])
+}
+
+// §DEMANDA (m112) — hashes del día (HMAC con la sal del día de c6) para contar PERSONAS por (cardId × día). Se vuelcan a
+// `SearchDemandDaily` y se BORRAN al cierre (`marketing-search-close`). Topes: ≤ 200 por (cardId, día) y ≤ 300 cardId por día.
+model SearchDemandSeen {
+  cardId String
+  day    DateTime @db.Date
+  h      String
+
+  @@id([cardId, day, h])
+}
+
+// §DEMANDA (m112) — texto → carta persistido por el job `demand-match` (solo términos que ya pasaron el filtro PII y el umbral).
+// `status`: 'matched' | 'ambiguous' | 'none'. Sin FK (un `cardId` borrado del catálogo solo deja una fila huérfana que se ignora).
+model DemandTermMatch {
+  termNormalized String   @id
+  cardId         String?
+  status         String
+  matchedAt      DateTime
+}
+
 // MKT-V2 (m99, §3) — idempotencia del correo semanal del lunes POR DESTINATARIO: `recipientKey` = 16 hex de SHA-256(correo en
 // minúsculas) ('none' si no hay destinatarios). El correo no se guarda. `pending` → `sent` | `skipped` | `failed` (≥ 5 intentos).
 model MarketingWeeklyDigest {

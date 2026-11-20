@@ -441,6 +441,11 @@ export const SettingKey = {
   WISHLIST_MARGIN_BASIS: 'wishlist_margin_basis', // P-WSH-7: cost | sale
   SEALED_RESTOCK_MAX_PENDING_PER_EMAIL: 'sealed_restock_max_pending_per_email', // anti-abuso §WSH.7 (b)
 
+  // ===== §DEMANDA (API_CONTRACT_DEMANDA §1) — los tres diales de «Demanda sin stock» (`super_admin`; solo ordenan, no mueven dinero) =====
+  DEMAND_W_WISHLIST: 'demand_w_wishlist',
+  DEMAND_W_SEARCH: 'demand_w_search',
+  DEMAND_SEARCH_WINDOW_DAYS: 'demand_search_window_days',
+
   // ===== v1.113⟨portada⟩ (M-93, API_CONTRACT §DYN.3) — los SEIS diales sin dinero de la portada dinámica =====
   // `super_admin`, auditados (M10). Los cinco `featured_*` rigen la SIGUIENTE selección (nunca la ya escrita, criterio 926);
   // reglas de combinación en `validateFeaturedCombination` (abajo). Seeds = INSERT de M-93 (candado `test/dyn.settings.spec.ts`).
@@ -700,6 +705,10 @@ export const SETTING_DEFAULTS: Record<SettingKeyType, unknown> = {
   [SettingKey.WISHLIST_TARGET_MARGIN_PCT]: 15,
   [SettingKey.WISHLIST_MARGIN_BASIS]: 'cost',
   [SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL]: 5,
+  // §DEMANDA (API_CONTRACT_DEMANDA §1)
+  [SettingKey.DEMAND_W_WISHLIST]: 3,
+  [SettingKey.DEMAND_W_SEARCH]: 1,
+  [SettingKey.DEMAND_SEARCH_WINDOW_DAYS]: 30,
   // v1.113⟨portada⟩ (§DYN.3)
   [SettingKey.FEATURED_POOL_SIZE]: 60,
   [SettingKey.FEATURED_RANDOM_SLOTS]: 8,
@@ -1429,6 +1438,10 @@ export const SETTING_VALIDATORS: Record<SettingKeyType, (v: unknown) => string |
   [SettingKey.WISHLIST_TARGET_MARGIN_PCT]: validateIntRange(0, 100),
   [SettingKey.WISHLIST_MARGIN_BASIS]: (v) => (v === 'cost' || v === 'sale' ? null : 'must be one of cost|sale'),
   [SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL]: validateIntRange(1, 50),
+  // §DEMANDA: pesos del score y ventana de búsquedas (contrato: ventana 7..90).
+  [SettingKey.DEMAND_W_WISHLIST]: validateIntRange(0, 100),
+  [SettingKey.DEMAND_W_SEARCH]: validateIntRange(0, 100),
+  [SettingKey.DEMAND_SEARCH_WINDOW_DAYS]: validateIntRange(7, 90),
   // v1.113⟨portada⟩ (§DYN.3): rangos enteros de la tabla del contrato. Combinaciones: `validateFeaturedCombination`.
   [SettingKey.FEATURED_POOL_SIZE]: validateIntRange(1, 500),
   [SettingKey.FEATURED_RANDOM_SLOTS]: validateIntRange(0, 20),
@@ -1564,6 +1577,10 @@ export const SETTING_DTO_MAP: Record<string, SettingKeyType> = {
   wishlistTargetMarginPct: SettingKey.WISHLIST_TARGET_MARGIN_PCT,
   wishlistMarginBasis: SettingKey.WISHLIST_MARGIN_BASIS,
   sealedRestockMaxPendingPerEmail: SettingKey.SEALED_RESTOCK_MAX_PENDING_PER_EMAIL,
+  // §DEMANDA (API_CONTRACT_DEMANDA §1): `super_admin` (⛔ no son diales del dueño de §Z).
+  demandWWishlist: SettingKey.DEMAND_W_WISHLIST,
+  demandWSearch: SettingKey.DEMAND_W_SEARCH,
+  demandSearchWindowDays: SettingKey.DEMAND_SEARCH_WINDOW_DAYS,
   // v1.113⟨portada⟩ (§DYN.3): los seis sin dinero (⛔ no son diales del dueño de §Z: `super_admin` como el resto).
   featuredPoolSize: SettingKey.FEATURED_POOL_SIZE,
   featuredRandomSlots: SettingKey.FEATURED_RANDOM_SLOTS,

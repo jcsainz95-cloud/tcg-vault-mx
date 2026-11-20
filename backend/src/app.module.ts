@@ -35,6 +35,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { WishlistModule } from './modules/wishlist/wishlist.module';
 // rev v1.96⟨mkt-tienda⟩ (API_CONTRACT §MKT.D/E): Panel de Marketing Fase 0 (agregados, exports, token lector).
 import { MarketingModule } from './modules/marketing/marketing.module';
+import { DemandModule } from './modules/demand/demand.module';
 // v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW): landing del Card Show — captura pública, doble opt-in y anti-abuso.
 import { CardShowModule } from './modules/card-show/card-show.module';
 // v1.102⟨mkt-fase2⟩ (API_CONTRACT §MKT.H): medición con consentimiento (GA4 MP / Meta CAPI), construida APAGADA.
@@ -84,6 +85,7 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     JobsModule,
     WishlistModule,
     MarketingModule,
+    DemandModule,
     CardShowModule,
     MeasurementModule,
   ],

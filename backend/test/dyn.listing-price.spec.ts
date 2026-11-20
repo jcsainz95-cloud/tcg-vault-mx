@@ -384,6 +384,10 @@ describe('Puertas de `ConfigSetting`: todas avisan o escriben solo claves que no
       keys: ['gsc_index_inspect_state'],
       why: '§GSHOP.A: bookkeeping del job de indexación (día del último 403 y tope del día por 429); no es `SettingKey` y no mueve ningún precio.',
     },
+    'modules/demand/demand-match.service.ts': {
+      keys: ['demand_match_last_ok'],
+      why: '§DEMANDA: marca de la última corrida buena de `demand-match` (texto de búsqueda → carta); no es `SettingKey`, solo la lee el informe de demanda y no mueve ningún precio.',
+    },
     'modules/pricing/pattern-quarantine.ts': {
       keys: ['pattern_quarantine'],
       why: '§PRICE-PATTERN 6.6 (2): memoria de cuarentena del job (cartas cuya prueba falló); no es `SettingKey`, no se lista ni se edita en `/admin/settings` y no mueve ningún precio (solo decide a quién NO se le reintenta la reclasificación).',

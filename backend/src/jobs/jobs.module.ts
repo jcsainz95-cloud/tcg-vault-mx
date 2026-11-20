@@ -28,6 +28,8 @@ import { SupplyModule } from '../modules/supply/supply.module';
 // v1.102⟨mkt-fase2⟩: `marketing-access-log-retention` (retención 12 meses, ARCHITECTURE §13.4.4) vive en `marketing/`.
 // `measurement-drain` llega por `MeasurementModule` (@Global). Sin ciclo: ninguno de los dos importa `JobsModule`.
 import { MarketingModule } from '../modules/marketing/marketing.module';
+// §DEMANDA: `demand-match` vive en `demand/`; aquí solo se programa. Sin ciclo.
+import { DemandModule } from '../modules/demand/demand.module';
 
 /**
  * JobsModule — Jobs de barrido (buylist-sweep, dispute-deadline, ine-retention,
@@ -41,7 +43,7 @@ import { MarketingModule } from '../modules/marketing/marketing.module';
   // OrdersModule: `order-reservation-sweep` (v1.68) delega en OrdersService (barrido por
   // `reservedUntil`, dos rutas) y en GuestCheckoutService (rama legada). Sin ciclo: OrdersModule no
   // importa JobsModule.
-  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule, DecksMetaModule, ShipmentsModule, SpendAlertsModule, WishlistModule, MarketingModule, SupplyModule, ShippingQuoteModule],
+  imports: [PricingModule, UploadsModule, VaultModule, CatalogModule, OrdersModule, DecksMetaModule, ShipmentsModule, SpendAlertsModule, WishlistModule, MarketingModule, DemandModule, SupplyModule, ShippingQuoteModule],
   providers: [
     BuylistSweepJobService,
     DisputeDeadlineJobService,
