@@ -8130,7 +8130,7 @@ export interface MetaDeckGroupsDTO {
   energy: MetaDeckLineDTO[];
 }
 
-/** §13 `GET /decks-meta` — teja del top-10 del meta. */
+/** §13 `GET /decks-meta` — teja del top-20 del meta. */
 export interface MetaDeckSummaryDTO {
   slug: string;
   name: string;
@@ -8148,7 +8148,7 @@ export interface MetaDeckSummaryDTO {
   imageUrl?: string;
 }
 
-/** §13 `GET /decks-meta` — top-10 publicado, ordenado por `rank` asc, con cita de fuente. */
+/** §13 `GET /decks-meta` — top-20 publicado, ordenado por `rank` asc, con cita de fuente. */
 export interface DecksMetaListResponse {
   data: MetaDeckSummaryDTO[];
   /** fetchedAt de la lista más reciente aplicada. */

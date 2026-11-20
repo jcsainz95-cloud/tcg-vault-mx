@@ -1476,12 +1476,74 @@
         "requests": "Requests",
         "offers": "Offers",
         "purchases": "Deals",
-        "stores": "Stores"
+        "stores": "Stores",
+        "suggestions": "Suggestions"
       },
       "supplierStatus": {
         "invited": "Invited",
         "active": "Active",
         "suspended": "Deactivated"
+      },
+      "suggest": {
+        "settings": {
+          "title": "Automatic suggestions",
+          "autoPublish": "Publish suggestions automatically",
+          "on": "On",
+          "off": "Off",
+          "budget": "Cap on what is open at once (MXN)",
+          "budgetHint": "Maximum total asked by open requests (manual and suggested) at the same time. At the cap, suggestions wait. 0 = publishes nothing.",
+          "budgetBad": "Enter an amount in pesos between 0 and 10,000,000.",
+          "save": "Save cap",
+          "defaultPct": "Default % of market",
+          "open": "Open now",
+          "openNow": "{open} of {cap}",
+          "lastRun": "Last run",
+          "never": "Has not run yet",
+          "autoAccept": "Accept offers automatically",
+          "acceptStaysYours": "Accepting offers stays with you: nothing is bought without your acceptance.",
+          "readOnly": "Only the super admin can change these settings."
+        },
+        "list": {
+          "title": "Today's suggestions",
+          "leadAuto": "They come from meta decks. With the switch on, the system publishes those that fit under the cap; you decide the rest.",
+          "leadManual": "They come from meta decks. The switch is off: nothing is published on its own, you publish or dismiss each one.",
+          "leadReadOnly": "They come from meta decks. Read-only: the super admin publishes or dismisses them.",
+          "total": "{total, plural, one {# suggestion} other {# suggestions}}",
+          "publish": "Publish",
+          "skip": "Dismiss",
+          "asRequest": "Request {id}",
+          "status": "Status",
+          "all": "All",
+          "emptyTitle": "No suggestions",
+          "emptyBody": "The system generates them every day at 5:00 (Mexico City time).",
+          "qty": "{qty, plural, one {# piece} other {# pieces}}",
+          "noPrice": "No price",
+          "market": "market"
+        },
+        "status": {
+          "draft": "Pending",
+          "published": "Published",
+          "skipped": "Skipped"
+        },
+        "reason": {
+          "metadeck": "Meta deck"
+        },
+        "skip": {
+          "no_market": "No market price today; retried tomorrow",
+          "budget": "Does not fit your cap; enters only when room frees up",
+          "covered": "An open request or enough stock already exists",
+          "market_jump": "Market price moved more than 30 % since yesterday; reviewed again tomorrow"
+        },
+        "errors": {
+          "ALREADY_COVERED": "Already covered.",
+          "VALIDATION_ERROR": "Please check the entered data.",
+          "ABOVE_MARKET_CAP": "That price is above today's market price.",
+          "ALREADY_PUBLISHED": "This suggestion was already published.",
+          "QUARANTINED": "This suggestion is quarantined (no valid price or price jump); it cannot be published today.",
+          "BUDGET_EXCEEDED": "It does not fit under the cap on what is open at once.",
+          "IDEMPOTENCY_KEY_REUSED": "That operation changed while sending; try again.",
+          "FORBIDDEN_ROLE": "Your account cannot do this."
+        }
       },
       "requestStatus": {
         "open": "Open",
@@ -6216,6 +6278,39 @@
           "waiting": "Waiting"
         },
         "sealedEmpty": "Nobody is waiting for a sealed product."
+      },
+      "demand": {
+        "title": "Demand without stock",
+        "subtitle": "Cards your customers saved or searched for several times that you do not have for sale today. No people's names: only how many.",
+        "colCard": "Card",
+        "colSet": "Set",
+        "colFinish": "Finish",
+        "colWishlist": "Wishlist",
+        "colSearch": "Searches",
+        "colScore": "Score",
+        "colMarket": "Market",
+        "colBuylist": "Buylist today",
+        "termBadge": "Term without a card",
+        "termHint": "Someone searched for it several times and we could not match it to a catalog card. Read-only.",
+        "empty": "No demand without stock yet: when customers save cards you do not have, or search for them several times, they show up here.",
+        "searchOff": "Search tracking is off: only the wishlist is shown.",
+        "sourceError": "One data source failed; only the other is shown.",
+        "staleData": "{days, plural, one {Data from # day ago} other {Data from # days ago}}",
+        "exportCsv": "Download demand without stock (CSV)",
+        "csvError": "Could not download the CSV.",
+        "loadError": "Could not load demand without stock.",
+        "sortLabel": "Sort by",
+        "sort": {
+          "score": "Score",
+          "wishlist": "Wishlist",
+          "search": "Searches",
+          "market": "Market"
+        },
+        "unitClients": "{count, plural, one {# customer} other {# customers}}",
+        "unitPeople": "{count, plural, one {# person} other {# people}}",
+        "daysFmt": "{days, plural, one {# day} other {# days}}",
+        "truncated": "Showing {shown} of {total}; download the CSV to see all.",
+        "noData": "No data"
       }
     },
     "vaults": {
@@ -8001,11 +8096,11 @@
         "description": "{name}: an accessory to protect and play your Pokémon cards, priced in pesos. Shipped to your home."
       },
       "decksMeta": {
-        "title": "Meta Battle Decks: Standard top 10",
-        "description": "The Pokémon TCG Standard-format top 10 decks, matched against our inventory: which cards we have and at what price."
+        "title": "Meta Battle Decks: Standard top 20",
+        "description": "The Pokémon TCG Standard-format top 20 decks, matched against our inventory: which cards we have and at what price."
       },
       "deckDetail": {
-        "description": "The {name} deck list from the Standard top 10, matched against our inventory: which cards we have and at what price."
+        "description": "The {name} deck list from the Standard top 20, matched against our inventory: which cards we have and at what price."
       },
       "buylist": {
         "title": "Sell your Pokémon cards",
@@ -8453,7 +8548,7 @@
     "KYC_REJECTION_REASON_REQUIRED": "You can't reject without a reason: the customer needs to know what to fix.",
     "IVA_TRANSFER_ACK_REQUIRED": "You have to see the peso cost before saving this fraction. Recompute it and save from there.",
     "IVA_TRANSFER_ACK_STALE": "The cost changed while you were deciding. Nothing was saved: check the new figure and save again.",
-    "DECK_NOT_FOUND": "We couldn't find that deck. It may have dropped out of the top 10.",
+    "DECK_NOT_FOUND": "We couldn't find that deck. It may have dropped out of the top 20.",
     "DECK_LIST_UNPARSEABLE": "We couldn't read any cards from your list. Check the format (quantity, set and number) and try again.",
     "ITEM_ORIGIN_REFUNDED": "A card in your withdrawal comes from a purchase being refunded and can't ship. Remove it and try again.",
     "DECLINE_NOT_ALLOWED": "This request cannot be declined at the point it is in. If an offer has already gone out, the way is to cancel that offer, which is the notice the seller should get; if it is already closed, there is nothing to decline. Reload it to see its status. Nothing was saved.",
@@ -8700,7 +8795,7 @@
   },
   "decksMeta": {
     "metaTitle": "Meta Battle Decks",
-    "metaSubtitle": "The Standard-format top 10, matched against our inventory: what we have and at what price.",
+    "metaSubtitle": "The Standard-format top 20, matched against our inventory: what we have and at what price.",
     "pasteLink": "Paste my list",
     "list": {
       "sourceLine": "{source} · updated {date}",
@@ -8713,7 +8808,7 @@
       "trendFlat": "No change",
       "view": "View deck",
       "emptyTitle": "No decks published yet",
-      "emptyBody": "As soon as we publish the meta top 10, it'll show up here."
+      "emptyBody": "As soon as we publish the meta top 20, it'll show up here."
     },
     "detail": {
       "back": "Back to Meta Battle Decks",

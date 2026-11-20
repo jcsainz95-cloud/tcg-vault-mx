@@ -92,6 +92,18 @@ export const mockDecksMetaList: DecksMetaListResponse = {
     { slug: 'dragapult-ex', name: 'Dragapult ex', rank: 1, sharePct: 12.4, trend: 1, fromPriceMxnCents: 184500, availableCount: 52, totalCount: 60, imageUrl: IMG },
     { slug: 'charizard-ex', name: 'Charizard ex', rank: 2, sharePct: 10.1, trend: -1, fromPriceMxnCents: 210000, availableCount: 48, totalCount: 60, imageUrl: IMG },
     { slug: 'raging-bolt-ex', name: 'Raging Bolt ex', rank: 3, sharePct: 8.7, trend: 0, fromPriceMxnCents: 156000, availableCount: 41, totalCount: 60, imageUrl: IMG },
+    // §DECKS-TOP: el top llega a 20; los puestos 4-20 son de relleno de demo (no hay tope de 10 en la rejilla).
+    ...Array.from({ length: 17 }, (_, i) => ({
+      slug: `deck-demo-${i + 4}`,
+      name: `Deck demo ${i + 4}`,
+      rank: i + 4,
+      sharePct: Math.round((8.2 - i * 0.4) * 10) / 10,
+      trend: 0 as const,
+      fromPriceMxnCents: 90000 + i * 5000,
+      availableCount: 30,
+      totalCount: 60,
+      imageUrl: IMG,
+    })),
   ],
   updatedAt: '2026-09-14T12:00:00Z',
   source: 'Datos de Limitless TCG',

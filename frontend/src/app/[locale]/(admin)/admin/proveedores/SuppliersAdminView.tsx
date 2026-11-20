@@ -7,8 +7,9 @@ import { SuppliersTab } from './SuppliersTab';
 import { RequestsTab } from './RequestsTab';
 import { OffersTab } from './OffersTab';
 import { PurchasesTab } from './PurchasesTab';
+import { SuggestionsTab } from './SuggestionsTab';
 
-const TABS = ['requests', 'offers', 'purchases', 'stores'] as const;
+const TABS = ['requests', 'offers', 'purchases', 'suggestions', 'stores'] as const;
 type Tab = (typeof TABS)[number];
 
 /** El `h1` sale de `admin.modules.suppliers` (candado `AdminPageTitles` §37.2). */
@@ -45,6 +46,7 @@ export function SuppliersAdminView() {
         {tab === 'requests' && <RequestsTab />}
         {tab === 'offers' && <OffersTab />}
         {tab === 'purchases' && <PurchasesTab />}
+        {tab === 'suggestions' && <SuggestionsTab />}
         {tab === 'stores' && <SuppliersTab />}
       </div>
     </div>

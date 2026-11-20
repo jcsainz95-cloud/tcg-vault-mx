@@ -34,17 +34,25 @@ function seen(term: string, kind: SearchMissKind): boolean {
   }
 }
 
-export function sendSearchMiss(raw: string, kind: SearchMissKind): void {
+/**
+ * §DEMANDA F2: `cardId` SOLO cuando la pantalla muestra una carta única agotada (ficha con `listings: []`); el
+ * servidor lo verifica (existe y 0 stock) y, si no, cae al camino de texto. Con `cardId` válido el servidor no guarda el texto.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function sendSearchMiss(raw: string, kind: SearchMissKind, cardId?: string): void {
   if (typeof window === 'undefined' || typeof fetch === 'undefined') return;
   try {
     // Tráfico propio: se lee la marca directo (y la URL de llegada), aunque la medición esté apagada y el proveedor no sincronice.
     if (config.useMocks || syncInternalFlag() || isInternalTraffic()) return;
     const term = searchMissTerm(raw);
-    if (!term || seen(term, kind)) return;
+    if (!term) return;
+    const id = kind === 'card' && cardId && UUID.test(cardId) ? cardId : undefined;
+    if (seen(id ? `#${id}` : term, kind)) return;
     void fetch(`${config.apiBaseUrl.replace(/\/+$/, '')}/marketing/search-miss`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ term, kind }),
+      body: JSON.stringify(id ? { term, kind, cardId: id } : { term, kind }),
       keepalive: true,
       credentials: 'omit',
     }).catch(() => undefined);

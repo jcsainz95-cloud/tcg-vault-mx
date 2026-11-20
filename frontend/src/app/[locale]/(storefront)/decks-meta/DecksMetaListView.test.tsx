@@ -30,7 +30,7 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
-describe('DecksMetaListView · top-10 del meta', () => {
+describe('DecksMetaListView · top-20 del meta', () => {
   it('pinta las tejas con rank, nombre, disponibilidad y «desde», más la cita de fuente', async () => {
     vi.spyOn(api, 'getDecksMeta').mockResolvedValue(response);
     renderWithProviders(<DecksMetaListView />, 'es');

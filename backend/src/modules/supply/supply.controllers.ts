@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import type { Response } from 'express';
@@ -11,13 +11,14 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AllowPasswordChangeRequired } from '../../common/decorators/allow-password-change-required.decorator';
 import {
   AcceptInviteDto, AdminRespondDto, ChangeSupplierPasswordDto, CreateSupplyOfferDto, CreateSupplyRequestDto, InviteSupplierDto, PatchSupplierDto,
-  PatchSupplyRequestDto, PatchSupplySettingsDto, PayDto, ReceiveDto, SupplierRespondDto, VerifyDto,
+  PatchSupplyRequestDto, PatchSupplySettingsDto, PayDto, PublishSuggestionDto, ReceiveDto, SupplierRespondDto, VerifyDto,
 } from './supply.dto';
 import { SUPPLY_SETTINGS_ID } from './supply.constants';
 import { SupplierAccessService } from './supplier-access.service';
 import { SupplyRequestService } from './supply-request.service';
 import { SupplyOfferService } from './supply-offer.service';
 import { SupplyPurchaseService } from './supply-purchase.service';
+import { SupplySuggestService } from './supply-suggest.service';
 
 type S = string | undefined;
 const idemKey = (h?: string) => (h && h.trim() ? h.trim().slice(0, 200) : undefined);
@@ -89,6 +90,7 @@ export class AdminSupplyController {
     private readonly offers: SupplyOfferService,
     private readonly purchases: SupplyPurchaseService,
     private readonly prisma: PrismaService,
+    private readonly suggest: SupplySuggestService,
   ) {}
 
   // ---- proveedores ----
@@ -131,15 +133,31 @@ export class AdminSupplyController {
   @MoneyOut() @Roles(Role.super_admin) @Post('supply-purchases/:id/pay') @HttpCode(200)
   pay(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PayDto, @Headers('idempotency-key') key?: string) { return this.purchases.pay(id, dto, idemKey(key), uid); }
 
-  // ---- interruptores (APAGADOS al arrancar). autoAccept existe pero es INERTE en F1 (se cablea en F3). ----
+  // ---- §PROV-F4: sugeridas (el job `supply-suggest` las genera; publicar/saltar a mano es solo un atajo) ----
+  @Roles(...STAFF) @Get('supply-suggestions') listSuggestions(@Query('status') status?: S, @Query('page') page?: S, @Query('pageSize') pageSize?: S) { return this.suggest.list({ status, page, pageSize }); }
+  @Roles(Role.super_admin) @Post('supply-suggestions/:id/publish')
+  async publishSuggestion(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PublishSuggestionDto, @Headers('idempotency-key') key?: string) {
+    const k = idemKey(key);
+    if (!k) throw BusinessException.badRequest('VALIDATION_ERROR', 'Idempotency-Key header is required');
+    const requestId = await this.suggest.publish(id, dto, k, uid);
+    return this.requests.getAdmin(requestId);
+  }
+  @Roles(Role.super_admin) @Post('supply-suggestions/:id/skip') @HttpCode(204)
+  async skipSuggestion(@Param('id') id: string): Promise<void> { await this.suggest.skip(id); }
+
+  // ---- interruptores. `autoPublish` lo enciende el dueño tras los gates; `autoAccept` sigue APAGADO e INERTE (comprar exige aceptar la oferta). ----
   @Roles(Role.super_admin) @Get('supply-settings')
   async settings() {
     const s = await this.prisma.supplySettings.findUniqueOrThrow({ where: { id: SUPPLY_SETTINGS_ID } });
-    return { autoPublish: s.autoPublish, autoAccept: s.autoAccept, defaultPctBps: s.defaultPctBps, weeklyBudgetCents: s.weeklyBudgetCents };
+    return { autoPublish: s.autoPublish, autoAccept: false, defaultPctBps: s.defaultPctBps, openBudgetCents: s.openBudgetCents, ...(await this.suggest.settingsReadout()) };
   }
   @Roles(Role.super_admin) @Patch('supply-settings')
-  async patchSettings(@Body() dto: PatchSupplySettingsDto) {
-    const s = await this.prisma.supplySettings.update({ where: { id: SUPPLY_SETTINGS_ID }, data: { ...dto } });
-    return { autoPublish: s.autoPublish, autoAccept: s.autoAccept, defaultPctBps: s.defaultPctBps, weeklyBudgetCents: s.weeklyBudgetCents };
+  async patchSettings(@Body() dto: PatchSupplySettingsDto, @Req() req: { body?: Record<string, unknown> }) {
+    // El whitelist global recorta en silencio; aquí una clave fuera de lista (p. ej. `weeklyBudgetCents`) es 400 VALIDATION_ERROR (DECISIONES §PROV-F4).
+    const extra = Object.keys(req.body ?? {}).filter((k) => !['autoPublish', 'defaultPctBps', 'openBudgetCents'].includes(k));
+    if (extra.length) throw BusinessException.badRequest('VALIDATION_ERROR', `unknown field(s): ${extra.join(', ')}`, { fields: extra });
+    const { autoPublish, defaultPctBps, openBudgetCents } = dto;
+    const s = await this.prisma.supplySettings.update({ where: { id: SUPPLY_SETTINGS_ID }, data: { autoPublish, defaultPctBps, openBudgetCents } });
+    return { autoPublish: s.autoPublish, autoAccept: false, defaultPctBps: s.defaultPctBps, openBudgetCents: s.openBudgetCents };
   }
 }

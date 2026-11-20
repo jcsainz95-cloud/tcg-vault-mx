@@ -45,15 +45,15 @@ describe('MKT-V2 · m99 + search-miss + digest contra Postgres', () => {
     expect(cols.map((c) => c.column_name)).toEqual(expect.arrayContaining(['weekStart', 'recipientKey', 'status', 'attempts']));
   });
 
-  it('POST /marketing/search-miss: 204 siempre; 10 simultáneos del MISMO navegador = 1 persona; otro navegador = otra; PII, fuera de vocabulario y cuerpo inválido no escriben', async () => {
+  it('POST /marketing/search-miss: 204 siempre; 10 simultáneos del MISMO navegador = 1 persona; otro user-agent desde la MISMA IP = la misma persona (DM-6: hash solo de la IP); PII, fuera de vocabulario y cuerpo inválido no escriben', async () => {
     const term = `${WORD} vmax`;
     const res = await Promise.all(Array.from({ length: 10 }, () => post({ term, kind: 'card' })));
     expect(res.map((r) => r.status)).toEqual(Array(10).fill(204));
     expect((await seen()).map((r) => r.termNormalized)).toEqual([term]);
     expect((await post({ term, kind: 'card' }, 'ua-b')).status).toBe(204);
     const rows = await seen();
-    expect(rows).toHaveLength(2);
-    expect(new Set(rows.map((r) => r.h)).size).toBe(2);
+    expect(rows).toHaveLength(1);
+    expect(new Set(rows.map((r) => r.h)).size).toBe(1);
     for (const r of rows) expect(r.h).toMatch(/^[0-9a-f]{16}$/);
     const before = rows.length;
     const bad = [

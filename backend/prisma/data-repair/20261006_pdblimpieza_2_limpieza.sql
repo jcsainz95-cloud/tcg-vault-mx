@@ -123,7 +123,11 @@ SELECT to_regclass(format('%I', 'Accessory')) IS NOT NULL AS lz_m73,
        -- §PROV F1 (m102, G-8): ¿tiene tu base el portal de proveedores? Mismo patrón condicional.
        to_regclass(format('%I', 'SupplyPurchase')) IS NOT NULL AS lz_sup,
        -- §ENV3 (m110, G-8): ¿tiene tu base el log de cotizaciones de envío? Mismo patrón condicional.
-       to_regclass(format('%I', 'ShippingQuoteLog')) IS NOT NULL AS lz_m110 \gset
+       to_regclass(format('%I', 'ShippingQuoteLog')) IS NOT NULL AS lz_m110,
+       -- §DEMANDA (m112, G-8): ¿tiene tu base la demanda sin stock (`SearchDemandSeen`, `DemandTermMatch`, `SearchDemandDaily`)? Mismo patrón condicional.
+       to_regclass(format('%I', 'SearchDemandSeen')) IS NOT NULL AS lz_m112,
+       -- §PROV-F4 (m114, G-8): ¿tiene tu base las solicitudes sugeridas (`SupplySuggestion`)? Mismo patrón condicional.
+       to_regclass(format('%I', 'SupplySuggestion')) IS NOT NULL AS lz_m114 \gset
 
 -- C-4: REPEATABLE READ = una sola FOTO de la base para toda la transacción. Un alta de usuario o de precio que entre
 -- MIENTRAS esto corre no cambia los conteos «antes/después» (sin G-5 falso). La foto se toma en la primera consulta,
@@ -159,6 +163,14 @@ LOCK TABLE "ShippingQuoteLog" IN SHARE ROW EXCLUSIVE MODE;
 -- MKT-V2 (m99): `POST /marketing/search-miss` (público) escribe `SearchNoResultSeen` en vivo ⇒ mismo candado.
 \if :lz_m99
 LOCK TABLE "SearchNoResultSeen" IN SHARE ROW EXCLUSIVE MODE;
+\endif
+-- §DEMANDA (m112): `POST /marketing/search-miss` (público) escribe `SearchDemandSeen` y el job `demand-match` escribe `DemandTermMatch` en vivo ⇒ mismo candado.
+\if :lz_m112
+LOCK TABLE "SearchDemandSeen", "DemandTermMatch" IN SHARE ROW EXCLUSIVE MODE;
+\endif
+-- §PROV-F4 (m114): el job `supply-suggest` (diario) escribe `SupplySuggestion` en vivo ⇒ mismo candado.
+\if :lz_m114
+LOCK TABLE "SupplySuggestion" IN SHARE ROW EXCLUSIVE MODE;
 \endif
 -- v1.102⟨mkt-fase2⟩ (M-86): la cola de medición y su contexto los escriben el webhook de pago y el drenador en vivo.
 \if :lz_m86
@@ -257,6 +269,13 @@ SELECT t, 'borrar' FROM unnest(ARRAY[
   -- MKT-V2 (m99, G-8): `SearchNoResultSeen` = hashes HMAC (sal diaria) de quien buscó HOY, transitorios (se borran al cerrar el día) y sin
   -- valor tras la limpieza ⇒ borrar. (`SearchNoResultDaily` y `MarketingWeeklyDigest` se CONSERVAN: más abajo.)
   'SearchNoResultSeen',
+  -- §DEMANDA (m112, G-8; API_CONTRACT_DEMANDA §4): `SearchDemandSeen` = hashes HMAC (sal diaria, solo IP) de quien vio una carta agotada HOY,
+  -- transitorios (se borran al cerrar el día; precedente `SearchNoResultSeen`) ⇒ borrar. `DemandTermMatch` = texto de usuarios → carta, DERIVADO
+  -- (el job `demand-match` lo regenera solo) ⇒ borrar. (`SearchDemandDaily` se CONSERVA: más abajo.)
+  'SearchDemandSeen','DemandTermMatch',
+  -- §PROV-F4 (m114, G-8): `SupplySuggestion` = sugeridas DERIVADAS de los decks y la rotación (el job `supply-suggest` las regenera solo cada
+  -- día; sus `requestId` apuntan a solicitudes que esta limpieza borra) ⇒ TRANSACCIONAL/derivado ⇒ borrar. (`SupplySettings` se conserva.)
+  'SupplySuggestion',
   -- §ENV3 (m110, G-8): `ShippingQuoteLog` = cotizaciones vivas y guías compradas (prefijo de CP, perfil, servicio, costo; ⛔ sin PII) que
   -- alimentan la recalibración; mezcla prueba con real y se reconstruye sola ⇒ TRANSACCIONAL ⇒ borrar. (`ShippingZoneRate` es
   -- configuración de respaldo: se CONSERVA, abajo.)
@@ -310,6 +329,8 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   'UserPermission','MarketingApiToken','MarketingAccessLog','MarketingDateAnnotation',
   -- MKT-V2 (m99): c6 (términos ya filtrados de PII, sin usuario) y el estado del correo semanal: no son datos de prueba de cliente ⇒ conservar.
   'SearchNoResultDaily','MarketingWeeklyDigest',
+  -- §DEMANDA (m112, G-8): `SearchDemandDaily` = agregado cardId × día (personas) sin PII, como `SearchNoResultDaily` ⇒ conservar.
+  'SearchDemandDaily',
   -- v1.110.1⟨descuentos⟩ (M-92, G-8; ratificado en API_CONTRACT §DSC.1 «Limpieza PDB»): los códigos y sus lotes son
   -- CONFIGURACIÓN del dueño (como `ConfigSetting`) ⇒ conservar, con `firstReservedAt` a NULL (paso 13): sin usos no hay bloqueo.
   'DiscountCode','DiscountCodeBatch',
@@ -595,6 +616,15 @@ WITH x AS (DELETE FROM "MarketingBannerConsentCounter" RETURNING 1) INSERT INTO 
 -- MKT-V2 (m99): los hashes del día de c6 (sin FK; G-5 los cuenta en `borrar`, 0 tras borrar).
 \if :lz_m99
 WITH x AS (DELETE FROM "SearchNoResultSeen" RETURNING 1) INSERT INTO lz_cambio SELECT '13 SearchNoResultSeen', count(*) FROM x;
+\endif
+-- §DEMANDA (m112): los hashes del día de las cartas agotadas y los emparejamientos término→carta (sin FK; G-5 los cuenta en `borrar`, 0 tras borrar).
+\if :lz_m112
+WITH x AS (DELETE FROM "SearchDemandSeen" RETURNING 1) INSERT INTO lz_cambio SELECT '13 SearchDemandSeen', count(*) FROM x;
+WITH x AS (DELETE FROM "DemandTermMatch" RETURNING 1) INSERT INTO lz_cambio SELECT '13 DemandTermMatch', count(*) FROM x;
+\endif
+-- §PROV-F4 (m114): las sugeridas (FK a Card, que se conserva; `requestId` lógico) se regeneran solas con el job diario (G-5 las cuenta en `borrar`, 0 tras borrar).
+\if :lz_m114
+WITH x AS (DELETE FROM "SupplySuggestion" RETURNING 1) INSERT INTO lz_cambio SELECT '13 SupplySuggestion', count(*) FROM x;
 \endif
 -- §ENV3 (m110): el log de cotizaciones de envío (sin FK; sin PII; G-5 lo cuenta en `borrar`, 0 tras borrar).
 \if :lz_m110

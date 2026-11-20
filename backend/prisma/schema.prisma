@@ -955,6 +955,7 @@ model SealedProduct {
 
 model Card {
   supplyRequests SupplyRequest[]
+  supplySuggestions SupplySuggestion[]
   promoLink              PromoCollectionLink? @relation("PromoLinkPromo")
   id                     String   @id @default(uuid())
   externalId             String   @unique
@@ -2932,7 +2933,7 @@ model MetaDeck {
   name             String
   source           MetaDeckSource @default(manual) // manual = curado (fallback); limitless = auto (Fase 2)
   sourceRef        String? // id/url del arquetipo en Limitless
-  rank             Int? // posición en el meta (1..10)
+  rank             Int? // posición en el meta (1..20, §DECKS-TOP)
   sharePct         Float? // % del meta, si la fuente lo da
   trend            Int? // share_actual − share_anterior (▲▼=)
   published        Boolean        @default(false)
@@ -3459,6 +3460,41 @@ model SearchNoResultSeen {
   h              String
 
   @@id([termNormalized, day, h])
+}
+
+// §DEMANDA (m112, API_CONTRACT_DEMANDA §4) — F2: búsquedas de una carta ÚNICA con 0 stock, contadas en PERSONAS por (cardId × día CDMX).
+// ⛔ SIN usuario, SIN IP, SIN cookie, SIN texto libre (el `term` NO se guarda). `cardId` es dato público del catálogo (sin FK, como
+// `BuylistQuoteDailyCount`). Retención 90 d (30 d bajo el umbral).
+model SearchDemandDaily {
+  id     String   @id @default(uuid())
+  cardId String
+  // Día CDMX (solo fecha).
+  day    DateTime @db.Date
+  people Int      @default(0)
+
+  @@unique([cardId, day])
+  @@index([cardId])
+}
+
+// §DEMANDA (m112) — hashes del día (HMAC con la sal del día de c6) para contar PERSONAS por (cardId × día). Se vuelcan a
+// `SearchDemandDaily` y se BORRAN al cierre (`marketing-search-close`). Topes: ≤ 200 por (cardId, día), ≤ 10 cardId por persona y día y ≤ 1000 cardId por día (con exentas).
+model SearchDemandSeen {
+  cardId String
+  day    DateTime @db.Date
+  h      String
+
+  @@id([cardId, day, h])
+  // Tope «≤ 10 cardId distintos por persona y día» (m113, DM-1).
+  @@index([day, h])
+}
+
+// §DEMANDA (m112) — texto → carta persistido por el job `demand-match` (solo términos que ya pasaron el filtro PII y el umbral).
+// `status`: 'matched' | 'ambiguous' | 'none'. Sin FK (un `cardId` borrado del catálogo solo deja una fila huérfana que se ignora).
+model DemandTermMatch {
+  termNormalized String   @id
+  cardId         String?
+  status         String
+  matchedAt      DateTime
 }
 
 // MKT-V2 (m99, §3) — idempotencia del correo semanal del lunes POR DESTINATARIO: `recipientKey` = 16 hex de SHA-256(correo en
@@ -4152,12 +4188,43 @@ model SupplyPurchaseUnit {
   @@unique([purchaseId, n])
 }
 
+// §PROV-F4 (m114) — solicitudes SUGERIDAS por el job `supply-suggest`. Una fila VIVA por (carta, acabado): único parcial (en la migración)
+// sobre status IN ('draft','skipped'); `published` es historial (enlaza `requestId`, sin FK: la limpieza PDB borra las solicitudes).
+enum SupplySuggestionStatus {
+  draft
+  published
+  skipped
+}
+
+model SupplySuggestion {
+  id           String                 @id @default(uuid())
+  cardId       String
+  card         Card                   @relation(fields: [cardId], references: [id])
+  finish       Finish
+  suggestedQty Int
+  unitCents    Int?
+  marketCents  Int?
+  reasons      Json
+  status       SupplySuggestionStatus @default(draft)
+  skipReason   String? // no_market | budget | covered | market_jump | null
+  requestId    String?
+  publishKey   String?                @unique // Idempotency-Key del publish manual (§PROV-F4.6b)
+  publishHash  String? // SHA-256 del cuerpo (id, qty, pctBps): misma key con otro cuerpo ⇒ 422
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@index([status, createdAt])
+  @@index([cardId])
+}
+
 model SupplySettings {
   id                String   @id
   autoPublish       Boolean  @default(false)
   autoAccept        Boolean  @default(false)
   defaultPctBps     Int      @default(7000)
-  weeklyBudgetCents Int      @default(0)
+  openBudgetCents   Int      @default(500000) // §PROV-F4: tope de lo ABIERTO a la vez, MX$5,000 por defecto (HECHOS 2026-11-20)
+  // §PROV-F4: marca de la última corrida buena de `supply-suggest` (lectura de la pantalla de ajustes).
+  lastSuggestRunAt  DateTime?
   updatedAt         DateTime @updatedAt
 }
 

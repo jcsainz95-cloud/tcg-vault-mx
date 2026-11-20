@@ -810,6 +810,16 @@ export class CatalogService {
   }
 
   /**
+   * §DEMANDA (API_CONTRACT_DEMANDA §3 y §1) — ¿cuáles de estas cartas tienen HOY ≥ 1 pieza vendible? El MISMO predicado que
+   * `GET /catalog/cards` (`singlesPublishedWhere` ∧ `fetchSellable`: publicada y con precio resoluble). ⛔ Solo lectura.
+   */
+  async cardIdsWithSellable(cardIds: string[]): Promise<Set<string>> {
+    if (cardIds.length === 0) return new Set();
+    const rows = await this.fetchSellable(this.singlesPublishedWhere({ cardId: { in: [...new Set(cardIds)] } }));
+    return new Set(rows.map((r) => r.item.cardId));
+  }
+
+  /**
    * Trae items publicados que efectivamente son comprables (precio resoluble).
    *
    * 💰 v1.113⟨portada⟩ (API_CONTRACT §DYN.5.6) — **el precio es el DEL DÍA** (`ListingPrice`): fila `priced` ⇒ su `P` tal cual;

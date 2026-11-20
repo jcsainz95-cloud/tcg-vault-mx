@@ -127,6 +127,8 @@ describe('⭐⭐ Candado — ninguna transacción `SERIALIZABLE` fuera del helpe
     // post-commit y el audit quedan FUERA de la tx.
     // §ALTA-LIGA-2: la fusión (`ManualVersionMergeService.mergeForCard`) NO es serializable a propósito: corre en READ COMMITTED bajo el
     // candado consultivo (cardId, stampType) + `FOR UPDATE` del manual (AL2-3), porque en serializable la foto se toma antes de esperar el candado.
-    expect(sitios).toHaveLength(12);
+    // §PROV-F4 · DOS más — `SupplySuggestService.run` (corrida diaria bajo candado consultivo) y `.publish` (atajo manual). Cuerpos solo `tx.*`
+    // /`$executeRaw` y lecturas de precio sin efectos; el log y el correo (ninguno) quedan FUERA de la tx, así que un reintento no duplica nada.
+    expect(sitios).toHaveLength(14);
   });
 });

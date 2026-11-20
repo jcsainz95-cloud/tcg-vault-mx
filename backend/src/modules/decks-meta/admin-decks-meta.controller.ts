@@ -100,7 +100,7 @@ export class AdminDecksMetaController {
     return this.service.adminUnmatched();
   }
 
-  /** Curaduría/fallback: pega un top-10 MANUAL (mismo formato/motor, `source=manual`). */
+  /** Curaduría/fallback: pega un top-N (20) MANUAL (mismo formato/motor, `source=manual`). */
   @Post()
   curate(@Body() dto: CurateDeckDto) {
     return this.service.adminCreateOrCurate(dto);

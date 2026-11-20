@@ -26,6 +26,6 @@ import { systemWishlistClock, WISHLIST_CLOCK } from './wishlist.constants';
     { provide: WISHLIST_CLOCK, useValue: systemWishlistClock },
   ],
   controllers: [WishlistController, WishlistMailActionsController, WishlistDemandController],
-  exports: [WishlistService, WishlistNotifyService],
+  exports: [WishlistService, WishlistNotifyService, WishlistDemandService],
 })
 export class WishlistModule {}

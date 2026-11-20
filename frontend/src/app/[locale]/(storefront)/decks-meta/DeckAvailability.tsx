@@ -46,7 +46,7 @@ export function pullableItemIds(groups: MetaDeckGroupsDTO): string[] {
 }
 
 /**
- * Vista de disponibilidad compartida por el detalle de un deck del top-10 y por «pegar lista»
+ * Vista de disponibilidad compartida por el detalle de un deck del top-20 y por «pegar lista»
  * (§13: `paste` devuelve la MISMA forma que `groups`). Deja CLARO qué tenemos disponible, qué está
  * agotado y qué no se identificó, y ofrece «agregar de jalón» lo disponible.
  */
@@ -56,7 +56,7 @@ export function DeckAvailability({
   energyBundle,
 }: {
   groups: MetaDeckGroupsDTO;
-  /** §AC.8: el deck del top-10 (ausente en «Pegar lista»). Lo nombra en el carrito y firma el `deckPull`. */
+  /** §AC.8: el deck del top-20 (ausente en «Pegar lista»). Lo nombra en el carrito y firma el `deckPull`. */
   deck?: { slug: string; name: string };
   /** §AC.8: recuadro del paquete. ⛔ `paste` no lo emite (P-EN-7) ⇒ sin recuadro. */
   energyBundle?: DeckEnergyBundleDTO;

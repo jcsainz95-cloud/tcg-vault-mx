@@ -1476,12 +1476,74 @@
         "requests": "Solicitudes",
         "offers": "Ofertas",
         "purchases": "Acuerdos",
-        "stores": "Tiendas"
+        "stores": "Tiendas",
+        "suggestions": "Sugeridas"
       },
       "supplierStatus": {
         "invited": "Invitada",
         "active": "Activa",
         "suspended": "Desactivada"
+      },
+      "suggest": {
+        "settings": {
+          "title": "Sugeridas automáticas",
+          "autoPublish": "Publicar sugeridas solas",
+          "on": "Encendido",
+          "off": "Apagado",
+          "budget": "Tope de lo abierto a la vez (MXN)",
+          "budgetHint": "Suma máxima de lo que piden las solicitudes abiertas (manuales y sugeridas) al mismo tiempo. Al llegar al tope, las sugeridas esperan. 0 = no publica nada.",
+          "budgetBad": "Escribe un monto en pesos entre 0 y 10,000,000.",
+          "save": "Guardar tope",
+          "defaultPct": "% por defecto del mercado",
+          "open": "Abierto ahora",
+          "openNow": "{open} de {cap}",
+          "lastRun": "Última corrida",
+          "never": "Aún no corre",
+          "autoAccept": "Aceptar ofertas solo",
+          "acceptStaysYours": "Aceptar ofertas sigue siendo tuyo: nada se compra sin tu aceptación.",
+          "readOnly": "Solo el super administrador puede cambiar estos ajustes."
+        },
+        "list": {
+          "title": "Sugeridas de hoy",
+          "leadAuto": "Salen de los decks del meta. Con el interruptor encendido, el sistema publica las que caben en el tope; las demás las decides tú.",
+          "leadManual": "Salen de los decks del meta. El interruptor está apagado: nada se publica solo, tú publicas o descartas cada una.",
+          "leadReadOnly": "Salen de los decks del meta. Solo lectura: el super administrador las publica o descarta.",
+          "total": "{total, plural, one {# sugerida} other {# sugeridas}}",
+          "publish": "Publicar",
+          "skip": "Descartar",
+          "asRequest": "Solicitud {id}",
+          "status": "Estado",
+          "all": "Todas",
+          "emptyTitle": "Sin sugeridas",
+          "emptyBody": "El sistema las genera cada día a las 5:00 (hora CDMX).",
+          "qty": "{qty, plural, one {# pieza} other {# piezas}}",
+          "noPrice": "Sin precio",
+          "market": "mercado"
+        },
+        "status": {
+          "draft": "Pendiente",
+          "published": "Publicada",
+          "skipped": "Omitida"
+        },
+        "reason": {
+          "metadeck": "Meta deck"
+        },
+        "skip": {
+          "no_market": "Sin precio de mercado hoy; se reintenta mañana",
+          "budget": "No cabe en tu tope; entra solo cuando se libere cupo",
+          "covered": "Ya hay una solicitud abierta o stock suficiente",
+          "market_jump": "El precio de mercado cambió más de 30 % desde ayer; se revisa solo mañana"
+        },
+        "errors": {
+          "ALREADY_COVERED": "Ya está cubierta.",
+          "VALIDATION_ERROR": "Revisa los datos ingresados.",
+          "ABOVE_MARKET_CAP": "Ese precio rebasa el precio de mercado de hoy.",
+          "ALREADY_PUBLISHED": "Esta sugerida ya se publicó.",
+          "QUARANTINED": "Esta sugerida está en cuarentena (sin precio válido o salto de precio); no se puede publicar hoy.",
+          "BUDGET_EXCEEDED": "No cabe en el tope de lo abierto a la vez.",
+          "IDEMPOTENCY_KEY_REUSED": "Esa operación cambió mientras se enviaba; vuelve a intentarlo.",
+          "FORBIDDEN_ROLE": "Tu cuenta no puede hacer esto."
+        }
       },
       "requestStatus": {
         "open": "Abierta",
@@ -6216,6 +6278,39 @@
           "waiting": "Esperan"
         },
         "sealedEmpty": "Nadie está esperando un sellado."
+      },
+      "demand": {
+        "title": "Demanda sin stock",
+        "subtitle": "Cartas que tus clientes guardaron o buscaron varias veces y hoy no tienes a la venta. Sin nombres de personas: solo cuántos.",
+        "colCard": "Carta",
+        "colSet": "Set",
+        "colFinish": "Acabado",
+        "colWishlist": "Lista de deseos",
+        "colSearch": "Búsquedas",
+        "colScore": "Puntaje",
+        "colMarket": "Mercado",
+        "colBuylist": "Compra hoy",
+        "termBadge": "Término sin carta",
+        "termHint": "Alguien lo buscó varias veces y no lo reconocimos como una carta del catálogo. Solo lectura.",
+        "empty": "Aún no hay demanda sin stock: cuando clientes guarden cartas que no tienes o las busquen varias veces, aparecen aquí.",
+        "searchOff": "Búsquedas desactivadas: solo se muestra la lista de deseos.",
+        "sourceError": "Una fuente de datos falló; se muestra solo la otra.",
+        "staleData": "{days, plural, one {Dato de hace # día} other {Dato de hace # días}}",
+        "exportCsv": "Descargar demanda sin stock (CSV)",
+        "csvError": "No se pudo descargar el CSV.",
+        "loadError": "No se pudo cargar la demanda sin stock.",
+        "sortLabel": "Ordenar por",
+        "sort": {
+          "score": "Puntaje",
+          "wishlist": "Lista de deseos",
+          "search": "Búsquedas",
+          "market": "Mercado"
+        },
+        "unitClients": "{count, plural, one {# cliente} other {# clientes}}",
+        "unitPeople": "{count, plural, one {# persona} other {# personas}}",
+        "daysFmt": "{days, plural, one {# día} other {# días}}",
+        "truncated": "Mostrando {shown} de {total}; descarga el CSV para ver todo.",
+        "noData": "Sin dato"
       }
     },
     "vaults": {
@@ -8001,11 +8096,11 @@
         "description": "{name}: accesorio para cuidar y jugar tus cartas Pokémon, con precio en pesos. Se envía a tu domicilio."
       },
       "decksMeta": {
-        "title": "Meta Battle Decks: top-10 del Standard",
-        "description": "El top-10 de decks del formato Standard de Pokémon TCG, cruzado con nuestro inventario: qué cartas tenemos y a qué precio."
+        "title": "Meta Battle Decks: top-20 del Standard",
+        "description": "El top-20 de decks del formato Standard de Pokémon TCG, cruzado con nuestro inventario: qué cartas tenemos y a qué precio."
       },
       "deckDetail": {
-        "description": "Lista del deck {name} del top-10 del Standard, cruzada con nuestro inventario: qué cartas tenemos y a qué precio."
+        "description": "Lista del deck {name} del top-20 del Standard, cruzada con nuestro inventario: qué cartas tenemos y a qué precio."
       },
       "buylist": {
         "title": "Vende tus cartas Pokémon",
@@ -8453,7 +8548,7 @@
     "KYC_REJECTION_REASON_REQUIRED": "Sin motivo no se puede rechazar: el cliente tiene que saber qué corregir.",
     "IVA_TRANSFER_ACK_REQUIRED": "Hay que ver el costo en pesos antes de guardar esta fracción. Vuelve a calcularlo y guarda desde ahí.",
     "IVA_TRANSFER_ACK_STALE": "El costo cambió mientras decidías. No se guardó nada: revisa la cifra nueva y vuelve a guardar.",
-    "DECK_NOT_FOUND": "No encontramos ese deck. Puede que haya salido del top-10.",
+    "DECK_NOT_FOUND": "No encontramos ese deck. Puede que haya salido del top-20.",
     "DECK_LIST_UNPARSEABLE": "No pudimos leer ninguna carta de tu lista. Revisa el formato (cantidad, set y número) e inténtalo de nuevo.",
     "ITEM_ORIGIN_REFUNDED": "Una carta de tu retiro viene de una compra que se está reembolsando y no se puede enviar. Quítala y vuelve a intentarlo.",
     "DECLINE_NOT_ALLOWED": "Esta solicitud no se puede declinar en el punto en que está. Si ya tiene una oferta enviada, la vía es cancelar la oferta, que es el aviso que le corresponde al vendedor; si ya cerró, no hay nada que declinar. Vuelve a cargarla para ver su estado. No se guardó nada.",
@@ -8700,7 +8795,7 @@
   },
   "decksMeta": {
     "metaTitle": "Meta Battle Decks",
-    "metaSubtitle": "El top-10 del formato Standard, cruzado con nuestro inventario: qué tienes y a qué precio.",
+    "metaSubtitle": "El top-20 del formato Standard, cruzado con nuestro inventario: qué tienes y a qué precio.",
     "pasteLink": "Pegar mi lista",
     "list": {
       "sourceLine": "{source} · actualizado {date}",
@@ -8713,7 +8808,7 @@
       "trendFlat": "Sin cambio",
       "view": "Ver deck",
       "emptyTitle": "Aún no hay decks publicados",
-      "emptyBody": "En cuanto publiquemos el top-10 del meta, aparecerá aquí."
+      "emptyBody": "En cuanto publiquemos el top-20 del meta, aparecerá aquí."
     },
     "detail": {
       "back": "Volver a Meta Battle Decks",

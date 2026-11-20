@@ -148,6 +148,7 @@ import { SALES_GROUP_BY_VALUES, SALES_PRESET_VALUES, SALES_TOP_SORT_VALUES } fro
 // 💰 v1.86.5⟨accesorios⟩ (§AC.11): dominio L `true | false` de `?active=`/`?soldOut=` del panel de accesorios.
 import { ACCESSORY_BOOLEAN_FILTER_VALUES } from '../../src/modules/accessories/accessory-input';
 // 💰 rev v1.87⟨wishlist⟩ (§WSH.8): `?sort=`/`?dir=` de la lista de compra del dueño (y su CSV).
+import { DEMAND_DIRS, DEMAND_LIMIT_VALUES, DEMAND_SORTS } from '../../src/modules/demand/demand.constants';
 import { WISHLIST_DEMAND_DIRS, WISHLIST_DEMAND_SORTS } from '../../src/modules/wishlist/wishlist-demand.service';
 // ⭐ C-EQ-1 v1.93⟨cardshow⟩ (§CARDSHOW.15) — dominios R de los estados del panel (enum MENOS `pending`).
 import { CARD_SHOW_LEAD_STATUS_FILTER_VALUES, CARD_SHOW_PLAYER_STATUS_FILTER_VALUES } from '../../src/modules/card-show/card-show.service';
@@ -406,6 +407,14 @@ const OBS_ACCESORIOS: Obs = {
  */
 const OBS_WISHLIST: Obs = {
   huella: (res) => JSON.stringify((res.body as unknown as { rows?: { cardId: string }[] })?.rows?.map((r) => r.cardId) ?? null),
+  hayDatos: (res) => ((res.body as unknown as { rows?: unknown[] })?.rows?.length ?? 0) > 0,
+};
+/**
+ * ⭐ C-EQ-1 §DEMANDA (API_CONTRACT_DEMANDA §1) — `GET /admin/reports/demand-gaps`: `rows` en el orden pedido (por `key`). ⛔ Sin `generatedAt`
+ * (es `now()`: la huella cambiaría en cada petición y `filtra` sería verde por ruido).
+ */
+const OBS_DEMAND: Obs = {
+  huella: (res) => JSON.stringify((res.body as unknown as { rows?: { key: string }[] })?.rows?.map((r) => r.key) ?? null),
   hayDatos: (res) => ((res.body as unknown as { rows?: unknown[] })?.rows?.length ?? 0) > 0,
 };
 /** 💰 rev v1.87⟨wishlist⟩ — su CSV: el texto entero (sin marca de tiempo en el cuerpo). */
@@ -886,6 +895,14 @@ const REGISTRO: readonly AxisRow[] = [
   { route: 'GET /admin/reports/wishlist-demand', param: 'dir', clazz: 'L', allowed: WISHLIST_DEMAND_DIRS, valid: 'asc', alterno: 'desc', obs: OBS_WISHLIST, auth: 'admin', echoValue: false },
   { route: 'GET /admin/reports/wishlist-demand/export.csv', param: 'sort', clazz: 'L', allowed: WISHLIST_DEMAND_SORTS, valid: 'market', alterno: 'wanted', obs: OBS_WISHLIST_CSV, auth: 'admin', echoValue: false },
   { route: 'GET /admin/reports/wishlist-demand/export.csv', param: 'dir', clazz: 'L', allowed: WISHLIST_DEMAND_DIRS, valid: 'asc', alterno: 'desc', obs: OBS_WISHLIST_CSV, auth: 'admin', echoValue: false },
+  // ⭐ C-EQ-1 §DEMANDA (API_CONTRACT_DEMANDA §1, dc4c049e) — `sort`/`dir` = clase ORDEN (§0-Q punto 6; la clase la decidió el arquitecto en el anexo ⇒ `transcrita`, no suma pendientes) y `limit` = ORDEN con cota numérica 1..`DEMAND_LIMIT_MAX`
+  // (dominio declarado = los enteros `'1'..'200'` como tokens: no se crea clase nueva). El CSV IGNORA `limit` (el controller no lo declara) ⇒ solo dos filas allí. Fixture
+  // (m): las MISMAS tres cartas CEQ1-WSH (score 9/6/3, mercado 100/3000/1000) ⇒ `sort=market` ≠ `score` y `limit=1` ≠ el default.
+  { route: 'GET /admin/reports/demand-gaps', param: 'sort', clazz: 'ORDEN', allowed: DEMAND_SORTS, valid: 'market', alterno: 'wishlist', obs: OBS_DEMAND, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/reports/demand-gaps', param: 'dir', clazz: 'ORDEN', allowed: DEMAND_DIRS, valid: 'asc', alterno: 'desc', obs: OBS_DEMAND, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/reports/demand-gaps', param: 'limit', clazz: 'ORDEN', allowed: DEMAND_LIMIT_VALUES, valid: '1', alterno: '2', obs: OBS_DEMAND, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/reports/demand-gaps/export.csv', param: 'sort', clazz: 'ORDEN', allowed: DEMAND_SORTS, valid: 'market', alterno: 'wishlist', obs: OBS_WISHLIST_CSV, auth: 'admin', echoValue: false },
+  { route: 'GET /admin/reports/demand-gaps/export.csv', param: 'dir', clazz: 'ORDEN', allowed: DEMAND_DIRS, valid: 'asc', alterno: 'desc', obs: OBS_WISHLIST_CSV, auth: 'admin', echoValue: false },
 
   // ==========================================================================================
   // ⭐ C-EQ-1 v1.93⟨cardshow⟩ (API_CONTRACT §CARDSHOW.15 + §0-Q punto 4) — el PANEL del Card Show. NUEVE
@@ -1971,7 +1988,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // 💰 v1.116⟨ids⟩ (§IDS.4/.5) — 91 → **95** y 18 → **22**: `?language=`/`?stamped=` de `GET /catalog/cards` y de
     // `GET /admin/inventory/items`, clase decidida en §IDS (E y L) y SIN fila en §0-Q punto 4 ⇒ PENDIENTE-ARQUITECTO.
     // ⭐ v1.116.3⟨ids⟩ — 95 fijo y 22 → **18**: el arquitecto escribió las cuatro filas en §0-Q punto 4. Se pagó una deuda.
-    expect(REGISTRO.length).toBe(96);
+    // ⭐ §DEMANDA (C-EQ-1, API_CONTRACT_DEMANDA §1) — 96 → **101** y 19 fijo: `sort`/`dir`/`limit` de `GET /admin/reports/demand-gaps` y `sort`/`dir` de su CSV
+    // (clase ORDEN, decidida por el arquitecto en el anexo ⇒ `transcrita`). No sube ningún pendiente.
+    expect(REGISTRO.length).toBe(101);
     expect(REGISTRO.filter((r) => r.filaEn0Q === 'PENDIENTE-ARQUITECTO')).toHaveLength(19);
     // PSA-ACABADO: 95 → 96 y 18 → 19 — `?finish=` del DELETE de estimados (SELECTOR, dominio `Finish`; contrato §4 vigente, fila de §0-Q aún no escrita).
     // Medido el 2026-09-13 (`D-EQ-2`): 22 ejes de dominio cerrado sin clase en §0-Q, y 2 rutas con
@@ -1992,7 +2011,8 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // (`D-EQ-3`, frontend primero) y los 3 `?range=` de `value-history` (stream `catalog`). El tope
     // baja a mano.
     // 💰 §PROV F1: 7 → **13** (seis ejes de dominio cerrado cuya conducta YA cumple §0-Q; esperan su fila del arquitecto).
-    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(13);
+    // 💰 §PROV-F4: 13 → **14** (`GET /admin/supply-suggestions?status=`, dominio cerrado {draft,published,skipped}, conducta ya conforme a §0-Q).
+    expect(SIN_CLASE_DECLARADA.length).toBeLessThanOrEqual(14);
     expect(QUERY_SIN_NOMBRE.length).toBeLessThanOrEqual(2);
     // ⭐ `QA-M4`: la lista de exenciones MEDIDAS POR RUTA también tiene techo. Sin él, la salida
     // barata ante el rojo del huérfano sería añadir la llave aquí — un diff de una línea,

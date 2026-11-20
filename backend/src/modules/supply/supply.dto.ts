@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize, IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min,
-  MinLength, ValidateNested,
+  ArrayMaxSize, Equals, IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min,
+  MinLength, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { FINISH_VALUES } from '../../common/enum-values';
 import { Finish } from '@prisma/client';
@@ -93,9 +93,11 @@ export class PayDto {
 
 export class PatchSupplySettingsDto {
   @IsOptional() @IsBoolean() autoPublish?: boolean;
-  @IsOptional() @IsBoolean() autoAccept?: boolean;
+  /** `autoAccept` es FIJO `false` (HECHOS 2026-11-12): cualquier valor presente ⇒ 400 (campo no editable). */
+  @ValidateIf((o: object) => Object.prototype.hasOwnProperty.call(o, 'autoAccept')) @Equals(undefined, { message: 'autoAccept is not editable' }) autoAccept?: never;
   @IsOptional() @IsInt() @Min(1) @Max(10000) defaultPctBps?: number;
-  @IsOptional() @IsInt() @Min(0) @Max(100_000_000_00) weeklyBudgetCents?: number;
+  /** Tope de lo ABIERTO a la vez (centavos). 1e9 = contrato; la columna es Int (máx. 2 147 483 647). */
+  @IsOptional() @IsInt() @Min(0) @Max(1_000_000_000) openBudgetCents?: number;
 }
 
 /** page/pageSize de query (string) → enteros acotados. */
@@ -103,4 +105,10 @@ export function pageOf(q: { page?: string; pageSize?: string }): { page: number;
   const page = Math.max(1, parseInt(q.page ?? '1', 10) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(q.pageSize ?? '25', 10) || 25));
   return { page, pageSize, skip: (page - 1) * pageSize };
+}
+
+/** `POST /admin/supply-suggestions/:id/publish` — ambos opcionales; el tope 100 % se valida en el servicio. */
+export class PublishSuggestionDto {
+  @IsOptional() @IsInt() @Min(1) @Max(1000) qty?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(10000) pctBps?: number;
 }

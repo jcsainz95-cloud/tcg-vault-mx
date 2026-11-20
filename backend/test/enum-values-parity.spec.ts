@@ -363,6 +363,7 @@ describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canó
     'SupplyOfferStatus',
     'SupplyPurchaseStatus',
     'SupplyRequestStatus',
+    'SupplySuggestionStatus', // §PROV-F4 (m114): estado de la sugerida; sin línea canónica, mismo trato que el resto de §PROV
     'SupplyUnitResult',
   ];
   const SCHEMA = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');

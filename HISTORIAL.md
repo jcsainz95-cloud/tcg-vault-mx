@@ -1871,3 +1871,28 @@ Diseño ya en ARCHITECTURE §13.4 / API_CONTRACT §MKT.D/.E (m82). Buildable aho
 
 ### Hito 2026-11-08 — #126 publicado (orquestador)
 P-PROMOS-VIEJAS: 6 familias por tabla fija (el empate por nombre fallaba 20/20); medido con datos reales 1 044 cartas con precio y 84 «Precio pendiente». QA APROBADO (12/12 precios a mano), seguridad-lead APROBADO tras PV-1. Abiertos menores: PV-4, PV-5, QA-PV-SKIP-UI, QA-PV-PLASMA, sellos sin lista (Full Art Promo, Cracked Ice, Finalist…), McDonalds.
+
+## 2026-11-20 — sección qa de docs/STATUS.md sustituida por el gate §DEMANDA (verbatim)
+## QA (qa) — 2026-11-19 · re-gate final §RETIRO-SALIDA sin botón (06f90f33): APROBADO
+- Verde: jest 606/606 (10570); integración 31/31 (490; PG/Redis propios); vitest 502 ficheros (6097); tsc/eslint be+fe 0; doc-size VERDE; rutas OK. m111 limpia desde cero (AG-27/AG-28 + labelCapturedAt).
+- Q1/Q2/Q6/Q7/Q9/Q11/Q12 propias 7/7 verdes; 8 ablaciones en copia dan rojo. Medido: B1, concurrencia 1 movimiento/pieza, guardas I2, AG-27 solo retiro y una vez, AG-11 suprimido en retiro, AG-28 sin botón igual be/fe, dry-run en conexión de solo lectura, sin referencias colgantes.
+- Pendiente antes de publicar: I-1 arquitecto (API:354 y DECISIONES §RETIRO-SALIDA aún describen return-received/returnedAt/AG-29); I-2 AG-28 pide «ajusta el inventario» pero ninguna herramienta lleva withdrawn→in_custody (item-location.rules.ts:33).
+- 2026-11-19 · verificación e4f6a9d4 (nothing_to_ship no aplica si ya está enviado/entregado): APROBADO. Retiro en guia con todas las líneas faltantes ⇒ 409 nothing_to_ship y sigue en guia; 10 PATCH enviado concurrentes ⇒ 10×200, 1 movimiento por pieza, 1 correo; Q1/Q2/Q9/Q12 verdes; avisos-sellos + retiro-salida 28/28.
+- Menor: comentarios de contract.ts:176,1222 desactualizados respecto a B1. Previos abiertos: §ENV3 N-1/N-2; §PERSONA QA-PER-*; filas anteriores en PENDIENTES (a5681572).
+
+## 2026-11-20 — sección qa de docs/STATUS.md sustituida por el gate §PROV-F4 (verbatim)
+## QA (qa) — 2026-11-20 · re-gate §DEMANDA F1+F2 (dc4c049e/1b9d295e/ab42af79, medido en 82fd39cb): APROBADO (texto de qa, transcrito por el orquestador)
+- CERRADOS: C-EQ-1 (5 filas ORDEN, `enum-query-axes.e2e-spec.ts:901-905`, trinquete 101/19) y PDB G-8 (Seen y TermMatch se borran, Daily se conserva, `revertM112`): `enum-query-axes`, `pdb-limpieza` y `demand-gaps` en verde.
+- CERRADOS: robots (front solo tras interacción, servidor UA bot ⇒ 204 sin contar), plurales ICU, aviso «Mostrando N de M», CSV con fecha CDMX, test de envío desde ficha (`CardDetailView.test.tsx:616`).
+- MEDIDO integración completa: 203/203 suites, 0 rojas con contraseña normal (la roja de backend era de entorno). 114 en corrida completa (cortada por OOM: otro jest corría a la vez en el árbol compartido) + 89 en 6 lotes, 551/551 tests.
+- MEDIDO: jest unit 607/607 suites, 10606 tests (1 suite matada por SIGTERM ajeno, re-corrida 5/5); vitest 503 ficheros ok + 2 skip, 6104 ok/13 skip; tsc back/front 0; lint back/front 0; check-doc-size 0.
+- MEDIDO stack (curl): UA vacío/Googlebot/HeadlessChrome/curl/preview ⇒ 204 y 0 filas (5/5); 1 IP con 6 UA ⇒ 1 persona; 2.ª IP ⇒ 2; carta con stock ⇒ 0; 1 IP con 14 cartas agotadas ⇒ 10 (10/14).
+- MEDIDO navegador real (Next + Nest + BD): ficha agotada sin interacción ⇒ 0 envíos/0 filas (2/2); con interacción ⇒ 1 envío/1 fila; con UA HeadlessChrome ⇒ 1 envío/0 filas; recarga + interacción ⇒ sigue 1 envío (2/2).
+- MEDIDO `limit`: 1, 200 y vacío ⇒ 200; 0, 201, -1, 1.5, abc, ' 5' y repetido ⇒ 400 (7/7), `details.allowed` = 200 tokens (1195 B).
+- MENOR (backend): `005` y `0200` ⇒ 200 aunque no están en el dominio declarado (regex `^\d{1,6}$`, `demand-gaps.service.ts:101`).
+- MENOR (arquitecto): el filtro de bots solo actúa con `cardId` (contrato §3 regla 2b); la vía de texto se envía sin interacción (`CatalogView.tsx:280`). Va con DM-6/DM-8.
+- MENOR (backend): el comentario «solo si TODO el lote terminó» (`demand-match.service.ts`) ya no es cierto: la marca de corrida buena se pone también con fallos parciales.
+- Filas C-EQ-1 = `transcrita` por convención; la clase vive en `API_CONTRACT_DEMANDA.md` §1.
+- CONFIRMADO, ya abierto por seguridad-lead: DM-6, la vía de texto aún hashea IP|UA (`marketing-search-miss.service.ts:~150`).
+- Rutas: dc4c049e solo el anexo; 1b9d295e solo `frontend/`; ab42af79 solo `backend/` + su sección de STATUS.
+- PROCESO: este veredicto cubre solo 82fd39cb (durante el gate entraron §PROV-F4/§DECKS-TOP en el árbol).

@@ -107,7 +107,7 @@ export interface MetaDeckDetailDTO {
   energyBundle: MetaEnergyBundleDTO;
 }
 
-/** Teja del top-10: `GET /decks-meta` (envelope `data[]`). */
+/** Teja del top-N (20): `GET /decks-meta` (envelope `data[]`). */
 export interface MetaDeckCardTileDTO {
   slug: string;
   name: string;

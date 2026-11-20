@@ -179,7 +179,7 @@ export class DecksMetaService {
   // Endpoints públicos
   // ────────────────────────────────────────────────────────────────────────────────────────────
 
-  /** `GET /decks-meta` — top-10 publicado, por `rank` asc. */
+  /** `GET /decks-meta` — top-N (20) publicado, por `rank` asc. */
   async listPublished(): Promise<MetaDeckListResponseDTO> {
     const decks = await this.prisma.metaDeck.findMany({
       where: { published: true, pausedByOperator: false },
@@ -439,7 +439,7 @@ export class DecksMetaService {
   }
 
   /**
-   * `POST /admin/decks-meta` — CURADURÍA MANUAL (fallback, §3.3): pega un top-10 con el mismo formato
+   * `POST /admin/decks-meta` — CURADURÍA MANUAL (fallback, §3.3): pega un top-N (20) con el mismo formato
    * y motor. Crea el deck (o reusa por slug), una `MetaDeckList` NUEVA e INMUTABLE, sus líneas casadas
    * y fija `currentListId`. Registra `MetaFetchRun{source:manual, applied:true}`.
    */
