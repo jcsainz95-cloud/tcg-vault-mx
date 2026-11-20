@@ -12,7 +12,7 @@ import { pageOf } from './supply.dto';
 import { CardWithSet, cardView } from './supply-views';
 import {
   SUGGEST_MIN_MARKET_CENTS, SUPPLY_SUGGEST_LOCK_KEY, SUPPLY_SYSTEM_USER_ID, SuggestReason, allocateBudget, isBasicEnergy,
-  isMarketJump, needsFromDecks, netTarget, pickFinish, sortByPriority, suggestedUnitCents, weekStartMx, Need,
+  isMarketJump, needsFromDecks, normalizeSuggestMult, SUGGEST_CFG_KEYS, SuggestMult, netTarget, pickFinish, sortByPriority, suggestedUnitCents, weekStartMx, Need,
 } from './supply-suggest.logic';
 
 export interface SuggestRunResult {
@@ -117,21 +117,27 @@ export class SupplySuggestService {
     return out;
   }
 
+  /** Multiplicadores por puesto de `ConfigSetting` (ausente/inválido ⇒ defaults del código; §PROV-F4.2). */
+  private async suggestMult(db: Tx | PrismaService): Promise<SuggestMult> {
+    return normalizeSuggestMult(await db.configSetting.findMany({ where: { key: { in: [...SUGGEST_CFG_KEYS] } }, select: { key: true, valueJson: true } }));
+  }
+
   // ---------------------------------------------------------------- el job
 
   async run(now: Date = new Date()): Promise<SuggestRunResult> {
     const weekStart = weekStartMx(now);
 
     // [1] Necesidades: metadecks vigentes (decks publicados y no pausados; solo líneas casadas). La fuente «rotación» no existe.
-    const decks = await this.prisma.metaDeck.findMany({ where: { published: true, pausedByOperator: false, currentListId: { not: null } }, select: { slug: true, currentListId: true } });
+    const decks = await this.prisma.metaDeck.findMany({ where: { published: true, pausedByOperator: false, currentListId: { not: null } }, select: { slug: true, rank: true, currentListId: true } });
     const slugByList = new Map(decks.map((d) => [d.currentListId as string, d.slug]));
+    const rankByList = new Map(decks.map((d) => [d.currentListId as string, d.rank]));
     const lines = slugByList.size
       ? await this.prisma.metaDeckCard.findMany({
           where: { listId: { in: [...slugByList.keys()] }, matchStatus: 'matched', matchedCardId: { not: null } },
           select: { listId: true, matchedCardId: true, quantity: true },
         })
       : [];
-    const deckNeeds = needsFromDecks(lines.map((l) => ({ cardId: l.matchedCardId as string, quantity: l.quantity, deckSlug: slugByList.get(l.listId) as string })));
+    const deckNeeds = needsFromDecks(lines.map((l) => ({ cardId: l.matchedCardId as string, quantity: l.quantity, deckSlug: slugByList.get(l.listId) as string, rank: rankByList.get(l.listId) ?? null })), await this.suggestMult(this.prisma));
     const needs = deckNeeds;
 
     // [2] Cartas (sin energías básicas) y mercado del día por acabado.
@@ -141,13 +147,13 @@ export class SupplySuggestService {
     const eligible = cards.filter((c) => !isBasicEnergy(c));
     const markets = await this.pricing.marketCentsBatch(eligible.flatMap((c) => c.availableFinishes.map((f) => ({ cardId: c.id, finish: f }))));
 
-    interface Cand { cardId: string; finish: Finish; need: number; reasons: SuggestReason[]; marketCents: number | null; quarantined: boolean }
+    interface Cand { cardId: string; finish: Finish; need: number; priorityRank: number; reasons: SuggestReason[]; marketCents: number | null; quarantined: boolean }
     const cands: Cand[] = [];
     for (const c of eligible) {
       const n = needs.get(c.id) as Need;
       const pick = pickFinish(c.availableFinishes, (f) => markets.get(`${c.id}|${f}`) ?? null);
       if (pick.marketCents != null && pick.marketCents < SUGGEST_MIN_MARKET_CENTS) continue; // no vale la pena recogerla
-      cands.push({ cardId: c.id, finish: pick.finish as Finish, need: n.need, reasons: n.reasons, marketCents: pick.marketCents, quarantined: false });
+      cands.push({ cardId: c.id, finish: pick.finish as Finish, need: n.need, priorityRank: n.priorityRank, reasons: n.reasons, marketCents: pick.marketCents, quarantined: false });
     }
     // Dato dudoso: salto de mercado > 30 % contra la captura anterior ⇒ cuarentena (no se publica; mañana se reevalúa).
     const jumps = await this.marketJumps(cands.filter((c) => c.marketCents != null).map((c) => ({ cardId: c.cardId, finish: c.finish })), now);
@@ -170,7 +176,7 @@ export class SupplySuggestService {
 
   private async apply(
     tx: Tx,
-    cands: { cardId: string; finish: Finish; need: number; reasons: SuggestReason[]; marketCents: number | null; quarantined: boolean }[],
+    cands: { cardId: string; finish: Finish; need: number; priorityRank: number; reasons: SuggestReason[]; marketCents: number | null; quarantined: boolean }[],
     st: { autoPublish: boolean; defaultPctBps: number; openBudgetCents: number },
     now: Date,
     weekStart: Date,
@@ -261,7 +267,7 @@ export class SupplySuggestService {
     if (pending.length) {
       const spent = await this.openExposure(now, tx, pre);
       const remaining = Math.max(0, st.openBudgetCents - spent);
-      const ordered = sortByPriority(pending.map((p) => ({ key: p.key, qty: p.qty, unitCents: p.unit, signals: new Set(p.c.reasons.map((r) => r.kind)).size })));
+      const ordered = sortByPriority(pending.map((p) => ({ key: p.key, qty: p.qty, unitCents: p.unit, rank: p.c.priorityRank })));
       const alloc = allocateBudget(ordered, remaining);
       const give = new Map(alloc.publish.map((p) => [p.key, p.qty]));
       for (const p of pending) {
@@ -355,12 +361,13 @@ export class SupplySuggestService {
 
   /** Necesidad VIVA de una carta bajo el candado: necesidad de metadecks − stock − lo que ya viene (solicitudes abiertas de otros acabados + acuerdos sin pagar). */
   private async liveNeed(tx: Tx, cardId: string, now: Date): Promise<number> {
-    const decks = await tx.metaDeck.findMany({ where: { published: true, pausedByOperator: false, currentListId: { not: null } }, select: { slug: true, currentListId: true } });
+    const decks = await tx.metaDeck.findMany({ where: { published: true, pausedByOperator: false, currentListId: { not: null } }, select: { slug: true, rank: true, currentListId: true } });
     const slugByList = new Map(decks.map((d) => [d.currentListId as string, d.slug]));
+    const rankByList = new Map(decks.map((d) => [d.currentListId as string, d.rank]));
     const lines = slugByList.size
       ? await tx.metaDeckCard.findMany({ where: { listId: { in: [...slugByList.keys()] }, matchStatus: 'matched', matchedCardId: cardId }, select: { listId: true, matchedCardId: true, quantity: true } })
       : [];
-    const need = needsFromDecks(lines.map((l) => ({ cardId: l.matchedCardId as string, quantity: l.quantity, deckSlug: slugByList.get(l.listId) as string }))).get(cardId)?.need ?? 0;
+    const need = needsFromDecks(lines.map((l) => ({ cardId: l.matchedCardId as string, quantity: l.quantity, deckSlug: slugByList.get(l.listId) as string, rank: rankByList.get(l.listId) ?? null })), await this.suggestMult(tx)).get(cardId)?.need ?? 0;
     if (need <= 0) return 0;
     const stock = await tx.inventoryItem.count({ where: { cardId, productType: 'raw', ownerType: 'platform', status: { in: ['in_stock', 'listed'] } } });
     const reqs = await tx.supplyRequest.findMany({ where: { cardId, status: { in: ['open', 'filled'] }, expiresAt: { gt: now } }, select: { qtyWanted: true, qtyReserved: true, qtyReceived: true } });

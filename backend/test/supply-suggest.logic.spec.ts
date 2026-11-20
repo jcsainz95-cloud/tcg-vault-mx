@@ -1,29 +1,63 @@
 import {
-  allocateBudget, isBasicEnergy, isMarketJump, mergeNeeds, needsFromDecks, netTarget, pickFinish, sortByPriority, suggestedUnitCents, weekStartMx,
+  allocateBudget, isBasicEnergy, isMarketJump, multForRank, needsFromDecks, netTarget, normalizeSuggestMult, pickFinish, sortByPriority, suggestedUnitCents, weekStartMx,
 } from '../src/modules/supply/supply-suggest.logic';
 
 describe('§PROV-F4 · reglas puras de sugeridas', () => {
-  it('necesidad de mazos = MÁXIMO de copias entre mazos (no la suma), acotada a 4', () => {
+  it('necesidad = Σ min(copias,4) × mult(rank): carta compartida 4×2 (puesto 2) + 2×1 (puesto 9) = 10', () => {
     const m = needsFromDecks([
-      { cardId: 'a', quantity: 2, deckSlug: 'd1' },
-      { cardId: 'a', quantity: 3, deckSlug: 'd2' },
-      { cardId: 'b', quantity: 4, deckSlug: 'd1' },
-      { cardId: 'b', quantity: 4, deckSlug: 'd2' },
-      { cardId: 'c', quantity: 9, deckSlug: 'd1' },
-      { cardId: 'z', quantity: 0, deckSlug: 'd1' },
+      { cardId: 'a', quantity: 4, deckSlug: 'd2', rank: 2 },
+      { cardId: 'a', quantity: 2, deckSlug: 'd9', rank: 9 },
     ]);
-    expect(m.get('a')).toMatchObject({ need: 3, reasons: [{ kind: 'metadeck', ref: 'd2' }] });
+    expect(m.get('a')?.need).toBe(10);
+    expect(m.get('a')?.priorityRank).toBe(2);
+    expect(m.get('a')?.reasons).toEqual([
+      { kind: 'metadeck', ref: 'd2', rank: 2, copies: 4, mult: 2 },
+      { kind: 'metadeck', ref: 'd9', rank: 9, copies: 2, mult: 1 },
+    ]);
+  });
+
+  it('tope 4 solo POR DECK (líneas repetidas del mismo deck se suman antes); cero y energía no cuentan; puesto 5 ×2, puesto 6 ×1', () => {
+    const m = needsFromDecks([
+      { cardId: 'c', quantity: 9, deckSlug: 'd1', rank: 5 },
+      { cardId: 'b', quantity: 3, deckSlug: 'd1', rank: 6 },
+      { cardId: 'b', quantity: 3, deckSlug: 'd1', rank: 6 },
+      { cardId: 'z', quantity: 0, deckSlug: 'd1', rank: 1 },
+    ]);
+    expect(m.get('c')?.need).toBe(8);
     expect(m.get('b')?.need).toBe(4);
-    expect(m.get('c')?.need).toBe(4);
     expect(m.has('z')).toBe(false);
   });
 
-  it('unión de fuentes: max de cantidad y reasons conserva las dos', () => {
-    const a = needsFromDecks([{ cardId: 'a', quantity: 2, deckSlug: 'd1' }]);
-    const b = needsFromDecks([{ cardId: 'a', quantity: 3, deckSlug: 'd2' }]);
-    const u = mergeNeeds(a, b);
-    expect(u.get('a')?.need).toBe(3);
-    expect(u.get('a')?.reasons).toEqual([{ kind: 'metadeck', ref: 'd1' }, { kind: 'metadeck', ref: 'd2' }]);
+  it('cambio de puesto: el mismo deck pasa de ×1 a ×2 al subir al top 5 (sin estado guardado)', () => {
+    const l = (rank: number) => [{ cardId: 'a', quantity: 3, deckSlug: 'd', rank }];
+    expect(needsFromDecks(l(6)).get('a')?.need).toBe(3);
+    expect(needsFromDecks(l(5)).get('a')?.need).toBe(6);
+    expect(needsFromDecks(l(7), { topRankMax: 8, topMult: 3, restMult: 1 }).get('a')?.need).toBe(9);
+  });
+
+  it('el deck que más pesa fija la prioridad (empate ⇒ mejor puesto)', () => {
+    const m = needsFromDecks([
+      { cardId: 'a', quantity: 1, deckSlug: 'd1', rank: 1 }, // 2
+      { cardId: 'a', quantity: 3, deckSlug: 'd8', rank: 8 }, // 3
+    ]);
+    expect(m.get('a')?.priorityRank).toBe(8);
+    const t = needsFromDecks([
+      { cardId: 'a', quantity: 2, deckSlug: 'd9', rank: 9 }, // 2
+      { cardId: 'a', quantity: 1, deckSlug: 'd3', rank: 3 }, // 2
+    ]);
+    expect(t.get('a')?.priorityRank).toBe(3);
+  });
+
+  it('multiplicadores de ConfigSetting: inválido o ausente ⇒ defaults del código', () => {
+    expect(normalizeSuggestMult([])).toEqual({ topRankMax: 5, topMult: 2, restMult: 1 });
+    expect(normalizeSuggestMult([
+      { key: 'supply.suggest.topRankMax', valueJson: 8 }, { key: 'supply.suggest.topMult', valueJson: 3 }, { key: 'supply.suggest.restMult', valueJson: 2 },
+    ])).toEqual({ topRankMax: 8, topMult: 3, restMult: 2 });
+    expect(normalizeSuggestMult([
+      { key: 'supply.suggest.topRankMax', valueJson: 21 }, { key: 'supply.suggest.topMult', valueJson: 0 }, { key: 'supply.suggest.restMult', valueJson: '2' },
+    ])).toEqual({ topRankMax: 5, topMult: 2, restMult: 1 });
+    expect(normalizeSuggestMult([{ key: 'supply.suggest.topRankMax', valueJson: 0 }]).topRankMax).toBe(0);
+    expect(multForRank(null, { topRankMax: 5, topMult: 2, restMult: 1 })).toBe(1);
   });
 
   it('energía básica se excluye; la especial no', () => {
@@ -69,7 +103,7 @@ describe('§PROV-F4 · reglas puras de sugeridas', () => {
   });
 
   describe('presupuesto semanal', () => {
-    const c = (key: string, qty: number, unitCents: number, signals = 1) => ({ key, qty, unitCents, signals });
+    const c = (key: string, qty: number, unitCents: number, rank = 1) => ({ key, qty, unitCents, rank });
 
     it('nunca excede lo restante; reduce la cantidad (mín. 1) y no publica partido', () => {
       const r = allocateBudget(sortByPriority([c('a', 4, 3000), c('b', 4, 3000), c('c', 1, 9000)]), 15000);
@@ -86,9 +120,9 @@ describe('§PROV-F4 · reglas puras de sugeridas', () => {
       expect(allocateBudget([c('a', 1, 1000)], -50).budget).toEqual(['a']);
     });
 
-    it('prioridad: señal de 2 fuentes primero, luego mayor valor', () => {
-      const o = sortByPriority([c('x', 1, 1000, 1), c('y', 1, 5000, 1), c('z', 1, 500, 2)]);
-      expect(o.map((p) => p.key)).toEqual(['z', 'y', 'x']);
+    it('prioridad: menor puesto primero, luego mayor valor, luego clave', () => {
+      const o = sortByPriority([c('x', 1, 1000, 6), c('y', 1, 5000, 6), c('z', 1, 500, 2), c('w', 1, 500, 6)]);
+      expect(o.map((p) => p.key)).toEqual(['z', 'y', 'x', 'w']);
     });
 
     it('propiedad: con presupuestos y cartas variados la suma publicada ≤ presupuesto', () => {
