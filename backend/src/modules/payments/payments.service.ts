@@ -1255,9 +1255,9 @@ export class PaymentsService {
         }
         const item = await tx.inventoryItem.findUnique({ where: { id: cur.inventoryItemId } });
         if (!item) continue;
-        // ¿La carta ya salió físicamente (enviada/entregada)? En el RETIRO DE BÓVEDA el estado
-        // del InventoryItem no se mueve hasta la entrega, así que la señal canónica es un
-        // ShipmentItem cuyo ShipmentRequest esté en `enviado`/`entregado`.
+        // ¿La carta ya salió físicamente (enviada/entregada)? §RETIRO-SALIDA: en el RETIRO DE BÓVEDA la pieza pasa a `withdrawn` al
+        // ENVIARSE (antes, al entregarse); la señal canónica sigue siendo un ShipmentItem cuyo ShipmentRequest esté en
+        // `enviado`/`entregado`.
         // (v1.21.2: esto vale SOLO aquí. En `direct_ship` el item sí avanza con el envío
         // —picking/shipped/delivered— y la decisión la toma el estado del envío, ver arriba.)
         const shippedOut = await tx.shipmentItem.findFirst({

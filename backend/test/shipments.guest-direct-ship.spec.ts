@@ -147,18 +147,22 @@ describe('D4 — el discriminador canónico es `Order.fulfillmentMode` (§4.21d,
 });
 
 describe('ShipmentsService.updateStatus — retiro de BÓVEDA (orderId == null) — SIN CAMBIOS v1.17', () => {
-  it('al pasar a `entregado`: in_custody → withdrawn con reason `withdrawal`', async () => {
-    const { svc, state, movements } = build(vaultShipment('enviado'), 'in_custody');
-    await svc.updateStatus('shp-vault', 'entregado');
+  // §RETIRO-SALIDA (2026-11-19): la pieza sale AL ENVIARSE; `entregado` ya no toca piezas de un retiro.
+  it('al pasar a `enviado`: in_custody → withdrawn con reason `withdrawal`', async () => {
+    const { svc, state, movements } = build(vaultShipment('guia'), 'in_custody');
+    await svc.updateStatus('shp-vault', 'enviado');
     expect(state.status).toBe('withdrawn');
     expect(movements[0]).toMatchObject({ toStatus: 'withdrawn', reason: 'withdrawal' });
   });
 
-  it('al pasar a `enviado` NO toca el item (solo `entregado` escribe, como en v1.17)', async () => {
-    const { svc, state, movements } = build(vaultShipment('guia'), 'in_custody');
-    await svc.updateStatus('shp-vault', 'enviado');
-    expect(state.status).toBe('in_custody');
-    expect(movements).toHaveLength(0);
+  it('al pasar a `entregado` con la pieza YA withdrawn (retiro nuevo) no hay movimiento; si sigue in_custody (retiro viejo, B1) sale una vez', async () => {
+    const nuevo = build(vaultShipment('enviado'), 'withdrawn');
+    await nuevo.svc.updateStatus('shp-vault', 'entregado');
+    expect(nuevo.movements).toHaveLength(0);
+    const viejo = build(vaultShipment('enviado'), 'in_custody');
+    await viejo.svc.updateStatus('shp-vault', 'entregado');
+    expect(viejo.state.status).toBe('withdrawn');
+    expect(viejo.movements).toHaveLength(1);
   });
 
   it('nunca marca `delivered` un retiro de bóveda', async () => {

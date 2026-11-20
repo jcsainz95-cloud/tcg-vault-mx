@@ -99,6 +99,9 @@ const TITLES: Record<string, [string, string]> = {
   'AG-25': ['Entrega en persona con envío cobrado', 'In-person hand-over with shipping charged'],
   // §ENV3 (AG-26).
   'AG-26': ['La guía costó más de lo cobrado al cliente', 'The label cost more than the customer was quoted'],
+  // §RETIRO-SALIDA (AG-27).
+  'AG-27': ['Guía capturada sin marcar enviado', 'Label captured but not marked as shipped'],
+  'AG-28': ['Paquete de retiro devuelto', 'Vault withdrawal parcel returned'],
 };
 
 /**
@@ -401,6 +404,15 @@ export function spendAlertSentence(v: SpendAlertMailView, l: MailLocale): string
       return en
         ? `The label for ${str(f.folio) ? `shipment ${str(f.folio)}` : ref} cost ${m(f.costRealCents)} against ${m(f.costQuotedCents)} quoted to the customer (${m(f.differenceCents)} over). Quoted service: ${str(f.quotedService) ?? '—'}; purchased: ${str(f.boughtService) ?? '—'}. Informational: nothing was blocked.`
         : `La guía del ${str(f.folio) ? `envío ${str(f.folio)}` : ref} costó ${m(f.costRealCents)} contra ${m(f.costQuotedCents)} cotizados al cliente (${m(f.differenceCents)} de más). Servicio cotizado: ${str(f.quotedService) ?? '—'}; comprado: ${str(f.boughtService) ?? '—'}. Es informativo: no se bloqueó nada.`;
+    case 'AG-27':
+      // §RETIRO-SALIDA contrato (b): ⛔ sin PII; el aviso NUNCA mueve piezas.
+      return en
+        ? `Shipment ${str(f.folio) ?? ref} has had a hand-entered label for ${num(f.hoursSinceCapture) ?? 0} h and is not marked shipped. If it already left, mark it shipped; until then the cards stay in the customer's vault.`
+        : `El envío ${str(f.folio) ?? ref} tiene guía capturada a mano desde hace ${num(f.hoursSinceCapture) ?? 0} h y no se ha marcado enviado. Si ya salió, márcalo enviado; hasta entonces las cartas siguen en la bóveda del cliente.`;
+    case 'AG-28':
+      return en
+        ? `Shipment ${str(f.folio) ?? ref} is on its way back (${str(f.carrierStatus) ?? 'in_return'}). When you receive it, let us know so we can return the ${num(f.pieceCount) ?? 0} cards to the customer's vault by hand; there is no button for this yet.`
+        : `El envío ${str(f.folio) ?? ref} viene de regreso (${str(f.carrierStatus) ?? 'in_return'}). Cuando lo recibas, avísanos para regresar a mano las ${num(f.pieceCount) ?? 0} cartas a la bóveda del cliente; todavía no hay botón para hacerlo.`;
     default:
       return en ? `There is a new spending alert (${code}).` : `Hay un aviso de gasto nuevo (${code}).`;
   }

@@ -270,7 +270,7 @@
 - POST `/admin/orders/:id/shipped-refund-reason` · staff 💰
 - POST `/admin/orders/:id/reclaim-vault` · admin
 - POST `/checkout/guest/quote` · público
-- GET `/checkout/shipping-rule` · público (umbral + `v3Enabled`) · POST `/checkout/shipping-quote` · público · `{cp, items[]}` ⇒ `{quoteId, shippingFeeCents, service, etaDays, expiresAt}`; `guest/quote` y `session` reciben `shippingQuoteId` (vencido ⇒ 409 `SHIPPING_QUOTE_STALE`); 404 con dial apagado; 503 `SHIPPING_QUOTE_UNAVAILABLE` (DECISIONES §ENV3.15)
+- GET `/checkout/shipping-rule` · público (umbral + `v3Enabled`) · POST `/checkout/shipping-quote` · público · `{cp, items[]}` ⇒ `{quoteId, shippingFeeCents, service, etaDays, expiresAt}`; `guest/quote`/`session` reciben `shippingQuoteId` (vencido ⇒ 409 `SHIPPING_QUOTE_STALE`); 404 dial apagado; 503 `SHIPPING_QUOTE_UNAVAILABLE` (§ENV3.15)
 - POST `/checkout/guest/session` · público
 - POST `/orders/guest/track` · público
 - POST `/orders/guest/resend-link` · público
@@ -351,7 +351,7 @@
 - POST `/admin/shipments/:id/label/release` · admin 💰
 - PATCH `/admin/shipments/:id/status` · staff
 - POST `/admin/shipments/:id/tracking` · staff
-- POST `/admin/shipments/:id/delivered-in-person` · staff 💰 · 409 si no preparado o con guía (DECISIONES §PERSONA)
+- POST `/admin/shipments/:id/delivered-in-person` · staff 💰 · 409 si no preparado o con guía (§PERSONA) · retiro: `withdrawn` en `enviado` (§RETIRO-SALIDA)
 - POST `/admin/buylist/:id/inbound-shipment` · staff
 - GET `/buylist/requests/:id/label.pdf` · cuenta
 - POST `/shipments/quote` · cuenta

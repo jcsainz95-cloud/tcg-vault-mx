@@ -996,7 +996,10 @@ export class ShipmentPrepService {
       if (to === 'guia' && view.openCaseIds.length > 0) {
         throw BusinessException.conflict('SHIPMENT_HAS_OPEN_REPLACEMENTS', 'Withdrawal has open replacement cases', { caseIds: view.openCaseIds });
       }
-      if (to === 'enviado' && !view.lines.some((l) => l.prepStatus === 'picked' && l.available)) {
+      // §RETIRO-SALIDA: la pieza sale al enviarse, así que bajo el candado el PERDEDOR de un `enviado` concurrente ya ve sus líneas
+      // `withdrawn` (no `available`). Si el envío YA está `enviado|entregado` esta guarda no aplica: su CAS contará 0 y recibirá el
+      // 200 idempotente de §R.4.c cláusula 4 (antes las piezas seguían `in_custody` hasta `entregado` y la guarda pasaba).
+      if (to === 'enviado' && row.status !== 'enviado' && row.status !== 'entregado' && !view.lines.some((l) => l.prepStatus === 'picked' && l.available)) {
         throw BusinessException.conflict('CONFLICT', 'Nothing to ship: every line is blocked', { reason: 'nothing_to_ship' });
       }
     }

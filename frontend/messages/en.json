@@ -975,6 +975,7 @@
     "noShipments": "You have no withdrawals yet.",
     "backToList": "My withdrawals",
     "detailTitle": "Withdrawal {id}",
+    "leftVaultNote": "Your cards have left the vault and are on their way. They no longer appear in your vault.",
     "itemsInWithdrawal": "Cards in this withdrawal",
     "shippingAddress": "Shipping address",
     "addressUnavailable": "Address unavailable",
@@ -7074,6 +7075,11 @@
         "copied": "Copied"
       },
       "fact": {
+        "capturedAt": "Captured at",
+        "hoursSinceCapture": "Hours since capture",
+        "carrierStatus": "Carrier status",
+        "observedAt": "Observed at",
+        "pieceCount": "Cards",
         "quotedService": "Quoted service",
         "boughtService": "Purchased service",
         "costQuotedCents": "Cost quoted to the customer",
@@ -7264,6 +7270,14 @@
         "AG-26": {
           "title": "Label costs more than quoted to the customer",
           "text": "The label for {ref} cost {real} and the customer was quoted {quoted} ({quotedService}); you bought {boughtService}. Difference: {diff}. This is only a notice: nothing was blocked."
+        },
+        "AG-27": {
+          "title": "Label captured but not marked as shipped",
+          "text": "Shipment {folio} has had a hand-entered label for {hours} h and is not marked shipped. If it already left, mark it shipped; until then the cards stay in the customer's vault."
+        },
+        "AG-28": {
+          "title": "Vault withdrawal parcel returned",
+          "text": "Shipment {folio} is on its way back ({carrierStatus}). When you receive it, let us know so we can return the {pieceCount} cards to the customer's vault by hand; there is no button for this yet."
         }
       },
       "prev": "Previous",

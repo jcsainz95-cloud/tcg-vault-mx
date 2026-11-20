@@ -975,6 +975,7 @@
     "noShipments": "Aún no tienes retiros.",
     "backToList": "Mis retiros",
     "detailTitle": "Retiro {id}",
+    "leftVaultNote": "Tus cartas ya salieron de la bóveda y van en camino. Ya no aparecen en tu bóveda.",
     "itemsInWithdrawal": "Cartas en este retiro",
     "shippingAddress": "Dirección de envío",
     "addressUnavailable": "Dirección no disponible",
@@ -7074,6 +7075,11 @@
         "copied": "Copiado"
       },
       "fact": {
+        "capturedAt": "Capturada a las",
+        "hoursSinceCapture": "Horas desde la captura",
+        "carrierStatus": "Estado de la paquetería",
+        "observedAt": "Observado a las",
+        "pieceCount": "Cartas",
         "quotedService": "Servicio cotizado",
         "boughtService": "Servicio comprado",
         "costQuotedCents": "Costo cotizado al cliente",
@@ -7264,6 +7270,14 @@
         "AG-26": {
           "title": "Guía más cara que lo cotizado al cliente",
           "text": "La guía del {ref} costó {real} y al cliente se le cotizó {quoted} ({quotedService}); compraste {boughtService}. Diferencia: {diff}. Es solo un aviso: nada se bloqueó."
+        },
+        "AG-27": {
+          "title": "Guía capturada sin marcar enviado",
+          "text": "El envío {folio} tiene guía capturada a mano desde hace {hours} h y no se ha marcado enviado. Si ya salió, márcalo enviado; hasta entonces las cartas siguen en la bóveda del cliente."
+        },
+        "AG-28": {
+          "title": "Paquete de retiro devuelto",
+          "text": "El envío {folio} viene de regreso ({carrierStatus}). Cuando lo recibas, avísanos para regresar a mano las {pieceCount} cartas a la bóveda del cliente; todavía no hay botón para hacerlo."
         }
       },
       "prev": "Anterior",

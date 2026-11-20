@@ -1869,6 +1869,9 @@ model ShipmentRequest {
   stripePaymentIntentId    String?                   @unique
   carrier                  String?
   trackingNumber           String?
+  // §RETIRO-SALIDA (punto 1c): instante en que se CAPTURÓ/cambió la guía a mano (`setTracking`). Lo lee solo el barrido AG-27
+  // («guía manual sin marcar enviado»). NULL ⇔ sin captura a mano registrada (filas previas: el barrido las ignora). Fuera de todo DTO.
+  labelCapturedAt          DateTime?
   // ⭐ v1.74 (§R.6, M-57) — EL SELLO DE `AV-4` (la guía al COMPRADOR). `setTracking` es el único
   // camino que garantiza que existan `carrier` Y `trackingNumber` (§R.3.a), y **no tenía ninguna
   // guarda** de repetición (`D-AV-1`) ⇒ sin sello, cada re-captura mandaría otro correo.
@@ -2117,6 +2120,8 @@ enum SpendAlertKind {
   psa_cycle_short // AG-24 (v1.113⟨portada⟩, M-93, API_CONTRACT §DYN.4.5): «con el tope de créditos PSA la vuelta tarda > 7 días»
   in_person_with_fee // AG-25 (§PERSONA, DECISIONES): «entregado en persona» por personal que no es el dueño, con flete cobrado > 0
   label_over_customer_quote // AG-26 (§ENV3, DECISIONES punto 8): la guía costó más que lo cotizado al cliente + `ship_cost_over_quote_cents`
+  manual_label_unshipped // AG-27 (§RETIRO-SALIDA punto 1c): guía capturada a mano que lleva > 24 h sin marcarse `enviado`
+  retiro_parcel_returned // AG-28 (§RETIRO-SALIDA contrato b): el transportista reporta `in_return` sobre un retiro `enviado`
 }
 
 // Clase E. 🔴 inmediato / 🟡 resumen (Z.2).

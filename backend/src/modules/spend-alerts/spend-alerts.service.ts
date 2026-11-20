@@ -57,6 +57,10 @@ export const SPEND_ALERT_CODE_OF: Readonly<Record<SpendAlertKind, string>> = {
   in_person_with_fee: 'AG-25',
   // §ENV3 (DECISIONES punto 8): la guía costó más que lo cotizado al cliente + tolerancia (informativo; nada se bloquea).
   label_over_customer_quote: 'AG-26',
+  // §RETIRO-SALIDA (punto 1c): guía capturada a mano > 24 h sin marcar `enviado` (nunca mueve piezas).
+  manual_label_unshipped: 'AG-27',
+  // §RETIRO-SALIDA (contrato b): el transportista devuelve un retiro `enviado` (🔴, con correo al dueño).
+  retiro_parcel_returned: 'AG-28',
 };
 
 /**
@@ -68,7 +72,7 @@ const FACTS_REPLACED_KINDS: ReadonlySet<SpendAlertKind> = new Set<SpendAlertKind
 /**
  * v1.113⟨portada⟩ (§DYN.4.5, criterio 933) — tipos FUERA del resumen diario (`spend-digest`) y de su `summary`: solo panel.
  */
-export const DIGEST_EXCLUDED_KINDS: readonly SpendAlertKind[] = ['psa_cycle_short'];
+export const DIGEST_EXCLUDED_KINDS: readonly SpendAlertKind[] = ['psa_cycle_short', 'manual_label_unshipped']; // AG-27: solo panel (§RETIRO-SALIDA contrato b)
 
 /** Llaves «abierto» que se cierran solas y se reescriben al cerrar para que el siguiente «abierto» sea fila nueva. */
 const SELF_CLOSING_OPEN_KEYS: Readonly<Record<string, string>> = { 'ag7:open': 'ag7', 'ag24:open': 'ag24' };

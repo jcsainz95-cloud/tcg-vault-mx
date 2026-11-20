@@ -42,10 +42,10 @@ Resuelve: precios opacos, envíos repetidos, dudas de autenticidad/condición y 
 **Compra, pago y custodia**
 - Checkout con **Stripe** (modo real desde 2026-10-16, según el dueño). Webhook firmado e idempotente.
 - Destino **bóveda** (requiere cuenta) o **domicilio**. Titularidad `pending` → `settled` al liquidar; solo se retira lo `settled`.
-- Retiro sin mínimo de cartas; envío nacional; retiro con tarifa fija configurable (M10) hasta ENV3-b; **todo paquete va asegurado** (costo nuestro).
+- Retiro sin mínimo de cartas; envío nacional; retiro con tarifa fija configurable (M10) hasta ENV3-b; **todo paquete va asegurado** (costo nuestro). **§RETIRO-SALIDA:** cartas fuera de bóveda al `enviado` (DECISIONES).
 - **§ENV3 · envío por CP y carrito (HECHOS 2026-11-19; `docs/DECISIONES.md` §ENV3; sustituye MX$100/MX$175; gates qa + seguridad-lead):** compra a domicilio cobra **costo real de la guía FedEx con seguro y zona extendida + MX$20**, según CP y contenido; Overnight, sin cobertura ⇒ Express Saver; **gratis desde MX$4,000** (tras descuento). Precio mostrado = cobrado, congelado en el pedido; respaldo en tabla por CP; guía más cara que lo cotizado ⇒ AG-26. Retiro: ENV3-b.
 - Guías con **Skydropx** desde «Capturar guía»: el operador elige paquetería (preferida preseleccionada) y puede corregir toda la dirección (queda auditado). Correo «Entregado» y «en sucursal» automáticos.
-- **§PERSONA (HECHOS 2026-11-18 «Dale A»; `docs/DECISIONES.md` §PERSONA; gates qa + seg.):** botón «Entregado en persona» en el armado, solo con envío preparado y sin guía: deja `entregado` con los mismos efectos de inventario, quién/cuándo, costo de paquetería 0 y un solo correo. **No reembolsa envío** (decide el dueño; aviso AG-25). Sin «deshacer» ni «recoger» en el checkout.
+- **§PERSONA (HECHOS 2026-11-18 «Dale A»; `docs/DECISIONES.md` §PERSONA; gates qa + seg.):** botón «Entregado en persona» en el armado, solo con envío preparado y sin guía: deja `entregado` con los mismos efectos de inventario, quién/cuándo, costo de paquetería 0 y un solo correo. **No reembolsa envío** (decide el dueño; AG-25). Sin «deshacer» ni «recoger».
 - Accesorios y energías: solo en compra con envío a domicilio (cross-sell), precio final del dueño con IVA. Códigos de descuento (§DSC, alcance B).
 
 **Buylist (compramos cartas)**
@@ -97,7 +97,7 @@ Lista completa (1…~1000) en `docs/archive/PROJECT.md` (`grep -n "criterio NNN"
    preparar (palomeo carta por carta), buylist, usuarios y staff, finanzas/P&L, analítica de ventas, configuración.
 7. **Cuentas**: verificación de correo, recuperación de contraseña, Google, cuenta con solo el correo («termina tu cuenta»).
 8. **Seguridad**: sin críticos/altos abiertos; dinero idempotente y sin carreras; authz por rol sin IDOR.
-9. **§PERSONA**: botón solo con `preparedAt` y sin guía, con confirmación; 2 pulsaciones ⇒ 1 entrega y 1 correo; fuera de sondeo, «Salida de hoy» y guías por cancelar; P&L sin «costo faltante»; línea de tiempo «Entregado en persona».
+9. **§PERSONA**: botón solo con `preparedAt` y sin guía, con confirmación; 2 pulsaciones ⇒ 1 entrega y 1 correo; fuera de sondeo, «Salida de hoy» y guías por cancelar; P&L sin «costo faltante».
 
 ## 7. Métrica de «lanzado»
 Tienda en vivo cobrando en real, con los flujos críticos (compra, bóveda, retiro, buylist, reembolso) recorridos de punta a punta en producción.

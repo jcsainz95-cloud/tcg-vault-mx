@@ -173,8 +173,7 @@ export type ShipmentStatus =
   | 'cancelado';
 /**
  * v1.17-withdrawal-lifecycle: subconjunto "activo" de ShipmentStatus expuesto en
- * HoldingDTO.shipmentState (etapa del envío activo de un item en bóveda). `entregado`
- * NUNCA aparece (el item pasa a InventoryStatus.withdrawn y sale de holdings) y
+ * HoldingDTO.shipmentState (etapa del envío activo de un item en bóveda). Retiro: las piezas pasan `in_custody → withdrawn` al pasar el envío a `enviado` (§RETIRO-SALIDA), no al entregarse; `entregado` solo mueve las piezas que sigan `in_custody` (B1, retiros viejos). Directo: `enviado` ⇒ `shipped`, `entregado` ⇒ `delivered`. Si el paquete vuelve, las cartas se regresan a mano (no hay botón).
  * `cancelado` libera el item ⇒ shipmentState=null. Ver contrato §3 / Enums.
  */
 export type ShipmentActiveStage = 'solicitado' | 'picking' | 'guia' | 'enviado';
@@ -1219,8 +1218,8 @@ export interface HoldingDTO {
   referenceValue: PriceInfo;
   // v1.17-withdrawal-lifecycle (contrato §3): etapa del envío ACTIVO del item (derivada del join
   // InventoryItem → ShipmentItem → ShipmentRequest). `null` = sin envío activo. El front pinta el
-  // badge "EN RETIRO" cuando `shipmentState !== null`. `entregado` nunca llega aquí (el item ya salió
-  // de la bóveda como `withdrawn`).
+  // badge "EN RETIRO" cuando `shipmentState !== null`.
+  // Retiro: las piezas pasan `in_custody → withdrawn` al pasar el envío a `enviado` (§RETIRO-SALIDA), no al entregarse; `entregado` solo mueve las piezas que sigan `in_custody` (B1, retiros viejos). Directo: `enviado` ⇒ `shipped`, `entregado` ⇒ `delivered`. Si el paquete vuelve, las cartas se regresan a mano (no hay botón).
   shipmentState: ShipmentActiveStage | null;
   // v1.17: id de la ShipmentRequest activa para deep-link al rastreo (GET /shipments/:id); null si no
   // hay envío activo.
@@ -6818,7 +6817,17 @@ export type SpendAlertKind =
    * `facts` sin PII:
    * `{ costQuotedCents, costRealCents, differenceCents, quotedService, boughtService }`; el folio viaja en `shipment`.
    */
-  | 'label_over_customer_quote';
+  | 'label_over_customer_quote'
+  /**
+   * §RETIRO-SALIDA (AG-27): retiro en `guia` con guía manual capturada hace > 24 h y sin marcar `enviado` (barrido diario).
+   * Severidad `digest`, solo panel, ⛔ sin interruptor. dedupKey `ag27:<shipmentId>`. `facts` sin PII: `{ folio, capturedAt, hoursSinceCapture }`.
+   */
+  | 'manual_label_unshipped'
+  /**
+   * §RETIRO-SALIDA (AG-28): el transportista reporta `in_return` sobre un retiro `enviado`. `immediate`, correo al dueño, ⛔ sin interruptor.
+   * dedupKey `ag28:<shipmentId>`. `facts` sin PII: `{ folio, carrierStatus, observedAt, pieceCount }`.
+   */
+  | 'retiro_parcel_returned';
 /** Mapa fijo kind ⇔ code (§19.29.2 + §19.30.1 (6) / §19.30.2 (3)). */
 export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = {
   label_after_address_fix: 'AG-1',
@@ -6847,11 +6856,13 @@ export const SPEND_ALERT_CODE_BY_KIND: Record<SpendAlertKind, SpendAlertCode> = 
   psa_cycle_short: 'AG-24',
   in_person_with_fee: 'AG-25',
   label_over_customer_quote: 'AG-26',
+  manual_label_unshipped: 'AG-27',
+  retiro_parcel_returned: 'AG-28',
 };
 export type SpendAlertCode =
   | 'AG-1' | 'AG-2' | 'AG-3' | 'AG-4' | 'AG-5' | 'AG-6' | 'AG-7' | 'AG-8' | 'AG-9' | 'AG-10' | 'AG-11'
   | 'AG-12' | 'AG-13' | 'AG-14' | 'AG-15' | 'AG-16' | 'AG-17' | 'AG-18' | 'AG-19' | 'AG-20' | 'AG-21' | 'AG-22'
-  | 'AG-23' | 'AG-24' | 'AG-25' | 'AG-26';
+  | 'AG-23' | 'AG-24' | 'AG-25' | 'AG-26' | 'AG-27' | 'AG-28';
 /** Los trece con disparador en D2 (§19.29.8 validador de `spend_alerts_disabled`): los únicos que se apagan. */
 export const SPEND_ALERT_SWITCHABLE_CODES: readonly SpendAlertCode[] = [
   'AG-1', 'AG-2', 'AG-3', 'AG-4', 'AG-5', 'AG-6', 'AG-7', 'AG-8', 'AG-9', 'AG-10', 'AG-11', 'AG-12', 'AG-13',
