@@ -1490,12 +1490,13 @@
           "autoPublish": "Publicar sugeridas solas",
           "on": "Encendido",
           "off": "Apagado",
-          "budget": "Presupuesto semanal (MXN)",
-          "budgetHint": "Tope de lo que pueden pedir las solicitudes sugeridas cada semana (lunes a domingo). 0 = no publica nada.",
+          "budget": "Tope de lo abierto a la vez (MXN)",
+          "budgetHint": "Suma máxima de lo que piden las solicitudes abiertas (manuales y sugeridas) al mismo tiempo. Al llegar al tope, las sugeridas esperan. 0 = no publica nada.",
           "budgetBad": "Escribe un monto en pesos entre 0 y 10,000,000.",
-          "save": "Guardar presupuesto",
+          "save": "Guardar tope",
           "defaultPct": "% por defecto del mercado",
-          "spent": "Comprometido esta semana",
+          "open": "Abierto ahora",
+          "openNow": "abierto ahora {open} de {cap}",
           "lastRun": "Última corrida",
           "never": "Aún no corre",
           "autoAccept": "Aceptar ofertas solo",
@@ -1504,12 +1505,18 @@
         },
         "list": {
           "title": "Sugeridas de hoy",
-          "lead": "Salen de la rotación y de los decks del meta. Solo lectura: el sistema las publica solo.",
+          "leadAuto": "Salen de los decks del meta. Con el interruptor encendido, el sistema publica las que caben en el tope; las demás las decides tú.",
+          "leadManual": "Salen de los decks del meta. El interruptor está apagado: nada se publica solo, tú publicas o descartas cada una.",
+          "leadReadOnly": "Salen de los decks del meta. Solo lectura: el super administrador las publica o descarta.",
+          "total": "{total, plural, one {# sugerida} other {# sugeridas}}",
+          "publish": "Publicar",
+          "skip": "Descartar",
+          "asRequest": "Solicitud {id}",
           "status": "Estado",
           "all": "Todas",
           "emptyTitle": "Sin sugeridas",
           "emptyBody": "El sistema las genera cada día a las 5:00 (hora CDMX).",
-          "qty": "{qty} pzs",
+          "qty": "{qty, plural, one {# pieza} other {# piezas}}",
           "noPrice": "Sin precio",
           "market": "mercado"
         },
@@ -1519,13 +1526,21 @@
           "skipped": "Omitida"
         },
         "reason": {
-          "rotation": "Rotación",
           "metadeck": "Meta deck"
         },
         "skip": {
-          "no_market": "Sin precio de mercado",
-          "budget": "Sin presupuesto esta semana",
-          "covered": "Ya hay solicitud abierta"
+          "no_market": "Sin precio de mercado hoy; se reintenta mañana",
+          "budget": "No cabe en tu tope; entra solo cuando se libere cupo",
+          "covered": "Ya hay una solicitud abierta o stock suficiente",
+          "market_jump": "El precio de mercado cambió más de 30 % desde ayer; se revisa solo mañana"
+        },
+        "errors": {
+          "ALREADY_COVERED": "Ya hay una solicitud abierta de esa carta y acabado.",
+          "ALREADY_PUBLISHED": "Esta sugerida ya se publicó.",
+          "QUARANTINED": "Esta sugerida está en cuarentena (sin precio válido o salto de precio); no se puede publicar hoy.",
+          "BUDGET_EXCEEDED": "No cabe en el tope de lo abierto a la vez.",
+          "IDEMPOTENCY_KEY_REUSED": "Esa operación cambió mientras se enviaba; vuelve a intentarlo.",
+          "FORBIDDEN_ROLE": "Tu cuenta no puede hacer esto."
         }
       },
       "requestStatus": {

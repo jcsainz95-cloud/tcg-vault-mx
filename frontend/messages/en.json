@@ -1490,12 +1490,13 @@
           "autoPublish": "Publish suggestions automatically",
           "on": "On",
           "off": "Off",
-          "budget": "Weekly budget (MXN)",
-          "budgetHint": "Cap on what suggested requests can ask for each week (Monday to Sunday). 0 = publishes nothing.",
+          "budget": "Cap on what is open at once (MXN)",
+          "budgetHint": "Maximum total asked by open requests (manual and suggested) at the same time. At the cap, suggestions wait. 0 = publishes nothing.",
           "budgetBad": "Enter an amount in pesos between 0 and 10,000,000.",
-          "save": "Save budget",
+          "save": "Save cap",
           "defaultPct": "Default % of market",
-          "spent": "Committed this week",
+          "open": "Open now",
+          "openNow": "open now {open} of {cap}",
           "lastRun": "Last run",
           "never": "Has not run yet",
           "autoAccept": "Accept offers automatically",
@@ -1504,12 +1505,18 @@
         },
         "list": {
           "title": "Today's suggestions",
-          "lead": "They come from rotation and meta decks. Read-only: the system publishes them on its own.",
+          "leadAuto": "They come from meta decks. With the switch on, the system publishes those that fit under the cap; you decide the rest.",
+          "leadManual": "They come from meta decks. The switch is off: nothing is published on its own, you publish or dismiss each one.",
+          "leadReadOnly": "They come from meta decks. Read-only: the super admin publishes or dismisses them.",
+          "total": "{total, plural, one {# suggestion} other {# suggestions}}",
+          "publish": "Publish",
+          "skip": "Dismiss",
+          "asRequest": "Request {id}",
           "status": "Status",
           "all": "All",
           "emptyTitle": "No suggestions",
           "emptyBody": "The system generates them every day at 5:00 (Mexico City time).",
-          "qty": "{qty} pcs",
+          "qty": "{qty, plural, one {# piece} other {# pieces}}",
           "noPrice": "No price",
           "market": "market"
         },
@@ -1519,13 +1526,21 @@
           "skipped": "Skipped"
         },
         "reason": {
-          "rotation": "Rotation",
           "metadeck": "Meta deck"
         },
         "skip": {
-          "no_market": "No market price",
-          "budget": "Over this week's budget",
-          "covered": "Open request already exists"
+          "no_market": "No market price today; retried tomorrow",
+          "budget": "Does not fit your cap; enters only when room frees up",
+          "covered": "An open request or enough stock already exists",
+          "market_jump": "Market price moved more than 30 % since yesterday; reviewed again tomorrow"
+        },
+        "errors": {
+          "ALREADY_COVERED": "There is already an open request for that card and finish.",
+          "ALREADY_PUBLISHED": "This suggestion was already published.",
+          "QUARANTINED": "This suggestion is quarantined (no valid price or price jump); it cannot be published today.",
+          "BUDGET_EXCEEDED": "It does not fit under the cap on what is open at once.",
+          "IDEMPOTENCY_KEY_REUSED": "That operation changed while sending; try again.",
+          "FORBIDDEN_ROLE": "Your account cannot do this."
         }
       },
       "requestStatus": {
