@@ -75,6 +75,20 @@ describe('§PROV-F4 · decks de origen y errores', () => {
     expect(screen.getByText('Gardevoir (#1) · 1 copia × 2')).toBeTruthy();
   });
 
+  it('reason vieja sin cifras, rank null y slug legible: sin NaN', async () => {
+    vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
+    vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [
+      sug(2, { reasons: [{ kind: 'metadeck', ref: 'charizard-ex', rank: 3, copies: 4, mult: 2 }] }),
+      sug(3, { id: 'n', reasons: [{ kind: 'metadeck', ref: 'gardevoir-ex', rank: null, copies: null, mult: null }] }),
+      sug(4, { id: 'o', reasons: [{ kind: 'metadeck', ref: null } as never] }),
+    ], page: 1, pageSize: 25, total: 3 });
+    const { container } = view();
+    expect(await screen.findByText('Charizard ex (#3) · 4 copias × 2')).toBeTruthy();
+    expect(screen.getByText('Gardevoir ex')).toBeTruthy();
+    expect(screen.getByText('Meta deck')).toBeTruthy();
+    expect(container.textContent).not.toMatch(/NaN|undefined|null/);
+  });
+
   it('fila covered: sin Publicar (ni como super_admin)', async () => {
     vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
     vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [sug(1, { status: 'skipped', skipReason: 'covered' })], page: 1, pageSize: 25, total: 1 });

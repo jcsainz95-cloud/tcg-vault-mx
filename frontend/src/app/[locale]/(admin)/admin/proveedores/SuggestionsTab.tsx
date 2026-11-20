@@ -39,6 +39,13 @@ const TONE: Record<SuggestionStatus, BadgeTone> = { draft: 'warning', published:
  * §PROV-F4: ajustes (solo super_admin: el GET es admin, el operador no lo pide ni lo ve) + lista de sugeridas
  * (staff, solo lectura para el operador). Publicar/saltar: super_admin.
  */
+/** Slug del backend («charizard-ex») a texto legible («Charizard ex»); «ex» queda en minúscula. */
+export function deckLabel(ref: string): string {
+  return ref.trim().split(/[-_\s]+/).filter(Boolean)
+    .map((w) => (w.toLowerCase() === 'ex' ? 'ex' : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
 export function SuggestionsTab() {
   const { isSuperAdmin } = useRole();
   return (
@@ -225,10 +232,15 @@ function SuggestionRow({ r, canAct }: { r: SupplySuggestion; canAct: boolean }) 
         <CardLine card={r.card}>
           <ul aria-label={tr('label')} className="mt-1 text-xs text-muted">
             {shown.map((x) => (
-              <li key={`${x.rank}-${x.ref ?? ''}`}>
-                {x.ref && !UUID_RE.test(x.ref)
-                  ? tr('deckNamed', { name: x.ref, rank: x.rank, copies: x.copies, mult: x.mult })
-                  : tr('deck', { rank: x.rank, copies: x.copies, mult: x.mult })}
+              <li key={`${x.rank ?? ''}-${x.ref ?? ''}`}>
+                {(() => {
+                  const named = x.ref && !UUID_RE.test(x.ref) ? deckLabel(x.ref) : null;
+                  const { rank, copies, mult } = x;
+                  if (typeof rank !== 'number' || typeof copies !== 'number' || typeof mult !== 'number' || ![rank, copies, mult].every(Number.isFinite)) return named ?? tr('metadeck');
+                  return named
+                    ? tr('deckNamed', { name: named, rank, copies, mult })
+                    : tr('deck', { rank, copies, mult });
+                })()}
               </li>
             ))}
             {extra > 0 && <li>{tr('more', { n: extra })}</li>}

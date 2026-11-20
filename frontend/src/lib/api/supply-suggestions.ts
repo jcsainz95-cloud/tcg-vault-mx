@@ -22,7 +22,7 @@ export interface SupplySuggestion {
   unitCents: number | null;
   marketCents: number | null;
   /** Un elemento por deck que suma (§PROV-F4): `mult` = 2 si rank ≤ 5, si no 1. */
-  reasons: { kind: SuggestionReasonKind; ref: string | null; rank: number; copies: number; mult: number }[];
+  reasons: { kind: SuggestionReasonKind; ref: string | null; rank: number | null; copies: number | null; mult: number | null }[];
   status: SuggestionStatus;
   skipReason: SuggestionSkipReason | null;
   requestId: string | null;
@@ -80,7 +80,7 @@ function mockSuggestions(page: number): Paged<SupplySuggestion> {
       unitCents: 8000 + n * 150,
       marketCents: 11500 + n * 200,
       reasons: [
-        { kind: 'metadeck', ref: 'Charizard ex', rank: 2, copies: 4, mult: 2 },
+        { kind: 'metadeck', ref: 'charizard-ex', rank: 2, copies: 4, mult: 2 },
         { kind: 'metadeck', ref: null, rank: 7, copies: 2, mult: 1 },
         { kind: 'metadeck', ref: null, rank: 9, copies: 1, mult: 1 },
         { kind: 'metadeck', ref: null, rank: 12, copies: 3, mult: 1 },
