@@ -55,6 +55,17 @@ describe('DemandGapsSection (§DEMANDA F1)', () => {
     expect(screen.getByTestId('demand-stale')).toHaveTextContent('5');
   });
 
+  it('limit=200; totalRows > filas ⇒ aviso «Mostrando N de M»; plural singular', async () => {
+    const one = { ...card, signals: [{ kind: 'wishlist' as const, count: 1, unit: 'clientes' as const, windowDays: null }, { kind: 'search' as const, count: 1, unit: 'personas' as const, windowDays: 30, days: 1 }] };
+    const spy = vi.spyOn(demand, 'getDemandGaps').mockResolvedValue(resp({ rows: [one], totalRows: 350 }));
+    renderWithProviders(<DemandGapsSection />);
+    await screen.findByText(/Mostrando 1 de 350; descarga el CSV/);
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ limit: 200 }));
+    expect(screen.getByText('1 cliente')).toBeInTheDocument();
+    expect(screen.getByText('1 persona')).toBeInTheDocument();
+    expect(screen.getByText('1 día')).toBeInTheDocument();
+  });
+
   it('error ⇒ aviso; 403 ⇒ sección oculta', async () => {
     vi.spyOn(demand, 'getDemandGaps').mockRejectedValue(new ApiClientError(500, { code: 'X', message: 'x' }));
     const { unmount } = renderWithProviders(<DemandGapsSection />);

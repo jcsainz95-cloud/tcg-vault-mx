@@ -6233,7 +6233,7 @@
         "empty": "Aún no hay demanda sin stock: cuando clientes guarden cartas que no tienes o las busquen varias veces, aparecen aquí.",
         "searchOff": "Búsquedas desactivadas: solo se muestra la lista de deseos.",
         "sourceError": "Una fuente de datos falló; se muestra solo la otra.",
-        "staleData": "Dato de hace {days} días",
+        "staleData": "{days, plural, one {Dato de hace # día} other {Dato de hace # días}}",
         "exportCsv": "Descargar demanda sin stock (CSV)",
         "csvError": "No se pudo descargar el CSV.",
         "loadError": "No se pudo cargar la demanda sin stock.",
@@ -6244,9 +6244,10 @@
           "search": "Búsquedas",
           "market": "Mercado"
         },
-        "unitClients": "{count} clientes",
-        "unitPeople": "{count} personas",
-        "daysFmt": "{days} días",
+        "unitClients": "{count, plural, one {# cliente} other {# clientes}}",
+        "unitPeople": "{count, plural, one {# persona} other {# personas}}",
+        "daysFmt": "{days, plural, one {# día} other {# días}}",
+        "truncated": "Mostrando {shown} de {total}; descarga el CSV para ver todo.",
         "noData": "Sin dato"
       }
     },

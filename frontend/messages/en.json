@@ -6233,7 +6233,7 @@
         "empty": "No demand without stock yet: when customers save cards you do not have, or search for them several times, they show up here.",
         "searchOff": "Search tracking is off: only the wishlist is shown.",
         "sourceError": "One data source failed; only the other is shown.",
-        "staleData": "Data from {days} days ago",
+        "staleData": "{days, plural, one {Data from # day ago} other {Data from # days ago}}",
         "exportCsv": "Download demand without stock (CSV)",
         "csvError": "Could not download the CSV.",
         "loadError": "Could not load demand without stock.",
@@ -6244,9 +6244,10 @@
           "search": "Searches",
           "market": "Market"
         },
-        "unitClients": "{count} customers",
-        "unitPeople": "{count} people",
-        "daysFmt": "{days} days",
+        "unitClients": "{count, plural, one {# customer} other {# customers}}",
+        "unitPeople": "{count, plural, one {# person} other {# people}}",
+        "daysFmt": "{days, plural, one {# day} other {# days}}",
+        "truncated": "Showing {shown} of {total}; download the CSV to see all.",
         "noData": "No data"
       }
     },

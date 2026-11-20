@@ -12,6 +12,9 @@ import type {
   ListingDTO,
 } from '@/types/contract';
 import { IDS_EN } from '@/test/ids-defaults';
+import { sendSearchMiss } from '@/lib/search-miss';
+
+vi.mock('@/lib/search-miss', () => ({ sendSearchMiss: vi.fn() }));
 
 // El CTA «En el carrito» navega con el router de next-intl; se mockea para
 // aislar la vista y espiar la navegación (mismo patrón que BuylistView.test).
@@ -607,5 +610,21 @@ describe('CardDetailView · §A2 barra de compra fija en móvil (MKT-26b)', () =
     const psa = screen.getByText('VALOR ESTIMADO SI SE GRADEA');
     // El precio precede al bloque PSA (y a su nota legal, que vive dentro de ese bloque) en el DOM.
     expect(price.compareDocumentPosition(psa) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('CardDetailView · §DEMANDA F2 señal solo tras interacción humana', () => {
+  it('agotada: sin interacción ⇒ 0 envíos; con interacción ⇒ 1; repetida ⇒ 1', async () => {
+    vi.mocked(sendSearchMiss).mockClear();
+    mockDetail([], []);
+    renderWithProviders(<CardDetailView cardId="c-test" />, 'es');
+    await screen.findByTestId('sold-out');
+    expect(sendSearchMiss).toHaveBeenCalledTimes(0);
+    fireEvent.pointerDown(window);
+    expect(sendSearchMiss).toHaveBeenCalledTimes(1);
+    expect(sendSearchMiss).toHaveBeenCalledWith('Charizard', 'card', 'c-test');
+    fireEvent.keyDown(window, { key: 'a' });
+    fireEvent.scroll(window);
+    expect(sendSearchMiss).toHaveBeenCalledTimes(1);
   });
 });

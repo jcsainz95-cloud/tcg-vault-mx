@@ -118,6 +118,11 @@ export function DemandGapsSection() {
               {t('sourceError')}
             </Banner>
           )}
+          {data.totalRows > data.rows.length && (
+            <Banner variant="info" role="status">
+              {t('truncated', { shown: data.rows.length, total: data.totalRows })}
+            </Banner>
+          )}
           {data.rows.length === 0 ? (
             <EmptyState title={t('title')} body={t('empty')} />
           ) : (

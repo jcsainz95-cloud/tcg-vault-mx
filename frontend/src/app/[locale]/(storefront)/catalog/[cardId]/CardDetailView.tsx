@@ -305,8 +305,20 @@ function Detail({
   const primaryPriceCents = primary?.displayPriceCents ?? null;
   // §DEMANDA F2: ficha de carta AGOTADA (sin piezas, no «precio pendiente») ⇒ una señal de demanda con `cardId`.
   const soldOut = !primary && detail.pricePending !== true;
+  // Solo tras interacción humana (pointer, tecla o scroll con la pestaña visible), una vez por carta (contrato §3).
   useEffect(() => {
-    if (soldOut) sendSearchMiss(card.name, 'card', card.id);
+    if (!soldOut) return;
+    let sent = false;
+    const events = ['pointerdown', 'keydown', 'scroll'] as const;
+    const off = () => events.forEach((e) => window.removeEventListener(e, onHuman));
+    function onHuman() {
+      if (sent || document.visibilityState !== 'visible') return;
+      sent = true;
+      off();
+      sendSearchMiss(card.name, 'card', card.id);
+    }
+    events.forEach((e) => window.addEventListener(e, onHuman, { passive: true }));
+    return off;
   }, [soldOut, card.id, card.name]);
   useEffect(() => {
     if (primaryPriceCents == null) return;
