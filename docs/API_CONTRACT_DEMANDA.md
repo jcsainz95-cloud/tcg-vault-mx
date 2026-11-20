@@ -6,7 +6,7 @@ Alcance decidido por el dueño (HECHOS 2026-11-20: «Haría 1 y 2 no lo conectar
 Diseño y razones: `docs/DECISIONES.md` §DEMANDA. Módulo no financiero (no mueve dinero ni inventario); gate: seguridad-lead (público + hash de personas), qa.
 
 ## 1. `GET /admin/reports/demand-gaps` · `super_admin`
-Query: `sort=score|wishlist|search|market` (def. `score`), `dir=asc|desc` (def. `desc`), `limit` 1..200 (def. 100). Otro valor ⇒ `400`. Sin cursor.
+Query: `sort=score|wishlist|search|market` (def. `score`), `dir=asc|desc` (def. `desc`), `limit` 1..200 (def. 100). Otro valor ⇒ `400` (también `limit` no entero o fuera de rango). Sin cursor. **C-EQ-1:** `sort` y `dir` = clase `ORDEN` (§0-Q punto 6); `limit` = `ORDEN` con cota numérica 1..200 (no se crea clase nueva); mismas 3 filas en `/export.csv`, que ignora `limit`.
 Respuesta `200`:
 `{ generatedAt, windowDays:30, totalRows, sources:{ wishlist:'ok'|'error', search:'ok'|'off'|'error', matchedAt:ISO|null }, rows:[Row] }`
 - `search:'off'` = interruptor `marketing_search_log` apagado; `error` = esa fuente falló y se omite (la respuesta sigue `200` con la otra). `500` solo si fallan ambas.
@@ -25,7 +25,7 @@ Respuesta `200`:
 ## 2. `GET /admin/reports/demand-gaps/export.csv` · `super_admin`
 Mismos query y orden; todas las filas (tope 1000). Cabecera y formato de dinero/BOM/escape iguales a `wishlist-demand/export.csv`. Columnas:
 `tipo,card_id,termino,carta,set,acabado,clientes_wishlist,personas_busqueda,dias_busqueda,score,mercado,buylist_hoy`
-(`tipo` = `carta`|`termino`; dinero en pesos con 2 decimales, vacío si `null`). **Inyección CSV:** toda celda de texto que empiece con `= + - @ TAB CR` se antepone con `'` (el término sale de texto de usuarios). Nombre `demanda-sin-stock-YYYY-MM-DD.csv`. Errores como §1; `Content-Disposition` sin datos del usuario.
+(`tipo` = `carta`|`termino`; dinero en pesos con 2 decimales, vacío si `null`). **Inyección CSV:** toda celda de texto que empiece con `= + - @ TAB CR` se antepone con `'` (el término sale de texto de usuarios). Nombre `demanda-sin-stock-YYYY-MM-DD.csv` con la fecha en America/Mexico_City. Errores como §1; `Content-Disposition` sin datos del usuario.
 
 ## 3. `POST /marketing/search-miss` (público) — cambio aditivo F2
 Cuerpo: `{ term ≤80, kind:'card'|'sealed', cardId?: string }` (`cardId` uuid, ≤36). Respuesta SIEMPRE `204`, sin eco (igual que hoy); `413` >1 KB; `429` throttle 30/min (sin cambio).
@@ -33,14 +33,16 @@ Hoy el DTO es `whitelist+forbidNonWhitelisted` (`marketing-search-miss.controlle
 Reglas de `cardId` (nunca se confía en el cliente; verifica el SERVIDOR):
 1. Ausente, no-uuid o inexistente en `Card` ⇒ se ignora y sigue el camino de texto actual (idéntico a hoy; sin 4xx).
 2. Existe pero tiene ≥1 pieza vendible (mismo predicado que `GET /catalog/cards`) ⇒ `204` sin contar nada (no es hueco; frena relleno).
-3. Existe y 0 stock ⇒ cuenta UNA persona (hash HMAC del día, misma sal) en `SearchDemandSeen(cardId, day, h)`; el `term` NO se guarda (evita doble conteo y texto libre). Respeta `marketing_search_log` apagado ⇒ no cuenta.
-4. Anti-relleno: tope ≤200 hashes por (cardId, día) y ≤300 `cardId` distintos por día (contadores propios, mismo candado `pg_advisory_xact_lock` con otro namespace); cache en memoria de la verificación (60 s, ≤5000 entradas) para que un barrido de uuids no cueste una consulta por petición. Datos: solo `cardId` público; ⛔ sin IP/cookie/usuario guardados.
+2b. **Bots (servidor):** UA vacío o que case `bot|crawl|spider|slurp|headless|preview|curl|wget|python|httpclient` (insensible) ⇒ `204` sin contar (el servidor es la autoridad). El front además solo envía la señal de ficha «Agotada» tras interacción humana (≥1 pointer/tecla/scroll con la pestaña visible) y una vez por carta y sesión.
+3. Existe y 0 stock ⇒ cuenta UNA persona (hash HMAC del día, misma sal, **solo de IP; el user-agent NO entra al hash**) en `SearchDemandSeen(cardId, day, h)`; el `term` NO se guarda (evita doble conteo y texto libre). Respeta `marketing_search_log` apagado ⇒ no cuenta.
+4. Anti-relleno: tope ≤200 hashes por (cardId, día) y ≤10 `cardId` distintos por persona-hash y día (cuenta de filas de `SearchDemandSeen` por `h`; DM-1) y ≤1000 `cardId` distintos por día, **exentos del tope global** los `cardId` con wishlist activa o con fila en `SearchDemandDaily` de los últimos 30 d (así un relleno no desplaza a las cartas reales; DM-2) (contadores propios, mismo candado `pg_advisory_xact_lock` con otro namespace); cache en memoria de la verificación (60 s, ≤5000 entradas, evicción O(1) del más antiguo vía orden de inserción del `Map`, sin barrer) para que un barrido de uuids no cueste una consulta por petición. Datos: solo `cardId` público; ⛔ sin IP/cookie/usuario guardados.
 
 ## 4. Esquema (`schema.prisma`; migración ADITIVA, solo `CREATE TABLE`; reversa = `DROP TABLE` de las tres y retirar la sección)
 - `SearchDemandDaily { id uuid, cardId String, day Date, people Int @default(0); @@unique([cardId, day]); @@index([cardId]) }` (sin FK, como `BuylistQuoteDailyCount`).
 - `SearchDemandSeen { cardId, day Date, h String; @@id([cardId, day, h]) }` (hashes del día; se vuelcan y borran en el cierre).
 - `DemandTermMatch { termNormalized String @id, cardId String?, status String ('matched'|'ambiguous'|'none'), matchedAt DateTime }`.
-Sin cambios a tablas existentes. Registrar en ARCHITECTURE al construir.
+`SearchDemandSeen` suma `@@index([day, h])` (tope por persona). Sin cambios a tablas existentes. Registrar en ARCHITECTURE al construir.
+**Limpieza PDB G-8** (`20261006_pdblimpieza_2_limpieza.sql`, mismo patrón condicional `to_regclass` + `LOCK … SHARE ROW EXCLUSIVE`): `SearchDemandSeen` ⇒ BORRAR (hashes transitorios; precedente `SearchNoResultSeen`); `DemandTermMatch` ⇒ BORRAR (derivado de texto de usuarios; `demand-match` lo regenera solo); `SearchDemandDaily` ⇒ CONSERVAR (agregado cardId×día sin PII; precedente `SearchNoResultDaily`).
 
 ## 5. Jobs (AUTO)
 - **Cierre:** el job existente `marketing-search-close` (00:10 CDMX, y cierre perezoso) también vuelca `SearchDemandSeen → SearchDemandDaily` y borra los hashes, en la misma transacción por día (idempotente: `ON CONFLICT … DO UPDATE people = people + EXCLUDED.people`, sin hashes no hay nada).
@@ -49,7 +51,7 @@ Sin cambios a tablas existentes. Registrar en ARCHITECTURE al construir.
 - Disparo por cliente = evento; sección = lectura en vivo. Botón «recalcular»: no hay (no hace falta).
 
 ## 6. Estados vacíos y errores (front)
-Sin filas: «Aún no hay demanda sin stock: cuando clientes guarden cartas que no tienes o las busquen varias veces, aparecen aquí.» `sources.search='off'` ⇒ aviso «Búsquedas desactivadas». Una fuente en `error` ⇒ banner suave + la otra se muestra. `403` ⇒ sección oculta (solo `super_admin`). Carga: skeleton; ≥120 filas virtualiza o pagina por `limit`.
+Sin filas: «Aún no hay demanda sin stock: cuando clientes guarden cartas que no tienes o las busquen varias veces, aparecen aquí.» `sources.search='off'` ⇒ aviso «Búsquedas desactivadas». Una fuente en `error` ⇒ banner suave + la otra se muestra. `403` ⇒ sección oculta (solo `super_admin`). Carga: skeleton; pide `limit=200` y, si `totalRows > rows.length`, aviso «Mostrando N de M; descarga el CSV para ver todo» (sin paginar). Plurales ICU (`{count, plural, one {# cliente} other {# clientes}}`, igual personas).
 
 ## 7. i18n (es/en; claves nuevas bajo `admin.m9.demand.*`)
 `title`, `subtitle`, `colCard`, `colSet`, `colFinish`, `colWishlist`, `colSearch`, `colScore`, `colMarket`, `colBuylist`, `termBadge` («Término sin carta»), `termHint`, `empty`, `searchOff`, `sourceError`, `staleData` (`{days}`), `exportCsv`, `unitClients`, `unitPeople`, `daysFmt`. Sin textos fijos en el componente.
