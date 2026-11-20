@@ -149,7 +149,7 @@ export class MarketingSearchMissService {
       const day = toMexicoCityDateKey(now);
       await this.lazyClose(now);
       const salt = await this.saltOf(day);
-      const h = createHmac('sha256', salt).update(`${client.ip ?? ''}|${client.userAgent ?? ''}`).digest('hex').slice(0, 16);
+      const h = createHmac('sha256', salt).update(`${client.ip ?? ''}`).digest('hex').slice(0, 16); // DM-6: solo IP (el user-agent lo elige el cliente), igual que la vía cardId
       // Topes en la MISMA sentencia: ≤ 200 hashes por (término, día) y ≤ 300 términos distintos por día. Pasado el tope no escribe.
       // El candado de aviso por día serializa las escrituras del día (los `count` no son atómicos bajo READ COMMITTED).
       const [, n] = await this.prisma.$transaction([

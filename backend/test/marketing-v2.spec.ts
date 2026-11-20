@@ -346,14 +346,14 @@ describe('c6 sin datos personales (§7)', () => {
     expect(String(h)).toMatch(/^[0-9a-f]{16}$/);
     expect(JSON.stringify(calls)).not.toMatch(/203\.0\.113\.7|UA-secreto/);
   });
-  it('el mismo IP+UA da el mismo hash en el día (1 persona); otro IP, otro hash', async () => {
+  it('DM-6: el hash es SOLO de la IP (30 user-agents distintos desde 1 IP ⇒ 1 persona); otra IP, otro hash', async () => {
     const hashes: string[] = [];
     const r = recorder();
     r.prisma.$executeRaw.mockImplementation(async (...a: unknown[]) => {
       if ((a[0] as string[]).join('?').includes('SearchNoResultSeen')) hashes.push(String(a[3]));
       return 1;
     });
-    for (let i = 0; i < 50; i++) await r.svc.record('umbreon vmax', { ip: '1.1.1.1', userAgent: 'ua' }, NOW);
+    for (let i = 0; i < 50; i++) await r.svc.record('umbreon vmax', { ip: '1.1.1.1', userAgent: `ua-${i}` }, NOW);
     await r.svc.record('umbreon vmax', { ip: '2.2.2.2', userAgent: 'ua' }, NOW);
     expect(new Set(hashes.slice(0, 50)).size).toBe(1);
     expect(hashes[50]).not.toBe(hashes[0]);

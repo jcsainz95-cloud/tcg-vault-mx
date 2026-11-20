@@ -81,7 +81,7 @@ describe('§DEMANDA · CSV: inyección de fórmulas', () => {
 describe('§DEMANDA · query de demand-gaps', () => {
   const svc = new DemandGapsService({} as never, {} as never, {} as never, {} as never, {} as never);
   it('defaults', () => expect(svc.parseQuery({})).toEqual({ sort: 'score', dir: 'desc', limit: 100 }));
-  it.each([{ sort: 'x' }, { dir: 'up' }, { limit: '0' }, { limit: '201' }, { limit: 'abc' }, { limit: '1.5' }, { limit: '-1' }])('%j ⇒ 400', (q) => {
+  it.each([{ sort: 'x' }, { dir: 'up' }, { limit: '0' }, { limit: '201' }, { limit: 'abc' }, { limit: '1.5' }, { limit: '-1' }, { limit: '005' }, { limit: '0200' }, { limit: '00' }])('%j ⇒ 400', (q) => {
     expect(() => svc.parseQuery(q)).toThrow(expect.objectContaining({ status: 400 }));
   });
   it('ORDEN: limit vacío o solo espacios ≡ ausente (default); ` 5` es mal formado ⇒ 400', () => {

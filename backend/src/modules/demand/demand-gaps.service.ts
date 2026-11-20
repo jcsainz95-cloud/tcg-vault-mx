@@ -91,14 +91,14 @@ export class DemandGapsService {
     private readonly searchMiss: MarketingSearchMissService,
   ) {}
 
-  /** `sort`/`dir` por la puerta de enums (400) y `limit` entero 1..200; cualquier otro valor ⇒ 400. */
+  /** `sort`/`dir` por la puerta de enums (400) y `limit` entero 1..200 en forma canónica (sin ceros a la izquierda: `005`/`0200` ⇒ 400); cualquier otro valor ⇒ 400. */
   parseQuery(q: { sort?: unknown; dir?: unknown; limit?: unknown }, maxLimit = DEMAND_LIMIT_MAX): DemandQuery {
     const sort = parseEnumFilter('sort', q.sort, DEMAND_SORTS) ?? 'score';
     const dir = parseEnumFilter('dir', q.dir, DEMAND_DIRS) ?? 'desc';
     let limit = DEMAND_LIMIT_DEFAULT;
     // Clase ORDEN (§0-Q punto 6): vacío o solo espacios ≡ ausente ⇒ el default; ` 5` (espacio con token) es entrada mal formada ⇒ 400.
     if (q.limit !== undefined && q.limit !== null && !(typeof q.limit === 'string' && q.limit.trim() === '')) {
-      const n = typeof q.limit === 'string' && /^\d{1,6}$/.test(q.limit) ? Number(q.limit) : NaN;
+      const n = typeof q.limit === 'string' && /^[1-9]\d{0,5}$/.test(q.limit) ? Number(q.limit) : NaN;
       if (!Number.isInteger(n) || n < 1 || n > maxLimit) {
         throw BusinessException.badRequest('VALIDATION_ERROR', 'invalid limit', { field: 'limit', allowed: DEMAND_LIMIT_VALUES.slice(0, maxLimit) });
       }

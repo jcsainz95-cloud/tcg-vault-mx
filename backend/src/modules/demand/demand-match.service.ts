@@ -69,7 +69,7 @@ export class DemandMatchService {
     }
     // Si TODOS los intentos fallaron la falla es sistémica (BD/catálogo caídos): se lanza para que la cola reintente y NO se marca «última corrida buena».
     if (failed > 0 && evaluated === 0) throw firstError instanceof Error ? firstError : new Error(`demand-match: fallaron los ${failed} término(s) evaluados`);
-    // «Última corrida buena»: solo si TODO el lote terminó (el endpoint lo muestra como «dato de hace N días»).
+    // «Última corrida buena»: se marca si AL MENOS UN término se evaluó (los que fallaron se omiten y se reintentan mañana); solo la falla total la deja sin marcar (el endpoint lo muestra como «dato de hace N días»).
     await this.prisma.configSetting.upsert({
       where: { key: DEMAND_MATCH_LAST_OK_KEY },
       create: { key: DEMAND_MATCH_LAST_OK_KEY, valueJson: now.toISOString() },
