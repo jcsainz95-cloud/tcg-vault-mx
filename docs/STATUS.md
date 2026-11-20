@@ -80,15 +80,17 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-20 · re-gate §PROV-F4 + §DECKS-TOP (c733b34c+02ca6fa9+9707a607+ac338d54, m114 editada): RECHAZADO (texto de qa, transcrito por el orquestador)
-- Medido (worktree /tmp, PG16/Redis/s3-local propios, borrados): integración COMPLETA 203/204 suites, 3678/3679 tests, 32 min, heap 6144 sin OOM (pico 5769 MB = 93 %: aviso devops); jest unit 608/608 (1 suite muerta por SIGTERM externo, re-corrida 4/4); vitest 504/504 archivos (6109 tests); lint y tsc 0/0 back y front; check-doc-size 37/37.
-- m114: RENAME conserva el valor (123400 ⇒ openBudgetCents 123400, 1/1); 0 ⇒ 500000; autoPublish nace false. Backend REAL + front nuevo (USE_MOCKS=false, Chrome): 20 decks, 32 cartas.
-- Cerrados: (1) acuerdo de solicitud CERRADA descuenta (1/1). (2) cupo abierto con manuales y subidas (499100 ≤ 500000). (3) PATCH 1e9 ⇒ 200; 1e9+1 y 3e9 ⇒ 400; autoAccept ⇒ 400. (4) paginación 25 + 11, también en el front. (5) operador sin 403 ni botones. (6) textos market_jump, plural, sin rotación. (7) contrato §5 vigente.
-- Publish manual: sin key ⇒ 400; misma key ⇒ mismo 201; otro cuerpo ⇒ 422; QUARANTINED, ALREADY_COVERED, BUDGET_EXCEEDED; 6 en paralelo con cupo para 2 ⇒ 2×201 + 4×409 y exposición = tope; 6 con la misma key ⇒ 6×201 y una sola solicitud.
-- BLOQUEANTE (backend) test/integration/supply-f4.e2e-spec.ts:448-456: expectativa dependiente del orden; rojo en 10/17 corridas. El invariante exposición ≤ tope pasó 17/17: el defecto está en la prueba (= F4-3 de seguridad-lead).
-- IMPORTANTE (arquitecto+backend) supply-suggest.service.ts:30,189 + DECISIONES §PROV-F4.2: `verified` ya es stock (supply-purchase.service.ts:176-180) y se cuenta dos veces ⇒ compra de menos hasta pagar (1/1).
-- IMPORTANTE (backend+frontend) supply-suggest.service.ts:362-376 + SuggestionsTab.tsx:239-241: «Publicar» de una fila skipped/covered ⇒ 201 y pide de más (6 > 4, 1/1).
-- MENOR: descuento por carta coherente con el resto (arquitecto alinea §PROV-F4.2); fila draft/budget con solicitud abierta muestra «Publicar» que da 409; mock con autoPublish:true; «abierto ahora» repetido; faltan textos VALIDATION_ERROR/ABOVE_MARKET_CAP (front); PATCH con weeklyBudgetCents ⇒ 200 silencioso (back); DECISIONES §10 dice «encendido por migración» contra §8 (arquitecto).
+## QA (qa) — 2026-11-20 · 3.er re-gate §PROV-F4 + §DECKS-TOP (ed7f5401+6a3ad277+7855841e): APROBADO (texto de qa, transcrito por el orquestador)
+- Medido (worktree /tmp, PG16/Redis/s3-local propios, borrados): integración COMPLETA 204/204 suites, 3682/3682 tests, 31 min, heap 6144 sin OOM (pico 5530 MB = 90 %: aviso devops); jest unit 10617/10617 (1 suite muerta por SIGTERM externo, re-corrida 3/3); vitest 504/504 archivos (6109 tests, 13 skip); lint y tsc 0 back y front; check-doc-size 37/37.
+- (1) BLOQUEANTE cerrado: supply-f4.e2e-spec.ts verde 12/12 aisladas + 1/1 en la completa; la prueba comprueba el invariante (:493-494).
+- (2) cerrado: `verified` ya no descuenta (supply-suggest.service.ts:33); necesidad 4 + stock 1 + verified 1 ⇒ 3 (1/1).
+- (3) cerrado: publish recalcula la necesidad viva (:389, :396): covered ⇒ 409 (2/2); necesidad viva 0 ⇒ 409; viva 2 con qty 3 ⇒ 400, sin qty ⇒ 201 qtyWanted 2.
+- PATCH supply-settings: weeklyBudgetCents / clave ajena / autoAccept ⇒ 400; openBudgetCents ⇒ 200 (supply.controllers.ts:157).
+- Front contra backend real: covered sin «Publicar» (SuggestionsTab.tsx:241); «Abierto ahora» una vez; 409 ⇒ «Ya está cubierta.»; textos VALIDATION_ERROR/ABOVE_MARKET_CAP es/en; mock autoPublish false.
+- Contrato §5 y DECISIONES §PROV-F4 2/6b/10 coinciden con el código. Cada commit dentro de su ruta.
+- Aceptado: fila draft/budget con solicitud abierta muestra «Publicar» y responde 409 «Ya está cubierta.» (2/2), sin crear nada.
+- MENOR: backend supply-suggest.service.ts:350 MissingMarket tras 5 reintentos ⇒ 500 genérico (= F4-5 de seguridad); frontend sin prueba de «sin Publicar en covered» ni de los textos nuevos, cabecera de su sección desactualizada; devops heap de integración al 90 %.
+- VEREDICTO: APROBADO. Sha medido 7855841e (HEAD 18b97c6a = solo STATUS de seguridad).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
