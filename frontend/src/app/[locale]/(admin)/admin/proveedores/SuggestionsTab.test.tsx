@@ -102,6 +102,7 @@ describe('§PROV-F4 · decks de origen y errores', () => {
     ['BUDGET_EXCEEDED', 409, /no cabe en el tope/i],
     ['ABOVE_MARKET_CAP', 422, /rebasa el precio de mercado/i],
     ['ALREADY_PUBLISHED', 409, /ya se publicó/i],
+    ['MARKET_UNAVAILABLE', 503, /no hay precio de mercado disponible ahora; reintenta en unos minutos/i],
   ])('publicar con %s muestra su texto', async (code, status, re) => {
     vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
     vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [sug(1)], page: 1, pageSize: 25, total: 1 });
