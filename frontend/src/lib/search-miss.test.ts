@@ -43,4 +43,14 @@ describe('search-miss (§MKT-V2 c6)', () => {
     sendSearchMiss('pikachu raro', 'card');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it('F2: con cardId uuid lo manda (una vez por carta); no-uuid o kind sealed ⇒ cuerpo de siempre', () => {
+    const id = '3f2b8c1e-9a4d-4e7b-8c11-0a1b2c3d4e5f';
+    sendSearchMiss('Charizard', 'card', id);
+    sendSearchMiss('Charizard', 'card', id);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body))).toEqual({ term: 'charizard', kind: 'card', cardId: id });
+    sendSearchMiss('Pikachu', 'card', 'no-es-uuid');
+    expect(JSON.parse(String((fetchSpy.mock.calls[1] as [string, RequestInit])[1].body))).toEqual({ term: 'pikachu', kind: 'card' });
+  });
 });

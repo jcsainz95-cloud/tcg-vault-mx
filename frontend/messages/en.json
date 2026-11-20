@@ -6216,6 +6216,38 @@
           "waiting": "Waiting"
         },
         "sealedEmpty": "Nobody is waiting for a sealed product."
+      },
+      "demand": {
+        "title": "Demand without stock",
+        "subtitle": "Cards your customers saved or searched for several times that you do not have for sale today. No people's names: only how many.",
+        "colCard": "Card",
+        "colSet": "Set",
+        "colFinish": "Finish",
+        "colWishlist": "Wishlist",
+        "colSearch": "Searches",
+        "colScore": "Score",
+        "colMarket": "Market",
+        "colBuylist": "Buylist today",
+        "termBadge": "Term without a card",
+        "termHint": "Someone searched for it several times and we could not match it to a catalog card. Read-only.",
+        "empty": "No demand without stock yet: when customers save cards you do not have, or search for them several times, they show up here.",
+        "searchOff": "Search tracking is off: only the wishlist is shown.",
+        "sourceError": "One data source failed; only the other is shown.",
+        "staleData": "Data from {days} days ago",
+        "exportCsv": "Download demand without stock (CSV)",
+        "csvError": "Could not download the CSV.",
+        "loadError": "Could not load demand without stock.",
+        "sortLabel": "Sort by",
+        "sort": {
+          "score": "Score",
+          "wishlist": "Wishlist",
+          "search": "Searches",
+          "market": "Market"
+        },
+        "unitClients": "{count} customers",
+        "unitPeople": "{count} people",
+        "daysFmt": "{days} days",
+        "noData": "No data"
       }
     },
     "vaults": {

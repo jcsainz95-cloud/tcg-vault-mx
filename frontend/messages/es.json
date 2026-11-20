@@ -6216,6 +6216,38 @@
           "waiting": "Esperan"
         },
         "sealedEmpty": "Nadie está esperando un sellado."
+      },
+      "demand": {
+        "title": "Demanda sin stock",
+        "subtitle": "Cartas que tus clientes guardaron o buscaron varias veces y hoy no tienes a la venta. Sin nombres de personas: solo cuántos.",
+        "colCard": "Carta",
+        "colSet": "Set",
+        "colFinish": "Acabado",
+        "colWishlist": "Lista de deseos",
+        "colSearch": "Búsquedas",
+        "colScore": "Puntaje",
+        "colMarket": "Mercado",
+        "colBuylist": "Compra hoy",
+        "termBadge": "Término sin carta",
+        "termHint": "Alguien lo buscó varias veces y no lo reconocimos como una carta del catálogo. Solo lectura.",
+        "empty": "Aún no hay demanda sin stock: cuando clientes guarden cartas que no tienes o las busquen varias veces, aparecen aquí.",
+        "searchOff": "Búsquedas desactivadas: solo se muestra la lista de deseos.",
+        "sourceError": "Una fuente de datos falló; se muestra solo la otra.",
+        "staleData": "Dato de hace {days} días",
+        "exportCsv": "Descargar demanda sin stock (CSV)",
+        "csvError": "No se pudo descargar el CSV.",
+        "loadError": "No se pudo cargar la demanda sin stock.",
+        "sortLabel": "Ordenar por",
+        "sort": {
+          "score": "Puntaje",
+          "wishlist": "Lista de deseos",
+          "search": "Búsquedas",
+          "market": "Mercado"
+        },
+        "unitClients": "{count} clientes",
+        "unitPeople": "{count} personas",
+        "daysFmt": "{days} días",
+        "noData": "Sin dato"
       }
     },
     "vaults": {

@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/Input';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useErrorMessage } from '@/components/ui/QueryState';
 import { todayMx } from './salesParams';
+import { DemandGapsSection } from './DemandGapsSection';
 import { toBuyListParams as toParams, type BuyListUrlState } from './buyListParams';
 
 export type { BuyListUrlState };
@@ -42,7 +43,7 @@ function writeUrl(s: BuyListUrlState) {
   window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
 }
 
-function triggerBlobDownload(blob: Blob, filename: string) {
+export function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -233,6 +234,8 @@ export function BuyListTab({ initial = { dir: 'desc' } }: { initial?: BuyListUrl
       )}
 
       {shown && <SealedWaiting sealed={shown.sealed} />}
+
+      <DemandGapsSection />
     </div>
   );
 }

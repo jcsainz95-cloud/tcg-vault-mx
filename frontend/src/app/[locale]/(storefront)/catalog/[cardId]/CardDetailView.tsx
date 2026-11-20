@@ -33,6 +33,7 @@ import { QueryState } from '@/components/ui/QueryState';
 import { useStickyBottomBar } from '@/hooks/useStickyBottomBar';
 import { useBuyButtonVisible } from '@/lib/measurement/buy-visible';
 import { centsToValue, track } from '@/lib/measurement/track';
+import { sendSearchMiss } from '@/lib/search-miss';
 import { measurementItemOf } from '@/lib/measurement/item';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
@@ -302,6 +303,11 @@ function Detail({
   // §MKT.H.4 `view_item`: una vez por carta, con el precio «desde» del grupo primario. La ficha ya
   // no pinta el mercado (§A1) ⇒ `market_value_shown: false`. Con el modo `off`, `track` no hace nada.
   const primaryPriceCents = primary?.displayPriceCents ?? null;
+  // §DEMANDA F2: ficha de carta AGOTADA (sin piezas, no «precio pendiente») ⇒ una señal de demanda con `cardId`.
+  const soldOut = !primary && detail.pricePending !== true;
+  useEffect(() => {
+    if (soldOut) sendSearchMiss(card.name, 'card', card.id);
+  }, [soldOut, card.id, card.name]);
   useEffect(() => {
     if (primaryPriceCents == null) return;
     const price = centsToValue(primaryPriceCents);
