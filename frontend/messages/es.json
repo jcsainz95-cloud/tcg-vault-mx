@@ -1526,7 +1526,11 @@
           "skipped": "Omitida"
         },
         "reason": {
-          "metadeck": "Meta deck"
+          "metadeck": "Meta deck",
+          "label": "De qué decks sale",
+          "deck": "Deck #{rank} · {copies, plural, one {# copia} other {# copias}} × {mult}",
+          "deckNamed": "{name} (#{rank}) · {copies, plural, one {# copia} other {# copias}} × {mult}",
+          "more": "y {n} más"
         },
         "skip": {
           "no_market": "Sin precio de mercado hoy; se reintenta mañana",

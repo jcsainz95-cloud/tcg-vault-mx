@@ -21,7 +21,7 @@ afterEach(() => {
 const card = { id: 'c1', name: 'Charizard ex', number: '125', setName: 'Obsidian', imageUrl: null, rarity: null, finish: 'normal' } as never;
 const sug = (i: number, over: Partial<api.SupplySuggestion> = {}): api.SupplySuggestion => ({
   id: `s${i}`, card, finish: 'normal', suggestedQty: i === 1 ? 1 : 2, pctBps: 7000, unitCents: 1500, marketCents: 2000,
-  reasons: [{ kind: 'metadeck', ref: null }], status: 'draft', skipReason: null, requestId: null, createdAt: '2026-11-20T00:00:00Z', ...over,
+  reasons: [{ kind: 'metadeck', ref: null, rank: 1, copies: 4, mult: 2 }], status: 'draft', skipReason: null, requestId: null, createdAt: '2026-11-20T00:00:00Z', ...over,
 });
 const apiErr = (status: number, code: string) => new ApiClientError(status, { code, message: 'x' } as never);
 
@@ -59,6 +59,42 @@ describe('§PROV-F4 · lista de sugeridas', () => {
     const alert = await screen.findByRole('alert');
     expect(within(alert).getByText(/cuarentena/i)).toBeTruthy();
     expect(pub.mock.calls[0][2]).toMatch(/[0-9a-f-]{36}/);
+  });
+});
+
+describe('§PROV-F4 · decks de origen y errores', () => {
+  const rs = (n: number) => Array.from({ length: n }, (_, i) => ({ kind: 'metadeck' as const, ref: null, rank: i + 2, copies: 4, mult: 2 }));
+  it('muestra deck, copias × multiplicador; con 5 decks, 3 + «y 2 más»', async () => {
+    vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
+    vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [sug(2, { reasons: rs(5) }), sug(3, { id: 'n', reasons: [{ kind: 'metadeck', ref: 'Gardevoir', rank: 1, copies: 1, mult: 2 }] })], page: 1, pageSize: 25, total: 2 });
+    view();
+    expect(await screen.findByText('Deck #2 · 4 copias × 2')).toBeTruthy();
+    expect(screen.getByText('Deck #4 · 4 copias × 2')).toBeTruthy();
+    expect(screen.queryByText('Deck #5 · 4 copias × 2')).toBeNull();
+    expect(screen.getByText('y 2 más')).toBeTruthy();
+    expect(screen.getByText('Gardevoir (#1) · 1 copia × 2')).toBeTruthy();
+  });
+
+  it('fila covered: sin Publicar (ni como super_admin)', async () => {
+    vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
+    vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [sug(1, { status: 'skipped', skipReason: 'covered' })], page: 1, pageSize: 25, total: 1 });
+    view();
+    expect(await screen.findByText('1 pieza')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^publicar$/i })).toBeNull();
+  });
+
+  it.each([
+    ['ALREADY_COVERED', 409, /ya está cubierta/i],
+    ['BUDGET_EXCEEDED', 409, /no cabe en el tope/i],
+    ['ABOVE_MARKET_CAP', 422, /rebasa el precio de mercado/i],
+    ['ALREADY_PUBLISHED', 409, /ya se publicó/i],
+  ])('publicar con %s muestra su texto', async (code, status, re) => {
+    vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
+    vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [sug(1)], page: 1, pageSize: 25, total: 1 });
+    vi.spyOn(api, 'publishSupplySuggestion').mockRejectedValue(apiErr(status, code));
+    view();
+    await userEvent.click(await screen.findByRole('button', { name: /^publicar$/i }));
+    expect(within(await screen.findByRole('alert')).getByText(re)).toBeTruthy();
   });
 });
 

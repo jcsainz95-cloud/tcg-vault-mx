@@ -1526,7 +1526,11 @@
           "skipped": "Skipped"
         },
         "reason": {
-          "metadeck": "Meta deck"
+          "metadeck": "Meta deck",
+          "label": "Which decks it comes from",
+          "deck": "Deck #{rank} · {copies, plural, one {# copy} other {# copies}} × {mult}",
+          "deckNamed": "{name} (#{rank}) · {copies, plural, one {# copy} other {# copies}} × {mult}",
+          "more": "and {n} more"
         },
         "skip": {
           "no_market": "No market price today; retried tomorrow",
