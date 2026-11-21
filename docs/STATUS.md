@@ -86,11 +86,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-21 · HEAP-INTEG-94 78a6858f · RECHAZADO (texto de qa, transcrito por el orquestador). Previos vigentes: §DECKS-TOP-FUENTE e6628568 y §BUYLIST-MESA a47ae35f APROBADOS (menores: «umbral 0.4» vs «≤ 40 %», formatCode null ⇒ «Standard», mesa chip/role/scroll/signo).
-- B1 (backend): perdida `details.field`/`code` de `/catalog/cards?productType=basura` (excepción D-EQ-3 `enum-query-axes.e2e-spec.ts:681-693` solo mira 400+allowed); mutación campo→'tipo' en `catalog.service.ts:1390`: axes VERDE 1/1, unit 10696/10696 VERDE, spec borrado ROJO 1/1.
-- IMP (backend): perdida «vacío/espacio ⇒ mismo total» en 6 ejes admin (REGISTRO solo 200). MENOR: %09 por HTTP (helper sí, unit rojo 1/23), triple inválido/válido, %20NM sin `field`; m97 deja AuthToken índice/CHECK sin prueba; promo wipe frágil ante filas viejas (promo-tcgcsv:191).
-- Casos movidos rojos por mutación 6/6 (sealedSubtype echo y vacío, sealed productType, repetido 6/6 ejes, staff 401×5+429 con límite 6 y con salto por usuario). tsc con error plantado en test/** sale 2, 1/1 (ci.yml:184-185).
-- Integración completa, un proceso, heap 6144, BD nueva: 203/203 suites, 3663/3663, pico 4232 MB (68,9 %), RSS 5551 MB, 1605 s. BD compartida sucia: 200/203 (filas 2026-11-07). Unit 612/612 (10696), eslint 0/0, doc-size VERDE.
+## QA (qa) — 2026-11-21 · HEAP-INTEG-94 50916507 · APROBADO (B1 e IMP cerrados). BD nueva qa94b. (Texto de qa, transcrito por el orquestador.) Previos vigentes: §DECKS-TOP-FUENTE e6628568 y §BUYLIST-MESA a47ae35f APROBADOS (menores: «umbral 0.4» vs «≤ 40 %», formatCode null ⇒ «Standard», mesa chip/role/scroll/signo).
+- B1 'productType'→'tipo' (catalog.service.ts:1390) ⇒ ROJO 1/1 (D-EQ-3). IMP vacío⇒lista vacía en zone, disputes y shipments ⇒ ROJO 3/3 en `total` (spec:1912; total 46 vs 0).
+- Menores: tab-only en ownerType ⇒ ROJO 1/1; trim de condition ⇒ ROJO 1/1 (%20NM). Triple inválido solo exige 1 de 3 (MENOR, backend).
+- axes 868/868; unit 612/612 (10696) 2/2 limpias; tsc 0, eslint 0, doc-size VERDE. Roja intermitente = health.stripe-mode.spec.ts:48 (ConfigService({}) lee process.env; preexistente desde 659704f7; MENOR, backend).
+- STATUS.md 157 líneas, tope 150 (ya tenía 156 antes).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
