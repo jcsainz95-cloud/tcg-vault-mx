@@ -1896,3 +1896,11 @@ P-PROMOS-VIEJAS: 6 familias por tabla fija (el empate por nombre fallaba 20/20);
 - CONFIRMADO, ya abierto por seguridad-lead: DM-6, la vía de texto aún hashea IP|UA (`marketing-search-miss.service.ts:~150`).
 - Rutas: dc4c049e solo el anexo; 1b9d295e solo `frontend/`; ab42af79 solo `backend/` + su sección de STATUS.
 - PROCESO: este veredicto cubre solo 82fd39cb (durante el gate entraron §PROV-F4/§DECKS-TOP en el árbol).
+
+## 2026-11-21 — sección qa de docs/STATUS.md sustituida por el gate §DECKS-TOP-FUENTE (verbatim)
+## QA (qa) — 2026-11-20 · verificación final §PROV-F4 (07527afe, contrato 517b307c §5:53): APROBADO (texto de qa, transcrito por el orquestador)
+- Medido (worktree /tmp, PG/Redis/s3-local propios, borrados): sonda reasons al leer 17/17 en 07527afe y 1/17 con fuentes de 3336830b (rank 0/-5 guardados ⇒ vigente 7; guardado 2 con deck en 7 ⇒ 7; carta fuera de lista o desmatcheada ⇒ tres null; deck sano ⇒ relleno; deck rank 0/-5/null, pausado o sin publicar ⇒ null; nunca mezcla). Cerrados BLOQUEANTE, IMPORTANTE y MENOR anteriores.
+- Integración COMPLETA heap 6144: 203/204 suites (3691 ok/3692), 1779 s, sin OOM, supply-f4 39/39; jest unit 609/609 (10642) 2/3, la otra corrida con app.module.spec.ts muerto por SIGTERM externo (causa no hallada); vitest 504 (+2 skip) y 6119 (+13 skip); tsc 0 back/front; lint 0 errores; check-doc-size 37/37.
+- IMPORTANTE (backend): sealed-price.e2e-spec.ts:540 SP-6 SUELTA, 1/10 rondas KO en la suite completa (PUT 200 a 2000 pero tras liberar cotiza 1000); sola 3/3 verde. Falló 1/4 corridas; ajeno al diff (solo supply), pero es módulo de dinero.
+- IMPORTANTE (devops/backend): heap de la integración con pico 5799/6144 MB (94 %), +18,1 MB/spec, unos 24 specs de margen. MENOR (backend): isInt sin uso en supply-suggest.logic.ts:33.
+- Rutas: cada rol escribió solo en la suya. NO MEDIDO: UI en navegador real; filas viejas en producción.

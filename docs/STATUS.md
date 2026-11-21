@@ -86,12 +86,13 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-20 · verificación final §PROV-F4 (07527afe, contrato 517b307c §5:53): APROBADO (texto de qa, transcrito por el orquestador)
-- Medido (worktree /tmp, PG/Redis/s3-local propios, borrados): sonda reasons al leer 17/17 en 07527afe y 1/17 con fuentes de 3336830b (rank 0/-5 guardados ⇒ vigente 7; guardado 2 con deck en 7 ⇒ 7; carta fuera de lista o desmatcheada ⇒ tres null; deck sano ⇒ relleno; deck rank 0/-5/null, pausado o sin publicar ⇒ null; nunca mezcla). Cerrados BLOQUEANTE, IMPORTANTE y MENOR anteriores.
-- Integración COMPLETA heap 6144: 203/204 suites (3691 ok/3692), 1779 s, sin OOM, supply-f4 39/39; jest unit 609/609 (10642) 2/3, la otra corrida con app.module.spec.ts muerto por SIGTERM externo (causa no hallada); vitest 504 (+2 skip) y 6119 (+13 skip); tsc 0 back/front; lint 0 errores; check-doc-size 37/37.
-- IMPORTANTE (backend): sealed-price.e2e-spec.ts:540 SP-6 SUELTA, 1/10 rondas KO en la suite completa (PUT 200 a 2000 pero tras liberar cotiza 1000); sola 3/3 verde. Falló 1/4 corridas; ajeno al diff (solo supply), pero es módulo de dinero.
-- IMPORTANTE (devops/backend): heap de la integración con pico 5799/6144 MB (94 %), +18,1 MB/spec, unos 24 specs de margen. MENOR (backend): isInt sin uso en supply-suggest.logic.ts:33.
-- Rutas: cada rol escribió solo en la suya. NO MEDIDO: UI en navegador real; filas viejas en producción.
+## QA (qa) — 2026-11-21 · §DECKS-TOP-FUENTE b5e21f4c · RECHAZADO (texto de qa, transcrito por el orquestador)
+- BLOQUEANTE (backend): /decks pone cover=null (decks-meta-refresh.service.ts:147,383-386) ⇒ se borra la portada de Limitless; 2/7 decks reales de prod cambian de imagen (basic-box, festival-lead), viola HECHOS «Imagen de cada deck». La portada está en /decks/<id> `.picture img` (fixture :219 = TWM-130, 1/1).
+- IMPORTANTE (frontend): falta la clave C6 en messages (es.json:5168-5172; M12View.tsx:402) y «~30-45s» viejo (medido 60.9 s con delay 1500).
+- IMPORTANTE (arquitecto→backend): la despublicación a 3 corridas no existe (ausente 3/3 corridas ⇒ sigue publicado; prod con dos rank 6); rank null publicable (service.ts:332).
+- Riesgo: el dial sembrado no pisa un false que ya exista; valor en prod NO MEDIDO.
+- Medido: fixtures + Postgres real ⇒ 41 GET, PUBLISH, C3 0.94, 18 persistidos + 1 pausado + 1 manual intactos; C3 en prod (7 listas) 160/173 = 0.925; fuera de banda excluido 1/1. «Publicar ahora» síncrono 60.9 s (proxy de Railway NO MEDIDO).
+- Regresión: unit 610/610 suites (10651 tests); tsc y lint 0 errores; doc-size VERDE; integración 205/205 PASS en lotes (la corrida completa murió por memoria del kernel a 59/205 con RAM compartida).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
