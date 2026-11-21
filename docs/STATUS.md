@@ -105,10 +105,12 @@ SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/a
 | TL-ALTA-1 | Sin foco/aviso de error en la captura de idioma/versión: `useIdsCapture.ts:73,79`, `ids-capture.ts:145,161` (y ficha original) | frontend | 2026-11-06 | ver `docs/archive/TECH_DEBT.md` TL-ALTA-1 |
 | Registro histórico | 172 filas en `docs/archive/TECH_DEBT.md` (sin re-medir): se migran aquí **solo** al tocar su módulo | dueño del módulo | 2026-11-06 | — |
 
-## Backend (backend) — 2026-11-21 (§DECKS-TOP-FUENTE punto 18 + API_CONTRACT_DECKS_META §1-2; sobre 49e1d74c)
-- `POST /admin/jobs/decks-meta-refresh`: `@Roles(vault_operator, super_admin)` a nivel de método; operador con `dryRun` ≠ true ⇒ 403 FORBIDDEN (sin encolar). Dedupe solo con el mismo `dryRun`; corrida de otro tipo en curso ⇒ 409 `REFRESH_BUSY {runningJobId, runningDryRun}` (código nuevo en error-codes.ts; lanzado en `enqueue`, decks-meta-refresh.service.ts:97).
-- `GET .../:jobId`: operador solo ve jobs `dryRun:true` (publicación ⇒ 404). Clase sigue `super_admin`. Quitado `isInt` sin uso de supply-suggest.logic.ts.
-- Pruebas: admin-jobs.controller.spec (+3) y decks-meta-gate-dtf.spec (+1, dedupe adaptado a mismo tipo); rojo medido (3 fallos al quitar guardas), luego 37/37. Jest unit completo 612/612 suites, 10697/10697; integración decks-meta 4/4 suites (36) con Postgres propio (ya apagado); eslint de lo tocado y tsc sin errores. NO MEDIDO: carrera HTTP en vivo.
+## Backend (backend) — 2026-11-21 (HEAP-INTEG-94: ajuste de memoria de tests; sobre a576ac28)
+- ts-jest con `isolatedModules:true, diagnostics:false` en `backend/jest.config.js:9` y `backend/test/jest-integration.config.js:14`; el chequeo de tipos de tests lo cubre `npm run typecheck` (tsconfig.json include test/**, ci.yml:185; medido verde).
+- Mismo subconjunto de 19 specs (351 pruebas, `--logHeapUsage`, un proceso): ANTES 2217 MB / 127 s; DESPUES 799 MB / 101 s.
+- Integración COMPLETA, un proceso, heap 6144: 203/203 suites, 3663/3663 pruebas, pico 4240 MB (69 % de 6144), 1638 s. Unit completo: 612/612 suites, 10696/10696 (10697 menos el duplicado quitado).
+- Quitadas: staff-throttle (fusionada en auth-throttle, conserva 401x5 y 429), catalog-enum-filters-empty y admin-enum-filters-500 (3 grupos de casos movidos a enum-query-axes: `/catalog/cards?sealedSubtype` vacío/espacio/basura+value, `/catalog/sealed?productType` ⇒ 200, parámetro repetido ⇒ 400 en 6 ejes admin), cta-m97-migration y mitad (a) de m63-migration (migraciones ya en production, `git cat-file -e origin/production:` OK). Unit: duplicado «vacío → Map vacío» en pricing.references-batch-history-prune.spec.ts.
+- NO MEDIDO: rojo por mutación de los casos movidos (son conductas ya existentes; verdes en la suite completa). Comentarios en src/ y test/ aún citan los ficheros borrados (solo texto).
 
 ## Frontend (frontend) — 2026-11-20 (§PROV-F4: 503 MARKET_UNAVAILABLE en publicar manual con texto es/en; sugeridas muestran decks de origen `reasons[{rank,copies,mult}]` 3+«y N más»; pruebas covered/errores; §DEMANDA F1+F2 pendiente gate; §ENV3 sin cambios)
 Next 15.5 App Router; admin M1–M12.

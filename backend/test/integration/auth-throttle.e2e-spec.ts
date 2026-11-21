@@ -10,6 +10,7 @@
  *
  * API_CONTRACT §1 y §10 (errores); ARCHITECTURE §7.
  */
+import { randomBytes } from 'crypto';
 import { E2EHarness } from './helpers/e2e-app';
 
 describe('E2E — Rate limiting real de /auth/login (SEC-C1)', () => {
@@ -53,5 +54,22 @@ describe('E2E — Rate limiting real de /auth/login (SEC-C1)', () => {
     // El límite es 5/min: los primeros intentos pasan al handler (401) antes del corte.
     expect(statuses.filter((s) => s === 401).length).toBeGreaterThanOrEqual(1);
     expect(statuses.indexOf(429)).toBeLessThanOrEqual(6);
+  });
+
+  // Fusionado de `staff-throttle.e2e-spec.ts` (HEAP-INTEG-94). v1.80.9, STF-21 (`API_CONTRACT §M6-U.9`, criterio 264): el
+  // `@Throttle 5/min` por IP cubre también los nombres de usuario — misma ruta, mismo límite.
+  it('STF-21: misma IP, 6 logins en 60 s con usuarios distintos ⇒ 401×5 y el 6.º 429 RATE_LIMITED', async () => {
+    const ip = `10.21.${randomBytes(1)[0]}.${randomBytes(1)[0]}`;
+    const statuses: number[] = [];
+    let last: { status: number; body: any } | undefined;
+    for (let i = 0; i < 6; i++) {
+      last = await h.api('POST', '/auth/login', {
+        json: { email: `stfthr${randomBytes(4).toString('hex')}`, password: 'mala-STF-000' },
+        headers: { 'x-forwarded-for': ip },
+      });
+      statuses.push(last.status);
+    }
+    expect(statuses).toEqual([401, 401, 401, 401, 401, 429]);
+    expect(last!.body.error.code).toBe('RATE_LIMITED');
   });
 });

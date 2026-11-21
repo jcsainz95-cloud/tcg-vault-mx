@@ -6,7 +6,7 @@ module.exports = {
   // test/jest-integration.config.js; se excluye del `npm test` unitario.
   testPathIgnorePatterns: ['/node_modules/', '/test/integration/'],
   transform: {
-    '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
+    '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: 'tsconfig.json', isolatedModules: true, diagnostics: false }],
   },
   collectCoverageFrom: ['src/**/*.(t|j)s'],
   coverageDirectory: './coverage',

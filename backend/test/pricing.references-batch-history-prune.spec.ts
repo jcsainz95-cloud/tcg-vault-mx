@@ -71,14 +71,6 @@ describe('H-PERF-1 — getReferencesBatch PODA el histórico (no lo relee entero
     // La vigente se proyecta tal cual (money-safe: mismo PriceInfo que antes).
     expect(res.get('c1|raw|raw:NM|normal')).toMatchObject({ status: 'priced', referenceMxnCents: 9999, source: 'manual' });
   });
-
-  it('vacío → Map vacío sin tocar la BD', async () => {
-    const { svc, queryRaw, findMany } = build();
-    const res = await svc.getReferencesBatch([]);
-    expect(res.size).toBe(0);
-    expect(queryRaw).not.toHaveBeenCalled();
-    expect(findMany).not.toHaveBeenCalled();
-  });
 });
 
 describe('H-PERF-1 — getPricedRawFinishesBatch resuelve el DISTINCT en la BD', () => {

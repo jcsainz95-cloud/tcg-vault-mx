@@ -1858,6 +1858,45 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
     const row = REGISTRO.find((r) => r.route === 'GET /catalog/cards' && r.param === 'productType')!;
     expect((await get(row, 'sealed')).status).toBe(200);
   });
+
+  // ── Casos movidos desde `catalog-enum-filters-empty` y `admin-enum-filters-500` (HEAP-INTEG-94; el resto ya lo cubre el REGISTRO) ──
+  describe('`/catalog/cards?sealedSubtype=` (D-EQ-3, sin fila en el REGISTRO): vacío/espacio ⇒ 200, basura ⇒ 400 con `details.value`', () => {
+    const pub = (path: string) => h.api<ErrorBody>('GET', path, {});
+    it.each(['%20', ''])('`?sealedSubtype=%s` ⇒ 200 (no filtra)', async (v) => {
+      expect((await pub(`/catalog/cards?sealedSubtype=${v}`)).status).toBe(200);
+    });
+    it('`?sealedSubtype=bogus` ⇒ 400 VALIDATION_ERROR {field, allowed[], value:"bogus"}', async () => {
+      const res = await pub('/catalog/cards?sealedSubtype=bogus');
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.details.field).toBe('sealedSubtype');
+      expect(Array.isArray(res.body.error.details.allowed)).toBe(true);
+      expect(res.body.error.details.value).toBe('bogus');
+    });
+  });
+
+  describe('`GET /catalog/sealed?productType=` NO es un eje: llave desconocida ⇒ 200 (no 400)', () => {
+    it.each(['%20', 'bogus', 'raw'])('`?productType=%s` ⇒ 200', async (v) => {
+      expect((await h.api<ErrorBody>('GET', `/catalog/sealed?productType=${v}`, {})).status).toBe(200);
+    });
+  });
+
+  describe('§0-Q.1 — parámetro REPETIDO (`?x=a&x=b`) ⇒ 400 con `details.field`, en los seis ejes admin de P-84', () => {
+    const EJES_REPETIDO: ReadonlyArray<readonly [string, string]> = [
+      ['/admin/orders', 'status'],
+      ['/admin/disputes', 'status'],
+      ['/admin/shipments', 'status'],
+      ['/admin/inventory/items', 'status'],
+      ['/admin/inventory/items', 'ownerType'],
+      ['/admin/inventory/items', 'zone'],
+    ];
+    it.each(EJES_REPETIDO)('`GET %s` · `?%s` repetido ⇒ 400 (⛔ nunca 500)', async (base, field) => {
+      const res = await h.api<ErrorBody>('GET', `${base}?${field}=a&${field}=b`, { token: adminToken });
+      expect({ field, status: res.status }).toEqual({ field, status: 400 });
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.details.field).toBe(field);
+    });
+  });
 });
 describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declarada', () => {
   /**
