@@ -135,11 +135,21 @@ test.describe('admin · M5 mesa de decisión (§23.6)', () => {
     await expect(page.getByTestId('decision-desk')).toBeVisible();
   }
 
+  /** Rediseño A de la mesa: el conteo y la sugerencia viven plegados por línea («Ver conteo y sugerencia»). Se abren TODOS, como lo haría el operador, sin tocar la aserción. */
+  async function openCounts(page: import('@playwright/test').Page): Promise<void> {
+    const sums = page.getByTestId('decision-desk').getByText(t('es', 'admin.m5.desk.mesa.details'), { exact: true });
+    await expect(sums.first()).toBeVisible();
+    const n = await sums.count();
+    expect(n).toBeGreaterThan(0);
+    for (let i = 0; i < n; i++) await sums.nth(i).click();
+  }
+
   test('@real la posición se lee en dos tiempos y los cuatro sumandos van SEPARADOS', async ({
     page,
   }) => {
     await loginAs(page, 'admin');
     await openDesk(page);
+    await openCounts(page);
 
     const strip = page.getByTestId('position-strip').first();
     await expect(strip).toBeVisible();
@@ -164,6 +174,7 @@ test.describe('admin · M5 mesa de decisión (§23.6)', () => {
     mockOnly('la fila «sin conteo» es un estado fabricado por el fixture');
     await loginAs(page, 'admin');
     await openDesk(page);
+    await openCounts(page);
 
     const box = page.getByTestId('position-unavailable').first();
     await expect(box).toBeVisible();
