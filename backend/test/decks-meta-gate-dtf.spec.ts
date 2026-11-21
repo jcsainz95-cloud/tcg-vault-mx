@@ -269,12 +269,12 @@ describe('punto 15 · «Publicar ahora»: encolar, idempotente, estado', () => {
     const a = svc.enqueue({ dryRun: true });
     expect(a).toMatchObject({ status: 'queued', deduped: false });
     expect(svc.getJob(a.jobId)?.status).toBe('queued');
-    const b = svc.enqueue({});
+    const b = svc.enqueue({ dryRun: true });
     expect(b).toMatchObject({ jobId: a.jobId, deduped: true });
 
     await new Promise((r) => setImmediate(r));
     expect(svc.getJob(a.jobId)?.status).toBe('running');
-    expect(svc.enqueue({}).jobId).toBe(a.jobId);
+    expect(svc.enqueue({ dryRun: true }).jobId).toBe(a.jobId);
 
     release();
     await new Promise((r) => setTimeout(r, 5));
@@ -287,6 +287,22 @@ describe('punto 15 · «Publicar ahora»: encolar, idempotente, estado', () => {
     const c = svc.enqueue({});
     expect(c.jobId).not.toBe(a.jobId);
     expect(c.deduped).toBe(false);
+  });
+
+  it('ensayo en curso + publicar (o al revés) ⇒ 409 REFRESH_BUSY {runningJobId, runningDryRun}; no encola', async () => {
+    const { prisma } = fakePrisma();
+    const svc = build(prisma, fakeClient([], {}));
+    jest.spyOn(svc, 'run').mockImplementation(() => new Promise(() => undefined));
+    const a = svc.enqueue({ dryRun: true });
+    let err: any;
+    try { svc.enqueue({}); } catch (e) { err = e; }
+    expect(err?.getStatus?.()).toBe(409);
+    expect(err.getResponse()).toMatchObject({ code: 'REFRESH_BUSY', details: { runningJobId: a.jobId, runningDryRun: true } });
+    const svc2 = build(prisma, fakeClient([], {}));
+    jest.spyOn(svc2, 'run').mockImplementation(() => new Promise(() => undefined));
+    const p = svc2.enqueue({});
+    expect(() => svc2.enqueue({ dryRun: true })).toThrow(expect.objectContaining({ status: 409 }));
+    expect(svc2.enqueue({}).jobId).toBe(p.jobId);
   });
 
   it('si run lanza ⇒ status failed con error acotado; id desconocido ⇒ null', async () => {

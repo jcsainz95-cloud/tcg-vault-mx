@@ -30,7 +30,6 @@ export interface Need {
 /** Vista de una razón al leer: filas viejas (sin rank/copies/mult) salen con `null` explícito si no se pueden reconstruir. */
 export type SuggestReasonView = { kind: 'metadeck'; ref: string | null; rank: number | null; copies: number | null; mult: number | null };
 
-const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 
 /** Normaliza `reasons` leídas de BD: solo cuenta `ref` (rank/copies/mult guardados se IGNORAN; el servicio los recalcula vigentes); basura ⇒ se descarta. */
 export function normalizeReasons(raw: unknown): SuggestReasonView[] {

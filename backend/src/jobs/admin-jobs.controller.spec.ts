@@ -65,6 +65,32 @@ describe('AdminJobsController · decks-meta-refresh (§7, §DECKS-TOP-FUENTE.15:
     expect(Reflect.getMetadata(ROLES_KEY, AdminJobsController)).toEqual([Role.super_admin]);
   });
 
+  it('operador: publicar (dryRun false/omitido) ⇒ 403 sin encolar; ensayo ⇒ encola (202)', async () => {
+    const { controller, refresh } = makeController();
+    const op = { id: 'op-1', role: Role.vault_operator };
+    await expect(controller.runDecksMetaRefresh({}, op)).rejects.toMatchObject({ status: 403 });
+    await expect(controller.runDecksMetaRefresh({ dryRun: false }, op)).rejects.toMatchObject({ status: 403 });
+    expect(refresh.enqueue).not.toHaveBeenCalled();
+    expect(await controller.runDecksMetaRefresh({ dryRun: true }, op)).toMatchObject({ jobId: JOB });
+    expect(refresh.enqueue).toHaveBeenCalledWith({ dryRun: true });
+  });
+
+  it('los métodos permiten vault_operator y super_admin (la clase sigue super_admin)', () => {
+    const want = [Role.vault_operator, Role.super_admin];
+    expect(Reflect.getMetadata(ROLES_KEY, AdminJobsController.prototype.runDecksMetaRefresh)).toEqual(want);
+    expect(Reflect.getMetadata(ROLES_KEY, AdminJobsController.prototype.getDecksMetaRefreshJob)).toEqual(want);
+  });
+
+  it('operador consulta un job de publicación ⇒ 404; uno de ensayo ⇒ 200; super_admin ve ambos', () => {
+    const { controller, refresh } = makeController();
+    const op = { id: 'op-1', role: Role.vault_operator };
+    (refresh.getJob as jest.Mock).mockImplementation((id: string) => ({ jobId: id, status: 'done', dryRun: id === JOB }));
+    const PUB = '00000000-0000-4000-8000-000000000001';
+    expect(() => controller.getDecksMetaRefreshJob(PUB, op)).toThrow(expect.objectContaining({ status: 404 }));
+    expect(controller.getDecksMetaRefreshJob(JOB, op)).toMatchObject({ jobId: JOB });
+    expect(controller.getDecksMetaRefreshJob(PUB, user)).toMatchObject({ jobId: PUB });
+  });
+
   it('el estado devuelve el job; un id desconocido ⇒ 404', () => {
     const { controller } = makeController();
     expect(controller.getDecksMetaRefreshJob(JOB)).toMatchObject({ jobId: JOB, status: 'done' });

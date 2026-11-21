@@ -3,6 +3,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MetaDeckSource, MetaMatchStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BusinessException } from '../../common/business.exception';
 import { CoverMatch, CoverMatchStatus, DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import { imageOf } from './deck-image';
 import { FetchBudgetExhaustedError, FetchBudget, LimitlessFetchClient } from './limitless-fetch.client';
@@ -91,12 +92,18 @@ export class DecksMetaRefreshService implements OnModuleInit {
   private readonly jobs = new Map<string, RefreshJob>();
 
   /**
-   * Encola una corrida. IDEMPOTENTE: si ya hay una `queued|running` devuelve ESA (mismo `jobId`, `deduped:true`) sin
-   * lanzar otra, aunque pida otro `dryRun`.
+   * Encola una corrida. IDEMPOTENTE solo con el MISMO `dryRun`: si ya hay una `queued|running` del mismo tipo devuelve
+   * ESA (`deduped:true`); de OTRO tipo ⇒ 409 `REFRESH_BUSY {runningJobId, runningDryRun}` (no se encola).
    */
   enqueue(opts: { dryRun?: boolean } = {}): { jobId: string; status: 'queued' | 'running'; deduped: boolean } {
+    const want = opts.dryRun === true;
     for (const j of this.jobs.values()) {
-      if (j.status === 'queued' || j.status === 'running') return { jobId: j.jobId, status: j.status, deduped: true };
+      if (j.status !== 'queued' && j.status !== 'running') continue;
+      if (j.dryRun === want) return { jobId: j.jobId, status: j.status, deduped: true };
+      throw BusinessException.conflict('REFRESH_BUSY', 'Another refresh run is in progress', {
+        runningJobId: j.jobId,
+        runningDryRun: j.dryRun,
+      });
     }
     const job: RefreshJob = {
       jobId: randomUUID(),

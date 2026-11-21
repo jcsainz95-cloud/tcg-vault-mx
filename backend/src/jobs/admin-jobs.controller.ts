@@ -488,8 +488,13 @@ export class AdminJobsController {
    * NO toca dinero. super_admin, auditado al encolar.
    */
   @Post('decks-meta-refresh')
+  @Roles(Role.vault_operator, Role.super_admin)
   @HttpCode(202)
   async runDecksMetaRefresh(@Body() dto: DecksMetaRefreshDto, @CurrentUser() user: { id: string; role: Role }) {
+    // API_CONTRACT_DECKS_META §1: el operador solo ensaya; publicar (dryRun ≠ true) es de super_admin.
+    if (user.role !== Role.super_admin && dto.dryRun !== true) {
+      throw BusinessException.forbidden('FORBIDDEN', 'Only super_admin can publish; operators may only run dryRun');
+    }
     const queued = this.decksMetaRefresh.enqueue({ dryRun: dto.dryRun });
     await this.audit.log({
       actorUserId: user.id,
@@ -508,9 +513,14 @@ export class AdminJobsController {
    * (reporte o `skipped`). `404 NOT_FOUND` si el id no existe (o el servidor reinició). Solo lectura, sin auditoría.
    */
   @Get('decks-meta-refresh/:jobId')
-  getDecksMetaRefreshJob(@Param('jobId', new ParseUUIDPipe()) jobId: string) {
+  @Roles(Role.vault_operator, Role.super_admin)
+  getDecksMetaRefreshJob(
+    @Param('jobId', new ParseUUIDPipe()) jobId: string,
+    @CurrentUser() user?: { id: string; role: Role },
+  ) {
     const job = this.decksMetaRefresh.getJob(jobId);
-    if (!job) throw BusinessException.notFound();
+    // El operador solo ve ensayos; un job de publicación le es 404 (no revela que existe).
+    if (!job || (user && user.role !== Role.super_admin && !job.dryRun)) throw BusinessException.notFound();
     return job;
   }
 }

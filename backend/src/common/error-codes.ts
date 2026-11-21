@@ -716,6 +716,9 @@ export const ErrorCode = {
   // ── DECKS-META (Fase 1, API_CONTRACT §13 / DECKS_META_ARCH.md §7) ─────────────────────────────
   // 404 — `GET /decks-meta/:slug` con un slug que no corresponde a ningún deck publicado.
   DECK_NOT_FOUND: 'DECK_NOT_FOUND',
+  // 409 — `POST /admin/jobs/decks-meta-refresh` con una corrida de OTRO tipo (ensayo vs publicación) en curso;
+  // `details {runningJobId, runningDryRun}` (API_CONTRACT_DECKS_META §1).
+  REFRESH_BUSY: 'REFRESH_BUSY',
   // 422 — `POST /decks-meta/paste` con texto vacío o sin NINGUNA línea de carta válida (el parser no
   // pudo extraer una sola línea). Distinto de VALIDATION_ERROR (forma del body): el body es válido,
   // pero su contenido no es una lista parseable. API_CONTRACT §13.
