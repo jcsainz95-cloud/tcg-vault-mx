@@ -14,7 +14,7 @@ export type AdjustmentReasonCode =
   | 'FLOOR'
   | 'NO_MARKET';
 
-export type SinceQuoteReasonCode = 'MARKET_UP' | 'MARKET_DOWN' | 'CURVE_CHANGED';
+export type SinceQuoteReasonCode = 'BOUNTY' | 'MANUAL_OVERRIDE' | 'MARKET_UP' | 'MARKET_DOWN' | 'CURVE_CHANGED';
 
 export interface MesaDecisionInput {
   /** `decision.quote.marketMxnCents` (mercado de HOY). */
@@ -107,7 +107,13 @@ export function mesaFields(i: MesaDecisionInput): MesaFields {
     const deltaCents = derived - i.quotedPriceCents;
     let reasonCode: SinceQuoteReasonCode = 'CURVE_CHANGED';
     let reasonText = 'la tabla de compra cambió desde que se cotizó';
-    if (isPresent(then) && market != null && then !== market) {
+    if (i.priceBasis === 'override') {
+      reasonCode = 'MANUAL_OVERRIDE';
+      reasonText = 'precio fijado por el staff para esta carta';
+    } else if (i.priceBasis === 'bounty') {
+      reasonCode = 'BOUNTY';
+      reasonText = 'bounty activo';
+    } else if (isPresent(then) && market != null && then !== market) {
       reasonCode = market > then ? 'MARKET_UP' : 'MARKET_DOWN';
       reasonText = `el mercado ${market > then ? 'subió' : 'bajó'} de ${mxn(then)} a ${mxn(market)} desde que se cotizó`;
     }

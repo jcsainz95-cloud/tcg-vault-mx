@@ -82,6 +82,19 @@ describe('mesaFields', () => {
     expect(mesaFields({ ...base, derivedPriceCents: null, priceBasis: 'pending' }).sinceQuote).toBeNull();
   });
 
+  it('sinceQuote IMP-1: bounty ⇒ BOUNTY; override ⇒ MANUAL_OVERRIDE (prioridad sobre mercado)', () => {
+    expect(mesaFields({ ...base, derivedPriceCents: 5000, priceBasis: 'bounty', quotedPriceCents: 4000 }).sinceQuote)
+      .toMatchObject({ reasonCode: 'BOUNTY', deltaCents: 1000 });
+    expect(mesaFields({ ...base, derivedPriceCents: 3000, priceBasis: 'override', quotedPriceCents: 4000 }).sinceQuote)
+      .toMatchObject({ reasonCode: 'MANUAL_OVERRIDE', deltaCents: -1000 });
+    // override gana a bounty y a mercado movido
+    expect(mesaFields({ ...base, marketMxnCents: 17177, derivedPriceCents: 3000, priceBasis: 'override', quotedPriceCents: 4000 }).sinceQuote)
+      .toMatchObject({ reasonCode: 'MANUAL_OVERRIDE' });
+    // sin bounty/override el mercado movido sigue mandando
+    expect(mesaFields({ ...base, marketMxnCents: 12000, derivedPriceCents: 4800, priceBasis: 'market', quotedPriceCents: 4000 }).sinceQuote)
+      .toMatchObject({ reasonCode: 'MARKET_UP' });
+  });
+
   it('la nota sinceQuote NO crea ajuste (el chip va contra el estándar)', () => {
     const r = mesaFields({ ...base, derivedPriceCents: 4100, curveQuoteCents: 4100, quotedPriceCents: 4000 });
     expect(r.adjustment).toBeNull();

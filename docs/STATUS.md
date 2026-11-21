@@ -108,6 +108,7 @@ SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/a
 | Registro histórico | 172 filas en `docs/archive/TECH_DEBT.md` (sin re-medir): se migran aquí **solo** al tocar su módulo | dueño del módulo | 2026-11-06 | — |
 
 ## Backend (backend) — 2026-11-21 (§DECKS-TOP-FUENTE puntos 1, 7, 11-16 corregidos sobre b5e21f4c; §BUYLIST-MESA MESA-1/2 ya entregado, ver git)
+- IMP-1 (BUYLIST-MESA): `sinceQuote.reasonCode` añade BOUNTY y MANUAL_OVERRIDE (prioridad override > bounty > mercado > CURVE_CHANGED) en `decision-table-mesa.ts`; unit mesa 17/17, integración buylist 181/181.
 - 11 portada: `parseArchetypeCover` (`.picture img.card` data-src ⇒ SET-NUM por el mismo validador del alt) en la página que ya se baja (sin GET extra); si falta o no casa y la vigente sí casó, la lista nueva HEREDA los 4 campos de `currentList`; nunca null encima.
 - 12 `MetaDeck.missedRuns` (migración aditiva `20261205120000_m115_meta_deck_missed_runs`, reversa DROP COLUMN): solo corridas con `/decks` válido + canario PUBLISH + fetch completo cuentan; presente ⇒ 0 y rank del índice; ausente ⇒ +1 y rank null; a 3 ⇒ published=false (`delistedSlugs` en el reporte). Manual/pausado intactos.
 - 13 candidatos rank 1..topN ordenados, rank null no publica. 14 slug NFKD o `arch-<id>`, sufijo `-<id>` en colisión (el arquetipo ya existente conserva su slug), nunca vacío; topes name ≤80, sharePct 0..100, ids ≤10 dígitos, sourceTournament ≤120. 16 C2 con `/decks` = fuera de banda ≤40 % de filas traídas (`META_CANARY_OUT_OF_BAND_MAX_RATIO`); portada sigue estricta.
