@@ -70,6 +70,12 @@ function render(dto: BuylistDecisionTableDTO, locale: 'es' | 'en' = 'es') {
   return renderWithProviders(<BuylistDecisionDesk sellRequestId="sr-1" onClose={() => {}} />, locale);
 }
 
+/** La fila es compacta: el campo de precio solo existe tras «Editar oferta». */
+async function findAmount(name = 'Charizard VMAX') {
+  fireEvent.click(await screen.findByRole('button', { name: `Editar oferta: ${name}` }));
+  return (await screen.findByLabelText(`Precio ofertado para ${name}`)) as HTMLInputElement;
+}
+
 describe('Mesa de decisión — las cifras que pidió el humano', () => {
   it('pinta la POSICIÓN como una fracción y los CUATRO sumandos por separado', async () => {
     render(table());
@@ -245,9 +251,7 @@ describe('Mesa de decisión — decidir y emitir', () => {
    */
   it('(a) el campo «Precio ofertado» nace PRE-LLENADO con el derivado, no vacío', async () => {
     render(table()); // derivedPriceCents 84000 ⇒ $840
-    const amount = (await screen.findByLabelText(
-      'Precio ofertado para Charizard VMAX',
-    )) as HTMLInputElement;
+    const amount = await findAmount();
     expect(amount.value).toBe('840');
     // Pre-llenar NO es ajustar: no hay motivo ni marca de override.
     expect(screen.queryByLabelText('Motivo del ajuste')).not.toBeInTheDocument();
@@ -259,9 +263,7 @@ describe('Mesa de decisión — decidir y emitir', () => {
    */
   it('(a·bis) sin `derivedPriceCents` el campo queda VACÍO —no se inventa precio', async () => {
     render(table({ lines: [line({ derivedPriceCents: null })] }));
-    const amount = (await screen.findByLabelText(
-      'Precio ofertado para Charizard VMAX',
-    )) as HTMLInputElement;
+    const amount = await findAmount();
     expect(amount.value).toBe('');
   });
 
@@ -280,9 +282,7 @@ describe('Mesa de decisión — decidir y emitir', () => {
       items: [],
     });
     // El campo nace en '840' (el derivado); NO lo tocamos.
-    const amount = (await screen.findByLabelText(
-      'Precio ofertado para Charizard VMAX',
-    )) as HTMLInputElement;
+    const amount = await findAmount();
     expect(amount.value).toBe('840');
 
     fireEvent.click(screen.getByRole('button', { name: 'Emitir oferta' }));
@@ -290,15 +290,13 @@ describe('Mesa de decisión — decidir y emitir', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Emitir la oferta y mandar el correo' }));
     // Basis derivado ⇒ la línea viaja como `buy` PELADA: sin `overridePriceCents`, sin `overrideReason`.
     await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith('sr-1', [{ itemId: 'i-1', decision: 'buy' }]),
+      expect(spy).toHaveBeenCalledWith('sr-1', [{ itemId: 'i-1', decision: 'buy', expectedDerivedCents: 84000 }]),
     );
   });
 
   it('(c) al CAMBIAR el pre-llenado a un monto distinto, la línea SÍ se vuelve override', async () => {
     render(table());
-    const amount = (await screen.findByLabelText(
-      'Precio ofertado para Charizard VMAX',
-    )) as HTMLInputElement;
+    const amount = await findAmount();
     // Arranca en el derivado, sin motivo.
     expect(amount.value).toBe('840');
     expect(screen.queryByLabelText('Motivo del ajuste')).not.toBeInTheDocument();
@@ -326,14 +324,14 @@ describe('Mesa de decisión — decidir y emitir', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Emitir la oferta y mandar el correo' }));
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith('sr-1', [
-        { itemId: 'i-1', decision: 'buy', overridePriceCents: 90000, overrideReason: 'el mercado se movió' },
+        { itemId: 'i-1', decision: 'buy', expectedDerivedCents: 84000, overridePriceCents: 90000, overrideReason: 'el mercado se movió' },
       ]),
     );
   });
 
   it('el override exige motivo, y mandar el derivado EXACTO no lo exige', async () => {
     render(table());
-    const amount = await screen.findByLabelText('Precio ofertado para Charizard VMAX');
+    const amount = await findAmount();
 
     // Delta ≠ 0 ⇒ aparece el motivo y el botón se apaga hasta que sea válido.
     fireEvent.change(amount, { target: { value: '900' } });
@@ -382,7 +380,7 @@ describe('Mesa de decisión — decidir y emitir', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Emitir la oferta y mandar el correo' }));
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith('sr-1', [
-        { itemId: 'a', decision: 'buy' },
+        { itemId: 'a', decision: 'buy', expectedDerivedCents: 84000 },
         { itemId: 'b', decision: 'skip' },
       ]),
     );
@@ -498,5 +496,202 @@ describe('BRJ-UI-2 · «Declinar» en la mesa', () => {
     renderWithProviders(<BuylistDecisionDesk sellRequestId="sr-1" onClose={() => {}} onDecline={() => {}} />, 'es');
     expect(await screen.findByText(text)).toBeInTheDocument();
     expect(screen.queryByTestId('desk-decline')).not.toBeInTheDocument();
+  });
+});
+
+describe('Mesa de decisión — diseño A (BUYLIST-MESA)', () => {
+  const photoCard = { imageSmallUrl: 'https://img/s.png', imageLargeUrl: 'https://img/l.png' };
+  const mesa = {
+    marketMxnCents: 100000,
+    standardOfferCents: 70000,
+    standardPctBp: 7000,
+  };
+  const lines = [
+    line({ itemId: 'a', card: { ...CARD, ...photoCard, name: 'Std' }, derivedPriceCents: 70000, ...mesa, adjustment: null, sinceQuote: null }),
+    line({
+      itemId: 'b',
+      card: { ...CARD, name: 'Sube' },
+      derivedPriceCents: 75000,
+      ...mesa,
+      adjustment: { deltaCents: 5000, reasonCode: 'BOUNTY', reasonText: 'Hay un bounty.' },
+      sinceQuote: { quotedCents: 70000, deltaCents: 5000, reasonCode: 'MARKET_UP', reasonText: 'x' },
+    }),
+    line({
+      itemId: 'c',
+      card: { ...CARD, name: 'Baja' },
+      derivedPriceCents: 50000,
+      ...mesa,
+      adjustment: { deltaCents: -20000, reasonCode: 'STOCK_CAP', reasonText: 'Ya tenemos 10.' },
+      position: { stock: 10, verifying: 0, inTransit: 0, committed: 0, total: 10 },
+      suggestion: { verdict: 'do_not_buy', rule: 'variant_cap', thresholdQty: 10, bountyActive: false },
+    }),
+    line({
+      itemId: 'd',
+      card: { ...CARD, name: 'Nada' },
+      derivedPriceCents: null,
+      priceBasis: 'pending',
+      pendingReason: 'no_market',
+      marketMxnCents: null,
+      standardOfferCents: null,
+      standardPctBp: null,
+      adjustment: null,
+    }),
+  ];
+
+  it('un chip por fila según adjustment, con motivo y delta; la nota sinceQuote va aparte', async () => {
+    render(table({ lines }));
+    await screen.findAllByTestId('desk-line');
+    const chips = screen.getAllByTestId('line-chip').map((c) => c.getAttribute('data-chip'));
+    expect(chips).toEqual(['standard', 'up', 'down', 'noPrice']);
+    expect(screen.getAllByTestId('line-chip')[1]).toHaveTextContent('Subida +MX$50.00');
+    expect(screen.getAllByTestId('line-chip')[2]).toHaveTextContent('Bajada −MX$200.00');
+    expect(screen.getByText('Ya tenemos 10.')).toBeInTheDocument();
+    expect(screen.getByTestId('line-since-quote')).toHaveTextContent('Cotizamos MX$700.00; hoy ofertamos MX$750.00 (MX$50.00 más): el mercado subió desde la cotización');
+    expect(screen.getAllByTestId('line-standard')[0]).toHaveTextContent('70 % → MX$700.00');
+    expect(screen.getAllByTestId('line-stock')[2]).toHaveTextContent('ya no necesitamos');
+    expect(screen.getAllByTestId('line-stock')[0]).toHaveTextContent('Tenemos 9 · aceptamos hasta 10');
+  });
+
+  it('«Solo las que cambian» oculta las Estándar', async () => {
+    render(table({ lines }));
+    await screen.findAllByTestId('desk-line');
+    fireEvent.click(screen.getByRole('button', { name: /Solo las que cambian \(3\)/ }));
+    expect(screen.getAllByTestId('desk-line')).toHaveLength(3);
+  });
+
+  it('el campo de precio solo aparece al editar (tecla E o botón) y no repite «Derivado por la curva»', async () => {
+    render(table({ lines }));
+    const list = (await screen.findAllByTestId('desk-line'))[0].parentElement!;
+    expect(screen.queryByLabelText(/Precio ofertado para/)).not.toBeInTheDocument();
+    list.focus();
+    fireEvent.keyDown(list, { key: 'e' });
+    expect(await screen.findByLabelText('Precio ofertado para Std')).toBeInTheDocument();
+    expect(screen.queryByText(/Derivado por la curva/)).not.toBeInTheDocument();
+  });
+
+  it('la foto se amplía en un visor que cierra con Esc', async () => {
+    render(table({ lines }));
+    fireEvent.click(await screen.findByTestId('line-photo'));
+    const img = await screen.findByTestId('photo-viewer-img');
+    expect(img).toHaveAttribute('src', 'https://img/l.png');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('photo-viewer-img')).not.toBeInTheDocument());
+  });
+
+  it('atajos: ↓ mueve, Espacio marca/desmarca', async () => {
+    render(table({ lines }));
+    const list = (await screen.findAllByTestId('desk-line'))[0].parentElement!;
+    list.focus();
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    expect(screen.getAllByTestId('desk-line')[1]).toHaveAttribute('aria-current', 'true');
+    const box = within(screen.getAllByTestId('desk-line')[1]).getByRole('checkbox');
+    expect(box).toBeChecked();
+    fireEvent.keyDown(list, { key: ' ' });
+    expect(box).not.toBeChecked();
+  });
+
+  it('409 OFFER_PRICE_CHANGED ⇒ sin éxito, refresca la mesa y resalta la línea con «cambió de X a Y»', async () => {
+    const get = vi.spyOn(api, 'getBuylistDecisionTable').mockResolvedValue(table());
+    renderWithProviders(<BuylistDecisionDesk sellRequestId="sr-1" onClose={() => {}} />, 'es');
+    vi.spyOn(api, 'emitBuylistOffer').mockRejectedValue(
+      new ApiClientError(409, {
+        code: 'OFFER_PRICE_CHANGED',
+        message: 'changed',
+        details: { lines: [{ lineId: 'i-1', expectedCents: 84000, currentCents: 86000 }] },
+      }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Emitir oferta' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Emitir la oferta y mandar el correo' }));
+    const note = await screen.findByTestId('line-price-changed');
+    expect(note).toHaveTextContent('El precio cambió de MX$840.00 a MX$860.00; revisa y vuelve a emitir');
+    expect(screen.getByTestId('price-changed-banner')).toBeInTheDocument();
+    // Sin éxito: ni banner de «Oferta emitida» ni diálogo abierto; y la mesa se volvió a pedir.
+    expect(screen.queryByText(/Oferta emitida/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(get.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it('IMP-2: al editar el precio, el chip compara la oferta EDITADA con el estándar y dice «Precio editado por ti»', async () => {
+    render(table({ lines }));
+    const list = (await screen.findAllByTestId('desk-line'))[0].parentElement!;
+    list.focus();
+    fireEvent.keyDown(list, { key: 'e' });
+    const input = await screen.findByLabelText('Precio ofertado para Std');
+    fireEvent.change(input, { target: { value: '650' } });
+    const row = screen.getAllByTestId('desk-line')[0];
+    const chip = within(row).getByTestId('line-chip');
+    expect(chip).toHaveAttribute('data-chip', 'down');
+    expect(chip).toHaveTextContent('Bajada −MX$50.00');
+    expect(within(row).getByTestId('line-reason-edited')).toHaveTextContent('Precio editado por ti');
+    fireEvent.change(input, { target: { value: '800' } });
+    expect(within(row).getByTestId('line-chip')).toHaveTextContent('Subida +MX$100.00');
+  });
+
+  it('IMP-2: 409 en una línea editada habla del derivado y conserva el precio editado', async () => {
+    vi.spyOn(api, 'getBuylistDecisionTable').mockResolvedValue(table());
+    vi.spyOn(api, 'emitBuylistOffer').mockRejectedValue(
+      new ApiClientError(409, {
+        code: 'OFFER_PRICE_CHANGED',
+        message: 'changed',
+        details: { lines: [{ lineId: 'i-1', expectedCents: 84000, currentCents: 86000 }] },
+      }),
+    );
+    renderWithProviders(<BuylistDecisionDesk sellRequestId="sr-1" onClose={() => {}} />, 'es');
+    fireEvent.click(await screen.findByTestId('line-edit'));
+    fireEvent.change(await screen.findByLabelText(/Precio ofertado para/), { target: { value: '900' } });
+    fireEvent.change(await screen.findByLabelText('Motivo del ajuste'), { target: { value: 'el mercado se movió' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Emitir oferta' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Emitir la oferta y mandar el correo' }));
+    const note = await screen.findByTestId('line-price-changed');
+    expect(note).toHaveTextContent(
+      'El precio de referencia cambió de MX$840.00 a MX$860.00; tu precio editado se conserva: MX$900.00',
+    );
+  });
+
+  it('sinceQuote BOUNTY y MANUAL_OVERRIDE tienen texto propio (es/en)', async () => {
+    const mk = (code: 'BOUNTY' | 'MANUAL_OVERRIDE') => [
+      line({
+        itemId: 'q',
+        derivedPriceCents: 75000,
+        ...mesa,
+        adjustment: null,
+        sinceQuote: { quotedCents: 70000, deltaCents: 5000, reasonCode: code, reasonText: 'x' },
+      }),
+    ];
+    const a = render(table({ lines: mk('BOUNTY') }));
+    expect(await screen.findByTestId('line-since-quote')).toHaveTextContent('hay un bounty activo');
+    a.unmount();
+    const b = render(table({ lines: mk('MANUAL_OVERRIDE') }), 'en');
+    expect(await screen.findByTestId('line-since-quote')).toHaveTextContent('the team set the price');
+    b.unmount();
+  });
+
+  it('«Solo las que cambian» incluye líneas Estándar con sinceQuote.deltaCents ≠ 0', async () => {
+    const ls = [
+      line({ itemId: 'x', derivedPriceCents: 70000, ...mesa, adjustment: null, sinceQuote: null }),
+      line({
+        itemId: 'y',
+        derivedPriceCents: 70000,
+        ...mesa,
+        adjustment: null,
+        sinceQuote: { quotedCents: 65000, deltaCents: 5000, reasonCode: 'CURVE_CHANGED', reasonText: 'x' },
+      }),
+    ];
+    render(table({ lines: ls }));
+    await screen.findAllByTestId('desk-line');
+    fireEvent.click(screen.getByRole('button', { name: /Solo las que cambian \(1\)/ }));
+    expect(screen.getAllByTestId('desk-line')).toHaveLength(1);
+  });
+
+  it('el resumen no nombra una columna «Cambio» y la lista tiene role correcto para aria-activedescendant', async () => {
+    render(table({ lines }));
+    await screen.findAllByTestId('desk-line');
+    expect(screen.getByTestId('desk-summary-hint')).not.toHaveTextContent('«Cambio»');
+    const list = screen.getAllByTestId('desk-line')[0].parentElement!;
+    expect(list).toHaveAttribute('role', 'group');
+    expect(list).toHaveAttribute('aria-activedescendant');
   });
 });

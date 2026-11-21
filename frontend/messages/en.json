@@ -3596,6 +3596,63 @@
           "premium_at_floor": "The premium variant hit the floor: no derivable price.",
           "identity_drift": "This variant no longer exists in the catalog, so the market was not consulted."
         },
+        "mesa": {
+          "colCard": "Card",
+          "colMarket": "Market today",
+          "colStandard": "Standard",
+          "colOffer": "Final offer",
+          "colChange": "Change",
+          "colStock": "Stock",
+          "colBuy": "Buy",
+          "standardCell": "{pct}% → {amount}",
+          "standardNone": "—",
+          "summaryHint": "Market today → standard from the curve → final offer. The chip next to the offer says whether it departs from the standard and why.",
+          "filterAll": "All ({count})",
+          "filterChanges": "Only the ones that change ({count})",
+          "filterEmpty": "No line differs from the standard.",
+          "shortcuts": "↑ ↓ move · Space toggle · E edit price",
+          "listLabel": "Offer lines; use the up and down arrows to move",
+          "chip": {
+            "standard": "Standard",
+            "up": "Raise +{amount}",
+            "down": "Cut −{amount}",
+            "noPrice": "No price"
+          },
+          "reason": {
+            "STOCK_CAP": "We already hold the cap for this card.",
+            "MANUAL_OVERRIDE": "Price set by staff.",
+            "BOUNTY": "A bounty is looking for it.",
+            "FLOOR": "The minimum price applied.",
+            "NO_MARKET": "There is no market price."
+          },
+          "sinceQuote": {
+            "MARKET_UP": "Quoted {quoted}; we now offer {offer} ({delta} more): the market rose since the quote.",
+            "MARKET_DOWN": "Quoted {quoted}; we now offer {offer} ({delta} less): the market fell since the quote.",
+            "BOUNTY": "Quoted {quoted}; we now offer {offer} ({delta} difference): there is an active bounty.",
+            "MANUAL_OVERRIDE": "Quoted {quoted}; we now offer {offer} ({delta} difference): the team set the price.",
+            "CURVE_CHANGED": "Quoted {quoted}; we now offer {offer} ({delta} difference): the curve changed since the quote."
+          },
+          "stock": {
+            "have": "We have {total} · we accept up to {threshold}",
+            "full": "We have {total}, cap {threshold}: we no longer need it",
+            "haveOnly": "We have {total}",
+            "unknown": "No count"
+          },
+          "photo": {
+            "open": "Enlarge the photo of {name}",
+            "close": "Close photo",
+            "none": "No photo",
+            "alt": "{name}, {set} {number}"
+          },
+          "edit": "Edit offer",
+          "editDone": "Done",
+          "chipHint": "The chip compares with the standard; the note, with the quoted price.",
+          "editedByYou": "Price edited by you",
+          "priceChangedEdited": "The reference price changed from {from} to {to}; your edited price is kept: {edited}. Review and issue again",
+          "priceChanged": "The price changed from {from} to {to}; review and issue again",
+          "priceChangedBanner": "The price of {count, plural, one {# card} other {# cards}} changed since the desk was shown. Nothing was issued: review the highlighted lines and issue again.",
+          "details": "See count and suggestion"
+        },
         "buyLine": "Buy {name}",
         "selectAll": "Select all",
         "clearAll": "Clear all",
@@ -5101,10 +5158,13 @@
       "title": "Dry-run (test mode)",
       "subtitle": "Runs the automatic Meta Battle Decks fetch in test mode: pulls everything from Limitless, checks it, and tells you whether it would publish — without touching anything already live.",
       "runButton": "Run dry-run",
-      "running": "Pulling from Limitless… (~30-45s)",
+      "running": "Working… (~1-2 min)",
       "runningNote": "It takes a while because it downloads the lists for real, one by one. Don't close the tab.",
       "error": "The dry-run couldn't run. It's usually a network issue with Limitless; please try again.",
       "retry": "Retry",
+      "busyDryRun": "A dry-run is in progress; wait for it to finish.",
+      "busyPublish": "A publication is in progress; wait for it to finish.",
+      "jobTimeout": "It is taking longer than usual; check the latest report.",
       "alreadyRunning": "A dry-run is already in progress. Wait for it to finish and try again.",
       "empty": "You haven't run the dry-run yet. Press «Run dry-run» to see what would happen, without publishing anything.",
       "verdict": {
@@ -5166,10 +5226,11 @@
       },
       "checks": {
         "C1": "archetypes found",
-        "C2": "60 cards per deck",
+        "C2": "out of band ≤ 40 %",
         "C3": "cards recognized",
         "C4": "cards without edition",
-        "C5": "home page readable"
+        "C5": "home page readable",
+        "C6": "index parseable"
       },
       "notes": {
         "title": "Notes",
@@ -5182,10 +5243,14 @@
         "title": "Publish now",
         "subtitle": "Pulls the meta decks from Limitless and publishes them to your store right now, without waiting for Monday's automatic sweep. Respects the switch above.",
         "button": "Publish now",
-        "running": "Publishing… (~30-45s)",
+        "running": "Working… (~1-2 min)",
         "runningNote": "It takes a while because it downloads the real lists, one by one. Don't close the tab.",
         "error": "Couldn't publish. It's usually a network issue with Limitless; try again.",
         "retry": "Retry",
+        "deduped": "A run was already in progress; showing that one.",
+        "jobLost": "The server restarted; please try again.",
+        "jobFailed": "The run failed: {error}",
+        "delisted": "Decks delisted in this run: {slugs}.",
         "dialOff": "The switch is off, so nothing was published. Turn it on above to publish.",
         "alreadyRunning": "A run is already in progress. Wait for it to finish and try again.",
         "published": "Done: published to the store ({count, plural, one {# deck} other {# decks}}).",

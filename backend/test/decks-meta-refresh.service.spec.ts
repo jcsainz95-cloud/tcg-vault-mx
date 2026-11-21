@@ -43,6 +43,7 @@ function fakeMatcher(): DeckMatcherService {
 
 function fakeClient(): LimitlessFetchClient {
   return {
+    fetchDecksIndex: jest.fn(async () => '<html></html>'), // §DECKS-TOP-FUENTE: sin filas ⇒ fallback a la portada
     fetchHome: jest.fn(async () => homeHtml),
     fetchDeckList: jest.fn(async () => decklistHtml),
     fetchArchetype: jest.fn(async () => ''),
@@ -71,6 +72,9 @@ function fakePrisma(opts: {
 
   const tx = {
     metaDeck: {
+      findFirst: jest.fn(async () => null),
+      updateMany: jest.fn(async () => ({ count: 0 })),
+      findMany: jest.fn(async () => []),
       findUnique: jest.fn(async ({ where }: any) => decks.get(where.slug) ?? null),
       upsert: jest.fn(async ({ where, create, update }: any) => {
         const existing = decks.get(where.slug);
@@ -91,6 +95,7 @@ function fakePrisma(opts: {
       delete: jest.fn(async (a: any) => { calls.deckDelete.push(a); }),
     },
     metaDeckList: {
+      findUnique: jest.fn(async () => null),
       create: jest.fn(async ({ data }: any) => { const id = `list-${++listSeq}`; calls.listCreate.push({ id, data }); return { id }; }),
       update: jest.fn(async (a: any) => { calls.listUpdate.push(a); }),
       delete: jest.fn(async (a: any) => { calls.listDelete.push(a); }),

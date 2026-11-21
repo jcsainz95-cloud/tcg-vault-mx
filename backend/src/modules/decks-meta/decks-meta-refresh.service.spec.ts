@@ -59,6 +59,7 @@ describe('DecksMetaRefreshService (§4) — deckCount = persistidos + note JSON 
 
   function makeHarness() {
     const client = {
+      fetchDecksIndex: jest.fn(async () => '<html></html>'), // §DECKS-TOP-FUENTE: sin filas ⇒ fallback a la portada
       fetchHome: jest.fn(async () => HOME_HTML),
       fetchDeckList: jest.fn(async () => '<div></div>'),
     } as unknown as LimitlessFetchClient;
@@ -76,6 +77,9 @@ describe('DecksMetaRefreshService (§4) — deckCount = persistidos + note JSON 
     let listSeq = 0;
     const tx = {
       metaDeck: {
+        findFirst: jest.fn(async () => null),
+        updateMany: jest.fn(async () => ({ count: 0 })),
+        findMany: jest.fn(async () => []),
         findUnique: jest.fn(async ({ where: { slug } }: { where: { slug: string } }) => existingBySlug[slug] ?? null),
         upsert: jest.fn(async ({ where: { slug } }: { where: { slug: string } }) => {
           const ex = existingBySlug[slug];
@@ -84,6 +88,7 @@ describe('DecksMetaRefreshService (§4) — deckCount = persistidos + note JSON 
         update: jest.fn(async () => ({})),
       },
       metaDeckList: {
+        findUnique: jest.fn(async () => null),
         create: jest.fn(async () => ({ id: `newlist-${listSeq++}` })),
         update: jest.fn(async () => ({})),
       },

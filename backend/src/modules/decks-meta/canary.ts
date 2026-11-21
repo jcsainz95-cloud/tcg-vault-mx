@@ -29,12 +29,22 @@ export interface CanaryInput {
   homeParseable: boolean;
   /** Bloques `.leader` con `listId` no nulo (candidatos). */
   leadersWithListId: number;
+  /**
+   * §DECKS-TOP-FUENTE.5: si se da, la fuente fue `/decks` y se evalúa C6 (filas parseadas del índice ≥ minDecks)
+   * EN LUGAR de C5. `homeParseable` se ignora en ese caso.
+   */
+  indexRows?: number;
+  /**
+   * §DECKS-TOP-FUENTE.16: con `/decks` el llamante pasa en `decks` solo los decks en banda y aquí el total de filas válidas
+   * traídas; C2 pasa a «fuera de banda ≤ `outOfBandMaxRatio` (40 %) de esas filas».
+   */
+  bandTotal?: number;
   /** Decks que se trajeron y parsearon OK (los que fallaron su fetch no entran). */
   decks: DeckCanarySummary[];
 }
 
 export interface CanaryCheck {
-  id: 'C1' | 'C2' | 'C3' | 'C4' | 'C5';
+  id: 'C1' | 'C2' | 'C3' | 'C4' | 'C5' | 'C6';
   ok: boolean;
   /** Valor medido (número o texto compacto). */
   measured: number;
@@ -53,11 +63,15 @@ export interface CanaryResult {
   inBandDeckCount: number;
 }
 
-/** Evalúa los cinco umbrales C1–C5. Determinista, sin I/O. */
+/** Evalúa los cinco umbrales (C1–C4 + C5 home, o C6 índice `/decks`). Determinista, sin I/O. */
 export function evaluateCanary(input: CanaryInput, t: CanaryThresholds): CanaryResult {
   const decks = input.decks;
   const inBand = decks.filter((d) => d.sumQuantity >= t.cardsMin && d.sumQuantity <= t.cardsMax);
   const outOfBand = decks.filter((d) => d.sumQuantity < t.cardsMin || d.sumQuantity > t.cardsMax);
+  const bandMode = input.bandTotal !== undefined;
+  const oobCount = bandMode ? Math.max(0, input.bandTotal! - inBand.length) : outOfBand.length;
+  const oobRatio = bandMode ? (input.bandTotal! > 0 ? oobCount / input.bandTotal! : 1) : 0;
+  const oobMax = t.outOfBandMaxRatio ?? 0.4;
 
   const total = decks.reduce((s, d) => s + d.total, 0);
   const matched = decks.reduce((s, d) => s + d.matched, 0);
@@ -76,10 +90,12 @@ export function evaluateCanary(input: CanaryInput, t: CanaryThresholds): CanaryR
     {
       id: 'C2',
       // Ningún deck traído puede quedar fuera de la banda 55–61 (un deck a medio parsear = ~30).
-      ok: decks.length > 0 && outOfBand.length === 0,
-      measured: outOfBand.length,
-      threshold: 0,
-      label: `decks fuera de banda [${t.cardsMin},${t.cardsMax}] (${outOfBand.length}) = 0`,
+      ok: bandMode ? input.bandTotal! > 0 && oobRatio <= oobMax : decks.length > 0 && outOfBand.length === 0,
+      measured: bandMode ? round2(oobRatio) : outOfBand.length,
+      threshold: bandMode ? oobMax : 0,
+      label: bandMode
+        ? `fuera de banda [${t.cardsMin},${t.cardsMax}] (${oobCount}/${input.bandTotal}) ≤ ${Math.round(oobMax * 100)} %`
+        : `decks fuera de banda [${t.cardsMin},${t.cardsMax}] (${outOfBand.length}) = 0`,
     },
     {
       id: 'C3',
@@ -95,13 +111,21 @@ export function evaluateCanary(input: CanaryInput, t: CanaryThresholds): CanaryR
       threshold: t.unmatchedSetMaxRatio,
       label: `ratio unmatched_set (${round2(unmatchedSetRatio)}) ≤ ${t.unmatchedSetMaxRatio}`,
     },
-    {
-      id: 'C5',
-      ok: input.homeParseable && input.leadersWithListId >= t.minDecks,
-      measured: input.leadersWithListId,
-      threshold: t.minDecks,
-      label: `home parseable, bloques con listId (${input.leadersWithListId}) ≥ ${t.minDecks}`,
-    },
+    input.indexRows !== undefined
+      ? {
+          id: 'C6',
+          ok: input.indexRows >= t.minDecks,
+          measured: input.indexRows,
+          threshold: t.minDecks,
+          label: `índice /decks parseable, filas (${input.indexRows}) ≥ ${t.minDecks}`,
+        }
+      : {
+          id: 'C5',
+          ok: input.homeParseable && input.leadersWithListId >= t.minDecks,
+          measured: input.leadersWithListId,
+          threshold: t.minDecks,
+          label: `home parseable, bloques con listId (${input.leadersWithListId}) ≥ ${t.minDecks}`,
+        },
   ];
 
   const failed = checks.filter((c) => !c.ok);

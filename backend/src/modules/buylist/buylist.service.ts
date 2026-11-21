@@ -34,6 +34,7 @@ import { maskClabe } from '../../common/crypto/pii-mask';
 // vitrina de bounties. v1.80.2.2 (BC-9): desde aquí SOLO se entra por `quoteAcquisitionWithGuard` —
 // las reglas puras del peldaño 1 (`bountyPayoutCents`, `bountyGuardBasis`) no se importan fuera de
 // `money.ts` (censo cerrado en `test/money.bounty-cap.spec.ts`).
+import { mesaFields } from './decision-table-mesa';
 import { AcquisitionQuoteResult, PriceBasis, quoteAcquisitionWithGuard } from '../../common/money';
 import {
   MarketBracket as MarketBracketType,
@@ -717,6 +718,8 @@ interface DecisionLine {
     rawCondition: RawCondition | null;
     finish: Finish | null;
     quotedPriceCents: number | null;
+    /** BUYLIST-MESA: mercado del snapshot de cotización (ausente en fixtures viejos ⇒ null). */
+    marketMxnCents?: number | null;
   };
   /**
    * La llave canónica de la variante, ya resuelta (`variantKey` la consume tal cual).
@@ -3099,6 +3102,15 @@ export class BuylistService implements OnModuleInit {
         derivedPriceCents,
         priceBasis: decision?.priceBasis ?? ('pending' as PriceBasis),
         pendingReason: decision?.pendingReason ?? null,
+        // BUYLIST-MESA: campos aditivos derivados del MISMO `decision` que congela `POST …/offer`.
+        ...mesaFields({
+          marketMxnCents: decision?.quote.marketMxnCents ?? null,
+          curveQuoteCents: decision?.quote.curveQuoteCents ?? null,
+          derivedPriceCents,
+          priceBasis: decision?.priceBasis ?? 'pending',
+          quotedPriceCents: it.quotedPriceCents ?? null,
+          quotedMarketMxnCents: it.marketMxnCents ?? null,
+        }),
         ...this.positionAndSuggestion(
           position,
           l.positionKey,
@@ -3855,7 +3867,13 @@ export class BuylistService implements OnModuleInit {
   async adminOffer(
     id: string,
     actor: { id: string; role: Role },
-    lines: { itemId: string; decision: BuyDecision; overridePriceCents?: number; overrideReason?: string }[],
+    lines: {
+      itemId: string;
+      decision: BuyDecision;
+      overridePriceCents?: number;
+      overrideReason?: string;
+      expectedDerivedCents?: number;
+    }[],
   ) {
     // ---- 1. Precondición (lectura para el DIAGNÓSTICO; la guarda real es el `where` de abajo) ----
     const req = await this.prisma.sellRequest.findUnique({
@@ -3913,6 +3931,22 @@ export class BuylistService implements OnModuleInit {
     // ---- 3. Precio por línea — el SEAM ÚNICO, en lote, con la curva VIGENTE AHORA ----
     const { decisions } = await this.deriveOfferLinesBatch(req.items);
     const byItem = new Map(lines.map((l) => [l.itemId, l]));
+    // ---- 3-bis. MESA-1: guarda de precio visto. Antes de cualquier escritura: 409 sin efectos. ----
+    const changedLines = lines
+      .filter((l) => l.expectedDerivedCents != null)
+      .map((l) => ({
+        lineId: l.itemId,
+        expectedCents: l.expectedDerivedCents as number,
+        currentCents: decisions.get(l.itemId)?.quotedPriceCents ?? null,
+      }))
+      .filter((x) => x.expectedCents !== x.currentCents);
+    if (changedLines.length > 0) {
+      throw BusinessException.conflict(
+        'OFFER_PRICE_CHANGED',
+        'The price changed since the decision table was shown',
+        { lines: changedLines },
+      );
+    }
     const notPriceable: string[] = [];
     const reasonMissing: string[] = [];
     const resolved: {

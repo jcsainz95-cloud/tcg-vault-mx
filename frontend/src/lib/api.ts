@@ -18,6 +18,7 @@ import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } 
 import * as fx from './mock/fixtures';
 import * as mockReservation from './mock/reservation';
 import * as mockDecksMeta from './mock/decks-meta';
+import { runDecksMetaRefreshJob } from './api/decks-meta-jobs';
 import * as mockAcc from './mock/accessories';
 import * as mockDsc from './mock/discounts';
 import * as mockVersions from './mock/versions';
@@ -303,6 +304,7 @@ import type {
   DeckMetaDetailResponse,
   DeckMetaPasteResponse,
   DecksMetaPreviewResponse,
+  DecksMetaJobEnqueued,
   DecksMetaDialDTO,
   DecksMetaDialUpdateRequest,
 } from '@/types/contract';
@@ -707,10 +709,13 @@ export async function pasteDeckList(text: string): Promise<DeckMetaPasteResponse
 /**
  * §13 Fase 2 — ADMIN dry-run: `GET /admin/decks-meta/preview` (rol `vault_operator+`). Corre el
  * pipeline REAL en dry-run y devuelve el reporte INLINE sin escribir nada. ⚠️ Egress real a un
- * tercero (Limitless) ⇒ tarda ~30-45s y puede fallar por red; el llamador muestra carga y reintento.
+ * tercero (Limitless) ⇒ tarda ~1-2 min y puede fallar por red; el llamador muestra carga y reintento.
  */
-export async function getDecksMetaPreview(): Promise<DecksMetaPreviewResponse> {
-  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DecksMetaPreviewResponse>('/admin/decks-meta/preview');
+export async function getDecksMetaPreview(
+  opts: { onEnqueued?: (e: DecksMetaJobEnqueued) => void; signal?: AbortSignal } = {},
+): Promise<DecksMetaPreviewResponse> {
+  // §DECKS-TOP-FUENTE: el GET síncrono corre ~61 s (riesgo de timeout) ⇒ POST dryRun:true + sondeo.
+  if (!(MOCKS_BUILD && config.useMocks)) return runDecksMetaRefreshJob({ dryRun: true, ...opts });
   // MOCK: el reporte de ejemplo es instantáneo (el backend real dispara el egress lento).
   return delay(mockDecksMeta.mockDecksMetaPreview, 400);
 }
@@ -719,12 +724,12 @@ export async function getDecksMetaPreview(): Promise<DecksMetaPreviewResponse> {
  * §13 Fase 2 — ADMIN super_admin: dispara la publicación REAL inmediata del refresh de decks meta
  * (`POST /admin/jobs/decks-meta-refresh`, 202). Corre el pipeline en vivo RESPETANDO el dial:
  * `off` ⇒ no publica ({skipped:'DIAL_OFF'}); `on` ⇒ jala de Limitless y publica si el canary pasa.
- * Egress real a un tercero ⇒ tarda ~30-45s. Mismo shape que el preview (`DecksMetaPreviewResponse`).
+ * Asíncrono (§DECKS-TOP-FUENTE): encola (202) y sondea cada 3 s; ~1-2 min. Mismo shape que el preview (`DecksMetaPreviewResponse`).
  */
-export async function runDecksMetaPublishNow(): Promise<DecksMetaPreviewResponse> {
-  if (!(MOCKS_BUILD && config.useMocks)) {
-    return apiRequest<DecksMetaPreviewResponse>('/admin/jobs/decks-meta-refresh', { method: 'POST', body: {} });
-  }
+export async function runDecksMetaPublishNow(
+  opts: { onEnqueued?: (e: DecksMetaJobEnqueued) => void; signal?: AbortSignal } = {},
+): Promise<DecksMetaPreviewResponse> {
+  if (!(MOCKS_BUILD && config.useMocks)) return runDecksMetaRefreshJob(opts);
   return delay(mockDecksMeta.mockDecksMetaPublishNow, 500);
 }
 

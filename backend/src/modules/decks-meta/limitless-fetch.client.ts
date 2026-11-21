@@ -6,6 +6,7 @@ import {
   LimitlessFetchConfig,
   buildArchetypeUrl,
   buildDeckListUrl,
+  buildDecksIndexUrl,
   buildHomeUrl,
   resolveFetchConfig,
 } from './limitless.config';
@@ -62,7 +63,12 @@ export class LimitlessFetchClient {
     return resolveFetchConfig(this.config);
   }
 
-  /** GET home «Top Decks». */
+  /** GET índice de arquetipos `/decks` (fuente de candidatos, §DECKS-TOP-FUENTE). */
+  async fetchDecksIndex(budget?: FetchBudget): Promise<string> {
+    return this.getText(buildDecksIndexUrl(), 0, 0, budget);
+  }
+
+  /** GET home «Top Decks» (sólo fallback). */
   async fetchHome(budget?: FetchBudget): Promise<string> {
     return this.getText(buildHomeUrl(), 0, 0, budget);
   }

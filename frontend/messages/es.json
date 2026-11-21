@@ -3596,6 +3596,63 @@
           "premium_at_floor": "La variante premium quedó en el piso: no hay precio derivable.",
           "identity_drift": "Esta variante ya no existe en el catálogo, así que no se consultó el mercado."
         },
+        "mesa": {
+          "colCard": "Carta",
+          "colMarket": "Mercado hoy",
+          "colStandard": "Estándar",
+          "colOffer": "Oferta final",
+          "colChange": "Cambio",
+          "colStock": "Stock",
+          "colBuy": "Comprar",
+          "standardCell": "{pct} % → {amount}",
+          "standardNone": "—",
+          "summaryHint": "Mercado de hoy → estándar de la curva → oferta final. El chip junto a la oferta dice si se aparta del estándar y por qué.",
+          "filterAll": "Todas ({count})",
+          "filterChanges": "Solo las que cambian ({count})",
+          "filterEmpty": "Ninguna línea cambia respecto al estándar.",
+          "shortcuts": "↑ ↓ mover · Espacio marcar · E editar precio",
+          "listLabel": "Líneas de la oferta; usa flechas arriba y abajo para moverte",
+          "chip": {
+            "standard": "Estándar",
+            "up": "Subida +{amount}",
+            "down": "Bajada −{amount}",
+            "noPrice": "Sin precio"
+          },
+          "reason": {
+            "STOCK_CAP": "Ya tenemos el tope de esta carta.",
+            "MANUAL_OVERRIDE": "Precio fijado por el equipo.",
+            "BOUNTY": "Hay un bounty que la busca.",
+            "FLOOR": "Se aplicó el precio mínimo.",
+            "NO_MARKET": "No hay precio de mercado."
+          },
+          "sinceQuote": {
+            "MARKET_UP": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} más): el mercado subió desde la cotización.",
+            "MARKET_DOWN": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} menos): el mercado bajó desde la cotización.",
+            "BOUNTY": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} de diferencia): hay un bounty activo.",
+            "MANUAL_OVERRIDE": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} de diferencia): el equipo fijó el precio.",
+            "CURVE_CHANGED": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} de diferencia): cambió la curva desde la cotización."
+          },
+          "stock": {
+            "have": "Tenemos {total} · aceptamos hasta {threshold}",
+            "full": "Tenemos {total}, tope {threshold}: ya no necesitamos",
+            "haveOnly": "Tenemos {total}",
+            "unknown": "Sin conteo"
+          },
+          "photo": {
+            "open": "Ampliar la foto de {name}",
+            "close": "Cerrar la foto",
+            "none": "Sin foto",
+            "alt": "{name}, {set} {number}"
+          },
+          "edit": "Editar oferta",
+          "editDone": "Listo",
+          "chipHint": "El chip compara con el estándar; la nota, con lo cotizado.",
+          "editedByYou": "Precio editado por ti",
+          "priceChangedEdited": "El precio de referencia cambió de {from} a {to}; tu precio editado se conserva: {edited}. Revisa y vuelve a emitir",
+          "priceChanged": "El precio cambió de {from} a {to}; revisa y vuelve a emitir",
+          "priceChangedBanner": "El precio de {count, plural, one {# carta cambió} other {# cartas cambiaron}} desde que se mostró la mesa. No se emitió nada: revisa las líneas marcadas y vuelve a emitir.",
+          "details": "Ver conteo y sugerencia"
+        },
         "buyLine": "Comprar {name}",
         "selectAll": "Marcar todas",
         "clearAll": "Quitar todas",
@@ -5101,10 +5158,13 @@
       "title": "Ensayo (modo prueba)",
       "subtitle": "Corre el jalado automático de Meta Battle Decks en modo prueba: trae todo de Limitless, lo revisa y te dice si publicaría, sin tocar nada de lo que ya está en línea.",
       "runButton": "Correr ensayo",
-      "running": "Jalando de Limitless… (~30-45s)",
+      "running": "Trabajando… (~1-2 min)",
       "runningNote": "Tarda porque baja las listas de verdad, una por una. No cierres la pestaña.",
       "error": "No se pudo correr el ensayo. Suele ser un problema de red con Limitless; vuelve a intentarlo.",
       "retry": "Reintentar",
+      "busyDryRun": "Hay un ensayo en curso; espera a que termine.",
+      "busyPublish": "Hay una publicación en curso; espera a que termine.",
+      "jobTimeout": "Tarda más de lo normal; revisa el último reporte.",
       "alreadyRunning": "Ya hay un ensayo en curso. Espera a que termine y vuelve a intentarlo.",
       "empty": "Todavía no corres el ensayo. Aprieta «Correr ensayo» para ver qué pasaría, sin publicar nada.",
       "verdict": {
@@ -5166,10 +5226,11 @@
       },
       "checks": {
         "C1": "arquetipos encontrados",
-        "C2": "60 cartas por deck",
+        "C2": "fuera de banda ≤ 40 %",
         "C3": "cartas reconocidas",
         "C4": "cartas sin edición",
-        "C5": "página principal legible"
+        "C5": "página principal legible",
+        "C6": "índice parseable"
       },
       "notes": {
         "title": "Notas",
@@ -5182,10 +5243,14 @@
         "title": "Publicar ahora",
         "subtitle": "Jala los decks de Limitless y los publica en tu tienda en este momento, sin esperar al barrido automático del lunes. Respeta el interruptor de arriba.",
         "button": "Publicar ahora",
-        "running": "Publicando… (~30-45s)",
+        "running": "Trabajando… (~1-2 min)",
         "runningNote": "Tarda porque baja las listas de verdad, una por una. No cierres la pestaña.",
         "error": "No se pudo publicar. Suele ser un problema de red con Limitless; vuelve a intentarlo.",
         "retry": "Reintentar",
+        "deduped": "Ya había una corrida en curso; te muestro esa.",
+        "jobLost": "El servidor se reinició; vuelve a intentarlo.",
+        "jobFailed": "La corrida falló: {error}",
+        "delisted": "Decks despublicados en esta corrida: {slugs}.",
         "dialOff": "El interruptor está apagado, así que no se publicó nada. Enciéndelo arriba para poder publicar.",
         "alreadyRunning": "Ya hay una corrida en curso. Espera a que termine y vuelve a intentarlo.",
         "published": "Listo: se publicó en la tienda ({count, plural, one {# deck} other {# decks}}).",

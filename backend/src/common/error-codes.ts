@@ -527,6 +527,7 @@ export const ErrorCode = {
   // Sobre una oferta YA ENVIADA. Una oferta enviada NO SE EDITA: se cancela y se emite otra
   // (criterio 145) — el precio ofertado es vinculante desde el correo (D2/D9). `details.status`. 409.
   OFFER_ALREADY_SENT: 'OFFER_ALREADY_SENT',
+  OFFER_PRICE_CHANGED: 'OFFER_PRICE_CHANGED',
   // v1.51.3 (D36) — SIN DIRECCIÓN DE ORIGEN NO SE OFERTA. Ofertar es comprometer dinero Y prometer
   // una etiqueta: si el hueco se descubriera al capturar la guía, ya le habríamos escrito al vendedor
   // que le compramos y estaríamos incumpliendo un contrato por un dato que nunca pedimos.
@@ -715,6 +716,9 @@ export const ErrorCode = {
   // ── DECKS-META (Fase 1, API_CONTRACT §13 / DECKS_META_ARCH.md §7) ─────────────────────────────
   // 404 — `GET /decks-meta/:slug` con un slug que no corresponde a ningún deck publicado.
   DECK_NOT_FOUND: 'DECK_NOT_FOUND',
+  // 409 — `POST /admin/jobs/decks-meta-refresh` con una corrida de OTRO tipo (ensayo vs publicación) en curso;
+  // `details {runningJobId, runningDryRun}` (API_CONTRACT_DECKS_META §1).
+  REFRESH_BUSY: 'REFRESH_BUSY',
   // 422 — `POST /decks-meta/paste` con texto vacío o sin NINGUNA línea de carta válida (el parser no
   // pudo extraer una sola línea). Distinto de VALIDATION_ERROR (forma del body): el body es válido,
   // pero su contenido no es una lista parseable. API_CONTRACT §13.

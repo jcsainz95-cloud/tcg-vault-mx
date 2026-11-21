@@ -81,7 +81,9 @@ function List({ response }: { response: { data: MetaDeckSummaryDTO[]; updatedAt:
         </div>
       ) : (
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {response.data.map((deck) => (
+          {[...response.data]
+            .sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9))
+            .map((deck) => (
             <DeckTile key={deck.slug} deck={deck} />
           ))}
         </div>
@@ -108,7 +110,9 @@ function DeckTile({ deck }: { deck: MetaDeckSummaryDTO }) {
       </div>
       <div className="flex flex-1 flex-col gap-2 p-5">
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[11px] tabular text-accent">{t('list.rank', { rank: deck.rank })}</span>
+          {deck.rank != null && (
+            <span className="font-mono text-[11px] tabular text-accent">{t('list.rank', { rank: deck.rank })}</span>
+          )}
           {deck.sharePct != null && (
             <span className="flex items-center gap-1.5 font-mono text-[11px] tabular text-muted">
               <Trend trend={deck.trend} />

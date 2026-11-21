@@ -372,6 +372,8 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
   // 4) EL SMOKE COMPLETO — cotizar → ofertar → aceptar → guía → tránsito → verificar → pagar
   // ===========================================================================================
   describe('el ciclo de punta a punta (los criterios 114/122/134/161 en un solo recorrido)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let mesaLine: any;
     let srId: string;
     let itemId: string;
 
@@ -405,6 +407,22 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       // Éste es el efecto medible de BL-1: con el `addressId` descartado, TODA solicitud creada por
       // la app nacía con `pickupAddressMissing: true` y era inofertable (`422 PICKUP_ADDRESS_MISSING`).
       expect(res.body.pickupAddressMissing).toBe(false);
+      // BUYLIST-MESA: campos aditivos, enteros, y el estándar se explica contra el mercado de HOY.
+      mesaLine = res.body.lines[0];
+      expect(Number.isInteger(mesaLine.marketMxnCents)).toBe(true);
+      expect(mesaLine.marketMxnCents).toBeGreaterThan(0);
+      expect(Number.isInteger(mesaLine.standardOfferCents)).toBe(true);
+      expect(mesaLine.standardPctBp).toBe(
+        Math.round((mesaLine.standardOfferCents * 10000) / mesaLine.marketMxnCents),
+      );
+      // adjustment ⇔ derivado ≠ estándar, con el delta firmado del contrato.
+      if (mesaLine.derivedPriceCents === mesaLine.standardOfferCents) {
+        expect(mesaLine.adjustment).toBeNull();
+      } else {
+        expect(mesaLine.adjustment.deltaCents).toBe(
+          mesaLine.derivedPriceCents - mesaLine.standardOfferCents,
+        );
+      }
     });
 
     it('(4) el operador OFERTA dentro de su tope: 200, oferta ENVIADA y los tres montos congelados', async () => {
@@ -421,6 +439,11 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       expect(row!.offerShippingFeeCents).toBe(18000);
       // NETO = max(0, bruto − envío). «La resta se ENSEÑA, no se esconde.»
       expect(row!.offerNetCents).toBe(32000);
+      // ⭐ PARIDAD mesa ↔ emisión (BUYLIST-MESA): lo que la mesa mostró como `derivedPriceCents` es
+      // EXACTAMENTE lo que `POST …/offer` congeló, línea por línea.
+      const item = await h.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
+      expect(item!.offerDerivedPriceCents).toBe(mesaLine.derivedPriceCents);
+      expect(item!.offeredPriceCents).toBe(mesaLine.derivedPriceCents);
     });
 
     it('(5) el vendedor ve los TRES montos y el desglose línea por línea (criterios 118/161)', async () => {

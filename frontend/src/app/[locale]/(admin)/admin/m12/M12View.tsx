@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Loader2, Check, X, Play, AlertTriangle } from 'lucide-react';
@@ -19,6 +19,33 @@ import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DecksMetaDialControl } from './DecksMetaDialControl';
 import { DeckCoverCell } from './DeckCoverCell';
+import {
+  DecksMetaBusyError,
+  DecksMetaJobFailedError,
+  DecksMetaJobLostError,
+  DecksMetaJobTimeoutError,
+} from '@/lib/api/decks-meta-jobs';
+
+/** Un AbortController por pantalla: cancela el sondeo al salir de la página. */
+function useAbortOnUnmount() {
+  const ref = useRef<AbortController | null>(null);
+  useEffect(() => () => ref.current?.abort(), []);
+  return () => {
+    ref.current?.abort();
+    ref.current = new AbortController();
+    return ref.current.signal;
+  };
+}
+
+type T = ReturnType<typeof useTranslations>;
+/** Texto llano del error de una corrida (nunca «red con Limitless» salvo fallo genérico). */
+function jobErrorText(err: unknown, t: T, fallback: string): string {
+  if (err instanceof DecksMetaBusyError) return t(err.runningDryRun ? 'busyDryRun' : 'busyPublish');
+  if (err instanceof DecksMetaJobLostError) return t('publishNow.jobLost');
+  if (err instanceof DecksMetaJobTimeoutError) return t('jobTimeout');
+  if (err instanceof DecksMetaJobFailedError && err.message) return t('publishNow.jobFailed', { error: err.message });
+  return fallback;
+}
 
 /**
  * §13 Fase 2 — pantalla de OPERADOR para el ENSAYO (dry-run) del auto-fetch de decks del meta.
@@ -36,7 +63,14 @@ export function M12View() {
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const locale = useLocale() as AppLocale;
 
-  const run = useMutation({ mutationFn: getDecksMetaPreview });
+  const [deduped, setDeduped] = useState(false);
+  const newSignal = useAbortOnUnmount();
+  const run = useMutation({
+    mutationFn: () => {
+      setDeduped(false);
+      return getDecksMetaPreview({ signal: newSignal(), onEnqueued: (e) => setDeduped(e.deduped) });
+    },
+  });
 
   // El endpoint devuelve el `RefreshRunResult`: o corrió (report), o se saltó (single-flight).
   const result = run.data;
@@ -62,7 +96,7 @@ export function M12View() {
         <p className="max-w-[70ch] text-sm text-muted">{t('subtitle')}</p>
       </div>
 
-      {/* El disparador + su estado de carga. El ensayo tarda ~30-45s (egress real). */}
+      {/* El disparador + su estado de carga. El ensayo tarda ~1-2 min (egress real). */}
       <div className="flex flex-col gap-3">
         <div>
           <Button loading={run.isPending} onClick={() => run.mutate()}>
@@ -77,6 +111,7 @@ export function M12View() {
               {t('running')}
             </span>
             <p className="mt-1">{t('runningNote')}</p>
+            {deduped && <p className="mt-1">{t('publishNow.deduped')}</p>}
           </Banner>
         )}
 
@@ -91,7 +126,7 @@ export function M12View() {
               </Button>
             }
           >
-            {t('error')}
+            {jobErrorText(run.error, t, t('error'))}
           </Banner>
         )}
 
@@ -140,7 +175,14 @@ function PublishNowSection({ locale }: { locale: AppLocale }) {
   const { isSuperAdmin } = useRole();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const run = useMutation({ mutationFn: runDecksMetaPublishNow });
+  const [deduped, setDeduped] = useState(false);
+  const newSignal = useAbortOnUnmount();
+  const run = useMutation({
+    mutationFn: () => {
+      setDeduped(false);
+      return runDecksMetaPublishNow({ signal: newSignal(), onEnqueued: (e) => setDeduped(e.deduped) });
+    },
+  });
 
   if (!isSuperAdmin) return null;
 
@@ -177,6 +219,7 @@ function PublishNowSection({ locale }: { locale: AppLocale }) {
               {t('publishNow.running')}
             </span>
             <p className="mt-1">{t('publishNow.runningNote')}</p>
+            {deduped && <p className="mt-1">{t('publishNow.deduped')}</p>}
           </Banner>
         )}
 
@@ -191,7 +234,7 @@ function PublishNowSection({ locale }: { locale: AppLocale }) {
               </Button>
             }
           >
-            {t('publishNow.error')}
+            {jobErrorText(run.error, t, t('publishNow.error'))}
           </Banner>
         )}
 
@@ -229,6 +272,12 @@ function PublishNowSection({ locale }: { locale: AppLocale }) {
             </Banner>
           ))}
       </div>
+
+      {report && report.delistedSlugs && report.delistedSlugs.length > 0 && (
+        <Banner variant="warning" role="status">
+          {t('publishNow.delisted', { slugs: report.delistedSlugs.join(', ') })}
+        </Banner>
+      )}
 
       {report && <Report report={report} locale={locale} />}
 
@@ -305,7 +354,7 @@ function Report({ report, locale }: { report: DecksMetaRefreshReport; locale: Ap
         )}
       </section>
 
-      {/* ── Chequeos C1–C5 ─────────────────────────────────────────────────────────────────── */}
+      {/* ── Chequeos C1–C6 ─────────────────────────────────────────────────────────────────── */}
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('canary.title')}</h2>
         <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">

@@ -110,6 +110,9 @@ function fakePrisma(dial: 'on' | 'off') {
   let seq = 0;
   const tx = {
     metaDeck: {
+      findFirst: jest.fn(async () => null),
+      updateMany: jest.fn(async () => ({ count: 0 })),
+      findMany: jest.fn(async () => []),
       findUnique: jest.fn(async () => null),
       upsert: jest.fn(async ({ where, create }: any) => {
         writes.deckUpsert.push(where.slug);
@@ -118,6 +121,7 @@ function fakePrisma(dial: 'on' | 'off') {
       update: jest.fn(async (a: any) => { writes.deckUpdate.push(a); return {}; }),
     },
     metaDeckList: {
+      findUnique: jest.fn(async () => null),
       create: jest.fn(async ({ data }: any) => { writes.listCreate.push(data); return { id: `list-${++seq}` }; }),
       update: jest.fn(async (a: any) => { writes.listUpdate.push(a); return {}; }),
     },
@@ -152,6 +156,7 @@ const LOOSE_CANARY = {
 function build(dial: 'on' | 'off', home = homeHtml) {
   const { prisma, writes } = fakePrisma(dial);
   const client = {
+    fetchDecksIndex: jest.fn(async () => '<html></html>'), // §DECKS-TOP-FUENTE: sin filas ⇒ fallback a la portada
     fetchHome: jest.fn(async () => home),
     fetchDeckList: jest.fn(async () => decklistHtml),
   } as unknown as LimitlessFetchClient;
@@ -290,6 +295,7 @@ describe('P6 · ensayo (dry-run): decks[].cover con imagen de NUESTRO catálogo 
   it('un deck cuya lista falla (error) reporta cover:null', async () => {
     const { prisma } = fakePrisma('off');
     const client = {
+      fetchDecksIndex: jest.fn(async () => '<html></html>'), // §DECKS-TOP-FUENTE: sin filas ⇒ fallback a la portada
       fetchHome: jest.fn(async () => homeHtml),
       fetchDeckList: jest.fn(async () => { throw new Error('boom'); }),
     } as unknown as LimitlessFetchClient;

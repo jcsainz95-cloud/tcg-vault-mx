@@ -4,6 +4,7 @@ import { renderWithProviders } from '@/test/render';
 import { M12View } from './M12View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import { DecksMetaBusyError, DecksMetaJobTimeoutError, DecksMetaJobLostError, DecksMetaJobFailedError } from '@/lib/api/decks-meta-jobs';
 import type { DecksMetaRefreshReport, DecksMetaPreviewResponse } from '@/types/contract';
 
 /** v1.80 (P-71): el código se pinta «TWM 130» con espacio NO separable; el normalizador por defecto lo colapsaría. */
@@ -133,6 +134,50 @@ describe('M12View · Ensayo decks meta (dry-run)', () => {
     await screen.findByText('PUBLICARÍA');
     expect(screen.queryByText('Diagnóstico de legalidad')).not.toBeInTheDocument();
     expect(screen.queryByText('Caídas por legalidad')).not.toBeInTheDocument();
+  });
+});
+
+describe('M12View · Vista previa asíncrona', () => {
+  it('deduped avisa; 404 del sondeo muestra «servidor se reinició»', async () => {
+    vi.spyOn(api, 'getDecksMetaPreview').mockImplementation(async (o) => {
+      o?.onEnqueued?.({ jobId: 'j', status: 'running', deduped: true });
+      throw new DecksMetaJobLostError();
+    });
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Correr ensayo' }));
+    expect(await screen.findByText('El servidor se reinició; vuelve a intentarlo.')).toBeInTheDocument();
+  });
+
+  it('operador: puede «Correr ensayo» (dryRun) y no ve «Publicar ahora»', async () => {
+    roleState.role = 'vault_operator';
+    const spy = vi.spyOn(api, 'getDecksMetaPreview').mockResolvedValue({ skipped: false, report: report() } as never);
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Correr ensayo' }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Publicar ahora' })).not.toBeInTheDocument();
+  });
+
+  it('409 REFRESH_BUSY ⇒ «ensayo/publicación en curso», nunca «algún chequeo no pasó»', async () => {
+    vi.spyOn(api, 'getDecksMetaPreview').mockRejectedValue(new DecksMetaBusyError(false));
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Correr ensayo' }));
+    expect(await screen.findByText('Hay una publicación en curso; espera a que termine.')).toBeInTheDocument();
+    expect(screen.queryByText(/algún chequeo no pasó/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/problema de red/)).not.toBeInTheDocument();
+  });
+
+  it('tope de sondeo ⇒ «tarda más de lo normal»', async () => {
+    vi.spyOn(api, 'getDecksMetaPreview').mockRejectedValue(new DecksMetaJobTimeoutError());
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Correr ensayo' }));
+    expect(await screen.findByText('Tarda más de lo normal; revisa el último reporte.')).toBeInTheDocument();
+  });
+
+  it('etiqueta C2 «fuera de banda ≤ 40 %» en es y en', async () => {
+    const es = (await import('../../../../../../messages/es.json')).default as any;
+    const en = (await import('../../../../../../messages/en.json')).default as any;
+    expect(es.admin.decksMetaRefresh.checks.C2).toBe('fuera de banda ≤ 40 %');
+    expect(en.admin.decksMetaRefresh.checks.C2).toBe('out of band ≤ 40 %');
   });
 });
 
@@ -362,5 +407,42 @@ describe('M12View · columna Portada (decks-portada)', () => {
     expect(screen.getAllByText(/image rejected \(not from our catalog\)/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/no image in the catalog/)).toBeNull();
     expect(imgSrcs()).toEqual([]);
+  });
+
+  it('404 del sondeo ⇒ «El servidor se reinició»', async () => {
+    vi.spyOn(api, 'runDecksMetaPublishNow').mockRejectedValue(new DecksMetaJobLostError());
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar ahora' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sí, publicar ahora' }));
+    expect(await screen.findByText('El servidor se reinició; vuelve a intentarlo.')).toBeInTheDocument();
+  });
+
+  it('job failed ⇒ muestra el error del servidor', async () => {
+    vi.spyOn(api, 'runDecksMetaPublishNow').mockRejectedValue(new DecksMetaJobFailedError('Limitless 503'));
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar ahora' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sí, publicar ahora' }));
+    expect(await screen.findByText('La corrida falló: Limitless 503')).toBeInTheDocument();
+  });
+
+  it('deduped ⇒ avisa y trabajando…; al terminar muestra delistedSlugs y C6 con texto', async () => {
+    let finish!: (v: DecksMetaPreviewResponse) => void;
+    vi.spyOn(api, 'runDecksMetaPublishNow').mockImplementation(
+      (o) =>
+        new Promise((res) => {
+          o?.onEnqueued?.({ jobId: 'j', status: 'running', deduped: true });
+          finish = res;
+        }),
+    );
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar ahora' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sí, publicar ahora' }));
+    expect(await screen.findByText('Trabajando… (~1-2 min)')).toBeInTheDocument();
+    expect(screen.getByText('Ya había una corrida en curso; te muestro esa.')).toBeInTheDocument();
+    const r = report({ mode: 'live', publishedSlugs: ['a'], delistedSlugs: ['viejo-deck'] });
+    r.canary.checks.push({ id: 'C6', ok: true, measured: 12, threshold: 8 });
+    finish({ skipped: false, mode: 'live', report: r });
+    expect(await screen.findByText('índice parseable')).toBeInTheDocument();
+    expect(screen.getByText(/viejo-deck/)).toBeInTheDocument();
   });
 });

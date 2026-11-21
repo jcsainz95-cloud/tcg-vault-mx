@@ -392,7 +392,8 @@ export const mockCards: CardDTO[] = ([
   card('c-blastoise', 'Blastoise', '2', 'Rare Holo', 'base1', 'Base Set', 'Pokémon', ['Stage 2']),
   card('c-pikachu', 'Pikachu', '58', 'Common', 'base1', 'Base Set'),
   card('c-zapdos', 'Zapdos', '16', 'Rare Holo', 'base1', 'Base Set'),
-  card('c-eevee', 'Eevee', '51', 'Reverse Holo', 'base1', 'Base Set'),
+  // Solo la imagen apunta a Eevee (Jungle #51); el set se queda en base1 para no mover los agregados de Master Set.
+  card('c-eevee', 'Eevee', '51', 'Reverse Holo', 'base1', 'Base Set', 'Pokémon', ['Basic'], 'https://images.pokemontcg.io/base2'),
   card('c-machamp', 'Machamp', '8', 'Uncommon', 'base1', 'Base Set', 'Pokémon', ['Stage 2']),
   // Rarezas modernas (Scarlet & Violet) para poblar el filtro de rareza agrupado.
   card('c-pikachu-ir', 'Pikachu ex', '238', 'Illustration Rare', 'sv08', 'Surging Sparks', 'Pokémon', ['Basic', 'ex'], SV),
@@ -6906,7 +6907,50 @@ const MOCK_POSITIONS: Record<
   'c-eevee': null,
 };
 
-function mockDecisionLine(item: SellItemDTO): BuylistDecisionLineDTO {
+/**
+ * Campos BUYLIST-MESA del mock (anexo API_CONTRACT_BUYLIST_MESA.md). Es un servidor FALSO: ejercita los cuatro chips
+ * y la nota `sinceQuote` sembrando por posición de la línea (el cálculo real vive en backend).
+ */
+function mockMesaFields(
+  item: SellItemDTO,
+  index: number,
+  derived: number | null,
+  pending: boolean,
+): Pick<
+  BuylistDecisionLineDTO,
+  'marketMxnCents' | 'standardOfferCents' | 'standardPctBp' | 'adjustment' | 'sinceQuote'
+> {
+  if (pending || derived == null) {
+    return { marketMxnCents: null, standardOfferCents: null, standardPctBp: null, adjustment: null, sinceQuote: null };
+  }
+  const quoted = item.quotedPriceCents ?? derived;
+  // Siembra: la 2.ª línea sube (bounty), la 3.ª baja (precio fijado a mano); el resto es estándar.
+  const delta = index % 4 === 1 ? Math.round(derived * 0.1) : index % 4 === 2 ? -Math.round(derived * 0.2) : 0;
+  const standard = derived - delta;
+  const market = Math.round(standard / 0.7);
+  return {
+    marketMxnCents: market,
+    standardOfferCents: standard,
+    standardPctBp: Math.round((standard * 10000) / market),
+    adjustment:
+      delta === 0
+        ? null
+        : delta > 0
+          ? { deltaCents: delta, reasonCode: 'BOUNTY', reasonText: 'Hay un bounty que la busca.' }
+          : { deltaCents: delta, reasonCode: 'MANUAL_OVERRIDE', reasonText: 'Precio fijado por el equipo: la carta se vende lento.' },
+    sinceQuote:
+      quoted !== derived
+        ? {
+            quotedCents: quoted,
+            deltaCents: derived - quoted,
+            reasonCode: derived > quoted ? 'MARKET_UP' : 'MARKET_DOWN',
+            reasonText: '',
+          }
+        : null,
+  };
+}
+
+function mockDecisionLine(item: SellItemDTO, index: number): BuylistDecisionLineDTO {
   const raw = MOCK_POSITIONS[item.card.id];
   const unavailable = raw === null;
   const position = raw
@@ -6927,6 +6971,7 @@ function mockDecisionLine(item: SellItemDTO): BuylistDecisionLineDTO {
     // El PAR discrimina: sin precio y con motivo ⇒ el mercado se consultó y no dio nada.
     pendingReason: pending ? 'no_market' : null,
     position,
+    ...mockMesaFields(item, index, derived, pending),
     ...(unavailable ? { positionUnavailable: true } : {}),
     // ⚠️ Sin conteo NO se infiere veredicto: `none`, y la UI pinta «sin sugerencia».
     suggestion: unavailable
@@ -6949,7 +6994,7 @@ function mockDecisionLine(item: SellItemDTO): BuylistDecisionLineDTO {
 export function mockDecisionTable(id: string): BuylistDecisionTableDTO {
   const row = mockAdminBuylist.find((r) => r.id === id);
   if (!row) throw new ApiFixtureNotFound('Sell request not found');
-  const lines = row.items.map(mockDecisionLine);
+  const lines = row.items.map((it, i) => mockDecisionLine(it, i));
   const buyableGrossCents = lines.reduce((sum, l) => sum + (l.derivedPriceCents ?? 0), 0);
   const netCents = Math.max(0, buyableGrossCents - MOCK_SHIPPING_FEE_CENTS);
   return {

@@ -210,6 +210,8 @@ export class OfferLineDto {
   // evaluar** (necesita el derivado). Por eso aquí es opcional y el `422 OVERRIDE_REASON_REQUIRED`
   // sale del servicio, no del pipe. El pipe sí impone la LONGITUD cuando viene.
   @IsOptional() @IsString() @Length(3, 500) overrideReason?: string;
+  // MESA-1: el derivado que la mesa mostró; si el servidor recalcula otro ⇒ 409 OFFER_PRICE_CHANGED.
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_APPROVED_PRICE_CENTS) expectedDerivedCents?: number;
 }
 
 /**
