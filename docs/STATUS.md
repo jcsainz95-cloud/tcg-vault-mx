@@ -86,13 +86,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-21 · §DECKS-TOP-FUENTE 9b8b1ea6 · RECHAZADO (texto de qa, transcrito por el orquestador)
-- Cerrados: portada 6/6 casadas conservadas y 0/7 a null (backend real + Limitless real; coords /decks/<id> = prod 7/7); despublicación a 3 corridas válidas medida (corrida abortada no cuenta); rank null no publica; C6 con texto; 202+sondeo ~68 s, deduped y 404 tras reinicio OK.
-- BLOQUEANTE (frontend; decide arquitecto): vault_operator ve «Correr ensayo» (M12View.tsx:75) pero el POST es super_admin ⇒ 403 + texto falso «red con Limitless» (M12View.tsx:106), 1/1.
-- IMPORTANTE (arquitecto→front/back): Publicar ahora agrupado con un ensayo muestra «algún chequeo no pasó» (M12View.tsx:250; service.ts:98), por lectura de código.
-- IMPORTANTE (frontend): en un reinicio real el sondeo falla por red y muestra el error genérico, no «job perdido» (decks-meta-jobs.ts), 1/1.
-- MENOR: «~30-45s» en comentarios (api.ts:712, M12View.tsx:72); etiqueta C2 vieja (es.json:5222); formatCode null en vivo ⇒ «Standard»; rank repetido en pausados/manual.
-- Regresión: unit 612/612 (10692); vitest 6132 + 13 skip; tsc/lint 0 errores; doc-size VERDE; integración 207/207 en 11 lotes (3703 + 2 skip).
+## QA (qa) — 2026-11-21 · §DECKS-TOP-FUENTE e6628568 · APROBADO; §BUYLIST-MESA a47ae35f · APROBADO (texto de qa, transcrito por el orquestador)
+- Decks (backend real + front USE_MOCKS=false + Limitless real, 2 corridas): operador ve «Correr ensayo» y no «Publicar ahora», ensayo 202→veredicto 61 s, 1/1; publicar como super_admin durante el ensayo ⇒ 409 «Hay un ensayo en curso», 1/1; reinicio a media corrida ⇒ «El servidor se reinició», 1/1; «red con Limitless» 0/3; API operador: dryRun:false o {} ⇒ 403, "true" ⇒ 400, job ajeno ⇒ 404. Portada 6/6 conservadas, despublicación a 3 corridas medida (gate 9b8b1ea6).
+- Mesa: IMP-1 2/2 y IMP-2 2/2+1/1 cerrados; paridad mesa = congelado 1/1 API y 1/1 UI; 409 real sin efectos 1/1; integración buylist 181/181.
+- MENOR: Chequeos muestra «umbral 0.4» junto a «≤ 40 %»; formatCode null ⇒ «Standard»; rank repetido en pausados/manual; mesa: chip «Estándar» al editar sin estándar, role del <ul>, scroll en refetch, nota sin signo.
+- Regresión: unit 612/612 (10697); vitest 6147 + 13 skip; tsc/lint 0 errores; doc-size VERDE; integración decks-meta 5/5 + jobs/supply 19/19 (1122); integración completa 207/207 en lotes sobre 9b8b1ea6, NO MEDIDA sobre e6628568.
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
