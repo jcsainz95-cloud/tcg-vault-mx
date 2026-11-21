@@ -105,12 +105,13 @@ SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/a
 | TL-ALTA-1 | Sin foco/aviso de error en la captura de idioma/versión: `useIdsCapture.ts:73,79`, `ids-capture.ts:145,161` (y ficha original) | frontend | 2026-11-06 | ver `docs/archive/TECH_DEBT.md` TL-ALTA-1 |
 | Registro histórico | 172 filas en `docs/archive/TECH_DEBT.md` (sin re-medir): se migran aquí **solo** al tocar su módulo | dueño del módulo | 2026-11-06 | — |
 
-## Backend (backend) — 2026-11-21 (HEAP-INTEG-94: ajuste de memoria de tests; sobre a576ac28)
-- ts-jest con `isolatedModules:true, diagnostics:false` en `backend/jest.config.js:9` y `backend/test/jest-integration.config.js:14`; el chequeo de tipos de tests lo cubre `npm run typecheck` (tsconfig.json include test/**, ci.yml:185; medido verde).
-- Mismo subconjunto de 19 specs (351 pruebas, `--logHeapUsage`, un proceso): ANTES 2217 MB / 127 s; DESPUES 799 MB / 101 s.
-- Integración COMPLETA, un proceso, heap 6144: 203/203 suites, 3663/3663 pruebas, pico 4240 MB (69 % de 6144), 1638 s. Unit completo: 612/612 suites, 10696/10696 (10697 menos el duplicado quitado).
-- Quitadas: staff-throttle (fusionada en auth-throttle, conserva 401x5 y 429), catalog-enum-filters-empty y admin-enum-filters-500 (3 grupos de casos movidos a enum-query-axes: `/catalog/cards?sealedSubtype` vacío/espacio/basura+value, `/catalog/sealed?productType` ⇒ 200, parámetro repetido ⇒ 400 en 6 ejes admin), cta-m97-migration y mitad (a) de m63-migration (migraciones ya en production, `git cat-file -e origin/production:` OK). Unit: duplicado «vacío → Map vacío» en pricing.references-batch-history-prune.spec.ts.
-- NO MEDIDO: rojo por mutación de los casos movidos (son conductas ya existentes; verdes en la suite completa). Comentarios en src/ y test/ aún citan los ficheros borrados (solo texto).
+## Backend (backend) — 2026-11-21 (HEAP-INTEG-94 v2: restauradas las aserciones que qa halló perdidas; sobre f7c78c78)
+- ts-jest `isolatedModules:true, diagnostics:false` (`backend/jest.config.js:9`, `backend/test/jest-integration.config.js:14`); tipos de tests por `npm run typecheck`. Heap del subconjunto de 19 specs 2217->799 MB (medido en 78a6858f).
+- Restauradas en `backend/test/integration/enum-query-axes.e2e-spec.ts`: B1 `code`+`details.field==='productType'` en la excepción D-EQ-3 (`hoy`); IMP vacío/%20/%09 ⇒ 200 y MISMO `total` que sin filtro en los 6 ejes admin; tres ejes inválidos a la vez ⇒ 400 con field en {status,ownerType,zone} y tres válidos ⇒ 200; `?condition=%20NM` ⇒ 400 con `details.field`.
+- Mutaciones (src/ revertido, `git diff -- backend/src` vacío): B1 `'productType'`->`'tipo'` (catalog.service.ts:1390) ⇒ ROJO 1/1 (la excepción D-EQ-3). IMP `status=` vacío ⇒ filtra por `cancelled` (admin-orders.controller.ts:87) ⇒ ROJO 1/1 en la prueba nueva de total (más 3 de REGISTRO). Variante vacío⇒token basura ⇒ ROJO (REGISTRO, 12+ filas).
+- Conteos: enum-query-axes integración 868/868 (antes 857 en HEAD; +11); unit completo 612/612 suites, 10696/10696 en la última corrida; una corrida previa dio 1 prueba roja que no se reprodujo (1/2 corridas, NO IDENTIFICADA: salida no capturada). eslint del spec limpio.
+- Quitadas sin cambio (decididas): staff-throttle (fusionada), cta-m97-migration y mitad (a) de m63 (migraciones ya en production). Fuera de alcance: M5 (promo wipe).
+- NO MEDIDO: integración completa tras este cambio (solo el spec tocado).
 
 ## Frontend (frontend) — 2026-11-20 (§PROV-F4: 503 MARKET_UNAVAILABLE en publicar manual con texto es/en; sugeridas muestran decks de origen `reasons[{rank,copies,mult}]` 3+«y N más»; pruebas covered/errores; §DEMANDA F1+F2 pendiente gate; §ENV3 sin cambios)
 Next 15.5 App Router; admin M1–M12.
