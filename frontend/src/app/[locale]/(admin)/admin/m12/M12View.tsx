@@ -19,6 +19,7 @@ import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DecksMetaDialControl } from './DecksMetaDialControl';
 import { DeckCoverCell } from './DeckCoverCell';
+import { DecksMetaJobFailedError, DecksMetaJobLostError } from '@/lib/api/decks-meta-jobs';
 
 /**
  * §13 Fase 2 — pantalla de OPERADOR para el ENSAYO (dry-run) del auto-fetch de decks del meta.
@@ -140,7 +141,13 @@ function PublishNowSection({ locale }: { locale: AppLocale }) {
   const { isSuperAdmin } = useRole();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const run = useMutation({ mutationFn: runDecksMetaPublishNow });
+  const [deduped, setDeduped] = useState(false);
+  const run = useMutation({
+    mutationFn: () => {
+      setDeduped(false);
+      return runDecksMetaPublishNow({ onEnqueued: (e) => setDeduped(e.deduped) });
+    },
+  });
 
   if (!isSuperAdmin) return null;
 
@@ -177,6 +184,7 @@ function PublishNowSection({ locale }: { locale: AppLocale }) {
               {t('publishNow.running')}
             </span>
             <p className="mt-1">{t('publishNow.runningNote')}</p>
+            {deduped && <p className="mt-1">{t('publishNow.deduped')}</p>}
           </Banner>
         )}
 
@@ -191,7 +199,11 @@ function PublishNowSection({ locale }: { locale: AppLocale }) {
               </Button>
             }
           >
-            {t('publishNow.error')}
+            {run.error instanceof DecksMetaJobLostError
+              ? t('publishNow.jobLost')
+              : run.error instanceof DecksMetaJobFailedError && run.error.message
+                ? t('publishNow.jobFailed', { error: run.error.message })
+                : t('publishNow.error')}
           </Banner>
         )}
 
@@ -229,6 +241,12 @@ function PublishNowSection({ locale }: { locale: AppLocale }) {
             </Banner>
           ))}
       </div>
+
+      {report && report.delistedSlugs && report.delistedSlugs.length > 0 && (
+        <Banner variant="warning" role="status">
+          {t('publishNow.delisted', { slugs: report.delistedSlugs.join(', ') })}
+        </Banner>
+      )}
 
       {report && <Report report={report} locale={locale} />}
 
@@ -305,7 +323,7 @@ function Report({ report, locale }: { report: DecksMetaRefreshReport; locale: Ap
         )}
       </section>
 
-      {/* ── Chequeos C1–C5 ─────────────────────────────────────────────────────────────────── */}
+      {/* ── Chequeos C1–C6 ─────────────────────────────────────────────────────────────────── */}
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold">{t('canary.title')}</h2>
         <ul className="flex flex-col divide-y divide-border rounded-lg border border-border bg-surface">

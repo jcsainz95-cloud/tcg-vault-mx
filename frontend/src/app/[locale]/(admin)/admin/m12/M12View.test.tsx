@@ -4,6 +4,7 @@ import { renderWithProviders } from '@/test/render';
 import { M12View } from './M12View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import { DecksMetaJobLostError, DecksMetaJobFailedError } from '@/lib/api/decks-meta-jobs';
 import type { DecksMetaRefreshReport, DecksMetaPreviewResponse } from '@/types/contract';
 
 /** v1.80 (P-71): el código se pinta «TWM 130» con espacio NO separable; el normalizador por defecto lo colapsaría. */
@@ -362,5 +363,42 @@ describe('M12View · columna Portada (decks-portada)', () => {
     expect(screen.getAllByText(/image rejected \(not from our catalog\)/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/no image in the catalog/)).toBeNull();
     expect(imgSrcs()).toEqual([]);
+  });
+
+  it('404 del sondeo ⇒ «El servidor se reinició»', async () => {
+    vi.spyOn(api, 'runDecksMetaPublishNow').mockRejectedValue(new DecksMetaJobLostError());
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar ahora' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sí, publicar ahora' }));
+    expect(await screen.findByText('El servidor se reinició; vuelve a intentarlo.')).toBeInTheDocument();
+  });
+
+  it('job failed ⇒ muestra el error del servidor', async () => {
+    vi.spyOn(api, 'runDecksMetaPublishNow').mockRejectedValue(new DecksMetaJobFailedError('Limitless 503'));
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar ahora' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sí, publicar ahora' }));
+    expect(await screen.findByText('La corrida falló: Limitless 503')).toBeInTheDocument();
+  });
+
+  it('deduped ⇒ avisa y trabajando…; al terminar muestra delistedSlugs y C6 con texto', async () => {
+    let finish!: (v: DecksMetaPreviewResponse) => void;
+    vi.spyOn(api, 'runDecksMetaPublishNow').mockImplementation(
+      (o) =>
+        new Promise((res) => {
+          o?.onEnqueued?.({ jobId: 'j', status: 'running', deduped: true });
+          finish = res;
+        }),
+    );
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar ahora' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sí, publicar ahora' }));
+    expect(await screen.findByText('Trabajando… (~1-2 min)')).toBeInTheDocument();
+    expect(screen.getByText('Ya había una corrida en curso; te muestro esa.')).toBeInTheDocument();
+    const r = report({ mode: 'live', publishedSlugs: ['a'], delistedSlugs: ['viejo-deck'] });
+    r.canary.checks.push({ id: 'C6', ok: true, measured: 12, threshold: 8 });
+    finish({ skipped: false, mode: 'live', report: r });
+    expect(await screen.findByText('índice parseable')).toBeInTheDocument();
+    expect(screen.getByText(/viejo-deck/)).toBeInTheDocument();
   });
 });

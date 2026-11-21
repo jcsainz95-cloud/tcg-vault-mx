@@ -8159,7 +8159,8 @@ export interface MetaDeckGroupsDTO {
 export interface MetaDeckSummaryDTO {
   slug: string;
   name: string;
-  rank: number;
+  /** `null` (deck sin rank en la fuente) ⇒ va al final y no pinta «#». */
+  rank: number | null;
   /** % del meta, si la fuente lo da. */
   sharePct?: number;
   /** share_actual − anterior (▲=+, ▼=−, 0). */
@@ -8185,7 +8186,7 @@ export interface DecksMetaListResponse {
 export interface DeckMetaDetailResponse {
   slug: string;
   name: string;
-  rank: number;
+  rank: number | null;
   sharePct?: number;
   trend?: number;
   source: string;
@@ -8216,7 +8217,7 @@ export interface DeckMetaPasteResponse {
  * ────────────────────────────────────────────────────────────────────────────────────────── */
 
 export interface DecksMetaCanaryCheck {
-  id: 'C1' | 'C2' | 'C3' | 'C4' | 'C5';
+  id: 'C1' | 'C2' | 'C3' | 'C4' | 'C5' | 'C6';
   ok: boolean;
   measured: number;
   threshold: number;
@@ -8285,6 +8286,8 @@ export interface DecksMetaRefreshReport {
   persistedCount: number;
   publishedSlugs: string[];
   supersededListIds: string[];
+  /** Slugs despublicados en esta corrida por `missedRuns` ≥ 3. Opcional: backend anterior no lo manda. */
+  delistedSlugs?: string[];
   manualConflicts: string[];
   pausedSkipped: string[];
   errors: string[];
@@ -8295,6 +8298,25 @@ export interface DecksMetaRefreshReport {
  * o bien se saltó por single-flight (`ALREADY_RUNNING`). En dry-run el dial `off` NO aplica (el
  * dry-run se fuerza), así que en la práctica sólo llega `ALREADY_RUNNING`, pero se tipa completo.
  */
+/** `POST /admin/jobs/decks-meta-refresh` → 202 (API_CONTRACT_DECKS_META §1). */
+export interface DecksMetaJobEnqueued {
+  jobId: string;
+  status: 'queued' | 'running';
+  deduped: boolean;
+}
+
+/** `GET /admin/jobs/decks-meta-refresh/:jobId` (API_CONTRACT_DECKS_META §2). `result` solo con `done`; `error` solo con `failed`. */
+export interface DecksMetaJobStatus {
+  jobId: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  dryRun: boolean;
+  enqueuedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  result: DecksMetaPreviewResponse | null;
+  error: string | null;
+}
+
 export type DecksMetaPreviewResponse =
   | { skipped: true; reason: 'ALREADY_RUNNING' | 'DIAL_OFF'; mode: 'skipped' | 'off' }
   | { skipped: false; report: DecksMetaRefreshReport; mode: 'live' | 'dryrun' };

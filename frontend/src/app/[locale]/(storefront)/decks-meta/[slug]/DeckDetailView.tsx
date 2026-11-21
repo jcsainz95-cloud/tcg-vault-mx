@@ -51,7 +51,9 @@ function Detail({ detail }: { detail: DeckMetaDetailResponse }) {
 
       <header className="pt-8">
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[11px] tabular text-accent">{t('list.rank', { rank: detail.rank })}</span>
+          {detail.rank != null && (
+            <span className="font-mono text-[11px] tabular text-accent">{t('list.rank', { rank: detail.rank })}</span>
+          )}
           {detail.sharePct != null && (
             <span className="font-mono text-[11px] tabular text-muted">{t('list.share', { share: detail.sharePct })}</span>
           )}
