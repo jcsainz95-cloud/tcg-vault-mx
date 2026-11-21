@@ -1205,6 +1205,15 @@ describe('M5View · `isPayable` gobierna el botón de pagar (v1.51.8)', () => {
     expect(screen.getByRole('button', { name: 'Pagar por SPEI' })).toBeDisabled();
   });
 
+  it('«nunca 0»: un ítem sin `quotedPriceCents` muestra «—», no MX$0.00', async () => {
+    const r = row('sr-np', { isTerminal: false }) as unknown as AdminBuylistDTO;
+    (r.items[0] as { quotedPriceCents: number | null }).quotedPriceCents = null;
+    vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({ data: [r], page: 1, pageSize: 25, total: 1 });
+    renderWithProviders(<M5View />, 'es');
+    await screen.findByText('sr-np');
+    expect(screen.queryByText('MX$0.00')).not.toBeInTheDocument();
+  });
+
   it('con `isPayable:true` sí lo habilita', async () => {
     withRow({ isTerminal: false, isPayable: true });
     renderWithProviders(<M5View />, 'es');

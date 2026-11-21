@@ -1062,7 +1062,7 @@ export function M5View() {
                                   it.itemStatus === 'rechazada' && 'line-through',
                                 )}
                               >
-                                {formatMoneyCents(it.quotedPriceCents ?? 0, locale)}
+                                {(it.quotedPriceCents != null ? formatMoneyCents(it.quotedPriceCents, locale) : '—')}
                               </span>
                               {it.approvedPriceCents != null && (
                                 <span className="tabular text-success">
@@ -1440,7 +1440,7 @@ export function M5View() {
                         <FinishBadge finish={it.finish} productType={it.productType} />
                         {/* Ítem rechazado: cotización tachada — NO suma en el total aprobado. */}
                         <span className={cn('tabular text-xs text-muted', isRejected && 'line-through')}>
-                          {formatMoneyCents(it.quotedPriceCents ?? 0, locale)}
+                          {(it.quotedPriceCents != null ? formatMoneyCents(it.quotedPriceCents, locale) : '—')}
                         </span>
                         {it.approvedPriceCents != null && (
                           <span className="tabular text-xs text-success">
@@ -1790,7 +1790,7 @@ export function M5View() {
               {' · '}
               {t('quoted')}:{' '}
               <span className="tabular">
-                {formatMoneyCents(rejectTarget.item.quotedPriceCents ?? 0, locale)}
+                {(rejectTarget.item.quotedPriceCents != null ? formatMoneyCents(rejectTarget.item.quotedPriceCents, locale) : '—')}
               </span>
             </p>
           )}
@@ -1897,7 +1897,7 @@ export function M5View() {
               {' · '}
               {t('quoted')}:{' '}
               <span className="tabular">
-                {formatMoneyCents(adjustTarget.item.quotedPriceCents ?? 0, locale)}
+                {(adjustTarget.item.quotedPriceCents != null ? formatMoneyCents(adjustTarget.item.quotedPriceCents, locale) : '—')}
               </span>
             </p>
           )}

@@ -4921,7 +4921,7 @@ export interface BuylistDecisionLineDTO {
   sinceQuote?: {
     quotedCents: number;
     deltaCents: number;
-    reasonCode: 'MARKET_UP' | 'MARKET_DOWN' | 'CURVE_CHANGED';
+    reasonCode: 'BOUNTY' | 'MANUAL_OVERRIDE' | 'MARKET_UP' | 'MARKET_DOWN' | 'CURVE_CHANGED';
     reasonText: string;
   } | null;
 }

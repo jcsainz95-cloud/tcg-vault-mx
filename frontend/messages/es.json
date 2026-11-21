@@ -3606,7 +3606,7 @@
           "colBuy": "Comprar",
           "standardCell": "{pct} % → {amount}",
           "standardNone": "—",
-          "summaryHint": "Mercado de hoy → estándar de la curva → oferta final. «Cambio» dice si la oferta se aparta del estándar y por qué.",
+          "summaryHint": "Mercado de hoy → estándar de la curva → oferta final. El chip junto a la oferta dice si se aparta del estándar y por qué.",
           "filterAll": "Todas ({count})",
           "filterChanges": "Solo las que cambian ({count})",
           "filterEmpty": "Ninguna línea cambia respecto al estándar.",
@@ -3628,6 +3628,8 @@
           "sinceQuote": {
             "MARKET_UP": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} más): el mercado subió desde la cotización.",
             "MARKET_DOWN": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} menos): el mercado bajó desde la cotización.",
+            "BOUNTY": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} de diferencia): hay un bounty activo.",
+            "MANUAL_OVERRIDE": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} de diferencia): el equipo fijó el precio.",
             "CURVE_CHANGED": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} de diferencia): cambió la curva desde la cotización."
           },
           "stock": {
@@ -3645,6 +3647,8 @@
           "edit": "Editar oferta",
           "editDone": "Listo",
           "chipHint": "El chip compara con el estándar; la nota, con lo cotizado.",
+          "editedByYou": "Precio editado por ti",
+          "priceChangedEdited": "El precio de referencia cambió de {from} a {to}; tu precio editado se conserva: {edited}. Revisa y vuelve a emitir",
           "priceChanged": "El precio cambió de {from} a {to}; revisa y vuelve a emitir",
           "priceChangedBanner": "El precio de {count, plural, one {# carta cambió} other {# cartas cambiaron}} desde que se mostró la mesa. No se emitió nada: revisa las líneas marcadas y vuelve a emitir.",
           "details": "Ver conteo y sugerencia"

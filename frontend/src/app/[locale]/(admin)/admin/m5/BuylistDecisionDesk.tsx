@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { emitBuylistOffer, getBuylistDecisionTable } from '@/lib/api';
@@ -372,16 +372,28 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: Buyli
   const unavailableCount = lines.filter((l) => l.positionUnavailable || !l.position).length;
   const readOnly = data ? data.status !== 'cotizada' : false;
 
-  const changingCount = lines.filter((l) => {
+  // «Solo las que cambian»: se apartan del estándar, no tienen precio, el operador las editó, o la oferta
+  // difiere de lo cotizado (`sinceQuote.deltaCents ≠ 0`, contrato BUYLIST_MESA).
+  const lineChanges = (l: BuylistDecisionLineDTO) => {
     const chip = mesaChip(l);
-    return chip === 'up' || chip === 'down' || chip === 'noPrice';
-  }).length;
-  const visibleLines = onlyChanges
-    ? lines.filter((l) => {
-        const chip = mesaChip(l);
-        return chip === 'up' || chip === 'down' || chip === 'noPrice' || isOverride(l, overrides[l.itemId]);
-      })
-    : lines;
+    return (
+      chip === 'up' ||
+      chip === 'down' ||
+      chip === 'noPrice' ||
+      isOverride(l, overrides[l.itemId]) ||
+      (l.sinceQuote != null && l.sinceQuote.deltaCents !== 0)
+    );
+  };
+  const changingCount = lines.filter(lineChanges).length;
+  const visibleLines = onlyChanges ? lines.filter(lineChanges) : lines;
+
+  // Tras un 409: llevar la vista a la primera línea resaltada (en el orden de la mesa).
+  useEffect(() => {
+    const first = lines.find((l) => priceChanged[l.itemId]);
+    if (!first) return;
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-item="${first.itemId}"]`);
+    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center' });
+  }, [priceChanged, lines]);
   const cursorIdx = Math.min(cursor, Math.max(visibleLines.length - 1, 0));
   const cursorLine = visibleLines[cursorIdx];
 
@@ -628,6 +640,7 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: Buyli
               ref={listRef}
               tabIndex={0}
               aria-label={t('mesa.listLabel')}
+              role="group"
               aria-activedescendant={cursorLine ? `desk-line-${cursorLine.itemId}` : undefined}
               onKeyDown={onListKeyDown}
               className="-mt-2 flex flex-col divide-y divide-border border-b border-border focus-visible:shadow-focus focus-visible:outline-none"
@@ -638,7 +651,18 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: Buyli
                 const changed = isOverride(line, override);
                 const reasonInvalid = changed && !isValidOverrideReason(override?.reason);
                 const checked = selection.has(line.itemId);
-                const chip = mesaChip(line);
+                const baseChip = mesaChip(line);
+                // IMP-2: con precio editado, el chip compara la oferta EDITADA con el estándar.
+                let editedDelta: number | null = null;
+                let chip = baseChip;
+                if (changed && amount != null) {
+                  if (line.standardOfferCents != null) {
+                    editedDelta = amount - line.standardOfferCents;
+                    chip = editedDelta > 0 ? 'up' : editedDelta < 0 ? 'down' : 'standard';
+                  } else {
+                    chip = 'standard';
+                  }
+                }
                 const isCursor = cursorLine?.itemId === line.itemId;
                 const adj = line.adjustment ?? null;
                 const sq = line.sinceQuote ?? null;
@@ -743,14 +767,22 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: Buyli
                                     : 'border-border-strong text-text'
                             }`}
                           >
-                            {chip === 'up' && adj
-                              ? `▲ ${t('mesa.chip.up', { amount: formatMoneyCents(adj.deltaCents, locale) })}`
-                              : chip === 'down' && adj
-                                ? `▼ ${t('mesa.chip.down', { amount: formatMoneyCents(Math.abs(adj.deltaCents), locale) })}`
-                                : t(`mesa.chip.${chip}`)}
+                            {(() => {
+                              const d = changed ? editedDelta : (adj?.deltaCents ?? null);
+                              if (chip === 'up' && d != null)
+                                return `▲ ${t('mesa.chip.up', { amount: formatMoneyCents(d, locale) })}`;
+                              if (chip === 'down' && d != null)
+                                return `▼ ${t('mesa.chip.down', { amount: formatMoneyCents(Math.abs(d), locale) })}`;
+                              return t(`mesa.chip.${chip}`);
+                            })()}
                           </span>
                         )}
-                        {adj && (
+                        {changed && (
+                          <span className="text-xs leading-[1.5] text-text" data-testid="line-reason-edited">
+                            {t('mesa.editedByYou')}
+                          </span>
+                        )}
+                        {!changed && adj && (
                           <span className="text-xs leading-[1.5] text-text" data-testid="line-reason">
                             {locale === 'es' && adj.reasonText
                               ? adj.reasonText
@@ -758,7 +790,7 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: Buyli
                           </span>
                         )}
                         {/* Nota APARTE del chip: el mercado se movió desde la cotización. No cambia el chip. */}
-                        {sq && (
+                        {sq && !changed && (
                           <span className="text-xs leading-[1.5] text-muted" data-testid="line-since-quote">
                             {t(`mesa.sinceQuote.${sq.reasonCode}`, {
                               quoted: formatMoneyCents(sq.quotedCents, locale),
@@ -811,7 +843,8 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: Buyli
                         role="alert"
                         data-testid="line-price-changed"
                       >
-                        {t('mesa.priceChanged', {
+                        {t(changed ? 'mesa.priceChangedEdited' : 'mesa.priceChanged', {
+                          edited: amount != null ? formatMoneyCents(amount, locale) : '—',
                           from: formatMoneyCents(priceChanged[line.itemId].expectedCents, locale),
                           to:
                             priceChanged[line.itemId].currentCents != null

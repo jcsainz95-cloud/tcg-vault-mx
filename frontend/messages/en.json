@@ -3606,7 +3606,7 @@
           "colBuy": "Buy",
           "standardCell": "{pct}% → {amount}",
           "standardNone": "—",
-          "summaryHint": "Market today → standard from the curve → final offer. “Change” says whether the offer departs from the standard and why.",
+          "summaryHint": "Market today → standard from the curve → final offer. The chip next to the offer says whether it departs from the standard and why.",
           "filterAll": "All ({count})",
           "filterChanges": "Only the ones that change ({count})",
           "filterEmpty": "No line differs from the standard.",
@@ -3628,6 +3628,8 @@
           "sinceQuote": {
             "MARKET_UP": "Quoted {quoted}; we now offer {offer} ({delta} more): the market rose since the quote.",
             "MARKET_DOWN": "Quoted {quoted}; we now offer {offer} ({delta} less): the market fell since the quote.",
+            "BOUNTY": "Quoted {quoted}; we now offer {offer} ({delta} difference): there is an active bounty.",
+            "MANUAL_OVERRIDE": "Quoted {quoted}; we now offer {offer} ({delta} difference): the team set the price.",
             "CURVE_CHANGED": "Quoted {quoted}; we now offer {offer} ({delta} difference): the curve changed since the quote."
           },
           "stock": {
@@ -3645,6 +3647,8 @@
           "edit": "Edit offer",
           "editDone": "Done",
           "chipHint": "The chip compares with the standard; the note, with the quoted price.",
+          "editedByYou": "Price edited by you",
+          "priceChangedEdited": "The reference price changed from {from} to {to}; your edited price is kept: {edited}. Review and issue again",
           "priceChanged": "The price changed from {from} to {to}; review and issue again",
           "priceChangedBanner": "The price of {count, plural, one {# card} other {# cards}} changed since the desk was shown. Nothing was issued: review the highlighted lines and issue again.",
           "details": "See count and suggestion"

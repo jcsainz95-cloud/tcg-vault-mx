@@ -612,4 +612,86 @@ describe('Mesa de decisión — diseño A (BUYLIST-MESA)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await waitFor(() => expect(get.mock.calls.length).toBeGreaterThan(1));
   });
+
+  it('IMP-2: al editar el precio, el chip compara la oferta EDITADA con el estándar y dice «Precio editado por ti»', async () => {
+    render(table({ lines }));
+    const list = (await screen.findAllByTestId('desk-line'))[0].parentElement!;
+    list.focus();
+    fireEvent.keyDown(list, { key: 'e' });
+    const input = await screen.findByLabelText('Precio ofertado para Std');
+    fireEvent.change(input, { target: { value: '650' } });
+    const row = screen.getAllByTestId('desk-line')[0];
+    const chip = within(row).getByTestId('line-chip');
+    expect(chip).toHaveAttribute('data-chip', 'down');
+    expect(chip).toHaveTextContent('Bajada −MX$50.00');
+    expect(within(row).getByTestId('line-reason-edited')).toHaveTextContent('Precio editado por ti');
+    fireEvent.change(input, { target: { value: '800' } });
+    expect(within(row).getByTestId('line-chip')).toHaveTextContent('Subida +MX$100.00');
+  });
+
+  it('IMP-2: 409 en una línea editada habla del derivado y conserva el precio editado', async () => {
+    vi.spyOn(api, 'getBuylistDecisionTable').mockResolvedValue(table());
+    vi.spyOn(api, 'emitBuylistOffer').mockRejectedValue(
+      new ApiClientError(409, {
+        code: 'OFFER_PRICE_CHANGED',
+        message: 'changed',
+        details: { lines: [{ lineId: 'i-1', expectedCents: 84000, currentCents: 86000 }] },
+      }),
+    );
+    renderWithProviders(<BuylistDecisionDesk sellRequestId="sr-1" onClose={() => {}} />, 'es');
+    fireEvent.click(await screen.findByTestId('line-edit'));
+    fireEvent.change(await screen.findByLabelText(/Precio ofertado para/), { target: { value: '900' } });
+    fireEvent.change(await screen.findByLabelText('Motivo del ajuste'), { target: { value: 'el mercado se movió' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Emitir oferta' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Emitir la oferta y mandar el correo' }));
+    const note = await screen.findByTestId('line-price-changed');
+    expect(note).toHaveTextContent(
+      'El precio de referencia cambió de MX$840.00 a MX$860.00; tu precio editado se conserva: MX$900.00',
+    );
+  });
+
+  it('sinceQuote BOUNTY y MANUAL_OVERRIDE tienen texto propio (es/en)', async () => {
+    const mk = (code: 'BOUNTY' | 'MANUAL_OVERRIDE') => [
+      line({
+        itemId: 'q',
+        derivedPriceCents: 75000,
+        ...mesa,
+        adjustment: null,
+        sinceQuote: { quotedCents: 70000, deltaCents: 5000, reasonCode: code, reasonText: 'x' },
+      }),
+    ];
+    const a = render(table({ lines: mk('BOUNTY') }));
+    expect(await screen.findByTestId('line-since-quote')).toHaveTextContent('hay un bounty activo');
+    a.unmount();
+    const b = render(table({ lines: mk('MANUAL_OVERRIDE') }), 'en');
+    expect(await screen.findByTestId('line-since-quote')).toHaveTextContent('the team set the price');
+    b.unmount();
+  });
+
+  it('«Solo las que cambian» incluye líneas Estándar con sinceQuote.deltaCents ≠ 0', async () => {
+    const ls = [
+      line({ itemId: 'x', derivedPriceCents: 70000, ...mesa, adjustment: null, sinceQuote: null }),
+      line({
+        itemId: 'y',
+        derivedPriceCents: 70000,
+        ...mesa,
+        adjustment: null,
+        sinceQuote: { quotedCents: 65000, deltaCents: 5000, reasonCode: 'CURVE_CHANGED', reasonText: 'x' },
+      }),
+    ];
+    render(table({ lines: ls }));
+    await screen.findAllByTestId('desk-line');
+    fireEvent.click(screen.getByRole('button', { name: /Solo las que cambian \(1\)/ }));
+    expect(screen.getAllByTestId('desk-line')).toHaveLength(1);
+  });
+
+  it('el resumen no nombra una columna «Cambio» y la lista tiene role correcto para aria-activedescendant', async () => {
+    render(table({ lines }));
+    await screen.findAllByTestId('desk-line');
+    expect(screen.getByTestId('desk-summary-hint')).not.toHaveTextContent('«Cambio»');
+    const list = screen.getAllByTestId('desk-line')[0].parentElement!;
+    expect(list).toHaveAttribute('role', 'group');
+    expect(list).toHaveAttribute('aria-activedescendant');
+  });
 });
