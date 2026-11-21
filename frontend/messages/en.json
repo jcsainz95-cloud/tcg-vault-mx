@@ -3626,9 +3626,9 @@
             "NO_MARKET": "There is no market price."
           },
           "sinceQuote": {
-            "MARKET_UP": "Market went up since it was quoted: from {quoted} to {offer}.",
-            "MARKET_DOWN": "Market went down since it was quoted: from {quoted} to {offer}.",
-            "CURVE_CHANGED": "The curve changed since it was quoted: from {quoted} to {offer}."
+            "MARKET_UP": "Quoted {quoted}; we now offer {offer} ({delta} more): the market rose since the quote.",
+            "MARKET_DOWN": "Quoted {quoted}; we now offer {offer} ({delta} less): the market fell since the quote.",
+            "CURVE_CHANGED": "Quoted {quoted}; we now offer {offer} ({delta} difference): the curve changed since the quote."
           },
           "stock": {
             "have": "We have {total} · we accept up to {threshold}",
@@ -3642,6 +3642,11 @@
             "none": "No photo",
             "alt": "{name}, {set} {number}"
           },
+          "edit": "Edit offer",
+          "editDone": "Done",
+          "chipHint": "The chip compares with the standard; the note, with the quoted price.",
+          "priceChanged": "The price changed from {from} to {to}; review and issue again",
+          "priceChangedBanner": "The price of {count, plural, one {# card} other {# cards}} changed since the desk was shown. Nothing was issued: review the highlighted lines and issue again.",
           "details": "See count and suggestion"
         },
         "buyLine": "Buy {name}",

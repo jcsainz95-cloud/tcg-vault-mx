@@ -4978,6 +4978,8 @@ export interface BuylistOfferLineInput {
   decision: BuyDecision;
   overridePriceCents?: number;
   overrideReason?: string;
+  /** MESA-1: `derivedPriceCents` que la mesa mostró; difiere ⇒ 409 `OFFER_PRICE_CHANGED` sin efectos. */
+  expectedDerivedCents?: number;
 }
 
 /**

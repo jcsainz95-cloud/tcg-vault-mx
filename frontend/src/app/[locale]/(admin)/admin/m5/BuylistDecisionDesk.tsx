@@ -1,22 +1,19 @@
-"use client";
+'use client';
 
-import { useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocale, useTranslations } from "next-intl";
-import { emitBuylistOffer, getBuylistDecisionTable } from "@/lib/api";
-import type { AppLocale } from "@/i18n/routing";
-import { formatMoneyCents } from "@/lib/format";
-import type {
-  BuylistDecisionLineDTO,
-  BuylistOfferLineInput,
-  SellRequestStatus,
-} from "@/types/contract";
-import { Banner } from "@/components/ui/Banner";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { Modal } from "@/components/ui/Modal";
-import { QueryState, useErrorMessage } from "@/components/ui/QueryState";
-import { PriceBasisTag } from "@/components/domain/PriceBasisTag";
+import { useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useLocale, useTranslations } from 'next-intl';
+import { emitBuylistOffer, getBuylistDecisionTable } from '@/lib/api';
+import type { AppLocale } from '@/i18n/routing';
+import { ApiClientError } from '@/lib/api-client';
+import { formatMoneyCents } from '@/lib/format';
+import type { BuylistDecisionLineDTO, BuylistOfferLineInput, SellRequestStatus } from '@/types/contract';
+import { Banner } from '@/components/ui/Banner';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
+import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
+import { PriceBasisTag } from '@/components/domain/PriceBasisTag';
 import {
   defaultSelection,
   emitBlocker,
@@ -25,7 +22,7 @@ import {
   lineAmountCents,
   selectionTotals,
   type LineOverride,
-} from "./decision-desk";
+} from './decision-desk';
 
 /**
  * **LA TIRA DE POSICIÓN — cinco cifras leídas en DOS TIEMPOS** (DESIGN_SYSTEM §23.6a-c).
@@ -56,7 +53,7 @@ import {
  * columna en vez de leer 40 renglones.
  */
 function PositionStrip({ line }: { line: BuylistDecisionLineDTO }) {
-  const t = useTranslations("admin.m5.desk");
+  const t = useTranslations('admin.m5.desk');
   const position = line.position;
   const suggestion = line.suggestion;
 
@@ -74,45 +71,36 @@ function PositionStrip({ line }: { line: BuylistDecisionLineDTO }) {
       <div className="flex flex-col gap-1" data-testid="position-unavailable">
         <span className="flex flex-wrap items-baseline gap-x-2">
           <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-accent">
-            {t("position.unavailable.tag")}
+            {t('position.unavailable.tag')}
           </span>
           {/* Tinta, no muted: es información esencial para una decisión de dinero. */}
-          <span className="text-xs leading-[1.6] text-text">
-            {t("position.unavailable.text")}
-          </span>
+          <span className="text-xs leading-[1.6] text-text">{t('position.unavailable.text')}</span>
         </span>
-        <span className="text-xs leading-[1.6] text-muted">
-          {t("position.unavailable.noSuggestion")}
-        </span>
+        <span className="text-xs leading-[1.6] text-muted">{t('position.unavailable.noSuggestion')}</span>
       </div>
     );
   }
 
   const threshold = suggestion?.thresholdQty ?? null;
-  const ruleLabel =
-    suggestion?.rule === "bounty_target"
-      ? t("position.rule.bounty")
-      : t("position.rule.cap");
+  const ruleLabel = suggestion?.rule === 'bounty_target' ? t('position.rule.bounty') : t('position.rule.cap');
 
   return (
     <div className="flex flex-col gap-1.5" data-testid="position-strip">
       <span className="flex items-baseline gap-2">
         <span className="tabular font-mono text-[15px] text-text">
-          {t("position.title", {
+          {t('position.title', {
             total: position.total,
-            threshold: threshold ?? "—",
+            threshold: threshold ?? '—',
           })}
         </span>
-        <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">
-          {ruleLabel}
-        </span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-muted">{ruleLabel}</span>
       </span>
 
       <table
         className="w-fit border-collapse text-left"
-        aria-label={t("position.aria", {
+        aria-label={t('position.aria', {
           total: position.total,
-          threshold: threshold ?? "—",
+          threshold: threshold ?? '—',
           stock: position.stock,
           verifying: position.verifying,
           inTransit: position.inTransit,
@@ -122,38 +110,29 @@ function PositionStrip({ line }: { line: BuylistDecisionLineDTO }) {
       >
         <thead>
           <tr>
-            <th
-              colSpan={2}
-              scope="colgroup"
-              className="eyebrow pb-1 pr-5 text-left font-normal"
-            >
-              {t("position.groupInHouse")}
+            <th colSpan={2} scope="colgroup" className="eyebrow pb-1 pr-5 text-left font-normal">
+              {t('position.groupInHouse')}
             </th>
             <th
               colSpan={2}
               scope="colgroup"
               className="eyebrow border-l border-border-strong pb-1 pl-5 text-left font-normal"
             >
-              {t("position.groupNotYet")}
+              {t('position.groupNotYet')}
             </th>
           </tr>
         </thead>
         <tbody>
           <tr>
             {/* Peso 500 en lo que está en la casa; 400 en lo que todavía no. MISMO color. */}
-            <Cell label={t("position.stock")} value={position.stock} strong />
+            <Cell label={t('position.stock')} value={position.stock} strong />
+            <Cell label={t('position.verifying')} value={position.verifying} strong className="pr-5" />
             <Cell
-              label={t("position.verifying")}
-              value={position.verifying}
-              strong
-              className="pr-5"
-            />
-            <Cell
-              label={t("position.inTransit")}
+              label={t('position.inTransit')}
               value={position.inTransit}
               className="border-l border-border-strong pl-5"
             />
-            <Cell label={t("position.committed")} value={position.committed} />
+            <Cell label={t('position.committed')} value={position.committed} />
           </tr>
         </tbody>
       </table>
@@ -173,12 +152,10 @@ function Cell({
   className?: string;
 }) {
   return (
-    <td className={`min-w-[104px] pr-4 align-baseline ${className ?? ""}`}>
+    <td className={`min-w-[104px] pr-4 align-baseline ${className ?? ''}`}>
       <span className="flex items-baseline justify-between gap-2">
         <span className="eyebrow">{label}</span>
-        <span
-          className={`tabular font-mono text-[13px] text-text ${strong ? "font-medium" : "font-normal"}`}
-        >
+        <span className={`tabular font-mono text-[13px] text-text ${strong ? 'font-medium' : 'font-normal'}`}>
           {value}
         </span>
       </span>
@@ -200,60 +177,52 @@ function Cell({
  *   operador aprendería a temerle.
  */
 function SuggestionLine({ line }: { line: BuylistDecisionLineDTO }) {
-  const t = useTranslations("admin.m5.desk");
+  const t = useTranslations('admin.m5.desk');
   const s = line.suggestion;
   const total = line.position?.total ?? 0;
   const threshold = s?.thresholdQty ?? 0;
 
-  if (line.positionUnavailable || !s || s.verdict === "none") {
+  if (line.positionUnavailable || !s || s.verdict === 'none') {
     // El «sin conteo» ya lo dijo la tira; aquí se reserva el alto para que la fila no salte.
     return <p className="min-h-[20px] text-xs leading-[1.6] text-muted" />;
   }
 
-  const isBounty = s.rule === "bounty_target";
+  const isBounty = s.rule === 'bounty_target';
   const reason =
-    s.verdict === "do_not_buy"
+    s.verdict === 'do_not_buy'
       ? isBounty
-        ? t("suggestion.reasonBounty", { total, threshold })
-        : t("suggestion.reasonCap", { threshold })
+        ? t('suggestion.reasonBounty', { total, threshold })
+        : t('suggestion.reasonCap', { threshold })
       : isBounty
-        ? t("suggestion.reasonBountyOk", { total, threshold })
-        : t("suggestion.reasonCapOk", { total, threshold });
+        ? t('suggestion.reasonBountyOk', { total, threshold })
+        : t('suggestion.reasonCapOk', { total, threshold });
 
   return (
-    <p
-      className="min-h-[20px] text-xs leading-[1.6] text-muted"
-      data-testid="suggestion"
-    >
-      {t("suggestion.label")}:{" "}
-      {s.verdict === "do_not_buy" ? (
-        <span className="font-medium text-accent">
-          {t("suggestion.doNotBuy")}
-        </span>
+    <p className="min-h-[20px] text-xs leading-[1.6] text-muted" data-testid="suggestion">
+      {t('suggestion.label')}:{' '}
+      {s.verdict === 'do_not_buy' ? (
+        <span className="font-medium text-accent">{t('suggestion.doNotBuy')}</span>
       ) : (
-        <span>{t("suggestion.buy")}</span>
-      )}{" "}
+        <span>{t('suggestion.buy')}</span>
+      )}{' '}
       — {reason}
       {/* Caso legacy legible: bounty vivo SIN objetivo ⇒ se mide con el tope, y se dice. */}
-      {s.bountyActive &&
-        s.rule === "variant_cap" &&
-        ` ${t("suggestion.legacyBountyNote")}`}
+      {s.bountyActive && s.rule === 'variant_cap' && ` ${t('suggestion.legacyBountyNote')}`}
     </p>
   );
 }
 
-type MesaChip = "standard" | "up" | "down" | "noPrice";
+type MesaChip = 'standard' | 'up' | 'down' | 'noPrice';
 
 /**
  * Chip de la mesa (contrato BUYLIST-MESA): se DERIVA de campos del servidor, sin aritmética de dinero.
  * `adjustment === undefined` = servidor anterior al anexo ⇒ sin chip (no se afirma «Estándar» sin saberlo).
  */
 function mesaChip(line: BuylistDecisionLineDTO): MesaChip | null {
-  if (line.derivedPriceCents == null || line.priceBasis === "pending")
-    return "noPrice";
+  if (line.derivedPriceCents == null || line.priceBasis === 'pending') return 'noPrice';
   if (line.adjustment === undefined) return null;
-  if (line.adjustment === null) return "standard";
-  return line.adjustment.deltaCents > 0 ? "up" : "down";
+  if (line.adjustment === null) return 'standard';
+  return line.adjustment.deltaCents > 0 ? 'up' : 'down';
 }
 
 /** Foto de la fila: legible (72×100, proporción de carta) y se amplía al tocarla (visor con Esc). */
@@ -264,7 +233,7 @@ function CardPhoto({
   line: BuylistDecisionLineDTO;
   onOpen: (line: BuylistDecisionLineDTO) => void;
 }) {
-  const t = useTranslations("admin.m5.desk.mesa.photo");
+  const t = useTranslations('admin.m5.desk.mesa.photo');
   const src = line.card.imageSmallUrl || line.card.imageLargeUrl;
   if (!src) {
     return (
@@ -272,7 +241,7 @@ function CardPhoto({
         data-testid="line-photo-none"
         className="flex h-[100px] w-[72px] shrink-0 items-center justify-center border border-border-strong bg-surface-2 text-center font-mono text-[10px] uppercase tracking-[0.08em] text-muted"
       >
-        {t("none")}
+        {t('none')}
       </div>
     );
   }
@@ -280,39 +249,34 @@ function CardPhoto({
     <button
       type="button"
       onClick={() => onOpen(line)}
-      aria-label={t("open", { name: line.card.name })}
+      aria-label={t('open', { name: line.card.name })}
       data-testid="line-photo"
       className="h-[100px] w-[72px] shrink-0 cursor-zoom-in border border-border-strong bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none"
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- miniatura remota del catálogo, sin optimizador */}
-      <img
-        src={src}
-        alt=""
-        loading="lazy"
-        width={72}
-        height={100}
-        className="h-full w-full object-contain"
-      />
+      <img src={src} alt="" loading="lazy" width={72} height={100} className="h-full w-full object-contain" />
     </button>
   );
 }
 
 /** «Tenemos N · aceptamos hasta M» / «ya no necesitamos» — en llano, del conteo y la regla del servidor. */
 function StockPhrase({ line }: { line: BuylistDecisionLineDTO }) {
-  const t = useTranslations("admin.m5.desk.mesa.stock");
-  if (line.positionUnavailable || !line.position)
-    return <span className="text-muted">{t("unknown")}</span>;
+  const t = useTranslations('admin.m5.desk.mesa.stock');
+  if (line.positionUnavailable || !line.position) return <span className="text-muted">{t('unknown')}</span>;
   const total = line.position.total;
   const threshold = line.suggestion?.thresholdQty ?? null;
-  if (threshold == null) return <span>{t("haveOnly", { total })}</span>;
-  if (line.suggestion?.verdict === "do_not_buy") {
-    return (
-      <span className="font-medium text-accent">
-        {t("full", { total, threshold })}
-      </span>
-    );
+  if (threshold == null) return <span>{t('haveOnly', { total })}</span>;
+  if (line.suggestion?.verdict === 'do_not_buy') {
+    return <span className="font-medium text-accent">{t('full', { total, threshold })}</span>;
   }
-  return <span>{t("have", { total, threshold })}</span>;
+  return <span>{t('have', { total, threshold })}</span>;
+}
+
+/** `details.lines[]` del 409 `OFFER_PRICE_CHANGED` (`lineId` = itemId). */
+interface PriceChangedDetail {
+  lineId: string;
+  expectedCents: number;
+  currentCents: number | null;
 }
 
 export interface BuylistDecisionDeskProps {
@@ -328,12 +292,11 @@ export interface BuylistDecisionDeskProps {
 
 /** §60.5 d — qué dice la mesa FUERA de `cotizada`: dónde está la acción, por estado (⛔ un único texto genérico). */
 function readOnlyKey(status: SellRequestStatus): string {
-  if (status === "ofertada") return "readOnlyByStatus.ofertada";
-  if (status === "aceptada") return "readOnlyByStatus.aceptada";
-  if (status === "en_transito") return "readOnlyByStatus.en_transito";
-  if (status === "recibida" || status === "verificacion")
-    return "readOnlyByStatus.review";
-  return "readOnlyByStatus.done";
+  if (status === 'ofertada') return 'readOnlyByStatus.ofertada';
+  if (status === 'aceptada') return 'readOnlyByStatus.aceptada';
+  if (status === 'en_transito') return 'readOnlyByStatus.en_transito';
+  if (status === 'recibida' || status === 'verificacion') return 'readOnlyByStatus.review';
+  return 'readOnlyByStatus.done';
 }
 
 /**
@@ -346,49 +309,56 @@ function readOnlyKey(status: SellRequestStatus): string {
  * Es la petición original del humano, y todo lo demás de esta pantalla existe para que esas cifras
  * se puedan leer sin marearse y sin que el sistema decida por el operador.
  */
-export function BuylistDecisionDesk({
-  sellRequestId,
-  onClose,
-  onDecline,
-}: BuylistDecisionDeskProps) {
-  const t = useTranslations("admin.m5.desk");
-  const tc = useTranslations("common");
+export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: BuylistDecisionDeskProps) {
+  const t = useTranslations('admin.m5.desk');
+  const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
   const queryClient = useQueryClient();
   // ⚠️ **`'operator'` NO es decoración.** Esta es la pantalla donde v1.58 hizo alcanzables
   // `INE_REQUIRED` y `BUYLIST_LIMIT_EXCEEDED` (§M5-A), y sin declarar la audiencia el banner le
   // diría al operador que suba **su** INE. El destinatario se resuelve con `details` del servidor
   // primero y con esto después (DESIGN_SYSTEM §26.2 · `lib/error-audience.ts`).
-  const getErrorMessage = useErrorMessage("operator");
+  const getErrorMessage = useErrorMessage('operator');
 
   const [selected, setSelected] = useState<Set<string> | null>(null);
   const [overrides, setOverrides] = useState<Record<string, LineOverride>>({});
   const [confirming, setConfirming] = useState(false);
-  const [outcome, setOutcome] = useState<
-    "sent" | "pending_authorization" | null
-  >(null);
+  const [outcome, setOutcome] = useState<'sent' | 'pending_authorization' | null>(null);
   const [onlyChanges, setOnlyChanges] = useState(false);
   const [cursor, setCursor] = useState(0);
   const [photo, setPhoto] = useState<BuylistDecisionLineDTO | null>(null);
+  // Filas con el campo de precio abierto (E o «Editar oferta»): en reposo la fila es compacta y no lo muestra.
+  const [priceChanged, setPriceChanged] = useState<Record<string, PriceChangedDetail>>({});
+  const [editing, setEditing] = useState<Set<string>>(new Set());
   const listRef = useRef<HTMLUListElement>(null);
 
   const query = useQuery({
-    queryKey: ["buylist-decision-table", sellRequestId],
+    queryKey: ['buylist-decision-table', sellRequestId],
     queryFn: () => getBuylistDecisionTable(sellRequestId),
   });
 
   const emit = useMutation({
-    mutationFn: (lines: BuylistOfferLineInput[]) =>
-      emitBuylistOffer(sellRequestId, lines),
+    mutationFn: (lines: BuylistOfferLineInput[]) => emitBuylistOffer(sellRequestId, lines),
+    onMutate: () => setPriceChanged({}),
+    onError: (err) => {
+      // MESA-1: el mercado se movió entre que se mostró la mesa y se pulsó «Emitir». NO hubo efectos:
+      // se refresca la mesa y se resaltan las líneas que difieren (sin éxito, sin correo).
+      if (err instanceof ApiClientError && err.code === 'OFFER_PRICE_CHANGED') {
+        const raw = (err.details as { lines?: PriceChangedDetail[] } | undefined)?.lines ?? [];
+        setPriceChanged(Object.fromEntries(raw.map((l) => [l.lineId, l])));
+        setConfirming(false);
+        void queryClient.invalidateQueries({ queryKey: ['buylist-decision-table', sellRequestId] });
+      }
+    },
     onSuccess: (res) => {
       setConfirming(false);
       // ⚠️ El desenlace lo dice `offerState`, NO el código HTTP: `sent` = el correo salió y hay
       // una oferta vinculante; `pending_authorization` = no existe nada para el vendedor todavía.
-      setOutcome(res.offerState === "sent" ? "sent" : "pending_authorization");
+      setOutcome(res.offerState === 'sent' ? 'sent' : 'pending_authorization');
       void queryClient.invalidateQueries({
-        queryKey: ["buylist-decision-table", sellRequestId],
+        queryKey: ['buylist-decision-table', sellRequestId],
       });
-      void queryClient.invalidateQueries({ queryKey: ["admin-buylist"] });
+      void queryClient.invalidateQueries({ queryKey: ['admin-buylist'] });
     },
   });
 
@@ -397,29 +367,19 @@ export function BuylistDecisionDesk({
   // El default se calcula UNA vez, del servidor; después manda el operador.
   const selection = selected ?? defaultSelection(lines);
 
-  const totals = data
-    ? selectionTotals(lines, selection, overrides, data.totals)
-    : null;
-  const blocker =
-    data && totals ? emitBlocker(totals, data.pickupAddressMissing) : null;
-  const unavailableCount = lines.filter(
-    (l) => l.positionUnavailable || !l.position,
-  ).length;
-  const readOnly = data ? data.status !== "cotizada" : false;
+  const totals = data ? selectionTotals(lines, selection, overrides, data.totals) : null;
+  const blocker = data && totals ? emitBlocker(totals, data.pickupAddressMissing) : null;
+  const unavailableCount = lines.filter((l) => l.positionUnavailable || !l.position).length;
+  const readOnly = data ? data.status !== 'cotizada' : false;
 
   const changingCount = lines.filter((l) => {
     const chip = mesaChip(l);
-    return chip === "up" || chip === "down" || chip === "noPrice";
+    return chip === 'up' || chip === 'down' || chip === 'noPrice';
   }).length;
   const visibleLines = onlyChanges
     ? lines.filter((l) => {
         const chip = mesaChip(l);
-        return (
-          chip === "up" ||
-          chip === "down" ||
-          chip === "noPrice" ||
-          isOverride(l, overrides[l.itemId])
-        );
+        return chip === 'up' || chip === 'down' || chip === 'noPrice' || isOverride(l, overrides[l.itemId]);
       })
     : lines;
   const cursorIdx = Math.min(cursor, Math.max(visibleLines.length - 1, 0));
@@ -428,33 +388,40 @@ export function BuylistDecisionDesk({
   /** Atajos (solo con el foco en la lista, nunca dentro de un campo): ↑↓ mover · Espacio marcar · E editar precio. */
   function onListKeyDown(e: React.KeyboardEvent<HTMLUListElement>) {
     if (e.target !== e.currentTarget || visibleLines.length === 0) return;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       const next = Math.max(
         0,
-        Math.min(
-          visibleLines.length - 1,
-          cursorIdx + (e.key === "ArrowDown" ? 1 : -1),
-        ),
+        Math.min(visibleLines.length - 1, cursorIdx + (e.key === 'ArrowDown' ? 1 : -1)),
       );
       setCursor(next);
-      const el = listRef.current?.querySelector<HTMLElement>(
-        `[data-item="${visibleLines[next].itemId}"]`,
-      );
-      if (el && typeof el.scrollIntoView === "function")
-        el.scrollIntoView({ block: "nearest" });
-    } else if (e.key === " " && cursorLine && !readOnly) {
+      const el = listRef.current?.querySelector<HTMLElement>(`[data-item="${visibleLines[next].itemId}"]`);
+      if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === ' ' && cursorLine && !readOnly) {
       e.preventDefault();
-      if (lineAmountCents(cursorLine, overrides[cursorLine.itemId]) != null)
-        toggle(cursorLine.itemId);
-    } else if ((e.key === "e" || e.key === "E") && cursorLine && !readOnly) {
+      if (lineAmountCents(cursorLine, overrides[cursorLine.itemId]) != null) toggle(cursorLine.itemId);
+    } else if ((e.key === 'e' || e.key === 'E') && cursorLine && !readOnly) {
       e.preventDefault();
-      listRef.current
-        ?.querySelector<HTMLInputElement>(
-          `[data-item="${cursorLine.itemId}"] input[type="number"]`,
-        )
-        ?.focus();
+      startEditing(cursorLine.itemId);
     }
+  }
+
+  function startEditing(itemId: string) {
+    setEditing((prev) => new Set(prev).add(itemId));
+    // El campo se monta en el siguiente render: se enfoca después.
+    setTimeout(() => {
+      listRef.current
+        ?.querySelector<HTMLInputElement>(`[data-item="${itemId}"] input[type="number"]`)
+        ?.focus();
+    }, 0);
+  }
+
+  function stopEditing(itemId: string) {
+    setEditing((prev) => {
+      const next = new Set(prev);
+      next.delete(itemId);
+      return next;
+    });
   }
 
   function toggle(itemId: string) {
@@ -477,56 +444,46 @@ export function BuylistDecisionDesk({
     // ⚠️ `lines` cubre EXACTAMENTE los ítems: las no marcadas viajan como `skip`, nunca se omiten.
     // Una línea olvidada saldría del correo sin que nadie hubiera decidido nada sobre ella.
     return lines.map((line) => {
-      if (!selection.has(line.itemId))
-        return { itemId: line.itemId, decision: "skip" as const };
+      if (!selection.has(line.itemId)) return { itemId: line.itemId, decision: 'skip' as const };
       const override = overrides[line.itemId];
       const changed = isOverride(line, override);
       return {
         itemId: line.itemId,
-        decision: "buy" as const,
-        ...(override?.amountCents != null
-          ? { overridePriceCents: override.amountCents }
-          : {}),
+        decision: 'buy' as const,
+        // MESA-1: el precio que la mesa MOSTRÓ (derivado). Si el mercado se movió, el servidor responde
+        // 409 OFFER_PRICE_CHANGED sin emitir nada. (Se manda el derivado aunque haya override: el servidor
+        // lo compara contra su derivado vigente, no contra el monto tecleado.)
+        ...(line.derivedPriceCents != null ? { expectedDerivedCents: line.derivedPriceCents } : {}),
+        ...(override?.amountCents != null ? { overridePriceCents: override.amountCents } : {}),
         // Solo se manda motivo cuando de verdad hay desviación (v1.51.12).
-        ...(changed && override?.reason
-          ? { overrideReason: override.reason.trim() }
-          : {}),
+        ...(changed && override?.reason ? { overrideReason: override.reason.trim() } : {}),
       };
     });
   }
 
   const blockerMessage =
-    blocker === "pickupAddressMissing"
-      ? `${t("pickupAddressMissing.text")} ${t("pickupAddressMissing.remedy")}`
-      : blocker === "noLines"
-        ? t("totals.noLines")
-        : blocker === "belowMinimum" && data && totals
-          ? t("totals.belowMinimum", {
+    blocker === 'pickupAddressMissing'
+      ? `${t('pickupAddressMissing.text')} ${t('pickupAddressMissing.remedy')}`
+      : blocker === 'noLines'
+        ? t('totals.noLines')
+        : blocker === 'belowMinimum' && data && totals
+          ? t('totals.belowMinimum', {
               netAmount: formatMoneyCents(totals.netCents, locale),
-              minimumAmount: formatMoneyCents(
-                data.totals.minimumOfferNetCents,
-                locale,
-              ),
-              shortfallAmount: formatMoneyCents(
-                totals.grossShortfallCents,
-                locale,
-              ),
+              minimumAmount: formatMoneyCents(data.totals.minimumOfferNetCents, locale),
+              shortfallAmount: formatMoneyCents(totals.grossShortfallCents, locale),
             })
-          : blocker === "missingReason"
-            ? t("override.reasonHint")
-            : blocker === "unpriceableLine"
-              ? t("override.noDerived")
+          : blocker === 'missingReason'
+            ? t('override.reasonHint')
+            : blocker === 'unpriceableLine'
+              ? t('override.noDerived')
               : null;
 
   return (
-    <section
-      className="border-t border-border-strong pt-5"
-      data-testid="decision-desk"
-    >
+    <section className="border-t border-border-strong pt-5" data-testid="decision-desk">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h3 className="font-serif text-lg text-text">{t("title")}</h3>
+        <h3 className="font-serif text-lg text-text">{t('title')}</h3>
         <Button size="sm" variant="ghost" onClick={onClose}>
-          {t("close")}
+          {t('close')}
         </Button>
       </div>
 
@@ -539,15 +496,12 @@ export function BuylistDecisionDesk({
         {data && totals && (
           <div className="mt-4 flex flex-col gap-4">
             {outcome && (
-              <Banner
-                variant={outcome === "sent" ? "info" : "warning"}
-                role="status"
-              >
-                {outcome === "sent"
-                  ? t("sent", {
+              <Banner variant={outcome === 'sent' ? 'info' : 'warning'} role="status">
+                {outcome === 'sent'
+                  ? t('sent', {
                       netAmount: formatMoneyCents(totals.netCents, locale),
                     })
-                  : t("pendingAuthorization")}
+                  : t('pendingAuthorization')}
               </Banner>
             )}
 
@@ -557,16 +511,12 @@ export function BuylistDecisionDesk({
                 variant="warning"
                 role="status"
                 action={
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => query.refetch()}
-                  >
-                    {t("position.unavailable.retry")}
+                  <Button size="sm" variant="secondary" onClick={() => query.refetch()}>
+                    {t('position.unavailable.retry')}
                   </Button>
                 }
               >
-                {t("position.unavailable.banner", {
+                {t('position.unavailable.banner', {
                   count: unavailableCount,
                   total: lines.length,
                 })}
@@ -574,30 +524,18 @@ export function BuylistDecisionDesk({
             )}
 
             {data.pickupAddressMissing && (
-              <Banner
-                variant="danger"
-                role="status"
-                title={t("pickupAddressMissing.text")}
-              >
-                {t("pickupAddressMissing.remedy")}
+              <Banner variant="danger" role="status" title={t('pickupAddressMissing.text')}>
+                {t('pickupAddressMissing.remedy')}
               </Banner>
             )}
 
             {!readOnly && (
               <div className="flex flex-wrap gap-3">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setSelected(defaultSelection(lines))}
-                >
-                  {t("selectAll")}
+                <Button size="sm" variant="ghost" onClick={() => setSelected(defaultSelection(lines))}>
+                  {t('selectAll')}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setSelected(new Set())}
-                >
-                  {t("clearAll")}
+                <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+                  {t('clearAll')}
                 </Button>
               </div>
             )}
@@ -608,24 +546,21 @@ export function BuylistDecisionDesk({
               className="flex flex-col gap-2 border border-border-strong px-4 py-3"
               data-testid="desk-totals"
             >
-              <div
-                className="flex flex-wrap items-baseline gap-x-6 gap-y-2"
-                aria-live="polite"
-              >
+              <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2" aria-live="polite">
                 <span className="tabular text-xs text-muted">
-                  {t("totals.lines", {
+                  {t('totals.lines', {
                     selected: totals.selectedCount,
                     total: lines.length,
                   })}
                 </span>
                 <span className="flex items-baseline gap-2 text-xs text-muted">
-                  {t("totals.gross")}
+                  {t('totals.gross')}
                   <span className="tabular font-mono text-sm text-text">
                     {formatMoneyCents(totals.grossCents, locale)}
                   </span>
                 </span>
                 <span className="flex items-baseline gap-2 text-xs text-muted">
-                  {t("totals.shipping")}
+                  {t('totals.shipping')}
                   <span className="tabular font-mono text-sm text-text">
                     {`− ${formatMoneyCents(data.totals.shippingFeeCents, locale)}`}
                   </span>
@@ -633,7 +568,7 @@ export function BuylistDecisionDesk({
                 {/* `SE DEPOSITA` es el MISMO nombre del correo: el operador ve la cifra con la
         etiqueta con la que la va a leer el vendedor. */}
                 <span className="flex items-baseline gap-2 text-xs text-muted">
-                  {t("totals.net")}
+                  {t('totals.net')}
                   <span
                     data-testid="desk-net"
                     className="tabular font-mono text-[18px] font-medium text-text"
@@ -642,38 +577,30 @@ export function BuylistDecisionDesk({
                   </span>
                 </span>
               </div>
-              <p
-                className="text-xs leading-[1.6] text-muted"
-                data-testid="desk-summary-hint"
-              >
-                {t("mesa.summaryHint")}
+              <p className="text-xs leading-[1.6] text-muted" data-testid="desk-summary-hint">
+                {t('mesa.summaryHint')} {t('mesa.chipHint')}
               </p>
             </div>
 
-            <div
-              data-testid="desk-filter"
-              className="flex flex-wrap items-center gap-3"
-            >
+            <div data-testid="desk-filter" className="flex flex-wrap items-center gap-3">
               <Button
                 size="sm"
-                variant={onlyChanges ? "ghost" : "secondary"}
+                variant={onlyChanges ? 'ghost' : 'secondary'}
                 aria-pressed={!onlyChanges}
                 onClick={() => setOnlyChanges(false)}
               >
-                {t("mesa.filterAll", { count: lines.length })}
+                {t('mesa.filterAll', { count: lines.length })}
               </Button>
               <Button
                 size="sm"
-                variant={onlyChanges ? "secondary" : "ghost"}
+                variant={onlyChanges ? 'secondary' : 'ghost'}
                 aria-pressed={onlyChanges}
                 onClick={() => setOnlyChanges(true)}
               >
-                {t("mesa.filterChanges", { count: changingCount })}
+                {t('mesa.filterChanges', { count: changingCount })}
               </Button>
               {!readOnly && (
-                <span className="ml-auto font-mono text-[11px] text-muted">
-                  {t("mesa.shortcuts")}
-                </span>
+                <span className="ml-auto font-mono text-[11px] text-muted">{t('mesa.shortcuts')}</span>
               )}
             </div>
 
@@ -684,15 +611,7 @@ export function BuylistDecisionDesk({
             >
               <span />
               <span />
-              {(
-                [
-                  "colCard",
-                  "colMarket",
-                  "colStandard",
-                  "colOffer",
-                  "colStock",
-                ] as const
-              ).map((k) => (
+              {(['colCard', 'colMarket', 'colStandard', 'colOffer', 'colStock'] as const).map((k) => (
                 <span key={k} className="eyebrow">
                   {t(`mesa.${k}`)}
                 </span>
@@ -701,17 +620,15 @@ export function BuylistDecisionDesk({
 
             {visibleLines.length === 0 && (
               <p className="text-sm text-muted" data-testid="desk-filter-empty">
-                {t("mesa.filterEmpty")}
+                {t('mesa.filterEmpty')}
               </p>
             )}
 
             <ul
               ref={listRef}
               tabIndex={0}
-              aria-label={t("mesa.listLabel")}
-              aria-activedescendant={
-                cursorLine ? `desk-line-${cursorLine.itemId}` : undefined
-              }
+              aria-label={t('mesa.listLabel')}
+              aria-activedescendant={cursorLine ? `desk-line-${cursorLine.itemId}` : undefined}
               onKeyDown={onListKeyDown}
               className="-mt-2 flex flex-col divide-y divide-border border-b border-border focus-visible:shadow-focus focus-visible:outline-none"
             >
@@ -719,8 +636,7 @@ export function BuylistDecisionDesk({
                 const override = overrides[line.itemId];
                 const amount = lineAmountCents(line, override);
                 const changed = isOverride(line, override);
-                const reasonInvalid =
-                  changed && !isValidOverrideReason(override?.reason);
+                const reasonInvalid = changed && !isValidOverrideReason(override?.reason);
                 const checked = selection.has(line.itemId);
                 const chip = mesaChip(line);
                 const isCursor = cursorLine?.itemId === line.itemId;
@@ -732,12 +648,14 @@ export function BuylistDecisionDesk({
                     id={`desk-line-${line.itemId}`}
                     data-item={line.itemId}
                     data-testid="desk-line"
-                    aria-current={isCursor ? "true" : undefined}
+                    aria-current={isCursor ? 'true' : undefined}
                     className={`flex flex-col gap-2 py-4 pl-2 ${
                       isCursor
-                        ? "border-l-[3px] border-accent bg-surface-2"
-                        : "border-l-[3px] border-transparent"
-                    } ${chip === "down" ? "bg-[rgba(179,18,23,.06)]" : ""}`}
+                        ? 'border-l-[3px] border-accent bg-surface-2'
+                        : 'border-l-[3px] border-transparent'
+                    } ${chip === 'down' ? 'bg-[rgba(179,18,23,.06)]' : ''} ${
+                      priceChanged[line.itemId] ? 'outline outline-2 -outline-offset-2 outline-accent' : ''
+                    }`}
                   >
                     <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[28px_72px_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.1fr)] lg:items-start">
                       <input
@@ -747,7 +665,7 @@ export function BuylistDecisionDesk({
                         // hasta que un override le ponga precio.
                         disabled={readOnly || amount == null}
                         onChange={() => toggle(line.itemId)}
-                        aria-label={t("buyLine", { name: line.card.name })}
+                        aria-label={t('buyLine', { name: line.card.name })}
                         className="mt-1 h-5 w-5 shrink-0 accent-[color:var(--color-accent)]"
                       />
                       <CardPhoto line={line} onOpen={setPhoto} />
@@ -756,64 +674,45 @@ export function BuylistDecisionDesk({
                           {line.card.name}
                         </span>
                         <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
-                          {line.card.setName} · {line.card.number} ·{" "}
-                          {line.finish}
+                          {line.card.setName} · {line.card.number} · {line.finish}
                         </span>
                       </span>
 
                       <div className="flex flex-col gap-0.5">
-                        <span className="eyebrow lg:hidden">
-                          {t("mesa.colMarket")}
-                        </span>
-                        <span
-                          className="tabular font-mono text-sm text-text"
-                          data-testid="line-market"
-                        >
-                          {line.marketMxnCents != null
-                            ? formatMoneyCents(line.marketMxnCents, locale)
-                            : "—"}
+                        <span className="eyebrow lg:hidden">{t('mesa.colMarket')}</span>
+                        <span className="tabular font-mono text-sm text-text" data-testid="line-market">
+                          {line.marketMxnCents != null ? formatMoneyCents(line.marketMxnCents, locale) : '—'}
                         </span>
                         <span className="text-xs text-muted">
-                          {t("quoted")}{" "}
+                          {t('quoted')}{' '}
                           <span className="tabular font-mono">
                             {line.quotedPriceCents != null
                               ? formatMoneyCents(line.quotedPriceCents, locale)
-                              : "—"}
+                              : '—'}
                           </span>
                         </span>
                       </div>
 
                       <div className="flex flex-col gap-0.5">
-                        <span className="eyebrow lg:hidden">
-                          {t("mesa.colStandard")}
-                        </span>
-                        <span
-                          className="tabular font-mono text-sm text-text"
-                          data-testid="line-standard"
-                        >
-                          {line.standardOfferCents != null &&
-                          line.standardPctBp != null
-                            ? t("mesa.standardCell", {
+                        <span className="eyebrow lg:hidden">{t('mesa.colStandard')}</span>
+                        <span className="tabular font-mono text-sm text-text" data-testid="line-standard">
+                          {line.standardOfferCents != null && line.standardPctBp != null
+                            ? t('mesa.standardCell', {
                                 // Presentación del % (puntos base del servidor → %); no es dinero.
                                 pct: (line.standardPctBp / 100).toLocaleString(
-                                  locale === "es" ? "es-MX" : "en-US",
+                                  locale === 'es' ? 'es-MX' : 'en-US',
                                   {
                                     maximumFractionDigits: 1,
                                   },
                                 ),
-                                amount: formatMoneyCents(
-                                  line.standardOfferCents,
-                                  locale,
-                                ),
+                                amount: formatMoneyCents(line.standardOfferCents, locale),
                               })
-                            : t("mesa.standardNone")}
+                            : t('mesa.standardNone')}
                         </span>
                       </div>
 
                       <div className="flex flex-col items-start gap-1">
-                        <span className="eyebrow lg:hidden">
-                          {t("weOffer")}
-                        </span>
+                        <span className="eyebrow lg:hidden">{t('weOffer')}</span>
                         {amount != null ? (
                           <span
                             data-testid="line-offer"
@@ -827,7 +726,7 @@ export function BuylistDecisionDesk({
                             data-testid="line-no-price"
                             className="font-mono text-[11px] uppercase tracking-[0.06em] text-accent"
                           >
-                            {t("noPrice")}
+                            {t('noPrice')}
                           </span>
                         )}
                         {chip && (
@@ -835,60 +734,62 @@ export function BuylistDecisionDesk({
                             data-testid="line-chip"
                             data-chip={chip}
                             className={`inline-block rounded-none border px-2 py-0.5 text-xs font-medium ${
-                              chip === "down"
-                                ? "border-accent bg-accent text-bg"
-                                : chip === "up"
-                                  ? "border-text text-text"
-                                  : chip === "noPrice"
-                                    ? "border-dashed border-border-strong text-muted"
-                                    : "border-border-strong text-text"
+                              chip === 'down'
+                                ? 'border-accent bg-accent text-bg'
+                                : chip === 'up'
+                                  ? 'border-text text-text'
+                                  : chip === 'noPrice'
+                                    ? 'border-dashed border-border-strong text-muted'
+                                    : 'border-border-strong text-text'
                             }`}
                           >
-                            {chip === "up" && adj
-                              ? `▲ ${t("mesa.chip.up", { amount: formatMoneyCents(adj.deltaCents, locale) })}`
-                              : chip === "down" && adj
-                                ? `▼ ${t("mesa.chip.down", { amount: formatMoneyCents(Math.abs(adj.deltaCents), locale) })}`
+                            {chip === 'up' && adj
+                              ? `▲ ${t('mesa.chip.up', { amount: formatMoneyCents(adj.deltaCents, locale) })}`
+                              : chip === 'down' && adj
+                                ? `▼ ${t('mesa.chip.down', { amount: formatMoneyCents(Math.abs(adj.deltaCents), locale) })}`
                                 : t(`mesa.chip.${chip}`)}
                           </span>
                         )}
                         {adj && (
-                          <span
-                            className="text-xs leading-[1.5] text-text"
-                            data-testid="line-reason"
-                          >
-                            {locale === "es" && adj.reasonText
+                          <span className="text-xs leading-[1.5] text-text" data-testid="line-reason">
+                            {locale === 'es' && adj.reasonText
                               ? adj.reasonText
                               : t(`mesa.reason.${adj.reasonCode}`)}
                           </span>
                         )}
                         {/* Nota APARTE del chip: el mercado se movió desde la cotización. No cambia el chip. */}
                         {sq && (
-                          <span
-                            className="text-xs leading-[1.5] text-muted"
-                            data-testid="line-since-quote"
-                          >
+                          <span className="text-xs leading-[1.5] text-muted" data-testid="line-since-quote">
                             {t(`mesa.sinceQuote.${sq.reasonCode}`, {
                               quoted: formatMoneyCents(sq.quotedCents, locale),
                               offer:
                                 line.derivedPriceCents != null
-                                  ? formatMoneyCents(
-                                      line.derivedPriceCents,
-                                      locale,
-                                    )
-                                  : "—",
+                                  ? formatMoneyCents(line.derivedPriceCents, locale)
+                                  : '—',
+                              // Delta del servidor (derivado − cotizado); aquí solo se formatea su valor absoluto.
+                              delta: formatMoneyCents(Math.abs(sq.deltaCents), locale),
                             })}
                           </span>
                         )}
                         {changed && <PriceBasisTag basis="override" />}
+                        {!readOnly && !editing.has(line.itemId) && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => startEditing(line.itemId)}
+                            aria-label={`${t('mesa.edit')}: ${line.card.name}`}
+                            data-testid="line-edit"
+                          >
+                            {t('mesa.edit')}
+                          </Button>
+                        )}
                       </div>
 
                       <div
                         className="flex flex-col gap-0.5 text-xs leading-[1.5] text-text"
                         data-testid="line-stock"
                       >
-                        <span className="eyebrow lg:hidden">
-                          {t("mesa.colStock")}
-                        </span>
+                        <span className="eyebrow lg:hidden">{t('mesa.colStock')}</span>
                         <StockPhrase line={line} />
                       </div>
                     </div>
@@ -900,13 +801,29 @@ export function BuylistDecisionDesk({
                       <p className="text-xs leading-[1.6] text-muted">
                         {line.pendingReason
                           ? t(`noPriceReason.${line.pendingReason}`)
-                          : t("noPriceReason.identity_drift")}
+                          : t('noPriceReason.identity_drift')}
+                      </p>
+                    )}
+
+                    {priceChanged[line.itemId] && (
+                      <p
+                        className="text-sm font-medium text-accent"
+                        role="alert"
+                        data-testid="line-price-changed"
+                      >
+                        {t('mesa.priceChanged', {
+                          from: formatMoneyCents(priceChanged[line.itemId].expectedCents, locale),
+                          to:
+                            priceChanged[line.itemId].currentCents != null
+                              ? formatMoneyCents(priceChanged[line.itemId].currentCents as number, locale)
+                              : '—',
+                        })}
                       </p>
                     )}
 
                     <details className="text-xs">
                       <summary className="cursor-pointer text-muted focus-visible:shadow-focus focus-visible:outline-none">
-                        {t("mesa.details")}
+                        {t('mesa.details')}
                       </summary>
                       <div className="mt-2 flex flex-col gap-2">
                         <PositionStrip line={line} />
@@ -914,11 +831,11 @@ export function BuylistDecisionDesk({
                       </div>
                     </details>
 
-                    {!readOnly && (
-                      <div className="flex flex-col gap-2">
+                    {!readOnly && (editing.has(line.itemId) || changed) && (
+                      <div className="flex flex-col gap-2" data-testid="line-edit-panel">
                         <div className="flex flex-wrap items-end gap-3">
                           <Input
-                            label={t("override.amountLabel", {
+                            label={t('override.amountLabel', {
                               name: line.card.name,
                             })}
                             type="number"
@@ -939,33 +856,25 @@ export function BuylistDecisionDesk({
                                 ? String(override.amountCents / 100)
                                 : line.derivedPriceCents != null
                                   ? String(line.derivedPriceCents / 100)
-                                  : ""
+                                  : ''
                             }
                             onChange={(e) => {
                               const raw = e.target.value.trim();
-                              if (raw === "") {
+                              if (raw === '') {
                                 setOverride(line.itemId, null);
                                 return;
                               }
                               const pesos = Number.parseFloat(raw);
                               setOverride(line.itemId, {
-                                amountCents: Number.isFinite(pesos)
-                                  ? Math.round(pesos * 100)
-                                  : undefined,
+                                amountCents: Number.isFinite(pesos) ? Math.round(pesos * 100) : undefined,
                               });
                             }}
                             className="w-40"
                           />
-                          {line.derivedPriceCents != null && (
-                            /* La cifra que se pisó SE SIGUE VIENDO. */
-                            <p className="pb-3 text-xs text-muted">
-                              {t("override.derived", {
-                                amount: formatMoneyCents(
-                                  line.derivedPriceCents,
-                                  locale,
-                                ),
-                              })}
-                            </p>
+                          {!changed && (
+                            <Button size="sm" variant="ghost" onClick={() => stopEditing(line.itemId)}>
+                              {t('mesa.editDone')}
+                            </Button>
                           )}
                         </div>
                         {/* Motivo OBLIGATORIO ⇔ el monto DIFIERE del derivado. Sin motivo, no hay
@@ -973,17 +882,14 @@ export function BuylistDecisionDesk({
                             revisable en vez de una cifra huérfana. */}
                         {changed && (
                           <div className="flex flex-col gap-1">
-                            <label
-                              htmlFor={`override-reason-${line.itemId}`}
-                              className="eyebrow"
-                            >
-                              {t("override.reasonLabel")}
+                            <label htmlFor={`override-reason-${line.itemId}`} className="eyebrow">
+                              {t('override.reasonLabel')}
                             </label>
                             <textarea
                               id={`override-reason-${line.itemId}`}
                               rows={2}
                               maxLength={500}
-                              value={override?.reason ?? ""}
+                              value={override?.reason ?? ''}
                               onChange={(e) =>
                                 setOverride(line.itemId, {
                                   reason: e.target.value,
@@ -994,9 +900,9 @@ export function BuylistDecisionDesk({
                             />
                             <p
                               id={`override-hint-${line.itemId}`}
-                              className={`text-xs ${reasonInvalid ? "text-accent" : "text-muted"}`}
+                              className={`text-xs ${reasonInvalid ? 'text-accent' : 'text-muted'}`}
                             >
-                              {t("override.reasonHint")}
+                              {t('override.reasonHint')}
                             </p>
                           </div>
                         )}
@@ -1012,7 +918,14 @@ export function BuylistDecisionDesk({
               className="sticky bottom-0 flex flex-col gap-2 border-t border-border-strong bg-bg py-4"
               data-testid="desk-actions"
             >
-              {emit.isError && (
+              {Object.keys(priceChanged).length > 0 && (
+                <div data-testid="price-changed-banner">
+                  <Banner variant="warning" role="alert">
+                    {t('mesa.priceChangedBanner', { count: Object.keys(priceChanged).length })}
+                  </Banner>
+                </div>
+              )}
+              {emit.isError && Object.keys(priceChanged).length === 0 && (
                 <Banner variant="danger" role="alert">
                   {getErrorMessage(emit.error)}
                 </Banner>
@@ -1024,30 +937,21 @@ export function BuylistDecisionDesk({
                     size="sm"
                     disabled={blocker !== null}
                     // §15.9: apagado pero NUNCA mudo — el motivo y su remedio van enlazados.
-                    aria-describedby={blocker ? "desk-blocker" : undefined}
+                    aria-describedby={blocker ? 'desk-blocker' : undefined}
                     onClick={() => setConfirming(true)}
                   >
                     {/* Un botón que dice «Emitir» y en realidad encola MIENTE sobre lo que va a
                         pasar. El verbo lo decide `requiresAuthorization` DEL SERVIDOR. */}
-                    {data.requiresAuthorization
-                      ? t("totals.emitForApproval")
-                      : t("totals.emit")}
+                    {data.requiresAuthorization ? t('totals.emitForApproval') : t('totals.emit')}
                   </Button>
                   {/* §60.5 d: «Declinar» a la derecha de «Emitir». ⛔ No se apaga con los bloqueos de emisión:
                       declinar es justo la salida cuando no se puede ofertar. */}
                   {onDecline && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={onDecline}
-                      data-testid="desk-decline"
-                    >
-                      {t("decline.action")}
+                    <Button size="sm" variant="secondary" onClick={onDecline} data-testid="desk-decline">
+                      {t('decline.action')}
                     </Button>
                   )}
-                  {data.requiresAuthorization && (
-                    <p className="text-xs text-muted">{t("totals.authNote")}</p>
-                  )}
+                  {data.requiresAuthorization && <p className="text-xs text-muted">{t('totals.authNote')}</p>}
                 </div>
               )}
               {readOnly && (
@@ -1057,31 +961,22 @@ export function BuylistDecisionDesk({
               )}
 
               {blockerMessage && (
-                <p
-                  id="desk-blocker"
-                  className="text-xs leading-[1.6] text-accent"
-                >
+                <p id="desk-blocker" className="text-xs leading-[1.6] text-accent">
                   {blockerMessage}
                 </p>
               )}
 
               {/* §23.6j — aviso permanente de previsualización. */}
-              <p className="text-xs leading-[1.6] text-muted">
-                {t("totals.previewNote")}
-              </p>
+              <p className="text-xs leading-[1.6] text-muted">{t('totals.previewNote')}</p>
             </div>
 
-            <Modal
-              open={photo !== null}
-              onClose={() => setPhoto(null)}
-              title={photo?.card.name ?? ""}
-            >
+            <Modal open={photo !== null} onClose={() => setPhoto(null)} title={photo?.card.name ?? ''}>
               {photo && (
                 // eslint-disable-next-line @next/next/no-img-element -- imagen remota del catálogo
                 <img
                   data-testid="photo-viewer-img"
                   src={photo.card.imageLargeUrl || photo.card.imageSmallUrl}
-                  alt={t("mesa.photo.alt", {
+                  alt={t('mesa.photo.alt', {
                     name: photo.card.name,
                     set: photo.card.setName,
                     number: photo.card.number,
@@ -1094,19 +989,14 @@ export function BuylistDecisionDesk({
             <Modal
               open={confirming}
               onClose={() => setConfirming(false)}
-              title={t("confirm.title")}
+              title={t('confirm.title')}
               footer={
                 <>
                   <Button variant="ghost" onClick={() => setConfirming(false)}>
-                    {tc("cancel")}
+                    {tc('cancel')}
                   </Button>
-                  <Button
-                    loading={emit.isPending}
-                    onClick={() => emit.mutate(buildPayload())}
-                  >
-                    {data.requiresAuthorization
-                      ? t("confirm.ctaForApproval")
-                      : t("confirm.cta")}
+                  <Button loading={emit.isPending} onClick={() => emit.mutate(buildPayload())}>
+                    {data.requiresAuthorization ? t('confirm.ctaForApproval') : t('confirm.cta')}
                   </Button>
                 </>
               }
@@ -1114,13 +1004,10 @@ export function BuylistDecisionDesk({
               {/* Repite líneas, los tres montos y el plazo. ⛔ NO se señala cuántas líneas iban
                   contra la sugerencia: eso sería la fricción que D6 prohíbe, colada por detrás. */}
               <p className="leading-[1.7]">
-                {t("confirm.body", {
+                {t('confirm.body', {
                   count: totals.selectedCount,
                   grossAmount: formatMoneyCents(totals.grossCents, locale),
-                  shippingAmount: formatMoneyCents(
-                    data.totals.shippingFeeCents,
-                    locale,
-                  ),
+                  shippingAmount: formatMoneyCents(data.totals.shippingFeeCents, locale),
                   netAmount: formatMoneyCents(totals.netCents, locale),
                 })}
               </p>
@@ -1133,9 +1020,7 @@ export function BuylistDecisionDesk({
                 sale con el real**—. Lo que necesita saber es **que se congela al emitir**, no
                 cuántos días son; eso sí es cierto siempre. Si el DTO gana el dial, se interpola.
               */}
-              <p className="mt-3 text-xs leading-[1.6] text-muted">
-                {t("confirm.deadlineNote")}
-              </p>
+              <p className="mt-3 text-xs leading-[1.6] text-muted">{t('confirm.deadlineNote')}</p>
             </Modal>
           </div>
         )}

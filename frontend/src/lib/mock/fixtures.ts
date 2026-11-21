@@ -392,7 +392,8 @@ export const mockCards: CardDTO[] = ([
   card('c-blastoise', 'Blastoise', '2', 'Rare Holo', 'base1', 'Base Set', 'Pokémon', ['Stage 2']),
   card('c-pikachu', 'Pikachu', '58', 'Common', 'base1', 'Base Set'),
   card('c-zapdos', 'Zapdos', '16', 'Rare Holo', 'base1', 'Base Set'),
-  card('c-eevee', 'Eevee', '51', 'Reverse Holo', 'base1', 'Base Set'),
+  // Solo la imagen apunta a Eevee (Jungle #51); el set se queda en base1 para no mover los agregados de Master Set.
+  card('c-eevee', 'Eevee', '51', 'Reverse Holo', 'base1', 'Base Set', 'Pokémon', ['Basic'], 'https://images.pokemontcg.io/base2'),
   card('c-machamp', 'Machamp', '8', 'Uncommon', 'base1', 'Base Set', 'Pokémon', ['Stage 2']),
   // Rarezas modernas (Scarlet & Violet) para poblar el filtro de rareza agrupado.
   card('c-pikachu-ir', 'Pikachu ex', '238', 'Illustration Rare', 'sv08', 'Surging Sparks', 'Pokémon', ['Basic', 'ex'], SV),
@@ -6923,7 +6924,7 @@ function mockMesaFields(
     return { marketMxnCents: null, standardOfferCents: null, standardPctBp: null, adjustment: null, sinceQuote: null };
   }
   const quoted = item.quotedPriceCents ?? derived;
-  // Siembra: la 2.ª línea sube (bounty), la 3.ª baja (tope de stock); el resto es estándar.
+  // Siembra: la 2.ª línea sube (bounty), la 3.ª baja (precio fijado a mano); el resto es estándar.
   const delta = index % 4 === 1 ? Math.round(derived * 0.1) : index % 4 === 2 ? -Math.round(derived * 0.2) : 0;
   const standard = derived - delta;
   const market = Math.round(standard / 0.7);
@@ -6936,7 +6937,7 @@ function mockMesaFields(
         ? null
         : delta > 0
           ? { deltaCents: delta, reasonCode: 'BOUNTY', reasonText: 'Hay un bounty que la busca.' }
-          : { deltaCents: delta, reasonCode: 'STOCK_CAP', reasonText: 'Ya tenemos el tope de esta carta.' },
+          : { deltaCents: delta, reasonCode: 'MANUAL_OVERRIDE', reasonText: 'Precio fijado por el equipo: la carta se vende lento.' },
     sinceQuote:
       quoted !== derived
         ? {

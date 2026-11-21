@@ -3626,9 +3626,9 @@
             "NO_MARKET": "No hay precio de mercado."
           },
           "sinceQuote": {
-            "MARKET_UP": "El mercado subió desde que se cotizó: de {quoted} a {offer}.",
-            "MARKET_DOWN": "El mercado bajó desde que se cotizó: de {quoted} a {offer}.",
-            "CURVE_CHANGED": "La curva cambió desde que se cotizó: de {quoted} a {offer}."
+            "MARKET_UP": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} más): el mercado subió desde la cotización.",
+            "MARKET_DOWN": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} menos): el mercado bajó desde la cotización.",
+            "CURVE_CHANGED": "Cotizamos {quoted}; hoy ofertamos {offer} ({delta} de diferencia): cambió la curva desde la cotización."
           },
           "stock": {
             "have": "Tenemos {total} · aceptamos hasta {threshold}",
@@ -3642,6 +3642,11 @@
             "none": "Sin foto",
             "alt": "{name}, {set} {number}"
           },
+          "edit": "Editar oferta",
+          "editDone": "Listo",
+          "chipHint": "El chip compara con el estándar; la nota, con lo cotizado.",
+          "priceChanged": "El precio cambió de {from} a {to}; revisa y vuelve a emitir",
+          "priceChangedBanner": "El precio de {count, plural, one {# carta cambió} other {# cartas cambiaron}} desde que se mostró la mesa. No se emitió nada: revisa las líneas marcadas y vuelve a emitir.",
           "details": "Ver conteo y sugerencia"
         },
         "buyLine": "Comprar {name}",
