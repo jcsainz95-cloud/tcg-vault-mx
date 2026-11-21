@@ -137,6 +137,18 @@ describe('M12View · Ensayo decks meta (dry-run)', () => {
   });
 });
 
+describe('M12View · Vista previa asíncrona', () => {
+  it('deduped avisa; 404 del sondeo muestra «servidor se reinició»', async () => {
+    vi.spyOn(api, 'getDecksMetaPreview').mockImplementation(async (o) => {
+      o?.onEnqueued?.({ jobId: 'j', status: 'running', deduped: true });
+      throw new DecksMetaJobLostError();
+    });
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Correr ensayo' }));
+    expect(await screen.findByText('El servidor se reinició; vuelve a intentarlo.')).toBeInTheDocument();
+  });
+});
+
 describe('M12View · Publicar ahora (publicación real inmediata)', () => {
   it('el botón "Publicar ahora" solo se ve para super_admin, no para operador', () => {
     const { unmount } = renderWithProviders(<M12View />, 'es');

@@ -37,7 +37,13 @@ export function M12View() {
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const locale = useLocale() as AppLocale;
 
-  const run = useMutation({ mutationFn: getDecksMetaPreview });
+  const [deduped, setDeduped] = useState(false);
+  const run = useMutation({
+    mutationFn: () => {
+      setDeduped(false);
+      return getDecksMetaPreview({ onEnqueued: (e) => setDeduped(e.deduped) });
+    },
+  });
 
   // El endpoint devuelve el `RefreshRunResult`: o corrió (report), o se saltó (single-flight).
   const result = run.data;
@@ -78,6 +84,7 @@ export function M12View() {
               {t('running')}
             </span>
             <p className="mt-1">{t('runningNote')}</p>
+            {deduped && <p className="mt-1">{t('publishNow.deduped')}</p>}
           </Banner>
         )}
 
@@ -92,7 +99,11 @@ export function M12View() {
               </Button>
             }
           >
-            {t('error')}
+            {run.error instanceof DecksMetaJobLostError
+              ? t('publishNow.jobLost')
+              : run.error instanceof DecksMetaJobFailedError && run.error.message
+                ? t('publishNow.jobFailed', { error: run.error.message })
+                : t('error')}
           </Banner>
         )}
 

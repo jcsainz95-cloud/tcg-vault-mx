@@ -711,8 +711,11 @@ export async function pasteDeckList(text: string): Promise<DeckMetaPasteResponse
  * pipeline REAL en dry-run y devuelve el reporte INLINE sin escribir nada. ⚠️ Egress real a un
  * tercero (Limitless) ⇒ tarda ~30-45s y puede fallar por red; el llamador muestra carga y reintento.
  */
-export async function getDecksMetaPreview(): Promise<DecksMetaPreviewResponse> {
-  if (!(MOCKS_BUILD && config.useMocks)) return apiRequest<DecksMetaPreviewResponse>('/admin/decks-meta/preview');
+export async function getDecksMetaPreview(
+  opts: { onEnqueued?: (e: DecksMetaJobEnqueued) => void } = {},
+): Promise<DecksMetaPreviewResponse> {
+  // §DECKS-TOP-FUENTE: el GET síncrono corre ~61 s (riesgo de timeout) ⇒ POST dryRun:true + sondeo.
+  if (!(MOCKS_BUILD && config.useMocks)) return runDecksMetaRefreshJob({ dryRun: true, ...opts });
   // MOCK: el reporte de ejemplo es instantáneo (el backend real dispara el egress lento).
   return delay(mockDecksMeta.mockDecksMetaPreview, 400);
 }
