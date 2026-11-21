@@ -27,6 +27,8 @@ export interface MesaDecisionInput {
   /** Snapshot de la cotización (`SellRequestItem.quotedPriceCents` / `.marketMxnCents`). */
   quotedPriceCents: number | null;
   quotedMarketMxnCents: number | null;
+  /** MESA-2: motivo capturado del override, si existe (hoy sin fuente persistida ⇒ omitido). */
+  overrideReason?: string | null;
 }
 
 export interface MesaFields {
@@ -69,11 +71,13 @@ export function mesaFields(i: MesaDecisionInput): MesaFields {
       // derivado no incorpora tope de stock (la posición solo aconseja, D6), así que STOCK_CAP no se
       // emite; `basis` es único, por lo que la prioridad se resuelve por él.
       const sinMercado = standard == null ? ' (sin precio de mercado de referencia)' : '';
+      const why = (i.overrideReason ?? '').trim();
+      const motivo = why ? ` — motivo: ${why}` : '';
       if (i.priceBasis === 'override') {
         adjustment = {
           deltaCents,
           reasonCode: 'MANUAL_OVERRIDE',
-          reasonText: `Precio fijado por el staff para esta carta${sinMercado}`,
+          reasonText: `Precio fijado por el staff para esta carta${motivo}${sinMercado}`,
         };
       } else if (i.priceBasis === 'bounty') {
         adjustment = {

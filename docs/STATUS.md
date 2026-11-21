@@ -106,11 +106,13 @@ SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/a
 | TL-ALTA-1 | Sin foco/aviso de error en la captura de idioma/versión: `useIdsCapture.ts:73,79`, `ids-capture.ts:145,161` (y ficha original) | frontend | 2026-11-06 | ver `docs/archive/TECH_DEBT.md` TL-ALTA-1 |
 | Registro histórico | 172 filas en `docs/archive/TECH_DEBT.md` (sin re-medir): se migran aquí **solo** al tocar su módulo | dueño del módulo | 2026-11-06 | — |
 
-## Backend (backend) — 2026-11-21 (§BUYLIST-MESA: campos aditivos en `GET /admin/buylist/:id/decision-table`)
-- Hecho: por línea `marketMxnCents`, `standardOfferCents`, `standardPctBp`, `adjustment`, `sinceQuote` (función pura `buylist/decision-table-mesa.ts`, cableada en `buylist.service.ts` junto a `derivedPriceCents`). Mismo seam que `POST …/offer` (`deriveOfferLinesBatch`): una carga de mercado por petición, sin migración, centavos enteros.
-- Pruebas: unit `test/buylist.decision-table-mesa.spec.ts` + 4 casos en `buylist.decision-table.spec.ts` (rojo: delta invertido ⇒ 4 rojos); integración `buylist-cycle` (3)/(4): paridad mesa↔oferta (`offerDerivedPriceCents` == `derivedPriceCents` mostrado); rojo con derivado +1 ⇒ 2 rojos. Unit completo 611/611 (10669 tests); integración buylist 11/11 suites (178 tests).
-- Decisiones/desvíos del contrato: `STOCK_CAP` NO se emite (el precio derivado no incorpora tope de stock; la posición solo aconseja, D6); `FLOOR` solo si el basis es piso y difiere de la curva (hoy inalcanzable: el piso ya está en la curva); `reasonText` de MANUAL_OVERRIDE es genérico (la mesa no guarda motivo; el motivo se captura al ofertar). Sin mercado + override/bounty: `adjustment.deltaCents` = monto completo (no hay estándar contra qué restar) y `standard*` null.
-- NO MEDIDO: valor vivo de la curva de compra en producción; el mercado del snapshot (`SellRequestItem.marketMxnCents`) en filas históricas sin ese dato ⇒ la nota cae a CURVE_CHANGED.
+## Backend (backend) — 2026-11-21 (§BUYLIST-MESA: campos aditivos de la mesa + MESA-1 guarda de precio visto + MESA-2)
+- Hecho: mesa `GET …/decision-table` con `marketMxnCents`, `standardOfferCents`, `standardPctBp`, `adjustment`, `sinceQuote` (`buylist/decision-table-mesa.ts`, mismo seam que `POST …/offer`; sin migración, centavos enteros).
+- MESA-1: `OfferLineDto.expectedDerivedCents` opcional (entero 0..MAX). En `adminOffer`, tras derivar con la curva vigente y antes de cualquier escritura, si alguna línea enviada difiere ⇒ 409 `OFFER_PRICE_CHANGED` con `details.lines:[{lineId(=itemId), expectedCents, currentCents}]` (solo las que difieren); sin el campo, igual que antes. Código en `common/error-codes.ts`. Pruebas: integración `buylist-offer-price-guard.e2e-spec.ts` (igual⇒200; distinto⇒409 y fila idéntica, offerState null; sin campo⇒200); rojo medido al desactivar la guarda (1 rojo).
+- MESA-2: `mesaFields` acepta `overrideReason` y `reasonText` de MANUAL_OVERRIDE lo cita; NO MEDIDO fuente: hoy no hay motivo persistido para el override previo a ofertar (`VariantPriceOverride` sin campo), así que el servicio no lo pasa y el texto sigue genérico hasta que el arquitecto defina de dónde sale. Unit con 2 casos (rojo medido).
+- Desvío del contrato: el body real usa `lines[].itemId` (no `lineId`); `lineId` en `details` = itemId. `STOCK_CAP` no se emite (D6); `FLOOR` hoy inalcanzable.
+- NO MEDIDO: curva viva en producción; mercado del snapshot en filas históricas.
+
 
 ## Frontend (frontend) — 2026-11-20 (§PROV-F4: 503 MARKET_UNAVAILABLE en publicar manual con texto es/en; sugeridas muestran decks de origen `reasons[{rank,copies,mult}]` 3+«y N más»; pruebas covered/errores; §DEMANDA F1+F2 pendiente gate; §ENV3 sin cambios)
 Next 15.5 App Router; admin M1–M12.

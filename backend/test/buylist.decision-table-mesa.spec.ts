@@ -107,3 +107,13 @@ describe('mxn', () => {
     expect(mxn(c)).toBe(t);
   });
 });
+
+describe('mesaFields MESA-2: motivo del override', () => {
+  const ov = { ...base, derivedPriceCents: 3000, priceBasis: 'override' as const, quotedPriceCents: 3000 };
+  it('cita el motivo si existe', () => {
+    expect(mesaFields({ ...ov, overrideReason: 'daño en esquina' }).adjustment?.reasonText).toContain('motivo: daño en esquina');
+  });
+  it('sin motivo: texto de siempre', () => {
+    expect(mesaFields(ov).adjustment?.reasonText).toBe('Precio fijado por el staff para esta carta');
+  });
+});

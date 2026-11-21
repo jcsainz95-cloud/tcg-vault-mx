@@ -527,6 +527,7 @@ export const ErrorCode = {
   // Sobre una oferta YA ENVIADA. Una oferta enviada NO SE EDITA: se cancela y se emite otra
   // (criterio 145) — el precio ofertado es vinculante desde el correo (D2/D9). `details.status`. 409.
   OFFER_ALREADY_SENT: 'OFFER_ALREADY_SENT',
+  OFFER_PRICE_CHANGED: 'OFFER_PRICE_CHANGED',
   // v1.51.3 (D36) — SIN DIRECCIÓN DE ORIGEN NO SE OFERTA. Ofertar es comprometer dinero Y prometer
   // una etiqueta: si el hueco se descubriera al capturar la guía, ya le habríamos escrito al vendedor
   // que le compramos y estaríamos incumpliendo un contrato por un dato que nunca pedimos.

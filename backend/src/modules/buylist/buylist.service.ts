@@ -3867,7 +3867,13 @@ export class BuylistService implements OnModuleInit {
   async adminOffer(
     id: string,
     actor: { id: string; role: Role },
-    lines: { itemId: string; decision: BuyDecision; overridePriceCents?: number; overrideReason?: string }[],
+    lines: {
+      itemId: string;
+      decision: BuyDecision;
+      overridePriceCents?: number;
+      overrideReason?: string;
+      expectedDerivedCents?: number;
+    }[],
   ) {
     // ---- 1. Precondición (lectura para el DIAGNÓSTICO; la guarda real es el `where` de abajo) ----
     const req = await this.prisma.sellRequest.findUnique({
@@ -3925,6 +3931,22 @@ export class BuylistService implements OnModuleInit {
     // ---- 3. Precio por línea — el SEAM ÚNICO, en lote, con la curva VIGENTE AHORA ----
     const { decisions } = await this.deriveOfferLinesBatch(req.items);
     const byItem = new Map(lines.map((l) => [l.itemId, l]));
+    // ---- 3-bis. MESA-1: guarda de precio visto. Antes de cualquier escritura: 409 sin efectos. ----
+    const changedLines = lines
+      .filter((l) => l.expectedDerivedCents != null)
+      .map((l) => ({
+        lineId: l.itemId,
+        expectedCents: l.expectedDerivedCents as number,
+        currentCents: decisions.get(l.itemId)?.quotedPriceCents ?? null,
+      }))
+      .filter((x) => x.expectedCents !== x.currentCents);
+    if (changedLines.length > 0) {
+      throw BusinessException.conflict(
+        'OFFER_PRICE_CHANGED',
+        'The price changed since the decision table was shown',
+        { lines: changedLines },
+      );
+    }
     const notPriceable: string[] = [];
     const reasonMissing: string[] = [];
     const resolved: {
