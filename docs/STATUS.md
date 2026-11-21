@@ -86,11 +86,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-21 · §DECKS-TOP-FUENTE e6628568 · APROBADO; §BUYLIST-MESA a47ae35f · APROBADO (texto de qa, transcrito por el orquestador)
-- Decks (backend real + front USE_MOCKS=false + Limitless real, 2 corridas): operador ve «Correr ensayo» y no «Publicar ahora», ensayo 202→veredicto 61 s, 1/1; publicar como super_admin durante el ensayo ⇒ 409 «Hay un ensayo en curso», 1/1; reinicio a media corrida ⇒ «El servidor se reinició», 1/1; «red con Limitless» 0/3; API operador: dryRun:false o {} ⇒ 403, "true" ⇒ 400, job ajeno ⇒ 404. Portada 6/6 conservadas, despublicación a 3 corridas medida (gate 9b8b1ea6).
-- Mesa: IMP-1 2/2 y IMP-2 2/2+1/1 cerrados; paridad mesa = congelado 1/1 API y 1/1 UI; 409 real sin efectos 1/1; integración buylist 181/181.
-- MENOR: Chequeos muestra «umbral 0.4» junto a «≤ 40 %»; formatCode null ⇒ «Standard»; rank repetido en pausados/manual; mesa: chip «Estándar» al editar sin estándar, role del <ul>, scroll en refetch, nota sin signo.
-- Regresión: unit 612/612 (10697); vitest 6147 + 13 skip; tsc/lint 0 errores; doc-size VERDE; integración decks-meta 5/5 + jobs/supply 19/19 (1122); integración completa 207/207 en lotes sobre 9b8b1ea6, NO MEDIDA sobre e6628568.
+## QA (qa) — 2026-11-21 · HEAP-INTEG-94 78a6858f · RECHAZADO (texto de qa, transcrito por el orquestador). Previos vigentes: §DECKS-TOP-FUENTE e6628568 y §BUYLIST-MESA a47ae35f APROBADOS (menores: «umbral 0.4» vs «≤ 40 %», formatCode null ⇒ «Standard», mesa chip/role/scroll/signo).
+- B1 (backend): perdida `details.field`/`code` de `/catalog/cards?productType=basura` (excepción D-EQ-3 `enum-query-axes.e2e-spec.ts:681-693` solo mira 400+allowed); mutación campo→'tipo' en `catalog.service.ts:1390`: axes VERDE 1/1, unit 10696/10696 VERDE, spec borrado ROJO 1/1.
+- IMP (backend): perdida «vacío/espacio ⇒ mismo total» en 6 ejes admin (REGISTRO solo 200). MENOR: %09 por HTTP (helper sí, unit rojo 1/23), triple inválido/válido, %20NM sin `field`; m97 deja AuthToken índice/CHECK sin prueba; promo wipe frágil ante filas viejas (promo-tcgcsv:191).
+- Casos movidos rojos por mutación 6/6 (sealedSubtype echo y vacío, sealed productType, repetido 6/6 ejes, staff 401×5+429 con límite 6 y con salto por usuario). tsc con error plantado en test/** sale 2, 1/1 (ci.yml:184-185).
+- Integración completa, un proceso, heap 6144, BD nueva: 203/203 suites, 3663/3663, pico 4232 MB (68,9 %), RSS 5551 MB, 1605 s. BD compartida sucia: 200/203 (filas 2026-11-07). Unit 612/612 (10696), eslint 0/0, doc-size VERDE.
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
