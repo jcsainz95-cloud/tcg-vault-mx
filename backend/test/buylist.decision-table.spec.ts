@@ -50,6 +50,7 @@ interface FakeLine {
   finish?: string;
   cardProductId?: number | null;
   quotedPriceCents?: number | null;
+  marketMxnCents?: number | null;
   rawCondition?: string | null;
 }
 
@@ -129,6 +130,7 @@ function build(opts: Opts) {
           finish: l.finish ?? 'normal',
           cardProductId: l.cardProductId ?? null,
           quotedPriceCents: l.quotedPriceCents ?? 90000,
+          marketMxnCents: l.marketMxnCents ?? null,
         })),
       })),
     },
@@ -843,5 +845,51 @@ describe('Líneas de PRODUCTO SEPARADO (D7 / §4.29b) — el lote no cambia una 
     expect(res.lines[0].priceBasis).toBe('pending');
     // Y la mesa NO revienta: el contrato solo declara 403/404 para este endpoint.
     expect(res.lines).toHaveLength(1);
+  });
+});
+
+// =============================================================================================
+describe('BUYLIST-MESA — campos aditivos por línea, sobre el MISMO seam que congela la oferta', () => {
+  it('paridad: `derivedPriceCents` == lo que la emisión usa; estándar = curva pura sobre el mercado de hoy', async () => {
+    const { svc } = build({
+      lines: [{ id: 'it-1', quotedPriceCents: 3600, marketMxnCents: 9000 }],
+      refs: { normal: 10000 },
+    });
+    const l = (await svc.adminDecisionTable('sr-1', OPERATOR)).lines[0];
+    expect(l.marketMxnCents).toBe(10000);
+    expect(l.standardOfferCents).toBe(l.derivedPriceCents);
+    expect(l.standardPctBp).toBe(4000);
+    expect(l.adjustment).toBeNull();
+    // el mercado subió desde la cotización (9000 → 10000) y la oferta de hoy difiere de la cotizada
+    expect(l.sinceQuote).toMatchObject({ quotedCents: 3600, deltaCents: 400, reasonCode: 'MARKET_UP' });
+  });
+
+  it('override del staff: MANUAL_OVERRIDE; el derivado sigue siendo el que congela la emisión', async () => {
+    const { svc } = build({
+      lines: [{ id: 'it-1', quotedPriceCents: 3000, marketMxnCents: 10000 }],
+      refs: { normal: 10000 },
+      overrides: { [VK]: { buyOverrideCents: 3000, bountyEnabled: false } },
+    });
+    const l = (await svc.adminDecisionTable('sr-1', OPERATOR)).lines[0];
+    expect(l.derivedPriceCents).toBe(3000);
+    expect(l.priceBasis).toBe('override');
+    expect(l.adjustment).toMatchObject({ reasonCode: 'MANUAL_OVERRIDE', deltaCents: 3000 - (l.standardOfferCents as number) });
+  });
+
+  it('sin mercado: null (nunca 0) y sin ajuste', async () => {
+    const { svc } = build({ lines: [{ id: 'it-1' }], refs: {} });
+    const l = (await svc.adminDecisionTable('sr-1', OPERATOR)).lines[0];
+    expect(l.marketMxnCents).toBeNull();
+    expect(l.standardOfferCents).toBeNull();
+    expect(l.standardPctBp).toBeNull();
+    expect(l.adjustment).toBeNull();
+  });
+
+  it('sin N+1: las lecturas no crecen con las líneas (mercado cargado una vez)', async () => {
+    const a = build({ lines: [{ id: 'a' }], refs: { normal: 10000 } });
+    await a.svc.adminDecisionTable('sr-1', OPERATOR);
+    const b = build({ lines: Array.from({ length: 30 }, (_, i) => ({ id: `x${i}` })), refs: { normal: 10000 } });
+    await b.svc.adminDecisionTable('sr-1', OPERATOR);
+    expect(b.prismaCalls.length).toBe(a.prismaCalls.length);
   });
 });
