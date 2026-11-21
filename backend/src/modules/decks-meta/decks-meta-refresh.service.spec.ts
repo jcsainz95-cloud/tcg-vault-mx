@@ -59,6 +59,7 @@ describe('DecksMetaRefreshService (§4) — deckCount = persistidos + note JSON 
 
   function makeHarness() {
     const client = {
+      fetchDecksIndex: jest.fn(async () => '<html></html>'), // §DECKS-TOP-FUENTE: sin filas ⇒ fallback a la portada
       fetchHome: jest.fn(async () => HOME_HTML),
       fetchDeckList: jest.fn(async () => '<div></div>'),
     } as unknown as LimitlessFetchClient;

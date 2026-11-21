@@ -43,6 +43,7 @@ function fakeMatcher(): DeckMatcherService {
 
 function fakeClient(): LimitlessFetchClient {
   return {
+    fetchDecksIndex: jest.fn(async () => '<html></html>'), // §DECKS-TOP-FUENTE: sin filas ⇒ fallback a la portada
     fetchHome: jest.fn(async () => homeHtml),
     fetchDeckList: jest.fn(async () => decklistHtml),
     fetchArchetype: jest.fn(async () => ''),

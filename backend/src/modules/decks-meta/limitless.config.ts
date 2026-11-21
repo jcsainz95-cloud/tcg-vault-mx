@@ -38,7 +38,7 @@ export function normalizeAutopublishDial(raw: unknown): boolean {
 // ── Parámetros de fetch (§1), configurables por env con tope duro ────────────────────────────────
 
 export interface LimitlessFetchConfig {
-  /** N arquetipos a traer de la home (default 20, tope duro 22 requests/run, §1; §DECKS-TOP: maxRequests = N+2). */
+  /** N arquetipos a traer (default 20). §DECKS-TOP-FUENTE: 1 (/decks) + 2·N (página de arquetipo + lista) ≤ maxRequests. */
   topN: number;
   /** Espaciado entre requests secuenciales (ms). */
   delayMs: number;
@@ -48,18 +48,18 @@ export interface LimitlessFetchConfig {
   maxBytes: number;
   /** Reintentos por request (además del primer intento). */
   retries: number;
-  /** Cota DURA de GETs por corrida (home + N listas ≤ este número). */
+  /** Cota DURA de GETs FÍSICAS por corrida (índice + 2·N + reintentos ≤ este número). */
   maxRequests: number;
 }
 
-/** Defaults pineados (§1). El tope duro de requests es 22 (home + 20 listas + margen, §DECKS-TOP) y NUNCA se supera. */
+/** Defaults pineados (§1). §DECKS-TOP-FUENTE.2: tope duro 60 GET físicas (41 lógicas con N=20 + holgura de reintentos); NUNCA se supera. */
 export const FETCH_DEFAULTS: LimitlessFetchConfig = {
   topN: 20,
   delayMs: 1500,
   timeoutMs: 10_000,
   maxBytes: 3 * 1024 * 1024,
   retries: 2,
-  maxRequests: 22,
+  maxRequests: 60,
 };
 
 function envInt(config: ConfigService, key: string, fallback: number): number {
@@ -72,13 +72,13 @@ function envInt(config: ConfigService, key: string, fallback: number): number {
 
 /**
  * Resuelve la config de fetch desde env, aplicando el tope DURO de requests. `topN` se recorta para
- * que `1 (home) + topN ≤ maxRequests` — jamás se hacen más de `maxRequests` GETs por corrida.
+ * que `1 (índice) + 2·topN ≤ maxRequests` (§DECKS-TOP-FUENTE.2) — jamás más de `maxRequests` GETs por corrida.
  */
 export function resolveFetchConfig(config: ConfigService): LimitlessFetchConfig {
   const maxRequests = Math.min(envInt(config, 'META_FETCH_MAX_REQUESTS', FETCH_DEFAULTS.maxRequests), FETCH_DEFAULTS.maxRequests);
   const rawTopN = envInt(config, 'META_FETCH_TOP_N', FETCH_DEFAULTS.topN);
-  // La home consume 1 request; el resto del presupuesto son listas de arquetipo.
-  const topN = Math.max(1, Math.min(rawTopN, maxRequests - 1));
+  // El índice consume 1 request; cada arquetipo consume 2 (su página + su lista).
+  const topN = Math.max(1, Math.min(rawTopN, Math.floor((maxRequests - 1) / 2)));
   return {
     topN,
     delayMs: envInt(config, 'META_FETCH_DELAY_MS', FETCH_DEFAULTS.delayMs),
@@ -159,7 +159,12 @@ export function buildArchetypeUrl(archetypeId: string): string {
   return `${LIMITLESS_HOST}/decks/${archetypeId}`;
 }
 
-/** URL de la home «Top Decks». Sin parte controlable por el usuario. */
+/** URL del índice de arquetipos `/decks` (§DECKS-TOP-FUENTE). Sin parte controlable por el usuario. */
+export function buildDecksIndexUrl(): string {
+  return `${LIMITLESS_HOST}/decks`;
+}
+
+/** URL de la home «Top Decks». Sin parte controlable por el usuario (sólo fallback). */
 export function buildHomeUrl(): string {
   return `${LIMITLESS_HOST}/`;
 }

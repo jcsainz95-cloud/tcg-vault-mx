@@ -73,14 +73,16 @@ describe('diales fail-closed', () => {
 describe('resolveFetchConfig: tope DURO de requests', () => {
   it('defaults cuando no hay env', () => {
     const cfg = resolveFetchConfig(new ConfigService({}));
-    expect(cfg).toMatchObject({ topN: 20, delayMs: 1500, timeoutMs: 10000, retries: 2, maxRequests: 22 });
+    expect(cfg).toMatchObject({ topN: 20, delayMs: 1500, timeoutMs: 10000, retries: 2, maxRequests: 60 });
     expect(cfg.maxBytes).toBe(FETCH_DEFAULTS.maxBytes);
   });
 
-  it('maxRequests nunca supera el tope duro 22, y topN se recorta para 1(home)+topN ≤ maxRequests', () => {
+  it('maxRequests nunca supera el tope duro 60, y topN se recorta para 1(índice)+2·topN ≤ maxRequests', () => {
     const cfg = resolveFetchConfig(new ConfigService({ META_FETCH_TOP_N: '50', META_FETCH_MAX_REQUESTS: '99' }));
-    expect(cfg.maxRequests).toBe(22); // tope duro (§DECKS-TOP: N+2)
-    expect(cfg.topN).toBe(21); // 1 (home) + 21 = 22
+    expect(cfg.maxRequests).toBe(60); // tope duro (§DECKS-TOP-FUENTE.2)
+    expect(cfg.topN).toBe(29); // 1 + 2·29 = 59 ≤ 60
+    const small = resolveFetchConfig(new ConfigService({ META_FETCH_MAX_REQUESTS: '22' }));
+    expect(small.topN).toBe(10); // 1 + 2·10 = 21 ≤ 22
   });
 
   it('overrides por env se respetan (devops afina sin redeploy)', () => {

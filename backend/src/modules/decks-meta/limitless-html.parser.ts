@@ -265,3 +265,75 @@ function cardToLine($: CheerioAPI, node: AnyNode): ParsedLine | null {
 
   return { quantity, name, setCode: dataSet, number: dataNumber, group: 'pokemon', isBasicEnergy: false };
 }
+
+// ── Índice de arquetipos `/decks` (§DECKS-TOP-FUENTE) ─────────────────────────────────────────────
+
+/** Una fila de la tabla de `/decks`. */
+export interface DecksIndexRow {
+  archetypeId: string;
+  rank: number;
+  name: string;
+  sharePct: number | null;
+}
+
+export interface DecksIndexResult {
+  /** `Format: <CODE>` del filtro activo, sólo si valida como código («TEF-PBL»); si no ⇒ `null` (etiqueta genérica). */
+  formatCode: string | null;
+  /** Filas en orden de rank. */
+  rows: DecksIndexRow[];
+}
+
+/**
+ * Parsea la tabla `/decks` (`#`, sprite, `Deck`, `Points`, `Share`). Nombre = texto del enlace SIN la
+ * anotación (`span.annotation`), igual que la portada («Dragapult», no «Dragapult ex»), para que el slug
+ * de un deck ya publicado no cambie. Fila sin id válido, rank entero o nombre ⇒ se descarta.
+ */
+export function parseDecksIndex(html: string): DecksIndexResult {
+  const $ = load(html);
+  const rows: DecksIndexRow[] = [];
+  $('table.data-table tr').each((_i, tr) => {
+    const tds = $(tr).children('td');
+    if (tds.length < 3) return;
+    const a = $(tds[2]).find('a[href]').first();
+    const archetypeId = matchId(a.attr('href') ?? '', /^\/decks\/(\d+)\/?$/);
+    const rank = Number($(tds[0]).text().trim());
+    const clone = a.clone();
+    clone.find('.annotation').remove();
+    const name = clone.text().replace(/\s+/g, ' ').trim();
+    if (!archetypeId || !Number.isInteger(rank) || rank < 1 || !name) return;
+    const m = SHARE.exec($(tds[tds.length - 1]).text());
+    const share = m ? Number(m[1]) : NaN;
+    rows.push({ archetypeId, rank, name, sharePct: Number.isFinite(share) ? share : null });
+  });
+
+  let formatCode: string | null = null;
+  $('.active-options li').each((_i, li) => {
+    if (formatCode) return;
+    const t = $(li).text();
+    const m = /Format:\s*([A-Za-z0-9-]+)/.exec(t);
+    if (m && isValidFormatCode(m[1])) formatCode = m[1];
+  });
+  return { formatCode, rows };
+}
+
+/**
+ * De `/decks/<id>`: id de la PRIMERA lista de la tabla de torneos (+ el torneo del encabezado previo).
+ * `null` ⇒ sin lista (el deck se salta, sin abortar la corrida).
+ */
+export function parseArchetypeFirstList(html: string): { listId: string; sourceTournament: string | null } | null {
+  const $ = load(html);
+  let tournament: string | null = null;
+  let found: { listId: string; sourceTournament: string | null } | null = null;
+  $('table.data-table tr').each((_i, tr) => {
+    if (found) return;
+    const head = $(tr).find('th.sub-heading').first();
+    if (head.length > 0) {
+      tournament = head.text().replace(/\s+/g, ' ').trim().slice(0, 200) || null;
+      return;
+    }
+    const href = $(tr).find('a[href^="/decks/list/"]').first().attr('href') ?? '';
+    const listId = matchId(href, /^\/decks\/list\/(\d+)\/?$/);
+    if (listId) found = { listId, sourceTournament: tournament };
+  });
+  return found;
+}

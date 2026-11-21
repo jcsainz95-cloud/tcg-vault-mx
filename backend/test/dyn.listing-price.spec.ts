@@ -376,6 +376,10 @@ describe('Puertas de `ConfigSetting`: todas avisan o escriben solo claves que no
       keys: [DIAL_AUTOFETCH, DIAL_AUTOPUBLISH],
       why: 'Diales de decks meta (autofetch/autopublish): no son `SettingKey` y no entran al precio.',
     },
+    'modules/decks-meta/decks-meta-refresh.service.ts': {
+      keys: [DIAL_AUTOPUBLISH],
+      why: '§DECKS-TOP-FUENTE.8: seed idempotente (createMany skipDuplicates) del dial de autopublicación; no es `SettingKey` y no entra al precio.',
+    },
     'modules/pricing/listing-price.service.ts': {
       keys: ['listing_price_formula_version'],
       why: '§D9 8.2: bookkeeping del recálculo (la versión de la fórmula con que se escribieron las filas); lo escribe DESPUÉS de recalcular, ⛔ no mueve ningún precio.',

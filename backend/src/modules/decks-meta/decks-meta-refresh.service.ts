@@ -1,11 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MetaDeckSource, MetaMatchStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CoverMatch, CoverMatchStatus, DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import { imageOf } from './deck-image';
 import { FetchBudgetExhaustedError, FetchBudget, LimitlessFetchClient } from './limitless-fetch.client';
-import { parseHomeIndex, parseDeckListHtml, HomeLeader } from './limitless-html.parser';
+import { parseHomeIndex, parseDeckListHtml, parseDecksIndex, parseArchetypeFirstList, HomeLeader } from './limitless-html.parser';
 import { evaluateCanary, CanaryResult, DeckCanarySummary } from './canary';
 import {
   AutofetchDial,
@@ -22,7 +22,7 @@ import {
 /**
  * DECKS-META Fase 2 — ORQUESTADOR del auto-fetch semanal. Norma: spec §1, §4, §5, §6, §8.
  *
- * Flujo: home → N bloques `.leader` → por cada uno, GET `/decks/list/<listId>` (secuencial, con
+ * Flujo (§DECKS-TOP-FUENTE): `/decks` → N filas → por cada una GET `/decks/<id>` (listId) y `/decks/list/<listId>` (1+2N GET; portada si falla) (secuencial, con
  * delay) → parsear las ~60 → matchear (Fase 1, REUSADO) → CANARY (gate duro) → si pasa Y modo vivo:
  * persistir `MetaDeckList` nueva e inmutable + supersede. Dry-run corre TODO pero NO escribe nada.
  *
@@ -34,7 +34,7 @@ import {
  * Single-flight: flag en memoria (worker BullMQ y HTTP admin viven en el MISMO proceso).
  */
 @Injectable()
-export class DecksMetaRefreshService {
+export class DecksMetaRefreshService implements OnModuleInit {
   private readonly logger = new Logger(DecksMetaRefreshService.name);
   private running = false;
 
@@ -44,6 +44,28 @@ export class DecksMetaRefreshService {
     private readonly matcher: DeckMatcherService,
     private readonly client: LimitlessFetchClient,
   ) {}
+
+  /**
+   * §DECKS-TOP-FUENTE.8 (regla «todo automático», HECHOS 2026-10-30): siembra el dial de autopublicación en `true`
+   * SOLO si la fila no existe. `skipDuplicates` ⇒ jamás pisa un `false` (ni un `true`) puesto a propósito; idempotente.
+   * `decks_meta_autofetch` NO se siembra (el encendido sigue siendo deliberado, §8).
+   */
+  async seedAutopublishDial(): Promise<void> {
+    await this.prisma.configSetting.createMany({
+      data: [{ key: DIAL_AUTOPUBLISH, valueJson: true, updatedBy: 'system:seed-decks-top-fuente' }],
+      skipDuplicates: true,
+    });
+  }
+
+  async onModuleInit(): Promise<void> {
+    // Las suites e2e arrancan el AppModule y esperan el dial ausente (conservador); ahí no se siembra.
+    if (process.env.NODE_ENV === 'test') return;
+    try {
+      await this.seedAutopublishDial();
+    } catch (e) {
+      this.logger.warn(`seed del dial ${DIAL_AUTOPUBLISH} falló (no bloquea el arranque): ${(e as Error).message}`);
+    }
+  }
 
   /** Espera cancelable (aislada para mockear timers en test; el espaciado entre requests, §1). */
   protected async sleep(ms: number): Promise<void> {
@@ -101,70 +123,122 @@ export class DecksMetaRefreshService {
     // §PROV-F4 F4-2: `maxRequests` cuenta GET FÍSICAS (intentos, reintentos y redirects), no llamadas lógicas.
     const budget = new FetchBudget(fetchCfg.maxRequests);
 
-    // [1] HOME
-    let home: ReturnType<typeof parseHomeIndex> | null = null;
+    // [1] ÍNDICE `/decks` (fuente de candidatos, §DECKS-TOP-FUENTE.1). Falla o 0 filas ⇒ fallback a la portada (.4).
+    type Candidate = HomeLeader & { archetypeId: string; listId: string | null };
+    let source: 'decks' | 'home-fallback' = 'decks';
+    let formatCode: string | null = null;
+    let indexRows = 0;
+    let homeParseable = false;
+    let leadersWithListId = 0;
+    let candidates: Candidate[] = [];
     try {
-      const html = await this.client.fetchHome(budget);
-      urlsFetched.push('home');
-      home = parseHomeIndex(html);
+      const html = await this.client.fetchDecksIndex(budget);
+      urlsFetched.push('decks');
+      const idx = parseDecksIndex(html);
+      formatCode = idx.formatCode;
+      indexRows = idx.rows.length;
+      candidates = idx.rows.slice(0, fetchCfg.topN).map((r) => ({
+        archetypeId: r.archetypeId,
+        name: r.name,
+        rank: r.rank,
+        sharePct: r.sharePct,
+        listId: null,
+        sourceTournament: null,
+        cover: null,
+      }));
     } catch (e) {
-      errors.push(`home: ${(e as Error).message}`);
+      errors.push(`decks: ${(e as Error).message}`);
     }
 
-    const formatCode = home?.formatCode ?? null;
+    if (candidates.length === 0) {
+      source = 'home-fallback';
+      try {
+        const html = await this.client.fetchHome(budget);
+        urlsFetched.push('home');
+        const home = parseHomeIndex(html);
+        formatCode = home.formatCode;
+        homeParseable = home.totalBlocks > 0;
+        leadersWithListId = home.leaders.filter((l) => l.listId != null).length;
+        candidates = home.leaders
+          .filter((l): l is HomeLeader & { archetypeId: string; listId: string } => l.archetypeId != null && l.listId != null)
+          .slice(0, fetchCfg.topN);
+      } catch (e) {
+        errors.push(`home: ${(e as Error).message}`);
+      }
+    }
     const formatLabel = buildFormatLabel(formatCode);
 
-    // Candidatos: bloques con archetypeId + listId válidos, en orden de rank; tope N (§1).
-    const candidates = (home?.leaders ?? [])
-      .filter((l): l is HomeLeader & { archetypeId: string; listId: string } =>
-        l.archetypeId != null && l.listId != null,
-      )
-      .slice(0, fetchCfg.topN);
-    const leadersWithListId = (home?.leaders ?? []).filter((l) => l.listId != null).length;
-
-    // [3] Por cada arquetipo: fetch de su lista completa + parse + match. SECUENCIAL con delay (§1).
+    // [3] Por candidato: (en `/decks`) página de arquetipo → listId; luego la lista + parse + match. SECUENCIAL con delay (§1).
     const deckReports: DeckReport[] = [];
     const parsedDecks: ParsedDeck[] = [];
-    let requestsUsed = 1; // la home ya consumió uno
-    for (const c of candidates) {
-      if (requestsUsed >= fetchCfg.maxRequests || budget.remaining <= 0) {
-        this.logger.warn(`decks-meta-refresh: cota dura de ${fetchCfg.maxRequests} requests alcanzada; se detiene el fetch.`);
+    const seenSlugs = new Set<string>();
+    for (const c0 of candidates) {
+      if (budget.remaining <= 0) {
+        this.logger.warn(`decks-meta-refresh: cota dura de ${fetchCfg.maxRequests} GET físicas alcanzada; se detiene el fetch.`);
         break;
       }
-      if (fetchCfg.delayMs > 0) await this.sleep(fetchCfg.delayMs);
-      requestsUsed += 1;
+      // Dos arquetipos con el mismo nombre darían el mismo slug: gana el de mejor rank, el otro se salta.
+      const slug = slugifyDeckName(c0.name ?? `deck-${c0.archetypeId}`);
+      if (seenSlugs.has(slug)) {
+        errors.push(`${c0.archetypeId} (${c0.name ?? '??'}): slug duplicado '${slug}'; se salta`);
+        continue;
+      }
+      let c = c0;
       try {
-        const html = await this.client.fetchDeckList(c.listId, budget);
-        urlsFetched.push(`list/${c.listId}`);
+        if (source === 'decks') {
+          if (fetchCfg.delayMs > 0) await this.sleep(fetchCfg.delayMs);
+          const page = await this.client.fetchArchetype(c0.archetypeId, budget);
+          urlsFetched.push(`decks/${c0.archetypeId}`);
+          const first = parseArchetypeFirstList(page);
+          if (!first) throw new Error('la página del arquetipo no trae ninguna lista');
+          c = { ...c0, listId: first.listId, sourceTournament: first.sourceTournament };
+        }
+        const leader = c as HomeLeader & { archetypeId: string; listId: string };
+        if (fetchCfg.delayMs > 0) await this.sleep(fetchCfg.delayMs);
+        const html = await this.client.fetchDeckList(leader.listId, budget);
+        urlsFetched.push(`list/${leader.listId}`);
         const { lines } = parseDeckListHtml(html);
         const matched = await this.matcher.matchLines(lines);
         // Portada (§12.4.2): casada APARTE con el mismo motor; NUNCA se mezcla con `matched` (las 60),
         // así que no cuenta en sumQuantity/matched/total, canario, MetaDeckCard ni no-mapeadas.
-        const cover = await this.matchDeckCover(c, errors);
-        const summary = summarize(c, matched);
-        const report = toDeckReport(c, matched, thresholds.cardsMin, thresholds.cardsMax, cover);
-        parsedDecks.push({ leader: c, matched, summary, cover });
+        const cover = await this.matchDeckCover(leader, errors);
+        const summary = summarize(leader, matched);
+        const report = toDeckReport(leader, matched, thresholds.cardsMin, thresholds.cardsMax, cover);
+        seenSlugs.add(slug);
+        parsedDecks.push({ leader, matched, summary, cover });
         deckReports.push(report);
       } catch (e) {
-        const msg = `list/${c.listId} (${c.name ?? '??'}): ${(e as Error).message}`;
+        const msg = `${c.listId ? `list/${c.listId}` : `decks/${c.archetypeId}`} (${c.name ?? '??'}): ${(e as Error).message}`;
         errors.push(msg);
         deckReports.push(errorDeckReport(c, (e as Error).message));
         if (e instanceof FetchBudgetExhaustedError) break; // refresco parcial: mañana se reintenta
       }
     }
 
+    // §DECKS-TOP-FUENTE.5: con `/decks` un deck fuera de banda NO bloquea a los demás (se publica lo que pasa);
+    // se excluye de la evaluación y de la persistencia y queda en `errors` y en `decks[].inBand=false`.
+    let publishable = parsedDecks;
+    if (source === 'decks') {
+      publishable = parsedDecks.filter((p) => p.summary.sumQuantity >= thresholds.cardsMin && p.summary.sumQuantity <= thresholds.cardsMax);
+      for (const p of parsedDecks) {
+        if (!publishable.includes(p)) errors.push(`${p.leader.name ?? p.leader.archetypeId}: fuera de banda (${p.summary.sumQuantity}); no se publica`);
+      }
+    }
+
     // [4] CANARY (en memoria, antes de cualquier escritura).
     const canary = evaluateCanary(
       {
-        homeParseable: home != null && (home.totalBlocks ?? 0) > 0,
+        homeParseable,
         leadersWithListId,
-        decks: parsedDecks.map((p) => p.summary),
+        ...(source === 'decks' ? { indexRows } : {}),
+        decks: publishable.map((p) => p.summary),
       },
       thresholds,
     );
 
     const base: RefreshReport = {
       mode,
+      source,
       formatCode,
       formatLabel,
       autopublish,
@@ -200,7 +274,7 @@ export class DecksMetaRefreshService {
     }
 
     // Canary pasa: persistir por deck (supersede-based), respetando pausa y manual-gana.
-    for (const p of parsedDecks) {
+    for (const p of publishable) {
       try {
         const outcome = await this.persistDeck(p, { formatLabel, sourceTournament: p.leader.sourceTournament }, autopublish, fetchCfg.topN);
         if (outcome.skippedReason === 'paused') base.pausedSkipped.push(outcome.slug);
@@ -381,6 +455,7 @@ function capArray<T>(arr: T[], n: number): T[] {
 export function buildRunNote(report: RefreshReport): string {
   const detail = {
     mode: report.mode,
+    source: report.source,
     canaryVerdict: report.canary.verdict,
     canaryReason: report.canary.reason,
     persistedCount: report.persistedCount,
@@ -474,6 +549,8 @@ export interface DeckReport {
 
 export interface RefreshReport {
   mode: RefreshMode;
+  /** §DECKS-TOP-FUENTE: de dónde salieron los candidatos (`home-fallback` ⇒ aviso: `/decks` falló). */
+  source: 'decks' | 'home-fallback';
   formatCode: string | null;
   formatLabel: string;
   autopublish: boolean;
@@ -545,13 +622,13 @@ function toDeckReport(
   };
 }
 
-function errorDeckReport(leader: HomeLeader & { archetypeId: string; listId: string }, error: string): DeckReport {
+function errorDeckReport(leader: HomeLeader & { archetypeId: string }, error: string): DeckReport {
   return {
     archetypeId: leader.archetypeId,
     name: leader.name,
     rank: leader.rank,
     sharePct: leader.sharePct,
-    listId: leader.listId,
+    listId: leader.listId ?? '',
     cardsParsed: 0,
     sumQuantity: 0,
     matched: 0,

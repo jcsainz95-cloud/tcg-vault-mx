@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+
+
+<html lang="en" >
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decks – Limitless</title>
+    <meta name="description" content="Metagame and deck statistics from major Pokémon TCG tournaments.">
+
+            <meta property="og:title" content="Decks – Limitless">
+        <meta property="og:description" content="Metagame and deck statistics from major Pokémon TCG tournaments.">
+        <meta property="og:image" content="https://limitless3.nyc3.cdn.digitaloceanspaces.com/limitless/social-preview.png">
+        <meta property="og:type" content="website">
+        <meta property="og:site_name" content="Limitless TCG">
+    
+            <meta name="twitter:card" content="summary">
+        <meta name="twitter:site" content="@LimitlessTCG">
+        <meta name="twitter:title" content="Decks – Limitless">
+        <meta name="twitter:description" content="Metagame and deck statistics from major Pokémon TCG tournaments.">
+        <meta name="twitter:image" content="https://limitless3.nyc3.cdn.digitaloceanspaces.com/limitless/social-preview.png">
+    
+    <link rel="manifest" href="/app.webmanifest">
+
+            <!-- Global site tag (gtag.js) - Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-102651668-1"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'UA-102651668-1', { 'anonymize_ip': true });
+</script>    
+            <script data-cfasync="false">
+        window.ramp = window.ramp || {};
+        window.ramp.que = window.ramp.que || [];
+    </script>
+
+<style>
+#pw-oop-bottom_rail, .bh-div-wrapper, .celtra-banner {
+    z-index: 10 !important;
+    box-sizing: content-box;
+}
+
+@media print {
+    #pw-oop-bottom_rail, .bh-div-wrapper, .celtra-banner,
+    #pw-oop-left_rail {
+        display: none !important;
+    }
+}
+</style>    
+    <link rel="preload" as="style" href="https://limitlesstcg.com/build/assets/main-69223778.css" /><link rel="modulepreload" href="https://limitlesstcg.com/build/assets/main-437687fb.js" /><link rel="modulepreload" href="https://limitlesstcg.com/build/assets/dom-4b85ebf8.js" /><link rel="modulepreload" href="https://limitlesstcg.com/build/assets/limitless-38d3eac6.js" /><link rel="modulepreload" href="https://limitlesstcg.com/build/assets/fetch-a833fccf.js" /><link rel="modulepreload" href="https://limitlesstcg.com/build/assets/tables-bcf04db3.js" /><link rel="modulepreload" href="https://limitlesstcg.com/build/assets/ws-search-e6ffb889.js" /><link rel="modulepreload" href="https://limitlesstcg.com/build/assets/suggest-4ff36e79.js" /><link rel="stylesheet" href="https://limitlesstcg.com/build/assets/main-69223778.css" /><script type="module" src="https://limitlesstcg.com/build/assets/main-437687fb.js"></script>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400..700&family=Open+Sans+Condensed:wght@700&display=swap">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400..700&family=Open+Sans+Condensed:wght@700&display=swap">
+        <link rel="stylesheet" href="/inc/fontawesome/css/all.min.css?v=5.11.2">
+    
+        
+    <script>var LS_SEARCH_RESULTS = '~ search results', LS_NO_SEARCH_RESULTS = 'no search results found';</script>
+    <script>var LMT_RNT = false;</script>
+</head>
+
+<body>
+    <header>
+    <div class="header-top" data-mini-bar>
+        <div class="container top">
+            <div class="flex gap-4 items-center">
+                
+                <div class="site-news"> Latest Updates:
+                                            <a href="/tournaments/584">Gdańsk</a>  •                                             <a href="/tournaments/585">Buenos Aires</a>                                      </div>
+            </div>
+
+            <div class="site-settings">
+                <select class="language-switch" data-site-language>
+                    <option value="en_US"  selected >English</option>
+                    <option value="jp_JP" >日本語</option>
+                    <option value="de_DE" >Deutsch</option>
+                    <option value="fr_FR" >Français</option>
+                    <option value="it_IT" >Italiano</option>
+                    <option value="es_ES" >Español (ES)</option>
+                    <option value="es_419" >Español (LA)</option>
+                    <option value="pt_BR" >Português</option>
+                </select>
+
+                <button class="darkmode-toggle" aria-label="darkmode toggle" data-site-theme data-tooltip="Toggle Darkmode">
+                    <i class="fas fa-lg fa-moon" data-icon></i>
+                </button>
+
+                <div class="user-menu">
+
+                    <button data-user-button>
+                        <i class="fas fa-lg fa-user"></i>
+                    </button>
+
+                    <div class="user-menu-dd" data-user-menu>
+                                                    <div class="username italic">not logged in</div>
+                            <div class="user-options">
+                                <a href="https://account.limitlesstcg.com/login?redirect=https%3A%2F%2Flimitlesstcg.com">
+                                    <i class="fas fa-sign-in-alt"></i>
+                                    Log In
+                                </a>
+                                <a href="https://account.limitlesstcg.com/signup">
+                                    <i class="fas fa-user-plus"></i>
+                                    Create Account
+                                </a>
+                            </div>
+                                            </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container header">
+        <a class="site-logo" href="/">
+            <img src="https://limitless3.nyc3.cdn.digitaloceanspaces.com/limitless/logo.png" alt="Limitless">
+        </a>
+
+                <form class="site-search" method="get" action="/" data-lang="en">
+            <div class="category-label">
+                <span class="selected-category">Decks</span>
+                <i class="fas fa-sm fa-caret-down"></i>
+            </div>
+
+            <select name="type" class="category-select">
+                
+                <option value="cards" >Cards</option>
+                <option value="tournaments" >Tournaments</option>
+                <option value="decks"  selected >Decks</option>
+                <option value="players" >Players</option>
+            </select>
+
+            <input type="text" name="q" placeholder="Search database" autocomplete="off" autocapitalize="off"
+                autocorrect="off" >
+
+            <button type="submit" aria-label="submit search">
+                <i class="fas fa-lg fa-search"></i>
+            </button>
+
+            <div class="search-suggestions" data-suggestions>
+                <span class="suggestions-message" data-message></span>
+                <div class="suggestions-list" data-options>
+                </div>
+            </div>
+        </form>
+
+        <nav class="site-nav resp-nav" data-site-nav>
+            <button class="nav-toggle">
+                <i data-open class="fas fa-lg fa-bars"></i>
+                <i data-close class="fas fa-lg fa-times" style="display: none"></i>
+            </button>
+
+            <ul class="links">
+                
+                <li><a href="/tournaments">Tournaments</a></li>
+                <li><a href="/decks">Decks</a></li>
+                <li class="sub-category">
+                    <a href="/cards">Cards</a>
+                    <ul class="sub-menu">
+                        <li><a href="/cards/advanced">Advanced Search</a></li>
+                        <li><a href="/cards/syntax">Search Syntax</a></li>
+                        <li><a href="/translations">Translations</a></li>
+                    </ul>
+                </li>
+                <li class="sub-category">
+                    <a href="/tools">Tools</a>
+                    <ul class="sub-menu shift">
+                        <li><a href="https://my.limitlesstcg.com/builder">Deck Builder</a></li>
+                        <li><a href="https://labs.limitlesstcg.com">Labs</a></li>
+                        <li><a href="/tools/proxies">Proxy Printer</a></li>
+                        <li><a href="/tools/swisscalc">Swiss Calculator</a></li>
+                        <li><a href="/tools/imggen">Image Generator</a></li>
+                        <li><a href="/tools/deckdiff">Deck Comparison</a></li>
+                        <li><a href="/tools/drawcalc">DrawCalc</a></li>
+                        <li><a href="/tools/stream">Match Finder</a></li>
+                        <li><a href="/tools/mfy">Metafy Hub</a></li>
+                        <li><a href="/tools/tabletop">Tabletop</a></li>
+                    </ul>
+                </li>
+                <li class="sub-category more">
+                    <a class="expand">More</a>
+                    <ul class="sub-menu shift">
+                        <li><a href="/players">Rankings</a></li>
+                        <li><a href="/blog">Blog</a></li>
+                        <li><a href="https://play.limitlesstcg.com">Play</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </nav>
+    </div>
+</header>
+    <div class="before-content">
+<div class="container secondary-menu">
+    <ul class="nav">
+        <li class="active"><a href="/decks">Metagame</a></li>
+        <li><a href="/decks/lists">Decklists</a></li>
+        <li><a class="external" href="https://play.limitlesstcg.com/decks?game=PTCG">Online</a></li>
+        <li><a class="external" href="https://play.limitlesstcg.com/decks?game=pocket">Pocket</a></li>
+    </ul>
+</div>
+
+</div>
+
+            <div id="top_lb_placeholder" class="container dont-print top-banner">
+            <div class="patreon-note">
+                <a href="https://www.patreon.com/limitlesstcg/membership" target="_blank">
+                    <img src="https://limitless3.nyc3.cdn.digitaloceanspaces.com/web/patreon.png" alt="Patreon" class="invert">
+                    You can support us on Patreon to remove ads.
+                </a>
+            </div>
+        </div>
+    
+    <main>
+        <div class="container content">
+<div class="options-group">
+    <div class="options-row">
+    <label for="rank-select">Rank by</label>
+    <select id="rank-select" name="rank"  data-reload   >
+                    <option value="points"  selected >Points</option>
+                    <option value="money" >Earnings</option>
+                    <option value="day2s" >Day 2 finishes</option>
+                    <option value="cuts" >Top 8 finishes</option>
+                    <option value="wins" >Tournament wins</option>
+                              </select>
+</div>    <div class="checkbox self-center">
+    <input type="checkbox" id="checkbox-variants" name="variants" value="on"  data-reload="data-reload">
+    <label for="checkbox-variants">Split decks into their variants</label>
+</div></div>
+
+<div class="tournament-filter">
+
+    <div class="filter-visible">
+                    <ul class="multi-selection active-options">
+                                <li>
+                    <span class="label">Format:</span> TEF-30C
+                </li>
+                        </ul>
+        
+        <button class="toggle regular small" data-toggle>Edit tournament filter</button>
+    </div>
+
+    <div class="filter-selection" data-options>
+
+        <div class="options-group">
+            <div class="options-row">
+                <label for="time-select">Time</label>
+                <select id="time-select" name="time">
+                    <option selected disabled>Select Options</option>
+                    <option value="modern">Modern era</option>
+                    <option value="legacy">Legacy era</option>
+                    <option value="1months">Past month</option>
+                    <option value="3months">Past 3 months</option>
+                    <option value="6months">Past 6 months</option>
+                    <option value="12months">Past 12 months</option>
+                    <optgroup label="Modern era">
+                        <option value="2526">2025–2026</option>
+                        <option value="2425">2024–2025</option>
+                        <option value="2324">2023–2024</option>
+                        <option value="2223">2022–2023</option>
+                        <option value="2122">2021–2022</option>
+                        <option value="2021">2020–2021</option>
+                        <option value="1920">2019–2020</option>
+                        <option value="1819">2018–2019</option>
+                        <option value="1718">2017–2018</option>
+                        <option value="1617">2016–2017</option>
+                    </optgroup>
+                    <optgroup label="Legacy era">
+                        <option value="1516">2015–2016</option>
+                        <option value="1415">2014–2015</option>
+                        <option value="1314">2013–2014</option>
+                        <option value="1213">2012–2013</option>
+                        <option value="1112">2011–2012</option>
+                    </optgroup>
+                </select>
+            </div>
+
+            <div class="options-row">
+                <label for="type-select">Type</label>
+                <select id="type-select" name="type">
+                    <option selected disabled>Select Options</option>
+                                            <option value="regional">Regional</option>
+                                            <option value="international">International</option>
+                                            <option value="worlds">Worlds</option>
+                                            <option value="special">Special Event</option>
+                                            <option value="national">National</option>
+                                            <option value="cl">Champions League</option>
+                                            <option value="rl">Regional League</option>
+                                            <option value="pbl">Premier Ball League</option>
+                                            <option value="mbl">Master Ball League</option>
+                                            <option value="online">Online Event</option>
+                                            <option value="players_cup">Players Cup</option>
+                                            <option value="invitational">Invitational</option>
+                                    </select>
+            </div>
+
+            <div class="options-row">
+                <label for="format-select">Format</label>
+                <select id="format-select" name="format">
+                    <option selected disabled>Select Options</option>
+                                            <option value="standard">Standard</option>
+                                            <option value="expanded">Expanded</option>
+                                            <option value="standard-jp">Standard (JP)</option>
+                                            <option value="expanded-jp">Expanded (JP)</option>
+                                    </select>
+            </div>
+
+            <div class="options-row">
+                <label for="region-select">Region</label>
+                <select id="region-select" name="region">
+                    <option selected disabled>Select Options</option>
+                                            <option value="eu">Europe</option>
+                                            <option value="na">North America</option>
+                                            <option value="la">Latin America</option>
+                                            <option value="oc">Oceania</option>
+                                            <option value="asia">Asia</option>
+                                            <option value="other">Other</option>
+                                    </select>
+            </div>
+
+                            <div class="options-row">
+                    <label for="division-select">Division</label>
+                    <select id="division-select" name="division">
+                        <option selected disabled>Select Options</option>
+                        <option value="ma">Masters</option>
+                        <option value="sr">Seniors</option>
+                        <option value="jr">Juniors</option>
+                    </select>
+                </div>
+                    </div>
+
+        <ul class="selection multi-selection" data-selection>
+                            <li data-key="format" data-value="TEF-30C">
+                    <i class="fas fa-times"></i><span class="label">Format:</span> TEF-30C
+                </li>
+                    </ul>
+
+        <button class="regular small" data-apply>Apply Selection</button>
+
+    </div>
+</div>
+<table class="data-table striped">
+    <tr>
+        <th>#</th>
+        <th></th>
+        <th>Deck</th>
+        <th>Points</th>
+        <th>Share</th>
+    </tr>
+                <tr>
+            <td>1</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/dragapult.png" alt="dragapult"></td>
+            <td><a href="/decks/284">Dragapult <span class="annotation">ex</span></a></td>
+            <td>5872</td>
+            <td>36.46%</td>
+        </tr>
+            <tr>
+            <td>2</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/ogerpon.png" alt="ogerpon"><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/clefairy.png" alt="clefairy"></td>
+            <td><a href="/decks/339">Basic Box <span class="annotation"></span></a></td>
+            <td>1414</td>
+            <td>8.78%</td>
+        </tr>
+            <tr>
+            <td>3</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/slowking.png" alt="slowking"></td>
+            <td><a href="/decks/322">Slowking <span class="annotation">Seek Inspiration</span></a></td>
+            <td>1236</td>
+            <td>7.67%</td>
+        </tr>
+            <tr>
+            <td>4</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/zoroark.png" alt="zoroark"></td>
+            <td><a href="/decks/320">N's Zoroark <span class="annotation">ex</span></a></td>
+            <td>1169</td>
+            <td>7.26%</td>
+        </tr>
+            <tr>
+            <td>5</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/alakazam.png" alt="alakazam"></td>
+            <td><a href="/decks/350">Alakazam <span class="annotation">Powerful Hand</span></a></td>
+            <td>1032</td>
+            <td>6.41%</td>
+        </tr>
+            <tr>
+            <td>6</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/dipplin.png" alt="dipplin"><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/thwackey.png" alt="thwackey"></td>
+            <td><a href="/decks/336">Festival Lead <span class="annotation"></span></a></td>
+            <td>917</td>
+            <td>5.69%</td>
+        </tr>
+            <tr>
+            <td>7</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/hydrapple.png" alt="hydrapple"></td>
+            <td><a href="/decks/352">Hydrapple <span class="annotation">ex</span></a></td>
+            <td>696</td>
+            <td>4.32%</td>
+        </tr>
+            <tr>
+            <td>8</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/dhelmise.png" alt="dhelmise"><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/banette.png" alt="banette"></td>
+            <td><a href="/decks/374">Dhelmise <span class="annotation">Hide n' Sneak</span></a></td>
+            <td>644</td>
+            <td>4.00%</td>
+        </tr>
+            <tr>
+            <td>9</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/crustle.png" alt="crustle"></td>
+            <td><a href="/decks/341">Crustle <span class="annotation">Mysterious Rock Inn</span></a></td>
+            <td>451</td>
+            <td>2.80%</td>
+        </tr>
+            <tr>
+            <td>10</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/lopunny-mega.png" alt="lopunny-mega"></td>
+            <td><a href="/decks/353">Mega Lopunny <span class="annotation">ex</span></a></td>
+            <td>437</td>
+            <td>2.71%</td>
+        </tr>
+            <tr>
+            <td>11</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/excadrill-mega.png" alt="excadrill-mega"></td>
+            <td><a href="/decks/376">Mega Excadrill <span class="annotation">ex</span></a></td>
+            <td>392</td>
+            <td>2.43%</td>
+        </tr>
+            <tr>
+            <td>12</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/lucario-mega.png" alt="lucario-mega"></td>
+            <td><a href="/decks/345">Mega Lucario <span class="annotation">ex</span></a></td>
+            <td>306</td>
+            <td>1.90%</td>
+        </tr>
+            <tr>
+            <td>13</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/honchkrow.png" alt="honchkrow"><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/porygon2.png" alt="porygon2"></td>
+            <td><a href="/decks/356">Rocket's Honchkrow <span class="annotation"></span></a></td>
+            <td>254</td>
+            <td>1.58%</td>
+        </tr>
+            <tr>
+            <td>14</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/sharpedo-mega.png" alt="sharpedo-mega"></td>
+            <td><a href="/decks/354">Mega Sharpedo <span class="annotation">ex</span></a></td>
+            <td>220</td>
+            <td>1.37%</td>
+        </tr>
+            <tr>
+            <td>15</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/garchomp.png" alt="garchomp"></td>
+            <td><a href="/decks/332">Cynthia's Garchomp <span class="annotation">ex</span></a></td>
+            <td>146</td>
+            <td>0.91%</td>
+        </tr>
+            <tr>
+            <td>16</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/ogerpon.png" alt="ogerpon"><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/meganium.png" alt="meganium"></td>
+            <td><a href="/decks/351">Ogerpon Meganium <span class="annotation"></span></a></td>
+            <td>127</td>
+            <td>0.79%</td>
+        </tr>
+            <tr>
+            <td>17</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/grimmsnarl.png" alt="grimmsnarl"></td>
+            <td><a href="/decks/329">Marnie's Grimmsnarl <span class="annotation">ex</span></a></td>
+            <td>100</td>
+            <td>0.62%</td>
+        </tr>
+            <tr>
+            <td>18</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/mew.png" alt="mew"><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/clefairy.png" alt="clefairy"></td>
+            <td><a href="/decks/378">Mew Box <span class="annotation">Memory Helix</span></a></td>
+            <td>92</td>
+            <td>0.57%</td>
+        </tr>
+            <tr>
+            <td>19</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/mewtwo.png" alt="mewtwo"><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/spidops.png" alt="spidops"></td>
+            <td><a href="/decks/337">Rocket's Mewtwo <span class="annotation">ex</span></a></td>
+            <td>81</td>
+            <td>0.50%</td>
+        </tr>
+            <tr>
+            <td>20</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/greninja.png" alt="greninja"></td>
+            <td><a href="/decks/287">Greninja <span class="annotation">ex</span></a></td>
+            <td>56</td>
+            <td>0.35%</td>
+        </tr>
+            <tr>
+            <td>21</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/raging-bolt.png" alt="raging-bolt"></td>
+            <td><a href="/decks/280">Raging Bolt <span class="annotation">ex</span></a></td>
+            <td>54</td>
+            <td>0.34%</td>
+        </tr>
+            <tr>
+            <td>22</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/trevenant.png" alt="trevenant"></td>
+            <td><a href="/decks/363">Hop's Trevenant <span class="annotation"></span></a></td>
+            <td>47</td>
+            <td>0.29%</td>
+        </tr>
+            <tr>
+            <td>23</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/starmie-mega.png" alt="starmie-mega"></td>
+            <td><a href="/decks/362">Mega Starmie <span class="annotation">ex</span></a></td>
+            <td>40</td>
+            <td>0.25%</td>
+        </tr>
+            <tr>
+            <td>24</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/clefairy.png" alt="clefairy"></td>
+            <td><a href="/decks/326">Lillie's Clefairy <span class="annotation">ex</span></a></td>
+            <td>39</td>
+            <td>0.24%</td>
+        </tr>
+            <tr>
+            <td>24</td>
+            <td><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/absol-mega.png" alt="absol-mega"><img class="pokemon" src="https://r2.limitlesstcg.net/pokemon/gen9/kangaskhan-mega.png" alt="kangaskhan-mega"></td>
+            <td><a href="/decks/344">Mega Absol Box <span class="annotation"></span></a></td>
+            <td>39</td>
+            <td>0.24%</td>
+        </tr>
+    </table>
+
+    <div class="page-options">
+
+    <ul class="pagination" data-current="1" data-max="2">
+        <li  class="disabled"
+            >&laquo;</li>
+                                        <li  class="active"
+                >1</li>
+                                            <li  data-target="2"
+                >2</li>
+                            <li  data-target="2"
+            >&raquo;</li>
+    </ul>
+
+    <div class="labeled-select">
+        <label>Entries per page</label>
+        <select name="show" data-reload>
+                        <option value="25"  selected >25</option>
+            <option value="50" >50</option>
+            <option value="100" >100</option>
+        </select>
+    </div>
+
+</div>
+</div>
+    </main>
+
+    
+            <div id="bottom_ad_placeholder" class="container dont-print"></div>
+    
+    <div class="after-content"></div>
+
+    <footer>
+    <div class="container footer">
+        <div class="menus">
+            <div class="column">
+                <h2><a href="https://limitlesstcg.com">Limitless TCG</a></h2>
+                <ul>
+                    <li><a href="/about">About</a></li>
+                    <li><a href="/contact">Contact</a></li>
+                    <li><a href="/privacy">Privacy Policy</a></li>
+                    <li><a href="/legal">Site Notice</a></li>
+                </ul>
+            </div>
+            <div class="column">
+                <h2>Our Other Sites</h2>
+                <ul>
+                    <li><a href="https://my.limitlesstcg.com">Deck Builder</a></li>
+                    <li><a href="https://play.limitlesstcg.com">Tournament Platform</a></li>
+                    <li><a href="https://onepiece.limitlesstcg.com">One Piece Database</a></li>
+                    <li><a href="https://pocket.limitlesstcg.com">Pocket Database</a></li>
+                    <li><a href="https://limitlessvgc.com">Limitless VGC</a></li>
+                </ul>
+            </div>
+            <div class="column">
+                <h2>Follow</h2>
+                <ul>
+                    <li><a href="https://twitter.com/limitlesstcg"><i class="fab fa-twitter"></i> Twitter</a></li>
+                    <li><a href="https://facebook.com/LimitlessTCG/"><i class="fab fa-facebook"></i> Facebook</a></li>
+                    <li><a href="https://twitch.tv/limitless_tcg"><i class="fab fa-twitch"></i> Twitch</a></li>
+                    <li><a href="https://www.patreon.com/limitlesstcg"><i class="fab fa-patreon"></i> Patreon</a></li>
+                </ul>
+            </div>
+            <div class="column full">
+                                                    <h2>TCGplayer</h2>
+                    <a class="promo" href="https://partner.tcgplayer.com/LIMITLESS?u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fpokemon%2Fproduct" target="_blank">
+                        <img src="https://limitless3.nyc3.cdn.digitaloceanspaces.com/markets/promo/tcgplayer.png" alt="TCGplayer logo" />
+                        <p>You can support us by using our Affiliate Link when buying on TCGplayer!</p>
+                    </a>
+                            </div>
+
+                            <span class="cookie-link" onclick="window.ramp.showCmpModal();">Manage Cookies</span>
+                    </div>
+
+        <div class="disclaimer">The literal and graphical information presented on this website about the Pokémon Trading Card Game, including card images and text, is copyright The Pokémon Company (Pokémon), Nintendo, Game Freak and/or Creatures. This website is not produced by, endorsed by, supported by, or affiliated with Pokémon, Nintendo, Game Freak or Creatures.</div>
+    </div>
+</footer>
+
+    <div id="jsg">
+        <div class="overlay"></div>
+    </div>
+
+            <script data-cfasync="false" async src="//cdn.intergient.com/1025537/78560/ramp.js"></script>
+    </body>
+
+</html>
