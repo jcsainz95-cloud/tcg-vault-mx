@@ -5162,6 +5162,9 @@
       "runningNote": "Tarda porque baja las listas de verdad, una por una. No cierres la pestaña.",
       "error": "No se pudo correr el ensayo. Suele ser un problema de red con Limitless; vuelve a intentarlo.",
       "retry": "Reintentar",
+      "busyDryRun": "Hay un ensayo en curso; espera a que termine.",
+      "busyPublish": "Hay una publicación en curso; espera a que termine.",
+      "jobTimeout": "Tarda más de lo normal; revisa el último reporte.",
       "alreadyRunning": "Ya hay un ensayo en curso. Espera a que termine y vuelve a intentarlo.",
       "empty": "Todavía no corres el ensayo. Aprieta «Correr ensayo» para ver qué pasaría, sin publicar nada.",
       "verdict": {
@@ -5223,7 +5226,7 @@
       },
       "checks": {
         "C1": "arquetipos encontrados",
-        "C2": "60 cartas por deck",
+        "C2": "fuera de banda ≤ 40 %",
         "C3": "cartas reconocidas",
         "C4": "cartas sin edición",
         "C5": "página principal legible",

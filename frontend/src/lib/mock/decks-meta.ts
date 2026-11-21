@@ -131,7 +131,7 @@ export function mockDeckMetaPaste(text: string): DeckMetaPasteResponse {
 /**
  * MOCK del ensayo Fase 2 (`GET /admin/decks-meta/preview`) para demo / smoke E2E sin backend. Un
  * reporte dry-run que PUBLICARÍA: canary en verde, tres decks en banda (~60). El backend real
- * tarda ~30-45s (egress a Limitless); aquí es instantáneo.
+ * tarda ~1-2 min (egress a Limitless); aquí es instantáneo.
  */
 export const mockDecksMetaPreview: DecksMetaPreviewResponse = {
   skipped: false,

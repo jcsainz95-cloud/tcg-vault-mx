@@ -7,7 +7,7 @@ vi.mock('../api-client', async () => {
 });
 
 import { ApiClientError } from '../api-client';
-import { runDecksMetaRefreshJob, decksMetaPoll, DecksMetaJobLostError, DecksMetaJobFailedError } from './decks-meta-jobs';
+import { runDecksMetaRefreshJob, decksMetaPoll, DecksMetaJobLostError, DecksMetaJobFailedError, DecksMetaBusyError, DecksMetaJobTimeoutError } from './decks-meta-jobs';
 
 const st = (over: object) => ({ jobId: 'j1', status: 'running', dryRun: false, enqueuedAt: '', startedAt: null, finishedAt: null, result: null, error: null, ...over });
 
@@ -39,5 +39,36 @@ describe('runDecksMetaRefreshJob', () => {
       .mockResolvedValueOnce({ jobId: 'j1', status: 'queued', deduped: false })
       .mockRejectedValueOnce(new ApiClientError(404, { code: 'NOT_FOUND', message: 'x' }));
     await expect(runDecksMetaRefreshJob()).rejects.toBeInstanceOf(DecksMetaJobLostError);
+  });
+});
+
+describe('runDecksMetaRefreshJob · robustez', () => {
+  const q = { jobId: 'j1', status: 'queued', deduped: false };
+  it('fallo de red en el sondeo reintenta y luego completa', async () => {
+    req.mockResolvedValueOnce(q).mockRejectedValueOnce(new TypeError('network')).mockResolvedValueOnce(st({ status: 'done', result: { ok: 1 } }));
+    await expect(runDecksMetaRefreshJob()).resolves.toEqual({ ok: 1 });
+  });
+  it('red caída y luego 404 ⇒ DecksMetaJobLostError (no error de red)', async () => {
+    req.mockResolvedValueOnce(q).mockRejectedValueOnce(new TypeError('network')).mockRejectedValueOnce(new ApiClientError(404, { code: 'NOT_FOUND', message: 'x' }));
+    await expect(runDecksMetaRefreshJob()).rejects.toBeInstanceOf(DecksMetaJobLostError);
+  });
+  it('tope de 5 min ⇒ DecksMetaJobTimeoutError', async () => {
+    const prev = decksMetaPoll.maxMs;
+    decksMetaPoll.maxMs = 5;
+    req.mockResolvedValueOnce(q).mockResolvedValue(st({ status: 'running' }));
+    await expect(runDecksMetaRefreshJob()).rejects.toBeInstanceOf(DecksMetaJobTimeoutError);
+    decksMetaPoll.maxMs = prev;
+  });
+  it('cancelar (salir de la página) detiene el sondeo', async () => {
+    const ac = new AbortController();
+    req.mockResolvedValueOnce(q).mockResolvedValue(st({ status: 'running' }));
+    const p = runDecksMetaRefreshJob({ signal: ac.signal });
+    ac.abort();
+    await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+  });
+  it('409 REFRESH_BUSY ⇒ DecksMetaBusyError con runningDryRun', async () => {
+    req.mockRejectedValueOnce(new ApiClientError(409, { code: 'REFRESH_BUSY', message: 'x', details: { runningDryRun: true } }));
+    await expect(runDecksMetaRefreshJob({ dryRun: false })).rejects.toMatchObject({ name: 'DecksMetaBusyError', runningDryRun: true });
+    expect(DecksMetaBusyError).toBeDefined();
   });
 });

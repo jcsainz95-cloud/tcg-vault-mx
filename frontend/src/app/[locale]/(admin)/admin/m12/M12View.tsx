@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { Loader2, Check, X, Play, AlertTriangle } from 'lucide-react';
@@ -19,7 +19,33 @@ import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DecksMetaDialControl } from './DecksMetaDialControl';
 import { DeckCoverCell } from './DeckCoverCell';
-import { DecksMetaJobFailedError, DecksMetaJobLostError } from '@/lib/api/decks-meta-jobs';
+import {
+  DecksMetaBusyError,
+  DecksMetaJobFailedError,
+  DecksMetaJobLostError,
+  DecksMetaJobTimeoutError,
+} from '@/lib/api/decks-meta-jobs';
+
+/** Un AbortController por pantalla: cancela el sondeo al salir de la página. */
+function useAbortOnUnmount() {
+  const ref = useRef<AbortController | null>(null);
+  useEffect(() => () => ref.current?.abort(), []);
+  return () => {
+    ref.current?.abort();
+    ref.current = new AbortController();
+    return ref.current.signal;
+  };
+}
+
+type T = ReturnType<typeof useTranslations>;
+/** Texto llano del error de una corrida (nunca «red con Limitless» salvo fallo genérico). */
+function jobErrorText(err: unknown, t: T, fallback: string): string {
+  if (err instanceof DecksMetaBusyError) return t(err.runningDryRun ? 'busyDryRun' : 'busyPublish');
+  if (err instanceof DecksMetaJobLostError) return t('publishNow.jobLost');
+  if (err instanceof DecksMetaJobTimeoutError) return t('jobTimeout');
+  if (err instanceof DecksMetaJobFailedError && err.message) return t('publishNow.jobFailed', { error: err.message });
+  return fallback;
+}
 
 /**
  * §13 Fase 2 — pantalla de OPERADOR para el ENSAYO (dry-run) del auto-fetch de decks del meta.
@@ -38,10 +64,11 @@ export function M12View() {
   const locale = useLocale() as AppLocale;
 
   const [deduped, setDeduped] = useState(false);
+  const newSignal = useAbortOnUnmount();
   const run = useMutation({
     mutationFn: () => {
       setDeduped(false);
-      return getDecksMetaPreview({ onEnqueued: (e) => setDeduped(e.deduped) });
+      return getDecksMetaPreview({ signal: newSignal(), onEnqueued: (e) => setDeduped(e.deduped) });
     },
   });
 
@@ -69,7 +96,7 @@ export function M12View() {
         <p className="max-w-[70ch] text-sm text-muted">{t('subtitle')}</p>
       </div>
 
-      {/* El disparador + su estado de carga. El ensayo tarda ~30-45s (egress real). */}
+      {/* El disparador + su estado de carga. El ensayo tarda ~1-2 min (egress real). */}
       <div className="flex flex-col gap-3">
         <div>
           <Button loading={run.isPending} onClick={() => run.mutate()}>
@@ -99,11 +126,7 @@ export function M12View() {
               </Button>
             }
           >
-            {run.error instanceof DecksMetaJobLostError
-              ? t('publishNow.jobLost')
-              : run.error instanceof DecksMetaJobFailedError && run.error.message
-                ? t('publishNow.jobFailed', { error: run.error.message })
-                : t('error')}
+            {jobErrorText(run.error, t, t('error'))}
           </Banner>
         )}
 
@@ -153,10 +176,11 @@ function PublishNowSection({ locale }: { locale: AppLocale }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const [deduped, setDeduped] = useState(false);
+  const newSignal = useAbortOnUnmount();
   const run = useMutation({
     mutationFn: () => {
       setDeduped(false);
-      return runDecksMetaPublishNow({ onEnqueued: (e) => setDeduped(e.deduped) });
+      return runDecksMetaPublishNow({ signal: newSignal(), onEnqueued: (e) => setDeduped(e.deduped) });
     },
   });
 
@@ -210,11 +234,7 @@ function PublishNowSection({ locale }: { locale: AppLocale }) {
               </Button>
             }
           >
-            {run.error instanceof DecksMetaJobLostError
-              ? t('publishNow.jobLost')
-              : run.error instanceof DecksMetaJobFailedError && run.error.message
-                ? t('publishNow.jobFailed', { error: run.error.message })
-                : t('publishNow.error')}
+            {jobErrorText(run.error, t, t('publishNow.error'))}
           </Banner>
         )}
 

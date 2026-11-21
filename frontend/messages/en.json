@@ -5162,6 +5162,9 @@
       "runningNote": "It takes a while because it downloads the lists for real, one by one. Don't close the tab.",
       "error": "The dry-run couldn't run. It's usually a network issue with Limitless; please try again.",
       "retry": "Retry",
+      "busyDryRun": "A dry-run is in progress; wait for it to finish.",
+      "busyPublish": "A publication is in progress; wait for it to finish.",
+      "jobTimeout": "It is taking longer than usual; check the latest report.",
       "alreadyRunning": "A dry-run is already in progress. Wait for it to finish and try again.",
       "empty": "You haven't run the dry-run yet. Press «Run dry-run» to see what would happen, without publishing anything.",
       "verdict": {
@@ -5223,7 +5226,7 @@
       },
       "checks": {
         "C1": "archetypes found",
-        "C2": "60 cards per deck",
+        "C2": "out of band ≤ 40 %",
         "C3": "cards recognized",
         "C4": "cards without edition",
         "C5": "home page readable",

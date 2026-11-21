@@ -4,7 +4,7 @@ import { renderWithProviders } from '@/test/render';
 import { M12View } from './M12View';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
-import { DecksMetaJobLostError, DecksMetaJobFailedError } from '@/lib/api/decks-meta-jobs';
+import { DecksMetaBusyError, DecksMetaJobTimeoutError, DecksMetaJobLostError, DecksMetaJobFailedError } from '@/lib/api/decks-meta-jobs';
 import type { DecksMetaRefreshReport, DecksMetaPreviewResponse } from '@/types/contract';
 
 /** v1.80 (P-71): el código se pinta «TWM 130» con espacio NO separable; el normalizador por defecto lo colapsaría. */
@@ -146,6 +146,38 @@ describe('M12View · Vista previa asíncrona', () => {
     renderWithProviders(<M12View />, 'es');
     fireEvent.click(screen.getByRole('button', { name: 'Correr ensayo' }));
     expect(await screen.findByText('El servidor se reinició; vuelve a intentarlo.')).toBeInTheDocument();
+  });
+
+  it('operador: puede «Correr ensayo» (dryRun) y no ve «Publicar ahora»', async () => {
+    roleState.role = 'vault_operator';
+    const spy = vi.spyOn(api, 'getDecksMetaPreview').mockResolvedValue({ skipped: false, report: report() } as never);
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Correr ensayo' }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Publicar ahora' })).not.toBeInTheDocument();
+  });
+
+  it('409 REFRESH_BUSY ⇒ «ensayo/publicación en curso», nunca «algún chequeo no pasó»', async () => {
+    vi.spyOn(api, 'getDecksMetaPreview').mockRejectedValue(new DecksMetaBusyError(false));
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Correr ensayo' }));
+    expect(await screen.findByText('Hay una publicación en curso; espera a que termine.')).toBeInTheDocument();
+    expect(screen.queryByText(/algún chequeo no pasó/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/problema de red/)).not.toBeInTheDocument();
+  });
+
+  it('tope de sondeo ⇒ «tarda más de lo normal»', async () => {
+    vi.spyOn(api, 'getDecksMetaPreview').mockRejectedValue(new DecksMetaJobTimeoutError());
+    renderWithProviders(<M12View />, 'es');
+    fireEvent.click(screen.getByRole('button', { name: 'Correr ensayo' }));
+    expect(await screen.findByText('Tarda más de lo normal; revisa el último reporte.')).toBeInTheDocument();
+  });
+
+  it('etiqueta C2 «fuera de banda ≤ 40 %» en es y en', async () => {
+    const es = (await import('../../../../../../messages/es.json')).default as any;
+    const en = (await import('../../../../../../messages/en.json')).default as any;
+    expect(es.admin.decksMetaRefresh.checks.C2).toBe('fuera de banda ≤ 40 %');
+    expect(en.admin.decksMetaRefresh.checks.C2).toBe('out of band ≤ 40 %');
   });
 });
 
