@@ -1526,7 +1526,11 @@
           "skipped": "Skipped"
         },
         "reason": {
-          "metadeck": "Meta deck"
+          "metadeck": "Meta deck",
+          "label": "Which decks it comes from",
+          "deck": "Deck #{rank} · {copies, plural, one {# copy} other {# copies}} × {mult}",
+          "deckNamed": "{name} (#{rank}) · {copies, plural, one {# copy} other {# copies}} × {mult}",
+          "more": "and {n} more"
         },
         "skip": {
           "no_market": "No market price today; retried tomorrow",
@@ -1542,7 +1546,8 @@
           "QUARANTINED": "This suggestion is quarantined (no valid price or price jump); it cannot be published today.",
           "BUDGET_EXCEEDED": "It does not fit under the cap on what is open at once.",
           "IDEMPOTENCY_KEY_REUSED": "That operation changed while sending; try again.",
-          "FORBIDDEN_ROLE": "Your account cannot do this."
+          "FORBIDDEN_ROLE": "Your account cannot do this.",
+          "MARKET_UNAVAILABLE": "No market price is available right now; try again in a few minutes."
         }
       },
       "requestStatus": {

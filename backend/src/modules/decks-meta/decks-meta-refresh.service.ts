@@ -202,7 +202,7 @@ export class DecksMetaRefreshService {
     // Canary pasa: persistir por deck (supersede-based), respetando pausa y manual-gana.
     for (const p of parsedDecks) {
       try {
-        const outcome = await this.persistDeck(p, { formatLabel, sourceTournament: p.leader.sourceTournament }, autopublish);
+        const outcome = await this.persistDeck(p, { formatLabel, sourceTournament: p.leader.sourceTournament }, autopublish, fetchCfg.topN);
         if (outcome.skippedReason === 'paused') base.pausedSkipped.push(outcome.slug);
         else if (outcome.skippedReason === 'manual') base.manualConflicts.push(outcome.slug);
         else {
@@ -253,7 +253,9 @@ export class DecksMetaRefreshService {
     p: ParsedDeck,
     meta: { formatLabel: string; sourceTournament: string | null },
     autopublish: boolean,
+    topN: number,
   ): Promise<PersistOutcome> {
+    const rank = sanitizeRank(p.leader.rank, topN);
     const slug = slugifyDeckName(p.leader.name ?? `deck-${p.leader.archetypeId}`);
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.metaDeck.findUnique({ where: { slug } });
@@ -278,7 +280,7 @@ export class DecksMetaRefreshService {
           name: p.leader.name ?? slug,
           source: MetaDeckSource.limitless,
           sourceRef: `/decks/${p.leader.archetypeId}`,
-          rank: p.leader.rank ?? null,
+          rank,
           sharePct: p.leader.sharePct ?? null,
           trend,
           published: willPublish,
@@ -287,7 +289,7 @@ export class DecksMetaRefreshService {
           name: p.leader.name ?? slug,
           source: MetaDeckSource.limitless,
           sourceRef: `/decks/${p.leader.archetypeId}`,
-          rank: p.leader.rank ?? undefined,
+          rank: rank ?? undefined,
           sharePct: p.leader.sharePct ?? undefined,
           trend: trend ?? undefined,
           ...(autopublish ? { published: true } : {}),
@@ -439,6 +441,11 @@ export interface DeckCoverReport {
   matchStatus: CoverMatchStatus;
   cardId: string | null;
   imageUrl: string | null;
+}
+
+/** F4-7: el puesto de Limitless solo vale si es entero 1..topN; si no ⇒ null (el deck queda sin puesto y no pesa en las sugeridas). */
+export function sanitizeRank(r: unknown, topN: number): number | null {
+  return typeof r === 'number' && Number.isInteger(r) && r >= 1 && r <= topN ? r : null;
 }
 
 interface PersistOutcome {

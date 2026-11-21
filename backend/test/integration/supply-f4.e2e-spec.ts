@@ -5,7 +5,7 @@ import { SupplySuggestService } from '../../src/modules/supply/supply-suggest.se
 import { SUPPLY_SYSTEM_USER_ID } from '../../src/modules/supply/supply-suggest.logic';
 
 /**
- * §PROV-F4 contra Postgres real: sugeridas desde Meta Decks (máximo de copias, no suma), stock y solicitudes abiertas descontados,
+ * §PROV-F4 contra Postgres real: sugeridas desde Meta Decks (decks completos: Σ min(copias,4)×mult(puesto); decks sin puesto no cuentan), stock y solicitudes abiertas descontados,
  * tope 100 %, sin mercado ⇒ se salta y se reintenta, dedupe con manuales, presupuesto semanal, dos corridas simultáneas, idempotencia,
  * `autoPublish` apagado ⇒ solo borradores, endpoints y roles.
  */
@@ -73,8 +73,8 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
         await h.prisma.metaDeckCard.create({ data: { listId: list.id, rawName: cardId, rawSetCode: 'F4', rawNumber: '1', quantity: qty, group: 'pokemon', matchStatus: ms, matchedCardId: ms === 'matched' ? cardId : null } });
       }
     };
-    await mkDeck(`${SLUG}-1`, 1, [[C.A, 2, 'matched'], [C.B, 4, 'matched'], [C.N, 2, 'matched'], [C.CHEAP, 4, 'matched'], [C.EN, 12, 'matched'], [C.J, 2, 'matched'], [C.U, 3, 'unmatched_set']]);
-    await mkDeck(`${SLUG}-2`, 2, [[C.A, 3, 'matched']]);
+    await mkDeck(`${SLUG}-1`, 6, [[C.A, 2, 'matched'], [C.B, 4, 'matched'], [C.N, 2, 'matched'], [C.CHEAP, 4, 'matched'], [C.EN, 12, 'matched'], [C.J, 2, 'matched'], [C.U, 3, 'unmatched_set']]);
+    await mkDeck(`${SLUG}-2`, 7, [[C.A, 3, 'matched']]);
     await setMarket(C.A, 10000); // MX$100
     await setMarket(C.B, 20050); // MX$200.50
     await setMarket(C.N, null);
@@ -106,6 +106,11 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
 
   beforeEach(async () => {
     await reset();
+    // Fixture canónico de decks (los tests de §PROV-F4.2 cambian puestos y copias).
+    await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-1` }, data: { rank: 6 } });
+    await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { rank: 7 } });
+    await h.prisma.metaDeckCard.updateMany({ where: { matchedCardId: C.A, list: { deck: { slug: `${SLUG}-1` } } }, data: { quantity: 2 } });
+    await h.prisma.metaDeckCard.updateMany({ where: { matchedCardId: C.A, list: { deck: { slug: `${SLUG}-2` } } }, data: { quantity: 3 } });
     await settings({ autoPublish: false, openBudgetCents: 500000, defaultPctBps: 7000 });
   });
 
@@ -121,13 +126,13 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     expect(s.body).toEqual(expect.objectContaining({ openExposureCents: 0, lastRunAt: null }));
   });
 
-  it('autoPublish APAGADO: solo borradores; necesidad = máximo de copias (3, no 5); energía, barata, sin casar y sin mercado se tratan según regla', async () => {
+  it('autoPublish APAGADO: solo borradores; necesidad = suma de decks de puesto > 5 (2+3 = 5, ×1); energía, barata, sin casar y sin mercado se tratan según regla', async () => {
     const r = await svc.run();
     expect(r.published).toBe(0);
     expect(await h.prisma.supplyRequest.count()).toBe(0);
     const a = await row(C.A);
-    expect(a).toMatchObject({ status: 'draft', suggestedQty: 3, unitCents: 7000, marketCents: 10000, skipReason: null });
-    expect(a?.reasons).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2` }]);
+    expect(a).toMatchObject({ status: 'draft', suggestedQty: 5, unitCents: 7000, marketCents: 10000, skipReason: null });
+    expect(a?.reasons).toEqual([{ kind: 'metadeck', ref: `${SLUG}-1`, rank: 6, copies: 2, mult: 1 }, { kind: 'metadeck', ref: `${SLUG}-2`, rank: 7, copies: 3, mult: 1 }]);
     expect(await row(C.B)).toMatchObject({ status: 'draft', suggestedQty: 4, unitCents: 14000 }); // 70 % de 200.50 = 140.35 → 140
     expect(await row(C.N)).toMatchObject({ status: 'skipped', skipReason: 'no_market', unitCents: null });
     expect(await row(C.J)).toMatchObject({ status: 'skipped', skipReason: 'market_jump' }); // salto de mercado ⇒ cuarentena
@@ -157,7 +162,7 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     const r = await svc.run();
     expect(r.published).toBe(2); // A y B (J en cuarentena, N sin mercado)
     const [ra] = await reqs(C.A);
-    expect(ra).toMatchObject({ source: 'suggested', qtyWanted: 3, pctBps: 7000, fixedCents: null, status: 'open', createdById: SUPPLY_SYSTEM_USER_ID, minCondition: 'NM' });
+    expect(ra).toMatchObject({ source: 'suggested', qtyWanted: 5, pctBps: 7000, fixedCents: null, status: 'open', createdById: SUPPLY_SYSTEM_USER_ID, minCondition: 'NM' });
     expect(await row(C.A)).toMatchObject({ status: 'published', requestId: ra.id });
     const adminView = await A('GET', `/admin/supply-requests/${ra.id}`, admin);
     expect(adminView.body.unitCents).toBe(7000);
@@ -196,16 +201,16 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     await settings({ autoPublish: true });
     await svc.run();
     const [ra] = await reqs(C.A);
-    expect(ra.qtyWanted).toBe(3);
+    expect(ra.qtyWanted).toBe(5);
     await h.prisma.metaDeckCard.updateMany({ where: { matchedCardId: C.A, quantity: 3 }, data: { quantity: 4 } });
     const r = await svc.run();
     expect(r.raised).toBe(1);
     const rs = await reqs(C.A);
     expect(rs).toHaveLength(1);
-    expect(rs[0].qtyWanted).toBe(4);
+    expect(rs[0].qtyWanted).toBe(6);
     await h.prisma.metaDeckCard.updateMany({ where: { matchedCardId: C.A, quantity: 4 }, data: { quantity: 1 } });
     await svc.run();
-    expect((await reqs(C.A))[0].qtyWanted).toBe(4); // no baja
+    expect((await reqs(C.A))[0].qtyWanted).toBe(6); // no baja
   });
 
   it('presupuesto semanal: lo que excede queda en borrador/budget y la exposición nunca supera el tope', async () => {
@@ -352,6 +357,62 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     }
   });
 
+  const deckRank = (n: 1 | 2, rank: number) => h.prisma.metaDeck.update({ where: { slug: `${SLUG}-${n}` }, data: { rank } });
+  const setLine = (cardId: string, slug: string, quantity: number) =>
+    h.prisma.metaDeckCard.updateMany({ where: { matchedCardId: cardId, list: { deck: { slug } } }, data: { quantity } });
+
+  it('PROV-F4.2: carta compartida 4×2 (puesto 2) + 2×1 (puesto 9) = 10; reasons por deck', async () => {
+    await deckRank(1, 9); await deckRank(2, 2);
+    await setLine(C.A, `${SLUG}-1`, 2); await setLine(C.A, `${SLUG}-2`, 4);
+    await svc.run();
+    const a = await row(C.A);
+    expect(a).toMatchObject({ status: 'draft', suggestedQty: 10 });
+    expect(a?.reasons).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 2, copies: 4, mult: 2 }, { kind: 'metadeck', ref: `${SLUG}-1`, rank: 9, copies: 2, mult: 1 }]);
+  });
+
+  it('PROV-F4.2: cambio de puesto y ConfigSetting recalculan; la abierta no baja', async () => {
+    await settings({ autoPublish: true });
+    await svc.run();
+    expect((await reqs(C.A))[0].qtyWanted).toBe(5); // 2×1 + 3×1
+    await deckRank(2, 3); // sube al top 5 ⇒ 2 + 3×2 = 8
+    await svc.run();
+    expect((await reqs(C.A))[0].qtyWanted).toBe(8);
+    await deckRank(2, 7); // baja ⇒ necesidad 5, la abierta NO se baja
+    await svc.run();
+    expect((await reqs(C.A))).toHaveLength(1);
+    expect((await reqs(C.A))[0].qtyWanted).toBe(8);
+    await h.prisma.supplySuggestion.deleteMany({}); await h.prisma.supplyRequest.deleteMany({});
+    await settings({ autoPublish: false });
+    try {
+      await h.prisma.configSetting.createMany({ data: [{ key: 'supply.suggest.topRankMax', valueJson: 7 }, { key: 'supply.suggest.topMult', valueJson: 3 }] });
+      await svc.run(); // deck-2 (rank 7) ahora es top ×3: 2×3 (rank 6) + 3×3 = 15
+      expect(await row(C.A)).toMatchObject({ suggestedQty: 15 });
+    } finally {
+      await h.prisma.configSetting.deleteMany({ where: { key: { startsWith: 'supply.suggest.' } } });
+    }
+  });
+
+  it('PROV-F4.2: al topar el cupo gana el menor puesto aunque valga menos; publish manual usa la misma necesidad viva', async () => {
+    await deckRank(2, 1); // A: 2 + 3×2 = 8, deck que más pesa = puesto 1; B pesa en el puesto 6
+    await settings({ autoPublish: true, openBudgetCents: 30000 });
+    await setMarket(C.B, 25000); // B vale MÁS que A (4×17500 = 70000 > 8×7000 = 56000): si se ignora el puesto, B gana y la prueba falla
+    try {
+      await svc.run();
+    } finally {
+      await setMarket(C.B, 20050);
+    }
+    expect((await reqs(C.A))[0].qtyWanted).toBe(4); // floor(300/70)
+    expect((await reqs(C.B))).toHaveLength(0);
+    expect(await row(C.B)).toMatchObject({ status: 'draft', skipReason: 'budget' });
+    // publish manual de otra carta con la necesidad nueva: A abierta 4 de 8 ⇒ viva 4 más
+    await settings({ openBudgetCents: 500000 });
+    for (let i = 0; i < 2; i++) await h.prisma.inventoryItem.create({ data: { folio: `F4-P${i}`, cardId: C.B, productType: 'raw', rawCondition: 'NM', finish: 'normal', acquisitionType: 'compra', acquisitionCostCents: 1000, status: 'in_stock', ownerType: 'platform' } });
+    const b = (await row(C.B))!;
+    const ok = await P(b.id, {});
+    expect(ok.status).toBe(201);
+    expect((await reqs(C.B)).find((x) => x.source === 'suggested')?.qtyWanted).toBe(2); // B 4 − stock 2
+  });
+
   it('publish manual recalcula la necesidad VIVA: stock 3 + acuerdo 1 con necesidad 4 ⇒ 409 ALREADY_COVERED; con 1 sola cubierta sube qty ≤ viva', async () => {
     await svc.run();
     const b = (await row(C.B))!;
@@ -492,5 +553,114 @@ describe('E2E §PROV-F4 — sugeridas con auto-publicación', () => {
     expect(await svc.openExposure(new Date())).toBeLessThanOrEqual(30000);
     expect((await reqs(C.A)).length).toBeLessThanOrEqual(1);
     expect((await reqs(C.B)).length).toBeLessThanOrEqual(1);
+  });
+  it('gate F4.2: filas viejas sin rank/copies/mult salen normalizadas (rellenas desde el deck vigente, o null estable)', async () => {
+    await deckRank(1, 6); await deckRank(2, 7);
+    await svc.run();
+    const a = (await row(C.A))!;
+    await h.prisma.supplySuggestion.update({ where: { id: a.id }, data: { reasons: [{ kind: 'metadeck', ref: `${SLUG}-2` }, { kind: 'metadeck', ref: 'deck-que-ya-no-existe' }, { kind: 'metadeck', ref: null }] } });
+    const r = await A('GET', '/admin/supply-suggestions?status=draft&pageSize=100', admin);
+    expect(r.status).toBe(200);
+    const got = r.body.data.find((x: any) => x.id === a.id);
+    expect(got.reasons).toEqual([
+      { kind: 'metadeck', ref: `${SLUG}-2`, rank: 7, copies: 3, mult: 1 },
+      { kind: 'metadeck', ref: 'deck-que-ya-no-existe', rank: null, copies: null, mult: null },
+      { kind: 'metadeck', ref: null, rank: null, copies: null, mult: null },
+    ]);
+  });
+
+  it('F4-5: reasons viejas NO se rellenan si el deck vigente está pausado, sin publicar o con rank<1: los tres null (nunca mezcla)', async () => {
+    await svc.run();
+    const a = (await row(C.A))!;
+    const old = [{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 4 }]; // rank viejo suelto: no debe mezclarse con copies/mult null
+    const read = async () => (await A('GET', '/admin/supply-suggestions?status=draft&pageSize=100', admin)).body.data.find((x: any) => x.id === a.id).reasons;
+    const nulls = [{ kind: 'metadeck', ref: `${SLUG}-2`, rank: null, copies: null, mult: null }];
+    try {
+      await h.prisma.supplySuggestion.update({ where: { id: a.id }, data: { reasons: old } });
+      await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { pausedByOperator: true } });
+      expect(await read()).toEqual(nulls);
+      await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { pausedByOperator: false, published: false } });
+      expect(await read()).toEqual(nulls);
+      for (const bad of [0, -5]) {
+        await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { published: true, rank: bad } });
+        expect(await read()).toEqual(nulls);
+      }
+      await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { rank: 7 } });
+      expect(await read()).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 7, copies: 3, mult: 1 }]); // regla única: lo guardado (rank 4) se ignora; deck hoy en puesto 7 ⇒ 7 vigente, mult de ese puesto
+    } finally {
+      await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { pausedByOperator: false, published: true, rank: 7 } });
+    }
+  });
+
+  it('F4-5: regla única al leer: rank 0/-5 guardados no salen; carta fuera de la lista vigente ⇒ los tres null', async () => {
+    await svc.run();
+    const a = (await row(C.A))!;
+    const readOf = async (id: string) => (await A('GET', '/admin/supply-suggestions?status=draft&pageSize=100', admin)).body.data.find((x: any) => x.id === id)?.reasons;
+    for (const bad of [0, -5]) {
+      await h.prisma.supplySuggestion.update({ where: { id: a.id }, data: { reasons: [{ kind: 'metadeck', ref: `${SLUG}-2`, rank: bad, copies: null, mult: 1 }] } });
+      expect(await readOf(a.id)).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 7, copies: 3, mult: 1 }]); // vigente, nunca el guardado
+    }
+    const b = await row(C.B);
+    expect(b).toBeTruthy();
+    // deck-2 solo lista C.A: C.B fuera de la lista vigente ⇒ tres null aunque lo guardado sea completo
+    await h.prisma.supplySuggestion.update({ where: { id: b!.id }, data: { reasons: [{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 2, copies: 3, mult: 2 }] } });
+    expect(await readOf(b!.id)).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2`, rank: null, copies: null, mult: null }]);
+  });
+
+  it('F4-8: rank 0 y -5 no cuentan como top en la necesidad (ni job ni publish manual)', async () => {
+    try {
+      for (const bad of [0, -5]) {
+        await h.prisma.supplySuggestion.deleteMany({});
+        await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { rank: bad } });
+        await svc.run();
+        expect(await row(C.A)).toMatchObject({ suggestedQty: 2 }); // solo deck-1 (puesto 6, ×1)
+        expect((await row(C.A))?.reasons).toEqual([{ kind: 'metadeck', ref: `${SLUG}-1`, rank: 6, copies: 2, mult: 1 }]);
+        const a = (await row(C.A))!;
+        expect((await P(a.id, {})).status).toBe(201);
+        expect((await reqs(C.A)).find((x) => x.source === 'suggested')?.qtyWanted).toBe(2);
+        await reset();
+      }
+    } finally {
+      await deckRank(2, 7);
+    }
+  });
+
+  it('F4-5: publish manual con mercado que no llega tras los reintentos ⇒ 503 MARKET_UNAVAILABLE reintentable, sin solicitud creada', async () => {
+    await svc.run();
+    const a = (await row(C.A))!;
+    // solicitud abierta a % del mercado de otra carta: la precarga (simulada sin ella) nunca trae su mercado
+    await h.prisma.supplyRequest.create({ data: { cardId: C.B, finish: 'normal', qtyWanted: 1, pctBps: 7000, source: 'manual', expiresAt: new Date(Date.now() + 86400_000), createdById: 'x' } });
+    const spy = jest.spyOn(svc as any, 'prefetchMarkets').mockResolvedValue(new Map([[`${C.A}|normal`, 10000]])); // solo la carta a publicar: falta la de la solicitud abierta
+    try {
+      const r = await P(a.id, {});
+      expect(r.status).toBe(503);
+      expect(code(r)).toBe('MARKET_UNAVAILABLE');
+      expect(spy.mock.calls.length).toBe(5);
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await reqs(C.A)).filter((x) => x.source === 'suggested')).toHaveLength(0);
+  });
+
+  it('gate F4.2: decks sin puesto (rank null) no cuentan en la necesidad', async () => {
+    await h.prisma.metaDeck.update({ where: { slug: `${SLUG}-2` }, data: { rank: null } });
+    try {
+      await svc.run();
+      expect(await row(C.A)).toMatchObject({ suggestedQty: 2 }); // solo deck-1 (puesto 6): 2×1; deck-2 sin puesto no suma
+      expect((await row(C.A))?.reasons).toEqual([{ kind: 'metadeck', ref: `${SLUG}-1`, rank: 6, copies: 2, mult: 1 }]);
+    } finally {
+      await deckRank(2, 7);
+    }
+  });
+
+  it('gate F4.2: publicar a mano guarda las reasons VIVAS, no las de la última corrida', async () => {
+    await deckRank(1, 6); await deckRank(2, 7);
+    await svc.run();
+    const a = (await row(C.A))!;
+    await deckRank(2, 2); // cambia el puesto después de la corrida: el job no ha vuelto a correr
+    expect((await P(a.id, {})).status).toBe(201);
+    const after = (await row(C.A))!;
+    expect(after.reasons).toEqual([{ kind: 'metadeck', ref: `${SLUG}-2`, rank: 2, copies: 3, mult: 2 }, { kind: 'metadeck', ref: `${SLUG}-1`, rank: 6, copies: 2, mult: 1 }]);
+    await deckRank(2, 7);
   });
 });

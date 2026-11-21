@@ -11,18 +11,67 @@ export const SUPPLY_SUGGEST_LOCK_KEY = 91_130_401;
 export const SUPPLY_SYSTEM_USER_ID = 'system:supply-suggest';
 /** Bajo este mercado (10 MXN) el costo de recoger no lo paga: no se sugiere. */
 export const SUGGEST_MIN_MARKET_CENTS = 1000;
-/** Copias máximas por carta en un mazo (excepto energía básica, que se excluye). */
+/** Copias máximas por carta EN UN MAZO (saneo por deck; la suma entre decks ya no se topa en 4). */
 export const MAX_COPIES = 4;
 /** Salto de mercado vs la captura anterior que manda la carta a cuarentena (30 %). */
 export const MARKET_JUMP_BPS = 3000;
 
-/** `kind` solo `metadeck`: la fuente «rotación» no existe (DECISIONES §PROV-F4.1); al construirse se añade por contrato. */
-export type SuggestReason = { kind: 'metadeck'; ref: string | null };
+/** `kind` solo `metadeck`: la fuente «rotación» no existe (DECISIONES §PROV-F4.1). Un elemento por deck que suma (§PROV-F4.2). */
+export type SuggestReason = { kind: 'metadeck'; ref: string | null; rank: number | null; copies: number; mult: number };
 
 export interface Need {
   cardId: string;
   need: number;
   reasons: SuggestReason[];
+  /** Puesto del deck que más pesa en la carta (copies × mult; empate ⇒ mejor puesto). Sin puesto ⇒ Infinity. Orden del cupo abierto. */
+  priorityRank: number;
+}
+
+/** Vista de una razón al leer: filas viejas (sin rank/copies/mult) salen con `null` explícito si no se pueden reconstruir. */
+export type SuggestReasonView = { kind: 'metadeck'; ref: string | null; rank: number | null; copies: number | null; mult: number | null };
+
+const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+
+/** Normaliza `reasons` leídas de BD: solo cuenta `ref` (rank/copies/mult guardados se IGNORAN; el servicio los recalcula vigentes); basura ⇒ se descarta. */
+export function normalizeReasons(raw: unknown): SuggestReasonView[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SuggestReasonView[] = [];
+  for (const r of raw as unknown[]) {
+    if (r == null || typeof r !== 'object') continue;
+    const o = r as Record<string, unknown>;
+    out.push({ kind: 'metadeck', ref: typeof o.ref === 'string' ? o.ref : null, rank: null, copies: null, mult: null });
+  }
+  return out;
+}
+
+/** Cota superior de los multiplicadores (F4-6): un valor mayor es un error de dedo, no una decisión. */
+export const MAX_SUGGEST_MULT = 10;
+export const MAX_TOP_RANK = 20;
+
+/** Claves de `ConfigSetting` de los multiplicadores por puesto (§PROV-F4.2). */
+export const SUGGEST_CFG_KEYS = ['supply.suggest.topRankMax', 'supply.suggest.topMult', 'supply.suggest.restMult'] as const;
+export interface SuggestMult { topRankMax: number; topMult: number; restMult: number }
+export const DEFAULT_SUGGEST_MULT: SuggestMult = { topRankMax: 5, topMult: 2, restMult: 1 };
+
+/** Lee los 3 valores de ConfigSetting; ausente/inválido (no entero, mult fuera de 1..10 o topRankMax fuera de 0..20) ⇒ default del código. */
+export function normalizeSuggestMult(rows: { key: string; valueJson: unknown }[]): SuggestMult {
+  const get = (key: string): number | null => {
+    const v = rows.find((r) => r.key === key)?.valueJson;
+    return typeof v === 'number' && Number.isInteger(v) ? v : null;
+  };
+  const tr = get('supply.suggest.topRankMax');
+  const tm = get('supply.suggest.topMult');
+  const rm = get('supply.suggest.restMult');
+  return {
+    topRankMax: tr != null && tr >= 0 && tr <= MAX_TOP_RANK ? tr : DEFAULT_SUGGEST_MULT.topRankMax,
+    topMult: tm != null && tm >= 1 && tm <= MAX_SUGGEST_MULT ? tm : DEFAULT_SUGGEST_MULT.topMult,
+    restMult: rm != null && rm >= 1 && rm <= MAX_SUGGEST_MULT ? rm : DEFAULT_SUGGEST_MULT.restMult,
+  };
+}
+
+/** Multiplicador del puesto: `rank ≤ topRankMax` ⇒ topMult; resto (o sin puesto) ⇒ restMult. */
+export function multForRank(rank: number | null | undefined, m: SuggestMult): number {
+  return rank != null && rank <= m.topRankMax ? m.topMult : m.restMult;
 }
 
 /** Energía BÁSICA (supertype Energy + subtipo Basic o nombre «Basic X Energy» / «Fire Energy»): se excluye siempre. */
@@ -33,30 +82,39 @@ export function isBasicEnergy(card: { supertype: string | null; name: string; su
   return /^Basic\b/i.test(card.name) || /^(Grass|Fire|Water|Lightning|Psychic|Fighting|Darkness|Metal|Fairy) Energy$/i.test(card.name);
 }
 
-/** Necesidad por carta de los mazos: el MÁXIMO de copias entre mazos (no la suma), acotado a 4. `ref` = slug del mazo que más copias pide. */
-export function needsFromDecks(lines: { cardId: string; quantity: number; deckSlug: string }[]): Map<string, Need> {
-  const out = new Map<string, Need>();
+/**
+ * Necesidad por carta de los mazos: Σ sobre decks de min(copias en el deck, 4) × mult(rank). Cartas compartidas SUMAN (4×2 + 2×1 = 10).
+ * Las líneas de una misma carta dentro de un deck se suman antes de acotar a 4 (saneo por deck).
+ * Deck SIN puesto (`rank` null/undefined) ⇒ se EXCLUYE de la necesidad (el contrato exige `rank` entero y así nunca infla).
+ */
+export function needsFromDecks(
+  lines: { cardId: string; quantity: number; deckSlug: string; rank?: number | null }[],
+  mult: SuggestMult = DEFAULT_SUGGEST_MULT,
+): Map<string, Need> {
+  const perDeck = new Map<string, { cardId: string; deckSlug: string; rank: number | null; copies: number }>();
   for (const l of lines) {
-    const q = Math.min(MAX_COPIES, Math.max(0, Math.floor(l.quantity)));
-    if (q <= 0) continue;
-    const cur = out.get(l.cardId);
-    if (!cur) out.set(l.cardId, { cardId: l.cardId, need: q, reasons: [{ kind: 'metadeck', ref: l.deckSlug }] });
-    else if (q > cur.need) { cur.need = q; cur.reasons = [{ kind: 'metadeck', ref: l.deckSlug }]; }
+    const q = Math.max(0, Math.floor(l.quantity));
+    if (q <= 0 || l.rank == null || l.rank < 1) continue; // F4-8: puesto <1 (legado) = sin puesto
+    const k = `${l.cardId}\u0000${l.deckSlug}`;
+    const cur = perDeck.get(k);
+    if (cur) cur.copies += q;
+    else perDeck.set(k, { cardId: l.cardId, deckSlug: l.deckSlug, rank: l.rank ?? null, copies: q });
   }
-  return out;
-}
-
-/** Unión de fuentes: `max` de la necesidad; `reasons` conserva las dos. */
-export function mergeNeeds(...sources: Map<string, Need>[]): Map<string, Need> {
   const out = new Map<string, Need>();
-  for (const src of sources) {
-    for (const n of src.values()) {
-      const cur = out.get(n.cardId);
-      if (!cur) { out.set(n.cardId, { ...n, reasons: [...n.reasons] }); continue; }
-      cur.need = Math.max(cur.need, n.need);
-      for (const r of n.reasons) if (!cur.reasons.some((x) => x.kind === r.kind && x.ref === r.ref)) cur.reasons.push(r);
-    }
+  const weight = new Map<string, number>();
+  for (const d of perDeck.values()) {
+    const copies = Math.min(MAX_COPIES, d.copies);
+    const m = multForRank(d.rank, mult);
+    const cur = out.get(d.cardId) ?? { cardId: d.cardId, need: 0, reasons: [], priorityRank: Number.POSITIVE_INFINITY };
+    cur.need += copies * m;
+    cur.reasons.push({ kind: 'metadeck', ref: d.deckSlug, rank: d.rank, copies, mult: m });
+    const w = copies * m;
+    const rk = d.rank ?? Number.POSITIVE_INFINITY;
+    const bw = weight.get(d.cardId) ?? -1;
+    if (w > bw || (w === bw && rk < cur.priorityRank)) { weight.set(d.cardId, w); cur.priorityRank = rk; }
+    out.set(d.cardId, cur);
   }
+  for (const n of out.values()) n.reasons.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || String(a.ref).localeCompare(String(b.ref)));
   return out;
 }
 
@@ -98,12 +156,12 @@ export interface BudgetCandidate {
   key: string;
   qty: number;
   unitCents: number;
-  signals: number; // nº de fuentes (2 ⇒ rotación + metadeck)
+  rank: number; // puesto del deck que más pesa (menor = antes); sin puesto ⇒ Infinity
 }
 
-/** Orden de prioridad: señal de 2 fuentes, luego mayor valor (qty × unit), luego clave (determinista). */
+/** Orden de prioridad al topar el cupo (§PROV-F4.2): menor puesto primero, luego mayor valor (qty × unit), luego clave (determinista). */
 export function sortByPriority<T extends BudgetCandidate>(c: T[]): T[] {
-  return [...c].sort((a, b) => b.signals - a.signals || b.qty * b.unitCents - a.qty * a.unitCents || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  return [...c].sort((a, b) => a.rank - b.rank || b.qty * b.unitCents - a.qty * a.unitCents || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 }
 
 /**

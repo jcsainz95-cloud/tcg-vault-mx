@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/render';
-import { SuggestionsTab } from './SuggestionsTab';
+import { SuggestionsTab, deckLabel } from './SuggestionsTab';
 import { RoleProvider } from '@/lib/role';
 import { ApiClientError } from '@/lib/api-client';
 import * as api from '@/lib/api/supply-suggestions';
@@ -21,7 +21,7 @@ afterEach(() => {
 const card = { id: 'c1', name: 'Charizard ex', number: '125', setName: 'Obsidian', imageUrl: null, rarity: null, finish: 'normal' } as never;
 const sug = (i: number, over: Partial<api.SupplySuggestion> = {}): api.SupplySuggestion => ({
   id: `s${i}`, card, finish: 'normal', suggestedQty: i === 1 ? 1 : 2, pctBps: 7000, unitCents: 1500, marketCents: 2000,
-  reasons: [{ kind: 'metadeck', ref: null }], status: 'draft', skipReason: null, requestId: null, createdAt: '2026-11-20T00:00:00Z', ...over,
+  reasons: [{ kind: 'metadeck', ref: null, rank: 1, copies: 4, mult: 2 }], status: 'draft', skipReason: null, requestId: null, createdAt: '2026-11-20T00:00:00Z', ...over,
 });
 const apiErr = (status: number, code: string) => new ApiClientError(status, { code, message: 'x' } as never);
 
@@ -62,6 +62,57 @@ describe('§PROV-F4 · lista de sugeridas', () => {
   });
 });
 
+describe('§PROV-F4 · decks de origen y errores', () => {
+  const rs = (n: number) => Array.from({ length: n }, (_, i) => ({ kind: 'metadeck' as const, ref: null, rank: i + 2, copies: 4, mult: 2 }));
+  it('muestra deck, copias × multiplicador; con 5 decks, 3 + «y 2 más»', async () => {
+    vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
+    vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [sug(2, { reasons: rs(5) }), sug(3, { id: 'n', reasons: [{ kind: 'metadeck', ref: 'Gardevoir', rank: 1, copies: 1, mult: 2 }] })], page: 1, pageSize: 25, total: 2 });
+    view();
+    expect(await screen.findByText('Deck #2 · 4 copias × 2')).toBeTruthy();
+    expect(screen.getByText('Deck #4 · 4 copias × 2')).toBeTruthy();
+    expect(screen.queryByText('Deck #5 · 4 copias × 2')).toBeNull();
+    expect(screen.getByText('y 2 más')).toBeTruthy();
+    expect(screen.getByText('Gardevoir (#1) · 1 copia × 2')).toBeTruthy();
+  });
+
+  it('reason vieja sin cifras, rank null y slug legible: sin NaN', async () => {
+    vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
+    vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [
+      sug(2, { reasons: [{ kind: 'metadeck', ref: 'charizard-ex', rank: 3, copies: 4, mult: 2 }] }),
+      sug(3, { id: 'n', reasons: [{ kind: 'metadeck', ref: 'gardevoir-ex', rank: null, copies: null, mult: null }] }),
+      sug(4, { id: 'o', reasons: [{ kind: 'metadeck', ref: null } as never] }),
+    ], page: 1, pageSize: 25, total: 3 });
+    const { container } = view();
+    expect(await screen.findByText('Charizard ex (#3) · 4 copias × 2')).toBeTruthy();
+    expect(screen.getByText('Gardevoir ex')).toBeTruthy();
+    expect(screen.getByText('Meta deck')).toBeTruthy();
+    expect(container.textContent).not.toMatch(/NaN|undefined|null/);
+  });
+
+  it('fila covered: sin Publicar (ni como super_admin)', async () => {
+    vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
+    vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [sug(1, { status: 'skipped', skipReason: 'covered' })], page: 1, pageSize: 25, total: 1 });
+    view();
+    expect(await screen.findByText('1 pieza')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^publicar$/i })).toBeNull();
+  });
+
+  it.each([
+    ['ALREADY_COVERED', 409, /ya está cubierta/i],
+    ['BUDGET_EXCEEDED', 409, /no cabe en el tope/i],
+    ['ABOVE_MARKET_CAP', 422, /rebasa el precio de mercado/i],
+    ['ALREADY_PUBLISHED', 409, /ya se publicó/i],
+    ['MARKET_UNAVAILABLE', 503, /no hay precio de mercado disponible ahora; reintenta en unos minutos/i],
+  ])('publicar con %s muestra su texto', async (code, status, re) => {
+    vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
+    vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [sug(1)], page: 1, pageSize: 25, total: 1 });
+    vi.spyOn(api, 'publishSupplySuggestion').mockRejectedValue(apiErr(status, code));
+    view();
+    await userEvent.click(await screen.findByRole('button', { name: /^publicar$/i }));
+    expect(within(await screen.findByRole('alert')).getByText(re)).toBeTruthy();
+  });
+});
+
 describe('§PROV-F4 · ajustes de sugeridas', () => {
   it('muestra interruptor, presupuesto en pesos y autoAccept apagado', async () => {
     vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
@@ -88,5 +139,23 @@ describe('§PROV-F4 · ajustes de sugeridas', () => {
     await userEvent.type(input, '2500.50');
     await userEvent.click(screen.getByRole('button', { name: /guardar tope/i }));
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ openBudgetCents: 250050 }));
+  });
+});
+
+describe('deckLabel y keys de reasons', () => {
+  it('ex en minúscula; VSTAR/VMAX/GX en mayúsculas', () => {
+    expect(deckLabel('charizard-ex')).toBe('Charizard ex');
+    expect(deckLabel('lugia-vstar')).toBe('Lugia VSTAR');
+    expect(deckLabel('Mew_vmax')).toBe('Mew VMAX');
+    expect(deckLabel('lucario-gx')).toBe('Lucario GX');
+  });
+  it('dos reasons con rank null y mismo ref no avisan de key repetida', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(api, 'getSupplySettings').mockResolvedValue(settings());
+    const r = { kind: 'metadeck' as const, ref: 'lugia-vstar', rank: null, copies: null, mult: null } as never;
+    vi.spyOn(api, 'listSupplySuggestions').mockResolvedValue({ data: [sug(2, { reasons: [r, r] })], page: 1, pageSize: 25, total: 1 });
+    view();
+    expect((await screen.findAllByText('Lugia VSTAR')).length).toBe(2);
+    expect(err.mock.calls.some((c) => String(c[0]).includes('same key'))).toBe(false);
   });
 });

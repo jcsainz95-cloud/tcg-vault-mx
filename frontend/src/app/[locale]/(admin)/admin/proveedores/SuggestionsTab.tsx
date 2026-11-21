@@ -31,6 +31,7 @@ import {
   type SupplySuggestion,
 } from '@/lib/api/supply-suggestions';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
 const STATUSES: SuggestionStatus[] = ['draft', 'published', 'skipped'];
 const TONE: Record<SuggestionStatus, BadgeTone> = { draft: 'warning', published: 'success', skipped: 'neutral' };
 
@@ -38,6 +39,18 @@ const TONE: Record<SuggestionStatus, BadgeTone> = { draft: 'warning', published:
  * §PROV-F4: ajustes (solo super_admin: el GET es admin, el operador no lo pide ni lo ve) + lista de sugeridas
  * (staff, solo lectura para el operador). Publicar/saltar: super_admin.
  */
+/** Slug del backend («charizard-ex») a texto legible («Charizard ex»); «ex» queda en minúscula. */
+export function deckLabel(ref: string): string {
+  return ref.trim().split(/[-_\s]+/).filter(Boolean)
+    .map((w) => {
+      const l = w.toLowerCase();
+      if (l === 'ex') return 'ex';
+      if (l === 'vstar' || l === 'vmax' || l === 'gx') return l.toUpperCase();
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    })
+    .join(' ');
+}
+
 export function SuggestionsTab() {
   const { isSuperAdmin } = useRole();
   return (
@@ -216,11 +229,27 @@ function SuggestionRow({ r, canAct }: { r: SupplySuggestion; canAct: boolean }) 
   const err = pub.error ?? skip.error;
   const code = asApiError(err)?.code;
   const published = r.status === 'published';
+  const shown = r.reasons.slice(0, 3);
+  const extra = r.reasons.length - shown.length;
   return (
     <li className="flex flex-col gap-2 py-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <CardLine card={r.card}>
-          <p className="mt-1 text-xs text-muted">{r.reasons.map((x) => tr(x.kind)).join(' · ')}</p>
+          <ul aria-label={tr('label')} className="mt-1 text-xs text-muted">
+            {shown.map((x, i) => (
+              <li key={`${i}-${x.rank ?? ''}-${x.ref ?? ''}`}>
+                {(() => {
+                  const named = x.ref && !UUID_RE.test(x.ref) ? deckLabel(x.ref) : null;
+                  const { rank, copies, mult } = x;
+                  if (typeof rank !== 'number' || typeof copies !== 'number' || typeof mult !== 'number' || ![rank, copies, mult].every(Number.isFinite)) return named ?? tr('metadeck');
+                  return named
+                    ? tr('deckNamed', { name: named, rank, copies, mult })
+                    : tr('deck', { rank, copies, mult });
+                })()}
+              </li>
+            ))}
+            {extra > 0 && <li>{tr('more', { n: extra })}</li>}
+          </ul>
         </CardLine>
         <div className="flex flex-col items-end gap-1 text-sm">
           <Badge tone={TONE[r.status]}>{ts(r.status)}</Badge>

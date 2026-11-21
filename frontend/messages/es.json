@@ -1526,7 +1526,11 @@
           "skipped": "Omitida"
         },
         "reason": {
-          "metadeck": "Meta deck"
+          "metadeck": "Meta deck",
+          "label": "De qué decks sale",
+          "deck": "Deck #{rank} · {copies, plural, one {# copia} other {# copias}} × {mult}",
+          "deckNamed": "{name} (#{rank}) · {copies, plural, one {# copia} other {# copias}} × {mult}",
+          "more": "y {n} más"
         },
         "skip": {
           "no_market": "Sin precio de mercado hoy; se reintenta mañana",
@@ -1542,7 +1546,8 @@
           "QUARANTINED": "Esta sugerida está en cuarentena (sin precio válido o salto de precio); no se puede publicar hoy.",
           "BUDGET_EXCEEDED": "No cabe en el tope de lo abierto a la vez.",
           "IDEMPOTENCY_KEY_REUSED": "Esa operación cambió mientras se enviaba; vuelve a intentarlo.",
-          "FORBIDDEN_ROLE": "Tu cuenta no puede hacer esto."
+          "FORBIDDEN_ROLE": "Tu cuenta no puede hacer esto.",
+          "MARKET_UNAVAILABLE": "No hay precio de mercado disponible ahora; reintenta en unos minutos."
         }
       },
       "requestStatus": {
