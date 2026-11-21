@@ -86,13 +86,13 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-21 · §DECKS-TOP-FUENTE b5e21f4c · RECHAZADO (texto de qa, transcrito por el orquestador)
-- BLOQUEANTE (backend): /decks pone cover=null (decks-meta-refresh.service.ts:147,383-386) ⇒ se borra la portada de Limitless; 2/7 decks reales de prod cambian de imagen (basic-box, festival-lead), viola HECHOS «Imagen de cada deck». La portada está en /decks/<id> `.picture img` (fixture :219 = TWM-130, 1/1).
-- IMPORTANTE (frontend): falta la clave C6 en messages (es.json:5168-5172; M12View.tsx:402) y «~30-45s» viejo (medido 60.9 s con delay 1500).
-- IMPORTANTE (arquitecto→backend): la despublicación a 3 corridas no existe (ausente 3/3 corridas ⇒ sigue publicado; prod con dos rank 6); rank null publicable (service.ts:332).
-- Riesgo: el dial sembrado no pisa un false que ya exista; valor en prod NO MEDIDO.
-- Medido: fixtures + Postgres real ⇒ 41 GET, PUBLISH, C3 0.94, 18 persistidos + 1 pausado + 1 manual intactos; C3 en prod (7 listas) 160/173 = 0.925; fuera de banda excluido 1/1. «Publicar ahora» síncrono 60.9 s (proxy de Railway NO MEDIDO).
-- Regresión: unit 610/610 suites (10651 tests); tsc y lint 0 errores; doc-size VERDE; integración 205/205 PASS en lotes (la corrida completa murió por memoria del kernel a 59/205 con RAM compartida).
+## QA (qa) — 2026-11-21 · §DECKS-TOP-FUENTE 9b8b1ea6 · RECHAZADO (texto de qa, transcrito por el orquestador)
+- Cerrados: portada 6/6 casadas conservadas y 0/7 a null (backend real + Limitless real; coords /decks/<id> = prod 7/7); despublicación a 3 corridas válidas medida (corrida abortada no cuenta); rank null no publica; C6 con texto; 202+sondeo ~68 s, deduped y 404 tras reinicio OK.
+- BLOQUEANTE (frontend; decide arquitecto): vault_operator ve «Correr ensayo» (M12View.tsx:75) pero el POST es super_admin ⇒ 403 + texto falso «red con Limitless» (M12View.tsx:106), 1/1.
+- IMPORTANTE (arquitecto→front/back): Publicar ahora agrupado con un ensayo muestra «algún chequeo no pasó» (M12View.tsx:250; service.ts:98), por lectura de código.
+- IMPORTANTE (frontend): en un reinicio real el sondeo falla por red y muestra el error genérico, no «job perdido» (decks-meta-jobs.ts), 1/1.
+- MENOR: «~30-45s» en comentarios (api.ts:712, M12View.tsx:72); etiqueta C2 vieja (es.json:5222); formatCode null en vivo ⇒ «Standard»; rank repetido en pausados/manual.
+- Regresión: unit 612/612 (10692); vitest 6132 + 13 skip; tsc/lint 0 errores; doc-size VERDE; integración 207/207 en 11 lotes (3703 + 2 skip).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
