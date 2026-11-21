@@ -3596,6 +3596,54 @@
           "premium_at_floor": "La variante premium quedó en el piso: no hay precio derivable.",
           "identity_drift": "Esta variante ya no existe en el catálogo, así que no se consultó el mercado."
         },
+        "mesa": {
+          "colCard": "Carta",
+          "colMarket": "Mercado hoy",
+          "colStandard": "Estándar",
+          "colOffer": "Oferta final",
+          "colChange": "Cambio",
+          "colStock": "Stock",
+          "colBuy": "Comprar",
+          "standardCell": "{pct} % → {amount}",
+          "standardNone": "—",
+          "summaryHint": "Mercado de hoy → estándar de la curva → oferta final. «Cambio» dice si la oferta se aparta del estándar y por qué.",
+          "filterAll": "Todas ({count})",
+          "filterChanges": "Solo las que cambian ({count})",
+          "filterEmpty": "Ninguna línea cambia respecto al estándar.",
+          "shortcuts": "↑ ↓ mover · Espacio marcar · E editar precio",
+          "listLabel": "Líneas de la oferta; usa flechas arriba y abajo para moverte",
+          "chip": {
+            "standard": "Estándar",
+            "up": "Subida +{amount}",
+            "down": "Bajada −{amount}",
+            "noPrice": "Sin precio"
+          },
+          "reason": {
+            "STOCK_CAP": "Ya tenemos el tope de esta carta.",
+            "MANUAL_OVERRIDE": "Precio fijado por el equipo.",
+            "BOUNTY": "Hay un bounty que la busca.",
+            "FLOOR": "Se aplicó el precio mínimo.",
+            "NO_MARKET": "No hay precio de mercado."
+          },
+          "sinceQuote": {
+            "MARKET_UP": "El mercado subió desde que se cotizó: de {quoted} a {offer}.",
+            "MARKET_DOWN": "El mercado bajó desde que se cotizó: de {quoted} a {offer}.",
+            "CURVE_CHANGED": "La curva cambió desde que se cotizó: de {quoted} a {offer}."
+          },
+          "stock": {
+            "have": "Tenemos {total} · aceptamos hasta {threshold}",
+            "full": "Tenemos {total}, tope {threshold}: ya no necesitamos",
+            "haveOnly": "Tenemos {total}",
+            "unknown": "Sin conteo"
+          },
+          "photo": {
+            "open": "Ampliar la foto de {name}",
+            "close": "Cerrar la foto",
+            "none": "Sin foto",
+            "alt": "{name}, {set} {number}"
+          },
+          "details": "Ver conteo y sugerencia"
+        },
         "buyLine": "Comprar {name}",
         "selectAll": "Marcar todas",
         "clearAll": "Quitar todas",

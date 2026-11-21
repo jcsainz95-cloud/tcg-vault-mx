@@ -500,3 +500,86 @@ describe('BRJ-UI-2 · «Declinar» en la mesa', () => {
     expect(screen.queryByTestId('desk-decline')).not.toBeInTheDocument();
   });
 });
+
+describe('Mesa de decisión — diseño A (BUYLIST-MESA)', () => {
+  const photoCard = { imageSmallUrl: 'https://img/s.png', imageLargeUrl: 'https://img/l.png' };
+  const mesa = {
+    marketMxnCents: 100000,
+    standardOfferCents: 70000,
+    standardPctBp: 7000,
+  };
+  const lines = [
+    line({ itemId: 'a', card: { ...CARD, ...photoCard, name: 'Std' }, derivedPriceCents: 70000, ...mesa, adjustment: null, sinceQuote: null }),
+    line({
+      itemId: 'b',
+      card: { ...CARD, name: 'Sube' },
+      derivedPriceCents: 75000,
+      ...mesa,
+      adjustment: { deltaCents: 5000, reasonCode: 'BOUNTY', reasonText: 'Hay un bounty.' },
+      sinceQuote: { quotedCents: 70000, deltaCents: 5000, reasonCode: 'MARKET_UP', reasonText: 'x' },
+    }),
+    line({
+      itemId: 'c',
+      card: { ...CARD, name: 'Baja' },
+      derivedPriceCents: 50000,
+      ...mesa,
+      adjustment: { deltaCents: -20000, reasonCode: 'STOCK_CAP', reasonText: 'Ya tenemos 10.' },
+      position: { stock: 10, verifying: 0, inTransit: 0, committed: 0, total: 10 },
+      suggestion: { verdict: 'do_not_buy', rule: 'variant_cap', thresholdQty: 10, bountyActive: false },
+    }),
+    line({
+      itemId: 'd',
+      card: { ...CARD, name: 'Nada' },
+      derivedPriceCents: null,
+      priceBasis: 'pending',
+      pendingReason: 'no_market',
+      marketMxnCents: null,
+      standardOfferCents: null,
+      standardPctBp: null,
+      adjustment: null,
+    }),
+  ];
+
+  it('un chip por fila según adjustment, con motivo y delta; la nota sinceQuote va aparte', async () => {
+    render(table({ lines }));
+    await screen.findAllByTestId('desk-line');
+    const chips = screen.getAllByTestId('line-chip').map((c) => c.getAttribute('data-chip'));
+    expect(chips).toEqual(['standard', 'up', 'down', 'noPrice']);
+    expect(screen.getAllByTestId('line-chip')[1]).toHaveTextContent('Subida +MX$50.00');
+    expect(screen.getAllByTestId('line-chip')[2]).toHaveTextContent('Bajada −MX$200.00');
+    expect(screen.getByText('Ya tenemos 10.')).toBeInTheDocument();
+    expect(screen.getByTestId('line-since-quote')).toHaveTextContent('El mercado subió desde que se cotizó');
+    expect(screen.getAllByTestId('line-standard')[0]).toHaveTextContent('70 % → MX$700.00');
+    expect(screen.getAllByTestId('line-stock')[2]).toHaveTextContent('ya no necesitamos');
+    expect(screen.getAllByTestId('line-stock')[0]).toHaveTextContent('Tenemos 9 · aceptamos hasta 10');
+  });
+
+  it('«Solo las que cambian» oculta las Estándar', async () => {
+    render(table({ lines }));
+    await screen.findAllByTestId('desk-line');
+    fireEvent.click(screen.getByRole('button', { name: /Solo las que cambian \(3\)/ }));
+    expect(screen.getAllByTestId('desk-line')).toHaveLength(3);
+  });
+
+  it('la foto se amplía en un visor que cierra con Esc', async () => {
+    render(table({ lines }));
+    fireEvent.click(await screen.findByTestId('line-photo'));
+    const img = await screen.findByTestId('photo-viewer-img');
+    expect(img).toHaveAttribute('src', 'https://img/l.png');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('photo-viewer-img')).not.toBeInTheDocument());
+  });
+
+  it('atajos: ↓ mueve, Espacio marca/desmarca', async () => {
+    render(table({ lines }));
+    const list = (await screen.findAllByTestId('desk-line'))[0].parentElement!;
+    list.focus();
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    expect(screen.getAllByTestId('desk-line')[1]).toHaveAttribute('aria-current', 'true');
+    const box = within(screen.getAllByTestId('desk-line')[1]).getByRole('checkbox');
+    expect(box).toBeChecked();
+    fireEvent.keyDown(list, { key: ' ' });
+    expect(box).not.toBeChecked();
+  });
+});

@@ -4901,6 +4901,29 @@ export interface BuylistDecisionLineDTO {
     thresholdQty: number | null;
     bountyActive: boolean;
   } | null;
+  /**
+   * BUYLIST-MESA (docs/API_CONTRACT_BUYLIST_MESA.md) — campos ADITIVOS, todos calculados por el servidor en
+   * centavos enteros. `undefined` = servidor anterior al anexo (la UI no pinta chip); `null` = sin dato (nunca 0).
+   */
+  /** Mercado de HOY en MXN centavos. */
+  marketMxnCents?: number | null;
+  /** Curva pura sobre ese mercado (sin override, tope ni bounty). */
+  standardOfferCents?: number | null;
+  /** % efectivo en puntos base (`round(standard*10000/market)`). */
+  standardPctBp?: number | null;
+  /** `null` ⇔ oferta == estándar. `deltaCents = derived - standard`. */
+  adjustment?: {
+    deltaCents: number;
+    reasonCode: 'STOCK_CAP' | 'MANUAL_OVERRIDE' | 'BOUNTY' | 'FLOOR' | 'NO_MARKET';
+    reasonText: string;
+  } | null;
+  /** Solo si cotizado y derivado existen y difieren. `deltaCents = derived - quoted`. */
+  sinceQuote?: {
+    quotedCents: number;
+    deltaCents: number;
+    reasonCode: 'MARKET_UP' | 'MARKET_DOWN' | 'CURVE_CHANGED';
+    reasonText: string;
+  } | null;
 }
 
 /**

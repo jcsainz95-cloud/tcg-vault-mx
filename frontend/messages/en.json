@@ -3596,6 +3596,54 @@
           "premium_at_floor": "The premium variant hit the floor: no derivable price.",
           "identity_drift": "This variant no longer exists in the catalog, so the market was not consulted."
         },
+        "mesa": {
+          "colCard": "Card",
+          "colMarket": "Market today",
+          "colStandard": "Standard",
+          "colOffer": "Final offer",
+          "colChange": "Change",
+          "colStock": "Stock",
+          "colBuy": "Buy",
+          "standardCell": "{pct}% → {amount}",
+          "standardNone": "—",
+          "summaryHint": "Market today → standard from the curve → final offer. “Change” says whether the offer departs from the standard and why.",
+          "filterAll": "All ({count})",
+          "filterChanges": "Only the ones that change ({count})",
+          "filterEmpty": "No line differs from the standard.",
+          "shortcuts": "↑ ↓ move · Space toggle · E edit price",
+          "listLabel": "Offer lines; use the up and down arrows to move",
+          "chip": {
+            "standard": "Standard",
+            "up": "Raise +{amount}",
+            "down": "Cut −{amount}",
+            "noPrice": "No price"
+          },
+          "reason": {
+            "STOCK_CAP": "We already hold the cap for this card.",
+            "MANUAL_OVERRIDE": "Price set by staff.",
+            "BOUNTY": "A bounty is looking for it.",
+            "FLOOR": "The minimum price applied.",
+            "NO_MARKET": "There is no market price."
+          },
+          "sinceQuote": {
+            "MARKET_UP": "Market went up since it was quoted: from {quoted} to {offer}.",
+            "MARKET_DOWN": "Market went down since it was quoted: from {quoted} to {offer}.",
+            "CURVE_CHANGED": "The curve changed since it was quoted: from {quoted} to {offer}."
+          },
+          "stock": {
+            "have": "We have {total} · we accept up to {threshold}",
+            "full": "We have {total}, cap {threshold}: we no longer need it",
+            "haveOnly": "We have {total}",
+            "unknown": "No count"
+          },
+          "photo": {
+            "open": "Enlarge the photo of {name}",
+            "close": "Close photo",
+            "none": "No photo",
+            "alt": "{name}, {set} {number}"
+          },
+          "details": "See count and suggestion"
+        },
         "buyLine": "Buy {name}",
         "selectAll": "Select all",
         "clearAll": "Clear all",
