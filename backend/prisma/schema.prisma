@@ -2938,6 +2938,7 @@ model MetaDeck {
   trend            Int? // share_actual − share_anterior (▲▼=)
   published        Boolean        @default(false)
   pausedByOperator Boolean        @default(false) // el operador congela publicación sin borrar
+  missedRuns       Int            @default(0) // §DECKS-TOP-FUENTE.12: corridas válidas seguidas sin aparecer en el top N; a 3 ⇒ published=false
   currentListId    String?        @unique
   currentList      MetaDeckList?  @relation("CurrentList", fields: [currentListId], references: [id])
   imageCardId      String? // Card cuyo arte representa el deck en la teja

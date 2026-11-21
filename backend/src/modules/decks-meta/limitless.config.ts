@@ -101,6 +101,8 @@ export interface CanaryThresholds {
   matchFloor: number;
   /** C4: tope del ratio de líneas `unmatched_set`. */
   unmatchedSetMaxRatio: number;
+  /** C2 con fuente `/decks` (§DECKS-TOP-FUENTE.16): fuera de banda ≤ este ratio de las filas válidas. */
+  outOfBandMaxRatio?: number;
 }
 
 export const CANARY_DEFAULTS: CanaryThresholds = {
@@ -109,6 +111,7 @@ export const CANARY_DEFAULTS: CanaryThresholds = {
   cardsMax: 61,
   matchFloor: 0.8,
   unmatchedSetMaxRatio: 0.1,
+  outOfBandMaxRatio: 0.4,
 };
 
 function envFloat(config: ConfigService, key: string, fallback: number): number {
@@ -125,6 +128,7 @@ export function resolveCanaryThresholds(config: ConfigService): CanaryThresholds
     cardsMax: envInt(config, 'META_CANARY_CARDS_MAX', CANARY_DEFAULTS.cardsMax),
     matchFloor: envFloat(config, 'META_CANARY_MATCH_FLOOR', CANARY_DEFAULTS.matchFloor),
     unmatchedSetMaxRatio: envFloat(config, 'META_CANARY_UNMATCHED_SET_MAX_RATIO', CANARY_DEFAULTS.unmatchedSetMaxRatio),
+    outOfBandMaxRatio: envFloat(config, 'META_CANARY_OUT_OF_BAND_MAX_RATIO', CANARY_DEFAULTS.outOfBandMaxRatio ?? 0.4),
   };
 }
 
@@ -132,7 +136,7 @@ export function resolveCanaryThresholds(config: ConfigService): CanaryThresholds
 
 /** Un ID de Limitless (archetype/list) es SÓLO dígitos. Todo lo demás se descarta (no se hace fetch). */
 export function isValidLimitlessId(id: unknown): id is string {
-  return typeof id === 'string' && /^\d+$/.test(id);
+  return typeof id === 'string' && /^\d{1,10}$/.test(id);
 }
 
 /** El código de formato («TEF-PBL»): 2–4 letras, con un tramo opcional. Se valida antes de usarse. */
@@ -177,10 +181,19 @@ export function buildFormatLabel(formatCode: string | null): string {
 /** Slug determinista desde el nombre del arquetipo (kebab-case ASCII). */
 export function slugifyDeckName(name: string): string {
   return name
-    .normalize('NFD')
+    .normalize('NFKD') // §DECKS-TOP-FUENTE.14: también compatibilidad (ligaduras, anchura completa)
     .replace(/[̀-ͯ]/g, '') // quita diacríticos
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 120);
+}
+
+/**
+ * §DECKS-TOP-FUENTE.14: slug de un arquetipo. NFKD→ASCII; si queda vacío (p. ej. «リザードン») ⇒ `arch-<archetypeId>`
+ * (id numérico del índice, siempre válido). NUNCA devuelve vacío.
+ */
+export function deckSlugFor(name: string | null | undefined, archetypeId: string): string {
+  const base = name ? slugifyDeckName(name) : '';
+  return base || `arch-${archetypeId}`;
 }

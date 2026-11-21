@@ -128,9 +128,9 @@ function parseLeaderBlock($: CheerioAPI, el: AnyNode): HomeLeader {
   const rn = RANK_NAME.exec(nameRaw);
   if (rn) {
     rank = Number(rn[1]);
-    name = rn[2].trim();
+    name = cleanText(rn[2], NAME_MAX) || null;
   } else if (nameRaw) {
-    name = nameRaw;
+    name = cleanText(nameRaw, NAME_MAX) || null;
   }
 
   // share %: el div dentro de leader-details cuyo texto trae un porcentaje.
@@ -139,8 +139,7 @@ function parseLeaderBlock($: CheerioAPI, el: AnyNode): HomeLeader {
     if (sharePct != null) return;
     const m = SHARE.exec($(d).text());
     if (m) {
-      const v = Number(m[1]);
-      if (Number.isFinite(v)) sharePct = v;
+      sharePct = sanitizeSharePct(Number(m[1]));
     }
   });
 
@@ -150,12 +149,33 @@ function parseLeaderBlock($: CheerioAPI, el: AnyNode): HomeLeader {
 
   // Descripción de la lista: el div de leader-decklist SIN `.text-sm` (el `.text-sm` es "Featured Decklist").
   const tournamentDiv = decklistAnchor.find('div').not('.text-sm').last();
-  const sourceTournament = tournamentDiv.length > 0 ? tournamentDiv.text().trim() || null : null;
+  const sourceTournament = tournamentDiv.length > 0 ? cleanText(tournamentDiv.text(), SOURCE_TOURNAMENT_MAX) || null : null;
 
   // Portada: fuente ÚNICA = `alt` del img de a.leader-image (§12.4.1).
   const cover = parseCoverAlt(block.find('a.leader-image img').first().attr('alt'));
 
   return { archetypeId, name, rank, sharePct, listId, sourceTournament, cover };
+}
+
+/** §DECKS-TOP-FUENTE.14: topes de los campos que salen del HTML de un tercero. */
+export const NAME_MAX = 80;
+export const SOURCE_TOURNAMENT_MAX = 120;
+
+/** Texto limpio: sin control/HTML residual, espacios colapsados, recortado a `max`. El recorte va ANTES de normalizar (entrada de 200 KB). */
+export function cleanText(raw: string, max: number): string {
+  return raw
+    .slice(0, max * 8)
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/[<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max)
+    .trim();
+}
+
+/** `sharePct` finito y en 0..100; si no ⇒ `null`. */
+export function sanitizeSharePct(v: number): number | null {
+  return Number.isFinite(v) && v >= 0 && v <= 100 ? v : null;
 }
 
 function matchId(value: string, re: RegExp): string | null {
@@ -299,11 +319,10 @@ export function parseDecksIndex(html: string): DecksIndexResult {
     const rank = Number($(tds[0]).text().trim());
     const clone = a.clone();
     clone.find('.annotation').remove();
-    const name = clone.text().replace(/\s+/g, ' ').trim();
+    const name = cleanText(clone.text(), NAME_MAX);
     if (!archetypeId || !Number.isInteger(rank) || rank < 1 || !name) return;
-    const m = SHARE.exec($(tds[tds.length - 1]).text());
-    const share = m ? Number(m[1]) : NaN;
-    rows.push({ archetypeId, rank, name, sharePct: Number.isFinite(share) ? share : null });
+    const m = SHARE.exec($(tds[tds.length - 1]).text().slice(0, 200));
+    rows.push({ archetypeId, rank, name, sharePct: m ? sanitizeSharePct(Number(m[1])) : null });
   });
 
   let formatCode: string | null = null;
@@ -328,7 +347,7 @@ export function parseArchetypeFirstList(html: string): { listId: string; sourceT
     if (found) return;
     const head = $(tr).find('th.sub-heading').first();
     if (head.length > 0) {
-      tournament = head.text().replace(/\s+/g, ' ').trim().slice(0, 200) || null;
+      tournament = cleanText(head.text(), SOURCE_TOURNAMENT_MAX) || null;
       return;
     }
     const href = $(tr).find('a[href^="/decks/list/"]').first().attr('href') ?? '';
@@ -336,4 +355,26 @@ export function parseArchetypeFirstList(html: string): { listId: string; sourceT
     if (listId) found = { listId, sourceTournament: tournament };
   });
   return found;
+}
+
+/**
+ * §DECKS-TOP-FUENTE.11: portada de `/decks/<id>` = `.picture img.card`, atributo `data-src` (respaldo `src`) con forma
+ * `…/tpci/SET/SET_NUM[_R_EN].png`. Se reduce a `SET-NUM` y pasa por el MISMO validador que el `alt` de la home
+ * (`parseCoverAlt`). Nunca se guarda la URL. Sin imagen o forma distinta ⇒ `null` (el llamante hereda la portada vigente).
+ */
+const TPCI_COVER = /\/tpci\/([A-Za-z0-9-]{1,10})\/([A-Za-z0-9-]{1,10})_([A-Za-z0-9]{1,8})(?:_|\.)/;
+
+export function parseArchetypeCover(html: string): HomeLeaderCover | null {
+  const $ = load(html);
+  const img = $('.picture img.card').first();
+  if (img.length === 0) return null;
+  for (const attr of ['data-src', 'src']) {
+    const v = (img.attr(attr) ?? '').trim().slice(0, 500);
+    const m = TPCI_COVER.exec(v);
+    if (m && m[1] === m[2]) {
+      const c = parseCoverAlt(`${m[2]}-${m[3]}`);
+      if (c) return c;
+    }
+  }
+  return null;
 }

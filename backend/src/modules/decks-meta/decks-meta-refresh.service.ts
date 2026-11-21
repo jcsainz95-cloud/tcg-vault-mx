@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MetaDeckSource, MetaMatchStatus, Prisma } from '@prisma/client';
@@ -5,7 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CoverMatch, CoverMatchStatus, DeckMatcherService, MatchedLine } from './deck-matcher.service';
 import { imageOf } from './deck-image';
 import { FetchBudgetExhaustedError, FetchBudget, LimitlessFetchClient } from './limitless-fetch.client';
-import { parseHomeIndex, parseDeckListHtml, parseDecksIndex, parseArchetypeFirstList, HomeLeader } from './limitless-html.parser';
+import { parseHomeIndex, parseDeckListHtml, parseDecksIndex, parseArchetypeFirstList, parseArchetypeCover, HomeLeader } from './limitless-html.parser';
 import { evaluateCanary, CanaryResult, DeckCanarySummary } from './canary';
 import {
   AutofetchDial,
@@ -16,7 +17,7 @@ import {
   normalizeAutopublishDial,
   resolveCanaryThresholds,
   resolveFetchConfig,
-  slugifyDeckName,
+  deckSlugFor,
 } from './limitless.config';
 
 /**
@@ -83,6 +84,56 @@ export class DecksMetaRefreshService implements OnModuleInit {
     };
   }
 
+  // ── «Publicar ahora» asíncrono (§DECKS-TOP-FUENTE.15) ─────────────────────────────────────────────────
+  // Una corrida dura 1-2 min (peor caso >11 min con reintentos): un proxy cortaría la petición. El POST solo ENCOLA y el
+  // estado se sondea. Cola en proceso (el single-flight ya es en memoria y worker + HTTP viven en el mismo proceso);
+  // si el proceso reinicia, el job se pierde y el sondeo recibe 404 (el operador relanza; la corrida semanal no cambia).
+  private readonly jobs = new Map<string, RefreshJob>();
+
+  /**
+   * Encola una corrida. IDEMPOTENTE: si ya hay una `queued|running` devuelve ESA (mismo `jobId`, `deduped:true`) sin
+   * lanzar otra, aunque pida otro `dryRun`.
+   */
+  enqueue(opts: { dryRun?: boolean } = {}): { jobId: string; status: 'queued' | 'running'; deduped: boolean } {
+    for (const j of this.jobs.values()) {
+      if (j.status === 'queued' || j.status === 'running') return { jobId: j.jobId, status: j.status, deduped: true };
+    }
+    const job: RefreshJob = {
+      jobId: randomUUID(),
+      status: 'queued',
+      dryRun: opts.dryRun === true,
+      enqueuedAt: new Date().toISOString(),
+      startedAt: null,
+      finishedAt: null,
+      result: null,
+      error: null,
+    };
+    this.jobs.set(job.jobId, job);
+    while (this.jobs.size > JOBS_KEEP) this.jobs.delete(this.jobs.keys().next().value as string);
+    setImmediate(() => void this.execute(job, opts));
+    return { jobId: job.jobId, status: 'queued', deduped: false };
+  }
+
+  /** Estado de un job encolado; `null` si no existe (desconocido o ya expulsado/reiniciado). */
+  getJob(jobId: string): RefreshJob | null {
+    return this.jobs.get(jobId) ?? null;
+  }
+
+  private async execute(job: RefreshJob, opts: { dryRun?: boolean }): Promise<void> {
+    job.status = 'running';
+    job.startedAt = new Date().toISOString();
+    try {
+      job.result = await this.run({ dryRun: opts.dryRun });
+      job.status = 'done';
+    } catch (e) {
+      job.error = String((e as Error).message ?? e).slice(0, 300);
+      job.status = 'failed';
+      this.logger.error(`decks-meta-refresh job ${job.jobId} falló: ${job.error}`);
+    } finally {
+      job.finishedAt = new Date().toISOString();
+    }
+  }
+
   /**
    * Punto de entrada del job semanal y del disparo manual.
    * - `dryRun:true` fuerza el modo dry-run SIEMPRE (la vía de verificación en prod, operador).
@@ -137,7 +188,13 @@ export class DecksMetaRefreshService implements OnModuleInit {
       const idx = parseDecksIndex(html);
       formatCode = idx.formatCode;
       indexRows = idx.rows.length;
-      candidates = idx.rows.slice(0, fetchCfg.topN).map((r) => ({
+      // §DECKS-TOP-FUENTE.13: solo filas con rank entero 1..topN (sin repetir arquetipo), en orden de rank.
+      const seenIds = new Set<string>();
+      const top = idx.rows
+        .filter((r) => sanitizeRank(r.rank, fetchCfg.topN) != null)
+        .sort((a, b) => a.rank - b.rank)
+        .filter((r) => (seenIds.has(r.archetypeId) ? false : (seenIds.add(r.archetypeId), true)));
+      candidates = top.slice(0, fetchCfg.topN).map((r) => ({
         archetypeId: r.archetypeId,
         name: r.name,
         rank: r.rank,
@@ -172,14 +229,18 @@ export class DecksMetaRefreshService implements OnModuleInit {
     const deckReports: DeckReport[] = [];
     const parsedDecks: ParsedDeck[] = [];
     const seenSlugs = new Set<string>();
+    let partial = false; // refresco incompleto (cota de GET agotada): no cuenta para `missedRuns` (§DECKS-TOP-FUENTE.12)
     for (const c0 of candidates) {
       if (budget.remaining <= 0) {
+        partial = true;
         this.logger.warn(`decks-meta-refresh: cota dura de ${fetchCfg.maxRequests} GET físicas alcanzada; se detiene el fetch.`);
         break;
       }
-      // Dos arquetipos con el mismo nombre darían el mismo slug: gana el de mejor rank, el otro se salta.
-      const slug = slugifyDeckName(c0.name ?? `deck-${c0.archetypeId}`);
-      if (seenSlugs.has(slug)) {
+      // §DECKS-TOP-FUENTE.14: NFKD→ASCII o `arch-<id>` (nunca vacío). Dos arquetipos con el mismo slug: el de mejor rank
+      // conserva el base y el otro lleva el sufijo `-<archetypeId>`.
+      let slug = deckSlugFor(c0.name, c0.archetypeId);
+      if (seenSlugs.has(slug)) slug = suffixSlug(slug, c0.archetypeId);
+      if (!slug || seenSlugs.has(slug)) {
         errors.push(`${c0.archetypeId} (${c0.name ?? '??'}): slug duplicado '${slug}'; se salta`);
         continue;
       }
@@ -191,7 +252,8 @@ export class DecksMetaRefreshService implements OnModuleInit {
           urlsFetched.push(`decks/${c0.archetypeId}`);
           const first = parseArchetypeFirstList(page);
           if (!first) throw new Error('la página del arquetipo no trae ninguna lista');
-          c = { ...c0, listId: first.listId, sourceTournament: first.sourceTournament };
+          // §DECKS-TOP-FUENTE.11: la portada sale de ESTA misma página (`.picture img.card`), sin GET extra.
+          c = { ...c0, listId: first.listId, sourceTournament: first.sourceTournament, cover: parseArchetypeCover(page) };
         }
         const leader = c as HomeLeader & { archetypeId: string; listId: string };
         if (fetchCfg.delayMs > 0) await this.sleep(fetchCfg.delayMs);
@@ -205,20 +267,25 @@ export class DecksMetaRefreshService implements OnModuleInit {
         const summary = summarize(leader, matched);
         const report = toDeckReport(leader, matched, thresholds.cardsMin, thresholds.cardsMax, cover);
         seenSlugs.add(slug);
-        parsedDecks.push({ leader, matched, summary, cover });
+        parsedDecks.push({ leader, slug, matched, summary: { ...summary, slug }, cover });
         deckReports.push(report);
       } catch (e) {
         const msg = `${c.listId ? `list/${c.listId}` : `decks/${c.archetypeId}`} (${c.name ?? '??'}): ${(e as Error).message}`;
         errors.push(msg);
         deckReports.push(errorDeckReport(c, (e as Error).message));
-        if (e instanceof FetchBudgetExhaustedError) break; // refresco parcial: mañana se reintenta
+        if (e instanceof FetchBudgetExhaustedError) {
+          partial = true;
+          break; // refresco parcial: mañana se reintenta
+        }
       }
     }
 
     // §DECKS-TOP-FUENTE.5: con `/decks` un deck fuera de banda NO bloquea a los demás (se publica lo que pasa);
     // se excluye de la evaluación y de la persistencia y queda en `errors` y en `decks[].inBand=false`.
     let publishable = parsedDecks;
+    let bandTotal: number | undefined;
     if (source === 'decks') {
+      bandTotal = parsedDecks.length; // C2 (.16): fuera de banda ≤ 40 % de las filas válidas traídas
       publishable = parsedDecks.filter((p) => p.summary.sumQuantity >= thresholds.cardsMin && p.summary.sumQuantity <= thresholds.cardsMax);
       for (const p of parsedDecks) {
         if (!publishable.includes(p)) errors.push(`${p.leader.name ?? p.leader.archetypeId}: fuera de banda (${p.summary.sumQuantity}); no se publica`);
@@ -230,7 +297,7 @@ export class DecksMetaRefreshService implements OnModuleInit {
       {
         homeParseable,
         leadersWithListId,
-        ...(source === 'decks' ? { indexRows } : {}),
+        ...(source === 'decks' ? { indexRows, bandTotal } : {}),
         decks: publishable.map((p) => p.summary),
       },
       thresholds,
@@ -252,6 +319,7 @@ export class DecksMetaRefreshService implements OnModuleInit {
       applied: false,
       persistedCount: 0,
       publishedSlugs: [],
+      delistedSlugs: [],
       supersededListIds: [],
       manualConflicts: [],
       pausedSkipped: [],
@@ -277,6 +345,7 @@ export class DecksMetaRefreshService implements OnModuleInit {
     for (const p of publishable) {
       try {
         const outcome = await this.persistDeck(p, { formatLabel, sourceTournament: p.leader.sourceTournament }, autopublish, fetchCfg.topN);
+        if (outcome.slug !== p.slug) p.slug = outcome.slug;
         if (outcome.skippedReason === 'paused') base.pausedSkipped.push(outcome.slug);
         else if (outcome.skippedReason === 'manual') base.manualConflicts.push(outcome.slug);
         else {
@@ -288,6 +357,15 @@ export class DecksMetaRefreshService implements OnModuleInit {
         }
       } catch (e) {
         errors.push(`persist ${p.leader.name ?? p.leader.archetypeId}: ${(e as Error).message}`);
+      }
+    }
+
+    // §DECKS-TOP-FUENTE.12: solo una corrida con índice válido, canario OK y fetch completo cuenta para `missedRuns`.
+    if (source === 'decks' && indexRows >= thresholds.minDecks && !partial) {
+      try {
+        base.delistedSlugs = await this.applyIndexPresence(candidates);
+      } catch (e) {
+        errors.push(`missedRuns: ${(e as Error).message}`);
       }
     }
 
@@ -319,6 +397,35 @@ export class DecksMetaRefreshService implements OnModuleInit {
   }
 
   /**
+   * §DECKS-TOP-FUENTE.12: contabilidad de presencia en el índice (solo corridas válidas). Presente en el top N ⇒
+   * `missedRuns=0` y `rank` = el del índice (también si su lista falló esta vez). Ausente ⇒ `missedRuns+1` y `rank=null`;
+   * al llegar a {@link MISSED_RUNS_LIMIT} ⇒ `published=false`. `source=manual` y `pausedByOperator` no se tocan.
+   * Devuelve los slugs despublicados.
+   */
+  private async applyIndexPresence(candidates: { archetypeId: string; rank: number | null }[]): Promise<string[]> {
+    const refs = candidates.map((c) => `/decks/${c.archetypeId}`);
+    return this.prisma.$transaction(async (tx) => {
+      for (const c of candidates) {
+        if (c.rank == null) continue;
+        await tx.metaDeck.updateMany({
+          where: { source: MetaDeckSource.limitless, pausedByOperator: false, sourceRef: `/decks/${c.archetypeId}` },
+          data: { missedRuns: 0, rank: c.rank },
+        });
+      }
+      const absent = { source: MetaDeckSource.limitless, pausedByOperator: false, OR: [{ sourceRef: null }, { sourceRef: { notIn: refs } }] };
+      await tx.metaDeck.updateMany({ where: absent, data: { missedRuns: { increment: 1 }, rank: null } });
+      const toDelist = await tx.metaDeck.findMany({
+        where: { ...absent, missedRuns: { gte: MISSED_RUNS_LIMIT }, published: true },
+        select: { id: true, slug: true },
+      });
+      if (toDelist.length > 0) {
+        await tx.metaDeck.updateMany({ where: { id: { in: toDelist.map((d) => d.id) } }, data: { published: false } });
+      }
+      return toDelist.map((d) => d.slug);
+    });
+  }
+
+  /**
    * Persiste UN deck en su propia `$transaction` (patrón `adminCreateOrCurate` de Fase 1):
    * upsert deck (source=limitless) → `MetaDeckList` nueva e inmutable → cards → supersede → re-apuntar
    * `currentListId`. Respeta `pausedByOperator` (se salta) y «manual gana» (no pisa `source=manual`).
@@ -330,9 +437,18 @@ export class DecksMetaRefreshService implements OnModuleInit {
     topN: number,
   ): Promise<PersistOutcome> {
     const rank = sanitizeRank(p.leader.rank, topN);
-    const slug = slugifyDeckName(p.leader.name ?? `deck-${p.leader.archetypeId}`);
+    const ref = `/decks/${p.leader.archetypeId}`;
+    if (!p.slug) throw new Error('slug vacío (invariante §DECKS-TOP-FUENTE.14)');
     return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.metaDeck.findUnique({ where: { slug } });
+      // Slug estable: el deck que ya existe para este arquetipo conserva el suyo; si no, el base y, ante choque con OTRO
+      // arquetipo de Limitless, el sufijo `-<archetypeId>` (§DECKS-TOP-FUENTE.14).
+      const byRef = await tx.metaDeck.findFirst({ where: { source: MetaDeckSource.limitless, sourceRef: ref } });
+      let slug = byRef?.slug ?? p.slug;
+      let existing = byRef ?? (await tx.metaDeck.findUnique({ where: { slug } }));
+      if (!byRef && existing && existing.source === MetaDeckSource.limitless && existing.sourceRef != null && existing.sourceRef !== ref) {
+        slug = suffixSlug(slug, p.leader.archetypeId);
+        existing = await tx.metaDeck.findUnique({ where: { slug } });
+      }
 
       // Freno del operador: un deck pausado no se toca (ni lista nueva ni currentList).
       if (existing?.pausedByOperator) return { slug, skippedReason: 'paused' as const, published: false, supersededListId: null };
@@ -345,7 +461,24 @@ export class DecksMetaRefreshService implements OnModuleInit {
         ? Math.round(p.leader.sharePct - existing.sharePct)
         : null;
       // `published`: sólo se enciende con autopublish; si no, se respeta el estado previo (operador flipa).
-      const willPublish = autopublish ? true : existing?.published ?? false;
+      // §DECKS-TOP-FUENTE.13: la publicación exige rank ≠ null (el rank resultante es el nuevo o, en su defecto, el previo).
+      const resultingRank = rank ?? existing?.rank ?? null;
+      const canTurnOn = autopublish && resultingRank != null;
+      const willPublish = canTurnOn ? true : existing?.published ?? false;
+      // §DECKS-TOP-FUENTE.11: portada nueva de la página del arquetipo; sin portada (o sin casar cuando la vigente sí
+      // casó) HEREDA la de la lista vigente. Prohibido pisar una portada existente con null.
+      let cover: { setCode: string; number: string; matchStatus: CoverMatch['matchStatus']; cardId: string | null } | null = p.cover
+        ? { setCode: p.cover.setCode, number: p.cover.number, matchStatus: p.cover.matchStatus, cardId: p.cover.card?.id ?? null }
+        : null;
+      if (existing?.currentListId && (!cover || cover.cardId == null)) {
+        const prev = await tx.metaDeckList.findUnique({
+          where: { id: existing.currentListId },
+          select: { coverSetCode: true, coverNumber: true, coverMatchStatus: true, coverCardId: true },
+        });
+        if (prev?.coverSetCode && prev.coverNumber && prev.coverMatchStatus && (!cover || prev.coverCardId)) {
+          cover = { setCode: prev.coverSetCode, number: prev.coverNumber, matchStatus: prev.coverMatchStatus as CoverMatchStatus, cardId: prev.coverCardId };
+        }
+      }
 
       const deck = await tx.metaDeck.upsert({
         where: { slug },
@@ -366,7 +499,7 @@ export class DecksMetaRefreshService implements OnModuleInit {
           rank: rank ?? undefined,
           sharePct: p.leader.sharePct ?? undefined,
           trend: trend ?? undefined,
-          ...(autopublish ? { published: true } : {}),
+          ...(canTurnOn ? { published: true } : {}),
         },
       });
 
@@ -380,10 +513,10 @@ export class DecksMetaRefreshService implements OnModuleInit {
           sourceTournament: meta.sourceTournament ?? null,
           // Portada (§12.4.3). Invariantes: setCode/number/matchStatus todos null o todos no-null;
           // coverCardId ≠ null ⇒ matchStatus = matched (matchCover sólo devuelve carta si casó).
-          coverSetCode: p.cover?.setCode ?? null,
-          coverNumber: p.cover?.number ?? null,
-          coverMatchStatus: p.cover?.matchStatus ?? null,
-          coverCardId: p.cover?.card?.id ?? null,
+          coverSetCode: cover?.setCode ?? null,
+          coverNumber: cover?.number ?? null,
+          coverMatchStatus: cover?.matchStatus ?? null,
+          coverCardId: cover?.cardId ?? null,
           cards: {
             create: p.matched.map((m) => ({
               rawName: m.rawName,
@@ -490,7 +623,25 @@ export function buildRunNote(report: RefreshReport): string {
 
 type RefreshMode = 'live' | 'dryrun';
 
+const JOBS_KEEP = 20;
+
+/** Estado de un «Publicar ahora» encolado (`GET /admin/jobs/decks-meta-refresh/:jobId`). */
+export interface RefreshJob {
+  jobId: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  dryRun: boolean;
+  enqueuedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** Resultado de `run()` (reporte, o `skipped` con motivo) cuando `status='done'`. */
+  result: RefreshRunResult | null;
+  /** Mensaje acotado cuando `status='failed'`. */
+  error: string | null;
+}
+
 interface ParsedDeck {
+  /** Slug base de la corrida (§DECKS-TOP-FUENTE.14); `persistDeck` lo resuelve contra la BD y devuelve el definitivo. */
+  slug: string;
   leader: HomeLeader & { archetypeId: string; listId: string };
   matched: MatchedLine[];
   summary: DeckCanarySummary;
@@ -516,6 +667,14 @@ export interface DeckCoverReport {
   matchStatus: CoverMatchStatus;
   cardId: string | null;
   imageUrl: string | null;
+}
+
+/** §DECKS-TOP-FUENTE.12: corridas válidas seguidas fuera del top N tras las que se despublica un deck. */
+export const MISSED_RUNS_LIMIT = 3;
+
+/** Slug con sufijo `-<archetypeId>` (≤120 caracteres). */
+export function suffixSlug(slug: string, archetypeId: string): string {
+  return `${slug.slice(0, 120 - 1 - archetypeId.length).replace(/-+$/, '')}-${archetypeId}`;
 }
 
 /** F4-7: el puesto de Limitless solo vale si es entero 1..topN; si no ⇒ null (el deck queda sin puesto y no pesa en las sugeridas). */
@@ -565,6 +724,8 @@ export interface RefreshReport {
   /** Arquetipos EFECTIVAMENTE persistidos este run (lista nueva creada), ni pausados ni manual-gana. */
   persistedCount: number;
   publishedSlugs: string[];
+  /** §DECKS-TOP-FUENTE.12: slugs despublicados en esta corrida por llevar {@link MISSED_RUNS_LIMIT} corridas válidas fuera del top. */
+  delistedSlugs: string[];
   supersededListIds: string[];
   manualConflicts: string[];
   pausedSkipped: string[];
@@ -578,7 +739,7 @@ export type RefreshRunResult =
 function summarize(leader: HomeLeader & { archetypeId: string; listId: string }, matched: MatchedLine[]): DeckCanarySummary {
   return {
     archetypeId: leader.archetypeId,
-    slug: slugifyDeckName(leader.name ?? `deck-${leader.archetypeId}`),
+    slug: deckSlugFor(leader.name, leader.archetypeId),
     name: leader.name ?? '',
     cardsParsed: matched.length,
     sumQuantity: matched.reduce((s, m) => s + m.quantity, 0),

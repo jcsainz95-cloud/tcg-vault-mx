@@ -60,6 +60,9 @@ function fakePrisma(autopublishRow?: boolean) {
   const runs: any[] = [];
   const tx = {
     metaDeck: {
+      findFirst: jest.fn(async () => null),
+      updateMany: jest.fn(async () => ({ count: 0 })),
+      findMany: jest.fn(async () => []),
       findUnique: jest.fn(async ({ where }: any) => decks.get(where.slug) ?? null),
       upsert: jest.fn(async ({ where, create }: any) => {
         const row = decks.get(where.slug) ?? { id: `deck-${where.slug}`, currentListId: null, ...create, slug: where.slug };
@@ -68,7 +71,7 @@ function fakePrisma(autopublishRow?: boolean) {
       }),
       update: jest.fn(async () => ({})),
     },
-    metaDeckList: { create: jest.fn(async () => ({ id: `l-${Math.random()}` })), update: jest.fn() },
+    metaDeckList: { findUnique: jest.fn(async () => null), create: jest.fn(async () => ({ id: `l-${Math.random()}` })), update: jest.fn() },
   };
   const prisma = {
     configSetting: {

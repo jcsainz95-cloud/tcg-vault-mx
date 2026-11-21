@@ -110,6 +110,9 @@ function fakePrisma(dial: 'on' | 'off') {
   let seq = 0;
   const tx = {
     metaDeck: {
+      findFirst: jest.fn(async () => null),
+      updateMany: jest.fn(async () => ({ count: 0 })),
+      findMany: jest.fn(async () => []),
       findUnique: jest.fn(async () => null),
       upsert: jest.fn(async ({ where, create }: any) => {
         writes.deckUpsert.push(where.slug);
@@ -118,6 +121,7 @@ function fakePrisma(dial: 'on' | 'off') {
       update: jest.fn(async (a: any) => { writes.deckUpdate.push(a); return {}; }),
     },
     metaDeckList: {
+      findUnique: jest.fn(async () => null),
       create: jest.fn(async ({ data }: any) => { writes.listCreate.push(data); return { id: `list-${++seq}` }; }),
       update: jest.fn(async (a: any) => { writes.listUpdate.push(a); return {}; }),
     },

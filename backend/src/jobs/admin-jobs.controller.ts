@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Optional, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Optional, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { BusinessException } from '../common/business.exception';
 import { Role } from '@prisma/client';
 import { Allow, IsBoolean, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
@@ -481,35 +481,36 @@ export class AdminJobsController {
   }
 
   /**
-   * DECKS-META Fase 2 (§7 / §8) — disparo manual del refresh semanal de decks meta desde Limitless.
-   * `{ dryRun:true }` corre el pipeline REAL (fetch→parse→match→canary) SIN escribir nada publicado
-   * (verificación en prod, ya que el sandbox bloquea el egress); sin `dryRun` respeta el dial
-   * `decks_meta_autofetch` (off ⇒ no-op). NO toca dinero (datos de catálogo/meta). super_admin,
-   * auditado (mismo patrón que los demás `POST /admin/jobs/*`). Res 202.
+   * DECKS-META Fase 2 (§7 / §8) + §DECKS-TOP-FUENTE.15 — «Publicar ahora» ASÍNCRONO. La corrida dura 1-2 min (>11 con
+   * reintentos): el POST solo ENCOLA y responde `202 {jobId, status, deduped}`; idempotente (si ya hay una en cola o
+   * corriendo devuelve el mismo `jobId`, `deduped:true`). `{dryRun:true}` corre el pipeline REAL sin escribir nada
+   * publicado; sin `dryRun` respeta el dial `decks_meta_autofetch` (off ⇒ el job termina `done` con `result.skipped`).
+   * NO toca dinero. super_admin, auditado al encolar.
    */
   @Post('decks-meta-refresh')
   @HttpCode(202)
   async runDecksMetaRefresh(@Body() dto: DecksMetaRefreshDto, @CurrentUser() user: { id: string; role: Role }) {
-    const result = await this.decksMetaRefresh.run({ dryRun: dto.dryRun });
+    const queued = this.decksMetaRefresh.enqueue({ dryRun: dto.dryRun });
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
       action: 'jobs.decks_meta_refresh.run',
       entityType: 'Job',
       entityId: 'decks-meta-refresh',
-      after: {
-        skipped: result.skipped,
-        mode: result.mode,
-        ...(result.skipped
-          ? { reason: result.reason }
-          : {
-              verdict: result.report.verdict,
-              applied: result.report.applied,
-              deckCount: result.report.decks.length,
-              publishedSlugs: result.report.publishedSlugs,
-            }),
-      },
+      after: { jobId: queued.jobId, dryRun: dto.dryRun ?? null, deduped: queued.deduped },
     });
-    return result;
+    return { jobId: queued.jobId, status: queued.status, deduped: queued.deduped };
+  }
+
+  /**
+   * §DECKS-TOP-FUENTE.15 — estado del «Publicar ahora» encolado. `200 {jobId, status:'queued'|'running'|'done'|'failed',
+   * dryRun, enqueuedAt, startedAt, finishedAt, result, error}`; `result` = el mismo cuerpo que devolvía el POST síncrono
+   * (reporte o `skipped`). `404 NOT_FOUND` si el id no existe (o el servidor reinició). Solo lectura, sin auditoría.
+   */
+  @Get('decks-meta-refresh/:jobId')
+  getDecksMetaRefreshJob(@Param('jobId', new ParseUUIDPipe()) jobId: string) {
+    const job = this.decksMetaRefresh.getJob(jobId);
+    if (!job) throw BusinessException.notFound();
+    return job;
   }
 }

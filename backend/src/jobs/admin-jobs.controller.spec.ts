@@ -10,16 +10,15 @@ import { AdminJobsController } from './admin-jobs.controller';
  * disparo manual: (a) es super_admin, (b) pasa `dryRun` al orquestador TAL CUAL, (c) responde 202,
  * (d) AUDITA `jobs.decks_meta_refresh.run` (mismo patrón que los demás `POST /admin/jobs/*`).
  */
-describe('AdminJobsController · decks-meta-refresh (§7)', () => {
+describe('AdminJobsController · decks-meta-refresh (§7, §DECKS-TOP-FUENTE.15: encolar, 202 + estado)', () => {
   const user = { id: 'sa-1', role: Role.super_admin };
+  const JOB = '5f0e7a54-8d0c-4f6e-9a0d-0c0f6a1b2c3d';
 
   function makeController() {
     const refresh = {
-      run: jest.fn(async () => ({
-        skipped: false as const,
-        mode: 'dryrun' as const,
-        report: { verdict: 'PUBLISH', applied: false, decks: [{}, {}], publishedSlugs: [] },
-      })),
+      enqueue: jest.fn(() => ({ jobId: JOB, status: 'queued' as const, deduped: false })),
+      getJob: jest.fn((id: string) => (id === JOB ? { jobId: JOB, status: 'done', result: { skipped: false } } : null)),
+      run: jest.fn(),
     } as unknown as DecksMetaRefreshService;
     const audit = { log: jest.fn(async () => undefined) } as unknown as AuditService;
     const stub = {} as never;
@@ -29,25 +28,25 @@ describe('AdminJobsController · decks-meta-refresh (§7)', () => {
     return { controller, refresh, audit };
   }
 
-  it('pasa `dryRun:true` al orquestador tal cual', async () => {
+  it('NO corre la corrida en la petición: solo encola (run no se llama) y pasa `dryRun` tal cual', async () => {
     const { controller, refresh } = makeController();
     await controller.runDecksMetaRefresh({ dryRun: true }, user);
-    expect(refresh.run).toHaveBeenCalledWith({ dryRun: true });
+    expect(refresh.enqueue).toHaveBeenCalledWith({ dryRun: true });
+    expect(refresh.run).not.toHaveBeenCalled();
   });
 
   it('sin `dryRun` en el body, respeta el dial (pasa `dryRun:undefined`)', async () => {
     const { controller, refresh } = makeController();
     await controller.runDecksMetaRefresh({}, user);
-    expect(refresh.run).toHaveBeenCalledWith({ dryRun: undefined });
+    expect(refresh.enqueue).toHaveBeenCalledWith({ dryRun: undefined });
   });
 
-  it('devuelve el resultado del orquestador', async () => {
+  it('devuelve {jobId, status, deduped}', async () => {
     const { controller } = makeController();
-    const res = await controller.runDecksMetaRefresh({ dryRun: true }, user);
-    expect(res.skipped).toBe(false);
+    expect(await controller.runDecksMetaRefresh({ dryRun: true }, user)).toEqual({ jobId: JOB, status: 'queued', deduped: false });
   });
 
-  it('AUDITA `jobs.decks_meta_refresh.run` con actor y detalle del reporte', async () => {
+  it('AUDITA `jobs.decks_meta_refresh.run` con actor, jobId y dedupe', async () => {
     const { controller, audit } = makeController();
     await controller.runDecksMetaRefresh({ dryRun: true }, user);
     expect(audit.log).toHaveBeenCalledTimes(1);
@@ -57,14 +56,21 @@ describe('AdminJobsController · decks-meta-refresh (§7)', () => {
     expect(entry.actorRole).toBe(Role.super_admin);
     expect(entry.entityType).toBe('Job');
     expect(entry.entityId).toBe('decks-meta-refresh');
-    expect(entry.after.mode).toBe('dryrun');
-    expect(entry.after.verdict).toBe('PUBLISH');
+    expect(entry.after).toEqual({ jobId: JOB, dryRun: true, deduped: false });
   });
 
   it('el disparo responde 202 y el controller es super_admin', () => {
     const code = Reflect.getMetadata(HTTP_CODE_METADATA, AdminJobsController.prototype.runDecksMetaRefresh);
     expect(code).toBe(202);
     expect(Reflect.getMetadata(ROLES_KEY, AdminJobsController)).toEqual([Role.super_admin]);
+  });
+
+  it('el estado devuelve el job; un id desconocido ⇒ 404', () => {
+    const { controller } = makeController();
+    expect(controller.getDecksMetaRefreshJob(JOB)).toMatchObject({ jobId: JOB, status: 'done' });
+    expect(() => controller.getDecksMetaRefreshJob('00000000-0000-4000-8000-000000000000')).toThrow(
+      expect.objectContaining({ status: 404 }),
+    );
   });
 });
 

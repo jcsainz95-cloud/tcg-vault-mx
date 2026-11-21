@@ -34,6 +34,11 @@ export interface CanaryInput {
    * EN LUGAR de C5. `homeParseable` se ignora en ese caso.
    */
   indexRows?: number;
+  /**
+   * §DECKS-TOP-FUENTE.16: con `/decks` el llamante pasa en `decks` solo los decks en banda y aquí el total de filas válidas
+   * traídas; C2 pasa a «fuera de banda ≤ `outOfBandMaxRatio` (40 %) de esas filas».
+   */
+  bandTotal?: number;
   /** Decks que se trajeron y parsearon OK (los que fallaron su fetch no entran). */
   decks: DeckCanarySummary[];
 }
@@ -63,6 +68,10 @@ export function evaluateCanary(input: CanaryInput, t: CanaryThresholds): CanaryR
   const decks = input.decks;
   const inBand = decks.filter((d) => d.sumQuantity >= t.cardsMin && d.sumQuantity <= t.cardsMax);
   const outOfBand = decks.filter((d) => d.sumQuantity < t.cardsMin || d.sumQuantity > t.cardsMax);
+  const bandMode = input.bandTotal !== undefined;
+  const oobCount = bandMode ? Math.max(0, input.bandTotal! - inBand.length) : outOfBand.length;
+  const oobRatio = bandMode ? (input.bandTotal! > 0 ? oobCount / input.bandTotal! : 1) : 0;
+  const oobMax = t.outOfBandMaxRatio ?? 0.4;
 
   const total = decks.reduce((s, d) => s + d.total, 0);
   const matched = decks.reduce((s, d) => s + d.matched, 0);
@@ -81,10 +90,12 @@ export function evaluateCanary(input: CanaryInput, t: CanaryThresholds): CanaryR
     {
       id: 'C2',
       // Ningún deck traído puede quedar fuera de la banda 55–61 (un deck a medio parsear = ~30).
-      ok: decks.length > 0 && outOfBand.length === 0,
-      measured: outOfBand.length,
-      threshold: 0,
-      label: `decks fuera de banda [${t.cardsMin},${t.cardsMax}] (${outOfBand.length}) = 0`,
+      ok: bandMode ? input.bandTotal! > 0 && oobRatio <= oobMax : decks.length > 0 && outOfBand.length === 0,
+      measured: bandMode ? round2(oobRatio) : outOfBand.length,
+      threshold: bandMode ? oobMax : 0,
+      label: bandMode
+        ? `fuera de banda [${t.cardsMin},${t.cardsMax}] (${oobCount}/${input.bandTotal}) ≤ ${Math.round(oobMax * 100)} %`
+        : `decks fuera de banda [${t.cardsMin},${t.cardsMax}] (${outOfBand.length}) = 0`,
     },
     {
       id: 'C3',

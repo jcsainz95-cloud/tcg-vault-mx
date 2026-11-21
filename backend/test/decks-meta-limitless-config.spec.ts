@@ -100,6 +100,7 @@ describe('resolveCanaryThresholds + helpers', () => {
       cardsMax: 61,
       matchFloor: 0.8,
       unmatchedSetMaxRatio: 0.1,
+      outOfBandMaxRatio: 0.4,
     });
   });
 
