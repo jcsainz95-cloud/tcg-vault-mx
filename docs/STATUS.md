@@ -96,11 +96,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-22 · §BUYLIST-FLUJO F1 backend dd748ad2 · APROBADO (texto de qa, transcrito por el orquestador). Previos vigentes: §DIR-TIENDA APROBADO (publicado #148); HEAP-INTEG-94 (#147).
-- Neto mostrado = neto sellado en 8/8 casos (con y sin envío, skip, rechazos, override, bounty, neto 0), con un cálculo independiente; listado = detalle. 409 PAYOUT_CHANGED sin efectos 1/1 (BD, auditoría, bounty y correos iguales); simultáneos: correcto+viejo 5/5 (200+409), dos correctos 5/5 un solo sellado, dos viejos 5/5 sin pago.
-- reveal-clabe: holderName 1/1, 403 a operador y cliente, 422 CLABE_MISSING con remedio; 0/6 respuestas filtran la CLABE. DTOs derivados coinciden en los 7 estados medidos.
-- Mutaciones 8/9; sobrevive tolerancia de 1–99 centavos en el 409 (I-1, backend). Regresión: buylist 191/191, vecinas 1010/1010, unit 10 711/10 711, tsc 0, lint 0, doc-size verde.
-- Pendientes: I-1 backend; M-1 arquitecto (readonly: omitir o false; since en pagada y terminales); M-2 clabeOnFile solo KYC en 2 de 12 respuestas, M-3 expectedNetCents null paga sin comprobar, M-4 pagada+viejo ⇒ 200 (front lee payoutNetCents), M-6 holderName '' (backend); M-5 auditar 422 (seguridad-lead).
+## QA (qa) — 2026-11-22 · §BUYLIST-FLUJO F1+F2 edd2b9ab · RECHAZADO (texto de qa, transcrito por el orquestador). Previos: F1 backend dd748ad2 APROBADO; §DIR-TIENDA publicado #148.
+- B-1 backend: aprobar o rechazar (también por rechazo múltiple) una carta con baja pendiente la deja «pending» y bloquea el pago para siempre (3/3); B-2 backend: enum-query-axes C-EQ-1 en rojo por el @Query de revise-price/preview (2/2).
+- I-1 arquitecto+backend: neto de vista previa = pagado en 5/9 (cuenta rechazadas y omite cartas sin decidir); payout final = sellado 9/9. I-2 frontend: el mock de convert-all lanza 422 y el backend responde 200 con fallos por línea.
+- Pasa: I-1 de F1 cerrado (±1 centavo da 409); REVISION_PENDING; barrido 7 d + 1 recordatorio; costo = aceptado; reasonCode 400; C1–C4 es/en con dirección 10/10; PICKUP_ALREADY_DONE; m116/m117 aditivas; mutaciones 14/16 (2 equivalentes).
+- Regresión: integración 3703/3704, unit 10 744/10 744, vitest 6201/6201, e2e mock admin 18/18, tsc/lint 0, doc-size verde. NO MEDIDO: front real contra backend real, correo real, CI. MENOR: C4 «7 días» con horas, C3 «p.m..», rejectionCode omitido vs null, preview acepta 1e3, convert-all locationId no-uuid ⇒ 200; front sin recarga tras 409 del vendedor, «Rechazar» baja sin confirmar, tipos de respuesta.
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
