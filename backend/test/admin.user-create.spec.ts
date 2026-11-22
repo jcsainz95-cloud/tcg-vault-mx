@@ -152,13 +152,21 @@ describe('AdminService.createUser', () => {
     },
   );
 
-  it('§CELULAR: el staff puede omitir el celular (la puerta se lo pedirá), pero si viene debe ser válido', async () => {
+  // Dueño («obligatorio para TODOS»): el hallazgo de §CELULAR — el alta M6 de STAFF ya no puede omitir el celular.
+  it.each([undefined, null, '', '000', '1234567890'])('§CELULAR: el STAFF también exige celular válido (phone %j → 422 PHONE_INVALID y no crea)', async (phone) => {
+    for (const role of ['vault_operator', 'super_admin']) {
+      const prisma = prismaCreate();
+      await expect(
+        svc(prisma).createUser({ username: 'ana.op', name: 'Ana', role, password: 'password123', phone } as any),
+      ).rejects.toMatchObject({ code: 'PHONE_INVALID', details: { field: 'phone' } });
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    }
+  });
+
+  it('§CELULAR: el staff con celular válido se crea y se guarda normalizado', async () => {
     const prisma = prismaCreate();
-    await svc(prisma).createUser({ username: 'ana.op', name: 'Ana', role: 'vault_operator', password: 'password123' } as any);
-    expect(prisma.user.create.mock.calls[0][0].data.phone).toBeUndefined();
-    await expect(
-      svc(prismaCreate()).createUser({ username: 'ana.op', name: 'Ana', role: 'vault_operator', password: 'password123', phone: '000' } as any),
-    ).rejects.toMatchObject({ code: 'PHONE_INVALID' });
+    await svc(prisma).createUser({ username: 'ana.op', name: 'Ana', role: 'vault_operator', password: 'password123', phone: '+52 55-1234-5678' } as any);
+    expect(prisma.user.create.mock.calls[0][0].data.phone).toBe('5512345678');
   });
 
   it('§CELULAR: phone con +52/guiones se guarda normalizado', async () => {

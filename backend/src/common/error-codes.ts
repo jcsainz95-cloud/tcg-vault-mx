@@ -941,6 +941,8 @@ export const ErrorCode = {
   USE_EXISTING: 'USE_EXISTING',
   // §ALTA-LIGA-2: el alta chocó con una fusión en curso y no obtuvo el candado en 3 s ×2 (409, `Retry-After: 2`, reintentable; nunca 500).
   VERSION_BUSY: 'VERSION_BUSY',
+  // §FICHA-CLIENTE (contrato §1b): el cliente ya tiene 200 notas internas vivas (409).
+  NOTE_LIMIT: 'NOTE_LIMIT',
 } as const;
 
 export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode];

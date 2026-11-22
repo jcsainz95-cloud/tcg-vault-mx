@@ -75,7 +75,7 @@ describe('E2E — errata v1.80.9.1: el almacén degradado no se pinta como «sin
   /** Staff sin correo con la temporal ya cambiada. */
   async function activeStaff(prefix: string, role: Role) {
     const username = uname(prefix);
-    const c = await h.api('POST', '/admin/users', { json: { name: `STF ${prefix}`, username, role }, token: adminTok });
+    const c = await h.api('POST', '/admin/users', { json: { name: `STF ${prefix}`, username, role, phone: '5512345678' }, token: adminTok });
     expect([c.status, c.text]).toEqual([201, c.text]);
     const l = await login(username, c.body.tempPassword);
     expect(l.status).toBe(200);

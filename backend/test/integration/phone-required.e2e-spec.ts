@@ -192,5 +192,21 @@ describe('E2E — §CELULAR obligatorio', () => {
       expect(res.status).toBe(201);
       expect((await h.prisma.user.findFirst({ where: { email: e } }))!.phone).toBe('5522223333');
     });
+    // Hallazgo cerrado (dueño: «obligatorio para TODOS»): el alta M6 de EQUIPO tampoco puede omitir el celular.
+    it.each(['vault_operator', 'super_admin'])('equipo (%s) sin celular o con celular inválido ⇒ 422 PHONE_INVALID y no crea', async (role) => {
+      for (const phone of [undefined, null, '', '0000000000']) {
+        const username = `stfbad.${role.slice(0, 3)}.${run}`.toLowerCase();
+        const res = await h.api('POST', '/admin/users', { token: admin, json: { username, name: 'Staff', role, password: 'Celular123!', phone } });
+        expect(res.status).toBe(422);
+        expect(res.body.error.code).toBe('PHONE_INVALID');
+        expect(await h.prisma.user.findFirst({ where: { username } })).toBeNull();
+      }
+    });
+    it('equipo con celular válido ⇒ 201 y se guarda normalizado', async () => {
+      const username = `stfok.${run}`.toLowerCase();
+      const res = await h.api('POST', '/admin/users', { token: admin, json: { username, name: 'Staff', role: 'vault_operator', password: 'Celular123!', phone: '+52 55 3333 4444' } });
+      expect(res.status).toBe(201);
+      expect((await h.prisma.user.findFirst({ where: { username } }))!.phone).toBe('5533334444');
+    });
   });
 });

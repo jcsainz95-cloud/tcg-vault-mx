@@ -193,7 +193,7 @@ describe('E2E — contraseña temporal OBLIGATORIA y POST /auth/change-password 
     const email = `op_${randomUUID().slice(0, 8)}`;
     const created = await h.api('POST', '/admin/users', {
       token: adminToken,
-      json: { username: email, name: 'Op Temp', role: 'vault_operator' }, // sin password ⇒ autogenerada + flag
+      json: { username: email, name: 'Op Temp', role: 'vault_operator', phone: '5512345678' }, // sin password ⇒ autogenerada + flag
     });
     expect(created.status).toBe(201);
     const temp: string = created.body.tempPassword;

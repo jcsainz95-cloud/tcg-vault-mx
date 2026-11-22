@@ -185,7 +185,7 @@ describe('PS-162 / C-21 (b) — la cuenta del dueño está protegida', () => {
 
 describe('PS-163 / C-21 (c) — AG-22: lo que un no dueño hace con cuentas de PERSONAL avisa', () => {
   const mkStaff = (token: string, role: 'vault_operator' | 'super_admin', tag: string) =>
-    api('POST', '/admin/users', token, { username: `d2g-${tag}-${w.run}`, name: `Alta ${tag} ${w.run}`, role, password: 'Correcta-Larga-123!' });
+    api('POST', '/admin/users', token, { username: `d2g-${tag}-${w.run}`, name: `Alta ${tag} ${w.run}`, role, password: 'Correcta-Larga-123!', phone: '5512345678' });
 
   it('V crea un operador ⇒ AG-22 🟡 `staff_created`; crea un súper-admin ⇒ 🔴; restablece a un súper-admin ⇒ 🔴', async () => {
     const a = await mkStaff(w.v.token, 'vault_operator', 'opv');

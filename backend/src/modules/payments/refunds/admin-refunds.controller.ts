@@ -13,6 +13,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { MoneyOut } from '../../../common/decorators/money-out.decorator';
 import { NON_FAILED, RefundLedgerService } from './refund-ledger.service';
 import { RefundReportsService } from './refund-reports.service';
+import { parseCustomerUserId, paymentRefundOfCustomer } from './customer-user-id';
 import { PAYMENT_REFUND_KIND_VALUES, PAYMENT_REFUND_STATUS_VALUES } from '../../../common/enum-values';
 import { ManualRefundService } from './manual-refund.service';
 
@@ -60,6 +61,7 @@ export class AdminRefundsController {
   async list(
     @Query('requestedByRole') requestedByRole?: string,
     @Query('actorUserId') actorUserId?: string,
+    @Query('userId') userId?: string,
     @Query('kind') kind?: string,
     @Query('status') status?: string,
     @Query('from') from?: string,
@@ -72,6 +74,9 @@ export class AdminRefundsController {
     const role = parseEnumFilter('requestedByRole', requestedByRole, ROLE_VALUES);
     if (role) where.requestedByRole = role;
     if (actorUserId && actorUserId.trim()) where.requestedByUserId = actorUserId.trim();
+    // §FICHA-CLIENTE: `?userId=<uuid>` = los reembolsos de ESTE cliente (≠ `actorUserId`, que es quien los pidió). Vacío ≡ ausente.
+    const customerId = parseCustomerUserId(userId);
+    if (customerId) where.AND = [paymentRefundOfCustomer(customerId)];
     const k = parseEnumFilter('kind', kind, KIND_VALUES);
     if (k) where.kind = k;
     const st = parseEnumFilter('status', status, STATUS_VALUES);

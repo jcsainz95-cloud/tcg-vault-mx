@@ -804,10 +804,9 @@ export class AdminService {
     }
     const locale = (dto.locale as string | undefined) ?? 'es';
 
-    // §CELULAR (contrato §2, «Alta de cliente M6»): el CLIENTE exige celular válido; el staff puede omitirlo (la puerta se lo
-    // pedirá al entrar), pero si viene debe ser válido. Se guarda normalizado.
-    const phone =
-      !isStaff || (dto.phone !== undefined && dto.phone !== null) ? assertValidPhone(dto.phone) : undefined;
+    // §CELULAR (dueño: «obligatorio para TODOS»): cliente Y equipo exigen celular MX válido en el alta M6 (`422 PHONE_INVALID` si
+    // falta o no es válido). Antes el staff podía omitirlo; se cierra aquí. Se guarda normalizado.
+    const phone = assertValidPhone(dto.phone);
 
     // 4. password: si se provee, política de /auth/register (MinLength 8). Si se omite, se autogenera una temporal
     // de ALTA ENTROPÍA (randomBytes(18).base64url) y se devuelve UNA sola vez en `tempPassword`.
@@ -1679,6 +1678,9 @@ export class AdminService {
       await tx.wishlistItem.deleteMany({ where: { userId: id } });
       await tx.wishlistMail.deleteMany({ where: { userId: id } });
       await tx.sealedRestockSubscription.deleteMany({ where: restockSubscriptionsOf(id, user.email) });
+      // §FICHA-CLIENTE (contrato §1b): el TEXTO de las notas internas del equipo sobre esta cuenta es PII ⇒ se vacía (también el de las
+      // ya borradas lógicamente); las filas quedan (quién/cuándo, sin texto). Misma transacción que la anonimización.
+      await tx.customerNote.updateMany({ where: { userId: id }, data: { body: '' } });
       await tx.user.update({
         where: { id },
         data: {

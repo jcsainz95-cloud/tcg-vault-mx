@@ -720,9 +720,32 @@ model User {
   // esta cuenta (relación inversa; SIN columna nueva en User). `onDelete: SetNull` conserva la anotación.
   marketingAnnotations       MarketingDateAnnotation[]  @relation("marketingAnnotations")
   supplier                   Supplier?
+  // §FICHA-CLIENTE (contrato §1b): notas internas del equipo sobre ESTE cliente / las que escribió esta cuenta. Solo relaciones (sin columnas).
+  customerNotes              CustomerNote[]              @relation("CustomerNoteSubject")
+  authoredCustomerNotes      CustomerNote[]              @relation("CustomerNoteAuthor")
 
   @@index([role])
   @@index([status])
+}
+
+// §FICHA-CLIENTE (docs/API_CONTRACT_FICHA_CLIENTE.md §1b) — nota interna del equipo sobre un cliente. TEXTO PLANO con PII posible:
+// solo la leen/escriben los 4 endpoints `/admin/users/:id/notes`; ⛔ nunca en rutas de cliente, correos, exportaciones, medición ni logs.
+// Borrado lógico (`deletedAt`); al anonimizar la cuenta se vacía `body`. `clientRequestId` ⇒ POST idempotente por autor.
+model CustomerNote {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation("CustomerNoteSubject", fields: [userId], references: [id], onDelete: Cascade)
+  authorId        String?
+  author          User?     @relation("CustomerNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  body            String    @db.VarChar(1000)
+  pinned          Boolean   @default(false)
+  clientRequestId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  @@unique([authorId, clientRequestId])
+  @@index([userId, pinned, createdAt])
 }
 
 model KycProfile {

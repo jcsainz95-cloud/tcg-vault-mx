@@ -73,7 +73,8 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
   }
 
   function createUser(body: Record<string, unknown>, token = adminTok) {
-    return h.api('POST', '/admin/users', { json: body, token });
+    // §CELULAR: el alta M6 de equipo también exige celular válido; las pruebas lo ponen salvo que lo declaren.
+    return h.api('POST', '/admin/users', { json: { phone: '5512345678', ...body }, token });
   }
 
   /** Alta de staff sin correo por API; devuelve fila + contraseña temporal. */

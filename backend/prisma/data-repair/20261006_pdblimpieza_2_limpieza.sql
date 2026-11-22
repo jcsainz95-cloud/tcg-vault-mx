@@ -351,7 +351,11 @@ SELECT t, 'conservar' FROM unnest(ARRAY[
   -- identidad/acceso del dueño (como `User`/`AuthToken`: borrarlas revocaría accesos en silencio) y los interruptores
   -- (`SupplySettings`, APAGADOS al arrancar) son CONFIGURACIÓN (como `ConfigSetting`) ⇒ conservar. Sus FK solo apuntan a `User`
   -- (conservada); las filas que SÍ se borran cuelgan de ellas, no al revés.
-  'Supplier','SupplierInvite','SupplySettings']) AS t;
+  'Supplier','SupplierInvite','SupplySettings',
+  -- §FICHA-CLIENTE (m118, G-8; a ratificar por el arquitecto): `CustomerNote` = anotaciones HUMANAS del equipo sobre cada cliente (texto con PII,
+  -- escrito a mano; no es dato de prueba). La limpieza CONSERVA las cuentas (`User`), y la FK solo apunta a `User` (conservada) ⇒ las notas siguen
+  -- a su cuenta y nada cuelga de una tabla que se borre. Si el dueño pide vaciarlas, es por cohorte (tipo G-9), nunca a ciegas.
+  'CustomerNote']) AS t;
 
 -- G-8 (C-3) · Toda tabla de la base tiene que estar clasificada arriba (borrar / ajustar / conservar). Una tabla que
 -- el diseño no conoce (una migración posterior a este fichero) PARA todo: no se adivina si es de prueba o real.

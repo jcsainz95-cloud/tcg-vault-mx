@@ -115,6 +115,8 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
       // rev v1.87⟨wishlist⟩ (§WSH.5, 817; D-WSH-5): la lista de deseos, sus correos y las suscripciones «avísame».
       wishlistItem: { deleteMany: jest.fn(async () => ({ count: 0 })) },
       wishlistMail: { deleteMany: jest.fn(async () => ({ count: 0 })) },
+      // §FICHA-CLIENTE §1b: el texto de las notas internas se vacía al anonimizar.
+      customerNote: { updateMany: jest.fn(async () => ({ count: 0 })) },
       sealedRestockSubscription: { deleteMany: jest.fn(async () => ({ count: 0 })) },
       user: { update: jest.fn(async () => ({})) },
     };
@@ -172,6 +174,7 @@ describe('AdminService.deleteUser — híbrido hard/soft', () => {
     // rev v1.87⟨wishlist⟩ (817, D-WSH-5): lista, correos y suscripciones de la cuenta Y de su correo PREVIO (normalizado).
     expect(tx.wishlistItem.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } });
     expect(tx.wishlistMail.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u1' } });
+    expect(tx.customerNote.updateMany).toHaveBeenCalledWith({ where: { userId: 'u1' }, data: { body: '' } });
     expect(tx.sealedRestockSubscription.deleteMany).toHaveBeenCalledWith({ where: { OR: [{ userId: 'u1' }, { email: 'ana@example.test' }] } });
     // No hard-delete.
     expect(prisma.user.delete).not.toHaveBeenCalled();

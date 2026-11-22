@@ -133,6 +133,10 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/orders::needsManual',
   // 💰 §PROV F1 (ids de filtro del portal de proveedores; ⚠️ PENDIENTE de ratificar por el arquitecto): igualdad exacta con un uuid,
   // no un conjunto de tokens. Los `supplierId` del token JAMÁS se leen de aquí: son filtros del PANEL del dueño (staff).
+  // §FICHA-CLIENTE (contrato §1b, `GET /admin/users/:id/notes`; ⚠️ PENDIENTE de ratificar por el arquitecto): paginación — `cursor` = id (uuid) opaco de la
+  // última nota (otro formato ⇒ 400) y `limit` = entero 1..50 (otro ⇒ 400). Ni uno ni otro es un conjunto de tokens.
+  'GET /admin/users/:id/notes::cursor',
+  'GET /admin/users/:id/notes::limit',
   'GET /admin/supply-offers::requestId',
   'GET /admin/supply-offers::supplierId',
   'GET /admin/supply-purchases::supplierId',

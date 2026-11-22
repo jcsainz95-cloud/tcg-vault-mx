@@ -364,10 +364,10 @@ export class ManualRefundService {
   }
 
   /** `GET /admin/manual-refunds` — la cubeta. `pending` por `createdAt` asc; los demás por su sello desc. */
-  async list(raw: { status?: string; q?: string; page?: string; pageSize?: string }) {
+  async list(raw: { status?: string; q?: string; page?: string; pageSize?: string; userId?: string }) {
     const f = parseAdminListFilters({ page: raw.page ?? '1', pageSize: raw.pageSize ?? '25', q: raw.q });
     const status = parseEnumFilter('status', raw.status, STATUS_VALUES) ?? 'pending';
-    const where: Prisma.ManualRefundWhereInput = { status };
+    const where: Prisma.ManualRefundWhereInput = { status, ...(raw.userId ? { customerUserId: raw.userId } : {}) };
     if (f.q) {
       const q = f.q;
       const users = await this.prisma.user.findMany({
