@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { useSupportContact } from '@/hooks/useSupportContact';
-import { safeHttpUrl, mailtoHref } from '@/lib/safe-href';
+import { mailtoHref } from '@/lib/safe-href';
 
 export interface SupportContactProps {
   /**

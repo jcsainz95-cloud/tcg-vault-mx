@@ -57,7 +57,7 @@ import { BuyView, OptionsView, initialRateId } from './capture/QuoteViews';
 import { isUnknownOutcome, purchaseInFlightText, sdxErrorView, type SdxErrorView } from './capture/sdx-errors';
 import { openLabelPdf } from './capture/label-pdf';
 import { useSellStatusLabel } from './capture/sell-status';
-import { safeHttpUrl, mailtoHref } from '@/lib/safe-href';
+import { safeHttpUrl } from '@/lib/safe-href';
 
 /** Lo que la ventana necesita de cualquiera de las dos superficies que la abren (§37.3a, SK1). */
 export interface CaptureTarget {

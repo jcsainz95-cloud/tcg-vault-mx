@@ -3,7 +3,7 @@ import { screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { BuylistKycForm } from './BuylistKycForm';
 import * as api from '@/lib/api';
-import { setStoredUser } from '@/lib/session';
+import { getStoredUser, setStoredUser } from '@/lib/session';
 
 beforeEach(() => {
   URL.createObjectURL = vi.fn(() => 'blob:mock-ine');
@@ -639,5 +639,35 @@ describe('BuylistKycForm — §CELULAR.6: sin campo de celular; 422 PHONE_REQUIR
     expect(await screen.findByText('La CLABE debe tener 18 dígitos.')).toBeInTheDocument();
     act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
     expect(create).toHaveBeenCalledTimes(2);
+    // Nada quedó guardado: la puerta se cierra de nuevo (true → false) y NO hay un tercer intento.
+    act(() => setStoredUser({ ...user, phoneRequired: true }));
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it('un segundo 422 PHONE_REQUIRED en el reintento NO reintenta otra vez (ni deja nada guardado)', async () => {
+    setStoredUser(user);
+    const make = await phoneRequired422();
+    const create = vi
+      .spyOn(api, 'createSellRequest')
+      .mockImplementationOnce(async () => {
+        throw make();
+      })
+      .mockImplementationOnce(async () => {
+        throw make();
+      })
+      .mockResolvedValue({ sellRequestId: 'sr-never' } as never);
+    const onCreated = vi.fn();
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={onCreated} />, 'es');
+    await fillAndSend();
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    // El 2.º 422 dejó la sesión en `phoneRequired: true`; la puerta se cierra otra vez: sin tercer intento.
+    await waitFor(() => expect(getStoredUser()?.phoneRequired).toBe(true));
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(onCreated).not.toHaveBeenCalled();
   });
 });

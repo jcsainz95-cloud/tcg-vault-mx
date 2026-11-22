@@ -7,7 +7,7 @@ import type { AdminBuylistDTO, AdminInboundShipmentDTO } from '@/types/contract'
 import { Button } from '@/components/ui/Button';
 import { openLabelPdf } from '../m4/capture/label-pdf';
 import { CopyButton } from './BuylistFlowParts';
-import { safeHttpUrl, mailtoHref } from '@/lib/safe-href';
+import { safeHttpUrl } from '@/lib/safe-href';
 
 type GuideSource = Pick<AdminBuylistDTO, 'inboundShipment' | 'shipmentCarrier' | 'shipmentTrackingNumber'>;
 export interface ManualGuide { carrier: string | null; trackingNumber: string }

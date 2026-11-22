@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { NotesPanel } from './NotesPanel';
 import { PhoneField, whatsappHref } from './PhoneField';
 import { normalizeMxPhone, formatMxPhone } from '@/lib/phone';
-import { safeHttpUrl, mailtoHref } from '@/lib/safe-href';
+import { safeHttpUrl } from '@/lib/safe-href';
 
 const SECTIONS = ['attention', 'notes', 'contact', 'addresses', 'orders', 'shipments', 'vault', 'sells', 'refunds', 'identity', 'activity'] as const;
 type SectionKey = (typeof SECTIONS)[number];

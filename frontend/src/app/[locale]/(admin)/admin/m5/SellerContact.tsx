@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { safeHttpUrl, mailtoHref } from '@/lib/safe-href';
+import { mailtoHref } from '@/lib/safe-href';
 
 /**
  * Normaliza un teléfono móvil mexicano al formato de `wa.me` (52 + 10 dígitos, sin «+», sin «1»).

@@ -1100,11 +1100,6 @@
         "why": "La necesitamos para imprimir la guía que te vamos a mandar.",
         "printed": "Esta dirección va impresa en la guía.",
         "missing": "Elige la dirección de donde salen tus cartas para continuar."
-      },
-      "phone": {
-        "label": "Celular (10 dígitos)",
-        "hint": "Solo lo usamos para la guía y la recolección.",
-        "invalid": "Escribe tu celular de 10 dígitos."
       }
     },
     "requestTitle": "Crear solicitud de venta",

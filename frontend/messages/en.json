@@ -1100,11 +1100,6 @@
         "why": "We need it to print the label we'll send you.",
         "printed": "This address is printed on the label.",
         "missing": "Choose the address your cards ship from to continue."
-      },
-      "phone": {
-        "label": "Mobile number (10 digits)",
-        "hint": "We only use it for the shipping label and the pickup.",
-        "invalid": "Enter your 10-digit mobile number."
       }
     },
     "requestTitle": "Create sell request",

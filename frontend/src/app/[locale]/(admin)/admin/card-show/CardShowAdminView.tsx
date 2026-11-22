@@ -25,7 +25,7 @@ import {
   type LeadListFilters,
   type PlayerListFilters,
 } from '@/lib/card-show-admin-api';
-import { safeHttpUrl, mailtoHref } from '@/lib/safe-href';
+import { mailtoHref } from '@/lib/safe-href';
 
 /**
  * Panel «Card Show» (super_admin) — API_CONTRACT §CARDSHOW.15, v1.96 M-84. Dos listados:

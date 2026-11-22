@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { t } from './utils/i18n';
-import { loginAs } from './utils/auth';
+import { loginAs, IS_REAL } from './utils/auth';
 
 /**
  * §FICHA-CLIENTE (diseño A): la ficha completa del cliente en M6. Corre igual contra el servidor falso y contra el
@@ -23,11 +23,13 @@ test.describe('admin · ficha del cliente (M6)', () => {
     await dialog.getByRole('button', { name: t('es', 'admin.m6.ficha.notes.add') }).click();
     await expect(dialog.getByText(note)).toBeVisible();
 
-    // Las secciones están y todo enlace a pedidos/ventas lleva el filtro del cliente (con el seed real el primer
-    // cliente puede no tener filas: no se exige que existan).
+    // Las secciones están y todo enlace a pedidos/ventas lleva el filtro del cliente. En modo mock el cliente trae
+    // pedidos y ventas: los enlaces DEBEN existir (con el seed real puede no haberlos y solo se recorren los que haya).
     await expect(dialog.locator('#ficha-orders')).toBeVisible();
     await expect(dialog.locator('#ficha-sells')).toBeVisible();
-    for (const a of await dialog.locator('#ficha-orders a[href*="/admin/m4"], #ficha-sells a[href*="/admin/m5"]').all()) {
+    const links = await dialog.locator('#ficha-orders a[href*="/admin/m4"], #ficha-sells a[href*="/admin/m5"]').all();
+    if (!IS_REAL) expect(links.length).toBeGreaterThan(0);
+    for (const a of links) {
       await expect(a).toHaveAttribute('href', /userId=/);
     }
     if (process.env.FICHA_SHOT) await page.screenshot({ path: process.env.FICHA_SHOT, fullPage: false });
