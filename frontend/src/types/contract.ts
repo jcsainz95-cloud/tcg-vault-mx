@@ -6736,6 +6736,8 @@ export interface SettingsDTO {
   shippingProvider?: 'off' | 'skydropx';
   shippingLabelPurchase?: ShippingLabelPurchase;
   skydropxOriginAddressTemplateId?: string | null;
+  /** Dirección de la TIENDA (destino de la guía de entrada de buylist). `null`/ausente = sin capturar. Claves: `ORIGIN_SNAPSHOT_KEYS` del backend. */
+  skydropxOriginSnapshot?: StoreAddressSnapshot | null;
   shippingPreferredCarriers?: string[];
   shippingDropoffPoints?: Record<string, { name: string; address: string }>;
   shippingConsignmentNote?: string;
@@ -6986,6 +6988,9 @@ export interface PremiumFloorSalePublish {
  * Su puerta propia, con acuse en pesos, es `PUT /admin/settings/iva-transfer`
  * (§M10-IVA.2, criterios **213** y **188**), y el servidor es la red: `IVA-8(b)`.
  */
+export type StoreAddressKey = 'name' | 'company' | 'street1' | 'postalCode' | 'areaLevel1' | 'areaLevel2' | 'areaLevel3' | 'phone' | 'email' | 'reference';
+export type StoreAddressSnapshot = Partial<Record<StoreAddressKey, string | null>>;
+
 export type EditableSettingsPatch = Partial<SettingsDTO>;
 
 /** Diales de tipo interruptor del contrato (`on | off`). */

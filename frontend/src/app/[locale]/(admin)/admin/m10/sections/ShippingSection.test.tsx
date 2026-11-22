@@ -133,3 +133,58 @@ describe('FS-67 (`DESIGN_SYSTEM §43.22.3`) · el ancla de «Ver el saldo»', ()
     expect(section).toHaveAttribute('id', 'envios-skydropx');
   });
 });
+
+/** Dirección de la tienda (`skydropx_origin_snapshot`): destino de la guía de entrada de buylist. Datos FICTICIOS. */
+describe('Dirección de la tienda (destino de la guía de entrada)', () => {
+  const fake = { name: 'Tienda Ejemplo', company: 'Ejemplo SA', street1: 'Calle Falsa 123', postalCode: '00000', areaLevel1: 'Estado Ejemplo', areaLevel2: 'Municipio Ejemplo', areaLevel3: 'Colonia Ejemplo', phone: '5500000000', email: 'tienda@example.invalid', reference: null };
+  const save = () => fireEvent.click(screen.getByRole('button', { name: 'Guardar envíos' }));
+
+  it('carga lo guardado en los campos', async () => {
+    vi.spyOn(api, 'getSettings').mockResolvedValue({ ...mockSettings, shippingProvider: 'skydropx', shippingLabelPurchase: 'super_admin_only', skydropxOriginSnapshot: fake });
+    renderWithProviders(<ShippingSection />, 'es');
+    const box = await screen.findByTestId('shipping-store-address');
+    expect(within(box).getByLabelText('Calle y número (obligatorio)')).toHaveValue('Calle Falsa 123');
+    expect(within(box).getByLabelText('Referencia (opcional)')).toHaveValue('');
+  });
+  it('guarda las diez claves (vacías como null) con el mismo botón', async () => {
+    const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
+    renderWithProviders(<ShippingSection />, 'es');
+    const box = await screen.findByTestId('shipping-store-address');
+    const set = (l: string, v: string) => fireEvent.change(within(box).getByLabelText(l), { target: { value: v } });
+    set('Nombre de quien recibe (obligatorio)', fake.name);
+    set('Calle y número (obligatorio)', fake.street1);
+    set('Código postal (obligatorio)', fake.postalCode);
+    set('Estado (obligatorio)', fake.areaLevel1);
+    set('Ciudad o municipio (obligatorio)', fake.areaLevel2);
+    set('Colonia (obligatorio)', fake.areaLevel3);
+    set('Teléfono (obligatorio)', fake.phone);
+    set('Correo (obligatorio)', fake.email);
+    save();
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect(put.mock.calls[0][0].skydropxOriginSnapshot).toEqual({ ...fake, company: null });
+  });
+  it('con algún dato y obligatorias vacías: error bajo cada una y CERO PUT', async () => {
+    const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
+    renderWithProviders(<ShippingSection />, 'es');
+    const box = await screen.findByTestId('shipping-store-address');
+    fireEvent.change(within(box).getByLabelText('Empresa'), { target: { value: 'Ejemplo SA' } });
+    save();
+    expect((await within(box).findAllByText('Falta este dato.')).length).toBe(8);
+    expect(put).not.toHaveBeenCalled();
+  });
+  it('todo vacío guarda null (sin dirección) y no bloquea el guardado', async () => {
+    const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
+    renderWithProviders(<ShippingSection />, 'es');
+    await screen.findByTestId('shipping-store-address');
+    save();
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect(put.mock.calls[0][0].skydropxOriginSnapshot).toBeNull();
+  });
+  it('400 del validador del servidor ⇒ lo muestra', async () => {
+    vi.spyOn(api, 'updateSettings').mockRejectedValue(new ApiClientError(400, { code: 'VALIDATION_ERROR', message: "unknown key 'zip'" }));
+    renderWithProviders(<ShippingSection />, 'es');
+    await screen.findByTestId('shipping-store-address');
+    save();
+    expect(await screen.findByRole('alert')).toHaveTextContent("unknown key 'zip'");
+  });
+});
