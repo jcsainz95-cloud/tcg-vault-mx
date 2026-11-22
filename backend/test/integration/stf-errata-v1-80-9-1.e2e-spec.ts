@@ -102,11 +102,18 @@ describe('E2E — errata v1.80.9.1: el almacén degradado no se pinta como «sin
     expect(list.body.lockState).toBe('unavailable');
     expect(list.body.data.length).toBeGreaterThanOrEqual(1);
     for (const u of list.body.data) expect(u.lockedUntil).toBeNull();
-    for (const tok of [adminTok, opTok]) {
-      const d = await h.api('GET', `/admin/users/${ana.id}`, { token: tok });
-      expect(d.status).toBe(200);
-      expect([d.body.lockState, d.body.lockedUntil]).toEqual(['unavailable', null]);
-    }
+    const d = await h.api('GET', `/admin/users/${ana.id}`, { token: adminTok });
+    expect(d.status).toBe(200);
+    expect([d.body.lockState, d.body.lockedUntil]).toEqual(['unavailable', null]);
+    // §FICHA-CLIENTE.13: el operador no ve staff (404); su cobertura de candado va sobre un cliente.
+    expect((await h.api('GET', `/admin/users/${ana.id}`, { token: opTok })).status).toBe(404);
+    const cust = await h.prisma.user.create({
+      data: { email: `stf32c_${randomUUID().slice(0, 8)}@e2e.local`, name: 'C', role: Role.customer, passwordHash: await argon2.hash('Algo-123456'), emailVerified: true },
+    });
+    for (let i = 0; i < 6; i++) await login(cust.email!, BAD);
+    const dc = await h.api('GET', `/admin/users/${cust.id}`, { token: opTok });
+    expect(dc.status).toBe(200);
+    expect([dc.body.lockState, dc.body.lockedUntil]).toEqual(['unavailable', null]);
     // Fuera del modo degradado pero con Redis aún sin contestar: sigue unavailable, y la lectura NO vuelve a degradar.
     await sleep(FALLBACK_MS + 50);
     expect(store.degraded).toBe(false);
@@ -118,13 +125,19 @@ describe('E2E — errata v1.80.9.1: el almacén degradado no se pinta como «sin
     redis.mode = 'ok';
     expect((await login(ana.username, BAD)).status).toBe(429);
     const t0 = Date.now();
-    for (const tok of [adminTok, opTok]) {
-      const d = await h.api('GET', `/admin/users/${ana.id}`, { token: tok });
-      expect(d.status).toBe(200);
-      expect(d.body.lockState).toBe('ok');
-      const until = Date.parse(d.body.lockedUntil);
+    expect((await login(cust.email!, BAD)).status).toBe(429); // repone en Redis lo contado en memoria del cliente
+    {
+      const d2 = await h.api('GET', `/admin/users/${ana.id}`, { token: adminTok });
+      expect(d2.status).toBe(200);
+      expect(d2.body.lockState).toBe('ok');
+      const until = Date.parse(d2.body.lockedUntil);
       expect(until).toBeGreaterThanOrEqual(t0 + 55_000);
       expect(until).toBeLessThanOrEqual(Date.now() + 60_000);
+      expect((await h.api('GET', `/admin/users/${ana.id}`, { token: opTok })).status).toBe(404);
+      const dc2 = await h.api('GET', `/admin/users/${cust.id}`, { token: opTok });
+      expect(dc2.status).toBe(200);
+      expect(dc2.body.lockState).toBe('ok');
+      expect(Date.parse(dc2.body.lockedUntil)).toBeGreaterThanOrEqual(t0 + 55_000);
     }
     const ok = await h.api('GET', `/admin/users?q=${ana.username}`, { token: adminTok });
     expect(ok.body.lockState).toBe('ok');

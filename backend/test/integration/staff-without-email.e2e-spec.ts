@@ -550,9 +550,19 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
     expect(Date.parse(detail.body.lockedUntil)).toBeGreaterThanOrEqual(t0 + 55_000);
     expect(detail.body.username).toBe(s.username);
     expect(detail.body.email).toBeNull();
+    // §FICHA-CLIENTE.13: el operador NO ve cuentas de staff (404); el candado se le muestra sobre un cliente.
     const opDetail = await h.api('GET', `/admin/users/${s.id}`, { token: opTok });
-    expect(opDetail.status).toBe(200);
-    expect(typeof opDetail.body.lockedUntil).toBe('string');
+    expect(opDetail.status).toBe(404);
+    const cust = await h.prisma.user.create({
+      data: { email: `stf24c_${randomUUID().slice(0, 8)}@e2e.local`, name: 'C', role: Role.customer, passwordHash: await argon2.hash('Algo-123456'), emailVerified: true },
+    });
+    for (let i = 0; i < 5; i++) expect((await login(cust.email!, BAD)).status).toBe(401);
+    const tc = Date.now();
+    const opCust = await h.api('GET', `/admin/users/${cust.id}`, { token: opTok });
+    expect(opCust.status).toBe(200);
+    expect(opCust.body.lockState).toBe('ok');
+    expect(typeof opCust.body.lockedUntil).toBe('string');
+    expect(Date.parse(opCust.body.lockedUntil)).toBeGreaterThanOrEqual(tc + 55_000 - 5_000);
 
     expect((await h.api('POST', `/admin/users/${s.id}/reset-password`, { token: adminTok })).status).toBe(200);
     const after = await h.api('GET', `/admin/users?q=${s.username}`, { token: adminTok });
