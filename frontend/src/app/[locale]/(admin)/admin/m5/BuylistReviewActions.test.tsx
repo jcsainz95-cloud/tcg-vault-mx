@@ -51,7 +51,19 @@ describe('ReviewItemActions · cuatro acciones y baja pendiente (F2c)', () => {
     expect(screen.getByTestId('f2-net-if-sri-f2-3').textContent).toContain(
       (net / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }),
     );
-    expect(screen.queryByRole('button', { name: F2.actions.approve })).not.toBeInTheDocument();
+    // Anexo §3.2: aprobar o rechazar con la baja pendiente la RETIRA; la fila lo dice y ofrece ambas acciones.
+    expect(screen.getByTestId('f2-cancels-sri-f2-3')).toHaveTextContent('se cancela');
+    expect(screen.getByRole('button', { name: F2.actions.approveCancels })).toBeInTheDocument();
+    expect(screen.getByTestId('f2-reject-sri-f2-3')).toHaveTextContent(F2.actions.rejectCancels);
+    expect(screen.queryByRole('button', { name: F2.actions.reduce })).not.toBeInTheDocument();
+  });
+
+  it('aprobar con baja pendiente llama onApprove (el servidor cancela la baja)', () => {
+    const item = reqOf('sr-3020').items.find((i) => i.id === 'sri-f2-3')!;
+    const onApprove = vi.fn();
+    renderWithProviders(<ReviewItemActions item={item} panel={null} onPanel={() => {}} onApprove={onApprove} approving={false} />, 'es');
+    fireEvent.click(screen.getByTestId('f2-approve-sri-f2-3'));
+    expect(onApprove).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -70,7 +82,7 @@ describe('RevisePricePanel · neto en vivo del servidor (F2c)', () => {
       itemId: 'sri-f2-2',
       offeredPriceCents: 620_000,
       revisedPriceCents: 570_000,
-      payout: { grossCents: 2_550_000, shippingFeeCents: 18_000, netCents: 2_532_000 },
+      payout: { grossCents: 2_550_000, shippingFeeCents: 18_000, netCents: 2_532_000, isFinal: true },
     });
     const send = vi.spyOn(flujo, 'reviseBuylistItemPrice').mockResolvedValue(reqOf('sr-3020'));
     const { onDone } = setup();
@@ -86,6 +98,21 @@ describe('RevisePricePanel · neto en vivo del servidor (F2c)', () => {
       expect(send).toHaveBeenCalledWith('sri-f2-2', { revisedPriceCents: 570_000, reasonCode: 'condition_mismatch' }),
     );
     await waitFor(() => expect(onDone).toHaveBeenCalled());
+  });
+
+  it('preview con isFinal=false ⇒ el neto se rotula «estimado» (solo se pinta el monto del servidor)', async () => {
+    vi.spyOn(flujo, 'previewBuylistRevision').mockResolvedValue({
+      itemId: 'sri-f2-2',
+      offeredPriceCents: 620_000,
+      revisedPriceCents: 570_000,
+      payout: { grossCents: 2_550_000, shippingFeeCents: 18_000, netCents: 2_532_000, isFinal: false },
+    });
+    setup();
+    type('5,700.00');
+    const val = await screen.findByTestId('f2-revise-net-value-sri-f2-2');
+    expect(val.textContent).toBe('MX$25,320.00');
+    expect(screen.getByTestId('f2-revise-net-sri-f2-2')).toHaveTextContent(F2.revise.netLabelEstimated);
+    expect(screen.getByTestId('f2-revise-net-sri-f2-2')).toHaveTextContent(F2.revise.netNoteEstimated);
   });
 
   it('un precio igual o mayor al pactado NO llama al preview ni habilita el envío', async () => {
@@ -109,7 +136,7 @@ describe('RevisePricePanel · neto en vivo del servidor (F2c)', () => {
       itemId: 'sri-f2-2',
       offeredPriceCents: 620_000,
       revisedPriceCents: 570_000,
-      payout: { grossCents: 1, shippingFeeCents: 0, netCents: 1 },
+      payout: { grossCents: 1, shippingFeeCents: 0, netCents: 1, isFinal: true },
     });
     vi.spyOn(flujo, 'reviseBuylistItemPrice').mockRejectedValue(new ApiClientError(status, { code, message: 'srv' }));
     setup();
@@ -153,13 +180,24 @@ describe('ConvertAllButton · diálogo con ubicación y lista (F2a)', () => {
     vi.spyOn(flujo, 'convertAllBuylist').mockResolvedValue({
       converted: [{ itemId: 'sri-f2-5', inventoryItemId: 'i1' }],
       skipped: [],
-      failed: [{ itemId: 'sri-f2-6', code: 'X' }],
+      failed: [{ itemId: 'sri-f2-6', code: 'LOCATION_NOT_AVAILABLE' }],
     });
     renderWithProviders(<ConvertAllButton req={req()} onDone={() => {}} />, 'es');
     fireEvent.click(screen.getByRole('button', { name: 'Convertir todas (3)' }));
     fireEvent.click(await screen.findByTestId('f2-convert-all-confirm'));
     expect(await screen.findByText(/Dadas de alta: 1\. Omitidas: 0\. Con error: 1\./)).toBeInTheDocument();
     expect(screen.getByTestId('f2-convert-all-confirm')).toBeEnabled();
+    // I-2: la UI dice QUÉ carta falló y POR QUÉ (código del servidor traducido).
+    const failed = screen.getByTestId('f2-convert-all-failed-sri-f2-6');
+    expect(failed).toHaveTextContent(F2.convertAll.failCodes.LOCATION_NOT_AVAILABLE);
+    expect(failed.textContent).toMatch(/\S+ · .+/);
+  });
+
+  it('el mock real de convert-all con ubicación inexistente responde 200 con failed[] por línea (no 422)', async () => {
+    const r = await api.convertAllBuylist('sr-3021', 'no-existe');
+    expect(r.converted).toHaveLength(0);
+    expect(r.failed.length).toBeGreaterThan(0);
+    expect(new Set(r.failed.map((f) => f.code))).toEqual(new Set(['LOCATION_NOT_AVAILABLE']));
   });
 
   it('422 LOCATION_NOT_AVAILABLE ⇒ pide otra ubicación; sin cartas aprobadas no se pinta', async () => {

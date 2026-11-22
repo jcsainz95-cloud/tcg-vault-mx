@@ -5928,6 +5928,7 @@ export async function decideBuylistItem(
       throw new ApiClientError(422, { code: 'REQUEST_NOT_RECEIVED', message: 'Request not received yet' });
     }
     const rejectedAt = new Date().toISOString();
+    mockCancelPendingRevision(item); // anexo §3.2: rechazar con baja pendiente la RETIRA, sin 409
     item.rejectionCode = input.reasonCode;
     item.itemStatus = 'rechazada';
     item.approvedPriceCents = undefined; // invariante: fuera del total aprobado
@@ -5942,9 +5943,17 @@ export async function decideBuylistItem(
         : { method: null, chosenAt: null, doneAt: null, ...deadlines };
     return delay({ ...item });
   }
+  const hadPendingBaja = item.revision?.state === 'pending';
+  if (input.decision === 'approve') mockCancelPendingRevision(item); // aprobar = retirar la baja y pagar lo pactado
   item.itemStatus = next[input.decision];
-  item.approvedPriceCents = input.approvedPriceCents ?? item.quotedPriceCents ?? 0;
+  item.approvedPriceCents =
+    input.approvedPriceCents ?? (hadPendingBaja ? (item.offeredPriceCents ?? item.quotedPriceCents ?? 0) : (item.quotedPriceCents ?? 0));
   return delay({ ...item });
+}
+
+/** Servidor FALSO (anexo §3.2): la decisión del dueño sobre una carta con baja `pending` la deja `cancelled`. */
+function mockCancelPendingRevision(item: SellItemDTO): void {
+  if (item.revision?.state === 'pending') item.revision = { ...item.revision, state: 'cancelled', respondedAt: new Date().toISOString() };
 }
 
 /**
@@ -5964,7 +5973,11 @@ export async function rejectBuylistItems(
   const req = fx.mockAdminBuylist.find((r) => r.id === requestId);
   if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
   const reason = body.reason?.trim() ?? '';
-  if (reason.length < 3 || reason.length > 500) {
+  // §BUYLIST-FLUJO (anexo §3.2): `reasonCode` OBLIGATORIO; `other` exige `reason` 3–500.
+  if (!body.reasonCode) {
+    throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'reasonCode required', details: { field: 'reasonCode' } });
+  }
+  if (body.reasonCode === 'other' && (reason.length < 3 || reason.length > 500)) {
     throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'reason 3-500', details: { field: 'reason' } });
   }
   if (new Set(body.itemIds).size !== body.itemIds.length) {
@@ -5987,9 +6000,12 @@ export async function rejectBuylistItems(
   const rejectedAt = new Date().toISOString();
   const deadlines = mockRejectDeadlines(rejectedAt);
   for (const it of items) {
+    mockCancelPendingRevision(it!);
+    it!.rejectionCode = body.reasonCode;
+    it!.pickup = body.reasonCode === 'not_received' ? null : { method: null, chosenAt: null, doneAt: null, ...deadlines };
     it!.itemStatus = 'rechazada';
     it!.approvedPriceCents = undefined;
-    it!.rejectionReason = reason;
+    it!.rejectionReason = reason || null;
     it!.rejectedAt = rejectedAt;
     it!.returnDeadlineAt = deadlines.returnDeadlineAt;
     it!.abandonDeadlineAt = deadlines.abandonDeadlineAt;
@@ -8611,11 +8627,18 @@ export async function convertAllBuylist(requestId: string, locationId?: string) 
   if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.convertAllBuylist(requestId, locationId);
   return flujoMock.mockConvertAllBuylist(requestId, locationId);
 }
-export async function respondBuylistRevision(requestId: string, itemId: string, decision: 'accept' | 'decline') {
-  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.respondBuylistRevision(requestId, itemId, decision);
-  return flujoMock.mockRespondBuylistRevision(requestId, itemId, decision);
+export async function respondBuylistRevision(
+  requestId: string,
+  itemId: string,
+  decision: 'accept' | 'decline',
+  expectedRevisedPriceCents?: number,
+): Promise<SellRequestDetailDTO> {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.respondBuylistRevision(requestId, itemId, decision, expectedRevisedPriceCents);
+  await flujoMock.mockRespondBuylistRevision(requestId, itemId, decision, expectedRevisedPriceCents);
+  return getSellRequest(requestId); // la solicitud completa, como el servidor real
 }
-export async function chooseBuylistPickup(requestId: string, itemId: string, method: BuylistPickupMethod) {
+export async function chooseBuylistPickup(requestId: string, itemId: string, method: BuylistPickupMethod): Promise<SellRequestDetailDTO> {
   if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.chooseBuylistPickup(requestId, itemId, method);
-  return flujoMock.mockChooseBuylistPickup(requestId, itemId, method);
+  await flujoMock.mockChooseBuylistPickup(requestId, itemId, method);
+  return getSellRequest(requestId);
 }

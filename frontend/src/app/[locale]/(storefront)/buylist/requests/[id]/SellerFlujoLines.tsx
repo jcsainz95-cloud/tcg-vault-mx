@@ -2,16 +2,17 @@
 
 /**
  * §BUYLIST-FLUJO F2 (diseño A) — portal del vendedor: responder una BAJA de precio con Aceptar / Rechazar grandes y elegir
- * cómo recoger una carta no aceptada. El monto NO viaja al servidor (SEC-A1): se acepta la propuesta guardada; el front
- * muestra lo que manda el servidor y no suma nada. Anexo §3 y §5 de `docs/API_CONTRACT_BUYLIST_FLUJO.md`.
+ * cómo recoger una carta no aceptada. `accept` manda `expectedRevisedPriceCents` = el monto que el vendedor VIO (409
+ * `REVISION_CHANGED` si cambió); el front muestra lo que manda el servidor y no suma nada. Anexo §3 y §5 de `docs/API_CONTRACT_BUYLIST_FLUJO.md`.
  */
+import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { chooseBuylistPickup, respondBuylistRevision } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { formatDate, formatMoneyCents } from '@/lib/format';
 import type { AppLocale } from '@/i18n/routing';
-import type { BuylistPickupMethod, SellItemDTO } from '@/types/contract';
+import type { BuylistPickupMethod, SellItemDTO, SellRequestDetailDTO } from '@/types/contract';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { CardImage } from '@/components/ui/CardImage';
@@ -19,19 +20,42 @@ import { cn } from '@/lib/cn';
 
 const DAY_MS = 86_400_000;
 
-function RevisionCard({ sellRequestId, line, onChanged }: { sellRequestId: string; line: SellItemDTO; onChanged: () => void }) {
+function RevisionCard({
+  sellRequestId,
+  line,
+  onChanged,
+  onConflict,
+}: {
+  sellRequestId: string;
+  line: SellItemDTO;
+  onChanged: (fresh?: SellRequestDetailDTO) => void;
+  /** 409 `REVISION_CHANGED` / `REVISION_ALREADY_RESOLVED`: el padre recarga y conserva el aviso aunque la tarjeta desaparezca. */
+  onConflict: (itemId: string, kind: 'changed' | 'alreadyResolved', currentCents?: number) => void;
+}) {
   const t = useTranslations('sellerFlujo');
   const locale = useLocale() as AppLocale;
   const rev = line.revision!;
+  const [confirmDecline, setConfirmDecline] = useState(false);
   const respond = useMutation({
-    mutationFn: (decision: 'accept' | 'decline') => respondBuylistRevision(sellRequestId, line.id, decision),
-    onSuccess: onChanged,
+    mutationFn: (decision: 'accept' | 'decline') =>
+      // `accept` manda el monto que ESTA pantalla mostró (CAS del servidor); `decline` no lleva monto.
+      respondBuylistRevision(sellRequestId, line.id, decision, decision === 'accept' ? (rev.proposedCents ?? undefined) : undefined),
+    onSuccess: (fresh) => onChanged(fresh),
+    onError: (e) => {
+      if (e instanceof ApiClientError && e.status === 409) {
+        setConfirmDecline(false);
+        if (e.code === 'REVISION_CHANGED') {
+          const cur = (e.details as { currentRevisedPriceCents?: unknown } | undefined)?.currentRevisedPriceCents;
+          onConflict(line.id, 'changed', typeof cur === 'number' ? cur : undefined);
+        } else onConflict(line.id, 'alreadyResolved');
+      }
+    },
   });
   const err = respond.error;
   const errText =
     err instanceof ApiClientError
       ? err.status === 409
-        ? t('revision.errors.resolved')
+        ? null // lo explica el aviso del padre (sobrevive a la recarga)
         : err.status === 404
           ? t('revision.errors.notFound')
           : t('revision.errors.generic')
@@ -71,14 +95,39 @@ function RevisionCard({ sellRequestId, line, onChanged }: { sellRequestId: strin
         <Button
           size="lg"
           variant="secondary"
-          loading={respond.isPending && respond.variables === 'decline'}
           disabled={respond.isPending}
-          onClick={() => respond.mutate('decline')}
+          aria-expanded={confirmDecline}
+          onClick={() => setConfirmDecline(true)}
           data-testid={`seller-revision-decline-${line.id}`}
         >
           {t('revision.decline')}
         </Button>
       </div>
+      {confirmDecline && (
+        <div
+          role="alertdialog"
+          aria-label={t('revision.declineConfirmTitle', { amount: proposed })}
+          className="mt-3 flex flex-col gap-3 border border-text p-4"
+          data-testid={`seller-revision-decline-confirm-${line.id}`}
+        >
+          <p className="font-medium">{t('revision.declineConfirmTitle', { amount: proposed })}</p>
+          <p className="text-sm text-muted">{t('revision.declineConfirmBody', { card: line.card.name })}</p>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              variant="destructive"
+              loading={respond.isPending && respond.variables === 'decline'}
+              disabled={respond.isPending}
+              onClick={() => respond.mutate('decline')}
+              data-testid={`seller-revision-decline-yes-${line.id}`}
+            >
+              {t('revision.declineConfirmYes')}
+            </Button>
+            <Button variant="secondary" disabled={respond.isPending} onClick={() => setConfirmDecline(false)} data-testid={`seller-revision-decline-no-${line.id}`}>
+              {t('revision.declineConfirmNo')}
+            </Button>
+          </div>
+        </div>
+      )}
       {errText && (
         <Banner variant="danger" role="alert" className="mt-3">
           {errText}
@@ -88,13 +137,13 @@ function RevisionCard({ sellRequestId, line, onChanged }: { sellRequestId: strin
   );
 }
 
-function PickupChoice({ sellRequestId, line, onChanged }: { sellRequestId: string; line: SellItemDTO; onChanged: () => void }) {
+function PickupChoice({ sellRequestId, line, onChanged }: { sellRequestId: string; line: SellItemDTO; onChanged: (fresh?: SellRequestDetailDTO) => void }) {
   const t = useTranslations('sellerFlujo.pickup');
   const locale = useLocale() as AppLocale;
   const pickup = line.pickup!;
   const choose = useMutation({
     mutationFn: (method: BuylistPickupMethod) => chooseBuylistPickup(sellRequestId, line.id, method),
-    onSuccess: onChanged,
+    onSuccess: (fresh) => onChanged(fresh),
   });
   const done = !!pickup.doneAt;
   const options: { method: BuylistPickupMethod; label: string; hint: string }[] = [
@@ -167,20 +216,39 @@ export function SellerFlujoLines({ sellRequestId, lines }: { sellRequestId: stri
   const t = useTranslations('sellerFlujo');
   const locale = useLocale() as AppLocale;
   const qc = useQueryClient();
-  const changed = () => {
+  const [notice, setNotice] = useState<{ itemId: string; text: string } | null>(null);
+  const changed = (fresh?: SellRequestDetailDTO) => {
+    if (fresh) qc.setQueryData(['sell-request', sellRequestId], fresh); // la solicitud completa que devolvió el servidor
     void qc.invalidateQueries({ queryKey: ['sell-request', sellRequestId] });
     void qc.invalidateQueries({ queryKey: ['sell-requests'] });
+  };
+  const conflict = (itemId: string, kind: 'changed' | 'alreadyResolved', currentCents?: number) => {
+    setNotice({
+      itemId,
+      text:
+        kind === 'changed'
+          ? t('revision.errors.changed', { amount: currentCents != null ? formatMoneyCents(currentCents, locale) : '—' })
+          : t('revision.errors.alreadyResolved'),
+    });
+    changed(); // recarga la tarjeta: muestra la propuesta nueva, o «retirada»/«aceptada»
   };
   const pending = lines.filter((l) => l.revision?.state === 'pending');
   const resolved = lines.filter((l) => l.revision && l.revision.state !== 'pending');
   // «No llegó» y las líneas sin `pickup` no tienen nada que recoger (el servidor manda `pickup: null`).
   const pickups = lines.filter((l) => l.itemStatus === 'rechazada' && l.pickup != null);
-  if (pending.length + resolved.length + pickups.length === 0) return null;
+  if (pending.length + resolved.length + pickups.length === 0 && !notice) return null;
   return (
     <section className="gutter mt-10 flex flex-col gap-4" data-testid="seller-flujo">
       <h2 className="eyebrow">{t('eyebrow', { id: sellRequestId })}</h2>
+      {notice && (
+        <div data-testid="seller-revision-notice">
+          <Banner variant="warning" role="status">
+            {notice.text}
+          </Banner>
+        </div>
+      )}
       {pending.map((l) => (
-        <RevisionCard key={l.id} sellRequestId={sellRequestId} line={l} onChanged={changed} />
+        <RevisionCard key={l.id} sellRequestId={sellRequestId} line={l} onChanged={changed} onConflict={conflict} />
       ))}
       {resolved.map((l) => {
         const rev = l.revision!;

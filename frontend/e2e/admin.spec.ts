@@ -444,6 +444,23 @@ test.describe('admin · M5 buylist (cherry-pick)', () => {
     await expect(confirm).toBeEnabled();
   });
 
+  test('F2 cierre: el rechazo múltiple pide la causa y avisa que se cancelará la propuesta de baja', async ({ page }) => {
+    needsSeed('ninguna solicitud en `verificacion` con una baja pendiente (mocks: sr-3020)');
+    await loginAs(page, 'admin');
+    await page.goto('/es/admin/m5');
+    await openM5Stage(page, t('es', 'admin.m5.tabs.verificando'));
+    // La fila con baja pendiente ofrece aprobar/rechazar y dice que la baja se retira (anexo §3.2).
+    await expect(page.locator('[data-testid^="f2-cancels-"]').first()).toBeVisible();
+    // sr-3020 es la solicitud de los mocks con una baja pendiente: «Rechazar todas» la incluye y avisa de la cancelación.
+    await page.getByTestId('m5-bulk-bar-sr-3020').getByRole('button', { name: new RegExp(`^${t('es', 'admin.m5.bulkReject.allCta').split(' (')[0]}`) }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByTestId('m5-bulk-cancels-notice')).toBeVisible();
+    const confirm = dialog.getByTestId('m5-bulk-confirm');
+    await expect(confirm).toBeDisabled(); // sin causa
+    await dialog.getByTestId('m5-bulk-cause-condition_mismatch').check({ force: true });
+    await expect(confirm).toBeEnabled();
+  });
+
   test('@real v1.18: la pestaña Piezas rechazadas existe y NO ofrece convertir a inventario', async ({
     page,
   }) => {

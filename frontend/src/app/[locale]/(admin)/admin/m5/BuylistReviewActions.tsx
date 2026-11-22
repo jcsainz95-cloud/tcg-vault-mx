@@ -109,6 +109,24 @@ export function ReviewItemActions({
             {t('waiting.netIf', { net: formatMoneyCents(rev.netIfAcceptedCents, locale) })}
           </span>
         )}
+        {/* Anexo §3.2: aprobar o rechazar con la baja pendiente la RETIRA (sin 409); la fila lo dice antes de actuar. */}
+        <span className="text-xs text-muted" data-testid={`f2-cancels-${item.id}`}>
+          {t('waiting.cancelsNote')}
+        </span>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="primary" loading={approving} onClick={onApprove} data-testid={`f2-approve-${item.id}`}>
+            {t('actions.approveCancels')}
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            aria-expanded={open === 'reject'}
+            onClick={() => toggle('reject')}
+            data-testid={`f2-reject-${item.id}`}
+          >
+            {t('actions.rejectCancels')} ▾
+          </Button>
+        </div>
       </div>
     );
   }
@@ -243,13 +261,13 @@ export function RevisePricePanel({
           data-testid={`f2-revise-reason-${item.id}`}
         />
         <div aria-live="polite" data-testid={`f2-revise-net-${item.id}`}>
-          <p className="eyebrow">{t('netLabel')}</p>
+          <p className="eyebrow">{shown?.isFinal === false ? t('netLabelEstimated') : t('netLabel')}</p>
           {shown ? (
             <>
               <p className="tabular font-serif text-3xl leading-tight" data-testid={`f2-revise-net-value-${item.id}`}>
                 {formatMoneyCents(shown.netCents, locale)}
               </p>
-              <p className="text-xs text-muted">{t('netNote')}</p>
+              <p className="text-xs text-muted">{shown.isFinal === false ? t('netNoteEstimated') : t('netNote')}</p>
             </>
           ) : preview.isFetching ? (
             <p className="text-sm text-muted">{t('netLoading')}</p>
@@ -510,6 +528,7 @@ export function ConvertAllButton({
   const [locationId, setLocationId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<{ converted: number; skipped: number; failed: number } | null>(null);
+  const [failedLines, setFailedLines] = useState<{ itemId: string; code: string }[]>([]);
   const eligible = req.items.filter((it) => it.itemStatus === 'aprobada');
   const locations = useQuery({ queryKey: ['admin-locations', 'convert-all'], queryFn: getLocations, enabled: open });
 
@@ -518,6 +537,7 @@ export function ConvertAllButton({
     onSuccess: (r) => {
       setError(null);
       const sum = { converted: r.converted.length, skipped: r.skipped.length, failed: r.failed.length };
+      setFailedLines(r.failed);
       if (sum.failed === 0) {
         setOpen(false);
         setSummary(null);
@@ -537,7 +557,8 @@ export function ConvertAllButton({
     },
   });
 
-  if (eligible.length === 0) return null;
+  if (eligible.length === 0 && !summary) return null;
+  const failReason = (code: string) => (t.has(`failCodes.${code}`) ? t(`failCodes.${code}`) : t('failCodes.UNKNOWN', { code }));
   const options = [
     { value: '', label: t('noLocation') },
     ...(locations.data ?? []).filter((l) => l.isActive).map((l) => ({ value: l.id, label: l.label })),
@@ -595,6 +616,17 @@ export function ConvertAllButton({
           {summary && (
             <Banner variant="warning" role="status">
               {t('partial', summary)} {t('retry')}
+              <ul className="mt-2 list-disc pl-5" data-testid="f2-convert-all-failed">
+                {failedLines.map((f) => {
+                  const it = req.items.find((x) => x.id === f.itemId);
+                  return (
+                    <li key={f.itemId} data-testid={`f2-convert-all-failed-${f.itemId}`}>
+                      <span lang="en">{it?.card.name ?? f.itemId}</span>
+                      {it ? ` · ${it.card.setName} ${it.card.number}` : ''}: {failReason(f.code)}
+                    </li>
+                  );
+                })}
+              </ul>
             </Banner>
           )}
           {error && (

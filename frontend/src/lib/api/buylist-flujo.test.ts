@@ -42,8 +42,11 @@ describe('buylist-flujo (rama mock) · bajar precio', () => {
 });
 
 describe('buylist-flujo (rama mock) · alta y recogida', () => {
-  it('convert-all: convierte las aprobadas, omite el resto, 422 con ubicación inexistente y el reintento es seguro', async () => {
-    await expect(convertAllBuylist('sr-3021', 'no-existe')).rejects.toMatchObject({ status: 422, code: 'LOCATION_NOT_AVAILABLE' });
+  it('convert-all: convierte las aprobadas, omite el resto, ubicación inexistente ⇒ 200 con failed[] por línea y el reintento es seguro', async () => {
+    const bad = await convertAllBuylist('sr-3021', 'no-existe');
+    expect(bad.converted).toHaveLength(0);
+    expect(bad.failed).toHaveLength(3);
+    expect(bad.failed.every((f) => f.code === 'LOCATION_NOT_AVAILABLE')).toBe(true);
     const first = await convertAllBuylist('sr-3021', 'loc-1');
     expect(first.converted).toHaveLength(3);
     expect(first.skipped).toEqual([{ itemId: 'sri-f2-8', code: 'ITEM_NOT_APPROVED' }]);
@@ -64,13 +67,42 @@ describe('buylist-flujo (rama mock) · alta y recogida', () => {
   });
 });
 
+describe('buylist-flujo (rama mock) · baja cancelada (anexo §3.2)', () => {
+  it('aprobar o rechazar una carta con baja pendiente la deja `cancelled`; la respuesta del vendedor ⇒ 409 REVISION_ALREADY_RESOLVED', async () => {
+    const { mockAdminBuylist } = await import('../mock/fixtures');
+    const { decideBuylistItem, rejectBuylistItems } = await import('../api');
+    const req = mockAdminBuylist.find((r) => r.id === 'sr-3020')!;
+    const pend = req.items.filter((i) => i.revision?.state === 'pending');
+    expect(pend.length).toBeGreaterThan(0);
+    const a = await decideBuylistItem(pend[0].id, { decision: 'approve' });
+    expect(a.itemStatus).toBe('aprobada');
+    expect(a.revision?.state).toBe('cancelled');
+    expect(a.approvedPriceCents).toBe(pend[0].offeredPriceCents);
+    // reject-items exige reasonCode (400 sin él) y cancela las bajas pendientes de las demás.
+    await expect(rejectBuylistItems('sr-3020', { itemIds: ['x'], reason: 'abc' } as never)).rejects.toMatchObject({
+      status: 400,
+      details: { field: 'reasonCode' },
+    });
+  });
+});
+
 describe('buylist-flujo (rama mock) · portal del vendedor', () => {
   it('revision-response: aceptar ⇒ aprobada al nuevo precio; repetir lo mismo ⇒ 200; lo contrario ⇒ 409 REVISION_ALREADY_RESOLVED', async () => {
-    const ok = await respondBuylistRevision('sr-3020', 'sri-f2c-1', 'accept');
-    expect(ok.itemStatus).toBe('aprobada');
-    expect(ok.approvedPriceCents).toBe(110_000);
-    const again = await respondBuylistRevision('sr-3020', 'sri-f2c-1', 'accept');
-    expect(again.itemStatus).toBe('aprobada');
+    // Sin monto esperado ⇒ 400; con un monto distinto del vigente ⇒ 409 REVISION_CHANGED (sin efectos).
+    await expect(respondBuylistRevision('sr-3020', 'sri-f2c-1', 'accept')).rejects.toMatchObject({ status: 400 });
+    await expect(respondBuylistRevision('sr-3020', 'sri-f2c-1', 'accept', 120_000)).rejects.toMatchObject({
+      status: 409,
+      code: 'REVISION_CHANGED',
+      details: { expectedRevisedPriceCents: 120_000, currentRevisedPriceCents: 110_000 },
+    });
+    const ok = await respondBuylistRevision('sr-3020', 'sri-f2c-1', 'accept', 110_000);
+    // Devuelve la SOLICITUD completa.
+    expect(ok.sellRequestId).toBe('sr-3020');
+    const line = ok.items.find((i) => i.id === 'sri-f2c-1')!;
+    expect(line.itemStatus).toBe('aprobada');
+    expect(line.approvedPriceCents).toBe(110_000);
+    const again = await respondBuylistRevision('sr-3020', 'sri-f2c-1', 'accept', 110_000);
+    expect(again.items.find((i) => i.id === 'sri-f2c-1')!.itemStatus).toBe('aprobada');
     await expect(respondBuylistRevision('sr-3020', 'sri-f2c-1', 'decline')).rejects.toMatchObject({
       status: 409,
       code: 'REVISION_ALREADY_RESOLVED',
@@ -80,9 +112,9 @@ describe('buylist-flujo (rama mock) · portal del vendedor', () => {
 
   it('pickup: elegir método es idempotente; tras «Entregada» cambiarlo ⇒ 409 PICKUP_ALREADY_DONE', async () => {
     const a = await chooseBuylistPickup('sr-3020', 'sri-f2c-2', 'in_person');
-    expect(a.pickup?.method).toBe('in_person');
+    expect(a.items.find((i) => i.id === 'sri-f2c-2')?.pickup?.method).toBe('in_person');
     const b = await chooseBuylistPickup('sr-3020', 'sri-f2c-2', 'ship_back');
-    expect(b.pickup?.method).toBe('ship_back');
+    expect(b.items.find((i) => i.id === 'sri-f2c-2')?.pickup?.method).toBe('ship_back');
     const item = (await import('../mock/fixtures')).mockSellRequests.find((r) => r.sellRequestId === 'sr-3020')!.items[1];
     item.pickup = { ...item.pickup!, doneAt: '2026-11-21T10:00:00Z' };
     await expect(chooseBuylistPickup('sr-3020', 'sri-f2c-2', 'in_person')).rejects.toMatchObject({

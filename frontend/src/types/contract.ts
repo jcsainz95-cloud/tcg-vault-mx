@@ -5183,7 +5183,9 @@ export interface PendingPublishRowDTO {
 /** v1.82 (§PNL.4) — `POST /admin/buylist/:id/reject-items`. `itemIds` 1–200 sin repetidos; `reason` 3–500 tras `trim()`. */
 export interface RejectBuylistItemsRequest {
   itemIds: string[];
-  reason: string;
+  /** Obligatorio (anexo §3.2): UNA causa por acto. `other` exige `reason` 3–500; con las demás `reason` es opcional. */
+  reasonCode: BuylistRejectReasonCode;
+  reason?: string;
 }
 /**
  * v1.82.1 (§PNL.10.1, E-1) — `200` de `reject-items`: una carta por id, EN SU ORDEN (la proyección de la decisión por
@@ -5232,7 +5234,8 @@ export type BuylistRejectionCode =
 /** Causas que el dueño puede elegir al «No aceptar» / «Bajar precio». */
 export type BuylistRejectReasonCode = 'not_received' | 'condition_mismatch' | 'wrong_card' | 'other';
 export type BuylistReviseReasonCode = 'condition_mismatch' | 'wrong_card' | 'other';
-export type BuylistRevisionState = 'pending' | 'accepted' | 'declined' | 'expired';
+/** `cancelled` = el dueño aprobó/rechazó la carta con la baja pendiente: la propuesta se RETIRÓ (anexo §3.2). */
+export type BuylistRevisionState = 'pending' | 'accepted' | 'declined' | 'expired' | 'cancelled';
 export interface BuylistRevisionDTO {
   state: BuylistRevisionState;
   proposedCents: number | null;
@@ -5262,7 +5265,7 @@ export interface BuylistRevisePreviewDTO {
   itemId: string;
   offeredPriceCents: number;
   revisedPriceCents: number;
-  payout: { grossCents: number; shippingFeeCents: number; netCents: number };
+  payout: { grossCents: number; shippingFeeCents: number; netCents: number; isFinal: boolean };
 }
 export interface BuylistConvertAllResponse {
   converted: { itemId: string; inventoryItemId: string }[];

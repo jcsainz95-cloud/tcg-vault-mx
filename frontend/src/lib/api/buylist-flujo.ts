@@ -12,6 +12,7 @@ import type {
   BuylistRevisePreviewDTO,
   BuylistReviseReasonCode,
   SellItemDTO,
+  SellRequestDetailDTO,
 } from '@/types/contract';
 
 export interface RevisePriceInput {
@@ -50,19 +51,26 @@ export function convertAllBuylist(requestId: string, locationId?: string): Promi
 }
 
 /**
- * `POST /buylist/requests/:id/items/:itemId/revision-response` (cuenta, dueño). Misma decisión repetida ⇒ 200; la contraria
- * ⇒ 409 `REVISION_ALREADY_RESOLVED`. El monto NO viaja (SEC-A1): se acepta la propuesta guardada.
+ * `POST /buylist/requests/:id/items/:itemId/revision-response` (cuenta, dueño) ⇒ la SOLICITUD completa. `accept` lleva
+ * `expectedRevisedPriceCents` = el monto que el vendedor VIO (CAS del servidor): si cambió ⇒ 409 `REVISION_CHANGED`
+ * `details:{expected…,current…}`; la decisión contraria o una baja retirada ⇒ 409 `REVISION_ALREADY_RESOLVED`.
+ * `decline` no lleva monto. Misma decisión repetida ⇒ 200.
  */
-export function respondBuylistRevision(requestId: string, itemId: string, decision: 'accept' | 'decline'): Promise<SellItemDTO> {
-  return apiRequest<SellItemDTO>(`/buylist/requests/${requestId}/items/${itemId}/revision-response`, {
+export function respondBuylistRevision(
+  requestId: string,
+  itemId: string,
+  decision: 'accept' | 'decline',
+  expectedRevisedPriceCents?: number,
+): Promise<SellRequestDetailDTO> {
+  return apiRequest<SellRequestDetailDTO>(`/buylist/requests/${requestId}/items/${itemId}/revision-response`, {
     method: 'POST',
-    body: { decision },
+    body: decision === 'accept' ? { decision, expectedRevisedPriceCents } : { decision },
   });
 }
 
-/** `POST /buylist/requests/:id/items/:itemId/pickup` (cuenta): idempotente; tras «Entregada» ⇒ 409 `PICKUP_ALREADY_DONE`. */
-export function chooseBuylistPickup(requestId: string, itemId: string, method: BuylistPickupMethod): Promise<SellItemDTO> {
-  return apiRequest<SellItemDTO>(`/buylist/requests/${requestId}/items/${itemId}/pickup`, {
+/** `POST /buylist/requests/:id/items/:itemId/pickup` (cuenta) ⇒ la SOLICITUD completa; tras «Entregada» ⇒ 409 `PICKUP_ALREADY_DONE`. */
+export function chooseBuylistPickup(requestId: string, itemId: string, method: BuylistPickupMethod): Promise<SellRequestDetailDTO> {
+  return apiRequest<SellRequestDetailDTO>(`/buylist/requests/${requestId}/items/${itemId}/pickup`, {
     method: 'POST',
     body: { method },
   });

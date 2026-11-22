@@ -160,7 +160,9 @@ export function SpeiPayModal({ req, onClose, onPaid, onStale, getError }: SpeiPa
           ) : (
             <>
               <div className="bg-ink px-5 py-4 text-on-ink" data-testid="spei-deposit">
-                <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-on-ink-muted">{t('deposits')}</p>
+                <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-on-ink-muted">
+                  {payout.isFinal ? t('deposits') : t('depositsEstimated')}
+                </p>
                 <p className="tabular font-serif text-[40px] leading-tight" data-testid="spei-net">
                   {formatMoneyCents(shownNet, locale)}
                 </p>
@@ -273,7 +275,9 @@ export function PayoutBar({
         </div>
         <span aria-hidden="true">=</span>
         <div>
-          <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-on-ink-muted">{t('net')}</p>
+          <p className="font-mono text-[11px] uppercase tracking-[0.1em] text-on-ink-muted" data-testid="payout-net-label">
+            {p.isFinal ? t('net') : t('netEstimated')}
+          </p>
           <p className="tabular font-serif text-3xl leading-none" data-testid="payout-net">{formatMoneyCents(p.netCents, locale)}</p>
         </div>
       </div>

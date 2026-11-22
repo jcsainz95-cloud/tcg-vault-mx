@@ -1830,18 +1830,29 @@ export function mockPendingDecisionItemIds(row: Pick<AdminBuylistDTO, 'items'>):
  */
 export function mockProjectedNetCents(
   row: Pick<MockAdminBuylistRow, 'items' | 'offerShippingFeeCents'>,
-  itemId: string,
-  revisedCents: number,
-): { grossCents: number; shippingFeeCents: number; netCents: number } {
+  itemId: string | null,
+  revisedCents = 0,
+): { grossCents: number; shippingFeeCents: number; netCents: number; isFinal: boolean } {
   let gross = 0;
+  let isFinal = true;
   for (const it of row.items) {
-    if (it.offerDecision !== 'buy' || it.itemStatus === 'rechazada') continue;
-    if (it.id === itemId) gross += revisedCents;
-    else if (it.revision?.state === 'pending') gross += it.revision.proposedCents ?? 0;
-    else gross += it.approvedPriceCents ?? it.offeredPriceCents ?? 0;
+    if (it.offerDecision !== 'buy' || it.itemStatus === 'rechazada') continue; // rechazadas y `skip` fuera
+    if (it.id === itemId) {
+      gross += revisedCents;
+      continue;
+    }
+    if (it.revision?.state === 'pending') {
+      gross += it.revision.proposedCents ?? 0;
+      isFinal = false;
+    } else {
+      gross += it.itemStatus === 'aprobada' || it.itemStatus === 'convertida_inventario' || it.itemStatus === 'pagada'
+        ? (it.approvedPriceCents ?? it.offeredPriceCents ?? 0)
+        : (it.offeredPriceCents ?? 0); // sin decidir ⇒ pactado
+      if (it.itemStatus !== 'aprobada' && it.itemStatus !== 'convertida_inventario' && it.itemStatus !== 'pagada') isFinal = false;
+    }
   }
   const ship = row.offerShippingFeeCents ?? 0;
-  return { grossCents: gross, shippingFeeCents: ship, netCents: Math.max(0, gross - ship) };
+  return { grossCents: gross, shippingFeeCents: ship, netCents: Math.max(0, gross - ship), isFinal };
 }
 
 /** Lo que la fórmula de §M5-V.0 mira de una fila: sus columnas, su `status` y sus líneas. */
@@ -1978,14 +1989,18 @@ function mockFlowFields(
   const gross = row.approvedTotalCents ?? num('offerGrossCents') ?? row.quotedTotalCents;
   const ship = num('offerShippingFeeCents') ?? 0;
   const payoutStates = new Set<SellRequestStatus>(['verificacion', 'aprobada', 'pagada']);
+  // Base única (anexo §3.1): en `verificacion` con pendientes el neto es la proyección, rotulada `isFinal=false`.
+  const proj = mockProjectedNetCents(row, null);
   const payout = payoutStates.has(row.status)
-    ? {
-        grossCents: gross,
-        shippingFeeCents: ship,
-        netCents: row.status === 'pagada' && num('payoutNetCents') != null ? (num('payoutNetCents') as number) : Math.max(0, gross - ship),
-        isFinal: row.status === 'pagada' || mockPendingDecisionItemIds(row).length === 0,
-        clabeOnFile: true,
-      }
+    ? row.status === 'verificacion' && !proj.isFinal
+      ? { grossCents: proj.grossCents, shippingFeeCents: proj.shippingFeeCents, netCents: proj.netCents, isFinal: false, clabeOnFile: true }
+      : {
+          grossCents: gross,
+          shippingFeeCents: ship,
+          netCents: row.status === 'pagada' && num('payoutNetCents') != null ? (num('payoutNetCents') as number) : Math.max(0, gross - ship),
+          isFinal: row.status === 'pagada' || mockPendingDecisionItemIds(row).length === 0,
+          clabeOnFile: true,
+        }
     : null;
   const offerNetCents = num('offerNetCents');
   const offerSentAt = str('offerSentAt');

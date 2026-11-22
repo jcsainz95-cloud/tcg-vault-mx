@@ -21,7 +21,7 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
-import type { AdminBuylistDTO, SellItemDTO, SellRequestStatus } from '@/types/contract';
+import type { AdminBuylistDTO, BuylistRejectReasonCode, SellItemDTO, SellRequestStatus } from '@/types/contract';
 import { formatMoneyCents, formatDate } from '@/lib/format';
 import { Badge } from '@/components/ui/Badge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -204,6 +204,7 @@ function sellerLabel(req: Pick<AdminBuylistDTO, 'userId' | 'seller'>): string {
 
 /** Estados terminales de item: ya no admiten decisión. */
 const ITEM_TERMINAL = new Set(['pagada', 'convertida_inventario']);
+const BULK_CAUSES: BuylistRejectReasonCode[] = ['condition_mismatch', 'wrong_card', 'not_received', 'other'];
 
 /** Diálogo de rechazo múltiple (§60.5 c): más de 6 cartas ⇒ las 6 primeras + «y {r} más» desplegable. */
 const BULK_VISIBLE = 6;
@@ -226,6 +227,7 @@ export function isBulkRejectable(reqStatus: SellRequestStatus, it: SellItemDTO):
     it.offerDecision !== 'skip' &&
     !ITEM_TERMINAL.has(it.itemStatus) &&
     it.itemStatus !== 'rechazada'
+    // `ajustada` SÍ (con o sin baja pendiente): rechazarla cancela la baja (anexo §3.2, DECISIONES.12).
   );
 }
 
@@ -233,6 +235,8 @@ export function M5View() {
   const t = useTranslations('admin.m5');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tDesk = useTranslations('admin.m5.desk');
+  const tf2 = useTranslations('admin.m5.flow.f2');
+  const tCauses = useTranslations('admin.m5.flow.f2.rejectPanel.causes');
   const tm = useTranslations('admin');
   const tc = useTranslations('common');
   const te = useTranslations('error');
@@ -345,12 +349,15 @@ export function M5View() {
   const [bulkSelected, setBulkSelected] = useState<Record<string, string[]>>({});
   const [bulkTarget, setBulkTarget] = useState<{ requestId: string; itemIds: string[] } | null>(null);
   const [bulkReason, setBulkReason] = useState('');
+  const [bulkCause, setBulkCause] = useState<BuylistRejectReasonCode | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkReasonError, setBulkReasonError] = useState<string | null>(null);
   /** Cartas que el servidor dijo NO COMPRADAS en un `422 ITEM_NOT_OFFERED` (se marcan en su fila). */
   const [notOfferedIds, setNotOfferedIds] = useState<Set<string>>(new Set());
   const bulkReasonTrimmed = bulkReason.trim();
-  const bulkReasonValid = bulkReasonTrimmed.length >= REJECT_REASON_MIN && bulkReasonTrimmed.length <= REJECT_REASON_MAX;
+  const bulkTextOk = bulkReasonTrimmed.length >= REJECT_REASON_MIN && bulkReasonTrimmed.length <= REJECT_REASON_MAX;
+  // Causa obligatoria; el detalle solo es obligatorio con «Otra razón» (anexo §3.2).
+  const bulkReasonValid = bulkCause != null && (bulkCause === 'other' ? bulkTextOk : bulkReasonTrimmed === '' || bulkTextOk);
   const bulkReasonRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (bulkTarget) setTimeout(() => bulkReasonRef.current?.focus(), 0);
@@ -365,18 +372,24 @@ export function M5View() {
   function openBulk(requestId: string, itemIds: string[]) {
     setBulkTarget({ requestId, itemIds });
     setBulkReason('');
+    setBulkCause(null);
     setBulkError(null);
     setBulkReasonError(null);
   }
   function closeBulk() {
     setBulkTarget(null);
     setBulkReason('');
+    setBulkCause(null);
     setBulkError(null);
     setBulkReasonError(null);
   }
   const bulkMutation = useMutation({
-    mutationFn: (vars: { requestId: string; itemIds: string[]; reason: string }) =>
-      rejectBuylistItems(vars.requestId, { itemIds: vars.itemIds, reason: vars.reason }),
+    mutationFn: (vars: { requestId: string; itemIds: string[]; reasonCode: BuylistRejectReasonCode; reason: string }) =>
+      rejectBuylistItems(vars.requestId, {
+        itemIds: vars.itemIds,
+        reasonCode: vars.reasonCode,
+        ...(vars.reason ? { reason: vars.reason } : {}),
+      }),
     onSuccess: async (res, vars) => {
       const k = vars.itemIds.length;
       closeBulk();
@@ -415,6 +428,10 @@ export function M5View() {
       if (err?.status === 404) {
         refresh();
         setBulkError(t('bulkReject.error.notFound'));
+        return;
+      }
+      if (err?.status === 400 && err.details?.field === 'reasonCode') {
+        setBulkError(t('bulkReject.error.reasonCode'));
         return;
       }
       if (err?.status === 400 && err.code === 'VALIDATION_ERROR' && err.details?.field !== 'itemIds') {
@@ -1491,6 +1508,11 @@ export function M5View() {
                             {t('rejectedOutOfTotal')}
                           </Badge>
                         )}
+                        {it.revision?.state === 'cancelled' && (
+                          <Badge tone="neutral" shape="outline">
+                            <span data-testid={`f2-retired-${it.id}`}>{tf2('status.retired')}</span>
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {canDecide && decidable && !notBought && (
@@ -1723,6 +1745,7 @@ export function M5View() {
                 bulkMutation.mutate({
                   requestId: bulkTarget.requestId,
                   itemIds: Array.from(new Set(bulkTarget.itemIds)),
+                  reasonCode: bulkCause as BuylistRejectReasonCode,
                   reason: bulkReasonTrimmed,
                 })
               }
@@ -1748,8 +1771,14 @@ export function M5View() {
               </span>
               <FinishBadge finish={it.finish} productType={it.productType} />
               <span className="tabular font-mono text-[11px] text-muted">{it.id}</span>
+              {it.revision?.state === 'pending' && (
+                <span className="border border-accent px-2 py-0.5 text-xs text-accent" data-testid={`m5-bulk-cancels-${it.id}`}>
+                  {t('bulkReject.cancelsRow')}
+                </span>
+              )}
             </li>
           );
+          const cancelsCount = rows.filter((it) => it.revision?.state === 'pending').length;
           return (
             <div className="flex flex-col gap-3">
               <ul className="divide-y divide-border" data-testid="m5-bulk-list">
@@ -1763,14 +1792,47 @@ export function M5View() {
                   <ul className="divide-y divide-border">{rows.slice(BULK_VISIBLE).map(row)}</ul>
                 </details>
               )}
+              <fieldset>
+                <legend className="eyebrow mb-2">{t('bulkReject.causeLegend')}</legend>
+                <div className="flex flex-col border border-border-strong" data-testid="m5-bulk-causes">
+                  {BULK_CAUSES.map((c) => (
+                    <label
+                      key={c}
+                      className={cn(
+                        'flex min-h-[44px] cursor-pointer items-center gap-2 border-b border-border px-3 text-sm last:border-b-0 focus-within:shadow-focus',
+                        bulkCause === c ? 'bg-text text-bg' : 'bg-surface',
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="m5-bulk-cause"
+                        className="sr-only"
+                        checked={bulkCause === c}
+                        onChange={() => {
+                          setBulkCause(c);
+                          setBulkError(null);
+                        }}
+                        data-testid={`m5-bulk-cause-${c}`}
+                      />
+                      <span aria-hidden>{bulkCause === c ? '●' : '○'}</span>
+                      {tCauses(c)}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              {cancelsCount > 0 && (
+                <Banner variant="warning" role="status">
+                  <span data-testid="m5-bulk-cancels-notice">{t('bulkReject.cancelsNotice', { n: cancelsCount })}</span>
+                </Banner>
+              )}
               <Textarea
                 ref={bulkReasonRef}
-                label={t('bulkReject.reasonLabel')}
+                label={bulkCause === 'other' ? t('bulkReject.reasonLabel') : t('bulkReject.reasonOptional')}
                 hint={t('bulkReject.reasonHint')}
                 value={bulkReason}
                 maxLength={REJECT_REASON_MAX}
                 counter={{ max: REJECT_REASON_MAX }}
-                error={bulkReasonError ?? (bulkReason !== '' && !bulkReasonValid ? t('rejectReasonInvalid') : undefined)}
+                error={bulkReasonError ?? (bulkReason !== '' && !bulkTextOk ? t('rejectReasonInvalid') : undefined)}
                 onChange={(e) => {
                   setBulkReason(e.target.value);
                   setBulkReasonError(null);

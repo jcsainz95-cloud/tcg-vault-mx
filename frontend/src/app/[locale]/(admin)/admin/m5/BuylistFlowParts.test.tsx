@@ -7,7 +7,7 @@ import { formatMoneyCents } from '@/lib/format';
 import { mockAdminBuylist, mockAdminBuylistDTO } from '@/lib/mock/fixtures';
 import type { AdminBuylistDTO } from '@/types/contract';
 import { BuylistCycleQueues } from './BuylistCycleQueues';
-import { PaymentReceipt, RequestRibbon, ReviewLineFacts, SpeiPayModal } from './BuylistFlowParts';
+import { PaymentReceipt, PayoutBar, RequestRibbon, ReviewLineFacts, SpeiPayModal } from './BuylistFlowParts';
 
 function reqOf(id: string, over: Partial<AdminBuylistDTO> = {}): AdminBuylistDTO {
   const row = mockAdminBuylist.find((r) => r.id === id)!;
@@ -86,6 +86,24 @@ describe('F1a · modal SPEI (un paso)', () => {
     expect(await screen.findByTestId('spei-clabe-missing')).toHaveTextContent(/no tiene CLABE guardada\. Pídele que la capture/);
     fireEvent.change(screen.getByLabelText('Referencia o clave de rastreo del SPEI'), { target: { value: 'R' } });
     expect(screen.getByRole('button', { name: /Confirmar pago de/ })).toBeDisabled();
+  });
+});
+
+describe('I-1 · montos estimados: solo se rotulan, el monto es el del servidor', () => {
+  it('barra: isFinal=false ⇒ «Se deposita (estimado)»; isFinal=true ⇒ «Se deposita»; el monto no cambia', () => {
+    const est = reqOf('sr-3003', { payout: { ...PAYOUT, isFinal: false } });
+    const { unmount } = renderWithProviders(<PayoutBar req={est} pendingDecisions={1} action={null} />, 'es');
+    expect(screen.getByTestId('payout-net-label')).toHaveTextContent('Se deposita (estimado)');
+    expect(screen.getByTestId('payout-net').textContent).toBe(formatMoneyCents(2635000, 'es'));
+    unmount();
+    renderWithProviders(<PayoutBar req={reqOf('sr-3003', { payout: PAYOUT })} pendingDecisions={0} action={null} />, 'es');
+    expect(screen.getByTestId('payout-net-label').textContent).toBe('Se deposita');
+  });
+
+  it('modal SPEI con isFinal=false ⇒ «Se deposita (estimado)»', async () => {
+    vi.spyOn(api, 'revealBuylistClabe').mockResolvedValue({ sellRequestId: 'sr-3003', clabe: '002010077777777771', holderName: 'X' });
+    openModal(reqOf('sr-3003', { payout: { ...PAYOUT, isFinal: false } }));
+    expect(await screen.findByTestId('spei-deposit')).toHaveTextContent('Se deposita (estimado)');
   });
 });
 

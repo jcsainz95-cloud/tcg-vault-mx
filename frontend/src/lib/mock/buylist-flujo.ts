@@ -87,13 +87,13 @@ export async function mockMarkBuylistPickupDone(itemId: string): Promise<SellIte
 export async function mockConvertAllBuylist(requestId: string, locationId?: string): Promise<BuylistConvertAllResponse> {
   const req = fx.mockAdminBuylist.find((r) => r.id === requestId);
   if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
-  if (locationId && !fx.mockLocations.some((l) => l.id === locationId)) {
-    throw new ApiClientError(422, { code: 'LOCATION_NOT_AVAILABLE', message: 'Location not available' });
-  }
+  // I-2: como el backend real, un `locationId` inexistente NO es 422: responde 200 y falla CADA línea con su código.
+  const locationGone = !!locationId && !fx.mockLocations.some((l) => l.id === locationId);
   const out: BuylistConvertAllResponse = { converted: [], skipped: [], failed: [] };
   for (const it of req.items) {
     if (it.itemStatus === 'convertida_inventario') out.skipped.push({ itemId: it.id, code: 'ALREADY_CONVERTED' });
     else if (it.itemStatus !== 'aprobada') out.skipped.push({ itemId: it.id, code: 'ITEM_NOT_APPROVED' });
+    else if (locationGone) out.failed.push({ itemId: it.id, code: 'LOCATION_NOT_AVAILABLE' });
     else {
       const seq = String(fx.mockInventory.length + 40 + out.converted.length).padStart(6, '0');
       it.itemStatus = 'convertida_inventario';
@@ -116,14 +116,29 @@ export async function mockRespondBuylistRevision(
   requestId: string,
   itemId: string,
   decision: 'accept' | 'decline',
+  expectedRevisedPriceCents?: number,
 ): Promise<SellItemDTO> {
   const { item } = findCustomerItem(requestId, itemId);
   const want = decision === 'accept' ? 'accepted' : 'declined';
+  if (decision === 'accept' && !Number.isInteger(expectedRevisedPriceCents)) {
+    throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'expectedRevisedPriceCents required', details: { field: 'expectedRevisedPriceCents' } });
+  }
   if (item.revision && item.revision.state !== 'pending') {
     if (item.revision.state === want) return delay({ ...item });
-    throw new ApiClientError(409, { code: 'REVISION_ALREADY_RESOLVED', message: 'Revision already resolved' });
+    throw new ApiClientError(409, {
+      code: 'REVISION_ALREADY_RESOLVED',
+      message: 'Revision already resolved',
+      details: { state: item.revision.state },
+    });
   }
   if (!item.revision) throw new ApiClientError(409, { code: 'REVISION_ALREADY_RESOLVED', message: 'No pending revision' });
+  if (decision === 'accept' && item.revision.proposedCents !== expectedRevisedPriceCents) {
+    throw new ApiClientError(409, {
+      code: 'REVISION_CHANGED',
+      message: 'Revision changed',
+      details: { expectedRevisedPriceCents, currentRevisedPriceCents: item.revision.proposedCents },
+    });
+  }
   item.revision = { ...item.revision, state: want, respondedAt: new Date().toISOString() };
   if (decision === 'accept') {
     item.approvedPriceCents = item.revision.proposedCents;
