@@ -96,11 +96,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-22 · §BUYLIST-FLUJO F1+F2 edd2b9ab · RECHAZADO (texto de qa, transcrito por el orquestador). Previos: F1 backend dd748ad2 APROBADO; §DIR-TIENDA publicado #148.
-- B-1 backend: aprobar o rechazar (también por rechazo múltiple) una carta con baja pendiente la deja «pending» y bloquea el pago para siempre (3/3); B-2 backend: enum-query-axes C-EQ-1 en rojo por el @Query de revise-price/preview (2/2).
-- I-1 arquitecto+backend: neto de vista previa = pagado en 5/9 (cuenta rechazadas y omite cartas sin decidir); payout final = sellado 9/9. I-2 frontend: el mock de convert-all lanza 422 y el backend responde 200 con fallos por línea.
-- Pasa: I-1 de F1 cerrado (±1 centavo da 409); REVISION_PENDING; barrido 7 d + 1 recordatorio; costo = aceptado; reasonCode 400; C1–C4 es/en con dirección 10/10; PICKUP_ALREADY_DONE; m116/m117 aditivas; mutaciones 14/16 (2 equivalentes).
-- Regresión: integración 3703/3704, unit 10 744/10 744, vitest 6201/6201, e2e mock admin 18/18, tsc/lint 0, doc-size verde. NO MEDIDO: front real contra backend real, correo real, CI. MENOR: C4 «7 días» con horas, C3 «p.m..», rejectionCode omitido vs null, preview acepta 1e3, convert-all locationId no-uuid ⇒ 200; front sin recarga tras 409 del vendedor, «Rechazar» baja sin confirmar, tipos de respuesta.
+## QA (qa) — 2026-11-22 · §BUYLIST-FLUJO F1+F2 de2beed4+b45e739f · RECHAZADO (texto de qa, transcrito por el orquestador)
+- B-1 backend cerrado 6/6 (cancelled, pago 200, 409 cancelled, C5/C1/C2, 0 correos antiguos). BLOQUEANTE frontend: `SellerFlujoLines.tsx:258` + `es/en.json:1022`: con la carta rechazada y la baja cancelled (4/4) el portal dice «se te paga el precio original».
+- I-1 9/9 (preview = netIfAccepted = barra = final = sellado; S2/S3/S5/S8 de backend = los míos por categoría); F2-2 400/409 `REVISION_CHANGED` y recarga; B-2 en verde, techo 120 = longitud real; I-2 `failed[]` por línea en la UI; menores anteriores cerrados.
+- Regresión en BD limpia: integración 206/206 suites, 3721/3721 (promos verdes); unit 10 763/10 763; vitest 6214/6214; e2e mock admin 19/19; tsc y lint 0; doc-size verde. NO MEDIDO: front contra backend real, correo real, CI.
+- MENOR: asunto de C2 en singular con 2 cartas; `failCodes` `ITEM_NOT_APPROVED`≠`NOT_APPROVED` y falta `CONVERT_FAILED`; el anexo §6 («422») y §7 (plantilla antigua) contradicen §3.2 y DECISIONES 12 (arquitecto).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
