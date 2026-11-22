@@ -78,7 +78,8 @@ const STORE_FIELDS: StoreField[] = [
   { key: 'email', required: true, type: 'email', inputMode: 'email' },
   { key: 'reference', required: false },
 ];
-const STORE_REQUIRED_KEYS = STORE_FIELDS.filter((f) => f.required).map((f) => f.key);
+export const STORE_REQUIRED_KEYS = STORE_FIELDS.filter((f) => f.required).map((f) => f.key);
+const STORE_REFERENCE_MAX = 70;
 
 export function ShippingSection() {
   const t = useTranslations('admin.m10.shipping');
@@ -251,7 +252,16 @@ function ShippingForm({
   const noteInvalid = !/^\d{8}$/.test(note);
   const storeAny = STORE_FIELDS.some((f) => store[f.key].trim() !== '');
   const storeMissing = (k: StoreAddressKey) => storeAny && STORE_REQUIRED_KEYS.includes(k) && store[k].trim() === '';
-  const invalid = Object.keys(rowErrors).length > 0 || noteInvalid || STORE_FIELDS.some((f) => storeMissing(f.key));
+  const storeFieldError = (k: StoreAddressKey): 'missing' | 'postalCode' | 'referenceLong' | null => {
+    if (storeMissing(k)) return 'missing';
+    if (k === 'postalCode' && store.postalCode.trim() !== '' && !/^\d{5}$/.test(store.postalCode.trim())) return 'postalCode';
+    if (k === 'reference' && store.reference.trim().length > STORE_REFERENCE_MAX) return 'referenceLong';
+    return null;
+  };
+  const storeMissingKeys = STORE_FIELDS.filter((f) => storeMissing(f.key)).map((f) => f.key);
+  // M-3: una dirección incompleta o inválida NO bloquea el resto de la sección; solo se omite del PUT (el dial conserva su valor).
+  const storeBlocked = STORE_FIELDS.some((f) => storeFieldError(f.key) !== null);
+  const invalid = Object.keys(rowErrors).length > 0 || noteInvalid;
 
   const save = useMutation({
     mutationFn: () => {
@@ -267,7 +277,7 @@ function ShippingForm({
         shippingDropoffPoints: dropoffs,
         skydropxOriginAddressTemplateId: origin || null,
         // Vacía del todo ⇒ null (sin capturar); si no, las diez claves (vacías ⇒ null). Mismas claves que `ORIGIN_SNAPSHOT_KEYS`.
-        skydropxOriginSnapshot: storeAny ? (Object.fromEntries(STORE_FIELDS.map((f) => [f.key, store[f.key].trim() || null])) as StoreAddressSnapshot) : null,
+        ...(storeBlocked ? {} : { skydropxOriginSnapshot: storeAny ? (Object.fromEntries(STORE_FIELDS.map((f) => [f.key, store[f.key].trim() || null])) as StoreAddressSnapshot) : null }),
         shippingLabelFormat: format,
         shippingTrackingPollMinutes: Number(poll),
       };
@@ -388,11 +398,18 @@ function ShippingForm({
         )}
       </div>
 
-      {/* Dirección de la tienda: destino de la guía de entrada de buylist (`skydropx_origin_snapshot`) */}
+      {/* Dirección de la tienda (`skydropx_origin_snapshot`): destino de las entradas de buylist y remitente de las salidas */}
       <fieldset className="flex flex-col gap-3 border border-border-strong p-4" data-testid="shipping-store-address">
         <legend className="px-1 text-lg font-semibold text-text">{t('store.title')}</legend>
         <p className="text-sm text-text">{t('store.help')}</p>
         <p className="text-xs text-muted">{t('store.requiredNote')}</p>
+        {storeBlocked && (
+          <p role="status" className="text-sm text-text" data-testid="shipping-store-blocked">
+            {storeMissingKeys.length > 0
+              ? t('store.notSavedMissing', { fields: storeMissingKeys.map((k) => t(`store.${k}`)).join(', ') })
+              : t('store.notSaved')}
+          </p>
+        )}
         <div className="grid gap-3 sm:grid-cols-2">
           {STORE_FIELDS.map((f) => (
             <Input
@@ -401,9 +418,9 @@ function ShippingForm({
               type={f.type}
               inputMode={f.inputMode}
               autoComplete="off"
-              maxLength={200}
+              maxLength={f.key === 'reference' ? STORE_REFERENCE_MAX : f.key === 'postalCode' ? 5 : 200}
               value={store[f.key]}
-              error={tried && storeMissing(f.key) ? t('store.missing') : undefined}
+              error={tried && storeFieldError(f.key) ? t(`store.${{ missing: 'missing', postalCode: 'postalInvalid', referenceLong: 'referenceTooLong' }[storeFieldError(f.key)!]}`) : undefined}
               onChange={(e) => setStore((s) => ({ ...s, [f.key]: e.target.value }))}
             />
           ))}

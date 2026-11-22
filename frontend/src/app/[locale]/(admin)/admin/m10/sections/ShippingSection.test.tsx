@@ -4,7 +4,9 @@ import { renderWithProviders } from '@/test/render';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import { mockSettings } from '@/lib/mock/fixtures';
-import { ShippingSection, tierErrors } from './ShippingSection';
+import { ShippingSection, tierErrors, STORE_REQUIRED_KEYS } from './ShippingSection';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /** UX-SDX-17 (`DESIGN_SYSTEM §43.15`) y la forma de §43.10 contra el contrato `§M4-SHIP.19.19.12`. */
 
@@ -163,14 +165,75 @@ describe('Dirección de la tienda (destino de la guía de entrada)', () => {
     await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
     expect(put.mock.calls[0][0].skydropxOriginSnapshot).toEqual({ ...fake, company: null });
   });
-  it('con algún dato y obligatorias vacías: error bajo cada una y CERO PUT', async () => {
+  it('con algún dato y obligatorias vacías: error bajo cada una, lista de faltantes y el resto SÍ se guarda sin el dial', async () => {
     const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
     renderWithProviders(<ShippingSection />, 'es');
     const box = await screen.findByTestId('shipping-store-address');
     fireEvent.change(within(box).getByLabelText('Empresa'), { target: { value: 'Ejemplo SA' } });
+    expect(within(box).getByTestId('shipping-store-blocked')).toHaveTextContent('Faltan: Nombre de quien recibe, Calle y número');
     save();
     expect((await within(box).findAllByText('Falta este dato.')).length).toBe(8);
-    expect(put).not.toHaveBeenCalled();
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect('skydropxOriginSnapshot' in put.mock.calls[0][0]).toBe(false);
+  });
+  it('solo espacios cuenta como vacío (mata «sin trim»)', async () => {
+    const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
+    renderWithProviders(<ShippingSection />, 'es');
+    const box = await screen.findByTestId('shipping-store-address');
+    fireEvent.change(within(box).getByLabelText('Nombre de quien recibe (obligatorio)'), { target: { value: 'Tienda Ejemplo' } });
+    for (const l of ['Calle y número', 'Código postal', 'Estado', 'Ciudad o municipio', 'Colonia', 'Teléfono', 'Correo']) {
+      fireEvent.change(within(box).getByLabelText(`${l} (obligatorio)`), { target: { value: '   ' } });
+    }
+    save();
+    expect((await within(box).findAllByText('Falta este dato.')).length).toBe(7);
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect('skydropxOriginSnapshot' in put.mock.calls[0][0]).toBe(false);
+  });
+  it('solo espacios en todo ⇒ vacío ⇒ null', async () => {
+    const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
+    renderWithProviders(<ShippingSection />, 'es');
+    const box = await screen.findByTestId('shipping-store-address');
+    fireEvent.change(within(box).getByLabelText('Empresa'), { target: { value: '   ' } });
+    save();
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect(put.mock.calls[0][0].skydropxOriginSnapshot).toBeNull();
+  });
+  it('CP de 4 dígitos o con letras ⇒ error y no se manda el dial', async () => {
+    const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
+    vi.spyOn(api, 'getSettings').mockResolvedValue({ ...mockSettings, shippingProvider: 'skydropx', shippingLabelPurchase: 'super_admin_only', skydropxOriginSnapshot: fake });
+    renderWithProviders(<ShippingSection />, 'es');
+    const box = await screen.findByTestId('shipping-store-address');
+    fireEvent.change(within(box).getByLabelText('Código postal (obligatorio)'), { target: { value: '1234' } });
+    save();
+    expect(await within(box).findByText('Debe tener 5 dígitos.')).toBeInTheDocument();
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect('skydropxOriginSnapshot' in put.mock.calls[0][0]).toBe(false);
+  });
+  it('referencia: maxLength 70 y error si se pasa', async () => {
+    const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
+    vi.spyOn(api, 'getSettings').mockResolvedValue({ ...mockSettings, shippingProvider: 'skydropx', shippingLabelPurchase: 'super_admin_only', skydropxOriginSnapshot: fake });
+    renderWithProviders(<ShippingSection />, 'es');
+    const box = await screen.findByTestId('shipping-store-address');
+    const ref = within(box).getByLabelText('Referencia (opcional)');
+    expect(ref).toHaveAttribute('maxLength', '70');
+    fireEvent.change(ref, { target: { value: 'x'.repeat(71) } });
+    save();
+    expect(await within(box).findByText('Máximo 70 caracteres.')).toBeInTheDocument();
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect('skydropxOriginSnapshot' in put.mock.calls[0][0]).toBe(false);
+  });
+  it('la ayuda dice que también es el remitente de los envíos a clientes (es y en)', async () => {
+    renderWithProviders(<ShippingSection />, 'es');
+    const box = await screen.findByTestId('shipping-store-address');
+    expect(box).toHaveTextContent('el remitente de los envíos a clientes');
+    expect(box).not.toHaveTextContent('No cambia la plantilla');
+  });
+  it('paridad: las obligatorias del front = STORE_REQUIRED del backend (label-inbound.ts)', () => {
+    const src = readFileSync(resolve(process.cwd(), '../backend/src/modules/shipments/label-inbound.ts'), 'utf8');
+    const m = /const STORE_REQUIRED = \[([^\]]+)\] as const/.exec(src);
+    expect(m).not.toBeNull();
+    const back = m![1].split(',').map((x) => x.trim().replace(/'/g, '')).sort();
+    expect([...STORE_REQUIRED_KEYS].sort()).toEqual(back);
   });
   it('todo vacío guarda null (sin dirección) y no bloquea el guardado', async () => {
     const put = vi.spyOn(api, 'updateSettings').mockResolvedValue(mockSettings);
