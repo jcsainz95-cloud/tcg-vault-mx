@@ -96,11 +96,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-22 · M5 lista única 4e21ecd4 (base 6e60c7b1) · RECHAZADO (texto de qa, transcrito por el orquestador)
-- B-1 BLOQUEANTE (frontend): `./scripts/check-doc-size.sh` ROJO (también `--against-ref 6e60c7b1`, ci.yml:1146): `docs/DESIGN_SYSTEM.md` 80 líneas > umbral 79 (10 177 B). Cierre: compactar al añadir la línea de §6.
-- I-1 IMPORTANTE (frontend): mutación `M5View.tsx:1509` → `offeredPriceCents ?? agreedPriceCents` sobrevive (m5 18 archivos 290/290 verde); falta prueba de pactado con baja aceptada fuera de revisión. Mutaciones que sí dan rojo 3/3 (pactado=cotizado, sin agrupar, lista oculta).
-- Menores (frontend): fila «no comprada» compacta ya no pinta rechazo/PickupLine/retirada/aprobado (alcance con `skip` rechazada NO MEDIDO); estado oculto si `cotizada` (:1487); mesa abierta cargando o con error deja la ficha sin cartas (:1695); ofertado original no visible tras baja aceptada; aserción `'85'` laxa. STATUS.md 170 líneas > 150 (orquestador).
-- [MEDIDO] tsc 0, eslint m5 0, vitest m5 322/322, i18n 174/174, claves `flow.mesa.*` y `notBought.note` 0 usos; backend real (Postgres local) `buylist-flujo-f1` 13/13 con `offered.priceCents === offeredPriceCents` (spec:287-295); [código] misma columna `buylist.service.ts:353,3315`; operador: mismo DTO que súper-admin, sin fuga nueva; acciones por carta intactas (`M5View.tsx:1456-1707`). NO MEDIDO: navegador (10 estados, operador), vitest completo, e2e Playwright, producción.
+## QA (qa) — 2026-11-22 · M5 lista única ad2f07fd (delta sobre 4e21ecd4, base 6e60c7b1) · APROBADO (texto de qa, transcrito por el orquestador; re-revisión del rechazo de 4e21ecd4)
+- B-1 cerrado: `./scripts/check-doc-size.sh` VERDE (también `--against-ref 6e60c7b1`); `docs/DESIGN_SYSTEM.md` 79 líneas, 9 968 B, umbral sin tocar.
+- I-1 cerrado: mutación `offeredPriceCents ?? agreedPriceCents` ahora roja (1 prueba, pactado MX$60.00 en tránsito). M-1, M-3, M-5 cerrados: fila «no comprada» conserva rechazo/PickupLine/retirada/aprobado (mutación roja 1); lista visible con mesa cargando o con fallo (`deskReady`, mutación roja 2); aserción `MX$85.00`. Mutaciones muertas 3/3.
+- `onReady` de la mesa [código]: efecto con `[loadedOk, onReady]` y `setDeskReady` estable ⇒ sin bucle; al desmontar avisa `false`; pruebas de la mesa verdes. M-2 (estado oculto en no comprada `cotizada`) y M-4 (ofertado original tras baja aceptada) a decisión del dueño. STATUS.md 170 líneas > 150 (orquestador).
+- [MEDIDO] tsc 0, eslint m5 0, vitest m5 294/294, vitest completo 522 archivos 6346/0 (13 skip); backend real (medido sobre 4e21ecd4, delta sin backend) `buylist-flujo-f1` 13/13 con `offered.priceCents === offeredPriceCents`. NO MEDIDO: navegador (10 estados, operador, parpadeo al cargar la mesa), e2e Playwright, producción.
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
 |---|---|---|---|---|
