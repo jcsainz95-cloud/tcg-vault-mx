@@ -80,6 +80,13 @@ describe('C1 sellItemsPickupTemplate', () => {
 });
 
 describe('C2 sellItemNotReceivedTemplate', () => {
+  it('asunto en plural con 2+ cartas (es y en); singular con una', () => {
+    const base = { folio: 'SR-1', card: CARD, requestClosed: false, hasShippingFee: false };
+    const two = { ...base, cards: [CARD, CARD] };
+    expect(sellItemNotReceivedTemplate(two, 'Ash', 'es').subject).toBe('Unas cartas de tu solicitud de venta no llegaron');
+    expect(sellItemNotReceivedTemplate(two, 'Ash', 'en').subject).toBe('Some cards in your sell request did not arrive');
+    expect(sellItemNotReceivedTemplate({ ...base, cards: [CARD] }, 'Ash', 'en').subject).toBe('A card in your sell request did not arrive');
+  });
   it('es: texto del contrato; SIN plazos ni recoger ni promesa de devolucion', () => {
     const m = sellItemNotReceivedTemplate({ folio: 'SR-1', card: CARD, requestClosed: false, hasShippingFee: true }, 'Ash', 'es');
     expect(m.subject).toBe('Una carta de tu solicitud de venta no llegó');

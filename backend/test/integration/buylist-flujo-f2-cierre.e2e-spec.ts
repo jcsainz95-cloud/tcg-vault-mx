@@ -164,7 +164,7 @@ describe('E2E — §BUYLIST-FLUJO F2 cierre (B-1, I-1, F2-2, B-2)', () => {
       enviados = [];
       expect((await rejectItems(b.srId, { itemIds: [b.ids[0], b.ids[1]], reasonCode: 'not_received' })).status).toBe(200);
       expect(enviados).toHaveLength(1);
-      expect(enviados[0].subject).toBe('Una carta de tu solicitud de venta no llegó');
+      expect(enviados[0].subject).toBe('Unas cartas de tu solicitud de venta no llegaron');
       expect(enviados[0].text).not.toContain('Tus cartas te esperan');
       expect(await rowOf(b.ids[0])).toMatchObject({ itemStatus: 'rechazada', rejectionCode: 'not_received' });
     });
@@ -194,6 +194,10 @@ describe('E2E — §BUYLIST-FLUJO F2 cierre (B-1, I-1, F2-2, B-2)', () => {
       await sweep.run(new Date());
       expect(await rowOf(ids[0])).toMatchObject({ itemStatus: 'aprobada', revisionState: 'pending' });
       expect(enviados).toHaveLength(0);
+      // el vendedor NUNCA ve «pending» en una linea que no esta ajustada (se deriva con la invariante).
+      const mine = await h.api('GET', `/buylist/requests/${srId}`, { token: customerToken });
+      expect(mine.status).toBe(200);
+      expect((mine.body as any).items.find((i: any) => i.id === ids[0]).revision.state).not.toBe('pending');
       expect((await pay(srId, 'REF-ORPHAN', d.payout.netCents)).status).toBe(200);
     });
 
@@ -321,7 +325,9 @@ describe('E2E — §BUYLIST-FLUJO F2 cierre (B-1, I-1, F2-2, B-2)', () => {
       const offered = (await rowOf(ids[0]))!.offeredPriceCents!;
       expect((await revise(ids[0], { revisedPriceCents: offered - 100, reasonCode: 'wrong_card' })).status).toBe(200);
       for (const body of [{ decision: 'accept' }, { decision: 'accept', expectedRevisedPriceCents: '9' }, { decision: 'accept', expectedRevisedPriceCents: 9.5 }, { decision: 'accept', expectedRevisedPriceCents: null }]) {
-        expect((await respond(srId, ids[0], body as any)).status).toBe(400);
+        const bad = await respond(srId, ids[0], body as any);
+        expect(bad.status).toBe(400);
+        expect((bad.body as any).error.details).toMatchObject({ field: 'expectedRevisedPriceCents' });
       }
       // el staff re-propone un valor menor despues de que el vendedor abrio la pantalla (vio offered-100).
       expect((await revise(ids[0], { revisedPriceCents: offered - 300, reasonCode: 'wrong_card' })).status).toBe(200);

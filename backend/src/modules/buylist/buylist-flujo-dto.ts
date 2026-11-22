@@ -84,8 +84,10 @@ export function revisionDTOOf(
   if (!i.revisionState) return null;
   const money = (v: number | null | undefined) => (opts.redactMoney ? null : (v ?? null));
   const proposedAt = i.revisionProposedAt ?? null;
+  // Invariante pending <=> ajustada: una baja «pending» en una linea que ya no esta `ajustada` (la aprobaron/rechazaron) esta cancelada.
+  const state = audience === 'client' && i.revisionState === 'pending' && i.itemStatus !== 'ajustada' ? 'cancelled' : i.revisionState;
   const common = {
-    state: i.revisionState,
+    state,
     proposedCents: money(i.revisedPriceCents),
     previousCents: money(i.offeredPriceCents),
     proposedAt,

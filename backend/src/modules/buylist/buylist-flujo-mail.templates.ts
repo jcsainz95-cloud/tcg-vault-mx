@@ -249,7 +249,13 @@ export function sellItemNotReceivedTemplate(params: SellItemNotReceivedParams, n
   const text = `${en ? `Hi ${name},` : `Hola ${name}:`}\n\n${eyebrow} · ${params.folio}\n\n${title}\n\n${intro}\n\n${payment}\n${nothing}\n${reply}\n\n${BRAND}`;
   return {
     to: '',
-    subject: en ? 'A card in your sell request did not arrive' : 'Una carta de tu solicitud de venta no llegó',
+    subject: en
+      ? many
+        ? 'Some cards in your sell request did not arrive'
+        : 'A card in your sell request did not arrive'
+      : many
+        ? 'Unas cartas de tu solicitud de venta no llegaron'
+        : 'Una carta de tu solicitud de venta no llegó',
     html: mailShell({ locale: l, title, preheader: intro, blocks, footerWhy: sellRequestFooterWhy(en) }),
     text,
   };

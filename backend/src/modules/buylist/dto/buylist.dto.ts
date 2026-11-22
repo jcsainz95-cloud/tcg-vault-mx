@@ -13,7 +13,6 @@ import {
   MaxLength,
   Min,
   ValidateNested,
-  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Finish, ProductType, RawCondition } from '@prisma/client';
@@ -373,9 +372,8 @@ export class ReviseItemPriceDto {
  */
 export class RevisionResponseDto {
   @IsIn(['accept', 'decline']) decision!: 'accept' | 'decline';
-  @ValidateIf((o: RevisionResponseDto) => o.decision === 'accept')
-  @IsInt()
-  @Min(1)
+  /** Sin `@IsInt/@Min`: el `ValidationPipe` global no emite `details.field`; el servicio valida (entero > 0) y da 400 con `field`. */
+  @IsOptional()
   expectedRevisedPriceCents?: number;
 }
 

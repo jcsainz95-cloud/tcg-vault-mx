@@ -26,6 +26,12 @@ describe('revisionDTOOf', () => {
     expect(c.reasonText).toBe('The card arrived in a different condition than declared');
     expect((revisionDTOOf(pending, 'client', { locale: 'es' }) as any).reasonText).toBe('La carta llegó en una condición distinta a la declarada');
   });
+  it('vendedor: pending en linea que ya no esta ajustada se expone cancelled; admin conserva el crudo; ajustada sigue pending', () => {
+    const stale = { ...pending, itemStatus: 'aprobada' };
+    expect((revisionDTOOf(stale, 'client') as any).state).toBe('cancelled');
+    expect((revisionDTOOf(stale, 'admin') as any).state).toBe('pending');
+    expect((revisionDTOOf(pending, 'client') as any).state).toBe('pending');
+  });
   it('sin baja => null; con dinero redactado => cifras null', () => {
     expect(revisionDTOOf({ itemStatus: 'verificacion' }, 'admin')).toBeNull();
     const r = revisionDTOOf(pending, 'client', { redactMoney: true }) as any;
