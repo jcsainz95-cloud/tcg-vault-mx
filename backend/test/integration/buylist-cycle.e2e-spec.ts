@@ -1069,7 +1069,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
     it('`reject` SÍ existe en el ciclo: es el rechazo PARCIAL, y baja LÍNEAS, no precios (D30)', async () => {
       const res = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
         token: operatorToken,
-        json: { decision: 'reject', reason: 'no es NM: whitening en los bordes' },
+        json: { decision: 'reject', reasonCode: 'other', reason: 'no es NM: whitening en los bordes' },
       });
       expect(res.status).toBe(200);
       expect(res.body.itemStatus).toBe('rechazada');
@@ -1169,7 +1169,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
     it('la vía correcta es `reject` con motivo: ancla §H y deja el reloj del vendedor corriendo', async () => {
       const res = await h.api('PATCH', `/admin/buylist/items/${skipItemId}/decision`, {
         token: operatorToken,
-        json: { decision: 'reject', reason: 'llegó sin haber sido ofertada: no la compramos' },
+        json: { decision: 'reject', reasonCode: 'other', reason: 'llegó sin haber sido ofertada: no la compramos' },
       });
       expect(res.status).toBe(200);
       expect(res.body.itemStatus).toBe('rechazada');
@@ -1187,7 +1187,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       // integrador a mandarlo, y el día que el verbo cambie empieza a tener efecto.*
       const res = await h.api('PATCH', `/admin/buylist/items/${buyItemId}/decision`, {
         token: operatorToken,
-        json: { decision: 'reject', reason: 'no es NM: whitening', approvedPriceCents: 9900 },
+        json: { decision: 'reject', reasonCode: 'other', reason: 'no es NM: whitening', approvedPriceCents: 9900 },
       });
       expect(res.status).toBe(422);
       expect(res.body.error.code).toBe('OFFER_PRICE_IMMUTABLE');
@@ -1824,7 +1824,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       // correo y los relojes de devolución sobre cartas que nunca recibimos. El remedio es «Declinar».
       const rej = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
         token: operatorToken,
-        json: { decision: 'reject', reason: 'el paquete no llegó y el vendedor pide cerrar' },
+        json: { decision: 'reject', reasonCode: 'other', reason: 'el paquete no llegó y el vendedor pide cerrar' },
       });
       expect(rej.status).toBe(422);
       expect(rej.body.error).toMatchObject({ code: 'REQUEST_NOT_RECEIVED', details: { sellRequestId: srId, status: 'aceptada', remedy: 'decline_accepted' } });

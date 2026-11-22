@@ -5,6 +5,7 @@ import * as accountTpl from '../src/modules/mail/mail.templates';
 import * as guestTpl from '../src/modules/orders/mail/guest-order.templates';
 import * as orderTpl from '../src/modules/orders/mail/order-notice.templates';
 import * as buylistTpl from '../src/modules/buylist/buylist-mail.templates';
+import * as flujoTpl from '../src/modules/buylist/buylist-flujo-mail.templates';
 import * as buylistNoticeTpl from '../src/modules/buylist/buylist-notice.templates';
 import * as refundTpl from '../src/modules/payments/refunds/mail/refund-notice.templates';
 import * as shipmentTpl from '../src/modules/shipments/mail/shipment-notice.templates';
@@ -121,6 +122,28 @@ const RENDERS: Record<string, Render> = {
         abandonDeadlineAt: AT,
         requestClosed: false,
       },
+      'Ana',
+      l,
+    ),
+  // §BUYLIST-FLUJO F2 — C1 «tus cartas te esperan» y C2 «no llegó».
+  sellItemsPickupTemplate: (l) =>
+    flujoTpl.sellItemsPickupTemplate(
+      {
+        folio: 'BL-1',
+        cards: [{ cardName: 'Snorlax V', setName: 'SS', cardNumber: '141/202', finish: 'reverse_holo', cause: 'wrong_card', note: null }],
+        storeAddress: null,
+        portalUrl: PORTAL,
+        returnDeadlineAt: AT,
+        abandonDeadlineAt: AT,
+        responseDays: 7,
+        requestClosed: false,
+      },
+      'Ana',
+      l,
+    ),
+  sellItemNotReceivedTemplate: (l) =>
+    flujoTpl.sellItemNotReceivedTemplate(
+      { folio: 'BL-1', card: { cardName: 'Snorlax V', setName: 'SS', cardNumber: '141/202', finish: 'reverse_holo' }, requestClosed: false, hasShippingFee: true },
       'Ana',
       l,
     ),

@@ -269,13 +269,13 @@ describe('E2E — v1.82 PNL-4 · `POST /admin/buylist/:id/reject-items`', () => 
     expect((await rejectItems(srId, { itemIds: [items[1]], reason: 'dañada' }, adminToken)).status).toBe(200);
   });
 
-  it('BRJ-9 `PATCH …/decision {reject}` sigue igual: un correo POR CARTA (el 4), no el 29', async () => {
+  it('BRJ-9 `PATCH …/decision {reject}`: un correo POR CARTA (desde F2b con causa sale C1 «Tu carta te espera»), no el 29', async () => {
     const { srId, items } = await solicitudDeTres();
     await siembra(srId, items);
-    expect((await decide(items[0], { decision: 'reject', reason: 'dañada' })).status).toBe(200);
-    expect((await decide(items[1], { decision: 'reject', reason: 'dañada' })).status).toBe(200);
+    expect((await decide(items[0], { decision: 'reject', reasonCode: 'other', reason: 'dañada' })).status).toBe(200);
+    expect((await decide(items[1], { decision: 'reject', reasonCode: 'other', reason: 'dañada' })).status).toBe(200);
     expect(enviados).toHaveLength(2);
-    for (const m of enviados) expect(m.subject).toBe('Una carta de tu solicitud de venta fue rechazada');
+    for (const m of enviados) expect(m.subject).toBe('Tu carta te espera');
     expect(correos29()).toHaveLength(0);
   });
 

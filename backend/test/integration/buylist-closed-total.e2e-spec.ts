@@ -178,7 +178,7 @@ describe('E2E — el bruto de una solicitud CERRADA no se reescribe (§M5-T · B
     // rompe.*
     const decision = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
       token: operatorToken,
-      json: { decision: 'reject', reason: 'intento de re-decidir una línea ya pagada' },
+      json: { decision: 'reject', reasonCode: 'other', reason: 'intento de re-decidir una línea ya pagada' },
     });
     expect(decision.status).toBe(409);
     expect(decision.body.error.code).toBe('NO_LIVE_ADJUSTMENT');

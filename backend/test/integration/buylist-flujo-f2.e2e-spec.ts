@@ -6,6 +6,7 @@
  *  - F2c: bajar precio, respuesta del vendedor, barrido a 7 dias, 409 REVISION_PENDING, recoger, costo de adquisicion.
  */
 import { E2EHarness } from './helpers/e2e-app';
+import { MAIL_PORT, MailMessage, MailPort } from '../../src/modules/mail/mail.port';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_CARDS, E2E_USERS } from '../../prisma/e2e-fixtures';
 
@@ -18,6 +19,8 @@ describe('E2E — §BUYLIST-FLUJO F2', () => {
   let adminToken: string;
   let charizardId: string;
   let addressId: string;
+  let enviados: MailMessage[] = [];
+  let spy: jest.SpyInstance;
 
   async function createRequest(n: number): Promise<string> {
     const res = await h.api('POST', '/buylist/requests', {
@@ -58,8 +61,16 @@ describe('E2E — §BUYLIST-FLUJO F2', () => {
     charizardId = (await h.prisma.card.findUnique({ where: { externalId: E2E_CARDS.charizard.externalId } }))!.id;
     const u = await h.prisma.user.findUnique({ where: { email: E2E_USERS.customer2.email } });
     addressId = (await h.prisma.address.findFirst({ where: { userId: u!.id } }))!.id;
+    spy = jest.spyOn(h.app.get<MailPort>(MAIL_PORT), 'send').mockImplementation(async (msg: MailMessage) => {
+      enviados.push(msg);
+      return { id: 'm' } as never;
+    });
+  });
+  beforeEach(() => {
+    enviados = [];
   });
   afterAll(async () => {
+    spy?.mockRestore();
     await h?.close();
   });
 
@@ -103,6 +114,133 @@ describe('E2E — §BUYLIST-FLUJO F2', () => {
       // sin ubicacion, el mismo reintento si convierte.
       const ok = (await h.api('POST', `/admin/buylist/${srId}/convert-all`, { token: operatorToken, json: {} })).body as any;
       expect(ok.converted).toHaveLength(2);
+    });
+  });
+
+  describe('F2b — rejectionCode y «No llegó»', () => {
+    const reject = (itemId: string, json: Record<string, unknown>) =>
+      h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, { token: operatorToken, json: { decision: 'reject', ...json } });
+    const setStore = (street1: string | null) =>
+      h.prisma.configSetting.upsert({
+        where: { key: 'skydropx_origin_snapshot' },
+        create: { key: 'skydropx_origin_snapshot', valueJson: street1 ? { name: 'TCG HUNT', street1, postalCode: '14210', areaLevel1: 'Ciudad de México', areaLevel2: 'Tlalpan', areaLevel3: 'Pedregal' } : {} },
+        update: { valueJson: street1 ? { name: 'TCG HUNT', street1, postalCode: '14210', areaLevel1: 'Ciudad de México', areaLevel2: 'Tlalpan', areaLevel3: 'Pedregal' } : {} },
+      });
+
+    it('reject sin reasonCode => 400 field=reasonCode; causa de sistema o desconocida => 400; other sin texto => 400 field=reason; CERO escritura', async () => {
+      const { ids } = await toVerificacion(1);
+      enviados = [];
+      const r1 = await reject(ids[0], { reason: 'sin causa' });
+      expect(r1.status).toBe(400);
+      expect((r1.body as any).error.code).toBe('VALIDATION_ERROR');
+      expect((r1.body as any).error.details.field).toBe('reasonCode');
+      expect((await reject(ids[0], { reasonCode: 'revision_expired' })).status).toBe(400);
+      expect((await reject(ids[0], { reasonCode: 'nope' })).status).toBe(400);
+      const r4 = await reject(ids[0], { reasonCode: 'other' });
+      expect(r4.status).toBe(400);
+      expect((r4.body as any).error.details.field).toBe('reason');
+      const row = await h.prisma.sellRequestItem.findUnique({ where: { id: ids[0] } });
+      expect(row?.itemStatus).not.toBe('rechazada');
+      expect(row?.rejectionCode).toBeNull();
+      expect(enviados).toHaveLength(0);
+    });
+
+    it('not_received: rechazada con codigo, SIN plazos ni cola de recoger, sale del bruto, correo C2 sin promesa de devolucion', async () => {
+      const { srId, ids } = await toVerificacion(2);
+      enviados = [];
+      const antes = await detail(srId);
+      expect((await approve(ids[0])).status).toBe(200);
+      const res = await reject(ids[1], { reasonCode: 'not_received' });
+      expect(res.status).toBe(200);
+      expect((res.body as any).rejectionCode).toBe('not_received');
+      const d = await detail(srId);
+      const it = d.items.find((i: any) => i.id === ids[1]);
+      expect(it.itemStatus).toBe('rechazada');
+      expect(it.rejectionCode).toBe('not_received');
+      expect(it.returnDeadlineAt).toBeNull();
+      expect(it.abandonDeadlineAt).toBeNull();
+      expect(it.rejectionReason).toBeTruthy();
+      // fuera del bruto, el envio se descuenta igual (D25): payout = approvedTotal - envio.
+      expect(d.payout.grossCents).toBe(d.approvedTotalCents);
+      expect(d.payout.shippingFeeCents).toBe(antes.offerShippingFeeCents ?? 0);
+      // no entra a la cola de recoger.
+      const cola = (await h.api('GET', '/admin/buylist/rejected-items?pageSize=100', { token: operatorToken })).body as any;
+      expect(cola.data.some((r: any) => r.id === ids[1])).toBe(false);
+      // correo C2: dice que no llego y que no hay nada que devolver; ni plazos ni «recoger».
+      expect(enviados).toHaveLength(1);
+      const m = enviados[0];
+      expect(m.subject).toBe('Una carta de tu solicitud de venta no llegó');
+      expect(m.text).toContain('no venía dentro');
+      expect(m.text).toContain('no tenemos nada que devolverte');
+      expect(m.text).not.toMatch(/recog|pasar por|abandon|hasta el/i);
+    });
+
+    it('not_received sin paquete recibido (cotizada) => 422 REQUEST_NOT_RECEIVED y cero escritura', async () => {
+      const srId = await createRequest(1);
+      const ids: string[] = (await detail(srId)).items.map((i: any) => i.id);
+      // cotizada: el `reject` legacy es llamable sin paquete; `not_received` NO (no hay paquete que revisar).
+      enviados = [];
+      const r = await reject(ids[0], { reasonCode: 'not_received' });
+      expect(r.status).toBe(422);
+      expect((r.body as any).error.code).toBe('REQUEST_NOT_RECEIVED');
+      expect((await h.prisma.sellRequestItem.findUnique({ where: { id: ids[0] } }))?.rejectionCode).toBeNull();
+      expect(enviados).toHaveLength(0);
+    });
+
+    it('condition_mismatch / wrong_card / other: guardan el codigo, entran a la cola con plazos y el correo C1 lleva direccion de la tienda y enlace', async () => {
+      await setStore('Verapaz 123');
+      const { srId, ids } = await toVerificacion(3);
+      enviados = [];
+      expect((await reject(ids[0], { reasonCode: 'condition_mismatch' })).status).toBe(200);
+      expect((await reject(ids[1], { reasonCode: 'wrong_card', reason: 'era un Blastoise' })).status).toBe(200);
+      expect((await reject(ids[2], { reasonCode: 'other', reason: 'viene sellada con otro idioma' })).status).toBe(200);
+      const d = await detail(srId);
+      for (const [i, code] of [[0, 'condition_mismatch'], [1, 'wrong_card'], [2, 'other']] as const) {
+        const it = d.items.find((x: any) => x.id === ids[i]);
+        expect(it.rejectionCode).toBe(code);
+        expect(it.returnDeadlineAt).not.toBeNull();
+        expect(it.abandonDeadlineAt).not.toBeNull();
+      }
+      const cola = (await h.api('GET', '/admin/buylist/rejected-items?pageSize=100', { token: operatorToken })).body as any;
+      for (const id of ids) expect(cola.data.some((r: any) => r.id === id)).toBe(true);
+      expect(cola.data.find((r: any) => r.id === ids[1]).rejectionCode).toBe('wrong_card');
+      expect(enviados).toHaveLength(3);
+      const c1 = enviados[0];
+      expect(c1.subject).toBe('Tu carta te espera');
+      expect(c1.text).toContain('Verapaz 123');
+      expect(c1.text).toContain('sin costo');
+      expect(c1.text).toContain('a tu cargo');
+      expect(c1.text).toContain('condición distinta a la que declaraste');
+      expect(enviados[1].text).toContain('era un Blastoise');
+      expect(enviados[2].text).toContain('viene sellada con otro idioma');
+    });
+
+    it('sin direccion de la tienda el correo dice que la confirmara (nunca la inventa)', async () => {
+      await setStore(null);
+      const { ids } = await toVerificacion(1);
+      enviados = [];
+      expect((await reject(ids[0], { reasonCode: 'wrong_card' })).status).toBe(200);
+      expect(enviados[0].text).toContain('te confirmaremos la dirección al responder');
+      await setStore('Verapaz 123');
+    });
+
+    it('re-rechazar es idempotente: 200, sin segundo correo y el codigo original no cambia', async () => {
+      const { ids } = await toVerificacion(2);
+      enviados = [];
+      expect((await reject(ids[0], { reasonCode: 'condition_mismatch' })).status).toBe(200);
+      expect(enviados).toHaveLength(1);
+      const again = await reject(ids[0], { reasonCode: 'not_received' });
+      expect(again.status).toBe(200);
+      expect(enviados).toHaveLength(1);
+      expect((await h.prisma.sellRequestItem.findUnique({ where: { id: ids[0] } }))?.rejectionCode).toBe('condition_mismatch');
+    });
+
+    it('todas rechazadas con not_received: la solicitud se cierra y el correo dice que no hay pago', async () => {
+      const { srId, ids } = await toVerificacion(1);
+      enviados = [];
+      expect((await reject(ids[0], { reasonCode: 'not_received' })).status).toBe(200);
+      expect((await detail(srId)).status).toBe('rechazada');
+      expect(enviados[0].text).toContain('no hay pago');
     });
   });
 });

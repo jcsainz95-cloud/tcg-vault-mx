@@ -15,6 +15,8 @@ import type { Prisma, SellItemStatus } from '@prisma/client';
 
 export const BUYLIST_REJECT_RETURN_WINDOW_DAYS = 7;
 export const BUYLIST_REJECT_ABANDON_WINDOW_DAYS = 30;
+/** §BUYLIST-FLUJO F2c (DECISIONES.9): dias que tiene el vendedor para contestar una baja de precio; el silencio = no acepta. */
+export const BUYLIST_REVISION_RESPONSE_DAYS = 7;
 
 /**
  * v1.51 (M-46, §4.39c **SITIO 7**) — **`SELL_REQUEST_TERMINAL_STATES` SE MUDÓ a

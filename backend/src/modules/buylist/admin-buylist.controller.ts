@@ -19,6 +19,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { parseAdminListFilters } from '../../common/admin-list-filters';
 import { BuylistService, parseDeclineAcceptedBody } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
+import { BusinessException } from '../../common/business.exception';
 import {
   AdminPickupAddressDto,
   ConfirmShipmentDto,
@@ -643,11 +644,18 @@ export class AdminBuylistController {
   ) {
     // v1.18-buylist-rejects: `reason` obligatorio con reject (DTO valida 3–500 → 400); para
     // approve/adjust se ignora (no se persiste ni se audita).
+    // §BUYLIST-FLUJO F2b: `reject` exige causa estructurada; sin ella ⇒ 400 VALIDATION_ERROR `details.field='reasonCode'`.
+    if (dto.decision === 'reject' && !dto.reasonCode) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'reasonCode is required for decision "reject"', {
+        field: 'reasonCode',
+      });
+    }
     const res = await this.buylist.itemDecision(
       itemId,
       dto.decision,
       dto.approvedPriceCents,
       dto.reason,
+      dto.decision === 'reject' ? dto.reasonCode : undefined,
     );
     await this.audit.log({
       actorUserId: user.id,
@@ -658,7 +666,7 @@ export class AdminBuylistController {
       // El motivo del rechazo va al AuditLog en `after` (§M5); no contiene PII (texto del operador).
       after:
         dto.decision === 'reject'
-          ? { reason: dto.reason }
+          ? { reason: dto.reason, reasonCode: dto.reasonCode }
           : { approvedPriceCents: dto.approvedPriceCents },
     });
     return res;

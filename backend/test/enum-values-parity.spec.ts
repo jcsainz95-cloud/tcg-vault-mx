@@ -365,6 +365,8 @@ describe('BANDA 3 UNIVERSAL — todo enum de `schema.prisma` ⇄ su línea canó
     'SupplyRequestStatus',
     'SupplySuggestionStatus', // §PROV-F4 (m114): estado de la sugerida; sin línea canónica, mismo trato que el resto de §PROV
     'SupplyUnitResult',
+    // §BUYLIST-FLUJO F2b: la causa estructurada del rechazo vive en el ANEXO `API_CONTRACT_BUYLIST_FLUJO.md` §4 (no en §0).
+    'SellItemRejectionCode',
   ];
   const SCHEMA = readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8');
   const CONTRACT = readFileSync(join(__dirname, '..', '..', 'docs', 'archive', 'API_CONTRACT.md'), 'utf8');

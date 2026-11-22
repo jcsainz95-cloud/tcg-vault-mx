@@ -11,6 +11,7 @@ import {
   ProductType,
   RawCondition,
   Role,
+  SellItemRejectionCode,
   SellItemStatus,
   SellOfferState,
   SellRequestExpiryReason,
@@ -61,6 +62,9 @@ import {
   sellRequestNotContinuedTemplate,
   buylistPortalUrl,
 } from './buylist-mail.templates';
+// §BUYLIST-FLUJO F2: correos C1 («tus cartas te esperan») y C2 («no llego») — fichero propio, mismo esqueleto.
+import { sellItemNotReceivedTemplate, sellItemsPickupTemplate } from './buylist-flujo-mail.templates';
+import type { OriginSnapshotDial } from '../shipments/label-inbound';
 // v1.74 (§R.3) — los TRES avisos nuevos del ciclo: la guía al vendedor, el acuse de recibido y el
 // pago. Viven en un fichero aparte; el porqué está en su cabecera (el candado de exhaustividad de
 // los CINCO correos del ciclo de oferta no se afloja para meter tres que no son de ese ciclo).
@@ -75,6 +79,7 @@ import { addBusinessDays, businessDaysSince } from '../../common/business-days';
 import { runSerializable } from '../../common/serializable-retry';
 import { ITEM_FINAL_STATUSES, isItemFinal, parseRejectItemsBody, rejectItemsBlock } from './buylist-reject-items';
 import {
+  BUYLIST_REVISION_RESPONSE_DAYS,
   deriveRejectedReason,
   closesAsRejected,
   closesAsRejectedByWhere,
@@ -489,6 +494,14 @@ function lastOfferCancelledAtOf(r: SellRequestBaseRow & SellRequestCycleRow): Da
 const MONEY_REDACTED_EXPIRY: readonly SellRequestExpiryReason[] = [SellRequestExpiryReason.no_offer, SellRequestExpiryReason.not_continued];
 
 /** BSD-1.4 punto 8: las cifras de una LÍNEA en un cierre redactado — todas `null` explícito (la clave viaja, el valor no). */
+/** §BUYLIST-FLUJO F2b: texto guardado en `rejectionReason` cuando la causa no es `other` y el dueño no escribio nota. */
+const REJECTION_CODE_DEFAULT_REASON = {
+  not_received: 'La carta no venía en el paquete',
+  condition_mismatch: 'Condición distinta a la declarada',
+  wrong_card: 'Carta distinta a la declarada',
+  other: 'Otro motivo',
+} as const;
+
 const redactedItemMoney = { quotedPriceCents: null, approvedPriceCents: null, offeredPriceCents: null, marketMxnCents: null } as const;
 
 function isMoneyRedactedClosure(r: { status: SellRequestStatus } & SellRequestCycleRow): boolean {
@@ -598,6 +611,7 @@ function toAdminSellItemRow(i: {
   inventoryItemId: string | null;
   rejectedAt: Date | null;
   rejectionReason: string | null;
+  rejectionCode?: SellItemRejectionCode | null;
 }) {
   return {
     id: i.id,
@@ -617,6 +631,7 @@ function toAdminSellItemRow(i: {
     inventoryItemId: i.inventoryItemId,
     rejectedAt: i.rejectedAt,
     rejectionReason: i.rejectionReason,
+    rejectionCode: i.rejectionCode ?? null,
     // `category`/`ruleMode`/`ruleValue`/`ruleSource` son columnas LEGACY (v2.0 P-48: nada nuevo las
     // escribe). Se dejan FUERA a propósito: proyectar es también dejar de publicar lo muerto.
   };
@@ -2135,6 +2150,8 @@ export class BuylistService implements OnModuleInit {
     inventoryItemId: string | null;
     rejectedAt?: Date | null;
     rejectionReason?: string | null;
+    // §BUYLIST-FLUJO F2b: causa estructurada (`null`/ausente = legacy).
+    rejectionCode?: SellItemRejectionCode | null;
     // v1.51.15 (§11): el BLOQUE DE OFERTA que viaja a las DOS audiencias (`buy`|`skip` y el monto
     // congelado). Los cinco campos ADMIN-ONLY de `AdminSellItemDTO` NO entran aquí a propósito.
     offerDecision?: BuyDecision | null;
@@ -2149,7 +2166,11 @@ export class BuylistService implements OnModuleInit {
         ? {
             rejectedAt: i.rejectedAt ?? null,
             rejectionReason: i.rejectionReason ?? null,
-            ...rejectDeadlines(i.rejectedAt),
+            rejectionCode: i.rejectionCode ?? null,
+            // `not_received`: la carta nunca llego ⇒ ni plazo de recoger ni de abandono (anexo §4).
+            ...(i.rejectionCode === 'not_received'
+              ? { returnDeadlineAt: null, abandonDeadlineAt: null }
+              : rejectDeadlines(i.rejectedAt)),
           }
         : {};
     // ⚠️ v1.51.15 (§11 `SellItemDTO`, criterios 118/161(d)) — **EL BLOQUE DE OFERTA, PARTIDO POR
@@ -7376,6 +7397,9 @@ export class BuylistService implements OnModuleInit {
     // v1.18-buylist-rejects: motivo del rechazo — OBLIGATORIO con reject (3–500 chars); se IGNORA
     // (no se persiste) para approve/adjust.
     reason?: string,
+    // §BUYLIST-FLUJO F2b: causa estructurada del rechazo. El CONTROLADOR la exige (400 sin ella); `undefined` aqui = llamada
+    // interna/legacy (comportamiento de hoy, `rejectionCode` queda null).
+    rejectionCode?: 'not_received' | 'condition_mismatch' | 'wrong_card' | 'other',
   ) {
     const item = await this.prisma.sellRequestItem.findUnique({
       where: { id: itemId },
@@ -7383,6 +7407,7 @@ export class BuylistService implements OnModuleInit {
         sellRequest: {
           select: {
             userId: true,
+            offerShippingFeeCents: true,
             // ⚠️ v1.51.5 (BL-14): el ESTADO de la solicitud. Su ausencia de este `select` era el
             // agujero: no había forma de comprobarlo aunque alguien hubiera querido.
             status: true,
@@ -7464,16 +7489,28 @@ export class BuylistService implements OnModuleInit {
         // del `include` y dejaba pasar cualquier columna futura de `SellRequestItem`).
         return toAdminSellItemRow(item);
       }
-      // `reason` obligatorio (3–500 chars tras trim). El DTO ya lo valida (400 VALIDATION_ERROR);
-      // esto es defensa en profundidad para llamadas internas/whitespace-only.
-      const trimmedReason = (reason ?? '').trim();
-      if (trimmedReason.length < 3 || trimmedReason.length > 500) {
+      // `reason`: con `other` (y en la llamada legacy sin causa) es obligatorio 3–500 tras trim; con las otras causas es una nota
+      // opcional (si viene, 3–500) y, sin ella, se guarda la etiqueta fija de la causa.
+      const rawReason = (reason ?? '').trim();
+      const reasonRequired = rejectionCode == null || rejectionCode === 'other';
+      if ((reasonRequired || rawReason.length > 0) && (rawReason.length < 3 || rawReason.length > 500)) {
         throw BusinessException.badRequest(
           'VALIDATION_ERROR',
-          'reason is required for decision "reject" (3–500 chars)',
+          reasonRequired
+            ? 'reason is required for decision "reject" (3–500 chars)'
+            : 'reason, when present, must be 3–500 chars',
           { field: 'reason' },
         );
       }
+      // «No llegó» solo existe con la mercancia en mano: antes de `recibida` no hay paquete que revisar.
+      if (rejectionCode === 'not_received' && !['recibida', 'verificacion'].includes(item.sellRequest.status)) {
+        throw BusinessException.validation(
+          'REQUEST_NOT_RECEIVED',
+          'A card can only be marked as not received once the package was received',
+          { sellRequestId: item.sellRequestId, status: item.sellRequest.status },
+        );
+      }
+      const trimmedReason = rawReason || (rejectionCode ? REJECTION_CODE_DEFAULT_REASON[rejectionCode] : rawReason);
       const rejectedAt = new Date();
       // INVARIANTE de dinero (BL-1, §4.18b): el rechazo SACA el ítem del total aprobado aunque
       // antes hubiera sido aprobado/ajustado → approvedPriceCents=null ANTES del recompute.
@@ -7481,7 +7518,7 @@ export class BuylistService implements OnModuleInit {
       // exclusión la da el motor, no un `if` sobre la lectura de arriba (que una carrera invalida).
       // v1.82 · PNL-4: la escritura vive en `rejectItemWrite`, UN cuerpo con `reject-items`. Aquí sin
       // `expectedItemStatus` (el `where` es el de siempre: `PATCH …/decision {reject}` sin cambio, §PNL.4).
-      const written = await this.rejectItemWrite(this.prisma, itemId, trimmedReason, rejectedAt);
+      const written = await this.rejectItemWrite(this.prisma, itemId, trimmedReason, rejectedAt, undefined, rejectionCode);
       // v1.82.1 · §PNL.10.2.3 — `count ≠ 1` se RELEE: solicitud terminal ⇒ `NO_LIVE_ADJUSTMENT` (gana); carta en
       // estado final ⇒ `409 CONFLICT … ITEM_FINAL` (una conversión confirmó entre la lectura y aquí).
       if (!written) await this.throwRejectWriteConflict(this.prisma, itemId, item.sellRequestId);
@@ -7490,6 +7527,12 @@ export class BuylistService implements OnModuleInit {
       const updated = await this.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
       if (!updated) throw BusinessException.notFound();
       await this.recomputeApprovedTotal(item.sellRequestId);
+      if (rejectionCode) {
+        // §BUYLIST-FLUJO F2b: con causa, primero se resuelve si la solicitud se cerro (el correo lo dice) y luego sale C1/C2.
+        const requestClosed = await this.maybeAutoRejectRequest(item.sellRequestId);
+        await this.sendFlujoRejectionMail(item, rejectionCode, rawReason, rejectedAt, requestClosed);
+        return toAdminSellItemRow(updated);
+      }
       // Correo al vendedor: best-effort POST-commit — su fallo se loggea y NO revierte la decisión.
       await this.sendItemRejectedMail(item, trimmedReason, rejectedAt);
       // v1.24-buylist-request-reject (§4.18f, P-4): auto-transición de la SOLICITUD como efecto del
@@ -7688,12 +7731,12 @@ export class BuylistService implements OnModuleInit {
    * pisar terminal»: `updateMany` con guardia de estado (mismo patrón atómico que `paySpei`) — nunca
    * reescribe una `pagada`/`abandonada` ni re-sella una `rechazada`.
    */
-  private async maybeAutoRejectRequest(sellRequestId: string): Promise<void> {
+  private async maybeAutoRejectRequest(sellRequestId: string): Promise<boolean> {
     // v1.24 (endurecimiento §4.18f): el "¿queda algún ítem no-rechazado?" (count) y el "sella la
     // solicitud a rechazada" (updateMany) van en UN SOLO boundary atómico Serializable (mismo patrón
     // que `createRequest`/SEC-A2), haciendo verdadera la afirmación del doc «mismo transaction
     // boundary». Sin esto, count y update eran awaits secuenciales no atómicos. Dentro se usa `tx`.
-    await runSerializable(this.prisma, (tx) => this.autoRejectIfAllRejectedTx(tx, sellRequestId), {
+    return runSerializable(this.prisma, (tx) => this.autoRejectIfAllRejectedTx(tx, sellRequestId), {
       label: 'rejectAllItems',
       logger: this.logger,
     });
@@ -7747,6 +7790,7 @@ export class BuylistService implements OnModuleInit {
     trimmedReason: string,
     rejectedAt: Date,
     expectedItemStatus?: SellItemStatus,
+    rejectionCode?: SellItemRejectionCode,
   ): Promise<boolean> {
     const guard = await db.sellRequestItem.updateMany({
       where: {
@@ -7769,6 +7813,8 @@ export class BuylistService implements OnModuleInit {
         approvedPriceCents: null,
         rejectedAt,
         rejectionReason: trimmedReason,
+        // §BUYLIST-FLUJO F2b: `undefined` = no toca la columna (legacy `reject-items` sin causa).
+        ...(rejectionCode ? { rejectionCode } : {}),
       },
     });
     return guard.count === 1;
@@ -8034,6 +8080,81 @@ export class BuylistService implements OnModuleInit {
   }
 
   /**
+   * §BUYLIST-FLUJO F2b — la direccion de la TIENDA para el bloque de recoger: se DERIVA de `skydropx_origin_snapshot`
+   * (§DIR-TIENDA; nada capturado a mano). Sin calle o sin CP ⇒ `null` y el correo dice «te confirmaremos la direccion».
+   */
+  private async storeAddressLine(): Promise<string | null> {
+    const o = ((await this.settings.get<OriginSnapshotDial>(SettingKey.SKYDROPX_ORIGIN_SNAPSHOT)) ?? {}) as NonNullable<OriginSnapshotDial>;
+    const t = (v: string | null | undefined) => (typeof v === 'string' ? v.trim() : '');
+    if (!t(o.street1) || !t(o.postalCode)) return null;
+    return [t(o.street1), t(o.areaLevel3), `CP ${t(o.postalCode)}`, t(o.areaLevel2), t(o.areaLevel1)].filter(Boolean).join(', ');
+  }
+
+  /**
+   * §BUYLIST-FLUJO F2b — C1/C2 por `PATCH …/decision {reject, reasonCode}`. BEST-EFFORT POST-commit (patron
+   * `sendItemRejectedMail`): un fallo se registra y ⛔ no deshace el rechazo. `not_received` ⇒ C2 (sin recoger); el resto ⇒ C1.
+   */
+  private async sendFlujoRejectionMail(
+    item: {
+      id: string;
+      sellRequestId: string;
+      finish: Finish;
+      rawCondition?: RawCondition | null;
+      sellRequest?: { offerShippingFeeCents?: number | null; user?: { email: string | null; name: string; locale: string | null } | null } | null;
+      card?: { name: string; number: string; set?: { name: string } | null } | null;
+    },
+    code: 'not_received' | 'condition_mismatch' | 'wrong_card' | 'other',
+    note: string,
+    rejectedAt: Date,
+    requestClosed: boolean,
+  ): Promise<void> {
+    try {
+      const user = item.sellRequest?.user;
+      if (!this.mail || !user?.email) {
+        this.logger.warn(
+          `buylist reject mail skipped for item ${item.id}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`,
+        );
+        return;
+      }
+      const card = {
+        cardName: item.card?.name ?? '',
+        setName: item.card?.set?.name ?? '',
+        cardNumber: item.card?.number ?? '',
+        finish: item.finish ?? 'normal',
+      };
+      let msg: MailMessage;
+      if (code === 'not_received') {
+        msg = sellItemNotReceivedTemplate(
+          { folio: item.sellRequestId, card, requestClosed, hasShippingFee: (item.sellRequest?.offerShippingFeeCents ?? 0) > 0 },
+          user.name ?? '',
+          user.locale,
+        );
+      } else {
+        const { returnDeadlineAt, abandonDeadlineAt } = rejectDeadlines(rejectedAt);
+        msg = sellItemsPickupTemplate(
+          {
+            folio: item.sellRequestId,
+            cards: [{ ...card, cause: code, declaredCondition: item.rawCondition ?? null, note: note || null }],
+            storeAddress: await this.storeAddressLine(),
+            portalUrl: buylistPortalUrl(item.sellRequestId, user.locale),
+            returnDeadlineAt: returnDeadlineAt!,
+            abandonDeadlineAt: abandonDeadlineAt!,
+            responseDays: BUYLIST_REVISION_RESPONSE_DAYS,
+            requestClosed,
+          },
+          user.name ?? '',
+          user.locale,
+        );
+      }
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `buylist reject mail (flujo) failed for item ${item.id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
    * v1.18-buylist-rejects (§4.18c): correo al vendedor por RECHAZO de su carta. BEST-EFFORT
    * POST-COMMIT: se invoca DESPUÉS de persistir la decisión + recompute; cualquier fallo (puerto
    * ausente, proveedor caído, datos incompletos) se loggea y NO revierte la decisión ni falla el
@@ -8093,7 +8214,11 @@ export class BuylistService implements OnModuleInit {
    * `@@index([itemStatus])` (M-22) sirve el filtro sin barrer la tabla.
    */
   async adminRejectedItems(page: number, pageSize: number, userId?: string) {
-    const where: Prisma.SellRequestItemWhereInput = { itemStatus: 'rechazada' };
+    // §BUYLIST-FLUJO F2b: `not_received` no entra a la cola de recoger (no hay carta que devolver); los legacy (`null`) si.
+    const where: Prisma.SellRequestItemWhereInput = {
+      itemStatus: 'rechazada',
+      OR: [{ rejectionCode: null }, { rejectionCode: { not: 'not_received' } }],
+    };
     // Filtro por vendedor (simetría F1 con ?userId= de los otros listados admin).
     if (userId) where.sellRequest = { userId };
     const [rows, total] = await Promise.all([
@@ -8126,6 +8251,7 @@ export class BuylistService implements OnModuleInit {
       finish: i.finish ?? 'normal',
       quotedPriceCents: i.quotedPriceCents ?? undefined,
       reason: i.rejectionReason ?? null,
+      rejectionCode: i.rejectionCode ?? null,
       rejectedAt: i.rejectedAt ?? null,
       // Plazos DERIVADOS de rejectedAt (misma familia 7d/30d que buylist-sweep); legacy → null.
       ...rejectDeadlines(i.rejectedAt),

@@ -220,7 +220,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
     expect(ap.status).toBe(200);
     const rj = await h.api('PATCH', `/admin/buylist/items/${ids[1]}/decision`, {
       token: operatorToken,
-      json: { decision: 'reject', reason: 'no llega en NM: whitening en los bordes' },
+      json: { decision: 'reject', reasonCode: 'other', reason: 'no llega en NM: whitening en los bordes' },
     });
     expect(rj.status).toBe(200);
 
@@ -277,7 +277,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
     const { srId, ids } = await upToVerification(['buy', 'skip']);
     const rj = await h.api('PATCH', `/admin/buylist/items/${ids[0]}/decision`, {
       token: operatorToken,
-      json: { decision: 'reject', reason: 'no llega en NM: dobleces en la esquina inferior' },
+      json: { decision: 'reject', reasonCode: 'other', reason: 'no llega en NM: dobleces en la esquina inferior' },
     });
     expect(rj.status).toBe(200);
 
@@ -486,7 +486,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
         (
           await h.api('PATCH', `/admin/buylist/items/${ids[1]}/decision`, {
             token: operatorToken,
-            json: { decision: 'reject', reason: 'no llega en NM: superficie rayada' },
+            json: { decision: 'reject', reasonCode: 'other', reason: 'no llega en NM: superficie rayada' },
           })
         ).status,
       ).toBe(200);
@@ -565,7 +565,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
       (
         await h.api('PATCH', `/admin/buylist/items/${ids[1]}/decision`, {
           token: operatorToken,
-          json: { decision: 'reject', reason: 'no llega en NM: esquina con desgaste' },
+          json: { decision: 'reject', reasonCode: 'other', reason: 'no llega en NM: esquina con desgaste' },
         })
       ).status,
     ).toBe(200);
@@ -612,7 +612,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
       (
         await h.api('PATCH', `/admin/buylist/items/${ids[0]}/decision`, {
           token: operatorToken,
-          json: { decision: 'reject', reason: 'no llega en NM: bordes blanqueados' },
+          json: { decision: 'reject', reasonCode: 'other', reason: 'no llega en NM: bordes blanqueados' },
         })
       ).status,
     ).toBe(200);

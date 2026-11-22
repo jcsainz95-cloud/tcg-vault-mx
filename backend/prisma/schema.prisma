@@ -350,6 +350,16 @@ enum SellItemStatus {
   convertida_inventario
 }
 
+// §BUYLIST-FLUJO F2b (DECISIONES.9): causa estructurada del rechazo de una linea. `revision_*` las pone el sistema (F2c).
+enum SellItemRejectionCode {
+  not_received
+  condition_mismatch
+  wrong_card
+  other
+  revision_declined
+  revision_expired
+}
+
 enum BuylistCategory {
   comun
   reverse_holo
@@ -2669,6 +2679,9 @@ model SellRequestItem {
   // exponen los campos de rechazo en null. Ver ARCHITECTURE §4.18 / §11 (M-22).
   rejectedAt         DateTime?
   rejectionReason    String?
+  // §BUYLIST-FLUJO F2b: causa estructurada. `null` = legacy (rechazo anterior, comportamiento de hoy). `not_received` ⇒ sin
+  // plazos de recoger ni promesa de devolucion (la carta nunca llego).
+  rejectionCode      SellItemRejectionCode?
 
   // ======================= v1.51 (M-46, §4.39) — LA OFERTA, POR LÍNEA =======================
   // ⚠️ SEC-A1: ninguno de estos montos viene del DTO del cliente. Los congela el servidor al ofertar.

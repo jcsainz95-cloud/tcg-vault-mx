@@ -12,7 +12,6 @@ import {
   Max,
   MaxLength,
   Min,
-  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -303,10 +302,16 @@ export class ItemDecisionDto {
   // v1.18-buylist-rejects (§M5): motivo del rechazo — OBLIGATORIO con decision:"reject"
   // (3–500 chars; falta/vacío → 400 VALIDATION_ERROR vía ValidationPipe). Para approve/adjust se
   // IGNORA (no se valida ni se persiste). El servicio re-valida (defensa en profundidad, con trim).
-  @ValidateIf((o: ItemDecisionDto) => o.decision === 'reject')
+  // §BUYLIST-FLUJO F2b: con causa distinta de `other` la nota es opcional; la longitud 3–500 la impone el servicio segun la causa
+  // (con `other`, o sin causa en la llamada legacy, sigue siendo obligatoria ⇒ 400 `field:'reason'`).
+  @IsOptional()
   @IsString()
-  @Length(3, 500)
+  @MaxLength(500)
   reason?: string;
+  /** §BUYLIST-FLUJO F2b: causa estructurada del rechazo (obligatoria con `reject`; la exige el controlador ⇒ 400 `field:'reasonCode'`). */
+  @IsOptional()
+  @IsIn(['not_received', 'condition_mismatch', 'wrong_card', 'other'])
+  reasonCode?: 'not_received' | 'condition_mismatch' | 'wrong_card' | 'other';
 }
 
 /**

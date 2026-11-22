@@ -63,7 +63,7 @@ describe('E2E — §BUYLIST-FLUJO F1: neto a transferir, 409 sin efectos, CLABE 
   const decide = (itemId: string, decision: 'approve' | 'reject') =>
     h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
       token: operatorToken,
-      json: decision === 'approve' ? { decision } : { decision, reason: 'no llega en NM: bordes con whitening' },
+      json: decision === 'approve' ? { decision } : { decision, reasonCode: 'other', reason: 'no llega en NM: bordes con whitening' },
     });
   const pay = (srId: string, ref: string, expectedNetCents?: number) =>
     h.api('POST', `/admin/buylist/${srId}/pay-spei`, {
