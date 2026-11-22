@@ -88,9 +88,10 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-22 · §DIR-TIENDA 695f7c5b · RECHAZADO (texto de qa, transcrito por el orquestador). Previos vigentes: HEAP-INTEG-94 APROBADO 50916507 (publicado #147); §DECKS-TOP-FUENTE y §BUYLIST-MESA APROBADOS (menores abiertos en PENDIENTES).
-- Ida y vuelta UI→PUT→GET con backend real y BD nueva 1/1; cotización de entrada 409 origin_snapshot→200 tras guardar 1/1; sin tocar el bloque 0/99 diales cambian. Paridad de 8 obligatorias = STORE_REQUIRED; mutación 3/4 rojos (sobrevive «sin trim», M-1). vitest m10 127/127, tsc 0, lint limpio, doc-size verde; e2e M10›Envíos no existe (NO MEDIDO).
-- B-1: la ayuda dice que no afecta envíos a clientes, pero el snapshot entra en address_from de toda guía de salida (label-purchase.service.ts:686, skydropx.adapter.ts:136) y company/reference vacíos viajan como ''. Dueños: arquitecto (decidir) y frontend (copy). MENOR (frontend): M-1 caso «solo espacios», M-2 paridad sin prueba, M-3 snapshot parcial bloquea guardar, M-4 CP sin 5 dígitos.
+## QA (qa) — 2026-11-22 · §DIR-TIENDA f387890b+d5bb3925 · APROBADO (cierra B-1 y M-1..M-4 de 695f7c5b; texto de qa, transcrito por el orquestador). Previos vigentes: HEAP-INTEG-94 (publicado #147), §DECKS-TOP-FUENTE y §BUYLIST-MESA APROBADOS.
+- B-1: ayuda es/en = remitente de salidas y destino de entradas 2/2; salida con company/reference vacíos/null/espacios ⇒ address_from.company=name y sin reference 3/3 (proveedor falso, PUT HTTP real); entrada 409 origin_snapshot→200 1/1. PUT HTTP: CP de 4 dígitos y reference de 71 ⇒ 422 con el resto de diales intacto 2/2.
+- Mutantes rojos 7/7 (sin trim 2/2, paridad STORE_REQUIRED 2/2, parcial bloquea 1/1, CP 1/1, ref70 1/1) + backend company 1/1. vitest m10 133/133; unit 612/612 suites, 10698/10698; integración envíos 30 suites, 493/493; tsc 0; lint limpio; doc-size verde.
+- MENOR: API_CONTRACT 25 776 B > tope 25 KB (arquitecto); STATUS 154 > 150 líneas; f387890b escribió la línea Frontend de STATUS; CP de salida sale de la plantilla (anterior, NO MEDIDO). e2e de M10 › Envíos NO MEDIDO.
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
