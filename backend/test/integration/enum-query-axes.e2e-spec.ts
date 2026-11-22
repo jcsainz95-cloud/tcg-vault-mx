@@ -2157,7 +2157,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `supplierId` de `GET /admin/supply-purchases` (uuid, igualdad exacta). ⛔ `QUERY_SIN_NOMBRE` NO sube: los `@Query()` enteros del portal pasaron a llaves con nombre.
     // 💰 **119 → 120 (§BUYLIST-FLUJO cierre F2, B-2; ⚠️ PENDIENTE de ratificar por el arquitecto, que lo ordenó en DECISIONES §BUYLIST-FLUJO.12(d)):**
     // `revisedPriceCents` de `GET /admin/buylist/items/:itemId/revise-price/preview` (monto en centavos, formato `^\d{1,9}$`; no es un enum).
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(120);
+    // 💰 **120 → 122 (§FICHA-CLIENTE, contrato §1b; ⚠️ PENDIENTE de ratificar por el arquitecto):** `cursor` (id uuid opaco) y `limit` (entero 1..50) de
+    // `GET /admin/users/:id/notes` — paginación, no conjunto de tokens; fuera de forma ⇒ `400 {field}`. ⛔ `QUERY_SIN_NOMBRE` NO sube.
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(122);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

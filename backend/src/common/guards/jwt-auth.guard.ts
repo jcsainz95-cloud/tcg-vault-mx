@@ -71,7 +71,7 @@ export class JwtAuthGuard implements CanActivate {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       // v1.80.9 (§M6-U.2): + `email` ⇒ `req.user.hasEmail` DESDE LA BD (no desde el token), para EmailVerifiedGuard.
-      select: { status: true, tokenVersion: true, emailVerified: true, mustChangePassword: true, email: true },
+      select: { status: true, tokenVersion: true, emailVerified: true, mustChangePassword: true, email: true, phone: true },
     });
     if (
       !user ||
@@ -89,6 +89,7 @@ export class JwtAuthGuard implements CanActivate {
       hasEmail: user.email !== null,
       emailVerified: user.emailVerified,
       mustChangePassword: user.mustChangePassword,
+      phone: user.phone,
     };
     return true;
   }

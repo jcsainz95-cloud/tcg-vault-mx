@@ -170,7 +170,7 @@ describe('CTA v1.117.3 — B19 (cobertura del candado) y B20 (verify-email, cuen
 
   async function register(tag: string, password = PASSWORD) {
     const email = nextEmail(tag);
-    const r = await post('/auth/register', { email, password, name: 'Ana Pérez' });
+    const r = await post('/auth/register', { email, password, name: 'Ana Pérez', phone: '5512345678' });
     expect([r.status, r.text]).toEqual([201, r.text]);
     const u = await prisma.user.findUniqueOrThrow({ where: { email } });
     return { id: u.id, email, access: r.body.accessToken as string };
@@ -207,7 +207,7 @@ describe('CTA v1.117.3 — B19 (cobertura del candado) y B20 (verify-email, cuen
           return {
             email,
             act: async () => {
-              const r = await post('/auth/register', { email, password: PASSWORD, name: 'Ana Pérez' });
+              const r = await post('/auth/register', { email, password: PASSWORD, name: 'Ana Pérez', phone: '5512345678' });
               expect(r.status).toBe(201);
             },
           };

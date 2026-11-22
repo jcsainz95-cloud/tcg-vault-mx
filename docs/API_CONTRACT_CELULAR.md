@@ -14,7 +14,7 @@
 | `GET /users/me` | cuenta | Agrega `phoneRequired: boolean` (derivado). `phone` se devuelve tal cual está guardado. |
 | `PATCH /users/me` | cuenta | `phone`: si viene, string que normaliza a válido; se guarda normalizado. Vacío, null, no-string o inválido ⇒ 422 `PHONE_INVALID` `details:{field:"phone"}`. Nunca anula. Respuesta incluye `phoneRequired`. |
 | `PATCH /admin/users/:id/phone` | admin | Body `{phone}`; misma validación; no vacía; escribe auditoría con valor enmascarado. 404 si no existe. |
-| Alta de cliente M6 (`admin.service.ts:805`) | admin | `phone` obligatorio y válido; si no ⇒ 422 `PHONE_INVALID`. |
+| Alta de cliente **y de staff** M6 (`admin.service.ts:805`) | admin | `phone` obligatorio y válido para todos los roles; si no ⇒ 422 `PHONE_INVALID`. |
 | `GET /admin/users/:id` | staff | Devuelve `phone` completo (ya dato de contacto del cliente) y `phoneRequired`. |
 | `POST /checkout/quote`, `POST /checkout/session`, crear retiro, crear solicitud de buylist | cuenta | Guard `@RequirePhone()`: `!isValidMxPhone(user.phone)` ⇒ 422 `PHONE_REQUIRED` `details:{field:"phone"}` antes de cualquier efecto. Buylist (`buylist.service.ts:1674-1690`) sustituye su revisión nulo/vacío por el helper. |
 Códigos nuevos en `error-codes.ts`: `PHONE_INVALID` (422). `PHONE_REQUIRED` ya existe (422). Sin schema ni migración.
@@ -30,5 +30,5 @@ El celular no va a `dataLayer`, GA4, Meta Pixel/CAPI ni a la URL. Eventos permit
 
 ## 5. Reparto
 - **backend:** helper + pruebas; DTOs de registro/PATCH/alta solo-correo/alta M6; `phoneRequired` en `/users/me` y respuestas de auth; guard `@RequirePhone()` en las 4 rutas de dinero; `PHONE_INVALID`; `PATCH /admin/users/:id/phone` + auditoría; seeds con celular válido; pruebas de las tablas de §1 y de «no se puede vaciar».
-- **frontend:** `lib/phone.ts` y `PhoneGateForm`; la variante elegida (ambas se dibujan primero); guard de layout; `AuthForm.tsx` pide celular en el registro; `ProfileSection.tsx` y `BuylistKycForm.tsx` sin `maxLength`, con normalización, sin permitir vaciar; formulario de vender con reintento de un clic ante 422; M6 muestra/edita celular y el alta lo pide; mock de buylist con `PHONE_REQUIRED`; tipos en `api.ts`; eventos sin valor.
+- **frontend:** `lib/phone.ts` y `PhoneGateForm`; la variante elegida (ambas se dibujan primero); guard de layout; `AuthForm.tsx` pide celular en el registro; `ProfileSection.tsx` y `BuylistKycForm.tsx` sin `maxLength`, con normalización, sin permitir vaciar; formulario de vender SIN campo de celular: ante 422 `PHONE_REQUIRED` abre el modal de la puerta y, al guardar, reintenta solo la misma solicitud una vez (mismo `clientRequestId`); M6 muestra/edita celular y el alta lo pide; mock de buylist con `PHONE_REQUIRED`; tipos en `api.ts`; eventos sin valor.
 - **qa + seguridad-lead:** gates por `orders`/`buylist`; pruebas de IDOR en `PATCH /admin/users/:id/phone` y de fuga a medición.

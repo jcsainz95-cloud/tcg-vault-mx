@@ -61,7 +61,7 @@ describe('CLM-A · dirección del invitado a su libreta al reclamar (§4-G.9c)',
   async function account(verified = true): Promise<{ id: string; email: string; token: string }> {
     seq += 1;
     const email = `clm.${RUN}.${seq}@example.com`;
-    const reg = await h.api('POST', '/auth/register', { json: { email, password: PASSWORD, name: 'Juan Pérez' } });
+    const reg = await h.api('POST', '/auth/register', { json: { email, password: PASSWORD, name: 'Juan Pérez', phone: '5512345678' } });
     expect(reg.status).toBe(201);
     const user = await h.prisma.user.update({ where: { email }, data: { emailVerified: verified } });
     return { id: user.id, email, token: await h.login(email, PASSWORD) };

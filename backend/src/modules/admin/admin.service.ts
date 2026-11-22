@@ -27,6 +27,7 @@ import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
+import { assertValidPhone, isValidMxPhone, maskPhone } from '../users/phone-mx';
 import { toAddressDTO } from '../users/address-dto';
 import { UsersService } from '../users/users.service';
 import { netRevenueCents, netShippingRevenueCents } from '../../common/money';
@@ -215,6 +216,7 @@ function toAdminUserHeader(u: AdminUserRow) {
     locale: u.locale,
     emailVerified: u.emailVerified,
     phone: u.phone,
+    phoneRequired: !isValidMxPhone(u.phone),
     deletedAt: u.deletedAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
@@ -802,10 +804,9 @@ export class AdminService {
     }
     const locale = (dto.locale as string | undefined) ?? 'es';
 
-    if (dto.phone !== undefined && dto.phone !== null && typeof dto.phone !== 'string') {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid phone', { field: 'phone' });
-    }
-    const phone = (dto.phone as string | undefined) ?? undefined;
+    // §CELULAR (dueño: «obligatorio para TODOS»): cliente Y equipo exigen celular MX válido en el alta M6 (`422 PHONE_INVALID` si
+    // falta o no es válido). Antes el staff podía omitirlo; se cierra aquí. Se guarda normalizado.
+    const phone = assertValidPhone(dto.phone);
 
     // 4. password: si se provee, política de /auth/register (MinLength 8). Si se omite, se autogenera una temporal
     // de ALTA ENTROPÍA (randomBytes(18).base64url) y se devuelve UNA sola vez en `tempPassword`.
@@ -918,6 +919,8 @@ export class AdminService {
     kycStatus?: string;
     page: number;
     pageSize: number;
+    /** §FICHA-CLIENTE (B-1): el operador solo ve cuentas `customer`. */
+    customersOnly?: boolean;
   }) {
     const { q, page, pageSize } = params;
 
@@ -961,7 +964,7 @@ export class AdminService {
     }
 
     // §PROV: las tiendas aliadas viven solo en /admin/suppliers; el panel general de usuarios no las lista (cláusula aparte del AND).
-    const where: Prisma.UserWhereInput = { ...(and.length > 0 ? { AND: and } : {}), role: { not: Role.supplier } };
+    const where: Prisma.UserWhereInput = { ...(and.length > 0 ? { AND: and } : {}), role: params.customersOnly ? Role.customer : { not: Role.supplier } };
 
     const [rows, total] = await Promise.all([
       this.prisma.user.findMany({
@@ -1445,6 +1448,26 @@ export class AdminService {
    * La proyección NO se inventa: es la MISMA que ya usa `listUsers` (el endpoint hermano), así que el
    * consumidor recibe la forma que ya conoce.
    */
+  /** §CELULAR: valida (422 PHONE_INVALID) y escribe el celular normalizado; 404 si no existe. Devuelve máscaras para auditar. */
+  async updateUserPhone(
+    id: string,
+    raw: unknown,
+    /** I-2: se ejecuta DENTRO de la transacción del cambio; si lanza, el celular no cambia. */
+    auditInTx?: (tx: Prisma.TransactionClient, r: { phone: string; phoneMasked: string; previousMasked: string | null }) => Promise<void>,
+  ) {
+    const phone = assertValidPhone(raw);
+    const prev = await this.prisma.user.findUnique({ where: { id }, select: { phone: true, anonymizedAt: true } });
+    if (!prev) throw BusinessException.notFound();
+    // SC-3: una cuenta anonimizada ya no es de nadie; no se le escribe un celular.
+    if (prev.anonymizedAt) throw BusinessException.validation('USER_DELETED', 'Cannot edit an anonymized account');
+    const res = { phone, phoneMasked: maskPhone(phone), previousMasked: prev.phone ? maskPhone(prev.phone) : null };
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id }, data: { phone } });
+      if (auditInTx) await auditInTx(tx, res);
+    });
+    return res;
+  }
+
   async updateUserStatus(id: string, status: 'active' | 'blocked') {
     // 🔒 D2g (§19.30.2 (2), C-21 (b)): la cuenta MARCADA como del dueño no se bloquea ni se reactiva por aquí — ⛔ ni por él
     // mismo (un dueño bloqueado deja el sistema sin destinatario). La guarda va en el `where` de la escritura (`isOwner: false`,
@@ -1668,6 +1691,9 @@ export class AdminService {
       await tx.wishlistItem.deleteMany({ where: { userId: id } });
       await tx.wishlistMail.deleteMany({ where: { userId: id } });
       await tx.sealedRestockSubscription.deleteMany({ where: restockSubscriptionsOf(id, user.email) });
+      // §FICHA-CLIENTE (contrato §1b): el TEXTO de las notas internas del equipo sobre esta cuenta es PII ⇒ se vacía (también el de las
+      // ya borradas lógicamente); las filas quedan (quién/cuándo, sin texto). Misma transacción que la anonimización.
+      await tx.customerNote.updateMany({ where: { userId: id }, data: { body: '' } });
       await tx.user.update({
         where: { id },
         data: {

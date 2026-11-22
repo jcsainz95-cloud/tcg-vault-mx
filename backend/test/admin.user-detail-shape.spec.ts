@@ -36,7 +36,7 @@ const RFC = 'XAXX010101000';
 /** `AdminUserDetailDTO` (§11) — `super_admin`. */
 // v1.80.9 (§M6-U.7): los DOS DTOs ganan `username` y `lockedUntil`; ⭐ v1.80.9.1 (A-1, STF-32 iii): y `lockState`.
 const SUPER_KEYS = [
-  'id', 'email', 'username', 'lockedUntil', 'lockState', 'name', 'nameSource', 'phone', 'locale', 'role', 'status', 'emailVerified',
+  'id', 'email', 'username', 'lockedUntil', 'lockState', 'name', 'nameSource', 'phone', 'phoneRequired', 'locale', 'role', 'status', 'emailVerified',
   'authProvider', 'avatarUrl', 'mustChangePassword', 'deletedAt', 'anonymizedAt', 'createdAt',
   'updatedAt', 'recentShipmentRecipients', 'kycProfile', 'billingProfile', 'addresses', 'orders',
   'sellRequests', 'disputes', 'ownedItems',
@@ -52,7 +52,7 @@ const SUPER_KEYS = [
  * movimientos por persona no es de su rol.
  */
 const OPERATOR_KEYS = [
-  'id', 'email', 'username', 'lockedUntil', 'lockState', 'name', 'nameSource', 'phone', 'locale', 'role', 'status', 'emailVerified',
+  'id', 'email', 'username', 'lockedUntil', 'lockState', 'name', 'nameSource', 'phone', 'phoneRequired', 'locale', 'role', 'status', 'emailVerified',
   'deletedAt', 'createdAt', 'updatedAt', 'kycProfile', 'billingProfile', 'addresses', 'orders',
   'sellRequests', 'disputes', 'ownedItems',
   'isOwner',

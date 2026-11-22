@@ -13,6 +13,9 @@ import { ShipmentsModule } from '../shipments/shipments.module';
 import { UsersModule } from '../users/users.module';
 import { SpendAlertsModule } from '../spend-alerts/spend-alerts.module';
 import { ShippingProviderModule } from '../shipping-provider/shipping-provider.module';
+import { AdminCustomerFileController } from './customer-file.controller';
+import { CustomerNotesService } from './customer-notes.service';
+import { CustomerOverviewService } from './customer-overview.service';
 import { AdminShippingController } from './admin-shipping.controller';
 import { ShippingConfigService } from './shipping-config.service';
 import { DashboardShippingService } from './dashboard-shipping.service';
@@ -30,9 +33,10 @@ import { CatalogModule } from '../catalog/catalog.module';
   // proveedor (`ShippingProviderModule`, solo `import`); `SpendAlertsModule` da además la lectura de saldo cacheada del tablero.
   // 💰 §AN (API_CONTRACT §15): `SalesAnalyticsModule` para las rutas `admin/reports/sales*`.
   imports: [PricingModule, UploadsModule, AuthModule, ShipmentsModule, UsersModule, SpendAlertsModule, ShippingProviderModule, SalesAnalyticsModule, CatalogModule],
-  providers: [AdminService, ShippingConfigService, DashboardShippingService],
+  providers: [AdminService, ShippingConfigService, DashboardShippingService, CustomerNotesService, CustomerOverviewService],
   controllers: [
     AdminUsersController,
+    AdminCustomerFileController,
     AdminFinanceController,
     AdminReportsController,
     AdminDashboardController,

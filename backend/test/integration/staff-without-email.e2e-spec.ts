@@ -73,7 +73,8 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
   }
 
   function createUser(body: Record<string, unknown>, token = adminTok) {
-    return h.api('POST', '/admin/users', { json: body, token });
+    // §CELULAR: el alta M6 de equipo también exige celular válido; las pruebas lo ponen salvo que lo declaren.
+    return h.api('POST', '/admin/users', { json: { phone: '5512345678', ...body }, token });
   }
 
   /** Alta de staff sin correo por API; devuelve fila + contraseña temporal. */
@@ -152,7 +153,7 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
     expect(custNoEmail.status).toBe(422);
     expect(custNoEmail.body.error.details.field).toBe('email');
     // ⭐ v1.80.9.1 (D-5): TODO `422` del alta lleva `details.field` (aditivo), también los que antes no lo llevaban.
-    const okCust = { name: 'X', role: 'customer', email: `stf2_${randomUUID().slice(0, 8)}@e2e.local` };
+    const okCust = { name: 'X', role: 'customer', phone: '5512345678', email: `stf2_${randomUUID().slice(0, 8)}@e2e.local` };
     const cases: [Record<string, unknown>, string][] = [
       [{ ...okCust, name: '   ' }, 'name'],
       [{ ...okCust, role: 'jefe' }, 'role'],
@@ -295,7 +296,7 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
 
   it('STF-8 — register con "ana" ⇒ 400 y cero filas; un cliente entra por correo igual que hoy', async () => {
     const name = uname('ana');
-    const r = await h.api('POST', '/auth/register', { json: { email: name, password: 'Password123!', name: 'Ana' } });
+    const r = await h.api('POST', '/auth/register', { json: { email: name, password: 'Password123!', name: 'Ana', phone: '5512345678' } });
     expect(r.status).toBe(400);
     expect(await h.prisma.user.count({ where: { OR: [{ email: name }, { username: name }] } })).toBe(0);
     const c = await login(E2E_USERS.customer.email, E2E_USERS.customer.password);
@@ -549,9 +550,19 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
     expect(Date.parse(detail.body.lockedUntil)).toBeGreaterThanOrEqual(t0 + 55_000);
     expect(detail.body.username).toBe(s.username);
     expect(detail.body.email).toBeNull();
+    // §FICHA-CLIENTE.13: el operador NO ve cuentas de staff (404); el candado se le muestra sobre un cliente.
     const opDetail = await h.api('GET', `/admin/users/${s.id}`, { token: opTok });
-    expect(opDetail.status).toBe(200);
-    expect(typeof opDetail.body.lockedUntil).toBe('string');
+    expect(opDetail.status).toBe(404);
+    const cust = await h.prisma.user.create({
+      data: { email: `stf24c_${randomUUID().slice(0, 8)}@e2e.local`, name: 'C', role: Role.customer, passwordHash: await argon2.hash('Algo-123456'), emailVerified: true },
+    });
+    for (let i = 0; i < 5; i++) expect((await login(cust.email!, BAD)).status).toBe(401);
+    const tc = Date.now();
+    const opCust = await h.api('GET', `/admin/users/${cust.id}`, { token: opTok });
+    expect(opCust.status).toBe(200);
+    expect(opCust.body.lockState).toBe('ok');
+    expect(typeof opCust.body.lockedUntil).toBe('string');
+    expect(Date.parse(opCust.body.lockedUntil)).toBeGreaterThanOrEqual(tc + 55_000 - 5_000);
 
     expect((await h.api('POST', `/admin/users/${s.id}/reset-password`, { token: adminTok })).status).toBe(200);
     const after = await h.api('GET', `/admin/users?q=${s.username}`, { token: adminTok });

@@ -34,15 +34,15 @@ function daysSince(iso: string | null | undefined): number {
  * `GET /admin/manual-refunds`). Lo que hay que transferir a mano, lo más viejo primero. **Solo súper-admin**
  * (S6): al operador no le existe ni en menú ni en tablero. ⛔ La CLABE nunca en claro aquí: `clabeMasked` tal cual (S5).
  */
-export function ManualRefundsView() {
+export function ManualRefundsView({ customerUserId }: { customerUserId?: string } = {}) {
   return (
     <SuperAdminOnly>
-      <ManualRefundsList />
+      <ManualRefundsList customerUserId={customerUserId} />
     </SuperAdminOnly>
   );
 }
 
-function ManualRefundsList() {
+function ManualRefundsList({ customerUserId }: { customerUserId?: string }) {
   const t = useTranslations('admin.manualRefunds');
   const tStatus = useTranslations('status.manualRefund');
   const tc = useTranslations('common');
@@ -53,8 +53,8 @@ function ManualRefundsList() {
   const q = useDebouncedValue(search, 400).trim();
 
   const list = useQuery({
-    queryKey: [...MANUAL_REFUNDS_KEY, status, q, page],
-    queryFn: () => getManualRefunds({ status, q: q || undefined, page }),
+    queryKey: [...MANUAL_REFUNDS_KEY, status, q, page, customerUserId],
+    queryFn: () => getManualRefunds({ status, q: q || undefined, page, userId: customerUserId }),
   });
   const totalPages = list.data && list.data.pageSize > 0 ? Math.max(1, Math.ceil(list.data.total / list.data.pageSize)) : 1;
 

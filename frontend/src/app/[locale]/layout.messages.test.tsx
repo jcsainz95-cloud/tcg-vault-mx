@@ -35,6 +35,7 @@ import { stripComments } from '@/test/strip-comments';
  * es 47 354 B (en 45 819 B); antes de c1 la raíz mandaba todo menos `admin`: es 102 316 B. Subirlo exige decir por qué
  * en FRONTEND_NOTES §DYN.
  */
+// 2026-11-22: el celular de la solicitud vive en `common.phoneGate`; las claves `buylist.request.phone.*` se borraron (muertas).
 const HOME_MESSAGES_MAX_BYTES = 48_500;
 
 /**

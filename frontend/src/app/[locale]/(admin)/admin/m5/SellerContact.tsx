@@ -1,6 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import { mailtoHref } from '@/lib/safe-href';
 
 /**
  * Normaliza un teléfono móvil mexicano al formato de `wa.me` (52 + 10 dígitos, sin «+», sin «1»).
@@ -38,7 +39,7 @@ export function SellerContact({ seller, pickupPhone }: Props) {
       <span data-testid="seller-contact" className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
         <span>{t('none')}</span>
         {seller.email && (
-          <a href={`mailto:${seller.email}`} className={LINK}>
+          <a href={mailtoHref(seller.email)} className={LINK}>
             {t('email')}
           </a>
         )}

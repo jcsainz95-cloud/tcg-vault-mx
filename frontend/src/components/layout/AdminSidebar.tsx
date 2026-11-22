@@ -114,7 +114,7 @@ const groups: { groupKey: string | null; items: Item[] }[] = [
     items: [
       { href: '/admin/m7', key: 'm7', superAdminOnly: true },
       { href: '/admin/m9', key: 'm9', superAdminOnly: true },
-      { href: '/admin/m6', key: 'm6', superAdminOnly: true },
+      { href: '/admin/m6', key: 'm6' }, // §FICHA-CLIENTE.13: el operador ve clientes y ficha (lectura)
       { href: '/admin/m10', key: 'm10', superAdminOnly: true },
       // Card Show (§CARDSHOW.15): captura de leads/preinscritos del evento. Súper-admin y solo él
       // (PII); oculto para el operador (no le dice nada que pueda hacer).

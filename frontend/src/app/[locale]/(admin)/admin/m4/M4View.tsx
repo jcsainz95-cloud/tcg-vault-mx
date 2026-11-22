@@ -29,10 +29,12 @@ export function M4View({
   initialTab = 'preparar',
   initialFolio = null,
   initialAlert = false,
+  initialUserId = null,
 }: {
   initialTab?: M4Tab;
   initialFolio?: string | null;
   initialAlert?: boolean;
+  initialUserId?: string | null;
 }) {
   const t = useTranslations('admin.m4');
   const tModules = useTranslations('admin.modules'); // §37.2a-2: h1 = rótulo del menú (candado P66-2)
@@ -160,7 +162,7 @@ export function M4View({
       <div role="tabpanel" id={`m4-panel-${tab}`} aria-labelledby={`m4-tab-${tab}`}>
         {tab === 'preparar' && <PreparationQueue onCaptureGuide={openFromCard} />}
         {tab === 'reponer' && <ReplacementCasesPanel />}
-        {tab === 'envios' && <ShipmentsQueue onCaptureGuide={openFromRow} initialFolio={initialFolio} initialAlert={initialAlert} />}
+        {tab === 'envios' && <ShipmentsQueue onCaptureGuide={openFromRow} initialFolio={initialFolio} initialAlert={initialAlert} initialUserId={initialUserId} />}
         {tab === 'salida' && <DepartureBoard />}
       </div>
 

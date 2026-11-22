@@ -39,6 +39,9 @@ const CENSUS: Record<string, readonly [Clase, string]> = {
   // 💰 Fusión analítica + #78: el cuerpo de `pnl()` vive en `pnl-core.ts` (`pnlBuckets`, §AN fase B); M7 y la analítica lo leen.
   'src/modules/admin/pnl-core.ts pnlBuckets#findMany#1': [O, 'P&L de M7 y analítica (§BSD.5): una guía de entrada en `guia` NO es costo de envío de venta'],
   'src/modules/admin/pnl-core.ts buylistRowsInPeriod#findMany#1': [I, 'P&L de M7 y analítica (§BSD.16 (a), BSD-1.3 punto 6): costo de las guías de Skydropx de ENTRADA'],
+  // §FICHA-CLIENTE: la ficha del cliente lista SUS retiros y envíos directos (la guía de entrada no es de ventas ni lleva userId).
+  'src/modules/admin/customer-overview.service.ts overview#groupBy#1': [O, 'ficha del cliente: conteo de sus envíos por estado (`shipmentsOfCustomer` ⇒ OUTBOUND_ONLY)'],
+  'src/modules/admin/customer-overview.service.ts overview#findMany#1': [O, 'ficha del cliente: últimos 5 retiros/envíos directos con rastreo (`shipmentsOfCustomer` ⇒ OUTBOUND_ONLY)'],
   'src/modules/admin/admin.service.ts launchMetrics#count#1': [O, 'métrica de lanzamiento: envíos entregados'],
   'src/modules/admin/admin.service.ts dashboard#count#1': [O, 'tablero: envíos por atender'],
   'src/modules/admin/admin.service.ts dashboard#count#2': [O, 'tablero: envíos entregados'],

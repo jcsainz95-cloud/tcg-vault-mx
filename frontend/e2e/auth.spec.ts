@@ -40,7 +40,7 @@ test.describe('auth · login y registro (ES/EN)', () => {
     await expect(page.getByLabel(t('es', 'auth.phone'))).toBeVisible();
   });
 
-  test('login con Google (mock) deja sesión y redirige al home', async ({ page }) => {
+  test('login con Google (mock) deja sesión, redirige al home y la puerta del celular (§CELULAR) guarda sin navegar', async ({ page }) => {
     // El canje del idToken lo finge la rama mock de `api.ts`: contra el stack real haría falta
     // un idToken de Google de verdad (Identity Services), que un E2E no puede fabricar.
     mockOnly('el canje del idToken de Google solo lo simula la rama mock de api.ts');
@@ -51,6 +51,26 @@ test.describe('auth · login y registro (ES/EN)', () => {
     await googleBtn.click();
     // MOCK: simula el canje del idToken y redirige al home del locale.
     await expect(page).toHaveURL(/\/es(\/|$)/);
+
+    // Google nace sin celular (`phoneRequired:true`): la puerta B aparece SOBRE la página, sin cambiar la URL.
+    const dialog = page.getByRole('dialog', { name: t('es', 'common.phoneGate.title') });
+    await expect(dialog).toBeVisible();
+    const url = page.url();
+    await page.screenshot({ path: process.env.PHONE_GATE_SHOT_DIR ? `${process.env.PHONE_GATE_SHOT_DIR}/e2e-google-modal.png` : undefined });
+
+    // Sin celular válido no se puede continuar; con uno (pegado con +52) se guarda y el modal desaparece.
+    const save = dialog.getByRole('button', { name: t('es', 'common.phoneGate.save') });
+    const field = dialog.getByLabel(t('es', 'common.phoneGate.label'));
+    // La libreta mock trae un celular válido en la dirección predeterminada: llega prellenado.
+    await expect(field).toHaveValue('5555123456');
+    await field.fill('');
+    await expect(save).toBeDisabled();
+    await field.fill('+52 55 1234 5678');
+    await expect(field).toHaveValue('5512345678');
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(dialog).toBeHidden();
+    expect(page.url()).toBe(url);
     await expect(page.getByRole('heading', { name: t('es', 'home.heroTitle') })).toBeVisible();
   });
 

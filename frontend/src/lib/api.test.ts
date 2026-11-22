@@ -238,6 +238,27 @@ describe('api (rama mock, v1.1)', () => {
     const res = await loginWithGoogle('mock-id-token');
     expect(res.user.authProvider).toBe('google');
     expect(getToken()).toBe('mock.session.token');
+    // §CELULAR: Google nace sin celular ⇒ la puerta del layout lo pedirá.
+    expect(res.user.phoneRequired).toBe(true);
+    // La sesión no se filtra a las pruebas de dinero de abajo (que correrían con `phoneRequired:true`).
+    window.localStorage.removeItem('tcg.user');
+  });
+
+  it('§CELULAR (mock): con phoneRequired las rutas de dinero responden 422 PHONE_REQUIRED antes de cualquier efecto', async () => {
+    window.localStorage.setItem(
+      'tcg.user',
+      JSON.stringify({ id: 'u', email: 'g@example.com', name: 'G', role: 'customer', locale: 'es', phoneRequired: true }),
+    );
+    try {
+      for (const call of [
+        () => createCheckoutSession(['x']),
+        () => createSellRequest({ items: [], addressId: 'addr-1' } as never),
+      ]) {
+        await expect(call()).rejects.toMatchObject({ status: 422, code: 'PHONE_REQUIRED' });
+      }
+    } finally {
+      window.localStorage.removeItem('tcg.user');
+    }
   });
 });
 

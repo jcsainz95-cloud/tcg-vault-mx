@@ -25,6 +25,7 @@ import {
   type LeadListFilters,
   type PlayerListFilters,
 } from '@/lib/card-show-admin-api';
+import { mailtoHref } from '@/lib/safe-href';
 
 /**
  * Panel «Card Show» (super_admin) — API_CONTRACT §CARDSHOW.15, v1.96 M-84. Dos listados:
@@ -169,7 +170,7 @@ function Pagination({
 /** Correo como `mailto:` (accionable desde la tabla, BLOQ-11). */
 function EmailLink({ email }: { email: string }) {
   return (
-    <a href={`mailto:${email}`} className="text-text underline underline-offset-2 hover:text-accent">
+    <a href={mailtoHref(email)} className="text-text underline underline-offset-2 hover:text-accent">
       {email}
     </a>
   );

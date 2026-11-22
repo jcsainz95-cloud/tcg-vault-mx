@@ -22,6 +22,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
+import { isValidMxPhone } from '../users/phone-mx';
 import { cardProductRefKey, PricingService } from '../pricing/pricing.service';
 // v1.91⟨precios⟩ (M-75, §PRE.C/5, criterio 875): gate de COMPRA sobre casos de revisión abiertos.
 import { PriceReviewService } from '../pricing/price-review.service';
@@ -1678,7 +1679,7 @@ export class BuylistService implements OnModuleInit {
       where: { id: userId },
       select: { phone: true },
     });
-    if (seller == null || seller.phone == null || seller.phone.trim() === '') {
+    if (seller == null || !isValidMxPhone(seller.phone)) {
       throw BusinessException.validation(
         'PHONE_REQUIRED',
         'A mobile phone is required on the account to create a sell request',

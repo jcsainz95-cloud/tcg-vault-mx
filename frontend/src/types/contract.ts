@@ -603,6 +603,12 @@ export interface UserDTO {
    * Decide «Ponle contraseña a tu cuenta» (`POST /auth/set-password`, sin la actual) y el correo editable.
    */
   accountSetupPending?: boolean;
+  /**
+   * §CELULAR (`docs/API_CONTRACT_CELULAR.md` §2): `true` si el celular falta o no es válido (derivado en el servidor).
+   * Lo traen `/auth/login|google|register*`, `GET` y `PATCH /users/me`. Con `true` el layout pinta `PhoneGateForm`.
+   * Ausente en sesiones guardadas antes de §CELULAR ⇒ se relee `GET /users/me` una vez.
+   */
+  phoneRequired?: boolean;
 }
 
 export interface AuthResponse {
@@ -704,6 +710,8 @@ export interface ChangePasswordResponse {
 export interface RegisterEmailOnlyRequest {
   email: string;
   locale?: Locale;
+  /** §CELULAR: opcional (el del domicilio del checkout); ausente/inválido ⇒ cuenta con `phoneRequired:true`. */
+  phone?: string;
 }
 /** POST /auth/account-setup — `public`. `200` sin sesión; `422 ACCOUNT_SETUP_TOKEN_INVALID` (no distingue el motivo). */
 export interface AccountSetupRequest {
@@ -2918,6 +2926,8 @@ export interface ManualRefundsFilters {
   status?: ManualRefundStatus;
   q?: string;
   page?: number;
+  /** §FICHA-CLIENTE: solo las devoluciones SPEI de ESTE cliente (`customerUserId`). */
+  userId?: string;
 }
 export interface ManualRefundsResponse extends Paginated<ManualRefundDTO> {
   pendingCents: number;
@@ -2972,6 +2982,8 @@ export type AdminRefundRowDTO = PaymentRefundDTO & {
 export interface AdminRefundsFilters {
   requestedByRole?: Role;
   actorUserId?: string;
+  /** §FICHA-CLIENTE: reembolsos de ESTE cliente (≠ `actorUserId`, quien los pidió). */
+  userId?: string;
   kind?: PaymentRefundKind;
   status?: PaymentRefundStatus;
   from?: string;
@@ -6650,6 +6662,8 @@ export interface AdminUserDetailDTO extends AdminUserSummaryDTO {
   locale?: Locale;
   authProvider?: AuthProvider;
   phone?: string;
+  /** §CELULAR: `true` si el celular falta o no es válido (derivado en el servidor). */
+  phoneRequired?: boolean;
   /**
    * ⭐ v1.69 (§M6-K.3): de dónde salió `name`. Va en los DOS DTOs (también el de operador).
    * Con `'derived'` el nombre lo FABRICÓ el sistema con el correo (P-73) y **no sirve para

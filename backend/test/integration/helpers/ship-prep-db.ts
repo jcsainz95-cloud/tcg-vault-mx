@@ -104,6 +104,7 @@ export class ShipPrepDb {
         name,
         nameSource: opts.nameSource ?? 'user',
         role: 'customer',
+        phone: '5512345678', // §CELULAR
         emailVerified: true,
       },
     });

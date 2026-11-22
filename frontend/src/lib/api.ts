@@ -379,6 +379,7 @@ import type { SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/c
 import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
 import type { PublicShippingRuleDTO } from '@/types/contract';
 import { matchNeighborhood } from './address-rules';
+import { isValidMxPhone } from './phone';
 import * as wishlistMock from './mock/wishlist';
 import type {
   WishlistCreateRequest,
@@ -1270,6 +1271,21 @@ export const MOCK_QUOTE_CARD_KEYS = [
 ] as const;
 
 /**
+ * MOCK §CELULAR: `@RequirePhone()` del servidor en las rutas de dinero (`POST /checkout/quote`, `/checkout/session`,
+ * crear retiro `POST /shipments`, `POST /buylist/requests`): una cuenta con `phoneRequired:true` recibe
+ * `422 PHONE_REQUIRED` ANTES de cualquier efecto. Sin sesión (invitado) no aplica.
+ */
+function mockRequirePhone(): void {
+  if (getStoredUser()?.phoneRequired === true) {
+    throw new ApiClientError(422, {
+      code: 'PHONE_REQUIRED',
+      message: 'A mobile phone is required on the account',
+      details: { field: 'phone' },
+    });
+  }
+}
+
+/**
  * Llaves EXACTAS de un `OrderItemPreview` (§4). El pin de que nada se cuela al nivel del ítem.
  * v1.68.1: `reservedByYou: true` es la única llave adicional posible y viaja SOLO cuando la pieza está
  * reservada por una orden propia (omitida cuando es falso) — no está aquí a propósito.
@@ -1284,6 +1300,7 @@ export async function getCheckoutQuote(inventoryItemIds: string[], discountCode?
       body: { inventoryItemIds, ...discountCodeField(discountCode) },
     });
   }
+  mockRequirePhone();
   // MOCK v1.21.3-quote-prune: resolución POR ÍTEM. Un id que no está en los fixtures se
   // trata como pieza borrada (`cardName: null`); los fixtures no modelan el caso
   // «existe pero fuera de {listed, in_stock}» (cardName con nombre) — ese lo ejercita
@@ -1413,6 +1430,7 @@ export async function createCheckoutSession(
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }
+  mockRequirePhone();
   // MOCK: reusa el desglose del quote y devuelve un clientSecret simulado (el StripePaymentModal
   // en modo mock no llama a Stripe real). Replica el 422 PRICE_PENDING del contrato.
   const items = inventoryItemIds
@@ -1890,6 +1908,7 @@ export async function createShipment(
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }
+  mockRequirePhone();
   // MOCK: valida settled + MX (como el backend) y devuelve el shape 201 con clientSecret simulado.
   const address = fx.mockAddresses.find((a) => a.id === addressId);
   if (!address || address.country !== 'MX') {
@@ -1953,6 +1972,8 @@ export interface AdminShipmentsFilters {
   folio?: string;
   /** v1.80.12.13 (§19.3, §19.20.2; §0-Q clase L, dominio `true`): la UNIÓN `carrierAlert ≠ null ∨ labelAlert ≠ null`. */
   alert?: boolean;
+  /** §FICHA-CLIENTE: `?userId=<uuid>` (el servidor ya lo filtra; enlace de la ficha de M6). */
+  userId?: string;
   page?: number;
   pageSize?: number;
 }
@@ -1984,6 +2005,7 @@ export async function getAdminShipments(
         folio: filters.folio,
         // ⛔ solo `'true'`: `false` es `400` en el servidor (dominio `true`, como `refundReview`).
         alert: filters.alert ? 'true' : undefined,
+        userId: filters.userId,
         page: filters.page,
         pageSize: filters.pageSize,
       },
@@ -1992,6 +2014,7 @@ export async function getAdminShipments(
   let data = mockLiveAdminShipments();
   if (filters.status) data = data.filter((s) => s.status === filters.status);
   if (filters.folio) data = data.filter((s) => s.folio === filters.folio);
+  if (filters.userId) data = data.filter((s) => (s as { userId?: string }).userId === filters.userId);
   // MOCK §19.20.2: `?alert=true` = la UNIÓN de las dos alertas, sobre las MISMAS filas decoradas que ve la lista.
   if (filters.alert) data = data.filter((s) => s.carrierAlert != null || s.labelAlert != null);
   const q = filters.q?.trim().toLowerCase();
@@ -2329,7 +2352,7 @@ export async function voidCase(caseId: string, body: VoidCaseRequest): Promise<V
 export async function getManualRefunds(filters: ManualRefundsFilters = {}): Promise<ManualRefundsResponse> {
   if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<ManualRefundsResponse>('/admin/manual-refunds', {
-      query: { status: filters.status, q: filters.q?.trim() || undefined, page: filters.page },
+      query: { status: filters.status, q: filters.q?.trim() || undefined, page: filters.page, userId: filters.userId },
     });
   }
   try {
@@ -2405,6 +2428,7 @@ export async function getAdminRefunds(filters: AdminRefundsFilters = {}): Promis
       query: {
         requestedByRole: filters.requestedByRole,
         actorUserId: filters.actorUserId,
+        userId: filters.userId,
         kind: filters.kind,
         status: filters.status,
         from: filters.from,
@@ -3179,6 +3203,7 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
     return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: { ...input, ...measurementBodyField() } });
   }
+  mockRequirePhone();
   // MOCK v1.53 (§4.40) — el pipeline de compra es raw-only y aquí, a diferencia del batch, es
   // TODO-O-NADA: `createRequest` congela dinero en una transacción, así que un solo item no-raw
   // aborta la solicitud entera con `422 BUYLIST_RAW_ONLY` + `details: { index, productType }`
@@ -3379,6 +3404,15 @@ export async function updateMe(input: UpdateMeInput): Promise<UserDTO> {
     ...(input.phone != null ? { phone: input.phone } : {}),
     ...(input.locale != null ? { locale: input.locale } : {}),
   };
+  // MOCK §CELULAR: el servidor nunca anula ni acepta un celular inválido (`422 PHONE_INVALID`).
+  if (input.phone !== undefined && !isValidMxPhone(input.phone)) {
+    throw new ApiClientError(422, {
+      code: 'PHONE_INVALID',
+      message: 'phone must be a valid 10-digit MX number',
+      details: { field: 'phone' },
+    });
+  }
+  if (input.phone !== undefined) user.phoneRequired = false;
   setStoredUser(user);
   return delay(user, 200);
 }
@@ -3395,6 +3429,8 @@ function withMeDefaults(u: UserDTO): UserDTO {
     hasPassword: u.hasPassword ?? u.authProvider !== 'google',
     mustChangePassword: u.mustChangePassword ?? false,
     nameSource: u.nameSource ?? (u.authProvider === 'google' ? 'google' : 'user'),
+    // Una sesión inyectada (E2E `loginAs`) se asume completa; Google/mocks de prueba traen la bandera explícita.
+    phoneRequired: u.phoneRequired ?? false,
   };
 }
 
@@ -3643,6 +3679,9 @@ function mockAuthResponse(over: Partial<AuthResponse['user']> = {}): AuthRespons
       status: 'active',
       authProvider: 'local',
       emailVerified: true,
+      // MOCK §CELULAR: por defecto con celular válido; Google nace sin él (`phone:null` ⇒ `phoneRequired:true`).
+      phone: '5512345678',
+      phoneRequired: false,
       ...over,
     },
     accessToken: 'mock.session.token',
@@ -3755,6 +3794,8 @@ export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
         authProvider: 'google',
         emailVerified: true,
         avatarUrl: undefined,
+        phone: undefined,
+        phoneRequired: true,
       }),
     ),
     500,
@@ -7224,7 +7265,8 @@ interface CreateAdminUserBase {
   name: string;
   /** Si se omite, el backend autogenera una temporal de alta entropía y la devuelve UNA vez. */
   password?: string;
-  phone?: string;
+  /** §CELULAR: obligatorio para TODOS los roles (cliente y equipo); falta/ inválido ⇒ 422 PHONE_INVALID. */
+  phone: string;
   locale?: Locale;
 }
 /**
@@ -7256,6 +7298,10 @@ export async function createAdminUser(input: CreateAdminUserInput): Promise<Admi
   }
   // MOCK: pendiente de backend real — replica el shape 201 del contrato. Autogenera la
   // temporal solo cuando el admin no envía password; simula 409 si el email/usuario ya existe.
+  // MOCK §CELULAR: igual que el servidor, el celular falta o es inválido ⇒ 422 PHONE_INVALID (antes que nada más).
+  if (!isValidMxPhone(input.phone)) {
+    throw new ApiClientError(422, { code: 'PHONE_INVALID', message: 'Invalid phone', details: { field: 'phone' } });
+  }
   const autogenerated = !input.password;
   const tempPassword = autogenerated ? mockTempPassword() : undefined;
   const seq = Math.floor(Math.random() * 9000 + 1000);

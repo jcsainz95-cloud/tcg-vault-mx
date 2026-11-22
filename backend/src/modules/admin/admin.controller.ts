@@ -16,6 +16,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { NotSupplierTargetGuard } from '../../common/guards/not-supplier-target.guard';
+import { OperatorCustomersOnlyGuard } from '../../common/guards/operator-customers-only.guard';
 import { AdminDeniedAttempt, AuditedSuperAdmin, AuditedSuperAdminGuard } from './audited-super-admin.guard';
 import { StaffControlAlertsService } from '../spend-alerts/staff-control.service';
 import { Throttle } from '@nestjs/throttler';
@@ -70,6 +71,11 @@ export class UpdateKycDto {
  *
  * Fijado por test: `test/admin.user-status-enum.spec.ts` (rechaza `deleted` en este DTO).
  */
+/** §CELULAR: `PATCH /admin/users/:id/phone`. Sin decoradores de tipo: lo valida `assertValidPhone` (422 PHONE_INVALID). */
+export class UpdatePhoneDto {
+  @IsOptional() phone?: unknown;
+}
+
 export class UpdateStatusDto {
   @IsIn(['active', 'blocked']) status!: 'active' | 'blocked';
 }
@@ -88,7 +94,7 @@ class CreateAdminUserDto {
   @IsString() name!: string;
   @IsString() role!: string;
   @IsOptional() @IsString() password?: string;
-  @IsOptional() @IsString() phone?: string;
+  @IsOptional() phone?: unknown;
   @IsOptional() @IsString() locale?: string;
 }
 
@@ -187,7 +193,7 @@ export class AdminUsersController {
    * `pageSize` fuera de rango **no es error**: se acota. Se documentó tal cual está, y se queda.
    */
   @Get()
-  list(@Query() query: Record<string, unknown>) {
+  list(@Query() query: Record<string, unknown>, @CurrentUser('role') role: Role) {
     for (const [key, value] of Object.entries(query)) {
       if (!(ADMIN_USERS_QUERY_KEYS as readonly string[]).includes(key)) {
         throw BusinessException.badRequest('VALIDATION_ERROR', `unknown query parameter '${key}'`, {
@@ -214,6 +220,8 @@ export class AdminUsersController {
       kycStatus: raw.kycStatus,
       page: Math.max(1, parseInt(raw.page ?? '1', 10) || 1),
       pageSize: Math.min(100, Math.max(1, parseInt(raw.pageSize ?? '20', 10) || 20)),
+      // §FICHA-CLIENTE (B-1): el operador solo ve clientes.
+      customersOnly: role === Role.vault_operator,
     });
   }
 
@@ -255,6 +263,7 @@ export class AdminUsersController {
   }
 
   @Get(':id')
+  @UseGuards(OperatorCustomersOnlyGuard)
   get(@Param('id') id: string, @CurrentUser('role') role: Role) {
     // SEC-A4: la proyección de PII depende del rol (operador recibe ficha reducida).
     return this.admin.getUser(id, role);
@@ -266,6 +275,7 @@ export class AdminUsersController {
    * el guard de clase. `scope` default `target`. NUNCA expone before/after. 404 si no existe.
    */
   @Get(':id/audit')
+  @UseGuards(OperatorCustomersOnlyGuard)
   userAudit(
     @Param('id') id: string,
     @CurrentUser('role') role: Role,
@@ -416,6 +426,32 @@ export class AdminUsersController {
       );
     }
     return links;
+  }
+
+  /** §CELULAR: corrige el celular de un cliente. Misma validación que `PATCH /users/me`; no vacía; auditoría enmascarada. */
+  @Patch(':id/phone')
+  @Roles(Role.super_admin)
+  async updatePhone(
+    @Param('id') id: string,
+    @Body() dto: UpdatePhoneDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    // I-2: celular y auditoría en UNA transacción (si la bitácora falla, el celular no cambia).
+    const res = await this.admin.updateUserPhone(id, dto.phone, (tx, r) =>
+      this.audit.log(
+        {
+          actorUserId: user.id,
+          actorRole: user.role,
+          action: 'user.phone.update',
+          entityType: 'User',
+          entityId: id,
+          before: { phone: r.previousMasked },
+          after: { phone: r.phoneMasked },
+        },
+        tx,
+      ),
+    );
+    return { id, phone: res.phone, phoneRequired: false };
   }
 
   @Patch(':id/status')

@@ -27,15 +27,15 @@ const STATUSES: PaymentRefundStatus[] = ['requested', 'submitted', 'succeeded', 
  * (24 h / 7 d / 30 d, tope usado, tasa de faltantes, merma, «repuso lo que marcó») y el libro filtrable con
  * «Reintentar». ⛔ Sin correo (D-13): el panel es el aviso.
  */
-export function OperatorRefundsView() {
+export function OperatorRefundsView({ customerUserId }: { customerUserId?: string } = {}) {
   return (
     <SuperAdminOnly>
-      <OperatorRefunds />
+      <OperatorRefunds customerUserId={customerUserId} />
     </SuperAdminOnly>
   );
 }
 
-function OperatorRefunds() {
+function OperatorRefunds({ customerUserId }: { customerUserId?: string }) {
   const t = useTranslations('admin.refunds');
   const tr = useTranslations('admin.m3.refunds');
   const tRole = useTranslations('admin.m3.role');
@@ -55,8 +55,8 @@ function OperatorRefunds() {
 
   const summary = useQuery({ queryKey: ['admin-operator-summary'], queryFn: getOperatorRefundSummary });
   const ledger = useQuery({
-    queryKey: ['admin-refunds', role, kind, status, from, to, page],
-    queryFn: () => getAdminRefunds({ requestedByRole: role || undefined, kind: kind || undefined, status: status || undefined, from: from || undefined, to: to || undefined, page, pageSize: 25 }),
+    queryKey: ['admin-refunds', role, kind, status, from, to, page, customerUserId],
+    queryFn: () => getAdminRefunds({ userId: customerUserId, requestedByRole: role || undefined, kind: kind || undefined, status: status || undefined, from: from || undefined, to: to || undefined, page, pageSize: 25 }),
   });
   const totalPages = ledger.data && ledger.data.pageSize > 0 ? Math.max(1, Math.ceil(ledger.data.total / ledger.data.pageSize)) : 1;
 

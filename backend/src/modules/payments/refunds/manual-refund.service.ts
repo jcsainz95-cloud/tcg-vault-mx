@@ -364,10 +364,10 @@ export class ManualRefundService {
   }
 
   /** `GET /admin/manual-refunds` — la cubeta. `pending` por `createdAt` asc; los demás por su sello desc. */
-  async list(raw: { status?: string; q?: string; page?: string; pageSize?: string }) {
+  async list(raw: { status?: string; q?: string; page?: string; pageSize?: string; userId?: string }) {
     const f = parseAdminListFilters({ page: raw.page ?? '1', pageSize: raw.pageSize ?? '25', q: raw.q });
     const status = parseEnumFilter('status', raw.status, STATUS_VALUES) ?? 'pending';
-    const where: Prisma.ManualRefundWhereInput = { status };
+    const where: Prisma.ManualRefundWhereInput = { status, ...(raw.userId ? { customerUserId: raw.userId } : {}) };
     if (f.q) {
       const q = f.q;
       const users = await this.prisma.user.findMany({
@@ -389,7 +389,7 @@ export class ManualRefundService {
     const [rows, total, pending] = await Promise.all([
       this.prisma.manualRefund.findMany({ where, include: MR_INCLUDE, orderBy, skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
       this.prisma.manualRefund.count({ where }),
-      this.prisma.manualRefund.aggregate({ where: { status: 'pending' }, _sum: { amountCents: true } }),
+      this.prisma.manualRefund.aggregate({ where: { status: 'pending', ...(raw.userId ? { customerUserId: raw.userId } : {}) }, _sum: { amountCents: true } }),
     ]);
     return { data: await this.toDtos(rows), page: f.page, pageSize: f.pageSize, total, pendingCents: pending._sum.amountCents ?? 0 };
   }

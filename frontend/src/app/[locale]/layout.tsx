@@ -12,6 +12,7 @@ import { shellMessages } from '@/i18n/message-scopes';
 import { Providers } from '@/components/Providers';
 import { MeasurementProvider } from '@/components/consent/MeasurementProvider';
 import { NONCE_HEADER } from '@/security/csp';
+import { PhoneGate } from '@/components/domain/PhoneGateForm';
 import { PrivacyLinkProvider } from '@/components/legal/PrivacyNoticeLink';
 import { privacyLinkVisible } from './(storefront)/footer';
 import '../globals.css';
@@ -199,6 +200,8 @@ export default async function LocaleLayout({
             <Providers>
               {/* §MKT.H · ARCHITECTURE §14: con NEXT_PUBLIC_MEASUREMENT_MODE=off solo pinta sus hijos. */}
               <MeasurementProvider>{children}</MeasurementProvider>
+              {/* §CELULAR (variante B): modal de «Completa tu celular» sobre cualquier ruta con sesión. */}
+              <PhoneGate />
             </Providers>
           </PrivacyLinkProvider>
         </NextIntlClientProvider>

@@ -3,6 +3,7 @@ import { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePhone } from '../../common/decorators/require-phone.decorator';
 import { RequireEmailVerified } from '../../common/decorators/require-email-verified.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { OrdersService } from './orders.service';
@@ -37,6 +38,7 @@ export class OrdersController {
     @Optional() private readonly measurement?: MeasurementService,
   ) {}
 
+  @RequirePhone()
   @Post('checkout/quote')
   @HttpCode(200)
   quote(@CurrentUser('id') userId: string, @Body() dto: QuoteDto, @Ip() ip?: string) {
@@ -52,6 +54,7 @@ export class OrdersController {
   // v1.68 (§4-R.2): el código DEPENDE del resultado — `201` (orden nueva, con o sin sustitución) o
   // `200` (REUSO de la orden y el PaymentIntent propios). Se fija con `@Res({ passthrough: true })`.
   @RequireEmailVerified('present')
+  @RequirePhone()
   @Post('checkout/session')
   async session(
     @CurrentUser('id') userId: string,

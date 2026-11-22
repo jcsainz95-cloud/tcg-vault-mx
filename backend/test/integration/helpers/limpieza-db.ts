@@ -409,6 +409,22 @@ COMMIT;
   );
 }
 /**
+ * T-AC3 — quita M-118 (§FICHA-CLIENTE: `CustomerNote`) para el B congelado, que no clasifica esa tabla (G-8 abortaría). Reversa LITERAL (= la de
+ * la cabecera de m118). Va ANTES que M-114 (orden inverso de despliegue).
+ */
+export function revertM118(schema: string): void {
+  psqlOk(
+    schema,
+    `BEGIN;
+DROP TABLE IF EXISTS "CustomerNote";
+DELETE FROM "_prisma_migrations" WHERE migration_name = '20261208120000_m118_customer_note';
+COMMIT;
+`,
+    'revertM118',
+  );
+}
+
+/**
  * T-AC3 — quita M-114 (§PROV-F4: `SupplySuggestion`, su enum y `SupplySettings.lastSuggestRunAt`) para el B congelado, que no clasifica esa tabla
  * (G-8 abortaría). Reversa LITERAL (= la de la cabecera de m114). Va ANTES que M-112 (orden inverso de despliegue).
  */

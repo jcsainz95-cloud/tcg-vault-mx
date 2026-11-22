@@ -65,6 +65,7 @@ async function main() {
       email: adminEmail,
       passwordHash: await argon2.hash(adminPassword),
       name: 'Super Admin',
+      phone: '5512345601', // §CELULAR: celular válido (el staff también pasa por la puerta)
       role: 'super_admin',
       locale: 'es',
       // v1.5-6: el staff nace verificado (no pasa por el flujo público de verificación).
@@ -84,6 +85,7 @@ async function main() {
       email: opEmail,
       passwordHash: await argon2.hash(opPassword),
       name: 'Operador Bóveda',
+      phone: '5512345602', // §CELULAR
       role: 'vault_operator',
       locale: 'es',
       // v1.5-6: el staff nace verificado.

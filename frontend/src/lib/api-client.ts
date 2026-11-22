@@ -410,6 +410,8 @@ function toApiError(status: number, payload: unknown): ApiClientError {
     message: 'Unexpected error',
   };
   if (status === 403 && err.code === 'PASSWORD_CHANGE_REQUIRED') handlePasswordChangeRequired();
+  // §CELULAR (red de seguridad): una sesión vieja sin la bandera que choca con `422 PHONE_REQUIRED` activa la puerta.
+  if (status === 422 && err.code === 'PHONE_REQUIRED') patchStoredUser({ phoneRequired: true });
   return new ApiClientError(status, err);
 }
 

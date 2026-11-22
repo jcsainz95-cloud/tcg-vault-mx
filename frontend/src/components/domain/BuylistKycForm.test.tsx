@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { BuylistKycForm } from './BuylistKycForm';
 import * as api from '@/lib/api';
-import { setStoredUser } from '@/lib/session';
+import { getStoredUser, setStoredUser } from '@/lib/session';
 
 beforeEach(() => {
   URL.createObjectURL = vi.fn(() => 'blob:mock-ine');
@@ -522,36 +522,6 @@ describe('BuylistKycForm — ningún intento fallido puede quedarse mudo (P-4)',
     expectRevealed(targets, 'La CLABE debe estar a nombre del titular de la cuenta.');
   });
 
-  it('PHONE_REQUIRED (PUERTA 1, D11): lo dice EN ESPAÑOL y ofrece capturar el celular aquí mismo', async () => {
-    // Antes: sin clave en el catálogo, `getErrorMessage` caía al inglés crudo del servidor
-    // («A mobile phone is required…») y la app no tenía NINGUNA pantalla para capturar el dato.
-    const { ApiClientError } = await import('@/lib/api-client');
-    vi.spyOn(api, 'createSellRequest').mockRejectedValueOnce(
-      new ApiClientError(422, {
-        code: 'PHONE_REQUIRED',
-        message: 'A mobile phone is required on the account to create a sell request',
-        details: { field: 'phone' },
-      }),
-    );
-    const updateSpy = vi.spyOn(api, 'updateMe');
-    const targets = spyOnReveal();
-    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
-    await fillAndSubmit();
-
-    const field = await screen.findByLabelText('Celular (10 dígitos)');
-    // El motivo, en español y del catálogo del contrato — jamás el inglés del servidor.
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Falta el celular en la cuenta. La paquetería lo necesita para entregar la guía y avisarte de la recolección.',
-    );
-    expect(screen.queryByText(/A mobile phone is required/)).toBeNull();
-    expectRevealed(targets, 'Falta el celular en la cuenta.');
-
-    // Y el remedio funciona sin salir del flujo: PATCH /users/me con el celular capturado.
-    fireEvent.change(field, { target: { value: '5555123456' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar celular' }));
-    await waitFor(() => expect(updateSpy).toHaveBeenCalledWith({ phone: '5555123456' }));
-  });
-
   it('422 de dirección: el motivo inline se trae al viewport (el campo queda 60px sobre el borde)', async () => {
     const { ApiClientError } = await import('@/lib/api-client');
     vi.spyOn(api, 'createSellRequest').mockRejectedValueOnce(
@@ -592,5 +562,112 @@ describe('BuylistKycForm — LIVE-8 · enlace al aviso de privacidad (sitio 5)',
   it('con la INE en archivo (sin uploaders): la frase sigue', () => {
     renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} ineOnFile />, 'es');
     expect(screen.getByTestId('privacy-site-sellForm').textContent).toBe(FRASE);
+  });
+});
+
+describe('BuylistKycForm — §CELULAR.6: sin campo de celular; 422 PHONE_REQUIRED abre la puerta y reintenta solo', () => {
+  const user = {
+    id: 'u-g',
+    email: 'g@example.com',
+    name: 'G',
+    role: 'customer' as const,
+    locale: 'es' as const,
+    emailVerified: true,
+    phoneRequired: false,
+  };
+
+  async function phoneRequired422() {
+    const { ApiClientError } = await import('@/lib/api-client');
+    // `api-client` marca la sesión al recibir el 422 (aquí se simula porque el mock no pasa por `toApiError`).
+    return () => {
+      setStoredUser({ ...user, phoneRequired: true });
+      return new ApiClientError(422, { code: 'PHONE_REQUIRED', message: 'phone', details: { field: 'phone' } });
+    };
+  }
+
+  async function fillAndSend() {
+    fireEvent.change(screen.getByLabelText(/CLABE/), { target: { value: '002010077777777771' } });
+    await pickAddress();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+  }
+
+  it('no hay campo de celular, ni con la cuenta sin celular', async () => {
+    setStoredUser({ ...user, phoneRequired: true });
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
+    await pickAddress();
+    expect(screen.queryByLabelText(/Celular/)).toBeNull();
+  });
+
+  it('422 PHONE_REQUIRED: conserva lo escrito y, al guardarse el celular, reintenta UNA vez con el mismo cuerpo', async () => {
+    setStoredUser(user);
+    const make = await phoneRequired422();
+    const create = vi
+      .spyOn(api, 'createSellRequest')
+      .mockImplementationOnce(async () => {
+        throw make();
+      })
+      .mockResolvedValueOnce({ sellRequestId: 'sr-9' } as never);
+    const onCreated = vi.fn();
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={onCreated} />, 'es');
+    await fillAndSend();
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    // Sin celular guardado todavía: no reintenta y el formulario conserva la CLABE.
+    expect(onCreated).not.toHaveBeenCalled();
+    expect((screen.getByLabelText(/CLABE/) as HTMLInputElement).value).toBe('002010077777777771');
+    // La puerta guarda el celular (`updateMe` sincroniza la sesión).
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('sr-9'));
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[1][0]).toEqual(create.mock.calls[0][0]);
+  });
+
+  it('si el reintento falla, muestra su error normal y no vuelve a intentar', async () => {
+    setStoredUser(user);
+    const make = await phoneRequired422();
+    const { ApiClientError } = await import('@/lib/api-client');
+    const create = vi
+      .spyOn(api, 'createSellRequest')
+      .mockImplementationOnce(async () => {
+        throw make();
+      })
+      .mockRejectedValueOnce(new ApiClientError(422, { code: 'CLABE_INVALID', message: 'bad' }));
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
+    await fillAndSend();
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('La CLABE debe tener 18 dígitos.')).toBeInTheDocument();
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    expect(create).toHaveBeenCalledTimes(2);
+    // Nada quedó guardado: la puerta se cierra de nuevo (true → false) y NO hay un tercer intento.
+    act(() => setStoredUser({ ...user, phoneRequired: true }));
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it('un segundo 422 PHONE_REQUIRED en el reintento NO reintenta otra vez (ni deja nada guardado)', async () => {
+    setStoredUser(user);
+    const make = await phoneRequired422();
+    const create = vi
+      .spyOn(api, 'createSellRequest')
+      .mockImplementationOnce(async () => {
+        throw make();
+      })
+      .mockImplementationOnce(async () => {
+        throw make();
+      })
+      .mockResolvedValue({ sellRequestId: 'sr-never' } as never);
+    const onCreated = vi.fn();
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={onCreated} />, 'es');
+    await fillAndSend();
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    // El 2.º 422 dejó la sesión en `phoneRequired: true`; la puerta se cierra otra vez: sin tercer intento.
+    await waitFor(() => expect(getStoredUser()?.phoneRequired).toBe(true));
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(onCreated).not.toHaveBeenCalled();
   });
 });

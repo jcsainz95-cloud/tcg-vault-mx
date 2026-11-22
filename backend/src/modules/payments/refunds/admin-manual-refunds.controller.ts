@@ -10,6 +10,7 @@ import { MoneyOut } from '../../../common/decorators/money-out.decorator';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { ManualRefundService } from './manual-refund.service';
 import { ManualRefundNoteDto, ManualRefundPaidDto } from './dto/manual-refunds.dto';
+import { parseCustomerUserId } from './customer-user-id';
 import { WithdrawalDeliveredRefundService } from './withdrawal-delivered-refund.service';
 
 @Controller('admin/manual-refunds')
@@ -44,8 +45,15 @@ export class AdminManualRefundsController {
 
   @Get()
   @Header('Cache-Control', 'no-store')
-  list(@Query('status') status?: string, @Query('q') q?: string, @Query('page') page?: string, @Query('pageSize') pageSize?: string) {
-    return this.manual.list({ status, q, page, pageSize });
+  list(
+    @Query('status') status?: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    // §FICHA-CLIENTE: `?userId=<uuid>` = las devoluciones SPEI de ESTE cliente (`customerUserId`).
+    @Query('userId') userId?: string,
+  ) {
+    return this.manual.list({ status, q, page, pageSize, userId: parseCustomerUserId(userId) });
   }
 
   @Get(':id')

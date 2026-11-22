@@ -1,5 +1,6 @@
 'use client';
 
+import { normalizeMxPhone } from '@/lib/phone';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Link } from '@/i18n/navigation';
@@ -14,13 +15,8 @@ import {
   resetUserPassword,
   deleteUser,
   createAdminUser,
-  getAdminUserOrders,
-  getAdminUserBuylist,
-  getAdminUserShipments,
-  getAdminUserDisputes,
   getAdminUserAudit,
   type AdminUsersFilters,
-  type UserHistoryParams,
 } from '@/lib/api';
 import type {
   AdminUserSummaryDTO,
@@ -29,7 +25,6 @@ import type {
   UserAuditEntryDTO,
   KycStatus,
   Role,
-  Paginated,
   ResetPasswordResponse,
   DeleteUserResponse,
 } from '@/types/contract';
@@ -49,6 +44,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { CustomerFicha } from './ficha/CustomerFicha';
 import { FinishBadge } from '@/components/domain/FinishBadge';
 
 // ⛔ P-78: la lista de estados KYC que alimentaba el `Select` de la ficha se RETIRA con él
@@ -70,6 +66,7 @@ interface CreateFormState {
   name: string;
   staffRole: StaffRole;
   password: string;
+  phone: string;
 }
 const EMPTY_CREATE_FORM: CreateFormState = {
   kind: 'customer',
@@ -78,6 +75,7 @@ const EMPTY_CREATE_FORM: CreateFormState = {
   name: '',
   staffRole: 'vault_operator',
   password: '',
+  phone: '',
 };
 
 /** Identificador visible de una cuenta (§42.5.1): `email ?? username`, ⛔ nunca `null`/vacío. */
@@ -192,8 +190,8 @@ export function M6View() {
   // propio dueño se bloquea o se borra. Solo para mostrar (⛔ no autoriza): el servidor responde
   // `403 OWNER_ACCOUNT_PROTECTED`, que también se pinta. Con ≤ 1 dueño, `isOwner ∧ ¬isSelf` ⇒ el actor no es el dueño.
   const ownerTarget = d?.isOwner === true;
-  const canResetTarget = !ownerTarget || isSelf;
-  const canBlockOrDeleteTarget = !ownerTarget;
+  const canResetTarget = isSuperAdmin && (!ownerTarget || isSelf);
+  const canBlockOrDeleteTarget = isSuperAdmin && !ownerTarget;
   const ownerProtected = (e: unknown) => e instanceof ApiClientError && e.code === 'OWNER_ACCOUNT_PROTECTED';
   const getError = useErrorMessage('operator');
   const [resetResult, setResetResult] = useState<ResetPasswordResponse | null>(null);
@@ -222,8 +220,8 @@ export function M6View() {
       // ⛔ El cuerpo se arma POR TIPO (§42.3.1, UX-6): Equipo nunca lleva la clave `email` (sería
       // `422 staff_without_email`); Cliente nunca lleva `username`.
       return createForm.kind === 'staff'
-        ? createAdminUser({ username: createForm.username.trim(), name, role: createForm.staffRole, password })
-        : createAdminUser({ email: createForm.email.trim(), name, role: 'customer', password });
+        ? createAdminUser({ username: createForm.username.trim(), name, role: createForm.staffRole, password, phone: normalizeMxPhone(createForm.phone) ?? createForm.phone.trim() })
+        : createAdminUser({ email: createForm.email.trim(), name, role: 'customer', password, phone: normalizeMxPhone(createForm.phone) ?? createForm.phone.trim() });
     },
     onSuccess: (res) => {
       setCreateOpen(false);
@@ -267,6 +265,10 @@ export function M6View() {
   useEffect(() => {
     if (usernameError) usernameRef.current?.focus();
   }, [usernameError]);
+
+  // §CELULAR: obligatorio para todos los roles; el servidor es el juez (`422 PHONE_INVALID`), el front solo evita ir y volver.
+  const phoneServerRejected = createMutation.error instanceof ApiClientError && createMutation.error.code === 'PHONE_INVALID';
+  const phoneLocalError = createForm.phone.trim() !== '' && normalizeMxPhone(createForm.phone) === null;
 
   // Traduce el errorCode del contrato a copy claro (409 EMAIL_TAKEN / 422 VALIDATION_ERROR / 403).
   function createErrorMessage(err: unknown): string {
@@ -476,6 +478,7 @@ export function M6View() {
         open={!!selectedId}
         onClose={() => setSelectedId(null)}
         title={t('detailTitle')}
+        size="xl"
         footer={
           <Button variant="secondary" onClick={() => setSelectedId(null)}>
             {tc('close')}
@@ -489,30 +492,20 @@ export function M6View() {
           onRetry={() => detail.refetch()}
         >
           {d && (
-            <div className="flex flex-col gap-5">
-              {/* Identidad */}
-              <div className="flex flex-col gap-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-h3 font-semibold">{d.name}</span>
+            <CustomerFicha
+              d={d}
+              isSuperAdmin={isSuperAdmin}
+              badges={
+                <>
                   {ownerTarget && <OwnerTag label={t('ownerTag')} />}
                   <UserStatusBadge status={d.status} t={t} />
                   {detailLockTime && <LockMark time={detailLockTime} t={t} />}
                   <Badge tone="neutral">{d.role}</Badge>
                   {d.authProvider && <Badge tone="info">{d.authProvider}</Badge>}
-                </div>
-                {/* ⭐ v1.80.9 (§42.5.1): con correo, como hoy; sin correo, «Usuario: ana». */}
-                <span className="tabular text-sm text-muted">
-                  {d.email ?? (d.username ? t('usernameLine', { username: d.username }) : '—')}
-                </span>
-                {detailLockTime && <p className="text-xs text-muted">{t('lockHint')}</p>}
-              </div>
-
-              {detailLockUnavailable && (
-                <Banner variant="info" role="status">
-                  {t('lockUnavailable')}
-                </Banner>
-              )}
-
+                </>
+              }
+              identity={
+                <>
               {/* KYC (CLABE/RFC enmascarados) */}
               <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
                 <div className="flex items-center justify-between">
@@ -563,7 +556,8 @@ export function M6View() {
                       </div>
                     )}
 
-                    {/* Política interna (tope mensual): sigue aquí, con su propio «Guardar». */}
+                    {/* Política interna (tope mensual): sigue aquí, con su propio «Guardar». Solo súper-admin (§FICHA-CLIENTE.13). */}
+                    {isSuperAdmin && (
                     <div className="mt-2 flex flex-col gap-3 border-t border-border pt-3">
                       <Input label={t('capMonth')} type="text" inputMode="decimal" prefix="MX$" className="w-full" value={capMonth} onChange={(e) => setKycDraft({ capMonth: e.target.value })} placeholder={currentKyc.capPerMonthCents != null ? String(currentKyc.capPerMonthCents / 100) : ''} />
                       <Button size="sm" variant="secondary" loading={kycMutation.isPending} onClick={() => kycMutation.mutate()}>
@@ -571,30 +565,24 @@ export function M6View() {
                       </Button>
                       {kycMutation.isSuccess && <Banner variant="success" role="status">{t('kycSaved')}</Banner>}
                     </div>
+                    )}
                   </>
                 ) : (
                   <p className="text-sm text-muted">{t('noKyc')}</p>
                 )}
               </div>
 
-              {/* Historial 360° por pestañas (lazy-load por endpoint filtrado por userId) */}
-              <UserHistoryTabs
-                userId={d.id}
-                ownedItems={d.ownedItems ?? []}
-                hasDisputes={(d.disputes?.length ?? 0) > 0}
-                locale={locale}
-              />
-
-              {/* Direcciones */}
-              {d.addresses && d.addresses.length > 0 && (
-                <div className="flex flex-col gap-1 text-sm">
-                  <span className="font-semibold">{t('addresses')}</span>
-                  {d.addresses.map((a) => (
-                    <span key={a.id} className="text-muted">
-                      {a.line1}, {a.city}, {a.state} {a.postalCode} ({a.country})
-                    </span>
-                  ))}
-                </div>
+                </>
+              }
+              vault={<VaultTab items={d.ownedItems ?? []} locale={locale} />}
+              activity={<ActivityTab userId={d.id} locale={locale} />}
+              account={
+                <>
+                {detailLockTime && <p className="text-xs text-muted">{t('lockHint')}</p>}
+              {detailLockUnavailable && (
+                <Banner variant="info" role="status">
+                  {t('lockUnavailable')}
+                </Banner>
               )}
 
               {ownerTarget && (
@@ -658,7 +646,9 @@ export function M6View() {
                   {isSelf && canBlockOrDeleteTarget && <p className="text-xs text-muted">{t('deleteSelfHint')}</p>}
                 </div>
               )}
-            </div>
+                </>
+              }
+            />
           )}
         </QueryState>
       </Modal>
@@ -766,6 +756,17 @@ export function M6View() {
             />
           )}
           <Input
+            label={t('create.phone')}
+            type="tel"
+            inputMode="tel"
+            autoComplete="off"
+            prefix="+52"
+            hint={t('create.phoneHint')}
+            error={phoneLocalError ? t('create.phoneError') : phoneServerRejected ? t('create.phoneRejected') : undefined}
+            value={createForm.phone}
+            onChange={(e) => setCreateForm((f) => ({ ...f, phone: e.target.value }))}
+          />
+          <Input
             label={t('create.password')}
             type="text"
             autoComplete="off"
@@ -776,7 +777,7 @@ export function M6View() {
           {createForm.kind === 'staff' && createForm.staffRole === 'super_admin' && (
             <Banner variant="warning" role="status">{t('create.superAdminWarning')}</Banner>
           )}
-          {createMutation.isError && !usernameError && (
+          {createMutation.isError && !usernameError && !phoneServerRejected && (
             <Banner variant="danger" role="alert">{createErrorMessage(createMutation.error)}</Banner>
           )}
         </div>
@@ -943,167 +944,6 @@ function TempPasswordPanel({
 }
 
 // ---- Historial 360° por pestañas (v1.7-admin-users) ----
-type HistoryTab = 'purchases' | 'sales' | 'shipments' | 'disputes' | 'vault' | 'activity';
-const HISTORY_TABS: HistoryTab[] = ['purchases', 'sales', 'shipments', 'disputes', 'vault', 'activity'];
-
-/**
- * Pestañas de historial: cada pestaña de endpoint se carga LAZY (solo se monta la activa,
- * así la query se dispara al abrir la pestaña) y filtra por `userId`. La pestaña Bóveda usa
- * el resumen `ownedItems` que ya trae la ficha 360° (no hay endpoint admin de holdings por
- * usuario en el contrato).
- */
-function UserHistoryTabs({
-  userId,
-  ownedItems,
-  hasDisputes,
-  locale,
-}: {
-  userId: string;
-  ownedItems: AdminUserOwnedItemRef[];
-  /**
-   * F-26 (§PNL.10.7 · `DESIGN_SYSTEM §60.8`): M8 se retiró; «Disputas» queda como historia de LECTURA y la pestaña
-   * solo existe si la ficha trae alguna (`detail.disputes?.length > 0`). Con cero, ni pestaña ni llamada.
-   */
-  hasDisputes: boolean;
-  locale: AppLocale;
-}) {
-  const t = useTranslations('admin.m6');
-  const [tab, setTab] = useState<HistoryTab>('purchases');
-  const tabs = hasDisputes ? HISTORY_TABS : HISTORY_TABS.filter((k) => k !== 'disputes');
-  return (
-    <div className="flex flex-col gap-3">
-      <div role="tablist" className="flex flex-wrap gap-1 border-b border-border">
-        {tabs.map((k) => (
-          <button
-            key={k}
-            role="tab"
-            type="button"
-            aria-selected={tab === k}
-            onClick={() => setTab(k)}
-            className={cn(
-              '-mb-px rounded-t-md px-3 py-2 text-sm font-medium',
-              tab === k ? 'border-b-2 border-primary text-text' : 'text-muted hover:text-text',
-            )}
-          >
-            {t(`tabs.${k}`)}
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel">
-        {tab === 'purchases' && (
-          <PaginatedHistory
-            queryKey={['admin-user-orders', userId]}
-            queryFn={(p) => getAdminUserOrders(userId, p)}
-            rowKey={(o) => o.id}
-            columns={[
-              { key: 'id', header: t('table.folio'), render: (o) => <span className="tabular font-medium">{o.id}</span> },
-              { key: 'status', header: t('table.status'), render: (o) => <StatusBadge domain="order" value={o.status} /> },
-              { key: 'total', header: t('table.total'), align: 'right', render: (o) => formatMoneyCents(o.totalCents, locale) },
-              { key: 'createdAt', header: t('table.date'), render: (o) => formatDate(o.createdAt, locale) },
-            ]}
-          />
-        )}
-        {tab === 'sales' && (
-          <PaginatedHistory
-            queryKey={['admin-user-buylist', userId]}
-            queryFn={(p) => getAdminUserBuylist(userId, p)}
-            rowKey={(b) => b.id}
-            columns={[
-              { key: 'id', header: t('table.folio'), render: (b) => <span className="tabular font-medium">{b.id}</span> },
-              { key: 'status', header: t('table.status'), render: (b) => <StatusBadge domain="sellRequest" value={b.status} /> },
-              { key: 'total', header: t('table.quoted'), align: 'right', render: (b) => formatMoneyCents(b.quotedTotalCents, locale) },
-              { key: 'createdAt', header: t('table.date'), render: (b) => formatDate(b.createdAt, locale) },
-            ]}
-          />
-        )}
-        {tab === 'shipments' && (
-          <PaginatedHistory
-            queryKey={['admin-user-shipments', userId]}
-            queryFn={(p) => getAdminUserShipments(userId, p)}
-            rowKey={(s) => s.id}
-            columns={[
-              { key: 'id', header: t('table.folio'), render: (s) => <span className="tabular font-medium">{s.id}</span> },
-              { key: 'status', header: t('table.status'), render: (s) => <StatusBadge domain="shipment" value={s.status} /> },
-              { key: 'tracking', header: t('table.tracking'), render: (s) => <span className="tabular text-muted">{s.carrier ? `${s.carrier} · ${s.trackingNumber ?? '—'}` : '—'}</span> },
-              { key: 'createdAt', header: t('table.date'), render: (s) => formatDate(s.createdAt, locale) },
-            ]}
-          />
-        )}
-        {tab === 'disputes' && hasDisputes && (
-          <PaginatedHistory
-            queryKey={['admin-user-disputes', userId]}
-            queryFn={(p) => getAdminUserDisputes(userId, p)}
-            rowKey={(d) => d.id}
-            columns={[
-              { key: 'id', header: t('table.folio'), render: (d) => <span className="tabular font-medium">{d.id}</span> },
-              { key: 'status', header: t('table.status'), render: (d) => <StatusBadge domain="dispute" value={d.status} /> },
-              { key: 'type', header: t('table.type'), render: (d) => (d.type ? t(`disputeType.${d.type}`) : '—') },
-              { key: 'createdAt', header: t('table.date'), render: (d) => formatDate(d.createdAt, locale) },
-            ]}
-          />
-        )}
-        {tab === 'vault' && <VaultTab items={ownedItems} locale={locale} />}
-        {tab === 'activity' && <ActivityTab userId={userId} locale={locale} />}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Tabla de historial paginada y lazy: dispara la query al montarse (al abrir la pestaña),
- * filtrando por `userId`. Reusa DataTable + QueryState del proyecto.
- */
-function PaginatedHistory<T>({
-  queryKey,
-  queryFn,
-  columns,
-  rowKey,
-}: {
-  queryKey: unknown[];
-  queryFn: (params: UserHistoryParams) => Promise<Paginated<T>>;
-  columns: Column<T>[];
-  rowKey: (row: T) => string;
-}) {
-  const t = useTranslations('admin.m6');
-  const [page, setPage] = useState(1);
-  const query = useQuery({
-    queryKey: [...queryKey, page],
-    queryFn: () => queryFn({ page, pageSize: HISTORY_PAGE_SIZE }),
-  });
-  const totalPages = query.data ? Math.max(1, Math.ceil(query.data.total / HISTORY_PAGE_SIZE)) : 1;
-  return (
-    <QueryState
-      isLoading={query.isLoading}
-      isError={query.isError}
-      error={query.error}
-      onRetry={() => query.refetch()}
-    >
-      {query.data && query.data.data.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          <DataTable columns={columns} rows={query.data.data} rowKey={rowKey} />
-          {query.data.total > HISTORY_PAGE_SIZE && (
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted">
-                {t('pageInfo', { page: query.data.page, totalPages, total: query.data.total })}
-              </span>
-              <div className="flex gap-2">
-                <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                  <ChevronLeft size={16} /> {t('prev')}
-                </Button>
-                <Button size="sm" variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                  {t('next')} <ChevronRight size={16} />
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <p className="py-6 text-center text-sm text-muted">{t('historyEmpty')}</p>
-      )}
-    </QueryState>
-  );
-}
-
 /**
  * Pestaña Bóveda (v1.8-ronda-c · BE-10): usa el resumen `ownedItems` de la ficha 360°, ahora
  * enriquecido con `productType`, `finish` y `referenceValue` (PriceInfo por-acabado, mismo shape

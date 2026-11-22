@@ -90,6 +90,7 @@ describe('PS-UI-13 · login 429', () => {
     renderWithIntl(<AuthForm mode="register" />, 'es');
     fireEvent.change(screen.getByLabelText('Nombre'), { target: { value: 'Ash' } });
     fireEvent.change(screen.getByLabelText('Correo'), { target: { value: 'ash@example.com' } });
+    fireEvent.change(screen.getByLabelText('Celular (10 dígitos)'), { target: { value: '5512345678' } });
     fireEvent.change(screen.getByLabelText('Contraseña'), { target: { value: 'pikachu-123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Crear cuenta' }));
 
