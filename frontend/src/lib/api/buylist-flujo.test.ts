@@ -49,7 +49,7 @@ describe('buylist-flujo (rama mock) · alta y recogida', () => {
     expect(bad.failed.every((f) => f.code === 'LOCATION_NOT_AVAILABLE')).toBe(true);
     const first = await convertAllBuylist('sr-3021', 'loc-1');
     expect(first.converted).toHaveLength(3);
-    expect(first.skipped).toEqual([{ itemId: 'sri-f2-8', code: 'ITEM_NOT_APPROVED' }]);
+    expect(first.skipped).toEqual([{ itemId: 'sri-f2-8', code: 'NOT_APPROVED' }]);
     const retry = await convertAllBuylist('sr-3021');
     expect(retry.converted).toHaveLength(0);
     expect(retry.skipped).toHaveLength(4);

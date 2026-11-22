@@ -1020,6 +1020,9 @@
       "declineConfirmYes": "Sí, rechazar",
       "declineConfirmNo": "Volver",
       "cancelled": "Retiramos la propuesta de nuevo precio por {card}: se te paga el precio original, sin que tengas que hacer nada.",
+      "cancelledRejected": "Retiramos la propuesta de nuevo precio por {card}. No la compramos; abajo puedes elegir cómo recoger tu carta.",
+      "cancelledNotReceived": "Retiramos la propuesta de nuevo precio por {card}. La carta no llegó, así que no hay nada que pagar ni que recoger.",
+      "cancelledNeutral": "Retiramos la propuesta de nuevo precio por {card}.",
       "accepted": "Aceptaste la propuesta de {amount} por {card}.",
       "declined": "Rechazaste la propuesta por {card}. Elige abajo cómo recoger tu carta.",
       "expired": "La propuesta por {card} venció sin respuesta; no la compramos.",
@@ -3722,7 +3725,8 @@
             "locationGone": "Esa ubicación ya no está disponible; elige otra.",
             "failCodes": {
               "LOCATION_NOT_AVAILABLE": "la ubicación no está disponible; elige otra",
-              "ITEM_NOT_APPROVED": "la carta no está aprobada",
+              "NOT_APPROVED": "la carta no está aprobada",
+              "CONVERT_FAILED": "no se pudo dar de alta; intenta de nuevo",
               "ALREADY_CONVERTED": "ya estaba dada de alta",
               "UNKNOWN": "error {code}"
             },

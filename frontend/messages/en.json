@@ -1020,6 +1020,9 @@
       "declineConfirmYes": "Yes, decline",
       "declineConfirmNo": "Go back",
       "cancelled": "We withdrew the new-price proposal for {card}: you are paid the original price, with nothing for you to do.",
+      "cancelledRejected": "We withdrew the new-price proposal for {card}. We are not buying it; below you can choose how to pick your card up.",
+      "cancelledNotReceived": "We withdrew the new-price proposal for {card}. The card did not arrive, so there is nothing to pay or pick up.",
+      "cancelledNeutral": "We withdrew the new-price proposal for {card}.",
       "accepted": "You accepted the {amount} proposal for {card}.",
       "declined": "You declined the proposal for {card}. Choose below how to get your card back.",
       "expired": "The proposal for {card} expired unanswered; we did not buy it.",
@@ -3722,7 +3725,8 @@
             "locationGone": "That location is no longer available; pick another.",
             "failCodes": {
               "LOCATION_NOT_AVAILABLE": "the location is not available; pick another",
-              "ITEM_NOT_APPROVED": "the card is not approved",
+              "NOT_APPROVED": "the card is not approved",
+              "CONVERT_FAILED": "it could not be added; try again",
               "ALREADY_CONVERTED": "it was already added",
               "UNKNOWN": "error {code}"
             },

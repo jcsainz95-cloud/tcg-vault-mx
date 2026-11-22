@@ -211,6 +211,15 @@ function PickupChoice({ sellRequestId, line, onChanged }: { sellRequestId: strin
   );
 }
 
+/** Clave del texto de una baja resuelta: nunca contradice el estado de la carta (`itemStatus`). */
+function revisionKey(l: SellItemDTO): string {
+  const state = l.revision!.state;
+  if (state !== 'cancelled') return `revision.${state}`;
+  if (l.itemStatus === 'aprobada') return 'revision.cancelled';
+  if (l.itemStatus === 'rechazada') return l.rejectionCode === 'not_received' ? 'revision.cancelledNotReceived' : 'revision.cancelledRejected';
+  return 'revision.cancelledNeutral';
+}
+
 /** Bloque del portal (`/buylist/requests/:id`) con las propuestas de baja pendientes y las cartas por recoger. */
 export function SellerFlujoLines({ sellRequestId, lines }: { sellRequestId: string; lines: SellItemDTO[] }) {
   const t = useTranslations('sellerFlujo');
@@ -255,7 +264,7 @@ export function SellerFlujoLines({ sellRequestId, lines }: { sellRequestId: stri
         const amount = rev.proposedCents != null ? formatMoneyCents(rev.proposedCents, locale) : '';
         return (
           <p key={l.id} className="text-sm text-muted" data-testid={`seller-revision-resolved-${l.id}`}>
-            {t(`revision.${rev.state}`, { card: l.card.name, amount })}
+            {t(revisionKey(l), { card: l.card.name, amount })}
           </p>
         );
       })}

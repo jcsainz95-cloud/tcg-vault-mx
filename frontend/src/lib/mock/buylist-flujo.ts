@@ -92,7 +92,7 @@ export async function mockConvertAllBuylist(requestId: string, locationId?: stri
   const out: BuylistConvertAllResponse = { converted: [], skipped: [], failed: [] };
   for (const it of req.items) {
     if (it.itemStatus === 'convertida_inventario') out.skipped.push({ itemId: it.id, code: 'ALREADY_CONVERTED' });
-    else if (it.itemStatus !== 'aprobada') out.skipped.push({ itemId: it.id, code: 'ITEM_NOT_APPROVED' });
+    else if (it.itemStatus !== 'aprobada') out.skipped.push({ itemId: it.id, code: 'NOT_APPROVED' });
     else if (locationGone) out.failed.push({ itemId: it.id, code: 'LOCATION_NOT_AVAILABLE' });
     else {
       const seq = String(fx.mockInventory.length + 40 + out.converted.length).padStart(6, '0');

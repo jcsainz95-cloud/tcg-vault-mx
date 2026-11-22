@@ -160,7 +160,7 @@ describe('ConvertAllButton · diálogo con ubicación y lista (F2a)', () => {
         { itemId: 'sri-f2-6', inventoryItemId: 'i2' },
         { itemId: 'sri-f2-7', inventoryItemId: 'i3' },
       ],
-      skipped: [{ itemId: 'sri-f2-8', code: 'ITEM_NOT_APPROVED' }],
+      skipped: [{ itemId: 'sri-f2-8', code: 'NOT_APPROVED' }],
       failed: [],
     });
     const onDone = vi.fn();

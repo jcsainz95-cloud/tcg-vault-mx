@@ -90,6 +90,39 @@ describe('SellerFlujoLines · baja de precio (variante A)', () => {
     expect(screen.queryByTestId('seller-revision-decline-sri-f2c-1')).not.toBeInTheDocument();
   });
 
+  it('`aprobada` + `cancelled` ⇒ «se te paga el precio original»', () => {
+    const l = lines();
+    l[0].itemStatus = 'aprobada';
+    l[0].revision = { ...l[0].revision!, state: 'cancelled' };
+    renderWithProviders(<SellerFlujoLines sellRequestId="sr-3020" lines={l} />, 'es');
+    expect(screen.getByTestId('seller-revision-resolved-sri-f2c-1')).toHaveTextContent('se te paga el precio original');
+  });
+
+  it('`rechazada` + `cancelled` ⇒ retirada SIN prometer el precio original; remite a recoger', () => {
+    const l = lines();
+    l[0].itemStatus = 'rechazada';
+    l[0].rejectionCode = 'condition_mismatch';
+    l[0].revision = { ...l[0].revision!, state: 'cancelled' };
+    renderWithProviders(<SellerFlujoLines sellRequestId="sr-3020" lines={l} />, 'es');
+    const row = screen.getByTestId('seller-revision-resolved-sri-f2c-1');
+    expect(row).toHaveTextContent('Retiramos la propuesta de nuevo precio por Mewtwo');
+    expect(row.textContent).not.toContain('precio original');
+    expect(row).toHaveTextContent('elegir cómo recoger');
+  });
+
+  it('`rechazada` por «No llegó» + `cancelled` ⇒ retirada, no llegó, nada que pagar ni recoger', () => {
+    const l = lines();
+    l[0].itemStatus = 'rechazada';
+    l[0].rejectionCode = 'not_received';
+    l[0].pickup = null;
+    l[0].revision = { ...l[0].revision!, state: 'cancelled' };
+    renderWithProviders(<SellerFlujoLines sellRequestId="sr-3020" lines={l} />, 'es');
+    const row = screen.getByTestId('seller-revision-resolved-sri-f2c-1');
+    expect(row).toHaveTextContent('La carta no llegó');
+    expect(row.textContent).not.toContain('precio original');
+    expect(row.textContent).not.toContain('abajo');
+  });
+
   it('una baja ya resuelta se lee como nota (sin botones)', () => {
     const l = lines();
     l[0].revision = { ...l[0].revision!, state: 'expired' };
