@@ -183,6 +183,8 @@ export function sellItemsPickupTemplate(params: SellItemsPickupParams, name: str
 export interface SellItemNotReceivedParams {
   folio: string;
   card: FlujoCard;
+  /** `reject-items` con causa «No llegó»: UN solo correo con todas las cartas del acto (si viene, reemplaza a `card`). */
+  cards?: FlujoCard[];
   /** `true` ⇒ la solicitud se cerro sin pago. */
   requestClosed: boolean;
   /** `true` ⇒ la oferta anuncio un envio que se descuenta del pago (D25). */
@@ -197,12 +199,14 @@ export interface SellItemNotReceivedParams {
 export function sellItemNotReceivedTemplate(params: SellItemNotReceivedParams, name: string, locale?: string | null): MailMessage {
   const l = normalizeLocale(locale);
   const en = l === 'en';
-  const card = cardLabel(params.card);
-  const title = en ? "A card didn't arrive" : 'Una carta no llegó';
+  const all = params.cards && params.cards.length > 0 ? params.cards : [params.card];
+  const many = all.length > 1;
+  const card = all.map(cardLabel).join('; ');
+  const title = en ? (many ? "Some cards didn't arrive" : "A card didn't arrive") : many ? 'Unas cartas no llegaron' : 'Una carta no llegó';
   const eyebrow = en ? 'CARD NOT RECEIVED' : 'CARTA NO RECIBIDA';
   const intro = en
-    ? `We checked your package (request ${params.folio}) and ${card} was not inside.`
-    : `Revisamos tu paquete (solicitud ${params.folio}) y ${card} no venía dentro.`;
+    ? `We checked your package (request ${params.folio}) and ${card} ${many ? 'were' : 'was'} not inside.`
+    : `Revisamos tu paquete (solicitud ${params.folio}) y ${card} no ${many ? 'venían' : 'venía'} dentro.`;
   const payment = params.requestClosed
     ? en
       ? "We did not include it in the payment. As we didn't accept any card, your request is closed and there is no payment."
@@ -230,10 +234,9 @@ export function sellItemNotReceivedTemplate(params: SellItemNotReceivedParams, n
     spacerRow(16),
     ruleRow(),
     spacerRow(16),
-    cardLineRows({
-      title: params.card.cardName,
-      meta: `${params.card.setName} · #${params.card.cardNumber} · ${FINISH_LABELS[params.card.finish] ?? params.card.finish}`,
-    }),
+    ...all.flatMap((c) => [
+      cardLineRows({ title: c.cardName, meta: `${c.setName} · #${c.cardNumber} · ${FINISH_LABELS[c.finish] ?? c.finish}` }),
+    ]),
     spacerRow(16),
     ruleRow(),
     spacerRow(24),
@@ -264,6 +267,11 @@ export interface SellItemRevisionParams {
   /** `revisionProposedAt` + 7 d; la plantilla ⛔ no suma dias: lo recibe. */
   expiresAt: Date;
   responseDays: number;
+  /**
+   * Solo C4 (recordatorio): el tiempo REAL que queda (`remainingDaysOf(expiresAt, now)`): N dias redondeados hacia arriba, o `0` ⇒
+   * «menos de 24 horas». ⛔ nunca el `responseDays` fijo en un recordatorio. Sin el (C3) se usa `responseDays`.
+   */
+  remainingDays?: number;
   /** Enlace a la solicitud del portal (ahi estan Aceptar/Rechazar); sin el, el correo lo dice. */
   portalUrl?: string;
   /** `true` ⇒ C4 (recordatorio del mismo pedido). */
@@ -275,6 +283,18 @@ export interface SellItemRevisionParams {
  * el vencimiento (fecha y hora, nunca «en N dias» suelto) y dos botones (Aceptar/Rechazar) que llevan al portal: la respuesta
  * NUNCA se ejecuta desde un enlace anonimo (misma regla que la oferta). Dice con todas sus letras que sin «si» no se paga menos.
  */
+/** Tiempo REAL que queda: dias redondeados hacia arriba; `0` ⇒ menos de 24 horas (o ya vencido). */
+export function remainingDaysOf(expiresAt: Date, now: Date): number {
+  const ms = expiresAt.getTime() - now.getTime();
+  if (ms < 86_400_000) return 0;
+  return Math.ceil(ms / 86_400_000);
+}
+
+/** Cierra una frase con punto SOLO si no termina ya en uno («p.m.» + «.» daba «p.m..»). */
+function endSentence(t: string): string {
+  return t.endsWith('.') ? t : `${t}.`;
+}
+
 export function sellItemRevisionTemplate(params: SellItemRevisionParams, name: string, locale?: string | null): MailMessage {
   const l = normalizeLocale(locale);
   const en = l === 'en';
@@ -319,9 +339,12 @@ export function sellItemRevisionTemplate(params: SellItemRevisionParams, name: s
   const priceOriginal = en ? `Original offer price: ${orig}` : `Precio original de tu oferta: ${orig}`;
   const priceProposed = en ? `Price we propose: ${prop}` : `Precio que te proponemos: ${prop}`;
   const termsLabel = en ? 'YOUR DECISION' : 'TU DECISIÓN';
+  const left = params.reminder && params.remainingDays != null ? params.remainingDays : null;
+  const timeEn = left == null ? `You have ${params.responseDays} days` : left === 0 ? 'You have less than 24 hours left' : `You have ${left} ${left === 1 ? 'day' : 'days'} left`;
+  const timeEs = left == null ? `Tienes ${params.responseDays} días` : left === 0 ? 'Te quedan menos de 24 horas' : `Te ${left === 1 ? 'queda 1 día' : `quedan ${left} días`}`;
   const terms1 = en
-    ? `You have ${params.responseDays} days: until ${when}. Accept or reject from your request; we never pay a lower price without your yes.`
-    : `Tienes ${params.responseDays} días: hasta el ${when}. Acepta o rechaza desde tu solicitud; nunca pagamos un precio menor sin tu «sí».`;
+    ? `${timeEn}: until ${endSentence(when)} Accept or reject from your request; we never pay a lower price without your yes.`
+    : `${timeEs}: hasta el ${endSentence(when)} Acepta o rechaza desde tu solicitud; nunca pagamos un precio menor sin tu «sí».`;
   const terms2 = en
     ? "If you don't answer, we will not buy this card and it will be ready for you to pick up."
     : 'Si no respondes, no compraremos esta carta y quedará lista para que la recojas.';
@@ -363,6 +386,58 @@ export function sellItemRevisionTemplate(params: SellItemRevisionParams, name: s
   return {
     to: '',
     subject,
+    html: mailShell({ locale: l, title, preheader: intro, blocks, footerWhy: sellRequestFooterWhy(en) }),
+    text,
+  };
+}
+
+export interface SellItemRevisionCancelledParams {
+  folio: string;
+  card: FlujoCard;
+  /** El precio ORIGINAL de la oferta de ESTA linea (lo que se paga), en centavos. */
+  offeredCents: number;
+  portalUrl?: string;
+}
+
+/**
+ * **C5 — «RETIRAMOS LA PROPUESTA»** (anexo §3.2/§7): el dueño aprobo la carta al precio pactado mientras habia una propuesta de nuevo
+ * precio sin respuesta; la propuesta se retira y se paga el precio original. Sin plazos ni botones: no hay nada que decidir.
+ */
+export function sellItemRevisionCancelledTemplate(params: SellItemRevisionCancelledParams, name: string, locale?: string | null): MailMessage {
+  const l = normalizeLocale(locale);
+  const en = l === 'en';
+  const card = cardLabel(params.card);
+  const orig = money(params.offeredCents, l);
+  const title = en ? 'We withdrew the new price proposal' : 'Retiramos la propuesta de nuevo precio';
+  const eyebrow = en ? 'PROPOSAL WITHDRAWN' : 'PROPUESTA RETIRADA';
+  const intro = en
+    ? `We withdrew the new price proposal for ${card} (request ${params.folio}). You do not need to answer it.`
+    : `Retiramos la propuesta de nuevo precio por ${card} (solicitud ${params.folio}). No necesitas responderla.`;
+  const pay = en ? `We will pay your original offer price: ${orig}.` : `Se paga tu precio original: ${orig}.`;
+  const blocks = [
+    eyebrowRow(eyebrow, params.folio),
+    headingRow(title, 22),
+    spacerRow(24),
+    proseRow(`${en ? 'Hi' : 'Hola'} ${name}${en ? ',' : ':'}`),
+    spacerRow(16),
+    proseRow(intro),
+    spacerRow(16),
+    ruleRow(),
+    spacerRow(16),
+    cardLineRows({
+      title: params.card.cardName,
+      meta: `${params.card.setName} · #${params.card.cardNumber} · ${FINISH_LABELS[params.card.finish] ?? params.card.finish}`,
+    }),
+    spacerRow(16),
+    ruleRow(),
+    spacerRow(24),
+    proseRow(pay),
+    ...(params.portalUrl ? [spacerRow(24), ctaRows(params.portalUrl, en ? 'VIEW MY REQUEST' : 'VER MI SOLICITUD', 'ink')] : []),
+  ];
+  const text = `${en ? `Hi ${name},` : `Hola ${name}:`}\n\n${eyebrow} · ${params.folio}\n\n${title}\n\n${intro}\n${pay}\n${params.portalUrl ? `\n${params.portalUrl}\n` : ''}\n${BRAND}`;
+  return {
+    to: '',
+    subject: en ? 'We withdrew the new price proposal for a card' : 'Retiramos la propuesta de nuevo precio de una carta',
     html: mailShell({ locale: l, title, preheader: intro, blocks, footerWhy: sellRequestFooterWhy(en) }),
     text,
   };

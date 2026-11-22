@@ -31,16 +31,23 @@ describe('payoutDTOOf', () => {
   const base = { approvedTotalCents: 50_000, offerGrossCents: 60_000, quotedTotalCents: 70_000, offerShippingFeeCents: 18_000 };
   it('verificacion/aprobada: proyeccion; isFinal=false con lineas sin decidir', () => {
     for (const status of ['verificacion', 'aprobada']) {
-      expect(payoutDTOOf({ ...base, status }, { pendingDecisionCount: 0, clabeOnFile: true })).toEqual({
+      expect(payoutDTOOf({ ...base, status }, { lines: [], clabeOnFile: true })).toEqual({
         grossCents: 50_000, shippingFeeCents: 18_000, netCents: 32_000, isFinal: true, clabeOnFile: true,
       });
-      expect(payoutDTOOf({ ...base, status }, { pendingDecisionCount: 2, clabeOnFile: false })).toMatchObject({ isFinal: false, clabeOnFile: false });
+      // con lineas `buy` sin decidir: proyeccion §3.1 (al pactado), isFinal=false.
+      const lines = [
+        { id: 'a', offerDecision: 'buy', itemStatus: 'aprobada', offeredPriceCents: 30_000, approvedPriceCents: 30_000 },
+        { id: 'b', offerDecision: 'buy', itemStatus: 'verificacion', offeredPriceCents: 20_000 },
+      ];
+      expect(payoutDTOOf({ ...base, status }, { lines, clabeOnFile: false })).toEqual({
+        grossCents: 50_000, shippingFeeCents: 18_000, netCents: 32_000, isFinal: false, clabeOnFile: false,
+      });
     }
   });
   it('pagada: lo SELLADO; resto de estados: null', () => {
-    expect(payoutDTOOf({ ...base, status: 'pagada', payoutNetCents: 31_000 }, { pendingDecisionCount: 0, clabeOnFile: true })?.netCents).toBe(31_000);
+    expect(payoutDTOOf({ ...base, status: 'pagada', payoutNetCents: 31_000 }, { lines: [], clabeOnFile: true })?.netCents).toBe(31_000);
     for (const status of ['cotizada', 'ofertada', 'aceptada', 'en_transito', 'recibida', 'rechazada', 'abandonada', 'expirada']) {
-      expect(payoutDTOOf({ ...base, status }, { pendingDecisionCount: 0, clabeOnFile: true })).toBeNull();
+      expect(payoutDTOOf({ ...base, status }, { lines: [], clabeOnFile: true })).toBeNull();
     }
   });
 });

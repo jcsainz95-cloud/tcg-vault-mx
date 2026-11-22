@@ -391,6 +391,7 @@ export const ErrorCode = {
   REVISION_PENDING: 'REVISION_PENDING',
   REVISION_NOT_LOWER: 'REVISION_NOT_LOWER',
   REVISION_ALREADY_RESOLVED: 'REVISION_ALREADY_RESOLVED',
+  REVISION_CHANGED: 'REVISION_CHANGED',
   // §BUYLIST-FLUJO F2c (anexo §5): cambiar el metodo de recoger con `pickupDoneAt` ya puesto => 409.
   PICKUP_ALREADY_DONE: 'PICKUP_ALREADY_DONE',
   // ===== v1.51.20 · LA PUERTA DEL CICLO — `POST /buylist/requests` (§6, D11/D18/D36/D37) =====

@@ -164,6 +164,12 @@ const RENDERS: Record<string, Render> = {
       'Ana',
       l,
     ),
+  sellItemRevisionCancelledTemplate: (l) =>
+    flujoTpl.sellItemRevisionCancelledTemplate(
+      { folio: 'BL-1', card: { cardName: 'Snorlax V', setName: 'SS', cardNumber: '141/202', finish: 'reverse_holo' }, offeredCents: 60000, portalUrl: PORTAL },
+      'Ana',
+      l,
+    ),
   sellRequestExpiredTemplate: (l) =>
     buylistTpl.sellRequestExpiredTemplate({ kind: 'no_response', folio: 'BL-1', closedAt: AT, portalUrl: PORTAL }, 'Ana', l),
   sellRequestNotPursuedTemplate: (l) =>

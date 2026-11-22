@@ -3,7 +3,7 @@
 --   DROP COLUMN "revisionProposedAt", DROP COLUMN "revisionRespondedAt", DROP COLUMN "revisionReasonCode", DROP COLUMN "revisionNote",
 --   DROP COLUMN "revisionReminderSentAt", DROP COLUMN "pickupMethod", DROP COLUMN "pickupChosenAt", DROP COLUMN "pickupDoneAt", DROP COLUMN "pickupDoneBy";
 --   DROP TYPE "SellItemRevisionState"; DROP TYPE "SellItemPickupMethod";
-CREATE TYPE "SellItemRevisionState" AS ENUM ('pending', 'accepted', 'declined', 'expired');
+CREATE TYPE "SellItemRevisionState" AS ENUM ('pending', 'accepted', 'declined', 'expired', 'cancelled');
 CREATE TYPE "SellItemPickupMethod" AS ENUM ('in_person', 'ship_back');
 ALTER TABLE "SellRequestItem"
   ADD COLUMN "revisionState" "SellItemRevisionState",

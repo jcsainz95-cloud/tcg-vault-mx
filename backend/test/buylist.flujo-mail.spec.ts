@@ -3,7 +3,14 @@
  * Candados: el texto del contrato (anexo §4), sin recoger/plazos en C2, direccion de la tienda solo si existe, y ⛔ ni CLABE ni
  * domicilio del vendedor en ninguno de los dos.
  */
-import { sellItemNotReceivedTemplate, sellItemRevisionTemplate, sellItemsPickupTemplate, PickupCardLine } from '../src/modules/buylist/buylist-flujo-mail.templates';
+import {
+  remainingDaysOf,
+  sellItemNotReceivedTemplate,
+  sellItemRevisionCancelledTemplate,
+  sellItemRevisionTemplate,
+  sellItemsPickupTemplate,
+  PickupCardLine,
+} from '../src/modules/buylist/buylist-flujo-mail.templates';
 
 const CARD = { cardName: 'Charizard', setName: 'Base Set', cardNumber: '4/102', finish: 'holofoil' as const };
 const R = new Date('2026-11-23T12:00:00Z');
@@ -134,5 +141,65 @@ describe('C3/C4 sellItemRevisionTemplate', () => {
     const m = sellItemRevisionTemplate({ ...p, cause: 'other', note: 'viene con la esquina doblada' }, 'Ash', 'es');
     expect(m.text).toContain('viene con la esquina doblada');
     expect(m.text + m.html).not.toMatch(/\b\d{18}\b/);
+  });
+});
+
+describe('cierre F2 — C3 «p.m..», C4 tiempo real, C5, C2 de varias cartas', () => {
+  const p = {
+    folio: 'SR-1',
+    card: CARD,
+    offeredCents: 60000,
+    proposedCents: 45000,
+    cause: 'condition_mismatch' as const,
+    note: null,
+    // 18:00 UTC = 12:00 p.m. en CDMX (UTC-6): el formato es-MX termina en «p.m.».
+    expiresAt: new Date('2026-11-30T18:00:00Z'),
+    responseDays: 7,
+    portalUrl: 'https://tienda.ejemplo.test/es/buylist/requests/SR-1',
+    reminder: false,
+  };
+  it('C3 es: ningun «..» doble (la hora termina en «p.m.» y el punto no se duplica); en: tampoco', () => {
+    const es = sellItemRevisionTemplate({ ...p, expiresAt: new Date('2026-11-30T21:30:00Z') }, 'Ash', 'es');
+    expect(es.text).toMatch(/p\.m\./);
+    expect(es.text).not.toMatch(/\.\./);
+    expect(es.html).not.toMatch(/p\.m\.\./);
+    expect(sellItemRevisionTemplate({ ...p, expiresAt: new Date('2026-11-30T21:30:00Z') }, 'Ash', 'en').text).not.toMatch(/\.\./);
+  });
+  it('remainingDaysOf: dias hacia arriba; < 24 h => 0', () => {
+    const now = new Date('2026-11-23T12:00:00Z');
+    const at = (ms: number) => new Date(now.getTime() + ms);
+    expect(remainingDaysOf(at(20 * 3600e3), now)).toBe(0);
+    expect(remainingDaysOf(at(86_400_000 - 1), now)).toBe(0);
+    expect(remainingDaysOf(at(86_400_000), now)).toBe(1);
+    expect(remainingDaysOf(at(86_400_000 + 1), now)).toBe(2);
+    expect(remainingDaysOf(at(2.5 * 86_400_000), now)).toBe(3);
+    expect(remainingDaysOf(at(-5), now)).toBe(0);
+  });
+  it('C4 usa el tiempo REAL: «Te quedan 3 días» / «Te queda 1 día» / «menos de 24 horas»; ⛔ nunca «Tienes 7 días»', () => {
+    const c4 = (remainingDays: number, l: string) => sellItemRevisionTemplate({ ...p, reminder: true, remainingDays }, 'Ash', l).text;
+    expect(c4(3, 'es')).toContain('Te quedan 3 días: hasta el');
+    expect(c4(1, 'es')).toContain('Te queda 1 día: hasta el');
+    expect(c4(0, 'es')).toContain('Te quedan menos de 24 horas: hasta el');
+    expect(c4(0, 'en')).toContain('You have less than 24 hours left: until');
+    expect(c4(3, 'en')).toContain('You have 3 days left: until');
+    for (const n of [0, 1, 3]) expect(c4(n, 'es')).not.toContain('Tienes 7 días');
+    // C3 (no recordatorio) conserva los 7 dias.
+    expect(sellItemRevisionTemplate(p, 'Ash', 'es').text).toContain('Tienes 7 días');
+  });
+  it('C5 es/en: retiramos la propuesta, se paga el precio ORIGINAL de esa linea, sin plazos ni botones de decision, sin CLABE', () => {
+    const es = sellItemRevisionCancelledTemplate({ folio: 'SR-1', card: CARD, offeredCents: 60000, portalUrl: p.portalUrl }, 'Ash', 'es');
+    expect(es.subject).toBe('Retiramos la propuesta de nuevo precio de una carta');
+    expect(es.text).toContain('Retiramos la propuesta de nuevo precio por Charizard (Base Set · #4/102)');
+    expect(es.text).toContain('Se paga tu precio original: $600.00');
+    expect(es.text).not.toMatch(/Tienes|plazo|ACEPTAR|CLABE/i);
+    const en = sellItemRevisionCancelledTemplate({ folio: 'SR-1', card: CARD, offeredCents: 60000 }, 'Ash', 'en');
+    expect(en.subject).toBe('We withdrew the new price proposal for a card');
+    expect(en.text).toContain('We will pay your original offer price: MX$600.00');
+  });
+  it('C2 con varias cartas: UN correo que las nombra a todas, sin recoger ni plazos', () => {
+    const c2 = { cardName: 'Blastoise', setName: 'Base Set', cardNumber: '2/102', finish: 'holofoil' as const };
+    const m = sellItemNotReceivedTemplate({ folio: 'SR-1', card: CARD, cards: [CARD, c2], requestClosed: false, hasShippingFee: true }, 'Ash', 'es');
+    expect(m.text).toContain('Charizard (Base Set · #4/102); Blastoise (Base Set · #2/102) no venían dentro');
+    expect(m.text).not.toMatch(/recoger|esperan|plazo/i);
   });
 });

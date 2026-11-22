@@ -87,7 +87,10 @@ describe('E2E — v1.82.1 §PNL.10 · ITEM_FINAL en la decisión por carta y CAS
   const convert = (itemId: string) =>
     h.api('POST', `/admin/buylist/items/${itemId}/convert-to-inventory`, { token: operatorToken, json: {} });
   const rejectItems = (srId: string, json: unknown) =>
-    h.api('POST', `/admin/buylist/${srId}/reject-items`, { token: operatorToken, json });
+    h.api('POST', `/admin/buylist/${srId}/reject-items`, {
+      token: operatorToken,
+      json: json && typeof json === 'object' && !Array.isArray(json) && !('reasonCode' in json) && 'itemIds' in json ? { reasonCode: 'other', ...json } : json,
+    });
 
   /** Carta `convertida_inventario` por los verbos REALES: aprobar (8000) y convertir. */
   async function cartaConvertida(legado = false) {

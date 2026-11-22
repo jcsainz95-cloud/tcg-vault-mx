@@ -47,10 +47,11 @@ export interface PayoutDTO extends PayoutAmounts {
  */
 export function payoutDTOOf(
   r: PayoutMoneyRow & { status: string; payoutNetCents?: number | null },
-  o: { pendingDecisionCount: number; clabeOnFile: boolean },
+  o: { lines: readonly ProjectionLine[]; clabeOnFile: boolean },
 ): PayoutDTO | null {
   if (r.status === 'verificacion' || r.status === 'aprobada') {
-    return { ...computePayoutNetCents(r), isFinal: o.pendingDecisionCount === 0, clabeOnFile: o.clabeOnFile };
+    // §3.1: la MISMA proyeccion que la vista previa y `netIfAcceptedCents` (rechazadas fuera, sin decidir al pactado, bajas a su propuesta).
+    return { ...projectPayoutNetCents({ lines: o.lines, offerShippingFeeCents: r.offerShippingFeeCents, legacy: r }), clabeOnFile: o.clabeOnFile };
   }
   if (r.status === 'pagada') {
     const base = computePayoutNetCents(r);
@@ -119,33 +120,67 @@ export function statusClockOf(r: StatusClockRow, now: Date) {
   };
 }
 
-/**
- * §BUYLIST-FLUJO F2c — el neto que quedaria si el vendedor ACEPTA la baja de esa linea (`revision.netIfAcceptedCents`). Sale de
- * `computePayoutNetCents` (misma resta que lectura y sellado): solo cambia el bruto base. Con lineas ya aprobadas el bruto es su
- * suma + la propuesta (la linea pendiente no esta en la suma); sin ninguna, la cascada cae a lo ofertado y la linea se sustituye.
- */
-export function netIfRevisionAcceptedCents(
-  r: { approvedTotalCents?: number | null; offerGrossCents?: number | null; quotedTotalCents?: number | null; offerShippingFeeCents?: number | null },
-  line: { offeredPriceCents?: number | null; revisedPriceCents?: number | null },
-): number | null {
-  if (line.revisedPriceCents == null || line.offeredPriceCents == null) return null;
-  const gross =
-    r.approvedTotalCents != null
-      ? r.approvedTotalCents + line.revisedPriceCents
-      : (r.offerGrossCents ?? r.quotedTotalCents ?? 0) - line.offeredPriceCents + line.revisedPriceCents;
-  return computePayoutNetCents({ ...r, approvedTotalCents: Math.max(0, gross) }).netCents;
+/** Linea de la solicitud tal como la lee la proyeccion del neto (§3.1). */
+export interface ProjectionLine {
+  id: string;
+  offerDecision?: string | null;
+  itemStatus: string;
+  offeredPriceCents?: number | null;
+  approvedPriceCents?: number | null;
+  revisionState?: string | null;
+  revisedPriceCents?: number | null;
+  rejectionCode?: string | null;
 }
 
 /**
- * §BUYLIST-FLUJO F2c — vista previa del `payout` si TODAS las bajas dadas se aceptan (la de la linea que se esta proponiendo y las demas
- * pendientes, a su valor propuesto). Misma resta que lectura y sellado: solo cambia el bruto base (ver `netIfRevisionAcceptedCents`).
+ * §BUYLIST-FLUJO §3.2 — INVARIANTE `revisionState='pending' ⇔ itemStatus='ajustada'`: una baja pendiente es SOLO la que cumple las dos.
+ * Un `pending` huerfano (linea ya aprobada/rechazada por otra via) no cuenta como baja viva en ningun lector.
  */
-export function previewPayoutWithRevisions(
-  r: { approvedTotalCents?: number | null; offerGrossCents?: number | null; quotedTotalCents?: number | null; offerShippingFeeCents?: number | null },
-  lines: { offeredPriceCents?: number | null; revisedPriceCents?: number | null }[],
-): PayoutAmounts {
-  const revised = lines.reduce((a, l) => a + (l.revisedPriceCents ?? 0), 0);
-  const offered = lines.reduce((a, l) => a + (l.offeredPriceCents ?? 0), 0);
-  const gross = r.approvedTotalCents != null ? r.approvedTotalCents + revised : (r.offerGrossCents ?? r.quotedTotalCents ?? 0) - offered + revised;
-  return computePayoutNetCents({ ...r, approvedTotalCents: Math.max(0, gross) });
+export function hasLivePendingRevision(i: { itemStatus: string; revisionState?: string | null }): boolean {
+  return i.revisionState === 'pending' && i.itemStatus === 'ajustada';
+}
+
+const VERDICT_ITEM_STATUSES = ['aprobada', 'rechazada', 'convertida_inventario', 'pagada'];
+
+export interface ProjectedPayout extends PayoutAmounts {
+  isFinal: boolean;
+}
+
+/**
+ * §BUYLIST-FLUJO §3.1 — **UNA sola funcion** del neto proyectado: vista previa de `revise-price`, `revision.netIfAcceptedCents`
+ * (derivado al leer, no guardado) y `payout` en revision/aprobada. ⛔ ninguna otra suma de lineas.
+ * Por linea `buy`: rechazada / `skip` / `not_received` ⇒ fuera; aceptada (`aprobada`/`convertida`/`pagada`) ⇒ `approvedPriceCents`;
+ * baja viva (`pending ∧ ajustada`) ⇒ `revisedPriceCents`; sin decidir ⇒ `offeredPriceCents` (pactado). `net = max(0, bruto − envio)`.
+ * `override` (solo vista previa): esa linea al precio tecleado. `isFinal` ⇔ ninguna linea (las OTRAS, en vista previa) sin decidir
+ * ni con baja viva. Solicitud sin ninguna linea `buy` (pre-ciclo): cae a `computePayoutNetCents(legacy)` y `isFinal=true`.
+ */
+export function projectPayoutNetCents(
+  r: { lines: readonly ProjectionLine[]; offerShippingFeeCents?: number | null; legacy?: PayoutMoneyRow | Parameters<typeof computePayoutNetCents>[0] },
+  override?: { itemId: string; priceCents: number },
+): ProjectedPayout {
+  const buys = r.lines.filter((l) => l.offerDecision === 'buy');
+  if (buys.length === 0 && !override) {
+    return { ...computePayoutNetCents({ ...(r.legacy ?? {}), offerShippingFeeCents: r.offerShippingFeeCents ?? null }), isFinal: true };
+  }
+  let gross = 0;
+  let isFinal = true;
+  for (const l of buys) {
+    if (override && l.id === override.itemId) {
+      gross += override.priceCents;
+      continue;
+    }
+    if (l.itemStatus === 'rechazada' || l.rejectionCode === 'not_received') continue;
+    if (VERDICT_ITEM_STATUSES.includes(l.itemStatus)) {
+      gross += l.approvedPriceCents ?? l.offeredPriceCents ?? 0;
+    } else if (hasLivePendingRevision(l)) {
+      gross += l.revisedPriceCents ?? l.offeredPriceCents ?? 0;
+      isFinal = false;
+    } else {
+      gross += l.offeredPriceCents ?? 0;
+      isFinal = false;
+    }
+  }
+  if (override && !buys.some((l) => l.id === override.itemId)) gross += override.priceCents;
+  const shippingFeeCents = r.offerShippingFeeCents ?? 0;
+  return { grossCents: gross, shippingFeeCents, netCents: Math.max(0, gross - shippingFeeCents), isFinal };
 }

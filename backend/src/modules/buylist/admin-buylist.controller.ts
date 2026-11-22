@@ -20,11 +20,11 @@ import { parseAdminListFilters } from '../../common/admin-list-filters';
 import { BuylistService, parseDeclineAcceptedBody } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
 import { BusinessException } from '../../common/business.exception';
+import { isUUID } from 'class-validator';
 import {
   AdminPickupAddressDto,
   ConfirmShipmentDto,
   ConvertAllDto,
-  RevisePricePreviewQueryDto,
   ReviseItemPriceDto,
   ConvertToInventoryDto,
   DeclineDto,
@@ -626,14 +626,14 @@ export class AdminBuylistController {
     @Body() body: unknown,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const { items, requestClosed, itemIds, reason } = await this.buylist.rejectItems(id, body);
+    const { items, requestClosed, itemIds, reason, reasonCode } = await this.buylist.rejectItems(id, body);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
       action: 'buylist.items_rejected',
       entityType: 'SellRequest',
       entityId: id,
-      after: { itemIds, reason, requestClosed },
+      after: { itemIds, reason, reasonCode, requestClosed },
     });
     return { items, requestClosed };
   }
@@ -676,8 +676,12 @@ export class AdminBuylistController {
 
   /** §BUYLIST-FLUJO F2c: vista previa del neto de una baja (solo lectura: sin escritura, auditoria ni correo). */
   @Get('items/:itemId/revise-price/preview')
-  previewRevise(@Param('itemId') itemId: string, @Query() q: RevisePricePreviewQueryDto) {
-    return this.buylist.previewRevisedPayout(itemId, q.revisedPriceCents);
+  previewRevise(@Param('itemId') itemId: string, @Query('revisedPriceCents') raw?: string) {
+    // Formato estricto (anexo §3): solo digitos decimales, 1–9. `1e3`/`1.5`/`+5`/`-5`/` 5`/`0x10` ⇒ 400 con `details.field`.
+    if (typeof raw !== 'string' || !/^\d{1,9}$/.test(raw)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'revisedPriceCents must be 1–9 decimal digits', { field: 'revisedPriceCents' });
+    }
+    return this.buylist.previewRevisedPayout(itemId, Number(raw));
   }
 
   /** §BUYLIST-FLUJO F2c: propone bajar el precio de una linea (con el «si» del vendedor); correo C3. */
@@ -745,6 +749,10 @@ export class AdminBuylistController {
     @Body() dto: ConvertAllDto,
     @CurrentUser() user: { id: string; role: Role },
   ) {
+    // `locationId` que no sea uuid ⇒ 400 sin efectos (uuid inexistente sigue siendo 422 por linea/globales como hoy).
+    if (dto?.locationId != null && !isUUID(dto.locationId)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'locationId must be a uuid', { field: 'locationId' });
+    }
     const res = await this.buylist.convertAll(id, user.id, dto?.locationId);
     await this.audit.log({
       actorUserId: user.id,

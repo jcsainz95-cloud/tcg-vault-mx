@@ -366,6 +366,8 @@ enum SellItemRevisionState {
   accepted
   declined
   expired
+  // §BUYLIST-FLUJO F2 cierre: el dueño aprobó/rechazó la línea sin esperar al vendedor ⇒ la baja se RETIRA.
+  cancelled
 }
 
 // §BUYLIST-FLUJO F2c: como recoge el vendedor la carta no aceptada (en persona, gratis; o envio de regreso a su cargo).

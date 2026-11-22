@@ -243,14 +243,14 @@ export class BuylistController {
     @Param('itemId') itemId: string,
     @Body() dto: RevisionResponseDto,
   ) {
-    const res = await this.buylist.respondRevision(user.id, id, itemId, dto.decision);
+    const res = await this.buylist.respondRevision(user.id, id, itemId, dto.decision, dto.expectedRevisedPriceCents);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
       action: `buylist.item.revision_${dto.decision}`,
       entityType: 'SellRequestItem',
       entityId: itemId,
-      after: { sellRequestId: id, decision: dto.decision },
+      after: { sellRequestId: id, decision: dto.decision, ...(dto.decision === 'accept' ? { expectedRevisedPriceCents: dto.expectedRevisedPriceCents } : {}) },
     });
     return res;
   }

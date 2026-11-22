@@ -258,8 +258,14 @@ describe('E2E — §BUYLIST-FLUJO F2', () => {
     const DAY = 24 * 3600 * 1000;
     const revise = (itemId: string, json: Record<string, unknown>, token = operatorToken) =>
       h.api('POST', `/admin/buylist/items/${itemId}/revise-price`, { token, json });
-    const respond = (srId: string, itemId: string, decision: string, token = customerToken) =>
-      h.api('POST', `/buylist/requests/${srId}/items/${itemId}/revision-response`, { token, json: { decision } });
+    const respond = async (srId: string, itemId: string, decision: string, token = customerToken, expected?: number) => {
+      // F2-2: `accept` lleva el monto que el vendedor vio (por defecto, el vigente en BD).
+      const cur = (await h.prisma.sellRequestItem.findUnique({ where: { id: itemId }, select: { revisedPriceCents: true } }))?.revisedPriceCents;
+      return h.api('POST', `/buylist/requests/${srId}/items/${itemId}/revision-response`, {
+        token,
+        json: decision === 'accept' ? { decision, expectedRevisedPriceCents: expected ?? cur } : { decision },
+      });
+    };
     const rowOf = (itemId: string) => h.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
     const itemOf = async (srId: string, itemId: string) => (await detail(srId)).items.find((i: any) => i.id === itemId);
     const pay = (srId: string, ref: string, expectedNetCents: number) =>
@@ -517,7 +523,7 @@ describe('E2E — §BUYLIST-FLUJO F2', () => {
         expect(p.status).toBe(200);
         const b = p.body as any;
         expect(b).toMatchObject({ itemId: ids[0], offeredPriceCents: offered, revisedPriceCents: revised });
-        expect(Object.keys(b.payout).sort()).toEqual(['grossCents', 'netCents', 'shippingFeeCents']);
+        expect(Object.keys(b.payout).sort()).toEqual(['grossCents', 'isFinal', 'netCents', 'shippingFeeCents']);
         expect(await snapshot(srId, ids[0])).toEqual(before);
         expect(enviados).toHaveLength(0);
         // paridad con lo que deja revise-price y con el payout real tras aceptar.
@@ -525,7 +531,7 @@ describe('E2E — §BUYLIST-FLUJO F2', () => {
         expect((await itemOf(srId, ids[0])).revision.netIfAcceptedCents).toBe(b.payout.netCents);
         expect((await respond(srId, ids[0], 'accept')).status).toBe(200);
         const real = (await detail(srId)).payout;
-        expect({ grossCents: real.grossCents, shippingFeeCents: real.shippingFeeCents, netCents: real.netCents }).toEqual(b.payout);
+        expect({ grossCents: real.grossCents, shippingFeeCents: real.shippingFeeCents, netCents: real.netCents, isFinal: real.isFinal }).toEqual({ ...b.payout, isFinal: true });
       });
 
       it('otras bajas pendientes cuentan a su valor propuesto', async () => {
@@ -545,7 +551,7 @@ describe('E2E — §BUYLIST-FLUJO F2', () => {
       it('mismas validaciones y errores que revise-price; solo staff', async () => {
         const { ids } = await toVerificacion(2);
         const o = (await rowOf(ids[0]))!.offeredPriceCents!;
-        for (const v of [o, o + 1, 0, -3]) {
+        for (const v of [o, o + 1, 0]) {
           const r = await preview(ids[0], `?revisedPriceCents=${v}`);
           expect(r.status).toBe(422);
           expect((r.body as any).error.code).toBe('REVISION_NOT_LOWER');

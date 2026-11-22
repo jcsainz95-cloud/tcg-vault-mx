@@ -125,6 +125,8 @@ export const NO_ENUM_POR_RUTA: readonly string[] = [
   'GET /admin/buylist::inboundLabelAlert',
   'GET /admin/buylist::live',
   'GET /admin/buylist::offerReissueAlert',
+  // §BUYLIST-FLUJO F2 (B-2): monto en centavos tecleado (formato estricto `^\d{1,9}$` en el controlador), no un enum; como `refund-preview::amountCents`.
+  'GET /admin/buylist/items/:itemId/revise-price/preview::revisedPriceCents',
   'GET /admin/buylist/pending-shipment-confirmation::onlyAlerts',
   'GET /admin/inventory/sealed-products::principalOnly',
   'GET /admin/orders::guest',

@@ -57,7 +57,6 @@ import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
 import {
   offerTermsCopy,
   sellItemRejectedTemplate,
-  sellItemsRejectedTemplate,
   sellOfferCancelledTemplate,
   sellOfferTemplate,
   sellRequestNotPursuedTemplate,
@@ -65,7 +64,13 @@ import {
   buylistPortalUrl,
 } from './buylist-mail.templates';
 // §BUYLIST-FLUJO F2: correos C1 («tus cartas te esperan») y C2 («no llego») — fichero propio, mismo esqueleto.
-import { sellItemNotReceivedTemplate, sellItemRevisionTemplate, sellItemsPickupTemplate } from './buylist-flujo-mail.templates';
+import {
+  remainingDaysOf,
+  sellItemNotReceivedTemplate,
+  sellItemRevisionCancelledTemplate,
+  sellItemRevisionTemplate,
+  sellItemsPickupTemplate,
+} from './buylist-flujo-mail.templates';
 import {
   AdminRevisionDTO,
   agreedPriceCentsOf,
@@ -88,6 +93,7 @@ import {
 import { addBusinessDays, businessDaysSince } from '../../common/business-days';
 import { runSerializable } from '../../common/serializable-retry';
 import { ITEM_FINAL_STATUSES, isItemFinal, parseRejectItemsBody, rejectItemsBlock } from './buylist-reject-items';
+import type { RejectItemsReasonCode } from './buylist-reject-items';
 import {
   BUYLIST_REVISION_RESPONSE_DAYS,
   deriveRejectedReason,
@@ -155,7 +161,8 @@ import { resyncInboundAddress } from './inbound-address-sync';
 import { INBOUND_LABEL_SELECT, labelPdfAvailableOf } from '../shipments/label-inbound';
 import { ShipmentLabelService } from '../shipments/label-purchase.service';
 import type { LabelOptionsDTO } from '../shipments/label-view';
-import { computePayoutNetCents, netIfRevisionAcceptedCents, payoutDTOOf, previewPayoutWithRevisions, statusClockOf } from './buylist-payout';
+import { computePayoutNetCents, hasLivePendingRevision, payoutDTOOf, projectPayoutNetCents, statusClockOf } from './buylist-payout';
+import type { ProjectionLine } from './buylist-payout';
 import {
   INBOUND_SHIPMENT_SELECT,
   InboundShipmentRow,
@@ -276,7 +283,17 @@ type SellRequestCycleRow = Partial<{
  * de mutación lo pidan igual. *Traer la línea entera aquí arrastraría el snapshot de precios a rutas
  * que solo necesitan contar.*
  */
-const VERDICT_ITEM_SELECT = { id: true, offerDecision: true, itemStatus: true, revisionState: true } as const;
+const VERDICT_ITEM_SELECT = {
+  id: true,
+  offerDecision: true,
+  itemStatus: true,
+  revisionState: true,
+  // §BUYLIST-FLUJO §3.1: `projectPayoutNetCents` (payout de la barra) lee los precios de la linea y la causa `not_received`.
+  offeredPriceCents: true,
+  approvedPriceCents: true,
+  revisedPriceCents: true,
+  rejectionCode: true,
+} as const;
 
 /** Los diales que la proyección admin necesita, izados UNA vez por request (BL-29) — + los dos del cierre sin guía (BSD-1). */
 type AdminCycleDials = { offerIssueDays: number; reissueAlertCount: number; guide: GuideClockDials };
@@ -2263,6 +2280,8 @@ export class BuylistService implements OnModuleInit {
       approvedPriceCents: i.approvedPriceCents ?? undefined,
       itemStatus: i.itemStatus,
       inventoryItemId: i.inventoryItemId ?? undefined,
+      // §BUYLIST-FLUJO §1: `rejectionCode` SIEMPRE presente (`null` explicito; nunca se omite la clave), admin y cliente.
+      rejectionCode: i.rejectionCode ?? null,
       ...rejection,
       ...offer,
       // §BUYLIST-FLUJO F2c (anexo §1): `revision` (admin: con `reasonCode`; vendedor: solo `reasonText`) y `pickup`. `null` si no aplica.
@@ -2813,7 +2832,7 @@ export class BuylistService implements OnModuleInit {
   private adminSellRequestDTO(
     r: SellRequestBaseRow &
       SellRequestCycleRow & { createdAt: Date } & {
-        items: readonly { id: string; offerDecision?: BuyDecision | null; itemStatus: SellItemStatus }[];
+        items: readonly ({ id: string; offerDecision?: BuyDecision | null; itemStatus: SellItemStatus } & Partial<ProjectionLine>)[];
         // 💰 rev BSD-1 — viaja con `ADMIN_DTO_INCLUDE`; `undefined` solo en mocks unitarios (⇒ sin fila de entrada).
         inboundShipment?: InboundShipmentRow | null;
         inboundGuideClockStartedAt?: Date | null;
@@ -2918,7 +2937,7 @@ export class BuylistService implements OnModuleInit {
           payoutNetCents: r.payoutNetCents ?? null,
         },
         {
-          pendingDecisionCount: pendingDecisionItemIds.length,
+          lines: r.items ?? [],
           clabeOnFile: (r as { clabeSnapshotEnc?: string | null }).clabeSnapshotEnc != null || bsd.kycClabeOnFile === true,
         },
       ),
@@ -3017,13 +3036,23 @@ export class BuylistService implements OnModuleInit {
    */
   private adminItemDTO(
     i: Parameters<BuylistService['itemDTO']>[0],
-    basis?: Parameters<typeof netIfRevisionAcceptedCents>[0],
+    basis?: {
+      items?: readonly ProjectionLine[];
+      offerShippingFeeCents?: number | null;
+      approvedTotalCents?: number | null;
+      offerGrossCents?: number | null;
+      quotedTotalCents?: number | null;
+    },
   ) {
     const dto = this.itemDTO(i, { audience: 'admin' });
     const revision = dto.revision as (AdminRevisionDTO & { netIfAcceptedCents?: number | null }) | null;
-    // F2c: el neto «si el vendedor acepta» sale de `computePayoutNetCents` (misma funcion que la lectura y el sellado).
-    if (revision && revision.state === 'pending' && basis) {
-      revision.netIfAcceptedCents = netIfRevisionAcceptedCents(basis, i);
+    // §3.1: el neto «si el vendedor acepta» se DERIVA en cada lectura con `projectPayoutNetCents` (la misma funcion que la vista previa
+    // y que la barra `payout`); no se guarda. Solo una baja VIVA (`pending ∧ ajustada`, invariante §3.2).
+    if (revision && hasLivePendingRevision(i) && basis && i.revisedPriceCents != null) {
+      revision.netIfAcceptedCents = projectPayoutNetCents(
+        { lines: basis.items ?? [], offerShippingFeeCents: basis.offerShippingFeeCents, legacy: basis },
+        { itemId: i.id, priceCents: i.revisedPriceCents },
+      ).netCents;
     }
     // F2c: pactado FINAL = `approvedPriceCents` si hubo baja aceptada, si no lo ofertado.
     return { ...dto, agreedPriceCents: agreedPriceCentsOf(i) };
@@ -7554,7 +7583,10 @@ export class BuylistService implements OnModuleInit {
       // exclusión la da el motor, no un `if` sobre la lectura de arriba (que una carrera invalida).
       // v1.82 · PNL-4: la escritura vive en `rejectItemWrite`, UN cuerpo con `reject-items`. Aquí sin
       // `expectedItemStatus` (el `where` es el de siempre: `PATCH …/decision {reject}` sin cambio, §PNL.4).
-      const written = await this.rejectItemWrite(this.prisma, itemId, trimmedReason, rejectedAt, undefined, rejectionCode);
+      // §3.2: la escritura y la cancelacion de la baja pendiente van en UNA transaccion.
+      const written = await this.prisma.$transaction((tx) =>
+        this.rejectItemWrite(tx, itemId, trimmedReason, rejectedAt, undefined, rejectionCode),
+      );
       // v1.82.1 · §PNL.10.2.3 — `count ≠ 1` se RELEE: solicitud terminal ⇒ `NO_LIVE_ADJUSTMENT` (gana); carta en
       // estado final ⇒ `409 CONFLICT … ITEM_FINAL` (una conversión confirmó entre la lectura y aquí).
       if (!written) await this.throwRejectWriteConflict(this.prisma, itemId, item.sellRequestId);
@@ -7631,6 +7663,13 @@ export class BuylistService implements OnModuleInit {
       data.approvedPriceCents = effective;
     }
     data.itemStatus = itemStatus;
+    // §BUYLIST-FLUJO §3.2 — aprobar al pactado una linea con baja VIVA (`pending ∧ ajustada`) la RETIRA en la misma escritura (CAS abajo):
+    // «aprobar = retirar la baja y pagar lo pactado». Sin 409 ni paso previo.
+    const cancelsRevision = decision === 'approve' && hasLivePendingRevision(item);
+    if (cancelsRevision) {
+      data.revisionState = 'cancelled';
+      data.revisionRespondedAt = new Date();
+    }
     // v1.18: si un ítem antes rechazado se re-decide approve/adjust, los campos de rechazo se
     // LIMPIAN (solo un ítem `rechazada` los expone; higiene de la fuente única de plazos).
     if (item.itemStatus === 'rechazada') {
@@ -7652,6 +7691,7 @@ export class BuylistService implements OnModuleInit {
           // de arriba decide la limpieza con la lectura vieja): **aprobada y rechazada a la vez**. Con el CAS,
           // la decisión tomada sobre una vista vieja no escribe (`409 CONFLICT · CONCURRENT_UPDATE`).
           itemStatus: item.itemStatus,
+          ...(cancelsRevision ? { revisionState: 'pending' as const } : {}),
           sellRequest: { ...this.notTerminalWhere(), ...offerCycleWhere, ...receivedWhere },
         },
         data: data as Prisma.SellRequestItemUpdateManyMutationInput,
@@ -7678,7 +7718,41 @@ export class BuylistService implements OnModuleInit {
     // RB-6 / SEC-D3: deriva y persiste `approvedTotalCents` server-side desde los montos aprobados
     // por ítem, en el punto donde esos montos cambian. Lo lee el P&L / la tarjeta "buylist del periodo".
     await this.recomputeApprovedTotal(item.sellRequestId);
+    // C5 («Retiramos la propuesta»): UNA por acto, best-effort POST-commit (su fallo no revierte la aprobacion).
+    if (cancelsRevision) await this.sendRevisionCancelledMail(item, item.sellRequest.user);
     return toAdminSellItemRow(updated); // S49-R4
+  }
+
+  /** C5 al vendedor: se retiro la baja y se paga el precio original. Best-effort POST-commit; es/en. */
+  private async sendRevisionCancelledMail(
+    item: {
+      id: string;
+      sellRequestId: string;
+      finish: Finish;
+      offeredPriceCents: number | null;
+      card?: { name: string; number: string; set?: { name: string } | null } | null;
+    },
+    user: { email: string | null; name: string; locale: string | null } | null | undefined,
+  ): Promise<void> {
+    try {
+      if (!this.mail || !user?.email) {
+        this.logger.warn(`buylist revision-cancelled mail skipped for item ${item.id}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`);
+        return;
+      }
+      const msg = sellItemRevisionCancelledTemplate(
+        {
+          folio: item.sellRequestId,
+          card: { cardName: item.card?.name ?? '', setName: item.card?.set?.name ?? '', cardNumber: item.card?.number ?? '', finish: item.finish ?? 'normal' },
+          offeredCents: item.offeredPriceCents ?? 0,
+          portalUrl: buylistPortalUrl(item.sellRequestId, user.locale),
+        },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(`buylist revision-cancelled mail failed for item ${item.id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   /**
@@ -7853,7 +7927,15 @@ export class BuylistService implements OnModuleInit {
         ...(rejectionCode ? { rejectionCode } : {}),
       },
     });
-    return guard.count === 1;
+    if (guard.count !== 1) return false;
+    // §BUYLIST-FLUJO §3.2 — rechazar una linea con baja `pending` la RETIRA en la MISMA transaccion (el llamador la abre): sin esto la
+    // linea queda `rechazada` con `pending` huerfano. El candado de fila que tomo el `updateMany` de arriba serializa con la respuesta
+    // del vendedor (si respondio antes, `revisionState` ya no es `pending` y esto no escribe: sin doble efecto).
+    await db.sellRequestItem.updateMany({
+      where: { id: itemId, revisionState: 'pending' },
+      data: { revisionState: 'cancelled', revisionRespondedAt: rejectedAt },
+    });
+    return true;
   }
 
   /**
@@ -7875,8 +7957,9 @@ export class BuylistService implements OnModuleInit {
   async rejectItems(
     id: string,
     body: unknown,
-  ): Promise<{ items: ReturnType<typeof toAdminSellItemRow>[]; requestClosed: boolean; itemIds: string[]; reason: string }> {
-    const { itemIds, reason } = parseRejectItemsBody(body);
+  ): Promise<{ items: ReturnType<typeof toAdminSellItemRow>[]; requestClosed: boolean; itemIds: string[]; reason: string; reasonCode: RejectItemsReasonCode }> {
+    const { itemIds, reason: noteText, reasonCode } = parseRejectItemsBody(body);
+    const reason = noteText || REJECTION_CODE_DEFAULT_REASON[reasonCode];
     const rejectedAt = new Date();
     const outcome = await runSerializable(
       this.prisma,
@@ -7922,7 +8005,7 @@ export class BuylistService implements OnModuleInit {
           });
         }
         for (const r of ordered) {
-          const written = await this.rejectItemWrite(tx, r.id, reason, rejectedAt, r.itemStatus);
+          const written = await this.rejectItemWrite(tx, r.id, reason, rejectedAt, r.itemStatus, reasonCode);
           if (!written) {
             // El CAS no casó: otra escritura movió la carta entre la lectura y aquí. ⛔ Nada queda escrito
             // (el throw deshace la tx entera). Mismo `409 CONFLICT {itemIds}` que el pre-check.
@@ -7942,20 +8025,22 @@ export class BuylistService implements OnModuleInit {
       },
       { label: 'rejectItems', logger: this.logger },
     );
-    await this.sendItemsRejectedMail(id, itemIds, reason, rejectedAt, outcome.requestClosed);
-    return { ...outcome, itemIds, reason };
+    // §3.2: UN solo correo por acto con la causa elegida: C1 («tus cartas te esperan») o C2 si la causa es «No llegó».
+    await this.sendRejectItemsFlujoMail(id, itemIds, reasonCode, noteText, rejectedAt, outcome.requestClosed);
+    return { ...outcome, itemIds, reason, reasonCode };
   }
 
   /**
-   * v1.82 · PNL-4 — el correo 29 (`sellItemsRejectedTemplate`), **UNO** por lote. BEST-EFFORT POST-COMMIT
-   * (patrón `sendItemRejectedMail`): todo —incluida la lectura de datos— dentro del `try`; un fallo se
-   * registra y ⛔ no deshace el rechazo. Minimización §4.18c: cartas (nombre/set/número/acabado), motivo y
-   * plazos — sin CLABE, sin montos, sin el estado de las demás cartas.
+   * §BUYLIST-FLUJO §3.2 — el correo de `reject-items`: UNO por acto, con la causa elegida (C1 con el bloque de recoger; C2 si `not_received`).
+   * BEST-EFFORT POST-COMMIT: todo —incluida la lectura de datos— dentro del `try`; un fallo se registra y ⛔ no deshace el rechazo.
+   * Minimizacion §4.18c: cartas (nombre/set/numero/acabado), causa y plazos — sin CLABE, sin montos ajenos. (`sellItemsRejectedTemplate`
+   * ya no se usa en este verbo.)
    */
-  private async sendItemsRejectedMail(
+  private async sendRejectItemsFlujoMail(
     sellRequestId: string,
     itemIds: string[],
-    reason: string,
+    code: RejectItemsReasonCode,
+    note: string,
     rejectedAt: Date,
     requestClosed: boolean,
   ): Promise<void> {
@@ -7966,7 +8051,7 @@ export class BuylistService implements OnModuleInit {
       }
       const req = await this.prisma.sellRequest.findUnique({
         where: { id: sellRequestId },
-        select: { user: { select: { email: true, name: true, locale: true } } },
+        select: { offerShippingFeeCents: true, user: { select: { email: true, name: true, locale: true } } },
       });
       const user = req?.user;
       if (!user?.email) {
@@ -7975,31 +8060,42 @@ export class BuylistService implements OnModuleInit {
       }
       const items = await this.prisma.sellRequestItem.findMany({
         where: { id: { in: itemIds } },
-        select: { id: true, finish: true, card: { select: { name: true, number: true, set: { select: { name: true } } } } },
+        select: { id: true, finish: true, rawCondition: true, card: { select: { name: true, number: true, set: { select: { name: true } } } } },
       });
       const byId = new Map(items.map((i) => [i.id, i]));
-      const { returnDeadlineAt, abandonDeadlineAt } = rejectDeadlines(rejectedAt);
-      const msg = sellItemsRejectedTemplate(
-        {
-          folio: sellRequestId,
-          cards: itemIds.map((i) => {
-            const it = byId.get(i);
-            return {
-              cardName: it?.card?.name ?? '',
-              setName: it?.card?.set?.name ?? '',
-              cardNumber: it?.card?.number ?? '',
-              finish: it?.finish ?? 'normal',
-            };
-          }),
-          reason,
-          rejectedAt,
-          returnDeadlineAt: returnDeadlineAt!,
-          abandonDeadlineAt: abandonDeadlineAt!,
-          requestClosed,
-        },
-        user.name ?? '',
-        user.locale,
-      );
+      const cards = itemIds.map((i) => {
+        const it = byId.get(i);
+        return {
+          cardName: it?.card?.name ?? '',
+          setName: it?.card?.set?.name ?? '',
+          cardNumber: it?.card?.number ?? '',
+          finish: it?.finish ?? 'normal',
+        };
+      });
+      let msg: MailMessage;
+      if (code === 'not_received') {
+        msg = sellItemNotReceivedTemplate(
+          { folio: sellRequestId, card: cards[0], cards, requestClosed, hasShippingFee: (req?.offerShippingFeeCents ?? 0) > 0 },
+          user.name ?? '',
+          user.locale,
+        );
+      } else {
+        const { returnDeadlineAt, abandonDeadlineAt } = rejectDeadlines(rejectedAt);
+        msg = sellItemsPickupTemplate(
+          {
+            folio: sellRequestId,
+            cards: itemIds.map((i, n) => ({ ...cards[n], cause: code, declaredCondition: byId.get(i)?.rawCondition ?? null, note: note || null })),
+            storeAddress: await this.storeAddressLine(),
+            portalUrl: buylistPortalUrl(sellRequestId, user.locale),
+            returnDeadlineAt: returnDeadlineAt!,
+            abandonDeadlineAt: abandonDeadlineAt!,
+            responseDays: BUYLIST_REVISION_RESPONSE_DAYS,
+            requestClosed,
+          },
+          user.name ?? '',
+          user.locale,
+        );
+      }
       await this.mail.send({ ...msg, to: user.email });
     } catch (e) {
       this.logger.error(
@@ -8526,11 +8622,13 @@ export class BuylistService implements OnModuleInit {
         offerGrossCents: true,
         quotedTotalCents: true,
         offerShippingFeeCents: true,
-        items: { where: { revisionState: 'pending', id: { not: itemId } }, select: { offeredPriceCents: true, revisedPriceCents: true } },
+        items: { select: VERDICT_ITEM_SELECT },
       },
     });
     if (!sr) throw BusinessException.notFound();
-    const payout = previewPayoutWithRevisions(sr, [{ offeredPriceCents: item.offeredPriceCents, revisedPriceCents: revised }, ...sr.items]);
+    // §3.1: la MISMA `projectPayoutNetCents` que `netIfAcceptedCents` y la barra `payout`; esa linea al precio tecleado.
+    const p = projectPayoutNetCents({ lines: sr.items, offerShippingFeeCents: sr.offerShippingFeeCents, legacy: sr }, { itemId, priceCents: revised });
+    const payout = { grossCents: p.grossCents, shippingFeeCents: p.shippingFeeCents, netCents: p.netCents, isFinal: p.isFinal };
     return { itemId, offeredPriceCents: item.offeredPriceCents as number, revisedPriceCents: revised, payout };
   }
 
@@ -8554,7 +8652,7 @@ export class BuylistService implements OnModuleInit {
       );
     }
     const { item, req, revised } = await this.loadRevisableItem(itemId, dto.revisedPriceCents);
-    if (item.revisionState === 'pending' && item.revisedPriceCents === revised) {
+    if (hasLivePendingRevision(item) && item.revisedPriceCents === revised) {
       return this.adminGet(item.sellRequestId, actor); // idempotente: ni escritura ni correo nuevo.
     }
     const now = new Date();
@@ -8564,7 +8662,7 @@ export class BuylistService implements OnModuleInit {
         offerDecision: 'buy',
         offeredPriceCents: { gt: revised },
         itemStatus: { in: BuylistService.REVISABLE_ITEM_STATUSES },
-        OR: [{ revisionState: null }, { revisionState: 'pending' }],
+        OR: [{ revisionState: null }, { revisionState: 'pending', itemStatus: 'ajustada' }],
         sellRequest: { status: { in: ['recibida', 'verificacion'] }, closedAt: null, offerSentAt: { not: null } },
       },
       data: {
@@ -8610,7 +8708,7 @@ export class BuylistService implements OnModuleInit {
       card?: { name: string; number: string; set?: { name: string } | null } | null;
     },
     user: { email: string | null; name: string; locale: string | null } | null | undefined,
-    o: { reminder: boolean; proposedCents: number; reasonCode: 'condition_mismatch' | 'wrong_card' | 'other'; note: string | null; proposedAt: Date },
+    o: { reminder: boolean; proposedCents: number; reasonCode: 'condition_mismatch' | 'wrong_card' | 'other'; note: string | null; proposedAt: Date; now?: Date },
   ): Promise<void> {
     try {
       if (!this.mail || !user?.email) {
@@ -8628,6 +8726,8 @@ export class BuylistService implements OnModuleInit {
           note: o.note,
           expiresAt: revisionExpiresAt(o.proposedAt),
           responseDays: BUYLIST_REVISION_RESPONSE_DAYS,
+          // C4: el tiempo REAL que queda (nunca el «7 dias» fijo).
+          ...(o.reminder ? { remainingDays: remainingDaysOf(revisionExpiresAt(o.proposedAt), o.now ?? new Date()) } : {}),
           portalUrl: buylistPortalUrl(item.sellRequestId, user.locale),
           reminder: o.reminder,
         },
@@ -8645,7 +8745,13 @@ export class BuylistService implements OnModuleInit {
    * `revisionState='pending'`, el MISMO monto propuesto que leyo, dentro de los 7 d y solicitud viva. Misma decision repetida ⇒ 200
    * sin efectos; la contraria (o una ya vencida) ⇒ 409 `REVISION_ALREADY_RESOLVED` (es una decision de dinero, no un 200 silencioso).
    */
-  async respondRevision(userId: string, requestId: string, itemId: string, decision: 'accept' | 'decline') {
+  async respondRevision(userId: string, requestId: string, itemId: string, decision: 'accept' | 'decline', expectedRevisedPriceCents?: number) {
+    // F2-2: `accept` EXIGE el monto que el vendedor vio (el controlador ya da 400 por DTO; aqui la defensa en profundidad del servicio).
+    if (decision === 'accept' && (!Number.isInteger(expectedRevisedPriceCents) || (expectedRevisedPriceCents as number) <= 0)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'expectedRevisedPriceCents is required to accept a price revision', {
+        field: 'expectedRevisedPriceCents',
+      });
+    }
     const item = await this.prisma.sellRequestItem.findFirst({
       where: { id: itemId, sellRequestId: requestId },
       include: {
@@ -8655,10 +8761,19 @@ export class BuylistService implements OnModuleInit {
     });
     if (!item || item.sellRequest.userId !== userId || item.revisionState == null) throw BusinessException.notFound();
     const resolvedAs = (st: SellItemRevisionState | null) => (st === 'accepted' ? 'accept' : st === 'declined' ? 'decline' : null);
-    const already = () =>
-      BusinessException.conflict('REVISION_ALREADY_RESOLVED', 'This price revision was already resolved', { itemId, state: item.revisionState });
-    if (item.revisionState !== 'pending') {
-      if (resolvedAs(item.revisionState) === decision) return this.getMine(userId, requestId); // misma decision ⇒ 200
+    const already = (state: SellItemRevisionState | null = item.revisionState) =>
+      BusinessException.conflict('REVISION_ALREADY_RESOLVED', 'This price revision was already resolved', { itemId, state });
+    const changed = (current: number | null) =>
+      BusinessException.conflict('REVISION_CHANGED', 'The proposed price changed; review the new proposal', {
+        expectedRevisedPriceCents,
+        currentRevisedPriceCents: current,
+      });
+    // Misma decision repetida ⇒ 200 (accept repetido solo si el monto visto es el aceptado); la contraria o una baja retirada ⇒ 409.
+    const sameDecisionOk = (st: SellItemRevisionState | null, approved: number | null) =>
+      resolvedAs(st) === decision && (decision === 'decline' || approved === expectedRevisedPriceCents);
+    if (!hasLivePendingRevision(item)) {
+      if (sameDecisionOk(item.revisionState, item.approvedPriceCents)) return this.getMine(userId, requestId);
+      if (decision === 'accept' && item.revisionState === 'accepted') throw changed(item.approvedPriceCents);
       throw already();
     }
     const now = new Date();
@@ -8668,11 +8783,13 @@ export class BuylistService implements OnModuleInit {
       });
     }
     if (item.revisionProposedAt && item.revisionProposedAt.getTime() <= revisionCutoff(now).getTime()) throw already(); // venció (el barrido lo sella)
+    if (decision === 'accept' && item.revisedPriceCents !== expectedRevisedPriceCents) throw changed(item.revisedPriceCents);
     const guard: Prisma.SellRequestItemWhereInput = {
       id: itemId,
       revisionState: 'pending',
       itemStatus: 'ajustada',
-      revisedPriceCents: item.revisedPriceCents,
+      // F2-2: el CAS lleva el MONTO. En `accept` es el que el vendedor vio; en `decline` el leido (declinar es seguro).
+      revisedPriceCents: decision === 'accept' ? expectedRevisedPriceCents : item.revisedPriceCents,
       revisionProposedAt: { gt: revisionCutoff(now) },
       sellRequest: { closedAt: null, userId, status: { in: ['recibida', 'verificacion'] } },
     };
@@ -8680,7 +8797,7 @@ export class BuylistService implements OnModuleInit {
       decision === 'accept'
         ? await this.prisma.sellRequestItem.updateMany({
             where: guard,
-            data: { itemStatus: 'aprobada', approvedPriceCents: item.revisedPriceCents, revisionState: 'accepted', revisionRespondedAt: now },
+            data: { itemStatus: 'aprobada', approvedPriceCents: expectedRevisedPriceCents, revisionState: 'accepted', revisionRespondedAt: now },
           })
         : await this.prisma.sellRequestItem.updateMany({
             where: guard,
@@ -8695,10 +8812,14 @@ export class BuylistService implements OnModuleInit {
             },
           });
     if (written.count !== 1) {
-      // Se re-lee: si otro acto gano con la MISMA decision, 200; si no, 409.
-      const fresh = await this.prisma.sellRequestItem.findUnique({ where: { id: itemId }, select: { revisionState: true } });
-      if (fresh && resolvedAs(fresh.revisionState) === decision) return this.getMine(userId, requestId);
-      throw BusinessException.conflict('REVISION_ALREADY_RESOLVED', 'This price revision was already resolved', { itemId, state: fresh?.revisionState ?? null });
+      // Se re-lee: si otro acto gano con la MISMA decision, 200; el monto cambio ⇒ REVISION_CHANGED; si no, 409.
+      const fresh = await this.prisma.sellRequestItem.findUnique({
+        where: { id: itemId },
+        select: { revisionState: true, itemStatus: true, revisedPriceCents: true, approvedPriceCents: true },
+      });
+      if (fresh && sameDecisionOk(fresh.revisionState, fresh.approvedPriceCents)) return this.getMine(userId, requestId);
+      if (decision === 'accept' && fresh && hasLivePendingRevision(fresh)) throw changed(fresh.revisedPriceCents);
+      throw already(fresh?.revisionState ?? null);
     }
     await this.recomputeApprovedTotal(requestId);
     if (decision === 'decline') {
@@ -8838,7 +8959,7 @@ export class BuylistService implements OnModuleInit {
       }
       if (!due) continue;
       const sealed = await this.prisma.sellRequestItem.updateMany({
-        where: { id: row.id, revisionState: 'pending', revisionReminderSentAt: null, revisedPriceCents: row.revisedPriceCents },
+        where: { id: row.id, revisionState: 'pending', itemStatus: 'ajustada', revisionReminderSentAt: null, revisedPriceCents: row.revisedPriceCents },
         data: { revisionReminderSentAt: now },
       });
       if (sealed.count !== 1) continue;
@@ -8849,6 +8970,7 @@ export class BuylistService implements OnModuleInit {
         reasonCode: (row.revisionReasonCode as 'condition_mismatch' | 'wrong_card' | 'other' | null) ?? 'other',
         note: row.revisionNote,
         proposedAt: row.revisionProposedAt,
+        now,
       });
     }
     return n;
@@ -9089,7 +9211,7 @@ export class BuylistService implements OnModuleInit {
     // tipo de `req` ya garantiza las líneas en producción.
     // §BUYLIST-FLUJO F2c: una baja de precio SIN respuesta del vendedor bloquea el pago (nunca se paga un precio menor sin su «si»).
     // Va ANTES de `ITEMS_NOT_DECIDED`: la linea pendiente tambien carece de veredicto, y el error que nombra la palanca es este.
-    const pendingRevisionItemIds = (req.items ?? []).filter((i) => i.revisionState === 'pending').map((i) => i.id);
+    const pendingRevisionItemIds = (req.items ?? []).filter((i) => hasLivePendingRevision(i)).map((i) => i.id);
     if (pendingRevisionItemIds.length > 0) {
       throw BusinessException.conflict(
         'REVISION_PENDING',

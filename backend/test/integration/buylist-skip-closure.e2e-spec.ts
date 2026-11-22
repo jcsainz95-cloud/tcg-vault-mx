@@ -116,7 +116,10 @@ describe('E2E — v1.82.3 §PNL.12 · las líneas `skip` no cuentan para cerrar 
   }
 
   const rejectItems = (srId: string, json: unknown) =>
-    h.api('POST', `/admin/buylist/${srId}/reject-items`, { token: operatorToken, json });
+    h.api('POST', `/admin/buylist/${srId}/reject-items`, {
+      token: operatorToken,
+      json: json && typeof json === 'object' && !Array.isArray(json) && !('reasonCode' in json) && 'itemIds' in json ? { reasonCode: 'other', ...json } : json,
+    });
   const decide = (itemId: string, json: Record<string, unknown>) =>
     h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, { token: operatorToken, json });
   const rejectRequest = (srId: string) =>
@@ -194,7 +197,7 @@ describe('E2E — v1.82.3 §PNL.12 · las líneas `skip` no cuentan para cerrar 
     expect(sr.closedAt).toBeInstanceOf(Date);
     expect(sr.approvedTotalCents).toBeNull();
     await skipIntacta(items[2], 'verificacion');
-    expect(correos().map((m) => m.subject)).toEqual(['2 cartas de tu solicitud de venta no fueron aceptadas']);
+    expect(correos().map((m) => m.subject)).toEqual(['Tus 2 cartas te esperan']);
     expect(correos()[0].text).toContain('tu solicitud queda cerrada y no hay pago');
   });
 

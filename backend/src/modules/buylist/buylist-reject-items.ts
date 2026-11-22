@@ -12,12 +12,18 @@ export const REJECT_ITEMS_MAX = 200;
 export const REJECT_REASON_MIN = 3;
 export const REJECT_REASON_MAX = 500;
 
+/** §BUYLIST-FLUJO §3.2: la causa estructurada de `reject-items` (misma enum que `PATCH …/decision`). UNA causa por acto. */
+export const REJECT_ITEMS_REASON_CODES = ['not_received', 'condition_mismatch', 'wrong_card', 'other'] as const;
+export type RejectItemsReasonCode = (typeof REJECT_ITEMS_REASON_CODES)[number];
+
 export interface RejectItemsBody {
   itemIds: string[];
+  /** Texto del dueño (3–500). Obligatorio con `other`; con las otras causas es opcional (`''` si no vino). */
   reason: string;
+  reasonCode: RejectItemsReasonCode;
 }
 
-function bad(field: 'itemIds' | 'reason', rule: string, message: string, extra: Record<string, unknown> = {}): never {
+function bad(field: 'itemIds' | 'reason' | 'reasonCode', rule: string, message: string, extra: Record<string, unknown> = {}): never {
   throw BusinessException.badRequest('VALIDATION_ERROR', message, { field, rule, ...extra });
 }
 
@@ -44,15 +50,21 @@ export function parseRejectItemsBody(body: unknown): RejectItemsBody {
   if (new Set(itemIds).size !== itemIds.length) {
     bad('itemIds', 'duplicates', 'itemIds must not repeat');
   }
-  if (typeof b.reason !== 'string') bad('reason', 'type', 'reason must be a string');
-  const reason = b.reason.trim();
-  if (reason.length < REJECT_REASON_MIN || reason.length > REJECT_REASON_MAX) {
+  if (typeof b.reasonCode !== 'string' || !(REJECT_ITEMS_REASON_CODES as readonly string[]).includes(b.reasonCode)) {
+    bad('reasonCode', 'enum', `reasonCode must be one of ${REJECT_ITEMS_REASON_CODES.join(', ')}`);
+  }
+  const reasonCode = b.reasonCode as RejectItemsReasonCode;
+  if (b.reason != null && typeof b.reason !== 'string') bad('reason', 'type', 'reason must be a string');
+  const reason = typeof b.reason === 'string' ? b.reason.trim() : '';
+  // `other` exige texto 3–500; con las demas causas la nota es opcional (si viene, 3–500).
+  const required = reasonCode === 'other';
+  if ((required || reason.length > 0) && (reason.length < REJECT_REASON_MIN || reason.length > REJECT_REASON_MAX)) {
     bad('reason', 'length', `reason must have ${REJECT_REASON_MIN}–${REJECT_REASON_MAX} characters`, {
       min: REJECT_REASON_MIN,
       max: REJECT_REASON_MAX,
     });
   }
-  return { itemIds, reason };
+  return { itemIds, reason, reasonCode };
 }
 
 /**

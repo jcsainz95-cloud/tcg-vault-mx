@@ -13,6 +13,7 @@ import {
   MaxLength,
   Min,
   ValidateNested,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Finish, ProductType, RawCondition } from '@prisma/client';
@@ -366,14 +367,16 @@ export class ReviseItemPriceDto {
   @IsOptional() @IsString() @MaxLength(500) note?: string;
 }
 
-/** §BUYLIST-FLUJO F2c (anexo §3): query de la vista previa; entero obligatorio (falta/no entero ⇒ 400). */
-export class RevisePricePreviewQueryDto {
-  @Type(() => Number) @IsInt() revisedPriceCents!: number;
-}
-
-/** §BUYLIST-FLUJO F2c (anexo §3): `POST /buylist/requests/:id/items/:itemId/revision-response`. Ningun monto viaja en el body. */
+/**
+ * §BUYLIST-FLUJO F2c (anexo §3): `POST /buylist/requests/:id/items/:itemId/revision-response`. `accept` EXIGE `expectedRevisedPriceCents`
+ * (la propuesta que el vendedor vio; el servidor la compara ⇒ 409 `REVISION_CHANGED`); `decline` no lleva monto (declinar es seguro).
+ */
 export class RevisionResponseDto {
   @IsIn(['accept', 'decline']) decision!: 'accept' | 'decline';
+  @ValidateIf((o: RevisionResponseDto) => o.decision === 'accept')
+  @IsInt()
+  @Min(1)
+  expectedRevisedPriceCents?: number;
 }
 
 /** §BUYLIST-FLUJO F2c (anexo §5): `POST /buylist/requests/:id/items/:itemId/pickup`. */
