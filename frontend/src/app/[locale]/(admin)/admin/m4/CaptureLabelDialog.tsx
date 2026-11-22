@@ -57,6 +57,7 @@ import { BuyView, OptionsView, initialRateId } from './capture/QuoteViews';
 import { isUnknownOutcome, purchaseInFlightText, sdxErrorView, type SdxErrorView } from './capture/sdx-errors';
 import { openLabelPdf } from './capture/label-pdf';
 import { useSellStatusLabel } from './capture/sell-status';
+import { safeHttpUrl, mailtoHref } from '@/lib/safe-href';
 
 /** Lo que la ventana necesita de cualquiera de las dos superficies que la abren (§37.3a, SK1). */
 export interface CaptureTarget {
@@ -1266,8 +1267,8 @@ function LabelView({
         <p className="text-sm text-text">{t('notReady')}</p>
       )}
       {printError && <p className="text-sm text-accent">{printError}</p>}
-      {label.trackingUrl && (
-        <a href={label.trackingUrl} target="_blank" rel="noopener noreferrer" className="self-start text-sm text-text underline underline-offset-4 hover:text-accent">
+      {safeHttpUrl(label.trackingUrl) && (
+        <a href={safeHttpUrl(label.trackingUrl) ?? undefined} target="_blank" rel="noopener noreferrer" className="self-start text-sm text-text underline underline-offset-4 hover:text-accent">
           {t('trackingLink')}
           <span className="sr-only"> {t('newTab')}</span>
         </a>

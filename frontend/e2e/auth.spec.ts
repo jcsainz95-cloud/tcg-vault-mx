@@ -40,7 +40,7 @@ test.describe('auth · login y registro (ES/EN)', () => {
     await expect(page.getByLabel(t('es', 'auth.phone'))).toBeVisible();
   });
 
-  test('login con Google (mock) deja sesión y redirige al home', async ({ page }) => {
+  test('login con Google (mock) deja sesión, redirige al home y la puerta del celular (§CELULAR) guarda sin navegar', async ({ page }) => {
     // El canje del idToken lo finge la rama mock de `api.ts`: contra el stack real haría falta
     // un idToken de Google de verdad (Identity Services), que un E2E no puede fabricar.
     mockOnly('el canje del idToken de Google solo lo simula la rama mock de api.ts');
@@ -50,14 +50,6 @@ test.describe('auth · login y registro (ES/EN)', () => {
     await expect(googleBtn).toBeVisible();
     await googleBtn.click();
     // MOCK: simula el canje del idToken y redirige al home del locale.
-    await expect(page).toHaveURL(/\/es(\/|$)/);
-    await expect(page.getByRole('heading', { name: t('es', 'home.heroTitle') })).toBeVisible();
-  });
-
-  test('§CELULAR: login con Google sin celular ⇒ modal sobre el home; guarda y sigue en la misma página', async ({ page }) => {
-    mockOnly('el canje del idToken de Google solo lo simula la rama mock de api.ts');
-    await page.goto('/es/login');
-    await page.getByRole('button', { name: t('es', 'auth.google.cta') }).click();
     await expect(page).toHaveURL(/\/es(\/|$)/);
 
     // Google nace sin celular (`phoneRequired:true`): la puerta B aparece SOBRE la página, sin cambiar la URL.

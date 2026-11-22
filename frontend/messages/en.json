@@ -8,6 +8,7 @@
       "cart": "Your cart ({count}) is kept.",
       "label": "Mobile number (10 digits)",
       "invalid": "Enter your 10-digit mobile number",
+      "failed": "Could not save. Check your connection and try again",
       "save": "Save and continue",
       "logout": "Log out"
     },

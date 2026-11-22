@@ -7,6 +7,7 @@ import type { AdminBuylistDTO, AdminInboundShipmentDTO } from '@/types/contract'
 import { Button } from '@/components/ui/Button';
 import { openLabelPdf } from '../m4/capture/label-pdf';
 import { CopyButton } from './BuylistFlowParts';
+import { safeHttpUrl, mailtoHref } from '@/lib/safe-href';
 
 type GuideSource = Pick<AdminBuylistDTO, 'inboundShipment' | 'shipmentCarrier' | 'shipmentTrackingNumber'>;
 export interface ManualGuide { carrier: string | null; trackingNumber: string }
@@ -70,11 +71,11 @@ export function SellerGuideBlock({ requestId, inbound = null, manual = null, emb
         )}
         {isManual && <span className="text-sm text-muted">{t('manual')}</span>}
       </div>
-      {(inbound?.trackingUrl || showPdf) && (
+      {(safeHttpUrl(inbound?.trackingUrl) || showPdf) && (
         <div className="flex flex-wrap gap-2">
-          {inbound?.trackingUrl && (
+          {safeHttpUrl(inbound?.trackingUrl) && (
             <a
-              href={inbound.trackingUrl}
+              href={safeHttpUrl(inbound?.trackingUrl) ?? undefined}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center border border-border px-3 py-1.5 text-sm hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none"

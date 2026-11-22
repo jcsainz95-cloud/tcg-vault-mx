@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { NotesPanel } from './NotesPanel';
 import { PhoneField, whatsappHref } from './PhoneField';
 import { normalizeMxPhone, formatMxPhone } from '@/lib/phone';
+import { safeHttpUrl, mailtoHref } from '@/lib/safe-href';
 
 const SECTIONS = ['attention', 'notes', 'contact', 'addresses', 'orders', 'shipments', 'vault', 'sells', 'refunds', 'identity', 'activity'] as const;
 type SectionKey = (typeof SECTIONS)[number];
@@ -376,8 +377,8 @@ export function CustomerFicha({ d, isSuperAdmin, badges, identity, vault, activi
     s.trackingNumber ? (
       <span className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="secondary" onClick={() => void navigator.clipboard?.writeText(s.trackingNumber ?? '')}>{t('shipment.copyGuide')}</Button>
-        {s.trackingUrl && (
-          <a href={s.trackingUrl} target="_blank" rel="noopener noreferrer" className="inline-block border border-border px-2 py-1 text-xs hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none">{t('shipment.openTracking')}</a>
+        {safeHttpUrl(s.trackingUrl) && (
+          <a href={safeHttpUrl(s.trackingUrl) ?? undefined} target="_blank" rel="noopener noreferrer" className="inline-block border border-border px-2 py-1 text-xs hover:bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none">{t('shipment.openTracking')}</a>
         )}
       </span>
     ) : null;

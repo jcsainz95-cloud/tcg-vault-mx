@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { BuylistKycForm } from './BuylistKycForm';
 import * as api from '@/lib/api';
@@ -522,36 +522,6 @@ describe('BuylistKycForm — ningún intento fallido puede quedarse mudo (P-4)',
     expectRevealed(targets, 'La CLABE debe estar a nombre del titular de la cuenta.');
   });
 
-  it('PHONE_REQUIRED (PUERTA 1, D11): lo dice EN ESPAÑOL y ofrece capturar el celular aquí mismo', async () => {
-    // Antes: sin clave en el catálogo, `getErrorMessage` caía al inglés crudo del servidor
-    // («A mobile phone is required…») y la app no tenía NINGUNA pantalla para capturar el dato.
-    const { ApiClientError } = await import('@/lib/api-client');
-    vi.spyOn(api, 'createSellRequest').mockRejectedValueOnce(
-      new ApiClientError(422, {
-        code: 'PHONE_REQUIRED',
-        message: 'A mobile phone is required on the account to create a sell request',
-        details: { field: 'phone' },
-      }),
-    );
-    const updateSpy = vi.spyOn(api, 'updateMe');
-    const targets = spyOnReveal();
-    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
-    await fillAndSubmit();
-
-    const field = await screen.findByLabelText('Celular (10 dígitos)');
-    // El motivo, en español y del catálogo del contrato — jamás el inglés del servidor.
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Falta el celular en la cuenta. La paquetería lo necesita para entregar la guía y avisarte de la recolección.',
-    );
-    expect(screen.queryByText(/A mobile phone is required/)).toBeNull();
-    expectRevealed(targets, 'Falta el celular en la cuenta.');
-
-    // §CELULAR: el remedio ya no tiene botón aparte: al reenviar (un clic) se guarda el celular y se manda la solicitud.
-    fireEvent.change(field, { target: { value: '5555123456' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
-    await waitFor(() => expect(updateSpy).toHaveBeenCalledWith({ phone: '5555123456' }));
-  });
-
   it('422 de dirección: el motivo inline se trae al viewport (el campo queda 60px sobre el borde)', async () => {
     const { ApiClientError } = await import('@/lib/api-client');
     vi.spyOn(api, 'createSellRequest').mockRejectedValueOnce(
@@ -595,70 +565,79 @@ describe('BuylistKycForm — LIVE-8 · enlace al aviso de privacidad (sitio 5)',
   });
 });
 
-describe('BuylistKycForm — §CELULAR: el celular se pide desde el inicio y se guarda+envía en un clic', () => {
-  const noPhoneUser = {
+describe('BuylistKycForm — §CELULAR.6: sin campo de celular; 422 PHONE_REQUIRED abre la puerta y reintenta solo', () => {
+  const user = {
     id: 'u-g',
     email: 'g@example.com',
     name: 'G',
     role: 'customer' as const,
     locale: 'es' as const,
     emailVerified: true,
-    phoneRequired: true,
+    phoneRequired: false,
   };
 
-  it('sin celular en la cuenta: el campo aparece YA, prellenado con el de la dirección, sin recortes', async () => {
-    setStoredUser(noPhoneUser);
+  async function phoneRequired422() {
+    const { ApiClientError } = await import('@/lib/api-client');
+    // `api-client` marca la sesión al recibir el 422 (aquí se simula porque el mock no pasa por `toApiError`).
+    return () => {
+      setStoredUser({ ...user, phoneRequired: true });
+      return new ApiClientError(422, { code: 'PHONE_REQUIRED', message: 'phone', details: { field: 'phone' } });
+    };
+  }
+
+  async function fillAndSend() {
+    fireEvent.change(screen.getByLabelText(/CLABE/), { target: { value: '002010077777777771' } });
+    await pickAddress();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+  }
+
+  it('no hay campo de celular, ni con la cuenta sin celular', async () => {
+    setStoredUser({ ...user, phoneRequired: true });
     renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
-    const field = (await screen.findByLabelText('Celular (10 dígitos)')) as HTMLInputElement;
-    expect(field.maxLength).toBe(-1);
-    await waitFor(() => expect(field.value).toBe('5555123456'));
-    // No hay botón aparte «Guardar celular».
-    expect(screen.queryByRole('button', { name: 'Guardar celular' })).toBeNull();
+    await pickAddress();
+    expect(screen.queryByLabelText(/Celular/)).toBeNull();
   });
 
-  it('un solo clic: PATCH /users/me y luego POST /buylist/requests', async () => {
-    setStoredUser(noPhoneUser);
-    const order: string[] = [];
-    const me = vi.spyOn(api, 'updateMe').mockImplementation(async (i) => {
-      order.push('updateMe');
-      return { ...noPhoneUser, phone: i.phone, phoneRequired: false };
-    });
-    const create = vi.spyOn(api, 'createSellRequest').mockImplementation(async () => {
-      order.push('create');
-      return { sellRequestId: 'sr-1' } as never;
-    });
+  it('422 PHONE_REQUIRED: conserva lo escrito y, al guardarse el celular, reintenta UNA vez con el mismo cuerpo', async () => {
+    setStoredUser(user);
+    const make = await phoneRequired422();
+    const create = vi
+      .spyOn(api, 'createSellRequest')
+      .mockImplementationOnce(async () => {
+        throw make();
+      })
+      .mockResolvedValueOnce({ sellRequestId: 'sr-9' } as never);
     const onCreated = vi.fn();
     renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={onCreated} />, 'es');
-    const field = (await screen.findByLabelText('Celular (10 dígitos)')) as HTMLInputElement;
-    await waitFor(() => expect(field.value).toBe('5555123456'));
-    fireEvent.change(field, { target: { value: '+52 55 9999 8888' } });
-    fireEvent.change(screen.getByLabelText(/CLABE/), { target: { value: '002010077777777771' } });
-    await pickAddress();
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
-    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
-    expect(me).toHaveBeenCalledWith({ phone: '5599998888' });
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(order).toEqual(['updateMe', 'create']);
+    await fillAndSend();
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    // Sin celular guardado todavía: no reintenta y el formulario conserva la CLABE.
+    expect(onCreated).not.toHaveBeenCalled();
+    expect((screen.getByLabelText(/CLABE/) as HTMLInputElement).value).toBe('002010077777777771');
+    // La puerta guarda el celular (`updateMe` sincroniza la sesión).
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('sr-9'));
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[1][0]).toEqual(create.mock.calls[0][0]);
   });
 
-  it('celular inválido: no manda nada y lo dice en el campo', async () => {
-    setStoredUser(noPhoneUser);
-    const create = vi.spyOn(api, 'createSellRequest');
+  it('si el reintento falla, muestra su error normal y no vuelve a intentar', async () => {
+    setStoredUser(user);
+    const make = await phoneRequired422();
+    const { ApiClientError } = await import('@/lib/api-client');
+    const create = vi
+      .spyOn(api, 'createSellRequest')
+      .mockImplementationOnce(async () => {
+        throw make();
+      })
+      .mockRejectedValueOnce(new ApiClientError(422, { code: 'CLABE_INVALID', message: 'bad' }));
     renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
-    const field = (await screen.findByLabelText('Celular (10 dígitos)')) as HTMLInputElement;
-    await waitFor(() => expect(field.value).toBe('5555123456'));
-    fireEvent.change(field, { target: { value: '123' } });
-    fireEvent.change(screen.getByLabelText(/CLABE/), { target: { value: '002010077777777771' } });
-    await pickAddress();
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
-    expect(await screen.findByText('Escribe tu celular de 10 dígitos.')).toBeInTheDocument();
-    expect(create).not.toHaveBeenCalled();
-  });
-
-  it('con celular en la cuenta no se pide nada', async () => {
-    setStoredUser({ ...noPhoneUser, phone: '5512345678', phoneRequired: false });
-    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
-    await pickAddress();
-    expect(screen.queryByLabelText('Celular (10 dígitos)')).toBeNull();
+    await fillAndSend();
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('La CLABE debe tener 18 dígitos.')).toBeInTheDocument();
+    act(() => setStoredUser({ ...user, phone: '5512345678', phoneRequired: false }));
+    expect(create).toHaveBeenCalledTimes(2);
   });
 });

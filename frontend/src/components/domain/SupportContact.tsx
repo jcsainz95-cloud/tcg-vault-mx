@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { cn } from '@/lib/cn';
 import { useSupportContact } from '@/hooks/useSupportContact';
+import { safeHttpUrl, mailtoHref } from '@/lib/safe-href';
 
 export interface SupportContactProps {
   /**
@@ -57,7 +58,7 @@ export function SupportContact({ email, reference, kind, className }: SupportCon
       <div className="mt-3 flex flex-wrap items-center gap-3">
         {email ? (
           <a
-            href={`mailto:${email}?subject=${encodeURIComponent(subject)}`}
+            href={mailtoHref(email, subject)}
             className="inline-flex min-h-[44px] items-center gap-1.5 font-mono text-[13px] text-text underline underline-offset-4 hover:text-accent focus-visible:outline-none focus-visible:shadow-focus"
           >
             <Mail size={16} aria-hidden />

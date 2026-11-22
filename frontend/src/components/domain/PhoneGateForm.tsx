@@ -7,6 +7,7 @@ import { getMe, listAddresses, logout, updateMe } from '@/lib/api';
 import { useCart } from '@/lib/cart';
 import { normalizeMxPhone } from '@/lib/phone';
 import { useSession } from '@/lib/session';
+import { ApiClientError } from '@/lib/api-client';
 import { usePathname, useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -81,14 +82,22 @@ export function PhoneGateForm() {
 
   const normalized = normalizeMxPhone(phone);
 
-  /** Normaliza al escribir y al pegar (`+52…`, `52…`, guiones, espacios) y topa en 10 dígitos. */
+  /**
+   * Normaliza al escribir y al pegar ANTES de recortar (`+52 55 1234 5678`, `52 …`, `+52 1 55 …`, guiones, espacios):
+   * si lo tecleado ya es un celular válido con o sin lada de país, queda en sus 10 dígitos. Mientras la lada de país
+   * va incompleta (`+52 15…`, `52551…`) se conserva, para poder teclearla; cualquier otra cosa se topa a 10 dígitos.
+   * Letras y símbolos se descartan (el servidor es el juez; `lib/phone` tiene la misma tabla que el backend).
+   */
   function onChange(raw: string) {
     setTouched(true);
     setError(null);
-    let d = raw.replace(/\D/g, '');
-    // Pegado con lada de país (`+52…`, `52…`, `521…`): el mismo helper del servidor la quita.
-    if (d.length > 10) d = normalizeMxPhone(raw) ?? d;
-    setPhone(d.slice(0, 10));
+    const digits = raw.replace(/\D/g, '');
+    const plus = raw.trimStart().startsWith('+');
+    const n = normalizeMxPhone((plus ? '+' : '') + digits);
+    if (n) return setPhone(n);
+    if (plus) return setPhone('+' + digits.slice(0, 13));
+    if (digits.length > 10 && /^52/.test(digits)) return setPhone(digits.slice(0, 13));
+    setPhone(digits.slice(0, 10));
   }
 
   // Focus trap: Tab circula dentro de la tarjeta; Esc no cierra (no hay cierre: única salida, «Cerrar sesión»).
@@ -119,8 +128,9 @@ export function PhoneGateForm() {
     try {
       // `updateMe` sincroniza la sesión (`phoneRequired:false`): el modal se desmonta y la ruta de debajo queda intacta.
       await updateMe({ phone: normalized });
-    } catch {
-      setError(t('invalid'));
+    } catch (err) {
+      // 422 de formato ⇒ «escribe 10 dígitos»; red, 5xx u otro ⇒ mensaje distinto (el número no tiene la culpa).
+      setError(err instanceof ApiClientError && err.status === 422 ? t('invalid') : t('failed'));
       setBusy(false);
     }
   }

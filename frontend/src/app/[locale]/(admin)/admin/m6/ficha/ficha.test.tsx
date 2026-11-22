@@ -52,6 +52,27 @@ describe('Ficha A · nulos del servidor real', () => {
   });
 });
 
+describe('Ficha A · enlaces seguros y contador de notas', () => {
+  it('trackingUrl con esquema javascript: no se pinta como enlace; https sí', async () => {
+    const real = await notesApi.getAdminUserOverview('u-777');
+    vi.spyOn(notesApi, 'getAdminUserOverview').mockResolvedValue({
+      ...real,
+      shipments: { total: 1, items: [{ ...real.shipments.items[0], trackingNumber: 'G1', trackingUrl: 'javascript:alert(1)' }] },
+    });
+    const dialog = await openFicha();
+    expect(await within(dialog).findByTestId('ship-tracking-number')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('link', { name: 'Abrir rastreo' })).not.toBeInTheDocument();
+  });
+
+  it('«Ver todas (N)» cuenta lo cargado y marca «+» si el servidor tiene más páginas', async () => {
+    const mk = (id: string) => ({ id, body: `nota ${id}`, pinned: false, authorId: 'x', authorName: 'Luis', createdAt: '2026-11-01T10:00:00Z', updatedAt: '2026-11-01T10:00:00Z', edited: false, canEdit: false });
+    const items = Array.from({ length: 9 }, (_, i) => mk(`n${i}`));
+    vi.spyOn(notesApi, 'getAdminUserNotes').mockResolvedValue({ items, nextCursor: 'c' });
+    const dialog = await openFicha();
+    expect(await within(dialog).findByRole('button', { name: 'Ver todas (9+)' })).toBeInTheDocument();
+  });
+});
+
 describe('Ficha A · notas paginadas', () => {
   it('sigue nextCursor: «Cargar más notas» pide la página 2 con el cursor del servidor', async () => {
     const mk = (id: string) => ({ id, body: `nota ${id}`, pinned: false, authorId: 'x', authorName: 'Luis', createdAt: '2026-11-01T10:00:00Z', updatedAt: '2026-11-01T10:00:00Z', edited: false, canEdit: false });

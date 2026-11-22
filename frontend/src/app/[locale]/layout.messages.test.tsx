@@ -35,7 +35,8 @@ import { stripComments } from '@/test/strip-comments';
  * es 47 354 B (en 45 819 B); antes de c1 la raíz mandaba todo menos `admin`: es 102 316 B. Subirlo exige decir por qué
  * en FRONTEND_NOTES §DYN.
  */
-const HOME_MESSAGES_MAX_BYTES = 48_500;
+// 2026-11-22: 48 500 → 48 700 por `common.phoneGate.failed` (error de red ≠ error de formato en la puerta del celular, +~75 B).
+const HOME_MESSAGES_MAX_BYTES = 48_700;
 
 /**
  * Falsos positivos de la medición estática (literales `'<ns>.<clave>'` que NO se traducen en la portada):

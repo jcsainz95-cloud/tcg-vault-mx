@@ -129,6 +129,50 @@ describe('PhoneGate — puerta del celular (modal B)', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
+  it('error de red o 500 NO se dice como error de formato', async () => {
+    setStoredUser(USER);
+    const { ApiClientError } = await import('@/lib/api-client');
+    vi.spyOn(api, 'updateMe').mockRejectedValueOnce(new ApiClientError(500, { code: 'INTERNAL', message: 'x' }));
+    renderWithProviders(<PhoneGate />);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Celular (10 dígitos)'), { target: { value: '5512345678' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar y continuar' }));
+    expect(await within(dialog).findByText(/No se pudo guardar/)).toBeInTheDocument();
+    expect(within(dialog).queryByText('Escribe tu celular de 10 dígitos')).toBeNull();
+  });
+
+  it.each([
+    ['+52 55 1234 5678'],
+    ['52 55 1234 5678'],
+    ['+52 1 55 1234 5678'],
+    ['+5215512345678'],
+  ])('pegado «%s» queda en 5512345678', async (pasted) => {
+    setStoredUser(USER);
+    renderWithProviders(<PhoneGate />);
+    const field = within(await screen.findByRole('dialog')).getByLabelText('Celular (10 dígitos)') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: pasted } });
+    expect(field.value).toBe('5512345678');
+  });
+
+  it.each([['+52 55 1234 5678'], ['52 55 1234 5678'], ['+52 1 55 1234 5678']])('tecleado «%s» carácter a carácter queda en 5512345678', async (typed) => {
+    setStoredUser(USER);
+    renderWithProviders(<PhoneGate />);
+    const field = within(await screen.findByRole('dialog')).getByLabelText('Celular (10 dígitos)') as HTMLInputElement;
+    for (let i = 1; i <= typed.length; i++) {
+      // El campo es controlado: cada tecla se añade al valor que muestra.
+      fireEvent.change(field, { target: { value: field.value + typed[i - 1] } });
+    }
+    expect(field.value).toBe('5512345678');
+  });
+
+  it('letras se descartan: «ab5512345678» no se acepta como número con letras', async () => {
+    setStoredUser(USER);
+    renderWithProviders(<PhoneGate />);
+    const field = within(await screen.findByRole('dialog')).getByLabelText('Celular (10 dígitos)') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: 'ab55' } });
+    expect(field.value).toBe('55');
+  });
+
   it('prellena con el celular de la dirección predeterminada', async () => {
     setStoredUser(USER);
     renderWithProviders(<PhoneGate />);

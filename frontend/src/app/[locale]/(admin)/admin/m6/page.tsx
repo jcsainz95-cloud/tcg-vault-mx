@@ -1,10 +1,6 @@
-import { SuperAdminOnly } from '@/components/domain/SuperAdminOnly';
 import { M6View } from './M6View';
 
+// §FICHA-CLIENTE.13: el operador abre M6 (lista y ficha). Las acciones de gestión se ocultan dentro de la vista por rol.
 export default function M6Page() {
-  return (
-    <SuperAdminOnly>
-      <M6View />
-    </SuperAdminOnly>
-  );
+  return <M6View />;
 }

@@ -211,7 +211,8 @@ describe('§37.2b — el menú: grupos, orden, nombres y SÚPER', () => {
     ['Tienda', '/admin/codes', 'Códigos de descuento', 'Discount codes', true],
     ['Administración', '/admin/m7', 'Finanzas', 'Finance', true],
     ['Administración', '/admin/m9', 'Reportes', 'Reports', true],
-    ['Administración', '/admin/m6', 'Usuarios', 'Users', true],
+    // §FICHA-CLIENTE.13: el operador abre Usuarios (clientes y su ficha, sin acciones de gestión): ya no es SÚPER.
+    ['Administración', '/admin/m6', 'Usuarios', 'Users', false],
     ['Administración', '/admin/m10', 'Configuración', 'Settings', true],
     // §CARDSHOW.15: «Card Show», súper-admin, al final de «Administración» (captura de leads/preinscritos, PII).
     ['Administración', '/admin/card-show', 'Card Show', 'Card Show', true],

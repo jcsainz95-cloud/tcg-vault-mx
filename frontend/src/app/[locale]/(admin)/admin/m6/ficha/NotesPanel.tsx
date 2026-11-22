@@ -248,7 +248,7 @@ export function NotesPanel({ userId }: { userId: string }) {
           </ul>
           {(hidden > 0 || showAll) && all.length > pinned.length + RECENT && (
             <Button size="sm" variant="ghost" className="self-start" onClick={() => setShowAll((v) => !v)}>
-              {showAll ? t('seeLess') : t('seeAll', { count: all.length })}
+              {showAll ? t('seeLess') : t('seeAll', { count: `${all.length}${notes.hasNextPage ? '+' : ''}` })}
             </Button>
           )}
           {notes.hasNextPage && (

@@ -1,11 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
-import { createSellRequest, listAddresses, updateMe } from '@/lib/api';
-import { isValidMxPhone, normalizeMxPhone } from '@/lib/phone';
+import { createSellRequest } from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type { RawCondition, Finish, KycStatus } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
@@ -93,7 +92,7 @@ export interface BuylistKycFormProps {
 const CLABE_RE = /^\d{18}$/;
 
 /** Bloques a los que puede apuntar un intento fallido (ver el comentario de `failAt`). */
-type FailureAnchor = 'clabe' | 'phone' | 'address' | 'notice';
+type FailureAnchor = 'clabe' | 'address' | 'notice';
 
 /**
  * Paso de pago/KYC del buylist (PROJECT §E, contrato §6 POST /buylist/requests):
@@ -193,7 +192,6 @@ export function BuylistKycForm({
    * input dejaría el desplazamiento a merced de dónde caiga el texto.
    */
   const clabeRef = useRef<HTMLDivElement>(null);
-  const phoneRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLDivElement>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
 
@@ -208,11 +206,9 @@ export function BuylistKycForm({
     const el =
       failure.anchor === 'clabe'
         ? clabeRef.current
-        : failure.anchor === 'phone'
-          ? phoneRef.current
-          : failure.anchor === 'address'
-            ? addressRef.current
-            : noticeRef.current;
+        : failure.anchor === 'address'
+          ? addressRef.current
+          : noticeRef.current;
     if (!el) return;
     // `?.` en scrollIntoView: jsdom no lo implementa (el foco es lo obligatorio; el desplazamiento
     // es lo que arregla el defecto en un navegador real).
@@ -224,40 +220,13 @@ export function BuylistKycForm({
   }, [failure]);
 
   /**
-   * PUERTA 1 del servidor (D11, criterio 128(c)): sin celular en la cuenta,
-   * `POST /buylist/requests` responde `422 PHONE_REQUIRED` — el caso REAL de las cuentas de
-   * Google y las viejas, donde `User.phone` es `null`. El contrato (§6) asigna el remedio a esta
-   * pantalla: *«el front debe pedir el dato en ese momento (`PATCH /users/me`) y reintentar»*.
-   * Hasta ahora no se pedía en ningún sitio: el vendedor leía el inglés crudo del servidor
-   * («A mobile phone is required…») y **no tenía dónde arreglarlo en toda la app**.
+   * §CELULAR (DECISIONES §CELULAR.6): este formulario NO tiene campo de celular. Si llega `422 PHONE_REQUIRED` (sesión
+   * vieja), `api-client` marca `phoneRequired` y el modal de la puerta (`PhoneGate`) se abre sobre la página SIN navegar;
+   * el formulario conserva lo escrito. La solicitud rechazada queda guardada aquí (mismo cuerpo) y, cuando el celular
+   * se guarda (`phoneRequired` pasa a `false`), se reintenta SOLA, UNA vez. Si el reintento falla, error normal.
+   * (El servidor no admite `clientRequestId` en esta ruta: el 422 ocurre antes de cualquier efecto, no puede duplicar.)
    */
-  const [phoneRequired, setPhoneRequired] = useState(false);
-  /**
-   * El MOTIVO se toma del catálogo `error.PHONE_REQUIRED` por el código del contrato —no se
-   * escribe una segunda frase aquí—: así el vendedor lee el mismo español que leería en
-   * cualquier otra superficie que reciba ese 422, y nunca el inglés crudo del servidor
-   * («A mobile phone is required on the account…», que es lo que leía hasta hoy porque la clave
-   * no existía en ninguno de los dos catálogos).
-   */
-  const [phoneReason, setPhoneReason] = useState<string | null>(null);
-  const [phone, setPhone] = useState('');
-  const [phoneError, setPhoneError] = useState<string | null>(null);
-  /**
-   * §CELULAR: el celular se pide DESDE EL INICIO cuando la cuenta no lo tiene (`phoneRequired` de la sesión) o cuando el
-   * 422 llegó igual (red de seguridad). Se guarda (`PATCH /users/me`) y se envía la solicitud en UN solo clic.
-   */
-  const needsPhone = user
-    ? user.phoneRequired === true || (phoneRequired && !isValidMxPhone(user.phone))
-    : phoneRequired;
-  const addressesQuery = useQuery({ queryKey: ['addresses'], queryFn: listAddresses, enabled: needsPhone });
-  // Prellenado: el celular de la dirección elegida (o la predeterminada) si es válido; no pisa lo que ya tecleó.
-  useEffect(() => {
-    if (!needsPhone || phone !== '') return;
-    const list = addressesQuery.data ?? [];
-    const src = list.find((a) => a.id === addressId) ?? list.find((a) => a.isDefault) ?? list[0];
-    const n = normalizeMxPhone(src?.phone ?? '');
-    if (n) setPhone(n);
-  }, [needsPhone, phone, addressesQuery.data, addressId]);
+  const pendingPhoneRetry = useRef<Parameters<typeof createSellRequest>[0] | null>(null);
 
   // Gating proactivo: espeja el guard server-side (solo bloquea con `false` explícito;
   // sesiones viejas sin el campo dejan decidir al backend).
@@ -276,7 +245,18 @@ export function BuylistKycForm({
   const shortfall = serverMinimum ?? preventiveShortfall;
   const belowMinimum = shortfall != null;
 
+  // Reintento único al cerrarse la puerta: `phoneRequired` pasa a `false` con una solicitud pendiente.
+  const phoneRequiredNow = user?.phoneRequired;
+  useEffect(() => {
+    if (phoneRequiredNow !== false || !pendingPhoneRetry.current) return;
+    const payload = pendingPhoneRetry.current;
+    pendingPhoneRetry.current = null;
+    void send(payload, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phoneRequiredNow]);
+
   async function submit() {
+    pendingPhoneRetry.current = null;
     setFormError(null);
     setClabeError(null);
     setAddressError(null);
@@ -298,46 +278,28 @@ export function BuylistKycForm({
       return;
     }
 
-    let phoneToSave: string | null = null;
-    if (needsPhone) {
-      phoneToSave = normalizeMxPhone(phone);
-      if (!phoneToSave) {
-        setPhoneError(t('request.phone.invalid'));
-        failAt('phone');
-        return;
-      }
-      setPhoneError(null);
-    }
+    const payload: Parameters<typeof createSellRequest>[0] = {
+      // Todos los items del carrito, ya expandidos por cantidad. El DTO solo
+      // lleva cardId/productType/rawCondition; el backend re-deriva el monto
+      // y decide el requisito de INE/tope por el TOTAL (SEC-A1, server-side).
+      items,
+      // v1.51.3 (D36/D37): SIEMPRE explícito, aunque la UI lo haya preseleccionado. El backend
+      // copia esa fila a `pickupAddressSnapshot` — no la referencia — y de ahí sale la etiqueta.
+      addressId,
+      // v1.15: modo "CLABE en archivo" → se OMITE `clabe` (el backend usa la CLABE del propio
+      // usuario en archivo, fallback server-side). Si no, va la CLABE capturada.
+      ...(storedMode ? {} : { clabe }),
+      // v1.15: si el INE ya está en archivo se OMITE ineUploadKeys (el backend usa el de archivo).
+      ineUploadKeys: !ineOnFile && ineComplete ? { front: ineFrontKey!, back: ineBackKey! } : undefined,
+    };
+    await send(payload, false);
+  }
 
+  /** Envía la solicitud. `isRetry`: reintento automático tras guardar el celular en la puerta (una sola vez). */
+  async function send(payload: Parameters<typeof createSellRequest>[0], isRetry: boolean) {
     setSubmitting(true);
     try {
-      if (phoneToSave) {
-        try {
-          await updateMe({ phone: phoneToSave });
-        } catch (pe) {
-          if (pe instanceof ApiClientError && pe.code === 'PHONE_INVALID') {
-            setPhoneError(t('request.phone.invalid'));
-            failAt('phone');
-            setSubmitting(false);
-            return;
-          }
-          throw pe;
-        }
-      }
-      const res = await createSellRequest({
-        // Todos los items del carrito, ya expandidos por cantidad. El DTO solo
-        // lleva cardId/productType/rawCondition; el backend re-deriva el monto
-        // y decide el requisito de INE/tope por el TOTAL (SEC-A1, server-side).
-        items,
-        // v1.51.3 (D36/D37): SIEMPRE explícito, aunque la UI lo haya preseleccionado. El backend
-        // copia esa fila a `pickupAddressSnapshot` — no la referencia — y de ahí sale la etiqueta.
-        addressId,
-        // v1.15: modo "CLABE en archivo" → se OMITE `clabe` (el backend usa la CLABE del propio
-        // usuario en archivo, fallback server-side). Si no, va la CLABE capturada.
-        ...(storedMode ? {} : { clabe }),
-        // v1.15: si el INE ya está en archivo se OMITE ineUploadKeys (el backend usa el de archivo).
-        ineUploadKeys: !ineOnFile && ineComplete ? { front: ineFrontKey!, back: ineBackKey! } : undefined,
-      });
+      const res = await createSellRequest(payload);
       onCreated(res.sellRequestId);
     } catch (e) {
       const code = e instanceof ApiClientError ? e.code : undefined;
@@ -346,13 +308,10 @@ export function BuylistKycForm({
         // en vez de un error genérico (contrato §0/§6).
         setEmailNotVerified(true);
         failAt('notice');
-      } else if (code === 'PHONE_REQUIRED') {
-        // PUERTA 1 (D11): la cuenta no tiene celular. El contrato manda pedirlo AQUÍ y reintentar
-        // (§6); sin esta rama el vendedor leía el inglés del servidor y no tenía dónde capturarlo.
-        setPhoneRequired(true);
-        setPhoneReason(getErrorMessage(e));
-        setPhone((current) => current || user?.phone || '');
-        failAt('phone');
+      } else if (code === 'PHONE_REQUIRED' && !isRetry) {
+        // §CELULAR.6: `api-client` ya abrió la puerta (modal sobre esta página). Se guarda la solicitud tal cual y se
+        // reintenta sola al guardarse el celular; el formulario conserva todo lo escrito.
+        pendingPhoneRetry.current = payload;
       } else if (code === 'INE_REQUIRED') {
         setIneRequired(true);
         setFormError(t('ineRequiredError'));
@@ -462,34 +421,6 @@ export function BuylistKycForm({
             </button>
           )}
         </div>
-      )}
-
-      {/* §CELULAR: el celular de la cuenta. Solo se pide cuando falta; se guarda al enviar (un solo clic). */}
-      {needsPhone && (
-        <section
-          ref={phoneRef}
-          tabIndex={-1}
-          className="flex flex-col gap-3 border-l-2 border-accent pl-4 outline-none"
-        >
-          {phoneReason && (
-            <p role="alert" className="text-sm leading-[1.7] text-text">
-              {phoneReason}
-            </p>
-          )}
-          <Input
-            label={t('request.phone.label')}
-            hint={t('request.phone.hint')}
-            error={phoneError ?? undefined}
-            inputMode="tel"
-            type="tel"
-            autoComplete="tel-national"
-            value={phone}
-            onChange={(e) => {
-              setPhone(e.target.value);
-              setPhoneError(null);
-            }}
-          />
-        </section>
       )}
 
       {/* Dirección de ORIGEN (D36/D37): se pide junto con la CLABE, no al aceptar la oferta. */}

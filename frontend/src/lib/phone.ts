@@ -4,16 +4,21 @@
  */
 export function normalizeMxPhone(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
-  let d = raw.replace(/[\s\-.()]/g, '');
-  if (d.startsWith('+52')) d = d.slice(3);
-  d = d.replace(/\D/g, '');
-  if (d.length === 12 && d.startsWith('52')) d = d.slice(2);
-  else if (d.length === 13 && d.startsWith('521')) d = d.slice(3);
-  if (!/^\d{10}$/.test(d)) return null;
-  if (/^(\d)\1{9}$/.test(d)) return null;
-  if (d === '1234567890' || d === '0123456789') return null;
-  if (d[0] === '0' || d[0] === '1') return null;
-  return d;
+  let s = raw.replace(/[\s\-.()]/g, '');
+  const plus = s.startsWith('+52');
+  if (plus) s = s.slice(3);
+  if (!/^\d+$/.test(s)) return null;
+  if (!plus) {
+    if (s.length === 12 && s.startsWith('52')) s = s.slice(2);
+    else if (s.length === 13 && s.startsWith('521')) s = s.slice(3);
+  } else if (s.length === 11 && s.startsWith('1')) {
+    s = s.slice(1); // +52 1 55…: formato móvil antiguo
+  }
+  if (!/^\d{10}$/.test(s)) return null;
+  if (/^(\d)\1{9}$/.test(s)) return null;
+  if (s === '1234567890' || s === '0123456789') return null;
+  if (s[0] === '0' || s[0] === '1') return null;
+  return s;
 }
 
 export function isValidMxPhone(raw: unknown): boolean {

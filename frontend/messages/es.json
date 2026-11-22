@@ -8,6 +8,7 @@
       "cart": "Tu carrito ({count}) se conserva.",
       "label": "Celular (10 dígitos)",
       "invalid": "Escribe tu celular de 10 dígitos",
+      "failed": "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo",
       "save": "Guardar y continuar",
       "logout": "Cerrar sesión"
     },

@@ -190,8 +190,8 @@ export function M6View() {
   // propio dueño se bloquea o se borra. Solo para mostrar (⛔ no autoriza): el servidor responde
   // `403 OWNER_ACCOUNT_PROTECTED`, que también se pinta. Con ≤ 1 dueño, `isOwner ∧ ¬isSelf` ⇒ el actor no es el dueño.
   const ownerTarget = d?.isOwner === true;
-  const canResetTarget = !ownerTarget || isSelf;
-  const canBlockOrDeleteTarget = !ownerTarget;
+  const canResetTarget = isSuperAdmin && (!ownerTarget || isSelf);
+  const canBlockOrDeleteTarget = isSuperAdmin && !ownerTarget;
   const ownerProtected = (e: unknown) => e instanceof ApiClientError && e.code === 'OWNER_ACCOUNT_PROTECTED';
   const getError = useErrorMessage('operator');
   const [resetResult, setResetResult] = useState<ResetPasswordResponse | null>(null);
@@ -556,7 +556,8 @@ export function M6View() {
                       </div>
                     )}
 
-                    {/* Política interna (tope mensual): sigue aquí, con su propio «Guardar». */}
+                    {/* Política interna (tope mensual): sigue aquí, con su propio «Guardar». Solo súper-admin (§FICHA-CLIENTE.13). */}
+                    {isSuperAdmin && (
                     <div className="mt-2 flex flex-col gap-3 border-t border-border pt-3">
                       <Input label={t('capMonth')} type="text" inputMode="decimal" prefix="MX$" className="w-full" value={capMonth} onChange={(e) => setKycDraft({ capMonth: e.target.value })} placeholder={currentKyc.capPerMonthCents != null ? String(currentKyc.capPerMonthCents / 100) : ''} />
                       <Button size="sm" variant="secondary" loading={kycMutation.isPending} onClick={() => kycMutation.mutate()}>
@@ -564,6 +565,7 @@ export function M6View() {
                       </Button>
                       {kycMutation.isSuccess && <Banner variant="success" role="status">{t('kycSaved')}</Banner>}
                     </div>
+                    )}
                   </>
                 ) : (
                   <p className="text-sm text-muted">{t('noKyc')}</p>
