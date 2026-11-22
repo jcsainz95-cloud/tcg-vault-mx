@@ -255,6 +255,8 @@ export interface BuylistDecisionDeskProps {
    * la fila (`openCloseAction('decline', id)` de M5) — ⛔ no se duplica el diálogo. Ausente ⇒ sin botón.
    */
   onDecline?: () => void;
+  /** Avisa si la mesa cargó bien (`true`) o no / se desmontó (`false`): M5 oculta su lista de cartas solo con `true`. */
+  onReady?: (ready: boolean) => void;
 }
 
 /** §60.5 d — qué dice la mesa FUERA de `cotizada`: dónde está la acción, por estado (⛔ un único texto genérico). */
@@ -276,7 +278,7 @@ function readOnlyKey(status: SellRequestStatus): string {
  * Es la petición original del humano, y todo lo demás de esta pantalla existe para que esas cifras
  * se puedan leer sin marearse y sin que el sistema decida por el operador.
  */
-export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: BuylistDecisionDeskProps) {
+export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline, onReady }: BuylistDecisionDeskProps) {
   const t = useTranslations('admin.m5.desk');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
@@ -329,6 +331,11 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: Buyli
   });
 
   const data = query.data;
+  const loadedOk = query.isSuccess && !!data;
+  useEffect(() => {
+    onReady?.(loadedOk);
+    return () => onReady?.(false);
+  }, [loadedOk, onReady]);
   const lines = useMemo(() => data?.lines ?? [], [data]);
   // El default se calcula UNA vez, del servidor; después manda el operador.
   const selection = selected ?? defaultSelection(lines);

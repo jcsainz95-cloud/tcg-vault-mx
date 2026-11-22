@@ -242,6 +242,8 @@ export function M5View() {
   const tDesk = useTranslations('admin.m5.desk');
   const tf2 = useTranslations('admin.m5.flow.f2');
   const tItems = useTranslations('admin.m5.items');
+  /** La mesa abierta YA cargó bien: solo entonces la mesa sustituye a la lista de cartas (si carga o falla, la lista sigue). */
+  const [deskReady, setDeskReady] = useState(false);
   const tCauses = useTranslations('admin.m5.flow.f2.rejectPanel.causes');
   const tm = useTranslations('admin');
   const tc = useTranslations('common');
@@ -1361,6 +1363,7 @@ export function M5View() {
                 <BuylistDecisionDesk
                   sellRequestId={req.id}
                   onClose={() => setDeskFor(null)}
+                  onReady={setDeskReady}
                   // §60.5 d: «Declinar» DENTRO de la mesa abre el MISMO diálogo y verbo que el de la fila.
                   onDecline={req.status === 'cotizada' && req.isTerminal === false ? () => openCloseAction('decline', req.id) : undefined}
                 />
@@ -1471,10 +1474,53 @@ export function M5View() {
                   const canAdjust = it.offerDecision !== 'buy' && it.offerDecision !== 'skip';
                   const bulkable = isBulkRejectable(req.status, it) && !notOfferedIds.has(it.id);
                   const checked = (bulkSelected[req.id] ?? []).includes(it.id);
+                  // Detalle del rechazo (motivo + plazos del servidor) y «recoger»: se pinta en fila normal y en la compacta.
+                  const rejectedDetail = (
+                    <>
+                                        {isRejected && (
+                      <div className="flex flex-col gap-0.5 pl-14 text-xs text-muted">
+                        {it.rejectionReason && (
+                          <p>
+                            {t('rejected.reasonLabel')}: {it.rejectionReason}
+                          </p>
+                        )}
+                        {it.rejectedAt && (
+                          <p>
+                            {t('rejected.rejectedAtLabel')}:{' '}
+                            <span className="tabular">{formatDate(it.rejectedAt, locale)}</span>
+                          </p>
+                        )}
+                        {it.returnDeadlineAt && it.abandonDeadlineAt && (
+                          <p>
+                            {t('rejected.returnUntil', { date: formatDate(it.returnDeadlineAt, locale) })}
+                            {' · '}
+                            {t('rejected.abandonAt', { date: formatDate(it.abandonDeadlineAt, locale) })}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {isRejected && (
+                      <div className="pl-14">
+                        <PickupLine
+                          itemId={it.id}
+                          cardName={it.card.name}
+                          pickup={it.pickup}
+                          onDone={(msg) => {
+                            void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
+                            refresh();
+                            ok(req.id, msg);
+                          }}
+                          onError={(e) => fail(req.id, e)}
+                        />
+                      </div>
+                    )}
+                    </>
+                  );
                   // Lista ÚNICA (dueño 2026-11-22): las NO compradas van en una fila compacta dentro del grupo plegable.
                   if (notBought) {
                     return (
-                      <div key={it.id} className="flex flex-wrap items-center gap-3 py-2" data-testid={`m5-item-${it.id}`}>
+                      <div key={it.id} className="flex flex-col gap-1 py-2" data-testid={`m5-item-${it.id}`}>
+                      <div className="flex flex-wrap items-center gap-3">
                         <CardPhotoLightbox card={it.card} width={28} height={40} />
                         <span className="min-w-[8rem] flex-1 text-sm" lang="en">
                           {it.card.name}
@@ -1488,6 +1534,18 @@ export function M5View() {
                         <span className={cn('font-mono text-[11px] uppercase tracking-[0.06em]', notOfferedIds.has(it.id) ? 'text-accent' : 'text-muted')} data-testid={`m5-not-bought-${it.id}`}>
                           {t('notBought.tag')}
                         </span>
+                        {it.approvedPriceCents != null && (
+                          <span className="tabular text-xs text-success">
+                            {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}
+                          </span>
+                        )}
+                        {it.revision?.state === 'cancelled' && (
+                          <Badge tone="neutral" shape="outline">
+                            <span data-testid={`f2-retired-${it.id}`}>{tf2('status.retired')}</span>
+                          </Badge>
+                        )}
+                      </div>
+                      {rejectedDetail}
                       </div>
                     );
                   }
@@ -1650,49 +1708,12 @@ export function M5View() {
                         }}
                       />
                     )}
-                    {/* Detalle del rechazo dentro de la solicitud: motivo + plazos (server). */}
-                    {isRejected && (
-                      <div className="flex flex-col gap-0.5 pl-14 text-xs text-muted">
-                        {it.rejectionReason && (
-                          <p>
-                            {t('rejected.reasonLabel')}: {it.rejectionReason}
-                          </p>
-                        )}
-                        {it.rejectedAt && (
-                          <p>
-                            {t('rejected.rejectedAtLabel')}:{' '}
-                            <span className="tabular">{formatDate(it.rejectedAt, locale)}</span>
-                          </p>
-                        )}
-                        {it.returnDeadlineAt && it.abandonDeadlineAt && (
-                          <p>
-                            {t('rejected.returnUntil', { date: formatDate(it.returnDeadlineAt, locale) })}
-                            {' · '}
-                            {t('rejected.abandonAt', { date: formatDate(it.abandonDeadlineAt, locale) })}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {isRejected && (
-                      <div className="pl-14">
-                        <PickupLine
-                          itemId={it.id}
-                          cardName={it.card.name}
-                          pickup={it.pickup}
-                          onDone={(msg) => {
-                            void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
-                            refresh();
-                            ok(req.id, msg);
-                          }}
-                          onError={(e) => fail(req.id, e)}
-                        />
-                      </div>
-                    )}
+                    {rejectedDetail}
                     </div>
                   );
                 };
                 // Dueño 2026-11-22: con la mesa de decisión abierta (`cotizada`) la mesa YA ES la lista de cartas.
-                if (req.status === 'cotizada' && deskFor === req.id) return null;
+                if (req.status === 'cotizada' && deskFor === req.id && deskReady) return null;
                 return (
                   <div className="flex flex-col gap-3" data-testid={`m5-items-${req.id}`}>
                     <ItemListHeader requestId={req.id} buy={boughtItems.length} skip={skippedItems.length} />
