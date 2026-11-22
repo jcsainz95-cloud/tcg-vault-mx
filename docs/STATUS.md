@@ -96,11 +96,10 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-22 · §CELULAR + §FICHA-CLIENTE 328359be · RECHAZADO (texto de qa, transcrito por el orquestador; backend real + front real en Chromium, BD nueva)
-- B-4 backend: integración completa 206/208 suites, 3793/3795 tests; STF-24 (staff-without-email.e2e-spec.ts:553) y STF-32 (stf-errata-v1-80-9-1.e2e-spec.ts:105) aún esperan 200 del operador sobre staff y §13 da 404 (2/2 corridas).
-- I-3 frontend: tope layout.messages 48 500→48 700 innecesario; borrando buylist.request.phone.* (muertas, 142 B) la portada es queda en 48 423 B.
-- Cerrados: B-1 (operador 8/8 fichas, 0 gestión, 0 403; 404 sobre staff 21/21; súper-admin igual), B-2 (puerta 45/45), B-3 (censo verde 163; ficha e2e real 6/6), I-1 (422⇒puerta⇒reintento, +1 fila, 3/3), I-2 (atómico 5/5), pendingCents 8/8, error de red 3/3, safe-href 21/21.
-- Regresión: unit 621/10 840, vitest 6339/0, e2e mock 72/72, tsc y lint 0, doc-size verde. Menores: reintento único sin prueba (2/3 mutaciones vivas), «+52 1» fuera de la tabla del backend, `clientRequestId` del contrato no existe. Pago real NO MEDIDO.
+## QA (qa) — 2026-11-22 · §CELULAR + §FICHA-CLIENTE 7390a8c3 · APROBADO (texto de qa, transcrito por el orquestador; re-revisión del rechazo de 328359be; worktree propio, BD nueva; el diff solo toca pruebas, claves i18n muertas e imports)
+- B-4 cerrado: integración completa 208/208 suites, 3795/3795 tests (1/1 corrida, E2E_STRICT_INFRA). STF-24/STF-32: operador sobre staff 404, súper-admin 200, lockState del operador sobre cliente; sin el guard OperatorCustomersOnly ambas rojas 2/2.
+- I-3 cerrado: tope 48 500; portada es 48 423 B, en 46 923 B; buylist.request.phone.* 0 usos. Menores cerrados: reintento único 3/3 mutaciones muertas; sin la rama «+52 1» phone-mx.spec 1 rojo; e2e de ficha exige enlaces userId en mock 2/2.
+- Regresión: unit 621/10 842, vitest 6340/0 (13 skip), e2e mock 72/72, censo verde 163, tsc y lint 0, doc-size verde. Menor abierto (backend): cota superior de lockedUntil del operador perdida en STF-32 y holgura de 5 s en STF-24. Navegador con backend real medido sobre 328359be (operador 8/8 fichas, puerta 45/45, vender 3/3), no repetido (sin cambio de producto); pago real NO MEDIDO.
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
