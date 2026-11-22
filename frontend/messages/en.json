@@ -3554,6 +3554,14 @@
       "emptyTab": "No requests in this stage.",
       "emptySearch": "No request matches the search.",
       "seller": "Seller",
+      "sellerContact": {
+        "none": "No phone on file",
+        "email": "Email",
+        "fromAddress": "(from their address)",
+        "whatsapp": "WhatsApp",
+        "callLabel": "Call {name}",
+        "whatsappLabel": "WhatsApp {name}"
+      },
       "sellerLink": "View seller profile {id}",
       "created": "Created",
       "approvedTotal": "Approved total",

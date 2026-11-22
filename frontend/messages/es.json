@@ -3554,6 +3554,14 @@
       "emptyTab": "No hay solicitudes en esta etapa.",
       "emptySearch": "Ninguna solicitud coincide con la búsqueda.",
       "seller": "Vendedor",
+      "sellerContact": {
+        "none": "Sin teléfono registrado",
+        "email": "Correo",
+        "fromAddress": "(de su dirección)",
+        "whatsapp": "WhatsApp",
+        "callLabel": "Llamar a {name}",
+        "whatsappLabel": "Escribir por WhatsApp a {name}"
+      },
       "sellerLink": "Ver ficha del vendedor {id}",
       "created": "Creada",
       "approvedTotal": "Total aprobado",

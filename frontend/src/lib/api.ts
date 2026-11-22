@@ -5244,8 +5244,8 @@ export async function createLocation(input: CreateLocationInput): Promise<VaultL
 // MOCK: identidad legible del vendedor (AdminSellerRef, v1.18) para las filas de
 // fixtures que solo traen userId. En rama real el join lo hace el backend.
 const MOCK_SELLERS: Record<string, AdminSellerRef> = {
-  'u-777': { id: 'u-777', name: 'Diana Olvera', email: 'diana.olvera@example.mx' },
-  'u-778': { id: 'u-778', name: 'Marco Peña', email: 'marco.pena@example.mx' },
+  'u-777': { id: 'u-777', name: 'Diana Olvera', email: 'diana.olvera@example.mx', phone: '5512345678' },
+  'u-778': { id: 'u-778', name: 'Marco Peña', email: 'marco.pena@example.mx', phone: '+52 1 33 1234 5678' },
   'u-779': { id: 'u-779', name: 'Sofía Lara', email: 'sofia.lara@example.mx' },
 };
 function mockSellerFor(userId: string): AdminSellerRef {

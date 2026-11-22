@@ -29,6 +29,7 @@ import { PipelineStepper } from '@/components/ui/PipelineStepper';
 import { BuylistDecisionDesk } from './BuylistDecisionDesk';
 import { AcceptedRequestPanel } from './AcceptedRequestPanel';
 import { GuideDueTag } from './GuideDueMark';
+import { SellerContact } from './SellerContact';
 import { BuylistCycleQueues } from './BuylistCycleQueues';
 import {
   PayoutBar,
@@ -1019,6 +1020,7 @@ export function M5View() {
                           >
                             {t('seller')}: {sellerLabel(req)}
                           </Link>
+                          <SellerContact seller={req.seller} />
                           <span className="tabular text-xs text-muted">
                             {t('created')}: {formatDate(req.createdAt, locale)}
                           </span>
@@ -1226,6 +1228,7 @@ export function M5View() {
                   >
                     {t('seller')}: {sellerLabel(req)}
                   </Link>
+                  <SellerContact seller={req.seller} />
                   {/* Fecha de creación (orden createdAt desc lo aplica el server; no se re-ordena). */}
                   <span className="tabular text-xs text-muted">
                     {t('created')}: {formatDate(req.createdAt, locale)}
