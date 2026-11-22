@@ -96,11 +96,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-22 · §BUYLIST-FLUJO F1+F2 de2beed4+b45e739f · RECHAZADO (texto de qa, transcrito por el orquestador)
-- B-1 backend cerrado 6/6 (cancelled, pago 200, 409 cancelled, C5/C1/C2, 0 correos antiguos). BLOQUEANTE frontend: `SellerFlujoLines.tsx:258` + `es/en.json:1022`: con la carta rechazada y la baja cancelled (4/4) el portal dice «se te paga el precio original».
-- I-1 9/9 (preview = netIfAccepted = barra = final = sellado; S2/S3/S5/S8 de backend = los míos por categoría); F2-2 400/409 `REVISION_CHANGED` y recarga; B-2 en verde, techo 120 = longitud real; I-2 `failed[]` por línea en la UI; menores anteriores cerrados.
-- Regresión en BD limpia: integración 206/206 suites, 3721/3721 (promos verdes); unit 10 763/10 763; vitest 6214/6214; e2e mock admin 19/19; tsc y lint 0; doc-size verde. NO MEDIDO: front contra backend real, correo real, CI.
-- MENOR: asunto de C2 en singular con 2 cartas; `failCodes` `ITEM_NOT_APPROVED`≠`NOT_APPROVED` y falta `CONVERT_FAILED`; el anexo §6 («422») y §7 (plantilla antigua) contradicen §3.2 y DECISIONES 12 (arquitecto).
+## QA (qa) — 2026-11-22 · §BUYLIST-FLUJO df71ec13+a85ea657+8ffd3828 · APROBADO (texto de qa, transcrito por el orquestador). Previos: rechazos de edd2b9ab y de2beed4 cerrados.
+- Bloqueante cerrado en vivo (es/en): rechazo, rechazo múltiple y «No llegó» con la baja cancelada ya no prometen pago; aprobada+cancelled sí; si se revierte, SellerFlujoLines.test da 2 rojos.
+- Menores cerrados: C2 en plural con 2 cartas; 400 de accept con `field` (8/8 cuerpos malos; 1e15 da 409, sin 500); el vendedor ve cancelled en un pending huérfano y el admin pending; failCodes NOT_APPROVED y CONVERT_FAILED; anexo coherente.
+- Regresión en BD limpia: integración flujo 49/49; unit 10 765/10 765; vitest 6217/6217 (13 skip); e2e mock admin 19/19; tsc, lint y doc-size verdes. Antes (de2beed4): integración completa 206/206, 3721/3721. NO MEDIDO: front contra backend real, correo real, CI.
+- MENOR: pruebas de cancelled solo en es; el texto de fallo de `ITEM_NOT_APPROVED` (lanzado en `service:8437`) se quitó y cae en «error X»; convertida_inventario muestra el texto neutro; comentario viejo en `service:8749`.
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
