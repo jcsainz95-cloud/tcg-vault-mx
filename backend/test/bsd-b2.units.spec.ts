@@ -284,6 +284,18 @@ describe('💰 adaptador — `address_from` explícito (NM-1/NM-2 NO MEDIDOS con
     expect(b.shipment.address_to).toMatchObject({ postal_code: '14210', area_level1: 'Ciudad de México', reference: 'Pedido ENV-000045-01', further_information: 'Portón gris' });
     expect(b.shipment.packages[0].consignment_note).toBe('49101600');
   });
+  const withRefs = (references: string | undefined): PurchaseInput => ({
+    ...purchaseIn,
+    ...inboundPurchaseAddresses(inboundAddressSnapshotOf({ ...PICKUP, ...(references === undefined ? {} : { references }) }), store, 'ENV-000045-01'),
+  });
+  it('comprar entrada: `address_from.reference` nunca vacío — sin referencias ⇒ texto neutro; con ⇒ las del vendedor; >70 ⇒ recortadas', () => {
+    const ref = (i: PurchaseInput) => (buildPurchaseBody(i) as { shipment: Record<string, any> }).shipment.address_from.reference;
+    expect(ref(withRefs(''))).toBe('Sin referencias');
+    expect(ref(withRefs('   '))).toBe('Sin referencias');
+    expect(ref(withRefs('Casa azul'))).toBe('Casa azul');
+    const long = ref(withRefs('x'.repeat(100)));
+    expect(long.length).toBe(70);
+  });
   it('CONTROL salida: sin CP en `address_to` (lo pone la cotización) y la plantilla en `address_from`', () => {
     const out: PurchaseInput = { ...purchaseIn, from: { templateId: 'tpl', snapshot: null }, to: { street1: 'a', name: 'b', company: 'b', phone: '1', email: 'e', reference: 'Pedido ENV-1-01' } };
     const b = buildPurchaseBody(out) as { shipment: Record<string, any> };

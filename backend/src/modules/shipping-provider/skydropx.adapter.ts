@@ -110,6 +110,9 @@ export function buildQuotationBody(input: QuoteInput): Record<string, unknown> {
   };
 }
 
+/** Respaldo de `address_from.reference` en la guía de entrada cuando el vendedor no dejó referencias. */
+export const INBOUND_FROM_REFERENCE_FALLBACK = 'Sin referencias';
+
 /** Cuerpo de `POST /api/v2/shipments` (§19.19.8). PII saliente = exactamente la de T.11 + SEC-SDX-7. */
 export function buildPurchaseBody(input: PurchaseInput): Record<string, unknown> {
   assertPositiveInt('coverageCents', input.package.coverageCents);
@@ -130,6 +133,9 @@ export function buildPurchaseBody(input: PurchaseInput): Record<string, unknown>
       country_code: 'MX',
     };
     if (a.furtherInformation) addressFrom.further_information = a.furtherInformation;
+    // Skydropx exige `address_from.reference` no vacío (prod M5: «no puede estar en blanco»): las referencias del vendedor
+    // (≤ 70) o un texto neutro fijo. Sin plantilla que lo rellene, no se puede omitir.
+    addressFrom.reference = (a.furtherInformation ?? '').trim().slice(0, 70) || INBOUND_FROM_REFERENCE_FALLBACK;
   } else {
     addressFrom = { address_template_id: input.from.templateId };
   }
