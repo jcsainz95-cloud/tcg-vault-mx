@@ -96,11 +96,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-22 · §CELULAR + §FICHA-CLIENTE 5c35d948 · RECHAZADO (texto de qa, transcrito por el orquestador; backend real + front real en Chromium, BD nueva). Previos: §BUYLIST-FLUJO (#149) y M5 teléfono+guía (#150) APROBADOS y publicados.
-- B-1 frontend: el operador no abre la ficha (m6/page.tsx:6 SuperAdminOnly), 0/1; contradice HECHOS 2026-11-22. B-2 frontend: la puerta guarda número equivocado al teclear «+52…» (2/4) o pegar «+52 1…» (14/15). B-3 frontend+devops: censo e2e-skip rojo, mockOnly 163→167.
-- Importante: vender no logra «un clic» (0/1, sin pérdida); PATCH admin phone audita fuera de transacción; pago real NO MEDIDO (sin llave Stripe; invitado cubierto por integración).
-- Verde: servidor 152/152, puerta salvo B-2, ficha súper-admin 23/23, fugas 13/13 con medición encendida, m118 aditiva con reversa, mutaciones 8/8 y 9/10 (1 equivalente).
-- Regresión: integración 208/208 (pdb-limpieza aparte con rol superusuario), unit 619/619, vitest 6290, e2e mock 113/113, tsc y lint 0, doc-size verde. MENOR: NotesPanel «Ver todas (50)» ≠ total; la puerta pinta todo error como «10 dígitos»; `href` de trackingUrl sin validar esquema; manual-refunds `pendingCents` no filtra por userId; seed con 5555555555.
+## QA (qa) — 2026-11-22 · §CELULAR + §FICHA-CLIENTE 328359be · RECHAZADO (texto de qa, transcrito por el orquestador; backend real + front real en Chromium, BD nueva)
+- B-4 backend: integración completa 206/208 suites, 3793/3795 tests; STF-24 (staff-without-email.e2e-spec.ts:553) y STF-32 (stf-errata-v1-80-9-1.e2e-spec.ts:105) aún esperan 200 del operador sobre staff y §13 da 404 (2/2 corridas).
+- I-3 frontend: tope layout.messages 48 500→48 700 innecesario; borrando buylist.request.phone.* (muertas, 142 B) la portada es queda en 48 423 B.
+- Cerrados: B-1 (operador 8/8 fichas, 0 gestión, 0 403; 404 sobre staff 21/21; súper-admin igual), B-2 (puerta 45/45), B-3 (censo verde 163; ficha e2e real 6/6), I-1 (422⇒puerta⇒reintento, +1 fila, 3/3), I-2 (atómico 5/5), pendingCents 8/8, error de red 3/3, safe-href 21/21.
+- Regresión: unit 621/10 840, vitest 6339/0, e2e mock 72/72, tsc y lint 0, doc-size verde. Menores: reintento único sin prueba (2/3 mutaciones vivas), «+52 1» fuera de la tabla del backend, `clientRequestId` del contrato no existe. Pago real NO MEDIDO.
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
