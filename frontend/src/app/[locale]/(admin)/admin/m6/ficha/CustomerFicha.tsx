@@ -497,7 +497,6 @@ export function CustomerFicha({ d, isSuperAdmin, badges, identity, vault, activi
           {ov.refunds.total > ROWS && (
             <span className="flex gap-4 self-end text-xs">
               <Link href={`/admin/refunds?userId=${q(d.id)}`} className="text-accent underline underline-offset-2">{t('viewAllRefunds')}</Link>
-              <Link href={`/admin/manual-refunds?userId=${q(d.id)}`} className="text-accent underline underline-offset-2">{t('viewAllManualRefunds')}</Link>
             </span>
           )}
           {disputes.length === 0 ? (

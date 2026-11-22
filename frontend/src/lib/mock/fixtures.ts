@@ -8,6 +8,7 @@
  * portafolio. La vitrina de "Compra" (GET /catalog/cards) SOLO lista inventario
  * publicado con precio: los ítems "precio pendiente" no viven aquí.
  */
+import { mockUserPhones } from '../mock-user-phones';
 import { brandEmail } from '../brand';
 import { EN_DEFAULT_VERSION, mockCardVersions, mockFinishLabelOf, mockOptionKeyOf, mockVersionOptions } from './versions';
 import { setMatchesQuery } from '../setCode';
@@ -4936,7 +4937,6 @@ export function mockIneLinks(userId: string): AdminIneLinksDTO {
 }
 
 /** §CELULAR (M6): celulares del servidor falso por usuario (10 dígitos); `PATCH /admin/users/:id/phone` los edita. */
-export const mockUserPhones: Record<string, string> = { 'u-777': '5548214739' };
 
 export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
   const base = mockAdminUsers.find((u) => u.id === id) ?? mockAdminUsers[0];

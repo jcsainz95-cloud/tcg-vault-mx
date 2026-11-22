@@ -5,7 +5,7 @@
  */
 import { apiRequest } from '../api-client';
 import { config } from '../config';
-import { mockUserPhones } from '../mock/fixtures';
+import { mockUserPhones } from '../mock-user-phones';
 
 const MOCKS_BUILD = process.env.NEXT_PUBLIC_USE_MOCKS === 'true';
 const isMock = () => MOCKS_BUILD && config.useMocks;
