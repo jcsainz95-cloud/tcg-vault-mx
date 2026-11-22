@@ -37,3 +37,9 @@ export function parseAlert(v: string | string[] | undefined): boolean {
   const one = Array.isArray(v) ? v[0] : v;
   return one === 'true';
 }
+
+/** §FICHA-CLIENTE: `?userId=<uuid>` — el enlace de la ficha del cliente (M6) abre «Envíos» solo de ese cliente. */
+export function parseUserId(v: string | string[] | undefined): string | null {
+  const one = Array.isArray(v) ? v[0] : v;
+  return one && /^[0-9a-zA-Z-]{1,64}$/.test(one) ? one : null;
+}

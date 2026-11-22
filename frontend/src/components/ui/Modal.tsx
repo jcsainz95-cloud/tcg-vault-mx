@@ -9,10 +9,12 @@ export interface ModalProps {
   title: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  /** `xl` = ficha a página casi completa (M6 §FICHA-CLIENTE). Por defecto `md`. */
+  size?: 'md' | 'xl';
 }
 
 /** Modal / bottom-sheet (DESIGN_SYSTEM §7.6) con foco y Esc. */
-export function Modal({ open, onClose, title, children, footer }: ModalProps) {
+export function Modal({ open, onClose, title, children, footer, size = 'md' }: ModalProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   // Foco inicial: SOLO cuando el modal pasa a abierto (dep únicamente `open`). `onClose` es una
@@ -51,7 +53,7 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
         /* Alto acotado + cuerpo scrolleable: un modal largo (p. ej. el drawer de celda de M1)
            desbordaba la ventana y su PIE quedaba fuera de la pantalla — la acción de cierre del
            flujo se volvía invisible. El pie (footer) queda fijo y el contenido scrollea. */
-        className="flex max-h-[100dvh] w-full max-w-md flex-col border-t border-border bg-bg p-5 outline-none sm:max-h-[90vh] sm:border"
+        className={`flex max-h-[100dvh] w-full ${size === 'xl' ? 'max-w-6xl' : 'max-w-md'} flex-col border-t border-border bg-bg p-5 outline-none sm:max-h-[90vh] sm:border`}
       >
         <div className="mb-4 flex shrink-0 items-center justify-between">
           <h2 className="font-serif text-xl text-text">{title}</h2>

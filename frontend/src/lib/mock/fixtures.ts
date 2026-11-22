@@ -4935,6 +4935,9 @@ export function mockIneLinks(userId: string): AdminIneLinksDTO {
   };
 }
 
+/** §CELULAR (M6): celulares del servidor falso por usuario (10 dígitos); `PATCH /admin/users/:id/phone` los edita. */
+export const mockUserPhones: Record<string, string> = { 'u-777': '5548214739' };
+
 export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
   const base = mockAdminUsers.find((u) => u.id === id) ?? mockAdminUsers[0];
   return {
@@ -4942,6 +4945,8 @@ export function mockAdminUserDetail(id: string): AdminUserDetailDTO {
     // ⭐ v1.80.9.1 A-1: la ficha trae su `lockState` (el servidor falso siempre contesta).
     lockState: 'ok',
     locale: 'es',
+    phone: mockUserPhones[id],
+    phoneRequired: !mockUserPhones[id],
     authProvider: id === 'u-778' ? 'google' : 'local',
     // ⭐ v1.69 (§M6-K.3): el origen del nombre va en la ficha SIEMPRE (los dos roles).
     nameSource: id === 'u-780' ? 'derived' : id === 'u-778' ? 'google' : 'user',

@@ -406,7 +406,6 @@ describe('M-4 (QA sobre da6d910e) · Actividad de la ficha', () => {
     renderWithProviders(<M6View />, 'es');
     fireEvent.click((await screen.findAllByRole('button', { name: 'Ver ficha' }))[0]);
     const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
-    fireEvent.click(await within(dialog).findByRole('tab', { name: 'Actividad' }));
     expect((await within(dialog).findAllByText('Cambió su contraseña')).length).toBeGreaterThan(0);
     expect(within(dialog).getAllByText('Cerró sesión').length).toBeGreaterThan(0);
     expect(within(dialog).queryByText('auth.password_changed')).not.toBeInTheDocument();

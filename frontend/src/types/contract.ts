@@ -6650,6 +6650,8 @@ export interface AdminUserDetailDTO extends AdminUserSummaryDTO {
   locale?: Locale;
   authProvider?: AuthProvider;
   phone?: string;
+  /** §CELULAR: `true` si el celular falta o no es válido (derivado en el servidor). */
+  phoneRequired?: boolean;
   /**
    * ⭐ v1.69 (§M6-K.3): de dónde salió `name`. Va en los DOS DTOs (también el de operador).
    * Con `'derived'` el nombre lo FABRICÓ el sistema con el correo (P-73) y **no sirve para

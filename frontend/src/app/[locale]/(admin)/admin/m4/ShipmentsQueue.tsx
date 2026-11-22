@@ -72,11 +72,14 @@ export function ShipmentsQueue({
   onCaptureGuide,
   initialFolio = null,
   initialAlert = false,
+  initialUserId = null,
 }: {
   onCaptureGuide: (s: AdminShipmentDTO) => void;
   initialFolio?: string | null;
   /** §43.22.4 (FS-65/66): `?alert=true` — la unión de las dos alertas; se quita con su ✕, como el folio. */
   initialAlert?: boolean;
+  /** §FICHA-CLIENTE: `?userId=` — solo los envíos de ese cliente; se quita con su ✕. */
+  initialUserId?: string | null;
 }) {
   const t = useTranslations('admin.m4');
   const ts = useTranslations('shipments');
@@ -100,14 +103,16 @@ export function ShipmentsQueue({
   // 🔒 S-GAS-2: `?folio=` (enlace de un aviso de retiro) filtra por igualdad exacta; se quita con su ✕.
   const [folioFilter, setFolioFilter] = useState<string | null>(initialFolio);
   // v1.80.12.16 (§43.22.4): el filtro de alertas. ⛔ La lista no recuenta ni muestra «N de M»: la cifra es la del tablero.
+  const [userFilter, setUserFilter] = useState<string | null>(initialUserId);
   const [alertFilter, setAlertFilter] = useState<boolean>(initialAlert);
   const shipments = useQuery({
-    queryKey: ['admin-shipments', statusFilter, q, folioFilter ?? '', alertFilter],
+    queryKey: ['admin-shipments', statusFilter, q, folioFilter ?? '', alertFilter, userFilter ?? ''],
     queryFn: () =>
       getAdminShipments({
         status: statusFilter || undefined,
         q: q || undefined,
         folio: folioFilter ?? undefined,
+        userId: userFilter ?? undefined,
         alert: alertFilter || undefined,
       }),
   });
@@ -206,6 +211,14 @@ export function ShipmentsQueue({
         <p className="flex items-center gap-1 text-sm text-text" data-testid="shipments-folio-filter">
           {t('folioFilter', { folio: folioFilter })}
           <Button size="sm" variant="ghost" aria-label={t('folioFilterRemove', { folio: folioFilter })} onClick={() => setFolioFilter(null)}>
+            ✕
+          </Button>
+        </p>
+      )}
+      {userFilter && (
+        <p className="flex items-center gap-1 text-sm text-text" data-testid="shipments-user-filter">
+          {t('userFilter')}
+          <Button size="sm" variant="ghost" aria-label={t('userFilterRemove')} onClick={() => setUserFilter(null)}>
             ✕
           </Button>
         </p>

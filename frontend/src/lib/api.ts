@@ -1953,6 +1953,8 @@ export interface AdminShipmentsFilters {
   folio?: string;
   /** v1.80.12.13 (§19.3, §19.20.2; §0-Q clase L, dominio `true`): la UNIÓN `carrierAlert ≠ null ∨ labelAlert ≠ null`. */
   alert?: boolean;
+  /** §FICHA-CLIENTE: `?userId=<uuid>` (el servidor ya lo filtra; enlace de la ficha de M6). */
+  userId?: string;
   page?: number;
   pageSize?: number;
 }
@@ -1984,6 +1986,7 @@ export async function getAdminShipments(
         folio: filters.folio,
         // ⛔ solo `'true'`: `false` es `400` en el servidor (dominio `true`, como `refundReview`).
         alert: filters.alert ? 'true' : undefined,
+        userId: filters.userId,
         page: filters.page,
         pageSize: filters.pageSize,
       },
@@ -1992,6 +1995,7 @@ export async function getAdminShipments(
   let data = mockLiveAdminShipments();
   if (filters.status) data = data.filter((s) => s.status === filters.status);
   if (filters.folio) data = data.filter((s) => s.folio === filters.folio);
+  if (filters.userId) data = data.filter((s) => (s as { userId?: string }).userId === filters.userId);
   // MOCK §19.20.2: `?alert=true` = la UNIÓN de las dos alertas, sobre las MISMAS filas decoradas que ve la lista.
   if (filters.alert) data = data.filter((s) => s.carrierAlert != null || s.labelAlert != null);
   const q = filters.q?.trim().toLowerCase();

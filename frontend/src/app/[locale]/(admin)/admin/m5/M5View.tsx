@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   getAdminBuylist,
@@ -255,9 +256,18 @@ export function M5View() {
   // 💰 rev BSD-1 (BSD-1.3 punto 4): «solo con alerta en su guía de entrada» ⇒ `?inboundLabelAlert=true` (filtra el
   // SERVIDOR con el mismo `labelAlertOf` de M4). Sin el filtro, la petición es la de siempre.
   const [inboundAlertOnly, setInboundAlertOnly] = useState(false);
+  // §FICHA-CLIENTE: `?userId=<id>` (enlace «Abrir en M5» de la ficha de M6) ⇒ solo las solicitudes de ese cliente; se quita con su ✕.
+  const urlUserId = useSearchParams()?.get('userId') ?? null;
+  const [userFilter, setUserFilter] = useState<string | null>(urlUserId && /^[0-9a-zA-Z-]{1,64}$/.test(urlUserId) ? urlUserId : null);
   const query = useQuery({
-    queryKey: inboundAlertOnly ? ['admin-buylist', 'inbound-alert'] : ['admin-buylist'],
-    queryFn: () => (inboundAlertOnly ? getAdminBuylist({ inboundLabelAlert: true }) : getAdminBuylist()),
+    queryKey: [...(inboundAlertOnly ? ['admin-buylist', 'inbound-alert'] : ['admin-buylist']), ...(userFilter ? [userFilter] : [])],
+    queryFn: () =>
+      inboundAlertOnly || userFilter
+        ? getAdminBuylist({
+            ...(inboundAlertOnly ? { inboundLabelAlert: true } : {}),
+            ...(userFilter ? { userId: userFilter } : {}),
+          })
+        : getAdminBuylist(),
   });
 
   // Feedback de la última acción, anclado a SU solicitud (éxito o mensaje real del backend).
@@ -671,6 +681,7 @@ export function M5View() {
     to: closedTo || undefined,
     minCents: closedMinCents ?? undefined,
     maxCents: closedMaxCents ?? undefined,
+    userId: userFilter ?? undefined,
   };
   const closedQuery = useQuery({
     queryKey: [
@@ -681,6 +692,7 @@ export function M5View() {
       closedTo,
       closedMinCents ?? '',
       closedMaxCents ?? '',
+      userFilter ?? '',
     ],
     queryFn: () => getAdminBuylist(closedFilters),
     enabled: activeTab === 'cerradas',
@@ -717,6 +729,14 @@ export function M5View() {
     <div className="flex flex-col gap-6">
       <h1 className="text-h1 font-bold">{tModules('m5')}</h1>
       <p className="text-sm text-muted">{t('cherryPick')}</p>
+      {userFilter && (
+        <p className="flex items-center gap-1 text-sm text-text" data-testid="m5-user-filter">
+          {t('userFilter')}
+          <Button size="sm" variant="ghost" aria-label={t('userFilterRemove')} onClick={() => setUserFilter(null)}>
+            ✕
+          </Button>
+        </p>
+      )}
       {pageNotice && (
         <div data-testid="m5-page-notice">
           <Banner variant="success" role="status">

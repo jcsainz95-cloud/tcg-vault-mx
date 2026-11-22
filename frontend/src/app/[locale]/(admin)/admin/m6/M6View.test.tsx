@@ -70,7 +70,7 @@ describe('M6View · Usuarios / KYC', () => {
     const review = await within(dialog).findByRole('button', { name: 'Revisar identidad' });
 
     expect(within(dialog).queryByLabelText('Estado KYC')).not.toBeInTheDocument();
-    expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('combobox', { name: 'Estado KYC' })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole('option', { name: 'Verificado' })).not.toBeInTheDocument();
 
     expect(review).toBeEnabled();
@@ -142,7 +142,6 @@ describe('M6View · Usuarios / KYC', () => {
     const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });
     fireEvent.click(viewButtons[0]);
     await screen.findByRole('dialog', { name: /Ficha 360/ });
-    fireEvent.click(await screen.findByRole('tab', { name: 'Actividad' }));
 
     expect((await screen.findAllByText('Miró la INE')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Decidió sobre la identidad').length).toBeGreaterThan(0);
@@ -235,25 +234,18 @@ describe('M6View · Usuarios / KYC', () => {
     expect(await screen.findByText('Ya existe una cuenta con ese correo.')).toBeInTheDocument();
   });
 
-  // ---- F3 · Pestañas de historial 360° filtradas por userId (lazy-load) ----
-  it('las pestañas cargan filtradas por userId: Compras al abrir y Envíos al hacer clic', async () => {
-    const ordersSpy = vi.spyOn(api, 'getAdminUserOrders');
-    const shipmentsSpy = vi.spyOn(api, 'getAdminUserShipments');
+  // ---- §FICHA-CLIENTE · la ficha A es una sola página: sin pestañas; los enlaces llevan `?userId=` ----
+  it('la ficha A pinta Pedidos y enlaza a M4 y M5 filtrados por userId', async () => {
     renderWithProviders(<M6View />, 'es');
     const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });
-
-    // Ana (u-777): la pestaña Compras es la activa por defecto → llama al endpoint por userId.
     fireEvent.click(viewButtons[0]);
-    await screen.findByRole('dialog', { name: /Ficha 360/ });
-    await waitFor(() =>
-      expect(ordersSpy).toHaveBeenCalledWith('u-777', expect.objectContaining({ page: 1 })),
-    );
-
-    // Envíos es el endpoint NUEVO (GET /admin/shipments?userId=): se carga al abrir la pestaña.
-    fireEvent.click(screen.getByRole('tab', { name: 'Envíos' }));
-    await waitFor(() =>
-      expect(shipmentsSpy).toHaveBeenCalledWith('u-777', expect.objectContaining({ page: 1 })),
-    );
+    const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
+    expect(within(dialog).queryByRole('tab')).not.toBeInTheDocument();
+    await waitFor(() => expect(dialog.querySelector('#ficha-orders')).not.toBeNull());
+    const m4 = (await within(dialog.querySelector('#ficha-orders') as HTMLElement).findAllByRole('link')).map((a) => a.getAttribute('href'));
+    expect(m4.some((h) => /\/admin\/m4\?.*userId=u-777/.test(h ?? ''))).toBe(true);
+    const m5 = within(dialog.querySelector('#ficha-sells') as HTMLElement).getAllByRole('link').map((a) => a.getAttribute('href'));
+    expect(m5.some((h) => /\/admin\/m5\?.*userId=u-777/.test(h ?? ''))).toBe(true);
   });
 
   // ---- BE-10 · Pestaña Bóveda enriquecida (finish + referenceValue, priced vs pending) ----
@@ -264,7 +256,6 @@ describe('M6View · Usuarios / KYC', () => {
     fireEvent.click(viewButtons[0]);
     await screen.findByRole('dialog', { name: /Ficha 360/ });
 
-    fireEvent.click(await screen.findByRole('tab', { name: 'Bóveda' }));
 
     // Acabado legible (reusa el mapeo `finish`): Holofoil del priced, Reverse Holo del pendiente.
     // (DataTable pinta tabla desktop + card mobile, de ahí findAll.)
@@ -286,7 +277,6 @@ describe('M6View · Usuarios / KYC', () => {
     fireEvent.click(viewButtons[0]);
     await screen.findByRole('dialog', { name: /Ficha 360/ });
 
-    fireEvent.click(await screen.findByRole('tab', { name: 'Actividad' }));
     // El fixture puebla ip (proyección super_admin) → la columna IP aparece.
     // (DataTable pinta tabla desktop + card mobile, de ahí findAll.)
     expect((await screen.findAllByText('187.190.10.4')).length).toBeGreaterThan(0);
@@ -305,45 +295,40 @@ async function waitForRemoved() {
  * 360° es **historia de lectura** y solo existe si el usuario tiene alguna (`detail.disputes?.length > 0`). Con cero,
  * la pestaña no se pinta y su endpoint no se llama.
  */
-describe('F-26 · FE-M8-4 — la pestaña «Disputas» de la ficha solo existe si hay alguna', () => {
+describe('F-26 · FE-M8-4 — «Disputas» en la ficha A es historia de lectura dentro de Reembolsos y disputas', () => {
   async function openFicha() {
     renderWithProviders(<M6View />, 'es');
     const viewButtons = await screen.findAllByRole('button', { name: 'Ver ficha' });
     fireEvent.click(viewButtons[0]);
-    const dialog = await screen.findByRole('dialog', { name: /Ficha 360/ });
-    await within(dialog).findByRole('tab', { name: 'Compras' });
-    return dialog;
+    return screen.findByRole('dialog', { name: /Ficha 360/ });
   }
 
-  it('con `detail.disputes = []`: sin pestaña «Disputas»; el resto de pestañas sigue', async () => {
+  it('con `detail.disputes = []`: texto de vacío y ninguna lectura del endpoint de disputas', async () => {
     const { mockAdminUserDetail } = await import('@/lib/mock/fixtures');
     vi.spyOn(api, 'getAdminUser').mockImplementation(async (id) => ({ ...mockAdminUserDetail(id), disputes: [] }));
     const disputesSpy = vi.spyOn(api, 'getAdminUserDisputes');
     const dialog = await openFicha();
-    expect(within(dialog).queryByRole('tab', { name: 'Disputas' })).not.toBeInTheDocument();
-    expect(within(dialog).getByRole('tab', { name: 'Envíos' })).toBeInTheDocument();
+    expect(await within(dialog).findByText('Sin disputas todavía')).toBeInTheDocument();
     expect(disputesSpy).not.toHaveBeenCalled();
   });
 
-  it('sin el campo (`disputes` ausente): tampoco hay pestaña', async () => {
+  it('sin el campo (`disputes` ausente): tampoco falla', async () => {
     const { mockAdminUserDetail } = await import('@/lib/mock/fixtures');
     vi.spyOn(api, 'getAdminUser').mockImplementation(async (id) => {
       const { disputes: _omit, ...rest } = mockAdminUserDetail(id);
       return rest;
     });
     const dialog = await openFicha();
-    expect(within(dialog).queryByRole('tab', { name: 'Disputas' })).not.toBeInTheDocument();
+    expect(await within(dialog).findByText('Sin disputas todavía')).toBeInTheDocument();
   });
 
-  it('con una disputa: la pestaña existe y al abrirla lee `GET /admin/disputes?userId=`', async () => {
+  it('con una disputa: aparece su folio', async () => {
     const { mockAdminUserDetail } = await import('@/lib/mock/fixtures');
     vi.spyOn(api, 'getAdminUser').mockImplementation(async (id) => ({
       ...mockAdminUserDetail(id),
       disputes: [{ id: 'dsp-5001', status: 'en_revision', type: 'condition_raw', createdAt: '2026-08-12T16:00:00Z' }],
     }));
-    const disputesSpy = vi.spyOn(api, 'getAdminUserDisputes');
     const dialog = await openFicha();
-    fireEvent.click(within(dialog).getByRole('tab', { name: 'Disputas' }));
-    await waitFor(() => expect(disputesSpy).toHaveBeenCalledWith('u-777', expect.objectContaining({ page: 1 })));
+    expect(await within(dialog).findByText('dsp-5001')).toBeInTheDocument();
   });
 });
