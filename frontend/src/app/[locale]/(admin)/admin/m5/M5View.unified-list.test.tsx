@@ -1,0 +1,87 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ReactNode } from 'react';
+import { screen, fireEvent, within } from '@testing-library/react';
+import { renderWithProviders } from '@/test/render';
+import { M5View } from './M5View';
+import es from '../../../../../../messages/es.json';
+import * as api from '@/lib/api';
+import type { BuyDecision, CardDTO, SellItemDTO, SellRequestStatus } from '@/types/contract';
+import { mockAdminBuylistDTO as srv } from '@/lib/mock/fixtures';
+
+/**
+ * Lista ÚNICA de cartas de M5 (dueño 2026-11-22): las mismas cartas ya no salen dos veces (mesa de solo lectura + partidas).
+ * Una fila por carta con carta · cotizado · pactado · estado; las NO compradas, plegadas en un grupo con la frase una sola vez.
+ */
+vi.mock('@/lib/role', () => ({
+  useRole: () => ({ role: 'super_admin', setRole: () => {}, isSuperAdmin: true, canSwitchRole: false }),
+}));
+vi.mock('@/i18n/navigation', () => ({
+  Link: ({ href, children, ...rest }: { href: unknown; children: ReactNode }) => (
+    <a href={typeof href === 'string' ? href : '#'} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+const TAB = es.admin.m5.tabs as Record<string, string>;
+
+function card(id: string, name: string): CardDTO {
+  return {
+    id, externalId: id, name, number: '4', rarity: 'Rare', supertype: 'Pokémon', subtypes: [], setId: 'base1',
+    setName: 'Base Set', setPtcgoCode: 'BS', imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'],
+  };
+}
+function item(id: string, name: string, offerDecision: BuyDecision | null, offered: number | null): SellItemDTO {
+  return {
+    id, card: card(`c-${id}`, name), productType: 'raw', finish: 'normal', quotedPriceCents: 10_000,
+    itemStatus: 'cotizada', offerDecision, offeredPriceCents: offered,
+  };
+}
+const ITEMS = () => [
+  item('it-a', 'Alakazam', 'buy', 8_500),
+  item('it-b', 'Blastoise', 'buy', 7_000),
+  item('it-s', 'Squirtle', 'skip', null),
+  item('it-t', 'Tauros', 'skip', null),
+];
+
+async function render(status: SellRequestStatus) {
+  const r = srv({
+    id: 'sr-ul', userId: 'u-ul', seller: { id: 'u-ul', name: 'Vendedor', email: 'v@example.com' }, status,
+    quotedTotalCents: 30_000, createdAt: '2026-09-01T00:00:00.000Z', receivedAt: null, verifiedAt: null,
+    approvedTotalCents: null, offerSentAt: '2026-09-01T10:00:00.000Z', items: ITEMS(),
+  });
+  vi.spyOn(api, 'getAdminBuylist').mockResolvedValue({ data: [r], page: 1, pageSize: 25, total: 1 });
+  renderWithProviders(<M5View />, 'es');
+  const tab = status === 'cotizada' ? TAB.por_ofertar : TAB.con_vendedor;
+  fireEvent.click(await screen.findByRole('tab', { name: new RegExp(`^${tab}`) }));
+  await screen.findByText('sr-ul');
+}
+
+beforeEach(() => vi.restoreAllMocks());
+
+describe('Lista única de cartas (M5)', () => {
+  it('aceptada: ya no hay «mesa de solo lectura»; el pactado va en la fila y las no compradas, plegadas con la frase UNA vez', async () => {
+    await render('aceptada');
+    expect(screen.queryByTestId('mesa-ro-sr-ul')).not.toBeInTheDocument();
+    expect(screen.queryByText('Mesa de decisiones')).not.toBeInTheDocument();
+    expect(screen.getByTestId('m5-items-summary-sr-ul')).toHaveTextContent('Se compran 2 · No entraron en la oferta 2');
+    // Cada carta comprada: UNA fila con su pactado (MX$ del servidor).
+    expect(screen.getAllByTestId(/^m5-item-/)).toHaveLength(4);
+    expect(within(screen.getByTestId('m5-item-it-a')).getByTestId('m5-agreed-it-a')).toHaveTextContent('85');
+    // Las no compradas viven dentro del grupo; la explicación sale una sola vez.
+    const group = screen.getByTestId('m5-notbought-group-sr-ul');
+    expect(within(group).getByText('No compradas (2)')).toBeInTheDocument();
+    expect(within(group).getByTestId('m5-item-it-s')).toBeInTheDocument();
+    expect(within(group).queryByTestId('m5-item-it-a')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/no se aprueban ni se rechazan/)).toHaveLength(1);
+  });
+
+  it('por ofertar: con la mesa abierta la mesa ES la lista (no se repite); cerrada, la lista está', async () => {
+    vi.spyOn(api, 'getBuylistDecisionTable').mockReturnValue(new Promise(() => {}));
+    await render('cotizada');
+    expect(screen.getByTestId('m5-items-sr-ul')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: es.admin.m5.desk.open }));
+    expect(screen.queryByTestId('m5-items-sr-ul')).not.toBeInTheDocument();
+    expect(screen.getByTestId('decision-desk')).toBeInTheDocument();
+  });
+});

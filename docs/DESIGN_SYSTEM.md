@@ -67,6 +67,7 @@ optimizada; hosts permitidos en `lib/image-optimizer-hosts.mjs`) · `GradedCertC
 (solo INE y accesorios) · `LocaleToggle`.
 
 ## 6. Patrones de UX
+- M5 ficha: UNA lista de cartas (cotizado·pactado·estado); no compradas plegadas; mesa abierta = la lista.
 - Toda acción que toca dinero muestra el importe final antes de confirmar y un resultado visible después (toast o banner).
 - Errores: mensaje humano por código de error (`lib/error-audience.ts`), nunca el código crudo al cliente.
 - Estados vacíos con siguiente paso; carga con `Skeleton`; reintentos visibles en `503 BUSY_TRY_AGAIN`.
