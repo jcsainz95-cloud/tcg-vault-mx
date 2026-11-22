@@ -270,6 +270,7 @@ describe('SellItemDTO — campos de rechazo en las proyecciones (listMine/getMin
       sellRequest: {
         findUnique: jest.fn().mockResolvedValue(fakeRequestRow([rejectedItem])),
       },
+      kycProfile: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const svc = buildService(prisma);
     const res: any = await svc.adminGet('sr-1');

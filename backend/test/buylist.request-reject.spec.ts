@@ -83,7 +83,7 @@ function buildForItemDecision(nonRejectedRemaining: number) {
       update: jest.fn(async () => ({})),
       updateMany: jest.fn(async () => ({ count: 1 })),
     },
-    kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
+    kycProfile: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
     // v1.24 (endurecimiento §4.18f): count + updateMany de la auto-transición van en un
     // $transaction Serializable; el mock ejecuta el callback con el propio `prisma` como `tx`
     // (patrón de buylist.security/createRequest specs: `$transaction:(fn)=>fn(tx)`).
@@ -216,7 +216,7 @@ function buildForRejectRequest(opts: {
       // v1.82.3 · §PNL.12 — la precondición lee las líneas que CUENTAN: una `rechazada` + las vivas.
       findMany: jest.fn(async () => [{ itemStatus: 'rechazada' }, ...(opts.liveItems ?? [])]),
     },
-    kycProfile: { findUnique: jest.fn().mockResolvedValue(null) },
+    kycProfile: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
     // v1.24 (endurecimiento §4.18g): precondición + updateMany en un $transaction Serializable;
     // el mock corre el callback con `prisma` como `tx` (patrón `$transaction:(fn)=>fn(tx)`).
     // v1.82 · PNL-4: el recálculo del total toma `SellRequest FOR UPDATE` (`$queryRaw`) antes de agregar.

@@ -1,0 +1,120 @@
+/**
+ * §BUYLIST-FLUJO F1 (docs/API_CONTRACT_BUYLIST_FLUJO.md §1-§2) — funciones PURAS del neto a transferir y del reloj de estado.
+ *
+ * `computePayoutNetCents` es la UNICA fuente del neto: la leen el DTO de admin (`payout`) y `paySpei` (lo que sella en
+ * `payoutNetCents`). Dos copias de la resta serian el defecto que este modulo ya pago caro (criterio 207).
+ * Centavos enteros MXN; `net = max(0, bruto - envio)`; envio = `offerShippingFeeCents ?? 0` (filas pre-M-46: 0, D25);
+ * bruto = `brutoConsumado` (approved ?? offerGross ?? quoted ?? 0).
+ */
+import { brutoConsumado } from '../../common/buylist-aml';
+
+export interface PayoutMoneyRow {
+  approvedTotalCents: number | null;
+  offerGrossCents: number | null;
+  quotedTotalCents: number | null;
+  offerShippingFeeCents: number | null;
+}
+
+export interface PayoutAmounts {
+  grossCents: number;
+  shippingFeeCents: number;
+  netCents: number;
+}
+
+export function computePayoutNetCents(r: {
+  approvedTotalCents?: number | null;
+  offerGrossCents?: number | null;
+  quotedTotalCents?: number | null;
+  offerShippingFeeCents?: number | null;
+}): PayoutAmounts {
+  const grossCents = brutoConsumado({
+    approvedTotalCents: r.approvedTotalCents ?? null,
+    offerGrossCents: r.offerGrossCents ?? null,
+    quotedTotalCents: r.quotedTotalCents ?? null,
+  });
+  const shippingFeeCents = r.offerShippingFeeCents ?? 0;
+  return { grossCents, shippingFeeCents, netCents: Math.max(0, grossCents - shippingFeeCents) };
+}
+
+export interface PayoutDTO extends PayoutAmounts {
+  isFinal: boolean;
+  clabeOnFile: boolean;
+}
+
+/**
+ * `AdminBuylistDTO.payout`: proyeccion en `verificacion`/`aprobada`; en `pagada` lo SELLADO (`payoutNetCents`); resto `null`.
+ * `clabeOnFile` es un booleano (nunca la CLABE).
+ */
+export function payoutDTOOf(
+  r: PayoutMoneyRow & { status: string; payoutNetCents?: number | null },
+  o: { pendingDecisionCount: number; clabeOnFile: boolean },
+): PayoutDTO | null {
+  if (r.status === 'verificacion' || r.status === 'aprobada') {
+    return { ...computePayoutNetCents(r), isFinal: o.pendingDecisionCount === 0, clabeOnFile: o.clabeOnFile };
+  }
+  if (r.status === 'pagada') {
+    const base = computePayoutNetCents(r);
+    return { ...base, netCents: r.payoutNetCents ?? base.netCents, isFinal: true, clabeOnFile: o.clabeOnFile };
+  }
+  return null;
+}
+
+const DAY_MS = 86_400_000;
+/** Abandono de la solicitud recibida: `receivedAt` + 30 d (politica existente, `buylist-reject.constants`). */
+const REQUEST_ABANDON_DAYS = 30;
+
+export interface StatusClockRow {
+  status: string;
+  createdAt: Date;
+  offerSentAt?: Date | null;
+  acceptedAt?: Date | null;
+  shipmentConfirmedAt?: Date | null;
+  receivedAt?: Date | null;
+  verifiedAt?: Date | null;
+  approvedAt?: Date | null;
+  offerAcceptDeadlineAt?: Date | null;
+  shipDeadlineAt?: Date | null;
+  guideDueAt?: Date | null;
+  paidAt?: Date | null;
+  closedAt?: Date | null;
+}
+
+/**
+ * `statusClock` (§1): `since` = marca que ya existe; `dueAt` = plazo existente del estado (sin umbrales nuevos);
+ * `overdue = dueAt != null && now > dueAt`; `waitingDays` = dias naturales enteros (>= 0).
+ */
+export function statusClockOf(r: StatusClockRow, now: Date) {
+  const since =
+    (r.status === 'ofertada' && r.offerSentAt) ||
+    (r.status === 'aceptada' && r.acceptedAt) ||
+    (r.status === 'en_transito' && r.shipmentConfirmedAt) ||
+    (r.status === 'recibida' && r.receivedAt) ||
+    (r.status === 'verificacion' && r.verifiedAt) ||
+    (r.status === 'aprobada' && r.approvedAt) ||
+    (r.status === 'pagada' && r.paidAt) ||
+    (['rechazada', 'abandonada', 'expirada'].includes(r.status) && r.closedAt) ||
+    (r.createdAt ?? now);
+  let dueAt: Date | null = null;
+  switch (r.status) {
+    case 'ofertada':
+      dueAt = r.offerAcceptDeadlineAt ?? null;
+      break;
+    case 'aceptada':
+      dueAt = r.shipDeadlineAt ?? r.guideDueAt ?? null;
+      break;
+    case 'recibida':
+    case 'verificacion':
+    case 'aprobada':
+      dueAt = r.receivedAt ? new Date(r.receivedAt.getTime() + REQUEST_ABANDON_DAYS * DAY_MS) : null;
+      break;
+    default:
+      dueAt = null;
+  }
+  const waitingDays = Math.max(0, Math.floor((now.getTime() - since.getTime()) / DAY_MS));
+  return {
+    since: since.toISOString(),
+    waitingDays,
+    dueAt: dueAt ? dueAt.toISOString() : null,
+    overdue: dueAt != null && now.getTime() > dueAt.getTime(),
+  };
+}

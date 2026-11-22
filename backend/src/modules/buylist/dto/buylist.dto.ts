@@ -322,6 +322,8 @@ export class RejectedItemsQueryDto {
 
 export class PaySpeiDto {
   @IsString() speiReference!: string;
+  /** §BUYLIST-FLUJO F1a: `payout.netCents` mostrado. Difiere del que se sellaria => 409 PAYOUT_CHANGED sin efectos. */
+  @IsOptional() @IsInt() @Min(0) expectedNetCents?: number;
 }
 
 /**

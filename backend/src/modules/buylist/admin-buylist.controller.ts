@@ -693,7 +693,7 @@ export class AdminBuylistController {
     @CurrentUser() user: { id: string; role: Role },
     @Headers('idempotency-key') _idempotencyKey?: string,
   ) {
-    const res = await this.buylist.paySpei(id, dto.speiReference, user.id);
+    const res = await this.buylist.paySpei(id, dto.speiReference, user.id, dto.expectedNetCents);
     // ⚠️ v1.57 · **SEC-B1** (`docs/SECURITY_NOTES.md` §6) — **SE AUDITA LA REFERENCIA EFECTIVA, NO LA
     // INTENTADA.** Medido por seguridad: un segundo `pay-spei` sobre una fila ya `pagada` sale por el
     // corto-circuito idempotente **sin asentar nada**, y esto emitía igual un `sellrequest.pay_spei`

@@ -382,6 +382,10 @@ export const ErrorCode = {
   // v1.15: POST /buylist/requests sin `clabe` en el body Y sin CLABE en archivo
   // (KycProfile.clabeEnc vacío). Distinto de CLABE_INVALID (formato) y CLABE_NOT_OWN_NAME.
   CLABE_REQUIRED: 'CLABE_REQUIRED',
+  // §BUYLIST-FLUJO F1a (API_CONTRACT_BUYLIST_FLUJO §2): `reveal-clabe` sin CLABE (antes 404 NOT_FOUND) => 422 con remedio.
+  CLABE_MISSING: 'CLABE_MISSING',
+  // §BUYLIST-FLUJO F1a: `pay-spei` con `expectedNetCents` distinto del neto que sellaria => 409, sin efectos.
+  PAYOUT_CHANGED: 'PAYOUT_CHANGED',
   // ===== v1.51.20 · LA PUERTA DEL CICLO — `POST /buylist/requests` (§6, D11/D18/D36/D37) =====
   // v1.51.3 (D36/D37, criterio 128) — **sin `addressId` en el body**. HERMANO EXACTO de
   // `CLABE_REQUIRED` en forma y en remedio: sin dirección de ORIGEN no se puede imprimir la etiqueta

@@ -140,6 +140,7 @@ import { resyncInboundAddress } from './inbound-address-sync';
 import { INBOUND_LABEL_SELECT, labelPdfAvailableOf } from '../shipments/label-inbound';
 import { ShipmentLabelService } from '../shipments/label-purchase.service';
 import type { LabelOptionsDTO } from '../shipments/label-view';
+import { computePayoutNetCents, payoutDTOOf, statusClockOf } from './buylist-payout';
 import {
   INBOUND_SHIPMENT_SELECT,
   InboundShipmentRow,
@@ -303,6 +304,26 @@ function declineAcceptedBlockOf(r: {
   if (r.status !== 'aceptada' || r.closedAt != null) return 'status';
   if (r.sellerShippedDeclaredAt != null) return 'seller_declared_shipped';
   return 'shipment_confirmed';
+}
+
+/** §BUYLIST-FLUJO F1c — el bloque PACTADO congelado de una linea (`null` = `skip`/pre-ciclo). */
+function offeredBlockOf(
+  row:
+    | {
+        offeredPriceCents: number | null;
+        offerDerivedPriceCents: number | null;
+        offerMarketMxnCents: number | null;
+        offerOverrideReason: string | null;
+      }
+    | undefined,
+) {
+  if (!row || row.offeredPriceCents == null) return null;
+  return {
+    priceCents: row.offeredPriceCents,
+    derivedAtOfferCents: row.offerDerivedPriceCents ?? null,
+    marketAtOfferCents: row.offerMarketMxnCents ?? null,
+    overrideReason: row.offerOverrideReason ?? null,
+  };
 }
 
 /**
@@ -2641,6 +2662,8 @@ export class BuylistService implements OnModuleInit {
       rows.flatMap((r) => (r.inboundShipment ? [r.inboundShipment.id] : [])),
       now,
     );
+    // §BUYLIST-FLUJO F1: `payout.clabeOnFile` (snapshot o KYC) — UNA lectura por pagina, solo de quien no tiene snapshot.
+    const kycClabeUsers = await this.usersWithKycClabe(rows);
     // Los diales se izan UNA vez por request (no por fila): son los mismos para todas.
     const data = rows.map((r) => ({
       // ⚠️ v1.51.20 · **BL-29** — la fila del listado sale de **LA MISMA proyección** que el detalle
@@ -2654,9 +2677,10 @@ export class BuylistService implements OnModuleInit {
         actorRole: null,
         orphanSince: r.inboundShipment ? (orphanSince.get(r.inboundShipment.id) ?? null) : null,
         now,
+        kycClabeOnFile: kycClabeUsers.has(r.userId),
       }),
       seller: this.sellerRef(r.user),
-      items: r.items.map((i) => this.itemDTO(i)),
+      items: r.items.map((i) => this.adminItemDTO(i)),
       // ⚠️ **LO QUE ESTA COLA NO GANA, y es deliberado: `pickupAddress`.** Un LISTADO paginado de
       // domicilios es **cosecha masiva de PII** (N filas por request) — misma decisión y mismo
       // argumento que `AdminOrderSummaryDTO`, que ya excluye `shippingAddressSnapshot`. La dirección
@@ -2749,9 +2773,11 @@ export class BuylistService implements OnModuleInit {
       },
     dials: AdminCycleDials,
     // 💰 rev BSD-1 — `labelAlert` de la fila de entrada: el rol del actor (solo decide `canRelease`) y su huérfana reciente.
-    bsd: { actorRole?: Role | null; orphanSince?: Date | null; now?: Date } = {},
+    bsd: { actorRole?: Role | null; orphanSince?: Date | null; now?: Date; kycClabeOnFile?: boolean } = {},
   ) {
     const reissueCount = r.offerReissueCount ?? 0;
+    const now = bsd.now ?? new Date();
+    const inboundFields = this.adminInboundFields(r, dials, bsd);
     // ⚠️ v1.61 · §M5-V — el `?? []` es **solo por los mocks de las suites unitarias**, que construyen
     // filas a mano y no pasan por el compilador. En producción `items` es OBLIGATORIO en el tipo:
     // ninguna ruta real puede llegar aquí sin ellas.
@@ -2833,7 +2859,62 @@ export class BuylistService implements OnModuleInit {
       // Lo que SALIÓ por SPEI, sellado en la MISMA transacción que `pagada`. Fuente de la caja de M7,
       // distinta del acumulado de COMPROMISO que gobierna el tope mensual (que se mide en BRUTOS).
       payoutNetCents: r.payoutNetCents ?? null,
-      ...this.adminInboundFields(r, dials, bsd),
+      // §BUYLIST-FLUJO F1 (anexo §1) — DERIVADOS, sin columnas. `payout` usa `computePayoutNetCents`, la MISMA funcion
+      // que sella `paySpei`; `clabeOnFile` es booleano (snapshot o CLABE de KYC), nunca la CLABE.
+      payout: payoutDTOOf(
+        {
+          status: r.status,
+          approvedTotalCents: r.approvedTotalCents,
+          offerGrossCents: r.offerGrossCents ?? null,
+          quotedTotalCents: r.quotedTotalCents,
+          offerShippingFeeCents: r.offerShippingFeeCents ?? null,
+          payoutNetCents: r.payoutNetCents ?? null,
+        },
+        {
+          pendingDecisionCount: pendingDecisionItemIds.length,
+          clabeOnFile: (r as { clabeSnapshotEnc?: string | null }).clabeSnapshotEnc != null || bsd.kycClabeOnFile === true,
+        },
+      ),
+      offerNet:
+        r.offerSentAt != null && r.offerNetCents != null
+          ? {
+              grossCents: r.offerGrossCents ?? 0,
+              shippingFeeCents: r.offerShippingFeeCents ?? 0,
+              netCents: r.offerNetCents,
+              expiresAt: r.offerAcceptDeadlineAt ?? null,
+            }
+          : null,
+      statusClock: statusClockOf(
+        {
+          status: r.status,
+          createdAt: r.createdAt,
+          offerSentAt: r.offerSentAt,
+          acceptedAt: r.acceptedAt,
+          shipmentConfirmedAt: r.shipmentConfirmedAt,
+          receivedAt: r.receivedAt,
+          verifiedAt: r.verifiedAt,
+          approvedAt: r.approvedAt,
+          offerAcceptDeadlineAt: r.offerAcceptDeadlineAt,
+          shipDeadlineAt: r.shipDeadlineAt,
+          guideDueAt: inboundFields.guideDueAt,
+          paidAt: r.paidAt,
+          closedAt: r.closedAt,
+        },
+        now,
+      ),
+      tracking:
+        r.status === 'en_transito'
+          ? {
+              carrier: r.shipmentCarrier ?? r.inboundShipment?.carrier ?? null,
+              number: r.shipmentTrackingNumber ?? r.inboundShipment?.trackingNumber ?? null,
+              url: r.inboundShipment?.trackingUrl ?? null,
+              daysInTransit: Math.max(
+                0,
+                Math.floor((now.getTime() - (r.shipmentConfirmedAt ?? r.createdAt).getTime()) / 86_400_000),
+              ),
+            }
+          : null,
+      ...inboundFields,
     };
   }
 
@@ -2880,6 +2961,37 @@ export class BuylistService implements OnModuleInit {
       guideDueInDays: due.guideDueInDays,
       declineAcceptedAllowed: declineAcceptedAllowedOf(r),
     };
+  }
+
+  /**
+   * §BUYLIST-FLUJO F1 (anexo §1) — linea de ADMIN = `itemDTO` + `agreedPriceCents` (el precio PACTADO final).
+   * F1 no tiene baja aceptada (esquema de F2c): pactado = `offeredPriceCents` (D2, vinculante e inmutable); `null` en
+   * lineas `skip`/pre-ciclo. Solo admin: la proyeccion de cliente no lo lee.
+   */
+  private adminItemDTO(i: Parameters<BuylistService['itemDTO']>[0]) {
+    return { ...this.itemDTO(i), agreedPriceCents: i.offeredPriceCents ?? null };
+  }
+
+  /**
+   * §BUYLIST-FLUJO F1 — `userId` con CLABE en su KYC (booleano; NUNCA se descifra ni se devuelve). Solo consulta a quien
+   * esta en un estado con `payout` y no trae snapshot: una lectura por pagina, no por fila.
+   */
+  private async usersWithKycClabe(
+    rows: readonly { userId: string; status: SellRequestStatus; clabeSnapshotEnc?: string | null }[],
+  ): Promise<Set<string>> {
+    const ids = [
+      ...new Set(
+        rows
+          .filter((r) => ['verificacion', 'aprobada', 'pagada'].includes(r.status) && r.clabeSnapshotEnc === null)
+          .map((r) => r.userId),
+      ),
+    ];
+    if (ids.length === 0) return new Set();
+    const kyc = await this.prisma.kycProfile.findMany({
+      where: { userId: { in: ids }, clabeEnc: { not: null } },
+      select: { userId: true },
+    });
+    return new Set(kyc.map((k) => k.userId));
   }
 
   /** v1.18-buylist-rejects: AdminSellerRef = { id, name, email } (§11). Tolerante a mocks sin join. */
@@ -2959,6 +3071,7 @@ export class BuylistService implements OnModuleInit {
         actorRole: actor?.role ?? null,
         orphanSince: req.inboundShipment ? (orphan.get(req.inboundShipment.id) ?? null) : null,
         now,
+        kycClabeOnFile: (await this.usersWithKycClabe([req])).has(req.userId),
       }),
       // 💰 rev BSD-1 (§BSD.5): lo que la ventana necesita para no ofrecer un botón que dará 403/404 — calculado PARA EL ACTOR
       // por el MISMO `labelOptionsFor` del motor (TG-2 de la fila de entrada si existe). Solo en el DETALLE (la lista no
@@ -2974,7 +3087,7 @@ export class BuylistService implements OnModuleInit {
       // leyendo la libreta viva.**
       pickupAddress: req.pickupAddressSnapshot ?? null,
       // v1.18-buylist-rejects: items como SellItemDTO (incluye campos de rechazo + plazos derivados).
-      items: (req.items ?? []).map((i) => this.itemDTO(i)),
+      items: (req.items ?? []).map((i) => this.adminItemDTO(i)),
       clabeMasked,
       // ADITIVO y SOLO en el estado degradado (§ robustez PII de arriba).
       ...(clabeUnavailable ? { piiUnavailable: true } : {}),
@@ -3034,6 +3147,8 @@ export class BuylistService implements OnModuleInit {
     });
     if (!req) throw BusinessException.notFound();
     const items = req.items ?? [];
+    // §BUYLIST-FLUJO F1c: `ofertada` o posterior (cualquier estado con oferta enviada) => solo lectura.
+    const readonlyMesa = req.offerSentAt != null || req.status !== 'cotizada';
     // ⚠️ v1.58 · §M5-A.8 (BL-38) — el archivo de INE del VENDEDOR, para el aviso de la mesa. Se lee
     // del `KycProfile` (la fuente autoritativa que usa la guarda de `POST …/offer`) y **no** de
     // `SellRequest.ineProvided`, que es un snapshot del intake: el vendedor pudo subirlo después.
@@ -3072,6 +3187,7 @@ export class BuylistService implements OnModuleInit {
         this.settings.getNumber(SettingKey.BUYLIST_VARIANT_POSITION_CAP),
       ]);
 
+    const itemRows = new Map(items.map((row) => [row.id, row]));
     const dtoLines = [];
     let buyableGrossCents = 0;
     for (const l of lines) {
@@ -3098,6 +3214,9 @@ export class BuylistService implements OnModuleInit {
         cardProductId: l.cardProductId,
         // (a) lo que se le cotizó — el snapshot congelado al crear la solicitud.
         quotedPriceCents: it.quotedPriceCents ?? null,
+        // §BUYLIST-FLUJO F1c: lo PACTADO, congelado al ofertar (solo lectura; `null` = linea `skip`/pre-ciclo). Los campos
+        // «de hoy» de abajo (`derivedPriceCents`, `marketMxnCents`) no cambian.
+        offered: offeredBlockOf(itemRows.get(it.id)),
         // El derivado por la curva VIGENTE. `null` ⇒ el front pinta `SIN PRECIO`, JAMÁS `MX$ 0.00`.
         derivedPriceCents,
         priceBasis: decision?.priceBasis ?? ('pending' as PriceBasis),
@@ -3130,6 +3249,8 @@ export class BuylistService implements OnModuleInit {
     return {
       sellRequestId: req.id,
       status: req.status,
+      // §BUYLIST-FLUJO F1c: sin guarda de estado; `readonly` desde `ofertada` (la mesa ya no emite nada).
+      mode: readonlyMesa ? ('readonly' as const) : ('edit' as const),
       seller: this.sellerRef(req.user),
       quotedTotalCents: req.quotedTotalCents,
       lines: dtoLines,
@@ -3144,12 +3265,13 @@ export class BuylistService implements OnModuleInit {
       operatorCapCents,
       // AVISO, no bloqueo (D24): el operador PUEDE preparar la oferta; lo que no puede es que salga
       // sola. El súper-admin oferta sin tope.
+      // En `readonly` el servidor omite las acciones de EMISION (nada que autorizar ni avisar): quedan en `false`.
       requiresAuthorization:
-        actor.role === Role.vault_operator && buyableGrossCents > operatorCapCents,
+        !readonlyMesa && actor.role === Role.vault_operator && buyableGrossCents > operatorCapCents,
       // v1.51.3 (D36) — AVISO, no bloqueo: quien bloquea es `POST …/offer` con
       // `422 PICKUP_ADDRESS_MISSING`. Es un BOOLEANO y no la dirección: la mesa es una pantalla de
       // decisión de compra, no de datos personales (la dirección vive en el detalle).
-      pickupAddressMissing: req.pickupAddressSnapshot == null,
+      pickupAddressMissing: !readonlyMesa && req.pickupAddressSnapshot == null,
       // ⚠️ v1.58 · §M5-A.8 (BL-38) — AVISO, no bloqueo: quien bloquea es `POST …/offer` con
       // `422 INE_REQUIRED`. Existe por la MISMA razón que `pickupAddressMissing`: *el operador tiene
       // que poder verlo ANTES de armar la oferta entera*; sin él monta el cherry-pick línea por línea
@@ -6189,18 +6311,24 @@ export class BuylistService implements OnModuleInit {
    * snapshot cifrado de la solicitud (o, en su defecto, la CLABE de KYC). No enmascara:
    * es el único punto del sistema que devuelve la CLABE en claro, para copiarla a la banca.
    */
-  async revealClabe(id: string): Promise<{ sellRequestId: string; clabe: string }> {
-    const req = await this.prisma.sellRequest.findUnique({ where: { id } });
+  async revealClabe(id: string): Promise<{ sellRequestId: string; clabe: string; holderName: string }> {
+    const req = await this.prisma.sellRequest.findUnique({
+      where: { id },
+      include: { user: { select: { name: true } } },
+    });
     if (!req) throw BusinessException.notFound();
+    // §BUYLIST-FLUJO F1a: el titular (nombre del vendedor; la CLABE debe ser a su nombre, CLABE_NOT_OWN_NAME): `legalName` de KYC,
+    // y si no hay, el nombre de la cuenta. Se lee siempre (un viaje) para que el modal pinte el titular junto a la CLABE.
+    const kyc = await this.prisma.kycProfile.findUnique({ where: { userId: req.userId } });
     let clabe = this.pii.decryptOptional(req.clabeSnapshotEnc);
+    if (!clabe) clabe = this.pii.decryptOptional(kyc?.clabeEnc);
     if (!clabe) {
-      const kyc = await this.prisma.kycProfile.findUnique({ where: { userId: req.userId } });
-      clabe = this.pii.decryptOptional(kyc?.clabeEnc);
+      // F1a (CAMBIO de contrato): 422 CLABE_MISSING con remedio en lugar del 404 generico.
+      throw BusinessException.validation('CLABE_MISSING', 'The seller has no CLABE on file', {
+        remedy: 'ask_seller_clabe',
+      });
     }
-    if (!clabe) {
-      throw BusinessException.notFound('NOT_FOUND', 'No CLABE on file for this request');
-    }
-    return { sellRequestId: id, clabe };
+    return { sellRequestId: id, clabe, holderName: (kyc?.legalName ?? req.user?.name ?? '').trim() };
   }
 
   /**
@@ -8209,7 +8337,7 @@ export class BuylistService implements OnModuleInit {
    * Idempotente ante replays: el conteo solo corre en la llamada que HACE la transición
    * (updateMany count===1); un re-POST/replay ve `pagada` y devuelve el estado sin re-contar.
    */
-  async paySpei(id: string, speiReference: string, paidBy: string) {
+  async paySpei(id: string, speiReference: string, paidBy: string, expectedNetCents?: number) {
     // ⚠️ v1.61 · §M5-V — el `include` de las líneas es **precondición del verbo, no adorno de la
     // respuesta**: V-b se evalúa sobre ellas y el DTO publica `pendingDecisionItemCount`.
     const req = await this.prisma.sellRequest.findUnique({
@@ -8356,7 +8484,18 @@ export class BuylistService implements OnModuleInit {
         // desigualdad `acumulado + enCurso > cap`: medir cada lado con una cascada distinta es
         // comparar dos cosas. Lo aprobado manda; sin decisiones por-ítem, **lo OFERTADO** (que es lo
         // vinculante, D2); y solo en filas pre-M-46, lo cotizado.
-        const payoutCents = brutoConsumado(fresh);
+        // §BUYLIST-FLUJO F1a — UNA sola funcion para el neto (la misma que proyecta `payout` en la lectura).
+        const payout = computePayoutNetCents(fresh);
+        const payoutCents = payout.grossCents;
+        // `expectedNetCents` = el neto que la pantalla le mostro al super-admin. Difiere del que se sellaria => 409 sin
+        // efectos (esta transaccion no ha escrito nada todavia; el throw la revierte entera).
+        if (expectedNetCents != null && expectedNetCents !== payout.netCents) {
+          throw BusinessException.conflict(
+            'PAYOUT_CHANGED',
+            'The amount to deposit changed since it was shown; re-check the request before paying',
+            { expectedNetCents, currentNetCents: payout.netCents },
+          );
+        }
         const alreadyPaid = await this.monthCommittedGrossPaidCentsTx(tx, req.userId);
         if (alreadyPaid + payoutCents > capPerMonth) {
           throw BusinessException.validation('BUYLIST_LIMIT_EXCEEDED', 'Per-month payout cap exceeded', {
@@ -8477,7 +8616,7 @@ export class BuylistService implements OnModuleInit {
             // ⚠️ B-2: la tarifa sale de `fresh`, **no** del `req` de fuera de la transacción. Los dos
             // términos de esta resta tienen que venir de la MISMA lectura: mezclar un bruto releído
             // con un envío viejo produciría un neto que no corresponde a ninguna versión de la fila.
-            payoutNetCents: Math.max(0, payoutCents - (fresh.offerShippingFeeCents ?? 0)),
+            payoutNetCents: payout.netCents,
           },
         });
         if (res.count !== 1) return null;
