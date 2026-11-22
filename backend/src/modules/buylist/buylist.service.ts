@@ -2978,6 +2978,7 @@ export class BuylistService implements OnModuleInit {
    */
   private async usersWithKycClabe(
     rows: readonly { userId: string; status: SellRequestStatus; clabeSnapshotEnc?: string | null }[],
+    client: Pick<PrismaService, 'kycProfile'> = this.prisma,
   ): Promise<Set<string>> {
     const ids = [
       ...new Set(
@@ -2987,11 +2988,19 @@ export class BuylistService implements OnModuleInit {
       ),
     ];
     if (ids.length === 0) return new Set();
-    const kyc = await this.prisma.kycProfile.findMany({
+    const kyc = await client.kycProfile.findMany({
       where: { userId: { in: ids }, clabeEnc: { not: null } },
       select: { userId: true },
     });
     return new Set(kyc.map((k) => k.userId));
+  }
+
+  /** §BUYLIST-FLUJO M-2: `kycClabeOnFile` de UNA fila, para las respuestas de mutacion (mismo valor que lista/detalle). */
+  private async kycOptsOf(
+    row: { userId: string; status: SellRequestStatus; clabeSnapshotEnc?: string | null },
+    client: Pick<PrismaService, 'kycProfile'> = this.prisma,
+  ): Promise<{ kycClabeOnFile: boolean }> {
+    return { kycClabeOnFile: (await this.usersWithKycClabe([row], client)).has(row.userId) };
   }
 
   /** v1.18-buylist-rejects: AdminSellerRef = { id, name, email } (§11). Tolerante a mocks sin join. */
@@ -3245,7 +3254,9 @@ export class BuylistService implements OnModuleInit {
     // porque no se puede ofertar sin monto). El operador quita líneas y la UI recalcula la suma; el
     // UMBRAL y el VEREDICTO los sigue mandando el servidor (los diales se editan sin redeploy, así
     // que una constante en el front quedaría desincronizada en silencio).
-    const netCents = Math.max(0, buyableGrossCents - shippingFeeCents);
+    // §BUYLIST-FLUJO M-1: en `readonly` la forma NO cambia, pero el neto es el SELLADO (`offerNetCents`), no el de hoy.
+    const liveNetCents = Math.max(0, buyableGrossCents - shippingFeeCents);
+    const netCents = readonlyMesa ? (req.offerNetCents ?? liveNetCents) : liveNetCents;
     return {
       sellRequestId: req.id,
       status: req.status,
@@ -3260,7 +3271,7 @@ export class BuylistService implements OnModuleInit {
         netCents,
         minimumOfferNetCents,
         requiredGrossCents: minimumOfferNetCents + shippingFeeCents,
-        netBelowMinimum: netCents < minimumOfferNetCents,
+        netBelowMinimum: !readonlyMesa && netCents < minimumOfferNetCents,
       },
       operatorCapCents,
       // AVISO, no bloqueo (D24): el operador PUEDE preparar la oferta; lo que no puede es que salga
@@ -4675,7 +4686,7 @@ export class BuylistService implements OnModuleInit {
       await this.sendOfferCancelledMail(outcome.before, outcome.before.user);
     }
     return {
-      response: this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials),
+      response: this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials, await this.kycOptsOf(outcome.after as VerdictItemsPayload)),
       audit: {
         wasSent: outcome.wasSent,
         reason: reason?.trim() || undefined,
@@ -6098,7 +6109,7 @@ export class BuylistService implements OnModuleInit {
         },
       );
     }
-    return this.adminSellRequestDTO(after, await this.adminCycleDials());
+    return this.adminSellRequestDTO(after, await this.adminCycleDials(), await this.kycOptsOf(after));
   }
 
 
@@ -6184,7 +6195,7 @@ export class BuylistService implements OnModuleInit {
     // `declinedBy`, que es justo lo que la distingue de la regla 7 del barrido. Con la proyección
     // vieja los dos salían ausentes: el cliente de la API no podía distinguir «lo decidimos» de «se
     // nos venció», que es la pregunta entera que D39 vino a contestar.
-    return this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials);
+    return this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials, await this.kycOptsOf(outcome.after as VerdictItemsPayload));
   }
 
   /**
@@ -6251,7 +6262,7 @@ export class BuylistService implements OnModuleInit {
     // PROJECTION-EXEMPT: fila cruda; se proyecta con la lista blanca admin.
     const after = await this.prisma.sellRequest.findUnique({ where: { id }, include: ADMIN_DTO_INCLUDE });
     if (!after) throw BusinessException.notFound();
-    return this.adminSellRequestDTO(after as VerdictItemsPayload, dials, { actorRole: actor.role, now });
+    return this.adminSellRequestDTO(after as VerdictItemsPayload, dials, { actorRole: actor.role, now, ...(await this.kycOptsOf(after as VerdictItemsPayload)) });
   }
 
   /** **BSD-M1 — «no continuamos».** Best-effort post-commit; su fallo no revierte el cierre. */
@@ -6306,6 +6317,18 @@ export class BuylistService implements OnModuleInit {
   }
 
   /**
+   * §BUYLIST-FLUJO M-6: el titular nunca sale vacio. Primer valor NO vacio (tras `trim`) de: `legalName` de KYC, nombre de la cuenta,
+   * correo de la cuenta (dato real, nunca inventado); si no hay ninguno, la etiqueta fija `SIN NOMBRE REGISTRADO` (visible, no un blanco).
+   */
+  private holderNameOf(...candidates: (string | null | undefined)[]): string {
+    for (const c of candidates) {
+      const t = (c ?? '').trim();
+      if (t) return t;
+    }
+    return 'SIN NOMBRE REGISTRADO';
+  }
+
+  /**
    * Reveal on-demand de la CLABE COMPLETA (18 dígitos) para ejecutar el pago SPEI.
    * Marcado @MoneyOut (solo super_admin) y AUDITADO en el controller. Descifra el
    * snapshot cifrado de la solicitud (o, en su defecto, la CLABE de KYC). No enmascara:
@@ -6314,7 +6337,7 @@ export class BuylistService implements OnModuleInit {
   async revealClabe(id: string): Promise<{ sellRequestId: string; clabe: string; holderName: string }> {
     const req = await this.prisma.sellRequest.findUnique({
       where: { id },
-      include: { user: { select: { name: true } } },
+      include: { user: { select: { name: true, email: true } } },
     });
     if (!req) throw BusinessException.notFound();
     // §BUYLIST-FLUJO F1a: el titular (nombre del vendedor; la CLABE debe ser a su nombre, CLABE_NOT_OWN_NAME): `legalName` de KYC,
@@ -6328,7 +6351,7 @@ export class BuylistService implements OnModuleInit {
         remedy: 'ask_seller_clabe',
       });
     }
-    return { sellRequestId: id, clabe, holderName: (kyc?.legalName ?? req.user?.name ?? '').trim() };
+    return { sellRequestId: id, clabe, holderName: this.holderNameOf(kyc?.legalName, req.user?.name, req.user?.email) };
   }
 
   /**
@@ -6447,7 +6470,7 @@ export class BuylistService implements OnModuleInit {
     );
     // S49-M1: proyección admin (sin `clabeSnapshotEnc`). Ruta alcanzable por `vault_operator`, que
     // es justamente el rol de MENOR confianza del back-office (SEC-A4) — no debe ver PII bancaria.
-    return this.adminSellRequestDTO(row, await this.adminCycleDials());
+    return this.adminSellRequestDTO(row, await this.adminCycleDials(), await this.kycOptsOf(row));
   }
 
   /**
@@ -6477,7 +6500,7 @@ export class BuylistService implements OnModuleInit {
     });
     if (!row) throw BusinessException.notFound();
     // S49-M1: proyección admin (sin `clabeSnapshotEnc`), igual que `receive`.
-    return this.adminSellRequestDTO(row, await this.adminCycleDials());
+    return this.adminSellRequestDTO(row, await this.adminCycleDials(), await this.kycOptsOf(row));
   }
 
   /**
@@ -8350,7 +8373,7 @@ export class BuylistService implements OnModuleInit {
     // S49-M1: proyectado — este `req` viene de un `findUnique` SIN select, o sea con el snapshot
     // cifrado de la CLABE dentro. Es el camino MÁS fácil de alcanzar (basta re-postear el pago).
     if (req.status === 'pagada') {
-      return this.adminSellRequestDTO(req, await this.adminCycleDials());
+      return this.adminSellRequestDTO(req, await this.adminCycleDials(), await this.kycOptsOf(req));
     }
     // ⚠️⚠️ v1.56 · **§M5-T / BL-35 — LA HUELLA DACTILAR DE UN ROLLBACK, Y TIENE QUE SER RUIDOSA.**
     //
@@ -8628,7 +8651,7 @@ export class BuylistService implements OnModuleInit {
         });
         // S49-M1: se proyecta DENTRO de la tx, para que el snapshot cifrado no sobreviva ni como
         // variable local del método (`paid` es lo que se devuelve tal cual al controller).
-        return row ? this.adminSellRequestDTO(row, dials) : null;
+        return row ? this.adminSellRequestDTO(row, dials, await this.kycOptsOf(row, tx)) : null;
       },
       { label: 'markPaid', logger: this.logger },
     );
@@ -8638,7 +8661,7 @@ export class BuylistService implements OnModuleInit {
         include: ADMIN_DTO_INCLUDE,
       });
       // S49-M1: mismo motivo que la salida idempotente de arriba (fila cruda con la CLABE cifrada).
-      if (current?.status === 'pagada') return this.adminSellRequestDTO(current, dials);
+      if (current?.status === 'pagada') return this.adminSellRequestDTO(current, dials, await this.kycOptsOf(current));
       // ⚠️ v1.51.22 · **B-2 — el CAS del importe tiene su propia salida, y no es la de arriba.**
       // Si la solicitud SIGUE siendo pagable, lo que falló no fue la precondición de estado: fue el
       // CAS del monto. Decirle al operador *«el pago solo se permite tras recepción/verificación»*

@@ -146,12 +146,79 @@ describe('E2E — §BUYLIST-FLUJO F1: neto a transferir, 409 sin efectos, CLABE 
       expect((await rowOf(srId)).payoutNetCents).toBe(net);
     });
 
-    it('sin el campo = comportamiento de hoy (200); expectedNetCents negativo => 400', async () => {
+    it('expectedNetCents ausente, null, no entero o negativo => 400 y CERO escritura (M-3)', async () => {
       const { srId, ids } = await upToStatus(['buy'], 'verificacion');
       expect((await decide(ids[0], 'approve')).status).toBe(200);
-      expect((await pay(srId, 'SPEI-F1-NEG', -1)).status).toBe(400);
+      const antes = await rowOf(srId);
+      const raw = (json: Record<string, unknown>) => h.api('POST', `/admin/buylist/${srId}/pay-spei`, { token: adminToken, json });
+      for (const body of [
+        { speiReference: 'SPEI-F1-M3' },
+        { speiReference: 'SPEI-F1-M3', expectedNetCents: null },
+        { speiReference: 'SPEI-F1-M3', expectedNetCents: 100.5 },
+        { speiReference: 'SPEI-F1-M3', expectedNetCents: '100' },
+        { speiReference: 'SPEI-F1-M3', expectedNetCents: -1 },
+      ]) {
+        expect((await raw(body)).status).toBe(400);
+      }
+      expect(await rowOf(srId)).toEqual(antes);
       expect((await rowOf(srId)).paidAt).toBeNull();
-      expect((await pay(srId, 'SPEI-F1-NOFIELD')).status).toBe(200);
+    });
+
+    it('CUALQUIER diferencia es 409: -1, +1 y +5 centavos (I-1: sin tolerancia), sin efectos', async () => {
+      const { srId, ids } = await upToStatus(['buy'], 'verificacion');
+      expect((await decide(ids[0], 'approve')).status).toBe(200);
+      const net = (await detail(srId)).payout.netCents as number;
+      expect(net).toBeGreaterThan(5);
+      const antes = await rowOf(srId);
+      for (const delta of [-1, 1, 5]) {
+        const res = await pay(srId, 'SPEI-F1-TOL', net + delta);
+        expect(res.status).toBe(409);
+        expect((res.body as any).error.code).toBe('PAYOUT_CHANGED');
+        expect((res.body as any).error.details).toEqual({ expectedNetCents: net + delta, currentNetCents: net });
+        expect(await rowOf(srId)).toEqual(antes);
+      }
+      expect((await pay(srId, 'SPEI-F1-TOL', net)).status).toBe(200);
+    });
+  });
+
+  describe('clabeOnFile en las respuestas de mutacion (M-2) y mesa readonly (M-1)', () => {
+    it('verify y pay-spei devuelven payout.clabeOnFile=true solo con la CLABE de KYC (sin snapshot), igual que el detalle', async () => {
+      const srId = await createRequest(1);
+      const ids = await offer(srId, ['buy']);
+      expect((await h.api('POST', `/buylist/requests/${srId}/offer-response`, { token: customerToken, json: { decision: 'accept' } })).status).toBe(200);
+      expect((await h.api('POST', `/admin/buylist/${srId}/confirm-shipment`, { token: operatorToken, json: {} })).status).toBe(200);
+      expect((await h.api('POST', `/admin/buylist/${srId}/receive`, { token: operatorToken })).status).toBe(200);
+      await h.prisma.sellRequest.update({ where: { id: srId }, data: { clabeSnapshotEnc: null } });
+      const kyc = await h.prisma.kycProfile.findUnique({ where: { userId: customerId } });
+      expect(kyc?.clabeEnc).toBeTruthy(); // el escenario depende de que KYC la tenga
+      const v = await h.api('POST', `/admin/buylist/${srId}/verify`, { token: operatorToken });
+      expect(v.status).toBe(200);
+      expect((v.body as any).payout.clabeOnFile).toBe(true);
+      expect((await detail(srId)).payout.clabeOnFile).toBe(true);
+      expect((await decide(ids[0], 'approve')).status).toBe(200);
+      const p = await pay(srId, 'SPEI-F1-M2', (await detail(srId)).payout.netCents);
+      expect(p.status).toBe(200);
+      expect((p.body as any).payout.clabeOnFile).toBe(true);
+      expect(JSON.stringify([v.body, p.body])).not.toContain(CLABE);
+    });
+
+    it('mesa readonly: misma forma que edit, banderas false, totals.netCents = offerNetCents SELLADO (no el de hoy)', async () => {
+      const { srId } = await upToStatus(['buy'], 'ofertada');
+      const sealed = (await h.prisma.sellRequest.findUnique({ where: { id: srId } }))!;
+      const keysOf = (o: any) => JSON.stringify(Object.keys(o).sort());
+      const edit = (await h.api('GET', `/admin/buylist/${(await createRequest(1))}/decision-table`, { token: operatorToken })).body as any;
+      expect(edit.mode).toBe('edit');
+      // el sellado difiere de lo que hoy calcularian los diales: la mesa NO debe recalcular.
+      const forged = (sealed.offerNetCents ?? 0) + 777;
+      await h.prisma.sellRequest.update({ where: { id: srId }, data: { offerNetCents: forged } });
+      const ro = (await h.api('GET', `/admin/buylist/${srId}/decision-table`, { token: operatorToken })).body as any;
+      expect(ro.mode).toBe('readonly');
+      expect(keysOf(ro)).toBe(keysOf(edit));
+      expect(keysOf(ro.totals)).toBe(keysOf(edit.totals));
+      expect(ro.totals.netCents).toBe(forged);
+      expect(ro.totals.netBelowMinimum).toBe(false);
+      expect(ro.requiresAuthorization).toBe(false);
+      expect(ro.pickupAddressMissing).toBe(false);
     });
   });
 
@@ -166,6 +233,17 @@ describe('E2E — §BUYLIST-FLUJO F1: neto a transferir, 409 sin efectos, CLABE 
       const user = await h.prisma.user.findUnique({ where: { id: customerId } });
       expect(b.holderName).toBe((kyc?.legalName ?? user!.name).trim());
       expect(b.holderName.length).toBeGreaterThan(0);
+
+      // M-6: sin legalName util ni nombre de cuenta, el titular cae al correo (dato real); nunca ''.
+      try {
+        await h.prisma.kycProfile.update({ where: { userId: customerId }, data: { legalName: '   ' } });
+        await h.prisma.user.update({ where: { id: customerId }, data: { name: '' } });
+        const sinNombre = (await h.api('GET', `/admin/buylist/${srId}/reveal-clabe`, { token: adminToken })).body as any;
+        expect(sinNombre.holderName).toBe(user!.email);
+      } finally {
+        await h.prisma.user.update({ where: { id: customerId }, data: { name: user!.name } });
+        await h.prisma.kycProfile.update({ where: { userId: customerId }, data: { legalName: kyc?.legalName ?? null } });
+      }
 
       await h.prisma.sellRequest.update({ where: { id: srId }, data: { clabeSnapshotEnc: null } });
       await h.prisma.kycProfile.update({ where: { userId: customerId }, data: { clabeEnc: null } });

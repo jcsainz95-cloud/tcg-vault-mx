@@ -26,6 +26,7 @@
  * cierre: es la única excepción a «nada de sembrar», y está acotada a ese paso.
  */
 import { E2EHarness } from './helpers/e2e-app';
+import { payoutNet } from './helpers/pay-net';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_CARDS, E2E_USERS } from '../../prisma/e2e-fixtures';
 
@@ -121,10 +122,10 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
     return { srId, ids };
   }
 
-  function pay(srId: string, ref: string) {
+  async function pay(srId: string, ref: string) {
     return h.api('POST', `/admin/buylist/${srId}/pay-spei`, {
       token: adminToken,
-      json: { speiReference: ref },
+      json: { speiReference: ref, expectedNetCents: await payoutNet(h, adminToken, srId) },
     });
   }
 

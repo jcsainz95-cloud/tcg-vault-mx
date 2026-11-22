@@ -139,7 +139,7 @@ describe('BuylistService.revealClabe — reveal on-demand para pagar', () => {
     };
     const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, (usersStubM61() as unknown as UsersService), pii);
     const res = await svc.revealClabe('sr');
-    expect(res).toEqual({ sellRequestId: 'sr', clabe: CLABE_A, holderName: '' });
+    expect(res).toEqual({ sellRequestId: 'sr', clabe: CLABE_A, holderName: 'SIN NOMBRE REGISTRADO' });
   });
 
   it('si el snapshot falta, cae a la CLABE cifrada de KYC', async () => {
@@ -152,6 +152,23 @@ describe('BuylistService.revealClabe — reveal on-demand para pagar', () => {
     const svc = new BuylistService(prisma as PrismaService, {} as PricingService, {} as SettingsService, (usersStubM61() as unknown as UsersService), pii);
     const res = await svc.revealClabe('sr');
     expect(res.clabe).toBe(CLABE_B);
+  });
+
+  it('§BUYLIST-FLUJO M-6: holderName nunca es \'\': salta blancos y cae al correo, y al final a la etiqueta fija', async () => {
+    const mk = (kyc: unknown, user: { name: string | null; email: string | null }) =>
+      new BuylistService(
+        {
+          sellRequest: { findUnique: jest.fn().mockResolvedValue({ id: 'sr', userId: 'u', clabeSnapshotEnc: pii.encrypt(CLABE_A), user }) },
+          kycProfile: { findUnique: jest.fn().mockResolvedValue(kyc) },
+        } as unknown as PrismaService,
+        {} as PricingService,
+        {} as SettingsService,
+        usersStubM61() as unknown as UsersService,
+        pii,
+      );
+    expect((await mk({ legalName: '   ' }, { name: ' ', email: 'ash@ficticio.test' }).revealClabe('sr')).holderName).toBe('ash@ficticio.test');
+    expect((await mk({ legalName: ' ' }, { name: ' Ash Ketchum ', email: null }).revealClabe('sr')).holderName).toBe('Ash Ketchum');
+    expect((await mk(null, { name: '', email: null }).revealClabe('sr')).holderName).toBe('SIN NOMBRE REGISTRADO');
   });
 
   it('§BUYLIST-FLUJO F1a: holderName = legalName de KYC; sin él, el nombre de la cuenta', async () => {
