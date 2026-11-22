@@ -64,6 +64,7 @@ export const DEFAULT_SHIPPING_DROPOFF_POINTS: Readonly<Record<string, { name: st
 /** Cotas que el contrato no fija (BACKEND_NOTES §61.5): textos cortos de configuración, no PII del cliente. */
 const CARRIER_NAME_MAX = 64;
 const SNAPSHOT_FIELD_MAX = 200;
+const SNAPSHOT_REFERENCE_MAX = 70;
 const DROPOFF_FIELD_MAX = 200;
 const DROPOFF_MAX_ENTRIES = 20;
 
@@ -91,15 +92,17 @@ export function validateOriginTemplateId(v: unknown): string | null {
   return nonBlankString(v, 64) ? null : 'must be a non-empty string of at most 64 characters, or null';
 }
 
-/** `skydropx_origin_snapshot`: objeto con claves ⊆ las diez de §19.2 (cada una string ≤ 200 o null), o `null`. */
+/** `skydropx_origin_snapshot`: objeto con claves ⊆ las diez de §19.2 (string ≤ 200 o null; `reference` ≤ 70; `postalCode` 5 dígitos), o `null`. §DIR-TIENDA: solo al escribir. */
 export function validateOriginSnapshot(v: unknown): string | null {
   if (v === null) return null;
   if (!isPlainObject(v)) return 'must be an object or null';
   for (const [k, val] of Object.entries(v)) {
     if (!(ORIGIN_SNAPSHOT_KEYS as readonly string[]).includes(k)) return `unknown key '${k}' (allowed: ${ORIGIN_SNAPSHOT_KEYS.join(', ')})`;
-    if (val !== null && !(typeof val === 'string' && val.length <= SNAPSHOT_FIELD_MAX)) {
-      return `'${k}' must be a string of at most ${SNAPSHOT_FIELD_MAX} characters, or null`;
+    const max = k === 'reference' ? SNAPSHOT_REFERENCE_MAX : SNAPSHOT_FIELD_MAX;
+    if (val !== null && !(typeof val === 'string' && val.length <= max)) {
+      return `'${k}' must be a string of at most ${max} characters, or null`;
     }
+    if (k === 'postalCode' && val !== null && !/^\d{5}$/.test(val as string)) return `'postalCode' must be exactly 5 digits, or null`;
   }
   return null;
 }

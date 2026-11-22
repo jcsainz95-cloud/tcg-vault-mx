@@ -141,7 +141,7 @@ export function buildPurchaseBody(input: PurchaseInput): Record<string, unknown>
       company: s.company,
       phone: s.phone,
       email: s.email,
-      reference: s.reference,
+      ...(s.reference && s.reference.trim() ? { reference: s.reference.slice(0, 70) } : {}),
     });
   }
   const addressTo: Obj = {

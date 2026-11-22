@@ -170,6 +170,11 @@ describe('D2a — validadores (PS-96 parte dial, PS-97 parte dial)', () => {
     for (const bad of [{ rfc: 'X' }, { name: 1 }, [], 'x', { name: 'x'.repeat(201) }]) {
       expect(v(SettingKey.SKYDROPX_ORIGIN_SNAPSHOT, bad)).not.toBeNull();
     }
+    // §DIR-TIENDA: reference ≤ 70, postalCode 5 dígitos; el mensaje nombra la clave.
+    expect(v(SettingKey.SKYDROPX_ORIGIN_SNAPSHOT, { reference: 'r'.repeat(70), postalCode: '03000' })).toBeNull();
+    expect(v(SettingKey.SKYDROPX_ORIGIN_SNAPSHOT, { reference: 'r'.repeat(71) })).toContain("'reference'");
+    for (const cp of ['0300', '030000', '0300a', ' 3000']) expect(v(SettingKey.SKYDROPX_ORIGIN_SNAPSHOT, { postalCode: cp })).toContain("'postalCode'");
+    expect(v(SettingKey.SKYDROPX_ORIGIN_SNAPSHOT, { street1: 'x'.repeat(200) })).toBeNull();
   });
 });
 

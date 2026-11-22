@@ -105,7 +105,8 @@ export interface OriginSnapshot {
   company: string;
   phone: string;
   email: string;
-  reference: string;
+  /** Opcional (§DIR-TIENDA): vacía ⇒ se omite; nunca `''`. ≤ 70. */
+  reference?: string;
 }
 
 /**
