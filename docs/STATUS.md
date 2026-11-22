@@ -96,11 +96,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-22 · §CELULAR + §FICHA-CLIENTE 7390a8c3 · APROBADO (texto de qa, transcrito por el orquestador; re-revisión del rechazo de 328359be; worktree propio, BD nueva; el diff solo toca pruebas, claves i18n muertas e imports)
-- B-4 cerrado: integración completa 208/208 suites, 3795/3795 tests (1/1 corrida, E2E_STRICT_INFRA). STF-24/STF-32: operador sobre staff 404, súper-admin 200, lockState del operador sobre cliente; sin el guard OperatorCustomersOnly ambas rojas 2/2.
-- I-3 cerrado: tope 48 500; portada es 48 423 B, en 46 923 B; buylist.request.phone.* 0 usos. Menores cerrados: reintento único 3/3 mutaciones muertas; sin la rama «+52 1» phone-mx.spec 1 rojo; e2e de ficha exige enlaces userId en mock 2/2.
-- Regresión: unit 621/10 842, vitest 6340/0 (13 skip), e2e mock 72/72, censo verde 163, tsc y lint 0, doc-size verde. Menor abierto (backend): cota superior de lockedUntil del operador perdida en STF-32 y holgura de 5 s en STF-24. Navegador con backend real medido sobre 328359be (operador 8/8 fichas, puerta 45/45, vender 3/3), no repetido (sin cambio de producto); pago real NO MEDIDO.
-
+## QA (qa) — 2026-11-22 · M5 lista única 4e21ecd4 (base 6e60c7b1) · RECHAZADO (texto de qa, transcrito por el orquestador)
+- B-1 BLOQUEANTE (frontend): `./scripts/check-doc-size.sh` ROJO (también `--against-ref 6e60c7b1`, ci.yml:1146): `docs/DESIGN_SYSTEM.md` 80 líneas > umbral 79 (10 177 B). Cierre: compactar al añadir la línea de §6.
+- I-1 IMPORTANTE (frontend): mutación `M5View.tsx:1509` → `offeredPriceCents ?? agreedPriceCents` sobrevive (m5 18 archivos 290/290 verde); falta prueba de pactado con baja aceptada fuera de revisión. Mutaciones que sí dan rojo 3/3 (pactado=cotizado, sin agrupar, lista oculta).
+- Menores (frontend): fila «no comprada» compacta ya no pinta rechazo/PickupLine/retirada/aprobado (alcance con `skip` rechazada NO MEDIDO); estado oculto si `cotizada` (:1487); mesa abierta cargando o con error deja la ficha sin cartas (:1695); ofertado original no visible tras baja aceptada; aserción `'85'` laxa. STATUS.md 170 líneas > 150 (orquestador).
+- [MEDIDO] tsc 0, eslint m5 0, vitest m5 322/322, i18n 174/174, claves `flow.mesa.*` y `notBought.note` 0 usos; backend real (Postgres local) `buylist-flujo-f1` 13/13 con `offered.priceCents === offeredPriceCents` (spec:287-295); [código] misma columna `buylist.service.ts:353,3315`; operador: mismo DTO que súper-admin, sin fuga nueva; acciones por carta intactas (`M5View.tsx:1456-1707`). NO MEDIDO: navegador (10 estados, operador), vitest completo, e2e Playwright, producción.
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
 |---|---|---|---|---|
