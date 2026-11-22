@@ -54,6 +54,34 @@ test.describe('auth · login y registro (ES/EN)', () => {
     await expect(page.getByRole('heading', { name: t('es', 'home.heroTitle') })).toBeVisible();
   });
 
+  test('§CELULAR: login con Google sin celular ⇒ modal sobre el home; guarda y sigue en la misma página', async ({ page }) => {
+    mockOnly('el canje del idToken de Google solo lo simula la rama mock de api.ts');
+    await page.goto('/es/login');
+    await page.getByRole('button', { name: t('es', 'auth.google.cta') }).click();
+    await expect(page).toHaveURL(/\/es(\/|$)/);
+
+    // Google nace sin celular (`phoneRequired:true`): la puerta B aparece SOBRE la página, sin cambiar la URL.
+    const dialog = page.getByRole('dialog', { name: t('es', 'common.phoneGate.title') });
+    await expect(dialog).toBeVisible();
+    const url = page.url();
+    await page.screenshot({ path: process.env.PHONE_GATE_SHOT_DIR ? `${process.env.PHONE_GATE_SHOT_DIR}/e2e-google-modal.png` : undefined });
+
+    // Sin celular válido no se puede continuar; con uno (pegado con +52) se guarda y el modal desaparece.
+    const save = dialog.getByRole('button', { name: t('es', 'common.phoneGate.save') });
+    const field = dialog.getByLabel(t('es', 'common.phoneGate.label'));
+    // La libreta mock trae un celular válido en la dirección predeterminada: llega prellenado.
+    await expect(field).toHaveValue('5555123456');
+    await field.fill('');
+    await expect(save).toBeDisabled();
+    await field.fill('+52 55 1234 5678');
+    await expect(field).toHaveValue('5512345678');
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(dialog).toBeHidden();
+    expect(page.url()).toBe(url);
+    await expect(page.getByRole('heading', { name: t('es', 'home.heroTitle') })).toBeVisible();
+  });
+
   test('toggle de idioma disponible en el shell de auth', async ({ page }) => {
     await page.goto('/es/login');
     const toggle = page.getByRole('group', { name: 'Idioma / Language' });

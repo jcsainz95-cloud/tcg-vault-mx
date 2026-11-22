@@ -379,6 +379,7 @@ import type { SalesReportDTO, SalesReportParams, SalesTodayDTO } from '@/types/c
 import { OWNER_ONLY_SETTING_DTO_KEYS } from '@/types/contract';
 import type { PublicShippingRuleDTO } from '@/types/contract';
 import { matchNeighborhood } from './address-rules';
+import { isValidMxPhone } from './phone';
 import * as wishlistMock from './mock/wishlist';
 import type {
   WishlistCreateRequest,
@@ -1270,6 +1271,21 @@ export const MOCK_QUOTE_CARD_KEYS = [
 ] as const;
 
 /**
+ * MOCK §CELULAR: `@RequirePhone()` del servidor en las rutas de dinero (`POST /checkout/quote`, `/checkout/session`,
+ * crear retiro `POST /shipments`, `POST /buylist/requests`): una cuenta con `phoneRequired:true` recibe
+ * `422 PHONE_REQUIRED` ANTES de cualquier efecto. Sin sesión (invitado) no aplica.
+ */
+function mockRequirePhone(): void {
+  if (getStoredUser()?.phoneRequired === true) {
+    throw new ApiClientError(422, {
+      code: 'PHONE_REQUIRED',
+      message: 'A mobile phone is required on the account',
+      details: { field: 'phone' },
+    });
+  }
+}
+
+/**
  * Llaves EXACTAS de un `OrderItemPreview` (§4). El pin de que nada se cuela al nivel del ítem.
  * v1.68.1: `reservedByYou: true` es la única llave adicional posible y viaja SOLO cuando la pieza está
  * reservada por una orden propia (omitida cuando es falso) — no está aquí a propósito.
@@ -1284,6 +1300,7 @@ export async function getCheckoutQuote(inventoryItemIds: string[], discountCode?
       body: { inventoryItemIds, ...discountCodeField(discountCode) },
     });
   }
+  mockRequirePhone();
   // MOCK v1.21.3-quote-prune: resolución POR ÍTEM. Un id que no está en los fixtures se
   // trata como pieza borrada (`cardName: null`); los fixtures no modelan el caso
   // «existe pero fuera de {listed, in_stock}» (cardName con nombre) — ese lo ejercita
@@ -1413,6 +1430,7 @@ export async function createCheckoutSession(
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }
+  mockRequirePhone();
   // MOCK: reusa el desglose del quote y devuelve un clientSecret simulado (el StripePaymentModal
   // en modo mock no llama a Stripe real). Replica el 422 PRICE_PENDING del contrato.
   const items = inventoryItemIds
@@ -1890,6 +1908,7 @@ export async function createShipment(
       headers: { 'Idempotency-Key': idempotencyKey() },
     });
   }
+  mockRequirePhone();
   // MOCK: valida settled + MX (como el backend) y devuelve el shape 201 con clientSecret simulado.
   const address = fx.mockAddresses.find((a) => a.id === addressId);
   if (!address || address.country !== 'MX') {
@@ -3183,6 +3202,7 @@ export async function createSellRequest(input: CreateSellRequestInput): Promise<
     // §MKT.H.2: `measurement` opcional; con el modo `off` (o sin elección) no viaja.
     return apiRequest<SellRequestDTO>('/buylist/requests', { method: 'POST', body: { ...input, ...measurementBodyField() } });
   }
+  mockRequirePhone();
   // MOCK v1.53 (§4.40) — el pipeline de compra es raw-only y aquí, a diferencia del batch, es
   // TODO-O-NADA: `createRequest` congela dinero en una transacción, así que un solo item no-raw
   // aborta la solicitud entera con `422 BUYLIST_RAW_ONLY` + `details: { index, productType }`
@@ -3383,6 +3403,15 @@ export async function updateMe(input: UpdateMeInput): Promise<UserDTO> {
     ...(input.phone != null ? { phone: input.phone } : {}),
     ...(input.locale != null ? { locale: input.locale } : {}),
   };
+  // MOCK §CELULAR: el servidor nunca anula ni acepta un celular inválido (`422 PHONE_INVALID`).
+  if (input.phone !== undefined && !isValidMxPhone(input.phone)) {
+    throw new ApiClientError(422, {
+      code: 'PHONE_INVALID',
+      message: 'phone must be a valid 10-digit MX number',
+      details: { field: 'phone' },
+    });
+  }
+  if (input.phone !== undefined) user.phoneRequired = false;
   setStoredUser(user);
   return delay(user, 200);
 }
@@ -3399,6 +3428,8 @@ function withMeDefaults(u: UserDTO): UserDTO {
     hasPassword: u.hasPassword ?? u.authProvider !== 'google',
     mustChangePassword: u.mustChangePassword ?? false,
     nameSource: u.nameSource ?? (u.authProvider === 'google' ? 'google' : 'user'),
+    // Una sesión inyectada (E2E `loginAs`) se asume completa; Google/mocks de prueba traen la bandera explícita.
+    phoneRequired: u.phoneRequired ?? false,
   };
 }
 
@@ -3647,6 +3678,9 @@ function mockAuthResponse(over: Partial<AuthResponse['user']> = {}): AuthRespons
       status: 'active',
       authProvider: 'local',
       emailVerified: true,
+      // MOCK §CELULAR: por defecto con celular válido; Google nace sin él (`phone:null` ⇒ `phoneRequired:true`).
+      phone: '5512345678',
+      phoneRequired: false,
       ...over,
     },
     accessToken: 'mock.session.token',
@@ -3759,6 +3793,8 @@ export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
         authProvider: 'google',
         emailVerified: true,
         avatarUrl: undefined,
+        phone: undefined,
+        phoneRequired: true,
       }),
     ),
     500,

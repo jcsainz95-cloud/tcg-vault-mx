@@ -603,6 +603,12 @@ export interface UserDTO {
    * Decide «Ponle contraseña a tu cuenta» (`POST /auth/set-password`, sin la actual) y el correo editable.
    */
   accountSetupPending?: boolean;
+  /**
+   * §CELULAR (`docs/API_CONTRACT_CELULAR.md` §2): `true` si el celular falta o no es válido (derivado en el servidor).
+   * Lo traen `/auth/login|google|register*`, `GET` y `PATCH /users/me`. Con `true` el layout pinta `PhoneGateForm`.
+   * Ausente en sesiones guardadas antes de §CELULAR ⇒ se relee `GET /users/me` una vez.
+   */
+  phoneRequired?: boolean;
 }
 
 export interface AuthResponse {
@@ -704,6 +710,8 @@ export interface ChangePasswordResponse {
 export interface RegisterEmailOnlyRequest {
   email: string;
   locale?: Locale;
+  /** §CELULAR: opcional (el del domicilio del checkout); ausente/inválido ⇒ cuenta con `phoneRequired:true`. */
+  phone?: string;
 }
 /** POST /auth/account-setup — `public`. `200` sin sesión; `422 ACCOUNT_SETUP_TOKEN_INVALID` (no distingue el motivo). */
 export interface AccountSetupRequest {

@@ -546,9 +546,9 @@ describe('BuylistKycForm — ningún intento fallido puede quedarse mudo (P-4)',
     expect(screen.queryByText(/A mobile phone is required/)).toBeNull();
     expectRevealed(targets, 'Falta el celular en la cuenta.');
 
-    // Y el remedio funciona sin salir del flujo: PATCH /users/me con el celular capturado.
+    // §CELULAR: el remedio ya no tiene botón aparte: al reenviar (un clic) se guarda el celular y se manda la solicitud.
     fireEvent.change(field, { target: { value: '5555123456' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar celular' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
     await waitFor(() => expect(updateSpy).toHaveBeenCalledWith({ phone: '5555123456' }));
   });
 
@@ -592,5 +592,73 @@ describe('BuylistKycForm — LIVE-8 · enlace al aviso de privacidad (sitio 5)',
   it('con la INE en archivo (sin uploaders): la frase sigue', () => {
     renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} ineOnFile />, 'es');
     expect(screen.getByTestId('privacy-site-sellForm').textContent).toBe(FRASE);
+  });
+});
+
+describe('BuylistKycForm — §CELULAR: el celular se pide desde el inicio y se guarda+envía en un clic', () => {
+  const noPhoneUser = {
+    id: 'u-g',
+    email: 'g@example.com',
+    name: 'G',
+    role: 'customer' as const,
+    locale: 'es' as const,
+    emailVerified: true,
+    phoneRequired: true,
+  };
+
+  it('sin celular en la cuenta: el campo aparece YA, prellenado con el de la dirección, sin recortes', async () => {
+    setStoredUser(noPhoneUser);
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
+    const field = (await screen.findByLabelText('Celular (10 dígitos)')) as HTMLInputElement;
+    expect(field.maxLength).toBe(-1);
+    await waitFor(() => expect(field.value).toBe('5555123456'));
+    // No hay botón aparte «Guardar celular».
+    expect(screen.queryByRole('button', { name: 'Guardar celular' })).toBeNull();
+  });
+
+  it('un solo clic: PATCH /users/me y luego POST /buylist/requests', async () => {
+    setStoredUser(noPhoneUser);
+    const order: string[] = [];
+    const me = vi.spyOn(api, 'updateMe').mockImplementation(async (i) => {
+      order.push('updateMe');
+      return { ...noPhoneUser, phone: i.phone, phoneRequired: false };
+    });
+    const create = vi.spyOn(api, 'createSellRequest').mockImplementation(async () => {
+      order.push('create');
+      return { sellRequestId: 'sr-1' } as never;
+    });
+    const onCreated = vi.fn();
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={onCreated} />, 'es');
+    const field = (await screen.findByLabelText('Celular (10 dígitos)')) as HTMLInputElement;
+    await waitFor(() => expect(field.value).toBe('5555123456'));
+    fireEvent.change(field, { target: { value: '+52 55 9999 8888' } });
+    fireEvent.change(screen.getByLabelText(/CLABE/), { target: { value: '002010077777777771' } });
+    await pickAddress();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+    expect(me).toHaveBeenCalledWith({ phone: '5599998888' });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['updateMe', 'create']);
+  });
+
+  it('celular inválido: no manda nada y lo dice en el campo', async () => {
+    setStoredUser(noPhoneUser);
+    const create = vi.spyOn(api, 'createSellRequest');
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
+    const field = (await screen.findByLabelText('Celular (10 dígitos)')) as HTMLInputElement;
+    await waitFor(() => expect(field.value).toBe('5555123456'));
+    fireEvent.change(field, { target: { value: '123' } });
+    fireEvent.change(screen.getByLabelText(/CLABE/), { target: { value: '002010077777777771' } });
+    await pickAddress();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar y enviar' }));
+    expect(await screen.findByText('Escribe tu celular de 10 dígitos.')).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('con celular en la cuenta no se pide nada', async () => {
+    setStoredUser({ ...noPhoneUser, phone: '5512345678', phoneRequired: false });
+    renderWithProviders(<BuylistKycForm items={RAW_ITEMS} onCreated={() => {}} />, 'es');
+    await pickAddress();
+    expect(screen.queryByLabelText('Celular (10 dígitos)')).toBeNull();
   });
 });

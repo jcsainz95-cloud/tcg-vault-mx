@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
 import { ShieldCheck } from 'lucide-react';
-import { createSellRequest, updateMe } from '@/lib/api';
+import { createSellRequest, listAddresses, updateMe } from '@/lib/api';
+import { isValidMxPhone, normalizeMxPhone } from '@/lib/phone';
 import { ApiClientError } from '@/lib/api-client';
 import type { RawCondition, Finish, KycStatus } from '@/types/contract';
 import type { AppLocale } from '@/i18n/routing';
@@ -241,13 +242,22 @@ export function BuylistKycForm({
   const [phoneReason, setPhoneReason] = useState<string | null>(null);
   const [phone, setPhone] = useState('');
   const [phoneError, setPhoneError] = useState<string | null>(null);
-  const savePhone = useMutation({
-    mutationFn: (value: string) => updateMe({ phone: value }),
-    onSuccess: () => setPhoneError(null),
-    onError: (e) => setPhoneError(getErrorMessage(e)),
-  });
-  /** El celular quedó guardado en la cuenta en ESTE intento (no es «tenía uno de antes»). */
-  const phoneJustSaved = savePhone.isSuccess;
+  /**
+   * §CELULAR: el celular se pide DESDE EL INICIO cuando la cuenta no lo tiene (`phoneRequired` de la sesión) o cuando el
+   * 422 llegó igual (red de seguridad). Se guarda (`PATCH /users/me`) y se envía la solicitud en UN solo clic.
+   */
+  const needsPhone = user
+    ? user.phoneRequired === true || (phoneRequired && !isValidMxPhone(user.phone))
+    : phoneRequired;
+  const addressesQuery = useQuery({ queryKey: ['addresses'], queryFn: listAddresses, enabled: needsPhone });
+  // Prellenado: el celular de la dirección elegida (o la predeterminada) si es válido; no pisa lo que ya tecleó.
+  useEffect(() => {
+    if (!needsPhone || phone !== '') return;
+    const list = addressesQuery.data ?? [];
+    const src = list.find((a) => a.id === addressId) ?? list.find((a) => a.isDefault) ?? list[0];
+    const n = normalizeMxPhone(src?.phone ?? '');
+    if (n) setPhone(n);
+  }, [needsPhone, phone, addressesQuery.data, addressId]);
 
   // Gating proactivo: espeja el guard server-side (solo bloquea con `false` explícito;
   // sesiones viejas sin el campo dejan decidir al backend).
@@ -288,8 +298,32 @@ export function BuylistKycForm({
       return;
     }
 
+    let phoneToSave: string | null = null;
+    if (needsPhone) {
+      phoneToSave = normalizeMxPhone(phone);
+      if (!phoneToSave) {
+        setPhoneError(t('request.phone.invalid'));
+        failAt('phone');
+        return;
+      }
+      setPhoneError(null);
+    }
+
     setSubmitting(true);
     try {
+      if (phoneToSave) {
+        try {
+          await updateMe({ phone: phoneToSave });
+        } catch (pe) {
+          if (pe instanceof ApiClientError && pe.code === 'PHONE_INVALID') {
+            setPhoneError(t('request.phone.invalid'));
+            failAt('phone');
+            setSubmitting(false);
+            return;
+          }
+          throw pe;
+        }
+      }
       const res = await createSellRequest({
         // Todos los items del carrito, ya expandidos por cantidad. El DTO solo
         // lleva cardId/productType/rawCondition; el backend re-deriva el monto
@@ -430,52 +464,31 @@ export function BuylistKycForm({
         </div>
       )}
 
-      {/* PUERTA 1 (D11): el celular de la cuenta. Solo se pide cuando el servidor lo exige —no se
-          molesta a quien ya lo tiene— y el remedio queda AQUÍ, sin salir del flujo de venta. */}
-      {phoneRequired && (
+      {/* §CELULAR: el celular de la cuenta. Solo se pide cuando falta; se guarda al enviar (un solo clic). */}
+      {needsPhone && (
         <section
           ref={phoneRef}
           tabIndex={-1}
           className="flex flex-col gap-3 border-l-2 border-accent pl-4 outline-none"
         >
-          <p role="alert" className="text-sm leading-[1.7] text-text">
-            {phoneReason}
-          </p>
-          {phoneJustSaved ? (
-            <p role="status" className="text-sm text-success">
-              {t('request.phone.saved')}
+          {phoneReason && (
+            <p role="alert" className="text-sm leading-[1.7] text-text">
+              {phoneReason}
             </p>
-          ) : (
-            <>
-              <Input
-                label={t('request.phone.label')}
-                hint={t('request.phone.hint')}
-                error={phoneError ?? undefined}
-                inputMode="tel"
-                type="tel"
-                autoComplete="tel"
-                maxLength={10}
-                value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-              />
-              <Button
-                variant="secondary"
-                className="self-start"
-                loading={savePhone.isPending}
-                onClick={() => {
-                  if (!/^\d{10}$/.test(phone)) {
-                    setPhoneError(t('request.phone.invalid'));
-                    failAt('phone');
-                    return;
-                  }
-                  setPhoneError(null);
-                  savePhone.mutate(phone);
-                }}
-              >
-                {t('request.phone.save')}
-              </Button>
-            </>
           )}
+          <Input
+            label={t('request.phone.label')}
+            hint={t('request.phone.hint')}
+            error={phoneError ?? undefined}
+            inputMode="tel"
+            type="tel"
+            autoComplete="tel-national"
+            value={phone}
+            onChange={(e) => {
+              setPhone(e.target.value);
+              setPhoneError(null);
+            }}
+          />
         </section>
       )}
 

@@ -2,6 +2,15 @@
   "common": {
     "appName": "TCG HUNT",
     "tagline": "Compra y vende cartas Pokémon en México, con bóveda",
+    "phoneGate": {
+      "title": "Completa tu celular",
+      "body": "Lo usamos para avisarte de tus pedidos, retiros y ventas. Solo lo ve TCG HUNT.",
+      "cart": "Tu carrito ({count}) se conserva.",
+      "label": "Celular (10 dígitos)",
+      "invalid": "Escribe tu celular de 10 dígitos",
+      "save": "Guardar y continuar",
+      "logout": "Cerrar sesión"
+    },
     "brand": {
       "name": "TCG HUNT",
       "domain": "tcghunt.mx",
@@ -1094,9 +1103,7 @@
       "phone": {
         "label": "Celular (10 dígitos)",
         "hint": "Solo lo usamos para la guía y la recolección.",
-        "save": "Guardar celular",
-        "saved": "Celular guardado. Vuelve a pulsar «Confirmar y enviar».",
-        "invalid": "El celular debe tener 10 dígitos."
+        "invalid": "Escribe tu celular de 10 dígitos."
       }
     },
     "requestTitle": "Crear solicitud de venta",
@@ -1402,7 +1409,8 @@
     "invalidCredentialsUsername": "Usuario o contraseña incorrectos.",
     "password": "Contraseña",
     "name": "Nombre",
-    "phone": "Teléfono",
+    "phone": "Celular (10 dígitos)",
+    "phoneInvalid": "Escribe tu celular de 10 dígitos",
     "loginCta": "Entrar",
     "registerCta": "Crear cuenta",
     "toRegister": "¿No tienes cuenta? Regístrate",
@@ -9091,6 +9099,7 @@
     "BUYLIST_MINIMUM_NOT_MET": "Tu solicitud todavía no alcanza el mínimo de compra.",
     "OFFER_EXPIRED": "El plazo para responder esta oferta ya venció, así que no pudimos registrar tu respuesta.",
     "OFFER_NOT_PENDING": "Esta oferta ya no está esperando respuesta.",
+    "PHONE_INVALID": "Escribe tu celular de 10 dígitos.",
     "PHONE_REQUIRED": "Falta el celular en la cuenta. La paquetería lo necesita para entregar la guía y avisarte de la recolección.",
     "BOUNTY_TARGET_REQUIRED": "Ponle un objetivo: hasta cuántas piezas quieres pagar ese precio. Sin objetivo, el bounty nunca frena la compra. No se guardó nada.",
     "INVALID_TRANSITION": "Esta acción no aplica al paso actual de la solicitud. No se guardó nada y reintentar no lo cambia: actualiza la vista para ver el paso real.",

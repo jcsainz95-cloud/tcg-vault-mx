@@ -2,6 +2,15 @@
   "common": {
     "appName": "TCG HUNT",
     "tagline": "Buy and sell Pokémon cards in Mexico, with a vault",
+    "phoneGate": {
+      "title": "Add your mobile number",
+      "body": "We use it to keep you posted on your orders, pickups and sales. Only TCG HUNT sees it.",
+      "cart": "Your cart ({count}) is kept.",
+      "label": "Mobile number (10 digits)",
+      "invalid": "Enter your 10-digit mobile number",
+      "save": "Save and continue",
+      "logout": "Log out"
+    },
     "brand": {
       "name": "TCG HUNT",
       "domain": "tcghunt.mx",
@@ -1094,9 +1103,7 @@
       "phone": {
         "label": "Mobile number (10 digits)",
         "hint": "We only use it for the shipping label and the pickup.",
-        "save": "Save mobile number",
-        "saved": "Mobile number saved. Press “Confirm and send” again.",
-        "invalid": "The mobile number must be 10 digits."
+        "invalid": "Enter your 10-digit mobile number."
       }
     },
     "requestTitle": "Create sell request",
@@ -1402,7 +1409,8 @@
     "invalidCredentialsUsername": "Wrong username or password.",
     "password": "Password",
     "name": "Name",
-    "phone": "Phone",
+    "phone": "Mobile number (10 digits)",
+    "phoneInvalid": "Enter your 10-digit mobile number",
     "loginCta": "Sign in",
     "registerCta": "Create account",
     "toRegister": "No account? Sign up",
@@ -9091,6 +9099,7 @@
     "BUYLIST_MINIMUM_NOT_MET": "Your request is still below the buy minimum.",
     "OFFER_EXPIRED": "The deadline to respond to this offer has passed, so we could not register your response.",
     "OFFER_NOT_PENDING": "This offer is no longer waiting for a response.",
+    "PHONE_INVALID": "Enter your 10-digit mobile number.",
     "PHONE_REQUIRED": "The account has no mobile number. The carrier needs it to deliver the label and to call about the pickup.",
     "BOUNTY_TARGET_REQUIRED": "Give it a target: how many copies you want to pay that price for. Without one, the bounty never stops the buying. Nothing was saved.",
     "INVALID_TRANSITION": "This action does not apply to the current step of the request. Nothing was saved and retrying will not change it: refresh the view to see the real step.",

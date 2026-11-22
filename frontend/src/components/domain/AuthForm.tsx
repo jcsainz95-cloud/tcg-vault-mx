@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from '@/i18n/navigation';
 import { Link } from '@/i18n/navigation';
 import { login, register } from '@/lib/api';
+import { normalizeMxPhone } from '@/lib/phone';
 import { ApiClientError } from '@/lib/api-client';
 import { config } from '@/lib/config';
 import { Input } from '@/components/ui/Input';
@@ -35,6 +36,7 @@ export function AuthForm({
   const tErr = useTranslations('error');
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [phoneError, setPhoneError] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   /**
    * `C7` (DESIGN_SYSTEM §37.13 v4.9.1 · contrato v1.80.8.1): el aviso del 429 se elige por `error.code`,
@@ -115,6 +117,14 @@ export function AuthForm({
     setRateLimited(null);
     setLoading(true);
     const form = new FormData(e.currentTarget);
+    // §CELULAR: el registro exige el celular (10 dígitos MX, mismo helper que el servidor). No viaja si es inválido.
+    const phoneNorm = mode === 'register' ? normalizeMxPhone(String(form.get('phone') ?? '')) : null;
+    if (mode === 'register' && !phoneNorm) {
+      setPhoneError(true);
+      setLoading(false);
+      return;
+    }
+    setPhoneError(false);
     const email = String(form.get('email') ?? '');
     const password = String(form.get('password') ?? '');
     // Correo o usuario: lo decide la FORMA de lo tecleado (con o sin `@`), como el servidor (§M6-U.2).
@@ -130,7 +140,7 @@ export function AuthForm({
           email,
           password,
           name: String(form.get('name') ?? ''),
-          phone: String(form.get('phone') ?? '') || undefined,
+          phone: phoneNorm ?? '',
         });
         redirectAfterAuth(res.user);
       }
@@ -224,7 +234,17 @@ export function AuthForm({
         {mode === 'register' && (
           <>
             <Input label={t('name')} name="name" autoComplete="name" required />
-            <Input label={t('phone')} name="phone" type="tel" inputMode="tel" autoComplete="tel" />
+            <Input
+              label={t('phone')}
+              name="phone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel-national"
+              prefix="+52"
+              required
+              error={phoneError ? t('phoneInvalid') : undefined}
+              onChange={() => phoneError && setPhoneError(false)}
+            />
           </>
         )}
         {mode === 'login' ? (

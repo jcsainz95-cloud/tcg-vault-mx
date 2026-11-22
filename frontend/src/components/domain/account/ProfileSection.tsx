@@ -8,11 +8,11 @@ import { ApiClientError } from '@/lib/api-client';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { LocaleToggle } from '@/components/ui/LocaleToggle';
+import { normalizeMxPhone } from '@/lib/phone';
 import type { UserDTO } from '@/types/contract';
 import { SaveStatus, SectionShell } from './SectionShell';
 
 /** Misma regla que `BuylistKycForm` (10 dígitos MX). */
-const PHONE_RE = /^\d{10}$/;
 const NAME_MAX = 120;
 
 /**
@@ -83,6 +83,8 @@ export function ProfileSection({
         if (field === 'name') setErrors({ name: name.trim() ? t('name.tooLong') : t('name.required') });
         if (field === 'phone') setErrors({ phone: t('phone.invalid') });
       }
+      // §CELULAR: el servidor nunca deja vaciar ni guardar un celular inválido.
+      if (err instanceof ApiClientError && err.code === 'PHONE_INVALID') setErrors({ phone: t('phone.invalid') });
     },
   });
 
@@ -93,11 +95,15 @@ export function ProfileSection({
     const next: { name?: string; phone?: string } = {};
     if (!trimmed) return setErrors({ name: t('name.required') });
     if (trimmed.length > NAME_MAX) return setErrors({ name: t('name.tooLong') });
-    if (phone !== '' && !PHONE_RE.test(phone)) return setErrors({ phone: t('phone.invalid') });
+    // §CELULAR: ya no se puede vaciar; se valida con el mismo helper que el servidor y se manda normalizado.
+    const phoneNorm = normalizeMxPhone(phone);
+    const phoneChanged = phone !== (user.phone ?? '');
+    // Solo se valida lo que cambió: una cuenta anterior sin celular puede guardar su nombre (la puerta del layout lo pide).
+    if (phoneChanged && !phoneNorm) return setErrors({ phone: t('phone.invalid') });
     setErrors({});
     // Solo se manda lo que cambió (o el nombre, si es derivado: guardarlo tal cual lo marca `user`).
     if (trimmed !== user.name || derived) next.name = trimmed;
-    if (phone !== (user.phone ?? '')) next.phone = phone;
+    if (phoneChanged && phoneNorm) next.phone = phoneNorm;
     mut.mutate(next);
   }
 
@@ -157,8 +163,7 @@ export function ProfileSection({
             name="phone"
             type="tel"
             inputMode="tel"
-            autoComplete="tel"
-            maxLength={10}
+            autoComplete="tel-national"
             value={phone}
             onChange={(e) => {
               setPhone(e.target.value);
