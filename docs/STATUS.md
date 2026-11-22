@@ -101,6 +101,7 @@ SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/a
 - Menores cerrados: C2 en plural con 2 cartas; 400 de accept con `field` (8/8 cuerpos malos; 1e15 da 409, sin 500); el vendedor ve cancelled en un pending huérfano y el admin pending; failCodes NOT_APPROVED y CONVERT_FAILED; anexo coherente.
 - Regresión en BD limpia: integración flujo 49/49; unit 10 765/10 765; vitest 6217/6217 (13 skip); e2e mock admin 19/19; tsc, lint y doc-size verdes. Antes (de2beed4): integración completa 206/206, 3721/3721. NO MEDIDO: front contra backend real, correo real, CI.
 - MENOR: pruebas de cancelled solo en es; el texto de fallo de `ITEM_NOT_APPROVED` (lanzado en `service:8437`) se quitó y cae en «error X»; convertida_inventario muestra el texto neutro; comentario viejo en `service:8749`.
+- HOTFIX 013d1e00 (reference del remitente en guía de entrada) APROBADO: sin referencias ⇒ «Sin referencias» 4/4, con texto neutralizado ≤70, >70 ⇒ prefijo 70; rojo al quitarlo 5/5+1/1+2/2. Salida idéntica 342/342 + 3/3; address_to.reference nunca vacío 0/419; integración bsd-b2/b5+sdx 400/400, unit 10 766/10 766. Menores: corte UTF-16, trim sobrante, e2e de entrada sin aserción. NO MEDIDO: Skydropx real.
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
