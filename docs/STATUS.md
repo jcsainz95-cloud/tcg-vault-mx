@@ -86,11 +86,11 @@ NO MEDIDO (sha ead1753a; en 3b3715dd los 2 endpoints de promos sí se atacaron: 
 Aceptados (no bloquean): `@nestjs/core` GHSA-36xv (sin `@Sse`), avisos de tooling de dev, SEC-MKT-4, MKT-INFO-1/2/3,
 SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/archive/SECURITY_NOTES.md` (grep por ID).
 ⚠ No encender `sealed_restock_alerts` sin doble opt-in (PEN-CNV-2). Antes de pegar `SEPOMEX_DATABASE_URL`, cumplir SEC-CHK-1.
-## QA (qa) — 2026-11-21 · §DECKS-TOP-FUENTE e6628568 · APROBADO; §BUYLIST-MESA a47ae35f · APROBADO (texto de qa, transcrito por el orquestador)
-- Decks (backend real + front USE_MOCKS=false + Limitless real, 2 corridas): operador ve «Correr ensayo» y no «Publicar ahora», ensayo 202→veredicto 61 s, 1/1; publicar como super_admin durante el ensayo ⇒ 409 «Hay un ensayo en curso», 1/1; reinicio a media corrida ⇒ «El servidor se reinició», 1/1; «red con Limitless» 0/3; API operador: dryRun:false o {} ⇒ 403, "true" ⇒ 400, job ajeno ⇒ 404. Portada 6/6 conservadas, despublicación a 3 corridas medida (gate 9b8b1ea6).
-- Mesa: IMP-1 2/2 y IMP-2 2/2+1/1 cerrados; paridad mesa = congelado 1/1 API y 1/1 UI; 409 real sin efectos 1/1; integración buylist 181/181.
-- MENOR: Chequeos muestra «umbral 0.4» junto a «≤ 40 %»; formatCode null ⇒ «Standard»; rank repetido en pausados/manual; mesa: chip «Estándar» al editar sin estándar, role del <ul>, scroll en refetch, nota sin signo.
-- Regresión: unit 612/612 (10697); vitest 6147 + 13 skip; tsc/lint 0 errores; doc-size VERDE; integración decks-meta 5/5 + jobs/supply 19/19 (1122); integración completa 207/207 en lotes sobre 9b8b1ea6, NO MEDIDA sobre e6628568.
+## QA (qa) — 2026-11-21 · HEAP-INTEG-94 50916507 · APROBADO (B1 e IMP cerrados). BD nueva qa94b. (Texto de qa, transcrito por el orquestador.) Previos vigentes: §DECKS-TOP-FUENTE e6628568 y §BUYLIST-MESA a47ae35f APROBADOS (menores: «umbral 0.4» vs «≤ 40 %», formatCode null ⇒ «Standard», mesa chip/role/scroll/signo).
+- B1 'productType'→'tipo' (catalog.service.ts:1390) ⇒ ROJO 1/1 (D-EQ-3). IMP vacío⇒lista vacía en zone, disputes y shipments ⇒ ROJO 3/3 en `total` (spec:1912; total 46 vs 0).
+- Menores: tab-only en ownerType ⇒ ROJO 1/1; trim de condition ⇒ ROJO 1/1 (%20NM). Triple inválido solo exige 1 de 3 (MENOR, backend).
+- axes 868/868; unit 612/612 (10696) 2/2 limpias; tsc 0, eslint 0, doc-size VERDE. Roja intermitente = health.stripe-mode.spec.ts:48 (ConfigService({}) lee process.env; preexistente desde 659704f7; MENOR, backend).
+- STATUS.md 157 líneas, tope 150 (ya tenía 156 antes).
 
 ## Deuda técnica activa (todas las secciones)
 | ID | Qué | Dueño | Medido | Cierre |
@@ -105,10 +105,13 @@ SEC-CS90-1, CS-RT-2…5, SEC-CS-E, aviso de Maps en privacidad. Detalle: `docs/a
 | TL-ALTA-1 | Sin foco/aviso de error en la captura de idioma/versión: `useIdsCapture.ts:73,79`, `ids-capture.ts:145,161` (y ficha original) | frontend | 2026-11-06 | ver `docs/archive/TECH_DEBT.md` TL-ALTA-1 |
 | Registro histórico | 172 filas en `docs/archive/TECH_DEBT.md` (sin re-medir): se migran aquí **solo** al tocar su módulo | dueño del módulo | 2026-11-06 | — |
 
-## Backend (backend) — 2026-11-21 (§DECKS-TOP-FUENTE punto 18 + API_CONTRACT_DECKS_META §1-2; sobre 49e1d74c)
-- `POST /admin/jobs/decks-meta-refresh`: `@Roles(vault_operator, super_admin)` a nivel de método; operador con `dryRun` ≠ true ⇒ 403 FORBIDDEN (sin encolar). Dedupe solo con el mismo `dryRun`; corrida de otro tipo en curso ⇒ 409 `REFRESH_BUSY {runningJobId, runningDryRun}` (código nuevo en error-codes.ts; lanzado en `enqueue`, decks-meta-refresh.service.ts:97).
-- `GET .../:jobId`: operador solo ve jobs `dryRun:true` (publicación ⇒ 404). Clase sigue `super_admin`. Quitado `isInt` sin uso de supply-suggest.logic.ts.
-- Pruebas: admin-jobs.controller.spec (+3) y decks-meta-gate-dtf.spec (+1, dedupe adaptado a mismo tipo); rojo medido (3 fallos al quitar guardas), luego 37/37. Jest unit completo 612/612 suites, 10697/10697; integración decks-meta 4/4 suites (36) con Postgres propio (ya apagado); eslint de lo tocado y tsc sin errores. NO MEDIDO: carrera HTTP en vivo.
+## Backend (backend) — 2026-11-21 (HEAP-INTEG-94 v2: restauradas las aserciones que qa halló perdidas; sobre f7c78c78)
+- ts-jest `isolatedModules:true, diagnostics:false` (`backend/jest.config.js:9`, `backend/test/jest-integration.config.js:14`); tipos de tests por `npm run typecheck`. Heap del subconjunto de 19 specs 2217->799 MB (medido en 78a6858f).
+- Restauradas en `backend/test/integration/enum-query-axes.e2e-spec.ts`: B1 `code`+`details.field==='productType'` en la excepción D-EQ-3 (`hoy`); IMP vacío/%20/%09 ⇒ 200 y MISMO `total` que sin filtro en los 6 ejes admin; tres ejes inválidos a la vez ⇒ 400 con field en {status,ownerType,zone} y tres válidos ⇒ 200; `?condition=%20NM` ⇒ 400 con `details.field`.
+- Mutaciones (src/ revertido, `git diff -- backend/src` vacío): B1 `'productType'`->`'tipo'` (catalog.service.ts:1390) ⇒ ROJO 1/1 (la excepción D-EQ-3). IMP `status=` vacío ⇒ filtra por `cancelled` (admin-orders.controller.ts:87) ⇒ ROJO 1/1 en la prueba nueva de total (más 3 de REGISTRO). Variante vacío⇒token basura ⇒ ROJO (REGISTRO, 12+ filas).
+- Conteos: enum-query-axes integración 868/868 (+9 pruebas nuevas; base NO MEDIDA); unit completo 612/612 suites, 10696/10696 en la última corrida; una corrida previa dio 1 prueba roja que no se reprodujo (1/2 corridas, NO IDENTIFICADA: salida no capturada). eslint del spec limpio.
+- Quitadas sin cambio (decididas): staff-throttle (fusionada), cta-m97-migration y mitad (a) de m63 (migraciones ya en production). Fuera de alcance: M5 (promo wipe).
+- NO MEDIDO: integración completa tras este cambio (solo el spec tocado).
 
 ## Frontend (frontend) — 2026-11-20 (§PROV-F4: 503 MARKET_UNAVAILABLE en publicar manual con texto es/en; sugeridas muestran decks de origen `reasons[{rank,copies,mult}]` 3+«y N más»; pruebas covered/errores; §DEMANDA F1+F2 pendiente gate; §ENV3 sin cambios)
 Next 15.5 App Router; admin M1–M12.

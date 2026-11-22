@@ -688,6 +688,8 @@ const REGISTRO: readonly AxisRow[] = [
           'los TRES valores del enum, `sealed` incluido.',
         hoy: (res) => {
           expect(res.status).toBe(400);
+          expect(res.body.error.code).toBe('VALIDATION_ERROR');
+          expect(res.body.error.details.field).toBe('productType');
           expect(res.body.error.details.allowed).toContain('sealed');
         },
       },
@@ -1857,6 +1859,89 @@ describe('⭐ `C-EQ-1` — conformidad §0-Q, tabla-dirigida por HTTP', () => {
   it('⛔ `D-EQ-3` (frontend primero) — `/catalog/cards?productType=sealed` HOY devuelve `200`', async () => {
     const row = REGISTRO.find((r) => r.route === 'GET /catalog/cards' && r.param === 'productType')!;
     expect((await get(row, 'sealed')).status).toBe(200);
+  });
+
+  // ── Casos movidos desde `catalog-enum-filters-empty` y `admin-enum-filters-500` (HEAP-INTEG-94; el resto ya lo cubre el REGISTRO) ──
+  describe('`/catalog/cards?sealedSubtype=` (D-EQ-3, sin fila en el REGISTRO): vacío/espacio ⇒ 200, basura ⇒ 400 con `details.value`', () => {
+    const pub = (path: string) => h.api<ErrorBody>('GET', path, {});
+    it.each(['%20', ''])('`?sealedSubtype=%s` ⇒ 200 (no filtra)', async (v) => {
+      expect((await pub(`/catalog/cards?sealedSubtype=${v}`)).status).toBe(200);
+    });
+    it('`?sealedSubtype=bogus` ⇒ 400 VALIDATION_ERROR {field, allowed[], value:"bogus"}', async () => {
+      const res = await pub('/catalog/cards?sealedSubtype=bogus');
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.details.field).toBe('sealedSubtype');
+      expect(Array.isArray(res.body.error.details.allowed)).toBe(true);
+      expect(res.body.error.details.value).toBe('bogus');
+    });
+  });
+
+  describe('`GET /catalog/sealed?productType=` NO es un eje: llave desconocida ⇒ 200 (no 400)', () => {
+    it.each(['%20', 'bogus', 'raw'])('`?productType=%s` ⇒ 200', async (v) => {
+      expect((await h.api<ErrorBody>('GET', `/catalog/sealed?productType=${v}`, {})).status).toBe(200);
+    });
+  });
+
+  describe('`?condition=%20NM` (token con espacio delante) ⇒ 400 con `details.field`, NO se normaliza a `NM`', () => {
+    it('`/catalog/cards?condition=%20NM`', async () => {
+      const res = await h.api<ErrorBody>('GET', '/catalog/cards?condition=%20NM', {});
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.details.field).toBe('condition');
+    });
+  });
+
+  describe('§0-Q.1 — vacío/espacio/tab ≡ ausente en los seis ejes admin: 200 y el MISMO `total` que sin filtro', () => {
+    const EJES_VACIO: ReadonlyArray<readonly [string, string]> = [
+      ['/admin/orders', 'status'],
+      ['/admin/disputes', 'status'],
+      ['/admin/shipments', 'status'],
+      ['/admin/inventory/items', 'status'],
+      ['/admin/inventory/items', 'ownerType'],
+      ['/admin/inventory/items', 'zone'],
+    ];
+    it.each(EJES_VACIO)('`GET %s` · `?%s=` vacío/%%20/%%09', async (base, field) => {
+      const sin = await h.api<ErrorBody>('GET', base, { token: adminToken });
+      expect(sin.status).toBe(200);
+      const total = (sin.body as unknown as { total: number }).total;
+      expect(typeof total).toBe('number');
+      for (const [etiqueta, valor] of [['vacío', ''], ['espacio', '%20'], ['tab', '%09']] as const) {
+        const res = await h.api<ErrorBody>('GET', `${base}?${field}=${valor}`, { token: adminToken });
+        expect({ etiqueta, field, status: res.status }).toEqual({ etiqueta, field, status: 200 });
+        expect({ etiqueta, field, total: (res.body as unknown as { total: number }).total }).toEqual({ etiqueta, field, total });
+      }
+    });
+  });
+
+  describe('`/admin/inventory/items`: tres ejes a la vez', () => {
+    it('los tres inválidos ⇒ 400 y `details.field` es uno de los tres', async () => {
+      const res = await h.api<ErrorBody>('GET', '/admin/inventory/items?status=x&ownerType=y&zone=z', { token: adminToken });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(['status', 'ownerType', 'zone']).toContain(res.body.error.details.field);
+    });
+    it('los tres válidos ⇒ 200', async () => {
+      const res = await h.api<ErrorBody>('GET', '/admin/inventory/items?status=in_stock&ownerType=platform&zone=platform_stock', { token: adminToken });
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe('§0-Q.1 — parámetro REPETIDO (`?x=a&x=b`) ⇒ 400 con `details.field`, en los seis ejes admin de P-84', () => {
+    const EJES_REPETIDO: ReadonlyArray<readonly [string, string]> = [
+      ['/admin/orders', 'status'],
+      ['/admin/disputes', 'status'],
+      ['/admin/shipments', 'status'],
+      ['/admin/inventory/items', 'status'],
+      ['/admin/inventory/items', 'ownerType'],
+      ['/admin/inventory/items', 'zone'],
+    ];
+    it.each(EJES_REPETIDO)('`GET %s` · `?%s` repetido ⇒ 400 (⛔ nunca 500)', async (base, field) => {
+      const res = await h.api<ErrorBody>('GET', `${base}?${field}=a&${field}=b`, { token: adminToken });
+      expect({ field, status: res.status }).toEqual({ field, status: 400 });
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      expect(res.body.error.details.field).toBe(field);
+    });
   });
 });
 describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declarada', () => {

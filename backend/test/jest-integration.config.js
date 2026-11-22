@@ -11,7 +11,7 @@ module.exports = {
   rootDir: '..',
   testRegex: 'test/integration/.*\\.e2e-spec\\.ts$',
   transform: {
-    '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
+    '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: 'tsconfig.json', isolatedModules: true, diagnostics: false }],
   },
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
