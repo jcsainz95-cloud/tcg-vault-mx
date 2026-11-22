@@ -38,7 +38,7 @@ describe('E2E — POST /auth/logout revoca TODAS las sesiones de la cuenta (SEC-
   async function freshCustomer() {
     const email = `lo_${randomUUID().slice(0, 8)}@e2e.local`;
     const password = 'Original123!';
-    const reg = await h.api('POST', '/auth/register', { json: { email, password, name: 'Logout Test' } });
+    const reg = await h.api('POST', '/auth/register', { json: { email, password, name: 'Logout Test', phone: '5512345678' } });
     expect(reg.status).toBe(201);
     const row = await h.prisma.user.findUniqueOrThrow({ where: { email } });
     return {

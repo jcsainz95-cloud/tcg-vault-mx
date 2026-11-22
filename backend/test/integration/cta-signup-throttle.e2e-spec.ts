@@ -34,7 +34,7 @@ describe('CTA-B4 — throttler `signup` compartido entre register y register/ema
   const ipOf = (k: number) => `10.117.${(k >> 8) & 255}.${k & 255}`;
   const email = () => `cta4.${RUN}.${(n += 1)}@example.com`;
   const register = (ip: string) =>
-    h.api('POST', '/auth/register', { json: { email: email(), password: 'Termina123!', name: 'Ana' }, headers: { 'x-forwarded-for': ip } });
+    h.api('POST', '/auth/register', { json: { email: email(), password: 'Termina123!', name: 'Ana', phone: '5512345678' }, headers: { 'x-forwarded-for': ip } });
   const emailOnly = (ip: string) => h.api('POST', '/auth/register/email-only', { json: { email: email() }, headers: { 'x-forwarded-for': ip } });
 
   it.each([

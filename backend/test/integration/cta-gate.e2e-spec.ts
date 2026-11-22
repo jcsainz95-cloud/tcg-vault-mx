@@ -99,7 +99,7 @@ describe('CTA §13 — candado de la cuenta, token atado al correo, verify-email
   const emailOnly = (email: string, ip?: string) =>
     h.api('POST', '/auth/register/email-only', { json: { email }, headers: withIp(ip) });
   const register = (email: string, password = PASSWORD) =>
-    h.api('POST', '/auth/register', { json: { email, password, name: 'Ana Pérez' }, headers: withIp() });
+    h.api('POST', '/auth/register', { json: { email, password, name: 'Ana Pérez', phone: '5512345678' }, headers: withIp() });
   const patchEmail = (token: string, email: string, ip?: string) =>
     h.api('PATCH', '/users/me/email', { token, json: { email }, headers: withIp(ip) });
   const accountSetup = (json: Record<string, unknown>) => h.api('POST', '/auth/account-setup', { json, headers: withIp() });

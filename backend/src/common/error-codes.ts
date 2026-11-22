@@ -417,6 +417,8 @@ export const ErrorCode = {
   // las **viejas** lo tienen vacío. Sin celular, no hay solicitud: el remedio es `PATCH /users/me` y
   // reintentar. `details: { field: "phone" }`. 422.
   PHONE_REQUIRED: 'PHONE_REQUIRED',
+  // §CELULAR — celular vacío/inválido al escribirlo (registro, PATCH /users/me, M6). `details: { field: "phone" }`. 422.
+  PHONE_INVALID: 'PHONE_INVALID',
   // v1.51 (D9/D30, criterios 119/124/150) — `PATCH /admin/buylist/items/:itemId/decision` con
   // `approvedPriceCents` en el body sobre una solicitud del CICLO DE OFERTA
   // (`offerSentAt IS NOT NULL`). **El monto no se toma del cliente ni del admin**: `approve` lo fija

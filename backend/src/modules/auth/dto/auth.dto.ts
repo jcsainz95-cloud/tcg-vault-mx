@@ -41,9 +41,9 @@ export class RegisterDto {
   @MinLength(1)
   name!: string;
 
+  // §CELULAR: obligatorio, pero lo valida el servicio (422 PHONE_INVALID, no 400): `@IsOptional` solo deja pasar al servicio.
   @IsOptional()
-  @IsString()
-  phone?: string;
+  phone?: unknown;
 
   @IsOptional()
   @IsIn(['es', 'en'])
@@ -58,11 +58,15 @@ export class RegisterDto {
 export const NormalizedEmail = () =>
   Transform(({ value }) => (typeof value === 'string' ? normalizeEmail(value) : value));
 
-/** `POST /auth/register/email-only` (§CTA.4): `{ email, locale? }`. ⛔ Sin `password`, `name` ni `phone` (los descarta el whitelist). */
+/** `POST /auth/register/email-only` (§CTA.4): `{ email, locale? }`. ⛔ Sin `password` ni `name` (los descarta el whitelist); `phone` opcional (§CELULAR). */
 export class RegisterEmailOnlyDto {
   @NormalizedEmail()
   @IsEmail()
   email!: string;
+
+  /** §CELULAR: el del domicilio del checkout; opcional, el servicio lo guarda solo si es válido (nunca 422). */
+  @IsOptional()
+  phone?: unknown;
 
   @IsOptional()
   @IsIn(['es', 'en'])

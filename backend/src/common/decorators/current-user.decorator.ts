@@ -12,6 +12,8 @@ export interface AuthUser {
   // v1.67: poblado por JwtAuthGuard desde BD (mismo `select`, cero consultas extra); lo consume
   // PasswordChangeRequiredGuard (403 PASSWORD_CHANGE_REQUIRED fuera de la allowlist).
   mustChangePassword?: boolean;
+  // §CELULAR: poblado por JwtAuthGuard desde BD; lo consume PhoneRequiredGuard.
+  phone?: string | null;
 }
 
 /** Inyecta el usuario autenticado (poblado por JwtAuthGuard). */

@@ -21,6 +21,7 @@ import {
 import { assertPersonName } from './person-name';
 import { AddressDTO, toAddressDTO } from './address-dto';
 import { blankToNull } from './address-rules';
+import { assertValidPhone, isValidMxPhone } from './phone-mx';
 import { PostalCodeService } from '../shipping-provider/geo/postal-code';
 import { AuditService } from '../audit/audit.service';
 import { addressPlaceKey } from './address-place-key';
@@ -249,6 +250,8 @@ export class UsersService {
       name: user.name,
       nameSource: user.nameSource,
       phone: user.phone,
+      // §CELULAR: derivado (no es columna). El front abre «Completa tu celular» si es true.
+      phoneRequired: !isValidMxPhone(user.phone),
       role: user.role,
       locale: user.locale,
       kycStatus: user.kycProfile?.kycStatus ?? 'none',
@@ -298,7 +301,7 @@ export class UsersService {
       data.name = assertPersonName(dto.name, 'name');
       data.nameSource = NameSource.user;
     }
-    if (dto.phone !== undefined) data.phone = dto.phone;
+    if (dto.phone !== undefined) data.phone = assertValidPhone(dto.phone);
     if (dto.locale !== undefined) data.locale = dto.locale;
     const user = await this.prisma.user.update({
       where: { id: userId },

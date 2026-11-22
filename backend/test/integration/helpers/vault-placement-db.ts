@@ -77,6 +77,7 @@ export class VaultPlacementDb {
         name,
         nameSource,
         role: 'customer',
+        phone: '5512345678', // §CELULAR
         emailVerified: true,
       },
     });

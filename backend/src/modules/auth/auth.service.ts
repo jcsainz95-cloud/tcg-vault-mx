@@ -6,6 +6,7 @@ import * as argon2 from 'argon2';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BusinessException } from '../../common/business.exception';
+import { assertValidPhone, isValidMxPhone, normalizeMxPhone } from '../users/phone-mx';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
 import {
@@ -112,6 +113,8 @@ export class AuthService {
       locale: u.locale,
       emailVerified: u.emailVerified,
       mustChangePassword: u.mustChangePassword,
+      // §CELULAR: derivado; el front abre «Completa tu celular» si es true.
+      phoneRequired: !isValidMxPhone(u.phone),
     };
   }
 
@@ -197,6 +200,7 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
+    const phone = assertValidPhone(dto.phone); // §CELULAR: antes de hashear/crear; 422 PHONE_INVALID
     const passwordHash = await argon2.hash(dto.password);
     let user: User;
     try {
@@ -205,7 +209,7 @@ export class AuthService {
           email: dto.email.toLowerCase(),
           passwordHash,
           name: dto.name,
-          phone: dto.phone,
+          phone,
           locale: dto.locale ?? 'es',
           role: Role.customer,
         },
@@ -244,7 +248,7 @@ export class AuthService {
           passwordHash: null,
           name: email.split('@')[0],
           nameSource: NameSource.derived,
-          phone: null,
+          phone: normalizeMxPhone(dto.phone), // §CELULAR: el del domicilio si es válido; si no, null (no se pierde la compra)
           authProvider: AuthProvider.local,
           role: Role.customer,
           emailVerified: false,

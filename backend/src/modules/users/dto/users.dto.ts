@@ -27,7 +27,8 @@ export class UpdateMeDto {
    * `nameSource='user'` SIEMPRE (una key `nameSource` en el body la descarta el `whitelist`).
    */
   @IsOptional() @trim() @IsString() name?: string;
-  @IsOptional() @IsString() phone?: string;
+  // §CELULAR: sin @IsString: vacío/null/no-string/inválido ⇒ 422 PHONE_INVALID desde el servicio (`assertValidPhone`).
+  @IsOptional() phone?: unknown;
   @IsOptional() @IsIn(['es', 'en']) locale?: 'es' | 'en';
 }
 

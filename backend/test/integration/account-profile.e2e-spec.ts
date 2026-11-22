@@ -13,7 +13,7 @@ import { E2E_USERS } from '../../prisma/e2e-fixtures';
 /** Las 14 claves de `GET /users/me` (contrato §1, v1.67) + `username` y `lockNotice` (v1.80.9, §M6-U.5) = 16. */
 const ME_KEYS = [
   'id', 'email', 'username', 'lockNotice', 'name', 'nameSource', 'phone', 'role', 'locale', 'kycStatus', 'status',
-  'authProvider', 'emailVerified', 'avatarUrl', 'hasPassword', 'mustChangePassword',
+  'authProvider', 'emailVerified', 'avatarUrl', 'hasPassword', 'mustChangePassword', 'phoneRequired',
   // 🔒 D2g (API_CONTRACT §M4-SHIP.19.30.3): + `isOwner` (`false` para todo cliente).
   'isOwner',
   // v1.117 (API_CONTRACT §CTA.2, §1 `GET /users/me`): + `accountSetupPending` (= 18).

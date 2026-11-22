@@ -53,7 +53,7 @@ describe('AdminService.createUser', () => {
     'crea %s OK con password provista: emailVerified=true, authProvider=local, sin passwordHash en la respuesta, mustChangePassword=false',
     async (role) => {
       const prisma = prismaCreate();
-      const res = await svc(prisma).createUser({
+      const res = await svc(prisma).createUser({ phone: '5512345678',
         email: 'NewUser@Example.com',
         name: 'New User',
         role,
@@ -89,7 +89,7 @@ describe('AdminService.createUser', () => {
     'crea %s SIN correo con password provista: username canónico, email null, emailVerified=false, mustChangePassword=true',
     async (role) => {
       const prisma = prismaCreate();
-      const res = await svc(prisma).createUser({ username: '  Ana.Op ', name: 'Ana', role, password: 'password123' });
+      const res = await svc(prisma).createUser({ phone: '5512345678', username: '  Ana.Op ', name: 'Ana', role, password: 'password123' });
       expect(res.user.role).toBe(role);
       expect(res.user.email).toBeNull();
       expect(res.user.username).toBe('ana.op');
@@ -105,14 +105,14 @@ describe('AdminService.createUser', () => {
   it.each(['vault_operator', 'super_admin'])('v1.80.9: %s CON correo ⇒ 422 field email (rompe a propósito: antes 201)', async (role) => {
     const prisma = prismaCreate();
     await expect(
-      svc(prisma).createUser({ email: 'NewUser@Example.com', name: 'N', role, password: 'password123' }),
+      svc(prisma).createUser({ phone: '5512345678', email: 'NewUser@Example.com', name: 'N', role, password: 'password123' }),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'email', rule: 'staff_without_email' } });
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
 
   it('autogenera la password si se omite: devuelve tempPassword UNA vez + mustChangePassword=true', async () => {
     const prisma = prismaCreate();
-    const res = await svc(prisma).createUser({
+    const res = await svc(prisma).createUser({ phone: '5512345678',
       username: 'temp',
       name: 'Temp',
       role: 'vault_operator',
@@ -131,7 +131,7 @@ describe('AdminService.createUser', () => {
 
   it('locale explícito se respeta (en)', async () => {
     const prisma = prismaCreate();
-    const res = await svc(prisma).createUser({
+    const res = await svc(prisma).createUser({ phone: '5512345678',
       email: 'l@example.com',
       name: 'L',
       role: 'customer',
@@ -141,14 +141,42 @@ describe('AdminService.createUser', () => {
     expect(res.user.locale).toBe('en');
   });
 
+  it.each([undefined, null, '', '123', '1234567890', 5512345678])(
+    '§CELULAR: phone %j → 422 PHONE_INVALID y no crea',
+    async (phone) => {
+      const prisma = prismaCreate();
+      await expect(
+        svc(prisma).createUser({ email: 'a@x.com', name: 'N', role: 'customer', password: 'password123', phone } as any),
+      ).rejects.toMatchObject({ code: 'PHONE_INVALID', details: { field: 'phone' } });
+      expect(prisma.user.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('§CELULAR: el staff puede omitir el celular (la puerta se lo pedirá), pero si viene debe ser válido', async () => {
+    const prisma = prismaCreate();
+    await svc(prisma).createUser({ username: 'ana.op', name: 'Ana', role: 'vault_operator', password: 'password123' } as any);
+    expect(prisma.user.create.mock.calls[0][0].data.phone).toBeUndefined();
+    await expect(
+      svc(prismaCreate()).createUser({ username: 'ana.op', name: 'Ana', role: 'vault_operator', password: 'password123', phone: '000' } as any),
+    ).rejects.toMatchObject({ code: 'PHONE_INVALID' });
+  });
+
+  it('§CELULAR: phone con +52/guiones se guarda normalizado', async () => {
+    const prisma = prismaCreate();
+    await svc(prisma).createUser({
+      email: 'a@x.com', name: 'N', role: 'customer', password: 'password123', phone: '+52 55-1234-5678',
+    } as any);
+    expect(prisma.user.create.mock.calls[0][0].data.phone).toBe('5512345678');
+  });
+
   it('rol inválido → 422 VALIDATION_ERROR (no llama a create)', async () => {
     const prisma = prismaCreate();
     await expect(
-      svc(prisma).createUser({ email: 'a@x.com', name: 'N', role: 'root', password: 'password123' }),
+      svc(prisma).createUser({ phone: '5512345678', email: 'a@x.com', name: 'N', role: 'root', password: 'password123' }),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     // status 422
     await svc(prisma)
-      .createUser({ email: 'a@x.com', name: 'N', role: 'root', password: 'password123' })
+      .createUser({ phone: '5512345678', email: 'a@x.com', name: 'N', role: 'root', password: 'password123' })
       .catch((e) => expect(e.getStatus()).toBe(422));
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
@@ -156,7 +184,7 @@ describe('AdminService.createUser', () => {
   it('email inválido → 422', async () => {
     const prisma = prismaCreate();
     await expect(
-      svc(prisma).createUser({ email: 'not-an-email', name: 'N', role: 'customer', password: 'password123' }),
+      svc(prisma).createUser({ phone: '5512345678', email: 'not-an-email', name: 'N', role: 'customer', password: 'password123' }),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
@@ -164,7 +192,7 @@ describe('AdminService.createUser', () => {
   it('password provista débil (<8) → 422', async () => {
     const prisma = prismaCreate();
     await expect(
-      svc(prisma).createUser({ email: 'a@x.com', name: 'N', role: 'customer', password: 'short' }),
+      svc(prisma).createUser({ phone: '5512345678', email: 'a@x.com', name: 'N', role: 'customer', password: 'short' }),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
@@ -172,14 +200,14 @@ describe('AdminService.createUser', () => {
   it('name vacío → 422', async () => {
     const prisma = prismaCreate();
     await expect(
-      svc(prisma).createUser({ email: 'a@x.com', name: '   ', role: 'customer', password: 'password123' }),
+      svc(prisma).createUser({ phone: '5512345678', email: 'a@x.com', name: '   ', role: 'customer', password: 'password123' }),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
   it('locale inválido → 422', async () => {
     const prisma = prismaCreate();
     await expect(
-      svc(prisma).createUser({ email: 'a@x.com', name: 'N', role: 'customer', password: 'password123', locale: 'fr' }),
+      svc(prisma).createUser({ phone: '5512345678', email: 'a@x.com', name: 'N', role: 'customer', password: 'password123', locale: 'fr' }),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
@@ -195,7 +223,7 @@ describe('AdminService.createUser', () => {
       },
     };
     await expect(
-      svc(prisma).createUser({ email: 'a@x.com', name: 'N', role: 'customer', password: 'password123' }),
+      svc(prisma).createUser({ phone: '5512345678', email: 'a@x.com', name: 'N', role: 'customer', password: 'password123' }),
     ).rejects.toMatchObject({ code: 'EMAIL_TAKEN' });
   });
 });
@@ -223,7 +251,7 @@ describe('AdminUsersController.createUser — auditoría sin filtrar la contrase
     const ctrl = new AdminUsersController(adminMock as any, auditMock as any);
 
     const res = await ctrl.createUser(
-      { username: 'ana', name: 'N', role: 'vault_operator' } as any,
+      { username: 'ana', name: 'N', role: 'vault_operator', phone: '5512345678' } as any,
       { id: 'admin', role: 'super_admin' } as any,
     );
 

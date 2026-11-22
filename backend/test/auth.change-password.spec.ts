@@ -288,6 +288,7 @@ describe('publicUser (D-CTA-1) — login emite mustChangePassword', () => {
       locale: 'es',
       emailVerified: false,
       mustChangePassword: flag,
+      phoneRequired: true,
     });
     expect(typeof res.accessToken).toBe('string');
   });

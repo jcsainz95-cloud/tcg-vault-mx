@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import { Role } from '@prisma/client';
 import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePhone } from '../../common/decorators/require-phone.decorator';
 import { RequireEmailVerified } from '../../common/decorators/require-email-verified.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { BuylistService } from './buylist.service';
@@ -125,6 +126,7 @@ export class BuylistController {
   // público `POST /buylist/quote` (arriba) queda abierto (es anónimo, no se bloquea).
   @Roles(Role.customer, Role.vault_operator, Role.super_admin)
   @RequireEmailVerified()
+  @RequirePhone()
   @Post('requests')
   @HttpCode(201)
   async create(@CurrentUser('id') userId: string, @Body() dto: CreateRequestDto) {

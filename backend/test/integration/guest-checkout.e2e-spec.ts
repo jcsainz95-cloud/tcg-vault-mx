@@ -643,7 +643,7 @@ describe('E2E — Guest checkout (comprar sin cuenta)', () => {
 
     beforeAll(async () => {
       const reg = await h.api('POST', '/auth/register', {
-        json: { email: GUEST_EMAIL, password: 'Invitado123!', name: 'Juan Pérez' },
+        json: { email: GUEST_EMAIL, password: 'Invitado123!', name: 'Juan Pérez', phone: '5512345678' },
       });
       expect(reg.status).toBe(201);
       // El reclamo EXIGE correo verificado: se simula el clic del correo de verificación.

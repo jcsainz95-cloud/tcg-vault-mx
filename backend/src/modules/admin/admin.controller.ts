@@ -70,6 +70,11 @@ export class UpdateKycDto {
  *
  * Fijado por test: `test/admin.user-status-enum.spec.ts` (rechaza `deleted` en este DTO).
  */
+/** §CELULAR: `PATCH /admin/users/:id/phone`. Sin decoradores de tipo: lo valida `assertValidPhone` (422 PHONE_INVALID). */
+export class UpdatePhoneDto {
+  @IsOptional() phone?: unknown;
+}
+
 export class UpdateStatusDto {
   @IsIn(['active', 'blocked']) status!: 'active' | 'blocked';
 }
@@ -88,7 +93,7 @@ class CreateAdminUserDto {
   @IsString() name!: string;
   @IsString() role!: string;
   @IsOptional() @IsString() password?: string;
-  @IsOptional() @IsString() phone?: string;
+  @IsOptional() phone?: unknown;
   @IsOptional() @IsString() locale?: string;
 }
 
@@ -416,6 +421,27 @@ export class AdminUsersController {
       );
     }
     return links;
+  }
+
+  /** §CELULAR: corrige el celular de un cliente. Misma validación que `PATCH /users/me`; no vacía; auditoría enmascarada. */
+  @Patch(':id/phone')
+  @Roles(Role.super_admin)
+  async updatePhone(
+    @Param('id') id: string,
+    @Body() dto: UpdatePhoneDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.admin.updateUserPhone(id, dto.phone);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'user.phone.update',
+      entityType: 'User',
+      entityId: id,
+      before: { phone: res.previousMasked },
+      after: { phone: res.phoneMasked },
+    });
+    return { id, phone: res.phone, phoneRequired: false };
   }
 
   @Patch(':id/status')

@@ -27,6 +27,7 @@ import { PiiCryptoService } from '../../common/crypto/pii-crypto.service';
 import { parseEnumFilter } from '../../common/enum-filter';
 import { maskClabe, maskRfc } from '../../common/crypto/pii-mask';
 import { BusinessException } from '../../common/business.exception';
+import { assertValidPhone, isValidMxPhone, maskPhone } from '../users/phone-mx';
 import { toAddressDTO } from '../users/address-dto';
 import { UsersService } from '../users/users.service';
 import { netRevenueCents, netShippingRevenueCents } from '../../common/money';
@@ -215,6 +216,7 @@ function toAdminUserHeader(u: AdminUserRow) {
     locale: u.locale,
     emailVerified: u.emailVerified,
     phone: u.phone,
+    phoneRequired: !isValidMxPhone(u.phone),
     deletedAt: u.deletedAt,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
@@ -802,10 +804,10 @@ export class AdminService {
     }
     const locale = (dto.locale as string | undefined) ?? 'es';
 
-    if (dto.phone !== undefined && dto.phone !== null && typeof dto.phone !== 'string') {
-      throw BusinessException.validation('VALIDATION_ERROR', 'Invalid phone', { field: 'phone' });
-    }
-    const phone = (dto.phone as string | undefined) ?? undefined;
+    // §CELULAR (contrato §2, «Alta de cliente M6»): el CLIENTE exige celular válido; el staff puede omitirlo (la puerta se lo
+    // pedirá al entrar), pero si viene debe ser válido. Se guarda normalizado.
+    const phone =
+      !isStaff || (dto.phone !== undefined && dto.phone !== null) ? assertValidPhone(dto.phone) : undefined;
 
     // 4. password: si se provee, política de /auth/register (MinLength 8). Si se omite, se autogenera una temporal
     // de ALTA ENTROPÍA (randomBytes(18).base64url) y se devuelve UNA sola vez en `tempPassword`.
@@ -1445,6 +1447,15 @@ export class AdminService {
    * La proyección NO se inventa: es la MISMA que ya usa `listUsers` (el endpoint hermano), así que el
    * consumidor recibe la forma que ya conoce.
    */
+  /** §CELULAR: valida (422 PHONE_INVALID) y escribe el celular normalizado; 404 si no existe. Devuelve máscaras para auditar. */
+  async updateUserPhone(id: string, raw: unknown) {
+    const phone = assertValidPhone(raw);
+    const prev = await this.prisma.user.findUnique({ where: { id }, select: { phone: true } });
+    if (!prev) throw BusinessException.notFound();
+    await this.prisma.user.update({ where: { id }, data: { phone } });
+    return { phone, phoneMasked: maskPhone(phone), previousMasked: prev.phone ? maskPhone(prev.phone) : null };
+  }
+
   async updateUserStatus(id: string, status: 'active' | 'blocked') {
     // 🔒 D2g (§19.30.2 (2), C-21 (b)): la cuenta MARCADA como del dueño no se bloquea ni se reactiva por aquí — ⛔ ni por él
     // mismo (un dueño bloqueado deja el sistema sin destinatario). La guarda va en el `where` de la escritura (`isOwner: false`,

@@ -141,7 +141,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
   /** Cuenta con contraseña (`register`) ⇒ `{ id, email, access }`. */
   async function withPassword(tag = 'w', verified = false) {
     const email = nextEmail(tag);
-    const r = await h.api('POST', '/auth/register', { json: { email, password: PASSWORD, name: 'Ana Pérez' } });
+    const r = await h.api('POST', '/auth/register', { json: { email, password: PASSWORD, name: 'Ana Pérez', phone: '5512345678' } });
     expect(r.status).toBe(201);
     const u = await h.prisma.user.update({ where: { email }, data: { emailVerified: verified } });
     return { id: u.id, email, access: r.body.accessToken as string, refresh: r.body.refreshToken as string };
@@ -188,7 +188,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
   it('CTA-B1 — alta con correo nuevo ⇒ 201; User sin prueba de nada; UN account_setup de 24 h con el hash del claro; un correo; accountSetupPending', async () => {
     const email = nextEmail('b1');
     const before = Date.now();
-    // Llaves extra (`password`, `name`, `phone`) se descartan: ⛔ el alta no las acepta.
+    // Llaves extra (`password`, `name`) se descartan: ⛔ el alta no las acepta. `phone` SÍ (§CELULAR): el del domicilio, si es válido.
     const r = await emailOnly(email, { password: 'OtraClave123', name: 'Intruso', phone: '5511111111', locale: 'en' });
     expect([r.status, r.text]).toEqual([201, r.text]);
     expect(Object.keys(r.body).sort()).toEqual(['accessToken', 'refreshToken', 'user']);
@@ -198,7 +198,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
     expect(u).toMatchObject({
       emailVerified: false,
       passwordHash: null,
-      phone: null,
+      phone: '5511111111',
       googleId: null,
       name: email.split('@')[0],
       nameSource: 'derived',
@@ -222,7 +222,7 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
 
     const m = await me(r.body.accessToken);
     expect(m.status).toBe(200);
-    expect(m.body).toMatchObject({ hasPassword: false, accountSetupPending: true, nameSource: 'derived', phone: null, emailVerified: false });
+    expect(m.body).toMatchObject({ hasPassword: false, accountSetupPending: true, nameSource: 'derived', phone: '5511111111', emailVerified: false });
     const audit = await h.prisma.auditLog.findMany({ where: { action: 'auth.register_email_only', entityId: u.id } });
     expect(audit).toHaveLength(1);
     expect(audit[0].entityType).toBe('User');
@@ -279,6 +279,8 @@ describe('CTA · cuenta con solo el correo y «Termina tu cuenta» (§CTA.9)', (
 
   it('CTA-B5 — cuenta setupPending: checkout/session 201 con PI; shipments, buylist/requests, claimable y claim ⇒ 403 EMAIL_NOT_VERIFIED', async () => {
     const p = await pending('b5');
+    // §CELULAR: la cuenta solo-correo paga con el celular del domicilio guardado; sin él, 422 PHONE_REQUIRED.
+    await h.prisma.user.update({ where: { id: p.id }, data: { phone: '5512345678' } });
     const template = await h.prisma.inventoryItem.findUniqueOrThrow({ where: { folio: E2E_FOLIOS.listedCharizard } });
     const piece = await h.prisma.inventoryItem.create({
       data: {

@@ -47,6 +47,7 @@ import { PasswordChangeRequiredGuard } from './common/guards/password-change-req
 import { RolesGuard } from './common/guards/roles.guard';
 import { PermissionGuard } from './common/guards/permission.guard';
 import { EmailVerifiedGuard } from './common/guards/email-verified.guard';
+import { PhoneRequiredGuard } from './common/guards/phone-required.guard';
 import { MoneyOutGuard } from './common/guards/money-out.guard';
 
 @Module({
@@ -109,6 +110,8 @@ import { MoneyOutGuard } from './common/guards/money-out.guard';
     // metadata, pasa (no opina). El panel de marketing lo usa en vez de @Roles para delegación futura.
     { provide: APP_GUARD, useClass: PermissionGuard },
     { provide: APP_GUARD, useClass: EmailVerifiedGuard },
+    // §CELULAR: tras EmailVerifiedGuard; 422 PHONE_REQUIRED en las rutas de dinero marcadas con @RequirePhone().
+    { provide: APP_GUARD, useClass: PhoneRequiredGuard },
     { provide: APP_GUARD, useClass: MoneyOutGuard },
   ],
 })

@@ -25,7 +25,7 @@ describe('E2E — Auth y autorización por rol', () => {
     it('registra un nuevo customer y emite tokens', async () => {
       const email = `new_${randomUUID().slice(0, 8)}@e2e.local`;
       const res = await h.api('POST', '/auth/register', {
-        json: { email, password: 'Secret123!', name: 'New User' },
+        json: { email, password: 'Secret123!', name: 'New User', phone: '5512345678' },
       });
       expect(res.status).toBe(201);
       expect(res.body.user).toMatchObject({ email, role: 'customer', locale: 'es' });
@@ -35,7 +35,7 @@ describe('E2E — Auth y autorización por rol', () => {
 
     it('rechaza email duplicado con 409 EMAIL_TAKEN', async () => {
       const res = await h.api('POST', '/auth/register', {
-        json: { email: E2E_USERS.customer.email, password: 'Secret123!', name: 'Dup' },
+        json: { email: E2E_USERS.customer.email, password: 'Secret123!', name: 'Dup', phone: '5512345678' },
       });
       expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('EMAIL_TAKEN');

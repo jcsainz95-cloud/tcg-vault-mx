@@ -3,6 +3,7 @@ import { Response } from 'express';
 import { retryAfterOf } from '../discounts/discounts.service';
 import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RequirePhone } from '../../common/decorators/require-phone.decorator';
 import { RequireEmailVerified } from '../../common/decorators/require-email-verified.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ShipmentsService } from './shipments.service';
@@ -23,6 +24,7 @@ export class ShipmentsController {
 
   // v1.5: retirar/enviar es acción sensible → requiere emailVerified (el `quote` no se bloquea).
   @RequireEmailVerified()
+  @RequirePhone()
   @Post()
   @HttpCode(201)
   create(

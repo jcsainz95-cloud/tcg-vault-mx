@@ -152,7 +152,7 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
     expect(custNoEmail.status).toBe(422);
     expect(custNoEmail.body.error.details.field).toBe('email');
     // ⭐ v1.80.9.1 (D-5): TODO `422` del alta lleva `details.field` (aditivo), también los que antes no lo llevaban.
-    const okCust = { name: 'X', role: 'customer', email: `stf2_${randomUUID().slice(0, 8)}@e2e.local` };
+    const okCust = { name: 'X', role: 'customer', phone: '5512345678', email: `stf2_${randomUUID().slice(0, 8)}@e2e.local` };
     const cases: [Record<string, unknown>, string][] = [
       [{ ...okCust, name: '   ' }, 'name'],
       [{ ...okCust, role: 'jefe' }, 'role'],
@@ -295,7 +295,7 @@ describe('E2E — v1.80.9: usuarios de back-office sin correo (STF)', () => {
 
   it('STF-8 — register con "ana" ⇒ 400 y cero filas; un cliente entra por correo igual que hoy', async () => {
     const name = uname('ana');
-    const r = await h.api('POST', '/auth/register', { json: { email: name, password: 'Password123!', name: 'Ana' } });
+    const r = await h.api('POST', '/auth/register', { json: { email: name, password: 'Password123!', name: 'Ana', phone: '5512345678' } });
     expect(r.status).toBe(400);
     expect(await h.prisma.user.count({ where: { OR: [{ email: name }, { username: name }] } })).toBe(0);
     const c = await login(E2E_USERS.customer.email, E2E_USERS.customer.password);
