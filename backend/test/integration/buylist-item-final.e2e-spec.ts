@@ -87,7 +87,10 @@ describe('E2E — v1.82.1 §PNL.10 · ITEM_FINAL en la decisión por carta y CAS
   const convert = (itemId: string) =>
     h.api('POST', `/admin/buylist/items/${itemId}/convert-to-inventory`, { token: operatorToken, json: {} });
   const rejectItems = (srId: string, json: unknown) =>
-    h.api('POST', `/admin/buylist/${srId}/reject-items`, { token: operatorToken, json });
+    h.api('POST', `/admin/buylist/${srId}/reject-items`, {
+      token: operatorToken,
+      json: json && typeof json === 'object' && !Array.isArray(json) && !('reasonCode' in json) && 'itemIds' in json ? { reasonCode: 'other', ...json } : json,
+    });
 
   /** Carta `convertida_inventario` por los verbos REALES: aprobar (8000) y convertir. */
   async function cartaConvertida(legado = false) {
@@ -180,7 +183,7 @@ describe('E2E — v1.82.1 §PNL.10 · ITEM_FINAL en la decisión por carta y CAS
     // ⭐ SU-1 (§M1-SU, SU.1 disparador (a)): la carta tiene precio de mercado ⇒ la conversión la publicó sin cajón.
     expect(antes.piezas).toEqual([{ id: inventoryItemId, status: 'listed', acquisitionCostCents: 8000 }]);
     enviados = [];
-    const res = await decide(itemId, { decision: 'reject', reason: 'llegó doblada' });
+    const res = await decide(itemId, { decision: 'reject', reasonCode: 'other', reason: 'llegó doblada' });
     esItemFinal(res, itemId, 'convertida_inventario');
     expect(await foto(srId, itemId)).toEqual(antes);
     expect(enviados).toHaveLength(0);
@@ -192,7 +195,7 @@ describe('E2E — v1.82.1 §PNL.10 · ITEM_FINAL en la decisión por carta y CAS
     const itemId = items[0];
     await h.prisma.sellRequestItem.update({ where: { id: itemId }, data: { itemStatus: 'pagada', approvedPriceCents: 12000 } });
     const antes = await foto(srId, itemId);
-    esItemFinal(await decide(itemId, { decision: 'reject', reason: 'llegó doblada' }), itemId, 'pagada');
+    esItemFinal(await decide(itemId, { decision: 'reject', reasonCode: 'other', reason: 'llegó doblada' }), itemId, 'pagada');
     esItemFinal(await decide(itemId, { decision: 'approve' }), itemId, 'pagada');
     // `adjust` dentro del ciclo: ITEM_FINAL va ANTES de `ADJUST_NOT_ALLOWED_IN_OFFER_CYCLE` (escalera §PNL.10.2).
     esItemFinal(await decide(itemId, { decision: 'adjust', approvedPriceCents: 1 }), itemId, 'pagada');
@@ -203,7 +206,7 @@ describe('E2E — v1.82.1 §PNL.10 · ITEM_FINAL en la decisión por carta y CAS
   it('BRJ-10c la solicitud cerrada sigue ganando: `pagada` + carta convertida ⇒ 409 NO_LIVE_ADJUSTMENT (no ITEM_FINAL)', async () => {
     const { srId, itemId } = await cartaConvertida();
     await h.prisma.sellRequest.update({ where: { id: srId }, data: { status: 'pagada', closedAt: new Date() } });
-    const res = await decide(itemId, { decision: 'reject', reason: 'llegó doblada' });
+    const res = await decide(itemId, { decision: 'reject', reasonCode: 'other', reason: 'llegó doblada' });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('NO_LIVE_ADJUSTMENT');
   });
@@ -239,7 +242,7 @@ describe('E2E — v1.82.1 §PNL.10 · ITEM_FINAL en la decisión por carta y CAS
       .spyOn(svc as unknown as { assertItemNotFinal: (i: unknown) => void }, 'assertItemNotFinal')
       .mockImplementation(() => undefined);
     try {
-      const res = await decide(itemId, { decision: 'reject', reason: 'llegó doblada' });
+      const res = await decide(itemId, { decision: 'reject', reasonCode: 'other', reason: 'llegó doblada' });
       expect(apagado).toHaveBeenCalled();
       esItemFinal(res, itemId, 'convertida_inventario');
     } finally {
@@ -252,7 +255,7 @@ describe('E2E — v1.82.1 §PNL.10 · ITEM_FINAL en la decisión por carta y CAS
   it('BRJ-14 (candado) `reject-items` con una carta ya `rechazada` ⇒ 409 CONFLICT {itemIds:[esa]}; su `rejectedAt` y motivo idénticos; cero correos', async () => {
     const { srId, items } = await solicitudDeTres();
     await siembra(srId, items);
-    expect((await decide(items[0], { decision: 'reject', reason: 'primera vez' })).status).toBe(200);
+    expect((await decide(items[0], { decision: 'reject', reasonCode: 'other', reason: 'primera vez' })).status).toBe(200);
     const antes = await h.prisma.sellRequestItem.findUniqueOrThrow({ where: { id: items[0] } });
     enviados = [];
     const res = await rejectItems(srId, { itemIds: [items[0], items[2]], reason: 'segunda vez' });
@@ -342,7 +345,7 @@ describe('E2E — v1.82.1 §PNL.10 · ITEM_FINAL en la decisión por carta y CAS
         // La conversión ya leyó `aprobada` y está detenida ANTES de escribir la carta: el rechazo pasa entero.
         const rej = lote
           ? await rejectItems(srId, { itemIds: [itemId], reason: 'carrera' })
-          : await decide(itemId, { decision: 'reject', reason: 'carrera' });
+          : await decide(itemId, { decision: 'reject', reasonCode: 'other', reason: 'carrera' });
         expect(rej.status).toBe(200);
         lock.soltar();
         await lock.tx;
@@ -364,7 +367,7 @@ describe('E2E — v1.82.1 §PNL.10 · ITEM_FINAL en la decisión por carta y CAS
         const { srId, itemId } = await aprobada();
         const [conv, rej] = await Promise.all([
           convert(itemId),
-          lote ? rejectItems(srId, { itemIds: [itemId], reason: 'carrera' }) : decide(itemId, { decision: 'reject', reason: 'carrera' }),
+          lote ? rejectItems(srId, { itemIds: [itemId], reason: 'carrera' }) : decide(itemId, { decision: 'reject', reasonCode: 'other', reason: 'carrera' }),
         ]);
         const d = await desenlace(srId, itemId, conv, rej, lote);
         if (d.mixta) mixtas++;

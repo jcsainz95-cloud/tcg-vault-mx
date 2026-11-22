@@ -3359,6 +3359,12 @@ export interface SellItemDTO {
   rejectionReason?: string | null;
   returnDeadlineAt?: string | null;
   abandonDeadlineAt?: string | null;
+  // ---- §BUYLIST-FLUJO F2 (anexo §1) · opcionales: servidor anterior ⇒ ausentes ⇒ la UI no inventa nada ----
+  /** Baja de precio de la línea (`null`/ausente si nunca hubo). El vendedor recibe `reasonText`, nunca `reasonCode`. */
+  revision?: BuylistRevisionDTO | null;
+  rejectionCode?: BuylistRejectionCode | null;
+  /** Solo líneas `rechazada` con `rejectionCode ≠ not_received`; `null` si `not_received`. */
+  pickup?: BuylistPickupDTO | null;
   // ---- v1.51 (M-46, contrato §11 `SellItemDTO +=`) · LA LÍNEA DE LA OFERTA ----
   // Poblados desde que la oferta se emite. Los TRES que siguen son los ÚNICOS de ese bloque
   // que el contrato deja viajar al CLIENTE; ver la nota de abajo sobre los que faltan.
@@ -4844,6 +4850,13 @@ export interface AdminSellerRef {
  */
 export interface BuylistDecisionLineDTO {
   itemId: string;
+  /** §BUYLIST-FLUJO F1c: bloque congelado al ofertar; `null` = `skip`/pre-oferta. */
+  offered?: {
+    priceCents: number;
+    derivedAtOfferCents: number | null;
+    marketAtOfferCents: number | null;
+    overrideReason: string | null;
+  } | null;
   card: CardDTO;
   productType: ProductType;
   finish: Finish;
@@ -4950,6 +4963,8 @@ export interface BuylistDecisionTotalsDTO {
 
 export interface BuylistDecisionTableDTO {
   sellRequestId: string;
+  /** §BUYLIST-FLUJO F1c: `readonly` desde `ofertada` (el servidor omite acciones de emisión). Ausente ⇒ `edit`. */
+  mode?: 'edit' | 'readonly';
   status: SellRequestStatus;
   seller?: AdminSellerRef;
   quotedTotalCents: number;
@@ -5168,7 +5183,9 @@ export interface PendingPublishRowDTO {
 /** v1.82 (§PNL.4) — `POST /admin/buylist/:id/reject-items`. `itemIds` 1–200 sin repetidos; `reason` 3–500 tras `trim()`. */
 export interface RejectBuylistItemsRequest {
   itemIds: string[];
-  reason: string;
+  /** Obligatorio (anexo §3.2): UNA causa por acto. `other` exige `reason` 3–500; con las demás `reason` es opcional. */
+  reasonCode: BuylistRejectReasonCode;
+  reason?: string;
 }
 /**
  * v1.82.1 (§PNL.10.1, E-1) — `200` de `reject-items`: una carta por id, EN SU ORDEN (la proyección de la decisión por
@@ -5178,6 +5195,86 @@ export interface RejectBuylistItemsRequest {
 export interface RejectBuylistItemsResponse {
   items: SellItemDTO[];
   requestClosed: boolean;
+}
+
+/** §BUYLIST-FLUJO F1 (anexo §1): el neto que se deposita. El front lo MUESTRA y lo reenvía como `expectedNetCents`; nunca lo calcula. */
+export interface BuylistPayoutDTO {
+  grossCents: number;
+  shippingFeeCents: number;
+  netCents: number;
+  /** `false` ⇒ hay líneas sin decidir o con baja pendiente: cifra provisional. */
+  isFinal: boolean;
+  clabeOnFile: boolean;
+}
+export interface BuylistOfferNetDTO {
+  grossCents: number;
+  shippingFeeCents: number;
+  netCents: number;
+  expiresAt: string | null;
+}
+export interface BuylistStatusClockDTO {
+  since: string;
+  waitingDays: number;
+  dueAt: string | null;
+  overdue: boolean;
+}
+export interface BuylistTrackingDTO {
+  carrier: string | null;
+  number: string | null;
+  url: string | null;
+  daysInTransit: number;
+}
+export type BuylistRejectionCode =
+  | 'not_received'
+  | 'condition_mismatch'
+  | 'wrong_card'
+  | 'other'
+  | 'revision_declined'
+  | 'revision_expired';
+/** Causas que el dueño puede elegir al «No aceptar» / «Bajar precio». */
+export type BuylistRejectReasonCode = 'not_received' | 'condition_mismatch' | 'wrong_card' | 'other';
+export type BuylistReviseReasonCode = 'condition_mismatch' | 'wrong_card' | 'other';
+/** `cancelled` = el dueño aprobó/rechazó la carta con la baja pendiente: la propuesta se RETIRÓ (anexo §3.2). */
+export type BuylistRevisionState = 'pending' | 'accepted' | 'declined' | 'expired' | 'cancelled';
+export interface BuylistRevisionDTO {
+  state: BuylistRevisionState;
+  proposedCents: number | null;
+  previousCents: number | null;
+  /** Solo admin. */
+  reasonCode?: BuylistRejectionCode | null;
+  note?: string | null;
+  /** Solo cliente: texto ya renderizado por el servidor. */
+  reasonText?: string | null;
+  proposedAt: string | null;
+  /** `proposedAt + 7 d`, derivado por el servidor. */
+  expiresAt: string | null;
+  respondedAt?: string | null;
+  /** Solo admin y solo con `state='pending'`: el neto que quedaría si el vendedor acepta (lo calcula el servidor). */
+  netIfAcceptedCents?: number | null;
+}
+export type BuylistPickupMethod = 'in_person' | 'ship_back';
+export interface BuylistPickupDTO {
+  method: BuylistPickupMethod | null;
+  chosenAt: string | null;
+  doneAt: string | null;
+  returnDeadlineAt: string | null;
+  abandonDeadlineAt: string | null;
+}
+/** GET /admin/buylist/items/:itemId/revise-price/preview */
+export interface BuylistRevisePreviewDTO {
+  itemId: string;
+  offeredPriceCents: number;
+  revisedPriceCents: number;
+  payout: { grossCents: number; shippingFeeCents: number; netCents: number; isFinal: boolean };
+}
+export interface BuylistConvertAllResponse {
+  converted: { itemId: string; inventoryItemId: string }[];
+  skipped: { itemId: string; code: string }[];
+  failed: { itemId: string; code: string }[];
+}
+/** Línea de ADMIN: `agreedPriceCents` = el precio PACTADO final (baja aceptada o el ofertado). */
+export interface AdminSellItemDTO extends SellItemDTO {
+  agreedPriceCents?: number | null;
 }
 
 export interface AdminBuylistDTO {
@@ -5306,7 +5403,16 @@ export interface AdminBuylistDTO {
   guideDueInDays?: number | null;
   /** La MISMA regla que la guarda de `decline-accepted` (§BSD.6). ⛔ La pantalla no mira `status` (BSD-F5). */
   declineAcceptedAllowed?: boolean;
-  items: SellItemDTO[];
+  // ---- §BUYLIST-FLUJO F1 (anexo §1) · todos opcionales: servidor anterior ⇒ ausentes ⇒ la UI no inventa nada ----
+  payout?: BuylistPayoutDTO | null;
+  offerNet?: BuylistOfferNetDTO | null;
+  statusClock?: BuylistStatusClockDTO;
+  tracking?: BuylistTrackingDTO | null;
+  /** Comprobante de pago (solo `pagada`) y de recepción; ya viajan en la base del DTO. */
+  speiReference?: string | null;
+  paidAt?: string | null;
+  receivedAt?: string | null;
+  items: AdminSellItemDTO[];
 }
 
 /** 💰 rev BSD-1 (§BSD.5 + BSD-1.1 C-5 + BSD-1.3 punto 4): `AdminBuylistDTO.inboundShipment`. ⛔ `labelUrl` nunca. */
@@ -5350,6 +5456,9 @@ export interface RejectedSellItemDTO {
   rejectedAt: string | null;
   returnDeadlineAt: string | null;
   abandonDeadlineAt: string | null;
+  /** §BUYLIST-FLUJO F2: causa y estado de recogida (anexo §5). `not_received` nunca llega a esta cola. */
+  rejectionCode?: BuylistRejectionCode | null;
+  pickup?: BuylistPickupDTO | null;
 }
 
 export interface AdminOrderDTO extends OrderSummaryDTO {
@@ -5380,6 +5489,8 @@ export interface RefundOrderResponse {
 export interface RevealClabeResponse {
   sellRequestId: string;
   clabe: string;
+  /** §BUYLIST-FLUJO F1a: titular (el mismo nombre que valida `CLABE_NOT_OWN_NAME`). Opcional: servidor anterior. */
+  holderName?: string;
 }
 
 // PATCH /admin/buylist/items/:itemId/decision — cherry-pick por carta.
@@ -5389,6 +5500,8 @@ export interface BuylistItemDecisionInput {
   decision: 'approve' | 'adjust' | 'reject';
   approvedPriceCents?: number;
   reason?: string;
+  /** §BUYLIST-FLUJO F2b: OBLIGATORIO con `reject` (sin él ⇒ 400 `field:'reasonCode'`). */
+  reasonCode?: BuylistRejectReasonCode;
 }
 
 // POST /admin/buylist/items/:itemId/convert-to-inventory. `alreadyConverted` cuando el

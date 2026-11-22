@@ -12,7 +12,6 @@ import {
   Max,
   MaxLength,
   Min,
-  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -303,10 +302,16 @@ export class ItemDecisionDto {
   // v1.18-buylist-rejects (§M5): motivo del rechazo — OBLIGATORIO con decision:"reject"
   // (3–500 chars; falta/vacío → 400 VALIDATION_ERROR vía ValidationPipe). Para approve/adjust se
   // IGNORA (no se valida ni se persiste). El servicio re-valida (defensa en profundidad, con trim).
-  @ValidateIf((o: ItemDecisionDto) => o.decision === 'reject')
+  // §BUYLIST-FLUJO F2b: con causa distinta de `other` la nota es opcional; la longitud 3–500 la impone el servicio segun la causa
+  // (con `other`, o sin causa en la llamada legacy, sigue siendo obligatoria ⇒ 400 `field:'reason'`).
+  @IsOptional()
   @IsString()
-  @Length(3, 500)
+  @MaxLength(500)
   reason?: string;
+  /** §BUYLIST-FLUJO F2b: causa estructurada del rechazo (obligatoria con `reject`; la exige el controlador ⇒ 400 `field:'reasonCode'`). */
+  @IsOptional()
+  @IsIn(['not_received', 'condition_mismatch', 'wrong_card', 'other'])
+  reasonCode?: 'not_received' | 'condition_mismatch' | 'wrong_card' | 'other';
 }
 
 /**
@@ -322,6 +327,8 @@ export class RejectedItemsQueryDto {
 
 export class PaySpeiDto {
   @IsString() speiReference!: string;
+  /** §BUYLIST-FLUJO F1a: `payout.netCents` mostrado. Difiere del que se sellaria => 409 PAYOUT_CHANGED sin efectos. */
+  @IsInt() @Min(0) expectedNetCents!: number;
 }
 
 /**
@@ -349,6 +356,37 @@ export class RejectRequestDto {
  * es la FORMA DEL DTO**, no una validación: no hay campo que manipular (el `ValidationPipe` con
  * whitelist descarta cualquier extra).
  */
+/**
+ * §BUYLIST-FLUJO F2c (anexo §3): `POST /admin/buylist/items/:itemId/revise-price`. `revisedPriceCents` es entero; que sea menor que
+ * lo ofertado y mayor que 0 lo decide el servicio (422 `REVISION_NOT_LOWER`). `note` obligatoria con `other` (el servicio, 400 `field:'note'`).
+ */
+export class ReviseItemPriceDto {
+  @IsInt() revisedPriceCents!: number;
+  @IsIn(['condition_mismatch', 'wrong_card', 'other']) reasonCode!: 'condition_mismatch' | 'wrong_card' | 'other';
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
+/**
+ * §BUYLIST-FLUJO F2c (anexo §3): `POST /buylist/requests/:id/items/:itemId/revision-response`. `accept` EXIGE `expectedRevisedPriceCents`
+ * (la propuesta que el vendedor vio; el servidor la compara ⇒ 409 `REVISION_CHANGED`); `decline` no lleva monto (declinar es seguro).
+ */
+export class RevisionResponseDto {
+  @IsIn(['accept', 'decline']) decision!: 'accept' | 'decline';
+  /** Sin `@IsInt/@Min`: el `ValidationPipe` global no emite `details.field`; el servicio valida (entero > 0) y da 400 con `field`. */
+  @IsOptional()
+  expectedRevisedPriceCents?: number;
+}
+
+/** §BUYLIST-FLUJO F2c (anexo §5): `POST /buylist/requests/:id/items/:itemId/pickup`. */
+export class PickupChoiceDto {
+  @IsIn(['in_person', 'ship_back']) method!: 'in_person' | 'ship_back';
+}
+
+/** §BUYLIST-FLUJO F2a: body de `POST /admin/buylist/:id/convert-all` (misma forma que el de una linea; `locationId` opcional). */
+export class ConvertAllDto {
+  @IsOptional() @IsString() locationId?: string;
+}
+
 export class ConvertToInventoryDto {
   @IsOptional() @IsString() locationId?: string;
 }

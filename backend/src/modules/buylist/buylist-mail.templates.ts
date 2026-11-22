@@ -40,15 +40,15 @@ import {
  * barrido que la hace cumplir en los cinco correos del ciclo es `test/buylist.cycle-mail-pii.spec.ts`.
  */
 
-type Locale = 'es' | 'en';
+export type Locale = 'es' | 'en';
 
 // v1.82 · PNL-1 (`D-PNL-2`): el buzón de soporte sale del ÚNICO resolutor, `supportContact()`
 // (`../mail/support-contact.ts`: `SUPPORT_EMAIL → DISPUTE_EVIDENCE_CONTACT → soporte@tcghunt.mx`). Antes
 // vivía aquí una cascada local fijada al importar; ⛔ no vuelve (candado DSC-8).
 // P-21 (rebrand): marca visible "TCG HUNT" (DESIGN_SYSTEM §17.4).
-const BRAND = 'TCG HUNT';
+export const BRAND = 'TCG HUNT';
 
-function normalizeLocale(locale?: string | null): Locale {
+export function normalizeLocale(locale?: string | null): Locale {
   return locale === 'en' ? 'en' : 'es';
 }
 
@@ -61,7 +61,7 @@ function normalizeLocale(locale?: string | null): Locale {
  * por qué llegan, «que todos se hablen» dejaría de ser cierto justo en la línea que no cambia nunca.**
  * ⛔ Y nada más vive en la banda de tinta: ni folio, ni importe, ni plazo, ni enlace de acción.
  */
-function sellRequestFooterWhy(en: boolean): string {
+export function sellRequestFooterWhy(en: boolean): string {
   return en
     ? 'You are receiving this email because you have a sell request with us.'
     : 'Recibes este correo porque tienes una solicitud de venta con nosotros.';
@@ -92,14 +92,14 @@ function sellRequestFooterWhy(en: boolean): string {
  */
 
 /** Etiquetas legibles del acabado (los datos de catálogo van en inglés por diseño, ARCHITECTURE §6). */
-const FINISH_LABELS: Record<Finish, string> = {
+export const FINISH_LABELS: Record<Finish, string> = {
   normal: 'Normal',
   reverse_holo: 'Reverse Holo',
   holofoil: 'Holofoil',
   first_edition_holofoil: '1st Edition Holofoil',
 };
 
-function formatDate(date: Date | null, locale: Locale): string {
+export function formatDate(date: Date | null, locale: Locale): string {
   if (!date) return '—';
   return new Intl.DateTimeFormat(locale === 'en' ? 'en-US' : 'es-MX', {
     dateStyle: 'long',

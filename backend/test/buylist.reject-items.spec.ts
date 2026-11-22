@@ -26,10 +26,15 @@ function details(fn: () => unknown): Record<string, unknown> {
 
 describe('parseRejectItemsBody — 400 de forma con {field, rule}', () => {
   it('válido ⇒ ids tal cual y motivo con trim', () => {
-    expect(parseRejectItemsBody({ itemIds: ['a', 'b'], reason: '  dañadas ', extra: 1 })).toEqual({
+    expect(parseRejectItemsBody({ itemIds: ['a', 'b'], reason: '  dañadas ', reasonCode: 'other', extra: 1 })).toEqual({
       itemIds: ['a', 'b'],
       reason: 'dañadas',
+      reasonCode: 'other',
     });
+  });
+  it('§3.2: con una causa que no es `other` la nota es opcional (vacía si no vino)', () => {
+    expect(parseRejectItemsBody({ itemIds: ['a'], reasonCode: 'wrong_card' })).toEqual({ itemIds: ['a'], reason: '', reasonCode: 'wrong_card' });
+    expect(parseRejectItemsBody({ itemIds: ['a'], reasonCode: 'not_received' }).reasonCode).toBe('not_received');
   });
   it.each([
     [undefined, 'itemIds', 'required'],
@@ -41,16 +46,21 @@ describe('parseRejectItemsBody — 400 de forma con {field, rule}', () => {
     [{ itemIds: ['a', 7], reason: 'abc' }, 'itemIds', 'type'],
     [{ itemIds: ['a', '  '], reason: 'abc' }, 'itemIds', 'type'],
     [{ itemIds: ['a', 'b', 'a'], reason: 'abc' }, 'itemIds', 'duplicates'],
-    [{ itemIds: ['a'] }, 'reason', 'type'],
-    [{ itemIds: ['a'], reason: '  ab  ' }, 'reason', 'length'],
-    [{ itemIds: ['a'], reason: 'x'.repeat(501) }, 'reason', 'length'],
+    [{ itemIds: ['a'], reason: 'abc' }, 'reasonCode', 'enum'],
+    [{ itemIds: ['a'], reason: 'abc', reasonCode: 'revision_declined' }, 'reasonCode', 'enum'],
+    [{ itemIds: ['a'], reasonCode: null }, 'reasonCode', 'enum'],
+    [{ itemIds: ['a'], reasonCode: 'other' }, 'reason', 'length'],
+    [{ itemIds: ['a'], reasonCode: 'other', reason: 7 }, 'reason', 'type'],
+    [{ itemIds: ['a'], reasonCode: 'other', reason: '  ab  ' }, 'reason', 'length'],
+    [{ itemIds: ['a'], reasonCode: 'wrong_card', reason: 'ab' }, 'reason', 'length'],
+    [{ itemIds: ['a'], reasonCode: 'other', reason: 'x'.repeat(501) }, 'reason', 'length'],
   ])('%j ⇒ 400 {field:%s, rule:%s}', (body, field, rule) => {
     expect(details(() => parseRejectItemsBody(body))).toMatchObject({ field, rule });
   });
   it('200 ids y motivo de 3 y de 500 (los bordes) pasan', () => {
     const ids = Array.from({ length: 200 }, (_, i) => `i${i}`);
-    expect(parseRejectItemsBody({ itemIds: ids, reason: 'abc' }).itemIds).toHaveLength(200);
-    expect(parseRejectItemsBody({ itemIds: ['a'], reason: 'x'.repeat(500) }).reason).toHaveLength(500);
+    expect(parseRejectItemsBody({ itemIds: ids, reason: 'abc', reasonCode: 'other' }).itemIds).toHaveLength(200);
+    expect(parseRejectItemsBody({ itemIds: ['a'], reason: 'x'.repeat(500), reasonCode: 'other' }).reason).toHaveLength(500);
   });
 });
 

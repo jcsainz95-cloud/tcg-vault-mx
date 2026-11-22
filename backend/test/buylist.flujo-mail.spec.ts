@@ -1,0 +1,212 @@
+/**
+ * §BUYLIST-FLUJO F2 — correos C1 («Tus cartas te esperan») y C2 («No llegó»), es/en. Datos ficticios.
+ * Candados: el texto del contrato (anexo §4), sin recoger/plazos en C2, direccion de la tienda solo si existe, y ⛔ ni CLABE ni
+ * domicilio del vendedor en ninguno de los dos.
+ */
+import {
+  remainingDaysOf,
+  sellItemNotReceivedTemplate,
+  sellItemRevisionCancelledTemplate,
+  sellItemRevisionTemplate,
+  sellItemsPickupTemplate,
+  PickupCardLine,
+} from '../src/modules/buylist/buylist-flujo-mail.templates';
+
+const CARD = { cardName: 'Charizard', setName: 'Base Set', cardNumber: '4/102', finish: 'holofoil' as const };
+const R = new Date('2026-11-23T12:00:00Z');
+const base = {
+  folio: 'SR-FICTICIO-1',
+  storeAddress: 'Verapaz 123, Pedregal, CP 14210, Tlalpan, Ciudad de México',
+  portalUrl: 'https://tienda.ejemplo.test/es/buylist/requests/SR-FICTICIO-1',
+  returnDeadlineAt: new Date(R.getTime() + 7 * 864e5),
+  abandonDeadlineAt: new Date(R.getTime() + 30 * 864e5),
+  responseDays: 7,
+  requestClosed: false,
+};
+const line = (o: Partial<PickupCardLine>): PickupCardLine => ({ ...CARD, cause: 'other', note: 'nota del dueño', ...o });
+
+describe('C1 sellItemsPickupTemplate', () => {
+  it('es: causa por linea + bloque recoger con direccion, enlace y las dos fechas', () => {
+    const m = sellItemsPickupTemplate(
+      {
+        ...base,
+        cards: [
+          line({ cause: 'condition_mismatch', declaredCondition: 'NM' }),
+          line({ cause: 'wrong_card', note: 'un Blastoise' }),
+          line({ cause: 'other', note: 'viene con otro idioma' }),
+          line({ cause: 'revision_declined', proposedCents: 45000, offeredCents: 60000 }),
+          line({ cause: 'revision_expired', proposedCents: 45000, offeredCents: 60000 }),
+        ],
+      },
+      'Ash',
+      'es',
+    );
+    expect(m.subject).toBe('Tus 5 cartas te esperan');
+    for (const t of [
+      'llegó en una condición distinta a la que declaraste (NM), por eso no la incluimos en el pago.',
+      'En lugar de Charizard (Base Set · #4/102) venía otra carta (un Blastoise), por eso no la incluimos en el pago.',
+      'Charizard (Base Set · #4/102): viene con otro idioma',
+      'No llegamos a un acuerdo en el precio de Charizard (Base Set · #4/102) (nuestra propuesta: $450.00; tu oferta original: $600.00).',
+      'No recibimos tu respuesta a la propuesta de $450.00 por Charizard (Base Set · #4/102) en 7 días, así que no la compramos.',
+      'Puedes pasar por ellas a Verapaz 123, Pedregal, CP 14210, Tlalpan, Ciudad de México sin costo (responde este correo y acordamos día y hora) o pedir que te las enviemos a tu cargo.',
+      'Elige aquí: https://tienda.ejemplo.test/es/buylist/requests/SR-FICTICIO-1.',
+    ]) {
+      expect(m.text.replace(/ /g, ' ')).toContain(t);
+    }
+    expect(m.text).toMatch(/Tienes hasta el .* para elegir y hasta el .* para recogerlas; pasada esa fecha se consideran abandonadas\./);
+    expect(m.html).toContain('Verapaz 123');
+  });
+
+  it('sin direccion de la tienda: «te confirmaremos la dirección al responder»; sin enlace: «Elige respondiendo este correo»', () => {
+    const m = sellItemsPickupTemplate({ ...base, storeAddress: null, portalUrl: undefined, cards: [line({})] }, 'Ash', 'es');
+    expect(m.text).toContain('te confirmaremos la dirección al responder');
+    expect(m.text).toContain('Elige respondiendo este correo.');
+    expect(m.text).not.toContain('Elige aquí');
+    expect(m.subject).toBe('Tu carta te espera');
+  });
+
+  it('en: ingles completo y solicitud cerrada dice que no hay pago', () => {
+    const m = sellItemsPickupTemplate({ ...base, requestClosed: true, cards: [line({ cause: 'wrong_card', note: null })] }, 'Ash', 'en');
+    expect(m.subject).toBe('Your card is waiting for you');
+    expect(m.text).toContain('at no cost (reply to this email');
+    expect(m.text).toContain('your request is closed and there is no payment');
+    expect(m.text).not.toMatch(/Hola|Puedes pasar/);
+  });
+
+  it('⛔ nunca la CLABE ni el domicilio del vendedor', () => {
+    const m = sellItemsPickupTemplate({ ...base, cards: [line({})] }, 'Ash', 'es');
+    expect(m.text + m.html).not.toMatch(/\b\d{18}\b/);
+  });
+});
+
+describe('C2 sellItemNotReceivedTemplate', () => {
+  it('asunto en plural con 2+ cartas (es y en); singular con una', () => {
+    const base = { folio: 'SR-1', card: CARD, requestClosed: false, hasShippingFee: false };
+    const two = { ...base, cards: [CARD, CARD] };
+    expect(sellItemNotReceivedTemplate(two, 'Ash', 'es').subject).toBe('Unas cartas de tu solicitud de venta no llegaron');
+    expect(sellItemNotReceivedTemplate(two, 'Ash', 'en').subject).toBe('Some cards in your sell request did not arrive');
+    expect(sellItemNotReceivedTemplate({ ...base, cards: [CARD] }, 'Ash', 'en').subject).toBe('A card in your sell request did not arrive');
+  });
+  it('es: texto del contrato; SIN plazos ni recoger ni promesa de devolucion', () => {
+    const m = sellItemNotReceivedTemplate({ folio: 'SR-1', card: CARD, requestClosed: false, hasShippingFee: true }, 'Ash', 'es');
+    expect(m.subject).toBe('Una carta de tu solicitud de venta no llegó');
+    expect(m.text).toContain('Revisamos tu paquete (solicitud SR-1) y Charizard (Base Set · #4/102) no venía dentro.');
+    expect(m.text).toContain('No la incluimos en el pago: se te deposita el resto, menos el envío que aceptaste.');
+    expect(m.text).toContain('Como no la recibimos, no tenemos nada que devolverte.');
+    expect(m.text).toContain('Si crees que sí la mandaste, responde este correo con tu guía.');
+    expect(m.text).not.toMatch(/recog|pasar por|abandon|hasta el|plazo|devolución/i);
+  });
+
+  it('sin envio anunciado no promete un descuento; cerrada => no hay pago; en => ingles', () => {
+    expect(sellItemNotReceivedTemplate({ folio: 'SR-1', card: CARD, requestClosed: false, hasShippingFee: false }, 'Ash', 'es').text).not.toContain('menos el envío');
+    expect(sellItemNotReceivedTemplate({ folio: 'SR-1', card: CARD, requestClosed: true, hasShippingFee: true }, 'Ash', 'es').text).toContain('no hay pago');
+    const en = sellItemNotReceivedTemplate({ folio: 'SR-1', card: CARD, requestClosed: false, hasShippingFee: true }, 'Ash', 'en');
+    expect(en.text).toContain('was not inside');
+    expect(en.text).toContain('we have nothing to return to you');
+  });
+});
+
+describe('C3/C4 sellItemRevisionTemplate', () => {
+  const p = {
+    folio: 'SR-1',
+    card: CARD,
+    offeredCents: 60000,
+    proposedCents: 45000,
+    cause: 'condition_mismatch' as const,
+    declaredCondition: 'NM',
+    note: null,
+    expiresAt: new Date('2026-11-30T18:00:00Z'),
+    responseDays: 7,
+    portalUrl: 'https://tienda.ejemplo.test/es/buylist/requests/SR-1',
+    reminder: false,
+  };
+  it('C3 es: carta, precio original y propuesto, causa, vence en 7 dias, nunca paga menos sin «si», botones al portal', () => {
+    const m = sellItemRevisionTemplate(p, 'Ash', 'es');
+    expect(m.subject).toBe('Te proponemos un nuevo precio por una carta de tu solicitud');
+    expect(m.text).toContain('Charizard (Base Set · #4/102)');
+    expect(m.text).toContain('Precio original de tu oferta: $600.00');
+    expect(m.text).toContain('Precio que te proponemos: $450.00');
+    expect(m.text).toContain('Llegó en una condición distinta a la que declaraste (NM).');
+    expect(m.text).toContain('Tienes 7 días');
+    expect(m.text).toContain('nunca pagamos un precio menor sin tu «sí»');
+    expect(m.text).toContain('no compraremos esta carta y quedará lista para que la recojas');
+    expect(m.html).toContain('ACEPTAR EL NUEVO PRECIO');
+    expect(m.html).toContain('RECHAZAR');
+    expect(m.html).toContain(p.portalUrl);
+  });
+  it('C4 es el recordatorio del mismo pedido; en => ingles; sin enlace no inventa uno', () => {
+    expect(sellItemRevisionTemplate({ ...p, reminder: true }, 'Ash', 'es').subject).toBe(
+      'Recordatorio: tu respuesta sobre el nuevo precio de una carta vence pronto',
+    );
+    const en = sellItemRevisionTemplate({ ...p, reminder: true, portalUrl: undefined }, 'Ash', 'en');
+    expect(en.text).toContain('Original offer price: MX$600.00');
+    expect(en.text).toContain('Answer from your sell request in your account.');
+    expect(en.html).not.toContain('href=');
+    expect(en.text).not.toMatch(/Hola|Tienes/);
+  });
+  it('other: usa la nota del dueño; ⛔ ni CLABE ni domicilio', () => {
+    const m = sellItemRevisionTemplate({ ...p, cause: 'other', note: 'viene con la esquina doblada' }, 'Ash', 'es');
+    expect(m.text).toContain('viene con la esquina doblada');
+    expect(m.text + m.html).not.toMatch(/\b\d{18}\b/);
+  });
+});
+
+describe('cierre F2 — C3 «p.m..», C4 tiempo real, C5, C2 de varias cartas', () => {
+  const p = {
+    folio: 'SR-1',
+    card: CARD,
+    offeredCents: 60000,
+    proposedCents: 45000,
+    cause: 'condition_mismatch' as const,
+    note: null,
+    // 18:00 UTC = 12:00 p.m. en CDMX (UTC-6): el formato es-MX termina en «p.m.».
+    expiresAt: new Date('2026-11-30T18:00:00Z'),
+    responseDays: 7,
+    portalUrl: 'https://tienda.ejemplo.test/es/buylist/requests/SR-1',
+    reminder: false,
+  };
+  it('C3 es: ningun «..» doble (la hora termina en «p.m.» y el punto no se duplica); en: tampoco', () => {
+    const es = sellItemRevisionTemplate({ ...p, expiresAt: new Date('2026-11-30T21:30:00Z') }, 'Ash', 'es');
+    expect(es.text).toMatch(/p\.m\./);
+    expect(es.text).not.toMatch(/\.\./);
+    expect(es.html).not.toMatch(/p\.m\.\./);
+    expect(sellItemRevisionTemplate({ ...p, expiresAt: new Date('2026-11-30T21:30:00Z') }, 'Ash', 'en').text).not.toMatch(/\.\./);
+  });
+  it('remainingDaysOf: dias hacia arriba; < 24 h => 0', () => {
+    const now = new Date('2026-11-23T12:00:00Z');
+    const at = (ms: number) => new Date(now.getTime() + ms);
+    expect(remainingDaysOf(at(20 * 3600e3), now)).toBe(0);
+    expect(remainingDaysOf(at(86_400_000 - 1), now)).toBe(0);
+    expect(remainingDaysOf(at(86_400_000), now)).toBe(1);
+    expect(remainingDaysOf(at(86_400_000 + 1), now)).toBe(2);
+    expect(remainingDaysOf(at(2.5 * 86_400_000), now)).toBe(3);
+    expect(remainingDaysOf(at(-5), now)).toBe(0);
+  });
+  it('C4 usa el tiempo REAL: «Te quedan 3 días» / «Te queda 1 día» / «menos de 24 horas»; ⛔ nunca «Tienes 7 días»', () => {
+    const c4 = (remainingDays: number, l: string) => sellItemRevisionTemplate({ ...p, reminder: true, remainingDays }, 'Ash', l).text;
+    expect(c4(3, 'es')).toContain('Te quedan 3 días: hasta el');
+    expect(c4(1, 'es')).toContain('Te queda 1 día: hasta el');
+    expect(c4(0, 'es')).toContain('Te quedan menos de 24 horas: hasta el');
+    expect(c4(0, 'en')).toContain('You have less than 24 hours left: until');
+    expect(c4(3, 'en')).toContain('You have 3 days left: until');
+    for (const n of [0, 1, 3]) expect(c4(n, 'es')).not.toContain('Tienes 7 días');
+    // C3 (no recordatorio) conserva los 7 dias.
+    expect(sellItemRevisionTemplate(p, 'Ash', 'es').text).toContain('Tienes 7 días');
+  });
+  it('C5 es/en: retiramos la propuesta, se paga el precio ORIGINAL de esa linea, sin plazos ni botones de decision, sin CLABE', () => {
+    const es = sellItemRevisionCancelledTemplate({ folio: 'SR-1', card: CARD, offeredCents: 60000, portalUrl: p.portalUrl }, 'Ash', 'es');
+    expect(es.subject).toBe('Retiramos la propuesta de nuevo precio de una carta');
+    expect(es.text).toContain('Retiramos la propuesta de nuevo precio por Charizard (Base Set · #4/102)');
+    expect(es.text).toContain('Se paga tu precio original: $600.00');
+    expect(es.text).not.toMatch(/Tienes|plazo|ACEPTAR|CLABE/i);
+    const en = sellItemRevisionCancelledTemplate({ folio: 'SR-1', card: CARD, offeredCents: 60000 }, 'Ash', 'en');
+    expect(en.subject).toBe('We withdrew the new price proposal for a card');
+    expect(en.text).toContain('We will pay your original offer price: MX$600.00');
+  });
+  it('C2 con varias cartas: UN correo que las nombra a todas, sin recoger ni plazos', () => {
+    const c2 = { cardName: 'Blastoise', setName: 'Base Set', cardNumber: '2/102', finish: 'holofoil' as const };
+    const m = sellItemNotReceivedTemplate({ folio: 'SR-1', card: CARD, cards: [CARD, c2], requestClosed: false, hasShippingFee: true }, 'Ash', 'es');
+    expect(m.text).toContain('Charizard (Base Set · #4/102); Blastoise (Base Set · #2/102) no venían dentro');
+    expect(m.text).not.toMatch(/recoger|esperan|plazo/i);
+  });
+});

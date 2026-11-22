@@ -15,14 +15,13 @@ import {
   rejectBuylistItems,
   convertBuylistItemToInventory,
   revealBuylistClabe,
-  paySpeiBuylist,
 } from '@/lib/api';
 import { useRole } from '@/lib/role';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/cn';
 import type { AppLocale } from '@/i18n/routing';
-import type { AdminBuylistDTO, SellItemDTO, SellRequestStatus } from '@/types/contract';
+import type { AdminBuylistDTO, BuylistRejectReasonCode, SellItemDTO, SellRequestStatus } from '@/types/contract';
 import { formatMoneyCents, formatDate } from '@/lib/format';
 import { Badge } from '@/components/ui/Badge';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -31,6 +30,24 @@ import { BuylistDecisionDesk } from './BuylistDecisionDesk';
 import { AcceptedRequestPanel } from './AcceptedRequestPanel';
 import { GuideDueTag } from './GuideDueMark';
 import { BuylistCycleQueues } from './BuylistCycleQueues';
+import {
+  PayoutBar,
+  PaymentReceipt,
+  ReadonlyMesa,
+  RequestRibbon,
+  ReviewLineFacts,
+  ReviewPhoto,
+  ShipmentReceipt,
+  SpeiPayModal,
+} from './BuylistFlowParts';
+import {
+  ConvertAllButton,
+  PickupLine,
+  RejectPanel,
+  RevisePricePanel,
+  ReviewItemActions,
+  type ReviewPanelState,
+} from './BuylistReviewActions';
 import { Button } from '@/components/ui/Button';
 import { Banner } from '@/components/ui/Banner';
 import { Input } from '@/components/ui/Input';
@@ -187,6 +204,7 @@ function sellerLabel(req: Pick<AdminBuylistDTO, 'userId' | 'seller'>): string {
 
 /** Estados terminales de item: ya no admiten decisión. */
 const ITEM_TERMINAL = new Set(['pagada', 'convertida_inventario']);
+const BULK_CAUSES: BuylistRejectReasonCode[] = ['condition_mismatch', 'wrong_card', 'not_received', 'other'];
 
 /** Diálogo de rechazo múltiple (§60.5 c): más de 6 cartas ⇒ las 6 primeras + «y {r} más» desplegable. */
 const BULK_VISIBLE = 6;
@@ -209,6 +227,7 @@ export function isBulkRejectable(reqStatus: SellRequestStatus, it: SellItemDTO):
     it.offerDecision !== 'skip' &&
     !ITEM_TERMINAL.has(it.itemStatus) &&
     it.itemStatus !== 'rechazada'
+    // `ajustada` SÍ (con o sin baja pendiente): rechazarla cancela la baja (anexo §3.2, DECISIONES.12).
   );
 }
 
@@ -216,6 +235,8 @@ export function M5View() {
   const t = useTranslations('admin.m5');
   const tModules = useTranslations('admin.modules'); // §37.2: h1 = rótulo del menú
   const tDesk = useTranslations('admin.m5.desk');
+  const tf2 = useTranslations('admin.m5.flow.f2');
+  const tCauses = useTranslations('admin.m5.flow.f2.rejectPanel.causes');
   const tm = useTranslations('admin');
   const tc = useTranslations('common');
   const te = useTranslations('error');
@@ -321,24 +342,22 @@ export function M5View() {
   const [adjustError, setAdjustError] = useState<string | null>(null);
   const adjustCents = pesosToCents(adjustPrice);
 
-  // Rechazo con motivo obligatorio (v1.18): mini-diálogo antes de enviar la decisión.
-  const [rejectTarget, setRejectTarget] = useState<{ requestId: string; item: SellItemDTO } | null>(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [rejectError, setRejectError] = useState<string | null>(null);
-  const rejectReasonTrimmed = rejectReason.trim();
-  const rejectReasonValid =
-    rejectReasonTrimmed.length >= REJECT_REASON_MIN && rejectReasonTrimmed.length <= REJECT_REASON_MAX;
+  // §BUYLIST-FLUJO F2: el panel abierto en la fila (Bajar precio / No aceptar / No llegó); uno a la vez.
+  const [reviewPanel, setReviewPanel] = useState<ReviewPanelState | null>(null);
 
   // --- Rechazo de VARIAS cartas con un motivo y UN correo (§60.5 c · contrato v1.82 §PNL.4) ---
   const [bulkSelected, setBulkSelected] = useState<Record<string, string[]>>({});
   const [bulkTarget, setBulkTarget] = useState<{ requestId: string; itemIds: string[] } | null>(null);
   const [bulkReason, setBulkReason] = useState('');
+  const [bulkCause, setBulkCause] = useState<BuylistRejectReasonCode | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkReasonError, setBulkReasonError] = useState<string | null>(null);
   /** Cartas que el servidor dijo NO COMPRADAS en un `422 ITEM_NOT_OFFERED` (se marcan en su fila). */
   const [notOfferedIds, setNotOfferedIds] = useState<Set<string>>(new Set());
   const bulkReasonTrimmed = bulkReason.trim();
-  const bulkReasonValid = bulkReasonTrimmed.length >= REJECT_REASON_MIN && bulkReasonTrimmed.length <= REJECT_REASON_MAX;
+  const bulkTextOk = bulkReasonTrimmed.length >= REJECT_REASON_MIN && bulkReasonTrimmed.length <= REJECT_REASON_MAX;
+  // Causa obligatoria; el detalle solo es obligatorio con «Otra razón» (anexo §3.2).
+  const bulkReasonValid = bulkCause != null && (bulkCause === 'other' ? bulkTextOk : bulkReasonTrimmed === '' || bulkTextOk);
   const bulkReasonRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (bulkTarget) setTimeout(() => bulkReasonRef.current?.focus(), 0);
@@ -353,18 +372,24 @@ export function M5View() {
   function openBulk(requestId: string, itemIds: string[]) {
     setBulkTarget({ requestId, itemIds });
     setBulkReason('');
+    setBulkCause(null);
     setBulkError(null);
     setBulkReasonError(null);
   }
   function closeBulk() {
     setBulkTarget(null);
     setBulkReason('');
+    setBulkCause(null);
     setBulkError(null);
     setBulkReasonError(null);
   }
   const bulkMutation = useMutation({
-    mutationFn: (vars: { requestId: string; itemIds: string[]; reason: string }) =>
-      rejectBuylistItems(vars.requestId, { itemIds: vars.itemIds, reason: vars.reason }),
+    mutationFn: (vars: { requestId: string; itemIds: string[]; reasonCode: BuylistRejectReasonCode; reason: string }) =>
+      rejectBuylistItems(vars.requestId, {
+        itemIds: vars.itemIds,
+        reasonCode: vars.reasonCode,
+        ...(vars.reason ? { reason: vars.reason } : {}),
+      }),
     onSuccess: async (res, vars) => {
       const k = vars.itemIds.length;
       closeBulk();
@@ -405,6 +430,10 @@ export function M5View() {
         setBulkError(t('bulkReject.error.notFound'));
         return;
       }
+      if (err?.status === 400 && err.details?.field === 'reasonCode') {
+        setBulkError(t('bulkReject.error.reasonCode'));
+        return;
+      }
       if (err?.status === 400 && err.code === 'VALIDATION_ERROR' && err.details?.field !== 'itemIds') {
         setBulkReasonError(t('rejectReasonInvalid'));
         return;
@@ -417,30 +446,17 @@ export function M5View() {
     mutationFn: (vars: {
       requestId: string;
       itemId: string;
-      decision: 'approve' | 'adjust' | 'reject';
+      // El rechazo (siempre con `reasonCode`) vive en `RejectPanel` (§BUYLIST-FLUJO F2b), no aquí.
+      decision: 'approve' | 'adjust';
       approvedPriceCents?: number;
-      reason?: string;
-    }) =>
-      decideBuylistItem(
-        vars.itemId,
-        vars.decision === 'reject'
-          ? { decision: 'reject', reason: vars.reason }
-          : { decision: vars.decision, approvedPriceCents: vars.approvedPriceCents },
-      ),
+    }) => decideBuylistItem(vars.itemId, { decision: vars.decision, approvedPriceCents: vars.approvedPriceCents }),
     onSuccess: (_d, vars) => {
       if (vars.decision === 'adjust') closeAdjust();
-      if (vars.decision === 'reject') {
-        closeReject();
-        // La carta rechazada aparece en la pestaña transversal «Piezas rechazadas».
-        void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
-      }
       ok(
         vars.requestId,
         vars.decision === 'approve'
           ? t('feedback.approved')
-          : vars.decision === 'adjust'
-            ? t('feedback.adjusted')
-            : t('feedback.rejected'),
+          : t('feedback.adjusted'),
       );
     },
     onError: (e, vars) => {
@@ -451,7 +467,6 @@ export function M5View() {
       const err = asApiError(e);
       if (err?.status === 409 && err.code === 'CONFLICT' && err.details?.reason === 'ITEM_FINAL') {
         if (vars.decision === 'adjust') closeAdjust();
-        if (vars.decision === 'reject') closeReject();
         refresh();
         const itemStatus = err.details.itemStatus;
         setFeedback({
@@ -467,7 +482,6 @@ export function M5View() {
       // El ajuste/rechazo muestran el error DENTRO de su modal (p. ej. 422
       // APPROVED_PRICE_CAP_EXCEEDED o el 400 VALIDATION_ERROR del motivo).
       if (vars.decision === 'adjust') setAdjustError(getError(e));
-      else if (vars.decision === 'reject') setRejectError(getError(e));
       else fail(vars.requestId, e);
     },
   });
@@ -481,17 +495,6 @@ export function M5View() {
     setAdjustTarget(null);
     setAdjustPrice('');
     setAdjustError(null);
-  }
-
-  function openReject(requestId: string, item: SellItemDTO) {
-    setRejectTarget({ requestId, item });
-    setRejectReason('');
-    setRejectError(null);
-  }
-  function closeReject() {
-    setRejectTarget(null);
-    setRejectReason('');
-    setRejectError(null);
   }
 
   // --- Cierre explícito de la solicitud (contrato §M5 · POST /admin/buylist/:id/reject, v1.24) ---
@@ -598,30 +601,13 @@ export function M5View() {
     onError: (e, id) => fail(id, e),
   });
 
-  // --- Pago SPEI (contrato POST .../pay-spei · super_admin, money-out) ---
+  // --- Pago SPEI (§BUYLIST-FLUJO F1a): el modal de un paso vive en `SpeiPayModal` (referencia, CLABE, 409/422) ---
   const [payTarget, setPayTarget] = useState<string | null>(null);
-  const [speiReference, setSpeiReference] = useState('');
-  const [payError, setPayError] = useState<string | null>(null);
-  const payMutation = useMutation({
-    mutationFn: (vars: { requestId: string; speiReference: string }) =>
-      paySpeiBuylist(vars.requestId, vars.speiReference),
-    onSuccess: (_d, vars) => {
-      closePay();
-      // Higiene: al registrar el pago se descarta cualquier CLABE revelada en pantalla.
-      setRevealed(null);
-      ok(vars.requestId, t('feedback.paid'));
-    },
-    onError: (e) => setPayError(getError(e)),
-  });
   function openPay(requestId: string) {
     setPayTarget(requestId);
-    setSpeiReference('');
-    setPayError(null);
   }
   function closePay() {
     setPayTarget(null);
-    setSpeiReference('');
-    setPayError(null);
   }
 
   // --- Pestañas por etapa + buscador (folio/vendedor) ---
@@ -776,7 +762,7 @@ export function M5View() {
       {/* Las CUATRO colas del ciclo (§23.8). Son vistas con ACCIÓN PROPIA y por eso viven fuera de
           las pestañas de etapa: éstas particionan `SellRequestStatus`, aquéllas contestan un
           pendiente NUESTRO que, si nadie mira, cuesta dinero o cuesta una venta. */}
-      <BuylistCycleQueues isSuperAdmin={isSuperAdmin} />
+      <BuylistCycleQueues isSuperAdmin={isSuperAdmin} onOpenRequest={jumpToRequest} />
 
       {/* Pestañas por etapa: cada operativa muestra el conteo de solicitudes en esa etapa.
           «Cerradas» (v1.25) y «Piezas rechazadas» (v1.18) son transversales, server-side paginadas; su
@@ -906,6 +892,16 @@ export function M5View() {
                         ) : (
                           <p className="text-xs text-muted">{t('rejected.noDeadlines')}</p>
                         )}
+                        <PickupLine
+                          itemId={row.id}
+                          cardName={row.card.name}
+                          pickup={row.pickup}
+                          onDone={(msg) => {
+                            void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
+                            ok(row.sellRequestId, msg);
+                          }}
+                          onError={(e) => fail(row.sellRequestId, e)}
+                        />
                       </div>
                     );
                   })}
@@ -1037,6 +1033,18 @@ export function M5View() {
                             </span>
                           )}
                         </div>
+                      </div>
+                      {/* §BUYLIST-FLUJO F1: comprobante de pago SPEI (referencia · fecha · neto), del servidor. */}
+                      <PaymentReceipt req={req} />
+                      <div className="flex justify-end">
+                        <ConvertAllButton
+                          req={req}
+                          onDone={(msg) => {
+                            void qc.invalidateQueries({ queryKey: ['admin-buylist-closed'] });
+                            refresh();
+                            ok(req.id, msg);
+                          }}
+                        />
                       </div>
                       {/* Resumen de los ítems. IMP-B: la solicitud cerrada/pagada es terminal a
                           NIVEL SOLICITUD, pero un ítem `aprobada` y NO convertido sigue siendo
@@ -1170,11 +1178,26 @@ export function M5View() {
           // §27.1.4: *«un botón apagado sin motivo visible es un callejón»* — el motivo se pinta
           // debajo y el botón lo REFERENCIA, para que el lector de pantalla lo anuncie con él.
           const pendingDecisionsId = `pay-pending-${req.id}`;
+          const payButton = (
+            <Button
+              variant="accent"
+              size="sm"
+              disabled={!canPay || req.status === 'pagada'}
+              title={!isSuperAdmin ? tm('masked') : pendingDecisionsNote}
+              aria-describedby={pendingDecisionsNote ? pendingDecisionsId : undefined}
+              onClick={() => openPay(req.id)}
+            >
+              {t('paySpei')}
+            </Button>
+          );
           // Solo se muestran las acciones de la ETAPA actual de la solicitud:
           //  - decidir carta (aprobar/ajustar/rechazar) solo tras recibir/verificar;
           //  - revelar CLABE / pagar SPEI solo en verificación o por-pagar.
           const canDecide = req.status === 'recibida' || req.status === 'verificacion';
           const showMoneyOut = req.status === 'verificacion' || req.status === 'aprobada';
+          // §BUYLIST-FLUJO F1b: revisión física (diseño A) = filas con foto ampliable, PACTADO y mercado de hoy.
+          const reviewMode = canDecide || showMoneyOut;
+          const payBar = showMoneyOut && req.payout != null;
           // «Rechazar solicitud» (v1.24): cierre explícito del hueco de estado (bug P-4). Desde v1.82.3
           // (contrato §PNL.12.3) la precondición la DERIVA EL SERVIDOR: `isRejectable = isTerminal === false ∧
           // Regla C` (las líneas `skip` no cuentan). Aquí vivía `allItemsRejected`, la copia local de la regla
@@ -1223,6 +1246,14 @@ export function M5View() {
               </div>
 
               <PipelineStepper steps={steps} current={req.status} />
+
+              {/* §BUYLIST-FLUJO F1c: cinta de estado (ofertado neto · vence · rastreo · lleva N días), todo del servidor. */}
+              <RequestRibbon req={req} />
+              {/* §BUYLIST-FLUJO F1b: comprobante de envío una vez recibida; de pago, en `pagada`. */}
+              {(req.status === 'recibida' || req.status === 'verificacion' || req.status === 'aprobada' || req.status === 'pagada') && (
+                <ShipmentReceipt req={req} />
+              )}
+              {req.status === 'pagada' && <PaymentReceipt req={req} />}
 
               {/* Acciones a nivel solicitud: recepción física, verificación y cierre explícito */}
               <div className="flex flex-wrap gap-2">
@@ -1300,6 +1331,14 @@ export function M5View() {
                   onClose={() => setDeskFor(null)}
                   // §60.5 d: «Declinar» DENTRO de la mesa abre el MISMO diálogo y verbo que el de la fila.
                   onDecline={req.status === 'cotizada' && req.isTerminal === false ? () => openCloseAction('decline', req.id) : undefined}
+                />
+              )}
+
+              {/* §BUYLIST-FLUJO F1c: tras emitir la oferta, la mesa queda en SOLO LECTURA y plegable (lo pactado al ofertar). */}
+              {req.status !== 'cotizada' && req.offerNet != null && (
+                <ReadonlyMesa
+                  requestId={req.id}
+                  defaultOpen={req.status === 'ofertada' || req.status === 'aceptada' || req.status === 'en_transito'}
                 />
               )}
 
@@ -1406,7 +1445,11 @@ export function M5View() {
                     <>
                       {/* Imagen de catálogo por ítem: único referente visual para verificar
                           la carta física contra la que llegó a la bóveda. */}
-                      <CardImage src={it.card.imageSmallUrl} alt={it.card.name} className="w-10 shrink-0" />
+                      {reviewMode ? (
+                        <ReviewPhoto item={it} />
+                      ) : (
+                        <CardImage src={it.card.imageSmallUrl} alt={it.card.name} className="w-10 shrink-0" />
+                      )}
                       <span className="text-sm font-medium" lang="en">
                         {it.card.name}
                       </span>
@@ -1438,14 +1481,21 @@ export function M5View() {
                           cardBlock
                         )}
                         <FinishBadge finish={it.finish} productType={it.productType} />
-                        {/* Ítem rechazado: cotización tachada — NO suma en el total aprobado. */}
-                        <span className={cn('tabular text-xs text-muted', isRejected && 'line-through')}>
-                          {(it.quotedPriceCents != null ? formatMoneyCents(it.quotedPriceCents, locale) : '—')}
-                        </span>
-                        {it.approvedPriceCents != null && (
-                          <span className="tabular text-xs text-success">
-                            {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}
-                          </span>
+                        {reviewMode && !notBought ? (
+                          /* F1b: el PACTADO (lo ofertado, o la baja aceptada), no el cotizado; mercado de hoy con chip ±%. */
+                          <ReviewLineFacts requestId={req.id} item={it} />
+                        ) : (
+                          <>
+                            {/* Ítem rechazado: cotización tachada — NO suma en el total aprobado. */}
+                            <span className={cn('tabular text-xs text-muted', isRejected && 'line-through')}>
+                              {(it.quotedPriceCents != null ? formatMoneyCents(it.quotedPriceCents, locale) : '—')}
+                            </span>
+                            {it.approvedPriceCents != null && (
+                              <span className="tabular text-xs text-success">
+                                {t('approvedLabel')}: {formatMoneyCents(it.approvedPriceCents, locale)}
+                              </span>
+                            )}
+                          </>
                         )}
                         <StatusBadge domain="sellItem" value={it.itemStatus} />
                         {notBought && (
@@ -1458,40 +1508,40 @@ export function M5View() {
                             {t('rejectedOutOfTotal')}
                           </Badge>
                         )}
+                        {it.revision?.state === 'cancelled' && (
+                          <Badge tone="neutral" shape="outline">
+                            <span data-testid={`f2-retired-${it.id}`}>{tf2('status.retired')}</span>
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {canDecide && decidable && !notBought && (
                           <>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              loading={decisionPending && decisionMutation.variables?.decision === 'approve'}
-                              onClick={() =>
+                            {/* §BUYLIST-FLUJO F2 (diseño A): Aprobar al pactado · Bajar precio · No aceptar · No llegó, en la fila. */}
+                            <ReviewItemActions
+                              item={it}
+                              panel={reviewPanel}
+                              onPanel={setReviewPanel}
+                              approving={decisionPending && decisionMutation.variables?.decision === 'approve'}
+                              onApprove={() =>
                                 decisionMutation.mutate({ requestId: req.id, itemId: it.id, decision: 'approve' })
                               }
-                            >
-                              {t('approve')}
-                            </Button>
-                            {canAdjust && (
+                            />
+                            {canAdjust && it.revision?.state !== 'pending' && (
                               <Button size="sm" variant="ghost" onClick={() => openAdjust(req.id, it)}>
                                 {t('adjust')}
                               </Button>
                             )}
-                            {/* v1.18: el rechazo exige MOTIVO (3–500) → abre el mini-diálogo. */}
-                            <Button size="sm" variant="ghost" onClick={() => openReject(req.id, it)}>
-                              {t('reject')}
-                            </Button>
                           </>
                         )}
                         {/* Convertir a inventario: SOLO para aprobadas. Un ítem `rechazada`
                             (no-NM) NUNCA es convertible (contrato §M5, PROJECT criterio 16),
                             ni siquiera vencidos sus plazos: el botón no se ofrece. */}
-                        {it.itemStatus !== 'convertida_inventario' && !isRejected && (
+                        {/* §BUYLIST-FLUJO F1 (auditoría): el botón DESHABILITADO de «Por ofertar» se quitó; solo aparece cuando se puede usar. */}
+                        {it.itemStatus === 'aprobada' && !isRejected && (
                           <Button
                             size="sm"
                             variant="secondary"
-                            disabled={it.itemStatus !== 'aprobada'}
-                            title={it.itemStatus !== 'aprobada' ? t('convertNeedsApproval') : undefined}
                             loading={
                               convertMutation.isPending && convertMutation.variables?.itemId === it.id
                             }
@@ -1502,6 +1552,48 @@ export function M5View() {
                         )}
                       </div>
                     </div>
+                    {reviewPanel?.itemId === it.id && reviewPanel.kind === 'reduce' && (
+                      <RevisePricePanel
+                        req={req}
+                        item={it}
+                        getError={getError}
+                        onClose={() => setReviewPanel(null)}
+                        onDone={(msg) => {
+                          setReviewPanel(null);
+                          refresh();
+                          ok(req.id, msg);
+                        }}
+                      />
+                    )}
+                    {reviewPanel?.itemId === it.id && reviewPanel.kind !== 'reduce' && (
+                      <RejectPanel
+                        key={reviewPanel.kind}
+                        req={req}
+                        item={it}
+                        initialCause={reviewPanel.kind === 'not_received' ? 'not_received' : null}
+                        getError={getError}
+                        onClose={() => setReviewPanel(null)}
+                        onDone={(msg) => {
+                          setReviewPanel(null);
+                          void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
+                          refresh();
+                          ok(req.id, msg);
+                        }}
+                        onFinal={(err) => {
+                          setReviewPanel(null);
+                          refresh();
+                          const itemStatus = err.details?.itemStatus;
+                          setFeedback({
+                            requestId: req.id,
+                            kind: 'final',
+                            message:
+                              typeof itemStatus === 'string' && ITEM_TERMINAL.has(itemStatus)
+                                ? te('CONFLICT_ITEM_FINAL_WITH_DETAILS', { itemStatus })
+                                : te('CONFLICT_ITEM_FINAL'),
+                          });
+                        }}
+                      />
+                    )}
                     {notBought && (
                       <p className="pl-14 text-xs text-muted">{t('notBought.note')}</p>
                     )}
@@ -1528,9 +1620,36 @@ export function M5View() {
                         )}
                       </div>
                     )}
+                    {isRejected && (
+                      <div className="pl-14">
+                        <PickupLine
+                          itemId={it.id}
+                          cardName={it.card.name}
+                          pickup={it.pickup}
+                          onDone={(msg) => {
+                            void qc.invalidateQueries({ queryKey: ['admin-buylist-rejected'] });
+                            refresh();
+                            ok(req.id, msg);
+                          }}
+                          onError={(e) => fail(req.id, e)}
+                        />
+                      </div>
+                    )}
                     </div>
                   );
                 })}
+              </div>
+
+              {/* §BUYLIST-FLUJO F2a: «Convertir todas» (diálogo con ubicación y la lista de lo que se da de alta). */}
+              <div className="flex justify-end">
+                <ConvertAllButton
+                  req={req}
+                  onDone={(msg) => {
+                    void qc.invalidateQueries({ queryKey: ['admin-buylist-closed'] });
+                    refresh();
+                    ok(req.id, msg);
+                  }}
+                />
               </div>
 
               {/* CLABE revelada bajo demanda: solo esta solicitud, solo hasta ocultarla */}
@@ -1563,16 +1682,7 @@ export function M5View() {
                           {t('revealClabe')}
                         </Button>
                       )}
-                      <Button
-                        variant="accent"
-                        size="sm"
-                        disabled={!canPay || req.status === 'pagada'}
-                        title={!isSuperAdmin ? tm('masked') : pendingDecisionsNote}
-                        aria-describedby={pendingDecisionsNote ? pendingDecisionsId : undefined}
-                        onClick={() => openPay(req.id)}
-                      >
-                        {t('paySpei')}
-                      </Button>
+                      {!payBar && payButton}
                     </div>
                   </div>
                   {/* §M5-V.5 + §27.1.4: POR QUÉ está apagado, en texto secundario y bajo el botón. */}
@@ -1587,6 +1697,8 @@ export function M5View() {
               {req.status === 'pagada' && (
                 <p className="text-xs text-success">{t('paidNote')}</p>
               )}
+              {/* §BUYLIST-FLUJO F1b: barra fija Bruto − Envío = Se deposita (servidor); el pago sale de aquí. */}
+              {payBar && <PayoutBar req={req} pendingDecisions={pendingDecisions} action={payButton} />}
 
               {feedback?.requestId === req.id && feedback.kind === 'final' && (
                 <div ref={finalNoticeRef} tabIndex={-1} className="focus-visible:shadow-focus focus-visible:outline-none">
@@ -1633,6 +1745,7 @@ export function M5View() {
                 bulkMutation.mutate({
                   requestId: bulkTarget.requestId,
                   itemIds: Array.from(new Set(bulkTarget.itemIds)),
+                  reasonCode: bulkCause as BuylistRejectReasonCode,
                   reason: bulkReasonTrimmed,
                 })
               }
@@ -1658,8 +1771,14 @@ export function M5View() {
               </span>
               <FinishBadge finish={it.finish} productType={it.productType} />
               <span className="tabular font-mono text-[11px] text-muted">{it.id}</span>
+              {it.revision?.state === 'pending' && (
+                <span className="border border-accent px-2 py-0.5 text-xs text-accent" data-testid={`m5-bulk-cancels-${it.id}`}>
+                  {t('bulkReject.cancelsRow')}
+                </span>
+              )}
             </li>
           );
+          const cancelsCount = rows.filter((it) => it.revision?.state === 'pending').length;
           return (
             <div className="flex flex-col gap-3">
               <ul className="divide-y divide-border" data-testid="m5-bulk-list">
@@ -1673,14 +1792,47 @@ export function M5View() {
                   <ul className="divide-y divide-border">{rows.slice(BULK_VISIBLE).map(row)}</ul>
                 </details>
               )}
+              <fieldset>
+                <legend className="eyebrow mb-2">{t('bulkReject.causeLegend')}</legend>
+                <div className="flex flex-col border border-border-strong" data-testid="m5-bulk-causes">
+                  {BULK_CAUSES.map((c) => (
+                    <label
+                      key={c}
+                      className={cn(
+                        'flex min-h-[44px] cursor-pointer items-center gap-2 border-b border-border px-3 text-sm last:border-b-0 focus-within:shadow-focus',
+                        bulkCause === c ? 'bg-text text-bg' : 'bg-surface',
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="m5-bulk-cause"
+                        className="sr-only"
+                        checked={bulkCause === c}
+                        onChange={() => {
+                          setBulkCause(c);
+                          setBulkError(null);
+                        }}
+                        data-testid={`m5-bulk-cause-${c}`}
+                      />
+                      <span aria-hidden>{bulkCause === c ? '●' : '○'}</span>
+                      {tCauses(c)}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              {cancelsCount > 0 && (
+                <Banner variant="warning" role="status">
+                  <span data-testid="m5-bulk-cancels-notice">{t('bulkReject.cancelsNotice', { n: cancelsCount })}</span>
+                </Banner>
+              )}
               <Textarea
                 ref={bulkReasonRef}
-                label={t('bulkReject.reasonLabel')}
+                label={bulkCause === 'other' ? t('bulkReject.reasonLabel') : t('bulkReject.reasonOptional')}
                 hint={t('bulkReject.reasonHint')}
                 value={bulkReason}
                 maxLength={REJECT_REASON_MAX}
                 counter={{ max: REJECT_REASON_MAX }}
-                error={bulkReasonError ?? (bulkReason !== '' && !bulkReasonValid ? t('rejectReasonInvalid') : undefined)}
+                error={bulkReasonError ?? (bulkReason !== '' && !bulkTextOk ? t('rejectReasonInvalid') : undefined)}
                 onChange={(e) => {
                   setBulkReason(e.target.value);
                   setBulkReasonError(null);
@@ -1747,67 +1899,6 @@ export function M5View() {
           {rejectRequestError && (
             <Banner variant="danger" role="alert" title={tc('errorTitle')}>
               {rejectRequestError}
-            </Banner>
-          )}
-        </div>
-      </Modal>
-
-      {/* Modal de rechazo con motivo obligatorio (v1.18 · decision=reject + reason 3–500).
-          El motivo llega al vendedor por CORREO junto con sus plazos (aviso en el copy). */}
-      <Modal
-        open={!!rejectTarget}
-        onClose={closeReject}
-        title={t('rejectTitle')}
-        footer={
-          <>
-            <Button variant="secondary" onClick={closeReject}>
-              {tc('cancel')}
-            </Button>
-            <Button
-              variant="accent"
-              disabled={!rejectReasonValid}
-              loading={decisionMutation.isPending && decisionMutation.variables?.decision === 'reject'}
-              onClick={() =>
-                rejectTarget &&
-                rejectReasonValid &&
-                decisionMutation.mutate({
-                  requestId: rejectTarget.requestId,
-                  itemId: rejectTarget.item.id,
-                  decision: 'reject',
-                  reason: rejectReasonTrimmed,
-                })
-              }
-            >
-              {t('rejectConfirm')}
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          {rejectTarget && (
-            <p className="text-sm text-muted">
-              <span lang="en" className="font-medium text-text">{rejectTarget.item.card.name}</span>
-              {' · '}
-              {t('quoted')}:{' '}
-              <span className="tabular">
-                {(rejectTarget.item.quotedPriceCents != null ? formatMoneyCents(rejectTarget.item.quotedPriceCents, locale) : '—')}
-              </span>
-            </p>
-          )}
-          {/* Validación en cliente ANTES de enviar (espeja el 3–500 del backend). */}
-          <Input
-            label={t('rejectReasonLabel')}
-            hint={t('rejectReasonHint')}
-            error={rejectReason !== '' && !rejectReasonValid ? t('rejectReasonInvalid') : undefined}
-            type="text"
-            maxLength={REJECT_REASON_MAX}
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-          />
-          <p className="text-xs text-muted">{t('rejectNotifyNote')}</p>
-          {rejectError && (
-            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-              {rejectError}
             </Banner>
           )}
         </div>
@@ -1921,49 +2012,19 @@ export function M5View() {
         </div>
       </Modal>
 
-      {/* Modal de pago SPEI manual (referencia obligatoria; queda en bitácora) */}
-      <Modal
-        open={!!payTarget}
+      {/* §BUYLIST-FLUJO F1a · Modal SPEI en un paso. Manda SIEMPRE `expectedNetCents`; 409 ⇒ recarga y monto nuevo. */}
+      <SpeiPayModal
+        req={payTarget ? (all.find((r) => r.id === payTarget) ?? null) : null}
         onClose={closePay}
-        title={t('paySpeiTitle')}
-        footer={
-          <>
-            <Button variant="secondary" onClick={closePay}>
-              {tc('cancel')}
-            </Button>
-            <Button
-              variant="accent"
-              disabled={speiReference.trim() === ''}
-              loading={payMutation.isPending}
-              onClick={() =>
-                payTarget && payMutation.mutate({ requestId: payTarget, speiReference: speiReference.trim() })
-              }
-            >
-              {t('paySpeiConfirm')}
-            </Button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          {payTarget && (
-            <p className="text-sm text-muted">
-              <span className="tabular font-medium text-text">{payTarget}</span>
-            </p>
-          )}
-          <Input
-            label={t('speiReferenceLabel')}
-            type="text"
-            value={speiReference}
-            onChange={(e) => setSpeiReference(e.target.value)}
-          />
-          <p className="text-xs text-muted">{tm('moneyOutNote')}</p>
-          {payError && (
-            <Banner variant="danger" role="alert" title={tc('errorTitle')}>
-              {payError}
-            </Banner>
-          )}
-        </div>
-      </Modal>
+        onStale={refresh}
+        getError={getError}
+        onPaid={(requestId, paidNetCents) => {
+          closePay();
+          // Higiene: al registrar el pago se descarta cualquier CLABE revelada en pantalla.
+          setRevealed(null);
+          ok(requestId, t('feedback.paid', { amount: paidNetCents != null ? formatMoneyCents(paidNetCents, locale) : '—' }));
+        }}
+      />
     </div>
   );
 }

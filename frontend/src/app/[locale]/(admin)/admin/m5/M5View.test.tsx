@@ -8,6 +8,7 @@ import es from '../../../../../../messages/es.json';
 import en from '../../../../../../messages/en.json';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
+import { formatMoneyCents } from '@/lib/format';
 import type { AdminBuylistDTO, CardDTO } from '@/types/contract';
 // ⚠️ En estas pruebas el spy HACE DE SERVIDOR, y `isTerminal` es **server-derived** (v1.51).
 // Se proyecta con la MISMA función que usa el mock en vez de escribir el booleano a mano en
@@ -65,7 +66,10 @@ describe('M5View · Buylist admin end-to-end', () => {
     expect(screen.getByText('sr-3002')).toBeInTheDocument();
     // v1.6-finish: el acabado del ítem es visible (sri-1 = holofoil).
     expect(screen.getAllByText('Holofoil').length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('button', { name: 'Aprobar' }).length).toBeGreaterThan(0);
+    // §BUYLIST-FLUJO F2 (diseño A): las cuatro acciones por carta en la fila.
+    expect(screen.getAllByRole('button', { name: 'Aprobar al pactado' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /^No aceptar/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'No llegó' }).length).toBeGreaterThan(0);
   });
 
   it('el botón Verificar dispara POST /verify y muestra la confirmación', async () => {
@@ -169,7 +173,7 @@ describe('M5View · Buylist admin end-to-end', () => {
     });
     renderWithProviders(<M5View />, 'es');
     await openStage('Verificando');
-    const approveButtons = await screen.findAllByRole('button', { name: 'Aprobar' });
+    const approveButtons = await screen.findAllByRole('button', { name: 'Aprobar al pactado' });
     fireEvent.click(approveButtons[0]);
 
     await waitFor(() =>
@@ -210,71 +214,75 @@ describe('M5View · Buylist admin end-to-end', () => {
     expect(within(dialog).queryByText(/cotizado × 2/)).not.toBeInTheDocument();
   });
 
-  it('Rechazar abre el diálogo de motivo (obligatorio 3–500), envía reason y confirma (v1.18)', async () => {
-    const spy = vi.spyOn(api, 'decideBuylistItem').mockResolvedValue({
-      id: 'sri-1',
-      card: { id: 'c', externalId: 'c', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', setPtcgoCode: null, imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal'] },
-      productType: 'raw',
-      finish: 'holofoil',
-      itemStatus: 'rechazada',
-      rejectionReason: 'no es NM: esquina doblada',
-    });
+  const ITEM_STUB = {
+    id: 'sri-1',
+    card: { id: 'c', externalId: 'c', name: 'Charizard', number: '4', rarity: 'Rare Holo', supertype: 'Pokémon', subtypes: [], setId: 'base1', setName: 'Base Set', setPtcgoCode: null, imageSmallUrl: '', imageLargeUrl: '', availableFinishes: ['normal' as const] },
+    productType: 'raw' as const,
+    finish: 'holofoil' as const,
+    itemStatus: 'rechazada' as const,
+  };
+
+  it('No aceptar abre el selector de causas con la vista previa y envía reasonCode (F2b)', async () => {
+    const spy = vi.spyOn(api, 'decideBuylistItem').mockResolvedValue(ITEM_STUB);
     renderWithProviders(<M5View />, 'es');
     await openStage('Verificando');
-    const rejectButtons = await screen.findAllByRole('button', { name: 'Rechazar' });
-    fireEvent.click(rejectButtons[0]);
+    const buttons = await screen.findAllByRole('button', { name: /^No aceptar/ });
+    fireEvent.click(buttons[0]);
 
-    // El clic NO envía nada aún: exige el motivo en el mini-diálogo.
-    const dialog = await screen.findByRole('dialog', { name: 'Rechazar ítem' });
-    const confirm = within(dialog).getByRole('button', { name: 'Rechazar y notificar' });
-    expect(confirm).toBeDisabled();
+    // El clic NO envía nada: abre el selector, sin causa elegida el botón está apagado.
+    const panel = await screen.findByTestId('f2-panel-reject-sri-1');
+    const send = within(panel).getByTestId('f2-reject-send-sri-1');
+    expect(send).toBeDisabled();
     expect(spy).not.toHaveBeenCalled();
-    // Se avisa que el vendedor recibirá correo con motivo y plazos.
-    expect(within(dialog).getByText(/se notificará al vendedor por correo/)).toBeInTheDocument();
 
-    // Motivo demasiado corto → error de validación en cliente y confirm deshabilitado.
-    fireEvent.change(within(dialog).getByLabelText('Motivo del rechazo'), { target: { value: 'ab' } });
-    expect(within(dialog).getByText('El motivo debe tener entre 3 y 500 caracteres.')).toBeInTheDocument();
-    expect(confirm).toBeDisabled();
+    // Vista previa del texto que recibirá el vendedor, por causa.
+    fireEvent.click(within(panel).getByLabelText(/No llegó en el paquete/));
+    expect(within(panel).getByTestId('f2-reject-preview-sri-1').textContent).toContain('no venía dentro');
+    expect(within(panel).getByTestId('f2-reject-preview-sri-1').textContent).not.toContain('Tus cartas te esperan');
+    fireEvent.click(within(panel).getByLabelText(/Llegó en otra condición/));
+    expect(within(panel).getByTestId('f2-reject-preview-sri-1').textContent).toContain('Tus cartas te esperan');
 
-    fireEvent.change(within(dialog).getByLabelText('Motivo del rechazo'), {
-      target: { value: 'no es NM: esquina doblada' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Rechazar y notificar' }));
-
+    // «Otra razón» exige texto 3–500 y se envía como `reason`.
+    fireEvent.click(within(panel).getByLabelText(/Otra razón/));
+    expect(send).toBeDisabled();
+    fireEvent.change(within(panel).getByLabelText(/Motivo \(3 a 500/), { target: { value: 'esquina doblada' } });
+    fireEvent.click(send);
     await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith('sri-1', { decision: 'reject', reason: 'no es NM: esquina doblada' }),
+      expect(spy).toHaveBeenCalledWith('sri-1', { decision: 'reject', reasonCode: 'other', reason: 'esquina doblada' }),
     );
-    expect(await screen.findByText('Ítem rechazado.')).toBeInTheDocument();
+    expect(await screen.findByText(/no se aceptó; el vendedor recibe el correo/)).toBeInTheDocument();
   });
 
-  it('el 400 del server al rechazar se muestra DENTRO del diálogo de motivo', async () => {
-    vi.spyOn(api, 'decideBuylistItem').mockRejectedValue(
-      new ApiClientError(400, {
-        code: 'SOME_UNMAPPED_CODE',
-        message: 'reason is required for reject (3-500 chars)',
-      }),
-    );
+  it('«No llegó» abre el mismo panel con la causa not_received ya elegida (F2b)', async () => {
+    const spy = vi.spyOn(api, 'decideBuylistItem').mockResolvedValue(ITEM_STUB);
     renderWithProviders(<M5View />, 'es');
     await openStage('Verificando');
-    const rejectButtons = await screen.findAllByRole('button', { name: 'Rechazar' });
-    fireEvent.click(rejectButtons[0]);
-    const dialog = await screen.findByRole('dialog', { name: 'Rechazar ítem' });
-    fireEvent.change(within(dialog).getByLabelText('Motivo del rechazo'), {
-      target: { value: 'motivo válido' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Rechazar y notificar' }));
-
-    expect(
-      await within(dialog).findByText('reason is required for reject (3-500 chars)'),
-    ).toBeInTheDocument();
+    fireEvent.click((await screen.findAllByRole('button', { name: 'No llegó' }))[0]);
+    const panel = await screen.findByTestId('f2-panel-reject-sri-1');
+    expect(within(panel).getByText(/No se le ofrece recoger la carta/)).toBeInTheDocument();
+    fireEvent.click(within(panel).getByTestId('f2-reject-send-sri-1'));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('sri-1', { decision: 'reject', reasonCode: 'not_received' }));
   });
 
-  it('Convertir a inventario está deshabilitado si el ítem no está aprobado', async () => {
+  it.each([
+    [400, { code: 'VALIDATION_ERROR', message: 'x', details: { field: 'reasonCode' } }, 'Elige una causa.'],
+    [409, { code: 'REVISION_PENDING', message: 'x', details: { itemIds: ['sri-1'] } }, 'Esta carta tiene una baja esperando al vendedor.'],
+    [422, { code: 'REQUEST_NOT_RECEIVED', message: 'x' }, 'No se puede marcar «No llegó» hasta que la solicitud esté recibida.'],
+  ])('No aceptar: el %i del servidor se muestra DENTRO del panel con su copy (F2b)', async (status, body, text) => {
+    vi.spyOn(api, 'decideBuylistItem').mockRejectedValue(new ApiClientError(status, body));
     renderWithProviders(<M5View />, 'es');
-    const convertButtons = await screen.findAllByRole('button', { name: 'Convertir a inventario' });
-    // Fixture: ningún ítem está `aprobada` → todos los convertir están deshabilitados.
-    for (const b of convertButtons) expect(b).toBeDisabled();
+    await openStage('Verificando');
+    fireEvent.click((await screen.findAllByRole('button', { name: 'No llegó' }))[0]);
+    const panel = await screen.findByTestId('f2-panel-reject-sri-1');
+    fireEvent.click(within(panel).getByTestId('f2-reject-send-sri-1'));
+    expect(await within(panel).findByText(text)).toBeInTheDocument();
+  });
+
+  it('Convertir a inventario NO se pinta (ni deshabilitado) si el ítem no está aprobado (§BUYLIST-FLUJO F1)', async () => {
+    renderWithProviders(<M5View />, 'es');
+    await screen.findAllByText(/^sr-/);
+    // Fixture de la etapa inicial: ningún ítem está `aprobada` → ningún botón, ni muerto.
+    expect(screen.queryAllByRole('button', { name: 'Convertir a inventario' })).toHaveLength(0);
   });
 
   it('Revelar CLABE la muestra bajo demanda y Ocultar la retira (no persiste)', async () => {
@@ -351,16 +359,21 @@ describe('M5View · Buylist admin end-to-end', () => {
     expect(within(cherryPick).queryByText(/por decidir/)).toBeNull();
     fireEvent.click(payable(cherryPick));
 
-    const dialog = await screen.findByRole('dialog', { name: 'Registrar pago SPEI' });
-    const confirm = within(dialog).getByRole('button', { name: 'Registrar pago' });
+    const dialog = await screen.findByRole('dialog', { name: 'Pagar por SPEI' });
+    const confirm = await within(dialog).findByRole('button', { name: /Confirmar pago de/ });
     // Referencia obligatoria: sin ella no se puede confirmar.
     expect(confirm).toBeDisabled();
-    fireEvent.change(within(dialog).getByLabelText('Referencia SPEI'), {
+    // F1-1: lo MOSTRADO como «Se deposita» es EXACTAMENTE lo que viaja como `expectedNetCents`.
+    const shown = within(dialog).getByTestId('spei-net').textContent as string;
+    fireEvent.change(within(dialog).getByLabelText('Referencia o clave de rastreo del SPEI'), {
       target: { value: 'MBAN-2026-081701' },
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Registrar pago' }));
+    await waitFor(() => expect(confirm).not.toBeDisabled());
+    fireEvent.click(confirm);
 
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-3006', 'MBAN-2026-081701'));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-3006', 'MBAN-2026-081701', expect.any(Number)));
+    const sentNet = spy.mock.calls[0][2] as number;
+    expect(shown).toBe(formatMoneyCents(sentNet, 'es'));
     expect(await screen.findByText(/Pago SPEI registrado/)).toBeInTheDocument();
   });
 
@@ -384,11 +397,13 @@ describe('M5View · Buylist admin end-to-end', () => {
     fireEvent.click(
       within(requestCard('sr-3006')).getByRole('button', { name: 'Pagar por SPEI' }),
     );
-    const dialog = await screen.findByRole('dialog', { name: 'Registrar pago SPEI' });
-    fireEvent.change(within(dialog).getByLabelText('Referencia SPEI'), {
+    const dialog = await screen.findByRole('dialog', { name: 'Pagar por SPEI' });
+    fireEvent.change(within(dialog).getByLabelText('Referencia o clave de rastreo del SPEI'), {
       target: { value: 'MBAN-2026-081702' },
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Registrar pago' }));
+    const confirm = await within(dialog).findByRole('button', { name: /Confirmar pago de/ });
+    await waitFor(() => expect(confirm).not.toBeDisabled());
+    fireEvent.click(confirm);
 
     expect(await within(dialog).findByText(es.error.ITEMS_NOT_DECIDED_WITH_DETAILS.replace(
       '{count, plural, one {queda # carta sin decidir} other {quedan # cartas sin decidir}}',
@@ -454,7 +469,7 @@ describe('M5View · Buylist admin end-to-end', () => {
     await openStage('Verificando');
     // sr-3001 createdAt=2026-08-12 → formatDate es-MX "12 ago 2026".
     await screen.findByText('sr-3001');
-    expect(screen.getByText(/12 ago 2026/)).toBeInTheDocument();
+    expect(screen.getAllByText(/12 ago 2026/).length).toBeGreaterThan(0);
   });
 
   it('muestra el total aprobado DEL SERVER (approvedTotalCents, sin sumar en la UI)', async () => {
@@ -463,8 +478,9 @@ describe('M5View · Buylist admin end-to-end', () => {
     await screen.findByText('sr-3001');
     fireEvent.click(screen.getByRole('tab', { name: /Por pagar/ }));
     // sr-3003: approvedTotalCents=28000 (fixture) → MX$280.00 etiquetado como total aprobado.
-    expect(await screen.findByText(/Total aprobado/)).toBeInTheDocument();
-    expect(screen.getByText(/Total aprobado/).textContent).toContain('280.00');
+    const card = await screen.findByTestId('m5-request-sr-3003');
+    expect(within(card).getByText(/Total aprobado/)).toBeInTheDocument();
+    expect(within(card).getByText(/Total aprobado/).textContent).toContain('280.00');
   });
 
   it('pestaña Piezas rechazadas: lista transversal con plazos, fases y SIN convertir a inventario', async () => {
@@ -539,9 +555,11 @@ describe('M5View · Buylist admin end-to-end', () => {
     await openStage('Por pagar');
     const payButtons = await screen.findAllByRole('button', { name: 'Pagar por SPEI' });
     fireEvent.click(payButtons.find((b) => !(b as HTMLButtonElement).disabled)!);
-    const dialog = await screen.findByRole('dialog', { name: 'Registrar pago SPEI' });
-    fireEvent.change(within(dialog).getByLabelText('Referencia SPEI'), { target: { value: 'X' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Registrar pago' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Pagar por SPEI' });
+    fireEvent.change(within(dialog).getByLabelText('Referencia o clave de rastreo del SPEI'), { target: { value: 'X' } });
+    const confirm = await within(dialog).findByRole('button', { name: /Confirmar pago de/ });
+    await waitFor(() => expect(confirm).not.toBeDisabled());
+    fireEvent.click(confirm);
 
     // Código sin copy i18n → cae al mensaje real del backend (useErrorMessage).
     expect(
@@ -688,16 +706,15 @@ describe('M5View · cierre explícito «Rechazar solicitud» (v1.24)', () => {
  * (cambio de `rejectReason`) re-disparaba el efecto y volvía a enfocar el wrapper del modal,
  * robándole el foco al input. Fix: el foco inicial de `Modal` solo depende de `open`.
  */
-describe('M5View · modal de rechazo (bug de foco al escribir)', () => {
+describe('M5View · panel de «No aceptar» (el foco no se pierde al escribir)', () => {
   it('escribir varios caracteres seguidos NO pierde el foco del campo', async () => {
     const user = userEvent.setup();
     renderWithProviders(<M5View />, 'es');
     await openStage('Verificando');
-    const rejectButtons = await screen.findAllByRole('button', { name: 'Rechazar' });
-    fireEvent.click(rejectButtons[0]);
-
-    const dialog = await screen.findByRole('dialog', { name: 'Rechazar ítem' });
-    const input = within(dialog).getByLabelText('Motivo del rechazo');
+    fireEvent.click((await screen.findAllByRole('button', { name: /^No aceptar/ }))[0]);
+    const panel = await screen.findByTestId('f2-panel-reject-sri-1');
+    fireEvent.click(within(panel).getByLabelText(/Otra razón/));
+    const input = within(panel).getByLabelText(/Motivo \(3 a 500/);
 
     await user.type(input, 'no esta en NM');
 

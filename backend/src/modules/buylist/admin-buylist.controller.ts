@@ -19,9 +19,13 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { parseAdminListFilters } from '../../common/admin-list-filters';
 import { BuylistService, parseDeclineAcceptedBody } from './buylist.service';
 import { AuditService } from '../audit/audit.service';
+import { BusinessException } from '../../common/business.exception';
+import { isUUID } from 'class-validator';
 import {
   AdminPickupAddressDto,
   ConfirmShipmentDto,
+  ConvertAllDto,
+  ReviseItemPriceDto,
   ConvertToInventoryDto,
   DeclineDto,
   GuideCancellationDoneDto,
@@ -622,14 +626,14 @@ export class AdminBuylistController {
     @Body() body: unknown,
     @CurrentUser() user: { id: string; role: Role },
   ) {
-    const { items, requestClosed, itemIds, reason } = await this.buylist.rejectItems(id, body);
+    const { items, requestClosed, itemIds, reason, reasonCode } = await this.buylist.rejectItems(id, body);
     await this.audit.log({
       actorUserId: user.id,
       actorRole: user.role,
       action: 'buylist.items_rejected',
       entityType: 'SellRequest',
       entityId: id,
-      after: { itemIds, reason, requestClosed },
+      after: { itemIds, reason, reasonCode, requestClosed },
     });
     return { items, requestClosed };
   }
@@ -642,11 +646,18 @@ export class AdminBuylistController {
   ) {
     // v1.18-buylist-rejects: `reason` obligatorio con reject (DTO valida 3–500 → 400); para
     // approve/adjust se ignora (no se persiste ni se audita).
+    // §BUYLIST-FLUJO F2b: `reject` exige causa estructurada; sin ella ⇒ 400 VALIDATION_ERROR `details.field='reasonCode'`.
+    if (dto.decision === 'reject' && !dto.reasonCode) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'reasonCode is required for decision "reject"', {
+        field: 'reasonCode',
+      });
+    }
     const res = await this.buylist.itemDecision(
       itemId,
       dto.decision,
       dto.approvedPriceCents,
       dto.reason,
+      dto.decision === 'reject' ? dto.reasonCode : undefined,
     );
     await this.audit.log({
       actorUserId: user.id,
@@ -657,8 +668,54 @@ export class AdminBuylistController {
       // El motivo del rechazo va al AuditLog en `after` (§M5); no contiene PII (texto del operador).
       after:
         dto.decision === 'reject'
-          ? { reason: dto.reason }
+          ? { reason: dto.reason, reasonCode: dto.reasonCode }
           : { approvedPriceCents: dto.approvedPriceCents },
+    });
+    return res;
+  }
+
+  /** §BUYLIST-FLUJO F2c: vista previa del neto de una baja (solo lectura: sin escritura, auditoria ni correo). */
+  @Get('items/:itemId/revise-price/preview')
+  previewRevise(@Param('itemId') itemId: string, @Query('revisedPriceCents') raw?: string) {
+    // Formato estricto (anexo §3): solo digitos decimales, 1–9. `1e3`/`1.5`/`+5`/`-5`/` 5`/`0x10` ⇒ 400 con `details.field`.
+    if (typeof raw !== 'string' || !/^\d{1,9}$/.test(raw)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'revisedPriceCents must be 1–9 decimal digits', { field: 'revisedPriceCents' });
+    }
+    return this.buylist.previewRevisedPayout(itemId, Number(raw));
+  }
+
+  /** §BUYLIST-FLUJO F2c: propone bajar el precio de una linea (con el «si» del vendedor); correo C3. */
+  @Post('items/:itemId/revise-price')
+  @HttpCode(HttpStatus.OK)
+  async revisePrice(
+    @Param('itemId') itemId: string,
+    @Body() dto: ReviseItemPriceDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    const res = await this.buylist.reviseItemPrice(itemId, dto, user);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.item.revise_price',
+      entityType: 'SellRequestItem',
+      entityId: itemId,
+      after: { revisedPriceCents: dto.revisedPriceCents, reasonCode: dto.reasonCode },
+    });
+    return res;
+  }
+
+  /** §BUYLIST-FLUJO F2c: atajo opcional «Entregada» de una carta no aceptada (el sistema no depende de el). */
+  @Post('items/:itemId/pickup-done')
+  @HttpCode(HttpStatus.OK)
+  async pickupDone(@Param('itemId') itemId: string, @CurrentUser() user: { id: string; role: Role }) {
+    const res = await this.buylist.markPickupDone(itemId, user.id);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.item.pickup_done',
+      entityType: 'SellRequestItem',
+      entityId: itemId,
+      after: { pickupDoneAt: res.pickup?.doneAt ?? null },
     });
     return res;
   }
@@ -684,6 +741,35 @@ export class AdminBuylistController {
     return res;
   }
 
+  /** §BUYLIST-FLUJO F2a: alta de todas las lineas aprobadas, con ubicacion opcional; exito parcial por linea. */
+  @Post(':id/convert-all')
+  @HttpCode(HttpStatus.OK)
+  async convertAll(
+    @Param('id') id: string,
+    @Body() dto: ConvertAllDto,
+    @CurrentUser() user: { id: string; role: Role },
+  ) {
+    // `locationId` que no sea uuid ⇒ 400 sin efectos (uuid inexistente sigue siendo 422 por linea/globales como hoy).
+    if (dto?.locationId != null && !isUUID(dto.locationId)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'locationId must be a uuid', { field: 'locationId' });
+    }
+    const res = await this.buylist.convertAll(id, user.id, dto?.locationId);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: 'buylist.convert_all',
+      entityType: 'SellRequest',
+      entityId: id,
+      after: {
+        locationId: dto?.locationId ?? null,
+        converted: res.converted.length,
+        skipped: res.skipped.length,
+        failed: res.failed.length,
+      },
+    });
+    return res;
+  }
+
   @Post(':id/pay-spei')
   @HttpCode(HttpStatus.OK) // v1.57 · §M5-C (BL-37): opera sobre una solicitud EXISTENTE ⇒ 200, no 201.
   @MoneyOut()
@@ -693,7 +779,7 @@ export class AdminBuylistController {
     @CurrentUser() user: { id: string; role: Role },
     @Headers('idempotency-key') _idempotencyKey?: string,
   ) {
-    const res = await this.buylist.paySpei(id, dto.speiReference, user.id);
+    const res = await this.buylist.paySpei(id, dto.speiReference, user.id, dto.expectedNetCents);
     // ⚠️ v1.57 · **SEC-B1** (`docs/SECURITY_NOTES.md` §6) — **SE AUDITA LA REFERENCIA EFECTIVA, NO LA
     // INTENTADA.** Medido por seguridad: un segundo `pay-spei` sobre una fila ya `pagada` sale por el
     // corto-circuito idempotente **sin asentar nada**, y esto emitía igual un `sellrequest.pay_spei`

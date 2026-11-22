@@ -1004,6 +1004,52 @@
     "entregado": "Entregado",
     "cancelado": "Cancelado"
   },
+  "sellerFlujo": {
+    "eyebrow": "Tu cuenta · Solicitud {id}",
+    "listNote": "Tienes una propuesta de nuevo precio esperando tu respuesta.",
+    "revision": {
+      "title": "Propuesta de nuevo precio para {card}",
+      "now": "Nuevo precio",
+      "before": "Antes ofrecimos {amount}",
+      "reasonFallback": "Al revisar tu paquete encontramos una diferencia con lo declarado.",
+      "deadline": "{count, plural, =0 {Hoy vence tu plazo para contestar.} one {Tienes # día para contestar.} other {Tienes # días para contestar.}} Si no contestas, no la compramos y te la esperamos para devolvértela.",
+      "accept": "Aceptar {amount}",
+      "decline": "Rechazar",
+      "declineConfirmTitle": "¿Rechazar la propuesta de {amount}?",
+      "declineConfirmBody": "No compraremos {card} a ese precio y la carta quedará lista para que elijas cómo recogerla. Esto no se puede deshacer.",
+      "declineConfirmYes": "Sí, rechazar",
+      "declineConfirmNo": "Volver",
+      "cancelled": "Retiramos la propuesta de nuevo precio por {card}: se te paga el precio original, sin que tengas que hacer nada.",
+      "cancelledRejected": "Retiramos la propuesta de nuevo precio por {card}. No la compramos; abajo puedes elegir cómo recoger tu carta.",
+      "cancelledNotReceived": "Retiramos la propuesta de nuevo precio por {card}. La carta no llegó, así que no hay nada que pagar ni que recoger.",
+      "cancelledNeutral": "Retiramos la propuesta de nuevo precio por {card}.",
+      "accepted": "Aceptaste la propuesta de {amount} por {card}.",
+      "declined": "Rechazaste la propuesta por {card}. Elige abajo cómo recoger tu carta.",
+      "expired": "La propuesta por {card} venció sin respuesta; no la compramos.",
+      "errors": {
+        "resolved": "Esta propuesta ya se respondió de otra forma. Recarga la página.",
+        "changed": "La propuesta cambió mientras la veías: ahora es de {amount}. No se aceptó nada; revisa el monto nuevo y decide de nuevo.",
+        "alreadyResolved": "Esta propuesta ya no está disponible (se respondió o la retiramos). Actualizamos la tarjeta para que veas cómo quedó.",
+        "notFound": "No encontramos esta propuesta.",
+        "generic": "No pudimos registrar tu respuesta. Intenta de nuevo."
+      }
+    },
+    "pickup": {
+      "title": "{card}: tu carta te espera",
+      "intro": "No la compramos. Elige cómo recogerla:",
+      "inPerson": "Recoger en tienda (sin costo)",
+      "inPersonHint": "Te contactamos para acordar día y hora.",
+      "shipBack": "Que me la envíen (a mi cargo)",
+      "shipBackHint": "Lo coordinamos contigo; el costo del envío corre por tu cuenta.",
+      "chosen": "Elegiste: {method}",
+      "deadlines": "Tienes hasta el {returnDate} para elegir y hasta el {abandonDate} para recogerla; pasada esa fecha se considera abandonada.",
+      "done": "Entregada el {date}.",
+      "errors": {
+        "alreadyDone": "Esta carta ya se entregó; no se puede cambiar el método.",
+        "generic": "No pudimos guardar tu elección. Intenta de nuevo."
+      }
+    }
+  },
   "buylist": {
     "verticalLabel": "Buylist",
     "title": "Vender mis cartas",
@@ -3573,6 +3619,200 @@
       "paySpeiTitle": "Registrar pago SPEI",
       "speiReferenceLabel": "Referencia SPEI",
       "paySpeiConfirm": "Registrar pago",
+      "flow": {
+        "f2": {
+          "status": { "approvedAgreed": "Aprobada al pactado", "approvedRevised": "Aprobada con la baja aceptada", "retired": "Baja retirada" },
+          "actions": {
+            "approve": "Aprobar al pactado",
+            "reduce": "Bajar precio",
+            "reject": "No aceptar",
+            "notReceived": "No llegó",
+            "approveCancels": "Aprobar al pactado (retira la baja)",
+            "rejectCancels": "No aceptar (retira la baja)"
+          },
+          "waiting": {
+            "label": "Esperando al vendedor · {count, plural, =0 {vence hoy} one {vence en # día} other {vence en # días}}",
+            "noDate": "Esperando al vendedor",
+            "proposed": "Propusimos {proposed} (antes {previous})",
+            "netIf": "Si acepta se depositarían {net}",
+            "cancelsNote": "Si apruebas o rechazas esta carta, la propuesta de baja se cancela y el vendedor la ve como «retirada»."
+          },
+          "revisionPendingPay": "Hay una baja de precio esperando al vendedor: no se puede pagar hasta que conteste (o venza su plazo).",
+          "revise": {
+            "newPrice": "Nuevo precio (MX$)",
+            "agreedHint": "Pactado: {amount}",
+            "invalidAmount": "Escribe un monto válido, por ejemplo 5700.00",
+            "why": "Por qué baja",
+            "reasons": {
+              "condition_mismatch": "Llegó en otra condición",
+              "wrong_card": "No es la carta que declaró",
+              "other": "Otra razón"
+            },
+            "noteLabel": "Explica la razón (3 a 500 caracteres)",
+            "noteInvalid": "Escribe entre 3 y 500 caracteres.",
+            "netLabel": "Con esta baja se depositaría",
+            "netNote": "Lo calcula el sistema; las otras bajas pendientes cuentan a su valor propuesto.",
+            "netLabelEstimated": "Con esta baja se depositaría (estimado)",
+            "netNoteEstimated": "Estimado: aún hay cartas sin decidir y cuentan a su precio pactado. Lo calcula el sistema.",
+            "netLoading": "Calculando…",
+            "netNone": "Escribe un precio menor al pactado para ver el neto.",
+            "hint": "El vendedor recibe un correo y tiene 7 días para aceptar o rechazar.",
+            "send": "Enviar propuesta al vendedor",
+            "cancel": "Cancelar",
+            "sent": "Propuesta enviada al vendedor por {card}. Esperamos su respuesta.",
+            "errors": {
+              "invalid": "La propuesta no es válida: revisa el monto y la razón.",
+              "pending": "Hay una baja pendiente de respuesta del vendedor.",
+              "resolved": "Esta carta ya quedó resuelta; recarga la solicitud.",
+              "notLower": "El nuevo precio debe ser mayor que cero y menor al pactado ({offered}).",
+              "notOffered": "Esta carta no entra en la oferta; no se le puede bajar el precio.",
+              "notReceived": "La solicitud aún no está recibida; recíbela antes de bajar un precio."
+            }
+          },
+          "rejectPanel": {
+            "why": "¿Por qué no se acepta?",
+            "causes": {
+              "not_received": "No llegó en el paquete",
+              "condition_mismatch": "Llegó en otra condición",
+              "wrong_card": "No es la carta que declaró",
+              "other": "Otra razón"
+            },
+            "otherLabel": "Motivo (3 a 500 caracteres)",
+            "wrongNoteLabel": "Qué carta llegó (opcional)",
+            "previewTitle": "Esto es lo que recibirá el vendedor por correo",
+            "pickCause": "Elige una causa para ver el texto.",
+            "previewNote": "Vista previa: el correo final lo redacta el servidor con los datos reales.",
+            "preview": {
+              "not_received": "Revisamos tu paquete (solicitud {folio}) y {card} ({set} · {number}) no venía dentro. No la incluimos en el pago: se te deposita el resto, menos el envío que aceptaste. Como no la recibimos, no tenemos nada que devolverte. Si crees que sí la mandaste, responde este correo con tu guía.",
+              "condition_mismatch": "{card} llegó en una condición distinta a la que declaraste ({declared}), por eso no la incluimos en el pago.",
+              "wrong_card": "En lugar de {card} venía otra carta{note}, por eso no la incluimos en el pago."
+            },
+            "pickupBlock": "Tus cartas te esperan. Puedes pasar por ellas a la tienda sin costo (responde el correo y acordamos día y hora) o pedir que te las enviemos a tu cargo. Elige en tu cuenta; el correo trae las fechas límite para elegir y para recogerlas, pasadas las cuales se consideran abandonadas.",
+            "noPickup": "No se le ofrece recoger la carta: no la recibimos.",
+            "withPickup": "Se le ofrece recogerla en tienda sin costo o pedir envío a su cargo.",
+            "cancel": "Cancelar",
+            "confirm": "No aceptar {card}",
+            "done": "{card} no se aceptó; el vendedor recibe el correo.",
+            "errors": {
+              "reasonCode": "Elige una causa.",
+              "reason": "Escribe entre 3 y 500 caracteres.",
+              "pending": "Esta carta tiene una baja esperando al vendedor.",
+              "notReceived": "No se puede marcar «No llegó» hasta que la solicitud esté recibida."
+            }
+          },
+          "pickup": {
+            "state": {
+              "none": "Sin elegir cómo recoger",
+              "in_person": "Recoge en tienda (sin costo)",
+              "ship_back": "Pidió envío a su cargo"
+            },
+            "done": "Entregada el {date}",
+            "markDone": "Entregada",
+            "doneFeedback": "{card}: marcada como entregada."
+          },
+          "convertAll": {
+            "cta": "Convertir todas ({count})",
+            "title": "Dar de alta en inventario",
+            "intro": "Cartas aprobadas de {id} que se van a dar de alta.",
+            "location": "Ubicación donde se guardan",
+            "noLocation": "Sin ubicación (asignar después)",
+            "locationHint": "Se aplica a todas las cartas de la lista.",
+            "listTitle": "Cartas que se darán de alta",
+            "confirm": "Dar de alta {count}",
+            "done": "{count, plural, one {Se dio de alta # carta en inventario.} other {Se dieron de alta # cartas en inventario.}}",
+            "partial": "Dadas de alta: {converted}. Omitidas: {skipped}. Con error: {failed}.",
+            "retry": "Puedes reintentar: las ya dadas de alta se omiten.",
+            "locationGone": "Esa ubicación ya no está disponible; elige otra.",
+            "failCodes": {
+              "LOCATION_NOT_AVAILABLE": "la ubicación no está disponible; elige otra",
+              "NOT_APPROVED": "la carta no está aprobada",
+              "CONVERT_FAILED": "no se pudo dar de alta; intenta de nuevo",
+              "ALREADY_CONVERTED": "ya estaba dada de alta",
+              "UNKNOWN": "error {code}"
+            },
+            "error": "No se pudo dar de alta. Intenta de nuevo."
+          }
+        },
+        "spei": {
+          "title": "Pagar por SPEI",
+          "subtitle": "Solicitud {id} · {seller}",
+          "deposits": "Se deposita",
+          "depositsEstimated": "Se deposita (estimado)",
+          "gross": "Total de las cartas (bruto)",
+          "shipping": "Envío que aceptó el vendedor",
+          "clabeLabel": "CLABE del vendedor",
+          "holder": "Titular",
+          "copy": "Copiar",
+          "copied": "Copiado",
+          "refLabel": "Referencia o clave de rastreo del SPEI",
+          "refPlaceholder": "Pega aquí la clave que te dio tu banco",
+          "note": "Depositas exactamente esa cantidad. Si algo cambia antes de confirmar, te avisamos y no se paga nada.",
+          "confirm": "Confirmar pago de {amount}",
+          "loadingClabe": "Obteniendo la CLABE (la consulta queda auditada)…",
+          "clabeMissing": "Este vendedor no tiene CLABE guardada. Pídele que la capture en su cuenta (datos de cobro) y vuelve a abrir el pago; sin ella no se puede depositar.",
+          "changed": "El monto a depositar cambió de {previous} a {current}. No se pagó nada: revisa la cifra nueva y confirma de nuevo.",
+          "noPayout": "No se pudo mostrar el monto a depositar. Recarga la página antes de pagar.",
+          "provisional": "Cifra provisional: aún faltan cartas por decidir."
+        },
+        "bar": {
+          "gross": "Bruto",
+          "shipping": "Envío",
+          "net": "Se deposita",
+          "netEstimated": "Se deposita (estimado)",
+          "provisional": "{count, plural, one {Provisional · falta decidir # carta} other {Provisional · faltan decidir # cartas}}",
+          "provisionalAny": "Provisional · faltan decisiones",
+          "pay": "Pagar por SPEI"
+        },
+        "line": {
+          "agreed": "Precio pactado",
+          "agreedCaption": "lo que ofrecimos",
+          "market": "Mercado hoy",
+          "marketUnknown": "sin dato",
+          "chipUp": "Mercado {pct} % arriba del pactado",
+          "chipDown": "Mercado {pct} % abajo del pactado",
+          "chipSame": "Mercado igual al pactado",
+          "photoNone": "Sin foto"
+        },
+        "receipt": {
+          "shipTitle": "Comprobante de envío",
+          "guide": "Guía",
+          "copyGuide": "Copiar guía",
+          "noGuide": "Sin guía registrada",
+          "receivedOn": "Recibida el {date}",
+          "payTitle": "Comprobante de pago SPEI",
+          "reference": "Referencia",
+          "copyReference": "Copiar referencia",
+          "paidOn": "Fecha de pago",
+          "net": "Monto neto depositado",
+          "noReference": "Sin referencia registrada"
+        },
+        "ribbon": {
+          "label": "Estado de la solicitud",
+          "offered": "Ofertado neto",
+          "breakdown": "{gross} – {shipping} envío",
+          "expires": "Vence",
+          "expiresNone": "Sin vencimiento",
+          "tracking": "Rastreo",
+          "trackingLink": "Ver seguimiento",
+          "noTracking": "Sin rastreo",
+          "waiting": "Lleva",
+          "days": "{count, plural, one {# día} other {# días}}",
+          "inTransitDays": "{count, plural, one {# día en camino} other {# días en camino}}",
+          "inStateDays": "{count, plural, one {# día en este estado} other {# días en este estado}}",
+          "dueAt": "Límite: {date}",
+          "overdue": "Vencido"
+        },
+        "mesa": {
+          "title": "Mesa de decisiones",
+          "readonly": "Solo lectura",
+          "fold": "Plegar",
+          "unfold": "Desplegar",
+          "offeredAt": "pactado al ofertar",
+          "skip": "No entró en la oferta",
+          "loading": "Cargando la mesa…",
+          "error": "No se pudo cargar la mesa."
+        }
+      },
       "feedback": {
         "received": "Solicitud marcada como recibida.",
         "verified": "Verificación iniciada.",
@@ -3581,7 +3821,7 @@
         "rejected": "Ítem rechazado.",
         "converted": "Convertido a inventario · folio {folio}.",
         "alreadyConverted": "Este ítem ya estaba convertido a inventario.",
-        "paid": "Pago SPEI registrado; la solicitud quedó pagada.",
+        "paid": "Pago SPEI registrado por {amount}; la solicitud quedó pagada.",
         "requestRejected": "Solicitud rechazada; quedó cerrada."
       },
       "desk": {
@@ -3776,6 +4016,8 @@
       },
       "queues": {
         "title": "Colas del ciclo",
+        "openRequest": "Abrir solicitud",
+        "openRequestFor": "Abrir solicitud {id}",
         "empty": "Nada pendiente aquí.",
         "seller": "Vendedor",
         "request": "Solicitud",
@@ -3857,6 +4099,10 @@
         "more": "y {r} más",
         "reasonLabel": "Motivo (el vendedor lo lee en el correo)",
         "reasonHint": "Uno solo para todas. Ej.: «llegaron con dobleces y desgaste en las orillas».",
+        "causeLegend": "Causa (una sola para todas)",
+        "reasonOptional": "Detalle (opcional; obligatorio con «Otra razón»)",
+        "cancelsRow": "Tiene una propuesta de baja pendiente: se cancelará",
+        "cancelsNotice": "Se cancelará la propuesta de baja de {n, plural, one {# carta} other {# cartas}}: el vendedor la verá como «retirada».",
         "notice": "Al confirmar, el vendedor recibe un solo correo con estas cartas, el motivo y sus opciones: tiene 7 días para pedir que se las regresemos (el envío corre por su cuenta); si no, a los 30 días se dan por abandonadas. Si con esto ya no queda ninguna carta por aprobar, la solicitud se cierra sola.",
         "confirm": "Rechazar {k} y avisarle",
         "done": "{k, plural, one {# carta rechazada} other {# cartas rechazadas}}. Se le avisa al vendedor en un solo correo.",
@@ -3865,7 +4111,8 @@
           "notOffered": "{n, plural, one {Una de las cartas elegidas no entró} other {# de las cartas elegidas no entraron}} en la compra: se marcaron como no compradas al ofertar y no se rechazan. Las quitamos de la selección. No se guardó nada.",
           "conflictItems": "{n, plural, one {Una carta ya no se puede rechazar} other {# cartas ya no se pueden rechazar}}: alguien la aprobó, la convirtió o la rechazó mientras tanto. No se guardó nada. Actualizamos la lista: revisa y vuelve a intentarlo.",
           "closed": "Esta solicitud ya está cerrada: sus cartas ya no se tocan. No se guardó nada.",
-          "notFound": "Alguna carta ya no es de esta solicitud. Actualizamos la lista. No se guardó nada."
+          "notFound": "Alguna carta ya no es de esta solicitud. Actualizamos la lista. No se guardó nada.",
+          "reasonCode": "Elige la causa del rechazo."
         }
       },
       "inbound": {

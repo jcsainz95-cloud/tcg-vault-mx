@@ -12,6 +12,7 @@ import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { CardPhotoLightbox } from './CardPhotoLightbox';
 import { QueryState, useErrorMessage } from '@/components/ui/QueryState';
 import { PriceBasisTag } from '@/components/domain/PriceBasisTag';
 import {
@@ -225,40 +226,6 @@ function mesaChip(line: BuylistDecisionLineDTO): MesaChip | null {
   return line.adjustment.deltaCents > 0 ? 'up' : 'down';
 }
 
-/** Foto de la fila: legible (72×100, proporción de carta) y se amplía al tocarla (visor con Esc). */
-function CardPhoto({
-  line,
-  onOpen,
-}: {
-  line: BuylistDecisionLineDTO;
-  onOpen: (line: BuylistDecisionLineDTO) => void;
-}) {
-  const t = useTranslations('admin.m5.desk.mesa.photo');
-  const src = line.card.imageSmallUrl || line.card.imageLargeUrl;
-  if (!src) {
-    return (
-      <div
-        data-testid="line-photo-none"
-        className="flex h-[100px] w-[72px] shrink-0 items-center justify-center border border-border-strong bg-surface-2 text-center font-mono text-[10px] uppercase tracking-[0.08em] text-muted"
-      >
-        {t('none')}
-      </div>
-    );
-  }
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(line)}
-      aria-label={t('open', { name: line.card.name })}
-      data-testid="line-photo"
-      className="h-[100px] w-[72px] shrink-0 cursor-zoom-in border border-border-strong bg-surface-2 focus-visible:shadow-focus focus-visible:outline-none"
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element -- miniatura remota del catálogo, sin optimizador */}
-      <img src={src} alt="" loading="lazy" width={72} height={100} className="h-full w-full object-contain" />
-    </button>
-  );
-}
-
 /** «Tenemos N · aceptamos hasta M» / «ya no necesitamos» — en llano, del conteo y la regla del servidor. */
 function StockPhrase({ line }: { line: BuylistDecisionLineDTO }) {
   const t = useTranslations('admin.m5.desk.mesa.stock');
@@ -326,7 +293,6 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: Buyli
   const [outcome, setOutcome] = useState<'sent' | 'pending_authorization' | null>(null);
   const [onlyChanges, setOnlyChanges] = useState(false);
   const [cursor, setCursor] = useState(0);
-  const [photo, setPhoto] = useState<BuylistDecisionLineDTO | null>(null);
   // Filas con el campo de precio abierto (E o «Editar oferta»): en reposo la fila es compacta y no lo muestra.
   const [priceChanged, setPriceChanged] = useState<Record<string, PriceChangedDetail>>({});
   const [editing, setEditing] = useState<Set<string>>(new Set());
@@ -692,7 +658,7 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: Buyli
                         aria-label={t('buyLine', { name: line.card.name })}
                         className="mt-1 h-5 w-5 shrink-0 accent-[color:var(--color-accent)]"
                       />
-                      <CardPhoto line={line} onOpen={setPhoto} />
+                      <CardPhotoLightbox card={line.card} />
                       <span className="flex min-w-0 flex-col">
                         <span lang="en" className="text-[15px] text-text">
                           {line.card.name}
@@ -1002,22 +968,6 @@ export function BuylistDecisionDesk({ sellRequestId, onClose, onDecline }: Buyli
               {/* §23.6j — aviso permanente de previsualización. */}
               <p className="text-xs leading-[1.6] text-muted">{t('totals.previewNote')}</p>
             </div>
-
-            <Modal open={photo !== null} onClose={() => setPhoto(null)} title={photo?.card.name ?? ''}>
-              {photo && (
-                // eslint-disable-next-line @next/next/no-img-element -- imagen remota del catálogo
-                <img
-                  data-testid="photo-viewer-img"
-                  src={photo.card.imageLargeUrl || photo.card.imageSmallUrl}
-                  alt={t('mesa.photo.alt', {
-                    name: photo.card.name,
-                    set: photo.card.setName,
-                    number: photo.card.number,
-                  })}
-                  className="mx-auto max-h-[70vh] w-auto max-w-full object-contain"
-                />
-              )}
-            </Modal>
 
             <Modal
               open={confirming}

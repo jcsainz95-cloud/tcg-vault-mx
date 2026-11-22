@@ -116,7 +116,10 @@ describe('E2E — v1.82.3 §PNL.12 · las líneas `skip` no cuentan para cerrar 
   }
 
   const rejectItems = (srId: string, json: unknown) =>
-    h.api('POST', `/admin/buylist/${srId}/reject-items`, { token: operatorToken, json });
+    h.api('POST', `/admin/buylist/${srId}/reject-items`, {
+      token: operatorToken,
+      json: json && typeof json === 'object' && !Array.isArray(json) && !('reasonCode' in json) && 'itemIds' in json ? { reasonCode: 'other', ...json } : json,
+    });
   const decide = (itemId: string, json: Record<string, unknown>) =>
     h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, { token: operatorToken, json });
   const rejectRequest = (srId: string) =>
@@ -194,17 +197,17 @@ describe('E2E — v1.82.3 §PNL.12 · las líneas `skip` no cuentan para cerrar 
     expect(sr.closedAt).toBeInstanceOf(Date);
     expect(sr.approvedTotalCents).toBeNull();
     await skipIntacta(items[2], 'verificacion');
-    expect(correos().map((m) => m.subject)).toEqual(['2 cartas de tu solicitud de venta no fueron aceptadas']);
+    expect(correos().map((m) => m.subject)).toEqual(['Tus 2 cartas te esperan']);
     expect(correos()[0].text).toContain('tu solicitud queda cerrada y no hay pago');
   });
 
   it('SKP-2 igual, pero la última `buy` se rechaza con `PATCH …/decision {reject}` ⇒ se cierra; la `skip` intacta; solo el correo por carta', async () => {
     const { srId, items } = await solicitudDeTres();
     await cicloConSkip(srId, items);
-    expect((await decide(items[0], { decision: 'reject', reason: 'dañada' })).status).toBe(200);
+    expect((await decide(items[0], { decision: 'reject', reasonCode: 'other', reason: 'dañada' })).status).toBe(200);
     expect((await h.prisma.sellRequest.findUniqueOrThrow({ where: { id: srId } })).status).toBe('verificacion');
     enviados = [];
-    expect((await decide(items[1], { decision: 'reject', reason: 'dañada' })).status).toBe(200);
+    expect((await decide(items[1], { decision: 'reject', reasonCode: 'other', reason: 'dañada' })).status).toBe(200);
     const sr = await h.prisma.sellRequest.findUniqueOrThrow({ where: { id: srId } });
     expect(sr.status).toBe('rechazada');
     expect(sr.closedAt).toBeInstanceOf(Date);
@@ -280,7 +283,7 @@ describe('E2E — v1.82.3 §PNL.12 · las líneas `skip` no cuentan para cerrar 
   it('SKP-5 pre-ciclo (`offerDecision` null en todas), 2 líneas, se rechaza 1 ⇒ NO cierra (como hoy); isRejectable false', async () => {
     const { srId, items } = await solicitudDeTres();
     await preCiclo(srId, items);
-    expect((await decide(items[0], { decision: 'reject', reason: 'dañada' })).status).toBe(200);
+    expect((await decide(items[0], { decision: 'reject', reasonCode: 'other', reason: 'dañada' })).status).toBe(200);
     const sr = await h.prisma.sellRequest.findUniqueOrThrow({ where: { id: srId } });
     expect(sr.status).toBe('verificacion');
     expect(sr.closedAt).toBeNull();
@@ -291,9 +294,9 @@ describe('E2E — v1.82.3 §PNL.12 · las líneas `skip` no cuentan para cerrar 
   it('SKP-5b pre-ciclo, se rechazan las 2 ⇒ SÍ cierra (como hoy): las líneas `null` CUENTAN (la trampa del NULL, del otro lado)', async () => {
     const { srId, items } = await solicitudDeTres();
     await preCiclo(srId, items);
-    expect((await decide(items[0], { decision: 'reject', reason: 'dañada' })).status).toBe(200);
+    expect((await decide(items[0], { decision: 'reject', reasonCode: 'other', reason: 'dañada' })).status).toBe(200);
     expect(await mismaRespuesta(srId)).toBe(false);
-    expect((await decide(items[1], { decision: 'reject', reason: 'dañada' })).status).toBe(200);
+    expect((await decide(items[1], { decision: 'reject', reasonCode: 'other', reason: 'dañada' })).status).toBe(200);
     const sr = await h.prisma.sellRequest.findUniqueOrThrow({ where: { id: srId } });
     expect(sr.status).toBe('rechazada');
     expect(sr.closedAt).toBeInstanceOf(Date);

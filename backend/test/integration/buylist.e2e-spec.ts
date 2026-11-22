@@ -12,6 +12,7 @@
  * línea queda `precio_pendiente`: el BIN NO gana** (§4.36.0).
  */
 import { E2EHarness } from './helpers/e2e-app';
+import { payoutNet } from './helpers/pay-net';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_CARDS, E2E_USERS } from '../../prisma/e2e-fixtures';
 
@@ -241,14 +242,14 @@ describe('E2E — Buylist (cotizador + pipeline + pago SPEI)', () => {
     it('pago SPEI: bloqueado al operador (MONEY_OUT_FORBIDDEN), permitido al super_admin', async () => {
       const blocked = await h.api('POST', `/admin/buylist/${sellRequestId}/pay-spei`, {
         token: operatorToken,
-        json: { speiReference: 'SPEI-TEST-1' },
+        json: { speiReference: 'SPEI-TEST-1', expectedNetCents: 0 },
       });
       expect(blocked.status).toBe(403);
       expect(blocked.body.error.code).toBe('MONEY_OUT_FORBIDDEN');
 
       const paid = await h.api('POST', `/admin/buylist/${sellRequestId}/pay-spei`, {
         token: adminToken,
-        json: { speiReference: 'SPEI-TEST-1' },
+        json: { speiReference: 'SPEI-TEST-1', expectedNetCents: await payoutNet(h, adminToken, sellRequestId) },
       });
       expect(paid.status).toBe(200); // v1.57 · §M5-C (BL-37)
       const req = await h.prisma.sellRequest.findUnique({ where: { id: sellRequestId } });

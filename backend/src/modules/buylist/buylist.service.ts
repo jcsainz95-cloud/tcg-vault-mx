@@ -11,6 +11,9 @@ import {
   ProductType,
   RawCondition,
   Role,
+  SellItemPickupMethod,
+  SellItemRejectionCode,
+  SellItemRevisionState,
   SellItemStatus,
   SellOfferState,
   SellRequestExpiryReason,
@@ -54,13 +57,29 @@ import { MAIL_PORT, MailMessage, MailPort } from '../mail/mail.port';
 import {
   offerTermsCopy,
   sellItemRejectedTemplate,
-  sellItemsRejectedTemplate,
   sellOfferCancelledTemplate,
   sellOfferTemplate,
   sellRequestNotPursuedTemplate,
   sellRequestNotContinuedTemplate,
   buylistPortalUrl,
 } from './buylist-mail.templates';
+// §BUYLIST-FLUJO F2: correos C1 («tus cartas te esperan») y C2 («no llego») — fichero propio, mismo esqueleto.
+import {
+  remainingDaysOf,
+  sellItemNotReceivedTemplate,
+  sellItemRevisionCancelledTemplate,
+  sellItemRevisionTemplate,
+  sellItemsPickupTemplate,
+} from './buylist-flujo-mail.templates';
+import {
+  AdminRevisionDTO,
+  agreedPriceCentsOf,
+  pickupDTOOf,
+  revisionCutoff,
+  revisionDTOOf,
+  revisionExpiresAt,
+} from './buylist-flujo-dto';
+import type { OriginSnapshotDial } from '../shipments/label-inbound';
 // v1.74 (§R.3) — los TRES avisos nuevos del ciclo: la guía al vendedor, el acuse de recibido y el
 // pago. Viven en un fichero aparte; el porqué está en su cabecera (el candado de exhaustividad de
 // los CINCO correos del ciclo de oferta no se afloja para meter tres que no son de ese ciclo).
@@ -74,7 +93,9 @@ import {
 import { addBusinessDays, businessDaysSince } from '../../common/business-days';
 import { runSerializable } from '../../common/serializable-retry';
 import { ITEM_FINAL_STATUSES, isItemFinal, parseRejectItemsBody, rejectItemsBlock } from './buylist-reject-items';
+import type { RejectItemsReasonCode } from './buylist-reject-items';
 import {
+  BUYLIST_REVISION_RESPONSE_DAYS,
   deriveRejectedReason,
   closesAsRejected,
   closesAsRejectedByWhere,
@@ -140,6 +161,8 @@ import { resyncInboundAddress } from './inbound-address-sync';
 import { INBOUND_LABEL_SELECT, labelPdfAvailableOf } from '../shipments/label-inbound';
 import { ShipmentLabelService } from '../shipments/label-purchase.service';
 import type { LabelOptionsDTO } from '../shipments/label-view';
+import { computePayoutNetCents, hasLivePendingRevision, payoutDTOOf, projectPayoutNetCents, statusClockOf } from './buylist-payout';
+import type { ProjectionLine } from './buylist-payout';
 import {
   INBOUND_SHIPMENT_SELECT,
   InboundShipmentRow,
@@ -260,7 +283,17 @@ type SellRequestCycleRow = Partial<{
  * de mutación lo pidan igual. *Traer la línea entera aquí arrastraría el snapshot de precios a rutas
  * que solo necesitan contar.*
  */
-const VERDICT_ITEM_SELECT = { id: true, offerDecision: true, itemStatus: true } as const;
+const VERDICT_ITEM_SELECT = {
+  id: true,
+  offerDecision: true,
+  itemStatus: true,
+  revisionState: true,
+  // §BUYLIST-FLUJO §3.1: `projectPayoutNetCents` (payout de la barra) lee los precios de la linea y la causa `not_received`.
+  offeredPriceCents: true,
+  approvedPriceCents: true,
+  revisedPriceCents: true,
+  rejectionCode: true,
+} as const;
 
 /** Los diales que la proyección admin necesita, izados UNA vez por request (BL-29) — + los dos del cierre sin guía (BSD-1). */
 type AdminCycleDials = { offerIssueDays: number; reissueAlertCount: number; guide: GuideClockDials };
@@ -303,6 +336,26 @@ function declineAcceptedBlockOf(r: {
   if (r.status !== 'aceptada' || r.closedAt != null) return 'status';
   if (r.sellerShippedDeclaredAt != null) return 'seller_declared_shipped';
   return 'shipment_confirmed';
+}
+
+/** §BUYLIST-FLUJO F1c — el bloque PACTADO congelado de una linea (`null` = `skip`/pre-ciclo). */
+function offeredBlockOf(
+  row:
+    | {
+        offeredPriceCents: number | null;
+        offerDerivedPriceCents: number | null;
+        offerMarketMxnCents: number | null;
+        offerOverrideReason: string | null;
+      }
+    | undefined,
+) {
+  if (!row || row.offeredPriceCents == null) return null;
+  return {
+    priceCents: row.offeredPriceCents,
+    derivedAtOfferCents: row.offerDerivedPriceCents ?? null,
+    marketAtOfferCents: row.offerMarketMxnCents ?? null,
+    overrideReason: row.offerOverrideReason ?? null,
+  };
 }
 
 /**
@@ -468,6 +521,17 @@ function lastOfferCancelledAtOf(r: SellRequestBaseRow & SellRequestCycleRow): Da
 const MONEY_REDACTED_EXPIRY: readonly SellRequestExpiryReason[] = [SellRequestExpiryReason.no_offer, SellRequestExpiryReason.not_continued];
 
 /** BSD-1.4 punto 8: las cifras de una LÍNEA en un cierre redactado — todas `null` explícito (la clave viaja, el valor no). */
+/** §BUYLIST-FLUJO F2b: texto guardado en `rejectionReason` cuando la causa no es `other` y el dueño no escribio nota. */
+const REJECTION_CODE_DEFAULT_REASON = {
+  not_received: 'La carta no venía en el paquete',
+  condition_mismatch: 'Condición distinta a la declarada',
+  wrong_card: 'Carta distinta a la declarada',
+  other: 'Otro motivo',
+  // F2c (las pone el sistema, no el dueño).
+  revision_declined: 'No hubo acuerdo en el precio',
+  revision_expired: 'El vendedor no respondió a la propuesta de precio en 7 días',
+} as const;
+
 const redactedItemMoney = { quotedPriceCents: null, approvedPriceCents: null, offeredPriceCents: null, marketMxnCents: null } as const;
 
 function isMoneyRedactedClosure(r: { status: SellRequestStatus } & SellRequestCycleRow): boolean {
@@ -577,6 +641,7 @@ function toAdminSellItemRow(i: {
   inventoryItemId: string | null;
   rejectedAt: Date | null;
   rejectionReason: string | null;
+  rejectionCode?: SellItemRejectionCode | null;
 }) {
   return {
     id: i.id,
@@ -596,6 +661,7 @@ function toAdminSellItemRow(i: {
     inventoryItemId: i.inventoryItemId,
     rejectedAt: i.rejectedAt,
     rejectionReason: i.rejectionReason,
+    rejectionCode: i.rejectionCode ?? null,
     // `category`/`ruleMode`/`ruleValue`/`ruleSource` son columnas LEGACY (v2.0 P-48: nada nuevo las
     // escribe). Se dejan FUERA a propósito: proyectar es también dejar de publicar lo muerto.
   };
@@ -2114,11 +2180,23 @@ export class BuylistService implements OnModuleInit {
     inventoryItemId: string | null;
     rejectedAt?: Date | null;
     rejectionReason?: string | null;
+    // §BUYLIST-FLUJO F2b: causa estructurada (`null`/ausente = legacy).
+    rejectionCode?: SellItemRejectionCode | null;
+    // §BUYLIST-FLUJO F2c: baja de precio y recoger (todo nullable). Proyecciones en `buylist-flujo-dto.ts`.
+    revisionState?: SellItemRevisionState | null;
+    revisedPriceCents?: number | null;
+    revisionProposedAt?: Date | null;
+    revisionRespondedAt?: Date | null;
+    revisionReasonCode?: SellItemRejectionCode | null;
+    revisionNote?: string | null;
+    pickupMethod?: SellItemPickupMethod | null;
+    pickupChosenAt?: Date | null;
+    pickupDoneAt?: Date | null;
     // v1.51.15 (§11): el BLOQUE DE OFERTA que viaja a las DOS audiencias (`buy`|`skip` y el monto
     // congelado). Los cinco campos ADMIN-ONLY de `AdminSellItemDTO` NO entran aquí a propósito.
     offerDecision?: BuyDecision | null;
     offeredPriceCents?: number | null;
-  }, opts?: { conditionLabel?: string; redactQuotedPrice?: boolean }) {
+  }, opts?: { conditionLabel?: string; redactQuotedPrice?: boolean; audience?: 'admin' | 'client'; locale?: string | null }) {
     // v1.18-buylist-rejects (§11): campos de RECHAZO — poblados SOLO si itemStatus='rechazada';
     // en cualquier otro status se OMITEN. Los plazos returnDeadlineAt/abandonDeadlineAt se DERIVAN
     // server-side de rejectedAt (fuente única; NO son columnas). Ítems legacy (rechazados pre-M-22,
@@ -2128,7 +2206,11 @@ export class BuylistService implements OnModuleInit {
         ? {
             rejectedAt: i.rejectedAt ?? null,
             rejectionReason: i.rejectionReason ?? null,
-            ...rejectDeadlines(i.rejectedAt),
+            rejectionCode: i.rejectionCode ?? null,
+            // `not_received`: la carta nunca llego ⇒ ni plazo de recoger ni de abandono (anexo §4).
+            ...(i.rejectionCode === 'not_received'
+              ? { returnDeadlineAt: null, abandonDeadlineAt: null }
+              : rejectDeadlines(i.rejectedAt)),
           }
         : {};
     // ⚠️ v1.51.15 (§11 `SellItemDTO`, criterios 118/161(d)) — **EL BLOQUE DE OFERTA, PARTIDO POR
@@ -2198,8 +2280,13 @@ export class BuylistService implements OnModuleInit {
       approvedPriceCents: i.approvedPriceCents ?? undefined,
       itemStatus: i.itemStatus,
       inventoryItemId: i.inventoryItemId ?? undefined,
+      // §BUYLIST-FLUJO §1: `rejectionCode` SIEMPRE presente (`null` explicito; nunca se omite la clave), admin y cliente.
+      rejectionCode: i.rejectionCode ?? null,
       ...rejection,
       ...offer,
+      // §BUYLIST-FLUJO F2c (anexo §1): `revision` (admin: con `reasonCode`; vendedor: solo `reasonText`) y `pickup`. `null` si no aplica.
+      revision: revisionDTOOf(i, opts?.audience ?? 'client', { locale: opts?.locale, redactMoney: opts?.redactQuotedPrice === true }),
+      pickup: pickupDTOOf(i),
       // La redacción va AL FINAL: es la última palabra sobre estas cifras (`offer` trae `offeredPriceCents`).
       ...(opts?.redactQuotedPrice === true ? redactedItemMoney : {}),
     };
@@ -2304,7 +2391,7 @@ export class BuylistService implements OnModuleInit {
       // razón que `expiredReason`: pertenece a la ficha de UNA solicitud, y la lista solo necesita
       // identificarla y decir si sigue viva (§6, tabla de alcance de v1.51.8).
       rejectedReason: deriveRejectedReason(req, req.items),
-      items: req.items.map((i) => this.itemDTO(i, { conditionLabel, redactQuotedPrice: redactMoney })),
+      items: req.items.map((i) => this.itemDTO(i, { conditionLabel, redactQuotedPrice: redactMoney, locale: req.user?.locale ?? null })),
       // v1.51 (§6) — LA OFERTA COMO LA VE EL VENDEDOR. `null` salvo con `offerState='sent'`: una
       // oferta que espera autorización **no existe para él** (D13/D24), y una cancelada se limpió.
       // ⚠️ NUNCA lleva `offerState` ni ninguna cifra interna de la mesa.
@@ -2641,6 +2728,8 @@ export class BuylistService implements OnModuleInit {
       rows.flatMap((r) => (r.inboundShipment ? [r.inboundShipment.id] : [])),
       now,
     );
+    // §BUYLIST-FLUJO F1: `payout.clabeOnFile` (snapshot o KYC) — UNA lectura por pagina, solo de quien no tiene snapshot.
+    const kycClabeUsers = await this.usersWithKycClabe(rows);
     // Los diales se izan UNA vez por request (no por fila): son los mismos para todas.
     const data = rows.map((r) => ({
       // ⚠️ v1.51.20 · **BL-29** — la fila del listado sale de **LA MISMA proyección** que el detalle
@@ -2654,9 +2743,10 @@ export class BuylistService implements OnModuleInit {
         actorRole: null,
         orphanSince: r.inboundShipment ? (orphanSince.get(r.inboundShipment.id) ?? null) : null,
         now,
+        kycClabeOnFile: kycClabeUsers.has(r.userId),
       }),
       seller: this.sellerRef(r.user),
-      items: r.items.map((i) => this.itemDTO(i)),
+      items: r.items.map((i) => this.adminItemDTO(i, r)),
       // ⚠️ **LO QUE ESTA COLA NO GANA, y es deliberado: `pickupAddress`.** Un LISTADO paginado de
       // domicilios es **cosecha masiva de PII** (N filas por request) — misma decisión y mismo
       // argumento que `AdminOrderSummaryDTO`, que ya excluye `shippingAddressSnapshot`. La dirección
@@ -2742,16 +2832,18 @@ export class BuylistService implements OnModuleInit {
   private adminSellRequestDTO(
     r: SellRequestBaseRow &
       SellRequestCycleRow & { createdAt: Date } & {
-        items: readonly { id: string; offerDecision?: BuyDecision | null; itemStatus: SellItemStatus }[];
+        items: readonly ({ id: string; offerDecision?: BuyDecision | null; itemStatus: SellItemStatus } & Partial<ProjectionLine>)[];
         // 💰 rev BSD-1 — viaja con `ADMIN_DTO_INCLUDE`; `undefined` solo en mocks unitarios (⇒ sin fila de entrada).
         inboundShipment?: InboundShipmentRow | null;
         inboundGuideClockStartedAt?: Date | null;
       },
     dials: AdminCycleDials,
     // 💰 rev BSD-1 — `labelAlert` de la fila de entrada: el rol del actor (solo decide `canRelease`) y su huérfana reciente.
-    bsd: { actorRole?: Role | null; orphanSince?: Date | null; now?: Date } = {},
+    bsd: { actorRole?: Role | null; orphanSince?: Date | null; now?: Date; kycClabeOnFile?: boolean } = {},
   ) {
     const reissueCount = r.offerReissueCount ?? 0;
+    const now = bsd.now ?? new Date();
+    const inboundFields = this.adminInboundFields(r, dials, bsd);
     // ⚠️ v1.61 · §M5-V — el `?? []` es **solo por los mocks de las suites unitarias**, que construyen
     // filas a mano y no pasan por el compilador. En producción `items` es OBLIGATORIO en el tipo:
     // ninguna ruta real puede llegar aquí sin ellas.
@@ -2833,7 +2925,62 @@ export class BuylistService implements OnModuleInit {
       // Lo que SALIÓ por SPEI, sellado en la MISMA transacción que `pagada`. Fuente de la caja de M7,
       // distinta del acumulado de COMPROMISO que gobierna el tope mensual (que se mide en BRUTOS).
       payoutNetCents: r.payoutNetCents ?? null,
-      ...this.adminInboundFields(r, dials, bsd),
+      // §BUYLIST-FLUJO F1 (anexo §1) — DERIVADOS, sin columnas. `payout` usa `computePayoutNetCents`, la MISMA funcion
+      // que sella `paySpei`; `clabeOnFile` es booleano (snapshot o CLABE de KYC), nunca la CLABE.
+      payout: payoutDTOOf(
+        {
+          status: r.status,
+          approvedTotalCents: r.approvedTotalCents,
+          offerGrossCents: r.offerGrossCents ?? null,
+          quotedTotalCents: r.quotedTotalCents,
+          offerShippingFeeCents: r.offerShippingFeeCents ?? null,
+          payoutNetCents: r.payoutNetCents ?? null,
+        },
+        {
+          lines: r.items ?? [],
+          clabeOnFile: (r as { clabeSnapshotEnc?: string | null }).clabeSnapshotEnc != null || bsd.kycClabeOnFile === true,
+        },
+      ),
+      offerNet:
+        r.offerSentAt != null && r.offerNetCents != null
+          ? {
+              grossCents: r.offerGrossCents ?? 0,
+              shippingFeeCents: r.offerShippingFeeCents ?? 0,
+              netCents: r.offerNetCents,
+              expiresAt: r.offerAcceptDeadlineAt ?? null,
+            }
+          : null,
+      statusClock: statusClockOf(
+        {
+          status: r.status,
+          createdAt: r.createdAt,
+          offerSentAt: r.offerSentAt,
+          acceptedAt: r.acceptedAt,
+          shipmentConfirmedAt: r.shipmentConfirmedAt,
+          receivedAt: r.receivedAt,
+          verifiedAt: r.verifiedAt,
+          approvedAt: r.approvedAt,
+          offerAcceptDeadlineAt: r.offerAcceptDeadlineAt,
+          shipDeadlineAt: r.shipDeadlineAt,
+          guideDueAt: inboundFields.guideDueAt,
+          paidAt: r.paidAt,
+          closedAt: r.closedAt,
+        },
+        now,
+      ),
+      tracking:
+        r.status === 'en_transito'
+          ? {
+              carrier: r.shipmentCarrier ?? r.inboundShipment?.carrier ?? null,
+              number: r.shipmentTrackingNumber ?? r.inboundShipment?.trackingNumber ?? null,
+              url: r.inboundShipment?.trackingUrl ?? null,
+              daysInTransit: Math.max(
+                0,
+                Math.floor((now.getTime() - (r.shipmentConfirmedAt ?? r.createdAt).getTime()) / 86_400_000),
+              ),
+            }
+          : null,
+      ...inboundFields,
     };
   }
 
@@ -2880,6 +3027,66 @@ export class BuylistService implements OnModuleInit {
       guideDueInDays: due.guideDueInDays,
       declineAcceptedAllowed: declineAcceptedAllowedOf(r),
     };
+  }
+
+  /**
+   * §BUYLIST-FLUJO F1 (anexo §1) — linea de ADMIN = `itemDTO` + `agreedPriceCents` (el precio PACTADO final).
+   * F1 no tiene baja aceptada (esquema de F2c): pactado = `offeredPriceCents` (D2, vinculante e inmutable); `null` en
+   * lineas `skip`/pre-ciclo. Solo admin: la proyeccion de cliente no lo lee.
+   */
+  private adminItemDTO(
+    i: Parameters<BuylistService['itemDTO']>[0],
+    basis?: {
+      items?: readonly ProjectionLine[];
+      offerShippingFeeCents?: number | null;
+      approvedTotalCents?: number | null;
+      offerGrossCents?: number | null;
+      quotedTotalCents?: number | null;
+    },
+  ) {
+    const dto = this.itemDTO(i, { audience: 'admin' });
+    const revision = dto.revision as (AdminRevisionDTO & { netIfAcceptedCents?: number | null }) | null;
+    // §3.1: el neto «si el vendedor acepta» se DERIVA en cada lectura con `projectPayoutNetCents` (la misma funcion que la vista previa
+    // y que la barra `payout`); no se guarda. Solo una baja VIVA (`pending ∧ ajustada`, invariante §3.2).
+    if (revision && hasLivePendingRevision(i) && basis && i.revisedPriceCents != null) {
+      revision.netIfAcceptedCents = projectPayoutNetCents(
+        { lines: basis.items ?? [], offerShippingFeeCents: basis.offerShippingFeeCents, legacy: basis },
+        { itemId: i.id, priceCents: i.revisedPriceCents },
+      ).netCents;
+    }
+    // F2c: pactado FINAL = `approvedPriceCents` si hubo baja aceptada, si no lo ofertado.
+    return { ...dto, agreedPriceCents: agreedPriceCentsOf(i) };
+  }
+
+  /**
+   * §BUYLIST-FLUJO F1 — `userId` con CLABE en su KYC (booleano; NUNCA se descifra ni se devuelve). Solo consulta a quien
+   * esta en un estado con `payout` y no trae snapshot: una lectura por pagina, no por fila.
+   */
+  private async usersWithKycClabe(
+    rows: readonly { userId: string; status: SellRequestStatus; clabeSnapshotEnc?: string | null }[],
+    client: Pick<PrismaService, 'kycProfile'> = this.prisma,
+  ): Promise<Set<string>> {
+    const ids = [
+      ...new Set(
+        rows
+          .filter((r) => ['verificacion', 'aprobada', 'pagada'].includes(r.status) && r.clabeSnapshotEnc === null)
+          .map((r) => r.userId),
+      ),
+    ];
+    if (ids.length === 0) return new Set();
+    const kyc = await client.kycProfile.findMany({
+      where: { userId: { in: ids }, clabeEnc: { not: null } },
+      select: { userId: true },
+    });
+    return new Set(kyc.map((k) => k.userId));
+  }
+
+  /** §BUYLIST-FLUJO M-2: `kycClabeOnFile` de UNA fila, para las respuestas de mutacion (mismo valor que lista/detalle). */
+  private async kycOptsOf(
+    row: { userId: string; status: SellRequestStatus; clabeSnapshotEnc?: string | null },
+    client: Pick<PrismaService, 'kycProfile'> = this.prisma,
+  ): Promise<{ kycClabeOnFile: boolean }> {
+    return { kycClabeOnFile: (await this.usersWithKycClabe([row], client)).has(row.userId) };
   }
 
   /** v1.18-buylist-rejects: AdminSellerRef = { id, name, email } (§11). Tolerante a mocks sin join. */
@@ -2959,6 +3166,7 @@ export class BuylistService implements OnModuleInit {
         actorRole: actor?.role ?? null,
         orphanSince: req.inboundShipment ? (orphan.get(req.inboundShipment.id) ?? null) : null,
         now,
+        kycClabeOnFile: (await this.usersWithKycClabe([req])).has(req.userId),
       }),
       // 💰 rev BSD-1 (§BSD.5): lo que la ventana necesita para no ofrecer un botón que dará 403/404 — calculado PARA EL ACTOR
       // por el MISMO `labelOptionsFor` del motor (TG-2 de la fila de entrada si existe). Solo en el DETALLE (la lista no
@@ -2974,7 +3182,7 @@ export class BuylistService implements OnModuleInit {
       // leyendo la libreta viva.**
       pickupAddress: req.pickupAddressSnapshot ?? null,
       // v1.18-buylist-rejects: items como SellItemDTO (incluye campos de rechazo + plazos derivados).
-      items: (req.items ?? []).map((i) => this.itemDTO(i)),
+      items: (req.items ?? []).map((i) => this.adminItemDTO(i, req)),
       clabeMasked,
       // ADITIVO y SOLO en el estado degradado (§ robustez PII de arriba).
       ...(clabeUnavailable ? { piiUnavailable: true } : {}),
@@ -3034,6 +3242,8 @@ export class BuylistService implements OnModuleInit {
     });
     if (!req) throw BusinessException.notFound();
     const items = req.items ?? [];
+    // §BUYLIST-FLUJO F1c: `ofertada` o posterior (cualquier estado con oferta enviada) => solo lectura.
+    const readonlyMesa = req.offerSentAt != null || req.status !== 'cotizada';
     // ⚠️ v1.58 · §M5-A.8 (BL-38) — el archivo de INE del VENDEDOR, para el aviso de la mesa. Se lee
     // del `KycProfile` (la fuente autoritativa que usa la guarda de `POST …/offer`) y **no** de
     // `SellRequest.ineProvided`, que es un snapshot del intake: el vendedor pudo subirlo después.
@@ -3072,6 +3282,7 @@ export class BuylistService implements OnModuleInit {
         this.settings.getNumber(SettingKey.BUYLIST_VARIANT_POSITION_CAP),
       ]);
 
+    const itemRows = new Map(items.map((row) => [row.id, row]));
     const dtoLines = [];
     let buyableGrossCents = 0;
     for (const l of lines) {
@@ -3098,6 +3309,9 @@ export class BuylistService implements OnModuleInit {
         cardProductId: l.cardProductId,
         // (a) lo que se le cotizó — el snapshot congelado al crear la solicitud.
         quotedPriceCents: it.quotedPriceCents ?? null,
+        // §BUYLIST-FLUJO F1c: lo PACTADO, congelado al ofertar (solo lectura; `null` = linea `skip`/pre-ciclo). Los campos
+        // «de hoy» de abajo (`derivedPriceCents`, `marketMxnCents`) no cambian.
+        offered: offeredBlockOf(itemRows.get(it.id)),
         // El derivado por la curva VIGENTE. `null` ⇒ el front pinta `SIN PRECIO`, JAMÁS `MX$ 0.00`.
         derivedPriceCents,
         priceBasis: decision?.priceBasis ?? ('pending' as PriceBasis),
@@ -3126,10 +3340,14 @@ export class BuylistService implements OnModuleInit {
     // porque no se puede ofertar sin monto). El operador quita líneas y la UI recalcula la suma; el
     // UMBRAL y el VEREDICTO los sigue mandando el servidor (los diales se editan sin redeploy, así
     // que una constante en el front quedaría desincronizada en silencio).
-    const netCents = Math.max(0, buyableGrossCents - shippingFeeCents);
+    // §BUYLIST-FLUJO M-1: en `readonly` la forma NO cambia, pero el neto es el SELLADO (`offerNetCents`), no el de hoy.
+    const liveNetCents = Math.max(0, buyableGrossCents - shippingFeeCents);
+    const netCents = readonlyMesa ? (req.offerNetCents ?? liveNetCents) : liveNetCents;
     return {
       sellRequestId: req.id,
       status: req.status,
+      // §BUYLIST-FLUJO F1c: sin guarda de estado; `readonly` desde `ofertada` (la mesa ya no emite nada).
+      mode: readonlyMesa ? ('readonly' as const) : ('edit' as const),
       seller: this.sellerRef(req.user),
       quotedTotalCents: req.quotedTotalCents,
       lines: dtoLines,
@@ -3139,17 +3357,18 @@ export class BuylistService implements OnModuleInit {
         netCents,
         minimumOfferNetCents,
         requiredGrossCents: minimumOfferNetCents + shippingFeeCents,
-        netBelowMinimum: netCents < minimumOfferNetCents,
+        netBelowMinimum: !readonlyMesa && netCents < minimumOfferNetCents,
       },
       operatorCapCents,
       // AVISO, no bloqueo (D24): el operador PUEDE preparar la oferta; lo que no puede es que salga
       // sola. El súper-admin oferta sin tope.
+      // En `readonly` el servidor omite las acciones de EMISION (nada que autorizar ni avisar): quedan en `false`.
       requiresAuthorization:
-        actor.role === Role.vault_operator && buyableGrossCents > operatorCapCents,
+        !readonlyMesa && actor.role === Role.vault_operator && buyableGrossCents > operatorCapCents,
       // v1.51.3 (D36) — AVISO, no bloqueo: quien bloquea es `POST …/offer` con
       // `422 PICKUP_ADDRESS_MISSING`. Es un BOOLEANO y no la dirección: la mesa es una pantalla de
       // decisión de compra, no de datos personales (la dirección vive en el detalle).
-      pickupAddressMissing: req.pickupAddressSnapshot == null,
+      pickupAddressMissing: !readonlyMesa && req.pickupAddressSnapshot == null,
       // ⚠️ v1.58 · §M5-A.8 (BL-38) — AVISO, no bloqueo: quien bloquea es `POST …/offer` con
       // `422 INE_REQUIRED`. Existe por la MISMA razón que `pickupAddressMissing`: *el operador tiene
       // que poder verlo ANTES de armar la oferta entera*; sin él monta el cherry-pick línea por línea
@@ -4553,7 +4772,7 @@ export class BuylistService implements OnModuleInit {
       await this.sendOfferCancelledMail(outcome.before, outcome.before.user);
     }
     return {
-      response: this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials),
+      response: this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials, await this.kycOptsOf(outcome.after as VerdictItemsPayload)),
       audit: {
         wasSent: outcome.wasSent,
         reason: reason?.trim() || undefined,
@@ -5976,7 +6195,7 @@ export class BuylistService implements OnModuleInit {
         },
       );
     }
-    return this.adminSellRequestDTO(after, await this.adminCycleDials());
+    return this.adminSellRequestDTO(after, await this.adminCycleDials(), await this.kycOptsOf(after));
   }
 
 
@@ -6062,7 +6281,7 @@ export class BuylistService implements OnModuleInit {
     // `declinedBy`, que es justo lo que la distingue de la regla 7 del barrido. Con la proyección
     // vieja los dos salían ausentes: el cliente de la API no podía distinguir «lo decidimos» de «se
     // nos venció», que es la pregunta entera que D39 vino a contestar.
-    return this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials);
+    return this.adminSellRequestDTO(outcome.after as VerdictItemsPayload, dials, await this.kycOptsOf(outcome.after as VerdictItemsPayload));
   }
 
   /**
@@ -6129,7 +6348,7 @@ export class BuylistService implements OnModuleInit {
     // PROJECTION-EXEMPT: fila cruda; se proyecta con la lista blanca admin.
     const after = await this.prisma.sellRequest.findUnique({ where: { id }, include: ADMIN_DTO_INCLUDE });
     if (!after) throw BusinessException.notFound();
-    return this.adminSellRequestDTO(after as VerdictItemsPayload, dials, { actorRole: actor.role, now });
+    return this.adminSellRequestDTO(after as VerdictItemsPayload, dials, { actorRole: actor.role, now, ...(await this.kycOptsOf(after as VerdictItemsPayload)) });
   }
 
   /** **BSD-M1 — «no continuamos».** Best-effort post-commit; su fallo no revierte el cierre. */
@@ -6184,23 +6403,41 @@ export class BuylistService implements OnModuleInit {
   }
 
   /**
+   * §BUYLIST-FLUJO M-6: el titular nunca sale vacio. Primer valor NO vacio (tras `trim`) de: `legalName` de KYC, nombre de la cuenta,
+   * correo de la cuenta (dato real, nunca inventado); si no hay ninguno, la etiqueta fija `SIN NOMBRE REGISTRADO` (visible, no un blanco).
+   */
+  private holderNameOf(...candidates: (string | null | undefined)[]): string {
+    for (const c of candidates) {
+      const t = (c ?? '').trim();
+      if (t) return t;
+    }
+    return 'SIN NOMBRE REGISTRADO';
+  }
+
+  /**
    * Reveal on-demand de la CLABE COMPLETA (18 dígitos) para ejecutar el pago SPEI.
    * Marcado @MoneyOut (solo super_admin) y AUDITADO en el controller. Descifra el
    * snapshot cifrado de la solicitud (o, en su defecto, la CLABE de KYC). No enmascara:
    * es el único punto del sistema que devuelve la CLABE en claro, para copiarla a la banca.
    */
-  async revealClabe(id: string): Promise<{ sellRequestId: string; clabe: string }> {
-    const req = await this.prisma.sellRequest.findUnique({ where: { id } });
+  async revealClabe(id: string): Promise<{ sellRequestId: string; clabe: string; holderName: string }> {
+    const req = await this.prisma.sellRequest.findUnique({
+      where: { id },
+      include: { user: { select: { name: true, email: true } } },
+    });
     if (!req) throw BusinessException.notFound();
+    // §BUYLIST-FLUJO F1a: el titular (nombre del vendedor; la CLABE debe ser a su nombre, CLABE_NOT_OWN_NAME): `legalName` de KYC,
+    // y si no hay, el nombre de la cuenta. Se lee siempre (un viaje) para que el modal pinte el titular junto a la CLABE.
+    const kyc = await this.prisma.kycProfile.findUnique({ where: { userId: req.userId } });
     let clabe = this.pii.decryptOptional(req.clabeSnapshotEnc);
+    if (!clabe) clabe = this.pii.decryptOptional(kyc?.clabeEnc);
     if (!clabe) {
-      const kyc = await this.prisma.kycProfile.findUnique({ where: { userId: req.userId } });
-      clabe = this.pii.decryptOptional(kyc?.clabeEnc);
+      // F1a (CAMBIO de contrato): 422 CLABE_MISSING con remedio en lugar del 404 generico.
+      throw BusinessException.validation('CLABE_MISSING', 'The seller has no CLABE on file', {
+        remedy: 'ask_seller_clabe',
+      });
     }
-    if (!clabe) {
-      throw BusinessException.notFound('NOT_FOUND', 'No CLABE on file for this request');
-    }
-    return { sellRequestId: id, clabe };
+    return { sellRequestId: id, clabe, holderName: this.holderNameOf(kyc?.legalName, req.user?.name, req.user?.email) };
   }
 
   /**
@@ -6319,7 +6556,7 @@ export class BuylistService implements OnModuleInit {
     );
     // S49-M1: proyección admin (sin `clabeSnapshotEnc`). Ruta alcanzable por `vault_operator`, que
     // es justamente el rol de MENOR confianza del back-office (SEC-A4) — no debe ver PII bancaria.
-    return this.adminSellRequestDTO(row, await this.adminCycleDials());
+    return this.adminSellRequestDTO(row, await this.adminCycleDials(), await this.kycOptsOf(row));
   }
 
   /**
@@ -6349,7 +6586,7 @@ export class BuylistService implements OnModuleInit {
     });
     if (!row) throw BusinessException.notFound();
     // S49-M1: proyección admin (sin `clabeSnapshotEnc`), igual que `receive`.
-    return this.adminSellRequestDTO(row, await this.adminCycleDials());
+    return this.adminSellRequestDTO(row, await this.adminCycleDials(), await this.kycOptsOf(row));
   }
 
   /**
@@ -7225,6 +7462,9 @@ export class BuylistService implements OnModuleInit {
     // v1.18-buylist-rejects: motivo del rechazo — OBLIGATORIO con reject (3–500 chars); se IGNORA
     // (no se persiste) para approve/adjust.
     reason?: string,
+    // §BUYLIST-FLUJO F2b: causa estructurada del rechazo. El CONTROLADOR la exige (400 sin ella); `undefined` aqui = llamada
+    // interna/legacy (comportamiento de hoy, `rejectionCode` queda null).
+    rejectionCode?: 'not_received' | 'condition_mismatch' | 'wrong_card' | 'other',
   ) {
     const item = await this.prisma.sellRequestItem.findUnique({
       where: { id: itemId },
@@ -7232,6 +7472,7 @@ export class BuylistService implements OnModuleInit {
         sellRequest: {
           select: {
             userId: true,
+            offerShippingFeeCents: true,
             // ⚠️ v1.51.5 (BL-14): el ESTADO de la solicitud. Su ausencia de este `select` era el
             // agujero: no había forma de comprobarlo aunque alguien hubiera querido.
             status: true,
@@ -7313,16 +7554,28 @@ export class BuylistService implements OnModuleInit {
         // del `include` y dejaba pasar cualquier columna futura de `SellRequestItem`).
         return toAdminSellItemRow(item);
       }
-      // `reason` obligatorio (3–500 chars tras trim). El DTO ya lo valida (400 VALIDATION_ERROR);
-      // esto es defensa en profundidad para llamadas internas/whitespace-only.
-      const trimmedReason = (reason ?? '').trim();
-      if (trimmedReason.length < 3 || trimmedReason.length > 500) {
+      // `reason`: con `other` (y en la llamada legacy sin causa) es obligatorio 3–500 tras trim; con las otras causas es una nota
+      // opcional (si viene, 3–500) y, sin ella, se guarda la etiqueta fija de la causa.
+      const rawReason = (reason ?? '').trim();
+      const reasonRequired = rejectionCode == null || rejectionCode === 'other';
+      if ((reasonRequired || rawReason.length > 0) && (rawReason.length < 3 || rawReason.length > 500)) {
         throw BusinessException.badRequest(
           'VALIDATION_ERROR',
-          'reason is required for decision "reject" (3–500 chars)',
+          reasonRequired
+            ? 'reason is required for decision "reject" (3–500 chars)'
+            : 'reason, when present, must be 3–500 chars',
           { field: 'reason' },
         );
       }
+      // «No llegó» solo existe con la mercancia en mano: antes de `recibida` no hay paquete que revisar.
+      if (rejectionCode === 'not_received' && !['recibida', 'verificacion'].includes(item.sellRequest.status)) {
+        throw BusinessException.validation(
+          'REQUEST_NOT_RECEIVED',
+          'A card can only be marked as not received once the package was received',
+          { sellRequestId: item.sellRequestId, status: item.sellRequest.status },
+        );
+      }
+      const trimmedReason = rawReason || (rejectionCode ? REJECTION_CODE_DEFAULT_REASON[rejectionCode] : rawReason);
       const rejectedAt = new Date();
       // INVARIANTE de dinero (BL-1, §4.18b): el rechazo SACA el ítem del total aprobado aunque
       // antes hubiera sido aprobado/ajustado → approvedPriceCents=null ANTES del recompute.
@@ -7330,7 +7583,10 @@ export class BuylistService implements OnModuleInit {
       // exclusión la da el motor, no un `if` sobre la lectura de arriba (que una carrera invalida).
       // v1.82 · PNL-4: la escritura vive en `rejectItemWrite`, UN cuerpo con `reject-items`. Aquí sin
       // `expectedItemStatus` (el `where` es el de siempre: `PATCH …/decision {reject}` sin cambio, §PNL.4).
-      const written = await this.rejectItemWrite(this.prisma, itemId, trimmedReason, rejectedAt);
+      // §3.2: la escritura y la cancelacion de la baja pendiente van en UNA transaccion.
+      const written = await this.prisma.$transaction((tx) =>
+        this.rejectItemWrite(tx, itemId, trimmedReason, rejectedAt, undefined, rejectionCode),
+      );
       // v1.82.1 · §PNL.10.2.3 — `count ≠ 1` se RELEE: solicitud terminal ⇒ `NO_LIVE_ADJUSTMENT` (gana); carta en
       // estado final ⇒ `409 CONFLICT … ITEM_FINAL` (una conversión confirmó entre la lectura y aquí).
       if (!written) await this.throwRejectWriteConflict(this.prisma, itemId, item.sellRequestId);
@@ -7339,6 +7595,12 @@ export class BuylistService implements OnModuleInit {
       const updated = await this.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
       if (!updated) throw BusinessException.notFound();
       await this.recomputeApprovedTotal(item.sellRequestId);
+      if (rejectionCode) {
+        // §BUYLIST-FLUJO F2b: con causa, primero se resuelve si la solicitud se cerro (el correo lo dice) y luego sale C1/C2.
+        const requestClosed = await this.maybeAutoRejectRequest(item.sellRequestId);
+        await this.sendFlujoRejectionMail(item, rejectionCode, rawReason, rejectedAt, requestClosed);
+        return toAdminSellItemRow(updated);
+      }
       // Correo al vendedor: best-effort POST-commit — su fallo se loggea y NO revierte la decisión.
       await this.sendItemRejectedMail(item, trimmedReason, rejectedAt);
       // v1.24-buylist-request-reject (§4.18f, P-4): auto-transición de la SOLICITUD como efecto del
@@ -7401,6 +7663,13 @@ export class BuylistService implements OnModuleInit {
       data.approvedPriceCents = effective;
     }
     data.itemStatus = itemStatus;
+    // §BUYLIST-FLUJO §3.2 — aprobar al pactado una linea con baja VIVA (`pending ∧ ajustada`) la RETIRA en la misma escritura (CAS abajo):
+    // «aprobar = retirar la baja y pagar lo pactado». Sin 409 ni paso previo.
+    const cancelsRevision = decision === 'approve' && hasLivePendingRevision(item);
+    if (cancelsRevision) {
+      data.revisionState = 'cancelled';
+      data.revisionRespondedAt = new Date();
+    }
     // v1.18: si un ítem antes rechazado se re-decide approve/adjust, los campos de rechazo se
     // LIMPIAN (solo un ítem `rechazada` los expone; higiene de la fuente única de plazos).
     if (item.itemStatus === 'rechazada') {
@@ -7422,6 +7691,7 @@ export class BuylistService implements OnModuleInit {
           // de arriba decide la limpieza con la lectura vieja): **aprobada y rechazada a la vez**. Con el CAS,
           // la decisión tomada sobre una vista vieja no escribe (`409 CONFLICT · CONCURRENT_UPDATE`).
           itemStatus: item.itemStatus,
+          ...(cancelsRevision ? { revisionState: 'pending' as const } : {}),
           sellRequest: { ...this.notTerminalWhere(), ...offerCycleWhere, ...receivedWhere },
         },
         data: data as Prisma.SellRequestItemUpdateManyMutationInput,
@@ -7448,7 +7718,41 @@ export class BuylistService implements OnModuleInit {
     // RB-6 / SEC-D3: deriva y persiste `approvedTotalCents` server-side desde los montos aprobados
     // por ítem, en el punto donde esos montos cambian. Lo lee el P&L / la tarjeta "buylist del periodo".
     await this.recomputeApprovedTotal(item.sellRequestId);
+    // C5 («Retiramos la propuesta»): UNA por acto, best-effort POST-commit (su fallo no revierte la aprobacion).
+    if (cancelsRevision) await this.sendRevisionCancelledMail(item, item.sellRequest.user);
     return toAdminSellItemRow(updated); // S49-R4
+  }
+
+  /** C5 al vendedor: se retiro la baja y se paga el precio original. Best-effort POST-commit; es/en. */
+  private async sendRevisionCancelledMail(
+    item: {
+      id: string;
+      sellRequestId: string;
+      finish: Finish;
+      offeredPriceCents: number | null;
+      card?: { name: string; number: string; set?: { name: string } | null } | null;
+    },
+    user: { email: string | null; name: string; locale: string | null } | null | undefined,
+  ): Promise<void> {
+    try {
+      if (!this.mail || !user?.email) {
+        this.logger.warn(`buylist revision-cancelled mail skipped for item ${item.id}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`);
+        return;
+      }
+      const msg = sellItemRevisionCancelledTemplate(
+        {
+          folio: item.sellRequestId,
+          card: { cardName: item.card?.name ?? '', setName: item.card?.set?.name ?? '', cardNumber: item.card?.number ?? '', finish: item.finish ?? 'normal' },
+          offeredCents: item.offeredPriceCents ?? 0,
+          portalUrl: buylistPortalUrl(item.sellRequestId, user.locale),
+        },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(`buylist revision-cancelled mail failed for item ${item.id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   /**
@@ -7537,12 +7841,12 @@ export class BuylistService implements OnModuleInit {
    * pisar terminal»: `updateMany` con guardia de estado (mismo patrón atómico que `paySpei`) — nunca
    * reescribe una `pagada`/`abandonada` ni re-sella una `rechazada`.
    */
-  private async maybeAutoRejectRequest(sellRequestId: string): Promise<void> {
+  private async maybeAutoRejectRequest(sellRequestId: string): Promise<boolean> {
     // v1.24 (endurecimiento §4.18f): el "¿queda algún ítem no-rechazado?" (count) y el "sella la
     // solicitud a rechazada" (updateMany) van en UN SOLO boundary atómico Serializable (mismo patrón
     // que `createRequest`/SEC-A2), haciendo verdadera la afirmación del doc «mismo transaction
     // boundary». Sin esto, count y update eran awaits secuenciales no atómicos. Dentro se usa `tx`.
-    await runSerializable(this.prisma, (tx) => this.autoRejectIfAllRejectedTx(tx, sellRequestId), {
+    return runSerializable(this.prisma, (tx) => this.autoRejectIfAllRejectedTx(tx, sellRequestId), {
       label: 'rejectAllItems',
       logger: this.logger,
     });
@@ -7596,6 +7900,7 @@ export class BuylistService implements OnModuleInit {
     trimmedReason: string,
     rejectedAt: Date,
     expectedItemStatus?: SellItemStatus,
+    rejectionCode?: SellItemRejectionCode,
   ): Promise<boolean> {
     const guard = await db.sellRequestItem.updateMany({
       where: {
@@ -7618,9 +7923,19 @@ export class BuylistService implements OnModuleInit {
         approvedPriceCents: null,
         rejectedAt,
         rejectionReason: trimmedReason,
+        // §BUYLIST-FLUJO F2b: `undefined` = no toca la columna (legacy `reject-items` sin causa).
+        ...(rejectionCode ? { rejectionCode } : {}),
       },
     });
-    return guard.count === 1;
+    if (guard.count !== 1) return false;
+    // §BUYLIST-FLUJO §3.2 — rechazar una linea con baja `pending` la RETIRA en la MISMA transaccion (el llamador la abre): sin esto la
+    // linea queda `rechazada` con `pending` huerfano. El candado de fila que tomo el `updateMany` de arriba serializa con la respuesta
+    // del vendedor (si respondio antes, `revisionState` ya no es `pending` y esto no escribe: sin doble efecto).
+    await db.sellRequestItem.updateMany({
+      where: { id: itemId, revisionState: 'pending' },
+      data: { revisionState: 'cancelled', revisionRespondedAt: rejectedAt },
+    });
+    return true;
   }
 
   /**
@@ -7642,8 +7957,9 @@ export class BuylistService implements OnModuleInit {
   async rejectItems(
     id: string,
     body: unknown,
-  ): Promise<{ items: ReturnType<typeof toAdminSellItemRow>[]; requestClosed: boolean; itemIds: string[]; reason: string }> {
-    const { itemIds, reason } = parseRejectItemsBody(body);
+  ): Promise<{ items: ReturnType<typeof toAdminSellItemRow>[]; requestClosed: boolean; itemIds: string[]; reason: string; reasonCode: RejectItemsReasonCode }> {
+    const { itemIds, reason: noteText, reasonCode } = parseRejectItemsBody(body);
+    const reason = noteText || REJECTION_CODE_DEFAULT_REASON[reasonCode];
     const rejectedAt = new Date();
     const outcome = await runSerializable(
       this.prisma,
@@ -7689,7 +8005,7 @@ export class BuylistService implements OnModuleInit {
           });
         }
         for (const r of ordered) {
-          const written = await this.rejectItemWrite(tx, r.id, reason, rejectedAt, r.itemStatus);
+          const written = await this.rejectItemWrite(tx, r.id, reason, rejectedAt, r.itemStatus, reasonCode);
           if (!written) {
             // El CAS no casó: otra escritura movió la carta entre la lectura y aquí. ⛔ Nada queda escrito
             // (el throw deshace la tx entera). Mismo `409 CONFLICT {itemIds}` que el pre-check.
@@ -7709,20 +8025,22 @@ export class BuylistService implements OnModuleInit {
       },
       { label: 'rejectItems', logger: this.logger },
     );
-    await this.sendItemsRejectedMail(id, itemIds, reason, rejectedAt, outcome.requestClosed);
-    return { ...outcome, itemIds, reason };
+    // §3.2: UN solo correo por acto con la causa elegida: C1 («tus cartas te esperan») o C2 si la causa es «No llegó».
+    await this.sendRejectItemsFlujoMail(id, itemIds, reasonCode, noteText, rejectedAt, outcome.requestClosed);
+    return { ...outcome, itemIds, reason, reasonCode };
   }
 
   /**
-   * v1.82 · PNL-4 — el correo 29 (`sellItemsRejectedTemplate`), **UNO** por lote. BEST-EFFORT POST-COMMIT
-   * (patrón `sendItemRejectedMail`): todo —incluida la lectura de datos— dentro del `try`; un fallo se
-   * registra y ⛔ no deshace el rechazo. Minimización §4.18c: cartas (nombre/set/número/acabado), motivo y
-   * plazos — sin CLABE, sin montos, sin el estado de las demás cartas.
+   * §BUYLIST-FLUJO §3.2 — el correo de `reject-items`: UNO por acto, con la causa elegida (C1 con el bloque de recoger; C2 si `not_received`).
+   * BEST-EFFORT POST-COMMIT: todo —incluida la lectura de datos— dentro del `try`; un fallo se registra y ⛔ no deshace el rechazo.
+   * Minimizacion §4.18c: cartas (nombre/set/numero/acabado), causa y plazos — sin CLABE, sin montos ajenos. (`sellItemsRejectedTemplate`
+   * ya no se usa en este verbo.)
    */
-  private async sendItemsRejectedMail(
+  private async sendRejectItemsFlujoMail(
     sellRequestId: string,
     itemIds: string[],
-    reason: string,
+    code: RejectItemsReasonCode,
+    note: string,
     rejectedAt: Date,
     requestClosed: boolean,
   ): Promise<void> {
@@ -7733,7 +8051,7 @@ export class BuylistService implements OnModuleInit {
       }
       const req = await this.prisma.sellRequest.findUnique({
         where: { id: sellRequestId },
-        select: { user: { select: { email: true, name: true, locale: true } } },
+        select: { offerShippingFeeCents: true, user: { select: { email: true, name: true, locale: true } } },
       });
       const user = req?.user;
       if (!user?.email) {
@@ -7742,31 +8060,42 @@ export class BuylistService implements OnModuleInit {
       }
       const items = await this.prisma.sellRequestItem.findMany({
         where: { id: { in: itemIds } },
-        select: { id: true, finish: true, card: { select: { name: true, number: true, set: { select: { name: true } } } } },
+        select: { id: true, finish: true, rawCondition: true, card: { select: { name: true, number: true, set: { select: { name: true } } } } },
       });
       const byId = new Map(items.map((i) => [i.id, i]));
-      const { returnDeadlineAt, abandonDeadlineAt } = rejectDeadlines(rejectedAt);
-      const msg = sellItemsRejectedTemplate(
-        {
-          folio: sellRequestId,
-          cards: itemIds.map((i) => {
-            const it = byId.get(i);
-            return {
-              cardName: it?.card?.name ?? '',
-              setName: it?.card?.set?.name ?? '',
-              cardNumber: it?.card?.number ?? '',
-              finish: it?.finish ?? 'normal',
-            };
-          }),
-          reason,
-          rejectedAt,
-          returnDeadlineAt: returnDeadlineAt!,
-          abandonDeadlineAt: abandonDeadlineAt!,
-          requestClosed,
-        },
-        user.name ?? '',
-        user.locale,
-      );
+      const cards = itemIds.map((i) => {
+        const it = byId.get(i);
+        return {
+          cardName: it?.card?.name ?? '',
+          setName: it?.card?.set?.name ?? '',
+          cardNumber: it?.card?.number ?? '',
+          finish: it?.finish ?? 'normal',
+        };
+      });
+      let msg: MailMessage;
+      if (code === 'not_received') {
+        msg = sellItemNotReceivedTemplate(
+          { folio: sellRequestId, card: cards[0], cards, requestClosed, hasShippingFee: (req?.offerShippingFeeCents ?? 0) > 0 },
+          user.name ?? '',
+          user.locale,
+        );
+      } else {
+        const { returnDeadlineAt, abandonDeadlineAt } = rejectDeadlines(rejectedAt);
+        msg = sellItemsPickupTemplate(
+          {
+            folio: sellRequestId,
+            cards: itemIds.map((i, n) => ({ ...cards[n], cause: code, declaredCondition: byId.get(i)?.rawCondition ?? null, note: note || null })),
+            storeAddress: await this.storeAddressLine(),
+            portalUrl: buylistPortalUrl(sellRequestId, user.locale),
+            returnDeadlineAt: returnDeadlineAt!,
+            abandonDeadlineAt: abandonDeadlineAt!,
+            responseDays: BUYLIST_REVISION_RESPONSE_DAYS,
+            requestClosed,
+          },
+          user.name ?? '',
+          user.locale,
+        );
+      }
       await this.mail.send({ ...msg, to: user.email });
     } catch (e) {
       this.logger.error(
@@ -7883,6 +8212,81 @@ export class BuylistService implements OnModuleInit {
   }
 
   /**
+   * §BUYLIST-FLUJO F2b — la direccion de la TIENDA para el bloque de recoger: se DERIVA de `skydropx_origin_snapshot`
+   * (§DIR-TIENDA; nada capturado a mano). Sin calle o sin CP ⇒ `null` y el correo dice «te confirmaremos la direccion».
+   */
+  private async storeAddressLine(): Promise<string | null> {
+    const o = ((await this.settings.get<OriginSnapshotDial>(SettingKey.SKYDROPX_ORIGIN_SNAPSHOT)) ?? {}) as NonNullable<OriginSnapshotDial>;
+    const t = (v: string | null | undefined) => (typeof v === 'string' ? v.trim() : '');
+    if (!t(o.street1) || !t(o.postalCode)) return null;
+    return [t(o.street1), t(o.areaLevel3), `CP ${t(o.postalCode)}`, t(o.areaLevel2), t(o.areaLevel1)].filter(Boolean).join(', ');
+  }
+
+  /**
+   * §BUYLIST-FLUJO F2b — C1/C2 por `PATCH …/decision {reject, reasonCode}`. BEST-EFFORT POST-commit (patron
+   * `sendItemRejectedMail`): un fallo se registra y ⛔ no deshace el rechazo. `not_received` ⇒ C2 (sin recoger); el resto ⇒ C1.
+   */
+  private async sendFlujoRejectionMail(
+    item: {
+      id: string;
+      sellRequestId: string;
+      finish: Finish;
+      rawCondition?: RawCondition | null;
+      sellRequest?: { offerShippingFeeCents?: number | null; user?: { email: string | null; name: string; locale: string | null } | null } | null;
+      card?: { name: string; number: string; set?: { name: string } | null } | null;
+    },
+    code: 'not_received' | 'condition_mismatch' | 'wrong_card' | 'other',
+    note: string,
+    rejectedAt: Date,
+    requestClosed: boolean,
+  ): Promise<void> {
+    try {
+      const user = item.sellRequest?.user;
+      if (!this.mail || !user?.email) {
+        this.logger.warn(
+          `buylist reject mail skipped for item ${item.id}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`,
+        );
+        return;
+      }
+      const card = {
+        cardName: item.card?.name ?? '',
+        setName: item.card?.set?.name ?? '',
+        cardNumber: item.card?.number ?? '',
+        finish: item.finish ?? 'normal',
+      };
+      let msg: MailMessage;
+      if (code === 'not_received') {
+        msg = sellItemNotReceivedTemplate(
+          { folio: item.sellRequestId, card, requestClosed, hasShippingFee: (item.sellRequest?.offerShippingFeeCents ?? 0) > 0 },
+          user.name ?? '',
+          user.locale,
+        );
+      } else {
+        const { returnDeadlineAt, abandonDeadlineAt } = rejectDeadlines(rejectedAt);
+        msg = sellItemsPickupTemplate(
+          {
+            folio: item.sellRequestId,
+            cards: [{ ...card, cause: code, declaredCondition: item.rawCondition ?? null, note: note || null }],
+            storeAddress: await this.storeAddressLine(),
+            portalUrl: buylistPortalUrl(item.sellRequestId, user.locale),
+            returnDeadlineAt: returnDeadlineAt!,
+            abandonDeadlineAt: abandonDeadlineAt!,
+            responseDays: BUYLIST_REVISION_RESPONSE_DAYS,
+            requestClosed,
+          },
+          user.name ?? '',
+          user.locale,
+        );
+      }
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(
+        `buylist reject mail (flujo) failed for item ${item.id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  /**
    * v1.18-buylist-rejects (§4.18c): correo al vendedor por RECHAZO de su carta. BEST-EFFORT
    * POST-COMMIT: se invoca DESPUÉS de persistir la decisión + recompute; cualquier fallo (puerto
    * ausente, proveedor caído, datos incompletos) se loggea y NO revierte la decisión ni falla el
@@ -7942,7 +8346,11 @@ export class BuylistService implements OnModuleInit {
    * `@@index([itemStatus])` (M-22) sirve el filtro sin barrer la tabla.
    */
   async adminRejectedItems(page: number, pageSize: number, userId?: string) {
-    const where: Prisma.SellRequestItemWhereInput = { itemStatus: 'rechazada' };
+    // §BUYLIST-FLUJO F2b: `not_received` no entra a la cola de recoger (no hay carta que devolver); los legacy (`null`) si.
+    const where: Prisma.SellRequestItemWhereInput = {
+      itemStatus: 'rechazada',
+      OR: [{ rejectionCode: null }, { rejectionCode: { not: 'not_received' } }],
+    };
     // Filtro por vendedor (simetría F1 con ?userId= de los otros listados admin).
     if (userId) where.sellRequest = { userId };
     const [rows, total] = await Promise.all([
@@ -7975,6 +8383,9 @@ export class BuylistService implements OnModuleInit {
       finish: i.finish ?? 'normal',
       quotedPriceCents: i.quotedPriceCents ?? undefined,
       reason: i.rejectionReason ?? null,
+      rejectionCode: i.rejectionCode ?? null,
+      // §BUYLIST-FLUJO F2c: lo que el vendedor eligio para recoger (la cola avisa al dueño; sin boton obligatorio).
+      pickup: pickupDTOOf(i),
       rejectedAt: i.rejectedAt ?? null,
       // Plazos DERIVADOS de rejectedAt (misma familia 7d/30d que buylist-sweep); legacy → null.
       ...rejectDeadlines(i.rejectedAt),
@@ -8068,8 +8479,9 @@ export class BuylistService implements OnModuleInit {
             // **El envío NO entra al costo de la pieza**: dos piezas idénticas compradas al mismo
             // bruto tienen el MISMO costo y el MISMO margen, llegue una en un paquete caro y la otra
             // no. Mezclarlos ensuciaría el P&L por carta que M7 existe para mostrar.
-            acquisitionCostCents:
-              item.offeredPriceCents ?? item.approvedPriceCents ?? item.quotedPriceCents ?? 0,
+            // §BUYLIST-FLUJO F2c: con baja ACEPTADA el costo es lo realmente pactado (`approvedPriceCents`); sin baja, `offeredPriceCents`
+            // como siempre (`agreedPriceCentsOf`: UNA definicion del pactado para el DTO y para el costo).
+            acquisitionCostCents: agreedPriceCentsOf(item) ?? item.approvedPriceCents ?? item.quotedPriceCents ?? 0,
             sourceSellRequestItemId: item.id,
           },
         });
@@ -8133,6 +8545,12 @@ export class BuylistService implements OnModuleInit {
           { itemId, itemStatus: e.fresh?.itemStatus, reason: 'CONCURRENT_UPDATE' },
         );
       }
+      // §BUYLIST-FLUJO F2a: `locationId` inexistente (FK) era un 500 anonimo; ahora 422 con el codigo de ubicacion de M1.
+      if (locationId && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003') {
+        throw BusinessException.validation('LOCATION_NOT_AVAILABLE', 'Location not available: not_found', {
+          reason: 'not_found',
+        });
+      }
       // Violación de unicidad → otra conversión ganó la carrera: ya convertido.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         const existing = await this.prisma.inventoryItem.findFirst({
@@ -8147,6 +8565,511 @@ export class BuylistService implements OnModuleInit {
       }
       throw e;
     }
+  }
+
+  // ======================= §BUYLIST-FLUJO F2c — bajar precio (con el «si» del vendedor) y recoger =======================
+
+  /** Lineas que una baja puede tocar: la carta aun sin veredicto de compra (o con una baja ya pendiente que se re-propone). */
+  private static readonly REVISABLE_ITEM_STATUSES: SellItemStatus[] = ['cotizada', 'recibida', 'verificacion', 'ajustada'];
+  private static readonly REVISION_RESOLVED_ITEM_STATUSES = ['aprobada', 'rechazada', 'convertida_inventario', 'pagada'];
+
+  /**
+   * Las validaciones de `revise-price` (estado de la solicitud → linea ofertada → no resuelta → valor menor), UN cuerpo con la vista previa
+   * (`previewRevisedPayout`): la previa nunca acepta un valor que el verbo rechazaria.
+   */
+  private async loadRevisableItem(itemId: string, revised: number) {
+    const item = await this.prisma.sellRequestItem.findUnique({
+      where: { id: itemId },
+      include: {
+        card: { select: { name: true, number: true, set: { select: { name: true } } } },
+        sellRequest: { select: { id: true, status: true, offerSentAt: true, closedAt: true, user: { select: { email: true, name: true, locale: true } } } },
+      },
+    });
+    if (!item) throw BusinessException.notFound();
+    const req = item.sellRequest;
+    if (!['recibida', 'verificacion'].includes(req.status) || req.offerSentAt == null || req.closedAt != null) {
+      throw BusinessException.validation('REQUEST_NOT_RECEIVED', 'A price can only be revised after the package was received', {
+        sellRequestId: item.sellRequestId,
+        status: req.status,
+      });
+    }
+    if (item.offerDecision !== 'buy' || item.offeredPriceCents == null) {
+      throw BusinessException.validation('ITEM_NOT_OFFERED', 'Only a purchased (offered) line can have its price revised', { itemId });
+    }
+    if (BuylistService.REVISION_RESOLVED_ITEM_STATUSES.includes(item.itemStatus)) {
+      throw BusinessException.conflict('REVISION_ALREADY_RESOLVED', 'This line was already resolved', { itemId, itemStatus: item.itemStatus });
+    }
+    if (revised <= 0 || revised >= item.offeredPriceCents) {
+      throw BusinessException.validation('REVISION_NOT_LOWER', 'The revised price must be lower than the offered price and above zero', {
+        offeredPriceCents: item.offeredPriceCents,
+        revisedPriceCents: revised,
+      });
+    }
+    return { item, req, revised };
+  }
+
+  /**
+   * `GET /admin/buylist/items/:itemId/revise-price/preview?revisedPriceCents=` (anexo §3): el `payout` que tendria la solicitud si el
+   * vendedor acepta, con `computePayoutNetCents`. SOLO LECTURA: ni escribe, ni audita, ni manda correo. Mismas validaciones que el verbo.
+   * Las OTRAS bajas pendientes cuentan a su valor propuesto.
+   */
+  async previewRevisedPayout(itemId: string, revisedPriceCents: number) {
+    const { item, revised } = await this.loadRevisableItem(itemId, revisedPriceCents);
+    const sr = await this.prisma.sellRequest.findUnique({
+      where: { id: item.sellRequestId },
+      select: {
+        approvedTotalCents: true,
+        offerGrossCents: true,
+        quotedTotalCents: true,
+        offerShippingFeeCents: true,
+        items: { select: VERDICT_ITEM_SELECT },
+      },
+    });
+    if (!sr) throw BusinessException.notFound();
+    // §3.1: la MISMA `projectPayoutNetCents` que `netIfAcceptedCents` y la barra `payout`; esa linea al precio tecleado.
+    const p = projectPayoutNetCents({ lines: sr.items, offerShippingFeeCents: sr.offerShippingFeeCents, legacy: sr }, { itemId, priceCents: revised });
+    const payout = { grossCents: p.grossCents, shippingFeeCents: p.shippingFeeCents, netCents: p.netCents, isFinal: p.isFinal };
+    return { itemId, offeredPriceCents: item.offeredPriceCents as number, revisedPriceCents: revised, payout };
+  }
+
+  /**
+   * `POST /admin/buylist/items/:itemId/revise-price` (anexo §3). Propone BAJAR el precio de UNA linea ofertada: `offeredPriceCents`
+   * jamas se muta (D2/D9), la baja vive en `revisedPriceCents` y solo cobra efecto con el «si» del vendedor
+   * (`respondRevision`). Orden: estado de la solicitud → linea ofertada → linea no resuelta → valor menor → escritura con CAS.
+   * Mismo valor ya pendiente ⇒ 200 sin escribir ni mandar correo; otro valor ⇒ reemplaza y reinicia el reloj de 7 d (correo C3).
+   */
+  async reviseItemPrice(
+    itemId: string,
+    dto: { revisedPriceCents: number; reasonCode: 'condition_mismatch' | 'wrong_card' | 'other'; note?: string },
+    actor: { id: string; role: Role },
+  ) {
+    const note = (dto.note ?? '').trim();
+    if ((dto.reasonCode === 'other' || note.length > 0) && (note.length < 3 || note.length > 500)) {
+      throw BusinessException.badRequest(
+        'VALIDATION_ERROR',
+        dto.reasonCode === 'other' ? 'note is required for reasonCode "other" (3–500 chars)' : 'note, when present, must be 3–500 chars',
+        { field: 'note' },
+      );
+    }
+    const { item, req, revised } = await this.loadRevisableItem(itemId, dto.revisedPriceCents);
+    if (hasLivePendingRevision(item) && item.revisedPriceCents === revised) {
+      return this.adminGet(item.sellRequestId, actor); // idempotente: ni escritura ni correo nuevo.
+    }
+    const now = new Date();
+    const written = await this.prisma.sellRequestItem.updateMany({
+      where: {
+        id: itemId,
+        offerDecision: 'buy',
+        offeredPriceCents: { gt: revised },
+        itemStatus: { in: BuylistService.REVISABLE_ITEM_STATUSES },
+        OR: [{ revisionState: null }, { revisionState: 'pending', itemStatus: 'ajustada' }],
+        sellRequest: { status: { in: ['recibida', 'verificacion'] }, closedAt: null, offerSentAt: { not: null } },
+      },
+      data: {
+        itemStatus: 'ajustada',
+        revisionState: 'pending',
+        revisedPriceCents: revised,
+        revisionProposedAt: now,
+        revisionRespondedAt: null,
+        revisionReasonCode: dto.reasonCode,
+        revisionNote: note || null,
+        revisionReminderSentAt: null,
+        approvedPriceCents: null,
+      },
+    });
+    if (written.count !== 1) {
+      const fresh = await this.prisma.sellRequestItem.findUnique({ where: { id: itemId }, select: { itemStatus: true } });
+      if (fresh && BuylistService.REVISION_RESOLVED_ITEM_STATUSES.includes(fresh.itemStatus)) {
+        throw BusinessException.conflict('REVISION_ALREADY_RESOLVED', 'This line was already resolved', { itemId, itemStatus: fresh.itemStatus });
+      }
+      throw BusinessException.conflict('CONFLICT', 'This card was modified by another operation; nothing was changed. Please retry.', {
+        itemId,
+        reason: 'CONCURRENT_UPDATE',
+      });
+    }
+    // C3 al vendedor: best-effort POST-commit (su fallo no revierte la propuesta).
+    await this.sendRevisionMail(item, req.user, {
+      reminder: false,
+      proposedCents: revised,
+      reasonCode: dto.reasonCode,
+      note: note || null,
+      proposedAt: now,
+    });
+    return this.adminGet(item.sellRequestId, actor);
+  }
+
+  private async sendRevisionMail(
+    item: {
+      id: string;
+      sellRequestId: string;
+      finish: Finish;
+      rawCondition?: RawCondition | null;
+      offeredPriceCents: number | null;
+      card?: { name: string; number: string; set?: { name: string } | null } | null;
+    },
+    user: { email: string | null; name: string; locale: string | null } | null | undefined,
+    o: { reminder: boolean; proposedCents: number; reasonCode: 'condition_mismatch' | 'wrong_card' | 'other'; note: string | null; proposedAt: Date; now?: Date },
+  ): Promise<void> {
+    try {
+      if (!this.mail || !user?.email) {
+        this.logger.warn(`buylist revision mail skipped for item ${item.id}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`);
+        return;
+      }
+      const msg = sellItemRevisionTemplate(
+        {
+          folio: item.sellRequestId,
+          card: { cardName: item.card?.name ?? '', setName: item.card?.set?.name ?? '', cardNumber: item.card?.number ?? '', finish: item.finish ?? 'normal' },
+          offeredCents: item.offeredPriceCents ?? 0,
+          proposedCents: o.proposedCents,
+          cause: o.reasonCode,
+          declaredCondition: item.rawCondition ?? null,
+          note: o.note,
+          expiresAt: revisionExpiresAt(o.proposedAt),
+          responseDays: BUYLIST_REVISION_RESPONSE_DAYS,
+          // C4: el tiempo REAL que queda (nunca el «7 dias» fijo).
+          ...(o.reminder ? { remainingDays: remainingDaysOf(revisionExpiresAt(o.proposedAt), o.now ?? new Date()) } : {}),
+          portalUrl: buylistPortalUrl(item.sellRequestId, user.locale),
+          reminder: o.reminder,
+        },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(`buylist revision mail failed for item ${item.id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
+   * `POST /buylist/requests/:id/items/:itemId/revision-response` (anexo §3). El vendedor acepta o rechaza la baja. CAS en el `where`:
+   * `revisionState='pending'`, el MISMO monto propuesto que leyo, dentro de los 7 d y solicitud viva. Misma decision repetida ⇒ 200
+   * sin efectos; la contraria (o una ya vencida) ⇒ 409 `REVISION_ALREADY_RESOLVED` (es una decision de dinero, no un 200 silencioso).
+   */
+  async respondRevision(userId: string, requestId: string, itemId: string, decision: 'accept' | 'decline', expectedRevisedPriceCents?: number) {
+    // F2-2: `accept` EXIGE el monto que el vendedor vio (el controlador ya da 400 por DTO; aqui la defensa en profundidad del servicio).
+    if (decision === 'accept' && (!Number.isInteger(expectedRevisedPriceCents) || (expectedRevisedPriceCents as number) <= 0)) {
+      throw BusinessException.badRequest('VALIDATION_ERROR', 'expectedRevisedPriceCents is required to accept a price revision', {
+        field: 'expectedRevisedPriceCents',
+      });
+    }
+    const item = await this.prisma.sellRequestItem.findFirst({
+      where: { id: itemId, sellRequestId: requestId },
+      include: {
+        card: { select: { name: true, number: true, set: { select: { name: true } } } },
+        sellRequest: { select: { userId: true, status: true, closedAt: true, offerShippingFeeCents: true, user: { select: { email: true, name: true, locale: true } } } },
+      },
+    });
+    if (!item || item.sellRequest.userId !== userId || item.revisionState == null) throw BusinessException.notFound();
+    const resolvedAs = (st: SellItemRevisionState | null) => (st === 'accepted' ? 'accept' : st === 'declined' ? 'decline' : null);
+    const already = (state: SellItemRevisionState | null = item.revisionState) =>
+      BusinessException.conflict('REVISION_ALREADY_RESOLVED', 'This price revision was already resolved', { itemId, state });
+    const changed = (current: number | null) =>
+      BusinessException.conflict('REVISION_CHANGED', 'The proposed price changed; review the new proposal', {
+        expectedRevisedPriceCents,
+        currentRevisedPriceCents: current,
+      });
+    // Misma decision repetida ⇒ 200 (accept repetido solo si el monto visto es el aceptado); la contraria o una baja retirada ⇒ 409.
+    const sameDecisionOk = (st: SellItemRevisionState | null, approved: number | null) =>
+      resolvedAs(st) === decision && (decision === 'decline' || approved === expectedRevisedPriceCents);
+    if (!hasLivePendingRevision(item)) {
+      if (sameDecisionOk(item.revisionState, item.approvedPriceCents)) return this.getMine(userId, requestId);
+      if (decision === 'accept' && item.revisionState === 'accepted') throw changed(item.approvedPriceCents);
+      throw already();
+    }
+    const now = new Date();
+    if (item.sellRequest.closedAt != null || isTerminalSellRequestStatus(item.sellRequest.status)) {
+      throw BusinessException.conflict('NO_LIVE_ADJUSTMENT', 'This sell request is closed: its items can no longer be decided', {
+        status: item.sellRequest.status,
+      });
+    }
+    if (item.revisionProposedAt && item.revisionProposedAt.getTime() <= revisionCutoff(now).getTime()) throw already(); // venció (el barrido lo sella)
+    if (decision === 'accept' && item.revisedPriceCents !== expectedRevisedPriceCents) throw changed(item.revisedPriceCents);
+    const guard: Prisma.SellRequestItemWhereInput = {
+      id: itemId,
+      revisionState: 'pending',
+      itemStatus: 'ajustada',
+      // F2-2: el CAS lleva el MONTO. En `accept` es el que el vendedor vio; en `decline` el leido (declinar es seguro).
+      revisedPriceCents: decision === 'accept' ? expectedRevisedPriceCents : item.revisedPriceCents,
+      revisionProposedAt: { gt: revisionCutoff(now) },
+      sellRequest: { closedAt: null, userId, status: { in: ['recibida', 'verificacion'] } },
+    };
+    const written =
+      decision === 'accept'
+        ? await this.prisma.sellRequestItem.updateMany({
+            where: guard,
+            data: { itemStatus: 'aprobada', approvedPriceCents: expectedRevisedPriceCents, revisionState: 'accepted', revisionRespondedAt: now },
+          })
+        : await this.prisma.sellRequestItem.updateMany({
+            where: guard,
+            data: {
+              itemStatus: 'rechazada',
+              approvedPriceCents: null,
+              rejectedAt: now,
+              rejectionReason: REJECTION_CODE_DEFAULT_REASON.revision_declined,
+              rejectionCode: 'revision_declined',
+              revisionState: 'declined',
+              revisionRespondedAt: now,
+            },
+          });
+    if (written.count !== 1) {
+      // Se re-lee: si otro acto gano con la MISMA decision, 200; el monto cambio ⇒ REVISION_CHANGED; si no, 409.
+      const fresh = await this.prisma.sellRequestItem.findUnique({
+        where: { id: itemId },
+        select: { revisionState: true, itemStatus: true, revisedPriceCents: true, approvedPriceCents: true },
+      });
+      if (fresh && sameDecisionOk(fresh.revisionState, fresh.approvedPriceCents)) return this.getMine(userId, requestId);
+      if (decision === 'accept' && fresh && hasLivePendingRevision(fresh)) throw changed(fresh.revisedPriceCents);
+      throw already(fresh?.revisionState ?? null);
+    }
+    await this.recomputeApprovedTotal(requestId);
+    if (decision === 'decline') {
+      const requestClosed = await this.maybeAutoRejectRequest(requestId);
+      await this.sendPickupMailFor(requestId, item.sellRequest.user, [{ item, cause: 'revision_declined' }], now, requestClosed);
+    }
+    return this.getMine(userId, requestId);
+  }
+
+  /** C1 (con el bloque de recoger) para lineas cerradas por la baja: declinada por el vendedor o vencida por el barrido. Best-effort POST-commit. */
+  private async sendPickupMailFor(
+    requestId: string,
+    user: { email: string | null; name: string; locale: string | null } | null | undefined,
+    lines: {
+      item: {
+        id: string;
+        finish: Finish;
+        offeredPriceCents: number | null;
+        revisedPriceCents: number | null;
+        card?: { name: string; number: string; set?: { name: string } | null } | null;
+      };
+      cause: 'revision_declined' | 'revision_expired';
+    }[],
+    rejectedAt: Date,
+    requestClosed: boolean,
+  ): Promise<void> {
+    try {
+      if (!this.mail || !user?.email) {
+        this.logger.warn(`buylist pickup mail skipped for ${requestId}: ${this.mail ? 'no recipient email' : 'MAIL_PORT unavailable'}`);
+        return;
+      }
+      const { returnDeadlineAt, abandonDeadlineAt } = rejectDeadlines(rejectedAt);
+      const msg = sellItemsPickupTemplate(
+        {
+          folio: requestId,
+          cards: lines.map(({ item, cause }) => ({
+            cardName: item.card?.name ?? '',
+            setName: item.card?.set?.name ?? '',
+            cardNumber: item.card?.number ?? '',
+            finish: item.finish ?? 'normal',
+            cause,
+            proposedCents: item.revisedPriceCents,
+            offeredCents: item.offeredPriceCents,
+          })),
+          storeAddress: await this.storeAddressLine(),
+          portalUrl: buylistPortalUrl(requestId, user.locale),
+          returnDeadlineAt: returnDeadlineAt!,
+          abandonDeadlineAt: abandonDeadlineAt!,
+          responseDays: BUYLIST_REVISION_RESPONSE_DAYS,
+          requestClosed,
+        },
+        user.name ?? '',
+        user.locale,
+      );
+      await this.mail.send({ ...msg, to: user.email });
+    } catch (e) {
+      this.logger.error(`buylist pickup mail failed for ${requestId}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
+   * Barrido (anexo §3; job `buylist-sweep`): las bajas `pending` con `revisionProposedAt ≤ now − 7 d` pasan a `expired` y la linea a
+   * `rechazada` (`revision_expired`): el silencio NO acepta, nunca se paga un precio menor sin «si». Un correo C1 por solicitud con todas
+   * las lineas vencidas en la corrida. El MISMO `where` lee y escribe (+ el monto propuesto, CAS contra una re-propuesta).
+   * @returns lineas vencidas
+   */
+  async sweepExpiredRevisions(now: Date): Promise<number> {
+    const live: Prisma.SellRequestItemWhereInput = {
+      revisionState: 'pending',
+      itemStatus: 'ajustada',
+      revisionProposedAt: { lte: revisionCutoff(now) },
+      sellRequest: { closedAt: null, status: { in: ['recibida', 'verificacion'] } },
+    };
+    const rows = await this.prisma.sellRequestItem.findMany({
+      where: live,
+      include: {
+        card: { select: { name: true, number: true, set: { select: { name: true } } } },
+        sellRequest: { select: { user: { select: { email: true, name: true, locale: true } } } },
+      },
+      orderBy: { id: 'asc' },
+    });
+    const byRequest = new Map<string, typeof rows>();
+    let n = 0;
+    for (const row of rows) {
+      const res = await this.prisma.sellRequestItem.updateMany({
+        where: { ...live, id: row.id, revisedPriceCents: row.revisedPriceCents },
+        data: {
+          itemStatus: 'rechazada',
+          approvedPriceCents: null,
+          rejectedAt: now,
+          rejectionReason: REJECTION_CODE_DEFAULT_REASON.revision_expired,
+          rejectionCode: 'revision_expired',
+          revisionState: 'expired',
+          revisionRespondedAt: now,
+        },
+      });
+      if (res.count !== 1) continue;
+      n += 1;
+      byRequest.set(row.sellRequestId, [...(byRequest.get(row.sellRequestId) ?? []), row]);
+    }
+    for (const [requestId, expired] of byRequest) {
+      await this.recomputeApprovedTotal(requestId);
+      const requestClosed = await this.maybeAutoRejectRequest(requestId);
+      await this.sendPickupMailFor(requestId, expired[0].sellRequest.user, expired.map((item) => ({ item, cause: 'revision_expired' as const })), now, requestClosed);
+    }
+    return n;
+  }
+
+  /**
+   * Recordatorio C4: UNA sola vez por propuesta, cuando falta 1 dia habil para el vencimiento (el MISMO dial que el recordatorio de la
+   * oferta, regla 3). El sello vive en la BD (`revisionReminderSentAt IS NULL` en el `where` del `updateMany`).
+   */
+  async sweepRevisionReminders(now: Date): Promise<number> {
+    const rows = await this.prisma.sellRequestItem.findMany({
+      where: {
+        revisionState: 'pending',
+        itemStatus: 'ajustada',
+        revisionReminderSentAt: null,
+        revisionProposedAt: { gt: revisionCutoff(now) },
+        sellRequest: { closedAt: null, status: { in: ['recibida', 'verificacion'] } },
+      },
+      include: {
+        card: { select: { name: true, number: true, set: { select: { name: true } } } },
+        sellRequest: { select: { user: { select: { email: true, name: true, locale: true } } } },
+      },
+    });
+    let n = 0;
+    for (const row of rows) {
+      if (!row.revisionProposedAt || row.revisedPriceCents == null) continue;
+      const expiresAt = revisionExpiresAt(row.revisionProposedAt);
+      let due: boolean;
+      try {
+        due = expiresAt.getTime() > now.getTime() && addBusinessDays(now, 1) >= expiresAt;
+      } catch (e) {
+        this.logger.error(`buylist-sweep: recordatorio de baja omitido para ${row.id} (calendario): ${(e as Error).message}`);
+        continue;
+      }
+      if (!due) continue;
+      const sealed = await this.prisma.sellRequestItem.updateMany({
+        where: { id: row.id, revisionState: 'pending', itemStatus: 'ajustada', revisionReminderSentAt: null, revisedPriceCents: row.revisedPriceCents },
+        data: { revisionReminderSentAt: now },
+      });
+      if (sealed.count !== 1) continue;
+      n += 1;
+      await this.sendRevisionMail(row, row.sellRequest.user, {
+        reminder: true,
+        proposedCents: row.revisedPriceCents,
+        reasonCode: (row.revisionReasonCode as 'condition_mismatch' | 'wrong_card' | 'other' | null) ?? 'other',
+        note: row.revisionNote,
+        proposedAt: row.revisionProposedAt,
+        now,
+      });
+    }
+    return n;
+  }
+
+  /**
+   * `POST /buylist/requests/:id/items/:itemId/pickup` (anexo §5): el vendedor elige como recoger una carta no aceptada. Solo lineas
+   * `rechazada` con `rejectionCode ≠ not_received` (la carta que nunca llego no tiene nada que recoger). Idempotente: el mismo metodo
+   * no cambia `pickupChosenAt`; cambiar de metodo antes de `pickupDoneAt` se permite; despues, 409.
+   */
+  async chooseItemPickup(userId: string, requestId: string, itemId: string, method: SellItemPickupMethod) {
+    const item = await this.prisma.sellRequestItem.findFirst({
+      where: { id: itemId, sellRequestId: requestId },
+      include: { sellRequest: { select: { userId: true } } },
+    });
+    if (!item || item.sellRequest.userId !== userId) throw BusinessException.notFound();
+    if (item.itemStatus !== 'rechazada' || item.rejectionCode === 'not_received') {
+      throw BusinessException.validation('VALIDATION_ERROR', 'Only a rejected card that arrived can be picked up', { itemId, itemStatus: item.itemStatus });
+    }
+    if (item.pickupDoneAt != null) {
+      throw BusinessException.conflict('PICKUP_ALREADY_DONE', 'This card was already handed over; the pickup method can no longer change', { itemId });
+    }
+    if (item.pickupMethod !== method) {
+      const res = await this.prisma.sellRequestItem.updateMany({
+        where: { id: itemId, itemStatus: 'rechazada', pickupDoneAt: null, NOT: { rejectionCode: 'not_received' } },
+        data: { pickupMethod: method, pickupChosenAt: new Date() },
+      });
+      if (res.count !== 1) throw BusinessException.conflict('CONFLICT', 'This card was modified by another operation. Please retry.', { itemId });
+    }
+    return this.getMine(userId, requestId);
+  }
+
+  /** `POST /admin/buylist/items/:itemId/pickup-done` (anexo §5): atajo OPCIONAL «Entregada». El sistema no depende de el. 200 idempotente. */
+  async markPickupDone(itemId: string, actorUserId: string) {
+    const item = await this.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
+    if (!item) throw BusinessException.notFound();
+    if (item.itemStatus !== 'rechazada' || item.rejectionCode === 'not_received') {
+      throw BusinessException.validation('VALIDATION_ERROR', 'Only a rejected card that arrived can be marked as handed over', { itemId, itemStatus: item.itemStatus });
+    }
+    if (item.pickupDoneAt == null) {
+      await this.prisma.sellRequestItem.updateMany({
+        where: { id: itemId, itemStatus: 'rechazada', pickupDoneAt: null },
+        data: { pickupDoneAt: new Date(), pickupDoneBy: actorUserId },
+      });
+    }
+    const fresh = await this.prisma.sellRequestItem.findUnique({ where: { id: itemId } });
+    if (!fresh) throw BusinessException.notFound();
+    return { ...toAdminSellItemRow(fresh), pickup: pickupDTOOf(fresh) };
+  }
+
+  /**
+   * §BUYLIST-FLUJO F2a (anexo §6) — `POST /admin/buylist/:id/convert-all {locationId?}`: da de alta TODAS las lineas aprobadas
+   * de una solicitud, una por una con `convertToInventory` (mismo camino, mismas guardas y CAS por linea), y reporta el exito
+   * parcial por linea. Sin transaccion global: cada linea es atomica por si misma y un fallo no revierte a las demas.
+   * `skipped`: ya convertida (`ALREADY_CONVERTED`) o no `aprobada` (`NOT_APPROVED`). Reintento seguro (la ya convertida pasa a
+   * `skipped`). Sin cambio de esquema.
+   */
+  async convertAll(
+    id: string,
+    actorUserId: string,
+    locationId?: string,
+  ): Promise<{
+    converted: { itemId: string; inventoryItemId: string }[];
+    skipped: { itemId: string; code: string }[];
+    failed: { itemId: string; code: string }[];
+  }> {
+    const req = await this.prisma.sellRequest.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        items: { select: { id: true, itemStatus: true, inventoryItemId: true }, orderBy: { id: 'asc' } },
+      },
+    });
+    if (!req) throw BusinessException.notFound();
+    const converted: { itemId: string; inventoryItemId: string }[] = [];
+    const skipped: { itemId: string; code: string }[] = [];
+    const failed: { itemId: string; code: string }[] = [];
+    for (const it of req.items) {
+      if (it.inventoryItemId) {
+        skipped.push({ itemId: it.id, code: 'ALREADY_CONVERTED' });
+        continue;
+      }
+      if (it.itemStatus !== 'aprobada') {
+        skipped.push({ itemId: it.id, code: 'NOT_APPROVED' });
+        continue;
+      }
+      try {
+        const r = await this.convertToInventory(it.id, actorUserId, locationId);
+        if (r.alreadyConverted) skipped.push({ itemId: it.id, code: 'ALREADY_CONVERTED' });
+        else if (r.inventoryItemId) converted.push({ itemId: it.id, inventoryItemId: r.inventoryItemId });
+        else failed.push({ itemId: it.id, code: 'CONVERT_FAILED' });
+      } catch (e) {
+        failed.push({ itemId: it.id, code: e instanceof BusinessException ? e.code : 'CONVERT_FAILED' });
+        if (!(e instanceof BusinessException)) {
+          this.logger.error(`convert-all ${id}: linea ${it.id} fallo: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
+    return { converted, skipped, failed };
   }
 
   /**
@@ -8209,7 +9132,7 @@ export class BuylistService implements OnModuleInit {
    * Idempotente ante replays: el conteo solo corre en la llamada que HACE la transición
    * (updateMany count===1); un re-POST/replay ve `pagada` y devuelve el estado sin re-contar.
    */
-  async paySpei(id: string, speiReference: string, paidBy: string) {
+  async paySpei(id: string, speiReference: string, paidBy: string, expectedNetCents?: number) {
     // ⚠️ v1.61 · §M5-V — el `include` de las líneas es **precondición del verbo, no adorno de la
     // respuesta**: V-b se evalúa sobre ellas y el DTO publica `pendingDecisionItemCount`.
     const req = await this.prisma.sellRequest.findUnique({
@@ -8222,7 +9145,7 @@ export class BuylistService implements OnModuleInit {
     // S49-M1: proyectado — este `req` viene de un `findUnique` SIN select, o sea con el snapshot
     // cifrado de la CLABE dentro. Es el camino MÁS fácil de alcanzar (basta re-postear el pago).
     if (req.status === 'pagada') {
-      return this.adminSellRequestDTO(req, await this.adminCycleDials());
+      return this.adminSellRequestDTO(req, await this.adminCycleDials(), await this.kycOptsOf(req));
     }
     // ⚠️⚠️ v1.56 · **§M5-T / BL-35 — LA HUELLA DACTILAR DE UN ROLLBACK, Y TIENE QUE SER RUIDOSA.**
     //
@@ -8286,6 +9209,16 @@ export class BuylistService implements OnModuleInit {
     // de las cuatro columnas** (B-2) más `approvedTotalCents: { not: null }` de `payableWhere()`.
     // ⚠️ El `?? []` es **solo por los mocks unitarios** (filas construidas a mano, sin `include`); el
     // tipo de `req` ya garantiza las líneas en producción.
+    // §BUYLIST-FLUJO F2c: una baja de precio SIN respuesta del vendedor bloquea el pago (nunca se paga un precio menor sin su «si»).
+    // Va ANTES de `ITEMS_NOT_DECIDED`: la linea pendiente tambien carece de veredicto, y el error que nombra la palanca es este.
+    const pendingRevisionItemIds = (req.items ?? []).filter((i) => hasLivePendingRevision(i)).map((i) => i.id);
+    if (pendingRevisionItemIds.length > 0) {
+      throw BusinessException.conflict(
+        'REVISION_PENDING',
+        'A price revision is waiting for the seller; payment waits for their answer',
+        { itemIds: pendingRevisionItemIds },
+      );
+    }
     const pendingDecisionItemIds = pendingBuyDecisionItemIds(req, req.items ?? []);
     if (pendingDecisionItemIds.length > 0) {
       throw BusinessException.validation(
@@ -8356,7 +9289,18 @@ export class BuylistService implements OnModuleInit {
         // desigualdad `acumulado + enCurso > cap`: medir cada lado con una cascada distinta es
         // comparar dos cosas. Lo aprobado manda; sin decisiones por-ítem, **lo OFERTADO** (que es lo
         // vinculante, D2); y solo en filas pre-M-46, lo cotizado.
-        const payoutCents = brutoConsumado(fresh);
+        // §BUYLIST-FLUJO F1a — UNA sola funcion para el neto (la misma que proyecta `payout` en la lectura).
+        const payout = computePayoutNetCents(fresh);
+        const payoutCents = payout.grossCents;
+        // `expectedNetCents` = el neto que la pantalla le mostro al super-admin. Difiere del que se sellaria => 409 sin
+        // efectos (esta transaccion no ha escrito nada todavia; el throw la revierte entera).
+        if (expectedNetCents != null && expectedNetCents !== payout.netCents) {
+          throw BusinessException.conflict(
+            'PAYOUT_CHANGED',
+            'The amount to deposit changed since it was shown; re-check the request before paying',
+            { expectedNetCents, currentNetCents: payout.netCents },
+          );
+        }
         const alreadyPaid = await this.monthCommittedGrossPaidCentsTx(tx, req.userId);
         if (alreadyPaid + payoutCents > capPerMonth) {
           throw BusinessException.validation('BUYLIST_LIMIT_EXCEEDED', 'Per-month payout cap exceeded', {
@@ -8477,7 +9421,7 @@ export class BuylistService implements OnModuleInit {
             // ⚠️ B-2: la tarifa sale de `fresh`, **no** del `req` de fuera de la transacción. Los dos
             // términos de esta resta tienen que venir de la MISMA lectura: mezclar un bruto releído
             // con un envío viejo produciría un neto que no corresponde a ninguna versión de la fila.
-            payoutNetCents: Math.max(0, payoutCents - (fresh.offerShippingFeeCents ?? 0)),
+            payoutNetCents: payout.netCents,
           },
         });
         if (res.count !== 1) return null;
@@ -8489,7 +9433,7 @@ export class BuylistService implements OnModuleInit {
         });
         // S49-M1: se proyecta DENTRO de la tx, para que el snapshot cifrado no sobreviva ni como
         // variable local del método (`paid` es lo que se devuelve tal cual al controller).
-        return row ? this.adminSellRequestDTO(row, dials) : null;
+        return row ? this.adminSellRequestDTO(row, dials, await this.kycOptsOf(row, tx)) : null;
       },
       { label: 'markPaid', logger: this.logger },
     );
@@ -8499,7 +9443,7 @@ export class BuylistService implements OnModuleInit {
         include: ADMIN_DTO_INCLUDE,
       });
       // S49-M1: mismo motivo que la salida idempotente de arriba (fila cruda con la CLABE cifrada).
-      if (current?.status === 'pagada') return this.adminSellRequestDTO(current, dials);
+      if (current?.status === 'pagada') return this.adminSellRequestDTO(current, dials, await this.kycOptsOf(current));
       // ⚠️ v1.51.22 · **B-2 — el CAS del importe tiene su propia salida, y no es la de arriba.**
       // Si la solicitud SIGUE siendo pagable, lo que falló no fue la precondición de estado: fue el
       // CAS del monto. Decirle al operador *«el pago solo se permite tras recepción/verificación»*

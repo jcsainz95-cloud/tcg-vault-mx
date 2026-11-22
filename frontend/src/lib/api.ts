@@ -16,6 +16,8 @@ import {
 } from './api-client';
 import { setStoredUser, patchStoredUser, getStoredUser, markIntentionalLogout } from './session';
 import * as fx from './mock/fixtures';
+import * as flujoMock from './mock/buylist-flujo';
+import * as flujoReal from './api/buylist-flujo';
 import * as mockReservation from './mock/reservation';
 import * as mockDecksMeta from './mock/decks-meta';
 import { runDecksMetaRefreshJob } from './api/decks-meta-jobs';
@@ -74,6 +76,7 @@ import type {
   VaultLocationDTO,
   VaultZone,
   AdminBuylistDTO,
+  BuylistPickupMethod,
   OpenInboundShipmentRes,
   AdminSellerRef,
   RejectedSellItemDTO,
@@ -5888,7 +5891,7 @@ export async function decideBuylistItem(
       body: input,
     });
   }
-  const { item } = mockFindBuylistItem(itemId);
+  const { req, item } = mockFindBuylistItem(itemId);
   // Espeja el peldaño de §PNL.10.2 (E-2, v1.82.1): carta ya inventario o ya pagada ⇒ `409 CONFLICT {reason:'ITEM_FINAL'}`,
   // cero escrituras, para los TRES verbos.
   if (item.itemStatus === 'convertida_inventario' || item.itemStatus === 'pagada') {
@@ -5905,26 +5908,52 @@ export async function decideBuylistItem(
   };
   if (input.decision === 'reject') {
     // Espeja la validación del backend (400 VALIDATION_ERROR, contrato §M5).
+    // §BUYLIST-FLUJO F2b: `reasonCode` OBLIGATORIO (400 `field:'reasonCode'`); `other` exige `reason` 3–500.
+    if (!input.reasonCode) {
+      throw new ApiClientError(400, {
+        code: 'VALIDATION_ERROR',
+        message: 'reasonCode is required for reject',
+        details: { field: 'reasonCode' },
+      });
+    }
     const reason = input.reason?.trim() ?? '';
-    if (reason.length < 3 || reason.length > 500) {
+    if (input.reasonCode === 'other' && (reason.length < 3 || reason.length > 500)) {
       throw new ApiClientError(400, {
         code: 'VALIDATION_ERROR',
         message: 'reason is required for reject (3-500 chars)',
+        details: { field: 'reason' },
       });
     }
+    if (input.reasonCode === 'not_received' && req.status !== 'recibida' && req.status !== 'verificacion') {
+      throw new ApiClientError(422, { code: 'REQUEST_NOT_RECEIVED', message: 'Request not received yet' });
+    }
     const rejectedAt = new Date().toISOString();
+    mockCancelPendingRevision(item); // anexo §3.2: rechazar con baja pendiente la RETIRA, sin 409
+    item.rejectionCode = input.reasonCode;
     item.itemStatus = 'rechazada';
     item.approvedPriceCents = undefined; // invariante: fuera del total aprobado
-    item.rejectionReason = reason;
+    item.rejectionReason = reason || null;
     item.rejectedAt = rejectedAt;
     const deadlines = mockRejectDeadlines(rejectedAt);
     item.returnDeadlineAt = deadlines.returnDeadlineAt;
     item.abandonDeadlineAt = deadlines.abandonDeadlineAt;
+    item.pickup =
+      input.reasonCode === 'not_received'
+        ? null
+        : { method: null, chosenAt: null, doneAt: null, ...deadlines };
     return delay({ ...item });
   }
+  const hadPendingBaja = item.revision?.state === 'pending';
+  if (input.decision === 'approve') mockCancelPendingRevision(item); // aprobar = retirar la baja y pagar lo pactado
   item.itemStatus = next[input.decision];
-  item.approvedPriceCents = input.approvedPriceCents ?? item.quotedPriceCents ?? 0;
+  item.approvedPriceCents =
+    input.approvedPriceCents ?? (hadPendingBaja ? (item.offeredPriceCents ?? item.quotedPriceCents ?? 0) : (item.quotedPriceCents ?? 0));
   return delay({ ...item });
+}
+
+/** Servidor FALSO (anexo §3.2): la decisión del dueño sobre una carta con baja `pending` la deja `cancelled`. */
+function mockCancelPendingRevision(item: SellItemDTO): void {
+  if (item.revision?.state === 'pending') item.revision = { ...item.revision, state: 'cancelled', respondedAt: new Date().toISOString() };
 }
 
 /**
@@ -5944,7 +5973,11 @@ export async function rejectBuylistItems(
   const req = fx.mockAdminBuylist.find((r) => r.id === requestId);
   if (!req) throw new ApiClientError(404, { code: 'NOT_FOUND', message: 'Sell request not found' });
   const reason = body.reason?.trim() ?? '';
-  if (reason.length < 3 || reason.length > 500) {
+  // §BUYLIST-FLUJO (anexo §3.2): `reasonCode` OBLIGATORIO; `other` exige `reason` 3–500.
+  if (!body.reasonCode) {
+    throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'reasonCode required', details: { field: 'reasonCode' } });
+  }
+  if (body.reasonCode === 'other' && (reason.length < 3 || reason.length > 500)) {
     throw new ApiClientError(400, { code: 'VALIDATION_ERROR', message: 'reason 3-500', details: { field: 'reason' } });
   }
   if (new Set(body.itemIds).size !== body.itemIds.length) {
@@ -5967,9 +6000,12 @@ export async function rejectBuylistItems(
   const rejectedAt = new Date().toISOString();
   const deadlines = mockRejectDeadlines(rejectedAt);
   for (const it of items) {
+    mockCancelPendingRevision(it!);
+    it!.rejectionCode = body.reasonCode;
+    it!.pickup = body.reasonCode === 'not_received' ? null : { method: null, chosenAt: null, doneAt: null, ...deadlines };
     it!.itemStatus = 'rechazada';
     it!.approvedPriceCents = undefined;
-    it!.rejectionReason = reason;
+    it!.rejectionReason = reason || null;
     it!.rejectedAt = rejectedAt;
     it!.returnDeadlineAt = deadlines.returnDeadlineAt;
     it!.abandonDeadlineAt = deadlines.abandonDeadlineAt;
@@ -5999,9 +6035,12 @@ export async function getAdminRejectedBuylistItems(
   // aparecen aquí), espejando la proyección RejectedSellItemDTO del backend.
   const rows: RejectedSellItemDTO[] = fx.mockAdminBuylist.flatMap((req) =>
     req.items
-      .filter((it) => it.itemStatus === 'rechazada')
+      // §BUYLIST-FLUJO F2b: «No llegó» no tiene qué recoger ⇒ no sale en esta cola.
+      .filter((it) => it.itemStatus === 'rechazada' && it.rejectionCode !== 'not_received')
       .map((it) => ({
         id: it.id,
+        rejectionCode: it.rejectionCode ?? null,
+        pickup: it.pickup ?? null,
         sellRequestId: req.id,
         seller: req.seller ?? mockSellerFor(req.userId),
         card: it.card,
@@ -6063,23 +6102,41 @@ export async function revealBuylistClabe(id: string): Promise<RevealClabeRespons
     return apiRequest<RevealClabeResponse>(`/admin/buylist/${id}/reveal-clabe`);
   }
   mockFindBuylistRequest(id);
-  return delay({ sellRequestId: id, clabe: '002010077777777771' });
+  return delay({ sellRequestId: id, clabe: '002010077777777771', holderName: mockFindBuylistRequest(id).seller?.name ?? 'Ash Ketchum' });
 }
 
 /**
  * Registra el pago SPEI manual → `pagada` (contrato POST /admin/buylist/:id/pay-spei,
  * `super_admin`, money-out, Idempotency-Key). Precondición backend: aprobada + verificada.
  */
-export async function paySpeiBuylist(id: string, speiReference: string): Promise<AdminBuylistDTO> {
+export async function paySpeiBuylist(
+  id: string,
+  speiReference: string,
+  /**
+   * §BUYLIST-FLUJO F1-1 (seguridad): el neto que la pantalla MOSTRÓ (`payout.netCents`). Difiere del que sellaría el
+   * servidor ⇒ `409 PAYOUT_CHANGED` sin efectos. La UI lo manda SIEMPRE; opcional solo para llamadores heredados.
+   */
+  expectedNetCents?: number,
+): Promise<AdminBuylistDTO> {
   if (!(MOCKS_BUILD && config.useMocks)) {
     return apiRequest<AdminBuylistDTO>(`/admin/buylist/${id}/pay-spei`, {
       method: 'POST',
-      body: { speiReference },
+      body: expectedNetCents == null ? { speiReference } : { speiReference, expectedNetCents },
       // Clave estable por solicitud: un reintento del mismo pago no duplica el asiento.
       headers: { 'Idempotency-Key': `pay-spei-${id}` },
     });
   }
   const req = mockFindBuylistRequest(id);
+  if (expectedNetCents != null) {
+    const current = fx.mockAdminBuylistDTO(req).payout?.netCents;
+    if (current != null && current !== expectedNetCents) {
+      throw new ApiClientError(409, {
+        code: 'PAYOUT_CHANGED',
+        message: 'The amount to deposit changed',
+        details: { expectedNetCents, currentNetCents: current },
+      });
+    }
+  }
   // MOCK · §M5-V.0 (v1.61): la precondición son **CINCO** términos y se pregunta por la MISMA vía
   // que el DTO (`isPayable`), no por una tercera lista de estados. Por eso esta guarda **ha
   // heredado el tercero (v1.57) y los dos de v1.61 sin tocarse**: es la propiedad que hace que
@@ -6089,6 +6146,11 @@ export async function paySpeiBuylist(id: string, speiReference: string): Promise
   // aunque V-a también falle, y no es cosmética — cuando faltan veredictos, **decidirlos es el
   // acto que satisface los dos términos**; el mensaje genérico mandaría al operador a revisar el
   // estado y la recepción, que están bien, en vez de a la pantalla donde está el trabajo.
+  // §BUYLIST-FLUJO F2c: una baja pendiente bloquea el pago ANTES de `ITEMS_NOT_DECIDED` (anexo §2).
+  const pendingRevisionIds = req.items.filter((it) => it.revision?.state === 'pending').map((it) => it.id);
+  if (pendingRevisionIds.length > 0) {
+    throw new ApiClientError(409, { code: 'REVISION_PENDING', message: 'A price revision is waiting for the seller', details: { itemIds: pendingRevisionIds } });
+  }
   const pendingDecisionItemIds = fx.mockPendingDecisionItemIds(req);
   if (req.offerSentAt != null && pendingDecisionItemIds.length > 0) {
     throw new ApiClientError(422, {
@@ -8542,4 +8604,41 @@ export async function downloadDiscountReportCsv(
     else mockDsc.mockAuditExport('DiscountCodeBatch', target.id, 'discount.batch.report_exported', r.rows.length);
     return { blob: new Blob([mockDsc.mockReportCsv(r)], { type: 'text/csv;charset=utf-8' }), filename: null };
   });
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * §BUYLIST-FLUJO F2 (anexo §3–§6) — las llamadas reales viven en `api/buylist-flujo.ts` y el servidor falso en
+ * `mock/buylist-flujo.ts`; aquí solo se decide entre los dos (regla R1: nadie más importa `lib/mock`).
+ * ------------------------------------------------------------------------------------------------ */
+export type { RevisePriceInput } from './api/buylist-flujo';
+export async function reviseBuylistItemPrice(itemId: string, input: flujoReal.RevisePriceInput) {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.reviseBuylistItemPrice(itemId, input);
+  return flujoMock.mockReviseBuylistItemPrice(itemId, input);
+}
+export async function previewBuylistRevision(itemId: string, revisedPriceCents: number) {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.previewBuylistRevision(itemId, revisedPriceCents);
+  return flujoMock.mockPreviewBuylistRevision(itemId, revisedPriceCents);
+}
+export async function markBuylistPickupDone(itemId: string) {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.markBuylistPickupDone(itemId);
+  return flujoMock.mockMarkBuylistPickupDone(itemId);
+}
+export async function convertAllBuylist(requestId: string, locationId?: string) {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.convertAllBuylist(requestId, locationId);
+  return flujoMock.mockConvertAllBuylist(requestId, locationId);
+}
+export async function respondBuylistRevision(
+  requestId: string,
+  itemId: string,
+  decision: 'accept' | 'decline',
+  expectedRevisedPriceCents?: number,
+): Promise<SellRequestDetailDTO> {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.respondBuylistRevision(requestId, itemId, decision, expectedRevisedPriceCents);
+  await flujoMock.mockRespondBuylistRevision(requestId, itemId, decision, expectedRevisedPriceCents);
+  return getSellRequest(requestId); // la solicitud completa, como el servidor real
+}
+export async function chooseBuylistPickup(requestId: string, itemId: string, method: BuylistPickupMethod): Promise<SellRequestDetailDTO> {
+  if (!(MOCKS_BUILD && config.useMocks)) return flujoReal.chooseBuylistPickup(requestId, itemId, method);
+  await flujoMock.mockChooseBuylistPickup(requestId, itemId, method);
+  return getSellRequest(requestId);
 }

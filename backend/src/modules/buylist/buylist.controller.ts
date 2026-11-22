@@ -16,8 +16,10 @@ import {
   CreateRequestDto,
   OfferResponseDto,
   PickupAddressDto,
+  PickupChoiceDto,
   PublicQuoteDto,
   RespondDto,
+  RevisionResponseDto,
 } from './dto/buylist.dto';
 
 @Controller('buylist')
@@ -226,6 +228,44 @@ export class BuylistController {
     @Body() dto: OfferResponseDto,
   ) {
     return this.buylist.offerResponse(userId, id, dto.decision);
+  }
+
+  /**
+   * §BUYLIST-FLUJO F2c (anexo §3) — el vendedor acepta o rechaza la BAJA de precio de UNA carta. Exige su sesion (la respuesta no
+   * se ejecuta desde un enlace anonimo). ⛔ Ningun monto en el body: lo que se acepta es lo que el servidor propuso.
+   */
+  @Roles(Role.customer, Role.vault_operator, Role.super_admin)
+  @Post('requests/:id/items/:itemId/revision-response')
+  @HttpCode(200)
+  async revisionResponse(
+    @CurrentUser() user: { id: string; role: Role },
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: RevisionResponseDto,
+  ) {
+    const res = await this.buylist.respondRevision(user.id, id, itemId, dto.decision, dto.expectedRevisedPriceCents);
+    await this.audit.log({
+      actorUserId: user.id,
+      actorRole: user.role,
+      action: `buylist.item.revision_${dto.decision}`,
+      entityType: 'SellRequestItem',
+      entityId: itemId,
+      after: { sellRequestId: id, decision: dto.decision, ...(dto.decision === 'accept' ? { expectedRevisedPriceCents: dto.expectedRevisedPriceCents } : {}) },
+    });
+    return res;
+  }
+
+  /** §BUYLIST-FLUJO F2c (anexo §5) — el vendedor elige como recoger una carta no aceptada (en persona o envio a su cargo). */
+  @Roles(Role.customer, Role.vault_operator, Role.super_admin)
+  @Post('requests/:id/items/:itemId/pickup')
+  @HttpCode(200)
+  pickup(
+    @CurrentUser('id') userId: string,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: PickupChoiceDto,
+  ) {
+    return this.buylist.chooseItemPickup(userId, id, itemId, dto.method);
   }
 
   /**

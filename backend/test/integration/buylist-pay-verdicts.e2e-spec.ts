@@ -26,6 +26,7 @@
  * cierre: es la única excepción a «nada de sembrar», y está acotada a ese paso.
  */
 import { E2EHarness } from './helpers/e2e-app';
+import { payoutNet } from './helpers/pay-net';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_CARDS, E2E_USERS } from '../../prisma/e2e-fixtures';
 
@@ -121,10 +122,10 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
     return { srId, ids };
   }
 
-  function pay(srId: string, ref: string) {
+  async function pay(srId: string, ref: string) {
     return h.api('POST', `/admin/buylist/${srId}/pay-spei`, {
       token: adminToken,
-      json: { speiReference: ref },
+      json: { speiReference: ref, expectedNetCents: await payoutNet(h, adminToken, srId) },
     });
   }
 
@@ -219,7 +220,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
     expect(ap.status).toBe(200);
     const rj = await h.api('PATCH', `/admin/buylist/items/${ids[1]}/decision`, {
       token: operatorToken,
-      json: { decision: 'reject', reason: 'no llega en NM: whitening en los bordes' },
+      json: { decision: 'reject', reasonCode: 'other', reason: 'no llega en NM: whitening en los bordes' },
     });
     expect(rj.status).toBe(200);
 
@@ -276,7 +277,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
     const { srId, ids } = await upToVerification(['buy', 'skip']);
     const rj = await h.api('PATCH', `/admin/buylist/items/${ids[0]}/decision`, {
       token: operatorToken,
-      json: { decision: 'reject', reason: 'no llega en NM: dobleces en la esquina inferior' },
+      json: { decision: 'reject', reasonCode: 'other', reason: 'no llega en NM: dobleces en la esquina inferior' },
     });
     expect(rj.status).toBe(200);
 
@@ -485,7 +486,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
         (
           await h.api('PATCH', `/admin/buylist/items/${ids[1]}/decision`, {
             token: operatorToken,
-            json: { decision: 'reject', reason: 'no llega en NM: superficie rayada' },
+            json: { decision: 'reject', reasonCode: 'other', reason: 'no llega en NM: superficie rayada' },
           })
         ).status,
       ).toBe(200);
@@ -564,7 +565,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
       (
         await h.api('PATCH', `/admin/buylist/items/${ids[1]}/decision`, {
           token: operatorToken,
-          json: { decision: 'reject', reason: 'no llega en NM: esquina con desgaste' },
+          json: { decision: 'reject', reasonCode: 'other', reason: 'no llega en NM: esquina con desgaste' },
         })
       ).status,
     ).toBe(200);
@@ -611,7 +612,7 @@ describe('E2E — §M5-V: no se paga lo que no se ha juzgado (BL-45)', () => {
       (
         await h.api('PATCH', `/admin/buylist/items/${ids[0]}/decision`, {
           token: operatorToken,
-          json: { decision: 'reject', reason: 'no llega en NM: bordes blanqueados' },
+          json: { decision: 'reject', reasonCode: 'other', reason: 'no llega en NM: bordes blanqueados' },
         })
       ).status,
     ).toBe(200);

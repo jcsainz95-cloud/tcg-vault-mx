@@ -105,7 +105,26 @@ function caducityTone(caducityAt: string): 'today' | 'tomorrow' | null {
   return dies === next.toISOString().slice(0, 10) ? 'tomorrow' : null;
 }
 
+/** §BUYLIST-FLUJO F1c: enlace explícito de la cola a la ficha de la solicitud (no depende de que la fila sea clicable). */
+function OpenRequestLink({ id, onOpen }: { id: string; onOpen?: (id: string) => void }) {
+  const t = useTranslations('admin.m5.queues');
+  if (!onOpen) return null;
+  return (
+    <button
+      type="button"
+      data-testid={`queue-open-${id}`}
+      aria-label={t('openRequestFor', { id })}
+      onClick={() => onOpen(id)}
+      className="mt-1 w-fit text-xs font-medium text-text underline underline-offset-4 hover:text-accent focus-visible:shadow-focus focus-visible:outline-none"
+    >
+      {t('openRequest')} →
+    </button>
+  );
+}
+
 export interface BuylistCycleQueuesProps {
+  /** Abre la solicitud en su etapa (M5 la busca por folio). */
+  onOpenRequest?: (sellRequestId: string) => void;
   /** Solo el súper-admin puede autorizar una oferta por encima del tope (D24). */
   isSuperAdmin: boolean;
 }
@@ -117,7 +136,7 @@ export interface BuylistCycleQueuesProps {
  * `SellRequestStatus`). Cada una contesta un pendiente **nuestro** que, si nadie mira, cuesta
  * dinero o cuesta una venta.
  */
-export function BuylistCycleQueues({ isSuperAdmin }: BuylistCycleQueuesProps) {
+export function BuylistCycleQueues({ isSuperAdmin, onOpenRequest }: BuylistCycleQueuesProps) {
   const t = useTranslations('admin.m5.queues');
   const tc = useTranslations('common');
   const locale = useLocale() as AppLocale;
@@ -250,6 +269,7 @@ export function BuylistCycleQueues({ isSuperAdmin }: BuylistCycleQueuesProps) {
                             <span className="tabular font-mono text-[11px] text-muted">
                               {row.sellRequestId}
                             </span>
+                          <OpenRequestLink id={row.sellRequestId} onOpen={onOpenRequest} />
                           </span>
                         </Td>
                         <Td className="text-muted">{row.preparedBy}</Td>
@@ -346,6 +366,7 @@ export function BuylistCycleQueues({ isSuperAdmin }: BuylistCycleQueuesProps) {
                           <span className="tabular font-mono text-[11px] text-muted">
                             {row.sellRequestId}
                           </span>
+                          <OpenRequestLink id={row.sellRequestId} onOpen={onOpenRequest} />
                         </span>
                       </Td>
                       <Td className="tabular font-mono text-[13px]">
@@ -407,6 +428,7 @@ export function BuylistCycleQueues({ isSuperAdmin }: BuylistCycleQueuesProps) {
                           <span className="tabular font-mono text-[11px] text-muted">
                             {row.sellRequestId}
                           </span>
+                          <OpenRequestLink id={row.sellRequestId} onOpen={onOpenRequest} />
                         </span>
                       </Td>
                       <Td>{row.carrier}</Td>

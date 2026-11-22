@@ -4,13 +4,18 @@ import { resolve as resolvePath } from 'node:path';
 import type { ReactNode } from 'react';
 import { screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
-import { M5View } from './M5View';
+import { M5View, isBulkRejectable } from './M5View';
 import es from '../../../../../../messages/es.json';
 import en from '../../../../../../messages/en.json';
 import * as api from '@/lib/api';
 import { ApiClientError } from '@/lib/api-client';
 import type { BuyDecision, CardDTO, SellItemDTO, SellRequestStatus } from '@/types/contract';
 import { mockAdminBuylistDTO as srv } from '@/lib/mock/fixtures';
+
+// §BUYLIST-FLUJO F2: la fila trae «Aprobar al pactado» y «No aceptar ▾» (nombre con prefijo).
+const F2 = es.admin.m5.flow.f2;
+const APPROVE = F2.actions.approve;
+const REJECT = new RegExp(`^${F2.actions.reject}`);
 
 /**
  * DESIGN_SYSTEM §60.5 / §60.7 a · contrato v1.82 §PNL.4 y §E2E-ADM.2.
@@ -90,11 +95,12 @@ describe('BRJ-UI-1 · «Rechazar seleccionadas» manda los `itemIds` exactos, si
     const dialog = await screen.findByRole('dialog', { name: 'Rechazar 2 cartas' });
     expect(within(dialog).getByTestId('m5-bulk-list')).toHaveTextContent('Alakazam');
     expect(within(dialog).getByTestId('m5-bulk-list')).not.toHaveTextContent('Squirtle');
+    fireEvent.click(within(dialog).getByTestId('m5-bulk-cause-condition_mismatch'));
     fireEvent.change(within(dialog).getByTestId('m5-bulk-reason'), { target: { value: '  llegaron con dobleces  ' } });
     fireEvent.click(within(dialog).getByTestId('m5-bulk-confirm'));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     // Orden de la LISTA (no el del clic) y sin la `skip`.
-    expect(spy).toHaveBeenCalledWith('sr-pnl', { itemIds: ['it-a', 'it-c'], reason: 'llegaron con dobleces' });
+    expect(spy).toHaveBeenCalledWith('sr-pnl', { itemIds: ['it-a', 'it-c'], reasonCode: 'condition_mismatch', reason: 'llegaron con dobleces' });
   });
 
   it('«Rechazar todas (3)» marca las tres rechazables y abre el MISMO diálogo', async () => {
@@ -102,9 +108,10 @@ describe('BRJ-UI-1 · «Rechazar seleccionadas» manda los `itemIds` exactos, si
     await render('verificacion', THREE_BUY_ONE_SKIP());
     fireEvent.click(screen.getByRole('button', { name: 'Rechazar todas (3)' }));
     const dialog = await screen.findByRole('dialog', { name: 'Rechazar 3 cartas' });
+    fireEvent.click(within(dialog).getByTestId('m5-bulk-cause-condition_mismatch'));
     fireEvent.change(within(dialog).getByTestId('m5-bulk-reason'), { target: { value: 'mala condición' } });
     fireEvent.click(within(dialog).getByTestId('m5-bulk-confirm'));
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-pnl', { itemIds: ['it-a', 'it-b', 'it-c'], reason: 'mala condición' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-pnl', { itemIds: ['it-a', 'it-b', 'it-c'], reasonCode: 'condition_mismatch', reason: 'mala condición' }));
   });
 
   it('fuera de `verificacion` no hay barra ni casillas', async () => {
@@ -115,12 +122,65 @@ describe('BRJ-UI-1 · «Rechazar seleccionadas» manda los `itemIds` exactos, si
   });
 });
 
+describe('F2 cierre · rechazo múltiple con causa y baja pendiente (anexo §3.2)', () => {
+  const ajustada = (id: string, name: string, pending: boolean): SellItemDTO => ({
+    ...item(id, name, 'buy'),
+    itemStatus: 'ajustada',
+    offeredPriceCents: 10_000,
+    revision: pending
+      ? { state: 'pending', proposedCents: 7_000, previousCents: 10_000, proposedAt: '2026-11-20T00:00:00Z', expiresAt: '2026-11-27T00:00:00Z' }
+      : null,
+  });
+
+  it('`isBulkRejectable` admite `ajustada` (con o sin baja pendiente), sigue excluyendo skip/rechazada/terminales', () => {
+    expect(isBulkRejectable('verificacion', ajustada('a', 'A', true))).toBe(true);
+    expect(isBulkRejectable('verificacion', ajustada('a', 'A', false))).toBe(true);
+    expect(isBulkRejectable('verificacion', { ...item('s', 'S', 'skip'), itemStatus: 'ajustada' })).toBe(false);
+    expect(isBulkRejectable('verificacion', { ...item('r', 'R', 'buy'), itemStatus: 'rechazada' })).toBe(false);
+    expect(isBulkRejectable('verificacion', { ...item('p', 'P', 'buy'), itemStatus: 'pagada' })).toBe(false);
+    expect(isBulkRejectable('aceptada', ajustada('a', 'A', true))).toBe(false);
+  });
+
+  it('el diálogo exige la causa (sin ella no se confirma), avisa «se cancelará la propuesta de baja» y manda `reasonCode`', async () => {
+    const spy = vi.spyOn(api, 'rejectBuylistItems').mockResolvedValue({ items: [], requestClosed: false });
+    await render('verificacion', [ajustada('it-a', 'Alakazam', true), item('it-b', 'Blastoise', 'buy')]);
+    fireEvent.click(screen.getByRole('button', { name: 'Rechazar todas (2)' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Rechazar 2 cartas' });
+    expect(within(dialog).getByTestId('m5-bulk-cancels-it-a')).toHaveTextContent('se cancelará');
+    expect(within(dialog).queryByTestId('m5-bulk-cancels-it-b')).not.toBeInTheDocument();
+    expect(within(dialog).getByTestId('m5-bulk-cancels-notice')).toHaveTextContent('Se cancelará la propuesta de baja de 1 carta');
+    expect(within(dialog).getByTestId('m5-bulk-confirm')).toBeDisabled(); // sin causa
+    fireEvent.click(within(dialog).getByTestId('m5-bulk-cause-other'));
+    expect(within(dialog).getByTestId('m5-bulk-confirm')).toBeDisabled(); // «otra razón» exige detalle
+    fireEvent.change(within(dialog).getByTestId('m5-bulk-reason'), { target: { value: 'otra cosa' } });
+    fireEvent.click(within(dialog).getByTestId('m5-bulk-confirm'));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-pnl', { itemIds: ['it-a', 'it-b'], reasonCode: 'other', reason: 'otra cosa' }));
+  });
+
+  it('con una causa distinta de «otra» el detalle es opcional y no viaja vacío', async () => {
+    const spy = vi.spyOn(api, 'rejectBuylistItems').mockResolvedValue({ items: [], requestClosed: false });
+    await render('verificacion', [item('it-a', 'Alakazam', 'buy')]);
+    fireEvent.click(screen.getByRole('button', { name: 'Rechazar todas (1)' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByTestId('m5-bulk-cause-wrong_card'));
+    fireEvent.click(within(dialog).getByTestId('m5-bulk-confirm'));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('sr-pnl', { itemIds: ['it-a'], reasonCode: 'wrong_card' }));
+  });
+
+  it('una carta con baja cancelada muestra «Baja retirada» en su fila', async () => {
+    const it = { ...item('it-a', 'Alakazam', 'buy'), itemStatus: 'aprobada' as const, offeredPriceCents: 10_000, revision: { state: 'cancelled' as const, proposedCents: 7_000, previousCents: 10_000, proposedAt: null, expiresAt: null } };
+    await render('verificacion', [it]);
+    expect(screen.getByTestId('f2-retired-it-a')).toHaveTextContent('Baja retirada');
+  });
+});
+
 describe('§60.5 c · tras el 200, la solicitud cerrada lo dice la PÁGINA', () => {
   it('`requestClosed: true` (§PNL.10.1) ⇒ aviso de página con las dos frases', async () => {
     vi.spyOn(api, 'rejectBuylistItems').mockResolvedValue({ items: [], requestClosed: true });
     await render('verificacion', THREE_BUY_ONE_SKIP());
     fireEvent.click(screen.getByRole('button', { name: 'Rechazar todas (3)' }));
     const dialog = await screen.findByRole('dialog', { name: 'Rechazar 3 cartas' });
+    fireEvent.click(within(dialog).getByTestId('m5-bulk-cause-condition_mismatch'));
     fireEvent.change(within(dialog).getByTestId('m5-bulk-reason'), { target: { value: 'mala condición' } });
     fireEvent.click(within(dialog).getByTestId('m5-bulk-confirm'));
     expect(await screen.findByTestId('m5-page-notice')).toHaveTextContent(
@@ -137,6 +197,7 @@ describe('BRJ-UI-4 · `422 ITEM_NOT_OFFERED {itemIds}`', () => {
     await render('verificacion', THREE_BUY_ONE_SKIP());
     fireEvent.click(screen.getByRole('button', { name: 'Rechazar todas (3)' }));
     const dialog = await screen.findByRole('dialog', { name: 'Rechazar 3 cartas' });
+    fireEvent.click(within(dialog).getByTestId('m5-bulk-cause-condition_mismatch'));
     fireEvent.change(within(dialog).getByTestId('m5-bulk-reason'), { target: { value: 'mala condición' } });
     fireEvent.click(within(dialog).getByTestId('m5-bulk-confirm'));
     expect(await within(dialog).findByTestId('m5-bulk-error')).toHaveTextContent(
@@ -156,7 +217,7 @@ describe('NC-UI · F-4 «No comprada» (M5-NC-1…4)', () => {
     const r = screen.getByTestId('m5-item-it-s');
     expect(within(r).getByText('NO COMPRADA')).toBeInTheDocument();
     expect(within(r).getByText('Se marcó como no comprada al ofertar: no se aprueba ni se rechaza.')).toBeInTheDocument();
-    for (const name of [es.admin.m5.approve, es.admin.m5.adjust, es.admin.m5.reject]) {
+    for (const name of [APPROVE, es.admin.m5.adjust, REJECT]) {
       expect(within(r).queryByRole('button', { name })).not.toBeInTheDocument();
     }
   });
@@ -164,15 +225,15 @@ describe('NC-UI · F-4 «No comprada» (M5-NC-1…4)', () => {
   it('M5-NC-2 · `buy` ⇒ Aprobar y Rechazar, ⛔ sin Ajustar', async () => {
     await render('verificacion', [item('it-a', 'Alakazam', 'buy')]);
     const r = screen.getByTestId('m5-item-it-a');
-    expect(within(r).getByRole('button', { name: es.admin.m5.approve })).toBeInTheDocument();
-    expect(within(r).getByRole('button', { name: es.admin.m5.reject })).toBeInTheDocument();
+    expect(within(r).getByRole('button', { name: APPROVE })).toBeInTheDocument();
+    expect(within(r).getByRole('button', { name: REJECT })).toBeInTheDocument();
     expect(within(r).queryByRole('button', { name: es.admin.m5.adjust })).not.toBeInTheDocument();
   });
 
   it('M5-NC-3 · `null` (pre-ciclo) ⇒ los tres (regresión)', async () => {
     await render('verificacion', [item('it-n', 'Nidoran', null)]);
     const r = screen.getByTestId('m5-item-it-n');
-    for (const name of [es.admin.m5.approve, es.admin.m5.adjust, es.admin.m5.reject]) {
+    for (const name of [APPROVE, es.admin.m5.adjust, REJECT]) {
       expect(within(r).getByRole('button', { name })).toBeInTheDocument();
     }
   });
@@ -182,7 +243,7 @@ describe('NC-UI · F-4 «No comprada» (M5-NC-1…4)', () => {
       new ApiClientError(422, { code: 'ITEM_NOT_OFFERED', message: 'This line was not purchased', details: { itemId: 'it-n', offerDecision: 'skip' } }),
     );
     await render('verificacion', [item('it-n', 'Nidoran', null)]);
-    fireEvent.click(within(screen.getByTestId('m5-item-it-n')).getByRole('button', { name: es.admin.m5.approve }));
+    fireEvent.click(within(screen.getByTestId('m5-item-it-n')).getByRole('button', { name: APPROVE }));
     expect(await screen.findByText(es.error.ITEM_NOT_OFFERED)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('This line was not purchased');
   });
@@ -242,7 +303,7 @@ describe('F-33 · BRJ-UI-5 = FE-BRJ-4 — `409 CONFLICT {reason: ITEM_FINAL}`', 
   }
   function expectNoDecisionControls() {
     const r = screen.getByTestId('m5-item-it-a');
-    for (const name of [es.admin.m5.approve, es.admin.m5.adjust, es.admin.m5.reject]) {
+    for (const name of [APPROVE, es.admin.m5.adjust, REJECT]) {
       expect(within(r).queryByRole('button', { name })).not.toBeInTheDocument();
     }
     expect(within(r).queryByRole('checkbox')).not.toBeInTheDocument();
@@ -265,10 +326,10 @@ describe('F-33 · BRJ-UI-5 = FE-BRJ-4 — `409 CONFLICT {reason: ITEM_FINAL}`', 
   it('Rechazar (diálogo) sobre una carta ya convertida ⇒ diálogo cerrado, recarga, texto de `convertida_inventario` en la fila con el foco', async () => {
     const decide = vi.spyOn(api, 'decideBuylistItem').mockRejectedValue(itemFinal('convertida_inventario'));
     const list = await renderStale('convertida_inventario');
-    fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: es.admin.m5.reject }));
-    const dialog = await screen.findByRole('dialog');
-    fireEvent.change(within(dialog).getByLabelText(es.admin.m5.rejectReasonLabel), { target: { value: 'Borde dañado' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: es.admin.m5.rejectConfirm }));
+    fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: REJECT }));
+    const panel = await screen.findByTestId('f2-panel-reject-it-a');
+    fireEvent.click(within(panel).getByLabelText(new RegExp(F2.rejectPanel.causes.condition_mismatch)));
+    fireEvent.click(within(panel).getByTestId('f2-reject-send-it-a'));
 
     const notice = await screen.findByText(CONVERTED);
     expect(decide).toHaveBeenCalledTimes(1);
@@ -284,7 +345,7 @@ describe('F-33 · BRJ-UI-5 = FE-BRJ-4 — `409 CONFLICT {reason: ITEM_FINAL}`', 
   it('Aprobar (fila) sobre una carta ya pagada ⇒ texto de `pagada`, recarga, sin botones ni casilla', async () => {
     vi.spyOn(api, 'decideBuylistItem').mockRejectedValue(itemFinal('pagada'));
     const list = await renderStale('pagada');
-    fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: es.admin.m5.approve }));
+    fireEvent.click(within(screen.getByTestId('m5-item-it-a')).getByRole('button', { name: APPROVE }));
     const notice = await screen.findByText(PAID);
     expect(notice.closest('[role="status"]')).not.toBeNull();
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));

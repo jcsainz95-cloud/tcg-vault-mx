@@ -382,6 +382,18 @@ export const ErrorCode = {
   // v1.15: POST /buylist/requests sin `clabe` en el body Y sin CLABE en archivo
   // (KycProfile.clabeEnc vacío). Distinto de CLABE_INVALID (formato) y CLABE_NOT_OWN_NAME.
   CLABE_REQUIRED: 'CLABE_REQUIRED',
+  // §BUYLIST-FLUJO F1a (API_CONTRACT_BUYLIST_FLUJO §2): `reveal-clabe` sin CLABE (antes 404 NOT_FOUND) => 422 con remedio.
+  CLABE_MISSING: 'CLABE_MISSING',
+  // §BUYLIST-FLUJO F1a: `pay-spei` con `expectedNetCents` distinto del neto que sellaria => 409, sin efectos.
+  PAYOUT_CHANGED: 'PAYOUT_CHANGED',
+  // §BUYLIST-FLUJO F2c (API_CONTRACT_BUYLIST_FLUJO §3): `pay-spei` con una baja de precio pendiente => 409 `{itemIds}`;
+  // `revise-price` con valor no menor (≥ ofertado o ≤ 0) => 422; la linea ya fue resuelta (o se contesto lo contrario) => 409.
+  REVISION_PENDING: 'REVISION_PENDING',
+  REVISION_NOT_LOWER: 'REVISION_NOT_LOWER',
+  REVISION_ALREADY_RESOLVED: 'REVISION_ALREADY_RESOLVED',
+  REVISION_CHANGED: 'REVISION_CHANGED',
+  // §BUYLIST-FLUJO F2c (anexo §5): cambiar el metodo de recoger con `pickupDoneAt` ya puesto => 409.
+  PICKUP_ALREADY_DONE: 'PICKUP_ALREADY_DONE',
   // ===== v1.51.20 · LA PUERTA DEL CICLO — `POST /buylist/requests` (§6, D11/D18/D36/D37) =====
   // v1.51.3 (D36/D37, criterio 128) — **sin `addressId` en el body**. HERMANO EXACTO de
   // `CLABE_REQUIRED` en forma y en remedio: sin dirección de ORIGEN no se puede imprimir la etiqueta

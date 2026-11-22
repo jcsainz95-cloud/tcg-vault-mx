@@ -17,6 +17,7 @@
  * por la puerta.
  */
 import { E2EHarness } from './helpers/e2e-app';
+import { payoutNet } from './helpers/pay-net';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 import { PricingCurve, resolveBuyFromCurve } from '../../src/common/pricing-curve';
@@ -148,7 +149,7 @@ describe('E2E — tope de pago del bounty `min(bounty, mercado)` (§M2-B.11)', (
       (await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, { token: operatorToken, json: { decision: 'approve' } }))
         .status,
     ).toBe(200);
-    const paid = await h.api('POST', `/admin/buylist/${srId}/pay-spei`, { token: adminToken, json: { speiReference: ref } });
+    const paid = await h.api('POST', `/admin/buylist/${srId}/pay-spei`, { token: adminToken, json: { speiReference: ref, expectedNetCents: await payoutNet(h, adminToken, srId) } });
     expect(paid.status).toBe(200);
     const conv = await h.api('POST', `/admin/buylist/items/${itemId}/convert-to-inventory`, {
       token: operatorToken,

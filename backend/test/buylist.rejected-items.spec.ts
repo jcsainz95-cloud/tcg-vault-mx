@@ -84,13 +84,13 @@ describe('BuylistService.adminRejectedItems — shape RejectedSellItemDTO + orde
 
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { itemStatus: 'rechazada' },
+        where: { itemStatus: 'rechazada', OR: [{ rejectionCode: null }, { rejectionCode: { not: 'not_received' } }] },
         orderBy: { rejectedAt: { sort: 'desc', nulls: 'last' } },
         skip: 50,
         take: 50,
       }),
     );
-    expect(count).toHaveBeenCalledWith({ where: { itemStatus: 'rechazada' } });
+    expect(count).toHaveBeenCalledWith({ where: { itemStatus: 'rechazada', OR: [{ rejectionCode: null }, { rejectionCode: { not: 'not_received' } }] } });
     expect(res.page).toBe(2);
     expect(res.pageSize).toBe(50);
     expect(res.total).toBe(1);
@@ -153,7 +153,7 @@ describe('BuylistService.adminRejectedItems — shape RejectedSellItemDTO + orde
 
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { itemStatus: 'rechazada', sellRequest: { userId: 'user-9' } },
+        where: { itemStatus: 'rechazada', OR: [{ rejectionCode: null }, { rejectionCode: { not: 'not_received' } }], sellRequest: { userId: 'user-9' } },
       }),
     );
   });
@@ -270,6 +270,7 @@ describe('SellItemDTO — campos de rechazo en las proyecciones (listMine/getMin
       sellRequest: {
         findUnique: jest.fn().mockResolvedValue(fakeRequestRow([rejectedItem])),
       },
+      kycProfile: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const svc = buildService(prisma);
     const res: any = await svc.adminGet('sr-1');

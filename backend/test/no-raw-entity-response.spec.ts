@@ -198,7 +198,7 @@ describe('S49-M1 · buylist — `clabeSnapshotEnc` no sale por NINGUNA ruta salv
   it('`reveal-clabe` SIGUE siendo el único punto que devuelve la CLABE (en claro, @MoneyOut + auditado)', async () => {
     const { svc } = buildBuylist(sellRequestRow());
     const res = await svc.revealClabe('sr-1');
-    expect(res).toEqual({ sellRequestId: 'sr-1', clabe: '012345678901234567' });
+    expect(res).toEqual({ sellRequestId: 'sr-1', clabe: '012345678901234567', holderName: 'SIN NOMBRE REGISTRADO' });
   });
 });
 

@@ -19,7 +19,6 @@ import { diferida, esperarBloqueoDeFila } from './helpers/row-lock-barrier';
 
 const CLABE_A = '012345678901234567';
 const OFFERED = [12000, 8000, 5000] as const;
-const DAY = 24 * 3600 * 1000;
 
 describe('E2E — v1.82 PNL-4 · `POST /admin/buylist/:id/reject-items`', () => {
   let h: E2EHarness;
@@ -79,12 +78,16 @@ describe('E2E — v1.82 PNL-4 · `POST /admin/buylist/:id/reject-items`', () => 
     }
   }
 
+  // §BUYLIST-FLUJO §3.2: `reasonCode` es obligatorio; estas pruebas miden OTRA cosa (atomicidad, cierre, candados) y por defecto usan `other`.
   const rejectItems = (srId: string, json: unknown, token = operatorToken) =>
-    h.api('POST', `/admin/buylist/${srId}/reject-items`, { token, json });
+    h.api('POST', `/admin/buylist/${srId}/reject-items`, {
+      token,
+      json: json && typeof json === 'object' && !Array.isArray(json) && !('reasonCode' in json) && 'itemIds' in json ? { reasonCode: 'other', ...json } : json,
+    });
   const decide = (itemId: string, json: Record<string, unknown>, token = operatorToken) =>
     h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, { token, json });
 
-  const correos29 = () => enviados.filter((m) => /no fue aceptada|no fueron aceptadas|not accepted/.test(m.subject));
+  const correos29 = () => enviados.filter((m) => /^Tus \d+ cartas te esperan$|^Your \d+ cards are waiting/.test(m.subject));
 
   beforeAll(async () => {
     h = await E2EHarness.create();
@@ -146,18 +149,18 @@ describe('E2E — v1.82 PNL-4 · `POST /admin/buylist/:id/reject-items`', () => 
     expect(enviados).toHaveLength(1);
     const [m] = enviados;
     expect(m.to).toBe(E2E_USERS.customer.email);
-    expect(m.subject).toBe('2 cartas de tu solicitud de venta no fueron aceptadas');
-    expect(m.text).toContain('Motivo: llegaron con dobleces');
-    expect(m.text.match(/^- .+ · .+ · #.+ \(Acabado: .+\)$/gm)).toHaveLength(2);
-    expect(m.text).toContain('tienes 7 días');
-    expect(m.text).toContain('a los 30 días');
-    expect(m.text).toContain('Las demás cartas de tu solicitud siguen en revisión');
+    // §3.2: ahora es C1 («Tus cartas te esperan») con la causa del dueño y el bloque de recoger.
+    expect(m.subject).toBe('Tus 2 cartas te esperan');
+    expect(m.text).toContain('llegaron con dobleces');
+    expect(m.text.match(/^- .+ \(.+ · #.+\) \(Acabado: .+\)$/gm)).toHaveLength(2);
+    expect(m.text).toContain('Tus cartas te esperan');
+    expect(m.text).toContain('Las demás cartas de tu solicitud no cambian');
     expect(m.text).not.toMatch(/MX\$/);
     const log = await h.prisma.auditLog.findFirst({
       where: { entityId: srId, action: 'buylist.items_rejected' },
       orderBy: { createdAt: 'desc' },
     });
-    expect(log!.after).toEqual({ itemIds: [items[0], items[1]], reason: 'llegaron con dobleces', requestClosed: false });
+    expect(log!.after).toEqual({ itemIds: [items[0], items[1]], reason: 'llegaron con dobleces', reasonCode: 'other', requestClosed: false });
   });
 
   it('BRJ-2 rechazar las 3 ⇒ solicitud `rechazada` con `closedAt`; un correo que lo dice', async () => {
@@ -171,7 +174,7 @@ describe('E2E — v1.82 PNL-4 · `POST /admin/buylist/:id/reject-items`', () => 
     expect(sr.closedAt).toBeInstanceOf(Date);
     expect(sr.approvedTotalCents).toBeNull();
     expect(enviados).toHaveLength(1);
-    expect(enviados[0].subject).toBe('3 cartas de tu solicitud de venta no fueron aceptadas');
+    expect(enviados[0].subject).toBe('Tus 3 cartas te esperan');
     expect(enviados[0].text).toContain('tu solicitud queda cerrada y no hay pago');
   });
 
@@ -269,13 +272,13 @@ describe('E2E — v1.82 PNL-4 · `POST /admin/buylist/:id/reject-items`', () => 
     expect((await rejectItems(srId, { itemIds: [items[1]], reason: 'dañada' }, adminToken)).status).toBe(200);
   });
 
-  it('BRJ-9 `PATCH …/decision {reject}` sigue igual: un correo POR CARTA (el 4), no el 29', async () => {
+  it('BRJ-9 `PATCH …/decision {reject}`: un correo POR CARTA (desde F2b con causa sale C1 «Tu carta te espera»), no el 29', async () => {
     const { srId, items } = await solicitudDeTres();
     await siembra(srId, items);
-    expect((await decide(items[0], { decision: 'reject', reason: 'dañada' })).status).toBe(200);
-    expect((await decide(items[1], { decision: 'reject', reason: 'dañada' })).status).toBe(200);
+    expect((await decide(items[0], { decision: 'reject', reasonCode: 'other', reason: 'dañada' })).status).toBe(200);
+    expect((await decide(items[1], { decision: 'reject', reasonCode: 'other', reason: 'dañada' })).status).toBe(200);
     expect(enviados).toHaveLength(2);
-    for (const m of enviados) expect(m.subject).toBe('Una carta de tu solicitud de venta fue rechazada');
+    for (const m of enviados) expect(m.subject).toBe('Tu carta te espera');
     expect(correos29()).toHaveLength(0);
   });
 
@@ -391,17 +394,17 @@ describe('E2E — v1.82 PNL-4 · `POST /admin/buylist/:id/reject-items`', () => 
     expect((await h.prisma.sellRequestItem.findUniqueOrThrow({ where: { id: items[0] } })).itemStatus).toBe('rechazada');
   });
 
-  it('el correo 29: los días escritos = plazo real del servidor (ML-24 por HTTP)', async () => {
+  it('el correo C1 de reject-items: las fechas escritas = plazo real del servidor (ML-24 por HTTP)', async () => {
     const { srId, items } = await solicitudDeTres();
     await siembra(srId, items);
     expect((await rejectItems(srId, { itemIds: [items[0]], reason: 'dañada' })).status).toBe(200);
     const it = await h.prisma.sellRequestItem.findUniqueOrThrow({ where: { id: items[0] } });
     const { rejectDeadlines } = await import('../../src/modules/buylist/buylist-reject.constants');
     const d = rejectDeadlines(it.rejectedAt);
-    const ret = Math.round((d.returnDeadlineAt!.getTime() - it.rejectedAt!.getTime()) / DAY);
-    const aba = Math.round((d.abandonDeadlineAt!.getTime() - it.rejectedAt!.getTime()) / DAY);
-    expect(correos29()).toHaveLength(1);
-    expect(correos29()[0].text).toContain(`tienes ${ret} días`);
-    expect(correos29()[0].text).toContain(`a los ${aba} días`);
+    // §3.2: ahora es C1: lleva las FECHAS del plazo (devolucion 7 d, abandono 30 d) derivadas del mismo `rejectDeadlines`.
+    const { formatDate } = await import('../../src/modules/buylist/buylist-mail.templates');
+    expect(enviados.filter((m) => m.subject === 'Tu carta te espera')).toHaveLength(1);
+    expect(enviados[0].text).toContain(formatDate(d.returnDeadlineAt!, 'es'));
+    expect(enviados[0].text).toContain(formatDate(d.abandonDeadlineAt!, 'es'));
   });
 });

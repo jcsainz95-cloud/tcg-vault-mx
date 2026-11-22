@@ -2155,7 +2155,9 @@ describe('⭐⭐ `C-EQ-1` — DESCUBRIMIENTO: ningún `@Query` sin clase declara
     // `parseMxDayFilter`; fuera de forma ⇒ `400 {field}` sin `allowed`) de los cuatro reportes de código y de lote (JSON y CSV).
     // 💰 **116 → 119 (§PROV F1; ⚠️ PENDIENTE de ratificar por el arquitecto):** `requestId`/`supplierId` de `GET /admin/supply-offers` y
     // `supplierId` de `GET /admin/supply-purchases` (uuid, igualdad exacta). ⛔ `QUERY_SIN_NOMBRE` NO sube: los `@Query()` enteros del portal pasaron a llaves con nombre.
-    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(119);
+    // 💰 **119 → 120 (§BUYLIST-FLUJO cierre F2, B-2; ⚠️ PENDIENTE de ratificar por el arquitecto, que lo ordenó en DECISIONES §BUYLIST-FLUJO.12(d)):**
+    // `revisedPriceCents` de `GET /admin/buylist/items/:itemId/revise-price/preview` (monto en centavos, formato `^\d{1,9}$`; no es un enum).
+    expect(NO_ENUM_POR_RUTA.length).toBeLessThanOrEqual(120);
     // ⭐⭐ `R2a` — LA QUINTA PUERTA, que era la única sin techo Y la única que cruza por NOMBRE.
     //
     // `QA-M5` lo demostró con mutación (no leyendo): endpoint nuevo con `@Query('q')` + `@Query('date')`

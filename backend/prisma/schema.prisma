@@ -350,6 +350,32 @@ enum SellItemStatus {
   convertida_inventario
 }
 
+// §BUYLIST-FLUJO F2b (DECISIONES.9): causa estructurada del rechazo de una linea. `revision_*` las pone el sistema (F2c).
+enum SellItemRejectionCode {
+  not_received
+  condition_mismatch
+  wrong_card
+  other
+  revision_declined
+  revision_expired
+}
+
+// §BUYLIST-FLUJO F2c (DECISIONES.9): estado de la propuesta de baja de precio de UNA linea (el vendedor decide; 7 dias).
+enum SellItemRevisionState {
+  pending
+  accepted
+  declined
+  expired
+  // §BUYLIST-FLUJO F2 cierre: el dueño aprobó/rechazó la línea sin esperar al vendedor ⇒ la baja se RETIRA.
+  cancelled
+}
+
+// §BUYLIST-FLUJO F2c: como recoge el vendedor la carta no aceptada (en persona, gratis; o envio de regreso a su cargo).
+enum SellItemPickupMethod {
+  in_person
+  ship_back
+}
+
 enum BuylistCategory {
   comun
   reverse_holo
@@ -2669,6 +2695,26 @@ model SellRequestItem {
   // exponen los campos de rechazo en null. Ver ARCHITECTURE §4.18 / §11 (M-22).
   rejectedAt         DateTime?
   rejectionReason    String?
+  // §BUYLIST-FLUJO F2b: causa estructurada. `null` = legacy (rechazo anterior, comportamiento de hoy). `not_received` ⇒ sin
+  // plazos de recoger ni promesa de devolucion (la carta nunca llego).
+  rejectionCode      SellItemRejectionCode?
+
+  // ======================= §BUYLIST-FLUJO F2c — baja de precio y recoger (todo nullable, sin backfill) =======================
+  // `offeredPriceCents` JAMAS se muta (D2/D9): la baja vive aparte y solo cobra efecto con el «si» del vendedor
+  // (`approvedPriceCents = revisedPriceCents`). El vencimiento (7 d desde `revisionProposedAt`) se DERIVA; el barrido lo sella.
+  revisionState          SellItemRevisionState?
+  revisedPriceCents      Int?
+  revisionProposedAt     DateTime?
+  revisionRespondedAt    DateTime?
+  revisionReasonCode     SellItemRejectionCode?
+  // Nota del dueño (3–500; obligatoria con `other`). Viaja al vendedor como `reasonText`.
+  revisionNote           String?
+  // Sello de «una sola vez» del recordatorio C4 (mismo patron que `offerAcceptReminderSentAt`).
+  revisionReminderSentAt DateTime?
+  pickupMethod           SellItemPickupMethod?
+  pickupChosenAt         DateTime?
+  pickupDoneAt           DateTime?
+  pickupDoneBy           String?
 
   // ======================= v1.51 (M-46, §4.39) — LA OFERTA, POR LÍNEA =======================
   // ⚠️ SEC-A1: ninguno de estos montos viene del DTO del cliente. Los congela el servidor al ofertar.
@@ -2697,6 +2743,8 @@ model SellRequestItem {
   @@index([itemStatus])
   // M-46: sirve los tres sumandos de posición que salen de `SellRequestItem` (§4.39g).
   @@index([offerDecision])
+  // §BUYLIST-FLUJO F2c: sirve el barrido de bajas sin respuesta.
+  @@index([revisionState])
 }
 
 // ============================= DISPUTES =============================

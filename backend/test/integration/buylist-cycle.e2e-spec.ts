@@ -24,6 +24,7 @@
  * **por HTTP**. La frontera es: *el estado se puede montar; la conducta se prueba por la puerta*.
  */
 import { E2EHarness } from './helpers/e2e-app';
+import { payoutNet } from './helpers/pay-net';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_CARDS, E2E_PICKUP_ADDRESS, E2E_USERS } from '../../prisma/e2e-fixtures';
 // v1.54 · B-1: el correo se lee DEL PUERTO REAL de la app levantada, no de una plantilla llamada a
@@ -611,14 +612,14 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
     it('(13) el SPEI deposita EXACTAMENTE el neto anunciado, ni un peso menos (criterio 134)', async () => {
       const blocked = await h.api('POST', `/admin/buylist/${srId}/pay-spei`, {
         token: operatorToken,
-        json: { speiReference: 'SPEI-CYCLE-1' },
+        json: { speiReference: 'SPEI-CYCLE-1', expectedNetCents: 0 },
       });
       expect(blocked.status).toBe(403);
       expect(blocked.body.error.code).toBe('MONEY_OUT_FORBIDDEN');
 
       const paid = await h.api('POST', `/admin/buylist/${srId}/pay-spei`, {
         token: adminToken,
-        json: { speiReference: 'SPEI-CYCLE-1' },
+        json: { speiReference: 'SPEI-CYCLE-1', expectedNetCents: await payoutNet(h, adminToken, srId) },
       });
       expect(paid.status).toBe(200); // v1.57 · §M5-C (BL-37)
       const row = await h.prisma.sellRequest.findUnique({ where: { id: srId } });
@@ -724,7 +725,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
         expect(revive.status).toBe(409);
         const res = await h.api('POST', `/admin/buylist/${srId}/pay-spei`, {
           token: adminToken,
-          json: { speiReference: 'SPEI-DOUBLESPEND-777' },
+          json: { speiReference: 'SPEI-DOUBLESPEND-777', expectedNetCents: await payoutNet(h, adminToken, srId) },
         });
         // El rollback no ocurrió ⇒ sigue `pagada` ⇒ salida IDEMPOTENTE con la PRIMERA liquidación.
         expect(res.body.speiReference).toBe('SPEI-CYCLE-1');
@@ -776,7 +777,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
           });
           const res = await h.api('POST', `/admin/buylist/${otraId}/pay-spei`, {
             token: adminToken,
-            json: { speiReference: 'SPEI-AML-GUARD' },
+            json: { speiReference: 'SPEI-AML-GUARD', expectedNetCents: await payoutNet(h, adminToken, otraId) },
           });
           expect(res.status).toBe(422);
           expect(res.body.error.code).toBe('BUYLIST_LIMIT_EXCEEDED');
@@ -874,7 +875,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
 
         const pago = await h.api('POST', `/admin/buylist/${id}/pay-spei`, {
           token: adminToken,
-          json: { speiReference: 'SPEI-EJE2-OFERTADA' },
+          json: { speiReference: 'SPEI-EJE2-OFERTADA', expectedNetCents: await payoutNet(h, adminToken, id) },
         });
         expect(pago.status).toBe(422);
         const row = await h.prisma.sellRequest.findUnique({ where: { id } });
@@ -898,7 +899,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       it('(20) ⚠️⚠️ EL DAÑO: `pay-spei` sobre ella ⇒ 422 y NO SALE UN PESO', async () => {
         const res = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/pay-spei`, {
           token: adminToken,
-          json: { speiReference: 'SPEI-EJE2-NEVER-ARRIVED-001' },
+          json: { speiReference: 'SPEI-EJE2-NEVER-ARRIVED-001', expectedNetCents: await payoutNet(h, adminToken, nuncaRecibidaId) },
         });
         expect(res.status).toBe(422);
         expect(res.body.error.code).toBe('VALIDATION_ERROR');
@@ -969,7 +970,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
 
         const paid = await h.api('POST', `/admin/buylist/${nuncaRecibidaId}/pay-spei`, {
           token: adminToken,
-          json: { speiReference: 'SPEI-EJE2-REMEDIADA' },
+          json: { speiReference: 'SPEI-EJE2-REMEDIADA', expectedNetCents: await payoutNet(h, adminToken, nuncaRecibidaId) },
         });
         // §M5-C / BL-37: `200` para TODO `POST` del ciclo sobre una solicitud existente.
         expect(paid.status).toBe(200);
@@ -1068,7 +1069,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
     it('`reject` SÍ existe en el ciclo: es el rechazo PARCIAL, y baja LÍNEAS, no precios (D30)', async () => {
       const res = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
         token: operatorToken,
-        json: { decision: 'reject', reason: 'no es NM: whitening en los bordes' },
+        json: { decision: 'reject', reasonCode: 'other', reason: 'no es NM: whitening en los bordes' },
       });
       expect(res.status).toBe(200);
       expect(res.body.itemStatus).toBe('rechazada');
@@ -1168,7 +1169,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
     it('la vía correcta es `reject` con motivo: ancla §H y deja el reloj del vendedor corriendo', async () => {
       const res = await h.api('PATCH', `/admin/buylist/items/${skipItemId}/decision`, {
         token: operatorToken,
-        json: { decision: 'reject', reason: 'llegó sin haber sido ofertada: no la compramos' },
+        json: { decision: 'reject', reasonCode: 'other', reason: 'llegó sin haber sido ofertada: no la compramos' },
       });
       expect(res.status).toBe(200);
       expect(res.body.itemStatus).toBe('rechazada');
@@ -1186,7 +1187,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       // integrador a mandarlo, y el día que el verbo cambie empieza a tener efecto.*
       const res = await h.api('PATCH', `/admin/buylist/items/${buyItemId}/decision`, {
         token: operatorToken,
-        json: { decision: 'reject', reason: 'no es NM: whitening', approvedPriceCents: 9900 },
+        json: { decision: 'reject', reasonCode: 'other', reason: 'no es NM: whitening', approvedPriceCents: 9900 },
       });
       expect(res.status).toBe(422);
       expect(res.body.error.code).toBe('OFFER_PRICE_IMMUTABLE');
@@ -1823,7 +1824,7 @@ describe('E2E — Ciclo de adquisición del buylist (§6 · §M5)', () => {
       // correo y los relojes de devolución sobre cartas que nunca recibimos. El remedio es «Declinar».
       const rej = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
         token: operatorToken,
-        json: { decision: 'reject', reason: 'el paquete no llegó y el vendedor pide cerrar' },
+        json: { decision: 'reject', reasonCode: 'other', reason: 'el paquete no llegó y el vendedor pide cerrar' },
       });
       expect(rej.status).toBe(422);
       expect(rej.body.error).toMatchObject({ code: 'REQUEST_NOT_RECEIVED', details: { sellRequestId: srId, status: 'aceptada', remedy: 'decline_accepted' } });

@@ -677,7 +677,7 @@ describe('💰 BSD-B37/B38 — en `aceptada` no se rechaza: se declina (BSD-1.3 
     const { sr: r, s } = await accepted();
     const row = await inbound(r.id);
     const item = await h.prisma.sellRequestItem.findFirstOrThrow({ where: { sellRequestId: r.id } });
-    const res = await h.api('PATCH', `/admin/buylist/items/${item.id}/decision`, { token: operator.token, json: { decision: 'reject', reason: 'llegó dañada' } });
+    const res = await h.api('PATCH', `/admin/buylist/items/${item.id}/decision`, { token: operator.token, json: { decision: 'reject', reasonCode: 'other', reason: 'llegó dañada' } });
     expect(res.status).toBe(422);
     expect(res.body.error).toMatchObject({ ...REMEDY, details: { sellRequestId: r.id, status: 'aceptada', remedy: 'decline_accepted' } });
     expect((await sr(r.id)).status).toBe('aceptada');

@@ -43,6 +43,7 @@
  * estado vivo— se **siembra por `h.prisma`** (la BD real) y la conducta se ejercita **por HTTP**.
  */
 import { E2EHarness } from './helpers/e2e-app';
+import { payoutNet } from './helpers/pay-net';
 import { seedE2E } from '../../prisma/seed-e2e';
 import { E2E_CARDS, E2E_USERS } from '../../prisma/e2e-fixtures';
 
@@ -137,7 +138,7 @@ describe('E2E — el bruto de una solicitud CERRADA no se reescribe (§M5-T · B
     const { srId } = await walkToVerificacion();
     const res = await h.api('POST', `/admin/buylist/${srId}/pay-spei`, {
       token: adminToken,
-      json: { speiReference: `SPEI-CLOSED-A0-${srId.slice(0, 8)}` },
+      json: { speiReference: `SPEI-CLOSED-A0-${srId.slice(0, 8)}`, expectedNetCents: await payoutNet(h, adminToken, srId) },
     });
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('ITEMS_NOT_DECIDED');
@@ -160,7 +161,7 @@ describe('E2E — el bruto de una solicitud CERRADA no se reescribe (§M5-T · B
 
     const paid = await h.api('POST', `/admin/buylist/${srId}/pay-spei`, {
       token: adminToken,
-      json: { speiReference: `SPEI-CLOSED-A-${srId.slice(0, 8)}` },
+      json: { speiReference: `SPEI-CLOSED-A-${srId.slice(0, 8)}`, expectedNetCents: await payoutNet(h, adminToken, srId) },
     });
     expect(paid.status).toBe(200);
 
@@ -177,7 +178,7 @@ describe('E2E — el bruto de una solicitud CERRADA no se reescribe (§M5-T · B
     // rompe.*
     const decision = await h.api('PATCH', `/admin/buylist/items/${itemId}/decision`, {
       token: operatorToken,
-      json: { decision: 'reject', reason: 'intento de re-decidir una línea ya pagada' },
+      json: { decision: 'reject', reasonCode: 'other', reason: 'intento de re-decidir una línea ya pagada' },
     });
     expect(decision.status).toBe(409);
     expect(decision.body.error.code).toBe('NO_LIVE_ADJUSTMENT');
