@@ -389,7 +389,7 @@ export class ManualRefundService {
     const [rows, total, pending] = await Promise.all([
       this.prisma.manualRefund.findMany({ where, include: MR_INCLUDE, orderBy, skip: (f.page - 1) * f.pageSize, take: f.pageSize }),
       this.prisma.manualRefund.count({ where }),
-      this.prisma.manualRefund.aggregate({ where: { status: 'pending' }, _sum: { amountCents: true } }),
+      this.prisma.manualRefund.aggregate({ where: { status: 'pending', ...(raw.userId ? { customerUserId: raw.userId } : {}) }, _sum: { amountCents: true } }),
     ]);
     return { data: await this.toDtos(rows), page: f.page, pageSize: f.pageSize, total, pendingCents: pending._sum.amountCents ?? 0 };
   }

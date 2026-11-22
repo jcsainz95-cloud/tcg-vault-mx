@@ -919,6 +919,8 @@ export class AdminService {
     kycStatus?: string;
     page: number;
     pageSize: number;
+    /** §FICHA-CLIENTE (B-1): el operador solo ve cuentas `customer`. */
+    customersOnly?: boolean;
   }) {
     const { q, page, pageSize } = params;
 
@@ -962,7 +964,7 @@ export class AdminService {
     }
 
     // §PROV: las tiendas aliadas viven solo en /admin/suppliers; el panel general de usuarios no las lista (cláusula aparte del AND).
-    const where: Prisma.UserWhereInput = { ...(and.length > 0 ? { AND: and } : {}), role: { not: Role.supplier } };
+    const where: Prisma.UserWhereInput = { ...(and.length > 0 ? { AND: and } : {}), role: params.customersOnly ? Role.customer : { not: Role.supplier } };
 
     const [rows, total] = await Promise.all([
       this.prisma.user.findMany({
@@ -1447,12 +1449,23 @@ export class AdminService {
    * consumidor recibe la forma que ya conoce.
    */
   /** §CELULAR: valida (422 PHONE_INVALID) y escribe el celular normalizado; 404 si no existe. Devuelve máscaras para auditar. */
-  async updateUserPhone(id: string, raw: unknown) {
+  async updateUserPhone(
+    id: string,
+    raw: unknown,
+    /** I-2: se ejecuta DENTRO de la transacción del cambio; si lanza, el celular no cambia. */
+    auditInTx?: (tx: Prisma.TransactionClient, r: { phone: string; phoneMasked: string; previousMasked: string | null }) => Promise<void>,
+  ) {
     const phone = assertValidPhone(raw);
-    const prev = await this.prisma.user.findUnique({ where: { id }, select: { phone: true } });
+    const prev = await this.prisma.user.findUnique({ where: { id }, select: { phone: true, anonymizedAt: true } });
     if (!prev) throw BusinessException.notFound();
-    await this.prisma.user.update({ where: { id }, data: { phone } });
-    return { phone, phoneMasked: maskPhone(phone), previousMasked: prev.phone ? maskPhone(prev.phone) : null };
+    // SC-3: una cuenta anonimizada ya no es de nadie; no se le escribe un celular.
+    if (prev.anonymizedAt) throw BusinessException.validation('USER_DELETED', 'Cannot edit an anonymized account');
+    const res = { phone, phoneMasked: maskPhone(phone), previousMasked: prev.phone ? maskPhone(prev.phone) : null };
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id }, data: { phone } });
+      if (auditInTx) await auditInTx(tx, res);
+    });
+    return res;
   }
 
   async updateUserStatus(id: string, status: 'active' | 'blocked') {

@@ -105,7 +105,7 @@ export const E2E_PICKUP_ADDRESS = {
   state: 'CDMX',
   postalCode: '01000',
   country: 'MX',
-  phone: '5555555555',
+  phone: '5512345678',
 } as const;
 
 /**

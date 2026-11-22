@@ -65,7 +65,7 @@ describe('§M6-L.1 — `kycStatus` viaja en cada fila, SIEMPRE con valor', () =>
       { id: 'u1', email: 'a@x.mx', name: 'A', role: Role.customer, status: UserStatus.active, createdAt: new Date(0), kycProfile: null },
       { id: 'u2', email: 'b@x.mx', name: 'B', role: Role.customer, status: UserStatus.active, createdAt: new Date(0), kycProfile: { kycStatus: KycStatus.pending } },
     ]);
-    const res: any = await ctrl.list({});
+    const res: any = await ctrl.list({}, Role.super_admin);
     expect(res.data[0].kycStatus).toBe('none');
     expect(res.data[1].kycStatus).toBe('pending');
     for (const row of res.data) {
@@ -78,7 +78,7 @@ describe('§M6-L.1 — `kycStatus` viaja en cada fila, SIEMPRE con valor', () =>
     const { ctrl } = build([
       { id: 'u1', email: 'a@x.mx', name: 'A', role: Role.customer, status: UserStatus.active, createdAt: new Date(0), kycProfile: { kycStatus: KycStatus.verified } },
     ]);
-    const res: any = await ctrl.list({});
+    const res: any = await ctrl.list({}, Role.super_admin);
     expect(Object.keys(res.data[0]).sort()).toEqual(
       // v1.80.9 (§M6-U.7): + `username` y `lockedUntil` (nueve claves). 🔒 D2g (§M4-SHIP.19.30.3): + `isOwner` (diez).
       ['createdAt', 'email', 'id', 'isOwner', 'kycStatus', 'lockedUntil', 'name', 'role', 'status', 'username'].sort(),
@@ -89,7 +89,7 @@ describe('§M6-L.1 — `kycStatus` viaja en cada fila, SIEMPRE con valor', () =>
 
   it('⭐ el `select` es LISTA BLANCA: de `KycProfile` sale `kycStatus` y NADA más (`L-6`, `K-2`)', async () => {
     const { ctrl, findMany } = build();
-    await ctrl.list({});
+    await ctrl.list({}, Role.super_admin);
     const select = argsOf(findMany).select;
     expect(Object.keys(select.kycProfile.select)).toEqual(['kycStatus']);
     // Los «no» enumerados por §M6-L.1, comprobados sobre el select real (lo que no está, no se lee).
@@ -105,7 +105,7 @@ describe('§M6-L.1 — `kycStatus` viaja en cada fila, SIEMPRE con valor', () =>
 describe('§M6-L.3 — el `where` se arma como `AND: [...]` (candado `L-3`)', () => {
   it('⭐⭐ `q` + `kycStatus=none` es INTERSECCIÓN: DOS cláusulas en el AND, y ningún `OR` en la raíz', async () => {
     const { ctrl, findMany } = build();
-    await ctrl.list({ q: 'ana', kycStatus: 'none' });
+    await ctrl.list({ q: 'ana', kycStatus: 'none' }, Role.super_admin);
     const where = whereOf(findMany);
 
     // La aserción que caza la trampa: si el caso `none` se hubiera implementado con un segundo
@@ -121,7 +121,7 @@ describe('§M6-L.3 — el `where` se arma como `AND: [...]` (candado `L-3`)', ()
 
   it('los TRES ejes a la vez ⇒ tres cláusulas (`?q=&status=&kycStatus=` combinan en AND)', async () => {
     const { ctrl, findMany } = build();
-    await ctrl.list({ q: 'ana', status: 'active', kycStatus: 'pending' });
+    await ctrl.list({ q: 'ana', status: 'active', kycStatus: 'pending' }, Role.super_admin);
     const where = whereOf(findMany);
     expect(where.AND).toHaveLength(3);
     expect(where.AND).toContainEqual({ status: 'active' });
@@ -132,7 +132,7 @@ describe('§M6-L.3 — el `where` se arma como `AND: [...]` (candado `L-3`)', ()
 
   it('`none` incluye al usuario SIN FILA y al que tiene fila en `none` (la contrapartida de `?? none`)', async () => {
     const { ctrl, findMany } = build();
-    await ctrl.list({ kycStatus: 'none' });
+    await ctrl.list({ kycStatus: 'none' }, Role.super_admin);
     expect(whereOf(findMany).AND).toEqual([
       { OR: [{ kycProfile: { is: null } }, { kycProfile: { is: { kycStatus: 'none' } } }] },
     ]);
@@ -141,32 +141,32 @@ describe('§M6-L.3 — el `where` se arma como `AND: [...]` (candado `L-3`)', ()
   it('los otros tres valores NO miran la ausencia de fila (un `pending` tiene fila por definición)', async () => {
     for (const value of ['pending', 'verified', 'rejected']) {
       const { ctrl, findMany } = build();
-      await ctrl.list({ kycStatus: value });
+      await ctrl.list({ kycStatus: value }, Role.super_admin);
       expect(whereOf(findMany).AND).toEqual([{ kycProfile: { is: { kycStatus: value } } }]);
     }
   });
 
   it('el `where` del `count` es EL MISMO que el del `findMany` (si no, `total` mentiría)', async () => {
     const { ctrl, findMany, count } = build();
-    await ctrl.list({ q: 'ana', kycStatus: 'none' });
+    await ctrl.list({ q: 'ana', kycStatus: 'none' }, Role.super_admin);
     expect(count.mock.calls[0][0].where).toEqual(whereOf(findMany));
   });
 
   it('sin filtros el `where` solo excluye las tiendas aliadas (el padrón entero de personas, conducta de siempre; §PROV)', async () => {
     const { ctrl, findMany } = build();
-    await ctrl.list({});
+    await ctrl.list({}, Role.super_admin);
     expect(whereOf(findMany)).toEqual({ role: { not: 'supplier' } }); // §PROV: único término, aparte del AND
   });
 
   it('cadena vacía ≡ ausente: `?kycStatus=` y `?status=` NO filtran (el `Select` en «Todas»)', async () => {
     const { ctrl, findMany } = build();
-    await ctrl.list({ kycStatus: '', status: '', q: '' });
+    await ctrl.list({ kycStatus: '', status: '', q: '' }, Role.super_admin);
     expect(whereOf(findMany)).toEqual({ role: { not: 'supplier' } }); // §PROV: único término, aparte del AND
   });
 
   it('⛔ el orden NO cambia en `A5`: sigue `createdAt desc` (la cola ordenada es `A5-b`/`M-56`)', async () => {
     const { ctrl, findMany } = build();
-    await ctrl.list({ kycStatus: 'pending' });
+    await ctrl.list({ kycStatus: 'pending' }, Role.super_admin);
     expect(argsOf(findMany).orderBy).toEqual({ createdAt: 'desc' });
   });
 });
@@ -174,7 +174,7 @@ describe('§M6-L.3 — el `where` se arma como `AND: [...]` (candado `L-3`)', ()
 describe('§M6-L.3/L.4 — un valor fuera del enum es `400`, jamás una lista sin filtrar (`L-4`, `L-5`)', () => {
   it('`?kycStatus=banana` ⇒ 400 VALIDATION_ERROR con `details.field=kycStatus` y NO consulta la BD', async () => {
     const { ctrl, findMany } = build();
-    const err = await capture(() => ctrl.list({ kycStatus: 'banana' }));
+    const err = await capture(() => ctrl.list({ kycStatus: 'banana' }, Role.super_admin));
     expect(err.getStatus()).toBe(400);
     expect(err.code).toBe('VALIDATION_ERROR');
     expect(err.details).toMatchObject({ field: 'kycStatus', allowed: ['none', 'pending', 'verified', 'rejected'] });
@@ -183,18 +183,18 @@ describe('§M6-L.3/L.4 — un valor fuera del enum es `400`, jamás una lista si
 
   it('⭐ `?status=banana` ⇒ 400 (antes de `A5` era un **500 INTERNAL** medido: `D-A5-2`/`N-A5-1`)', async () => {
     const { ctrl, findMany } = build();
-    const err = await capture(() => ctrl.list({ status: 'banana' }));
+    const err = await capture(() => ctrl.list({ status: 'banana' }, Role.super_admin));
     expect(err.getStatus()).toBe(400);
     expect(err.details).toMatchObject({ field: 'status', allowed: ['active', 'blocked', 'deleted'] });
     expect(findMany).not.toHaveBeenCalled();
   });
 
   it('⭐ los dos ejes son DISJUNTOS y el `400` dice cuál falló (`L-5`: por eso no hace falta renombrarlos)', async () => {
-    const cruzado = await capture(() => build().ctrl.list({ status: 'pending' }));
+    const cruzado = await capture(() => build().ctrl.list({ status: 'pending' }, Role.super_admin));
     expect(cruzado.getStatus()).toBe(400);
     expect((cruzado.details as any).field).toBe('status');
 
-    const alReves = await capture(() => build().ctrl.list({ kycStatus: 'active' }));
+    const alReves = await capture(() => build().ctrl.list({ kycStatus: 'active' }, Role.super_admin));
     expect(alReves.getStatus()).toBe(400);
     expect((alReves.details as any).field).toBe('kycStatus');
   });
@@ -202,25 +202,25 @@ describe('§M6-L.3/L.4 — un valor fuera del enum es `400`, jamás una lista si
   it('los valores admitidos se DERIVAN del schema (⛔ ninguna lista a mano que se pueda desincronizar)', async () => {
     for (const value of Object.values(KycStatus)) {
       const { ctrl, findMany } = build();
-      await ctrl.list({ kycStatus: value });
+      await ctrl.list({ kycStatus: value }, Role.super_admin);
       expect(findMany).toHaveBeenCalled();
     }
     for (const value of Object.values(UserStatus)) {
       const { ctrl, findMany } = build();
-      await ctrl.list({ status: value });
+      await ctrl.list({ status: value }, Role.super_admin);
       expect(whereOf(findMany).AND).toEqual([{ status: value }]);
     }
   });
 
   it('`deleted` se admite: es un valor legal del campo y ya viaja en el DTO (§M6-L.4)', async () => {
     const { ctrl, findMany } = build();
-    await ctrl.list({ status: 'deleted' });
+    await ctrl.list({ status: 'deleted' }, Role.super_admin);
     expect(whereOf(findMany).AND).toEqual([{ status: 'deleted' }]);
   });
 
   it('mayúsculas/espacios NO se «arreglan»: `Pending` es un valor distinto y cae en 400', async () => {
     for (const value of ['Pending', ' pending', 'PENDING']) {
-      const err = await capture(() => build().ctrl.list({ kycStatus: value }));
+      const err = await capture(() => build().ctrl.list({ kycStatus: value }, Role.super_admin));
       expect(err.getStatus()).toBe(400);
     }
   });
@@ -229,7 +229,7 @@ describe('§M6-L.3/L.4 — un valor fuera del enum es `400`, jamás una lista si
 describe('`D-A5-3` — una query desconocida deja de ignorarse EN ESTE endpoint', () => {
   it('`?zzz=1` ⇒ 400 con `details.field=zzz` (antes: `200` con el padrón entero)', async () => {
     const { ctrl, findMany } = build();
-    const err = await capture(() => ctrl.list({ zzz: '1' }));
+    const err = await capture(() => ctrl.list({ zzz: '1' }, Role.super_admin));
     expect(err.getStatus()).toBe(400);
     expect(err.details).toMatchObject({ field: 'zzz' });
     expect(findMany).not.toHaveBeenCalled();
@@ -237,20 +237,20 @@ describe('`D-A5-3` — una query desconocida deja de ignorarse EN ESTE endpoint'
 
   it('la lista blanca son CINCO llaves, y las cinco pasan', async () => {
     const { ctrl, findMany } = build();
-    await ctrl.list({ q: 'a', status: 'active', kycStatus: 'none', page: '2', pageSize: '5' });
+    await ctrl.list({ q: 'a', status: 'active', kycStatus: 'none', page: '2', pageSize: '5' }, Role.super_admin);
     expect(findMany).toHaveBeenCalled();
     expect(argsOf(findMany).skip).toBe(5);
     expect(argsOf(findMany).take).toBe(5);
   });
 
   it('un typo cercano NO se perdona: `kycstatus` (minúscula) es 400, no un filtro que se cae', async () => {
-    const err = await capture(() => build().ctrl.list({ kycstatus: 'pending' }));
+    const err = await capture(() => build().ctrl.list({ kycstatus: 'pending' }, Role.super_admin));
     expect(err.getStatus()).toBe(400);
     expect((err.details as any).field).toBe('kycstatus');
   });
 
   it('parámetro REPETIDO (`?q=a&q=b`, que llega como array) ⇒ 400, no un descarte silencioso', async () => {
-    const err = await capture(() => build().ctrl.list({ q: ['a', 'b'] as unknown as string }));
+    const err = await capture(() => build().ctrl.list({ q: ['a', 'b'] as unknown as string }, Role.super_admin));
     expect(err.getStatus()).toBe(400);
     expect((err.details as any).field).toBe('q');
   });
@@ -259,7 +259,7 @@ describe('`D-A5-3` — una query desconocida deja de ignorarse EN ESTE endpoint'
 describe('§M6 — la paginación publicada NO cambia (⛔ no se «arregla de paso»)', () => {
   it('defaults: `page=1`, `pageSize=20`', async () => {
     const { ctrl, findMany } = build();
-    const res: any = await ctrl.list({});
+    const res: any = await ctrl.list({}, Role.super_admin);
     expect(argsOf(findMany)).toMatchObject({ skip: 0, take: 20 });
     expect(res).toMatchObject({ page: 1, pageSize: 20 });
   });
@@ -274,7 +274,7 @@ describe('§M6 — la paginación publicada NO cambia (⛔ no se «arregla de pa
     ];
     for (const [page, pageSize, expPage, expSize] of casos) {
       const { ctrl, findMany } = build();
-      const res: any = await ctrl.list({ page, pageSize });
+      const res: any = await ctrl.list({ page, pageSize }, Role.super_admin);
       expect([res.page, res.pageSize]).toEqual([expPage, expSize]);
       expect(argsOf(findMany).take).toBe(expSize);
     }

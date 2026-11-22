@@ -4,6 +4,7 @@
  * en las 4 rutas de dinero (cotizar, pagar, retiro, solicitud de buylist) y `PATCH /admin/users/:id/phone` con
  * auditoría enmascarada.
  */
+import { AuditService } from '../../src/modules/audit/audit.service';
 import { E2EHarness } from './helpers/e2e-app';
 import { E2E_USERS } from '../../prisma/e2e-fixtures';
 
@@ -165,6 +166,27 @@ describe('E2E — §CELULAR obligatorio', () => {
       expect((await h.api('PATCH', `/admin/users/${userId}/phone`, { json: { phone: '5511112222' } })).status).toBe(401);
       expect((await h.api('PATCH', '/admin/users/no-existe/phone', { token: admin, json: { phone: '5511112222' } })).status).toBe(404);
       expect(await phoneOf(userId)).toBe(before);
+    });
+    it('I-2: si la auditoría falla, el celular NO cambia (misma transacción)', async () => {
+      const orig = await phoneOf(userId);
+      await setPhone('5512345678');
+      const spy = jest.spyOn(h.app.get(AuditService), 'log').mockRejectedValueOnce(new Error('audit down'));
+      try {
+        const res = await h.api('PATCH', `/admin/users/${userId}/phone`, { token: admin, json: { phone: '5599887766' } });
+        expect(res.status).toBeGreaterThanOrEqual(500);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(await phoneOf(userId)).toBe('5512345678');
+      await setPhone(orig);
+      expect(await h.prisma.auditLog.count({ where: { action: 'user.phone.update', entityId: userId, after: { equals: { phone: '******7766' } } } })).toBe(0);
+    });
+    it('SC-3: una cuenta anonimizada ⇒ 422 USER_DELETED y no se le escribe celular', async () => {
+      const anon = await h.prisma.user.create({ data: { email: `anon-${run}@e2e.local`, name: 'Anon', role: 'customer', anonymizedAt: new Date() }, select: { id: true } });
+      const res = await h.api('PATCH', `/admin/users/${anon.id}/phone`, { token: admin, json: { phone: '5599887766' } });
+      expect(res.status).toBe(422);
+      expect(res.body.error.code).toBe('USER_DELETED');
+      expect((await h.prisma.user.findUniqueOrThrow({ where: { id: anon.id } })).phone).toBeNull();
     });
     it('GET /admin/users/:id devuelve phone y phoneRequired', async () => {
       const res = await h.api('GET', `/admin/users/${userId}`, { token: admin });

@@ -257,8 +257,10 @@ describe('§FICHA-CLIENTE — overview, ?userId= y notas internas', () => {
       const p = await h.api('GET', `/admin/manual-refunds?userId=${cust}`, { token: admin });
       expect(p.status).toBe(200);
       expect(p.body.total).toBe(1); // pending por defecto
+      expect(p.body.pendingCents).toBe(40); // el total pendiente también es de ESTE cliente (no el global)
       const o = await h.api('GET', `/admin/manual-refunds?userId=${other}`, { token: admin });
       expect(o.body.total).toBe(1);
+      expect(o.body.pendingCents).toBe(55555);
       const paid = await h.api('GET', `/admin/manual-refunds?userId=${cust}&status=paid`, { token: admin });
       expect(paid.body.total).toBe(1);
     });
@@ -267,6 +269,66 @@ describe('§FICHA-CLIENTE — overview, ?userId= y notas internas', () => {
       expect((await h.api('GET', "/admin/manual-refunds?userId=1' OR '1'='1", { token: admin })).status).toBe(400);
       expect((await h.api('GET', '/admin/manual-refunds?userId=', { token: admin })).status).toBe(200);
       expect((await h.api('GET', `/admin/refunds?userId=${cust}`, { token: customerTok })).status).toBe(403);
+    });
+  });
+
+  // ============================================================ B-1: el operador solo ve clientes
+  describe('B-1 — el operador no ve staff (DECISIONES §FICHA-CLIENTE 13)', () => {
+    it('la lista del operador trae solo clientes; la del súper-admin sigue trayendo staff', async () => {
+      const op = await h.api('GET', '/admin/users?pageSize=100&q=e2e', { token: operator });
+      expect(op.status).toBe(200);
+      expect(op.body.data.length).toBeGreaterThan(0);
+      expect(op.body.data.every((u: { role: string }) => u.role === 'customer')).toBe(true);
+      const opAll = await h.api('GET', '/admin/users?pageSize=100', { token: operator });
+      expect(opAll.body.data.every((u: { role: string }) => u.role === 'customer')).toBe(true);
+      expect(opAll.body.total).toBe(await h.prisma.user.count({ where: { role: 'customer' } }));
+      const sa = await h.api('GET', '/admin/users?pageSize=100', { token: admin });
+      expect(sa.body.data.some((u: { role: string }) => u.role === 'vault_operator')).toBe(true);
+      expect(sa.body.data.some((u: { role: string }) => u.role === 'super_admin')).toBe(true);
+    });
+
+    it('GET :id, audit, overview y notas sobre staff ⇒ 404 para el operador; 200 para el súper-admin', async () => {
+      for (const staff of [operator2Id, adminId]) {
+        for (const [m, path] of [
+          ['GET', `/admin/users/${staff}`],
+          ['GET', `/admin/users/${staff}/audit`],
+          ['GET', `/admin/users/${staff}/overview`],
+          ['GET', `/admin/users/${staff}/notes`],
+        ] as const) {
+          expect((await h.api(m, path, { token: operator })).status).toBe(404);
+          expect((await h.api(m, path, { token: admin })).status).toBe(200);
+        }
+        expect((await post(staff, { body: 'nota a staff' }, operator)).status).toBe(404);
+        expect(await h.prisma.customerNote.count({ where: { userId: staff } })).toBe(0);
+        expect((await h.api('PATCH', `/admin/users/${staff}/notes/${cust}`, { token: operator, json: { body: 'x' } })).status).toBe(404);
+        expect((await h.api('DELETE', `/admin/users/${staff}/notes/${cust}`, { token: operator })).status).toBe(404);
+      }
+    });
+
+    it('sobre un cliente el operador sigue viendo la ficha completa (200)', async () => {
+      for (const path of [`/admin/users/${cust}`, `/admin/users/${cust}/audit`, `/admin/users/${cust}/overview`, `/admin/users/${cust}/notes`]) {
+        expect((await h.api('GET', path, { token: operator })).status).toBe(200);
+      }
+    });
+
+    it('403 en las 7 rutas restringidas (y el cliente sigue intacto)', async () => {
+      const before = await h.prisma.user.findUniqueOrThrow({ where: { id: cust }, select: { phone: true, status: true, passwordHash: true } });
+      const calls: Array<readonly [string, string, unknown?]> = [
+        ['POST', '/admin/users', { email: `b1-${RUN}@e2e.local`, name: 'X', role: 'customer', password: 'Celular123!', phone: '5512345678' }],
+        ['PATCH', `/admin/users/${cust}/kyc`, { kycStatus: 'verified' }],
+        ['PATCH', `/admin/users/${cust}/phone`, { phone: '5599887766' }],
+        ['PATCH', `/admin/users/${cust}/status`, { status: 'blocked' }],
+        ['GET', `/admin/users/${cust}/kyc/ine-links`],
+        ['POST', `/admin/users/${cust}/reset-password`, {}],
+        ['DELETE', `/admin/users/${cust}`],
+      ];
+      for (const [m, path, json] of calls) {
+        const r = await h.api(m as 'GET', path, { token: operator, ...(json ? { json } : {}) });
+        expect([m, path, r.status]).toEqual([m, path, 403]);
+      }
+      const after = await h.prisma.user.findUniqueOrThrow({ where: { id: cust }, select: { phone: true, status: true, passwordHash: true } });
+      expect(after).toEqual(before);
+      expect(await h.prisma.user.count({ where: { email: `b1-${RUN}@e2e.local` } })).toBe(0);
     });
   });
 

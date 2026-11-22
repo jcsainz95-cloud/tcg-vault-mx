@@ -10,6 +10,7 @@ import { Role } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { NotSupplierTargetGuard } from '../../common/guards/not-supplier-target.guard';
+import { OperatorCustomersOnlyGuard } from '../../common/guards/operator-customers-only.guard';
 import { ActorThrottlerGuard } from './actor-throttler.guard';
 import { CustomerNotesService } from './customer-notes.service';
 import { CustomerOverviewService } from './customer-overview.service';
@@ -29,7 +30,7 @@ type Actor = { id: string; role: Role };
 
 @Controller('admin/users')
 @Roles(Role.vault_operator, Role.super_admin)
-@UseGuards(NotSupplierTargetGuard)
+@UseGuards(NotSupplierTargetGuard, OperatorCustomersOnlyGuard)
 export class AdminCustomerFileController {
   constructor(
     private readonly overview: CustomerOverviewService,
